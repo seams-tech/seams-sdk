@@ -37,9 +37,9 @@ import {
   type RouterAbEd25519NormalSigningState,
 } from '../../threshold/ed25519/routerAbNormalSigningState';
 import {
-  parseRouterAbEcdsaHssNormalSigningStateV1,
-  type RouterAbEcdsaHssNormalSigningStateV1,
-} from '@shared/utils/routerAbEcdsaHss';
+  parseRouterAbEcdsaDerivationNormalSigningStateV1,
+  type RouterAbEcdsaDerivationNormalSigningStateV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import {
   formatSigningSessionSealKeyVersionForWire,
   type SigningSessionSealKeyVersion,
@@ -146,7 +146,7 @@ type ThresholdEcdsaSessionRecordCore = {
   ecdsaRoleLocalReadyRecord: EcdsaRoleLocalReadyRecord;
   participantIds: number[];
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  routerAbEcdsaHssNormalSigning?: RouterAbEcdsaHssNormalSigningStateV1;
+  routerAbEcdsaDerivationNormalSigning?: RouterAbEcdsaDerivationNormalSigningStateV1;
   thresholdSessionKind: 'jwt' | 'cookie';
   thresholdSessionId: string;
   signingGrantId: string;
@@ -198,7 +198,9 @@ export type NormalizedThresholdEcdsaSessionRecord =
   | ReadyPasskeyEcdsaSessionRecord
   | EmailOtpEcdsaSessionRecord;
 
-export type ThresholdEcdsaSessionRecord = NormalizedThresholdEcdsaSessionRecord;
+export type ThresholdEcdsaSessionRecord = NormalizedThresholdEcdsaSessionRecord & {
+  purpose: 'transaction_signing';
+};
 
 export type OperationUsableThresholdEcdsaSessionRecord = ThresholdEcdsaSessionRecord & {
   readonly [operationUsableThresholdEcdsaSessionRecord]: true;
@@ -461,7 +463,7 @@ export type ThresholdEcdsaRuntimeRecordCandidate = {
   walletId: WalletId;
   auth: SigningLaneAuthBinding;
   key: EvmFamilyEcdsaKeyIdentity;
-  routerAbEcdsaHssNormalSigning: RouterAbEcdsaHssNormalSigningStateV1;
+  routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
   resolvedKey?: ResolvedEvmFamilyEcdsaKey;
   keyHandle: EvmFamilyEcdsaKeyHandle;
   verifiedPublicFacts?: VerifiedEcdsaPublicFacts;
@@ -850,7 +852,7 @@ function getThresholdEcdsaRuntimeRecordIndex(
   for (const [storedLaneKey, record] of deps.recordsByLane.entries()) {
     let canonicalRecord: ThresholdEcdsaSessionRecord;
     try {
-      canonicalRecord = normalizeThresholdEcdsaSessionRecord(record);
+      canonicalRecord = normalizeThresholdEcdsaSessionRecord(record, 'transaction_signing');
     } catch {
       deps.recordsByLane.delete(storedLaneKey);
       deps.exportArtifactsByLane?.delete(storedLaneKey);
@@ -1068,7 +1070,7 @@ function normalizeThresholdEcdsaCanonicalExportArtifact(
   const privateKeyHex = String(obj.privateKeyHex || '').trim();
   const ethereumAddress = String(obj.ethereumAddress || '').trim();
   if (
-    artifactKind !== 'ecdsa-hss-secp256k1-export' ||
+    artifactKind !== 'ecdsa-derivation-secp256k1-export' ||
     !chainTarget ||
     !signingRootId ||
     !publicKeyHex ||
@@ -1078,7 +1080,7 @@ function normalizeThresholdEcdsaCanonicalExportArtifact(
     return null;
   }
   return {
-    artifactKind: 'ecdsa-hss-secp256k1-export',
+    artifactKind: 'ecdsa-derivation-secp256k1-export',
     chainTarget,
     signingRootId,
     ...(signingRootVersion ? { signingRootVersion } : {}),
@@ -1170,7 +1172,7 @@ function normalizeEthereumAddress20B64u(value: string): string {
     .join('')}`;
 }
 
-function normalizeStoredRouterAbEcdsaHssNormalSigningState(args: {
+function normalizeStoredRouterAbEcdsaDerivationNormalSigningState(args: {
   raw: unknown;
   walletId: string;
   evmFamilySigningKeySlotId: string;
@@ -1181,8 +1183,8 @@ function normalizeStoredRouterAbEcdsaHssNormalSigningState(args: {
   thresholdEcdsaPublicKeyB64u: string | null | undefined;
   ethereumAddress: string;
   relayerVerifyingShareB64u: string | null | undefined;
-}): RouterAbEcdsaHssNormalSigningStateV1 | undefined {
-  const parsed = parseRouterAbEcdsaHssNormalSigningStateV1(args.raw);
+}): RouterAbEcdsaDerivationNormalSigningStateV1 | undefined {
+  const parsed = parseRouterAbEcdsaDerivationNormalSigningStateV1(args.raw);
   if (!parsed) return undefined;
   const publicIdentity = parsed.scope.public_identity;
   const evmFamilySigningKeySlotId = parsed.scope.wallet_key_id;
@@ -1194,8 +1196,8 @@ function normalizeStoredRouterAbEcdsaHssNormalSigningState(args: {
     ['signing_root_id', parsed.scope.signing_root_id, args.signingRootId],
     ['signing_root_version', parsed.scope.signing_root_version, expectedSigningRootVersion],
     [
-      'client_public_key33_b64u',
-      publicIdentity.client_public_key33_b64u,
+      'derivation_client_share_public_key33_b64u',
+      publicIdentity.derivation_client_share_public_key33_b64u,
       args.clientVerifyingShareB64u,
     ],
     [
@@ -1221,7 +1223,7 @@ function normalizeStoredRouterAbEcdsaHssNormalSigningState(args: {
   for (const [field, actual, expected] of checks) {
     if (actual !== expected) {
       throw new Error(
-        `Invalid threshold ECDSA canonical session record: Router A/B ECDSA-HSS ${field} mismatch`,
+        `Invalid threshold ECDSA canonical session record: Router A/B ECDSA derivation ${field} mismatch`,
       );
     }
   }
@@ -1331,8 +1333,14 @@ function assertEcdsaRoleLocalReadyRecordMatchesSessionRecord(args: {
   }
 }
 
-function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSessionRecord {
+function normalizeThresholdEcdsaSessionRecord(
+  value: unknown,
+  purpose: 'transaction_signing',
+): ThresholdEcdsaSessionRecord {
   const obj = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+  if (obj.purpose !== purpose) {
+    throw new Error(`Invalid threshold ECDSA session record: expected ${purpose} purpose`);
+  }
   const walletId = toWalletId(String(obj.walletId || '').trim());
   if (obj.authMetadata !== undefined && obj.authMetadata !== null) {
     throw new Error('Invalid threshold ECDSA canonical session record: deleted authMetadata');
@@ -1437,9 +1445,9 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
   if (normalizeOptionalNonEmptyString(obj.subjectId)) {
     throw new Error('Invalid threshold ECDSA canonical session record: unexpected subjectId');
   }
-  if (obj.ecdsaHssRoleLocalClientState !== undefined && obj.ecdsaHssRoleLocalClientState !== null) {
+  if (obj.ecdsaDerivationRoleLocalClientState !== undefined && obj.ecdsaDerivationRoleLocalClientState !== null) {
     throw new Error(
-      'Invalid threshold ECDSA canonical session record: deleted ecdsaHssRoleLocalClientState',
+      'Invalid threshold ECDSA canonical session record: deleted ecdsaDerivationRoleLocalClientState',
     );
   }
   if (!ecdsaRoleLocalReadyRecord) {
@@ -1468,8 +1476,8 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
   if (remainingUses == null || remainingUses < 0) {
     throw new Error('Invalid threshold ECDSA canonical session record: missing remainingUses');
   }
-  const routerAbEcdsaHssNormalSigning = normalizeStoredRouterAbEcdsaHssNormalSigningState({
-    raw: obj.routerAbEcdsaHssNormalSigning,
+  const routerAbEcdsaDerivationNormalSigning = normalizeStoredRouterAbEcdsaDerivationNormalSigningState({
+    raw: obj.routerAbEcdsaDerivationNormalSigning,
     walletId,
     evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId,
@@ -1509,7 +1517,7 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
     ecdsaRoleLocalReadyRecord,
     participantIds,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-    ...(routerAbEcdsaHssNormalSigning ? { routerAbEcdsaHssNormalSigning } : {}),
+    ...(routerAbEcdsaDerivationNormalSigning ? { routerAbEcdsaDerivationNormalSigning } : {}),
     thresholdSessionKind,
     thresholdSessionId,
     signingGrantId,
@@ -1543,6 +1551,7 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
     }
     return {
       ...sharedRecord,
+      purpose: 'transaction_signing',
       thresholdSessionKind: 'jwt',
       walletSessionJwt,
       ...(clientAdditiveShareHandle ? { clientAdditiveShareHandle } : {}),
@@ -1552,6 +1561,7 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
   }
   return {
     ...sharedRecord,
+    purpose: 'transaction_signing',
     source,
   };
 }
@@ -1585,7 +1595,7 @@ function formatMissingThresholdEcdsaCanonicalRecordFields(args: {
 export function parseRawThresholdEcdsaSessionRecord(
   value: RawThresholdEcdsaSessionRecord | unknown,
 ): ThresholdEcdsaSessionRecord {
-  return normalizeThresholdEcdsaSessionRecord(value);
+  return normalizeThresholdEcdsaSessionRecord(value, 'transaction_signing');
 }
 
 function normalizeEcdsaRoleLocalReadyRecord(value: unknown): EcdsaRoleLocalReadyRecord | null {
@@ -2902,16 +2912,16 @@ type EcdsaRecordFromBootstrapArgsBase = {
 
 type EcdsaRecordFromBootstrapArgs =
   | (EcdsaRecordFromBootstrapArgsBase & {
+      purpose: 'transaction_signing';
       source: 'email_otp';
       emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
     })
   | (EcdsaRecordFromBootstrapArgsBase & {
+      purpose: 'transaction_signing';
       source: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
     });
 
-type BuildEcdsaRecordFromBootstrapArgs = EcdsaRecordFromBootstrapArgs & {
-  nowMs: number;
-};
+type BuildEcdsaRecordFromBootstrapArgs = EcdsaRecordFromBootstrapArgs & { nowMs: number };
 
 // Bootstrap persistence boundary: normalize raw route/worker output once, then
 // store the exact session/grant/material identity used by strict lane readers.
@@ -2985,7 +2995,8 @@ function buildEcdsaRecordFromBootstrap(
     },
   });
 
-  return normalizeThresholdEcdsaSessionRecord({
+  const rawRecord = {
+    purpose: args.purpose,
     walletId,
     evmFamilySigningKeySlotId: args.bootstrap.keygen.evmFamilySigningKeySlotId,
     chainTarget: args.chainTarget,
@@ -3006,8 +3017,8 @@ function buildEcdsaRecordFromBootstrap(
     ...(signingGrantId ? { signingGrantId } : {}),
     walletSessionJwt: walletSessionJwt,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-    ...(keyRef.routerAbEcdsaHssNormalSigning
-      ? { routerAbEcdsaHssNormalSigning: keyRef.routerAbEcdsaHssNormalSigning }
+    ...(keyRef.routerAbEcdsaDerivationNormalSigning
+      ? { routerAbEcdsaDerivationNormalSigning: keyRef.routerAbEcdsaDerivationNormalSigning }
       : {}),
     ...(signingSessionSealKeyVersion ? { signingSessionSealKeyVersion } : {}),
     ...(signingSessionSealShamirPrimeB64u ? { signingSessionSealShamirPrimeB64u } : {}),
@@ -3019,7 +3030,8 @@ function buildEcdsaRecordFromBootstrap(
     ...(args.source === 'email_otp' ? { emailOtpAuthContext: args.emailOtpAuthContext } : {}),
     updatedAtMs: args.nowMs,
     source: args.source,
-  });
+  };
+  return normalizeThresholdEcdsaSessionRecord(rawRecord, 'transaction_signing');
 }
 
 function setEcdsaExportArtifactForLane(args: {
@@ -3260,6 +3272,7 @@ export function upsertThresholdEcdsaSessionFromBootstrap(
   const record =
     args.source === 'email_otp'
       ? buildEcdsaRecordFromBootstrap({
+          purpose: 'transaction_signing',
           walletId: args.walletId,
           chainTarget: args.chainTarget,
           bootstrap: args.bootstrap,
@@ -3269,6 +3282,7 @@ export function upsertThresholdEcdsaSessionFromBootstrap(
           ...(args.signingSessionSeal ? { signingSessionSeal: args.signingSessionSeal } : {}),
         })
       : buildEcdsaRecordFromBootstrap({
+          purpose: 'transaction_signing',
           walletId: args.walletId,
           chainTarget: args.chainTarget,
           bootstrap: args.bootstrap,
@@ -3303,7 +3317,7 @@ export function upsertThresholdEcdsaSessionFromBootstrap(
     laneKey,
     artifact:
       normalizeThresholdEcdsaCanonicalExportArtifact(
-        args.bootstrap.thresholdEcdsaKeyRef.ecdsaHssExportArtifact,
+        args.bootstrap.thresholdEcdsaKeyRef.ecdsaDerivationExportArtifact,
       ) || undefined,
   });
   return record;
@@ -3318,7 +3332,7 @@ export function upsertThresholdEcdsaSessionFact(
   const record = normalizeThresholdEcdsaSessionRecord({
     ...rawObject,
     updatedAtMs: Math.max(0, Math.floor((deps.now || Date.now)())),
-  });
+  }, 'transaction_signing');
   const laneKey = getThresholdEcdsaSessionLaneKeyForRecord(record);
   assertUniqueEvmFamilyEcdsaIdentityForStore({
     recordsByLane: deps.recordsByLane,
@@ -3414,10 +3428,10 @@ function thresholdEcdsaKeyRefFromRecord(
   record: ThresholdEcdsaSessionRecord,
 ): ThresholdEcdsaSecp256k1KeyRef {
   const laneKey = getThresholdEcdsaSessionLaneKeyForRecord(record);
-  const ecdsaHssExportArtifact = deps.exportArtifactsByLane?.get(laneKey);
+  const ecdsaDerivationExportArtifact = deps.exportArtifactsByLane?.get(laneKey);
   return buildThresholdEcdsaSecp256k1KeyRefFromRecord({
     record,
-    ...(ecdsaHssExportArtifact ? { exportArtifact: ecdsaHssExportArtifact } : {}),
+    ...(ecdsaDerivationExportArtifact ? { exportArtifact: ecdsaDerivationExportArtifact } : {}),
   });
 }
 
@@ -4047,15 +4061,15 @@ function ecdsaRuntimeLaneFromRecord(args: {
     record: args.record,
   });
   const verifiedPublicFacts = args.record.verifiedPublicFacts;
-  const routerAbEcdsaHssNormalSigning = args.record.routerAbEcdsaHssNormalSigning;
-  if (!routerAbEcdsaHssNormalSigning) return null;
+  const routerAbEcdsaDerivationNormalSigning = args.record.routerAbEcdsaDerivationNormalSigning;
+  if (!routerAbEcdsaDerivationNormalSigning) return null;
   if (!verifiedPublicFacts) return null;
   const thresholdEcdsaPublicKeyB64u = String(verifiedPublicFacts.publicKeyB64u || '').trim();
   if (!thresholdEcdsaPublicKeyB64u) return null;
   if (String(candidate.keyHandle) !== String(verifiedPublicFacts.keyHandle)) return null;
   return {
     key: readModel.key,
-    routerAbEcdsaHssNormalSigning,
+    routerAbEcdsaDerivationNormalSigning,
     ...(readModel.resolvedKey ? { resolvedKey: readModel.resolvedKey } : {}),
     keyHandle: verifiedPublicFacts.keyHandle,
     verifiedPublicFacts,

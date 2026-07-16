@@ -1,9 +1,9 @@
-export const DEFAULT_ROUTER_AB_ECDSA_HSS_REQUEST_TIMEOUT_MS = 20_000;
+export const DEFAULT_ROUTER_AB_ECDSA_DERIVATION_REQUEST_TIMEOUT_MS = 20_000;
 
 function resolveRequestTimeoutMs(timeoutMs: number | undefined): number {
   const parsed = Math.floor(Number(timeoutMs));
   if (Number.isFinite(parsed) && parsed > 0) return parsed;
-  return DEFAULT_ROUTER_AB_ECDSA_HSS_REQUEST_TIMEOUT_MS;
+  return DEFAULT_ROUTER_AB_ECDSA_DERIVATION_REQUEST_TIMEOUT_MS;
 }
 
 function toErrorMessage(error: unknown): string {
@@ -14,13 +14,13 @@ function toErrorMessage(error: unknown): string {
   );
 }
 
-function createRouterAbEcdsaHssTimeoutError(args: { operation: string; timeoutMs: number }): Error {
+function createRouterAbEcdsaDerivationTimeoutError(args: { operation: string; timeoutMs: number }): Error {
   return new Error(
-    `[router-ab-ecdsa-hss] ${args.operation} request timed out after ${args.timeoutMs}ms`,
+    `[router-ab-ecdsa-derivation] ${args.operation} request timed out after ${args.timeoutMs}ms`,
   );
 }
 
-export async function fetchRouterAbEcdsaHssJson<TData = unknown>(args: {
+export async function fetchRouterAbEcdsaDerivationJson<TData = unknown>(args: {
   url: string;
   operation: string;
   init: RequestInit;
@@ -60,7 +60,7 @@ export async function fetchRouterAbEcdsaHssJson<TData = unknown>(args: {
         new Promise<Response>((_, reject) => {
           timeoutId = setTimeout(() => {
             didTimeout = true;
-            reject(createRouterAbEcdsaHssTimeoutError({ operation: args.operation, timeoutMs }));
+            reject(createRouterAbEcdsaDerivationTimeoutError({ operation: args.operation, timeoutMs }));
           }, timeoutMs);
         }),
       ]);
@@ -70,10 +70,10 @@ export async function fetchRouterAbEcdsaHssJson<TData = unknown>(args: {
     return { response, data };
   } catch (error: unknown) {
     if (didTimeout) {
-      throw createRouterAbEcdsaHssTimeoutError({ operation: args.operation, timeoutMs });
+      throw createRouterAbEcdsaDerivationTimeoutError({ operation: args.operation, timeoutMs });
     }
     const message = toErrorMessage(error);
-    throw new Error(message || `[router-ab-ecdsa-hss] ${args.operation} request failed`);
+    throw new Error(message || `[router-ab-ecdsa-derivation] ${args.operation} request failed`);
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
     abortCleanup?.();

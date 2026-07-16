@@ -29,7 +29,6 @@ import {
   deriveThresholdEcdsaRuntimeLaneKey,
   getThresholdEcdsaSessionRecordByKey,
   thresholdEcdsaLaneCandidateFromSessionRecord,
-  type EmailOtpEcdsaSessionRecord,
   type ThresholdEcdsaSessionRecord,
 } from '../../session/persistence/records';
 import type { ThresholdEcdsaSessionStoreSource } from '../../session/identity/laneIdentity';
@@ -97,7 +96,10 @@ export type EcdsaExportSessionStoreDeps = {
   exportArtifactsByLane: Map<string, ThresholdEcdsaCanonicalExportArtifact>;
 };
 
-export type EmailOtpEcdsaExportSessionRecord = EmailOtpEcdsaSessionRecord & {
+export type EmailOtpEcdsaExportSessionRecord = Extract<
+  ThresholdEcdsaSessionRecord,
+  { source: 'email_otp' }
+> & {
   runtimePolicyScope: ThresholdRuntimePolicyScope;
 };
 

@@ -34,7 +34,7 @@ w3a-export-key-viewer {
 .title {
   margin: 0rem;
   padding-left: 0.5rem;
-  font-size: 1.25rem;
+  font-size: 1.15rem;
   font-weight: 700;
   text-align: left;
 }
@@ -66,7 +66,7 @@ w3a-export-key-viewer {
   color: var(--w3a-colors-textSecondary, rgba(255, 255, 255, 0.7));
   padding: 12px;
   border-radius: 1rem;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   margin-bottom: 1.25rem;
 }
 
@@ -93,7 +93,7 @@ w3a-export-key-viewer {
 }
 .key-title {
   color: var(--w3a-colors-textPrimary, #f6f7f8);
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   font-weight: 700;
   padding-left: 0.5rem;
 }
@@ -108,14 +108,15 @@ w3a-export-key-viewer {
 
 .field-label {
   color: var(--w3a-colors-textPrimary, #f6f7f8);
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   font-weight: 600;
 }
+/* small enough that a 42-char 0x address fits on one line in the drawer */
 .field-value {
   display: flex;
   align-items: center;
   gap: 12px;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
 }
 
 .value {

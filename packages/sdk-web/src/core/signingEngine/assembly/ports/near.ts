@@ -55,20 +55,16 @@ export function createNearSigningDeps(args: {
       return accountAuth.primaryAuthMethod === 'email_otp' ? 'email_otp' : 'passkey';
     },
     refreshPasskeyEd25519CapabilityForSigning: async ({
-      nearAccountId,
       record,
+      laneIdentity,
       policySecretSource,
       operationUsesNeeded,
-      sessionId,
-      signingGrantId,
     }) =>
       refreshPasskeyEd25519CapabilityForSigning({
-        nearAccountId,
         record,
+        laneIdentity,
         policySecretSource,
         operationUsesNeeded,
-        sessionId,
-        signingGrantId,
         runtimeScopeBootstrap: resolveManagedRuntimeScopeBootstrap(createArgs.seamsWebConfigs),
         provisionThresholdEd25519Session: (provisionArgs) =>
           createArgs.provisionThresholdEd25519Session(provisionArgs),

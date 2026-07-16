@@ -10,6 +10,7 @@ import {
   exactEd25519SigningLaneIdentity,
   exactSigningLaneIdentityKey,
   nearEd25519SignerBindingFromBoundaryFields,
+  type ExactEd25519SigningLaneIdentity,
 } from '../identity/exactSigningLaneIdentity';
 import { toRpId } from '../identity/evmFamilyEcdsaIdentity';
 import type {
@@ -22,7 +23,7 @@ import type {
   Ed25519YaoSameIdentityWalletSessionRefreshResultV1,
 } from '../../threshold/ed25519/yaoActiveClientRegistry';
 
-function exactPasskeyEd25519RefreshLaneIdentity(args: {
+export function buildExactPasskeyEd25519RefreshLaneIdentity(args: {
   nearAccountId: AccountId;
   record: ThresholdEd25519SessionRecord;
   signerSlot: number;
@@ -69,7 +70,7 @@ function readRefreshedEd25519Record(args: {
 
 function requireRecoveredPasskeyEd25519Capability(args: {
   capability: NearEd25519YaoSigningCapability;
-  expectedLaneIdentity: ReturnType<typeof exactPasskeyEd25519RefreshLaneIdentity>;
+  expectedLaneIdentity: ReturnType<typeof buildExactPasskeyEd25519RefreshLaneIdentity>;
 }): NearEd25519YaoSigningCapability {
   if (args.capability.activeClient.status().kind !== 'active') {
     throw new Error('[SigningEngine][near] recovered passkey Ed25519 Yao client is inactive');
@@ -86,12 +87,10 @@ function requireRecoveredPasskeyEd25519Capability(args: {
 }
 
 export async function refreshPasskeyEd25519CapabilityForSigning(args: {
-  nearAccountId: AccountId;
   record: ThresholdEd25519SessionRecord;
+  laneIdentity: ExactEd25519SigningLaneIdentity;
   policySecretSource: ThresholdEd25519WebAuthnPrfSecretSource;
   operationUsesNeeded: number;
-  sessionId: string;
-  signingGrantId: string;
   runtimeScopeBootstrap?: {
     projectEnvironmentId: string;
     publishableKey: string;
@@ -120,16 +119,21 @@ export async function refreshPasskeyEd25519CapabilityForSigning(args: {
   { sessionId: string; record: ThresholdEd25519SessionRecord } & NearEd25519YaoSigningCapability
 > {
   const operationUsesNeeded = Math.max(1, Math.floor(Number(args.operationUsesNeeded) || 1));
-  const sessionId = String(args.sessionId || '').trim();
-  const signingGrantId = String(args.signingGrantId || '').trim();
-  const recordSessionId = String(args.record.thresholdSessionId || '').trim();
-  const recordSigningGrantId = String(args.record.signingGrantId || '').trim();
+  const sessionId = args.laneIdentity.thresholdSessionId;
+  const signingGrantId = args.laneIdentity.signingGrantId;
   const runtimePolicyScope = args.record.runtimePolicyScope;
-  const signerSlot = Math.floor(Number(args.record.signerSlot) || 0);
-  if (!sessionId || !signingGrantId) {
-    throw new Error('Passkey Ed25519 budget refresh requires exact session identity');
-  }
-  if (sessionId !== recordSessionId || signingGrantId !== recordSigningGrantId) {
+  const signerSlot = args.laneIdentity.signer.signerSlot;
+  const expectedLaneIdentity = buildExactPasskeyEd25519RefreshLaneIdentity({
+    nearAccountId: args.laneIdentity.signer.account.nearAccountId,
+    record: args.record,
+    signerSlot: args.record.signerSlot,
+    sessionId: args.record.thresholdSessionId,
+    signingGrantId: args.record.signingGrantId || '',
+  });
+  if (
+    exactSigningLaneIdentityKey(args.laneIdentity) !==
+    exactSigningLaneIdentityKey(expectedLaneIdentity)
+  ) {
     throw new Error(
       '[SigningEngine][near] passkey Ed25519 budget refresh must preserve lifecycle identity',
     );
@@ -143,22 +147,15 @@ export async function refreshPasskeyEd25519CapabilityForSigning(args: {
     throw new Error('[SigningEngine][near] passkey Ed25519 budget refresh requires signer slot');
   }
   const identity = {
-    walletId: args.record.walletId,
-    nearAccountId: args.nearAccountId,
+    walletId: args.laneIdentity.signer.account.wallet.walletId,
+    nearAccountId: args.laneIdentity.signer.account.nearAccountId,
     thresholdSessionId: sessionId,
   };
   const previous = args.resolveActiveEd25519YaoSigningCapability(identity);
   const activePrevious = previous?.activeClient.status().kind === 'active' ? previous : null;
-  const laneIdentity = exactPasskeyEd25519RefreshLaneIdentity({
-    nearAccountId: args.nearAccountId,
-    record: args.record,
-    signerSlot,
-    sessionId,
-    signingGrantId,
-  });
   const provisioned = await args.provisionThresholdEd25519Session({
     kind: 'exact_ed25519_provisioning',
-    laneIdentity,
+    laneIdentity: args.laneIdentity,
     relayerUrl: args.record.relayerUrl,
     relayerKeyId: args.record.relayerKeyId,
     source: 'login',
@@ -205,7 +202,7 @@ export async function refreshPasskeyEd25519CapabilityForSigning(args: {
   if (!activePrevious) {
     const recovered = await args.recoverPasskeyEd25519YaoCapabilityForSigning({
       walletId: args.record.walletId,
-      nearAccountId: args.nearAccountId,
+      nearAccountId: args.laneIdentity.signer.account.nearAccountId,
       signerSlot,
       thresholdSessionId: sessionId,
     });
@@ -214,7 +211,7 @@ export async function refreshPasskeyEd25519CapabilityForSigning(args: {
       record,
       ...requireRecoveredPasskeyEd25519Capability({
         capability: recovered,
-        expectedLaneIdentity: laneIdentity,
+        expectedLaneIdentity: args.laneIdentity,
       }),
     };
   }

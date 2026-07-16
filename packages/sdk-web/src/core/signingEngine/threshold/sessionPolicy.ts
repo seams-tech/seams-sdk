@@ -24,13 +24,13 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { RouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import {
-  toEcdsaHssThresholdKeyId,
-  toEcdsaHssThresholdSessionId,
-  toEcdsaHssSigningGrantId,
+  toEcdsaDerivationThresholdKeyId,
+  toEcdsaDerivationThresholdSessionId,
+  toEcdsaDerivationSigningGrantId,
   type EcdsaThresholdKeyId,
   type ThresholdEcdsaSessionId,
   type SigningGrantId,
-} from '../session/identity/emailOtpHssIdentity';
+} from '../session/identity/emailOtpEcdsaDerivationIdentity';
 
 export type ThresholdRuntimePolicyScope = RuntimePolicyScope;
 export type ThresholdSessionKind = 'jwt' | 'cookie';
@@ -191,7 +191,7 @@ type BuildExactEd25519SessionPolicyParams = Ed25519SessionPolicyBaseParams & {
   authorityScope?: never;
 };
 
-export type EcdsaHssSessionPolicy = {
+export type EcdsaDerivationSessionPolicy = {
   version: typeof THRESHOLD_ECDSA_SESSION_POLICY_VERSION;
   walletId: WalletId;
   subjectId?: never;
@@ -214,7 +214,7 @@ export type EcdsaHssSessionPolicy = {
   remainingUses: number;
 };
 
-export type EcdsaSessionPolicy = EcdsaHssSessionPolicy & {
+export type EcdsaSessionPolicy = EcdsaDerivationSessionPolicy & {
   relayerKeyId: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
 };
@@ -382,8 +382,8 @@ export async function buildEcdsaSessionPolicy(params: {
   policyJson: string;
   sessionPolicyDigest32: string;
 }> {
-  const hssPolicy = buildEcdsaHssSessionPolicy(params);
-  if (!hssPolicy.ecdsaThresholdKeyId) {
+  const derivationPolicy = buildEcdsaDerivationSessionPolicy(params);
+  if (!derivationPolicy.ecdsaThresholdKeyId) {
     throw new Error('[threshold-ecdsa] ecdsaThresholdKeyId is required');
   }
   const relayerKeyId = String(params.relayerKeyId || '').trim();
@@ -391,15 +391,15 @@ export async function buildEcdsaSessionPolicy(params: {
     throw new Error('[threshold-ecdsa] relayerKeyId is required');
   }
   const policy: EcdsaSessionPolicy = {
-    ...hssPolicy,
+    ...derivationPolicy,
     relayerKeyId,
-    ecdsaThresholdKeyId: hssPolicy.ecdsaThresholdKeyId,
+    ecdsaThresholdKeyId: derivationPolicy.ecdsaThresholdKeyId,
   };
   const sessionPolicyDigest32 = await computeEcdsaSessionPolicyDigest32(policy);
   return { policy, policyJson: JSON.stringify(policy), sessionPolicyDigest32 };
 }
 
-export function buildEcdsaHssSessionPolicy(params: {
+export function buildEcdsaDerivationSessionPolicy(params: {
   walletId: unknown;
   subjectId?: never;
   walletSessionUserId?: never;
@@ -413,7 +413,7 @@ export function buildEcdsaHssSessionPolicy(params: {
   signingGrantId?: unknown;
   ttlMs?: number;
   remainingUses?: number;
-}): EcdsaHssSessionPolicy {
+}): EcdsaDerivationSessionPolicy {
   const sessionId = params.sessionId || generateThresholdSessionId();
   const signingGrantId = String(params.signingGrantId || '').trim() || generateSigningGrantId();
   const { ttlMs, remainingUses } = clampThresholdSessionPolicy({
@@ -434,10 +434,10 @@ export function buildEcdsaHssSessionPolicy(params: {
     chainTarget: params.chainTarget,
     ...(keyHandle ? { keyHandle } : {}),
     ...(ecdsaThresholdKeyId
-      ? { ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId(ecdsaThresholdKeyId) }
+      ? { ecdsaThresholdKeyId: toEcdsaDerivationThresholdKeyId(ecdsaThresholdKeyId) }
       : {}),
-    sessionId: toEcdsaHssThresholdSessionId(sessionId),
-    signingGrantId: toEcdsaHssSigningGrantId(signingGrantId),
+    sessionId: toEcdsaDerivationThresholdSessionId(sessionId),
+    signingGrantId: toEcdsaDerivationSigningGrantId(signingGrantId),
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     ...(participantIds ? { participantIds } : {}),
     ttlMs,

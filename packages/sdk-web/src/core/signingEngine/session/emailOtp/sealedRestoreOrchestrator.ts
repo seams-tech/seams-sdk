@@ -35,7 +35,7 @@ import {
   type SealedRecoveryRecord,
 } from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
 import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
-import { markRouterAbEcdsaHssWorkerMaterialRuntimeValidated } from '@/core/signingEngine/session/routerAbSigningWalletSession';
+import { markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import type {
   EmailOtpEcdsaSealedRecoveryRecordInput,
   EmailOtpThresholdEcdsaRehydrateResult,
@@ -79,7 +79,7 @@ function markExistingEmailOtpEcdsaWorkerMaterialRuntimeValidated(
   record: ThresholdEcdsaSessionRecord | null,
 ): boolean {
   if (!record || record.source !== 'email_otp') return false;
-  return markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record);
+  return markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record);
 }
 
 export class EmailOtpSealedRestoreOrchestrator {

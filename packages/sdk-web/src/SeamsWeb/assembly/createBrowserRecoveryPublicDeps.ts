@@ -4,7 +4,7 @@ import type { SignerWorkerManager } from '@/core/signingEngine/workerManager/Sig
 import type { EmailOtpWalletSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';
 import type { WarmSigningPorts } from '@/core/signingEngine/assembly/ports/warmSigning';
 import { createRecoveryPublicDeps } from '@/core/signingEngine/assembly/ports/recovery';
-import { provisionThresholdEcdsaSession as provisionThresholdEcdsaSessionOperation } from '@/core/signingEngine/session/passkey/ecdsaSessionProvision';
+import { provisionPasskeyEcdsaExplicitExportSession as provisionPasskeyEcdsaExplicitExportSessionOperation } from '@/core/signingEngine/session/passkey/ecdsaSessionProvision';
 import type { RuntimePorts } from '@/core/platform';
 import type { WalletSessionActivationDeps } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
 import type { RecoveryPublicDeps } from '@/core/signingEngine/flows/recovery/public';
@@ -32,8 +32,8 @@ export function createBrowserRecoveryPublicDeps(args: {
     ecdsaSessions: args.warmSigning.ecdsaSessions,
     touchConfirm: args.touchConfirm,
     emailOtpSessions: args.emailOtpSessions,
-    provisionThresholdEcdsaSession: (provisionArgs) =>
-      provisionThresholdEcdsaSessionOperation(
+    provisionPasskeyEcdsaExplicitExportSession: (provisionArgs) =>
+      provisionPasskeyEcdsaExplicitExportSessionOperation(
         {
           queueByWallet: args.thresholdEcdsaBootstrapQueueByWallet,
           activationDeps: args.getWalletSessionActivationDeps(),

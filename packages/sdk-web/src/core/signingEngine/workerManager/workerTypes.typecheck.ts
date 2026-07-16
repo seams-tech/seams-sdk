@@ -12,15 +12,18 @@ import type {
   EmailOtpWorkerOperationRequestEnvelope,
   EmailOtpWorkerOperationMap,
   EmailOtpWarmSessionOperationRequest,
-  EthSignerLocalSecp256k1OperationRequest,
-  EthSignerThresholdEcdsaPresignOperationRequest,
-  EthSignerTransactionOperationRequest,
-  HssEcdsaRoleLocalMaterialOperationRequest,
-  HssEcdsaRoleLocalPresignOperationRequest,
+  EvmCryptoLocalSecp256k1OperationRequest,
+  EvmCryptoTransactionOperationRequest,
+  EcdsaDerivationRoleLocalMaterialOperationRequest,
+  EcdsaOnlineClientComputeSignatureShareRequest,
+  EcdsaPresignClientSessionInitRequest,
   NearWorkerOperationRequest,
-  EthSignerWorkerOperationMap,
+  EcdsaPresignClientSessionStepRequest,
 } from './workerTypes';
-import { HssClientCustomRequestType } from './workerTypes';
+import {
+  EcdsaDerivationClientCustomRequestType,
+  EcdsaPresignClientRequestType,
+} from './workerTypes';
 import { parseSigningSessionSealKeyVersion } from '../session/keyMaterialBrands';
 
 declare const chainTarget: ThresholdEcdsaChainTarget;
@@ -138,10 +141,9 @@ const cookieBootstrapWithRouteAuth: EmailOtpEcdsaBootstrapStrictPayload = {
 };
 void cookieBootstrapWithRouteAuth;
 
-type PresignStepPayload =
-  EthSignerWorkerOperationMap['thresholdEcdsaPresignSessionStep']['payload'];
+type PresignStepPayload = EcdsaPresignClientSessionStepRequest;
 type EmailOtpEcdsaExportPayload =
-  EmailOtpWorkerOperationMap['exportThresholdEcdsaHssKeyWithEmailOtpAuthorization']['payload'];
+  EmailOtpWorkerOperationMap['exportThresholdEcdsaDerivationKeyWithEmailOtpAuthorization']['payload'];
 type EmailOtpEd25519YaoExportPayload =
   EmailOtpWorkerOperationMap['exportEmailOtpEd25519YaoSeedWithAuthorization']['payload'];
 type EmailOtpWalletUnlockPayload = EmailOtpWorkerOperationMap['loginWithEmailOtpWallet']['payload'];
@@ -233,13 +235,12 @@ void emailOtpEd25519YaoWalletUnlockWithClientPolicy;
 
 const presignStep: PresignStepPayload = {
   sessionId: 'presign-session',
-  relayerParticipantId: 2,
   stage: 'triples',
   incomingMessages: [incomingMessage],
 };
 void presignStep;
 
-const ethRecoverableSignatureVerifyRequest: EthSignerLocalSecp256k1OperationRequest<'verifySecp256k1RecoverableSignatureAgainstPublicKey33'> =
+const ethRecoverableSignatureVerifyRequest: EvmCryptoLocalSecp256k1OperationRequest<'verifySecp256k1RecoverableSignatureAgainstPublicKey33'> =
   {
     type: 'verifySecp256k1RecoverableSignatureAgainstPublicKey33',
     payload: {
@@ -252,77 +253,86 @@ void ethRecoverableSignatureVerifyRequest;
 
 type InvalidRecoverableSignatureVerifyAsEthTransaction =
   // @ts-expect-error Recoverable signature verification is not an ETH transaction encoding operation.
-  EthSignerTransactionOperationRequest<'verifySecp256k1RecoverableSignatureAgainstPublicKey33'>;
+  EvmCryptoTransactionOperationRequest<'verifySecp256k1RecoverableSignatureAgainstPublicKey33'>;
 declare const invalidRecoverableSignatureVerifyAsEthTransaction: InvalidRecoverableSignatureVerifyAsEthTransaction;
 void invalidRecoverableSignatureVerifyAsEthTransaction;
 
-const ethEcdsaPresignInitRequest: EthSignerThresholdEcdsaPresignOperationRequest<'thresholdEcdsaPresignSessionInit'> =
-  {
-    type: 'thresholdEcdsaPresignSessionInit',
-    payload: {
-      sessionId: 'presign-session',
-      participantIds: [1, 2],
-      clientParticipantId: 1,
-      threshold: 2,
-      clientThresholdSigningShare32: incomingMessage,
-      groupPublicKey33: incomingMessage,
-    },
-  };
-void ethEcdsaPresignInitRequest;
-
-const ethEcdsaPresignInitRequestWithTx = {
-  ...ethEcdsaPresignInitRequest,
-  payload: {
-    ...ethEcdsaPresignInitRequest.payload,
-    // @ts-expect-error ECDSA presign worker operations reject transaction payload fields.
-    tx: {},
-  },
-} satisfies EthSignerThresholdEcdsaPresignOperationRequest<'thresholdEcdsaPresignSessionInit'>;
-void ethEcdsaPresignInitRequestWithTx;
-
-type InvalidEcdsaPresignAsEthTransaction =
-  // @ts-expect-error ECDSA presign operations are not ETH transaction encoding operations.
-  EthSignerTransactionOperationRequest<'thresholdEcdsaPresignSessionInit'>;
-declare const invalidEcdsaPresignAsEthTransaction: InvalidEcdsaPresignAsEthTransaction;
-void invalidEcdsaPresignAsEthTransaction;
-
-const hssEcdsaPresignInitRequest: HssEcdsaRoleLocalPresignOperationRequest<
-  typeof HssClientCustomRequestType.ThresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandle
-> = {
-  type: HssClientCustomRequestType.ThresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandle,
-  payload: {
+const ecdsaPresignInitRequest: EcdsaPresignClientSessionInitRequest = {
+  authority: {
+    kind: 'role_local_derivation_handle',
     materialHandle: 'ecdsa-material-handle',
     expectedBindingDigest: 'ecdsa-binding-digest',
-    sessionId: 'presign-session',
-    participantIds: [1, 2],
-    clientParticipantId: 1,
-    threshold: 2,
-    groupPublicKey33: incomingMessage,
   },
+  sessionId: 'presign-session',
+  topology: { kind: 'threshold_secp256k1_ecdsa_2p_v1' },
+  groupPublicKey33: incomingMessage,
 };
-void hssEcdsaPresignInitRequest;
+void ecdsaPresignInitRequest;
 
-type InvalidHssEcdsaMaterialAsPresign = HssEcdsaRoleLocalPresignOperationRequest<
-  // @ts-expect-error ECDSA role-local material operations cannot use the presign domain.
-  typeof HssClientCustomRequestType.StoreThresholdEcdsaRoleLocalSigningMaterial
->;
-declare const invalidHssEcdsaMaterialAsPresign: InvalidHssEcdsaMaterialAsPresign;
-void invalidHssEcdsaMaterialAsPresign;
+const invalidMixedEcdsaPresignAuthority: EcdsaPresignClientSessionInitRequest = {
+  // @ts-expect-error Email OTP authority cannot carry a derivation material handle.
+  authority: {
+    kind: 'email_otp_worker_session',
+    emailOtpSessionId: 'email-otp-session',
+    materialHandle: 'ecdsa-material-handle',
+  },
+  sessionId: 'presign-session',
+  topology: { kind: 'threshold_secp256k1_ecdsa_2p_v1' },
+  groupPublicKey33: incomingMessage,
+};
+void invalidMixedEcdsaPresignAuthority;
 
-type InvalidHssEcdsaPresignAsMaterial = HssEcdsaRoleLocalMaterialOperationRequest<
-  // @ts-expect-error ECDSA role-local presign operations cannot use the material domain.
-  typeof HssClientCustomRequestType.ThresholdEcdsaRoleLocalPresignSessionStep
+const invalidRoleLocalPresignAuthorityWithEmailOtpSession: EcdsaPresignClientSessionInitRequest = {
+  // @ts-expect-error Role-local derivation authority cannot carry an Email OTP worker session.
+  authority: {
+    kind: 'role_local_derivation_handle',
+    materialHandle: 'ecdsa-material-handle',
+    expectedBindingDigest: 'ecdsa-binding-digest',
+    emailOtpSessionId: 'email-otp-session',
+  },
+  sessionId: 'presign-session',
+  topology: { kind: 'threshold_secp256k1_ecdsa_2p_v1' },
+  groupPublicKey33: incomingMessage,
+};
+void invalidRoleLocalPresignAuthorityWithEmailOtpSession;
+
+type InvalidEcdsaDerivationPresignAsMaterial = EcdsaDerivationRoleLocalMaterialOperationRequest<
+  // @ts-expect-error Presign operations cannot use the derivation material domain.
+  typeof EcdsaPresignClientRequestType.SessionStep
 >;
-declare const invalidHssEcdsaPresignAsMaterial: InvalidHssEcdsaPresignAsMaterial;
-void invalidHssEcdsaPresignAsMaterial;
+declare const invalidEcdsaDerivationPresignAsMaterial: InvalidEcdsaDerivationPresignAsMaterial;
+void invalidEcdsaDerivationPresignAsMaterial;
+
+const invalidRawOnlineSecretShares: EcdsaOnlineClientComputeSignatureShareRequest = {
+  materialHandle: 'opaque-presign-handle',
+  groupPublicKey33: incomingMessage,
+  expectedPresignBigR33: incomingMessage,
+  digest32: incomingMessage,
+  entropy32: incomingMessage,
+  // @ts-expect-error host-facing online requests must use an opaque presign handle.
+  kShare32: incomingMessage,
+};
+void invalidRawOnlineSecretShares;
 
 // @ts-expect-error presign session step requires incomingMessages; pass [] when empty.
 const presignStepWithoutIncomingMessages: PresignStepPayload = {
   sessionId: 'presign-session',
-  relayerParticipantId: 2,
   stage: 'triples',
 };
 void presignStepWithoutIncomingMessages;
+
+const invalidEcdsaPresignTopology: EcdsaPresignClientSessionInitRequest = {
+  authority: {
+    kind: 'role_local_derivation_handle',
+    materialHandle: 'ecdsa-material-handle',
+    expectedBindingDigest: 'ecdsa-binding-digest',
+  },
+  sessionId: 'presign-session',
+  // @ts-expect-error fixed ECDSA2P workers reject alternate topology identifiers.
+  topology: { kind: 'threshold_secp256k1_ecdsa_3p_v1' },
+  groupPublicKey33: incomingMessage,
+};
+void invalidEcdsaPresignTopology;
 
 const emailOtpBootstrapWorkerRequest: EmailOtpWorkerOperationRequestEnvelope = {
   id: 'request-1',
@@ -536,10 +546,10 @@ const emailOtpEcdsaExportPayloadWithSigningRoot = {
 } satisfies EmailOtpEcdsaExportPayload;
 void emailOtpEcdsaExportPayloadWithSigningRoot;
 
-const emailOtpEcdsaExportWorkerRequest: EmailOtpExportOperationRequest<'exportThresholdEcdsaHssKeyWithEmailOtpAuthorization'> =
+const emailOtpEcdsaExportWorkerRequest: EmailOtpExportOperationRequest<'exportThresholdEcdsaDerivationKeyWithEmailOtpAuthorization'> =
   {
     id: 'export-request-1',
-    type: 'exportThresholdEcdsaHssKeyWithEmailOtpAuthorization',
+    type: 'exportThresholdEcdsaDerivationKeyWithEmailOtpAuthorization',
     payload: emailOtpEcdsaExportPayload,
   };
 void emailOtpEcdsaExportWorkerRequest;
@@ -573,7 +583,7 @@ void emailOtpEd25519YaoExportPayloadWithPasskey;
 
 type InvalidEmailOtpExportAsWarmSession =
   // @ts-expect-error Email OTP export operations cannot use the warm-session domain.
-  EmailOtpWarmSessionOperationRequest<'exportThresholdEcdsaHssKeyWithEmailOtpAuthorization'>;
+  EmailOtpWarmSessionOperationRequest<'exportThresholdEcdsaDerivationKeyWithEmailOtpAuthorization'>;
 declare const invalidEmailOtpExportAsWarmSession: InvalidEmailOtpExportAsWarmSession;
 void invalidEmailOtpExportAsWarmSession;
 

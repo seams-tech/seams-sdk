@@ -24,19 +24,20 @@ import {
 } from '../keyMaterialBrands';
 import {
   getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
+  getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget,
   toExactEcdsaSigningLaneIdentity,
   upsertRestoredThresholdEcdsaSessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
-import { markRouterAbEcdsaHssWorkerMaterialRuntimeValidated } from '@/core/signingEngine/session/routerAbSigningWalletSession';
+import { markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import { buildEcdsaRoleLocalPasskeyAuthMethod } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 import { buildEcdsaSessionIdentity } from '@/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan';
 import { claimWarmSessionPrfFirst, type PasskeyWarmSessionRecoveryPorts } from './prfClaim';
 import { requireEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import {
-  parseSdkEcdsaHssSigningRootId,
-  parseSdkEcdsaHssSigningRootVersion,
-  parseSdkEcdsaHssThresholdKeyId,
-} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+  parseSdkEcdsaDerivationSigningRootId,
+  parseSdkEcdsaDerivationSigningRootVersion,
+  parseSdkEcdsaDerivationThresholdKeyId,
+} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 
 type PasskeySessionRestoreIdentity = {
   touchConfirm: PasskeyWarmSessionRecoveryPorts;
@@ -82,9 +83,7 @@ function assertNeverEcdsaRoleLocalLoadValue(value: never): never {
   throw new Error(`Unhandled ECDSA role-local ready-record load value: ${String(value)}`);
 }
 
-function passkeyEcdsaRoleLocalParticipantIds(
-  participantIds: readonly number[],
-): readonly [1, 2] {
+function passkeyEcdsaRoleLocalParticipantIds(participantIds: readonly number[]): readonly [1, 2] {
   if (participantIds.length !== 2 || participantIds[0] !== 1 || participantIds[1] !== 2) {
     throw new Error('passkey ECDSA restore requires participantIds [1, 2]');
   }
@@ -103,9 +102,9 @@ function passkeyEcdsaRoleLocalReadyRecordLookupInput(args: {
     ),
     chainTarget: args.record.chainTarget,
     keyHandle: String(args.record.keyHandle || '').trim(),
-    ecdsaThresholdKeyId: parseSdkEcdsaHssThresholdKeyId(args.record.ecdsaThresholdKeyId),
-    signingRootId: parseSdkEcdsaHssSigningRootId(args.record.signingRootId),
-    signingRootVersion: parseSdkEcdsaHssSigningRootVersion(args.record.signingRootVersion),
+    ecdsaThresholdKeyId: parseSdkEcdsaDerivationThresholdKeyId(args.record.ecdsaThresholdKeyId),
+    signingRootId: parseSdkEcdsaDerivationSigningRootId(args.record.signingRootId),
+    signingRootVersion: parseSdkEcdsaDerivationSigningRootVersion(args.record.signingRootVersion),
     participantIds: passkeyEcdsaRoleLocalParticipantIds(args.record.participantIds),
     authMethod: buildEcdsaRoleLocalPasskeyAuthMethod({
       credentialIdB64u: args.record.authority.factor.credentialIdB64u,
@@ -144,12 +143,14 @@ async function loadPasskeyEcdsaRoleLocalReadyRecord(args: {
 async function resolvePasskeyEcdsaRoleLocalReadyRecord(args: {
   walletId: string;
   record: PasskeyEcdsaSealedRecoveryRecord;
+  chainTarget: ThresholdEcdsaChainTarget;
   thresholdSessionId: string;
   loadEcdsaRoleLocalReadyRecord: LoadPasskeyEcdsaRoleLocalReadyRecord;
 }): Promise<EcdsaRoleLocalReadyRecord> {
-  const existingRecord = getStoredThresholdEcdsaSessionRecordByThresholdSessionId(
-    args.thresholdSessionId,
-  );
+  const existingRecord = getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget({
+    thresholdSessionId: args.thresholdSessionId,
+    chainTarget: args.chainTarget,
+  });
   const ecdsaRoleLocalReadyRecord =
     existingRecord?.ecdsaRoleLocalReadyRecord ||
     (await loadPasskeyEcdsaRoleLocalReadyRecord({
@@ -179,12 +180,14 @@ async function publishPasskeyEcdsaSealedRecordForWallet(args: {
   const ecdsaRoleLocalReadyRecord = await resolvePasskeyEcdsaRoleLocalReadyRecord({
     walletId: args.walletId,
     record: args.record,
+    chainTarget: args.chainTarget,
     thresholdSessionId: args.thresholdSessionId,
     loadEcdsaRoleLocalReadyRecord: args.loadEcdsaRoleLocalReadyRecord,
   });
   const updatedAtMs = Date.now();
 
   const restoredRecord = upsertRestoredThresholdEcdsaSessionRecord({
+    purpose: 'transaction_signing',
     walletId: toWalletId(args.walletId),
     evmFamilySigningKeySlotId: args.record.evmFamilySigningKeySlotId,
     chainTarget: args.record.chainTarget,
@@ -204,7 +207,7 @@ async function publishPasskeyEcdsaSealedRecordForWallet(args: {
       : existingRecord?.runtimePolicyScope
         ? { runtimePolicyScope: existingRecord.runtimePolicyScope }
         : {}),
-    routerAbEcdsaHssNormalSigning: args.record.routerAbEcdsaHssNormalSigning,
+    routerAbEcdsaDerivationNormalSigning: args.record.routerAbEcdsaDerivationNormalSigning,
     thresholdSessionKind: sealedRecoverySessionKind(args.record.walletSessionAuth),
     thresholdSessionId: args.thresholdSessionId,
     signingGrantId: args.signingGrantId,
@@ -218,8 +221,8 @@ async function publishPasskeyEcdsaSealedRecordForWallet(args: {
     updatedAtMs,
     source: args.record.source,
   });
-  if (!markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(restoredRecord)) {
-    throw new Error('passkey ECDSA restore requires runtime-valid Router A/B HSS state');
+  if (!markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(restoredRecord)) {
+    throw new Error('passkey ECDSA restore requires runtime-valid Router A/B DERIVATION state');
   }
   publishResolvedIdentity({
     walletId: args.walletId,
@@ -240,7 +243,9 @@ export async function restorePasskeyEcdsaSessionBeforeClaim(
     signingGrantId: args.signingGrantId,
     thresholdSessionId: args.thresholdSessionId,
   });
-  const record = getStoredThresholdEcdsaSessionRecordByThresholdSessionId(identity.thresholdSessionId);
+  const record = getStoredThresholdEcdsaSessionRecordByThresholdSessionId(
+    identity.thresholdSessionId,
+  );
   if (!record || !thresholdEcdsaChainTargetsEqual(record.chainTarget, args.chainTarget)) {
     throw new Error('[SigningEngine][ecdsa] exact restore identity unavailable before PRF claim');
   }

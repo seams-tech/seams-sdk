@@ -12,11 +12,11 @@ import type {
   EcdsaThresholdKeyId,
   SigningRootId,
   SigningRootVersion,
-} from '../signingEngine/session/identity/emailOtpHssIdentity';
+} from '../signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
 import type {
-  EcdsaHssClientSharePublicKey33B64u,
-  EcdsaRelayerHssPublicKey33B64u,
-} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+  DerivationClientSharePublicKey33B64u,
+  EcdsaDerivationRelayerPublicKey33B64u,
+} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import type {
   BuildEcdsaRoleLocalExportArtifactCommand as GeneratedBuildEcdsaRoleLocalExportArtifactCommand,
   BuildEcdsaRoleLocalExportArtifactErrorCode as GeneratedBuildEcdsaRoleLocalExportArtifactErrorCode,
@@ -244,19 +244,19 @@ export type PrepareEcdsaClientBootstrapInput = {
 
 export type EcdsaClientBootstrapFacts = {
   contextBinding32B64u: GeneratedPrepareEcdsaClientBootstrapOutput['clientBootstrap']['contextBinding32B64u'];
-  hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
+  derivationClientSharePublicKey33B64u: DerivationClientSharePublicKey33B64u;
   clientShareRetryCounter: GeneratedPrepareEcdsaClientBootstrapOutput['clientBootstrap']['clientShareRetryCounter'];
   participantId: 1;
 };
 
 export type EcdsaPreparePublicFacts = {
-  hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
+  derivationClientSharePublicKey33B64u: DerivationClientSharePublicKey33B64u;
   clientVerifyingShareB64u: GeneratedPrepareEcdsaClientBootstrapOutput['publicFacts']['clientVerifyingShareB64u'];
 };
 
 export type EcdsaRelayerPublicIdentity = {
   relayerKeyId: RelayerKeyId;
-  relayerPublicKey33B64u: EcdsaRelayerHssPublicKey33B64u;
+  relayerPublicKey33B64u: EcdsaDerivationRelayerPublicKey33B64u;
   groupPublicKey33B64u: EcdsaGroupPublicKey33B64u;
   ethereumAddress: `0x${string}`;
 };
@@ -363,7 +363,7 @@ export type FinalizeEcdsaClientBootstrapInput = {
   pendingStateBlob: EcdsaRoleLocalPendingStateBlob;
   relayerPublicIdentity: {
     relayerKeyId: string;
-    relayerPublicKey33B64u: EcdsaRelayerHssPublicKey33B64u;
+    relayerPublicKey33B64u: EcdsaDerivationRelayerPublicKey33B64u;
     groupPublicKey33B64u: string;
     ethereumAddress: `0x${string}`;
   };
@@ -373,9 +373,9 @@ export type FinalizeEcdsaClientBootstrapOutput = {
   stateBlob: EcdsaRoleLocalReadyStateBlob;
   publicFacts: {
     contextBinding32B64u: GeneratedFinalizeEcdsaClientBootstrapOutput['publicFacts']['contextBinding32B64u'];
-    hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
+    derivationClientSharePublicKey33B64u: DerivationClientSharePublicKey33B64u;
     clientVerifyingShareB64u: GeneratedFinalizeEcdsaClientBootstrapOutput['publicFacts']['clientVerifyingShareB64u'];
-    relayerPublicKey33B64u: EcdsaRelayerHssPublicKey33B64u;
+    relayerPublicKey33B64u: EcdsaDerivationRelayerPublicKey33B64u;
     groupPublicKey33B64u: GeneratedFinalizeEcdsaClientBootstrapOutput['publicFacts']['groupPublicKey33B64u'];
     ethereumAddress: `0x${string}`;
   };

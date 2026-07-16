@@ -4,7 +4,7 @@ import type {
   WebAuthnPromptReservationId,
   ReservedRegistrationWebAuthnPrompt,
 } from './webauthnPromptCoordinator';
-import type { RegistrationActivationMessageIdentity } from '@/SeamsWeb/publicApi/types';
+import type { RegistrationActivationMessageIdentity } from '@/core/types/registrationActivationIdentity';
 
 declare const identity: RegistrationActivationMessageIdentity;
 declare const reservationId: WebAuthnPromptReservationId;

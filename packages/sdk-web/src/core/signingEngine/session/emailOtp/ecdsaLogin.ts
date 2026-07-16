@@ -5,7 +5,7 @@ import {
   emailOtpAuthContextProviderUserId,
   type ThresholdEcdsaEmailOtpAuthContext,
 } from '@/core/signingEngine/session/identity/laneIdentity';
-import { toWalletSessionUserId } from '@/core/signingEngine/session/identity/emailOtpHssIdentity';
+import { toWalletSessionUserId } from '@/core/signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
 import type {
   ThresholdEcdsaChainTarget,
   WalletSessionRef,
@@ -25,7 +25,10 @@ import type {
   EmailOtpWorkerProgressEvent,
   EmailOtpWorkerSessionHandleOperation,
 } from '@/core/signingEngine/workerManager/workerTypes';
-import type { EmailOtpEcdsaCommittedLane } from '../../flows/signEvmFamily/ecdsaSelection';
+import type {
+  EmailOtpEcdsaCommittedLane,
+  EmailOtpEcdsaPublicReauthLane,
+} from '../../flows/signEvmFamily/ecdsaSelection';
 import {
   WALLET_EMAIL_OTP_EXPORT_OPERATION,
   WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
@@ -41,6 +44,7 @@ import {
   toEvmFamilyEcdsaKeyHandle,
 } from '../identity/evmFamilyEcdsaIdentity';
 import {
+  buildEmailOtpRoutePlan,
   type EmailOtpAuthLane,
   type EmailOtpRoutePlan,
 } from '../../stepUpConfirmation/otpPrompt/authLane';
@@ -55,9 +59,19 @@ import {
   type EmailOtpEcdsaPublicationTimings,
   type EmailOtpEcdsaPublicationPorts,
 } from './ecdsaPublication';
-import { unlockEmailOtpMixedWallet, unlockEmailOtpWallet } from './walletUnlock';
+import {
+  unlockEmailOtpMixedWallet,
+  unlockEmailOtpWallet,
+  type EmailOtpMixedWalletUnlockResult,
+  type EmailOtpWalletUnlockResult,
+} from './walletUnlock';
 import type { EmailOtpEd25519YaoPendingFactorHandle } from './ed25519YaoRootVault';
+import type { EmailOtpMixedWalletSigningBudgetV1 } from '../../workerManager/workerTypes';
 import { disposeEmailOtpEd25519YaoPendingFactorV1 } from './ed25519YaoWorkerClient';
+import {
+  DEFAULT_THRESHOLD_SESSION_POLICY,
+  clampThresholdSessionPolicy,
+} from '../../threshold/sessionPolicy';
 import {
   assertEmailOtpSigningSessionAuthLane,
   buildEmailOtpEcdsaMintingSession,
@@ -223,11 +237,78 @@ export type LoginEmailOtpEcdsaCapabilityArgs = {
     | { kind: 'not_requested' }
     | {
         kind: 'requested';
-        providerSubject: string;
-        signerSlot: number;
-        remainingUses: number;
-      };
+      providerSubject: string;
+      signerSlot: number;
+    };
 };
+
+function buildEmailOtpEcdsaOnlySigningBudget(args: {
+  signingGrantId: string;
+  ttlMs: number | undefined;
+  remainingUses: number;
+}): EmailOtpMixedWalletSigningBudgetV1 {
+  const policy = clampThresholdSessionPolicy({
+    ttlMs: args.ttlMs ?? DEFAULT_THRESHOLD_SESSION_POLICY.ttlMs,
+    remainingUses: args.remainingUses,
+  });
+  return {
+    kind: 'email_otp_mixed_wallet_signing_budget_v1',
+    signingGrantId: args.signingGrantId,
+    ttlMs: policy.ttlMs,
+    remainingUses: policy.remainingUses,
+  };
+}
+
+function buildAuthoritativeEmailOtpMixedWalletSigningBudget(args: {
+  bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
+  expectedRemainingUses: number;
+}): EmailOtpMixedWalletSigningBudgetV1 {
+  const session = args.bootstrap.session;
+  const signingGrantId = String(session.signingGrantId || '').trim();
+  const expiresAtMs = Math.floor(Number(session.expiresAtMs));
+  const remainingUses = Math.floor(Number(session.remainingUses));
+  const ttlMs = expiresAtMs - Date.now();
+  if (!signingGrantId || !Number.isSafeInteger(expiresAtMs) || ttlMs < 1) {
+    throw new Error('Mixed Email OTP unlock returned an invalid server signing budget');
+  }
+  if (remainingUses !== args.expectedRemainingUses) {
+    throw new Error('Mixed Email OTP unlock changed the requested signing budget uses');
+  }
+  return {
+    kind: 'email_otp_mixed_wallet_signing_budget_v1',
+    signingGrantId,
+    ttlMs,
+    remainingUses,
+  };
+}
+
+function resolveEmailOtpLoginSigningBudget(args: {
+  workerResult: EmailOtpWalletUnlockResult | EmailOtpMixedWalletUnlockResult;
+  emailOtpAuthPolicy: EmailOtpAuthPolicy;
+  routePlan: EmailOtpRoutePlan;
+  requestedTtlMs: number | undefined;
+  requestedRemainingUses: number;
+}): EmailOtpMixedWalletSigningBudgetV1 {
+  switch (args.workerResult.kind) {
+    case 'ecdsa':
+      return buildEmailOtpEcdsaOnlySigningBudget({
+        signingGrantId: buildEmailOtpEcdsaMintingSession({
+          emailOtpAuthPolicy: args.emailOtpAuthPolicy,
+          routePlan: args.routePlan,
+          generateSigningGrantId,
+        }).signingGrantId,
+        ttlMs: args.requestedTtlMs,
+        remainingUses: args.requestedRemainingUses,
+      });
+    case 'ecdsa_and_ed25519_yao_recovery':
+      return buildAuthoritativeEmailOtpMixedWalletSigningBudget({
+        bootstrap: args.workerResult.ed25519YaoRecovery,
+        expectedRemainingUses: args.requestedRemainingUses,
+      });
+  }
+  args.workerResult satisfies never;
+  throw new Error('Unsupported Email OTP wallet unlock result');
+}
 
 function emailOtpWorkerHandleOperationFromLoginOperation(
   operation: WalletEmailOtpOperation,
@@ -269,6 +350,17 @@ export type LoginEmailOtpEcdsaCapabilityForSigningArgs = {
   record?: never;
   routeAuth?: never;
   authLane?: never;
+};
+
+export type LoginEmailOtpEcdsaPublicReauthCapabilityForSigningArgs = {
+  walletSession: WalletSessionRef;
+  chainTarget: ThresholdEcdsaChainTarget;
+  challengeId: string;
+  otpCode: string;
+  reauthLane: EmailOtpEcdsaPublicReauthLane;
+  appSessionJwt: string;
+  remainingUses: number;
+  committedLane?: never;
 };
 
 export type EmailOtpEcdsaTransactionStepUpInput = {
@@ -405,6 +497,46 @@ export async function loginWithEmailOtpEcdsaCapabilityForSigning(
   });
 }
 
+export async function loginWithEmailOtpEcdsaPublicReauthCapabilityForSigning(
+  args: LoginEmailOtpEcdsaPublicReauthCapabilityForSigningArgs,
+  ports: {
+    loginWithEcdsaCapabilityInternal: (
+      args: LoginEmailOtpEcdsaCapabilityArgs,
+    ) => Promise<EmailOtpThresholdEcdsaLoginResult>;
+  },
+): Promise<EmailOtpThresholdEcdsaLoginResult> {
+  const publicRestore = args.reauthLane.publicRestore;
+  if (publicRestore.source !== 'email_otp') {
+    throw new Error('Email OTP ECDSA public reauth requires Email OTP public authority');
+  }
+  const routePlan = buildEmailOtpRoutePlan({
+    routeFamily: 'login',
+    authLane: { kind: 'app_session', jwt: args.appSessionJwt },
+    operation: WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
+  });
+  return await ports.loginWithEcdsaCapabilityInternal({
+    walletSession: args.walletSession,
+    chainTarget: args.chainTarget,
+    emailOtpAuthPolicy: 'session',
+    emailOtpAuthReason: 'sign',
+    challengeId: args.challengeId,
+    otpCode: args.otpCode,
+    operation: WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
+    routePlan,
+    keyHandle: publicRestore.keyHandle,
+    participantIds: publicRestore.participantIds.map(Number),
+    emailHashHex: publicRestore.emailHashHex,
+    providerIdentity: {
+      kind: 'explicit_provider_user',
+      providerUserId: publicRestore.providerSubjectId,
+    },
+    ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
+    remainingUses: normalizeEmailOtpEcdsaSigningRemainingUses(args.remainingUses),
+    runtimePolicyScope: publicRestore.runtimePolicyScope,
+    ed25519YaoRecovery: { kind: 'not_requested' },
+  });
+}
+
 export async function loginWithEmailOtpEcdsaCapability(
   args: LoginEmailOtpEcdsaCapabilityArgs,
   ports: EmailOtpEcdsaLoginPorts,
@@ -459,12 +591,6 @@ export async function loginWithEmailOtpEcdsaCapability(
     : resolveSigningBudgetPolicyRemainingUses(unlockBudgetPolicy);
   const workerCtx = ports.getSignerWorkerContext();
   const routePlan = args.routePlan;
-  const mintingSession = buildEmailOtpEcdsaMintingSession({
-    emailOtpAuthPolicy,
-    routePlan,
-    generateSigningGrantId,
-  });
-  const signingGrantId = mintingSession.signingGrantId;
   const routeAuth = routeAuthFromEmailOtpRoutePlan(routePlan);
   const bootstrapRouteAuth =
     args.ecdsaBootstrapAuthorization.kind === 'route_plan_auth'
@@ -558,7 +684,7 @@ export async function loginWithEmailOtpEcdsaCapability(
           ...unlockArgs,
           providerSubject: args.ed25519YaoRecovery.providerSubject,
           signerSlot: args.ed25519YaoRecovery.signerSlot,
-          remainingUses: args.ed25519YaoRecovery.remainingUses,
+          remainingUses,
         });
   try {
     addEmailOtpThresholdEcdsaLoginTiming(timings, 'emailOtpProofVerificationMs', timingStartedAtMs);
@@ -570,6 +696,14 @@ export async function loginWithEmailOtpEcdsaCapability(
           throw new Error('Email OTP ECDSA bootstrap requires route auth');
         })(),
     };
+    const signingBudget = resolveEmailOtpLoginSigningBudget({
+      workerResult,
+      emailOtpAuthPolicy,
+      routePlan,
+      requestedTtlMs: args.ttlMs,
+      requestedRemainingUses: remainingUses,
+    });
+    const signingGrantId = signingBudget.signingGrantId;
     const bootstrapPayload: EmailOtpEcdsaBootstrapStrictPayload = {
       relayUrl,
       walletId: String(args.walletSession.walletId),
@@ -584,8 +718,8 @@ export async function loginWithEmailOtpEcdsaCapability(
         : {}),
       ...bootstrapAuth,
       signingGrantId,
-      ttlMs: args.ttlMs,
-      remainingUses,
+      ttlMs: signingBudget.ttlMs,
+      remainingUses: signingBudget.remainingUses,
       ...(args.includeEcdsaExportArtifact ? { includeEcdsaExportArtifact: true } : {}),
     };
     timingStartedAtMs = nowMs();

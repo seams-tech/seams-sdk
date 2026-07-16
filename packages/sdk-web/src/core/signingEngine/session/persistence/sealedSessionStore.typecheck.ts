@@ -3,18 +3,34 @@ import type {
   BuildCurrentEcdsaSealedSessionRecordInput,
   CurrentEd25519SealedSessionRecord,
   CurrentEcdsaSealedSessionRecord,
+  EcdsaReauthAnchorPublicRestore,
   PublishResolvedIdentityInput,
   UpdateExactSealedSessionPolicyInput,
 } from './sealedSessionStore';
 import type { SealedSigningSessionEcdsaRestoreMetadata } from '@shared/utils/signingSessionSeal';
 import type { SealedSigningSessionEd25519RestoreMetadata } from '@shared/utils/signingSessionSeal';
-import type { RouterAbEcdsaHssNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaHss';
+import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
 
 declare const currentEd25519Record: CurrentEd25519SealedSessionRecord;
 declare const currentEcdsaRecord: CurrentEcdsaSealedSessionRecord;
-declare const routerAbEcdsaHssNormalSigning: RouterAbEcdsaHssNormalSigningStateV1;
+declare const routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
+declare const ecdsaReauthAnchorPublicRestore: EcdsaReauthAnchorPublicRestore;
 void currentEd25519Record;
 void currentEcdsaRecord;
+
+const invalidReauthAnchorWithWalletSessionJwt: EcdsaReauthAnchorPublicRestore = {
+  ...ecdsaReauthAnchorPublicRestore,
+  // @ts-expect-error reauth anchors contain public identity facts only.
+  walletSessionJwt: 'secret-wallet-session-jwt',
+};
+void invalidReauthAnchorWithWalletSessionJwt;
+
+const invalidReauthAnchorWithSessionKind: EcdsaReauthAnchorPublicRestore = {
+  ...ecdsaReauthAnchorPublicRestore,
+  // @ts-expect-error reauth anchors do not carry session-auth lifecycle state.
+  sessionKind: 'jwt',
+};
+void invalidReauthAnchorWithSessionKind;
 
 const invalidCurrentEd25519Record: CurrentEd25519SealedSessionRecord = {
   ...({} as CurrentEd25519SealedSessionRecord),
@@ -186,7 +202,7 @@ const invalidEcdsaWriteInput: BuildCurrentEcdsaSealedSessionRecordInput = {
     ethereumAddress: `0x${'11'.repeat(20)}`,
     relayerKeyId: 'relayer-key',
     participantIds: [1, 2, 3],
-    routerAbEcdsaHssNormalSigning,
+    routerAbEcdsaDerivationNormalSigning,
   },
   issuedAtMs: 1,
   expiresAtMs: 1,
@@ -267,6 +283,7 @@ const invalidEmailOtpEcdsaRestoreWithoutProviderSubject = {
   evmFamilySigningKeySlotId: 'wallet-key:evm-family:wallet.testnet:project%3Adev:default',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
+  provider: 'google',
   sessionKind: 'jwt',
   keyHandle: 'key-handle-ecdsa',
   ethereumAddress: `0x${'11'.repeat(20)}`,
@@ -282,6 +299,7 @@ const invalidEmailOtpEcdsaRestoreWithAuthSubjectAlias = {
   evmFamilySigningKeySlotId: 'wallet-key:evm-family:wallet.testnet:project%3Adev:default',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
+  provider: 'google',
   providerSubjectId: 'google:alice',
   // @ts-expect-error Email OTP ECDSA sealed restore metadata rejects authSubjectId.
   authSubjectId: 'google:legacy-alias',

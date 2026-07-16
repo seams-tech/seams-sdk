@@ -1,6 +1,6 @@
 import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/types';
 import type { ReadyEcdsaSignerSession } from '../../../session/identity/evmFamilyEcdsaIdentity';
-import type { SignableReadyEcdsaSignerSession } from './ecdsaHssClientSigningMaterialSource';
+import type { SignableReadyEcdsaSignerSession } from './ecdsaDerivationClientSigningMaterialSource';
 
 declare const readySignerSession: ReadyEcdsaSignerSession;
 declare const signableReadySignerSession: SignableReadyEcdsaSignerSession;

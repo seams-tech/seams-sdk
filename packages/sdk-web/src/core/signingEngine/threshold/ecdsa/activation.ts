@@ -10,14 +10,14 @@ import type { connectEcdsaSession } from '@/core/signingEngine/threshold/ecdsa/c
 import type { keygenEcdsa } from '@/core/signingEngine/threshold/ecdsa/keygen';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
-import type { ThresholdEcdsaHssRouteAuth } from '@/core/rpcClients/relayer/thresholdEcdsa';
+import type { ThresholdEcdsaDerivationRouteAuth } from '@/core/rpcClients/relayer/thresholdEcdsa';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { RouterAbNormalSigningConfig } from '@/core/types/seams';
 import { base64UrlEncode } from '@shared/utils/base64';
 import {
-  parseSdkEcdsaHssSigningRootId,
-  parseSdkEcdsaHssSigningRootVersion,
-} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+  parseSdkEcdsaDerivationSigningRootId,
+  parseSdkEcdsaDerivationSigningRootVersion,
+} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import {
   thresholdEcdsaChainTargetKey,
   toWalletId,
@@ -34,6 +34,7 @@ import type {
 import {
   deriveEvmFamilyKeyFingerprint,
   deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope,
+  toEvmFamilyEcdsaKeyHandle,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { ExistingEcdsaBootstrapKeyIntent } from '../../session/passkey/ecdsaBootstrap';
 import {
@@ -47,18 +48,18 @@ import {
   parseEcdsaRelayerKeyId,
   parseEcdsaThresholdKeyId,
 } from '../../session/keyMaterialBrands';
-import { buildEcdsaRoleLocalSigningMaterialHandle } from '../../session/identity/ecdsaHssSigningMaterialHandle';
-import { storeEcdsaRoleLocalSigningMaterialWasm } from '../crypto/ecdsaClientSignerWasm';
+import { buildEcdsaRoleLocalSigningMaterialHandle } from '../../session/identity/ecdsaDerivationSigningMaterialHandle';
+import { storeEcdsaRoleLocalSigningMaterialWasm } from '../crypto/ecdsaDerivationClientWasm';
 import { hexToBytes } from '../../chains/evm/bytes';
 import { fetchRouterAbPublicKeysetV2 } from '@/core/rpcClients/relayer/routerAbPublicKeyset';
 import {
-  ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
-  parseRouterAbEcdsaHssNormalSigningStateV1,
-  routerAbEcdsaHssStableKeyContextFromSdkFactsV1,
-  routerAbEcdsaHssActiveStateSessionId,
-  verifyRouterAbEcdsaHssNormalSigningScopeContextBindingV1,
-  type RouterAbEcdsaHssNormalSigningStateV1,
-} from '@shared/utils/routerAbEcdsaHss';
+  ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
+  parseRouterAbEcdsaDerivationNormalSigningStateV1,
+  routerAbEcdsaDerivationStableKeyContextFromSdkFactsV1,
+  routerAbEcdsaDerivationActiveStateSessionId,
+  verifyRouterAbEcdsaDerivationNormalSigningScopeContextBindingV1,
+  type RouterAbEcdsaDerivationNormalSigningStateV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 
 export type ThresholdEcdsaEvmChainTarget = EvmEip155ChainTarget;
 export type ThresholdEcdsaTempoChainTarget = TempoChainTarget;
@@ -108,6 +109,33 @@ export type ThresholdEcdsaSessionBootstrapResult = {
 
 export type ThresholdEcdsaSessionActivationResult = ThresholdEcdsaSessionBootstrapResult;
 
+export type ThresholdEcdsaExplicitKeyExportActivationResult = {
+  kind: 'explicit_key_export_ecdsa_activation_result';
+  purpose: 'explicit_key_export';
+  material: {
+    walletId: WalletId;
+    evmFamilySigningKeySlotId: string;
+    chainTarget: ThresholdEcdsaChainTarget;
+    relayerUrl: string;
+    keyHandle: EvmFamilyEcdsaKeyHandle;
+    ecdsaThresholdKeyId: string;
+    relayerKeyId: string;
+    clientVerifyingShareB64u: string;
+    participantIds: readonly number[];
+    thresholdEcdsaPublicKeyB64u: string;
+    ethereumAddress: string;
+    relayerVerifyingShareB64u: string;
+    thresholdSessionId: string;
+    signingGrantId: string;
+    expiresAtMs: number;
+    remainingUses: number;
+    walletSessionJwt: string;
+    ecdsaRoleLocalReadyRecord: ReturnType<typeof buildEcdsaRoleLocalReadyRecord>;
+  };
+  passkeyPrfFirstB64u: string;
+  passkeyCredentialIdB64u: string;
+};
+
 export type ActivateEcdsaSessionDeps = {
   credentialStore: ThresholdCredentialStorePort;
   touchIdPrompt: ThresholdWebAuthnPromptPort;
@@ -131,12 +159,14 @@ function assertNeverRouterAbNormalSigningConfig(value: never): never {
 function encodeEthereumAddress20B64u(address: string): string {
   const bytes = hexToBytes(address);
   if (bytes.length !== 20) {
-    throw new Error('Router A/B ECDSA-HSS normal-signing state requires a 20-byte owner address');
+    throw new Error(
+      'Router A/B ECDSA derivation normal-signing state requires a 20-byte owner address',
+    );
   }
   return base64UrlEncode(bytes);
 }
 
-async function buildRouterAbEcdsaHssNormalSigningState(args: {
+async function buildRouterAbEcdsaDerivationNormalSigningState(args: {
   config: RouterAbNormalSigningConfig;
   relayerUrl: string;
   walletId: WalletId;
@@ -145,27 +175,27 @@ async function buildRouterAbEcdsaHssNormalSigningState(args: {
   signingRootId: string;
   signingRootVersion: string;
   contextBinding32B64u: string;
-  hssClientSharePublicKey33B64u: string;
+  derivationClientSharePublicKey33B64u: string;
   serverPublicKey33B64u: string;
   thresholdPublicKey33B64u: string;
   ethereumAddress: string;
   clientShareRetryCounter: number;
   serverShareRetryCounter: number;
   activationEpoch: string;
-}): Promise<RouterAbEcdsaHssNormalSigningStateV1> {
+}): Promise<RouterAbEcdsaDerivationNormalSigningStateV1> {
   switch (args.config.mode) {
     case 'disabled':
-      throw new Error('Router A/B ECDSA-HSS normal signing must be enabled for activation');
+      throw new Error('Router A/B ECDSA derivation normal signing must be enabled for activation');
     case 'enabled': {
       const keyset = await fetchRouterAbPublicKeysetV2({ relayerUrl: args.relayerUrl });
-      const context = await routerAbEcdsaHssStableKeyContextFromSdkFactsV1({
+      const context = await routerAbEcdsaDerivationStableKeyContextFromSdkFactsV1({
         walletId: toWalletId(args.walletId),
         ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(args.ecdsaThresholdKeyId),
-        signingRootId: parseSdkEcdsaHssSigningRootId(args.signingRootId),
-        signingRootVersion: parseSdkEcdsaHssSigningRootVersion(args.signingRootVersion),
+        signingRootId: parseSdkEcdsaDerivationSigningRootId(args.signingRootId),
+        signingRootVersion: parseSdkEcdsaDerivationSigningRootVersion(args.signingRootVersion),
       });
-      const state = parseRouterAbEcdsaHssNormalSigningStateV1({
-        kind: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
+      const state = parseRouterAbEcdsaDerivationNormalSigningStateV1({
+        kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
         scope: {
           wallet_key_id: args.evmFamilySigningKeySlotId,
           wallet_id: String(args.walletId),
@@ -175,7 +205,7 @@ async function buildRouterAbEcdsaHssNormalSigningState(args: {
           context,
           public_identity: {
             context_binding_b64u: args.contextBinding32B64u,
-            client_public_key33_b64u: args.hssClientSharePublicKey33B64u,
+            derivation_client_share_public_key33_b64u: args.derivationClientSharePublicKey33B64u,
             server_public_key33_b64u: args.serverPublicKey33B64u,
             threshold_public_key33_b64u: args.thresholdPublicKey33B64u,
             ethereum_address20_b64u: encodeEthereumAddress20B64u(args.ethereumAddress),
@@ -191,9 +221,9 @@ async function buildRouterAbEcdsaHssNormalSigningState(args: {
         },
       });
       if (!state) {
-        throw new Error('Router A/B ECDSA-HSS normal-signing state could not be built');
+        throw new Error('Router A/B ECDSA derivation normal-signing state could not be built');
       }
-      await verifyRouterAbEcdsaHssNormalSigningScopeContextBindingV1(state.scope);
+      await verifyRouterAbEcdsaDerivationNormalSigningScopeContextBindingV1(state.scope);
       return state;
     }
     default:
@@ -281,11 +311,12 @@ type ActivateEcdsaRegistrationSessionPlan = {
 
 type ActivateEcdsaRegistrationRequestBase = ActivateEcdsaSessionRequestCommon & {
   kind: 'key_enrollment_bootstrap';
+  purpose: 'transaction_signing';
   walletId: WalletId | string;
   chainTarget: ThresholdEcdsaChainTarget;
   keyIntent?: ExistingEcdsaBootstrapKeyIntent;
   sessionPlan?: ActivateEcdsaRegistrationSessionPlan;
-  walletSessionRouteAuth?: ThresholdEcdsaHssRouteAuth;
+  walletSessionRouteAuth?: ThresholdEcdsaDerivationRouteAuth;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   ttlMs?: number;
   remainingUses?: number;
@@ -303,7 +334,7 @@ type ActivateEcdsaExistingSessionRequestBase = ActivateEcdsaSessionRequestCommon
   keyHandle: EvmFamilyEcdsaKeyHandle;
   key: EvmFamilyEcdsaKeyIdentity;
   lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
-  walletSessionRouteAuth?: ThresholdEcdsaHssRouteAuth;
+  walletSessionRouteAuth?: ThresholdEcdsaDerivationRouteAuth;
   walletId?: never;
   subjectId?: never;
   chainTarget?: never;
@@ -321,11 +352,20 @@ type ActivateEcdsaRegistrationRequest = ActivateEcdsaRegistrationRequestBase &
   ActivateEcdsaSessionAuth;
 
 type ActivateEcdsaExistingSessionRequest = ActivateEcdsaExistingSessionRequestBase &
-  ActivateEcdsaSessionAuth;
+  ActivateEcdsaSessionAuth & { purpose: 'transaction_signing' };
+
+export type ActivateExplicitKeyExportEcdsaSessionRequest = ActivateEcdsaExistingSessionRequestBase &
+  ActivateEcdsaPasskeyWebAuthnPrfB64uAuth & {
+    purpose: 'explicit_key_export';
+  };
 
 export type ActivateEcdsaSessionRequest =
   | ActivateEcdsaRegistrationRequest
   | ActivateEcdsaExistingSessionRequest;
+
+type ActivateEcdsaSessionByPurposeRequest =
+  | ActivateEcdsaSessionRequest
+  | ActivateExplicitKeyExportEcdsaSessionRequest;
 
 function isStaleEcdsaIntegratedKeyBootstrapFailure(args: {
   code?: unknown;
@@ -370,7 +410,7 @@ function createStaleEcdsaKeyIdentityError(message: string): Error & {
 }
 
 function inferThresholdEcdsaBootstrapAuthMethod(
-  args: ActivateEcdsaSessionRequest,
+  args: ActivateEcdsaSessionByPurposeRequest,
 ): 'passkey' | 'email_otp' | 'unknown' {
   switch (args.authKind) {
     case 'email_otp':
@@ -386,7 +426,7 @@ function inferThresholdEcdsaBootstrapAuthMethod(
   return 'unknown';
 }
 
-function resolveEcdsaActivationWalletKeyId(args: ActivateEcdsaSessionRequest): string {
+function resolveEcdsaActivationWalletKeyId(args: ActivateEcdsaSessionByPurposeRequest): string {
   if (args.kind === 'session_bootstrap') {
     return String(args.key.evmFamilySigningKeySlotId);
   }
@@ -478,7 +518,7 @@ function roleLocalAuthMethodForActivation(
 }
 
 function roleLocalAuthMethodInputForActivation(args: {
-  request: ActivateEcdsaSessionRequest;
+  request: ActivateEcdsaSessionByPurposeRequest;
   bootstrap: BootstrapEcdsaSessionSuccess;
   rpId: string;
 }): EcdsaActivationRoleLocalAuthMethodInput {
@@ -517,7 +557,7 @@ function roleLocalAuthMethodInputForActivation(args: {
 }
 
 function bootstrapSecretSourceArgsForActivation(
-  args: ActivateEcdsaSessionRequest,
+  args: ActivateEcdsaSessionByPurposeRequest,
 ):
   | ActivateEcdsaPasskeyPromptAuth
   | ActivateEcdsaPasskeyWebAuthnAuth
@@ -561,10 +601,12 @@ function bootstrapSecretSourceArgsForActivation(
   return { authKind: 'passkey_prompt' };
 }
 
-export async function activateEcdsaSession(
+async function activateEcdsaSessionByPurpose(
   deps: ActivateEcdsaSessionDeps,
-  args: ActivateEcdsaSessionRequest,
-): Promise<ThresholdEcdsaSessionActivationResult> {
+  args: ActivateEcdsaSessionByPurposeRequest,
+): Promise<
+  ThresholdEcdsaSessionActivationResult | ThresholdEcdsaExplicitKeyExportActivationResult
+> {
   const exactActivation = args.kind === 'session_bootstrap';
   const walletId = toWalletId(exactActivation ? String(args.key.walletId) : args.walletId);
   const chainTarget = exactActivation ? args.lanePolicy.chainTarget : args.chainTarget;
@@ -573,9 +615,7 @@ export async function activateEcdsaSession(
     exactActivation ? args.lanePolicy.thresholdSessionId : args.sessionPlan?.sessionId || '',
   ).trim();
   const requestedSigningGrantId = String(
-    exactActivation
-      ? args.lanePolicy.signingGrantId
-      : args.sessionPlan?.signingGrantId || '',
+    exactActivation ? args.lanePolicy.signingGrantId : args.sessionPlan?.signingGrantId || '',
   ).trim();
   const requestedEcdsaThresholdKeyId = String(
     exactActivation ? '' : args.keyIntent?.ecdsaThresholdKeyId || '',
@@ -587,7 +627,7 @@ export async function activateEcdsaSession(
     throw new Error('Threshold ECDSA activation requires JWT Wallet Session state');
   }
   if (deps.routerAbNormalSigning.mode !== 'enabled') {
-    throw new Error('Router A/B ECDSA-HSS normal signing must be enabled for activation');
+    throw new Error('Router A/B ECDSA derivation normal signing must be enabled for activation');
   }
   const evmFamilySigningKeySlotId = resolveEcdsaActivationWalletKeyId(args);
   const bootstrapSecretSourceArgs = bootstrapSecretSourceArgsForActivation(args);
@@ -678,9 +718,7 @@ export async function activateEcdsaSession(
             sessionId:
               requestedSessionId ||
               deps.getOrCreateActiveThresholdEcdsaSessionId(walletId, chainTarget),
-            ...(requestedSigningGrantId
-              ? { signingGrantId: requestedSigningGrantId }
-              : {}),
+            ...(requestedSigningGrantId ? { signingGrantId: requestedSigningGrantId } : {}),
           });
   } catch (error: unknown) {
     try {
@@ -725,9 +763,7 @@ export async function activateEcdsaSession(
   if (!clientVerifyingShareB64uRaw) {
     throw new Error('threshold-ecdsa bootstrap returned empty clientVerifyingShareB64u');
   }
-  const clientVerifyingShareB64u = parseEcdsaClientVerifyingShareB64u(
-    clientVerifyingShareB64uRaw,
-  );
+  const clientVerifyingShareB64u = parseEcdsaClientVerifyingShareB64u(clientVerifyingShareB64uRaw);
 
   const sessionId = String(bootstrap.sessionId || '').trim();
   if (!sessionId) {
@@ -765,10 +801,10 @@ export async function activateEcdsaSession(
         bootstrapOwnerAddress: bootstrap.ethereumAddress,
       })
     : String(bootstrap.ethereumAddress || '').trim();
-  const ecdsaRoleLocalReadyRecord = bootstrap.ecdsaHssRoleLocalClientState
+  const ecdsaRoleLocalReadyRecord = bootstrap.ecdsaDerivationRoleLocalClientState
     ? buildEcdsaRoleLocalReadyRecord({
-        stateBlob: bootstrap.ecdsaHssRoleLocalClientState.stateBlob,
-        publicFacts: bootstrap.ecdsaHssRoleLocalClientState.publicFacts,
+        stateBlob: bootstrap.ecdsaDerivationRoleLocalClientState.stateBlob,
+        publicFacts: bootstrap.ecdsaDerivationRoleLocalClientState.publicFacts,
         authMethod: roleLocalAuthMethodForActivation(
           roleLocalAuthMethodInputForActivation({
             request: args,
@@ -781,30 +817,63 @@ export async function activateEcdsaSession(
   if (!ecdsaRoleLocalReadyRecord) {
     throw new Error('threshold-ecdsa bootstrap returned empty role-local ready record');
   }
-  const routerAbEcdsaHssNormalSigning = await buildRouterAbEcdsaHssNormalSigningState({
-    config: deps.routerAbNormalSigning,
-    relayerUrl: args.relayerUrl,
-    walletId,
-    evmFamilySigningKeySlotId: String(bootstrap.evmFamilySigningKeySlotId || '').trim(),
-    ecdsaThresholdKeyId,
-    signingRootId: bootstrap.signingRootId,
-    signingRootVersion: bootstrap.signingRootVersion,
-    contextBinding32B64u: ecdsaRoleLocalReadyRecord.publicFacts.contextBinding32B64u,
-    hssClientSharePublicKey33B64u:
-      ecdsaRoleLocalReadyRecord.publicFacts.hssClientSharePublicKey33B64u,
-    serverPublicKey33B64u: ecdsaRoleLocalReadyRecord.publicFacts.relayerPublicKey33B64u,
-    thresholdPublicKey33B64u: ecdsaRoleLocalReadyRecord.publicFacts.groupPublicKey33B64u,
-    ethereumAddress: thresholdOwnerAddress,
-    clientShareRetryCounter: bootstrap.clientShareRetryCounter,
-    serverShareRetryCounter: bootstrap.relayerShareRetryCounter,
-    activationEpoch: sessionId,
-  });
+  if (args.purpose === 'explicit_key_export') {
+    if (bootstrap.secretSourceKind !== 'passkey') {
+      throw new Error('Explicit ECDSA key export activation requires passkey material');
+    }
+    return {
+      kind: 'explicit_key_export_ecdsa_activation_result',
+      purpose: 'explicit_key_export',
+      material: {
+        walletId,
+        evmFamilySigningKeySlotId: String(bootstrap.evmFamilySigningKeySlotId || '').trim(),
+        chainTarget,
+        relayerUrl: args.relayerUrl,
+        keyHandle: toEvmFamilyEcdsaKeyHandle(keyHandle),
+        ecdsaThresholdKeyId,
+        relayerKeyId,
+        clientVerifyingShareB64u,
+        participantIds,
+        thresholdEcdsaPublicKeyB64u: String(bootstrap.thresholdEcdsaPublicKeyB64u || '').trim(),
+        ethereumAddress: thresholdOwnerAddress,
+        relayerVerifyingShareB64u: String(bootstrap.relayerVerifyingShareB64u || '').trim(),
+        thresholdSessionId: sessionId,
+        signingGrantId,
+        expiresAtMs,
+        remainingUses,
+        walletSessionJwt,
+        ecdsaRoleLocalReadyRecord,
+      },
+      passkeyPrfFirstB64u: bootstrap.passkeyPrfFirstB64u,
+      passkeyCredentialIdB64u: bootstrap.passkeyCredentialIdB64u,
+    };
+  }
+  const routerAbEcdsaDerivationNormalSigning = await buildRouterAbEcdsaDerivationNormalSigningState(
+    {
+      config: deps.routerAbNormalSigning,
+      relayerUrl: args.relayerUrl,
+      walletId,
+      evmFamilySigningKeySlotId: String(bootstrap.evmFamilySigningKeySlotId || '').trim(),
+      ecdsaThresholdKeyId,
+      signingRootId: bootstrap.signingRootId,
+      signingRootVersion: bootstrap.signingRootVersion,
+      contextBinding32B64u: ecdsaRoleLocalReadyRecord.publicFacts.contextBinding32B64u,
+      derivationClientSharePublicKey33B64u:
+        ecdsaRoleLocalReadyRecord.publicFacts.derivationClientSharePublicKey33B64u,
+      serverPublicKey33B64u: ecdsaRoleLocalReadyRecord.publicFacts.relayerPublicKey33B64u,
+      thresholdPublicKey33B64u: ecdsaRoleLocalReadyRecord.publicFacts.groupPublicKey33B64u,
+      ethereumAddress: thresholdOwnerAddress,
+      clientShareRetryCounter: bootstrap.clientShareRetryCounter,
+      serverShareRetryCounter: bootstrap.relayerShareRetryCounter,
+      activationEpoch: sessionId,
+    },
+  );
   const roleLocalMaterialHandle = buildEcdsaRoleLocalSigningMaterialHandle({
     thresholdSessionId: sessionId,
     signingGrantId,
     keyHandle,
-    routerAbStateSessionId: routerAbEcdsaHssActiveStateSessionId(
-      routerAbEcdsaHssNormalSigning,
+    routerAbStateSessionId: routerAbEcdsaDerivationActiveStateSessionId(
+      routerAbEcdsaDerivationNormalSigning,
     ),
     chainTarget,
     clientVerifyingShareB64u,
@@ -825,11 +894,11 @@ export async function activateEcdsaSession(
     throw new Error('threshold-ecdsa role-local worker material handle mismatch');
   }
 
-	  const keygen: EcdsaKeygenSuccess = {
-	    ok: true,
-	    keygenSessionId: bootstrap.keygenSessionId,
-	    evmFamilySigningKeySlotId: bootstrap.evmFamilySigningKeySlotId,
-	    ...(keyHandle ? { keyHandle } : {}),
+  const keygen: EcdsaKeygenSuccess = {
+    ok: true,
+    keygenSessionId: bootstrap.keygenSessionId,
+    evmFamilySigningKeySlotId: bootstrap.evmFamilySigningKeySlotId,
+    ...(keyHandle ? { keyHandle } : {}),
     ecdsaThresholdKeyId,
     clientVerifyingShareB64u,
     relayerKeyId,
@@ -886,7 +955,7 @@ export async function activateEcdsaSession(
       : args.sessionPlan?.sessionKind || 'jwt',
     thresholdSessionId: sessionId,
     signingGrantId,
-    routerAbEcdsaHssNormalSigning,
+    routerAbEcdsaDerivationNormalSigning,
   };
 
   const activationResultBase = {
@@ -902,4 +971,26 @@ export async function activateEcdsaSession(
     };
   }
   return activationResultBase;
+}
+
+export async function activateEcdsaSession(
+  deps: ActivateEcdsaSessionDeps,
+  args: ActivateEcdsaSessionRequest,
+): Promise<ThresholdEcdsaSessionActivationResult> {
+  const result = await activateEcdsaSessionByPurpose(deps, args);
+  if ('purpose' in result) {
+    throw new Error('Transaction ECDSA activation returned explicit export material');
+  }
+  return result;
+}
+
+export async function activateExplicitKeyExportEcdsaSession(
+  deps: ActivateEcdsaSessionDeps,
+  args: ActivateExplicitKeyExportEcdsaSessionRequest,
+): Promise<ThresholdEcdsaExplicitKeyExportActivationResult> {
+  const result = await activateEcdsaSessionByPurpose(deps, args);
+  if (!('purpose' in result)) {
+    throw new Error('Explicit ECDSA key export activation returned transaction material');
+  }
+  return result;
 }

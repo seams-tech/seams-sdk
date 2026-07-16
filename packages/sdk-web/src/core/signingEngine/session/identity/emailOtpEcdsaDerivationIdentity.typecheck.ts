@@ -8,13 +8,13 @@ import {
 } from './evmFamilyEcdsaIdentity';
 import {
   THRESHOLD_ECDSA_SESSION_POLICY_VERSION,
-  type EcdsaHssSessionPolicy,
+  type EcdsaDerivationSessionPolicy,
 } from '../../threshold/sessionPolicy';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import {
-  toEcdsaHssThresholdKeyId,
-  toEcdsaHssThresholdSessionId,
-  toEcdsaHssSigningGrantId,
+  toEcdsaDerivationThresholdKeyId,
+  toEcdsaDerivationThresholdSessionId,
+  toEcdsaDerivationSigningGrantId,
   toEmailOtpAuthSubjectId,
   toWalletSessionUserId,
   type EmailOtpExistingKeyBootstrap,
@@ -22,7 +22,7 @@ import {
   type EmailOtpAuthSubjectId,
   type SessionBootstrap,
   type WalletSessionUserId,
-} from './emailOtpHssIdentity';
+} from './emailOtpEcdsaDerivationIdentity';
 
 const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'evm',
@@ -31,9 +31,9 @@ const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
 const walletSessionUserId = toWalletSessionUserId('wallet.testnet');
 const walletId = toWalletId('wallet.testnet');
 const authSubjectId = toEmailOtpAuthSubjectId('google:subject-1');
-const ecdsaThresholdKeyId = toEcdsaHssThresholdKeyId('ecdsa-key-1');
-const sessionId = toEcdsaHssThresholdSessionId('threshold-session-1');
-const signingGrantId = toEcdsaHssSigningGrantId('signing-grant-1');
+const ecdsaThresholdKeyId = toEcdsaDerivationThresholdKeyId('ecdsa-key-1');
+const sessionId = toEcdsaDerivationThresholdSessionId('threshold-session-1');
+const signingGrantId = toEcdsaDerivationSigningGrantId('signing-grant-1');
 const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
   walletId,
   signingRootId: 'project:dev',
@@ -64,12 +64,12 @@ void ({
   participantIds: [1, 2],
   ttlMs: 60_000,
   remainingUses: 1,
-} satisfies EcdsaHssSessionPolicy);
+} satisfies EcdsaDerivationSessionPolicy);
 
-// @ts-expect-error provider-scoped Email OTP subjects cannot become wallet-scoped HSS ids
+// @ts-expect-error provider-scoped Email OTP subjects cannot become wallet-scoped DERIVATION ids
 const invalidWalletSessionUserId: WalletSessionUserId = authSubjectId;
 
-// @ts-expect-error wallet-scoped HSS ids cannot become provider auth subjects
+// @ts-expect-error wallet-scoped DERIVATION ids cannot become provider auth subjects
 const invalidAuthSubjectId: EmailOtpAuthSubjectId = walletSessionUserId;
 
 void invalidWalletSessionUserId;
@@ -86,7 +86,7 @@ void ({
   signingGrantId,
   ttlMs: 60_000,
   remainingUses: 1,
-} satisfies EcdsaHssSessionPolicy);
+} satisfies EcdsaDerivationSessionPolicy);
 
 void ({
   version: THRESHOLD_ECDSA_SESSION_POLICY_VERSION,
@@ -99,7 +99,7 @@ void ({
   signingGrantId,
   ttlMs: 60_000,
   remainingUses: 1,
-} satisfies EcdsaHssSessionPolicy);
+} satisfies EcdsaDerivationSessionPolicy);
 
 void ({
   operation: 'email_otp_bootstrap',
@@ -107,12 +107,12 @@ void ({
 
 void ({
   operation: 'email_otp_bootstrap',
-  keyHandle: 'ehss-key-handle-1',
+  keyHandle: 'ederivation-key-handle-1',
 } satisfies EmailOtpExistingKeyBootstrap);
 
 void ({
   operation: 'session_bootstrap',
-  keyHandle: 'ehss-key-handle-1',
+  keyHandle: 'ederivation-key-handle-1',
   keyContext,
   lanePolicy,
 } satisfies SessionBootstrap);
@@ -132,7 +132,7 @@ void ({
   operation: 'email_otp_bootstrap',
   // @ts-expect-error existing-key bootstrap rejects scattered threshold-key identity
   ecdsaThresholdKeyId,
-  keyHandle: 'ehss-key-handle-1',
+  keyHandle: 'ederivation-key-handle-1',
 } satisfies EmailOtpExistingKeyBootstrap);
 
 void ({
@@ -143,7 +143,7 @@ void ({
 
 void ({
   operation: 'session_bootstrap',
-  keyHandle: 'ehss-key-handle-1',
+  keyHandle: 'ederivation-key-handle-1',
   keyContext,
   lanePolicy,
   // @ts-expect-error session bootstrap rejects top-level threshold-key identifiers

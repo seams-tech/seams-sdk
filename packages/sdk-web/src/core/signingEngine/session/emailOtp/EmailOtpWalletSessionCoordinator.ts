@@ -103,6 +103,12 @@ export class EmailOtpWalletSessionCoordinator {
     return await this.runtime.requestTransactionSigningChallenge(args);
   }
 
+  async requestPublicReauthTransactionSigningChallenge(
+    args: Parameters<EmailOtpWalletSessionRuntime['requestPublicReauthTransactionSigningChallenge']>[0],
+  ): ReturnType<EmailOtpWalletSessionRuntime['requestPublicReauthTransactionSigningChallenge']> {
+    return await this.runtime.requestPublicReauthTransactionSigningChallenge(args);
+  }
+
   async requestExportChallenge(
     args: Parameters<EmailOtpWalletSessionRuntime['requestExportChallenge']>[0],
   ): ReturnType<EmailOtpWalletSessionRuntime['requestExportChallenge']> {
@@ -131,6 +137,12 @@ export class EmailOtpWalletSessionCoordinator {
     args: Parameters<EmailOtpWalletSessionRuntime['loginWithEcdsaCapabilityForSigning']>[0],
   ): ReturnType<EmailOtpWalletSessionRuntime['loginWithEcdsaCapabilityForSigning']> {
     return this.runtime.loginWithEcdsaCapabilityForSigning(args);
+  }
+
+  loginWithEcdsaPublicReauthCapabilityForSigning(
+    args: Parameters<EmailOtpWalletSessionRuntime['loginWithEcdsaPublicReauthCapabilityForSigning']>[0],
+  ): ReturnType<EmailOtpWalletSessionRuntime['loginWithEcdsaPublicReauthCapabilityForSigning']> {
+    return this.runtime.loginWithEcdsaPublicReauthCapabilityForSigning(args);
   }
 
   loginWithEcdsaCapabilityInternal(

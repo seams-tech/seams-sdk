@@ -32,14 +32,14 @@ import {
   type RouterAbEd25519NormalSigningState,
 } from '@shared/utils/signingSessionSeal';
 import {
-  parseRouterAbEcdsaHssNormalSigningFromWalletRegistrationJwtV1,
-  type RouterAbEcdsaHssNormalSigningStateV1,
-} from '@shared/utils/routerAbEcdsaHss';
+  parseRouterAbEcdsaDerivationNormalSigningFromWalletRegistrationJwtV1,
+  type RouterAbEcdsaDerivationNormalSigningStateV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import {
-  computeSdkEcdsaHssApplicationBindingDigestB64u,
-  parseSdkEcdsaHssSigningRootId,
-  parseSdkEcdsaHssSigningRootVersion,
-} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+  computeSdkEcdsaDerivationApplicationBindingDigestB64u,
+  parseSdkEcdsaDerivationSigningRootId,
+  parseSdkEcdsaDerivationSigningRootVersion,
+} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import type { AccountId } from '@/core/types/accountIds';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import {
@@ -64,8 +64,8 @@ import {
   type ThresholdRuntimePolicyScope,
 } from '@/core/signingEngine/threshold/sessionPolicy';
 import type {
-  EcdsaHssRoleLocalPublicIdentity,
-  ThresholdEcdsaHssRoleLocalBootstrapValue,
+  EcdsaDerivationRoleLocalPublicIdentity,
+  ThresholdEcdsaDerivationRoleLocalBootstrapValue,
 } from './thresholdEcdsa';
 import {
   buildEcdsaRoleLocalEmailOtpAuthMethod,
@@ -411,7 +411,7 @@ export type WalletRegistrationRouteTimingName =
 
 export type WalletRegistrationRouteDiagnostics = {
   kind: 'wallet_registration_route_diagnostics_v1';
-  route: 'wallets_register_start' | 'wallets_register_hss_respond' | 'wallets_register_finalize';
+  route: 'wallets_register_start' | 'wallets_register_ecdsa_derivation_respond' | 'wallets_register_finalize';
   entries: {
     name: WalletRegistrationRouteTimingName;
     durationMs: number;
@@ -463,7 +463,7 @@ export type WalletRegistrationEcdsaRespondResponse = {
   ecdsa: {
     bootstraps: {
       chainTarget: ThresholdEcdsaChainTarget;
-      bootstrap: ThresholdEcdsaHssRoleLocalBootstrapValue;
+      bootstrap: ThresholdEcdsaDerivationRoleLocalBootstrapValue;
     }[];
   };
 };
@@ -519,24 +519,23 @@ type WalletRegistrationFinalizeResponseBase = {
   ok: true;
   walletId: WalletId;
   authority: WalletAuthAuthority;
-  authMethod: WalletRegistrationFinalizeAuthMethod;
   registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
 };
 
-type WalletRegistrationFinalizeResponseAuthority =
+export type WalletRegistrationFinalizeResponseAuthority =
   | {
       rpId: string;
       authMethod: Extract<WalletRegistrationFinalizeAuthMethod, { kind: 'passkey' }>;
+      appSessionJwt?: never;
     }
   | {
       authMethod: Extract<WalletRegistrationFinalizeAuthMethod, { kind: 'email_otp' }>;
+      appSessionJwt: string;
       rpId?: never;
     };
 
-export type WalletRegistrationFinalizeResponse = WalletRegistrationFinalizeResponseBase &
-  WalletRegistrationFinalizeResponseAuthority &
-  (
-    | {
+type WalletRegistrationFinalizeSignerResult =
+  | {
         kind: 'near_ed25519';
         authorityScope: Ed25519AuthorityScope;
         accountProvisioning: RegistrationNearAccountProvisioning;
@@ -559,8 +558,24 @@ export type WalletRegistrationFinalizeResponse = WalletRegistrationFinalizeRespo
         resolvedAccount: ResolvedRegistrationNearAccount;
         ed25519: WalletRegistrationEd25519YaoPublicResult;
         ecdsa: { walletKeys: WalletRegistrationEcdsaWalletKey[] };
-      }
-  );
+      };
+
+export type EmailOtpWalletRegistrationFinalizeResponse =
+  WalletRegistrationFinalizeResponseBase &
+    Extract<WalletRegistrationFinalizeResponseAuthority, { authMethod: { kind: 'email_otp' } }> &
+    WalletRegistrationFinalizeSignerResult;
+
+export type WalletRegistrationFinalizeResponse =
+  | (WalletRegistrationFinalizeResponseBase &
+      Extract<WalletRegistrationFinalizeResponseAuthority, { authMethod: { kind: 'passkey' } }> &
+      WalletRegistrationFinalizeSignerResult)
+  | EmailOtpWalletRegistrationFinalizeResponse;
+
+export function isEmailOtpWalletRegistrationFinalizeResponse(
+  response: WalletRegistrationFinalizeResponse,
+): response is EmailOtpWalletRegistrationFinalizeResponse {
+  return response.authMethod.kind === 'email_otp';
+}
 
 export type WalletRegistrationEmailOtpEnrollmentMaterial = {
   recoveryWrappedEnrollmentEscrows: unknown[];
@@ -741,7 +756,7 @@ export type WalletAddSignerEcdsaRespondResponse = {
   ecdsa: {
     bootstraps: {
       chainTarget: ThresholdEcdsaChainTarget;
-      bootstrap: ThresholdEcdsaHssRoleLocalBootstrapValue;
+      bootstrap: ThresholdEcdsaDerivationRoleLocalBootstrapValue;
     }[];
   };
 };
@@ -887,7 +902,7 @@ function parseWalletAddSignerEcdsaPrepare(
         ],
         responseName,
       );
-      if (prepare.formatVersion !== 'ecdsa-hss-role-local' || prepare.keyScope !== 'evm-family') {
+      if (prepare.formatVersion !== 'ecdsa-derivation-role-local' || prepare.keyScope !== 'evm-family') {
         throw new Error(`${responseName} response has invalid prepare discriminator`);
       }
       const participantIds = requireResponseParticipantPair(prepare.participantIds, responseName);
@@ -899,7 +914,7 @@ function parseWalletAddSignerEcdsaPrepare(
       return {
         chainTarget: expectedTarget,
         prepare: {
-          formatVersion: 'ecdsa-hss-role-local',
+          formatVersion: 'ecdsa-derivation-role-local',
           walletId: requireResponseString({
             responseName,
             field: 'prepare.walletId',
@@ -1363,7 +1378,7 @@ export function parseWalletAddSignerFinalizeResponse(args: {
 }
 
 export type WalletRegistrationEcdsaPrepareContext = {
-  formatVersion: 'ecdsa-hss-role-local';
+  formatVersion: 'ecdsa-derivation-role-local';
   walletId: string;
   evmFamilySigningKeySlotId: string;
   ecdsaThresholdKeyId: string;
@@ -1382,7 +1397,7 @@ export type WalletRegistrationEcdsaPrepareContext = {
 };
 
 export type WalletRegistrationEcdsaClientBootstrap = WalletRegistrationEcdsaPrepareContext & {
-  hssClientSharePublicKey33B64u: string;
+  derivationClientSharePublicKey33B64u: string;
   clientShareRetryCounter: number;
   contextBinding32B64u: string;
   clientRootProof?: never;
@@ -1406,8 +1421,8 @@ export type WalletRegistrationEcdsaWalletKey = {
 };
 
 export type WalletRegistrationEcdsaCompletedBootstrap = {
-  bootstrap: ThresholdEcdsaHssRoleLocalBootstrapValue;
-  publicIdentity: EcdsaHssRoleLocalPublicIdentity;
+  bootstrap: ThresholdEcdsaDerivationRoleLocalBootstrapValue;
+  publicIdentity: EcdsaDerivationRoleLocalPublicIdentity;
 };
 
 type WalletRegistrationStartAuthority =
@@ -1422,14 +1437,14 @@ type WalletRegistrationStartAuthority =
       webauthnRegistration?: never;
     };
 
-export type WalletRegistrationEcdsaHssRespondBootstrap = {
+export type WalletRegistrationEcdsaDerivationRespondBootstrap = {
   walletId: string;
   evmFamilySigningKeySlotId: string;
   ecdsaThresholdKeyId: string;
   relayerKeyId: string;
   applicationBindingDigestB64u: string;
   contextBinding32B64u: string;
-  publicIdentity: EcdsaHssRoleLocalPublicIdentity;
+  publicIdentity: EcdsaDerivationRoleLocalPublicIdentity;
   keyHandle: string;
   signingRootId: string;
   signingRootVersion: string;
@@ -1442,7 +1457,7 @@ export type WalletRegistrationEcdsaHssRespondBootstrap = {
   expiresAtMs: number;
   remainingUses: number;
   walletSessionJwt: string;
-  routerAbEcdsaHssNormalSigning: RouterAbEcdsaHssNormalSigningStateV1;
+  routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
 };
 
 function requireMatchingString(args: {
@@ -1502,16 +1517,16 @@ function requireMatchingPositiveSafeInteger(args: {
   return actual;
 }
 
-export function parseWalletRegistrationEcdsaHssRespond(args: {
+export function parseWalletRegistrationEcdsaDerivationRespond(args: {
   clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
-  serverBootstrap: ThresholdEcdsaHssRoleLocalBootstrapValue;
-}): WalletRegistrationEcdsaHssRespondBootstrap {
+  serverBootstrap: ThresholdEcdsaDerivationRoleLocalBootstrapValue;
+}): WalletRegistrationEcdsaDerivationRespondBootstrap {
   const clientBootstrap = args.clientBootstrap;
   const serverBootstrap = args.serverBootstrap;
   requireMatchingString({
-    field: 'hssClientSharePublicKey33B64u',
-    expected: clientBootstrap.hssClientSharePublicKey33B64u,
-    actual: serverBootstrap.publicIdentity.hssClientSharePublicKey33B64u,
+    field: 'derivationClientSharePublicKey33B64u',
+    expected: clientBootstrap.derivationClientSharePublicKey33B64u,
+    actual: serverBootstrap.publicIdentity.derivationClientSharePublicKey33B64u,
   });
   const contextBinding32B64u = requireMatchingString({
     field: 'contextBinding32B64u',
@@ -1549,8 +1564,8 @@ export function parseWalletRegistrationEcdsaHssRespond(args: {
   });
 
   const walletSessionJwt = String(serverBootstrap.jwt || '').trim();
-  const routerAbEcdsaHssNormalSigning =
-    parseRouterAbEcdsaHssNormalSigningFromWalletRegistrationJwtV1({
+  const routerAbEcdsaDerivationNormalSigning =
+    parseRouterAbEcdsaDerivationNormalSigningFromWalletRegistrationJwtV1({
       walletSessionJwt,
       expected: {
         walletId: String(serverBootstrap.walletId || '').trim(),
@@ -1571,7 +1586,7 @@ export function parseWalletRegistrationEcdsaHssRespond(args: {
         ).trim(),
         contextBinding32B64u: String(serverBootstrap.contextBinding32B64u || '').trim(),
         clientPublicKey33B64u: String(
-          serverBootstrap.publicIdentity.hssClientSharePublicKey33B64u || '',
+          serverBootstrap.publicIdentity.derivationClientSharePublicKey33B64u || '',
         ).trim(),
         serverPublicKey33B64u: String(
           serverBootstrap.publicIdentity.relayerPublicKey33B64u || '',
@@ -1642,7 +1657,7 @@ export function parseWalletRegistrationEcdsaHssRespond(args: {
     expiresAtMs,
     remainingUses,
     walletSessionJwt,
-    routerAbEcdsaHssNormalSigning,
+    routerAbEcdsaDerivationNormalSigning,
   };
 }
 
@@ -1654,7 +1669,7 @@ export async function buildWalletRegistrationEcdsaSessionBootstrap(args: {
   readyStateBlob: EcdsaRoleLocalReadyStateBlob;
   signingMaterialHandle?: ThresholdEcdsaRoleLocalWorkerShareHandle;
   clientVerifyingShareB64u: string;
-  serverBootstrap: WalletRegistrationEcdsaHssRespondBootstrap;
+  serverBootstrap: WalletRegistrationEcdsaDerivationRespondBootstrap;
   walletKey: WalletRegistrationEcdsaWalletKey;
   authMethod:
     | { kind: 'passkey'; credentialIdB64u: string; rpId: string }
@@ -1729,17 +1744,17 @@ export async function buildWalletRegistrationEcdsaSessionBootstrap(args: {
     actual: serverBootstrap.participantIds,
   });
   const walletSessionJwt = serverBootstrap.walletSessionJwt;
-  const routerAbEcdsaHssNormalSigning = serverBootstrap.routerAbEcdsaHssNormalSigning;
+  const routerAbEcdsaDerivationNormalSigning = serverBootstrap.routerAbEcdsaDerivationNormalSigning;
   const thresholdSessionId = serverBootstrap.thresholdSessionId;
   const signingGrantId = serverBootstrap.signingGrantId;
   const remainingUses = serverBootstrap.remainingUses;
   const expiresAtMs = serverBootstrap.expiresAtMs;
-  const expectedApplicationBindingDigestB64u = await computeSdkEcdsaHssApplicationBindingDigestB64u(
+  const expectedApplicationBindingDigestB64u = await computeSdkEcdsaDerivationApplicationBindingDigestB64u(
     {
       walletId: toWalletId(args.walletId),
       ecdsaThresholdKeyId,
-      signingRootId: parseSdkEcdsaHssSigningRootId(signingRootId),
-      signingRootVersion: parseSdkEcdsaHssSigningRootVersion(signingRootVersion),
+      signingRootId: parseSdkEcdsaDerivationSigningRootId(signingRootId),
+      signingRootVersion: parseSdkEcdsaDerivationSigningRootVersion(signingRootVersion),
     },
   );
   const applicationBindingDigestB64u = requireMatchingString({
@@ -1760,7 +1775,7 @@ export async function buildWalletRegistrationEcdsaSessionBootstrap(args: {
     clientParticipantId: 1,
     relayerParticipantId: 2,
     contextBinding32B64u: serverBootstrap.contextBinding32B64u,
-    hssClientSharePublicKey33B64u: args.clientVerifyingShareB64u,
+    derivationClientSharePublicKey33B64u: args.clientVerifyingShareB64u,
     relayerPublicKey33B64u: serverBootstrap.publicIdentity.relayerPublicKey33B64u,
     groupPublicKey33B64u: serverBootstrap.publicIdentity.groupPublicKey33B64u,
     ethereumAddress,
@@ -1806,7 +1821,7 @@ export async function buildWalletRegistrationEcdsaSessionBootstrap(args: {
     thresholdEcdsaPublicKeyB64u,
     ethereumAddress,
     relayerVerifyingShareB64u,
-    routerAbEcdsaHssNormalSigning,
+    routerAbEcdsaDerivationNormalSigning,
     thresholdSessionKind: 'jwt',
     walletSessionJwt,
     thresholdSessionId,
@@ -1970,7 +1985,7 @@ export async function respondWalletRegistrationEcdsa(args: {
 }): Promise<WalletRegistrationEcdsaRespondResponse> {
   return await postJson<WalletRegistrationEcdsaRespondResponse>({
     relayerUrl: args.relayerUrl,
-    path: '/wallets/register/hss/respond',
+    path: '/wallets/register/derivation/respond',
     headers: args.headers,
     body: {
       registrationCeremonyId: args.registrationCeremonyId,
@@ -2192,7 +2207,7 @@ export async function respondWalletAddSignerEcdsa(args: {
   if (!walletId) throw new Error('walletId is required for add-signer ECDSA respond');
   return await postJson<WalletAddSignerEcdsaRespondResponse>({
     relayerUrl: args.relayerUrl,
-    path: `/wallets/${encodeURIComponent(walletId)}/signers/hss/respond`,
+    path: `/wallets/${encodeURIComponent(walletId)}/signers/derivation/respond`,
     body: {
       addSignerCeremonyId: args.addSignerCeremonyId,
       ecdsa: args.ecdsa,

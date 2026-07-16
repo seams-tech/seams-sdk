@@ -1,4 +1,4 @@
-import { THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANTS_V1 } from '@shared/threshold/secp256k1';
+import { THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANT_IDS_V1 } from '@shared/threshold/secp256k1';
 import { THRESHOLD_ED25519_2P_PARTICIPANT_IDS } from '@shared/threshold/participants';
 import {
   implicitNearAccountProvisioning,
@@ -53,7 +53,7 @@ export function buildNearWalletRegistrationSignerSetSelection(args: {
       {
         kind: 'evm_family_ecdsa',
         chainTargets: [...ecdsaChainTargets],
-        participantIds: [...THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANTS_V1.participantIds],
+        participantIds: [...THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANT_IDS_V1],
       },
     ],
   };

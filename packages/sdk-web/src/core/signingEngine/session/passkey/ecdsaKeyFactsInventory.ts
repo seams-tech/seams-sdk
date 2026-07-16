@@ -70,7 +70,7 @@ function normalizeEvmOwnerAddress(value: unknown): string {
   return /^0x[0-9a-f]{40}$/.test(candidate) ? candidate : '';
 }
 
-const EVM_FAMILY_ECDSA_KEY_HANDLE_PATTERN = /^ehss-key-[A-Za-z0-9_-]+$/;
+const EVM_FAMILY_ECDSA_KEY_HANDLE_PATTERN = /^ederivation-key-[A-Za-z0-9_-]+$/;
 
 function parseCurrentEcdsaKeyHandle(value: unknown):
   | { kind: 'resolved'; keyHandle: string }

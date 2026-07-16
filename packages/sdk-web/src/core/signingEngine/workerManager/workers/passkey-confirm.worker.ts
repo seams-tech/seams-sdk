@@ -42,10 +42,10 @@ import {
   type UserConfirmRequest,
   type UserConfirmDecision,
 } from '../../stepUpConfirmation/channel/confirmTypes';
-import initEthSigner, {
+import initEvmCrypto, {
   derive_secp256k1_keypair_from_prf_second,
-  init_eth_signer,
-} from '../../../../../../../wasm/eth_signer/pkg/eth_signer.js';
+  init_evm_crypto,
+} from '../../../../../../../wasm/evm_crypto/pkg/evm_crypto.js';
 import {
   RouterAbEd25519YaoClientV1,
   RouterAbEd25519YaoHttpActivationTransportV1,
@@ -128,11 +128,11 @@ const passkeyPrfFirstHandleStore = new Map<string, PasskeyPrfFirstHandleEntry>()
 const passkeyServerSealedSecretCache = new Map<string, PasskeyServerSealedSecretCacheEntry>();
 const signingSessionSealApplyInFlight = new Map<string, Promise<OkSealResult | ErrResult>>();
 const signingSessionSealRemoveInFlight = new Map<string, Promise<OkResult | ErrResult>>();
-const ethSignerWasmUrl = resolveWasmUrl('eth_signer.wasm', 'Eth Signer');
+const evmCryptoWasmUrl = resolveWasmUrl('evm_crypto.wasm', 'Eth Signer');
 const SIGNING_SESSION_SEAL_BASE_PATH = WALLET_SESSION_SEAL_BASE_PATH;
-type EcdsaHssThresholdExportWorkerPayload = Extract<
+type EcdsaDerivationThresholdExportWorkerPayload = Extract<
   ExportPrivateKeysWithUiWorkerPayload,
-  { artifactKind: 'ecdsa-hss-secp256k1-export' }
+  { artifactKind: 'ecdsa-derivation-secp256k1-export' }
 >;
 
 type ExportWorkerTarget = {
@@ -149,7 +149,7 @@ type Ed25519ExportPrivateKeyDisplayEntry = ExportPrivateKeyDisplayEntry & {
   scheme: 'ed25519';
 };
 
-let ethSignerWasmInitPromise: Promise<void> | null = null;
+let evmCryptoWasmInitPromise: Promise<void> | null = null;
 
 type UserConfirmWorkerIncomingMessage = {
   id?: unknown;
@@ -508,7 +508,7 @@ function parseExportRequestPayload(value: unknown): ExportPrivateKeysWithUiWorke
   const parsedWalletId = parseWalletId(payload.walletId);
   if (!parsedWalletId.ok) return null;
   const walletId = String(parsedWalletId.value);
-  if (artifactKind === 'ecdsa-hss-secp256k1-export') {
+  if (artifactKind === 'ecdsa-derivation-secp256k1-export') {
     const publicKeyHex = normalizeOptionalNonEmptyString(payload.publicKeyHex);
     const privateKeyHex = normalizeOptionalNonEmptyString(payload.privateKeyHex);
     const ethereumAddress = normalizeOptionalNonEmptyString(payload.ethereumAddress);
@@ -546,11 +546,14 @@ function isRouterAbEd25519YaoExportWorkerPayload(
   );
 }
 
-function requireEcdsaHssThresholdExportPayload(
+function requireEcdsaDerivationThresholdExportPayload(
   payload: ExportPrivateKeysWithUiWorkerPayload,
-): EcdsaHssThresholdExportWorkerPayload {
-  if (!('artifactKind' in payload) || payload.artifactKind !== 'ecdsa-hss-secp256k1-export') {
-    throw new Error('ecdsa-hss secp256k1 export artifact metadata missing or invalid');
+): EcdsaDerivationThresholdExportWorkerPayload {
+  if (
+    !('artifactKind' in payload) ||
+    payload.artifactKind !== 'ecdsa-derivation-secp256k1-export'
+  ) {
+    throw new Error('ecdsa-derivation secp256k1 export artifact metadata missing or invalid');
   }
   return payload;
 }
@@ -779,25 +782,25 @@ function requirePrfB64uFromCredential(
   return value;
 }
 
-async function ensureEthSignerWasmReady(): Promise<void> {
-  if (ethSignerWasmInitPromise) return ethSignerWasmInitPromise;
-  ethSignerWasmInitPromise = (async () => {
+async function ensureEvmCryptoWasmReady(): Promise<void> {
+  if (evmCryptoWasmInitPromise) return evmCryptoWasmInitPromise;
+  evmCryptoWasmInitPromise = (async () => {
     try {
-      await initEthSigner({ module_or_path: ethSignerWasmUrl });
-      init_eth_signer();
+      await initEvmCrypto({ module_or_path: evmCryptoWasmUrl });
+      init_evm_crypto();
     } catch (error: unknown) {
-      ethSignerWasmInitPromise = null;
+      evmCryptoWasmInitPromise = null;
       throw error;
     }
   })();
-  return ethSignerWasmInitPromise;
+  return evmCryptoWasmInitPromise;
 }
 
 async function deriveSecp256k1FromPrfSecondInWorker(args: {
   prfSecondB64u: string;
   derivationSubjectId: string;
 }): Promise<{ privateKeyHex: string; publicKeyHex: string; ethereumAddress: string }> {
-  await ensureEthSignerWasmReady();
+  await ensureEvmCryptoWasmReady();
   const prfSecond = base64UrlDecode(args.prfSecondB64u);
   try {
     const out = derive_secp256k1_keypair_from_prf_second(prfSecond, args.derivationSubjectId);
@@ -1116,12 +1119,12 @@ async function runExportPrivateKeysWithUi(
   };
   const exportSubjectId = exportSubjectIdForPayload(payload);
   const exportScheme = exportTarget.scheme;
-  const ecdsaHssExportPayload =
-    'artifactKind' in payload && payload.artifactKind === 'ecdsa-hss-secp256k1-export'
-      ? requireEcdsaHssThresholdExportPayload(payload)
+  const ecdsaDerivationExportPayload =
+    'artifactKind' in payload && payload.artifactKind === 'ecdsa-derivation-secp256k1-export'
+      ? requireEcdsaDerivationThresholdExportPayload(payload)
       : null;
   const exportOperation = 'Export Private Key';
-  const exportPublicKey = ecdsaHssExportPayload?.publicKeyHex || '';
+  const exportPublicKey = ecdsaDerivationExportPayload?.publicKeyHex || '';
   const loadingKeys: Secp256k1ExportPrivateKeyDisplayEntry[] = exportPublicKey
     ? [
         {
@@ -1155,7 +1158,7 @@ async function runExportPrivateKeysWithUi(
         operation: exportOperation,
         accountId: exportSubjectId,
         publicKey: exportPublicKey || '(threshold export key)',
-        warning: ecdsaHssExportPayload
+        warning: ecdsaDerivationExportPayload
           ? 'Confirm to reveal your EVM private key export.'
           : 'Authenticate with your passkey to prepare export keys.',
       },
@@ -1178,7 +1181,7 @@ async function runExportPrivateKeysWithUi(
     const credential = decision.credential
       ? normalizeAuthenticationCredential(decision.credential)
       : undefined;
-    if (!ecdsaHssExportPayload) {
+    if (!ecdsaDerivationExportPayload) {
       if (!credential) {
         throw new Error('Export confirmation did not return a WebAuthn authentication credential');
       }
@@ -1217,17 +1220,17 @@ async function runExportPrivateKeysWithUi(
     }
     loadingViewerOpened = true;
 
-    if (ecdsaHssExportPayload) {
+    if (ecdsaDerivationExportPayload) {
       exportKeys.push({
         scheme: 'secp256k1',
         label: secp256k1LabelForExportTarget(exportTarget.chainTarget),
-        publicKey: ecdsaHssExportPayload.publicKeyHex,
-        privateKey: ecdsaHssExportPayload.privateKeyHex,
-        address: ecdsaHssExportPayload.ethereumAddress,
+        publicKey: ecdsaDerivationExportPayload.publicKeyHex,
+        privateKey: ecdsaDerivationExportPayload.privateKeyHex,
+        address: ecdsaDerivationExportPayload.ethereumAddress,
       });
     }
 
-    if (!ecdsaHssExportPayload) {
+    if (!ecdsaDerivationExportPayload) {
       const derived = await deriveSecp256k1FromPrfSecondInWorker({
         prfSecondB64u,
         derivationSubjectId: exportSubjectId,
@@ -1746,12 +1749,22 @@ function toDecisionFromWorkerResponse(
   return decisionBase;
 }
 
-// This worker intentionally ignores USER_PASSKEY_CONFIRM_RESPONSE at the
-// `onmessage` level so awaitUserConfirmationV2's listener can consume it.
+function forwardUserConfirmProgressToHost(value: unknown): void {
+  const envelope = asRecord(value);
+  if (!envelope) return;
+  self.postMessage(envelope);
+}
+
+// Confirmation responses are consumed by awaitUserConfirmationV2. Progress
+// emitted by the main-thread prompt must cross back through this worker.
 self.onmessage = (event: MessageEvent) => {
   const incoming = asIncomingMessage(event.data);
   const eventType = incoming.type;
   if (eventType === UserConfirmMessageType.USER_PASSKEY_CONFIRM_RESPONSE) return;
+  if (eventType === UserConfirmMessageType.USER_PASSKEY_CONFIRM_PROGRESS) {
+    forwardUserConfirmProgressToHost(event.data);
+    return;
+  }
 
   const id = incoming.id;
 

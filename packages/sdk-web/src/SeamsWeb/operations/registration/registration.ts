@@ -82,13 +82,14 @@ import {
   createWalletRegistrationIntent,
   finalizeWalletAddSigner,
   finalizeWalletRegistration,
-  parseWalletRegistrationEcdsaHssRespond,
+  isEmailOtpWalletRegistrationFinalizeResponse,
+  parseWalletRegistrationEcdsaDerivationRespond,
   respondWalletAddSignerEcdsa,
   respondWalletRegistrationEcdsa,
   startWalletAddSigner,
   startWalletRegistration,
   type RegistrationPreparationId,
-  type WalletRegistrationEcdsaHssRespondBootstrap,
+  type WalletRegistrationEcdsaDerivationRespondBootstrap,
   type WalletRegistrationEcdsaWalletKey,
   type WalletRegistrationEmailOtpEnrollmentMaterial,
   type WalletRegistrationEmailOtpBackupAck,
@@ -230,7 +231,7 @@ type RegistrationTimingBucketValues = {
   emailOtpEnrollmentMaterialMs: number;
   walletRegisterStartMs: number;
   ecdsaClientBootstrapMs: number;
-  walletRegisterHssRespondMs: number;
+  walletRegisterDerivationRespondMs: number;
   emailOtpRecoveryCodeBackupMs: number;
   walletRegisterFinalizeMs: number;
   ecdsaRegistrationPersistenceMs: number;
@@ -691,7 +692,7 @@ function sanitizeWalletRegistrationRouteDiagnostics(
   if (!isObject(value) || value.kind !== 'wallet_registration_route_diagnostics_v1') return null;
   if (
     value.route !== 'wallets_register_start' &&
-    value.route !== 'wallets_register_hss_respond' &&
+    value.route !== 'wallets_register_ecdsa_derivation_respond' &&
     value.route !== 'wallets_register_finalize'
   ) {
     return null;
@@ -763,7 +764,7 @@ function createZeroRegistrationTimingBucketValues(): RegistrationTimingBucketVal
     emailOtpEnrollmentMaterialMs: 0,
     walletRegisterStartMs: 0,
     ecdsaClientBootstrapMs: 0,
-    walletRegisterHssRespondMs: 0,
+    walletRegisterDerivationRespondMs: 0,
     emailOtpRecoveryCodeBackupMs: 0,
     walletRegisterFinalizeMs: 0,
     ecdsaRegistrationPersistenceMs: 0,
@@ -832,7 +833,7 @@ function copyRegistrationTimingBucketValues(
     emailOtpEnrollmentMaterialMs: buckets.emailOtpEnrollmentMaterialMs,
     walletRegisterStartMs: buckets.walletRegisterStartMs,
     ecdsaClientBootstrapMs: buckets.ecdsaClientBootstrapMs,
-    walletRegisterHssRespondMs: buckets.walletRegisterHssRespondMs,
+    walletRegisterDerivationRespondMs: buckets.walletRegisterDerivationRespondMs,
     emailOtpRecoveryCodeBackupMs: buckets.emailOtpRecoveryCodeBackupMs,
     walletRegisterFinalizeMs: buckets.walletRegisterFinalizeMs,
     ecdsaRegistrationPersistenceMs: buckets.ecdsaRegistrationPersistenceMs,
@@ -1039,7 +1040,7 @@ const REGISTRATION_CRITICAL_PATH_BUCKETS: readonly RegistrationTimingBucketName[
   'emailOtpEnrollmentMaterialMs',
   'walletRegisterStartMs',
   'ecdsaClientBootstrapMs',
-  'walletRegisterHssRespondMs',
+  'walletRegisterDerivationRespondMs',
   'emailOtpRecoveryCodeBackupMs',
   'walletRegisterFinalizeMs',
   'ecdsaRegistrationPersistenceMs',
@@ -1115,7 +1116,7 @@ function buildRegistrationTimingBuckets(input: {
     emailOtpEnrollmentMaterialMs: buckets.emailOtpEnrollmentMaterialMs,
     walletRegisterStartMs: buckets.walletRegisterStartMs,
     ecdsaClientBootstrapMs: buckets.ecdsaClientBootstrapMs,
-    walletRegisterHssRespondMs: buckets.walletRegisterHssRespondMs,
+    walletRegisterDerivationRespondMs: buckets.walletRegisterDerivationRespondMs,
     emailOtpRecoveryCodeBackupMs: buckets.emailOtpRecoveryCodeBackupMs,
     walletRegisterFinalizeMs: buckets.walletRegisterFinalizeMs,
     ecdsaRegistrationPersistenceMs: buckets.ecdsaRegistrationPersistenceMs,
@@ -2478,7 +2479,7 @@ type RegistrationPersistenceAuth =
 type RegistrationEcdsaSession = {
   chainTarget: ThresholdEcdsaChainTarget;
   preparedClientBootstrap: WalletRegistrationEcdsaPreparedClientBootstrap;
-  bootstrap: WalletRegistrationEcdsaHssRespondBootstrap;
+  bootstrap: WalletRegistrationEcdsaDerivationRespondBootstrap;
 };
 
 type RegistrationPersistenceEcdsa = {
@@ -2688,7 +2689,7 @@ function buildRegistrationEcdsaSessions(args: {
     sessions.push({
       chainTarget: prepared.chainTarget,
       preparedClientBootstrap: prepared.preparedClientBootstrap,
-      bootstrap: parseWalletRegistrationEcdsaHssRespond({
+      bootstrap: parseWalletRegistrationEcdsaDerivationRespond({
         clientBootstrap: prepared.preparedClientBootstrap.clientBootstrap,
         serverBootstrap: responseBootstrap.bootstrap,
       }),
@@ -3439,10 +3440,6 @@ async function registerEcdsaOrMixedWallet(
       });
     } else {
       const emailOtpAuthMethod = args.authMethod;
-      emailOtpAppSessionBinding = emailOtpAppSessionBindingFromJwt({
-        walletId,
-        appSessionJwt: emailOtpAuthMethod.appSessionJwt,
-      });
       const emailAuthority = await registrationTiming.measure('authProofMs', () =>
         collectEmailOtpRegistrationAuthority({
           authMethod: emailOtpAuthMethod,
@@ -3452,9 +3449,6 @@ async function registerEcdsaOrMixedWallet(
           appSessionJwt: emailOtpAuthMethod.appSessionJwt,
         }),
       );
-      if (emailOtpAppSessionBinding.providerSubject !== emailAuthority.providerSubject) {
-        throw new Error('Email OTP registration app session belongs to a different provider');
-      }
       emailOtpEnrollmentMaterial = startEmailOtpRegistrationEnrollmentMaterial({
         recorder: registrationTiming,
         context,
@@ -3570,7 +3564,7 @@ async function registerEcdsaOrMixedWallet(
       }
       return targets;
     });
-    const responded = await registrationTiming.measure('walletRegisterHssRespondMs', () =>
+    const responded = await registrationTiming.measure('walletRegisterDerivationRespondMs', () =>
       respondWalletRegistrationEcdsa({
         relayerUrl,
         headers: registrationRouteDiagnosticsHeaders(),
@@ -3581,7 +3575,7 @@ async function registerEcdsaOrMixedWallet(
       }),
     );
     if (!responded.ecdsa?.bootstraps || responded.ecdsa.bootstraps.length === 0) {
-      throw new Error('Wallet registration HSS respond did not return ECDSA bootstrap material');
+      throw new Error('Wallet registration DERIVATION respond did not return ECDSA bootstrap material');
     }
     registrationTiming.captureRouteDiagnostics(responded.registrationDiagnostics);
     const ecdsaSessions = buildRegistrationEcdsaSessions({
@@ -3619,6 +3613,18 @@ async function registerEcdsaOrMixedWallet(
     throwIfRegistrationOperationCancelled(args.passkeyExecution.cancellation);
     if (finalized.kind !== args.kind) {
       throw new Error('Wallet registration finalize returned a different signer branch');
+    }
+    if (args.authMethod.kind === 'email_otp') {
+      if (!isEmailOtpWalletRegistrationFinalizeResponse(finalized)) {
+        throw new Error('Email OTP registration finalize returned a different auth method');
+      }
+      emailOtpAppSessionBinding = emailOtpAppSessionBindingFromJwt({
+        walletId: finalized.walletId,
+        appSessionJwt: finalized.appSessionJwt,
+      });
+      if (emailOtpAppSessionBinding.providerSubject !== emailOtpProviderSubject) {
+        throw new Error('Finalized Email OTP app session belongs to a different provider');
+      }
     }
     logRegistrationProgress('finalize_response_received', {
       walletId: finalized.walletId,
@@ -3887,10 +3893,6 @@ async function registerEmailOtpEd25519YaoWalletOnly(
     const { relayerUrl, intentResponse } = prepared;
     const walletId = intentResponse.intent.walletId;
     const eventAccountId = registrationEventAccountId(String(walletId));
-    const emailOtpAppSessionBinding = emailOtpAppSessionBindingFromJwt({
-      walletId,
-      appSessionJwt: args.authMethod.appSessionJwt,
-    });
     const emailAuthority = await registrationTiming.measure(
       'authProofMs',
       collectEmailOtpRegistrationAuthority.bind(undefined, {
@@ -3901,9 +3903,6 @@ async function registerEmailOtpEd25519YaoWalletOnly(
         appSessionJwt: args.authMethod.appSessionJwt,
       }),
     );
-    if (emailOtpAppSessionBinding.providerSubject !== emailAuthority.providerSubject) {
-      throw new Error('Email OTP registration app session belongs to a different provider');
-    }
     const enrollmentMaterial = startEmailOtpRegistrationEnrollmentMaterial({
       recorder: registrationTiming,
       context,
@@ -3987,6 +3986,16 @@ async function registerEmailOtpEd25519YaoWalletOnly(
     if (finalized.kind !== 'near_ed25519') {
       throw new Error('Wallet registration finalize returned a different signer branch');
     }
+    if (!isEmailOtpWalletRegistrationFinalizeResponse(finalized)) {
+      throw new Error('Email OTP registration finalize returned a different auth method');
+    }
+    const finalizedEmailOtpAppSessionBinding = emailOtpAppSessionBindingFromJwt({
+      walletId: finalized.walletId,
+      appSessionJwt: finalized.appSessionJwt,
+    });
+    if (finalizedEmailOtpAppSessionBinding.providerSubject !== emailAuthority.providerSubject) {
+      throw new Error('Finalized Email OTP app session belongs to a different provider');
+    }
     if (finalized.ed25519.signerSlot !== args.ed25519Selection.signerSlot) {
       throw new Error('Ed25519 Yao finalize returned a different signer slot');
     }
@@ -4069,7 +4078,7 @@ async function registerEmailOtpEd25519YaoWalletOnly(
     await yaoWork.commit({ activation: context.signingEngine, walletSessionState });
     rememberEmailOtpAppSessionForRegisteredWallet({
       context,
-      binding: emailOtpAppSessionBinding,
+      binding: finalizedEmailOtpAppSessionBinding,
     });
     emitRegistrationEvent(options.onEvent, eventAccountId, {
       authMethod: 'email_otp',
@@ -4893,9 +4902,9 @@ async function addPasskeyEcdsaWalletSigner(
   });
   const serverBootstrap = responded.ecdsa.bootstraps[0]?.bootstrap;
   if (!serverBootstrap) {
-    throw new Error('Wallet add-signer HSS respond did not return ECDSA bootstrap material');
+    throw new Error('Wallet add-signer DERIVATION respond did not return ECDSA bootstrap material');
   }
-  const ecdsaBootstrap = parseWalletRegistrationEcdsaHssRespond({
+  const ecdsaBootstrap = parseWalletRegistrationEcdsaDerivationRespond({
     clientBootstrap: preparedClientBootstrap.clientBootstrap,
     serverBootstrap,
   });

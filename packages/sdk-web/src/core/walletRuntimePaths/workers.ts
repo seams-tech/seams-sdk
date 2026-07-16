@@ -43,7 +43,15 @@ export function resolveWorkerScriptUrl(input: string): string {
 
 export function resolveWorkerUrl(
   input: string | undefined,
-  opts: { worker: 'signer' | 'ecdsaHssClient' | 'touchConfirm'; baseOrigin?: string },
+  opts: {
+    worker:
+      | 'signer'
+      | 'ecdsaDerivationClient'
+      | 'ecdsaPresignClient'
+      | 'ecdsaOnlineClient'
+      | 'touchConfirm';
+    baseOrigin?: string;
+  },
 ): string {
   const worker = opts.worker;
   const baseOrigin =
@@ -54,12 +62,26 @@ export function resolveWorkerUrl(
   try {
     // Prefer explicit per-worker URL override
     const ovAny = (typeof window !== 'undefined' ? (window as any) : {}) as any;
-    const override =
-      worker === 'signer'
-        ? ovAny.__W3A_SIGNER_WORKER_URL__
-        : worker === 'ecdsaHssClient'
-          ? ovAny.__W3A_ECDSA_HSS_CLIENT_WORKER_URL__
-        : ovAny.__W3A_TOUCH_CONFIRM_WORKER_URL__;
+    let override: unknown;
+    switch (worker) {
+      case 'signer':
+        override = ovAny.__W3A_SIGNER_WORKER_URL__;
+        break;
+      case 'ecdsaDerivationClient':
+        override = ovAny.__W3A_ECDSA_DERIVATION_CLIENT_WORKER_URL__;
+        break;
+      case 'ecdsaPresignClient':
+        override = ovAny.__W3A_ECDSA_PRESIGN_CLIENT_WORKER_URL__;
+        break;
+      case 'ecdsaOnlineClient':
+        override = ovAny.__W3A_ECDSA_ONLINE_CLIENT_WORKER_URL__;
+        break;
+      case 'touchConfirm':
+        override = ovAny.__W3A_TOUCH_CONFIRM_WORKER_URL__;
+        break;
+      default:
+        worker satisfies never;
+    }
     const candidate =
       typeof override === 'string' && override ? override : input || defaultWorkerPath(worker);
     if (/^https?:\/\//i.test(candidate)) {
@@ -74,14 +96,35 @@ export function resolveWorkerUrl(
   }
 }
 
-function detectWorkerFromPath(p: string): 'signer' | 'ecdsaHssClient' | 'touchConfirm' {
+type DedicatedWorkerKind =
+  | 'signer'
+  | 'ecdsaDerivationClient'
+  | 'ecdsaPresignClient'
+  | 'ecdsaOnlineClient'
+  | 'touchConfirm';
+
+function detectWorkerFromPath(p: string): DedicatedWorkerKind {
   if (/near-signer\.worker\.js(?:$|\?)/.test(p)) return 'signer';
-  if (/ecdsa-hss-client\.worker\.js(?:$|\?)/.test(p)) return 'ecdsaHssClient';
+  if (/ecdsa-derivation-client\.worker\.js(?:$|\?)/.test(p)) return 'ecdsaDerivationClient';
+  if (/ecdsa-presign-client\.worker\.js(?:$|\?)/.test(p)) return 'ecdsaPresignClient';
+  if (/ecdsa-online-client\.worker\.js(?:$|\?)/.test(p)) return 'ecdsaOnlineClient';
   return 'touchConfirm';
 }
 
-function defaultWorkerPath(worker: 'signer' | 'ecdsaHssClient' | 'touchConfirm'): string {
-  if (worker === 'signer') return '/sdk/workers/near-signer.worker.js';
-  if (worker === 'ecdsaHssClient') return '/sdk/workers/ecdsa-hss-client.worker.js';
-  return '/sdk/workers/passkey-confirm.worker.js';
+function defaultWorkerPath(worker: DedicatedWorkerKind): string {
+  switch (worker) {
+    case 'signer':
+      return '/sdk/workers/near-signer.worker.js';
+    case 'ecdsaDerivationClient':
+      return '/sdk/workers/ecdsa-derivation-client.worker.js';
+    case 'ecdsaPresignClient':
+      return '/sdk/workers/ecdsa-presign-client.worker.js';
+    case 'ecdsaOnlineClient':
+      return '/sdk/workers/ecdsa-online-client.worker.js';
+    case 'touchConfirm':
+      return '/sdk/workers/passkey-confirm.worker.js';
+    default:
+      worker satisfies never;
+      throw new Error('Unsupported dedicated worker kind');
+  }
 }

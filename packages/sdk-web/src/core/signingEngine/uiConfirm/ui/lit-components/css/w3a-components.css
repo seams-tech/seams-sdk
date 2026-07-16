@@ -181,10 +181,10 @@ w3a-export-key-viewer {
   --w3a-modal__passkey-halo-loading__ring-background: transparent 0%, var(--w3a-colors-highlightHalo) 10%, var(--w3a-colors-highlightHalo) 25%, transparent 35%;
   --w3a-modal__passkey-halo-loading__inner-background: transparent;
   --w3a-modal__passkey-halo-loading__inner-padding: 3px;
-  --w3a-modal__passkey-halo-loading-icon-container__background-color: var(--w3a-colors-surface);
+  --w3a-modal__passkey-halo-loading-icon-container__background-color: var(--w3a-colors-passkeyHaloBackground, var(--w3a-colors-surface));
   --w3a-modal__passkey-halo-loading-touch-icon__color: var(--w3a-colors-textPrimary);
   --w3a-modal__passkey-halo-loading-touch-icon__margin: 0.75rem;
-  --w3a-modal__passkey-halo-loading-touch-icon__stroke-width: 3;
+  --w3a-modal__passkey-halo-loading-touch-icon__stroke-width: 3.5;
 
   /* Default token aliases (dark) so components have tokens without relying on :root */
   --w3a-colors-textPrimary: oklch(0.97 0.002 240);

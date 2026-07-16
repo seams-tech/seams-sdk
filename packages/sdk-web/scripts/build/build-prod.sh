@@ -88,11 +88,13 @@ print_step "Bundling workers with Bun (minified)..."
 mkdir -p "$BUILD_WORKERS"
 
 if "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/near-signer.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --minify --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
-  && "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/ecdsa-hss-client.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --minify --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
+  && "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/ecdsa-derivation-client.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --minify --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
+  && "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/ecdsa-presign-client.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --minify --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
+  && "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/ecdsa-online-client.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --minify --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
   && "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/passkey-confirm.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --minify --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
   && "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/email-otp.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --minify --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
   && "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/shamir3pass.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --minify --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
-  && "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/eth-signer.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --minify --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
+  && "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/evm-crypto.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --minify --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
   && "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/tempo-signer.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --minify --root "$REPO_ROOT" --entry-naming '[name].[ext]'; then
   print_success "Bun worker bundling completed"
 else
@@ -103,9 +105,11 @@ print_step "Copying worker WASM binaries next to worker JS..."
 if cp "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg/wasm_signer_worker_bg.wasm" "$BUILD_WORKERS/" 2>/dev/null; then print_success "Signer WASM copied"; else print_warning "Signer WASM not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg/wasm_signer_worker_bg.wasm" "$BUILD_WORKERS/near_signer.wasm" 2>/dev/null; then print_success "near_signer.wasm copied"; else print_warning "near_signer.wasm not found"; fi
 if cp "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client_bg.wasm" "$BUILD_WORKERS/$ED25519_YAO_CLIENT_WASM" 2>/dev/null; then print_success "Ed25519 Yao Client WASM copied"; else print_warning "Ed25519 Yao Client WASM not found"; fi
-if cp "$SDK_ROOT/$SOURCE_WASM_ECDSA_CLIENT_SIGNER/pkg/ecdsa_client_signer_bg.wasm" "$BUILD_WORKERS/" 2>/dev/null; then print_success "ECDSA client signer WASM copied"; else print_warning "ECDSA client signer WASM not found"; fi
-if cp "$SDK_ROOT/$SOURCE_WASM_ETH_SIGNER/pkg/eth_signer_bg.wasm" "$BUILD_WORKERS/eth_signer.wasm" 2>/dev/null; then print_success "eth_signer.wasm copied"; else print_warning "eth_signer.wasm not found"; fi
-if cp "$SDK_ROOT/$SOURCE_WASM_ETH_SIGNER/pkg/eth_signer_bg.wasm" "$BUILD_WORKERS/eth_signer_bg.wasm" 2>/dev/null; then print_success "eth_signer_bg.wasm copied"; else print_warning "eth_signer_bg.wasm not found"; fi
+if cp "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg/router_ab_ecdsa_derivation_client_bg.wasm" "$BUILD_WORKERS/" 2>/dev/null; then print_success "ECDSA client signer WASM copied"; else print_warning "ECDSA client signer WASM not found"; fi
+if cp "$SDK_ROOT/$SOURCE_WASM_ECDSA_PRESIGN_CLIENT/pkg/router_ab_ecdsa_presign_client_bg.wasm" "$BUILD_WORKERS/" 2>/dev/null; then print_success "ECDSA presign WASM copied"; else print_warning "ECDSA presign WASM not found"; fi
+if cp "$SDK_ROOT/$SOURCE_WASM_ECDSA_ONLINE_CLIENT/pkg/router_ab_ecdsa_online_client_bg.wasm" "$BUILD_WORKERS/" 2>/dev/null; then print_success "ECDSA online WASM copied"; else print_warning "ECDSA online WASM not found"; fi
+if cp "$SDK_ROOT/$SOURCE_WASM_EVM_CRYPTO/pkg/evm_crypto_bg.wasm" "$BUILD_WORKERS/evm_crypto.wasm" 2>/dev/null; then print_success "evm_crypto.wasm copied"; else print_warning "evm_crypto.wasm not found"; fi
+if cp "$SDK_ROOT/$SOURCE_WASM_EVM_CRYPTO/pkg/evm_crypto_bg.wasm" "$BUILD_WORKERS/evm_crypto_bg.wasm" 2>/dev/null; then print_success "evm_crypto_bg.wasm copied"; else print_warning "evm_crypto_bg.wasm not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/pkg/tempo_signer_bg.wasm" "$BUILD_WORKERS/tempo_signer.wasm" 2>/dev/null; then print_success "tempo_signer.wasm copied"; else print_warning "tempo_signer.wasm not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/pkg/tempo_signer_bg.wasm" "$BUILD_WORKERS/tempo_signer_bg.wasm" 2>/dev/null; then print_success "tempo_signer_bg.wasm copied"; else print_warning "tempo_signer_bg.wasm not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/pkg/shamir3pass_runtime.js" "$BUILD_WORKERS/shamir3pass_runtime.js" 2>/dev/null; then print_success "shamir3pass_runtime.js copied"; else print_warning "shamir3pass_runtime.js not found"; fi
@@ -115,9 +119,9 @@ if cp "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg/email_otp_runtime_bg.wasm" "
 if cp "$SDK_ROOT/$SOURCE_WASM_THRESHOLD_PRF/pkg/threshold_prf_bg.wasm" "$BUILD_WORKERS/$WORKER_THRESHOLD_PRF_WASM" 2>/dev/null; then print_success "threshold_prf.wasm copied"; else print_warning "threshold_prf.wasm not found"; fi
 
 print_step "Copying browser ECDSA client WASM binary into dist/esm..."
-ECDSA_HSS_CLIENT_WASM_DIR="$BUILD_ESM/wasm/ecdsa_client_signer/pkg"
-mkdir -p "$ECDSA_HSS_CLIENT_WASM_DIR"
-if cp "$SDK_ROOT/$SOURCE_WASM_ECDSA_CLIENT_SIGNER/pkg/ecdsa_client_signer_bg.wasm" "$ECDSA_HSS_CLIENT_WASM_DIR/" 2>/dev/null; then
+ECDSA_DERIVATION_CLIENT_WASM_DIR="$BUILD_ESM/wasm/router_ab_ecdsa_derivation_client/pkg"
+mkdir -p "$ECDSA_DERIVATION_CLIENT_WASM_DIR"
+if cp "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg/router_ab_ecdsa_derivation_client_bg.wasm" "$ECDSA_DERIVATION_CLIENT_WASM_DIR/" 2>/dev/null; then
   print_success "Browser ECDSA client WASM copied"
 else
   print_warning "Browser ECDSA client WASM not found"
@@ -130,6 +134,13 @@ if cp "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client_bg.
   print_success "Ed25519 Yao Client WASM copied"
 else
   print_warning "Ed25519 Yao Client WASM not found"
+fi
+
+print_step "Copying Ed25519 Yao Client WASM next to browser SDK chunks..."
+if cp "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client_bg.wasm" "$BUILD_ESM/sdk/$ED25519_YAO_CLIENT_WASM" 2>/dev/null; then
+  print_success "Browser SDK Ed25519 Yao Client WASM copied"
+else
+  print_warning "Browser SDK Ed25519 Yao Client WASM not found"
 fi
 
 print_step "Emitting hosted wallet static asset tree..."

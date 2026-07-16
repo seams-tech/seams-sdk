@@ -1,5 +1,5 @@
 import { base64UrlDecode } from '@shared/utils/base64';
-import { decodeCoseP256PublicKeyWasm } from '../../chains/evm/ethSignerWasm';
+import { decodeCoseP256PublicKeyWasm } from '../../chains/evm/evmCryptoWasm';
 import { toWalletId } from '../../interfaces/ecdsaChainTarget';
 import type { EvmFamilyPasskeyAuthenticatorStorePort } from '../../interfaces/passkeyAuthenticatorStore';
 import type { KeyRef } from '../../interfaces/signing';

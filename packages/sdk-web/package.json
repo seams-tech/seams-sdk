@@ -115,9 +115,9 @@
     "test:source-guards": "pnpm -C ../../tests test:source-guards",
     "test:integration:signing": "pnpm -C ../../tests test:integration:signing",
     "test:threshold-core": "pnpm -C ../../tests test:threshold-core",
-    "smoke:eth-signer:node-runtime": "node ./scripts/smoke/smoke-eth-signer-node-runtime.mjs",
-    "smoke:eth-signer:workers-runtime": "node ./scripts/smoke/smoke-eth-signer-workers-runtime.mjs",
-    "smoke:eth-signer:runtimes": "pnpm smoke:eth-signer:node-runtime && pnpm smoke:eth-signer:workers-runtime",
+    "smoke:evm-crypto:node-runtime": "node ./scripts/smoke/smoke-evm-crypto-node-runtime.mjs",
+    "smoke:evm-crypto:workers-runtime": "node ./scripts/smoke/smoke-evm-crypto-workers-runtime.mjs",
+    "smoke:evm-crypto:runtimes": "pnpm smoke:evm-crypto:node-runtime && pnpm smoke:evm-crypto:workers-runtime",
     "test:wallet-iframe": "pnpm -C ../../tests test:wallet-iframe",
     "test:lit-components": "pnpm -C ../../tests test:lit-components",
     "test:relayer": "pnpm -C ../../tests test:relayer",
@@ -130,6 +130,7 @@
     "check:wasm-exports": "node ./scripts/checks/report-wasm-export-surface.mjs",
     "size:lite": "node ./scripts/reports/report-lite-bundle-sizes.mjs",
     "size:lite:check": "node ./scripts/reports/report-lite-bundle-sizes.mjs --check",
+    "evidence:yaos-ab:local-artifacts": "node ./scripts/reports/report-yaos-ab-local-artifacts.mjs ../../docs/evidence/yaos-ab-phase14b-local-artifacts-v1.json",
     "type-check": "tsc --noEmit"
   },
   "keywords": [

@@ -62,11 +62,11 @@ export function createEvmFamilySigningDeps(args: {
       }),
     getThresholdEcdsaSessionRecordByKey: (identity) =>
       createArgs.getThresholdEcdsaSessionRecordByKey(identity),
-    requestEmailOtpTransactionSigningChallenge: ({ walletSession, chain, authLane }) =>
+    requestEmailOtpTransactionSigningChallenge: ({ walletSession, chain, authority }) =>
       createArgs.requestEmailOtpTransactionSigningChallenge?.({
         walletSession,
         chain,
-        authLane,
+        authority,
       }) || Promise.reject(new Error('Email OTP signing challenge is not configured')),
     resolveDurableEmailOtpEcdsaSigningSessionAuthority: async ({ lane }) =>
       await resolveDurableEmailOtpEcdsaAuthority(lane),
@@ -75,7 +75,7 @@ export function createEvmFamilySigningDeps(args: {
       chainTarget,
       challengeId,
       otpCode,
-      committedLane,
+      authority,
       remainingUses,
     }) =>
       createArgs.loginWithEmailOtpEcdsaCapabilityForSigning?.({
@@ -83,7 +83,7 @@ export function createEvmFamilySigningDeps(args: {
         chainTarget,
         challengeId,
         otpCode,
-        committedLane,
+        authority,
         remainingUses,
       }) || Promise.reject(new Error('Email OTP signing bootstrap is not configured')),
     restorePersistedSessionForSigning: (restoreArgs) =>

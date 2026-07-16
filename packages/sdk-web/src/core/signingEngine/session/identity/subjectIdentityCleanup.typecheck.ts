@@ -39,7 +39,7 @@ const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
 const key = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId,
   evmFamilySigningKeySlotId: 'wallet-key-localhost',
-  ecdsaThresholdKeyId: 'ehss-subject-cleanup',
+  ecdsaThresholdKeyId: 'ederivation-subject-cleanup',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
   participantIds: [1, 2],
@@ -49,7 +49,7 @@ const key = buildBaseEvmFamilyEcdsaKeyIdentity({
 const validPublicKeyIdentity = buildEvmFamilyEcdsaKeyIdentity({
   walletId,
   evmFamilySigningKeySlotId: 'wallet-key-localhost',
-  ecdsaThresholdKeyId: 'ehss-subject-cleanup',
+  ecdsaThresholdKeyId: 'ederivation-subject-cleanup',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
   participantIds: [1, 2],
@@ -62,7 +62,7 @@ const invalidPublicKeyIdentity = buildEvmFamilyEcdsaKeyIdentity({
   // @ts-expect-error ECDSA public key identity builder derives subject identity from walletId.
   subjectId: 'wallet.testnet',
   evmFamilySigningKeySlotId: 'wallet-key-localhost',
-  ecdsaThresholdKeyId: 'ehss-subject-cleanup',
+  ecdsaThresholdKeyId: 'ederivation-subject-cleanup',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
   participantIds: [1, 2],

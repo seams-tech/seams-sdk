@@ -1,6 +1,9 @@
 import {
   buildWalletRegistrationFinalizeBody,
+  isEmailOtpWalletRegistrationFinalizeResponse,
   type FinalizeWalletRegistrationArgs,
+  type WalletRegistrationFinalizeResponse,
+  type WalletRegistrationFinalizeResponseAuthority,
 } from './walletRegistration';
 
 declare const activationReference: Extract<
@@ -44,3 +47,31 @@ const callerSuppliedReceipt: FinalizeWalletRegistrationArgs = {
   },
 };
 void callerSuppliedReceipt;
+
+// @ts-expect-error Email OTP finalize responses require the server-issued final-wallet session.
+const missingEmailOtpAppSession: WalletRegistrationFinalizeResponseAuthority = {
+  authMethod: {
+    kind: 'email_otp',
+    registrationAuthorityId: 'registration-authority-1',
+  },
+};
+void missingEmailOtpAppSession;
+
+// @ts-expect-error Passkey finalize responses cannot carry an Email OTP app session.
+const passkeyWithEmailOtpSession: WalletRegistrationFinalizeResponseAuthority = {
+  rpId: 'example.test',
+  authMethod: {
+    kind: 'passkey',
+    credentialIdB64u: 'credential-1',
+    credentialPublicKeyB64u: 'public-key-1',
+  },
+  appSessionJwt: 'app-session-1',
+};
+void passkeyWithEmailOtpSession;
+
+export function requireFinalizedEmailOtpAppSession(
+  response: WalletRegistrationFinalizeResponse,
+): string | null {
+  if (!isEmailOtpWalletRegistrationFinalizeResponse(response)) return null;
+  return response.appSessionJwt;
+}

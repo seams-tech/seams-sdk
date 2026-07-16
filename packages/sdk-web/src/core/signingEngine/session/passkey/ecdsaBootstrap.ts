@@ -8,8 +8,11 @@ import type {
 } from '../../threshold/crypto/webauthn';
 import {
   activateEcdsaSession,
+  activateExplicitKeyExportEcdsaSession,
+  type ActivateExplicitKeyExportEcdsaSessionRequest,
   type ActivateEcdsaSessionAuth,
   type ActivateEcdsaSessionRequest,
+  type ThresholdEcdsaExplicitKeyExportActivationResult,
   type ThresholdEcdsaSessionBootstrapResult,
 } from '../../threshold/ecdsa/activation';
 import type {
@@ -18,7 +21,7 @@ import type {
 } from '../identity/laneIdentity';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
-import type { ThresholdEcdsaHssRouteAuth } from '@/core/rpcClients/relayer/thresholdEcdsa';
+import type { ThresholdEcdsaDerivationRouteAuth } from '@/core/rpcClients/relayer/thresholdEcdsa';
 import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import { SigningSessionIds, type SigningOperationIntent } from '../operationState/types';
 import type {
@@ -97,7 +100,7 @@ type EcdsaBootstrapExactRequestBase = EcdsaBootstrapRequestCommon & EcdsaBootstr
 
 type PasskeyFreshBootstrapRouteAuth = AppOrWalletSessionAuth;
 
-type EmailOtpBootstrapRouteAuth = ThresholdEcdsaHssRouteAuth;
+type EmailOtpBootstrapRouteAuth = ThresholdEcdsaDerivationRouteAuth;
 export type WalletSessionReconnectEcdsaBootstrapRouteAuth = AppOrWalletSessionAuth;
 
 type EmailOtpEcdsaBootstrapWorkerHandle = Extract<
@@ -177,6 +180,16 @@ type PasskeyFreshEcdsaBootstrapExactRequest =
   | (PasskeyFreshEcdsaBootstrapExactRequestBase & {
       routeAuth?: never;
     } & PasskeyPromptBootstrapAuth);
+
+export type PasskeyEcdsaExportBootstrapRequest = Omit<
+  PasskeyFreshEcdsaBootstrapExactRequestBase,
+  'kind'
+> &
+  PasskeyWebAuthnPrfBootstrapAuth & {
+    kind: 'passkey_ecdsa_export_bootstrap';
+    purpose: 'explicit_key_export';
+    routeAuth?: never;
+  };
 
 export type PasskeyFreshEcdsaBootstrapRequest =
   | PasskeyFreshEcdsaBootstrapExactRequest
@@ -416,6 +429,7 @@ function toActivateEcdsaSessionRequest(
         : undefined;
     return {
       kind: 'key_enrollment_bootstrap' as const,
+      purpose: 'transaction_signing' as const,
       walletId: targetRequest.walletId,
       chainTarget: targetRequest.chainTarget,
       relayerUrl,
@@ -468,11 +482,12 @@ function toActivateEcdsaSessionRequest(
 
   const exactSessionRequest = (
     exactRequest: Extract<EcdsaBootstrapRequest, { key: EvmFamilyEcdsaKeyIdentity }>,
-    walletSessionRouteAuth: ThresholdEcdsaHssRouteAuth | undefined,
+    walletSessionRouteAuth: ThresholdEcdsaDerivationRouteAuth | undefined,
     auth: ActivateEcdsaSessionAuth,
   ): ActivateEcdsaSessionRequest => {
     return {
       kind: 'session_bootstrap',
+      purpose: 'transaction_signing' as const,
       relayerUrl,
       keyHandle: toEvmFamilyEcdsaKeyHandle(exactRequest.keyHandle),
       key: exactRequest.key,
@@ -544,6 +559,25 @@ function toActivateEcdsaSessionRequest(
   }
   request satisfies never;
   throw new Error('[SigningEngine][ecdsa] unsupported ECDSA bootstrap request');
+}
+
+function toActivateExplicitKeyExportEcdsaSessionRequest(
+  request: PasskeyEcdsaExportBootstrapRequest,
+  relayerUrl: string,
+): ActivateExplicitKeyExportEcdsaSessionRequest {
+  return {
+    kind: 'session_bootstrap',
+    purpose: 'explicit_key_export',
+    relayerUrl,
+    keyHandle: toEvmFamilyEcdsaKeyHandle(request.keyHandle),
+    key: request.key,
+    lanePolicy: request.lanePolicy,
+    requestId: request.requestId,
+    authKind: 'passkey_webauthn_prf_b64u',
+    webauthnAuthentication: request.webauthnAuthentication,
+    passkeyPrfFirstB64u: request.passkeyPrfFirstB64u,
+    runtimeScopeBootstrap: request.runtimeScopeBootstrap,
+  };
 }
 
 async function normalizeRuntimeEcdsaBootstrapRequest(
@@ -690,4 +724,22 @@ export async function bootstrapEcdsaSessionValue(
     });
   }
   return canonicalBootstrap;
+}
+
+export async function bootstrapExplicitKeyExportEcdsaSessionValue(
+  deps: WalletSessionActivationDeps,
+  request: PasskeyEcdsaExportBootstrapRequest,
+): Promise<ThresholdEcdsaExplicitKeyExportActivationResult> {
+  const relayerUrl = resolveRelayerUrl(request.relayerUrl, deps.defaultRelayerUrl);
+  const activation = await activateExplicitKeyExportEcdsaSession(
+    {
+      credentialStore: deps.credentialStore,
+      touchIdPrompt: deps.touchIdPrompt,
+      workerCtx: deps.getSignerWorkerContext(),
+      routerAbNormalSigning: deps.routerAbNormalSigning,
+      getOrCreateActiveThresholdEcdsaSessionId: deps.getOrCreateActiveThresholdEcdsaSessionId,
+    },
+    toActivateExplicitKeyExportEcdsaSessionRequest(request, relayerUrl),
+  );
+  return activation;
 }

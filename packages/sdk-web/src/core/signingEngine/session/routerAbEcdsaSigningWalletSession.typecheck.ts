@@ -1,8 +1,8 @@
-import type { RouterAbEcdsaHssNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaHss';
+import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
-import { buildRouterAbEcdsaHssSigningMaterialRef } from '../routerAb/ecdsaHss/signingMaterialRef';
+import { buildRouterAbEcdsaDerivationSigningMaterialRef } from '../routerAb/ecdsaDerivation/signingMaterialRef';
 import type {
-  RouterAbEcdsaHssSigningWalletSession,
+  RouterAbEcdsaDerivationSigningWalletSession,
   RouterAbSigningWalletSessionAuth,
 } from './routerAbSigningWalletSession';
 
@@ -23,11 +23,11 @@ const runtimePolicyScope = {
 } satisfies ThresholdRuntimePolicyScope;
 
 const routerAbNormalSigning = {
-  kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+  kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
   scope: {
     wallet_key_id: 'localhost',
     wallet_id: 'alice.testnet',
-    ecdsa_threshold_key_id: 'ehss-shared-key',
+    ecdsa_threshold_key_id: 'ederivation-shared-key',
     signing_root_id: 'project-test:dev',
     signing_root_version: 'default',
     context: {
@@ -35,7 +35,7 @@ const routerAbNormalSigning = {
     },
     public_identity: {
       context_binding_b64u: 'context-binding',
-      client_public_key33_b64u: 'client-public-key',
+      derivation_client_share_public_key33_b64u: 'client-public-key',
       server_public_key33_b64u: 'server-public-key',
       threshold_public_key33_b64u: 'threshold-public-key',
       ethereum_address20_b64u: 'ethereum-address',
@@ -49,9 +49,9 @@ const routerAbNormalSigning = {
     },
     activation_epoch: 'activation-epoch-1',
   },
-} satisfies RouterAbEcdsaHssNormalSigningStateV1;
+} satisfies RouterAbEcdsaDerivationNormalSigningStateV1;
 
-const signingMaterial = buildRouterAbEcdsaHssSigningMaterialRef({
+const signingMaterial = buildRouterAbEcdsaDerivationSigningMaterialRef({
   routerAbState: routerAbNormalSigning,
 });
 
@@ -64,49 +64,49 @@ const validSession = {
   expiresAtMs: 1_900_000_000_000,
   signingMaterial,
   runtimePolicyScope,
-  routerAbEcdsaHssNormalSigning: routerAbNormalSigning,
-} satisfies RouterAbEcdsaHssSigningWalletSession;
+  routerAbEcdsaDerivationNormalSigning: routerAbNormalSigning,
+} satisfies RouterAbEcdsaDerivationSigningWalletSession;
 
 const missingRouterAbState = {
   ...validSession,
-  // @ts-expect-error A signable ECDSA-HSS Wallet Session requires Router A/B state.
-  routerAbEcdsaHssNormalSigning: undefined,
-} satisfies RouterAbEcdsaHssSigningWalletSession;
+  // @ts-expect-error A signable Router A/B ECDSA derivation Wallet Session requires Router A/B state.
+  routerAbEcdsaDerivationNormalSigning: undefined,
+} satisfies RouterAbEcdsaDerivationSigningWalletSession;
 void missingRouterAbState;
 
 const missingRuntimePolicyScope = {
   ...validSession,
-  // @ts-expect-error A signable ECDSA-HSS Wallet Session requires runtime policy scope.
+  // @ts-expect-error A signable Router A/B ECDSA derivation Wallet Session requires runtime policy scope.
   runtimePolicyScope: undefined,
-} satisfies RouterAbEcdsaHssSigningWalletSession;
+} satisfies RouterAbEcdsaDerivationSigningWalletSession;
 void missingRuntimePolicyScope;
 
 const cookieAuth = {
   ...validSession,
   auth: {
-    // @ts-expect-error A signable ECDSA-HSS Wallet Session requires bearer JWT auth.
+    // @ts-expect-error A signable Router A/B ECDSA derivation Wallet Session requires bearer JWT auth.
     kind: 'browser_cookie',
   },
-} satisfies RouterAbEcdsaHssSigningWalletSession;
+} satisfies RouterAbEcdsaDerivationSigningWalletSession;
 void cookieAuth;
 
 const rawClientShare = {
   ...validSession,
   // @ts-expect-error Raw client signing shares cannot enter Wallet Session state.
   clientSigningShare32: new Uint8Array(32),
-} satisfies RouterAbEcdsaHssSigningWalletSession;
+} satisfies RouterAbEcdsaDerivationSigningWalletSession;
 void rawClientShare;
 
 const rawClientVerifier = {
   ...validSession,
   // @ts-expect-error Verifier material is carried by the parsed signing material.
   clientVerifyingShareB64u: 'raw-client-verifier',
-} satisfies RouterAbEcdsaHssSigningWalletSession;
+} satisfies RouterAbEcdsaDerivationSigningWalletSession;
 void rawClientVerifier;
 
 const missingSigningMaterial = {
   ...validSession,
-  // @ts-expect-error A signable ECDSA-HSS Wallet Session requires parsed signing material.
+  // @ts-expect-error A signable Router A/B ECDSA derivation Wallet Session requires parsed signing material.
   signingMaterial: undefined,
-} satisfies RouterAbEcdsaHssSigningWalletSession;
+} satisfies RouterAbEcdsaDerivationSigningWalletSession;
 void missingSigningMaterial;

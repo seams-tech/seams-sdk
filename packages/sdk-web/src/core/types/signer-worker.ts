@@ -166,17 +166,17 @@ type DirectPrfFields = {
 
 export type WasmDeriveThresholdEd25519ClientVerifyingShareRequest =
   StripFree<wasmModule.DeriveThresholdEd25519ClientVerifyingShareRequest> & DirectPrfFields;
-export type WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapRequest =
+export type WasmPrepareThresholdEcdsaDerivationRoleLocalClientBootstrapRequest =
   GeneratedPrepareEcdsaClientBootstrapCommand;
-export type WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapResult =
+export type WasmPrepareThresholdEcdsaDerivationRoleLocalClientBootstrapResult =
   GeneratedPrepareEcdsaClientBootstrapOutput;
-export type WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapRequest =
+export type WasmFinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapRequest =
   GeneratedFinalizeEcdsaClientBootstrapCommand;
-export type WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapResult =
+export type WasmFinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapResult =
   GeneratedFinalizeEcdsaClientBootstrapOutput;
-export type WasmBuildThresholdEcdsaHssRoleLocalExportArtifactRequest =
+export type WasmBuildThresholdEcdsaDerivationRoleLocalExportArtifactRequest =
   GeneratedBuildEcdsaRoleLocalExportArtifactCommand;
-export type WasmBuildThresholdEcdsaHssRoleLocalExportArtifactResult =
+export type WasmBuildThresholdEcdsaDerivationRoleLocalExportArtifactResult =
   GeneratedBuildEcdsaRoleLocalExportArtifactOutput;
 export interface WasmSignTransactionsWithActionsRequest {
   rpcCall: RpcCallPayload;
@@ -457,7 +457,7 @@ export interface WorkerSuccessResponse<T extends RequestTypeKey> extends BaseWor
 
 export type WorkerResponseDiagnostics = {
   kind: 'worker_response_diagnostics_v1';
-  worker: 'ecdsaHssClient';
+  worker: 'ecdsaDerivationClient';
   requestType: number;
   queueWaitMs: number;
   wasmInitWaitMs: number;

@@ -10,7 +10,7 @@ import {
   prepareEcdsaClientBootstrapCommandWasm,
   buildEcdsaRoleLocalExportArtifactCommandWasm,
   storeEcdsaRoleLocalSigningMaterialWasm,
-} from '../../signingEngine/threshold/crypto/ecdsaClientSignerWasm';
+} from '../../signingEngine/threshold/crypto/ecdsaDerivationClientWasm';
 import type { WorkerOperationContext } from '../../signingEngine/workerManager/executeWorkerOperation';
 import {
   getSignerWorkerOperationCoreCode,
@@ -72,7 +72,7 @@ import type {
   StoreEcdsaRoleLocalSigningMaterialErrorCode,
   StoreEcdsaRoleLocalSigningMaterialOutput,
 } from '../types';
-import type { EcdsaRelayerHssPublicKey33B64u } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+import type { EcdsaDerivationRelayerPublicKey33B64u } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 
 type BrowserRuntimePortsDeps = {
   indexedDB?: typeof IndexedDBManager;
@@ -99,7 +99,7 @@ function unavailable<T>(message: string): PlatformResult<T, 'unavailable'> {
 
 type BrowserRelayerPublicIdentity = {
   relayerKeyId: string;
-  relayerPublicKey33B64u: EcdsaRelayerHssPublicKey33B64u;
+  relayerPublicKey33B64u: EcdsaDerivationRelayerPublicKey33B64u;
   groupPublicKey33B64u: string;
   ethereumAddress: `0x${string}`;
 };
@@ -163,11 +163,13 @@ function parsePublicKey33B64u(value: string, field: string): string {
   return requireBase64UrlBytes(value, field, 33);
 }
 
-function parseRelayerHssPublicKey33B64u(value: string): EcdsaRelayerHssPublicKey33B64u {
+function parseRelayerEcdsaDerivationPublicKey33B64u(
+  value: string,
+): EcdsaDerivationRelayerPublicKey33B64u {
   return parsePublicKey33B64u(
     value,
-    'ECDSA relayer HSS public key',
-  ) as EcdsaRelayerHssPublicKey33B64u;
+    'ECDSA relayer DERIVATION public key',
+  ) as EcdsaDerivationRelayerPublicKey33B64u;
 }
 
 function parseEthereumAddress(value: unknown): `0x${string}` {
@@ -179,7 +181,7 @@ function parseEthereumAddress(value: unknown): `0x${string}` {
 }
 
 function isNativeBindingFailureMessage(message: string): boolean {
-  return /wasm (initialization|initialize|instantiation)|webassembly|module_or_path|failed to (load|compile|instantiate) wasm|hss client wasm initialization failed/i.test(
+  return /wasm (initialization|initialize|instantiation)|webassembly|module_or_path|failed to (load|compile|instantiate) wasm|derivation client wasm initialization failed/i.test(
     message,
   );
 }
@@ -190,7 +192,7 @@ function mapSignerCryptoInvocationError<CommandCode extends string>(
   const code = getSignerWorkerOperationErrorCode(error);
   const coreCode = getSignerWorkerOperationCoreCode(error);
   const message = errorMessage(error);
-  if (coreCode === 'HSS_WASM_INIT_FAILURE') {
+  if (coreCode === 'ECDSA_DERIVATION_WASM_INIT_FAILURE') {
     return signerCryptoInvocationFailure('native_binding_failure', message);
   }
   if (isNativeBindingFailureMessage(message)) {
@@ -235,7 +237,11 @@ function mapBuildEcdsaRoleLocalExportCommandError(
   error: unknown,
 ): SignerCryptoCommandFailure<BuildEcdsaRoleLocalExportArtifactErrorCode> {
   const message = errorMessage(error);
-  if (/public facts|public key|public identity|ethereum address|context binding|context/i.test(message)) {
+  if (
+    /public facts|public key|public identity|ethereum address|context binding|context/i.test(
+      message,
+    )
+  ) {
     return signerCryptoCommandFailure('invalid_public_identity', message);
   }
   if (/ready state|state blob|stateBlob|blob magic|trailing bytes|decode/i.test(message)) {
@@ -250,7 +256,7 @@ function parseRelayerPublicIdentity(input: unknown): BrowserRelayerPublicIdentit
   }
   return {
     relayerKeyId: requiredStringFromRecord(input, 'relayerKeyId'),
-    relayerPublicKey33B64u: parseRelayerHssPublicKey33B64u(
+    relayerPublicKey33B64u: parseRelayerEcdsaDerivationPublicKey33B64u(
       requiredStringFromRecord(input, 'relayerPublicKey33B64u'),
     ),
     groupPublicKey33B64u: parsePublicKey33B64u(
@@ -765,8 +771,7 @@ function createBrowserSignerCryptoPort(
         };
       } catch (error) {
         return (
-          mapSignerCryptoInvocationError(error) ||
-          mapBuildEcdsaRoleLocalExportCommandError(error)
+          mapSignerCryptoInvocationError(error) || mapBuildEcdsaRoleLocalExportCommandError(error)
         );
       }
     },

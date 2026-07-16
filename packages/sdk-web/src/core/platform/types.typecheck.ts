@@ -5,11 +5,11 @@ import {
 import { toRpId } from '../signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { deriveEvmFamilySigningKeySlotId, parseWalletKeyId } from '@shared/signing-lanes';
 import {
-  toEcdsaHssSigningRootId,
-  toEcdsaHssSigningRootVersion,
-  toEcdsaHssThresholdKeyId,
+  toEcdsaDerivationSigningRootId,
+  toEcdsaDerivationSigningRootVersion,
+  toEcdsaDerivationThresholdKeyId,
   toEmailOtpAuthSubjectId,
-} from '../signingEngine/session/identity/emailOtpHssIdentity';
+} from '../signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
 import {
   buildEcdsaRoleLocalEmailOtpAuthMethod,
   buildEcdsaRoleLocalPasskeyAuthMethod,
@@ -40,9 +40,9 @@ import type {
   SignerCryptoResult,
 } from './types';
 import type {
-  EcdsaHssClientSharePublicKey33B64u,
-  EcdsaRelayerHssPublicKey33B64u,
-} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+  DerivationClientSharePublicKey33B64u,
+  EcdsaDerivationRelayerPublicKey33B64u,
+} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import type {
   WebAuthnAuthenticationCredential,
   WebAuthnRegistrationCredential,
@@ -55,8 +55,8 @@ declare const signerResult: SignerCryptoResult<{ value: string }, 'invalid_conte
 declare const secretSource: ClientSecretSource;
 declare const registrationCredential: WebAuthnRegistrationCredential;
 declare const authenticationCredential: WebAuthnAuthenticationCredential;
-declare const hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
-declare const relayerPublicKey33B64u: EcdsaRelayerHssPublicKey33B64u;
+declare const derivationClientSharePublicKey33B64u: DerivationClientSharePublicKey33B64u;
+declare const relayerPublicKey33B64u: EcdsaDerivationRelayerPublicKey33B64u;
 declare const pendingBlob: EcdsaRoleLocalPendingStateBlob;
 declare const readyBlob: EcdsaRoleLocalReadyStateBlob;
 declare const publicFacts: EcdsaRoleLocalPublicFacts;
@@ -89,7 +89,7 @@ const emailOtpWorkerIssuedSessionHandleFromBuilder = buildEmailOtpWorkerIssuedSe
 
 const prepareInput = {
   kind: 'prepare_ecdsa_client_bootstrap_v1',
-  algorithm: 'ecdsa_hss_secp256k1_role_local_v1',
+  algorithm: 'router_ab_ecdsa_derivation_secp256k1_role_local_v1',
   context: {
     applicationBindingDigestB64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
   },
@@ -114,7 +114,7 @@ runtime.signerCrypto.finalizeEcdsaClientBootstrap({
 });
 runtime.signerCrypto.buildEcdsaRoleLocalExportArtifact({
   kind: 'build_ecdsa_role_local_export_artifact_v1',
-  algorithm: 'ecdsa_hss_secp256k1_role_local_v1',
+  algorithm: 'router_ab_ecdsa_derivation_secp256k1_role_local_v1',
   stateBlob: readyBlob,
   publicFacts,
   serverExportShare32B64u: 'server-share',
@@ -437,9 +437,9 @@ const validEcdsaLoadInput = {
   evmFamilySigningKeySlotId,
   chainTarget: thresholdEcdsaChainTargetFromChainFamily({ chain: 'tempo', chainId: 42431 }),
   keyHandle: 'key-handle',
-  ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId('ehss-key'),
-  signingRootId: toEcdsaHssSigningRootId('root'),
-  signingRootVersion: toEcdsaHssSigningRootVersion('v1'),
+  ecdsaThresholdKeyId: toEcdsaDerivationThresholdKeyId('ederivation-key'),
+  signingRootId: toEcdsaDerivationSigningRootId('root'),
+  signingRootVersion: toEcdsaDerivationSigningRootVersion('v1'),
   participantIds: [1, 2],
   authMethod: buildEcdsaRoleLocalPasskeyAuthMethod({
     credentialIdB64u: 'credential',
@@ -453,9 +453,9 @@ const ecdsaLoadInputWithoutAuth = {
   evmFamilySigningKeySlotId,
   chainTarget: thresholdEcdsaChainTargetFromChainFamily({ chain: 'tempo', chainId: 42431 }),
   keyHandle: 'key-handle',
-  ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId('ehss-key'),
-  signingRootId: toEcdsaHssSigningRootId('root'),
-  signingRootVersion: toEcdsaHssSigningRootVersion('v1'),
+  ecdsaThresholdKeyId: toEcdsaDerivationThresholdKeyId('ederivation-key'),
+  signingRootId: toEcdsaDerivationSigningRootId('root'),
+  signingRootVersion: toEcdsaDerivationSigningRootVersion('v1'),
   participantIds: [1, 2],
 };
 // @ts-expect-error ECDSA role-local lookups require branch-specific authMethod
@@ -479,7 +479,7 @@ const provisioningNeedsSecretSource = {
   rpId: toRpId('wallet.example'),
   chainTarget: thresholdEcdsaChainTargetFromChainFamily({ chain: 'tempo', chainId: 42431 }),
   keyHandle: 'key-handle',
-  ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId('ehss-key'),
+  ecdsaThresholdKeyId: toEcdsaDerivationThresholdKeyId('ederivation-key'),
   runtimePolicyScope,
   authMethod: buildEcdsaRoleLocalPasskeyAuthMethod({
     credentialIdB64u: 'credential',
@@ -491,7 +491,7 @@ void provisioningNeedsSecretSource;
 const provisioningNeedsSecretSourceWithSigningRoot = {
   ...provisioningNeedsSecretSource,
   // @ts-expect-error ECDSA provisioning state derives signing-root identity from runtimePolicyScope.
-  signingRootId: toEcdsaHssSigningRootId('root'),
+  signingRootId: toEcdsaDerivationSigningRootId('root'),
 } satisfies EcdsaProvisioningState;
 void provisioningNeedsSecretSourceWithSigningRoot;
 
@@ -513,4 +513,4 @@ const incompleteRuntimePorts = {
 // @ts-expect-error runtime port construction requires every port
 incompleteRuntimePorts satisfies RuntimePorts;
 
-void hssClientSharePublicKey33B64u;
+void derivationClientSharePublicKey33B64u;

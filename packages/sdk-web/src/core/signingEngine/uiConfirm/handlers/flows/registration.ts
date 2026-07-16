@@ -32,7 +32,7 @@ import {
   type ReservedRegistrationWebAuthnPrompt,
 } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/webauthnPromptCoordinator';
 import type { RegistrationCredentialPrompt } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt';
-import type { WalletIframeRequestId } from '@/SeamsWeb/publicApi/types';
+import type { WalletIframeRequestId } from '@/core/types/registrationActivationIdentity';
 
 function roundDurationMs(startedAt: number): number {
   return Math.max(0, Math.round(performance.now() - startedAt));

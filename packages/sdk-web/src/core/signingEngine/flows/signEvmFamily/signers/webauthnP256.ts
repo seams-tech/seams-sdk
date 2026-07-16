@@ -1,4 +1,4 @@
-import { buildWebauthnP256SignatureWasm } from '../../../chains/evm/ethSignerWasm';
+import { buildWebauthnP256SignatureWasm } from '../../../chains/evm/evmCryptoWasm';
 import type { KeyRef, SignRequest, SignatureBytes, Signer } from '../../../interfaces/signing';
 import type { WorkerOperationContext } from '../../../workerManager/executeWorkerOperation';
 import { base64Decode, base64UrlDecode } from '@shared/utils/base64';

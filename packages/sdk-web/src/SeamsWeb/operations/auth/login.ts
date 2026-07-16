@@ -2159,7 +2159,7 @@ type ThresholdLoginWarmEd25519State = {
   expiresAtMs: number;
   remainingUses: number;
   runtimePolicyScope: ThresholdRuntimePolicyScope | null;
-  ecdsaHssPasskeyPrfFirstB64u: string;
+  ecdsaDerivationPasskeyPrfFirstB64u: string;
 };
 
 type ThresholdLoginWarmEcdsaBootstrapRouteAuth = WalletSessionReconnectEcdsaBootstrapRouteAuth;
@@ -2289,7 +2289,7 @@ function resolveThresholdLoginWarmEcdsaPrfFirstB64u(args: {
     const prfFirstB64u = passkeyPrfFirstB64uFromCredential(args.credentialState.credential);
     if (prfFirstB64u) return prfFirstB64u;
   }
-  const fromEd25519Session = String(args.ed25519State.ecdsaHssPasskeyPrfFirstB64u || '').trim();
+  const fromEd25519Session = String(args.ed25519State.ecdsaDerivationPasskeyPrfFirstB64u || '').trim();
   if (fromEd25519Session) {
     return fromEd25519Session;
   }
@@ -2402,7 +2402,7 @@ async function primeThresholdLoginWarmSigners(args: {
     expiresAtMs: 0,
     remainingUses: 0,
     runtimePolicyScope: null,
-    ecdsaHssPasskeyPrfFirstB64u: '',
+    ecdsaDerivationPasskeyPrfFirstB64u: '',
   };
   const sharedSigningGrantState: ThresholdLoginWarmSharedSigningGrantState = {
     generatedSigningGrantId: '',
@@ -2432,7 +2432,7 @@ async function primeThresholdLoginWarmSigners(args: {
           warmState.expiresAtMs = session.expiresAtMs;
           warmState.remainingUses = session.remainingUses;
           warmState.runtimePolicyScope = session.runtimePolicyScope;
-          warmState.ecdsaHssPasskeyPrfFirstB64u = recoveredPrfFirstB64u;
+          warmState.ecdsaDerivationPasskeyPrfFirstB64u = recoveredPrfFirstB64u;
           if (args.ecdsaContextResolution.kind === 'resolve_after_ed25519') {
             activeCanonicalEcdsaContext =
               await args.ecdsaContextResolution.resolveAfterEd25519(warmState);
@@ -2521,10 +2521,10 @@ async function primeThresholdLoginWarmSigners(args: {
           throw new Error('[login] threshold Ed25519 warm-up did not return a signingGrantId');
         }
 
-        const connectedEcdsaHssPasskeyPrfFirstB64u = String(
-          connected.ecdsaHssPasskeyPrfFirstB64u || '',
+        const connectedEcdsaDerivationPasskeyPrfFirstB64u = String(
+          connected.ecdsaDerivationPasskeyPrfFirstB64u || '',
         ).trim();
-        if (signersToWarm.includes('ecdsa') && !connectedEcdsaHssPasskeyPrfFirstB64u) {
+        if (signersToWarm.includes('ecdsa') && !connectedEcdsaDerivationPasskeyPrfFirstB64u) {
           throw new Error(
             '[login] threshold ECDSA warm-up missing passkey PRF.first from the primed Ed25519 session',
           );
@@ -2536,7 +2536,7 @@ async function primeThresholdLoginWarmSigners(args: {
         warmState.expiresAtMs = Math.floor(Number(connected.expiresAtMs) || 0);
         warmState.remainingUses = Math.floor(Number(connected.remainingUses) || 0);
         warmState.runtimePolicyScope = connected.runtimePolicyScope || null;
-        warmState.ecdsaHssPasskeyPrfFirstB64u = connectedEcdsaHssPasskeyPrfFirstB64u;
+        warmState.ecdsaDerivationPasskeyPrfFirstB64u = connectedEcdsaDerivationPasskeyPrfFirstB64u;
         if (args.ecdsaContextResolution.kind === 'resolve_after_ed25519') {
           activeCanonicalEcdsaContext =
             await args.ecdsaContextResolution.resolveAfterEd25519(warmState);
@@ -2679,7 +2679,7 @@ async function primeThresholdLoginWarmSigners(args: {
             ecdsaAuthorizedEd25519Mint?.passkeyPrfFirstB64u || '',
           ).trim();
           const hasPasskeyPrfSource = Boolean(
-            String(warmState.ecdsaHssPasskeyPrfFirstB64u || '').trim() || credential,
+            String(warmState.ecdsaDerivationPasskeyPrfFirstB64u || '').trim() || credential,
           );
           const passkeyPrfFirstB64u = bootstrappedPasskeyPrfFirstB64u
             ? bootstrappedPasskeyPrfFirstB64u
@@ -2785,7 +2785,7 @@ async function primeThresholdLoginWarmSigners(args: {
                   ed25519State: warmState,
                   credentialState: args.credentialState,
                 })
-              : warmState.ecdsaHssPasskeyPrfFirstB64u,
+              : warmState.ecdsaDerivationPasskeyPrfFirstB64u,
           ).trim();
           const passkeyCredentialIdB64u = String(
             passkeyCredentialIdB64uFromAuthentication(credential || undefined) ||

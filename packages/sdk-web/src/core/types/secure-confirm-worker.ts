@@ -137,7 +137,7 @@ export type WarmSessionRehydrateResult =
   | { ok: false; code: string; message: string };
 
 export type ExportPrivateKeyScheme = 'ed25519' | 'secp256k1';
-export type ThresholdEcdsaExportArtifactKind = 'ecdsa-hss-secp256k1-export';
+export type ThresholdEcdsaExportArtifactKind = 'ecdsa-derivation-secp256k1-export';
 export const ROUTER_AB_ED25519_YAO_EXPORT_ARTIFACT_KIND_V1 =
   'router-ab-ed25519-yao-seed-export-v1' as const;
 
@@ -180,7 +180,7 @@ export type ExportPrivateKeysWithUiWorkerPayload =
   | (ExportPrivateKeysWithUiWorkerPayloadBase & {
       walletId: string;
       chainTarget: ThresholdEcdsaChainTarget;
-      artifactKind: 'ecdsa-hss-secp256k1-export';
+      artifactKind: 'ecdsa-derivation-secp256k1-export';
       publicKeyHex: string;
       privateKeyHex: string;
       ethereumAddress: string;

@@ -1,8 +1,8 @@
 import { base64UrlDecode } from '@shared/utils/base64';
 import type {
-  EcdsaHssClientSharePublicKey33B64u,
-  EcdsaRelayerHssPublicKey33B64u,
-} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+  DerivationClientSharePublicKey33B64u,
+  EcdsaDerivationRelayerPublicKey33B64u,
+} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import type {
   BuildEcdsaRoleLocalExportArtifactCommand as RawBuildEcdsaRoleLocalExportArtifactCommand,
   BuildEcdsaRoleLocalExportArtifactOutput as RawBuildEcdsaRoleLocalExportArtifactOutput,
@@ -43,20 +43,20 @@ function requireBase64UrlBytes(value: string, field: string, byteLength: number)
   return normalized;
 }
 
-function parseHssClientSharePublicKey33B64u(value: string): EcdsaHssClientSharePublicKey33B64u {
+function parseDerivationClientSharePublicKey33B64u(value: string): DerivationClientSharePublicKey33B64u {
   return requireBase64UrlBytes(
     value,
-    'hssClientSharePublicKey33B64u',
+    'derivationClientSharePublicKey33B64u',
     33,
-  ) as EcdsaHssClientSharePublicKey33B64u;
+  ) as DerivationClientSharePublicKey33B64u;
 }
 
-function parseRelayerHssPublicKey33B64u(value: string): EcdsaRelayerHssPublicKey33B64u {
+function parseRelayerEcdsaDerivationPublicKey33B64u(value: string): EcdsaDerivationRelayerPublicKey33B64u {
   return requireBase64UrlBytes(
     value,
     'relayerPublicKey33B64u',
     33,
-  ) as EcdsaRelayerHssPublicKey33B64u;
+  ) as EcdsaDerivationRelayerPublicKey33B64u;
 }
 
 function parsePublicKey33B64u(value: string, field: string): string {
@@ -154,8 +154,8 @@ export function parseGeneratedPrepareEcdsaClientBootstrapOutput(
   if (input.clientBootstrap.participantId !== 1) {
     throw new Error('[signer-core-command] ECDSA client bootstrap participantId must be 1');
   }
-  const hssClientSharePublicKey33B64u = parseHssClientSharePublicKey33B64u(
-    input.clientBootstrap.hssClientSharePublicKey33B64u,
+  const derivationClientSharePublicKey33B64u = parseDerivationClientSharePublicKey33B64u(
+    input.clientBootstrap.derivationClientSharePublicKey33B64u,
   );
   return {
     pendingStateBlob: parsePendingStateBlob(input.pendingStateBlob),
@@ -165,13 +165,13 @@ export function parseGeneratedPrepareEcdsaClientBootstrapOutput(
         'contextBinding32B64u',
         32,
       ),
-      hssClientSharePublicKey33B64u,
+      derivationClientSharePublicKey33B64u,
       clientShareRetryCounter: input.clientBootstrap.clientShareRetryCounter,
       participantId: 1,
     },
     publicFacts: {
-      hssClientSharePublicKey33B64u: parseHssClientSharePublicKey33B64u(
-        input.publicFacts.hssClientSharePublicKey33B64u,
+      derivationClientSharePublicKey33B64u: parseDerivationClientSharePublicKey33B64u(
+        input.publicFacts.derivationClientSharePublicKey33B64u,
       ),
       clientVerifyingShareB64u: parsePublicKey33B64u(
         input.publicFacts.clientVerifyingShareB64u,
@@ -207,14 +207,14 @@ export function parseGeneratedFinalizeEcdsaClientBootstrapOutput(
         'contextBinding32B64u',
         32,
       ),
-      hssClientSharePublicKey33B64u: parseHssClientSharePublicKey33B64u(
-        input.publicFacts.hssClientSharePublicKey33B64u,
+      derivationClientSharePublicKey33B64u: parseDerivationClientSharePublicKey33B64u(
+        input.publicFacts.derivationClientSharePublicKey33B64u,
       ),
       clientVerifyingShareB64u: parsePublicKey33B64u(
         input.publicFacts.clientVerifyingShareB64u,
         'clientVerifyingShareB64u',
       ),
-      relayerPublicKey33B64u: parseRelayerHssPublicKey33B64u(
+      relayerPublicKey33B64u: parseRelayerEcdsaDerivationPublicKey33B64u(
         input.publicFacts.relayerPublicKey33B64u,
       ),
       groupPublicKey33B64u: parsePublicKey33B64u(
@@ -243,10 +243,10 @@ function generatedExportPublicFacts(
       'publicFacts.contextBinding32B64u',
       32,
     ),
-    hssClientSharePublicKey33B64u: parseHssClientSharePublicKey33B64u(
-      publicFacts.hssClientSharePublicKey33B64u,
+    derivationClientSharePublicKey33B64u: parseDerivationClientSharePublicKey33B64u(
+      publicFacts.derivationClientSharePublicKey33B64u,
     ),
-    relayerPublicKey33B64u: parseRelayerHssPublicKey33B64u(
+    relayerPublicKey33B64u: parseRelayerEcdsaDerivationPublicKey33B64u(
       publicFacts.relayerPublicKey33B64u,
     ),
     groupPublicKey33B64u: parsePublicKey33B64u(

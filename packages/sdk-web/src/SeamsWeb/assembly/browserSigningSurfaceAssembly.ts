@@ -14,7 +14,7 @@ import {
   upsertThresholdEcdsaSessionFromBootstrap as upsertThresholdEcdsaSessionFromBootstrapOperation,
   type ThresholdEcdsaSessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
-import { markRouterAbEcdsaHssWorkerMaterialRuntimeValidated } from '@/core/signingEngine/session/routerAbSigningWalletSession';
+import { markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
 import type { TouchIdPrompt } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import { provisionThresholdEcdsaSession as provisionThresholdEcdsaSessionOperation } from '@/core/signingEngine/session/passkey/ecdsaSessionProvision';
@@ -49,6 +49,14 @@ import type { AccountId } from '@/core/types/accountIds';
 import * as registrationPublic from '@/core/signingEngine/flows/registration/public';
 import type { Ed25519YaoPublicCapabilityReferenceStorePort } from '@/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
 import { recoverEmailOtpEd25519CapabilityForSigningV1 } from '@/core/signingEngine/session/emailOtp/ed25519YaoBudgetRecovery';
+import type {
+  EmailOtpEcdsaChallengeAuthority,
+  EmailOtpEcdsaStepUpAuthority,
+} from '@/core/signingEngine/flows/signEvmFamily/emailOtpSigningSession';
+import type {
+  ThresholdEcdsaChainTarget,
+  WalletSessionRef,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 type SigningEnginePorts = ReturnType<typeof createSigningEnginePorts>;
 type EmailOtpEd25519RecoveryRequest = Omit<
@@ -60,6 +68,59 @@ type EmailOtpEd25519RecoveryRequest = Omit<
   | 'expectedOperationalPublicKey'
 >;
 
+async function requestEmailOtpEcdsaStepUpChallenge(args: {
+  coordinator: EmailOtpWalletSessionCoordinator;
+  walletSession: WalletSessionRef;
+  chain: ThresholdEcdsaChainTarget['kind'];
+  authority: EmailOtpEcdsaChallengeAuthority;
+}): Promise<{ challengeId: string; emailHint?: string }> {
+  switch (args.authority.kind) {
+    case 'live_session':
+      return await args.coordinator.requestTransactionSigningChallenge({
+        kind: 'wallet_session_challenge',
+        walletSession: args.walletSession,
+        chain: args.chain,
+        authLane: args.authority.authLane,
+      });
+    case 'public_reauth_anchor':
+      return await args.coordinator.requestPublicReauthTransactionSigningChallenge({
+        walletSession: args.walletSession,
+        chain: args.chain,
+      });
+  }
+}
+
+async function loginWithEmailOtpEcdsaStepUp(args: {
+  coordinator: EmailOtpWalletSessionCoordinator;
+  walletSession: WalletSessionRef;
+  chainTarget: ThresholdEcdsaChainTarget;
+  challengeId: string;
+  otpCode: string;
+  authority: EmailOtpEcdsaStepUpAuthority;
+  remainingUses: number;
+}) {
+  switch (args.authority.kind) {
+    case 'live_session':
+      return await args.coordinator.loginWithEcdsaCapabilityForSigning({
+        walletSession: args.walletSession,
+        chainTarget: args.chainTarget,
+        challengeId: args.challengeId,
+        otpCode: args.otpCode,
+        committedLane: args.authority.committedLane,
+        remainingUses: args.remainingUses,
+      });
+    case 'public_reauth_anchor':
+      return await args.coordinator.loginWithEcdsaPublicReauthCapabilityForSigning({
+        walletSession: args.walletSession,
+        chainTarget: args.chainTarget,
+        challengeId: args.challengeId,
+        otpCode: args.otpCode,
+        reauthLane: args.authority.reauthLane,
+        remainingUses: args.remainingUses,
+      });
+  }
+}
+
 function markEcdsaBootstrapWorkerMaterialRuntimeValidated(args: {
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
   record: ThresholdEcdsaSessionRecord;
@@ -69,9 +130,9 @@ function markEcdsaBootstrapWorkerMaterialRuntimeValidated(args: {
   ) {
     return;
   }
-  if (markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(args.record)) return;
+  if (markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(args.record)) return;
   throw new Error(
-    '[SigningEngine] ECDSA-HSS bootstrap returned worker material that could not be runtime-validated',
+    '[SigningEngine] Router A/B ECDSA derivation bootstrap returned worker material that could not be runtime-validated',
   );
 }
 
@@ -195,6 +256,7 @@ export function createBrowserSigningSurfaceEnginePorts(
         const record = upsertThresholdEcdsaSessionFromBootstrapOperation(
           args.warmSigning.ecdsaSessions,
           {
+            purpose: 'transaction_signing',
             walletId: upsertArgs.walletId,
             chainTarget: upsertArgs.chainTarget,
             bootstrap: upsertArgs.bootstrap,
@@ -211,6 +273,7 @@ export function createBrowserSigningSurfaceEnginePorts(
       const record = upsertThresholdEcdsaSessionFromBootstrapOperation(
         args.warmSigning.ecdsaSessions,
         {
+          purpose: 'transaction_signing',
           walletId: upsertArgs.walletId,
           chainTarget: upsertArgs.chainTarget,
           bootstrap: upsertArgs.bootstrap,
@@ -238,11 +301,11 @@ export function createBrowserSigningSurfaceEnginePorts(
         source: recordArgs.source,
       }),
     requestEmailOtpTransactionSigningChallenge: (challengeArgs) =>
-      args.emailOtpSessions.requestTransactionSigningChallenge({
-        kind: 'wallet_session_challenge',
+      requestEmailOtpEcdsaStepUpChallenge({
+        coordinator: args.emailOtpSessions,
         walletSession: challengeArgs.walletSession,
         chain: challengeArgs.chain,
-        authLane: challengeArgs.authLane,
+        authority: challengeArgs.authority,
       }),
     requestEmailOtpEd25519SigningChallenge: (challengeArgs) =>
       args.emailOtpSessions.requestTransactionSigningChallenge({
@@ -270,7 +333,15 @@ export function createBrowserSigningSurfaceEnginePorts(
         provisionArgs,
       ),
     loginWithEmailOtpEcdsaCapabilityForSigning: (loginArgs) =>
-      args.emailOtpSessions.loginWithEcdsaCapabilityForSigning(loginArgs),
+      loginWithEmailOtpEcdsaStepUp({
+        coordinator: args.emailOtpSessions,
+        walletSession: loginArgs.walletSession,
+        chainTarget: loginArgs.chainTarget,
+        challengeId: loginArgs.challengeId,
+        otpCode: loginArgs.otpCode,
+        authority: loginArgs.authority,
+        remainingUses: loginArgs.remainingUses,
+      }),
     restorePersistedSessionForSigning: (restoreArgs) =>
       restoreArgs.authMethod === 'passkey'
         ? args.touchConfirm.restorePersistedSessionForSigning({

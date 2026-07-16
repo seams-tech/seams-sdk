@@ -21,7 +21,7 @@ import {
   readWarmSessionCapabilityRecordsForWallet,
   readWarmSessionEd25519RecordByThresholdSessionId,
 } from '../warmCapabilities/store';
-import { classifyRouterAbEcdsaHssPersistedSigningRecord } from '../routerAbSigningWalletSession';
+import { classifyRouterAbEcdsaDerivationPersistedSigningRecord } from '../routerAbSigningWalletSession';
 import { createClearVolatileWarmSessionMaterialCommand } from '../warmCapabilities/volatileWarmMaterialCommands';
 import { parseVolatileWarmSessionId } from '../warmCapabilities/volatileWarmSessionId';
 import type { WarmSessionPrfClaim } from '../warmCapabilities/types';
@@ -377,7 +377,7 @@ export function buildDiscoveredLaneForRecord(
         signingGrantId,
       });
     }
-    if (classifyRouterAbEcdsaHssPersistedSigningRecord(record).kind !== 'runtime_validated') {
+    if (classifyRouterAbEcdsaDerivationPersistedSigningRecord(record).kind !== 'runtime_validated') {
       return null;
     }
     return {
@@ -1345,11 +1345,11 @@ export async function consumeSigningGrantUse(args: {
     overrides: args.statusOverrides,
     owner: input.owner,
     signingGrantId,
-    lanes: consumedOrTargetedLanes,
+    lanes,
     status: resolvedStatus,
   });
   await syncSealedRefreshPolicyForLanes({
-    lanes: consumedOrTargetedLanes,
+    lanes,
     status: resolvedStatus,
     updatePolicy: args.deps.updateExactSealedSessionPolicy,
     deleteRecord: args.deps.deleteExactSealedSession,

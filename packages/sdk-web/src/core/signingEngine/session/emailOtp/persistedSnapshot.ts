@@ -137,12 +137,12 @@ export async function readEmailOtpPersistedSessionSnapshot(
           recordWalletId,
         )) {
           if (signingLaneAuthMethod(runtimeLane.auth) !== 'email_otp') continue;
-          if (!runtimeLane.routerAbEcdsaHssNormalSigning) continue;
+          if (!runtimeLane.routerAbEcdsaDerivationNormalSigning) continue;
           if (runtimeLane.auth.kind !== 'email_otp') continue;
           const record: AvailableSigningLanesRuntimeEcdsaRecord = {
             key: runtimeLane.key,
             auth: runtimeLane.auth,
-            routerAbEcdsaHssNormalSigning: runtimeLane.routerAbEcdsaHssNormalSigning,
+            routerAbEcdsaDerivationNormalSigning: runtimeLane.routerAbEcdsaDerivationNormalSigning,
             keyHandle: runtimeLane.keyHandle,
             ...(runtimeLane.verifiedPublicFacts
               ? { verifiedPublicFacts: runtimeLane.verifiedPublicFacts }

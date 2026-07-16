@@ -37,7 +37,6 @@ import {
   throwEmailOtpSigningSessionAuthStateError,
   type EmailOtpEcdsaBootstrapAuthorization,
 } from '../../session/emailOtp/routePlan';
-import type { ReauthAnchorIdentity } from '../../session/operationState/transactionState';
 import {
   emailOtpEcdsaProviderIdentityFromRecord,
   type EmailOtpEcdsaProviderIdentity,
@@ -47,7 +46,10 @@ import {
   type EmailOtpEcdsaSigningSessionAuthority,
 } from '../../session/emailOtp/ecdsaSigningSessionAuthority';
 import { emailOtpAuthContextEmailHashHex } from '../../session/identity/laneIdentity';
-import type { EmailOtpEcdsaCommittedLane } from './ecdsaSelection';
+import type {
+  EmailOtpEcdsaCommittedLane,
+  EmailOtpEcdsaPublicReauthLane,
+} from './ecdsaSelection';
 
 type WalletSessionEmailOtpChallengeArgs = Extract<
   RequestEmailOtpChallengeArgs,
@@ -101,20 +103,60 @@ export type EvmFamilyEmailOtpTransactionSigningBridge = {
   }) => Promise<EmailOtpEcdsaSigningBootstrapResult>;
 };
 
+export type EmailOtpEcdsaStepUpAuthority =
+  | {
+      kind: 'live_session';
+      committedLane: EmailOtpEcdsaCommittedLane;
+      reauthLane?: never;
+    }
+  | {
+      kind: 'public_reauth_anchor';
+      reauthLane: EmailOtpEcdsaPublicReauthLane;
+      committedLane?: never;
+    };
+
+export type EmailOtpEcdsaChallengeAuthority =
+  | {
+      kind: 'live_session';
+      authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ecdsa' }>;
+      reauthLane?: never;
+    }
+  | {
+      kind: 'public_reauth_anchor';
+      reauthLane: EmailOtpEcdsaPublicReauthLane;
+      authLane?: never;
+    };
+
+function emailOtpEcdsaChallengeAuthority(
+  authority: EmailOtpEcdsaStepUpAuthority,
+): EmailOtpEcdsaChallengeAuthority {
+  switch (authority.kind) {
+    case 'live_session':
+      return {
+        kind: 'live_session',
+        authLane: authority.committedLane.authLane,
+      };
+    case 'public_reauth_anchor':
+      return {
+        kind: 'public_reauth_anchor',
+        reauthLane: authority.reauthLane,
+      };
+  }
+}
+
 export function createEmailOtpEcdsaTransactionSigningBridge(args: {
   walletId: string;
   walletSession: WalletSessionRef;
   chain: EvmFamilyChain;
   chainTarget: ThresholdEcdsaChainTarget;
   selectedLane?: ResolvedEvmFamilyEcdsaSigningLane;
-  committedLane: EmailOtpEcdsaCommittedLane;
+  authority: EmailOtpEcdsaStepUpAuthority;
   remainingUses: number;
-  reauthSource: { kind: 'material' } | { kind: 'reauth_anchor'; anchor: ReauthAnchorIdentity };
   onEvent?: EvmFamilyLifecycleEventCallback;
   requestEmailOtpTransactionSigningChallenge?: (args: {
     walletSession: WalletSessionRef;
     chain: EvmFamilyChain;
-    authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ecdsa' }>;
+    authority: EmailOtpEcdsaChallengeAuthority;
   }) => Promise<{ challengeId: string; emailHint?: string }>;
   loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
     walletSession: WalletSessionRef;
@@ -122,12 +164,10 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
     chainTarget: ThresholdEcdsaChainTarget;
     challengeId: string;
     otpCode: string;
-    committedLane: EmailOtpEcdsaCommittedLane;
+    authority: EmailOtpEcdsaStepUpAuthority;
     remainingUses: number;
   }) => Promise<EmailOtpEcdsaSigningBootstrapResult>;
 }): EvmFamilyEmailOtpTransactionSigningBridge {
-  const committedAuthLane = args.committedLane.authLane;
-
   return {
     challenge: async () => {
       if (typeof args.requestEmailOtpTransactionSigningChallenge !== 'function') {
@@ -151,7 +191,7 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
       const challenge = await args.requestEmailOtpTransactionSigningChallenge({
         walletSession: args.walletSession,
         chain: args.chain,
-        authLane: committedAuthLane,
+        authority: emailOtpEcdsaChallengeAuthority(args.authority),
       });
       const challengeId = String(challenge.challengeId || '').trim();
       if (!challengeId) {
@@ -178,7 +218,7 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
         chainTarget: args.chainTarget,
         challengeId,
         otpCode: code,
-        committedLane: args.committedLane,
+        authority: args.authority,
         remainingUses: args.remainingUses,
       });
     },

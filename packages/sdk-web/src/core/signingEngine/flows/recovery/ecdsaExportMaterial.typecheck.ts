@@ -90,7 +90,7 @@ void exportMaterialMissingPublicFacts;
 const exportMaterialWithThresholdKeyId: ReadyThresholdEcdsaExportMaterial = {
   ...exportMaterial,
   // @ts-expect-error ready export material carries keyHandle through public facts.
-  ecdsaThresholdKeyId: 'ehss-key-1',
+  ecdsaThresholdKeyId: 'ederivation-key-1',
 };
 void exportMaterialWithThresholdKeyId;
 

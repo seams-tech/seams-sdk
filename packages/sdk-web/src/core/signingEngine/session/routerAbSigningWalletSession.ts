@@ -6,29 +6,29 @@ import type {
 import type { RouterAbEd25519NormalSigningState } from '../threshold/ed25519/routerAbNormalSigningState';
 import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import {
-  routerAbEcdsaHssActiveStateSessionId,
-  type RouterAbEcdsaHssNormalSigningStateV1,
-} from '@shared/utils/routerAbEcdsaHss';
+  routerAbEcdsaDerivationActiveStateSessionId,
+  type RouterAbEcdsaDerivationNormalSigningStateV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/base64';
 import {
-  ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+  ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
   ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
   decodeJwtPayloadRecord,
 } from '@shared/utils/sessionTokens';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from './warmCapabilities/routerAbEcdsaWalletSessionAuth';
-import { buildEcdsaRoleLocalSigningMaterialHandle } from './identity/ecdsaHssSigningMaterialHandle';
+import { buildEcdsaRoleLocalSigningMaterialHandle } from './identity/ecdsaDerivationSigningMaterialHandle';
 import {
   parseEcdsaClientVerifyingShareB64u,
   parseEcdsaKeyHandle,
   parseEcdsaRelayerKeyId,
 } from './keyMaterialBrands';
 import {
-  buildRouterAbEcdsaHssSigningMaterialRef,
-  type RouterAbEcdsaHssSigningMaterialRef,
-} from '../routerAb/ecdsaHss/signingMaterialRef';
+  buildRouterAbEcdsaDerivationSigningMaterialRef,
+  type RouterAbEcdsaDerivationSigningMaterialRef,
+} from '../routerAb/ecdsaDerivation/signingMaterialRef';
 
 export type RouterAbSigningWalletSessionAuth = {
   kind: 'wallet_session_jwt';
@@ -49,16 +49,16 @@ export type RouterAbEd25519SigningWalletSession = {
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;
 };
 
-export type RouterAbEcdsaHssSigningWalletSession = {
+export type RouterAbEcdsaDerivationSigningWalletSession = {
   curve: 'ecdsa';
   auth: RouterAbSigningWalletSessionAuth;
   thresholdSessionId: string;
   signingGrantId: string;
   remainingUses: number;
   expiresAtMs: number;
-  signingMaterial: RouterAbEcdsaHssSigningMaterialRef;
+  signingMaterial: RouterAbEcdsaDerivationSigningMaterialRef;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
-  routerAbEcdsaHssNormalSigning: RouterAbEcdsaHssNormalSigningStateV1;
+  routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
   clientVerifyingShareB64u?: never;
   clientSigningShare32?: never;
 };
@@ -106,19 +106,19 @@ export type RouterAbEd25519WalletSessionAuthorityResult =
   | { ok: true; value: RouterAbEd25519WalletSessionAuthority }
   | { ok: false; reason: RouterAbEd25519WalletSessionAuthorityFailureReason };
 
-export type RouterAbEcdsaHssWalletSessionCredentialFingerprint = {
-  kind: 'router_ab_ecdsa_hss_wallet_session_credential_fingerprint_v1';
-  payloadKind: typeof ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND;
+export type RouterAbEcdsaDerivationWalletSessionCredentialFingerprint = {
+  kind: 'router_ab_ecdsa_derivation_wallet_session_credential_fingerprint_v1';
+  payloadKind: typeof ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND;
   payloadDigestB64u: string;
 };
 
-export type EcdsaHssRuntimeMaterialValidationKey = {
-  kind: 'ecdsa_hss_runtime_material_validation_key_v1';
+export type EcdsaDerivationRuntimeMaterialValidationKey = {
+  kind: 'ecdsa_derivation_runtime_material_validation_key_v1';
   materialHandle: string;
   materialBindingDigest: string;
   thresholdSessionId: string;
   signingGrantId: string;
-  walletSessionCredentialFingerprint: RouterAbEcdsaHssWalletSessionCredentialFingerprint;
+  walletSessionCredentialFingerprint: RouterAbEcdsaDerivationWalletSessionCredentialFingerprint;
   routerAbStateSessionId: string;
   ecdsaThresholdKeyId: string;
   signingRootId: string;
@@ -168,11 +168,11 @@ export type RouterAbEd25519PersistedSigningRecordState =
       value?: never;
     };
 
-export type RouterAbEcdsaHssPersistedSigningRecordState =
+export type RouterAbEcdsaDerivationPersistedSigningRecordState =
   | {
       kind: 'runtime_validated';
       record: ThresholdEcdsaSessionRecord;
-      value: RouterAbEcdsaHssSigningWalletSession;
+      value: RouterAbEcdsaDerivationSigningWalletSession;
       reason?: never;
     }
   | {
@@ -332,28 +332,28 @@ export function parseRouterAbEd25519WalletSessionAuthorityFromRecord(
   };
 }
 
-const routerAbEcdsaHssRuntimeValidatedMaterialKeys = new Set<string>();
+const routerAbEcdsaDerivationRuntimeValidatedMaterialKeys = new Set<string>();
 
-function buildRouterAbEcdsaHssWalletSessionCredentialFingerprint(
+function buildRouterAbEcdsaDerivationWalletSessionCredentialFingerprint(
   walletSessionJwt: string,
-): RouterAbEcdsaHssWalletSessionCredentialFingerprint | null {
+): RouterAbEcdsaDerivationWalletSessionCredentialFingerprint | null {
   const payload = decodeJwtPayloadRecord(walletSessionJwt);
-  if (payload?.kind !== ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND) {
+  if (payload?.kind !== ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND) {
     return null;
   }
   return {
-    kind: 'router_ab_ecdsa_hss_wallet_session_credential_fingerprint_v1',
-    payloadKind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+    kind: 'router_ab_ecdsa_derivation_wallet_session_credential_fingerprint_v1',
+    payloadKind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
     payloadDigestB64u: sha256CanonicalB64uSync(payload),
   };
 }
 
 
-function buildEcdsaHssRoleLocalMaterialHandleFromRecord(input: {
+function buildEcdsaDerivationRoleLocalMaterialHandleFromRecord(input: {
   record: ThresholdEcdsaSessionRecord;
-  signingMaterial: RouterAbEcdsaHssSigningMaterialRef;
+  signingMaterial: RouterAbEcdsaDerivationSigningMaterialRef;
 }): ReturnType<typeof buildEcdsaRoleLocalSigningMaterialHandle> | null {
-  const routerAbState = input.record.routerAbEcdsaHssNormalSigning;
+  const routerAbState = input.record.routerAbEcdsaDerivationNormalSigning;
   if (!routerAbState) return null;
   try {
     return buildEcdsaRoleLocalSigningMaterialHandle({
@@ -374,31 +374,31 @@ function buildEcdsaHssRoleLocalMaterialHandleFromRecord(input: {
   }
 }
 
-function buildEcdsaHssRuntimeMaterialValidationKey(input: {
+function buildEcdsaDerivationRuntimeMaterialValidationKey(input: {
   record: ThresholdEcdsaSessionRecord;
-  session: RouterAbEcdsaHssSigningWalletSession;
-}): EcdsaHssRuntimeMaterialValidationKey | null {
-  const state = input.session.routerAbEcdsaHssNormalSigning;
+  session: RouterAbEcdsaDerivationSigningWalletSession;
+}): EcdsaDerivationRuntimeMaterialValidationKey | null {
+  const state = input.session.routerAbEcdsaDerivationNormalSigning;
   const signingMaterial = input.session.signingMaterial;
-  const materialHandle = buildEcdsaHssRoleLocalMaterialHandleFromRecord({
+  const materialHandle = buildEcdsaDerivationRoleLocalMaterialHandleFromRecord({
     record: input.record,
     signingMaterial,
   });
   const walletSessionCredentialFingerprint =
-    buildRouterAbEcdsaHssWalletSessionCredentialFingerprint(input.session.auth.walletSessionJwt);
+    buildRouterAbEcdsaDerivationWalletSessionCredentialFingerprint(input.session.auth.walletSessionJwt);
   if (!materialHandle || !walletSessionCredentialFingerprint) return null;
   const activationEpoch = nonEmptyString(state.scope.activation_epoch);
   const keyHandle = nonEmptyString(input.record.keyHandle);
   const signingWorkerId = signingMaterial.signingWorkerId;
   if (!activationEpoch || !keyHandle || !signingWorkerId) return null;
   return {
-    kind: 'ecdsa_hss_runtime_material_validation_key_v1',
+    kind: 'ecdsa_derivation_runtime_material_validation_key_v1',
     materialHandle: materialHandle.materialHandle,
     materialBindingDigest: materialHandle.bindingDigest,
     thresholdSessionId: input.session.thresholdSessionId,
     signingGrantId: input.session.signingGrantId,
     walletSessionCredentialFingerprint,
-    routerAbStateSessionId: routerAbEcdsaHssActiveStateSessionId(state),
+    routerAbStateSessionId: routerAbEcdsaDerivationActiveStateSessionId(state),
     ecdsaThresholdKeyId: signingMaterial.ecdsaThresholdKeyId,
     signingRootId: signingMaterial.signingRootId,
     signingRootVersion: signingMaterial.signingRootVersion,
@@ -414,48 +414,48 @@ function buildEcdsaHssRuntimeMaterialValidationKey(input: {
   };
 }
 
-function serializeEcdsaHssRuntimeMaterialValidationKey(
-  key: EcdsaHssRuntimeMaterialValidationKey,
+function serializeEcdsaDerivationRuntimeMaterialValidationKey(
+  key: EcdsaDerivationRuntimeMaterialValidationKey,
 ): string {
   return alphabetizeStringify(key);
 }
 
-export function markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(
+export function markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(
   record: ThresholdEcdsaSessionRecord | null | undefined,
 ): boolean {
   if (!record) return false;
-  const parsed = parseRouterAbEcdsaHssSigningWalletSessionFromRecord(record);
+  const parsed = parseRouterAbEcdsaDerivationSigningWalletSessionFromRecord(record);
   if (!parsed.ok) return false;
-  const key = buildEcdsaHssRuntimeMaterialValidationKey({
+  const key = buildEcdsaDerivationRuntimeMaterialValidationKey({
     record,
     session: parsed.value,
   });
   if (!key) return false;
-  routerAbEcdsaHssRuntimeValidatedMaterialKeys.add(
-    serializeEcdsaHssRuntimeMaterialValidationKey(key),
+  routerAbEcdsaDerivationRuntimeValidatedMaterialKeys.add(
+    serializeEcdsaDerivationRuntimeMaterialValidationKey(key),
   );
   return true;
 }
 
-export function isRouterAbEcdsaHssWorkerMaterialRuntimeValidated(
+export function isRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(
   record: ThresholdEcdsaSessionRecord | null | undefined,
 ): boolean {
   if (!record) return false;
-  const parsed = parseRouterAbEcdsaHssSigningWalletSessionFromRecord(record);
+  const parsed = parseRouterAbEcdsaDerivationSigningWalletSessionFromRecord(record);
   if (!parsed.ok) return false;
-  const key = buildEcdsaHssRuntimeMaterialValidationKey({
+  const key = buildEcdsaDerivationRuntimeMaterialValidationKey({
     record,
     session: parsed.value,
   });
   return key
-    ? routerAbEcdsaHssRuntimeValidatedMaterialKeys.has(
-        serializeEcdsaHssRuntimeMaterialValidationKey(key),
+    ? routerAbEcdsaDerivationRuntimeValidatedMaterialKeys.has(
+        serializeEcdsaDerivationRuntimeMaterialValidationKey(key),
       )
     : false;
 }
 
-export function clearRouterAbEcdsaHssWorkerMaterialRuntimeValidation(): void {
-  routerAbEcdsaHssRuntimeValidatedMaterialKeys.clear();
+export function clearRouterAbEcdsaDerivationWorkerMaterialRuntimeValidation(): void {
+  routerAbEcdsaDerivationRuntimeValidatedMaterialKeys.clear();
 }
 
 export function resolveRouterAbEd25519SigningRootFromRecord(
@@ -498,7 +498,7 @@ export function resolveRouterAbEd25519SigningRootFromRecord(
   };
 }
 
-function resolveRouterAbEcdsaHssSigningIdentityFromRecord(
+function resolveRouterAbEcdsaDerivationSigningIdentityFromRecord(
   record: Pick<
     ThresholdEcdsaSessionRecord,
     'ecdsaThresholdKeyId' | 'runtimePolicyScope' | 'signingRootId' | 'signingRootVersion'
@@ -599,10 +599,10 @@ export function parseRouterAbEd25519SigningWalletSessionFromRecord(
   };
 }
 
-export function parseRouterAbEcdsaHssSigningWalletSessionFromRecord(
+export function parseRouterAbEcdsaDerivationSigningWalletSessionFromRecord(
   record: ThresholdEcdsaSessionRecord | null | undefined,
   nowMs: number = currentActiveSessionNowMs(),
-): RouterAbSigningWalletSessionResult<RouterAbEcdsaHssSigningWalletSession> {
+): RouterAbSigningWalletSessionResult<RouterAbEcdsaDerivationSigningWalletSession> {
   const operationNowMs = normalizeActiveSessionNowMs(nowMs);
   if (operationNowMs == null) return { ok: false, reason: 'invalid_budget' };
   if (!record) return { ok: false, reason: 'missing_record' };
@@ -615,7 +615,7 @@ export function parseRouterAbEcdsaHssSigningWalletSessionFromRecord(
   if (!auth) return { ok: false, reason: 'missing_wallet_session_jwt' };
   const { thresholdSessionId, signingGrantId } = resolvedAuth.identity;
   if (!record.runtimePolicyScope) return { ok: false, reason: 'missing_runtime_policy_scope' };
-  if (!record.routerAbEcdsaHssNormalSigning) {
+  if (!record.routerAbEcdsaDerivationNormalSigning) {
     return { ok: false, reason: 'missing_router_ab_state' };
   }
   const remainingUses = positiveInteger(record.remainingUses);
@@ -635,12 +635,12 @@ export function parseRouterAbEcdsaHssSigningWalletSessionFromRecord(
   });
   if (inactive?.kind === 'exhausted') return { ok: false, reason: 'exhausted' };
   if (inactive?.kind === 'expired') return { ok: false, reason: 'expired' };
-  const identity = resolveRouterAbEcdsaHssSigningIdentityFromRecord(record);
+  const identity = resolveRouterAbEcdsaDerivationSigningIdentityFromRecord(record);
   if (!identity.ok) return identity;
-  let signingMaterial: RouterAbEcdsaHssSigningMaterialRef;
+  let signingMaterial: RouterAbEcdsaDerivationSigningMaterialRef;
   try {
-    signingMaterial = buildRouterAbEcdsaHssSigningMaterialRef({
-      routerAbState: record.routerAbEcdsaHssNormalSigning,
+    signingMaterial = buildRouterAbEcdsaDerivationSigningMaterialRef({
+      routerAbState: record.routerAbEcdsaDerivationNormalSigning,
     });
   } catch {
     return { ok: false, reason: 'invalid_router_ab_state' };
@@ -673,16 +673,16 @@ export function parseRouterAbEcdsaHssSigningWalletSessionFromRecord(
       expiresAtMs,
       signingMaterial,
       runtimePolicyScope: record.runtimePolicyScope,
-      routerAbEcdsaHssNormalSigning: record.routerAbEcdsaHssNormalSigning,
+      routerAbEcdsaDerivationNormalSigning: record.routerAbEcdsaDerivationNormalSigning,
     },
   };
 }
 
-export function buildActiveRouterAbEcdsaHssSigningWalletSessionFromRecord(args: {
+export function buildActiveRouterAbEcdsaDerivationSigningWalletSessionFromRecord(args: {
   record: ThresholdEcdsaSessionRecord | null | undefined;
   nowMs: number;
-}): RouterAbSigningWalletSessionResult<RouterAbEcdsaHssSigningWalletSession> {
-  return parseRouterAbEcdsaHssSigningWalletSessionFromRecord(args.record, args.nowMs);
+}): RouterAbSigningWalletSessionResult<RouterAbEcdsaDerivationSigningWalletSession> {
+  return parseRouterAbEcdsaDerivationSigningWalletSessionFromRecord(args.record, args.nowMs);
 }
 export function classifyRouterAbEd25519PersistedSigningRecord(
   record: ThresholdEd25519SessionRecord | null | undefined,
@@ -741,10 +741,10 @@ export function classifyRouterAbEd25519PersistedSigningRecord(
   };
 }
 
-export function classifyRouterAbEcdsaHssPersistedSigningRecord(
+export function classifyRouterAbEcdsaDerivationPersistedSigningRecord(
   record: ThresholdEcdsaSessionRecord | null | undefined,
   nowMs: number = currentActiveSessionNowMs(),
-): RouterAbEcdsaHssPersistedSigningRecordState {
+): RouterAbEcdsaDerivationPersistedSigningRecordState {
   if (!record) {
     return {
       kind: 'invalid',
@@ -760,12 +760,12 @@ export function classifyRouterAbEcdsaHssPersistedSigningRecord(
       reason: 'invalid_budget',
     };
   }
-  const parsed = buildActiveRouterAbEcdsaHssSigningWalletSessionFromRecord({
+  const parsed = buildActiveRouterAbEcdsaDerivationSigningWalletSessionFromRecord({
     record,
     nowMs: operationNowMs,
   });
   if (parsed.ok) {
-    if (isRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)) {
+    if (isRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record)) {
       return {
         kind: 'runtime_validated',
         record,
@@ -815,10 +815,10 @@ export function classifyRouterAbEcdsaHssPersistedSigningRecord(
   };
 }
 
-export function requireRouterAbEcdsaHssSigningWalletSessionFromRecord(
+export function requireRouterAbEcdsaDerivationSigningWalletSessionFromRecord(
   record: ThresholdEcdsaSessionRecord | null | undefined,
-): RouterAbEcdsaHssSigningWalletSession {
-  const parsed = parseRouterAbEcdsaHssSigningWalletSessionFromRecord(record);
+): RouterAbEcdsaDerivationSigningWalletSession {
+  const parsed = parseRouterAbEcdsaDerivationSigningWalletSessionFromRecord(record);
   if (parsed.ok) return parsed.value;
-  throw new Error(`[wallet-session] ECDSA-HSS signing Wallet Session is invalid: ${parsed.reason}`);
+  throw new Error(`[wallet-session] Router A/B ECDSA derivation signing Wallet Session is invalid: ${parsed.reason}`);
 }

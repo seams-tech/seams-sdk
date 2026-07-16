@@ -82,7 +82,7 @@ const existingKeyRegistration: EmailOtpEcdsaRegistrationBootstrapInput = {
   sessionKind: 'jwt',
   routeAuth,
   keyMode: 'existing_role_local_key',
-  keyHandle: 'ehss-key-handle-1',
+  keyHandle: 'ederivation-key-handle-1',
 };
 void existingKeyRegistration;
 
@@ -134,7 +134,7 @@ const registrationWithoutAttempt: EmailOtpEcdsaRegistrationBootstrapInput = {
   sessionKind: 'jwt',
   routeAuth,
   keyMode: 'existing_role_local_key',
-  keyHandle: 'ehss-key-handle-1',
+  keyHandle: 'ederivation-key-handle-1',
 };
 void registrationWithoutAttempt;
 
@@ -149,7 +149,7 @@ const registrationWithMixedKeyMode: EmailOtpEcdsaRegistrationBootstrapInput = {
   sessionKind: 'jwt',
   routeAuth,
   keyMode: 'new_role_local_key',
-  keyHandle: 'ehss-key-handle-1',
+  keyHandle: 'ederivation-key-handle-1',
 };
 void registrationWithMixedKeyMode;
 

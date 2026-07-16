@@ -37,7 +37,7 @@ import type {
 } from './identity/laneIdentity';
 import type { ExactEcdsaSigningLaneIdentity } from './identity/exactSigningLaneIdentity';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
-import { markRouterAbEcdsaHssWorkerMaterialRuntimeValidated } from './routerAbSigningWalletSession';
+import { markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated } from './routerAbSigningWalletSession';
 
 const EMPTY_DISCOVER_PERSISTED_SESSIONS_FOR_WALLET_RESULT: DiscoverPersistedSessionsForWalletResult =
   {
@@ -71,6 +71,7 @@ export type SessionPublicDeps = {
 };
 
 type UpsertThresholdEcdsaSessionFromBootstrapInputBase = {
+  purpose: 'transaction_signing';
   walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
@@ -111,12 +112,12 @@ function mergeDiscoverPersistedSessionsForWalletResults(
   );
 }
 
-function markRouterAbEcdsaHssBootstrapWorkerMaterialRuntimeValidated(
+function markRouterAbEcdsaDerivationBootstrapWorkerMaterialRuntimeValidated(
   record: ThresholdEcdsaSessionRecord,
 ): void {
-  if (markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)) return;
+  if (markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record)) return;
   throw new Error(
-    '[SigningEngine] ECDSA-HSS bootstrap returned worker material that could not be runtime-validated',
+    '[SigningEngine] Router A/B ECDSA derivation bootstrap returned worker material that could not be runtime-validated',
   );
 }
 
@@ -166,6 +167,7 @@ export function upsertThresholdEcdsaSessionFromBootstrap(
 ): void {
   if (args.source === 'email_otp') {
     const record = upsertThresholdEcdsaSessionFromBootstrapValue(deps.ecdsaSessions, {
+      purpose: 'transaction_signing',
       walletId: args.walletId,
       chainTarget: args.chainTarget,
       bootstrap: args.bootstrap,
@@ -177,11 +179,12 @@ export function upsertThresholdEcdsaSessionFromBootstrap(
       args.bootstrap.thresholdEcdsaKeyRef.backendBinding?.materialKind ===
       'role_local_worker_handle'
     ) {
-      markRouterAbEcdsaHssBootstrapWorkerMaterialRuntimeValidated(record);
+      markRouterAbEcdsaDerivationBootstrapWorkerMaterialRuntimeValidated(record);
     }
     return;
   }
   const record = upsertThresholdEcdsaSessionFromBootstrapValue(deps.ecdsaSessions, {
+    purpose: 'transaction_signing',
     walletId: args.walletId,
     chainTarget: args.chainTarget,
     bootstrap: args.bootstrap,
@@ -191,7 +194,7 @@ export function upsertThresholdEcdsaSessionFromBootstrap(
   if (
     args.bootstrap.thresholdEcdsaKeyRef.backendBinding?.materialKind === 'role_local_worker_handle'
   ) {
-    markRouterAbEcdsaHssBootstrapWorkerMaterialRuntimeValidated(record);
+    markRouterAbEcdsaDerivationBootstrapWorkerMaterialRuntimeValidated(record);
   }
 }
 

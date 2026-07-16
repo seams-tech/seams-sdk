@@ -1,16 +1,16 @@
 import { alphabetizeStringify } from '@shared/utils/digests';
 import { base64Decode, base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import {
-  routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestDigestV1,
-  routerAbEcdsaHssEvmDigestSigningRequestDigestV1,
-  parseRouterAbEcdsaHssEvmDigestSigningPrepareResponseForRequestV1,
-  parseRouterAbEcdsaHssEvmDigestSigningResponseForCoreRequestV1,
-  routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestFromBudgetedV1,
-  type RouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1Wire,
-  type RouterAbEcdsaHssEvmDigestSigningPrepareResponseV1Wire,
-  type RouterAbEcdsaHssEvmDigestSigningRequestV1Wire,
-  type RouterAbEcdsaHssEvmDigestSigningResponseV1Wire,
-} from '@shared/utils/routerAbEcdsaHss';
+  routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestDigestV1,
+  routerAbEcdsaDerivationEvmDigestSigningRequestDigestV1,
+  parseRouterAbEcdsaDerivationEvmDigestSigningPrepareResponseForRequestV1,
+  parseRouterAbEcdsaDerivationEvmDigestSigningResponseForCoreRequestV1,
+  routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestFromBudgetedV1,
+  type RouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1Wire,
+  type RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1Wire,
+  type RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire,
+  type RouterAbEcdsaDerivationEvmDigestSigningResponseV1Wire,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import {
   buildBearerAuthorizationHeader,
   buildRelayerJsonPostRequestInit,
@@ -719,8 +719,8 @@ async function postRouterAbNormalSigningJson<T>(args: {
   path:
     | '/router-ab/ed25519/sign/prepare'
     | '/router-ab/ed25519/sign'
-    | '/router-ab/ecdsa-hss/sign/prepare'
-    | '/router-ab/ecdsa-hss/sign';
+    | '/router-ab/ecdsa-derivation/sign/prepare'
+    | '/router-ab/ecdsa-derivation/sign';
   credential: RouterAbWalletSessionCredential;
   body: unknown;
   parse: (value: unknown) => T | Promise<T>;
@@ -760,19 +760,19 @@ export async function prepareRouterAbNormalSigningV2(args: {
   });
 }
 
-export async function prepareRouterAbEcdsaHssEvmDigestSigningV1(args: {
+export async function prepareRouterAbEcdsaDerivationEvmDigestSigningV1(args: {
   relayServerUrl: string;
   credential: RouterAbWalletSessionCredential;
-  request: RouterAbEcdsaHssEvmDigestSigningRequestV1Wire;
-}): Promise<RouterAbEcdsaHssEvmDigestSigningPrepareResponseV1Wire> {
-  await routerAbEcdsaHssEvmDigestSigningRequestDigestV1(args.request);
+  request: RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire;
+}): Promise<RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1Wire> {
+  await routerAbEcdsaDerivationEvmDigestSigningRequestDigestV1(args.request);
   return postRouterAbNormalSigningJson({
     relayServerUrl: args.relayServerUrl,
-    path: '/router-ab/ecdsa-hss/sign/prepare',
+    path: '/router-ab/ecdsa-derivation/sign/prepare',
     credential: args.credential,
     body: args.request,
     parse: (value) =>
-      parseRouterAbEcdsaHssEvmDigestSigningPrepareResponseForRequestV1(args.request, value),
+      parseRouterAbEcdsaDerivationEvmDigestSigningPrepareResponseForRequestV1(args.request, value),
   });
 }
 
@@ -790,22 +790,22 @@ export async function finalizeRouterAbNormalSigningV2(args: {
   });
 }
 
-export async function finalizeRouterAbEcdsaHssEvmDigestSigningV1(args: {
+export async function finalizeRouterAbEcdsaDerivationEvmDigestSigningV1(args: {
   relayServerUrl: string;
   credential: RouterAbWalletSessionCredential;
-  request: RouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1Wire;
-}): Promise<RouterAbEcdsaHssEvmDigestSigningResponseV1Wire> {
-  const coreRequest = routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestFromBudgetedV1(
+  request: RouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1Wire;
+}): Promise<RouterAbEcdsaDerivationEvmDigestSigningResponseV1Wire> {
+  const coreRequest = routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestFromBudgetedV1(
     args.request,
   );
-  await routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestDigestV1(coreRequest);
+  await routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestDigestV1(coreRequest);
   return postRouterAbNormalSigningJson({
     relayServerUrl: args.relayServerUrl,
-    path: '/router-ab/ecdsa-hss/sign',
+    path: '/router-ab/ecdsa-derivation/sign',
     credential: args.credential,
     body: args.request,
     parse: (value) =>
-      parseRouterAbEcdsaHssEvmDigestSigningResponseForCoreRequestV1(coreRequest, value),
+      parseRouterAbEcdsaDerivationEvmDigestSigningResponseForCoreRequestV1(coreRequest, value),
   });
 }
 

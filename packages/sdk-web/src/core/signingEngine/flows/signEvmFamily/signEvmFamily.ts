@@ -364,7 +364,7 @@ function resolvedEcdsaBudgetSpendLaneForOperation(args: {
 function trustedBudgetStatusAuthFromReadySignerSession(
   signerSession: ReadyEcdsaSignerSession,
 ): SigningSessionBudgetStatusAuth {
-  const walletSessionJwt = signerSession.routerAbEcdsaHssNormalSigning.credential.walletSessionJwt;
+  const walletSessionJwt = signerSession.routerAbEcdsaDerivationNormalSigning.credential.walletSessionJwt;
   return {
     relayerUrl: signerSession.transport.relayerUrl,
     thresholdSessionId: String(signerSession.session.thresholdSessionId),
@@ -717,37 +717,8 @@ async function signEvmFamilyAttempt(
     deps.loginWithEmailOtpEcdsaCapabilityForSigning;
   const confirmedSigningDeps: EvmFamilyConfirmedSigningDeps = {
     ...deps,
-    requestEmailOtpTransactionSigningChallenge: requestEmailOtpTransactionSigningChallenge
-      ? async (challengeArgs: {
-          walletSession: WalletSessionRef;
-          chain: EvmFamilyChain;
-          authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ecdsa' }>;
-        }) =>
-          await requestEmailOtpTransactionSigningChallenge({
-            walletSession: challengeArgs.walletSession,
-            chain: challengeArgs.chain,
-            authLane: challengeArgs.authLane,
-          })
-      : undefined,
-    loginWithEmailOtpEcdsaCapabilityForSigning: loginWithEmailOtpEcdsaCapabilityForSigning
-      ? async (loginArgs: {
-          walletSession: WalletSessionRef;
-          subjectId?: never;
-          chainTarget: ThresholdEcdsaChainTarget;
-          challengeId: string;
-          otpCode: string;
-          committedLane: EmailOtpEcdsaCommittedLane;
-          remainingUses: number;
-        }) =>
-          await loginWithEmailOtpEcdsaCapabilityForSigning({
-            walletSession: loginArgs.walletSession,
-            chainTarget: loginArgs.chainTarget,
-            challengeId: loginArgs.challengeId,
-            otpCode: loginArgs.otpCode,
-            committedLane: loginArgs.committedLane,
-            remainingUses: loginArgs.remainingUses,
-          })
-      : undefined,
+    requestEmailOtpTransactionSigningChallenge,
+    loginWithEmailOtpEcdsaCapabilityForSigning,
   };
   const authPlanningArgsBase = {
     deps: {
@@ -886,25 +857,68 @@ async function signEvmFamilyAttempt(
               }),
               diagnostics: prepared.selection.diagnostics,
             };
-    } else if (prepared.selection.authMethod === SIGNER_AUTH_METHODS.emailOtp) {
-      refreshedSelection = {
-        ...prepared.selection,
-        authMethod: SIGNER_AUTH_METHODS.emailOtp,
-        lane: signingLane,
-        material: refreshedMaterial,
-        committedLane: {
-          ...prepared.selection.committedLane,
-          lane: signingLane,
-          material: refreshedMaterial,
-        },
-      };
+    } else if (prepared.selection.reason === 'missing_hot_material') {
+      refreshedSelection =
+        prepared.selection.authMethod === SIGNER_AUTH_METHODS.emailOtp
+          ? {
+              ...prepared.selection,
+              authMethod: SIGNER_AUTH_METHODS.emailOtp,
+              lane: signingLane,
+              material: refreshedMaterial,
+              committedLane: {
+                ...prepared.selection.committedLane,
+                lane: signingLane,
+                material: refreshedMaterial,
+              },
+            }
+          : {
+              ...prepared.selection,
+              authMethod: SIGNER_AUTH_METHODS.passkey,
+              lane: signingLane,
+              material: refreshedMaterial,
+              committedLane: {
+                ...prepared.selection.committedLane,
+                lane: signingLane,
+                material: refreshedMaterial,
+              },
+            };
     } else {
-      refreshedSelection = {
-        ...prepared.selection,
-        authMethod: SIGNER_AUTH_METHODS.passkey,
-        lane: signingLane,
-        material: refreshedMaterial,
-      };
+      refreshedSelection =
+        prepared.selection.authMethod === SIGNER_AUTH_METHODS.emailOtp
+          ? {
+              kind: 'reauth_required',
+              accountAuth: prepared.selection.accountAuth,
+              authMethod: SIGNER_AUTH_METHODS.emailOtp,
+              lane: signingLane,
+              material: refreshedMaterial,
+              reason: prepared.selection.reason,
+              reauthLane: {
+                kind: 'public_reauth_lane',
+                lane: signingLane,
+                authority: prepared.selection.reauthLane.authority,
+                publicRestore: prepared.selection.reauthLane.publicRestore,
+                reauthAnchor: prepared.selection.reauthLane.reauthAnchor,
+                material: refreshedMaterial,
+              },
+              diagnostics: prepared.selection.diagnostics,
+            }
+          : {
+              kind: 'reauth_required',
+              accountAuth: prepared.selection.accountAuth,
+              authMethod: SIGNER_AUTH_METHODS.passkey,
+              lane: signingLane,
+              material: refreshedMaterial,
+              reason: prepared.selection.reason,
+              reauthLane: {
+                kind: 'public_reauth_lane',
+                lane: signingLane,
+                authority: prepared.selection.reauthLane.authority,
+                publicRestore: prepared.selection.reauthLane.publicRestore,
+                reauthAnchor: prepared.selection.reauthLane.reauthAnchor,
+                material: refreshedMaterial,
+              },
+              diagnostics: prepared.selection.diagnostics,
+            };
     }
     const updatedPrepared = {
       ...preparedWithoutBudget,

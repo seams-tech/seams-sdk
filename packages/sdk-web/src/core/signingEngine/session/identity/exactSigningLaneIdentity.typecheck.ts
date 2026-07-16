@@ -53,7 +53,7 @@ const evmTarget = {
 const ecdsaKey = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId,
   evmFamilySigningKeySlotId: 'wallet-key-localhost',
-  ecdsaThresholdKeyId: 'ehss-exact-key',
+  ecdsaThresholdKeyId: 'ederivation-exact-key',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
   participantIds: [1, 2],

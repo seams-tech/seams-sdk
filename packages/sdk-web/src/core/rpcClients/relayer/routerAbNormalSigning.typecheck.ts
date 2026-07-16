@@ -4,9 +4,9 @@ import type {
   RouterAbWalletSessionCredential,
 } from './routerAbNormalSigning';
 import type {
-  RouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1Wire,
-  RouterAbEcdsaHssEvmDigestSigningFinalizeCoreRequestV1Wire,
-} from '@shared/utils/routerAbEcdsaHss';
+  RouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1Wire,
+  RouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV1Wire,
+} from '@shared/utils/routerAbEcdsaDerivation';
 
 const scope = {
   request_id: 'router-ab-normal-signing/request-1',
@@ -125,7 +125,7 @@ const ecdsaScope = {
   },
   public_identity: {
     context_binding_b64u: 'context-binding',
-    client_public_key33_b64u: 'client-public-key',
+    derivation_client_share_public_key33_b64u: 'client-public-key',
     server_public_key33_b64u: 'server-public-key',
     threshold_public_key33_b64u: 'threshold-public-key',
     ethereum_address20_b64u: 'ethereum-address',
@@ -147,7 +147,7 @@ const ecdsaFinalizeCoreRequest = {
   signing_digest_b64u: 'signing-digest',
   server_presignature_id: 'server-presignature-1',
   client_signature_share32_b64u: 'client-signature-share',
-} satisfies RouterAbEcdsaHssEvmDigestSigningFinalizeCoreRequestV1Wire;
+} satisfies RouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV1Wire;
 void ecdsaFinalizeCoreRequest;
 
 const ecdsaCoreRequestWithBudgetMetadata = {
@@ -160,18 +160,18 @@ const ecdsaCoreRequestWithBudgetMetadata = {
   // @ts-expect-error core finalize request excludes public Router budget metadata.
   budget_reservation_id: 'budget-reservation-1',
   budget_operation_id: 'budget-operation-1',
-} satisfies RouterAbEcdsaHssEvmDigestSigningFinalizeCoreRequestV1Wire;
+} satisfies RouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV1Wire;
 void ecdsaCoreRequestWithBudgetMetadata;
 
 const ecdsaBudgetedFinalizeRequest = {
   ...ecdsaFinalizeCoreRequest,
   budget_reservation_id: 'budget-reservation-1',
   budget_operation_id: 'budget-operation-1',
-} satisfies RouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1Wire;
+} satisfies RouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1Wire;
 void ecdsaBudgetedFinalizeRequest;
 
 // @ts-expect-error public Router finalize requires budget metadata.
-const ecdsaBudgetedFinalizeWithoutBudget: RouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1Wire =
+const ecdsaBudgetedFinalizeWithoutBudget: RouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1Wire =
   ecdsaFinalizeCoreRequest;
 void ecdsaBudgetedFinalizeWithoutBudget;
 

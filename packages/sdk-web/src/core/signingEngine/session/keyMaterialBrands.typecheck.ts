@@ -1,7 +1,7 @@
 import type {
   EcdsaClientAdditiveShareHandle,
   EcdsaClientVerifyingShareB64u,
-  EcdsaHssKeyVersion,
+  EcdsaDerivationKeyVersion,
   EcdsaKeyHandle,
   EcdsaRelayerKeyId,
   EcdsaThresholdKeyId,
@@ -13,7 +13,7 @@ import type {
 import {
   formatEcdsaClientAdditiveShareHandleForWire,
   formatEcdsaClientVerifyingShareB64uForWire,
-  formatEcdsaHssKeyVersionForWire,
+  formatEcdsaDerivationKeyVersionForWire,
   formatEcdsaKeyHandleForWire,
   formatEcdsaRelayerKeyIdForWire,
   formatEcdsaThresholdKeyIdForWire,
@@ -23,7 +23,7 @@ import {
   formatSigningSessionSealShamirPrimeB64uForWire,
   parseEcdsaClientAdditiveShareHandle,
   parseEcdsaClientVerifyingShareB64u,
-  parseEcdsaHssKeyVersion,
+  parseEcdsaDerivationKeyVersion,
   parseEcdsaKeyHandle,
   parseEcdsaRelayerKeyId,
   parseEcdsaThresholdKeyId,
@@ -39,7 +39,7 @@ import {
 } from '@shared/utils/registrationIntent';
 
 const ed25519 = parseEd25519KeyVersion('yaos-ab-ed25519-v1');
-const ecdsa = parseEcdsaHssKeyVersion('ecdsa-hss-material-test-v1');
+const ecdsa = parseEcdsaDerivationKeyVersion('ecdsa-derivation-material-test-v1');
 const seal = parseSigningSessionSealKeyVersion('signing-session-seal-kek-test-r1');
 const ecdsaVerifier = parseEcdsaClientVerifyingShareB64u('ecdsa-client-verifier');
 const ed25519RelayerKeyId = parseEd25519RelayerKeyId('ed25519-relayer-key-id');
@@ -58,8 +58,8 @@ function acceptsEd25519(value: Ed25519KeyVersion) {
   return formatEd25519KeyVersionForWire(value);
 }
 
-function acceptsEcdsa(value: EcdsaHssKeyVersion) {
-  return formatEcdsaHssKeyVersionForWire(value);
+function acceptsEcdsa(value: EcdsaDerivationKeyVersion) {
+  return formatEcdsaDerivationKeyVersionForWire(value);
 }
 
 function acceptsSeal(value: SigningSessionSealKeyVersion) {
@@ -121,7 +121,7 @@ acceptsSeal(ed25519);
 // @ts-expect-error signing-session seal KEK versions cannot be used as Ed25519 versions.
 acceptsEd25519(seal);
 
-// @ts-expect-error ECDSA HSS key versions cannot be used as Ed25519 versions.
+// @ts-expect-error ECDSA DERIVATION key versions cannot be used as Ed25519 versions.
 acceptsEd25519(ecdsa);
 
 // @ts-expect-error raw strings must be parsed at a boundary before core use.

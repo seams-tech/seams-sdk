@@ -1,14 +1,7 @@
 import type { AccountAuthMetadata } from '@/core/signingEngine/interfaces/accountAuthMetadata';
-import { requireEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
-import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import {
-  decodeJwtPayloadRecord,
-  ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
-  toWalletSessionThresholdExpiresAtMs,
-  type WalletSessionThresholdExpiresAtMs,
-} from '@shared/utils/sessionTokens';
-import {
+  buildEmailOtpWalletAuthAuthority,
   buildPasskeyWalletAuthAuthority,
   type EmailOtpWalletAuthAuthority,
   type PasskeyWalletAuthAuthority,
@@ -67,15 +60,8 @@ import {
   exactSigningLaneIdentityKey,
 } from '../../session/identity/exactSigningLaneIdentity';
 import {
-  buildEcdsaWalletSessionTransportAuth,
-  toParticipantId,
   toEvmFamilyEcdsaKeyHandle,
-  type EvmFamilyEcdsaKeyHandle,
-  type EvmFamilySigningKeySlotId,
-  type ParticipantId,
-  type VerifiedWalletSessionJwt,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
-import { parseEcdsaRelayerKeyId, type EcdsaRelayerKeyId } from '../../session/keyMaterialBrands';
 import type { EvmFamilyChain, EvmFamilySenderSignatureAlgorithm } from './types';
 import {
   thresholdEcdsaChainTargetsEqual,
@@ -92,6 +78,11 @@ import { parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord } from '../../se
 import type { WalletBudgetUnknown } from '../../session/budget/budgetProjection';
 import type { ReauthAnchorIdentity } from '../../session/operationState/transactionState';
 import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
+import type { EcdsaReauthAnchorPublicRestore } from '../../session/persistence/sealedSessionStore';
+import {
+  buildEcdsaWalletSessionAuthority,
+  type EcdsaWalletSessionAuthority,
+} from '../../session/identity/ecdsaWalletSessionAuthority';
 
 const PASSKEY_ECDSA_SIGNING_SOURCE_PRIORITY = [
   'login',
@@ -190,24 +181,26 @@ type ReauthRequiredEvmFamilyEcdsaSigningSelectionBase = {
 
 type ReauthAnchorBackedEvmFamilyEcdsaSigningSelection = {
   reason: 'expired' | 'exhausted';
-  reauthAnchor: ReauthAnchorIdentity;
+  reauthLane: EcdsaPublicReauthLane;
+  committedLane?: never;
 };
 
 type MaterialBackedEvmFamilyEcdsaSigningSelection = {
   reason: 'missing_hot_material';
-  reauthAnchor?: never;
+  committedLane: EcdsaCommittedLane;
+  reauthLane?: never;
 };
 
 export type ReauthRequiredEvmFamilyEcdsaSigningSelection =
   | (ReauthRequiredEvmFamilyEcdsaSigningSelectionBase &
       ReauthAnchorBackedEvmFamilyEcdsaSigningSelection & {
         authMethod: 'email_otp';
-        committedLane: EmailOtpEcdsaCommittedLane;
+        reauthLane: EmailOtpEcdsaPublicReauthLane;
       })
   | (ReauthRequiredEvmFamilyEcdsaSigningSelectionBase &
       ReauthAnchorBackedEvmFamilyEcdsaSigningSelection & {
         authMethod: 'passkey';
-        committedLane: PasskeyEcdsaCommittedLane;
+        reauthLane: PasskeyEcdsaPublicReauthLane;
       })
   | (ReauthRequiredEvmFamilyEcdsaSigningSelectionBase &
       MaterialBackedEvmFamilyEcdsaSigningSelection & {
@@ -349,81 +342,159 @@ export function ecdsaCommittedLaneAuthMethod(lane: EcdsaCommittedLane): EvmFamil
   throw new Error('[SigningEngine][ecdsa] unsupported committed lane authority');
 }
 
-function passkeyReauthRequiredSelection(args: {
-  accountAuth: AccountAuthMetadata;
+function buildPasskeyEcdsaPublicReauthLane(args: {
   lane: ResolvedEvmFamilyEcdsaSigningLane;
   material: EcdsaMaterialState;
-  reason: ReauthRequiredEvmFamilyEcdsaSigningSelection['reason'];
-  committedLane: PasskeyEcdsaCommittedLane;
-  reauthAnchor?: ReauthAnchorIdentity;
-  diagnostics: EcdsaSelectionDiagnostics;
-}): Extract<ReauthRequiredEvmFamilyEcdsaSigningSelection, { authMethod: 'passkey' }> {
-  const common = {
-    kind: 'reauth_required' as const,
-    accountAuth: args.accountAuth,
-    lane: args.lane,
-    material: args.material,
-    diagnostics: args.diagnostics,
-    committedLane: args.committedLane,
-  };
-  const authMethod = ecdsaCommittedLaneAuthMethod(args.committedLane);
-  if (args.reason === 'expired' || args.reason === 'exhausted') {
-    if (!args.reauthAnchor) {
-      throw new Error('[SigningEngine][ecdsa] exhausted/expired reauth requires a reauth anchor');
-    }
-    const base = {
-      ...common,
-      reason: args.reason,
-      reauthAnchor: args.reauthAnchor,
-    };
-    return {
-      ...base,
-      authMethod,
-    };
+  reauthAnchor: ReauthAnchorIdentity;
+  publicRestore: Extract<EcdsaReauthAnchorPublicRestore, { source: Exclude<EcdsaReauthAnchorPublicRestore['source'], 'email_otp'> }>;
+}): PasskeyEcdsaPublicReauthLane {
+  const laneIdentityKey = exactSigningLaneIdentityKey(
+    exactEcdsaSigningLaneIdentityFromSelectedLane(args.lane),
+  );
+  if (laneIdentityKey !== args.reauthAnchor.laneIdentityKey) {
+    throw new Error('[SigningEngine][ecdsa] passkey public reauth anchor identity mismatch');
   }
-  const base = {
-    ...common,
-    reason: args.reason,
-  };
+  if (!thresholdEcdsaChainTargetsEqual(args.publicRestore.chainTarget, args.lane.chainTarget)) {
+    throw new Error('[SigningEngine][ecdsa] passkey public reauth anchor target mismatch');
+  }
   return {
-    ...base,
-    authMethod,
+    kind: 'public_reauth_lane',
+    lane: args.lane,
+    authority: buildPasskeyWalletAuthAuthority({
+      walletId: args.lane.key.walletId,
+      rpId: args.publicRestore.rpId,
+      credentialIdB64u: args.publicRestore.credentialIdB64u,
+    }),
+    publicRestore: args.publicRestore,
+    reauthAnchor: args.reauthAnchor,
+    material: args.material,
   };
 }
 
-function emailOtpReauthRequiredSelection(args: {
+function buildEmailOtpEcdsaPublicReauthLane(args: {
+  lane: ResolvedEvmFamilyEcdsaSigningLane;
+  material: EcdsaMaterialState;
+  reauthAnchor: ReauthAnchorIdentity;
+  publicRestore: Extract<EcdsaReauthAnchorPublicRestore, { source: 'email_otp' }>;
+}): EmailOtpEcdsaPublicReauthLane {
+  const laneIdentityKey = exactSigningLaneIdentityKey(
+    exactEcdsaSigningLaneIdentityFromSelectedLane(args.lane),
+  );
+  if (laneIdentityKey !== args.reauthAnchor.laneIdentityKey) {
+    throw new Error('[SigningEngine][ecdsa] Email OTP public reauth anchor identity mismatch');
+  }
+  if (!thresholdEcdsaChainTargetsEqual(args.publicRestore.chainTarget, args.lane.chainTarget)) {
+    throw new Error('[SigningEngine][ecdsa] Email OTP public reauth anchor target mismatch');
+  }
+  return {
+    kind: 'public_reauth_lane',
+    lane: args.lane,
+    authority: buildEmailOtpWalletAuthAuthority({
+      walletId: args.lane.key.walletId,
+      provider: args.publicRestore.provider,
+      providerUserId: args.publicRestore.providerSubjectId,
+      emailHashHex: args.publicRestore.emailHashHex,
+    }),
+    publicRestore: args.publicRestore,
+    reauthAnchor: args.reauthAnchor,
+    material: args.material,
+  };
+}
+
+type PasskeyReauthRequiredSelectionInput = {
   accountAuth: AccountAuthMetadata;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
   material: EcdsaMaterialState;
-  reason: ReauthRequiredEvmFamilyEcdsaSigningSelection['reason'];
-  committedLane: EmailOtpEcdsaCommittedLane;
-  reauthAnchor?: ReauthAnchorIdentity;
   diagnostics: EcdsaSelectionDiagnostics;
-}): Extract<ReauthRequiredEvmFamilyEcdsaSigningSelection, { authMethod: 'email_otp' }> {
-  const authMethod = ecdsaCommittedLaneAuthMethod(args.committedLane);
-  const common = {
-    kind: 'reauth_required' as const,
-    accountAuth: args.accountAuth,
-    authMethod,
-    lane: args.lane,
-    material: args.material,
-    diagnostics: args.diagnostics,
-    committedLane: args.committedLane,
-  };
-  if (args.reason === 'expired' || args.reason === 'exhausted') {
-    if (!args.reauthAnchor) {
-      throw new Error('[SigningEngine][ecdsa] exhausted/expired reauth requires a reauth anchor');
+} & (
+  | {
+      reason: 'expired' | 'exhausted';
+      reauthLane: PasskeyEcdsaPublicReauthLane;
+      committedLane?: never;
     }
-    return {
-      ...common,
-      reason: args.reason,
-      reauthAnchor: args.reauthAnchor,
-    };
+  | {
+      reason: 'missing_hot_material';
+      committedLane: PasskeyEcdsaCommittedLane;
+      reauthLane?: never;
+    }
+);
+
+function passkeyReauthRequiredSelection(
+  args: PasskeyReauthRequiredSelectionInput,
+): Extract<ReauthRequiredEvmFamilyEcdsaSigningSelection, { authMethod: 'passkey' }> {
+  switch (args.reason) {
+    case 'expired':
+    case 'exhausted':
+      return {
+        kind: 'reauth_required',
+        accountAuth: args.accountAuth,
+        authMethod: 'passkey',
+        lane: args.lane,
+        material: args.material,
+        reason: args.reason,
+        reauthLane: args.reauthLane,
+        diagnostics: args.diagnostics,
+      };
+    case 'missing_hot_material':
+      return {
+        kind: 'reauth_required',
+        accountAuth: args.accountAuth,
+        authMethod: 'passkey',
+        lane: args.lane,
+        material: args.material,
+        reason: 'missing_hot_material',
+        committedLane: args.committedLane,
+        diagnostics: args.diagnostics,
+      };
   }
-  return {
-    ...common,
-    reason: args.reason,
-  };
+}
+
+type EmailOtpReauthRequiredSelectionInput = {
+  accountAuth: AccountAuthMetadata;
+  lane: ResolvedEvmFamilyEcdsaSigningLane;
+  material: EcdsaMaterialState;
+  diagnostics: EcdsaSelectionDiagnostics;
+} & (
+  | {
+      reason: 'expired' | 'exhausted';
+      reauthLane: EmailOtpEcdsaPublicReauthLane;
+      committedLane?: never;
+    }
+  | {
+      reason: 'missing_hot_material';
+      committedLane: EmailOtpEcdsaCommittedLane;
+      reauthLane?: never;
+    }
+);
+
+function emailOtpReauthRequiredSelection(
+  args: EmailOtpReauthRequiredSelectionInput,
+): Extract<ReauthRequiredEvmFamilyEcdsaSigningSelection, { authMethod: 'email_otp' }> {
+  switch (args.reason) {
+    case 'expired':
+    case 'exhausted':
+      return {
+        kind: 'reauth_required',
+        accountAuth: args.accountAuth,
+        authMethod: 'email_otp',
+        lane: args.lane,
+        material: args.material,
+        reason: args.reason,
+        reauthLane: args.reauthLane,
+        diagnostics: args.diagnostics,
+      };
+    case 'missing_hot_material':
+      return {
+        kind: 'reauth_required',
+        accountAuth: args.accountAuth,
+        authMethod: 'email_otp',
+        lane: args.lane,
+        material: args.material,
+        reason: 'missing_hot_material',
+        committedLane: args.committedLane,
+        diagnostics: args.diagnostics,
+      };
+  }
 }
 
 function passkeyRestoreRequiredSelection(args: {
@@ -587,21 +658,8 @@ type EmailOtpSelectionAuthority = {
     }
 );
 
-export type EcdsaCommittedLaneWalletSessionAuthority = {
-  kind: 'wallet_session_authority';
-  walletSessionJwt: VerifiedWalletSessionJwt;
-  walletId: WalletId;
-  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
-  keyHandle: EvmFamilyEcdsaKeyHandle;
-  relayerKeyId: EcdsaRelayerKeyId;
-  thresholdSessionId: ThresholdEcdsaSessionId;
-  signingGrantId: SigningGrantId;
-  thresholdExpiresAtMs: WalletSessionThresholdExpiresAtMs;
-  participantIds: readonly ParticipantId[];
-};
-
 export type PasskeyEcdsaCommittedLaneAuthority =
-  | EcdsaCommittedLaneWalletSessionAuthority
+  | EcdsaWalletSessionAuthority
   | {
       kind: 'passkey_cookie_session_authority';
       thresholdSessionId: string;
@@ -609,11 +667,11 @@ export type PasskeyEcdsaCommittedLaneAuthority =
       walletSessionJwt?: never;
     };
 
-type EcdsaCommittedLaneWalletSessionAuthorityFor<A extends WalletAuthAuthority> =
+type EcdsaWalletSessionAuthorityFor<A extends WalletAuthAuthority> =
   A extends PasskeyWalletAuthAuthority
     ? PasskeyEcdsaCommittedLaneAuthority
     : A extends EmailOtpWalletAuthAuthority
-      ? EcdsaCommittedLaneWalletSessionAuthority
+      ? EcdsaWalletSessionAuthority
       : never;
 
 type EcdsaCommittedLaneAuthFacts<A extends WalletAuthAuthority> =
@@ -653,7 +711,7 @@ export type EcdsaCommittedLane<A extends WalletAuthAuthority = WalletAuthAuthori
     ? {
         lane: ResolvedEvmFamilyEcdsaSigningLane;
         authority: A;
-        walletSessionAuthority: EcdsaCommittedLaneWalletSessionAuthorityFor<A>;
+        walletSessionAuthority: EcdsaWalletSessionAuthorityFor<A>;
         material: EcdsaMaterialState;
       } & EcdsaCommittedLaneAuthFacts<A> &
         EcdsaCommittedLaneDurableRestoreFacts<A>
@@ -662,6 +720,21 @@ export type EcdsaCommittedLane<A extends WalletAuthAuthority = WalletAuthAuthori
 export type EmailOtpEcdsaCommittedLane = EcdsaCommittedLane<EmailOtpWalletAuthAuthority>;
 
 export type PasskeyEcdsaCommittedLane = EcdsaCommittedLane<PasskeyWalletAuthAuthority>;
+
+export type EcdsaPublicReauthLane<A extends WalletAuthAuthority = WalletAuthAuthority> = {
+  kind: 'public_reauth_lane';
+  lane: ResolvedEvmFamilyEcdsaSigningLane;
+  authority: A;
+  publicRestore: EcdsaReauthAnchorPublicRestore;
+  reauthAnchor: ReauthAnchorIdentity;
+  material: EcdsaMaterialState;
+  walletSessionAuthority?: never;
+  authLane?: never;
+  record?: never;
+};
+
+export type EmailOtpEcdsaPublicReauthLane = EcdsaPublicReauthLane<EmailOtpWalletAuthAuthority>;
+export type PasskeyEcdsaPublicReauthLane = EcdsaPublicReauthLane<PasskeyWalletAuthAuthority>;
 
 export type RecordBackedEcdsaCommittedLane<A extends WalletAuthAuthority = WalletAuthAuthority> =
   Extract<
@@ -796,105 +869,12 @@ function assertEcdsaCommittedLaneAuthorityMatchesWallet(args: {
   );
 }
 
-function requireEcdsaWalletSessionPayload(
-  walletSessionJwt: VerifiedWalletSessionJwt,
-): Record<string, unknown> {
-  const payload = decodeJwtPayloadRecord(walletSessionJwt);
-  if (payload?.kind !== ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND) {
-    throw new Error('[SigningEngine][ecdsa] committed lane Wallet Session JWT kind is invalid');
-  }
-  return payload;
-}
-
-function requireEcdsaWalletSessionParticipantIds(value: unknown): readonly ParticipantId[] {
-  const normalized = normalizeThresholdEd25519ParticipantIds(value);
-  if (!normalized || normalized.length < 2) {
-    throw new Error(
-      '[SigningEngine][ecdsa] committed lane Wallet Session JWT participantIds are invalid',
-    );
-  }
-  return normalized.map(toParticipantId);
-}
-
-function assertEcdsaWalletSessionClaimMatches(args: {
-  field: string;
-  expected: unknown;
-  actual: unknown;
-}): void {
-  if (String(args.expected) === String(args.actual)) return;
-  throw new Error(
-    `[SigningEngine][ecdsa] committed lane Wallet Session JWT ${args.field} mismatch`,
-  );
-}
-
-function buildEcdsaCommittedLaneWalletSessionAuthority(args: {
-  walletSessionJwt: string;
-  walletId: unknown;
-  evmFamilySigningKeySlotId: unknown;
-  keyHandle: unknown;
-  thresholdSessionId: string;
-  signingGrantId: string;
-}): EcdsaCommittedLaneWalletSessionAuthority {
-  const walletSessionAuth = buildEcdsaWalletSessionTransportAuth({
-    kind: 'wallet_session_jwt',
-    walletSessionJwt: args.walletSessionJwt,
-  });
-  const identity = buildEcdsaSessionIdentity({
-    thresholdSessionId: args.thresholdSessionId,
-    signingGrantId: args.signingGrantId,
-  });
-  const payload = requireEcdsaWalletSessionPayload(walletSessionAuth.walletSessionJwt);
-  const walletId = toWalletId(payload.walletId);
-  const evmFamilySigningKeySlotId = requireEvmFamilySigningKeySlotId(
-    payload.evmFamilySigningKeySlotId,
-  );
-  const keyHandle = toEvmFamilyEcdsaKeyHandle(payload.keyHandle);
-  const relayerKeyId = parseEcdsaRelayerKeyId(payload.relayerKeyId);
-  const claimsIdentity = buildEcdsaSessionIdentity({
-    thresholdSessionId: payload.thresholdSessionId,
-    signingGrantId: payload.signingGrantId,
-  });
-  assertEcdsaWalletSessionClaimMatches({
-    field: 'walletId',
-    expected: args.walletId,
-    actual: walletId,
-  });
-  assertEcdsaWalletSessionClaimMatches({
-    field: 'evmFamilySigningKeySlotId',
-    expected: args.evmFamilySigningKeySlotId,
-    actual: evmFamilySigningKeySlotId,
-  });
-  assertEcdsaWalletSessionClaimMatches({
-    field: 'keyHandle',
-    expected: args.keyHandle,
-    actual: keyHandle,
-  });
-  if (
-    claimsIdentity.thresholdSessionId !== identity.thresholdSessionId ||
-    claimsIdentity.signingGrantId !== identity.signingGrantId
-  ) {
-    throw new Error('[SigningEngine][ecdsa] committed lane Wallet Session JWT identity mismatch');
-  }
-  return {
-    kind: 'wallet_session_authority',
-    walletSessionJwt: walletSessionAuth.walletSessionJwt,
-    walletId,
-    evmFamilySigningKeySlotId,
-    keyHandle,
-    relayerKeyId,
-    thresholdSessionId: identity.thresholdSessionId,
-    signingGrantId: identity.signingGrantId,
-    thresholdExpiresAtMs: toWalletSessionThresholdExpiresAtMs(payload.thresholdExpiresAtMs),
-    participantIds: requireEcdsaWalletSessionParticipantIds(payload.participantIds),
-  };
-}
-
 function buildPasskeyEcdsaWalletSessionAuthorityFromRecord(args: {
   record: ThresholdEcdsaSessionRecord;
 }): PasskeyEcdsaCommittedLaneAuthority {
   const walletSessionAuth = resolveRouterAbEcdsaWalletSessionAuthFromRecord(args.record);
   if (walletSessionAuth.kind === 'ready') {
-    return buildEcdsaCommittedLaneWalletSessionAuthority({
+    return buildEcdsaWalletSessionAuthority({
       walletSessionJwt: walletSessionAuth.walletSessionJwt,
       walletId: args.record.walletId,
       evmFamilySigningKeySlotId: args.record.evmFamilySigningKeySlotId,
@@ -1295,7 +1275,7 @@ function buildEmailOtpEcdsaWalletSessionAuthority(args: {
   authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ecdsa' }>;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
 }): EmailOtpEcdsaCommittedLane['walletSessionAuthority'] {
-  return buildEcdsaCommittedLaneWalletSessionAuthority({
+  return buildEcdsaWalletSessionAuthority({
     walletSessionJwt: args.authLane.jwt,
     walletId: args.lane.key.walletId,
     evmFamilySigningKeySlotId: args.lane.key.evmFamilySigningKeySlotId,
@@ -1415,6 +1395,21 @@ export function commitReadyEmailOtpEcdsaLaneFromRecord(args: {
   });
 }
 
+type EcdsaSelectionReauthInput =
+  | { kind: 'not_required'; reauthAnchor?: never; publicRestore?: never }
+  | {
+      kind: 'public_anchor';
+      reauthAnchor: ReauthAnchorIdentity;
+      publicRestore: EcdsaReauthAnchorPublicRestore;
+    };
+
+function requirePublicEcdsaSelectionReauth(
+  reauth: EcdsaSelectionReauthInput,
+): Extract<EcdsaSelectionReauthInput, { kind: 'public_anchor' }> {
+  if (reauth.kind === 'public_anchor') return reauth;
+  throw new Error('[SigningEngine][ecdsa] expired/exhausted selection requires public reauth facts');
+}
+
 export async function resolveEvmFamilyEcdsaSigningSelection(args: {
   deps: EvmFamilyEcdsaSigningSelectionDeps;
   walletId: WalletId;
@@ -1423,7 +1418,7 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
   senderSignatureAlgorithm: EvmFamilySenderSignatureAlgorithm;
   authMethod: EvmFamilyEcdsaAuthMethod;
   laneCandidate: EcdsaLaneCandidate;
-  reauthAnchor?: ReauthAnchorIdentity;
+  reauth: EcdsaSelectionReauthInput;
   allowMissingHotMaterial?: boolean;
 }): Promise<EvmFamilyEcdsaSigningSelectionResult> {
   const lane = resolvedEvmFamilyEcdsaSigningLaneFromCandidate(args.laneCandidate);
@@ -1443,15 +1438,16 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
           lane,
         });
   const candidateAuthMethod = ecdsaLaneCandidateAuthMethod(args.laneCandidate);
+  const isPublicReauth = args.reauth.kind === 'public_anchor';
   const visibleEmailOtpRecord =
-    candidateAuthMethod === SIGNER_AUTH_METHODS.emailOtp
+    candidateAuthMethod === SIGNER_AUTH_METHODS.emailOtp && !isPublicReauth
       ? exactEmailOtpEcdsaRecordForLane({
           deps: args.deps,
           lane: emailOtpAuthorityLane,
         })
       : null;
   const emailOtpAuthority =
-    candidateAuthMethod === SIGNER_AUTH_METHODS.emailOtp
+    candidateAuthMethod === SIGNER_AUTH_METHODS.emailOtp && !isPublicReauth
       ? await resolveEmailOtpAuthorityForSelection({
           deps: args.deps,
           lane: emailOtpAuthorityLane,
@@ -1460,7 +1456,7 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
         })
       : null;
   const requiredEmailOtpAuthority =
-    candidateAuthMethod === SIGNER_AUTH_METHODS.emailOtp
+    candidateAuthMethod === SIGNER_AUTH_METHODS.emailOtp && !isPublicReauth
       ? requireEmailOtpSelectionAuthority({
           authority: emailOtpAuthority,
           lane: emailOtpAuthorityLane,
@@ -1564,72 +1560,43 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
     };
   }
 
-  if (args.laneCandidate.state === 'expired') {
+  if (args.laneCandidate.state === 'expired' || args.laneCandidate.state === 'exhausted') {
+    const reason = args.laneCandidate.state;
+    const reauth = requirePublicEcdsaSelectionReauth(args.reauth);
     if (candidateAuthMethod === SIGNER_AUTH_METHODS.emailOtp) {
-      const reauthLane = requireEmailOtpCommittedLaneForReauth({
-        committedLane: committedEmailOtpLane,
+      if (reauth.publicRestore.source !== 'email_otp') {
+        throw new Error('[SigningEngine][ecdsa] Email OTP selection requires Email OTP public reauth facts');
+      }
+      const reauthLane = buildEmailOtpEcdsaPublicReauthLane({
         lane,
-        candidate: args.laneCandidate,
-        reason: 'expired',
+        material: exactCandidateMaterial,
+        reauthAnchor: reauth.reauthAnchor,
+        publicRestore: reauth.publicRestore,
       });
       return emailOtpReauthRequiredSelection({
         accountAuth: selectedAccountAuth,
         lane,
         material: exactCandidateMaterial,
-        reason: 'expired',
-        committedLane: reauthLane,
-        ...(args.reauthAnchor ? { reauthAnchor: args.reauthAnchor } : {}),
+        reason,
+        reauthLane,
         diagnostics,
       });
     }
-    const reauthLane = requirePasskeyCommittedLaneForReauth({
-      committedLane: committedPasskeyLane,
+    if (reauth.publicRestore.source === 'email_otp') {
+      throw new Error('[SigningEngine][ecdsa] passkey selection requires passkey public reauth facts');
+    }
+    const reauthLane = buildPasskeyEcdsaPublicReauthLane({
       lane,
-      candidate: args.laneCandidate,
-      reason: 'expired',
+      material: exactCandidateMaterial,
+      reauthAnchor: reauth.reauthAnchor,
+      publicRestore: reauth.publicRestore,
     });
     return passkeyReauthRequiredSelection({
       accountAuth: selectedAccountAuth,
       lane,
       material: exactCandidateMaterial,
-      reason: 'expired',
-      committedLane: reauthLane,
-      ...(args.reauthAnchor ? { reauthAnchor: args.reauthAnchor } : {}),
-      diagnostics,
-    });
-  }
-
-  if (args.laneCandidate.state === 'exhausted') {
-    if (candidateAuthMethod === SIGNER_AUTH_METHODS.emailOtp) {
-      const reauthLane = requireEmailOtpCommittedLaneForReauth({
-        committedLane: committedEmailOtpLane,
-        lane,
-        candidate: args.laneCandidate,
-        reason: 'exhausted',
-      });
-      return emailOtpReauthRequiredSelection({
-        accountAuth: selectedAccountAuth,
-        lane,
-        material: exactCandidateMaterial,
-        reason: 'exhausted',
-        committedLane: reauthLane,
-        ...(args.reauthAnchor ? { reauthAnchor: args.reauthAnchor } : {}),
-        diagnostics,
-      });
-    }
-    const reauthLane = requirePasskeyCommittedLaneForReauth({
-      committedLane: committedPasskeyLane,
-      lane,
-      candidate: args.laneCandidate,
-      reason: 'exhausted',
-    });
-    return passkeyReauthRequiredSelection({
-      accountAuth: selectedAccountAuth,
-      lane,
-      material: exactCandidateMaterial,
-      reason: 'exhausted',
-      committedLane: reauthLane,
-      ...(args.reauthAnchor ? { reauthAnchor: args.reauthAnchor } : {}),
+      reason,
+      reauthLane,
       diagnostics,
     });
   }

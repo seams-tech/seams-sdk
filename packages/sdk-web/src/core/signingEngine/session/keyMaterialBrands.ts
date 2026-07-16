@@ -1,14 +1,14 @@
 import {
-  parseSdkEcdsaHssThresholdKeyId,
+  parseSdkEcdsaDerivationThresholdKeyId,
   type EcdsaThresholdKeyId,
-} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 
 export type { EcdsaThresholdKeyId };
 
 export type Brand<T, Name extends string> = T & { readonly __brand: Name };
 
 export type Ed25519KeyVersion = Brand<string, 'Ed25519KeyVersion'>;
-export type EcdsaHssKeyVersion = Brand<string, 'EcdsaHssKeyVersion'>;
+export type EcdsaDerivationKeyVersion = Brand<string, 'EcdsaDerivationKeyVersion'>;
 export type SigningSessionSealKeyVersion = Brand<string, 'SigningSessionSealKeyVersion'>;
 export type EcdsaClientVerifyingShareB64u = Brand<
   string,
@@ -40,8 +40,8 @@ export function parseEd25519KeyVersion(value: unknown): Ed25519KeyVersion {
   return parseNonEmptyBrand<'Ed25519KeyVersion'>(value, 'Ed25519 key version');
 }
 
-export function parseEcdsaHssKeyVersion(value: unknown): EcdsaHssKeyVersion {
-  return parseNonEmptyBrand<'EcdsaHssKeyVersion'>(value, 'ECDSA HSS key version');
+export function parseEcdsaDerivationKeyVersion(value: unknown): EcdsaDerivationKeyVersion {
+  return parseNonEmptyBrand<'EcdsaDerivationKeyVersion'>(value, 'ECDSA DERIVATION key version');
 }
 
 export function parseSigningSessionSealKeyVersion(
@@ -71,7 +71,7 @@ export function parseEcdsaRelayerKeyId(value: unknown): EcdsaRelayerKeyId {
 }
 
 export function parseEcdsaThresholdKeyId(value: unknown): EcdsaThresholdKeyId {
-  return parseSdkEcdsaHssThresholdKeyId(value);
+  return parseSdkEcdsaDerivationThresholdKeyId(value);
 }
 
 export function parseEcdsaKeyHandle(value: unknown): EcdsaKeyHandle {
@@ -118,7 +118,7 @@ export function formatEd25519KeyVersionForWire(value: Ed25519KeyVersion): string
   return value;
 }
 
-export function formatEcdsaHssKeyVersionForWire(value: EcdsaHssKeyVersion): string {
+export function formatEcdsaDerivationKeyVersionForWire(value: EcdsaDerivationKeyVersion): string {
   return value;
 }
 

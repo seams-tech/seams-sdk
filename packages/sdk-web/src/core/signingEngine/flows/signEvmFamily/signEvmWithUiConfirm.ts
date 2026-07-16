@@ -8,6 +8,7 @@ import {
   signEvmFamilyWithUiConfirm,
   type SignEvmFamilyWithUiConfirmArgs,
 } from './signingFlow';
+import { requiredEvmFamilyRequestSignatureUses } from './signatureUses';
 
 export async function signEvmWithUiConfirm(
   args: SignEvmFamilyWithUiConfirmArgs<EvmSigningRequest>,
@@ -23,6 +24,7 @@ export async function signEvmWithUiConfirm(
       buildIntent: async ({ workerCtx, request }) =>
         await new EvmAdapter(workerCtx).buildIntent(request),
       buildDisplayModel: buildEvmDisplayModel,
+      requiredSignatureUsesForRequest: requiredEvmFamilyRequestSignatureUses,
       webauthn: { kind: 'not_supported' },
     },
     input: args,

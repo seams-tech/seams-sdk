@@ -3,7 +3,7 @@ import type { DurableRecordStore } from '@/core/platform';
 import type { SigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
 import {
   buildWalletRegistrationEcdsaSessionBootstrap,
-  type WalletRegistrationEcdsaHssRespondBootstrap,
+  type WalletRegistrationEcdsaDerivationRespondBootstrap,
   type WalletRegistrationEcdsaWalletKey,
 } from '@/core/rpcClients/relayer/walletRegistration';
 import { toWalletId, type WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -17,7 +17,7 @@ import {
   type ThresholdEcdsaSessionStoreDeps,
 } from '@/core/signingEngine/session/persistence/records';
 import { ecdsaRoleLocalReadyRecordStorageKeyFacts } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
-import { markRouterAbEcdsaHssWorkerMaterialRuntimeValidated } from '@/core/signingEngine/session/routerAbSigningWalletSession';
+import { markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import {
   persistThresholdEcdsaBootstrapForWalletTarget,
   type ThresholdEcdsaBootstrapStorePort,
@@ -71,7 +71,7 @@ export type FinalizeWalletRegistrationEcdsaSessionsInput = {
   sessions: readonly {
     chainTarget: WalletRegistrationEcdsaWalletKey['chainTarget'];
     preparedClientBootstrap: WalletRegistrationEcdsaPreparedClientBootstrap;
-    bootstrap: WalletRegistrationEcdsaHssRespondBootstrap;
+    bootstrap: WalletRegistrationEcdsaDerivationRespondBootstrap;
   }[];
   walletKeys: readonly WalletRegistrationEcdsaWalletKey[];
   auth:
@@ -184,6 +184,7 @@ export async function finalizeWalletRegistrationEcdsaSessions(
       startedAt: bootstrapStoreStartedAt,
     });
     const record = upsertThresholdEcdsaSessionFromBootstrap(deps.sessionStore, {
+      purpose: 'transaction_signing',
       walletId,
       chainTarget: walletKey.chainTarget,
       bootstrap,
@@ -265,7 +266,7 @@ async function prepareRegistrationEcdsaSessionBootstrap(args: {
     keygenSessionId: session.preparedClientBootstrap.clientBootstrap.requestId,
     readyStateBlob: finalized.stateBlob,
     signingMaterialHandle: signingMaterial.handle,
-    clientVerifyingShareB64u: finalized.publicFacts.hssClientSharePublicKey33B64u,
+    clientVerifyingShareB64u: finalized.publicFacts.derivationClientSharePublicKey33B64u,
     serverBootstrap: session.bootstrap,
     walletKey: args.walletKey,
     authMethod:
@@ -338,7 +339,7 @@ function markRegistrationEcdsaBootstrapRuntimeValidated(args: {
   ) {
     return;
   }
-  if (markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(args.record)) return;
+  if (markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(args.record)) return;
   throw new Error(
     '[SigningEngine] ECDSA registration bootstrap returned worker material that could not be runtime-validated',
   );

@@ -1,10 +1,15 @@
 import type {
   RegistrationActivationButtonPresentation,
-  RegistrationActivationId,
-  RegistrationActivationMessageIdentity,
-  WalletIframeRequestId,
-  WalletIframeSurfaceId,
 } from '@/SeamsWeb/publicApi/types';
+import {
+  registrationActivationIdFromBoundary,
+  walletIframeRequestIdFromBoundary,
+  walletIframeSurfaceIdFromBoundary,
+  type RegistrationActivationId,
+  type RegistrationActivationMessageIdentity,
+  type WalletIframeRequestId,
+  type WalletIframeSurfaceId,
+} from '@/core/types/registrationActivationIdentity';
 import type { DOMRectLike } from '../overlay/overlay-controller';
 import type { RegisterWalletInput } from '@shared/utils/registrationIntent';
 
@@ -209,18 +214,6 @@ function parseNonEmptyBoundaryString(value: unknown, field: string): string {
 
 export function walletIframeConnectionIdFromBoundary(value: unknown): WalletIframeConnectionId {
   return parseNonEmptyBoundaryString(value, 'connectionId') as WalletIframeConnectionId;
-}
-
-export function walletIframeSurfaceIdFromBoundary(value: unknown): WalletIframeSurfaceId {
-  return parseNonEmptyBoundaryString(value, 'surfaceId') as WalletIframeSurfaceId;
-}
-
-export function walletIframeRequestIdFromBoundary(value: unknown): WalletIframeRequestId {
-  return parseNonEmptyBoundaryString(value, 'requestId') as WalletIframeRequestId;
-}
-
-export function registrationActivationIdFromBoundary(value: unknown): RegistrationActivationId {
-  return parseNonEmptyBoundaryString(value, 'activationId') as RegistrationActivationId;
 }
 
 function boundaryRecord(value: unknown): Record<string, unknown> | null {

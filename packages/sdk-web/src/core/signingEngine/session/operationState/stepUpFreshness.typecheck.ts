@@ -27,7 +27,7 @@ const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
 const key = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId,
   evmFamilySigningKeySlotId: 'wallet-key-localhost',
-  ecdsaThresholdKeyId: 'ehss-step-up',
+  ecdsaThresholdKeyId: 'ederivation-step-up',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
   participantIds: [1, 2],

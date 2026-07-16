@@ -7,9 +7,9 @@ import {
   type ThresholdSessionKind,
 } from '@/core/signingEngine/threshold/sessionPolicy';
 import {
-  parseRouterAbEcdsaHssNormalSigningStateV1,
-  type RouterAbEcdsaHssNormalSigningStateV1,
-} from '@shared/utils/routerAbEcdsaHss';
+  parseRouterAbEcdsaDerivationNormalSigningStateV1,
+  type RouterAbEcdsaDerivationNormalSigningStateV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
   buildEmailOtpWalletAuthAuthority,
@@ -44,7 +44,7 @@ type RawEcdsaRestoreMetadata = {
   thresholdEcdsaPublicKeyB64u?: unknown;
   participantIds?: unknown;
   runtimePolicyScope?: unknown;
-  routerAbEcdsaHssNormalSigning?: unknown;
+  routerAbEcdsaDerivationNormalSigning?: unknown;
 };
 
 export type RawSigningSessionSealedStoreRecord = RawSealedSessionRecord & {
@@ -116,7 +116,7 @@ type EcdsaSealedRecoveryRecordBase = SealedRecoveryRecordBase & {
   relayerUrl: string;
   relayerKeyId: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  routerAbEcdsaHssNormalSigning: RouterAbEcdsaHssNormalSigningStateV1;
+  routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
 };
 
 export type SealedRecoveryWalletSessionAuth = {
@@ -181,11 +181,11 @@ function normalizeParticipantIds(value: unknown): number[] {
     .filter((participantId) => Number.isFinite(participantId) && participantId > 0);
 }
 
-function normalizeRouterAbEcdsaHssNormalSigningState(
+function normalizeRouterAbEcdsaDerivationNormalSigningState(
   value: unknown,
-): RouterAbEcdsaHssNormalSigningStateV1 | null {
+): RouterAbEcdsaDerivationNormalSigningStateV1 | null {
   try {
-    return parseRouterAbEcdsaHssNormalSigningStateV1(value);
+    return parseRouterAbEcdsaDerivationNormalSigningStateV1(value);
   } catch {
     return null;
   }
@@ -450,8 +450,8 @@ export function normalizeSealedRecoveryRecord(
   const ethereumAddress = normalizeEthereumAddress(restore?.ethereumAddress);
   const thresholdEcdsaPublicKeyB64u = normalizeNonEmptyString(restore?.thresholdEcdsaPublicKeyB64u);
   const participantIds = normalizeParticipantIds(restore?.participantIds);
-  const routerAbEcdsaHssNormalSigning = normalizeRouterAbEcdsaHssNormalSigningState(
-    restore?.routerAbEcdsaHssNormalSigning,
+  const routerAbEcdsaDerivationNormalSigning = normalizeRouterAbEcdsaDerivationNormalSigningState(
+    restore?.routerAbEcdsaDerivationNormalSigning,
   );
   const clientVerifyingShareB64u = normalizeNonEmptyString(restore?.clientVerifyingShareB64u);
   const passkeyClientVerifyingShareB64u =
@@ -484,7 +484,7 @@ export function normalizeSealedRecoveryRecord(
     !relayerKeyId ||
     !keyHandle ||
     !ethereumAddress ||
-    !routerAbEcdsaHssNormalSigning ||
+    !routerAbEcdsaDerivationNormalSigning ||
     !participantIds.length ||
     (raw.authMethod === 'passkey' && !passkeyClientVerifyingShareB64u)
   ) {
@@ -555,7 +555,7 @@ export function normalizeSealedRecoveryRecord(
           relayerKeyId,
           ...walletSessionAuth,
           ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-          routerAbEcdsaHssNormalSigning,
+          routerAbEcdsaDerivationNormalSigning,
           clientVerifyingShareB64u: passkeyClientVerifyingShareB64u!,
         }
       : {
@@ -591,7 +591,7 @@ export function normalizeSealedRecoveryRecord(
           relayerKeyId,
           ...walletSessionAuth,
           ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-          routerAbEcdsaHssNormalSigning,
+          routerAbEcdsaDerivationNormalSigning,
           ...(clientVerifyingShareB64u ? { clientVerifyingShareB64u } : {}),
         };
   return { kind: 'accepted', record: accepted };

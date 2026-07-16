@@ -6,9 +6,11 @@ import type { EmailOtpEcdsaPublicationPorts } from './ecdsaPublication';
 import {
   loginWithEmailOtpEcdsaCapability,
   loginWithEmailOtpEcdsaCapabilityForSigning,
+  loginWithEmailOtpEcdsaPublicReauthCapabilityForSigning,
   type EmailOtpThresholdEcdsaLoginResult,
   type LoginEmailOtpEcdsaCapabilityArgs,
   type LoginEmailOtpEcdsaCapabilityForSigningArgs,
+  type LoginEmailOtpEcdsaPublicReauthCapabilityForSigningArgs,
 } from './ecdsaLogin';
 import {
   enrollAndLoginWithEmailOtpEcdsaCapability,
@@ -35,6 +37,14 @@ export class EmailOtpEcdsaLifecycleRuntime {
   ): Promise<EmailOtpThresholdEcdsaLoginResult> {
     return await loginWithEmailOtpEcdsaCapabilityForSigning(args, {
       requireRelayUrl: () => this.ports.runtimeConfig.requireRelayUrl(),
+      loginWithEcdsaCapabilityInternal: (request) => this.loginWithEcdsaCapabilityInternal(request),
+    });
+  }
+
+  async loginWithEcdsaPublicReauthCapabilityForSigning(
+    args: LoginEmailOtpEcdsaPublicReauthCapabilityForSigningArgs,
+  ): Promise<EmailOtpThresholdEcdsaLoginResult> {
+    return await loginWithEmailOtpEcdsaPublicReauthCapabilityForSigning(args, {
       loginWithEcdsaCapabilityInternal: (request) => this.loginWithEcdsaCapabilityInternal(request),
     });
   }

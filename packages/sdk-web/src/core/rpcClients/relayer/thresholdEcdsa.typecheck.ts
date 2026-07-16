@@ -1,28 +1,28 @@
 import type {
-  ThresholdEcdsaHssRoleLocalBootstrapRequest,
-  ThresholdEcdsaHssRoleLocalClientRootProof,
-  ThresholdEcdsaHssRoleLocalPasskeyBootstrapAuthorization,
+  ThresholdEcdsaDerivationRoleLocalBootstrapRequest,
+  ThresholdEcdsaDerivationRoleLocalClientRootProof,
+  ThresholdEcdsaDerivationRoleLocalPasskeyBootstrapAuthorization,
 } from './thresholdEcdsa';
 import {
-  toEcdsaHssThresholdKeyId,
-} from '../../signingEngine/session/identity/emailOtpHssIdentity';
+  toEcdsaDerivationThresholdKeyId,
+} from '../../signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
 import { toWalletId } from '../../signingEngine/interfaces/ecdsaChainTarget';
 import type {
   EcdsaClientRootPublicKey33B64u,
-  EcdsaHssClientSharePublicKey33B64u,
-} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+  DerivationClientSharePublicKey33B64u,
+} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 
 const bootstrapBase = {
-  formatVersion: 'ecdsa-hss-role-local',
+  formatVersion: 'ecdsa-derivation-role-local',
   walletId: toWalletId('wallet-user'),
   evmFamilySigningKeySlotId: 'wallet-key-example-test',
-  ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId('ecdsa-key'),
+  ecdsaThresholdKeyId: toEcdsaDerivationThresholdKeyId('ecdsa-key'),
   signingRootId: 'project:env',
   signingRootVersion: 'default',
   keyScope: 'evm-family',
   relayerKeyId: 'relayer-key',
-  hssClientSharePublicKey33B64u:
-    'client-public-key' as EcdsaHssClientSharePublicKey33B64u,
+  derivationClientSharePublicKey33B64u:
+    'client-public-key' as DerivationClientSharePublicKey33B64u,
   clientShareRetryCounter: 0,
   contextBinding32B64u: 'context-binding',
   requestId: 'request-id',
@@ -31,55 +31,55 @@ const bootstrapBase = {
   ttlMs: 60_000,
   remainingUses: 2,
   participantIds: [1, 2],
-} satisfies ThresholdEcdsaHssRoleLocalBootstrapRequest;
+} satisfies ThresholdEcdsaDerivationRoleLocalBootstrapRequest;
 
 const clientRootProof = {
-  version: 'ecdsa-hss:role-local:first-bootstrap-root-proof:v2',
+  version: 'ecdsa-derivation:role-local:first-bootstrap-root-proof:v2',
   clientRootPublicKey33B64u: 'public-key' as EcdsaClientRootPublicKey33B64u,
   digest32B64u: 'digest',
   signature65B64u: 'signature',
-} satisfies ThresholdEcdsaHssRoleLocalClientRootProof;
+} satisfies ThresholdEcdsaDerivationRoleLocalClientRootProof;
 
-declare const hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
+declare const derivationClientSharePublicKey33B64u: DerivationClientSharePublicKey33B64u;
 void ({
   ...clientRootProof,
-  // @ts-expect-error HSS client-share keys cannot verify client-root proofs.
-  clientRootPublicKey33B64u: hssClientSharePublicKey33B64u,
-} satisfies ThresholdEcdsaHssRoleLocalClientRootProof);
+  // @ts-expect-error DERIVATION client-share keys cannot verify client-root proofs.
+  clientRootPublicKey33B64u: derivationClientSharePublicKey33B64u,
+} satisfies ThresholdEcdsaDerivationRoleLocalClientRootProof);
 
-declare const passkeyBootstrapAuthorization: ThresholdEcdsaHssRoleLocalPasskeyBootstrapAuthorization;
+declare const passkeyBootstrapAuthorization: ThresholdEcdsaDerivationRoleLocalPasskeyBootstrapAuthorization;
 
 void ({
   ...bootstrapBase,
   clientRootProof,
-} satisfies ThresholdEcdsaHssRoleLocalBootstrapRequest);
+} satisfies ThresholdEcdsaDerivationRoleLocalBootstrapRequest);
 
 void ({
   ...bootstrapBase,
   passkeyBootstrapAuthorization,
-} satisfies ThresholdEcdsaHssRoleLocalBootstrapRequest);
+} satisfies ThresholdEcdsaDerivationRoleLocalBootstrapRequest);
 
 void ({
   ...bootstrapBase,
   clientRootProof,
   passkeyBootstrapAuthorization,
   // @ts-expect-error role-local bootstrap accepts exactly one proof branch.
-} satisfies ThresholdEcdsaHssRoleLocalBootstrapRequest);
+} satisfies ThresholdEcdsaDerivationRoleLocalBootstrapRequest);
 
 void ({
   ...bootstrapBase,
   // @ts-expect-error role-local bootstrap request rejects client root share material
   clientRootShare32B64u: 'client-root-share',
-} satisfies ThresholdEcdsaHssRoleLocalBootstrapRequest);
+} satisfies ThresholdEcdsaDerivationRoleLocalBootstrapRequest);
 
 void ({
   ...bootstrapBase,
   // @ts-expect-error role-local bootstrap request rejects relayer export share material
   serverExportShare32B64u: 'server-export-share',
-} satisfies ThresholdEcdsaHssRoleLocalBootstrapRequest);
+} satisfies ThresholdEcdsaDerivationRoleLocalBootstrapRequest);
 
 void ({
   ...bootstrapBase,
   // @ts-expect-error role-local bootstrap request rejects canonical private key material
   privateKeyHex: '0x01',
-} satisfies ThresholdEcdsaHssRoleLocalBootstrapRequest);
+} satisfies ThresholdEcdsaDerivationRoleLocalBootstrapRequest);

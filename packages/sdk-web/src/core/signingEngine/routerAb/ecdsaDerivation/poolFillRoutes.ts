@@ -1,12 +1,12 @@
 import { stripTrailingSlashes, toTrimmedString } from '@shared/utils/validation';
 import {
-  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH,
-  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH,
-  type RouterAbEcdsaHssNormalSigningScopeV1,
-} from '@shared/utils/routerAbEcdsaHss';
-import { fetchRouterAbEcdsaHssJson } from './httpRequest';
+  ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH,
+  ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_STEP_PATH,
+  type RouterAbEcdsaDerivationNormalSigningScopeV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
+import { fetchRouterAbEcdsaDerivationJson } from './httpRequest';
 
-type RouterAbEcdsaHssPoolFillAuth = {
+type RouterAbEcdsaDerivationPoolFillAuth = {
   walletSessionJwt: string;
 };
 
@@ -15,7 +15,7 @@ function resolveRelayerUrl(input: string): string | null {
   return relayerUrl || null;
 }
 
-function resolvePresignAuthHeaders(args: RouterAbEcdsaHssPoolFillAuth):
+function resolvePresignAuthHeaders(args: RouterAbEcdsaDerivationPoolFillAuth):
   | {
       ok: true;
       headers: Record<string, string>;
@@ -31,14 +31,14 @@ function resolvePresignAuthHeaders(args: RouterAbEcdsaHssPoolFillAuth):
     return {
       ok: false,
       code: 'invalid_args',
-      message: 'Missing walletSessionJwt for Router A/B ECDSA-HSS presign pool fill',
+      message: 'Missing walletSessionJwt for Router A/B ECDSA derivation presign pool fill',
     };
   }
   headers.Authorization = `Bearer ${jwt}`;
   return { ok: true, headers };
 }
 
-export type RouterAbEcdsaHssPoolFillProgress = {
+export type RouterAbEcdsaDerivationPoolFillProgress = {
   ok: boolean;
   code?: string;
   message?: string;
@@ -49,64 +49,64 @@ export type RouterAbEcdsaHssPoolFillProgress = {
   bigRB64u?: string;
 };
 
-export type RouterAbEcdsaHssPoolFillInitKeySelector = {
+export type RouterAbEcdsaDerivationPoolFillInitKeySelector = {
   keyHandle: string;
   ecdsaThresholdKeyId?: never;
 };
 
-export type RouterAbEcdsaHssPresignaturePoolFill = {
-  kind: 'router_ab_ecdsa_hss_signing_worker_pool';
-  scope: RouterAbEcdsaHssNormalSigningScopeV1;
+export type RouterAbEcdsaDerivationPresignaturePoolFill = {
+  kind: 'router_ab_ecdsa_derivation_signing_worker_pool';
+  scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
   expiresAtMs: number;
 };
 
-function resolveRouterAbEcdsaHssPoolFillInitKeySelector(args: {
+function resolveRouterAbEcdsaDerivationPoolFillInitKeySelector(args: {
   keyHandle?: unknown;
 }):
-  | { ok: true; value: RouterAbEcdsaHssPoolFillInitKeySelector }
+  | { ok: true; value: RouterAbEcdsaDerivationPoolFillInitKeySelector }
   | { ok: false; code: string; message: string } {
   const keyHandle = String(args.keyHandle || '').trim();
   if (!keyHandle) {
     return {
       ok: false,
       code: 'invalid_args',
-      message: 'Missing keyHandle for Router A/B ECDSA-HSS pool-fill init',
+      message: 'Missing keyHandle for Router A/B ECDSA derivation pool-fill init',
     };
   }
   return { ok: true, value: { keyHandle } };
 }
 
-export type RouterAbEcdsaHssPoolFillInitBaseArgs = {
+export type RouterAbEcdsaDerivationPoolFillInitBaseArgs = {
   relayerUrl: string;
   count?: number;
   walletSessionJwt: string;
   requestTag?: string;
   requestTimeoutMs?: number;
-} & RouterAbEcdsaHssPoolFillInitKeySelector;
+} & RouterAbEcdsaDerivationPoolFillInitKeySelector;
 
-export type RouterAbEcdsaHssPresignaturePoolFillInitArgs = RouterAbEcdsaHssPoolFillInitBaseArgs & {
-  poolFill: RouterAbEcdsaHssPresignaturePoolFill;
+export type RouterAbEcdsaDerivationPresignaturePoolFillInitArgs = RouterAbEcdsaDerivationPoolFillInitBaseArgs & {
+  poolFill: RouterAbEcdsaDerivationPresignaturePoolFill;
 };
 
 async function postEcdsaPresignInit(
-  args: RouterAbEcdsaHssPresignaturePoolFillInitArgs & { path: string },
-): Promise<RouterAbEcdsaHssPoolFillProgress & { presignSessionId?: string }> {
+  args: RouterAbEcdsaDerivationPresignaturePoolFillInitArgs & { path: string },
+): Promise<RouterAbEcdsaDerivationPoolFillProgress & { presignSessionId?: string }> {
   const relayerUrl = resolveRelayerUrl(args.relayerUrl);
   if (!relayerUrl) {
     return {
       ok: false,
       code: 'invalid_args',
-      message: 'Missing relayerUrl for Router A/B ECDSA-HSS pool-fill init',
+      message: 'Missing relayerUrl for Router A/B ECDSA derivation pool-fill init',
     };
   }
   if (typeof fetch !== 'function') {
     return {
       ok: false,
       code: 'unsupported',
-      message: 'fetch is not available for Router A/B ECDSA-HSS pool-fill init',
+      message: 'fetch is not available for Router A/B ECDSA derivation pool-fill init',
     };
   }
-  const keySelector = resolveRouterAbEcdsaHssPoolFillInitKeySelector(args);
+  const keySelector = resolveRouterAbEcdsaDerivationPoolFillInitKeySelector(args);
   if (!keySelector.ok) return keySelector;
   const requestTag = String(args.requestTag || '').trim();
 
@@ -123,7 +123,7 @@ async function postEcdsaPresignInit(
   }>;
 
   try {
-    const { response, data } = await fetchRouterAbEcdsaHssJson<ResponseBody>({
+    const { response, data } = await fetchRouterAbEcdsaDerivationJson<ResponseBody>({
       url: `${relayerUrl}${args.path}`,
       operation: 'presign/init',
       timeoutMs: args.requestTimeoutMs,
@@ -160,22 +160,22 @@ async function postEcdsaPresignInit(
     const msg = String(
       e && typeof e === 'object' && 'message' in e
         ? (e as { message?: unknown }).message
-        : e || 'Failed Router A/B ECDSA-HSS pool-fill init',
+        : e || 'Failed Router A/B ECDSA derivation pool-fill init',
     );
     return { ok: false, code: 'network_error', message: msg };
   }
 }
 
-export async function routerAbEcdsaHssPresignaturePoolFillInit(
-  args: RouterAbEcdsaHssPresignaturePoolFillInitArgs,
-): Promise<RouterAbEcdsaHssPoolFillProgress & { presignSessionId?: string }> {
+export async function routerAbEcdsaDerivationPresignaturePoolFillInit(
+  args: RouterAbEcdsaDerivationPresignaturePoolFillInitArgs,
+): Promise<RouterAbEcdsaDerivationPoolFillProgress & { presignSessionId?: string }> {
   return postEcdsaPresignInit({
     ...args,
-    path: ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH,
+    path: ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH,
   });
 }
 
-export type RouterAbEcdsaHssPoolFillStepArgs = {
+export type RouterAbEcdsaDerivationPoolFillStepArgs = {
   relayerUrl: string;
   presignSessionId: string;
   stage: 'triples' | 'presign';
@@ -186,21 +186,21 @@ export type RouterAbEcdsaHssPoolFillStepArgs = {
 };
 
 async function postEcdsaPresignStep(
-  args: RouterAbEcdsaHssPoolFillStepArgs & { path: string },
-): Promise<RouterAbEcdsaHssPoolFillProgress> {
+  args: RouterAbEcdsaDerivationPoolFillStepArgs & { path: string },
+): Promise<RouterAbEcdsaDerivationPoolFillProgress> {
   const relayerUrl = resolveRelayerUrl(args.relayerUrl);
   if (!relayerUrl) {
     return {
       ok: false,
       code: 'invalid_args',
-      message: 'Missing relayerUrl for Router A/B ECDSA-HSS pool-fill step',
+      message: 'Missing relayerUrl for Router A/B ECDSA derivation pool-fill step',
     };
   }
   if (typeof fetch !== 'function') {
     return {
       ok: false,
       code: 'unsupported',
-      message: 'fetch is not available for Router A/B ECDSA-HSS pool-fill step',
+      message: 'fetch is not available for Router A/B ECDSA derivation pool-fill step',
     };
   }
   const presignSessionId = String(args.presignSessionId || '').trim();
@@ -208,7 +208,7 @@ async function postEcdsaPresignStep(
     return {
       ok: false,
       code: 'invalid_args',
-      message: 'Missing presignSessionId for Router A/B ECDSA-HSS pool-fill step',
+      message: 'Missing presignSessionId for Router A/B ECDSA derivation pool-fill step',
     };
   }
   const requestTag = String(args.requestTag || '').trim();
@@ -228,7 +228,7 @@ async function postEcdsaPresignStep(
   }>;
 
   try {
-    const { response, data } = await fetchRouterAbEcdsaHssJson<ResponseBody>({
+    const { response, data } = await fetchRouterAbEcdsaDerivationJson<ResponseBody>({
       url: `${relayerUrl}${args.path}`,
       operation: 'presign/step',
       timeoutMs: args.requestTimeoutMs,
@@ -269,17 +269,17 @@ async function postEcdsaPresignStep(
     const msg = String(
       e && typeof e === 'object' && 'message' in e
         ? (e as { message?: unknown }).message
-        : e || 'Failed Router A/B ECDSA-HSS pool-fill step',
+        : e || 'Failed Router A/B ECDSA derivation pool-fill step',
     );
     return { ok: false, code: 'network_error', message: msg };
   }
 }
 
-export async function routerAbEcdsaHssPresignaturePoolFillStep(
-  args: RouterAbEcdsaHssPoolFillStepArgs,
-): Promise<RouterAbEcdsaHssPoolFillProgress> {
+export async function routerAbEcdsaDerivationPresignaturePoolFillStep(
+  args: RouterAbEcdsaDerivationPoolFillStepArgs,
+): Promise<RouterAbEcdsaDerivationPoolFillProgress> {
   return postEcdsaPresignStep({
     ...args,
-    path: ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH,
+    path: ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_STEP_PATH,
   });
 }

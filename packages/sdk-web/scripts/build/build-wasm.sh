@@ -74,23 +74,41 @@ run_in_dir() {
 build_near_signer() {
   run_in_dir "$SOURCE_WASM_SIGNER" \
     with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" \
-      wasm-pack build --target web --out-dir pkg --out-name wasm_signer_worker --release
+      wasm-pack build --locked --target web --out-dir pkg --out-name wasm_signer_worker --release
 }
 
 build_ed25519_yao_client() {
   run_in_dir "$SOURCE_ED25519_YAO_CLIENT" \
     with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/Cargo.lock" \
-      wasm-pack build --target web --out-dir pkg --out-name router_ab_ed25519_yao_client --release
+      wasm-pack build --locked --target web --out-dir pkg --out-name router_ab_ed25519_yao_client --release
 }
 
-build_ecdsa_client_signer() {
-  run_in_dir "$SOURCE_WASM_ECDSA_CLIENT_SIGNER" \
-    with_hss_hot_path_rustflags \
-      with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_ECDSA_CLIENT_SIGNER/Cargo.lock" \
-      wasm-pack build --target web --out-dir pkg --out-name ecdsa_client_signer --release
+build_router_ab_ecdsa_derivation_client() {
+  run_in_dir "$SOURCE_WASM_ECDSA_DERIVATION_CLIENT" \
+    with_ecdsa_derivation_hot_path_rustflags \
+      with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/Cargo.lock" \
+      wasm-pack build --locked --target web --out-dir pkg --out-name router_ab_ecdsa_derivation_client --release
 }
 
-with_hss_hot_path_rustflags() {
+build_router_ab_ecdsa_presign_client() {
+  run_in_dir "$SOURCE_WASM_ECDSA_PRESIGN_CLIENT" \
+    with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_ECDSA_PRESIGN_CLIENT/Cargo.lock" \
+      wasm-pack build --locked --target web --out-dir pkg --out-name router_ab_ecdsa_presign_client --release
+}
+
+build_router_ab_ecdsa_online_client() {
+  run_in_dir "$SOURCE_WASM_ECDSA_ONLINE_CLIENT" \
+    with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_ECDSA_ONLINE_CLIENT/Cargo.lock" \
+      wasm-pack build --locked --target web --out-dir pkg --out-name router_ab_ecdsa_online_client --release
+}
+
+build_router_ab_ecdsa_signing_worker() {
+  run_in_dir "$SOURCE_WASM_ECDSA_SIGNING_WORKER" \
+    with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_ECDSA_SIGNING_WORKER/Cargo.lock" \
+      wasm-pack build --locked --target web --out-dir pkg --out-name router_ab_ecdsa_signing_worker --release
+}
+
+with_ecdsa_derivation_hot_path_rustflags() {
   local existing="${RUSTFLAGS:-}"
   local simd_flag="-C target-feature=+simd128"
   local combined="$simd_flag"
@@ -116,7 +134,7 @@ build_profiled_wasm_crate() {
   local out_name="$2"
   run_in_dir "$source_dir" \
     with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$source_dir/Cargo.lock" \
-    wasm-pack build --target web --out-dir pkg --out-name "$out_name" "${DEFAULT_WASM_PROFILE_ARGS[@]}"
+    wasm-pack build --locked --target web --out-dir pkg --out-name "$out_name" "${DEFAULT_WASM_PROFILE_ARGS[@]}"
 }
 
 JOB_PIDS=()
@@ -202,8 +220,11 @@ print_step "Cleaning previous WASM package outputs..."
 rm -rf \
   "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg" \
   "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg" \
-  "$SDK_ROOT/$SOURCE_WASM_ECDSA_CLIENT_SIGNER/pkg" \
-  "$SDK_ROOT/$SOURCE_WASM_ETH_SIGNER/pkg" \
+  "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg" \
+  "$SDK_ROOT/$SOURCE_WASM_ECDSA_PRESIGN_CLIENT/pkg" \
+  "$SDK_ROOT/$SOURCE_WASM_ECDSA_ONLINE_CLIENT/pkg" \
+  "$SDK_ROOT/$SOURCE_WASM_ECDSA_SIGNING_WORKER/pkg" \
+  "$SDK_ROOT/$SOURCE_WASM_EVM_CRYPTO/pkg" \
   "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/pkg" \
   "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/pkg" \
   "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg" \
@@ -214,8 +235,11 @@ print_step "Building WASM packages in parallel..."
 JOB_LOG_DIR="$(mktemp -d)"
 start_job "NEAR signer WASM (release)" build_near_signer
 start_job "Ed25519 Yao Client WASM (release)" build_ed25519_yao_client
-start_job "ECDSA client signer WASM (release)" build_ecdsa_client_signer
-start_job "Eth signer WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_ETH_SIGNER" eth_signer
+start_job "ECDSA client signer WASM (release)" build_router_ab_ecdsa_derivation_client
+start_job "ECDSA presign client WASM (release)" build_router_ab_ecdsa_presign_client
+start_job "ECDSA online client WASM (release)" build_router_ab_ecdsa_online_client
+start_job "ECDSA server signing worker WASM (release)" build_router_ab_ecdsa_signing_worker
+start_job "EVM crypto WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_EVM_CRYPTO" evm_crypto
 start_job "Tempo signer WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_TEMPO_SIGNER" tempo_signer
 start_job "Shamir3Pass runtime WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_SHAMIR3PASS_RUNTIME" shamir3pass_runtime
 start_job "Email OTP runtime WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_EMAIL_OTP_RUNTIME" email_otp_runtime
@@ -233,12 +257,12 @@ if node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$SOUR
 else
   print_warning "Failed to optimize Ed25519 Yao Client WASM package metadata"
 fi
-if node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$SOURCE_WASM_ECDSA_CLIENT_SIGNER/pkg" 2>/dev/null; then
+if node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg" 2>/dev/null; then
   print_success "ECDSA client WASM package metadata optimized"
 else
   print_warning "Failed to optimize ECDSA client WASM package metadata"
 fi
-if node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$SOURCE_WASM_ETH_SIGNER/pkg" 2>/dev/null; then
+if node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$SOURCE_WASM_EVM_CRYPTO/pkg" 2>/dev/null; then
   print_success "Eth WASM package metadata optimized"
 else
   print_warning "Failed to optimize Eth WASM package metadata"
@@ -271,12 +295,21 @@ require_file "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg/wasm_signer_worker_bg.wasm"
 require_file "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client.js"
 require_file "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client.d.ts"
 require_file "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client_bg.wasm"
-require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_CLIENT_SIGNER/pkg/ecdsa_client_signer.js"
-require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_CLIENT_SIGNER/pkg/ecdsa_client_signer.d.ts"
-require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_CLIENT_SIGNER/pkg/ecdsa_client_signer_bg.wasm"
-require_file "$SDK_ROOT/$SOURCE_WASM_ETH_SIGNER/pkg/eth_signer.js"
-require_file "$SDK_ROOT/$SOURCE_WASM_ETH_SIGNER/pkg/eth_signer.d.ts"
-require_file "$SDK_ROOT/$SOURCE_WASM_ETH_SIGNER/pkg/eth_signer_bg.wasm"
+require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg/router_ab_ecdsa_derivation_client.js"
+require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg/router_ab_ecdsa_derivation_client.d.ts"
+require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg/router_ab_ecdsa_derivation_client_bg.wasm"
+require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_PRESIGN_CLIENT/pkg/router_ab_ecdsa_presign_client.js"
+require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_PRESIGN_CLIENT/pkg/router_ab_ecdsa_presign_client.d.ts"
+require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_PRESIGN_CLIENT/pkg/router_ab_ecdsa_presign_client_bg.wasm"
+require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_ONLINE_CLIENT/pkg/router_ab_ecdsa_online_client.js"
+require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_ONLINE_CLIENT/pkg/router_ab_ecdsa_online_client.d.ts"
+require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_ONLINE_CLIENT/pkg/router_ab_ecdsa_online_client_bg.wasm"
+require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_SIGNING_WORKER/pkg/router_ab_ecdsa_signing_worker.js"
+require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_SIGNING_WORKER/pkg/router_ab_ecdsa_signing_worker.d.ts"
+require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_SIGNING_WORKER/pkg/router_ab_ecdsa_signing_worker_bg.wasm"
+require_file "$SDK_ROOT/$SOURCE_WASM_EVM_CRYPTO/pkg/evm_crypto.js"
+require_file "$SDK_ROOT/$SOURCE_WASM_EVM_CRYPTO/pkg/evm_crypto.d.ts"
+require_file "$SDK_ROOT/$SOURCE_WASM_EVM_CRYPTO/pkg/evm_crypto_bg.wasm"
 require_file "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/pkg/tempo_signer.js"
 require_file "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/pkg/tempo_signer.d.ts"
 require_file "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/pkg/tempo_signer_bg.wasm"

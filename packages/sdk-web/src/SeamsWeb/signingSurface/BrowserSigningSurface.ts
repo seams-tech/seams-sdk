@@ -46,7 +46,7 @@ import {
   type WalletId,
   type WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { type RouterAbEcdsaHssLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
+import { type RouterAbEcdsaDerivationLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
 import {
   signNear as signNearOperation,
   type NearSignIntentRequest,
@@ -1571,13 +1571,13 @@ export class BrowserSigningSurface {
     );
   }
 
-  async scheduleRouterAbEcdsaHssLoginPresignaturePrefill(args: {
+  async scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(args: {
     walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
     thresholdEcdsaSessionRecord: ThresholdEcdsaSessionRecord;
     minRemainingUsesBeforePrefill?: number;
-  }): Promise<RouterAbEcdsaHssLoginPresignaturePrefillResult> {
-    return await warmCapabilitiesPublic.scheduleRouterAbEcdsaHssLoginPresignaturePrefill(
+  }): Promise<RouterAbEcdsaDerivationLoginPresignaturePrefillResult> {
+    return await warmCapabilitiesPublic.scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(
       this.warmCapabilitiesPublicDeps,
       args,
     );

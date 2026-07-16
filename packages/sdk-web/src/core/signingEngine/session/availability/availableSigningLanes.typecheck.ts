@@ -31,7 +31,7 @@ const nearEd25519SigningKeyId = nearEd25519SigningKeyIdFromString('scope-frost-v
 const key = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId: 'alice.testnet',
   evmFamilySigningKeySlotId: 'wallet-key-localhost',
-  ecdsaThresholdKeyId: 'ehss-shared-key',
+  ecdsaThresholdKeyId: 'ederivation-shared-key',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
   participantIds: [1, 2],

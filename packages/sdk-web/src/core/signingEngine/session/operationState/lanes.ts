@@ -10,7 +10,7 @@ import {
   thresholdEd25519LaneCandidateFromSessionRecord,
 } from '../persistence/records';
 import {
-  classifyRouterAbEcdsaHssPersistedSigningRecord,
+  classifyRouterAbEcdsaDerivationPersistedSigningRecord,
   classifyRouterAbEd25519PersistedSigningRecord,
 } from '../routerAbSigningWalletSession';
 import {
@@ -573,7 +573,7 @@ function readEcdsaCapabilityRecord(
     return readError(lane, 'missing_record', 'Missing selected-lane ECDSA session record');
   }
 
-  const signableSession = classifyRouterAbEcdsaHssPersistedSigningRecord(record);
+  const signableSession = classifyRouterAbEcdsaDerivationPersistedSigningRecord(record);
   if (signableSession.kind !== 'runtime_validated') {
     return readError(
       lane,

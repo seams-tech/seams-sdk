@@ -90,6 +90,7 @@ import {
 } from './ecdsaSelection';
 import {
   resolveEvmFamilyEcdsaPlannerReadiness,
+  resolvePasskeyEcdsaTrustedBudgetReadinessFromAuth,
   type EvmFamilyPlannerReadiness,
   type EvmFamilyPreConfirmSigningDeps,
 } from './authPlanning';
@@ -340,49 +341,6 @@ function readinessFromSelection(
       };
     }
     case 'reauth_required': {
-      const committedAuthMethod = ecdsaCommittedLaneAuthMethod(selection.committedLane);
-      if (
-        isPasskeyReauthRequiredSelection(selection) &&
-        selection.reason === 'missing_hot_material' &&
-        selection.material.kind === 'reauth_required' &&
-        selection.material.reason === 'missing_inline_share'
-      ) {
-        const expiresAtMs = Math.max(
-          0,
-          Math.floor(Number(selection.material.record.expiresAtMs) || 0),
-        );
-        const remainingUses = Math.max(
-          0,
-          Math.floor(Number(selection.material.record.remainingUses) || 0),
-        );
-        const trustedBudgetStatusAuth = trustedBudgetStatusAuthFromPasskeyCommittedLane(
-          selection.committedLane,
-        );
-        if (trustedBudgetStatusAuth.kind === 'trusted_budget_status_auth') {
-          return {
-            readiness: {
-              status: 'ready',
-              thresholdSessionId: selection.lane.thresholdSessionId,
-              expiresAtMs,
-              remainingUses,
-            },
-            expiresAtMs,
-            remainingUses,
-            trustedBudgetStatusAuth,
-          };
-        }
-        return {
-          readiness: {
-            status: 'ready',
-            thresholdSessionId: selection.lane.thresholdSessionId,
-            expiresAtMs,
-            remainingUses,
-          },
-          expiresAtMs,
-          remainingUses,
-          trustedBudgetStatusAuth,
-        };
-      }
       const status =
         selection.material.kind === 'public_identity_unavailable'
           ? 'missing_session'
@@ -452,6 +410,44 @@ function readinessFromSelection(
   }
 }
 
+async function resolveReadinessFromNonReadySelection(args: {
+  deps: Pick<PrepareEvmFamilyEcdsaSigningDeps, 'signingSessionCoordinator'>;
+  lane: ResolvedEvmFamilyEcdsaSigningLane;
+  selection: Exclude<EvmFamilyEcdsaSigningSelectionResult, { kind: 'ready' }>;
+}): Promise<EvmFamilyPlannerReadiness> {
+  const fallback = readinessFromSelection(args.selection);
+  if (args.selection.kind !== 'reauth_required') return fallback;
+  const selection = args.selection;
+  if (
+    !isPasskeyReauthRequiredSelection(selection) ||
+    selection.reason !== 'missing_hot_material' ||
+    selection.material.kind !== 'reauth_required' ||
+    selection.material.reason !== 'missing_inline_share'
+  ) {
+    return fallback;
+  }
+  const trustedBudgetStatusAuth = trustedBudgetStatusAuthFromPasskeyCommittedLane(
+    selection.committedLane,
+  );
+  if (trustedBudgetStatusAuth.kind !== 'trusted_budget_status_auth') {
+    return {
+      readiness: {
+        status: 'missing_session',
+        thresholdSessionId: args.lane.thresholdSessionId,
+      },
+      expiresAtMs: 0,
+      remainingUses: 0,
+      trustedBudgetStatusAuth,
+    };
+  }
+  return await resolvePasskeyEcdsaTrustedBudgetReadinessFromAuth({
+    deps: args.deps,
+    lane: args.lane,
+    trustedStatusAuth: trustedBudgetStatusAuth.auth,
+    inFlightRetry: 'available',
+  });
+}
+
 type PreparedEvmFamilyEcdsaMetadata = {
   accountAuth: AccountAuthMetadata;
   authMethod: EvmFamilyEcdsaAuthMethod;
@@ -472,7 +468,7 @@ function budgetStatusAuthFromReadyEcdsaMaterial(args: {
 }): SigningSessionBudgetStatusAuth | null {
   const authority = args.selection.committedLane.walletSessionAuthority;
   const committedAuthMethod = ecdsaCommittedLaneAuthMethod(args.selection.committedLane);
-  if (authority.kind !== 'wallet_session_authority') {
+  if (authority.kind !== 'ecdsa_wallet_session_authority') {
     return null;
   }
   const signerSession = args.material.signerSession;
@@ -500,7 +496,7 @@ function trustedBudgetStatusAuthFromPasskeyCommittedLane(
   committedLane: PasskeyEcdsaCommittedLane,
 ): EvmFamilyPlannerReadiness['trustedBudgetStatusAuth'] {
   const authority = committedLane.walletSessionAuthority;
-  if (authority.kind !== 'wallet_session_authority') {
+  if (authority.kind !== 'ecdsa_wallet_session_authority') {
     return { kind: 'no_trusted_budget_status_auth' };
   }
   const relayerUrl = String(committedLane.record.relayerUrl || '').trim();
@@ -775,7 +771,14 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
             senderSignatureAlgorithm: 'secp256k1',
             authMethod,
             laneCandidate,
-            ...(reauthAnchor ? { reauthAnchor } : {}),
+            reauth:
+              reauthAnchor && selectedAvailableLane.source === 'durable_sealed_record'
+                ? {
+                    kind: 'public_anchor',
+                    reauthAnchor,
+                    publicRestore: selectedAvailableLane.publicReauthAuthority,
+                  }
+                : { kind: 'not_required' },
             allowMissingHotMaterial: args.forceFreshAuth === true,
           });
         let selection = await resolveSelectedEcdsaMaterial();
@@ -945,9 +948,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           });
           throw new Error('[SigningEngine][ecdsa] selected ECDSA lane budget is budget_unknown');
         }
-        const committedSelectionAuthMethod = ecdsaCommittedLaneAuthMethod(
-          selection.committedLane,
-        );
+        const committedSelectionAuthMethod = selection.authMethod;
         if (selection.authMethod !== committedSelectionAuthMethod) {
           throw new Error(
             `[SigningEngine][ecdsa] selection auth method ${selection.authMethod} did not match committed lane authority ${committedSelectionAuthMethod}`,
@@ -989,7 +990,11 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
                 lane: resolvedLane,
                 material: selection.material,
               })
-            : readinessFromSelection(selection);
+            : await resolveReadinessFromNonReadySelection({
+                deps: args.deps,
+                lane: resolvedLane,
+                selection,
+              });
         emitSigningSessionFlowTrace('evm-family', {
           stage: 'ecdsa_prepare.readiness',
           walletId,

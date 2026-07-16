@@ -3,7 +3,7 @@ import {
   getWalletSessionDomain,
   hasPasskeyCredentialDomain,
   lockDomain,
-  prefillRouterAbEcdsaHssPresignaturePoolDomain,
+  prefillRouterAbEcdsaDerivationPresignaturePoolDomain,
   unlockDomain,
   type WalletAuthDomainDeps,
 } from '@/SeamsWeb/operations/auth/walletAuth';
@@ -31,8 +31,8 @@ export function createAuthCapability(deps: {
     getRecentUnlocks: async () => await getRecentUnlocksDomain(deps.getWalletAuthDeps()),
     hasPasskeyCredential: async (walletId) =>
       await hasPasskeyCredentialDomain(deps.getWalletAuthDeps(), walletId),
-    prefillRouterAbEcdsaHssPresignaturePool: async (args) =>
-      await prefillRouterAbEcdsaHssPresignaturePoolDomain(deps.getWalletAuthDeps(), args),
+    prefillRouterAbEcdsaDerivationPresignaturePool: async (args) =>
+      await prefillRouterAbEcdsaDerivationPresignaturePoolDomain(deps.getWalletAuthDeps(), args),
     requestEmailOtpChallenge: deps.domain.requestEmailOtpChallenge,
     requestEmailOtpSigningSessionChallenge: deps.domain.requestEmailOtpSigningSessionChallenge,
     refreshEmailOtpSigningSession: deps.domain.refreshEmailOtpSigningSession,

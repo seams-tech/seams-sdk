@@ -42,6 +42,7 @@ import {
 import type { EvmFamilyEcdsaSessionReaderDeps } from '../../interfaces/operationDeps';
 import {
   createEmailOtpEcdsaTransactionSigningBridge,
+  type EmailOtpEcdsaStepUpAuthority,
   type EvmFamilyEmailOtpTransactionSigningBridge,
 } from './emailOtpSigningSession';
 import {
@@ -52,6 +53,7 @@ import {
 } from './ecdsaMaterialState';
 import type {
   EmailOtpEcdsaCommittedLane,
+  EmailOtpEcdsaPublicReauthLane,
   ReadyEvmFamilyEcdsaSigningSelection,
   ReauthRequiredEvmFamilyEcdsaSigningSelection,
 } from './ecdsaSelection';
@@ -72,7 +74,17 @@ export type EvmFamilyConfirmedEmailOtpDeps = {
   requestEmailOtpTransactionSigningChallenge?: (args: {
     walletSession: WalletSessionRef;
     chain: EvmFamilyChain;
-    authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ecdsa' }>;
+    authority:
+      | {
+          kind: 'live_session';
+          authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ecdsa' }>;
+          reauthLane?: never;
+        }
+      | {
+          kind: 'public_reauth_anchor';
+          reauthLane: EmailOtpEcdsaPublicReauthLane;
+          authLane?: never;
+        };
   }) => Promise<{ challengeId: string; emailHint?: string }>;
   loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
     walletSession: WalletSessionRef;
@@ -80,10 +92,22 @@ export type EvmFamilyConfirmedEmailOtpDeps = {
     chainTarget: ThresholdEcdsaChainTarget;
     challengeId: string;
     otpCode: string;
-    committedLane: EmailOtpEcdsaCommittedLane;
+    authority: EmailOtpEcdsaStepUpAuthority;
     remainingUses: number;
   }) => Promise<EmailOtpEcdsaSigningBootstrapResult>;
 };
+
+function emailOtpStepUpAuthority(
+  selection: Extract<
+    ReadyEvmFamilyEcdsaSigningSelection | ReauthRequiredEvmFamilyEcdsaSigningSelection,
+    { authMethod: 'email_otp' }
+  >,
+): EmailOtpEcdsaStepUpAuthority {
+  if (selection.kind === 'ready' || selection.reason === 'missing_hot_material') {
+    return { kind: 'live_session', committedLane: selection.committedLane };
+  }
+  return { kind: 'public_reauth_anchor', reauthLane: selection.reauthLane };
+}
 
 export type EvmFamilyConfirmedSigningDeps = EvmFamilyConfirmedEmailOtpDeps;
 
@@ -193,7 +217,7 @@ function trustedBudgetStatusAuthFromReadyEcdsaMaterial(
   material: ReadyEcdsaMaterial,
 ): SigningSessionBudgetStatusAuth {
   const signerSession = material.signerSession;
-  const walletSessionJwt = signerSession.routerAbEcdsaHssNormalSigning.credential.walletSessionJwt;
+  const walletSessionJwt = signerSession.routerAbEcdsaDerivationNormalSigning.credential.walletSessionJwt;
   return {
     relayerUrl: signerSession.transport.relayerUrl,
     thresholdSessionId: String(signerSession.session.thresholdSessionId),
@@ -307,7 +331,7 @@ async function resolvePasskeyEcdsaTrustedBudgetReadiness(args: {
     return null;
   }
   const signerSession = args.material.signerSession;
-  const walletSessionJwt = signerSession.routerAbEcdsaHssNormalSigning.credential.walletSessionJwt;
+  const walletSessionJwt = signerSession.routerAbEcdsaDerivationNormalSigning.credential.walletSessionJwt;
   const trustedStatusAuth: SigningSessionBudgetStatusAuth = {
     relayerUrl: signerSession.transport.relayerUrl,
     thresholdSessionId: String(signerSession.session.thresholdSessionId),
@@ -320,7 +344,7 @@ async function resolvePasskeyEcdsaTrustedBudgetReadiness(args: {
   });
 }
 
-async function resolvePasskeyEcdsaTrustedBudgetReadinessFromAuth(args: {
+export async function resolvePasskeyEcdsaTrustedBudgetReadinessFromAuth(args: {
   deps: Pick<EvmFamilyPreConfirmSigningDeps, 'signingSessionCoordinator'>;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
   trustedStatusAuth: SigningSessionBudgetStatusAuth;
@@ -333,22 +357,39 @@ async function resolvePasskeyEcdsaTrustedBudgetReadinessFromAuth(args: {
     kind: 'trusted_budget_status_auth';
     auth: SigningSessionBudgetStatusAuth;
   };
-} | null> {
+}> {
   try {
     const budgetIdentity = await args.deps.signingSessionCoordinator.prepareBudgetIdentity({
       lane: args.lane,
       trustedStatusAuth: args.trustedStatusAuth,
       operationUsesNeeded: 1,
     });
+    const expiresAtMs = Math.floor(Number(budgetIdentity.status.expiresAtMs) || 0);
+    const remainingUses = Math.floor(Number(budgetIdentity.status.remainingUses) || 0);
+    const readiness: SigningSessionReadiness =
+      remainingUses <= 0
+        ? {
+            status: 'exhausted',
+            thresholdSessionId: args.lane.thresholdSessionId,
+            expiresAtMs,
+            remainingUses: 0,
+          }
+        : expiresAtMs <= Date.now()
+          ? {
+              status: 'expired',
+              thresholdSessionId: args.lane.thresholdSessionId,
+              expiresAtMs,
+            }
+          : {
+              status: 'ready',
+              thresholdSessionId: args.lane.thresholdSessionId,
+              expiresAtMs,
+              remainingUses,
+            };
     return {
-      readiness: {
-        status: 'ready',
-        thresholdSessionId: args.lane.thresholdSessionId,
-        expiresAtMs: Math.floor(Number(budgetIdentity.status.expiresAtMs) || 0),
-        remainingUses: Math.floor(Number(budgetIdentity.status.remainingUses) || 0),
-      },
-      expiresAtMs: Math.floor(Number(budgetIdentity.status.expiresAtMs) || 0),
-      remainingUses: Math.floor(Number(budgetIdentity.status.remainingUses) || 0),
+      readiness,
+      expiresAtMs,
+      remainingUses,
       trustedBudgetStatusAuth: {
         kind: 'trusted_budget_status_auth',
         auth: args.trustedStatusAuth,
@@ -356,7 +397,20 @@ async function resolvePasskeyEcdsaTrustedBudgetReadinessFromAuth(args: {
     };
   } catch (error: unknown) {
     const admissionDecision = decideSigningGrantAdmissionError(error);
-    if (!admissionDecision) return null;
+    if (!admissionDecision) {
+      return {
+        readiness: {
+          status: 'missing_session',
+          thresholdSessionId: args.lane.thresholdSessionId,
+        },
+        expiresAtMs: 0,
+        remainingUses: 0,
+        trustedBudgetStatusAuth: {
+          kind: 'trusted_budget_status_auth',
+          auth: args.trustedStatusAuth,
+        },
+      };
+    }
     if (
       admissionDecision.kind === 'wait_and_retry_admission' &&
       args.inFlightRetry === 'available'
@@ -367,7 +421,20 @@ async function resolvePasskeyEcdsaTrustedBudgetReadinessFromAuth(args: {
         inFlightRetry: 'spent',
       });
     }
-    if (admissionDecision.kind === 'wait_and_retry_admission') return null;
+    if (admissionDecision.kind === 'wait_and_retry_admission') {
+      return {
+        readiness: {
+          status: 'missing_session',
+          thresholdSessionId: args.lane.thresholdSessionId,
+        },
+        expiresAtMs: 0,
+        remainingUses: 0,
+        trustedBudgetStatusAuth: {
+          kind: 'trusted_budget_status_auth',
+          auth: args.trustedStatusAuth,
+        },
+      };
+    }
     return {
       readiness: {
         status: 'exhausted',
@@ -413,28 +480,22 @@ export async function resolveEvmFamilyTransactionStepUp(
     args.senderSignatureAlgorithm === 'secp256k1' ? args.preparedOperation.lane : undefined;
   const preparedSelection = preparedEcdsaMetadata?.selection;
   const confirmedEmailOtpDeps = args.confirmedDeps;
-  const emailOtpCommittedLane =
+  const emailOtpAuthority =
     args.senderSignatureAlgorithm === 'secp256k1' &&
     preparedEcdsaLane &&
     signingLaneAuthMethod(preparedEcdsaLane.auth) === SIGNER_AUTH_METHODS.emailOtp &&
     preparedSelection?.authMethod === SIGNER_AUTH_METHODS.emailOtp
-      ? preparedSelection.committedLane
+      ? emailOtpStepUpAuthority(preparedSelection)
       : undefined;
   const emailOtpAuthBridge =
-    args.senderSignatureAlgorithm === 'secp256k1' && emailOtpCommittedLane
+    args.senderSignatureAlgorithm === 'secp256k1' && emailOtpAuthority
       ? createEmailOtpEcdsaTransactionSigningBridge({
           walletId,
           walletSession: args.walletSession,
           chain: args.chain,
           chainTarget: args.chainTarget,
           selectedLane: preparedEcdsaLane,
-          committedLane: emailOtpCommittedLane,
-          reauthSource:
-            preparedSelection?.kind === 'reauth_required' &&
-            'reauthAnchor' in preparedSelection &&
-            preparedSelection.reauthAnchor
-              ? { kind: 'reauth_anchor', anchor: preparedSelection.reauthAnchor }
-              : { kind: 'material' },
+          authority: emailOtpAuthority,
           onEvent: args.onEvent,
           requestEmailOtpTransactionSigningChallenge:
             confirmedEmailOtpDeps.requestEmailOtpTransactionSigningChallenge,

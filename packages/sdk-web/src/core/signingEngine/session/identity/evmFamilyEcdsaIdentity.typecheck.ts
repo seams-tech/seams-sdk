@@ -1,7 +1,7 @@
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import type {
   ThresholdEcdsaBackendBinding,
-  ThresholdEcdsaHssRoleLocalClientState,
+  ThresholdEcdsaDerivationRoleLocalClientState,
   ThresholdEcdsaSecp256k1KeyRef,
 } from '../../interfaces/signing';
 import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/types';
@@ -31,7 +31,7 @@ import {
   type EcdsaWalletSessionTransportAuth,
   type PasskeyEcdsaAuthBinding,
   type ReadyEcdsaSignerSession,
-  type ReadyRouterAbEcdsaHssNormalSigning,
+  type ReadyRouterAbEcdsaDerivationNormalSigning,
   type ReadyThresholdEcdsaSignerTransport,
   type ReadyThresholdEcdsaSession,
   type ReadyThresholdEcdsaSessionPolicy,
@@ -42,7 +42,7 @@ import {
   type WalletSessionJwtTransportAuth,
 } from './evmFamilyEcdsaIdentity';
 import { walletIdFromWalletProfile } from '../../interfaces/ecdsaChainTarget';
-import type { RouterAbEcdsaHssNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaHss';
+import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
 
 const evmTarget = {
   kind: 'evm',
@@ -54,7 +54,7 @@ const evmTarget = {
 const key = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId: 'alice.testnet',
   evmFamilySigningKeySlotId: 'wallet-key-localhost',
-  ecdsaThresholdKeyId: 'ehss-shared-key',
+  ecdsaThresholdKeyId: 'ederivation-shared-key',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
   participantIds: [1, 2],
@@ -111,21 +111,21 @@ const validBaseEcdsaSubjectId: BaseEcdsaSubjectId = baseEcdsaSubjectId;
 void validBaseEcdsaSubjectId;
 
 const registrationWalletId = walletIdFromWalletProfile({ walletId: key.walletId });
-// @ts-expect-error protocol-local ECDSA HSS subject identity requires its narrow builder.
+// @ts-expect-error protocol-local ECDSA DERIVATION subject identity requires its narrow builder.
 const invalidBaseEcdsaSubjectId: BaseEcdsaSubjectId = registrationWalletId;
 void invalidBaseEcdsaSubjectId;
 
 const invalidLaneWithDuplicateKeyId: EvmFamilyEcdsaSessionLane = {
   ...lane,
   // @ts-expect-error session lanes must use lane.key.ecdsaThresholdKeyId.
-  ecdsaThresholdKeyId: 'ehss-other-key',
+  ecdsaThresholdKeyId: 'ederivation-other-key',
 };
 void invalidLaneWithDuplicateKeyId;
 
 const invalidLanePolicyWithDuplicateKeyId: EvmFamilyEcdsaSessionLanePolicy = {
   ...lanePolicy,
   // @ts-expect-error session lane policy must use lanePolicy.key.ecdsaThresholdKeyId.
-  ecdsaThresholdKeyId: 'ehss-other-key',
+  ecdsaThresholdKeyId: 'ederivation-other-key',
 };
 void invalidLanePolicyWithDuplicateKeyId;
 
@@ -493,7 +493,7 @@ void invalidReadyMaterialWithSubjectId;
 
 declare const signerSession: ReadyEcdsaSignerSession;
 void signerSession;
-declare const routerAbEcdsaHssNormalSigningState: RouterAbEcdsaHssNormalSigningStateV1;
+declare const routerAbEcdsaDerivationNormalSigningState: RouterAbEcdsaDerivationNormalSigningStateV1;
 
 const invalidSignerSessionWithKeyRef: ReadyEcdsaSignerSession = {
   ...signerSession,
@@ -509,7 +509,7 @@ const invalidSignerSessionWithRawToken: ReadyEcdsaSignerSession = {
 };
 void invalidSignerSessionWithRawToken;
 
-// @ts-expect-error Router A/B ECDSA-HSS ready signer sessions require parsed normal-signing state.
+// @ts-expect-error Router A/B ECDSA derivation ready signer sessions require parsed normal-signing state.
 const signerSessionMissingRouterAbState: ReadyEcdsaSignerSession = {
   kind: 'ready_ecdsa_signer_session',
   publicFacts,
@@ -565,10 +565,10 @@ const invalidSigningMaterialWithKeyHandle = {
 } satisfies ReadyThresholdEcdsaSignerTransport['signingMaterial'];
 void invalidSigningMaterialWithKeyHandle;
 
-const invalidRouterAbReadyWithCookieCredential: ReadyRouterAbEcdsaHssNormalSigning = {
-  kind: 'router_ab_ecdsa_hss_normal_signing_ready_v1',
-  state: routerAbEcdsaHssNormalSigningState,
-  // @ts-expect-error Router A/B ECDSA-HSS normal signing credentials are bearer JWTs.
+const invalidRouterAbReadyWithCookieCredential: ReadyRouterAbEcdsaDerivationNormalSigning = {
+  kind: 'router_ab_ecdsa_derivation_normal_signing_ready_v1',
+  state: routerAbEcdsaDerivationNormalSigningState,
+  // @ts-expect-error Router A/B ECDSA derivation normal signing credentials are bearer JWTs.
   credential: { kind: 'cookie' },
   walletSessionSessionId: 'wallet-session-1',
 };
@@ -577,7 +577,7 @@ void invalidRouterAbReadyWithCookieCredential;
 const invalidSignerSessionWithRawRouterAbState = {
   ...signerSession,
   // @ts-expect-error broad spreads cannot replace ready Router A/B state with raw boundary state.
-  routerAbEcdsaHssNormalSigning: routerAbEcdsaHssNormalSigningState,
+  routerAbEcdsaDerivationNormalSigning: routerAbEcdsaDerivationNormalSigningState,
 } satisfies ReadyEcdsaSignerSession;
 void invalidSignerSessionWithRawRouterAbState;
 
@@ -629,10 +629,10 @@ void invalidRawRoleLocalBlobClientShare;
 
 const validOpaqueRoleLocalClientState = {
   kind: 'role_local_ready',
-  artifactKind: 'ecdsa-hss-role-local-client-state',
+  artifactKind: 'ecdsa-derivation-role-local-client-state',
   stateBlob: roleLocalReadyRecord.stateBlob,
   publicFacts: roleLocalReadyRecord.publicFacts,
-} satisfies ThresholdEcdsaHssRoleLocalClientState;
+} satisfies ThresholdEcdsaDerivationRoleLocalClientState;
 void validOpaqueRoleLocalClientState;
 
 const invalidMetadataBackendBindingWithMaterial = {

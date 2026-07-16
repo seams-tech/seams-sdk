@@ -6,7 +6,7 @@ import {
 } from '@/core/signingEngine/session/identity/laneIdentity';
 import {
   toWalletSessionUserId,
-} from '@/core/signingEngine/session/identity/emailOtpHssIdentity';
+} from '@/core/signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
 import type {
   ThresholdEcdsaChainTarget,
   WalletSessionRef,

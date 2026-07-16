@@ -48,7 +48,7 @@ import {
 import { buildEcdsaSessionIdentity, tryBuildEcdsaSessionIdentity } from './ecdsaProvisionPlan';
 import {
   classifyRouterAbEd25519PersistedSigningRecord,
-  classifyRouterAbEcdsaHssPersistedSigningRecord,
+  classifyRouterAbEcdsaDerivationPersistedSigningRecord,
   parseRouterAbEd25519WalletSessionAuthorityFromRecord,
 } from '../routerAbSigningWalletSession';
 import type {
@@ -156,7 +156,7 @@ export function createWarmSessionStatusReader(
     if (record.source === 'email_otp') return null;
     const identity = tryBuildEcdsaSessionIdentity(record);
     if (!identity) return null;
-    if (classifyRouterAbEcdsaHssPersistedSigningRecord(record).kind !== 'runtime_validated') {
+    if (classifyRouterAbEcdsaDerivationPersistedSigningRecord(record).kind !== 'runtime_validated') {
       return null;
     }
     return warmClaimFromRecordPolicy({

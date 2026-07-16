@@ -1303,7 +1303,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       ecdsaWalletSessionAuth &&
       ecdsaSigningRootId &&
       ecdsaSigningRootVersion &&
-      ecdsaRecord.routerAbEcdsaHssNormalSigning &&
+      ecdsaRecord.routerAbEcdsaDerivationNormalSigning &&
       /^0x[0-9a-f]{40}$/.test(ethereumAddress)
         ? {
             chainTarget: ecdsaRecord.chainTarget,
@@ -1326,7 +1326,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
             ...(ecdsaRecord.runtimePolicyScope
               ? { runtimePolicyScope: ecdsaRecord.runtimePolicyScope }
               : {}),
-            routerAbEcdsaHssNormalSigning: ecdsaRecord.routerAbEcdsaHssNormalSigning,
+            routerAbEcdsaDerivationNormalSigning: ecdsaRecord.routerAbEcdsaDerivationNormalSigning,
           }
         : undefined;
     const ed25519Restore = currentEd25519RestoreMetadataFromSessionRecord(ed25519Record);

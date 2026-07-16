@@ -7,10 +7,10 @@ import {
   type ThresholdEcdsaKeyHandleInput,
 } from '@shared/utils/thresholdEcdsaKeyHandle';
 import {
-  requireRouterAbEcdsaHssNormalSigningStateV1,
-  routerAbEcdsaHssActiveStateSessionId,
-  type RouterAbEcdsaHssNormalSigningStateV1,
-} from '@shared/utils/routerAbEcdsaHss';
+  requireRouterAbEcdsaDerivationNormalSigningStateV1,
+  routerAbEcdsaDerivationActiveStateSessionId,
+  type RouterAbEcdsaDerivationNormalSigningStateV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import {
   assertEvmFamilySigningKeySlotIdMatchesPlan,
   deriveEvmFamilySigningKeySlotId as deriveSharedEvmFamilySigningKeySlotId,
@@ -33,17 +33,17 @@ import type {
   SigningRootId,
   SigningRootVersion,
 } from '@/core/platform/types';
-import { buildEcdsaRoleLocalSigningMaterialHandle } from './ecdsaHssSigningMaterialHandle';
+import { buildEcdsaRoleLocalSigningMaterialHandle } from './ecdsaDerivationSigningMaterialHandle';
 import {
-  buildRouterAbEcdsaHssSigningMaterialRef,
-  type RouterAbEcdsaHssSigningMaterialRef,
-} from '../../routerAb/ecdsaHss/signingMaterialRef';
+  buildRouterAbEcdsaDerivationSigningMaterialRef,
+  type RouterAbEcdsaDerivationSigningMaterialRef,
+} from '../../routerAb/ecdsaDerivation/signingMaterialRef';
 import {
   parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord,
   thresholdEcdsaRecordHasRoleLocalSigningMaterial,
 } from '../persistence/ecdsaRoleLocalRecords';
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
-import { classifyRouterAbEcdsaHssPersistedSigningRecord } from '../routerAbSigningWalletSession';
+import { classifyRouterAbEcdsaDerivationPersistedSigningRecord } from '../routerAbSigningWalletSession';
 import type { ThresholdEcdsaSessionStoreSource } from './laneIdentity';
 import {
   thresholdEcdsaChainTargetKey,
@@ -222,7 +222,7 @@ export type ThresholdEcdsaSignerTransport = {
   kind: 'threshold_ecdsa_signer_transport';
   relayerUrl: string;
   relayerKeyId: string;
-  signingMaterial: RouterAbEcdsaHssSigningMaterialRef;
+  signingMaterial: RouterAbEcdsaDerivationSigningMaterialRef;
   relayerVerifyingShareB64u?: string;
   auth: EcdsaWalletSessionTransportAuth;
   ecdsaThresholdKeyId?: never;
@@ -297,9 +297,9 @@ export type ThresholdEcdsaSignerClientShare =
   | ThresholdEcdsaEmailOtpWorkerShare
   | ThresholdEcdsaRoleLocalWorkerShare;
 
-export type ReadyRouterAbEcdsaHssNormalSigning = {
-  kind: 'router_ab_ecdsa_hss_normal_signing_ready_v1';
-  state: RouterAbEcdsaHssNormalSigningStateV1;
+export type ReadyRouterAbEcdsaDerivationNormalSigning = {
+  kind: 'router_ab_ecdsa_derivation_normal_signing_ready_v1';
+  state: RouterAbEcdsaDerivationNormalSigningStateV1;
   credential: {
     kind: 'jwt';
     walletSessionJwt: VerifiedWalletSessionJwt;
@@ -316,7 +316,7 @@ export type ReadyEcdsaSignerSession = {
   session: ReadyThresholdEcdsaSession;
   transport: ReadyThresholdEcdsaSignerTransport;
   clientShare: ThresholdEcdsaSignerClientShare;
-  routerAbEcdsaHssNormalSigning: ReadyRouterAbEcdsaHssNormalSigning;
+  routerAbEcdsaDerivationNormalSigning: ReadyRouterAbEcdsaDerivationNormalSigning;
   keyRef?: never;
   participantIds?: never;
   thresholdEcdsaPublicKeyB64u?: never;
@@ -1191,19 +1191,19 @@ export function buildReadyThresholdEcdsaSession(args: {
   };
 }
 
-function buildReadyRouterAbEcdsaHssNormalSigning(args: {
+function buildReadyRouterAbEcdsaDerivationNormalSigning(args: {
   state: unknown;
   auth: WalletSessionJwtTransportAuth;
-}): ReadyRouterAbEcdsaHssNormalSigning {
-  const state = requireRouterAbEcdsaHssNormalSigningStateV1(args.state);
+}): ReadyRouterAbEcdsaDerivationNormalSigning {
+  const state = requireRouterAbEcdsaDerivationNormalSigningStateV1(args.state);
   return {
-    kind: 'router_ab_ecdsa_hss_normal_signing_ready_v1',
+    kind: 'router_ab_ecdsa_derivation_normal_signing_ready_v1',
     state,
     credential: {
       kind: 'jwt',
       walletSessionJwt: args.auth.walletSessionJwt,
     },
-    walletSessionSessionId: routerAbEcdsaHssActiveStateSessionId(state),
+    walletSessionSessionId: routerAbEcdsaDerivationActiveStateSessionId(state),
   };
 }
 
@@ -1230,12 +1230,12 @@ export function buildReadyEcdsaSignerSession(
     kind: 'wallet_session_jwt',
     walletSessionJwt: input.walletSessionJwt,
   });
-  const routerAbEcdsaHssNormalSigning = buildReadyRouterAbEcdsaHssNormalSigning({
-    state: input.keyRef.routerAbEcdsaHssNormalSigning,
+  const routerAbEcdsaDerivationNormalSigning = buildReadyRouterAbEcdsaDerivationNormalSigning({
+    state: input.keyRef.routerAbEcdsaDerivationNormalSigning,
     auth: transportAuth,
   });
-  const signingMaterial = buildRouterAbEcdsaHssSigningMaterialRef({
-    routerAbState: routerAbEcdsaHssNormalSigning.state,
+  const signingMaterial = buildRouterAbEcdsaDerivationSigningMaterialRef({
+    routerAbState: routerAbEcdsaDerivationNormalSigning.state,
   });
   const clientVerifierFromBinding = requiredString(
     backendBinding.clientVerifyingShareB64u,
@@ -1267,9 +1267,9 @@ export function buildReadyEcdsaSignerSession(
       publicFacts: input.publicFacts,
       chainTarget,
       session: signerIdentity,
-      routerAbStateSessionId: routerAbEcdsaHssNormalSigning.walletSessionSessionId,
+      routerAbStateSessionId: routerAbEcdsaDerivationNormalSigning.walletSessionSessionId,
     }),
-    routerAbEcdsaHssNormalSigning,
+    routerAbEcdsaDerivationNormalSigning,
   };
 }
 
@@ -1303,7 +1303,7 @@ export function buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord(args: {
     keyHandle: record.keyHandle,
     ecdsaThresholdKeyId: resolveThresholdEcdsaKeyIdFromRecord({ record }),
     backendBinding,
-    ...(args.exportArtifact ? { ecdsaHssExportArtifact: args.exportArtifact } : {}),
+    ...(args.exportArtifact ? { ecdsaDerivationExportArtifact: args.exportArtifact } : {}),
     participantIds: record.participantIds,
     thresholdSessionKind: record.thresholdSessionKind,
     thresholdSessionId: record.thresholdSessionId,
@@ -1315,8 +1315,8 @@ export function buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord(args: {
     ...(record.relayerVerifyingShareB64u
       ? { relayerVerifyingShareB64u: record.relayerVerifyingShareB64u }
       : {}),
-    ...(record.routerAbEcdsaHssNormalSigning
-      ? { routerAbEcdsaHssNormalSigning: record.routerAbEcdsaHssNormalSigning }
+    ...(record.routerAbEcdsaDerivationNormalSigning
+      ? { routerAbEcdsaDerivationNormalSigning: record.routerAbEcdsaDerivationNormalSigning }
       : {}),
   };
 }
@@ -1333,7 +1333,7 @@ export function buildReadyEcdsaSignerSessionFromReadyMaterial(args: {
   });
   if (args.material.lane.walletSessionAuth.kind !== 'wallet_session_jwt') {
     throw new Error(
-      '[evm-family-ecdsa] Router A/B ECDSA-HSS signing requires bearer Wallet Session auth',
+      '[evm-family-ecdsa] Router A/B ECDSA derivation signing requires bearer Wallet Session auth',
     );
   }
   return buildReadyEcdsaSignerSession({
@@ -1689,7 +1689,7 @@ export function resolveReadyEvmFamilyEcdsaMaterial(
   if (!hasReadyThresholdEcdsaRecordClientShare(input.record)) {
     return { kind: 'stale', reason: staleReason('auth_missing') };
   }
-  const workerMaterial = classifyRouterAbEcdsaHssPersistedSigningRecord(input.record);
+  const workerMaterial = classifyRouterAbEcdsaDerivationPersistedSigningRecord(input.record);
   if (workerMaterial.kind !== 'runtime_validated') {
     return { kind: 'stale', reason: staleReason('auth_missing') };
   }
