@@ -76,6 +76,21 @@ which runs them under `workerd` as compiled Wasm modules. This establishes
 Workers-runtime compatibility. It does not measure deployed Cloudflare network
 fetch or startup latency.
 
+## Phase 5 production presign cutover
+
+`phase5-presign-cutover-v1.json` records the first production build in which
+both Client and SigningWorker presigning use the purpose-built fixed 2-of-2
+backend. The Client artifact is 173,835 raw, 74,075 gzip-9, and 61,211
+Brotli-11 bytes. The SigningWorker artifact, which also contains role-local
+derivation bootstrap, is 200,975 raw, 88,469 gzip-9, and 74,407 Brotli-11
+bytes. Both normal dependency graphs exclude `signer-core` and
+`threshold-signatures`.
+
+The historical 553,854-byte mixed artifact owned more responsibilities, so its
+209,954-byte gzip size is contextual rather than a like-for-like presign-only
+comparison. The production Client presign artifact is nevertheless 135,879
+gzip bytes smaller, and its dependency attribution is now unambiguous.
+
 ## Evidence assigned to implementation phases
 
 Phase 0 freezes the baseline, policy, budgets, and ownership of the following

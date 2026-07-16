@@ -6,9 +6,10 @@ Last reconciled with the implementation: July 16, 2026
 Status: **active local cutover. Strict Router A/B derivation, authenticated
 commitment verification, recipient-encrypted proof bundles, worker/artifact
 separation, the purpose-built online Client, and the local intended-behaviour
-checkpoint are complete. The fixed 2-of-2 presign rewrite remains isolated.
-Production presigning and SigningWorker finalization still use the pinned
-NEAR-backed `signer-core` implementation.**
+checkpoint are complete. Production Client and SigningWorker presigning now use
+the fixed 2-of-2 implementation, and SigningWorker finalization uses the
+purpose-built online implementation. Persistent one-use authority, pool-hit
+lazy loading, bounded assurance, and hard deletion remain.**
 
 Companion documents:
 
@@ -21,9 +22,9 @@ Companion documents:
 derivation client, the browser/server dependency boundaries, and local bundle
 evidence. `router-a-b-sol-refactor.md` completed strict Router A/B lifecycle
 migration and deletion of `ThresholdSigningService`. This plan now owns the
-remaining purpose-built ECDSA presign cutover, persistent one-use pool,
-pool-hit lazy-loading closure, bounded assurance, and deletion of the last
-generic threshold-ECDSA implementation.
+remaining persistent one-use pool, pool-hit lazy-loading closure, bounded
+assurance, and deletion of the last dev/test generic threshold-ECDSA
+implementation.
 
 ## July 16 Implementation Reconciliation
 
@@ -32,17 +33,17 @@ below remain as the construction record, security requirements, and historical
 implementation ledger. Their unmarked bullets are supporting requirements;
 only the checkboxes in **Remaining Local Phases** represent active work.
 
-The current product path is intentionally described as a hybrid until the
-cutover is complete:
+The production cryptographic path is purpose-built. Lifecycle and cleanup work
+remain:
 
 - strict Router A/B ECDSA derivation and activation use the role-local
   purpose-built implementation;
 - the browser online signature-share path uses `router-ab-ecdsa-online`;
-- browser presigning and SigningWorker presigning/finalization still use
-  `signer-core::threshold_ecdsa` and its pinned NEAR dependency; and
+- browser and SigningWorker presigning use `router-ab-ecdsa-presign` through
+  fixed-role Wasm adapters;
+- SigningWorker finalization uses `router-ab-ecdsa-online`; and
 - `router-ab-ecdsa-presign`, `router-ab-ecdsa-online`, and
-  `router-ab-ecdsa-pool` provide the fixed implementation and lifecycle
-  contracts, but have not fully replaced those production call sites.
+  `router-ab-ecdsa-pool` own the fixed implementation and lifecycle contracts.
 
 ### Reconciled phase status
 
@@ -51,13 +52,13 @@ cutover is complete:
 | 0 | Complete | Reproducible historical baseline, source freeze, vectors, and budgets recorded. |
 | 1 | Complete | Deterministic metadata stripping and artifact evidence recorded. The historical mixed artifacts are deleted from the active tree. |
 | 2 | Complete at the responsibility boundary | Derivation, presign, online, SigningWorker, and public EVM utility ownership are split. The integrated checkpoint uses one threshold-free `evm_crypto` leaf. A further `webauthn_p256`/`evm_transaction_codec` extraction is in progress and remains an optimization candidate until clean bundle and waterfall evidence chooses one final ownership layout. |
-| 3 | Partial | The purpose-built online Client is integrated and below the 40,000-byte gzip ceiling. SigningWorker finalization, persistent one-use adapters, and a measured online-only pool-hit waterfall remain open. |
+| 3 | Partial | The purpose-built online Client and SigningWorker finalization are integrated. Persistent one-use adapters and a measured online-only pool-hit waterfall remain open. |
 | 4 | Partial | The pinned dev/test oracle, vertical vectors, dependency exclusion, and construction drafts exist. The exhaustive normative specification, four-case semantic corpus, formal boundary, and independent Phase 4E review remain open. |
-| 5 | Isolated implementation complete | The fixed cryptographic vertical slice and storage-independent pool lifecycle exist. Production promotion, authenticated pool-creation binding, and concrete storage adapters remain open. |
-| 6 | Open | `router-ab-ecdsa-wire` has fixed typed values. The compact canonical presign transport codec, numeric registry, strict parser, byte corpus, and fuzz surface are not implemented. |
-| 7 | Partial | Three role-specific Client workers, build manifests, generated types, and isolation guards are active. Production still uses the generic presign backend, and online-worker creation can create the presign worker. |
+| 5 | Production cryptographic cutover complete | The fixed Client and SigningWorker presign sessions and purpose-built online paths are active. Authenticated pool-creation binding and concrete storage adapters remain open. |
+| 6 | Partial | The compact canonical presign codec, numeric role/round registry, exact ceilings, and strict parser are implemented. A frozen byte corpus and broader mutation/fuzz surface remain open. |
+| 7 | Partial | Three role-specific Client workers, build manifests, generated types, fixed presign adapters, and isolation guards are active. Online-worker creation can still create the presign worker. |
 | 8 | Partial | Local derivation security evidence, intended-behaviour tests, bundle evidence, and source guards exist. Fixed-presign assurance and independent review remain open; deployed Cloudflare measurements are deferred. |
-| 9 | Partial | Mixed Wasm/workers, active HSS terminology, generic service ownership, and obsolete derivation paths are deleted. `signer-core::threshold_ecdsa`, its production NEAR dependency edges, and generic participant/threshold APIs remain. |
+| 9 | Partial | Mixed Wasm/workers, active HSS terminology, generic service ownership, obsolete derivation paths, and production NEAR presign dependency edges are deleted. The pinned dev/test oracle, `signer-core::threshold_ecdsa`, and generic SDK topology fields remain. |
 
 ### Completed product checkpoint
 
@@ -72,6 +73,9 @@ cutover is complete:
 - [x] Purpose-built online Client equations, parity vectors, consuming
       one-use types, and a 31,337-byte gzip artifact under the 40,000-byte
       ceiling.
+- [x] Purpose-built fixed 2-of-2 Client and SigningWorker presign sessions,
+      canonical eleven-round transport, cross-Wasm completion, and production
+      dependency exclusion.
 - [x] Passkey and Email OTP registration, unlock, refresh, NEAR/Tempo/EVM
       signing, step-up, concurrent EVM-family signing, and Ed25519/ECDSA export
       intended-behaviour coverage.
@@ -88,19 +92,45 @@ evidence belong to the deployment plans.
 
 ### Local Phase A: purpose-built production cutover
 
-- [ ] Replace the browser presign wrapper's
+- [x] Replace the browser presign wrapper's
       `signer_core::threshold_ecdsa::ThresholdEcdsaPresignSession` use with the
       fixed `router-ab-ecdsa-presign` Client role.
-- [ ] Replace SigningWorker presigning with the fixed
+- [x] Replace SigningWorker presigning with the fixed
       `router-ab-ecdsa-presign` SigningWorker role.
 - [x] Replace SigningWorker finalization with `router-ab-ecdsa-online`.
-- [ ] Remove runtime participant vectors, runtime role selection, threshold
+- [x] Remove runtime participant vectors, runtime role selection, threshold
       parameters, and generic state bags from every production boundary.
 - [ ] Preserve exact public keys, addresses, low-`s` signatures, recovery IDs,
       signing budgets, recovery, and export behaviour through the cutover.
 
 Exit: no production presign or finalization caller uses
 `signer-core::threshold_ecdsa`.
+
+Current Phase A implementation checkpoint:
+
+- SigningWorker finalization has cut over to `router-ab-ecdsa-online`.
+- Both public presign Wasm boundaries now expose only their fixed local role;
+  participant vectors, threshold parameters, and runtime role selection are
+  hidden from callers.
+- `router-ab-ecdsa-presign::driver` implements the isolated fixed new/new flow
+  as eleven bidirectional typed rounds followed by output. It covers committed
+  polynomials, malicious OT extension, fixed MTA, committed triple finalization,
+  and the final presign exchanges. The frozen contract and bounded alignment
+  assessment are in
+  [`fixed-driver-v1.md`](../crates/router-ab-ecdsa-presign/specs/fixed-driver-v1.md).
+- The compact canonical codec covers every round with a 49,228-byte maximum
+  frame and 152,826 bytes of aggregate bidirectional protocol traffic.
+- Both wrappers now use the fixed sessions internally. They share a
+  group-public-key signing-scope digest and a pair digest bound to the
+  authenticated server `presignSessionId`. The cross-Wasm suite completes the
+  production protocol and rejects malformed messages and stage regressions.
+- The obsolete SDK topology parameter and both additive-to-Cait-Sith mapping
+  exports are deleted. Authenticated participant IDs remain at the Wallet
+  Session request boundary and cannot select a presign role or threshold.
+- Cutover artifact digests and sizes are recorded in
+  [`phase5-presign-cutover-v1.json`](./evidence/refactor-89/phase5-presign-cutover-v1.json).
+- Broader parser mutation/fuzz evidence and concrete one-use persistence are
+  next.
 
 ### Local Phase B: one-use persistence and authority closure
 
@@ -124,7 +154,7 @@ uncertain delivery.
 
 ### Local Phase C: compact wire and true pool-hit lazy loading
 
-- [ ] Freeze the purpose-built presign protocol identifier, numeric tag
+- [x] Freeze the purpose-built presign protocol identifier, numeric tag
       registry, bounded canonical encoding, transcript domains, message
       ceilings, and rejection rules.
 - [ ] Implement strict one-pass decoders and deterministic byte vectors; add
