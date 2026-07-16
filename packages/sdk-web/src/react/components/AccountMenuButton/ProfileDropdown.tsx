@@ -4,6 +4,7 @@ import { LockMenuItem } from './LockMenuItem';
 import { TransactionSettingsSection } from './TransactionSettingsSection';
 import { AccountsSection } from './AccountsSection';
 import { LinkedDevicesSection } from './LinkedDevicesSection';
+import { ExportKeysSection } from './ExportKeysSection';
 import { PROFILE_MENU_ITEM_IDS } from './types';
 import type { ProfileDropdownProps } from './types';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
@@ -38,6 +39,10 @@ export const ProfileDropdown = forwardRef<HTMLDivElement, ProfileDropdownWithRef
       accountsRows,
       accountsOpen = false,
       linkedDevicesOpen = false,
+      exportKeysOpen = false,
+      exportLoadingChain = null,
+      exportRestrictionMessage,
+      onExportChain,
       walletId,
       nearAccountId,
       theme = 'dark',
@@ -80,6 +85,7 @@ export const ProfileDropdown = forwardRef<HTMLDivElement, ProfileDropdownWithRef
 
             const isAccountsItem = item.id === PROFILE_MENU_ITEM_IDS.ACCOUNTS;
             const isLinkedDevicesItem = item.id === PROFILE_MENU_ITEM_IDS.LINKED_DEVICES;
+            const isExportKeysItem = item.id === PROFILE_MENU_ITEM_IDS.EXPORT_KEYS;
             return (
               <Fragment key={item.id ?? index}>
                 <MenuItem
@@ -104,6 +110,15 @@ export const ProfileDropdown = forwardRef<HTMLDivElement, ProfileDropdownWithRef
                     walletId={walletId ?? null}
                     nearAccountId={nearAccountId ?? null}
                     isOpen={linkedDevicesOpen}
+                    style={{ ['--stagger-item-n' as any]: index }}
+                  />
+                )}
+                {isExportKeysItem && onExportChain && (
+                  <ExportKeysSection
+                    isOpen={exportKeysOpen}
+                    loadingChain={exportLoadingChain}
+                    restrictionMessage={exportRestrictionMessage}
+                    onSelectChain={onExportChain}
                     style={{ ['--stagger-item-n' as any]: index }}
                   />
                 )}

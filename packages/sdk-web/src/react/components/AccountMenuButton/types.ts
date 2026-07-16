@@ -23,6 +23,9 @@ export const PROFILE_MENU_ITEM_IDS = {
   TRANSACTION_SETTINGS: 'transaction-settings',
 } as const;
 
+/** Which threshold key set an Export Keys row exports. */
+export type ExportChain = 'near' | 'evm';
+
 /** One chain row in the expandable Accounts section: links out to the chain's
  * block explorer on the user's account page. */
 export interface AccountsSectionRow {
@@ -114,6 +117,10 @@ export interface ProfileDropdownProps {
   accountsRows?: AccountsSectionRow[];
   accountsOpen?: boolean;
   linkedDevicesOpen?: boolean;
+  exportKeysOpen?: boolean;
+  exportLoadingChain?: ExportChain | null;
+  exportRestrictionMessage?: string | null;
+  onExportChain?: (chain: ExportChain) => void;
   walletId?: string | null;
   nearAccountId?: string | null;
   menuItemsRef: React.MutableRefObject<(HTMLElement | null)[]>;
