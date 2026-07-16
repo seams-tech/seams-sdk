@@ -7,8 +7,8 @@ import { fileURLToPath } from 'node:url';
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '../..');
 const accountMenuPath = 'packages/sdk-web/src/react/components/AccountMenuButton/index.tsx';
-const exportModalPath =
-  'packages/sdk-web/src/react/components/AccountMenuButton/ExportKeyTypeModal.tsx';
+const exportKeysSectionPath =
+  'packages/sdk-web/src/react/components/AccountMenuButton/ExportKeysSection.tsx';
 const reactStylesPath = 'packages/sdk-web/src/react/styles.css';
 const keyExportFlowPath =
   'packages/sdk-web/src/core/signingEngine/flows/recovery/keyExportFlow.ts';
@@ -57,13 +57,13 @@ function collectEd25519YaoExportViolations() {
   const ed25519YaoExportFlow = readRepoSource(ed25519YaoExportFlowPath);
   const ed25519YaoClient = readRepoSource(ed25519YaoClientPath);
   const passkeyConfirmWorker = readRepoSource(passkeyConfirmWorkerPath);
-  const modal = readRepoSource(exportModalPath);
+  const exportKeysSection = readRepoSource(exportKeysSectionPath);
 
   requireContains(keyExportFlow, "kind: 'ed25519'", keyExportFlowPath, violations);
   requireContains(keyExportFlow, 'nearAccount: NearAccountRef', keyExportFlowPath, violations);
   requireContains(keyExportFlow, 'chainTarget?: never', keyExportFlowPath, violations);
-  requireContains(modal, "onSelectChain('near')", exportModalPath, violations);
-  requireContains(modal, 'NEAR Ed25519', exportModalPath, violations);
+  requireContains(exportKeysSection, "chain: 'near'", exportKeysSectionPath, violations);
+  requireContains(exportKeysSection, 'Ed25519 signing key', exportKeysSectionPath, violations);
   requireContains(
     ed25519YaoClient,
     'redactCredentialExtensionOutputs<WebAuthnAuthenticationCredential>',
@@ -93,7 +93,7 @@ function collectEd25519YaoExportViolations() {
 function collectEmailOtpRestrictionViolations() {
   const violations = [];
   const accountMenu = readRepoSource(accountMenuPath);
-  const modal = readRepoSource(exportModalPath);
+  const exportKeysSection = readRepoSource(exportKeysSectionPath);
 
   requireAbsent(accountMenu, "loginState.authMethod === 'email_otp'", accountMenuPath, violations);
   requireContains(accountMenu, 'setExportRestrictionMessage(', accountMenuPath, violations);
@@ -104,13 +104,12 @@ function collectEmailOtpRestrictionViolations() {
     violations,
   );
   requireContains(
-    accountMenu,
-    'if (exportRestrictionMessage) return;',
-    accountMenuPath,
+    exportKeysSection,
+    'restrictionMessage',
+    exportKeysSectionPath,
     violations,
   );
-  requireContains(modal, 'restrictionMessage', exportModalPath, violations);
-  requireContains(modal, 'disabled={isBusy || isRestricted}', exportModalPath, violations);
+  requireContains(exportKeysSection, 'disabled={isBusy}', exportKeysSectionPath, violations);
 
   return violations;
 }
@@ -143,7 +142,7 @@ function collectReactStylesViolations() {
 
   requireContains(
     reactStyles,
-    "@import './components/AccountMenuButton/ExportKeyTypeModal.css';",
+    "@import './components/AccountMenuButton/ExportKeysSection.css';",
     reactStylesPath,
     violations,
   );
