@@ -1272,7 +1272,7 @@ function buildRawD1EmailRecoveryPreparationInsertInput(
           kind: 'evm_family_ecdsa_keygen',
           chainTargets: ['evm:eip155:8453'],
           prepare: {
-            formatVersion: 'ecdsa-hss-role-local',
+            formatVersion: 'ecdsa-derivation-role-local',
             walletId,
             walletKeyId: 'wallet-key-raw-email-recovery',
             ecdsaThresholdKeyId: 'ecdsa-key-raw-email-recovery',
@@ -2917,7 +2917,7 @@ function buildD1EmailRecoveryPreparationRecord(input: {
         },
       ],
       prepare: {
-        formatVersion: 'ecdsa-hss-role-local',
+        formatVersion: 'ecdsa-derivation-role-local',
         walletId: 'wallet-d1-email-recovery',
         walletKeyId: 'wallet-key-d1-email-recovery',
         ecdsaThresholdKeyId: 'ecdsa-threshold-d1-email-recovery',

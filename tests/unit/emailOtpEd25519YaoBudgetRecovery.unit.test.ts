@@ -43,6 +43,10 @@ import {
   resolveEmailOtpEd25519YaoExportContextV1,
 } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoSealedRecovery';
 import { buildEmailOtpWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
+import {
+  parseSigningGrantId,
+  parseThresholdEd25519SessionId,
+} from '../../packages/shared-ts/src/utils/domainIds';
 
 const WALLET_ID = walletIdFromString('email-otp-ed25519-budget.testnet');
 const NEAR_ACCOUNT_ID = toAccountId('ab'.repeat(32));
@@ -69,6 +73,13 @@ const ROUTER_AB_NORMAL_SIGNING = {
 } as const;
 const REGISTERED_PUBLIC_KEY = new Uint8Array(32).fill(7);
 const PRIOR_CAPABILITY_BINDING = new Array<number>(32).fill(1);
+
+function unwrapDomainId<T>(
+  result: { ok: true; value: T } | { ok: false; error: { message: string } },
+): T {
+  if (!result.ok) throw new Error(result.error.message);
+  return result.value;
+}
 
 function jsonB64u(value: unknown): string {
   return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
@@ -598,6 +609,7 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
       challengeId: 'challenge-1',
       otpCode: '123456',
       remainingUses: 3,
+      expectedOperationalPublicKey: emailOtpUser().operationalPublicKey,
       workerContext: worker.context(),
       shamirPrimeB64u: 'shamir-prime-b64u',
       resolveActiveCapability: activation.resolve.bind(activation),
@@ -735,8 +747,10 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
         nearAccountId: NEAR_ACCOUNT_ID,
         nearEd25519SigningKeyId: NEAR_ED25519_SIGNING_KEY_ID,
         signerSlot: 1,
-        thresholdSessionId: THRESHOLD_SESSION_ID,
-        signingGrantId: SIGNING_GRANT_ID,
+        thresholdSessionId: unwrapDomainId(
+          parseThresholdEd25519SessionId(THRESHOLD_SESSION_ID),
+        ),
+        signingGrantId: unwrapDomainId(parseSigningGrantId(SIGNING_GRANT_ID)),
         providerSubjectId: PROVIDER_SUBJECT,
       },
       relayerUrl: RELAYER_URL,
@@ -884,6 +898,7 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
         challengeId: 'challenge-1',
         otpCode: '123456',
         remainingUses: 3,
+        expectedOperationalPublicKey: emailOtpUser().operationalPublicKey,
         workerContext: worker.context(),
         shamirPrimeB64u: 'shamir-prime-b64u',
         resolveActiveCapability: activation.resolve.bind(activation),

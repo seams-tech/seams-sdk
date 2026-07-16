@@ -1,23 +1,23 @@
 import { expect, test } from '@playwright/test';
 import {
-  parseCloudflareSigningWorkerEcdsaHssPresignaturePoolPutRequestV1,
-  parseRouterAbEcdsaHssNormalSigningScopeV1,
-  type CloudflareSigningWorkerEcdsaHssPresignaturePoolPutReceiptV1Wire,
-  type CloudflareSigningWorkerEcdsaHssPresignaturePoolPutRequestV1Wire,
-  type RouterAbEcdsaHssNormalSigningScopeV1,
-} from '@shared/utils/routerAbEcdsaHss';
+  parseCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutRequestV1,
+  parseRouterAbEcdsaDerivationNormalSigningScopeV1,
+  type CloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutReceiptV1Wire,
+  type CloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutRequestV1Wire,
+  type RouterAbEcdsaDerivationNormalSigningScopeV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import {
-  buildRouterAbEcdsaHssPresignaturePoolPutRequest,
-  CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH,
-  putRouterAbEcdsaHssPresignaturePoolFill,
+  buildRouterAbEcdsaDerivationPresignaturePoolPutRequest,
+  CLOUDFLARE_SIGNING_WORKER_ECDSA_DERIVATION_PRESIGNATURE_POOL_PUT_PATH,
+  putRouterAbEcdsaDerivationPresignaturePoolFill,
   ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
-} from '@server/core/ThresholdService/routerAb/ecdsaHssPresignBridge';
+} from '@server/core/ThresholdService/routerAb/ecdsaDerivationPresignBridge';
 
 function b64u(byte: number, length: number): string {
   return Buffer.from(new Uint8Array(length).fill(byte)).toString('base64url');
 }
 
-const scope: RouterAbEcdsaHssNormalSigningScopeV1 = {
+const scope: RouterAbEcdsaDerivationNormalSigningScopeV1 = {
   wallet_key_id: 'wallet-key-localhost',
   wallet_id: 'wallet-1',
   ecdsa_threshold_key_id: 'ecdsa-key-1',
@@ -28,7 +28,7 @@ const scope: RouterAbEcdsaHssNormalSigningScopeV1 = {
   },
   public_identity: {
     context_binding_b64u: b64u(1, 32),
-    client_public_key33_b64u: b64u(2, 33),
+    derivation_client_share_public_key33_b64u: b64u(2, 33),
     server_public_key33_b64u: b64u(3, 33),
     threshold_public_key33_b64u: b64u(4, 33),
     ethereum_address20_b64u: b64u(5, 20),
@@ -57,8 +57,8 @@ function digest(byte: number): { bytes: number[] } {
   return { bytes: Array.from(new Uint8Array(32).fill(byte)) };
 }
 
-function request(): CloudflareSigningWorkerEcdsaHssPresignaturePoolPutRequestV1Wire {
-  return buildRouterAbEcdsaHssPresignaturePoolPutRequest({
+function request(): CloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutRequestV1Wire {
+  return buildRouterAbEcdsaDerivationPresignaturePoolPutRequest({
     scope,
     presignature,
     expiresAtMs: 1_800_000_060_000,
@@ -66,9 +66,9 @@ function request(): CloudflareSigningWorkerEcdsaHssPresignaturePoolPutRequestV1W
 }
 
 function receipt(
-  req: CloudflareSigningWorkerEcdsaHssPresignaturePoolPutRequestV1Wire,
+  req: CloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutRequestV1Wire,
   stored: boolean,
-): CloudflareSigningWorkerEcdsaHssPresignaturePoolPutReceiptV1Wire {
+): CloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutReceiptV1Wire {
   return {
     active_signing_worker_state: {
       account_id: scope.wallet_id,
@@ -86,7 +86,7 @@ function receipt(
   };
 }
 
-test.describe('Router A/B ECDSA-HSS presign bridge', () => {
+test.describe('Router A/B ECDSA derivation presign bridge', () => {
   test('maps a completed threshold ECDSA server presignature into the strict Worker pool-fill wire shape', () => {
     const poolFillRequest = request();
 
@@ -99,13 +99,13 @@ test.describe('Router A/B ECDSA-HSS presign bridge', () => {
       expires_at_ms: 1_800_000_060_000,
     });
     expect(
-      parseCloudflareSigningWorkerEcdsaHssPresignaturePoolPutRequestV1(poolFillRequest),
+      parseCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutRequestV1(poolFillRequest),
     ).toEqual(poolFillRequest);
   });
 
   test('rejects loose Router A/B scope shapes before private pool-fill construction', () => {
     expect(() =>
-      parseRouterAbEcdsaHssNormalSigningScopeV1({
+      parseRouterAbEcdsaDerivationNormalSigningScopeV1({
         ...scope,
         public_identity: {
           ...scope.public_identity,
@@ -115,7 +115,7 @@ test.describe('Router A/B ECDSA-HSS presign bridge', () => {
     ).toThrow('scope.public_identity.threshold_public_key33_b64u must decode to 33 bytes');
 
     expect(() =>
-      parseRouterAbEcdsaHssNormalSigningScopeV1({
+      parseRouterAbEcdsaDerivationNormalSigningScopeV1({
         ...scope,
         context: {
           ...scope.context,
@@ -125,14 +125,14 @@ test.describe('Router A/B ECDSA-HSS presign bridge', () => {
     ).toThrow('scope.context.key_scope is not a supported field');
 
     expect(() =>
-      parseRouterAbEcdsaHssNormalSigningScopeV1({
+      parseRouterAbEcdsaDerivationNormalSigningScopeV1({
         ...scope,
         legacy_v1: true,
       }),
     ).toThrow('scope.legacy_v1 is not a supported field');
 
     expect(() =>
-      parseRouterAbEcdsaHssNormalSigningScopeV1({
+      parseRouterAbEcdsaDerivationNormalSigningScopeV1({
         ...scope,
         activation_epoch: 1,
       }),
@@ -141,7 +141,7 @@ test.describe('Router A/B ECDSA-HSS presign bridge', () => {
 
   test('rejects malformed server share material and exact legacy compatibility fields', () => {
     expect(() =>
-      buildRouterAbEcdsaHssPresignaturePoolPutRequest({
+      buildRouterAbEcdsaDerivationPresignaturePoolPutRequest({
         scope,
         presignature: {
           ...presignature,
@@ -152,7 +152,7 @@ test.describe('Router A/B ECDSA-HSS presign bridge', () => {
     ).toThrow('presignature.kShareB64u must decode to 32 bytes');
 
     expect(() =>
-      parseCloudflareSigningWorkerEcdsaHssPresignaturePoolPutRequestV1({
+      parseCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutRequestV1({
         scope,
         server_presignature_id: presignature.presignatureId,
         server_big_r33_b64u: presignature.bigRB64u,
@@ -164,7 +164,7 @@ test.describe('Router A/B ECDSA-HSS presign bridge', () => {
     ).toThrow('poolFillRequest.relayerKeyId is not a supported field');
 
     expect(() =>
-      buildRouterAbEcdsaHssPresignaturePoolPutRequest({
+      buildRouterAbEcdsaDerivationPresignaturePoolPutRequest({
         scope,
         presignature: {
           // @ts-expect-error legacy relayer naming must stay outside the new Router A/B boundary.
@@ -191,7 +191,7 @@ test.describe('Router A/B ECDSA-HSS presign bridge', () => {
       });
     }) as typeof fetch;
 
-    const result = await putRouterAbEcdsaHssPresignaturePoolFill({
+    const result = await putRouterAbEcdsaDerivationPresignaturePoolFill({
       signingWorkerBaseUrl: 'https://signing-worker.example/base/',
       request: poolFillRequest,
       auth: { kind: 'internal_service_auth_secret', secret: 'private-route-token' },
@@ -202,7 +202,7 @@ test.describe('Router A/B ECDSA-HSS presign bridge', () => {
     expect(result.status).toBe(200);
     expect(calls).toHaveLength(1);
     expect(calls[0].url).toBe(
-      `https://signing-worker.example/base${CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH}`,
+      `https://signing-worker.example/base${CLOUDFLARE_SIGNING_WORKER_ECDSA_DERIVATION_PRESIGNATURE_POOL_PUT_PATH}`,
     );
     expect(calls[0].init.method).toBe('POST');
     expect(calls[0].init.headers).toEqual({
@@ -221,7 +221,7 @@ test.describe('Router A/B ECDSA-HSS presign bridge', () => {
       })) as typeof fetch;
 
     await expect(
-      putRouterAbEcdsaHssPresignaturePoolFill({
+      putRouterAbEcdsaDerivationPresignaturePoolFill({
         signingWorkerBaseUrl: 'https://signing-worker.example',
         request: poolFillRequest,
         auth: { kind: 'internal_service_auth_secret', secret: 'private-route-token' },
@@ -230,7 +230,7 @@ test.describe('Router A/B ECDSA-HSS presign bridge', () => {
     ).resolves.toEqual({
       ok: false,
       code: 'already_exists',
-      message: 'Router A/B ECDSA-HSS presignature already exists in the SigningWorker pool',
+      message: 'Router A/B ECDSA derivation presignature already exists in the SigningWorker pool',
       status: 200,
       receipt: receipt(poolFillRequest, false),
     });
@@ -243,7 +243,7 @@ test.describe('Router A/B ECDSA-HSS presign bridge', () => {
     }) as typeof fetch;
 
     await expect(
-      putRouterAbEcdsaHssPresignaturePoolFill({
+      putRouterAbEcdsaDerivationPresignaturePoolFill({
         signingWorkerBaseUrl: 'http://127.0.0.1:9093',
         request: poolFillRequest,
         auth: { kind: 'internal_service_auth_secret', secret: 'private-route-token' },
@@ -253,7 +253,7 @@ test.describe('Router A/B ECDSA-HSS presign bridge', () => {
       ok: false,
       code: 'network_error',
       message:
-        'pool-fill request to http://127.0.0.1:9093/router-ab/signing-worker/ecdsa-hss/presignature-pool/put failed: fetch failed',
+        'pool-fill request to http://127.0.0.1:9093/router-ab/signing-worker/ecdsa-derivation/presignature-pool/put failed: fetch failed',
     });
   });
 
@@ -270,7 +270,7 @@ test.describe('Router A/B ECDSA-HSS presign bridge', () => {
       })) as typeof fetch;
 
     await expect(
-      putRouterAbEcdsaHssPresignaturePoolFill({
+      putRouterAbEcdsaDerivationPresignaturePoolFill({
         signingWorkerBaseUrl: 'https://signing-worker.example',
         request: poolFillRequest,
         auth: { kind: 'internal_service_auth_secret', secret: 'private-route-token' },

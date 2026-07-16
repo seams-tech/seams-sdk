@@ -172,10 +172,10 @@ check('key-version domains use branded parsers at high-risk boundaries', () => {
       'packages/sdk-server-ts/src/threshold/session/signingSessionSeal/options.ts',
     );
     const serverThresholdSigning = readRepoSource(
-      'packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts',
+      'packages/sdk-server-ts/src/core/routerAbSigning/RouterAbEcdsaBootstrapExportRuntime.ts',
     );
     const serverEcdsaPoolFill = readRepoSource(
-      'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaHssPoolFillHandlers.ts',
+      'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaDerivationPoolFillHandlers.ts',
     );
     const serverEmailOtpSeal = readRepoSource(
       'packages/sdk-server-ts/src/core/authService/emailOtpSeal.ts',
@@ -194,9 +194,9 @@ check('key-version domains use branded parsers at high-risk boundaries', () => {
     );
 
     for (const source of [sdkBrands, serverBrands]) {
-      expect(source).toContain("EcdsaHssKeyVersion");
+      expect(source).toContain("EcdsaDerivationKeyVersion");
       expect(source).toContain("SigningSessionSealKeyVersion");
-      expect(source).toContain("parseEcdsaHssKeyVersion");
+      expect(source).toContain("parseEcdsaDerivationKeyVersion");
       expect(source).toContain("parseSigningSessionSealKeyVersion");
     }
     expect(serverSealOptions).toContain('parseSigningSessionSealKeyVersion(input.keyVersion)');
@@ -206,12 +206,12 @@ check('key-version domains use branded parsers at high-risk boundaries', () => {
     );
     expect(serverEmailOtpSeal).toContain('formatSigningSessionSealKeyVersionForWire');
     expect(serverThresholdSigning).toContain(
-      "const THRESHOLD_ECDSA_HSS_KEY_VERSION_V1 = parseEcdsaHssKeyVersion('v1')",
+      "const THRESHOLD_ECDSA_DERIVATION_KEY_VERSION_V1 = parseEcdsaDerivationKeyVersion('v1')",
     );
-    expect(serverThresholdSigning).toContain('parseEcdsaHssKeyVersionOrDefault');
-    expect(serverThresholdSigning).toContain('ecdsaHssKeyVersionWire');
-    expect(serverEcdsaPoolFill).toContain('parseEcdsaHssKeyVersion');
-    expect(serverEcdsaPoolFill).toContain('formatEcdsaHssKeyVersionForWire');
+    expect(serverThresholdSigning).toContain('parseEcdsaDerivationKeyVersionOrDefault');
+    expect(serverThresholdSigning).toContain('ecdsaDerivationKeyVersionWire');
+    expect(serverEcdsaPoolFill).toContain('parseEcdsaDerivationKeyVersion');
+    expect(serverEcdsaPoolFill).toContain('formatEcdsaDerivationKeyVersionForWire');
 
     const sealTransportCommon = sourceBetween(
       sdkSealTransportTypes,
@@ -262,10 +262,10 @@ check('second-tier material brands protect ECDSA restore and signing boundaries'
     );
     const serverBrands = readRepoSource('packages/sdk-server-ts/src/core/keyMaterialBrands.ts');
     const ecdsaPoolFill = readRepoSource(
-      'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaHssPoolFillHandlers.ts',
+      'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaDerivationPoolFillHandlers.ts',
     );
     const ecdsaClientPresignPool = readRepoSource(
-      'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaHss/presignaturePool.ts',
+      'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaDerivation/presignaturePool.ts',
     );
     const serverSealOptions = readRepoSource(
       'packages/sdk-server-ts/src/threshold/session/signingSessionSeal/options.ts',
@@ -323,7 +323,7 @@ check('WebAuthn RP ids cannot be confused with NEAR Ed25519 signing-key ids', ()
       'packages/sdk-server-ts/src/router/walletRegistrationRoutes.ts',
     );
     const thresholdSigning = readRepoSource(
-      'packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts',
+      'packages/sdk-server-ts/src/core/routerAbSigning/RouterAbEcdsaBootstrapExportRuntime.ts',
     );
     const serverTypecheck = readRepoSource(
       'packages/sdk-server-ts/src/core/keyMaterialBrands.typecheck.ts',
@@ -473,7 +473,7 @@ check('EVM-family signing key slot identity cannot fall back to generic wallet k
       'packages/sdk-server-ts/src/core/ThresholdService/validation.ts',
     );
     const ecdsaPoolFillHandlers = readRepoSource(
-      'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaHssPoolFillHandlers.ts',
+      'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaDerivationPoolFillHandlers.ts',
     );
     const authService = readRepoSource(
       'packages/sdk-server-ts/src/core/authService/emailRecoveryAuthOperations.ts',

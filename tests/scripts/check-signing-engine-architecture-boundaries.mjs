@@ -798,8 +798,8 @@ function checkThresholdProtocolEntrypointsTakeProtocolMaterial() {
     'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts',
     'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/connectSession.ts',
     'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/keygen.ts',
-    'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaHss/presignaturePool.ts',
-    'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaHss/poolFillRoutes.ts',
+    'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaDerivation/presignaturePool.ts',
+    'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaDerivation/poolFillRoutes.ts',
   ];
   const broadShapeMarkers = [
     'ThresholdEcdsaSessionRecord',

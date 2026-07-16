@@ -62,7 +62,7 @@ import type {
   ProvisionWarmEd25519CapabilityResult,
 } from '@/core/signingEngine/session/warmCapabilities/types';
 import type { SensitiveOperationPolicy } from '@shared/utils';
-import { ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1 } from '@shared/utils/routerAbEcdsaHss';
+import { ROUTER_AB_ECDSA_DERIVATION_KEY_SCOPE_V1 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
   toWalletId,
   type ThresholdEcdsaChainTarget,

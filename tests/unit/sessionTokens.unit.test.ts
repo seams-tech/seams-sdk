@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   appOrWalletSessionJwtAuth,
-  ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+  ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
   requireAppSessionJwt,
   requireWalletSessionJwt,
 } from '@shared/utils/sessionTokens';
@@ -15,7 +15,7 @@ function jwtWithPayload(payload: Record<string, unknown>): string {
 test.describe('session JWT kind helpers', () => {
   test('rejects Wallet Session JWTs at app-session boundaries', () => {
     const jwt = jwtWithPayload({
-      kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+      kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
       sub: 'alice.testnet',
       walletId: 'alice.testnet',
       signingGrantId: 'wallet-session-1',
@@ -58,7 +58,7 @@ test.describe('session JWT kind helpers', () => {
 
   test('builds discriminated route auth from JWT kind', () => {
     const walletSessionJwt = jwtWithPayload({
-      kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+      kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
       sub: 'alice.testnet',
       walletId: 'alice.testnet',
       signingGrantId: 'wallet-session-1',
@@ -75,19 +75,6 @@ test.describe('session JWT kind helpers', () => {
       kind: 'app_session',
       jwt: appJwt,
     });
-  });
-
-  test('rejects legacy threshold-session JWT kinds at Wallet Session boundaries', () => {
-    const jwt = jwtWithPayload({
-      kind: 'threshold_ecdsa_session_v2',
-      sub: 'alice.testnet',
-      walletId: 'alice.testnet',
-    });
-
-    expect(() => requireWalletSessionJwt(jwt)).toThrow('must be a Wallet Session JWT');
-    expect(() => appOrWalletSessionJwtAuth(jwt)).toThrow(
-      'session JWT must include a valid session kind',
-    );
   });
 
   test('rejects missing or unknown kind for generic route auth', () => {

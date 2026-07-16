@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
-import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
-import type { RouterAbEcdsaHssNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaHss';
+import { ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
+import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import { toAccountId } from '@/core/types/accountIds';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { resolveEvmFamilyEcdsaSigningSelection } from '@/core/signingEngine/flows/signEvmFamily/ecdsaSelection';
@@ -39,8 +39,8 @@ import {
 } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 import { toAuthorizingSigningGrantId } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import {
-  clearRouterAbEcdsaHssWorkerMaterialRuntimeValidation,
-  markRouterAbEcdsaHssWorkerMaterialRuntimeValidated,
+  clearRouterAbEcdsaDerivationWorkerMaterialRuntimeValidation,
+  markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated,
 } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import { buildEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 
@@ -96,7 +96,7 @@ function makeWalletSessionJwt(args: {
 }): string {
   const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
   return `${encode({ alg: 'none', typ: 'JWT' })}.${encode({
-    kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+    kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
     walletId: args.walletId,
     evmFamilySigningKeySlotId: args.evmFamilySigningKeySlotId,
     keyHandle: args.keyHandle,
@@ -115,11 +115,11 @@ function ethereumAddress20B64u(address: string): string {
   return base64UrlEncode(bytes);
 }
 
-function routerAbEcdsaHssNormalSigningStateForCandidate(
+function routerAbEcdsaDerivationNormalSigningStateForCandidate(
   input: EcdsaLaneCandidate,
-): RouterAbEcdsaHssNormalSigningStateV1 {
+): RouterAbEcdsaDerivationNormalSigningStateV1 {
   return {
-    kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+    kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
     scope: {
       wallet_key_id: input.key.evmFamilySigningKeySlotId,
       wallet_id: input.walletId,
@@ -131,7 +131,7 @@ function routerAbEcdsaHssNormalSigningStateForCandidate(
       },
       public_identity: {
         context_binding_b64u: contextBinding32B64u,
-        client_public_key33_b64u: validThresholdEcdsaPublicKeyB64u,
+        derivation_client_share_public_key33_b64u: validThresholdEcdsaPublicKeyB64u,
         server_public_key33_b64u: validRelayerEcdsaPublicKeyB64u,
         threshold_public_key33_b64u: validThresholdEcdsaPublicKeyB64u,
         ethereum_address20_b64u: ethereumAddress20B64u(input.key.thresholdOwnerAddress),
@@ -332,7 +332,7 @@ function roleLocalReadyRecordForCandidate(
     participantIds: [1, 2],
     applicationBindingDigestB64u,
     contextBinding32B64u,
-    hssClientSharePublicKey33B64u: validThresholdEcdsaPublicKeyB64u,
+    derivationClientSharePublicKey33B64u: validThresholdEcdsaPublicKeyB64u,
     relayerPublicKey33B64u: validRelayerEcdsaPublicKeyB64u,
     groupPublicKey33B64u: validThresholdEcdsaPublicKeyB64u,
     ethereumAddress: input.key.thresholdOwnerAddress,
@@ -401,7 +401,7 @@ function recordForChainTarget(
     }),
     expiresAtMs: Date.now() + 60_000,
     remainingUses: input.state === 'exhausted' ? 0 : 1,
-    routerAbEcdsaHssNormalSigning: routerAbEcdsaHssNormalSigningStateForCandidate(input),
+    routerAbEcdsaDerivationNormalSigning: routerAbEcdsaDerivationNormalSigningStateForCandidate(input),
     thresholdEcdsaPublicKeyB64u: validThresholdEcdsaPublicKeyB64u,
     relayerVerifyingShareB64u: validRelayerEcdsaPublicKeyB64u,
     updatedAtMs: Date.now(),
@@ -451,8 +451,8 @@ function emailOtpRecordForChainTarget(
 
 function markRuntimeValidated<T extends ThresholdEcdsaSessionRecord>(record: T): T {
   if (record.remainingUses <= 0 || record.expiresAtMs <= Date.now()) return record;
-  if (!markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)) {
-    throw new Error('failed to mark ECDSA-HSS test record runtime-validated');
+  if (!markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record)) {
+    throw new Error('failed to mark Router A/B ECDSA derivation test record runtime-validated');
   }
   return record;
 }
@@ -469,13 +469,13 @@ function selectionDepsWithExactMaterial(
 
 test.describe('ECDSA restorable lane selection', () => {
   test.afterEach(() => {
-    clearRouterAbEcdsaHssWorkerMaterialRuntimeValidation();
+    clearRouterAbEcdsaDerivationWorkerMaterialRuntimeValidation();
   });
 
   test('routes restorable passkey lanes without hot material through committed-lane reauth', async () => {
     const restorableCandidate = candidate('restorable');
     const restorableRecord = recordForChainTarget(restorableCandidate, chainTarget);
-    clearRouterAbEcdsaHssWorkerMaterialRuntimeValidation();
+    clearRouterAbEcdsaDerivationWorkerMaterialRuntimeValidation();
     const selection = await resolveEvmFamilyEcdsaSigningSelection({
       deps: {
         ...selectionDeps(),
@@ -929,7 +929,7 @@ test.describe('ECDSA restorable lane selection', () => {
     expect(selection.committedLane.durableRestore).toBe('sealed_record_authority');
     expect(selection.committedLane.authLane).toBe(durableAuthLane);
     expect(selection.committedLane.walletSessionAuthority).toMatchObject({
-      kind: 'wallet_session_authority',
+      kind: 'ecdsa_wallet_session_authority',
       walletSessionJwt: durableAuthLane.jwt,
       thresholdSessionId: durableAuthLane.thresholdSessionId,
       signingGrantId: String(durableAuthLane.authorizingSigningGrantId),

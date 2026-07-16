@@ -33,7 +33,7 @@ const key = buildBaseEvmFamilyEcdsaKeyIdentity({
     signingRootId,
     signingRootVersion,
   }),
-  ecdsaThresholdKeyId: 'ehss-ecdsa-lanes',
+  ecdsaThresholdKeyId: 'ederivation-ecdsa-lanes',
   signingRootId,
   signingRootVersion,
   participantIds: [1, 2],

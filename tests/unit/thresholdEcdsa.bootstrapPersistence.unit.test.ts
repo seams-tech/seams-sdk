@@ -81,7 +81,7 @@ function bootstrap(args: {
       relayerParticipantId: 2,
       participantIds: [1, 2],
       contextBinding32B64u: VALID_SHARE_32_B64U,
-      hssClientSharePublicKey33B64u: VALID_PUBLIC_KEY_B64U,
+      derivationClientSharePublicKey33B64u: VALID_PUBLIC_KEY_B64U,
       relayerPublicKey33B64u: VALID_RELAYER_PUBLIC_KEY_B64U,
       groupPublicKey33B64u: VALID_PUBLIC_KEY_B64U,
       ethereumAddress: args.ownerAddress,
@@ -108,7 +108,7 @@ function bootstrap(args: {
         stateBlob: ecdsaRoleLocalReadyRecord.stateBlob,
         ecdsaRoleLocalReadyRecord,
       },
-      thresholdSessionId: 'tehss_1',
+      thresholdSessionId: 'tederivation_1',
       signingGrantId: 'wss_1',
     },
     keygen: {
@@ -125,7 +125,7 @@ function bootstrap(args: {
     } as ThresholdEcdsaSessionBootstrapResult['keygen'],
     session: {
       ok: true,
-      thresholdSessionId: 'tehss_1',
+      thresholdSessionId: 'tederivation_1',
       signingGrantId: 'wss_1',
       expiresAtMs: Date.now() + 60_000,
       remainingUses: 3,

@@ -3,14 +3,10 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
-import { ROUTER_AB_ECDSA_HSS_HEALTH_PATH } from '../../packages/shared-ts/src/utils/routerAbEcdsaHss';
+import { deriveEvmFamilySigningKeySlotId } from '../../packages/shared-ts/src/signing-lanes';
+import { ROUTER_AB_ECDSA_DERIVATION_HEALTH_PATH } from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
 import { ROUTER_AB_ED25519_HEALTH_PATH } from '../../packages/shared-ts/src/utils/signingSessionSeal';
 import { SIGNING_ROOT_RECORD_VERSION_V1 } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootRecords';
-import {
-  THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,
-  THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
-} from '../../packages/sdk-server-ts/src/core/ThresholdService/schemes/schemeIds';
-import type { ThresholdAnySchemeModule } from '../../packages/sdk-server-ts/src/core/ThresholdService/schemes/thresholdServiceSchemes.types';
 import {
   createSelfHostedCloudflareSigningRouter,
   createSelfHostedCloudflareSigningWorker,
@@ -19,7 +15,8 @@ import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/
 import { ThresholdStoreDurableObject } from '../../packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore';
 import type { CfExecutionContext } from '../../packages/sdk-server-ts/src/router/cloudflare/cloudflare.types';
 import type { RouterApiServiceBag } from '../../packages/sdk-server-ts/src/router/authServicePort';
-import type { ThresholdSigningAdapter } from '../../packages/sdk-server-ts/src/router/routerApi';
+import type { RouterAbEcdsaBootstrapExportPort } from '../../packages/sdk-server-ts/src/core/routerAbSigning/RouterAbEcdsaBootstrapExportRuntime';
+import { createRouterAbSigningRuntimesForUnitTests } from '../helpers/routerAbSigningRuntimeTestUtils';
 
 const fakeCtx = {} as CfExecutionContext;
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -30,6 +27,11 @@ const selfHostedRouterSourcePath = resolve(
 const PROJECT_ID = 'project-alpha';
 const ENV_ID = 'env-alpha';
 const SIGNING_ROOT_ID = `${PROJECT_ID}:${ENV_ID}`;
+const VERIFY_WALLET_SIGNING_KEY_SLOT_ID = deriveEvmFamilySigningKeySlotId({
+  walletId: 'subject-alpha',
+  signingRootId: SIGNING_ROOT_ID,
+  signingRootVersion: 'root-v1',
+});
 
 function fakeRouterApiServiceBag(): RouterApiServiceBag {
   return {
@@ -37,85 +39,91 @@ function fakeRouterApiServiceBag(): RouterApiServiceBag {
       getConfiguredRelayerAccount: () => 'self-host.testnet',
     },
     thresholdRuntime: {
-      getThresholdSigningService: () => null,
+      getRouterAbNormalSigningRuntime: () => null,
+      getRouterAbEcdsaBootstrapExportRuntime: () => null,
+      getRouterAbEcdsaPresignRuntime: () => null,
     },
   } as unknown as RouterApiServiceBag;
 }
 
-function fakeRouterApiServiceBagWithThreshold(threshold: unknown): RouterApiServiceBag {
+function fakeRouterApiServiceBagWithRouterAbRuntimes(): RouterApiServiceBag {
+  const runtimes = createRouterAbSigningRuntimesForUnitTests({});
   return {
     router: {
       getConfiguredRelayerAccount: () => 'self-host.testnet',
     },
     thresholdRuntime: {
-      getThresholdSigningService: () => threshold,
+      getRouterAbNormalSigningRuntime: () => runtimes.normalSigning,
+      getRouterAbEcdsaBootstrapExportRuntime: () => runtimes.ecdsaBootstrapExport,
+      getRouterAbEcdsaPresignRuntime: () => runtimes.ecdsaPresign,
     },
   } as unknown as RouterApiServiceBag;
 }
 
-function fixtureThresholdAdapter(): ThresholdSigningAdapter {
-  const ed25519Scheme = {
-    schemeId: THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,
-    healthz: async () => ({ ok: true }),
-    protocol: {},
-    session: async (request: unknown) => ({
-      ok: false,
-      code: 'ed25519_session_fixture',
-      message: JSON.stringify(request),
-    }),
-    authorize: async (input: unknown) => ({
-      ok: false,
-      code: 'ed25519_authorize_fixture',
-      message: JSON.stringify(input),
-    }),
-    registration: {
-      keygenFromRegistrationMaterial: async (request: unknown) => ({
-        ok: false,
-        code: 'ed25519_registration_fixture',
-        message: JSON.stringify(request),
-      }),
-    },
-  } as ThresholdAnySchemeModule;
-  const ecdsaScheme = {
-    schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
-    healthz: async () => ({ ok: true }),
-    protocol: {
-      signInit: async (request: unknown) => ({
-        ok: false,
-        code: 'ecdsa_fixture',
-        message: JSON.stringify(request),
-      }),
-      signFinalize: async (request: unknown) => ({
-        ok: false,
-        code: 'ecdsa_finalize_fixture',
-        message: JSON.stringify(request),
-      }),
-    },
-    authorize: async (input: unknown) => ({
-      ok: false,
-      code: 'ecdsa_authorize_fixture',
-      message: JSON.stringify(input),
-    }),
-    poolFill: {
-      init: async (input: unknown) => ({
-        ok: false,
-        code: 'ecdsa_presign_init_fixture',
-        message: JSON.stringify(input),
-      }),
-      step: async (input: unknown) => ({
-        ok: false,
-        code: 'ecdsa_presign_step_fixture',
-        message: JSON.stringify(input),
-      }),
-    },
-  } as ThresholdAnySchemeModule;
+function fakeRouterApiServiceBagWithBootstrapPort(
+  bootstrapPort: RouterAbEcdsaBootstrapExportPort,
+): RouterApiServiceBag {
+  const runtimes = createRouterAbSigningRuntimesForUnitTests({});
   return {
-    getSchemeModule: (schemeId) => {
-      if (schemeId === THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID) return ed25519Scheme;
-      if (schemeId === THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID) return ecdsaScheme;
-      return null;
+    router: { getConfiguredRelayerAccount: () => 'self-host.testnet' },
+    thresholdRuntime: {
+      getRouterAbNormalSigningRuntime: () => runtimes.normalSigning,
+      getRouterAbEcdsaBootstrapExportRuntime: () => bootstrapPort,
+      getRouterAbEcdsaPresignRuntime: () => runtimes.ecdsaPresign,
     },
-  };
+  } as unknown as RouterApiServiceBag;
+}
+
+class RecordingWalletVerificationPort implements RouterAbEcdsaBootstrapExportPort {
+  readonly calls: unknown[] = [];
+
+  constructor(private readonly delegate: RouterAbEcdsaBootstrapExportPort) {}
+
+  async getEcdsaKeyIdentityMetadata(
+    input: Parameters<RouterAbEcdsaBootstrapExportPort['getEcdsaKeyIdentityMetadata']>[0],
+  ): Promise<Awaited<ReturnType<RouterAbEcdsaBootstrapExportPort['getEcdsaKeyIdentityMetadata']>>> {
+    return await this.delegate.getEcdsaKeyIdentityMetadata(input);
+  }
+
+  async verifyEcdsaSigningRootWalletAddress(
+    input: Parameters<RouterAbEcdsaBootstrapExportPort['verifyEcdsaSigningRootWalletAddress']>[0],
+  ): Promise<
+    Awaited<ReturnType<RouterAbEcdsaBootstrapExportPort['verifyEcdsaSigningRootWalletAddress']>>
+  > {
+    this.calls.push(input);
+    return {
+      ok: true,
+      verified: true,
+      canonicalEthereumAddress: `0x${'11'.repeat(20)}`,
+      expectedEthereumAddress: input.expectedEthereumAddress,
+    };
+  }
+
+  async ecdsaDerivationRoleLocalBootstrap(
+    input: Parameters<RouterAbEcdsaBootstrapExportPort['ecdsaDerivationRoleLocalBootstrap']>[0],
+  ): Promise<Awaited<ReturnType<RouterAbEcdsaBootstrapExportPort['ecdsaDerivationRoleLocalBootstrap']>>> {
+    return await this.delegate.ecdsaDerivationRoleLocalBootstrap(input);
+  }
+
+  async verifyEcdsaDerivationRoleLocalClientRootProofForExistingKey(
+    input: Parameters<
+      RouterAbEcdsaBootstrapExportPort['verifyEcdsaDerivationRoleLocalClientRootProofForExistingKey']
+    >[0],
+  ): Promise<
+    Awaited<
+      ReturnType<
+        RouterAbEcdsaBootstrapExportPort['verifyEcdsaDerivationRoleLocalClientRootProofForExistingKey']
+      >
+    >
+  > {
+    return await this.delegate.verifyEcdsaDerivationRoleLocalClientRootProofForExistingKey(input);
+  }
+
+  async ecdsaDerivationRoleLocalExportShare(
+    input: Parameters<RouterAbEcdsaBootstrapExportPort['ecdsaDerivationRoleLocalExportShare']>[0],
+  ): Promise<Awaited<ReturnType<RouterAbEcdsaBootstrapExportPort['ecdsaDerivationRoleLocalExportShare']>>> {
+    return await this.delegate.ecdsaDerivationRoleLocalExportShare(input);
+  }
 }
 
 async function responseSnapshot(response: Response): Promise<{
@@ -239,14 +247,13 @@ test('self-host Cloudflare signing worker creates per-request service and option
 });
 
 test('hosted and self-host Cloudflare routers preserve threshold health route parity', async () => {
-  const threshold = fixtureThresholdAdapter();
-  const hosted = createCloudflareRouter(fakeRouterApiServiceBag(), { threshold, logger: console });
-  const selfHosted = createSelfHostedCloudflareSigningRouter(fakeRouterApiServiceBag(), {
-    threshold,
+  const service = fakeRouterApiServiceBagWithRouterAbRuntimes();
+  const hosted = createCloudflareRouter(service, { logger: console });
+  const selfHosted = createSelfHostedCloudflareSigningRouter(service, {
     logger: console,
   });
 
-  for (const path of [ROUTER_AB_ED25519_HEALTH_PATH, ROUTER_AB_ECDSA_HSS_HEALTH_PATH]) {
+  for (const path of [ROUTER_AB_ED25519_HEALTH_PATH, ROUTER_AB_ECDSA_DERIVATION_HEALTH_PATH]) {
     const hostedResult = await responseSnapshot(
       await hosted(new Request(`https://hosted.example.test${path}`), {}, fakeCtx),
     );
@@ -349,19 +356,10 @@ test('self-host signing-root admin routes import status and delete through the t
 
 test('self-host signing-root verify-wallet route delegates to threshold signing-root verifier', async () => {
   const namespace = createMemoryNamespace();
-  const calls: unknown[] = [];
-  const threshold = {
-    verifyEcdsaSigningRootWalletAddress: async (input: unknown) => {
-      calls.push(input);
-      return {
-        ok: true,
-        verified: true,
-        canonicalEthereumAddress: `0x${'11'.repeat(20)}`,
-      };
-    },
-  };
+  const runtimes = createRouterAbSigningRuntimesForUnitTests({});
+  const bootstrapPort = new RecordingWalletVerificationPort(runtimes.ecdsaBootstrapExport);
   const router = createSelfHostedCloudflareSigningRouter(
-    fakeRouterApiServiceBagWithThreshold(threshold),
+    fakeRouterApiServiceBagWithBootstrapPort(bootstrapPort),
     { healthz: true },
     {
       signingRootAdmin: {
@@ -393,6 +391,7 @@ test('self-host signing-root verify-wallet route delegates to threshold signing-
         subjectId: 'subject alpha',
         chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 11155111 },
         ecdsaThresholdKeyId: 'ecdsa-alpha',
+        evmFamilySigningKeySlotId: VERIFY_WALLET_SIGNING_KEY_SLOT_ID,
         signingGrantId: 'wallet-signing-alpha',
         thresholdSessionId: 'threshold-alpha',
         rpId: 'wallet.example.test',
@@ -403,7 +402,7 @@ test('self-host signing-root verify-wallet route delegates to threshold signing-
     fakeCtx,
   );
   expect(invalidWalletId.status).toBe(400);
-  expect(calls).toEqual([]);
+  expect(bootstrapPort.calls).toEqual([]);
 
   const verified = await router(
     new Request('https://self-host.example.test/self-host/signing-root/verify-wallet', {
@@ -416,6 +415,7 @@ test('self-host signing-root verify-wallet route delegates to threshold signing-
         subjectId: 'subject-alpha',
         chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 11155111 },
         ecdsaThresholdKeyId: 'ecdsa-alpha',
+        evmFamilySigningKeySlotId: VERIFY_WALLET_SIGNING_KEY_SLOT_ID,
         signingGrantId: 'wallet-signing-alpha',
         thresholdSessionId: 'threshold-alpha',
         rpId: 'wallet.example.test',
@@ -427,23 +427,21 @@ test('self-host signing-root verify-wallet route delegates to threshold signing-
     fakeCtx,
   );
 
-  expect(verified.status).toBe(200);
-  await expect(verified.json()).resolves.toMatchObject({
+  const verifiedBody = await verified.json();
+  expect(verified.status, JSON.stringify(verifiedBody)).toBe(200);
+  expect(verifiedBody).toMatchObject({
     ok: true,
     verified: true,
     canonicalEthereumAddress: `0x${'11'.repeat(20)}`,
   });
-  expect(calls).toEqual([
+  expect(bootstrapPort.calls).toEqual([
     {
       signingRootId: SIGNING_ROOT_ID,
       signingRootVersion: 'root-v1',
-      walletSessionUserId: 'wallet-user-alpha',
       walletId: 'subject-alpha',
       chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 11155111 },
       ecdsaThresholdKeyId: 'ecdsa-alpha',
-      signingGrantId: 'wallet-signing-alpha',
-      thresholdSessionId: 'threshold-alpha',
-      rpId: 'wallet.example.test',
+      evmFamilySigningKeySlotId: VERIFY_WALLET_SIGNING_KEY_SLOT_ID,
       clientPublicKey33B64u: base64UrlEncode(new Uint8Array(33).fill(0x07)),
       expectedEthereumAddress: `0x${'11'.repeat(20)}`,
     },
@@ -464,7 +462,7 @@ test('self-host Cloudflare signing router keeps hosted SaaS dependencies out of 
     './routes/sessions',
     '@seams-internal/console-server',
     'bootstrapGrantBroker',
-    'HssWalletId',
+    'DerivationWalletId',
   ]) {
     expect(source, `forbidden self-host dependency: ${forbidden}`).not.toContain(forbidden);
   }

@@ -65,7 +65,7 @@ function profileSigner(args: {
   status?: AccountSignerRecord['status'];
 }): AccountSignerRecord {
   const chainTarget = args.chainTarget ?? EVM_TARGET;
-  const keyHandle = args.keyHandle ?? 'ehss-key-shared';
+  const keyHandle = args.keyHandle ?? 'ederivation-key-shared';
   const targetKey = thresholdEcdsaChainTargetKey(chainTarget);
   return {
     profileId: WALLET_ID,
@@ -97,7 +97,7 @@ function profileSigner(args: {
               signingRootVersion: 'default',
               chainTargetKey: targetKey,
             }),
-            ecdsaThresholdKeyId: 'ehss-shared',
+            ecdsaThresholdKeyId: 'ederivation-shared',
             signingRootId: 'project:dev',
               signingRootVersion: 'default',
               participantIds: [1, 2],
@@ -145,7 +145,7 @@ function localSessionRecordFor(active: ActiveEcdsaSignerRecord): ThresholdEcdsaS
     chainTarget: active.chainTarget,
     relayerUrl: 'https://relay.example',
     keyHandle: active.walletKey.keyHandle,
-    ecdsaThresholdKeyId: 'ehss-shared',
+    ecdsaThresholdKeyId: 'ederivation-shared',
     signingRootId: 'project:dev',
     signingRootVersion: 'default',
     relayerKeyId: 'rk-1',
@@ -163,7 +163,7 @@ function localSessionRecordFor(active: ActiveEcdsaSignerRecord): ThresholdEcdsaS
         evmFamilySigningKeySlotId: active.walletKey.evmFamilySigningKeySlotId,
         chainTarget: active.chainTarget,
         keyHandle: active.walletKey.keyHandle,
-        ecdsaThresholdKeyId: 'ehss-shared',
+        ecdsaThresholdKeyId: 'ederivation-shared',
         signingRootId: 'project:dev',
         signingRootVersion: 'default',
         applicationBindingDigestB64u: APPLICATION_BINDING_DIGEST_32_B64U,
@@ -171,7 +171,7 @@ function localSessionRecordFor(active: ActiveEcdsaSignerRecord): ThresholdEcdsaS
         relayerParticipantId: 2,
         participantIds: [1, 2],
         contextBinding32B64u: CONTEXT_BINDING_32_B64U,
-        hssClientSharePublicKey33B64u: PUBLIC_KEY_33_B64U,
+        derivationClientSharePublicKey33B64u: PUBLIC_KEY_33_B64U,
         relayerPublicKey33B64u: RELAYER_PUBLIC_KEY_33_B64U,
         groupPublicKey33B64u: PUBLIC_KEY_33_B64U,
         ethereumAddress: OWNER_ADDRESS,
@@ -242,9 +242,9 @@ test.describe('unlock ECDSA warm-up planner', () => {
   });
 
   test('completes configured targets from per-target ECDSA wallet keys', () => {
-    const evm = parseActive(profileSigner({ chainTarget: EVM_TARGET, keyHandle: 'ehss-key-arc' }));
+    const evm = parseActive(profileSigner({ chainTarget: EVM_TARGET, keyHandle: 'ederivation-key-arc' }));
     const tempo = parseActive(
-      profileSigner({ chainTarget: TEMPO_TARGET, keyHandle: 'ehss-key-tempo' }),
+      profileSigner({ chainTarget: TEMPO_TARGET, keyHandle: 'ederivation-key-tempo' }),
     );
     const result = buildConfiguredTargetKeyCompletion({
       context: {
@@ -272,7 +272,7 @@ test.describe('unlock ECDSA warm-up planner', () => {
   });
 
   test('reports missing configured target key facts without cloning another target identity', () => {
-    const evm = parseActive(profileSigner({ chainTarget: EVM_TARGET, keyHandle: 'ehss-key-arc' }));
+    const evm = parseActive(profileSigner({ chainTarget: EVM_TARGET, keyHandle: 'ederivation-key-arc' }));
     const result = buildConfiguredTargetKeyCompletion({
       context: {
         ecdsaKeys: [
@@ -321,7 +321,7 @@ test.describe('unlock ECDSA warm-up planner', () => {
     });
     expect(explicitInventoryPlan).toMatchObject({
       kind: 'awaiting_authenticated_key_facts_inventory',
-      keyTargets: [{ keyHandle: 'ehss-key-shared', chainTarget: EVM_TARGET }],
+      keyTargets: [{ keyHandle: 'ederivation-key-shared', chainTarget: EVM_TARGET }],
     });
   });
 
@@ -360,7 +360,7 @@ test.describe('unlock ECDSA warm-up planner', () => {
     delete metadata.keyHandle;
     metadata.sharedEvmFamilyKey = {
       ...(metadata.sharedEvmFamilyKey as Record<string, unknown>),
-      keyHandle: 'ehss-key-shared',
+      keyHandle: 'ederivation-key-shared',
     };
 
     const parsed = parseActiveEcdsaSignerRecordForUnlock({
@@ -378,10 +378,10 @@ test.describe('unlock ECDSA warm-up planner', () => {
 
   test('blocks ambiguous active wallet keys for the same configured target', () => {
     const first = parseActive(
-      profileSigner({ chainTarget: EVM_TARGET, keyHandle: 'ehss-key-one' }),
+      profileSigner({ chainTarget: EVM_TARGET, keyHandle: 'ederivation-key-one' }),
     );
     const second = parseActive(
-      profileSigner({ chainTarget: EVM_TARGET, keyHandle: 'ehss-key-two', signerId: 'signer-two' }),
+      profileSigner({ chainTarget: EVM_TARGET, keyHandle: 'ederivation-key-two', signerId: 'signer-two' }),
     );
     const result = planUnlockEcdsaWarmup({
       selection: ECDSA_SELECTION,

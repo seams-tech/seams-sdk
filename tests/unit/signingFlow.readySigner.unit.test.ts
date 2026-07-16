@@ -17,7 +17,7 @@ import type {
   Signer,
   ThresholdEcdsaSecp256k1KeyRef,
 } from '../../packages/sdk-web/src/core/signingEngine/interfaces/signing';
-import type { RouterAbEcdsaHssNormalSigningStateV1 } from '../../packages/shared-ts/src/utils/routerAbEcdsaHss';
+import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
 import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { UiConfirmContext } from '../../packages/sdk-web/src/core/signingEngine/uiConfirm/uiConfirm.types';
 import type { WorkerOperationContext } from '../../packages/sdk-web/src/core/signingEngine/workerManager/executeWorkerOperation';
@@ -51,7 +51,7 @@ const PASSKEY_AUTH = {
   rpId: toRpId(RP_ID),
   credentialIdB64u: 'key-handle-ready-flow',
 };
-const ECDSA_THRESHOLD_KEY_ID = parseEcdsaThresholdKeyId('ehss-shared-key');
+const ECDSA_THRESHOLD_KEY_ID = parseEcdsaThresholdKeyId('ederivation-shared-key');
 const SIGNING_ROOT_ID = 'project:dev';
 const SIGNING_ROOT_VERSION = 'default';
 const EVM_FAMILY_SIGNING_KEY_SLOT_ID = deriveEvmFamilySigningKeySlotId({
@@ -94,7 +94,7 @@ const ROLE_LOCAL_READY_RECORD = buildEcdsaRoleLocalReadyRecord({
     relayerParticipantId: 2,
     participantIds: [1, 2],
     contextBinding32B64u: VALID_CONTEXT_BINDING_B64U,
-    hssClientSharePublicKey33B64u: VALID_PUBLIC_KEY_B64U,
+    derivationClientSharePublicKey33B64u: VALID_PUBLIC_KEY_B64U,
     relayerPublicKey33B64u: VALID_RELAYER_PUBLIC_KEY_B64U,
     groupPublicKey33B64u: VALID_PUBLIC_KEY_B64U,
     ethereumAddress: '0x1111111111111111111111111111111111111111',
@@ -109,9 +109,9 @@ function ethereumAddress20B64u(address: string): string {
   return Buffer.from(address.replace(/^0x/i, ''), 'hex').toString('base64url');
 }
 
-function makeRouterAbEcdsaHssNormalSigningState(): RouterAbEcdsaHssNormalSigningStateV1 {
+function makeRouterAbEcdsaDerivationNormalSigningState(): RouterAbEcdsaDerivationNormalSigningStateV1 {
   return {
-    kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+    kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
     scope: {
       wallet_key_id: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
       wallet_id: WALLET_ID,
@@ -123,7 +123,7 @@ function makeRouterAbEcdsaHssNormalSigningState(): RouterAbEcdsaHssNormalSigning
       },
       public_identity: {
         context_binding_b64u: VALID_CONTEXT_BINDING_B64U,
-        client_public_key33_b64u: VALID_PUBLIC_KEY_B64U,
+        derivation_client_share_public_key33_b64u: VALID_PUBLIC_KEY_B64U,
         server_public_key33_b64u: VALID_RELAYER_PUBLIC_KEY_B64U,
         threshold_public_key33_b64u: VALID_PUBLIC_KEY_B64U,
         ethereum_address20_b64u: ethereumAddress20B64u(
@@ -196,7 +196,7 @@ function makeThresholdKeyRef(
     participantIds: [1, 2],
     thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
     ethereumAddress: '0x1111111111111111111111111111111111111111',
-    routerAbEcdsaHssNormalSigning: makeRouterAbEcdsaHssNormalSigningState(),
+    routerAbEcdsaDerivationNormalSigning: makeRouterAbEcdsaDerivationNormalSigningState(),
     thresholdSessionKind: 'jwt',
     walletSessionJwt: 'threshold-auth-token',
     thresholdSessionId: THRESHOLD_SESSION_ID,
@@ -356,6 +356,7 @@ test.describe('signEvmFamilyWithUiConfirm ready signer handoff', () => {
           ...(intentDigest ? { intentDigest } : {}),
           operations: [{ id: 'sign', kind: 'raw.fallback', label: 'Sign', raw: '0x' }],
         }),
+        requiredSignatureUsesForRequest: () => 1,
         webauthn: { kind: 'not_supported' },
       },
       input: {

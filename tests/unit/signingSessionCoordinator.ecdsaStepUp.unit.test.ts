@@ -46,7 +46,7 @@ const ecdsaKey = buildBaseEvmFamilyEcdsaKeyIdentity({
     signingRootId,
     signingRootVersion,
   }),
-  ecdsaThresholdKeyId: 'ehss-step-up-key',
+  ecdsaThresholdKeyId: 'ederivation-step-up-key',
   signingRootId,
   signingRootVersion,
   participantIds: [1, 2],
@@ -60,12 +60,12 @@ const nearEd25519SigningKeyId = nearEd25519SigningKeyIdFromString(
 function makePasskeyLane() {
   return buildEcdsaPasskeySigningLane({
     key: ecdsaKey,
-    keyHandle: toEvmFamilyEcdsaKeyHandle('ehss-key-step-up-passkey'),
+    keyHandle: toEvmFamilyEcdsaKeyHandle('ederivation-key-step-up-passkey'),
     walletId,
     auth: passkeyAuth,
     chainTarget,
     signingGrantId: SigningSessionIds.signingGrant('wsess-step-up-passkey'),
-    thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tehss-step-up-passkey'),
+    thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tederivation-step-up-passkey'),
     storageSource: 'login',
   });
 }
@@ -86,12 +86,12 @@ function makeNearPasskeyLane() {
 function makeEmailOtpLane() {
   return buildEcdsaEmailOtpSigningLane({
     key: ecdsaKey,
-    keyHandle: toEvmFamilyEcdsaKeyHandle('ehss-key-step-up-email-otp'),
+    keyHandle: toEvmFamilyEcdsaKeyHandle('ederivation-key-step-up-email-otp'),
     walletId,
     auth: emailOtpAuth,
     chainTarget,
     signingGrantId: SigningSessionIds.signingGrant('wsess-step-up-email-otp'),
-    thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tehss-step-up-email-otp'),
+    thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tederivation-step-up-email-otp'),
   });
 }
 

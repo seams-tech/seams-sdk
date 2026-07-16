@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
-import type { EcdsaHssErrorCode } from '../../packages/sdk-server-ts/src/core/types';
+import type { EcdsaDerivationErrorCode } from '../../packages/sdk-server-ts/src/core/types';
 
-const ECDSA_HSS_ERROR_CODES = [
+const ECDSA_DERIVATION_ERROR_CODES = [
   'invalid_body',
   'unauthorized',
   'forbidden',
@@ -19,24 +19,24 @@ const ECDSA_HSS_ERROR_CODES = [
   'presign_session_burned',
   'pool_empty',
   'internal',
-] as const satisfies readonly EcdsaHssErrorCode[];
+] as const satisfies readonly EcdsaDerivationErrorCode[];
 
-type MissingEcdsaHssErrorCode = Exclude<
-  EcdsaHssErrorCode,
-  (typeof ECDSA_HSS_ERROR_CODES)[number]
+type MissingEcdsaDerivationErrorCode = Exclude<
+  EcdsaDerivationErrorCode,
+  (typeof ECDSA_DERIVATION_ERROR_CODES)[number]
 >;
-type UnexpectedEcdsaHssErrorCode = Exclude<
-  (typeof ECDSA_HSS_ERROR_CODES)[number],
-  EcdsaHssErrorCode
+type UnexpectedEcdsaDerivationErrorCode = Exclude<
+  (typeof ECDSA_DERIVATION_ERROR_CODES)[number],
+  EcdsaDerivationErrorCode
 >;
 
-const coversEveryCode: MissingEcdsaHssErrorCode extends never ? true : never = true;
-const hasNoUnexpectedCode: UnexpectedEcdsaHssErrorCode extends never ? true : never = true;
+const coversEveryCode: MissingEcdsaDerivationErrorCode extends never ? true : never = true;
+const hasNoUnexpectedCode: UnexpectedEcdsaDerivationErrorCode extends never ? true : never = true;
 
-test('threshold ECDSA HSS error-code taxonomy is explicit and stable', () => {
+test('threshold ECDSA derivation error-code taxonomy is explicit and stable', () => {
   expect(coversEveryCode).toBe(true);
   expect(hasNoUnexpectedCode).toBe(true);
-  expect(ECDSA_HSS_ERROR_CODES).toEqual([
+  expect(ECDSA_DERIVATION_ERROR_CODES).toEqual([
     'invalid_body',
     'unauthorized',
     'forbidden',

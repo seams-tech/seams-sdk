@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import {
   createHostedSigningRootShareResolver,
   createSelfHostedSigningRootShareResolver,
-  deriveEcdsaHssYRelayerFromSigningRootShareResolver,
+  deriveEcdsaDerivationYRelayerFromSigningRootShareResolver,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootShareResolver';
 import { MissingSigningRootKekError } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootKekProvider';
 import type {
@@ -13,7 +13,7 @@ import type {
   SigningRootShareDecryptAdapter,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootShareResolver';
 import {
-  deriveEcdsaHssYRelayerFromSigningRootShares,
+  deriveEcdsaDerivationYRelayerFromSigningRootShares,
   parseSigningRootShareWire,
   type ThresholdPrfPolicy,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm';
@@ -36,8 +36,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURE_PATH = resolve(__dirname, '../../crates/threshold-prf/fixtures/protocol-t-of-n.json');
 const PROJECT_ID = 'project-alpha:dev';
 const SIGNING_ROOT_VERSION = 'root-v1';
-const ECDSA_HSS_FIXTURE_PURPOSE = 'ecdsa-hss/y_server';
-const ECDSA_HSS_CONTEXT = {
+const ECDSA_DERIVATION_FIXTURE_PURPOSE = 'ecdsa-derivation/y_server';
+const ECDSA_DERIVATION_CONTEXT = {
   applicationBindingDigest: new Uint8Array(32).fill(7),
 } as const;
 
@@ -106,8 +106,8 @@ function shareWires(vector: ThresholdPrfFixtureVector, ids: readonly number[]) {
   });
 }
 
-test('self-host signing-root resolver derives ECDSA HSS y_server through policy-shaped shares', async () => {
-  const vector = vectorForPurpose(ECDSA_HSS_FIXTURE_PURPOSE);
+test('self-host signing-root resolver derives ECDSA derivation y_server through policy-shaped shares', async () => {
+  const vector = vectorForPurpose(ECDSA_DERIVATION_FIXTURE_PURPOSE);
   const policy = policyForVector(vector);
   const preferredShareIds = [1, 2] as const;
   const resolver = createSelfHostedSigningRootShareResolver({
@@ -120,20 +120,20 @@ test('self-host signing-root resolver derives ECDSA HSS y_server through policy-
     })),
   });
 
-  const result = await deriveEcdsaHssYRelayerFromSigningRootShareResolver({
+  const result = await deriveEcdsaDerivationYRelayerFromSigningRootShareResolver({
     signingRootId: PROJECT_ID,
     signingRootVersion: SIGNING_ROOT_VERSION,
     resolver,
     preferredShareIds,
     context: {
-      ...ECDSA_HSS_CONTEXT,
+      ...ECDSA_DERIVATION_CONTEXT,
     },
   });
-  const expected = await deriveEcdsaHssYRelayerFromSigningRootShares({
+  const expected = await deriveEcdsaDerivationYRelayerFromSigningRootShares({
     policy,
     shareWires: shareWires(vector, preferredShareIds),
     context: {
-      ...ECDSA_HSS_CONTEXT,
+      ...ECDSA_DERIVATION_CONTEXT,
     },
   });
 
@@ -152,7 +152,7 @@ test('self-host signing-root resolver derives ECDSA HSS y_server through policy-
 });
 
 test('hosted signing-root resolver composes storage and decrypt adapters', async () => {
-  const vector = vectorForPurpose(ECDSA_HSS_FIXTURE_PURPOSE);
+  const vector = vectorForPurpose(ECDSA_DERIVATION_FIXTURE_PURPOSE);
   const policy = policyForVector(vector);
   const preferredShareIds = [1, 2] as const;
   const decryptedById = new Map<number, Uint8Array>(
@@ -171,20 +171,20 @@ test('hosted signing-root resolver composes storage and decrypt adapters', async
     decryptAdapter,
   });
 
-  const result = await deriveEcdsaHssYRelayerFromSigningRootShareResolver({
+  const result = await deriveEcdsaDerivationYRelayerFromSigningRootShareResolver({
     signingRootId: PROJECT_ID,
     signingRootVersion: SIGNING_ROOT_VERSION,
     resolver,
     preferredShareIds,
     context: {
-      ...ECDSA_HSS_CONTEXT,
+      ...ECDSA_DERIVATION_CONTEXT,
     },
   });
-  const expected = await deriveEcdsaHssYRelayerFromSigningRootShares({
+  const expected = await deriveEcdsaDerivationYRelayerFromSigningRootShares({
     policy,
     shareWires: shareWires(vector, preferredShareIds),
     context: {
-      ...ECDSA_HSS_CONTEXT,
+      ...ECDSA_DERIVATION_CONTEXT,
     },
   });
 
@@ -203,7 +203,7 @@ test('hosted signing-root resolver composes storage and decrypt adapters', async
 });
 
 test('hosted signing-root resolver reports missing KEK with the fail-closed error code', async () => {
-  const vector = vectorForPurpose(ECDSA_HSS_FIXTURE_PURPOSE);
+  const vector = vectorForPurpose(ECDSA_DERIVATION_FIXTURE_PURPOSE);
   const policy = policyForVector(vector);
   const preferredShareIds = [1, 2] as const;
   const resolver = createHostedSigningRootShareResolver({
@@ -216,13 +216,13 @@ test('hosted signing-root resolver reports missing KEK with the fail-closed erro
     ),
   });
 
-  const result = await deriveEcdsaHssYRelayerFromSigningRootShareResolver({
+  const result = await deriveEcdsaDerivationYRelayerFromSigningRootShareResolver({
     signingRootId: PROJECT_ID,
     signingRootVersion: SIGNING_ROOT_VERSION,
     resolver,
     preferredShareIds,
     context: {
-      ...ECDSA_HSS_CONTEXT,
+      ...ECDSA_DERIVATION_CONTEXT,
     },
   });
 
@@ -233,7 +233,7 @@ test('hosted signing-root resolver reports missing KEK with the fail-closed erro
 });
 
 test('self-host signing-root resolver rejects wrong scope and duplicate shares', async () => {
-  const vector = vectorForPurpose(ECDSA_HSS_FIXTURE_PURPOSE);
+  const vector = vectorForPurpose(ECDSA_DERIVATION_FIXTURE_PURPOSE);
   const policy = policyForVector(vector);
   const resolver = createSelfHostedSigningRootShareResolver({
     signingRootId: PROJECT_ID,

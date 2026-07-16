@@ -226,12 +226,12 @@ test.describe('signing session sealed store', () => {
     expect(result.rawHasJwt).toBe(false);
   });
 
-  test('accepts Router A/B ECDSA-HSS Wallet Session JWTs in passkey sealed restore records', async ({
+  test('accepts Router A/B ECDSA derivation Wallet Session JWTs in passkey sealed restore records', async ({
     page,
   }) => {
     const walletId = 'sealed-store-router-ab.testnet';
     const walletSessionJwt = jwtWithPayload({
-      kind: 'router_ab_ecdsa_hss_wallet_session_v1',
+      kind: 'router_ab_ecdsa_derivation_wallet_session_v1',
       sub: walletId,
       walletId,
       thresholdSessionId: 'router-ab-ecdsa-session',

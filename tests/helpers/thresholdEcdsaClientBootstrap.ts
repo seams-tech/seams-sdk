@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import {
   prepare_ecdsa_client_bootstrap_from_resolved_email_otp_root_v1,
   prepare_ecdsa_client_bootstrap_v1,
-} from '../../wasm/ecdsa_client_signer/pkg/ecdsa_client_signer.js';
+} from '../../wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.js';
 
 export type TestEcdsaClientBootstrapContext = {
   walletId: string;
@@ -21,7 +21,7 @@ export type TestPasskeyEcdsaClientBootstrapContext = TestEcdsaClientBootstrapCon
 export type TestPreparedEcdsaClientBootstrap = {
   pendingStateBlobB64u: string;
   contextBinding32B64u: string;
-  hssClientSharePublicKey33B64u: string;
+  derivationClientSharePublicKey33B64u: string;
   clientVerifyingShareB64u: string;
   clientShareRetryCounter: number;
   participantId: number;
@@ -37,7 +37,7 @@ export function prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest(args: {
       prepare_ecdsa_client_bootstrap_from_resolved_email_otp_root_v1(
         JSON.stringify({
           kind: 'prepare_ecdsa_client_bootstrap_from_resolved_email_otp_root_v1',
-          algorithm: 'ecdsa_hss_secp256k1_role_local_v1',
+          algorithm: 'router_ab_ecdsa_derivation_secp256k1_role_local_v1',
           context: contextPayload(args.context),
           participants: {
             clientParticipantId: 1,
@@ -61,7 +61,7 @@ export function preparePasskeyPrfEcdsaClientBootstrapForTest(args: {
       prepare_ecdsa_client_bootstrap_v1(
         JSON.stringify({
           kind: 'prepare_ecdsa_client_bootstrap_v1',
-          algorithm: 'ecdsa_hss_secp256k1_role_local_v1',
+          algorithm: 'router_ab_ecdsa_derivation_secp256k1_role_local_v1',
           context: contextPayload(args.context),
           participants: {
             clientParticipantId: 1,
@@ -81,7 +81,7 @@ export function preparePasskeyPrfEcdsaClientBootstrapForTest(args: {
 }
 
 function contextPayload(context: TestEcdsaClientBootstrapContext) {
-  const applicationBindingDigestB64u = sdkEcdsaHssApplicationBindingDigestB64u({
+  const applicationBindingDigestB64u = sdkEcdsaDerivationApplicationBindingDigestB64u({
     walletId: context.walletId,
     ecdsaThresholdKeyId: context.ecdsaThresholdKeyId,
     signingRootId: context.signingRootId,
@@ -105,14 +105,14 @@ function pushLengthDelimitedField(out: number[], label: string, value: string): 
   out.push(...valueBytes);
 }
 
-export function sdkEcdsaHssApplicationBindingDigestB64u(input: {
+export function sdkEcdsaDerivationApplicationBindingDigestB64u(input: {
   walletId: string;
   ecdsaThresholdKeyId: string;
   signingRootId: string;
   signingRootVersion: string;
 }): string {
   const out: number[] = [];
-  const domain = Buffer.from('seams-sdk:ecdsa-hss:application-binding:v1', 'utf8');
+  const domain = Buffer.from('seams-sdk:ecdsa-derivation:application-binding:v1', 'utf8');
   pushU32(out, domain.length);
   out.push(...domain);
   pushLengthDelimitedField(out, 'walletId', input.walletId);
@@ -128,7 +128,7 @@ function flattenPreparedBootstrap(
   return {
     pendingStateBlobB64u: output.pendingStateBlob.stateBlobB64u,
     contextBinding32B64u: output.clientBootstrap.contextBinding32B64u,
-    hssClientSharePublicKey33B64u: output.clientBootstrap.hssClientSharePublicKey33B64u,
+    derivationClientSharePublicKey33B64u: output.clientBootstrap.derivationClientSharePublicKey33B64u,
     clientVerifyingShareB64u: output.publicFacts.clientVerifyingShareB64u,
     clientShareRetryCounter: output.clientBootstrap.clientShareRetryCounter,
     participantId: output.clientBootstrap.participantId,

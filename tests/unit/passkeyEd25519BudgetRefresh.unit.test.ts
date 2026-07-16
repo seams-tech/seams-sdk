@@ -12,7 +12,10 @@ import {
   type ThresholdEd25519SessionRecord,
   upsertThresholdEd25519SessionFact,
 } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
-import { refreshPasskeyEd25519CapabilityForSigning } from '../../packages/sdk-web/src/core/signingEngine/session/passkey/ed25519BudgetRefresh';
+import {
+  buildExactPasskeyEd25519RefreshLaneIdentity,
+  refreshPasskeyEd25519CapabilityForSigning,
+} from '../../packages/sdk-web/src/core/signingEngine/session/passkey/ed25519BudgetRefresh';
 import { resolveRouterAbEd25519WalletSessionStateFromRecord } from '../../packages/sdk-web/src/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
 import { buildThresholdEd25519WebAuthnPrfSecretSource } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/walletSession';
 import {
@@ -221,6 +224,16 @@ function policySecretSourceFixture() {
   });
 }
 
+function refreshLaneIdentityFixture(record: ThresholdEd25519SessionRecord) {
+  return buildExactPasskeyEd25519RefreshLaneIdentity({
+    nearAccountId: ACCOUNT_ID,
+    record,
+    signerSlot: record.signerSlot,
+    sessionId: record.thresholdSessionId,
+    signingGrantId: record.signingGrantId || '',
+  });
+}
+
 test.describe('passkey Ed25519 Yao same-identity budget refresh', () => {
   test.beforeEach(() => {
     clearAllStoredThresholdEd25519SessionRecords();
@@ -254,12 +267,10 @@ test.describe('passkey Ed25519 Yao same-identity budget refresh', () => {
     });
 
     const result = await refreshPasskeyEd25519CapabilityForSigning({
-      nearAccountId: ACCOUNT_ID,
       record: exhaustedRecord,
+      laneIdentity: refreshLaneIdentityFixture(exhaustedRecord),
       policySecretSource: policySecretSourceFixture(),
       operationUsesNeeded: 1,
-      sessionId,
-      signingGrantId,
       runtimeScopeBootstrap: {
         projectEnvironmentId: 'env-refresh',
         publishableKey: 'pk_test_refresh',
@@ -334,12 +345,10 @@ test.describe('passkey Ed25519 Yao same-identity budget refresh', () => {
     const recoveredClient = new ActiveYaoClientFixture(oldRecord).asActiveClient();
 
     const result = await refreshPasskeyEd25519CapabilityForSigning({
-      nearAccountId: ACCOUNT_ID,
       record: oldRecord,
+      laneIdentity: refreshLaneIdentityFixture(oldRecord),
       policySecretSource: policySecretSourceFixture(),
       operationUsesNeeded: 1,
-      sessionId: oldRecord.thresholdSessionId,
-      signingGrantId: oldRecord.signingGrantId || '',
       provisionThresholdEd25519Session: async () => {
         provisionCalls += 1;
         recoveredRecord = writeEd25519Record({
@@ -390,12 +399,10 @@ test.describe('passkey Ed25519 Yao same-identity budget refresh', () => {
 
     await expect(
       refreshPasskeyEd25519CapabilityForSigning({
-        nearAccountId: ACCOUNT_ID,
         record,
+        laneIdentity: refreshLaneIdentityFixture(record),
         policySecretSource: policySecretSourceFixture(),
         operationUsesNeeded: 1,
-        sessionId: record.thresholdSessionId,
-        signingGrantId: record.signingGrantId || '',
         provisionThresholdEd25519Session: async () => {
           provisionCalls += 1;
           throw new Error('provision must not run');

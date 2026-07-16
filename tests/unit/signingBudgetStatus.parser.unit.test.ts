@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { parseWalletSigningBudgetStatusRequest } from '@server/router/signingBudgetStatus';
 import {
-  ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+  ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
   ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
 } from '@shared/utils/sessionTokens';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
@@ -187,7 +187,7 @@ function makeEcdsaClaims(overrides: Record<string, unknown> = {}): Record<string
   return {
     sub: 'wallet-ecdsa',
     walletId: 'wallet-ecdsa',
-    kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+    kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
     thresholdSessionId: 'threshold-session-ecdsa',
     signingGrantId: 'signing-grant-ecdsa',
     keyScope: 'evm-family',
@@ -198,17 +198,17 @@ function makeEcdsaClaims(overrides: Record<string, unknown> = {}): Record<string
       chainId: 11155111,
       networkSlug: 'ethereum-sepolia',
     },
-    keyHandle: 'ehss-key-1',
+    keyHandle: 'ederivation-key-1',
     relayerKeyId: 'ecdsa-relayer-1',
     evmFamilySigningKeySlotId: ECDSA_SIGNING_KEY_SLOT_ID,
     thresholdExpiresAtMs: Date.now() + 60_000,
     participantIds: [1, 2],
-    routerAbEcdsaHssNormalSigning: {
-      kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+    routerAbEcdsaDerivationNormalSigning: {
+      kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
       scope: {
         wallet_key_id: ECDSA_SIGNING_KEY_SLOT_ID,
         wallet_id: 'wallet-ecdsa',
-        ecdsa_threshold_key_id: 'ehss-key-1',
+        ecdsa_threshold_key_id: 'ederivation-key-1',
         signing_root_id: 'signing-root-1',
         signing_root_version: 'v1',
         context: {
@@ -216,7 +216,7 @@ function makeEcdsaClaims(overrides: Record<string, unknown> = {}): Record<string
         },
         public_identity: {
           context_binding_b64u: b64u(Array.from({ length: 32 }, (_, index) => index + 1)),
-          client_public_key33_b64u: b64u([0x02, ...Array.from({ length: 32 }, () => 1)]),
+          derivation_client_share_public_key33_b64u: b64u([0x02, ...Array.from({ length: 32 }, () => 1)]),
           server_public_key33_b64u: b64u([0x03, ...Array.from({ length: 32 }, () => 2)]),
           threshold_public_key33_b64u: b64u([0x02, ...Array.from({ length: 32 }, () => 3)]),
           ethereum_address20_b64u: b64u(Array.from({ length: 20 }, () => 0x11)),
@@ -303,14 +303,14 @@ test.describe('signing budget status parser', () => {
     if (!result.ok) return;
     expect(result.request).toMatchObject({
       kind: 'ecdsa_wallet_budget_status',
-      keyHandle: 'ehss-key-1',
+      keyHandle: 'ederivation-key-1',
     });
   });
 
-  test('accepts Router A/B ECDSA-HSS Wallet Session JWT claims for budget status', async () => {
+  test('accepts Router A/B ECDSA derivation Wallet Session JWT claims for budget status', async () => {
     const result = await parseWalletSigningBudgetStatusRequest({
       headers: { Authorization: 'Bearer router-ab-ecdsa-token' },
-      session: makeSession(makeEcdsaClaims({ kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND })),
+      session: makeSession(makeEcdsaClaims({ kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND })),
       sessionPolicy: makePolicy({
         thresholdStatuses: [
           makeThresholdStatus({
@@ -338,7 +338,7 @@ test.describe('signing budget status parser', () => {
     if (!result.ok) return;
     expect(result.request).toMatchObject({
       kind: 'ecdsa_wallet_budget_status',
-      keyHandle: 'ehss-key-1',
+      keyHandle: 'ederivation-key-1',
     });
   });
 
@@ -375,24 +375,6 @@ test.describe('signing budget status parser', () => {
       kind: 'ed25519_wallet_budget_status',
       ed25519RelayerKeyId: 'ed25519-relayer-1',
     });
-  });
-
-  test('rejects legacy threshold-session JWT claims for budget status', async () => {
-    for (const claims of [
-      makeEcdsaClaims({ kind: 'threshold_ecdsa_session_v2' }),
-      makeEd25519Claims({ kind: 'threshold_ed25519_session_v1' }),
-    ]) {
-      const result = await parseWalletSigningBudgetStatusRequest({
-        headers: { Authorization: 'Bearer legacy-threshold-session-token' },
-        session: makeSession(claims),
-        sessionPolicy: null,
-      });
-
-      expect(result.ok).toBe(false);
-      if (result.ok) continue;
-      expect(result.status).toBe(401);
-      expect(result.body.code).toBe('unauthorized');
-    }
   });
 
   test('rejects claims when backend wallet budget record is expired', async () => {

@@ -67,7 +67,7 @@ type SignerCustodyPlanInput = Parameters<SignerCustodyModule['buildD1StagingSign
 
 const exportShareFixtureSource = `${JSON.stringify(
   {
-    formatVersion: 'ecdsa-hss-role-local-export',
+    formatVersion: 'ecdsa-derivation-role-local-export',
     walletId: 'wallet-fixture-1',
     walletKeyId: 'wallet-key-fixture-1',
     ecdsaThresholdKeyId: 'ecdsa-threshold-fixture-1',
@@ -108,10 +108,10 @@ async function signerCustodyFetch(input: string | URL | Request, init?: RequestI
   if (url === `${D1_STAGING_ROUTER_API_ORIGIN}/router-ab/ed25519/healthz`) {
     return d1StagingJsonResponse({ ok: true, configured: true }, 200);
   }
-  if (url === `${D1_STAGING_ROUTER_API_ORIGIN}/router-ab/ecdsa-hss/healthz`) {
+  if (url === `${D1_STAGING_ROUTER_API_ORIGIN}/router-ab/ecdsa-derivation/healthz`) {
     return d1StagingJsonResponse({ ok: true, configured: true }, 200);
   }
-  if (url === `${D1_STAGING_ROUTER_API_ORIGIN}/router-ab/ecdsa-hss/export/share`) {
+  if (url === `${D1_STAGING_ROUTER_API_ORIGIN}/router-ab/ecdsa-derivation/export/share`) {
     expect(init?.method).toBe('POST');
     const authorization = requestAuthorization(init);
     if (authorization === 'Bearer missing-kek-jwt') {
@@ -145,12 +145,12 @@ test('D1 staging signer custody builds a fixture-backed production-route plan', 
   expect(plan.mode).toBe('dry-run');
   expect(plan.healthChecks.map((check) => check.url)).toEqual([
     'https://router-api.staging.example/router-ab/ed25519/healthz',
-    'https://router-api.staging.example/router-ab/ecdsa-hss/healthz',
+    'https://router-api.staging.example/router-ab/ecdsa-derivation/healthz',
   ]);
   expect(plan.checks).toEqual([
     expect.objectContaining({
       id: 'ecdsa_export_share_success',
-      url: 'https://router-api.staging.example/router-ab/ecdsa-hss/export/share',
+      url: 'https://router-api.staging.example/router-ab/ecdsa-derivation/export/share',
       walletSessionJwtEnvName: 'SEAMS_STAGING_ECDSA_WALLET_SESSION_JWT',
     }),
   ]);
@@ -184,7 +184,7 @@ test('D1 staging signer custody remote mode records redacted export-share eviden
 
   expect(result.manifest.results.map((check) => check.id)).toEqual([
     'signer_custody_ed25519_healthz',
-    'signer_custody_ecdsa_hss_healthz',
+    'signer_custody_ecdsa_derivation_healthz',
     'ecdsa_export_share_success',
   ]);
   const serialized = JSON.stringify(result.manifest);
@@ -213,7 +213,7 @@ test('D1 staging signer custody remote mode records fail-closed missing KEK evid
 
   expect(result.manifest.results.map((check) => check.id)).toEqual([
     'signer_custody_ed25519_healthz',
-    'signer_custody_ecdsa_hss_healthz',
+    'signer_custody_ecdsa_derivation_healthz',
     'ecdsa_export_share_success',
     'ecdsa_export_share_missing_kek_fail_closed',
   ]);

@@ -439,10 +439,10 @@ check('route/lifecycle boundary threshold ECDSA key-identity inventory has one w
 
   for (const source of [parserSource, cloudflareSource, routeDefinitionSource]) {
     expect(source).not.toContain('ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH');
-    expect(source).not.toContain('parseRouterAbEcdsaHssKeyIdentitiesRequest');
-    expect(source).not.toContain('RouterAbEcdsaHssKeyIdentitiesRequest');
+    expect(source).not.toContain('parseRouterAbEcdsaDerivationKeyIdentitiesRequest');
+    expect(source).not.toContain('RouterAbEcdsaDerivationKeyIdentitiesRequest');
     expect(source).not.toContain('Unsupported threshold-ecdsa key-identities field');
-    expect(source).not.toContain('router_ab_ecdsa_hss_key_identities');
+    expect(source).not.toContain('router_ab_ecdsa_derivation_key_identities');
   }
 
   expect(walletRegistrationSource).toContain('handleRouterApiWalletEcdsaKeyFactsInventory');
@@ -465,8 +465,8 @@ check('route/lifecycle boundary threshold and session exchange routes parse comm
     'packages/sdk-server-ts/src/router/routeRequestValidation.ts',
   );
   const coreTypes = readRepoSource('packages/sdk-server-ts/src/core/types.ts');
-  const thresholdService = readRepoSource(
-    'packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts',
+  const normalSigningRuntime = readRepoSource(
+    'packages/sdk-server-ts/src/core/routerAbSigning/RouterAbNormalSigningRuntime.ts',
   );
   const cloudflareEd25519 = readRepoSource(
     'packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts',
@@ -479,8 +479,8 @@ check('route/lifecycle boundary threshold and session exchange routes parse comm
   );
 
   expect(ed25519Parser).toContain('parseThresholdEd25519SessionRouteRequest');
-  expect(ecdsaParser).toContain('parseRouterAbEcdsaHssPoolFillInitRouteRequest');
-  expect(ecdsaParser).toContain('parseRouterAbEcdsaHssPoolFillStepRouteRequest');
+  expect(ecdsaParser).toContain('parseRouterAbEcdsaDerivationPoolFillInitRouteRequest');
+  expect(ecdsaParser).toContain('parseRouterAbEcdsaDerivationPoolFillStepRouteRequest');
   expect(sessionExchangeParser).toContain('export function parseSessionExchangeRouteCommand');
   expect(sessionExchangeParser).toContain("import { parseSessionKind } from './routerApi'");
   expect(sessionExchangeParser).toContain(
@@ -507,18 +507,19 @@ check('route/lifecycle boundary threshold and session exchange routes parse comm
   expect(ed25519SessionRequestType).not.toContain('verifiedWalletAuth?');
   expect(ed25519SessionRequestType).not.toContain('webauthn_authentication?');
   expect(ed25519SessionRequestType).not.toContain('expected_origin: string');
-  expect(thresholdService).not.toContain('request.appSessionClaims');
-  expect(thresholdService).not.toContain('request.ecdsaSessionClaims');
-  expect(thresholdService).not.toContain('request.verifiedWalletAuth');
-  expect(thresholdService).not.toContain('request.webauthn_authentication');
-  expect(thresholdService).not.toContain('parseAppSessionClaims(request');
-  expect(thresholdService).not.toContain('parseRouterAbEcdsaHssWalletSessionClaims(request');
-  expect(thresholdService).not.toContain('ThresholdEd25519SessionWalletAuthProof');
-  expect(thresholdService).not.toContain('resolveThresholdEd25519SessionWalletAuthProof');
-  expect(thresholdService).not.toContain('walletAuthProof');
+  expect(normalSigningRuntime).not.toContain('request.appSessionClaims');
+  expect(normalSigningRuntime).not.toContain('request.ecdsaSessionClaims');
+  expect(normalSigningRuntime).not.toContain('request.verifiedWalletAuth');
+  expect(normalSigningRuntime).not.toContain('request.webauthn_authentication');
+  expect(normalSigningRuntime).not.toContain('parseAppSessionClaims(request');
+  expect(normalSigningRuntime).not.toContain('parseRouterAbEcdsaDerivationWalletSessionClaims(request');
+  expect(normalSigningRuntime).not.toContain('ThresholdEd25519SessionWalletAuthProof');
+  expect(normalSigningRuntime).not.toContain('resolveThresholdEd25519SessionWalletAuthProof');
+  expect(normalSigningRuntime).not.toContain('walletAuthProof');
 
   expect(cloudflareEd25519).toContain('parseThresholdEd25519SessionRouteRequest');
-  expect(cloudflareEd25519).toContain('buildThresholdEd25519VerifiedWalletAuth');
+  expect(cloudflareEd25519).toContain('verifyWebAuthnAuthenticationLite({');
+  expect(cloudflareEd25519).not.toContain('buildThresholdEd25519VerifiedWalletAuth');
   expect(cloudflareEd25519).not.toContain('validated.body as unknown as ThresholdEd25519');
   expect(cloudflareEd25519).not.toContain('request: validated.body as');
   expect(cloudflareEd25519).not.toContain('request: validated.body');
@@ -526,12 +527,12 @@ check('route/lifecycle boundary threshold and session exchange routes parse comm
 
   const cloudflarePoolFill = sourceRange(
     cloudflareEcdsa,
-    'if (pathname === ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH)',
+    'if (pathname === ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH)',
     '  return null;',
   );
-  expect(cloudflarePoolFill).toContain('parseRouterAbEcdsaHssPoolFillInitRouteRequest');
-  expect(cloudflarePoolFill).toContain('parseRouterAbEcdsaHssPoolFillStepRouteRequest');
-  expect(cloudflarePoolFill).not.toContain('as RouterAbEcdsaHssPoolFill');
+  expect(cloudflarePoolFill).toContain('parseRouterAbEcdsaDerivationPoolFillInitRouteRequest');
+  expect(cloudflarePoolFill).toContain('parseRouterAbEcdsaDerivationPoolFillStepRouteRequest');
+  expect(cloudflarePoolFill).not.toContain('as RouterAbEcdsaDerivationPoolFill');
   expect(cloudflarePoolFill).not.toContain('const reqBody =');
   expect(cloudflarePoolFill).not.toContain('request: reqBody');
   expect(cloudflarePoolFill).not.toContain('body: req.body');

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { buildD1EcdsaWalletKeysFromBootstrap } from '@server/router/cloudflare/d1RegistrationCeremonyRecords';
-import type { EcdsaHssServerBootstrapResponse } from '@server/core/types';
+import type { EcdsaDerivationServerBootstrapResponse } from '@server/core/types';
 import {
   thresholdEcdsaChainTargetKey,
   type ThresholdEcdsaChainTarget,
@@ -33,10 +33,10 @@ function makeBootstrap(args: {
   readonly ecdsaThresholdKeyId?: string;
   readonly relayerKeyId?: string;
   readonly ethereumAddress?: string;
-}): EcdsaHssServerBootstrapResponse {
+}): EcdsaDerivationServerBootstrapResponse {
   const ethereumAddress = args.ethereumAddress || SHARED_OWNER_ADDRESS;
   return {
-    formatVersion: 'ecdsa-hss-role-local',
+    formatVersion: 'ecdsa-derivation-role-local',
     walletId: WALLET_ID,
     evmFamilySigningKeySlotId: args.evmFamilySigningKeySlotId || EVM_FAMILY_SLOT_ID,
     ecdsaThresholdKeyId: args.ecdsaThresholdKeyId || 'threshold-key-evm-family',
@@ -44,7 +44,7 @@ function makeBootstrap(args: {
     applicationBindingDigestB64u: `application-binding-${args.targetLabel}`,
     contextBinding32B64u: `context-binding-${args.targetLabel}`,
     publicIdentity: {
-      hssClientSharePublicKey33B64u: `client-share-${args.targetLabel}`,
+      derivationClientSharePublicKey33B64u: `client-share-${args.targetLabel}`,
       relayerPublicKey33B64u: `relayer-share-${args.targetLabel}`,
       groupPublicKey33B64u: 'group-public-evm-family',
       ethereumAddress,

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
-import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
+import { ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import {
   toWalletId,
   type ThresholdEcdsaChainTarget,
@@ -43,14 +43,14 @@ import {
   type EcdsaExportSessionStoreDeps,
   type ExactEcdsaExportLane,
 } from '../../packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaExportMaterial';
-import { buildEcdsaHssExportAuthorizationDigestInput } from '../../packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaHssExport';
+import { buildEcdsaDerivationExportAuthorizationDigestInput } from '../../packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaDerivationExport';
 import { exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth } from '../../packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaExportFlow';
 import { exportEcdsaKeyWithDurableAuthorization } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/exportRecovery';
 import { buildEmailOtpSigningSessionRoutePlan } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/routePlan';
 import { resolveEmailOtpEcdsaSigningSessionAuthorityFromRecord } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaSigningSessionAuthority';
 import type { ThresholdEcdsaCanonicalExportArtifact } from '../../packages/sdk-web/src/core/signingEngine/interfaces/signing';
-import type { RouterAbEcdsaHssNormalSigningStateV1 } from '../../packages/shared-ts/src/utils/routerAbEcdsaHss';
-import { markRouterAbEcdsaHssWorkerMaterialRuntimeValidated } from '../../packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession';
+import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
+import { markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated } from '../../packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession';
 
 const WALLET_ID = toWalletId('alice.testnet');
 const RP_ID = 'localhost';
@@ -65,7 +65,7 @@ const EVM_FAMILY_SIGNING_KEY_SLOT_ID = deriveEvmFamilySigningKeySlotId({
 const OWNER_ADDRESS = '0x1111111111111111111111111111111111111111';
 const PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const PASSKEY_EXPORT_CREDENTIAL_ID_B64U = 'export-passkey-credential';
-const ECDSA_HSS_CLIENT_PUBLIC_KEY_B64U = base64UrlEncode(
+const ECDSA_DERIVATION_CLIENT_PUBLIC_KEY_B64U = base64UrlEncode(
   Uint8Array.from([2, ...Array(32).fill(1)]),
 );
 const RELAYER_PUBLIC_KEY_B64U = base64UrlEncode(Uint8Array.from([3, ...Array(32).fill(2)]));
@@ -98,7 +98,7 @@ function thresholdEcdsaSessionJwtFixture(args: {
   participantIds?: readonly number[];
 }): string {
   return unsignedJwt({
-    kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+    kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
     sub: WALLET_ID,
     walletId: WALLET_ID,
     keyHandle: args.keyHandle,
@@ -114,14 +114,14 @@ function thresholdEcdsaSessionJwtFixture(args: {
   });
 }
 
-function makeRouterAbEcdsaHssNormalSigningState(record: {
+function makeRouterAbEcdsaDerivationNormalSigningState(record: {
   walletId: ThresholdEcdsaSessionRecord['walletId'];
   ecdsaThresholdKeyId: ThresholdEcdsaSessionRecord['ecdsaThresholdKeyId'];
   signingRootId: ThresholdEcdsaSessionRecord['signingRootId'];
   signingRootVersion?: ThresholdEcdsaSessionRecord['signingRootVersion'];
-}): RouterAbEcdsaHssNormalSigningStateV1 {
+}): RouterAbEcdsaDerivationNormalSigningStateV1 {
   return {
-    kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+    kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
     scope: {
       wallet_key_id: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
       wallet_id: String(record.walletId),
@@ -133,7 +133,7 @@ function makeRouterAbEcdsaHssNormalSigningState(record: {
       },
       public_identity: {
         context_binding_b64u: CONTEXT_BINDING_32_B64U,
-        client_public_key33_b64u: ECDSA_HSS_CLIENT_PUBLIC_KEY_B64U,
+        derivation_client_share_public_key33_b64u: ECDSA_DERIVATION_CLIENT_PUBLIC_KEY_B64U,
         server_public_key33_b64u: RELAYER_PUBLIC_KEY_B64U,
         threshold_public_key33_b64u: PUBLIC_KEY_B64U,
         ethereum_address20_b64u: ethereumAddress20B64u(OWNER_ADDRESS),
@@ -162,7 +162,7 @@ function makeVerifiedPublicFacts(keyHandle: string) {
 
 function runtimeValidatedExportRecord<T extends ThresholdEcdsaSessionRecord>(record: T): T {
   if (record.thresholdSessionKind !== 'jwt') return record;
-  if (!markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)) {
+  if (!markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record)) {
     throw new Error('export fixture record failed Router A/B ECDSA runtime validation');
   }
   return record;
@@ -226,7 +226,7 @@ function makeReadyRecordForExport(record: {
       clientParticipantId: 1,
       relayerParticipantId: 2,
       participantIds: [1, 2],
-      hssClientSharePublicKey33B64u: ECDSA_HSS_CLIENT_PUBLIC_KEY_B64U,
+      derivationClientSharePublicKey33B64u: ECDSA_DERIVATION_CLIENT_PUBLIC_KEY_B64U,
       relayerPublicKey33B64u: RELAYER_PUBLIC_KEY_B64U,
       groupPublicKey33B64u: PUBLIC_KEY_B64U,
       ethereumAddress: OWNER_ADDRESS,
@@ -258,14 +258,15 @@ function makeRecord(input: EmailOtpExportRecordFixtureInput = {}): EmailOtpEcdsa
           keyHandle,
         });
   const record = {
+    purpose: 'transaction_signing' as const,
     walletId: WALLET_ID,
     chainTarget: EVM_TARGET,
     relayerUrl: 'https://relay.localhost',
-    ecdsaThresholdKeyId: input.ecdsaThresholdKeyId ?? 'ehss-export-key',
+    ecdsaThresholdKeyId: input.ecdsaThresholdKeyId ?? 'ederivation-export-key',
     signingRootId: SIGNING_ROOT_ID,
     signingRootVersion: SIGNING_ROOT_VERSION,
     relayerKeyId: 'relayer-key',
-    clientVerifyingShareB64u: ECDSA_HSS_CLIENT_PUBLIC_KEY_B64U,
+    clientVerifyingShareB64u: ECDSA_DERIVATION_CLIENT_PUBLIC_KEY_B64U,
     relayerVerifyingShareB64u: RELAYER_PUBLIC_KEY_B64U,
     clientAdditiveShareHandle: {
       kind: 'email_otp_worker_session' as const,
@@ -295,7 +296,7 @@ function makeRecord(input: EmailOtpExportRecordFixtureInput = {}): EmailOtpEcdsa
   };
   return runtimeValidatedExportRecord({
     ...record,
-    routerAbEcdsaHssNormalSigning: makeRouterAbEcdsaHssNormalSigningState(record),
+    routerAbEcdsaDerivationNormalSigning: makeRouterAbEcdsaDerivationNormalSigningState(record),
     ecdsaRoleLocalReadyRecord: makeReadyRecordForExport(record),
   });
 }
@@ -316,14 +317,15 @@ function makePasskeyRecord(input: PasskeyExportRecordFixtureInput = {}): Passkey
           participantIds: input.participantIds ?? [1, 2],
         });
   const record = {
+    purpose: 'transaction_signing' as const,
     walletId: WALLET_ID,
     chainTarget: EVM_TARGET,
     relayerUrl: 'https://relay.localhost',
-    ecdsaThresholdKeyId: 'ehss-export-key',
+    ecdsaThresholdKeyId: 'ederivation-export-key',
     signingRootId: SIGNING_ROOT_ID,
     signingRootVersion: SIGNING_ROOT_VERSION,
     relayerKeyId: 'relayer-key',
-    clientVerifyingShareB64u: ECDSA_HSS_CLIENT_PUBLIC_KEY_B64U,
+    clientVerifyingShareB64u: ECDSA_DERIVATION_CLIENT_PUBLIC_KEY_B64U,
     relayerVerifyingShareB64u: RELAYER_PUBLIC_KEY_B64U,
     participantIds: [1, 2],
     thresholdSessionKind: 'jwt' as const,
@@ -348,7 +350,7 @@ function makePasskeyRecord(input: PasskeyExportRecordFixtureInput = {}): Passkey
   };
   return runtimeValidatedExportRecord({
     ...record,
-    routerAbEcdsaHssNormalSigning: makeRouterAbEcdsaHssNormalSigningState(record),
+    routerAbEcdsaDerivationNormalSigning: makeRouterAbEcdsaDerivationNormalSigningState(record),
     ecdsaRoleLocalReadyRecord: makeReadyRecordForExport(record),
   });
 }
@@ -436,7 +438,9 @@ test.describe('ECDSA export material', () => {
     expect(material.committedLane.source).toBe(record.source);
     expect(material.committedLane.record).toBe(record);
     expect(material.committedLane.authLane).toBeUndefined();
-    expect(material.committedLane.walletSessionAuthority.kind).toBe('wallet_session_authority');
+    expect(material.committedLane.walletSessionAuthority.kind).toBe(
+      'ecdsa_wallet_session_authority',
+    );
     expect(material.committedLane.walletSessionAuthority.walletSessionJwt).toBe(
       record.walletSessionJwt,
     );
@@ -445,7 +449,7 @@ test.describe('ECDSA export material', () => {
     );
   });
 
-  test('passkey HSS export authorization uses Wallet Session JWT policy claims', async () => {
+  test('passkey DERIVATION export authorization uses Wallet Session JWT policy claims', async () => {
     const jwtThresholdExpiresAtMs = 1_900_000_600_000;
     const record = makePasskeyRecord({
       expiresAtMs: 1_900_000_100_000,
@@ -462,17 +466,17 @@ test.describe('ECDSA export material', () => {
       throw new Error(`expected ready threshold export material, got ${material.kind}`);
     }
     const walletSessionAuthority = material.committedLane.walletSessionAuthority;
-    expect(walletSessionAuthority.kind).toBe('wallet_session_authority');
-    if (walletSessionAuthority.kind !== 'wallet_session_authority') {
+    expect(walletSessionAuthority.kind).toBe('ecdsa_wallet_session_authority');
+    if (walletSessionAuthority.kind !== 'ecdsa_wallet_session_authority') {
       throw new Error('expected Wallet Session JWT authority');
     }
-    const digestInput = buildEcdsaHssExportAuthorizationDigestInput({
+    const digestInput = buildEcdsaDerivationExportAuthorizationDigestInput({
       ecdsaThresholdKeyId: String(record.ecdsaThresholdKeyId),
       signingRootId: String(record.signingRootId),
       signingRootVersion: String(record.signingRootVersion),
       contextBinding32B64u: CONTEXT_BINDING_32_B64U,
       publicIdentity: {
-        hssClientSharePublicKey33B64u: ECDSA_HSS_CLIENT_PUBLIC_KEY_B64U,
+        derivationClientSharePublicKey33B64u: ECDSA_DERIVATION_CLIENT_PUBLIC_KEY_B64U,
         relayerPublicKey33B64u: RELAYER_PUBLIC_KEY_B64U,
         groupPublicKey33B64u: PUBLIC_KEY_B64U,
         ethereumAddress: OWNER_ADDRESS,
@@ -519,7 +523,7 @@ test.describe('ECDSA export material', () => {
   test('ready export material uses cached artifact from ready material provenance', async () => {
     const record = makePasskeyRecord();
     const cachedExportArtifact: ThresholdEcdsaCanonicalExportArtifact = {
-      artifactKind: 'ecdsa-hss-secp256k1-export',
+      artifactKind: 'ecdsa-derivation-secp256k1-export',
       chainTarget: EVM_TARGET,
       signingRootId: String(record.signingRootId || 'project:dev'),
       signingRootVersion: String(record.signingRootVersion || 'default'),
@@ -734,7 +738,7 @@ test.describe('ECDSA export material', () => {
           return {
             bootstrap: {
               thresholdEcdsaKeyRef: {
-                ecdsaHssExportArtifact: {
+                ecdsaDerivationExportArtifact: {
                   publicKeyHex: '02',
                   privateKeyHex: '01',
                   ethereumAddress: OWNER_ADDRESS,
@@ -765,7 +769,7 @@ test.describe('ECDSA export material', () => {
 
   test('fresh Email OTP export material rejects missing verified public key facts', async () => {
     const record = makeRecord({
-      ecdsaThresholdKeyId: 'ehss-export-key-missing-public-key',
+      ecdsaThresholdKeyId: 'ederivation-export-key-missing-public-key',
       thresholdEcdsaPublicKeyB64u: undefined,
       thresholdSessionId: 'threshold-session-2',
       signingGrantId: 'signing-grant-2',

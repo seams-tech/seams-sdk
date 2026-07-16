@@ -47,15 +47,15 @@ test('ThresholdStore DO ECDSA presignature put is idempotent by presignature id'
   };
 
   await expect(
-    postDo(durableObject, { op: 'routerAbEcdsaHssPresignaturePut', listKey, dedupeKey, value }),
+    postDo(durableObject, { op: 'routerAbEcdsaDerivationPresignaturePut', listKey, dedupeKey, value }),
   ).resolves.toMatchObject({ ok: true });
   await expect(
-    postDo(durableObject, { op: 'routerAbEcdsaHssPresignaturePut', listKey, dedupeKey, value }),
+    postDo(durableObject, { op: 'routerAbEcdsaDerivationPresignaturePut', listKey, dedupeKey, value }),
   ).resolves.toMatchObject({ ok: true });
 
   await expect(
     postDo(durableObject, {
-      op: 'routerAbEcdsaHssPresignatureReserve',
+      op: 'routerAbEcdsaDerivationPresignatureReserve',
       listKey,
       reservedKeyPrefix,
       ttlMs: 120_000,
@@ -66,7 +66,7 @@ test('ThresholdStore DO ECDSA presignature put is idempotent by presignature id'
   });
   await expect(
     postDo(durableObject, {
-      op: 'routerAbEcdsaHssPresignatureReserve',
+      op: 'routerAbEcdsaDerivationPresignatureReserve',
       listKey,
       reservedKeyPrefix,
       ttlMs: 120_000,
@@ -91,11 +91,11 @@ test('ThresholdStore DO ECDSA presignature put remains idempotent after reserve 
   };
 
   await expect(
-    postDo(durableObject, { op: 'routerAbEcdsaHssPresignaturePut', listKey, dedupeKey, value }),
+    postDo(durableObject, { op: 'routerAbEcdsaDerivationPresignaturePut', listKey, dedupeKey, value }),
   ).resolves.toMatchObject({ ok: true });
   await expect(
     postDo(durableObject, {
-      op: 'routerAbEcdsaHssPresignatureReserve',
+      op: 'routerAbEcdsaDerivationPresignatureReserve',
       listKey,
       reservedKeyPrefix,
       ttlMs: 120_000,
@@ -109,11 +109,11 @@ test('ThresholdStore DO ECDSA presignature put remains idempotent after reserve 
     value: { presignatureId },
   });
   await expect(
-    postDo(durableObject, { op: 'routerAbEcdsaHssPresignaturePut', listKey, dedupeKey, value }),
+    postDo(durableObject, { op: 'routerAbEcdsaDerivationPresignaturePut', listKey, dedupeKey, value }),
   ).resolves.toMatchObject({ ok: true });
   await expect(
     postDo(durableObject, {
-      op: 'routerAbEcdsaHssPresignatureReserve',
+      op: 'routerAbEcdsaDerivationPresignatureReserve',
       listKey,
       reservedKeyPrefix,
       ttlMs: 120_000,

@@ -415,7 +415,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
     });
   });
 
-  test('projects explicit record-backed wallet session spends only to the targeted lane', async () => {
+  test('projects an explicit lane spend across the shared wallet signing budget', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
     const walletId = 'shared-budget-record-policy.testnet';
@@ -498,7 +498,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
     expect(claims.get(ed25519Record.thresholdSessionId)).toMatchObject({
       state: 'warm',
       sessionId: ed25519Record.thresholdSessionId,
-      remainingUses: 3,
+      remainingUses: 2,
     });
     expect(claims.get(ecdsaRecord.thresholdSessionId)).toMatchObject({
       state: 'warm',

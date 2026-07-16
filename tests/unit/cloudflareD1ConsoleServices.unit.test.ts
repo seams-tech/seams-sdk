@@ -7,8 +7,8 @@ import type {
 } from '../../packages/sdk-server-ts/src/core/types';
 import type { RouterAbNormalSigningAdmissionInput } from '../../packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker';
 import {
-  buildRouterAbEcdsaHssNormalSigningStateForBootstrap,
-  signRouterAbEcdsaHssWalletSessionJwt,
+  buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap,
+  signRouterAbEcdsaDerivationWalletSessionJwt,
 } from '../../packages/sdk-server-ts/src/router/commonRouterUtils';
 import {
   createCloudflareD1ConsoleOnlyServiceBundle,
@@ -24,27 +24,27 @@ import type {
 } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
 import type { CfExecutionContext } from '../../packages/sdk-server-ts/src/router/cloudflare/cloudflare.types';
 import localD1DevWorker from '../../packages/console-server-ts/src/router/cloudflare/d1LocalDevWorker';
-import { parseEcdsaHssClientBootstrapRequest } from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
+import { parseEcdsaDerivationClientBootstrapRequest } from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
 import type { SponsoredEvmCallExecutorConfig } from '../../packages/console-server-ts/src/sponsorship/evmExecutorTypes';
 import {
-  computeEcdsaHssRoleLocalRelayerKeyId,
-  computeEcdsaHssRoleLocalThresholdKeyId,
-} from '../../packages/shared-ts/src/threshold/ecdsaHssRoleLocalBootstrap';
+  computeEcdsaDerivationRoleLocalRelayerKeyId,
+  computeEcdsaDerivationRoleLocalThresholdKeyId,
+} from '../../packages/shared-ts/src/threshold/ecdsaDerivationRoleLocalBootstrap';
 import { deriveEvmFamilySigningKeySlotId } from '../../packages/shared-ts/src/signing-lanes';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import {
-  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH,
-  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH,
-  type RouterAbEcdsaHssNormalSigningScopeV1,
-} from '../../packages/shared-ts/src/utils/routerAbEcdsaHss';
+  ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH,
+  ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_STEP_PATH,
+  type RouterAbEcdsaDerivationNormalSigningScopeV1,
+} from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
 import {
   parseRouterAbPublicKeysetV2,
   ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
   type RouterAbPublicKeysetV2,
 } from '../../packages/shared-ts/src/utils/routerAbPublicKeyset';
-import { initSync as initEcdsaClientSignerWasmSync } from '../../wasm/ecdsa_client_signer/pkg/ecdsa_client_signer.js';
+import { initSync as initEcdsaDerivationClientWasmSync } from '../../wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.js';
 import { prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest } from '../helpers/thresholdEcdsaClientBootstrap';
-import { createFixtureSigningRootShareResolverForUnitTests } from '../helpers/thresholdServiceTestUtils';
+import { createFixtureSigningRootShareResolverForUnitTests } from '../helpers/routerAbSigningRuntimeTestUtils';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,
@@ -65,12 +65,12 @@ const LOCAL_D1_WORKFLOW_SIGNING_WORKER_ID = 'signing-worker.local';
 const LOCAL_POOL_FILL_SESSION_SECRET = 'local-pool-fill-session-secret-for-d1-do-smoke';
 const LOCAL_POOL_FILL_SESSION_ISSUER = 'local-pool-fill-issuer';
 const LOCAL_POOL_FILL_SESSION_AUDIENCE = 'local-pool-fill-audience';
-const ECDSA_CLIENT_SIGNER_WASM_URL = new URL(
-  '../../wasm/ecdsa_client_signer/pkg/ecdsa_client_signer_bg.wasm',
+const ECDSA_DERIVATION_CLIENT_WASM_URL = new URL(
+  '../../wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client_bg.wasm',
   import.meta.url,
 );
 
-let ecdsaClientSignerWasmInitialized = false;
+let ecdsaDerivationClientWasmInitialized = false;
 
 class FakeD1PreparedStatement implements D1PreparedStatementLike {
   constructor(private readonly query: string) {}
@@ -413,10 +413,10 @@ function isJsonRecord(value: unknown): value is JsonRecord {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
-function ensureHssClientSignerWasm(): void {
-  if (ecdsaClientSignerWasmInitialized) return;
-  initEcdsaClientSignerWasmSync({ module: readFileSync(ECDSA_CLIENT_SIGNER_WASM_URL) });
-  ecdsaClientSignerWasmInitialized = true;
+function ensureEcdsaDerivationClientWasm(): void {
+  if (ecdsaDerivationClientWasmInitialized) return;
+  initEcdsaDerivationClientWasmSync({ module: readFileSync(ECDSA_DERIVATION_CLIENT_WASM_URL) });
+  ecdsaDerivationClientWasmInitialized = true;
 }
 
 function rootShare32B64u(byte: number): string {
@@ -499,22 +499,22 @@ async function bootstrapLocalPoolFillEcdsaSession(input: {
 }): Promise<{
   readonly jwt: string;
   readonly keyHandle: string;
-  readonly scope: RouterAbEcdsaHssNormalSigningScopeV1;
+  readonly scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
 }> {
-  ensureHssClientSignerWasm();
+  ensureEcdsaDerivationClientWasm();
   const walletId = 'local-pool-fill-wallet';
   const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
     walletId,
     signingRootId: LOCAL_D1_WORKFLOW_SIGNING_ROOT_ID,
     signingRootVersion: LOCAL_D1_WORKFLOW_SIGNING_ROOT_VERSION,
   });
-  const ecdsaThresholdKeyId = await computeEcdsaHssRoleLocalThresholdKeyId({
+  const ecdsaThresholdKeyId = await computeEcdsaDerivationRoleLocalThresholdKeyId({
     walletId,
     evmFamilySigningKeySlotId,
     signingRootId: LOCAL_D1_WORKFLOW_SIGNING_ROOT_ID,
     signingRootVersion: LOCAL_D1_WORKFLOW_SIGNING_ROOT_VERSION,
   });
-  const relayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
+  const relayerKeyId = await computeEcdsaDerivationRoleLocalRelayerKeyId({
     walletId,
     evmFamilySigningKeySlotId,
   });
@@ -527,8 +527,8 @@ async function bootstrapLocalPoolFillEcdsaSession(input: {
     },
     clientRootShare32B64u: rootShare32B64u(71),
   });
-  const bootstrapRequest = parseEcdsaHssClientBootstrapRequest({
-    formatVersion: 'ecdsa-hss-role-local',
+  const bootstrapRequest = parseEcdsaDerivationClientBootstrapRequest({
+    formatVersion: 'ecdsa-derivation-role-local',
     walletId,
     evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId,
@@ -536,30 +536,30 @@ async function bootstrapLocalPoolFillEcdsaSession(input: {
     signingRootVersion: LOCAL_D1_WORKFLOW_SIGNING_ROOT_VERSION,
     keyScope: 'evm-family',
     relayerKeyId,
-    hssClientSharePublicKey33B64u: preparedClient.hssClientSharePublicKey33B64u,
+    derivationClientSharePublicKey33B64u: preparedClient.derivationClientSharePublicKey33B64u,
     clientShareRetryCounter: preparedClient.clientShareRetryCounter,
     contextBinding32B64u: preparedClient.contextBinding32B64u,
     requestId: 'local-pool-fill-bootstrap-request',
-    sessionId: 'tehss-local-pool-fill',
+    sessionId: 'tederivation-local-pool-fill',
     signingGrantId: 'wss-local-pool-fill',
     ttlMs: 60_000,
     remainingUses: 3,
     participantIds: [1, 2],
   });
   if (!bootstrapRequest) {
-    throw new Error('Local ECDSA-HSS pool-fill bootstrap request did not parse');
+    throw new Error('Local Router A/B ECDSA derivation pool-fill bootstrap request did not parse');
   }
 
   const service = createLocalPoolFillAuthService(input);
   const runtime = service.thresholdRuntime.getRouterAbEcdsaBootstrapExportRuntime();
   if (!runtime) {
-    throw new Error('Local ECDSA-HSS bootstrap/export runtime is not configured');
+    throw new Error('Local Router A/B ECDSA derivation bootstrap/export runtime is not configured');
   }
-  const bootstrap = await runtime.ecdsaHssRoleLocalBootstrap(bootstrapRequest);
+  const bootstrap = await runtime.ecdsaDerivationRoleLocalBootstrap(bootstrapRequest);
   expect(bootstrap, JSON.stringify(bootstrap)).toMatchObject({ ok: true });
   if (!bootstrap.ok) throw new Error(bootstrap.message);
 
-  const normalSigning = buildRouterAbEcdsaHssNormalSigningStateForBootstrap({
+  const normalSigning = buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap({
     bootstrap: bootstrap.value,
     routerAbPublicKeyset: createLocalPoolFillRouterAbPublicKeyset(),
     signingWorkerId: LOCAL_D1_WORKFLOW_SIGNING_WORKER_ID,
@@ -572,7 +572,7 @@ async function bootstrapLocalPoolFillEcdsaSession(input: {
     issuer: LOCAL_POOL_FILL_SESSION_ISSUER,
     audience: LOCAL_POOL_FILL_SESSION_AUDIENCE,
   });
-  const signed = await signRouterAbEcdsaHssWalletSessionJwt({
+  const signed = await signRouterAbEcdsaDerivationWalletSessionJwt({
     session,
     userId: walletId,
     evmFamilySigningKeySlotId,
@@ -603,11 +603,12 @@ async function bootstrapLocalPoolFillEcdsaSession(input: {
       publicIdentity: bootstrap.value.publicIdentity,
       activationEpoch: bootstrap.value.thresholdSessionId,
       signingWorkerId: LOCAL_D1_WORKFLOW_SIGNING_WORKER_ID,
-      routerAbEcdsaHssNormalSigning: normalSigning.state,
+      routerAbEcdsaDerivationNormalSigning: normalSigning.state,
     },
     fallbackParticipantIds: bootstrap.value.participantIds,
     requireJwtErrorMessage: 'threshold_ecdsa.session_kind must be jwt',
-    invalidPayloadErrorMessage: 'invalid local ECDSA-HSS pool-fill Wallet Session payload',
+    invalidPayloadErrorMessage:
+      'invalid local Router A/B ECDSA derivation pool-fill Wallet Session payload',
   });
   expect(signed, JSON.stringify(signed)).toMatchObject({ ok: true });
   if (!signed.ok) throw new Error(signed.message);
@@ -623,13 +624,13 @@ async function runLocalPoolFillRouteSmoke(input: {
   readonly env: LocalD1WorkflowEnv;
   readonly jwt: string;
   readonly keyHandle: string;
-  readonly scope: RouterAbEcdsaHssNormalSigningScopeV1;
+  readonly scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
   readonly requestTag: string;
 }): Promise<void> {
   const authHeaders = { authorization: `Bearer ${input.jwt}` };
   const initResponse = await callLocalWorkflowWorker(input.env, {
     method: 'POST',
-    path: ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH,
+    path: ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH,
     headers: authHeaders,
     body: {
       sessionKind: 'jwt',
@@ -637,7 +638,7 @@ async function runLocalPoolFillRouteSmoke(input: {
       count: 1,
       requestTag: input.requestTag,
       poolFill: {
-        kind: 'router_ab_ecdsa_hss_signing_worker_pool',
+        kind: 'router_ab_ecdsa_derivation_signing_worker_pool',
         scope: input.scope,
         expiresAtMs: Date.now() + 30_000,
       },
@@ -655,7 +656,7 @@ async function runLocalPoolFillRouteSmoke(input: {
   };
   const stepResponse = await callLocalWorkflowWorker(freshHandlerEnv, {
     method: 'POST',
-    path: ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH,
+    path: ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_STEP_PATH,
     headers: authHeaders,
     body: {
       sessionKind: 'jwt',
@@ -1421,7 +1422,7 @@ test('local D1 Worker runs dashboard, signer, billing, and reconciliation smoke 
   }
 });
 
-test('local D1 Worker advances ECDSA-HSS pool-fill routes through D1 and Durable Objects', async () => {
+test('local D1 Worker advances Router A/B ECDSA derivation pool-fill routes through D1 and Durable Objects', async () => {
   test.setTimeout(90_000);
   const consoleTemp = createTemporaryD1Database();
   const signerTemp = createTemporaryD1Database();

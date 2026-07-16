@@ -122,7 +122,6 @@ const registrationFlowBenchmarkReportPath = path.join(
   repoRoot,
   'docs/benchmarks/registration-flow.md',
 );
-const refactor89PlanPath = path.join(repoRoot, 'docs/refactor-89-clean-source-guards.md');
 const siblingLifecycleGateDocs = [
   {
     relativePath: 'docs/refactor-82B.md',
@@ -162,22 +161,24 @@ const expectedContractActionSequences = {
     'refreshPagePreservingWalletStorage()',
     'exportEd25519Key()',
     'exportEcdsaKey()',
-    'consumeSharedRegistrationSigningBudget()',
-    "signNearTransaction('after_step_up')",
-    "signTempoTransaction('after_step_up')",
+    "signNearTransaction('after_refresh_recovery')",
+    "signTempoAndArcEvmConcurrently('after_refresh_recovery')",
+    'refreshPagePreservingWalletStorage()',
     "signArcEvmTransaction('after_step_up')",
+    "signTempoTransaction('after_step_up')",
+    "signNearTransaction('after_step_up')",
   ],
   'email-otp.unlock.contract.test.ts': [
     'registerEmailOtpWallet()',
     'unlockEmailOtpWallet()',
     'refreshPagePreservingWalletStorage()',
+    'exportEd25519Key()',
+    'exportEcdsaKey()',
     "signNearTransaction('after_refresh_recovery')",
     "signTempoTransaction('after_refresh_recovery')",
     "signArcEvmTransaction('after_refresh_recovery')",
     'exhaustSigningBudget()',
     'refreshPagePreservingWalletStorage()',
-    'exportEd25519Key()',
-    'exportEcdsaKey()',
     "signNearTransaction('after_step_up')",
     "signTempoTransaction('after_step_up')",
     "signArcEvmTransaction('after_step_up')",
@@ -190,11 +191,15 @@ const expectedContractActionSequences = {
   ],
   'passkey.registration.contract.test.ts': [
     'registerPasskeyWallet()',
-    'consumeSharedRegistrationSigningBudget()',
-    "signNearTransaction('after_step_up')",
-    "signTempoTransaction('after_step_up')",
+    'refreshPagePreservingWalletStorage()',
     'exportEd25519Key()',
     'exportEcdsaKey()',
+    "signNearTransaction('after_refresh_recovery')",
+    "signTempoAndArcEvmConcurrently('after_refresh_recovery')",
+    'refreshPagePreservingWalletStorage()',
+    "signArcEvmTransaction('after_step_up')",
+    "signTempoTransaction('after_step_up')",
+    "signNearTransaction('after_step_up')",
   ],
   'passkey.unlock.contract.test.ts': [
     'registerPasskeyWallet()',
@@ -203,6 +208,8 @@ const expectedContractActionSequences = {
     'registerPasskeyWallet()',
     'unlockPasskeyWallet()',
     'refreshPagePreservingWalletStorage()',
+    'exportEd25519Key()',
+    'exportEcdsaKey()',
     "signNearTransaction('after_refresh_recovery')",
     "signTempoTransaction('after_refresh_recovery')",
     "signArcEvmTransaction('after_refresh_recovery')",
@@ -210,8 +217,6 @@ const expectedContractActionSequences = {
     "signNearTransaction('after_step_up')",
     "signTempoTransaction('after_step_up')",
     "signArcEvmTransaction('after_step_up')",
-    'exportEd25519Key()',
-    'exportEcdsaKey()',
   ],
 };
 const expectedIntendedActionResultKinds = [
@@ -727,26 +732,6 @@ test('Refactor 88 browser test utilities do not expose retired mock hooks', () =
   }
   expect(violations, violations.join('\n')).toEqual([]);
 });
-test('Refactor 88 retired cleanup surfaces are recorded in Refactor 89 ledger', () => {
-  const source = fs.readFileSync(refactor89PlanPath, 'utf8');
-  const violations = [];
-  for (const relativePath of retiredMockedRuntimeFiles) {
-    if (source.includes(relativePath)) continue;
-    violations.push(`missing retired file ledger row: ${relativePath}`);
-  }
-  for (const relativePath of retiredFakeRelayServerFiles) {
-    if (source.includes(relativePath)) continue;
-    violations.push(`missing retired fake relay server ledger row: ${relativePath}`);
-  }
-  for (const retiredField of retiredBrowserTestUtils) {
-    const token = retiredField === 'testUtils' ? 'window.testUtils' : retiredField;
-    if (source.includes(token)) continue;
-    violations.push(`missing retired browser setup hook ledger token: ${token}`);
-  }
-  expect(source).toContain('## Retired Cleanup Ledger');
-  expect(source).toContain('| Refactor 88 |');
-  expect(violations, violations.join('\n')).toEqual([]);
-});
 test('Refactor 88 generic setup does not expose same-origin rewrite flags', () => {
   const setupIndexSource = fs.readFileSync(path.join(repoRoot, 'tests/setup/index.ts'), 'utf8');
   const setupBootstrapSource = fs.readFileSync(
@@ -1161,6 +1146,19 @@ test('Refactor 88 signing contracts assert structured auth-path events', () => {
   expect(source).toContain('signing.auth.passkey.prompt.started');
   expect(source).toContain('signing.auth.email_otp.challenge.sent');
   expect(source).toContain('did not claim a warm signing session');
+});
+test('Refactor 88 post-exhaustion contracts require per-operation step-up', () => {
+  const source = fs.readFileSync(intendedHarnessPath, 'utf8');
+  expect(source).toContain("return flow.startsWith('passkey') ? 'passkey_step_up' : 'email_otp_step_up'");
+  expect(source).not.toContain('passkey_step_up_or_warm_session');
+  expect(source).not.toContain('email_otp_step_up_or_warm_session');
+  expect(source).not.toContain('postExhaustionStepUpSatisfied');
+});
+test('Refactor 88 contracts cover shared-budget concurrent EVM-family signing', () => {
+  const source = fs.readFileSync(intendedHarnessPath, 'utf8');
+  expect(source).toContain('signTempoAndArcEvmConcurrently');
+  expect(source).toContain('triggerConcurrentEvmFamilySigning');
+  expect(source).toContain('assertConcurrentSharedBudgetExhaustion');
 });
 test('Refactor 88 intended harness only stubs external identity and chain RPC hosts', () => {
   const source = fs.readFileSync(intendedHarnessPath, 'utf8');

@@ -1,20 +1,21 @@
 import { expect, test } from '@playwright/test';
 import { deriveThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import {
-  parseCurrentRouterAbEcdsaHssPoolFillSessionRow,
-  parseCurrentRouterAbEcdsaHssServerPresignatureRecord,
+  parseCurrentRouterAbEcdsaDerivationPoolFillSessionRow,
+  parseCurrentRouterAbEcdsaDerivationServerPresignatureRecord,
   parseCurrentThresholdEd25519KeyRecord,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/persistedRecords';
 import {
   createThresholdEcdsaKeyStore,
   createThresholdEd25519KeyStore,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/KeyStore';
-import { parseEcdsaHssRoleLocalKeyRecord } from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
+import { parseEcdsaDerivationRoleLocalKeyRecord } from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
 import { normalizeLogger } from '../../packages/sdk-server-ts/src/core/logger';
 import type {
   CloudflareDurableObjectNamespaceLike,
   CloudflareDurableObjectStubLike,
-  EcdsaHssRoleLocalKeyRecord,
+  EcdsaDerivationRoleLocalKeyRecord,
 } from '../../packages/sdk-server-ts/src/core/types';
 import { ThresholdStoreDurableObject } from '../../packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore';
 
@@ -39,15 +40,22 @@ function publicKey33B64u(lastByte: number, prefix: 0x02 | 0x03 = 0x02): string {
 }
 
 async function makeRoleLocalKeyRecord(
-  overrides: Partial<EcdsaHssRoleLocalKeyRecord> = {},
-): Promise<EcdsaHssRoleLocalKeyRecord> {
+  overrides: Partial<EcdsaDerivationRoleLocalKeyRecord> = {},
+): Promise<EcdsaDerivationRoleLocalKeyRecord> {
+  const walletId = 'alice.testnet';
+  const signingRootId = 'signing-root';
+  const signingRootVersion = 'default';
   const base = {
-    version: 'threshold_ecdsa_hss_role_local_v2',
+    version: 'threshold_ecdsa_derivation_role_local_v2',
     ecdsaThresholdKeyId: 'threshold-key',
-    walletId: 'alice.testnet',
-    walletKeyId: 'wallet-key-example-localhost',
-    signingRootId: 'signing-root',
-    signingRootVersion: 'default',
+    walletId,
+    evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
+      walletId,
+      signingRootId,
+      signingRootVersion,
+    }),
+    signingRootId,
+    signingRootVersion,
     keyScope: 'evm-family',
     relayerKeyId: 'relayer-key',
     contextBinding32B64u: b64uBytes(32, 1),
@@ -65,7 +73,7 @@ async function makeRoleLocalKeyRecord(
     createdAtMs: 100,
     updatedAtMs: 200,
     ...overrides,
-  } satisfies Omit<EcdsaHssRoleLocalKeyRecord, 'keyHandle'> & { keyHandle?: string };
+  } satisfies Omit<EcdsaDerivationRoleLocalKeyRecord, 'keyHandle'> & { keyHandle?: string };
   const keyHandle =
     overrides.keyHandle ??
     String(
@@ -75,7 +83,7 @@ async function makeRoleLocalKeyRecord(
         signingRootVersion: base.signingRootVersion,
       }),
     );
-  const parsed = parseEcdsaHssRoleLocalKeyRecord({ ...base, keyHandle });
+  const parsed = parseEcdsaDerivationRoleLocalKeyRecord({ ...base, keyHandle });
   if (!parsed) throw new Error('test fixture must be a role-local threshold ECDSA key record');
   return parsed;
 }
@@ -110,7 +118,7 @@ function createMemoryDurableObjectNamespace(): CloudflareDurableObjectNamespaceL
 }
 
 test.describe('threshold ecdsa persisted records', () => {
-  test('parses current Ed25519 records and role-local ECDSA HSS records', async () => {
+  test('parses current Ed25519 records and role-local ECDSA derivation records', async () => {
     expect(
       parseCurrentThresholdEd25519KeyRecord({
         kind: 'ready',
@@ -164,24 +172,24 @@ test.describe('threshold ecdsa persisted records', () => {
         verifyingShare33B64u: publicKey33B64u(10, 0x03),
       },
     });
-    expect(parseEcdsaHssRoleLocalKeyRecord(roleLocalRecord)).toEqual(roleLocalRecord);
+    expect(parseEcdsaDerivationRoleLocalKeyRecord(roleLocalRecord)).toEqual(roleLocalRecord);
     for (const field of [
       'subjectId',
       'walletSessionUserId',
       'subject_id',
       'wallet_session_user_id',
     ] as const) {
-      expect(parseEcdsaHssRoleLocalKeyRecord({ ...roleLocalRecord, [field]: 'stale' })).toBeNull();
+      expect(parseEcdsaDerivationRoleLocalKeyRecord({ ...roleLocalRecord, [field]: 'stale' })).toBeNull();
     }
     expect(
-      parseEcdsaHssRoleLocalKeyRecord({
+      parseEcdsaDerivationRoleLocalKeyRecord({
         ...roleLocalRecord,
         relayerCaitSithInput: { ...roleLocalRecord.relayerCaitSithInput, participantId: 1 },
       }),
     ).toBeNull();
     expect(
-      parseEcdsaHssRoleLocalKeyRecord({
-        version: 'threshold_ecdsa_hss_key_v1',
+      parseEcdsaDerivationRoleLocalKeyRecord({
+        version: 'threshold_ecdsa_derivation_key_v1',
         ecdsaThresholdKeyId: 'threshold-key',
         relayerRootShare32B64u: b64uBytes(32, 11),
         relayerBackendInputB64u: b64uBytes(32, 12),
@@ -190,12 +198,17 @@ test.describe('threshold ecdsa persisted records', () => {
   });
 
   test('rejects malformed presign session rows and presignatures', () => {
+    const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
+      walletId: 'alice.testnet',
+      signingRootId: 'signing-root',
+      signingRootVersion: 'default',
+    });
     expect(
-      parseCurrentRouterAbEcdsaHssPoolFillSessionRow({
+      parseCurrentRouterAbEcdsaDerivationPoolFillSessionRow({
         recordJson: {
           expiresAtMs: 999_999,
           walletId: 'alice.testnet',
-          walletKeyId: 'wallet-key-alice',
+          evmFamilySigningKeySlotId,
           relayerKeyId: 'relayer-key',
           presignPoolKey: 'keyHandle:threshold-key',
           poolFill: { kind: 'local_threshold_ecdsa_presignature_pool' },
@@ -207,6 +220,7 @@ test.describe('threshold ecdsa persisted records', () => {
           createdAtMs: 100,
           updatedAtMs: 150,
           signingRootId: 'signing-root',
+          signingRootVersion: 'default',
           walletKeyVersion: 'wallet-key-v1',
           derivationVersion: 1,
         },
@@ -216,7 +230,7 @@ test.describe('threshold ecdsa persisted records', () => {
       record: {
         expiresAtMs: 999_999,
         walletId: 'alice.testnet',
-        walletKeyId: 'wallet-key-alice',
+        evmFamilySigningKeySlotId,
         relayerKeyId: 'relayer-key',
         presignPoolKey: 'keyHandle:threshold-key',
         poolFill: { kind: 'local_threshold_ecdsa_presignature_pool' },
@@ -228,6 +242,7 @@ test.describe('threshold ecdsa persisted records', () => {
         createdAtMs: 100,
         updatedAtMs: 150,
         signingRootId: 'signing-root',
+        signingRootVersion: 'default',
         walletKeyVersion: 'wallet-key-v1',
         derivationVersion: 1,
       },
@@ -235,7 +250,7 @@ test.describe('threshold ecdsa persisted records', () => {
     });
 
     expect(
-      parseCurrentRouterAbEcdsaHssPoolFillSessionRow({
+      parseCurrentRouterAbEcdsaDerivationPoolFillSessionRow({
         recordJson: {
           expiresAtMs: 999_999,
           userId: 'alice.testnet',
@@ -258,7 +273,7 @@ test.describe('threshold ecdsa persisted records', () => {
     ).toBeNull();
 
     expect(
-      parseCurrentRouterAbEcdsaHssServerPresignatureRecord({
+      parseCurrentRouterAbEcdsaDerivationServerPresignatureRecord({
         relayerKeyId: 'relayer-key',
         presignatureId: 'presignature',
         bigRB64u: 'big-r',
@@ -276,7 +291,7 @@ test.describe('threshold ecdsa persisted records', () => {
     });
 
     expect(
-      parseCurrentRouterAbEcdsaHssServerPresignatureRecord({
+      parseCurrentRouterAbEcdsaDerivationServerPresignatureRecord({
         relayerKeyId: 'relayer-key',
         presignatureId: 'presignature',
         bigRB64u: 'big-r',
@@ -349,7 +364,7 @@ test.describe('threshold ecdsa persisted records', () => {
       isNode: true,
     });
     const record = await makeRoleLocalKeyRecord({
-      keyHandle: 'ehss-key-wrong',
+      keyHandle: 'ederivation-key-wrong',
     });
 
     await expect(store.putRoleLocalByKeyHandle(record)).rejects.toThrow(

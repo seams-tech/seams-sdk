@@ -25,11 +25,11 @@ const EVM_TARGET = {
 } as const satisfies ThresholdEcdsaChainTarget;
 function inventoryRecord(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    keyHandle: 'ehss-key-inventory',
+    keyHandle: 'ederivation-key-inventory',
     walletId: WALLET_ID,
     subjectId: SUBJECT_ID,
     rpId: RP_ID,
-    ecdsaThresholdKeyId: 'ehss-inventory',
+    ecdsaThresholdKeyId: 'ederivation-inventory',
     evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
     signingRootId: 'project_inventory_parser:dev',
     signingRootVersion: 'root_v1',
@@ -58,14 +58,14 @@ function profileSigner(metadataOverrides: Record<string, unknown> = {}): Account
     addedAt: Date.now(),
     updatedAt: Date.now(),
     metadata: {
-      keyHandle: 'ehss-key-inventory',
+      keyHandle: 'ederivation-key-inventory',
       chainTarget: EVM_TARGET,
       sharedEvmFamilyKey: {
         walletId: WALLET_ID,
         subjectId: SUBJECT_ID,
         rpId: RP_ID,
         keyScope: 'evm-family',
-        ecdsaThresholdKeyId: 'ehss-inventory',
+        ecdsaThresholdKeyId: 'ederivation-inventory',
         evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
         signingRootId: 'project_inventory_parser:dev',
         signingRootVersion: 'root_v1',
@@ -93,12 +93,12 @@ test.describe('threshold ECDSA key identity inventory parser', () => {
       walletKey: {
         kind: 'evm_family_ecdsa_wallet_key',
         walletId: WALLET_ID,
-        keyHandle: 'ehss-key-inventory',
+        keyHandle: 'ederivation-key-inventory',
         chainTarget: EVM_TARGET,
         keyFacts: {
           kind: 'evm_family_ecdsa_key_facts',
           keyScope: 'evm-family',
-          ecdsaThresholdKeyId: 'ehss-inventory',
+          ecdsaThresholdKeyId: 'ederivation-inventory',
           signingRootId: 'project_inventory_parser:dev',
           signingRootVersion: 'root_v1',
           participantIds: [1, 2],
@@ -175,7 +175,7 @@ test.describe('threshold ECDSA key identity inventory parser', () => {
       walletKey: {
         kind: 'evm_family_ecdsa_wallet_key',
         walletId: WALLET_ID,
-        keyHandle: 'ehss-key-inventory',
+        keyHandle: 'ederivation-key-inventory',
         chainTarget: EVM_TARGET,
       },
     });
@@ -192,7 +192,7 @@ test.describe('threshold ECDSA key identity inventory parser', () => {
       kind: 'key_facts_inventory_required',
       chainTarget: EVM_TARGET,
       targetKey: 'evm:eip155:5042002',
-      keyHandle: 'ehss-key-inventory',
+      keyHandle: 'ederivation-key-inventory',
       reason: 'missing_key_facts',
     });
   });
@@ -210,10 +210,10 @@ test.describe('threshold ECDSA key identity inventory parser', () => {
       walletId: WALLET_ID,
       configuredTargets,
       signer: profileSigner({
-        keyHandle: 'ehss-key-one',
+        keyHandle: 'ederivation-key-one',
         sharedEvmFamilyKey: {
           ...baseSharedKey,
-          keyHandle: 'ehss-key-two',
+          keyHandle: 'ederivation-key-two',
         },
       }),
     });

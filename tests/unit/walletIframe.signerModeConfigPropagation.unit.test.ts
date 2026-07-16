@@ -29,8 +29,8 @@ const WALLET_STUB_CAPTURE_SCRIPT = String.raw`
           window.__capturedSigningSessionSeal = (data.payload && typeof data.payload === 'object')
             ? data.payload.signingSessionSeal
             : undefined;
-          window.__capturedRouterAbEcdsaHssPresignaturePool = (data.payload && typeof data.payload === 'object')
-            ? data.payload.routerAbEcdsaHssPresignaturePool
+          window.__capturedRouterAbEcdsaDerivationPresignaturePool = (data.payload && typeof data.payload === 'object')
+            ? data.payload.routerAbEcdsaDerivationPresignaturePool
             : undefined;
           window.__capturedProvisioningDefaults = (data.payload && typeof data.payload === 'object')
             ? data.payload.provisioningDefaults
@@ -117,7 +117,7 @@ test.describe('Wallet iframe config propagation', () => {
             keyVersion: 'signing-session-seal-kek-2026-02-r1',
             shamirPrimeB64u: '_____________________________________v___C8',
           },
-          routerAbEcdsaHssPresignaturePool: {
+          routerAbEcdsaDerivationPresignaturePool: {
             enabled: false,
             targetDepth: 5,
             lowWatermark: 2,
@@ -171,8 +171,8 @@ test.describe('Wallet iframe config propagation', () => {
     const capturedSigningSessionSeal = await walletFrame!.evaluate(() => {
       return (window as any).__capturedSigningSessionSeal ?? null;
     });
-    const capturedRouterAbEcdsaHssPresignaturePool = await walletFrame!.evaluate(() => {
-      return (window as any).__capturedRouterAbEcdsaHssPresignaturePool ?? null;
+    const capturedRouterAbEcdsaDerivationPresignaturePool = await walletFrame!.evaluate(() => {
+      return (window as any).__capturedRouterAbEcdsaDerivationPresignaturePool ?? null;
     });
     const capturedProvisioningDefaults = await walletFrame!.evaluate(() => {
       return (window as any).__capturedProvisioningDefaults ?? null;
@@ -186,7 +186,7 @@ test.describe('Wallet iframe config propagation', () => {
       keyVersion: 'signing-session-seal-kek-2026-02-r1',
       shamirPrimeB64u: '_____________________________________v___C8',
     });
-    expect(capturedRouterAbEcdsaHssPresignaturePool).toEqual({
+    expect(capturedRouterAbEcdsaDerivationPresignaturePool).toEqual({
       enabled: false,
       targetDepth: 5,
       lowWatermark: 2,

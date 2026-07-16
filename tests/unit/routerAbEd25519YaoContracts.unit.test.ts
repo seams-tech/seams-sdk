@@ -512,7 +512,7 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
 
   test('rejects unknown fields and non-canonical participant identifiers', () => {
     const unknownField = registrationAdmissionRequest();
-    unknownField.legacy_hss_handle = 'forbidden';
+    unknownField.legacy_derivation_handle = 'forbidden';
     expect(parseRouterAbEd25519YaoRegistrationAdmissionRequestV1(unknownField).ok).toBe(false);
 
     const invalidParticipants = registrationAdmissionRequest();

@@ -1,5 +1,5 @@
 {
-  "version": "refactor-88-2026-07-04",
+  "version": "refactor-88-2026-07-16",
   "instruction": "Run these one at a time on a scratch branch with a fresh SDK build and restarted site/router services, or with the CI-managed intended startup. Revert each seeded regression after confirming the intended contract fails with the expected compact trace.",
   "mutations": [
     {
@@ -44,7 +44,10 @@
         "localCommand": "pnpm -C tests exec playwright test -c playwright.intended.config.ts e2e/intended-behaviours/passkey.registration.contract.test.ts e2e/intended-behaviours/passkey.unlock.contract.test.ts --reporter=line",
         "ciCommand": "pnpm -C tests exec playwright test -c playwright.intended.ci.config.ts e2e/intended-behaviours/passkey.registration.contract.test.ts e2e/intended-behaviours/passkey.unlock.contract.test.ts --reporter=line"
       },
-      "requiredHarnessEvidence": ["postExhaustionStepUpSatisfied", "post_step_up_retry_success"]
+      "requiredHarnessEvidence": [
+        "after_step_up",
+        "assertStepUpTransactionConsumedSingleUseBudget"
+      ]
     },
     {
       "id": "export_provider_user_mismatch_after_app_session_refresh",

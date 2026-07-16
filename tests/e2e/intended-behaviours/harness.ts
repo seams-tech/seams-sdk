@@ -46,6 +46,8 @@ export type IntendedSigningStage =
   | 'after_refresh_recovery'
   | 'after_step_up';
 
+type IntendedWarmSigningStage = Exclude<IntendedSigningStage, 'after_step_up'>;
+
 type IntendedHarnessAction =
   | 'registerPasskeyWallet'
   | 'registerPasskeyEd25519YaoWallet'
@@ -125,8 +127,14 @@ declare global {
     __seamsIntendedE2EReadEmailOtpCode?: (
       input: IntendedEmailOtpCodeRequestForPage,
     ) => Promise<string>;
+    __seamsIntendedConcurrentActionObserver?: IntendedConcurrentActionObserver;
   }
 }
+
+type IntendedConcurrentActionObserver = {
+  observer: MutationObserver;
+  snapshots: unknown[];
+};
 
 type LifecycleFailureMatcher = {
   id: string;
@@ -401,9 +409,7 @@ type TempoSignedTransactionParts = {
 type SigningAuthExpectation =
   | 'warm_session'
   | 'passkey_step_up'
-  | 'email_otp_step_up'
-  | 'passkey_step_up_or_warm_session'
-  | 'email_otp_step_up_or_warm_session';
+  | 'email_otp_step_up';
 
 type SigningAuthEventSummary = {
   phases: readonly string[];
@@ -561,6 +567,76 @@ function intendedPageActionStartedOrCompleted(expectedAction: string): boolean {
   );
 }
 
+function installIntendedConcurrentActionObserver(): void {
+  // Playwright serializes this installer alone, so its observer callback must be self-contained.
+  function captureSnapshot(): void {
+    const state = window.__seamsIntendedConcurrentActionObserver;
+    if (!state) return;
+    const output = document.querySelector('[data-testid="intended-result-json"]');
+    const text = output?.textContent?.trim();
+    if (!text) return;
+    try {
+      state.snapshots.push(JSON.parse(text));
+    } catch {
+      return;
+    }
+  }
+
+  window.__seamsIntendedConcurrentActionObserver?.observer.disconnect();
+  const output = document.querySelector('[data-testid="intended-result-json"]');
+  if (!output) {
+    throw new Error('Intended page result output is unavailable for concurrent signing');
+  }
+  const observer = new MutationObserver(captureSnapshot);
+  window.__seamsIntendedConcurrentActionObserver = { observer, snapshots: [] };
+  observer.observe(output, { childList: true, characterData: true, subtree: true });
+  captureSnapshot();
+}
+
+function triggerConcurrentEvmFamilySigning(): void {
+  const tempo = document.querySelector<HTMLButtonElement>('[data-testid="intended-sign-tempo"]');
+  const arcEvm = document.querySelector<HTMLButtonElement>(
+    '[data-testid="intended-sign-arc-evm"]',
+  );
+  if (!tempo || !arcEvm) {
+    throw new Error('Concurrent Tempo/Arc signing controls are unavailable');
+  }
+  if (tempo.disabled || arcEvm.disabled) {
+    throw new Error('Concurrent Tempo/Arc signing controls are disabled');
+  }
+  tempo.click();
+  arcEvm.click();
+}
+
+function intendedConcurrentEvmFamilySigningFinished(): boolean {
+  const snapshots = window.__seamsIntendedConcurrentActionObserver?.snapshots;
+  if (!snapshots) return false;
+  let tempoComplete = false;
+  let arcEvmComplete = false;
+  for (const raw of snapshots) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+    const action = Reflect.get(raw, 'action');
+    if (!action || typeof action !== 'object' || Array.isArray(action)) continue;
+    const status = Reflect.get(action, 'status');
+    const actionName = Reflect.get(action, 'action');
+    if (status !== 'success' && status !== 'error') continue;
+    if (actionName === 'signTempoTransaction') tempoComplete = true;
+    if (actionName === 'signArcEvmTransaction') arcEvmComplete = true;
+  }
+  return tempoComplete && arcEvmComplete;
+}
+
+function readIntendedConcurrentActionSnapshots(): unknown[] {
+  return window.__seamsIntendedConcurrentActionObserver?.snapshots ?? [];
+}
+
+function disconnectIntendedConcurrentActionObserver(): void {
+  const state = window.__seamsIntendedConcurrentActionObserver;
+  if (!state) return;
+  state.observer.disconnect();
+  delete window.__seamsIntendedConcurrentActionObserver;
+}
+
 function nearDemoSignButtonIsActionable(): boolean {
   const buttons = Array.from(document.querySelectorAll('button'));
   for (const button of buttons) {
@@ -612,8 +688,6 @@ export class IntendedBehaviourHarness {
 
   private latestSigningRemainingUses: number | null = null;
 
-  private postExhaustionStepUpSatisfied = false;
-
   constructor(args: {
     context: BrowserContext;
     flow: IntendedLifecycleFlow;
@@ -652,7 +726,6 @@ export class IntendedBehaviourHarness {
     this.registeredWallet = result;
     this.nearSignerSlot = 1;
     this.currentWarmSigningStage = 'post_registration';
-    this.postExhaustionStepUpSatisfied = false;
     this.passkeyPromptCount += 1;
     this.recordService(
       `passkey registration succeeded wallet=${result.walletId} near=${result.nearAccountId}`,
@@ -675,7 +748,6 @@ export class IntendedBehaviourHarness {
     this.registeredWallet = result;
     this.nearSignerSlot = 1;
     this.currentWarmSigningStage = 'post_registration';
-    this.postExhaustionStepUpSatisfied = false;
     this.passkeyPromptCount += 1;
     this.recordService(
       `Ed25519 Yao passkey registration succeeded wallet=${result.walletId} near=${result.nearAccountId}`,
@@ -698,7 +770,6 @@ export class IntendedBehaviourHarness {
     this.registeredWallet = result;
     this.nearSignerSlot = 1;
     this.currentWarmSigningStage = 'post_registration';
-    this.postExhaustionStepUpSatisfied = false;
     this.passkeyPromptCount += 1;
     this.recordService(
       `prepared iframe Ed25519 Yao registration succeeded wallet=${result.walletId} near=${result.nearAccountId}`,
@@ -736,7 +807,6 @@ export class IntendedBehaviourHarness {
     };
     this.nearSignerSlot = 2;
     this.currentWarmSigningStage = 'post_registration';
-    this.postExhaustionStepUpSatisfied = false;
     this.passkeyPromptCount += 1;
     this.recordService(
       `Ed25519 Yao signer added wallet=${result.walletId} near=${result.nearAccountId}`,
@@ -757,7 +827,6 @@ export class IntendedBehaviourHarness {
     this.registeredWallet = result;
     this.nearSignerSlot = 1;
     this.currentWarmSigningStage = 'post_registration';
-    this.postExhaustionStepUpSatisfied = false;
     this.emailOtpVerificationCount += 1;
     this.recordService(
       `email otp registration succeeded initial=${result.initialWalletId} wallet=${result.walletId} near=${result.nearAccountId}`,
@@ -783,7 +852,6 @@ export class IntendedBehaviourHarness {
     }
     this.assertRouterAbEd25519YaoRecoveryRoutes(traceStartIndex, 'Passkey unlock');
     this.currentWarmSigningStage = 'post_unlock';
-    this.postExhaustionStepUpSatisfied = false;
     this.passkeyPromptCount += 1;
     this.recordService(
       `passkey unlock succeeded wallet=${result.walletId} near=${result.nearAccountId}`,
@@ -806,7 +874,6 @@ export class IntendedBehaviourHarness {
     }
     this.assertRouterAbEd25519YaoRecoveryRoutes(traceStartIndex, 'Email OTP cold unlock');
     this.currentWarmSigningStage = 'post_unlock';
-    this.postExhaustionStepUpSatisfied = false;
     this.emailOtpVerificationCount += 1;
     this.recordService(
       `email otp unlock succeeded wallet=${result.walletId} near=${result.nearAccountId}`,
@@ -844,7 +911,7 @@ export class IntendedBehaviourHarness {
   async refreshPagePreservingWalletStorage(): Promise<void> {
     this.recordStage('page_refresh_preserving_wallet_storage');
     this.latestPageSnapshot = null;
-    await this.page.reload({ waitUntil: 'domcontentloaded' });
+    await this.page.goto(this.intendedPageUrl().href, { waitUntil: 'domcontentloaded' });
     await this.page.getByTestId('intended-e2e-page').waitFor({
       state: 'visible',
       timeout: 15_000,
@@ -928,20 +995,77 @@ export class IntendedBehaviourHarness {
     return summary;
   }
 
-  async consumeSharedRegistrationSigningBudget(): Promise<void> {
-    const near = await this.signNearTransaction('post_registration');
-    assertSigningRemainingUses(near, 2, 'NEAR registration-budget sign');
-    const tempo = await this.signTempoTransaction('post_registration');
-    assertSigningRemainingUses(tempo, 1, 'Tempo registration-budget sign');
-    const arc = await this.signArcEvmTransaction('post_registration');
-    assertSigningRemainingUses(arc, 0, 'Arc/EVM registration-budget sign');
-    this.postExhaustionStepUpSatisfied = false;
+  async signTempoAndArcEvmConcurrently(stage: IntendedWarmSigningStage): Promise<void> {
+    this.recordStage(`${stage}:tempo_arc.concurrent_sign`);
+    const registration = this.requireRegisteredWalletForSigning();
+    await this.ensureIntendedPageOpen();
+    await this.page.evaluate(installIntendedConcurrentActionObserver);
+    const diagnostics: WalletIframeAutoConfirmDiagnostics = { attempts: 0, clicked: false };
+    let rawSnapshots: unknown[];
+    try {
+      await this.page.evaluate(triggerConcurrentEvmFamilySigning);
+      const completion = this.page.waitForFunction(
+        intendedConcurrentEvmFamilySigningFinished,
+        undefined,
+        { timeout: 120_000 },
+      );
+      await autoConfirmWalletIframeUntil(this.page, completion, {
+        timeoutMs: 120_000,
+        intervalMs: 250,
+        diagnostics,
+      });
+      rawSnapshots = await this.page.evaluate(readIntendedConcurrentActionSnapshots);
+    } catch (error) {
+      throw new Error(
+        [
+          error instanceof Error ? error.message : String(error),
+          `Concurrent wallet iframe auto-confirm diagnostics: ${JSON.stringify(diagnostics)}`,
+          this.recentTraceForError(),
+        ].join('\n'),
+      );
+    } finally {
+      await this.page.evaluate(disconnectIntendedConcurrentActionObserver);
+      this.latestWalletIframeAutoConfirmDiagnostics = diagnostics;
+      this.recordService(`concurrent wallet iframe auto-confirm ${JSON.stringify(diagnostics)}`);
+    }
+
+    const snapshots = parseIntendedConcurrentActionSnapshots(rawSnapshots);
+    const tempoSnapshot = requireConcurrentSigningSuccess(
+      snapshots,
+      'signTempoTransaction',
+    );
+    const arcEvmSnapshot = requireConcurrentSigningSuccess(
+      snapshots,
+      'signArcEvmTransaction',
+    );
+    const tempoResult = requireTempoSigningResult(tempoSnapshot, {
+      walletId: this.walletId,
+      chainId: INTENDED_TEMPO_CHAIN_ID,
+    });
+    const arcEvmResult = requireArcEvmSigningResult(arcEvmSnapshot, {
+      walletId: this.walletId,
+      chainId: INTENDED_ARC_EVM_CHAIN_ID,
+    });
+    await verifyTempoEcdsaSignature({ registration, result: tempoResult });
+    await verifyArcEvmSignature({ registration, result: arcEvmResult });
+
+    const lifecycleSnapshot = snapshotWithMostLifecycleEvents(tempoSnapshot, arcEvmSnapshot);
+    const summary = this.assertSigningAuthEvents(
+      lifecycleSnapshot,
+      stage,
+      'Concurrent Tempo/Arc signing',
+    );
+    assertConcurrentSharedBudgetExhaustion(summary);
+    this.recordSigningRemainingUses(summary);
+    this.latestPageSnapshot = lifecycleSnapshot;
+    this.recordService(
+      `concurrent Tempo/Arc signatures verified wallet=${this.walletId} remainingUses=0`,
+    );
   }
 
   async exhaustSigningBudget(): Promise<void> {
     this.recordStage('remaining_spend.exhaust');
     if (this.latestSigningRemainingUses === 0) {
-      this.postExhaustionStepUpSatisfied = false;
       this.recordService('signing remaining spend already exhausted');
       return;
     }
@@ -952,7 +1076,6 @@ export class IntendedBehaviourHarness {
         `near remaining spend exhaustion attempt=${attempt} remainingUses=${String(remainingUses)}`,
       );
       if (remainingUses === 0) {
-        this.postExhaustionStepUpSatisfied = false;
         return;
       }
     }
@@ -1443,11 +1566,7 @@ export class IntendedBehaviourHarness {
     stage: IntendedSigningStage,
     label: string,
   ): SigningAuthEventSummary {
-    const expectation = signingAuthExpectationForStage(
-      this.flow,
-      stage,
-      this.postExhaustionStepUpSatisfied,
-    );
+    const expectation = signingAuthExpectationForStage(this.flow, stage);
     const summary = summarizeSigningAuthEvents(snapshot);
     assertSigningAuthExpectation({
       label,
@@ -1455,8 +1574,8 @@ export class IntendedBehaviourHarness {
       expectation,
       summary,
     });
-    if (stage === 'after_step_up' && expectation !== 'warm_session') {
-      this.postExhaustionStepUpSatisfied = true;
+    if (stage === 'after_step_up') {
+      assertStepUpTransactionConsumedSingleUseBudget({ label, summary });
     }
     this.passkeyPromptCount += signingPasskeyPromptCount(summary);
     this.emailOtpVerificationCount += signingEmailOtpVerificationCount(summary);
@@ -1790,7 +1909,6 @@ function nearRpcQueryStubResult(params: unknown): unknown {
 function signingAuthExpectationForStage(
   flow: IntendedLifecycleFlow,
   stage: IntendedSigningStage,
-  postExhaustionStepUpSatisfied: boolean,
 ): SigningAuthExpectation {
   switch (stage) {
     case 'post_registration':
@@ -1798,14 +1916,7 @@ function signingAuthExpectationForStage(
     case 'after_refresh_recovery':
       return 'warm_session';
     case 'after_step_up':
-      if (flow.startsWith('passkey')) {
-        return postExhaustionStepUpSatisfied
-          ? 'passkey_step_up_or_warm_session'
-          : 'passkey_step_up';
-      }
-      return postExhaustionStepUpSatisfied
-        ? 'email_otp_step_up_or_warm_session'
-        : 'email_otp_step_up';
+      return flow.startsWith('passkey') ? 'passkey_step_up' : 'email_otp_step_up';
     default:
       return assertNever(stage);
   }
@@ -1922,12 +2033,6 @@ function assertSigningAuthExpectation(input: {
     case 'email_otp_step_up':
       assertEmailOtpStepUpSigningAuth(input);
       return;
-    case 'passkey_step_up_or_warm_session':
-      assertPasskeyStepUpOrWarmSessionSigningAuth(input);
-      return;
-    case 'email_otp_step_up_or_warm_session':
-      assertEmailOtpStepUpOrWarmSessionSigningAuth(input);
-      return;
     default:
       return assertNever(input.expectation);
   }
@@ -2001,44 +2106,6 @@ function assertPasskeyStepUpSigningAuth(input: {
   if (hasAnyEmailOtpSigningEvent(input.summary)) {
     throw new Error(`${input.label} at ${input.stage} used Email OTP in a passkey lifecycle`);
   }
-}
-
-function hasAnyPasskeySigningEvent(summary: SigningAuthEventSummary): boolean {
-  return (
-    summary.passkeyPromptStarted ||
-    summary.passkeyPromptSucceeded ||
-    summary.passkeyAuthenticationComplete
-  );
-}
-
-function assertPasskeyStepUpOrWarmSessionSigningAuth(input: {
-  label: string;
-  stage: IntendedSigningStage;
-  summary: SigningAuthEventSummary;
-}): void {
-  if (hasAnyEmailOtpSigningEvent(input.summary)) {
-    throw new Error(`${input.label} at ${input.stage} used Email OTP in a passkey lifecycle`);
-  }
-  if (hasAnyPasskeySigningEvent(input.summary)) {
-    assertPasskeyStepUpSigningAuth(input);
-    return;
-  }
-  assertWarmSessionSigningAuth(input);
-}
-
-function assertEmailOtpStepUpOrWarmSessionSigningAuth(input: {
-  label: string;
-  stage: IntendedSigningStage;
-  summary: SigningAuthEventSummary;
-}): void {
-  if (hasAnyPasskeySigningEvent(input.summary)) {
-    throw new Error(`${input.label} at ${input.stage} used passkey in an Email OTP lifecycle`);
-  }
-  if (hasAnyEmailOtpSigningEvent(input.summary)) {
-    assertEmailOtpStepUpSigningAuth(input);
-    return;
-  }
-  assertWarmSessionSigningAuth(input);
 }
 
 function assertEmailOtpStepUpSigningAuth(input: {
@@ -2159,14 +2226,24 @@ function minimumRemainingUse(summary: SigningAuthEventSummary): number | null {
   return Math.min(...summary.remainingUses);
 }
 
-function assertSigningRemainingUses(
-  summary: SigningAuthEventSummary,
-  expected: number,
-  label: string,
-): void {
-  const actual = minimumRemainingUse(summary);
-  if (actual !== expected) {
-    throw new Error(`${label} expected remainingUses=${expected}; received ${String(actual)}`);
+function assertConcurrentSharedBudgetExhaustion(summary: SigningAuthEventSummary): void {
+  const observed = new Set(summary.remainingUses);
+  if (!observed.has(1) || !observed.has(0)) {
+    throw new Error(
+      `Concurrent Tempo/Arc signing did not consume the final two shared budget uses: ${JSON.stringify(summary.remainingUses)}`,
+    );
+  }
+}
+
+function assertStepUpTransactionConsumedSingleUseBudget(input: {
+  label: string;
+  summary: SigningAuthEventSummary;
+}): void {
+  const remainingUses = minimumRemainingUse(input.summary);
+  if (remainingUses !== 0) {
+    throw new Error(
+      `${input.label} did not consume its single-use step-up budget: ${JSON.stringify(input.summary.remainingUses)}`,
+    );
   }
 }
 
@@ -2928,6 +3005,38 @@ async function readIntendedPageSnapshot(page: Page): Promise<IntendedPageSnapsho
   const text = await page.getByTestId('intended-result-json').textContent();
   if (!text) throw new Error('Intended page snapshot is empty');
   return parseIntendedPageSnapshot(JSON.parse(text));
+}
+
+function parseIntendedConcurrentActionSnapshots(rawSnapshots: readonly unknown[]): IntendedPageSnapshot[] {
+  const snapshots: IntendedPageSnapshot[] = [];
+  for (const raw of rawSnapshots) {
+    snapshots.push(parseIntendedPageSnapshot(raw));
+  }
+  return snapshots;
+}
+
+function requireConcurrentSigningSuccess(
+  snapshots: readonly IntendedPageSnapshot[],
+  action: 'signTempoTransaction' | 'signArcEvmTransaction',
+): IntendedPageSnapshot {
+  let success: IntendedPageSnapshot | null = null;
+  for (const snapshot of snapshots) {
+    if (snapshot.action.status === 'error' && snapshot.action.action === action) {
+      throw new Error(`Concurrent ${action} failed: ${snapshot.action.error}`);
+    }
+    if (snapshot.action.status === 'success' && snapshot.action.action === action) {
+      success = snapshot;
+    }
+  }
+  if (success) return success;
+  throw new Error(`Concurrent ${action} did not produce a success result`);
+}
+
+function snapshotWithMostLifecycleEvents(
+  left: IntendedPageSnapshot,
+  right: IntendedPageSnapshot,
+): IntendedPageSnapshot {
+  return left.events.length >= right.events.length ? left : right;
 }
 
 function parseIntendedPageSnapshot(raw: unknown): IntendedPageSnapshot {

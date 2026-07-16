@@ -99,7 +99,7 @@ function roleLocalReadyRecordForPostSign(args: {
       relayerParticipantId: 2,
       participantIds: [1, 2],
       contextBinding32B64u: VALID_CONTEXT_BINDING_B64U,
-      hssClientSharePublicKey33B64u: VALID_PUBLIC_KEY_B64U,
+      derivationClientSharePublicKey33B64u: VALID_PUBLIC_KEY_B64U,
       relayerPublicKey33B64u: VALID_RELAYER_PUBLIC_KEY_B64U,
       groupPublicKey33B64u: VALID_PUBLIC_KEY_B64U,
       ethereumAddress: '0x1111111111111111111111111111111111111111',

@@ -42,10 +42,10 @@ function makeEcdsaAddSignerCeremony(
     },
     signerState: {
       kind: 'ecdsa_add_signer_prepared',
-      hssKind: 'evm_family_ecdsa_keygen',
+      derivationKind: 'evm_family_ecdsa_keygen',
       chainTargets: [{ kind: 'tempo', chainId: 42431 }],
       prepare: {
-        formatVersion: 'ecdsa-hss-role-local',
+        formatVersion: 'ecdsa-derivation-role-local',
         walletId: String(WALLET_ID),
         walletKeyId: `wallet-key-${String(WALLET_ID)}`,
         ecdsaThresholdKeyId: 'ek_add_signer',

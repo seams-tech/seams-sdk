@@ -27,8 +27,8 @@ import {
   buildEcdsaRoleLocalReadyRecord,
 } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 import {
-  classifyRouterAbEcdsaHssPersistedSigningRecord,
-  markRouterAbEcdsaHssWorkerMaterialRuntimeValidated,
+  classifyRouterAbEcdsaDerivationPersistedSigningRecord,
+  markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated,
 } from '../../packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession';
 import type { WarmSessionEcdsaCapabilityState } from '../../packages/sdk-web/src/core/signingEngine/session/warmCapabilities/types';
 import { selectedEcdsaLane } from '../../packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity';
@@ -87,7 +87,7 @@ function makeWalletSessionJwt(args: {
   const encode = (value: object): string =>
     Buffer.from(JSON.stringify(value)).toString('base64url');
   return `${encode({ alg: 'none', typ: 'JWT' })}.${encode({
-    kind: 'router_ab_ecdsa_hss_wallet_session_v1',
+    kind: 'router_ab_ecdsa_derivation_wallet_session_v1',
     thresholdSessionId: args.thresholdSessionId,
     signingGrantId: args.signingGrantId,
     exp: 1_900_000_000,
@@ -98,7 +98,7 @@ function ethereumAddress20B64u(address: string): string {
   return Buffer.from(address.replace(/^0x/i, ''), 'hex').toString('base64url');
 }
 
-function makeRouterAbEcdsaHssNormalSigningState(args: {
+function makeRouterAbEcdsaDerivationNormalSigningState(args: {
   record: Pick<
     ThresholdEcdsaSessionRecord,
     | 'walletId'
@@ -113,7 +113,7 @@ function makeRouterAbEcdsaHssNormalSigningState(args: {
   >;
 }) {
   return {
-    kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+    kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
     scope: {
       wallet_key_id: String(args.record.evmFamilySigningKeySlotId),
       wallet_id: String(args.record.walletId),
@@ -125,7 +125,7 @@ function makeRouterAbEcdsaHssNormalSigningState(args: {
       },
       public_identity: {
         context_binding_b64u: VALID_ECDSA_SHARE32_B64U,
-        client_public_key33_b64u: String(args.record.clientVerifyingShareB64u),
+        derivation_client_share_public_key33_b64u: String(args.record.clientVerifyingShareB64u),
         server_public_key33_b64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
         threshold_public_key33_b64u: String(args.record.thresholdEcdsaPublicKeyB64u),
         ethereum_address20_b64u: ethereumAddress20B64u(String(args.record.ethereumAddress)),
@@ -177,7 +177,7 @@ function makeRecord(): ThresholdEcdsaSessionRecord {
         participantIds: [1, 2],
         applicationBindingDigestB64u: VALID_ECDSA_SHARE32_B64U,
         contextBinding32B64u: VALID_ECDSA_SHARE32_B64U,
-        hssClientSharePublicKey33B64u: VALID_ECDSA_CLIENT_PUBLIC_KEY_B64U,
+        derivationClientSharePublicKey33B64u: VALID_ECDSA_CLIENT_PUBLIC_KEY_B64U,
         relayerPublicKey33B64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
         groupPublicKey33B64u: VALID_ECDSA_GROUP_PUBLIC_KEY_B64U,
         ethereumAddress: THRESHOLD_OWNER_ADDRESS,
@@ -208,8 +208,8 @@ function makeRecord(): ThresholdEcdsaSessionRecord {
     updatedAtMs: 1_800_000_000_000,
     source: 'login',
   };
-  record.routerAbEcdsaHssNormalSigning = makeRouterAbEcdsaHssNormalSigningState({ record });
-  markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record);
+  record.routerAbEcdsaDerivationNormalSigning = makeRouterAbEcdsaDerivationNormalSigningState({ record });
+  markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record);
   return record;
 }
 
@@ -223,8 +223,8 @@ function makeRecordWithIdentity(args: {
     signingGrantId: args.signingGrantId,
     walletSessionJwt: makeWalletSessionJwt(args),
   };
-  record.routerAbEcdsaHssNormalSigning = makeRouterAbEcdsaHssNormalSigningState({ record });
-  markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record);
+  record.routerAbEcdsaDerivationNormalSigning = makeRouterAbEcdsaDerivationNormalSigningState({ record });
+  markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record);
   return record;
 }
 
@@ -253,7 +253,7 @@ function makeReadyMaterial(args: {
     },
   });
   if (material.kind !== 'ready') {
-    const persistedState = classifyRouterAbEcdsaHssPersistedSigningRecord(args.record);
+    const persistedState = classifyRouterAbEcdsaDerivationPersistedSigningRecord(args.record);
     throw new Error(
       `expected ready EVM-family ECDSA material: ${material.kind}:${JSON.stringify(material.reason)} persisted=${JSON.stringify({
         kind: persistedState.kind,

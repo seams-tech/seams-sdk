@@ -12,7 +12,6 @@ const verifierCallFiles = Object.freeze([
   'packages/sdk-server-ts/src/router/walletRegistrationRoutes.ts',
   'packages/sdk-server-ts/src/router/walletUnlockRouteHandlers.ts',
   'packages/sdk-server-ts/src/core/AuthService.ts',
-  'packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts',
 ]);
 
 function readRepoFile(relativePath) {

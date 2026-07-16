@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
+  ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
   ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-  THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND,
 } from '@shared/utils/sessionTokens';
 import { setupBasicPasskeyTest } from '../setup';
 
@@ -21,7 +21,7 @@ function unsignedJwt(payload: Record<string, unknown>): string {
   return `${header}.${body}.`;
 }
 
-function thresholdEcdsaSessionJwt(args: {
+function routerAbEcdsaWalletSessionJwt(args: {
   walletId: string;
   thresholdSessionId: string;
   signingGrantId: string;
@@ -29,12 +29,12 @@ function thresholdEcdsaSessionJwt(args: {
   chainTarget: Record<string, unknown>;
 }): string {
   return unsignedJwt({
-    kind: THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND,
+    kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
     sub: args.walletId,
     walletId: args.walletId,
     keyHandle: args.keyHandle,
     chainTarget: args.chainTarget,
-    sessionId: args.thresholdSessionId,
+    thresholdSessionId: args.thresholdSessionId,
     signingGrantId: args.signingGrantId,
   });
 }
@@ -824,7 +824,7 @@ test.describe('UserConfirm worker router', () => {
   test('sealed mode persists signing-session seal using explicit ECDSA transport and canonical record metadata', async ({
     page,
   }) => {
-    const canonicalSessionJwt = thresholdEcdsaSessionJwt({
+    const canonicalSessionJwt = routerAbEcdsaWalletSessionJwt({
       walletId: 'alice.testnet',
       thresholdSessionId: 'session-ecdsa-record',
       signingGrantId: 'wallet-session-ecdsa-record',

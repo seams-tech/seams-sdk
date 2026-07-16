@@ -54,7 +54,7 @@ const requiredSdkDistArtifacts = [
   'packages/sdk-web/dist/esm/wasm/router_ab_ed25519_yao_client/pkg/router_ab_ed25519_yao_client_bg.wasm',
   'packages/sdk-web/dist/esm/wasm/near_signer/pkg/wasm_signer_worker.js',
   'packages/sdk-web/dist/workers/router_ab_ed25519_yao_client_bg.wasm',
-  'packages/sdk-web/dist/workers/eth-signer.worker.js',
+  'packages/sdk-web/dist/workers/evm-crypto.worker.js',
   'packages/sdk-web/dist/workers/near-signer.worker.js',
   'packages/sdk-web/dist/workers/tempo-signer.worker.js',
 ];

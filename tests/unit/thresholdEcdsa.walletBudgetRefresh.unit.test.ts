@@ -1,12 +1,12 @@
 import { expect, test } from '@playwright/test';
 import {
-  computeEcdsaHssRoleLocalRelayerKeyId,
-  computeEcdsaHssRoleLocalThresholdKeyId,
-} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+  computeEcdsaDerivationRoleLocalRelayerKeyId,
+  computeEcdsaDerivationRoleLocalThresholdKeyId,
+} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
-import type { LocalRouterAbEcdsaHssNormalSigningSeedResult } from '../../packages/sdk-server-ts/src/core/routerAbSigning/RouterAbLocalSigningSeedRuntime';
+import type { LocalRouterAbEcdsaDerivationNormalSigningSeedResult } from '../../packages/sdk-server-ts/src/core/routerAbSigning/RouterAbLocalSigningSeedRuntime';
 import { walletSigningBudgetSessionId } from '../../packages/sdk-server-ts/src/core/ThresholdService/walletSigningBudget';
-import { createThresholdSigningServiceForUnitTests } from '../helpers/thresholdServiceTestUtils';
+import { createRouterAbSigningRuntimesForUnitTests } from '../helpers/routerAbSigningRuntimeTestUtils';
 
 const walletId = 'cedar-zenith-pghgtw';
 const signingRootId = 'proj_mqykdxtp_o2hgej:dev';
@@ -18,8 +18,8 @@ const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
 });
 
 function assertSeedOk(
-  result: LocalRouterAbEcdsaHssNormalSigningSeedResult,
-): asserts result is Extract<LocalRouterAbEcdsaHssNormalSigningSeedResult, { ok: true }> {
+  result: LocalRouterAbEcdsaDerivationNormalSigningSeedResult,
+): asserts result is Extract<LocalRouterAbEcdsaDerivationNormalSigningSeedResult, { ok: true }> {
   expect(result, JSON.stringify(result)).toMatchObject({ ok: true });
 }
 
@@ -38,7 +38,7 @@ async function ecdsaSeedBase(): Promise<{
   return {
     walletId,
     evmFamilySigningKeySlotId,
-    ecdsaThresholdKeyId: await computeEcdsaHssRoleLocalThresholdKeyId({
+    ecdsaThresholdKeyId: await computeEcdsaDerivationRoleLocalThresholdKeyId({
       walletId,
       evmFamilySigningKeySlotId,
       signingRootId,
@@ -46,9 +46,9 @@ async function ecdsaSeedBase(): Promise<{
     }),
     signingRootId,
     signingRootVersion,
-    walletKeyVersion: 'threshold-ecdsa-hss-v1',
+    walletKeyVersion: 'threshold-ecdsa-derivation-v1',
     derivationVersion: 1,
-    relayerKeyId: await computeEcdsaHssRoleLocalRelayerKeyId({
+    relayerKeyId: await computeEcdsaDerivationRoleLocalRelayerKeyId({
       walletId,
       evmFamilySigningKeySlotId,
     }),
@@ -59,24 +59,24 @@ async function ecdsaSeedBase(): Promise<{
 
 async function allowsMultipleExactEcdsaSessionsForOneWalletKeySlot(): Promise<void> {
   const { routerAbLocalSigningSeedRuntime, walletBudgetSessionStore } =
-    createThresholdSigningServiceForUnitTests({});
+    createRouterAbSigningRuntimesForUnitTests({});
   const base = await ecdsaSeedBase();
   const signingGrantId = 'wss_exact_ecdsa_wallet_budget';
-  const first = await routerAbLocalSigningSeedRuntime.seedLocalRouterAbEcdsaHssNormalSigningSession(
+  const first = await routerAbLocalSigningSeedRuntime.seedLocalRouterAbEcdsaDerivationNormalSigningSession(
     {
       ...base,
       signingGrantId,
-      thresholdSessionId: 'tehss_exact_budget_first',
+      thresholdSessionId: 'tederivation_exact_budget_first',
       thresholdExpiresAtMs: Date.now() + 60_000,
     },
   );
   assertSeedOk(first);
 
   const second =
-    await routerAbLocalSigningSeedRuntime.seedLocalRouterAbEcdsaHssNormalSigningSession({
+    await routerAbLocalSigningSeedRuntime.seedLocalRouterAbEcdsaDerivationNormalSigningSession({
       ...base,
       signingGrantId,
-      thresholdSessionId: 'tehss_exact_budget_second',
+      thresholdSessionId: 'tederivation_exact_budget_second',
       thresholdExpiresAtMs: Date.now() + 60_000,
     });
   assertSeedOk(second);
@@ -88,11 +88,11 @@ async function allowsMultipleExactEcdsaSessionsForOneWalletKeySlot(): Promise<vo
       kind: 'ecdsa_only',
       ecdsa: [
         {
-          thresholdSessionId: 'tehss_exact_budget_first',
+          thresholdSessionId: 'tederivation_exact_budget_first',
           evmFamilySigningKeySlotId,
         },
         {
-          thresholdSessionId: 'tehss_exact_budget_second',
+          thresholdSessionId: 'tederivation_exact_budget_second',
           evmFamilySigningKeySlotId,
         },
       ],
@@ -102,14 +102,14 @@ async function allowsMultipleExactEcdsaSessionsForOneWalletKeySlot(): Promise<vo
 
 async function rejectsDifferentEcdsaKeySlotWithoutOrphaningState(): Promise<void> {
   const { routerAbLocalSigningSeedRuntime, ecdsaWalletSessionStore } =
-    createThresholdSigningServiceForUnitTests({});
+    createRouterAbSigningRuntimesForUnitTests({});
   const base = await ecdsaSeedBase();
   const signingGrantId = 'wss_rejects_different_ecdsa_key_slot';
-  const first = await routerAbLocalSigningSeedRuntime.seedLocalRouterAbEcdsaHssNormalSigningSession(
+  const first = await routerAbLocalSigningSeedRuntime.seedLocalRouterAbEcdsaDerivationNormalSigningSession(
     {
       ...base,
       signingGrantId,
-      thresholdSessionId: 'tehss_key_slot_first',
+      thresholdSessionId: 'tederivation_key_slot_first',
       thresholdExpiresAtMs: Date.now() + 60_000,
     },
   );
@@ -121,26 +121,26 @@ async function rejectsDifferentEcdsaKeySlotWithoutOrphaningState(): Promise<void
     signingRootVersion,
   });
   const rejected =
-    await routerAbLocalSigningSeedRuntime.seedLocalRouterAbEcdsaHssNormalSigningSession({
+    await routerAbLocalSigningSeedRuntime.seedLocalRouterAbEcdsaDerivationNormalSigningSession({
       ...base,
       evmFamilySigningKeySlotId: substitutedSlotId,
-      ecdsaThresholdKeyId: await computeEcdsaHssRoleLocalThresholdKeyId({
+      ecdsaThresholdKeyId: await computeEcdsaDerivationRoleLocalThresholdKeyId({
         walletId,
         evmFamilySigningKeySlotId: substitutedSlotId,
         signingRootId,
         signingRootVersion,
       }),
-      relayerKeyId: await computeEcdsaHssRoleLocalRelayerKeyId({
+      relayerKeyId: await computeEcdsaDerivationRoleLocalRelayerKeyId({
         walletId,
         evmFamilySigningKeySlotId: substitutedSlotId,
       }),
       signingGrantId,
-      thresholdSessionId: 'tehss_key_slot_substituted',
+      thresholdSessionId: 'tederivation_key_slot_substituted',
       thresholdExpiresAtMs: Date.now() + 60_000,
     });
   expect(rejected).toMatchObject({ ok: false, code: 'unauthorized' });
   await expect(
-    ecdsaWalletSessionStore.getSession('tehss_key_slot_substituted'),
+    ecdsaWalletSessionStore.getSession('tederivation_key_slot_substituted'),
   ).resolves.toBeNull();
 }
 

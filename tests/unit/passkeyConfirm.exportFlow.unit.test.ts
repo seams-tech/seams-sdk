@@ -285,7 +285,7 @@ test.describe('passkey-confirm export flow worker', () => {
     expect(String(result?.data?.error || '')).toContain('AbortError');
   });
 
-  test('rejects retired ecdsa-hss secp256k1 key artifact kind without prompting', async ({
+  test('rejects retired ecdsa-derivation secp256k1 key artifact kind without prompting', async ({
     page,
   }) => {
     const result = await page.evaluate(
@@ -307,7 +307,7 @@ test.describe('passkey-confirm export flow worker', () => {
         try {
           (self as any).onmessage?.({
             data: {
-              id: 'export-op-retired-ecdsa-hss-kind',
+              id: 'export-op-retired-ecdsa-derivation-kind',
               type: 'EXPORT_PRIVATE_KEYS_WITH_UI',
               payload: {
                 walletId: 'frost-vermillion-k7p9m2',
@@ -317,7 +317,7 @@ test.describe('passkey-confirm export flow worker', () => {
                   chainId: 5042002,
                   networkSlug: 'arc-testnet',
                 },
-                artifactKind: 'ecdsa-hss-secp256k1-key-v1',
+                artifactKind: 'ecdsa-derivation-secp256k1-key-v1',
                 publicKeyHex: `0x${'02'}${'11'.repeat(32)}`,
                 privateKeyHex: `0x${'22'.repeat(32)}`,
                 ethereumAddress: `0x${'33'.repeat(20)}`,
@@ -330,7 +330,7 @@ test.describe('passkey-confirm export flow worker', () => {
             const deadline = Date.now() + 3_000;
             const poll = () => {
               const found = responses.find(
-                (entry) => entry?.id === 'export-op-retired-ecdsa-hss-kind',
+                (entry) => entry?.id === 'export-op-retired-ecdsa-derivation-kind',
               );
               if (found) {
                 resolve(found);
@@ -358,7 +358,7 @@ test.describe('passkey-confirm export flow worker', () => {
 
     expect(result.promptCount).toBe(0);
     expect(result.response).toMatchObject({
-      id: 'export-op-retired-ecdsa-hss-kind',
+      id: 'export-op-retired-ecdsa-derivation-kind',
       success: false,
       error: 'Invalid EXPORT_PRIVATE_KEYS_WITH_UI payload',
     });

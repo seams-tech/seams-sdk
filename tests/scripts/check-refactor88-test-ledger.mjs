@@ -287,7 +287,7 @@ const retainedBoundaryAuditEvidenceTokens = {
         'passkey-confirm export flow worker',
         'returns cancelled when user cancels at first confirmation step',
         'fails closed when seed does not match expected public key',
-        'rejects retired ecdsa-hss secp256k1 key artifact kind without prompting',
+        'rejects retired ecdsa-derivation secp256k1 key artifact kind without prompting',
     ],
     'tests/unit/profileAccountProjection.generic.unit.test.ts': [
         'generic profile/account projection helpers',

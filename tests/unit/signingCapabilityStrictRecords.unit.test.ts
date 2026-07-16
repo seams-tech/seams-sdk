@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
-import type { RouterAbEcdsaHssNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaHss';
-import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
+import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import { ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import {
   thresholdEcdsaChainTargetKey,
   toWalletId,
@@ -25,9 +25,9 @@ import {
 import { buildEmailOtpAuthContextForWalletAuthMethod } from '@/core/signingEngine/session/identity/laneIdentity';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import {
-  classifyRouterAbEcdsaHssPersistedSigningRecord,
-  clearRouterAbEcdsaHssWorkerMaterialRuntimeValidation,
-  markRouterAbEcdsaHssWorkerMaterialRuntimeValidated,
+  classifyRouterAbEcdsaDerivationPersistedSigningRecord,
+  clearRouterAbEcdsaDerivationWorkerMaterialRuntimeValidation,
+  markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated,
 } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
 
@@ -109,9 +109,9 @@ function makeEcdsaLane() {
   });
 }
 
-function makeEcdsaRouterAbNormalSigning(): RouterAbEcdsaHssNormalSigningStateV1 {
+function makeEcdsaRouterAbNormalSigning(): RouterAbEcdsaDerivationNormalSigningStateV1 {
   return {
-    kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+    kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
     scope: {
       wallet_key_id: ecdsaWalletKeyId,
       wallet_id: ecdsaWalletId,
@@ -123,7 +123,7 @@ function makeEcdsaRouterAbNormalSigning(): RouterAbEcdsaHssNormalSigningStateV1 
       },
       public_identity: {
         context_binding_b64u: ecdsaContextBindingB64u,
-        client_public_key33_b64u: ecdsaClientPublicKeyB64u,
+        derivation_client_share_public_key33_b64u: ecdsaClientPublicKeyB64u,
         server_public_key33_b64u: ecdsaRelayerPublicKeyB64u,
         threshold_public_key33_b64u: ecdsaClientPublicKeyB64u,
         ethereum_address20_b64u: ecdsaOwnerAddress20B64u(),
@@ -163,7 +163,7 @@ function makeEcdsaRoleLocalReadyRecord() {
       relayerParticipantId: 2,
       participantIds: [1, 2],
       contextBinding32B64u: ecdsaContextBindingB64u,
-      hssClientSharePublicKey33B64u: ecdsaClientPublicKeyB64u,
+      derivationClientSharePublicKey33B64u: ecdsaClientPublicKeyB64u,
       relayerPublicKey33B64u: ecdsaRelayerPublicKeyB64u,
       groupPublicKey33B64u: ecdsaClientPublicKeyB64u,
       ethereumAddress: ecdsaOwnerAddress,
@@ -196,12 +196,12 @@ function makeEcdsaRecord(
       envId: 'dev',
       signingRootVersion: ecdsaSigningRootVersion,
     },
-    routerAbEcdsaHssNormalSigning: makeEcdsaRouterAbNormalSigning(),
+    routerAbEcdsaDerivationNormalSigning: makeEcdsaRouterAbNormalSigning(),
     thresholdSessionKind: 'jwt',
     thresholdSessionId: ecdsaThresholdSessionId,
     signingGrantId: ecdsaSigningGrantId,
     walletSessionJwt: makeTestWalletSessionJwt({
-      kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+      kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
       sub: ecdsaWalletId,
       thresholdSessionId: ecdsaThresholdSessionId,
       signingGrantId: ecdsaSigningGrantId,
@@ -228,14 +228,14 @@ function makeEcdsaRecord(
 
 test.describe('selected signing capability strict persisted records', () => {
   test.beforeEach(() => {
-    clearRouterAbEcdsaHssWorkerMaterialRuntimeValidation();
+    clearRouterAbEcdsaDerivationWorkerMaterialRuntimeValidation();
   });
 
   test('rejects selected ECDSA records missing Router A/B normal-signing state', () => {
     const lane = makeEcdsaLane();
     const record = makeEcdsaRecord();
-    delete record.routerAbEcdsaHssNormalSigning;
-    expect(classifyRouterAbEcdsaHssPersistedSigningRecord(record)).toMatchObject({
+    delete record.routerAbEcdsaDerivationNormalSigning;
+    expect(classifyRouterAbEcdsaDerivationPersistedSigningRecord(record)).toMatchObject({
       kind: 'invalid',
       reason: 'missing_router_ab_state',
       record,
@@ -261,7 +261,7 @@ test.describe('selected signing capability strict persisted records', () => {
     const record = makeEcdsaRecord({
       clientVerifyingShareB64u: '',
     });
-    expect(classifyRouterAbEcdsaHssPersistedSigningRecord(record)).toMatchObject({
+    expect(classifyRouterAbEcdsaDerivationPersistedSigningRecord(record)).toMatchObject({
       kind: 'invalid',
       reason: 'missing_client_verifying_share',
       record,
@@ -287,7 +287,7 @@ test.describe('selected signing capability strict persisted records', () => {
     const record = makeEcdsaRecord({
       clientVerifyingShareB64u: ecdsaRelayerPublicKeyB64u,
     });
-    expect(classifyRouterAbEcdsaHssPersistedSigningRecord(record)).toMatchObject({
+    expect(classifyRouterAbEcdsaDerivationPersistedSigningRecord(record)).toMatchObject({
       kind: 'invalid',
       reason: 'material_identity_mismatch',
       record,
@@ -310,7 +310,7 @@ test.describe('selected signing capability strict persisted records', () => {
 
   test('rejects selected ECDSA records when Router A/B threshold key drifts from the record', () => {
     const record = makeEcdsaRecord({
-      routerAbEcdsaHssNormalSigning: {
+      routerAbEcdsaDerivationNormalSigning: {
         ...makeEcdsaRouterAbNormalSigning(),
         scope: {
           ...makeEcdsaRouterAbNormalSigning().scope,
@@ -319,7 +319,7 @@ test.describe('selected signing capability strict persisted records', () => {
       },
     });
 
-    expect(classifyRouterAbEcdsaHssPersistedSigningRecord(record)).toMatchObject({
+    expect(classifyRouterAbEcdsaDerivationPersistedSigningRecord(record)).toMatchObject({
       kind: 'invalid',
       reason: 'material_identity_mismatch',
       record,
@@ -328,7 +328,7 @@ test.describe('selected signing capability strict persisted records', () => {
 
   test('rejects selected ECDSA records when Router A/B signing root drifts from runtime policy', () => {
     const record = makeEcdsaRecord({
-      routerAbEcdsaHssNormalSigning: {
+      routerAbEcdsaDerivationNormalSigning: {
         ...makeEcdsaRouterAbNormalSigning(),
         scope: {
           ...makeEcdsaRouterAbNormalSigning().scope,
@@ -337,7 +337,7 @@ test.describe('selected signing capability strict persisted records', () => {
       },
     });
 
-    expect(classifyRouterAbEcdsaHssPersistedSigningRecord(record)).toMatchObject({
+    expect(classifyRouterAbEcdsaDerivationPersistedSigningRecord(record)).toMatchObject({
       kind: 'invalid',
       reason: 'signing_root_mismatch',
       record,
@@ -348,7 +348,7 @@ test.describe('selected signing capability strict persisted records', () => {
     const remainingUsesRecord = makeEcdsaRecord({
       remainingUses: 2.5,
     });
-    expect(classifyRouterAbEcdsaHssPersistedSigningRecord(remainingUsesRecord)).toMatchObject({
+    expect(classifyRouterAbEcdsaDerivationPersistedSigningRecord(remainingUsesRecord)).toMatchObject({
       kind: 'invalid',
       reason: 'invalid_budget',
       record: remainingUsesRecord,
@@ -357,7 +357,7 @@ test.describe('selected signing capability strict persisted records', () => {
     const expiresAtRecord = makeEcdsaRecord({
       expiresAtMs: 2_000_000_000_000.5,
     });
-    expect(classifyRouterAbEcdsaHssPersistedSigningRecord(expiresAtRecord)).toMatchObject({
+    expect(classifyRouterAbEcdsaDerivationPersistedSigningRecord(expiresAtRecord)).toMatchObject({
       kind: 'invalid',
       reason: 'invalid_budget',
       record: expiresAtRecord,
@@ -367,7 +367,7 @@ test.describe('selected signing capability strict persisted records', () => {
   test('keeps selected ECDSA role-local records restore-only until worker material is validated', () => {
     const lane = makeEcdsaLane();
     const record = makeEcdsaRecord();
-    expect(classifyRouterAbEcdsaHssPersistedSigningRecord(record)).toMatchObject({
+    expect(classifyRouterAbEcdsaDerivationPersistedSigningRecord(record)).toMatchObject({
       kind: 'restore_available',
       reason: 'loaded_material_missing',
       record,
@@ -391,9 +391,9 @@ test.describe('selected signing capability strict persisted records', () => {
   test('accepts selected ECDSA records only after runtime worker material validation', () => {
     const lane = makeEcdsaLane();
     const record = makeEcdsaRecord();
-    expect(markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)).toBe(true);
+    expect(markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record)).toBe(true);
 
-    expect(classifyRouterAbEcdsaHssPersistedSigningRecord(record)).toMatchObject({
+    expect(classifyRouterAbEcdsaDerivationPersistedSigningRecord(record)).toMatchObject({
       kind: 'runtime_validated',
       record,
       value: {
@@ -401,7 +401,7 @@ test.describe('selected signing capability strict persisted records', () => {
         thresholdSessionId: ecdsaThresholdSessionId,
         signingGrantId: ecdsaSigningGrantId,
         signingMaterial: {
-          kind: 'router_ab_ecdsa_hss_signing_material_ref_v1',
+          kind: 'router_ab_ecdsa_derivation_signing_material_ref_v1',
           clientVerifier33B64u: ecdsaClientPublicKeyB64u,
           serverVerifier33B64u: ecdsaRelayerPublicKeyB64u,
           thresholdVerifier33B64u: ecdsaClientPublicKeyB64u,
@@ -427,15 +427,15 @@ test.describe('selected signing capability strict persisted records', () => {
 
   test('invalidates selected ECDSA runtime validation on worker restart', () => {
     const record = makeEcdsaRecord();
-    expect(markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)).toBe(true);
-    expect(classifyRouterAbEcdsaHssPersistedSigningRecord(record)).toMatchObject({
+    expect(markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record)).toBe(true);
+    expect(classifyRouterAbEcdsaDerivationPersistedSigningRecord(record)).toMatchObject({
       kind: 'runtime_validated',
       record,
     });
 
-    clearRouterAbEcdsaHssWorkerMaterialRuntimeValidation();
+    clearRouterAbEcdsaDerivationWorkerMaterialRuntimeValidation();
 
-    expect(classifyRouterAbEcdsaHssPersistedSigningRecord(record)).toMatchObject({
+    expect(classifyRouterAbEcdsaDerivationPersistedSigningRecord(record)).toMatchObject({
       kind: 'restore_available',
       reason: 'loaded_material_missing',
       record,
@@ -447,10 +447,10 @@ test.describe('selected signing capability strict persisted records', () => {
     const record = makeEcdsaRecord({
       expiresAtMs: Date.now() + 60_000,
     });
-    expect(markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)).toBe(true);
+    expect(markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record)).toBe(true);
 
     runWithDateNow(record.expiresAtMs + 1, () => {
-      expect(classifyRouterAbEcdsaHssPersistedSigningRecord(record)).toMatchObject({
+      expect(classifyRouterAbEcdsaDerivationPersistedSigningRecord(record)).toMatchObject({
         kind: 'expired',
         reason: 'expired',
         expiresAtMs: record.expiresAtMs,
@@ -476,10 +476,10 @@ test.describe('selected signing capability strict persisted records', () => {
     const record = makeEcdsaRecord({
       remainingUses: 1,
     });
-    expect(markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)).toBe(true);
+    expect(markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record)).toBe(true);
     record.remainingUses = 0;
 
-    expect(classifyRouterAbEcdsaHssPersistedSigningRecord(record)).toMatchObject({
+    expect(classifyRouterAbEcdsaDerivationPersistedSigningRecord(record)).toMatchObject({
       kind: 'exhausted',
       reason: 'exhausted',
       remainingUses: 0,
@@ -504,11 +504,11 @@ test.describe('selected signing capability strict persisted records', () => {
       expiresAtMs: Date.now() + 60_000,
       remainingUses: 1,
     });
-    expect(markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)).toBe(true);
+    expect(markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record)).toBe(true);
     record.remainingUses = 0;
 
     runWithDateNow(record.expiresAtMs + 1, () => {
-      expect(classifyRouterAbEcdsaHssPersistedSigningRecord(record)).toMatchObject({
+      expect(classifyRouterAbEcdsaDerivationPersistedSigningRecord(record)).toMatchObject({
         kind: 'expired',
         reason: 'expired',
         expiresAtMs: record.expiresAtMs,
@@ -519,9 +519,9 @@ test.describe('selected signing capability strict persisted records', () => {
 
   test('rejects ECDSA active-state classification with an invalid operation clock', () => {
     const record = makeEcdsaRecord();
-    expect(markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)).toBe(true);
+    expect(markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record)).toBe(true);
 
-    expect(classifyRouterAbEcdsaHssPersistedSigningRecord(record, Number.NaN)).toMatchObject({
+    expect(classifyRouterAbEcdsaDerivationPersistedSigningRecord(record, Number.NaN)).toMatchObject({
       kind: 'invalid',
       reason: 'invalid_budget',
       record,
@@ -532,16 +532,16 @@ test.describe('selected signing capability strict persisted records', () => {
     const record = makeEcdsaRecord();
     const refreshedRecord = makeEcdsaRecord({
       walletSessionJwt: makeTestWalletSessionJwt({
-        kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+        kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
         sub: ecdsaWalletId,
         thresholdSessionId: ecdsaThresholdSessionId,
         signingGrantId: ecdsaSigningGrantId,
         version: 2,
       }),
     });
-    expect(markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)).toBe(true);
+    expect(markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record)).toBe(true);
 
-    expect(classifyRouterAbEcdsaHssPersistedSigningRecord(refreshedRecord)).toMatchObject({
+    expect(classifyRouterAbEcdsaDerivationPersistedSigningRecord(refreshedRecord)).toMatchObject({
       kind: 'restore_available',
       reason: 'loaded_material_missing',
       record: refreshedRecord,
@@ -554,16 +554,16 @@ test.describe('selected signing capability strict persisted records', () => {
     const refreshedRecord = makeEcdsaRecord({
       signingGrantId: refreshedSigningGrantId,
       walletSessionJwt: makeTestWalletSessionJwt({
-        kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+        kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
         sub: ecdsaWalletId,
         thresholdSessionId: ecdsaThresholdSessionId,
         signingGrantId: refreshedSigningGrantId,
         version: 1,
       }),
     });
-    expect(markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)).toBe(true);
+    expect(markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record)).toBe(true);
 
-    expect(classifyRouterAbEcdsaHssPersistedSigningRecord(refreshedRecord)).toMatchObject({
+    expect(classifyRouterAbEcdsaDerivationPersistedSigningRecord(refreshedRecord)).toMatchObject({
       kind: 'restore_available',
       reason: 'loaded_material_missing',
       record: refreshedRecord,
@@ -572,16 +572,16 @@ test.describe('selected signing capability strict persisted records', () => {
 
   test('invalidates selected ECDSA runtime validation when Router A/B activation epoch changes', () => {
     const record = makeEcdsaRecord();
-    const routerAbEcdsaHssNormalSigning = makeEcdsaRouterAbNormalSigning();
-    routerAbEcdsaHssNormalSigning.scope.activation_epoch = SigningSessionIds.thresholdEcdsaSession(
+    const routerAbEcdsaDerivationNormalSigning = makeEcdsaRouterAbNormalSigning();
+    routerAbEcdsaDerivationNormalSigning.scope.activation_epoch = SigningSessionIds.thresholdEcdsaSession(
       'tsess-strict-ecdsa-rotated',
     );
     const refreshedRecord = makeEcdsaRecord({
-      routerAbEcdsaHssNormalSigning,
+      routerAbEcdsaDerivationNormalSigning,
     });
-    expect(markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)).toBe(true);
+    expect(markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record)).toBe(true);
 
-    expect(classifyRouterAbEcdsaHssPersistedSigningRecord(refreshedRecord)).toMatchObject({
+    expect(classifyRouterAbEcdsaDerivationPersistedSigningRecord(refreshedRecord)).toMatchObject({
       kind: 'restore_available',
       reason: 'loaded_material_missing',
       record: refreshedRecord,

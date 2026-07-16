@@ -26,7 +26,13 @@ function makeUnexpectedRouterApiServiceValue(path: string): unknown {
 function makeRouterApiServiceBagFixture(): RouterApiServiceBag {
   const target = {
     thresholdRuntime: {
-      getThresholdSigningService() {
+      getRouterAbNormalSigningRuntime() {
+        return undefined;
+      },
+      getRouterAbEcdsaBootstrapExportRuntime() {
+        return undefined;
+      },
+      getRouterAbEcdsaPresignRuntime() {
         return undefined;
       },
     },

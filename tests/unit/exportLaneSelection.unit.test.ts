@@ -30,6 +30,8 @@ import {
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
+import type { EcdsaReauthAnchorPublicRestore } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore';
+import { runtimeEcdsaRouterAbNormalSigningState } from './helpers/availableSigningLanes.fixtures';
 
 const WALLET_ID = 'alice.testnet';
 const RP_ID = 'localhost';
@@ -38,7 +40,7 @@ const EMAIL_OTP_PROVIDER_SUBJECT_ID = 'google:export-lane';
 const THRESHOLD_OWNER_ADDRESS = '0x1111111111111111111111111111111111111111';
 const OTHER_THRESHOLD_OWNER_ADDRESS = '0x2222222222222222222222222222222222222222';
 const VALID_ECDSA_PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
-const TEST_ECDSA_KEY_HANDLE = 'ehss-key-export-lane-test' as EvmFamilyEcdsaKeyHandle;
+const TEST_ECDSA_KEY_HANDLE = 'ederivation-key-export-lane-test' as EvmFamilyEcdsaKeyHandle;
 const EVM_TARGET: ThresholdEcdsaChainTarget = {
   kind: 'evm',
   namespace: 'eip155',
@@ -53,12 +55,66 @@ const TEMPO_TARGET: ThresholdEcdsaChainTarget = {
 const NEAR_ACCOUNT = nearAccountRefFromAccountId('alice.testnet');
 const NEAR_ED25519_SIGNING_KEY_ID = nearEd25519SigningKeyIdFromString('ed25519ks_export_lane');
 
-type EcdsaLaneOverrides = Partial<ConcreteAvailableEcdsaSigningLane> & {
+type EcdsaLaneCommonOverrides = Partial<
+  Pick<
+    ConcreteAvailableEcdsaSigningLane,
+    | 'key'
+    | 'publicFacts'
+    | 'chainTarget'
+    | 'state'
+    | 'signingGrantId'
+    | 'thresholdSessionId'
+    | 'remainingUses'
+    | 'expiresAtMs'
+    | 'updatedAtMs'
+  >
+> & {
   ecdsaThresholdKeyId?: string;
   thresholdOwnerAddress?: string;
   authBindingRpId?: string;
-  authMethod?: 'email_otp' | 'passkey';
 };
+
+type EcdsaLaneAuthOverrides =
+  | {
+      authMethod?: 'passkey';
+      auth?: Extract<ConcreteAvailableEcdsaSigningLane['auth'], { kind: 'passkey' }>;
+    }
+  | {
+      authMethod: 'email_otp';
+      auth?: Extract<ConcreteAvailableEcdsaSigningLane['auth'], { kind: 'email_otp' }>;
+    };
+
+type EcdsaLaneSourceOverrides =
+  | {
+      source?: 'runtime_session_record';
+      sourceChainTarget?: never;
+    }
+  | {
+      source: 'durable_sealed_record';
+      sourceChainTarget?: never;
+    }
+  | {
+      source: 'evm_family_shared_key';
+      sourceChainTarget?: ThresholdEcdsaChainTarget;
+    };
+
+type EcdsaLaneOverrides = EcdsaLaneCommonOverrides &
+  EcdsaLaneAuthOverrides &
+  EcdsaLaneSourceOverrides;
+
+type EcdsaLaneCommon = Pick<
+  ConcreteAvailableEcdsaSigningLane,
+  | 'key'
+  | 'publicFacts'
+  | 'curve'
+  | 'chainTarget'
+  | 'state'
+  | 'signingGrantId'
+  | 'thresholdSessionId'
+  | 'remainingUses'
+  | 'expiresAtMs'
+  | 'updatedAtMs'
+>;
 
 function passkeySigningAuth(rpId = toRpId(RP_ID)) {
   return {
@@ -75,35 +131,9 @@ function emailOtpSigningAuth() {
   };
 }
 
-function ecdsaLane(overrides: EcdsaLaneOverrides): ConcreteAvailableEcdsaSigningLane {
-  const {
-    key: keyOverride,
-    source,
-    sourceChainTarget,
-    publicFacts: publicFactsOverride,
-    ecdsaThresholdKeyId,
-    thresholdOwnerAddress,
-    authBindingRpId,
-    auth: authOverride,
-    authMethod: authMethodOverride,
-    resolvedKey: _resolvedKeyOverride,
-    ...laneOverrides
-  } = overrides;
-  const authMethod = authMethodOverride || authOverride?.kind || 'passkey';
-  const passkeyRpId = toRpId(authBindingRpId || RP_ID);
-  const lane = {
-    curve: 'ecdsa' as const,
-    chainTarget: EVM_TARGET,
-    state: 'ready' as const,
-    signingGrantId: 'wallet-session-1',
-    thresholdSessionId: 'threshold-session-1',
-    remainingUses: 3,
-    expiresAtMs: 1_900_000_000_000,
-    updatedAtMs: 1_800_000_000_000,
-    ...laneOverrides,
-  };
+function ecdsaLaneCommon(overrides: EcdsaLaneOverrides): EcdsaLaneCommon {
   const key =
-    keyOverride ||
+    overrides.key ||
     buildEvmFamilyEcdsaKeyIdentity({
       walletId: WALLET_ID,
       evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
@@ -111,14 +141,14 @@ function ecdsaLane(overrides: EcdsaLaneOverrides): ConcreteAvailableEcdsaSigning
         signingRootId: 'root-1',
         signingRootVersion: 'default',
       }),
-      ecdsaThresholdKeyId: ecdsaThresholdKeyId || 'ecdsa-key-1',
+      ecdsaThresholdKeyId: overrides.ecdsaThresholdKeyId || 'ecdsa-key-1',
       signingRootId: 'root-1',
       signingRootVersion: 'default',
       participantIds: [1, 2],
-      thresholdOwnerAddress: thresholdOwnerAddress || THRESHOLD_OWNER_ADDRESS,
+      thresholdOwnerAddress: overrides.thresholdOwnerAddress || THRESHOLD_OWNER_ADDRESS,
     });
   const publicFacts =
-    publicFactsOverride ||
+    overrides.publicFacts ||
     buildVerifiedEcdsaPublicFacts({
       keyHandle: `${TEST_ECDSA_KEY_HANDLE}-${String(key.ecdsaThresholdKeyId)}-${String(
         key.signingRootId,
@@ -127,65 +157,138 @@ function ecdsaLane(overrides: EcdsaLaneOverrides): ConcreteAvailableEcdsaSigning
       participantIds: key.participantIds,
       thresholdOwnerAddress: key.thresholdOwnerAddress,
     });
-  if (source === 'evm_family_shared_key') {
-    if (authMethod === 'passkey') {
-      const auth =
-        authOverride?.kind === 'passkey' ? authOverride : passkeySigningAuth(passkeyRpId);
-      const resolvedKey = buildResolvedEvmFamilyEcdsaKey({
-        walletId: key.walletId,
-        publicFacts,
-        authBinding: buildPasskeyEcdsaAuthBinding({
-          rpId: passkeyRpId,
-          credentialIdB64u: PASSKEY_CREDENTIAL_ID,
-        }),
-      });
-      return {
-        ...lane,
-        auth,
-        key,
-        publicFacts,
-        resolvedKey,
-        source,
-        sourceChainTarget: sourceChainTarget || EVM_TARGET,
-      };
-    }
-    const auth = authOverride?.kind === 'email_otp' ? authOverride : emailOtpSigningAuth();
-    return {
-      ...lane,
-      auth,
-      key,
-      publicFacts,
-      source,
-      sourceChainTarget: sourceChainTarget || EVM_TARGET,
-    };
-  }
-  if (authMethod === 'passkey') {
-    const auth = authOverride?.kind === 'passkey' ? authOverride : passkeySigningAuth(passkeyRpId);
-    const resolvedKey = buildResolvedEvmFamilyEcdsaKey({
-      walletId: key.walletId,
-      publicFacts,
-      authBinding: buildPasskeyEcdsaAuthBinding({
-        rpId: passkeyRpId,
-        credentialIdB64u: PASSKEY_CREDENTIAL_ID,
-      }),
-    });
-    return {
-      ...lane,
-      auth,
-      key,
-      publicFacts,
-      resolvedKey,
-      source: source || 'runtime_session_record',
-    };
-  }
-  const auth = authOverride?.kind === 'email_otp' ? authOverride : emailOtpSigningAuth();
   return {
-    ...lane,
-    auth,
     key,
     publicFacts,
-    source: source || 'runtime_session_record',
+    curve: 'ecdsa',
+    chainTarget: overrides.chainTarget || EVM_TARGET,
+    state: overrides.state || 'ready',
+    signingGrantId: overrides.signingGrantId || 'wallet-session-1',
+    thresholdSessionId: overrides.thresholdSessionId || 'threshold-session-1',
+    remainingUses: overrides.remainingUses ?? 3,
+    expiresAtMs: overrides.expiresAtMs ?? 1_900_000_000_000,
+    updatedAtMs: overrides.updatedAtMs ?? 1_800_000_000_000,
   };
+}
+
+function resolvedPasskeyKey(common: EcdsaLaneCommon, rpId: ReturnType<typeof toRpId>) {
+  return buildResolvedEvmFamilyEcdsaKey({
+    walletId: common.key.walletId,
+    publicFacts: common.publicFacts,
+    authBinding: buildPasskeyEcdsaAuthBinding({
+      rpId,
+      credentialIdB64u: PASSKEY_CREDENTIAL_ID,
+    }),
+  });
+}
+
+function durablePublicReauthAuthority(
+  common: EcdsaLaneCommon,
+  auth: ConcreteAvailableEcdsaSigningLane['auth'],
+): EcdsaReauthAnchorPublicRestore {
+  const base = {
+    chainTarget: common.chainTarget,
+    signingRootId: common.key.signingRootId,
+    signingRootVersion: common.key.signingRootVersion,
+    evmFamilySigningKeySlotId: common.key.evmFamilySigningKeySlotId,
+    keyHandle: common.publicFacts.keyHandle,
+    ecdsaThresholdKeyId: common.key.ecdsaThresholdKeyId,
+    ethereumAddress: common.key.thresholdOwnerAddress,
+    relayerKeyId: 'signing-worker-export-lane',
+    thresholdEcdsaPublicKeyB64u: common.publicFacts.publicKeyB64u,
+    participantIds: [...common.key.participantIds],
+    runtimePolicyScope: {
+      orgId: 'org-export-lane',
+      projectId: 'project-export-lane',
+      envId: 'test',
+      signingRootVersion: common.key.signingRootVersion,
+    },
+    routerAbEcdsaDerivationNormalSigning: runtimeEcdsaRouterAbNormalSigningState({
+      key: common.key,
+      thresholdSessionId: common.thresholdSessionId,
+      thresholdEcdsaPublicKeyB64u: common.publicFacts.publicKeyB64u,
+      thresholdOwnerAddress: common.key.thresholdOwnerAddress,
+    }),
+  };
+  switch (auth.kind) {
+    case 'passkey':
+      return {
+        ...base,
+        source: 'login',
+        rpId: auth.rpId,
+        credentialIdB64u: auth.credentialIdB64u,
+      };
+    case 'email_otp':
+      return {
+        ...base,
+        source: 'email_otp',
+        provider: 'google',
+        providerSubjectId: auth.providerSubjectId,
+        emailHashHex: '11'.repeat(32),
+      };
+  }
+}
+
+function ecdsaLaneAuth(overrides: EcdsaLaneOverrides): ConcreteAvailableEcdsaSigningLane['auth'] {
+  switch (overrides.authMethod) {
+    case 'email_otp':
+      return overrides.auth || emailOtpSigningAuth();
+    case 'passkey':
+    case undefined:
+      return overrides.auth || passkeySigningAuth(toRpId(overrides.authBindingRpId || RP_ID));
+  }
+}
+
+function ecdsaLane(overrides: EcdsaLaneOverrides): ConcreteAvailableEcdsaSigningLane {
+  const common = ecdsaLaneCommon(overrides);
+  const auth = ecdsaLaneAuth(overrides);
+
+  switch (overrides.source) {
+    case 'durable_sealed_record':
+      return auth.kind === 'passkey'
+        ? {
+            ...common,
+            auth,
+            resolvedKey: resolvedPasskeyKey(common, auth.rpId),
+            source: 'durable_sealed_record',
+            publicReauthAuthority: durablePublicReauthAuthority(common, auth),
+          }
+        : {
+            ...common,
+            auth,
+            source: 'durable_sealed_record',
+            publicReauthAuthority: durablePublicReauthAuthority(common, auth),
+          };
+    case 'evm_family_shared_key':
+      return auth.kind === 'passkey'
+        ? {
+            ...common,
+            auth,
+            resolvedKey: resolvedPasskeyKey(common, auth.rpId),
+            source: 'evm_family_shared_key',
+            sourceChainTarget: overrides.sourceChainTarget || EVM_TARGET,
+          }
+        : {
+            ...common,
+            auth,
+            source: 'evm_family_shared_key',
+            sourceChainTarget: overrides.sourceChainTarget || EVM_TARGET,
+          };
+    case 'runtime_session_record':
+    case undefined:
+      return auth.kind === 'passkey'
+        ? {
+            ...common,
+            auth,
+            resolvedKey: resolvedPasskeyKey(common, auth.rpId),
+            source: 'runtime_session_record',
+          }
+        : {
+            ...common,
+            auth,
+            source: 'runtime_session_record',
+          };
+  }
 }
 
 function availableLanes(lanes: ConcreteAvailableEcdsaSigningLane[]): AvailableSigningLanes {

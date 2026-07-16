@@ -173,7 +173,7 @@ function seedEcdsaGrantRecord(
       chain: 'tempo',
       roleLocalAuthMethod: 'email_otp',
       emailOtpAuthSubjectId: String(ECDSA_WALLET_ID),
-      keyHandle: 'ehss-clear-ecdsa-shared',
+      keyHandle: 'ederivation-clear-ecdsa-shared',
       ecdsaThresholdKeyId: 'ek-clear-ecdsa-shared',
       sessionId: args.thresholdSessionId,
       signingGrantId: args.signingGrantId,

@@ -4,10 +4,10 @@ import { base64UrlEncode } from '@shared/utils/encoders';
 import { createEcdsaWalletSessionStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/WalletSessionStore';
 import {
   createThresholdEcdsaSigningStores,
-  type RouterAbEcdsaHssPoolFillSessionRecord,
+  type RouterAbEcdsaDerivationPoolFillSessionRecord,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/EcdsaSigningStore';
 import {
-  CloudflareDurableObjectRouterAbEcdsaHssPoolFillLiveSessionOwner,
+  CloudflareDurableObjectRouterAbEcdsaDerivationPoolFillLiveSessionOwner,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/CloudflareDurableObjectStore';
 import type {
   CloudflareDurableObjectNamespaceLike,
@@ -131,7 +131,7 @@ function makeCloudflareDoPresignSessionRecord(input: {
   relayerKeyId: string;
   version: number;
   stage: 'triples' | 'triples_done' | 'presign' | 'done';
-}): RouterAbEcdsaHssPoolFillSessionRecord {
+}): RouterAbEcdsaDerivationPoolFillSessionRecord {
   const nowMs = Date.now();
   return {
     expiresAtMs: nowMs + 60_000,
@@ -160,7 +160,7 @@ function randomSecpSecretKey32(): Uint8Array {
   throw new Error('secp256k1 random secret key generator is unavailable');
 }
 
-function makeEcdsaHssPoolFillLiveSessionMaterial(): {
+function makeEcdsaDerivationPoolFillLiveSessionMaterial(): {
   relayerThresholdShare32B64u: string;
   groupPublicKey33B64u: string;
 } {
@@ -408,11 +408,11 @@ test.describe('threshold-ecdsa durable presign stores', () => {
     test('pool-fill live session owner shares WASM state across fresh owner instances', async () => {
       const namespace = createMemoryDurableObjectNamespace();
       const objectName = randPrefix('threshold-ecdsa:do-live-pool-fill');
-      const firstOwner = new CloudflareDurableObjectRouterAbEcdsaHssPoolFillLiveSessionOwner({
+      const firstOwner = new CloudflareDurableObjectRouterAbEcdsaDerivationPoolFillLiveSessionOwner({
         namespace,
         objectName,
       });
-      const freshOwner = new CloudflareDurableObjectRouterAbEcdsaHssPoolFillLiveSessionOwner({
+      const freshOwner = new CloudflareDurableObjectRouterAbEcdsaDerivationPoolFillLiveSessionOwner({
         namespace,
         objectName,
       });
@@ -422,7 +422,7 @@ test.describe('threshold-ecdsa durable presign stores', () => {
         version: 1,
         stage: 'triples',
       });
-      const material = makeEcdsaHssPoolFillLiveSessionMaterial();
+      const material = makeEcdsaDerivationPoolFillLiveSessionMaterial();
 
       const created = await firstOwner.createSession({
         presignSessionId,

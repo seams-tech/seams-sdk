@@ -88,7 +88,7 @@ test('D1 staging runbook renders exact Phase 6 command sequence from readiness-c
   expect(markdown).toContain('ecdsa_export_share_missing_kek_fail_closed');
   expect(markdown).toContain('--console-origin https://console.staging.example');
   expect(markdown).toContain('Router API `/router-ab/ed25519/healthz` configured');
-  expect(markdown).toContain('Router API `/router-ab/ecdsa-hss/healthz` configured');
+  expect(markdown).toContain('Router API `/router-ab/ecdsa-derivation/healthz` configured');
   expect(markdown).toContain('Fixture-backed signer custody, KEK isolation, and missing-KEK fail-closed');
   expect(markdown.indexOf('## Preflight')).toBeLessThan(
     markdown.indexOf('## Resource Inventory Capture'),

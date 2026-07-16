@@ -56,7 +56,7 @@ function fixedBytesB64u(length: number, byte: number): string {
 
 function restoreEcdsaNormalSigningState(args: { thresholdSessionId: string }) {
   return {
-    kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+    kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
     scope: {
       wallet_key_id: TEST_EVM_FAMILY_SIGNING_KEY_SLOT_ID,
       wallet_id: 'restore.testnet',
@@ -68,7 +68,7 @@ function restoreEcdsaNormalSigningState(args: { thresholdSessionId: string }) {
       },
       public_identity: {
         context_binding_b64u: fixedBytesB64u(32, 1),
-        client_public_key33_b64u: fixedBytesB64u(33, 2),
+        derivation_client_share_public_key33_b64u: fixedBytesB64u(33, 2),
         server_public_key33_b64u: fixedBytesB64u(33, 3),
         threshold_public_key33_b64u: fixedBytesB64u(33, 4),
         ethereum_address20_b64u: ethereumAddress20B64u(`0x${'33'.repeat(20)}`),
@@ -167,7 +167,7 @@ function makeSealedRecord(args: {
           clientVerifyingShareB64u: 'client-verifying-share-restore',
           thresholdEcdsaPublicKeyB64u: 'threshold-public-key-restore',
           participantIds: [1, 2],
-          routerAbEcdsaHssNormalSigning: restoreEcdsaNormalSigningState({
+          routerAbEcdsaDerivationNormalSigning: restoreEcdsaNormalSigningState({
             thresholdSessionId,
           }),
         }
@@ -187,7 +187,7 @@ function makeSealedRecord(args: {
           clientVerifyingShareB64u: 'client-verifying-share-restore',
           thresholdEcdsaPublicKeyB64u: 'threshold-public-key-restore',
           participantIds: [1, 2],
-          routerAbEcdsaHssNormalSigning: restoreEcdsaNormalSigningState({
+          routerAbEcdsaDerivationNormalSigning: restoreEcdsaNormalSigningState({
             thresholdSessionId,
           }),
         };

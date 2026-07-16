@@ -96,7 +96,7 @@ for (const marker of [
 for (const marker of [
   'preparePasskeyEcdsaBootstrap',
   'respondWalletAddSignerEcdsa',
-  'parseWalletRegistrationEcdsaHssRespond',
+  'parseWalletRegistrationEcdsaDerivationRespond',
   'ThresholdSigningService',
 ]) {
   assert.ok(
@@ -150,6 +150,9 @@ for (const relativePath of [
   'packages/sdk-web/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts',
   'packages/sdk-web/src/core/signingEngine/threshold/ed25519/workerMaterialHandle.ts',
   'packages/sdk-web/src/core/signingEngine/threshold/ed25519/presignPool.ts',
+  'packages/sdk-server-ts/src/core/ThresholdService/ed25519PresignRound1.ts',
+  'packages/sdk-server-ts/src/core/ThresholdService/ed25519PresignRound2.ts',
+  'packages/sdk-server-ts/src/core/ThresholdService/cosigners.ts',
   'packages/sdk-web/src/core/signingEngine/flows/recovery/nearEd25519ExportFlow.ts',
   'packages/sdk-web/src/core/signingEngine/flows/recovery/nearEd25519HssExport.ts',
   'packages/sdk-web/src/core/signingEngine/flows/recovery/nearEd25519SeedReportExport.ts',
@@ -246,8 +249,8 @@ const retiredSplitDerivationPatterns = [
 ];
 
 for (const relativePath of [
-  'wasm/ecdsa_client_signer/pkg/ecdsa_client_signer.d.ts',
-  'wasm/ecdsa_client_signer/pkg/ecdsa_client_signer.js',
+  'wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.d.ts',
+  'wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.js',
   'wasm/near_signer/pkg/wasm_signer_worker.d.ts',
   'wasm/near_signer/pkg/wasm_signer_worker.js',
 ]) {

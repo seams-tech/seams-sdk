@@ -22,7 +22,7 @@ test.describe('WebAuthnP256Engine wasm boundary', () => {
     const workerSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../packages/sdk-web/src/core/signingEngine/workerManager/workers/eth-signer.worker.ts',
+        '../packages/sdk-web/src/core/signingEngine/workerManager/workers/evm-crypto.worker.ts',
       ),
       'utf8',
     );
@@ -35,7 +35,7 @@ test.describe('WebAuthnP256Engine wasm boundary', () => {
     const workerSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../packages/sdk-web/src/core/signingEngine/workerManager/workers/eth-signer.worker.ts',
+        '../packages/sdk-web/src/core/signingEngine/workerManager/workers/evm-crypto.worker.ts',
       ),
       'utf8',
     );

@@ -22,7 +22,7 @@ import type { EmailOtpEcdsaCommittedLane } from '@/core/signingEngine/flows/sign
 import { buildCurrentSealedSessionRecord } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import { emailOtpEcdsaSigningSessionAuthLaneFromSealedRecord } from '@/core/signingEngine/session/emailOtp/sealedSigningSessionAuth';
 import {
-  ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+  ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
   toWalletSessionThresholdExpiresAtMs,
 } from '@shared/utils/sessionTokens';
 import { buildEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
@@ -84,13 +84,13 @@ function ethereumAddress20B64u(address: string): string {
   return Buffer.from(address.replace(/^0x/i, ''), 'hex').toString('base64url');
 }
 
-function routerAbEcdsaHssNormalSigningState(args: {
+function routerAbEcdsaDerivationNormalSigningState(args: {
   walletId: string;
   ecdsaThresholdKeyId: string;
   thresholdSessionId: string;
 }) {
   return {
-    kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+    kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
     scope: {
       wallet_key_id: testEvmFamilySigningKeySlotId(args.walletId),
       wallet_id: args.walletId,
@@ -102,7 +102,7 @@ function routerAbEcdsaHssNormalSigningState(args: {
       },
       public_identity: {
         context_binding_b64u: 'CAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg',
-        client_public_key33_b64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+        derivation_client_share_public_key33_b64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
         server_public_key33_b64u: 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
         threshold_public_key33_b64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
         ethereum_address20_b64u: ethereumAddress20B64u(`0x${'aa'.repeat(20)}`),
@@ -127,7 +127,7 @@ function thresholdEcdsaSessionJwt(args: {
   keyHandle: string;
 }) {
   return unsignedJwt({
-    kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+    kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
     sub: args.walletId,
     walletId: args.walletId,
     keyHandle: args.keyHandle,
@@ -227,7 +227,7 @@ function committedLaneForAuth(args: {
     authority,
     authLane: args.authLane,
     walletSessionAuthority: {
-      kind: 'wallet_session_authority',
+      kind: 'ecdsa_wallet_session_authority',
       walletSessionJwt,
       walletId: args.lane.key.walletId,
       evmFamilySigningKeySlotId: args.lane.key.evmFamilySigningKeySlotId,
@@ -286,7 +286,7 @@ test('exhausted durable Email OTP authority starts a fresh ECDSA session for Arc
   const key = buildEvmFamilyEcdsaKeyIdentity({
     walletId: ecdsaWalletId,
     evmFamilySigningKeySlotId: testEvmFamilySigningKeySlotId(ecdsaWalletId),
-    ecdsaThresholdKeyId: 'ehss-email-otp',
+    ecdsaThresholdKeyId: 'ederivation-email-otp',
     signingRootId,
     signingRootVersion,
     participantIds: [1, 2],
@@ -389,7 +389,7 @@ test('Email OTP ECDSA bridge uses source authority while refreshing the selected
   const key = buildEvmFamilyEcdsaKeyIdentity({
     walletId: ecdsaWalletId,
     evmFamilySigningKeySlotId: testEvmFamilySigningKeySlotId(ecdsaWalletId),
-    ecdsaThresholdKeyId: 'ehss-email-otp',
+    ecdsaThresholdKeyId: 'ederivation-email-otp',
     signingRootId,
     signingRootVersion,
     participantIds: [1, 2],
@@ -473,7 +473,7 @@ test('Email OTP ECDSA bridge uses selected reauth authority lane directly', asyn
   const key = buildEvmFamilyEcdsaKeyIdentity({
     walletId: ecdsaWalletId,
     evmFamilySigningKeySlotId: testEvmFamilySigningKeySlotId(ecdsaWalletId),
-    ecdsaThresholdKeyId: 'ehss-email-otp',
+    ecdsaThresholdKeyId: 'ederivation-email-otp',
     signingRootId,
     signingRootVersion,
     participantIds: [1, 2],
@@ -533,7 +533,7 @@ test('EVM-family signing deps preserve one-use Email OTP step-up budget', async 
   const key = buildEvmFamilyEcdsaKeyIdentity({
     walletId: ecdsaWalletId,
     evmFamilySigningKeySlotId: testEvmFamilySigningKeySlotId(ecdsaWalletId),
-    ecdsaThresholdKeyId: 'ehss-email-otp',
+    ecdsaThresholdKeyId: 'ederivation-email-otp',
     signingRootId,
     signingRootVersion,
     participantIds: [1, 2],
@@ -619,13 +619,13 @@ test('sealed Email OTP ECDSA auth lane remains available after wallet signing bu
       }),
       sessionKind: 'jwt',
       keyHandle,
-      ecdsaThresholdKeyId: 'ehss-email-otp',
+      ecdsaThresholdKeyId: 'ederivation-email-otp',
       ethereumAddress: `0x${'aa'.repeat(20)}`,
       relayerKeyId: 'relayer-ecdsa',
       participantIds: [1, 2],
-      routerAbEcdsaHssNormalSigning: routerAbEcdsaHssNormalSigningState({
+      routerAbEcdsaDerivationNormalSigning: routerAbEcdsaDerivationNormalSigningState({
         walletId,
-        ecdsaThresholdKeyId: 'ehss-email-otp',
+        ecdsaThresholdKeyId: 'ederivation-email-otp',
         thresholdSessionId,
       }),
     },
@@ -638,7 +638,7 @@ test('sealed Email OTP ECDSA auth lane remains available after wallet signing bu
   const sealedKey = buildEvmFamilyEcdsaKeyIdentity({
     walletId: toWalletId(walletId),
     evmFamilySigningKeySlotId: testEvmFamilySigningKeySlotId(walletId),
-    ecdsaThresholdKeyId: 'ehss-email-otp',
+    ecdsaThresholdKeyId: 'ederivation-email-otp',
     signingRootId,
     signingRootVersion,
     participantIds: [1, 2],

@@ -3,9 +3,9 @@ import { base64UrlEncode } from '@shared/utils/base64';
 import {
   secp256k1PrivateKey32ToPublicKey33,
   signSecp256k1Recoverable,
-} from '../../packages/sdk-server-ts/src/core/ThresholdService/ethSignerWasm';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/evmCryptoWasm';
 import { verifyEcdsaClientRootProof } from '../../packages/sdk-server-ts/src/core/ThresholdService/ecdsaClientRootProof';
-import type { EcdsaHssClientRootProof } from '../../packages/sdk-server-ts/src/core/types';
+import type { EcdsaDerivationClientRootProof } from '../../packages/sdk-server-ts/src/core/types';
 import { bootstrapEcdsaSession } from '@/core/signingEngine/threshold/ecdsa/bootstrapSession';
 import { activateEcdsaSession } from '@/core/signingEngine/threshold/ecdsa/activation';
 import { thresholdEcdsaChainTargetFromChainFamily } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -16,18 +16,18 @@ import {
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { WorkerRequestType, WorkerResponseType } from '@/core/types/signer-worker';
 import {
-  HssClientCustomRequestType,
-  HssClientCustomResponseType,
+  EcdsaDerivationClientCustomRequestType,
+  EcdsaDerivationClientCustomResponseType,
 } from '@/core/signingEngine/workerManager/workerTypes';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import {
-  ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1,
-  ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
-  routerAbEcdsaHssContextBindingB64uV1,
-  routerAbEcdsaHssStableKeyContextFromSdkFactsV1,
-} from '@shared/utils/routerAbEcdsaHss';
+  ROUTER_AB_ECDSA_DERIVATION_KEY_SCOPE_V1,
+  ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
+  routerAbEcdsaDerivationContextBindingB64uV1,
+  routerAbEcdsaDerivationStableKeyContextFromSdkFactsV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import { ROUTER_AB_PUBLIC_KEYSET_VERSION_V2 } from '@shared/utils/routerAbPublicKeyset';
-import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
+import { ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 
 const TEST_CHAIN_TARGET = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'evm',
@@ -47,7 +47,7 @@ const TEST_KEY_IDENTITY = buildEvmFamilyEcdsaKeyIdentity({
   participantIds: [1, 2],
   thresholdOwnerAddress: '0x1111111111111111111111111111111111111111',
 });
-const TEST_KEY_HANDLE = toEvmFamilyEcdsaKeyHandle('ehss-key-existing-1');
+const TEST_KEY_HANDLE = toEvmFamilyEcdsaKeyHandle('ederivation-key-existing-1');
 const TEST_LANE_POLICY = buildEvmFamilyEcdsaSessionLanePolicy({
   chainTarget: TEST_CHAIN_TARGET,
   thresholdSessionId: 'ecdsa-session-1',
@@ -105,7 +105,7 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
             passkeyCredentialIdB64u: 'credential-id',
           },
         ),
-      ).rejects.toThrow('Router A/B ECDSA-HSS normal signing must be enabled for activation');
+      ).rejects.toThrow('Router A/B ECDSA derivation normal signing must be enabled for activation');
       expect(fetchCalled).toBe(false);
     } finally {
       globalThis.fetch = originalFetch;
@@ -115,14 +115,14 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
   test('activation stores role-local material in the worker before publishing a signable key ref', async () => {
     const originalFetch = globalThis.fetch;
     const storedMaterials: Array<{ materialHandle: string; bindingDigest: string }> = [];
-    const stableKeyContext = await routerAbEcdsaHssStableKeyContextFromSdkFactsV1({
+    const stableKeyContext = await routerAbEcdsaDerivationStableKeyContextFromSdkFactsV1({
       walletId: TEST_KEY_IDENTITY.walletId,
       ecdsaThresholdKeyId: TEST_KEY_IDENTITY.ecdsaThresholdKeyId,
       signingRootId: TEST_KEY_IDENTITY.signingRootId,
       signingRootVersion: TEST_KEY_IDENTITY.signingRootVersion,
     });
     const applicationBindingDigestB64u = stableKeyContext.application_binding_digest_b64u;
-    const contextBinding32B64u = await routerAbEcdsaHssContextBindingB64uV1(stableKeyContext);
+    const contextBinding32B64u = await routerAbEcdsaDerivationContextBindingB64uV1(stableKeyContext);
     const clientPublicKey33B64u = base64UrlEncode(
       Uint8Array.from([2, ...Array.from({ length: 32 }, () => 8)]),
     );
@@ -178,14 +178,14 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
       }
-      if (url.endsWith('/router-ab/ecdsa-hss/bootstrap')) {
+      if (url.endsWith('/router-ab/ecdsa-derivation/bootstrap')) {
         const body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
         const participantIds = Array.isArray(body.participantIds)
           ? body.participantIds.map((participantId) => Number(participantId))
           : [1, 2];
         const expiresAtMs = Date.now() + 300_000;
         const normalSigning = {
-          kind: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
+          kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
           scope: {
             wallet_key_id: body.evmFamilySigningKeySlotId,
             wallet_id: body.walletId,
@@ -197,7 +197,7 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
             },
             public_identity: {
               context_binding_b64u: contextBinding32B64u,
-              client_public_key33_b64u: clientPublicKey33B64u,
+              derivation_client_share_public_key33_b64u: clientPublicKey33B64u,
               server_public_key33_b64u: serverPublicKey33B64u,
               threshold_public_key33_b64u: groupPublicKey33B64u,
               ethereum_address20_b64u: address20B64u(ownerAddress),
@@ -214,25 +214,25 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
           },
         };
         const jwt = jwtWithPayload({
-          kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+          kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
           sub: body.walletId,
           walletId: body.walletId,
           evmFamilySigningKeySlotId: body.evmFamilySigningKeySlotId,
           rpId: body.rpId,
-          keyScope: ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1,
+          keyScope: ROUTER_AB_ECDSA_DERIVATION_KEY_SCOPE_V1,
           keyHandle: TEST_KEY_HANDLE,
           relayerKeyId: body.relayerKeyId,
           thresholdSessionId: body.sessionId,
           signingGrantId: body.signingGrantId,
           thresholdExpiresAtMs: expiresAtMs,
           participantIds,
-          routerAbEcdsaHssNormalSigning: normalSigning,
+          routerAbEcdsaDerivationNormalSigning: normalSigning,
         });
         return new Response(
           JSON.stringify({
             ok: true,
             value: {
-              formatVersion: 'ecdsa-hss-role-local',
+              formatVersion: 'ecdsa-derivation-role-local',
               walletId: body.walletId,
               evmFamilySigningKeySlotId: body.evmFamilySigningKeySlotId,
               rpId: body.rpId,
@@ -241,7 +241,7 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
               applicationBindingDigestB64u,
               contextBinding32B64u,
               publicIdentity: {
-                hssClientSharePublicKey33B64u: clientPublicKey33B64u,
+                derivationClientSharePublicKey33B64u: clientPublicKey33B64u,
                 relayerPublicKey33B64u: serverPublicKey33B64u,
                 groupPublicKey33B64u,
                 ethereumAddress: ownerAddress,
@@ -280,11 +280,11 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
           workerCtx: {
             requestWorkerOperation: async ({ kind, request }: any) => {
               if (
-                kind === 'ecdsaHssClient' &&
-                request.type === WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap
+                kind === 'ecdsaDerivationClient' &&
+                request.type === WorkerRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap
               ) {
                 return {
-                  type: WorkerResponseType.PrepareThresholdEcdsaHssRoleLocalClientBootstrapSuccess,
+                  type: WorkerResponseType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess,
                   payload: {
                     pendingStateBlob: {
                       kind: 'ecdsa_role_local_pending_state_blob_v1',
@@ -295,23 +295,23 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
                     },
                     clientBootstrap: {
                       contextBinding32B64u,
-                      hssClientSharePublicKey33B64u: clientPublicKey33B64u,
+                      derivationClientSharePublicKey33B64u: clientPublicKey33B64u,
                       clientShareRetryCounter: 0,
                       participantId: 1,
                     },
                     publicFacts: {
-                      hssClientSharePublicKey33B64u: clientPublicKey33B64u,
+                      derivationClientSharePublicKey33B64u: clientPublicKey33B64u,
                       clientVerifyingShareB64u,
                     },
                   },
                 };
               }
               if (
-                kind === 'ecdsaHssClient' &&
-                request.type === WorkerRequestType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrap
+                kind === 'ecdsaDerivationClient' &&
+                request.type === WorkerRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap
               ) {
                 return {
-                  type: WorkerResponseType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrapSuccess,
+                  type: WorkerResponseType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess,
                   payload: {
                     stateBlob: {
                       kind: 'ecdsa_role_local_state_blob_v1',
@@ -323,7 +323,7 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
                     publicFacts: {
                       contextBinding32B64u,
                       applicationBindingDigestB64u,
-                      hssClientSharePublicKey33B64u: clientPublicKey33B64u,
+                      derivationClientSharePublicKey33B64u: clientPublicKey33B64u,
                       clientVerifyingShareB64u,
                       relayerPublicKey33B64u: serverPublicKey33B64u,
                       groupPublicKey33B64u,
@@ -333,26 +333,26 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
                 };
               }
               if (
-                kind === 'ecdsaHssClient' &&
-                request.type === HssClientCustomRequestType.StoreThresholdEcdsaRoleLocalSigningMaterial
+                kind === 'ecdsaDerivationClient' &&
+                request.type === EcdsaDerivationClientCustomRequestType.StoreThresholdEcdsaRoleLocalSigningMaterial
               ) {
                 storedMaterials.push({
                   materialHandle: String(request.payload.materialHandle),
                   bindingDigest: String(request.payload.bindingDigest),
                 });
                 return {
-                  type: HssClientCustomResponseType.StoreThresholdEcdsaRoleLocalSigningMaterialSuccess,
+                  type: EcdsaDerivationClientCustomResponseType.StoreThresholdEcdsaRoleLocalSigningMaterialSuccess,
                   payload: {
                     materialHandle: request.payload.materialHandle,
                     bindingDigest: request.payload.bindingDigest,
                   },
                 };
               }
-              if (kind === 'ethSigner' && request.type === 'secp256k1PrivateKey32ToPublicKey33') {
+              if (kind === 'evmCrypto' && request.type === 'secp256k1PrivateKey32ToPublicKey33') {
                 const publicKey33 = Uint8Array.from([2, ...Array.from({ length: 32 }, () => 9)]);
                 return publicKey33.buffer;
               }
-              if (kind === 'ethSigner' && request.type === 'signSecp256k1Recoverable') {
+              if (kind === 'evmCrypto' && request.type === 'signSecp256k1Recoverable') {
                 return new Uint8Array(65).fill(11).buffer;
               }
               throw new Error(`unexpected worker request ${kind}:${String(request.type)}`);
@@ -402,19 +402,19 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
     }
   });
 
-  test('client root proof rejects verification against an HSS client-share public key', async () => {
+  test('client root proof rejects verification against an DERIVATION client-share public key', async () => {
     const digest32 = Uint8Array.from(Array.from({ length: 32 }, (_, index) => index));
     const clientRootPrivateKey32 = new Uint8Array(32).fill(1);
-    const hssClientSharePrivateKey32 = new Uint8Array(32).fill(2);
+    const ecdsaDerivationClientSharePrivateKey32 = new Uint8Array(32).fill(2);
     const clientRootPublicKey33 = await secp256k1PrivateKey32ToPublicKey33(clientRootPrivateKey32);
-    const hssClientSharePublicKey33 =
-      await secp256k1PrivateKey32ToPublicKey33(hssClientSharePrivateKey32);
+    const ecdsaDerivationClientSharePublicKey33 =
+      await secp256k1PrivateKey32ToPublicKey33(ecdsaDerivationClientSharePrivateKey32);
     const signature65 = await signSecp256k1Recoverable(digest32, clientRootPrivateKey32);
-    const rootProof: EcdsaHssClientRootProof = {
-      version: 'ecdsa-hss:role-local:first-bootstrap-root-proof:v2',
+    const rootProof: EcdsaDerivationClientRootProof = {
+      version: 'ecdsa-derivation:role-local:first-bootstrap-root-proof:v2',
       digest32B64u: base64UrlEncode(digest32),
       signature65B64u: base64UrlEncode(signature65),
-      clientRootPublicKey33B64u: base64UrlEncode(clientRootPublicKey33) as EcdsaHssClientRootProof['clientRootPublicKey33B64u'],
+      clientRootPublicKey33B64u: base64UrlEncode(clientRootPublicKey33) as EcdsaDerivationClientRootProof['clientRootPublicKey33B64u'],
     };
 
     await expect(verifyEcdsaClientRootProof(rootProof)).resolves.toMatchObject({ ok: true });
@@ -422,8 +422,8 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
       verifyEcdsaClientRootProof({
         ...rootProof,
         clientRootPublicKey33B64u: base64UrlEncode(
-          hssClientSharePublicKey33,
-        ) as EcdsaHssClientRootProof['clientRootPublicKey33B64u'],
+          ecdsaDerivationClientSharePublicKey33,
+        ) as EcdsaDerivationClientRootProof['clientRootPublicKey33B64u'],
       }),
     ).resolves.toMatchObject({
       ok: false,
@@ -478,7 +478,7 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
     globalThis.fetch = async (input, init) => {
       const url = String(input);
       requests.push(url);
-      if (url.includes('/router-ab/ecdsa-hss/bootstrap')) {
+      if (url.includes('/router-ab/ecdsa-derivation/bootstrap')) {
         bootstrapBodies.push(JSON.parse(String(init?.body || '{}')) as Record<string, unknown>);
       }
       return new Response(
@@ -518,12 +518,12 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
         workerCtx: {
           requestWorkerOperation: async ({ kind, request }: any) => {
             if (
-              kind === 'ecdsaHssClient' &&
-              request.type === WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap
+              kind === 'ecdsaDerivationClient' &&
+              request.type === WorkerRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap
             ) {
               expect(request.payload).toMatchObject({
                 kind: 'prepare_ecdsa_client_bootstrap_v1',
-                algorithm: 'ecdsa_hss_secp256k1_role_local_v1',
+                algorithm: 'router_ab_ecdsa_derivation_secp256k1_role_local_v1',
                 secretSource: {
                   kind: 'webauthn_prf_first',
                   prfFirstB64u: passkeyPrfFirstB64u,
@@ -531,7 +531,7 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
                 },
               });
               return {
-                type: WorkerResponseType.PrepareThresholdEcdsaHssRoleLocalClientBootstrapSuccess,
+                type: WorkerResponseType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess,
                 payload: {
                   pendingStateBlob: {
                     kind: 'ecdsa_role_local_pending_state_blob_v1',
@@ -542,14 +542,14 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
                   },
                   clientBootstrap: {
                     contextBinding32B64u: base64UrlEncode(new Uint8Array(32).fill(7)),
-                    hssClientSharePublicKey33B64u: base64UrlEncode(
+                    derivationClientSharePublicKey33B64u: base64UrlEncode(
                       Uint8Array.from([2, ...Array.from({ length: 32 }, () => 8)]),
                     ),
                     clientShareRetryCounter: 0,
                     participantId: 1,
                   },
                   publicFacts: {
-                    hssClientSharePublicKey33B64u: base64UrlEncode(
+                    derivationClientSharePublicKey33B64u: base64UrlEncode(
                       Uint8Array.from([2, ...Array.from({ length: 32 }, () => 8)]),
                     ),
                     clientVerifyingShareB64u: base64UrlEncode(
@@ -559,11 +559,11 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
                 },
               };
             }
-            if (kind === 'ethSigner' && request.type === 'secp256k1PrivateKey32ToPublicKey33') {
+            if (kind === 'evmCrypto' && request.type === 'secp256k1PrivateKey32ToPublicKey33') {
               const publicKey33 = Uint8Array.from([2, ...Array.from({ length: 32 }, () => 9)]);
               return publicKey33.buffer;
             }
-            if (kind === 'ethSigner' && request.type === 'signSecp256k1Recoverable') {
+            if (kind === 'evmCrypto' && request.type === 'signSecp256k1Recoverable') {
               return new Uint8Array(65).fill(11).buffer;
             }
             throw new Error(`unexpected worker request ${kind}:${String(request.type)}`);
@@ -574,7 +574,7 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
       expect(requests.some((url) => url.includes('/v1/registration/bootstrap-grants'))).toBe(false);
       expect(bootstrapBodies).toHaveLength(1);
       expect(bootstrapBodies[0]?.clientRootProof).toMatchObject({
-        version: 'ecdsa-hss:role-local:first-bootstrap-root-proof:v2',
+        version: 'ecdsa-derivation:role-local:first-bootstrap-root-proof:v2',
       });
       expect(bootstrapBodies[0]?.passkeyBootstrapAuthorization).toBeUndefined();
     } finally {

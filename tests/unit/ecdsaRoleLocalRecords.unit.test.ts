@@ -30,11 +30,11 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
-  toEcdsaHssSigningRootId,
-  toEcdsaHssSigningRootVersion,
-  toEcdsaHssThresholdKeyId,
+  toEcdsaDerivationSigningRootId,
+  toEcdsaDerivationSigningRootVersion,
+  toEcdsaDerivationThresholdKeyId,
   toEmailOtpAuthSubjectId,
-} from '@/core/signingEngine/session/identity/emailOtpHssIdentity';
+} from '@/core/signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
 import type { EcdsaRoleLocalAuthMethod, LoadEcdsaRoleLocalReadyRecordInput } from '@/core/platform';
 
 function bytesB64u(length: number, fill: number): string {
@@ -58,9 +58,9 @@ const otherWalletId = toWalletId('other-wallet.testnet');
 const rpId = toRpId('localhost');
 const keyHandle = 'ecdsa-key-handle';
 const passkeyCredentialIdB64u = 'passkey-credential-id';
-const ecdsaThresholdKeyId = toEcdsaHssThresholdKeyId('ehss-key');
-const signingRootId = toEcdsaHssSigningRootId('root');
-const signingRootVersion = toEcdsaHssSigningRootVersion('v1');
+const ecdsaThresholdKeyId = toEcdsaDerivationThresholdKeyId('ederivation-key');
+const signingRootId = toEcdsaDerivationSigningRootId('root');
+const signingRootVersion = toEcdsaDerivationSigningRootVersion('v1');
 const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
   walletId,
   signingRootId,
@@ -71,7 +71,7 @@ const otherEvmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
   signingRootId,
   signingRootVersion,
 });
-const hssClientSharePublicKey33B64u = compressedPublicKeyB64u(2, 11);
+const derivationClientSharePublicKey33B64u = compressedPublicKeyB64u(2, 11);
 const relayerPublicKey33B64u = compressedPublicKeyB64u(3, 12);
 const groupPublicKey33B64u = compressedPublicKeyB64u(2, 13);
 const share32B64u = bytesB64u(32, 5);
@@ -115,10 +115,10 @@ function loadInput(
 function legacyRoleLocalState(): Record<string, unknown> {
   return {
     kind: 'role_local_ready',
-    artifactKind: 'ecdsa-hss-role-local-client-state',
+    artifactKind: 'ecdsa-derivation-role-local-client-state',
     contextBinding32B64u: share32B64u,
     clientShare32B64u: bytesB64u(32, 6),
-    clientPublicKey33B64u: hssClientSharePublicKey33B64u,
+    clientPublicKey33B64u: derivationClientSharePublicKey33B64u,
     clientShareRetryCounter: 0,
     relayerPublicKey33B64u,
     groupPublicKey33B64u,
@@ -126,7 +126,7 @@ function legacyRoleLocalState(): Record<string, unknown> {
     clientCaitSithInput: {
       participantId: 1,
       mappedPrivateShare32B64u: bytesB64u(32, 7),
-      verifyingShare33B64u: hssClientSharePublicKey33B64u,
+      verifyingShare33B64u: derivationClientSharePublicKey33B64u,
     },
     createdAtMs: 1,
     updatedAtMs: 1,
@@ -147,7 +147,7 @@ function publicFacts() {
     participantIds: [1, 2],
     applicationBindingDigestB64u,
     contextBinding32B64u: share32B64u,
-    hssClientSharePublicKey33B64u,
+    derivationClientSharePublicKey33B64u,
     relayerPublicKey33B64u,
     groupPublicKey33B64u,
     ethereumAddress: ownerAddress,
@@ -180,13 +180,13 @@ function rawSessionRecord(overrides: Record<string, unknown> = {}): Record<strin
     signingRootId,
     signingRootVersion,
     relayerKeyId: 'relayer-key',
-    clientVerifyingShareB64u: hssClientSharePublicKey33B64u,
+    clientVerifyingShareB64u: derivationClientSharePublicKey33B64u,
     ecdsaRoleLocalReadyRecord: readyRecord(
       source === 'email_otp' ? emailOtpAuthMethod : passkeyAuthMethod,
     ),
     participantIds: [1, 2],
     thresholdSessionKind: 'jwt',
-    thresholdSessionId: 'tehss-session',
+    thresholdSessionId: 'tederivation-session',
     signingGrantId: 'wss-session',
     walletSessionJwt: 'jwt',
     expiresAtMs: Date.now() + 60_000,
@@ -227,7 +227,7 @@ test.describe('ECDSA role-local record boundary parser', () => {
     expect(ready.publicFacts.walletId).toBe(walletId);
     expect(ready.publicFacts.evmFamilySigningKeySlotId).toBe(evmFamilySigningKeySlotId);
     expect(ready.publicFacts.keyHandle).toBe(keyHandle);
-    expect(ready.publicFacts.hssClientSharePublicKey33B64u).toBe(hssClientSharePublicKey33B64u);
+    expect(ready.publicFacts.derivationClientSharePublicKey33B64u).toBe(derivationClientSharePublicKey33B64u);
     expect(ready.stateBlob.kind).toBe('ecdsa_role_local_state_blob_v1');
   });
 
@@ -270,18 +270,18 @@ test.describe('ECDSA role-local record boundary parser', () => {
 
   test('restored passkey ECDSA records are written to the active session index', () => {
     const restored = upsertRestoredThresholdEcdsaSessionRecord(
-      rawSessionRecord({ source: 'login', thresholdSessionId: 'tehss-restored' }),
+      rawSessionRecord({ source: 'login', thresholdSessionId: 'tederivation-restored' }),
     );
 
-    expect(restored.thresholdSessionId).toBe('tehss-restored');
+    expect(restored.thresholdSessionId).toBe('tederivation-restored');
     expect(
-      getStoredThresholdEcdsaSessionRecordByThresholdSessionId('tehss-restored')
+      getStoredThresholdEcdsaSessionRecordByThresholdSessionId('tederivation-restored')
         ?.signingGrantId,
     ).toBe(restored.signingGrantId);
   });
 
   test('threshold-session ECDSA lookup fails closed when multiple lane identities match', () => {
-    const thresholdSessionId = 'tehss-ambiguous';
+    const thresholdSessionId = 'tederivation-ambiguous';
     upsertRestoredThresholdEcdsaSessionRecord(
       rawSessionRecord({
         source: 'email_otp',
@@ -303,7 +303,7 @@ test.describe('ECDSA role-local record boundary parser', () => {
   });
 
   test('deps threshold-session ECDSA lookup fails closed across local and in-memory stores', () => {
-    const thresholdSessionId = 'tehss-store-ambiguous';
+    const thresholdSessionId = 'tederivation-store-ambiguous';
     const deps = { recordsByLane: new Map() };
     upsertThresholdEcdsaSessionFact(
       deps,
@@ -330,12 +330,12 @@ test.describe('ECDSA role-local record boundary parser', () => {
     const ready = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(rawSessionRecord());
     const record = rawSessionRecord({
       ecdsaRoleLocalReadyRecord: ready,
-      ecdsaHssRoleLocalClientState: undefined,
+      ecdsaDerivationRoleLocalClientState: undefined,
       clientAdditiveShare32B64u: share32B64u,
     });
 
     const parsed = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record);
-    expect(parsed.publicFacts.hssClientSharePublicKey33B64u).toBe(hssClientSharePublicKey33B64u);
+    expect(parsed.publicFacts.derivationClientSharePublicKey33B64u).toBe(derivationClientSharePublicKey33B64u);
 
     const state = classifyThresholdEcdsaSessionRecordRoleLocalState({
       record,
@@ -357,10 +357,10 @@ test.describe('ECDSA role-local record boundary parser', () => {
       parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(
         rawSessionRecord({
           ecdsaRoleLocalReadyRecord: undefined,
-          ecdsaHssRoleLocalClientState: legacyRoleLocalState(),
+          ecdsaDerivationRoleLocalClientState: legacyRoleLocalState(),
         }),
       ),
-    ).toThrow(/deleted ecdsaHssRoleLocalClientState/);
+    ).toThrow(/deleted ecdsaDerivationRoleLocalClientState/);
   });
 
   test('returns parse results for branch-specific ready records', () => {
@@ -598,7 +598,7 @@ test.describe('ECDSA role-local record boundary parser', () => {
         clientParticipantId: 1,
         relayerParticipantId: 2,
         participantIds: [1, 2],
-        hssClientSharePublicKey33B64u,
+        derivationClientSharePublicKey33B64u,
         relayerPublicKey33B64u,
         groupPublicKey33B64u,
         ethereumAddress: ownerAddress,

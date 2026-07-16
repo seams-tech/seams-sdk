@@ -3,7 +3,7 @@ import type {
   SigningSessionSealWalletBudgetStatus,
 } from '@server/threshold/session/signingSessionSeal/signingSessionSeal.types';
 import { base64UrlEncode } from '@shared/utils/encoders';
-import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
+import { ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 
 function b64u(bytes: number[]): string {
   return base64UrlEncode(Uint8Array.from(bytes));
@@ -29,7 +29,7 @@ export function buildEcdsaCurveCollisionBudgetStatusFixture(
   const claims = {
     sub: `budget-curve-collision-${label}.testnet`,
     walletId: `budget-curve-collision-${label}.testnet`,
-    kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+    kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
     thresholdSessionId: `threshold-login-curve-collision-${label}`,
     signingGrantId: `wsess-curve-collision-${label}`,
     keyScope: 'evm-family',
@@ -46,8 +46,8 @@ export function buildEcdsaCurveCollisionBudgetStatusFixture(
     walletKeyId,
     thresholdExpiresAtMs: input.claimExpiresAtMs ?? nowMs + 60_000,
     participantIds: [1, 2],
-    routerAbEcdsaHssNormalSigning: {
-      kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+    routerAbEcdsaDerivationNormalSigning: {
+      kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
       scope: {
         wallet_key_id: walletKeyId,
         wallet_id: `budget-curve-collision-${label}.testnet`,
@@ -61,7 +61,7 @@ export function buildEcdsaCurveCollisionBudgetStatusFixture(
         },
         public_identity: {
           context_binding_b64u: b64u(Array.from({ length: 32 }, (_, index) => index + 1)),
-          client_public_key33_b64u: b64u([0x02, ...Array.from({ length: 32 }, () => 1)]),
+          derivation_client_share_public_key33_b64u: b64u([0x02, ...Array.from({ length: 32 }, () => 1)]),
           server_public_key33_b64u: b64u([0x03, ...Array.from({ length: 32 }, () => 2)]),
           threshold_public_key33_b64u: b64u([0x02, ...Array.from({ length: 32 }, () => 3)]),
           ethereum_address20_b64u: b64u(Array.from({ length: 20 }, () => 0x11)),

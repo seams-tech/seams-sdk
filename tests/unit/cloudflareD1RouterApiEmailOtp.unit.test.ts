@@ -5,8 +5,8 @@ import type { D1DatabaseLike } from '../../packages/sdk-server-ts/src/storage/te
 import type {
   CloudflareDurableObjectNamespaceLike,
   CloudflareDurableObjectStubLike,
-  EcdsaHssClientBootstrapRequest,
-  EcdsaHssServerBootstrapResponse
+  EcdsaDerivationClientBootstrapRequest,
+  EcdsaDerivationServerBootstrapResponse
 } from '../../packages/sdk-server-ts/src/core/types';
 import type {
   WalletRegistrationEcdsaClientBootstrap,
@@ -37,7 +37,7 @@ import {
 import {
   secp256k1PrivateKey32ToPublicKey33,
   signSecp256k1Recoverable,
-} from '../../packages/sdk-server-ts/src/core/ThresholdService/ethSignerWasm';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/evmCryptoWasm';
 import { createSigningSessionSealShamir3PassBigIntRuntime } from '../../packages/sdk-server-ts/src/threshold/session/signingSessionSeal/crypto/cipher';
 import {
   applyD1MigrationFiles,
@@ -78,12 +78,6 @@ import {
   requireSingleEcdsaPrepare,
   testEcdsaClientBootstrapTargets,
   testEcdsaServerBootstrapResponse,
-  testEd25519RegistrationKeygenFromRegistrationMaterial,
-  testEcdsaHssRoleLocalBootstrap,
-  testGetCombinedRegistrationSchemeModule,
-  testThresholdSchemeHealthz,
-  testThresholdSchemeSession,
-  testCombinedRegistrationThresholdSigningService,
   utf8Bytes,
   arrayBufferCopy,
   concatBytes,
@@ -1583,6 +1577,8 @@ test('Cloudflare D1 Router API auth service verifies Email OTP unlock proofs onc
       verified: true,
       userId: 'email-wallet.testnet',
       walletId: 'email-wallet.testnet',
+      providerUserId: 'google:email-user',
+      orgId: scope.orgId,
       unlockKeyVersion: 'unlock-v1',
     });
 

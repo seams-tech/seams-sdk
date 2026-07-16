@@ -26,11 +26,11 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
-  toEcdsaHssSigningRootId,
-  toEcdsaHssSigningRootVersion,
-  toEcdsaHssThresholdKeyId,
+  toEcdsaDerivationSigningRootId,
+  toEcdsaDerivationSigningRootVersion,
+  toEcdsaDerivationThresholdKeyId,
   toEmailOtpAuthSubjectId,
-} from '@/core/signingEngine/session/identity/emailOtpHssIdentity';
+} from '@/core/signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
 import {
   createProvisionEcdsaUseCase,
   type ProvisionEcdsaDeps,
@@ -54,7 +54,7 @@ const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'tempo',
   chainId: 42431,
 });
-const ecdsaThresholdKeyId = toEcdsaHssThresholdKeyId('ecdsa-threshold-key');
+const ecdsaThresholdKeyId = toEcdsaDerivationThresholdKeyId('ecdsa-threshold-key');
 const runtimePolicyScope = {
   orgId: 'org',
   projectId: 'root',
@@ -62,8 +62,8 @@ const runtimePolicyScope = {
   signingRootVersion: 'v1',
 };
 const signingRootScope = signingRootScopeFromRuntimePolicyScope(runtimePolicyScope);
-const signingRootId = toEcdsaHssSigningRootId(signingRootScope.signingRootId);
-const signingRootVersion = toEcdsaHssSigningRootVersion(signingRootScope.signingRootVersion);
+const signingRootId = toEcdsaDerivationSigningRootId(signingRootScope.signingRootId);
+const signingRootVersion = toEcdsaDerivationSigningRootVersion(signingRootScope.signingRootVersion);
 const walletKeyId = deriveEvmFamilySigningKeySlotId({
   walletId,
   signingRootId,
@@ -154,12 +154,12 @@ function preparedOutput(): PrepareEcdsaClientBootstrapOutput {
     },
     clientBootstrap: {
       contextBinding32B64u: b64u(32, 7),
-      hssClientSharePublicKey33B64u: facts.hssClientSharePublicKey33B64u,
+      derivationClientSharePublicKey33B64u: facts.derivationClientSharePublicKey33B64u,
       clientShareRetryCounter: 0,
       participantId: 1,
     },
     publicFacts: {
-      hssClientSharePublicKey33B64u: facts.hssClientSharePublicKey33B64u,
+      derivationClientSharePublicKey33B64u: facts.derivationClientSharePublicKey33B64u,
       clientVerifyingShareB64u: compressedSecp256k1PublicKeyB64u(9),
     },
   };
@@ -202,7 +202,7 @@ function publicFacts(input: ProvisionEcdsaInput) {
     clientParticipantId: 1,
     relayerParticipantId: 2,
     participantIds: input.participantIds,
-    hssClientSharePublicKey33B64u: compressedSecp256k1PublicKeyB64u(8),
+    derivationClientSharePublicKey33B64u: compressedSecp256k1PublicKeyB64u(8),
     relayerPublicKey33B64u: compressedSecp256k1PublicKeyB64u(10),
     groupPublicKey33B64u: compressedSecp256k1PublicKeyB64u(11),
     ethereumAddress: '0x1111111111111111111111111111111111111111',
@@ -222,7 +222,7 @@ function finalizedOutput(): FinalizeEcdsaClientBootstrapOutput {
       stateBlobB64u: b64u(64, 12),
     },
     publicFacts: {
-      hssClientSharePublicKey33B64u: facts.hssClientSharePublicKey33B64u,
+      derivationClientSharePublicKey33B64u: facts.derivationClientSharePublicKey33B64u,
       clientVerifyingShareB64u: compressedSecp256k1PublicKeyB64u(9),
       relayerPublicKey33B64u: facts.relayerPublicKey33B64u,
       groupPublicKey33B64u: compressedSecp256k1PublicKeyB64u(11),

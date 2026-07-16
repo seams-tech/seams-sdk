@@ -14,7 +14,7 @@ const topLevelWalletSessionMethods = [
   'getWalletSession',
   'getRecentUnlocks',
   'hasPasskeyCredential',
-  'prefillRouterAbEcdsaHssPresignaturePool',
+  'prefillRouterAbEcdsaDerivationPresignaturePool',
 ];
 
 const topLevelRegistrationMethods = [

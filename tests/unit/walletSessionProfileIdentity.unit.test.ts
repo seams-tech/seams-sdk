@@ -363,8 +363,8 @@ test.describe('wallet session profile identity restore', () => {
             signerSource: 'passkey_registration',
             metadata: {
               walletId,
-              keyHandle: 'ehss-key-refresh-ecdsa-only',
-              ecdsaThresholdKeyId: 'ehss-refresh-ecdsa-only',
+              keyHandle: 'ederivation-key-refresh-ecdsa-only',
+              ecdsaThresholdKeyId: 'ederivation-refresh-ecdsa-only',
               thresholdOwnerAddress,
               chainTarget,
               thresholdEcdsaPublicKeyB64u: 'A1111111111111111111111111111111111111111111',

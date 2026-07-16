@@ -5,7 +5,7 @@ import type {
   RouterAbNormalSigningRuntime,
 } from '../../packages/sdk-server-ts/src/core/routerAbSigning/RouterAbNormalSigningRuntime';
 import { walletSigningBudgetSessionId } from '../../packages/sdk-server-ts/src/core/ThresholdService/walletSigningBudget';
-import { createThresholdSigningServiceForUnitTests } from '../helpers/thresholdServiceTestUtils';
+import { createRouterAbSigningRuntimesForUnitTests } from '../helpers/routerAbSigningRuntimeTestUtils';
 
 const FORBIDDEN_SECRET_FIELD = /(share|scalar|prf|package|garbled|seed|private)/i;
 
@@ -59,7 +59,7 @@ function waitUntilAfter(deadlineMs: number): void {
 
 async function publicStateProvisioningPreservesConsumedBudget(): Promise<void> {
   const { routerAbNormalSigningRuntime, walletSessionStore, walletBudgetSessionStore } =
-    createThresholdSigningServiceForUnitTests({});
+    createRouterAbSigningRuntimesForUnitTests({});
   const input = primaryProvisionInput();
 
   await expect(
@@ -140,7 +140,7 @@ async function publicStateProvisioningPreservesConsumedBudget(): Promise<void> {
 }
 
 async function sessionProvisioningRejectsIdentityCollision(): Promise<void> {
-  const { routerAbNormalSigningRuntime } = createThresholdSigningServiceForUnitTests({});
+  const { routerAbNormalSigningRuntime } = createRouterAbSigningRuntimesForUnitTests({});
   const input = primaryProvisionInput();
   await expect(
     routerAbNormalSigningRuntime.provisionRouterAbEd25519YaoNormalSigningSession(input),
@@ -159,7 +159,7 @@ async function sessionProvisioningRejectsIdentityCollision(): Promise<void> {
 
 async function authenticatedBudgetRefreshPreservesYaoLifecycleIdentity(): Promise<void> {
   const { routerAbNormalSigningRuntime, walletSessionStore, walletBudgetSessionStore } =
-    createThresholdSigningServiceForUnitTests({});
+    createRouterAbSigningRuntimesForUnitTests({});
   const input = provisionInput({
     expiresAtMs: Date.now() + 5_000,
     walletId: 'wallet-yao-1',
@@ -221,7 +221,7 @@ async function authenticatedBudgetRefreshPreservesYaoLifecycleIdentity(): Promis
 
 async function authenticatedBudgetRefreshRecreatesExpiredPublicState(): Promise<void> {
   const { routerAbNormalSigningRuntime, walletSessionStore, walletBudgetSessionStore } =
-    createThresholdSigningServiceForUnitTests({});
+    createRouterAbSigningRuntimesForUnitTests({});
   const input = provisionInput({
     expiresAtMs: Date.now() + 5,
     walletId: 'wallet-yao-expired',
@@ -268,7 +268,7 @@ async function authenticatedBudgetRefreshRecreatesExpiredPublicState(): Promise<
 }
 
 async function authenticatedBudgetRefreshRejectsCurveBindingSubstitution(): Promise<void> {
-  const { routerAbNormalSigningRuntime } = createThresholdSigningServiceForUnitTests({});
+  const { routerAbNormalSigningRuntime } = createRouterAbSigningRuntimesForUnitTests({});
   const input = primaryProvisionInput();
   await expect(
     routerAbNormalSigningRuntime.provisionRouterAbEd25519YaoNormalSigningSession(input),
@@ -328,7 +328,7 @@ async function consumeSharedSigningBudgetUse(input: {
 
 async function mixedCurveRegistrationSharesOneThreeUseBudget(): Promise<void> {
   const { routerAbNormalSigningRuntime, ecdsaWalletSessionStore, walletBudgetSessionStore } =
-    createThresholdSigningServiceForUnitTests({});
+    createRouterAbSigningRuntimesForUnitTests({});
   const ed25519Input = primaryProvisionInput();
   const ecdsaThresholdSessionId = 'threshold-session-ecdsa-1';
   const ecdsaKeySlotId = 'wallet-key:evm-family:wallet-yao-1:root-1:v1';

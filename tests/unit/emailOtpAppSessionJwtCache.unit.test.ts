@@ -16,10 +16,11 @@ import { buildNearTransactionSigningLane } from '../../packages/sdk-web/src/core
 import { SigningSessionIds } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
 import { buildFreshStepUpRequiredFromEmailOtpRefreshRejection } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/stepUpFreshness';
 
-function appSessionJwt(args?: { expSeconds?: number; sub?: string }): string {
+function appSessionJwt(args?: { expSeconds?: number; sub?: string; walletId?: string }): string {
   const payload = {
     kind: 'app_session_v1',
     sub: args?.sub || 'google:wallet.testnet',
+    walletId: args?.walletId || 'wallet.testnet',
     exp: args?.expSeconds || Math.floor(Date.now() / 1000) + 3600,
   };
   return [base64UrlJson({ alg: 'none', typ: 'JWT' }), base64UrlJson(payload), 'signature'].join(
@@ -79,6 +80,17 @@ test.describe('EmailOtpAppSessionJwtCache', () => {
         appSessionJwt: walletSessionJwt,
       }),
     ).toThrow('must be an app-session JWT');
+  });
+
+  test('rejects rebinding an initial registration wallet session to the finalized wallet', () => {
+    const initialWalletJwt = appSessionJwt({ walletId: 'initial-wallet.testnet' });
+
+    expect(() =>
+      emailOtpAppSessionBindingFromJwt({
+        walletId: toWalletId('final-wallet.testnet'),
+        appSessionJwt: initialWalletJwt,
+      }),
+    ).toThrow('app-session wallet does not match the requested wallet binding');
   });
 
   test('returns a typed cached success for an unexpired app-session JWT', async () => {

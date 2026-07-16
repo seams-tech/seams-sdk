@@ -14,7 +14,7 @@ import {
 function makeLane(overrides: Partial<ThresholdEcdsaSessionRecordKey> = {}): ThresholdEcdsaSessionRecordKey {
   return {
     walletId: toWalletId('wallet-1.testnet'),
-    keyHandle: 'ehss-key-arc',
+    keyHandle: 'ederivation-key-arc',
     authMethod: 'email_otp',
     curve: 'ecdsa',
     chainTarget: {
@@ -116,12 +116,12 @@ test.describe('threshold ECDSA concrete chain targets', () => {
         networkSlug: 'ethereum-mainnet',
       },
     });
-    const otherKey = makeLane({ keyHandle: 'ehss-key-ethereum' });
+    const otherKey = makeLane({ keyHandle: 'ederivation-key-ethereum' });
 
     expect(thresholdEcdsaLaneKey(arc)).toBe(
       [
         'wallet-1.testnet',
-        'ehss-key-arc',
+        'ederivation-key-arc',
         'email_otp',
         'ecdsa',
         'evm%3Aeip155%3A5042002',
@@ -141,7 +141,7 @@ test.describe('threshold ECDSA concrete chain targets', () => {
         chainId: 6_345,
         networkSlug: 'megaeth-testnet',
       },
-      keyHandle: 'ehss-shared',
+      keyHandle: 'ederivation-shared',
     });
     const polygonMainnet = makeLane({
       chainTarget: {
@@ -150,7 +150,7 @@ test.describe('threshold ECDSA concrete chain targets', () => {
         chainId: 137,
         networkSlug: 'polygon-mainnet',
       },
-      keyHandle: 'ehss-shared',
+      keyHandle: 'ederivation-shared',
     });
 
     expect(thresholdEcdsaSessionRecordKeysEqual(megaEthTestnet, polygonMainnet)).toBe(false);

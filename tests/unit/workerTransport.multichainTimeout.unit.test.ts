@@ -212,7 +212,7 @@ test.describe('WorkerTransport multichain timeout guard', () => {
       const progress: string[] = [];
 
       const result = await transport.requestOperation({
-        kind: 'ethSigner',
+        kind: 'evmCrypto',
         request: {
           type: 'computeEip1559TxHash',
           payload: { tx: {} },

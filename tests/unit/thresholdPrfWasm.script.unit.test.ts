@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  deriveEcdsaHssYRelayerFromSigningRootShares,
+  deriveEcdsaDerivationYRelayerFromSigningRootShares,
   parseSigningRootShareWire,
   type SigningRootShareWire,
   type ThresholdPrfPolicy,
@@ -12,7 +12,7 @@ import {
   initSync as initThresholdPrfWasmSync,
   init_threshold_prf,
   threshold_prf_combine_verified_partials,
-  threshold_prf_derive_ecdsa_hss_y_relayer,
+  threshold_prf_derive_ecdsa_derivation_y_relayer,
   threshold_prf_evaluate_partial_with_dleq_proof,
 } from '../../wasm/threshold_prf/pkg/threshold_prf.js';
 
@@ -38,7 +38,7 @@ const THRESHOLD_PRF_WASM_PATH = resolve(
   __dirname,
   '../../wasm/threshold_prf/pkg/threshold_prf_bg.wasm',
 );
-const ECDSA_HSS_FIXTURE_PURPOSE = 'ecdsa-hss/y_server';
+const ECDSA_DERIVATION_FIXTURE_PURPOSE = 'ecdsa-derivation/y_server';
 
 test.beforeAll(() => {
   initThresholdPrfWasmSync({ module: readFileSync(THRESHOLD_PRF_WASM_PATH) });
@@ -112,7 +112,7 @@ function concatBytes(chunks: readonly Uint8Array[]): Uint8Array {
 }
 
 test('threshold-prf WASM wrapper evaluates Router A/B proof bundles and combines verified partials', async () => {
-  const vector = vectorForPurpose(ECDSA_HSS_FIXTURE_PURPOSE);
+  const vector = vectorForPurpose(ECDSA_DERIVATION_FIXTURE_PURPOSE);
   const policy = policyForVector(vector);
   const selectedIds = [1, 2] as const;
   const routerAbPurpose = 'router-ab/x_client_base/v1';
@@ -141,20 +141,20 @@ test('threshold-prf WASM wrapper evaluates Router A/B proof bundles and combines
   expect(output.byteLength).toBe(32);
 });
 
-test('threshold-prf WASM wrapper derives ECDSA HSS y_server through policy-shaped shares', async () => {
-  const vector = vectorForPurpose(ECDSA_HSS_FIXTURE_PURPOSE);
+test('threshold-prf WASM wrapper derives ECDSA derivation y_server through policy-shaped shares', async () => {
+  const vector = vectorForPurpose(ECDSA_DERIVATION_FIXTURE_PURPOSE);
   const policy = policyForVector(vector);
   const selectedIds = [1, 2] as const;
   const context = {
     applicationBindingDigest: new Uint8Array(32).fill(7),
   };
 
-  const yServer = await deriveEcdsaHssYRelayerFromSigningRootShares({
+  const yServer = await deriveEcdsaDerivationYRelayerFromSigningRootShares({
     policy,
     shareWires: shareWires(vector, selectedIds),
     context,
   });
-  const expected = threshold_prf_derive_ecdsa_hss_y_relayer(
+  const expected = threshold_prf_derive_ecdsa_derivation_y_relayer(
     policy.threshold,
     policy.shareCount,
     flattenShareWires(vector, selectedIds),
@@ -165,12 +165,12 @@ test('threshold-prf WASM wrapper derives ECDSA HSS y_server through policy-shape
 });
 
 test('threshold-prf WASM wrapper rejects duplicate signing-root share ids', async () => {
-  const vector = vectorForPurpose(ECDSA_HSS_FIXTURE_PURPOSE);
+  const vector = vectorForPurpose(ECDSA_DERIVATION_FIXTURE_PURPOSE);
   const policy = policyForVector(vector);
   const duplicate = shareWires(vector, [1, 1]);
 
   await expect(
-    deriveEcdsaHssYRelayerFromSigningRootShares({
+    deriveEcdsaDerivationYRelayerFromSigningRootShares({
       policy,
       shareWires: duplicate,
       context: {

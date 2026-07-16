@@ -25,10 +25,10 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
-  toEcdsaHssSigningRootId,
-  toEcdsaHssSigningRootVersion,
-  toEcdsaHssThresholdKeyId,
-} from '@/core/signingEngine/session/identity/emailOtpHssIdentity';
+  toEcdsaDerivationSigningRootId,
+  toEcdsaDerivationSigningRootVersion,
+  toEcdsaDerivationThresholdKeyId,
+} from '@/core/signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { SignerWorkerOperationError } from '@/core/signingEngine/workerManager/workerTypes';
 import { WorkerRequestType, WorkerResponseType } from '@/core/types/signer-worker';
@@ -56,11 +56,11 @@ const walletId = toWalletId('wallet.testnet');
 const rpId = toRpId('localhost');
 const walletKeyId = parsedDomain(parseWalletKeyId('wallet-key-platform-adapter'));
 const chainTarget = thresholdEcdsaChainTargetFromChainFamily({ chain: 'evm', chainId: 5042002 });
-const ecdsaThresholdKeyId = toEcdsaHssThresholdKeyId('ehss-key');
-const signingRootId = toEcdsaHssSigningRootId('root');
-const signingRootVersion = toEcdsaHssSigningRootVersion('v1');
+const ecdsaThresholdKeyId = toEcdsaDerivationThresholdKeyId('ederivation-key');
+const signingRootId = toEcdsaDerivationSigningRootId('root');
+const signingRootVersion = toEcdsaDerivationSigningRootVersion('v1');
 const credentialIdB64u = bytesB64u(16, 1);
-const hssClientSharePublicKey33B64u = publicKeyB64u(2, 2);
+const derivationClientSharePublicKey33B64u = publicKeyB64u(2, 2);
 const relayerPublicKey33B64u = publicKeyB64u(3, 3);
 const groupPublicKey33B64u = publicKeyB64u(2, 4);
 const ethereumAddress = '0x0000000000000000000000000000000000000001' as const;
@@ -112,7 +112,7 @@ function applicationBindingDigestForWallet(wallet: ReturnType<typeof toWalletId>
 function prepareInputFor(wallet = walletId) {
   return {
     kind: 'prepare_ecdsa_client_bootstrap_v1' as const,
-    algorithm: 'ecdsa_hss_secp256k1_role_local_v1' as const,
+    algorithm: 'router_ab_ecdsa_derivation_secp256k1_role_local_v1' as const,
     context: {
       applicationBindingDigestB64u: applicationBindingDigestForWallet(wallet),
     },
@@ -238,13 +238,13 @@ function createBrowserAuthenticatorConformancePort(): AuthenticatorPort {
 function createBrowserSignerCryptoConformancePort(): SignerCryptoPort {
   const workerCtx: WorkerOperationContext = {
     async requestWorkerOperation({ request }) {
-      if (request.type === WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap) {
+      if (request.type === WorkerRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap) {
         const payload = request.payload as typeof prepareInput;
         if (payload.context.applicationBindingDigestB64u === timeoutApplicationBindingDigestB64u) {
           throw new SignerWorkerOperationError({
             code: 'TIMEOUT',
             message: 'Worker operation timed out after 1000ms',
-            workerKind: 'ecdsaHssClient',
+            workerKind: 'ecdsaDerivationClient',
           });
         }
         if (
@@ -253,35 +253,35 @@ function createBrowserSignerCryptoConformancePort(): SignerCryptoPort {
           throw new SignerWorkerOperationError({
             code: 'WORKER_RUNTIME_ERROR',
             message: 'ECDSA client WASM initialization failed: failed to instantiate module_or_path',
-            workerKind: 'ecdsaHssClient',
+            workerKind: 'ecdsaDerivationClient',
           });
         }
         return {
-          type: WorkerResponseType.PrepareThresholdEcdsaHssRoleLocalClientBootstrapSuccess,
+          type: WorkerResponseType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess,
           payload: {
             pendingStateBlob,
             clientBootstrap: {
               contextBinding32B64u: bytesB64u(32, 11),
-              hssClientSharePublicKey33B64u,
+              derivationClientSharePublicKey33B64u,
               clientShareRetryCounter: 0,
               participantId: 1,
             },
             publicFacts: {
-              hssClientSharePublicKey33B64u,
-              clientVerifyingShareB64u: hssClientSharePublicKey33B64u,
+              derivationClientSharePublicKey33B64u,
+              clientVerifyingShareB64u: derivationClientSharePublicKey33B64u,
             },
           },
         };
       }
-      if (request.type === WorkerRequestType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrap) {
+      if (request.type === WorkerRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap) {
         return {
-          type: WorkerResponseType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrapSuccess,
+          type: WorkerResponseType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess,
           payload: {
             stateBlob: readyStateBlob,
             publicFacts: {
               contextBinding32B64u: bytesB64u(32, 11),
-              hssClientSharePublicKey33B64u,
-              clientVerifyingShareB64u: hssClientSharePublicKey33B64u,
+              derivationClientSharePublicKey33B64u,
+              clientVerifyingShareB64u: derivationClientSharePublicKey33B64u,
               relayerPublicKey33B64u,
               groupPublicKey33B64u,
               ethereumAddress,
@@ -352,7 +352,7 @@ function createPublicFacts(): EcdsaRoleLocalPublicFacts {
     clientParticipantId: 1,
     relayerParticipantId: 2,
     participantIds: [1, 2],
-    hssClientSharePublicKey33B64u,
+    derivationClientSharePublicKey33B64u,
     relayerPublicKey33B64u,
     groupPublicKey33B64u,
     ethereumAddress,
@@ -457,7 +457,7 @@ export function runSignerCryptoPortConformance(factory: () => SignerCryptoPort):
         value: {
           pendingStateBlob,
           clientBootstrap: {
-            hssClientSharePublicKey33B64u,
+            derivationClientSharePublicKey33B64u,
             participantId: 1,
           },
         },

@@ -1,46 +1,46 @@
 import { expect, test } from '@playwright/test';
 import {
   parseAppSessionClaims,
-  parseRouterAbEcdsaHssWalletSessionClaims,
+  parseRouterAbEcdsaDerivationWalletSessionClaims,
   parseRouterAbEd25519WalletSessionClaims,
   thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
 } from '@server/core/ThresholdService/validation';
 import {
-  buildRouterAbEcdsaHssNormalSigningStateForBootstrap,
-  signRouterAbEcdsaHssWalletSessionJwt,
+  buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap,
+  signRouterAbEcdsaDerivationWalletSessionJwt,
   signRouterAbEd25519WalletSessionJwt,
-  validateRouterAbEcdsaHssWalletSessionInputs,
+  validateRouterAbEcdsaDerivationWalletSessionInputs,
   validateRouterAbEd25519WalletSessionTokenInputs,
 } from '../../packages/sdk-server-ts/src/router/commonRouterUtils';
 import {
   validateRouterAbEd25519NormalSigningRequestScope,
-  validateRouterAbEcdsaHssNormalSigningFinalizeRequest,
-  validateRouterAbEcdsaHssNormalSigningPrepareRequest,
+  validateRouterAbEcdsaDerivationNormalSigningFinalizeRequest,
+  validateRouterAbEcdsaDerivationNormalSigningPrepareRequest,
 } from '../../packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker';
 import {
   buildVerifiedEcdsaWalletSessionAuth,
   buildVerifiedEd25519WalletSessionAuth,
 } from '../../packages/sdk-server-ts/src/router/verifiedWalletSessionAuth';
 import type { SessionAdapter } from '../../packages/sdk-server-ts/src/router/routerApi';
-import type { EcdsaHssServerBootstrapResponse } from '@server/core/types';
+import type { EcdsaDerivationServerBootstrapResponse } from '@server/core/types';
 import {
-  ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+  ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
   ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
 } from '@shared/utils/sessionTokens';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import {
-  buildRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1,
-  buildRouterAbEcdsaHssEvmDigestSigningRequestV1,
-} from '@shared/utils/routerAbEcdsaHss';
+  buildRouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1,
+  buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import {
   ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
   type RouterAbPublicKeysetV2,
 } from '@shared/utils/routerAbPublicKeyset';
 import type {
-  EcdsaHssClientSharePublicKey33B64u,
-  EcdsaRelayerHssPublicKey33B64u,
-} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+  DerivationClientSharePublicKey33B64u,
+  EcdsaRelayerDerivationPublicKey33B64u,
+} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 
 const passkeyAuthority = buildPasskeyWalletAuthAuthority({
@@ -51,9 +51,9 @@ const passkeyAuthority = buildPasskeyWalletAuthAuthority({
 const evmFamilySigningKeySlotId =
   'wallet-key:evm-family:alice.testnet:signing-root:default';
 
-function baseClaims(kind: 'threshold_ed25519_session_v1' | 'threshold_ecdsa_session_v2') {
-  const claims = {
-    kind,
+function baseEd25519Claims() {
+  return {
+    kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
     sub: 'alice.testnet',
     walletId: 'alice.testnet',
     nearAccountId: 'alice.testnet',
@@ -63,19 +63,26 @@ function baseClaims(kind: 'threshold_ed25519_session_v1' | 'threshold_ecdsa_sess
     relayerKeyId: 'relayer-key-1',
     thresholdExpiresAtMs: Date.now() + 60 * 60 * 1000,
     participantIds: [1, 2],
+    authority: passkeyAuthority,
+    authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(passkeyAuthority),
   };
-  if (kind !== 'threshold_ecdsa_session_v2') {
-    return {
-      ...claims,
-      authority: passkeyAuthority,
-      authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(passkeyAuthority),
-    };
-  }
+}
+
+function baseEcdsaClaims() {
   return {
-    ...claims,
+    kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
+    sub: 'alice.testnet',
+    walletId: 'alice.testnet',
+    nearAccountId: 'alice.testnet',
+    nearEd25519SigningKeyId: 'alice.testnet',
+    thresholdSessionId: 'threshold-session-1',
+    signingGrantId: 'signing-grant-1',
+    relayerKeyId: 'relayer-key-1',
+    thresholdExpiresAtMs: Date.now() + 60 * 60 * 1000,
+    participantIds: [1, 2],
     evmFamilySigningKeySlotId,
     keyScope: 'evm-family',
-    keyHandle: 'ehss-key-test',
+    keyHandle: 'ederivation-key-test',
   };
 }
 
@@ -97,8 +104,7 @@ const routerAbNormalSigning = {
 
 function routerAbEd25519Claims(overrides: Record<string, unknown> = {}) {
   return {
-    ...baseClaims('threshold_ed25519_session_v1'),
-    kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+    ...baseEd25519Claims(),
     runtimePolicyScope,
     routerAbNormalSigning,
     ...overrides,
@@ -111,21 +117,21 @@ function routerAbEcdsaIssuerBinding(overrides: Record<string, unknown> = {}) {
       walletId: 'alice.testnet',
       evmFamilySigningKeySlotId,
       keyScope: 'evm-family',
-      ecdsaThresholdKeyId: 'ehss-key-id',
+      ecdsaThresholdKeyId: 'ederivation-key-id',
       signingRootId: 'signing-root',
       signingRootVersion: 'default',
       applicationBindingDigestB64u: b64u(Array.from({ length: 32 }, () => 7)),
       contextBinding32B64u: b64u(Array.from({ length: 32 }, (_, index) => index + 1)),
     },
     publicIdentity: {
-      hssClientSharePublicKey33B64u: b64u([
+      derivationClientSharePublicKey33B64u: b64u([
         0x02,
         ...Array.from({ length: 32 }, () => 1),
-      ]) as EcdsaHssClientSharePublicKey33B64u,
+      ]) as DerivationClientSharePublicKey33B64u,
       relayerPublicKey33B64u: b64u([
         0x03,
         ...Array.from({ length: 32 }, () => 2),
-      ]) as EcdsaRelayerHssPublicKey33B64u,
+      ]) as EcdsaRelayerDerivationPublicKey33B64u,
       groupPublicKey33B64u: b64u([0x02, ...Array.from({ length: 32 }, () => 3)]),
       ethereumAddress: '0x1111111111111111111111111111111111111111',
     },
@@ -136,16 +142,15 @@ function routerAbEcdsaIssuerBinding(overrides: Record<string, unknown> = {}) {
 }
 
 function routerAbEcdsaClaims(overrides: Record<string, unknown> = {}) {
-  const normalSigning = buildRouterAbEcdsaHssNormalSigningStateForBootstrap({
+  const normalSigning = buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap({
     bootstrap: routerAbEcdsaBootstrap(),
     routerAbPublicKeyset,
     signingWorkerId: 'signing-worker-1',
   });
   if (!normalSigning.ok) throw new Error(normalSigning.message);
   return {
-    ...baseClaims('threshold_ecdsa_session_v2'),
-    kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
-    routerAbEcdsaHssNormalSigning: normalSigning.state,
+    ...baseEcdsaClaims(),
+    routerAbEcdsaDerivationNormalSigning: normalSigning.state,
     ...overrides,
   };
 }
@@ -176,10 +181,10 @@ const routerAbPublicKeyset = {
   },
 } satisfies RouterAbPublicKeysetV2;
 
-function routerAbEcdsaBootstrap(): EcdsaHssServerBootstrapResponse {
+function routerAbEcdsaBootstrap(): EcdsaDerivationServerBootstrapResponse {
   const issuer = routerAbEcdsaIssuerBinding();
   return {
-    formatVersion: 'ecdsa-hss-role-local',
+    formatVersion: 'ecdsa-derivation-role-local',
     walletId: 'alice.testnet',
     evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId: issuer.stableKeyContext.ecdsaThresholdKeyId,
@@ -190,7 +195,7 @@ function routerAbEcdsaBootstrap(): EcdsaHssServerBootstrapResponse {
     clientShareRetryCounter: 0,
     relayerShareRetryCounter: 0,
     publicTranscriptDigest32B64u: b64u(Array.from({ length: 32 }, () => 4)),
-    keyHandle: 'ehss-key-test',
+    keyHandle: 'ederivation-key-test',
     signingRootId: issuer.stableKeyContext.signingRootId,
     signingRootVersion: issuer.stableKeyContext.signingRootVersion,
     thresholdEcdsaPublicKeyB64u: issuer.publicIdentity.groupPublicKey33B64u,
@@ -259,71 +264,23 @@ test.describe('Router A/B Wallet Session token claims', () => {
     expect(parseAppSessionClaims({ ...claims, googleEmailOtpResolutionMode: '' })).toBeNull();
   });
 
-  test('Router A/B Wallet Session parsers reject legacy threshold-session kinds', () => {
-    expect(
-      parseRouterAbEd25519WalletSessionClaims(baseClaims('threshold_ed25519_session_v1')),
-    ).toBeNull();
-    expect(
-      parseRouterAbEcdsaHssWalletSessionClaims(baseClaims('threshold_ecdsa_session_v2')),
-    ).toBeNull();
-
-    expect(
-      parseRouterAbEd25519WalletSessionClaims({
-        ...baseClaims('threshold_ed25519_session_v1'),
-        kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-      }),
-    ).toBeNull();
+  test('Router A/B Wallet Session parsers require complete curve-specific state', () => {
+    expect(parseRouterAbEd25519WalletSessionClaims(baseEd25519Claims())).toBeNull();
     expect(parseRouterAbEd25519WalletSessionClaims(routerAbEd25519Claims())?.walletId).toBe(
       'alice.testnet',
     );
     expect(
-      parseRouterAbEcdsaHssWalletSessionClaims({
-        ...baseClaims('threshold_ecdsa_session_v2'),
-        kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
-      }),
+      parseRouterAbEcdsaDerivationWalletSessionClaims(baseEcdsaClaims()),
     ).toBeNull();
     expect(
-      parseRouterAbEcdsaHssWalletSessionClaims({
-        ...baseClaims('threshold_ecdsa_session_v2'),
-        kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
-        routerAbEcdsaHssIssuerBinding: routerAbEcdsaIssuerBinding(),
+      parseRouterAbEcdsaDerivationWalletSessionClaims({
+        ...baseEcdsaClaims(),
+        routerAbEcdsaDerivationIssuerBinding: routerAbEcdsaIssuerBinding(),
       }),
     ).toBeNull();
-    expect(parseRouterAbEcdsaHssWalletSessionClaims(routerAbEcdsaClaims())?.keyHandle).toBe(
-      'ehss-key-test',
+    expect(parseRouterAbEcdsaDerivationWalletSessionClaims(routerAbEcdsaClaims())?.keyHandle).toBe(
+      'ederivation-key-test',
     );
-  });
-
-  test('Router A/B route validators reject legacy threshold-session JWT claims', async () => {
-    const ed25519Session: SessionAdapter = {
-      signJwt: async () => 'unused',
-      parse: async () => ({ ok: true, claims: baseClaims('threshold_ed25519_session_v1') }),
-      buildSetCookie: (token) => `session=${token}`,
-      buildClearCookie: () => 'session=',
-      refresh: async () => ({ ok: false }),
-    };
-    const ecdsaSession: SessionAdapter = {
-      signJwt: async () => 'unused',
-      parse: async () => ({ ok: true, claims: baseClaims('threshold_ecdsa_session_v2') }),
-      buildSetCookie: (token) => `session=${token}`,
-      buildClearCookie: () => 'session=',
-      refresh: async () => ({ ok: false }),
-    };
-
-    await expect(
-      validateRouterAbEd25519WalletSessionTokenInputs({
-        body: {},
-        headers: { authorization: 'Bearer old-ed25519' },
-        session: ed25519Session,
-      }),
-    ).resolves.toMatchObject({ ok: false, code: 'unauthorized' });
-    await expect(
-      validateRouterAbEcdsaHssWalletSessionInputs({
-        body: {},
-        headers: { authorization: 'Bearer old-ecdsa' },
-        session: ecdsaSession,
-      }),
-    ).resolves.toMatchObject({ ok: false, code: 'unauthorized' });
   });
 
   test('Router A/B route validators reject missing Wallet Session bearer auth', async () => {
@@ -350,7 +307,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
       message: 'Missing or invalid Wallet Session JWT',
     });
     await expect(
-      validateRouterAbEcdsaHssWalletSessionInputs({
+      validateRouterAbEcdsaDerivationWalletSessionInputs({
         body: {},
         headers: {},
         session: missingBearerSession,
@@ -421,7 +378,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
     ).resolves.toMatchObject({ ok: false, code: 'internal' });
 
     const ecdsaBootstrap = routerAbEcdsaBootstrap();
-    const ecdsaNormalSigning = buildRouterAbEcdsaHssNormalSigningStateForBootstrap({
+    const ecdsaNormalSigning = buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap({
       bootstrap: ecdsaBootstrap,
       routerAbPublicKeyset,
       signingWorkerId: 'signing-worker-1',
@@ -430,7 +387,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
     if (!ecdsaNormalSigning.ok) throw new Error(ecdsaNormalSigning.message);
 
     await expect(
-      signRouterAbEcdsaHssWalletSessionJwt({
+      signRouterAbEcdsaDerivationWalletSessionJwt({
         session,
         userId: 'alice.testnet',
         evmFamilySigningKeySlotId: ecdsaBootstrap.evmFamilySigningKeySlotId,
@@ -445,7 +402,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
           keyHandle: ecdsaBootstrap.keyHandle,
           ...routerAbEcdsaIssuerBinding(),
           activationEpoch: ecdsaBootstrap.thresholdSessionId,
-          routerAbEcdsaHssNormalSigning: ecdsaNormalSigning.state,
+          routerAbEcdsaDerivationNormalSigning: ecdsaNormalSigning.state,
         },
         requireJwtErrorMessage: 'jwt required',
         invalidPayloadErrorMessage: 'invalid ecdsa payload',
@@ -454,13 +411,13 @@ test.describe('Router A/B Wallet Session token claims', () => {
     expect(
       parseRouterAbEd25519WalletSessionClaims(signedPayloads[0])?.routerAbNormalSigning,
     ).toEqual(routerAbNormalSigning);
-    const signedEcdsaClaims = parseRouterAbEcdsaHssWalletSessionClaims(signedPayloads[1]);
-    expect(signedEcdsaClaims?.routerAbEcdsaHssNormalSigning).toEqual(ecdsaNormalSigning.state);
-    if (!signedEcdsaClaims?.routerAbEcdsaHssNormalSigning) {
-      throw new Error('expected Router A/B ECDSA-HSS normal-signing claims');
+    const signedEcdsaClaims = parseRouterAbEcdsaDerivationWalletSessionClaims(signedPayloads[1]);
+    expect(signedEcdsaClaims?.routerAbEcdsaDerivationNormalSigning).toEqual(ecdsaNormalSigning.state);
+    if (!signedEcdsaClaims?.routerAbEcdsaDerivationNormalSigning) {
+      throw new Error('expected Router A/B ECDSA derivation normal-signing claims');
     }
     const signedEcdsaWalletSessionAuth = buildVerifiedEcdsaWalletSessionAuth(signedEcdsaClaims);
-    const prepareRequest = buildRouterAbEcdsaHssEvmDigestSigningRequestV1({
+    const prepareRequest = buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1({
       scope: ecdsaNormalSigning.state.scope,
       requestId: 'router-ab-ecdsa-sign-test',
       clientPresignatureId: 'client-presignature-test',
@@ -468,7 +425,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
       signingDigest32: Uint8Array.from({ length: 32 }, (_, index) => index),
     });
     expect(
-      validateRouterAbEcdsaHssNormalSigningPrepareRequest({
+      validateRouterAbEcdsaDerivationNormalSigningPrepareRequest({
         claims: signedEcdsaClaims,
         walletSessionAuth: signedEcdsaWalletSessionAuth,
         body: prepareRequest,
@@ -481,7 +438,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
     });
 
     await expect(
-      signRouterAbEcdsaHssWalletSessionJwt({
+      signRouterAbEcdsaDerivationWalletSessionJwt({
         session,
         userId: 'alice.testnet',
         evmFamilySigningKeySlotId: 'wallet-key-alice-testnet',
@@ -493,12 +450,12 @@ test.describe('Router A/B Wallet Session token claims', () => {
           expiresAtMs: Date.now() + 60_000,
           participantIds: [1, 2],
           runtimePolicyScope,
-          keyHandle: 'ehss-key-test',
+          keyHandle: 'ederivation-key-test',
           stableKeyContext: undefined,
           publicIdentity: undefined,
           activationEpoch: '',
           signingWorkerId: 'signing-worker-1',
-          routerAbEcdsaHssNormalSigning: undefined,
+          routerAbEcdsaDerivationNormalSigning: undefined,
         },
         requireJwtErrorMessage: 'jwt required',
         invalidPayloadErrorMessage: 'invalid ecdsa payload',
@@ -508,7 +465,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
 
     const issuerBindingOnlySessionInfo = {
       ...routerAbEcdsaIssuerBinding(),
-      routerAbEcdsaHssIssuerBinding: routerAbEcdsaIssuerBinding(),
+      routerAbEcdsaDerivationIssuerBinding: routerAbEcdsaIssuerBinding(),
       sessionKind: 'jwt' as const,
       thresholdSessionId: ecdsaBootstrap.thresholdSessionId,
       signingGrantId: ecdsaBootstrap.signingGrantId,
@@ -516,10 +473,10 @@ test.describe('Router A/B Wallet Session token claims', () => {
       participantIds: ecdsaBootstrap.participantIds,
       runtimePolicyScope,
       keyHandle: ecdsaBootstrap.keyHandle,
-      routerAbEcdsaHssNormalSigning: undefined,
+      routerAbEcdsaDerivationNormalSigning: undefined,
     };
     await expect(
-      signRouterAbEcdsaHssWalletSessionJwt({
+      signRouterAbEcdsaDerivationWalletSessionJwt({
         session,
         userId: 'alice.testnet',
         evmFamilySigningKeySlotId: ecdsaBootstrap.evmFamilySigningKeySlotId,
@@ -659,22 +616,22 @@ test.describe('Router A/B Wallet Session token claims', () => {
     });
   });
 
-  test('Router A/B ECDSA-HSS private validators reject canonical scope drift and expired requests', () => {
-    const claims = parseRouterAbEcdsaHssWalletSessionClaims(routerAbEcdsaClaims());
-    expect(claims?.routerAbEcdsaHssNormalSigning).toBeTruthy();
-    if (!claims?.routerAbEcdsaHssNormalSigning) {
-      throw new Error('expected Router A/B ECDSA-HSS normal-signing claims');
+  test('Router A/B ECDSA derivation private validators reject canonical scope drift and expired requests', () => {
+    const claims = parseRouterAbEcdsaDerivationWalletSessionClaims(routerAbEcdsaClaims());
+    expect(claims?.routerAbEcdsaDerivationNormalSigning).toBeTruthy();
+    if (!claims?.routerAbEcdsaDerivationNormalSigning) {
+      throw new Error('expected Router A/B ECDSA derivation normal-signing claims');
     }
     const walletSessionAuth = buildVerifiedEcdsaWalletSessionAuth(claims);
-    const scope = claims.routerAbEcdsaHssNormalSigning.scope;
-    const prepareRequest = buildRouterAbEcdsaHssEvmDigestSigningRequestV1({
+    const scope = claims.routerAbEcdsaDerivationNormalSigning.scope;
+    const prepareRequest = buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1({
       scope,
       requestId: 'router-ab-ecdsa-private-validator-prepare',
       clientPresignatureId: 'client-presignature-private-validator',
       expiresAtMs: claims.thresholdExpiresAtMs,
       signingDigest32: Uint8Array.from({ length: 32 }, (_, index) => index + 1),
     });
-    const finalizeRequest = buildRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1({
+    const finalizeRequest = buildRouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1({
       scope,
       requestId: prepareRequest.request_id,
       budgetReservationId: 'router-ab-ecdsa-private-validator-budget-reservation',
@@ -685,7 +642,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
       clientSignatureShare32: Uint8Array.from({ length: 32 }, (_, index) => 255 - index),
     });
     expect(
-      validateRouterAbEcdsaHssNormalSigningPrepareRequest({
+      validateRouterAbEcdsaDerivationNormalSigningPrepareRequest({
         claims,
         walletSessionAuth,
         body: prepareRequest,
@@ -697,7 +654,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
       expiresAtMs: prepareRequest.expires_at_ms,
     });
     expect(
-      validateRouterAbEcdsaHssNormalSigningFinalizeRequest({
+      validateRouterAbEcdsaDerivationNormalSigningFinalizeRequest({
         claims,
         walletSessionAuth,
         body: finalizeRequest,
@@ -714,7 +671,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
       activation_epoch: 'different-activation-epoch',
     };
     expect(
-      validateRouterAbEcdsaHssNormalSigningPrepareRequest({
+      validateRouterAbEcdsaDerivationNormalSigningPrepareRequest({
         claims,
         walletSessionAuth,
         body: { ...prepareRequest, scope: driftedScope },
@@ -725,12 +682,12 @@ test.describe('Router A/B Wallet Session token claims', () => {
         status: 403,
         body: {
           code: 'forbidden',
-          message: 'Router A/B ECDSA-HSS normal-signing scope does not match Wallet Session claims',
+          message: 'Router A/B ECDSA derivation normal-signing scope does not match Wallet Session claims',
         },
       },
     });
     expect(
-      validateRouterAbEcdsaHssNormalSigningFinalizeRequest({
+      validateRouterAbEcdsaDerivationNormalSigningFinalizeRequest({
         claims,
         walletSessionAuth,
         body: { ...finalizeRequest, scope: driftedScope },
@@ -741,12 +698,12 @@ test.describe('Router A/B Wallet Session token claims', () => {
         status: 403,
         body: {
           code: 'forbidden',
-          message: 'Router A/B ECDSA-HSS normal-signing scope does not match Wallet Session claims',
+          message: 'Router A/B ECDSA derivation normal-signing scope does not match Wallet Session claims',
         },
       },
     });
     expect(
-      validateRouterAbEcdsaHssNormalSigningPrepareRequest({
+      validateRouterAbEcdsaDerivationNormalSigningPrepareRequest({
         claims,
         walletSessionAuth,
         body: { ...prepareRequest, expires_at_ms: claims.thresholdExpiresAtMs + 1 },
@@ -757,12 +714,12 @@ test.describe('Router A/B Wallet Session token claims', () => {
         status: 403,
         body: {
           code: 'forbidden',
-          message: 'Router A/B ECDSA-HSS normal-signing expiry exceeds Wallet Session expiry',
+          message: 'Router A/B ECDSA derivation normal-signing expiry exceeds Wallet Session expiry',
         },
       },
     });
     expect(
-      validateRouterAbEcdsaHssNormalSigningFinalizeRequest({
+      validateRouterAbEcdsaDerivationNormalSigningFinalizeRequest({
         claims,
         walletSessionAuth,
         body: { ...finalizeRequest, expires_at_ms: claims.thresholdExpiresAtMs + 1 },
@@ -773,12 +730,12 @@ test.describe('Router A/B Wallet Session token claims', () => {
         status: 403,
         body: {
           code: 'forbidden',
-          message: 'Router A/B ECDSA-HSS normal-signing expiry exceeds Wallet Session expiry',
+          message: 'Router A/B ECDSA derivation normal-signing expiry exceeds Wallet Session expiry',
         },
       },
     });
     expect(
-      validateRouterAbEcdsaHssNormalSigningPrepareRequest({
+      validateRouterAbEcdsaDerivationNormalSigningPrepareRequest({
         claims,
         walletSessionAuth,
         body: { ...prepareRequest, expires_at_ms: 1 },
@@ -789,12 +746,12 @@ test.describe('Router A/B Wallet Session token claims', () => {
         status: 408,
         body: {
           code: 'expired_request',
-          message: 'Router A/B ECDSA-HSS normal-signing request is expired',
+          message: 'Router A/B ECDSA derivation normal-signing request is expired',
         },
       },
     });
     expect(
-      validateRouterAbEcdsaHssNormalSigningFinalizeRequest({
+      validateRouterAbEcdsaDerivationNormalSigningFinalizeRequest({
         claims,
         walletSessionAuth,
         body: { ...finalizeRequest, expires_at_ms: 1 },
@@ -805,7 +762,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
         status: 408,
         body: {
           code: 'expired_request',
-          message: 'Router A/B ECDSA-HSS normal-signing request is expired',
+          message: 'Router A/B ECDSA derivation normal-signing request is expired',
         },
       },
     });

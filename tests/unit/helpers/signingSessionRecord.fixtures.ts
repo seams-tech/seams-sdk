@@ -12,7 +12,7 @@ import {
   upsertThresholdEd25519SessionFact,
   upsertThresholdEcdsaSessionFromBootstrap,
 } from '@/core/signingEngine/session/persistence/records';
-import { markRouterAbEcdsaHssWorkerMaterialRuntimeValidated } from '@/core/signingEngine/session/routerAbSigningWalletSession';
+import { markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import {
   buildEmailOtpAuthContextForWalletAuthMethod,
   emailOtpAuthContextProviderUserId,
@@ -226,7 +226,7 @@ export function seedEcdsaWarmSessionRecord(
           source,
         });
   if (args.runtimeValidated) {
-    markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record);
+    markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record);
   }
   return record;
 }

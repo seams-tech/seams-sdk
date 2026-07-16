@@ -1,12 +1,12 @@
 import { expect, test } from '@playwright/test';
 import { createRouterApiRouter } from '@server/router/express-adaptor';
 import {
-  computeEcdsaHssRoleLocalFirstBootstrapRootProofDigest32B64u,
-  computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u,
-  computeEcdsaHssRoleLocalRelayerKeyId,
-  computeEcdsaHssRoleLocalThresholdKeyId,
-  type EcdsaHssClientSharePublicKey33B64u,
-} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+  computeEcdsaDerivationRoleLocalFirstBootstrapRootProofDigest32B64u,
+  computeEcdsaDerivationRoleLocalPasskeyBootstrapAuthDigest32B64u,
+  computeEcdsaDerivationRoleLocalRelayerKeyId,
+  computeEcdsaDerivationRoleLocalThresholdKeyId,
+  type DerivationClientSharePublicKey33B64u,
+} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
@@ -82,18 +82,18 @@ function fakeWebAuthnAuthentication() {
 }
 
 async function makeBootstrapBody(overrides?: Record<string, unknown>) {
-  const ecdsaThresholdKeyId = await computeEcdsaHssRoleLocalThresholdKeyId({
+  const ecdsaThresholdKeyId = await computeEcdsaDerivationRoleLocalThresholdKeyId({
     walletId: WALLET_SESSION_USER_ID,
     walletKeyId: WALLET_KEY_ID,
     signingRootId: SIGNING_ROOT_ID,
     signingRootVersion: SIGNING_ROOT_VERSION,
   });
-  const relayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
+  const relayerKeyId = await computeEcdsaDerivationRoleLocalRelayerKeyId({
     walletId: WALLET_SESSION_USER_ID,
     walletKeyId: WALLET_KEY_ID,
   });
   const body = {
-    formatVersion: 'ecdsa-hss-role-local',
+    formatVersion: 'ecdsa-derivation-role-local',
     walletId: WALLET_SESSION_USER_ID,
     walletKeyId: WALLET_KEY_ID,
     ecdsaThresholdKeyId,
@@ -101,7 +101,7 @@ async function makeBootstrapBody(overrides?: Record<string, unknown>) {
     signingRootVersion: SIGNING_ROOT_VERSION,
     keyScope: 'evm-family',
     relayerKeyId,
-    hssClientSharePublicKey33B64u: b64u(
+    derivationClientSharePublicKey33B64u: b64u(
       Uint8Array.from([0x02, ...Array.from({ length: 32 }, (_, index) => index)]),
     ),
     clientShareRetryCounter: 0,
@@ -143,20 +143,20 @@ async function startPasskeyBootstrapRoute(input: {
       verifyCalls.push(request);
       return input.verifyResult;
     },
-    ecdsaHssRoleLocalBootstrap: async (request: unknown) => {
+    ecdsaDerivationRoleLocalBootstrap: async (request: unknown) => {
       bootstrapCalls.push(request);
       const parsedRequest = request as Awaited<ReturnType<typeof makeBootstrapBody>>;
       return {
         ok: true,
         value: {
-          formatVersion: 'ecdsa-hss-role-local',
+          formatVersion: 'ecdsa-derivation-role-local',
           walletId: WALLET_SESSION_USER_ID,
           walletKeyId: WALLET_KEY_ID,
           ecdsaThresholdKeyId: parsedRequest.ecdsaThresholdKeyId,
           relayerKeyId: parsedRequest.relayerKeyId,
           contextBinding32B64u: parsedRequest.contextBinding32B64u,
           publicIdentity: {
-            hssClientSharePublicKey33B64u: parsedRequest.hssClientSharePublicKey33B64u,
+            derivationClientSharePublicKey33B64u: parsedRequest.derivationClientSharePublicKey33B64u,
             relayerPublicKey33B64u: b64u(
               Uint8Array.from([0x03, ...Array.from({ length: 32 }, (_, index) => index + 2)]),
             ),
@@ -168,7 +168,7 @@ async function startPasskeyBootstrapRoute(input: {
           publicTranscriptDigest32B64u: b64u(
             Uint8Array.from(Array.from({ length: 32 }, (_, index) => index + 4)),
           ),
-          keyHandle: 'ecdsa-hss-role-local-key-handle',
+          keyHandle: 'ecdsa-derivation-role-local-key-handle',
           signingRootId: SIGNING_ROOT_ID,
           signingRootVersion: SIGNING_ROOT_VERSION,
           thresholdEcdsaPublicKeyB64u: b64u(
@@ -189,9 +189,9 @@ async function startPasskeyBootstrapRoute(input: {
         },
       };
     },
-    verifyEcdsaHssRoleLocalClientRootProofForExistingKey: async (request: unknown) => {
+    verifyEcdsaDerivationRoleLocalClientRootProofForExistingKey: async (request: unknown) => {
       rootProofCalls.push(request);
-      return { ok: true, value: { keyHandle: 'ecdsa-hss-role-local-key-handle' } };
+      return { ok: true, value: { keyHandle: 'ecdsa-derivation-role-local-key-handle' } };
     },
     getRouterAbNormalSigningRuntime: () => ({
       getSigningWorkerId: () => 'signing-worker-passkey-role-local',
@@ -217,7 +217,7 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
       verifyResult: { success: true, verified: true },
     });
     try {
-      const response = await fetchJson(`${harness.server.baseUrl}/router-ab/ecdsa-hss/bootstrap`, {
+      const response = await fetchJson(`${harness.server.baseUrl}/router-ab/ecdsa-derivation/bootstrap`, {
         method: 'POST',
         headers: PASSKEY_BOOTSTRAP_HEADERS,
         body: JSON.stringify(body),
@@ -228,7 +228,7 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
       expect(harness.verifyCalls).toHaveLength(1);
       expect(harness.verifyCalls[0]).toMatchObject({
         rpId: RP_ID,
-        expectedChallenge: await computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u({
+        expectedChallenge: await computeEcdsaDerivationRoleLocalPasskeyBootstrapAuthDigest32B64u({
           walletId: WALLET_SESSION_USER_ID,
           walletKeyId: WALLET_KEY_ID,
           rpId: RP_ID,
@@ -256,7 +256,7 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
       verifyResult: { success: true, verified: true },
     });
     try {
-      const response = await fetchJson(`${harness.server.baseUrl}/router-ab/ecdsa-hss/bootstrap`, {
+      const response = await fetchJson(`${harness.server.baseUrl}/router-ab/ecdsa-derivation/bootstrap`, {
         method: 'POST',
         headers: PASSKEY_BOOTSTRAP_HEADERS,
         body: JSON.stringify(body),
@@ -267,7 +267,7 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
       expect(response.json).toMatchObject({
         ok: false,
         code: 'invalid_body',
-        message: 'Router A/B ECDSA-HSS bootstrap requires sessionKind=jwt',
+        message: 'Router A/B ECDSA derivation bootstrap requires sessionKind=jwt',
       });
       expect(harness.verifyCalls).toHaveLength(0);
       expect(harness.bootstrapCalls).toHaveLength(0);
@@ -287,7 +287,7 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
       },
     });
     try {
-      const response = await fetchJson(`${harness.server.baseUrl}/router-ab/ecdsa-hss/bootstrap`, {
+      const response = await fetchJson(`${harness.server.baseUrl}/router-ab/ecdsa-derivation/bootstrap`, {
         method: 'POST',
         headers: PASSKEY_BOOTSTRAP_HEADERS,
         body: JSON.stringify(body),
@@ -323,7 +323,7 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
       },
     });
     try {
-      const response = await fetchJson(`${harness.server.baseUrl}/router-ab/ecdsa-hss/bootstrap`, {
+      const response = await fetchJson(`${harness.server.baseUrl}/router-ab/ecdsa-derivation/bootstrap`, {
         method: 'POST',
         headers: PASSKEY_BOOTSTRAP_HEADERS,
         body: JSON.stringify(body),
@@ -350,11 +350,11 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
     const body = {
       ...bodyWithoutProof,
       clientRootProof: {
-        version: 'ecdsa-hss:role-local:first-bootstrap-root-proof:v2',
+        version: 'ecdsa-derivation:role-local:first-bootstrap-root-proof:v2',
         clientRootPublicKey33B64u: b64u(
           Uint8Array.from([0x03, ...Array.from({ length: 32 }, (_, index) => index + 9)]),
         ),
-        digest32B64u: await computeEcdsaHssRoleLocalFirstBootstrapRootProofDigest32B64u({
+        digest32B64u: await computeEcdsaDerivationRoleLocalFirstBootstrapRootProofDigest32B64u({
           walletId: String(bodyWithoutProof.walletId),
           walletKeyId: String(bodyWithoutProof.walletKeyId),
           ecdsaThresholdKeyId: String(bodyWithoutProof.ecdsaThresholdKeyId),
@@ -362,9 +362,9 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
           signingRootVersion: String(bodyWithoutProof.signingRootVersion),
           keyScope: 'evm-family',
           relayerKeyId: String(bodyWithoutProof.relayerKeyId),
-          hssClientSharePublicKey33B64u: String(
-            bodyWithoutProof.hssClientSharePublicKey33B64u,
-          ) as EcdsaHssClientSharePublicKey33B64u,
+          derivationClientSharePublicKey33B64u: String(
+            bodyWithoutProof.derivationClientSharePublicKey33B64u,
+          ) as DerivationClientSharePublicKey33B64u,
           clientShareRetryCounter: Number(bodyWithoutProof.clientShareRetryCounter),
           contextBinding32B64u: String(bodyWithoutProof.contextBinding32B64u),
           requestId: String(bodyWithoutProof.requestId),
@@ -402,7 +402,7 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
       }),
     });
     try {
-      const response = await fetchJson(`${harness.server.baseUrl}/router-ab/ecdsa-hss/bootstrap`, {
+      const response = await fetchJson(`${harness.server.baseUrl}/router-ab/ecdsa-derivation/bootstrap`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -438,7 +438,7 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
       verifyResult: { success: true, verified: true },
     });
     try {
-      const response = await fetchJson(`${harness.server.baseUrl}/router-ab/ecdsa-hss/bootstrap`, {
+      const response = await fetchJson(`${harness.server.baseUrl}/router-ab/ecdsa-derivation/bootstrap`, {
         method: 'POST',
         headers: PASSKEY_BOOTSTRAP_HEADERS,
         body: JSON.stringify(body),
@@ -449,7 +449,7 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
       expect(harness.bootstrapCalls).toHaveLength(1);
       expect(harness.verifyCalls[0]).toMatchObject({
         rpId: RP_ID,
-        expectedChallenge: await computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u({
+        expectedChallenge: await computeEcdsaDerivationRoleLocalPasskeyBootstrapAuthDigest32B64u({
           walletId: WALLET_SESSION_USER_ID,
           walletKeyId: WALLET_KEY_ID,
           rpId: RP_ID,
@@ -475,7 +475,7 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
     const mismatchedSigningRootVersion = 'wrong-version';
     const body = await makeBootstrapBody({
       signingRootVersion: mismatchedSigningRootVersion,
-      ecdsaThresholdKeyId: await computeEcdsaHssRoleLocalThresholdKeyId({
+      ecdsaThresholdKeyId: await computeEcdsaDerivationRoleLocalThresholdKeyId({
         walletId: WALLET_SESSION_USER_ID,
         walletKeyId: WALLET_KEY_ID,
         signingRootId: SIGNING_ROOT_ID,
@@ -486,7 +486,7 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
       verifyResult: { success: true, verified: true },
     });
     try {
-      const response = await fetchJson(`${harness.server.baseUrl}/router-ab/ecdsa-hss/bootstrap`, {
+      const response = await fetchJson(`${harness.server.baseUrl}/router-ab/ecdsa-derivation/bootstrap`, {
         method: 'POST',
         headers: PASSKEY_BOOTSTRAP_HEADERS,
         body: JSON.stringify(body),
@@ -521,7 +521,7 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
     });
     try {
       for (const field of forbiddenFields) {
-        const response = await fetchJson(`${harness.server.baseUrl}/router-ab/ecdsa-hss/bootstrap`, {
+        const response = await fetchJson(`${harness.server.baseUrl}/router-ab/ecdsa-derivation/bootstrap`, {
           method: 'POST',
           headers: PASSKEY_BOOTSTRAP_HEADERS,
           body: JSON.stringify(await makeBootstrapBody({ [field]: 'secret-material' })),
@@ -548,14 +548,14 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
       verifyResult: { success: true, verified: true },
     });
     try {
-      for (const hssClientSharePublicKey33B64u of malformedPublicKeys) {
-        const response = await fetchJson(`${harness.server.baseUrl}/router-ab/ecdsa-hss/bootstrap`, {
+      for (const derivationClientSharePublicKey33B64u of malformedPublicKeys) {
+        const response = await fetchJson(`${harness.server.baseUrl}/router-ab/ecdsa-derivation/bootstrap`, {
           method: 'POST',
           headers: PASSKEY_BOOTSTRAP_HEADERS,
-          body: JSON.stringify(await makeBootstrapBody({ hssClientSharePublicKey33B64u })),
+          body: JSON.stringify(await makeBootstrapBody({ derivationClientSharePublicKey33B64u })),
         });
 
-        expect(response.json, hssClientSharePublicKey33B64u).toMatchObject({
+        expect(response.json, derivationClientSharePublicKey33B64u).toMatchObject({
           ok: false,
           code: 'invalid_body',
         });

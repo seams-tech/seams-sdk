@@ -2,16 +2,19 @@ import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { AuthService } from '../../packages/sdk-server-ts/src/core/AuthService';
-import { createThresholdSigningService } from '../../packages/sdk-server-ts/src/core/ThresholdService';
+import {
+  createRouterAbSigningRuntimes,
+  type RouterAbSigningRuntimeBundle,
+} from '../../packages/sdk-server-ts/src/core/routerAbSigning/createRouterAbSigningRuntimes';
+import type { RouterAbEcdsaBootstrapExportPort } from '../../packages/sdk-server-ts/src/core/routerAbSigning/RouterAbEcdsaBootstrapExportRuntime';
 import {
   createSelfHostedSigningRootShareResolver,
   type SealedSigningRootShare,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootShareResolver';
-import { secp256k1PrivateKey32ToPublicKey33 } from '../../packages/sdk-server-ts/src/core/ThresholdService/ethSignerWasm';
-import { initSync as initEcdsaClientSignerWasmSync } from '../../wasm/ecdsa_client_signer/pkg/ecdsa_client_signer.js';
+import { secp256k1PrivateKey32ToPublicKey33 } from '../../packages/sdk-server-ts/src/core/ThresholdService/evmCryptoWasm';
+import { initSync as initEcdsaDerivationClientWasmSync } from '../../wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.js';
 import { prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest } from '../helpers/thresholdEcdsaClientBootstrap';
-import type { EcdsaHssClientSharePublicKey33B64u } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+import type { DerivationClientSharePublicKey33B64u } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import type { ThresholdStoreConfigInput } from '../../packages/sdk-server-ts/src/core/types';
 import { thresholdEcdsaChainTargetKey } from '../../packages/sdk-server-ts/src/core/thresholdEcdsaChainTarget';
@@ -36,8 +39,8 @@ type ThresholdPrfFixtureCorpus = {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURE_PATH = resolve(__dirname, '../../crates/threshold-prf/fixtures/protocol-t-of-n.json');
-const ECDSA_CLIENT_SIGNER_WASM_URL = new URL(
-  '../../wasm/ecdsa_client_signer/pkg/ecdsa_client_signer_bg.wasm',
+const ECDSA_DERIVATION_CLIENT_WASM_URL = new URL(
+  '../../wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client_bg.wasm',
   import.meta.url,
 );
 const PROJECT_ID = 'project-alpha';
@@ -67,12 +70,12 @@ const ECDSA_CONTEXT = {
   keyVersion: 'v1',
 };
 const ECDSA_SUBJECT_ID = ECDSA_CONTEXT.walletId;
-let ecdsaClientSignerWasmInitialized = false;
+let ecdsaDerivationClientWasmInitialized = false;
 
-function ensureHssClientSignerWasm(): void {
-  if (ecdsaClientSignerWasmInitialized) return;
-  initEcdsaClientSignerWasmSync({ module: readFileSync(ECDSA_CLIENT_SIGNER_WASM_URL) });
-  ecdsaClientSignerWasmInitialized = true;
+function ensureEcdsaDerivationClientWasm(): void {
+  if (ecdsaDerivationClientWasmInitialized) return;
+  initEcdsaDerivationClientWasmSync({ module: readFileSync(ECDSA_DERIVATION_CLIENT_WASM_URL) });
+  ecdsaDerivationClientWasmInitialized = true;
 }
 
 function loadFixtureCorpus(): ThresholdPrfFixtureCorpus {
@@ -131,27 +134,36 @@ function hexToBytes(hex: string): Uint8Array {
   return new Uint8Array(Buffer.from(hex, 'hex'));
 }
 
-function toHssClientSharePublicKey33B64uForTest(value: string): EcdsaHssClientSharePublicKey33B64u {
-  return value as EcdsaHssClientSharePublicKey33B64u;
+function toDerivationClientSharePublicKey33B64uForTest(
+  value: string,
+): DerivationClientSharePublicKey33B64u {
+  return value as DerivationClientSharePublicKey33B64u;
 }
 
-function createAuthServiceMock(): AuthService {
+function createAuthServiceMock(): { getRelayerAccount(): Promise<string> } {
   return {
     getRelayerAccount: async () => 'relayer.testnet',
-    verifyWebAuthnAuthenticationLite: async () => ({ success: true, verified: true }),
-    viewAccessKeyList: async () => ({ keys: [] }),
-  } as unknown as AuthService;
+  };
+}
+
+function requireEcdsaBootstrapExportRuntime(
+  runtimes: RouterAbSigningRuntimeBundle,
+): RouterAbEcdsaBootstrapExportPort {
+  if (runtimes.ecdsaBootstrapExport.kind !== 'configured') {
+    throw new Error('Router A/B ECDSA bootstrap/export runtime is not configured');
+  }
+  return runtimes.ecdsaBootstrapExport.runtime;
 }
 
 async function roleLocalBootstrapWithClientShare(args: {
-  service: ReturnType<typeof createThresholdSigningService>;
+  service: RouterAbEcdsaBootstrapExportPort;
   clientRootShare32B64u: string;
   sessionId: string;
   signingGrantId: string;
   signingRootId?: string;
   signingRootVersion?: string;
 }) {
-  ensureHssClientSignerWasm();
+  ensureEcdsaDerivationClientWasm();
   const signingRootId = args.signingRootId || SIGNING_ROOT_ID;
   const signingRootVersion = args.signingRootVersion || SIGNING_ROOT_VERSION;
   const clientBootstrap = prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest({
@@ -164,17 +176,17 @@ async function roleLocalBootstrapWithClientShare(args: {
     clientRootShare32B64u: args.clientRootShare32B64u,
   });
 
-  return await args.service.ecdsaHssRoleLocalBootstrap({
-    formatVersion: 'ecdsa-hss-role-local',
+  return await args.service.ecdsaDerivationRoleLocalBootstrap({
+    formatVersion: 'ecdsa-derivation-role-local',
     walletId: ECDSA_CONTEXT.walletId,
     evmFamilySigningKeySlotId: ECDSA_CONTEXT.evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId: ECDSA_CONTEXT.ecdsaThresholdKeyId,
     signingRootId,
     signingRootVersion,
     keyScope: 'evm-family',
-    relayerKeyId: 'ehss-relayer-signing-root-test',
-    hssClientSharePublicKey33B64u: toHssClientSharePublicKey33B64uForTest(
-      clientBootstrap.hssClientSharePublicKey33B64u,
+    relayerKeyId: 'ederivation-relayer-signing-root-test',
+    derivationClientSharePublicKey33B64u: toDerivationClientSharePublicKey33B64uForTest(
+      clientBootstrap.derivationClientSharePublicKey33B64u,
     ),
     clientShareRetryCounter: clientBootstrap.clientShareRetryCounter,
     contextBinding32B64u: clientBootstrap.contextBinding32B64u,
@@ -189,7 +201,7 @@ async function roleLocalBootstrapWithClientShare(args: {
 
 test('ECDSA role-local bootstrap uses signing-root resolver when configured and preserves response shape', async () => {
   const decryptCalls: number[] = [];
-  const vector = vectorForPurpose('ecdsa-hss/y_server');
+  const vector = vectorForPurpose('ecdsa-derivation/y_server');
   const thresholdConfig: ThresholdStoreConfigInput = {
     kind: 'in-memory',
     ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker.local',
@@ -198,12 +210,12 @@ test('ECDSA role-local bootstrap uses signing-root resolver when configured and 
       decryptCalls,
     }),
   };
-  const { thresholdSigningService: service } = createThresholdSigningService({
+  const runtimes = createRouterAbSigningRuntimes({
     authService: createAuthServiceMock(),
     thresholdStore: thresholdConfig,
     isNode: true,
   });
-  expect(service.hasSigningRootShareResolver()).toBe(true);
+  const service = requireEcdsaBootstrapExportRuntime(runtimes);
   const bootstrapped = await roleLocalBootstrapWithClientShare({
     service,
     clientRootShare32B64u: Buffer.from(new Uint8Array(32).fill(0x07)).toString('base64url'),
@@ -222,7 +234,7 @@ test('ECDSA role-local bootstrap uses signing-root resolver when configured and 
 });
 
 test('ECDSA self-host signing-root resolver supplies fixed project scope when session policy has no runtime scope', async () => {
-  const vector = vectorForPurpose('ecdsa-hss/y_server');
+  const vector = vectorForPurpose('ecdsa-derivation/y_server');
   const signingRootShareResolver = createSelfHostedSigningRootShareResolver({
     signingRootId: SIGNING_ROOT_ID,
     signingRootVersion: SIGNING_ROOT_VERSION,
@@ -232,7 +244,7 @@ test('ECDSA self-host signing-root resolver supplies fixed project scope when se
       shareWireHex: share.wire_hex,
     })),
   });
-  const { thresholdSigningService: service } = createThresholdSigningService({
+  const runtimes = createRouterAbSigningRuntimes({
     authService: createAuthServiceMock(),
     thresholdStore: {
       kind: 'in-memory',
@@ -241,6 +253,7 @@ test('ECDSA self-host signing-root resolver supplies fixed project scope when se
     },
     isNode: true,
   });
+  const service = requireEcdsaBootstrapExportRuntime(runtimes);
   const bootstrapped = await roleLocalBootstrapWithClientShare({
     service,
     clientRootShare32B64u: Buffer.from(new Uint8Array(32).fill(0x07)).toString('base64url'),
@@ -259,9 +272,9 @@ test('ECDSA self-host signing-root resolver supplies fixed project scope when se
 
 test('ECDSA signing-root wallet verification derives the known address from imported root-versioned shares', async () => {
   const decryptCalls: number[] = [];
-  const vector = vectorForPurpose('ecdsa-hss/y_server');
+  const vector = vectorForPurpose('ecdsa-derivation/y_server');
 
-  const { thresholdSigningService: service } = createThresholdSigningService({
+  const runtimes = createRouterAbSigningRuntimes({
     authService: createAuthServiceMock(),
     thresholdStore: {
       kind: 'in-memory',
@@ -273,6 +286,7 @@ test('ECDSA signing-root wallet verification derives the known address from impo
     },
     isNode: true,
   });
+  const service = requireEcdsaBootstrapExportRuntime(runtimes);
   const clientRootShare32 = new Uint8Array(32).fill(0x07);
   const clientPublicKey33B64u = Buffer.from(
     await secp256k1PrivateKey32ToPublicKey33(clientRootShare32),

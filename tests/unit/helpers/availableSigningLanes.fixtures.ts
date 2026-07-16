@@ -25,10 +25,10 @@ import {
   type RouterAbEd25519NormalSigningState,
 } from '@shared/utils/signingSessionSeal';
 import {
-  ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1,
-  ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
-  type RouterAbEcdsaHssNormalSigningStateV1,
-} from '@shared/utils/routerAbEcdsaHss';
+  ROUTER_AB_ECDSA_DERIVATION_KEY_SCOPE_V1,
+  ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
+  type RouterAbEcdsaDerivationNormalSigningStateV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 
 export const AVAILABLE_LANES_WALLET_ID = 'alice.testnet';
 export const AVAILABLE_LANES_ED25519_WALLET_ID = toWalletId('frost-vermillion-k7p9m2');
@@ -46,7 +46,7 @@ export const AVAILABLE_LANES_PASSKEY_CREDENTIAL_ID = 'credential-available-lanes
 export const AVAILABLE_LANES_EXPIRES_AT_MS = 2_000_000_000_000;
 export const AVAILABLE_LANES_ECDSA_PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 export const AVAILABLE_LANES_ECDSA_KEY_HANDLE =
-  'ehss-key-available-lane-test' as EvmFamilyEcdsaKeyHandle;
+  'ederivation-key-available-lane-test' as EvmFamilyEcdsaKeyHandle;
 export const AVAILABLE_LANES_ECDSA_TARGET = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'evm',
   chainId: 5042002,
@@ -74,9 +74,9 @@ export function runtimeEcdsaRouterAbNormalSigningState(args: {
   thresholdSessionId: string;
   thresholdEcdsaPublicKeyB64u: string;
   thresholdOwnerAddress: string;
-}): RouterAbEcdsaHssNormalSigningStateV1 {
+}): RouterAbEcdsaDerivationNormalSigningStateV1 {
   return {
-    kind: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
+    kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
     scope: {
       wallet_key_id: args.key.evmFamilySigningKeySlotId,
       wallet_id: args.key.walletId,
@@ -88,7 +88,7 @@ export function runtimeEcdsaRouterAbNormalSigningState(args: {
       },
       public_identity: {
         context_binding_b64u: 'AQ',
-        client_public_key33_b64u: args.thresholdEcdsaPublicKeyB64u,
+        derivation_client_share_public_key33_b64u: args.thresholdEcdsaPublicKeyB64u,
         server_public_key33_b64u: args.thresholdEcdsaPublicKeyB64u,
         threshold_public_key33_b64u: args.thresholdEcdsaPublicKeyB64u,
         ethereum_address20_b64u: hexAddressToBase64Url(args.thresholdOwnerAddress),
@@ -136,13 +136,13 @@ export function runtimeEcdsaAvailableLaneRecord(args: {
   });
   const base = {
     key,
-    routerAbEcdsaHssNormalSigning: runtimeEcdsaRouterAbNormalSigningState({
+    routerAbEcdsaDerivationNormalSigning: runtimeEcdsaRouterAbNormalSigningState({
       key,
       thresholdSessionId: args.thresholdSessionId,
       thresholdEcdsaPublicKeyB64u: AVAILABLE_LANES_ECDSA_PUBLIC_KEY_B64U,
       thresholdOwnerAddress,
     }),
-    keyHandle: args.keyHandle || (`ehss-key-${keyId}` as EvmFamilyEcdsaKeyHandle),
+    keyHandle: args.keyHandle || (`ederivation-key-${keyId}` as EvmFamilyEcdsaKeyHandle),
     thresholdEcdsaPublicKeyB64u: AVAILABLE_LANES_ECDSA_PUBLIC_KEY_B64U,
     curve: 'ecdsa',
     chainTarget: args.chainTarget,

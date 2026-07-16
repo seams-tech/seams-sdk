@@ -3,7 +3,7 @@ import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { bytesToHex, hexToBytes } from '@/core/signingEngine/chains/evm/bytes';
 
 const IMPORT_PATHS = {
-  ethSignerWasm: '/_test-sdk/esm/core/signingEngine/chains/evm/ethSignerWasm.js',
+  evmCryptoWasm: '/_test-sdk/esm/core/signingEngine/chains/evm/evmCryptoWasm.js',
   signerGateway: '/_test-sdk/esm/core/signingEngine/workerManager/workerTransport.js',
 } as const;
 
@@ -17,7 +17,7 @@ test.describe('deriveSecp256k1KeypairFromPrfSecondWasm', () => {
 
     const result = await page.evaluate(
       async ({ paths, prfSecondB64u }) => {
-        const { deriveSecp256k1KeypairFromPrfSecondWasm } = await import(paths.ethSignerWasm);
+        const { deriveSecp256k1KeypairFromPrfSecondWasm } = await import(paths.evmCryptoWasm);
         const { getWorkerTransport } = await import(paths.signerGateway);
         const workerCtx = {
           requestWorkerOperation: async ({ kind, request }: { kind: string; request: unknown }) =>

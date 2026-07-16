@@ -1,23 +1,23 @@
 import { expect, test } from '@playwright/test';
 import {
-  buildRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1,
-  buildRouterAbEcdsaHssEvmDigestSigningRequestV1,
-  parseRouterAbEcdsaHssEvmDigestSigningResponseForCoreRequestV1,
-  parseRouterAbEcdsaHssEvmDigestSigningPrepareResponseForRequestV1,
-  parseRouterAbEcdsaHssEvmDigestSigningRequestV1,
-  routerAbEcdsaHssContextBindingB64uV1,
-  routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestDigestV1,
-  routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestFromBudgetedV1,
-  routerAbEcdsaHssEvmDigestSigningRequestDigestV1,
-  type RouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1Wire,
-  type RouterAbEcdsaHssEvmDigestSigningPrepareResponseV1Wire,
-  type RouterAbEcdsaHssEvmDigestSigningRequestV1Wire,
-  type RouterAbEcdsaHssEvmDigestSigningResponseV1Wire,
-  type RouterAbEcdsaHssNormalSigningScopeV1,
-} from '@shared/utils/routerAbEcdsaHss';
+  buildRouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1,
+  buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
+  parseRouterAbEcdsaDerivationEvmDigestSigningResponseForCoreRequestV1,
+  parseRouterAbEcdsaDerivationEvmDigestSigningPrepareResponseForRequestV1,
+  parseRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
+  routerAbEcdsaDerivationContextBindingB64uV1,
+  routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestDigestV1,
+  routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestFromBudgetedV1,
+  routerAbEcdsaDerivationEvmDigestSigningRequestDigestV1,
+  type RouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1Wire,
+  type RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1Wire,
+  type RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire,
+  type RouterAbEcdsaDerivationEvmDigestSigningResponseV1Wire,
+  type RouterAbEcdsaDerivationNormalSigningScopeV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import {
-  finalizeRouterAbEcdsaHssEvmDigestSigningV1,
-  prepareRouterAbEcdsaHssEvmDigestSigningV1,
+  finalizeRouterAbEcdsaDerivationEvmDigestSigningV1,
+  prepareRouterAbEcdsaDerivationEvmDigestSigningV1,
 } from '@/core/rpcClients/relayer/routerAbNormalSigning';
 
 function b64u(byte: number, length: number): string {
@@ -49,9 +49,9 @@ const stableContext = {
   application_binding_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
 } as const;
 
-let scope: RouterAbEcdsaHssNormalSigningScopeV1;
+let scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
 
-async function buildScope(): Promise<RouterAbEcdsaHssNormalSigningScopeV1> {
+async function buildScope(): Promise<RouterAbEcdsaDerivationNormalSigningScopeV1> {
   return {
     wallet_key_id: 'wallet-key-localhost',
     wallet_id: 'wallet-1',
@@ -60,8 +60,8 @@ async function buildScope(): Promise<RouterAbEcdsaHssNormalSigningScopeV1> {
     signing_root_version: 'root-v1',
     context: stableContext,
     public_identity: {
-      context_binding_b64u: await routerAbEcdsaHssContextBindingB64uV1(stableContext),
-      client_public_key33_b64u: ecdsaClientPublicKey33B64u,
+      context_binding_b64u: await routerAbEcdsaDerivationContextBindingB64uV1(stableContext),
+      derivation_client_share_public_key33_b64u: ecdsaClientPublicKey33B64u,
       server_public_key33_b64u: ecdsaServerPublicKey33B64u,
       threshold_public_key33_b64u: ecdsaThresholdPublicKey33B64u,
       ethereum_address20_b64u: b64u(5, 20),
@@ -79,7 +79,7 @@ async function buildScope(): Promise<RouterAbEcdsaHssNormalSigningScopeV1> {
 }
 
 function prepareRequest() {
-  return buildRouterAbEcdsaHssEvmDigestSigningRequestV1({
+  return buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1({
     scope,
     requestId: 'ecdsa-sign-request-1',
     clientPresignatureId: 'presig-client-selected',
@@ -89,8 +89,8 @@ function prepareRequest() {
 }
 
 async function prepareResponse(
-  request: RouterAbEcdsaHssEvmDigestSigningRequestV1Wire = prepareRequest(),
-): Promise<RouterAbEcdsaHssEvmDigestSigningPrepareResponseV1Wire> {
+  request: RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire = prepareRequest(),
+): Promise<RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1Wire> {
   return {
     scope,
     request_id: request.request_id,
@@ -101,7 +101,7 @@ async function prepareResponse(
       reserved_uses: 1,
       available_uses: 2,
     },
-    request_digest: await routerAbEcdsaHssEvmDigestSigningRequestDigestV1(request),
+    request_digest: await routerAbEcdsaDerivationEvmDigestSigningRequestDigestV1(request),
     signing_digest: digest(11),
     server_presignature_id: request.client_presignature_id,
     server_big_r33_b64u: ecdsaServerBigR33B64u,
@@ -113,15 +113,15 @@ async function prepareResponse(
 }
 
 async function signingResponse(
-  request: RouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1Wire,
-): Promise<RouterAbEcdsaHssEvmDigestSigningResponseV1Wire> {
-  const coreRequest = routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestFromBudgetedV1(
+  request: RouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1Wire,
+): Promise<RouterAbEcdsaDerivationEvmDigestSigningResponseV1Wire> {
+  const coreRequest = routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestFromBudgetedV1(
     request,
   );
   return {
     scope,
     request_id: request.request_id,
-    request_digest: await routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestDigestV1(
+    request_digest: await routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestDigestV1(
       coreRequest,
     ),
     signing_digest: digest(11),
@@ -130,7 +130,7 @@ async function signingResponse(
   };
 }
 
-test.describe('Router A/B ECDSA-HSS normal-signing boundary', () => {
+test.describe('Router A/B ECDSA derivation normal-signing boundary', () => {
   test.beforeAll(async () => {
     scope = await buildScope();
   });
@@ -145,7 +145,7 @@ test.describe('Router A/B ECDSA-HSS normal-signing boundary', () => {
       signing_digest_b64u: b64u(11, 32),
     });
 
-    const finalizeRequest = buildRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1({
+    const finalizeRequest = buildRouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1({
       scope,
       requestId: request.request_id,
       budgetReservationId: 'ecdsa-sign-budget-reservation-1',
@@ -169,11 +169,11 @@ test.describe('Router A/B ECDSA-HSS normal-signing boundary', () => {
   });
 
   test('rejects request digests when scope context binding does not match context', async () => {
-    const mismatchedScope: RouterAbEcdsaHssNormalSigningScopeV1 = {
+    const mismatchedScope: RouterAbEcdsaDerivationNormalSigningScopeV1 = {
       ...scope,
       public_identity: {
         context_binding_b64u: b64u(99, 32),
-        client_public_key33_b64u: scope.public_identity.client_public_key33_b64u,
+        derivation_client_share_public_key33_b64u: scope.public_identity.derivation_client_share_public_key33_b64u,
         server_public_key33_b64u: scope.public_identity.server_public_key33_b64u,
         threshold_public_key33_b64u: scope.public_identity.threshold_public_key33_b64u,
         ethereum_address20_b64u: scope.public_identity.ethereum_address20_b64u,
@@ -181,7 +181,7 @@ test.describe('Router A/B ECDSA-HSS normal-signing boundary', () => {
         server_share_retry_counter: scope.public_identity.server_share_retry_counter,
       },
     };
-    const request = buildRouterAbEcdsaHssEvmDigestSigningRequestV1({
+    const request = buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1({
       scope: mismatchedScope,
       requestId: 'ecdsa-sign-request-context-mismatch',
       clientPresignatureId: 'presig-client-selected',
@@ -189,7 +189,7 @@ test.describe('Router A/B ECDSA-HSS normal-signing boundary', () => {
       signingDigest32: new Uint8Array(32).fill(11),
     });
 
-    await expect(routerAbEcdsaHssEvmDigestSigningRequestDigestV1(request)).rejects.toThrow(
+    await expect(routerAbEcdsaDerivationEvmDigestSigningRequestDigestV1(request)).rejects.toThrow(
       /context_binding_b64u does not match scope.context/,
     );
   });
@@ -197,30 +197,30 @@ test.describe('Router A/B ECDSA-HSS normal-signing boundary', () => {
   test('rejects legacy threshold-session fields and mismatched prepare responses', async () => {
     const request = prepareRequest();
     expect(() =>
-      parseRouterAbEcdsaHssEvmDigestSigningRequestV1({
+      parseRouterAbEcdsaDerivationEvmDigestSigningRequestV1({
         ...request,
         mpcSessionId: 'legacy-session',
       }),
     ).toThrow('ecdsaSigningRequest.mpcSessionId is not a supported field');
 
     await expect(
-      parseRouterAbEcdsaHssEvmDigestSigningPrepareResponseForRequestV1(request, {
+      parseRouterAbEcdsaDerivationEvmDigestSigningPrepareResponseForRequestV1(request, {
         ...(await prepareResponse(request)),
         server_presignature_id: 'other-presig',
       }),
     ).rejects.toThrow('ecdsaPrepareResponse.server_presignature_id does not match request');
 
     await expect(
-      parseRouterAbEcdsaHssEvmDigestSigningPrepareResponseForRequestV1(request, {
+      parseRouterAbEcdsaDerivationEvmDigestSigningPrepareResponseForRequestV1(request, {
         ...(await prepareResponse(request)),
         request_digest: digest(99),
       }),
     ).rejects.toThrow('ecdsaPrepareResponse.request_digest does not match request');
 
     await expect(
-      parseRouterAbEcdsaHssEvmDigestSigningPrepareResponseForRequestV1(request, {
+      parseRouterAbEcdsaDerivationEvmDigestSigningPrepareResponseForRequestV1(request, {
         ...(await prepareResponse(request)),
-        signature_scheme: 'ecdsa_hss_v1',
+        signature_scheme: 'ecdsa_derivation_v1',
       }),
     ).rejects.toThrow(
       'ecdsaPrepareResponse.signature_scheme must be ecdsa_secp256k1_recoverable_v1',
@@ -229,7 +229,7 @@ test.describe('Router A/B ECDSA-HSS normal-signing boundary', () => {
 
   test('rejects mismatched finalize response request digests', async () => {
     const request = prepareRequest();
-    const finalizeRequest = buildRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1({
+    const finalizeRequest = buildRouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1({
       scope,
       requestId: request.request_id,
       budgetReservationId: 'ecdsa-sign-budget-reservation-1',
@@ -241,8 +241,8 @@ test.describe('Router A/B ECDSA-HSS normal-signing boundary', () => {
     });
 
     await expect(
-      parseRouterAbEcdsaHssEvmDigestSigningResponseForCoreRequestV1(
-        routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestFromBudgetedV1(finalizeRequest),
+      parseRouterAbEcdsaDerivationEvmDigestSigningResponseForCoreRequestV1(
+        routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestFromBudgetedV1(finalizeRequest),
         {
           ...(await signingResponse(finalizeRequest)),
           request_digest: digest(99),
@@ -254,7 +254,7 @@ test.describe('Router A/B ECDSA-HSS normal-signing boundary', () => {
   test('posts prepare and finalize requests through Wallet Session bearer auth', async () => {
     const request = prepareRequest();
     const preparedResponse = await prepareResponse(request);
-    const finalizeRequest = buildRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1({
+    const finalizeRequest = buildRouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1({
       scope,
       requestId: request.request_id,
       budgetReservationId: 'ecdsa-sign-budget-reservation-1',
@@ -269,7 +269,7 @@ test.describe('Router A/B ECDSA-HSS normal-signing boundary', () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
       calls.push({ url: String(url), init: init || {} });
-      if (String(url).endsWith('/router-ab/ecdsa-hss/sign/prepare')) {
+      if (String(url).endsWith('/router-ab/ecdsa-derivation/sign/prepare')) {
         return new Response(JSON.stringify(preparedResponse), {
           status: 200,
           headers: { 'content-type': 'application/json' },
@@ -282,7 +282,7 @@ test.describe('Router A/B ECDSA-HSS normal-signing boundary', () => {
     }) as typeof fetch;
     try {
       await expect(
-        prepareRouterAbEcdsaHssEvmDigestSigningV1({
+        prepareRouterAbEcdsaDerivationEvmDigestSigningV1({
           relayServerUrl: 'https://router.example/base/',
           credential: { kind: 'jwt', walletSessionJwt: 'wallet-session-jwt' },
           request,
@@ -290,7 +290,7 @@ test.describe('Router A/B ECDSA-HSS normal-signing boundary', () => {
       ).resolves.toEqual(preparedResponse);
 
       await expect(
-        finalizeRouterAbEcdsaHssEvmDigestSigningV1({
+        finalizeRouterAbEcdsaDerivationEvmDigestSigningV1({
           relayServerUrl: 'https://router.example/base/',
           credential: { kind: 'jwt', walletSessionJwt: 'wallet-session-jwt' },
           request: finalizeRequest,
@@ -301,8 +301,8 @@ test.describe('Router A/B ECDSA-HSS normal-signing boundary', () => {
     }
 
     expect(calls.map((call) => call.url)).toEqual([
-      'https://router.example/base/router-ab/ecdsa-hss/sign/prepare',
-      'https://router.example/base/router-ab/ecdsa-hss/sign',
+      'https://router.example/base/router-ab/ecdsa-derivation/sign/prepare',
+      'https://router.example/base/router-ab/ecdsa-derivation/sign',
     ]);
     expect(calls[0].init.credentials).toBe('omit');
     expect(calls[0].init.headers).toEqual({
