@@ -93,7 +93,7 @@ evidence belong to the deployment plans.
       fixed `router-ab-ecdsa-presign` Client role.
 - [ ] Replace SigningWorker presigning with the fixed
       `router-ab-ecdsa-presign` SigningWorker role.
-- [ ] Replace SigningWorker finalization with `router-ab-ecdsa-online`.
+- [x] Replace SigningWorker finalization with `router-ab-ecdsa-online`.
 - [ ] Remove runtime participant vectors, runtime role selection, threshold
       parameters, and generic state bags from every production boundary.
 - [ ] Preserve exact public keys, addresses, low-`s` signatures, recovery IDs,

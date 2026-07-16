@@ -28,11 +28,13 @@ use router_ab_core::{
     SignerSetV1, SigningRootShareStore, WireMessageKindV1, WireMessageV1,
 };
 use router_ab_core::{PublicDigest32, Role, RootShareEpoch};
-use router_ab_ecdsa_derivation::ROUTER_AB_ECDSA_DERIVATION_PARTICIPANT_IDS;
+use router_ab_ecdsa_online::{
+    finalize_signing_worker_signature, OnlineError, SigningWorkerOnlineInput,
+    SigningWorkerPresignMaterial,
+};
 use rusqlite::{params, params_from_iter, types::Value, Connection, OptionalExtension};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use signer_core::threshold_ecdsa::threshold_ecdsa_finalize_signature;
 use std::{
     collections::BTreeMap,
     fmt,
@@ -2148,34 +2150,46 @@ pub fn handle_local_signing_worker_router_ab_ecdsa_derivation_finalize_json_v1(
         prepare_request_digest,
     )?;
     record.validate_for_finalize(&active_signing_worker_state, &request, now_unix_ms)?;
-    let participant_ids = ROUTER_AB_ECDSA_DERIVATION_PARTICIPANT_IDS.map(u32::from);
-    let signature65 = threshold_ecdsa_finalize_signature(
-        &participant_ids,
-        2,
-        &decode_base64url_fixed_33_v1(
-            "local Router A/B ECDSA derivation threshold_public_key33_b64u",
-            &request.scope.public_identity.threshold_public_key33_b64u,
-        )?,
-        &decode_base64url_fixed_33_v1(
-            "local Router A/B ECDSA derivation server_big_r33_b64u",
-            &record.server_big_r33_b64u,
-        )?,
-        &decode_base64url_fixed_32_v1(
-            "local Router A/B ECDSA derivation server_k_share32_b64u",
-            &record.server_k_share32_b64u,
-        )?,
-        &decode_base64url_fixed_32_v1(
-            "local Router A/B ECDSA derivation server_sigma_share32_b64u",
-            &record.server_sigma_share32_b64u,
-        )?,
-        record.admitted_signing_digest.as_bytes(),
-        &decode_base64url_fixed_32_v1(
-            "local Router A/B ECDSA derivation rerandomization_entropy32_b64u",
-            &record.rerandomization_entropy32_b64u,
-        )?,
-        &request.client_signature_share32()?,
+    let public_key33 = decode_base64url_fixed_33_v1(
+        "local Router A/B ECDSA derivation threshold_public_key33_b64u",
+        &request.scope.public_identity.threshold_public_key33_b64u,
+    )?;
+    let server_big_r33 = decode_base64url_fixed_33_v1(
+        "local Router A/B ECDSA derivation server_big_r33_b64u",
+        &record.server_big_r33_b64u,
+    )?;
+    let server_k_share32 = decode_base64url_fixed_32_v1(
+        "local Router A/B ECDSA derivation server_k_share32_b64u",
+        &record.server_k_share32_b64u,
+    )?;
+    let server_sigma_share32 = decode_base64url_fixed_32_v1(
+        "local Router A/B ECDSA derivation server_sigma_share32_b64u",
+        &record.server_sigma_share32_b64u,
+    )?;
+    let rerandomization_entropy32 = decode_base64url_fixed_32_v1(
+        "local Router A/B ECDSA derivation rerandomization_entropy32_b64u",
+        &record.rerandomization_entropy32_b64u,
+    )?;
+    let material = SigningWorkerPresignMaterial::from_bytes(
+        server_big_r33,
+        server_k_share32,
+        server_sigma_share32,
     )
-    .map_err(map_signer_core_ecdsa_error_v1)?;
+    .map_err(map_online_ecdsa_error_v1)?;
+    let input = SigningWorkerOnlineInput::new(
+        public_key33,
+        server_big_r33,
+        *record.admitted_signing_digest.as_bytes(),
+        rerandomization_entropy32,
+    )
+    .map_err(map_online_ecdsa_error_v1)?;
+    let committed = material
+        .reserve()
+        .commit(input)
+        .map_err(map_online_ecdsa_error_v1)?;
+    let signature65 =
+        finalize_signing_worker_signature(committed, request.client_signature_share32()?)
+            .map_err(map_online_ecdsa_error_v1)?;
     let response = RouterAbEcdsaDerivationEvmDigestSigningResponseV1 {
         scope: request.scope.clone(),
         request_id: request.request_id.clone(),
@@ -3242,9 +3256,7 @@ fn map_sqlite_error(error: rusqlite::Error) -> RouterAbProtocolError {
     )
 }
 
-fn map_signer_core_ecdsa_error_v1(
-    error: signer_core::error::SignerCoreError,
-) -> RouterAbProtocolError {
+fn map_online_ecdsa_error_v1(error: OnlineError) -> RouterAbProtocolError {
     RouterAbProtocolError::new(
         RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
         format!("local Router A/B ECDSA derivation signature finalization failed: {error}"),

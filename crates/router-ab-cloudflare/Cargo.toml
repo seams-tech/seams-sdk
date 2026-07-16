@@ -26,6 +26,7 @@ base64 = "0.22"
 bs58 = "0.5"
 router-ab-ecdsa-derivation = { path = "../router-ab-ecdsa-derivation" }
 router-ab-ecdsa-client-protocol = { path = "../router-ab-ecdsa-client-protocol" }
+router-ab-ecdsa-online = { path = "../router-ab-ecdsa-online" }
 ed25519-dalek = { version = "2.1", default-features = false }
 frost-ed25519 = { version = "2.2", default-features = false, features = ["serialization", "std"] }
 futures = "0.3"
@@ -37,11 +38,12 @@ router-ab-core = { path = "../router-ab-core" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
-signer-core = { path = "../signer-core", default-features = false, features = ["near-threshold-ed25519", "threshold-ecdsa"] }
+signer-core = { path = "../signer-core", default-features = false, features = ["near-threshold-ed25519"] }
 wasm-bindgen = { version = "0.2", optional = true }
 worker = { version = "=0.8.4", optional = true }
 zeroize = { version = "1.8", features = ["zeroize_derive"] }
 
 [dev-dependencies]
 rand_chacha = "0.3"
+signer-core = { path = "../signer-core", default-features = false, features = ["threshold-ecdsa"] }
 wasm-bindgen-test = "0.3"

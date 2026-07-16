@@ -1,13 +1,16 @@
 use crate::*;
 use std::collections::BTreeMap;
 
+use router_ab_ecdsa_online::{
+    finalize_signing_worker_signature, OnlineError, SigningWorkerOnlineInput,
+    SigningWorkerPresignMaterial,
+};
 use signer_core::error::{SignerCoreError, SignerCoreErrorCode};
 use signer_core::near_threshold_ed25519::{
     aggregate_signature, build_signing_package, key_package_from_signing_share_bytes,
     signature_share_from_b64u, verifying_share_bytes_from_signing_share_bytes,
     verifying_share_from_b64u,
 };
-use signer_core::threshold_ecdsa::threshold_ecdsa_finalize_signature;
 
 /// Platform-neutral signer logic behind the Cloudflare transport wrapper.
 pub trait CloudflareSignerWireHandlerV1 {
@@ -1017,22 +1020,28 @@ impl CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestFinalizeHandlerV1
             &request.server_presignature.rerandomization_entropy32_b64u,
         )?;
         let client_signature_share32 = request.request.request.client_signature_share32()?;
-        let participant_ids = ROUTER_AB_ECDSA_DERIVATION_PARTICIPANT_IDS.map(u32::from);
-        let signature65 = threshold_ecdsa_finalize_signature(
-            &participant_ids,
-            2,
-            &public_key33,
-            &server_big_r33,
-            &server_k_share32,
-            &server_sigma_share32,
-            request
+        let material = SigningWorkerPresignMaterial::from_bytes(
+            server_big_r33,
+            server_k_share32,
+            server_sigma_share32,
+        )
+        .map_err(map_cloudflare_online_ecdsa_error_v1)?;
+        let input = SigningWorkerOnlineInput::new(
+            public_key33,
+            server_big_r33,
+            *request
                 .server_presignature
                 .admitted_signing_digest
                 .as_bytes(),
-            &rerandomization_entropy32,
-            &client_signature_share32,
+            rerandomization_entropy32,
         )
-        .map_err(map_cloudflare_signer_core_ecdsa_error_v1)?;
+        .map_err(map_cloudflare_online_ecdsa_error_v1)?;
+        let committed = material
+            .reserve()
+            .commit(input)
+            .map_err(map_cloudflare_online_ecdsa_error_v1)?;
+        let signature65 = finalize_signing_worker_signature(committed, client_signature_share32)
+            .map_err(map_cloudflare_online_ecdsa_error_v1)?;
         RouterAbEcdsaDerivationEvmDigestSigningResponseV1::new_for_request(
             &prepare_request,
             encode_base64url_bytes_v1(&signature65),
@@ -1119,23 +1128,22 @@ fn map_cloudflare_signer_core_error_v1(error: SignerCoreError) -> RouterAbProtoc
     )
 }
 
-fn map_cloudflare_signer_core_ecdsa_error_v1(err: SignerCoreError) -> RouterAbProtocolError {
-    let code = match err.code {
-        SignerCoreErrorCode::InvalidInput
-        | SignerCoreErrorCode::InvalidLength
-        | SignerCoreErrorCode::DecodeError
-        | SignerCoreErrorCode::Utf8Error
-        | SignerCoreErrorCode::Unsupported => RouterAbProtocolErrorCode::MalformedWirePayload,
-        SignerCoreErrorCode::EncodeError
-        | SignerCoreErrorCode::HkdfError
-        | SignerCoreErrorCode::CryptoError
-        | SignerCoreErrorCode::Internal => RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+fn map_cloudflare_online_ecdsa_error_v1(error: OnlineError) -> RouterAbProtocolError {
+    let code = match error {
+        OnlineError::InvalidPoint
+        | OnlineError::IdentityPoint
+        | OnlineError::NonCanonicalScalar
+        | OnlineError::ZeroScalar
+        | OnlineError::PresignCommitmentMismatch => RouterAbProtocolErrorCode::MalformedWirePayload,
+        OnlineError::RandomnessDerivation
+        | OnlineError::SignatureVerification
+        | OnlineError::RecoveryId => RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
     };
     RouterAbProtocolError::new(
         code,
         format!(
             "Router A/B ECDSA derivation normal signing finalize failed: {}",
-            err.message
+            error
         ),
     )
 }

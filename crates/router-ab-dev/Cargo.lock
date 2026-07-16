@@ -1518,6 +1518,7 @@ dependencies = [
  "router-ab-core",
  "router-ab-ecdsa-client-protocol",
  "router-ab-ecdsa-derivation",
+ "router-ab-ecdsa-online",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -1562,6 +1563,7 @@ dependencies = [
  "router-ab-core",
  "router-ab-ecdsa-client-protocol",
  "router-ab-ecdsa-derivation",
+ "router-ab-ecdsa-online",
  "router-ab-ed25519-yao",
  "rusqlite",
  "serde",
@@ -1598,6 +1600,17 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "sha3 0.10.9",
+ "zeroize",
+]
+
+[[package]]
+name = "router-ab-ecdsa-online"
+version = "0.1.0"
+dependencies = [
+ "hkdf 0.12.4",
+ "k256",
+ "sha3 0.10.9",
+ "subtle",
  "zeroize",
 ]
 
