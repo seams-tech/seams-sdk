@@ -70,22 +70,7 @@
   align-items: center;
   gap: 10px;
   padding: 8px 10px;
-  border: none;
   border-radius: var(--w3a-shape-item, 8px);
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: background 150ms ease;
-}
-
-.w3a-linked-devices-row:hover:not(:disabled) {
-  background: var(--w3a-colors-surface2);
-}
-
-.w3a-linked-devices-row:disabled {
-  cursor: default;
 }
 
 .w3a-linked-devices-slot {
@@ -105,17 +90,5 @@
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--w3a-colors-textSecondary);
-}
-
-.w3a-linked-devices-key {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: right;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
   color: var(--w3a-colors-textSecondary);
 }
