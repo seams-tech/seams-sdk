@@ -1,0 +1,45 @@
+{
+  "schema": "seams.refactor89.phase5-presign-cutover.v1",
+  "capturedAt": "2026-07-16",
+  "protocolId": "seams/router-ab-ecdsa-presign/fixed-2of2/v1",
+  "wire": {
+    "rounds": 11,
+    "maximumFrameBytes": 49228,
+    "bidirectionalProtocolBytes": 152826
+  },
+  "artifacts": {
+    "clientPresign": {
+      "path": "wasm/router_ab_ecdsa_presign_client/pkg/router_ab_ecdsa_presign_client_bg.wasm",
+      "sha256": "c6eac7edf3b7f7bee16da43f6d5f8da018920d507c255c362537b41af807f0b2",
+      "rawBytes": 173835,
+      "gzip9Bytes": 74075,
+      "brotli11Bytes": 61211,
+      "forbiddenNormalDependencies": ["signer-core", "threshold-signatures"]
+    },
+    "signingWorker": {
+      "path": "wasm/router_ab_ecdsa_signing_worker/pkg/router_ab_ecdsa_signing_worker_bg.wasm",
+      "sha256": "389c7df9f762a994ac760b562360363fedce3444ee8a51eef27dbc2cffbd864e",
+      "rawBytes": 200975,
+      "gzip9Bytes": 88469,
+      "brotli11Bytes": 74407,
+      "includes": ["fixed-presign", "role-local-derivation-bootstrap"],
+      "forbiddenNormalDependencies": ["signer-core", "threshold-signatures"]
+    }
+  },
+  "verification": {
+    "native": "cargo test --offline --locked --manifest-path crates/router-ab-ecdsa-presign/Cargo.toml",
+    "clippy": "cargo clippy --offline --locked --all-targets --manifest-path crates/router-ab-ecdsa-presign/Cargo.toml -- -D warnings",
+    "crossWasm": "pnpm -C tests exec playwright test -c playwright.lite.config.ts ./unit/thresholdEcdsa.presignDistributed.unit.test.ts --reporter=line",
+    "crossWasmResult": "10 passed",
+    "productionDependencyGuard": "cargo test --offline --locked --manifest-path crates/router-ab-ecdsa-near-oracle-tests/Cargo.toml --test production_boundaries",
+    "sdkWebTypecheck": "pnpm -C packages/sdk-web type-check",
+    "sdkServerTypecheck": "pnpm -C packages/sdk-server-ts type-check"
+  },
+  "boundedClaims": {
+    "productionPresignBackend": "purpose-built fixed 2-of-2",
+    "nearBackend": "dev/test oracle only",
+    "persistentExactlyOnceAdapters": "open",
+    "independentCryptographicReview": "open",
+    "deployedCloudflareMeasurements": "deferred to deployment plan"
+  }
+}

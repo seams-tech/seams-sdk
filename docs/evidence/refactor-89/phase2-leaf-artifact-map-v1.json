@@ -5,10 +5,7 @@
   "leaves": {
     "evmTransactionCodec": {
       "path": "wasm/evm_transaction_codec",
-      "exports": [
-        "compute_eip1559_tx_hash",
-        "encode_eip1559_signed_tx_from_signature65"
-      ],
+      "exports": ["compute_eip1559_tx_hash", "encode_eip1559_signed_tx_from_signature65"],
       "releaseArtifact": {
         "sha256": "204d94391ba6bd026e2b889ed34f38569f39b647b57e214b1fb2f68af2fa771d",
         "rawBytes": 71942,
@@ -27,23 +24,14 @@
     },
     "webauthnP256": {
       "path": "wasm/webauthn_p256",
-      "exports": [
-        "build_webauthn_p256_signature",
-        "decode_cose_p256_public_key"
-      ],
+      "exports": ["build_webauthn_p256_signature", "decode_cose_p256_public_key"],
       "releaseArtifact": {
         "sha256": "c0e75eabe6a13b30d3fcad205b49cdc3f280382a246d10be79e32ec3367ff2ca",
         "rawBytes": 93803,
         "gzip9Bytes": 42410,
         "brotli11Bytes": 36643
       },
-      "forbiddenPackages": [
-        "threshold-signatures",
-        "k256",
-        "sha3",
-        "futures",
-        "hkdf"
-      ]
+      "forbiddenPackages": ["threshold-signatures", "k256", "sha3", "futures", "hkdf"]
     }
   },
   "integration": {
