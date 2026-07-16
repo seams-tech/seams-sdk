@@ -1,6 +1,6 @@
 # Yao A/B Deployment and Production Release Plan
 
-Status: **deferred until Cloudflare deployment resumes**
+Status: **Cloudflare deployment active; same-account benchmark deployed**
 
 This file owns deployment, production security-profile selection, deployed
 benchmarking, production promotion, release validation, external review, and
@@ -14,17 +14,27 @@ No unchecked task in this file blocks the local Yaos-AB checkpoint.
 
 ## Phase 9D: Run the Cloudflare Topology Campaign
 
-Status: **deferred by product decision after Phase 9F closure**
+Status: **same-account deployment complete; two-account campaign pending**
 
 Goal: deploy the locally proven flow without changing its cryptographic or
 lifecycle behavior, establish the same-account lower bound, measure the
 intended separate-account topology, and supply the Phase 13A go/no-go evidence.
 
+Same-account deployment checkpoint (2026-07-16):
+
+- endpoint: `https://yaos-ab-benchmark.seams.sh/benchmark/activation`;
+- Deriver A version: `97aa6e79-4ab3-4a23-9c3f-0a68a0ecb134`;
+- Deriver B version: `b3940de8-1162-4221-80a6-7639a01ba515`;
+- deployment identity: `23e830706f862fe346b8c238bd8a4eb9`;
+- two live protocol smoke requests passed. The warm request completed in
+  252 ms of Worker protocol time; B's first response byte reached A at 12 ms,
+  before A closed its request direction at 241 ms.
+
 #### TODO
 
 - [ ] Re-run `validate:yaos-ab-local` and `validate:local-readiness`, then bind
       both exact evidence bundles into the deployment receipt before upload.
-- [ ] Deploy the fixed one-account artifacts and prove B's `Offer` reaches A
+- [x] Deploy the fixed one-account artifacts and prove B's `Offer` reaches A
       before A closes its request.
 - [ ] Deploy the fixed two-account artifacts and prove the same early-response
       property over cross-account HTTPS. Measure authentication overhead as a
