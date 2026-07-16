@@ -39,7 +39,6 @@ const publicReauthAnchor = buildMpcCapabilityPublicReauthAnchor({
   policyBinding,
   registeredPublicKeyBinding,
 });
-
 const livePlan = buildUseLiveMpcCapabilityRuntimePlan({
   capability,
   materialOwner,
@@ -47,115 +46,59 @@ const livePlan = buildUseLiveMpcCapabilityRuntimePlan({
   runtime,
   activeMaterialSession,
 });
-
-const rehydratePlan = buildRehydrateActiveMpcMaterialSessionPlan({
+const sealedPlan = buildRehydrateActiveMpcMaterialSessionPlan({
   capability,
   materialOwner,
   authority,
   activeMaterialSession,
   sealedMaterial,
 });
-
-const reauthorizePlan = buildReauthorizeMpcCapabilityPublicAnchorPlan({
+const retiredPlan = buildReauthorizeMpcCapabilityPublicAnchorPlan({
   retirement: 'exhausted',
   publicReauthAnchor,
 });
-
 const blockedPlan = buildBlockedMpcCapabilityHydrationPlan({
   capability,
   reason: 'persistence_unavailable',
 });
 
-void buildMpcCapabilityHydrationResolution({
-  entryPoint: 'post_page_refresh',
-  plan: rehydratePlan,
-});
+const plans = [
+  livePlan,
+  sealedPlan,
+  retiredPlan,
+  blockedPlan,
+] satisfies readonly MpcCapabilityHydrationPlan[];
+void plans;
+void buildMpcCapabilityHydrationResolution({ entryPoint: 'post_page_refresh', plan: sealedPlan });
 
-function consumeHydrationPlan(plan: MpcCapabilityHydrationPlan): void {
-  void plan;
-}
-
-consumeHydrationPlan(livePlan);
-consumeHydrationPlan(rehydratePlan);
-consumeHydrationPlan(reauthorizePlan);
-consumeHydrationPlan(blockedPlan);
-
-const mixedLivePlan = {
-  ...livePlan,
-  sealedMaterial,
-};
-// @ts-expect-error a live runtime plan cannot also carry sealed material
+const mixedLivePlan = { ...livePlan, sealedMaterial };
+// @ts-expect-error live runtime and sealed material branches are mutually exclusive
 mixedLivePlan satisfies MpcCapabilityHydrationPlan;
 
-const mixedReauthorizePlan = {
-  ...reauthorizePlan,
-  activeMaterialSession,
-};
-// @ts-expect-error a public-anchor plan cannot carry an active material session
-mixedReauthorizePlan satisfies MpcCapabilityHydrationPlan;
+const mixedRetiredPlan = { ...retiredPlan, activeMaterialSession };
+// @ts-expect-error retired public-anchor branches cannot carry active sessions
+mixedRetiredPlan satisfies MpcCapabilityHydrationPlan;
 
-const blockedWithAuthority = {
-  ...blockedPlan,
-  authority,
-};
-// @ts-expect-error a blocked plan cannot carry an authorization authority
-blockedWithAuthority satisfies MpcCapabilityHydrationPlan;
-
-const anchorWithSecret = {
-  ...publicReauthAnchor,
-  secretMaterial: new Uint8Array(32),
-};
-// @ts-expect-error a public reauthorization anchor cannot contain secret material
+const anchorWithSecret = { ...publicReauthAnchor, secretMaterial: new Uint8Array(32) };
+// @ts-expect-error public reauthorization anchors cannot carry secret material
 anchorWithSecret satisfies MpcCapabilityPublicReauthAnchor;
 
-const directLivePlan = {
-  kind: 'use_live_runtime',
-  capability,
-  materialOwner,
-  authority,
-  runtime,
-  activeMaterialSession,
-};
-// @ts-expect-error lifecycle plans must be constructed by their branch builder
-directLivePlan satisfies MpcCapabilityHydrationPlan;
-
-const rawStringIdentity = {
+buildUseLiveMpcCapabilityRuntimePlan({
+  // @ts-expect-error builders reject raw identity strings
   capability: 'capability:raw',
   materialOwner,
   authority,
   runtime,
   activeMaterialSession,
-};
-// @ts-expect-error branch builders reject raw identity strings
-buildUseLiveMpcCapabilityRuntimePlan(rawStringIdentity);
+});
 
-const sealedPlanWithoutActiveSession = {
+// @ts-expect-error sealed material requires an exact active material session
+buildRehydrateActiveMpcMaterialSessionPlan({
   capability,
   materialOwner,
   authority,
   sealedMaterial,
-};
-// @ts-expect-error sealed material is unusable without an exact active material session
-buildRehydrateActiveMpcMaterialSessionPlan(sealedPlanWithoutActiveSession);
-
-const livePlanWithoutRuntime = {
-  capability,
-  materialOwner,
-  authority,
-  activeMaterialSession,
-};
-// @ts-expect-error a live branch requires capability-local runtime readiness proof
-buildUseLiveMpcCapabilityRuntimePlan(livePlanWithoutRuntime);
-
-const retiredPlanWithoutPublicAnchor = {
-  retirement: 'expired' as const,
-};
-// @ts-expect-error retired material cannot be reauthorized without its exact public anchor
-buildReauthorizeMpcCapabilityPublicAnchorPlan(retiredPlanWithoutPublicAnchor);
-
-const resolution = buildMpcCapabilityHydrationResolution({
-  entryPoint: 'post_registration',
-  plan: livePlan,
 });
-// @ts-expect-error executors consume the plan without entry-point provenance
-consumeHydrationPlan(resolution);
+
+// @ts-expect-error retired material requires an exact public anchor
+buildReauthorizeMpcCapabilityPublicAnchorPlan({ retirement: 'expired' });

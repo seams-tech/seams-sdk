@@ -339,7 +339,7 @@ here.
     after approval and required evidence. The persistence adapter owns source/
     replacement sealed refs and the non-secret commit journal. The worker-private
     segment is `pending factor -> purpose-bound root handle -> staged candidate ->
-retained reseal source -> candidate replacement ciphertext`.
+    retained reseal source -> candidate replacement ciphertext`.
     Fresh factor acquisition uses a distinct source branch in the same commit
     lifecycle. It has no source seal/unseal transition and may publish the first
     retained seal or finalize volatile retention. Lock/logout reconciliation uses
@@ -481,36 +481,36 @@ these internal module boundaries are stable.
 
 ## Execution Order
 
-| Phase          | Contents                                            | Status      |
+| Phase | Contents | Status |
 | -------------- | --------------------------------------------------- | ----------- |
 | Pre-Phase 4/19 | Canonical MPC capability hydration lifecycle        | Planning    |
-| Phase 1        | Signer-set registration cut                         | Complete    |
-| Phase 2        | Wallet-rooted confirmation subjects                 | Complete    |
-| Phase 3        | AuthService mechanical module split                 | Complete    |
-| Phase 4        | Exact capability subject type hardening             | In progress |
-| Phase 5        | ECDSA role-local material cache slimming            | In progress |
-| Phase 6        | Inventory and public-surface ledger                 | Planning    |
-| Phase 7        | Core vocabulary and closed capability kinds         | Planning    |
-| Phase 8        | SDK runtime surface for hosted wallet capabilities  | Planning    |
-| Phase 9        | Route service ports and route module manifest       | Planning    |
-| Phase 10       | Slice A persistence and schema                      | Planning    |
-| Phase 11       | Session exchange and Seams Auth provider            | Planning    |
-| Phase 12       | Seams authorization core                            | Planning    |
-| Phase 13       | Management and session route policy                 | Planning    |
-| Phase 14       | Generic client grant evidence and confirmation UI   | Planning    |
-| Phase 15       | Service-account grant evidence                      | Planning    |
-| Phase 16       | Vault capability module and integration             | Planning    |
-| Phase 17       | Wallet auth authority refs on signing lanes         | Planning    |
-| Phase 18       | Wallet vocabulary and persistence migration         | Planning    |
-| Phase 19       | MPC capability modules                              | Planning    |
-| Phase 20       | MPC route policy migration                          | Planning    |
-| Phase 21       | Client worker split and bundle boundaries           | Planning    |
-| Phase 22       | Wallet UI adapter migration                         | Planning    |
-| Phase 23       | Auth-first registration and capability provisioning | Planning    |
-| Phase 24       | Host and example assembly migration                 | Planning    |
-| Phase 25       | Better Auth provider adapter                        | Planning    |
-| Phase 26       | IdP integration                                     | Planning    |
-| Phase 27       | Final deletion and hardening                        | Planning    |
+| Phase 1 | Signer-set registration cut | Complete |
+| Phase 2 | Wallet-rooted confirmation subjects | Complete |
+| Phase 3 | AuthService mechanical module split | Complete |
+| Phase 4 | Exact capability subject type hardening | In progress |
+| Phase 5 | ECDSA role-local material cache slimming | In progress |
+| Phase 6 | Inventory and public-surface ledger | Planning |
+| Phase 7 | Core vocabulary and closed capability kinds | Planning |
+| Phase 8 | SDK runtime surface for hosted wallet capabilities | Planning |
+| Phase 9 | Route service ports and route module manifest | Planning |
+| Phase 10 | Slice A persistence and schema | Planning |
+| Phase 11 | Session exchange and Seams Auth provider | Planning |
+| Phase 12 | Seams authorization core | Planning |
+| Phase 13 | Management and session route policy | Planning |
+| Phase 14 | Generic client grant evidence and confirmation UI | Planning |
+| Phase 15 | Service-account grant evidence | Planning |
+| Phase 16 | Vault capability module and integration | Planning |
+| Phase 17 | Wallet auth authority refs on signing lanes | Planning |
+| Phase 18 | Wallet vocabulary and persistence migration | Planning |
+| Phase 19 | MPC capability modules | Planning |
+| Phase 20 | MPC route policy migration | Planning |
+| Phase 21 | Client worker split and bundle boundaries | Planning |
+| Phase 22 | Wallet UI adapter migration | Planning |
+| Phase 23 | Auth-first registration and capability provisioning | Planning |
+| Phase 24 | Host and example assembly migration | Planning |
+| Phase 25 | Better Auth provider adapter | Planning |
+| Phase 26 | IdP integration | Planning |
+| Phase 27 | Final deletion and hardening | Planning |
 
 Phases 4 and 5 are tactical fixes on the current wallet-first stack and can
 proceed while Phase 6 builds the inventory ledger. Phase 7 must not start until
@@ -526,29 +526,29 @@ phases consume; it does not migrate capability implementations by itself.
 Where each phase of the pre-July-3 plan went, for cross-references from other
 documents:
 
-| Old phase                                      | New home                                                           |
+| Old phase | New home |
 | ---------------------------------------------- | ------------------------------------------------------------------ |
 | July 16 lifecycle convergence review           | Pre-Phase 4/19 + Phases 4, 19, and 23                              |
-| Legacy 0A, 0B, 0D, 0F, 0E                      | Phases 1, 2, 4, 5, 8                                               |
-| 0 (Inventory)                                  | Phase 6                                                            |
-| 0C (Public surface and deployment inventory)   | Phase 6                                                            |
-| 1 (Shared auth vocabulary)                     | Phase 7 (new vocabulary) + Phase 18 (wallet-touching renames)      |
-| 2 (Persistence and schema)                     | Phase 10 (new tables) + Phase 18 (wallet table remap)              |
-| Legacy 2A (AuthService split)                  | Phase 3                                                            |
-| New Slice B bridge: wallet auth authority refs | Phase 17                                                           |
-| 3 (Route and D1 ports)                         | Phase 9                                                            |
-| 4 (Seams authorization core)                   | Phase 12                                                           |
-| 5 (Seams auth provider)                        | Phase 11                                                           |
-| 6 (Route policy V2)                            | Phase 13 (management/session/grant planes) + Phase 20 (MPC planes) |
-| 6A (Service-account grant evidence)            | Phase 15                                                           |
-| 7 (Client grant evidence and worker split)     | Phase 14 (generic confirmation) + Phase 21 (worker/bundle split)   |
-| 8 (React and Lit UI adapter)                   | Phase 14 (generic/vault UI) + Phase 22 (wallet UI, docs)           |
-| 9 (Capability modules)                         | Phase 16 (vault) + Phase 19 (MPC)                                  |
-| 10 (Registration and provisioning)             | Phase 23                                                           |
-| 11 (Route module assembly)                     | Phase 9 (manifest) + Phase 24 (hosts/examples)                     |
-| 12 (Vault integration)                         | Phase 16                                                           |
-| 13 (IdP integration)                           | Phase 26                                                           |
-| 14 (Deletion and hardening)                    | In-slice deletion + Phase 27                                       |
+| Legacy 0A, 0B, 0D, 0F, 0E | Phases 1, 2, 4, 5, 8 |
+| 0 (Inventory) | Phase 6 |
+| 0C (Public surface and deployment inventory) | Phase 6 |
+| 1 (Shared auth vocabulary) | Phase 7 (new vocabulary) + Phase 18 (wallet-touching renames) |
+| 2 (Persistence and schema) | Phase 10 (new tables) + Phase 18 (wallet table remap) |
+| Legacy 2A (AuthService split) | Phase 3 |
+| New Slice B bridge: wallet auth authority refs | Phase 17 |
+| 3 (Route and D1 ports) | Phase 9 |
+| 4 (Seams authorization core) | Phase 12 |
+| 5 (Seams auth provider) | Phase 11 |
+| 6 (Route policy V2) | Phase 13 (management/session/grant planes) + Phase 20 (MPC planes) |
+| 6A (Service-account grant evidence) | Phase 15 |
+| 7 (Client grant evidence and worker split) | Phase 14 (generic confirmation) + Phase 21 (worker/bundle split) |
+| 8 (React and Lit UI adapter) | Phase 14 (generic/vault UI) + Phase 22 (wallet UI, docs) |
+| 9 (Capability modules) | Phase 16 (vault) + Phase 19 (MPC) |
+| 10 (Registration and provisioning) | Phase 23 |
+| 11 (Route module assembly) | Phase 9 (manifest) + Phase 24 (hosts/examples) |
+| 12 (Vault integration) | Phase 16 |
+| 13 (IdP integration) | Phase 26 |
+| 14 (Deletion and hardening) | In-slice deletion + Phase 27 |
 
 ---
 
@@ -559,10 +559,10 @@ parallel work, not part of the vertical slices.
 
 ## Pre-Phase 4/19: Canonical MPC Capability Hydration Lifecycle
 
-Status: in progress. The protocol-neutral leaf model, strict observation parser,
-branch builders, and type fixtures are implemented. Protocol adapters, canonical
-inventory publication, and flow migration remain. This bounded type-and-contract
-phase gates Phase 4 closure and Phases 19 and 23; it does not move protocol
+Status: in progress. The slim protocol-neutral leaf model, branch builders, and
+type fixtures are implemented. Protocol adapters, canonical inventory
+publication, and flow migration remain. This bounded type-and-contract phase
+gates Phase 4 closure and Phases 19 and 23; it does not move protocol
 implementations.
 
 Goal: make post-registration, post-wallet-unlock, and post-page-refresh callers
@@ -649,9 +649,10 @@ authorization and material executors receive only `resolution.plan`.
 
 Do:
 
-- Amend the companion SPEC with the closed union, branch builders, precise
-  branded references, and one boundary parser from persisted/runtime
-  observations. Core code accepts only the parsed plan.
+- Keep the shared module limited to the closed union, branch builders, and
+  precise branded references. Each persistence/runtime adapter parses its real
+  external record once and constructs a branch from normalized facts. Do not
+  create a second versioned observation wire format in the shared core.
 - Define `MpcCapabilityPublicReauthAnchor` as public, exact-authority-bound data. It
   contains the stable capability, material-owner, key/lifecycle, policy, and
   registered-public-key facts needed for fresh authorization. Secret material,
@@ -680,10 +681,16 @@ Do:
   signer/lifecycle facts must match; current rotating session transport,
   operation grant, quota revision, and runtime/export-session refs come only
   from the post-effect result.
-- Adapt the tactical ECDSA export `current session | public reauth authority`,
-  ECDSA transaction public-reauth lane, and Near material-inspection unions into
-  the shared plan. Keep compatibility at those adapters and delete it in Phase
-  19 when capability modules consume the canonical type directly.
+- Replace the tactical ECDSA export `current session | public reauth authority`,
+  ECDSA transaction public-reauth lane, and Near material-inspection unions when
+  their capability modules start consuming the shared plan. Delete each replaced
+  union, parser, fixture, and branch in the same change; retain no compatibility
+  model.
+- Treat `ExactEcdsaExportSession`, `EcdsaPublicReauthLane`,
+  `EvmFamilySharedEcdsaState`, `EmailOtpEd25519YaoSilentRecoveryResultV1`, and
+  their type fixtures as a deletion ledger for Phase 19. A retained
+  operation-specific result may carry signing or export output, but it must not
+  independently reclassify live, sealed-active, retired, or blocked material.
 - Add source guards preventing factor-kind, curve-kind, entry-point, diagnostics,
   or persistence-source switches from authorizing or selecting a hydration
   branch in capability core.
@@ -790,7 +797,7 @@ Check:
   `ed25519_only`, `ecdsa_only`, and `combined_registration` outside any
   temporary boundary parser named in this phase.
 - `pnpm --dir packages/sdk-server-ts type-check`, `pnpm --dir packages/sdk-web
-type-check`, focused D1 registration tests, registration intent allocation
+  type-check`, focused D1 registration tests, registration intent allocation
   tests, and `git diff --check` pass.
 
 Long-term path:
@@ -888,32 +895,32 @@ tree so each file moves once more, not twice.
 
 Split inventory (final):
 
-| Cluster                                                                         | Current owner                                                                                                                                                  | Status                                                           | Next action                                                                                                                                                                                       |
+| Cluster | Current owner | Status | Next action |
 | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| WebAuthn/OIDC boundary parsing and provider loading                             | `core/authService/webauthnOidcHelpers.ts`                                                                                                                      | Active provider helper                                           | Keep behind `AuthService` facade until WebAuthn route ports land.                                                                                                                                 |
-| NEAR private-key transaction signing helpers                                    | `core/authService/nearPrivateKeySigning.ts`                                                                                                                    | Active facade helper                                             | Keep isolated from D1 route adapters; no route imports.                                                                                                                                           |
-| Random ID generation                                                            | `core/authService/bytes.ts`                                                                                                                                    | Active facade helper                                             | Reuse from remaining facade methods; move callers with owning domains later.                                                                                                                      |
-| Boundary object guard                                                           | `core/authService/record.ts`                                                                                                                                   | Active boundary helper                                           | Replace only raw boundary checks; do not use for core domain objects.                                                                                                                             |
-| Signer WASM URL resolution                                                      | `core/authService/signerWasmUrls.ts`                                                                                                                           | Active provider helper                                           | Keep module-local source and built-package candidates.                                                                                                                                            |
-| Threshold store configuration summary                                           | `core/authService/thresholdStoreSummary.ts`                                                                                                                    | Active diagnostics helper                                        | Keep config diagnostics in helper; no service selection side effects.                                                                                                                             |
-| WebAuthn login/listing helpers                                                  | `core/authService/webauthn.ts`                                                                                                                                 | Active facade helper                                             | Keep behind `AuthService` facade until WebAuthn route ports land.                                                                                                                                 |
-| WebAuthn sync-account helpers                                                   | `core/authService/AuthService.ts`                                                                                                                              | Active facade methods                                            | Move only after the threshold/session dependencies are narrowed enough to avoid a broad context bag.                                                                                              |
-| Email OTP challenge, enrollment, unlock, registration, recovery                 | `core/authService/emailOtp*` plus D1 route adapters                                                                                                            | Active but duplicated ownership                                  | Delete AuthService-era branches once D1 ports are canonical (Phase 9 or Slice B).                                                                                                                 |
-| Wallet registration intent/ceremony/finalize helpers                            | `core/authService/**` plus D1 registration services                                                                                                            | Active but duplicated ownership                                  | Route through D1 canonical adapters, then delete old AuthService authority paths.                                                                                                                 |
-| Ed25519 Yao registration, active Client, recovery, refresh, and export          | `packages/sdk-web/src/core/signingEngine/threshold/ed25519/yao*`, `packages/sdk-server-ts/src/router/routerAbEd25519Yao*`, and `crates/router-ab-ed25519-yao*` | Active YAOS lifecycle with capability-local ownership            | Move public orchestration behind `capability/nearEd25519Mpc`; preserve the YAOS protocol/runtime boundary and delete factor-specific capability resolvers in Phase 19.                            |
-| Ed25519/ECDSA ordinary signing, replay, and shared-use accounting               | `packages/sdk-server-ts/src/core/routerAbSigning/RouterAbNormalSigningRuntime.ts` plus signing routes/stores                                                   | Active shared runtime awaiting decomposition                     | Move curve policy/admission into each MPC capability, retain a narrow capability-neutral SigningWorker transport/replay port, and replace budget APIs with grant-plus-quota claiming in Phase 20. |
-| Router A/B ECDSA derivation, role-local material, signing, recovery, and export | current ECDSA-HSS-named Router, SDK, WASM, and D1/DO owners                                                                                                    | Active strict Router A/B implementation with pre-Phase-14B names | Complete Phase 5 material slimming, migrate behind `capability/evmEcdsaMpc`, and apply YAOS Phase 14B destructive naming/package cleanup.                                                         |
-| NEAR account creation, funding, access-key checks, transactions                 | `core/authService/nearAccountOperations.ts`, `nearTransactions.ts`                                                                                             | Active facade helpers                                            | Account creation and delegate execution stay in the facade until their queueing/registration coordination is split.                                                                               |
+| WebAuthn/OIDC boundary parsing and provider loading | `core/authService/webauthnOidcHelpers.ts` | Active provider helper | Keep behind `AuthService` facade until WebAuthn route ports land. |
+| NEAR private-key transaction signing helpers | `core/authService/nearPrivateKeySigning.ts` | Active facade helper | Keep isolated from D1 route adapters; no route imports. |
+| Random ID generation | `core/authService/bytes.ts` | Active facade helper | Reuse from remaining facade methods; move callers with owning domains later. |
+| Boundary object guard | `core/authService/record.ts` | Active boundary helper | Replace only raw boundary checks; do not use for core domain objects. |
+| Signer WASM URL resolution | `core/authService/signerWasmUrls.ts` | Active provider helper | Keep module-local source and built-package candidates. |
+| Threshold store configuration summary | `core/authService/thresholdStoreSummary.ts` | Active diagnostics helper | Keep config diagnostics in helper; no service selection side effects. |
+| WebAuthn login/listing helpers | `core/authService/webauthn.ts` | Active facade helper | Keep behind `AuthService` facade until WebAuthn route ports land. |
+| WebAuthn sync-account helpers | `core/authService/AuthService.ts` | Active facade methods | Move only after the threshold/session dependencies are narrowed enough to avoid a broad context bag. |
+| Email OTP challenge, enrollment, unlock, registration, recovery | `core/authService/emailOtp*` plus D1 route adapters | Active but duplicated ownership | Delete AuthService-era branches once D1 ports are canonical (Phase 9 or Slice B). |
+| Wallet registration intent/ceremony/finalize helpers | `core/authService/**` plus D1 registration services | Active but duplicated ownership | Route through D1 canonical adapters, then delete old AuthService authority paths. |
+| Ed25519 Yao registration, active Client, recovery, refresh, and export | `packages/sdk-web/src/core/signingEngine/threshold/ed25519/yao*`, `packages/sdk-server-ts/src/router/routerAbEd25519Yao*`, and `crates/router-ab-ed25519-yao*` | Active YAOS lifecycle with capability-local ownership | Move public orchestration behind `capability/nearEd25519Mpc`; preserve the YAOS protocol/runtime boundary and delete factor-specific capability resolvers in Phase 19. |
+| Ed25519/ECDSA ordinary signing, replay, and shared-use accounting | `packages/sdk-server-ts/src/core/routerAbSigning/RouterAbNormalSigningRuntime.ts` plus signing routes/stores | Active shared runtime awaiting decomposition | Move curve policy/admission into each MPC capability, retain a narrow capability-neutral SigningWorker transport/replay port, and replace budget APIs with grant-plus-quota claiming in Phase 20. |
+| Router A/B ECDSA derivation, role-local material, signing, recovery, and export | current ECDSA-HSS-named Router, SDK, WASM, and D1/DO owners | Active strict Router A/B implementation with pre-Phase-14B names | Complete Phase 5 material slimming, migrate behind `capability/evmEcdsaMpc`, and apply YAOS Phase 14B destructive naming/package cleanup. |
+| NEAR account creation, funding, access-key checks, transactions | `core/authService/nearAccountOperations.ts`, `nearTransactions.ts` | Active facade helpers | Account creation and delegate execution stay in the facade until their queueing/registration coordination is split. |
 
 Delete-candidate ledger:
 
-| Candidate                                                                                 | Why it is stale or risky                                                                                                    | Replacement                                                                                                          | Delete phase                                           |
+| Candidate | Why it is stale or risky | Replacement | Delete phase |
 | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| AuthService-era wallet registration authority branches                                    | D1 registration is the canonical registration owner; duplicate authority branches caused passkey-only and Email OTP drift.  | D1 registration route services plus typed Router API adapter ports.                                                  | Refactor 82 Phase 12 / Refactor 82B authority cleanup. |
-| Passkey-only Ed25519 authority checks inside shared session paths                         | Shared Ed25519 session code must require an exact durable authority ref and cannot assume `passkey_rp` or `rpId`.           | Boundary factor parsers producing `WalletAuthAuthorityRef`; shared session and capability code consume only the ref. | Refactor 82B / Phase 17.                               |
-| AuthService generic registration bootstrap/finalize surfaces used by Cloudflare D1 routes | They keep old AuthService request shapes alive beside D1 request models.                                                    | D1 route adapter boundary with raw parsing at route/persistence edges only.                                          | Refactor 82 Phase 12.                                  |
-| Helper code that only supports removed registration diagnostics                           | The extracted diagnostics module had no active callers after import audit.                                                  | None; deleted instead of moved.                                                                                      | Completed July 3, 2026.                                |
-| Parallel wallet-ID allocation copy in the D1 registration intent service                  | Router code must not import `core/authService/**` internals, so a local copy exists beside `walletRegistrationPlanning.ts`. | Collapse through the Refactor 82 route-port cleanup.                                                                 | Phase 9 / Refactor 82 route-port cleanup.              |
+| AuthService-era wallet registration authority branches | D1 registration is the canonical registration owner; duplicate authority branches caused passkey-only and Email OTP drift. | D1 registration route services plus typed Router API adapter ports. | Refactor 82 Phase 12 / Refactor 82B authority cleanup. |
+| Passkey-only Ed25519 authority checks inside shared session paths | Shared Ed25519 session code must require an exact durable authority ref and cannot assume `passkey_rp` or `rpId`. | Boundary factor parsers producing `WalletAuthAuthorityRef`; shared session and capability code consume only the ref. | Refactor 82B / Phase 17. |
+| AuthService generic registration bootstrap/finalize surfaces used by Cloudflare D1 routes | They keep old AuthService request shapes alive beside D1 request models. | D1 route adapter boundary with raw parsing at route/persistence edges only. | Refactor 82 Phase 12. |
+| Helper code that only supports removed registration diagnostics | The extracted diagnostics module had no active callers after import audit. | None; deleted instead of moved. | Completed July 3, 2026. |
+| Parallel wallet-ID allocation copy in the D1 registration intent service | Router code must not import `core/authService/**` internals, so a local copy exists beside `walletRegistrationPlanning.ts`. | Collapse through the Refactor 82 route-port cleanup. | Phase 9 / Refactor 82 route-port cleanup. |
 
 ---
 
@@ -997,8 +1004,8 @@ type WalletCapabilitySubjectResolution =
 ```
 
 - Replace local `unlock(walletId) -> requireNearAccountForWallet(walletId) ->
-unlockCore(nearAccountId)` with `resolveWalletUnlockSubject(walletId,
-requestedCapabilities) -> unlockCore(subject)`.
+  unlockCore(nearAccountId)` with `resolveWalletUnlockSubject(walletId,
+  requestedCapabilities) -> unlockCore(subject)`.
 - Resolve `WalletUnlockSubject` once at the IndexedDB/request boundary from
   active wallet signers and auth-factor records. Core unlock code must receive
   the discriminated subject, not raw wallet strings, broad profile records, or
@@ -1054,23 +1061,23 @@ requestedCapabilities) -> unlockCore(subject)`.
 Check:
 
 - [ ] Wallet unlock for an ECDSA-only wallet does not call `toAccountId`, read NEAR
-      projections, or require a NEAR operational key.
+  projections, or require a NEAR operational key.
 - [x] Wallet unlock for a NEAR Ed25519 wallet still requires
-      `nearAccountId`, `nearEd25519SigningKeyId`, and positive `signerSlot`.
+  `nearAccountId`, `nearEd25519SigningKeyId`, and positive `signerSlot`.
 - [ ] Combined NEAR+ECDSA wallet unlock warms the requested branches from a typed
-      subject set and does not flatten `walletId`, `nearAccountId`, and ECDSA key
-      identity into one object.
+  subject set and does not flatten `walletId`, `nearAccountId`, and ECDSA key
+  identity into one object.
 - [ ] Page refresh wallet-session restoration uses `WalletUnlockSubjectSet`,
-      supports NEAR-only, ECDSA-only, and combined wallets, and never mints a
-      NEAR-only session-read subject.
+  supports NEAR-only, ECDSA-only, and combined wallets, and never mints a
+  NEAR-only session-read subject.
 - [ ] Post-registration, post-wallet-unlock, and post-page-refresh flows feed the
       same canonical hydration resolver; entry-point provenance changes no branch
       for an equivalent current-state observation.
 - [ ] An active restored login can coexist with ECDSA `recovery_required` and
-      Ed25519 `recovery_required` or `authorization_required`; capability recovery
-      failure changes only that capability's preparation state.
+  Ed25519 `recovery_required` or `authorization_required`; capability recovery
+  failure changes only that capability's preparation state.
 - [ ] Registered NEAR identity remains available when the Ed25519 lane snapshot,
-      grant, quota, or live Yao Client is absent, expired, exhausted, or disposed.
+  grant, quota, or live Yao Client is absent, expired, exhausted, or disposed.
 - [ ] Source guards reject:
   - optional `nearAccountId` in wallet unlock core subject types;
   - `wallet-scoped auth requires a resolved NEAR account binding` in
@@ -1087,12 +1094,12 @@ Check:
   - [x] NEAR Ed25519 wallet unlock;
   - [ ] combined wallet unlock with requested branch set;
   - [x] page-reload unlock where runtime session records are empty but durable wallet
-        signer records exist.
+    signer records exist.
   - [ ] page-reload session read for ECDSA-only and combined wallets;
   - [ ] missing-profile, ambiguous-profile, expired ECDSA sealed-session, and
-        capability-local recovery/authorization demotion cases;
+    capability-local recovery/authorization demotion cases;
   - [ ] active login plus public NEAR identity after page reload with no live Yao
-        Client.
+    Client.
   - [ ] post-registration -> page-refresh and post-wallet-unlock -> page-refresh
         transitions through the shared hydration plan for NEAR-only, ECDSA-only, and
         combined wallets.
@@ -1252,7 +1259,7 @@ type EcdsaRoleLocalMaterialBinding = {
 };
 ```
 
-with a material-only binding:
+  with a material-only binding:
 
 ```ts
 type EcdsaRoleLocalMaterialBinding = {
@@ -1276,7 +1283,7 @@ type EcdsaRoleLocalMaterialBinding = {
   Phase 20 validates authorization and quota independently immediately before
   material use.
 - [x] Remove `evmFamilySigningKeySlotId` from `EcdsaRoleLocalMaterialBinding`,
-      `EcdsaRoleLocalBindingDigest`, and `EcdsaRoleLocalMaterialHandle`.
+  `EcdsaRoleLocalBindingDigest`, and `EcdsaRoleLocalMaterialHandle`.
 - Rename `clientVerifyingShareB64u` to `clientVerifyingPublicKey33B64u` in
   ECDSA role-local material binding, public facts, worker payloads, diagnostics,
   tests, and type fixtures. This value is public verifier identity, not a masked
@@ -1319,36 +1326,36 @@ type EcdsaRoleLocalMaterialBinding = {
 Check:
 
 - [x] `buildEcdsaRoleLocalMaterialIdentity()` and
-      `buildEcdsaRoleLocalSigningMaterialHandle()` have no
-      `evmFamilySigningKeySlotId` / `wallet_key_id` input.
+  `buildEcdsaRoleLocalSigningMaterialHandle()` have no
+  `evmFamilySigningKeySlotId` / `wallet_key_id` input.
 - [x] Role-local worker material-handle call sites no longer pass
-      `evmFamilySigningKeySlotId`.
+  `evmFamilySigningKeySlotId`.
 - [x] Focused regression test covers the narrowed material-handle API:
-      `pnpm -C tests exec playwright test unit/evmFamilyEcdsaIdentity.unit.test.ts -g "without signing key slot identity"`.
+  `pnpm -C tests exec playwright test unit/evmFamilyEcdsaIdentity.unit.test.ts -g "without signing key slot identity"`.
 - [ ] `buildEcdsaRoleLocalMaterialIdentity()` has no `chainTarget`,
-      `walletId`, `evmFamilySigningKeySlotId`, or `routerAbStateSessionId` input.
+  `walletId`, `evmFamilySigningKeySlotId`, or `routerAbStateSessionId` input.
 - [ ] `buildEcdsaRoleLocalMaterialIdentity()` and its handle/digest builders have
-      no grant, quota, remaining-use, or expiry input.
+  no grant, quota, remaining-use, or expiry input.
 - [ ] `evmFamilySigningKeySlotId` is either deleted from runtime paths or renamed
-      to a provisioning-reservation id that appears only in registration/bootstrap
-      code.
+  to a provisioning-reservation id that appears only in registration/bootstrap
+  code.
 - [ ] ECDSA role-local and EVM-family signing paths no longer use
-      `clientVerifyingShareB64u`; public verifier fields use
-      `clientVerifyingPublicKey33B64u`. Ed25519 paths are out of scope for this
-      rename unless a separate Ed25519 naming cleanup chooses the same vocabulary.
+  `clientVerifyingShareB64u`; public verifier fields use
+  `clientVerifyingPublicKey33B64u`. Ed25519 paths are out of scope for this
+  rename unless a separate Ed25519 naming cleanup chooses the same vocabulary.
 - [ ] ECDSA role-local material handles are stable for the same material across
-      Tempo, ARC, and other EVM-family chain targets.
+  Tempo, ARC, and other EVM-family chain targets.
 - [ ] Cross-chain signing still fails closed through exact lane/session-record
-      validation before the worker material handle is opened.
+  validation before the worker material handle is opened.
 - [ ] Router A/B signing requests carry and validate the signed ECDSA derivation
-      normal-signing scope against Wallet Session claims; current HSS-named fields
-      survive only until the coordinated Phase 14B rename.
+  normal-signing scope against Wallet Session claims; current HSS-named fields
+  survive only until the coordinated Phase 14B rename.
 - [ ] `routerAbStateSessionId` appears only in Router A/B state/admission
-      helpers, request builders, and diagnostics that describe the signed Router A/B
-      scope.
+  helpers, request builders, and diagnostics that describe the signed Router A/B
+  scope.
 - [ ] Focused ECDSA signing tests cover same-material cross-chain reuse,
-      cross-chain lane mismatch rejection, page-reload restored material, and
-      registration-created material.
+  cross-chain lane mismatch rejection, page-reload restored material, and
+  registration-created material.
 
 ## Phase 6: Inventory And Public-Surface Ledger
 
@@ -1905,7 +1912,7 @@ Do:
   journal. `completed` makes active-lease fields `never` and requires the original
   claim identity, final fencing token, completion time, and a descriptor-valid
   terminal result. The base terminal union is `succeeded | failed_after_claim |
-executor_lost | outcome_unknown | delivery_unknown | revoked_after_claim`;
+  executor_lost | outcome_unknown | delivery_unknown | revoked_after_claim`;
   descriptor builders make inapplicable outcome and delivery branches
   unconstructable and require exact result, attempt, delivery, reconciliation, or
   revocation references where applicable.
@@ -2082,7 +2089,7 @@ Do:
 - Implement the `VerifiedGrantEvidenceSet` boundary builder and generic grant
   issuer: exact operation envelope + capability binding + verified evidence set
   - `CapabilityGrantPolicy` -> `CapabilityGrant`. Raw evidence arrays and
-    diagnostics cannot reach policy evaluation.
+  diagnostics cannot reach policy evaluation.
 - Implement recursive `GrantEvidenceExpression` evaluation and property-based
   assurance requirements. Add exhaustive evaluators; no implicit evidence-grade
   ordering or outer-array convention is allowed. Canonicalize policies and cap
@@ -2538,8 +2545,8 @@ Do:
 - Add a data-only `NearEd25519YaoExportContextResolution` built on demand from the
   exact public locator/root owner and a server-canonical active-capability lookup.
   It is not another persistence domain. Its closed result is `available |
-session_transport_reauthentication_required | missing | exact_binding_mismatch |
-exact_record_conflict | corrupt | persistence_unavailable | server_unavailable`.
+  session_transport_reauthentication_required | missing | exact_binding_mismatch |
+  exact_record_conflict | corrupt | persistence_unavailable | server_unavailable`.
   `available` requires the exact authority ref, material owner, lifecycle ref,
   wallet/account, signer slot/key, threshold session, runtime-policy binding,
   participants, SigningWorker, registered public key, locator revision/digest, and
@@ -2559,14 +2566,14 @@ exact_record_conflict | corrupt | persistence_unavailable | server_unavailable`.
   sealed-record ID, ciphertext, revision, and current recovery-allowance fields
   are `never`. The journal has an exhaustive state:
   `recovery_material_acquisition_pending |
-material_acquisition_committed_promotion_pending |
-pre_promotion_cleanup_pending | promotion_prepared |
-promotion_committed_activation_pending |
-activation_committed_seal_pending |
-seal_persistence_pending |
-seal_committed_readback_pending |
-volatile_retention_persistence_pending |
-volatile_retention_committed_readback_pending`.
+  material_acquisition_committed_promotion_pending |
+  pre_promotion_cleanup_pending | promotion_prepared |
+  promotion_committed_activation_pending |
+  activation_committed_seal_pending |
+  seal_persistence_pending |
+  seal_committed_readback_pending |
+  volatile_retention_persistence_pending |
+  volatile_retention_committed_readback_pending`.
   Branch-specific builders make the exact material-acquisition/admission receipt,
   promotion receipt,
   active-publication facts, candidate seal digest/revision, committed seal
@@ -2635,8 +2642,8 @@ volatile_retention_committed_readback_pending`.
   replenish quota, or identify live material.
 - Parse persisted Ed25519 lookup as a closed union:
   `locator_only | sealed_recovery_available | sealed_recovery_expired |
-sealed_recovery_exhausted | exact_binding_mismatch | missing | corrupt |
-exact_record_conflict | persistence_unavailable`. A sealed record without its
+  sealed_recovery_exhausted | exact_binding_mismatch | missing | corrupt |
+  exact_record_conflict | persistence_unavailable`. A sealed record without its
   exact locator is `corrupt`; a well-formed record with the wrong exact
   authority/owner/signer/root/policy binding is `exact_binding_mismatch`. Parse
   volatile handle observation independently as `active | disposed | absent`.
@@ -2656,7 +2663,7 @@ exact_record_conflict | persistence_unavailable`. A sealed record without its
   unconstructable even if a stale active-handle observation exists.
 - Parse the recovery journal independently as
   `absent | valid_pending | exact_binding_mismatch | stale_revision | corrupt |
-exact_record_conflict | persistence_unavailable`. A valid pending journal takes
+  exact_record_conflict | persistence_unavailable`. A valid pending journal takes
   precedence over ordinary locator/seal recovery lookup. A `sealed_source` record
   is journal-owned and quarantined: generic lookup cannot expose it as
   `sealed_recovery_available`, while the exact reconciliation/finalization port
@@ -2664,12 +2671,12 @@ exact_record_conflict | persistence_unavailable`. A valid pending journal takes
   `fresh_acquisition` journal has no source record to expose or quarantine.
 - Persist lock/logout reconciliation in a separate non-secret
   `NearEd25519YaoRevocationOutbox`, parsed as `absent | valid_pending |
-exact_binding_mismatch | stale_revision | corrupt | exact_record_conflict |
-persistence_unavailable`. `valid_pending` carries a `revocation_pending`
+  exact_binding_mismatch | stale_revision | corrupt | exact_record_conflict |
+  persistence_unavailable`. `valid_pending` carries a `revocation_pending`
   outbox whose branch requires exact authority, locator,
   material owner, idempotency correlation, and a nonempty collection of
   discriminated `capability_locator | sealed_recovery | recovery_commit |
-runtime_publication | operation_claim` targets. Each target requires its exact
+  runtime_publication | operation_claim` targets. Each target requires its exact
   IDs, revisions, and receipts and makes every other target's fields `never`. Locator-only and
   volatile-runtime states can therefore be revoked without inventing a sealed
   record.
@@ -2857,7 +2864,7 @@ Do:
 - Add one auth-agnostic `NearEd25519YaoRootMaterialAdapter` with separate
   inspection and acquisition ports. The data-only inspection port returns
   `acquisition_ready | sealed_recovery_available | unlock_required |
-partial_commit_pending | unavailable`. Its acquisition/sealed branches
+  partial_commit_pending | unavailable`. Its acquisition/sealed branches
   carry only an exact non-secret acquisition or sealed-recovery ref.
   `partial_commit_pending` carries only the exact parsed journal ref and action;
   acquisition and ordinary sealed-recovery refs are `never`, and it takes
@@ -2878,8 +2885,8 @@ partial_commit_pending | unavailable`. Its acquisition/sealed branches
   persistence port supplies the exact discriminated recovery source and owns
   journal/source/seal eligibility and IndexedDB CAS. Inside the secure worker, the
   lifecycle is `pending factor -> authority/purpose/correlation-bound root handle
--> consumed staged candidate -> volatile finalization | retained reseal source
--> candidate seal ciphertext`. For sealed retention, the persistence port
+  -> consumed staged candidate -> volatile finalization | retained reseal source
+  -> candidate seal ciphertext`. For sealed retention, the persistence port
   consumes the candidate ciphertext and publishes a new eligible sealed recovery
   ref; it replaces `sealed_source` and is the first seal for
   `fresh_acquisition`. Volatile retention has no seal branch. For
@@ -3284,7 +3291,7 @@ partial_commit_pending | unavailable`. Its acquisition/sealed branches
   restore material.
 - Make prerequisite action kind explicit:
   `operation_grant | quota_replenishment | material_unlock |
-threshold_session_replacement | session_transport_reauthentication`.
+  threshold_session_replacement | session_transport_reauthentication`.
   Session transport reauthentication carries the exact authority, session
   audience/device binding, recovery ID, and recovery digest and returns only a
   fresh opaque transport reference. Operation grant policy may accept evidence
@@ -3771,7 +3778,7 @@ Do:
   the Phase 10/12 `claimed | completed` lifecycle. Specialize
   `CapabilityOperationExecutionLease` with this closed MPC execution phase:
   `claim_committed | cryptography_started | result_materialized |
-delivery_started | delivery_observed | revocation_reconciliation`. Each ordinary
+  delivery_started | delivery_observed | revocation_reconciliation`. Each ordinary
   phase requires its exact attempt, result, or idempotent delivery reference and
   makes later-phase and terminal fields `never`; operation descriptors make
   inapplicable delivery phases unconstructable. `revocation_reconciliation`
@@ -4686,16 +4693,16 @@ Resolved July 15, 2026 through YAOS alignment:
 Each question now has a resolve-by gate. A phase must not start while a
 question gating it is open.
 
-| Question                                                                                                       | Resolve by              | Current lean                                                                          |
+| Question | Resolve by | Current lean |
 | -------------------------------------------------------------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------- |
-| Should `vault_access` be provisioned automatically for every tenant?                                           | Before Phase 16 starts  | Auto-provision; it is the baseline capability.                                        |
-| Should Ed25519 and ECDSA MPC capabilities be provisioned separately by default?                                | Before Phase 23 starts  | Separately; the Phase 1 signer-set shape already models them as independent branches. |
-| Which MPC capability should produce `mpc_signer_proof` by default?                                             | Before Phase 19 starts  | —                                                                                     |
-| Should the default `near.export_key` policy accept Email OTP evidence, or should tenants enable it explicitly? | Before Phase 19 starts  | Runtime support is landed; keep the policy choice explicit.                           |
-| Should embedded wallet login be a default auth factor for wallet customers?                                    | Before Phase 23 starts  | —                                                                                     |
-| Should VoiceID become a future `GrantEvidenceKind`, or remain a separate optional workspace?                   | Revisit at Slice B exit | Parked workspace with source guards.                                                  |
-| Which customer signal should trigger SAML support after the OIDC IdP path ships?                               | Before Phase 26 scoping | —                                                                                     |
-| Which IdP scopes require additional grant evidence by default?                                                 | Before Phase 26 starts  | —                                                                                     |
+| Should `vault_access` be provisioned automatically for every tenant? | Before Phase 16 starts | Auto-provision; it is the baseline capability. |
+| Should Ed25519 and ECDSA MPC capabilities be provisioned separately by default? | Before Phase 23 starts | Separately; the Phase 1 signer-set shape already models them as independent branches. |
+| Which MPC capability should produce `mpc_signer_proof` by default? | Before Phase 19 starts | — |
+| Should the default `near.export_key` policy accept Email OTP evidence, or should tenants enable it explicitly? | Before Phase 19 starts | Runtime support is landed; keep the policy choice explicit. |
+| Should embedded wallet login be a default auth factor for wallet customers? | Before Phase 23 starts | — |
+| Should VoiceID become a future `GrantEvidenceKind`, or remain a separate optional workspace? | Revisit at Slice B exit | Parked workspace with source guards. |
+| Which customer signal should trigger SAML support after the OIDC IdP path ships? | Before Phase 26 scoping | — |
+| Which IdP scopes require additional grant evidence by default? | Before Phase 26 starts | — |
 
 ## Related Docs
 
