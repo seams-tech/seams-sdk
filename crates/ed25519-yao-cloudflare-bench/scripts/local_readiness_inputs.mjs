@@ -51,6 +51,7 @@ const EXCLUDED_DIRECTORY_NAMES = new Set([
   'build',
   'bundled',
   'node_modules',
+  'pkg',
   'pkg-phase5',
   'target',
 ]);
