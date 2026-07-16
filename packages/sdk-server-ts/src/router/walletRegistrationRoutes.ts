@@ -2,7 +2,7 @@ import type { RouterApiWalletRegistrationRouteService } from './authServicePort'
 import type {
   EcdsaKeyFactsInventoryPolicy,
   WebAuthnAuthenticationCredential,
-  EcdsaHssServerBootstrapResponse,
+  EcdsaDerivationServerBootstrapResponse,
   FundImplicitNearAccountRequest,
   FundImplicitNearAccountResult,
   ThresholdEd25519AuthorityScope,
@@ -19,8 +19,8 @@ import type {
   CreateRegistrationIntentResponse,
   WalletAddSignerFinalizeRequest,
   WalletAddSignerFinalizeResponse,
-  WalletAddSignerHssRespondRequest,
-  WalletAddSignerHssRespondResponse,
+  WalletAddSignerEcdsaDerivationRespondRequest,
+  WalletAddSignerEcdsaDerivationRespondResponse,
   WalletAddSignerStartRequest,
   WalletAddSignerStartResponse,
   WalletAddAuthMethodFinalizeRequest,
@@ -33,9 +33,12 @@ import type {
   WalletRegistrationEcdsaFinalize,
   WalletRegistrationEd25519YaoActivationReference,
   WalletRegistrationFinalizeSignerWork,
-  WalletRegistrationFinalizeResponse,
-  WalletRegistrationHssRespondRequest,
-  WalletRegistrationHssRespondResponse,
+  WalletRegistrationFinalizeRouteResponse,
+  WalletRegistrationFinalizeRouteSuccess,
+  WalletRegistrationFinalizeSuccess,
+  WalletRegistrationFinalizeAuthMethod,
+  WalletRegistrationEcdsaDerivationRespondRequest,
+  WalletRegistrationEcdsaDerivationRespondResponse,
   WalletRegistrationStartRequest,
   WalletRegistrationStartResponse,
 } from '../core/registrationContracts';
@@ -51,9 +54,9 @@ import {
 } from '../core/ThresholdService/validation';
 import { findUnexpectedRouteKey } from './routeRequestValidation';
 import {
-  buildRouterAbEcdsaHssNormalSigningStateForBootstrap,
+  buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap,
   resolveActiveRuntimePolicyScopeForEnvironment,
-  signRouterAbEcdsaHssWalletSessionJwt,
+  signRouterAbEcdsaDerivationWalletSessionJwt,
   validateRouterAbEd25519WalletSessionTokenInputs,
 } from './commonRouterUtils';
 import { enforceRoutePolicy } from './enforceRoutePolicy';
@@ -107,6 +110,7 @@ import {
   normalizeRuntimePolicyScope,
   type RuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
+import { isEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 
 type RouterApiWalletRegistrationServices = {
   walletRegistration: RouterApiWalletRegistrationRouteService;
@@ -134,6 +138,131 @@ type RouterApiWalletRegistrationInput = {
 };
 
 type ParseResult<T> = { ok: true; value: T } | { ok: false; code: 'invalid_body'; message: string };
+
+type PasskeyWalletRegistrationFinalizeSuccess = Extract<
+  WalletRegistrationFinalizeSuccess,
+  { authMethod: { kind: 'passkey' } }
+>;
+
+type EmailOtpWalletRegistrationFinalizeSuccess = Extract<
+  WalletRegistrationFinalizeSuccess,
+  { authMethod: { kind: 'email_otp' } }
+>;
+
+function assertNeverWalletRegistrationFinalizeKind(value: never): never {
+  throw new Error(`Unsupported wallet registration finalize kind: ${String(value)}`);
+}
+
+function isPasskeyWalletRegistrationFinalizeSuccess(
+  result: WalletRegistrationFinalizeSuccess,
+): result is PasskeyWalletRegistrationFinalizeSuccess {
+  return result.authMethod.kind === 'passkey';
+}
+
+function isEmailOtpWalletRegistrationFinalizeSuccess(
+  result: WalletRegistrationFinalizeSuccess,
+): result is EmailOtpWalletRegistrationFinalizeSuccess {
+  return result.authMethod.kind === 'email_otp';
+}
+
+function buildPasskeyWalletRegistrationFinalizeRouteSuccess(
+  result: PasskeyWalletRegistrationFinalizeSuccess,
+): WalletRegistrationFinalizeRouteSuccess {
+  switch (result.kind) {
+    case 'near_ed25519':
+      return {
+        ok: true,
+        walletId: result.walletId,
+        authority: result.authority,
+        registrationDiagnostics: result.registrationDiagnostics,
+        rpId: result.rpId,
+        authMethod: result.authMethod,
+        kind: result.kind,
+        authorityScope: result.authorityScope,
+        accountProvisioning: result.accountProvisioning,
+        resolvedAccount: result.resolvedAccount,
+        ed25519: result.ed25519,
+      };
+    case 'evm_family_ecdsa':
+      return {
+        ok: true,
+        walletId: result.walletId,
+        authority: result.authority,
+        registrationDiagnostics: result.registrationDiagnostics,
+        rpId: result.rpId,
+        authMethod: result.authMethod,
+        kind: result.kind,
+        ecdsa: result.ecdsa,
+      };
+    case 'near_ed25519_and_evm_family_ecdsa':
+      return {
+        ok: true,
+        walletId: result.walletId,
+        authority: result.authority,
+        registrationDiagnostics: result.registrationDiagnostics,
+        rpId: result.rpId,
+        authMethod: result.authMethod,
+        kind: result.kind,
+        authorityScope: result.authorityScope,
+        accountProvisioning: result.accountProvisioning,
+        resolvedAccount: result.resolvedAccount,
+        ed25519: result.ed25519,
+        ecdsa: result.ecdsa,
+      };
+    default:
+      return assertNeverWalletRegistrationFinalizeKind(result);
+  }
+}
+
+function buildEmailOtpWalletRegistrationFinalizeRouteSuccess(
+  result: EmailOtpWalletRegistrationFinalizeSuccess,
+  appSessionJwt: string,
+): WalletRegistrationFinalizeRouteSuccess {
+  switch (result.kind) {
+    case 'near_ed25519':
+      return {
+        ok: true,
+        walletId: result.walletId,
+        authority: result.authority,
+        registrationDiagnostics: result.registrationDiagnostics,
+        authMethod: result.authMethod,
+        kind: result.kind,
+        authorityScope: result.authorityScope,
+        accountProvisioning: result.accountProvisioning,
+        resolvedAccount: result.resolvedAccount,
+        ed25519: result.ed25519,
+        appSessionJwt,
+      };
+    case 'evm_family_ecdsa':
+      return {
+        ok: true,
+        walletId: result.walletId,
+        authority: result.authority,
+        registrationDiagnostics: result.registrationDiagnostics,
+        authMethod: result.authMethod,
+        kind: result.kind,
+        ecdsa: result.ecdsa,
+        appSessionJwt,
+      };
+    case 'near_ed25519_and_evm_family_ecdsa':
+      return {
+        ok: true,
+        walletId: result.walletId,
+        authority: result.authority,
+        registrationDiagnostics: result.registrationDiagnostics,
+        authMethod: result.authMethod,
+        kind: result.kind,
+        authorityScope: result.authorityScope,
+        accountProvisioning: result.accountProvisioning,
+        resolvedAccount: result.resolvedAccount,
+        ed25519: result.ed25519,
+        ecdsa: result.ecdsa,
+        appSessionJwt,
+      };
+    default:
+      return assertNeverWalletRegistrationFinalizeKind(result);
+  }
+}
 
 function walletRegistrationRoutePolicyServices(
   input: RouterApiWalletRegistrationInput,
@@ -311,7 +440,7 @@ const EMAIL_OTP_ENROLLMENT_FORBIDDEN_FIELDS = [
   'registrationAuthorityId',
 ] as const;
 
-const ECDSA_REGISTRATION_HSS_RESPOND_FORBIDDEN_FIELDS = [
+const ECDSA_REGISTRATION_ECDSA_DERIVATION_RESPOND_FORBIDDEN_FIELDS = [
   'clientRootProof',
   'passkeyBootstrapAuthorization',
   'sessionKind',
@@ -394,7 +523,7 @@ function parseParticipantIds(raw: unknown, field: string): ParseResult<number[]>
 
 async function attachEcdsaWalletSessionJwt(
   input: RouterApiWalletRegistrationInput,
-  bootstrap: EcdsaHssServerBootstrapResponse | undefined,
+  bootstrap: EcdsaDerivationServerBootstrapResponse | undefined,
   runtimePolicyScope?: RuntimePolicyScope,
 ): Promise<RouteResponse<RouteErrorBody> | null> {
   if (!bootstrap) return null;
@@ -403,15 +532,15 @@ async function attachEcdsaWalletSessionJwt(
     return routeError(500, 'internal', 'Router A/B normal signing is not configured');
   }
   const signingWorkerId = normalSigningRuntime.getSigningWorkerId();
-  const routerAbEcdsaHssNormalSigning = buildRouterAbEcdsaHssNormalSigningStateForBootstrap({
+  const routerAbEcdsaDerivationNormalSigning = buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap({
     bootstrap,
     routerAbPublicKeyset: input.services.routerAbPublicKeyset,
     signingWorkerId,
   });
-  if (!routerAbEcdsaHssNormalSigning.ok) {
-    return routeError(500, 'internal', routerAbEcdsaHssNormalSigning.message);
+  if (!routerAbEcdsaDerivationNormalSigning.ok) {
+    return routeError(500, 'internal', routerAbEcdsaDerivationNormalSigning.message);
   }
-  const signed = await signRouterAbEcdsaHssWalletSessionJwt({
+  const signed = await signRouterAbEcdsaDerivationWalletSessionJwt({
     session: input.services.session,
     userId: bootstrap.walletId,
     evmFamilySigningKeySlotId: bootstrap.evmFamilySigningKeySlotId,
@@ -437,11 +566,11 @@ async function attachEcdsaWalletSessionJwt(
       publicIdentity: bootstrap.publicIdentity,
       activationEpoch: bootstrap.thresholdSessionId,
       signingWorkerId,
-      routerAbEcdsaHssNormalSigning: routerAbEcdsaHssNormalSigning.state,
+      routerAbEcdsaDerivationNormalSigning: routerAbEcdsaDerivationNormalSigning.state,
     },
     fallbackParticipantIds: bootstrap.participantIds,
-    requireJwtErrorMessage: 'ECDSA-HSS Wallet Session must use jwt sessionKind',
-    invalidPayloadErrorMessage: 'invalid ECDSA-HSS Wallet Session payload for jwt signing',
+    requireJwtErrorMessage: 'Router A/B ECDSA derivation Wallet Session must use jwt sessionKind',
+    invalidPayloadErrorMessage: 'invalid Router A/B ECDSA derivation Wallet Session payload for jwt signing',
   });
   if (!signed.ok) {
     const code = signed.code === 'sessions_disabled' ? 'internal' : signed.code;
@@ -452,7 +581,7 @@ async function attachEcdsaWalletSessionJwt(
 }
 
 function registrationClientBootstrapRuntimePolicyScope(input: {
-  readonly request: WalletRegistrationHssRespondRequest;
+  readonly request: WalletRegistrationEcdsaDerivationRespondRequest;
   readonly chainTarget: ThresholdEcdsaChainTarget;
 }): RuntimePolicyScope | undefined {
   const targetKey = thresholdEcdsaChainTargetKey(input.chainTarget);
@@ -464,7 +593,7 @@ function registrationClientBootstrapRuntimePolicyScope(input: {
 }
 
 function addSignerClientBootstrapRuntimePolicyScope(input: {
-  readonly request: WalletAddSignerHssRespondRequest;
+  readonly request: WalletAddSignerEcdsaDerivationRespondRequest;
   readonly chainTarget: ThresholdEcdsaChainTarget;
 }): RuntimePolicyScope | undefined {
   const targetKey = thresholdEcdsaChainTargetKey(input.chainTarget);
@@ -1341,9 +1470,9 @@ async function parseWalletAddAuthMethodStartBody(
   };
 }
 
-function parseWalletRegistrationHssRespondRequest(
+function parseWalletRegistrationEcdsaDerivationRespondRequest(
   body: Record<string, unknown>,
-): ParseResult<WalletRegistrationHssRespondRequest> {
+): ParseResult<WalletRegistrationEcdsaDerivationRespondRequest> {
   const registrationCeremonyId = trimRequiredString(
     body,
     'registrationCeremonyId',
@@ -1354,10 +1483,10 @@ function parseWalletRegistrationHssRespondRequest(
     return {
       ok: false,
       code: 'invalid_body',
-      message: 'ECDSA HSS response is required',
+      message: 'ECDSA DERIVATION response is required',
     };
   }
-  const value: WalletRegistrationHssRespondRequest = {
+  const value: WalletRegistrationEcdsaDerivationRespondRequest = {
     registrationCeremonyId: registrationCeremonyId.value,
     ecdsa: { clientBootstraps: [] },
   };
@@ -1375,7 +1504,7 @@ function parseWalletRegistrationHssRespondRequest(
       };
     }
     const parsedEntries: NonNullable<
-      WalletRegistrationHssRespondRequest['ecdsa']
+      WalletRegistrationEcdsaDerivationRespondRequest['ecdsa']
     >['clientBootstraps'] = [];
     const seenTargets = new Set<string>();
     for (const entry of clientBootstraps) {
@@ -1402,7 +1531,7 @@ function parseWalletRegistrationHssRespondRequest(
       seenTargets.add(targetKey);
       const forbiddenField = findOwnField(
         clientBootstrap,
-        ECDSA_REGISTRATION_HSS_RESPOND_FORBIDDEN_FIELDS,
+        ECDSA_REGISTRATION_ECDSA_DERIVATION_RESPOND_FORBIDDEN_FIELDS,
       );
       if (forbiddenField) {
         return {
@@ -1433,7 +1562,7 @@ function parseWalletRegistrationHssRespondRequest(
           ...(parsed.registrationPreparationId
             ? { registrationPreparationId: parsed.registrationPreparationId }
             : {}),
-          hssClientSharePublicKey33B64u: parsed.hssClientSharePublicKey33B64u,
+          derivationClientSharePublicKey33B64u: parsed.derivationClientSharePublicKey33B64u,
           clientShareRetryCounter: parsed.clientShareRetryCounter,
           contextBinding32B64u: parsed.contextBinding32B64u,
           requestId: parsed.requestId,
@@ -1896,16 +2025,16 @@ export function parseWalletRegistrationFinalizeRequest(
   };
 }
 
-function parseWalletAddSignerHssRespondRequest(
+function parseWalletAddSignerEcdsaDerivationRespondRequest(
   body: Record<string, unknown>,
-): ParseResult<WalletAddSignerHssRespondRequest> {
+): ParseResult<WalletAddSignerEcdsaDerivationRespondRequest> {
   const addSignerCeremonyId = trimRequiredString(
     body,
     'addSignerCeremonyId',
     'addSignerCeremonyId is required',
   );
   if (!addSignerCeremonyId.ok) return addSignerCeremonyId;
-  const registrationLike = parseWalletRegistrationHssRespondRequest({
+  const registrationLike = parseWalletRegistrationEcdsaDerivationRespondRequest({
     ...body,
     registrationCeremonyId: addSignerCeremonyId.value,
   });
@@ -2265,15 +2394,15 @@ export async function handleRouterApiWalletRegistrationStart(
   return routeJson(result.ok ? 200 : 400, response);
 }
 
-export async function handleRouterApiWalletRegistrationHssRespond(
+export async function handleRouterApiWalletRegistrationEcdsaDerivationRespond(
   input: RouterApiWalletRegistrationInput,
-): Promise<RouteResponse<WalletRegistrationHssRespondResponse | RouteErrorBody>> {
+): Promise<RouteResponse<WalletRegistrationEcdsaDerivationRespondResponse | RouteErrorBody>> {
   if (!isPlainObject(input.body)) {
     return routeError(400, 'invalid_body', 'JSON body required');
   }
-  const request = parseWalletRegistrationHssRespondRequest(input.body);
+  const request = parseWalletRegistrationEcdsaDerivationRespondRequest(input.body);
   if (!request.ok) return routeError(400, request.code, request.message);
-  const result = await input.services.walletRegistration.respondWalletRegistrationHss(
+  const result = await input.services.walletRegistration.respondWalletRegistrationEcdsaDerivation(
     request.value,
   );
   if (result.ok && result.ecdsa) {
@@ -2297,7 +2426,7 @@ export async function handleRouterApiWalletRegistrationHssRespond(
 
 export async function handleRouterApiWalletRegistrationFinalize(
   input: RouterApiWalletRegistrationInput,
-): Promise<RouteResponse<WalletRegistrationFinalizeResponse | RouteErrorBody>> {
+): Promise<RouteResponse<WalletRegistrationFinalizeRouteResponse | RouteErrorBody>> {
   if (!isPlainObject(input.body)) {
     return routeError(400, 'invalid_body', 'JSON body required');
   }
@@ -2311,17 +2440,51 @@ export async function handleRouterApiWalletRegistrationFinalize(
     walletId: result.ok ? result.walletId : undefined,
     durationMs: Date.now() - finalizeStartedAtMs,
   });
+  let routeResult: WalletRegistrationFinalizeRouteResponse;
+  if (!result.ok) {
+    routeResult = result;
+  } else if (isPasskeyWalletRegistrationFinalizeSuccess(result)) {
+    routeResult = buildPasskeyWalletRegistrationFinalizeRouteSuccess(result);
+  } else if (isEmailOtpWalletRegistrationFinalizeSuccess(result)) {
+    if (!isEmailOtpWalletAuthAuthority(result.authority)) {
+      return routeError(500, 'internal', 'Email OTP registration returned a different authority');
+    }
+    const session = input.services.session;
+    if (!session) {
+      return routeError(500, 'internal', 'Email OTP registration requires session signing');
+    }
+    const appSessionVersion = await input.services.walletRegistration.getOrCreateAppSessionVersion({
+      userId: result.authority.factor.providerUserId,
+    });
+    if (!appSessionVersion.ok) {
+      return routeError(500, 'internal', appSessionVersion.message);
+    }
+    const runtimePolicyScope =
+      result.kind === 'evm_family_ecdsa' ? undefined : result.ed25519.session.runtimePolicyScope;
+    const appSessionJwt = await session.signJwt(result.authority.factor.providerUserId, {
+      kind: 'app_session_v1',
+      appSessionVersion: appSessionVersion.appSessionVersion,
+      provider: result.authority.factor.provider,
+      providerSubject: result.authority.factor.providerUserId,
+      walletId: result.walletId,
+      ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+    });
+    routeResult = buildEmailOtpWalletRegistrationFinalizeRouteSuccess(result, appSessionJwt);
+  } else {
+    result satisfies never;
+    return routeError(500, 'internal', 'Registration returned an unsupported auth method');
+  }
   const response = exposesRegistrationRouteDiagnostics(input)
-    ? result
-    : stripRegistrationRouteDiagnostics(result);
+    ? routeResult
+    : stripRegistrationRouteDiagnostics(routeResult);
   input.logger.info('[wallet-registration][finalize-route] returning response', {
-    ok: Boolean(result.ok),
-    status: result.ok ? 200 : 400,
-    walletId: result.ok ? result.walletId : undefined,
+    ok: Boolean(routeResult.ok),
+    status: routeResult.ok ? 200 : 400,
+    walletId: routeResult.ok ? routeResult.walletId : undefined,
     durationMs: Date.now() - finalizeStartedAtMs,
   });
-  return routeJson(result.ok ? 200 : 400, response, {
-    usage: result.ok ? { walletId: result.walletId } : undefined,
+  return routeJson(routeResult.ok ? 200 : 400, response, {
+    usage: routeResult.ok ? { walletId: routeResult.walletId } : undefined,
   });
 }
 
@@ -2384,15 +2547,15 @@ export async function handleRouterApiWalletAddSignerStart(
   return routeJson(result.ok ? 200 : 400, result);
 }
 
-export async function handleRouterApiWalletAddSignerHssRespond(
+export async function handleRouterApiWalletAddSignerEcdsaDerivationRespond(
   input: RouterApiWalletRegistrationInput,
-): Promise<RouteResponse<WalletAddSignerHssRespondResponse | RouteErrorBody>> {
+): Promise<RouteResponse<WalletAddSignerEcdsaDerivationRespondResponse | RouteErrorBody>> {
   if (!isPlainObject(input.body)) {
     return routeError(400, 'invalid_body', 'JSON body required');
   }
-  const request = parseWalletAddSignerHssRespondRequest(input.body);
+  const request = parseWalletAddSignerEcdsaDerivationRespondRequest(input.body);
   if (!request.ok) return routeError(400, request.code, request.message);
-  const result = await input.services.walletRegistration.respondWalletAddSignerHss(request.value);
+  const result = await input.services.walletRegistration.respondWalletAddSignerEcdsaDerivation(request.value);
   if (result.ok && result.ecdsa) {
     for (const entry of result.ecdsa.bootstraps) {
       const signingError = await attachEcdsaWalletSessionJwt(

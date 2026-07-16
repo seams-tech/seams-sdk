@@ -130,7 +130,7 @@ export default {
 
 - POST `/wallets/register/intent` — allocate a wallet-registration intent before WebAuthn create.
 - POST `/wallets/register/start` — verify WebAuthn create and prepare requested signer ceremonies.
-- POST `/wallets/register/hss/respond` — deliver client HSS response material for the ceremony.
+- POST `/wallets/register/ecdsa-derivation/respond` — deliver client ECDSA derivation response material for the ceremony.
 - POST `/wallets/register/finalize` — finalize signer material, create any requested NEAR account, and persist wallet signer rows.
 - POST `/auth/passkey/options` — mint a server-side WebAuthn login challenge (replay-protected). Body:
   - `{ user_id, rp_id, ttl_ms? }` → returns `{ challengeId, challengeB64u, expiresAtMs }`

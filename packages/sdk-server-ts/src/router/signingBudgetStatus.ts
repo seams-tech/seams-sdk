@@ -1,9 +1,9 @@
 import {
-  parseRouterAbEcdsaHssWalletSessionClaims,
+  parseRouterAbEcdsaDerivationWalletSessionClaims,
   parseRouterAbEd25519WalletSessionClaims,
   thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
   thresholdEd25519AuthorityScopesMatch,
-  type RouterAbEcdsaHssWalletSessionClaims,
+  type RouterAbEcdsaDerivationWalletSessionClaims,
   type RouterAbEd25519WalletSessionClaims,
 } from '../core/ThresholdService/validation';
 import { hashEmailOtpSigningSessionClaims } from './emailOtpSessionRouteHelpers';
@@ -202,7 +202,7 @@ function budgetStatusFailure(
 
 export async function parseEcdsaWalletSigningBudgetStatusRequest(args: {
   rawClaims: Record<string, unknown>;
-  claims: RouterAbEcdsaHssWalletSessionClaims;
+  claims: RouterAbEcdsaDerivationWalletSessionClaims;
   sessionPolicy: SigningSessionSealThresholdSessionPolicy | null | undefined;
   nowMs?: () => number;
 }): Promise<ParseWalletSigningBudgetStatusResult> {
@@ -263,7 +263,7 @@ export async function parseWalletSigningBudgetStatusRequest(args: {
     string,
     unknown
   >;
-  const ecdsaClaims = parseRouterAbEcdsaHssWalletSessionClaims(rawClaims);
+  const ecdsaClaims = parseRouterAbEcdsaDerivationWalletSessionClaims(rawClaims);
   if (ecdsaClaims) {
     return await parseEcdsaWalletSigningBudgetStatusRequest({
       rawClaims,

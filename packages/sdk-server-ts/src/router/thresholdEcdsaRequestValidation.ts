@@ -1,8 +1,8 @@
 import { isPlainObject } from '@shared/utils/validation';
-import { parseRouterAbEcdsaHssNormalSigningScopeV1 } from '@shared/utils/routerAbEcdsaHss';
+import { parseRouterAbEcdsaDerivationNormalSigningScopeV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type {
-  RouterAbEcdsaHssPoolFillInitRequest,
-  RouterAbEcdsaHssPoolFillStepRequest,
+  RouterAbEcdsaDerivationPoolFillInitRequest,
+  RouterAbEcdsaDerivationPoolFillStepRequest,
 } from '../core/types';
 
 export type ThresholdEcdsaRouteErrorBody = {
@@ -72,15 +72,15 @@ function hasNonStringValue(values: unknown[]): boolean {
   return values.some((value) => !isStringValue(value));
 }
 
-export function parseRouterAbEcdsaHssPoolFillInitRouteRequest(
+export function parseRouterAbEcdsaDerivationPoolFillInitRouteRequest(
   raw: unknown,
-): ThresholdEcdsaRouteParseResult<RouterAbEcdsaHssPoolFillInitRequest> {
+): ThresholdEcdsaRouteParseResult<RouterAbEcdsaDerivationPoolFillInitRequest> {
   if (!isPlainObject(raw)) {
     return invalidThresholdEcdsaBody('Expected JSON object body');
   }
   const sessionKindError = rejectNonJwtSessionKind(
     raw,
-    'Router A/B ECDSA-HSS presignature pool fill requires sessionKind=jwt',
+    'Router A/B ECDSA derivation presignature pool fill requires sessionKind=jwt',
   );
   if (sessionKindError) return sessionKindError;
   const unexpectedKey = unexpectedThresholdEcdsaKey(raw, POOL_FILL_INIT_KEYS);
@@ -96,12 +96,12 @@ export function parseRouterAbEcdsaHssPoolFillInitRouteRequest(
       `Unsupported threshold-ecdsa poolFill field: ${unexpectedPoolFillKey}`,
     );
   }
-  if (raw.poolFill.kind !== 'router_ab_ecdsa_hss_signing_worker_pool') {
+  if (raw.poolFill.kind !== 'router_ab_ecdsa_derivation_signing_worker_pool') {
     return invalidThresholdEcdsaBody(
-      'poolFill.kind must be router_ab_ecdsa_hss_signing_worker_pool',
+      'poolFill.kind must be router_ab_ecdsa_derivation_signing_worker_pool',
     );
   }
-  const scope = parseRouterAbEcdsaHssNormalSigningScopeV1(raw.poolFill.scope);
+  const scope = parseRouterAbEcdsaDerivationNormalSigningScopeV1(raw.poolFill.scope);
   if (!scope) {
     return invalidThresholdEcdsaBody('poolFill.scope is invalid');
   }
@@ -122,7 +122,7 @@ export function parseRouterAbEcdsaHssPoolFillInitRouteRequest(
       ...(count !== undefined ? { count } : {}),
       ...(optionalStringField(raw, 'requestTag') ? { requestTag: optionalStringField(raw, 'requestTag') } : {}),
       poolFill: {
-        kind: 'router_ab_ecdsa_hss_signing_worker_pool',
+        kind: 'router_ab_ecdsa_derivation_signing_worker_pool',
         scope,
         expiresAtMs: raw.poolFill.expiresAtMs,
       },
@@ -130,15 +130,15 @@ export function parseRouterAbEcdsaHssPoolFillInitRouteRequest(
   };
 }
 
-export function parseRouterAbEcdsaHssPoolFillStepRouteRequest(
+export function parseRouterAbEcdsaDerivationPoolFillStepRouteRequest(
   raw: unknown,
-): ThresholdEcdsaRouteParseResult<RouterAbEcdsaHssPoolFillStepRequest> {
+): ThresholdEcdsaRouteParseResult<RouterAbEcdsaDerivationPoolFillStepRequest> {
   if (!isPlainObject(raw)) {
     return invalidThresholdEcdsaBody('Expected JSON object body');
   }
   const sessionKindError = rejectNonJwtSessionKind(
     raw,
-    'Router A/B ECDSA-HSS presignature pool fill requires sessionKind=jwt',
+    'Router A/B ECDSA derivation presignature pool fill requires sessionKind=jwt',
   );
   if (sessionKindError) return sessionKindError;
   const unexpectedKey = unexpectedThresholdEcdsaKey(raw, POOL_FILL_STEP_KEYS);

@@ -16,7 +16,6 @@ import {
 export type {
   RouterApiOptions,
   SessionAdapter,
-  ThresholdSigningAdapter,
   RouterApiKeyAuthFailureCode,
   RouterApiKeyAuthRequest,
   RouterApiKeyPrincipal,

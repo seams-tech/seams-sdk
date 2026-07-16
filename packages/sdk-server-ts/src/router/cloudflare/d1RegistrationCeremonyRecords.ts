@@ -57,8 +57,8 @@ import {
 } from '@shared/utils/routerAbEd25519Yao';
 import { registrationPreparationIdFromString } from '../../core/registrationContracts';
 import type {
-  EcdsaHssClientBootstrapRequest,
-  EcdsaHssServerBootstrapResponse,
+  EcdsaDerivationClientBootstrapRequest,
+  EcdsaDerivationServerBootstrapResponse,
 } from '../../core/types';
 import type {
   WalletRegistrationEcdsaClientBootstrap,
@@ -111,8 +111,8 @@ import {
 } from '../../core/d1WalletStore';
 import { toRecordValue } from './d1RouterApiAuthBoundary';
 
-type D1EcdsaPublicIdentity = EcdsaHssServerBootstrapResponse['publicIdentity'];
-type D1EcdsaClientSharePublicKey = D1EcdsaPublicIdentity['hssClientSharePublicKey33B64u'];
+type D1EcdsaPublicIdentity = EcdsaDerivationServerBootstrapResponse['publicIdentity'];
+type D1EcdsaClientSharePublicKey = D1EcdsaPublicIdentity['derivationClientSharePublicKey33B64u'];
 type D1EcdsaRelayerPublicKey = D1EcdsaPublicIdentity['relayerPublicKey33B64u'];
 type D1WalletRegistrationFinalizeSuccess = Extract<
   WalletRegistrationFinalizeResponse,
@@ -929,14 +929,14 @@ function parseD1StoredEvmFamilyEcdsaPreparedBranch(
   const branchKey = parseD1RegistrationSignerBranchKey(record.branchKey);
   const prepared = parseD1StoredEcdsaRegistrationPrepared({
     kind: 'ecdsa_prepared',
-    hssKind: record.hssKind,
+    derivationKind: record.derivationKind,
     targets: record.targets,
   });
   if (!branchKey || !prepared) return null;
   return {
     kind: 'evm_family_ecdsa_prepared',
     branchKey,
-    hssKind: prepared.hssKind,
+    derivationKind: prepared.derivationKind,
     targets: prepared.targets,
   };
 }
@@ -947,7 +947,7 @@ function parseD1StoredEvmFamilyEcdsaRespondedBranch(
   const branchKey = parseD1RegistrationSignerBranchKey(record.branchKey);
   const responded = parseD1StoredEcdsaRegistrationResponded({
     kind: 'ecdsa_responded',
-    hssKind: record.hssKind,
+    derivationKind: record.derivationKind,
     targets: record.targets,
     responded: record.responded,
   });
@@ -955,7 +955,7 @@ function parseD1StoredEvmFamilyEcdsaRespondedBranch(
   return {
     kind: 'evm_family_ecdsa_responded',
     branchKey,
-    hssKind: responded.hssKind,
+    derivationKind: responded.derivationKind,
     targets: responded.targets,
     responded: responded.responded,
   };
@@ -974,12 +974,12 @@ function parseD1RegistrationSignerBranchKey(raw: unknown): RegistrationSignerBra
 function parseD1StoredEcdsaRegistrationPrepared(
   record: Record<string, unknown>,
 ): Extract<StoredWalletRegistrationCeremony['signerState'], { kind: 'ecdsa_prepared' }> | null {
-  const hssKind = toOptionalTrimmedString(record.hssKind);
+  const derivationKind = toOptionalTrimmedString(record.derivationKind);
   const targets = parseD1WalletRegistrationEcdsaPrepareTargets(record.targets);
-  if (hssKind !== 'evm_family_ecdsa_keygen' || !targets) return null;
+  if (derivationKind !== 'evm_family_ecdsa_keygen' || !targets) return null;
   return {
     kind: 'ecdsa_prepared',
-    hssKind,
+    derivationKind,
     targets,
   };
 }
@@ -987,16 +987,16 @@ function parseD1StoredEcdsaRegistrationPrepared(
 function parseD1StoredEcdsaRegistrationResponded(
   record: Record<string, unknown>,
 ): Extract<StoredWalletRegistrationCeremony['signerState'], { kind: 'ecdsa_responded' }> | null {
-  const hssKind = toOptionalTrimmedString(record.hssKind);
+  const derivationKind = toOptionalTrimmedString(record.derivationKind);
   const responded = toRecordValue(record.responded);
   const targets = parseD1WalletRegistrationEcdsaPrepareTargets(record.targets);
   const bootstraps = parseD1WalletRegistrationEcdsaBootstrapTargets(responded?.bootstraps);
-  if (hssKind !== 'evm_family_ecdsa_keygen' || !targets || !bootstraps) {
+  if (derivationKind !== 'evm_family_ecdsa_keygen' || !targets || !bootstraps) {
     return null;
   }
   return {
     kind: 'ecdsa_responded',
-    hssKind,
+    derivationKind,
     targets,
     responded: {
       bootstraps,
@@ -1269,12 +1269,12 @@ function parseD1StoredEcdsaAddSignerPrepared(
   StoredWalletAddSignerCeremony['signerState'],
   { kind: 'ecdsa_add_signer_prepared' }
 > | null {
-  const hssKind = toOptionalTrimmedString(record.hssKind);
+  const derivationKind = toOptionalTrimmedString(record.derivationKind);
   const targets = parseD1WalletRegistrationEcdsaPrepareTargets(record.targets);
-  if (hssKind !== 'evm_family_ecdsa_keygen' || !targets) return null;
+  if (derivationKind !== 'evm_family_ecdsa_keygen' || !targets) return null;
   return {
     kind: 'ecdsa_add_signer_prepared',
-    hssKind,
+    derivationKind,
     targets,
   };
 }
@@ -1285,16 +1285,16 @@ function parseD1StoredEcdsaAddSignerResponded(
   StoredWalletAddSignerCeremony['signerState'],
   { kind: 'ecdsa_add_signer_responded' }
 > | null {
-  const hssKind = toOptionalTrimmedString(record.hssKind);
+  const derivationKind = toOptionalTrimmedString(record.derivationKind);
   const targets = parseD1WalletRegistrationEcdsaPrepareTargets(record.targets);
   const responded = toRecordValue(record.responded);
   const bootstraps = parseD1WalletRegistrationEcdsaBootstrapTargets(responded?.bootstraps);
-  if (hssKind !== 'evm_family_ecdsa_keygen' || !targets || !bootstraps) {
+  if (derivationKind !== 'evm_family_ecdsa_keygen' || !targets || !bootstraps) {
     return null;
   }
   return {
     kind: 'ecdsa_add_signer_responded',
-    hssKind,
+    derivationKind,
     targets,
     responded: {
       bootstraps,
@@ -1324,18 +1324,18 @@ function parseD1WalletRegistrationEcdsaPrepareTargets(
 
 function parseD1WalletRegistrationEcdsaBootstrapTargets(
   raw: unknown,
-): { chainTarget: ThresholdEcdsaChainTarget; bootstrap: EcdsaHssServerBootstrapResponse }[] | null {
+): { chainTarget: ThresholdEcdsaChainTarget; bootstrap: EcdsaDerivationServerBootstrapResponse }[] | null {
   if (!Array.isArray(raw) || raw.length === 0) return null;
   const targets: {
     chainTarget: ThresholdEcdsaChainTarget;
-    bootstrap: EcdsaHssServerBootstrapResponse;
+    bootstrap: EcdsaDerivationServerBootstrapResponse;
   }[] = [];
   const seen = new Set<string>();
   for (const item of raw) {
     const record = toRecordValue(item);
     if (!record) return null;
     const chainTarget = thresholdEcdsaChainTargetFromValue(record.chainTarget);
-    const bootstrap = parseD1EcdsaHssServerBootstrapResponse(record.bootstrap);
+    const bootstrap = parseD1EcdsaDerivationServerBootstrapResponse(record.bootstrap);
     if (!chainTarget || !bootstrap) return null;
     const targetKey = thresholdEcdsaChainTargetKey(chainTarget);
     if (seen.has(targetKey)) return null;
@@ -1349,7 +1349,7 @@ function parseD1WalletRegistrationEcdsaPrepare(
   raw: unknown,
 ): WalletRegistrationEcdsaPrepareContext | null {
   const record = toRecordValue(raw);
-  if (!record || record.formatVersion !== 'ecdsa-hss-role-local') return null;
+  if (!record || record.formatVersion !== 'ecdsa-derivation-role-local') return null;
   if (record.keyScope !== 'evm-family') return null;
   const registrationPreparationId = toOptionalTrimmedString(record.registrationPreparationId);
   const walletId = toOptionalTrimmedString(record.walletId);
@@ -1383,7 +1383,7 @@ function parseD1WalletRegistrationEcdsaPrepare(
     return null;
   }
   return {
-    formatVersion: 'ecdsa-hss-role-local',
+    formatVersion: 'ecdsa-derivation-role-local',
     walletId,
     evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId,
@@ -1406,18 +1406,18 @@ function parseD1WalletRegistrationEcdsaPrepare(
   };
 }
 
-function parseD1EcdsaHssServerBootstrapResponse(
+function parseD1EcdsaDerivationServerBootstrapResponse(
   raw: unknown,
-): EcdsaHssServerBootstrapResponse | null {
+): EcdsaDerivationServerBootstrapResponse | null {
   const record = toRecordValue(raw);
-  if (!record || record.formatVersion !== 'ecdsa-hss-role-local') return null;
+  if (!record || record.formatVersion !== 'ecdsa-derivation-role-local') return null;
   const walletId = toOptionalTrimmedString(record.walletId);
   const evmFamilySigningKeySlotId = toOptionalTrimmedString(record.evmFamilySigningKeySlotId);
   const ecdsaThresholdKeyId = toOptionalTrimmedString(record.ecdsaThresholdKeyId);
   const relayerKeyId = toOptionalTrimmedString(record.relayerKeyId);
   const applicationBindingDigestB64u = toOptionalTrimmedString(record.applicationBindingDigestB64u);
   const contextBinding32B64u = toOptionalTrimmedString(record.contextBinding32B64u);
-  const publicIdentity = parseD1EcdsaHssPublicIdentity(record.publicIdentity);
+  const publicIdentity = parseD1EcdsaDerivationPublicIdentity(record.publicIdentity);
   const clientShareRetryCounter = safeInteger(record.clientShareRetryCounter);
   const relayerShareRetryCounter = safeInteger(record.relayerShareRetryCounter);
   const publicTranscriptDigest32B64u = toOptionalTrimmedString(record.publicTranscriptDigest32B64u);
@@ -1459,8 +1459,8 @@ function parseD1EcdsaHssServerBootstrapResponse(
   ) {
     return null;
   }
-  const bootstrap: EcdsaHssServerBootstrapResponse = {
-    formatVersion: 'ecdsa-hss-role-local',
+  const bootstrap: EcdsaDerivationServerBootstrapResponse = {
+    formatVersion: 'ecdsa-derivation-role-local',
     walletId,
     evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId,
@@ -1489,17 +1489,17 @@ function parseD1EcdsaHssServerBootstrapResponse(
   return bootstrap;
 }
 
-function parseD1EcdsaHssPublicIdentity(raw: unknown): D1EcdsaPublicIdentity | null {
+function parseD1EcdsaDerivationPublicIdentity(raw: unknown): D1EcdsaPublicIdentity | null {
   const record = toRecordValue(raw);
   if (!record) return null;
-  const hssClientSharePublicKey33B64u = toOptionalTrimmedString(
-    record.hssClientSharePublicKey33B64u,
+  const derivationClientSharePublicKey33B64u = toOptionalTrimmedString(
+    record.derivationClientSharePublicKey33B64u,
   );
   const relayerPublicKey33B64u = toOptionalTrimmedString(record.relayerPublicKey33B64u);
   const groupPublicKey33B64u = toOptionalTrimmedString(record.groupPublicKey33B64u);
   const ethereumAddress = toOptionalTrimmedString(record.ethereumAddress);
   if (
-    !hssClientSharePublicKey33B64u ||
+    !derivationClientSharePublicKey33B64u ||
     !relayerPublicKey33B64u ||
     !groupPublicKey33B64u ||
     !ethereumAddress
@@ -1507,7 +1507,7 @@ function parseD1EcdsaHssPublicIdentity(raw: unknown): D1EcdsaPublicIdentity | nu
     return null;
   }
   return {
-    hssClientSharePublicKey33B64u: hssClientSharePublicKey33B64u as D1EcdsaClientSharePublicKey,
+    derivationClientSharePublicKey33B64u: derivationClientSharePublicKey33B64u as D1EcdsaClientSharePublicKey,
     relayerPublicKey33B64u: relayerPublicKey33B64u as D1EcdsaRelayerPublicKey,
     groupPublicKey33B64u,
     ethereumAddress,
@@ -1585,9 +1585,9 @@ export function isMatchingD1EcdsaClientBootstrap(input: {
   );
 }
 
-export function toD1EcdsaHssClientBootstrapRequest(
+export function toD1EcdsaDerivationClientBootstrapRequest(
   clientBootstrap: WalletRegistrationEcdsaClientBootstrap,
-): EcdsaHssClientBootstrapRequest {
+): EcdsaDerivationClientBootstrapRequest {
   return {
     formatVersion: clientBootstrap.formatVersion,
     walletId: clientBootstrap.walletId,
@@ -1602,7 +1602,7 @@ export function toD1EcdsaHssClientBootstrapRequest(
     ...(clientBootstrap.registrationPreparationId
       ? { registrationPreparationId: clientBootstrap.registrationPreparationId }
       : {}),
-    hssClientSharePublicKey33B64u: clientBootstrap.hssClientSharePublicKey33B64u,
+    derivationClientSharePublicKey33B64u: clientBootstrap.derivationClientSharePublicKey33B64u,
     clientShareRetryCounter: clientBootstrap.clientShareRetryCounter,
     contextBinding32B64u: clientBootstrap.contextBinding32B64u,
     requestId: clientBootstrap.requestId,
@@ -1621,7 +1621,7 @@ export function buildD1EcdsaAddSignerRespondedCeremony(input: {
   readonly ceremony: StoredWalletAddSignerCeremony;
   readonly bootstraps: readonly {
     readonly chainTarget: ThresholdEcdsaChainTarget;
-    readonly bootstrap: EcdsaHssServerBootstrapResponse;
+    readonly bootstrap: EcdsaDerivationServerBootstrapResponse;
   }[];
 }): StoredWalletAddSignerCeremony {
   const state = input.ceremony.signerState;
@@ -1637,7 +1637,7 @@ export function buildD1EcdsaAddSignerRespondedCeremony(input: {
     auth: input.ceremony.auth,
     signerState: {
       kind: 'ecdsa_add_signer_responded',
-      hssKind: state.hssKind,
+      derivationKind: state.derivationKind,
       targets: state.targets,
       responded: {
         bootstraps: [...input.bootstraps],
@@ -1701,7 +1701,7 @@ type D1EcdsaWalletKeyBootstrapFieldCheck =
 export function buildD1EcdsaWalletKeysFromBootstrap(input: {
   readonly bootstraps: readonly {
     readonly chainTarget: ThresholdEcdsaChainTarget;
-    readonly bootstrap: EcdsaHssServerBootstrapResponse;
+    readonly bootstrap: EcdsaDerivationServerBootstrapResponse;
   }[];
   readonly errorContext: string;
 }): D1EcdsaWalletKeyBuildResult {
@@ -1808,7 +1808,7 @@ function d1EvmFamilyParticipantKey(participantIds: readonly number[]): string {
 }
 
 function buildD1EcdsaWalletKeyFromBootstrap(input: {
-  readonly bootstrap: EcdsaHssServerBootstrapResponse;
+  readonly bootstrap: EcdsaDerivationServerBootstrapResponse;
   readonly chainTarget: ThresholdEcdsaChainTarget;
   readonly errorContext: string;
 }):

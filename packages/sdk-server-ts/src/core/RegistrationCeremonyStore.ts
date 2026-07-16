@@ -1,6 +1,6 @@
 import type {
   CloudflareDurableObjectNamespaceLike,
-  EcdsaHssServerBootstrapResponse,
+  EcdsaDerivationServerBootstrapResponse,
 } from './types';
 import type {
   AddAuthMethodIntentGrant,
@@ -292,7 +292,7 @@ export function storedRegistrationAuthoritiesMatch(
 }
 
 type StoredEcdsaRegistrationBase = Omit<WalletRegistrationEcdsaStartPayload, 'kind'> & {
-  hssKind: WalletRegistrationEcdsaStartPayload['kind'];
+  derivationKind: WalletRegistrationEcdsaStartPayload['kind'];
 };
 
 export type StoredEcdsaRegistrationPrepared = StoredEcdsaRegistrationBase & {
@@ -306,7 +306,7 @@ export type StoredEcdsaRegistrationResponded = StoredEcdsaRegistrationBase & {
   responded: {
     bootstraps: {
       chainTarget: ThresholdEcdsaChainTarget;
-      bootstrap: EcdsaHssServerBootstrapResponse;
+      bootstrap: EcdsaDerivationServerBootstrapResponse;
     }[];
   };
   completed?: never;
@@ -359,14 +359,14 @@ export type StoredWalletRegistrationEvmFamilyEcdsaBranch =
 export function buildStoredWalletRegistrationEvmFamilyEcdsaPreparedBranch(input: {
   readonly branchKey: RegistrationSignerBranchKey;
   readonly ecdsa: {
-    readonly kind: StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch['hssKind'];
+    readonly kind: StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch['derivationKind'];
     readonly targets: StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch['targets'];
   };
 }): StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch {
   return {
     kind: 'evm_family_ecdsa_prepared',
     branchKey: input.branchKey,
-    hssKind: input.ecdsa.kind,
+    derivationKind: input.ecdsa.kind,
     targets: input.ecdsa.targets,
   };
 }
@@ -468,7 +468,7 @@ export type StoredWalletRegistrationFinalizeReplay = {
 };
 
 type StoredEcdsaAddSignerBase = Omit<WalletAddSignerEcdsaStartPayload, 'kind'> & {
-  hssKind: WalletAddSignerEcdsaStartPayload['kind'];
+  derivationKind: WalletAddSignerEcdsaStartPayload['kind'];
 };
 
 export type StoredEcdsaAddSignerPrepared = StoredEcdsaAddSignerBase & {
@@ -482,7 +482,7 @@ export type StoredEcdsaAddSignerResponded = StoredEcdsaAddSignerBase & {
   responded: {
     bootstraps: {
       chainTarget: ThresholdEcdsaChainTarget;
-      bootstrap: EcdsaHssServerBootstrapResponse;
+      bootstrap: EcdsaDerivationServerBootstrapResponse;
     }[];
   };
   completed?: never;

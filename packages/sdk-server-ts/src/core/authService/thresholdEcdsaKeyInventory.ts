@@ -4,7 +4,7 @@ import {
   thresholdEcdsaChainTargetKey,
   type ThresholdEcdsaChainTarget,
 } from '../thresholdEcdsaChainTarget';
-import type { RouterAbEcdsaBootstrapExportRuntime } from '../routerAbSigning/RouterAbEcdsaBootstrapExportRuntime';
+import type { RouterAbEcdsaBootstrapExportPort } from '../routerAbSigning/RouterAbEcdsaBootstrapExportRuntime';
 import type { NormalizedLogger } from '../logger';
 import { isObject } from './record';
 
@@ -12,7 +12,7 @@ export type ThresholdEcdsaKeyInventoryDiagnostics = {
   userId: string;
   inputCount: number;
   returnedCount: number;
-  thresholdServicePresent: boolean;
+  ecdsaBootstrapExportRuntimePresent: boolean;
   rejected: Record<string, number>;
 };
 
@@ -103,7 +103,7 @@ export async function listThresholdEcdsaKeyIdentityTargetsForUser(input: {
   userId: string;
   rpId: string;
   keyTargets: readonly unknown[];
-  ecdsaBootstrapExportRuntime: RouterAbEcdsaBootstrapExportRuntime | null;
+  ecdsaBootstrapExportRuntime: RouterAbEcdsaBootstrapExportPort | null;
   logger?: NormalizedLogger;
 }): Promise<{
   records: ThresholdEcdsaKeyInventoryRecord[];
@@ -115,7 +115,7 @@ export async function listThresholdEcdsaKeyIdentityTargetsForUser(input: {
     userId: userId || '',
     inputCount: input.keyTargets.length,
     returnedCount: 0,
-    thresholdServicePresent: Boolean(input.ecdsaBootstrapExportRuntime),
+    ecdsaBootstrapExportRuntimePresent: Boolean(input.ecdsaBootstrapExportRuntime),
     rejected: {},
   };
   if (!userId || !rpId) {
@@ -123,7 +123,7 @@ export async function listThresholdEcdsaKeyIdentityTargetsForUser(input: {
     return { records: [], diagnostics };
   }
   if (!input.ecdsaBootstrapExportRuntime) {
-    incrementCount(diagnostics.rejected, 'threshold_service_missing');
+    incrementCount(diagnostics.rejected, 'ecdsa_bootstrap_export_runtime_missing');
     return { records: [], diagnostics };
   }
 

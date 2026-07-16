@@ -100,8 +100,9 @@ export type RouterAbEd25519YaoWalletSessionMintInputV1 =
       readonly remainingUses?: never;
     })
   | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
-      readonly kind: 'email_otp_recovery_wallet_session_v1';
+      readonly kind: 'shared_email_otp_recovery_wallet_session_v1';
       readonly signingGrantId?: never;
+      readonly ttlMs?: never;
       readonly expiresAtMs?: never;
       readonly remainingUses: number;
     })
@@ -255,7 +256,7 @@ function resolveRouterAbEd25519YaoWalletSessionTermsV1(
         expiresAtMs: Date.now() + PRODUCT_WALLET_SESSION_TTL_MS,
         remainingUses: PRODUCT_WALLET_SESSION_REMAINING_USES,
       };
-    case 'email_otp_recovery_wallet_session_v1':
+    case 'shared_email_otp_recovery_wallet_session_v1':
       return {
         signingGrantId: `wss_${secureRandomBase64Url(24)}`,
         expiresAtMs: Date.now() + PRODUCT_WALLET_SESSION_TTL_MS,

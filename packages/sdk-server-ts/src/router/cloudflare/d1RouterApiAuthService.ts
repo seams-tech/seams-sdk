@@ -35,7 +35,7 @@ import { CloudflareD1EmailOtpChallengeVerifier } from './d1EmailOtpChallengeVeri
 import { CloudflareD1EmailOtpChallengeIssuer } from './d1EmailOtpChallengeIssuer';
 import { CloudflareD1EmailOtpChallengeService } from './d1EmailOtpChallengeService';
 import { CloudflareD1EmailOtpRecoveryService } from './d1EmailOtpRecoveryService';
-import { CloudflareD1ThresholdSigningRuntime } from './d1ThresholdSigningRuntime';
+import { CloudflareD1RouterAbSigningRuntime } from './d1RouterAbSigningRuntime';
 import { CloudflareD1GoogleEmailOtpRegistrationAttemptStore } from './d1GoogleEmailOtpRegistrationAttemptStore';
 import { CloudflareD1GoogleEmailOtpSessionResolver } from './d1GoogleEmailOtpSessionResolver';
 import { CloudflareD1SessionStore } from './d1SessionStore';
@@ -68,7 +68,7 @@ export type {
 
 export type CloudflareD1RouterApiAuthService = Omit<RouterApiServiceBag, 'thresholdRuntime'> & {
   readonly thresholdRuntime: RouterApiServiceBag['thresholdRuntime'] &
-    Pick<CloudflareD1ThresholdSigningRuntime, 'getRouterAbLocalSigningSeedRuntime'>;
+    Pick<CloudflareD1RouterAbSigningRuntime, 'getRouterAbLocalSigningSeedRuntime'>;
 };
 
 type ScopedD1Prepare = (sql: string, values: readonly unknown[]) => D1PreparedStatementLike;
@@ -106,7 +106,7 @@ type CloudflareD1RouterApiAuthAssembly = {
   readonly walletRegistrations: CloudflareD1WalletRegistrationService;
   readonly walletAddSigners: CloudflareD1WalletAddSignerService;
   readonly registrationIntents: CloudflareD1RegistrationIntentService;
-  readonly thresholdSigning: CloudflareD1ThresholdSigningRuntime;
+  readonly routerAbSigning: CloudflareD1RouterAbSigningRuntime;
 };
 
 type D1WalletRegistrationRouteServiceAssembly = Pick<
@@ -150,7 +150,7 @@ type D1SessionVersionRouteServiceAssembly = Pick<
 
 type D1ThresholdRuntimeRouteServiceAssembly = Pick<
   CloudflareD1RouterApiAuthAssembly,
-  'thresholdSigning'
+  'routerAbSigning'
 >;
 
 type D1NearFundingRouteServiceAssembly = Pick<
@@ -162,12 +162,12 @@ type D1RecoveryRouteServiceAssembly = Pick<CloudflareD1RouterApiAuthAssembly, 's
 
 type D1EmailRecoveryAuthServiceAssembly = Pick<
   CloudflareD1RouterApiAuthAssembly,
-  'options' | 'thresholdSigning'
+  'options' | 'routerAbSigning'
 >;
 
 type D1RouterAccountRouteServiceAssembly = Pick<
   CloudflareD1RouterApiAuthAssembly,
-  'thresholdSigning'
+  'routerAbSigning'
 >;
 
 function d1RouterApiErrorMessage(error: unknown): string {
@@ -262,12 +262,9 @@ class CloudflareD1EmailRecoveryAuthService implements RouterApiEmailRecoveryAuth
     const options = assembly.options;
     this.operations = new EmailRecoveryAuthOperations({
       ensureSignerAndRelayerAccount: ensureD1EmailRecoverySignerRuntimeReady,
-      getThresholdSigningService: assembly.thresholdSigning.getThresholdSigningService.bind(
-        assembly.thresholdSigning,
-      ),
       getRouterAbEcdsaBootstrapExportRuntime:
-        assembly.thresholdSigning.getRouterAbEcdsaBootstrapExportRuntime.bind(
-          assembly.thresholdSigning,
+        assembly.routerAbSigning.getRouterAbEcdsaBootstrapExportRuntime.bind(
+          assembly.routerAbSigning,
         ),
       getDefaultRuntimePolicyScope: () => ({
         orgId: options.orgId,
@@ -492,10 +489,10 @@ function createCloudflareD1RouterApiAuthAssembly(
     projectId: options.projectId,
     envId: options.envId,
   });
-  const thresholdSigning = new CloudflareD1ThresholdSigningRuntime({
+  const routerAbSigning = new CloudflareD1RouterAbSigningRuntime({
     relayerAccount: options.relayerAccount,
     relayerPublicKey: options.relayerPublicKey,
-    thresholdSigningRuntimes: options.thresholdSigningRuntimes,
+    routerAbSigningRuntimes: options.routerAbSigningRuntimes,
     thresholdStore: options.thresholdStore,
     auth: {
       verifyWebAuthnAuthenticationLite:
@@ -508,9 +505,9 @@ function createCloudflareD1RouterApiAuthAssembly(
     getRegistrationCeremonyIntentStore,
     getEd25519YaoProductRegistration: () => options.ed25519YaoProductRegistration || null,
     getRouterAbNormalSigningRuntime:
-      thresholdSigning.getRouterAbNormalSigningRuntime.bind(thresholdSigning),
+      routerAbSigning.getRouterAbNormalSigningRuntime.bind(routerAbSigning),
     getRouterAbEcdsaBootstrapExportRuntime:
-      thresholdSigning.getRouterAbEcdsaBootstrapExportRuntime.bind(thresholdSigning),
+      routerAbSigning.getRouterAbEcdsaBootstrapExportRuntime.bind(routerAbSigning),
     getWalletStore,
     walletRegistrationCommitStore,
     walletAuthMethods,
@@ -519,9 +516,9 @@ function createCloudflareD1RouterApiAuthAssembly(
     getRegistrationCeremonyIntentStore,
     getEd25519YaoProductRegistration: () => options.ed25519YaoProductRegistration || null,
     getRouterAbNormalSigningRuntime:
-      thresholdSigning.getRouterAbNormalSigningRuntime.bind(thresholdSigning),
+      routerAbSigning.getRouterAbNormalSigningRuntime.bind(routerAbSigning),
     getRouterAbEcdsaBootstrapExportRuntime:
-      thresholdSigning.getRouterAbEcdsaBootstrapExportRuntime.bind(thresholdSigning),
+      routerAbSigning.getRouterAbEcdsaBootstrapExportRuntime.bind(routerAbSigning),
     getWalletStore,
     walletAuthMethods,
   });
@@ -578,7 +575,7 @@ function createCloudflareD1RouterApiAuthAssembly(
     walletRegistrations,
     walletAddSigners,
     registrationIntents,
-    thresholdSigning,
+    routerAbSigning,
   };
 }
 
@@ -595,7 +592,7 @@ function createD1WalletRegistrationRouteService(
     startWalletRegistration: assembly.walletRegistrations.startWalletRegistration.bind(
       assembly.walletRegistrations,
     ),
-    respondWalletRegistrationHss: assembly.walletRegistrations.respondWalletRegistrationHss.bind(
+    respondWalletRegistrationEcdsaDerivation: assembly.walletRegistrations.respondWalletRegistrationEcdsaDerivation.bind(
       assembly.walletRegistrations,
     ),
     finalizeWalletRegistration: assembly.walletRegistrations.finalizeWalletRegistration.bind(
@@ -628,7 +625,7 @@ function createD1WalletAuthMethodRouteService(
     finalizeWalletAddSigner: assembly.walletAddSigners.finalizeWalletAddSigner.bind(
       assembly.walletAddSigners,
     ),
-    respondWalletAddSignerHss: assembly.walletAddSigners.respondWalletAddSignerHss.bind(
+    respondWalletAddSignerEcdsaDerivation: assembly.walletAddSigners.respondWalletAddSignerEcdsaDerivation.bind(
       assembly.walletAddSigners,
     ),
     revokeWalletAuthMethod: assembly.walletAuthMethods.revokeWalletAuthMethod.bind(
@@ -820,33 +817,32 @@ function createD1ThresholdRuntimeRouteService(
   assembly: D1ThresholdRuntimeRouteServiceAssembly,
 ): CloudflareD1RouterApiAuthService['thresholdRuntime'] {
   return {
-    ecdsaHssRoleLocalBootstrap: assembly.thresholdSigning.ecdsaHssRoleLocalBootstrap.bind(
-      assembly.thresholdSigning,
+    ecdsaDerivationRoleLocalBootstrap: assembly.routerAbSigning.ecdsaDerivationRoleLocalBootstrap.bind(
+      assembly.routerAbSigning,
     ),
-    ecdsaHssRoleLocalExportShare: assembly.thresholdSigning.ecdsaHssRoleLocalExportShare.bind(
-      assembly.thresholdSigning,
+    ecdsaDerivationRoleLocalExportShare: assembly.routerAbSigning.ecdsaDerivationRoleLocalExportShare.bind(
+      assembly.routerAbSigning,
     ),
-    getThresholdSigningService: assembly.thresholdSigning.getThresholdSigningService.bind(
-      assembly.thresholdSigning,
-    ),
-    getRouterAbNormalSigningRuntime: assembly.thresholdSigning.getRouterAbNormalSigningRuntime.bind(
-      assembly.thresholdSigning,
+    getRouterAbNormalSigningRuntime: assembly.routerAbSigning.getRouterAbNormalSigningRuntime.bind(
+      assembly.routerAbSigning,
     ),
     getRouterAbEcdsaBootstrapExportRuntime:
-      assembly.thresholdSigning.getRouterAbEcdsaBootstrapExportRuntime.bind(
-        assembly.thresholdSigning,
+      assembly.routerAbSigning.getRouterAbEcdsaBootstrapExportRuntime.bind(
+        assembly.routerAbSigning,
       ),
+    getRouterAbEcdsaPresignRuntime:
+      assembly.routerAbSigning.getRouterAbEcdsaPresignRuntime.bind(assembly.routerAbSigning),
     getRouterAbLocalSigningSeedRuntime:
-      assembly.thresholdSigning.getRouterAbLocalSigningSeedRuntime.bind(assembly.thresholdSigning),
+      assembly.routerAbSigning.getRouterAbLocalSigningSeedRuntime.bind(assembly.routerAbSigning),
     listThresholdEcdsaKeyIdentityTargetsForUser:
-      assembly.thresholdSigning.listThresholdEcdsaKeyIdentityTargetsForUser.bind(
-        assembly.thresholdSigning,
+      assembly.routerAbSigning.listThresholdEcdsaKeyIdentityTargetsForUser.bind(
+        assembly.routerAbSigning,
       ),
     listWalletEcdsaKeyFactsInventory:
-      assembly.thresholdSigning.listWalletEcdsaKeyFactsInventory.bind(assembly.thresholdSigning),
-    verifyEcdsaHssRoleLocalClientRootProofForExistingKey:
-      assembly.thresholdSigning.verifyEcdsaHssRoleLocalClientRootProofForExistingKey.bind(
-        assembly.thresholdSigning,
+      assembly.routerAbSigning.listWalletEcdsaKeyFactsInventory.bind(assembly.routerAbSigning),
+    verifyEcdsaDerivationRoleLocalClientRootProofForExistingKey:
+      assembly.routerAbSigning.verifyEcdsaDerivationRoleLocalClientRootProofForExistingKey.bind(
+        assembly.routerAbSigning,
       ),
   };
 }
@@ -886,10 +882,10 @@ function createD1RouterAccountRouteService(
   assembly: D1RouterAccountRouteServiceAssembly,
 ): RouterApiServiceBag['router'] {
   return {
-    getConfiguredRelayerAccount: assembly.thresholdSigning.getConfiguredRelayerAccount.bind(
-      assembly.thresholdSigning,
+    getConfiguredRelayerAccount: assembly.routerAbSigning.getConfiguredRelayerAccount.bind(
+      assembly.routerAbSigning,
     ),
-    getRelayerAccount: assembly.thresholdSigning.getRelayerAccount.bind(assembly.thresholdSigning),
+    getRelayerAccount: assembly.routerAbSigning.getRelayerAccount.bind(assembly.routerAbSigning),
   };
 }
 

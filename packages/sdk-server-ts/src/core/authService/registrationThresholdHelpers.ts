@@ -5,8 +5,8 @@ import {
 } from '@shared/utils/signingSessionSeal';
 import { ensureEd25519Prefix, toOptionalTrimmedString } from '@shared/utils/validation';
 import type {
-  EcdsaHssClientBootstrapRequest,
-  EcdsaHssServerBootstrapResponse,
+  EcdsaDerivationClientBootstrapRequest,
+  EcdsaDerivationServerBootstrapResponse,
   ThresholdEd25519AuthorityScope,
   ThresholdRuntimePolicyScope
 } from '../types';
@@ -139,7 +139,7 @@ export type EcdsaWalletKeyBuildResult =
   | { ok: false; code: 'incomplete_ecdsa_wallet_key'; message: string };
 
 export function buildEcdsaWalletKeysFromBootstrap(args: {
-  bootstrap: EcdsaHssServerBootstrapResponse;
+  bootstrap: EcdsaDerivationServerBootstrapResponse;
   chainTargets: readonly ThresholdEcdsaChainTarget[];
   errorContext: string;
 }): EcdsaWalletKeyBuildResult {
@@ -227,9 +227,9 @@ export function isMatchingEcdsaClientBootstrap(
   );
 }
 
-export function toEcdsaHssClientBootstrapRequest(
+export function toEcdsaDerivationClientBootstrapRequest(
   clientBootstrap: WalletRegistrationEcdsaClientBootstrap,
-): EcdsaHssClientBootstrapRequest {
+): EcdsaDerivationClientBootstrapRequest {
   return {
     formatVersion: clientBootstrap.formatVersion,
     walletId: clientBootstrap.walletId,
@@ -244,7 +244,7 @@ export function toEcdsaHssClientBootstrapRequest(
     ...(clientBootstrap.registrationPreparationId
       ? { registrationPreparationId: clientBootstrap.registrationPreparationId }
       : {}),
-    hssClientSharePublicKey33B64u: clientBootstrap.hssClientSharePublicKey33B64u,
+    derivationClientSharePublicKey33B64u: clientBootstrap.derivationClientSharePublicKey33B64u,
     clientShareRetryCounter: clientBootstrap.clientShareRetryCounter,
     contextBinding32B64u: clientBootstrap.contextBinding32B64u,
     requestId: clientBootstrap.requestId,

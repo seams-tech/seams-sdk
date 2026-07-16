@@ -13,10 +13,9 @@ import {
   type RecoveryEmailPayload,
 } from '@shared/utils/recoveryEmail';
 import {
-  computeEcdsaHssRoleLocalRelayerKeyId,
-} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
-import type { ThresholdSigningService as ThresholdSigningServiceType } from '../ThresholdService';
-import type { RouterAbEcdsaBootstrapExportRuntime } from '../routerAbSigning/RouterAbEcdsaBootstrapExportRuntime';
+  computeEcdsaDerivationRoleLocalRelayerKeyId,
+} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
+import type { RouterAbEcdsaBootstrapExportPort } from '../routerAbSigning/RouterAbEcdsaBootstrapExportRuntime';
 import type { WebAuthnAuthenticatorStore } from '../WebAuthnAuthenticatorStore';
 import type { WebAuthnCredentialBindingStore } from '../WebAuthnCredentialBindingStore';
 import type {
@@ -34,7 +33,7 @@ import {
   DEFAULT_RECOVERY_SESSION_TTL_MS,
 } from '../recoverySessionRecords';
 import type {
-  EcdsaHssServerBootstrapResponse,
+  EcdsaDerivationServerBootstrapResponse,
   ThresholdRuntimePolicyScope,
   WebAuthnAuthenticationCredential,
   ThresholdEd25519AuthorityScope,
@@ -52,7 +51,7 @@ import {
   buildEcdsaWalletKeysFromBootstrap,
   isMatchingEcdsaClientBootstrap,
   resolveBoundThresholdRuntimePolicyScope,
-  toEcdsaHssClientBootstrapRequest,
+  toEcdsaDerivationClientBootstrapRequest,
   type ThresholdEd25519BootstrapSession,
 } from './registrationThresholdHelpers';
 import {
@@ -76,7 +75,7 @@ import type { WalletId } from '@shared/utils/domainIds';
 
 const REGISTRATION_WALLET_SIGNING_SESSION_REMAINING_USES = 3;
 const EMAIL_RECOVERY_ECDSA_THRESHOLD_KEY_ID_VERSION =
-  'threshold_ecdsa_hss_email_recovery_key_id_v1';
+  'threshold_ecdsa_derivation_email_recovery_key_id_v1';
 const EMAIL_RECOVERY_ECDSA_SIGNING_ROOT_VERSION_PREFIX = 'email-recovery';
 
 function emailRecoveryEcdsaSigningRootVersion(input: {
@@ -102,7 +101,7 @@ function emailRecoveryEcdsaRuntimePolicyScope(input: {
 }
 
 
-async function computeEmailRecoveryEcdsaHssRoleLocalThresholdKeyId(input: {
+async function computeEmailRecoveryEcdsaDerivationRoleLocalThresholdKeyId(input: {
   walletId: string;
   evmFamilySigningKeySlotId: string;
   signingRootId: string;
@@ -119,7 +118,7 @@ async function computeEmailRecoveryEcdsaHssRoleLocalThresholdKeyId(input: {
       recoveryRequestId: input.recoveryRequestId,
     }),
   );
-  return `ehss-recovery-${base64UrlEncode(digest32)}`;
+  return `ederivation-recovery-${base64UrlEncode(digest32)}`;
 }
 
 function readOptionalRequestRecord(value: unknown): Record<string, unknown> | null {
@@ -135,8 +134,7 @@ function readNestedRequestRecord(
 
 export type EmailRecoveryAuthOperationsPorts = {
   ensureSignerAndRelayerAccount: () => Promise<void>;
-  getThresholdSigningService: () => ThresholdSigningServiceType | null;
-  getRouterAbEcdsaBootstrapExportRuntime: () => RouterAbEcdsaBootstrapExportRuntime | null;
+  getRouterAbEcdsaBootstrapExportRuntime: () => RouterAbEcdsaBootstrapExportPort | null;
   getDefaultRuntimePolicyScope?: () => ThresholdRuntimePolicyScope | undefined;
   webAuthnAuthenticatorStore: WebAuthnAuthenticatorStore;
   webAuthnCredentialBindingStore: WebAuthnCredentialBindingStore;
@@ -151,7 +149,7 @@ type EmailRecoveryEcdsaClientBootstrapEntry = {
 
 type EmailRecoveryEcdsaServerBootstrapEntry = {
   readonly chainTarget: ThresholdEcdsaChainTarget;
-  readonly bootstrap: EcdsaHssServerBootstrapResponse;
+  readonly bootstrap: EcdsaDerivationServerBootstrapResponse;
 };
 
 type EmailRecoveryEcdsaClientBootstrapParseResult =
@@ -306,14 +304,14 @@ export class EmailRecoveryAuthOperations {
       signingRootId: input.signingRootId,
       signingRootVersion,
     });
-    const ecdsaThresholdKeyId = await computeEmailRecoveryEcdsaHssRoleLocalThresholdKeyId({
+    const ecdsaThresholdKeyId = await computeEmailRecoveryEcdsaDerivationRoleLocalThresholdKeyId({
       walletId: input.walletId,
       evmFamilySigningKeySlotId,
       signingRootId: input.signingRootId,
       signingRootVersion,
       recoveryRequestId: input.recoveryRequestId,
     });
-    const relayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
+    const relayerKeyId = await computeEcdsaDerivationRoleLocalRelayerKeyId({
       walletId: input.walletId,
       evmFamilySigningKeySlotId,
     });
@@ -322,7 +320,7 @@ export class EmailRecoveryAuthOperations {
       targets.push({
         chainTarget,
         prepare: {
-          formatVersion: 'ecdsa-hss-role-local',
+          formatVersion: 'ecdsa-derivation-role-local',
           walletId: input.walletId,
           evmFamilySigningKeySlotId,
           ecdsaThresholdKeyId,
@@ -331,7 +329,7 @@ export class EmailRecoveryAuthOperations {
           keyScope: 'evm-family',
           relayerKeyId,
           requestId: `${input.registrationCeremonyId}:ecdsa:${encodeURIComponent(chainTargetKey)}`,
-          thresholdSessionId: `tehss_${randomBase64Url(24)}`,
+          thresholdSessionId: `tederivation_${randomBase64Url(24)}`,
           signingGrantId: `wss_${randomBase64Url(24)}`,
           ttlMs: 10 * 60_000,
           remainingUses: REGISTRATION_WALLET_SIGNING_SESSION_REMAINING_USES,
@@ -485,12 +483,11 @@ export class EmailRecoveryAuthOperations {
         return { ok: false, code: 'not_verified', message: 'Registration verification failed' };
       }
 
-      const threshold = this.ports.getThresholdSigningService();
-      if (!threshold) {
+      if (!this.ports.getRouterAbEcdsaBootstrapExportRuntime()) {
         return {
           ok: false,
           code: 'not_configured',
-          message: 'Threshold signing is not configured on this server',
+          message: 'Router A/B ECDSA bootstrap is not configured on this server',
         };
       }
       const bindingStore = this.ports.webAuthnCredentialBindingStore;
@@ -725,14 +722,14 @@ export class EmailRecoveryAuthOperations {
       }
       const bootstraps: EmailRecoveryEcdsaServerBootstrapEntry[] = [];
       for (const entry of resolved.entries) {
-        const bootstrap = await runtime.ecdsaHssRoleLocalBootstrap(
-          toEcdsaHssClientBootstrapRequest(entry.clientBootstrap),
+        const bootstrap = await runtime.ecdsaDerivationRoleLocalBootstrap(
+          toEcdsaDerivationClientBootstrapRequest(entry.clientBootstrap),
         );
         if (!bootstrap.ok) {
           return {
             ok: false,
-            code: bootstrap.code || 'hss_respond_failed',
-            message: bootstrap.message || 'Email Recovery ECDSA HSS bootstrap failed',
+            code: bootstrap.code || 'ecdsa_derivation_respond_failed',
+            message: bootstrap.message || 'Email Recovery ECDSA DERIVATION bootstrap failed',
           };
         }
         bootstraps.push({

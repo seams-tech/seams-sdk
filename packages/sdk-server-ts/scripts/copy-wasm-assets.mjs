@@ -15,8 +15,13 @@ const assets = [
     target: 'dist/esm/wasm/threshold_prf/pkg/threshold_prf_bg.wasm',
   },
   {
-    source: 'wasm/eth_signer/pkg/eth_signer_bg.wasm',
-    target: 'dist/esm/wasm/eth_signer/pkg/eth_signer_bg.wasm',
+    source: 'wasm/evm_crypto/pkg/evm_crypto_bg.wasm',
+    target: 'dist/esm/wasm/evm_crypto/pkg/evm_crypto_bg.wasm',
+  },
+  {
+    source: 'wasm/router_ab_ecdsa_signing_worker/pkg/router_ab_ecdsa_signing_worker_bg.wasm',
+    target:
+      'dist/esm/wasm/router_ab_ecdsa_signing_worker/pkg/router_ab_ecdsa_signing_worker_bg.wasm',
   },
 ];
 

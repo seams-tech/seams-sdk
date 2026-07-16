@@ -3,9 +3,9 @@ import type {
   SealedSigningSessionEd25519RestoreMetadata,
   SealedSigningSessionRecord,
 } from './signingSessionSeal';
-import type { RouterAbEcdsaHssNormalSigningStateV1 } from './routerAbEcdsaHss';
+import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from './routerAbEcdsaDerivation';
 
-declare const routerAbEcdsaHssNormalSigning: RouterAbEcdsaHssNormalSigningStateV1;
+declare const routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
 
 const validEcdsaSealedSessionRecord = {
   v: 1,
@@ -32,6 +32,7 @@ const validEcdsaSealedSessionRecord = {
     evmFamilySigningKeySlotId: 'wallet-key:evm-family:alice.testnet:root:v1',
     signingRootId: 'root',
     signingRootVersion: 'v1',
+    provider: 'google',
     providerSubjectId: 'google:alice',
     emailHashHex: 'email-hash',
     sessionKind: 'jwt',
@@ -41,7 +42,7 @@ const validEcdsaSealedSessionRecord = {
     ethereumAddress: `0x${'11'.repeat(20)}`,
     relayerKeyId: 'relayer-key',
     participantIds: [1, 2],
-    routerAbEcdsaHssNormalSigning,
+    routerAbEcdsaDerivationNormalSigning,
   },
   issuedAtMs: 1,
   expiresAtMs: 2,
@@ -120,6 +121,13 @@ const {
 const invalidEcdsaRestoreMissingSigningRootVersion: SealedSigningSessionEcdsaRestoreMetadata =
   ecdsaRestoreMissingSigningRootVersion;
 void invalidEcdsaRestoreMissingSigningRootVersion;
+
+const { provider: _ecdsaRestoreProvider, ...ecdsaRestoreMissingProvider } =
+  validEcdsaSealedSessionRecord.ecdsaRestore;
+// @ts-expect-error Email OTP ECDSA restore metadata carries its explicit provider identity.
+const invalidEcdsaRestoreMissingProvider: SealedSigningSessionEcdsaRestoreMetadata =
+  ecdsaRestoreMissingProvider;
+void invalidEcdsaRestoreMissingProvider;
 
 const { walletSessionJwt: _ecdsaRestoreJwt, ...ecdsaRestoreMissingJwt } =
   validEcdsaSealedSessionRecord.ecdsaRestore;

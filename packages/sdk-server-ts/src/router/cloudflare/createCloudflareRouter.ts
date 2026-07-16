@@ -44,7 +44,6 @@ import { handleWebAuthnAuthenticators } from './routes/webauthnAuthenticators';
 import { handleAuth } from './routes/auth';
 import { handleNearPublicKeys } from './routes/nearPublicKeys';
 import { handleWellKnown } from './routes/wellKnown';
-import { resolveThresholdOption } from '../routerOptions';
 import { validateRouterApiRorOptions } from '../ror/provider';
 import { handleSigningSessionSealRoutes } from '../../threshold/session/signingSessionSeal/transport/cloudflare';
 import { DEFAULT_SESSION_COOKIE_NAME } from '../routerApi';
@@ -83,13 +82,11 @@ export function createCloudflareRouter(
 ): FetchHandler {
   const notFound = () => new Response('Not Found', { status: 404 });
 
-  const threshold = resolveThresholdOption(service, opts);
   const sessionCookieName =
     String(opts.sessionCookieName || '').trim() || DEFAULT_SESSION_COOKIE_NAME;
   const routeExtensions = resolveRouterApiModuleRouteExtensions(opts);
   const effectiveOpts: RouterApiOptions = {
     ...opts,
-    threshold,
     sessionCookieName,
     routeExtensions,
     modules: [],

@@ -8,12 +8,12 @@ import {
 } from '@shared/utils/walletAuthAuthority';
 import { ensureEd25519Prefix, toOptionalString, toTrimmedString } from '@shared/utils/validation';
 import {
-  ECDSA_HSS_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION,
+  ECDSA_DERIVATION_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION,
   type EcdsaClientRootPublicKey33B64u,
-  type EcdsaHssClientSharePublicKey33B64u,
-  type EcdsaRelayerHssPublicKey33B64u,
-  type EcdsaHssRoleLocalFirstBootstrapRootProof,
-} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+  type DerivationClientSharePublicKey33B64u,
+  type EcdsaDerivationRelayerPublicKey33B64u,
+  type EcdsaDerivationRoleLocalFirstBootstrapRootProof,
+} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import {
   THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
   normalizeThresholdEd25519ParticipantIds,
@@ -21,7 +21,7 @@ import {
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
-  ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+  ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
   ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
 } from '@shared/utils/sessionTokens';
 import {
@@ -29,21 +29,21 @@ import {
   type EvmFamilySigningKeySlotId,
 } from '@shared/signing-lanes';
 import {
-  parseRouterAbEcdsaHssNormalSigningStateV1,
-  parseRouterAbEcdsaHssNormalSigningScopeV1,
-  type RouterAbEcdsaHssNormalSigningStateV1,
-  type RouterAbEcdsaHssNormalSigningScopeV1,
-} from '@shared/utils/routerAbEcdsaHss';
+  parseRouterAbEcdsaDerivationNormalSigningStateV1,
+  parseRouterAbEcdsaDerivationNormalSigningScopeV1,
+  type RouterAbEcdsaDerivationNormalSigningStateV1,
+  type RouterAbEcdsaDerivationNormalSigningScopeV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import {
   parseRouterAbEd25519NormalSigningState,
   type RouterAbEd25519NormalSigningState,
 } from '@shared/utils/signingSessionSeal';
 import type {
-  EcdsaHssClientBootstrapRequest,
-  EcdsaHssPasskeyBootstrapAuthorization,
-  EcdsaHssExportShareRequest,
-  EcdsaHssPublicIdentity,
-  EcdsaHssRoleLocalKeyRecord,
+  EcdsaDerivationClientBootstrapRequest,
+  EcdsaDerivationPasskeyBootstrapAuthorization,
+  EcdsaDerivationExportShareRequest,
+  EcdsaDerivationPublicIdentity,
+  EcdsaDerivationRoleLocalKeyRecord,
   ThresholdEd25519AuthorityScope,
   WebAuthnAuthenticationCredential,
 } from '../types';
@@ -92,11 +92,11 @@ function parseSec1CompressedPublicKey33B64u(value: unknown): string | null {
   return text;
 }
 
-function parseEcdsaHssClientRootProof(
+function parseEcdsaDerivationClientRootProof(
   value: unknown,
-): EcdsaHssRoleLocalFirstBootstrapRootProof | null {
+): EcdsaDerivationRoleLocalFirstBootstrapRootProof | null {
   if (!isObject(value)) return null;
-  if (toOptionalString(value.version) !== ECDSA_HSS_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION) {
+  if (toOptionalString(value.version) !== ECDSA_DERIVATION_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION) {
     return null;
   }
   const clientRootPublicKey33B64u = parseSec1CompressedPublicKey33B64u(
@@ -106,7 +106,7 @@ function parseEcdsaHssClientRootProof(
   const signature65B64u = parseB64uFixed(value.signature65B64u, 65);
   if (!clientRootPublicKey33B64u || !digest32B64u || !signature65B64u) return null;
   return {
-    version: ECDSA_HSS_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION,
+    version: ECDSA_DERIVATION_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION,
     clientRootPublicKey33B64u: clientRootPublicKey33B64u as EcdsaClientRootPublicKey33B64u,
     digest32B64u,
     signature65B64u,
@@ -159,9 +159,9 @@ function parseWebAuthnAuthenticationCredential(
   };
 }
 
-function parseEcdsaHssPasskeyBootstrapAuthorization(
+function parseEcdsaDerivationPasskeyBootstrapAuthorization(
   value: unknown,
-): EcdsaHssPasskeyBootstrapAuthorization | null {
+): EcdsaDerivationPasskeyBootstrapAuthorization | null {
   if (!isObject(value)) return null;
   if (toOptionalString(value.kind) !== 'passkey_bootstrap') return null;
   const rpId = toOptionalString(value.rpId);
@@ -384,7 +384,7 @@ export function parseThresholdEd25519KeyRecord(
   return parseThresholdEd25519ReadyKeyRecord(raw);
 }
 
-const ECDSA_HSS_V1_CONTEXT_FORBIDDEN_FIELDS = [
+const ECDSA_DERIVATION_V1_CONTEXT_FORBIDDEN_FIELDS = [
   'subjectId',
   'walletSessionUserId',
   'walletKeyId',
@@ -401,8 +401,25 @@ const ECDSA_HSS_V1_CONTEXT_FORBIDDEN_FIELDS = [
   'key_version',
 ] as const;
 
-const ECDSA_HSS_BOOTSTRAP_FORBIDDEN_FIELDS = [
-  ...ECDSA_HSS_V1_CONTEXT_FORBIDDEN_FIELDS,
+const ECDSA_DERIVATION_ROLE_LOCAL_KEY_RECORD_FORBIDDEN_FIELDS = [
+  'subjectId',
+  'walletSessionUserId',
+  'walletKeyId',
+  'subject_id',
+  'wallet_session_user_id',
+  'wallet_id',
+  'wallet_key_id',
+  'ecdsa_threshold_key_id',
+  'signing_root_id',
+  'signing_root_version',
+  'keyPurpose',
+  'key_purpose',
+  'keyVersion',
+  'key_version',
+] as const;
+
+const ECDSA_DERIVATION_BOOTSTRAP_FORBIDDEN_FIELDS = [
+  ...ECDSA_DERIVATION_V1_CONTEXT_FORBIDDEN_FIELDS,
   'rpId',
   'rp_id',
   'chainTarget',
@@ -422,8 +439,8 @@ const ECDSA_HSS_BOOTSTRAP_FORBIDDEN_FIELDS = [
   'privateKeyHex',
 ] as const;
 
-const ECDSA_HSS_EXPORT_REQUEST_FORBIDDEN_FIELDS = [
-  ...ECDSA_HSS_V1_CONTEXT_FORBIDDEN_FIELDS,
+const ECDSA_DERIVATION_EXPORT_REQUEST_FORBIDDEN_FIELDS = [
+  ...ECDSA_DERIVATION_V1_CONTEXT_FORBIDDEN_FIELDS,
   'rpId',
   'rp_id',
   'chainTarget',
@@ -438,16 +455,16 @@ const ECDSA_HSS_EXPORT_REQUEST_FORBIDDEN_FIELDS = [
   'privateKeyHex',
 ] as const;
 
-function parseEcdsaHssPublicIdentity(raw: unknown): EcdsaHssPublicIdentity | null {
+function parseEcdsaDerivationPublicIdentity(raw: unknown): EcdsaDerivationPublicIdentity | null {
   if (!isObject(raw)) return null;
-  const hssClientSharePublicKey33B64u = parseSec1CompressedPublicKey33B64u(
-    raw.hssClientSharePublicKey33B64u,
+  const derivationClientSharePublicKey33B64u = parseSec1CompressedPublicKey33B64u(
+    raw.derivationClientSharePublicKey33B64u,
   );
   const relayerPublicKey33B64u = parseSec1CompressedPublicKey33B64u(raw.relayerPublicKey33B64u);
   const groupPublicKey33B64u = parseSec1CompressedPublicKey33B64u(raw.groupPublicKey33B64u);
   const ethereumAddress = toOptionalString(raw.ethereumAddress);
   if (
-    !hssClientSharePublicKey33B64u ||
+    !derivationClientSharePublicKey33B64u ||
     !relayerPublicKey33B64u ||
     !groupPublicKey33B64u ||
     !ethereumAddress
@@ -455,20 +472,20 @@ function parseEcdsaHssPublicIdentity(raw: unknown): EcdsaHssPublicIdentity | nul
     return null;
   }
   return {
-    hssClientSharePublicKey33B64u:
-      hssClientSharePublicKey33B64u as EcdsaHssClientSharePublicKey33B64u,
-    relayerPublicKey33B64u: relayerPublicKey33B64u as EcdsaRelayerHssPublicKey33B64u,
+    derivationClientSharePublicKey33B64u:
+      derivationClientSharePublicKey33B64u as DerivationClientSharePublicKey33B64u,
+    relayerPublicKey33B64u: relayerPublicKey33B64u as EcdsaDerivationRelayerPublicKey33B64u,
     groupPublicKey33B64u,
     ethereumAddress,
   };
 }
 
-export function parseEcdsaHssClientBootstrapRequest(
+export function parseEcdsaDerivationClientBootstrapRequest(
   raw: unknown,
-): EcdsaHssClientBootstrapRequest | null {
+): EcdsaDerivationClientBootstrapRequest | null {
   if (!isObject(raw)) return null;
-  if (hasForbiddenFields(raw, ECDSA_HSS_BOOTSTRAP_FORBIDDEN_FIELDS)) return null;
-  if (toOptionalString(raw.formatVersion) !== 'ecdsa-hss-role-local') return null;
+  if (hasForbiddenFields(raw, ECDSA_DERIVATION_BOOTSTRAP_FORBIDDEN_FIELDS)) return null;
+  if (toOptionalString(raw.formatVersion) !== 'ecdsa-derivation-role-local') return null;
   if (toOptionalString(raw.keyScope) !== 'evm-family') return null;
   const walletId = toOptionalString(raw.walletId);
   const evmFamilySigningKeySlotId = parseEvmFamilySigningKeySlotIdOrNull(
@@ -479,8 +496,8 @@ export function parseEcdsaHssClientBootstrapRequest(
   const signingRootVersion = toOptionalString(raw.signingRootVersion);
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
   const registrationPreparationIdRaw = toOptionalString(raw.registrationPreparationId);
-  const hssClientSharePublicKey33B64u = parseSec1CompressedPublicKey33B64u(
-    raw.hssClientSharePublicKey33B64u,
+  const derivationClientSharePublicKey33B64u = parseSec1CompressedPublicKey33B64u(
+    raw.derivationClientSharePublicKey33B64u,
   );
   const contextBinding32B64u = parseB64uFixed(raw.contextBinding32B64u, 32);
   const requestId = toOptionalString(raw.requestId);
@@ -497,11 +514,11 @@ export function parseEcdsaHssClientBootstrapRequest(
   const runtimePolicyScope =
     runtimePolicyScopeRaw === undefined ? null : parseRuntimePolicyScope(runtimePolicyScopeRaw);
   const clientRootProof =
-    raw.clientRootProof === undefined ? null : parseEcdsaHssClientRootProof(raw.clientRootProof);
+    raw.clientRootProof === undefined ? null : parseEcdsaDerivationClientRootProof(raw.clientRootProof);
   const passkeyBootstrapAuthorization =
     raw.passkeyBootstrapAuthorization === undefined
       ? null
-      : parseEcdsaHssPasskeyBootstrapAuthorization(raw.passkeyBootstrapAuthorization);
+      : parseEcdsaDerivationPasskeyBootstrapAuthorization(raw.passkeyBootstrapAuthorization);
   if (
     !walletId ||
     !evmFamilySigningKeySlotId ||
@@ -509,7 +526,7 @@ export function parseEcdsaHssClientBootstrapRequest(
     !signingRootId ||
     !signingRootVersion ||
     !relayerKeyId ||
-    !hssClientSharePublicKey33B64u ||
+    !derivationClientSharePublicKey33B64u ||
     !contextBinding32B64u ||
     !requestId ||
     sessionKind === null ||
@@ -528,7 +545,7 @@ export function parseEcdsaHssClientBootstrapRequest(
     return null;
   }
   const base = {
-    formatVersion: 'ecdsa-hss-role-local' as const,
+    formatVersion: 'ecdsa-derivation-role-local' as const,
     walletId,
     evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId,
@@ -543,8 +560,8 @@ export function parseEcdsaHssClientBootstrapRequest(
           ),
         }
       : {}),
-    hssClientSharePublicKey33B64u:
-      hssClientSharePublicKey33B64u as EcdsaHssClientSharePublicKey33B64u,
+    derivationClientSharePublicKey33B64u:
+      derivationClientSharePublicKey33B64u as DerivationClientSharePublicKey33B64u,
     clientShareRetryCounter,
     contextBinding32B64u,
     requestId,
@@ -573,7 +590,7 @@ export function parseWalletRegistrationEcdsaClientBootstrap(
   }
   const thresholdSessionId = toOptionalString(raw.thresholdSessionId);
   if (!thresholdSessionId) return null;
-  const parsed = parseEcdsaHssClientBootstrapRequest({
+  const parsed = parseEcdsaDerivationClientBootstrapRequest({
     formatVersion: raw.formatVersion,
     walletId: raw.walletId,
     evmFamilySigningKeySlotId: raw.evmFamilySigningKeySlotId,
@@ -583,7 +600,7 @@ export function parseWalletRegistrationEcdsaClientBootstrap(
     keyScope: raw.keyScope,
     relayerKeyId: raw.relayerKeyId,
     registrationPreparationId: raw.registrationPreparationId,
-    hssClientSharePublicKey33B64u: raw.hssClientSharePublicKey33B64u,
+    derivationClientSharePublicKey33B64u: raw.derivationClientSharePublicKey33B64u,
     clientShareRetryCounter: raw.clientShareRetryCounter,
     contextBinding32B64u: raw.contextBinding32B64u,
     requestId: raw.requestId,
@@ -614,7 +631,7 @@ export function parseWalletRegistrationEcdsaClientBootstrap(
     ...(parsed.registrationPreparationId
       ? { registrationPreparationId: parsed.registrationPreparationId }
       : {}),
-    hssClientSharePublicKey33B64u: parsed.hssClientSharePublicKey33B64u,
+    derivationClientSharePublicKey33B64u: parsed.derivationClientSharePublicKey33B64u,
     clientShareRetryCounter: parsed.clientShareRetryCounter,
     contextBinding32B64u: parsed.contextBinding32B64u,
     requestId: parsed.requestId,
@@ -627,10 +644,10 @@ export function parseWalletRegistrationEcdsaClientBootstrap(
   };
 }
 
-export function parseEcdsaHssExportShareRequest(raw: unknown): EcdsaHssExportShareRequest | null {
+export function parseEcdsaDerivationExportShareRequest(raw: unknown): EcdsaDerivationExportShareRequest | null {
   if (!isObject(raw)) return null;
-  if (hasForbiddenFields(raw, ECDSA_HSS_EXPORT_REQUEST_FORBIDDEN_FIELDS)) return null;
-  if (toOptionalString(raw.formatVersion) !== 'ecdsa-hss-role-local-export') return null;
+  if (hasForbiddenFields(raw, ECDSA_DERIVATION_EXPORT_REQUEST_FORBIDDEN_FIELDS)) return null;
+  if (toOptionalString(raw.formatVersion) !== 'ecdsa-derivation-role-local-export') return null;
   const walletId = toOptionalString(raw.walletId);
   const evmFamilySigningKeySlotId = parseEvmFamilySigningKeySlotIdOrNull(
     raw.evmFamilySigningKeySlotId,
@@ -638,7 +655,7 @@ export function parseEcdsaHssExportShareRequest(raw: unknown): EcdsaHssExportSha
   const ecdsaThresholdKeyId = toOptionalString(raw.ecdsaThresholdKeyId);
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
   const contextBinding32B64u = parseB64uFixed(raw.contextBinding32B64u, 32);
-  const publicIdentity = parseEcdsaHssPublicIdentity(raw.publicIdentity);
+  const publicIdentity = parseEcdsaDerivationPublicIdentity(raw.publicIdentity);
   const exportRequestNonce32B64u = parseB64uFixed(raw.exportRequestNonce32B64u, 32);
   const confirmationDigest32B64u = parseB64uFixed(raw.confirmationDigest32B64u, 32);
   const authorizationDigest32B64u = parseB64uFixed(raw.authorizationDigest32B64u, 32);
@@ -665,7 +682,7 @@ export function parseEcdsaHssExportShareRequest(raw: unknown): EcdsaHssExportSha
     return null;
   }
   return {
-    formatVersion: 'ecdsa-hss-role-local-export',
+    formatVersion: 'ecdsa-derivation-role-local-export',
     walletId,
     evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId,
@@ -682,10 +699,10 @@ export function parseEcdsaHssExportShareRequest(raw: unknown): EcdsaHssExportSha
   };
 }
 
-export function parseEcdsaHssRoleLocalKeyRecord(raw: unknown): EcdsaHssRoleLocalKeyRecord | null {
+export function parseEcdsaDerivationRoleLocalKeyRecord(raw: unknown): EcdsaDerivationRoleLocalKeyRecord | null {
   if (!isObject(raw)) return null;
-  if (hasForbiddenFields(raw, ECDSA_HSS_V1_CONTEXT_FORBIDDEN_FIELDS)) return null;
-  if (toOptionalString(raw.version) !== 'threshold_ecdsa_hss_role_local_v2') return null;
+  if (hasForbiddenFields(raw, ECDSA_DERIVATION_ROLE_LOCAL_KEY_RECORD_FORBIDDEN_FIELDS)) return null;
+  if (toOptionalString(raw.version) !== 'threshold_ecdsa_derivation_role_local_v2') return null;
   if (toOptionalString(raw.keyScope) !== 'evm-family') return null;
   const ecdsaThresholdKeyId = toOptionalString(raw.ecdsaThresholdKeyId);
   const keyHandle = toOptionalString(raw.keyHandle);
@@ -738,7 +755,7 @@ export function parseEcdsaHssRoleLocalKeyRecord(raw: unknown): EcdsaHssRoleLocal
     return null;
   }
   return {
-    version: 'threshold_ecdsa_hss_role_local_v2',
+    version: 'threshold_ecdsa_derivation_role_local_v2',
     ecdsaThresholdKeyId,
     keyHandle,
     walletId,
@@ -1403,7 +1420,7 @@ export function parseWalletSigningBudgetSessionRecord(
   return { kind, expiresAtMs, walletId, bindings };
 }
 
-export type ParsedRouterAbEcdsaHssServerPresignatureShareRecord = {
+export type ParsedRouterAbEcdsaDerivationServerPresignatureShareRecord = {
   relayerKeyId: string;
   presignatureId: string;
   bigRB64u: string;
@@ -1412,76 +1429,76 @@ export type ParsedRouterAbEcdsaHssServerPresignatureShareRecord = {
   createdAtMs: number;
 };
 
-export type ParsedRouterAbEcdsaHssPoolFillSessionStage =
+export type ParsedRouterAbEcdsaDerivationPoolFillSessionStage =
   | 'triples'
   | 'triples_done'
   | 'presign'
   | 'done';
 
-export type ParsedRouterAbEcdsaHssPoolFillSessionDestination =
+export type ParsedRouterAbEcdsaDerivationPoolFillSessionDestination =
   | {
       kind: 'local_threshold_ecdsa_presignature_pool';
-      routerAbEcdsaHss?: never;
+      routerAbEcdsaDerivation?: never;
     }
   | {
-      kind: 'router_ab_ecdsa_hss_signing_worker_pool';
-      routerAbEcdsaHss: {
-        scope: RouterAbEcdsaHssNormalSigningScopeV1;
+      kind: 'router_ab_ecdsa_derivation_signing_worker_pool';
+      routerAbEcdsaDerivation: {
+        scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
         expiresAtMs: number;
       };
     };
 
-export type ParsedRouterAbEcdsaHssPoolFillSessionRecord = {
+export type ParsedRouterAbEcdsaDerivationPoolFillSessionRecord = {
   expiresAtMs: number;
   walletId: string;
   evmFamilySigningKeySlotId: string;
   relayerKeyId: string;
   presignPoolKey: string;
-  poolFill: ParsedRouterAbEcdsaHssPoolFillSessionDestination;
+  poolFill: ParsedRouterAbEcdsaDerivationPoolFillSessionDestination;
   ownerInstanceId?: string;
   participantIds: number[];
   clientParticipantId: number;
   relayerParticipantId: number;
-  stage: ParsedRouterAbEcdsaHssPoolFillSessionStage;
+  stage: ParsedRouterAbEcdsaDerivationPoolFillSessionStage;
   version: number;
   createdAtMs: number;
   updatedAtMs: number;
 } & ParsedThresholdEcdsaSigningRootMetadata;
 
-function parseRouterAbEcdsaHssPoolFillSessionDestination(
+function parseRouterAbEcdsaDerivationPoolFillSessionDestination(
   value: unknown,
   sessionExpiresAtMs: number,
-): ParsedRouterAbEcdsaHssPoolFillSessionDestination | null {
+): ParsedRouterAbEcdsaDerivationPoolFillSessionDestination | null {
   if (!isObject(value)) return null;
   const kind = toOptionalString(value.kind);
   if (kind === 'local_threshold_ecdsa_presignature_pool') {
     return { kind };
   }
-  if (kind !== 'router_ab_ecdsa_hss_signing_worker_pool') return null;
-  if (!isObject(value.routerAbEcdsaHss)) return null;
-  const expiresAtMs = value.routerAbEcdsaHss.expiresAtMs;
+  if (kind !== 'router_ab_ecdsa_derivation_signing_worker_pool') return null;
+  if (!isObject(value.routerAbEcdsaDerivation)) return null;
+  const expiresAtMs = value.routerAbEcdsaDerivation.expiresAtMs;
   if (!isValidNumber(expiresAtMs)) return null;
   const expiresAtMsInt = Math.floor(expiresAtMs);
   if (expiresAtMsInt !== expiresAtMs || expiresAtMsInt <= 0) return null;
   if (expiresAtMsInt > sessionExpiresAtMs) return null;
-  let scope: RouterAbEcdsaHssNormalSigningScopeV1;
+  let scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
   try {
-    scope = parseRouterAbEcdsaHssNormalSigningScopeV1(value.routerAbEcdsaHss.scope);
+    scope = parseRouterAbEcdsaDerivationNormalSigningScopeV1(value.routerAbEcdsaDerivation.scope);
   } catch {
     return null;
   }
   return {
     kind,
-    routerAbEcdsaHss: {
+    routerAbEcdsaDerivation: {
       scope,
       expiresAtMs: expiresAtMsInt,
     },
   };
 }
 
-export function parseRouterAbEcdsaHssPoolFillSessionRecord(
+export function parseRouterAbEcdsaDerivationPoolFillSessionRecord(
   raw: unknown,
-): ParsedRouterAbEcdsaHssPoolFillSessionRecord | null {
+): ParsedRouterAbEcdsaDerivationPoolFillSessionRecord | null {
   if (!isObject(raw)) return null;
   const expiresAtMs = raw.expiresAtMs;
   const walletId = toOptionalString(raw.walletId);
@@ -1502,7 +1519,7 @@ export function parseRouterAbEcdsaHssPoolFillSessionRecord(
   const updatedAtMs = raw.updatedAtMs;
   const signingRootMetadata = parseThresholdEcdsaSigningRootMetadataFields(raw);
 
-  const stage: ParsedRouterAbEcdsaHssPoolFillSessionStage | null =
+  const stage: ParsedRouterAbEcdsaDerivationPoolFillSessionStage | null =
     stageRaw === 'triples'
       ? 'triples'
       : stageRaw === 'triples_done'
@@ -1516,7 +1533,7 @@ export function parseRouterAbEcdsaHssPoolFillSessionRecord(
   if (!isValidNumber(expiresAtMs) || !isValidNumber(createdAtMs) || !isValidNumber(updatedAtMs)) {
     return null;
   }
-  const poolFill = parseRouterAbEcdsaHssPoolFillSessionDestination(raw.poolFill, expiresAtMs);
+  const poolFill = parseRouterAbEcdsaDerivationPoolFillSessionDestination(raw.poolFill, expiresAtMs);
   if (
     !walletId ||
     !evmFamilySigningKeySlotId ||
@@ -1558,9 +1575,9 @@ export function parseRouterAbEcdsaHssPoolFillSessionRecord(
   };
 }
 
-export function parseRouterAbEcdsaHssServerPresignatureShareRecord(
+export function parseRouterAbEcdsaDerivationServerPresignatureShareRecord(
   raw: unknown,
-): ParsedRouterAbEcdsaHssServerPresignatureShareRecord | null {
+): ParsedRouterAbEcdsaDerivationServerPresignatureShareRecord | null {
   if (!isObject(raw)) return null;
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
   const presignatureId = toOptionalString(raw.presignatureId);
@@ -1837,7 +1854,7 @@ export function resolveAppSessionWalletIdForWalletScope(
   return undefined;
 }
 
-type EcdsaWalletSessionClaimKind = typeof ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND;
+type EcdsaWalletSessionClaimKind = typeof ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND;
 
 export type EcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionClaimKind> = {
   sub: string;
@@ -1857,13 +1874,13 @@ export type EcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionClaim
   nbf?: number;
 };
 
-export type RouterAbEcdsaHssWalletSessionClaims = EcdsaWalletSessionClaimsForKind<
-  typeof ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND
+export type RouterAbEcdsaDerivationWalletSessionClaims = EcdsaWalletSessionClaimsForKind<
+  typeof ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND
 > & {
-  routerAbEcdsaHssNormalSigning: RouterAbEcdsaHssNormalSigningStateV1;
+  routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
 };
 
-export type ThresholdEcdsaSessionClaims = RouterAbEcdsaHssWalletSessionClaims;
+export type ThresholdEcdsaSessionClaims = RouterAbEcdsaDerivationWalletSessionClaims;
 
 function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionClaimKind>(
   raw: unknown,
@@ -1946,28 +1963,28 @@ function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionCla
   return out;
 }
 
-export function parseRouterAbEcdsaHssWalletSessionClaims(
+export function parseRouterAbEcdsaDerivationWalletSessionClaims(
   raw: unknown,
-): RouterAbEcdsaHssWalletSessionClaims | null {
+): RouterAbEcdsaDerivationWalletSessionClaims | null {
   const claims = parseEcdsaWalletSessionClaimsForKind(
     raw,
-    ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+    ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
   );
   if (!claims || !isObject(raw)) return null;
-  const hasNormalSigning = raw.routerAbEcdsaHssNormalSigning !== undefined;
-  const hasIssuerBinding = raw.routerAbEcdsaHssIssuerBinding !== undefined;
+  const hasNormalSigning = raw.routerAbEcdsaDerivationNormalSigning !== undefined;
+  const hasIssuerBinding = raw.routerAbEcdsaDerivationIssuerBinding !== undefined;
   if (!hasNormalSigning || hasIssuerBinding) return null;
 
-  let normalSigning: RouterAbEcdsaHssNormalSigningStateV1 | null = null;
+  let normalSigning: RouterAbEcdsaDerivationNormalSigningStateV1 | null = null;
   try {
-    normalSigning = parseRouterAbEcdsaHssNormalSigningStateV1(raw.routerAbEcdsaHssNormalSigning);
+    normalSigning = parseRouterAbEcdsaDerivationNormalSigningStateV1(raw.routerAbEcdsaDerivationNormalSigning);
   } catch {
     return null;
   }
   if (!normalSigning) return null;
   return {
     ...claims,
-    routerAbEcdsaHssNormalSigning: normalSigning,
+    routerAbEcdsaDerivationNormalSigning: normalSigning,
   };
 }
 

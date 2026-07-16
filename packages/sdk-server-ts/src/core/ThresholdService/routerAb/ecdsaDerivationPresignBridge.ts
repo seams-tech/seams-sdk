@@ -1,54 +1,54 @@
 import {
-  buildCloudflareSigningWorkerEcdsaHssPresignaturePoolPutRequestV1,
-  parseCloudflareSigningWorkerEcdsaHssPresignaturePoolPutReceiptForRequestV1,
-  parseCloudflareSigningWorkerEcdsaHssPresignaturePoolPutRequestV1,
-  parseRouterAbEcdsaHssNormalSigningScopeV1,
-  type CloudflareSigningWorkerEcdsaHssPresignaturePoolPutReceiptV1Wire,
-  type CloudflareSigningWorkerEcdsaHssPresignaturePoolPutRequestV1Wire,
-  type RouterAbEcdsaHssServerPresignatureShareV1,
-  type RouterAbEcdsaHssNormalSigningScopeV1,
-} from '@shared/utils/routerAbEcdsaHss';
+  buildCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutRequestV1,
+  parseCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutReceiptForRequestV1,
+  parseCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutRequestV1,
+  parseRouterAbEcdsaDerivationNormalSigningScopeV1,
+  type CloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutReceiptV1Wire,
+  type CloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutRequestV1Wire,
+  type RouterAbEcdsaDerivationServerPresignatureShareV1,
+  type RouterAbEcdsaDerivationNormalSigningScopeV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import { postRouterAbInternalServiceJson } from './internalServiceHttp';
 export { ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1 } from './internalServiceHttp';
 
-export const CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH =
-  '/router-ab/signing-worker/ecdsa-hss/presignature-pool/put' as const;
+export const CLOUDFLARE_SIGNING_WORKER_ECDSA_DERIVATION_PRESIGNATURE_POOL_PUT_PATH =
+  '/router-ab/signing-worker/ecdsa-derivation/presignature-pool/put' as const;
 
-export type RouterAbEcdsaHssPresignaturePoolFillInput = {
-  scope: RouterAbEcdsaHssNormalSigningScopeV1;
-  presignature: RouterAbEcdsaHssServerPresignatureShareV1;
+export type RouterAbEcdsaDerivationPresignaturePoolFillInput = {
+  scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
+  presignature: RouterAbEcdsaDerivationServerPresignatureShareV1;
   expiresAtMs: number;
 };
 
-export function buildRouterAbEcdsaHssPresignaturePoolPutRequest(
-  input: RouterAbEcdsaHssPresignaturePoolFillInput,
-): CloudflareSigningWorkerEcdsaHssPresignaturePoolPutRequestV1Wire {
-  return parseCloudflareSigningWorkerEcdsaHssPresignaturePoolPutRequestV1(
-    buildCloudflareSigningWorkerEcdsaHssPresignaturePoolPutRequestV1({
-      scope: parseRouterAbEcdsaHssNormalSigningScopeV1(input.scope),
+export function buildRouterAbEcdsaDerivationPresignaturePoolPutRequest(
+  input: RouterAbEcdsaDerivationPresignaturePoolFillInput,
+): CloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutRequestV1Wire {
+  return parseCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutRequestV1(
+    buildCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutRequestV1({
+      scope: parseRouterAbEcdsaDerivationNormalSigningScopeV1(input.scope),
       presignature: input.presignature,
       expiresAtMs: input.expiresAtMs,
     }),
   );
 }
 
-export type RouterAbEcdsaHssPresignaturePoolFillAuth = {
+export type RouterAbEcdsaDerivationPresignaturePoolFillAuth = {
   kind: 'internal_service_auth_secret';
   secret: string;
 };
 
-export type RouterAbEcdsaHssPresignaturePoolFillHttpInput = {
+export type RouterAbEcdsaDerivationPresignaturePoolFillHttpInput = {
   signingWorkerBaseUrl: string;
-  request: CloudflareSigningWorkerEcdsaHssPresignaturePoolPutRequestV1Wire;
-  auth: RouterAbEcdsaHssPresignaturePoolFillAuth;
+  request: CloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutRequestV1Wire;
+  auth: RouterAbEcdsaDerivationPresignaturePoolFillAuth;
   fetchImpl: typeof fetch;
 };
 
-export type RouterAbEcdsaHssPresignaturePoolFillHttpResult =
+export type RouterAbEcdsaDerivationPresignaturePoolFillHttpResult =
   | {
       ok: true;
       status: number;
-      receipt: CloudflareSigningWorkerEcdsaHssPresignaturePoolPutReceiptV1Wire & {
+      receipt: CloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutReceiptV1Wire & {
         stored: true;
       };
     }
@@ -57,7 +57,7 @@ export type RouterAbEcdsaHssPresignaturePoolFillHttpResult =
       code: 'already_exists';
       message: string;
       status: number;
-      receipt: CloudflareSigningWorkerEcdsaHssPresignaturePoolPutReceiptV1Wire & {
+      receipt: CloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutReceiptV1Wire & {
         stored: false;
       };
     }
@@ -84,7 +84,7 @@ export type RouterAbEcdsaHssPresignaturePoolFillHttpResult =
 function privatePoolFillUrl(signingWorkerBaseUrl: string): string {
   const base = signingWorkerBaseUrl.trim().replace(/\/+$/, '');
   if (!base) throw new Error('signingWorkerBaseUrl is required');
-  return `${base}${CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH}`;
+  return `${base}${CLOUDFLARE_SIGNING_WORKER_ECDSA_DERIVATION_PRESIGNATURE_POOL_PUT_PATH}`;
 }
 
 function errorMessage(error: unknown): string {
@@ -95,10 +95,10 @@ function errorMessage(error: unknown): string {
   );
 }
 
-export async function putRouterAbEcdsaHssPresignaturePoolFill(
-  input: RouterAbEcdsaHssPresignaturePoolFillHttpInput,
-): Promise<RouterAbEcdsaHssPresignaturePoolFillHttpResult> {
-  const request = parseCloudflareSigningWorkerEcdsaHssPresignaturePoolPutRequestV1(input.request);
+export async function putRouterAbEcdsaDerivationPresignaturePoolFill(
+  input: RouterAbEcdsaDerivationPresignaturePoolFillHttpInput,
+): Promise<RouterAbEcdsaDerivationPresignaturePoolFillHttpResult> {
+  const request = parseCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutRequestV1(input.request);
   const url = privatePoolFillUrl(input.signingWorkerBaseUrl);
   const response = await postRouterAbInternalServiceJson({
     url,
@@ -134,9 +134,9 @@ export async function putRouterAbEcdsaHssPresignaturePoolFill(
     };
   }
 
-  let receipt: CloudflareSigningWorkerEcdsaHssPresignaturePoolPutReceiptV1Wire;
+  let receipt: CloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutReceiptV1Wire;
   try {
-    receipt = parseCloudflareSigningWorkerEcdsaHssPresignaturePoolPutReceiptForRequestV1(
+    receipt = parseCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutReceiptForRequestV1(
       request,
       response.json,
     );
@@ -154,7 +154,7 @@ export async function putRouterAbEcdsaHssPresignaturePoolFill(
     return {
       ok: false,
       code: 'already_exists',
-      message: 'Router A/B ECDSA-HSS presignature already exists in the SigningWorker pool',
+      message: 'Router A/B ECDSA derivation presignature already exists in the SigningWorker pool',
       status: response.status,
       receipt: { ...receipt, stored: false },
     };

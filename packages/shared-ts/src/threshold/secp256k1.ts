@@ -15,8 +15,56 @@ export const SECP256K1_ORDER = BigInt(
   '0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141',
 );
 
-export const THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANTS_V1 = Object.freeze({
-  clientId: 1,
-  relayerId: 2,
-  participantIds: [1, 2] as const,
-});
+export type ThresholdSecp256k1Ecdsa2pTopologyV1 = {
+  readonly kind: 'threshold_secp256k1_ecdsa_2p_v1';
+};
+
+export type ThresholdSecp256k1Ecdsa2pTopologyParseResult =
+  | { readonly ok: true; readonly value: ThresholdSecp256k1Ecdsa2pTopologyV1 }
+  | { readonly ok: false; readonly message: string };
+
+export type ThresholdSecp256k1Ecdsa2pParticipantIdsParseResult =
+  | { readonly ok: true; readonly value: readonly [1, 2] }
+  | { readonly ok: false; readonly message: string };
+
+export const THRESHOLD_SECP256K1_ECDSA_2P_TOPOLOGY_V1: ThresholdSecp256k1Ecdsa2pTopologyV1 =
+  Object.freeze({
+    kind: 'threshold_secp256k1_ecdsa_2p_v1',
+  });
+
+export const THRESHOLD_SECP256K1_ECDSA_2P_CLIENT_ID_V1 = 1 as const;
+export const THRESHOLD_SECP256K1_ECDSA_2P_RELAYER_ID_V1 = 2 as const;
+export const THRESHOLD_SECP256K1_ECDSA_2P_THRESHOLD_V1 = 2 as const;
+export const THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANT_IDS_V1 = [1, 2] as const;
+
+export function parseThresholdSecp256k1Ecdsa2pTopologyV1(
+  value: unknown,
+): ThresholdSecp256k1Ecdsa2pTopologyParseResult {
+  if (
+    !isPlainObject(value) ||
+    Object.keys(value).length !== 1 ||
+    !Object.hasOwn(value, 'kind') ||
+    value.kind !== THRESHOLD_SECP256K1_ECDSA_2P_TOPOLOGY_V1.kind
+  ) {
+    return {
+      ok: false,
+      message: 'ECDSA presign topology must be threshold_secp256k1_ecdsa_2p_v1',
+    };
+  }
+  return { ok: true, value: THRESHOLD_SECP256K1_ECDSA_2P_TOPOLOGY_V1 };
+}
+
+export function parseThresholdSecp256k1Ecdsa2pParticipantIdsV1(
+  value: unknown,
+): ThresholdSecp256k1Ecdsa2pParticipantIdsParseResult {
+  if (
+    !Array.isArray(value) ||
+    value.length !== 2 ||
+    value[0] !== THRESHOLD_SECP256K1_ECDSA_2P_CLIENT_ID_V1 ||
+    value[1] !== THRESHOLD_SECP256K1_ECDSA_2P_RELAYER_ID_V1
+  ) {
+    return { ok: false, message: 'ECDSA2P participant IDs must be exactly [1, 2]' };
+  }
+  return { ok: true, value: THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANT_IDS_V1 };
+}
+import { isPlainObject } from '../utils/validation';

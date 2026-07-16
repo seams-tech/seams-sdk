@@ -1,6 +1,6 @@
 import initThresholdPrfWasm, {
   init_threshold_prf,
-  threshold_prf_derive_ecdsa_hss_y_relayer,
+  threshold_prf_derive_router_ab_ecdsa_derivation_y_relayer,
 } from '../../../../../wasm/threshold_prf/pkg/threshold_prf.js';
 import type { InitInput } from '../../../../../wasm/threshold_prf/pkg/threshold_prf.js';
 import type { ThresholdPrfPolicy } from './signingRootShareResolver';
@@ -25,7 +25,7 @@ const capturedFetch =
 const THRESHOLD_PRF_SIGNING_ROOT_SHARE_WIRE_LENGTH = 34;
 const MAX_THRESHOLD_PRF_SHARE_COUNT = 255;
 
-export type EcdsaHssStableKeyPrfContext = {
+export type EcdsaDerivationStableKeyPrfContext = {
   readonly applicationBindingDigest: Uint8Array;
   readonly signingGrantId?: never;
   readonly thresholdSessionId?: never;
@@ -257,10 +257,10 @@ function flattenSigningRootShareWireSet(shareWires: SigningRootShareWireSet): Ui
   return out;
 }
 
-export async function deriveEcdsaHssYRelayerFromSigningRootShares(input: {
+export async function deriveEcdsaDerivationYRelayerFromSigningRootShares(input: {
   readonly policy: ThresholdPrfPolicy;
   readonly shareWires: readonly SigningRootShareWire[];
-  readonly context: EcdsaHssStableKeyPrfContext;
+  readonly context: EcdsaDerivationStableKeyPrfContext;
 }): Promise<Uint8Array> {
   await ensureThresholdPrfWasm();
   requireThresholdPrfWasmReady();
@@ -269,17 +269,17 @@ export async function deriveEcdsaHssYRelayerFromSigningRootShares(input: {
   const shareWires = validateSigningRootShareWireSet(policy, input.shareWires);
   const flattened = flattenSigningRootShareWireSet(shareWires);
   try {
-    const out = threshold_prf_derive_ecdsa_hss_y_relayer(
+    const out = threshold_prf_derive_router_ab_ecdsa_derivation_y_relayer(
       policy.threshold,
       policy.shareCount,
       flattened,
       checkedBytes(
-        'threshold-prf ecdsa-hss applicationBindingDigest',
+        'threshold-prf ecdsa-derivation applicationBindingDigest',
         input.context.applicationBindingDigest,
         32,
       ),
     ) as Uint8Array;
-    return checkedBytes('threshold-prf ecdsa-hss y_relayer', out, 32).slice();
+    return checkedBytes('threshold-prf ecdsa-derivation y_relayer', out, 32).slice();
   } finally {
     flattened.fill(0);
     for (const wire of shareWires) wire.fill(0);

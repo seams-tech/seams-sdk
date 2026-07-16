@@ -1,5 +1,5 @@
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
-import type { EcdsaHssClientSharePublicKey33B64u } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+import type { DerivationClientSharePublicKey33B64u } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import type { WebAuthnRpId } from '@shared/utils/domainIds';
 import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type {
@@ -28,9 +28,9 @@ import type {
   WalletId,
 } from '@shared/utils/registrationIntent';
 import type {
-  EcdsaHssKeyScope,
-  EcdsaHssRoleLocalFormatVersion,
-  EcdsaHssServerBootstrapResponse,
+  EcdsaDerivationKeyScope,
+  EcdsaDerivationRoleLocalFormatVersion,
+  EcdsaDerivationServerBootstrapResponse,
   EcdsaThresholdKeyId,
   ThresholdEd25519AuthorityScope,
   ThresholdRuntimePolicyScope,
@@ -316,7 +316,7 @@ export type WalletAddSignerStartResponse =
       message: string;
     };
 
-export type WalletAddSignerHssRespondRequest = {
+export type WalletAddSignerEcdsaDerivationRespondRequest = {
   addSignerCeremonyId: string;
   ecdsa: {
     clientBootstraps: {
@@ -326,14 +326,14 @@ export type WalletAddSignerHssRespondRequest = {
   };
 };
 
-export type WalletAddSignerHssRespondResponse =
+export type WalletAddSignerEcdsaDerivationRespondResponse =
   | {
       ok: true;
       addSignerCeremonyId: string;
       ecdsa: {
         bootstraps: {
           chainTarget: ThresholdEcdsaChainTarget;
-          bootstrap: EcdsaHssServerBootstrapResponse;
+          bootstrap: EcdsaDerivationServerBootstrapResponse;
         }[];
       };
     }
@@ -421,13 +421,13 @@ export type WalletRegistrationStartRequest = WalletRegistrationStartRequestBase 
   );
 
 export type WalletRegistrationEcdsaPrepareContext = {
-  formatVersion: EcdsaHssRoleLocalFormatVersion;
+  formatVersion: EcdsaDerivationRoleLocalFormatVersion;
   walletId: string;
   evmFamilySigningKeySlotId: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   signingRootId: string;
   signingRootVersion: string;
-  keyScope: EcdsaHssKeyScope;
+  keyScope: EcdsaDerivationKeyScope;
   relayerKeyId: string;
   registrationPreparationId?: RegistrationPreparationId;
   requestId: string;
@@ -450,16 +450,16 @@ export type WalletRegistrationEcdsaPreparePayload = {
 };
 
 export type WalletRegistrationEcdsaClientBootstrap = {
-  formatVersion: EcdsaHssRoleLocalFormatVersion;
+  formatVersion: EcdsaDerivationRoleLocalFormatVersion;
   walletId: string;
   evmFamilySigningKeySlotId: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   signingRootId: string;
   signingRootVersion: string;
-  keyScope: EcdsaHssKeyScope;
+  keyScope: EcdsaDerivationKeyScope;
   relayerKeyId: string;
   registrationPreparationId?: RegistrationPreparationId;
-  hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
+  derivationClientSharePublicKey33B64u: DerivationClientSharePublicKey33B64u;
   clientShareRetryCounter: number;
   contextBinding32B64u: string;
   requestId: string;
@@ -570,7 +570,7 @@ export type WalletRegistrationRouteTimingName =
 
 export type WalletRegistrationRouteDiagnostics = {
   kind: 'wallet_registration_route_diagnostics_v1';
-  route: 'wallets_register_start' | 'wallets_register_hss_respond' | 'wallets_register_finalize';
+  route: 'wallets_register_start' | 'wallets_register_ecdsa_derivation_respond' | 'wallets_register_finalize';
   entries: {
     name: WalletRegistrationRouteTimingName;
     durationMs: number;
@@ -590,7 +590,7 @@ export type WalletRegistrationStartResponse =
       message: string;
     };
 
-export type WalletRegistrationHssRespondRequest = {
+export type WalletRegistrationEcdsaDerivationRespondRequest = {
   registrationCeremonyId: string;
   ecdsa: {
     clientBootstraps: {
@@ -600,7 +600,7 @@ export type WalletRegistrationHssRespondRequest = {
   };
 };
 
-export type WalletRegistrationHssRespondResponse =
+export type WalletRegistrationEcdsaDerivationRespondResponse =
   | {
       ok: true;
       registrationCeremonyId: string;
@@ -608,7 +608,7 @@ export type WalletRegistrationHssRespondResponse =
       ecdsa: {
         bootstraps: {
           chainTarget: ThresholdEcdsaChainTarget;
-          bootstrap: EcdsaHssServerBootstrapResponse;
+          bootstrap: EcdsaDerivationServerBootstrapResponse;
         }[];
       };
     }
@@ -700,38 +700,49 @@ type WalletRegistrationFinalizeResponseAuthMethod =
       rpId?: never;
     };
 
-export type WalletRegistrationFinalizeSuccess = WalletRegistrationFinalizeResponseBase &
-  WalletRegistrationFinalizeResponseAuthMethod &
-  (
-    | {
-        kind: 'near_ed25519';
-        authorityScope: ThresholdEd25519AuthorityScope;
-        accountProvisioning: RegistrationNearAccountProvisioning;
-        resolvedAccount: ResolvedRegistrationNearAccount;
-        ed25519: WalletRegistrationEd25519YaoPublicResult;
-        ecdsa?: never;
-      }
-    | {
-        kind: 'evm_family_ecdsa';
-        ecdsa: {
-          walletKeys: WalletRegistrationEcdsaWalletKey[];
-        };
-        authorityScope?: never;
-        accountProvisioning?: never;
-        resolvedAccount?: never;
-        ed25519?: never;
-      }
-    | {
-        kind: 'near_ed25519_and_evm_family_ecdsa';
-        authorityScope: ThresholdEd25519AuthorityScope;
-        accountProvisioning: RegistrationNearAccountProvisioning;
-        resolvedAccount: ResolvedRegistrationNearAccount;
-        ed25519: WalletRegistrationEd25519YaoPublicResult;
-        ecdsa: {
-          walletKeys: WalletRegistrationEcdsaWalletKey[];
-        };
-      }
-  );
+type WalletRegistrationFinalizeSignerSuccess =
+  | {
+      kind: 'near_ed25519';
+      authorityScope: ThresholdEd25519AuthorityScope;
+      accountProvisioning: RegistrationNearAccountProvisioning;
+      resolvedAccount: ResolvedRegistrationNearAccount;
+      ed25519: WalletRegistrationEd25519YaoPublicResult;
+      ecdsa?: never;
+    }
+  | {
+      kind: 'evm_family_ecdsa';
+      ecdsa: {
+        walletKeys: WalletRegistrationEcdsaWalletKey[];
+      };
+      authorityScope?: never;
+      accountProvisioning?: never;
+      resolvedAccount?: never;
+      ed25519?: never;
+    }
+  | {
+      kind: 'near_ed25519_and_evm_family_ecdsa';
+      authorityScope: ThresholdEd25519AuthorityScope;
+      accountProvisioning: RegistrationNearAccountProvisioning;
+      resolvedAccount: ResolvedRegistrationNearAccount;
+      ed25519: WalletRegistrationEd25519YaoPublicResult;
+      ecdsa: {
+        walletKeys: WalletRegistrationEcdsaWalletKey[];
+      };
+    };
+
+type WalletRegistrationFinalizeSuccessForAuth<
+  AuthMethod extends WalletRegistrationFinalizeResponseAuthMethod,
+  SignerSuccess = WalletRegistrationFinalizeSignerSuccess,
+> = SignerSuccess extends WalletRegistrationFinalizeSignerSuccess
+  ? WalletRegistrationFinalizeResponseBase & AuthMethod & SignerSuccess
+  : never;
+
+export type WalletRegistrationFinalizeSuccess =
+  WalletRegistrationFinalizeResponseAuthMethod extends infer AuthMethod
+    ? AuthMethod extends WalletRegistrationFinalizeResponseAuthMethod
+      ? WalletRegistrationFinalizeSuccessForAuth<AuthMethod>
+      : never
+    : never;
 
 export type WalletRegistrationFinalizeResponse =
   | WalletRegistrationFinalizeSuccess
@@ -741,3 +752,21 @@ export type WalletRegistrationFinalizeResponse =
       message: string;
       retryAfterMs?: number;
     };
+
+type PasskeyWalletRegistrationFinalizeRouteAuth = Extract<
+  WalletRegistrationFinalizeResponseAuthMethod,
+  { authMethod: { kind: 'passkey' } }
+> & { appSessionJwt?: never };
+
+type EmailOtpWalletRegistrationFinalizeRouteAuth = Extract<
+  WalletRegistrationFinalizeResponseAuthMethod,
+  { authMethod: { kind: 'email_otp' } }
+> & { appSessionJwt: string };
+
+export type WalletRegistrationFinalizeRouteSuccess =
+  | WalletRegistrationFinalizeSuccessForAuth<PasskeyWalletRegistrationFinalizeRouteAuth>
+  | WalletRegistrationFinalizeSuccessForAuth<EmailOtpWalletRegistrationFinalizeRouteAuth>;
+
+export type WalletRegistrationFinalizeRouteResponse =
+  | WalletRegistrationFinalizeRouteSuccess
+  | Exclude<WalletRegistrationFinalizeResponse, { ok: true }>;

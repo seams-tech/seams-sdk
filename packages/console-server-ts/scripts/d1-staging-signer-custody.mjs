@@ -24,7 +24,7 @@ import {
 
 const defaultManifestRoot = path.join(packageRoot, '.wrangler/d1-staging-signer-custody');
 const signerCustodyModes = Object.freeze(['dry-run', 'remote']);
-const ecdsaExportSharePath = '/router-ab/ecdsa-hss/export/share';
+const ecdsaExportSharePath = '/router-ab/ecdsa-derivation/export/share';
 const healthChecks = Object.freeze([
   {
     id: 'signer_custody_ed25519_healthz',
@@ -34,9 +34,9 @@ const healthChecks = Object.freeze([
     expectedJson: { ok: true, configured: true },
   },
   {
-    id: 'signer_custody_ecdsa_hss_healthz',
+    id: 'signer_custody_ecdsa_derivation_healthz',
     method: 'GET',
-    path: '/router-ab/ecdsa-hss/healthz',
+    path: '/router-ab/ecdsa-derivation/healthz',
     expectedStatus: 200,
     expectedJson: { ok: true, configured: true },
   },

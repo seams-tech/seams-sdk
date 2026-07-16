@@ -1,9 +1,9 @@
 import { base64UrlDecode } from '@shared/utils/encoders';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import {
-  deriveEcdsaHssYRelayerFromSigningRootShares,
+  deriveEcdsaDerivationYRelayerFromSigningRootShares,
   parseSigningRootShareWire,
-  type EcdsaHssStableKeyPrfContext,
+  type EcdsaDerivationStableKeyPrfContext,
   type SigningRootShareWireSet,
   type SigningRootShareWire,
 } from './thresholdPrfWasm';
@@ -83,12 +83,12 @@ export type CreateSelfHostedSigningRootShareResolverInput = {
   readonly shares: readonly SigningRootShareInput[];
 };
 
-export type DeriveEcdsaHssYRelayerFromSigningRootShareResolverInput = {
+export type DeriveEcdsaDerivationYRelayerFromSigningRootShareResolverInput = {
   readonly signingRootId: string;
   readonly signingRootVersion?: string;
   readonly preferredShareIds?: readonly number[];
   readonly resolver: SigningRootShareResolver;
-  readonly context: EcdsaHssStableKeyPrfContext;
+  readonly context: EcdsaDerivationStableKeyPrfContext;
 };
 
 function err<T>(
@@ -407,8 +407,8 @@ function zeroizeSigningRootShareSet(shareSet: SigningRootShareSet): void {
   for (const share of shareSet) zeroizeBytes(share);
 }
 
-export async function deriveEcdsaHssYRelayerFromSigningRootShareResolver(
-  input: DeriveEcdsaHssYRelayerFromSigningRootShareResolverInput,
+export async function deriveEcdsaDerivationYRelayerFromSigningRootShareResolver(
+  input: DeriveEcdsaDerivationYRelayerFromSigningRootShareResolverInput,
 ): Promise<SigningRootSecretShareWireResult<Uint8Array>> {
   let shareSet: SigningRootShareSet | null = null;
   try {
@@ -417,14 +417,14 @@ export async function deriveEcdsaHssYRelayerFromSigningRootShareResolver(
       ...(input.signingRootVersion ? { signingRootVersion: input.signingRootVersion } : {}),
       ...(input.preferredShareIds ? { preferredShareIds: input.preferredShareIds } : {}),
     });
-    const yRelayer = await deriveEcdsaHssYRelayerFromSigningRootShares({
+    const yRelayer = await deriveEcdsaDerivationYRelayerFromSigningRootShares({
       policy: input.resolver.policy,
       shareWires: shareSet,
       context: input.context,
     });
     return { ok: true, value: yRelayer };
   } catch (error) {
-    return errorResult(error, 'failed to derive ecdsa-hss y_relayer');
+    return errorResult(error, 'failed to derive ecdsa-derivation y_relayer');
   } finally {
     if (shareSet) zeroizeSigningRootShareSet(shareSet);
   }

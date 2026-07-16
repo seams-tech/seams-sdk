@@ -1,5 +1,5 @@
 import type {
-  RouterAbEcdsaHssWalletSessionClaims,
+  RouterAbEcdsaDerivationWalletSessionClaims,
   RouterAbEd25519WalletSessionClaims,
 } from '../core/ThresholdService/validation';
 import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
@@ -39,7 +39,7 @@ export type VerifiedWalletSessionAuth =
   | VerifiedEd25519WalletSessionAuth;
 
 export function buildVerifiedEcdsaWalletSessionAuth(
-  claims: RouterAbEcdsaHssWalletSessionClaims,
+  claims: RouterAbEcdsaDerivationWalletSessionClaims,
 ): VerifiedEcdsaWalletSessionAuth {
   return {
     kind: 'wallet_session',

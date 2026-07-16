@@ -31,5 +31,5 @@ export async function deriveThresholdEcdsaKeyHandle(
     signingRootVersion: normalizedSigningRootVersion(input.signingRootVersion),
   });
   const digest = await sha256BytesUtf8(canonical);
-  return `ehss-key-${base64UrlEncode(digest)}` as ThresholdEcdsaKeyHandle;
+  return `ederivation-key-${base64UrlEncode(digest)}` as ThresholdEcdsaKeyHandle;
 }

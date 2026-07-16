@@ -1,12 +1,12 @@
 import {
-  createCloudflareDurableObjectThresholdSigningService,
-  type CloudflareDurableObjectThresholdSigningAuthPort,
-} from '../../core/ThresholdService/createCloudflareDurableObjectThresholdSigningService';
-import type { ThresholdSigningRuntimeBundle } from '../../core/ThresholdService/createThresholdSigningService';
-import type { ThresholdSigningService } from '../../core/ThresholdService/ThresholdSigningService';
+  createCloudflareDurableObjectRouterAbSigningRuntimes,
+  type CloudflareDurableObjectRouterAbSigningAuthPort,
+} from '../../core/routerAbSigning/createCloudflareDurableObjectRouterAbSigningRuntimes';
+import type { RouterAbSigningRuntimeBundle } from '../../core/routerAbSigning/createRouterAbSigningRuntimes';
 import type { RouterAbNormalSigningRuntime } from '../../core/routerAbSigning/RouterAbNormalSigningRuntime';
 import type { RouterAbLocalSigningSeedRuntime } from '../../core/routerAbSigning/RouterAbLocalSigningSeedRuntime';
-import type { RouterAbEcdsaBootstrapExportRuntime } from '../../core/routerAbSigning/RouterAbEcdsaBootstrapExportRuntime';
+import type { RouterAbEcdsaBootstrapExportPort } from '../../core/routerAbSigning/RouterAbEcdsaBootstrapExportRuntime';
+import type { RouterAbEcdsaPresignRuntime } from '../../core/routerAbSigning/RouterAbEcdsaPresignRuntime';
 import type { ThresholdStoreConfigInput } from '../../core/types';
 import type { RouterApiThresholdRuntimeService } from '../authServicePort';
 import { listThresholdEcdsaKeyIdentityTargetsForUser as listThresholdEcdsaKeyIdentityTargetsForUserWithDeps } from '../../core/authService/thresholdEcdsaKeyInventory';
@@ -26,86 +26,86 @@ type ListWalletEcdsaKeyFactsInventoryInput = Parameters<
 type ListWalletEcdsaKeyFactsInventoryResult = Awaited<
   ReturnType<RouterApiThresholdRuntimeService['listWalletEcdsaKeyFactsInventory']>
 >;
-type EcdsaHssRoleLocalBootstrapInput = Parameters<
-  RouterApiThresholdRuntimeService['ecdsaHssRoleLocalBootstrap']
+type EcdsaDerivationRoleLocalBootstrapInput = Parameters<
+  RouterApiThresholdRuntimeService['ecdsaDerivationRoleLocalBootstrap']
 >[0];
-type EcdsaHssRoleLocalBootstrapResult = Awaited<
-  ReturnType<RouterApiThresholdRuntimeService['ecdsaHssRoleLocalBootstrap']>
+type EcdsaDerivationRoleLocalBootstrapResult = Awaited<
+  ReturnType<RouterApiThresholdRuntimeService['ecdsaDerivationRoleLocalBootstrap']>
 >;
-type VerifyEcdsaHssRoleLocalClientRootProofForExistingKeyInput = Parameters<
-  RouterApiThresholdRuntimeService['verifyEcdsaHssRoleLocalClientRootProofForExistingKey']
+type VerifyEcdsaDerivationRoleLocalClientRootProofForExistingKeyInput = Parameters<
+  RouterApiThresholdRuntimeService['verifyEcdsaDerivationRoleLocalClientRootProofForExistingKey']
 >[0];
-type VerifyEcdsaHssRoleLocalClientRootProofForExistingKeyResult = Awaited<
+type VerifyEcdsaDerivationRoleLocalClientRootProofForExistingKeyResult = Awaited<
   ReturnType<
-    RouterApiThresholdRuntimeService['verifyEcdsaHssRoleLocalClientRootProofForExistingKey']
+    RouterApiThresholdRuntimeService['verifyEcdsaDerivationRoleLocalClientRootProofForExistingKey']
   >
 >;
-type EcdsaHssRoleLocalExportShareInput = Parameters<
-  RouterApiThresholdRuntimeService['ecdsaHssRoleLocalExportShare']
+type EcdsaDerivationRoleLocalExportShareInput = Parameters<
+  RouterApiThresholdRuntimeService['ecdsaDerivationRoleLocalExportShare']
 >[0];
-type EcdsaHssRoleLocalExportShareResult = Awaited<
-  ReturnType<RouterApiThresholdRuntimeService['ecdsaHssRoleLocalExportShare']>
+type EcdsaDerivationRoleLocalExportShareResult = Awaited<
+  ReturnType<RouterApiThresholdRuntimeService['ecdsaDerivationRoleLocalExportShare']>
 >;
 
-type CloudflareD1ThresholdSigningRuntimeOptions = {
+type CloudflareD1RouterAbSigningRuntimeOptions = {
   readonly relayerAccount?: string | null;
   readonly relayerPublicKey?: string | null;
-  readonly thresholdSigningRuntimes?: ThresholdSigningRuntimeBundle | null;
+  readonly routerAbSigningRuntimes?: RouterAbSigningRuntimeBundle | null;
   readonly thresholdStore?: ThresholdStoreConfigInput | null;
   readonly auth: Pick<
-    CloudflareDurableObjectThresholdSigningAuthPort,
+    CloudflareDurableObjectRouterAbSigningAuthPort,
     'verifyWebAuthnAuthenticationLite'
   >;
 };
 
-type CloudflareD1ThresholdSigningRuntimeState =
+type CloudflareD1RouterAbSigningRuntimeState =
   | { readonly kind: 'uninitialized'; readonly runtimes?: never }
   | { readonly kind: 'unconfigured'; readonly runtimes?: never }
-  | { readonly kind: 'ready'; readonly runtimes: ThresholdSigningRuntimeBundle };
+  | { readonly kind: 'ready'; readonly runtimes: RouterAbSigningRuntimeBundle };
 
-export class CloudflareD1ThresholdSigningRuntime {
-  private state: CloudflareD1ThresholdSigningRuntimeState = { kind: 'uninitialized' };
+export class CloudflareD1RouterAbSigningRuntime {
+  private state: CloudflareD1RouterAbSigningRuntimeState = { kind: 'uninitialized' };
 
-  constructor(private readonly options: CloudflareD1ThresholdSigningRuntimeOptions) {}
-
-  getThresholdSigningService(): ThresholdSigningService | null {
-    const state = this.getRuntimeState();
-    return state.kind === 'ready' ? state.runtimes.thresholdSigningService : null;
-  }
+  constructor(private readonly options: CloudflareD1RouterAbSigningRuntimeOptions) {}
 
   getRouterAbNormalSigningRuntime(): RouterAbNormalSigningRuntime | null {
     const state = this.getRuntimeState();
-    return state.kind === 'ready' ? state.runtimes.routerAbNormalSigningRuntime : null;
+    return state.kind === 'ready' ? state.runtimes.normalSigning : null;
   }
 
   getRouterAbLocalSigningSeedRuntime(): RouterAbLocalSigningSeedRuntime | null {
     const state = this.getRuntimeState();
-    return state.kind === 'ready' ? state.runtimes.routerAbLocalSigningSeedRuntime : null;
+    return state.kind === 'ready' ? state.runtimes.localSigningSeed : null;
   }
 
-  getRouterAbEcdsaBootstrapExportRuntime(): RouterAbEcdsaBootstrapExportRuntime | null {
+  getRouterAbEcdsaBootstrapExportRuntime(): RouterAbEcdsaBootstrapExportPort | null {
     const state = this.getRuntimeState();
     if (state.kind !== 'ready') return null;
-    return state.runtimes.routerAbEcdsaBootstrapExportRuntime.kind === 'configured'
-      ? state.runtimes.routerAbEcdsaBootstrapExportRuntime.runtime
+    return state.runtimes.ecdsaBootstrapExport.kind === 'configured'
+      ? state.runtimes.ecdsaBootstrapExport.runtime
       : null;
   }
 
+  getRouterAbEcdsaPresignRuntime(): RouterAbEcdsaPresignRuntime | null {
+    const state = this.getRuntimeState();
+    return state.kind === 'ready' ? state.runtimes.ecdsaPresign : null;
+  }
+
   private getRuntimeState(): Exclude<
-    CloudflareD1ThresholdSigningRuntimeState,
+    CloudflareD1RouterAbSigningRuntimeState,
     { readonly kind: 'uninitialized' }
   > {
     if (this.state.kind === 'uninitialized') {
-      if (this.options.thresholdSigningRuntimes !== undefined) {
-        this.state = this.options.thresholdSigningRuntimes
-          ? { kind: 'ready', runtimes: this.options.thresholdSigningRuntimes }
+      if (this.options.routerAbSigningRuntimes !== undefined) {
+        this.state = this.options.routerAbSigningRuntimes
+          ? { kind: 'ready', runtimes: this.options.routerAbSigningRuntimes }
           : { kind: 'unconfigured' };
       } else if (!this.options.thresholdStore) {
         this.state = { kind: 'unconfigured' };
       } else {
         this.state = {
           kind: 'ready',
-          runtimes: createCloudflareDurableObjectThresholdSigningService({
+          runtimes: createCloudflareDurableObjectRouterAbSigningRuntimes({
             thresholdStore: this.options.thresholdStore,
             auth: {
               getRelayerAccount: this.getRelayerAccount.bind(this),
@@ -161,9 +161,9 @@ export class CloudflareD1ThresholdSigningRuntime {
     return await this.getThresholdRelayerAccount();
   }
 
-  async ecdsaHssRoleLocalBootstrap(
-    request: EcdsaHssRoleLocalBootstrapInput,
-  ): Promise<EcdsaHssRoleLocalBootstrapResult> {
+  async ecdsaDerivationRoleLocalBootstrap(
+    request: EcdsaDerivationRoleLocalBootstrapInput,
+  ): Promise<EcdsaDerivationRoleLocalBootstrapResult> {
     const runtime = this.getRouterAbEcdsaBootstrapExportRuntime();
     if (!runtime) {
       return {
@@ -172,12 +172,12 @@ export class CloudflareD1ThresholdSigningRuntime {
         message: 'Threshold signing service is not configured',
       };
     }
-    return await runtime.ecdsaHssRoleLocalBootstrap(request);
+    return await runtime.ecdsaDerivationRoleLocalBootstrap(request);
   }
 
-  async verifyEcdsaHssRoleLocalClientRootProofForExistingKey(
-    request: VerifyEcdsaHssRoleLocalClientRootProofForExistingKeyInput,
-  ): Promise<VerifyEcdsaHssRoleLocalClientRootProofForExistingKeyResult> {
+  async verifyEcdsaDerivationRoleLocalClientRootProofForExistingKey(
+    request: VerifyEcdsaDerivationRoleLocalClientRootProofForExistingKeyInput,
+  ): Promise<VerifyEcdsaDerivationRoleLocalClientRootProofForExistingKeyResult> {
     const runtime = this.getRouterAbEcdsaBootstrapExportRuntime();
     if (!runtime) {
       return {
@@ -186,12 +186,12 @@ export class CloudflareD1ThresholdSigningRuntime {
         message: 'Threshold signing service is not configured',
       };
     }
-    return await runtime.verifyEcdsaHssRoleLocalClientRootProofForExistingKey(request);
+    return await runtime.verifyEcdsaDerivationRoleLocalClientRootProofForExistingKey(request);
   }
 
-  async ecdsaHssRoleLocalExportShare(
-    input: EcdsaHssRoleLocalExportShareInput,
-  ): Promise<EcdsaHssRoleLocalExportShareResult> {
+  async ecdsaDerivationRoleLocalExportShare(
+    input: EcdsaDerivationRoleLocalExportShareInput,
+  ): Promise<EcdsaDerivationRoleLocalExportShareResult> {
     const runtime = this.getRouterAbEcdsaBootstrapExportRuntime();
     if (!runtime) {
       return {
@@ -200,7 +200,7 @@ export class CloudflareD1ThresholdSigningRuntime {
         message: 'Threshold signing service is not configured',
       };
     }
-    return await runtime.ecdsaHssRoleLocalExportShare(input);
+    return await runtime.ecdsaDerivationRoleLocalExportShare(input);
   }
 }
 

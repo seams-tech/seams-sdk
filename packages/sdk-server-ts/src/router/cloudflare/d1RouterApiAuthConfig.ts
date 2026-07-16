@@ -5,7 +5,7 @@ import type {
   EmailOtpChallengeOperation,
 } from '../../core/EmailOtpStores';
 import type { ThresholdStoreConfigInput } from '../../core/types';
-import type { ThresholdSigningRuntimeBundle } from '../../core/ThresholdService/createThresholdSigningService';
+import type { RouterAbSigningRuntimeBundle } from '../../core/routerAbSigning/createRouterAbSigningRuntimes';
 import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../routerAbEd25519YaoProductRegistration';
 import {
   formatSigningSessionSealKeyVersionForWire,
@@ -88,7 +88,7 @@ export interface CloudflareD1RouterApiAuthServiceOptions {
   readonly emailOtpGoogleRegistrationAttemptRateLimitMax?: number | string;
   readonly emailOtpGoogleRegistrationAttemptRateLimitWindowMs?: number | string;
   readonly thresholdStore?: ThresholdStoreConfigInput | null;
-  readonly thresholdSigningRuntimes?: ThresholdSigningRuntimeBundle | null;
+  readonly routerAbSigningRuntimes?: RouterAbSigningRuntimeBundle | null;
   readonly ed25519YaoProductRegistration?: RouterAbEd25519YaoProductRegistrationRuntimeV1 | null;
 }
 
@@ -165,7 +165,7 @@ export type NormalizedCloudflareD1RouterApiAuthServiceOptions = Omit<
   | 'emailOtpGoogleRegistrationAttemptRateLimitMax'
   | 'emailOtpGoogleRegistrationAttemptRateLimitWindowMs'
   | 'thresholdStore'
-  | 'thresholdSigningRuntimes'
+  | 'routerAbSigningRuntimes'
 > & {
   readonly relayerAccount?: string;
   readonly relayerPublicKey?: string;
@@ -179,7 +179,7 @@ export type NormalizedCloudflareD1RouterApiAuthServiceOptions = Omit<
   readonly emailOtp: EmailOtpRuntimeConfig;
   readonly emailOtpServerSeal: EmailOtpServerSealRuntimeConfig;
   readonly thresholdStore?: ThresholdStoreConfigInput | null;
-  readonly thresholdSigningRuntimes?: ThresholdSigningRuntimeBundle | null;
+  readonly routerAbSigningRuntimes?: RouterAbSigningRuntimeBundle | null;
 };
 
 export function requireD1RouterApiAuthScopeString(input: unknown, field: string): string {
@@ -233,7 +233,7 @@ export function normalizeD1RouterApiAuthOptions(
     emailOtp: normalizeEmailOtpConfig(input),
     emailOtpServerSeal: normalizeEmailOtpServerSealConfig(input),
     thresholdStore: input.thresholdStore,
-    thresholdSigningRuntimes: input.thresholdSigningRuntimes,
+    routerAbSigningRuntimes: input.routerAbSigningRuntimes,
     ed25519YaoProductRegistration: input.ed25519YaoProductRegistration,
   };
 }
