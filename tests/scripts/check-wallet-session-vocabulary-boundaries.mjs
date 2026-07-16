@@ -22,10 +22,9 @@ const activeDocPaths = [
   'docs/refactor-68-wallet-session-v2.md',
   'docs/router-a-b-cleanup.md',
   'docs/router-a-b-SPEC.md',
-  'docs/refactor-74-login-no-hss.md',
   'docs/signing-session-architecture/README.md',
   'docs/signing-session-architecture/sealed-refresh.md',
-  'docs/threshold-ecdsa/ecdsa-hss-v2-integration.md',
+  'docs/threshold-ecdsa/ecdsa-threshold-signing.md',
 ];
 const activeSigningPaths = [
   'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts',
@@ -35,7 +34,7 @@ const activeSigningPaths = [
   'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/readySecp256k1Material.ts',
   'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signers/secp256k1.ts',
   'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signingFlowRuntime.ts',
-  'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaHss/presignaturePool.ts',
+  'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaDerivation/presignaturePool.ts',
   'packages/sdk-web/src/core/signingEngine/flows/signNear/signNear.ts',
   'packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts',
   'packages/sdk-web/src/core/signingEngine/flows/signNear/signDelegate.ts',
@@ -63,10 +62,14 @@ const classifiedSessionIdPublicSurfaceFiles = {
   'packages/sdk-server-ts/src/core/RecoveryExecutionStore.ts':
     'keep_app_device_or_recovery_session',
   'packages/sdk-server-ts/src/core/RecoverySessionStore.ts': 'keep_app_device_or_recovery_session',
+  'packages/sdk-server-ts/src/core/RegistrationCeremonyStore.ts':
+    'keep_ed25519_yao_protocol_session',
   'packages/sdk-server-ts/src/core/types.ts': 'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-server-ts/src/router/authServicePort.ts': 'keep_app_device_or_recovery_session',
   'packages/sdk-server-ts/src/router/recoveryExecutionTracking.ts':
     'keep_app_device_or_recovery_session',
+  'packages/sdk-server-ts/src/router/routerAbEd25519YaoRegistration.ts':
+    'keep_ed25519_yao_protocol_session',
   'packages/sdk-web/src/SeamsWeb/signingSurface/ports.ts':
     'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts':
@@ -93,7 +96,7 @@ const classifiedSessionIdPublicSurfaceFiles = {
     'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-web/src/core/signingEngine/interfaces/signing.ts':
     'rename_later_agent_b_signing_or_wasm',
-  'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaHss/presignaturePool.ts':
+  'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaDerivation/presignaturePool.ts':
     'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-web/src/core/signingEngine/session/availability/persistedAvailableSigningLanes.ts':
     'rename_later_agent_b_signing_or_wasm',
@@ -101,6 +104,8 @@ const classifiedSessionIdPublicSurfaceFiles = {
     'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaRecovery.ts':
     'rename_later_agent_b_signing_or_wasm',
+  'packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoBudgetRecovery.ts':
+    'rename_to_threshold_session_id',
   'packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519Warmup.ts':
     'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-web/src/core/signingEngine/session/emailOtp/ports.ts':
@@ -113,12 +118,14 @@ const classifiedSessionIdPublicSurfaceFiles = {
     'keep_email_otp_worker_session',
   'packages/sdk-web/src/core/signingEngine/session/emailOtp/warmSessionRuntime.ts':
     'rename_later_agent_b_signing_or_wasm',
-  'packages/sdk-web/src/core/signingEngine/session/identity/emailOtpHssIdentity.ts':
-    'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.ts':
     'keep_email_otp_worker_session',
+  'packages/sdk-web/src/core/signingEngine/session/identity/emailOtpEcdsaDerivationIdentity.ts':
+    'forbidden_never_field',
   'packages/sdk-web/src/core/signingEngine/session/passkey/prfCache.ts':
     'rename_later_agent_b_signing_or_wasm',
+  'packages/sdk-web/src/core/signingEngine/session/passkey/ed25519YaoSealedSession.ts':
+    'rename_to_threshold_session_id',
   'packages/sdk-web/src/core/signingEngine/session/passkey/warmSessionMaterialWriter.ts':
     'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-web/src/core/signingEngine/session/passkey/warmSessionHydration.ts':
@@ -153,7 +160,7 @@ const classifiedSessionIdPublicSurfaceFiles = {
   'packages/sdk-web/src/core/types/seams.ts': 'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-web/src/core/types/secure-confirm-worker.ts': 'keep_secureconfirm_session',
   'packages/sdk-web/src/core/types/signer-worker.ts': 'rename_later_agent_b_signing_or_wasm',
-  'packages/shared-ts/src/threshold/ecdsaHssRoleLocalBootstrap.ts':
+  'packages/shared-ts/src/threshold/ecdsaDerivationRoleLocalBootstrap.ts':
     'rename_later_agent_b_signing_or_wasm',
 };
 const classifiedSessionIdBoundaryFiles = {
@@ -296,9 +303,9 @@ function checkActiveSourcesAvoidOldSigningGrantNames() {
 function checkRouterAbWalletSessionJwtPayloadsUseThresholdSessionId() {
   const jwtKindMarkers = [
     'ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND',
-    'ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND',
+    'ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND',
     'router_ab_ed25519_wallet_session_v1',
-    'router_ab_ecdsa_hss_wallet_session_v1',
+    'router_ab_ecdsa_derivation_wallet_session_v1',
   ];
   const offenders = [];
   for (const file of activeSourceFiles()) {

@@ -5,14 +5,13 @@ import type { D1DatabaseLike } from '../../../packages/sdk-server-ts/src/storage
 import type {
   CloudflareDurableObjectNamespaceLike,
   CloudflareDurableObjectStubLike,
-  EcdsaHssClientBootstrapRequest,
-  EcdsaHssServerBootstrapResponse,
+  EcdsaDerivationClientBootstrapRequest,
+  EcdsaDerivationServerBootstrapResponse,
 } from '../../../packages/sdk-server-ts/src/core/types';
 import type {
   WalletRegistrationEcdsaClientBootstrap,
   WalletRegistrationEcdsaPreparePayload,
 } from '../../../packages/sdk-server-ts/src/core/registrationContracts';
-import type { ThresholdSigningService } from '../../../packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService';
 import type {
   CloudflareD1EmailOtpDeliveryProviderInput,
   CloudflareD1EmailOtpDeliveryProviderResult,
@@ -40,7 +39,7 @@ import {
 import {
   secp256k1PrivateKey32ToPublicKey33,
   signSecp256k1Recoverable,
-} from '../../../packages/sdk-server-ts/src/core/ThresholdService/ethSignerWasm';
+} from '../../../packages/sdk-server-ts/src/core/ThresholdService/evmCryptoWasm';
 import { createSigningSessionSealShamir3PassBigIntRuntime } from '../../../packages/sdk-server-ts/src/threshold/session/signingSessionSeal/crypto/cipher';
 import {
   applyD1MigrationFiles,
@@ -51,9 +50,9 @@ import {
 
 export type SqliteJsonRow = Record<string, unknown>;
 export type TestEcdsaClientSharePublicKey =
-  WalletRegistrationEcdsaClientBootstrap['hssClientSharePublicKey33B64u'];
+  WalletRegistrationEcdsaClientBootstrap['derivationClientSharePublicKey33B64u'];
 export type TestEcdsaRelayerPublicKey =
-  EcdsaHssServerBootstrapResponse['publicIdentity']['relayerPublicKey33B64u'];
+  EcdsaDerivationServerBootstrapResponse['publicIdentity']['relayerPublicKey33B64u'];
 
 export const EMAIL_OTP_SERVER_SEAL_KEY_VERSION = 'kek-s-email-otp-test';
 export const EMAIL_OTP_SHAMIR_PRIME_B64U = encodePositiveBigIntB64u(257n);
@@ -411,7 +410,7 @@ export function testEcdsaClientBootstrap(
     ...(prepare.registrationPreparationId
       ? { registrationPreparationId: prepare.registrationPreparationId }
       : {}),
-    hssClientSharePublicKey33B64u: 'test-client-share-public-key' as TestEcdsaClientSharePublicKey,
+    derivationClientSharePublicKey33B64u: 'test-client-share-public-key' as TestEcdsaClientSharePublicKey,
     clientShareRetryCounter: 0,
     contextBinding32B64u: 'test-context-binding-32',
     requestId: prepare.requestId,
@@ -442,11 +441,11 @@ export function testEcdsaClientBootstrapTargets(ecdsa: WalletRegistrationEcdsaPr
 }
 
 export function testEcdsaServerBootstrapResponse(
-  request: EcdsaHssClientBootstrapRequest,
-): EcdsaHssServerBootstrapResponse {
+  request: EcdsaDerivationClientBootstrapRequest,
+): EcdsaDerivationServerBootstrapResponse {
   const expiresAtMs = Date.now() + 10 * 60_000;
   return {
-    formatVersion: 'ecdsa-hss-role-local',
+    formatVersion: 'ecdsa-derivation-role-local',
     walletId: request.walletId,
     evmFamilySigningKeySlotId: request.evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId: request.ecdsaThresholdKeyId,
@@ -454,7 +453,7 @@ export function testEcdsaServerBootstrapResponse(
     applicationBindingDigestB64u: 'test-application-binding-digest',
     contextBinding32B64u: request.contextBinding32B64u,
     publicIdentity: {
-      hssClientSharePublicKey33B64u: request.hssClientSharePublicKey33B64u,
+      derivationClientSharePublicKey33B64u: request.derivationClientSharePublicKey33B64u,
       relayerPublicKey33B64u: 'test-relayer-public-key' as TestEcdsaRelayerPublicKey,
       groupPublicKey33B64u: 'test-group-public-key',
       ethereumAddress: '0x0000000000000000000000000000000000000001',
@@ -476,53 +475,6 @@ export function testEcdsaServerBootstrapResponse(
     remainingUses: request.remainingUses,
   };
 }
-
-export async function testEd25519RegistrationKeygenFromRegistrationMaterial() {
-  return {
-    ok: true as const,
-    clientParticipantId: 1,
-    relayerParticipantId: 2,
-    participantIds: [1, 2],
-    relayerKeyId: 'combined-test-relayer-key',
-    publicKey: 'ed25519:combined-test-public-key',
-    keyVersion: 'router-ab-ed25519-yao-v1',
-    recoveryExportCapable: true as const,
-    relayerVerifyingShareB64u: 'combined-test-relayer-verifying-share',
-  };
-}
-
-export async function testEcdsaHssRoleLocalBootstrap(request: EcdsaHssClientBootstrapRequest) {
-  return {
-    ok: true as const,
-    value: testEcdsaServerBootstrapResponse(request),
-  };
-}
-
-export function testGetCombinedRegistrationSchemeModule(schemeId: string) {
-  if (schemeId !== 'threshold-ed25519-frost-2p-v1') return null;
-  return {
-    schemeId: 'threshold-ed25519-frost-2p-v1',
-    protocol: {},
-    healthz: testThresholdSchemeHealthz,
-    session: testThresholdSchemeSession,
-    registration: {
-      keygenFromRegistrationMaterial: testEd25519RegistrationKeygenFromRegistrationMaterial,
-    },
-  };
-}
-
-export async function testThresholdSchemeHealthz() {
-  return { ok: true };
-}
-
-export async function testThresholdSchemeSession() {
-  return { ok: false as const, code: 'unsupported', message: 'not used by this test' };
-}
-
-export const testCombinedRegistrationThresholdSigningService = {
-  ecdsaHssRoleLocalBootstrap: testEcdsaHssRoleLocalBootstrap,
-  getSchemeModule: testGetCombinedRegistrationSchemeModule,
-} as unknown as ThresholdSigningService;
 
 export function utf8Bytes(input: string): Uint8Array {
   return new TextEncoder().encode(input);

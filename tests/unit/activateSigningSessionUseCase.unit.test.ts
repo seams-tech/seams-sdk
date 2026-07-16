@@ -25,11 +25,11 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
-  toEcdsaHssSigningRootId,
-  toEcdsaHssSigningRootVersion,
-  toEcdsaHssThresholdKeyId,
+  toEcdsaDerivationSigningRootId,
+  toEcdsaDerivationSigningRootVersion,
+  toEcdsaDerivationThresholdKeyId,
   toEmailOtpAuthSubjectId,
-} from '@/core/signingEngine/session/identity/emailOtpHssIdentity';
+} from '@/core/signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
 import {
   createActivateSigningSessionUseCase,
   type ActivateSigningSessionDeps,
@@ -97,9 +97,9 @@ const otherChainTarget = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'tempo',
   chainId: 42432,
 });
-const ecdsaThresholdKeyId = toEcdsaHssThresholdKeyId('ecdsa-threshold-key');
-const signingRootId = toEcdsaHssSigningRootId('root');
-const signingRootVersion = toEcdsaHssSigningRootVersion('v1');
+const ecdsaThresholdKeyId = toEcdsaDerivationThresholdKeyId('ecdsa-threshold-key');
+const signingRootId = toEcdsaDerivationSigningRootId('root');
+const signingRootVersion = toEcdsaDerivationSigningRootVersion('v1');
 const walletKeyId = deriveEvmFamilySigningKeySlotId({
   walletId,
   signingRootId,
@@ -182,7 +182,7 @@ function publicFacts(target: ThresholdEcdsaChainTarget) {
     clientParticipantId: 1,
     relayerParticipantId: 2,
     participantIds: [1, 2],
-    hssClientSharePublicKey33B64u: compressedSecp256k1PublicKeyB64u(8),
+    derivationClientSharePublicKey33B64u: compressedSecp256k1PublicKeyB64u(8),
     relayerPublicKey33B64u: compressedSecp256k1PublicKeyB64u(10),
     groupPublicKey33B64u: compressedSecp256k1PublicKeyB64u(11),
     ethereumAddress: '0x1111111111111111111111111111111111111111',

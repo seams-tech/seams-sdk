@@ -97,51 +97,51 @@ function checkRouterAbServerWalletSessionIssuerUsesExactClaimBuilders() {
     'function buildRouterAbEd25519WalletSessionClaims(',
     '): RouterAbEd25519WalletSessionClaims {',
     'const claims = buildRouterAbEd25519WalletSessionClaims({',
-    'function buildRouterAbEcdsaHssWalletSessionClaims(',
-    'const claims: RouterAbEcdsaHssWalletSessionClaims = {',
-    'const claims = buildRouterAbEcdsaHssWalletSessionClaims({',
+    'function buildRouterAbEcdsaDerivationWalletSessionClaims(',
+    'const claims: RouterAbEcdsaDerivationWalletSessionClaims = {',
+    'const claims = buildRouterAbEcdsaDerivationWalletSessionClaims({',
   ]) {
     assert.ok(source.includes(marker), `commonRouterUtils.ts missing ${marker}`);
   }
 }
 
-function checkRouterAbEcdsaHssScopeComparisonUsesCanonicalProtocolBytes() {
+function checkRouterAbEcdsaDerivationScopeComparisonUsesCanonicalProtocolBytes() {
   const guardedFiles = [
-    'packages/shared-ts/src/utils/routerAbEcdsaHss.ts',
+    'packages/shared-ts/src/utils/routerAbEcdsaDerivation.ts',
     'packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker.ts',
-    'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaHss/presignaturePool.ts',
+    'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaDerivation/presignaturePool.ts',
   ];
   const forbiddenMarkers = [
     'JSON.stringify(left) === JSON.stringify(right)',
     'sameNormalSigningScope(',
-    'sameEcdsaHssNormalSigningScope(',
+    'sameEcdsaDerivationNormalSigningScope(',
   ];
   const offenders = collectForbiddenMarkerOffenders(guardedFiles, forbiddenMarkers);
 
-  assertNoOffenders('Router A/B ECDSA-HSS scope comparison must use canonical bytes', offenders);
+  assertNoOffenders('Router A/B ECDSA derivation scope comparison must use canonical bytes', offenders);
   assert.ok(
-    readRepoFile('packages/shared-ts/src/utils/routerAbEcdsaHss.ts').includes(
-      'routerAbEcdsaHssNormalSigningScopeCanonicalBytesV1',
+    readRepoFile('packages/shared-ts/src/utils/routerAbEcdsaDerivation.ts').includes(
+      'routerAbEcdsaDerivationNormalSigningScopeCanonicalBytesV1',
     ),
-    'routerAbEcdsaHss.ts missing canonical-byte helper',
+    'routerAbEcdsaDerivation.ts missing canonical-byte helper',
   );
   assert.ok(
     readRepoFile('packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker.ts').includes(
-      'sameRouterAbEcdsaHssNormalSigningScopeV1',
+      'sameRouterAbEcdsaDerivationNormalSigningScopeV1',
     ),
     'routerAbPrivateSigningWorker.ts missing canonical scope comparison',
   );
   assert.ok(
     readRepoFile(
-      'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaHss/presignaturePool.ts',
-    ).includes('routerAbEcdsaHssNormalSigningScopeCanonicalBytesV1'),
+      'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaDerivation/presignaturePool.ts',
+    ).includes('routerAbEcdsaDerivationNormalSigningScopeCanonicalBytesV1'),
     'presignaturePool.ts missing canonical-byte helper',
   );
 }
 
 function checkRouterAbPrivateServiceJsonCallsUseSharedInternalAuthHelper() {
   const guardedFiles = [
-    'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaHssPresignBridge.ts',
+    'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaDerivationPresignBridge.ts',
     'packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker.ts',
   ];
   const forbiddenMarkers = [
@@ -165,7 +165,7 @@ function checkRouterAbPrivateServiceJsonCallsUseSharedInternalAuthHelper() {
 
 checkActiveSigningCapableServerCodeRejectsLegacyClaimKinds();
 checkRouterAbServerWalletSessionIssuerUsesExactClaimBuilders();
-checkRouterAbEcdsaHssScopeComparisonUsesCanonicalProtocolBytes();
+checkRouterAbEcdsaDerivationScopeComparisonUsesCanonicalProtocolBytes();
 checkRouterAbPrivateServiceJsonCallsUseSharedInternalAuthHelper();
 
 console.log('[check-router-ab-server-wallet-session-claim-boundaries] passed');

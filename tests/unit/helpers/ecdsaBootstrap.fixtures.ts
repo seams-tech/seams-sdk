@@ -15,11 +15,11 @@ import {
 } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
-import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
+import { ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import {
-  ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
-  type RouterAbEcdsaHssNormalSigningStateV1,
-} from '@shared/utils/routerAbEcdsaHss';
+  ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
+  type RouterAbEcdsaDerivationNormalSigningStateV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import { testEcdsaChainId, testEcdsaChainTarget } from './ecdsaChainTarget.fixtures';
 
 const VALID_ECDSA_PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
@@ -30,7 +30,7 @@ function hexAddressToBase64Url(address: string): string {
   return Buffer.from(address.replace(/^0x/i, ''), 'hex').toString('base64url');
 }
 
-function fixtureRouterAbEcdsaHssNormalSigning(args: {
+function fixtureRouterAbEcdsaDerivationNormalSigning(args: {
   walletId: string;
   walletKeyId: string;
   ecdsaThresholdKeyId: string;
@@ -40,9 +40,9 @@ function fixtureRouterAbEcdsaHssNormalSigning(args: {
   clientVerifyingShareB64u: string;
   thresholdEcdsaPublicKeyB64u: string;
   ethereumAddress: string;
-}): RouterAbEcdsaHssNormalSigningStateV1 {
+}): RouterAbEcdsaDerivationNormalSigningStateV1 {
   return {
-    kind: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
+    kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
     scope: {
       wallet_key_id: args.walletKeyId,
       wallet_id: args.walletId,
@@ -54,7 +54,7 @@ function fixtureRouterAbEcdsaHssNormalSigning(args: {
       },
       public_identity: {
         context_binding_b64u: VALID_ECDSA_SHARE32_B64U,
-        client_public_key33_b64u: args.clientVerifyingShareB64u,
+        derivation_client_share_public_key33_b64u: args.clientVerifyingShareB64u,
         server_public_key33_b64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
         threshold_public_key33_b64u: args.thresholdEcdsaPublicKeyB64u,
         ethereum_address20_b64u: hexAddressToBase64Url(args.ethereumAddress),
@@ -114,7 +114,7 @@ export function createThresholdEcdsaBootstrapFixture(args: {
   const ecdsaThresholdKeyId = parseEcdsaThresholdKeyId(
     String(args.ecdsaThresholdKeyId || 'ek-shared-1').trim(),
   );
-  const keyHandle = String(args.keyHandle || `ehss-key-${ecdsaThresholdKeyId}`).trim();
+  const keyHandle = String(args.keyHandle || `ederivation-key-${ecdsaThresholdKeyId}`).trim();
   const sessionId = String(args.sessionId || `sess-${chainLabel}-1`).trim();
   const sessionKind = args.sessionKind || 'jwt';
   const relayerUrl = String(args.relayerUrl || 'https://relay.example').trim();
@@ -170,7 +170,7 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       participantIds,
       contextBinding32B64u: VALID_ECDSA_SHARE32_B64U,
       applicationBindingDigestB64u: VALID_ECDSA_SHARE32_B64U,
-      hssClientSharePublicKey33B64u: clientVerifyingShareB64u,
+      derivationClientSharePublicKey33B64u: clientVerifyingShareB64u,
       relayerPublicKey33B64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
       groupPublicKey33B64u: VALID_ECDSA_PUBLIC_KEY_B64U,
       ethereumAddress,
@@ -212,7 +212,7 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       thresholdSessionId: sessionId,
       signingGrantId,
       ...(walletSessionJwt ? { walletSessionJwt } : {}),
-      routerAbEcdsaHssNormalSigning: fixtureRouterAbEcdsaHssNormalSigning({
+      routerAbEcdsaDerivationNormalSigning: fixtureRouterAbEcdsaDerivationNormalSigning({
         walletId: args.nearAccountId,
         walletKeyId: evmFamilySigningKeySlotId,
         ecdsaThresholdKeyId,
@@ -273,7 +273,7 @@ function toFixtureWalletSessionJwt(
     JSON.stringify({
       sub: args.nearAccountId,
       walletId: args.nearAccountId,
-      kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+      kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
       thresholdSessionId: args.sessionId,
       signingGrantId: args.signingGrantId,
       subjectId: args.nearAccountId,

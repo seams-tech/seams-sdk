@@ -18,6 +18,35 @@ import {
   createThresholdEcdsaStoreFixture,
 } from './helpers/signingSessionRecord.fixtures';
 import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
+import type { SigningSessionBudgetStatusCheck } from '@/core/signingEngine/session/budget/budget';
+import type { SigningSessionStatus } from '@/core/types/seams';
+
+async function exhaustedEcdsaSharedWalletBudgetStatus(
+  check: SigningSessionBudgetStatusCheck,
+): Promise<SigningSessionStatus> {
+  expect(check).toMatchObject({
+    kind: 'authenticated_ecdsa_lane_budget_status_check',
+    trustedStatusAuth: {
+      relayerUrl: expect.any(String),
+      thresholdSessionId: expect.any(String),
+      walletSessionJwt: expect.any(String),
+    },
+  });
+  return {
+    sessionId: String(check.signingGrantId),
+    status: 'exhausted',
+    remainingUses: 0,
+    expiresAtMs: Date.now() + 60_000,
+  };
+}
+
+async function activeEcdsaWarmSessionStatus() {
+  return {
+    ok: true as const,
+    remainingUses: 3,
+    expiresAtMs: Date.now() + 60_000,
+  };
+}
 
 function createBootstrapStore() {
   return {
@@ -222,6 +251,36 @@ test.describe('Email OTP ECDSA bootstrap commit', () => {
       thresholdSessionId: bootstrap.session.thresholdSessionId,
       signingGrantId: bootstrap.session.signingGrantId,
       remainingUses: 3,
+    });
+
+    const exhaustedLanes = await readPersistedAvailableSigningLanesForTargets(
+      {
+        ecdsaSessions,
+        statusReader: {
+          getWarmSessionStatus: async () => ({
+            ok: false,
+            code: 'not_found',
+            message: 'passkey status is not used for Email OTP ECDSA',
+          }),
+        },
+        getEmailOtpWarmSessionStatus: activeEcdsaWarmSessionStatus,
+        getWalletSigningBudgetStatus: exhaustedEcdsaSharedWalletBudgetStatus,
+      },
+      {
+        walletId,
+        authMethod: 'email_otp',
+        ecdsaChainTargets: [chainTarget],
+      },
+    );
+
+    expect(
+      exhaustedLanes.ecdsa.lanesByTarget[thresholdEcdsaChainTargetKey(chainTarget)],
+    ).toMatchObject({
+      curve: 'ecdsa',
+      state: 'exhausted',
+      remainingUses: 0,
+      thresholdSessionId: bootstrap.session.thresholdSessionId,
+      signingGrantId: bootstrap.session.signingGrantId,
     });
   });
 

@@ -295,7 +295,7 @@ test.describe('warmSessionReadModel', () => {
       nearAccountId: 'missing-router-ab-ecdsa.testnet',
       chain: 'evm',
     });
-    delete ecdsaRecord.routerAbEcdsaHssNormalSigning;
+    delete ecdsaRecord.routerAbEcdsaDerivationNormalSigning;
 
     expect(
       deriveEcdsaCapabilityState({

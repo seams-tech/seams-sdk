@@ -48,7 +48,7 @@ import {
   insertSignerWallet,
   insertWalletAuthMethod,
 } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
-import { createThresholdSigningServiceForUnitTests } from '../helpers/thresholdServiceTestUtils';
+import { createRouterAbSigningRuntimesForUnitTests } from '../helpers/routerAbSigningRuntimeTestUtils';
 
 const WALLET_ID = walletIdFromString('wallet-email-yao-1.testnet');
 const ORG_ID = 'org-email-yao';
@@ -334,7 +334,7 @@ class RecordingRecoveryRuntime implements RouterAbEd25519YaoProductRegistrationR
     input: RouterAbEd25519YaoWalletSessionMintInputV1,
   ): ReturnType<RouterAbEd25519YaoProductRegistrationRuntimeV1['mintWalletSession']> {
     this.mintCalls.push(input);
-    const freshGrant = `fresh-signing-grant-${this.mintCalls.length}`;
+    const signingGrantId = `fresh-signing-grant-${this.mintCalls.length}`;
     const authorityScope = thresholdEd25519AuthorityScopeFromWalletAuthAuthority(input.authority);
     const signingRoot = signingRootScopeFromRuntimePolicyScope(input.runtimePolicyScope);
     return {
@@ -347,11 +347,11 @@ class RecordingRecoveryRuntime implements RouterAbEd25519YaoProductRegistrationR
         nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
         authorityScope,
         thresholdSessionId: input.thresholdSessionId,
-        signingGrantId: freshGrant,
+        signingGrantId,
         expiresAtMs: Date.now() + 60_000,
         participantIds: input.participantIds,
         remainingUses:
-          input.kind === 'email_otp_recovery_wallet_session_v1' ? input.remainingUses : 3,
+          input.kind === 'shared_email_otp_recovery_wallet_session_v1' ? input.remainingUses : 3,
         signingRootId: signingRoot.signingRootId,
         signingRootVersion: ROOT_VERSION,
         runtimePolicyScope: input.runtimePolicyScope,
@@ -417,7 +417,6 @@ async function seedRecoveryWallet(input: {
       nearAccountId: NEAR_ACCOUNT_ID,
       nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
       thresholdSessionId: THRESHOLD_SESSION_ID,
-      signingGrantId: 'existing-signing-grant-email-yao',
       signerSlot: SIGNER_SLOT,
       publicKey: ed25519NearPublicKeyFromBytes(REGISTERED_PUBLIC_KEY),
       signingWorkerId: SIGNING_WORKER_ID,
@@ -437,7 +436,7 @@ function createRecoveryService(input: {
   readonly namespace: string;
   readonly runtime: RouterAbEd25519YaoProductRegistrationRuntimeV1;
 }) {
-  const threshold = createThresholdSigningServiceForUnitTests({
+  const threshold = createRouterAbSigningRuntimesForUnitTests({
     config: { ROUTER_AB_NORMAL_SIGNING_WORKER_ID: SIGNING_WORKER_ID },
   });
   const service = createCloudflareD1RouterApiAuthService({
@@ -446,15 +445,7 @@ function createRecoveryService(input: {
     orgId: ORG_ID,
     projectId: PROJECT_ID,
     envId: ENV_ID,
-    thresholdSigningRuntimes: {
-      thresholdSigningService: threshold.svc,
-      routerAbNormalSigningRuntime: threshold.routerAbNormalSigningRuntime,
-      routerAbLocalSigningSeedRuntime: threshold.routerAbLocalSigningSeedRuntime,
-      routerAbEcdsaBootstrapExportRuntime: {
-        kind: 'configured',
-        runtime: threshold.routerAbEcdsaBootstrapExportRuntime,
-      },
-    },
+    routerAbSigningRuntimes: threshold.runtimes,
     ed25519YaoProductRegistration: input.runtime,
   });
   return {
@@ -492,6 +483,23 @@ test('parses only the fresh Email OTP Ed25519 Yao recovery augmentation', () => 
       message: 'Unsupported ed25519YaoRecovery field: walletSessionAuth',
     },
   });
+
+  const substitutedBudget = unlockBodyFixture();
+  const substitutedRecovery = substitutedBudget.ed25519YaoRecovery as Record<string, unknown>;
+  substitutedRecovery.signingBudget = {
+    signingGrantId: 'attacker-selected-grant',
+    ttlMs: 86_400_000,
+    remainingUses: 999,
+  };
+  expect(parseWalletUnlockEd25519YaoRequest(substitutedBudget)).toEqual({
+    ok: false,
+    status: 400,
+    body: {
+      ok: false,
+      code: 'invalid_body',
+      message: 'Unsupported ed25519YaoRecovery field: signingBudget',
+    },
+  });
 });
 
 test('verified Email OTP recovery forwards the fresh subject without bearer session state', async () => {
@@ -527,7 +535,7 @@ test('verified Email OTP recovery forwards the fresh subject without bearer sess
   });
 });
 
-test('D1 recovery resolves the exact signer and capability, then provisions a fresh grant', async () => {
+test('D1 recovery issues the authoritative mixed-wallet signing grant', async () => {
   const temporary = createTemporaryD1Database();
   const namespace = 'wallet-unlock-email-yao-success';
   try {
@@ -547,12 +555,7 @@ test('D1 recovery resolves the exact signer and capability, then provisions a fr
       await service.walletRegistration.recoverEd25519YaoEmailOtpWalletSession(
         recoveryRequestFixture(),
       );
-    const second =
-      await service.walletRegistration.recoverEd25519YaoEmailOtpWalletSession(
-        recoveryRequestFixture(),
-      );
     if (!first.ok) throw new Error(JSON.stringify(first));
-    if (!second.ok) throw new Error(JSON.stringify(second));
     expect(first).toMatchObject({
       ok: true,
       session: {
@@ -561,10 +564,6 @@ test('D1 recovery resolves the exact signer and capability, then provisions a fr
         signingGrantId: 'fresh-signing-grant-1',
         remainingUses: REQUESTED_REMAINING_USES,
       },
-    });
-    expect(second).toMatchObject({
-      ok: true,
-      session: { signingGrantId: 'fresh-signing-grant-2' },
     });
     expect(runtime.capabilityLookups).toEqual([
       {
@@ -576,37 +575,17 @@ test('D1 recovery resolves the exact signer and capability, then provisions a fr
         signingWorkerId: SIGNING_WORKER_ID,
         participantIds: PARTICIPANT_IDS,
       },
-      {
-        kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
-        walletId: WALLET_ID,
-        nearAccountId: NEAR_ACCOUNT_ID,
-        nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
-        signerSlot: SIGNER_SLOT,
-        signingWorkerId: SIGNING_WORKER_ID,
-        participantIds: PARTICIPANT_IDS,
-      },
     ]);
-    expect(runtime.mintCalls).toHaveLength(2);
+    expect(runtime.mintCalls).toHaveLength(1);
     expect(runtime.mintCalls[0]).toMatchObject({
-      kind: 'email_otp_recovery_wallet_session_v1',
+      kind: 'shared_email_otp_recovery_wallet_session_v1',
       walletId: WALLET_ID,
       thresholdSessionId: THRESHOLD_SESSION_ID,
       remainingUses: REQUESTED_REMAINING_USES,
     });
-    expect(Object.prototype.hasOwnProperty.call(runtime.mintCalls[0], 'signingGrantId')).toBe(
-      false,
-    );
+    expect(runtime.mintCalls[0]).not.toHaveProperty('signingGrantId');
     await expect(
       fixture.routerAbNormalSigningRuntime.getSigningGrantBudget('fresh-signing-grant-1'),
-    ).resolves.toMatchObject({
-      walletId: WALLET_ID,
-      bindings: {
-        kind: 'ed25519_only',
-        ed25519: { participantIds: PARTICIPANT_IDS },
-      },
-    });
-    await expect(
-      fixture.routerAbNormalSigningRuntime.getSigningGrantBudget('fresh-signing-grant-2'),
     ).resolves.toMatchObject({
       walletId: WALLET_ID,
       bindings: {

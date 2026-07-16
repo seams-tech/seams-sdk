@@ -9,6 +9,7 @@ import type {
   WalletRecord,
 } from '../../packages/sdk-server-ts/src/core/WalletStore';
 import { CloudflareD1WalletRegistrationCommitStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1WalletRegistrationCommitStore';
+import { CloudflareD1WebAuthnStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1WebAuthnStore';
 import type { D1DatabaseLike } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import {
@@ -163,6 +164,21 @@ test('D1 registration commit stores a mixed Ed25519 and ECDSA wallet atomically'
     ]);
     await expect(countRows(database, 'webauthn_authenticators')).resolves.toBe(1);
     await expect(countRows(database, 'webauthn_credential_bindings')).resolves.toBe(1);
+
+    const webAuthnStore = new CloudflareD1WebAuthnStore({
+      database,
+      ...TEST_SCOPE,
+    });
+    await expect(
+      webAuthnStore.readAuthenticator({
+        userId: walletId,
+        credentialIdB64u: 'credential-a',
+      }),
+    ).resolves.toMatchObject({
+      credentialIdB64u: 'credential-a',
+      credentialPublicKeyB64u: 'credential-public-key-a',
+      counter: 0,
+    });
 
     const bindingRow = await database
       .prepare('SELECT record_json FROM webauthn_credential_bindings LIMIT 1')

@@ -17,13 +17,13 @@ function sourceBetween(source: string, start: string, end: string): string {
   return source.slice(startIndex, endIndex);
 }
 
-test('ECDSA HSS client worker rejects raw secret fields for every request', () => {
+test('ECDSA derivation client worker rejects raw secret fields for every request', () => {
   const source = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/workerManager/workers/ecdsa-hss-client.worker.ts',
+    'packages/sdk-web/src/core/signingEngine/workerManager/workers/ecdsa-derivation-client.worker.ts',
   );
   const fieldPolicy = sourceBetween(
     source,
-    'function forbiddenSecretFieldsForHssWorkerRequest',
+    'function forbiddenSecretFieldsForEcdsaDerivationWorkerRequest',
     'function assertNoPrfSecretsInSignerPayload',
   );
 

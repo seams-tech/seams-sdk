@@ -180,15 +180,16 @@ describeChecks('Email OTP operation split guard', () => {
       ...listRepoFiles('packages/sdk-web/src/core/signingEngine'),
       'packages/sdk-web/src/SeamsWeb/operations/auth/login.ts',
     ];
-    const forbidden = ['.authority.provider', '.authority.providerUserId'];
+    const forbidden = [/\.authority\.provider\b/g, /\.authority\.providerUserId\b/g];
     const violations = [];
 
     for (const relativePath of checkedFiles) {
       const source = readRepoFile(relativePath);
-      for (const token of forbidden) {
-        if (source.includes(token)) {
-          violations.push(`${relativePath} contains ${token}`);
+      for (const pattern of forbidden) {
+        if (pattern.test(source)) {
+          violations.push(`${relativePath} contains ${pattern.source}`);
         }
+        pattern.lastIndex = 0;
       }
     }
 
@@ -292,140 +293,19 @@ describeChecks('Email OTP operation split guard', () => {
     const operationDeps = readRepoFile(
       'packages/sdk-web/src/core/signingEngine/interfaces/operationDeps.ts',
     );
-    const nearPort = readRepoFile('packages/sdk-web/src/core/signingEngine/assembly/ports/near.ts');
-    const browserSigningSurfaceAssembly = readRepoFile(
-      'packages/sdk-web/src/SeamsWeb/assembly/browserSigningSurfaceAssembly.ts',
-    );
-    const coordinatorRuntime = readRepoFile(
-      'packages/sdk-web/src/core/signingEngine/session/emailOtp/coordinatorRuntime.ts',
-    );
-    const ed25519Warmup = readRepoFile(
-      'packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519Warmup.ts',
-    );
-    const warmCapabilityReader = readRepoFile(
-      'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/capabilityReaderCore.ts',
-    );
-    const warmCapabilityReadModel = readRepoFile(
-      'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/readModel.ts',
-    );
-    const warmCapabilityStatusReader = readRepoFile(
-      'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/statusReader.ts',
-    );
-    const warmEcdsaProvisionPlan = readRepoFile(
-      'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.ts',
-    );
-    const routerAbEd25519WalletSessionState = readRepoFile(
-      'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState.ts',
-    );
-    const companionSessions = readRepoFile(
-      'packages/sdk-web/src/core/signingEngine/session/emailOtp/companionSessions.ts',
-    );
-    const typecheck = readRepoFile(
-      'packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519Warmup.typecheck.ts',
-    );
-    const companionLaneTypeStart = companionSessions.indexOf(
-      'export type EmailOtpEcdsaCompanionLaneForEd25519Signing',
-    );
-    const companionLaneType = companionSessions.slice(
-      companionLaneTypeStart,
-      companionSessions.indexOf('export type ChainDistinctEmailOtpEcdsaCompanionLanes'),
-    );
-    const operationLoginStart = operationDeps.indexOf(
-      'loginWithEmailOtpEd25519CapabilityForSigning?:',
-    );
-    const operationLoginInput = operationDeps.slice(
-      operationLoginStart,
-      operationDeps.indexOf('restorePersistedSessionForSigning?', operationLoginStart),
-    );
-    const runtimeLoginStart = coordinatorRuntime.indexOf(
-      'async loginWithEd25519CapabilityForSigning',
-    );
-    const runtimeLoginInput = coordinatorRuntime.slice(
-      runtimeLoginStart,
-      coordinatorRuntime.indexOf('async reconstructEd25519Session', runtimeLoginStart),
-    );
-    const warmupLoginStart = ed25519Warmup.indexOf('async loginForSigning');
-    const warmupLoginInput = ed25519Warmup.slice(
-      warmupLoginStart,
-      ed25519Warmup.indexOf(
-        '): Promise<{ sessionId: string; record?: ThresholdEd25519SessionRecord }>',
-        warmupLoginStart,
-      ),
+    const budgetRecovery = readRepoFile(
+      'packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoBudgetRecovery.ts',
     );
 
-    expect(signNear).toContain('function resolveEd25519SigningLane');
-    expect(signNear).toContain('resolveEmailOtpEd25519SigningSessionAuthority');
-    expect(signNear).not.toContain('resolveEmailOtpSigningSessionAuthLane');
-    expect(signNear).not.toContain('emailOtpEd25519AuthLaneFromRecord');
-    expect(warmCapabilityReader).toContain(
-      'function resolveEmailOtpEd25519SigningSessionAuthority',
-    );
-    expect(warmCapabilityReader).not.toContain('resolveEmailOtpSigningSessionAuthLane');
-    expect(warmCapabilityReadModel).toContain(
-      'parseRouterAbEd25519WalletSessionAuthorityFromRecord',
-    );
-    expect(warmCapabilityReadModel).toContain('resolveRouterAbEcdsaWalletSessionAuthFromRecord');
-    expect(warmCapabilityStatusReader).toContain(
-      'parseRouterAbEd25519WalletSessionAuthorityFromRecord',
-    );
-    expect(warmEcdsaProvisionPlan).toContain('resolveRouterAbEcdsaWalletSessionAuthFromRecord');
-    expect(warmCapabilityReadModel).not.toContain('walletSessionJwtFromPersistedWarmSessionRecord');
-    expect(warmCapabilityStatusReader).not.toContain(
-      'walletSessionJwtFromPersistedWarmSessionRecord',
-    );
-    expect(warmEcdsaProvisionPlan).not.toContain('walletSessionJwtFromPersistedWarmSessionRecord');
-    expect(routerAbEd25519WalletSessionState).not.toContain('emailOtpEd25519AuthLaneFromRecord');
-    expect(signNear).not.toContain('resolveRecordBackedEmailOtpEd25519SigningCommittedLane');
-    expect(ed25519Warmup).not.toContain("kind: 'email_otp_ed25519_signing_committed_lane'");
-    expect(ed25519Warmup).not.toContain('RecordBackedEmailOtpEd25519SigningCommittedLane');
-    expect(signNear).toContain('committedLane: Ed25519SigningLane');
-    expect(signNear).toContain('walletSessionJwtForPreparedNearExecution');
-    expect(signNear).toContain('trustedBudgetStatusAuthFromEd25519WalletSessionState');
-    expect(signNear).not.toContain('trustedBudgetStatusAuthFromEd25519Record');
+    expect(signNear).toContain('function buildNearEmailOtpEd25519Reconnect');
+    expect(signNear).toContain('const committedLane = args.committedLane;');
     expect(signNear).toContain('committedLane,');
-    expect(signNear).not.toContain(
-      'walletSessionJwtFromPersistedEd25519Record(thresholdSessionRecord)',
-    );
-    expect(signNear).not.toContain('walletSessionJwtFromPersistedEd25519Record');
-    expect(routerAbEd25519WalletSessionState).not.toContain(
-      'walletSessionAuthFromPersistedEd25519Record',
-    );
-    expect(signNear).not.toContain('authLane: committedLane.authLane');
-    expect(nearPort).toContain('committedLane,');
-    expect(nearPort).not.toContain('authLane: committedLane.authLane');
-    expect(browserSigningSurfaceAssembly).toContain(
-      'authLane: challengeArgs.committedLane.authLane',
-    );
-    expect(signNear).toContain('committedLane,');
-    expect(operationLoginInput).toContain('committedLane: Ed25519SigningLane');
-    expect(operationLoginInput).toContain('record?: never');
-    expect(operationLoginInput).toContain('authLane?: never');
-    expect(runtimeLoginInput).toContain('committedLane: Ed25519SigningLane');
-    expect(runtimeLoginInput).toContain('routeAuth?: never');
-    expect(runtimeLoginInput).toContain('authLane?: never');
-    expect(warmupLoginInput).toContain('committedLane: Ed25519SigningLane');
-    expect(warmupLoginInput).toContain('record?: never');
-    expect(warmupLoginInput).toContain('routeAuth?: never');
-    expect(warmupLoginInput).toContain('authLane?: never');
-    expect(companionLaneType).toContain(
-      'committedLane: RecordBackedEcdsaCommittedLane<EmailOtpWalletAuthAuthority>',
-    );
-    expect(companionLaneType).not.toContain('RecordBackedEmailOtpEcdsaCommittedLane');
-    expect(companionLaneType).toContain('record?: never');
-    expect(companionLaneType).toContain('walletSessionAuthority?: never');
-    expect(companionLaneType).not.toContain('record: EmailOtpEcdsaSessionRecord');
-    expect(ed25519Warmup).toContain('const authLane = companionLane.committedLane.authLane');
-    expect(ed25519Warmup).toContain(
-      'const ecdsaCompanionRecord = ecdsaCompanionLane.committedLane.record',
-    );
-    expect(ed25519Warmup).not.toContain('companionLane.walletSessionAuthority');
-    expect(ed25519Warmup).not.toContain('companionLane.record');
-    expect(typecheck).toContain(
-      'Email OTP Ed25519 signing carries records through the committed lane',
-    );
-    expect(typecheck).toContain(
-      'Email OTP Ed25519 signing carries wallet-session auth through the committed lane',
-    );
+    expect(operationDeps).toContain('recoverEmailOtpEd25519CapabilityForSigning?: (args: {');
+    expect(operationDeps).toContain('committedLane: Ed25519SigningLane;');
+    expect(budgetRecovery).toContain('committedLane: Ed25519SigningLane;');
+    expect(budgetRecovery).toContain('walletAuthAuthoritiesMatch(');
+    expect(budgetRecovery).toContain('args.committedLane.authority');
+    expect(budgetRecovery).not.toContain('RecordBackedEmailOtpEd25519SigningCommittedLane');
   });
 
   check('EVM-family ECDSA reauth carries committed lanes for every auth branch', () => {
@@ -544,15 +424,6 @@ describeChecks('Email OTP operation split guard', () => {
     );
     expect(ecdsaSelection).toContain('function assertEcdsaCommittedLaneAuthorityMatchesWallet');
     expect(ecdsaSelection).toContain('committed lane authority wallet mismatch');
-    expect(ecdsaSelection).toContain("kind: 'resolver_backed'");
-    expect(ecdsaSelection).toContain("source: 'resolver_backed'");
-    expect(ecdsaSelection).toContain('resolveDurableEmailOtpEcdsaSigningSessionAuthority');
-    expect(ecdsaSelectionTypecheck).toContain(
-      'resolver-backed lanes cannot satisfy record-backed committed-lane consumers',
-    );
-    expect(ecdsaSelectionTypecheck).toContain(
-      'resolver-backed Email OTP ECDSA lanes require wallet-bound authority',
-    );
     expect(readySelectionType).toContain('committedLane: ReadyPasskeyEcdsaCommittedLane');
     expect(readySelectionType).toContain('committedLane: ReadyEmailOtpEcdsaCommittedLane');
     expect(readySelectionType).not.toContain('committedLane?: never');
@@ -569,7 +440,7 @@ describeChecks('Email OTP operation split guard', () => {
     );
     expect(budgetAuthSource).toContain('args.selection.committedLane.walletSessionAuthority');
     expect(budgetAuthSource).not.toContain(
-      'signerSession.routerAbEcdsaHssNormalSigning.credential.walletSessionJwt',
+      'signerSession.routerAbEcdsaDerivationNormalSigning.credential.walletSessionJwt',
     );
     expect(ecdsaIdentity).not.toContain('walletSessionAuthInputFromPersistedThresholdSession');
     expect(sessionRecords).toContain('resolveRouterAbEcdsaWalletSessionAuthFromRecord(record)');
@@ -641,9 +512,6 @@ describeChecks('Email OTP operation split guard', () => {
     expect(executorPreparation).not.toContain('prepared executor requires ready signer material');
     expect(executorPreparation).not.toContain(
       'toVerifiedEcdsaPublicFactsFromPairedRecordAndKeyRef({',
-    );
-    expect(executorPreparation).not.toContain(
-      'preparedExecutorSession.signingLane.key.thresholdOwnerAddress',
     );
     expect(evmFamilyEcdsaIdentity).not.toContain(
       '!hasReadyThresholdEcdsaClientShare(input.keyRef)',

@@ -1,13 +1,16 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
-import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
+import { ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
 import {
   buildEcdsaMaterialStateForCandidate,
   materialIdentityMatchesResolvedLane,
 } from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaMaterialState';
-import { resolveEvmFamilyEcdsaPlannerReadiness } from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/authPlanning';
+import {
+  resolveEvmFamilyEcdsaPlannerReadiness,
+  resolvePasskeyEcdsaTrustedBudgetReadinessFromAuth,
+} from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/authPlanning';
 import {
   toWalletId,
   type ThresholdEcdsaChainTarget,
@@ -15,7 +18,7 @@ import {
 import type { EcdsaLaneCandidate } from '../../packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity';
 import { buildEmailOtpAuthContextForWalletAuthMethod } from '../../packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity';
 import type { ThresholdEcdsaSessionRecord } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
-import type { RouterAbEcdsaHssNormalSigningStateV1 } from '../../packages/shared-ts/src/utils/routerAbEcdsaHss';
+import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
 import {
   buildEcdsaRoleLocalEmailOtpAuthMethod,
   buildEcdsaRoleLocalPasskeyAuthMethod,
@@ -28,8 +31,8 @@ import {
   toRpId,
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
-  clearRouterAbEcdsaHssWorkerMaterialRuntimeValidation,
-  markRouterAbEcdsaHssWorkerMaterialRuntimeValidated,
+  clearRouterAbEcdsaDerivationWorkerMaterialRuntimeValidation,
+  markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated,
 } from '../../packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession';
 import {
   buildEcdsaEmailOtpSigningLane,
@@ -79,6 +82,10 @@ const EMAIL_OTP_AUTH = {
 class ObservingSigningSessionCoordinator extends SigningSessionCoordinator {
   observedTrustedStatusAuth: SigningSessionBudgetStatusAuth | undefined;
 
+  constructor(private readonly remainingUses = 3) {
+    super();
+  }
+
   override async prepareBudgetIdentity(
     input: Parameters<SigningSessionCoordinator['prepareBudgetIdentity']>[0],
   ): Promise<SigningSessionPreparedBudgetIdentity> {
@@ -89,12 +96,18 @@ class ObservingSigningSessionCoordinator extends SigningSessionCoordinator {
       status: {
         sessionId: 'wallet-session-1',
         status: 'active',
-        remainingUses: 3,
-        availableUses: 3,
+        remainingUses: this.remainingUses,
+        availableUses: this.remainingUses,
         expiresAtMs: 1_900_000_000_000,
         projectionVersion: 'projection-1',
       },
     };
+  }
+}
+
+class UnavailableSigningSessionCoordinator extends SigningSessionCoordinator {
+  override async prepareBudgetIdentity(): Promise<SigningSessionPreparedBudgetIdentity> {
+    throw new Error('trusted budget status unavailable');
   }
 }
 
@@ -117,7 +130,7 @@ function makeWalletSessionJwt(args: {
   const encode = (value: object): string =>
     Buffer.from(JSON.stringify(value)).toString('base64url');
   return `${encode({ alg: 'none', typ: 'JWT' })}.${encode({
-    kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+    kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
     thresholdSessionId: args.thresholdSessionId,
     signingGrantId: args.signingGrantId,
     exp: 1_900_000_000,
@@ -132,9 +145,9 @@ async function readyWarmSessionStatus() {
   } as const;
 }
 
-function makeRouterAbEcdsaHssNormalSigningState(): RouterAbEcdsaHssNormalSigningStateV1 {
+function makeRouterAbEcdsaDerivationNormalSigningState(): RouterAbEcdsaDerivationNormalSigningStateV1 {
   return {
-    kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+    kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
     scope: {
       wallet_key_id: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
       wallet_id: 'alice.testnet',
@@ -146,7 +159,7 @@ function makeRouterAbEcdsaHssNormalSigningState(): RouterAbEcdsaHssNormalSigning
       },
       public_identity: {
         context_binding_b64u: CONTEXT_BINDING_32_B64U,
-        client_public_key33_b64u: VALID_PUBLIC_KEY_B64U,
+        derivation_client_share_public_key33_b64u: VALID_PUBLIC_KEY_B64U,
         server_public_key33_b64u: VALID_RELAYER_PUBLIC_KEY_B64U,
         threshold_public_key33_b64u: VALID_PUBLIC_KEY_B64U,
         ethereum_address20_b64u: ethereumAddress20B64u(OWNER_ADDRESS),
@@ -241,7 +254,7 @@ function makeRoleLocalReadyRecord() {
       relayerParticipantId: 2,
       participantIds: [1, 2],
       contextBinding32B64u: CONTEXT_BINDING_32_B64U,
-      hssClientSharePublicKey33B64u: VALID_PUBLIC_KEY_B64U,
+      derivationClientSharePublicKey33B64u: VALID_PUBLIC_KEY_B64U,
       relayerPublicKey33B64u: VALID_RELAYER_PUBLIC_KEY_B64U,
       groupPublicKey33B64u: VALID_PUBLIC_KEY_B64U,
       ethereumAddress: OWNER_ADDRESS,
@@ -275,7 +288,7 @@ function makeEmailOtpRoleLocalReadyRecord() {
       relayerParticipantId: 2,
       participantIds: [1, 2],
       contextBinding32B64u: CONTEXT_BINDING_32_B64U,
-      hssClientSharePublicKey33B64u: VALID_PUBLIC_KEY_B64U,
+      derivationClientSharePublicKey33B64u: VALID_PUBLIC_KEY_B64U,
       relayerPublicKey33B64u: VALID_RELAYER_PUBLIC_KEY_B64U,
       groupPublicKey33B64u: VALID_PUBLIC_KEY_B64U,
       ethereumAddress: OWNER_ADDRESS,
@@ -315,7 +328,7 @@ function makeRecord(
     }),
     expiresAtMs: 1_900_000_000_000,
     remainingUses: 3,
-    routerAbEcdsaHssNormalSigning: makeRouterAbEcdsaHssNormalSigningState(),
+    routerAbEcdsaDerivationNormalSigning: makeRouterAbEcdsaDerivationNormalSigningState(),
     thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
     ethereumAddress: OWNER_ADDRESS,
     updatedAtMs: 1_800_000_000_000,
@@ -355,7 +368,7 @@ function makeEmailOtpRecord(
     }),
     expiresAtMs: 1_900_000_000_000,
     remainingUses: 3,
-    routerAbEcdsaHssNormalSigning: makeRouterAbEcdsaHssNormalSigningState(),
+    routerAbEcdsaDerivationNormalSigning: makeRouterAbEcdsaDerivationNormalSigningState(),
     thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
     ethereumAddress: OWNER_ADDRESS,
     updatedAtMs: 1_800_000_000_000,
@@ -377,7 +390,7 @@ function makeEmailOtpRecord(
 
 test.describe('ecdsa material state', () => {
   test.afterEach(() => {
-    clearRouterAbEcdsaHssWorkerMaterialRuntimeValidation();
+    clearRouterAbEcdsaDerivationWorkerMaterialRuntimeValidation();
   });
 
   test('rejects an explicit chainTarget that does not match the candidate', () => {
@@ -426,7 +439,7 @@ test.describe('ecdsa material state', () => {
 
   test('runtime-validated ready material carries a signer session', () => {
     const record = makeRecord();
-    expect(markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)).toBe(true);
+    expect(markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record)).toBe(true);
     const state = buildEcdsaMaterialStateForCandidate({
       candidate: makeCandidate(),
       record,
@@ -444,7 +457,7 @@ test.describe('ecdsa material state', () => {
 
   test('passkey ECDSA readiness carries trusted budget auth from live signer material', async () => {
     const record = makeRecord();
-    expect(markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)).toBe(true);
+    expect(markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record)).toBe(true);
     const state = buildEcdsaMaterialStateForCandidate({
       candidate: makeCandidate(),
       record,
@@ -477,9 +490,76 @@ test.describe('ecdsa material state', () => {
     expect(coordinator.observedTrustedStatusAuth).toEqual(readiness.trustedBudgetStatusAuth.auth);
   });
 
+  test('authoritative zero-use passkey budget forces exhausted readiness before reconnect', async () => {
+    const record = makeRecord();
+    expect(markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record)).toBe(true);
+    const state = buildEcdsaMaterialStateForCandidate({
+      candidate: makeCandidate(),
+      record,
+      authMethod: 'passkey',
+      source: 'login',
+      chainTarget: EVM_CHAIN_TARGET,
+      materialChainTarget: EVM_CHAIN_TARGET,
+    });
+    expect(state.kind).toBe('ready_to_sign');
+    if (state.kind !== 'ready_to_sign') return;
+
+    const readiness = await resolveEvmFamilyEcdsaPlannerReadiness({
+      deps: {
+        touchConfirm: {
+          getWarmSessionStatus: readyWarmSessionStatus,
+        },
+        signingSessionCoordinator: new ObservingSigningSessionCoordinator(0),
+      },
+      lane: makeResolvedLane(),
+      material: state,
+    });
+
+    expect(readiness.readiness.status).toBe('exhausted');
+    expect(readiness.remainingUses).toBe(0);
+  });
+
+  test('post-refresh passkey reconnect checks the authoritative budget before warm restore', async () => {
+    const record = makeRecord();
+    const readiness = await resolvePasskeyEcdsaTrustedBudgetReadinessFromAuth({
+      deps: {
+        signingSessionCoordinator: new ObservingSigningSessionCoordinator(0),
+      },
+      lane: makeResolvedLane(),
+      trustedStatusAuth: {
+        relayerUrl: record.relayerUrl,
+        thresholdSessionId: record.thresholdSessionId,
+        walletSessionJwt: record.walletSessionJwt,
+      },
+      inFlightRetry: 'available',
+    });
+
+    expect(readiness?.readiness.status).toBe('exhausted');
+    expect(readiness?.remainingUses).toBe(0);
+  });
+
+  test('post-refresh passkey reconnect fails closed when authoritative budget is unavailable', async () => {
+    const record = makeRecord();
+    const readiness = await resolvePasskeyEcdsaTrustedBudgetReadinessFromAuth({
+      deps: {
+        signingSessionCoordinator: new UnavailableSigningSessionCoordinator(),
+      },
+      lane: makeResolvedLane(),
+      trustedStatusAuth: {
+        relayerUrl: record.relayerUrl,
+        thresholdSessionId: record.thresholdSessionId,
+        walletSessionJwt: record.walletSessionJwt,
+      },
+      inFlightRetry: 'available',
+    });
+
+    expect(readiness.readiness.status).toBe('missing_session');
+    expect(readiness.remainingUses).toBe(0);
+  });
+
   test('matches ready material against exact signer identity when flat lane projections are stale', () => {
     const record = makeRecord();
-    expect(markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)).toBe(true);
+    expect(markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record)).toBe(true);
     const state = buildEcdsaMaterialStateForCandidate({
       candidate: makeCandidate(),
       record,
@@ -572,7 +652,7 @@ test.describe('ecdsa material state', () => {
 
   test('keeps runtime-validated Email OTP role-local material warm after registration', async () => {
     const record = makeEmailOtpRecord();
-    expect(markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)).toBe(true);
+    expect(markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record)).toBe(true);
     const material = buildEcdsaMaterialStateForCandidate({
       candidate: makeEmailOtpCandidate(),
       record,

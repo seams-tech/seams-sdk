@@ -23,7 +23,7 @@ test('resolveWasmUrl uses the embedded wallet SDK workers base when available', 
     } as Location,
   } as unknown as (typeof globalThis) & { location?: Location };
 
-  expect(String(resolveWasmUrl('wasm_signer_worker_bg.wasm', 'NEAR Signer HSS'))).toBe(
+  expect(String(resolveWasmUrl('wasm_signer_worker_bg.wasm', 'NEAR Signer DERIVATION'))).toBe(
     'https://wallet.example.test/sdk/workers/wasm_signer_worker_bg.wasm',
   );
 });

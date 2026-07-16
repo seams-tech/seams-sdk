@@ -340,7 +340,8 @@ test('exact signing-lane authority ECDSA keygen and session envelopes expose wal
     'packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
     'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence.ts',
     'packages/sdk-web/src/core/signingEngine/session/persistence/records.ts',
-    'packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts',
+    'packages/sdk-server-ts/src/core/routerAbSigning/RouterAbNormalSigningRuntime.ts',
+    'packages/sdk-server-ts/src/core/routerAbSigning/RouterAbEcdsaBootstrapExportRuntime.ts',
   ];
   const violations = [];
   for (const relativePath of guardedFiles) {
@@ -504,14 +505,14 @@ test('exact signing-lane authority ECDSA authority ranges read signer binding in
   }
   expect(violations, violations.join('\n')).toEqual([]);
 });
-test('exact signing-lane authority ECDSA-HSS context artifacts do not reintroduce product or auth scope fields', () => {
+test('exact signing-lane authority Router A/B ECDSA derivation context artifacts do not reintroduce product or auth scope fields', () => {
   const guardedArtifacts = [
-    'crates/ecdsa-hss/src/shared/context.rs',
-    'crates/ecdsa-hss/formal-verification/verus/src/shared/context.rs',
-    'crates/ecdsa-hss/formal-verification/lean-boundary/rust-boundary/src/lib.rs',
-    'crates/ecdsa-hss/formal-verification/lean-boundary/EcdsaHss/Types.lean',
-    'crates/ecdsa-hss/formal-verification/lean-boundary/generated/visible-boundary-package/EcdsaHss/Types.lean',
-    'crates/ecdsa-hss/formal-verification/lean-boundary/generated/visible-boundary-input/ecdsa_hss.llbc',
+    'crates/router-ab-ecdsa-derivation/src/shared/context.rs',
+    'crates/router-ab-ecdsa-derivation/formal-verification/verus/src/shared/context.rs',
+    'crates/router-ab-ecdsa-derivation/formal-verification/lean-boundary/rust-boundary/src/lib.rs',
+    'crates/router-ab-ecdsa-derivation/formal-verification/lean-boundary/RouterAbEcdsaDerivation/Types.lean',
+    'crates/router-ab-ecdsa-derivation/formal-verification/lean-boundary/generated/visible-boundary-package/RouterAbEcdsaDerivation/Types.lean',
+    'crates/router-ab-ecdsa-derivation/formal-verification/lean-boundary/generated/visible-boundary-input/router_ab_ecdsa_derivation.llbc',
   ];
   const forbidden = [
     'rp_id',
@@ -535,16 +536,16 @@ test('exact signing-lane authority ECDSA-HSS context artifacts do not reintroduc
   expect(violations, violations.join('\n')).toEqual([]);
 });
 test('exact signing-lane authority wallet budget sessions do not synthesize NEAR signer identity', () => {
-  const serviceSource = readRepoSource(
-    'packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts',
+  const normalSigningRuntimeSource = readRepoSource(
+    'packages/sdk-server-ts/src/core/routerAbSigning/RouterAbNormalSigningRuntime.ts',
   );
   const storeSource = readRepoSource(
     'packages/sdk-server-ts/src/core/ThresholdService/stores/WalletSessionStore.ts',
   );
   const ensureBudgetSource = sourceRangeBetween(
-    serviceSource,
-    'private async ensureSigningGrantBudget(',
-    'private async resolveWalletOrCurveBudgetStore',
+    normalSigningRuntimeSource,
+    'async ensureSigningGrantBudget(',
+    'private async putWalletBudgetSessionRecord(',
   );
   const budgetRecordSource = sourceRangeBetween(
     storeSource,
@@ -563,8 +564,8 @@ test('exact signing-lane authority wallet budget sessions do not synthesize NEAR
   expect(budgetRecordSource).not.toContain('rpId: string;');
 });
 test('exact signing-lane authority ECDSA MPC sessions are native EVM-family signing-key records', () => {
-  const serviceSource = readRepoSource(
-    'packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts',
+  const presignRuntimeSource = readRepoSource(
+    'packages/sdk-server-ts/src/core/routerAbSigning/RouterAbEcdsaPresignRuntime.ts',
   );
   const sessionStoreSource = readRepoSource(
     'packages/sdk-server-ts/src/core/ThresholdService/stores/SessionStore.ts',
@@ -580,18 +581,19 @@ test('exact signing-lane authority ECDSA MPC sessions are native EVM-family sign
   expect(ecdsaMpcType).not.toContain('userId: string;');
   expect(ecdsaMpcType).not.toContain('rpId: string;');
   expect(sessionStoreSource).not.toContain('export type ThresholdEcdsaMpcSessionRecord = Omit<');
-  expect(serviceSource).not.toContain('toThresholdEcdsaMpcSessionRecord');
-  expect(serviceSource).not.toContain('walletKeyId: record.rpId');
-  expect(serviceSource).not.toContain('rpId: record.walletKeyId');
-  expect(serviceSource).not.toContain('rpId: registrationAccountScope.value.walletKeyId');
+  expect(presignRuntimeSource).not.toContain('toThresholdEcdsaMpcSessionRecord');
+  expect(presignRuntimeSource).not.toContain('walletKeyId: record.rpId');
+  expect(presignRuntimeSource).not.toContain('rpId: record.walletKeyId');
+  expect(presignRuntimeSource).not.toContain('rpId: registrationAccountScope.value.walletKeyId');
 });
 test('exact signing-lane authority normalized server ECDSA records do not expose walletSessionUserId', () => {
   const normalizedServerRecordFiles = [
-    'packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts',
+    'packages/sdk-server-ts/src/core/routerAbSigning/RouterAbEcdsaPresignRuntime.ts',
+    'packages/sdk-server-ts/src/core/routerAbSigning/RouterAbEcdsaBootstrapExportRuntime.ts',
     'packages/sdk-server-ts/src/core/ThresholdService/stores/SessionStore.ts',
     'packages/sdk-server-ts/src/core/ThresholdService/stores/WalletSessionStore.ts',
     'packages/sdk-server-ts/src/core/ThresholdService/stores/EcdsaSigningStore.ts',
-    'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaHssPoolFillHandlers.ts',
+    'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaDerivationPoolFillHandlers.ts',
   ];
   for (const relativePath of normalizedServerRecordFiles) {
     const source = readRepoSource(relativePath);
@@ -613,7 +615,7 @@ test('exact signing-lane authority normalized server ECDSA records do not expose
     ),
     sourceRangeBetween(
       validationSource,
-      'export function parseRouterAbEcdsaHssPoolFillSessionRecord(',
+      'export function parseRouterAbEcdsaDerivationPoolFillSessionRecord(',
       'type EcdsaWalletSessionClaimsForKind<',
     ),
   ];

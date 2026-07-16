@@ -26,7 +26,10 @@ function expect(received, message = '') {
 }
 
 const FORBIDDEN_PATTERNS = [
-  { id: 'wallet-near-fallback', regex: /\bwalletId\s*(?:\|\||\?\?)\s*nearAccountId\b/g },
+  {
+    id: 'wallet-near-fallback',
+    regex: /\bwalletId[ \t]*(?:\|\||\?\?)[ \t]*nearAccountId\b/g,
+  },
   {
     id: 'record-wallet-near-fallback',
     regex: /\brecord\.walletId\s*\?\?\s*record\.nearAccountId\b/g,

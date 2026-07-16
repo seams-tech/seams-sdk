@@ -19,6 +19,8 @@ import { ed25519AvailableLaneIdentityKey } from '@/core/signingEngine/session/av
 import { resolveExactKeyExportLane } from '@/core/signingEngine/flows/recovery/exportLaneSelection';
 import { runtimeEd25519RouterAbNormalSigningState } from './helpers/availableSigningLanes.fixtures';
 import type { RestorePersistedSessionForSigningResult } from '@/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
+import type { SigningSessionBudgetStatusCheck } from '@/core/signingEngine/session/budget/budget';
+import type { SigningSessionStatus } from '@/core/types/seams';
 
 const WALLET_ID = toWalletId('email-otp-export-registration-lane');
 const NEAR_ACCOUNT_ID = toAccountId('email-otp-export-registration-lane.testnet');
@@ -66,44 +68,69 @@ async function unexpectedPasskeyRestore(): Promise<RestorePersistedSessionForSig
   throw new Error('Email OTP runtime export lane must not invoke passkey restore');
 }
 
+function persistEmailOtpEd25519RuntimeLane(): void {
+  persistWarmSessionEd25519Capability({
+    kind: 'jwt_email_otp',
+    walletId: WALLET_ID,
+    nearAccountId: NEAR_ACCOUNT_ID,
+    nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
+    rpId: 'wallet.example.localhost',
+    relayerUrl: 'https://relay.example.test',
+    relayerKeyId: 'ed25519-signing-worker-email-otp-export',
+    runtimePolicyScope: {
+      orgId: 'org-email-otp-export',
+      projectId: 'project-email-otp-export',
+      envId: 'test',
+      signingRootVersion: 'root-v1',
+    },
+    participantIds: [1, 2],
+    signerSlot: 1,
+    routerAbNormalSigning: runtimeEd25519RouterAbNormalSigningState(),
+    sessionId: THRESHOLD_SESSION_ID,
+    signingGrantId: SIGNING_GRANT_ID,
+    expiresAtMs: EXPIRES_AT_MS,
+    remainingUses: 3,
+    jwt: ed25519WalletSessionJwt(),
+    emailOtpAuthContext: buildEmailOtpAuthContextForWalletAuthMethod({
+      policy: 'session',
+      walletId: WALLET_ID,
+      emailHashHex: '00'.repeat(32),
+      reason: 'login',
+      retention: 'session',
+      provider: 'google',
+      providerUserId: PROVIDER_SUBJECT,
+    }),
+    source: 'email_otp',
+  });
+}
+
+async function exhaustedSharedWalletBudgetStatus(
+  check: SigningSessionBudgetStatusCheck,
+): Promise<SigningSessionStatus> {
+  expect(check).toMatchObject({
+    kind: 'authenticated_threshold_budget_status_check',
+    signingGrantId: SIGNING_GRANT_ID,
+    targetThresholdSessionIds: [THRESHOLD_SESSION_ID],
+    trustedStatusAuth: {
+      relayerUrl: 'https://relay.example.test',
+      thresholdSessionId: THRESHOLD_SESSION_ID,
+      walletSessionJwt: ed25519WalletSessionJwt(),
+    },
+  });
+  return {
+    sessionId: SIGNING_GRANT_ID,
+    status: 'exhausted',
+    remainingUses: 0,
+    expiresAtMs: EXPIRES_AT_MS,
+  };
+}
+
 test.describe('Email OTP Ed25519 registration export lane', () => {
   test.beforeEach(clearAllStoredThresholdEd25519SessionRecords);
   test.afterEach(clearAllStoredThresholdEd25519SessionRecords);
 
   test('persists, inventories, and resolves one exact Email OTP Yao lane', async () => {
-    persistWarmSessionEd25519Capability({
-      kind: 'jwt_email_otp',
-      walletId: WALLET_ID,
-      nearAccountId: NEAR_ACCOUNT_ID,
-      nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
-      rpId: 'wallet.example.localhost',
-      relayerUrl: 'https://relay.example.test',
-      relayerKeyId: 'ed25519-signing-worker-email-otp-export',
-      runtimePolicyScope: {
-        orgId: 'org-email-otp-export',
-        projectId: 'project-email-otp-export',
-        envId: 'test',
-        signingRootVersion: 'root-v1',
-      },
-      participantIds: [1, 2],
-      signerSlot: 1,
-      routerAbNormalSigning: runtimeEd25519RouterAbNormalSigningState(),
-      sessionId: THRESHOLD_SESSION_ID,
-      signingGrantId: SIGNING_GRANT_ID,
-      expiresAtMs: EXPIRES_AT_MS,
-      remainingUses: 3,
-      jwt: ed25519WalletSessionJwt(),
-      emailOtpAuthContext: buildEmailOtpAuthContextForWalletAuthMethod({
-        policy: 'session',
-        walletId: WALLET_ID,
-        emailHashHex: '00'.repeat(32),
-        reason: 'login',
-        retention: 'session',
-        provider: 'google',
-        providerUserId: PROVIDER_SUBJECT,
-      }),
-      source: 'email_otp',
-    });
+    persistEmailOtpEd25519RuntimeLane();
 
     const runtimeRecords = listStoredThresholdEd25519SessionLaneRecordsForWallet(WALLET_ID);
     expect(runtimeRecords).toHaveLength(1);
@@ -176,6 +203,30 @@ test.describe('Email OTP Ed25519 registration export lane', () => {
         signingGrantId: SIGNING_GRANT_ID,
         thresholdSessionId: THRESHOLD_SESSION_ID,
       }),
+    });
+  });
+
+  test('overlays the shared server budget onto the Ed25519 lane after refresh', async () => {
+    persistEmailOtpEd25519RuntimeLane();
+    const available = await readPersistedAvailableSigningLanesForTargets(
+      {
+        ecdsaSessions: emptyEcdsaSessionStore(),
+        statusReader: { getWarmSessionStatus: activeWarmSessionStatus },
+        getEmailOtpWarmSessionStatus: activeWarmSessionStatus,
+        getWalletSigningBudgetStatus: exhaustedSharedWalletBudgetStatus,
+      },
+      {
+        walletId: WALLET_ID,
+        ecdsaChainTargets: [],
+      },
+    );
+
+    expect(available.lanes.ed25519.near).toMatchObject({
+      curve: 'ed25519',
+      state: 'exhausted',
+      remainingUses: 0,
+      thresholdSessionId: THRESHOLD_SESSION_ID,
+      signingGrantId: SIGNING_GRANT_ID,
     });
   });
 });

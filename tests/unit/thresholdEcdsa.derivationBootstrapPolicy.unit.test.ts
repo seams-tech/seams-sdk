@@ -2,16 +2,17 @@ import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import {
-  computeEcdsaHssRoleLocalRelayerKeyId,
-  computeEcdsaHssRoleLocalThresholdKeyId,
-  type EcdsaHssClientSharePublicKey33B64u,
-} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
-import { createThresholdSigningServiceForUnitTests } from '../helpers/thresholdServiceTestUtils';
-import { initSync as initEcdsaClientSignerWasmSync } from '../../wasm/ecdsa_client_signer/pkg/ecdsa_client_signer.js';
+  computeEcdsaDerivationRoleLocalRelayerKeyId,
+  computeEcdsaDerivationRoleLocalThresholdKeyId,
+  type DerivationClientSharePublicKey33B64u,
+} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
+import { createRouterAbSigningRuntimesForUnitTests } from '../helpers/routerAbSigningRuntimeTestUtils';
+import { initSync as initEcdsaDerivationClientWasmSync } from '../../wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.js';
 import { prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest } from '../helpers/thresholdEcdsaClientBootstrap';
 
-const ECDSA_CLIENT_SIGNER_WASM_URL = new URL(
-  '../../wasm/ecdsa_client_signer/pkg/ecdsa_client_signer_bg.wasm',
+const ECDSA_DERIVATION_CLIENT_WASM_URL = new URL(
+  '../../wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client_bg.wasm',
   import.meta.url,
 );
 const TEST_RUNTIME_SCOPE = {
@@ -22,12 +23,12 @@ const TEST_RUNTIME_SCOPE = {
 } as const;
 const TEST_SIGNING_ROOT_ID = `${TEST_RUNTIME_SCOPE.projectId}:${TEST_RUNTIME_SCOPE.envId}`;
 
-let ecdsaClientSignerWasmInitialized = false;
+let ecdsaDerivationClientWasmInitialized = false;
 
-function ensureHssClientSignerWasm(): void {
-  if (ecdsaClientSignerWasmInitialized) return;
-  initEcdsaClientSignerWasmSync({ module: readFileSync(ECDSA_CLIENT_SIGNER_WASM_URL) });
-  ecdsaClientSignerWasmInitialized = true;
+function ensureEcdsaDerivationClientWasm(): void {
+  if (ecdsaDerivationClientWasmInitialized) return;
+  initEcdsaDerivationClientWasmSync({ module: readFileSync(ECDSA_DERIVATION_CLIENT_WASM_URL) });
+  ecdsaDerivationClientWasmInitialized = true;
 }
 
 function rootShare32B64u(byte: number): string {
@@ -44,8 +45,10 @@ function compressedPublicKeyCandidateB64u(prefix: 0x02 | 0x03, fill: number): st
   return Buffer.from([prefix, ...Array.from({ length: 32 }, () => fill)]).toString('base64url');
 }
 
-function toHssClientSharePublicKey33B64uForTest(value: string): EcdsaHssClientSharePublicKey33B64u {
-  return value as EcdsaHssClientSharePublicKey33B64u;
+function toDerivationClientSharePublicKey33B64uForTest(
+  value: string,
+): DerivationClientSharePublicKey33B64u {
+  return value as DerivationClientSharePublicKey33B64u;
 }
 
 function bytesToHex(input: Uint8Array): string {
@@ -74,7 +77,7 @@ function expectNoCanonicalExportMaterial(json: Record<string, unknown>): void {
 
 async function createRoleLocalBootstrap(args: {
   runtime: ReturnType<
-    typeof createThresholdSigningServiceForUnitTests
+    typeof createRouterAbSigningRuntimesForUnitTests
   >['routerAbEcdsaBootstrapExportRuntime'];
   walletId: string;
   clientRootShare32B64u: string;
@@ -84,18 +87,22 @@ async function createRoleLocalBootstrap(args: {
   signingRootId?: string;
   signingRootVersion?: string;
 }) {
-  ensureHssClientSignerWasm();
+  ensureEcdsaDerivationClientWasm();
   const signingRootId = args.signingRootId || TEST_SIGNING_ROOT_ID;
   const signingRootVersion = args.signingRootVersion || TEST_RUNTIME_SCOPE.signingRootVersion;
   const participantIds = args.participantIds || [1, 2];
-  const evmFamilySigningKeySlotId = `wallet-key-${args.walletId}`;
-  const ecdsaThresholdKeyId = await computeEcdsaHssRoleLocalThresholdKeyId({
+  const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
+    walletId: args.walletId,
+    signingRootId,
+    signingRootVersion,
+  });
+  const ecdsaThresholdKeyId = await computeEcdsaDerivationRoleLocalThresholdKeyId({
     walletId: args.walletId,
     evmFamilySigningKeySlotId,
     signingRootId,
     signingRootVersion,
   });
-  const relayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
+  const relayerKeyId = await computeEcdsaDerivationRoleLocalRelayerKeyId({
     walletId: args.walletId,
     evmFamilySigningKeySlotId,
   });
@@ -109,8 +116,8 @@ async function createRoleLocalBootstrap(args: {
     clientRootShare32B64u: args.clientRootShare32B64u,
   });
 
-  const result = await args.runtime.ecdsaHssRoleLocalBootstrap({
-    formatVersion: 'ecdsa-hss-role-local',
+  const result = await args.runtime.ecdsaDerivationRoleLocalBootstrap({
+    formatVersion: 'ecdsa-derivation-role-local',
     walletId: args.walletId,
     evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId,
@@ -118,8 +125,8 @@ async function createRoleLocalBootstrap(args: {
     signingRootVersion,
     keyScope: 'evm-family',
     relayerKeyId,
-    hssClientSharePublicKey33B64u: toHssClientSharePublicKey33B64uForTest(
-      clientBootstrap.hssClientSharePublicKey33B64u,
+    derivationClientSharePublicKey33B64u: toDerivationClientSharePublicKey33B64uForTest(
+      clientBootstrap.derivationClientSharePublicKey33B64u,
     ),
     clientShareRetryCounter: clientBootstrap.clientShareRetryCounter,
     contextBinding32B64u: clientBootstrap.contextBinding32B64u,
@@ -135,23 +142,23 @@ async function createRoleLocalBootstrap(args: {
   return result.value;
 }
 
-test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
+test.describe('threshold ECDSA role-local derivation bootstrap policy', () => {
   test('role-local bootstrap derives one shared key id and owner for evm-family scope', async () => {
-    const { routerAbEcdsaBootstrapExportRuntime } = createThresholdSigningServiceForUnitTests({});
-    const walletId = 'alice-hss-shared-target.near';
+    const { routerAbEcdsaBootstrapExportRuntime } = createRouterAbSigningRuntimesForUnitTests({});
+    const walletId = 'alice-derivation-shared-target.near';
     const clientRootShare32B64u = rootShare32B64u(42);
 
     const first = await createRoleLocalBootstrap({
       runtime: routerAbEcdsaBootstrapExportRuntime,
       walletId,
       clientRootShare32B64u,
-      sessionId: 'ecdsa-session-hss-first',
+      sessionId: 'ecdsa-session-derivation-first',
     });
     const second = await createRoleLocalBootstrap({
       runtime: routerAbEcdsaBootstrapExportRuntime,
       walletId,
       clientRootShare32B64u,
-      sessionId: 'ecdsa-session-hss-second',
+      sessionId: 'ecdsa-session-derivation-second',
     });
 
     expect(first.ecdsaThresholdKeyId).toBe(second.ecdsaThresholdKeyId);
@@ -164,28 +171,28 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
     expectNoCanonicalExportMaterial(first as unknown as Record<string, unknown>);
   });
 
-  test('role-local bootstrap changes planned key id when stable HSS fields change', async () => {
-    const { routerAbEcdsaBootstrapExportRuntime } = createThresholdSigningServiceForUnitTests({});
-    const walletId = 'alice-hss-stable-field-change.near';
+  test('role-local bootstrap changes planned key id when stable derivation fields change', async () => {
+    const { routerAbEcdsaBootstrapExportRuntime } = createRouterAbSigningRuntimesForUnitTests({});
+    const walletId = 'alice-derivation-stable-field-change.near';
     const clientRootShare32B64u = rootShare32B64u(7);
     const base = await createRoleLocalBootstrap({
       runtime: routerAbEcdsaBootstrapExportRuntime,
       walletId,
       clientRootShare32B64u,
-      sessionId: 'ecdsa-session-hss-stable-base',
+      sessionId: 'ecdsa-session-derivation-stable-base',
     });
     const changedRoot = await createRoleLocalBootstrap({
       runtime: routerAbEcdsaBootstrapExportRuntime,
       walletId,
       clientRootShare32B64u,
-      sessionId: 'ecdsa-session-hss-stable-root',
+      sessionId: 'ecdsa-session-derivation-stable-root',
       signingRootId: 'project-beta:env-alpha',
     });
     const changedVersion = await createRoleLocalBootstrap({
       runtime: routerAbEcdsaBootstrapExportRuntime,
       walletId,
       clientRootShare32B64u,
-      sessionId: 'ecdsa-session-hss-stable-version',
+      sessionId: 'ecdsa-session-derivation-stable-version',
       signingRootVersion: 'v2',
     });
 
@@ -196,27 +203,27 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
   });
 
   test('role-local bootstrap maps invalid client public keys to public_key_invalid', async () => {
-    const { routerAbEcdsaBootstrapExportRuntime } = createThresholdSigningServiceForUnitTests({});
+    const { routerAbEcdsaBootstrapExportRuntime } = createRouterAbSigningRuntimesForUnitTests({});
     const walletId = 'alice-invalid-public-key.near';
     const walletKeyId = `wallet-key-${walletId}`;
     const subjectId = walletId;
-    const ecdsaThresholdKeyId = await computeEcdsaHssRoleLocalThresholdKeyId({
+    const ecdsaThresholdKeyId = await computeEcdsaDerivationRoleLocalThresholdKeyId({
       walletId,
       walletKeyId,
       signingRootId: TEST_SIGNING_ROOT_ID,
       signingRootVersion: TEST_RUNTIME_SCOPE.signingRootVersion,
     });
-    const relayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
+    const relayerKeyId = await computeEcdsaDerivationRoleLocalRelayerKeyId({
       walletId,
       walletKeyId,
     });
 
-    for (const [name, hssClientSharePublicKey33B64u] of [
+    for (const [name, derivationClientSharePublicKey33B64u] of [
       ['invalid-point', compressedPublicKeyCandidateB64u(0x02, 0)],
       ['non-canonical-x', compressedPublicKeyCandidateB64u(0x02, 0xff)],
     ] as const) {
-      const result = await routerAbEcdsaBootstrapExportRuntime.ecdsaHssRoleLocalBootstrap({
-        formatVersion: 'ecdsa-hss-role-local',
+      const result = await routerAbEcdsaBootstrapExportRuntime.ecdsaDerivationRoleLocalBootstrap({
+        formatVersion: 'ecdsa-derivation-role-local',
         walletId,
         walletKeyId,
         ecdsaThresholdKeyId,
@@ -224,8 +231,8 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
         signingRootVersion: TEST_RUNTIME_SCOPE.signingRootVersion,
         keyScope: 'evm-family',
         relayerKeyId,
-        hssClientSharePublicKey33B64u: toHssClientSharePublicKey33B64uForTest(
-          hssClientSharePublicKey33B64u,
+        derivationClientSharePublicKey33B64u: toDerivationClientSharePublicKey33B64uForTest(
+          derivationClientSharePublicKey33B64u,
         ),
         clientShareRetryCounter: 0,
         contextBinding32B64u: fixedB64u(32, 1),
@@ -245,7 +252,7 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
   });
 
   test('role-local bootstrap rejects client public key changes for an existing key handle', async () => {
-    const { routerAbEcdsaBootstrapExportRuntime } = createThresholdSigningServiceForUnitTests({});
+    const { routerAbEcdsaBootstrapExportRuntime } = createRouterAbSigningRuntimesForUnitTests({});
     const walletId = 'alice-identity-sum.near';
     const first = await createRoleLocalBootstrap({
       runtime: routerAbEcdsaBootstrapExportRuntime,
@@ -256,8 +263,8 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
     const negatedRelayerPublicKey33B64u = negateCompressedPublicKey33B64u(
       first.relayerVerifyingShareB64u,
     );
-    const retry = await routerAbEcdsaBootstrapExportRuntime.ecdsaHssRoleLocalBootstrap({
-      formatVersion: 'ecdsa-hss-role-local',
+    const retry = await routerAbEcdsaBootstrapExportRuntime.ecdsaDerivationRoleLocalBootstrap({
+      formatVersion: 'ecdsa-derivation-role-local',
       walletId,
       walletKeyId: first.walletKeyId,
       ecdsaThresholdKeyId: first.ecdsaThresholdKeyId,
@@ -265,7 +272,7 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
       signingRootVersion: first.signingRootVersion,
       keyScope: 'evm-family',
       relayerKeyId: first.relayerKeyId,
-      hssClientSharePublicKey33B64u: toHssClientSharePublicKey33B64uForTest(
+      derivationClientSharePublicKey33B64u: toDerivationClientSharePublicKey33B64uForTest(
         negatedRelayerPublicKey33B64u,
       ),
       clientShareRetryCounter: 0,
@@ -285,7 +292,7 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
   });
 
   test('role-local bootstrap rejects relayer key rotation for an existing key handle', async () => {
-    const { routerAbEcdsaBootstrapExportRuntime } = createThresholdSigningServiceForUnitTests({});
+    const { routerAbEcdsaBootstrapExportRuntime } = createRouterAbSigningRuntimesForUnitTests({});
     const walletId = 'alice-relayer-rotation.near';
     const clientRootShare32B64u = rootShare32B64u(55);
     const first = await createRoleLocalBootstrap({
@@ -295,7 +302,7 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
       sessionId: 'ecdsa-session-relayer-rotation-first',
     });
 
-    ensureHssClientSignerWasm();
+    ensureEcdsaDerivationClientWasm();
     const clientBootstrap = prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest({
       context: {
         walletId,
@@ -306,8 +313,8 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
       clientRootShare32B64u,
     });
 
-    const rotated = await routerAbEcdsaBootstrapExportRuntime.ecdsaHssRoleLocalBootstrap({
-      formatVersion: 'ecdsa-hss-role-local',
+    const rotated = await routerAbEcdsaBootstrapExportRuntime.ecdsaDerivationRoleLocalBootstrap({
+      formatVersion: 'ecdsa-derivation-role-local',
       walletId,
       walletKeyId: first.walletKeyId,
       ecdsaThresholdKeyId: first.ecdsaThresholdKeyId,
@@ -315,8 +322,8 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
       signingRootVersion: first.signingRootVersion,
       keyScope: 'evm-family',
       relayerKeyId: `${first.relayerKeyId}:rotated`,
-      hssClientSharePublicKey33B64u: toHssClientSharePublicKey33B64uForTest(
-        clientBootstrap.hssClientSharePublicKey33B64u,
+      derivationClientSharePublicKey33B64u: toDerivationClientSharePublicKey33B64uForTest(
+        clientBootstrap.derivationClientSharePublicKey33B64u,
       ),
       clientShareRetryCounter: clientBootstrap.clientShareRetryCounter,
       contextBinding32B64u: clientBootstrap.contextBinding32B64u,
@@ -335,7 +342,7 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
   });
 
   test('role-local bootstrap rejects client share changes for an existing key handle', async () => {
-    const { routerAbEcdsaBootstrapExportRuntime } = createThresholdSigningServiceForUnitTests({});
+    const { routerAbEcdsaBootstrapExportRuntime } = createRouterAbSigningRuntimesForUnitTests({});
     const walletId = 'alice-client-share-rotation.near';
     const first = await createRoleLocalBootstrap({
       runtime: routerAbEcdsaBootstrapExportRuntime,
@@ -344,7 +351,7 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
       sessionId: 'ecdsa-session-client-share-first',
     });
 
-    ensureHssClientSignerWasm();
+    ensureEcdsaDerivationClientWasm();
     const changedClientBootstrap = prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest({
       context: {
         walletId,
@@ -355,27 +362,28 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
       clientRootShare32B64u: rootShare32B64u(57),
     });
 
-    const changedClient = await routerAbEcdsaBootstrapExportRuntime.ecdsaHssRoleLocalBootstrap({
-      formatVersion: 'ecdsa-hss-role-local',
-      walletId,
-      walletKeyId: first.walletKeyId,
-      ecdsaThresholdKeyId: first.ecdsaThresholdKeyId,
-      signingRootId: first.signingRootId,
-      signingRootVersion: first.signingRootVersion,
-      keyScope: 'evm-family',
-      relayerKeyId: first.relayerKeyId,
-      hssClientSharePublicKey33B64u: toHssClientSharePublicKey33B64uForTest(
-        changedClientBootstrap.hssClientSharePublicKey33B64u,
-      ),
-      clientShareRetryCounter: changedClientBootstrap.clientShareRetryCounter,
-      contextBinding32B64u: changedClientBootstrap.contextBinding32B64u,
-      requestId: 'request:client-share-change',
-      sessionId: 'ecdsa-session-client-share-second',
-      signingGrantId: 'wallet-signing-client-share-second',
-      ttlMs: 60_000,
-      remainingUses: 2,
-      participantIds: [1, 2],
-    });
+    const changedClient =
+      await routerAbEcdsaBootstrapExportRuntime.ecdsaDerivationRoleLocalBootstrap({
+        formatVersion: 'ecdsa-derivation-role-local',
+        walletId,
+        walletKeyId: first.walletKeyId,
+        ecdsaThresholdKeyId: first.ecdsaThresholdKeyId,
+        signingRootId: first.signingRootId,
+        signingRootVersion: first.signingRootVersion,
+        keyScope: 'evm-family',
+        relayerKeyId: first.relayerKeyId,
+        derivationClientSharePublicKey33B64u: toDerivationClientSharePublicKey33B64uForTest(
+          changedClientBootstrap.derivationClientSharePublicKey33B64u,
+        ),
+        clientShareRetryCounter: changedClientBootstrap.clientShareRetryCounter,
+        contextBinding32B64u: changedClientBootstrap.contextBinding32B64u,
+        requestId: 'request:client-share-change',
+        sessionId: 'ecdsa-session-client-share-second',
+        signingGrantId: 'wallet-signing-client-share-second',
+        ttlMs: 60_000,
+        remainingUses: 2,
+        participantIds: [1, 2],
+      });
 
     expect(changedClient).toMatchObject({
       ok: false,

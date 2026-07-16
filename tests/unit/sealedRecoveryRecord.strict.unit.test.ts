@@ -53,8 +53,8 @@ function emailOtpEcdsaSealedRecoveryRecord(
       relayerKeyId: 'relayer-key',
       participantIds: [1, 2],
       // Required since Router A/B: canonical ECDSA records carry the normal-signing scope.
-      routerAbEcdsaHssNormalSigning: {
-        kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+      routerAbEcdsaDerivationNormalSigning: {
+        kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
         scope: {
           wallet_key_id: 'wallet-key:evm-family:alice.testnet:root%3Aemail-otp:v1',
           wallet_id: 'alice.testnet',
@@ -66,7 +66,7 @@ function emailOtpEcdsaSealedRecoveryRecord(
           },
           public_identity: {
             context_binding_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
-            client_public_key33_b64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+            derivation_client_share_public_key33_b64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
             server_public_key33_b64u: 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
             threshold_public_key33_b64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
             ethereum_address20_b64u: 'MzMzMzMzMzMzMzMzMzMzMzMzMzM',

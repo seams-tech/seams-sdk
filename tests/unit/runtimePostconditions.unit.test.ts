@@ -113,7 +113,7 @@ function ecdsaLane(
     thresholdOwnerAddress: THRESHOLD_OWNER_ADDRESS,
   });
   const publicFacts = buildVerifiedEcdsaPublicFacts({
-    keyHandle: `ehss-runtime-postconditions-${suffix}` as EvmFamilyEcdsaKeyHandle,
+    keyHandle: `ederivation-runtime-postconditions-${suffix}` as EvmFamilyEcdsaKeyHandle,
     publicKeyB64u: PUBLIC_KEY_B64U,
     participantIds: key.participantIds,
     thresholdOwnerAddress: key.thresholdOwnerAddress,
@@ -123,7 +123,7 @@ function ecdsaLane(
     chainTarget,
     state: options.state ?? 'ready',
     signingGrantId: `wss-ecdsa-${suffix}`,
-    thresholdSessionId: `tehss-${suffix}`,
+    thresholdSessionId: `tederivation-${suffix}`,
     remainingUses: options.remainingUses ?? 3,
     expiresAtMs: options.expiresAtMs ?? 1_900_000_000_000,
     updatedAtMs: 1_800_000_000_000,

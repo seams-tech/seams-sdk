@@ -145,7 +145,7 @@ function route(id: string): RouteDefinition {
   return found;
 }
 
-function getNoThresholdSigningService(): null {
+function getNoRouterAbRuntime(): null {
   return null;
 }
 
@@ -229,18 +229,19 @@ function makeWalletRegistrationService(input?: {
   readonly createRegistrationIntent?: CreateRegistrationIntentForRoute;
 }): RouterApiWalletRegistrationRouteService {
   return {
-    getThresholdSigningService: getNoThresholdSigningService,
+    getRouterAbNormalSigningRuntime: getNoRouterAbRuntime,
+    getRouterAbEcdsaBootstrapExportRuntime: getNoRouterAbRuntime,
     createRegistrationIntent:
       input?.createRegistrationIntent ?? createRegistrationIntentForTest,
     prepareWalletRegistration: unsupportedWalletRegistrationRouteMethod,
     startWalletRegistration: unsupportedWalletRegistrationRouteMethod,
-    respondWalletRegistrationHss: unsupportedWalletRegistrationRouteMethod,
+    respondWalletRegistrationDerivation: unsupportedWalletRegistrationRouteMethod,
     finalizeWalletRegistration: unsupportedWalletRegistrationRouteMethod,
     createAddAuthMethodIntent: unsupportedWalletRegistrationRouteMethod,
     createAddSignerIntent: unsupportedWalletRegistrationRouteMethod,
     finalizeWalletAddAuthMethod: unsupportedWalletRegistrationRouteMethod,
     finalizeWalletAddSigner: unsupportedWalletRegistrationRouteMethod,
-    respondWalletAddSignerHss: unsupportedWalletRegistrationRouteMethod,
+    respondWalletAddSignerDerivation: unsupportedWalletRegistrationRouteMethod,
     revokeWalletAuthMethod: unsupportedWalletRegistrationRouteMethod,
     startWalletAddAuthMethod: unsupportedWalletRegistrationRouteMethod,
     startWalletAddSigner: unsupportedWalletRegistrationRouteMethod,

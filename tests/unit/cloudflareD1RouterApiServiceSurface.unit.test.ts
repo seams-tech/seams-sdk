@@ -1,5 +1,4 @@
 import { expect, test } from '@playwright/test';
-import type { ThresholdSigningService } from '../../packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService';
 import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
@@ -558,8 +557,8 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
         userId: scope.userId,
         inputCount: 1,
         returnedCount: 0,
-        thresholdServicePresent: false,
-        rejected: { threshold_service_missing: 1 },
+        ecdsaBootstrapExportRuntimePresent: false,
+        rejected: { ecdsa_bootstrap_export_runtime_missing: 1 },
       },
     });
     await expect(
@@ -579,8 +578,8 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
         userId: scope.userId,
         inputCount: 1,
         returnedCount: 0,
-        thresholdServicePresent: false,
-        rejected: { threshold_service_missing: 1 },
+        ecdsaBootstrapExportRuntimePresent: false,
+        rejected: { ecdsa_bootstrap_export_runtime_missing: 1 },
       },
     });
     expect(service.router.getConfiguredRelayerAccount()).toBe('relay.local');
@@ -720,7 +719,7 @@ test('Cloudflare D1 Router API auth service revokes wallet auth methods through 
   }
 });
 
-test('Cloudflare D1 Router API auth service wires threshold signing from Durable Object config', async () => {
+test('Cloudflare D1 Router API auth service wires Router A/B runtimes from Durable Object config', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     const withoutThreshold = createCloudflareD1RouterApiAuthService({
@@ -732,7 +731,8 @@ test('Cloudflare D1 Router API auth service wires threshold signing from Durable
       relayerAccount: 'relay.local',
       relayerPublicKey: 'relay-public-key',
     });
-    expect(withoutThreshold.thresholdRuntime.getThresholdSigningService()).toBeNull();
+    expect(withoutThreshold.thresholdRuntime.getRouterAbNormalSigningRuntime()).toBeNull();
+    expect(withoutThreshold.thresholdRuntime.getRouterAbEcdsaPresignRuntime()).toBeNull();
 
     const withThreshold = createCloudflareD1RouterApiAuthService({
       database,
@@ -749,11 +749,13 @@ test('Cloudflare D1 Router API auth service wires threshold signing from Durable
         ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker',
       },
     });
-    const threshold = withThreshold.thresholdRuntime.getThresholdSigningService();
     const normalSigningRuntime =
       withThreshold.thresholdRuntime.getRouterAbNormalSigningRuntime();
-    expect(threshold).not.toBeNull();
-    expect(withThreshold.thresholdRuntime.getThresholdSigningService()).toBe(threshold);
+    const bootstrapExportRuntime =
+      withThreshold.thresholdRuntime.getRouterAbEcdsaBootstrapExportRuntime();
+    const presignRuntime = withThreshold.thresholdRuntime.getRouterAbEcdsaPresignRuntime();
+    expect(bootstrapExportRuntime).toBeNull();
+    expect(presignRuntime).not.toBeNull();
     expect(normalSigningRuntime?.getSigningWorkerId()).toBe('test-threshold-signing-worker');
   } finally {
     cleanupTemporaryD1Database(tempDir);

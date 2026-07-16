@@ -47,6 +47,11 @@ const CHAIN_TARGET = {
   chainId: 1,
   networkSlug: 'ethereum-mainnet',
 } as const;
+const TEMPO_TARGET = {
+  kind: 'tempo',
+  chainId: 42431,
+  networkSlug: 'tempo-testnet',
+} as const;
 const RUNTIME_POLICY_SCOPE = {
   orgId: 'org-test',
   projectId: 'project-test',
@@ -190,6 +195,7 @@ class MixedUnlockWorkerFixture implements WorkerOperationContext {
 class MixedLoginFailureWorkerFixture implements WorkerOperationContext {
   readonly operations: string[] = [];
   disposedPendingFactorHandle: unknown = null;
+  ecdsaBootstrapPayload: Record<string, unknown> | null = null;
 
   async requestWorkerOperation<
     K extends SignerWorkerKind,
@@ -212,6 +218,7 @@ class MixedLoginFailureWorkerFixture implements WorkerOperationContext {
           ed25519YaoRecovery: ED25519_RECOVERY_BOOTSTRAP,
         };
       case 'bootstrapEmailOtpEcdsaSessionsFromWorkerHandle':
+        this.ecdsaBootstrapPayload = request.payload;
         throw new Error('injected ECDSA bootstrap failure');
       case 'disposeEmailOtpEd25519YaoPendingFactor':
         this.disposedPendingFactorHandle = request.payload.pendingFactorHandle;
@@ -404,7 +411,7 @@ test('mixed Email OTP login disposes the pending Ed25519 factor when ECDSA boots
         routePlan: mixedUnlockArgs(worker).routePlan,
         remainingUses: 3,
         runtimePolicyScope: RUNTIME_POLICY_SCOPE,
-        publicationChainTargets: [CHAIN_TARGET],
+        publicationChainTargets: [CHAIN_TARGET, TEMPO_TARGET],
         emailHashHex: '11'.repeat(32),
         providerIdentity: {
           kind: 'explicit_provider_user',
@@ -414,7 +421,6 @@ test('mixed Email OTP login disposes the pending Ed25519 factor when ECDSA boots
           kind: 'requested',
           providerSubject: 'google:mixed-subject',
           signerSlot: 1,
-          remainingUses: REMAINING_USES,
         },
       },
       ports,
@@ -426,5 +432,13 @@ test('mixed Email OTP login disposes the pending Ed25519 factor when ECDSA boots
     'bootstrapEmailOtpEcdsaSessionsFromWorkerHandle',
     'disposeEmailOtpEd25519YaoPendingFactor',
   ]);
+  expect(worker.ecdsaBootstrapPayload).toMatchObject({
+    signingGrantId: SIGNING_GRANT_ID,
+    remainingUses: REMAINING_USES,
+    publicationTargetPlans: [
+      { chainTarget: CHAIN_TARGET },
+      { chainTarget: TEMPO_TARGET },
+    ],
+  });
   expect(worker.disposedPendingFactorHandle).toEqual(PENDING_FACTOR_HANDLE);
 });

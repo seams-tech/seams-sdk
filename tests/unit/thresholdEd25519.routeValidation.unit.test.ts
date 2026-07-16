@@ -155,7 +155,7 @@ function rejectsBodyOwnedExpectedOrigin(): void {
 function rejectsBodyOwnedEcdsaSessionClaims(): void {
   const body = validThresholdEd25519SessionBody();
   body.ecdsaSessionClaims = {
-    kind: 'router_ab_ecdsa_hss_wallet_session_v1',
+    kind: 'router_ab_ecdsa_derivation_wallet_session_v1',
     walletId: 'frost-vermillion-k7p9m2',
   };
   expectInvalidBody(

@@ -303,7 +303,7 @@ test.describe('Seams wallet repositories', () => {
               signerAuthMethod: 'passkey',
               signerSource: 'passkey_registration',
               metadata: {
-                ecdsaThresholdKeyId: 'ehss-legacy-id',
+                ecdsaThresholdKeyId: 'ederivation-legacy-id',
                 signingRootId: 'project:dev',
                 chainTarget: { chain: 'tempo', chainId: 978 },
               },
@@ -347,8 +347,8 @@ test.describe('Seams wallet repositories', () => {
 
         const profileId = 'profile-repo-ecdsa-owner-repair';
         const chainTarget = { kind: 'tempo' as const, chainId: 42431, networkSlug: 'tempo-testnet' };
-        const keyHandle = 'ehss-owner-repair-key';
-        const ecdsaThresholdKeyId = 'ehss-owner-repair-threshold-key';
+        const keyHandle = 'ederivation-owner-repair-key';
+        const ecdsaThresholdKeyId = 'ederivation-owner-repair-threshold-key';
         const firstOwner = `0x${'11'.repeat(20)}`;
         const repairedOwner = `0x${'22'.repeat(20)}`;
         const activationForOwner = (ownerAddress: string) => ({
@@ -416,8 +416,8 @@ test.describe('Seams wallet repositories', () => {
         {
           signerId: `0x${'22'.repeat(20)}`,
           accountAddress: `0x${'22'.repeat(20)}`,
-          keyHandle: 'ehss-owner-repair-key',
-          ecdsaThresholdKeyId: 'ehss-owner-repair-threshold-key',
+          keyHandle: 'ederivation-owner-repair-key',
+          ecdsaThresholdKeyId: 'ederivation-owner-repair-threshold-key',
           status: 'active',
         },
       ],

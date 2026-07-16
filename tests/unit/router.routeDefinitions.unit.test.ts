@@ -14,10 +14,10 @@ import {
   type RouteDefinition,
 } from '../../packages/sdk-server-ts/src/router/routeDefinitions';
 import {
-  ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH,
-  ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH,
-  ROUTER_AB_ECDSA_HSS_HEALTH_PATH,
-} from '@shared/utils/routerAbEcdsaHss';
+  ROUTER_AB_ECDSA_DERIVATION_BOOTSTRAP_PATH,
+  ROUTER_AB_ECDSA_DERIVATION_EXPORT_SHARE_PATH,
+  ROUTER_AB_ECDSA_DERIVATION_HEALTH_PATH,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import { WALLET_SESSION_SEAL_BASE_PATH } from '@shared/utils/signingSessionSeal';
 
 const THRESHOLD_CONTINUATION_ROUTE_IDS = [
@@ -45,18 +45,18 @@ const ALLOWLISTED_PUBLIC_RELAY_ROUTE_IDS = [
   'email_recovery_ed25519_finalize',
   'router_ab_ed25519_healthz',
   'router_ab_ed25519_wallet_session',
-  'router_ab_ecdsa_hss_healthz',
+  'router_ab_ecdsa_derivation_healthz',
   'session_exchange',
   'wallet_unlock_challenge',
   'wallet_unlock_verify',
   'wallet_registration_intent_cancel',
   'wallet_registration_prepare',
   'wallet_registration_start',
-  'wallet_registration_hss_respond',
-  'wallet_registration_hss_advance_state',
+  'wallet_registration_derivation_respond',
+  'wallet_registration_derivation_advance_state',
   'wallet_registration_finalize',
   'wallet_add_signer_start',
-  'wallet_add_signer_hss_respond',
+  'wallet_add_signer_derivation_respond',
   'wallet_add_signer_finalize',
   'wallet_add_auth_method_start',
   'wallet_add_auth_method_finalize',
@@ -71,7 +71,7 @@ const ALLOWLISTED_PROOFLESS_PUBLIC_RELAY_ROUTE_IDS = [
   'relay_well_known_webauthn',
   'relay_router_ab_public_keyset',
   'router_ab_ed25519_healthz',
-  'router_ab_ecdsa_hss_healthz',
+  'router_ab_ecdsa_derivation_healthz',
   'recover_email',
 ] as const;
 
@@ -172,19 +172,19 @@ test.describe('route definition scaffolding', () => {
     expect(sessionState?.aliases).toBeUndefined();
 
     const routePaths = routes.map((route) => route.path);
-    expect(routePaths).toContain(ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH);
-    expect(routePaths).toContain(ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH);
-    expect(routePaths).toContain(ROUTER_AB_ECDSA_HSS_HEALTH_PATH);
+    expect(routePaths).toContain(ROUTER_AB_ECDSA_DERIVATION_BOOTSTRAP_PATH);
+    expect(routePaths).toContain(ROUTER_AB_ECDSA_DERIVATION_EXPORT_SHARE_PATH);
+    expect(routePaths).toContain(ROUTER_AB_ECDSA_DERIVATION_HEALTH_PATH);
     expect(routePaths).not.toContain('/threshold-ed25519/session');
     expect(routePaths).not.toContain('/threshold-ed25519/internal/cosign/init');
     expect(routePaths).not.toContain('/threshold-ed25519/internal/cosign/finalize');
-    expect(routePaths).not.toContain('/threshold-ecdsa/hss/bootstrap');
-    expect(routePaths).not.toContain('/threshold-ecdsa/hss/export/share');
+    expect(routePaths).not.toContain('/threshold-ecdsa/derivation/bootstrap');
+    expect(routePaths).not.toContain('/threshold-ecdsa/derivation/export/share');
     expect(routePaths).not.toContain('/threshold-ecdsa/internal/cosign/init');
     expect(routePaths).not.toContain('/threshold-ecdsa/internal/cosign/finalize');
-    expect(routePaths).not.toContain('/threshold-ecdsa/hss/prepare');
-    expect(routePaths).not.toContain('/threshold-ecdsa/hss/respond');
-    expect(routePaths).not.toContain('/threshold-ecdsa/hss/finalize');
+    expect(routePaths).not.toContain('/threshold-ecdsa/derivation/prepare');
+    expect(routePaths).not.toContain('/threshold-ecdsa/derivation/respond');
+    expect(routePaths).not.toContain('/threshold-ecdsa/derivation/finalize');
 
     const wellKnown = routes.find((route) => route.id === 'relay_well_known_webauthn');
     expect(wellKnown?.aliases).toEqual(['/.well-known/webauthn/']);

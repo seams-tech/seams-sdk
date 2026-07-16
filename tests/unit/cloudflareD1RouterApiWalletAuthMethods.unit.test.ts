@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test';
-import type { EcdsaHssClientBootstrapRequest } from '../../packages/sdk-server-ts/src/core/types';
+import type { EcdsaDerivationClientBootstrapRequest } from '../../packages/sdk-server-ts/src/core/types';
 import {
   D1WalletStore,
   parseWalletEd25519SignerRecord,
 } from '../../packages/sdk-server-ts/src/core/d1WalletStore';
-import type { ThresholdSigningService } from '../../packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService';
+import type { RouterAbEcdsaBootstrapExportPort } from '../../packages/sdk-server-ts/src/core/routerAbSigning/RouterAbEcdsaBootstrapExportRuntime';
 import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
 import type {
   RouterAbEd25519YaoProductRegistrationRuntimeV1,
@@ -19,7 +19,7 @@ import type { RouterAbEd25519YaoRegistrationAdmissionRequestV1 } from '../../pac
 import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import { buildEd25519YaoCapabilityFixture } from '../helpers/ed25519YaoCapabilityFixtures';
-import { createThresholdSigningServiceForUnitTests } from '../helpers/thresholdServiceTestUtils';
+import { createRouterAbSigningRuntimesForUnitTests } from '../helpers/routerAbSigningRuntimeTestUtils';
 import {
   RecordingDurableObjectNamespace,
   requireSingleEcdsaPrepare,
@@ -37,6 +37,53 @@ import {
 
 const TEST_YAO_SIGNING_WORKER_ID = 'test-yao-signing-worker';
 const TEST_YAO_SESSION_ID = new Array<number>(32).fill(7);
+
+class RecordingEcdsaBootstrapExportPort implements RouterAbEcdsaBootstrapExportPort {
+  request: EcdsaDerivationClientBootstrapRequest | null = null;
+
+  constructor(private readonly delegate: RouterAbEcdsaBootstrapExportPort) {}
+
+  async getEcdsaKeyIdentityMetadata(
+    input: Parameters<RouterAbEcdsaBootstrapExportPort['getEcdsaKeyIdentityMetadata']>[0],
+  ): Promise<Awaited<ReturnType<RouterAbEcdsaBootstrapExportPort['getEcdsaKeyIdentityMetadata']>>> {
+    return await this.delegate.getEcdsaKeyIdentityMetadata(input);
+  }
+
+  async verifyEcdsaSigningRootWalletAddress(
+    input: Parameters<RouterAbEcdsaBootstrapExportPort['verifyEcdsaSigningRootWalletAddress']>[0],
+  ): Promise<
+    Awaited<ReturnType<RouterAbEcdsaBootstrapExportPort['verifyEcdsaSigningRootWalletAddress']>>
+  > {
+    return await this.delegate.verifyEcdsaSigningRootWalletAddress(input);
+  }
+
+  async ecdsaDerivationRoleLocalBootstrap(
+    input: Parameters<RouterAbEcdsaBootstrapExportPort['ecdsaDerivationRoleLocalBootstrap']>[0],
+  ): Promise<Awaited<ReturnType<RouterAbEcdsaBootstrapExportPort['ecdsaDerivationRoleLocalBootstrap']>>> {
+    this.request = input;
+    return { ok: true, value: testEcdsaServerBootstrapResponse(input) };
+  }
+
+  async verifyEcdsaDerivationRoleLocalClientRootProofForExistingKey(
+    input: Parameters<
+      RouterAbEcdsaBootstrapExportPort['verifyEcdsaDerivationRoleLocalClientRootProofForExistingKey']
+    >[0],
+  ): Promise<
+    Awaited<
+      ReturnType<
+        RouterAbEcdsaBootstrapExportPort['verifyEcdsaDerivationRoleLocalClientRootProofForExistingKey']
+      >
+    >
+  > {
+    return await this.delegate.verifyEcdsaDerivationRoleLocalClientRootProofForExistingKey(input);
+  }
+
+  async ecdsaDerivationRoleLocalExportShare(
+    input: Parameters<RouterAbEcdsaBootstrapExportPort['ecdsaDerivationRoleLocalExportShare']>[0],
+  ): Promise<Awaited<ReturnType<RouterAbEcdsaBootstrapExportPort['ecdsaDerivationRoleLocalExportShare']>>> {
+    return await this.delegate.ecdsaDerivationRoleLocalExportShare(input);
+  }
+}
 
 function yaoBytes(seed: number): number[] {
   return new Array<number>(32).fill(seed);
@@ -113,7 +160,7 @@ function testEd25519WalletSessionBudget(
         expiresAtMs: Date.now() + 60_000,
         remainingUses: 3,
       };
-    case 'email_otp_recovery_wallet_session_v1':
+    case 'shared_email_otp_recovery_wallet_session_v1':
       return {
         signingGrantId: 'test-email-otp-recovery-signing-grant',
         expiresAtMs: Date.now() + 60_000,
@@ -370,7 +417,7 @@ test('passkey Ed25519 budget refresh accepts the current grant independently of 
     await walletStore.putSigner(persistedSigner);
 
     const yaoRuntime = new TestEd25519YaoAddSignerRuntime();
-    const thresholdSigningRuntimes = createThresholdSigningServiceForUnitTests({
+    const routerAbSigningRuntimes = createRouterAbSigningRuntimesForUnitTests({
       config: {
         ROUTER_AB_NORMAL_SIGNING_WORKER_ID: TEST_YAO_SIGNING_WORKER_ID,
       },
@@ -378,10 +425,7 @@ test('passkey Ed25519 budget refresh accepts the current grant independently of 
     const service = createCloudflareD1RouterApiAuthService({
       database,
       ...scope,
-      thresholdSigningRuntimes: {
-        thresholdSigningService: thresholdSigningRuntimes.svc,
-        routerAbNormalSigningRuntime: thresholdSigningRuntimes.routerAbNormalSigningRuntime,
-      },
+      routerAbSigningRuntimes: routerAbSigningRuntimes.runtimes,
       ed25519YaoProductRegistration: yaoRuntime,
     });
 
@@ -627,6 +671,9 @@ test('Cloudflare D1 Router API auth service starts ECDSA add-signer ceremonies t
     const walletId = walletIdFromString('add-signer-wallet.testnet');
     const rpId = 'example.com';
     const durableObjects = new RecordingDurableObjectNamespace();
+    const routerAbSigningRuntimes = createRouterAbSigningRuntimesForUnitTests({
+      config: { ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker' },
+    });
     await insertSignerWallet({ database, ...scope, walletId });
     const service = createCloudflareD1RouterApiAuthService({
       database,
@@ -634,6 +681,7 @@ test('Cloudflare D1 Router API auth service starts ECDSA add-signer ceremonies t
       orgId: scope.orgId,
       projectId: scope.projectId,
       envId: scope.envId,
+      routerAbSigningRuntimes: routerAbSigningRuntimes.runtimes,
       thresholdStore: {
         kind: 'cloudflare-do',
         namespace: durableObjects,
@@ -688,7 +736,7 @@ test('Cloudflare D1 Router API auth service starts ECDSA add-signer ceremonies t
         {
           chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 8453 },
           prepare: {
-            formatVersion: 'ecdsa-hss-role-local',
+            formatVersion: 'ecdsa-derivation-role-local',
             walletId,
             signingRootId: `${scope.projectId}:${scope.envId}`,
             signingRootVersion: 'root-v1',
@@ -710,8 +758,8 @@ test('Cloudflare D1 Router API auth service starts ECDSA add-signer ceremonies t
     expect(ecdsaPrepare.evmFamilySigningKeySlotId).toContain(
       encodeURIComponent(`${scope.projectId}:${scope.envId}`),
     );
-    expect(ecdsaPrepare.ecdsaThresholdKeyId).toMatch(/^ehss-/);
-    expect(ecdsaPrepare.relayerKeyId).toMatch(/^ehss-relayer-/);
+    expect(ecdsaPrepare.ecdsaThresholdKeyId).toMatch(/^ederivation-/);
+    expect(ecdsaPrepare.relayerKeyId).toMatch(/^ederivation-relayer-/);
 
     const prefix = 'intent-test:wallet-registration:';
     expect(
@@ -728,7 +776,7 @@ test('Cloudflare D1 Router API auth service starts ECDSA add-signer ceremonies t
       auth: { kind: 'app_session' },
       signerState: {
         kind: 'ecdsa_add_signer_prepared',
-        hssKind: 'evm_family_ecdsa_keygen',
+        derivationKind: 'evm_family_ecdsa_keygen',
         targets: [
           {
             chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 8453 },
@@ -777,21 +825,14 @@ test('Cloudflare D1 Router API auth service responds to and finalizes ECDSA add-
     const walletId = walletIdFromString('add-signer-respond-wallet.testnet');
     const rpId = 'example.com';
     const durableObjects = new RecordingDurableObjectNamespace();
-    let bootstrapRequest: EcdsaHssClientBootstrapRequest | null = null;
-    const thresholdSigningService = {
-      async ecdsaHssRoleLocalBootstrap(request: EcdsaHssClientBootstrapRequest) {
-        bootstrapRequest = request;
-        return {
-          ok: true as const,
-          value: testEcdsaServerBootstrapResponse(request),
-        };
-      },
-    } as unknown as ThresholdSigningService;
-    const { routerAbNormalSigningRuntime } = createThresholdSigningServiceForUnitTests({
+    const runtimes = createRouterAbSigningRuntimesForUnitTests({
       config: {
         ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker',
       },
     });
+    const recordingBootstrap = new RecordingEcdsaBootstrapExportPort(
+      runtimes.ecdsaBootstrapExport,
+    );
     await insertSignerWallet({ database, ...scope, walletId });
     const service = createCloudflareD1RouterApiAuthService({
       database,
@@ -799,9 +840,11 @@ test('Cloudflare D1 Router API auth service responds to and finalizes ECDSA add-
       orgId: scope.orgId,
       projectId: scope.projectId,
       envId: scope.envId,
-      thresholdSigningRuntimes: {
-        thresholdSigningService,
-        routerAbNormalSigningRuntime,
+      routerAbSigningRuntimes: {
+        normalSigning: runtimes.normalSigning,
+        localSigningSeed: runtimes.localSigningSeed,
+        ecdsaBootstrapExport: { kind: 'configured', runtime: recordingBootstrap },
+        ecdsaPresign: runtimes.ecdsaPresign,
       },
       thresholdStore: {
         kind: 'cloudflare-do',
@@ -852,7 +895,7 @@ test('Cloudflare D1 Router API auth service responds to and finalizes ECDSA add-
     const ecdsaPrepare = requireSingleEcdsaPrepare(started.ecdsa);
     const clientBootstraps = testEcdsaClientBootstrapTargets(started.ecdsa);
     const clientBootstrap = clientBootstraps[0].clientBootstrap;
-    const responded = await service.walletAuthMethods.respondWalletAddSignerHss({
+    const responded = await service.walletAuthMethods.respondWalletAddSignerDerivation({
       addSignerCeremonyId: started.addSignerCeremonyId,
       ecdsa: {
         clientBootstraps,
@@ -871,7 +914,7 @@ test('Cloudflare D1 Router API auth service responds to and finalizes ECDSA add-
         },
       },
     ]);
-    expect(bootstrapRequest).toMatchObject({
+    expect(recordingBootstrap.request).toMatchObject({
       sessionId: clientBootstrap.thresholdSessionId,
       signingGrantId: clientBootstrap.signingGrantId,
       runtimePolicyScope,
@@ -883,7 +926,7 @@ test('Cloudflare D1 Router API auth service responds to and finalizes ECDSA add-
     ).toMatchObject({
       signerState: {
         kind: 'ecdsa_add_signer_responded',
-        hssKind: 'evm_family_ecdsa_keygen',
+        derivationKind: 'evm_family_ecdsa_keygen',
         targets: [
           {
             chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 8453 },
@@ -906,7 +949,7 @@ test('Cloudflare D1 Router API auth service responds to and finalizes ECDSA add-
     });
 
     await expect(
-      service.walletAuthMethods.respondWalletAddSignerHss({
+      service.walletAuthMethods.respondWalletAddSignerDerivation({
         addSignerCeremonyId: started.addSignerCeremonyId,
         ecdsa: {
           clientBootstraps,
@@ -1017,7 +1060,7 @@ test('Cloudflare D1 Router API auth service finalizes and replays Ed25519 Yao ad
     const credentialIdB64u = 'Y3JlZGVudGlhbC0x';
     const durableObjects = new RecordingDurableObjectNamespace();
     const yaoRuntime = new TestEd25519YaoAddSignerRuntime();
-    const thresholdSigningRuntimes = createThresholdSigningServiceForUnitTests({
+    const routerAbSigningRuntimes = createRouterAbSigningRuntimesForUnitTests({
       config: {
         ROUTER_AB_NORMAL_SIGNING_WORKER_ID: TEST_YAO_SIGNING_WORKER_ID,
       },
@@ -1045,10 +1088,7 @@ test('Cloudflare D1 Router API auth service finalizes and replays Ed25519 Yao ad
       orgId: scope.orgId,
       projectId: scope.projectId,
       envId: scope.envId,
-      thresholdSigningRuntimes: {
-        thresholdSigningService: thresholdSigningRuntimes.svc,
-        routerAbNormalSigningRuntime: thresholdSigningRuntimes.routerAbNormalSigningRuntime,
-      },
+      routerAbSigningRuntimes: routerAbSigningRuntimes.runtimes,
       ed25519YaoProductRegistration: yaoRuntime,
       thresholdStore: {
         kind: 'cloudflare-do',

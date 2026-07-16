@@ -625,12 +625,12 @@ const activeRouterApiTextPaths = [
     'packages/console-server-ts/README.md',
     'packages/sdk-web/README.md',
     'tests/README.md',
-    'packages/sdk-server-ts/src/core/ThresholdService/createCloudflareDurableObjectThresholdSigningService.ts',
+    'packages/sdk-server-ts/src/core/routerAbSigning/createCloudflareDurableObjectRouterAbSigningRuntimes.ts',
     'packages/sdk-server-ts/src/core/defaultConfigsServer.ts',
     'packages/console-server-ts/src/router/cloudflare/d1ConsoleServices.ts',
     'packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyStore.ts',
     'packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthConfig.ts',
-    'packages/sdk-server-ts/src/router/cloudflare/d1ThresholdSigningRuntime.ts',
+    'packages/sdk-server-ts/src/router/cloudflare/d1RouterAbSigningRuntime.ts',
     'docs/saas/bring-you-own-auth.md',
     'tests/unit/cloudflareD1ConsoleServices.unit.test.ts',
     'tests/unit/cloudflareD1RouterApiEmailOtp.unit.test.ts',
@@ -865,15 +865,15 @@ const forbiddenPublicRegistrationLegacySelectionTokens = [
 ];
 const forbiddenCloudflareRuntimeLegacyRegistrationTokens = [
     {
-        token: 'ed25519_and_ecdsa',
+        pattern: /\bmode\s*(?::|={2,3})\s*['"]ed25519_and_ecdsa['"]/,
         message: 'uses legacy combined registration mode instead of signer-set branches',
     },
     {
-        token: 'ed25519_only',
+        pattern: /\bmode\s*(?::|={2,3})\s*['"]ed25519_only['"]/,
         message: 'uses legacy Ed25519-only registration mode instead of signer-set branches',
     },
     {
-        token: 'ecdsa_only',
+        pattern: /\bmode\s*(?::|={2,3})\s*['"]ecdsa_only['"]/,
         message: 'uses legacy ECDSA-only registration mode instead of signer-set branches',
     },
     {
@@ -903,15 +903,15 @@ const forbiddenCloudflareRuntimeLegacyRegistrationTokens = [
 ];
 const forbiddenAuthServiceLegacyRegistrationModeTokens = [
     {
-        token: 'ed25519_and_ecdsa',
+        pattern: /\bmode\s*(?::|={2,3})\s*['"]ed25519_and_ecdsa['"]/,
         message: 'branches on legacy combined wallet-registration mode',
     },
     {
-        token: 'ed25519_only',
+        pattern: /\bmode\s*(?::|={2,3})\s*['"]ed25519_only['"]/,
         message: 'branches on legacy Ed25519-only wallet-registration mode',
     },
     {
-        token: 'ecdsa_only',
+        pattern: /\bmode\s*(?::|={2,3})\s*['"]ecdsa_only['"]/,
         message: 'branches on legacy ECDSA-only wallet-registration mode',
     },
     {
@@ -1226,11 +1226,12 @@ const forbiddenSdkServerPostgresRuntimePatterns = [
 const coreOrchestrationPortOnlyFiles = [
     'packages/sdk-server-ts/src/core/AuthService.ts',
     'packages/sdk-server-ts/src/core/SessionService.ts',
-    'packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts',
-    'packages/sdk-server-ts/src/core/ThresholdService/createThresholdSigningService.ts',
-    'packages/sdk-server-ts/src/core/ThresholdService/signingHandlers.ts',
-    'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaHssPoolFillHandlers.ts',
-    'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaHssPresignBridge.ts',
+    'packages/sdk-server-ts/src/core/routerAbSigning/RouterAbNormalSigningRuntime.ts',
+    'packages/sdk-server-ts/src/core/routerAbSigning/RouterAbEcdsaBootstrapExportRuntime.ts',
+    'packages/sdk-server-ts/src/core/routerAbSigning/RouterAbEcdsaPresignRuntime.ts',
+    'packages/sdk-server-ts/src/core/routerAbSigning/createRouterAbSigningRuntimes.ts',
+    'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaDerivationPoolFillHandlers.ts',
+    'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaDerivationPresignBridge.ts',
 ];
 const forbiddenCoreOrchestrationPersistencePatterns = [
     {
@@ -1833,7 +1834,7 @@ function d1WorkerRouterApiHandlerLifetimeViolations() {
     }
     const localWorker = readSource(cloudflareD1LocalDevWorkerPath);
     const stagingWorker = readSource(cloudflareD1RouterApiStagingWorkerPath);
-    const ecdsaPoolFill = readSource('packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaHssPoolFillHandlers.ts');
+    const ecdsaPoolFill = readSource('packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaDerivationPoolFillHandlers.ts');
     const thresholdStore = readSource('packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore.ts');
     const thresholdStoreClient = readSource('packages/sdk-server-ts/src/core/ThresholdService/stores/CloudflareDurableObjectStore.ts');
     if (localWorker.includes('localRouterApiEcdsaPoolFillLiveSessions')) {
@@ -1842,8 +1843,8 @@ function d1WorkerRouterApiHandlerLifetimeViolations() {
     if (stagingWorker.includes('routerApiStagingEcdsaPoolFillLiveSessions')) {
         violations.push(`${cloudflareD1RouterApiStagingWorkerPath}: owns ECDSA pool-fill live sessions outside the Durable Object`);
     }
-    if (localWorker.includes('createRouterAbEcdsaHssPoolFillLiveSessionStore') ||
-        stagingWorker.includes('createRouterAbEcdsaHssPoolFillLiveSessionStore')) {
+    if (localWorker.includes('createRouterAbEcdsaDerivationPoolFillLiveSessionStore') ||
+        stagingWorker.includes('createRouterAbEcdsaDerivationPoolFillLiveSessionStore')) {
         violations.push('D1 Router API Worker constructs ECDSA pool-fill live-session stores directly');
     }
     for (const [relativePath, source] of [
@@ -1851,26 +1852,26 @@ function d1WorkerRouterApiHandlerLifetimeViolations() {
         [cloudflareD1RouterApiStagingWorkerPath, stagingWorker],
     ]) {
         if (source.includes('ThresholdEcdsaPresignSession')) {
-            violations.push(`${relativePath}: references live ECDSA-HSS WASM presign sessions outside the Durable Object`);
+            violations.push(`${relativePath}: references live Router A/B ECDSA derivation WASM presign sessions outside the Durable Object`);
         }
         if (source.includes('presignSession') && source.includes('JSON.stringify')) {
-            violations.push(`${relativePath}: may serialize ECDSA-HSS live presign session state outside the Durable Object`);
+            violations.push(`${relativePath}: may serialize Router A/B ECDSA derivation live presign session state outside the Durable Object`);
         }
     }
     if (ecdsaPoolFill.includes('fetch.bind(globalThis)')) {
-        violations.push('packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaHssPoolFillHandlers.ts: caches a request-context fetch binding');
+        violations.push('packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaDerivationPoolFillHandlers.ts: caches a request-context fetch binding');
     }
     for (const token of [
-        'routerAbEcdsaHssPoolFillLiveSessionCreate',
-        'routerAbEcdsaHssPoolFillLiveSessionStep',
-        'routerAbEcdsaHssPoolFillLiveSessionDelete',
-        'InMemoryRouterAbEcdsaHssPoolFillLiveSessionOwner',
+        'routerAbEcdsaDerivationPoolFillLiveSessionCreate',
+        'routerAbEcdsaDerivationPoolFillLiveSessionStep',
+        'routerAbEcdsaDerivationPoolFillLiveSessionDelete',
+        'InMemoryRouterAbEcdsaDerivationPoolFillLiveSessionOwner',
     ]) {
         if (!thresholdStore.includes(token)) {
             violations.push(`packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore.ts: missing ${token}`);
         }
     }
-    if (!thresholdStoreClient.includes('CloudflareDurableObjectRouterAbEcdsaHssPoolFillLiveSessionOwner')) {
+    if (!thresholdStoreClient.includes('CloudflareDurableObjectRouterAbEcdsaDerivationPoolFillLiveSessionOwner')) {
         violations.push('packages/sdk-server-ts/src/core/ThresholdService/stores/CloudflareDurableObjectStore.ts: missing DO-backed ECDSA pool-fill live-session owner');
     }
     if (!thresholdStoreClient.includes(':ecdsa-pool-fill:${id}')) {
@@ -1882,9 +1883,10 @@ function cloudflareRuntimeLegacyRegistrationModeViolations() {
     const violations = [];
     for (const relativePath of cloudflareRuntimeRoots) {
         const source = readSource(relativePath);
-        for (const { token, message } of forbiddenCloudflareRuntimeLegacyRegistrationTokens) {
-            if (source.includes(token)) {
-                violations.push(`${relativePath}: ${message}`);
+        for (const rule of forbiddenCloudflareRuntimeLegacyRegistrationTokens) {
+            const found = 'pattern' in rule ? rule.pattern.test(source) : source.includes(rule.token);
+            if (found) {
+                violations.push(`${relativePath}: ${rule.message}`);
             }
         }
     }
@@ -1893,9 +1895,10 @@ function cloudflareRuntimeLegacyRegistrationModeViolations() {
 function authServiceLegacyRegistrationModeViolations() {
     const violations = [];
     const source = readSource(authServicePath);
-    for (const { token, message } of forbiddenAuthServiceLegacyRegistrationModeTokens) {
-        if (source.includes(token))
-            violations.push(`${authServicePath}: ${message}`);
+    for (const rule of forbiddenAuthServiceLegacyRegistrationModeTokens) {
+        const found = 'pattern' in rule ? rule.pattern.test(source) : source.includes(rule.token);
+        if (found)
+            violations.push(`${authServicePath}: ${rule.message}`);
     }
     return violations.sort();
 }

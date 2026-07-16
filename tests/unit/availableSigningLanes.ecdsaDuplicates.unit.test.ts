@@ -48,7 +48,7 @@ function unsignedEcdsaWalletSessionJwt(args: {
 }): string {
   const payload = Buffer.from(
     JSON.stringify({
-      kind: 'router_ab_ecdsa_hss_wallet_session_v1',
+      kind: 'router_ab_ecdsa_derivation_wallet_session_v1',
       keyScope: 'evm-family',
       walletId: args.walletId,
       keyHandle: args.keyHandle,
@@ -93,6 +93,7 @@ function sealedEmailOtpEcdsaRecord(args: {
       evmFamilySigningKeySlotId: runtimeRecord.key.evmFamilySigningKeySlotId,
       signingRootId: runtimeRecord.key.signingRootId,
       signingRootVersion: runtimeRecord.key.signingRootVersion,
+      provider: 'google',
       providerSubjectId: 'google:available-lanes',
       emailHashHex: '11'.repeat(32),
       walletSessionJwt: unsignedEcdsaWalletSessionJwt({
@@ -106,13 +107,13 @@ function sealedEmailOtpEcdsaRecord(args: {
       ecdsaThresholdKeyId: runtimeRecord.key.ecdsaThresholdKeyId,
       ethereumAddress: runtimeRecord.key.thresholdOwnerAddress,
       relayerKeyId: 'relayer-key',
-      clientVerifyingShareB64u: Buffer.from(
-        new Uint8Array([2, ...Array(32).fill(3)]),
-      ).toString('base64url'),
+      clientVerifyingShareB64u: Buffer.from(new Uint8Array([2, ...Array(32).fill(3)])).toString(
+        'base64url',
+      ),
       thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
       participantIds: [...runtimeRecord.key.participantIds],
-      routerAbEcdsaHssNormalSigning: {
-        kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+      routerAbEcdsaDerivationNormalSigning: {
+        kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
         scope: {
           wallet_key_id: runtimeRecord.key.evmFamilySigningKeySlotId,
           wallet_id: runtimeRecord.key.walletId,
@@ -126,7 +127,7 @@ function sealedEmailOtpEcdsaRecord(args: {
           },
           public_identity: {
             context_binding_b64u: Buffer.from(new Uint8Array(32).fill(5)).toString('base64url'),
-            client_public_key33_b64u: Buffer.from(
+            derivation_client_share_public_key33_b64u: Buffer.from(
               new Uint8Array([2, ...Array(32).fill(3)]),
             ).toString('base64url'),
             server_public_key33_b64u: Buffer.from(
@@ -176,6 +177,48 @@ function expectEcdsaLaneAuthMethod(
 }
 
 test.describe('ECDSA available signing lane duplicate normalization', () => {
+  test('preserves durable reauth authority when a matching runtime lane is exhausted', async () => {
+    const thresholdSessionId = 'tsess-email-otp-runtime-durable-exhausted';
+    const signingGrantId = 'wsess-email-otp-runtime-durable-exhausted';
+    const durableRecord = sealedEmailOtpEcdsaRecord({
+      chainTarget: ECDSA_TARGET,
+      thresholdSessionId,
+      signingGrantId,
+      updatedAtMs: 700,
+    });
+    const runtimeRecord = runtimeEcdsaRecord({
+      authMethod: 'email_otp',
+      chainTarget: ECDSA_TARGET,
+      thresholdSessionId,
+      signingGrantId,
+      thresholdOwnerAddress: `0x${'EF'.repeat(20)}`,
+      ecdsaThresholdKeyId: 'shared-ecdsa-key',
+      keyHandle: TEST_ECDSA_KEY_HANDLE,
+      remainingUses: 0,
+      updatedAtMs: 800,
+    });
+
+    const availableLanes = await readAvailableLanes({
+      sealedRecords: [durableRecord],
+      runtimeEcdsaRecords: [runtimeRecord],
+    });
+    const lane = availableLanes.ecdsa.lanesByTarget[thresholdEcdsaChainTargetKey(ECDSA_TARGET)];
+
+    expectEcdsaLaneAuthMethod(lane, 'email_otp');
+    expect(lane).toMatchObject({
+      source: 'durable_sealed_record',
+      state: 'exhausted',
+      remainingUses: 0,
+      thresholdSessionId,
+      signingGrantId,
+      publicReauthAuthority: {
+        source: 'email_otp',
+        chainTarget: ECDSA_TARGET,
+        providerSubjectId: 'google:available-lanes',
+      },
+    });
+  });
+
   test('keeps both exact durable Email OTP target authorities after refresh', async () => {
     const signingGrantId = 'wsess-email-otp-durable-family';
     for (const updateOrder of [
@@ -203,12 +246,10 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
           sealedRecords: [tempoRecord, arcRecord],
           ecdsaChainTargets: [...ecdsaChainTargets],
         });
-        const tempoLane = availableLanes.ecdsa.lanesByTarget[
-          thresholdEcdsaChainTargetKey(TEMPO_TARGET)
-        ];
-        const arcLane = availableLanes.ecdsa.lanesByTarget[
-          thresholdEcdsaChainTargetKey(ECDSA_TARGET)
-        ];
+        const tempoLane =
+          availableLanes.ecdsa.lanesByTarget[thresholdEcdsaChainTargetKey(TEMPO_TARGET)];
+        const arcLane =
+          availableLanes.ecdsa.lanesByTarget[thresholdEcdsaChainTargetKey(ECDSA_TARGET)];
 
         expectEcdsaLaneAuthMethod(tempoLane, 'email_otp');
         expectEcdsaLaneAuthMethod(arcLane, 'email_otp');
@@ -244,9 +285,8 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
         sealedRecords: [arcRecord],
         ecdsaChainTargets: [...ecdsaChainTargets],
       });
-      const tempoLane = availableLanes.ecdsa.lanesByTarget[
-        thresholdEcdsaChainTargetKey(TEMPO_TARGET)
-      ];
+      const tempoLane =
+        availableLanes.ecdsa.lanesByTarget[thresholdEcdsaChainTargetKey(TEMPO_TARGET)];
 
       expectEcdsaLaneAuthMethod(tempoLane, 'email_otp');
       expect(tempoLane).toMatchObject({
@@ -294,7 +334,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
       signingGrantId: 'wsess-email-otp-runtime-exhausted-2',
       thresholdSessionId: 'tsess-email-otp-runtime-exhausted-2',
       publicFacts: {
-        keyHandle: expect.stringMatching(/^ehss-key-/),
+        keyHandle: expect.stringMatching(/^ederivation-key-/),
         publicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
         thresholdOwnerAddress: `0x${'ef'.repeat(20)}`,
       },
@@ -385,7 +425,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
       remainingUses: 2,
       updatedAtMs: 800,
     }) as Record<string, unknown>;
-    delete staleRecord.routerAbEcdsaHssNormalSigning;
+    delete staleRecord.routerAbEcdsaDerivationNormalSigning;
 
     const availableLanes = await readAvailableLanes({
       runtimeEcdsaRecords: [staleRecord as never],

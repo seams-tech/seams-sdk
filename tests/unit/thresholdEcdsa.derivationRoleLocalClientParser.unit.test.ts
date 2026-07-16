@@ -1,17 +1,17 @@
 import { expect, test } from '@playwright/test';
 import {
-  thresholdEcdsaHssRoleLocalBootstrap,
-  type ThresholdEcdsaHssRoleLocalBootstrapRequest,
+  thresholdEcdsaDerivationRoleLocalBootstrap,
+  type ThresholdEcdsaDerivationRoleLocalBootstrapRequest,
 } from '../../packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa';
-import type { EcdsaHssClientSharePublicKey33B64u } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
-import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
+import type { DerivationClientSharePublicKey33B64u } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
+import { ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import {
-  toEcdsaHssThresholdKeyId,
-} from '../../packages/sdk-web/src/core/signingEngine/session/identity/emailOtpHssIdentity';
+  toEcdsaDerivationThresholdKeyId,
+} from '../../packages/sdk-web/src/core/signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
 import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 
-function toHssClientSharePublicKey33B64uForTest(value: string): EcdsaHssClientSharePublicKey33B64u {
-  return value as EcdsaHssClientSharePublicKey33B64u;
+function toDerivationClientSharePublicKey33B64uForTest(value: string): DerivationClientSharePublicKey33B64u {
+  return value as DerivationClientSharePublicKey33B64u;
 }
 
 function base64UrlEncodeJsonFixture(value: unknown): string {
@@ -30,9 +30,9 @@ const RELAYER_PUBLIC_KEY_33_B64U = 'AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMD
 const GROUP_PUBLIC_KEY_33_B64U = 'BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE';
 const ETHEREUM_ADDRESS20_B64U = 'ERERERERERERERERERERERERERE';
 
-function buildRouterAbEcdsaHssWalletSessionJwtFixture(args: { expiresAtMs: number }): string {
+function buildRouterAbEcdsaDerivationWalletSessionJwtFixture(args: { expiresAtMs: number }): string {
   return buildUnsignedJwtFixture({
-    kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+    kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
     sub: 'wallet-user',
     walletId: 'wallet-user',
     evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
@@ -43,8 +43,8 @@ function buildRouterAbEcdsaHssWalletSessionJwtFixture(args: { expiresAtMs: numbe
     relayerKeyId: 'relayer-key',
     thresholdExpiresAtMs: args.expiresAtMs,
     participantIds: [1, 2],
-    routerAbEcdsaHssNormalSigning: {
-      kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+    routerAbEcdsaDerivationNormalSigning: {
+      kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
       scope: {
         wallet_key_id: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
         wallet_id: 'wallet-user',
@@ -56,7 +56,7 @@ function buildRouterAbEcdsaHssWalletSessionJwtFixture(args: { expiresAtMs: numbe
         },
         public_identity: {
           context_binding_b64u: CONTEXT_BINDING_32_B64U,
-          client_public_key33_b64u: CLIENT_PUBLIC_KEY_33_B64U,
+          derivation_client_share_public_key33_b64u: CLIENT_PUBLIC_KEY_33_B64U,
           server_public_key33_b64u: RELAYER_PUBLIC_KEY_33_B64U,
           threshold_public_key33_b64u: GROUP_PUBLIC_KEY_33_B64U,
           ethereum_address20_b64u: ETHEREUM_ADDRESS20_B64U,
@@ -75,16 +75,16 @@ function buildRouterAbEcdsaHssWalletSessionJwtFixture(args: { expiresAtMs: numbe
 }
 
 const BOOTSTRAP_ARGS = {
-  formatVersion: 'ecdsa-hss-role-local' as const,
+  formatVersion: 'ecdsa-derivation-role-local' as const,
   walletId: toWalletId('wallet-user'),
   evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
-  ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId('ecdsa-threshold-key'),
+  ecdsaThresholdKeyId: toEcdsaDerivationThresholdKeyId('ecdsa-threshold-key'),
   signingRootId: 'project:env',
   signingRootVersion: 'default',
   keyScope: 'evm-family' as const,
   relayerKeyId: 'relayer-key',
-  hssClientSharePublicKey33B64u:
-    toHssClientSharePublicKey33B64uForTest(CLIENT_PUBLIC_KEY_33_B64U),
+  derivationClientSharePublicKey33B64u:
+    toDerivationClientSharePublicKey33B64uForTest(CLIENT_PUBLIC_KEY_33_B64U),
   clientShareRetryCounter: 0,
   contextBinding32B64u: CONTEXT_BINDING_32_B64U,
   requestId: 'request-id',
@@ -93,12 +93,12 @@ const BOOTSTRAP_ARGS = {
   ttlMs: 60_000,
   remainingUses: 2,
   participantIds: [1, 2],
-} satisfies ThresholdEcdsaHssRoleLocalBootstrapRequest;
+} satisfies ThresholdEcdsaDerivationRoleLocalBootstrapRequest;
 
 function bootstrapValue(overrides?: Record<string, unknown>): Record<string, unknown> {
   const expiresAtMs = Date.now() + 60_000;
   return {
-    formatVersion: 'ecdsa-hss-role-local',
+    formatVersion: 'ecdsa-derivation-role-local',
     walletId: 'wallet-user',
     evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
     ecdsaThresholdKeyId: 'ecdsa-threshold-key',
@@ -106,7 +106,7 @@ function bootstrapValue(overrides?: Record<string, unknown>): Record<string, unk
     applicationBindingDigestB64u: APPLICATION_BINDING_DIGEST_32_B64U,
     contextBinding32B64u: CONTEXT_BINDING_32_B64U,
     publicIdentity: {
-      hssClientSharePublicKey33B64u: CLIENT_PUBLIC_KEY_33_B64U,
+      derivationClientSharePublicKey33B64u: CLIENT_PUBLIC_KEY_33_B64U,
       relayerPublicKey33B64u: RELAYER_PUBLIC_KEY_33_B64U,
       groupPublicKey33B64u: GROUP_PUBLIC_KEY_33_B64U,
       ethereumAddress: '0x1111111111111111111111111111111111111111',
@@ -126,12 +126,12 @@ function bootstrapValue(overrides?: Record<string, unknown>): Record<string, unk
     expiresAtMs,
     expiresAt: new Date(expiresAtMs).toISOString(),
     remainingUses: 2,
-    jwt: buildRouterAbEcdsaHssWalletSessionJwtFixture({ expiresAtMs }),
+    jwt: buildRouterAbEcdsaDerivationWalletSessionJwtFixture({ expiresAtMs }),
     ...(overrides || {}),
   };
 }
 
-test.describe('threshold ECDSA HSS role-local client parser', () => {
+test.describe('threshold ECDSA derivation role-local client parser', () => {
   test('sends publishable-key authorization for project-environment passkey bootstrap', async () => {
     const originalFetch = globalThis.fetch;
     let capturedInit: RequestInit | undefined;
@@ -147,7 +147,7 @@ test.describe('threshold ECDSA HSS role-local client parser', () => {
         );
       }) as typeof fetch;
 
-      const result = await thresholdEcdsaHssRoleLocalBootstrap('https://relay.example.test', {
+      const result = await thresholdEcdsaDerivationRoleLocalBootstrap('https://relay.example.test', {
         ...BOOTSTRAP_ARGS,
         passkeyBootstrapAuthorization: {
           kind: 'passkey_bootstrap',
@@ -205,7 +205,7 @@ test.describe('threshold ECDSA HSS role-local client parser', () => {
             { status: 200, headers: { 'Content-Type': 'application/json' } },
           )) as typeof fetch;
 
-        const result = await thresholdEcdsaHssRoleLocalBootstrap(
+        const result = await thresholdEcdsaDerivationRoleLocalBootstrap(
           'https://relay.example.test',
           BOOTSTRAP_ARGS,
         );

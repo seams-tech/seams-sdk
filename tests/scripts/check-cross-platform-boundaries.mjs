@@ -82,7 +82,7 @@ const platformBoundaryFiles = guardBoundaryFiles([
 
 const rawHssBoundaryFiles = guardBoundaryFiles([]);
 const rawDbRecordBoundaryFiles = guardBoundaryFiles([]);
-const ecdsaHssClientWorkerConstructionBoundaryFiles = guardBoundaryFiles([]);
+const ecdsaDerivationClientWorkerConstructionBoundaryFiles = guardBoundaryFiles([]);
 const secretSourceCastBoundaryFiles = new Set([
   'packages/sdk-web/src/core/platform/types.typecheck.ts',
 ]);
@@ -144,10 +144,10 @@ const rawDbRecordPatterns = [
   /\bcurrent_unbranched_ready_record_v1\b/,
 ];
 
-const ecdsaHssClientWorkerConstructionPatterns = [
-  /\bWorkerRequestType\.BuildThresholdEcdsaHssRoleLocalClientBootstrap\b/,
-  /\bbuildThresholdEcdsaHssRoleLocalClientBootstrapWasm\b/,
-  /\bThresholdEcdsaHssRoleLocalClientBootstrap\b/,
+const ecdsaDerivationClientWorkerConstructionPatterns = [
+  /\bWorkerRequestType\.BuildThresholdEcdsaDerivationRoleLocalClientBootstrap\b/,
+  /\bbuildThresholdEcdsaDerivationRoleLocalClientBootstrapWasm\b/,
+  /\bThresholdEcdsaDerivationRoleLocalClientBootstrap\b/,
 ];
 
 const signerCommandSchemaRoots = [
@@ -280,7 +280,7 @@ function collectRawHssViolations() {
     listTypeScriptFilesInRoots(activeCoreSigningRoots),
     rawHssBoundaryFiles,
     rawHssPatterns,
-    'raw ECDSA HSS share field in active core signing root',
+    'raw Router A/B ECDSA derivation share field in active core signing root',
   );
 }
 
@@ -377,12 +377,12 @@ function collectRoleLocalParserViolations() {
   return violations;
 }
 
-function collectHssClientWorkerConstructionViolations() {
+function collectEcdsaDerivationClientWorkerConstructionViolations() {
   return collectPatternViolations(
     listTypeScriptFilesInRoots(activeCoreSigningRoots),
-    ecdsaHssClientWorkerConstructionBoundaryFiles,
-    ecdsaHssClientWorkerConstructionPatterns,
-    'HSS client bootstrap worker construction outside signer adapter',
+    ecdsaDerivationClientWorkerConstructionBoundaryFiles,
+    ecdsaDerivationClientWorkerConstructionPatterns,
+    'ECDSA derivation client bootstrap worker construction outside signer adapter',
   );
 }
 
@@ -391,14 +391,14 @@ function collectLegacyRootShareFfiViolations() {
   const emailOtpWorkerSource = readRepoFile(
     'packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
   );
-  const clientDts = readRepoFile('wasm/ecdsa_client_signer/pkg/ecdsa_client_signer.d.ts');
-  const legacyFfi = 'threshold_ecdsa_hss_role_local_prepare_client_bootstrap';
+  const clientDts = readRepoFile('wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.d.ts');
+  const legacyFfi = 'threshold_ecdsa_derivation_role_local_prepare_client_bootstrap';
 
   if (emailOtpWorkerSource.includes(legacyFfi)) {
     violations.push('email-otp.worker.ts contains legacy root-share ECDSA prepare FFI');
   }
   if (clientDts.includes(legacyFfi)) {
-    violations.push('ecdsa_client_signer.d.ts contains legacy root-share ECDSA prepare FFI');
+    violations.push('router_ab_ecdsa_derivation_client.d.ts contains legacy root-share ECDSA prepare FFI');
   }
 
   return violations;
@@ -446,14 +446,14 @@ function collectEcdsaExportClientRootShareViolations() {
     'packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaExportFlow.ts',
   );
   const exportBoundarySource = readRepoFile(
-    'packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaHssExport.ts',
+    'packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaDerivationExport.ts',
   );
 
   if (exportFlowSource.includes('clientRootShare32B64u')) {
     violations.push('ecdsaExportFlow.ts transports clientRootShare32B64u');
   }
   if (exportBoundarySource.includes('clientRootShare32B64u: string')) {
-    violations.push('ecdsaHssExport.ts exposes clientRootShare32B64u as a string');
+    violations.push('ecdsaDerivationExport.ts exposes clientRootShare32B64u as a string');
   }
 
   return violations;
@@ -500,7 +500,7 @@ function main() {
     ...collectUseCaseRuntimePortsViolations(),
     ...collectRawDbRecordViolations(),
     ...collectRoleLocalParserViolations(),
-    ...collectHssClientWorkerConstructionViolations(),
+    ...collectEcdsaDerivationClientWorkerConstructionViolations(),
     ...collectLegacyRootShareFfiViolations(),
     ...collectHandWrittenSignerCommandSchemaViolations(),
     ...collectEmailOtpRegistrationPrepViolations(),

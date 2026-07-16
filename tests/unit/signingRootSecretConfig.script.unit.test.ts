@@ -1,20 +1,17 @@
 import { expect, test } from '@playwright/test';
-import type { AuthService } from '../../packages/sdk-server-ts/src/core/AuthService';
 import {
   createConfiguredSigningRootShareResolver,
-  createThresholdSigningService,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService';
+import { createRouterAbSigningRuntimes } from '../../packages/sdk-server-ts/src/core/routerAbSigning/createRouterAbSigningRuntimes';
 import type { ThresholdStoreConfigInput } from '../../packages/sdk-server-ts/src/core/types';
 
-function createAuthServiceMock(): AuthService {
+function createAuthServiceMock(): { getRelayerAccount(): Promise<string> } {
   return {
     getRelayerAccount: async () => 'relayer.testnet',
-    verifyWebAuthnAuthenticationLite: async () => ({ success: true, verified: true }),
-    viewAccessKeyList: async () => ({ keys: [] }),
-  } as unknown as AuthService;
+  };
 }
 
-test('threshold signing service reports signing-root resolver configured from server SDK config', () => {
+test('Router A/B ECDSA bootstrap runtime is configured from server SDK signing-root config', () => {
   const thresholdConfig: ThresholdStoreConfigInput = {
     kind: 'in-memory',
     ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker.local',
@@ -33,13 +30,13 @@ test('threshold signing service reports signing-root resolver configured from se
     },
   };
 
-  const { thresholdSigningService: service } = createThresholdSigningService({
+  const runtimes = createRouterAbSigningRuntimes({
     authService: createAuthServiceMock(),
     thresholdStore: thresholdConfig,
     isNode: true,
   });
 
-  expect(service.hasSigningRootShareResolver()).toBe(true);
+  expect(runtimes.ecdsaBootstrapExport.kind).toBe('configured');
 });
 
 test('signing-root share resolver config composes storage and decrypt adapters', async () => {

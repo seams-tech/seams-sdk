@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const SDK_WEB_SRC = 'packages/sdk-web/src';
 const ECDSA_HANDLE_MODULE =
-  'packages/sdk-web/src/core/signingEngine/session/identity/ecdsaHssSigningMaterialHandle.ts';
+  'packages/sdk-web/src/core/signingEngine/session/identity/ecdsaDerivationSigningMaterialHandle.ts';
 
 function absolutePath(relativePath) {
   return path.join(repoRoot, relativePath);
@@ -196,14 +196,14 @@ function checkPostStartRegistrationRoutesUseStoredPreparedState() {
   const startBlock = extractSourceBlock(
     service,
     '  async startWalletRegistration(',
-    '  async respondWalletRegistrationHss(',
+    '  async respondWalletRegistrationEcdsaDerivation(',
     'startWalletRegistration',
   );
   const respondBlock = extractSourceBlock(
     service,
-    '  async respondWalletRegistrationHss(',
+    '  async respondWalletRegistrationEcdsaDerivation(',
     '  async finalizeWalletRegistration(',
-    'respondWalletRegistrationHss',
+    'respondWalletRegistrationEcdsaDerivation',
   );
   const finalizeStart = service.indexOf('  async finalizeWalletRegistration(');
   assert.ok(finalizeStart >= 0, 'missing finalizeWalletRegistration');

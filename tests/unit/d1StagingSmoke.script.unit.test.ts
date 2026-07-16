@@ -72,7 +72,7 @@ async function smokeFetch(input: string | URL | Request): Promise<Response> {
   if (url === `${D1_STAGING_ROUTER_API_ORIGIN}/router-ab/ed25519/healthz`) {
     return d1StagingJsonResponse({ ok: true, configured: true }, 200);
   }
-  if (url === `${D1_STAGING_ROUTER_API_ORIGIN}/router-ab/ecdsa-hss/healthz`) {
+  if (url === `${D1_STAGING_ROUTER_API_ORIGIN}/router-ab/ecdsa-derivation/healthz`) {
     return d1StagingJsonResponse({ ok: true, configured: true }, 200);
   }
   return d1StagingJsonResponse({ ok: false }, 404);
@@ -92,7 +92,7 @@ test('D1 staging smoke builds the actual console and router-api readiness endpoi
     ['router_api_readyz', 'GET', `${D1_STAGING_ROUTER_API_ORIGIN}/readyz`],
     ['router_api_healthz', 'GET', `${D1_STAGING_ROUTER_API_ORIGIN}/healthz`],
     ['signer_custody_ed25519_healthz', 'GET', `${D1_STAGING_ROUTER_API_ORIGIN}/router-ab/ed25519/healthz`],
-    ['signer_custody_ecdsa_hss_healthz', 'GET', `${D1_STAGING_ROUTER_API_ORIGIN}/router-ab/ecdsa-hss/healthz`],
+    ['signer_custody_ecdsa_derivation_healthz', 'GET', `${D1_STAGING_ROUTER_API_ORIGIN}/router-ab/ecdsa-derivation/healthz`],
   ]);
 });
 
@@ -112,7 +112,7 @@ test('D1 staging smoke writes remote evidence when readiness endpoints pass', as
     'router_api_readyz',
     'router_api_healthz',
     'signer_custody_ed25519_healthz',
-    'signer_custody_ecdsa_hss_healthz',
+    'signer_custody_ecdsa_derivation_healthz',
   ]);
   expect(readD1StagingJsonFile(manifestPath).checks).toHaveLength(5);
 });

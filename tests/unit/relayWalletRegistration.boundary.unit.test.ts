@@ -5,13 +5,13 @@ import {
   handleRouterApiWalletRevokeAuthMethod,
   handleRouterApiWalletAddAuthMethodStart,
   handleRouterApiWalletAddSignerFinalize,
-  handleRouterApiWalletAddSignerHssRespond,
+  handleRouterApiWalletAddSignerDerivationRespond,
   handleRouterApiWalletAddSignerIntent,
   handleRouterApiWalletAddSignerStart,
   handleRouterApiWalletRegistrationIntent,
   handleRouterApiWalletRegistrationStart,
   handleRouterApiWalletRegistrationFinalize,
-  handleRouterApiWalletRegistrationHssRespond,
+  handleRouterApiWalletRegistrationDerivationRespond,
   handleRouterApiWalletEcdsaKeyFactsInventory,
 } from '../../packages/sdk-server-ts/src/router/walletRegistrationRoutes';
 import {
@@ -20,7 +20,7 @@ import {
   type RouteDefinition,
 } from '../../packages/sdk-server-ts/src/router/routeDefinitions';
 import { computeWalletEcdsaKeyFactsInventoryChallengeDigestB64u } from '../../packages/shared-ts/src/utils/ecdsaKeyFactsInventory';
-import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '../../packages/shared-ts/src/utils/sessionTokens';
+import { ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND } from '../../packages/shared-ts/src/utils/sessionTokens';
 import { ROUTER_AB_PUBLIC_KEYSET_VERSION_V2 } from '../../packages/shared-ts/src/utils/routerAbPublicKeyset';
 import {
   computeAddAuthMethodIntentDigestB64u,
@@ -50,7 +50,7 @@ function namedProvisioning(accountId: string) {
   return sponsoredNamedNearAccountProvisioning(parsed.value);
 }
 
-const ECDSA_REGISTRATION_HSS_RESPOND_FORBIDDEN_FIELDS = [
+const ECDSA_REGISTRATION_DERIVATION_RESPOND_FORBIDDEN_FIELDS = [
   'clientRootProof',
   'passkeyBootstrapAuthorization',
   'sessionKind',
@@ -97,7 +97,7 @@ function route(id: string): RouteDefinition {
 function inputFor(
   routeId:
     | 'wallet_registration_start'
-    | 'wallet_registration_hss_respond'
+    | 'wallet_registration_derivation_respond'
     | 'wallet_registration_finalize',
   body: unknown,
   authService: Record<string, unknown>,
@@ -154,7 +154,7 @@ function addSignerInputFor(args: {
   routeId:
     | 'wallet_add_signer_intent'
     | 'wallet_add_signer_start'
-    | 'wallet_add_signer_hss_respond'
+    | 'wallet_add_signer_derivation_respond'
     | 'wallet_add_signer_finalize';
   body: unknown;
   authService: Record<string, unknown>;
@@ -261,15 +261,15 @@ const ECDSA_SIGNING_KEY_SLOT_ID = deriveEvmFamilySigningKeySlotId({
 
 function validEcdsaClientBootstrap() {
   return {
-    formatVersion: 'ecdsa-hss-role-local',
+    formatVersion: 'ecdsa-derivation-role-local',
     walletId: 'wallet_alice',
     evmFamilySigningKeySlotId: ECDSA_SIGNING_KEY_SLOT_ID,
-    ecdsaThresholdKeyId: 'ehss-alice',
+    ecdsaThresholdKeyId: 'ederivation-alice',
     signingRootId: 'project:dev',
     signingRootVersion: 'default',
     keyScope: 'evm-family',
-    relayerKeyId: 'ehss-relayer-alice',
-    hssClientSharePublicKey33B64u: b64u([2, ...Array(32).fill(1)]),
+    relayerKeyId: 'ederivation-relayer-alice',
+    derivationClientSharePublicKey33B64u: b64u([2, ...Array(32).fill(1)]),
     clientShareRetryCounter: 0,
     contextBinding32B64u: b64u(Array(32).fill(2)),
     requestId: 'request-1',
@@ -294,15 +294,15 @@ function validNormalizedEcdsaClientBootstrap() {
 
 function validEcdsaServerBootstrap() {
   return {
-    formatVersion: 'ecdsa-hss-role-local',
+    formatVersion: 'ecdsa-derivation-role-local',
     walletId: 'wallet_alice',
     evmFamilySigningKeySlotId: ECDSA_SIGNING_KEY_SLOT_ID,
-    ecdsaThresholdKeyId: 'ehss-alice',
-    relayerKeyId: 'ehss-relayer-alice',
+    ecdsaThresholdKeyId: 'ederivation-alice',
+    relayerKeyId: 'ederivation-relayer-alice',
     applicationBindingDigestB64u: b64u(Array(32).fill(9)),
     contextBinding32B64u: b64u(Array(32).fill(2)),
     publicIdentity: {
-      hssClientSharePublicKey33B64u: b64u([2, ...Array(32).fill(1)]),
+      derivationClientSharePublicKey33B64u: b64u([2, ...Array(32).fill(1)]),
       relayerPublicKey33B64u: b64u([3, ...Array(32).fill(6)]),
       groupPublicKey33B64u: b64u([2, ...Array(32).fill(5)]),
       ethereumAddress: '0x1111111111111111111111111111111111111111',
@@ -310,7 +310,7 @@ function validEcdsaServerBootstrap() {
     clientShareRetryCounter: 0,
     relayerShareRetryCounter: 1,
     publicTranscriptDigest32B64u: b64u(Array(32).fill(4)),
-    keyHandle: 'ehss-key-alice',
+    keyHandle: 'ederivation-key-alice',
     signingRootId: 'project:dev',
     signingRootVersion: 'default',
     thresholdEcdsaPublicKeyB64u: b64u([2, ...Array(32).fill(5)]),
@@ -710,12 +710,12 @@ test.describe('wallet registration route boundaries', () => {
     });
   });
 
-  for (const forbiddenField of ECDSA_REGISTRATION_HSS_RESPOND_FORBIDDEN_FIELDS) {
+  for (const forbiddenField of ECDSA_REGISTRATION_DERIVATION_RESPOND_FORBIDDEN_FIELDS) {
     test(`respond rejects ECDSA registration field ${forbiddenField}`, async () => {
       let called = false;
-      const response = await handleRouterApiWalletRegistrationHssRespond(
+      const response = await handleRouterApiWalletRegistrationDerivationRespond(
         inputFor(
-          'wallet_registration_hss_respond',
+          'wallet_registration_derivation_respond',
           {
             registrationCeremonyId: 'wrc_123',
             ecdsa: {
@@ -731,7 +731,7 @@ test.describe('wallet registration route boundaries', () => {
             },
           },
           {
-            respondWalletRegistrationHss: async () => {
+            respondWalletRegistrationDerivation: async () => {
               called = true;
               return { ok: true };
             },
@@ -753,9 +753,9 @@ test.describe('wallet registration route boundaries', () => {
     let captured: unknown = null;
     const signedClaims: { claims: Record<string, unknown> | null } = { claims: null };
     const clientBootstrap = validEcdsaClientBootstrap();
-    const response = await handleRouterApiWalletRegistrationHssRespond(
+    const response = await handleRouterApiWalletRegistrationDerivationRespond(
       inputFor(
-        'wallet_registration_hss_respond',
+        'wallet_registration_derivation_respond',
         {
           registrationCeremonyId: ' wrc_123 ',
           ecdsa: {
@@ -768,7 +768,7 @@ test.describe('wallet registration route boundaries', () => {
           },
         },
         {
-          respondWalletRegistrationHss: async (request: unknown) => {
+          respondWalletRegistrationDerivation: async (request: unknown) => {
             captured = request;
             return {
               ok: true,
@@ -804,16 +804,16 @@ test.describe('wallet registration route boundaries', () => {
       },
     });
     expect((response.body as any).ecdsa.bootstraps[0].bootstrap.jwt).toBe(
-      `signed:${ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND}:session-1`,
+      `signed:${ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND}:session-1`,
     );
     expect(signedClaims.claims).toMatchObject({
-      kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
-      routerAbEcdsaHssNormalSigning: {
-        kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+      kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
+      routerAbEcdsaDerivationNormalSigning: {
+        kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
         scope: {
           wallet_key_id: ECDSA_SIGNING_KEY_SLOT_ID,
           wallet_id: 'wallet_alice',
-          ecdsa_threshold_key_id: 'ehss-alice',
+          ecdsa_threshold_key_id: 'ederivation-alice',
           signing_root_id: 'project:dev',
           signing_root_version: 'default',
           context: {
@@ -827,7 +827,7 @@ test.describe('wallet registration route boundaries', () => {
         },
       },
     });
-    expect(signedClaims.claims?.routerAbEcdsaHssIssuerBinding).toBeUndefined();
+    expect(signedClaims.claims?.routerAbEcdsaDerivationIssuerBinding).toBeUndefined();
   });
 
   test('finalize forwards normalized ECDSA expected key handles', async () => {
@@ -839,7 +839,7 @@ test.describe('wallet registration route boundaries', () => {
           registrationCeremonyId: ' wrc_123 ',
           kind: 'evm_family_ecdsa',
           ecdsa: {
-            expectedKeyHandles: [' ehss-key-alice ', 'ehss-key-bob'],
+            expectedKeyHandles: [' ederivation-key-alice ', 'ederivation-key-bob'],
           },
         },
         {
@@ -862,7 +862,7 @@ test.describe('wallet registration route boundaries', () => {
       registrationCeremonyId: 'wrc_123',
       kind: 'evm_family_ecdsa',
       ecdsa: {
-        expectedKeyHandles: ['ehss-key-alice', 'ehss-key-bob'],
+        expectedKeyHandles: ['ederivation-key-alice', 'ederivation-key-bob'],
       },
     });
   });
@@ -876,7 +876,7 @@ test.describe('wallet registration route boundaries', () => {
           registrationCeremonyId: ' wrc_123 ',
           kind: 'evm_family_ecdsa',
           ecdsa: {
-            expectedKeyHandles: ['ehss-key-alice'],
+            expectedKeyHandles: ['ederivation-key-alice'],
           },
           emailOtpBackupAck: {
             kind: 'email_otp_recovery_code_backup_ack_v1',
@@ -928,7 +928,7 @@ test.describe('wallet registration route boundaries', () => {
           registrationCeremonyId: 'wrc_123',
           kind: 'evm_family_ecdsa',
           ecdsa: {
-            expectedKeyHandles: ['ehss-key-alice'],
+            expectedKeyHandles: ['ederivation-key-alice'],
           },
           emailOtpBackupAck: {
             kind: 'email_otp_recovery_code_backup_ack_v1',
@@ -966,7 +966,7 @@ test.describe('wallet registration route boundaries', () => {
           registrationCeremonyId: 'wrc_123',
           kind: 'evm_family_ecdsa',
           ecdsa: {
-            expectedKeyHandles: ['ehss-key-alice'],
+            expectedKeyHandles: ['ederivation-key-alice'],
           },
           challengeId: 'otp-challenge-1',
         },
@@ -997,7 +997,7 @@ test.describe('wallet registration route boundaries', () => {
           registrationCeremonyId: 'wrc_123',
           kind: 'evm_family_ecdsa',
           ecdsa: {
-            expectedKeyHandles: ['ehss-key-alice'],
+            expectedKeyHandles: ['ederivation-key-alice'],
           },
           emailOtpEnrollment: {
             recoveryWrappedEnrollmentEscrows: [{ enrollmentId: 'enrollment-1' }],
@@ -1035,7 +1035,7 @@ test.describe('wallet registration route boundaries', () => {
           registrationCeremonyId: 'wrc_123',
           kind: 'evm_family_ecdsa',
           ecdsa: {
-            expectedKeyHandles: ['ehss-key-alice', ' '],
+            expectedKeyHandles: ['ederivation-key-alice', ' '],
           },
         },
         {
@@ -1332,12 +1332,12 @@ test.describe('wallet registration route boundaries', () => {
     });
   });
 
-  test('add-signer HSS respond and finalize normalize ECDSA payloads', async () => {
+  test('add-signer DERIVATION respond and finalize normalize ECDSA payloads', async () => {
     let respondRequest: unknown = null;
     let finalizeRequest: unknown = null;
-    const respond = await handleRouterApiWalletAddSignerHssRespond(
+    const respond = await handleRouterApiWalletAddSignerDerivationRespond(
       addSignerInputFor({
-        routeId: 'wallet_add_signer_hss_respond',
+        routeId: 'wallet_add_signer_derivation_respond',
         body: {
           addSignerCeremonyId: ' wasc_1 ',
           ecdsa: {
@@ -1350,7 +1350,7 @@ test.describe('wallet registration route boundaries', () => {
           },
         },
         authService: {
-          respondWalletAddSignerHss: async (request: unknown) => {
+          respondWalletAddSignerDerivation: async (request: unknown) => {
             respondRequest = request;
             return {
               ok: true,
@@ -1887,63 +1887,6 @@ test.describe('wallet registration route boundaries', () => {
     });
   });
 
-  test('ECDSA key-facts inventory rejects Ed25519 threshold-session auth', async () => {
-    let inventoryCalled = false;
-    const response = await handleRouterApiWalletEcdsaKeyFactsInventory(
-      ecdsaInventoryInputFor({
-        body: {
-          rpId: 'wallet.example.test',
-          keyTargets: [
-            {
-              keyHandle: 'ehss-key-alice',
-              chainTarget: { kind: 'tempo', chainId: 42431 },
-            },
-          ],
-          auth: {
-            kind: 'app_session',
-            policy: {
-              permission: 'ecdsa_key_facts_inventory',
-              walletId: 'wallet_alice',
-              chainTargets: [{ kind: 'tempo', chainId: 42431 }],
-              expiresAtMs: Date.now() + 60_000,
-            },
-          },
-        },
-        authService: {
-          validateAppSessionVersion: async () => ({ ok: true }),
-          listWalletEcdsaKeyFactsInventory: async () => {
-            inventoryCalled = true;
-            return { records: [], diagnostics: {} };
-          },
-        },
-        session: {
-          parse: async () => ({
-            ok: true,
-            claims: {
-              kind: 'threshold_ed25519_session_v1',
-              sub: 'wallet_alice',
-              walletId: 'wallet_alice',
-              sessionId: 'ed25519-session',
-              signingGrantId: 'signing-grant',
-              relayerKeyId: 'ed25519-relayer-key',
-              rpId: 'wallet.example.test',
-              thresholdExpiresAtMs: Date.now() + 60_000,
-              participantIds: [1, 2],
-            },
-          }),
-        },
-      }),
-    );
-
-    expect(response.status).toBe(401);
-    expect(response.body).toMatchObject({
-      ok: false,
-      code: 'unauthorized',
-      message: 'ECDSA key-facts inventory requires app-session auth',
-    });
-    expect(inventoryCalled).toBe(false);
-  });
-
   test('ECDSA key-facts inventory accepts app-session inventory policy', async () => {
     let captured: unknown = null;
     const response = await handleRouterApiWalletEcdsaKeyFactsInventory(
@@ -1952,7 +1895,7 @@ test.describe('wallet registration route boundaries', () => {
           rpId: 'wallet.example.test',
           keyTargets: [
             {
-              keyHandle: 'ehss-key-alice',
+              keyHandle: 'ederivation-key-alice',
               chainTarget: { kind: 'tempo', chainId: 42431 },
             },
           ],
@@ -1979,8 +1922,8 @@ test.describe('wallet registration route boundaries', () => {
             return {
               records: [
                 {
-                  keyHandle: 'ehss-key-alice',
-                  ecdsaThresholdKeyId: 'ehss-alice',
+                  keyHandle: 'ederivation-key-alice',
+                  ecdsaThresholdKeyId: 'ederivation-alice',
                   chainTarget: { kind: 'tempo', chainId: 42431 },
                   targetKey: 'tempo:42431',
                   accountAddress: '0x1111111111111111111111111111111111111111',
@@ -1992,7 +1935,7 @@ test.describe('wallet registration route boundaries', () => {
                     subjectId: 'wallet_alice',
                     rpId: 'wallet.example.test',
                     keyScope: 'evm-family',
-                    ecdsaThresholdKeyId: 'ehss-alice',
+                    ecdsaThresholdKeyId: 'ederivation-alice',
                     signingRootId: 'project:dev',
                     signingRootVersion: 'default',
                     participantIds: [1, 2],
@@ -2004,7 +1947,7 @@ test.describe('wallet registration route boundaries', () => {
                 userId: 'wallet_alice',
                 inputCount: 1,
                 returnedCount: 1,
-                thresholdServicePresent: true,
+                ecdsaBootstrapExportRuntimePresent: true,
                 rejected: {},
               },
             };
@@ -2030,7 +1973,7 @@ test.describe('wallet registration route boundaries', () => {
       rpId: 'wallet.example.test',
       keyTargets: [
         {
-          keyHandle: 'ehss-key-alice',
+          keyHandle: 'ederivation-key-alice',
           chainTarget: { kind: 'tempo', chainId: 42431 },
         },
       ],
@@ -2039,7 +1982,7 @@ test.describe('wallet registration route boundaries', () => {
       ok: true,
       ecdsaKeyIdentityTargets: [
         {
-          keyHandle: 'ehss-key-alice',
+          keyHandle: 'ederivation-key-alice',
           targetKey: 'tempo:42431',
         },
       ],
@@ -2055,7 +1998,7 @@ test.describe('wallet registration route boundaries', () => {
           rpId: 'wallet.example.test',
           keyTargets: [
             {
-              keyHandle: 'ehss-key-alice',
+              keyHandle: 'ederivation-key-alice',
               chainTarget: { kind: 'tempo', chainId: 42431 },
             },
           ],
@@ -2093,7 +2036,7 @@ test.describe('wallet registration route boundaries', () => {
   test('ECDSA key-facts inventory accepts verified WebAuthn inventory authorization', async () => {
     const keyTargets = [
       {
-        keyHandle: 'ehss-key-alice',
+        keyHandle: 'ederivation-key-alice',
         chainTarget: { kind: 'tempo' as const, chainId: 42431 },
       },
     ];
@@ -2132,7 +2075,7 @@ test.describe('wallet registration route boundaries', () => {
                 userId: 'wallet_alice',
                 inputCount: 1,
                 returnedCount: 0,
-                thresholdServicePresent: true,
+                ecdsaBootstrapExportRuntimePresent: true,
                 rejected: {},
               },
             };

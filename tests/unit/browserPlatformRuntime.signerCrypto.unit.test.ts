@@ -11,17 +11,17 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
-  toEcdsaHssSigningRootId,
-  toEcdsaHssSigningRootVersion,
-  toEcdsaHssThresholdKeyId,
-} from '@/core/signingEngine/session/identity/emailOtpHssIdentity';
+  toEcdsaDerivationSigningRootId,
+  toEcdsaDerivationSigningRootVersion,
+  toEcdsaDerivationThresholdKeyId,
+} from '@/core/signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { SignerWorkerOperationError } from '@/core/signingEngine/workerManager/workerTypes';
 import {
   WorkerRequestType,
   WorkerResponseType,
-  type WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapRequest,
-  type WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapRequest,
+  type WasmFinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapRequest,
+  type WasmPrepareThresholdEcdsaDerivationRoleLocalClientBootstrapRequest,
 } from '@/core/types/signer-worker';
 import {
   buildFido2HmacSecretSource,
@@ -31,7 +31,7 @@ import {
   type PrepareEcdsaClientBootstrapInput,
   type RequiredPrfAuthenticatorSuccess,
 } from '@/core/platform';
-import type { EcdsaRelayerHssPublicKey33B64u } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+import type { EcdsaRelayerDerivationPublicKey33B64u } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 
 function bytesB64u(length: number, fill: number): string {
   return base64UrlEncode(new Uint8Array(length).fill(fill));
@@ -88,7 +88,7 @@ const requiredPrfSuccess: RequiredPrfAuthenticatorSuccess = {
 
 const prepareInput: PrepareEcdsaClientBootstrapInput = {
   kind: 'prepare_ecdsa_client_bootstrap_v1',
-  algorithm: 'ecdsa_hss_secp256k1_role_local_v1',
+  algorithm: 'router_ab_ecdsa_derivation_secp256k1_role_local_v1',
   context: {
     applicationBindingDigestB64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
   },
@@ -114,13 +114,13 @@ function finalizeFailureWorkerCtx(message: string): WorkerOperationContext {
   return {
     async requestWorkerOperation({ request }) {
       expect(request.type).toBe(
-        WorkerRequestType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrap,
+        WorkerRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap,
       );
       throw new SignerWorkerOperationError({
         code: 'SIGNER_CRYPTO_ERROR',
-        coreCode: 'HSS_COMMAND_FAILURE',
+        coreCode: 'ECDSA_DERIVATION_COMMAND_FAILURE',
         message,
-        workerKind: 'ecdsaHssClient',
+        workerKind: 'ecdsaDerivationClient',
       });
     },
   };
@@ -179,7 +179,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
         throw new SignerWorkerOperationError({
           code: 'TIMEOUT',
           message: 'Worker operation timed out after 1000ms',
-          workerKind: 'ecdsaHssClient',
+          workerKind: 'ecdsaDerivationClient',
         });
       },
     };
@@ -193,8 +193,8 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
       async requestWorkerOperation() {
         throw new SignerWorkerOperationError({
           code: 'WORKER_POSTMESSAGE_ERROR',
-          message: '[ecdsaHssClient] failed to postMessage',
-          workerKind: 'ecdsaHssClient',
+          message: '[ecdsaDerivationClient] failed to postMessage',
+          workerKind: 'ecdsaDerivationClient',
         });
       },
     };
@@ -211,8 +211,8 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
       async requestWorkerOperation() {
         throw new SignerWorkerOperationError({
           code: 'WORKER_PROTOCOL_ERROR',
-          message: '[ecdsaHssClient] malformed worker response',
-          workerKind: 'ecdsaHssClient',
+          message: '[ecdsaDerivationClient] malformed worker response',
+          workerKind: 'ecdsaDerivationClient',
         });
       },
     };
@@ -229,8 +229,8 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
       async requestWorkerOperation() {
         throw new SignerWorkerOperationError({
           code: 'WORKER_RUNTIME_ERROR',
-          message: '[ecdsaHssClient] worker runtime error: unknown error',
-          workerKind: 'ecdsaHssClient',
+          message: '[ecdsaDerivationClient] worker runtime error: unknown error',
+          workerKind: 'ecdsaDerivationClient',
         });
       },
     };
@@ -250,7 +250,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
         throw new SignerWorkerOperationError({
           code: 'WORKER_RUNTIME_ERROR',
           message: 'ECDSA client WASM initialization failed: failed to instantiate module_or_path',
-          workerKind: 'ecdsaHssClient',
+          workerKind: 'ecdsaDerivationClient',
         });
       },
     };
@@ -264,14 +264,14 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
     });
   });
 
-  test('maps HSS command failures to signer-crypto command failures', async () => {
+  test('maps DERIVATION command failures to signer-crypto command failures', async () => {
     const workerCtx: WorkerOperationContext = {
       async requestWorkerOperation() {
         throw new SignerWorkerOperationError({
           code: 'SIGNER_CRYPTO_ERROR',
-          coreCode: 'HSS_COMMAND_FAILURE',
+          coreCode: 'ECDSA_DERIVATION_COMMAND_FAILURE',
           message: 'ECDSA bootstrap context validation failed',
-          workerKind: 'ecdsaHssClient',
+          workerKind: 'ecdsaDerivationClient',
         });
       },
     };
@@ -286,20 +286,20 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
   });
 
   test('matches the current ECDSA prepare/finalize parity fixture', async () => {
-    const capturedPreparePayloads: WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapRequest[] =
+    const capturedPreparePayloads: WasmPrepareThresholdEcdsaDerivationRoleLocalClientBootstrapRequest[] =
       [];
-    const capturedFinalizePayloads: WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapRequest[] =
+    const capturedFinalizePayloads: WasmFinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapRequest[] =
       [];
     const workerCtx: WorkerOperationContext = {
       async requestWorkerOperation({ kind, request }) {
-        expect(kind).toBe('ecdsaHssClient');
-        if (request.type === WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap) {
+        expect(kind).toBe('ecdsaDerivationClient');
+        if (request.type === WorkerRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap) {
           const payload =
-            request.payload as WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapRequest;
+            request.payload as WasmPrepareThresholdEcdsaDerivationRoleLocalClientBootstrapRequest;
           capturedPreparePayloads.push(payload);
           expect(payload).toMatchObject({
             kind: 'prepare_ecdsa_client_bootstrap_v1',
-            algorithm: 'ecdsa_hss_secp256k1_role_local_v1',
+            algorithm: 'router_ab_ecdsa_derivation_secp256k1_role_local_v1',
             context: {
               applicationBindingDigestB64u: prepareInput.context.applicationBindingDigestB64u,
             },
@@ -316,7 +316,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
             },
           });
           return {
-            type: WorkerResponseType.PrepareThresholdEcdsaHssRoleLocalClientBootstrapSuccess,
+            type: WorkerResponseType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess,
             payload: {
               pendingStateBlob: {
                 kind: 'ecdsa_role_local_pending_state_blob_v1',
@@ -327,22 +327,22 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
               },
               clientBootstrap: {
                 contextBinding32B64u: shareA,
-                hssClientSharePublicKey33B64u: publicKeyA,
+                derivationClientSharePublicKey33B64u: publicKeyA,
                 clientShareRetryCounter: 7,
                 participantId: 1,
               },
               publicFacts: {
-                hssClientSharePublicKey33B64u: publicKeyA,
+                derivationClientSharePublicKey33B64u: publicKeyA,
                 clientVerifyingShareB64u: publicKeyA,
               },
             },
           } as any;
         }
         expect(request.type).toBe(
-          WorkerRequestType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrap,
+          WorkerRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap,
         );
         const payload =
-          request.payload as WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapRequest;
+          request.payload as WasmFinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapRequest;
         capturedFinalizePayloads.push(payload);
         expect(payload).toMatchObject({
           kind: 'finalize_ecdsa_client_bootstrap_v1',
@@ -361,7 +361,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
           },
         });
         return {
-          type: WorkerResponseType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrapSuccess,
+          type: WorkerResponseType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess,
           payload: {
             stateBlob: {
               kind: 'ecdsa_role_local_state_blob_v1',
@@ -372,7 +372,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
             },
             publicFacts: {
               contextBinding32B64u: shareA,
-              hssClientSharePublicKey33B64u: publicKeyA,
+              derivationClientSharePublicKey33B64u: publicKeyA,
               clientVerifyingShareB64u: publicKeyA,
               relayerPublicKey33B64u: publicKeyB,
               groupPublicKey33B64u: publicKeyC,
@@ -389,12 +389,12 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
       value: {
         clientBootstrap: {
           contextBinding32B64u: shareA,
-          hssClientSharePublicKey33B64u: publicKeyA,
+          derivationClientSharePublicKey33B64u: publicKeyA,
           clientShareRetryCounter: 7,
           participantId: 1,
         },
         publicFacts: {
-          hssClientSharePublicKey33B64u: publicKeyA,
+          derivationClientSharePublicKey33B64u: publicKeyA,
           clientVerifyingShareB64u: publicKeyA,
         },
       },
@@ -407,7 +407,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
       pendingStateBlob: prepared.value.pendingStateBlob,
       relayerPublicIdentity: {
         relayerKeyId: 'relayer',
-        relayerPublicKey33B64u: publicKeyB as EcdsaRelayerHssPublicKey33B64u,
+        relayerPublicKey33B64u: publicKeyB as EcdsaRelayerDerivationPublicKey33B64u,
         groupPublicKey33B64u: publicKeyC,
         ethereumAddress: '0x0000000000000000000000000000000000000001',
       },
@@ -417,7 +417,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
       value: {
         publicFacts: {
           contextBinding32B64u: shareA,
-          hssClientSharePublicKey33B64u: publicKeyA,
+          derivationClientSharePublicKey33B64u: publicKeyA,
           clientVerifyingShareB64u: publicKeyA,
           relayerPublicKey33B64u: publicKeyB,
           groupPublicKey33B64u: publicKeyC,
@@ -448,7 +448,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
       },
       relayerPublicIdentity: {
         relayerKeyId: 'relayer',
-        relayerPublicKey33B64u: publicKeyB as EcdsaRelayerHssPublicKey33B64u,
+        relayerPublicKey33B64u: publicKeyB as EcdsaRelayerDerivationPublicKey33B64u,
         groupPublicKey33B64u: publicKeyC,
         ethereumAddress: '0x0000000000000000000000000000000000000001',
       },
@@ -469,7 +469,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
       pendingStateBlob: pendingBlob(),
       relayerPublicIdentity: {
         relayerKeyId: 'relayer',
-        relayerPublicKey33B64u: publicKeyB as EcdsaRelayerHssPublicKey33B64u,
+        relayerPublicKey33B64u: publicKeyB as EcdsaRelayerDerivationPublicKey33B64u,
         groupPublicKey33B64u: publicKeyC,
         ethereumAddress: '0x0000000000000000000000000000000000000001',
       },
@@ -490,7 +490,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
       pendingStateBlob: pendingBlob(),
       relayerPublicIdentity: {
         relayerKeyId: 'relayer',
-        relayerPublicKey33B64u: publicKeyB as EcdsaRelayerHssPublicKey33B64u,
+        relayerPublicKey33B64u: publicKeyB as EcdsaRelayerDerivationPublicKey33B64u,
         groupPublicKey33B64u: publicKeyC,
         ethereumAddress: '0x0000000000000000000000000000000000000001',
       },
@@ -515,7 +515,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
       pendingStateBlob: pendingBlob(),
       relayerPublicIdentity: {
         relayerKeyId: '',
-        relayerPublicKey33B64u: publicKeyB as EcdsaRelayerHssPublicKey33B64u,
+        relayerPublicKey33B64u: publicKeyB as EcdsaRelayerDerivationPublicKey33B64u,
         groupPublicKey33B64u: publicKeyC,
         ethereumAddress: '0x0000000000000000000000000000000000000001',
       },
@@ -530,7 +530,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
   test('rejects relayer identity that reuses the client-share public key', async () => {
     const runtime = createBrowserPlatformRuntime({
       workerCtx: finalizeFailureWorkerCtx(
-        'relayer group public key does not match client and relayer HSS keys',
+        'relayer group public key does not match client and relayer DERIVATION keys',
       ),
     });
     const result = await runtime.signerCrypto.finalizeEcdsaClientBootstrap({
@@ -538,7 +538,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
       pendingStateBlob: pendingBlob(),
       relayerPublicIdentity: {
         relayerKeyId: 'relayer',
-        relayerPublicKey33B64u: publicKeyA as EcdsaRelayerHssPublicKey33B64u,
+        relayerPublicKey33B64u: publicKeyA as EcdsaRelayerDerivationPublicKey33B64u,
         groupPublicKey33B64u: publicKeyC,
         ethereumAddress: '0x0000000000000000000000000000000000000001',
       },

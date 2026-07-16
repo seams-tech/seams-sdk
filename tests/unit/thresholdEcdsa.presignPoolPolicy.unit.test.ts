@@ -1,18 +1,18 @@
 import { expect, test } from '@playwright/test';
 import { buildConfigsFromEnv } from '@/core/config/defaultConfigs';
 import {
-  clearAllRouterAbEcdsaHssClientPresignatures,
-  resolveRouterAbEcdsaHssPresignaturePoolPolicy,
-  scheduleRouterAbEcdsaHssClientPresignaturePoolRefill,
-} from '@/core/signingEngine/routerAb/ecdsaHss/presignaturePool';
-import type { RouterAbEcdsaHssPresignaturePoolFill } from '@/core/signingEngine/routerAb/ecdsaHss/poolFillRoutes';
+  clearAllRouterAbEcdsaDerivationClientPresignatures,
+  resolveRouterAbEcdsaDerivationPresignaturePoolPolicy,
+  scheduleRouterAbEcdsaDerivationClientPresignaturePoolRefill,
+} from '@/core/signingEngine/routerAb/ecdsaDerivation/presignaturePool';
+import type { RouterAbEcdsaDerivationPresignaturePoolFill } from '@/core/signingEngine/routerAb/ecdsaDerivation/poolFillRoutes';
 import {
   parseEcdsaClientVerifyingShareB64u,
   parseEcdsaThresholdKeyId,
 } from '@/core/signingEngine/session/keyMaterialBrands';
 
-test.describe('Router A/B ECDSA-HSS presignature pool policy', () => {
-  const ECDSA_THRESHOLD_KEY_ID = parseEcdsaThresholdKeyId('ecdsa-hss-test-key-1');
+test.describe('Router A/B ECDSA derivation presignature pool policy', () => {
+  const ECDSA_THRESHOLD_KEY_ID = parseEcdsaThresholdKeyId('ecdsa-derivation-test-key-1');
   const BACKEND_CLIENT_VERIFYING_SHARE_B64U = parseEcdsaClientVerifyingShareB64u(
     'backend-client-share',
   );
@@ -23,9 +23,9 @@ test.describe('Router A/B ECDSA-HSS presignature pool policy', () => {
 
   function routerAbPoolFill(
     ecdsaThresholdKeyId: string = ECDSA_THRESHOLD_KEY_ID,
-  ): RouterAbEcdsaHssPresignaturePoolFill {
+  ): RouterAbEcdsaDerivationPresignaturePoolFill {
     return {
-      kind: 'router_ab_ecdsa_hss_signing_worker_pool',
+      kind: 'router_ab_ecdsa_derivation_signing_worker_pool',
       scope: {
         wallet_key_id: 'localhost',
         wallet_id: 'alice.testnet',
@@ -37,7 +37,7 @@ test.describe('Router A/B ECDSA-HSS presignature pool policy', () => {
         },
         public_identity: {
           context_binding_b64u: 'OyVzuOm6z7oD9lROMqtIK1MZuxTy-l6AMUji9knVQ6w',
-          client_public_key33_b64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+          derivation_client_share_public_key33_b64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
           server_public_key33_b64u: 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
           threshold_public_key33_b64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
           ethereum_address20_b64u: 'ERERERERERERERERERERERERERE',
@@ -58,28 +58,28 @@ test.describe('Router A/B ECDSA-HSS presignature pool policy', () => {
 
   function clientSigningMaterial() {
     return {
-      kind: 'router_ab_ecdsa_hss_client_signing_material_source_v1' as const,
+      kind: 'router_ab_ecdsa_derivation_client_signing_material_source_v1' as const,
       initClientPresignSession: async () => {
-        throw new Error('policy tests must not initialize ECDSA-HSS presign sessions');
+        throw new Error('policy tests must not initialize Router A/B ECDSA derivation presign sessions');
       },
       stepClientPresignSession: async () => {
-        throw new Error('policy tests must not step ECDSA-HSS presign sessions');
+        throw new Error('policy tests must not step Router A/B ECDSA derivation presign sessions');
       },
       abortClientPresignSession: async () => {
-        throw new Error('policy tests must not abort ECDSA-HSS presign sessions');
+        throw new Error('policy tests must not abort Router A/B ECDSA derivation presign sessions');
       },
       computeSignatureShareFromPresignatureHandle: async () => {
-        throw new Error('policy tests must not compute ECDSA-HSS signature shares');
+        throw new Error('policy tests must not compute Router A/B ECDSA derivation signature shares');
       },
     };
   }
 
   test.beforeEach(async () => {
-    clearAllRouterAbEcdsaHssClientPresignatures();
+    clearAllRouterAbEcdsaDerivationClientPresignatures();
   });
 
   test('applies sane defaults when no policy is provided', async () => {
-    const policy = resolveRouterAbEcdsaHssPresignaturePoolPolicy();
+    const policy = resolveRouterAbEcdsaDerivationPresignaturePoolPolicy();
     expect(policy.enabled).toBe(true);
     expect(policy.targetDepth).toBe(3);
     expect(policy.lowWatermark).toBe(1);
@@ -88,7 +88,7 @@ test.describe('Router A/B ECDSA-HSS presignature pool policy', () => {
   });
 
   test('clamps invalid policy input values', async () => {
-    const policy = resolveRouterAbEcdsaHssPresignaturePoolPolicy({
+    const policy = resolveRouterAbEcdsaDerivationPresignaturePoolPolicy({
       enabled: true,
       targetDepth: -10,
       lowWatermark: 999,
@@ -101,12 +101,12 @@ test.describe('Router A/B ECDSA-HSS presignature pool policy', () => {
     expect(policy.refillAttemptTimeoutMs).toBe(5_000);
   });
 
-  test('buildConfigsFromEnv rejects invalid Router A/B ECDSA-HSS presignature pool config values', async () => {
+  test('buildConfigsFromEnv rejects invalid Router A/B ECDSA derivation presignature pool config values', async () => {
     expect(() =>
       buildConfigsFromEnv({
         relayer: { url: 'https://relay.example' },
         iframeWallet: { walletOrigin: 'https://wallet.example.test' },
-        routerAbEcdsaHssPresignaturePool: {
+        routerAbEcdsaDerivationPresignaturePool: {
           enabled: false,
           targetDepth: 99,
           lowWatermark: -2,
@@ -115,7 +115,7 @@ test.describe('Router A/B ECDSA-HSS presignature pool policy', () => {
         },
       }),
     ).toThrow(
-      '[configPresets] Invalid config: routerAbEcdsaHssPresignaturePool.targetDepth must be in [1, 64]',
+      '[configPresets] Invalid config: routerAbEcdsaDerivationPresignaturePool.targetDepth must be in [1, 64]',
     );
   });
 
@@ -123,26 +123,25 @@ test.describe('Router A/B ECDSA-HSS presignature pool policy', () => {
     const cfg = buildConfigsFromEnv({
       relayer: { url: 'https://relay.example' },
       iframeWallet: { walletOrigin: 'https://wallet.example.test' },
-      routerAbEcdsaHssPresignaturePool: {
+      routerAbEcdsaDerivationPresignaturePool: {
         enabled: true,
         targetDepth: 12,
         lowWatermark: 4,
       },
     });
-    expect(cfg.signing.routerAbEcdsaHss.presignaturePool.targetDepth).toBe(12);
-    expect(cfg.signing.routerAbEcdsaHss.presignaturePool.lowWatermark).toBe(4);
+    expect(cfg.signing.routerAbEcdsaDerivation.presignaturePool.targetDepth).toBe(12);
+    expect(cfg.signing.routerAbEcdsaDerivation.presignaturePool.lowWatermark).toBe(4);
   });
 
   test('scheduler no-ops cleanly when policy is disabled', async () => {
-    const result = scheduleRouterAbEcdsaHssClientPresignaturePoolRefill({
+    const result = scheduleRouterAbEcdsaDerivationClientPresignaturePoolRefill({
       relayerUrl: 'https://relay.example',
       ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
       // The retained low-level refill helper still needs the client public share.
       clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
-      participantIds: [1, 2],
       clientSigningMaterial: clientSigningMaterial(),
       credential: WALLET_SESSION_CREDENTIAL,
-      routerAbEcdsaHssPoolFill: routerAbPoolFill(),
+      routerAbEcdsaDerivationPoolFill: routerAbPoolFill(),
       workerCtx: {} as any,
       poolPolicy: { enabled: false },
     });
@@ -151,25 +150,23 @@ test.describe('Router A/B ECDSA-HSS presignature pool policy', () => {
   });
 
   test('scheduler dedupes by pool key when a refill is already in flight', async () => {
-    const first = scheduleRouterAbEcdsaHssClientPresignaturePoolRefill({
+    const first = scheduleRouterAbEcdsaDerivationClientPresignaturePoolRefill({
       relayerUrl: 'https://relay.example',
       ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
       clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
-      participantIds: [1, 2],
       clientSigningMaterial: clientSigningMaterial(),
       credential: WALLET_SESSION_CREDENTIAL,
-      routerAbEcdsaHssPoolFill: routerAbPoolFill(),
+      routerAbEcdsaDerivationPoolFill: routerAbPoolFill(),
       workerCtx: {} as any,
       poolPolicy: { enabled: true, targetDepth: 2, lowWatermark: 1, maxRefillInFlight: 2 },
     });
-    const second = scheduleRouterAbEcdsaHssClientPresignaturePoolRefill({
+    const second = scheduleRouterAbEcdsaDerivationClientPresignaturePoolRefill({
       relayerUrl: 'https://relay.example',
       ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
       clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
-      participantIds: [1, 2],
       clientSigningMaterial: clientSigningMaterial(),
       credential: WALLET_SESSION_CREDENTIAL,
-      routerAbEcdsaHssPoolFill: routerAbPoolFill(),
+      routerAbEcdsaDerivationPoolFill: routerAbPoolFill(),
       workerCtx: {} as any,
       poolPolicy: { enabled: true, targetDepth: 2, lowWatermark: 1, maxRefillInFlight: 2 },
     });
@@ -180,25 +177,23 @@ test.describe('Router A/B ECDSA-HSS presignature pool policy', () => {
   });
 
   test('scheduler enforces global in-flight refill limit', async () => {
-    const first = scheduleRouterAbEcdsaHssClientPresignaturePoolRefill({
+    const first = scheduleRouterAbEcdsaDerivationClientPresignaturePoolRefill({
       relayerUrl: 'https://relay.example',
-      ecdsaThresholdKeyId: parseEcdsaThresholdKeyId('ecdsa-hss-test-key-1'),
+      ecdsaThresholdKeyId: parseEcdsaThresholdKeyId('ecdsa-derivation-test-key-1'),
       clientVerifyingShareB64u: parseEcdsaClientVerifyingShareB64u('backend-client-share-1'),
-      participantIds: [1, 2],
       clientSigningMaterial: clientSigningMaterial(),
       credential: WALLET_SESSION_CREDENTIAL,
-      routerAbEcdsaHssPoolFill: routerAbPoolFill('ecdsa-hss-test-key-1'),
+      routerAbEcdsaDerivationPoolFill: routerAbPoolFill('ecdsa-derivation-test-key-1'),
       workerCtx: {} as any,
       poolPolicy: { enabled: true, targetDepth: 2, lowWatermark: 1, maxRefillInFlight: 1 },
     });
-    const second = scheduleRouterAbEcdsaHssClientPresignaturePoolRefill({
+    const second = scheduleRouterAbEcdsaDerivationClientPresignaturePoolRefill({
       relayerUrl: 'https://relay.example',
-      ecdsaThresholdKeyId: parseEcdsaThresholdKeyId('ecdsa-hss-test-key-2'),
+      ecdsaThresholdKeyId: parseEcdsaThresholdKeyId('ecdsa-derivation-test-key-2'),
       clientVerifyingShareB64u: parseEcdsaClientVerifyingShareB64u('backend-client-share-2'),
-      participantIds: [1, 2],
       clientSigningMaterial: clientSigningMaterial(),
       credential: WALLET_SESSION_CREDENTIAL,
-      routerAbEcdsaHssPoolFill: routerAbPoolFill('ecdsa-hss-test-key-2'),
+      routerAbEcdsaDerivationPoolFill: routerAbPoolFill('ecdsa-derivation-test-key-2'),
       workerCtx: {} as any,
       poolPolicy: { enabled: true, targetDepth: 2, lowWatermark: 1, maxRefillInFlight: 1 },
     });
@@ -231,14 +226,13 @@ test.describe('Router A/B ECDSA-HSS presignature pool policy', () => {
         },
       });
 
-      const first = scheduleRouterAbEcdsaHssClientPresignaturePoolRefill({
+      const first = scheduleRouterAbEcdsaDerivationClientPresignaturePoolRefill({
         relayerUrl: 'https://relay.example',
         ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
         clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
-        participantIds: [1, 2],
         clientSigningMaterial: clientSigningMaterial(),
         credential: WALLET_SESSION_CREDENTIAL,
-        routerAbEcdsaHssPoolFill: routerAbPoolFill(),
+        routerAbEcdsaDerivationPoolFill: routerAbPoolFill(),
         workerCtx: {} as any,
         poolPolicy: { enabled: true, targetDepth: 2, lowWatermark: 1, maxRefillInFlight: 1 },
       });
@@ -246,14 +240,13 @@ test.describe('Router A/B ECDSA-HSS presignature pool policy', () => {
 
       await new Promise((resolve) => setTimeout(resolve, 0));
 
-      const second = scheduleRouterAbEcdsaHssClientPresignaturePoolRefill({
+      const second = scheduleRouterAbEcdsaDerivationClientPresignaturePoolRefill({
         relayerUrl: 'https://relay.example',
         ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
         clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
-        participantIds: [1, 2],
         clientSigningMaterial: clientSigningMaterial(),
         credential: WALLET_SESSION_CREDENTIAL,
-        routerAbEcdsaHssPoolFill: routerAbPoolFill(),
+        routerAbEcdsaDerivationPoolFill: routerAbPoolFill(),
         workerCtx: {} as any,
         poolPolicy: { enabled: true, targetDepth: 2, lowWatermark: 1, maxRefillInFlight: 1 },
       });

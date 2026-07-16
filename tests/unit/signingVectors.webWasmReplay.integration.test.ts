@@ -4,7 +4,7 @@ import path from 'node:path';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  ethSignerWasm: '/_test-sdk/esm/core/signingEngine/chains/evm/ethSignerWasm.js',
+  evmCryptoWasm: '/_test-sdk/esm/core/signingEngine/chains/evm/evmCryptoWasm.js',
   tempoSignerWasm: '/_test-sdk/esm/core/signingEngine/chains/tempo/tempoSignerWasm.js',
   signerGateway: '/_test-sdk/esm/core/signingEngine/workerManager/workerTransport.js',
 } as const;
@@ -32,7 +32,7 @@ test.describe('canonical vector replay via worker-facing wasm bindings', () => {
           addSecp256k1PublicKeys33Wasm,
           computeEip1559TxHashWasm,
           encodeEip1559SignedTxFromSignature65Wasm,
-        } = await import(paths.ethSignerWasm);
+        } = await import(paths.evmCryptoWasm);
         const { computeTempoSenderHashWasm, encodeTempoSignedTxWasm } = await import(
           paths.tempoSignerWasm
         );
@@ -293,7 +293,7 @@ test.describe('canonical vector replay via worker-facing wasm bindings', () => {
   test('eip1559 wasm finalization rejects invalid signature65 length', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths, vectors }) => {
-        const { encodeEip1559SignedTxFromSignature65Wasm } = await import(paths.ethSignerWasm);
+        const { encodeEip1559SignedTxFromSignature65Wasm } = await import(paths.evmCryptoWasm);
         const { getWorkerTransport } = await import(paths.signerGateway);
 
         const workerCtx = {

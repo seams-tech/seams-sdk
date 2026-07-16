@@ -49,13 +49,13 @@ const EXPIRES_AT_MS = 1_900_000_000_000;
 const ECDSA_KEY = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId: WALLET_ID,
   evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
-  ecdsaThresholdKeyId: 'ehss-shared-key',
+  ecdsaThresholdKeyId: 'ederivation-shared-key',
   signingRootId: SIGNING_ROOT_ID,
   signingRootVersion: SIGNING_ROOT_VERSION,
   participantIds: [1, 2],
   thresholdOwnerAddress: `0x${'11'.repeat(20)}`,
 });
-const ECDSA_KEY_HANDLE = toEvmFamilyEcdsaKeyHandle('ehss-key-handle-budget');
+const ECDSA_KEY_HANDLE = toEvmFamilyEcdsaKeyHandle('ederivation-key-handle-budget');
 
 function makeBudgetStatus(args: {
   signingGrantId: string;

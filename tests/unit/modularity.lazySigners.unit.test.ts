@@ -71,13 +71,13 @@ test.describe('modularity lazy signer loading', () => {
       'utf8',
     );
 
-    expect(evmAdapterSource).toContain("from './ethSignerWasm'");
+    expect(evmAdapterSource).toContain("from './evmCryptoWasm'");
     expect(evmAdapterSource).not.toContain('tempoSignerWasm');
     expect(evmAdapterSource).not.toContain('tempoSigner-worker');
 
     expect(tempoAdapterSource).toContain("from './tempoSignerWasm'");
-    expect(tempoAdapterSource).not.toContain('ethSignerWasm');
-    expect(tempoAdapterSource).not.toContain('ethSigner-worker');
+    expect(tempoAdapterSource).not.toContain('evmCryptoWasm');
+    expect(tempoAdapterSource).not.toContain('evmCrypto-worker');
 
     expect(signerLoaderSource).toContain("import('./signers/secp256k1')");
     expect(signerLoaderSource).toContain("import('./signers/webauthnP256')");

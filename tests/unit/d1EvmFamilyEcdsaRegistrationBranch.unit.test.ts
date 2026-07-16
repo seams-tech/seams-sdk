@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 
 import { buildD1EvmFamilyEcdsaRegistrationPrepare } from '../../packages/sdk-server-ts/src/router/cloudflare/d1EvmFamilyEcdsaRegistrationBranch';
 import { resolveD1RegistrationSharedSigningBudget } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RegistrationSharedSigningBudget';
-import { toD1EcdsaHssClientBootstrapRequest } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyRecords';
+import { toD1EcdsaDerivationClientBootstrapRequest } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyRecords';
 import type { StoredWalletRegistrationEvmFamilyEcdsaRespondedBranch } from '../../packages/sdk-server-ts/src/core/RegistrationCeremonyStore';
 import type {
   WalletSigningBudgetEcdsaBinding,
@@ -67,7 +67,7 @@ async function buildSharedSigningBudgetFixture(): Promise<{
   for (const target of prepared.ecdsa.targets) {
     const clientBootstrap = testEcdsaClientBootstrap(target.prepare);
     const serverBootstrap = testEcdsaServerBootstrapResponse(
-      toD1EcdsaHssClientBootstrapRequest(clientBootstrap),
+      toD1EcdsaDerivationClientBootstrapRequest(clientBootstrap),
     );
     serverBootstrap.expiresAtMs = expiresAtMs;
     serverBootstrap.expiresAt = new Date(expiresAtMs).toISOString();
@@ -85,7 +85,7 @@ async function buildSharedSigningBudgetFixture(): Promise<{
   const state: StoredWalletRegistrationEvmFamilyEcdsaRespondedBranch = {
     kind: 'evm_family_ecdsa_responded',
     branchKey: registrationEvmFamilyEcdsaBranchKey([tempoTarget, arcTarget]),
-    hssKind: prepared.ecdsa.kind,
+    derivationKind: prepared.ecdsa.kind,
     targets: prepared.ecdsa.targets,
     responded: { bootstraps },
   };

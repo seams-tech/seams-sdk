@@ -18,7 +18,7 @@ test.describe('signing grant admission boundary', () => {
     const error = routerAbNormalSigningAdmissionErrorFromPayload({
       code: 'wallet_budget_exhausted',
       message: 'signing grant exhausted',
-      path: '/router-ab/ecdsa-hss/sign/prepare',
+      path: '/router-ab/ecdsa-derivation/sign/prepare',
       status: 409,
     });
 
@@ -27,7 +27,7 @@ test.describe('signing grant admission boundary', () => {
       kind: 'exhausted',
       source: 'server_prepare',
       detail:
-        'Router A/B signing /router-ab/ecdsa-hss/sign/prepare returned HTTP 409: signing grant exhausted',
+        'Router A/B signing /router-ab/ecdsa-derivation/sign/prepare returned HTTP 409: signing grant exhausted',
     });
     expect(error?.message).toContain(SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR);
     expect(decideSigningGrantAdmissionError(error)).toEqual({

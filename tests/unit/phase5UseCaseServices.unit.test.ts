@@ -120,7 +120,7 @@ function readyRecord(chainTarget = evmTarget): EcdsaRoleLocalReadyRecord {
     relayerParticipantId: 2,
     participantIds: [1, 2],
     contextBinding32B64u: b64u(32, 7),
-    hssClientSharePublicKey33B64u: publicKey33(8),
+    derivationClientSharePublicKey33B64u: publicKey33(8),
     relayerPublicKey33B64u: publicKey33(10),
     groupPublicKey33B64u: publicKey33(12),
     ethereumAddress: '0x1111111111111111111111111111111111111111',

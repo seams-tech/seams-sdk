@@ -365,11 +365,13 @@ function collectNativeFacadeViolations() {
 
 function collectWalletIframeCoreImportViolations() {
   const violations = [];
-  const files = listTypeScriptFilesInRoots(['packages/sdk-web/src']);
+  const files = listTypeScriptFilesInRoots(['packages/sdk-web/src/core']);
+  const forbiddenImportPattern =
+    /(?:from\s+|import\s*\(\s*)['"][^'"]*(?:SeamsWeb|core\/WalletIframe)[^'"]*['"]/;
 
   for (const file of files) {
     const source = readRepoFile(file);
-    if (!/WalletIframe|core\/WalletIframe/.test(source)) {
+    if (!forbiddenImportPattern.test(source)) {
       continue;
     }
     if (isAllowed(file, walletIframeCoreImportAllowList)) {

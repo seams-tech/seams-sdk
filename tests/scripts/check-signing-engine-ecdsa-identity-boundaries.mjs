@@ -318,7 +318,11 @@ function checkEmailOtpEcdsaExportAuthorizationUsesWalletSessionIdentity() {
   if (/\bnearAccountId:\s*toAccountId\([^)]*walletId[^)]*\)/.test(ecdsaExportSource)) {
     offenders.push('ECDSA export viewer receives wallet id through nearAccountId conversion');
   }
-  if (/requestEmailOtpExportAuthorization\(args:\s*\{\s*nearAccountId:/m.test(emailOtpExportPromptSource)) {
+  if (
+    /requestEmailOtpExportAuthorization\(args:\s*\{\s*nearAccountId:/m.test(
+      emailOtpExportPromptSource,
+    )
+  ) {
     offenders.push('Email OTP export prompt helper still accepts only nearAccountId identity');
   }
   if (/requestEmailOtpExportAuthorizationValue\(\{\s*nearAccountId:/m.test(confirmationSource)) {
@@ -328,22 +332,24 @@ function checkEmailOtpEcdsaExportAuthorizationUsesWalletSessionIdentity() {
   assertNoOffenders(offenders, 'Email OTP ECDSA export authorization identity');
 }
 
-function checkEcdsaHssExportConfirmationDigestBindsSlot() {
+function checkEcdsaDerivationExportConfirmationDigestBindsSlot() {
   const passkeyExportSource = readRepoFile(
-    'packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaHssExport.ts',
+    'packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaDerivationExport.ts',
   );
   const emailOtpWorkerSource = readRepoFile(
     'packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
   );
-  const thresholdServiceSource = readRepoFile(
-    'packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts',
+  const bootstrapExportRuntimeSource = readRepoFile(
+    'packages/sdk-server-ts/src/core/routerAbSigning/RouterAbEcdsaBootstrapExportRuntime.ts',
   );
-  const thresholdServiceMethod = findMethodDeclarationAndBody(
-    thresholdServiceSource,
-    'computeEcdsaHssExportConfirmationDigest32',
+  const bootstrapExportRuntimeMethod = findMethodDeclarationAndBody(
+    bootstrapExportRuntimeSource,
+    'computeEcdsaDerivationExportConfirmationDigest32',
   );
-  if (!thresholdServiceMethod) {
-    throw new Error('Missing server ECDSA HSS export confirmation digest builder');
+  if (!bootstrapExportRuntimeMethod) {
+    throw new Error(
+      'Missing server Router A/B ECDSA derivation export confirmation digest builder',
+    );
   }
 
   const passkeyDigest = findObjectBlockAfter(
@@ -354,7 +360,7 @@ function checkEcdsaHssExportConfirmationDigestBindsSlot() {
     emailOtpWorkerSource,
     'const confirmationDigest32B64u = await digestB64u(',
   );
-  const serverDigest = findObjectBlockAfter(thresholdServiceMethod, 'alphabetizeStringify(');
+  const serverDigest = findObjectBlockAfter(bootstrapExportRuntimeMethod, 'alphabetizeStringify(');
   const offenders = [];
 
   for (const [block, context] of [
@@ -367,7 +373,7 @@ function checkEcdsaHssExportConfirmationDigestBindsSlot() {
     }
   }
 
-  assertNoOffenders(offenders, 'ECDSA HSS export confirmation digest');
+  assertNoOffenders(offenders, 'Router A/B ECDSA derivation export confirmation digest');
 }
 
 function checkBudgetStatusLookupAvoidsSubjectWideEcdsaScanFallback() {
@@ -385,7 +391,9 @@ function checkBudgetStatusLookupAvoidsSubjectWideEcdsaScanFallback() {
 }
 
 function checkBrowserSigningSurfaceDoesNotDeriveEcdsaSubjectFromAccounts() {
-  const source = readRepoFile('packages/sdk-web/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts');
+  const source = readRepoFile(
+    'packages/sdk-web/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
+  );
   const methodNames = [
     'signEvmFamily',
     'bootstrapEcdsaSession',
@@ -445,7 +453,11 @@ function checkPublicSdkSignerFixturesUseDomainShapedCalls() {
             ['walletSession', 'chainTarget'],
             `${relativePath}:${call.line} ${call.methodName}`,
           ),
-          ...expectNoField(call.block, 'subjectId', `${relativePath}:${call.line} ${call.methodName}`),
+          ...expectNoField(
+            call.block,
+            'subjectId',
+            `${relativePath}:${call.line} ${call.methodName}`,
+          ),
           ...expectNoNearAccountId(call.block, `${relativePath}:${call.line} ${call.methodName}`),
         );
       }
@@ -575,9 +587,7 @@ function checkEcdsaProvisionPlansOnlyComeFromBuilders() {
 }
 
 function checkServerBudgetStatusRoutesStayParserOwned() {
-  const routeFiles = [
-    'packages/sdk-server-ts/src/router/cloudflare/routes/sessions.ts',
-  ];
+  const routeFiles = ['packages/sdk-server-ts/src/router/cloudflare/routes/sessions.ts'];
   const offenders = [];
   for (const relativePath of routeFiles) {
     const source = readRepoFile(relativePath);
@@ -662,7 +672,7 @@ function checkWalletUnlockKeepsRawEcdsaParsingAtBoundaries() {
     'metadata.thresholdOwnerAddress',
     'metadata.ownerAddress',
     'const records = inventory.records',
-    '/router-ab/ecdsa-hss/key-identities',
+    '/router-ab/ecdsa-derivation/key-identities',
   ]) {
     if (loginSource.includes(forbidden)) {
       offenders.push(`login unlock path contains raw boundary token ${forbidden}`);
@@ -677,10 +687,6 @@ function checkPrepareParsersDeriveSigningRootFromRuntimePolicyScope() {
     {
       relativePath: 'packages/sdk-web/src/SeamsWeb/operations/devices/linkDevice.ts',
       functionName: 'parseLinkDeviceEcdsaPrepare',
-    },
-    {
-      relativePath: 'packages/sdk-web/src/SeamsWeb/operations/recovery/emailRecovery.ts',
-      functionName: 'parseEmailRecoveryEcdsaPrepare',
     },
   ];
   const offenders = [];
@@ -748,7 +754,7 @@ function checkNearAccountIdResidueStaysOutOfEcdsaOnlyPaths() {
     'packages/sdk-web/src/core/signingEngine/chains/evm',
     'packages/sdk-web/src/core/signingEngine/threshold/ecdsa',
     'packages/sdk-web/src/core/rpcClients/evm',
-    'packages/sdk-server-ts/src/core/ThresholdService/ethSignerWasm.ts',
+    'packages/sdk-server-ts/src/core/ThresholdService/evmCryptoWasm.ts',
   ];
   const offenders = [];
   for (const relativePath of forbiddenPaths.flatMap((entry) => listSourceFiles(entry))) {
@@ -875,6 +881,7 @@ function checkPublicSdkEcdsaInputsStayWalletSessionShaped() {
     },
     {
       name: 'ExecuteEvmFamilyTransactionArgs',
+      declarationNames: ['ExecuteEvmFamilyTransactionBaseArgs', 'ExecuteEvmFamilyTransactionArgs'],
       required: ['walletSession', 'chainTarget'],
       forbidden: ['subjectId', 'runtimePolicyScope', 'signingRootId', 'signingRootVersion'],
       allowNeverTripwire: true,
@@ -893,6 +900,8 @@ function checkPublicSdkEcdsaInputsStayWalletSessionShaped() {
     },
     {
       name: 'ExportKeypairWithUIInput',
+      sourcePath: 'packages/sdk-web/src/core/signingEngine/flows/recovery/keyExportFlow.ts',
+      declarationNames: ['SigningEngineExportKeypairWithUIInput'],
       required: ['walletSession', 'chainTarget'],
       forbidden: ['subjectId', 'runtimePolicyScope', 'signingRootId', 'signingRootVersion'],
       allowNeverTripwire: true,
@@ -900,8 +909,8 @@ function checkPublicSdkEcdsaInputsStayWalletSessionShaped() {
   ];
   const inlineArgBlocks = [
     {
-      context: 'AuthCapability.prefillRouterAbEcdsaHssPresignaturePool',
-      block: findObjectBlockAfter(source, 'prefillRouterAbEcdsaHssPresignaturePool(args: {'),
+      context: 'AuthCapability.prefillRouterAbEcdsaDerivationPresignaturePool',
+      block: findObjectBlockAfter(source, 'prefillRouterAbEcdsaDerivationPresignaturePool(args: {'),
       required: ['walletSession', 'chainTarget'],
     },
     {
@@ -918,7 +927,13 @@ function checkPublicSdkEcdsaInputsStayWalletSessionShaped() {
   const offenders = [];
 
   for (const declaration of namedDeclarations) {
-    const block = findTypeDeclaration(source, declaration.name);
+    const declarationSource = declaration.sourcePath
+      ? readRepoFile(declaration.sourcePath)
+      : source;
+    const declarationNames = declaration.declarationNames || [declaration.name];
+    const block = declarationNames
+      .map((name) => findTypeDeclaration(declarationSource, name))
+      .join('\n');
     offenders.push(
       ...expectRequiredFields(block, declaration.required, declaration.name),
       ...declaration.forbidden.flatMap((field) => expectNoField(block, field, declaration.name)),
@@ -972,7 +987,7 @@ function checkEcdsaIframePayloadsStayWalletSessionShaped() {
       forbidden: ['runtimePolicyScope', 'signingRootId', 'signingRootVersion'],
     },
     {
-      name: 'PMPrefillRouterAbEcdsaHssPresignaturePoolPayload',
+      name: 'PMPrefillRouterAbEcdsaDerivationPresignaturePoolPayload',
       required: ['walletSession', 'chainTarget'],
       forbidden: ['subjectId', 'runtimePolicyScope', 'signingRootId', 'signingRootVersion'],
     },
@@ -1013,8 +1028,10 @@ function checkActiveSdkEcdsaKeyRefsRejectSigningRootIdentityFields() {
   assertNoOffenders(offenders, 'active SDK ECDSA key refs');
 }
 
-function checkEcdsaHssRoleLocalBootstrapTypesKeepLaneIdentityExplicit() {
-  const clientSource = readRepoFile('packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa.ts');
+function checkEcdsaDerivationRoleLocalBootstrapTypesKeepLaneIdentityExplicit() {
+  const clientSource = readRepoFile(
+    'packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa.ts',
+  );
   const clientSessionPolicySource = readRepoFile(
     'packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy.ts',
   );
@@ -1022,8 +1039,8 @@ function checkEcdsaHssRoleLocalBootstrapTypesKeepLaneIdentityExplicit() {
   const thresholdPrfSource = readRepoFile(
     'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts',
   );
-  const hssClientSource = readRepoFile(
-    'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaClientSignerWasm.ts',
+  const ecdsaDerivationClientSource = readRepoFile(
+    'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm.ts',
   );
   const offenders = [];
   const requiredRoleLocalBootstrapFields = [
@@ -1034,7 +1051,7 @@ function checkEcdsaHssRoleLocalBootstrapTypesKeepLaneIdentityExplicit() {
     'signingRootVersion',
     'keyScope',
     'relayerKeyId',
-    'hssClientSharePublicKey33B64u',
+    'derivationClientSharePublicKey33B64u',
     'contextBinding32B64u',
     'sessionId',
     'signingGrantId',
@@ -1045,17 +1062,17 @@ function checkEcdsaHssRoleLocalBootstrapTypesKeepLaneIdentityExplicit() {
     {
       source: clientSource,
       file: 'packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa.ts',
-      typeName: 'ThresholdEcdsaHssRoleLocalBootstrapRequest',
+      typeName: 'ThresholdEcdsaDerivationRoleLocalBootstrapRequest',
     },
     {
       source: clientSource,
       file: 'packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa.ts',
-      typeName: 'ThresholdEcdsaHssRoleLocalBootstrapBodyBase',
+      typeName: 'ThresholdEcdsaDerivationRoleLocalBootstrapBodyBase',
     },
     {
       source: serverSource,
       file: 'packages/sdk-server-ts/src/core/types.ts',
-      typeName: 'EcdsaHssClientBootstrapRequestBase',
+      typeName: 'EcdsaDerivationClientBootstrapRequestBase',
     },
   ]) {
     const block = findTypeDeclaration(source, typeName);
@@ -1070,7 +1087,10 @@ function checkEcdsaHssRoleLocalBootstrapTypesKeepLaneIdentityExplicit() {
     );
   }
 
-  const serverRoleLocalRecordBlock = findTypeDeclaration(serverSource, 'EcdsaHssRoleLocalKeyRecord');
+  const serverRoleLocalRecordBlock = findTypeDeclaration(
+    serverSource,
+    'EcdsaDerivationRoleLocalKeyRecord',
+  );
   offenders.push(
     ...expectRequiredFields(
       serverRoleLocalRecordBlock,
@@ -1092,132 +1112,135 @@ function checkEcdsaHssRoleLocalBootstrapTypesKeepLaneIdentityExplicit() {
         'relayerCaitSithInput',
         'publicTranscriptDigest32B64u',
       ],
-      'packages/sdk-server-ts/src/core/types.ts EcdsaHssRoleLocalKeyRecord',
+      'packages/sdk-server-ts/src/core/types.ts EcdsaDerivationRoleLocalKeyRecord',
     ),
     ...expectNoField(
       serverRoleLocalRecordBlock,
       'rpId',
-      'packages/sdk-server-ts/src/core/types.ts EcdsaHssRoleLocalKeyRecord',
+      'packages/sdk-server-ts/src/core/types.ts EcdsaDerivationRoleLocalKeyRecord',
     ),
     ...expectNoField(
       serverRoleLocalRecordBlock,
       'chainTarget',
-      'packages/sdk-server-ts/src/core/types.ts EcdsaHssRoleLocalKeyRecord',
+      'packages/sdk-server-ts/src/core/types.ts EcdsaDerivationRoleLocalKeyRecord',
     ),
     ...expectNoNearAccountId(
       serverRoleLocalRecordBlock,
-      'packages/sdk-server-ts/src/core/types.ts EcdsaHssRoleLocalKeyRecord',
+      'packages/sdk-server-ts/src/core/types.ts EcdsaDerivationRoleLocalKeyRecord',
     ),
   );
 
-  const clientEcdsaPolicyBlock = findTypeDeclaration(clientSessionPolicySource, 'EcdsaHssSessionPolicy');
+  const clientEcdsaPolicyBlock = findTypeDeclaration(
+    clientSessionPolicySource,
+    'EcdsaDerivationSessionPolicy',
+  );
   offenders.push(
     ...expectRequiredFields(
       clientEcdsaPolicyBlock,
       ['walletId', 'evmFamilySigningKeySlotId', 'chainTarget', 'sessionId', 'signingGrantId'],
-      'packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy.ts EcdsaHssSessionPolicy',
+      'packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy.ts EcdsaDerivationSessionPolicy',
     ),
     ...expectNoField(
       clientEcdsaPolicyBlock,
       'rpId',
-      'packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy.ts EcdsaHssSessionPolicy',
+      'packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy.ts EcdsaDerivationSessionPolicy',
     ),
     ...expectNoField(
       clientEcdsaPolicyBlock,
       'userId',
-      'packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy.ts EcdsaHssSessionPolicy',
+      'packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy.ts EcdsaDerivationSessionPolicy',
     ),
     ...expectNoNearAccountId(
       clientEcdsaPolicyBlock,
-      'packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy.ts EcdsaHssSessionPolicy',
+      'packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy.ts EcdsaDerivationSessionPolicy',
     ),
   );
 
   const signingRootContextBlock = findTypeDeclaration(
     thresholdPrfSource,
-    'EcdsaHssStableKeyPrfContext',
+    'EcdsaDerivationStableKeyPrfContext',
   );
   offenders.push(
     ...expectRequiredFields(
       signingRootContextBlock,
       ['applicationBindingDigest'],
-      'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaHssStableKeyPrfContext',
+      'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaDerivationStableKeyPrfContext',
     ),
     ...expectNoField(
       signingRootContextBlock,
       'walletId',
-      'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaHssStableKeyPrfContext',
+      'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaDerivationStableKeyPrfContext',
     ),
     ...expectNoField(
       signingRootContextBlock,
       'rpId',
-      'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaHssStableKeyPrfContext',
+      'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaDerivationStableKeyPrfContext',
     ),
     ...expectNoField(
       signingRootContextBlock,
       'signingRootId',
-      'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaHssStableKeyPrfContext',
+      'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaDerivationStableKeyPrfContext',
     ),
     ...expectNoField(
       signingRootContextBlock,
       'keyPurpose',
-      'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaHssStableKeyPrfContext',
+      'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaDerivationStableKeyPrfContext',
     ),
     ...expectNoField(
       signingRootContextBlock,
       'keyVersion',
-      'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaHssStableKeyPrfContext',
+      'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaDerivationStableKeyPrfContext',
     ),
     ...expectNoNearAccountId(
       signingRootContextBlock,
-      'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaHssStableKeyPrfContext',
+      'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaDerivationStableKeyPrfContext',
     ),
   );
 
   const ecdsaClientContextBlock = findTypeDeclaration(
-    hssClientSource,
-    'ThresholdEcdsaHssStableKeyContext',
+    ecdsaDerivationClientSource,
+    'ThresholdEcdsaDerivationStableKeyContext',
   );
   offenders.push(
     ...expectRequiredFields(
       ecdsaClientContextBlock,
       ['walletId', 'ecdsaThresholdKeyId', 'signingRootId', 'signingRootVersion'],
-      'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaClientSignerWasm.ts ThresholdEcdsaHssStableKeyContext',
+      'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm.ts ThresholdEcdsaDerivationStableKeyContext',
     ),
     ...expectNoField(
       ecdsaClientContextBlock,
       'rpId',
-      'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaClientSignerWasm.ts ThresholdEcdsaHssStableKeyContext',
+      'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm.ts ThresholdEcdsaDerivationStableKeyContext',
     ),
     ...expectNoField(
       ecdsaClientContextBlock,
       'chainTarget',
-      'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaClientSignerWasm.ts ThresholdEcdsaHssStableKeyContext',
+      'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm.ts ThresholdEcdsaDerivationStableKeyContext',
     ),
     ...expectNoField(
       ecdsaClientContextBlock,
       'keyPurpose',
-      'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaClientSignerWasm.ts ThresholdEcdsaHssStableKeyContext',
+      'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm.ts ThresholdEcdsaDerivationStableKeyContext',
     ),
     ...expectNoField(
       ecdsaClientContextBlock,
       'keyVersion',
-      'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaClientSignerWasm.ts ThresholdEcdsaHssStableKeyContext',
+      'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm.ts ThresholdEcdsaDerivationStableKeyContext',
     ),
     ...expectNoNearAccountId(
       ecdsaClientContextBlock,
-      'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaClientSignerWasm.ts ThresholdEcdsaHssStableKeyContext',
+      'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm.ts ThresholdEcdsaDerivationStableKeyContext',
     ),
   );
 
   for (const [block, context] of [
     [
       signingRootContextBlock,
-      'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaHssStableKeyPrfContext',
+      'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaDerivationStableKeyPrfContext',
     ],
     [
       ecdsaClientContextBlock,
-      'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaClientSignerWasm.ts ThresholdEcdsaHssStableKeyContext',
+      'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm.ts ThresholdEcdsaDerivationStableKeyContext',
     ],
   ]) {
     for (const field of ['signingGrantId', 'thresholdSessionId']) {
@@ -1230,23 +1253,27 @@ function checkEcdsaHssRoleLocalBootstrapTypesKeepLaneIdentityExplicit() {
     }
   }
 
-  assertNoOffenders(offenders, 'ECDSA HSS role-local bootstrap identity');
+  assertNoOffenders(offenders, 'Router A/B ECDSA derivation role-local bootstrap identity');
 }
 
-function checkEcdsaHssWasmPackageExportsStayRoleLocal() {
-  const clientDts = readRepoFile('wasm/ecdsa_client_signer/pkg/ecdsa_client_signer.d.ts');
-  const serverDts = readRepoFile('wasm/eth_signer/pkg/eth_signer.d.ts');
+function checkEcdsaDerivationWasmPackageExportsStayRoleLocal() {
+  const clientDts = readRepoFile(
+    'wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.d.ts',
+  );
+  const serverDts = readRepoFile(
+    'wasm/router_ab_ecdsa_signing_worker/pkg/router_ab_ecdsa_signing_worker.d.ts',
+  );
   const nearWorkerDts = readRepoFile('wasm/near_signer/pkg/wasm_signer_worker.d.ts');
   const offenders = [];
 
   for (const symbol of [
-    'threshold_ecdsa_hss_prepare_session',
-    'threshold_ecdsa_hss_prepare_client_request',
-    'threshold_ecdsa_hss_finalize_client_request',
-    'threshold_ecdsa_hss_prepare_server_session',
-    'threshold_ecdsa_hss_prepare_server_ceremony',
-    'threshold_ecdsa_hss_finalize_server_report',
-    'threshold_ecdsa_hss_open_server_output',
+    'threshold_ecdsa_derivation_prepare_session',
+    'threshold_ecdsa_derivation_prepare_client_request',
+    'threshold_ecdsa_derivation_finalize_client_request',
+    'threshold_ecdsa_derivation_prepare_server_session',
+    'threshold_ecdsa_derivation_prepare_server_ceremony',
+    'threshold_ecdsa_derivation_finalize_server_report',
+    'threshold_ecdsa_derivation_open_server_output',
   ]) {
     if (clientDts.includes(symbol)) {
       offenders.push(`client WASM still exports ${symbol}`);
@@ -1257,34 +1284,34 @@ function checkEcdsaHssWasmPackageExportsStayRoleLocal() {
   }
 
   for (const symbol of [
-    'PrepareThresholdEcdsaHssSession',
-    'PrepareThresholdEcdsaHssClientRequest',
-    'FinalizeThresholdEcdsaHssClientRequest',
+    'PrepareThresholdEcdsaDerivationSession',
+    'PrepareThresholdEcdsaDerivationClientRequest',
+    'FinalizeThresholdEcdsaDerivationClientRequest',
   ]) {
     if (nearWorkerDts.includes(symbol)) {
       offenders.push(`near worker still exposes ${symbol}`);
     }
   }
 
-  if (clientDts.includes('threshold_ecdsa_hss_role_local_prepare_client_bootstrap')) {
+  if (clientDts.includes('threshold_ecdsa_derivation_role_local_prepare_client_bootstrap')) {
     offenders.push('client WASM still exports legacy root-share ECDSA prepare helper');
   }
-  if (clientDts.includes('threshold_ecdsa_hss_role_local_export_artifact')) {
+  if (clientDts.includes('threshold_ecdsa_derivation_role_local_export_artifact')) {
     offenders.push('client WASM still exports root-share ECDSA export helper');
   }
-  if (clientDts.includes('threshold_ecdsa_hss_role_local_client_bootstrap')) {
+  if (clientDts.includes('threshold_ecdsa_derivation_role_local_client_bootstrap')) {
     offenders.push('client WASM still exports single-call role-local client bootstrap');
   }
-  if (clientDts.includes('threshold_ecdsa_hss_role_local_relayer_bootstrap')) {
+  if (clientDts.includes('threshold_ecdsa_derivation_role_local_relayer_bootstrap')) {
     offenders.push('client WASM exposes relayer bootstrap helper');
   }
 
-  assertNoOffenders(offenders, 'ECDSA HSS WASM package exports');
+  assertNoOffenders(offenders, 'Router A/B ECDSA derivation WASM package exports');
 }
 
 function runChecks() {
   checkEmailOtpEcdsaExportAuthorizationUsesWalletSessionIdentity();
-  checkEcdsaHssExportConfirmationDigestBindsSlot();
+  checkEcdsaDerivationExportConfirmationDigestBindsSlot();
   checkBudgetStatusLookupAvoidsSubjectWideEcdsaScanFallback();
   checkBrowserSigningSurfaceDoesNotDeriveEcdsaSubjectFromAccounts();
   checkPublicSdkSignerFixturesUseDomainShapedCalls();
@@ -1304,8 +1331,8 @@ function runChecks() {
   checkPublicSdkEcdsaInputsStayWalletSessionShaped();
   checkEcdsaIframePayloadsStayWalletSessionShaped();
   checkActiveSdkEcdsaKeyRefsRejectSigningRootIdentityFields();
-  checkEcdsaHssRoleLocalBootstrapTypesKeepLaneIdentityExplicit();
-  checkEcdsaHssWasmPackageExportsStayRoleLocal();
+  checkEcdsaDerivationRoleLocalBootstrapTypesKeepLaneIdentityExplicit();
+  checkEcdsaDerivationWasmPackageExportsStayRoleLocal();
 }
 
 runChecks();
