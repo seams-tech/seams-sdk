@@ -1851,7 +1851,7 @@ function d1WorkerRouterApiHandlerLifetimeViolations() {
         [cloudflareD1LocalDevWorkerPath, localWorker],
         [cloudflareD1RouterApiStagingWorkerPath, stagingWorker],
     ]) {
-        if (source.includes('ThresholdEcdsaPresignSession')) {
+        if (source.includes('SigningWorkerPresignSession')) {
             violations.push(`${relativePath}: references live Router A/B ECDSA derivation WASM presign sessions outside the Durable Object`);
         }
         if (source.includes('presignSession') && source.includes('JSON.stringify')) {

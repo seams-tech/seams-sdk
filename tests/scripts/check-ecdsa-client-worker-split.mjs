@@ -47,12 +47,14 @@ const presignDts = read(
   'wasm/router_ab_ecdsa_presign_client/pkg/router_ab_ecdsa_presign_client.d.ts',
 );
 const onlineDts = read('wasm/router_ab_ecdsa_online_client/pkg/router_ab_ecdsa_online_client.d.ts');
+const presignManifest = read('wasm/router_ab_ecdsa_presign_client/Cargo.toml');
 const onlineManifest = read('wasm/router_ab_ecdsa_online_client/Cargo.toml');
 const evmCryptoDts = read('wasm/evm_crypto/pkg/evm_crypto.d.ts');
 const evmCryptoManifest = read('wasm/evm_crypto/Cargo.toml');
 const serverSigningWorkerDts = read(
   'wasm/router_ab_ecdsa_signing_worker/pkg/router_ab_ecdsa_signing_worker.d.ts',
 );
+const serverSigningWorkerManifest = read('wasm/router_ab_ecdsa_signing_worker/Cargo.toml');
 const normalSigningSource = read(
   'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signers/ecdsaDerivationClientSigningMaterialSource.ts',
 );
@@ -127,9 +129,20 @@ requireAbsent(evmCryptoManifest, 'threshold-ecdsa', 'EVM crypto dependency graph
 requireAbsent(evmCryptoManifest, 'threshold-signatures', 'EVM crypto dependency graph');
 requireContains(
   serverSigningWorkerDts,
-  'export class ThresholdEcdsaPresignSession',
+  'export class SigningWorkerPresignSession',
   'server signing worker declaration',
 );
+for (const forbidden of ['participant_ids', 'client_participant_id', 'threshold: number']) {
+  requireAbsent(presignDts, forbidden, 'client presign declaration');
+}
+for (const forbidden of [
+  'ThresholdEcdsaPresignSession',
+  'participant_ids',
+  'participant_id: number',
+  'threshold: number',
+]) {
+  requireAbsent(serverSigningWorkerDts, forbidden, 'server signing worker declaration');
+}
 requireContains(
   serverSigningWorkerDts,
   'router_ab_ecdsa_derivation_relayer_bootstrap',
@@ -156,6 +169,7 @@ requireContains(facade, "kind: 'ecdsaPresignClient'", 'ECDSA client facade');
 requireContains(facade, "kind: 'ecdsaOnlineClient'", 'ECDSA client facade');
 
 requireContains(presignDts, 'export class ClientPresignSession', 'presign WASM declaration');
+requireAbsent(presignDts, 'map_client_additive_share_2p', 'presign WASM declaration');
 requireAbsent(presignDts, 'compute_client_signature_share', 'presign WASM declaration');
 requireAbsent(presignDts, 'prepare_ecdsa_client_bootstrap', 'presign WASM declaration');
 requireContains(
@@ -167,6 +181,23 @@ requireAbsent(onlineDts, 'ClientPresignSession', 'online WASM declaration');
 requireAbsent(onlineDts, 'prepare_ecdsa_client_bootstrap', 'online WASM declaration');
 requireAbsent(onlineManifest, 'signer-core', 'online WASM dependency graph');
 requireAbsent(onlineManifest, 'threshold-signatures', 'online WASM dependency graph');
+requireAbsent(presignManifest, 'signer-core', 'presign WASM dependency graph');
+requireAbsent(presignManifest, 'threshold-signatures', 'presign WASM dependency graph');
+requireAbsent(
+  serverSigningWorkerManifest,
+  'signer-core',
+  'SigningWorker WASM dependency graph',
+);
+requireAbsent(
+  serverSigningWorkerManifest,
+  'threshold-signatures',
+  'SigningWorker WASM dependency graph',
+);
+requireAbsent(
+  serverSigningWorkerDts,
+  'map_signing_worker_additive_share_2p',
+  'SigningWorker WASM declaration',
+);
 
 requireContains(
   builtDerivationWorker,
@@ -183,36 +214,16 @@ requireAbsent(
   'router_ab_ecdsa_online_client',
   'built ECDSA derivation worker',
 );
-requireContains(
-  builtPresignWorker,
-  'router_ab_ecdsa_presign_client',
-  'built ECDSA presign worker',
-);
+requireContains(builtPresignWorker, 'router_ab_ecdsa_presign_client', 'built ECDSA presign worker');
 requireAbsent(
   builtPresignWorker,
   'router_ab_ecdsa_derivation_client',
   'built ECDSA presign worker',
 );
-requireAbsent(
-  builtPresignWorker,
-  'router_ab_ecdsa_online_client',
-  'built ECDSA presign worker',
-);
-requireContains(
-  builtOnlineWorker,
-  'router_ab_ecdsa_online_client',
-  'built ECDSA online worker',
-);
-requireAbsent(
-  builtOnlineWorker,
-  'router_ab_ecdsa_derivation_client',
-  'built ECDSA online worker',
-);
-requireAbsent(
-  builtOnlineWorker,
-  'router_ab_ecdsa_presign_client',
-  'built ECDSA online worker',
-);
+requireAbsent(builtPresignWorker, 'router_ab_ecdsa_online_client', 'built ECDSA presign worker');
+requireContains(builtOnlineWorker, 'router_ab_ecdsa_online_client', 'built ECDSA online worker');
+requireAbsent(builtOnlineWorker, 'router_ab_ecdsa_derivation_client', 'built ECDSA online worker');
+requireAbsent(builtOnlineWorker, 'router_ab_ecdsa_presign_client', 'built ECDSA online worker');
 
 requireArtifactTokensAbsent(
   wasmExportNames(

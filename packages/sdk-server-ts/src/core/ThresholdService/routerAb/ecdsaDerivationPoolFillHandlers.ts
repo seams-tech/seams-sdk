@@ -213,8 +213,8 @@ type ThresholdEcdsaRoleLocalKeyRecordSelector = {
   ecdsaThresholdKeyId?: never;
 };
 
-type ThresholdEcdsaRelayerSigningShare = {
-  kind: 'cait_sith_mapped';
+type ThresholdEcdsaRelayerAdditiveShare = {
+  kind: 'additive';
   share32B64u: string;
 };
 
@@ -227,7 +227,7 @@ type ThresholdEcdsaSigningKeyMaterial = {
   relayerPublicKey33B64u: string;
   thresholdEcdsaPublicKeyB64u: string;
   signingRootMetadata: ThresholdEcdsaSigningRootMetadata;
-  relayerSigningShare: ThresholdEcdsaRelayerSigningShare;
+  relayerAdditiveShare: ThresholdEcdsaRelayerAdditiveShare;
   presignPoolKey: string;
 };
 
@@ -690,9 +690,9 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
         relayerPublicKey33B64u: roleLocalKey.relayerPublicKey33B64u,
         thresholdEcdsaPublicKeyB64u: roleLocalKey.groupPublicKey33B64u,
         signingRootMetadata,
-        relayerSigningShare: {
-          kind: 'cait_sith_mapped',
-          share32B64u: roleLocalKey.relayerCaitSithInput.mappedPrivateShare32B64u,
+        relayerAdditiveShare: {
+          kind: 'additive',
+          share32B64u: roleLocalKey.relayerShare32B64u,
         },
         presignPoolKey: ecdsaPresignPoolKey({
           ecdsaThresholdKeyId,
@@ -953,7 +953,7 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
       relayerKeyId,
       clientVerifyingShareB64u,
       thresholdEcdsaPublicKeyB64u,
-      relayerSigningShare,
+      relayerAdditiveShare,
       signingRootMetadata,
       presignPoolKey,
     } = resolvedKeyMaterial.value;
@@ -1014,9 +1014,9 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
       };
     }
 
-    let relayerSigningShare32: Uint8Array;
+    let relayerAdditiveShare32: Uint8Array;
     try {
-      relayerSigningShare32 = base64UrlDecode(relayerSigningShare.share32B64u);
+      relayerAdditiveShare32 = base64UrlDecode(relayerAdditiveShare.share32B64u);
     } catch {
       return {
         ok: false,
@@ -1024,7 +1024,7 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
         message: 'Persisted relayer signing share is not valid base64url',
       };
     }
-    if (relayerSigningShare32.length !== 32) {
+    if (relayerAdditiveShare32.length !== 32) {
       return {
         ok: false,
         code: 'internal',
@@ -1043,8 +1043,6 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
         message: `Persisted thresholdEcdsaPublicKeyB64u is invalid: ${String(e || 'error')}`,
       };
     }
-    const relayerThresholdShare32 = relayerSigningShare32;
-
     const participantIds = normalizeThresholdEd25519ParticipantIds(claims.participantIds) || [
       ...this.participantIds2p,
     ];
@@ -1095,9 +1093,7 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
       const liveCreated = await this.liveSessionOwner.createSession({
         presignSessionId,
         record: initialRecord,
-        participantIds,
-        relayerParticipantId: this.relayerParticipantId,
-        relayerThresholdShare32B64u: relayerSigningShare.share32B64u,
+        relayerThresholdShare32B64u: relayerAdditiveShare.share32B64u,
         groupPublicKey33B64u: thresholdEcdsaPublicKeyB64u,
       });
       if (!liveCreated.ok) return liveCreated;

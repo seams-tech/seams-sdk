@@ -1,6 +1,9 @@
 #![forbid(unsafe_code)]
 
+pub mod codec;
+pub mod driver;
 pub mod proofs;
+pub mod session;
 pub mod triples;
 
 use core::fmt;

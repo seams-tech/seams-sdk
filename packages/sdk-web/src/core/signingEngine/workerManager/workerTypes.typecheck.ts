@@ -264,7 +264,6 @@ const ecdsaPresignInitRequest: EcdsaPresignClientSessionInitRequest = {
     expectedBindingDigest: 'ecdsa-binding-digest',
   },
   sessionId: 'presign-session',
-  topology: { kind: 'threshold_secp256k1_ecdsa_2p_v1' },
   groupPublicKey33: incomingMessage,
 };
 void ecdsaPresignInitRequest;
@@ -277,7 +276,6 @@ const invalidMixedEcdsaPresignAuthority: EcdsaPresignClientSessionInitRequest = 
     materialHandle: 'ecdsa-material-handle',
   },
   sessionId: 'presign-session',
-  topology: { kind: 'threshold_secp256k1_ecdsa_2p_v1' },
   groupPublicKey33: incomingMessage,
 };
 void invalidMixedEcdsaPresignAuthority;
@@ -291,7 +289,6 @@ const invalidRoleLocalPresignAuthorityWithEmailOtpSession: EcdsaPresignClientSes
     emailOtpSessionId: 'email-otp-session',
   },
   sessionId: 'presign-session',
-  topology: { kind: 'threshold_secp256k1_ecdsa_2p_v1' },
   groupPublicKey33: incomingMessage,
 };
 void invalidRoleLocalPresignAuthorityWithEmailOtpSession;
@@ -320,19 +317,6 @@ const presignStepWithoutIncomingMessages: PresignStepPayload = {
   stage: 'triples',
 };
 void presignStepWithoutIncomingMessages;
-
-const invalidEcdsaPresignTopology: EcdsaPresignClientSessionInitRequest = {
-  authority: {
-    kind: 'role_local_derivation_handle',
-    materialHandle: 'ecdsa-material-handle',
-    expectedBindingDigest: 'ecdsa-binding-digest',
-  },
-  sessionId: 'presign-session',
-  // @ts-expect-error fixed ECDSA2P workers reject alternate topology identifiers.
-  topology: { kind: 'threshold_secp256k1_ecdsa_3p_v1' },
-  groupPublicKey33: incomingMessage,
-};
-void invalidEcdsaPresignTopology;
 
 const emailOtpBootstrapWorkerRequest: EmailOtpWorkerOperationRequestEnvelope = {
   id: 'request-1',

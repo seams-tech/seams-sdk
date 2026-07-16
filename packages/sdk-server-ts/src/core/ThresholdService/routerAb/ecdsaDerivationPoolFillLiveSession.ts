@@ -3,7 +3,7 @@ import { safeErrorMessage } from '@shared/utils/errors';
 import { sha256BytesSync } from '../evmCryptoWasm';
 import { ensureRouterAbEcdsaSigningWorkerWasm } from '../routerAbEcdsaSigningWorkerWasm';
 import type { RouterAbEcdsaDerivationPoolFillSessionRecord } from '../stores/EcdsaSigningStore';
-import { ThresholdEcdsaPresignSession } from '../../../../../../wasm/router_ab_ecdsa_signing_worker/pkg/router_ab_ecdsa_signing_worker.js';
+import { SigningWorkerPresignSession } from '../../../../../../wasm/router_ab_ecdsa_signing_worker/pkg/router_ab_ecdsa_signing_worker.js';
 
 export type RouterAbEcdsaDerivationPoolFillParseOk<T> = { ok: true; value: T };
 export type RouterAbEcdsaDerivationPoolFillParseErr = { ok: false; code: string; message: string };
@@ -48,8 +48,6 @@ export type RouterAbEcdsaDerivationPoolFillPreparedStep =
 export type RouterAbEcdsaDerivationPoolFillLiveSessionCreateInput = {
   presignSessionId: string;
   record: RouterAbEcdsaDerivationPoolFillSessionRecord;
-  participantIds: number[];
-  relayerParticipantId: number;
   relayerThresholdShare32B64u: string;
   groupPublicKey33B64u: string;
 };
@@ -83,7 +81,7 @@ export interface RouterAbEcdsaDerivationPoolFillLiveSessionOwner {
 }
 
 type LiveSessionEntry = {
-  session: ThresholdEcdsaPresignSession;
+  session: SigningWorkerPresignSession;
   record: RouterAbEcdsaDerivationPoolFillSessionRecord;
 };
 
@@ -97,7 +95,7 @@ export function normalizeWasmPresignStage(
 }
 
 export function pollWasmPresignSession(
-  session: ThresholdEcdsaPresignSession,
+  session: SigningWorkerPresignSession,
 ): RouterAbEcdsaDerivationPoolFillWasmPoll {
   const polled = session.poll() as { stage?: string; outgoing?: Uint8Array[]; event?: string };
   const outgoingMessages = Array.isArray(polled?.outgoing) ? polled.outgoing : [];
@@ -109,7 +107,7 @@ export function pollWasmPresignSession(
   };
 }
 
-export function freePresignSession(session: ThresholdEcdsaPresignSession): void {
+export function freePresignSession(session: SigningWorkerPresignSession): void {
   try {
     session.free();
   } catch {
@@ -118,7 +116,7 @@ export function freePresignSession(session: ThresholdEcdsaPresignSession): void 
 }
 
 export function takePresignatureFromSession(
-  session: ThresholdEcdsaPresignSession,
+  session: SigningWorkerPresignSession,
 ): RouterAbEcdsaDerivationPoolFillParseResult<RouterAbEcdsaDerivationPresignatureMaterial> {
   const presig97 = session.take_presignature_97();
   if (presig97.length !== 97) {
@@ -246,12 +244,10 @@ export function createLiveSessionEntry(
   if (!relayerThresholdShare32.ok) return relayerThresholdShare32;
   const groupPublicKey33 = decodeFixedB64u(input.groupPublicKey33B64u, 33);
   if (!groupPublicKey33.ok) return groupPublicKey33;
-  const session = new ThresholdEcdsaPresignSession(
-    new Uint32Array(input.participantIds),
-    input.relayerParticipantId,
-    2,
+  const session = new SigningWorkerPresignSession(
     relayerThresholdShare32.value,
     groupPublicKey33.value,
+    input.presignSessionId,
   );
   const polled = pollWasmPresignSession(session);
   const record = {
@@ -270,7 +266,7 @@ export function createLiveSessionEntry(
 }
 
 export function preparePoolFillLiveStep(input: {
-  session: ThresholdEcdsaPresignSession;
+  session: SigningWorkerPresignSession;
   record: RouterAbEcdsaDerivationPoolFillSessionRecord;
   requestedStage: 'triples' | 'presign';
   outgoingMessagesB64u: string[];
@@ -335,7 +331,7 @@ export function preparePoolFillLiveStep(input: {
 
   for (const decoded of decodedIncoming.value) {
     try {
-      input.session.message(input.record.clientParticipantId, decoded);
+      input.session.message(decoded);
     } catch (e: unknown) {
       return {
         ok: false,

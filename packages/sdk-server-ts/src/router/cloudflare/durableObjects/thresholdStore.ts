@@ -111,7 +111,12 @@ type DoReq =
       presignatureId: string;
       ttlMs?: number;
     }
-  | { op: 'routerAbEcdsaDerivationPoolFillSessionCreate'; key: string; value: unknown; ttlMs?: number }
+  | {
+      op: 'routerAbEcdsaDerivationPoolFillSessionCreate';
+      key: string;
+      value: unknown;
+      ttlMs?: number;
+    }
   | {
       op: 'routerAbEcdsaDerivationPoolFillSessionAdvanceCas';
       key: string;
@@ -673,17 +678,6 @@ function parsePositiveInteger(value: unknown): number | null {
   return parsed;
 }
 
-function parsePositiveIntegerArray(raw: unknown): number[] | null {
-  if (!Array.isArray(raw)) return null;
-  const out: number[] = [];
-  for (const item of raw) {
-    const value = parsePositiveInteger(item);
-    if (!value) return null;
-    out.push(value);
-  }
-  return out;
-}
-
 function parseStringArray(raw: unknown): string[] | null {
   if (!Array.isArray(raw)) return null;
   const out: string[] = [];
@@ -699,29 +693,24 @@ function parseRouterAbEcdsaDerivationPoolFillLiveSessionCreateInput(
   raw: unknown,
 ): RouterAbEcdsaDerivationPoolFillLiveSessionCreateInput | DoErr {
   if (!isPlainObject(raw)) {
-    return err('invalid_body', 'Router A/B ECDSA derivation pool-fill live session create input must be an object');
+    return err(
+      'invalid_body',
+      'Router A/B ECDSA derivation pool-fill live session create input must be an object',
+    );
   }
   const presignSessionId = toKey(raw.presignSessionId);
   const record = parseRouterAbEcdsaDerivationPoolFillSessionRecord(raw.record);
-  const participantIds = parsePositiveIntegerArray(raw.participantIds);
-  const relayerParticipantId = parsePositiveInteger(raw.relayerParticipantId);
   const relayerThresholdShare32B64u = toKey(raw.relayerThresholdShare32B64u);
   const groupPublicKey33B64u = toKey(raw.groupPublicKey33B64u);
-  if (
-    !presignSessionId ||
-    !record ||
-    !participantIds ||
-    !relayerParticipantId ||
-    !relayerThresholdShare32B64u ||
-    !groupPublicKey33B64u
-  ) {
-    return err('invalid_body', 'Invalid Router A/B ECDSA derivation pool-fill live session create input');
+  if (!presignSessionId || !record || !relayerThresholdShare32B64u || !groupPublicKey33B64u) {
+    return err(
+      'invalid_body',
+      'Invalid Router A/B ECDSA derivation pool-fill live session create input',
+    );
   }
   return {
     presignSessionId,
     record,
-    participantIds,
-    relayerParticipantId,
     relayerThresholdShare32B64u,
     groupPublicKey33B64u,
   };
@@ -731,7 +720,10 @@ function parseRouterAbEcdsaDerivationPoolFillLiveSessionStepInput(
   raw: unknown,
 ): RouterAbEcdsaDerivationPoolFillLiveSessionStepInput | DoErr {
   if (!isPlainObject(raw)) {
-    return err('invalid_body', 'Router A/B ECDSA derivation pool-fill live session step input must be an object');
+    return err(
+      'invalid_body',
+      'Router A/B ECDSA derivation pool-fill live session step input must be an object',
+    );
   }
   const presignSessionId = toKey(raw.presignSessionId);
   const record = parseRouterAbEcdsaDerivationPoolFillSessionRecord(raw.record);
@@ -747,7 +739,10 @@ function parseRouterAbEcdsaDerivationPoolFillLiveSessionStepInput(
     !outgoingMessagesB64u ||
     !Number.isFinite(thresholdExpiresAtMs)
   ) {
-    return err('invalid_body', 'Invalid Router A/B ECDSA derivation pool-fill live session step input');
+    return err(
+      'invalid_body',
+      'Invalid Router A/B ECDSA derivation pool-fill live session step input',
+    );
   }
   return {
     presignSessionId,
@@ -1457,7 +1452,8 @@ export class ThresholdStoreDurableObject {
       const value = parseRouterAbEcdsaDerivationServerPresignatureShareRecord(
         (req as { value?: unknown }).value,
       );
-      if (!value) return json(err('invalid_body', 'Invalid Router A/B ECDSA derivation presignature record'));
+      if (!value)
+        return json(err('invalid_body', 'Invalid Router A/B ECDSA derivation presignature record'));
       await withTxn(this.state, async (store) => {
         const duplicate = await store.get(dedupeKey);
         if (duplicate !== null && duplicate !== undefined) return;
@@ -1544,7 +1540,9 @@ export class ThresholdStoreDurableObject {
       const ttlSeconds = toTtlSeconds((req as { ttlMs?: unknown }).ttlMs);
       if (!key) return json(err('invalid_body', 'Missing key'));
       if (!parseRouterAbEcdsaDerivationPoolFillSessionRecord(value))
-        return json(err('invalid_body', 'Invalid Router A/B ECDSA derivation pool-fill session record'));
+        return json(
+          err('invalid_body', 'Invalid Router A/B ECDSA derivation pool-fill session record'),
+        );
 
       const result = await withTxn(this.state, async (store) => {
         const nowMs = Date.now();
@@ -1574,7 +1572,9 @@ export class ThresholdStoreDurableObject {
       }
       const nextRecord = parseRouterAbEcdsaDerivationPoolFillSessionRecord(value);
       if (!nextRecord)
-        return json(err('invalid_body', 'Invalid Router A/B ECDSA derivation pool-fill session record'));
+        return json(
+          err('invalid_body', 'Invalid Router A/B ECDSA derivation pool-fill session record'),
+        );
 
       const result = await withTxn(this.state, async (store) => {
         const nowMs = Date.now();

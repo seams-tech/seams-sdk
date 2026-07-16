@@ -1,6 +1,5 @@
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { secureRandomId } from '@shared/utils/secureRandomId';
-import { THRESHOLD_SECP256K1_ECDSA_2P_TOPOLOGY_V1 } from '@shared/threshold/secp256k1';
 import {
   buildRouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1,
   buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
@@ -80,7 +79,6 @@ export type RouterAbEcdsaDerivationClientSigningMaterialSource = {
   kind: 'router_ab_ecdsa_derivation_client_signing_material_source_v1';
   initClientPresignSession: (input: {
     sessionId: string;
-    topology: typeof THRESHOLD_SECP256K1_ECDSA_2P_TOPOLOGY_V1;
     groupPublicKey33: Uint8Array;
     workerCtx: WorkerOperationContext;
   }) => Promise<ThresholdEcdsaPresignProgressWasm>;
@@ -151,6 +149,7 @@ function assertRouterAbEcdsaDerivationClientSigningMaterialSource(
 }
 
 const MAX_HANDSHAKE_STEPS = 64;
+const FIXED_ECDSA_PRESIGN_PROTOCOL_ID = 'seams/router-ab-ecdsa-presign/fixed-2of2/v1';
 const ROUTER_AB_ECDSA_DERIVATION_SIGNING_TTL_MS = 60_000;
 const ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_EXPIRY_SKEW_MS = 2_000;
 const PRESIGN_REFILL_AUTHORITY_LOCK_PREFIX = 'w3a:router-ab-ecdsa-derivation:presignature-refill:';
@@ -239,10 +238,6 @@ export function resolveRouterAbEcdsaDerivationPresignaturePoolPolicy(
   };
 }
 
-function createClientPresignSessionId(): string {
-  return secureRandomId('c-presign', 32, 'client presign session IDs');
-}
-
 function makePresignaturePoolKey(args: {
   relayerUrl: string;
   scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
@@ -255,7 +250,7 @@ function makePresignaturePoolKey(args: {
     routerAbEcdsaDerivationNormalSigningScopeCanonicalBytesV1(parsedScope),
   );
   return [
-    THRESHOLD_SECP256K1_ECDSA_2P_TOPOLOGY_V1.kind,
+    FIXED_ECDSA_PRESIGN_PROTOCOL_ID,
     relayerUrl,
     scopeIdentityB64u,
   ].join('|');
@@ -627,7 +622,7 @@ async function runPresignHandshakeAttempt(args: {
     };
   }
 
-  const localSessionId = createClientPresignSessionId();
+  const localSessionId = presignSessionId;
 
   let localPresignatureHandle: string | null = null;
   let localBigR33: Uint8Array | null = null;
@@ -643,7 +638,6 @@ async function runPresignHandshakeAttempt(args: {
   try {
     const localInit = await args.clientSigningMaterial.initClientPresignSession({
       sessionId: localSessionId,
-      topology: THRESHOLD_SECP256K1_ECDSA_2P_TOPOLOGY_V1,
       groupPublicKey33: args.groupPublicKey33,
       workerCtx: args.workerCtx,
     });
