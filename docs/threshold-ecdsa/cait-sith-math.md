@@ -215,7 +215,7 @@ $$
 
 ## Our 2P Additive Share Mapping
 
-Our HSS layer derives additive shares:
+Our Router A/B derivation layer derives additive shares:
 
 $$
 x = x_{client} + x_{relayer}
@@ -890,7 +890,7 @@ or store race can resurrect used or suspect presignature material.
   - finalizes by adding client and relayer shares
   - calls `RerandomizedPresignOutput::rerandomize_presign`
 - `crates/signer-core/src/secp256k1.rs`
-  - maps additive HSS shares into Cait-Sith backend shares for participants `1`
+  - maps additive role-local shares into Cait-Sith backend shares for participants `1`
     and `2`
 - `server/src/core/ThresholdService/ecdsaSigningHandlers.ts`
   - creates per-signing entropy

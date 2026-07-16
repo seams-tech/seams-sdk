@@ -57,7 +57,7 @@ x_server_base = a + 2 * tau mod l
 a = 2 * x_client_base - x_server_base mod l
 ```
 
-The refactor must also delete `ThresholdSigningService`. ECDSA-HSS does not get
+The refactor must also delete `ThresholdSigningService`. Router A/B ECDSA derivation does not get
 an extracted replacement service or compatibility fallback. Existing strict
 ECDSA Router A/B components are the target owners for every remaining ECDSA
 responsibility.
@@ -83,7 +83,7 @@ responsibility.
    same-process reconstruction are absent from current Rust code. No further
    succinct-HSS kernel, amplification, or optimization work proceeds.
 5. **ECDSA also completes the strict cutover.** The existing strict
-   `router-ab-core::protocol::ecdsa_hss` and SigningWorker architecture absorb
+   `router-ab-core::protocol::ecdsa_derivation` and SigningWorker architecture absorb
    all remaining generic service, authorization, pool, recovery, export, and
    refresh responsibilities.
 6. **Production uses independent operators.** ECDSA requires
@@ -1202,7 +1202,7 @@ without importing secret-processing code into Router.
 
 - [ ] Add `crates/router-ab-core/src/protocol/ed25519_yao.rs` with distinct
       registration, activation, recovery, refresh, and export request branches.
-- [ ] Keep the existing strict ECDSA-HSS protocol as the ECDSA authority and add
+- [ ] Keep the existing strict Router A/B ECDSA derivation protocol as the ECDSA authority and add
       any missing bootstrap, export, recovery, refresh, pool-fill, or activation
       branches there.
 - [ ] Define typed public request, Router admission, Deriver request, peer
@@ -1592,7 +1592,7 @@ Goal: leave one strict production architecture and no compatibility path.
       owners.
 - [x] Update active Router A/B and Ed25519 documentation for the Yao-only
       cutover; retain dated HSS review/refactor records as historical evidence.
-- [ ] Update ECDSA-HSS, deployment, recovery, export, and selected-profile
+- [ ] Update Router A/B ECDSA derivation, deployment, recovery, export, and selected-profile
       documentation after their remaining phases close.
 - [x] Delete tests and fixtures for obsolete Ed25519-HSS and worker-material
       behavior.

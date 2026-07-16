@@ -18,7 +18,7 @@ E2E enforcement plan: [Refactor 88: Intended Behaviour E2E Contract](./refactor-
 | `providerSubject`    | External identity-provider subject, such as a Google subject used by Email OTP registration.                                         |
 | `challengeSubjectId` | Subject stored on an Email OTP challenge. For Google Email OTP it must match `providerSubject`.                                      |
 | `signingGrantId`     | User-approved signing allowance that carries TTL, remaining-use, and replay/idempotency budget.                                      |
-| `thresholdSessionId` | Threshold/HSS session id for Ed25519 or ECDSA material.                                                                              |
+| `thresholdSessionId` | Cryptographic signing-session id for Ed25519 or ECDSA material.                                                                      |
 | `chainTarget`        | Concrete ECDSA signing target, such as Tempo testnet or Arc EVM testnet.                                                             |
 | `warm session`       | Short-lived signing session created by registration, unlock, or step-up auth.                                                        |
 | `step-up auth`       | Same-method fresh authorization used when an operation needs more authority than the current warm session has.                       |

@@ -59,7 +59,7 @@ Any path that observes different owner addresses for EVM-family targets under
 the same wallet, RP, signing root, and key version must fail closed
 before displaying a funding address or signing a transaction.
 
-Any code that reintroduces concrete chain target into ECDSA HSS stable-key
+Any code that reintroduces concrete chain target into Router A/B ECDSA derivation stable-key
 derivation is a critical funds-safety regression.
 
 ## Regression Coverage
@@ -70,9 +70,9 @@ Required coverage:
 - Tempo + EVM registration returns one shared owner address.
 - Tempo and EVM public bootstrap reuse the same warm EVM-family key identity
   without accepting caller-supplied `ecdsaThresholdKeyId` or `participantIds`.
-- ECDSA HSS output remains unchanged when only the concrete EVM-family
+- Router A/B ECDSA derivation output remains unchanged when only the concrete EVM-family
   `chainTarget` changes.
-- ECDSA HSS output changes when `ecdsaThresholdKeyId`, signing root, key
+- Router A/B ECDSA derivation output changes when `ecdsaThresholdKeyId`, signing root, key
   purpose, or key version changes.
 - Raw EIP-1559 nonce preparation fails closed if restored threshold ECDSA
   material is missing the owner address.

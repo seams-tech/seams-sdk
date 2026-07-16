@@ -1,0 +1,421 @@
+{
+  "schema": "yaos_ab_phase14b_local_artifact_evidence_v1",
+  "generatedAt": "2026-07-16T03:17:32.928Z",
+  "environment": {
+    "runtime": "v24.18.0",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "pnpmLockSha256": "468c2d80fb79109875c6e0cc8e919c88efd8ff6b9409b00226f924c04dfa8b58"
+  },
+  "measurements": [
+    {
+      "id": "ed25519YaoClient",
+      "files": {
+        "wasm": {
+          "path": "crates/router-ab-ed25519-yao-client/pkg/router_ab_ed25519_yao_client_bg.wasm",
+          "raw": 553492,
+          "gzip": 222048,
+          "brotli": 171873
+        },
+        "javascriptGlue": {
+          "path": "crates/router-ab-ed25519-yao-client/pkg/router_ab_ed25519_yao_client.js",
+          "raw": 41329,
+          "gzip": 5231,
+          "brotli": 4582
+        },
+        "declarations": {
+          "path": "crates/router-ab-ed25519-yao-client/pkg/router_ab_ed25519_yao_client.d.ts",
+          "raw": 12502,
+          "gzip": 1844,
+          "brotli": 1590
+        },
+        "sourceMaps": [],
+        "packageRawBytes": 612687
+      },
+      "runtime": {
+        "validate": {
+          "iterations": 9,
+          "medianMs": 0.317,
+          "p95Ms": 0.658,
+          "maxMs": 0.658
+        },
+        "compile": {
+          "iterations": 9,
+          "medianMs": 0.052,
+          "p95Ms": 0.453,
+          "maxMs": 0.453
+        },
+        "initializationMs": 0.585,
+        "wasmLinearMemoryBytesAfterInit": 1179648,
+        "processRssBytes": {
+          "beforeInit": 87261184,
+          "afterInit": 88244224,
+          "afterFirstOperation": 88244224,
+          "observedMaximum": 88244224
+        },
+        "firstOperation": {
+          "kind": "initialization_only",
+          "latency": null
+        }
+      },
+      "budget": {
+        "raw": 556435,
+        "gzip": 223677
+      },
+      "budgetResult": {
+        "rawPass": true,
+        "gzipPass": true,
+        "pass": true
+      }
+    },
+    {
+      "id": "ecdsaDerivationClient",
+      "files": {
+        "wasm": {
+          "path": "wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client_bg.wasm",
+          "raw": 626167,
+          "gzip": 246882,
+          "brotli": 195802
+        },
+        "javascriptGlue": {
+          "path": "wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.js",
+          "raw": 22976,
+          "gzip": 4158,
+          "brotli": 3678
+        },
+        "declarations": {
+          "path": "wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.d.ts",
+          "raw": 4904,
+          "gzip": 1231,
+          "brotli": 1068
+        },
+        "sourceMaps": [],
+        "packageRawBytes": 656834
+      },
+      "runtime": {
+        "validate": {
+          "iterations": 9,
+          "medianMs": 0.337,
+          "p95Ms": 0.505,
+          "maxMs": 0.505
+        },
+        "compile": {
+          "iterations": 9,
+          "medianMs": 0.065,
+          "p95Ms": 0.437,
+          "maxMs": 0.437
+        },
+        "initializationMs": 0.279,
+        "wasmLinearMemoryBytesAfterInit": 1245184,
+        "processRssBytes": {
+          "beforeInit": 101056512,
+          "afterInit": 101187584,
+          "afterFirstOperation": 102006784,
+          "observedMaximum": 102006784
+        },
+        "firstOperation": {
+          "kind": "client_ceremony_public_key",
+          "latency": {
+            "iterations": 9,
+            "medianMs": 0.056,
+            "p95Ms": 1.428,
+            "maxMs": 1.428
+          }
+        }
+      },
+      "budget": {
+        "raw": 630000,
+        "gzip": 250000
+      },
+      "budgetResult": {
+        "rawPass": true,
+        "gzipPass": true,
+        "pass": true
+      }
+    },
+    {
+      "id": "ecdsaPresignClient",
+      "files": {
+        "wasm": {
+          "path": "wasm/router_ab_ecdsa_presign_client/pkg/router_ab_ecdsa_presign_client_bg.wasm",
+          "raw": 504193,
+          "gzip": 187137,
+          "brotli": 141444
+        },
+        "javascriptGlue": {
+          "path": "wasm/router_ab_ecdsa_presign_client/pkg/router_ab_ecdsa_presign_client.js",
+          "raw": 14618,
+          "gzip": 3288,
+          "brotli": 2875
+        },
+        "declarations": {
+          "path": "wasm/router_ab_ecdsa_presign_client/pkg/router_ab_ecdsa_presign_client.d.ts",
+          "raw": 2814,
+          "gzip": 866,
+          "brotli": 745
+        },
+        "sourceMaps": [],
+        "packageRawBytes": 523436
+      },
+      "runtime": {
+        "validate": {
+          "iterations": 9,
+          "medianMs": 0.316,
+          "p95Ms": 0.428,
+          "maxMs": 0.428
+        },
+        "compile": {
+          "iterations": 9,
+          "medianMs": 0.07,
+          "p95Ms": 0.405,
+          "maxMs": 0.405
+        },
+        "initializationMs": 0.228,
+        "wasmLinearMemoryBytesAfterInit": 1179648,
+        "processRssBytes": {
+          "beforeInit": 112279552,
+          "afterInit": 112377856,
+          "afterFirstOperation": 112623616,
+          "observedMaximum": 112623616
+        },
+        "firstOperation": {
+          "kind": "map_fixed_2p_additive_share",
+          "latency": {
+            "iterations": 9,
+            "medianMs": 0.074,
+            "p95Ms": 0.492,
+            "maxMs": 0.492
+          }
+        }
+      },
+      "budget": null,
+      "budgetResult": null
+    },
+    {
+      "id": "ecdsaOnlineClient",
+      "files": {
+        "wasm": {
+          "path": "wasm/router_ab_ecdsa_online_client/pkg/router_ab_ecdsa_online_client_bg.wasm",
+          "raw": 67606,
+          "gzip": 31337,
+          "brotli": 25911
+        },
+        "javascriptGlue": {
+          "path": "wasm/router_ab_ecdsa_online_client/pkg/router_ab_ecdsa_online_client.js",
+          "raw": 6903,
+          "gzip": 1875,
+          "brotli": 1644
+        },
+        "declarations": {
+          "path": "wasm/router_ab_ecdsa_online_client/pkg/router_ab_ecdsa_online_client.d.ts",
+          "raw": 1959,
+          "gzip": 698,
+          "brotli": 593
+        },
+        "sourceMaps": [],
+        "packageRawBytes": 77619
+      },
+      "runtime": {
+        "validate": {
+          "iterations": 9,
+          "medianMs": 0.084,
+          "p95Ms": 0.109,
+          "maxMs": 0.109
+        },
+        "compile": {
+          "iterations": 9,
+          "medianMs": 0.013,
+          "p95Ms": 0.304,
+          "maxMs": 0.304
+        },
+        "initializationMs": 0.11,
+        "wasmLinearMemoryBytesAfterInit": 1114112,
+        "processRssBytes": {
+          "beforeInit": 117112832,
+          "afterInit": 117145600,
+          "afterFirstOperation": 117145600,
+          "observedMaximum": 117145600
+        },
+        "firstOperation": {
+          "kind": "online_client_init_marker",
+          "latency": {
+            "iterations": 9,
+            "medianMs": 0,
+            "p95Ms": 0.017,
+            "maxMs": 0.017
+          }
+        }
+      },
+      "budget": null,
+      "budgetResult": null
+    }
+  ],
+  "generatedWorkerBundleEvidence": [
+    {
+      "id": "ed25519Signer",
+      "path": "packages/sdk-web/dist/workers/near-signer.worker.js",
+      "sizes": {
+        "raw": 60088,
+        "gzip": 12079,
+        "brotli": 10425
+      },
+      "artifactEvidence": [
+        {
+          "artifact": "wasm_signer_worker_bg.wasm",
+          "referencedByGeneratedBundle": true
+        }
+      ],
+      "pass": true
+    },
+    {
+      "id": "ecdsaDerivationClient",
+      "path": "packages/sdk-web/dist/workers/ecdsa-derivation-client.worker.js",
+      "sizes": {
+        "raw": 39489,
+        "gzip": 9414,
+        "brotli": 8383
+      },
+      "artifactEvidence": [
+        {
+          "artifact": "router_ab_ecdsa_derivation_client_bg.wasm",
+          "referencedByGeneratedBundle": true
+        }
+      ],
+      "pass": true
+    },
+    {
+      "id": "ecdsaPresignClient",
+      "path": "packages/sdk-web/dist/workers/ecdsa-presign-client.worker.js",
+      "sizes": {
+        "raw": 36953,
+        "gzip": 9232,
+        "brotli": 8140
+      },
+      "artifactEvidence": [
+        {
+          "artifact": "router_ab_ecdsa_presign_client_bg.wasm",
+          "referencedByGeneratedBundle": true
+        }
+      ],
+      "pass": true
+    },
+    {
+      "id": "ecdsaOnlineClient",
+      "path": "packages/sdk-web/dist/workers/ecdsa-online-client.worker.js",
+      "sizes": {
+        "raw": 21793,
+        "gzip": 6309,
+        "brotli": 5592
+      },
+      "artifactEvidence": [
+        {
+          "artifact": "router_ab_ecdsa_online_client_bg.wasm",
+          "referencedByGeneratedBundle": true
+        }
+      ],
+      "pass": true
+    },
+    {
+      "id": "emailOtp",
+      "path": "packages/sdk-web/dist/workers/email-otp.worker.js",
+      "sizes": {
+        "raw": 567538,
+        "gzip": 91370,
+        "brotli": 69322
+      },
+      "artifactEvidence": [
+        {
+          "artifact": "email_otp_runtime_bg.wasm",
+          "referencedByGeneratedBundle": true
+        },
+        {
+          "artifact": "router_ab_ecdsa_derivation_client_bg.wasm",
+          "referencedByGeneratedBundle": true
+        },
+        {
+          "artifact": "router_ab_ed25519_yao_client_bg.wasm",
+          "referencedByGeneratedBundle": true
+        }
+      ],
+      "pass": true
+    }
+  ],
+  "operationLazyProfiles": [
+    {
+      "operation": "ed25519_registration_recovery_refresh_export",
+      "workerBundles": [
+        "ed25519Signer",
+        "emailOtp"
+      ],
+      "requiredArtifacts": [
+        "router_ab_ed25519_yao_client_bg.wasm"
+      ],
+      "missingArtifacts": [],
+      "pass": true
+    },
+    {
+      "operation": "ecdsa_registration_recovery_refresh_export",
+      "workerBundles": [
+        "ecdsaDerivationClient",
+        "emailOtp"
+      ],
+      "requiredArtifacts": [
+        "router_ab_ecdsa_derivation_client_bg.wasm"
+      ],
+      "missingArtifacts": [],
+      "pass": true
+    },
+    {
+      "operation": "ed25519_normal_signing",
+      "workerBundles": [
+        "ed25519Signer"
+      ],
+      "requiredArtifacts": [
+        "wasm_signer_worker_bg.wasm"
+      ],
+      "missingArtifacts": [],
+      "pass": true
+    },
+    {
+      "operation": "ecdsa_normal_signing_role_local",
+      "workerBundles": [
+        "ecdsaDerivationClient",
+        "ecdsaPresignClient",
+        "ecdsaOnlineClient"
+      ],
+      "requiredArtifacts": [
+        "router_ab_ecdsa_derivation_client_bg.wasm",
+        "router_ab_ecdsa_presign_client_bg.wasm",
+        "router_ab_ecdsa_online_client_bg.wasm"
+      ],
+      "missingArtifacts": [],
+      "pass": true
+    },
+    {
+      "operation": "ecdsa_normal_signing_email_otp",
+      "workerBundles": [
+        "emailOtp",
+        "ecdsaPresignClient",
+        "ecdsaOnlineClient"
+      ],
+      "requiredArtifacts": [
+        "email_otp_runtime_bg.wasm",
+        "router_ab_ecdsa_presign_client_bg.wasm",
+        "router_ab_ecdsa_online_client_bg.wasm"
+      ],
+      "missingArtifacts": [],
+      "pass": true
+    }
+  ],
+  "totals": {
+    "sdkDistributionRawBytes": 55861709
+  },
+  "gates": {
+    "frozenWasmBudgetsPass": true,
+    "failedBudgetArtifacts": [],
+    "generatedWorkerOwnershipPass": true,
+    "failedWorkerBundles": [],
+    "operationLazyProfilesPass": true,
+    "failedOperationLazyProfiles": []
+  }
+}
