@@ -31,6 +31,7 @@ import {
   type LoginEmailOtpEcdsaCapabilityForSigningArgs,
 } from './ecdsaLogin';
 import type { EmailOtpEcdsaPublicReauthLane } from '../../flows/signEvmFamily/ecdsaSelection';
+import type { EmailOtpEcdsaPublicReauthExportAuthority } from '../../flows/recovery/ecdsaExportMaterial';
 import {
   type EmailOtpThresholdEcdsaEnrollmentResult,
   type EnrollAndLoginEmailOtpEcdsaCapabilityArgs,
@@ -266,6 +267,22 @@ export class EmailOtpWalletSessionRuntime {
     return await this.exportRecoveryRuntime.requestExportChallenge(args);
   }
 
+  async requestPublicReauthExportChallenge(args: {
+    walletSession: WalletSessionRef;
+    chain: ThresholdEcdsaChainTarget['kind'];
+  }): Promise<{ challengeId: string; emailHint?: string }> {
+    const appSessionJwt = await this.resolveAppSessionJwt({
+      walletSession: args.walletSession,
+      relayUrl: this.runtimeConfig.requireRelayUrl(),
+    });
+    return await this.exportRecoveryRuntime.requestExportChallenge({
+      kind: 'wallet_public_reauth_challenge',
+      walletSession: args.walletSession,
+      chain: args.chain,
+      appSessionJwt,
+    });
+  }
+
   async exportEcdsaKeyWithAuthorization(
     args: ExportEcdsaKeyWithAuthorizationArgs,
   ): Promise<EmailOtpEcdsaExportArtifact> {
@@ -276,6 +293,27 @@ export class EmailOtpWalletSessionRuntime {
     args: ExportEcdsaKeyWithDurableAuthorizationArgs,
   ): Promise<EmailOtpEcdsaExportArtifact> {
     return await this.exportRecoveryRuntime.exportEcdsaKeyWithDurableAuthorization(args);
+  }
+
+  async exportEcdsaKeyWithPublicReauthAuthorization(args: {
+    walletSession: WalletSessionRef;
+    chainTarget: ThresholdEcdsaChainTarget;
+    challengeId: string;
+    otpCode: string;
+    publicReauthAuthority: EmailOtpEcdsaPublicReauthExportAuthority;
+  }): Promise<EmailOtpEcdsaExportArtifact> {
+    const appSessionJwt = await this.resolveAppSessionJwt({
+      walletSession: args.walletSession,
+      relayUrl: this.runtimeConfig.requireRelayUrl(),
+    });
+    return await this.exportRecoveryRuntime.exportEcdsaKeyWithPublicReauthAuthorization({
+      walletSession: args.walletSession,
+      chainTarget: args.chainTarget,
+      challengeId: args.challengeId,
+      otpCode: args.otpCode,
+      appSessionJwt,
+      publicReauthAuthority: args.publicReauthAuthority,
+    });
   }
 
   async exportEd25519YaoSeedWithFreshEmailOtpLane(

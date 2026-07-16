@@ -679,6 +679,35 @@ test.describe('ECDSA export lane selection', () => {
     });
   });
 
+  test('preserves the public Email OTP reauth authority for a retired page-refresh lane', async () => {
+    const lane = ecdsaLane({
+      authMethod: 'email_otp',
+      chainTarget: EVM_TARGET,
+      state: 'exhausted',
+      source: 'durable_sealed_record',
+      signingGrantId: 'wallet-ecdsa-email-retired',
+      thresholdSessionId: 'threshold-ecdsa-email-retired',
+      remainingUses: 0,
+    });
+    if (lane.source !== 'durable_sealed_record') {
+      throw new Error('expected durable Email OTP export lane');
+    }
+
+    const selected = await resolveEcdsaSessionForExport(depsFor([lane]), {
+      walletId: WALLET_ID,
+      signingTarget: EVM_TARGET,
+      laneIdentity: ecdsaLaneIdentity(lane),
+    });
+
+    expect(selected.session).toEqual(
+      expect.objectContaining({
+        state: 'exhausted',
+        source: 'durable_sealed_record',
+        publicReauthAuthority: lane.publicReauthAuthority,
+      }),
+    );
+  });
+
   test('rejects raw AccountMenu Email OTP ECDSA export duplicates before canonical availability', async () => {
     const viableLane = ecdsaLane({
       authMethod: 'email_otp',

@@ -255,7 +255,7 @@ describeChecks('Email OTP operation split guard', () => {
     expect(ecdsaLanes).not.toContain('function resolveEmailOtpEcdsaAuthLaneFromRecord');
   });
 
-  check('Email OTP ECDSA export uses exact runtime or durable signing-session authority', () => {
+  check('Email OTP ECDSA export uses exact current or public reauth authority', () => {
     const exportMaterial = readRepoFile(
       'packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaExportMaterial.ts',
     );
@@ -273,17 +273,25 @@ describeChecks('Email OTP operation split guard', () => {
     );
     expect(exportMaterial).toContain("kind: 'record_backed'");
     expect(exportMaterial).toContain("kind: 'durable_authority_backed'");
+    expect(exportMaterial).toContain("kind: 'public_reauth_authority_backed'");
     expect(exportMaterial).toContain('signingSessionAuthority: EmailOtpEcdsaSigningSessionAuthority');
     expect(exportMaterial).toContain('emailOtpEcdsaSigningSessionAuthorityFromSealedRecord');
     expect(exportMaterial).not.toContain('fresh_email_otp_needs_challenge');
-    expect(exportFlow).toContain('emailOtpEcdsaExportAuthLane');
+    expect(exportFlow).toContain('emailOtpEcdsaExportChallengeAuthority');
     expect(exportFlow).toContain("case 'durable_authority_backed':");
+    expect(exportFlow).toContain("case 'public_reauth_authority_backed':");
     expect(exportFlow).toContain('exportEcdsaKeyWithDurableAuthorization');
+    expect(exportFlow).toContain('exportEcdsaKeyWithPublicReauthAuthorization');
     expect(exportRuntime).toContain('export type ExportEcdsaKeyWithDurableAuthorizationArgs');
+    expect(exportRuntime).toContain('export type ExportEcdsaKeyWithPublicReauthAuthorizationArgs');
     expect(exportRecovery).toContain('export async function exportEcdsaKeyWithDurableAuthorization');
+    expect(exportRecovery).toContain(
+      'export async function exportEcdsaKeyWithPublicReauthAuthorization',
+    );
     expect(exportRecovery).toContain('buildSigningSessionRoutePlan');
     expect(exportRecovery).not.toContain('export async function exportEcdsaKeyWithFreshEmailOtpLane');
     expect(recoveryPortAdapter).toContain('exportEcdsaKeyWithDurableAuthorization');
+    expect(recoveryPortAdapter).toContain('exportEcdsaKeyWithPublicReauthAuthorization');
   });
 
   check('Email OTP Ed25519 NEAR step-up consumes committed lanes', () => {
@@ -354,8 +362,11 @@ describeChecks('Email OTP operation split guard', () => {
     expect(ecdsaSelectionTypecheck).toContain(
       'passkey reauth selections require committed lane authority',
     );
-    expect(authPlanning).toContain('preparedSelection.committedLane');
-    expect(authPlanning).toContain('committedLane: emailOtpCommittedLane');
+    expect(authPlanning).toContain('emailOtpStepUpAuthority(preparedSelection)');
+    expect(authPlanning).toContain('committedLane: selection.committedLane');
+    expect(authPlanning).toContain(
+      "return { kind: 'public_reauth_anchor', reauthLane: selection.reauthLane }",
+    );
     expect(authPlanning).not.toContain('reauthAuthLane');
     expect(authPlanning).not.toContain('signingSessionRecord');
     expect(emailOtpSigningBridge).toContain('committedLane: EmailOtpEcdsaCommittedLane');

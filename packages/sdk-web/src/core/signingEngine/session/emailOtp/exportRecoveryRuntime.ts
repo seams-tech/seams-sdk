@@ -9,13 +9,17 @@ import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/
 import type { EmailOtpEd25519YaoActiveCapabilityDescriptorV1 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
-import type { EcdsaExportLane } from '../../flows/recovery/ecdsaExportMaterial';
+import type {
+  EcdsaExportLane,
+  EmailOtpEcdsaPublicReauthExportAuthority,
+} from '../../flows/recovery/ecdsaExportMaterial';
 import type { EmailOtpEcdsaSigningSessionAuthority } from './ecdsaSigningSessionAuthority';
 import { buildEmailOtpSigningSessionRoutePlan } from './routePlan';
 import {
   exportEd25519YaoSeedWithFreshEmailOtpLane,
   exportEcdsaKeyWithAuthorization,
   exportEcdsaKeyWithDurableAuthorization,
+  exportEcdsaKeyWithPublicReauthAuthorization,
   requestExportChallenge,
   requestTransactionSigningChallenge,
   type EmailOtpEcdsaExportArtifact,
@@ -72,6 +76,15 @@ export type ExportEcdsaKeyWithDurableAuthorizationArgs = {
   publicFacts: VerifiedEcdsaPublicFacts;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   signingSessionAuthority: EmailOtpEcdsaSigningSessionAuthority;
+};
+
+export type ExportEcdsaKeyWithPublicReauthAuthorizationArgs = {
+  walletSession: WalletSessionRef;
+  chainTarget: ThresholdEcdsaChainTarget;
+  challengeId: string;
+  otpCode: string;
+  appSessionJwt: string;
+  publicReauthAuthority: EmailOtpEcdsaPublicReauthExportAuthority;
 };
 
 export type ExportEd25519YaoSeedWithFreshEmailOtpLaneArgs = {
@@ -136,6 +149,25 @@ export class EmailOtpExportRecoveryRuntime {
         publicFacts: args.publicFacts,
         runtimePolicyScope: args.runtimePolicyScope,
         signingSessionAuthority: args.signingSessionAuthority,
+        loginWithEcdsaCapabilityInternal: this.ports.loginWithEcdsaCapabilityInternal,
+      },
+    );
+  }
+
+  async exportEcdsaKeyWithPublicReauthAuthorization(
+    args: ExportEcdsaKeyWithPublicReauthAuthorizationArgs,
+  ): Promise<EmailOtpEcdsaExportArtifact> {
+    return await exportEcdsaKeyWithPublicReauthAuthorization(
+      {
+        requireRelayUrl: this.ports.requireRelayUrl,
+      },
+      {
+        walletSession: args.walletSession,
+        chainTarget: args.chainTarget,
+        challengeId: args.challengeId,
+        otpCode: args.otpCode,
+        appSessionJwt: args.appSessionJwt,
+        publicReauthAuthority: args.publicReauthAuthority,
         loginWithEcdsaCapabilityInternal: this.ports.loginWithEcdsaCapabilityInternal,
       },
     );
