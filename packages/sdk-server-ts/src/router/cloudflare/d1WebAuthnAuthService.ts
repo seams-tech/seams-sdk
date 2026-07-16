@@ -20,6 +20,7 @@ import {
 } from './d1RouterApiAuthBoundary';
 import { CloudflareD1WebAuthnStore } from './d1WebAuthnStore';
 import {
+  parseWebAuthnAuthenticatorRowDeviceInfo,
   webAuthnSyncWalletBindingFromCredentialBinding,
   type D1AuthenticatorRow,
   type WebAuthnLoginChallengeRecord,
@@ -110,6 +111,7 @@ export class CloudflareD1WebAuthnAuthService {
             optionalNonNegativeInteger(authenticator?.created_at_ms) ?? binding.createdAtMs,
           updatedAtMs:
             optionalNonNegativeInteger(authenticator?.updated_at_ms) ?? binding.updatedAtMs,
+          device: parseWebAuthnAuthenticatorRowDeviceInfo(authenticator?.device_info_json),
         });
       }
       authenticators.sort(compareAuthenticatorSlots);

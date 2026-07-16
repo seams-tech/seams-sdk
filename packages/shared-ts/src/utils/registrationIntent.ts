@@ -18,6 +18,7 @@ import {
 } from './domainIds';
 import { base64UrlEncode } from './encoders';
 import type { EmailOtpProvider } from './walletAuthAuthority';
+import type { WebAuthnAuthenticatorDeviceInfo } from './webauthnDeviceInfo';
 import {
   parseNamedNearAccountId,
   type ImplicitNearAccountId,
@@ -141,6 +142,8 @@ export type RegistrationAuthority =
       credentialIdB64u: string;
       credentialPublicKeyB64u: string;
       counter: number;
+      /** Device metadata captured at registration verification (UA + attestation). */
+      device: WebAuthnAuthenticatorDeviceInfo;
       registrationIntentDigestB64u: string;
       providerSubject?: never;
       challengeSubjectId?: never;
@@ -183,6 +186,7 @@ export type RegistrationAuthority =
       credentialIdB64u?: never;
       credentialPublicKeyB64u?: never;
       counter?: never;
+      device?: never;
       rpId?: never;
       googleEmailOtpRegistrationAttemptId?: never;
       googleEmailOtpRegistrationOfferId?: never;
@@ -210,6 +214,7 @@ export type RegistrationAuthority =
       credentialIdB64u?: never;
       credentialPublicKeyB64u?: never;
       counter?: never;
+      device?: never;
       rpId?: never;
     };
 

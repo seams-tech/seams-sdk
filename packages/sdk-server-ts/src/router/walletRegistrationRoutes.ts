@@ -139,6 +139,14 @@ type RouterApiWalletRegistrationInput = {
 
 type ParseResult<T> = { ok: true; value: T } | { ok: false; code: 'invalid_body'; message: string };
 
+/** User-Agent of the registering request; feeds authenticator device labels. */
+function registrationUserAgentFromHeaders(headers: HeaderRecord): string | undefined {
+  const raw = headers['user-agent'] ?? headers['User-Agent'];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  const trimmed = String(value || '').trim();
+  return trimmed ? trimmed : undefined;
+}
+
 type PasskeyWalletRegistrationFinalizeSuccess = Extract<
   WalletRegistrationFinalizeSuccess,
   { authMethod: { kind: 'passkey' } }
@@ -2387,7 +2395,9 @@ export async function handleRouterApiWalletRegistrationStart(
   }
   const request = await parseWalletRegistrationStartBody(input.body);
   if (!request.ok) return routeError(400, request.code, request.message);
-  const result = await input.services.walletRegistration.startWalletRegistration(request.value);
+  const result = await input.services.walletRegistration.startWalletRegistration(request.value, {
+    userAgent: registrationUserAgentFromHeaders(input.headers),
+  });
   const response = exposesRegistrationRouteDiagnostics(input)
     ? result
     : stripRegistrationRouteDiagnostics(result);
@@ -2708,7 +2718,10 @@ export async function handleRouterApiWalletAddAuthMethodStart(
       return routeError(401, 'unauthorized', sessionVersion.message);
     }
   }
-  const result = await input.services.walletRegistration.startWalletAddAuthMethod(parsedBody.value);
+  const result = await input.services.walletRegistration.startWalletAddAuthMethod(
+    parsedBody.value,
+    { userAgent: registrationUserAgentFromHeaders(input.headers) },
+  );
   return routeJson(result.ok ? 200 : 400, result);
 }
 

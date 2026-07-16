@@ -31,6 +31,10 @@ import {
   type WalletId,
 } from '@shared/utils/registrationIntent';
 import {
+  parseWebAuthnAuthenticatorDeviceInfo,
+  unknownWebAuthnAuthenticatorDeviceInfo,
+} from '@shared/utils/webauthnDeviceInfo';
+import {
   parseAppSessionVersion,
   parseChallengeSubjectId,
   parseEmailOtpChallengeId,
@@ -2107,6 +2111,10 @@ function parseD1PasskeyRegistrationAuthority(
   ) {
     return null;
   }
+  /* legacy in-flight ceremonies persisted before device capture existed get a
+     synthesized unknown-device record instead of failing the parse */
+  const device =
+    parseWebAuthnAuthenticatorDeviceInfo(record.device) ?? unknownWebAuthnAuthenticatorDeviceInfo();
   return {
     kind: 'passkey',
     walletId,
@@ -2114,6 +2122,7 @@ function parseD1PasskeyRegistrationAuthority(
     credentialIdB64u,
     credentialPublicKeyB64u,
     counter,
+    device,
     registrationIntentDigestB64u,
   };
 }

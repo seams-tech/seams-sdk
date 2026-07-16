@@ -1,6 +1,11 @@
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import {
+  parseWebAuthnAuthenticatorDeviceInfo,
+  unknownWebAuthnAuthenticatorDeviceInfo,
+  type WebAuthnAuthenticatorDeviceInfo,
+} from '@shared/utils/webauthnDeviceInfo';
+import {
   nonNegativeSafeInteger,
   optionalNonNegativeInteger,
   positiveInteger,
@@ -13,6 +18,7 @@ export type D1AuthenticatorRow = {
   readonly counter?: unknown;
   readonly created_at_ms?: unknown;
   readonly updated_at_ms?: unknown;
+  readonly device_info_json?: unknown;
 };
 
 export type D1RecordJsonRow = {
@@ -69,7 +75,22 @@ export type WebAuthnAuthenticatorRecord = {
   readonly counter: number;
   readonly createdAtMs: number;
   readonly updatedAtMs: number;
+  readonly deviceInfo: WebAuthnAuthenticatorDeviceInfo;
 };
+
+export function parseWebAuthnAuthenticatorRowDeviceInfo(
+  raw: unknown,
+): WebAuthnAuthenticatorDeviceInfo {
+  if (typeof raw !== 'string' || !raw.trim()) return unknownWebAuthnAuthenticatorDeviceInfo();
+  try {
+    return (
+      parseWebAuthnAuthenticatorDeviceInfo(JSON.parse(raw)) ??
+      unknownWebAuthnAuthenticatorDeviceInfo()
+    );
+  } catch {
+    return unknownWebAuthnAuthenticatorDeviceInfo();
+  }
+}
 
 export type WebAuthnLoginChallengeRecord = {
   readonly version: 'webauthn_login_challenge_v1';
@@ -153,7 +174,14 @@ export function parseWebAuthnAuthenticator(
   const updatedAtMs = positiveInteger(row?.updated_at_ms);
   if (!credentialIdB64u || !credentialPublicKeyB64u) return null;
   if (counter === null || createdAtMs === null || updatedAtMs === null) return null;
-  return { credentialIdB64u, credentialPublicKeyB64u, counter, createdAtMs, updatedAtMs };
+  return {
+    credentialIdB64u,
+    credentialPublicKeyB64u,
+    counter,
+    createdAtMs,
+    updatedAtMs,
+    deviceInfo: parseWebAuthnAuthenticatorRowDeviceInfo(row?.device_info_json),
+  };
 }
 
 export function parseWebAuthnBinding(
