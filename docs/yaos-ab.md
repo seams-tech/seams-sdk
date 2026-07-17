@@ -131,8 +131,9 @@ The implementation order is fixed:
 5. stream incrementally with bounded memory;
 6. make registration, activation, ordinary signing, recovery, refresh, and
    exact seed export usable through the complete local A/B service graph;
-7. benchmark that same flow in same-account and separate-account Cloudflare
-   deployments;
+7. benchmark that same flow in the intended separate-account Cloudflare
+   topology, using same-account deployment only when diagnostic evidence is
+   needed;
 8. make the Phase 13A viability go/no-go decision; and
 9. only after `go`, select/harden a production profile, deepen formal proofs,
    run external review, add durable lifecycle and production integration, and
@@ -204,7 +205,8 @@ production work starts.
 ## Platform Fallback Ladder
 
 The independent-administrator requirement and exact-claim requirement are
-fixed. Phase 13A measures Workers in both account modes first. After a `go`,
+fixed. Phase 13A measures the intended separate-account Worker topology first;
+same-account evidence remains an optional diagnostic lower bound. After a `go`,
 Phase 6A chooses the first feasible execution platform for each serious
 security profile in this order:
 
@@ -2131,10 +2133,9 @@ deployment remains deferred by product decision. The queue state is:
    public persistence contains no scalar, and no typed-unavailable or HSS
    fallback remains. Mixed registration mints one wallet-level grant and
    remaining-use counter shared by NEAR, Tempo, and EVM;
-7. **Deferred by product decision after Phase 9E closure:** deploy the
-   identical protocol in one and two Cloudflare accounts and record warm plus
-   fresh-version first-request proxy latency, CPU, isolate memory, bytes,
-   requests, placement, connection behavior, and cost;
+7. **Active:** deploy the identical protocol to separate Cloudflare accounts
+   and record warm complete-ceremony latency, failures, CPU, isolate memory,
+   bytes, and cost. The same-account diagnostic checkpoint is complete;
 8. make the Phase 13A viability decision after deployed evidence is resumed,
    before any production hardening,
    deep formal proof, external release ceremony, or production integration.
@@ -3867,11 +3868,9 @@ backpressure cannot deadlock the interleaved protocol.
       completion and Phase 13A evidence acceptance. The deferred deployed run
       remains responsible for recording actual version IDs and topology data.
 - [x] Make Phase 13A evidence fail closed before deployment: require at least
-      50 warm samples, a 20-deployment fresh-version first-request cold proxy
-      per topology, receipt-bound cost reports cross-checked against HTTP bytes
-      and analytics CPU means, and an explicit dated operational-acceptance
-      record. Missing or malformed evidence yields `evidence-incomplete`, not a
-      substantive `stop`.
+      50 warm cross-account samples, receipt-bound analytics and cost evidence,
+      and an explicit dated operational-acceptance record. Missing or malformed
+      evidence yields `evidence-incomplete`, not a substantive `stop`.
 - [x] Prove local same-thread request/response overlap: the protocol cannot
       complete unless B's response advances before A's request EOF.
 - [x] Label every current same-account manifest and metric as benchmark-only
@@ -4612,7 +4611,7 @@ ceremony, and make the canonical local gate exercise these public surfaces.
 ### Phase 9D: Run the Cloudflare Topology Campaign
 
 Status: **deferred; task ownership moved to
-[yaos-ab-deployment.md](./yaos-ab-deployment.md#phase-9d-run-the-cloudflare-topology-campaign)**
+[yaos-ab-deployment.md](./yaos-ab-deployment.md#gate-1-prove-separate-account-viability)**
 
 
 ## Deferred Production Phases
@@ -4624,37 +4623,52 @@ implementation, cleanup, or intended-behaviour validation.
 ### Phase 13A: Viability Go/No-Go
 
 Moved to
-[yaos-ab-deployment.md](./yaos-ab-deployment.md#phase-13a-viability-gono-go).
+[yaos-ab-deployment.md](./yaos-ab-deployment.md#gate-1-prove-separate-account-viability).
 
 ### Phase 6A: Select the Security Profile and Reissue Feasibility Gates
 
 Moved to
-[yaos-ab-deployment.md](./yaos-ab-deployment.md#phase-6a-select-the-security-profile-and-reissue-feasibility-gates).
+[yaos-ab-deployment.md](./yaos-ab-deployment.md#gate-2-select-one-production-design).
 
 ### Phase 6B: Implement the Selected Suite and Freeze Production Circuits
 
 Moved to
-[yaos-ab-deployment.md](./yaos-ab-deployment.md#phase-6b-implement-the-selected-suite-and-freeze-production-circuits).
+[yaos-ab-deployment.md](./yaos-ab-deployment.md#gate-3-build-and-deploy-the-selected-design).
 
 ### Phase 7: Add the Selected One-Use Lifecycle and Optional Prepositioning
 
 Moved to
-[yaos-ab-deployment.md](./yaos-ab-deployment.md#phase-7-add-the-selected-one-use-lifecycle-and-optional-prepositioning).
+[yaos-ab-deployment.md](./yaos-ab-deployment.md#gate-3-build-and-deploy-the-selected-design).
 
 ### Phase 8: Promote Local Router Contracts and the Composition Adapter
 
 Moved to
-[yaos-ab-deployment.md](./yaos-ab-deployment.md#phase-8-promote-local-router-contracts-and-the-composition-adapter).
+[yaos-ab-deployment.md](./yaos-ab-deployment.md#gate-3-build-and-deploy-the-selected-design).
 
 ### Phase 10: Deploy the Selected Strict Production Profile
 
 Moved to
-[yaos-ab-deployment.md](./yaos-ab-deployment.md#phase-10-deploy-the-selected-strict-production-profile).
+[yaos-ab-deployment.md](./yaos-ab-deployment.md#gate-3-build-and-deploy-the-selected-design).
 
 ### Phase 11: Promote Client and SigningWorker Lifecycles
 
 Moved to
-[yaos-ab-deployment.md](./yaos-ab-deployment.md#phase-11-promote-client-and-signingworker-lifecycles).
+[yaos-ab-deployment.md](./yaos-ab-deployment.md#gate-3-build-and-deploy-the-selected-design).
+
+#### July 17, 2026 Cloudflare lifecycle checkpoint
+
+- [x] Replace split staged-input/status persistence with one discriminated
+      Deriver session record:
+      `Staged | Running | Completed | Failed | Expired`.
+- [x] Remove staged ciphertext when a session enters `Running`; `Failed` and
+      `Expired` retain only the public input digest.
+- [x] Prepare the WebSocket pair, headers, and upgrade response before the
+      one-use `Begin` mutation.
+- [x] Persist `Failed` after asynchronous role failure and surface `Failed` or
+      `Expired` immediately from result reads.
+- [x] Reject reevaluation from `Running`, `Completed`, `Failed`, and `Expired`;
+      preserve exact completed execution only for idempotent redelivery.
+- [x] Use checked 60-second staged and 20-second running lifetimes.
 
 
 ## Phase 12: Finish Strict ECDSA Residual Migration
@@ -4688,7 +4702,7 @@ Goal: remove the final reason for the generic threshold service to exist.
       The unused Ed25519 seed-export FFI and `near-ed25519-recovery` feature
       dependency are deleted. A source guard rejects every retired owner name.
 Independent-account ECDSA deployment and signed-HTTPS requirements are tracked
-in [yaos-ab-deployment.md](./yaos-ab-deployment.md#cross-phase-deployment-obligations).
+in [router-a-b-deployment.md](./router-a-b-deployment.md).
 
 ### Exit Gate
 
@@ -4698,7 +4712,7 @@ in [yaos-ab-deployment.md](./yaos-ab-deployment.md#cross-phase-deployment-obliga
 ## Phase 13B: Full Release Validation
 
 Status: **deferred; task ownership moved to
-[yaos-ab-deployment.md](./yaos-ab-deployment.md#phase-13b-full-release-validation)**
+[yaos-ab-deployment.md](./yaos-ab-deployment.md#gate-4-review-burn-in-and-release)**
 
 
 ## Phase 14: Hard Cutover and Legacy Deletion
@@ -4828,7 +4842,7 @@ Goal: leave one production implementation and no compatibility path.
       historical records.
 Selected-profile deletion, guards, capability responses, and diagrams are
 tracked in
-[yaos-ab-deployment.md](./yaos-ab-deployment.md#cross-phase-deployment-obligations).
+[router-a-b-deployment.md](./router-a-b-deployment.md).
 
 ### Exit Gate
 
@@ -5078,7 +5092,7 @@ July 16 locked build freezes the first complete local baseline:
 ## Phase 15: Independent Review and Production Burn-In
 
 Status: **deferred; task ownership moved to
-[yaos-ab-deployment.md](./yaos-ab-deployment.md#phase-15-independent-review-and-production-burn-in)**
+[yaos-ab-deployment.md](./yaos-ab-deployment.md#gate-4-review-burn-in-and-release)**
 
 
 ## Constant-Time and Side-Channel Checklist
@@ -5222,7 +5236,6 @@ Also run:
 - production `cargo tree` and Worker-bundle scans proving no generator, clear
   evaluator, `ed25519-hss`, or deleted feature is linked;
 - WASM export-surface and deleted-build-script checks;
-- same-account Cloudflare benchmark;
 - selected strict-production platform benchmark;
 - browser/SDK registration, recovery, refresh, export, and signing tests;
 - repository-wide deleted-symbol source guards.
