@@ -221,16 +221,14 @@ pnpm build:sdk
   - `unit/confirmTxFlow.determineConfirmationConfig.test.ts` override precedence
   - `unit/confirmTxFlow.common.helpers.test.ts` sanitization + summary parsing
   - `unit/awaitUserConfirmationV2.test.ts` error/abort/timeout/mismatch via worker global
-  - `unit/progressBus.overlayIntentResolver.test.ts` event metadata → visibility mapping
-  - `unit/overlayController.test.ts` aria/anchor/sticky behavior
+  - `unit/overlayController.test.ts` hidden, anchored, and viewport-modal rendering
   - `unit/handleSecureConfirmRequest.test.ts` request handler behavior
 
 - Wallet Iframe
   - `wallet-iframe/handshake.test.ts` CONNECT→READY handshake
-  - `wallet-iframe/router.behavior.test.ts` pre‑show, timeout hide, anchored overlay
-  - `wallet-iframe/router.behavior.sticky.test.ts` sticky lifecycle + cancelAll
-  - `wallet-iframe/router.behavior.concurrent.test.ts` aggregate overlay visibility under concurrent requests
-  - `wallet-iframe/router.computeOverlayIntent.test.ts` intent mapping
+  - `wallet-iframe/router.behavior.test.ts` typed request-surface lifecycle
+  - `wallet-iframe/router.registrationActivation.test.ts` anchored registration activation
+  - `unit/walletIframeSurfaceDomain.unit.test.ts` reducer arbitration and render coverage
   - `wallet-iframe/seamsAuthMenu.qrButton.overlay.test.ts` QR start regression (no wallet iframe reveal on click)
 
 - Lit Components

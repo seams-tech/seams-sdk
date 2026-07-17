@@ -8,6 +8,5 @@ export function createWalletIframeOverlayState(args: {
     controller: new OverlayController({
       ensureIframe: args.ensureIframe,
     }),
-    forceFullscreen: false,
   };
 }

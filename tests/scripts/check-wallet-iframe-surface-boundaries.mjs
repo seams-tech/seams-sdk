@@ -12,13 +12,17 @@ const clientRoot = path.join(
 );
 const routerPath = path.join(clientRoot, 'router.ts');
 const rendererPath = path.join(clientRoot, 'surface/renderer.ts');
-const legacyRouterCallLimits = new Map([
-  ['controller.showFullscreen(', 7],
-  ['controller.showAnchored(', 1],
-  ['controller.setSticky(', 4],
-  ['forceFullscreen = true', 3],
-  ['forceFullscreen = false', 2],
-]);
+const forbiddenLegacyRouterCalls = [
+  'controller.showFullscreen(',
+  'controller.showAnchored(',
+  'controller.setSticky(',
+  'forceFullscreen',
+  'showFrameForActivation(',
+  'hideFrameForActivation(',
+  'computeOverlayIntent(',
+  'setOverlayVisible(',
+  'setOverlayBounds(',
+];
 
 function listTypeScriptFiles(root) {
   return fs.readdirSync(root).flatMap((entryName) => {
@@ -55,12 +59,9 @@ function collectViolations() {
   }
 
   const routerSource = fs.readFileSync(routerPath, 'utf8');
-  for (const [needle, limit] of legacyRouterCallLimits) {
-    const count = countOccurrences(routerSource, needle);
-    if (count > limit) {
-      violations.push(
-        `${relativePath(routerPath)}: ${needle} count ${count} exceeds legacy limit ${limit}`,
-      );
+  for (const needle of forbiddenLegacyRouterCalls) {
+    if (countOccurrences(routerSource, needle) > 0) {
+      violations.push(`${relativePath(routerPath)}: obsolete overlay path ${needle}`);
     }
   }
 

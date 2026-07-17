@@ -7,13 +7,13 @@ import type {
 import { walletIdFromString } from '@shared/utils/registrationIntent';
 import {
   anchoredRegistrationActivationSurface,
+  modalDeviceLinkQrSurface,
+  modalRecoveryCodesSurface,
   modalRegistrationConfirmSurface,
   modalTransactionConfirmSurface,
   passkeyRegistrationPreparationReceipt,
   registrationActivationTargetRectFromBoundary,
-  walletIframeChainIdFromBoundary,
   walletIframeConnectionIdFromBoundary,
-  walletIframeTransactionDigestFromBoundary,
   type AnchoredRegistrationActivationSurface,
   type HiddenWalletIframeSurface,
   type ModalRegistrationConfirmSurface,
@@ -70,9 +70,13 @@ modalRegistrationConfirmSurface({ connectionId, identity: requestIdentity, prepa
 modalTransactionConfirmSurface({
   connectionId,
   identity: requestIdentity,
-  chain: walletIframeChainIdFromBoundary('eip155:1'),
-  transactionDigest: walletIframeTransactionDigestFromBoundary('0x1234'),
 });
+modalRecoveryCodesSurface({
+  connectionId,
+  identity: requestIdentity,
+  operation: 'show',
+});
+modalDeviceLinkQrSurface({ connectionId, identity: requestIdentity });
 
 // @ts-expect-error Hidden surfaces cannot carry request ownership.
 const hiddenWithIdentity: HiddenWalletIframeSurface = { kind: 'hidden', identity: requestIdentity };
@@ -147,8 +151,6 @@ const transactionWithoutRequestId: ModalTransactionConfirmSurface = {
   connectionId,
   // @ts-expect-error Transaction modal identity requires requestId.
   identity: { kind: 'request_surface_identity_v1', surfaceId },
-  chain: walletIframeChainIdFromBoundary('eip155:1'),
-  transactionDigest: walletIframeTransactionDigestFromBoundary('0x1234'),
   userActivation: 'wallet_confirm_button_required',
 };
 void transactionWithoutRequestId;

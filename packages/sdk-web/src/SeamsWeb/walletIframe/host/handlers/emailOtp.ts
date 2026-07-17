@@ -232,24 +232,27 @@ async function showEmailOtpRecoveryCodesInIframe(input: {
         enrollmentSealKeyVersion: backup.enrollmentSealKeyVersion,
       })
       .catch(() => null)) || backup;
-  showEmailOtpRecoveryCodeBackupUi(
-    {
-      walletId: displayed.walletId,
-      enrollmentId: displayed.enrollmentId,
-      enrollmentSealKeyVersion: displayed.enrollmentSealKeyVersion,
-      recoveryCodesIssuedAtMs: displayed.recoveryCodesIssuedAtMs,
-      recoveryKeys: displayed.recoveryKeys,
-    },
-    {
-      onDownloaded: async () => {
-        await emailOtpRecoveryCodeBackupRepository.markDownloaded({
-          walletId: displayed.walletId,
-          enrollmentId: displayed.enrollmentId,
-          enrollmentSealKeyVersion: displayed.enrollmentSealKeyVersion,
-        });
+  await new Promise<void>((resolve) => {
+    showEmailOtpRecoveryCodeBackupUi(
+      {
+        walletId: displayed.walletId,
+        enrollmentId: displayed.enrollmentId,
+        enrollmentSealKeyVersion: displayed.enrollmentSealKeyVersion,
+        recoveryCodesIssuedAtMs: displayed.recoveryCodesIssuedAtMs,
+        recoveryKeys: displayed.recoveryKeys,
       },
-    },
-  );
+      {
+        onDownloaded: async () => {
+          await emailOtpRecoveryCodeBackupRepository.markDownloaded({
+            walletId: displayed.walletId,
+            enrollmentId: displayed.enrollmentId,
+            enrollmentSealKeyVersion: displayed.enrollmentSealKeyVersion,
+          });
+        },
+        onClosed: resolve,
+      },
+    );
+  });
   return { status, displayedStoredCodes: true };
 }
 

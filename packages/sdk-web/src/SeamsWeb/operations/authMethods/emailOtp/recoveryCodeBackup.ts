@@ -28,6 +28,7 @@ export type EmailOtpRecoveryCodeBackupUiInput = {
 
 export type EmailOtpRecoveryCodeBackupUiOptions = {
   onDownloaded?: () => Promise<void> | void;
+  onClosed?: () => void;
 };
 
 export type GoogleEmailOtpRegistrationBackupEnrollmentInput = Omit<
@@ -124,6 +125,7 @@ export function showEmailOtpRecoveryCodeBackupUi(
   const overlay = document.createElement('div');
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('data-w3a-email-otp-recovery-code-dialog', '');
   /* the class enrolls this plain-DOM dialog in the app-palette override
      stylesheet (see W3A_LIT_HOST_SELECTORS), so tokens follow the theme */
   overlay.className = 'w3a-host-themed-dialog';
@@ -162,6 +164,7 @@ export function showEmailOtpRecoveryCodeBackupUi(
   close.type = 'button';
   close.textContent = '×';
   close.setAttribute('aria-label', 'Close recovery codes');
+  close.setAttribute('data-w3a-email-otp-recovery-code-dialog-close', '');
   close.style.cssText =
     'position:absolute;right:16px;top:12px;border:0;background:transparent;color:var(--w3a-colors-textMuted, #565177);font-size:28px;line-height:1;cursor:pointer';
   panel.style.position = 'relative';
@@ -228,6 +231,7 @@ export function showEmailOtpRecoveryCodeBackupUi(
 
   close.addEventListener('click', () => {
     overlay.remove();
+    options.onClosed?.();
   });
 
   download.focus();

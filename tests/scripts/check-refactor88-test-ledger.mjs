@@ -56,7 +56,6 @@ const retainedBoundaryAuditRows = [
     'tests/unit/passkeyClientDB.repositories.unit.test.ts',
     'tests/unit/passkeyConfirm.exportFlow.unit.test.ts',
     'tests/unit/profileAccountProjection.generic.unit.test.ts',
-    'tests/unit/progressBus.overlayIntentResolver.test.ts',
     'tests/unit/recoveryCodesModal.behavior.unit.test.ts',
     'tests/unit/safari-fallbacks.test.ts',
     'tests/unit/sealedRefresh.parity.unit.test.ts',
@@ -86,11 +85,8 @@ const retainedBoundaryAuditRows = [
     'tests/wallet-iframe/handshake.test.ts',
     'tests/wallet-iframe/seamsAuthMenu.qrButton.overlay.test.ts',
     'tests/wallet-iframe/preferences.sync.test.ts',
-    'tests/wallet-iframe/router.behavior.concurrent.test.ts',
-    'tests/wallet-iframe/router.behavior.sticky.test.ts',
     'tests/wallet-iframe/router.behavior.test.ts',
     'tests/wallet-iframe/router.cancellationProgress.test.ts',
-    'tests/wallet-iframe/router.computeOverlayIntent.test.ts',
     'tests/wallet-iframe/router.registrationActivation.test.ts',
     'tests/wallet-iframe/router.signingProgressForwarding.test.ts',
     'tests/wallet-iframe/static-wallet-assets.browser.test.ts',
@@ -256,9 +252,8 @@ const retainedBoundaryAuditEvidenceTokens = {
     ],
     'tests/unit/overlayController.test.ts': [
         'OverlayController',
-        'showFullscreen',
-        'anchored positioning and sticky prevents hide',
-        'forceHide clears sticky overlay lock and makes iframe inert',
+        'viewport modal rendering is interactive and hidden rendering is inert',
+        'surface render writes derive title, focusability, and suspended hit testing',
     ],
     'tests/unit/seamsAuthMenu.accountAvailability.unit.test.ts': [
         'SeamsAuthMenu account availability',
@@ -293,11 +288,6 @@ const retainedBoundaryAuditEvidenceTokens = {
         'generic profile/account projection helpers',
         'resolves mapped candidates and selects canonical signer slots',
         'returns the last selected profile state against generic chain candidates',
-    ],
-    'tests/unit/progressBus.overlayIntentResolver.test.ts': [
-        'defaultOverlayIntentResolver',
-        'returns show/hide/none from event interaction metadata',
-        'tracks v2 flow, phase, and status stats',
     ],
     'tests/unit/recoveryCodesModal.behavior.unit.test.ts': [
         'RecoveryCodesModal behavior',
@@ -443,7 +433,6 @@ const retainedBoundaryAuditEvidenceTokens = {
     'tests/wallet-iframe/export.flow.integration.test.ts': [
         'wallet-origin export flow integration',
         'export viewer ignores stale generic WALLET_UI_CLOSED from previous wallet UI',
-        'concurrent export and signing remain isolated and do not cross-talk',
         'PM_EXPORT_KEYPAIR_UI',
     ],
     'tests/wallet-iframe/handshake.test.ts': [
@@ -462,17 +451,6 @@ const retainedBoundaryAuditEvidenceTokens = {
         'PM_SET_CONFIRMATION_CONFIG',
         'PM_SET_CONFIG',
     ],
-    'tests/wallet-iframe/router.behavior.concurrent.test.ts': [
-        'concurrent requests aggregate overlay visibility',
-        'overlay stays visible while any request demands show',
-        'PM_EXECUTE_ACTION',
-    ],
-    'tests/wallet-iframe/router.behavior.sticky.test.ts': [
-        'sticky overlay lifecycle',
-        'sticky requests keep overlay visible until explicit cancel',
-        'sticky demand does not pin later PM_SIGN_TEMPO overlay visibility',
-        'PM_EXPORT_KEYPAIR_UI',
-    ],
     'tests/wallet-iframe/router.behavior.test.ts': [
         'overlay + timeout behavior',
         'executeAction shows overlay then hides it after request timeout',
@@ -485,11 +463,6 @@ const retainedBoundaryAuditEvidenceTokens = {
         'registration.cancelled',
         'unlock.cancelled',
         'signing.cancelled',
-    ],
-    'tests/wallet-iframe/router.computeOverlayIntent.test.ts': [
-        'preflight fullscreen intent for activation-required requests',
-        'PM_EXPORT_KEYPAIR_UI',
-        'PM_GET_WALLET_SESSION',
     ],
     'tests/wallet-iframe/router.registrationActivation.test.ts': [
         'WalletIframeRouter registration activation surface',

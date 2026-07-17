@@ -183,93 +183,30 @@ So yes, your understanding is correct: **SeamsWebIframe → WalletIframeRouter �
 
 ## Activation Overlay (iframe sizing behavior)
 
-The wallet iframe mounts as an invisible 0×0 element and temporarily expands to a full‑screen overlay when user activation (e.g., TouchID/WebAuthn) is needed. This lets the wallet host collect credentials in the same browsing context while satisfying WebAuthn requirements.
+The wallet iframe mounts as a hidden surface. `WalletIframeRouter` owns one
+typed foreground surface at a time and the surface renderer is the only writer
+of iframe visibility, geometry, focusability, title, and pointer events.
 
-### OverlayController (state owner)
+### Surface lifecycle
 
-The OverlayController is the single owner of wallet iframe overlay state. It manages
-visibility, positioning, and sticky behavior without scattering style writes across
-router code. Styling is CSP-safe and applied via CSS classes and a shared stylesheet.
+- `hidden`: no footprint and no hit target.
+- `anchored_registration_activation`: an iframe-owned registration button
+  exactly covers the app-owned CTA.
+- `modal_registration_confirm`, `modal_transaction_confirm`,
+  `modal_key_export_confirm`, and `modal_unlock_confirm`: viewport modal
+  surfaces that expose wallet-origin confirmation controls.
 
-#### Modes
+Each foreground surface carries its authenticated connection identity and
+request identity. Result, error, cancellation, timeout, and connection close
+events clear only a matching active surface. Progress events remain available
+to app callbacks and diagnostics; they cannot modify the iframe DOM.
 
-- `hidden`: no footprint, pointer-events disabled
-- `fullscreen`: fixed inset, fills viewport for WebAuthn activation
-- `anchored`: fixed rect at specific viewport coordinates
-
-#### API (current)
-
-```ts
-type DOMRectLike = { top: number; left: number; width: number; height: number };
-
-class OverlayController {
-  constructor(opts: { ensureIframe: () => HTMLIFrameElement });
-  showFullscreen(): void;
-  showAnchored(rect: DOMRectLike): void;
-  showPreferAnchored(): void; // anchored if rect set, else fullscreen
-  setAnchoredRect(rect: DOMRectLike): void;
-  clearAnchoredRect(): void;
-  setSticky(v: boolean): void; // hide() is ignored when sticky
-  hide(): void;
-  getState(): {
-    visible: boolean;
-    mode: 'hidden' | 'fullscreen' | 'anchored';
-    sticky: boolean;
-    rect?: DOMRectLike;
-  };
-}
-```
-
-#### Router integration
-
-- Router owns the controller instance and is the only caller.
-- `computeOverlayIntent()` decides whether to show fullscreen before posting a request.
-- `OnEventsProgressBus` decides when to hide after completion; the controller just executes.
-- `setOverlayBounds()` anchors the iframe for inline UI overlays.
-
-#### Styling notes
-
-- Uses class-based styling from `client/src/SeamsWeb/walletIframe/client/overlay/overlay-styles.ts` (no inline styles).
-- Anchored rects are clamped to non-negative coordinates with minimum size.
-- Default z-index is `2147483646` via `--w3a-wallet-overlay-z`.
-
-### Overlay lifecycle
-
-- Initial mount (hidden):
-  - `client/src/SeamsWeb/walletIframe/client/transport/IframeTransport.ts` mounts the iframe with `w3a-wallet-overlay is-hidden`, `width/height: 0`, `aria-hidden`, and `tabindex=-1` so it is invisible yet present in the DOM. Base styles come from `client/src/SeamsWeb/walletIframe/client/overlay/overlay-styles.ts`.
-
-- Expand to full‑screen during activation:
-  - `showFrameForActivation()` in `client/src/SeamsWeb/walletIframe/client/router.ts` ensures the iframe exists and delegates to `OverlayController.showFullscreen()`, which applies the fullscreen class (fixed inset, pointer-events enabled, z-index 2147483646).
-  - This is invoked explicitly for sensitive flows (e.g., `registerPasskey()`, `seams.auth.unlock()`, transaction signing, key export, and link-device authorization) and by v2 progress events with `interaction.overlay: 'show'`.
-
-- Collapse back to 0×0:
-  - `hideFrameForActivation()` in the same router delegates to `OverlayController.hide()` to restore the hidden state and make it non-interactive.
-  - The router calls `hideFrameForActivation()` when a request finishes (success or error) unless the flow is marked sticky (UI-managed lifecycle).
-
-- Anchored overlays for inline UI:
-  - `setOverlayBounds()` anchors the iframe to a DOMRect via `OverlayController.showAnchored()` for UI components that must appear at a specific viewport location.
-
-- When the overlay shows/hides automatically:
-  - `client/src/SeamsWeb/walletIframe/client/progress/on-events-progress-bus.ts` implements `defaultOverlayIntentResolver`, which reads v2 `WalletFlowEvent.interaction.overlay`.
-  - Behavior is declared by each emitted event:
-    - `overlay: 'show'` for phases that require immediate user activation or an iframe-hosted confirmation prompt.
-    - `overlay: 'hide'` when activation is complete, the user leaves the app for recovery, or a terminal failed/cancelled event must close a prior prompt.
-    - `overlay: 'none'` for non-interactive threshold signer, nonce, broadcast, persistence, polling, and finalization work.
-    - Link-device QR display uses `overlay: 'hide'` because the QR screen is app-owned; later link authorization/passkey phases emit `overlay: 'show'` when the iframe must capture activation.
-
-### Why the overlay may block clicks after sending
-
-With explicit v2 overlay metadata, the overlay collapses immediately after the event that completes the user-interactive step, even if subsequent signing, broadcasting, or waiting events continue. This minimizes the time the overlay blocks clicks.
-
-### Options to adjust behavior
-
-- Adjust the emitting event metadata:
-  - Set `interaction.overlay` on the flow event that owns the UI transition. The progress bus should stay a small metadata reader.
-
-- Last‑resort local control:
-  - If needed for a specific integration, you can wrap calls with your own timing to ensure the overlay hides immediately after activation by ensuring the flow emits the appropriate `interaction.overlay: 'hide'` event promptly.
+`OverlayController` is a low-level renderer target with only
+`applyHidden()`, `applyAnchored()`, `applyAnchoredSuspended()`, and
+`applyViewportModal()` operations. Styling is CSP-safe and uses the shared
+overlay stylesheet. The default z-index is `2147483646`.
 
 ### Notes
 
 - Layering: the iframe overlay uses `z-index: 2147483646`, kept one below the inner modal card (2147483647) to ensure the UI remains clickable when visible.
-- Debugging: set `window.__W3A_DEBUG__ = true` (or pass `debug: true` to the client) to log overlay/phase routing decisions from the progress bus.
+- Debugging: set `window.__W3A_DEBUG__ = true` (or pass `debug: true` to the client) to log surface transitions and progress routing.
