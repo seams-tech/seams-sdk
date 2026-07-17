@@ -36,6 +36,16 @@ use signer_core::ed25519_yao_derivation::{
 };
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
+mod activation;
+mod crypto;
+pub mod duplex;
+mod execution;
+mod product;
+pub use activation::*;
+pub use crypto::*;
+pub use execution::*;
+pub use product::*;
+
 /// Fixed activation Deriver A engine used by local composition.
 pub type ActivationDeriverA = Activation128KiBDeriverA;
 /// Fixed activation Deriver B engine used by local composition.
@@ -90,6 +100,8 @@ pub enum AdapterError {
     RoleProtocol,
     /// The contribution shape does not match registration/recovery or refresh.
     LifecycleContributionMismatch,
+    /// A role-local derivation root could not produce its server contribution.
+    ServerContributionDerivation,
 }
 
 impl fmt::Display for AdapterError {
@@ -104,6 +116,9 @@ impl fmt::Display for AdapterError {
             Self::RoleProtocol => formatter.write_str("Ed25519 Yao role initialization failed"),
             Self::LifecycleContributionMismatch => formatter
                 .write_str("Ed25519 Yao contribution does not match the lifecycle operation"),
+            Self::ServerContributionDerivation => {
+                formatter.write_str("Ed25519 Yao server contribution derivation failed")
+            }
         }
     }
 }

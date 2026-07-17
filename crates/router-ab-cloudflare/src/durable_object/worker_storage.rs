@@ -4,6 +4,10 @@ use super::handlers::{
     validate_signing_worker_output_active_state_replacement_v1,
 };
 use super::*;
+use crate::ed25519_yao_signing_worker::{
+    CloudflareEd25519YaoOutputActivationPutV1, CloudflareEd25519YaoOutputActivationReceiptV1,
+    CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_OUTPUT_ACTIVATE_DO_PATH,
+};
 
 /// Handles a real `workers-rs` Durable Object fetch event for Router/A/B storage.
 #[cfg(feature = "workers-rs")]
@@ -69,11 +73,137 @@ pub(super) async fn handle_cloudflare_durable_object_class_fetch_v1(
         }
     };
     let storage = state.storage();
+    if scope == CloudflareDurableObjectScopeV1::signing_worker_server_output()
+        && request.path() == CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_OUTPUT_ACTIVATE_DO_PATH
+    {
+        return handle_cloudflare_ed25519_yao_output_activation_fetch_v1(
+            &binding, request, &storage,
+        )
+        .await;
+    }
     handle_cloudflare_durable_object_fetch_v1(&binding, request, &storage).await
 }
 
 #[cfg(feature = "workers-rs")]
-fn cloudflare_durable_object_class_binding_v1(
+async fn handle_cloudflare_ed25519_yao_output_activation_fetch_v1(
+    binding: &CloudflareDurableObjectBindingV1,
+    mut request: worker::Request,
+    storage: &worker::Storage,
+) -> worker::Result<worker::Response> {
+    if request.method() != worker::Method::Post {
+        return worker::Response::error(
+            "Signing Worker Ed25519 Yao output activation requires POST",
+            405,
+        );
+    }
+    let parsed = match request
+        .json::<CloudflareEd25519YaoOutputActivationPutV1>()
+        .await
+    {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            return worker::Response::error(
+                format!("Signing Worker Ed25519 Yao output JSON parse failed: {err}"),
+                400,
+            );
+        }
+    };
+    match persist_cloudflare_ed25519_yao_output_activation_v1(binding, parsed, storage).await {
+        Ok(receipt) => worker::Response::from_json(&receipt),
+        Err(err) => worker::Response::error(
+            format!("{:?}: {}", err.code(), err.message()),
+            durable_object_error_status(err.code()),
+        ),
+    }
+}
+
+#[cfg(feature = "workers-rs")]
+async fn persist_cloudflare_ed25519_yao_output_activation_v1(
+    binding: &CloudflareDurableObjectBindingV1,
+    request: CloudflareEd25519YaoOutputActivationPutV1,
+    storage: &worker::Storage,
+) -> RouterAbProtocolResult<CloudflareEd25519YaoOutputActivationReceiptV1> {
+    binding.validate()?;
+    request.validate()?;
+    let active_state = request.record.active_signing_worker_state().clone();
+    let material_key = active_state.signing_worker_material_handle.clone();
+    let expected_material_prefix = format!("{}ed25519-yao/", binding.key_prefix);
+    if !material_key.starts_with(&expected_material_prefix) {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "Signing Worker Ed25519 Yao material handle is outside its Durable Object scope",
+        ));
+    }
+    let active_state_key = format!(
+        "{}active-signing-worker/{}/{}/{}",
+        binding.key_prefix,
+        active_state.account_id,
+        active_state.session_id,
+        active_state.signing_worker.server_id
+    );
+    let existing_record = storage
+        .get::<CloudflareSigningWorkerOutputActivationRecordV1>(&material_key)
+        .await
+        .map_err(|err| ed25519_yao_output_storage_error("read material", err))?;
+    let existing_active_state = storage
+        .get::<ActiveSigningWorkerStateV1>(&active_state_key)
+        .await
+        .map_err(|err| ed25519_yao_output_storage_error("read active state", err))?;
+    if let Some(existing_record) = existing_record {
+        existing_record.validate()?;
+        if existing_record != request.record
+            || existing_active_state.as_ref() != Some(&active_state)
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                "Signing Worker Ed25519 Yao activation conflicts with durable state",
+            ));
+        }
+        return CloudflareEd25519YaoOutputActivationReceiptV1::new(active_state, false);
+    }
+    validate_signing_worker_output_active_state_replacement_v1(
+        existing_active_state.as_ref(),
+        &active_state,
+    )?;
+    let mut writes = BTreeMap::new();
+    writes.insert(
+        material_key,
+        serde_json::to_value(&request.record).map_err(|err| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("Signing Worker Ed25519 Yao material encoding failed: {err}"),
+            )
+        })?,
+    );
+    writes.insert(
+        active_state_key,
+        serde_json::to_value(&active_state).map_err(|err| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("Signing Worker Ed25519 Yao active-state encoding failed: {err}"),
+            )
+        })?,
+    );
+    storage
+        .put_multiple(writes)
+        .await
+        .map_err(|err| ed25519_yao_output_storage_error("commit activation", err))?;
+    CloudflareEd25519YaoOutputActivationReceiptV1::new(active_state, true)
+}
+
+#[cfg(feature = "workers-rs")]
+fn ed25519_yao_output_storage_error(
+    operation: &'static str,
+    error: worker::Error,
+) -> RouterAbProtocolError {
+    RouterAbProtocolError::new(
+        RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+        format!("Signing Worker Ed25519 Yao Durable Object {operation} failed: {error}"),
+    )
+}
+
+#[cfg(feature = "workers-rs")]
+pub(super) fn cloudflare_durable_object_class_binding_v1(
     scope: CloudflareDurableObjectScopeV1,
     binding_env_key: &str,
     object_env_key: &str,
@@ -156,18 +286,28 @@ pub async fn handle_cloudflare_durable_object_worker_request_v1(
             };
             CloudflareDurableObjectResponseV1::root_share_has(present)
         }
-        CloudflareDurableObjectRequestV1::RootShareStartupMetadata { lookup } => {
-            let metadata = require_existing_record_v1(
+        CloudflareDurableObjectRequestV1::RootShareStartupMetadata { metadata } => {
+            let stored = validate_idempotent_put_record_v1(
                 worker_storage_get::<CloudflareRootShareStartupMetadataV1>(
                     storage,
                     &storage_key,
                     call.operation_kind(),
                 )
                 .await?,
-                "root-share startup metadata is missing",
+                metadata,
+                CloudflareRootShareStartupMetadataV1::validate,
+                "root-share startup metadata is already initialized with different material",
             )?;
-            metadata.validate_matches_lookup(lookup)?;
-            CloudflareDurableObjectResponseV1::root_share_startup_metadata(metadata)?
+            if stored {
+                worker_storage_put(
+                    storage,
+                    &storage_key,
+                    metadata.clone(),
+                    call.operation_kind(),
+                )
+                .await?;
+            }
+            CloudflareDurableObjectResponseV1::root_share_startup_metadata(metadata.clone())?
         }
         CloudflareDurableObjectRequestV1::RootShareRewrapStartupMetadata { request } => {
             let existing = require_existing_record_v1(
@@ -544,13 +684,22 @@ pub async fn handle_cloudflare_durable_object_worker_request_v1(
             {
                 Some(existing) => {
                     existing.validate()?;
-                    if existing.activation == *activation && existing.material == *material {
-                        (existing.active_signing_worker_state, false)
-                    } else {
-                        return Err(RouterAbProtocolError::new(
+                    match existing {
+                        CloudflareSigningWorkerOutputActivationRecordV1::RecipientProofBundle {
+                            activation: existing_activation,
+                            active_signing_worker_state,
+                            material: existing_material,
+                        } if existing_activation == *activation
+                            && existing_material == *material =>
+                        {
+                            (active_signing_worker_state, false)
+                        }
+                        _ => {
+                            return Err(RouterAbProtocolError::new(
                                 RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
                                 "server-output activation conflicts with existing activation or material",
                             ));
+                        }
                     }
                 }
                 None => {
@@ -599,33 +748,6 @@ pub async fn handle_cloudflare_durable_object_worker_request_v1(
                 )?,
             )?
         }
-        CloudflareDurableObjectRequestV1::SigningWorkerDirectActivationPut { delivery } => {
-            delivery.validate()?;
-            let outcome = match worker_storage_get::<
-                CloudflareSigningWorkerDirectRecipientProofBundleActivationPendingRecordV1,
-            >(storage, &storage_key, call.operation_kind())
-            .await?
-            {
-                Some(existing) => existing.apply_delivery(delivery.clone())?,
-                None => {
-                    let record =
-                        CloudflareSigningWorkerDirectRecipientProofBundleActivationPendingRecordV1::new(
-                            delivery.clone(),
-                        )?;
-                    worker_storage_put(
-                        storage,
-                        &storage_key,
-                        record.clone(),
-                        call.operation_kind(),
-                    )
-                    .await?;
-                    CloudflareSigningWorkerDirectRecipientProofBundleActivationPutOutcomeV1::pending(
-                        record,
-                    )?
-                }
-            };
-            CloudflareDurableObjectResponseV1::signing_worker_direct_activation_put(outcome)?
-        }
         CloudflareDurableObjectRequestV1::SigningWorkerOutputActiveStateGet { lookup } => {
             lookup.validate()?;
             let active_signing_worker_state = require_existing_record_v1(
@@ -654,14 +776,16 @@ pub async fn handle_cloudflare_durable_object_worker_request_v1(
                 "SigningWorker-output material is missing",
             )?;
             record.validate()?;
-            if record.active_signing_worker_state != lookup.active_signing_worker_state {
+            if record.active_signing_worker_state() != &lookup.active_signing_worker_state {
                 return Err(RouterAbProtocolError::new(
                     RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
                     "SigningWorker-output material active state does not match lookup",
                 ));
             }
-            lookup.validate_material(&record.material)?;
-            CloudflareDurableObjectResponseV1::signing_worker_output_material_get(record.material)?
+            lookup.validate_material(record.material())?;
+            CloudflareDurableObjectResponseV1::signing_worker_output_material_get(
+                record.into_material(),
+            )?
         }
         CloudflareDurableObjectRequestV1::SigningWorkerRound1Put { record } => {
             record.validate()?;
@@ -713,119 +837,188 @@ pub async fn handle_cloudflare_durable_object_worker_request_v1(
                 single_index_cleanup_report_v1(cleanup.now_unix_ms, records_removed)?,
             )?
         }
-        CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignaturePut { record } => {
-            record.validate()?;
-            let stored = validate_idempotent_put_record_v1(
-                worker_storage_get::<CloudflareSigningWorkerEcdsaPresignatureRecordV1>(
-                    storage,
-                    &storage_key,
-                    call.operation_kind(),
-                )
-                .await?,
-                record,
-                CloudflareSigningWorkerEcdsaPresignatureRecordV1::validate,
-                "SigningWorker ECDSA presignature id is already stored for different material",
-            )?;
-            if stored {
-                worker_storage_put(storage, &storage_key, record.clone(), call.operation_kind())
-                    .await?;
-            }
-            CloudflareDurableObjectResponseV1::signing_worker_ecdsa_presignature_put(
-                CloudflareSigningWorkerEcdsaPresignaturePutReceiptV1::from_record(record, stored)?,
-            )?
-        }
-        CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignatureTake { lookup } => {
-            lookup.validate()?;
-            let record = require_existing_record_v1(
-                worker_storage_get::<CloudflareSigningWorkerEcdsaPresignatureRecordV1>(
-                    storage,
-                    &storage_key,
-                    call.operation_kind(),
-                )
-                .await?,
-                "SigningWorker ECDSA presignature material is missing",
-            )?;
-            record.validate_for_lookup(lookup)?;
-            worker_storage_delete(storage, &storage_key, call.operation_kind()).await?;
-            CloudflareDurableObjectResponseV1::signing_worker_ecdsa_presignature_take(record)?
-        }
-        CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignatureCleanupExpired {
-            cleanup,
-        } => {
-            cleanup.validate()?;
-            let records_removed = worker_storage_cleanup_expired_values(
+        CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPoolMutate { command } => {
+            let current = worker_storage_get::<CloudflareSigningWorkerEcdsaPoolLifecycleRecordV1>(
                 storage,
-                &call.signing_worker_ecdsa_presignature_storage_prefix(),
-                cleanup.now_unix_ms,
+                &storage_key,
                 call.operation_kind(),
-                cloudflare_signing_worker_ecdsa_presignature_expires_at_ms_v1,
             )
             .await?;
-            CloudflareDurableObjectResponseV1::signing_worker_ecdsa_presignature_cleanup_expired(
-                single_index_cleanup_report_v1(cleanup.now_unix_ms, records_removed)?,
-            )?
-        }
-        CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignaturePoolPut { record } => {
-            record.validate()?;
-            let stored = validate_idempotent_put_record_v1(
-                worker_storage_get::<CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1>(
-                    storage,
-                    &storage_key,
-                    call.operation_kind(),
-                )
-                .await?,
-                record,
-                CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1::validate,
-                "SigningWorker ECDSA presignature pool id is already stored for different material",
-            )?;
-            if stored {
-                worker_storage_put(storage, &storage_key, record.clone(), call.operation_kind())
-                    .await?;
-            }
-            CloudflareDurableObjectResponseV1::signing_worker_ecdsa_presignature_pool_put(
-                CloudflareSigningWorkerEcdsaPresignaturePoolPutReceiptV1::from_record(
-                    record, stored,
-                )?,
-            )?
-        }
-        CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignaturePoolTake { lookup } => {
-            lookup.validate()?;
-            let record = require_existing_record_v1(
-                worker_storage_get::<CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1>(
-                    storage,
-                    &storage_key,
-                    call.operation_kind(),
-                )
-                .await?,
-                "SigningWorker ECDSA presignature pool material is missing",
-            )?;
-            record.validate_for_lookup(lookup)?;
-            worker_storage_delete(storage, &storage_key, call.operation_kind()).await?;
-            CloudflareDurableObjectResponseV1::signing_worker_ecdsa_presignature_pool_take(record)?
-        }
-        CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignaturePoolCleanupExpired {
-            cleanup,
-        } => {
-            cleanup.validate()?;
-            let records_removed = worker_storage_cleanup_expired_values(
+            let outcome =
+                apply_cloudflare_signing_worker_ecdsa_pool_command_v1(current, command.clone())?;
+            schedule_cloudflare_signing_worker_ecdsa_pool_cleanup_v1(
                 storage,
-                &call.signing_worker_ecdsa_presignature_pool_storage_prefix(),
-                cleanup.now_unix_ms,
-                call.operation_kind(),
-                cloudflare_signing_worker_ecdsa_presignature_pool_expires_at_ms_v1,
+                outcome.record().cleanup_deadline_ms(),
+                &call.signing_worker_ecdsa_pool_storage_prefix(),
             )
             .await?;
-            CloudflareDurableObjectResponseV1::signing_worker_ecdsa_presignature_pool_cleanup_expired(
-                CloudflareExpiredStateCleanupReportV1::new(
-                    cleanup.now_unix_ms,
-                    records_removed,
-                    0,
-                )?,
-            )?
+            worker_storage_put(
+                storage,
+                &storage_key,
+                outcome.record().clone(),
+                call.operation_kind(),
+            )
+            .await?;
+            CloudflareDurableObjectResponseV1::signing_worker_ecdsa_pool_mutate(outcome)?
         }
     };
     response.validate_for_request(&call.request)?;
     Ok(response)
+}
+
+#[cfg(feature = "workers-rs")]
+async fn schedule_cloudflare_signing_worker_ecdsa_pool_cleanup_v1(
+    storage: &worker::Storage,
+    cleanup_deadline_ms: Option<u64>,
+    storage_prefix: &str,
+) -> RouterAbProtocolResult<()> {
+    let Some(cleanup_deadline_ms) = cleanup_deadline_ms else {
+        return Ok(());
+    };
+    let cleanup_deadline_ms = i64::try_from(cleanup_deadline_ms).map_err(|_| {
+        worker_storage_error(
+            RouterAbProtocolErrorCode::InvalidTimeRange,
+            CloudflareDurableObjectOperationKindV1::SigningWorkerEcdsaPoolMutate,
+            storage_prefix,
+            "ECDSA cleanup deadline exceeds the Durable Object alarm range".to_owned(),
+        )
+    })?;
+    let current_alarm = storage.get_alarm().await.map_err(|err| {
+        worker_storage_error(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            CloudflareDurableObjectOperationKindV1::SigningWorkerEcdsaPoolMutate,
+            storage_prefix,
+            format!("Durable Object alarm read failed: {err}"),
+        )
+    })?;
+    if current_alarm.is_none_or(|current| cleanup_deadline_ms < current) {
+        storage
+            .set_alarm(cleanup_deadline_ms)
+            .await
+            .map_err(|err| {
+                worker_storage_error(
+                    RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                    CloudflareDurableObjectOperationKindV1::SigningWorkerEcdsaPoolMutate,
+                    storage_prefix,
+                    format!("Durable Object alarm scheduling failed: {err}"),
+                )
+            })?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "workers-rs")]
+pub(super) async fn handle_cloudflare_signing_worker_ecdsa_pool_alarm_v1(
+    binding: &CloudflareDurableObjectBindingV1,
+    storage: &worker::Storage,
+) -> worker::Result<worker::Response> {
+    let now_unix_ms = worker::Date::now().as_millis();
+    match cleanup_expired_cloudflare_signing_worker_ecdsa_pool_records_v1(
+        binding,
+        storage,
+        now_unix_ms,
+    )
+    .await
+    {
+        Ok(records_burned) => worker::Response::ok(format!(
+            "SigningWorker ECDSA pool cleanup burned {records_burned} record(s)"
+        )),
+        Err(err) => Err(worker::Error::RustError(format!(
+            "{:?}: {}",
+            err.code(),
+            err.message()
+        ))),
+    }
+}
+
+#[cfg(feature = "workers-rs")]
+async fn cleanup_expired_cloudflare_signing_worker_ecdsa_pool_records_v1(
+    binding: &CloudflareDurableObjectBindingV1,
+    storage: &worker::Storage,
+    now_unix_ms: u64,
+) -> RouterAbProtocolResult<u64> {
+    let operation_kind = CloudflareDurableObjectOperationKindV1::SigningWorkerEcdsaPoolMutate;
+    let storage_prefix = format!("{}signing-worker-ecdsa-pool/", binding.key_prefix);
+    let values = storage
+        .list_with_options(worker::ListOptions::new().prefix(&storage_prefix))
+        .await
+        .map_err(|err| {
+            worker_storage_error(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                operation_kind,
+                &storage_prefix,
+                format!("Durable Object ECDSA pool list failed: {err}"),
+            )
+        })?;
+    let keys = worker::js_sys::Array::from(&values.keys());
+    let mut records_burned = 0u64;
+    let mut next_deadline_ms = None;
+    for key in keys.iter() {
+        let storage_key = key.as_string().ok_or_else(|| {
+            worker_storage_error(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                operation_kind,
+                &storage_prefix,
+                "Durable Object ECDSA pool list returned a non-string key".to_owned(),
+            )
+        })?;
+        let Some(record) = worker_storage_get::<CloudflareSigningWorkerEcdsaPoolLifecycleRecordV1>(
+            storage,
+            &storage_key,
+            operation_kind,
+        )
+        .await?
+        else {
+            continue;
+        };
+        let Some(deadline_ms) = record.cleanup_deadline_ms() else {
+            continue;
+        };
+        if deadline_ms <= now_unix_ms {
+            let replacement = record.expire(now_unix_ms)?;
+            worker_storage_put(storage, &storage_key, replacement, operation_kind).await?;
+            records_burned = records_burned.checked_add(1).ok_or_else(|| {
+                worker_storage_error(
+                    RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                    operation_kind,
+                    &storage_prefix,
+                    "ECDSA cleanup count overflowed".to_owned(),
+                )
+            })?;
+        } else {
+            next_deadline_ms =
+                Some(next_deadline_ms.map_or(deadline_ms, |current: u64| current.min(deadline_ms)));
+        }
+    }
+    match next_deadline_ms {
+        Some(deadline_ms) => storage
+            .set_alarm(i64::try_from(deadline_ms).map_err(|_| {
+                worker_storage_error(
+                    RouterAbProtocolErrorCode::InvalidTimeRange,
+                    operation_kind,
+                    &storage_prefix,
+                    "ECDSA cleanup deadline exceeds the Durable Object alarm range".to_owned(),
+                )
+            })?)
+            .await
+            .map_err(|err| {
+                worker_storage_error(
+                    RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                    operation_kind,
+                    &storage_prefix,
+                    format!("Durable Object alarm rescheduling failed: {err}"),
+                )
+            })?,
+        None => storage.delete_alarm().await.map_err(|err| {
+            worker_storage_error(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                operation_kind,
+                &storage_prefix,
+                format!("Durable Object alarm deletion failed: {err}"),
+            )
+        })?,
+    }
+    Ok(records_burned)
 }
 
 /// Executes a typed Durable Object call through a real `workers-rs` Env.

@@ -6,6 +6,12 @@
 
 use base64::Engine;
 use rand_core::OsRng;
+use router_ab_cloudflare::{
+    CloudflareSigningWorkerEcdsaPoolAdmissionReceiptV1, CloudflareSigningWorkerEcdsaPoolCommandV1,
+    CloudflareSigningWorkerEcdsaPoolMutationOutcomeV1,
+    CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1,
+    CloudflareSigningWorkerEcdsaPresignatureRecordV1,
+};
 use router_ab_core::{
     decode_ab_peer_message_payload_v1,
     decode_and_validate_ecdsa_threshold_prf_proof_batch_peer_payload_v1,
@@ -29,8 +35,8 @@ use router_ab_core::{
 };
 use router_ab_core::{PublicDigest32, Role, RootShareEpoch};
 use router_ab_ecdsa_online::{
-    finalize_signing_worker_signature, OnlineError, SigningWorkerOnlineInput,
-    SigningWorkerPresignMaterial,
+    combine_rerandomization_contributions, finalize_signing_worker_signature, OnlineError,
+    SigningWorkerOnlineInput, SigningWorkerPresignMaterial,
 };
 use rusqlite::{params, params_from_iter, types::Value, Connection, OptionalExtension};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -38,7 +44,6 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
     fmt,
-    sync::{Mutex, OnceLock},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -53,7 +58,7 @@ pub use local_ecdsa_commitment_policy::{
     LOCAL_ECDSA_COMMITMENT_POLICY_DIGEST_BUILD_ENV_V1,
     LOCAL_ECDSA_COMMITMENT_POLICY_MINIMUM_RELEASE_EPOCH_BUILD_ENV_V1,
     LOCAL_ECDSA_COMMITMENT_POLICY_RELEASE_AUTHORITY_PUBLIC_KEY_BUILD_ENV_V1,
-    LOCAL_SIGNING_WORKER_ECDSA_COMMITMENT_REGISTRY_ENV_V1,
+    LOCAL_ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_ENV_V1,
 };
 mod local_ed25519_yao_input;
 mod local_ed25519_yao_profiles;
@@ -151,10 +156,7 @@ pub use local_ed25519_yao_worker::{
     LocalEd25519YaoRefreshPromotionReceiptV1, LocalEd25519YaoRefreshPromotionRequestV1,
     LocalEd25519YaoRoleCompletionV1, LocalEd25519YaoWorkerStateV1,
 };
-use local_router_ab_ecdsa_derivation_pool_store::{
-    local_signing_worker_router_ab_ecdsa_derivation_presignature_pool_store_put_v1,
-    local_signing_worker_router_ab_ecdsa_derivation_presignature_pool_store_take_v1,
-};
+use local_router_ab_ecdsa_derivation_pool_store::local_signing_worker_ecdsa_pool_mutate_v1;
 pub use local_service_http::{
     local_http_service_binding_endpoint_v1, local_http_service_binding_owner_v1,
     local_http_service_binding_path_v1, local_http_service_binding_url_v1,
@@ -304,43 +306,30 @@ pub const LOCAL_DERIVER_B_ED25519_YAO_REFRESH_PROMOTE_PATH: &str =
 /// Deriver A local Ed25519 Yao export start path.
 pub const LOCAL_DERIVER_A_ED25519_YAO_EXPORT_START_PATH: &str =
     "/router-ab/deriver-a/ed25519-yao/export/start";
-/// Deriver A local Ed25519 Yao public completion path.
-pub const LOCAL_DERIVER_A_ED25519_YAO_RESULT_PATH: &str = "/router-ab/deriver-a/ed25519-yao/result";
-/// Deriver A encrypted activation package for the Client.
-pub const LOCAL_DERIVER_A_ED25519_YAO_ACTIVATION_CLIENT_PACKAGE_PATH: &str =
-    "/router-ab/deriver-a/ed25519-yao/activation/client-package";
-/// Deriver A encrypted activation package for the SigningWorker.
-pub const LOCAL_DERIVER_A_ED25519_YAO_ACTIVATION_SIGNING_WORKER_PACKAGE_PATH: &str =
-    "/router-ab/deriver-a/ed25519-yao/activation/signing-worker-package";
 /// Deriver A encrypted refresh package for the Client.
 pub const LOCAL_DERIVER_A_ED25519_YAO_REFRESH_CLIENT_PACKAGE_PATH: &str =
     "/router-ab/deriver-a/ed25519-yao/refresh/client-package";
 /// Deriver A encrypted refresh package for the SigningWorker.
 pub const LOCAL_DERIVER_A_ED25519_YAO_REFRESH_SIGNING_WORKER_PACKAGE_PATH: &str =
     "/router-ab/deriver-a/ed25519-yao/refresh/signing-worker-package";
-/// Deriver A encrypted export package for the Client.
-pub const LOCAL_DERIVER_A_ED25519_YAO_EXPORT_CLIENT_PACKAGE_PATH: &str =
-    "/router-ab/deriver-a/ed25519-yao/export/client-package";
 /// Deriver B local Ed25519 Yao export staging path.
 pub const LOCAL_DERIVER_B_ED25519_YAO_EXPORT_STAGE_PATH: &str =
     "/router-ab/deriver-b/ed25519-yao/export/stage";
-/// Deriver B local Ed25519 Yao public completion path.
-pub const LOCAL_DERIVER_B_ED25519_YAO_RESULT_PATH: &str = "/router-ab/deriver-b/ed25519-yao/result";
-/// Deriver B encrypted activation package for the Client.
-pub const LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_CLIENT_PACKAGE_PATH: &str =
-    "/router-ab/deriver-b/ed25519-yao/activation/client-package";
-/// Deriver B encrypted activation package for the SigningWorker.
-pub const LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_SIGNING_WORKER_PACKAGE_PATH: &str =
-    "/router-ab/deriver-b/ed25519-yao/activation/signing-worker-package";
+/// Deriver B completed activation execution path.
+pub const LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_RESULT_PATH: &str =
+    "/router-ab/deriver-b/ed25519-yao/activation/result";
+/// Deriver B completed export execution path.
+pub const LOCAL_DERIVER_B_ED25519_YAO_EXPORT_RESULT_PATH: &str =
+    "/router-ab/deriver-b/ed25519-yao/export/result";
+/// Deriver B completed refresh result path.
+pub const LOCAL_DERIVER_B_ED25519_YAO_REFRESH_RESULT_PATH: &str =
+    "/router-ab/deriver-b/ed25519-yao/refresh/result";
 /// Deriver B encrypted refresh package for the Client.
 pub const LOCAL_DERIVER_B_ED25519_YAO_REFRESH_CLIENT_PACKAGE_PATH: &str =
     "/router-ab/deriver-b/ed25519-yao/refresh/client-package";
 /// Deriver B encrypted refresh package for the SigningWorker.
 pub const LOCAL_DERIVER_B_ED25519_YAO_REFRESH_SIGNING_WORKER_PACKAGE_PATH: &str =
     "/router-ab/deriver-b/ed25519-yao/refresh/signing-worker-package";
-/// Deriver B encrypted export package for the Client.
-pub const LOCAL_DERIVER_B_ED25519_YAO_EXPORT_CLIENT_PACKAGE_PATH: &str =
-    "/router-ab/deriver-b/ed25519-yao/export/client-package";
 /// Router public normal-signing path mirrored from production.
 pub const LOCAL_ROUTER_NORMAL_SIGNING_PATH: &str = "/router-ab/ed25519/sign";
 /// Router public normal-signing round-1 prepare path mirrored from production.
@@ -473,7 +462,6 @@ const LOCAL_ROUTER_FORBIDDEN_ENV_KEYS_V1: &[&str] = &[
     LOCAL_DERIVER_B_SEALED_ROOT_SHARES_PATH_ENV_V1,
     LOCAL_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_ENV_V1,
     LOCAL_SIGNING_WORKER_SERVER_OUTPUT_STORAGE_PATH_ENV_V1,
-    LOCAL_SIGNING_WORKER_ECDSA_COMMITMENT_REGISTRY_ENV_V1,
 ];
 
 const LOCAL_DERIVER_A_FORBIDDEN_ENV_KEYS_V1: &[&str] = &[
@@ -490,7 +478,7 @@ const LOCAL_DERIVER_A_FORBIDDEN_ENV_KEYS_V1: &[&str] = &[
     LOCAL_DERIVER_B_SEALED_ROOT_SHARES_PATH_ENV_V1,
     LOCAL_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_ENV_V1,
     LOCAL_SIGNING_WORKER_SERVER_OUTPUT_STORAGE_PATH_ENV_V1,
-    LOCAL_SIGNING_WORKER_ECDSA_COMMITMENT_REGISTRY_ENV_V1,
+    LOCAL_ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_ENV_V1,
 ];
 
 const LOCAL_DERIVER_B_FORBIDDEN_ENV_KEYS_V1: &[&str] = &[
@@ -507,7 +495,7 @@ const LOCAL_DERIVER_B_FORBIDDEN_ENV_KEYS_V1: &[&str] = &[
     LOCAL_DERIVER_A_SEALED_ROOT_SHARES_PATH_ENV_V1,
     LOCAL_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_ENV_V1,
     LOCAL_SIGNING_WORKER_SERVER_OUTPUT_STORAGE_PATH_ENV_V1,
-    LOCAL_SIGNING_WORKER_ECDSA_COMMITMENT_REGISTRY_ENV_V1,
+    LOCAL_ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_ENV_V1,
 ];
 
 const LOCAL_SIGNING_WORKER_FORBIDDEN_ENV_KEYS_V1: &[&str] = &[
@@ -1348,7 +1336,7 @@ pub fn parse_local_worker_role_config_for_role_v1(
                     )?,
                     ecdsa_commitment_registry_json: required_env_v1(
                         &env,
-                        LOCAL_SIGNING_WORKER_ECDSA_COMMITMENT_REGISTRY_ENV_V1,
+                        LOCAL_ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_ENV_V1,
                     )?,
                 },
             ))
@@ -1564,10 +1552,10 @@ impl LocalSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutRequestV1 {
         &self,
         active_signing_worker_state: ActiveSigningWorkerStateV1,
         now_unix_ms: u64,
-    ) -> RouterAbProtocolResult<LocalSigningWorkerRouterAbEcdsaDerivationPresignaturePoolRecordV1>
-    {
+    ) -> RouterAbProtocolResult<CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1> {
         self.validate_at(now_unix_ms)?;
-        LocalSigningWorkerRouterAbEcdsaDerivationPresignaturePoolRecordV1::new(
+        CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1::new(
+            self.scope.clone(),
             active_signing_worker_state,
             self.server_presignature_id.clone(),
             self.server_big_r33_b64u.clone(),
@@ -1576,48 +1564,6 @@ impl LocalSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutRequestV1 {
             now_unix_ms,
             self.expires_at_ms,
         )
-    }
-}
-
-/// Redacted receipt returned by the local Router A/B ECDSA derivation presignature pool-fill route.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct LocalSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutReceiptV1 {
-    /// Active SigningWorker state selected for this pool entry.
-    pub active_signing_worker_state: ActiveSigningWorkerStateV1,
-    /// SigningWorker-local presignature id accepted by the route.
-    pub server_presignature_id: String,
-    /// Compressed secp256k1 presignature R point encoded as unpadded base64url.
-    pub server_big_r33_b64u: String,
-    /// Whether the entry was inserted into the one-use pool.
-    pub stored: bool,
-}
-
-impl LocalSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutReceiptV1 {
-    fn new(
-        active_signing_worker_state: ActiveSigningWorkerStateV1,
-        server_presignature_id: impl Into<String>,
-        server_big_r33_b64u: impl Into<String>,
-        stored: bool,
-    ) -> RouterAbProtocolResult<Self> {
-        let receipt = Self {
-            active_signing_worker_state,
-            server_presignature_id: server_presignature_id.into(),
-            server_big_r33_b64u: server_big_r33_b64u.into(),
-            stored,
-        };
-        receipt.validate()?;
-        Ok(receipt)
-    }
-
-    fn validate(&self) -> RouterAbProtocolResult<()> {
-        self.active_signing_worker_state.validate()?;
-        require_non_empty(
-            "receipt.server_presignature_id",
-            &self.server_presignature_id,
-        )?;
-        decode_base64url_fixed_33_v1("receipt.server_big_r33_b64u", &self.server_big_r33_b64u)?;
-        Ok(())
     }
 }
 
@@ -1770,221 +1716,6 @@ impl LocalSigningWorkerAdmittedRouterAbEcdsaDerivationFinalizeRequestV1 {
     }
 }
 
-/// One-use local Router A/B ECDSA derivation presignature pool record.
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LocalSigningWorkerRouterAbEcdsaDerivationPresignaturePoolRecordV1 {
-    /// Active SigningWorker state selected for this pool entry.
-    pub active_signing_worker_state: ActiveSigningWorkerStateV1,
-    /// SigningWorker-local presignature id.
-    pub server_presignature_id: String,
-    /// Compressed secp256k1 presignature R point encoded as unpadded base64url.
-    pub server_big_r33_b64u: String,
-    /// SigningWorker-local ECDSA presignature k share encoded as unpadded base64url.
-    pub server_k_share32_b64u: String,
-    /// SigningWorker-local ECDSA presignature sigma share encoded as unpadded base64url.
-    pub server_sigma_share32_b64u: String,
-    /// Insertion timestamp in Unix milliseconds.
-    pub created_at_ms: u64,
-    /// Expiry timestamp in Unix milliseconds.
-    pub expires_at_ms: u64,
-}
-
-impl LocalSigningWorkerRouterAbEcdsaDerivationPresignaturePoolRecordV1 {
-    #[allow(clippy::too_many_arguments)]
-    fn new(
-        active_signing_worker_state: ActiveSigningWorkerStateV1,
-        server_presignature_id: impl Into<String>,
-        server_big_r33_b64u: impl Into<String>,
-        server_k_share32_b64u: impl Into<String>,
-        server_sigma_share32_b64u: impl Into<String>,
-        created_at_ms: u64,
-        expires_at_ms: u64,
-    ) -> RouterAbProtocolResult<Self> {
-        let record = Self {
-            active_signing_worker_state,
-            server_presignature_id: server_presignature_id.into(),
-            server_big_r33_b64u: server_big_r33_b64u.into(),
-            server_k_share32_b64u: server_k_share32_b64u.into(),
-            server_sigma_share32_b64u: server_sigma_share32_b64u.into(),
-            created_at_ms,
-            expires_at_ms,
-        };
-        record.validate()?;
-        Ok(record)
-    }
-
-    fn validate(&self) -> RouterAbProtocolResult<()> {
-        self.active_signing_worker_state.validate()?;
-        require_non_empty(
-            "Router A/B ECDSA derivation pool record server_presignature_id",
-            &self.server_presignature_id,
-        )?;
-        decode_base64url_fixed_33_v1(
-            "Router A/B ECDSA derivation pool record server_big_r33_b64u",
-            &self.server_big_r33_b64u,
-        )?;
-        decode_base64url_fixed_32_v1(
-            "Router A/B ECDSA derivation pool record server_k_share32_b64u",
-            &self.server_k_share32_b64u,
-        )?;
-        decode_base64url_fixed_32_v1(
-            "Router A/B ECDSA derivation pool record server_sigma_share32_b64u",
-            &self.server_sigma_share32_b64u,
-        )?;
-        require_positive_unix_ms_v1(
-            "Router A/B ECDSA derivation pool record created_at_ms",
-            self.created_at_ms,
-        )?;
-        require_positive_unix_ms_v1(
-            "Router A/B ECDSA derivation pool record expires_at_ms",
-            self.expires_at_ms,
-        )?;
-        if self.expires_at_ms <= self.created_at_ms {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidTimeRange,
-                "Router A/B ECDSA derivation pool record expiry must be after creation",
-            ));
-        }
-        Ok(())
-    }
-
-    fn same_pool_identity_and_material(&self, other: &Self) -> bool {
-        self.active_signing_worker_state == other.active_signing_worker_state
-            && self.server_presignature_id == other.server_presignature_id
-            && self.server_big_r33_b64u == other.server_big_r33_b64u
-            && self.server_k_share32_b64u == other.server_k_share32_b64u
-            && self.server_sigma_share32_b64u == other.server_sigma_share32_b64u
-            && self.expires_at_ms == other.expires_at_ms
-    }
-}
-
-/// One-use local Router A/B ECDSA derivation presignature record bound to an exact signing request.
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LocalSigningWorkerRouterAbEcdsaDerivationPresignatureRecordV1 {
-    /// Active SigningWorker state selected for this signing request.
-    pub active_signing_worker_state: ActiveSigningWorkerStateV1,
-    /// SigningWorker-local presignature id consumed by finalize.
-    pub server_presignature_id: String,
-    /// Canonical prepare request digest.
-    pub request_digest: PublicDigest32,
-    /// Exact 32-byte EVM digest this presignature may sign.
-    pub admitted_signing_digest: PublicDigest32,
-    /// Compressed secp256k1 presignature R point encoded as unpadded base64url.
-    pub server_big_r33_b64u: String,
-    /// Public 32-byte rerandomization entropy both ECDSA parties must use.
-    pub rerandomization_entropy32_b64u: String,
-    /// SigningWorker-local ECDSA presignature k share encoded as unpadded base64url.
-    pub server_k_share32_b64u: String,
-    /// SigningWorker-local ECDSA presignature sigma share encoded as unpadded base64url.
-    pub server_sigma_share32_b64u: String,
-    /// Insertion timestamp in Unix milliseconds.
-    pub created_at_ms: u64,
-    /// Expiry timestamp in Unix milliseconds.
-    pub expires_at_ms: u64,
-}
-
-impl LocalSigningWorkerRouterAbEcdsaDerivationPresignatureRecordV1 {
-    #[allow(clippy::too_many_arguments)]
-    fn new(
-        active_signing_worker_state: ActiveSigningWorkerStateV1,
-        server_presignature_id: impl Into<String>,
-        request_digest: PublicDigest32,
-        admitted_signing_digest: PublicDigest32,
-        server_big_r33_b64u: impl Into<String>,
-        rerandomization_entropy32_b64u: impl Into<String>,
-        server_k_share32_b64u: impl Into<String>,
-        server_sigma_share32_b64u: impl Into<String>,
-        created_at_ms: u64,
-        expires_at_ms: u64,
-    ) -> RouterAbProtocolResult<Self> {
-        let record = Self {
-            active_signing_worker_state,
-            server_presignature_id: server_presignature_id.into(),
-            request_digest,
-            admitted_signing_digest,
-            server_big_r33_b64u: server_big_r33_b64u.into(),
-            rerandomization_entropy32_b64u: rerandomization_entropy32_b64u.into(),
-            server_k_share32_b64u: server_k_share32_b64u.into(),
-            server_sigma_share32_b64u: server_sigma_share32_b64u.into(),
-            created_at_ms,
-            expires_at_ms,
-        };
-        record.validate()?;
-        Ok(record)
-    }
-
-    fn validate(&self) -> RouterAbProtocolResult<()> {
-        self.active_signing_worker_state.validate()?;
-        require_non_empty(
-            "Router A/B ECDSA derivation prepared record server_presignature_id",
-            &self.server_presignature_id,
-        )?;
-        decode_base64url_fixed_33_v1(
-            "Router A/B ECDSA derivation prepared record server_big_r33_b64u",
-            &self.server_big_r33_b64u,
-        )?;
-        decode_base64url_fixed_32_v1(
-            "Router A/B ECDSA derivation prepared record rerandomization_entropy32_b64u",
-            &self.rerandomization_entropy32_b64u,
-        )?;
-        decode_base64url_fixed_32_v1(
-            "Router A/B ECDSA derivation prepared record server_k_share32_b64u",
-            &self.server_k_share32_b64u,
-        )?;
-        decode_base64url_fixed_32_v1(
-            "Router A/B ECDSA derivation prepared record server_sigma_share32_b64u",
-            &self.server_sigma_share32_b64u,
-        )?;
-        require_positive_unix_ms_v1(
-            "Router A/B ECDSA derivation prepared record created_at_ms",
-            self.created_at_ms,
-        )?;
-        require_positive_unix_ms_v1(
-            "Router A/B ECDSA derivation prepared record expires_at_ms",
-            self.expires_at_ms,
-        )?;
-        if self.expires_at_ms <= self.created_at_ms {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidTimeRange,
-                "Router A/B ECDSA derivation prepared record expiry must be after creation",
-            ));
-        }
-        Ok(())
-    }
-
-    fn validate_for_finalize(
-        &self,
-        active_signing_worker_state: &ActiveSigningWorkerStateV1,
-        request: &RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
-        now_unix_ms: u64,
-    ) -> RouterAbProtocolResult<()> {
-        self.validate()?;
-        request.validate_at(now_unix_ms)?;
-        if self.active_signing_worker_state != *active_signing_worker_state {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidLifecycleState,
-                "local Router A/B ECDSA derivation prepared record active SigningWorker mismatch",
-            ));
-        }
-        if self.server_presignature_id != request.server_presignature_id
-            || self.request_digest != request.prepare_request_digest()?
-            || self.admitted_signing_digest != request.signing_digest()?
-        {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidLifecycleState,
-                "local Router A/B ECDSA derivation finalize request does not match prepared presignature",
-            ));
-        }
-        if now_unix_ms >= self.expires_at_ms {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::ExpiredLocalRequest,
-                "local Router A/B ECDSA derivation prepared presignature expired",
-            ));
-        }
-        Ok(())
-    }
-}
-
 /// Handles the local SigningWorker Router A/B ECDSA derivation presignature pool-fill route.
 pub fn handle_local_signing_worker_router_ab_ecdsa_derivation_presignature_pool_put_json_v1(
     config: &LocalSigningWorkerConfigV1,
@@ -2017,15 +1748,20 @@ pub fn handle_local_signing_worker_router_ab_ecdsa_derivation_presignature_pool_
     request.validate_at(now_unix_ms)?;
     let active_signing_worker_state =
         local_active_router_ab_ecdsa_derivation_signing_worker_state_v1(config, &request.scope)?;
-    let record = request.to_pool_record(active_signing_worker_state.clone(), now_unix_ms)?;
-    let stored =
-        local_signing_worker_router_ab_ecdsa_derivation_presignature_pool_store_put_v1(record)?;
-    let receipt = LocalSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutReceiptV1::new(
-        active_signing_worker_state,
-        request.server_presignature_id,
-        request.server_big_r33_b64u,
-        stored,
+    let record = request.to_pool_record(active_signing_worker_state, now_unix_ms)?;
+    let outcome = local_signing_worker_ecdsa_pool_mutate_v1(
+        CloudflareSigningWorkerEcdsaPoolCommandV1::PutAvailable {
+            material: record.clone(),
+        },
     )?;
+    let CloudflareSigningWorkerEcdsaPoolMutationOutcomeV1::Available { stored, .. } = outcome
+    else {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLifecycleState,
+            "local SigningWorker ECDSA pool admission returned the wrong lifecycle outcome",
+        ));
+    };
+    let receipt = CloudflareSigningWorkerEcdsaPoolAdmissionReceiptV1::from_record(&record, stored)?;
     serde_json::to_string(&receipt).map_err(|error| {
         RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::MalformedWirePayload,
@@ -2068,38 +1804,40 @@ pub fn handle_local_signing_worker_router_ab_ecdsa_derivation_prepare_json_v1(
     admitted.validate()?;
     let request = admitted.request;
     request.validate_at(now_unix_ms)?;
-    let active_signing_worker_state =
-        local_active_router_ab_ecdsa_derivation_signing_worker_state_v1(config, &request.scope)?;
-    let pool_record =
-        local_signing_worker_router_ab_ecdsa_derivation_presignature_pool_store_take_v1(
-            &active_signing_worker_state,
-            &request.client_presignature_id,
-            now_unix_ms,
-        )?;
-    let mut rerandomization_entropy32 = [0u8; 32];
+    local_active_router_ab_ecdsa_derivation_signing_worker_state_v1(config, &request.scope)?;
+    let mut signing_worker_rerandomization_contribution32 = [0u8; 32];
     let mut rng = OsRng;
-    rand_core::RngCore::fill_bytes(&mut rng, &mut rerandomization_entropy32);
-    let rerandomization_entropy32_b64u = encode_base64url_bytes_v1(&rerandomization_entropy32);
+    rand_core::RngCore::fill_bytes(&mut rng, &mut signing_worker_rerandomization_contribution32);
+    let signing_worker_rerandomization_contribution32_b64u =
+        encode_base64url_bytes_v1(&signing_worker_rerandomization_contribution32);
+    let outcome = local_signing_worker_ecdsa_pool_mutate_v1(
+        CloudflareSigningWorkerEcdsaPoolCommandV1::Reserve {
+            scope: request.scope.clone(),
+            server_presignature_id: request.client_presignature_id.clone(),
+            expected_revision: 0,
+            request_digest: request.request_digest()?,
+            admitted_signing_digest: request.signing_digest()?,
+            signing_worker_rerandomization_contribution32_b64u,
+            reserved_at_ms: now_unix_ms,
+            request_expires_at_ms: request.expires_at_ms,
+        },
+    )?;
+    let CloudflareSigningWorkerEcdsaPoolMutationOutcomeV1::Reserved { record } = outcome else {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLifecycleState,
+            "local SigningWorker ECDSA reserve returned the wrong lifecycle outcome",
+        ));
+    };
+    let reserved_material = record.reserved_material()?;
     let response = RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1::new_for_request(
         &request,
-        pool_record.server_presignature_id.clone(),
-        pool_record.server_big_r33_b64u.clone(),
-        rerandomization_entropy32_b64u.clone(),
+        reserved_material.server_presignature_id.clone(),
+        reserved_material.server_big_r33_b64u.clone(),
+        reserved_material
+            .signing_worker_rerandomization_contribution32_b64u
+            .clone(),
         now_unix_ms,
     )?;
-    let prepared_record = LocalSigningWorkerRouterAbEcdsaDerivationPresignatureRecordV1::new(
-        active_signing_worker_state,
-        pool_record.server_presignature_id,
-        request.request_digest()?,
-        request.signing_digest()?,
-        pool_record.server_big_r33_b64u,
-        rerandomization_entropy32_b64u,
-        pool_record.server_k_share32_b64u,
-        pool_record.server_sigma_share32_b64u,
-        now_unix_ms,
-        request.expires_at_ms,
-    )?;
-    local_signing_worker_router_ab_ecdsa_derivation_presignature_store_put_v1(prepared_record)?;
     serde_json::to_string(&response).map_err(|error| {
         RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::MalformedWirePayload,
@@ -2142,14 +1880,72 @@ pub fn handle_local_signing_worker_router_ab_ecdsa_derivation_finalize_json_v1(
     admitted.validate()?;
     let request = admitted.request;
     request.validate_at(now_unix_ms)?;
+    let prepare_request_digest = request.prepare_request_digest()?;
+    let consume_outcome = local_signing_worker_ecdsa_pool_mutate_v1(
+        CloudflareSigningWorkerEcdsaPoolCommandV1::Consume {
+            scope: request.scope.clone(),
+            server_presignature_id: request.server_presignature_id.clone(),
+            expected_revision: 1,
+            request_digest: prepare_request_digest,
+            now_unix_ms,
+        },
+    )?;
+    let server_presignature = match consume_outcome {
+        CloudflareSigningWorkerEcdsaPoolMutationOutcomeV1::Consumed {
+            record: _,
+            material,
+        } => material,
+        CloudflareSigningWorkerEcdsaPoolMutationOutcomeV1::Burned { .. } => {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                "local SigningWorker ECDSA reservation was terminally burned",
+            ));
+        }
+        _ => {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "local SigningWorker ECDSA consume returned the wrong lifecycle outcome",
+            ));
+        }
+    };
     let active_signing_worker_state =
         local_active_router_ab_ecdsa_derivation_signing_worker_state_v1(config, &request.scope)?;
-    let prepare_request_digest = request.prepare_request_digest()?;
-    let record = local_signing_worker_router_ab_ecdsa_derivation_presignature_store_take_v1(
-        &request.server_presignature_id,
-        prepare_request_digest,
+    let response = finalize_consumed_local_signing_worker_ecdsa_v1(
+        &server_presignature,
+        &active_signing_worker_state,
+        &request,
+        now_unix_ms,
     )?;
-    record.validate_for_finalize(&active_signing_worker_state, &request, now_unix_ms)?;
+    serde_json::to_string(&response).map_err(|error| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!(
+                "local SigningWorker Router A/B ECDSA derivation finalize response JSON serialization failed: {error}"
+            ),
+        )
+    })
+}
+
+fn finalize_consumed_local_signing_worker_ecdsa_v1(
+    record: &CloudflareSigningWorkerEcdsaPresignatureRecordV1,
+    active_signing_worker_state: &ActiveSigningWorkerStateV1,
+    request: &RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
+    now_unix_ms: u64,
+) -> RouterAbProtocolResult<RouterAbEcdsaDerivationEvmDigestSigningResponseV1> {
+    record.validate_for_request(
+        active_signing_worker_state,
+        &request.server_presignature_id,
+        request.prepare_request_digest()?,
+        request.signing_digest()?,
+        now_unix_ms,
+    )?;
+    finalize_local_signing_worker_ecdsa_v1(record, request)
+}
+
+fn finalize_local_signing_worker_ecdsa_v1(
+    record: &CloudflareSigningWorkerEcdsaPresignatureRecordV1,
+    request: &RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
+) -> RouterAbProtocolResult<RouterAbEcdsaDerivationEvmDigestSigningResponseV1> {
     let public_key33 = decode_base64url_fixed_33_v1(
         "local Router A/B ECDSA derivation threshold_public_key33_b64u",
         &request.scope.public_identity.threshold_public_key33_b64u,
@@ -2166,10 +1962,14 @@ pub fn handle_local_signing_worker_router_ab_ecdsa_derivation_finalize_json_v1(
         "local Router A/B ECDSA derivation server_sigma_share32_b64u",
         &record.server_sigma_share32_b64u,
     )?;
-    let rerandomization_entropy32 = decode_base64url_fixed_32_v1(
-        "local Router A/B ECDSA derivation rerandomization_entropy32_b64u",
-        &record.rerandomization_entropy32_b64u,
+    let signing_worker_rerandomization_contribution32 = decode_base64url_fixed_32_v1(
+        "local Router A/B ECDSA derivation signing_worker_rerandomization_contribution32_b64u",
+        &record.signing_worker_rerandomization_contribution32_b64u,
     )?;
+    let rerandomization_entropy32 = combine_rerandomization_contributions(
+        request.client_rerandomization_contribution32()?,
+        signing_worker_rerandomization_contribution32,
+    );
     let material = SigningWorkerPresignMaterial::from_bytes(
         server_big_r33,
         server_k_share32,
@@ -2199,14 +1999,7 @@ pub fn handle_local_signing_worker_router_ab_ecdsa_derivation_finalize_json_v1(
         signature65_b64u: encode_base64url_bytes_v1(&signature65),
     };
     response.validate()?;
-    serde_json::to_string(&response).map_err(|error| {
-        RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::MalformedWirePayload,
-            format!(
-                "local SigningWorker Router A/B ECDSA derivation finalize response JSON serialization failed: {error}"
-            ),
-        )
-    })
+    Ok(response)
 }
 
 fn parse_local_json_body_v1<T>(label: &str, body: &[u8]) -> RouterAbProtocolResult<T>
@@ -2285,79 +2078,6 @@ fn local_now_unix_ms_v1() -> RouterAbProtocolResult<u64> {
         RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
             "local Unix timestamp exceeds u64 milliseconds",
-        )
-    })
-}
-
-fn local_signing_worker_router_ab_ecdsa_derivation_presignature_store_v1(
-) -> &'static Mutex<BTreeMap<String, LocalSigningWorkerRouterAbEcdsaDerivationPresignatureRecordV1>>
-{
-    static STORE: OnceLock<
-        Mutex<BTreeMap<String, LocalSigningWorkerRouterAbEcdsaDerivationPresignatureRecordV1>>,
-    > = OnceLock::new();
-    STORE.get_or_init(|| Mutex::new(BTreeMap::new()))
-}
-
-fn local_signing_worker_router_ab_ecdsa_derivation_presignature_store_key_v1(
-    server_presignature_id: &str,
-    request_digest: PublicDigest32,
-) -> RouterAbProtocolResult<String> {
-    require_non_empty(
-        "Router A/B ECDSA derivation prepared lookup server_presignature_id",
-        server_presignature_id,
-    )?;
-    Ok(format!(
-        "{}:{}",
-        server_presignature_id,
-        encode_base64url_bytes_v1(request_digest.as_bytes())
-    ))
-}
-
-fn local_signing_worker_router_ab_ecdsa_derivation_presignature_store_put_v1(
-    record: LocalSigningWorkerRouterAbEcdsaDerivationPresignatureRecordV1,
-) -> RouterAbProtocolResult<()> {
-    record.validate()?;
-    let key = local_signing_worker_router_ab_ecdsa_derivation_presignature_store_key_v1(
-        &record.server_presignature_id,
-        record.request_digest,
-    )?;
-    let mut store = local_signing_worker_router_ab_ecdsa_derivation_presignature_store_v1()
-        .lock()
-        .map_err(|_| {
-            RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-                "local Router A/B ECDSA derivation prepared presignature store lock poisoned",
-            )
-        })?;
-    if store.insert(key, record).is_some() {
-        return Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::InvalidLifecycleState,
-            "local Router A/B ECDSA derivation prepared presignature collision",
-        ));
-    }
-    Ok(())
-}
-
-fn local_signing_worker_router_ab_ecdsa_derivation_presignature_store_take_v1(
-    server_presignature_id: &str,
-    request_digest: PublicDigest32,
-) -> RouterAbProtocolResult<LocalSigningWorkerRouterAbEcdsaDerivationPresignatureRecordV1> {
-    let key = local_signing_worker_router_ab_ecdsa_derivation_presignature_store_key_v1(
-        server_presignature_id,
-        request_digest,
-    )?;
-    let mut store = local_signing_worker_router_ab_ecdsa_derivation_presignature_store_v1()
-        .lock()
-        .map_err(|_| {
-            RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-                "local Router A/B ECDSA derivation prepared presignature store lock poisoned",
-            )
-        })?;
-    store.remove(&key).ok_or_else(|| {
-        RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::InvalidLifecycleState,
-            "local Router A/B ECDSA derivation prepared presignature is not available",
         )
     })
 }

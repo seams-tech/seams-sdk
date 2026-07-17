@@ -4,14 +4,15 @@
 //!
 //! The crate emits revisioned compare-and-swap mutations. IndexedDB, Durable
 //! Object, or database adapters must atomically persist the replacement record
-//! and delete sealed material when a mutation enters the tombstone state.
+//! and apply its exact retain, take, or destroy material disposition.
 
 use core::fmt;
+use serde::{Deserialize, Serialize};
 
 macro_rules! define_nonzero_digest {
     ($(#[$meta:meta])* $name:ident) => {
         $(#[$meta])*
-        #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+        #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
         pub struct $name([u8; 32]);
 
         impl $name {
@@ -69,61 +70,30 @@ define_nonzero_digest!(
 pub enum PoolIdentityError {
     /// A required digest was all zeroes.
     ZeroBinding,
-    /// An epoch must be non-zero.
-    ZeroEpoch,
 }
 
 impl fmt::Display for PoolIdentityError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
             Self::ZeroBinding => "pool binding must be non-zero",
-            Self::ZeroEpoch => "pool epoch must be non-zero",
         })
     }
 }
 
 impl std::error::Error for PoolIdentityError {}
 
-/// Non-zero key epoch selected by the authenticated registry.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct KeyEpoch(u64);
-
-impl KeyEpoch {
-    /// Parses a non-zero key epoch.
-    pub fn new(value: u64) -> Result<Self, PoolIdentityError> {
-        if value == 0 {
-            return Err(PoolIdentityError::ZeroEpoch);
-        }
-        Ok(Self(value))
-    }
-
-    /// Returns the epoch value.
-    pub const fn value(self) -> u64 {
-        self.0
-    }
-}
-
-/// Non-zero activation epoch selected by the authenticated registry.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct ActivationEpoch(u64);
-
-impl ActivationEpoch {
-    /// Parses a non-zero activation epoch.
-    pub fn new(value: u64) -> Result<Self, PoolIdentityError> {
-        if value == 0 {
-            return Err(PoolIdentityError::ZeroEpoch);
-        }
-        Ok(Self(value))
-    }
-
-    /// Returns the epoch value.
-    pub const fn value(self) -> u64 {
-        self.0
-    }
-}
+define_nonzero_digest!(
+    /// Authenticated SigningWorker key-epoch binding.
+    KeyEpoch
+);
+define_nonzero_digest!(
+    /// Authenticated activation-epoch binding.
+    ActivationEpoch
+);
 
 /// Fixed owner of one role-local pool record.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum PoolRole {
     /// Browser/client role.
     Client,
@@ -132,7 +102,7 @@ pub enum PoolRole {
 }
 
 /// Complete authenticated identity of one role-local pair record.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct PoolRecordKey {
     wallet: WalletBinding,
     account: AccountBinding,
@@ -181,7 +151,7 @@ impl PoolRecordKey {
 }
 
 /// Monotonic record revision used for compare-and-swap persistence.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct Revision(u64);
 
 impl Revision {
@@ -201,7 +171,7 @@ impl Revision {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct ActiveRecordHeader {
     key: PoolRecordKey,
     revision: Revision,
@@ -211,7 +181,7 @@ struct ActiveRecordHeader {
 }
 
 /// Available role-local material that has never been reserved.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct AvailableRecord(ActiveRecordHeader);
 
 impl AvailableRecord {
@@ -244,6 +214,11 @@ impl AvailableRecord {
         self.0.revision
     }
 
+    /// Returns the material expiry deadline.
+    pub const fn material_expires_at_ms(&self) -> u64 {
+        self.0.material_expires_at_ms
+    }
+
     /// Plans an atomic transition to the reserved state.
     pub fn reserve(
         &self,
@@ -268,7 +243,7 @@ impl AvailableRecord {
             reserved_at_ms,
             lease_expires_at_ms,
         };
-        Ok(PoolMutation::new(self.0.revision, next.into()))
+        Ok(PoolMutation::retain(self.0.revision, next.into()))
     }
 
     /// Plans terminal destruction of expired available material.
@@ -318,18 +293,21 @@ impl ActiveRecordHeader {
         let next = TombstoneRecord {
             key: self.key,
             revision: self.revision.next()?,
-            material: self.material,
             created_at_ms: self.created_at_ms,
             terminal_at_ms,
             reason,
             origin,
         };
-        Ok(PoolMutation::new(self.revision, next.into()))
+        Ok(PoolMutation::destroy(
+            self.revision,
+            next.into(),
+            self.material,
+        ))
     }
 }
 
 /// Exact reservation and online-request binding.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct ReservationBinding {
     reservation_id: ReservationId,
     request: RequestBinding,
@@ -346,7 +324,7 @@ impl ReservationBinding {
 }
 
 /// Persisted reservation state.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ReservedRecord {
     header: ActiveRecordHeader,
     binding: ReservationBinding,
@@ -370,10 +348,29 @@ impl ReservedRecord {
         self.binding
     }
 
-    /// Plans commit or a mandatory terminal burn for a late/substituted use.
-    pub fn commit(&self, binding: ReservationBinding, now_ms: u64) -> CommitDecision {
+    /// Returns the material expiry deadline.
+    pub const fn material_expires_at_ms(&self) -> u64 {
+        self.header.material_expires_at_ms
+    }
+
+    /// Returns the reservation lease deadline.
+    pub const fn lease_expires_at_ms(&self) -> u64 {
+        self.lease_expires_at_ms
+    }
+
+    /// Returns the first deadline at which cleanup must burn this reservation.
+    pub const fn cleanup_deadline_ms(&self) -> u64 {
+        if self.lease_expires_at_ms < self.header.material_expires_at_ms {
+            self.lease_expires_at_ms
+        } else {
+            self.header.material_expires_at_ms
+        }
+    }
+
+    /// Plans atomic consumption or a mandatory terminal burn.
+    pub fn consume(&self, binding: ReservationBinding, now_ms: u64) -> ConsumeDecision {
         if now_ms < self.reserved_at_ms {
-            return CommitDecision::Rejected(PoolTransitionError::InvalidTimestampOrder);
+            return ConsumeDecision::Rejected(PoolTransitionError::InvalidTimestampOrder);
         }
         let burn_reason = if binding != self.binding {
             Some(TombstoneReason::BindingRejected)
@@ -390,27 +387,30 @@ impl ReservedRecord {
                 now_ms,
                 TombstoneOrigin::Attempted(self.binding),
             ) {
-                Ok(mutation) => CommitDecision::Burned(mutation),
-                Err(error) => CommitDecision::Rejected(error),
+                Ok(mutation) => ConsumeDecision::Burned(mutation),
+                Err(error) => ConsumeDecision::Rejected(error),
             };
         }
-        let next_header = match self.header.with_next_revision() {
-            Ok(header) => header,
-            Err(error) => return CommitDecision::Rejected(error),
+        let revision = match self.header.revision.next() {
+            Ok(revision) => revision,
+            Err(error) => return ConsumeDecision::Rejected(error),
         };
-        CommitDecision::Committed(PoolMutation::new(
+        let next = ConsumedRecord {
+            key: self.header.key,
+            revision,
+            binding: self.binding,
+            created_at_ms: self.header.created_at_ms,
+            reserved_at_ms: self.reserved_at_ms,
+            consumed_at_ms: now_ms,
+        };
+        ConsumeDecision::Consumed(PoolMutation::take(
             self.header.revision,
-            CommittedRecord {
-                header: next_header,
-                binding: self.binding,
-                reserved_at_ms: self.reserved_at_ms,
-                committed_at_ms: now_ms,
-            }
-            .into(),
+            next.into(),
+            self.header.material,
         ))
     }
 
-    /// Plans a terminal burn for a known failure before commitment.
+    /// Plans a terminal burn for a known failure before consumption.
     pub fn destroy(
         &self,
         reason: TombstoneReason,
@@ -418,9 +418,6 @@ impl ReservedRecord {
     ) -> Result<PoolMutation, PoolTransitionError> {
         if now_ms < self.reserved_at_ms {
             return Err(PoolTransitionError::InvalidTimestampOrder);
-        }
-        if reason == TombstoneReason::Succeeded {
-            return Err(PoolTransitionError::InvalidTerminalReason);
         }
         self.header
             .tombstone(reason, now_ms, TombstoneOrigin::Attempted(self.binding))
@@ -430,42 +427,83 @@ impl ReservedRecord {
     pub fn recover_after_crash(&self, now_ms: u64) -> Result<PoolMutation, PoolTransitionError> {
         self.destroy(TombstoneReason::CrashRecovery, now_ms)
     }
+
+    /// Plans terminal cleanup after the material or lease deadline.
+    pub fn expire(&self, now_ms: u64) -> Result<PoolMutation, PoolTransitionError> {
+        let reason = if now_ms >= self.header.material_expires_at_ms {
+            TombstoneReason::MaterialExpired
+        } else if now_ms >= self.lease_expires_at_ms {
+            TombstoneReason::Timeout
+        } else {
+            return Err(PoolTransitionError::TooEarly);
+        };
+        self.destroy(reason, now_ms)
+    }
+
+    /// Plans terminal destruction after key or activation epoch retirement.
+    pub fn retire(
+        &self,
+        reason: TombstoneReason,
+        now_ms: u64,
+    ) -> Result<PoolMutation, PoolTransitionError> {
+        if !matches!(
+            reason,
+            TombstoneReason::KeyEpochRetired | TombstoneReason::ActivationEpochRetired
+        ) {
+            return Err(PoolTransitionError::InvalidTerminalReason);
+        }
+        self.destroy(reason, now_ms)
+    }
 }
 
-/// Result of planning a reserved-to-committed transition.
+/// Result of planning a reserved-to-consumed transition.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum CommitDecision {
-    /// The exact reservation can advance to committed use.
-    Committed(PoolMutation),
+pub enum ConsumeDecision {
+    /// The exact reservation can atomically take and burn its material.
+    Consumed(PoolMutation),
     /// The attempted use must atomically become a tombstone.
     Burned(PoolMutation),
     /// The command itself was malformed and produced no mutation.
     Rejected(PoolTransitionError),
 }
 
-/// Persisted committed-use state. Online output still requires terminal burn.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CommittedRecord {
-    header: ActiveRecordHeader,
+/// Material-free absorbing record for one authorized online use.
+///
+/// ```compile_fail
+/// use router_ab_ecdsa_pool::{ConsumedRecord, ReservationBinding};
+/// fn consume_again(record: ConsumedRecord, binding: ReservationBinding) {
+///     let _ = record.consume(binding, 1);
+/// }
+/// ```
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ConsumedRecord {
+    key: PoolRecordKey,
+    revision: Revision,
     binding: ReservationBinding,
+    created_at_ms: u64,
     reserved_at_ms: u64,
-    committed_at_ms: u64,
+    consumed_at_ms: u64,
 }
 
-impl CommittedRecord {
+impl ConsumedRecord {
     /// Returns the record key.
     pub const fn key(&self) -> &PoolRecordKey {
-        &self.header.key
+        &self.key
     }
 
     /// Returns the record revision.
     pub const fn revision(&self) -> Revision {
-        self.header.revision
+        self.revision
     }
 
-    /// Returns the exact committed reservation binding.
+    /// Returns the exact consumed reservation binding.
     pub const fn binding(&self) -> ReservationBinding {
         self.binding
+    }
+
+    /// Returns the material creation timestamp retained for audit.
+    pub const fn created_at_ms(&self) -> u64 {
+        self.created_at_ms
     }
 
     /// Returns the original reservation timestamp.
@@ -473,35 +511,15 @@ impl CommittedRecord {
         self.reserved_at_ms
     }
 
-    /// Plans terminal consumption or destruction before output release.
-    pub fn finish(
-        &self,
-        reason: TombstoneReason,
-        now_ms: u64,
-    ) -> Result<PoolMutation, PoolTransitionError> {
-        if now_ms < self.committed_at_ms {
-            return Err(PoolTransitionError::InvalidTimestampOrder);
-        }
-        let reason = if now_ms >= self.header.material_expires_at_ms {
-            TombstoneReason::MaterialExpired
-        } else {
-            reason
-        };
-        self.header
-            .tombstone(reason, now_ms, TombstoneOrigin::Attempted(self.binding))
-    }
-
-    /// Burns a committed use after crash or ambiguous-delivery recovery.
-    pub fn recover_ambiguous_delivery(
-        &self,
-        now_ms: u64,
-    ) -> Result<PoolMutation, PoolTransitionError> {
-        self.finish(TombstoneReason::AmbiguousDelivery, now_ms)
+    /// Returns the atomic consumption timestamp.
+    pub const fn consumed_at_ms(&self) -> u64 {
+        self.consumed_at_ms
     }
 }
 
 /// Terminal origin retained for audit and idempotency checks.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TombstoneOrigin {
     /// Material expired or its epoch retired before reservation.
     Unused,
@@ -510,10 +528,9 @@ pub enum TombstoneOrigin {
 }
 
 /// Permanent terminal disposition of one pair half.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TombstoneReason {
-    /// A signature share or final signature completed successfully.
-    Succeeded,
     /// Cryptographic or policy validation rejected the attempt.
     Rejected,
     /// An identity or request binding was substituted.
@@ -526,8 +543,6 @@ pub enum TombstoneReason {
     CrashRecovery,
     /// The peer aborted the protocol.
     PeerAbort,
-    /// Output delivery may have occurred before failure became visible.
-    AmbiguousDelivery,
     /// Persistent storage failed during the attempt.
     PersistenceFailure,
     /// The material lifetime elapsed.
@@ -546,11 +561,10 @@ pub enum TombstoneReason {
 ///     let _ = record.reserve(binding, 1, 2);
 /// }
 /// ```
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct TombstoneRecord {
     key: PoolRecordKey,
     revision: Revision,
-    material: MaterialLocator,
     created_at_ms: u64,
     terminal_at_ms: u64,
     reason: TombstoneReason,
@@ -578,11 +592,6 @@ impl TombstoneRecord {
         self.origin
     }
 
-    /// Returns the material locator that the atomic adapter must delete.
-    pub const fn material_to_destroy(&self) -> MaterialLocator {
-        self.material
-    }
-
     /// Returns the creation timestamp retained for audit.
     pub const fn created_at_ms(&self) -> u64 {
         self.created_at_ms
@@ -595,14 +604,15 @@ impl TombstoneRecord {
 }
 
 /// Exact discriminated persisted record state.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum PoolRecord {
     /// Never-reserved material.
     Available(AvailableRecord),
     /// Material reserved for one exact request.
     Reserved(ReservedRecord),
-    /// Material committed to one exact online use.
-    Committed(CommittedRecord),
+    /// Material-free terminal evidence of one authorized online use.
+    Consumed(ConsumedRecord),
     /// Permanently terminal material.
     Tombstone(TombstoneRecord),
 }
@@ -613,7 +623,7 @@ impl PoolRecord {
         match self {
             Self::Available(record) => record.key(),
             Self::Reserved(record) => record.key(),
-            Self::Committed(record) => record.key(),
+            Self::Consumed(record) => record.key(),
             Self::Tombstone(record) => record.key(),
         }
     }
@@ -623,7 +633,7 @@ impl PoolRecord {
         match self {
             Self::Available(record) => record.revision(),
             Self::Reserved(record) => record.revision(),
-            Self::Committed(record) => record.revision(),
+            Self::Consumed(record) => record.revision(),
             Self::Tombstone(record) => record.revision(),
         }
     }
@@ -641,9 +651,9 @@ impl From<ReservedRecord> for PoolRecord {
     }
 }
 
-impl From<CommittedRecord> for PoolRecord {
-    fn from(value: CommittedRecord) -> Self {
-        Self::Committed(value)
+impl From<ConsumedRecord> for PoolRecord {
+    fn from(value: ConsumedRecord) -> Self {
+        Self::Consumed(value)
     }
 }
 
@@ -653,18 +663,55 @@ impl From<TombstoneRecord> for PoolRecord {
     }
 }
 
+/// Atomic sealed-material disposition paired with one CAS replacement.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MaterialDisposition {
+    /// Leave the sealed material in storage.
+    Retain,
+    /// Return the sealed material exactly once and delete it from storage.
+    Take(MaterialLocator),
+    /// Delete the sealed material without returning it.
+    Destroy(MaterialLocator),
+}
+
 /// Compare-and-swap mutation emitted by one valid state transition.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PoolMutation {
     expected_revision: Revision,
     replacement: PoolRecord,
+    material_disposition: MaterialDisposition,
 }
 
 impl PoolMutation {
-    fn new(expected_revision: Revision, replacement: PoolRecord) -> Self {
+    fn retain(expected_revision: Revision, replacement: PoolRecord) -> Self {
         Self {
             expected_revision,
             replacement,
+            material_disposition: MaterialDisposition::Retain,
+        }
+    }
+
+    fn take(
+        expected_revision: Revision,
+        replacement: PoolRecord,
+        material: MaterialLocator,
+    ) -> Self {
+        Self {
+            expected_revision,
+            replacement,
+            material_disposition: MaterialDisposition::Take(material),
+        }
+    }
+
+    fn destroy(
+        expected_revision: Revision,
+        replacement: PoolRecord,
+        material: MaterialLocator,
+    ) -> Self {
+        Self {
+            expected_revision,
+            replacement,
+            material_disposition: MaterialDisposition::Destroy(material),
         }
     }
 
@@ -683,24 +730,21 @@ impl PoolMutation {
         &self.replacement
     }
 
-    /// Consumes the mutation and returns its replacement record.
-    pub fn into_replacement(self) -> PoolRecord {
-        self.replacement
+    /// Returns the exact material operation to apply in the CAS transaction.
+    pub const fn material_disposition(&self) -> MaterialDisposition {
+        self.material_disposition
     }
 
-    /// Returns the material locator to delete for terminal mutations.
-    pub const fn material_to_destroy(&self) -> Option<MaterialLocator> {
-        match &self.replacement {
-            PoolRecord::Tombstone(record) => Some(record.material_to_destroy()),
-            PoolRecord::Available(_) | PoolRecord::Reserved(_) | PoolRecord::Committed(_) => None,
-        }
+    /// Consumes the mutation into its replacement and material disposition.
+    pub fn into_parts(self) -> (PoolRecord, MaterialDisposition) {
+        (self.replacement, self.material_disposition)
     }
 }
 
 /// State-transition planning failure that emits no mutation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PoolTransitionError {
-    /// Timestamps violate creation, reservation, lease, or commit ordering.
+    /// Timestamps violate creation, reservation, lease, or consumption ordering.
     InvalidTimestampOrder,
     /// The available material has already expired.
     MaterialExpired,
@@ -741,8 +785,8 @@ mod tests {
             digest(3, SigningScopeBinding::new),
             digest(4, PresignPairId::new),
             role,
-            KeyEpoch::new(5).unwrap(),
-            ActivationEpoch::new(6).unwrap(),
+            digest(5, KeyEpoch::new),
+            digest(6, ActivationEpoch::new),
             digest(7, ProtocolBinding::new),
         )
     }
@@ -766,71 +810,75 @@ mod tests {
 
     fn reserved() -> ReservedRecord {
         let mutation = available().reserve(binding(10), 2_000, 10_000).unwrap();
-        match mutation.into_replacement() {
+        match mutation.into_parts().0 {
             PoolRecord::Reserved(record) => record,
             _ => panic!("reserve must produce a reserved record"),
-        }
-    }
-
-    fn committed() -> CommittedRecord {
-        match reserved().commit(binding(10), 3_000) {
-            CommitDecision::Committed(mutation) => match mutation.into_replacement() {
-                PoolRecord::Committed(record) => record,
-                _ => panic!("commit must produce a committed record"),
-            },
-            _ => panic!("valid commit must succeed"),
         }
     }
 
     #[derive(Debug)]
     struct TestStore {
         record: PoolRecord,
+        material: Option<MaterialLocator>,
     }
 
     impl TestStore {
-        fn apply(&mut self, mutation: PoolMutation) -> bool {
+        fn apply(&mut self, mutation: PoolMutation) -> Result<Option<MaterialLocator>, ()> {
             if self.record.key() != mutation.key()
                 || self.record.revision() != mutation.expected_revision()
             {
-                return false;
+                return Err(());
             }
-            self.record = mutation.into_replacement();
-            true
+            let (replacement, disposition) = mutation.into_parts();
+            let taken = match disposition {
+                MaterialDisposition::Retain => None,
+                MaterialDisposition::Take(locator) => {
+                    if self.material != Some(locator) {
+                        return Err(());
+                    }
+                    self.material.take()
+                }
+                MaterialDisposition::Destroy(locator) => {
+                    if self.material != Some(locator) {
+                        return Err(());
+                    }
+                    self.material = None;
+                    None
+                }
+            };
+            self.record = replacement;
+            Ok(taken)
         }
     }
 
     #[test]
-    fn exact_lifecycle_is_monotonic_and_terminal() {
+    fn exact_lifecycle_atomically_takes_material_into_consumed_state() {
         let available = available();
         assert_eq!(available.revision(), Revision::INITIAL);
-        let reserved = match available
-            .reserve(binding(10), 2_000, 10_000)
-            .unwrap()
-            .into_replacement()
-        {
+        let reserve = available.reserve(binding(10), 2_000, 10_000).unwrap();
+        assert_eq!(reserve.material_disposition(), MaterialDisposition::Retain);
+        let reserved = match reserve.into_parts().0 {
             PoolRecord::Reserved(record) => record,
             _ => panic!("expected reserved"),
         };
         assert_eq!(reserved.revision().value(), 1);
-        let committed = match reserved.commit(binding(10), 3_000) {
-            CommitDecision::Committed(mutation) => match mutation.into_replacement() {
-                PoolRecord::Committed(record) => record,
-                _ => panic!("expected committed"),
-            },
-            _ => panic!("expected successful commit"),
+        let consume = match reserved.consume(binding(10), 3_000) {
+            ConsumeDecision::Consumed(mutation) => mutation,
+            _ => panic!("expected successful consumption"),
         };
-        assert_eq!(committed.revision().value(), 2);
-        let terminal = match committed
-            .finish(TombstoneReason::Succeeded, 4_000)
-            .unwrap()
-            .into_replacement()
-        {
-            PoolRecord::Tombstone(record) => record,
-            _ => panic!("expected tombstone"),
+        assert_eq!(
+            consume.material_disposition(),
+            MaterialDisposition::Take(digest(9, MaterialLocator::new))
+        );
+        let consumed = match consume.into_parts().0 {
+            PoolRecord::Consumed(record) => record,
+            _ => panic!("expected consumed"),
         };
-        assert_eq!(terminal.revision().value(), 3);
-        assert_eq!(terminal.reason(), TombstoneReason::Succeeded);
-        assert_eq!(terminal.origin(), TombstoneOrigin::Attempted(binding(10)));
+        assert_eq!(consumed.revision().value(), 2);
+        assert_eq!(consumed.binding(), binding(10));
+        assert_eq!(consumed.created_at_ms(), 1_000);
+        assert_eq!(consumed.reserved_at_ms(), 2_000);
+        assert_eq!(consumed.consumed_at_ms(), 3_000);
     }
 
     #[test]
@@ -840,29 +888,58 @@ mod tests {
         let stale = available.reserve(binding(20), 2_000, 10_000).unwrap();
         let mut store = TestStore {
             record: available.into(),
+            material: Some(digest(9, MaterialLocator::new)),
         };
-        assert!(store.apply(first));
-        assert!(!store.apply(stale));
+        assert_eq!(store.apply(first), Ok(None));
+        assert_eq!(store.apply(stale), Err(()));
         assert!(matches!(store.record, PoolRecord::Reserved(_)));
     }
 
     #[test]
-    fn late_or_substituted_commit_burns_the_original_attempt() {
-        let timeout = match reserved().commit(binding(10), 10_000) {
-            CommitDecision::Burned(mutation) => mutation,
-            _ => panic!("late commit must burn"),
+    fn stale_compare_and_swap_cannot_take_material_twice() {
+        let reserved = reserved();
+        let first = match reserved.consume(binding(10), 3_000) {
+            ConsumeDecision::Consumed(mutation) => mutation,
+            _ => panic!("first consume must succeed"),
         };
-        let PoolRecord::Tombstone(timeout) = timeout.into_replacement() else {
-            panic!("late commit must tombstone");
+        let stale = match reserved.consume(binding(10), 3_000) {
+            ConsumeDecision::Consumed(mutation) => mutation,
+            _ => panic!("stale plan must still describe the same CAS"),
+        };
+        let mut store = TestStore {
+            record: reserved.into(),
+            material: Some(digest(9, MaterialLocator::new)),
+        };
+        assert_eq!(
+            store.apply(first),
+            Ok(Some(digest(9, MaterialLocator::new)))
+        );
+        assert_eq!(store.apply(stale), Err(()));
+        assert!(matches!(store.record, PoolRecord::Consumed(_)));
+        assert_eq!(store.material, None);
+    }
+
+    #[test]
+    fn late_or_substituted_consume_burns_the_original_attempt() {
+        let timeout = match reserved().consume(binding(10), 10_000) {
+            ConsumeDecision::Burned(mutation) => mutation,
+            _ => panic!("late consume must burn"),
+        };
+        assert_eq!(
+            timeout.material_disposition(),
+            MaterialDisposition::Destroy(digest(9, MaterialLocator::new))
+        );
+        let PoolRecord::Tombstone(timeout) = timeout.into_parts().0 else {
+            panic!("late consume must tombstone");
         };
         assert_eq!(timeout.reason(), TombstoneReason::Timeout);
 
-        let substituted = match reserved().commit(binding(30), 3_000) {
-            CommitDecision::Burned(mutation) => mutation,
-            _ => panic!("substituted commit must burn"),
+        let substituted = match reserved().consume(binding(30), 3_000) {
+            ConsumeDecision::Burned(mutation) => mutation,
+            _ => panic!("substituted consume must burn"),
         };
-        let PoolRecord::Tombstone(substituted) = substituted.into_replacement() else {
-            panic!("substituted commit must tombstone");
+        let PoolRecord::Tombstone(substituted) = substituted.into_parts().0 else {
+            panic!("substituted consume must tombstone");
         };
         assert_eq!(substituted.reason(), TombstoneReason::BindingRejected);
         assert_eq!(
@@ -872,27 +949,21 @@ mod tests {
     }
 
     #[test]
-    fn crash_and_ambiguous_recovery_are_terminal() {
+    fn crash_recovery_is_terminal_and_destroys_material() {
+        let recovery = reserved().recover_after_crash(3_000).unwrap();
+        assert_eq!(
+            recovery.material_disposition(),
+            MaterialDisposition::Destroy(digest(9, MaterialLocator::new))
+        );
         let PoolRecord::Tombstone(reserved_recovery) = reserved()
             .recover_after_crash(3_000)
             .unwrap()
-            .into_replacement()
+            .into_parts()
+            .0
         else {
             panic!("reserved recovery must tombstone");
         };
         assert_eq!(reserved_recovery.reason(), TombstoneReason::CrashRecovery);
-
-        let PoolRecord::Tombstone(committed_recovery) = committed()
-            .recover_ambiguous_delivery(4_000)
-            .unwrap()
-            .into_replacement()
-        else {
-            panic!("committed recovery must tombstone");
-        };
-        assert_eq!(
-            committed_recovery.reason(),
-            TombstoneReason::AmbiguousDelivery
-        );
     }
 
     #[test]
@@ -903,42 +974,89 @@ mod tests {
         );
         let expired = available().expire(100_000).unwrap();
         assert_eq!(
-            expired.material_to_destroy(),
-            Some(digest(9, MaterialLocator::new))
+            expired.material_disposition(),
+            MaterialDisposition::Destroy(digest(9, MaterialLocator::new))
         );
         let retired = available()
             .retire(TombstoneReason::KeyEpochRetired, 2_000)
             .unwrap();
-        let PoolRecord::Tombstone(retired) = retired.into_replacement() else {
+        let PoolRecord::Tombstone(retired) = retired.into_parts().0 else {
             panic!("retirement must tombstone");
         };
         assert_eq!(retired.reason(), TombstoneReason::KeyEpochRetired);
     }
 
     #[test]
-    fn reserved_success_is_unrepresentable_and_peer_abort_burns() {
-        assert_eq!(
-            reserved().destroy(TombstoneReason::Succeeded, 3_000),
-            Err(PoolTransitionError::InvalidTerminalReason)
-        );
-        let PoolRecord::Tombstone(aborted) = reserved()
-            .destroy(TombstoneReason::PeerAbort, 3_000)
-            .unwrap()
-            .into_replacement()
+    fn reserved_expiry_chooses_the_elapsed_deadline() {
+        let reserved = reserved();
+        assert_eq!(reserved.material_expires_at_ms(), 100_000);
+        assert_eq!(reserved.lease_expires_at_ms(), 10_000);
+        assert_eq!(reserved.cleanup_deadline_ms(), 10_000);
+        assert_eq!(reserved.expire(9_999), Err(PoolTransitionError::TooEarly));
+        let PoolRecord::Tombstone(timed_out) = reserved.expire(10_000).unwrap().into_parts().0
         else {
-            panic!("peer abort must tombstone");
+            panic!("lease expiry must tombstone");
         };
-        assert_eq!(aborted.reason(), TombstoneReason::PeerAbort);
+        assert_eq!(timed_out.reason(), TombstoneReason::Timeout);
+
+        let material_limited = match available()
+            .reserve(binding(10), 2_000, 100_000)
+            .unwrap()
+            .into_parts()
+            .0
+        {
+            PoolRecord::Reserved(record) => record,
+            _ => panic!("expected reservation"),
+        };
+        assert_eq!(material_limited.cleanup_deadline_ms(), 100_000);
+        let PoolRecord::Tombstone(expired) =
+            material_limited.expire(100_000).unwrap().into_parts().0
+        else {
+            panic!("material expiry must tombstone");
+        };
+        assert_eq!(expired.reason(), TombstoneReason::MaterialExpired);
     }
 
     #[test]
-    fn committed_output_after_material_expiry_is_burned() {
-        let PoolRecord::Tombstone(expired) = committed()
-            .finish(TombstoneReason::Succeeded, 100_000)
+    fn reserved_failure_and_retirement_burn_material() {
+        let aborted = reserved()
+            .destroy(TombstoneReason::PeerAbort, 3_000)
+            .unwrap();
+        assert_eq!(
+            aborted.material_disposition(),
+            MaterialDisposition::Destroy(digest(9, MaterialLocator::new))
+        );
+        let PoolRecord::Tombstone(aborted) = aborted.into_parts().0 else {
+            panic!("peer abort must tombstone");
+        };
+        assert_eq!(aborted.reason(), TombstoneReason::PeerAbort);
+
+        let retired = reserved()
+            .retire(TombstoneReason::ActivationEpochRetired, 3_000)
             .unwrap()
-            .into_replacement()
-        else {
-            panic!("expired committed use must tombstone");
+            .into_parts()
+            .0;
+        let PoolRecord::Tombstone(retired) = retired else {
+            panic!("retirement must tombstone");
+        };
+        assert_eq!(retired.reason(), TombstoneReason::ActivationEpochRetired);
+        assert_eq!(
+            reserved().retire(TombstoneReason::Rejected, 3_000),
+            Err(PoolTransitionError::InvalidTerminalReason)
+        );
+    }
+
+    #[test]
+    fn consumption_after_material_expiry_is_burned() {
+        let mutation = available().reserve(binding(10), 2_000, 100_000).unwrap();
+        let PoolRecord::Reserved(reserved) = mutation.into_parts().0 else {
+            panic!("expected reservation");
+        };
+        let ConsumeDecision::Burned(expired) = reserved.consume(binding(10), 100_000) else {
+            panic!("expired consume must burn");
+        };
+        let PoolRecord::Tombstone(expired) = expired.into_parts().0 else {
+            panic!("expired consume must tombstone");
         };
         assert_eq!(expired.reason(), TombstoneReason::MaterialExpired);
     }
@@ -949,7 +1067,10 @@ mod tests {
             WalletBinding::new([0; 32]),
             Err(PoolIdentityError::ZeroBinding)
         );
-        assert_eq!(KeyEpoch::new(0), Err(PoolIdentityError::ZeroEpoch));
-        assert_eq!(ActivationEpoch::new(0), Err(PoolIdentityError::ZeroEpoch));
+        assert_eq!(KeyEpoch::new([0; 32]), Err(PoolIdentityError::ZeroBinding));
+        assert_eq!(
+            ActivationEpoch::new([0; 32]),
+            Err(PoolIdentityError::ZeroBinding)
+        );
     }
 }
