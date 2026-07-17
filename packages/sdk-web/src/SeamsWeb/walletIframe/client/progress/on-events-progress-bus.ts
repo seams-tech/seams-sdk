@@ -1,35 +1,17 @@
 /**
  * OnEventsProgressBus - Client-Side Communication Layer
  *
- * Manages progress event routing and overlay visibility *intents* for the wallet
- * iframe. It never manipulates the iframe directly; instead it calls the
- * injected OverlayController interface (show/hide), and WalletIframeRouter
- * owns the concrete OverlayController that knows how to display the iframe.
+ * Routes progress events for the wallet iframe.
  *
  * Key Responsibilities:
  * - Progress Routing: Dispatches typed progress payloads to per-request subscribers
- * - Overlay Intents: Applies SHOW/HIDE based on event metadata, leaving actual
- *   DOM/CSS work to WalletIframeRouter + OverlayController
- * - Concurrent Aggregation: Tracks overlay demand per requestId and only hides
- *   when no request still requires SHOW (multi-request safe)
  * - Sticky Subscriptions: Supports long-running subscriptions that persist after completion
- * - Overlay Resolution: Pluggable logic to map payloads to 'show' | 'hide' | 'none'
  * - Event Statistics: Tracks counts/timestamps for debugging
  */
 
 import type { ProgressPayload as MessageProgressPayload } from '../../shared/messages';
 
 export type ProgressPayload = MessageProgressPayload;
-
-// Minimal overlay control interface used by ProgressBus.
-// Implemented by WalletIframeRouter via an adapter object that calls
-// into the concrete OverlayToggler (fullscreen/anchored) as needed.
-export interface OverlayToggler {
-  show: () => void;
-  hide: () => void;
-}
-
-export type OverlayIntentResolver = (payload: ProgressPayload) => 'show' | 'hide' | 'none';
 
 export interface ProgressStats {
   count: number;
@@ -48,101 +30,44 @@ export interface ProgressSubscriber {
 export class OnEventsProgressBus {
   private subs = new Map<string, ProgressSubscriber>();
   private logger?: (msg: string, data?: Record<string, unknown>) => void;
-  private overlay: OverlayToggler;
-  private resolveOverlayIntent: OverlayIntentResolver;
-  // Track the most recent overlay intent per requestId so that we can
-  // aggregate visibility across concurrent requests. If any request's
-  // latest intent is 'show', we keep the overlay visible.
-  private overlayDemands = new Map<string, 'show' | 'hide' | 'none'>();
-  private overlayDemandSources = new Map<string, 'initial' | 'progress'>();
 
-  constructor(
-    overlay: OverlayToggler,
-    resolveOverlayIntent: OverlayIntentResolver,
-    logger?: (msg: string, data?: Record<string, unknown>) => void,
-  ) {
-    this.overlay = overlay;
-    this.resolveOverlayIntent = resolveOverlayIntent;
+  constructor(logger?: (msg: string, data?: Record<string, unknown>) => void) {
     this.logger = logger;
   }
 
   /**
    * Register a subscriber for a requestId.
-   * Initializes demand tracking to 'none' (neutral) until phases arrive.
    */
   register({
     requestId,
     onProgress,
     sticky = false,
-    initialDemand = 'none',
   }: {
     requestId: string;
     sticky: boolean;
     onProgress?: (p: ProgressPayload) => void;
-    initialDemand?: 'show' | 'hide' | 'none';
   }): void {
-    const demand = initialDemand === 'show' || initialDemand === 'hide' ? initialDemand : 'none';
     this.subs.set(requestId, {
       onProgress,
       sticky,
       stats: { count: 0, flow: null, phase: null, status: null, lastAt: null },
     });
-    // Initialize demand tracking for this request (used to prevent racey hides).
-    this.overlayDemands.set(requestId, demand);
-    this.overlayDemandSources.set(requestId, 'initial');
     this.log('register', { requestId, sticky });
   }
 
   /**
-   * Unregister a subscriber and clear its overlay demand.
-   * If no remaining requests demand 'show', the overlay is hidden.
+   * Unregister a subscriber.
    */
   unregister(requestId: string): void {
     if (this.subs.delete(requestId)) this.log('unregister', { requestId });
-    // Remove any overlay demand for this request
-    this.overlayDemands.delete(requestId);
-    this.overlayDemandSources.delete(requestId);
-    // If no remaining requests demand 'show', we can safely hide
-    if (!this.wantsVisible()) {
-      try {
-        this.overlay.hide();
-      } catch {}
-    }
   }
 
   /**
-   * Remove all subscribers and demands; overlay demand set is cleared.
+   * Remove all subscribers.
    */
   clearAll(): void {
     this.subs.clear();
-    this.overlayDemands.clear();
-    this.overlayDemandSources.clear();
     this.log('clearAll');
-  }
-
-  /**
-   * Clear only the overlay demand for a request while keeping its subscriber.
-   * Useful for sticky subscriptions that must continue receiving progress events
-   * after an initial PM_RESULT, without pinning the overlay in "show".
-   */
-  clearDemand(requestId: string): void {
-    if (!requestId) return;
-    this.overlayDemands.delete(requestId);
-    this.overlayDemandSources.delete(requestId);
-    this.log('clearDemand', { requestId });
-  }
-
-  /**
-   * Clear only the preflight demand installed during register().
-   * Real progress events own their lifecycle and must survive PM_RESULT until
-   * the flow emits a matching hide event.
-   */
-  clearInitialDemand(requestId: string): void {
-    if (!requestId) return;
-    if (this.overlayDemandSources.get(requestId) !== 'initial') return;
-    this.overlayDemands.delete(requestId);
-    this.overlayDemandSources.delete(requestId);
-    this.log('clearInitialDemand', { requestId });
   }
 
   isSticky(requestId: string): boolean {
@@ -151,37 +76,9 @@ export class OnEventsProgressBus {
   }
 
   /**
-   * Dispatch a progress payload to a request's subscriber and update
-   * the aggregate overlay demand based on explicit event metadata.
+   * Dispatch a progress payload to a request's subscriber.
    */
   dispatch({ requestId, payload }: { requestId: string; payload: ProgressPayload }): boolean {
-    const action = this.resolveOverlayIntent(payload);
-
-    // Update the latest demand for this request.
-    // If the event returns 'none', preserve any existing demand to avoid
-    // clearing a preflight "show" before real phases arrive.
-    const prevDemand = this.overlayDemands.get(requestId) || 'none';
-    const nextDemand = action === 'none' ? prevDemand : action;
-    this.overlayDemands.set(requestId, nextDemand);
-    if (action !== 'none') {
-      this.overlayDemandSources.set(requestId, 'progress');
-    }
-
-    // Apply aggregated overlay visibility:
-    // - If any request currently demands 'show', ensure overlay is visible
-    // - Only hide when no outstanding 'show' demands remain
-    if (action === 'show') {
-      try {
-        this.overlay.show();
-      } catch {}
-    } else if (action === 'hide') {
-      if (!this.wantsVisible()) {
-        try {
-          this.overlay.hide();
-        } catch {}
-      }
-    }
-
     const sub = this.subs.get(requestId);
     if (sub) {
       this.bumpStats(sub, payload);
@@ -227,17 +124,6 @@ export class OnEventsProgressBus {
     return sub ? sub.stats : null;
   }
 
-  /**
-   * Returns true if any tracked request currently demands the overlay be visible.
-   * Useful for higher layers (router) to avoid premature hides on completion/timeout.
-   */
-  wantsVisible(): boolean {
-    for (const v of this.overlayDemands.values()) {
-      if (v === 'show') return true;
-    }
-    return false;
-  }
-
   private findSticky(requestId: string): ProgressSubscriber | null {
     const sub = this.subs.get(requestId);
     if (sub && sub.sticky) return sub;
@@ -258,42 +144,4 @@ export class OnEventsProgressBus {
       this.logger?.(msg, data);
     } catch {}
   }
-}
-
-/**
- * defaultOverlayIntentResolver
- *
- * Decides when to expand or collapse the invisible wallet iframe overlay
- * based on incoming progress event metadata. Returning:
- *  - 'show' -> expands the iframe to a full-screen, invisible layer that captures
- *             user activation (e.g., TouchID / WebAuthn prompts) and pointer events.
- *  - 'hide' -> immediately collapses the iframe back to 0x0 so it no longer blocks clicks.
- *  - 'none' -> no change.
- *
- * Important UX constraint: the overlay covers the entire viewport and is
- * intentionally invisible. While expanded, it will intercept clicks and can
- * block interactions with the app. Therefore, we must minimize the time it is
- * expanded and only show it during the brief windows where user activation is
- * required (e.g., when the TouchID prompt is about to appear or the modal is
- * mounting and needs focus/activation in the iframe context). As soon as
- * activation completes, the emitting flow sends `interaction.overlay: 'hide'`.
- *
- * WalletFlowEvent payloads declare overlay intent explicitly at
- * `interaction.overlay`. Terminal v2 events receive `overlay: 'hide'` from the
- * shared event constructor, so this bus no longer infers behavior from phase
- * names.
- */
-export const defaultOverlayIntentResolver: OverlayIntentResolver = (payload: ProgressPayload) => {
-  try {
-    const overlay = payload?.interaction?.overlay;
-    if (isOverlayIntent(overlay)) return overlay;
-
-    return 'none';
-  } catch {
-    return 'none';
-  }
-};
-
-function isOverlayIntent(value: unknown): value is 'show' | 'hide' | 'none' {
-  return value === 'show' || value === 'hide' || value === 'none';
 }

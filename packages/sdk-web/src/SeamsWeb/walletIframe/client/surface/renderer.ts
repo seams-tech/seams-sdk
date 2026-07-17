@@ -48,6 +48,14 @@ export function renderWalletIframeSurface(
       return { kind: 'viewport_modal', title: 'Confirm key export', focusTrap: true };
     case 'modal_unlock_confirm':
       return { kind: 'viewport_modal', title: 'Unlock wallet', focusTrap: true };
+    case 'modal_recovery_codes':
+      return {
+        kind: 'viewport_modal',
+        title: surface.operation === 'show' ? 'Recovery codes' : 'Rotate recovery codes',
+        focusTrap: true,
+      };
+    case 'modal_device_link_qr':
+      return { kind: 'viewport_modal', title: 'Link a device', focusTrap: true };
     default:
       return assertNever(surface);
   }

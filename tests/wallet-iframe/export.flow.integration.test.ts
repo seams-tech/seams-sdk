@@ -60,162 +60,6 @@ const EXPORT_FLOW_ECDSA_EXPORT_LANE = exactEcdsaSigningLaneIdentity({
   thresholdSessionId: 'threshold-ecdsa-export-flow',
 });
 
-const exportSigningIsolationScript = String.raw`
-      const originalAdoptPort = adoptPort;
-      adoptPort = function patchedAdoptPort(port) {
-        originalAdoptPort(port);
-        if (!adoptedPort) return;
-        const originalHandler = adoptedPort.onmessage;
-        adoptedPort.onmessage = (event) => {
-          originalHandler?.(event);
-          const data = event.data || {};
-          if (!data || typeof data !== 'object' || typeof data.requestId !== 'string') return;
-
-          if (data.type === 'PM_EXPORT_KEYPAIR_UI') {
-            try {
-              window.parent?.postMessage({
-                type: 'TEST_MARKER',
-                marker: 'EXPORT_REQUEST_CAPTURED',
-                requestId: data.requestId,
-              }, '*');
-            } catch {}
-
-            setTimeout(() => {
-              try {
-                adoptedPort.postMessage({
-                  type: 'PROGRESS',
-                  requestId: data.requestId,
-                  payload: {
-                    version: 2,
-                    flow: 'key_export',
-                    step: 2,
-                    phase: 'key_export.auth.passkey.prompt.started',
-                    status: 'waiting_for_user',
-                    message: 'Confirm with passkey',
-                    flowId: 'key_export:test:' + data.requestId,
-                    requestId: data.requestId,
-                    interaction: { kind: 'passkey_assert', overlay: 'show' },
-                  },
-                });
-              } catch (err) {
-                console.error('Failed to post export PROGRESS', err);
-              }
-            }, 20);
-
-            setTimeout(() => {
-              pendingRequests.delete(data.requestId);
-              try {
-                adoptedPort.postMessage({
-                  type: 'PM_RESULT',
-                  requestId: data.requestId,
-                  payload: { ok: true, result: null },
-                });
-              } catch (err) {
-                console.error('Failed to post export PM_RESULT', err);
-              }
-            }, 100);
-
-            setTimeout(() => {
-              try {
-                adoptedPort.postMessage({
-                  type: 'PROGRESS',
-                  requestId: data.requestId,
-                  payload: {
-                    version: 2,
-                    flow: 'key_export',
-                    step: 4,
-                    phase: 'key_export.viewer.opened',
-                    status: 'waiting_for_user',
-                    message: 'Review private key',
-                    flowId: 'key_export:test:' + data.requestId,
-                    requestId: data.requestId,
-                    interaction: { kind: 'key_export_viewer', overlay: 'show' },
-                  },
-                });
-                window.parent?.postMessage({ type: 'TEST_MARKER', marker: 'EXPORT_VIEWER_OPENED' }, '*');
-              } catch (err) {
-                console.error('Failed to post export viewer open marker', err);
-              }
-            }, 760);
-
-            setTimeout(() => {
-              try {
-                adoptedPort.postMessage({
-                  type: 'PROGRESS',
-                  requestId: data.requestId,
-                  payload: {
-                    version: 2,
-                    flow: 'key_export',
-                    step: 5,
-                    phase: 'key_export.viewer.closed',
-                    status: 'succeeded',
-                    message: 'Key export closed',
-                    flowId: 'key_export:test:' + data.requestId,
-                    requestId: data.requestId,
-                    interaction: { kind: 'key_export_viewer', overlay: 'hide' },
-                  },
-                });
-                window.parent?.postMessage({ type: 'TEST_MARKER', marker: 'EXPORT_UI_CLOSED' }, '*');
-              } catch (err) {
-                console.error('Failed to post export close marker', err);
-              }
-            }, 900);
-            return;
-          }
-
-          if (data.type === 'PM_EXECUTE_ACTION') {
-            try {
-              window.parent?.postMessage({
-                type: 'TEST_MARKER',
-                marker: 'SIGNING_REQUEST_CAPTURED',
-                requestId: data.requestId,
-              }, '*');
-            } catch {}
-
-            setTimeout(() => {
-              try {
-                adoptedPort.postMessage({
-                  type: 'PROGRESS',
-                  requestId: data.requestId,
-                  payload: {
-                    version: 2,
-                    flow: 'signing',
-                    step: 5,
-                    phase: 'signing.confirmation.displayed',
-                    status: 'waiting_for_user',
-                    message: 'Review transaction',
-                    flowId: 'signing:test:' + data.requestId,
-                    requestId: data.requestId,
-                    interaction: { kind: 'transaction_confirmation', overlay: 'show' },
-                  },
-                });
-              } catch (err) {
-                console.error('Failed to post signing PROGRESS', err);
-              }
-            }, 40);
-
-            setTimeout(() => {
-              pendingRequests.delete(data.requestId);
-              try {
-                adoptedPort.postMessage({
-                  type: 'PM_RESULT',
-                  requestId: data.requestId,
-                  payload: { ok: true, result: { ok: true, source: 'signing' } },
-                });
-                window.parent?.postMessage({
-                  type: 'TEST_MARKER',
-                  marker: 'SIGNING_RESULT',
-                  requestId: data.requestId,
-                }, '*');
-              } catch (err) {
-                console.error('Failed to post signing PM_RESULT', err);
-              }
-            }, 180);
-          }
-        };
-      };
-`;
-
 const staleGenericCloseAfterExportViewerScript = String.raw`
       const originalAdoptPort = adoptPort;
       adoptPort = function patchedAdoptPort(port) {
@@ -403,8 +247,7 @@ test.describe('wallet-origin export flow integration', () => {
 
           await exportPromise;
           const viewerOpened = await waitFor(() => !!marks.EXPORT_VIEWER_OPENED, 3000);
-          (router as any).hideFrameForActivation();
-          const visibleAfterUnrelatedHideCall = (() => {
+          const visibleWhileExportSurfaceOwnsTheIframe = (() => {
             const state = capture();
             return state.exists && state.visible;
           })();
@@ -421,7 +264,7 @@ test.describe('wallet-origin export flow integration', () => {
             success: true,
             shown,
             viewerOpened,
-            visibleAfterUnrelatedHideCall,
+            visibleWhileExportSurfaceOwnsTheIframe,
             staleCloseMarker,
             visibleAtStaleGenericClose,
             closeMarker,
@@ -450,151 +293,11 @@ test.describe('wallet-origin export flow integration', () => {
 
     expect(result.shown).toBe(true);
     expect(result.viewerOpened).toBe(true);
-    expect(result.visibleAfterUnrelatedHideCall).toBe(true);
+    expect(result.visibleWhileExportSurfaceOwnsTheIframe).toBe(true);
     expect(result.staleCloseMarker).toBe(true);
     expect(result.visibleAtStaleGenericClose).toBe(true);
     expect(result.closeMarker).toBe(true);
     expect(result.hiddenAfterExportClose).toBe(true);
   });
 
-  test('concurrent export and signing remain isolated and do not cross-talk', async ({ page }) => {
-    await registerWalletServiceRoute(
-      page,
-      buildWalletServiceHtml({ extraScript: exportSigningIsolationScript }),
-      WALLET_SERVICE_ROUTE,
-    );
-
-    const routerPath = SDK_ESM_PATHS.walletIframeRouter;
-    const result = await page.evaluate(
-      async ({
-        walletOrigin,
-        waitForSource,
-        captureOverlaySource,
-        routerPath,
-        walletId,
-        chainTarget,
-        exportLaneIdentity,
-      }) => {
-        const waitFor = eval(waitForSource) as typeof import('./harness').waitFor;
-        const capture = eval(captureOverlaySource) as typeof import('./harness').captureOverlay;
-        try {
-          const mod = await import(routerPath);
-          const { WalletIframeRouter } =
-            mod as typeof import('@/SeamsWeb/walletIframe/client/router');
-
-          const marks: Record<string, boolean> = {};
-          let exportRequestId = '';
-          let signingRequestId = '';
-          window.addEventListener('message', (ev) => {
-            const data = ev.data || {};
-            if (!data || typeof data !== 'object') return;
-            if ((data as any).type !== 'TEST_MARKER') return;
-            const marker = String((data as any).marker || '');
-            if (marker) marks[marker] = true;
-            if (marker === 'EXPORT_REQUEST_CAPTURED') {
-              exportRequestId = String((data as any).requestId || '').trim();
-            }
-            if (marker === 'SIGNING_REQUEST_CAPTURED') {
-              signingRequestId = String((data as any).requestId || '').trim();
-            }
-          });
-
-          const router = new WalletIframeRouter({
-            walletOrigin,
-            servicePath: '/wallet-service',
-            connectTimeoutMs: 3000,
-            requestTimeoutMs: 2200,
-            debug: true,
-            sdkBasePath: '/sdk',
-          });
-          await router.init();
-
-          const exportPromise = router.exportKeypairWithUI({
-            kind: 'ecdsa',
-            walletSession: {
-              walletId,
-              walletSessionUserId: walletId,
-            },
-            chainTarget,
-            laneIdentity: exportLaneIdentity,
-            options: {
-              variant: 'drawer',
-              theme: 'dark',
-            },
-          });
-          const shown = await waitFor(() => {
-            const state = capture();
-            return state.exists && state.visible;
-          }, 3000);
-
-          const signPromise = router.executeAction({
-            walletId: 'isolation.testnet',
-            nearAccountId: 'isolation.testnet',
-            receiverId: 'w3a-v1.testnet',
-            actionArgs: { type: 'Transfer', amount: '1' } as any,
-            options: {},
-          });
-
-          const visibleDuringSigning = await waitFor(() => {
-            if (!marks.SIGNING_REQUEST_CAPTURED) return false;
-            const state = capture();
-            return state.exists && state.visible;
-          }, 3000);
-          const signingResultMarker = await waitFor(() => !!marks.SIGNING_RESULT, 3000);
-          const [exportResult, signingResult] = await Promise.all([
-            exportPromise.then(() => ({ ok: true })),
-            signPromise,
-          ]);
-
-          const closeMarker = await waitFor(() => !!marks.EXPORT_UI_CLOSED, 3000);
-          const hiddenAfterClose = await waitFor(() => {
-            const state = capture();
-            if (!state.exists) return true;
-            return !state.visible;
-          }, 3000);
-
-          return {
-            success: true,
-            shown,
-            visibleDuringSigning,
-            signingResultMarker,
-            exportResult,
-            signingResult,
-            closeMarker,
-            hiddenAfterClose,
-            exportRequestId,
-            signingRequestId,
-          } as const;
-        } catch (error: any) {
-          return { success: false, error: error?.message || String(error) } as const;
-        }
-      },
-      {
-        walletOrigin: WALLET_ORIGIN,
-        waitForSource: WAIT_FOR_SOURCE,
-        captureOverlaySource: CAPTURE_OVERLAY_SOURCE,
-        routerPath,
-        walletId: EXPORT_FLOW_SUBJECT_ID,
-        chainTarget: EXPORT_FLOW_EVM_TARGET,
-        exportLaneIdentity: EXPORT_FLOW_ECDSA_EXPORT_LANE,
-      },
-    );
-
-    if (!result.success) {
-      if (handleInfrastructureErrors(result)) return;
-      expect(result, result.error).toEqual(expect.objectContaining({ success: true }));
-      return;
-    }
-
-    expect(result.shown).toBe(true);
-    expect(result.visibleDuringSigning).toBe(true);
-    expect(result.signingResultMarker).toBe(true);
-    expect(result.exportResult).toEqual({ ok: true });
-    expect(result.signingResult).toMatchObject({ ok: true, source: 'signing' });
-    expect(result.closeMarker).toBe(true);
-    expect(result.hiddenAfterClose).toBe(true);
-    expect(result.exportRequestId).toBeTruthy();
-    expect(result.signingRequestId).toBeTruthy();
-    expect(result.exportRequestId).not.toBe(result.signingRequestId);
-  });
 });

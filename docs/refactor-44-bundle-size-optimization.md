@@ -419,7 +419,7 @@ pnpm build:sdk-prod
 pnpm -C sdk check:bundle-size
 pnpm -C sdk check:bundle-size -- --budget walletHostGzip=100000 --budget ecdsaWasmGzip=1500000
 pnpm -C sdk smoke:eth-signer:runtimes
-pnpm -C tests exec playwright test ./wallet-iframe/router.behavior.sticky.test.ts --reporter=line
+pnpm -C tests exec playwright test ./unit/walletIframeSurfaceDomain.unit.test.ts --reporter=line
 pnpm -C tests exec playwright test ./lit-components/coep.strict.all-elements.test.ts --reporter=line
 pnpm benchmark:ecdsa-hss:wasm
 ```

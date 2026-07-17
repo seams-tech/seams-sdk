@@ -269,11 +269,11 @@ test.describe('wallet iframe surface domain', () => {
         {
           kind: 'modal_transaction_confirm',
           ...common,
-          chain: 'eip155:1',
-          transactionDigest: '0x1234',
         },
         { kind: 'modal_key_export_confirm', ...common, exportKind: 'near_keypair' },
         { kind: 'modal_unlock_confirm', ...common, unlockKind: 'passkey' },
+        { kind: 'modal_recovery_codes', ...common, operation: 'show' },
+        { kind: 'modal_device_link_qr', connectionId, identity: requestIdentity },
       ];
       return surfaces.map((surface) => {
         let mode = '';
@@ -299,6 +299,8 @@ test.describe('wallet iframe surface domain', () => {
     expect(modes).toEqual([
       'hidden',
       'anchored_suspended',
+      'viewport_modal',
+      'viewport_modal',
       'viewport_modal',
       'viewport_modal',
       'viewport_modal',

@@ -149,25 +149,12 @@ Implementation reference:
 - Dev plugin serves JS/CSS with correct MIME and COEP/CORP.
 - Sanity: `/sdk/<bundle>.js` returns 200; no “Unknown custom element” warnings.
 
-### Sticky overlay for two‑phase flows
+### Two-phase key export
 
-- Some flows are two‑phase (e.g., decrypt private key with PRF, then show the viewer). The PM request that kicks off the flow should mark the overlay sticky so the wallet iframe isn’t hidden before the second UI phase mounts:
-
-  ```ts
-  // In wallet iframe client router
-  await this.post({
-    type: 'PM_EXPORT_KEYPAIR_UI',
-    payload: { nearAccountId, chain, variant, theme },
-    options: { sticky: true },
-  });
-
-  // Only hide overlay if request is not sticky
-  if (!this.progressBus.isSticky(requestId)) this.hideFrameForActivation();
-  ```
-
-Implementation reference:
-
-- `src/SeamsWeb/walletIframe/client/router.ts` sets `options: { sticky: true }` for the export‑UI call and guards overlay hiding with `isSticky()`.
+Key export keeps its progress subscription after the initial RPC result so the
+wallet-origin viewer can open. The router's typed key-export surface owns the
+iframe until `key_export.viewer.closed` or `key_export.completed`; progress
+metadata never writes overlay DOM state directly.
 
 ### Build entries
 

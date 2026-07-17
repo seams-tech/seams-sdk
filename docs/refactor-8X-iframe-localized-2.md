@@ -2,7 +2,8 @@
 
 Date created: July 10, 2026
 
-Status: Phases 0-3 implemented. Cross-browser validation remains open.
+Status: Phases 0-5 and 7 are implemented. Phase 6 API design is complete.
+Cross-browser validation and the signing-activation API rollout remain open.
 
 ## Goal
 
@@ -182,7 +183,9 @@ type WalletIframeSurface =
   | ModalRegistrationConfirmSurface
   | ModalTransactionConfirmSurface
   | ModalKeyExportConfirmSurface
-  | ModalUnlockConfirmSurface;
+  | ModalUnlockConfirmSurface
+  | ModalRecoveryCodesSurface
+  | ModalDeviceLinkQrSurface;
 
 type HiddenWalletIframeSurface = {
   kind: 'hidden';
@@ -225,15 +228,13 @@ type ModalRegistrationConfirmSurface = {
 type ModalTransactionConfirmSurface = {
   kind: 'modal_transaction_confirm';
   identity: RequestSurfaceIdentity;
-  chain: ChainId;
-  transactionDigest: TransactionDigest;
   userActivation: 'wallet_confirm_button_required';
 };
 
 type ModalKeyExportConfirmSurface = {
   kind: 'modal_key_export_confirm';
   identity: RequestSurfaceIdentity;
-  exportKind: 'near_keypair' | 'threshold_ed25519_seed_from_hss_report';
+  exportKind: 'near_keypair' | 'threshold_ed25519_seed_from_yao';
   userActivation: 'wallet_confirm_button_required';
 };
 
@@ -242,6 +243,18 @@ type ModalUnlockConfirmSurface = {
   identity: RequestSurfaceIdentity;
   unlockKind: 'passkey' | 'device_link';
   userActivation: 'wallet_confirm_button_required';
+};
+
+type ModalRecoveryCodesSurface = {
+  kind: 'modal_recovery_codes';
+  identity: RequestSurfaceIdentity;
+  operation: 'show' | 'rotate';
+  userActivation: 'wallet_confirm_button_required';
+};
+
+type ModalDeviceLinkQrSurface = {
+  kind: 'modal_device_link_qr';
+  identity: RequestSurfaceIdentity;
 };
 ```
 
@@ -303,6 +316,10 @@ function renderWalletIframeSurface(surface: WalletIframeSurface): WalletIframeSu
       return { kind: 'viewport_modal', title: 'Confirm key export', focusTrap: true };
     case 'modal_unlock_confirm':
       return { kind: 'viewport_modal', title: 'Unlock wallet', focusTrap: true };
+    case 'modal_recovery_codes':
+      return { kind: 'viewport_modal', title: 'Recovery codes', focusTrap: true };
+    case 'modal_device_link_qr':
+      return { kind: 'viewport_modal', title: 'Link a device', focusTrap: true };
     default:
       return assertNever(surface);
   }
@@ -365,18 +382,25 @@ type WalletIframeSurfaceEvent =
   | {
       kind: 'transaction_modal_request_started';
       identity: RequestSurfaceIdentity;
-      chain: ChainId;
-      transactionDigest: TransactionDigest;
     }
   | {
       kind: 'key_export_modal_request_started';
       identity: RequestSurfaceIdentity;
-      exportKind: 'near_keypair' | 'threshold_ed25519_seed_from_hss_report';
+      exportKind: 'near_keypair' | 'threshold_ed25519_seed_from_yao';
     }
   | {
       kind: 'unlock_modal_request_started';
       identity: RequestSurfaceIdentity;
       unlockKind: 'passkey' | 'device_link';
+    }
+  | {
+      kind: 'recovery_codes_modal_request_started';
+      identity: RequestSurfaceIdentity;
+      operation: 'show' | 'rotate';
+    }
+  | {
+      kind: 'device_link_qr_modal_request_started';
+      identity: RequestSurfaceIdentity;
     }
   | {
       kind: 'request_finished';
@@ -686,7 +710,7 @@ calls so later work can remove them without allowing new imperative call sites.
 | --- | --- | --- |
 | `REGISTER_BUTTON_SUBMIT` window-message handler | legacy registration modal submit | 4 |
 | `registerWallet()` and `addWalletSigner()` | registration modal | 4 |
-| `post()` fullscreen preflight | transaction, signing, key export, unlock, and device link | 5 |
+| `post()` fullscreen preflight | transaction, signing, key export, unlock, device link, and recovery codes | 5 |
 | progress-bus show/hide adapters | foreground request progress | 5 |
 | `setOverlayVisible()` and `setOverlayBounds()` | public diagnostics/tools | 7 |
 | registration activation renderer | anchored registration activation | complete in Phase 3 |
@@ -697,11 +721,9 @@ Current request types requiring wallet-origin user activation are
 `PM_SIGN_TX_WITH_ACTIONS`, `PM_SIGN_DELEGATE_ACTION`, `PM_SIGN_NEP413`,
 `PM_SIGN_TEMPO`, `PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION`,
 `PM_LINK_DEVICE_WITH_SCANNED_QR_DATA`, `PM_SHOW_EMAIL_OTP_RECOVERY_CODES`, and
-`PM_ROTATE_EMAIL_OTP_RECOVERY_CODES`. They remain legacy foreground requests
-until Phase 5. Registration activation is the first reducer-owned foreground
-surface. Other request types remain background/read-only unless a future phase
-gives them an explicit foreground surface event; their progress cannot mutate
-the reducer-owned registration surface.
+`PM_ROTATE_EMAIL_OTP_RECOVERY_CODES`. Phase 5 gives each of these an explicit
+foreground surface event. Other request types remain background/read-only and
+their progress cannot mutate the reducer-owned foreground surface.
 
 ### Phase 0: Inventory And Guardrails
 
@@ -825,20 +847,20 @@ Migration validation:
 
 ### Phase 4: Convert Code-Only Registration Modal
 
-- [ ] Route ordinary app-domain `registerPasskey()` through
+- [x] Route ordinary app-domain `registerPasskey()` through
       `modal_registration_confirm` when iframe user activation is required.
-- [ ] Render the wallet-origin registration modal from modal surface state.
-- [ ] Bind wallet ID, rpID, request ID, and registration digest before the modal
+- [x] Render the wallet-origin registration modal from modal surface state.
+- [x] Bind wallet ID, rpID, request ID, and registration digest before the modal
       confirm button can start WebAuthn.
-- [ ] Bind WebAuthn challenge and expiry before enabling the modal confirm
+- [x] Bind WebAuthn challenge and expiry before enabling the modal confirm
       button.
-- [ ] Reserve the shared WebAuthn prompt coordinator before enabling the modal
+- [x] Reserve the shared WebAuthn prompt coordinator before enabling the modal
       confirm button and release it on every terminal modal transition.
-- [ ] Resolve server allocation to a concrete wallet ID before constructing
+- [x] Resolve server allocation to a concrete wallet ID before constructing
       prepared modal state or enabling confirm.
-- [ ] Remove registration-specific fullscreen locks and preflight overlay show.
-- [ ] Ensure modal cancellation hides only the matching request surface.
-- [ ] Keep pending server allocation outside renderable modal surface state.
+- [x] Remove registration-specific fullscreen locks and preflight overlay show.
+- [x] Ensure modal cancellation hides only the matching request surface.
+- [x] Keep pending server allocation outside renderable modal surface state.
 
 Validation:
 
@@ -852,14 +874,19 @@ Validation:
 
 ### Phase 5: Convert Request Modal Flows
 
-- [ ] Convert transaction signing requests to `modal_transaction_confirm`.
-- [ ] Convert key export requests to `modal_key_export_confirm`.
-- [ ] Convert unlock and device-link requests to `modal_unlock_confirm` or a
+- [x] Convert transaction signing requests to `modal_transaction_confirm`.
+- [x] Convert key export requests to `modal_key_export_confirm`.
+- [x] Convert unlock and device-link requests to `modal_unlock_confirm` or a
       more specific branch if the flows differ materially.
-- [ ] Replace progress-bus show/hide authority with typed surface transitions.
-- [ ] Keep progress events for content, diagnostics, and app callbacks.
-- [ ] Remove sticky overlay state after all modal request flows use surfaces.
-- [ ] Remove request preflight fullscreen demand after all activation-required
+- [x] Convert device-link QR display to `modal_device_link_qr`; stopping the
+      display flow cancels only its matching surface.
+- [x] Convert email-OTP recovery-code display and rotation to
+      `modal_recovery_codes`; the display request remains active until its
+      wallet-origin dialog closes.
+- [x] Replace progress-bus show/hide authority with typed surface transitions.
+- [x] Keep progress events for content, diagnostics, and app callbacks.
+- [x] Remove sticky overlay state after all modal request flows use surfaces.
+- [x] Remove request preflight fullscreen demand after all activation-required
       request types use surfaces.
 
 Validation:
@@ -877,31 +904,32 @@ Validation:
 
 ### Phase 6: Design Signing Activation Surfaces
 
-- [ ] Draft a separate API plan for app-owned custom transaction confirmers.
-- [ ] Bind signing activation proofs to request ID, wallet ID, chain, and
+- [x] Draft [a separate API plan](refactor-8X-signing-activation-surfaces.md)
+      for app-owned custom transaction confirmers.
+- [x] Specify signing activation proof binding to request ID, wallet ID, chain, and
       transaction digest.
-- [ ] Define whether the localized signing surface covers only the final CTA or
+- [x] Define whether the localized signing surface covers only the final CTA or
       a larger wallet-owned confirmation region.
-- [ ] Add app-facing docs that explain app-origin UI as part of user-intent
+- [x] Add app-facing documentation that explains app-origin UI as part of user-intent
       trust.
-- [ ] Keep the wallet-origin modal confirmer as the default for apps that do not
+- [x] Keep the wallet-origin modal confirmer as the default for apps that do not
       opt into localized signing activation.
 
-This phase should start after registration proves the native browser activation
+Implementation starts after registration proves the native browser activation
 model in Chromium and the supported Safari/WebKit matrix, including the typed
 unsupported branch with no parent-domain registration fallback.
 
 ### Phase 7: Delete Imperative Overlay Paths
 
-- [ ] Remove `forceFullscreen`.
-- [ ] Remove sticky overlay suppression if no remaining surface needs it.
-- [ ] Remove `showFrameForActivation()` and `hideFrameForActivation()` after
+- [x] Remove `forceFullscreen`.
+- [x] Remove sticky overlay suppression if no remaining surface needs it.
+- [x] Remove `showFrameForActivation()` and `hideFrameForActivation()` after
       progress-bus ownership is gone.
-- [ ] Remove `computeOverlayIntent()` fullscreen preflight.
-- [ ] Remove `REGISTER_BUTTON_SUBMIT` fullscreen forcing.
-- [ ] Remove compatibility comments and tests that assert fullscreen
+- [x] Remove `computeOverlayIntent()` fullscreen preflight.
+- [x] Remove `REGISTER_BUTTON_SUBMIT` fullscreen forcing.
+- [x] Remove compatibility comments and tests that assert fullscreen
       registration activation.
-- [ ] Delete obsolete public request and fullscreen compatibility paths. Retain
+- [x] Delete obsolete public request and fullscreen compatibility paths. Retain
       persisted-record compatibility only when an owned deletion condition is
       documented at that boundary.
 

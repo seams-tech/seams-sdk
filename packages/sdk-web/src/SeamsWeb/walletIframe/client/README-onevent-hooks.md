@@ -70,25 +70,27 @@ Ordering is FIFO per `requestId`.
     - `wrapOnEvent(onEvent, isXxxFlowEvent)` narrows `ProgressPayload` before calling `onEvent`
 - Message types:
   - `src/SeamsWeb/walletIframe/shared/messages.ts` (`ProgressPayload`, PROGRESS/PM_RESULT/ERROR envelopes, `options.sticky`)
-- Overlay behavior:
+- Surface behavior:
+  - `src/SeamsWeb/walletIframe/client/router.ts`
+    - starts and finishes correlated foreground surfaces.
   - `src/SeamsWeb/walletIframe/client/progress/on-events-progress-bus.ts`
-    - reads `event.interaction.overlay` only; there are no phase-string show/hide rules.
+    - routes public progress content and diagnostics without changing iframe visibility.
 
 ## Key Export Overlay Lifecycle
 
 Key export is a typed progress flow named `key_export`. The export viewer uses `interaction.kind: 'key_export_viewer'`.
 
-| Phase | Overlay |
+| Phase | Surface content |
 | --- | --- |
-| `key_export.auth.passkey.prompt.started` | `show` |
-| `key_export.auth.passkey.prompt.succeeded` | `hide` |
-| `key_export.viewer.opened` | `show` |
-| `key_export.viewer.closed` | `hide` |
-| `key_export.completed` | `hide` |
-| `key_export.failed` | `hide` |
-| `key_export.cancelled` | `hide` |
+| `key_export.auth.passkey.prompt.started` | passkey prompt started |
+| `key_export.auth.passkey.prompt.succeeded` | passkey prompt succeeded |
+| `key_export.viewer.opened` | viewer opened |
+| `key_export.viewer.closed` | viewer closed |
+| `key_export.completed` | completed |
+| `key_export.failed` | failed |
+| `key_export.cancelled` | cancelled |
 
-Export requests use a sticky progress subscription because the drawer can open after the initial `PM_RESULT`. Sticky progress does not make overlay hide calls sticky; overlay visibility is still driven by active `interaction.overlay` demand. A `PM_RESULT` may clear only preflight overlay demand; it must not clear demand created by `key_export.viewer.opened`.
+Export requests use a sticky progress subscription because the drawer can open after the initial `PM_RESULT`. The `modal_key_export_confirm` surface remains active until the host emits a terminal progress event for the same request.
 
 Generic wallet window messages such as `WALLET_UI_CLOSED` are not used by the router to control key export visibility.
 

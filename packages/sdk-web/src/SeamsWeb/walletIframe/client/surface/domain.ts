@@ -17,14 +17,6 @@ export type WalletIframeConnectionId = string & {
   readonly __walletIframeConnectionId: unique symbol;
 };
 
-export type WalletIframeChainId = string & {
-  readonly __walletIframeChainId: unique symbol;
-};
-
-export type WalletIframeTransactionDigest = string & {
-  readonly __walletIframeTransactionDigest: unique symbol;
-};
-
 export type RegistrationActivationTargetRect = Readonly<DOMRectLike> & {
   readonly __registrationActivationTargetRect: unique symbol;
 };
@@ -105,8 +97,6 @@ export type ModalRegistrationConfirmSurface = OwnedWalletIframeSurface & {
 export type ModalTransactionConfirmSurface = OwnedWalletIframeSurface & {
   kind: 'modal_transaction_confirm';
   identity: RequestSurfaceIdentity;
-  chain: WalletIframeChainId;
-  transactionDigest: WalletIframeTransactionDigest;
   userActivation: 'wallet_confirm_button_required';
 };
 
@@ -124,13 +114,27 @@ export type ModalUnlockConfirmSurface = OwnedWalletIframeSurface & {
   userActivation: 'wallet_confirm_button_required';
 };
 
+export type ModalRecoveryCodesSurface = OwnedWalletIframeSurface & {
+  kind: 'modal_recovery_codes';
+  identity: RequestSurfaceIdentity;
+  operation: 'show' | 'rotate';
+  userActivation: 'wallet_confirm_button_required';
+};
+
+export type ModalDeviceLinkQrSurface = OwnedWalletIframeSurface & {
+  kind: 'modal_device_link_qr';
+  identity: RequestSurfaceIdentity;
+};
+
 export type WalletIframeSurface =
   | HiddenWalletIframeSurface
   | AnchoredRegistrationActivationSurface
   | ModalRegistrationConfirmSurface
   | ModalTransactionConfirmSurface
   | ModalKeyExportConfirmSurface
-  | ModalUnlockConfirmSurface;
+  | ModalUnlockConfirmSurface
+  | ModalRecoveryCodesSurface
+  | ModalDeviceLinkQrSurface;
 
 export type ForegroundWalletIframeSurface = Exclude<WalletIframeSurface, HiddenWalletIframeSurface>;
 
@@ -185,8 +189,6 @@ export type WalletIframeSurfaceEvent =
     })
   | (RequestOwnedEvent & {
       kind: 'transaction_modal_request_started';
-      chain: WalletIframeChainId;
-      transactionDigest: WalletIframeTransactionDigest;
     })
   | (RequestOwnedEvent & {
       kind: 'key_export_modal_request_started';
@@ -196,6 +198,11 @@ export type WalletIframeSurfaceEvent =
       kind: 'unlock_modal_request_started';
       unlockKind: ModalUnlockConfirmSurface['unlockKind'];
     })
+  | (RequestOwnedEvent & {
+      kind: 'recovery_codes_modal_request_started';
+      operation: ModalRecoveryCodesSurface['operation'];
+    })
+  | (RequestOwnedEvent & { kind: 'device_link_qr_modal_request_started' })
   | (RequestOwnedEvent & { kind: 'request_finished' })
   | (RequestOwnedEvent & { kind: 'request_cancelled' })
   | { kind: 'connection_closed'; connectionId: WalletIframeConnectionId };
@@ -250,16 +257,6 @@ export function parseRequestSurfaceIdentity(value: unknown): RequestSurfaceIdent
   } catch {
     return null;
   }
-}
-
-export function walletIframeChainIdFromBoundary(value: unknown): WalletIframeChainId {
-  return parseNonEmptyBoundaryString(value, 'chain') as WalletIframeChainId;
-}
-
-export function walletIframeTransactionDigestFromBoundary(
-  value: unknown,
-): WalletIframeTransactionDigest {
-  return parseNonEmptyBoundaryString(value, 'transactionDigest') as WalletIframeTransactionDigest;
 }
 
 export function registrationActivationTargetRectFromBoundary(
@@ -355,8 +352,6 @@ export function modalRegistrationConfirmSurface(args: {
 export function modalTransactionConfirmSurface(args: {
   connectionId: WalletIframeConnectionId;
   identity: RequestSurfaceIdentity;
-  chain: WalletIframeChainId;
-  transactionDigest: WalletIframeTransactionDigest;
 }): ModalTransactionConfirmSurface {
   return {
     kind: 'modal_transaction_confirm',
@@ -387,6 +382,25 @@ export function modalUnlockConfirmSurface(args: {
     ...args,
     userActivation: 'wallet_confirm_button_required',
   };
+}
+
+export function modalRecoveryCodesSurface(args: {
+  connectionId: WalletIframeConnectionId;
+  identity: RequestSurfaceIdentity;
+  operation: ModalRecoveryCodesSurface['operation'];
+}): ModalRecoveryCodesSurface {
+  return {
+    kind: 'modal_recovery_codes',
+    ...args,
+    userActivation: 'wallet_confirm_button_required',
+  };
+}
+
+export function modalDeviceLinkQrSurface(args: {
+  connectionId: WalletIframeConnectionId;
+  identity: RequestSurfaceIdentity;
+}): ModalDeviceLinkQrSurface {
+  return { kind: 'modal_device_link_qr', ...args };
 }
 
 function requestIdentitiesEqual(
@@ -539,8 +553,6 @@ export function reduceWalletIframeSurface(
           modalTransactionConfirmSurface({
             connectionId: event.connectionId,
             identity: event.identity,
-            chain: event.chain,
-            transactionDigest: event.transactionDigest,
           }),
         ),
       );
@@ -565,6 +577,29 @@ export function reduceWalletIframeSurface(
             connectionId: event.connectionId,
             identity: event.identity,
             unlockKind: event.unlockKind,
+          }),
+        ),
+      );
+    case 'recovery_codes_modal_request_started':
+      return reduceStartResult(
+        current,
+        beginForegroundWalletIframeSurface(
+          current,
+          modalRecoveryCodesSurface({
+            connectionId: event.connectionId,
+            identity: event.identity,
+            operation: event.operation,
+          }),
+        ),
+      );
+    case 'device_link_qr_modal_request_started':
+      return reduceStartResult(
+        current,
+        beginForegroundWalletIframeSurface(
+          current,
+          modalDeviceLinkQrSurface({
+            connectionId: event.connectionId,
+            identity: event.identity,
           }),
         ),
       );

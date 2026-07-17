@@ -184,7 +184,7 @@ test.describe('Wallet iframe overlay specs on cancel', () => {
             // Start the flow; do not await — we intend to cancel
             const p = flow.run().catch(() => undefined);
 
-            // Wait for overlay to become visible (due to showFrameForActivation or progress heuristic)
+            // Wait for the request surface to render the wallet iframe.
             const shown = await waitFor(isOverlayVisible, 8000);
 
             const beforeCancel = captureOverlayState();
