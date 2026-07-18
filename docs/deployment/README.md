@@ -5,14 +5,14 @@ sites, Router A/B Workers, and backing infra.
 
 ## Deployment Model
 
-GitHub deployments use two environments:
+GitHub deployments use two isolated environments:
 
 - `staging`: automatic from `dev`; manual target for pre-production deploys.
 - `production`: automatic from `main`; manual target for production deploys.
 
-Router A/B Worker deployment currently exposes `staging` only. Its previous
-production target used same-account Service Bindings and has been deleted.
-Pages, R2, and other non-Router surfaces continue to use both environments.
+Production has its own Router A/B Workers, Router API Worker, D1 databases,
+Durable Object namespaces, secrets, and Pages configuration. It does not reuse
+staging persistence or Worker resources.
 
 The workflow target is the deployment environment, not the chain. NEAR network,
 RPC URLs, wallet origins, and Pages aliases come from GitHub Environment
@@ -25,8 +25,11 @@ variables and checked-in Cloudflare config.
 | `.github/workflows/ci.yml`               | `push`, `pull_request`, `merge_group`                       | Builds, lints, type-checks, runs formal verification, D1/DO smoke tests, and threshold signing suites.                                               |
 | `.github/workflows/router-ab.yml`        | Router A/B path changes, or manual dispatch                 | Runs Router A/B core/dev/Cloudflare tests, strict Worker checks, local four-worker smoke, and Wrangler startup dry-run evidence.                     |
 | `.github/workflows/publish-sdk-r2.yml`   | Successful `ci` workflow on deploy refs, or manual dispatch | Builds `packages/sdk-web/dist`, writes `manifest.sha256` and `manifest.json`, signs the manifest with cosign, and publishes SDK runtime bundles to Cloudflare R2. |
-| `.github/workflows/deploy-pages.yml`     | Push to `dev`/`main`, or manual dispatch                    | Builds the SDK and `apps/seams-site`, copies SDK runtime assets under `/sdk`, and deploys the app and wallet Pages projects.                     |
-| `.github/workflows/deploy-router-ab.yml` | Manual dispatch                                             | Validates Router A/B, uploads Worker versions for startup evidence, or deploys Router/Deriver A/Deriver B/SigningWorker to Cloudflare.               |
+| `.github/workflows/deploy-staging.yml`   | Successful `ci` push on `dev`                               | Clearly labelled staging entrypoint. Deploys only staging resources. |
+| `.github/workflows/deploy-production.yml` | Successful `ci` push on `main`                             | Clearly labelled production entrypoint. Deploys only production resources. |
+| `.github/workflows/deploy-router-ab.yml` | Called by a labelled release, or manual dispatch             | Shared ordered implementation: Router A/B Workers, Router API/D1, then Pages. Manual dispatch can still target an individual Router A/B role. |
+| `.github/workflows/deploy-router-api.yml` | Called by the release chain, or manual dispatch             | Generates an environment-specific Wrangler config, applies that environment's two D1 migrations, deploys the Router API and its Durable Objects, then checks readiness. |
+| `.github/workflows/deploy-pages.yml`     | Called by the release chain, or manual dispatch              | Builds the exact release SHA and deploys `seams.sh` plus `wallet.seams.sh` with environment-specific frontend values. |
 
 Removed testnet-only workflows are replaced by the staging target in the
 workflows above. Move any required GitHub Environment secrets and vars from an
@@ -34,8 +37,9 @@ old `testnet` environment into `staging`.
 
 ## First Deploy Checklist
 
-1. Create the general `staging` and `production` GitHub Environments plus the
-   split Router A/B `staging-*` role environments.
+1. Create the general `staging` and `production` GitHub Environments, the
+   `staging-router-api` and `production-router-api` environments, and all eight
+   split Router A/B role environments.
 2. Add Cloudflare, R2, Pages, Router A/B, and Vite environment values from
    [infra.md](infra.md).
 3. Generate staging Router A/B deployment identity keys with
@@ -45,13 +49,11 @@ old `testnet` environment into `staging`.
    `pnpm router:deploy:root-share-keygen` in the matching GitHub Environment.
 5. Provision D1 signer and console databases, Durable Object namespaces, R2
    backups, and migrations from [infra.md](infra.md#cloudflare-data).
-6. Run `ci` on the target commit.
-7. Run `router-ab` on the target commit when Router A/B files changed.
-8. Publish SDK runtime assets with `publish-sdk-r2` or let it run after `ci`.
-9. Deploy Pages with `deploy-pages`.
-10. Upload Router A/B Worker versions for startup evidence with
-    `deploy-router-ab`, then deploy after `router:deploy:check` passes on the
-    target commit.
+6. Provision the staging and production Router API Workers, their distinct
+   `CONSOLE_DB` and `SIGNER_DB` databases, and their Secrets Store entries.
+7. Push `dev` for staging or `main` for production. Successful CI starts the
+   explicitly labelled `deploy-staging` or `deploy-production` workflow.
+8. Let `publish-sdk-r2` publish the same successful CI revision independently.
 
 ## Normal Promotion
 
@@ -81,23 +83,17 @@ Run `operation=deploy` only after `pnpm router:deploy:check` passes on the
 target commit. Router A/B role config lives in
 [router-ab-cloudflare-env.example.yml](router-ab-cloudflare-env.example.yml).
 
-Production Router A/B commands remain absent until Phase 6A selects the strict
-profile and Phase 10 adds independently administered deployment manifests.
-
 ## Deploy Order
 
-For a fresh environment, deploy in this order:
+The automatic branch release runs in this order:
 
-1. Infra and secrets.
-2. D1 migrations and Durable Object class migrations.
-3. SDK R2 publish.
-4. Pages deploy.
-5. Router A/B version upload for startup evidence.
-6. Router A/B deploy after `router:deploy:check` passes.
+1. Successful `ci` for the current branch tip.
+2. SigningWorker, Deriver A, Deriver B, and Router.
+3. Router API D1 migrations, Durable Object migrations, Worker secrets, deploy,
+   and readiness check.
+4. `seams.sh` and `wallet.seams.sh` from the same SHA.
 
-For routine app changes, `ci` plus the Pages workflow are enough.
-For SDK runtime changes, confirm the R2 publish and the Pages `/sdk` copy both
-come from the same commit SHA.
+An older CI run is rejected after a newer commit becomes the branch tip.
 
 ## Follow-On Docs
 

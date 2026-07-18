@@ -5,6 +5,7 @@ This repo deploys these hosted surfaces:
 - SDK runtime bundles in Cloudflare R2.
 - App and wallet Pages projects from `apps/seams-site`.
 - Router A/B Workers from `crates/router-ab-cloudflare`.
+- Router API Workers from `packages/console-server-ts`.
 
 The web server persists state in Cloudflare data services:
 
@@ -17,7 +18,7 @@ The web server persists state in Cloudflare data services:
 
 ## GitHub Environments
 
-Create these GitHub Environments:
+Create these general GitHub Environments:
 
 - `staging`
 - `production`
@@ -25,10 +26,20 @@ Create these GitHub Environments:
 Use the same variable names in both environments. Values differ per
 environment.
 
-Router A/B currently consumes only its split `staging-*` environments. Its
-production environment and Wrangler branches were deleted because they used
-same-account Service Bindings. Phase 6A must select a strict deployment profile
-before production Router A/B environments are created.
+Create `staging-router-api` and `production-router-api` for the backend
+composition Worker. Create `staging-router`, `staging-deriver-a`,
+`staging-deriver-b`, `staging-signing-worker`, plus matching `production-*`
+role environments. Each role environment owns its Cloudflare credentials,
+private material, variables, and protected approver set.
+
+Automatic entrypoints are intentionally separate:
+
+- `.github/workflows/deploy-staging.yml` accepts only successful `dev` CI.
+- `.github/workflows/deploy-production.yml` accepts only successful `main` CI.
+
+Both call `.github/workflows/deploy-router-ab.yml`, which is the shared release
+implementation. Environment labels and branch restrictions remain in the
+entrypoint YAML instead of a caller-selected runtime flag.
 
 ### Secrets
 
@@ -49,6 +60,12 @@ before production Router A/B environments are created.
 | `DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY`            | Router A/B deploy               | Deriver B signer-envelope HPKE private key.                                            |
 | `DERIVER_B_PEER_SIGNING_KEY`                     | Router A/B deploy               | Deriver B private key for A/B peer messages.                                           |
 | `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY` | Router A/B deploy               | SigningWorker server-output HPKE private key.                                          |
+| `RELAY_SESSION_HMAC_SECRET`                    | Router API deploy               | Environment-specific browser session signing secret.                                   |
+| `ACCOUNT_ID_DERIVATION_SECRET`                 | Router API deploy               | Environment-specific account identifier derivation secret.                             |
+| `ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET`       | Router A/B and Router API       | Shared only by Workers inside one environment. Never share it across staging and production. |
+| `ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK`           | Router API deploy               | Private ceremony JWT signing key for this environment.                                  |
+| `RELAYER_PRIVATE_KEY`                          | Router API deploy               | Relayer key matching `RELAYER_PUBLIC_KEY`.                                              |
+| `SPONSORED_EVM_EXECUTORS_JSON`                 | Router API deploy               | Environment-specific sponsored EVM executor secrets.                                   |
 
 ### Variables
 
@@ -83,7 +100,27 @@ before production Router A/B environments are created.
 | `VITE_SIGNING_SESSION_PERSISTENCE_MODE`                  | Pages build       | Set when enabling sealed-refresh client flows.                               |
 | `VITE_SIGNING_SESSION_SEAL_KEY_VERSION`                  | Pages build       | Must match the active Router API seal key version when sealed-refresh is enabled. |
 | `VITE_SIGNING_SESSION_SHAMIR_P_B64U`                     | Pages build       | Public Shamir prime value for sealed-refresh clients.                        |
+| `VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID`                | Pages build       | Exact SigningWorker id bound into Router A/B warm signing sessions.          |
 | `VITE_DASHBOARD_WALLETS_ROUTES_ENABLED`                  | Pages build       | Optional dashboard route gate.                                               |
+
+The Router API environments additionally require:
+
+- distinct `ROUTER_API_WORKER_NAME`,
+  `ROUTER_API_CONSOLE_D1_DATABASE_NAME`,
+  `ROUTER_API_CONSOLE_D1_DATABASE_ID`,
+  `ROUTER_API_SIGNER_D1_DATABASE_NAME`, and
+  `ROUTER_API_SIGNER_D1_DATABASE_ID`;
+- `ROUTER_API_SECRETS_STORE_ID`, `SIGNING_ROOT_KEK_ID`,
+  `SIGNING_ROOT_KEK_SECRET_NAME`, and `SIGNING_ROOT_KEK_ENCODING`;
+- tenant identity (`SEAMS_TENANT_STORAGE_NAMESPACE`, `SEAMS_ORG_ID`,
+  `SEAMS_PROJECT_ID`, `SEAMS_ENV_ID`);
+- public Router A/B keyset, topology, HPKE keys, Router API origin, relayer
+  identity, NEAR configuration, session issuer/audience, allowed origins,
+  cookie name, and Google OIDC client ID.
+
+Use names such as `seams-console-staging` and `seams-signer-staging` for
+staging. Production uses `seams-console` and `seams-signer` with different D1
+IDs. The renderer rejects equal console/signer IDs within an environment.
 
 ## Cloudflare Pages
 
@@ -139,6 +176,7 @@ Wrangler environments:
 | Target    | Router                     | Deriver A                    | Deriver B                    | SigningWorker                      |
 | --------- | -------------------------- | ---------------------------- | ---------------------------- | ---------------------------------- |
 | `staging` | `router-ab-router-staging` | `router-ab-deriver-a-staging` | `router-ab-deriver-b-staging` | `router-ab-signing-worker-staging` |
+| `production` | `router-ab-router` | `router-ab-deriver-a` | `router-ab-deriver-b` | `router-ab-signing-worker` |
 
 The checked-in Wrangler vars contain placeholder public keys so dry-run builds
 work without environment configuration. The `deploy-router-ab` workflow injects
@@ -168,6 +206,54 @@ Role-specific configuration:
 `mpc-prf-root-share-wire-v1:` prefix. Deriver envelope private keys use
 `hpke-x25519-private-v1:`. The SigningWorker server-output private key uses
 `hpke-x25519-server-output-private-v1:`.
+
+### Router A/B backup, recovery, and incident procedure
+
+Cloudflare Worker secrets are runtime copies. They are not backups. Keep each
+Deriver's root-share wire secret, envelope private key, and peer-signing key in
+its role-owned secret manager. A custodial principal for A must not be able to
+read B's escrow, and the reverse must also hold. Store public-key fingerprints,
+secret versions, and rotation epochs in the release record; never store private
+values in repository evidence.
+
+The A and B root-share Durable Objects persist startup metadata. The root-share
+wire values remain in the matching Worker secret. After restoring a role's
+secrets, startup revalidates or idempotently reconstructs its metadata. The Yao
+session Durable Objects hold one-ceremony execution and redelivery state. Do
+not restore an expired, failed, or interrupted Yao session from backup; let it
+reach a terminal state and start a fresh admitted ceremony. This avoids
+resurrecting replay or one-use state.
+
+All Router A/B Durable Object namespaces use SQLite storage. Cloudflare retains
+[30 days of point-in-time recovery history](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/#pitr-point-in-time-recovery-api)
+for SQLite-backed Durable Objects. PITR is an emergency tool for durable
+metadata corruption, not a routine Yao session retry mechanism. The production
+Workers expose no administrative recovery endpoint. If PITR is required,
+disable Router admission and deploy a reviewed, role-specific recovery build
+that records the pre-restore bookmark, restores only the affected root-metadata
+object, and aborts that object so recovery takes effect. Verify the role's
+public key, epoch, and startup metadata, then redeploy the canonical role
+artifact before admission is re-enabled. Never add PITR to a public route.
+
+For a suspected role compromise:
+
+1. Disable new Router admission and allow no new A/B ceremonies.
+2. Revoke the affected role's deploy token and protected-environment access.
+3. Rotate that role's root-share custody value, envelope key, peer key, and
+   epochs. Update the opposite role's verifying key and Router public keyset in
+   the same reviewed release.
+4. Invalidate in-flight ceremonies. Do not copy state or secrets into the
+   opposite role.
+5. Deploy the affected role from a reviewed version, verify its binding and
+   secret-name inventory, then run registration, recovery, export, and
+   post-refresh signing before reopening admission.
+
+For a code regression, roll back each role independently to the last reviewed
+Worker version. Preserve key epochs and Durable Object state unless the
+incident specifically requires rotation or recovery. Logs and alerts remain
+role-specific and must contain deployment identities and opaque ceremony
+identifiers without private inputs, labels, shares, ciphertext bodies, or
+secret values.
 
 Generate deployment identity keys with:
 
@@ -212,8 +298,8 @@ gh workflow run deploy-router-ab.yml --ref dev -f target=staging -f operation=up
 gh workflow run deploy-router-ab.yml --ref dev -f target=staging -f operation=deploy -f role=all
 ```
 
-Production Router A/B dispatch remains unavailable until the selected strict
-profile replaces the deleted same-account configuration.
+Production manual dispatch uses `--ref main -f target=production`. Normal
+production releases start automatically after `ci` succeeds on `main`.
 
 Local Cloudflare-shape checks:
 

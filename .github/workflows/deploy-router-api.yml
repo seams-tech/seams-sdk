@@ -1,0 +1,202 @@
+name: deploy-router-api
+
+on:
+  workflow_call:
+    inputs:
+      target:
+        description: Router API deployment target
+        required: true
+        type: string
+      deploy_sha:
+        description: Exact source revision to deploy
+        required: true
+        type: string
+      source_branch:
+        description: Source branch associated with the revision
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Router API deployment target
+        required: true
+        type: choice
+        default: staging
+        options:
+          - staging
+          - production
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-router-api-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy Router API and D1
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment:
+      name: ${{ inputs.target == 'production' && 'production-router-api' || 'staging-router-api' }}
+    env:
+      DEPLOY_SHA: ${{ inputs.deploy_sha || github.sha }}
+      DEPLOY_SOURCE_BRANCH: ${{ inputs.source_branch || github.ref_name }}
+      DEPLOY_TARGET: ${{ inputs.target }}
+      WRANGLER_CONFIG: .wrangler/generated/router-api.jsonc
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      ROUTER_API_WORKER_NAME: ${{ vars.ROUTER_API_WORKER_NAME }}
+      ROUTER_API_CONSOLE_D1_DATABASE_NAME: ${{ vars.ROUTER_API_CONSOLE_D1_DATABASE_NAME }}
+      ROUTER_API_CONSOLE_D1_DATABASE_ID: ${{ vars.ROUTER_API_CONSOLE_D1_DATABASE_ID }}
+      ROUTER_API_SIGNER_D1_DATABASE_NAME: ${{ vars.ROUTER_API_SIGNER_D1_DATABASE_NAME }}
+      ROUTER_API_SIGNER_D1_DATABASE_ID: ${{ vars.ROUTER_API_SIGNER_D1_DATABASE_ID }}
+      ROUTER_API_SECRETS_STORE_ID: ${{ vars.ROUTER_API_SECRETS_STORE_ID }}
+      SIGNING_ROOT_KEK_ID: ${{ vars.SIGNING_ROOT_KEK_ID }}
+      SIGNING_ROOT_KEK_SECRET_NAME: ${{ vars.SIGNING_ROOT_KEK_SECRET_NAME }}
+      SIGNING_ROOT_KEK_ENCODING: ${{ vars.SIGNING_ROOT_KEK_ENCODING }}
+      SEAMS_TENANT_STORAGE_NAMESPACE: ${{ vars.SEAMS_TENANT_STORAGE_NAMESPACE }}
+      SEAMS_ORG_ID: ${{ vars.SEAMS_ORG_ID }}
+      SEAMS_PROJECT_ID: ${{ vars.SEAMS_PROJECT_ID }}
+      SEAMS_ENV_ID: ${{ vars.SEAMS_ENV_ID }}
+      ROUTER_API_ORIGIN: ${{ vars.ROUTER_API_ORIGIN }}
+      ROUTER_AB_CEREMONY_JWT_AUDIENCE: ${{ vars.ROUTER_AB_CEREMONY_JWT_AUDIENCE }}
+      ROUTER_AB_CEREMONY_JWT_KEY_ID: ${{ vars.ROUTER_AB_CEREMONY_JWT_KEY_ID }}
+      ROUTER_AB_PUBLIC_KEYSET_JSON: ${{ vars.ROUTER_AB_PUBLIC_KEYSET_JSON }}
+      ROUTER_AB_ECDSA_REGISTRATION_TOPOLOGY_JSON: ${{ vars.ROUTER_AB_ECDSA_REGISTRATION_TOPOLOGY_JSON }}
+      ROUTER_AB_DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY: ${{ vars.ROUTER_AB_DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY }}
+      ROUTER_AB_DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY: ${{ vars.ROUTER_AB_DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY }}
+      ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY }}
+      RELAYER_ACCOUNT_ID: ${{ vars.RELAYER_ACCOUNT_ID }}
+      RELAYER_PUBLIC_KEY: ${{ vars.RELAYER_PUBLIC_KEY }}
+      NEAR_RPC_URL: ${{ vars.NEAR_RPC_URL }}
+      ACCOUNT_INITIAL_BALANCE: ${{ vars.ACCOUNT_INITIAL_BALANCE }}
+      RELAY_SESSION_ISSUER: ${{ vars.RELAY_SESSION_ISSUER }}
+      RELAY_SESSION_AUDIENCE: ${{ vars.RELAY_SESSION_AUDIENCE }}
+      RELAY_CORS_ORIGINS: ${{ vars.RELAY_CORS_ORIGINS }}
+      SESSION_COOKIE_NAME: ${{ vars.SESSION_COOKIE_NAME }}
+      GOOGLE_OIDC_CLIENT_ID: ${{ vars.GOOGLE_OIDC_CLIENT_ID }}
+      SEAMS_OIDC_EXCHANGE_JSON: ${{ vars.SEAMS_OIDC_EXCHANGE_JSON }}
+      RELAY_SESSION_HMAC_SECRET: ${{ secrets.RELAY_SESSION_HMAC_SECRET }}
+      ACCOUNT_ID_DERIVATION_SECRET: ${{ secrets.ACCOUNT_ID_DERIVATION_SECRET }}
+      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: ${{ secrets.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET }}
+      ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK: ${{ secrets.ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK }}
+      RELAYER_PRIVATE_KEY: ${{ secrets.RELAYER_PRIVATE_KEY }}
+      SPONSORED_EVM_EXECUTORS_JSON: ${{ secrets.SPONSORED_EVM_EXECUTORS_JSON }}
+      SIGNING_SESSION_SEAL_KEY_VERSION: ${{ secrets.SIGNING_SESSION_SEAL_KEY_VERSION }}
+      SIGNING_SESSION_SHAMIR_P_B64U: ${{ secrets.SIGNING_SESSION_SHAMIR_P_B64U }}
+      SIGNING_SESSION_SEAL_E_S_B64U: ${{ secrets.SIGNING_SESSION_SEAL_E_S_B64U }}
+      SIGNING_SESSION_SEAL_D_S_B64U: ${{ secrets.SIGNING_SESSION_SEAL_D_S_B64U }}
+    steps:
+      - name: Checkout release revision
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ env.DEPLOY_SHA }}
+
+      - name: Validate branch and environment mapping
+        run: |
+          set -euo pipefail
+          expected_branch='dev'
+          if [[ "$DEPLOY_TARGET" == 'production' ]]; then
+            expected_branch='main'
+          fi
+          if [[ "$DEPLOY_SOURCE_BRANCH" != "$expected_branch" ]]; then
+            echo "::error title=Invalid release mapping::$DEPLOY_TARGET deployments require the $expected_branch branch"
+            exit 1
+          fi
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate deployment secrets
+        run: |
+          set -euo pipefail
+          for name in \
+            CLOUDFLARE_API_TOKEN \
+            CLOUDFLARE_ACCOUNT_ID \
+            RELAY_SESSION_HMAC_SECRET \
+            ACCOUNT_ID_DERIVATION_SECRET \
+            ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET \
+            ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK \
+            RELAYER_PRIVATE_KEY \
+            SPONSORED_EVM_EXECUTORS_JSON
+          do
+            test -n "${!name:-}" || { echo "::error title=Missing environment secret::$name is required"; exit 1; }
+          done
+
+          seal_secret_count=0
+          for name in \
+            SIGNING_SESSION_SEAL_KEY_VERSION \
+            SIGNING_SESSION_SHAMIR_P_B64U \
+            SIGNING_SESSION_SEAL_E_S_B64U \
+            SIGNING_SESSION_SEAL_D_S_B64U
+          do
+            test -z "${!name:-}" || seal_secret_count=$((seal_secret_count + 1))
+          done
+          if [[ "$seal_secret_count" -ne 0 && "$seal_secret_count" -ne 4 ]]; then
+            echo "::error title=Incomplete signing-session seal::Configure all four SIGNING_SESSION_* secrets or leave all four unset"
+            exit 1
+          fi
+
+      - name: Generate labelled Wrangler config
+        working-directory: packages/console-server-ts
+        run: node scripts/render-d1-router-api-config.mjs --target "$DEPLOY_TARGET" --output "$WRANGLER_CONFIG"
+
+      - name: Validate Worker bundle
+        working-directory: packages/console-server-ts
+        run: pnpm exec wrangler deploy --dry-run --config "$WRANGLER_CONFIG"
+
+      - name: Apply console D1 migrations
+        working-directory: packages/console-server-ts
+        run: pnpm exec wrangler d1 migrations apply "$ROUTER_API_CONSOLE_D1_DATABASE_NAME" --remote --config "$WRANGLER_CONFIG"
+
+      - name: Apply signer D1 migrations
+        working-directory: packages/console-server-ts
+        run: pnpm exec wrangler d1 migrations apply "$ROUTER_API_SIGNER_D1_DATABASE_NAME" --remote --config "$WRANGLER_CONFIG"
+
+      - name: Upload Worker secrets
+        working-directory: packages/console-server-ts
+        run: |
+          set -euo pipefail
+          for name in \
+            RELAY_SESSION_HMAC_SECRET \
+            ACCOUNT_ID_DERIVATION_SECRET \
+            ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET \
+            ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK \
+            RELAYER_PRIVATE_KEY \
+            SPONSORED_EVM_EXECUTORS_JSON
+          do
+            printf '%s' "${!name}" | pnpm exec wrangler secret put "$name" --config "$WRANGLER_CONFIG"
+          done
+
+      - name: Upload signing-session seal secrets
+        if: env.SIGNING_SESSION_SEAL_KEY_VERSION != ''
+        working-directory: packages/console-server-ts
+        run: |
+          set -euo pipefail
+          for name in \
+            SIGNING_SESSION_SEAL_KEY_VERSION \
+            SIGNING_SESSION_SHAMIR_P_B64U \
+            SIGNING_SESSION_SEAL_E_S_B64U \
+            SIGNING_SESSION_SEAL_D_S_B64U
+          do
+            printf '%s' "${!name}" | pnpm exec wrangler secret put "$name" --config "$WRANGLER_CONFIG"
+          done
+
+      - name: Deploy Router API
+        working-directory: packages/console-server-ts
+        run: pnpm exec wrangler deploy --config "$WRANGLER_CONFIG" --message "$DEPLOY_SHA"
+
+      - name: Verify Router API readiness
+        run: curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 3 "$ROUTER_API_ORIGIN/readyz"

@@ -1,6 +1,20 @@
 name: deploy-router-ab
 
 on:
+  workflow_call:
+    inputs:
+      target:
+        description: Deployment target
+        required: true
+        type: string
+      deploy_sha:
+        description: Exact source revision to deploy
+        required: true
+        type: string
+      source_branch:
+        description: Source branch associated with the revision
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       target:
@@ -10,6 +24,7 @@ on:
         default: staging
         options:
           - staging
+          - production
       operation:
         description: Router A/B operation
         required: true
@@ -34,6 +49,13 @@ on:
 permissions:
   contents: read
 
+env:
+  DEPLOY_TARGET: ${{ inputs.target }}
+  DEPLOY_OPERATION: ${{ github.event_name == 'workflow_call' && 'deploy' || inputs.operation }}
+  DEPLOY_ROLE: ${{ github.event_name == 'workflow_call' && 'all' || inputs.role }}
+  DEPLOY_SHA: ${{ inputs.deploy_sha || github.sha }}
+  DEPLOY_SOURCE_BRANCH: ${{ inputs.source_branch || github.ref_name }}
+
 concurrency:
   group: deploy-router-ab-${{ inputs.target }}
   cancel-in-progress: true
@@ -44,7 +66,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 55
     environment:
-      name: ${{ inputs.target }}-router
+      name: ${{ format('{0}-router', inputs.target) }}
     env:
       ROUTER_JWT_ISSUER: ${{ vars.ROUTER_AB_JWT_ISSUER }}
       ROUTER_JWT_AUDIENCE: ${{ vars.ROUTER_AB_JWT_AUDIENCE }}
@@ -54,11 +76,35 @@ jobs:
       SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY }}
       DERIVER_A_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX }}
       DERIVER_B_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX }}
+      ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON: ${{ vars.ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON }}
+      ROUTER_AB_ECDSA_COMMITMENT_POLICY_RELEASE_AUTHORITY_PUBLIC_KEY_HEX: ${{ vars.ROUTER_AB_ECDSA_COMMITMENT_POLICY_RELEASE_AUTHORITY_PUBLIC_KEY_HEX }}
+      ROUTER_AB_ECDSA_COMMITMENT_POLICY_DIGEST_HEX: ${{ vars.ROUTER_AB_ECDSA_COMMITMENT_POLICY_DIGEST_HEX }}
+      ROUTER_AB_ECDSA_COMMITMENT_POLICY_MINIMUM_RELEASE_EPOCH: ${{ vars.ROUTER_AB_ECDSA_COMMITMENT_POLICY_MINIMUM_RELEASE_EPOCH }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ env.DEPLOY_SHA }}
+
+      - name: Reject stale or mismatched automatic releases
+        if: github.event_name == 'workflow_call'
+        run: |
+          set -euo pipefail
+          expected_target='staging'
+          if [[ "$DEPLOY_SOURCE_BRANCH" == 'main' ]]; then
+            expected_target='production'
+          fi
+          if [[ "$DEPLOY_TARGET" != "$expected_target" ]]; then
+            echo "::error title=Invalid release mapping::$DEPLOY_SOURCE_BRANCH must deploy to $expected_target"
+            exit 1
+          fi
+          git fetch origin "refs/heads/$DEPLOY_SOURCE_BRANCH:refs/remotes/origin/$DEPLOY_SOURCE_BRANCH"
+          branch_tip="$(git rev-parse "refs/remotes/origin/$DEPLOY_SOURCE_BRANCH")"
+          if [[ "$branch_tip" != "$DEPLOY_SHA" ]]; then
+            echo "::error title=Stale release skipped::$DEPLOY_SHA is no longer the tip of $DEPLOY_SOURCE_BRANCH"
+            exit 1
+          fi
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
@@ -101,43 +147,53 @@ jobs:
           done
 
       - name: Check Router A/B release blockers
-        if: inputs.operation == 'deploy'
+        if: env.DEPLOY_OPERATION == 'deploy'
         run: pnpm router:deploy:check
 
       - name: Run target Cloudflare startup dry-run
         run: |
-          pnpm router:deploy:dry-run -- \
-            --env ${{ inputs.target }} \
-            --out reports/startup-latencies/router-ab-${{ inputs.target }}-dry-run-${{ github.run_id }}.json
+          set -euo pipefail
+          args=(
+            --out "reports/startup-latencies/router-ab-${DEPLOY_TARGET}-dry-run-${GITHUB_RUN_ID}.json"
+          )
+          if [[ "$DEPLOY_TARGET" == 'staging' ]]; then
+            args+=(--env staging)
+          fi
+          pnpm router:deploy:dry-run -- "${args[@]}"
 
       - name: Upload Router A/B validation report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: router-ab-${{ inputs.target }}-validation-${{ github.run_id }}
+          name: router-ab-${{ env.DEPLOY_TARGET }}-validation-${{ github.run_id }}
           path: crates/router-ab-cloudflare/reports/startup-latencies/*.json
           if-no-files-found: ignore
 
   upload_or_deploy_signing_worker:
     name: Upload or Deploy SigningWorker
-    if: inputs.operation != 'validate' && (inputs.role == 'all' || inputs.role == 'signing-worker')
+    if: (github.event_name == 'workflow_call' || inputs.operation != 'validate') && (github.event_name == 'workflow_call' || inputs.role == 'all' || inputs.role == 'signing-worker')
     needs: validate_router_ab
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
-      name: ${{ inputs.target }}-signing-worker
+      name: ${{ format('{0}-signing-worker', inputs.target) }}
     env:
-      WORKER_ENV: ${{ inputs.target }}
+      WORKER_ENV: ${{ inputs.target == 'staging' && 'staging' || '' }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: ${{ secrets.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET }}
       SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY }}
       SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY: ${{ secrets.SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY }}
+      ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON: ${{ vars.ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON }}
+      ROUTER_AB_ECDSA_COMMITMENT_POLICY_RELEASE_AUTHORITY_PUBLIC_KEY_HEX: ${{ vars.ROUTER_AB_ECDSA_COMMITMENT_POLICY_RELEASE_AUTHORITY_PUBLIC_KEY_HEX }}
+      ROUTER_AB_ECDSA_COMMITMENT_POLICY_DIGEST_HEX: ${{ vars.ROUTER_AB_ECDSA_COMMITMENT_POLICY_DIGEST_HEX }}
+      ROUTER_AB_ECDSA_COMMITMENT_POLICY_MINIMUM_RELEASE_EPOCH: ${{ vars.ROUTER_AB_ECDSA_COMMITMENT_POLICY_MINIMUM_RELEASE_EPOCH }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ env.DEPLOY_SHA }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
@@ -168,36 +224,55 @@ jobs:
           test -n "${ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET:-}" || { echo "::error title=Missing GitHub secret::ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET is required"; exit 1; }
           test -n "${SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY is required"; exit 1; }
           test -n "${SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY:-}" || { echo "::error title=Missing GitHub secret::SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY is required"; exit 1; }
+          test -n "${ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON is required"; exit 1; }
+          test -n "${ROUTER_AB_ECDSA_COMMITMENT_POLICY_RELEASE_AUTHORITY_PUBLIC_KEY_HEX:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_ECDSA_COMMITMENT_POLICY_RELEASE_AUTHORITY_PUBLIC_KEY_HEX is required"; exit 1; }
+          test -n "${ROUTER_AB_ECDSA_COMMITMENT_POLICY_DIGEST_HEX:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_ECDSA_COMMITMENT_POLICY_DIGEST_HEX is required"; exit 1; }
+          test -n "${ROUTER_AB_ECDSA_COMMITMENT_POLICY_MINIMUM_RELEASE_EPOCH:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_ECDSA_COMMITMENT_POLICY_MINIMUM_RELEASE_EPOCH is required"; exit 1; }
 
       - name: Put SigningWorker secrets
         run: |
           set -euo pipefail
+          wrangler_env_args=()
+          if [[ -n "$WORKER_ENV" ]]; then
+            wrangler_env_args=(--env "$WORKER_ENV")
+          fi
           printf '%s' "$ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET" \
-            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET --config wrangler.signing-worker.toml --env "$WORKER_ENV"
+            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET --config wrangler.signing-worker.toml "${wrangler_env_args[@]}"
           printf '%s' "$SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY" \
-            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY --config wrangler.signing-worker.toml --env "$WORKER_ENV"
+            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY --config wrangler.signing-worker.toml "${wrangler_env_args[@]}"
 
       - name: Upload SigningWorker version
-        if: inputs.operation == 'upload-version'
+        if: env.DEPLOY_OPERATION == 'upload-version'
         run: |
-          pnpm router:deploy:upload -- \
-            --env "$WORKER_ENV" \
-            --role signing-worker \
-            --out "reports/startup-latencies/router-ab-${WORKER_ENV}-signing-worker-upload-${GITHUB_RUN_ID}.json"
+          set -euo pipefail
+          args=(
+            --role signing-worker
+            --out "reports/startup-latencies/router-ab-${DEPLOY_TARGET}-signing-worker-upload-${GITHUB_RUN_ID}.json"
+          )
+          if [[ -n "$WORKER_ENV" ]]; then
+            args+=(--env "$WORKER_ENV")
+          fi
+          pnpm router:deploy:upload -- "${args[@]}"
 
       - name: Deploy SigningWorker
-        if: inputs.operation == 'deploy'
+        if: env.DEPLOY_OPERATION == 'deploy'
         run: |
+          set -euo pipefail
+          wrangler_env_args=()
+          if [[ -n "$WORKER_ENV" ]]; then
+            wrangler_env_args=(--env "$WORKER_ENV")
+          fi
           pnpm -C crates/router-ab-cloudflare exec wrangler deploy \
             --config wrangler.signing-worker.toml \
-            --env "$WORKER_ENV" \
-            --var "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY:${SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY}"
+            "${wrangler_env_args[@]}" \
+            --var "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY:${SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY}" \
+            --var "ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON:${ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON}"
 
       - name: Upload SigningWorker report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: router-ab-${{ inputs.target }}-${{ inputs.operation }}-signing-worker-${{ github.run_id }}
+          name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_OPERATION }}-signing-worker-${{ github.run_id }}
           path: crates/router-ab-cloudflare/reports/startup-latencies/*.json
           if-no-files-found: ignore
 
@@ -205,19 +280,19 @@ jobs:
     name: Upload or Deploy Deriver A
     if: |
       always() &&
-      inputs.operation != 'validate' &&
-      (inputs.role == 'all' || inputs.role == 'deriver-a') &&
+      (github.event_name == 'workflow_call' || inputs.operation != 'validate') &&
+      (github.event_name == 'workflow_call' || inputs.role == 'all' || inputs.role == 'deriver-a') &&
       needs.validate_router_ab.result == 'success' &&
-      (inputs.role != 'all' || needs.upload_or_deploy_signing_worker.result == 'success')
+      (github.event_name != 'workflow_call' && inputs.role != 'all' || needs.upload_or_deploy_signing_worker.result == 'success')
     needs:
       - validate_router_ab
       - upload_or_deploy_signing_worker
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
-      name: ${{ inputs.target }}-deriver-a
+      name: ${{ format('{0}-deriver-a', inputs.target) }}
     env:
-      WORKER_ENV: ${{ inputs.target }}
+      WORKER_ENV: ${{ inputs.target == 'staging' && 'staging' || '' }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: ${{ secrets.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET }}
@@ -232,6 +307,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ env.DEPLOY_SHA }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
@@ -270,29 +346,43 @@ jobs:
       - name: Put Deriver A secrets
         run: |
           set -euo pipefail
+          wrangler_env_args=()
+          if [[ -n "$WORKER_ENV" ]]; then
+            wrangler_env_args=(--env "$WORKER_ENV")
+          fi
           printf '%s' "$ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET" \
-            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET --config wrangler.deriver-a.toml --env "$WORKER_ENV"
+            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET --config wrangler.deriver-a.toml "${wrangler_env_args[@]}"
           printf '%s' "$DERIVER_A_ROOT_SHARE_WIRE_SECRET" \
-            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put DERIVER_A_ROOT_SHARE_WIRE_SECRET --config wrangler.deriver-a.toml --env "$WORKER_ENV"
+            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put DERIVER_A_ROOT_SHARE_WIRE_SECRET --config wrangler.deriver-a.toml "${wrangler_env_args[@]}"
           printf '%s' "$DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY" \
-            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY --config wrangler.deriver-a.toml --env "$WORKER_ENV"
+            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY --config wrangler.deriver-a.toml "${wrangler_env_args[@]}"
           printf '%s' "$DERIVER_A_PEER_SIGNING_KEY" \
-            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put DERIVER_A_PEER_SIGNING_KEY --config wrangler.deriver-a.toml --env "$WORKER_ENV"
+            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put DERIVER_A_PEER_SIGNING_KEY --config wrangler.deriver-a.toml "${wrangler_env_args[@]}"
 
       - name: Upload Deriver A version
-        if: inputs.operation == 'upload-version'
+        if: env.DEPLOY_OPERATION == 'upload-version'
         run: |
-          pnpm router:deploy:upload -- \
-            --env "$WORKER_ENV" \
-            --role deriver-a \
-            --out "reports/startup-latencies/router-ab-${WORKER_ENV}-deriver-a-upload-${GITHUB_RUN_ID}.json"
+          set -euo pipefail
+          args=(
+            --role deriver-a
+            --out "reports/startup-latencies/router-ab-${DEPLOY_TARGET}-deriver-a-upload-${GITHUB_RUN_ID}.json"
+          )
+          if [[ -n "$WORKER_ENV" ]]; then
+            args+=(--env "$WORKER_ENV")
+          fi
+          pnpm router:deploy:upload -- "${args[@]}"
 
       - name: Deploy Deriver A
-        if: inputs.operation == 'deploy'
+        if: env.DEPLOY_OPERATION == 'deploy'
         run: |
+          set -euo pipefail
+          wrangler_env_args=()
+          if [[ -n "$WORKER_ENV" ]]; then
+            wrangler_env_args=(--env "$WORKER_ENV")
+          fi
           pnpm -C crates/router-ab-cloudflare exec wrangler deploy \
             --config wrangler.deriver-a.toml \
-            --env "$WORKER_ENV" \
+            "${wrangler_env_args[@]}" \
             --var "DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY:${DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY}" \
             --var "DERIVER_A_PEER_VERIFYING_KEY_HEX:${DERIVER_A_PEER_VERIFYING_KEY_HEX}" \
             --var "DERIVER_B_PEER_VERIFYING_KEY_HEX:${DERIVER_B_PEER_VERIFYING_KEY_HEX}"
@@ -301,7 +391,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: router-ab-${{ inputs.target }}-${{ inputs.operation }}-deriver-a-${{ github.run_id }}
+          name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_OPERATION }}-deriver-a-${{ github.run_id }}
           path: crates/router-ab-cloudflare/reports/startup-latencies/*.json
           if-no-files-found: ignore
 
@@ -309,19 +399,19 @@ jobs:
     name: Upload or Deploy Deriver B
     if: |
       always() &&
-      inputs.operation != 'validate' &&
-      (inputs.role == 'all' || inputs.role == 'deriver-b') &&
+      (github.event_name == 'workflow_call' || inputs.operation != 'validate') &&
+      (github.event_name == 'workflow_call' || inputs.role == 'all' || inputs.role == 'deriver-b') &&
       needs.validate_router_ab.result == 'success' &&
-      (inputs.role != 'all' || needs.upload_or_deploy_signing_worker.result == 'success')
+      (github.event_name != 'workflow_call' && inputs.role != 'all' || needs.upload_or_deploy_signing_worker.result == 'success')
     needs:
       - validate_router_ab
       - upload_or_deploy_signing_worker
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
-      name: ${{ inputs.target }}-deriver-b
+      name: ${{ format('{0}-deriver-b', inputs.target) }}
     env:
-      WORKER_ENV: ${{ inputs.target }}
+      WORKER_ENV: ${{ inputs.target == 'staging' && 'staging' || '' }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: ${{ secrets.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET }}
@@ -336,6 +426,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ env.DEPLOY_SHA }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
@@ -374,29 +465,43 @@ jobs:
       - name: Put Deriver B secrets
         run: |
           set -euo pipefail
+          wrangler_env_args=()
+          if [[ -n "$WORKER_ENV" ]]; then
+            wrangler_env_args=(--env "$WORKER_ENV")
+          fi
           printf '%s' "$ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET" \
-            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET --config wrangler.deriver-b.toml --env "$WORKER_ENV"
+            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET --config wrangler.deriver-b.toml "${wrangler_env_args[@]}"
           printf '%s' "$DERIVER_B_ROOT_SHARE_WIRE_SECRET" \
-            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put DERIVER_B_ROOT_SHARE_WIRE_SECRET --config wrangler.deriver-b.toml --env "$WORKER_ENV"
+            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put DERIVER_B_ROOT_SHARE_WIRE_SECRET --config wrangler.deriver-b.toml "${wrangler_env_args[@]}"
           printf '%s' "$DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY" \
-            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY --config wrangler.deriver-b.toml --env "$WORKER_ENV"
+            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY --config wrangler.deriver-b.toml "${wrangler_env_args[@]}"
           printf '%s' "$DERIVER_B_PEER_SIGNING_KEY" \
-            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put DERIVER_B_PEER_SIGNING_KEY --config wrangler.deriver-b.toml --env "$WORKER_ENV"
+            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put DERIVER_B_PEER_SIGNING_KEY --config wrangler.deriver-b.toml "${wrangler_env_args[@]}"
 
       - name: Upload Deriver B version
-        if: inputs.operation == 'upload-version'
+        if: env.DEPLOY_OPERATION == 'upload-version'
         run: |
-          pnpm router:deploy:upload -- \
-            --env "$WORKER_ENV" \
-            --role deriver-b \
-            --out "reports/startup-latencies/router-ab-${WORKER_ENV}-deriver-b-upload-${GITHUB_RUN_ID}.json"
+          set -euo pipefail
+          args=(
+            --role deriver-b
+            --out "reports/startup-latencies/router-ab-${DEPLOY_TARGET}-deriver-b-upload-${GITHUB_RUN_ID}.json"
+          )
+          if [[ -n "$WORKER_ENV" ]]; then
+            args+=(--env "$WORKER_ENV")
+          fi
+          pnpm router:deploy:upload -- "${args[@]}"
 
       - name: Deploy Deriver B
-        if: inputs.operation == 'deploy'
+        if: env.DEPLOY_OPERATION == 'deploy'
         run: |
+          set -euo pipefail
+          wrangler_env_args=()
+          if [[ -n "$WORKER_ENV" ]]; then
+            wrangler_env_args=(--env "$WORKER_ENV")
+          fi
           pnpm -C crates/router-ab-cloudflare exec wrangler deploy \
             --config wrangler.deriver-b.toml \
-            --env "$WORKER_ENV" \
+            "${wrangler_env_args[@]}" \
             --var "DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY:${DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY}" \
             --var "DERIVER_A_PEER_VERIFYING_KEY_HEX:${DERIVER_A_PEER_VERIFYING_KEY_HEX}" \
             --var "DERIVER_B_PEER_VERIFYING_KEY_HEX:${DERIVER_B_PEER_VERIFYING_KEY_HEX}"
@@ -405,7 +510,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: router-ab-${{ inputs.target }}-${{ inputs.operation }}-deriver-b-${{ github.run_id }}
+          name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_OPERATION }}-deriver-b-${{ github.run_id }}
           path: crates/router-ab-cloudflare/reports/startup-latencies/*.json
           if-no-files-found: ignore
 
@@ -413,11 +518,11 @@ jobs:
     name: Upload or Deploy Router
     if: |
       always() &&
-      inputs.operation != 'validate' &&
-      (inputs.role == 'all' || inputs.role == 'router') &&
+      (github.event_name == 'workflow_call' || inputs.operation != 'validate') &&
+      (github.event_name == 'workflow_call' || inputs.role == 'all' || inputs.role == 'router') &&
       needs.validate_router_ab.result == 'success' &&
       (
-        inputs.role != 'all' ||
+        github.event_name != 'workflow_call' && inputs.role != 'all' ||
         (
           needs.upload_or_deploy_signing_worker.result == 'success' &&
           needs.upload_or_deploy_deriver_a.result == 'success' &&
@@ -432,9 +537,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
-      name: ${{ inputs.target }}-router
+      name: ${{ format('{0}-router', inputs.target) }}
     env:
-      WORKER_ENV: ${{ inputs.target }}
+      WORKER_ENV: ${{ inputs.target == 'staging' && 'staging' || '' }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: ${{ secrets.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET }}
@@ -446,11 +551,17 @@ jobs:
       SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY }}
       DERIVER_A_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX }}
       DERIVER_B_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX }}
+      ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON: ${{ vars.ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON }}
+      ROUTER_AB_ECDSA_COMMITMENT_POLICY_RELEASE_AUTHORITY_PUBLIC_KEY_HEX: ${{ vars.ROUTER_AB_ECDSA_COMMITMENT_POLICY_RELEASE_AUTHORITY_PUBLIC_KEY_HEX }}
+      ROUTER_AB_ECDSA_COMMITMENT_POLICY_DIGEST_HEX: ${{ vars.ROUTER_AB_ECDSA_COMMITMENT_POLICY_DIGEST_HEX }}
+      ROUTER_AB_ECDSA_COMMITMENT_POLICY_MINIMUM_RELEASE_EPOCH: ${{ vars.ROUTER_AB_ECDSA_COMMITMENT_POLICY_MINIMUM_RELEASE_EPOCH }}
+      ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON: ${{ vars.ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ env.DEPLOY_SHA }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
@@ -487,27 +598,51 @@ jobs:
           test -n "${SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY is required"; exit 1; }
           test -n "${DERIVER_A_PEER_VERIFYING_KEY_HEX:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX is required"; exit 1; }
           test -n "${DERIVER_B_PEER_VERIFYING_KEY_HEX:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX is required"; exit 1; }
+          test -n "${ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON is required"; exit 1; }
+          test -n "${ROUTER_AB_ECDSA_COMMITMENT_POLICY_RELEASE_AUTHORITY_PUBLIC_KEY_HEX:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_ECDSA_COMMITMENT_POLICY_RELEASE_AUTHORITY_PUBLIC_KEY_HEX is required"; exit 1; }
+          test -n "${ROUTER_AB_ECDSA_COMMITMENT_POLICY_DIGEST_HEX:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_ECDSA_COMMITMENT_POLICY_DIGEST_HEX is required"; exit 1; }
+          test -n "${ROUTER_AB_ECDSA_COMMITMENT_POLICY_MINIMUM_RELEASE_EPOCH:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_ECDSA_COMMITMENT_POLICY_MINIMUM_RELEASE_EPOCH is required"; exit 1; }
+          if [[ "$DEPLOY_TARGET" == 'production' ]]; then
+            test -n "${ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON is required for production"; exit 1; }
+          fi
 
       - name: Put Router secrets
         run: |
           set -euo pipefail
+          wrangler_env_args=()
+          if [[ -n "$WORKER_ENV" ]]; then
+            wrangler_env_args=(--env "$WORKER_ENV")
+          fi
           printf '%s' "$ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET" \
-            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET --config wrangler.router.toml --env "$WORKER_ENV"
+            | pnpm -C crates/router-ab-cloudflare exec wrangler secret put ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET --config wrangler.router.toml "${wrangler_env_args[@]}"
 
       - name: Upload Router version
-        if: inputs.operation == 'upload-version'
+        if: env.DEPLOY_OPERATION == 'upload-version'
         run: |
-          pnpm router:deploy:upload -- \
-            --env "$WORKER_ENV" \
-            --role router \
-            --out "reports/startup-latencies/router-ab-${WORKER_ENV}-router-upload-${GITHUB_RUN_ID}.json"
+          set -euo pipefail
+          args=(
+            --role router
+            --out "reports/startup-latencies/router-ab-${DEPLOY_TARGET}-router-upload-${GITHUB_RUN_ID}.json"
+          )
+          if [[ -n "$WORKER_ENV" ]]; then
+            args+=(--env "$WORKER_ENV")
+          fi
+          pnpm router:deploy:upload -- "${args[@]}"
 
       - name: Deploy Router
-        if: inputs.operation == 'deploy'
+        if: env.DEPLOY_OPERATION == 'deploy'
         run: |
+          set -euo pipefail
+          wrangler_env_args=()
+          project_policy_args=()
+          if [[ -n "$WORKER_ENV" ]]; then
+            wrangler_env_args=(--env "$WORKER_ENV")
+          else
+            project_policy_args=(--var "ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON:${ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON}")
+          fi
           pnpm -C crates/router-ab-cloudflare exec wrangler deploy \
             --config wrangler.router.toml \
-            --env "$WORKER_ENV" \
+            "${wrangler_env_args[@]}" \
             --var "ROUTER_JWT_ISSUER:${ROUTER_AB_JWT_ISSUER}" \
             --var "ROUTER_JWT_AUDIENCE:${ROUTER_AB_JWT_AUDIENCE}" \
             --var "ROUTER_JWT_JWKS_URL:${ROUTER_AB_JWT_JWKS_URL}" \
@@ -515,12 +650,48 @@ jobs:
             --var "DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY:${DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY}" \
             --var "DERIVER_A_PEER_VERIFYING_KEY_HEX:${DERIVER_A_PEER_VERIFYING_KEY_HEX}" \
             --var "DERIVER_B_PEER_VERIFYING_KEY_HEX:${DERIVER_B_PEER_VERIFYING_KEY_HEX}" \
-            --var "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY:${SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY}"
+            --var "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY:${SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY}" \
+            --var "ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON:${ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON}" \
+            "${project_policy_args[@]}"
 
       - name: Upload Router report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: router-ab-${{ inputs.target }}-${{ inputs.operation }}-router-${{ github.run_id }}
+          name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_OPERATION }}-router-${{ github.run_id }}
           path: crates/router-ab-cloudflare/reports/startup-latencies/*.json
           if-no-files-found: ignore
+
+  deploy_router_api:
+    name: Deploy Gateway and D1
+    if: >-
+      ${{
+        always() &&
+        needs.upload_or_deploy_router.result == 'success' &&
+        (
+          github.event_name == 'workflow_call' ||
+          (
+            inputs.operation == 'deploy' &&
+            inputs.role == 'all'
+          )
+        )
+      }}
+    needs: upload_or_deploy_router
+    uses: ./.github/workflows/deploy-gateway.yml
+    with:
+      target: ${{ inputs.target }}
+      deploy_sha: ${{ inputs.deploy_sha || github.sha }}
+      source_branch: ${{ inputs.source_branch || github.ref_name }}
+    secrets: inherit
+
+  deploy_pages:
+    name: Deploy seams.sh and wallet.seams.sh
+    if: ${{ always() && needs.deploy_router_api.result == 'success' }}
+    needs: deploy_router_api
+    uses: ./.github/workflows/deploy-pages.yml
+    with:
+      target: all
+      deploy_environment: ${{ inputs.target }}
+      deploy_sha: ${{ inputs.deploy_sha || github.sha }}
+      source_branch: ${{ inputs.source_branch || github.ref_name }}
+    secrets: inherit

@@ -77,7 +77,8 @@ npm view @seams/sdk version
 
 ## Deploy Hosted Surfaces
 
-Production Pages:
+Pushing the release commit to `main` runs the full production backend and Pages
+release after CI succeeds. A manual Pages-only deploy remains available:
 
 ```bash
 gh workflow run deploy-pages.yml --ref main -f target=all -f deploy_environment=production

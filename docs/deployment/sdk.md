@@ -46,7 +46,8 @@ Use `VITE_SDK_BASE_PATH=/sdk` unless you intentionally serve the SDK under a
 different path. The wallet service route and app config must agree with that
 base path.
 
-Manual Pages deploy:
+Pages deploy automatically at the end of the successful branch release chain.
+Manual Pages deploy remains available:
 
 ```bash
 gh workflow run deploy-pages.yml --ref dev -f target=all -f deploy_environment=staging

@@ -1,8 +1,24 @@
 name: deploy-pages
 
 on:
-  push:
-    branches: [main, dev]
+  workflow_call:
+    inputs:
+      target:
+        description: Pages target to deploy
+        required: true
+        type: string
+      deploy_environment:
+        description: Deployment target
+        required: true
+        type: string
+      deploy_sha:
+        description: Exact source revision to deploy
+        required: true
+        type: string
+      source_branch:
+        description: Source branch associated with the revision
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       target:
@@ -27,27 +43,46 @@ permissions:
   contents: read
 
 concurrency:
-  group: deploy-pages-${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_environment) || (github.ref_name == 'main' && 'production') || 'staging' }}-${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.target) || 'all' }}
+  group: deploy-pages-${{ inputs.deploy_environment }}-${{ inputs.target }}
   cancel-in-progress: true
 
 env:
   CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
   CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-  PAGES_BRANCH: ${{ ((github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_environment == 'production') || (github.event_name != 'workflow_dispatch' && github.ref_name == 'main')) && 'main' || 'dev' }}
-  DEPLOY_APP: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.target == 'all' || github.event.inputs.target == 'app' }}
-  DEPLOY_WALLET: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.target == 'all' || github.event.inputs.target == 'wallet' }}
+  DEPLOY_SHA: ${{ inputs.deploy_sha || github.sha }}
+  DEPLOY_SOURCE_BRANCH: ${{ inputs.source_branch || github.ref_name }}
+  DEPLOY_ENVIRONMENT: ${{ inputs.deploy_environment }}
+  PAGES_BRANCH: ${{ inputs.deploy_environment == 'production' && 'main' || 'dev' }}
+  DEPLOY_APP: ${{ inputs.target == 'all' || inputs.target == 'app' }}
+  DEPLOY_WALLET: ${{ inputs.target == 'all' || inputs.target == 'wallet' }}
+  ROUTER_AB_ECDSA_COMMITMENT_POLICY_RELEASE_AUTHORITY_PUBLIC_KEY_HEX: ${{ vars.ROUTER_AB_ECDSA_COMMITMENT_POLICY_RELEASE_AUTHORITY_PUBLIC_KEY_HEX }}
+  ROUTER_AB_ECDSA_COMMITMENT_POLICY_DIGEST_HEX: ${{ vars.ROUTER_AB_ECDSA_COMMITMENT_POLICY_DIGEST_HEX }}
+  ROUTER_AB_ECDSA_COMMITMENT_POLICY_MINIMUM_RELEASE_EPOCH: ${{ vars.ROUTER_AB_ECDSA_COMMITMENT_POLICY_MINIMUM_RELEASE_EPOCH }}
 
 jobs:
   deploy-pages:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment:
-      name: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_environment) || (github.ref_name == 'main' && 'production') || 'staging' }}
+      name: ${{ inputs.deploy_environment }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ env.DEPLOY_SHA }}
+
+      - name: Validate branch and environment mapping
+        run: |
+          set -euo pipefail
+          expected_branch='dev'
+          if [[ "$DEPLOY_ENVIRONMENT" == 'production' ]]; then
+            expected_branch='main'
+          fi
+          if [[ "$DEPLOY_SOURCE_BRANCH" != "$expected_branch" ]]; then
+            echo "::error title=Invalid release mapping::$DEPLOY_ENVIRONMENT deployments require the $expected_branch branch"
+            exit 1
+          fi
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
@@ -84,7 +119,7 @@ jobs:
           VITE_RELAYER_URL: ${{ vars.VITE_RELAYER_URL }}
           VITE_CONSOLE_BASE_URL: ${{ vars.VITE_CONSOLE_BASE_URL }}
           VITE_RELAYER_ACCOUNT_ID: ${{ vars.VITE_RELAYER_ACCOUNT_ID }}
-          VITE_SEAMS_ENVIRONMENT_ID: ${{ vars.VITE_SEAMS_ENVIRONMENT_ID }}
+          VITE_SEAMS_PROJECT_ENVIRONMENT_ID: ${{ vars.VITE_SEAMS_PROJECT_ENVIRONMENT_ID }}
           VITE_SEAMS_PUBLISHABLE_KEY: ${{ vars.VITE_SEAMS_PUBLISHABLE_KEY }}
           VITE_EMAIL_RECOVERER_GLOBAL_CONTRACT: ${{ vars.VITE_EMAIL_RECOVERER_GLOBAL_CONTRACT }}
           VITE_EMAIL_DKIM_VERIFIER_CONTRACT: ${{ vars.VITE_EMAIL_DKIM_VERIFIER_CONTRACT }}
@@ -104,6 +139,7 @@ jobs:
           VITE_SIGNING_SESSION_PERSISTENCE_MODE: ${{ vars.VITE_SIGNING_SESSION_PERSISTENCE_MODE }}
           VITE_SIGNING_SESSION_SEAL_KEY_VERSION: ${{ vars.VITE_SIGNING_SESSION_SEAL_KEY_VERSION }}
           VITE_SIGNING_SESSION_SHAMIR_P_B64U: ${{ vars.VITE_SIGNING_SESSION_SHAMIR_P_B64U }}
+          VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID: ${{ vars.VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID }}
           VITE_DASHBOARD_WALLETS_ROUTES_ENABLED: ${{ vars.VITE_DASHBOARD_WALLETS_ROUTES_ENABLED }}
         run: pnpm -C apps/seams-site exec vite build
 
@@ -111,11 +147,13 @@ jobs:
         run: |
           set -euo pipefail
           test -d packages/sdk-web/dist/esm/sdk
-          mkdir -p apps/seams-site/dist/sdk apps/seams-site/dist/sdk/workers
+          test -f packages/sdk-web/dist/public/wallet-service/index.html
+          mkdir -p apps/seams-site/dist/sdk apps/seams-site/dist/sdk/workers apps/seams-site/dist/wallet-service
           rsync -av --delete packages/sdk-web/dist/esm/sdk/ apps/seams-site/dist/sdk/
           if [ -d packages/sdk-web/dist/workers ]; then
             rsync -av --delete packages/sdk-web/dist/workers/ apps/seams-site/dist/sdk/workers/
           fi
+          rsync -av --delete packages/sdk-web/dist/public/wallet-service/ apps/seams-site/dist/wallet-service/
 
       - name: Deploy app to Cloudflare Pages
         if: env.DEPLOY_APP == 'true'
