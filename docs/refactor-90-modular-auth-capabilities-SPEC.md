@@ -3,6 +3,8 @@
 Date created: June 28, 2026
 Architecture hardening: July 10, 2026
 MPC preparation generalization: July 10, 2026
+MPC lifecycle convergence: July 16, 2026
+ECDSA state and persistence convergence: July 18, 2026
 
 Status: planning.
 
@@ -212,15 +214,16 @@ Refactor move:
 - parse raw `walletId`, last-used account hints, and profile rows once at the
   session-read boundary;
 - resolve durable wallet identity into `WalletUnlockSubjectSet`;
-- compute wallet-session display state from branch subjects plus sealed/session
-  records;
+- compute wallet-session display state from the `SeamsSession` lifecycle and
+  public wallet identity;
 - surface missing, corrupt, or ambiguous durable identity as typed
   `unresolvable` results;
 - keep provenance (`runtime_session_record`, `profile_projection`,
   `host_last_used_profile`) as diagnostics only;
-- represent restorable sealed sessions as `active_restorable`, then let signing
-  or export prepare perform exact material restore and demote to re-auth on
-  typed restore failure.
+- resolve every MPC capability independently through
+  `MpcCapabilityHydrationPlan`. Sealed-active material, public reauthorization,
+  expiry, exhaustion, and missing live runtime are capability states and never
+  session/login display states.
 
 Target shape:
 
@@ -236,7 +239,7 @@ type WalletUnlockSubject =
   | {
       kind: "evm_family_ecdsa_wallet";
       walletId: WalletId;
-      evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
+      ecdsaThresholdKeyId: EcdsaThresholdKeyId;
     };
 
 type WalletUnlockSubjectSet = {
@@ -278,11 +281,12 @@ type WalletSessionReadResolution =
 
 type WalletSessionDisplayState =
   | { kind: "locked" }
-  | { kind: "active_warm"; subjectSet: WalletUnlockSubjectSet }
-  | { kind: "active_restorable"; subjectSet: WalletUnlockSubjectSet }
-  | { kind: "expired"; subjectSet: WalletUnlockSubjectSet }
-  | { kind: "exhausted"; subjectSet: WalletUnlockSubjectSet }
-  | { kind: "unavailable"; subjectSet: WalletUnlockSubjectSet };
+  | { kind: "active"; subjectSet: WalletUnlockSubjectSet }
+  | {
+      kind: "unavailable";
+      walletId: WalletId;
+      reason: WalletIdentityResolveFailure;
+    };
 ```
 
 `WalletUnlockSubjectSet` is the only wallet/capability subject shape consumed
@@ -290,7 +294,9 @@ below the session-read boundary. NEAR account identity exists only on the
 `near_ed25519_wallet` branch. ECDSA-only restoration must not import NEAR
 account validators or fabricate a NEAR account subject. Auth-method display
 must come from wallet-auth-method bindings or session evidence, never from
-`publicKey` heuristics.
+`publicKey` heuristics. `WalletSessionDisplayState` cannot authorize signing,
+material recovery, or export. Those decisions consume the capability-local
+hydration plan defined below.
 
 ### Signing-Centered Grant-Evidence UI
 
@@ -2183,6 +2189,485 @@ must explicitly support non-interactive use. Diagnostics and raw arrays of
 operation envelope, and verified evidence set agree on tenant, principal,
 capability kind, operation kind, and operation digests.
 
+### Canonical MPC Hydration And ECDSA Capability State
+
+Registration, wallet unlock, and page refresh are entry-point provenance. They
+do not select material, recovery, authorization, or signing behavior. Every MPC
+capability resolves current canonical persistence and runtime facts into the same
+closed hydration plan:
+
+```ts
+type CapabilityInstanceRef = Brand<string, "CapabilityInstanceRef">;
+type MpcMaterialOwnerRef = Brand<string, "MpcMaterialOwnerRef">;
+type MpcCapabilityRuntimeRef = Brand<string, "MpcCapabilityRuntimeRef">;
+type ActiveMpcMaterialSessionRef = Brand<string, "ActiveMpcMaterialSessionRef">;
+type RestorableMpcMaterialRef = Brand<string, "RestorableMpcMaterialRef">;
+type MpcKeyBindingRef = Brand<string, "MpcKeyBindingRef">;
+type MpcLifecycleBindingRef = Brand<string, "MpcLifecycleBindingRef">;
+type MpcReauthorizationPolicyRef =
+  Brand<string, "MpcReauthorizationPolicyRef">;
+type MpcRegisteredPublicKeyBindingRef =
+  Brand<string, "MpcRegisteredPublicKeyBindingRef">;
+
+type MpcCapabilityHydrationEntryPoint =
+  | "post_registration"
+  | "post_wallet_unlock"
+  | "post_page_refresh";
+
+type MpcCapabilityPublicReauthAnchor = {
+  kind: "mpc_capability_public_reauth_anchor";
+  capability: CapabilityInstanceRef;
+  materialOwner: MpcMaterialOwnerRef;
+  authority: WalletAuthAuthorityRef;
+  keyBinding: MpcKeyBindingRef;
+  lifecycleBinding: MpcLifecycleBindingRef;
+  reauthorizationPolicy: MpcReauthorizationPolicyRef;
+  registeredPublicKeyBinding: MpcRegisteredPublicKeyBindingRef;
+  secretMaterial?: never;
+  sealedMaterial?: never;
+  bearerSessionCredential?: never;
+  runtime?: never;
+  activeMaterialSession?: never;
+  operationGrant?: never;
+  quotaState?: never;
+  nonceState?: never;
+};
+
+type MpcCapabilityHydrationPlan =
+  | {
+      kind: "use_live_runtime";
+      capability: CapabilityInstanceRef;
+      materialOwner: MpcMaterialOwnerRef;
+      authority: WalletAuthAuthorityRef;
+      runtime: MpcCapabilityRuntimeRef;
+      activeMaterialSession: ActiveMpcMaterialSessionRef;
+      sealedMaterial?: never;
+      retirement?: never;
+      publicReauthAnchor?: never;
+    }
+  | {
+      kind: "rehydrate_active_session";
+      capability: CapabilityInstanceRef;
+      materialOwner: MpcMaterialOwnerRef;
+      authority: WalletAuthAuthorityRef;
+      activeMaterialSession: ActiveMpcMaterialSessionRef;
+      sealedMaterial: RestorableMpcMaterialRef;
+      runtime?: never;
+      retirement?: never;
+      publicReauthAnchor?: never;
+    }
+  | {
+      kind: "reauthorize_public_anchor";
+      capability: CapabilityInstanceRef;
+      materialOwner: MpcMaterialOwnerRef;
+      authority: WalletAuthAuthorityRef;
+      retirement: "expired" | "exhausted";
+      publicReauthAnchor: MpcCapabilityPublicReauthAnchor;
+      runtime?: never;
+      activeMaterialSession?: never;
+      sealedMaterial?: never;
+    }
+  | {
+      kind: "blocked";
+      capability: CapabilityInstanceRef | null;
+      reason:
+        | "missing_capability"
+        | "missing_material"
+        | "revoked"
+        | "replaced"
+        | "ambiguous_authority"
+        | "binding_mismatch"
+        | "exact_record_conflict"
+        | "corrupt_persistence"
+        | "persistence_unavailable";
+      materialOwner?: never;
+      authority?: never;
+      runtime?: never;
+      activeMaterialSession?: never;
+      sealedMaterial?: never;
+      retirement?: never;
+      publicReauthAnchor?: never;
+    };
+
+type MpcCapabilityHydrationResolution = {
+  provenance: {
+    entryPoint: MpcCapabilityHydrationEntryPoint;
+  };
+  plan: MpcCapabilityHydrationPlan;
+};
+```
+
+The public anchor is stable reauthorization input. Its policy reference names
+the capability's reauthorization policy and is never an operation grant. Core
+material, signing, and export functions receive `plan`, while diagnostics and
+tests may also receive `provenance`.
+
+ECDSA persists one capability manifest. It replaces the current
+`ThresholdEcdsaSessionRecordCore` family of records.
+
+```ts
+type EvmFamilyEcdsaSignerId = Brand<string, "EvmFamilyEcdsaSignerId">;
+type ThresholdEcdsaSessionId = Brand<string, "ThresholdEcdsaSessionId">;
+type EcdsaServerGeneration = Brand<string, "EcdsaServerGeneration">;
+type EcdsaCapabilityManifestId =
+  Brand<string, "EcdsaCapabilityManifestId">;
+type EcdsaCapabilityManifestRevision =
+  Brand<number, "EcdsaCapabilityManifestRevision">;
+type EcdsaRoleLocalDurableMaterialRef =
+  Brand<string, "EcdsaRoleLocalDurableMaterialRef">;
+type EcdsaRoleLocalBindingDigest =
+  Brand<string, "EcdsaRoleLocalBindingDigest">;
+type EcdsaCiphertextDigest = Brand<string, "EcdsaCiphertextDigest">;
+type EcdsaActivationDigest = Brand<string, "EcdsaActivationDigest">;
+type EcdsaLifecycleId = Brand<string, "EcdsaLifecycleId">;
+type EcdsaServerActivationReceipt =
+  Brand<string, "EcdsaServerActivationReceipt">;
+type EcdsaRuntimeValidationProof =
+  Brand<string, "EcdsaRuntimeValidationProof">;
+type EcdsaManifestReadbackProof =
+  Brand<string, "EcdsaManifestReadbackProof">;
+type CorrelationId = Brand<string, "CorrelationId">;
+type SpendableMpcWalletSigningQuotaRef =
+  Brand<string, "SpendableMpcWalletSigningQuotaRef">;
+type VerifiedCapabilityOperationAuthorizationRef =
+  Brand<string, "VerifiedCapabilityOperationAuthorizationRef">;
+
+type EcdsaCapabilityScope =
+  | {
+      kind: "evm_family";
+      targetMemberships: NonEmptyArray<ThresholdEcdsaChainTarget>;
+      exactTarget?: never;
+    }
+  | {
+      kind: "exact_target";
+      exactTarget: ThresholdEcdsaChainTarget;
+      targetMemberships?: never;
+    };
+
+type EcdsaRoleLocalMaterialBinding = {
+  thresholdSessionId: ThresholdEcdsaSessionId;
+  keyHandle: EcdsaKeyHandle;
+  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  clientVerifyingPublicKey33B64u: EcdsaClientVerifyingPublicKey33B64u;
+  participantIds: NonEmptyArray<EcdsaParticipantId>;
+  relayerKeyId: EcdsaRelayerKeyId;
+};
+
+type RegisteredEvmFamilySigner = {
+  kind: "registered_evm_family_signer";
+  capability: CapabilityInstanceRef;
+  signerId: EvmFamilyEcdsaSignerId;
+  walletId: WalletId;
+  authority: WalletAuthAuthorityRef;
+  scope: EcdsaCapabilityScope;
+  materialOwner: MpcMaterialOwnerRef;
+  signingRootId: SigningRootId;
+  signingRootVersion: SigningRootVersion;
+  registeredPublicFacts: VerifiedEcdsaPublicFacts;
+  activeSession?: never;
+  durableMaterial?: never;
+  runtime?: never;
+  operationGrant?: never;
+  quotaState?: never;
+  nonceState?: never;
+  bearerSessionCredential?: never;
+};
+
+type ActiveEcdsaMaterialSession = {
+  kind: "active_ecdsa_material_session";
+  thresholdSessionId: ThresholdEcdsaSessionId;
+  serverGeneration: EcdsaServerGeneration;
+  lifecycleBinding: MpcLifecycleBindingRef;
+  retention: "session_retained";
+  thresholdSessionExpiresAt: IsoTimestamp;
+  recoveryPolicy: {
+    kind: "recoverable";
+    remainingRecoveryUses: PositiveInt;
+    recoveryExpiresAt: IsoTimestamp;
+  };
+  operationGrant?: never;
+  quotaState?: never;
+  nonceState?: never;
+  bearerSessionCredential?: never;
+};
+
+type DurableEcdsaMaterialBinding = {
+  kind: "durable_ecdsa_material";
+  materialOwner: MpcMaterialOwnerRef;
+  roleLocalBinding: EcdsaRoleLocalMaterialBinding;
+  durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
+  bindingDigest: EcdsaRoleLocalBindingDigest;
+  lifecycleId: EcdsaLifecycleId;
+  ciphertextDigest: EcdsaCiphertextDigest;
+  activationDigest: EcdsaActivationDigest;
+  activatedAt: IsoTimestamp;
+  materialExpiresAt: IsoTimestamp;
+  runtime?: never;
+};
+
+type ActiveEcdsaCapabilityManifest = {
+  kind: "active_ecdsa_capability_manifest";
+  manifestId: EcdsaCapabilityManifestId;
+  manifestRevision: EcdsaCapabilityManifestRevision;
+  signer: RegisteredEvmFamilySigner;
+  activeSession: ActiveEcdsaMaterialSession;
+  durableMaterial: DurableEcdsaMaterialBinding;
+  serverActivationReceipt: EcdsaServerActivationReceipt;
+  committedAt: IsoTimestamp;
+  publicReauthAnchor?: never;
+  retirement?: never;
+  runtime?: never;
+  operationGrant?: never;
+  quotaState?: never;
+  nonceState?: never;
+  bearerSessionCredential?: never;
+  provenance?: never;
+  diagnostics?: never;
+};
+
+type RetiredEcdsaCapabilityManifestCommon = {
+  manifestId: EcdsaCapabilityManifestId;
+  manifestRevision: EcdsaCapabilityManifestRevision;
+  signer: RegisteredEvmFamilySigner;
+  retiredAt: IsoTimestamp;
+  activeSession?: never;
+  durableMaterial?: never;
+  serverActivationReceipt?: never;
+  runtime?: never;
+  operationGrant?: never;
+  quotaState?: never;
+  nonceState?: never;
+  bearerSessionCredential?: never;
+};
+
+type RetiredEcdsaCapabilityManifest =
+  RetiredEcdsaCapabilityManifestCommon &
+    (
+      | {
+          kind: "reauthorizable_ecdsa_capability_manifest";
+          retirement: "expired" | "exhausted";
+          publicReauthAnchor: MpcCapabilityPublicReauthAnchor;
+        }
+      | {
+          kind: "terminal_ecdsa_capability_manifest";
+          retirement: "revoked" | "replaced";
+          publicReauthAnchor?: never;
+        }
+    );
+
+type EcdsaCapabilityManifest =
+  | ActiveEcdsaCapabilityManifest
+  | RetiredEcdsaCapabilityManifest;
+
+type ActiveEcdsaCapabilityRef = {
+  kind: "active_ecdsa_capability_ref";
+  capability: CapabilityInstanceRef;
+  manifestId: EcdsaCapabilityManifestId;
+  manifestRevision: EcdsaCapabilityManifestRevision;
+  signerId: EvmFamilyEcdsaSignerId;
+  authority: WalletAuthAuthorityRef;
+  materialOwner: MpcMaterialOwnerRef;
+  thresholdSessionId: ThresholdEcdsaSessionId;
+  serverGeneration: EcdsaServerGeneration;
+};
+
+type EcdsaRuntimeObservation =
+  | {
+      kind: "absent";
+      capability: CapabilityInstanceRef;
+      manifestRevision: EcdsaCapabilityManifestRevision;
+      materialOwner?: never;
+      runtime?: never;
+      durableMaterialRef?: never;
+      bindingDigest?: never;
+      validationProof?: never;
+      failure?: never;
+    }
+  | {
+      kind: "live";
+      capability: CapabilityInstanceRef;
+      manifestRevision: EcdsaCapabilityManifestRevision;
+      materialOwner: MpcMaterialOwnerRef;
+      durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
+      bindingDigest: EcdsaRoleLocalBindingDigest;
+      runtime: MpcCapabilityRuntimeRef;
+      validationProof: EcdsaRuntimeValidationProof;
+      failure?: never;
+    }
+  | {
+      kind: "invalid";
+      capability: CapabilityInstanceRef;
+      manifestRevision: EcdsaCapabilityManifestRevision;
+      failure:
+        | "unknown_runtime_handle"
+        | "manifest_revision_mismatch"
+        | "material_ref_mismatch"
+        | "binding_digest_mismatch";
+      materialOwner?: never;
+      durableMaterialRef?: never;
+      bindingDigest?: never;
+      runtime?: never;
+      validationProof?: never;
+    };
+
+type EcdsaCapabilityManifestLookup =
+  | { kind: "active"; manifest: ActiveEcdsaCapabilityManifest }
+  | { kind: "retired"; manifest: RetiredEcdsaCapabilityManifest }
+  | { kind: "missing"; capability: CapabilityInstanceRef }
+  | {
+      kind: "exact_binding_mismatch";
+      capability: CapabilityInstanceRef;
+      failureDigest: DigestB64u;
+    }
+  | {
+      kind: "exact_record_conflict";
+      capability: CapabilityInstanceRef;
+      conflictDigest: DigestB64u;
+    }
+  | {
+      kind: "corrupt";
+      capability: CapabilityInstanceRef;
+      corruptionDigest: DigestB64u;
+    }
+  | {
+      kind: "persistence_unavailable";
+      capability: CapabilityInstanceRef;
+      retryCorrelation: CorrelationId;
+    };
+```
+
+An active manifest always carries exact durable material identity. Volatile
+runtime loss has one legal downgrade: `live -> durable`. A reauthorizable
+retired manifest carries public reauthorization facts; a terminal retired
+manifest carries the revocation or replacement tombstone. Neither carries
+active or recoverable material.
+Missing, mismatch, conflict, corruption, and unavailable storage remain distinct
+terminal parser results until an explicit recovery or maintenance action handles
+them.
+
+Registration, unlock, and reauthorization publish active manifests through one
+activation journal:
+
+```ts
+type EcdsaManifestRevisionExpectation =
+  | { kind: "no_current_manifest" }
+  | {
+      kind: "exact_revision";
+      manifestRevision: EcdsaCapabilityManifestRevision;
+    };
+
+type EcdsaActivationJournalCommon = {
+  journalId: CorrelationId;
+  capability: CapabilityInstanceRef;
+  signerId: EvmFamilyEcdsaSignerId;
+  authority: WalletAuthAuthorityRef;
+  materialOwner: MpcMaterialOwnerRef;
+  expectedManifest: EcdsaManifestRevisionExpectation;
+  activationRequestDigest: DigestB64u;
+  candidateMaterial: DurableEcdsaMaterialBinding;
+  createdAt: IsoTimestamp;
+};
+
+type EcdsaCapabilityActivationCommitJournal =
+  EcdsaActivationJournalCommon &
+    (
+      | {
+          kind: "activation_prepared";
+          serverGeneration?: never;
+          serverActivationReceipt?: never;
+          manifestRevision?: never;
+          readbackProof?: never;
+        }
+      | {
+          kind: "server_activation_committed";
+          serverGeneration: EcdsaServerGeneration;
+          serverActivationReceipt: EcdsaServerActivationReceipt;
+          manifestRevision?: never;
+          readbackProof?: never;
+        }
+      | {
+          kind: "local_commit_readback_pending";
+          serverGeneration: EcdsaServerGeneration;
+          serverActivationReceipt: EcdsaServerActivationReceipt;
+          manifestRevision: EcdsaCapabilityManifestRevision;
+          readbackProof?: never;
+        }
+      | {
+          kind: "runtime_publication_pending";
+          serverGeneration: EcdsaServerGeneration;
+          serverActivationReceipt: EcdsaServerActivationReceipt;
+          manifestRevision: EcdsaCapabilityManifestRevision;
+          readbackProof: EcdsaManifestReadbackProof;
+        }
+    );
+```
+
+The journal is persisted before the first consuming server effect. Server
+activation is idempotent by `journalId`. Encrypted material plus the active
+manifest commit in one IndexedDB transaction, followed by exact authenticated
+read-back. Runtime publication follows read-back and is validated against the
+manifest revision, durable material ref, and binding digest. Reload reconciles
+the exact pending journal before ordinary capability discovery. A partial commit
+cannot construct `use_live_runtime`, `rehydrate_active_session`, or an operation
+lane.
+
+Exact operation selection begins from the active capability ref and keeps
+operation authorization and quota independent from material identity:
+
+```ts
+type MpcOperationQuotaBinding =
+  | {
+      kind: "required";
+      quota: SpendableMpcWalletSigningQuotaRef;
+    }
+  | {
+      kind: "none";
+      quota?: never;
+    };
+
+type EcdsaOperationTarget =
+  | {
+      kind: "transaction_target";
+      chainTarget: ThresholdEcdsaChainTarget;
+      materialOwner?: never;
+    }
+  | {
+      kind: "material_owner";
+      materialOwner: MpcMaterialOwnerRef;
+      chainTarget?: never;
+    };
+
+declare const exactEcdsaOperationLaneBrand: unique symbol;
+
+type ExactEcdsaOperationLane = {
+  readonly [exactEcdsaOperationLaneBrand]: true;
+  capability: ActiveEcdsaCapabilityRef;
+  operation: CapabilityOperationEnvelope;
+  target: EcdsaOperationTarget;
+  authorization: VerifiedCapabilityOperationAuthorizationRef;
+  quota: MpcOperationQuotaBinding;
+  runtime?: never;
+  bearerSessionCredential?: never;
+  nonceState?: never;
+};
+```
+
+The operation-descriptor builder correlates operation kind, target kind, and
+quota requirement before branding the lane. The same branded lane travels
+through recovery, authorization, quota claim, nonce preparation, signing or
+export, and finalization. Shared EVM-family projection may reuse only signer,
+scope, authority, material-owner, and durable material facts allowed by the
+manifest. It cannot project a threshold session, operation grant, quota use,
+bearer credential, nonce, or runtime handle.
+
+Core ECDSA types have no optional identity, authority, session, material,
+recovery, persistence, signing, export, or lifecycle fields. Discriminated
+branches use required fields plus `never` exclusions. Boundary builders and
+parsers are the only constructors for branded values. The implementation
+deletes `ThresholdEcdsaSessionRecordCore`, its normalized variants, optional-field
+state inference, source-priority ranking, newest-record selection, and
+flow-specific registration/unlock/refresh records when this model lands.
+
 ### Auth-Agnostic EVM ECDSA Preparation
 
 Auth factors do not define ECDSA transaction lanes or signer-material lifecycle
@@ -3659,7 +4144,7 @@ Default vault item model:
 MPC capability tables stay in their modules:
 
 - Ed25519 signer tables under `capability-near-ed25519-mpc`.
-- ECDSA signer, HSS, threshold-session, and export tables under
+- ECDSA signer, Router A/B derivation, threshold-session, and export tables under
   `capability-evm-ecdsa-mpc`.
 - Shared wallet-authority bindings used by both MPC capabilities have this
   logical shape:
@@ -3688,6 +4173,92 @@ Active wallet-authority bindings are unique by wallet and authority digest.
 Signing-lane, sealed-session, recovery, export, and admission records reference
 `wallet_auth_method_id` plus `authority_digest`; they never reconstruct an
 authority from provider subjects or credential fields.
+
+The ECDSA server adapter owns registered capability authority and the current
+server generation. D1 and DO may divide durable registration facts from
+threshold-session coordination internally, but their verified activation receipt
+is one boundary result with this logical identity:
+
+```text
+mpc_ecdsa_capability_generations(
+  namespace,
+  tenant_id,
+  capability_id,
+  signer_id,
+  wallet_id,
+  wallet_auth_method_id,
+  authority_digest,
+  threshold_session_id,
+  server_generation,
+  lifecycle_kind,             -- active | expired | exhausted | revoked | replaced
+  scope_digest,
+  registered_public_key_digest,
+  material_binding_digest,
+  activation_correlation_id,
+  activation_receipt,
+  activated_at_ms,
+  retired_at_ms
+)
+```
+
+The active tuple is unique by namespace, tenant, capability, signer, and exact
+authority. Activation and replacement are compare-and-swap operations over the
+expected server generation and idempotent by `activation_correlation_id`.
+Conflict, missing authority, retired authority, and unavailable server storage
+are distinct boundary results. The server does not report browser material as
+live or restorable.
+
+Browser ECDSA persistence uses one capability database and one owning adapter
+with these object stores:
+
+```text
+ecdsa_capability_manifests
+  key: [capability_ref, authority_ref]
+  value: ActiveEcdsaCapabilityManifest | RetiredEcdsaCapabilityManifest
+
+ecdsa_role_local_material
+  key: durable_material_ref
+  value: {
+    binding_digest,
+    lifecycle_id,
+    ciphertext_digest,
+    activation_digest,
+    activated_at,
+    material_expires_at,
+    iv,
+    ciphertext
+  }
+
+ecdsa_activation_commit_journals
+  key: journal_id
+  value: EcdsaCapabilityActivationCommitJournal
+
+ecdsa_material_sealing_keys
+  key: key_id
+  value: non_extractable CryptoKey
+```
+
+The encrypted material row and active manifest row commit in one IndexedDB
+transaction. The manifest's `durableMaterialRef`, binding digest, lifecycle ID,
+ciphertext digest, activation digest, and expiry must equal the authenticated
+material header read through the same adapter. A missing row is `missing`; a
+different exact binding is `exact_binding_mismatch`; duplicate current manifests
+are `exact_record_conflict`; invalid authenticated data is `corrupt`; I/O failure
+is `persistence_unavailable`.
+
+The activation journal is written before the first consuming server effect and
+is reconciled before ordinary manifest discovery after reload. Its server receipt
+and local manifest revision advance monotonically. Runtime publication follows
+authenticated manifest/material read-back and never participates in the
+IndexedDB transaction. Browser/worker memory cannot make a partially committed
+manifest ready.
+
+These records exclude operation grants, wallet quotas, nonce state, bearer
+credentials, provider subjects, provenance source, diagnostics, and live worker
+handles. Those domains join only after exact manifest and runtime resolution.
+The migration rejects and clears obsolete ECDSA session-record stores at this
+boundary. There is no dual-schema reader and no current-record selection by
+timestamp or source priority.
 
 Existing console tables need either migrations or replacement views for the new
 domain:
