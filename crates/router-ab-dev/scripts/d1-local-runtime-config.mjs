@@ -1,14 +1,23 @@
-import { createPrivateKey, createPublicKey, timingSafeEqual } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  createPrivateKey,
+  createPublicKey,
+  generateKeyPairSync,
+  timingSafeEqual,
+} from 'node:crypto';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+
+import { localPeerVerifyingKeyHex } from './router-ab-local-key-material.mjs';
 
 const X25519_PKCS8_PREFIX = Buffer.from('302e020100300506032b656e04220420', 'hex');
 const X25519_SPKI_PREFIX = Buffer.from('302a300506032b656e032100', 'hex');
+const LOCAL_ROUTER_ID = 'local-router';
+const LOCAL_SIGNER_SET_ID = 'signer-set-v1';
+const LOCAL_SIGNER_KEY_EPOCH = 'epoch-1';
+const LOCAL_CEREMONY_JWT_AUDIENCE = 'router-ab';
+const LOCAL_CEREMONY_JWT_KEY_ID = 'local-router-ab-r1';
 
 const ROUTER_RUNTIME_ASSIGNMENTS = Object.freeze([
-  'DERIVER_A_URL',
-  'DERIVER_B_URL',
-  'SIGNING_WORKER_URL',
   'SIGNING_WORKER_ID',
   'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
   'DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY',
@@ -19,6 +28,7 @@ const ROUTER_RUNTIME_ASSIGNMENTS = Object.freeze([
 export function prepareRouterAbD1LocalRuntimeConfig(input) {
   const repoRoot = path.resolve(input.repoRoot);
   const localEnvRoot = path.resolve(input.localEnvRoot ?? repoRoot);
+  const workerUrls = parseWorkerUrls(input.workerUrls);
   const sourceConfigPath = path.resolve(
     input.sourceConfigPath ??
       path.join(repoRoot, 'packages/console-server-ts/wrangler.d1-local.toml'),
@@ -34,7 +44,7 @@ export function prepareRouterAbD1LocalRuntimeConfig(input) {
     path.join(localEnvRoot, '.env.router-ab.signing-worker.local'),
   );
 
-  assertRuntimeUrlsAgree(routerEnv, deriverAEnv, deriverBEnv, signingWorkerEnv);
+  assertEqualEnv(routerEnv, 'SIGNING_WORKER_ID', signingWorkerEnv, 'SIGNING_WORKER_ID');
   assertRuntimeHpkeKeysAgree(routerEnv, deriverAEnv, deriverBEnv, signingWorkerEnv);
 
   let runtimeConfig = applyRuntimePaths(
@@ -45,6 +55,18 @@ export function prepareRouterAbD1LocalRuntimeConfig(input) {
   for (const key of ROUTER_RUNTIME_ASSIGNMENTS) {
     runtimeConfig = replaceTomlAssignment(runtimeConfig, key, requiredEnv(routerEnv, key));
   }
+  runtimeConfig = replaceTomlAssignment(runtimeConfig, 'DERIVER_A_URL', workerUrls.deriverA);
+  runtimeConfig = replaceTomlAssignment(runtimeConfig, 'DERIVER_B_URL', workerUrls.deriverB);
+  runtimeConfig = replaceTomlAssignment(
+    runtimeConfig,
+    'SIGNING_WORKER_URL',
+    workerUrls.signingWorker,
+  );
+  runtimeConfig = replaceTomlAssignment(
+    runtimeConfig,
+    'ROUTER_AB_SIGNING_WORKER_URL',
+    workerUrls.signingWorker,
+  );
   runtimeConfig = replaceTomlAssignment(
     runtimeConfig,
     'DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY',
@@ -55,10 +77,142 @@ export function prepareRouterAbD1LocalRuntimeConfig(input) {
     'DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY',
     requiredEnv(routerEnv, 'DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY'),
   );
+  runtimeConfig = replaceTomlAssignment(
+    runtimeConfig,
+    'DERIVER_A_PEER_VERIFYING_KEY_HEX',
+    localPeerVerifyingKeyHex(requiredEnv(deriverAEnv, 'DERIVER_A_PEER_SIGNING_KEY')),
+  );
+  runtimeConfig = replaceTomlAssignment(
+    runtimeConfig,
+    'DERIVER_B_PEER_VERIFYING_KEY_HEX',
+    localPeerVerifyingKeyHex(requiredEnv(deriverBEnv, 'DERIVER_B_PEER_SIGNING_KEY')),
+  );
+  runtimeConfig = replaceTomlAssignment(
+    runtimeConfig,
+    'GATEWAY_PUBLIC_URL',
+    requiredEnv(routerEnv, 'GATEWAY_PUBLIC_URL'),
+  );
+  runtimeConfig = replaceTomlAssignment(
+    runtimeConfig,
+    'ROUTER_AB_MPC_ROUTER_URL',
+    workerUrls.mpcRouter,
+  );
+  runtimeConfig = replaceTomlAssignment(
+    runtimeConfig,
+    'ROUTER_AB_CEREMONY_JWT_ISSUER',
+    requiredEnv(routerEnv, 'GATEWAY_PUBLIC_URL'),
+  );
+  runtimeConfig = replaceTomlAssignment(
+    runtimeConfig,
+    'ROUTER_AB_CEREMONY_JWT_AUDIENCE',
+    LOCAL_CEREMONY_JWT_AUDIENCE,
+  );
+  runtimeConfig = replaceTomlAssignment(
+    runtimeConfig,
+    'ROUTER_AB_CEREMONY_JWT_KEY_ID',
+    LOCAL_CEREMONY_JWT_KEY_ID,
+  );
+  runtimeConfig = replaceTomlAssignment(
+    runtimeConfig,
+    'ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK',
+    resolveLocalCeremonyPrivateJwkJson(outputConfigPath),
+  );
+  runtimeConfig = replaceTomlAssignment(
+    runtimeConfig,
+    'ROUTER_AB_ECDSA_REGISTRATION_TOPOLOGY_JSON',
+    createLocalEcdsaRegistrationTopologyJson({
+      routerEnv,
+      signingWorkerEnv,
+    }),
+  );
 
   mkdirSync(path.dirname(outputConfigPath), { recursive: true });
   writeFileSync(outputConfigPath, runtimeConfig, { mode: 0o600 });
+  chmodSync(outputConfigPath, 0o600);
   return Object.freeze({ outputConfigPath });
+}
+
+function createLocalCeremonyPrivateJwkJson() {
+  const { privateKey } = generateKeyPairSync('ed25519');
+  return JSON.stringify(privateKey.export({ format: 'jwk' }));
+}
+
+function resolveLocalCeremonyPrivateJwkJson(outputConfigPath) {
+  if (!existsSync(outputConfigPath)) return createLocalCeremonyPrivateJwkJson();
+  const source = readFileSync(outputConfigPath, 'utf8');
+  let assignment;
+  for (const line of source.split(/\r?\n/)) {
+    if (line.startsWith('ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK = ')) {
+      assignment = line;
+      break;
+    }
+  }
+  if (!assignment) {
+    throw new Error('existing D1 local Wrangler config is missing ceremony JWT private JWK');
+  }
+  let jwkJson;
+  let jwk;
+  try {
+    jwkJson = JSON.parse(assignment.slice(assignment.indexOf('=') + 1).trim());
+    jwk = JSON.parse(jwkJson);
+  } catch {
+    throw new Error('existing D1 local ceremony JWT private JWK is invalid');
+  }
+  if (
+    typeof jwk !== 'object' ||
+    jwk === null ||
+    Array.isArray(jwk) ||
+    jwk.kty !== 'OKP' ||
+    jwk.crv !== 'Ed25519' ||
+    typeof jwk.x !== 'string' ||
+    !jwk.x ||
+    typeof jwk.d !== 'string' ||
+    !jwk.d
+  ) {
+    throw new Error('existing D1 local ceremony JWT private JWK has an invalid shape');
+  }
+  return JSON.stringify(jwk);
+}
+
+function createLocalEcdsaRegistrationTopologyJson(input) {
+  const signingWorkerKeyEpoch = requiredEnv(input.signingWorkerEnv, 'SIGNING_WORKER_KEY_EPOCH');
+  return JSON.stringify({
+    routerId: LOCAL_ROUTER_ID,
+    signerSet: {
+      signer_set_id: LOCAL_SIGNER_SET_ID,
+      policy: 'all_2',
+      signer_a: {
+        role: 'signer_a',
+        signer_id: 'signer-a',
+        key_epoch: LOCAL_SIGNER_KEY_EPOCH,
+      },
+      signer_b: {
+        role: 'signer_b',
+        signer_id: 'signer-b',
+        key_epoch: LOCAL_SIGNER_KEY_EPOCH,
+      },
+      selected_server: {
+        server_id: requiredEnv(input.signingWorkerEnv, 'SIGNING_WORKER_ID'),
+        key_epoch: signingWorkerKeyEpoch,
+        recipient_encryption_key: requiredEnv(
+          input.signingWorkerEnv,
+          'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
+        ),
+      },
+    },
+    deriverRecipientKeys: {
+      deriver_a: {
+        role: 'signer_a',
+        key_epoch: LOCAL_SIGNER_KEY_EPOCH,
+        public_key: requiredEnv(input.routerEnv, 'DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY'),
+      },
+      deriver_b: {
+        role: 'signer_b',
+        key_epoch: LOCAL_SIGNER_KEY_EPOCH,
+        public_key: requiredEnv(input.routerEnv, 'DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY'),
+      },
+    },
+  });
 }
 
 function readEnvMap(filePath) {
@@ -84,11 +238,27 @@ function requiredEnv(env, key) {
   return value.trim();
 }
 
-function assertRuntimeUrlsAgree(router, deriverA, deriverB, signingWorker) {
-  assertEqualEnv(router, 'DERIVER_A_URL', deriverA, 'DERIVER_A_URL');
-  assertEqualEnv(router, 'DERIVER_B_URL', deriverB, 'DERIVER_B_URL');
-  assertEqualEnv(router, 'SIGNING_WORKER_URL', signingWorker, 'SIGNING_WORKER_URL');
-  assertEqualEnv(router, 'SIGNING_WORKER_ID', signingWorker, 'SIGNING_WORKER_ID');
+function parseWorkerUrls(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Router A/B local runtime requires production worker URLs');
+  }
+  return Object.freeze({
+    mpcRouter: parseWorkerUrl(value.mpcRouter, 'MPC Router'),
+    deriverA: parseWorkerUrl(value.deriverA, 'Deriver A'),
+    deriverB: parseWorkerUrl(value.deriverB, 'Deriver B'),
+    signingWorker: parseWorkerUrl(value.signingWorker, 'SigningWorker'),
+  });
+}
+
+function parseWorkerUrl(value, label) {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error(`${label} local worker URL is required`);
+  }
+  const parsed = new URL(value);
+  if (parsed.protocol !== 'http:' || parsed.pathname !== '/' || parsed.search || parsed.hash) {
+    throw new Error(`${label} local worker URL must be an HTTP origin`);
+  }
+  return parsed.origin;
 }
 
 function assertRuntimeHpkeKeysAgree(router, deriverA, deriverB, signingWorker) {
