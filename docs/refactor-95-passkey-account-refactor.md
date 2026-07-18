@@ -13,6 +13,9 @@ production gates in [yaos-ab.md](./yaos-ab.md).
 This plan owns passkey-controlled client custody. It supplies custody records
 and worker APIs consumed by:
 
+- [refactor-90-modular-auth-capabilities-plan.md](./refactor-90-modular-auth-capabilities-plan.md)
+  for canonical active ECDSA capability manifests, browser persistence,
+  activation commits, hydration, and exact operation-lane selection;
 - [refactor-96-delegate-wallets.md](./refactor-96-delegate-wallets.md) for
   `WalletKey`, `SigningLane`, and enrollment identity;
 - [refactor-97-share-rotation.md](./refactor-97-share-rotation.md) for
@@ -68,6 +71,21 @@ lane holder share after this refactor.
 8. Development data created by superseded custody designs is deleted. No
    legacy deterministic-share branch, feature flag, or compatibility lifecycle
    enters core logic.
+9. Active passkey custody envelopes are available from an authenticated
+   server-side ciphertext store. Browser IndexedDB may cache them, but a
+   browser-only record is never the cross-device source of truth.
+10. A synced passkey cold unlock reuses the same RP ID, credential ID, PRF,
+    custody secret, and active envelope. It creates neither a replacement
+    credential nor a recovery-code consumption.
+11. Refactor 95 owns portable encrypted custody and factor-specific unwrap.
+    Refactor 90 owns the active local ECDSA manifest, encrypted role-local
+    material, activation journal, and post-effect hydration result. Neither
+    refactor may introduce a second owner for the other's state.
+12. ECDSA cold unlock and recovery preserve the registered public key, address,
+    material owner, key slot, and participant binding. They may create a fresh
+    threshold session and server generation; an old grant, quota, bearer
+    credential, nonce, or threshold-session ID is never copied as durable key
+    identity.
 
 ## Current Seams SDK State
 
@@ -204,8 +222,10 @@ type PasskeyCustodyEnvelopeRecord = {
   credentialIdB64u: string;
   passkeyEnvelopeVersion: 'passkey_custody_envelope_v1';
   passkeyKekVersion: 'passkey_prf_kek_hkdf_sha256_v1';
+  envelopeRevision: number;
   nonceB64u: string;
   sealedCustodySecretB64u: string;
+  ciphertextDigestB64u: string;
   aadHashB64u: string;
   lifecycle: PasskeyCustodyEnvelopeLifecycle;
   createdAtMs: number;
@@ -215,6 +235,26 @@ type PasskeyCustodyEnvelopeRecord = {
 
 The record stores ciphertext and public binding data. It cannot store a raw
 secret, PRF output, KEK, recovery code, or live capability handle.
+
+The canonical portable envelope is stored server-side so a browser with no
+prior IndexedDB state can retrieve it after an exact WebAuthn assertion. The
+server store is opaque custody storage: it validates credential, wallet,
+envelope lifecycle, revision, and ciphertext/public-binding digests, but cannot
+open the envelope or report its plaintext as live. A browser cache is
+non-authoritative and must match the exact server envelope revision and digest
+before use.
+
+Envelope retrieval requires a server-verified assertion for the exact wallet,
+RP ID, credential ID, operation challenge, and active credential binding. The
+PRF result is removed before the assertion crosses the worker boundary. Only
+the secure worker receives the PRF result, derives the KEK, and opens the
+returned ciphertext.
+
+Registration records WebAuthn PRF support plus the credential backup-eligibility
+and backup-state observations. Backup flags are advisory credential metadata;
+they do not prove that a provider will return the same PRF on another device.
+Cross-device custody is enabled only after an actual PRF result has sealed the
+server-held envelope. Cold unlock still requires a successful PRF result.
 
 ## Recovery Envelope Set
 
@@ -298,7 +338,9 @@ arbitrary AAD blob.
 7. Seal every client root under the passkey KEK.
 8. Create the recovery envelope sets from the same roots.
 9. Commit wallet keys, lanes, envelopes, recovery sets, public capability
-   projections, and the Wallet Session grant in one registration commit.
+   projections, and the Wallet Session grant through one journaled registration
+   commit. Server-held portable envelopes must be committed before registration
+   reports cross-device custody ready.
 10. Zeroize root and PRF inputs on every exit.
 
 The Yao Client-root source becomes a precise union with a generated-random-root
@@ -306,8 +348,9 @@ branch. The PRF-derived-root branch is deleted when this flow lands.
 
 ## Unlock And Ordinary Signing
 
-1. Resolve the exact active passkey envelope set for the requested wallet and
-   credential.
+1. Resolve the exact active server-held passkey envelope set for the requested
+   wallet and credential. A matching browser cache may satisfy the ciphertext
+   read only after exact revision and digest validation.
 2. Run WebAuthn and derive the passkey KEK inside the worker.
 3. Open only the custody entries required by the requested lane and key.
 4. Convert opened material into opaque Rust/WASM handles:
@@ -322,17 +365,58 @@ Ordinary ECDSA signing performs no role-local root derivation after the live
 capability is ready. Warm sessions retain opaque handles with bounded TTL and
 uses. They never cache PRF output or plaintext roots in JavaScript.
 
-## Passkey Recovery Flow
+## Synced-Passkey Cold Unlock
 
-1. Authenticate the wallet recovery request with Email OTP or one unused
-   recovery code.
+Passkey-provider synchronization is a cold-unlock path, not credential
+replacement. It applies when the same credential is available on a browser or
+device with no prior Seams IndexedDB state.
+
+1. Resolve the active credential and envelope manifest from the server by wallet
+   and exact credential identity.
+2. Run WebAuthn at the wallet RP ID with the exact credential and versioned PRF
+   input. Keep the PRF result in the secure worker while sending only the
+   PRF-redacted assertion for server verification.
+3. After successful assertion verification, fetch the exact active ciphertext,
+   envelope revision, public binding, and digest.
+4. Derive the same passkey KEK and open the existing custody entries. Do not run
+   deterministic PRF-root derivation and do not create a new passkey envelope.
+5. Verify every opened root against the registered Ed25519 public key or ECDSA
+   public key, address, material-owner, key-slot, participant, and lifecycle
+   binding before publication.
+6. Feed each verified capability into its canonical activation boundary. ECDSA
+   uses the Refactor 90 activation journal and exact read-back path; Ed25519 uses
+   the corresponding Yao publication/durability boundary.
+7. Mint or activate fresh threshold sessions, grants, quotas, and server
+   generations where policy requires them. These rotating facts are never
+   recovered from the portable custody envelope.
+8. Report success only after exact canonical re-resolution is sign-ready for
+   every requested capability. A partial mixed-wallet unlock cannot publish a
+   shortcut ready record for its successful companion.
+
+This flow requires no recovery code, Email OTP recovery, new credential,
+credential tombstone, or linked-device lane. Missing, conflicting, revoked,
+unsupported-PRF, digest-mismatched, and unavailable envelope states fail
+explicitly; none fall back to fresh share derivation.
+
+Provider synchronization and hybrid "use another device" authentication are
+separate compatibility cases. Supporting one does not imply that the other
+returns a usable PRF result. Test and report them independently; when PRF
+evaluation is unavailable, route to recovery-code recovery or explicit device
+linking rather than changing the custody root.
+
+## Credential-Replacement Recovery Flow
+
+1. Authorize the wallet recovery request with Email OTP, then supply one unused
+   recovery code as the custody-envelope unwrap factor.
 2. Reserve the recovery code and resolve its exact key manifest.
 3. Open every recovery-wrapped custody entry inside the recovery worker.
 4. Create the replacement passkey and its KEK.
 5. Run Ed25519 Yao same-root recovery for each Ed25519 root entry.
 6. Rebind and reactivate each ECDSA client-root entry while preserving the
-   threshold public key, address, key slot, participants, and active session
-   identity required by the ECDSA lifecycle.
+   threshold public key, address, material owner, key slot, participants, and
+   registered lifecycle identity. Activate a fresh threshold session and server
+   generation when required; do not copy the prior threshold-session ID, grant,
+   quota, bearer credential, or nonce state.
 7. Seal every custody entry under the replacement passkey KEK.
 8. Verify identity continuity for the complete manifest.
 9. Atomically activate the replacement envelope set, tombstone the prior
@@ -342,7 +426,7 @@ uses. They never cache PRF output or plaintext roots in JavaScript.
 Recovery never creates a new wallet key, key-creation signer slot, registered
 Ed25519 public key, EVM address, or EVM-family key slot.
 
-## Passkey Addition And Linked Devices
+## Additional Credentials And Linked Devices
 
 Adding another passkey envelope to an existing owner lane keeps:
 
@@ -354,8 +438,15 @@ same custody secret
 new credential and envelope IDs
 ```
 
-Use this for synced credentials, hardware authenticators, and credential
-replacement on the same owner lane.
+Use this for an additional platform passkey, hardware authenticator, or
+credential replacement on the same owner lane. A new credential has a distinct
+credential ID and PRF, so an already authorized owner factor, recovery factor,
+or linked-device protocol must open the existing custody secret before it can
+be resealed under the new credential's KEK.
+
+Do not use this transition for ordinary passkey-provider synchronization.
+Synchronization makes the same credential and PRF available on another device;
+the synced-passkey cold-unlock flow reuses its existing active envelope.
 
 QR-linked device creation keeps the wallet keys and creates:
 
@@ -396,21 +487,36 @@ and product behavior.
 - [ ] Implement passkey KEK derivation inside Rust/WASM.
 - [ ] Implement authenticated seal/open for every custody-secret branch.
 - [ ] Implement wallet recovery envelope sets and recovery-code reservation.
+- [ ] Implement the server-side opaque passkey-envelope store with exact
+      credential, wallet, lifecycle, revision, and digest lookup results.
+- [ ] Implement authenticated envelope retrieval that verifies the WebAuthn
+      assertion while keeping PRF output inside the secure worker.
+- [ ] Persist PRF support and WebAuthn backup observations without treating
+      backup eligibility or backup state as proof of cross-device PRF
+      continuity.
 - [ ] Add AAD substitution and ciphertext tamper tests.
 
 ### Phase 2: Random-Root Registration
 
 - [ ] Add generated-random Client-root input to Yao registration.
 - [ ] Add generated-random client-root-share input to ECDSA derivation.
-- [ ] Commit mixed-wallet envelope sets with the registration result.
+- [ ] Commit server-held mixed-wallet passkey envelopes and recovery envelope
+      sets with the registration result.
 - [ ] Delete PRF-derived signing-root paths after replacement.
 
 ### Phase 3: Unlock And Signing
 
 - [ ] Open custody entries into opaque worker handles.
+- [ ] Implement synced-passkey cold unlock from a new browser with empty
+      IndexedDB by retrieving and opening the existing server-held envelope.
+- [ ] Prove synced cold unlock uses the same credential and envelope without
+      creating a credential or consuming a recovery code.
+- [ ] Hand verified ECDSA custody material to the Refactor 90 activation journal
+      and read-back path; do not write a second active ECDSA persistence record.
 - [ ] Bind handles to wallet key, lane, epoch, participant set, grant, and TTL.
 - [ ] Preserve zero-Deriver ordinary Ed25519 signing.
-- [ ] Preserve exact ECDSA threshold-session and public-identity binding.
+- [ ] Preserve exact ECDSA public and material identity while allowing a fresh
+      threshold session and server generation.
 
 ### Phase 4: Wallet-Scoped Recovery
 
@@ -447,7 +553,18 @@ Focused behavior tests:
 
 - mixed Ed25519/ECDSA registration seals every required root;
 - unlock produces valid signatures for NEAR, Tempo, and Arc/EVM;
+- a new browser with empty IndexedDB can use the same synced credential to
+  retrieve the server-held envelope, restore exact custody material, activate
+  canonical local state, and sign without a recovery code;
+- synced cold unlock preserves credential and envelope IDs while allowing
+  threshold-session and server-generation rotation;
+- missing, conflicting, revoked, unsupported-PRF, digest-mismatched, and
+  unavailable synced envelopes fail explicitly and never rederive a root;
+- provider-synchronized cold unlock and hybrid cross-device authentication have
+  separate PRF compatibility coverage and fallback results;
 - passkey addition preserves the lane and wallet public identities;
+- passkey addition creates a distinct credential and envelope, unlike
+  passkey-provider synchronization;
 - Email OTP and recovery-code recovery preserve every wallet key;
 - partial mixed-wallet recovery never promotes the replacement credential;
 - code replay, wrong wallet, wrong key manifest, wrong RP, wrong credential,
@@ -483,5 +600,10 @@ Broad gate:
 - Freeze whether a recovery code wraps each manifest entry directly or wraps a
   manifest KEK that encrypts the entries. Both designs must preserve per-entry
   AAD and all-or-nothing promotion.
+- Freeze the server-side passkey-envelope schema, revision/CAS rules, retention,
+  authenticated retrieval result, and revocation behavior.
+- Freeze the exact ownership handoff from an opened Refactor 95 ECDSA custody
+  handle into the Refactor 90 activation input, commit journal, manifest
+  read-back, and hydration result.
 - Define the durable transaction boundary for wallet registration and recovery
   across Router records, SigningWorker activation, and browser persistence.

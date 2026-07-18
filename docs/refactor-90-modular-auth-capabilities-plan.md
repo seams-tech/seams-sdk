@@ -22,10 +22,15 @@ unlock, and post-page-refresh capability material access were unified behind one
 protocol-neutral hydration plan. Active runtime use, active-session sealed
 rehydration, and expired/exhausted public-reauth reprovisioning are distinct
 closed branches shared by signing, step-up, and export.
+ECDSA state convergence review: July 18, 2026 — replacement of the broad
+`ThresholdEcdsaSessionRecordCore` aggregate, one durable ECDSA capability
+manifest, one local commit protocol, and one exact transition path were added as
+a Refactor 90 pre-phase.
 
-Status: Phases 1, 2, and 3 are complete. The lifecycle pre-phase is planning and
-gates Phase 4 closure plus Phases 19 and 23. Phases 4 and 5 are in progress.
-Phase 6 onward is planning.
+Status: Phases 1, 2, and 3 are complete. The lifecycle pre-phase is in progress,
+and the ECDSA state/persistence pre-phase is planning. Both gate Phase 4 and
+Phase 5 closure plus Phases 19 and 23. Phases 4 and 5 are in progress. Phase 6
+onward is planning.
 
 Companion spec: [Modular Auth And Capability Refactor SPEC](./refactor-90-modular-auth-capabilities-SPEC.md).
 
@@ -92,6 +97,17 @@ same closed `use_live_runtime`, `rehydrate_active_session`,
 security branch. Current canonical runtime, session, sealed-material, and public-
 reauth state select it. The public-anchor branch carries no reusable secret,
 sealed ciphertext, bearer session authority, or live runtime handle.
+
+The July 18 ECDSA state/persistence pre-phase adds a second gate. The SPEC must
+replace `ThresholdEcdsaSessionRecordCore` with linked required-field aggregates
+for registered signer identity, capability scope, exact wallet authority, active
+material-session authority, durable material binding, volatile runtime
+observation, retired public anchor, and exact operation lane. One durable active
+capability manifest binds those facts. Registration and unlock publish it through
+one commit protocol; refresh reads it through one exact parser. Core selection,
+hydration, recovery, signing, and export cannot accept the old optional aggregate,
+raw persistence rows, source-priority candidates, or entry-point-specific
+reconstructions.
 
 ## Decided Architecture Points
 
@@ -366,6 +382,17 @@ here.
     sealed-rehydratable, public-reauth, and blocked capability branches at the
     same time. Registration and unlock must publish the same canonical inventory
     that a subsequent page refresh reads.
+27. **ECDSA capability state has one durable owner.** The browser persists one
+    exact active ECDSA capability manifest beside its encrypted role-local
+    material binding. The manifest contains required signer, scope, authority,
+    material-session, server-generation, durable material ref, and binding-digest
+    facts. It contains no bearer credential, operation grant, wallet quota, nonce,
+    provenance source, diagnostics, or live worker handle. Runtime readiness is a
+    separate volatile observation validated against the manifest revision and
+    material binding. Registration, unlock, refresh, recovery, signing, and export
+    consume boundary-parsed manifest state and fail closed on missing, ambiguous,
+    corrupt, mismatched, or unavailable persistence. Cross-store publication uses
+    one explicit commit journal and never treats a partial write as ready.
 
 ## Implementation Rules
 
@@ -407,8 +434,9 @@ here.
   methods, capabilities, and policies.
 - New vocabulary lands in new modules first. Wallet-touching renames wait for
   Slice B, after Slice A has proven the model.
-- Resolve MPC capability hydration from canonical current state through the lifecycle
-  pre-phase union. Registration, unlock, and refresh may supply provenance to
+- Resolve MPC capability hydration from canonical current state through the
+  Pre-Phase 4/19A union and, for ECDSA, only from the Pre-Phase 4/19B manifest
+  plus runtime observation. Registration, unlock, and refresh may supply provenance to
   diagnostics and tests; they cannot select separate recovery implementations.
 - When moving code, name the target owner from the Simplified End State tree so
   files land once. Do not create intermediate homes that a later phase must
@@ -455,6 +483,9 @@ capability/
       yaoRecovery
       yaoRootMaterialAdapters
   evmEcdsaMpc
+    capabilityManifest
+    activationCommitJournal
+    capabilityPersistence
     operationPreparation
     roleLocalMaterial
   idpAccess
@@ -483,7 +514,8 @@ these internal module boundaries are stable.
 
 | Phase | Contents | Status |
 | -------------- | --------------------------------------------------- | ----------- |
-| Pre-Phase 4/19 | Canonical MPC capability hydration lifecycle        | Planning    |
+| Pre-Phase 4/19A | Canonical MPC capability hydration lifecycle       | In progress |
+| Pre-Phase 4/19B | Canonical ECDSA capability state and persistence   | Planning    |
 | Phase 1 | Signer-set registration cut | Complete |
 | Phase 2 | Wallet-rooted confirmation subjects | Complete |
 | Phase 3 | AuthService mechanical module split | Complete |
@@ -517,9 +549,11 @@ proceed while Phase 6 builds the inventory ledger. Phase 7 must not start until
 that ledger exists. Phase 8 consumes the Phase 7 vocabulary and therefore starts
 after Phase 7; Refactor 86 hosted-asset work may proceed independently until the
 SDK config cut is ready.
-The lifecycle pre-phase may proceed beside Phase 4, then must close before Phase
-4 closes or Phase 19/23 begins. It defines the canonical state model that those
-phases consume; it does not migrate capability implementations by itself.
+The lifecycle and ECDSA state/persistence pre-phases may proceed beside Phase 4
+and Phase 5. Both must close before either tactical phase closes or Phase 19/23
+begins. Pre-Phase 4/19A defines the shared hydration outcome. Pre-Phase 4/19B
+defines the exact ECDSA inputs, persistence owner, and transitions that construct
+that outcome.
 
 ## Phase Mapping
 
@@ -528,7 +562,8 @@ documents:
 
 | Old phase | New home |
 | ---------------------------------------------- | ------------------------------------------------------------------ |
-| July 16 lifecycle convergence review           | Pre-Phase 4/19 + Phases 4, 19, and 23                              |
+| July 16 lifecycle convergence review           | Pre-Phase 4/19A + Phases 4, 19, and 23                             |
+| July 18 ECDSA state convergence review         | Pre-Phase 4/19B + Phases 5, 17, 18, 19, and 23                     |
 | Legacy 0A, 0B, 0D, 0F, 0E | Phases 1, 2, 4, 5, 8 |
 | 0 (Inventory) | Phase 6 |
 | 0C (Public surface and deployment inventory) | Phase 6 |
@@ -557,7 +592,7 @@ documents:
 These phases fix the current wallet-first stack. They are prerequisites or
 parallel work, not part of the vertical slices.
 
-## Pre-Phase 4/19: Canonical MPC Capability Hydration Lifecycle
+## Pre-Phase 4/19A: Canonical MPC Capability Hydration Lifecycle
 
 Status: in progress. The slim protocol-neutral leaf model, branch builders, and
 type fixtures are implemented. Protocol adapters, canonical inventory
@@ -628,8 +663,10 @@ type MpcCapabilityHydrationPlan =
         | 'missing_capability'
         | 'missing_material'
         | 'revoked'
+        | 'replaced'
         | 'ambiguous_authority'
         | 'binding_mismatch'
+        | 'exact_record_conflict'
         | 'corrupt_persistence'
         | 'persistence_unavailable';
       runtime?: never;
@@ -726,6 +763,200 @@ Check:
 - [ ] Public-anchor key export provisions one exact one-use export session after
       fresh authorization and requires no preceding transaction or full wallet
       unlock.
+
+## Pre-Phase 4/19B: Canonical ECDSA Capability State And Persistence
+
+Status: planning. This pre-phase folds the
+`ThresholdEcdsaSessionRecordCore` replacement into Refactor 90. It must land
+before Phase 4 or Phase 5 closes and before Phases 19 or 23 begin.
+
+Prerequisites: Pre-Phase 4/19A owns the shared hydration result. This pre-phase
+may proceed while Phase 5 finalizes `EcdsaRoleLocalMaterialBinding`, then both
+close together against the same SPEC-owned shape. Pull the existing exact
+`WalletAuthAuthorityRef` leaf scaffold and its boundary builder forward; this
+does not depend on the broader Phase 17/18 wallet vocabulary migration.
+
+Goal: replace the optional, multi-lifecycle ECDSA session record with one
+SPEC-owned set of linked required-field aggregates and one durable capability
+manifest. Registration, wallet unlock, and page refresh may begin from different
+external inputs, but they commit or read the same manifest and feed the same
+hydration and exact-lane resolvers.
+
+Canonical domains:
+
+- `RegisteredEvmFamilySigner` owns durable public signer identity, registered
+  public facts, exact authority, and explicit `evm_family | exact_target`
+  capability scope. It contains no active session, bearer credential, material
+  handle, operation grant, quota, or nonce.
+- `ActiveEcdsaMaterialSession` owns the exact threshold-session ID,
+  server-issued generation, lifecycle binding, material-use retention, expiry,
+  and recovery policy. Operation grant and wallet signing quota remain separate
+  domains.
+- `DurableEcdsaMaterialBinding` owns the exact material owner, durable material
+  ref, binding digest, lifecycle ID, authenticated ciphertext digest, activation
+  digest, and material expiry. Every field is required.
+- `ActiveEcdsaCapabilityManifest` binds one registered signer, one active
+  material session, one durable material binding, one server activation receipt,
+  and one manifest revision. It is the only persisted shape from which an active
+  ECDSA capability can be constructed.
+- `EcdsaRuntimeObservation` is a closed `absent | live | invalid` union. The
+  `live` branch requires a worker-local handle plus a validation proof for the
+  exact capability, manifest revision, material ref, and binding digest. It is
+  volatile and never serializable.
+- `RetiredEcdsaCapabilityManifest` is a closed reauthorizable-or-terminal union.
+  `expired | exhausted` requires an exact public reauthorization anchor.
+  `revoked | replaced` makes that anchor impossible. Active-session,
+  durable-material, live-runtime, operation-grant, quota, bearer, and nonce
+  fields are impossible in both branches.
+- `EcdsaCapabilityManifestLookup` is a closed
+  `active | retired | missing | exact_binding_mismatch |
+  exact_record_conflict | corrupt | persistence_unavailable` result. No failure
+  branch can be interpreted as absence or trigger source-priority fallback.
+- `ExactEcdsaOperationLane` composes one exact active manifest reference with one
+  target-specific operation envelope, current operation authorization, and
+  current wallet quota when the operation descriptor requires it. Target
+  projection can share only stable material-owner and signer facts.
+
+Required-field rule:
+
+- Core ECDSA identity, authority, material, session, persistence, recovery,
+  signing, export, and lifecycle types use required fields.
+- Mutually exclusive states use discriminated unions with `never` exclusions.
+- Optional fields remain limited to raw boundary compatibility shapes,
+  diagnostics, UI display data, truly optional configuration, and callbacks.
+- Core builders accept the narrowest valid branch and use exhaustive switches.
+  Persistence and request parsers validate raw rows once, then return canonical
+  branches.
+- A live state always carries its durable material identity. Runtime destruction
+  therefore has one transition: `live -> durable`.
+
+Persistence ownership:
+
+| Store | Canonical responsibility | Forbidden responsibility |
+| --- | --- | --- |
+| Router D1/DO adapters | registered signer authority, active server generation, threshold-session lifecycle, activation/retirement receipts, idempotent correlation lookup | browser runtime readiness, local material presence, source-priority selection |
+| ECDSA capability IndexedDB adapter | active or retired manifest, encrypted role-local material, sealing key, activation commit journal, exact revisions and digests | raw bearer credentials, live worker handles, grants, quotas, nonces, diagnostics |
+| ECDSA derivation worker memory | live role-local material and exact runtime-validation proof | durable authority, persisted capability selection, recovery policy |
+| Browser runtime registries | derived hot observations and in-flight coordination keyed by exact material owner | canonical persistence, newest-record selection, durable fallback authority |
+
+Consolidate the current ECDSA role-local material database and active-capability
+metadata under one capability persistence adapter. The encrypted material row and
+the active manifest row commit in one IndexedDB transaction. The worker retains
+exclusive plaintext ownership; the manifest contains only the encrypted
+material reference and authenticated digests.
+
+Cross-boundary activation commit:
+
+1. Persist a non-secret `EcdsaCapabilityActivationCommitJournal` before the first
+   consuming server activation or replacement call. It binds the exact
+   capability, signer, authority, material owner, expected prior revision,
+   server-generation expectation, and idempotency correlation.
+2. Reconcile or perform the idempotent server activation. Advance the journal
+   with the exact server receipt and generation before local publication.
+3. In one IndexedDB transaction, persist the encrypted material record, persist
+   the exact active manifest that references it, and advance the journal to
+   `local_commit_readback_pending`.
+4. Read back and authenticate the manifest, material ref, binding digest,
+   ciphertext digest, server receipt, and revision.
+5. Publish the runtime observation only after read-back succeeds. Exact
+   re-resolution must return `use_live_runtime` before registration or unlock
+   reports capability success.
+6. Clear the journal after publication proof is committed. Reload first
+   reconciles a pending journal by its exact idempotency correlation. It never
+   repeats a consuming server effect or chooses another record by timestamp.
+
+The activation journal is a closed union:
+
+```ts
+type EcdsaCapabilityActivationCommitJournal =
+  | EcdsaActivationPrepared
+  | EcdsaServerActivationCommitted
+  | EcdsaLocalCommitReadbackPending
+  | EcdsaRuntimePublicationPending;
+```
+
+Each branch requires every receipt and revision that exists at that stage and
+makes later-stage fields `never`. Journal data is non-secret. Terminal rollback,
+retirement, and orphan-material cleanup are explicit commands derived from exact
+reconciliation; a partial commit never becomes a ready capability.
+
+Flow cutover:
+
+- Registration and wallet unlock call one
+  `commitEcdsaCapabilityActivation(...)` boundary after their factor-specific
+  protocols produce normalized activation input.
+- Page refresh calls `readEcdsaCapabilityManifest(...)`, observes worker runtime
+  independently, and passes those exact facts to the Pre-Phase 4/19A hydration
+  resolver.
+- Recovery and reauthorization finish through the same activation commit and
+  exact post-effect read. They cannot publish a shortcut runtime record.
+- Signing and export call `selectExactEcdsaOperationLane(...)` once, then carry
+  that lane through material preparation, authorization, quota claim, nonce,
+  signing/export, and finalization.
+- Shared EVM-family target projection requires explicit capability scope and
+  projects only stable signer/material-owner facts. It never copies
+  `thresholdSessionId`, operation grant, quota use, bearer credential, or runtime
+  handle from another target.
+- Expiry, exhaustion, revocation, or replacement calls
+  `retireEcdsaCapability(...)`, writes a reauthorizable public anchor for
+  expiry/exhaustion or a terminal tombstone for revocation/replacement, makes the
+  active manifest ineligible, and schedules exact material cleanup.
+
+Deletion ledger:
+
+- Delete `ThresholdEcdsaSessionRecordCore`,
+  `NormalizedThresholdEcdsaSessionRecordShared`,
+  `ReadyPasskeyEcdsaSessionRecord`, `EmailOtpEcdsaSessionRecord`,
+  `NormalizedThresholdEcdsaSessionRecord`,
+  `ThresholdEcdsaSessionRecord`,
+  `OperationUsableThresholdEcdsaSessionRecord`, and
+  `buildOperationUsableThresholdEcdsaSessionRecord` after their consumers move.
+- Delete authority and lifecycle inference from `source`, provider identity,
+  optional field presence, record timestamps, and diagnostics.
+- Delete `PASSKEY_ECDSA_SIGNING_SOURCE_PRIORITY`, Passkey material ranking,
+  newest-record selection, and separate exact-lane/material searches.
+- Delete ECDSA `restorable` as a core lifecycle label. Use exact
+  `rehydrate_active_session` or `reauthorize_public_anchor` branches.
+- Stop using `recordsByLane` and module-level record maps as persistence or
+  selection authority. A runtime registry may retain exact manifest-keyed hot
+  observations.
+- Delete registration-only and unlock-only capability publication paths after
+  both call the canonical commit API.
+- Reject and clear obsolete IndexedDB ECDSA session records at the persistence
+  boundary during the cutover. Do not add dual-schema readers or core
+  compatibility types.
+
+Check:
+
+- [x] The companion SPEC owns every canonical ECDSA aggregate, journal branch,
+      persistence lookup result, and transition named above.
+- [ ] `@ts-expect-error` fixtures reject active manifests without an exact
+      authority, server generation, durable material ref, binding digest,
+      ciphertext digest, or manifest revision.
+- [ ] Fixtures reject persisted live handles, live observations without exact
+      manifest validation, retired manifests with active material/session fields,
+      public anchors with grants or bearer credentials, and target projections
+      with copied operation authority.
+- [ ] Persistence parsers distinguish missing, exact mismatch, exact conflict,
+      corruption, and unavailable storage. Every switch is exhaustive.
+- [ ] Registration and unlock use the same activation commit port and resolve the
+      committed capability from the same read port used by refresh.
+- [ ] Refresh after worker destruction preserves the exact manifest and material
+      binding, observes runtime `absent`, and resolves
+      `rehydrate_active_session`.
+- [ ] Failure injection after every journal, server, IndexedDB, read-back, and
+      runtime-publication step proves reload-safe idempotent convergence.
+- [ ] Equivalent durable snapshots plus equivalent server authority produce the
+      same hydration plan and exact operation lane for registration, unlock, and
+      refresh provenance.
+- [ ] Ambiguous current manifests fail closed before lane or material selection.
+- [ ] Passkey, Email OTP, and a synthetic third factor construct the same
+      canonical activation input for equivalent ECDSA facts.
+- [ ] Source guards reject every deletion-ledger symbol and any core import of
+      raw ECDSA persistence rows.
+- [ ] End-to-end transition tests perform a real write, destroy browser and
+      worker runtime, reopen persistence, hydrate exact material, and sign for
+      one-target and shared EVM-family configurations.
 
 ## Phase 1: Signer-Set Registration Cut
 
@@ -932,8 +1163,9 @@ Status: in progress. Durable NEAR unlock-subject resolution is implemented;
 full branch-specific `unlockCore(subject)` remains. Phase 5 exclusively owns
 ECDSA role-local material identity and cache semantics.
 
-Prerequisite to close: Pre-Phase 4/19 is complete and the companion SPEC owns
-the canonical capability hydration plan.
+Prerequisite to close: Pre-Phases 4/19A and 4/19B are complete and the companion
+SPEC owns the canonical capability hydration plan plus the ECDSA capability
+manifest and persistence lifecycle.
 
 Goal: close the type holes that let exact capability identity drift after
 Refactor 79 and before the modular capability model lands.
@@ -946,7 +1178,7 @@ This phase addresses the wallet-unlock bug found during local D1 testing:
 Do:
 
 - Keep capability-subject resolution separate from hydration resolution.
-  `WalletUnlockSubjectSet` identifies requested capabilities; the pre-phase
+  `WalletUnlockSubjectSet` identifies requested capabilities; the Pre-Phase 4/19A
   resolver determines `use_live_runtime`, `rehydrate_active_session`,
   `reauthorize_public_anchor`, or `blocked` from current canonical state. Unlock and
   page-refresh code may not construct readiness directly.
@@ -1122,6 +1354,10 @@ Cross-plan notes:
 Status: in progress. The `evmFamilySigningKeySlotId` role-local material-handle
 slice is complete; broader Phase 5 slimming remains pending.
 
+Prerequisite to close: Pre-Phase 4/19B is complete. The final material binding
+must land directly in the canonical ECDSA manifest and runtime-observation
+model; do not add another tactical session-record representation.
+
 > This phase's material-only `EcdsaRoleLocalMaterialBinding` is the
 > authoritative target shape. It supersedes the wider Phase 4 field list.
 
@@ -1235,7 +1471,7 @@ Do:
   - Wallet Session claims;
   - Router A/B normal-signing scope;
   - `EcdsaRoleLocalPublicFacts`;
-  - `ThresholdEcdsaSessionRecord`;
+  - the legacy `ThresholdEcdsaSessionRecord` during the Pre-Phase 4/19B cutover;
   - sealed recovery records;
   - role-local material handles or binding digests.
 - If no multi-ECDSA-key-per-wallet use case exists today, use
@@ -1288,9 +1524,10 @@ type EcdsaRoleLocalMaterialBinding = {
   ECDSA role-local material binding, public facts, worker payloads, diagnostics,
   tests, and type fixtures. This value is public verifier identity, not a masked
   or secret signing share.
-- Keep `chainTarget` in `ExactSigningLaneIdentity`,
-  `ThresholdEcdsaSessionRecord`, ECDSA lane selection, ready-record lookup, and
-  signer-session validation.
+- Keep `chainTarget` in `ExactSigningLaneIdentity`, canonical ECDSA capability
+  scope, exact operation-lane selection, and signer-session validation. It does
+  not belong in the role-local material binding or a replacement broad session
+  record.
 - Keep the current `routerAbEcdsaHssNormalSigning` signed state in
   wallet-session claims and persisted session records only until the coordinated
   YAOS Phase 14B cut. Use its active-state session helper only at Router A/B
@@ -2383,11 +2620,14 @@ Status: planning. The shared authority/ref scaffold exists; exact factor and
 wallet-auth-method binding IDs, final persistence shape, and lane/runtime
 migration remain. Start after Phase 7 lands the Refactor 82B vocabulary mapping.
 This is the narrow bridge from Refactor 82B's stable `WalletAuthAuthority`
-model into Slice B's auth/capability migration.
+model into Slice B's auth/capability migration. Pre-Phase 4/19B pulls the leaf
+`WalletAuthAuthorityRef` and its exact boundary builder forward for the ECDSA
+manifest; Phase 17 completes the cross-capability migration without changing
+that identity.
 
-Goal: make every current signing lane and signing-session record carry a stable
-wallet-auth authority reference before the old signing budget is replaced by
-exact operation grants plus the shared wallet quota. Multi-factor wallets,
+Goal: make every remaining signing lane and canonical capability record carry a
+stable wallet-auth authority reference before the old signing budget is replaced
+by exact operation grants plus the shared wallet quota. Multi-factor wallets,
 multiple passkeys, Email OTP
 re-enrollment, and future auth factors identify authority by the durable
 wallet-auth-method binding. Core lanes stop carrying branch-specific strings
@@ -2408,8 +2648,9 @@ Do:
 - Resolve user preference and policy into `any_authority` or one exact authority
   reference before lane selection. Core selectors never accept `authMethod` as
   an independent identity input.
-- Persist the authority ref in exact operation lanes and ECDSA session,
-  material, recovery, restore, and export records. Carry it through Ed25519 Yao
+- Preserve the authority ref in the Pre-Phase 4/19B ECDSA manifest, exact
+  operation lanes, material, recovery, restore, and export records. Carry it
+  through Ed25519 Yao
   registration/admission, active runtime binding, public capability locator,
   sealed root-recovery and fresh-acquisition references, recovery commit journal, runtime-publication
   proof, revocation outbox, exact Yao lifecycle ref, one-use material handle,
@@ -2516,7 +2757,12 @@ Do:
   `mpc_wallet_auth_authorities` rows referencing exact Phase 7 `factor_id`
   values. Replaced/revoked bindings remain explicit lifecycle rows and cannot be
   parsed as active authority.
-- Split signing-session storage facts into independent fields for provenance,
+- Preserve the Pre-Phase 4/19B ECDSA manifest, activation journal, persistence
+  lookup union, and commit/read API as the canonical ECDSA state boundary.
+  Phase 18 migrates wallet vocabulary and server authority rows around that
+  boundary; it cannot reintroduce a broad signing-session record or a second
+  ECDSA persistence owner.
+- Split remaining legacy signing-session storage facts into independent fields for provenance,
   retention, authority reference, material owner, and recovery capability.
   `email_otp` is an auth factor kind, never a storage provenance value. Session
   versus single-use retention remains explicit and exhaustive.
@@ -2808,7 +3054,8 @@ Check:
 
 Status: planning. Old Phase 9 (MPC part).
 
-Prerequisites: Pre-Phase 4/19 and Phases 5, 12, 14, 17, and 18 are complete, and
+Prerequisites: Pre-Phases 4/19A and 4/19B plus Phases 5, 12, 14, 17, and 18 are
+complete, and
 the companion SPEC contains the auth-agnostic Near preparation domain, public
 locator, sealed and fresh recovery source union, exact Yao lifecycle ref, refresh-safe verified
 export context, recovery journal, separate revocation outbox and local/server fences,
@@ -2830,7 +3077,8 @@ Do:
 
 - Define `near_ed25519_mpc_signing` and `evm_ecdsa_mpc_signing` modules under
   `capability/`.
-- Make both modules consume the pre-phase `MpcCapabilityHydrationPlan`. Registration
+- Make both modules consume the Pre-Phase 4/19A
+  `MpcCapabilityHydrationPlan`. Registration
   finalization, wallet-unlock warmup, page-refresh restoration, signing, step-up,
   and export resolve the same plan from current canonical state. Protocol adapters
   construct live/sealed/public-anchor proofs; capability orchestration contains
@@ -4084,8 +4332,8 @@ Check:
 
 Status: planning. Old Phase 10.
 
-Prerequisite: Pre-Phase 4/19 is complete so capability provisioning publishes
-the canonical inventory consumed by unlock and refresh.
+Prerequisite: Pre-Phases 4/19A and 4/19B are complete so capability
+provisioning publishes the canonical inventory consumed by unlock and refresh.
 
 Resolve before starting: are Ed25519 and ECDSA MPC capabilities provisioned
 separately by default, and is embedded wallet login a default auth factor for
@@ -4416,7 +4664,13 @@ Targeted tests (owning phase in parentheses):
   EVM-family ECDSA. Include post-registration -> refresh and post-unlock ->
   refresh transitions, mixed-wallet independent branches, operation-scoped
   public-anchor step-up/export, and absence of entry-point-specific recovery
-  implementations (Pre-Phase 4/19; Phases 4, 19, and 23).
+  implementations (Pre-Phase 4/19A; Phases 4, 19, and 23).
+- Canonical ECDSA capability-state transition matrix: registration and unlock
+  activation commits, refresh/runtime destruction, durable rehydration,
+  public-anchor reauthorization, retirement, exact conflict, corruption,
+  unavailable persistence, and failure after every commit stage. Tests assert
+  one manifest and exact lane across Passkey, Email OTP, and a synthetic third
+  factor (Pre-Phase 4/19B; Phases 5, 19, and 23).
 - Wallet auth authority refs on Ed25519/ECDSA signing lanes, multi-factor
   collision and re-enrollment fixtures, and deletion of the interim admission
   authority-key helper (Phase 17).
