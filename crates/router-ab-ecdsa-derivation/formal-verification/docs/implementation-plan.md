@@ -125,12 +125,12 @@ Property:
 
 Target:
 
-- current 2P additive-share mapping layer
+- direct fixed-role additive-share handoff
 
 Property:
 
-- mapping additive shares into the `threshold-signatures` share encoding
-  preserves the same effective group secret for participant IDs `{1, 2}`
+- direct Client and SigningWorker additive-share handoff preserves the same
+  effective group secret for the fixed 2-of-2 backend
 
 ### FV-Router A/B ECDSA derivation-004
 
@@ -199,15 +199,7 @@ Property:
 - [x] prove retry-counter determinism for the frozen v1 rule
 - [x] connect the proof layer to a fixture corpus once vectors exist
 
-### Phase 2: Mapping And Backend Equivalence
-
-- [x] mirror the current additive-share mapping logic in the Verus track
-- [x] prove that mapping preserves the effective group secret for `{1, 2}`
-- [x] prove the mapped shares are accepted by the current backend domain rules
-- [x] prove that the threshold public key equals `x * G`
-- [x] prove that the threshold signing address equals `addr(x * G)`
-
-### Phase 3: Output-Policy And Boundary Invariants
+### Phase 2: Output-Policy And Boundary Invariants
 
 - [x] define the narrow runtime/output boundary model in Verus
 - [x] prove non-export operations cannot return canonical `x`
@@ -339,4 +331,3 @@ Which is better for `router-ab-ecdsa-derivation` right now?
 - **Lean first** for the true-blind replacement boundary
 - **Verus next** for implementation-facing Rust invariants
 - **Aeneas + Lean bridge** after the Rust boundary exists
-

@@ -154,6 +154,7 @@ pub use self::router_ab_ecdsa_derivation::{
     parse_router_ab_ecdsa_derivation_recovery_request_v1_json,
     parse_router_ab_ecdsa_derivation_registration_bootstrap_request_v1_json,
     router_ab_ecdsa_derivation_active_state_session_id_v1,
+    router_ab_ecdsa_rerandomization_client_commitment_v1,
     RouterAbEcdsaDerivationActivationReceiptV1, RouterAbEcdsaDerivationActivationRefreshRequestV1,
     RouterAbEcdsaDerivationDeriverEnvelopeCommonV1,
     RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1,

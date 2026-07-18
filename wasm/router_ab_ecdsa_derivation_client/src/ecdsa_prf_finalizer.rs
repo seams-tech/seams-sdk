@@ -2,9 +2,13 @@ use crate::encoders::{base64_url_decode, base64_url_encode};
 use router_ab_ecdsa_client_protocol::{
     authenticate_ecdsa_commitment_registry_v1, decode_ecdsa_client_proof_bundle_envelope_v1,
     finalize_ecdsa_prf_two_party_output_v1, open_ecdsa_client_proof_bundle_v1,
-    pair_ecdsa_opened_client_proof_bundles_v1, EcdsaCommitmentAuthorityV1,
-    EcdsaCommitmentPolicyManifestV1, EcdsaCommitmentPolicyPinsV1, EcdsaCommitmentStatementV1,
-    EcdsaDeriverRoleV1, EcdsaSignedCommitmentPolicyV1, EcdsaSignedCommitmentRecordV1,
+    pair_ecdsa_opened_client_proof_bundles_v1, EcdsaClientProofBundleDeliveryKindV1,
+    EcdsaClientProofBundleDeliveryV1, EcdsaClientProofBundlePairDeliveryV1,
+    EcdsaCommitmentAuthorityDeliveryV1, EcdsaCommitmentAuthorityV1,
+    EcdsaCommitmentPolicyManifestV1, EcdsaCommitmentPolicyPinsV1,
+    EcdsaCommitmentRecordDeliveryV1, EcdsaCommitmentRegistryDeliveryV1,
+    EcdsaCommitmentStatementV1, EcdsaDeriverRoleV1, EcdsaSignedCommitmentPolicyDeliveryV1,
+    EcdsaSignedCommitmentPolicyV1, EcdsaSignedCommitmentRecordV1,
 };
 use serde::{Deserialize, Serialize};
 
@@ -18,15 +22,25 @@ pub(crate) fn finalize_encrypted_client_proof_bundles_v1(
     input_json: &str,
     private_key: &[u8; 32],
 ) -> Result<String, String> {
-    open_and_finalize_client_proof_bundles_command_v1(input_json, private_key)
+    serialize_final_output(finalize_encrypted_client_proof_output_v1(
+        input_json,
+        private_key,
+    )?)
 }
 
-fn open_and_finalize_client_proof_bundles_command_v1(
+pub(crate) fn finalize_encrypted_client_proof_output_v1(
     input_json: &str,
     private_key: &[u8; 32],
-) -> Result<String, String> {
+) -> Result<[u8; 32], String> {
     let input: FinalizeEncryptedClientProofBundlesInputV1 =
         serde_json::from_str(input_json).map_err(|error| error.to_string())?;
+    finalize_encrypted_client_proof_input_v1(input, private_key)
+}
+
+pub(crate) fn finalize_encrypted_client_proof_input_v1(
+    input: FinalizeEncryptedClientProofBundlesInputV1,
+    private_key: &[u8; 32],
+) -> Result<[u8; 32], String> {
     match input.kind {
         FinalizeEncryptedClientProofBundlesKindV1::FinalizeEncryptedClientProofBundlesV1 => {}
     }
@@ -35,9 +49,17 @@ fn open_and_finalize_client_proof_bundles_command_v1(
     let pair =
         pair_ecdsa_opened_client_proof_bundles_v1(signer_a, signer_b).map_err(protocol_error)?;
     let pins = build_pinned_commitment_policy_v1()?;
-    let policy = parse_signed_policy(input.policy)?;
-    let signer_a_record = parse_signed_record(input.records.signer_a, EcdsaDeriverRoleV1::A, 1)?;
-    let signer_b_record = parse_signed_record(input.records.signer_b, EcdsaDeriverRoleV1::B, 2)?;
+    let policy = parse_signed_policy(input.commitment_registry.policy)?;
+    let signer_a_record = parse_signed_record(
+        input.commitment_registry.records.signer_a,
+        EcdsaDeriverRoleV1::A,
+        1,
+    )?;
+    let signer_b_record = parse_signed_record(
+        input.commitment_registry.records.signer_b,
+        EcdsaDeriverRoleV1::B,
+        2,
+    )?;
     let binding = pair.commitment_registry_binding(input.verification_time_ms);
     let registry = authenticate_ecdsa_commitment_registry_v1(
         &pins,
@@ -48,22 +70,21 @@ fn open_and_finalize_client_proof_bundles_command_v1(
     )
     .map_err(protocol_error)?;
     let context = pair.prf_context().map_err(protocol_error)?;
-    let output = finalize_ecdsa_prf_two_party_output_v1(
+    finalize_ecdsa_prf_two_party_output_v1(
         &context,
         &registry,
         &pair.signer_a().role_bound_proof,
         &pair.signer_b().role_bound_proof,
     )
-    .map_err(protocol_error)?;
-    serialize_final_output(output)
+    .map_err(protocol_error)
 }
 
 fn open_client_wire_bundle(
-    input: ClientProofBundleWireInputV1,
+    input: EcdsaClientProofBundleDeliveryV1,
     private_key: &[u8; 32],
 ) -> Result<router_ab_ecdsa_client_protocol::EcdsaOpenedClientProofBundleV1, String> {
     match input.kind {
-        ClientProofBundleWireKindV1::RecipientProofBundle => {}
+        EcdsaClientProofBundleDeliveryKindV1::RecipientProofBundle => {}
     }
     let wire_transcript_digest =
         decode_fixed_base64::<32>(&input.transcript_digest_b64u, "bundle.transcriptDigestB64u")?;
@@ -105,7 +126,7 @@ fn build_pinned_commitment_policy_v1() -> Result<EcdsaCommitmentPolicyPinsV1, St
 }
 
 fn parse_signed_policy(
-    policy: SignedCommitmentPolicyInputV1,
+    policy: EcdsaSignedCommitmentPolicyDeliveryV1,
 ) -> Result<EcdsaSignedCommitmentPolicyV1, String> {
     let manifest = policy.manifest;
     Ok(EcdsaSignedCommitmentPolicyV1 {
@@ -136,7 +157,7 @@ fn parse_signed_policy(
 }
 
 fn parse_authority(
-    authority: CommitmentAuthorityInputV1,
+    authority: EcdsaCommitmentAuthorityDeliveryV1,
     role: EcdsaDeriverRoleV1,
 ) -> Result<EcdsaCommitmentAuthorityV1, String> {
     Ok(EcdsaCommitmentAuthorityV1 {
@@ -153,7 +174,7 @@ fn parse_authority(
 }
 
 fn parse_signed_record(
-    record: SignedCommitmentRecordInputV1,
+    record: EcdsaCommitmentRecordDeliveryV1,
     role: EcdsaDeriverRoleV1,
     share_id: u16,
 ) -> Result<EcdsaSignedCommitmentRecordV1, String> {
@@ -245,91 +266,28 @@ fn protocol_error(error: router_ab_ecdsa_client_protocol::EcdsaClientProtocolErr
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct FinalizeEncryptedClientProofBundlesInputV1 {
+pub(crate) struct FinalizeEncryptedClientProofBundlesInputV1 {
     kind: FinalizeEncryptedClientProofBundlesKindV1,
     verification_time_ms: u64,
-    policy: SignedCommitmentPolicyInputV1,
-    records: CommitmentRecordsInputV1,
-    bundles: ClientProofBundlePairInputV1,
+    commitment_registry: EcdsaCommitmentRegistryDeliveryV1,
+    bundles: EcdsaClientProofBundlePairDeliveryV1,
+}
+
+impl FinalizeEncryptedClientProofBundlesInputV1 {
+    pub(crate) fn proof_transcript_digest_b64u(&self) -> Result<String, String> {
+        let signer_a = &self.bundles.signer_a.transcript_digest_b64u;
+        let signer_b = &self.bundles.signer_b.transcript_digest_b64u;
+        if signer_a != signer_b {
+            return Err("client proof bundles bind different transcripts".to_owned());
+        }
+        Ok(signer_a.clone())
+    }
 }
 
 #[derive(Debug, Deserialize)]
 enum FinalizeEncryptedClientProofBundlesKindV1 {
     #[serde(rename = "finalize_encrypted_client_proof_bundles_v1")]
     FinalizeEncryptedClientProofBundlesV1,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ClientProofBundlePairInputV1 {
-    signer_a: ClientProofBundleWireInputV1,
-    signer_b: ClientProofBundleWireInputV1,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ClientProofBundleWireInputV1 {
-    kind: ClientProofBundleWireKindV1,
-    transcript_digest_b64u: String,
-    payload_b64u: String,
-}
-
-#[derive(Debug, Deserialize)]
-enum ClientProofBundleWireKindV1 {
-    #[serde(rename = "recipient_proof_bundle")]
-    RecipientProofBundle,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct SignedCommitmentPolicyInputV1 {
-    manifest: CommitmentPolicyManifestInputV1,
-    manifest_digest_hex: String,
-    release_authority_signature_hex: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct CommitmentPolicyManifestInputV1 {
-    release_epoch: u64,
-    minimum_root_version: u64,
-    minimum_authority_key_epoch: u64,
-    revoked_authority_key_epochs: Vec<u64>,
-    revoked_record_digests_hex: Vec<String>,
-    signer_a_authority: CommitmentAuthorityInputV1,
-    signer_b_authority: CommitmentAuthorityInputV1,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct CommitmentAuthorityInputV1 {
-    operator_identity: String,
-    authority_key_epoch: u64,
-    valid_from_ms: u64,
-    valid_until_ms: u64,
-    verifying_key_hex: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct CommitmentRecordsInputV1 {
-    signer_a: SignedCommitmentRecordInputV1,
-    signer_b: SignedCommitmentRecordInputV1,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct SignedCommitmentRecordInputV1 {
-    root_id: String,
-    root_version: u64,
-    root_share_epoch: String,
-    commitment_hex: String,
-    operator_identity: String,
-    authority_key_epoch: u64,
-    record_valid_from_ms: u64,
-    record_valid_until_ms: u64,
-    signed_digest_hex: String,
-    signature_hex: String,
 }
 
 #[derive(Debug, Serialize)]

@@ -45,6 +45,8 @@ const ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_REQUEST_VERSION_V1: &[u8] =
     b"router-ab-ecdsa-derivation/normal-signing-request/v1";
 const ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_FINALIZE_REQUEST_VERSION_V1: &[u8] =
     b"router-ab-ecdsa-derivation/normal-signing-finalize-request/v1";
+const ROUTER_AB_ECDSA_DERIVATION_CLIENT_RERANDOMIZATION_COMMITMENT_DOMAIN_V1: &[u8] =
+    b"router-ab-ecdsa-derivation/client-rerandomization-commitment/v1";
 const ROUTER_AB_ECDSA_DERIVATION_DERIVER_ENVELOPE_PLAINTEXT_VERSION_V1: &[u8] =
     b"router-ab-ecdsa-derivation/deriver-envelope-plaintext/v1";
 
@@ -164,10 +166,6 @@ impl RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1 {
             )?,
             output_kind: RouterAbEcdsaDerivationOutputKindV1::SigningWorkerActivation,
             registration_purpose: header.registration_purpose,
-            derivation_client_share_public_key33_b64u: header
-                .derivation_client_share_public_key33_b64u
-                .clone(),
-            client_share_retry_counter: header.client_share_retry_counter,
         };
         plaintext.validate()?;
         Ok(Self::RegistrationBootstrap(plaintext))
@@ -341,13 +339,6 @@ impl RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1 {
         match self {
             Self::RegistrationBootstrap(plaintext) => {
                 push_len32(&mut out, plaintext.registration_purpose.as_str().as_bytes());
-                push_len32(
-                    &mut out,
-                    plaintext
-                        .derivation_client_share_public_key33_b64u
-                        .as_bytes(),
-                );
-                push_u32(&mut out, plaintext.client_share_retry_counter);
             }
             Self::ExplicitKeyExport(plaintext) => {
                 push_len32(
@@ -513,10 +504,6 @@ pub struct RouterAbEcdsaDerivationDeriverRegistrationEnvelopePlaintextV1 {
     pub output_kind: RouterAbEcdsaDerivationOutputKindV1,
     /// Product lifecycle that requested this activation material.
     pub registration_purpose: RouterAbEcdsaDerivationRegistrationPurposeV1,
-    /// Client compressed secp256k1 public key encoded as unpadded base64url.
-    pub derivation_client_share_public_key33_b64u: String,
-    /// Client share retry counter.
-    pub client_share_retry_counter: u32,
 }
 
 impl RouterAbEcdsaDerivationDeriverRegistrationEnvelopePlaintextV1 {
@@ -528,10 +515,6 @@ impl RouterAbEcdsaDerivationDeriverRegistrationEnvelopePlaintextV1 {
             "registration_deriver_plaintext.output_kind",
             self.output_kind,
             RouterAbEcdsaDerivationOutputKindV1::SigningWorkerActivation,
-        )?;
-        decode_secp256k1_public_key33_b64u(
-            "registration_deriver_plaintext.derivation_client_share_public_key33_b64u",
-            &self.derivation_client_share_public_key33_b64u,
         )?;
         Ok(())
     }
@@ -895,10 +878,6 @@ pub struct RouterAbEcdsaDerivationRegistrationHeaderV1 {
     pub replay_nonce: String,
     /// Request expiry in Unix milliseconds.
     pub expires_at_ms: u64,
-    /// Client compressed secp256k1 public key encoded as unpadded base64url.
-    pub derivation_client_share_public_key33_b64u: String,
-    /// Client share retry counter.
-    pub client_share_retry_counter: u32,
 }
 
 impl RouterAbEcdsaDerivationRegistrationHeaderV1 {
@@ -921,10 +900,6 @@ impl RouterAbEcdsaDerivationRegistrationHeaderV1 {
         validate_lifecycle_for_context("registration.lifecycle", &self.lifecycle, &self.context)?;
         require_ascii_non_empty("registration.replay_nonce", &self.replay_nonce)?;
         require_positive_ms("registration.expires_at_ms", self.expires_at_ms)?;
-        decode_secp256k1_public_key33_b64u(
-            "registration.derivation_client_share_public_key33_b64u",
-            &self.derivation_client_share_public_key33_b64u,
-        )?;
         Ok(())
     }
 
@@ -945,11 +920,6 @@ impl RouterAbEcdsaDerivationRegistrationHeaderV1 {
         push_len32(&mut out, self.client_ephemeral_public_key.as_bytes());
         push_len32(&mut out, self.replay_nonce.as_bytes());
         push_u64(&mut out, self.expires_at_ms);
-        push_len32(
-            &mut out,
-            self.derivation_client_share_public_key33_b64u.as_bytes(),
-        );
-        push_u32(&mut out, self.client_share_retry_counter);
         Ok(out)
     }
 
@@ -966,7 +936,7 @@ impl RouterAbEcdsaDerivationRegistrationHeaderV1 {
             self.lifecycle.clone(),
             self.signer_set.clone(),
             ROUTER_AB_ECDSA_DERIVATION_KEY_SCOPE_V1.to_owned(),
-            self.derivation_client_share_public_key33_b64u.clone(),
+            self.context.application_binding_digest_b64u.clone(),
             self.router_id.clone(),
             self.client_id.clone(),
             self.client_ephemeral_public_key.clone(),
@@ -1012,10 +982,6 @@ pub struct RouterAbEcdsaDerivationRegistrationBootstrapRequestV1 {
     pub replay_nonce: String,
     /// Request expiry in Unix milliseconds.
     pub expires_at_ms: u64,
-    /// Client compressed secp256k1 public key encoded as unpadded base64url.
-    pub derivation_client_share_public_key33_b64u: String,
-    /// Client share retry counter.
-    pub client_share_retry_counter: u32,
     /// Deriver A encrypted Router A/B ECDSA derivation bootstrap envelope.
     pub deriver_a_envelope: RoleEncryptedEnvelopeV1,
     /// Deriver B encrypted Router A/B ECDSA derivation bootstrap envelope.
@@ -1035,8 +1001,6 @@ impl RouterAbEcdsaDerivationRegistrationBootstrapRequestV1 {
         client_ephemeral_public_key: impl Into<String>,
         replay_nonce: impl Into<String>,
         expires_at_ms: u64,
-        derivation_client_share_public_key33_b64u: impl Into<String>,
-        client_share_retry_counter: u32,
         deriver_a_envelope: RoleEncryptedEnvelopeV1,
         deriver_b_envelope: RoleEncryptedEnvelopeV1,
     ) -> RouterAbProtocolResult<Self> {
@@ -1050,9 +1014,6 @@ impl RouterAbEcdsaDerivationRegistrationBootstrapRequestV1 {
             client_ephemeral_public_key: client_ephemeral_public_key.into(),
             replay_nonce: replay_nonce.into(),
             expires_at_ms,
-            derivation_client_share_public_key33_b64u: derivation_client_share_public_key33_b64u
-                .into(),
-            client_share_retry_counter,
             deriver_a_envelope,
             deriver_b_envelope,
         };
@@ -1072,10 +1033,6 @@ impl RouterAbEcdsaDerivationRegistrationBootstrapRequestV1 {
             client_ephemeral_public_key: self.client_ephemeral_public_key.clone(),
             replay_nonce: self.replay_nonce.clone(),
             expires_at_ms: self.expires_at_ms,
-            derivation_client_share_public_key33_b64u: self
-                .derivation_client_share_public_key33_b64u
-                .clone(),
-            client_share_retry_counter: self.client_share_retry_counter,
         }
     }
 
@@ -1166,7 +1123,7 @@ impl RouterAbEcdsaDerivationRegistrationBootstrapRequestV1 {
             self.lifecycle.clone(),
             self.signer_set.clone(),
             ROUTER_AB_ECDSA_DERIVATION_KEY_SCOPE_V1.to_owned(),
-            self.derivation_client_share_public_key33_b64u.clone(),
+            self.context.application_binding_digest_b64u.clone(),
             self.router_id.clone(),
             self.client_id.clone(),
             self.client_ephemeral_public_key.clone(),
@@ -1177,7 +1134,7 @@ impl RouterAbEcdsaDerivationRegistrationBootstrapRequestV1 {
             self.lifecycle.clone(),
             self.signer_set.clone(),
             ROUTER_AB_ECDSA_DERIVATION_KEY_SCOPE_V1.to_owned(),
-            self.derivation_client_share_public_key33_b64u.clone(),
+            self.context.application_binding_digest_b64u.clone(),
             self.router_id.clone(),
             self.client_id.clone(),
             self.client_ephemeral_public_key.clone(),
@@ -1841,6 +1798,14 @@ impl RouterAbEcdsaDerivationNormalSigningScopeV1 {
     }
 }
 
+/// Commits to the Client contribution before SigningWorker entropy is revealed.
+pub fn router_ab_ecdsa_rerandomization_client_commitment_v1(contribution32: [u8; 32]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(ROUTER_AB_ECDSA_DERIVATION_CLIENT_RERANDOMIZATION_COMMITMENT_DOMAIN_V1);
+    hasher.update(contribution32);
+    hasher.finalize().into()
+}
+
 /// Client-facing typed Router A/B ECDSA derivation normal-signing request after Router parsing.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1855,6 +1820,8 @@ pub struct RouterAbEcdsaDerivationEvmDigestSigningRequestV1 {
     pub expires_at_ms: u64,
     /// Exact 32-byte EVM/secp256k1 digest encoded as unpadded base64url.
     pub signing_digest_b64u: String,
+    /// Commitment to the Client's hidden 32-byte rerandomization contribution.
+    pub client_rerandomization_commitment32_b64u: String,
 }
 
 impl RouterAbEcdsaDerivationEvmDigestSigningRequestV1 {
@@ -1865,6 +1832,7 @@ impl RouterAbEcdsaDerivationEvmDigestSigningRequestV1 {
         client_presignature_id: impl Into<String>,
         expires_at_ms: u64,
         signing_digest_b64u: impl Into<String>,
+        client_rerandomization_commitment32_b64u: impl Into<String>,
     ) -> RouterAbProtocolResult<Self> {
         let request = Self {
             scope,
@@ -1872,6 +1840,8 @@ impl RouterAbEcdsaDerivationEvmDigestSigningRequestV1 {
             client_presignature_id: client_presignature_id.into(),
             expires_at_ms,
             signing_digest_b64u: signing_digest_b64u.into(),
+            client_rerandomization_commitment32_b64u: client_rerandomization_commitment32_b64u
+                .into(),
         };
         request.validate()?;
         Ok(request)
@@ -1887,6 +1857,7 @@ impl RouterAbEcdsaDerivationEvmDigestSigningRequestV1 {
         )?;
         require_positive_ms("normal_signing.expires_at_ms", self.expires_at_ms)?;
         self.signing_digest()?;
+        self.client_rerandomization_commitment32()?;
         Ok(())
     }
 
@@ -1910,6 +1881,14 @@ impl RouterAbEcdsaDerivationEvmDigestSigningRequestV1 {
         )?))
     }
 
+    /// Returns the Client contribution commitment admitted by prepare.
+    pub fn client_rerandomization_commitment32(&self) -> RouterAbProtocolResult<[u8; 32]> {
+        decode_base64url_fixed_32(
+            "normal_signing.client_rerandomization_commitment32_b64u",
+            &self.client_rerandomization_commitment32_b64u,
+        )
+    }
+
     /// Returns canonical request bytes for transcript/replay binding.
     pub fn canonical_request_bytes(&self) -> RouterAbProtocolResult<Vec<u8>> {
         self.validate()?;
@@ -1923,6 +1902,7 @@ impl RouterAbEcdsaDerivationEvmDigestSigningRequestV1 {
         push_len32(&mut out, self.client_presignature_id.as_bytes());
         push_u64(&mut out, self.expires_at_ms);
         push_digest(&mut out, self.signing_digest()?);
+        push_len32(&mut out, &self.client_rerandomization_commitment32()?);
         Ok(out)
     }
 
@@ -1948,6 +1928,8 @@ pub struct RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1 {
     pub server_presignature_id: String,
     /// Client ECDSA signature share over the same digest encoded as unpadded base64url.
     pub client_signature_share32_b64u: String,
+    /// Client's 32-byte rerandomization contribution that opens the prepare commitment.
+    pub client_rerandomization_contribution32_b64u: String,
 }
 
 impl RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1 {
@@ -1959,6 +1941,7 @@ impl RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1 {
         signing_digest_b64u: impl Into<String>,
         server_presignature_id: impl Into<String>,
         client_signature_share32_b64u: impl Into<String>,
+        client_rerandomization_contribution32_b64u: impl Into<String>,
     ) -> RouterAbProtocolResult<Self> {
         let request = Self {
             scope,
@@ -1967,6 +1950,8 @@ impl RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1 {
             signing_digest_b64u: signing_digest_b64u.into(),
             server_presignature_id: server_presignature_id.into(),
             client_signature_share32_b64u: client_signature_share32_b64u.into(),
+            client_rerandomization_contribution32_b64u: client_rerandomization_contribution32_b64u
+                .into(),
         };
         request.validate()?;
         Ok(request)
@@ -1983,6 +1968,7 @@ impl RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1 {
         )?;
         self.signing_digest()?;
         self.client_signature_share32()?;
+        self.client_rerandomization_contribution32()?;
         Ok(())
     }
 
@@ -2002,12 +1988,16 @@ impl RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1 {
     pub fn prepare_request(
         &self,
     ) -> RouterAbProtocolResult<RouterAbEcdsaDerivationEvmDigestSigningRequestV1> {
+        let commitment = router_ab_ecdsa_rerandomization_client_commitment_v1(
+            self.client_rerandomization_contribution32()?,
+        );
         RouterAbEcdsaDerivationEvmDigestSigningRequestV1::new(
             self.scope.clone(),
             self.request_id.clone(),
             self.server_presignature_id.clone(),
             self.expires_at_ms,
             self.signing_digest_b64u.clone(),
+            Base64UrlUnpadded::encode_string(&commitment),
         )
     }
 
@@ -2032,6 +2022,14 @@ impl RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1 {
         )
     }
 
+    /// Returns the Client contribution that must open the prepare commitment.
+    pub fn client_rerandomization_contribution32(&self) -> RouterAbProtocolResult<[u8; 32]> {
+        decode_base64url_fixed_32(
+            "ecdsa_finalize.client_rerandomization_contribution32_b64u",
+            &self.client_rerandomization_contribution32_b64u,
+        )
+    }
+
     /// Returns canonical finalize request bytes for transcript/replay binding.
     pub fn canonical_request_bytes(&self) -> RouterAbProtocolResult<Vec<u8>> {
         self.validate()?;
@@ -2046,6 +2044,7 @@ impl RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1 {
         push_digest(&mut out, self.signing_digest()?);
         push_len32(&mut out, self.server_presignature_id.as_bytes());
         push_len32(&mut out, &self.client_signature_share32()?);
+        push_len32(&mut out, &self.client_rerandomization_contribution32()?);
         Ok(out)
     }
 
@@ -2071,8 +2070,8 @@ pub struct RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1 {
     pub server_presignature_id: String,
     /// Server public presignature point encoded as compressed secp256k1 bytes.
     pub server_big_r33_b64u: String,
-    /// Public 32-byte rerandomization entropy both ECDSA parties must use.
-    pub rerandomization_entropy32_b64u: String,
+    /// SigningWorker's 32-byte contribution revealed after the Client commitment.
+    pub signing_worker_rerandomization_contribution32_b64u: String,
     /// Signature algorithm supported by the prepared state.
     pub signature_scheme: RouterAbEcdsaDerivationSignatureSchemeV1,
     /// Prepare timestamp in Unix milliseconds.
@@ -2087,7 +2086,7 @@ impl RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1 {
         request: &RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
         server_presignature_id: impl Into<String>,
         server_big_r33_b64u: impl Into<String>,
-        rerandomization_entropy32_b64u: impl Into<String>,
+        signing_worker_rerandomization_contribution32_b64u: impl Into<String>,
         prepared_at_ms: u64,
     ) -> RouterAbProtocolResult<Self> {
         request.validate()?;
@@ -2098,7 +2097,8 @@ impl RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1 {
             signing_digest: request.signing_digest()?,
             server_presignature_id: server_presignature_id.into(),
             server_big_r33_b64u: server_big_r33_b64u.into(),
-            rerandomization_entropy32_b64u: rerandomization_entropy32_b64u.into(),
+            signing_worker_rerandomization_contribution32_b64u:
+                signing_worker_rerandomization_contribution32_b64u.into(),
             signature_scheme: RouterAbEcdsaDerivationSignatureSchemeV1::EcdsaSecp256k1RecoverableV1,
             prepared_at_ms,
             expires_at_ms: request.expires_at_ms,
@@ -2120,8 +2120,8 @@ impl RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1 {
             &self.server_big_r33_b64u,
         )?;
         decode_base64url_fixed_32(
-            "ecdsa_prepare_response.rerandomization_entropy32_b64u",
-            &self.rerandomization_entropy32_b64u,
+            "ecdsa_prepare_response.signing_worker_rerandomization_contribution32_b64u",
+            &self.signing_worker_rerandomization_contribution32_b64u,
         )?;
         require_positive_ms("ecdsa_prepare_response.prepared_at_ms", self.prepared_at_ms)?;
         require_positive_ms("ecdsa_prepare_response.expires_at_ms", self.expires_at_ms)?;

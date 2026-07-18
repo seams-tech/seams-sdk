@@ -1,0 +1,30 @@
+[package]
+name = "ecdsa_registration_client"
+version = "0.1.0"
+edition = "2021"
+description = "Browser ECDSA registration bootstrap for strict Router A/B"
+license = "Apache-2.0"
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-Oz"]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[workspace]
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+base64ct = { version = "1.6", features = ["alloc"] }
+js-sys = "0.3"
+router-ab-ecdsa-derivation = { path = "../../crates/router-ab-ecdsa-derivation" }
+serde = { version = "1.0", features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+serde_json = "1.0"
+signer-core = { path = "../../crates/signer-core", features = ["ecdsa-role-local-client", "typescript-bindings"] }
+wasm-bindgen = "=0.2.100"

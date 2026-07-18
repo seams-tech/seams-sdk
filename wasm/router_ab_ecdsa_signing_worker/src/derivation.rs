@@ -26,7 +26,6 @@ struct RelayerBootstrapResult {
     relayer_public_key33: Vec<u8>,
     group_public_key33: Vec<u8>,
     ethereum_address20: Vec<u8>,
-    relayer_mapped_private_share32: Vec<u8>,
     relayer_share_retry_counter: u32,
     public_transcript_digest32: Vec<u8>,
 }
@@ -58,7 +57,6 @@ pub fn relayer_bootstrap(payload: JsValue) -> Result<JsValue, JsValue> {
         relayer_public_key33: identity.relayer_public_key33.to_vec(),
         group_public_key33: identity.threshold_public_key33.to_vec(),
         ethereum_address20: identity.threshold_ethereum_address20.to_vec(),
-        relayer_mapped_private_share32: relayer_share.mapped_relayer_share32.to_vec(),
         relayer_share_retry_counter: relayer_share.retry_counter,
         public_transcript_digest32: transcript.to_vec(),
     })

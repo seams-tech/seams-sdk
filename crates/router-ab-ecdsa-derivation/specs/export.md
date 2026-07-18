@@ -20,7 +20,7 @@ Excluded export meanings:
 - a sidecar recovery key
 - a different deterministic key
 - a backend-specific threshold share artifact
-- a presignature or Cait-Sith session artifact
+- a presignature or online-signing session artifact
 
 ## Canonical Export Object
 
@@ -54,7 +54,7 @@ The export response must never contain:
 - `x_client`
 - `y_client`
 - `y_relayer`
-- backend threshold private shares
+- SigningWorker additive signing shares outside explicit export
 
 ## Export Invariant
 
@@ -204,7 +204,7 @@ The telemetry surface must exclude:
 - `x_relayer`
 - backend threshold private shares
 - raw root-share material
-- Cait-Sith triple or presign scalar material
+- purpose-built triple or presign scalar material
 
 Structured logs are acceptable as the first implementation surface if they obey
 the field and redaction rules above.
@@ -276,6 +276,4 @@ into browser storage.
 - Security model:
   [security.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/router-ab-ecdsa-derivation/security.md)
 - Integration shape:
-  [integration-cait-sith-backend.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/router-ab-ecdsa-derivation/specs/integration-cait-sith-backend.md)
-
-
+  [integration-purpose-built-ecdsa.md](integration-purpose-built-ecdsa.md)

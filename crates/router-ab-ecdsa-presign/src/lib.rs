@@ -1,9 +1,59 @@
+//! Fixed-role 2-of-2 Router A/B ECDSA presigning.
+//!
+//! The production surface exposes role-local sessions and key-share parsing.
+//! Protocol internals are available only to this crate and the pinned oracle
+//! through the explicit `test-utils` feature.
+//!
+//! ```compile_fail
+//! use router_ab_ecdsa_presign::driver::start_client_driver;
+//! ```
+//!
+//! ```compile_fail
+//! use router_ab_ecdsa_presign::proofs::TripleIndex;
+//! ```
+//!
+//! ```compile_fail
+//! use router_ab_ecdsa_presign::session::ClientPresignSession;
+//! fn configure_generic_threshold(session: ClientPresignSession) {
+//!     let _ = session.with_participants_and_threshold(vec![1, 2, 3], 2);
+//! }
+//! ```
+//!
+//! ```compile_fail
+//! use router_ab_ecdsa_presign::ClientAwaitingPeerE;
+//! use router_ab_ecdsa_wire::ClientEShareMessage;
+//! fn reflect_client_message(state: ClientAwaitingPeerE, message: ClientEShareMessage) {
+//!     let _ = state.receive(message);
+//! }
+//! ```
+//!
+//! ```compile_fail
+//! use router_ab_ecdsa_presign::AdditiveKeyShare;
+//! fn require_clone<T: Clone>() {}
+//! fn duplicate_secret() {
+//!     require_clone::<AdditiveKeyShare>();
+//! }
+//! ```
+//!
+//! ```compile_fail
+//! use router_ab_ecdsa_presign::AdditiveKeyShare;
+//! fn expose_secret(share: &AdditiveKeyShare) {
+//!     let _ = format!("{share:?}");
+//! }
+//! ```
+
 #![forbid(unsafe_code)]
 
-pub mod codec;
-pub mod driver;
+mod codec;
+mod driver;
+#[cfg(not(any(test, feature = "test-utils")))]
+mod proofs;
+#[cfg(any(test, feature = "test-utils"))]
 pub mod proofs;
 pub mod session;
+#[cfg(not(any(test, feature = "test-utils")))]
+mod triples;
+#[cfg(any(test, feature = "test-utils"))]
 pub mod triples;
 
 use core::fmt;
@@ -758,6 +808,37 @@ mod tests {
         expect_presign_error(
             client_e_state.receive(zero_message),
             PresignError::ZeroEShare,
+        );
+    }
+
+    #[test]
+    fn noncanonical_peer_e_share_aborts_at_the_boundary() {
+        let fixture = Fixture::new();
+        let (client_e_state, _) = start_client(fixture.client_input()).expect("client start");
+        let noncanonical_message = SigningWorkerEShareMessage::new(
+            fixture.triple0_public.context(),
+            ScalarBytes::new([0xff; 32]),
+        );
+
+        expect_presign_error(
+            client_e_state.receive(noncanonical_message),
+            PresignError::NonCanonicalScalar,
+        );
+    }
+
+    #[test]
+    fn tampered_peer_e_share_aborts_on_commitment_check() {
+        let fixture = Fixture::new();
+        let (client_e_state, _) = start_client(fixture.client_input()).expect("client start");
+        let (_, worker_e) =
+            start_signing_worker(fixture.signing_worker_input()).expect("worker start");
+        let (context, worker_e_bytes) = worker_e.into_parts();
+        let tampered_e = parse_scalar(worker_e_bytes).expect("canonical e") + Scalar::ONE;
+        let tampered_message = SigningWorkerEShareMessage::new(context, scalar_bytes(tampered_e));
+
+        expect_presign_error(
+            client_e_state.receive(tampered_message),
+            PresignError::ECommitmentMismatch,
         );
     }
 }

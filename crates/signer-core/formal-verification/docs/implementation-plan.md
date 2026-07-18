@@ -41,24 +41,15 @@ Current status:
 - [x] add a Verus module for HKDF-output reduction in `src/secp256k1.rs`
 - [x] prove deterministic reduction from 64-byte HKDF output
 - [x] prove the reduction output is always a valid non-zero secp256k1 scalar
-- [x] add a Verus model for relayer-share derivation from `(master_secret, relayer_key_id)`
-- [x] prove relayer-share derivation is deterministic
-- [x] prove the returned relayer signing share bytes encode a valid non-zero scalar
-- [x] model the returned relayer verifying-share layout
 - [x] add a Verus model for canonical keypair derivation from `(prf_second, near_account_id)`
 - [x] prove canonical keypair derivation is deterministic
 - [x] model compressed public key and Ethereum address derivation from the same private key
 - [x] add executable anti-drift checks for representative vectors
 
-## Phase 2: `secp256k1` Mapping And Public-Key Consistency
+## Phase 2: `secp256k1` Public-Key Consistency
 
-- [x] mirror the fixed `{1, 2}` additive-share mapping logic in the Verus track
-- [x] prove participant-ID rejection for unsupported IDs
-- [x] prove the mapping uses the intended fixed lambdas
-- [x] prove mapped shares remain valid non-zero scalars
-- [x] prove mapped-share semantics preserve the same local additive-share meaning
 - [x] prove public-key helper output shape invariants in Verus
-- [x] add executable anti-drift checks for scalar-byte encoding and mapping behavior
+- [x] add executable anti-drift checks for scalar-byte encoding and public-key behavior
 
 ## Phase 3: `near_threshold_ed25519` Shared Derivation
 

@@ -22,9 +22,7 @@ CARGO_HOME="$(mktemp -d)" cargo test --locked
 ```
 
 The first vector starts at validated committed triple shares and compares the
-fixed Client and SigningWorker `R`, `k`, and `sigma` outputs exactly. OT, MTA,
-triple generation, rerandomization, and online signing vectors remain Phase 5
-work.
+fixed Client and SigningWorker `R`, `k`, and `sigma` outputs exactly.
 
 The second vector freezes the context-bound production DLog and DLogEq proof
 outputs. Pinned NEAR proof fixtures additionally confirm that both transcript
@@ -48,6 +46,12 @@ The sixth vector freezes fixed MTA over the corrected Client-sender extension
 output. It records boundary ciphertexts, receiver seeds and first
 coefficients, and both additive multiplication shares. Their sum reconstructs
 `(a_client + a_worker) * (b_client + b_worker)`.
+
+The seventh vector freezes the normalized two-round presign semantic trace and
+executes all four role-pair cases: NEAR/NEAR, purpose-built/purpose-built,
+purpose-built Client against the NEAR SigningWorker trace, and purpose-built
+SigningWorker against the NEAR Client trace. This demonstrates semantic
+compatibility across distinct transcript and wire profiles.
 
 The pinned NEAR OT-extension row-expansion bytes are intentionally excluded.
 The pinned `triples/bits.rs:320-327` finalizes an unkeyed hasher clone and makes

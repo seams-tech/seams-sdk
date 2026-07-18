@@ -1,4 +1,4 @@
-#![cfg(all(feature = "threshold-ecdsa", feature = "typescript-bindings"))]
+#![cfg(all(feature = "ecdsa-role-local-client", feature = "typescript-bindings"))]
 
 use std::{env, fs, path::PathBuf};
 

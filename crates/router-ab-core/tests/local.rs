@@ -444,7 +444,7 @@ fn router_env_snapshot() -> LocalEnvSnapshotV1 {
     LocalEnvSnapshotV1::new(
         LocalServiceRoleV1::Router,
         vec![
-            "ROUTER_PUBLIC_URL".to_owned(),
+            "GATEWAY_PUBLIC_URL".to_owned(),
             "DERIVER_A_URL".to_owned(),
             "DERIVER_B_URL".to_owned(),
             "SIGNING_WORKER_URL".to_owned(),
@@ -521,7 +521,7 @@ fn local_router_env_keys_forbid_signer_and_server_secrets() {
     let err = validate_local_env_keys_v1(
         LocalServiceRoleV1::Router,
         &[
-            "ROUTER_PUBLIC_URL",
+            "GATEWAY_PUBLIC_URL",
             "DERIVER_A_URL",
             "DERIVER_B_URL",
             "SIGNING_WORKER_URL",

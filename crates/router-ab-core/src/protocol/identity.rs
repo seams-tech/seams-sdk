@@ -81,9 +81,9 @@ impl ServerIdentityV1 {
 
 /// Signer-set quorum policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub enum SignerSetPolicyV1 {
     /// Router A/B v1 requires Signer A and Signer B.
+    #[serde(rename = "all_2")]
     All2,
 }
 

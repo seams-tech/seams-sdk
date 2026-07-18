@@ -1,16 +1,17 @@
-# Presign prototype security boundary
+# Fixed presign security boundary
 
-Status: implementation checkpoint 8. This document records the current claim
-boundary and analysis gaps. The Phase 4 normative security review remains
-pending.
+Status: complete local implementation record. This document preserves the
+incremental construction history and claim boundary. The normative ledger is
+`assurance-ledger-v1.md`; bounded independent cryptographic review remains the
+production-promotion gate.
 
 ## Implemented slice
 
-The crate implements the two presign rounds beginning with validated committed
-triple shares. Client and SigningWorker roles are separate Rust types. Their
-participant coordinates and Lagrange coefficients are compile-time choices.
-Runtime APIs expose no participant vector, participant identifier, threshold,
-or role selector.
+The fixed backend implements committed triple generation, presigning, and
+online signing with separate Client and SigningWorker Rust types. Participant
+coordinates and Lagrange coefficients are compile-time choices. Runtime APIs
+expose no participant vector, participant identifier, threshold, or role
+selector.
 
 The implementation enforces:
 
@@ -89,15 +90,18 @@ proving sensitivity to every base key. NEAR remains evidence for
 the intended IKNP/KOS equations and consistency abort structure. Its extension
 bytes are excluded from parity claims.
 
-## Assumed inputs and deferred claims
+## Assumptions and promotion gates
 
-The isolated crate now generates proof-checked committed triples and feeds only
-opaque validated values into presign and online signing. Transport transcript
-authentication, persistence, one-use tombstones, timeouts, joint entropy
-commit/reveal, and the complete malicious negative corpus remain outside this
-checkpoint.
-The crate is unsuitable for production until those layers and the Phase 4
-review gates are complete.
+The crate generates proof-checked committed triples and feeds only opaque
+validated values into presign and online signing. The canonical transport,
+concrete Client and SigningWorker persistence adapters, one-use tombstones,
+timeouts, joint rerandomization transcript, and critical malicious negative
+corpus are integrated and recorded in `assurance-ledger-v1.md`.
+
+Production promotion still requires bounded independent review of the corrected
+malicious OT/MTA composition, transcript separation, upstream check inventory,
+and one-corrupt-role argument. The deployment plan separately owns target
+runtime and operational assumptions.
 
 ## Constant-time review
 
@@ -122,10 +126,11 @@ carry-less multiplication, hashing, and all 128 consistency equations. Secret
 bits use constant-time selection. A single terminal branch reveals only the
 aggregate proof validity required by the protocol.
 
-The optimized native arm64 assembly audit analyzed 21 OT-extension functions
-with zero errors. Its single warning is the bounds branch in
-`ChoiceBits::bit`; its index is a fixed public loop counter. Wasm compiled
-constant-time evidence remains open under assumption `A-CT`.
+The final native arm64 release audit covers the complete presign and online
+crates and reports zero division or square-root errors. The release Wasm scan
+rejects unapproved integer division/remainder and floating
+division/square-root operators. `ChoiceBits::bit` uses a fixed public loop
+index.
 
 The checkpoint 6 native arm64 audit analyzed 12 MTA functions with zero errors.
 Seven warnings map to public context/index/role and two-triple bundle checks or
@@ -134,8 +139,6 @@ operands, masks, OT choices, or output shares.
 
 Checkpoint 7 source review found no secret division, remainder, indexing,
 variable-length loop, or secret-dependent control-flow branch in the triple
-finalizer. Optimized arm64 inspection covered nine emitted finalization and
-boundary functions with zero errors and eight warnings. The warnings map to
-public role dispatch, malformed/identity rejection, peer-proof validity, and
-terminal accept/abort. Generic preparation functions and Wasm output remain
-open under assumption `A-CT`.
+finalizer. Remaining compiled conditional-branch dataflow and JavaScript/Wasm/
+Workers runtime timing are explicit non-claims under
+`A-CT-BRANCH-DATAFLOW` and `A-CT-RUNTIME` in the normative ledger.

@@ -26,7 +26,7 @@ The crate provides:
 - one corresponding compressed secp256k1 public key `X = x * G`
 - one Ethereum address derived from `X`
 - additive 2-party signing shares `x_client` and `x_relayer`
-- mapped private-share inputs for the `threshold-signatures` ECDSA backend
+- direct role-local inputs for the purpose-built fixed 2-of-2 ECDSA backend
 - explicit client-side export reconstruction of the same logical `x`
 
 ## Active Scope
@@ -38,8 +38,8 @@ The active implementation is fixed to:
 - secp256k1 / Ethereum address derivation
 - stable key scope `evm-family`
 - role-local additive-share derivation
-- the existing `threshold-signatures` sign-time backend through the
-  additive-share mapping layer
+- the purpose-built `router-ab-ecdsa-presign` and
+  `router-ab-ecdsa-online` sign-time backends
 
 The core invariant is:
 
@@ -60,10 +60,10 @@ The active lifecycle is:
    material and the Router A/B ECDSA derivation context.
 3. The roles exchange public share commitments.
 4. The shared public identity is computed as `X = x_clientG + x_relayerG`.
-5. The additive shares are mapped into `threshold-signatures` participant-share
-   encoding.
-6. Threshold ECDSA presign/sign runs with mapped role-local shares and public key
-   `X`.
+5. Purpose-built fixed-role presigning consumes each role's additive share
+   directly and stores one-use material in the role-local pools.
+6. Purpose-built online signing consumes paired Client and SigningWorker
+   presignatures for public key `X`.
 7. Explicit export releases an authorized relayer export share to the client,
    and the client reconstructs and verifies `x` locally.
 
@@ -75,11 +75,9 @@ The sign-time backend seam is:
   - fixed participant IDs `{1, 2}`
 - client presign input:
   - additive share `x_client`
-  - mapped threshold private share for participant `1`
   - client verifying share public key
 - relayer presign input:
   - additive share `x_relayer`
-  - mapped threshold private share for participant `2`
   - relayer verifying share public key
 
 ## Output Policy
@@ -127,10 +125,10 @@ tracking live in
 Current performance notes:
 
 - derivation, bootstrap, and export are sub-millisecond in native benchmarks
-- full native sign latency is dominated by upstream `threshold-signatures`
-  triples/presign work, roughly `~40 ms`
-- current role-local WASM numbers are pending until the bindings and benchmark
-  runner are updated
+- presigning is the expensive background phase and is owned by
+  `router-ab-ecdsa-presign`
+- a pool hit loads the small `router-ab-ecdsa-online` Client artifact and does
+  not load the presign protocol
 
 ## Docs
 
@@ -144,21 +142,8 @@ Current performance notes:
   [specs/protocol.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/router-ab-ecdsa-derivation/specs/protocol.md)
 - Export semantics:
   [specs/export.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/router-ab-ecdsa-derivation/specs/export.md)
-- Integration with the threshold ECDSA backend:
-  [specs/integration-cait-sith-backend.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/router-ab-ecdsa-derivation/specs/integration-cait-sith-backend.md)
-- Implementation plan:
-  [docs/plans/implementation-plan.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/router-ab-ecdsa-derivation/docs/plans/implementation-plan.md)
-- Share-derivation design memo:
-  [docs/plans/share-derivation-design-memo.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/router-ab-ecdsa-derivation/docs/plans/share-derivation-design-memo.md)
-- Canonical-secret design memo:
-  [docs/plans/canonical-secret-design-memo.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/router-ab-ecdsa-derivation/docs/plans/canonical-secret-design-memo.md)
-- Integration-seam design memo:
-  [docs/plans/integration-seam-design-memo.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/router-ab-ecdsa-derivation/docs/plans/integration-seam-design-memo.md)
-- Boundary note:
-  [docs/plans/boundary.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/router-ab-ecdsa-derivation/docs/plans/boundary.md)
-- True server-blindness plan:
-  [docs/plans/true-server-blindness.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/router-ab-ecdsa-derivation/docs/plans/true-server-blindness.md)
-- Refactor 1:
-  [docs/plans/refactor-1.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/router-ab-ecdsa-derivation/docs/plans/refactor-1.md)
-
-
+- Integration with the purpose-built fixed ECDSA backend:
+  [specs/integration-purpose-built-ecdsa.md](specs/integration-purpose-built-ecdsa.md)
+- Historical design and optimization notes remain under `docs/plans/` and
+  `optimizations.md`; they are superseded by the active specs above and
+  [refactor-89](../../docs/refactor-89-slimmer-near-ecdsa.md).

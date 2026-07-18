@@ -1,33 +1,8 @@
-use k256::elliptic_curve::ops::Invert;
 use k256::elliptic_curve::sec1::ToEncodedPoint;
-use k256::{FieldBytes, NonZeroScalar, ProjectivePoint, PublicKey, Scalar, SecretKey};
+use k256::{ProjectivePoint, PublicKey, SecretKey};
 use sha3::{Digest, Keccak256};
 
 use crate::error::{RouterAbEcdsaDerivationError, RouterAbEcdsaDerivationResult};
-
-pub const THRESHOLD_SECP256K1_2P_CLIENT_PARTICIPANT_ID: u32 = 1;
-pub const THRESHOLD_SECP256K1_2P_RELAYER_PARTICIPANT_ID: u32 = 2;
-
-pub fn map_additive_share_to_threshold_signatures_share_2p(
-    additive_share32: &[u8],
-    participant_id: u32,
-) -> RouterAbEcdsaDerivationResult<Vec<u8>> {
-    let additive = parse_nonzero_scalar_32(additive_share32, "additive_share32")?;
-    let lambda = match participant_id {
-        THRESHOLD_SECP256K1_2P_CLIENT_PARTICIPANT_ID => nonzero_scalar_from_u32(3)?,
-        THRESHOLD_SECP256K1_2P_RELAYER_PARTICIPANT_ID => {
-            nonzero_scalar_from_scalar(-Scalar::from(2u32), "relayer mapping coefficient")?
-        }
-        _ => {
-            return Err(RouterAbEcdsaDerivationError::invalid_input(format!(
-                "unsupported participant_id for 2P mapping: {}",
-                participant_id
-            )))
-        }
-    };
-    let mapped = additive * lambda.invert();
-    Ok(field_bytes_to_array32(&FieldBytes::from(mapped)).to_vec())
-}
 
 pub fn validate_secp256k1_public_key_33(
     public_key33: &[u8],
@@ -107,40 +82,4 @@ pub fn secp256k1_public_key_33_to_ethereum_address_20(
     hasher.update(&bytes[1..]);
     let digest = hasher.finalize();
     Ok(digest[digest.len() - 20..].to_vec())
-}
-
-fn parse_nonzero_scalar_32(
-    bytes: &[u8],
-    field_name: &str,
-) -> RouterAbEcdsaDerivationResult<NonZeroScalar> {
-    if bytes.len() != 32 {
-        return Err(RouterAbEcdsaDerivationError::invalid_length(format!(
-            "{field_name} must be 32 bytes (got {})",
-            bytes.len()
-        )));
-    }
-    SecretKey::from_slice(bytes)
-        .map(|secret_key| secret_key.to_nonzero_scalar())
-        .map_err(|_| {
-            RouterAbEcdsaDerivationError::invalid_input(format!("{field_name} must be in (0, n)"))
-        })
-}
-
-fn nonzero_scalar_from_u32(value: u32) -> RouterAbEcdsaDerivationResult<NonZeroScalar> {
-    nonzero_scalar_from_scalar(Scalar::from(value), "mapping coefficient")
-}
-
-fn nonzero_scalar_from_scalar(
-    scalar: Scalar,
-    field_name: &str,
-) -> RouterAbEcdsaDerivationResult<NonZeroScalar> {
-    Option::<NonZeroScalar>::from(NonZeroScalar::new(scalar)).ok_or_else(|| {
-        RouterAbEcdsaDerivationError::internal(format!("{field_name} unexpectedly reduced to zero"))
-    })
-}
-
-fn field_bytes_to_array32(bytes: &FieldBytes) -> [u8; 32] {
-    let mut out = [0u8; 32];
-    out.copy_from_slice(bytes.as_ref());
-    out
 }

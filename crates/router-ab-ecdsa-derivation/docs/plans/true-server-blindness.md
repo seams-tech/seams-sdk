@@ -1,5 +1,10 @@
 # True Server-Blindness Plan
 
+Historical archive: the derivation privacy model remains relevant. The
+Cait-Sith/share-mapping integration sections are superseded by the direct
+purpose-built fixed 2-of-2 handoff in `../../specs/protocol.md` and
+`../../specs/integration-purpose-built-ecdsa.md`.
+
 Removal note: the old Router A/B ECDSA derivation context version described in early sections was
 removed after v2 invalidation. The active crate retains no old-version context,
 wire, server, client, integration, fixture, or benchmark path.
@@ -42,7 +47,7 @@ Relevant existing material:
 - export semantics:
   [specs/export.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/router-ab-ecdsa-derivation/specs/export.md)
 - threshold backend integration:
-  [specs/integration-cait-sith-backend.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/router-ab-ecdsa-derivation/specs/integration-cait-sith-backend.md)
+  [specs/integration-purpose-built-ecdsa.md](../../specs/integration-purpose-built-ecdsa.md)
 - formal verification area:
   [formal-verification](/Users/pta/Dev/rust/simple-threshold-signer/crates/router-ab-ecdsa-derivation/formal-verification)
 - current native benchmark:

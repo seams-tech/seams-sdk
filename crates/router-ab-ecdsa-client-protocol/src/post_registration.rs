@@ -5,8 +5,8 @@ use super::registration::{
     require_fields_non_empty, sha256, validate_recipient_key,
 };
 use super::{
-    seal_ecdsa_signer_envelope_v1, EcdsaClientProtocolError, EcdsaDeriverRoleV1,
-    EcdsaRegistrationEncryptedEnvelopeV1, EcdsaRegistrationRecipientKeysV1,
+    decode_x25519_public_key, seal_ecdsa_signer_envelope_v1, EcdsaClientProtocolError,
+    EcdsaDeriverRoleV1, EcdsaRegistrationEncryptedEnvelopeV1, EcdsaRegistrationRecipientKeysV1,
     EcdsaRegistrationSealSeedsV1, EcdsaRegistrationSignerSetV1, EcdsaRoleEnvelopeAadV1,
     EcdsaSignerEnvelopePublicKeyV1, EcdsaStableKeyContextV1,
 };
@@ -452,6 +452,7 @@ impl EcdsaPostRegistrationHeaderV1 {
             input.recipient.public_key(),
             input.operation.nonce(),
         ])?;
+        decode_x25519_public_key(input.recipient.public_key())?;
         decode_fixed::<32>(input.operation.authorization_digest_b64u())?;
         validate_recipient_branch(input.lifecycle.ceremony, &input.recipient)?;
         validate_refresh_epochs(&input.lifecycle, &input.operation)?;

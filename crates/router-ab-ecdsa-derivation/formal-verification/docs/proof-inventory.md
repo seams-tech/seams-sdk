@@ -114,30 +114,6 @@ Status:
   relayer-share proofs now depend on integer-level distinctness instead
 - committed-corpus parity checks cover additive reconstruction and non-zero-share regressions
 
-## FV-Router A/B ECDSA derivation-004
-
-Target:
-
-- additive-share mapping into the current backend seam
-
-Property:
-
-- fixed participant IDs remain `{1, 2}`
-- mapped shares preserve the same effective signing key
-
-Planned Verus module:
-
-- [verus/src/integration/share_mapping.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/router-ab-ecdsa-derivation/formal-verification/verus/src/integration/share_mapping.rs)
-
-Status:
-
-- participant-ID skeleton exists
-- backend-domain acceptance theorem now exists in the Verus model
-- same-key preservation theorem now exists in the Verus model
-- the current `{1,2}` mapping formula is now proved from the real fixed lambdas and modular inverses
-- the remaining trusted boundary on this slice is the scalar-int-to-bytes
-  encoding bridge, not the mapper formula itself
-
 ## FV-Router A/B ECDSA derivation-005
 
 Target:
@@ -155,13 +131,14 @@ all refer to the same logical key.
 Planned Verus modules:
 
 - [verus/src/shared/derivation.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/router-ab-ecdsa-derivation/formal-verification/verus/src/shared/derivation.rs)
-- [verus/src/integration/share_mapping.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/router-ab-ecdsa-derivation/formal-verification/verus/src/integration/share_mapping.rs)
+- [verus/src/shared/true_blind_boundary.rs](../verus/src/shared/true_blind_boundary.rs)
 
 Status:
 
-- public-key equivalence theorem now exists in the Verus model
-- address equivalence theorem now exists in the Verus model
-- these theorems currently depend on an explicit trusted axiom tying backend group public key derivation to the effective group secret
+- additive-share reconstruction is proved in the Verus derivation model
+- public-identity and export relations are mirrored in the true-blind boundary
+- executable production tests establish public-key and address equivalence;
+  elliptic-curve group-operation equivalence remains a trusted library seam
 
 ## FV-Router A/B ECDSA derivation-006
 
@@ -364,4 +341,3 @@ Status:
 - Verus mirror proofs cover active wire forbidden-field exclusion,
   explicit-export authorization binding, explicit-export-only relayer-share
   release, and role-local signing-session identity/context binding
-

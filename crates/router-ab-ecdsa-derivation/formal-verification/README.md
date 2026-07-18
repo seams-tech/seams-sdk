@@ -118,7 +118,8 @@ The first useful proof targets are:
 1. canonical `x` derivation from `(y_client, y_relayer, context)`
 2. additive share derivation `(x_client, x_relayer)`
 3. non-zero-share and retry-counter invariants
-4. mapping into the current `threshold-signatures` 2P share encoding
+4. direct fixed-role handoff of each additive share to the purpose-built
+   presign boundary
 5. public-key and address equivalence:
    - exported `x`
    - threshold public key
@@ -179,5 +180,4 @@ generated digest corpus.
 - export spec:
   [../specs/export.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/router-ab-ecdsa-derivation/specs/export.md)
 - integration spec:
-  [../specs/integration-cait-sith-backend.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/router-ab-ecdsa-derivation/specs/integration-cait-sith-backend.md)
-
+  [../specs/integration-purpose-built-ecdsa.md](../specs/integration-purpose-built-ecdsa.md)

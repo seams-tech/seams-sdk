@@ -4,9 +4,9 @@ use sha2::{Digest, Sha256};
 use zeroize::{Zeroize, Zeroizing};
 
 use super::{
-    seal_ecdsa_signer_envelope_v1, EcdsaClientProtocolError, EcdsaDeriverRoleV1,
-    EcdsaRoleEnvelopeAadV1, EcdsaSelectedServerIdentityV1, EcdsaSignerEnvelopePublicKeyV1,
-    EcdsaSignerIdentityV1,
+    encode_x25519_public_key, seal_ecdsa_signer_envelope_v1, EcdsaClientProtocolError,
+    EcdsaDeriverRoleV1, EcdsaRoleEnvelopeAadV1, EcdsaSelectedServerIdentityV1,
+    EcdsaSignerEnvelopePublicKeyV1, EcdsaSignerIdentityV1,
 };
 
 const CONTEXT_DOMAIN_V1: &[u8] = b"router-ab-ecdsa-derivation/context/v1";
@@ -312,10 +312,6 @@ pub struct EcdsaRegistrationHeaderInputV1 {
     pub replay_nonce: String,
     /// Request expiry in Unix milliseconds.
     pub expires_at_ms: u64,
-    /// Compressed client secp256k1 public key in unpadded base64url.
-    pub derivation_client_share_public_key33_b64u: String,
-    /// Client-share retry counter.
-    pub client_share_retry_counter: u32,
 }
 
 /// Canonical public registration header committed before envelope sealing.
@@ -334,7 +330,6 @@ impl EcdsaRegistrationHeaderV1 {
             &input.client_ephemeral_public_key,
             &input.replay_nonce,
         ])?;
-        validate_compressed_public_key_b64u(&input.derivation_client_share_public_key33_b64u)?;
         if input.expires_at_ms == 0
             || input.lifecycle.signer_set_id != input.signer_set.signer_set_id
             || input.lifecycle.selected_server_id != input.signer_set.selected_server.server_id
@@ -389,16 +384,6 @@ impl EcdsaRegistrationHeaderV1 {
         self.input.expires_at_ms
     }
 
-    /// Returns the compressed client secp256k1 public key.
-    pub fn derivation_client_share_public_key33_b64u(&self) -> &str {
-        &self.input.derivation_client_share_public_key33_b64u
-    }
-
-    /// Returns the client-share retry counter.
-    pub fn client_share_retry_counter(&self) -> u32 {
-        self.input.client_share_retry_counter
-    }
-
     /// Returns canonical backend-compatible pre-envelope header bytes.
     pub fn canonical_bytes(&self) -> Result<Vec<u8>, EcdsaClientProtocolError> {
         let mut output = Vec::new();
@@ -418,13 +403,6 @@ impl EcdsaRegistrationHeaderV1 {
         );
         push_bytes(&mut output, self.input.replay_nonce.as_bytes());
         output.extend_from_slice(&self.input.expires_at_ms.to_be_bytes());
-        push_bytes(
-            &mut output,
-            self.input
-                .derivation_client_share_public_key33_b64u
-                .as_bytes(),
-        );
-        output.extend_from_slice(&self.input.client_share_retry_counter.to_be_bytes());
         Ok(output)
     }
 
@@ -443,7 +421,8 @@ impl EcdsaRegistrationHeaderV1 {
         push_bytes(
             &mut context,
             self.input
-                .derivation_client_share_public_key33_b64u
+                .context
+                .application_binding_digest_b64u()
                 .as_bytes(),
         );
         push_bytes(
@@ -528,13 +507,6 @@ impl EcdsaRegistrationHeaderV1 {
             &mut output,
             self.input.registration_purpose.wire_label().as_bytes(),
         );
-        push_bytes(
-            &mut output,
-            self.input
-                .derivation_client_share_public_key33_b64u
-                .as_bytes(),
-        );
-        output.extend_from_slice(&self.input.client_share_retry_counter.to_be_bytes());
         Ok(output)
     }
 }
@@ -699,8 +671,11 @@ pub fn derive_ecdsa_client_ephemeral_keypair_v1(
         .as_slice()
         .try_into()
         .map_err(|_| EcdsaClientProtocolError::HpkeFailed)?;
-    let public_key_bytes = DhKemX25519HkdfSha256::pk_to_bytes(&public_key);
-    let public_key = format!("x25519:{}", lower_hex(public_key_bytes.as_slice()),);
+    let public_key_bytes: [u8; 32] = DhKemX25519HkdfSha256::pk_to_bytes(&public_key)
+        .as_slice()
+        .try_into()
+        .map_err(|_| EcdsaClientProtocolError::HpkeFailed)?;
+    let public_key = encode_x25519_public_key(&public_key_bytes);
     Ok(EcdsaClientEphemeralKeyPairV1 {
         private_key: Zeroizing::new(private_key),
         public_key,
@@ -729,15 +704,6 @@ pub(super) fn validate_recipient_key(
     signer: &EcdsaSignerIdentityV1,
 ) -> Result<(), EcdsaClientProtocolError> {
     if key.role != signer.role || key.key_epoch != signer.key_epoch {
-        return Err(EcdsaClientProtocolError::InvalidShape);
-    }
-    Ok(())
-}
-
-fn validate_compressed_public_key_b64u(value: &str) -> Result<(), EcdsaClientProtocolError> {
-    let bytes =
-        Base64UrlUnpadded::decode_vec(value).map_err(|_| EcdsaClientProtocolError::InvalidShape)?;
-    if bytes.len() != 33 || !matches!(bytes[0], 0x02 | 0x03) {
         return Err(EcdsaClientProtocolError::InvalidShape);
     }
     Ok(())
@@ -823,14 +789,4 @@ pub(super) fn sha256(bytes: &[u8]) -> Result<[u8; 32], EcdsaClientProtocolError>
         .as_slice()
         .try_into()
         .map_err(|_| EcdsaClientProtocolError::InvalidShape)
-}
-
-fn lower_hex(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut encoded = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        encoded.push(HEX[(byte >> 4) as usize] as char);
-        encoded.push(HEX[(byte & 0x0f) as usize] as char);
-    }
-    encoded
 }

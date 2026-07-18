@@ -1,7 +1,9 @@
 # Fixed base random OT v1
 
-Status: implementation checkpoint 4. Malicious OT extension, MTA, proof
-integration, and terminal triple validation remain pending.
+Status: implemented and integrated. The malicious OT extension, MTA, proof
+integration, and terminal triple finalization consume the sealed outputs in the
+complete fixed backend. Independent cryptographic review remains the promotion
+gate.
 
 ## Source mapping
 
@@ -16,7 +18,7 @@ The behavioral source is NEAR `threshold-signatures` commit
 | `BROT-RECV-01` | `batch_random_ot.rs:206-262` samples choice `d` and `x`, sends `X = xG + dY`, and derives `H(xY)` | `src/triples/base_rot.rs:322-371` uses constant-time point selection for the same equation and derives the chosen key from `xY` | Full mathematical match | `1.00` |
 | `BROT-POINT-01` | `batch_random_ot.rs:227-229` relies on point deserialization to reject the identity | `src/triples/base_rot.rs:114-166,374-390,505-511` parses all received points as non-identity and also rejects `X - Y = identity` | Code is stronger at the boundary | `0.98` |
 | `BROT-BIND-01` | `batch_random_ot.rs:22-51` hashes the OT index, `X`, `Y`, and the Diffie-Hellman point under a fixed domain | `src/triples/base_rot.rs:449-481` binds those values plus scope, pair, triple index, sender role, and branch in a tagged SHA-256 transcript | Full KDF inputs with stronger session and role binding; deliberate domain divergence | `1.00` |
-| `BROT-STATE-01` | NEAR routes the exchange through generic asynchronous channels | `src/triples/base_rot.rs:175-266` exposes consuming Client and SigningWorker role states and fixed message types | Purpose-built state specialization; transport remains pending | `0.95` |
+| `BROT-STATE-01` | NEAR routes the exchange through generic asynchronous channels | `src/triples/base_rot.rs:175-266` exposes consuming Client and SigningWorker role states and fixed message types; the eleven-round driver and canonical codec carry them through the fixed transport | Full purpose-built state and transport specialization | `0.98` |
 
 Line numbers refer to the pinned source and the checkpoint-4 formatted source.
 Later edits must update this table alongside the code.
@@ -51,8 +53,8 @@ pinned construction.
 - The KDF additionally binds the base-ROT sender role, so reflected public
   messages produce unrelated keys.
 - Sender secrets, receiver choices, and all derived keys zeroize on drop.
-- Outputs expose no production key extraction API. The pending malicious OT
-  extension will consume the sealed output types inside the crate.
+- Outputs expose no production key extraction API. The malicious OT extension
+  consumes the sealed output types inside the crate.
 
 ## Transcript registry
 
@@ -77,6 +79,7 @@ OT security parameter.
 
 ## Claim boundary
 
-This checkpoint implements only base random OT. Active security for the final
-multiplication path still depends on the malicious OT-extension consistency
-check used before MTA. No triple may be emitted from base-ROT output alone.
+This layer implements base random OT. Active security for the final
+multiplication path depends on the integrated malicious OT-extension
+consistency check used before MTA. No triple can be emitted from base-ROT output
+alone.

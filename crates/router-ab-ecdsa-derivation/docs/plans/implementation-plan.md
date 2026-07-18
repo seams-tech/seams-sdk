@@ -2,6 +2,11 @@
 
 Date created: April 8, 2026
 
+Historical archive: the purpose-built fixed 2-of-2 ECDSA cutover supersedes
+the backend-integration sections below. Current behavior is specified in
+`../../specs/protocol.md`, `../../specs/integration-purpose-built-ecdsa.md`,
+and `../../../../docs/refactor-89-slimmer-near-ecdsa.md`.
+
 Removal note: this implementation plan predates the v3 invalidation. The active
 crate removed the old Router A/B ECDSA derivation context version and now receives only an opaque
 SDK-owned application binding digest for role-local derivation.
@@ -262,7 +267,7 @@ Deliverables:
 - `security.md`
 - `specs/protocol.md`
 - `specs/export.md`
-- `specs/integration-cait-sith-backend.md`
+- `specs/integration-purpose-built-ecdsa.md`
 
 The specs must define:
 
@@ -484,7 +489,7 @@ crates/router-ab-ecdsa-derivation/
   specs/
     protocol.md
     export.md
-    integration-cait-sith-backend.md
+    integration-purpose-built-ecdsa.md
   docs/plans/
     implementation-plan.md
     refactor-1.md
@@ -741,7 +746,8 @@ code starts:
 - [x] create `crates/router-ab-ecdsa-derivation/optimizations.md`
 - [x] create `crates/router-ab-ecdsa-derivation/specs/protocol.md`
 - [x] create `crates/router-ab-ecdsa-derivation/specs/export.md`
-- [x] create `crates/router-ab-ecdsa-derivation/specs/integration-cait-sith-backend.md`
+- [x] replace the retired backend spec with
+      `crates/router-ab-ecdsa-derivation/specs/integration-purpose-built-ecdsa.md`
 - [x] create `crates/router-ab-ecdsa-derivation/docs/plans/refactor-1.md`
 - [x] create `crates/router-ab-ecdsa-derivation/docs/plans/boundary.md`
 - [x] create `crates/router-ab-ecdsa-derivation/docs/plans/optimization-v1.md`

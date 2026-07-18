@@ -856,12 +856,142 @@ impl_round11_codec!(
 #[cfg(test)]
 mod tests {
     use k256::{ProjectivePoint, Scalar};
-    use rand_chacha::{rand_core::SeedableRng, ChaCha20Rng};
+    use rand_chacha::{
+        rand_core::{RngCore, SeedableRng},
+        ChaCha20Rng,
+    };
     use router_ab_ecdsa_wire::{PairContextDigest, SigningScopeDigest};
+    use sha2::{Digest, Sha256};
 
     use super::*;
     use crate::driver::{start_client_driver, start_signing_worker_driver};
     use crate::AdditiveKeyShare;
+
+    type DecodeProbe = fn(&[u8]) -> Result<(), PresignCodecError>;
+
+    struct CorpusFrame {
+        label: &'static str,
+        encoded: Vec<u8>,
+        decode: DecodeProbe,
+    }
+
+    macro_rules! record_round_trip {
+        ($corpus:expr, $label:literal, $message:expr, $decode:ident) => {{
+            let encoded = $message
+                .encode_presign_message()
+                .expect(concat!("encode ", $label));
+            let decode: DecodeProbe = |bytes| $decode(bytes).map(|_| ());
+            $corpus.push(CorpusFrame {
+                label: $label,
+                encoded: encoded.clone(),
+                decode,
+            });
+            $decode(&encoded).expect(concat!("decode ", $label))
+        }};
+    }
+
+    fn corpus_digest(corpus: &[CorpusFrame]) -> String {
+        let mut hasher = Sha256::new();
+        for frame in corpus {
+            hasher.update((frame.label.len() as u16).to_be_bytes());
+            hasher.update(frame.label.as_bytes());
+            hasher.update((frame.encoded.len() as u32).to_be_bytes());
+            hasher.update(&frame.encoded);
+        }
+        hasher
+            .finalize()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
+    }
+
+    fn assert_strict_frame_mutations(corpus: &[CorpusFrame]) {
+        for frame in corpus {
+            for truncated_len in 0..frame.encoded.len() {
+                assert!(
+                    (frame.decode)(&frame.encoded[..truncated_len]).is_err(),
+                    "{} accepted a truncated frame of {truncated_len} bytes",
+                    frame.label
+                );
+            }
+
+            let mut trailing = frame.encoded.clone();
+            trailing.push(0);
+            assert!(
+                (frame.decode)(&trailing).is_err(),
+                "{} accepted trailing bytes",
+                frame.label
+            );
+
+            for (offset, replacement) in [
+                (0usize, frame.encoded[0] ^ 1),
+                (4, VERSION.wrapping_add(1)),
+                (
+                    5,
+                    if frame.encoded[5] == CLIENT_ROLE {
+                        SIGNING_WORKER_ROLE
+                    } else {
+                        CLIENT_ROLE
+                    },
+                ),
+                (6, 0),
+                (7, 1),
+            ] {
+                let mut mutated = frame.encoded.clone();
+                mutated[offset] = replacement;
+                assert!(
+                    (frame.decode)(&mutated).is_err(),
+                    "{} accepted mutated header byte {offset}",
+                    frame.label
+                );
+            }
+
+            let mut oversized = frame.encoded.clone();
+            oversized[8..12].copy_from_slice(&u32::MAX.to_be_bytes());
+            assert!(
+                (frame.decode)(&oversized).is_err(),
+                "{} accepted an oversized declared payload",
+                frame.label
+            );
+
+            for offset in [
+                HEADER_SIZE,
+                frame.encoded.len() / 2,
+                frame.encoded.len() - 1,
+            ] {
+                let mut mutated = frame.encoded.clone();
+                mutated[offset] ^= 1;
+                let _ = (frame.decode)(&mutated);
+            }
+        }
+    }
+
+    fn assert_seeded_frame_fuzz(corpus: &[CorpusFrame]) {
+        let mut rng = ChaCha20Rng::from_seed([0xA7; 32]);
+        for _ in 0..4_096 {
+            let frame = &corpus[(rng.next_u32() as usize) % corpus.len()];
+            let mut mutated = frame.encoded.clone();
+            match rng.next_u32() % 4 {
+                0 => {
+                    let offset = (rng.next_u32() as usize) % mutated.len();
+                    mutated[offset] ^= 1 << (rng.next_u32() % 8);
+                }
+                1 => {
+                    let new_len = (rng.next_u32() as usize) % mutated.len();
+                    mutated.truncate(new_len);
+                }
+                2 => {
+                    let extra_len = 1 + ((rng.next_u32() as usize) % 16);
+                    mutated.resize(mutated.len() + extra_len, 0xA5);
+                }
+                3 => {
+                    mutated[8..12].copy_from_slice(&rng.next_u32().to_be_bytes());
+                }
+                _ => unreachable!("fuzz mutation selector is reduced modulo four"),
+            }
+            let _ = (frame.decode)(&mutated);
+        }
+    }
 
     fn context() -> PresignPairContext {
         PresignPairContext::new(
@@ -889,6 +1019,7 @@ mod tests {
     fn every_fixed_round_round_trips_and_drives_new_new() {
         let mut client_rng = ChaCha20Rng::from_seed([0x11; 32]);
         let mut worker_rng = ChaCha20Rng::from_seed([0x22; 32]);
+        let mut corpus = Vec::with_capacity(22);
         let context = context();
         let key = wallet_public_key();
         let (client, client_round1) =
@@ -896,18 +1027,18 @@ mod tests {
         let (worker, worker_round1) =
             start_signing_worker_driver(context, key_share(11), key, &mut worker_rng)
                 .expect("worker r1");
-        let client_round1 = decode_client_round1(
-            &client_round1
-                .encode_presign_message()
-                .expect("encode client r1"),
-        )
-        .expect("decode client r1");
-        let worker_round1 = decode_signing_worker_round1(
-            &worker_round1
-                .encode_presign_message()
-                .expect("encode worker r1"),
-        )
-        .expect("decode worker r1");
+        let client_round1 = record_round_trip!(
+            corpus,
+            "client-round-01",
+            client_round1,
+            decode_client_round1
+        );
+        let worker_round1 = record_round_trip!(
+            corpus,
+            "signing-worker-round-01",
+            worker_round1,
+            decode_signing_worker_round1
+        );
 
         let (client, client_round2) = client
             .receive(worker_round1, &mut client_rng)
@@ -915,18 +1046,18 @@ mod tests {
         let (worker, worker_round2) = worker
             .receive(client_round1, &mut worker_rng)
             .expect("worker r2");
-        let client_round2 = decode_client_round2(
-            &client_round2
-                .encode_presign_message()
-                .expect("encode client r2"),
-        )
-        .expect("decode client r2");
-        let worker_round2 = decode_signing_worker_round2(
-            &worker_round2
-                .encode_presign_message()
-                .expect("encode worker r2"),
-        )
-        .expect("decode worker r2");
+        let client_round2 = record_round_trip!(
+            corpus,
+            "client-round-02",
+            client_round2,
+            decode_client_round2
+        );
+        let worker_round2 = record_round_trip!(
+            corpus,
+            "signing-worker-round-02",
+            worker_round2,
+            decode_signing_worker_round2
+        );
 
         let (client, client_round3) = client
             .receive(worker_round2, &mut client_rng)
@@ -934,18 +1065,18 @@ mod tests {
         let (worker, worker_round3) = worker
             .receive(client_round2, &mut worker_rng)
             .expect("worker r3");
-        let client_round3 = decode_client_round3(
-            &client_round3
-                .encode_presign_message()
-                .expect("encode client r3"),
-        )
-        .expect("decode client r3");
-        let worker_round3 = decode_signing_worker_round3(
-            &worker_round3
-                .encode_presign_message()
-                .expect("encode worker r3"),
-        )
-        .expect("decode worker r3");
+        let client_round3 = record_round_trip!(
+            corpus,
+            "client-round-03",
+            client_round3,
+            decode_client_round3
+        );
+        let worker_round3 = record_round_trip!(
+            corpus,
+            "signing-worker-round-03",
+            worker_round3,
+            decode_signing_worker_round3
+        );
 
         let (client, client_round4) = client
             .receive(worker_round3, &mut client_rng)
@@ -953,48 +1084,48 @@ mod tests {
         let (worker, worker_round4) = worker
             .receive(client_round3, &mut worker_rng)
             .expect("worker r4");
-        let client_round4 = decode_client_round4(
-            &client_round4
-                .encode_presign_message()
-                .expect("encode client r4"),
-        )
-        .expect("decode client r4");
-        let worker_round4 = decode_signing_worker_round4(
-            &worker_round4
-                .encode_presign_message()
-                .expect("encode worker r4"),
-        )
-        .expect("decode worker r4");
+        let client_round4 = record_round_trip!(
+            corpus,
+            "client-round-04",
+            client_round4,
+            decode_client_round4
+        );
+        let worker_round4 = record_round_trip!(
+            corpus,
+            "signing-worker-round-04",
+            worker_round4,
+            decode_signing_worker_round4
+        );
 
         let (client, client_round5) = client.receive(worker_round4).expect("client r5");
         let (worker, worker_round5) = worker.receive(client_round4).expect("worker r5");
-        let client_round5 = decode_client_round5(
-            &client_round5
-                .encode_presign_message()
-                .expect("encode client r5"),
-        )
-        .expect("decode client r5");
-        let worker_round5 = decode_signing_worker_round5(
-            &worker_round5
-                .encode_presign_message()
-                .expect("encode worker r5"),
-        )
-        .expect("decode worker r5");
+        let client_round5 = record_round_trip!(
+            corpus,
+            "client-round-05",
+            client_round5,
+            decode_client_round5
+        );
+        let worker_round5 = record_round_trip!(
+            corpus,
+            "signing-worker-round-05",
+            worker_round5,
+            decode_signing_worker_round5
+        );
 
         let (client, client_round6) = client.receive(worker_round5).expect("client r6");
         let (worker, worker_round6) = worker.receive(client_round5).expect("worker r6");
-        let client_round6 = decode_client_round6(
-            &client_round6
-                .encode_presign_message()
-                .expect("encode client r6"),
-        )
-        .expect("decode client r6");
-        let worker_round6 = decode_signing_worker_round6(
-            &worker_round6
-                .encode_presign_message()
-                .expect("encode worker r6"),
-        )
-        .expect("decode worker r6");
+        let client_round6 = record_round_trip!(
+            corpus,
+            "client-round-06",
+            client_round6,
+            decode_client_round6
+        );
+        let worker_round6 = record_round_trip!(
+            corpus,
+            "signing-worker-round-06",
+            worker_round6,
+            decode_signing_worker_round6
+        );
 
         let (client, client_round7) = client
             .receive(worker_round6, &mut client_rng)
@@ -1002,18 +1133,18 @@ mod tests {
         let (worker, worker_round7) = worker
             .receive(client_round6, &mut worker_rng)
             .expect("worker r7");
-        let client_round7 = decode_client_round7(
-            &client_round7
-                .encode_presign_message()
-                .expect("encode client r7"),
-        )
-        .expect("decode client r7");
-        let worker_round7 = decode_signing_worker_round7(
-            &worker_round7
-                .encode_presign_message()
-                .expect("encode worker r7"),
-        )
-        .expect("decode worker r7");
+        let client_round7 = record_round_trip!(
+            corpus,
+            "client-round-07",
+            client_round7,
+            decode_client_round7
+        );
+        let worker_round7 = record_round_trip!(
+            corpus,
+            "signing-worker-round-07",
+            worker_round7,
+            decode_signing_worker_round7
+        );
 
         let (client, client_round8) = client
             .receive(worker_round7, &mut client_rng)
@@ -1021,18 +1152,18 @@ mod tests {
         let (worker, worker_round8) = worker
             .receive(client_round7, &mut worker_rng)
             .expect("worker r8");
-        let client_round8 = decode_client_round8(
-            &client_round8
-                .encode_presign_message()
-                .expect("encode client r8"),
-        )
-        .expect("decode client r8");
-        let worker_round8 = decode_signing_worker_round8(
-            &worker_round8
-                .encode_presign_message()
-                .expect("encode worker r8"),
-        )
-        .expect("decode worker r8");
+        let client_round8 = record_round_trip!(
+            corpus,
+            "client-round-08",
+            client_round8,
+            decode_client_round8
+        );
+        let worker_round8 = record_round_trip!(
+            corpus,
+            "signing-worker-round-08",
+            worker_round8,
+            decode_signing_worker_round8
+        );
 
         let (client, client_round9) = client
             .receive(worker_round8, &mut client_rng)
@@ -1040,52 +1171,66 @@ mod tests {
         let (worker, worker_round9) = worker
             .receive(client_round8, &mut worker_rng)
             .expect("worker r9");
-        let client_round9 = decode_client_round9(
-            &client_round9
-                .encode_presign_message()
-                .expect("encode client r9"),
-        )
-        .expect("decode client r9");
-        let worker_round9 = decode_signing_worker_round9(
-            &worker_round9
-                .encode_presign_message()
-                .expect("encode worker r9"),
-        )
-        .expect("decode worker r9");
+        let client_round9 = record_round_trip!(
+            corpus,
+            "client-round-09",
+            client_round9,
+            decode_client_round9
+        );
+        let worker_round9 = record_round_trip!(
+            corpus,
+            "signing-worker-round-09",
+            worker_round9,
+            decode_signing_worker_round9
+        );
 
         let (client, client_round10) = client.receive(worker_round9).expect("client r10");
         let (worker, worker_round10) = worker.receive(client_round9).expect("worker r10");
-        let client_round10 = decode_client_round10(
-            &client_round10
-                .encode_presign_message()
-                .expect("encode client r10"),
-        )
-        .expect("decode client r10");
-        let worker_round10 = decode_signing_worker_round10(
-            &worker_round10
-                .encode_presign_message()
-                .expect("encode worker r10"),
-        )
-        .expect("decode worker r10");
+        let client_round10 = record_round_trip!(
+            corpus,
+            "client-round-10",
+            client_round10,
+            decode_client_round10
+        );
+        let worker_round10 = record_round_trip!(
+            corpus,
+            "signing-worker-round-10",
+            worker_round10,
+            decode_signing_worker_round10
+        );
 
         let (client, client_round11) = client.receive(worker_round10).expect("client r11");
         let (worker, worker_round11) = worker.receive(client_round10).expect("worker r11");
-        let client_round11 = decode_client_round11(
-            &client_round11
-                .encode_presign_message()
-                .expect("encode client r11"),
-        )
-        .expect("decode client r11");
-        let worker_round11 = decode_signing_worker_round11(
-            &worker_round11
-                .encode_presign_message()
-                .expect("encode worker r11"),
-        )
-        .expect("decode worker r11");
+        let client_round11 = record_round_trip!(
+            corpus,
+            "client-round-11",
+            client_round11,
+            decode_client_round11
+        );
+        let worker_round11 = record_round_trip!(
+            corpus,
+            "signing-worker-round-11",
+            worker_round11,
+            decode_signing_worker_round11
+        );
 
         let client_output = client.receive(worker_round11).expect("client output");
         let worker_output = worker.receive(client_round11).expect("worker output");
         assert_eq!(client_output.into_parts().0, worker_output.into_parts().0);
+        assert_eq!(corpus.len(), 22);
+        assert_eq!(
+            corpus
+                .iter()
+                .map(|frame| frame.encoded.len())
+                .sum::<usize>(),
+            152_826
+        );
+        assert_eq!(
+            corpus_digest(&corpus),
+            "16bdcb259e861750250969bb4b9491f4620f0157cdda9a0a4433e6f2b9ed6eac"
+        );
+        assert_strict_frame_mutations(&corpus);
+        assert_seeded_frame_fuzz(&corpus);
     }
 
     #[test]

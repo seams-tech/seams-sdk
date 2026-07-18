@@ -82,10 +82,8 @@ fn prepare_command() -> PrepareEcdsaClientBootstrapCommandV1 {
         algorithm: EcdsaClientBootstrapAlgorithmV1::RouterAbEcdsaDerivationSecp256k1RoleLocalV1,
         context: context(),
         participants: participants(),
-        secret_source: EcdsaBootstrapSecretSourceV1::WebauthnPrfFirst {
-            prf_first_b64u: encode_base64_url(&[0x33u8; 32]),
-            rp_id: "localhost".to_owned(),
-            credential_id_b64u: encode_base64_url(b"credential"),
+        secret_source: EcdsaBootstrapSecretSourceV1::ThresholdPrfXClientBase {
+            x_client_base_b64u: encode_base64_url(&[0x33u8; 32]),
         },
     }
 }
