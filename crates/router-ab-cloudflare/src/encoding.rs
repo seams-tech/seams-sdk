@@ -53,7 +53,10 @@ pub(crate) fn encode_base64url_bytes_v1(bytes: &[u8]) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
 }
 
-fn decode_base64url_bytes_v1(field: &str, encoded: &str) -> RouterAbProtocolResult<Vec<u8>> {
+pub(crate) fn decode_base64url_bytes_v1(
+    field: &str,
+    encoded: &str,
+) -> RouterAbProtocolResult<Vec<u8>> {
     require_non_empty(field, encoded)?;
     require_no_ascii_whitespace(field, encoded)?;
     if encoded.contains('=') {

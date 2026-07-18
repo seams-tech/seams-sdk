@@ -6,10 +6,10 @@ remain deferred until the local cutover closes.
 
 This plan defines how local development should mimic the Cloudflare Router/A/B
 deployment while keeping the existing fast in-process tests. The target local
-shape is one SDK Router/API server plus three independently started private
-workers:
+shape is one public Gateway plus four independently started private workers:
 
-- SDK Router/API server
+- Gateway
+- MPCRouter
 - Deriver A
 - Deriver B
 - SigningWorker
@@ -39,24 +39,30 @@ rules as production.
 
 Default ports:
 
-| Service               | URL                     |
-| --------------------- | ----------------------- |
-| SDK Router/API server | `http://127.0.0.1:9090` |
-| Deriver A             | `http://127.0.0.1:9091` |
-| Deriver B             | `http://127.0.0.1:9092` |
-| SigningWorker         | `http://127.0.0.1:9093` |
+| Service                  | URL                     |
+| ------------------------ | ----------------------- |
+| Gateway                  | `http://127.0.0.1:9090` |
+| MPCRouter                | `http://127.0.0.1:9100` |
+| Deriver A Worker         | `http://127.0.0.1:9101` |
+| Deriver B Worker         | `http://127.0.0.1:9102` |
+| SigningWorker            | `http://127.0.0.1:9103` |
 
 ```mermaid
 flowchart LR
   C["Client"]
-  R["SDK Router/API :9090"]
-  A["Deriver A :9091"]
-  B["Deriver B :9092"]
-  SW["SigningWorker :9093"]
+  R["Gateway :9090"]
+  RW["MPCRouter :9100"]
+  A["Deriver A :9101"]
+  B["Deriver B :9102"]
+  SW["SigningWorker :9103"]
 
   C -->|"setup/export/refresh"| R
-  R -->|"private deriver request"| A
-  R -->|"private deriver request"| B
+  R -->|"strict ECDSA"| RW
+  RW -->|"service binding"| A
+  RW -->|"service binding"| B
+  RW -->|"service binding"| SW
+  R -->|"Yao request"| A
+  R -->|"Yao request"| B
   A <-->|"A/B peer protocol"| B
   A -->|"encrypted SigningWorker bundle"| SW
   B -->|"encrypted SigningWorker bundle"| SW
@@ -101,7 +107,7 @@ close.
 
 ## Architecture
 
-The SDK Router/API server owns public Router routes. Add one role-parametrized
+Gateway owns public Router A/B routes. Add one role-parametrized
 Rust binary under `crates/router-ab-dev` for private worker roles:
 
 ```text
@@ -140,7 +146,7 @@ The local HTTP harness uses the canonical protocol-specific route families:
 | `/router-ab/ed25519/sign/{prepare}` and `/router-ab/ed25519/sign`               | Router        | public normal-signing lifecycle        |
 | `/router-ab/deriver-a/ed25519-yao/*`                                            | Deriver A     | private Ed25519 Yao role-A work        |
 | `/router-ab/deriver-b/ed25519-yao/*`                                            | Deriver B     | private Ed25519 Yao role-B work        |
-| `/router-ab/ecdsa-derivation/*`                                                        | Router        | public strict ECDSA lifecycle          |
+| `/router-ab/ecdsa-derivation/*`                                                 | Router        | public strict ECDSA lifecycle          |
 | `/router-ab/signing-worker/ed25519-yao/*`                                       | SigningWorker | private Ed25519 activation and refresh |
 | `/router-ab/signing-worker/sign/{prepare}` and `/router-ab/signing-worker/sign` | SigningWorker | private normal-signing lifecycle       |
 
@@ -235,7 +241,7 @@ trait LocalServiceBindingTransport {
 }
 ```
 
-The SDK Router server uses this transport for Deriver A, Deriver B, and
+Gateway uses this transport for Deriver A, Deriver B, and
 SigningWorker calls. Deriver A and Deriver B use it for direct A/B peer
 coordination. The transport must preserve the same canonical request bytes used
 by Cloudflare service-binding requests.
@@ -323,46 +329,50 @@ Expected behavior:
   Router A/B ECDSA derivation normal-signing binding and Ed25519 presign-pool refill, pool-hit,
   and pool-miss timing.
 - `router:down` stops only pids created by `router:up`.
-- `router` starts the SDK Router server plus Deriver A, Deriver B, and
-  SigningWorker in one terminal with interleaved color-labeled logs and stops
-  managed processes on Ctrl-C.
-- `router:multiplex` starts the same services in one 2x2 terminal dashboard and
+- `router` starts Gateway, MPCRouter, Deriver A, Deriver B, and SigningWorker
+  in one terminal with interleaved color-labeled logs and stops managed
+  processes on Ctrl-C.
+- `router:multiplex` starts the same services in one terminal dashboard and
   stops managed processes on Ctrl-C.
 
 Frontend account-creation testing uses the regular local app stack:
 
 ```sh
+pnpm build:sdk
 pnpm site
 pnpm router
 ```
 
-Run those commands in separate terminals. Use `pnpm router:multiplex` instead
-of `pnpm router` when you want the 2x2 dashboard. `pnpm site` owns
-`https://localhost`; `pnpm router` and `pnpm router:multiplex` start the Router
-server at `127.0.0.1:9090` when it is not already running. They verify
+Run those commands in separate terminals. Use `pnpm router:multiplex` for the
+dashboard. `pnpm site` owns
+`https://localhost`; `pnpm router` and `pnpm router:multiplex` start Gateway at
+`127.0.0.1:9090` when it is not already running. They verify
 `https://localhost:9444/.well-known/webauthn` and start the local Caddy proxy
-when that HTTPS endpoint is absent. The Router A/B harness workers still run on
-their own local ports for protocol work.
+when that HTTPS endpoint is absent. The production-equivalent Cloudflare
+Workers run on `127.0.0.1:9100-9103` and retain state in
+`.runtime/router-ab-strict-state/<worker-role>`, with one persistence directory
+per production Worker.
 
-`pnpm router:server` is the lower-level main Router server command used by the local
-router launcher. Browser registration testing should use `pnpm router`.
+The build and launch phases are separate. `pnpm build:sdk` builds the SDK and
+the four strict Rust/WASM Workers. `pnpm router` validates the Worker artifacts
+and their commitment-policy receipt, then starts the topology without invoking
+`worker-build`. `pnpm router:build` rebuilds only the strict Workers.
+
+Before launch, `pnpm router` stops existing Wrangler process groups whose
+generated config and persistence paths identify them as this repository's local
+Router A/B topology. This handles interrupted launchers and repeated startup
+commands without killing unrelated processes that happen to use another
+topology. A remaining listener on `9100-9103` is reported as a port conflict.
+
+`pnpm gateway:server` is the lower-level Gateway command used by the local
+topology launcher. Browser registration testing should use `pnpm router`.
 
 If a browser request through `https://localhost:9444` returns an Express-style
 `Cannot POST /router-ab/...`, the main Router route table is missing that
 route. Do not fix this with Caddy path selection; Caddy must forward the whole
-origin to one Router server.
+origin to Gateway.
 
-When default ports `9090-9093` are occupied, initialize with free localhost
-ports:
-
-```sh
-pnpm router -- --fresh --ephemeral-ports
-```
-
-The generated env files record the selected URLs, so `router:up` and
-`router:check` use the same local topology without extra flags.
-
-For fresh single-terminal runs with free ports:
+For fresh single-terminal runs:
 
 ```sh
 pnpm router -- --fresh
@@ -376,15 +386,15 @@ standardizes Router/A/B developer commands there.
 
 2026-06-14 local development evidence:
 
-- [x] `pnpm build:sdk && pnpm router` starts the Router server, verifies
-      `https://localhost:9444/.well-known/webauthn`, and starts Router,
+- [x] `pnpm build:sdk && pnpm router` starts Gateway, verifies
+      `https://localhost:9444/.well-known/webauthn`, and starts MPCRouter,
       Deriver A, Deriver B, and SigningWorker after the browser-facing Router
       path is stable.
 - [x] Passkey wallet unlock succeeds against the local stack.
 - [x] Passkey account registration succeeds against the local stack.
 - [x] Ed25519 transaction signing succeeds against the local stack.
 - [x] ECDSA transaction signing succeeds against the local stack.
-- [x] Ctrl-C stops the started local workers and Router server.
+- [x] Ctrl-C stops the started local workers and Gateway.
 
 This is local development evidence. It does not replace deployed Cloudflare
 runtime evidence or the post-cutover Yao release gates.
@@ -396,7 +406,7 @@ Focused gates:
 - unit tests for env parser role branches and forbidden-key checks,
 - unit tests for route path ownership,
 - unit tests for local Durable Object storage parity with memory storage,
-- local setup/activation smoke through the SDK Router server and private workers,
+- local setup/activation smoke through Gateway and private workers,
 - local normal-signing smoke proving Deriver A/B stay idle,
 - source guard proving the local HTTP harness uses Cloudflare route constants,
 - source guard proving local logs accept only redacted diagnostics.
@@ -472,7 +482,7 @@ Release gates before Cloudflare deployment:
 - [x] Add `pnpm router:check`.
 - [x] Add `pnpm router:down`.
 - [x] Add `pnpm router` interleaved logs with Ctrl-C cleanup.
-- [x] Add `pnpm router:multiplex` 2x2 dashboard with Ctrl-C cleanup.
+- [x] Add `pnpm router:multiplex` dashboard with Ctrl-C cleanup.
 - [x] Delete the obsolete single-process local profile after the SDK Router
       route table became the only public Router runtime.
 - [x] Delete ephemeral local smoke commands that preserved the old public Rust
@@ -480,7 +490,7 @@ Release gates before Cloudflare deployment:
 - [x] Add persistent local init mode that materializes free ports when defaults
       are occupied.
 - [x] Make `pnpm router` and `pnpm router:multiplex` auto-start the
-      `127.0.0.1:9090` Router server when it is not already running.
+      Gateway at `127.0.0.1:9090` when it is not already running.
 - [x] Make `pnpm router` and `pnpm router:multiplex` verify the
       `https://localhost:9444/.well-known/webauthn` proxy path before workers
       are marked ready.
@@ -533,7 +543,7 @@ startup and hot-path measurements are recorded next to those local numbers.
 - [x] Record optimized local p50/p95/p99 latency plus exact directional bytes.
 - [x] Remove the obsolete local HSS parity suite and detach the generic local
       Router/A/B transport smoke from HSS fixtures.
-- [x] Connect the SDK Router/API and browser Client to the Phase 9C Yao
+- [x] Connect Gateway and the browser client to the Phase 9C Yao
       contracts.
 - [ ] Delete the remaining SDK-bound Ed25519-HSS dependency, state, handlers,
       and fixtures after the cutover passes.

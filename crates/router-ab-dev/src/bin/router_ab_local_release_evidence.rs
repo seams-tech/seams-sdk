@@ -4,6 +4,7 @@ use router_ab_core::{
     parse_router_ab_ecdsa_derivation_evm_digest_signing_finalize_request_v1_json,
     parse_router_ab_ecdsa_derivation_evm_digest_signing_prepare_response_v1_json,
     parse_router_ab_ecdsa_derivation_evm_digest_signing_request_v1_json,
+    router_ab_ecdsa_rerandomization_client_commitment_v1,
     RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
     RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1,
     RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
@@ -127,6 +128,7 @@ fn router_ab_ecdsa_derivation_evidence() -> RouterAbProtocolResult<RouterAbEcdsa
         b64u(&[0x66; 32]),
         "server-presignature-1",
         b64u(&[0x77; 32]),
+        b64u(&[0x44; 32]),
     )?;
     let response = RouterAbEcdsaDerivationEvmDigestSigningResponseV1::new_for_request(
         &prepare,
@@ -210,6 +212,9 @@ fn ecdsa_signing_request(
         "server-presignature-1",
         1_900_000_000_000,
         b64u(&[0x66; 32]),
+        b64u(&router_ab_ecdsa_rerandomization_client_commitment_v1(
+            [0x44; 32],
+        )),
     )
 }
 

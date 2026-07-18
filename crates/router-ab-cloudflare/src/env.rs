@@ -122,6 +122,9 @@ pub const ROUTER_PROJECT_POLICY_DO_BINDING_ENV: &str = "ROUTER_PROJECT_POLICY_DO
 pub const ROUTER_PROJECT_POLICY_DO_OBJECT_ENV: &str = "ROUTER_PROJECT_POLICY_DO_OBJECT";
 /// Router project-policy Durable Object key-prefix env key.
 pub const ROUTER_PROJECT_POLICY_DO_KEY_PREFIX_ENV: &str = "ROUTER_PROJECT_POLICY_DO_KEY_PREFIX";
+/// Exact Router project-policy record used to initialize an empty Durable Object.
+pub const ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON_ENV: &str =
+    "ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON";
 /// Router quota Durable Object binding env key.
 pub const ROUTER_QUOTA_DO_BINDING_ENV: &str = "ROUTER_QUOTA_DO_BINDING";
 /// Router quota Durable Object object-name env key.
@@ -201,6 +204,7 @@ pub(crate) const DERIVER_A_FORBIDDEN_ENV_KEYS: &[&str] = &[
     SIGNING_WORKER_SERVER_OUTPUT_DO_OBJECT_ENV,
     SIGNING_WORKER_SERVER_OUTPUT_DO_KEY_PREFIX_ENV,
     SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_BINDING_ENV,
+    SIGNING_WORKER_PEER_BINDING_ENV,
 ];
 pub(crate) const DERIVER_B_FORBIDDEN_ENV_KEYS: &[&str] = &[
     ROUTER_REPLAY_DO_BINDING_ENV,

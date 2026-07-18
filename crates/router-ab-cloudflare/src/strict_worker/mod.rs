@@ -10,6 +10,7 @@ use crate::cloudflare_router_error_status;
 use crate::{
     build_cloudflare_router_public_keyset_v2, cloudflare_now_unix_ms_v1,
     cloudflare_router_normal_signing_cors_allowed_origin_v1, cloudflare_trusted_source_digest_v1,
+    handle_cloudflare_router_ab_ecdsa_derivation_activation_authenticated_public_request_v1,
     handle_cloudflare_router_ab_ecdsa_derivation_activation_refresh_authenticated_public_request_v1,
     handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_finalize_authenticated_public_request_v1,
     handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_prepare_authenticated_public_request_v1,
@@ -22,11 +23,13 @@ use crate::{
     handle_cloudflare_router_wallet_budget_status_authenticated_public_request_v1,
     load_cloudflare_router_ed25519_jwks_jwt_verifier_v1,
     parse_cloudflare_router_bearer_authorization_from_request_v1,
+    parse_cloudflare_router_ab_ecdsa_derivation_activation_request_v1_json,
     parse_cloudflare_router_budgeted_ed25519_finalize_request_v2_json,
     parse_cloudflare_router_budgeted_router_ab_ecdsa_derivation_finalize_request_v1_json,
     CloudflareRouterWalletSessionCredentialV1, CloudflareRouterWorkerRuntimeV1,
     CloudflareWorkerEnvReaderV1,
     CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ADD_SIGNER_PUBLIC_REQUEST_PATH,
+    CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_PUBLIC_REQUEST_PATH,
     CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PUBLIC_REQUEST_PATH,
     CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PUBLIC_REQUEST_PATH,
     CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PUBLIC_REQUEST_PATH,
@@ -50,22 +53,24 @@ use crate::{
     decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_export_signer_private_request_v1,
     decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_recovery_signer_private_request_v1,
     decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_registration_signer_private_request_v1,
-    execute_cloudflare_signing_worker_direct_recipient_proof_bundle_activation_service_call_v1,
-    CloudflarePeerBindingV1, CloudflarePreloadedSignerHostV1, CloudflareRootShareStartupMetadataV1,
+    CloudflarePreloadedSignerHostV1, CloudflareRootShareStartupMetadataV1,
     CloudflareRouterAbEcdsaDerivationDeriverActivationRefreshPrivateRequestV1,
     CloudflareRouterAbEcdsaDerivationDeriverExportPrivateRequestV1,
     CloudflareRouterAbEcdsaDerivationDeriverRecoveryPrivateRequestV1,
     CloudflareRouterAbEcdsaDerivationDeriverRegistrationPrivateRequestV1,
     CloudflareSignerEnvelopeHpkeDecryptKeyBindingSetV1, CloudflareSignerHostPreloadInputV1,
     CloudflareSignerHostPreloadPlanV1, CloudflareSignerPeerSigningKeyBindingV1,
-    CloudflareSignerPrivateBootstrapRequestV1, CloudflareSignerRecipientProofBundleResponseV1,
-    CloudflareSigningWorkerDirectRecipientProofBundleActivationDeliveryV1, CloudflareWorkerRoleV1,
+    CloudflareSignerPrivateBootstrapRequestV1,
+    CloudflareWorkerRoleV1,
 };
 #[cfg(feature = "strict-worker-signing-worker-entrypoint")]
 use crate::{
     cloudflare_now_unix_ms_v1,
     handle_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_fetch_v1,
     handle_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_refresh_fetch_v1,
+    handle_cloudflare_signing_worker_ed25519_yao_deriver_a_v1,
+    handle_cloudflare_signing_worker_ed25519_yao_deriver_b_v1,
+    handle_cloudflare_signing_worker_ed25519_yao_recovery_promote_v1,
     handle_cloudflare_signing_worker_normal_signing_private_fetch_v1,
     handle_cloudflare_signing_worker_normal_signing_round1_prepare_private_fetch_v1,
     handle_cloudflare_signing_worker_recipient_proof_bundle_activation_fetch_v1,
@@ -74,7 +79,10 @@ use crate::{
     handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_presignature_pool_put_private_fetch_v1,
     CloudflareEd25519YaoNormalSigningHandlerV1,
     CloudflareRoleSeparatedRouterAbEcdsaDerivationEvmDigestFinalizeHandlerV1,
-    CloudflareSigningWorkerRuntimeV1, CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_PATH,
+    CloudflareSigningWorkerRuntimeV1, CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_DERIVER_A_PATH,
+    CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_DERIVER_B_PATH,
+    CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_RECOVERY_PROMOTE_PATH,
+    CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_PATH,
     CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_ROUND1_PREPARE_PATH,
     CLOUDFLARE_SIGNING_WORKER_PROOF_BUNDLE_ACTIVATION_PATH,
     CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_PATH,
@@ -95,8 +103,9 @@ use crate::{
 };
 #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
 use crate::{
-    preload_cloudflare_deriver_a_host_v1, CloudflareDeriverAWorkerRuntimeV1,
-    CLOUDFLARE_DERIVER_A_PRIVATE_REQUEST_PATH,
+    handle_cloudflare_ed25519_yao_deriver_a_start_v1, preload_cloudflare_deriver_a_host_v1,
+    CloudflareDeriverAWorkerRuntimeV1, CLOUDFLARE_DERIVER_A_ED25519_YAO_ACTIVATION_START_PATH,
+    CLOUDFLARE_DERIVER_A_ED25519_YAO_EXPORT_START_PATH, CLOUDFLARE_DERIVER_A_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PRIVATE_REQUEST_PATH,
@@ -104,8 +113,14 @@ use crate::{
 };
 #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
 use crate::{
-    preload_cloudflare_deriver_b_host_v1, CloudflareDeriverBWorkerRuntimeV1,
-    CLOUDFLARE_DERIVER_B_PRIVATE_REQUEST_PATH,
+    handle_cloudflare_ed25519_yao_deriver_b_result_v1,
+    handle_cloudflare_ed25519_yao_deriver_b_stage_v1,
+    handle_cloudflare_ed25519_yao_deriver_b_websocket_v1, preload_cloudflare_deriver_b_host_v1,
+    CloudflareDeriverBWorkerRuntimeV1, CLOUDFLARE_DERIVER_B_ED25519_YAO_ACTIVATION_RESULT_PATH,
+    CLOUDFLARE_DERIVER_B_ED25519_YAO_ACTIVATION_STAGE_PATH,
+    CLOUDFLARE_DERIVER_B_ED25519_YAO_DUPLEX_PATH,
+    CLOUDFLARE_DERIVER_B_ED25519_YAO_EXPORT_RESULT_PATH,
+    CLOUDFLARE_DERIVER_B_ED25519_YAO_EXPORT_STAGE_PATH, CLOUDFLARE_DERIVER_B_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PRIVATE_REQUEST_PATH,
@@ -117,8 +132,7 @@ use router_ab_core::RouterAbProtocolError;
     feature = "strict-worker-deriver-b-entrypoint"
 ))]
 use router_ab_core::{
-    decode_router_to_signer_payload_v1, AbPeerMessageVerifyingKeyV1, Role, RouterAbProtocolResult,
-    SignerSetV1, SigningWorkerActivationContextV1,
+    AbPeerMessageVerifyingKeyV1, Ed25519YaoInputKindV1, Role, RouterAbProtocolResult, SignerSetV1,
 };
 #[cfg(feature = "strict-worker-router-entrypoint")]
 use router_ab_core::{
@@ -163,11 +177,11 @@ pub async fn fetch(request: Request, env: Env, _ctx: Context) -> worker::Result<
     }
     #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
     {
-        return handle_strict_deriver_a_fetch_v1(request, env).await;
+        return handle_strict_deriver_a_fetch_v1(request, env, _ctx).await;
     }
     #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
     {
-        return handle_strict_deriver_b_fetch_v1(request, env).await;
+        return handle_strict_deriver_b_fetch_v1(request, env, _ctx).await;
     }
     #[cfg(feature = "strict-worker-signing-worker-entrypoint")]
     {

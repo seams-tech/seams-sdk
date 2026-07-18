@@ -2,8 +2,8 @@ use crate::*;
 use std::collections::BTreeMap;
 
 use router_ab_ecdsa_online::{
-    finalize_signing_worker_signature, OnlineError, SigningWorkerOnlineInput,
-    SigningWorkerPresignMaterial,
+    combine_rerandomization_contributions, finalize_signing_worker_signature, OnlineError,
+    SigningWorkerOnlineInput, SigningWorkerPresignMaterial,
 };
 use signer_core::error::{SignerCoreError, SignerCoreErrorCode};
 use signer_core::near_threshold_ed25519::{
@@ -130,6 +130,7 @@ impl CloudflareSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutRequestV1 
     pub fn to_pool_record(
         &self,
         active_signing_worker: ActiveSigningWorkerStateV1,
+        active_material: &CloudflareServerOutputMaterialRecordV1,
         now_unix_ms: u64,
     ) -> RouterAbProtocolResult<CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1> {
         self.validate_at(now_unix_ms)?;
@@ -138,7 +139,13 @@ impl CloudflareSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutRequestV1 
                 &self.scope,
             )?;
         lookup.validate_active_state(&active_signing_worker)?;
+        validate_cloudflare_router_ab_ecdsa_derivation_normal_signing_active_material_v1(
+            &self.scope,
+            &active_signing_worker,
+            active_material,
+        )?;
         CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1::new(
+            self.scope.clone(),
             active_signing_worker,
             self.server_presignature_id.clone(),
             self.server_big_r33_b64u.clone(),
@@ -613,14 +620,13 @@ impl CloudflareSigningWorkerMaterializedRouterAbEcdsaDerivationEvmDigestFinalize
             &self.active_signing_worker,
             &self.material,
         )?;
-        let lookup = CloudflareSigningWorkerEcdsaPresignatureLookupV1::new(
-            self.active_signing_worker.clone(),
-            self.request.request.server_presignature_id.clone(),
+        self.server_presignature.validate_for_request(
+            &self.active_signing_worker,
+            &self.request.request.server_presignature_id,
             self.request.request.prepare_request_digest()?,
             self.request.request.signing_digest()?,
             self.signed_at_ms,
-        )?;
-        self.server_presignature.validate_for_lookup(&lookup)
+        )
     }
 
     /// Returns the prepare request identity that the final signature response must bind.
@@ -700,8 +706,12 @@ impl CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestPreparedV1 {
             && self.record.request_digest == request_digest
             && self.record.admitted_signing_digest == signing_digest
             && self.record.server_big_r33_b64u == self.response.server_big_r33_b64u
-            && self.record.rerandomization_entropy32_b64u
-                == self.response.rerandomization_entropy32_b64u
+            && self
+                .record
+                .signing_worker_rerandomization_contribution32_b64u
+                == self
+                    .response
+                    .signing_worker_rerandomization_contribution32_b64u
             && self.record.created_at_ms == request.materialized_at_ms
             && self.record.expires_at_ms == request.request.request.expires_at_ms
         {
@@ -712,60 +722,6 @@ impl CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestPreparedV1 {
             "SigningWorker Router A/B ECDSA derivation prepared record does not match response",
         ))
     }
-
-    /// Validates the Durable Object put receipt matches the prepared record and response.
-    pub fn validate_put_receipt(
-        &self,
-        receipt: &CloudflareSigningWorkerEcdsaPresignaturePutReceiptV1,
-    ) -> RouterAbProtocolResult<()> {
-        receipt.validate_for_record(&self.record)?;
-        if receipt.server_presignature_id == self.response.server_presignature_id
-            && receipt.request_digest == self.response.request_digest
-            && receipt.admitted_signing_digest == self.response.signing_digest
-            && receipt.server_big_r33_b64u == self.response.server_big_r33_b64u
-            && receipt.rerandomization_entropy32_b64u
-                == self.response.rerandomization_entropy32_b64u
-        {
-            return Ok(());
-        }
-        Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-            "SigningWorker Router A/B ECDSA derivation presignature receipt does not match prepare response",
-        ))
-    }
-}
-
-/// Builds a production Router A/B ECDSA derivation prepare bundle from a reserved unbound presignature.
-pub fn prepare_cloudflare_role_separated_router_ab_ecdsa_derivation_evm_digest_from_pool_record_v1(
-    request: CloudflareSigningWorkerMaterializedRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
-    pool_record: CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1,
-    rerandomization_entropy32_b64u: impl Into<String>,
-) -> RouterAbProtocolResult<CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestPreparedV1> {
-    request.validate()?;
-    let pool_lookup = CloudflareSigningWorkerEcdsaPresignaturePoolLookupV1::new(
-        request.active_signing_worker.clone(),
-        request.request.request.client_presignature_id.clone(),
-        request.materialized_at_ms,
-    )?;
-    pool_record.validate_for_lookup(&pool_lookup)?;
-    let rerandomization_entropy32_b64u = rerandomization_entropy32_b64u.into();
-    let response = RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1::new_for_request(
-        &request.request.request,
-        pool_record.server_presignature_id.clone(),
-        pool_record.server_big_r33_b64u.clone(),
-        rerandomization_entropy32_b64u.clone(),
-        request.materialized_at_ms,
-    )?;
-    let record = pool_record.to_request_bound_record(
-        request.request.request.request_digest()?,
-        request.request.request.signing_digest()?,
-        rerandomization_entropy32_b64u,
-        request.materialized_at_ms,
-        request.request.request.expires_at_ms,
-    )?;
-    CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestPreparedV1::new(
-        response, record, &request,
-    )
 }
 
 /// SigningWorker-produced round-1 record plus public prepare response.
@@ -1015,10 +971,19 @@ impl CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestFinalizeHandlerV1
             "Router A/B ECDSA derivation server_sigma_share32_b64u",
             &request.server_presignature.server_sigma_share32_b64u,
         )?;
-        let rerandomization_entropy32 = decode_base64url_fixed_32_v1(
-            "Router A/B ECDSA derivation rerandomization_entropy32_b64u",
-            &request.server_presignature.rerandomization_entropy32_b64u,
+        let signing_worker_rerandomization_contribution32 = decode_base64url_fixed_32_v1(
+            "Router A/B ECDSA derivation signing_worker_rerandomization_contribution32_b64u",
+            &request
+                .server_presignature
+                .signing_worker_rerandomization_contribution32_b64u,
         )?;
+        let rerandomization_entropy32 = combine_rerandomization_contributions(
+            request
+                .request
+                .request
+                .client_rerandomization_contribution32()?,
+            signing_worker_rerandomization_contribution32,
+        );
         let client_signature_share32 = request.request.request.client_signature_share32()?;
         let material = SigningWorkerPresignMaterial::from_bytes(
             server_big_r33,

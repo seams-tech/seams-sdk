@@ -9,15 +9,17 @@ use router_ab_ecdsa_client_protocol::{
     EcdsaCommitmentStatementV1, EcdsaSignedCommitmentPolicyV1, EcdsaSignedCommitmentRecordV1,
 };
 use router_ab_ecdsa_client_protocol::{
-    open_ecdsa_signer_envelope_v1, seal_ecdsa_signer_envelope_v1, EcdsaDeriverRoleV1,
-    EcdsaRoleEnvelopeAadV1, EcdsaSelectedServerIdentityV1, EcdsaSignerEnvelopeHpkePayloadV1,
-    EcdsaSignerEnvelopePublicKeyV1, EcdsaSignerIdentityV1,
+    open_ecdsa_signer_envelope_v1, seal_ecdsa_signer_envelope_v1,
+    EcdsaCommitmentAuthorityDeliveryV1, EcdsaCommitmentRecordDeliveryV1,
+    EcdsaCommitmentRegistryDeliveryV1, EcdsaDeriverRoleV1, EcdsaRoleEnvelopeAadV1,
+    EcdsaSelectedServerIdentityV1, EcdsaSignedCommitmentPolicyDeliveryV1,
+    EcdsaSignerEnvelopeHpkePayloadV1, EcdsaSignerEnvelopePublicKeyV1, EcdsaSignerIdentityV1,
 };
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 #[cfg(feature = "workers-rs")]
-pub const SIGNING_WORKER_ECDSA_COMMITMENT_REGISTRY_ENV: &str =
-    "SIGNING_WORKER_ECDSA_COMMITMENT_REGISTRY_JSON";
+pub const ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_ENV: &str =
+    "ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON";
 
 #[cfg(feature = "workers-rs")]
 const COMMITMENT_POLICY_RELEASE_AUTHORITY_PUBLIC_KEY_BUILD_ENV: &str =
@@ -31,71 +33,6 @@ const COMMITMENT_POLICY_MINIMUM_RELEASE_EPOCH_BUILD_ENV: &str =
     "ROUTER_AB_ECDSA_COMMITMENT_POLICY_MINIMUM_RELEASE_EPOCH";
 
 #[cfg(feature = "workers-rs")]
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CloudflareCommitmentRegistryConfigV1 {
-    policy: CloudflareSignedCommitmentPolicyConfigV1,
-    records: CloudflareCommitmentRecordsConfigV1,
-}
-
-#[cfg(feature = "workers-rs")]
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CloudflareSignedCommitmentPolicyConfigV1 {
-    manifest: CloudflareCommitmentPolicyManifestConfigV1,
-    manifest_digest_hex: String,
-    release_authority_signature_hex: String,
-}
-
-#[cfg(feature = "workers-rs")]
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CloudflareCommitmentPolicyManifestConfigV1 {
-    release_epoch: u64,
-    minimum_root_version: u64,
-    minimum_authority_key_epoch: u64,
-    revoked_authority_key_epochs: Vec<u64>,
-    revoked_record_digests_hex: Vec<String>,
-    signer_a_authority: CloudflareCommitmentAuthorityConfigV1,
-    signer_b_authority: CloudflareCommitmentAuthorityConfigV1,
-}
-
-#[cfg(feature = "workers-rs")]
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CloudflareCommitmentAuthorityConfigV1 {
-    operator_identity: String,
-    authority_key_epoch: u64,
-    valid_from_ms: u64,
-    valid_until_ms: u64,
-    verifying_key_hex: String,
-}
-
-#[cfg(feature = "workers-rs")]
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CloudflareCommitmentRecordsConfigV1 {
-    signer_a: CloudflareCommitmentRecordConfigV1,
-    signer_b: CloudflareCommitmentRecordConfigV1,
-}
-
-#[cfg(feature = "workers-rs")]
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CloudflareCommitmentRecordConfigV1 {
-    root_id: String,
-    root_version: u64,
-    root_share_epoch: String,
-    commitment_hex: String,
-    operator_identity: String,
-    authority_key_epoch: u64,
-    record_valid_from_ms: u64,
-    record_valid_until_ms: u64,
-    signed_digest_hex: String,
-    signature_hex: String,
-}
-
-#[cfg(feature = "workers-rs")]
 pub(crate) type CloudflareCommitmentPolicyBuildPinsV1 = EcdsaCommitmentPolicyPinsV1;
 
 #[cfg(feature = "workers-rs")]
@@ -104,47 +41,87 @@ pub(crate) fn load_cloudflare_signing_worker_commitment_registry_v1(
     activation_context: &SigningWorkerActivationContextV1,
     now_ms: u64,
 ) -> RouterAbProtocolResult<RootShareCommitmentRegistryV1> {
+    let (registry, _) =
+        load_cloudflare_authenticated_commitment_registry_delivery_v1(
+            env,
+            activation_context,
+            now_ms,
+        )?;
+    Ok(registry)
+}
+
+#[cfg(feature = "workers-rs")]
+pub(crate) fn load_cloudflare_commitment_registry_delivery_v1(
+    env: &worker::Env,
+    activation_context: &SigningWorkerActivationContextV1,
+    now_ms: u64,
+) -> RouterAbProtocolResult<EcdsaCommitmentRegistryDeliveryV1> {
+    let (_, delivery) =
+        load_cloudflare_authenticated_commitment_registry_delivery_v1(
+            env,
+            activation_context,
+            now_ms,
+        )?;
+    Ok(delivery)
+}
+
+#[cfg(feature = "workers-rs")]
+fn load_cloudflare_authenticated_commitment_registry_delivery_v1(
+    env: &worker::Env,
+    activation_context: &SigningWorkerActivationContextV1,
+    now_ms: u64,
+) -> RouterAbProtocolResult<(
+    RootShareCommitmentRegistryV1,
+    EcdsaCommitmentRegistryDeliveryV1,
+)> {
     let json = env
-        .var(SIGNING_WORKER_ECDSA_COMMITMENT_REGISTRY_ENV)
+        .var(ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_ENV)
         .map_err(|err| {
             RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
                 format!(
-                    "SigningWorker commitment registry Env {} is required: {err}",
-                    SIGNING_WORKER_ECDSA_COMMITMENT_REGISTRY_ENV
+                    "Router A/B ECDSA commitment registry Env {} is required: {err}",
+                    ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_ENV
                 ),
             )
         })?
         .to_string();
+    let delivery: EcdsaCommitmentRegistryDeliveryV1 =
+        serde_json::from_str(&json).map_err(|err| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                format!("Router A/B ECDSA commitment registry JSON is invalid: {err}"),
+            )
+        })?;
     let build_pins = cloudflare_commitment_policy_build_pins_v1()?;
-    parse_cloudflare_signing_worker_commitment_registry_json_with_pins_v1(
-        &json,
+    let registry = authenticate_cloudflare_commitment_registry_delivery_with_pins_v1(
+        &delivery,
         activation_context,
         now_ms,
         build_pins,
-    )
+    )?;
+    Ok((registry, delivery))
 }
 
 #[cfg(feature = "workers-rs")]
-pub(crate) fn parse_cloudflare_signing_worker_commitment_registry_json_with_pins_v1(
-    json: &str,
+fn authenticate_cloudflare_commitment_registry_delivery_with_pins_v1(
+    delivery: &EcdsaCommitmentRegistryDeliveryV1,
     activation_context: &SigningWorkerActivationContextV1,
     now_ms: u64,
     build_pins: CloudflareCommitmentPolicyBuildPinsV1,
 ) -> RouterAbProtocolResult<RootShareCommitmentRegistryV1> {
     activation_context.validate()?;
-    let config: CloudflareCommitmentRegistryConfigV1 =
-        serde_json::from_str(json).map_err(|err| {
-            RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-                format!("SigningWorker commitment registry JSON is invalid: {err}"),
-            )
-        })?;
-    let policy = parse_cloudflare_commitment_policy_v1(config.policy)?;
+    let policy = parse_cloudflare_commitment_policy_v1(delivery.policy.clone())?;
     let signer_a_record =
-        parse_cloudflare_commitment_record_v1(EcdsaDeriverRoleV1::A, config.records.signer_a)?;
+        parse_cloudflare_commitment_record_v1(
+            EcdsaDeriverRoleV1::A,
+            delivery.records.signer_a.clone(),
+        )?;
     let signer_b_record =
-        parse_cloudflare_commitment_record_v1(EcdsaDeriverRoleV1::B, config.records.signer_b)?;
+        parse_cloudflare_commitment_record_v1(
+            EcdsaDeriverRoleV1::B,
+            delivery.records.signer_b.clone(),
+        )?;
     let binding = EcdsaCommitmentRegistryBindingV1 {
         now_ms,
         root_share_epoch: activation_context
@@ -174,7 +151,7 @@ pub(crate) fn parse_cloudflare_signing_worker_commitment_registry_json_with_pins
 
 #[cfg(feature = "workers-rs")]
 fn parse_cloudflare_commitment_policy_v1(
-    policy: CloudflareSignedCommitmentPolicyConfigV1,
+    policy: EcdsaSignedCommitmentPolicyDeliveryV1,
 ) -> RouterAbProtocolResult<EcdsaSignedCommitmentPolicyV1> {
     let manifest = policy.manifest;
     Ok(EcdsaSignedCommitmentPolicyV1 {
@@ -213,7 +190,7 @@ fn parse_cloudflare_commitment_policy_v1(
 #[cfg(feature = "workers-rs")]
 fn parse_cloudflare_commitment_authority_v1(
     role: EcdsaDeriverRoleV1,
-    config: CloudflareCommitmentAuthorityConfigV1,
+    config: EcdsaCommitmentAuthorityDeliveryV1,
 ) -> RouterAbProtocolResult<EcdsaCommitmentAuthorityV1> {
     Ok(EcdsaCommitmentAuthorityV1 {
         role,
@@ -231,7 +208,7 @@ fn parse_cloudflare_commitment_authority_v1(
 #[cfg(feature = "workers-rs")]
 fn parse_cloudflare_commitment_record_v1(
     role: EcdsaDeriverRoleV1,
-    config: CloudflareCommitmentRecordConfigV1,
+    config: EcdsaCommitmentRecordDeliveryV1,
 ) -> RouterAbProtocolResult<EcdsaSignedCommitmentRecordV1> {
     let share_id = match role {
         EcdsaDeriverRoleV1::A => 1,
@@ -368,7 +345,7 @@ fn decode_commitment_registry_hex_nibble_v1(byte: u8, field: &str) -> RouterAbPr
 fn commitment_registry_config_error(field: &str, message: &str) -> RouterAbProtocolError {
     RouterAbProtocolError::new(
         RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-        format!("SigningWorker commitment registry {field} {message}"),
+        format!("Router A/B ECDSA commitment registry {field} {message}"),
     )
 }
 
@@ -426,7 +403,7 @@ mod commitment_boundary_tests {
             "records": {},
             "release_authority_public_key_hex": "runtime-self-trust"
         }"#;
-        assert!(serde_json::from_str::<CloudflareCommitmentRegistryConfigV1>(json).is_err());
+        assert!(serde_json::from_str::<EcdsaCommitmentRegistryDeliveryV1>(json).is_err());
     }
 }
 
@@ -882,7 +859,7 @@ pub(crate) const CLOUDFLARE_HPKE_RECIPIENT_PROOF_BUNDLE_INFO_V1: &[u8] =
     b"router-ab-cloudflare/recipient-proof-bundle/hpke-x25519-hkdf-sha256-aes256gcm/v1";
 pub(crate) const CLOUDFLARE_HPKE_RECIPIENT_OUTPUT_ENVELOPE_NONCE_V1: [u8; 12] = [0u8; 12];
 
-struct CloudflareHpkeGetrandomRngV1;
+pub(crate) struct CloudflareHpkeGetrandomRngV1;
 
 impl RngCore for CloudflareHpkeGetrandomRngV1 {
     fn next_u32(&mut self) -> u32 {

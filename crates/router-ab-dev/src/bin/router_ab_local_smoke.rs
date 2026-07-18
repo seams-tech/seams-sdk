@@ -8,8 +8,10 @@ use local_dev_process::{
     post_json_to_path_with_headers, read_worker_config, wait_for_existing_health,
     LocalWorkerSpawnReceipt, LocalWorkerUrls, LOCAL_WORKER_PROCESS_SPECS,
 };
+use router_ab_cloudflare::CloudflareSigningWorkerEcdsaPoolAdmissionReceiptV1;
 use router_ab_core::{
-    LocalServiceRoleV1, Role, RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
+    router_ab_ecdsa_rerandomization_client_commitment_v1, LocalServiceRoleV1, Role,
+    RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
     RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1,
     RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
     RouterAbEcdsaDerivationEvmDigestSigningResponseV1, RouterAbEcdsaDerivationNormalSigningScopeV1,
@@ -19,7 +21,6 @@ use router_ab_core::{
 use router_ab_dev::{
     local_router_ab_internal_service_auth_secret_v1,
     run_example_local_router_ab_dev_http_ceremony_v1, LocalDeriverPeerMessageReceiptV1,
-    LocalSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutReceiptV1,
     LocalSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutRequestV1, LocalWorkerRoleConfigV1,
     LOCAL_DERIVER_A_PEER_PATH, LOCAL_DERIVER_B_PEER_PATH,
     LOCAL_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PATH,
@@ -27,16 +28,20 @@ use router_ab_dev::{
     LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
     LOCAL_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_PUT_PATH,
 };
-use router_ab_ecdsa_derivation::ROUTER_AB_ECDSA_DERIVATION_PARTICIPANT_IDS;
+use router_ab_ecdsa_online::{
+    combine_rerandomization_contributions, compute_client_signature_share, ClientPresignMaterial,
+    OnlineClientInput,
+};
+use router_ab_ecdsa_presign::session::{
+    derive_presign_pair_context, ClientPresignSession, SigningWorkerPresignSession,
+};
+use router_ab_ecdsa_presign::AdditiveKeyShare;
+use router_ab_ecdsa_wire::{CompressedPointBytes, ScalarBytes};
 use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use signer_core::secp256k1::{
-    map_additive_share_to_threshold_signatures_share_2p, secp256k1_private_key_32_to_public_key_33,
-    secp256k1_public_key_33_to_ethereum_address_20,
-};
-use signer_core::threshold_ecdsa::{
-    threshold_ecdsa_compute_signature_share, ThresholdEcdsaPresignSession,
+    secp256k1_private_key_32_to_public_key_33, secp256k1_public_key_33_to_ethereum_address_20,
 };
 use std::{
     env, fs,
@@ -261,7 +266,7 @@ fn run_router_ab_ecdsa_derivation_live_http_smoke(
         )
         .into());
     }
-    let pool_receipt: LocalSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutReceiptV1 =
+    let pool_receipt: CloudflareSigningWorkerEcdsaPoolAdmissionReceiptV1 =
         serde_json::from_str(&pool_body)?;
     if !pool_receipt.stored
         || pool_receipt.server_presignature_id != fixture.server_presignature_id
@@ -273,12 +278,16 @@ fn run_router_ab_ecdsa_derivation_live_http_smoke(
         );
     }
 
+    let client_rerandomization_contribution32 = [0x60; 32];
     let prepare_request = RouterAbEcdsaDerivationEvmDigestSigningRequestV1::new(
         fixture.scope.clone(),
         &format!("local-router-ab-ecdsa-derivation-smoke-sign-{smoke_run_id}"),
         fixture.server_presignature_id.clone(),
         fixture.expires_at_ms,
         b64u(&fixture.signing_digest32),
+        b64u(&router_ab_ecdsa_rerandomization_client_commitment_v1(
+            client_rerandomization_contribution32,
+        )),
     )?;
     let (prepare_status, prepare_body) = post_json_to_path_with_authorization(
         &urls.router,
@@ -314,23 +323,32 @@ fn run_router_ab_ecdsa_derivation_live_http_smoke(
         serde_json::from_value(prepare_core_value)?;
     prepare_response.validate_for_request(&prepare_request)?;
 
-    let entropy32: [u8; 32] = URL_SAFE_NO_PAD
-        .decode(&prepare_response.rerandomization_entropy32_b64u)?
+    let signing_worker_rerandomization_contribution32: [u8; 32] = URL_SAFE_NO_PAD
+        .decode(&prepare_response.signing_worker_rerandomization_contribution32_b64u)?
         .try_into()
         .map_err(|bytes: Vec<u8>| {
-            format!("Router A/B ECDSA derivation entropy length {}", bytes.len())
+            format!(
+                "Router A/B ECDSA derivation SigningWorker contribution length {}",
+                bytes.len()
+            )
         })?;
-    let participant_ids = ROUTER_AB_ECDSA_DERIVATION_PARTICIPANT_IDS.map(u32::from);
-    let client_signature_share32 = threshold_ecdsa_compute_signature_share(
-        &participant_ids,
-        1,
-        &fixture.threshold_public_key33,
-        &fixture.server_big_r33,
-        &fixture.client_k_share32,
-        &fixture.client_sigma_share32,
-        &fixture.signing_digest32,
-        &entropy32,
+    let entropy32 = combine_rerandomization_contributions(
+        client_rerandomization_contribution32,
+        signing_worker_rerandomization_contribution32,
+    );
+    let client_material = ClientPresignMaterial::from_bytes(
+        fixture.server_big_r33,
+        fixture.client_k_share32,
+        fixture.client_sigma_share32,
     )?;
+    let client_online_input = OnlineClientInput::new(
+        fixture.threshold_public_key33,
+        fixture.server_big_r33,
+        fixture.signing_digest32,
+        entropy32,
+    )?;
+    let client_signature_share32 =
+        compute_client_signature_share(client_material.reserve().commit(client_online_input)?)?;
     let finalize_request = RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1::new(
         fixture.scope,
         prepare_request.request_id,
@@ -338,6 +356,7 @@ fn run_router_ab_ecdsa_derivation_live_http_smoke(
         prepare_request.signing_digest_b64u,
         prepare_response.server_presignature_id,
         b64u(&client_signature_share32),
+        b64u(&client_rerandomization_contribution32),
     )?;
     let mut finalize_request_body = serde_json::to_value(&finalize_request)?;
     let finalize_request_object = finalize_request_body
@@ -441,16 +460,6 @@ fn local_router_ab_ecdsa_derivation_fixture(
 ) -> Result<LocalRouterAbEcdsaDerivationFixture, Box<dyn std::error::Error>> {
     let client_additive_share32 = scalar_be32(1);
     let server_additive_share32 = scalar_be32(1);
-    let client_threshold_share =
-        map_additive_share_to_threshold_signatures_share_2p(&client_additive_share32, 1)?;
-    let client_threshold_share32: [u8; 32] = client_threshold_share
-        .try_into()
-        .map_err(|bytes: Vec<u8>| format!("client threshold share length {}", bytes.len()))?;
-    let server_threshold_share =
-        map_additive_share_to_threshold_signatures_share_2p(&server_additive_share32, 2)?;
-    let server_threshold_share32: [u8; 32] = server_threshold_share
-        .try_into()
-        .map_err(|bytes: Vec<u8>| format!("server threshold share length {}", bytes.len()))?;
     let threshold_secret32 = scalar_be32(2);
     let threshold_public_key33_vec =
         secp256k1_private_key_32_to_public_key_33(&threshold_secret32)?;
@@ -469,8 +478,8 @@ fn local_router_ab_ecdsa_derivation_fixture(
         client_k_share32,
         client_sigma_share32,
     ) = drive_ecdsa_presignature_pair(
-        &client_threshold_share32,
-        &server_threshold_share32,
+        &client_additive_share32,
+        &server_additive_share32,
         &threshold_public_key33,
     );
     let application_binding_digest = Sha256::digest(
@@ -529,94 +538,68 @@ fn local_router_ab_ecdsa_derivation_smoke_server_presignature_id(
 }
 
 fn drive_ecdsa_presignature_pair(
-    client_share32: &[u8; 32],
-    relayer_share32: &[u8; 32],
+    client_additive_share32: &[u8; 32],
+    worker_additive_share32: &[u8; 32],
     public_key33: &[u8; 33],
 ) -> ([u8; 33], [u8; 32], [u8; 32], [u8; 32], [u8; 32]) {
-    let participant_ids = ROUTER_AB_ECDSA_DERIVATION_PARTICIPANT_IDS.map(u32::from);
-    let mut client =
-        ThresholdEcdsaPresignSession::new(&participant_ids, 1, 2, client_share32, public_key33)
-            .expect("client presign session");
-    let mut relayer =
-        ThresholdEcdsaPresignSession::new(&participant_ids, 2, 2, relayer_share32, public_key33)
-            .expect("relayer presign session");
-    let mut stage_for_relayer = "triples";
-    let mut stage_for_client = "triples";
-    let mut client_outgoing = client.poll().expect("client initial poll").outgoing;
-    let mut relayer_outgoing = relayer.poll().expect("relayer initial poll").outgoing;
+    let key = CompressedPointBytes::new(*public_key33);
+    let context = derive_presign_pair_context(key, "local-router-ab-smoke-presign-pair")
+        .expect("fixed presign context");
+    let client_share = AdditiveKeyShare::from_bytes(ScalarBytes::new(*client_additive_share32))
+        .expect("client additive share");
+    let worker_share = AdditiveKeyShare::from_bytes(ScalarBytes::new(*worker_additive_share32))
+        .expect("SigningWorker additive share");
+    let mut client_rng = rand_core::OsRng;
+    let mut worker_rng = rand_core::OsRng;
+    let mut client = ClientPresignSession::new(context, client_share, key, &mut client_rng)
+        .expect("client presign session");
+    let mut worker = SigningWorkerPresignSession::new(context, worker_share, key, &mut worker_rng)
+        .expect("SigningWorker presign session");
 
-    for _ in 0..96 {
-        if !client_outgoing.is_empty() {
-            if stage_for_relayer == "presign" && relayer.stage() == "triples_done" {
-                relayer.start_presign().expect("relayer starts presign");
-            }
-            for message in client_outgoing.drain(..) {
-                relayer
-                    .message(1, &message)
-                    .expect("relayer accepts client message");
-            }
-            let progress = relayer.poll().expect("relayer poll");
-            if matches!(progress.stage.as_str(), "triples_done" | "presign" | "done") {
-                stage_for_client = "presign";
-            }
-            relayer_outgoing.extend(progress.outgoing);
-        }
-
-        if !relayer_outgoing.is_empty() {
-            if stage_for_client == "presign" && client.stage() == "triples_done" {
-                client.start_presign().expect("client starts presign");
-            }
-            for message in relayer_outgoing.drain(..) {
-                client
-                    .message(2, &message)
-                    .expect("client accepts relayer message");
-            }
-            let progress = client.poll().expect("client poll");
-            if matches!(progress.stage.as_str(), "triples_done" | "presign" | "done") {
-                stage_for_relayer = "presign";
-            }
-            client_outgoing.extend(progress.outgoing);
-        }
-
-        if client_outgoing.is_empty()
-            && relayer_outgoing.is_empty()
-            && stage_for_relayer == "presign"
-            && relayer.stage() == "triples_done"
-        {
-            relayer.start_presign().expect("relayer starts presign");
-            relayer_outgoing.extend(relayer.poll().expect("relayer presign poll").outgoing);
-        }
-        if client_outgoing.is_empty()
-            && relayer_outgoing.is_empty()
-            && stage_for_client == "presign"
-            && client.stage() == "triples_done"
-        {
-            client.start_presign().expect("client starts presign");
-            client_outgoing.extend(client.poll().expect("client presign poll").outgoing);
-        }
-
-        if client.is_done() && relayer.is_done() {
-            let (client_big_r33, client_k_share32, client_sigma_share32) =
-                split_ecdsa_presignature_97(
-                    client.take_presignature_97().expect("client presignature"),
-                );
-            let (server_big_r33, server_k_share32, server_sigma_share32) =
-                split_ecdsa_presignature_97(
-                    relayer
-                        .take_presignature_97()
-                        .expect("relayer presignature"),
-                );
-            assert_eq!(client_big_r33, server_big_r33);
-            return (
-                server_big_r33,
-                server_k_share32,
-                server_sigma_share32,
-                client_k_share32,
-                client_sigma_share32,
-            );
-        }
+    for _ in 0..9 {
+        exchange_ecdsa_presign_round(&mut client, &mut worker, &mut client_rng, &mut worker_rng);
     }
-    panic!("ECDSA presign protocol did not finish");
+    client.start_presign().expect("client starts presign");
+    worker
+        .start_presign()
+        .expect("SigningWorker starts presign");
+    for _ in 0..2 {
+        exchange_ecdsa_presign_round(&mut client, &mut worker, &mut client_rng, &mut worker_rng);
+    }
+
+    let (client_big_r33, client_k_share32, client_sigma_share32) =
+        split_ecdsa_presignature_97(client.take_presignature_97().expect("client presignature"));
+    let (server_big_r33, server_k_share32, server_sigma_share32) = split_ecdsa_presignature_97(
+        worker
+            .take_presignature_97()
+            .expect("SigningWorker presignature"),
+    );
+    assert_eq!(client_big_r33, server_big_r33);
+    (
+        server_big_r33,
+        server_k_share32,
+        server_sigma_share32,
+        client_k_share32,
+        client_sigma_share32,
+    )
+}
+
+fn exchange_ecdsa_presign_round(
+    client: &mut ClientPresignSession,
+    worker: &mut SigningWorkerPresignSession,
+    client_rng: &mut rand_core::OsRng,
+    worker_rng: &mut rand_core::OsRng,
+) {
+    let client_messages = client.poll().outgoing;
+    let worker_messages = worker.poll().outgoing;
+    assert_eq!(client_messages.len(), 1);
+    assert_eq!(worker_messages.len(), 1);
+    client
+        .message(&worker_messages[0], client_rng)
+        .expect("client accepts SigningWorker frame");
+    worker
+        .message(&client_messages[0], worker_rng)
+        .expect("SigningWorker accepts client frame");
 }
 
 fn split_ecdsa_presignature_97(bytes: Vec<u8>) -> ([u8; 33], [u8; 32], [u8; 32]) {

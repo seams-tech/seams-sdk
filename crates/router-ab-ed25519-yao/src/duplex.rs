@@ -67,7 +67,7 @@ pub struct YaoRoleCompletion<RoleCompletion, TransportCompletion> {
 #[derive(Debug)]
 pub enum YaoRoleDriverError<TransportError> {
     /// The role machine or transport event violated the fixed protocol.
-    Protocol,
+    Protocol(&'static str),
     /// The selected transport failed.
     Transport(TransportError),
 }
@@ -75,7 +75,9 @@ pub enum YaoRoleDriverError<TransportError> {
 impl<TransportError: fmt::Display> fmt::Display for YaoRoleDriverError<TransportError> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Protocol => formatter.write_str("fixed Ed25519 Yao role protocol failed"),
+            Self::Protocol(stage) => {
+                write!(formatter, "fixed Ed25519 Yao role protocol failed at {stage}")
+            }
             Self::Transport(error) => {
                 write!(formatter, "Ed25519 Yao duplex transport failed: {error}")
             }
@@ -85,7 +87,7 @@ impl<TransportError: fmt::Display> fmt::Display for YaoRoleDriverError<Transport
 
 impl<TransportError> From<BenchmarkRoleError> for YaoRoleDriverError<TransportError> {
     fn from(_: BenchmarkRoleError) -> Self {
-        Self::Protocol
+        Self::Protocol("role_machine")
     }
 }
 
@@ -174,8 +176,14 @@ where
 {
     let mut deferred = VecDeque::with_capacity(1);
     loop {
-        match role.instruction()? {
-            RelayInstruction::Advance => match role.handle(RelayEvent::Advance)? {
+        match role
+            .instruction()
+            .map_err(|_| YaoRoleDriverError::Protocol("instruction"))?
+        {
+            RelayInstruction::Advance => match role
+                .handle(RelayEvent::Advance)
+                .map_err(|_| YaoRoleDriverError::Protocol("advance"))?
+            {
                 RelayStep::Continue(next) => role = next,
                 RelayStep::Send {
                     role: next,
@@ -190,7 +198,9 @@ where
                     }
                     role = next;
                 }
-                RelayStep::Complete(_) => return Err(YaoRoleDriverError::Protocol),
+                RelayStep::Complete(_) => {
+                    return Err(YaoRoleDriverError::Protocol("advance_completion"))
+                }
             },
             RelayInstruction::Receive {
                 kind,
@@ -198,10 +208,31 @@ where
             } => {
                 let event = next_event(&mut deferred, &mut transport).await?;
                 let YaoInboundEvent::Message(message) = event else {
-                    return Err(YaoRoleDriverError::Protocol);
+                    return Err(YaoRoleDriverError::Protocol("expected_message"));
                 };
                 validate_message(&message, kind, payload_bytes)?;
-                role = continue_role(role.handle(RelayEvent::Inbound(message))?)?;
+                match role
+                    .handle(RelayEvent::Inbound(message))
+                    .map_err(|_| YaoRoleDriverError::Protocol("inbound_message"))?
+                {
+                    RelayStep::Continue(next) => role = next,
+                    RelayStep::Send {
+                        role: next,
+                        message,
+                    } => {
+                        if let Some(event) = transport
+                            .send(message)
+                            .await
+                            .map_err(YaoRoleDriverError::Transport)?
+                        {
+                            push_deferred(&mut deferred, event)?;
+                        }
+                        role = next;
+                    }
+                    RelayStep::Complete(_) => {
+                        return Err(YaoRoleDriverError::Protocol("inbound_completion"))
+                    }
+                }
             }
             RelayInstruction::CloseLocalDirection { terminal_kind: _ } => {
                 let (evidence, event) = transport
@@ -211,7 +242,10 @@ where
                 if let Some(event) = event {
                     push_deferred(&mut deferred, event)?;
                 }
-                match role.handle(RelayEvent::LocalDirectionalEof(evidence))? {
+                match role
+                    .handle(RelayEvent::LocalDirectionalEof(evidence))
+                    .map_err(|_| YaoRoleDriverError::Protocol("local_directional_eof"))?
+                {
                     RelayStep::Continue(next) => role = next,
                     RelayStep::Complete(completion) => {
                         let transport = transport
@@ -223,27 +257,35 @@ where
                             transport,
                         });
                     }
-                    RelayStep::Send { .. } => return Err(YaoRoleDriverError::Protocol),
+                    RelayStep::Send { .. } => {
+                        return Err(YaoRoleDriverError::Protocol("send_after_local_eof"))
+                    }
                 }
             }
             RelayInstruction::ObservePeerEof { terminal_kind: _ } => {
                 let event = next_event(&mut deferred, &mut transport).await?;
                 let YaoInboundEvent::DirectionalEof(evidence) = event else {
-                    return Err(YaoRoleDriverError::Protocol);
+                    return Err(YaoRoleDriverError::Protocol("expected_peer_eof"));
                 };
-                let RelayStep::Complete(completion) =
-                    role.handle(RelayEvent::InboundDirectionalEof(evidence))?
-                else {
-                    return Err(YaoRoleDriverError::Protocol);
-                };
-                let transport = transport
-                    .finish()
-                    .await
-                    .map_err(YaoRoleDriverError::Transport)?;
-                return Ok(YaoRoleCompletion {
-                    role: completion,
-                    transport,
-                });
+                match role
+                    .handle(RelayEvent::InboundDirectionalEof(evidence))
+                    .map_err(|_| YaoRoleDriverError::Protocol("peer_directional_eof"))?
+                {
+                    RelayStep::Continue(next) => role = next,
+                    RelayStep::Complete(completion) => {
+                        let transport = transport
+                            .finish()
+                            .await
+                            .map_err(YaoRoleDriverError::Transport)?;
+                        return Ok(YaoRoleCompletion {
+                            role: completion,
+                            transport,
+                        });
+                    }
+                    RelayStep::Send { .. } => {
+                        return Err(YaoRoleDriverError::Protocol("send_after_peer_eof"))
+                    }
+                }
             }
         }
     }
@@ -267,7 +309,7 @@ fn push_deferred<E>(
     event: YaoInboundEvent,
 ) -> Result<(), YaoRoleDriverError<E>> {
     if !deferred.is_empty() {
-        return Err(YaoRoleDriverError::Protocol);
+        return Err(YaoRoleDriverError::Protocol("deferred_event_overflow"));
     }
     deferred.push_back(event);
     Ok(())
@@ -279,17 +321,7 @@ fn validate_message<E>(
     expected_payload_bytes: usize,
 ) -> Result<(), YaoRoleDriverError<E>> {
     if message.kind() != expected_kind || message.as_bytes().len() != expected_payload_bytes {
-        return Err(YaoRoleDriverError::Protocol);
+        return Err(YaoRoleDriverError::Protocol("message_shape"));
     }
     Ok(())
-}
-
-fn continue_role<R, E>(step: RelayStep<R, R::Completion>) -> Result<R, YaoRoleDriverError<E>>
-where
-    R: FixedYaoRole,
-{
-    match step {
-        RelayStep::Continue(role) => Ok(role),
-        RelayStep::Send { .. } | RelayStep::Complete(_) => Err(YaoRoleDriverError::Protocol),
-    }
 }

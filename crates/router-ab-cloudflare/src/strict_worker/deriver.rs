@@ -4,6 +4,7 @@ use super::*;
 pub(super) async fn handle_strict_deriver_a_fetch_v1(
     request: Request,
     env: Env,
+    context: Context,
 ) -> worker::Result<Response> {
     if let Err(err) = require_cloudflare_internal_service_auth_request_v1(&request, &env) {
         return cloudflare_private_service_auth_error_response_v1(err);
@@ -12,7 +13,7 @@ pub(super) async fn handle_strict_deriver_a_fetch_v1(
         Ok(runtime) => StrictDeriverRuntimeV1::DeriverA(runtime),
         Err(err) => return cloudflare_protocol_error_response_v1(err),
     };
-    handle_strict_deriver_fetch_v1(request, env, runtime).await
+    handle_strict_deriver_fetch_v1(request, env, runtime, context).await
 }
 
 #[cfg(any(
@@ -149,15 +150,6 @@ impl StrictDeriverRuntimeV1 {
         }
     }
 
-    fn signing_worker_peer(&self) -> &CloudflarePeerBindingV1 {
-        match self {
-            #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
-            Self::DeriverA(runtime) => runtime.signing_worker_peer(),
-            #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
-            Self::DeriverB(runtime) => runtime.signing_worker_peer(),
-        }
-    }
-
     async fn preload_host(
         &self,
         env: &Env,
@@ -205,6 +197,7 @@ async fn handle_strict_deriver_fetch_v1(
     mut request: Request,
     env: Env,
     runtime: StrictDeriverRuntimeV1,
+    _context: Context,
 ) -> worker::Result<Response> {
     let path = request.path();
     let worker_role = runtime.worker_role();
@@ -213,6 +206,103 @@ async fn handle_strict_deriver_fetch_v1(
         Ok(now_unix_ms) => now_unix_ms,
         Err(err) => return cloudflare_protocol_error_response_v1(err),
     };
+
+    #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
+    if path == CLOUDFLARE_DERIVER_A_ED25519_YAO_ACTIVATION_START_PATH {
+        return match handle_cloudflare_ed25519_yao_deriver_a_start_v1(
+            request,
+            &env,
+            Ed25519YaoInputKindV1::Activation,
+        )
+        .await
+        {
+            Ok(response) => Ok(response),
+            Err(error) => cloudflare_protocol_error_response_v1(error),
+        };
+    }
+
+    #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
+    if path == CLOUDFLARE_DERIVER_A_ED25519_YAO_EXPORT_START_PATH {
+        return match handle_cloudflare_ed25519_yao_deriver_a_start_v1(
+            request,
+            &env,
+            Ed25519YaoInputKindV1::Export,
+        )
+        .await
+        {
+            Ok(response) => Ok(response),
+            Err(error) => cloudflare_protocol_error_response_v1(error),
+        };
+    }
+
+    #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
+    if path == CLOUDFLARE_DERIVER_B_ED25519_YAO_ACTIVATION_STAGE_PATH {
+        return match handle_cloudflare_ed25519_yao_deriver_b_stage_v1(
+            request,
+            &env,
+            Ed25519YaoInputKindV1::Activation,
+        )
+        .await
+        {
+            Ok(response) => Ok(response),
+            Err(error) => cloudflare_protocol_error_response_v1(error),
+        };
+    }
+
+    #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
+    if path == CLOUDFLARE_DERIVER_B_ED25519_YAO_EXPORT_STAGE_PATH {
+        return match handle_cloudflare_ed25519_yao_deriver_b_stage_v1(
+            request,
+            &env,
+            Ed25519YaoInputKindV1::Export,
+        )
+        .await
+        {
+            Ok(response) => Ok(response),
+            Err(error) => cloudflare_protocol_error_response_v1(error),
+        };
+    }
+
+    #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
+    if path == CLOUDFLARE_DERIVER_B_ED25519_YAO_ACTIVATION_RESULT_PATH {
+        return match handle_cloudflare_ed25519_yao_deriver_b_result_v1(
+            request,
+            &env,
+            Ed25519YaoInputKindV1::Activation,
+        )
+        .await
+        {
+            Ok(response) => Ok(response),
+            Err(error) => cloudflare_protocol_error_response_v1(error),
+        };
+    }
+
+    #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
+    if path == CLOUDFLARE_DERIVER_B_ED25519_YAO_EXPORT_RESULT_PATH {
+        return match handle_cloudflare_ed25519_yao_deriver_b_result_v1(
+            request,
+            &env,
+            Ed25519YaoInputKindV1::Export,
+        )
+        .await
+        {
+            Ok(response) => Ok(response),
+            Err(error) => cloudflare_protocol_error_response_v1(error),
+        };
+    }
+
+    #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
+    if path == CLOUDFLARE_DERIVER_B_ED25519_YAO_DUPLEX_PATH {
+        let StrictDeriverRuntimeV1::DeriverB(runtime) = runtime;
+        return match handle_cloudflare_ed25519_yao_deriver_b_websocket_v1(
+            request, env, runtime, _context,
+        )
+        .await
+        {
+            Ok(response) => Ok(response),
+            Err(error) => cloudflare_protocol_error_response_v1(error),
+        };
+    }
 
     if path == runtime.registration_private_path() {
         let registration_request: CloudflareRouterAbEcdsaDerivationDeriverRegistrationPrivateRequestV1 =
@@ -238,7 +328,6 @@ async fn handle_strict_deriver_fetch_v1(
             Ok(loaded) => loaded,
             Err(err) => return cloudflare_protocol_error_response_v1(err),
         };
-        let registration_bootstrap = registration_request.signer_bootstrap.clone();
         let response =
             match decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_registration_signer_private_request_v1(
                 &env,
@@ -255,16 +344,6 @@ async fn handle_strict_deriver_fetch_v1(
                 Ok(response) => response,
                 Err(err) => return cloudflare_protocol_error_response_v1(err),
             };
-        if let Err(err) = send_strict_deriver_direct_activation_delivery_v1(
-            &env,
-            &runtime,
-            &registration_bootstrap,
-            &response,
-        )
-        .await
-        {
-            return cloudflare_protocol_error_response_v1(err);
-        }
         return Response::from_json(&response);
     }
 
@@ -374,7 +453,6 @@ async fn handle_strict_deriver_fetch_v1(
             Ok(loaded) => loaded,
             Err(err) => return cloudflare_protocol_error_response_v1(err),
         };
-        let refresh_bootstrap = refresh_request.signer_bootstrap.clone();
         let response = match decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_activation_refresh_signer_private_request_v1(
             &env,
             worker_role,
@@ -390,16 +468,6 @@ async fn handle_strict_deriver_fetch_v1(
             Ok(response) => response,
             Err(err) => return cloudflare_protocol_error_response_v1(err),
         };
-        if let Err(err) = send_strict_deriver_direct_activation_delivery_v1(
-            &env,
-            &runtime,
-            &refresh_bootstrap,
-            &response,
-        )
-        .await
-        {
-            return cloudflare_protocol_error_response_v1(err);
-        }
         return Response::from_json(&response);
     }
 
@@ -507,38 +575,11 @@ async fn preload_strict_deriver_host_v1(
     Ok((preload_plan, host))
 }
 
-#[cfg(any(
-    feature = "strict-worker-deriver-a-entrypoint",
-    feature = "strict-worker-deriver-b-entrypoint"
-))]
-async fn send_strict_deriver_direct_activation_delivery_v1(
-    env: &Env,
-    runtime: &StrictDeriverRuntimeV1,
-    bootstrap: &CloudflareSignerPrivateBootstrapRequestV1,
-    response: &CloudflareSignerRecipientProofBundleResponseV1,
-) -> RouterAbProtocolResult<()> {
-    bootstrap.validate_for_worker_role(runtime.worker_role())?;
-    response.validate()?;
-    let router_payload = decode_router_to_signer_payload_v1(bootstrap.message.payload.as_bytes())?;
-    let activation_context =
-        SigningWorkerActivationContextV1::from_router_payload(&router_payload)?;
-    let delivery = CloudflareSigningWorkerDirectRecipientProofBundleActivationDeliveryV1::from_signer_response(
-        activation_context,
-        response.clone(),
-    )?;
-    execute_cloudflare_signing_worker_direct_recipient_proof_bundle_activation_service_call_v1(
-        env,
-        runtime.signing_worker_peer(),
-        &delivery,
-    )
-    .await?;
-    Ok(())
-}
-
 #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
 pub(super) async fn handle_strict_deriver_b_fetch_v1(
     request: Request,
     env: Env,
+    context: Context,
 ) -> worker::Result<Response> {
     if let Err(err) = require_cloudflare_internal_service_auth_request_v1(&request, &env) {
         return cloudflare_private_service_auth_error_response_v1(err);
@@ -547,5 +588,5 @@ pub(super) async fn handle_strict_deriver_b_fetch_v1(
         Ok(runtime) => StrictDeriverRuntimeV1::DeriverB(runtime),
         Err(err) => return cloudflare_protocol_error_response_v1(err),
     };
-    handle_strict_deriver_fetch_v1(request, env, runtime).await
+    handle_strict_deriver_fetch_v1(request, env, runtime, context).await
 }

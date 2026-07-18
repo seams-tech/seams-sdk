@@ -122,7 +122,7 @@ fn strict_router_ab_ecdsa_derivation_lifecycle_matrix_has_exact_owners() {
                 "handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_presignature_pool_put_private_fetch_v1",
             required: &[
                 "CloudflareSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutRequestV1",
-                "signing_worker_ecdsa_presignature_pool_put_call",
+                "signing_worker_ecdsa_pool_mutate_call",
             ],
             forbidden: &[
                 "execute_cloudflare_router_ab_ecdsa_derivation_deriver_registration_service_call_v1",

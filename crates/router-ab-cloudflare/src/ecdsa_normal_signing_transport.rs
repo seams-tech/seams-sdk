@@ -262,6 +262,9 @@ mod tests {
             "presignature-1",
             2_000,
             base64url(&[0x77; 32]),
+            base64url(
+                &router_ab_core::router_ab_ecdsa_rerandomization_client_commitment_v1([0x44; 32]),
+            ),
         )
         .expect("prepare request")
     }
@@ -276,6 +279,7 @@ mod tests {
             prepare.signing_digest_b64u.clone(),
             prepare.client_presignature_id.clone(),
             base64url(&[0x88; 32]),
+            base64url(&[0x44; 32]),
         )
         .expect("finalize request")
     }

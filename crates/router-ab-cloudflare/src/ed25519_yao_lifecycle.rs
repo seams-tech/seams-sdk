@@ -922,7 +922,12 @@ pub async fn handle_cloudflare_ed25519_yao_deriver_b_websocket_v1(
     let session = binding.session;
     context.wait_until(async move {
         let result = execute_deriver_b_role(&env, &runtime, *input, server).await;
-        if result.is_err() {
+        if let Err(error) = result {
+            worker::console_error!(
+                "Deriver B Ed25519 Yao role execution failed for session {}: {}",
+                encode_hex(session),
+                error
+            );
             let _ignored = execute_deriver_b_session_command(
                 &env,
                 DeriverBYaoSessionCommandV1::Fail { session },
@@ -1051,10 +1056,15 @@ async fn execute_deriver_a_session(
         .fetch_with_request(request)
         .await
         .map_err(|_| invalid_lifecycle("Deriver A Yao session Durable Object request failed"))?;
-    if !(200..=299).contains(&response.status_code()) {
-        return Err(invalid_lifecycle(
-            "Deriver A Yao session Durable Object rejected the command",
-        ));
+    let status = response.status_code();
+    if !(200..=299).contains(&status) {
+        let message = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "response body unavailable".to_owned());
+        return Err(invalid_lifecycle(format!(
+            "Deriver A Yao session Durable Object rejected the command with HTTP {status}: {message}"
+        )));
     }
     let execution = response
         .json::<Ed25519YaoRoleExecutionV1>()

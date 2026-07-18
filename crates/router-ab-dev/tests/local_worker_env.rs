@@ -21,11 +21,11 @@ use router_ab_dev::{
     LOCAL_ECDSA_COMMITMENT_POLICY_DIGEST_BUILD_ENV_V1,
     LOCAL_ECDSA_COMMITMENT_POLICY_MINIMUM_RELEASE_EPOCH_BUILD_ENV_V1,
     LOCAL_ECDSA_COMMITMENT_POLICY_RELEASE_AUTHORITY_PUBLIC_KEY_BUILD_ENV_V1,
-    LOCAL_HTTP_CANONICAL_WIRE_CONTENT_TYPE_V1, LOCAL_HTTP_JSON_CONTENT_TYPE_V1,
-    LOCAL_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PATH,
+    LOCAL_GATEWAY_PUBLIC_URL_ENV_V1, LOCAL_HTTP_CANONICAL_WIRE_CONTENT_TYPE_V1,
+    LOCAL_HTTP_JSON_CONTENT_TYPE_V1, LOCAL_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PATH,
     LOCAL_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PREPARE_PATH, LOCAL_ROUTER_ENV_FILE_V1,
     LOCAL_ROUTER_NORMAL_SIGNING_PATH, LOCAL_ROUTER_NORMAL_SIGNING_PREPARE_PATH,
-    LOCAL_ROUTER_PUBLIC_URL_ENV_V1, LOCAL_ROUTER_STATE_DIR_V1, LOCAL_SIGNING_WORKER_ENV_FILE_V1,
+    LOCAL_ROUTER_STATE_DIR_V1, LOCAL_SIGNING_WORKER_ENV_FILE_V1,
     LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH, LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH,
     LOCAL_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_PUT_PATH,
     LOCAL_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PATH,
@@ -160,13 +160,13 @@ fn local_signing_worker_env_rejects_deriver_private_material() {
 #[test]
 fn local_worker_env_rejects_missing_empty_and_duplicate_required_keys() {
     let mut env = parse_template(include_str!("../env/router.local.example"));
-    env.retain(|(key, _)| key != LOCAL_ROUTER_PUBLIC_URL_ENV_V1);
+    env.retain(|(key, _)| key != LOCAL_GATEWAY_PUBLIC_URL_ENV_V1);
     let err = parse_local_worker_role_config_v1(env).expect_err("missing Router URL fails");
     assert_eq!(err.code(), RouterAbProtocolErrorCode::MissingLocalBinding);
 
     let mut env = parse_template(include_str!("../env/router.local.example"));
     for (key, value) in &mut env {
-        if key == LOCAL_ROUTER_PUBLIC_URL_ENV_V1 {
+        if key == LOCAL_GATEWAY_PUBLIC_URL_ENV_V1 {
             value.clear();
         }
     }
@@ -199,7 +199,7 @@ fn local_worker_helpers_bind_to_role_urls_and_redact_health() {
     );
     assert_eq!(
         local_worker_bind_addr_v1(&deriver_a).expect("deriver A bind addr"),
-        "127.0.0.1:9091"
+        "127.0.0.1:9101"
     );
 
     let health = local_worker_health_response_json_v1(&deriver_a).expect("health JSON");
@@ -279,17 +279,17 @@ fn local_http_service_binding_maps_checked_paths_to_production_routes() {
     );
 
     let endpoint = local_http_service_binding_endpoint_v1(
-        "http://127.0.0.1:9091",
+        "http://127.0.0.1:9101",
         LocalHttpPathV1::RouterToSignerA,
     )
     .expect("endpoint parses");
     assert_eq!(endpoint.owner, LocalServiceRoleV1::DeriverA);
-    assert_eq!(endpoint.bind_addr, "127.0.0.1:9091");
+    assert_eq!(endpoint.bind_addr, "127.0.0.1:9101");
     assert_eq!(endpoint.path, LOCAL_DERIVER_A_PRIVATE_PATH);
     assert_eq!(
         endpoint.url,
         local_http_service_binding_url_v1(
-            "http://127.0.0.1:9091/",
+            "http://127.0.0.1:9101/",
             LocalHttpPathV1::RouterToSignerA
         )
         .expect("url parses")
@@ -436,6 +436,12 @@ fn local_env_materialization_plan_generates_parseable_role_env_files() {
             parse_local_env_file_contents_v1(&file.contents).expect("generated env parses"),
         )
         .expect("generated env validates against role");
+        if let LocalWorkerRoleConfigV1::SigningWorker(signing_worker) = &config {
+            let registry: serde_json::Value =
+                serde_json::from_str(&signing_worker.ecdsa_commitment_registry_json)
+                    .expect("generated commitment registry is JSON");
+            assert!(registry.is_object());
+        }
         assert_eq!(config.role(), file.role);
     }
 }

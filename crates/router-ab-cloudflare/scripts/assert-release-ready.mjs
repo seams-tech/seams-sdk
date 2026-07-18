@@ -8,9 +8,13 @@ const repoRoot = join(scriptDir, '..', '..', '..');
 
 const blockers = [];
 
-const strictWorkerModuleSource = readRepoFile('crates/router-ab-cloudflare/src/strict_worker/mod.rs');
+const strictWorkerModuleSource = readRepoFile(
+  'crates/router-ab-cloudflare/src/strict_worker/mod.rs',
+);
 const strictRouterSource = readRepoFile('crates/router-ab-cloudflare/src/strict_worker/router.rs');
-const strictDeriverSource = readRepoFile('crates/router-ab-cloudflare/src/strict_worker/deriver.rs');
+const strictDeriverSource = readRepoFile(
+  'crates/router-ab-cloudflare/src/strict_worker/deriver.rs',
+);
 const strictSigningWorkerSource = readRepoFile(
   'crates/router-ab-cloudflare/src/strict_worker/signing_worker.rs',
 );
@@ -25,7 +29,9 @@ const cloudflareSource = [
   readRepoFile('crates/router-ab-cloudflare/src/router/mod.rs'),
   readRepoFile('crates/router-ab-cloudflare/src/signing_worker/mod.rs'),
 ].join('\n');
-const ecdsaProtocolSource = readRepoFile('crates/router-ab-core/src/protocol/router_ab_ecdsa_derivation.rs');
+const ecdsaProtocolSource = readRepoFile(
+  'crates/router-ab-core/src/protocol/router_ab_ecdsa_derivation.rs',
+);
 const routerWrangler = readRepoFile('crates/router-ab-cloudflare/wrangler.router.toml');
 const deriverAWrangler = readRepoFile('crates/router-ab-cloudflare/wrangler.deriver-a.toml');
 const deriverBWrangler = readRepoFile('crates/router-ab-cloudflare/wrangler.deriver-b.toml');
@@ -245,21 +251,9 @@ for (const [label, source] of [
   }
 }
 for (const [label, source, startNeedle] of [
-  [
-    'Deriver A',
-    strictDeriverSource,
-    'async fn handle_strict_deriver_a_fetch_v1',
-  ],
-  [
-    'SigningWorker',
-    strictSigningWorkerSource,
-    'async fn handle_strict_signing_worker_fetch_v1',
-  ],
-  [
-    'Deriver B',
-    strictDeriverSource,
-    'async fn handle_strict_deriver_b_fetch_v1',
-  ],
+  ['Deriver A', strictDeriverSource, 'async fn handle_strict_deriver_a_fetch_v1'],
+  ['SigningWorker', strictSigningWorkerSource, 'async fn handle_strict_signing_worker_fetch_v1'],
+  ['Deriver B', strictDeriverSource, 'async fn handle_strict_deriver_b_fetch_v1'],
 ]) {
   requireSourceRangeIncludes(
     `P1: strict ${label} private dispatcher does not require internal service auth`,
@@ -296,7 +290,11 @@ for (const functionName of [
   );
 }
 for (const [label, source, needle] of [
-  ['P0: Router A/B ECDSA derivation protocol id is missing', ecdsaProtocolSource, 'router_ab_ecdsa_derivation_v1'],
+  [
+    'P0: Router A/B ECDSA derivation protocol id is missing',
+    ecdsaProtocolSource,
+    'router_ab_ecdsa_derivation_v1',
+  ],
   [
     'P0: Router A/B ECDSA derivation registration public route is missing',
     strictWorkerSource,
@@ -433,14 +431,11 @@ function requireDeployWorkflowSplitEnvironmentBoundary(workflowSource) {
   }
 
   for (const [jobId, requiredEnvironmentExpression] of [
-    ['validate_router_ab', "format('{0}-router', inputs.target)"],
-    ['upload_or_deploy_router', "format('{0}-router', inputs.target)"],
+    ['validate_router_ab', "format('{0}-mpc-router', inputs.target)"],
+    ['upload_or_deploy_mpc_router', "format('{0}-mpc-router', inputs.target)"],
     ['upload_or_deploy_deriver_a', "format('{0}-deriver-a', inputs.target)"],
     ['upload_or_deploy_deriver_b', "format('{0}-deriver-b', inputs.target)"],
-    [
-      'upload_or_deploy_signing_worker',
-      "format('{0}-signing-worker', inputs.target)",
-    ],
+    ['upload_or_deploy_signing_worker', "format('{0}-signing-worker', inputs.target)"],
   ]) {
     const jobSource = workflowJobSource(workflowSource, jobId);
     if (!jobSource) {
@@ -456,7 +451,7 @@ function requireDeployWorkflowSplitEnvironmentBoundary(workflowSource) {
 
   for (const [jobId, forbiddenNeedles] of [
     [
-      'upload_or_deploy_router',
+      'upload_or_deploy_mpc_router',
       [
         'DERIVER_A_ROOT_SHARE_WIRE_SECRET',
         'DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY',
@@ -557,7 +552,7 @@ function requireDeployWorkflowBranchPromotionBoundary(
     'workflow_call:',
     "DEPLOY_OPERATION: ${{ github.event_name == 'workflow_call' && 'deploy' || inputs.operation }}",
     "DEPLOY_ROLE: ${{ github.event_name == 'workflow_call' && 'all' || inputs.role }}",
-    "ref: ${{ env.DEPLOY_SHA }}",
+    'ref: ${{ env.DEPLOY_SHA }}',
   ]) {
     if (!workflowSource.includes(requiredNeedle)) {
       blockers.push(`P1: shared deploy-router-ab workflow is missing ${requiredNeedle}`);
@@ -569,7 +564,7 @@ function requireDeployWorkflowBranchPromotionBoundary(
   }
 
   for (const jobId of [
-    'upload_or_deploy_router',
+    'upload_or_deploy_mpc_router',
     'upload_or_deploy_deriver_a',
     'upload_or_deploy_deriver_b',
     'upload_or_deploy_signing_worker',
@@ -590,15 +585,15 @@ function requireDeployWorkflowBranchPromotionBoundary(
     }
   }
 
-  const routerJobSource = workflowJobSource(workflowSource, 'upload_or_deploy_router');
+  const mpcRouterJobSource = workflowJobSource(workflowSource, 'upload_or_deploy_mpc_router');
   for (const requiredNeedle of [
     'ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON: ${{ vars.ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON }}',
     'ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON is required for production',
     'ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON:${ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON}',
   ]) {
-    if (!routerJobSource.includes(requiredNeedle)) {
+    if (!mpcRouterJobSource.includes(requiredNeedle)) {
       blockers.push(
-        'P1: deploy-router-ab production Router does not require and override the project policy bootstrap',
+        'P1: deploy-router-ab production MPCRouter does not require and override the project policy bootstrap',
       );
       break;
     }

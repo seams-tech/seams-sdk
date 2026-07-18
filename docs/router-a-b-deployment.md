@@ -48,7 +48,11 @@ negotiation crosses into the deferred independent-account experiment.
 
 ```mermaid
 flowchart LR
-  C["Client"] -->|"public HTTPS"| R["Router — product account"]
+  C["Client"] -->|"public HTTPS"| G["Gateway - product account"]
+  G -->|"strict ECDSA"| R["MPCRouter - product account"]
+  G <-->|"Yao orchestration"| A
+  G <-->|"Yao orchestration"| B
+  G <-->|"normal signing"| SW
   R -->|"Service Binding + A ciphertext"| A["Deriver A Worker"]
   R -->|"Service Binding + B ciphertext"| B["Deriver B Worker"]
   A <-->|"Service Binding WebSocket"| B
@@ -57,7 +61,7 @@ flowchart LR
   R <-->|"private binding or signed HTTPS"| SW["SigningWorker — product account"]
 ```
 
-The product account owns Router, SigningWorker, Deriver A, and Deriver B.
+The product account owns Gateway, MPCRouter, SigningWorker, Deriver A, and Deriver B.
 Deriver A and Deriver B use distinct Worker entrypoints, deployment credentials,
 secret bindings, Durable Object namespaces, backup boundaries, log streams, and
 audit labels.
@@ -99,7 +103,7 @@ B and vice versa.
 Required environments:
 
 ```text
-production-router
+production-mpc-router
 production-signing-worker
 production-deriver-a  # controlled by A operator
 production-deriver-b  # controlled by B operator

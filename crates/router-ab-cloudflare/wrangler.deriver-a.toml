@@ -4,24 +4,25 @@ compatibility_date = "2026-06-12"
 workers_dev = false
 
 [build]
-command = "cargo install -q worker-build --version 0.8.4 && worker-build --release --out-dir build/deriver-a --features strict-worker-deriver-a-entrypoint"
+command = "cargo install -q worker-build --version 0.8.4 && bash ./scripts/build-strict-worker.sh deriver-a"
 
 [durable_objects]
 bindings = [
   { name = "DERIVER_A_ROOT_SHARE_DO", class_name = "RouterAbDeriverARootShareDurableObject" },
+  { name = "DERIVER_A_YAO_SESSION_DO", class_name = "RouterAbDeriverAYaoSessionDurableObject" },
 ]
 
 [[migrations]]
 tag = "router_ab_deriver_a_v1"
 new_sqlite_classes = ["RouterAbDeriverARootShareDurableObject"]
 
+[[migrations]]
+tag = "router_ab_deriver_a_v2"
+new_sqlite_classes = ["RouterAbDeriverAYaoSessionDurableObject"]
+
 [[services]]
 binding = "DERIVER_B"
 service = "router-ab-deriver-b"
-
-[[services]]
-binding = "SIGNING_WORKER"
-service = "router-ab-signing-worker"
 
 [vars]
 ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING = "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"
@@ -31,13 +32,12 @@ DERIVER_A_ROOT_SHARE_DO_KEY_PREFIX = "deriver-a-root-share/"
 DERIVER_A_ROOT_SHARE_WIRE_SECRET_BINDING = "DERIVER_A_ROOT_SHARE_WIRE_SECRET"
 DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING = "DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY"
 DERIVER_A_ENVELOPE_HPKE_KEY_EPOCH = "epoch-1"
-DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY = "x25519:1111111111111111111111111111111111111111111111111111111111111111"
+DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY = "x25519:2693d0896a85398a7bef705c714590bbd99e0c91be62323d33c421d5be597257"
 DERIVER_A_PEER_SIGNING_KEY_BINDING = "DERIVER_A_PEER_SIGNING_KEY"
 DERIVER_A_PEER_SIGNING_KEY_EPOCH = "epoch-1"
-DERIVER_A_PEER_VERIFYING_KEY_HEX = "REPLACE_WITH_DERIVER_A_ED25519_VERIFYING_KEY_HEX"
-DERIVER_B_PEER_VERIFYING_KEY_HEX = "REPLACE_WITH_DERIVER_B_ED25519_VERIFYING_KEY_HEX"
+DERIVER_A_PEER_VERIFYING_KEY_HEX = "d6d21d388a92e6eb9d85d9fcdbcba81c383d7102717b7160fab5e2b501555907"
+DERIVER_B_PEER_VERIFYING_KEY_HEX = "1a369e342f555305e278312f3b704465e11fadbbab09134ed897402ed65c2d4a"
 DERIVER_B_PEER_BINDING = "DERIVER_B"
-SIGNING_WORKER_PEER_BINDING = "SIGNING_WORKER"
 
 [env.staging]
 name = "router-ab-deriver-a-staging"
@@ -47,13 +47,13 @@ workers_dev = false
 name = "DERIVER_A_ROOT_SHARE_DO"
 class_name = "RouterAbDeriverARootShareDurableObject"
 
+[[env.staging.durable_objects.bindings]]
+name = "DERIVER_A_YAO_SESSION_DO"
+class_name = "RouterAbDeriverAYaoSessionDurableObject"
+
 [[env.staging.services]]
 binding = "DERIVER_B"
 service = "router-ab-deriver-b-staging"
-
-[[env.staging.services]]
-binding = "SIGNING_WORKER"
-service = "router-ab-signing-worker-staging"
 
 [env.staging.vars]
 ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING = "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"
@@ -63,13 +63,12 @@ DERIVER_A_ROOT_SHARE_DO_KEY_PREFIX = "deriver-a-root-share/"
 DERIVER_A_ROOT_SHARE_WIRE_SECRET_BINDING = "DERIVER_A_ROOT_SHARE_WIRE_SECRET"
 DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING = "DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY"
 DERIVER_A_ENVELOPE_HPKE_KEY_EPOCH = "epoch-1"
-DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY = "x25519:1111111111111111111111111111111111111111111111111111111111111111"
+DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY = "x25519:2693d0896a85398a7bef705c714590bbd99e0c91be62323d33c421d5be597257"
 DERIVER_A_PEER_SIGNING_KEY_BINDING = "DERIVER_A_PEER_SIGNING_KEY"
 DERIVER_A_PEER_SIGNING_KEY_EPOCH = "epoch-1"
-DERIVER_A_PEER_VERIFYING_KEY_HEX = "REPLACE_WITH_DERIVER_A_ED25519_VERIFYING_KEY_HEX"
-DERIVER_B_PEER_VERIFYING_KEY_HEX = "REPLACE_WITH_DERIVER_B_ED25519_VERIFYING_KEY_HEX"
+DERIVER_A_PEER_VERIFYING_KEY_HEX = "d6d21d388a92e6eb9d85d9fcdbcba81c383d7102717b7160fab5e2b501555907"
+DERIVER_B_PEER_VERIFYING_KEY_HEX = "1a369e342f555305e278312f3b704465e11fadbbab09134ed897402ed65c2d4a"
 DERIVER_B_PEER_BINDING = "DERIVER_B"
-SIGNING_WORKER_PEER_BINDING = "SIGNING_WORKER"
 
 [observability]
   [observability.logs]

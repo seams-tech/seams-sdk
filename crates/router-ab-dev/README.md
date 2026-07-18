@@ -50,39 +50,50 @@ workers with:
 pnpm router
 ```
 
-For a single-terminal 2x2 dashboard:
+For a single-terminal dashboard:
 
 ```sh
 pnpm router:multiplex
 ```
 
-`pnpm router` and `pnpm router:multiplex` launch the Router A/B private-worker
-harness and start the SDK Router server at `127.0.0.1:9090` when it is not
-already running. They also verify
+`pnpm router` and `pnpm router:multiplex` launch the production-equivalent
+MPCRouter, Deriver A, Deriver B, and SigningWorker Cloudflare Workers on
+`127.0.0.1:9100-9103`. They start Gateway at
+`127.0.0.1:9090` when it is not already running. They also verify
 `https://localhost:9444/.well-known/webauthn` and start the local Caddy proxy
 when that HTTPS endpoint is absent. Browser account creation still needs the
 local app from `pnpm site`.
 
-Pass `--fresh` to regenerate env files with the default `9090-9093` localhost
-ports before launch:
+Build the SDK and strict Worker artifacts explicitly before launching:
+
+```sh
+pnpm build:sdk
+pnpm router
+```
+
+`pnpm router` checks that all four artifacts exist and match the current local
+commitment-policy build receipt. It does not compile Rust/WASM during startup.
+Use `pnpm router:build` when only the strict Workers need rebuilding. Stop a
+running Router topology before either build command; the build refuses to
+replace artifacts while ports `9100-9103` are active.
+
+Starting `pnpm router` replaces an existing topology launched from this
+repository. It identifies the four Wrangler process groups from their generated
+config and persistence paths, stops them, and then claims ports `9100-9103`.
+An unrelated listener on one of those ports still produces a port-conflict
+error.
+
+Pass `--fresh` to regenerate local role secrets before launch:
 
 ```sh
 pnpm router -- --fresh
 pnpm router:multiplex -- --fresh
 ```
 
-`pnpm router:server` is the lower-level main Router server command under
+`pnpm gateway:server` is the lower-level Gateway command under
 `apps/web-server`; `pnpm router` starts it automatically for the normal local
-backend stack. The Rust local worker binary now exposes only Deriver A, Deriver
-B, and SigningWorker private roles; the SDK Router route table owns the
-browser-facing local API.
-
-If the default ports `9090-9093` are already in use, generate the same local
-environment with free localhost ports:
-
-```sh
-pnpm router -- --fresh --ephemeral-ports
-```
+backend stack. Gateway calls the same Cloudflare Worker route surfaces
+used by production for Yao and ECDSA work.
 
 Capture a timestamped local timing evidence artifact:
 
