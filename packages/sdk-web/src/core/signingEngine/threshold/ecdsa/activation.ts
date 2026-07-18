@@ -1,4 +1,12 @@
-import type { EcdsaRoleLocalAuthMethod, EmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
+import {
+  buildEcdsaRoleLocalEmailOtpAuthMethod,
+  buildEcdsaRoleLocalPasskeyAuthMethod,
+  buildEcdsaRoleLocalPublicFacts,
+  type EcdsaRoleLocalAuthMethod,
+  type EcdsaRoleLocalPublicFacts,
+  type EmailOtpWorkerIssuedSessionHandle,
+} from '@/core/platform';
+import type { FinalizeRouterAbEcdsaRecoveryActivationResultV1 } from '../../workerManager/ecdsaClientWorkerChannels';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
@@ -6,6 +14,7 @@ import type {
   ThresholdWebAuthnPromptPort,
 } from '@/core/signingEngine/threshold/crypto/webauthn';
 import { bootstrapEcdsaSession } from '@/core/signingEngine/threshold/ecdsa/bootstrapSession';
+import type { BootstrapEcdsaSessionResult } from '@/core/signingEngine/threshold/ecdsa/bootstrapSession';
 import type { connectEcdsaSession } from '@/core/signingEngine/threshold/ecdsa/connectSession';
 import type { keygenEcdsa } from '@/core/signingEngine/threshold/ecdsa/keygen';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
@@ -38,11 +47,6 @@ import {
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { ExistingEcdsaBootstrapKeyIntent } from '../../session/passkey/ecdsaBootstrap';
 import {
-  buildEcdsaRoleLocalEmailOtpAuthMethod,
-  buildEcdsaRoleLocalPasskeyAuthMethod,
-  buildEcdsaRoleLocalReadyRecord,
-} from '../../session/persistence/ecdsaRoleLocalRecords';
-import {
   parseEcdsaClientVerifyingShareB64u,
   parseEcdsaKeyHandle,
   parseEcdsaRelayerKeyId,
@@ -58,6 +62,7 @@ import {
   routerAbEcdsaDerivationStableKeyContextFromSdkFactsV1,
   routerAbEcdsaDerivationActiveStateSessionId,
   verifyRouterAbEcdsaDerivationNormalSigningScopeContextBindingV1,
+  type RouterAbEcdsaDerivationPublicCapabilityV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 
@@ -130,7 +135,9 @@ export type ThresholdEcdsaExplicitKeyExportActivationResult = {
     expiresAtMs: number;
     remainingUses: number;
     walletSessionJwt: string;
-    ecdsaRoleLocalReadyRecord: ReturnType<typeof buildEcdsaRoleLocalReadyRecord>;
+    roleLocalMaterial:
+      FinalizeRouterAbEcdsaRecoveryActivationResultV1['roleLocalMaterial'];
+    publicFacts: EcdsaRoleLocalPublicFacts;
   };
   passkeyPrfFirstB64u: string;
   passkeyCredentialIdB64u: string;
@@ -334,6 +341,7 @@ type ActivateEcdsaExistingSessionRequestBase = ActivateEcdsaSessionRequestCommon
   keyHandle: EvmFamilyEcdsaKeyHandle;
   key: EvmFamilyEcdsaKeyIdentity;
   lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
+  publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
   walletSessionRouteAuth?: ThresholdEcdsaDerivationRouteAuth;
   walletId?: never;
   subjectId?: never;
@@ -366,6 +374,24 @@ export type ActivateEcdsaSessionRequest =
 type ActivateEcdsaSessionByPurposeRequest =
   | ActivateEcdsaSessionRequest
   | ActivateExplicitKeyExportEcdsaSessionRequest;
+
+function requireStrictEcdsaRouteAuth(
+  auth: ThresholdEcdsaDerivationRouteAuth | undefined,
+): Extract<ThresholdEcdsaDerivationRouteAuth, { kind: 'app_session' | 'wallet_session' }> {
+  if (!auth) {
+    throw new Error('Strict ECDSA session bootstrap requires app or Wallet Session authority');
+  }
+  switch (auth.kind) {
+    case 'app_session':
+    case 'wallet_session':
+      return auth;
+    case 'bootstrap_grant':
+    case 'publishable_key':
+      throw new Error('Strict ECDSA session bootstrap requires app or Wallet Session authority');
+  }
+  auth satisfies never;
+  throw new Error('Strict ECDSA session bootstrap authority is invalid');
+}
 
 function isStaleEcdsaIntegratedKeyBootstrapFailure(args: {
   code?: unknown;
@@ -426,6 +452,26 @@ function inferThresholdEcdsaBootstrapAuthMethod(
   return 'unknown';
 }
 
+function roleLocalAuthMethodForActivation(args: {
+  request: ActivateEcdsaSessionByPurposeRequest;
+  bootstrap: Extract<BootstrapEcdsaSessionResult, { ok: true }>;
+}): EcdsaRoleLocalAuthMethod {
+  switch (args.bootstrap.secretSourceKind) {
+    case 'passkey':
+      return buildEcdsaRoleLocalPasskeyAuthMethod({
+        credentialIdB64u: args.bootstrap.passkeyCredentialIdB64u,
+        rpId: args.bootstrap.rpId,
+      });
+    case 'email_otp':
+      if (args.request.authKind !== 'email_otp') {
+        throw new Error('Email OTP ECDSA bootstrap requires Email OTP auth material');
+      }
+      return buildEcdsaRoleLocalEmailOtpAuthMethod({
+        authSubjectId: args.request.emailOtpWorkerSessionHandle.authSubjectId,
+      });
+  }
+}
+
 function resolveEcdsaActivationWalletKeyId(args: ActivateEcdsaSessionByPurposeRequest): string {
   if (args.kind === 'session_bootstrap') {
     return String(args.key.evmFamilySigningKeySlotId);
@@ -473,88 +519,10 @@ function resolveExactActivationOwnerAddress(args: {
   return trustedOwnerAddress;
 }
 
-function credentialIdB64uFromAuthenticationCredential(
-  credential: WebAuthnAuthenticationCredential,
-): string {
-  const credentialIdB64u = String(credential.rawId || credential.id || '').trim();
-  if (!credentialIdB64u) {
-    throw new Error('threshold-ecdsa passkey activation requires credential id');
-  }
-  return credentialIdB64u;
-}
-
-type EcdsaActivationRoleLocalAuthMethodInput =
-  | {
-      kind: 'email_otp';
-      emailOtpWorkerSessionHandle: EmailOtpEcdsaBootstrapWorkerHandle;
-    }
-  | {
-      kind: 'passkey';
-      credentialIdB64u: string;
-      rpId: string;
-    };
-
 type BootstrapEcdsaSessionSuccess = Extract<
   Awaited<ReturnType<typeof bootstrapEcdsaSession>>,
   { ok: true }
 >;
-
-function roleLocalAuthMethodForActivation(
-  args: EcdsaActivationRoleLocalAuthMethodInput,
-): EcdsaRoleLocalAuthMethod {
-  switch (args.kind) {
-    case 'email_otp':
-      return buildEcdsaRoleLocalEmailOtpAuthMethod({
-        authSubjectId: args.emailOtpWorkerSessionHandle.authSubjectId,
-      });
-    case 'passkey':
-      return buildEcdsaRoleLocalPasskeyAuthMethod({
-        credentialIdB64u: args.credentialIdB64u,
-        rpId: args.rpId,
-      });
-  }
-  args satisfies never;
-  throw new Error('threshold-ecdsa activation received unsupported role-local auth method');
-}
-
-function roleLocalAuthMethodInputForActivation(args: {
-  request: ActivateEcdsaSessionByPurposeRequest;
-  bootstrap: BootstrapEcdsaSessionSuccess;
-  rpId: string;
-}): EcdsaActivationRoleLocalAuthMethodInput {
-  switch (args.request.authKind) {
-    case 'email_otp':
-      return {
-        kind: 'email_otp',
-        emailOtpWorkerSessionHandle: args.request.emailOtpWorkerSessionHandle,
-      };
-    case 'passkey_webauthn':
-    case 'passkey_webauthn_prf_b64u':
-      return {
-        kind: 'passkey',
-        credentialIdB64u: credentialIdB64uFromAuthenticationCredential(
-          args.request.webauthnAuthentication,
-        ),
-        rpId: args.rpId,
-      };
-    case 'passkey_prompt':
-    case 'passkey_prf_b64u':
-    case 'passkey_prf_bytes':
-      break;
-  }
-  if (args.bootstrap.secretSourceKind === 'passkey') {
-    return {
-      kind: 'passkey',
-      credentialIdB64u: args.bootstrap.passkeyCredentialIdB64u,
-      rpId: args.rpId,
-    };
-  }
-  if (args.bootstrap.secretSourceKind === 'email_otp') {
-    throw new Error('threshold-ecdsa email OTP activation requires worker session handle');
-  }
-  args.bootstrap satisfies never;
-  throw new Error('threshold-ecdsa activation could not resolve role-local auth method');
-}
 
 function bootstrapSecretSourceArgsForActivation(
   args: ActivateEcdsaSessionByPurposeRequest,
@@ -699,11 +667,21 @@ async function activateEcdsaSessionByPurpose(
     }
     bootstrap = exactActivation
       ? await bootstrapEcdsaSession({
-          ...baseBootstrapArgs,
-          bootstrapAuth: args.walletSessionRouteAuth,
+          credentialStore: deps.credentialStore,
+          touchIdPrompt: deps.touchIdPrompt,
+          relayerUrl: args.relayerUrl,
+          chainTarget,
+          userId: walletId,
+          sessionKind: resolvedSessionKind,
+          requestId: args.requestId,
+          runtimeScopeBootstrap: args.runtimeScopeBootstrap,
+          workerCtx: deps.workerCtx,
+          ...bootstrapSecretSourceArgs,
+          bootstrapAuth: requireStrictEcdsaRouteAuth(args.walletSessionRouteAuth),
           keyHandle: args.keyHandle,
           key: args.key,
           lanePolicy: args.lanePolicy,
+          publicCapability: args.publicCapability,
         })
       : args.walletSessionRouteAuth
         ? await bootstrapEcdsaSession({
@@ -801,21 +779,37 @@ async function activateEcdsaSessionByPurpose(
         bootstrapOwnerAddress: bootstrap.ethereumAddress,
       })
     : String(bootstrap.ethereumAddress || '').trim();
-  const ecdsaRoleLocalReadyRecord = bootstrap.ecdsaDerivationRoleLocalClientState
-    ? buildEcdsaRoleLocalReadyRecord({
-        stateBlob: bootstrap.ecdsaDerivationRoleLocalClientState.stateBlob,
-        publicFacts: bootstrap.ecdsaDerivationRoleLocalClientState.publicFacts,
-        authMethod: roleLocalAuthMethodForActivation(
-          roleLocalAuthMethodInputForActivation({
-            request: args,
-            bootstrap,
-            rpId: String(bootstrap.rpId || '').trim(),
-          }),
-        ),
-      })
-    : undefined;
-  if (!ecdsaRoleLocalReadyRecord) {
-    throw new Error('threshold-ecdsa bootstrap returned empty role-local ready record');
+  const strictRoleLocalPublicFacts =
+    bootstrap.bootstrapKind === 'strict_post_registration'
+      ? buildEcdsaRoleLocalPublicFacts({
+          walletId,
+          evmFamilySigningKeySlotId: bootstrap.evmFamilySigningKeySlotId,
+          chainTarget,
+          keyHandle,
+          ecdsaThresholdKeyId,
+          signingRootId: bootstrap.signingRootId,
+          signingRootVersion: bootstrap.signingRootVersion,
+          applicationBindingDigestB64u:
+            bootstrap.roleLocalActivation.publicCapability.context
+              .application_binding_digest_b64u,
+          clientParticipantId: 1,
+          relayerParticipantId: 2,
+          participantIds,
+          contextBinding32B64u:
+            bootstrap.roleLocalActivation.publicFacts.contextBinding32B64u,
+          derivationClientSharePublicKey33B64u:
+            bootstrap.roleLocalActivation.publicFacts.derivationClientSharePublicKey33B64u,
+          relayerPublicKey33B64u:
+            bootstrap.roleLocalActivation.publicFacts.relayerPublicKey33B64u,
+          groupPublicKey33B64u:
+            bootstrap.roleLocalActivation.publicFacts.groupPublicKey33B64u,
+          ethereumAddress: bootstrap.roleLocalActivation.publicFacts.ethereumAddress,
+          publicCapability: bootstrap.roleLocalActivation.publicCapability,
+        })
+      : null;
+  const roleLocalPublicFacts = strictRoleLocalPublicFacts;
+  if (!roleLocalPublicFacts) {
+    throw new Error('threshold-ecdsa bootstrap returned empty role-local public facts');
   }
   if (args.purpose === 'explicit_key_export') {
     if (bootstrap.secretSourceKind !== 'passkey') {
@@ -842,57 +836,24 @@ async function activateEcdsaSessionByPurpose(
         expiresAtMs,
         remainingUses,
         walletSessionJwt,
-        ecdsaRoleLocalReadyRecord,
+        roleLocalMaterial: bootstrap.roleLocalActivation.roleLocalMaterial,
+        publicFacts: roleLocalPublicFacts,
       },
       passkeyPrfFirstB64u: bootstrap.passkeyPrfFirstB64u,
       passkeyCredentialIdB64u: bootstrap.passkeyCredentialIdB64u,
     };
   }
-  const routerAbEcdsaDerivationNormalSigning = await buildRouterAbEcdsaDerivationNormalSigningState(
-    {
-      config: deps.routerAbNormalSigning,
-      relayerUrl: args.relayerUrl,
-      walletId,
-      evmFamilySigningKeySlotId: String(bootstrap.evmFamilySigningKeySlotId || '').trim(),
-      ecdsaThresholdKeyId,
-      signingRootId: bootstrap.signingRootId,
-      signingRootVersion: bootstrap.signingRootVersion,
-      contextBinding32B64u: ecdsaRoleLocalReadyRecord.publicFacts.contextBinding32B64u,
-      derivationClientSharePublicKey33B64u:
-        ecdsaRoleLocalReadyRecord.publicFacts.derivationClientSharePublicKey33B64u,
-      serverPublicKey33B64u: ecdsaRoleLocalReadyRecord.publicFacts.relayerPublicKey33B64u,
-      thresholdPublicKey33B64u: ecdsaRoleLocalReadyRecord.publicFacts.groupPublicKey33B64u,
-      ethereumAddress: thresholdOwnerAddress,
-      clientShareRetryCounter: bootstrap.clientShareRetryCounter,
-      serverShareRetryCounter: bootstrap.relayerShareRetryCounter,
-      activationEpoch: sessionId,
-    },
-  );
-  const roleLocalMaterialHandle = buildEcdsaRoleLocalSigningMaterialHandle({
-    thresholdSessionId: sessionId,
-    signingGrantId,
-    keyHandle,
-    routerAbStateSessionId: routerAbEcdsaDerivationActiveStateSessionId(
-      routerAbEcdsaDerivationNormalSigning,
-    ),
-    chainTarget,
-    clientVerifyingShareB64u,
-    ecdsaThresholdKeyId,
-    participantIds,
-    relayerKeyId,
+  const routerAbEcdsaDerivationNormalSigning = bootstrap.routerAbEcdsaDerivationNormalSigning;
+  const roleLocalMaterialHandle = {
+    kind: 'role_local_worker_session' as const,
+    materialHandle: bootstrap.roleLocalActivation.roleLocalMaterial.materialHandle,
+    bindingDigest: bootstrap.roleLocalActivation.roleLocalMaterial.bindingDigest,
+    durableMaterialRef: bootstrap.roleLocalActivation.roleLocalMaterial.durableMaterialRef,
+  };
+  const roleLocalAuthMethod = roleLocalAuthMethodForActivation({
+    request: args,
+    bootstrap,
   });
-  const storedRoleLocalMaterial = await storeEcdsaRoleLocalSigningMaterialWasm({
-    materialHandle: roleLocalMaterialHandle.materialHandle,
-    bindingDigest: roleLocalMaterialHandle.bindingDigest,
-    stateBlob: ecdsaRoleLocalReadyRecord.stateBlob,
-    workerCtx: deps.workerCtx,
-  });
-  if (
-    storedRoleLocalMaterial.materialHandle !== roleLocalMaterialHandle.materialHandle ||
-    storedRoleLocalMaterial.bindingDigest !== roleLocalMaterialHandle.bindingDigest
-  ) {
-    throw new Error('threshold-ecdsa role-local worker material handle mismatch');
-  }
 
   const keygen: EcdsaKeygenSuccess = {
     ok: true,
@@ -938,7 +899,8 @@ async function activateEcdsaSessionByPurpose(
       relayerKeyId,
       clientVerifyingShareB64u,
       roleLocalMaterialHandle,
-      ecdsaRoleLocalReadyRecord,
+      publicFacts: roleLocalPublicFacts,
+      authMethod: roleLocalAuthMethod,
     },
     participantIds,
     ...(typeof bootstrap.thresholdEcdsaPublicKeyB64u === 'string' &&

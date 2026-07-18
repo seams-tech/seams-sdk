@@ -7,8 +7,7 @@ import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
   touchConfirmManager: '/_test-sdk/esm/core/signingEngine/uiConfirm/UiConfirmManager.js',
-  thresholdSessionStore:
-    '/_test-sdk/esm/core/signingEngine/session/persistence/records.js',
+  thresholdSessionStore: '/_test-sdk/esm/core/signingEngine/session/persistence/records.js',
   sealedSessionStore: '/_test-sdk/esm/core/signingEngine/session/persistence/sealedSessionStore.js',
   availableSigningLanes:
     '/_test-sdk/esm/core/signingEngine/session/availability/availableSigningLanes.js',
@@ -74,6 +73,56 @@ function thresholdEd25519SessionJwt(args: {
 test.describe('UserConfirm worker router', () => {
   test.beforeEach(async ({ page }) => {
     await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
+  });
+
+  test('mounts and closes the registration preparation modal', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.touchConfirmManager);
+        const manager = mod.createUiConfirmManager({}, {
+          touchIdPrompt: {
+            getRpId: () => 'example.localhost',
+          },
+          userPreferencesManager: {
+            getCurrentWalletId: () => '',
+          },
+        } as any);
+
+        await manager.openRegistrationPreparationModal({
+          walletLabel: 'alice.testnet',
+          signerSlot: 1,
+        });
+        const confirmer = document.querySelector('w3a-tx-confirmer') as any;
+        const mounted = confirmer
+          ? {
+              title: confirmer.title,
+              body: confirmer.body,
+              loading: confirmer.loading,
+              nearAccountId: confirmer.nearAccountId,
+              rpId: confirmer.securityContext?.rpId,
+              signerSlot: confirmer.securityContext?.passkeyRegistration?.signerSlot,
+            }
+          : null;
+        manager.closeRegistrationPreparationModal();
+        return {
+          mounted,
+          remainingConfirmers: document.querySelectorAll('w3a-tx-confirmer').length,
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result).toEqual({
+      mounted: {
+        title: 'Create your passkey',
+        body: 'Preparing secure registration…',
+        loading: true,
+        nearAccountId: 'alice.testnet',
+        rpId: 'example.localhost',
+        signerSlot: 1,
+      },
+      remainingConfirmers: 0,
+    });
   });
 
   test('routes concurrent responses by request id with one long-lived listener', async ({
@@ -550,7 +599,8 @@ test.describe('UserConfirm worker router', () => {
         await new Promise<void>((resolve, reject) => {
           const request = indexedDB.deleteDatabase('seams_wallet');
           request.onsuccess = () => resolve();
-          request.onerror = () => reject(request.error || new Error('Failed to clear sealed session test database'));
+          request.onerror = () =>
+            reject(request.error || new Error('Failed to clear sealed session test database'));
           request.onblocked = () => resolve();
         });
         (manager as any).worker = fakeWorker;
@@ -682,41 +732,44 @@ test.describe('UserConfirm worker router', () => {
         await new Promise<void>((resolve, reject) => {
           const request = indexedDB.deleteDatabase('seams_wallet');
           request.onsuccess = () => resolve();
-          request.onerror = () => reject(request.error || new Error('Failed to clear sealed session test database'));
+          request.onerror = () =>
+            reject(request.error || new Error('Failed to clear sealed session test database'));
           request.onblocked = () => resolve();
         });
-        await sealedStoreMod.writeExactSealedSession(sealedStoreMod.buildCurrentSealedSessionRecord({
-          walletId: 'account.testnet',
-          thresholdSessionId: 'session-rehydrate',
-          signingGrantId: 'wallet-session-rehydrate',
-          curve: 'ecdsa',
-          authMethod: 'passkey',
-          relayerUrl: 'https://relay.example',
-          ecdsaRestore: {
-            chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
-            source: 'manual-bootstrap',
-            rpId: 'example.com',
-            sessionKind: 'cookie',
-            keyHandle: 'key-handle-ecdsa',
-            ecdsaThresholdKeyId: 'ecdsa-key',
-            ethereumAddress: `0x${'33'.repeat(20)}`,
-            relayerKeyId: 'relayer-key',
-            clientVerifyingShareB64u: 'client-verifying-share',
-            thresholdEcdsaPublicKeyB64u: 'AhERERERERERERERERERERERERERERERERERERERERER',
-            participantIds: [1, 2, 3],
-            runtimePolicyScope: {
-              orgId: 'org-test',
-              projectId: 'sr-test',
-              envId: 'dev',
-              signingRootVersion: 'default',
+        await sealedStoreMod.writeExactSealedSession(
+          sealedStoreMod.buildCurrentSealedSessionRecord({
+            walletId: 'account.testnet',
+            thresholdSessionId: 'session-rehydrate',
+            signingGrantId: 'wallet-session-rehydrate',
+            curve: 'ecdsa',
+            authMethod: 'passkey',
+            relayerUrl: 'https://relay.example',
+            ecdsaRestore: {
+              chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
+              source: 'manual-bootstrap',
+              rpId: 'example.com',
+              sessionKind: 'cookie',
+              keyHandle: 'key-handle-ecdsa',
+              ecdsaThresholdKeyId: 'ecdsa-key',
+              ethereumAddress: `0x${'33'.repeat(20)}`,
+              relayerKeyId: 'relayer-key',
+              clientVerifyingShareB64u: 'client-verifying-share',
+              thresholdEcdsaPublicKeyB64u: 'AhERERERERERERERERERERERERERERERERERERERERER',
+              participantIds: [1, 2, 3],
+              runtimePolicyScope: {
+                orgId: 'org-test',
+                projectId: 'sr-test',
+                envId: 'dev',
+                signingRootVersion: 'default',
+              },
             },
-          },
-          sealedSecretB64u: 'sealed-prf',
-          keyVersion: 'kek-v2',
-          expiresAtMs: Date.now() + 60_000,
-          remainingUses: 10,
-          updatedAtMs: Date.now(),
-        })!);
+            sealedSecretB64u: 'sealed-prf',
+            keyVersion: 'kek-v2',
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: 10,
+            updatedAtMs: Date.now(),
+          })!,
+        );
 
         (manager as any).worker = fakeWorker;
         (manager as any).attachWorkerRouter(fakeWorker);
@@ -784,14 +837,11 @@ test.describe('UserConfirm worker router', () => {
           },
         });
         const statusResult = await statusPromise;
-        const persisted = await sealedStoreMod.readExactSealedSession(
-          'session-rehydrate',
-          {
-            authMethod: 'passkey',
-            curve: 'ecdsa',
-            chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
-          },
-        );
+        const persisted = await sealedStoreMod.readExactSealedSession('session-rehydrate', {
+          authMethod: 'passkey',
+          curve: 'ecdsa',
+          chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
+        });
 
         return {
           postedTypes: postedMessages.map((entry) => entry?.type),
@@ -849,7 +899,8 @@ test.describe('UserConfirm worker router', () => {
         await new Promise<void>((resolve, reject) => {
           const request = indexedDB.deleteDatabase('seams_wallet');
           request.onsuccess = () => resolve();
-          request.onerror = () => reject(request.error || new Error('Failed to clear sealed session test database'));
+          request.onerror = () =>
+            reject(request.error || new Error('Failed to clear sealed session test database'));
           request.onblocked = () => resolve();
         });
         sessionStoreMod.upsertThresholdEcdsaSessionFact(deps, {
@@ -983,17 +1034,16 @@ test.describe('UserConfirm worker router', () => {
         return {
           postedTypes: postedMessages.map((entry) => entry?.type),
           sealPayload: postedMessages[1]?.payload || null,
-          persistedRecord:
-            await sealedStoreMod.readExactSealedSession('session-ecdsa-record', {
-              authMethod: 'passkey',
-              curve: 'ecdsa',
-              chainTarget: {
-                kind: 'evm',
-                namespace: 'eip155',
-                chainId: 5042002,
-                networkSlug: 'arc-testnet',
-              },
-            }),
+          persistedRecord: await sealedStoreMod.readExactSealedSession('session-ecdsa-record', {
+            authMethod: 'passkey',
+            curve: 'ecdsa',
+            chainTarget: {
+              kind: 'evm',
+              namespace: 'eip155',
+              chainId: 5042002,
+              networkSlug: 'arc-testnet',
+            },
+          }),
         };
       },
       { paths: IMPORT_PATHS, canonicalSessionJwt },
@@ -1386,41 +1436,44 @@ test.describe('UserConfirm worker router', () => {
         await new Promise<void>((resolve, reject) => {
           const request = indexedDB.deleteDatabase('seams_wallet');
           request.onsuccess = () => resolve();
-          request.onerror = () => reject(request.error || new Error('Failed to clear sealed session test database'));
+          request.onerror = () =>
+            reject(request.error || new Error('Failed to clear sealed session test database'));
           request.onblocked = () => resolve();
         });
-        await sealedStoreMod.writeExactSealedSession(sealedStoreMod.buildCurrentSealedSessionRecord({
-          walletId: 'account.testnet',
-          thresholdSessionId: 'session-single-flight-remove',
-          signingGrantId: 'wallet-session-single-flight-remove',
-          curve: 'ecdsa',
-          authMethod: 'passkey',
-          relayerUrl: 'https://relay.example',
-          ecdsaRestore: {
-            chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
-            source: 'manual-bootstrap',
-            rpId: 'example.com',
-            sessionKind: 'cookie',
-            keyHandle: 'key-handle-ecdsa',
-            ecdsaThresholdKeyId: 'ecdsa-key',
-            ethereumAddress: `0x${'33'.repeat(20)}`,
-            relayerKeyId: 'relayer-key',
-            clientVerifyingShareB64u: 'client-verifying-share',
-            thresholdEcdsaPublicKeyB64u: 'AhERERERERERERERERERERERERERERERERERERERERER',
-            participantIds: [1, 2, 3],
-            runtimePolicyScope: {
-              orgId: 'org-test',
-              projectId: 'sr-test',
-              envId: 'dev',
-              signingRootVersion: 'default',
+        await sealedStoreMod.writeExactSealedSession(
+          sealedStoreMod.buildCurrentSealedSessionRecord({
+            walletId: 'account.testnet',
+            thresholdSessionId: 'session-single-flight-remove',
+            signingGrantId: 'wallet-session-single-flight-remove',
+            curve: 'ecdsa',
+            authMethod: 'passkey',
+            relayerUrl: 'https://relay.example',
+            ecdsaRestore: {
+              chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
+              source: 'manual-bootstrap',
+              rpId: 'example.com',
+              sessionKind: 'cookie',
+              keyHandle: 'key-handle-ecdsa',
+              ecdsaThresholdKeyId: 'ecdsa-key',
+              ethereumAddress: `0x${'33'.repeat(20)}`,
+              relayerKeyId: 'relayer-key',
+              clientVerifyingShareB64u: 'client-verifying-share',
+              thresholdEcdsaPublicKeyB64u: 'AhERERERERERERERERERERERERERERERERERERERERER',
+              participantIds: [1, 2, 3],
+              runtimePolicyScope: {
+                orgId: 'org-test',
+                projectId: 'sr-test',
+                envId: 'dev',
+                signingRootVersion: 'default',
+              },
             },
-          },
-          sealedSecretB64u: 'sealed-prf',
-          keyVersion: 'kek-v1',
-          expiresAtMs: Date.now() + 60_000,
-          remainingUses: 10,
-          updatedAtMs: Date.now(),
-        })!);
+            sealedSecretB64u: 'sealed-prf',
+            keyVersion: 'kek-v1',
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: 10,
+            updatedAtMs: Date.now(),
+          })!,
+        );
 
         (manager as any).worker = fakeWorker;
         (manager as any).attachWorkerRouter(fakeWorker);
@@ -1566,41 +1619,44 @@ test.describe('UserConfirm worker router', () => {
         await new Promise<void>((resolve, reject) => {
           const request = indexedDB.deleteDatabase('seams_wallet');
           request.onsuccess = () => resolve();
-          request.onerror = () => reject(request.error || new Error('Failed to clear sealed session test database'));
+          request.onerror = () =>
+            reject(request.error || new Error('Failed to clear sealed session test database'));
           request.onblocked = () => resolve();
         });
-        await sealedStoreMod.writeExactSealedSession(sealedStoreMod.buildCurrentSealedSessionRecord({
-          walletId: 'account.testnet',
-          thresholdSessionId: 'session-cross-manager-remove',
-          signingGrantId: 'wallet-session-cross-manager-remove',
-          curve: 'ecdsa',
-          authMethod: 'passkey',
-          relayerUrl: 'https://relay.example',
-          ecdsaRestore: {
-            chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
-            source: 'manual-bootstrap',
-            rpId: 'example.com',
-            sessionKind: 'cookie',
-            keyHandle: 'key-handle-ecdsa',
-            ecdsaThresholdKeyId: 'ecdsa-key',
-            ethereumAddress: `0x${'33'.repeat(20)}`,
-            relayerKeyId: 'relayer-key',
-            clientVerifyingShareB64u: 'client-verifying-share',
-            thresholdEcdsaPublicKeyB64u: 'AhERERERERERERERERERERERERERERERERERERERERER',
-            participantIds: [1, 2, 3],
-            runtimePolicyScope: {
-              orgId: 'org-test',
-              projectId: 'sr-test',
-              envId: 'dev',
-              signingRootVersion: 'default',
+        await sealedStoreMod.writeExactSealedSession(
+          sealedStoreMod.buildCurrentSealedSessionRecord({
+            walletId: 'account.testnet',
+            thresholdSessionId: 'session-cross-manager-remove',
+            signingGrantId: 'wallet-session-cross-manager-remove',
+            curve: 'ecdsa',
+            authMethod: 'passkey',
+            relayerUrl: 'https://relay.example',
+            ecdsaRestore: {
+              chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
+              source: 'manual-bootstrap',
+              rpId: 'example.com',
+              sessionKind: 'cookie',
+              keyHandle: 'key-handle-ecdsa',
+              ecdsaThresholdKeyId: 'ecdsa-key',
+              ethereumAddress: `0x${'33'.repeat(20)}`,
+              relayerKeyId: 'relayer-key',
+              clientVerifyingShareB64u: 'client-verifying-share',
+              thresholdEcdsaPublicKeyB64u: 'AhERERERERERERERERERERERERERERERERERERERERER',
+              participantIds: [1, 2, 3],
+              runtimePolicyScope: {
+                orgId: 'org-test',
+                projectId: 'sr-test',
+                envId: 'dev',
+                signingRootVersion: 'default',
+              },
             },
-          },
-          sealedSecretB64u: 'sealed-prf',
-          keyVersion: 'kek-v1',
-          expiresAtMs: Date.now() + 60_000,
-          remainingUses: 10,
-          updatedAtMs: Date.now(),
-        })!);
+            sealedSecretB64u: 'sealed-prf',
+            keyVersion: 'kek-v1',
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: 10,
+            updatedAtMs: Date.now(),
+          })!,
+        );
 
         (managerA as any).worker = workerA;
         (managerA as any).attachWorkerRouter(workerA);
@@ -1742,40 +1798,43 @@ test.describe('UserConfirm worker router', () => {
         await new Promise<void>((resolve, reject) => {
           const request = indexedDB.deleteDatabase('seams_wallet');
           request.onsuccess = () => resolve();
-          request.onerror = () => reject(request.error || new Error('Failed to clear sealed session test database'));
+          request.onerror = () =>
+            reject(request.error || new Error('Failed to clear sealed session test database'));
           request.onblocked = () => resolve();
         });
-        await sealedStoreMod.writeExactSealedSession(sealedStoreMod.buildCurrentSealedSessionRecord({
-          thresholdSessionId: 'session-no-rehydrate',
-          signingGrantId: 'wallet-session-no-rehydrate',
-          curve: 'ecdsa',
-          authMethod: 'passkey',
-          relayerUrl: 'https://relay.example',
-          ecdsaRestore: {
-            chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
-            source: 'manual-bootstrap',
-            rpId: 'example.com',
-            sessionKind: 'cookie',
-            keyHandle: 'key-handle-ecdsa',
-            ecdsaThresholdKeyId: 'ecdsa-key',
-            ethereumAddress: `0x${'33'.repeat(20)}`,
-            relayerKeyId: 'relayer-key',
-            clientVerifyingShareB64u: 'client-verifying-share',
-            thresholdEcdsaPublicKeyB64u: 'AhERERERERERERERERERERERERERERERERERERERERER',
-            participantIds: [1, 2, 3],
-            runtimePolicyScope: {
-              orgId: 'org-test',
-              projectId: 'sr-test',
-              envId: 'dev',
-              signingRootVersion: 'default',
+        await sealedStoreMod.writeExactSealedSession(
+          sealedStoreMod.buildCurrentSealedSessionRecord({
+            thresholdSessionId: 'session-no-rehydrate',
+            signingGrantId: 'wallet-session-no-rehydrate',
+            curve: 'ecdsa',
+            authMethod: 'passkey',
+            relayerUrl: 'https://relay.example',
+            ecdsaRestore: {
+              chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
+              source: 'manual-bootstrap',
+              rpId: 'example.com',
+              sessionKind: 'cookie',
+              keyHandle: 'key-handle-ecdsa',
+              ecdsaThresholdKeyId: 'ecdsa-key',
+              ethereumAddress: `0x${'33'.repeat(20)}`,
+              relayerKeyId: 'relayer-key',
+              clientVerifyingShareB64u: 'client-verifying-share',
+              thresholdEcdsaPublicKeyB64u: 'AhERERERERERERERERERERERERERERERERERERERERER',
+              participantIds: [1, 2, 3],
+              runtimePolicyScope: {
+                orgId: 'org-test',
+                projectId: 'sr-test',
+                envId: 'dev',
+                signingRootVersion: 'default',
+              },
             },
-          },
-          sealedSecretB64u: 'sealed-prf',
-          keyVersion: 'kek-v2',
-          expiresAtMs: Date.now() + 60_000,
-          remainingUses: 10,
-          updatedAtMs: Date.now(),
-        })!);
+            sealedSecretB64u: 'sealed-prf',
+            keyVersion: 'kek-v2',
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: 10,
+            updatedAtMs: Date.now(),
+          })!,
+        );
 
         (manager as any).worker = fakeWorker;
         (manager as any).attachWorkerRouter(fakeWorker);
@@ -1951,41 +2010,44 @@ test.describe('UserConfirm worker router', () => {
         await new Promise<void>((resolve, reject) => {
           const request = indexedDB.deleteDatabase('seams_wallet');
           request.onsuccess = () => resolve();
-          request.onerror = () => reject(request.error || new Error('Failed to clear sealed session test database'));
+          request.onerror = () =>
+            reject(request.error || new Error('Failed to clear sealed session test database'));
           request.onblocked = () => resolve();
         });
-        await sealedStoreMod.writeExactSealedSession(sealedStoreMod.buildCurrentSealedSessionRecord({
-          walletId: 'account.testnet',
-          thresholdSessionId: 'session-expired',
-          signingGrantId: 'wallet-session-expired',
-          curve: 'ecdsa',
-          authMethod: 'passkey',
-          relayerUrl: 'https://relay.example',
-          ecdsaRestore: {
-            chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
-            source: 'manual-bootstrap',
-            rpId: 'example.com',
-            sessionKind: 'cookie',
-            keyHandle: 'key-handle-ecdsa',
-            ecdsaThresholdKeyId: 'ecdsa-key',
-            ethereumAddress: `0x${'33'.repeat(20)}`,
-            relayerKeyId: 'relayer-key',
-            clientVerifyingShareB64u: 'client-verifying-share',
-            thresholdEcdsaPublicKeyB64u: 'AhERERERERERERERERERERERERERERERERERERERERER',
-            participantIds: [1, 2, 3],
-            runtimePolicyScope: {
-              orgId: 'org-test',
-              projectId: 'sr-test',
-              envId: 'dev',
-              signingRootVersion: 'default',
+        await sealedStoreMod.writeExactSealedSession(
+          sealedStoreMod.buildCurrentSealedSessionRecord({
+            walletId: 'account.testnet',
+            thresholdSessionId: 'session-expired',
+            signingGrantId: 'wallet-session-expired',
+            curve: 'ecdsa',
+            authMethod: 'passkey',
+            relayerUrl: 'https://relay.example',
+            ecdsaRestore: {
+              chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
+              source: 'manual-bootstrap',
+              rpId: 'example.com',
+              sessionKind: 'cookie',
+              keyHandle: 'key-handle-ecdsa',
+              ecdsaThresholdKeyId: 'ecdsa-key',
+              ethereumAddress: `0x${'33'.repeat(20)}`,
+              relayerKeyId: 'relayer-key',
+              clientVerifyingShareB64u: 'client-verifying-share',
+              thresholdEcdsaPublicKeyB64u: 'AhERERERERERERERERERERERERERERERERERERERERER',
+              participantIds: [1, 2, 3],
+              runtimePolicyScope: {
+                orgId: 'org-test',
+                projectId: 'sr-test',
+                envId: 'dev',
+                signingRootVersion: 'default',
+              },
             },
-          },
-          sealedSecretB64u: 'sealed-prf',
-          keyVersion: 'kek-v2',
-          expiresAtMs: Date.now() + 60_000,
-          remainingUses: 2,
-          updatedAtMs: Date.now(),
-        })!);
+            sealedSecretB64u: 'sealed-prf',
+            keyVersion: 'kek-v2',
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: 2,
+            updatedAtMs: Date.now(),
+          })!,
+        );
 
         (manager as any).worker = fakeWorker;
         (manager as any).attachWorkerRouter(fakeWorker);
@@ -2020,12 +2082,11 @@ test.describe('UserConfirm worker router', () => {
         });
         const restoreResult = await restorePromise;
         await new Promise((resolve) => setTimeout(resolve, 5));
-        const persistedAfter =
-          await sealedStoreMod.readExactSealedSession('session-expired', {
-            authMethod: 'passkey',
-            curve: 'ecdsa',
-            chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
-          });
+        const persistedAfter = await sealedStoreMod.readExactSealedSession('session-expired', {
+          authMethod: 'passkey',
+          curve: 'ecdsa',
+          chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
+        });
 
         return {
           postedTypes: postedMessages.map((entry) => entry?.type),

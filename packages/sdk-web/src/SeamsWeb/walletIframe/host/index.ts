@@ -10,7 +10,10 @@ import { WalletIframeDomEvents } from '@/core/browser/walletIframe/events';
 import { isObject } from '@shared/utils/validation';
 import { errorMessage } from '@shared/utils/errors';
 import type { WalletHostRuntimeState } from './runtimeContext';
-import { loadWalletHostRuntime } from './runtimeLoader';
+import {
+  loadWalletHostRuntime,
+  preloadWalletHostRegistrationSurface,
+} from './runtimeLoader';
 import {
   type RuntimeWalletHostRoute,
   routeRequiresRuntime,
@@ -38,6 +41,12 @@ function routeIsSupported(
   supported: ReadonlySet<WalletHostRuntimeKind> | undefined,
 ): boolean {
   return !supported || supported.has(route.kind);
+}
+
+function registrationRuntimeIsSupported(
+  supported: ReadonlySet<WalletHostRuntimeKind> | undefined,
+): boolean {
+  return !supported || supported.has('near');
 }
 
 export function initWalletIFrame(options: WalletHostEntryOptions = {}): void {
@@ -128,6 +137,9 @@ export function initWalletIFrame(options: WalletHostEntryOptions = {}): void {
               ...(state.walletConfigs || ({} as SeamsConfigsInput)),
               ...(route.request.payload as PMSetConfigPayload),
             } as SeamsConfigsInput;
+            if (registrationRuntimeIsSupported(options.supportedRuntimeRouteKinds)) {
+              await preloadWalletHostRegistrationSurface();
+            }
             post({ type: 'PONG', requestId });
             return;
           case 'PM_CANCEL': {

@@ -65,14 +65,19 @@ function collectViolations() {
     }
   }
 
-  const registrationSource = routerSource.slice(
-    routerSource.indexOf('createPasskeyRegistrationActivationSurface('),
-    routerSource.indexOf('\n  async registerWallet('),
+  if (routerSource.includes('createPasskeyRegistrationActivationSurface(')) {
+    violations.push(`${relativePath(routerPath)}: obsolete registration activation surface`);
+  }
+  const overlaySource = fs.readFileSync(
+    path.join(clientRoot, 'overlay', 'overlay-controller.ts'),
+    'utf8',
   );
-  if (directMutationPattern.test(registrationSource) || /forceFullscreen/.test(registrationSource)) {
-    violations.push(
-      `${relativePath(routerPath)}: registration activation must transition surface state`,
-    );
+  for (const obsoletePath of ['applyAnchored', 'setAnchored', "'anchored'"]) {
+    if (overlaySource.includes(obsoletePath)) {
+      violations.push(
+        `${relativePath(path.join(clientRoot, 'overlay', 'overlay-controller.ts'))}: obsolete anchored overlay path ${obsoletePath}`,
+      );
+    }
   }
   return violations;
 }

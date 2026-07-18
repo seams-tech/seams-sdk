@@ -76,13 +76,17 @@ import type {
   StoreWalletEmailOtpEcdsaRegistrationInput,
 } from '@/core/signingEngine/flows/registration/accountLifecycle';
 import type { StoreWalletSignerFinalizeRollbackReceipt } from '@/core/indexedDB/seamsWalletDB/repositories';
-import type {
-  EmailOtpWalletRegistrationEcdsaPreparedClientBootstrap,
-  PasskeyWalletRegistrationEcdsaPreparedClientBootstrap,
-  PrepareEmailOtpWalletRegistrationEcdsaClientBootstrapInput,
-  PreparePasskeyWalletRegistrationEcdsaClientBootstrapInput,
-} from '@/core/signingEngine/flows/registration/services/ecdsaRegistrationBootstrap';
 import type { FinalizeWalletRegistrationEcdsaSessionsInput } from '@/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions';
+import type {
+  CloseRouterAbEcdsaRegistrationCeremonyRequestV1,
+  CloseRouterAbEcdsaRegistrationCeremonyResultV1,
+  CreateRouterAbEcdsaRegistrationCeremonyRequestV1,
+  CreateRouterAbEcdsaRegistrationCeremonyResultV1,
+  FinalizeRouterAbEcdsaRegistrationActivationRequestV1,
+  FinalizeRouterAbEcdsaRegistrationActivationResultV1,
+  VerifyRouterAbEcdsaRegistrationClientProofsRequestV1,
+  VerifyRouterAbEcdsaRegistrationClientProofsResultV1,
+} from '@/core/signingEngine/routerAb/ecdsaDerivation/clientCeremony';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
 import type { ConnectEd25519SessionArgs } from '@/core/signingEngine/session/passkey/public';
@@ -107,7 +111,6 @@ import type {
 } from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
 import type { WebAuthnAllowCredential } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import type { RegistrationCredentialConfirmationPayload } from '@/core/signingEngine/workerManager/validation';
-import type { RegistrationActivationProof } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
@@ -251,12 +254,18 @@ export interface RegistrationAccountSurface {
 }
 
 export interface EcdsaRegistrationSurface {
-  preparePasskeyEcdsaBootstrap(
-    input: PreparePasskeyWalletRegistrationEcdsaClientBootstrapInput,
-  ): Promise<PasskeyWalletRegistrationEcdsaPreparedClientBootstrap>;
-  prepareEmailOtpEcdsaBootstrap(
-    input: PrepareEmailOtpWalletRegistrationEcdsaClientBootstrapInput,
-  ): Promise<EmailOtpWalletRegistrationEcdsaPreparedClientBootstrap>;
+  createRouterAbEcdsaRegistrationCeremony(
+    input: CreateRouterAbEcdsaRegistrationCeremonyRequestV1,
+  ): Promise<CreateRouterAbEcdsaRegistrationCeremonyResultV1>;
+  verifyRouterAbEcdsaRegistrationClientProofs(
+    input: VerifyRouterAbEcdsaRegistrationClientProofsRequestV1,
+  ): Promise<VerifyRouterAbEcdsaRegistrationClientProofsResultV1>;
+  finalizeRouterAbEcdsaRegistrationActivation(
+    input: FinalizeRouterAbEcdsaRegistrationActivationRequestV1,
+  ): Promise<FinalizeRouterAbEcdsaRegistrationActivationResultV1>;
+  closeRouterAbEcdsaRegistrationCeremony(
+    input: CloseRouterAbEcdsaRegistrationCeremonyRequestV1,
+  ): Promise<CloseRouterAbEcdsaRegistrationCeremonyResultV1>;
   finalizeWalletRegistrationEcdsaSessions(
     input: FinalizeWalletRegistrationEcdsaSessionsInput,
   ): Promise<void>;
@@ -363,6 +372,11 @@ export type AccountSyncSigningSurface = LocalLoginStateSurface &
   >;
 
 export interface WebAuthnRegistrationConfirmationSurface {
+  openRegistrationPreparationModal(params: {
+    walletLabel: string;
+    signerSlot: number;
+  }): Promise<void>;
+  closeRegistrationPreparationModal(): void;
   requestRegistrationCredentialConfirmation(params: {
     walletId: string;
     nearAccountId?: string;
@@ -370,7 +384,6 @@ export interface WebAuthnRegistrationConfirmationSurface {
     confirmerText?: { title?: string; body?: string };
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
     challengeB64u?: string;
-    walletIframeActivation?: RegistrationActivationProof;
   }): Promise<RegistrationCredentialConfirmationPayload>;
   startPreparedPasskeyRegistrationCredential(args: {
     walletId: string;
@@ -526,10 +539,7 @@ export type EmailRecoverySigningSurface = AccountSyncSigningSurface &
   Ed25519YaoRegistrationActivationSurface &
   WebAuthnRegistrationConfirmationSurface &
   Pick<RegistrationAccountSurface, 'storeWalletEd25519RecoveryRegistrationData'> &
-  Pick<
-    EcdsaRegistrationSurface,
-    'preparePasskeyEcdsaBootstrap' | 'storeWalletEcdsaRecoverySignerRecords'
-  >;
+  Pick<EcdsaRegistrationSurface, 'storeWalletEcdsaRecoverySignerRecords'>;
 
 export type EmailRecoveryWebContext = SeamsWebBaseContext<EmailRecoverySigningSurface>;
 
@@ -542,6 +552,6 @@ export type DeviceLinkingSigningSurface = LocalLoginStateSurface &
     UserProfileStoreSurface & RegistrationAccountSurface,
     'storeUserData' | 'storeAuthenticator'
   > &
-  Pick<EcdsaRegistrationSurface, 'preparePasskeyEcdsaBootstrap' | 'storeWalletEcdsaSignerRecords'>;
+  Pick<EcdsaRegistrationSurface, 'storeWalletEcdsaSignerRecords'>;
 
 export type DeviceLinkingWebContext = SeamsWebBaseContext<DeviceLinkingSigningSurface>;

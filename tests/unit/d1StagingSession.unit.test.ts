@@ -136,7 +136,7 @@ async function signConsoleSession(input: {
 async function hmacSessionRoundTrip(): Promise<void> {
   const session = createHmacSessionAdapter({
     secret: SESSION_SECRET,
-    issuer: 'seams-router-api-staging',
+    issuer: 'seams-gateway-staging',
     audience: 'seams-wallet-session',
   });
   const jwt = await session.signJwt('wallet-user', {
@@ -154,12 +154,12 @@ async function hmacSessionRoundTrip(): Promise<void> {
 async function hmacSessionRejectsWrongAudience(): Promise<void> {
   const signer = createHmacSessionAdapter({
     secret: SESSION_SECRET,
-    issuer: 'seams-router-api-staging',
+    issuer: 'seams-gateway-staging',
     audience: 'seams-wallet-session',
   });
   const verifier = createHmacSessionAdapter({
     secret: SESSION_SECRET,
-    issuer: 'seams-router-api-staging',
+    issuer: 'seams-gateway-staging',
     audience: 'other-audience',
   });
   const jwt = await signer.signJwt('wallet-user', { kind: 'app_session_v1' });

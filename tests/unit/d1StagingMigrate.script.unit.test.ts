@@ -37,13 +37,13 @@ type MigrationPlan = {
 type MigrationModule = {
   readonly buildD1StagingMigrationPlan: (input: {
     readonly consoleConfigPath: string;
-    readonly routerApiConfigPath: string;
+    readonly gatewayConfigPath: string;
     readonly generatedAtIso?: string;
     readonly mode?: 'dry-run' | 'remote';
   }) => MigrationPlan;
   readonly runD1StagingMigration: (input: {
     readonly consoleConfigPath: string;
-    readonly routerApiConfigPath: string;
+    readonly gatewayConfigPath: string;
     readonly generatedAtIso?: string;
     readonly manifestPath: string;
     readonly mode?: 'dry-run' | 'remote';

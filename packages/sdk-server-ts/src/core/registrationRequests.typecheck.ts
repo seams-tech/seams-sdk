@@ -231,11 +231,11 @@ const validEd25519FinalizeRequest = {
 } satisfies WalletRegistrationFinalizeRequest;
 void validEd25519FinalizeRequest;
 
-// @ts-expect-error near_ed25519 finalize must not carry ECDSA work.
 const invalidEd25519FinalizeWithEcdsa: WalletRegistrationFinalizeRequest = {
   registrationCeremonyId: 'registration-ceremony-1',
   kind: 'near_ed25519' as const,
   ed25519: validEd25519FinalizeRequest.ed25519,
+  // @ts-expect-error near_ed25519 finalize must not carry ECDSA work.
   ecdsa: {},
 };
 void invalidEd25519FinalizeWithEcdsa;

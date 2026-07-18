@@ -32,7 +32,8 @@ import {
   type ReservedRegistrationWebAuthnPrompt,
 } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/webauthnPromptCoordinator';
 import type { RegistrationCredentialPrompt } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt';
-import type { WalletIframeRequestId } from '@/core/types/registrationActivationIdentity';
+import type { WalletIframeRequestId } from '@/core/types/walletIframeIdentity';
+import type { ConfirmUISurfaceSource } from '../../ui/confirm-ui';
 
 function roundDurationMs(startedAt: number): number {
   return Math.max(0, Math.round(performance.now() - startedAt));
@@ -82,9 +83,10 @@ export async function handleRegistrationFlow(
     confirmationConfig: NormalizedConfirmationConfig;
     transactionSummary: TransactionSummary;
     theme: ThemeMode;
+    surface: ConfirmUISurfaceSource;
   },
 ): Promise<void> {
-  const { confirmationConfig, transactionSummary, theme } = opts;
+  const { confirmationConfig, transactionSummary, theme, surface } = opts;
   const flowStartedAt = performance.now();
   let requestSetupMs = 0;
   let promptUserMs = 0;
@@ -128,6 +130,7 @@ export async function handleRegistrationFlow(
     confirmationConfig,
     transactionSummary,
     theme,
+    surface,
   });
   const walletId = getWalletId(request);
   const nearAccountId = getNearAccountId(request);

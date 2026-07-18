@@ -1,11 +1,9 @@
-import type {
-  PrepareEcdsaClientBootstrapOutput,
-} from '../../packages/sdk-web/src/core/platform/generated/signerCoreCommands';
+import type { PrepareEcdsaClientBootstrapOutput } from '../../packages/sdk-web/src/core/platform/generated/signerCoreCommands';
 import { createHash } from 'node:crypto';
 import {
   prepare_ecdsa_client_bootstrap_from_resolved_email_otp_root_v1,
   prepare_ecdsa_client_bootstrap_v1,
-} from '../../wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.js';
+} from '../../wasm/ecdsa_registration_client/pkg/ecdsa_registration_client.js';
 
 export type TestEcdsaClientBootstrapContext = {
   walletId: string;
@@ -128,7 +126,8 @@ function flattenPreparedBootstrap(
   return {
     pendingStateBlobB64u: output.pendingStateBlob.stateBlobB64u,
     contextBinding32B64u: output.clientBootstrap.contextBinding32B64u,
-    derivationClientSharePublicKey33B64u: output.clientBootstrap.derivationClientSharePublicKey33B64u,
+    derivationClientSharePublicKey33B64u:
+      output.clientBootstrap.derivationClientSharePublicKey33B64u,
     clientVerifyingShareB64u: output.publicFacts.clientVerifyingShareB64u,
     clientShareRetryCounter: output.clientBootstrap.clientShareRetryCounter,
     participantId: output.clientBootstrap.participantId,

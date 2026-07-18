@@ -308,6 +308,7 @@ function makeRecord(input: PasskeyRecordFixtureInput = {}): PasskeyEcdsaSessionR
       signingRootVersion,
     });
   const record = {
+    purpose: 'transaction_signing' as const,
     walletId,
     chainTarget: input.chainTarget ?? EVM_TARGET,
     relayerUrl: 'https://relay.localhost',

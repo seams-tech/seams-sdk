@@ -9,6 +9,49 @@ import type { RuntimePorts } from '@/core/platform';
 import type { WalletSessionActivationDeps } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
 import type { RecoveryPublicDeps } from '@/core/signingEngine/flows/recovery/public';
 import { readTrustedWalletSigningBudgetStatus as readTrustedWalletSigningBudgetStatusOperation } from '@/core/signingEngine/session/budget/budgetStatusReader';
+import type { WarmSessionCapabilityReader } from '@/core/signingEngine/session/warmCapabilities/types';
+import {
+  toWalletId,
+  type ThresholdEcdsaChainTarget,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
+import { resolvePasskeyEd25519WalletSessionRouteAuthV1 } from '@/core/signingEngine/session/passkey/ed25519YaoWarmRecovery';
+
+type BrowserWarmSession = Awaited<ReturnType<WarmSessionCapabilityReader['getWarmSession']>>;
+type BrowserWarmSessionAuth =
+  | BrowserWarmSession['capabilities']['ed25519']['auth']
+  | BrowserWarmSession['capabilities']['ecdsa']['evm']['auth'];
+
+function walletSessionRouteAuthFromWarmAuth(
+  auth: BrowserWarmSessionAuth,
+): AppOrWalletSessionAuth | null {
+  if (!auth || !('walletSessionJwt' in auth)) return null;
+  const jwt = String(auth.walletSessionJwt || '').trim();
+  return jwt ? { kind: 'wallet_session', jwt } : null;
+}
+
+async function resolvePasskeyEcdsaExportRouteAuth(
+  capabilityReader: WarmSessionCapabilityReader,
+  walletId: string,
+  chainTarget: ThresholdEcdsaChainTarget,
+): Promise<AppOrWalletSessionAuth> {
+  const warmSession = await capabilityReader.getWarmSession(toWalletId(walletId));
+  const targetEcdsa =
+    chainTarget.kind === 'tempo'
+      ? warmSession.capabilities.ecdsa.tempo
+      : warmSession.capabilities.ecdsa.evm;
+  const warmRouteAuth =
+    walletSessionRouteAuthFromWarmAuth(targetEcdsa.auth) ||
+    walletSessionRouteAuthFromWarmAuth(warmSession.capabilities.ed25519.auth);
+  const routeAuth =
+    warmRouteAuth || (await resolvePasskeyEd25519WalletSessionRouteAuthV1(walletId));
+  if (!routeAuth) {
+    throw new Error(
+      '[SigningEngine][ecdsa-export] strict ECDSA export requires an active wallet-scoped route authority',
+    );
+  }
+  return routeAuth;
+}
 
 export function createBrowserRecoveryPublicDeps(args: {
   seamsWebConfigs: SeamsConfigsReadonly;
@@ -47,6 +90,10 @@ export function createBrowserRecoveryPublicDeps(args: {
         },
         provisionArgs,
       ),
+    resolvePasskeyEcdsaExportRouteAuth: resolvePasskeyEcdsaExportRouteAuth.bind(
+      null,
+      args.warmSigning.capabilityReader,
+    ),
     warmSessionPolicy: {
       getWarmSession: (walletId) => args.warmSigning.capabilityReader.getWarmSession(walletId),
       resolveExactEcdsaRecord: (recordArgs) =>

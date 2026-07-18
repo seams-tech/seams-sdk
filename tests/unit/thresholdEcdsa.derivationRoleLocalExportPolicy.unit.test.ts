@@ -13,11 +13,11 @@ import {
   parseEcdsaDerivationClientBootstrapRequest,
   parseEcdsaDerivationExportShareRequest,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
-import { initSync as initEcdsaDerivationClientWasmSync } from '../../wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.js';
+import { initSync as initEcdsaRegistrationClientWasmSync } from '../../wasm/ecdsa_registration_client/pkg/ecdsa_registration_client.js';
 import { prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest } from '../helpers/thresholdEcdsaClientBootstrap';
 
-const ECDSA_DERIVATION_CLIENT_WASM_URL = new URL(
-  '../../wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client_bg.wasm',
+const ECDSA_REGISTRATION_CLIENT_WASM_URL = new URL(
+  '../../wasm/ecdsa_registration_client/pkg/ecdsa_registration_client_bg.wasm',
   import.meta.url,
 );
 const THRESHOLD_ECDSA_ROUTE_URL = new URL(
@@ -29,12 +29,12 @@ const EXPORT_CONFIRMATION_DIGEST_VERSION =
 const EXPORT_AUTHORIZATION_DIGEST_VERSION =
   'ecdsa-derivation:role-local:product-export-authorization:v2';
 
-let ecdsaDerivationClientWasmInitialized = false;
+let ecdsaRegistrationClientWasmInitialized = false;
 
-function ensureEcdsaDerivationClientWasm(): void {
-  if (ecdsaDerivationClientWasmInitialized) return;
-  initEcdsaDerivationClientWasmSync({ module: readFileSync(ECDSA_DERIVATION_CLIENT_WASM_URL) });
-  ecdsaDerivationClientWasmInitialized = true;
+function ensureEcdsaRegistrationClientWasm(): void {
+  if (ecdsaRegistrationClientWasmInitialized) return;
+  initEcdsaRegistrationClientWasmSync({ module: readFileSync(ECDSA_REGISTRATION_CLIENT_WASM_URL) });
+  ecdsaRegistrationClientWasmInitialized = true;
 }
 
 function bytesB64u(bytes: Uint8Array): string {
@@ -64,7 +64,7 @@ async function digestB64u(value: unknown): Promise<string> {
 }
 
 async function createRoleLocalExportFixture(input?: { bootstrapTtlMs?: number }) {
-  ensureEcdsaDerivationClientWasm();
+  ensureEcdsaRegistrationClientWasm();
   const { routerAbEcdsaBootstrapExportRuntime } = createRouterAbSigningRuntimesForUnitTests({
     config: {
       ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'unit-signing-worker',

@@ -19,7 +19,6 @@ import {
   toEcdsaDerivationThresholdKeyId,
 } from '../../session/identity/emailOtpEcdsaDerivationIdentity';
 import { toWalletId } from '../../interfaces/ecdsaChainTarget';
-import { toRpId } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 const serverPlannedContext = parseServerPlannedEcdsaDerivationContext({
   walletId: 'wallet-user',
@@ -112,7 +111,6 @@ const roleLocalClientContext: ThresholdEcdsaDerivationRoleLocalClientContext = {
   signingRootId: toEcdsaDerivationSigningRootId('project:dev'),
   signingRootVersion: toEcdsaDerivationSigningRootVersion('default'),
 };
-const passkeyRpId = toRpId('wallet.example.test');
 
 void ({
   ...roleLocalClientContext,
@@ -141,10 +139,8 @@ async function assertRoleLocalBootstrapShape(): Promise<void> {
         participantIds: [1, 2],
       },
       secretSource: {
-        kind: 'webauthn_prf_first',
-        prfFirstB64u: 'prf-first',
-        rpId: passkeyRpId,
-        credentialIdB64u: 'credential-id',
+        kind: 'threshold_prf_x_client_base',
+        xClientBaseB64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
       },
     } satisfies PrepareEcdsaClientBootstrapCommand,
     workerCtx,
@@ -169,6 +165,7 @@ async function assertRoleLocalFinalizeShape(): Promise<void> {
         relayerPublicKey33B64u: 'relayer-public',
         groupPublicKey33B64u: 'group-public',
         ethereumAddress: '0x1111111111111111111111111111111111111111',
+        relayerShareRetryCounter: 0,
       },
     } satisfies FinalizeEcdsaClientBootstrapCommand,
     workerCtx,

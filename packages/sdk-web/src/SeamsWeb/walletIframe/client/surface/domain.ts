@@ -1,24 +1,12 @@
-import type {
-  RegistrationActivationButtonPresentation,
-} from '@/SeamsWeb/publicApi/types';
 import {
-  registrationActivationIdFromBoundary,
   walletIframeRequestIdFromBoundary,
   walletIframeSurfaceIdFromBoundary,
-  type RegistrationActivationId,
-  type RegistrationActivationMessageIdentity,
   type WalletIframeRequestId,
   type WalletIframeSurfaceId,
-} from '@/core/types/registrationActivationIdentity';
-import type { DOMRectLike } from '../overlay/overlay-controller';
-import type { RegisterWalletInput } from '@shared/utils/registrationIntent';
+} from '@/core/types/walletIframeIdentity';
 
 export type WalletIframeConnectionId = string & {
   readonly __walletIframeConnectionId: unique symbol;
-};
-
-export type RegistrationActivationTargetRect = Readonly<DOMRectLike> & {
-  readonly __registrationActivationTargetRect: unique symbol;
 };
 
 export type RequestSurfaceIdentity = {
@@ -28,16 +16,7 @@ export type RequestSurfaceIdentity = {
   activationId?: never;
 };
 
-export type RegistrationActivationSurfaceIdentity = {
-  kind: 'registration_activation_surface_identity_v1';
-  surfaceId: WalletIframeSurfaceId;
-  requestId: WalletIframeRequestId;
-  activationId: RegistrationActivationId;
-};
-
-export type WalletIframeWireMessageIdentity =
-  | RequestSurfaceIdentity
-  | RegistrationActivationSurfaceIdentity;
+export type WalletIframeWireMessageIdentity = RequestSurfaceIdentity;
 
 export type TrustedWalletIframeInboundIdentity<
   Identity extends WalletIframeWireMessageIdentity = WalletIframeWireMessageIdentity,
@@ -47,25 +26,10 @@ export type TrustedWalletIframeInboundIdentity<
   wireIdentity: Identity;
 };
 
-export type ProvidedPasskeyRegistrationWallet = Extract<RegisterWalletInput, { kind: 'provided' }>;
-
 export type PasskeyRegistrationPreparationReceipt = {
   kind: 'passkey_registration_preparation_receipt_v1';
   expiresAtMs: number;
 };
-
-export type AnchoredRegistrationPlacement =
-  | { kind: 'interactive'; targetRect: RegistrationActivationTargetRect }
-  | {
-      kind: 'suspended';
-      reason: 'ancestor_clipped';
-      lastTargetRect: RegistrationActivationTargetRect;
-    };
-
-export type AnchoredRegistrationFocusOwner =
-  | { kind: 'outside' }
-  | { kind: 'proxy' }
-  | { kind: 'iframe_button' };
 
 export type HiddenWalletIframeSurface = {
   kind: 'hidden';
@@ -75,16 +39,6 @@ export type HiddenWalletIframeSurface = {
 
 type OwnedWalletIframeSurface = {
   connectionId: WalletIframeConnectionId;
-};
-
-export type AnchoredRegistrationActivationSurface = OwnedWalletIframeSurface & {
-  kind: 'anchored_registration_activation';
-  identity: RegistrationActivationSurfaceIdentity;
-  wallet: ProvidedPasskeyRegistrationWallet;
-  preparation: PasskeyRegistrationPreparationReceipt;
-  presentation: RegistrationActivationButtonPresentation;
-  placement: AnchoredRegistrationPlacement;
-  focusOwner: AnchoredRegistrationFocusOwner;
 };
 
 export type ModalRegistrationConfirmSurface = OwnedWalletIframeSurface & {
@@ -128,7 +82,6 @@ export type ModalDeviceLinkQrSurface = OwnedWalletIframeSurface & {
 
 export type WalletIframeSurface =
   | HiddenWalletIframeSurface
-  | AnchoredRegistrationActivationSurface
   | ModalRegistrationConfirmSurface
   | ModalTransactionConfirmSurface
   | ModalKeyExportConfirmSurface
@@ -150,39 +103,12 @@ export type BeginForegroundWalletIframeSurfaceResult =
   | { kind: 'idempotent'; surface: ForegroundWalletIframeSurface }
   | { kind: 'rejected'; error: WalletIframeSurfaceBusyError };
 
-type RegistrationActivationOwnedEvent = {
-  connectionId: WalletIframeConnectionId;
-  identity: RegistrationActivationSurfaceIdentity;
-};
-
 type RequestOwnedEvent = {
   connectionId: WalletIframeConnectionId;
   identity: RequestSurfaceIdentity;
 };
 
 export type WalletIframeSurfaceEvent =
-  | (RegistrationActivationOwnedEvent & {
-      kind: 'registration_activation_prepared';
-      wallet: ProvidedPasskeyRegistrationWallet;
-      preparation: PasskeyRegistrationPreparationReceipt;
-      presentation: RegistrationActivationButtonPresentation;
-      placement: AnchoredRegistrationPlacement;
-    })
-  | (RegistrationActivationOwnedEvent & {
-      kind: 'registration_activation_placement_changed';
-      placement: AnchoredRegistrationPlacement;
-    })
-  | (RegistrationActivationOwnedEvent & {
-      kind: 'registration_activation_focus_owner_changed';
-      focusOwner: AnchoredRegistrationFocusOwner;
-    })
-  | (RegistrationActivationOwnedEvent & {
-      kind: 'registration_activation_cancelled';
-      reason: 'user_cancelled' | 'expired' | 'disposed' | 'target_unavailable';
-    })
-  | (RegistrationActivationOwnedEvent & {
-      kind: 'registration_activation_finished';
-    })
   | (RequestOwnedEvent & {
       kind: 'registration_modal_request_started';
       preparation: PasskeyRegistrationPreparationReceipt;
@@ -228,23 +154,6 @@ function boundaryRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
-export function parseRegistrationActivationSurfaceIdentity(
-  value: unknown,
-): RegistrationActivationSurfaceIdentity | null {
-  const record = boundaryRecord(value);
-  if (!record) return null;
-  try {
-    return {
-      kind: 'registration_activation_surface_identity_v1',
-      surfaceId: walletIframeSurfaceIdFromBoundary(record.surfaceId),
-      requestId: walletIframeRequestIdFromBoundary(record.requestId),
-      activationId: registrationActivationIdFromBoundary(record.activationId),
-    };
-  } catch {
-    return null;
-  }
-}
-
 export function parseRequestSurfaceIdentity(value: unknown): RequestSurfaceIdentity | null {
   const record = boundaryRecord(value);
   if (!record || record.activationId !== undefined) return null;
@@ -257,27 +166,6 @@ export function parseRequestSurfaceIdentity(value: unknown): RequestSurfaceIdent
   } catch {
     return null;
   }
-}
-
-export function registrationActivationTargetRectFromBoundary(
-  rect: DOMRectLike,
-): RegistrationActivationTargetRect {
-  const values = [rect.top, rect.left, rect.width, rect.height];
-  if (!values.every(Number.isFinite) || rect.width < 44 || rect.height < 44) {
-    throw new Error('Registration activation target rect must be finite and at least 44px square');
-  }
-  return Object.freeze({ ...rect }) as RegistrationActivationTargetRect;
-}
-
-export function registrationActivationSurfaceIdentity(
-  identity: RegistrationActivationMessageIdentity,
-): RegistrationActivationSurfaceIdentity {
-  return Object.freeze({
-    kind: 'registration_activation_surface_identity_v1',
-    surfaceId: identity.surfaceId,
-    requestId: identity.requestId,
-    activationId: identity.activationId,
-  });
 }
 
 export function requestSurfaceIdentity(args: {
@@ -309,32 +197,8 @@ export function passkeyRegistrationPreparationReceipt(
   return Object.freeze({ kind: 'passkey_registration_preparation_receipt_v1', expiresAtMs });
 }
 
-export function interactiveRegistrationPlacement(rect: DOMRectLike): AnchoredRegistrationPlacement {
-  return { kind: 'interactive', targetRect: registrationActivationTargetRectFromBoundary(rect) };
-}
-
-export function suspendedRegistrationPlacement(rect: DOMRectLike): AnchoredRegistrationPlacement {
-  return {
-    kind: 'suspended',
-    reason: 'ancestor_clipped',
-    lastTargetRect: registrationActivationTargetRectFromBoundary(rect),
-  };
-}
-
 export function hiddenWalletIframeSurface(): HiddenWalletIframeSurface {
   return { kind: 'hidden' };
-}
-
-export function anchoredRegistrationActivationSurface(args: {
-  connectionId: WalletIframeConnectionId;
-  identity: RegistrationActivationSurfaceIdentity;
-  wallet: ProvidedPasskeyRegistrationWallet;
-  preparation: PasskeyRegistrationPreparationReceipt;
-  presentation: RegistrationActivationButtonPresentation;
-  placement: AnchoredRegistrationPlacement;
-  focusOwner: AnchoredRegistrationFocusOwner;
-}): AnchoredRegistrationActivationSurface {
-  return { kind: 'anchored_registration_activation', ...args };
 }
 
 export function modalRegistrationConfirmSurface(args: {
@@ -410,34 +274,11 @@ function requestIdentitiesEqual(
   return left.surfaceId === right.surfaceId && left.requestId === right.requestId;
 }
 
-export function registrationActivationSurfaceIdentitiesEqual(
-  left: RegistrationActivationSurfaceIdentity,
-  right: RegistrationActivationSurfaceIdentity,
-): boolean {
-  return (
-    left.surfaceId === right.surfaceId &&
-    left.requestId === right.requestId &&
-    left.activationId === right.activationId
-  );
-}
-
 function foregroundSurfaceIdentitiesEqual(
   left: ForegroundWalletIframeSurface,
   right: ForegroundWalletIframeSurface,
 ): boolean {
   if (left.kind !== right.kind || left.connectionId !== right.connectionId) return false;
-  if (
-    left.kind === 'anchored_registration_activation' &&
-    right.kind === 'anchored_registration_activation'
-  ) {
-    return registrationActivationSurfaceIdentitiesEqual(left.identity, right.identity);
-  }
-  if (
-    left.kind === 'anchored_registration_activation' ||
-    right.kind === 'anchored_registration_activation'
-  ) {
-    return false;
-  }
   return requestIdentitiesEqual(left.identity, right.identity);
 }
 
@@ -460,24 +301,12 @@ export function beginForegroundWalletIframeSurface(
   };
 }
 
-function registrationEventOwnsSurface(
-  surface: WalletIframeSurface,
-  event: RegistrationActivationOwnedEvent,
-): surface is AnchoredRegistrationActivationSurface {
-  return (
-    surface.kind === 'anchored_registration_activation' &&
-    surface.connectionId === event.connectionId &&
-    registrationActivationSurfaceIdentitiesEqual(surface.identity, event.identity)
-  );
-}
-
 function requestEventOwnsSurface(
   surface: WalletIframeSurface,
   event: RequestOwnedEvent,
-): surface is Exclude<ForegroundWalletIframeSurface, AnchoredRegistrationActivationSurface> {
+): surface is ForegroundWalletIframeSurface {
   return (
     surface.kind !== 'hidden' &&
-    surface.kind !== 'anchored_registration_activation' &&
     surface.connectionId === event.connectionId &&
     requestIdentitiesEqual(surface.identity, event.identity)
   );
@@ -504,35 +333,6 @@ export function reduceWalletIframeSurface(
   event: WalletIframeSurfaceEvent,
 ): ReduceWalletIframeSurfaceResult {
   switch (event.kind) {
-    case 'registration_activation_prepared':
-      return reduceStartResult(
-        current,
-        beginForegroundWalletIframeSurface(
-          current,
-          anchoredRegistrationActivationSurface({
-            connectionId: event.connectionId,
-            identity: event.identity,
-            wallet: event.wallet,
-            preparation: event.preparation,
-            presentation: event.presentation,
-            placement: event.placement,
-            focusOwner: { kind: 'outside' },
-          }),
-        ),
-      );
-    case 'registration_activation_placement_changed':
-      if (!registrationEventOwnsSurface(current, event))
-        return { kind: 'ignored', surface: current };
-      return { kind: 'applied', surface: { ...current, placement: event.placement } };
-    case 'registration_activation_focus_owner_changed':
-      if (!registrationEventOwnsSurface(current, event))
-        return { kind: 'ignored', surface: current };
-      return { kind: 'applied', surface: { ...current, focusOwner: event.focusOwner } };
-    case 'registration_activation_cancelled':
-    case 'registration_activation_finished':
-      return registrationEventOwnsSurface(current, event)
-        ? { kind: 'applied', surface: hiddenWalletIframeSurface() }
-        : { kind: 'ignored', surface: current };
     case 'registration_modal_request_started':
       return reduceStartResult(
         current,

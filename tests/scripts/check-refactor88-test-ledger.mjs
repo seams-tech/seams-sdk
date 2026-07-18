@@ -26,7 +26,6 @@ const retainedBoundaryAuditRows = [
     'tests/lit-components/confirm-ui.handle.test.ts',
     'tests/lit-components/confirm-ui.host-and-inline.test.ts',
     'tests/lit-components/drawer.events.test.ts',
-    'tests/lit-components/passkey-registration-btn.test.ts',
     'tests/unit/confirmTxFlow.common.helpers.test.ts',
     'tests/unit/confirmTxFlow.confirmSession.onMounted.unit.test.ts',
     'tests/unit/confirmTxFlow.defensivePaths.test.ts',
@@ -87,7 +86,6 @@ const retainedBoundaryAuditRows = [
     'tests/wallet-iframe/preferences.sync.test.ts',
     'tests/wallet-iframe/router.behavior.test.ts',
     'tests/wallet-iframe/router.cancellationProgress.test.ts',
-    'tests/wallet-iframe/router.registrationActivation.test.ts',
     'tests/wallet-iframe/router.signingProgressForwarding.test.ts',
     'tests/wallet-iframe/static-wallet-assets.browser.test.ts',
 ];
@@ -113,6 +111,7 @@ const retainedBoundaryAuditEvidenceTokens = {
     'tests/lit-components/confirm-ui.host-and-inline.test.ts': [
         'confirm-ui inline confirmer',
         'modal confirm resolves with confirmed=true',
+        'registration preparation becomes interactive without remounting the modal',
         'drawer cancel resolves with confirmed=false',
         'modal loading state still allows cancel button click',
     ],
@@ -121,12 +120,6 @@ const retainedBoundaryAuditEvidenceTokens = {
         'emits open/close lifecycle events',
         'w3a:drawer-open-start',
         'w3a:drawer-close-end',
-    ],
-    'tests/lit-components/passkey-registration-btn.test.ts': [
-        'seams-passkey-registration-btn',
-        'emits activation once and mirrors hover, focus, busy, and disabled state',
-        'uses the same rpID source for WebAuthn registration options',
-        'rejects WebAuthn registration when username does not match wallet ID',
     ],
     'tests/unit/confirmTxFlow.common.helpers.test.ts': [
         'confirmTxFlow common helpers',
@@ -253,7 +246,6 @@ const retainedBoundaryAuditEvidenceTokens = {
     'tests/unit/overlayController.test.ts': [
         'OverlayController',
         'viewport modal rendering is interactive and hidden rendering is inert',
-        'surface render writes derive title, focusability, and suspended hit testing',
     ],
     'tests/unit/seamsAuthMenu.accountAvailability.unit.test.ts': [
         'SeamsAuthMenu account availability',
@@ -356,7 +348,6 @@ const retainedBoundaryAuditEvidenceTokens = {
         'PM_REGISTER_WALLET',
         'forwards passkey registration and unlock sequences through onEvent',
         'registration.auth.passkey.create.started',
-        'activation surface initializes and requires the wallet-scoped iframe router',
     ],
     'tests/unit/seamsWeb.setTheme.unit.test.ts': [
         'SeamsWeb.setTheme',
@@ -463,12 +454,6 @@ const retainedBoundaryAuditEvidenceTokens = {
         'registration.cancelled',
         'unlock.cancelled',
         'signing.cancelled',
-    ],
-    'tests/wallet-iframe/router.registrationActivation.test.ts': [
-        'WalletIframeRouter registration activation surface',
-        'ignores forged, malformed, and early activation button state messages',
-        'PM_REGISTRATION_ACTIVATION_BUTTON_STATE',
-        'overlayReleased',
     ],
     'tests/wallet-iframe/router.signingProgressForwarding.test.ts': [
         'WalletIframeRouter signing progress forwarding',

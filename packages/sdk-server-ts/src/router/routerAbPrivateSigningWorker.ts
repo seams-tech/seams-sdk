@@ -38,12 +38,18 @@ import {
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 
+const ED25519_SIGNING_INTENT_VERSION_V2 = 'router-ab-protocol/ed25519-normal-signing/intent/v2';
 const ED25519_SIGNING_PAYLOAD_VERSION_V2 = 'router-ab-protocol/ed25519-normal-signing/payload/v2';
+const ED25519_ROUND1_BINDING_VERSION_V2 =
+  'router-ab-protocol/ed25519-normal-signing/round1-binding/v2';
+const ED25519_TRUSTED_SOURCE_VERSION_V1 = 'router-ab-cloudflare-trusted-source/v1';
 
 const PRIVATE_ED25519_SIGNING_PREPARE_PATH = '/router-ab/signing-worker/sign/prepare';
 const PRIVATE_ED25519_SIGNING_FINALIZE_PATH = '/router-ab/signing-worker/sign';
-const PRIVATE_ECDSA_DERIVATION_SIGNING_PREPARE_PATH = '/router-ab/signing-worker/ecdsa-derivation/sign/prepare';
-const PRIVATE_ECDSA_DERIVATION_SIGNING_FINALIZE_PATH = '/router-ab/signing-worker/ecdsa-derivation/sign';
+const PRIVATE_ECDSA_DERIVATION_SIGNING_PREPARE_PATH =
+  '/router-ab/signing-worker/ecdsa-derivation/sign/prepare';
+const PRIVATE_ECDSA_DERIVATION_SIGNING_FINALIZE_PATH =
+  '/router-ab/signing-worker/ecdsa-derivation/sign';
 
 export type RouterAbEd25519PrivateSigningPath =
   | typeof PRIVATE_ED25519_SIGNING_PREPARE_PATH
@@ -235,16 +241,76 @@ export async function evaluateRouterAbNormalSigningAdmission(
     signingGrantId: input.walletSessionAuth.signingGrantId,
     requestId: input.admission.requestId,
     expiresAtMs: input.admission.expiresAtMs,
-    signingWorkerId: input.claims.routerAbEcdsaDerivationNormalSigning.scope.signing_worker.server_id,
+    signingWorkerId:
+      input.claims.routerAbEcdsaDerivationNormalSigning.scope.signing_worker.server_id,
     keyHandle: input.walletSessionAuth.keyHandle,
     runtimePolicyScope: input.claims.runtimePolicyScope,
   });
 }
 
-export type RouterAbEd25519PrivateSigningWorkerBody = {
-  kind: 'router_ab_ed25519_signing_worker_active_state_request_v1';
-  request: Record<string, unknown>;
+type RouterAbEd25519NormalSigningScopeV1 = {
+  readonly request_id: string;
+  readonly account_id: string;
+  readonly session_id: string;
+  readonly signing_worker_id: string;
 };
+
+type RouterAbAuthenticatedSessionContextV1 = {
+  readonly auth: 'authenticated_session';
+  readonly subject_id: string;
+  readonly session_id: string;
+};
+
+type RouterAbNormalSigningTrustedMetadataV1 = {
+  readonly org_id: string;
+  readonly project_id: string;
+  readonly environment: string;
+  readonly account_id: string;
+  readonly auth: RouterAbAuthenticatedSessionContextV1;
+  readonly trusted_source_digest: RouterAbPublicDigest32V1Wire;
+  readonly intent_digest: RouterAbPublicDigest32V1Wire;
+};
+
+type RouterAbNormalSigningTrustedAdmissionV1 = {
+  readonly metadata: RouterAbNormalSigningTrustedMetadataV1;
+  readonly decision: {
+    readonly kind: 'accepted';
+    readonly request_id: string;
+  };
+};
+
+type RouterAbNormalSigningPrepareAdmissionCandidateV2 = {
+  readonly org_id: string;
+  readonly project_id: string;
+  readonly environment: string;
+  readonly account_id: string;
+  readonly subject_id: string;
+  readonly threshold_session_id: string;
+  readonly signing_worker_id: string;
+  readonly request_id: string;
+  readonly intent_digest: RouterAbPublicDigest32V1Wire;
+  readonly signing_payload_digest: RouterAbPublicDigest32V1Wire;
+  readonly admitted_signing_digest: RouterAbPublicDigest32V1Wire;
+  readonly round1_binding_digest: RouterAbPublicDigest32V1Wire;
+  readonly trusted_source_digest: RouterAbPublicDigest32V1Wire;
+  readonly expires_at_ms: number;
+};
+
+type RouterAbEd25519PrivatePrepareSigningWorkerBody = {
+  readonly scope: RouterAbEd25519NormalSigningScopeV1;
+  readonly expires_at_ms: number;
+  readonly admission_candidate: RouterAbNormalSigningPrepareAdmissionCandidateV2;
+  readonly trusted_admission: RouterAbNormalSigningTrustedAdmissionV1;
+};
+
+type RouterAbEd25519PrivateFinalizeSigningWorkerBody = {
+  readonly request: Record<string, unknown>;
+  readonly trusted_admission: RouterAbNormalSigningTrustedAdmissionV1;
+};
+
+export type RouterAbEd25519PrivateSigningWorkerBody =
+  | RouterAbEd25519PrivatePrepareSigningWorkerBody
+  | RouterAbEd25519PrivateFinalizeSigningWorkerBody;
 
 type RouterAbEcdsaDerivationTrustedAdmissionV1 = {
   account_id: string;
@@ -281,6 +347,13 @@ function pushU32Be(out: number[], value: number): void {
   out.push((value >>> 24) & 0xff, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff);
 }
 
+function pushU64Be(out: number[], value: number): void {
+  const encoded = BigInt(value);
+  for (let shift = 56n; shift >= 0n; shift -= 8n) {
+    out.push(Number((encoded >> shift) & 0xffn));
+  }
+}
+
 function textBytes(value: string): Uint8Array {
   return new TextEncoder().encode(value);
 }
@@ -297,6 +370,10 @@ async function sha256B64u(bytes: Uint8Array): Promise<string> {
   return base64UrlEncode(new Uint8Array(digest));
 }
 
+async function sha256Digest32(bytes: Uint8Array): Promise<RouterAbPublicDigest32V1Wire> {
+  return digest32FromB64u(await sha256B64u(bytes));
+}
+
 function signingPayloadDigestFromWire(value: unknown): string {
   const record = isPlainObject(value) ? value : null;
   const bytes = Array.isArray(record?.bytes) ? record.bytes.map((entry) => Number(entry)) : [];
@@ -310,8 +387,10 @@ function signingPayloadDigestFromWire(value: unknown): string {
 }
 
 const ED25519_BUDGET_REQUEST_DIGEST_VERSION_V1 = 'router_ab_ed25519_budget_request_digest_v1';
-const ECDSA_DERIVATION_BUDGET_OPERATION_ID_VERSION_V1 = 'router_ab_ecdsa_derivation_budget_operation_id_v1';
-const ECDSA_DERIVATION_BUDGET_REQUEST_DIGEST_VERSION_V1 = 'router_ab_ecdsa_derivation_budget_request_digest_v1';
+const ECDSA_DERIVATION_BUDGET_OPERATION_ID_VERSION_V1 =
+  'router_ab_ecdsa_derivation_budget_operation_id_v1';
+const ECDSA_DERIVATION_BUDGET_REQUEST_DIGEST_VERSION_V1 =
+  'router_ab_ecdsa_derivation_budget_request_digest_v1';
 
 async function ed25519SigningPayloadDigestB64u(value: unknown): Promise<string> {
   const payload = isPlainObject(value) ? value : null;
@@ -493,7 +572,9 @@ export async function deriveRouterAbEcdsaDerivationBudgetRequestDigest(input: {
   ] as const;
   return hashBudgetFields({
     version: ECDSA_DERIVATION_BUDGET_REQUEST_DIGEST_VERSION_V1,
-    bytesFields: [['scope', routerAbEcdsaDerivationNormalSigningScopeCanonicalBytesV1(input.body.scope)]],
+    bytesFields: [
+      ['scope', routerAbEcdsaDerivationNormalSigningScopeCanonicalBytesV1(input.body.scope)],
+    ],
     fields,
   });
 }
@@ -502,7 +583,9 @@ function ed25519BudgetSigningWorkerId(claims: RouterAbEd25519WalletSessionClaims
   return nonEmptyString(claims.routerAbNormalSigning.signingWorkerId);
 }
 
-function ecdsaDerivationBudgetSigningWorkerId(claims: RouterAbEcdsaDerivationWalletSessionClaims): string {
+function ecdsaDerivationBudgetSigningWorkerId(
+  claims: RouterAbEcdsaDerivationWalletSessionClaims,
+): string {
   return nonEmptyString(claims.routerAbEcdsaDerivationNormalSigning.scope.signing_worker.server_id);
 }
 
@@ -610,21 +693,399 @@ function privateSigningWorkerUrl(
   return `${base}${path}`;
 }
 
-export function buildRouterAbEd25519PrivateSigningWorkerBody(input: {
-  body: Record<string, unknown>;
-}): RouterAbEd25519PrivateSigningWorkerBody {
-  return {
-    kind: 'router_ab_ed25519_signing_worker_active_state_request_v1',
-    request: stripRouterAbBudgetMetadata(input.body),
-  };
-}
-
 function digest32FromB64u(value: string): RouterAbPublicDigest32V1Wire {
   const bytes = base64UrlDecode(value);
   if (bytes.length !== 32) {
     throw new Error('Router A/B digest must be 32 bytes');
   }
   return { bytes: Array.from(bytes) };
+}
+
+function requirePrivateSigningRecord(value: unknown, label: string): Record<string, unknown> {
+  if (!isPlainObject(value)) {
+    throw new Error(`${label} must be an object`);
+  }
+  return value;
+}
+
+function requirePrivateSigningString(value: unknown, label: string): string {
+  const normalized = nonEmptyString(value);
+  if (!normalized) {
+    throw new Error(`${label} must be a non-empty string`);
+  }
+  return normalized;
+}
+
+function requirePrivateSigningPositiveSafeInteger(value: unknown, label: string): number {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error(`${label} must be a positive safe integer`);
+  }
+  return parsed;
+}
+
+function requirePrivateSigningScope(value: unknown): RouterAbEd25519NormalSigningScopeV1 {
+  const scope = requirePrivateSigningRecord(value, 'scope');
+  return {
+    request_id: requirePrivateSigningString(scope.request_id, 'scope.request_id'),
+    account_id: requirePrivateSigningString(scope.account_id, 'scope.account_id'),
+    session_id: requirePrivateSigningString(scope.session_id, 'scope.session_id'),
+    signing_worker_id: requirePrivateSigningString(
+      scope.signing_worker_id,
+      'scope.signing_worker_id',
+    ),
+  };
+}
+
+function requirePrivateSigningDigest(value: unknown, label: string): RouterAbPublicDigest32V1Wire {
+  const record = requirePrivateSigningRecord(value, label);
+  const bytes = Array.isArray(record.bytes) ? record.bytes.map((entry) => Number(entry)) : [];
+  if (
+    bytes.length !== 32 ||
+    !bytes.every((entry) => Number.isInteger(entry) && entry >= 0 && entry <= 255)
+  ) {
+    throw new Error(`${label}.bytes must contain exactly 32 bytes`);
+  }
+  return { bytes };
+}
+
+function requirePrivateSigningStringArray(value: unknown, label: string): readonly unknown[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${label} must be an array`);
+  }
+  return value;
+}
+
+function pushPrivateSigningIntentCommon(out: number[], intent: Record<string, unknown>): void {
+  pushLen32(
+    out,
+    textBytes(requirePrivateSigningString(intent.operation_id, 'intent.operation_id')),
+  );
+  pushLen32(
+    out,
+    textBytes(
+      requirePrivateSigningString(intent.operation_fingerprint, 'intent.operation_fingerprint'),
+    ),
+  );
+  pushLen32(
+    out,
+    textBytes(requirePrivateSigningString(intent.near_account_id, 'intent.near_account_id')),
+  );
+  pushLen32(
+    out,
+    textBytes(requirePrivateSigningString(intent.near_network_id, 'intent.near_network_id')),
+  );
+}
+
+function pushPrivateSigningOptionalString(out: number[], value: unknown, label: string): void {
+  if (value === undefined || value === null || value === '') {
+    out.push(0);
+    return;
+  }
+  out.push(1);
+  pushLen32(out, textBytes(requirePrivateSigningString(value, label)));
+}
+
+function canonicalPrivateSigningIntentBytes(value: unknown): Uint8Array {
+  const intent = requirePrivateSigningRecord(value, 'intent');
+  const kind = requirePrivateSigningString(intent.kind, 'intent.kind');
+  const out: number[] = [];
+  pushLen32(out, textBytes(ED25519_SIGNING_INTENT_VERSION_V2));
+  pushLen32(out, textBytes(kind));
+  pushPrivateSigningIntentCommon(out, intent);
+  switch (kind) {
+    case 'near_transaction_v1': {
+      const transactions = requirePrivateSigningStringArray(
+        intent.transactions,
+        'intent.transactions',
+      );
+      pushU32Be(out, transactions.length);
+      for (const [index, transactionValue] of transactions.entries()) {
+        const transaction = requirePrivateSigningRecord(
+          transactionValue,
+          `intent.transactions[${index}]`,
+        );
+        pushLen32(
+          out,
+          textBytes(
+            requirePrivateSigningString(
+              transaction.receiver_id,
+              `intent.transactions[${index}].receiver_id`,
+            ),
+          ),
+        );
+        pushLen32(
+          out,
+          textBytes(
+            requirePrivateSigningString(
+              transaction.action_fingerprint,
+              `intent.transactions[${index}].action_fingerprint`,
+            ),
+          ),
+        );
+      }
+      pushLen32(
+        out,
+        textBytes(
+          requirePrivateSigningString(
+            intent.unsigned_transaction_borsh_b64u,
+            'intent.unsigned_transaction_borsh_b64u',
+          ),
+        ),
+      );
+      return Uint8Array.from(out);
+    }
+    case 'nep413_v1':
+      pushLen32(out, textBytes(requirePrivateSigningString(intent.recipient, 'intent.recipient')));
+      pushLen32(out, textBytes(requirePrivateSigningString(intent.message, 'intent.message')));
+      pushLen32(
+        out,
+        textBytes(requirePrivateSigningString(intent.nonce_b64u, 'intent.nonce_b64u')),
+      );
+      pushPrivateSigningOptionalString(out, intent.callback_url, 'intent.callback_url');
+      return Uint8Array.from(out);
+    case 'near_delegate_action_v1': {
+      const delegate = requirePrivateSigningRecord(intent.delegate, 'intent.delegate');
+      for (const field of [
+        'sender_id',
+        'receiver_id',
+        'public_key',
+        'nonce',
+        'max_block_height',
+        'action_fingerprint',
+        'canonical_delegate_borsh_b64u',
+      ] as const) {
+        pushLen32(
+          out,
+          textBytes(requirePrivateSigningString(delegate[field], `intent.delegate.${field}`)),
+        );
+      }
+      return Uint8Array.from(out);
+    }
+    default:
+      throw new Error(`intent.kind is unsupported: ${kind}`);
+  }
+}
+
+function privateSigningPayloadPreimage(value: unknown): {
+  readonly canonical: Uint8Array;
+  readonly preimage: Uint8Array;
+  readonly expectedDigest: RouterAbPublicDigest32V1Wire;
+} {
+  const payload = requirePrivateSigningRecord(value, 'signing_payload');
+  const kind = requirePrivateSigningString(payload.kind, 'signing_payload.kind');
+  const expectedDigestB64u = requirePrivateSigningString(
+    payload.expected_signing_digest_b64u,
+    'signing_payload.expected_signing_digest_b64u',
+  );
+  const out: number[] = [];
+  pushLen32(out, textBytes(ED25519_SIGNING_PAYLOAD_VERSION_V2));
+  pushLen32(out, textBytes(kind));
+  let preimageB64u: string;
+  switch (kind) {
+    case 'near_unsigned_transaction_borsh_v1':
+      preimageB64u = requirePrivateSigningString(
+        payload.unsigned_transaction_borsh_b64u,
+        'signing_payload.unsigned_transaction_borsh_b64u',
+      );
+      break;
+    case 'nep413_message_v1':
+      preimageB64u = requirePrivateSigningString(
+        payload.canonical_message_b64u,
+        'signing_payload.canonical_message_b64u',
+      );
+      break;
+    case 'near_delegate_action_v1':
+      preimageB64u = requirePrivateSigningString(
+        payload.canonical_delegate_borsh_b64u,
+        'signing_payload.canonical_delegate_borsh_b64u',
+      );
+      break;
+    default:
+      throw new Error(`signing_payload.kind is unsupported: ${kind}`);
+  }
+  pushLen32(out, textBytes(preimageB64u));
+  pushLen32(out, textBytes(expectedDigestB64u));
+  return {
+    canonical: Uint8Array.from(out),
+    preimage: base64UrlDecode(preimageB64u),
+    expectedDigest: digest32FromB64u(expectedDigestB64u),
+  };
+}
+
+function privateSigningDigestsEqual(
+  left: RouterAbPublicDigest32V1Wire,
+  right: RouterAbPublicDigest32V1Wire,
+): boolean {
+  return left.bytes.every((byte, index) => byte === right.bytes[index]);
+}
+
+async function privateSigningAdmissionMaterial(input: {
+  readonly intent: unknown;
+  readonly signingPayload: unknown;
+}): Promise<{
+  readonly intentDigest: RouterAbPublicDigest32V1Wire;
+  readonly signingPayloadDigest: RouterAbPublicDigest32V1Wire;
+  readonly admittedSigningDigest: RouterAbPublicDigest32V1Wire;
+}> {
+  const payload = privateSigningPayloadPreimage(input.signingPayload);
+  const [intentDigest, signingPayloadDigest, admittedSigningDigest] = await Promise.all([
+    sha256Digest32(canonicalPrivateSigningIntentBytes(input.intent)),
+    sha256Digest32(payload.canonical),
+    sha256Digest32(payload.preimage),
+  ]);
+  if (!privateSigningDigestsEqual(admittedSigningDigest, payload.expectedDigest)) {
+    throw new Error('signing_payload expected signing digest does not match its preimage');
+  }
+  return { intentDigest, signingPayloadDigest, admittedSigningDigest };
+}
+
+async function privateSigningRound1BindingDigest(input: {
+  readonly scope: RouterAbEd25519NormalSigningScopeV1;
+  readonly expiresAtMs: number;
+  readonly intentDigest: RouterAbPublicDigest32V1Wire;
+  readonly signingPayloadDigest: RouterAbPublicDigest32V1Wire;
+  readonly admittedSigningDigest: RouterAbPublicDigest32V1Wire;
+}): Promise<RouterAbPublicDigest32V1Wire> {
+  const out: number[] = [];
+  pushLen32(out, textBytes(ED25519_ROUND1_BINDING_VERSION_V2));
+  for (const value of [
+    input.scope.request_id,
+    input.scope.account_id,
+    input.scope.session_id,
+    input.scope.signing_worker_id,
+  ]) {
+    pushLen32(out, textBytes(value));
+  }
+  pushU64Be(out, input.expiresAtMs);
+  out.push(
+    ...input.intentDigest.bytes,
+    ...input.signingPayloadDigest.bytes,
+    ...input.admittedSigningDigest.bytes,
+  );
+  return sha256Digest32(Uint8Array.from(out));
+}
+
+function normalizedPrivateSigningHeader(
+  headers: Record<string, string | string[] | undefined>,
+  name: string,
+): string {
+  const entry = Object.entries(headers).find(([key]) => key.toLowerCase() === name);
+  if (!entry) return '';
+  return Array.isArray(entry[1]) ? entry[1].join(',') : String(entry[1] || '').trim();
+}
+
+async function privateSigningTrustedSourceDigest(
+  headers: Record<string, string | string[] | undefined>,
+): Promise<RouterAbPublicDigest32V1Wire> {
+  const out = Array.from(textBytes(ED25519_TRUSTED_SOURCE_VERSION_V1));
+  for (const name of ['cf-connecting-ip', 'cf-ray']) {
+    const nameBytes = textBytes(name);
+    const valueBytes = textBytes(normalizedPrivateSigningHeader(headers, name));
+    pushU64Be(out, nameBytes.length);
+    out.push(...nameBytes);
+    pushU64Be(out, valueBytes.length);
+    out.push(...valueBytes);
+  }
+  return sha256Digest32(Uint8Array.from(out));
+}
+
+function privateSigningTrustedAdmission(input: {
+  readonly claims: RouterAbEd25519WalletSessionClaims;
+  readonly scope: RouterAbEd25519NormalSigningScopeV1;
+  readonly intentDigest: RouterAbPublicDigest32V1Wire;
+  readonly trustedSourceDigest: RouterAbPublicDigest32V1Wire;
+}): RouterAbNormalSigningTrustedAdmissionV1 {
+  const policyScope = input.claims.runtimePolicyScope;
+  return {
+    metadata: {
+      org_id: policyScope.orgId,
+      project_id: policyScope.projectId,
+      environment: policyScope.envId,
+      account_id: input.scope.account_id,
+      auth: {
+        auth: 'authenticated_session',
+        subject_id: input.claims.sub,
+        session_id: input.scope.session_id,
+      },
+      trusted_source_digest: input.trustedSourceDigest,
+      intent_digest: input.intentDigest,
+    },
+    decision: {
+      kind: 'accepted',
+      request_id: input.scope.request_id,
+    },
+  };
+}
+
+export async function buildRouterAbEd25519PrivateSigningWorkerBody(input: {
+  readonly phase: RouterAbEd25519NormalSigningRoutePhase;
+  readonly body: Record<string, unknown>;
+  readonly claims: RouterAbEd25519WalletSessionClaims;
+  readonly headers: Record<string, string | string[] | undefined>;
+}): Promise<RouterAbEd25519PrivateSigningWorkerBody> {
+  const scope = requirePrivateSigningScope(input.body.scope);
+  const trustedSourceDigest = await privateSigningTrustedSourceDigest(input.headers);
+  if (input.phase === 'finalize') {
+    const prepareBinding = requirePrivateSigningRecord(
+      input.body.prepare_binding,
+      'prepare_binding',
+    );
+    const intentDigest = requirePrivateSigningDigest(
+      prepareBinding.intent_digest,
+      'prepare_binding.intent_digest',
+    );
+    return {
+      request: stripRouterAbBudgetMetadata(input.body),
+      trusted_admission: privateSigningTrustedAdmission({
+        claims: input.claims,
+        scope,
+        intentDigest,
+        trustedSourceDigest,
+      }),
+    };
+  }
+
+  const expiresAtMs = requirePrivateSigningPositiveSafeInteger(
+    input.body.expires_at_ms,
+    'expires_at_ms',
+  );
+  const material = await privateSigningAdmissionMaterial({
+    intent: input.body.intent,
+    signingPayload: input.body.signing_payload,
+  });
+  const round1BindingDigest = await privateSigningRound1BindingDigest({
+    scope,
+    expiresAtMs,
+    ...material,
+  });
+  const trustedAdmission = privateSigningTrustedAdmission({
+    claims: input.claims,
+    scope,
+    intentDigest: material.intentDigest,
+    trustedSourceDigest,
+  });
+  return {
+    scope,
+    expires_at_ms: expiresAtMs,
+    admission_candidate: {
+      org_id: input.claims.runtimePolicyScope.orgId,
+      project_id: input.claims.runtimePolicyScope.projectId,
+      environment: input.claims.runtimePolicyScope.envId,
+      account_id: scope.account_id,
+      subject_id: input.claims.sub,
+      threshold_session_id: scope.session_id,
+      signing_worker_id: scope.signing_worker_id,
+      request_id: scope.request_id,
+      intent_digest: material.intentDigest,
+      signing_payload_digest: material.signingPayloadDigest,
+      admitted_signing_digest: material.admittedSigningDigest,
+      round1_binding_digest: round1BindingDigest,
+      trusted_source_digest: trustedSourceDigest,
+      expires_at_ms: expiresAtMs,
+    },
+    trusted_admission: trustedAdmission,
+  };
 }
 
 function ecdsaDerivationTrustedAdmission(input: {
@@ -663,9 +1124,13 @@ export async function buildRouterAbEcdsaDerivationPrivateSigningWorkerBody(input
       }),
     };
   }
-  const publicRequest = parseRouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1(input.body);
-  const request = routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestFromBudgetedV1(publicRequest);
-  const requestDigest = await routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestDigestV1(request);
+  const publicRequest = parseRouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1(
+    input.body,
+  );
+  const request =
+    routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestFromBudgetedV1(publicRequest);
+  const requestDigest =
+    await routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestDigestV1(request);
   return {
     request,
     trusted_admission: ecdsaDerivationTrustedAdmission({
@@ -753,6 +1218,25 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
         ok: false,
         code: 'not_configured',
         message: 'Router A/B SigningWorker private HTTP target is not configured',
+      },
+    };
+  }
+
+  let privateBody: RouterAbEd25519PrivateSigningWorkerBody;
+  try {
+    privateBody = await buildRouterAbEd25519PrivateSigningWorkerBody({
+      phase: input.phase,
+      body: input.body,
+      claims: validated.claims,
+      headers: input.headers,
+    });
+  } catch (error: unknown) {
+    return {
+      status: 400,
+      body: {
+        ok: false,
+        code: 'invalid_body',
+        message: errorMessage(error),
       },
     };
   }
@@ -869,9 +1353,7 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
       runtime,
       signingWorker,
       path: input.privatePath,
-      body: buildRouterAbEd25519PrivateSigningWorkerBody({
-        body: input.body,
-      }),
+      body: privateBody,
       budget: {
         curve: 'ed25519',
         thresholdSessionId: validated.walletSessionAuth.thresholdSessionId,
@@ -887,9 +1369,7 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
   const forwarded = await postRouterAbSigningWorkerJson({
     config: signingWorker,
     path: input.privatePath,
-    body: buildRouterAbEd25519PrivateSigningWorkerBody({
-      body: input.body,
-    }),
+    body: privateBody,
   });
   if (!forwarded.ok) {
     if (budgetReservation) {
@@ -1081,7 +1561,9 @@ export function validateRouterAbEcdsaDerivationNormalSigningFinalizeRequest(inpu
       ),
     };
   }
-  let request: ReturnType<typeof parseRouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1>;
+  let request: ReturnType<
+    typeof parseRouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1
+  >;
   try {
     request = parseRouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1(input.body);
   } catch (error) {
@@ -1236,7 +1718,8 @@ export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input:
         body: {
           ok: false,
           code: 'invalid_budget_request',
-          message: 'Router A/B ECDSA derivation prepare requires a canonical budget operation identity',
+          message:
+            'Router A/B ECDSA derivation prepare requires a canonical budget operation identity',
         },
       };
     }
@@ -1330,7 +1813,8 @@ export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input:
         body: {
           ok: false,
           code: 'invalid_budget_request',
-          message: 'Router A/B ECDSA derivation finalize requires a canonical budget request digest',
+          message:
+            'Router A/B ECDSA derivation finalize requires a canonical budget request digest',
         },
       };
     }

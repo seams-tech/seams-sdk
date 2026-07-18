@@ -249,6 +249,8 @@ const retiredSplitDerivationPatterns = [
 ];
 
 for (const relativePath of [
+  'wasm/ecdsa_registration_client/pkg/ecdsa_registration_client.d.ts',
+  'wasm/ecdsa_registration_client/pkg/ecdsa_registration_client.js',
   'wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.d.ts',
   'wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.js',
   'wasm/near_signer/pkg/wasm_signer_worker.d.ts',

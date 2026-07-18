@@ -177,6 +177,7 @@ function prepareBody(): RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire {
     clientPresignatureId: 'presig-client-selected',
     expiresAtMs,
     signingDigest32: new Uint8Array(32).fill(11),
+    clientRerandomizationCommitment32: new Uint8Array(32).fill(0x31),
   });
 }
 
@@ -192,6 +193,7 @@ function finalizeBody(args: {
     signingDigest32: new Uint8Array(32).fill(11),
     serverPresignatureId: 'presig-client-selected',
     clientSignatureShare32: new Uint8Array(32).fill(17),
+    clientRerandomizationContribution32: new Uint8Array(32).fill(0x41),
   });
 }
 
@@ -317,6 +319,7 @@ test.describe('Router A/B ECDSA derivation route-core budget gates', () => {
       clientPresignatureId: 'presig-client-selected',
       expiresAtMs,
       signingDigest32: new Uint8Array(32).fill(12),
+      clientRerandomizationCommitment32: new Uint8Array(32).fill(0x31),
     });
 
     expect(await ecdsaBudgetRequestDigest(prepare)).toBe(await ecdsaBudgetRequestDigest(finalize));

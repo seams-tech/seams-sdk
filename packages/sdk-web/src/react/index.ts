@@ -36,10 +36,6 @@ export type {
   SeamsConfigsInput,
 } from '../core/types/seams';
 export type {
-  RegistrationActivationSurfaceState,
-  WalletIframeRegistrationActivationSurface,
-} from '../SeamsWeb/publicApi/types';
-export type {
   AddSignerIntentV1,
   AddSignerSelection,
   RegisterWalletInput,

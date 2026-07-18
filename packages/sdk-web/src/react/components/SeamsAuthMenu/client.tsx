@@ -17,13 +17,6 @@ import {
 import { useSeamsAuthMenuRuntime } from './adapters/seams';
 import { useSeamsAuthMenuController } from './controller/useSeamsAuthMenuController';
 import { useSDKEvents } from './controller/useSDKEvents';
-import type { SeamsWeb } from '@/SeamsWeb';
-import type { RegistrationActivationSurfaceState } from '@/SeamsWeb/publicApi/types';
-import type { RegisterWalletInput } from '@shared/utils/registrationIntent';
-import {
-  buildNearWalletRegistrationSignerSetSelection,
-  resolvePasskeyRegistrationAccountProvisioning,
-} from '@/SeamsWeb/operations/registration/registrationSignerSet';
 
 type CSSVarStyle = React.CSSProperties & {
   [key: `--${string}`]: string | number | undefined;
@@ -36,91 +29,6 @@ const LazyShowQRCode = React.lazy(() =>
 const preloadShowQRCode = () => import('../ShowQRCode').then(() => undefined);
 
 const OTP_CODE_LENGTH = 6;
-
-type MountPasskeyRegistrationActivationSurfaceArgs = {
-  seamsWeb: SeamsWeb;
-  target: HTMLElement;
-  wallet: Extract<RegisterWalletInput, { kind: 'provided' }>;
-  onStateChange(state: RegistrationActivationSurfaceState): void;
-};
-
-function passkeyRegistrationActivationSignerSelection(
-  args: Pick<MountPasskeyRegistrationActivationSurfaceArgs, 'seamsWeb' | 'wallet'>,
-) {
-  const accountProvisioning = resolvePasskeyRegistrationAccountProvisioning({
-    configs: args.seamsWeb.configs,
-    wallet: args.wallet,
-    preference: args.seamsWeb.configs.registration.nearAccountProvisioning,
-  });
-  return buildNearWalletRegistrationSignerSetSelection({
-    configs: args.seamsWeb.configs,
-    accountProvisioning,
-    options: {},
-  });
-}
-
-function mountPasskeyRegistrationActivationSurface(
-  args: MountPasskeyRegistrationActivationSurfaceArgs,
-): () => void {
-  const surface = args.seamsWeb.registration.createPasskeyRegistrationActivationSurface({
-    wallet: args.wallet,
-    signerSelection: passkeyRegistrationActivationSignerSelection(args),
-    presentation: {
-      kind: 'outline_overlay',
-      label: getPasskeyButtonLabel(AuthMenuMode.Register),
-      busyLabel: 'Creating passkey...',
-      accessibleLabel: 'Create passkey account',
-    },
-  });
-  const unsubscribe = surface.onStateChange(args.onStateChange);
-  surface.mount(args.target);
-  return function disposePasskeyRegistrationActivationSurface(): void {
-    unsubscribe();
-    surface.dispose();
-  };
-}
-
-function isRegistrationActivationSurfacePreparing(
-  state: RegistrationActivationSurfaceState,
-): boolean {
-  switch (state.kind) {
-    case 'idle':
-    case 'mounting':
-      return true;
-    case 'ready':
-    case 'starting':
-    case 'completed':
-    case 'cancelled':
-    case 'failed':
-      return false;
-  }
-}
-
-function canUseRegistrationActivationSurface(state: RegistrationActivationSurfaceState): boolean {
-  switch (state.kind) {
-    case 'idle':
-    case 'mounting':
-    case 'ready':
-    case 'starting':
-      return true;
-    case 'completed':
-    case 'cancelled':
-    case 'failed':
-      return false;
-  }
-}
-
-function shouldRefreshRegistrationActivationSurface(
-  state: RegistrationActivationSurfaceState,
-): boolean {
-  return state.kind === 'cancelled' && state.reason === 'expired';
-}
-
-function registrationActivationSurfaceStateForView(
-  state: RegistrationActivationSurfaceState,
-): RegistrationActivationSurfaceState {
-  return shouldRefreshRegistrationActivationSurface(state) ? { kind: 'idle' } : state;
-}
 
 function assertNeverLastUsedLoginMethod(value: never): never {
   throw new Error(`Unknown last-used login method: ${JSON.stringify(value)}`);
@@ -148,10 +56,6 @@ function lastUsedSocialProviderForMethod(
       return 'google';
   }
   return assertNeverLastUsedLoginMethod(method);
-}
-
-function nextRegistrationActivationSurfaceRevision(current: number): number {
-  return current + 1;
 }
 
 function getAuthIntentSwitchCopy(mode: AuthMenuMode): {
@@ -192,10 +96,6 @@ export const SeamsAuthMenuClient: React.FC<SeamsAuthMenuProps> = ({
 }) => {
   const runtime = useSeamsAuthMenuRuntime();
   const { withSdkEventsHandler } = useSDKEvents({ sdkFlow: runtime.sdkFlow });
-  const [registrationActivationSurfaceState, setRegistrationActivationSurfaceState] =
-    React.useState<RegistrationActivationSurfaceState>({ kind: 'idle' });
-  const [registrationActivationSurfaceRevision, setRegistrationActivationSurfaceRevision] =
-    React.useState(0);
 
   const onLoginWithSDKEvents = React.useMemo(
     () => withSdkEventsHandler('login', onLogin, 60_000),
@@ -232,7 +132,6 @@ export const SeamsAuthMenuClient: React.FC<SeamsAuthMenuProps> = ({
     void preloadShowQRCode().catch(() => {});
   }, []);
   const otpInputRef = React.useRef<HTMLInputElement | null>(null);
-  const registrationActivationTargetRef = React.useRef<HTMLDivElement | null>(null);
   const lastAutoOtpSubmitRef = React.useRef('');
 
   const rootStyle = React.useMemo<CSSVarStyle>(
@@ -291,55 +190,6 @@ export const SeamsAuthMenuClient: React.FC<SeamsAuthMenuProps> = ({
     lastAutoOtpSubmitRef.current = code;
     prompt.onSubmit();
   }, [controller.otpPrompt]);
-
-  const iframeRegistrationButtonEnabled =
-    runtime.seamsWeb.configs.wallet.mode === 'iframe' &&
-    controller.mode === AuthMenuMode.Register &&
-    controller.canSubmit &&
-    controller.waitingReason !== 'social' &&
-    !controller.registrationPrompt &&
-    !controller.otpPrompt &&
-    !controller.postRecoveryRotationPrompt;
-  const useIframeRegistrationActivationButton =
-    iframeRegistrationButtonEnabled &&
-    canUseRegistrationActivationSurface(registrationActivationSurfaceState);
-  const registrationActivationSurfacePreparing =
-    useIframeRegistrationActivationButton &&
-    isRegistrationActivationSurfacePreparing(registrationActivationSurfaceState);
-  const handleRegistrationActivationSurfaceStateChange = React.useCallback(
-    (state: RegistrationActivationSurfaceState): void => {
-      setRegistrationActivationSurfaceState(registrationActivationSurfaceStateForView(state));
-      if (shouldRefreshRegistrationActivationSurface(state)) {
-        setRegistrationActivationSurfaceRevision(nextRegistrationActivationSurfaceRevision);
-      }
-      controller.onRegistrationActivationSurfaceStateChange(state);
-    },
-    [controller.onRegistrationActivationSurfaceStateChange],
-  );
-
-  React.useEffect(() => {
-    if (iframeRegistrationButtonEnabled) return;
-    setRegistrationActivationSurfaceState({ kind: 'idle' });
-  }, [iframeRegistrationButtonEnabled]);
-
-  React.useEffect(() => {
-    if (!useIframeRegistrationActivationButton) return;
-    if (!controller.registrationActivationWallet) return;
-    const target = registrationActivationTargetRef.current;
-    if (!target) return;
-    return mountPasskeyRegistrationActivationSurface({
-      seamsWeb: runtime.seamsWeb,
-      target,
-      wallet: controller.registrationActivationWallet,
-      onStateChange: handleRegistrationActivationSurfaceStateChange,
-    });
-  }, [
-    controller.registrationActivationWallet,
-    registrationActivationSurfaceRevision,
-    handleRegistrationActivationSurfaceStateChange,
-    useIframeRegistrationActivationButton,
-    runtime.seamsWeb,
-  ]);
 
   const authIntentSwitchCopy = getAuthIntentSwitchCopy(controller.mode);
   const onAuthIntentSwitchClick = React.useCallback(() => {
@@ -709,35 +559,15 @@ export const SeamsAuthMenuClient: React.FC<SeamsAuthMenuProps> = ({
 
                   {controller.mode === AuthMenuMode.Register && (
                     <>
-                      {useIframeRegistrationActivationButton ? (
-                        <div
-                          ref={registrationActivationTargetRef}
-                          role="button"
-                          tabIndex={0}
-                          aria-label="Create passkey account"
-                          aria-busy={registrationActivationSurfacePreparing ? 'true' : undefined}
-                          className={`w3a-auth-method-btn w3a-auth-method-btn-primary seams-passkey-registration-btn${
-                            registrationActivationSurfacePreparing ? ' is-activation-mounting' : ''
-                          }`}
-                        >
-                          <span>
-                            {registrationActivationSurfacePreparing
-                              ? 'Preparing passkey...'
-                              : getPasskeyButtonLabel(AuthMenuMode.Register)}
-                          </span>
-                          <ArrowRightAnim size={16} className="w3a-auth-method-arrow" />
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={controller.onProceed}
-                          className="w3a-auth-method-btn w3a-auth-method-btn-primary"
-                          disabled={controller.waiting}
-                        >
-                          <span>{getPasskeyButtonLabel(AuthMenuMode.Register)}</span>
-                          <ArrowRightAnim size={16} className="w3a-auth-method-arrow" />
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={controller.onProceed}
+                        className="w3a-auth-method-btn w3a-auth-method-btn-primary"
+                        disabled={!controller.canSubmit || controller.waiting}
+                      >
+                        <span>{getPasskeyButtonLabel(AuthMenuMode.Register)}</span>
+                        <ArrowRightAnim size={16} className="w3a-auth-method-arrow" />
+                      </button>
                       <SocialProviders
                         socialLogin={socialLogin}
                         providers={['google']}

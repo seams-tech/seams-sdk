@@ -19,7 +19,7 @@ type ResourceInventoryPlan = {
       readonly d1Databases: readonly unknown[];
       readonly durableObjects: readonly unknown[];
     };
-    readonly routerApiWorker: {
+    readonly gatewayWorker: {
       readonly name: string;
       readonly d1Databases: readonly unknown[];
       readonly durableObjects: readonly unknown[];
@@ -36,13 +36,13 @@ type ResourceInventoryPlan = {
 type ResourceInventoryModule = {
   readonly buildD1StagingResourceInventoryPlan: (input: {
     readonly consoleConfigPath: string;
-    readonly routerApiConfigPath: string;
+    readonly gatewayConfigPath: string;
     readonly generatedAtIso?: string;
     readonly mode?: 'dry-run' | 'remote';
   }) => ResourceInventoryPlan;
   readonly runD1StagingResourceInventory: (input: {
     readonly consoleConfigPath: string;
-    readonly routerApiConfigPath: string;
+    readonly gatewayConfigPath: string;
     readonly generatedAtIso?: string;
     readonly manifestPath: string;
     readonly mode?: 'dry-run' | 'remote';
@@ -101,14 +101,18 @@ test('D1 staging resource inventory records config-derived resource IDs', async 
     },
   ]);
   expect(plan.resources.consoleWorker.durableObjects).toEqual([]);
-  expect(plan.resources.routerApiWorker.d1Databases).toHaveLength(2);
-  expect(plan.resources.routerApiWorker.durableObjects).toEqual([
+  expect(plan.resources.gatewayWorker.d1Databases).toHaveLength(2);
+  expect(plan.resources.gatewayWorker.durableObjects).toEqual([
     {
       name: 'THRESHOLD_STORE',
       className: 'ThresholdStoreDurableObject',
     },
+    {
+      name: 'ROUTER_API_RUNTIME',
+      className: 'RouterApiRuntimeDurableObject',
+    },
   ]);
-  expect(plan.resources.routerApiWorker.secretsStoreSecrets).toEqual([
+  expect(plan.resources.gatewayWorker.secretsStoreSecrets).toEqual([
     {
       binding: 'SIGNING_ROOT_KEK_STAGING_R1',
       storeId: '33333333333333333333333333333333',

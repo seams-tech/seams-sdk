@@ -1,7 +1,6 @@
 import type { NormalizedLogger } from '../logger';
 import type {
   RouterAbEcdsaDerivationPoolFillSessionStore,
-  RouterAbEcdsaDerivationPresignaturePool,
 } from '../ThresholdService/stores/EcdsaSigningStore';
 import type { ThresholdEcdsaIntegratedKeyStore } from '../ThresholdService/stores/KeyStore';
 import type { ThresholdEcdsaSessionStore } from '../ThresholdService/stores/SessionStore';
@@ -72,7 +71,6 @@ export class RouterAbEcdsaPresignRuntime {
     readonly config: RouterAbEcdsaPresignRuntimeConfig;
     readonly ecdsaSessionStore: ThresholdEcdsaSessionStore;
     readonly ecdsaPoolFillSessionStore: RouterAbEcdsaDerivationPoolFillSessionStore;
-    readonly ecdsaPresignaturePool: RouterAbEcdsaDerivationPresignaturePool;
     readonly ecdsaKeyStore: ThresholdEcdsaIntegratedKeyStore;
     readonly normalSigningRuntime: RouterAbNormalSigningRuntime;
     readonly ensureReady: () => Promise<void>;
@@ -99,7 +97,6 @@ export class RouterAbEcdsaPresignRuntime {
         claimMpcSession: input.ecdsaSessionStore.claimMpcSession.bind(input.ecdsaSessionStore),
       },
       poolFillSessionStore: input.ecdsaPoolFillSessionStore,
-      presignaturePool: input.ecdsaPresignaturePool,
       resolveRoleLocalKeyRecord: input.ecdsaKeyStore.getRoleLocalByKeyHandle.bind(
         input.ecdsaKeyStore,
       ),

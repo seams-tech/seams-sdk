@@ -7,9 +7,22 @@ import {
 } from '@shared/utils/sessionTokens';
 import {
   ROUTER_AB_ECDSA_DERIVATION_BOOTSTRAP_PATH,
-  ROUTER_AB_ECDSA_DERIVATION_EXPORT_SHARE_PATH,
+  ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH,
+  ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH,
+  ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH,
+  ROUTER_AB_ECDSA_DERIVATION_SESSION_ACTIVATION_PATH,
+  parseRouterAbEcdsaDerivationActivationRefreshForwardedResponseV1,
+  parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1,
+  parseRouterAbEcdsaStrictForwardedRegistrationResponseV1,
   parseRouterAbEcdsaDerivationNormalSigningFromWalletRegistrationJwtV1,
+  type RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1,
+  type RouterAbEcdsaDerivationActivationRefreshRequestV1,
+  type RouterAbEcdsaDerivationExplicitExportRequestV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
+  type RouterAbEcdsaDerivationRecoveryRequestV1,
+  type RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
+  type RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
+  type RouterAbEcdsaStrictForwardedRegistrationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { ThresholdRuntimePolicyScope } from '../../signingEngine/threshold/sessionPolicy';
 import {
@@ -199,53 +212,6 @@ export type ThresholdEcdsaDerivationRoleLocalBootstrapValue = {
   routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
 };
 
-export type ThresholdEcdsaDerivationRoleLocalExportShareRequest = {
-  formatVersion: 'ecdsa-derivation-role-local-export';
-  walletId: WalletId;
-  evmFamilySigningKeySlotId: string;
-  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
-  relayerKeyId: string;
-  contextBinding32B64u: string;
-  publicIdentity: EcdsaDerivationRoleLocalPublicIdentity;
-  exportRequestNonce32B64u: string;
-  confirmationDigest32B64u: string;
-  authorizationDigest32B64u: string;
-  issuedAtUnixMs: number;
-  expiresAtUnixMs: number;
-  clientDeviceId: string;
-  clientSessionId: string;
-  auth: ThresholdEcdsaDerivationRouteAuth;
-};
-
-type ThresholdEcdsaDerivationRoleLocalExportShareBody = {
-  formatVersion: 'ecdsa-derivation-role-local-export';
-  walletId: string;
-  evmFamilySigningKeySlotId: string;
-  ecdsaThresholdKeyId: string;
-  relayerKeyId: string;
-  contextBinding32B64u: string;
-  publicIdentity: EcdsaDerivationRoleLocalPublicIdentity;
-  exportRequestNonce32B64u: string;
-  confirmationDigest32B64u: string;
-  authorizationDigest32B64u: string;
-  issuedAtUnixMs: number;
-  expiresAtUnixMs: number;
-  clientDeviceId: string;
-  clientSessionId: string;
-};
-
-export type ThresholdEcdsaDerivationRoleLocalExportShareValue = {
-  formatVersion: 'ecdsa-derivation-role-local-export';
-  walletId: WalletId;
-  evmFamilySigningKeySlotId: string;
-  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
-  relayerKeyId: string;
-  contextBinding32B64u: string;
-  publicIdentity: EcdsaDerivationRoleLocalPublicIdentity;
-  exportAuthorizationDigest32B64u: string;
-  serverExportShare32B64u: string;
-};
-
 export type ThresholdEcdsaDerivationRoleLocalRouteResult<T> =
   | { ok: true; value: T }
   | { ok: false; code?: string; message?: string; error?: string };
@@ -256,6 +222,20 @@ type RawThresholdEcdsaDerivationRoleLocalRouteResponse<T> = {
   message?: string;
   value?: T;
 };
+
+type RouterAbEcdsaPostRegistrationClientProofCall =
+  | {
+      readonly kind: 'explicit_export';
+      readonly path: typeof ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH;
+      readonly request: RouterAbEcdsaDerivationExplicitExportRequestV1;
+      readonly auth: ThresholdEcdsaDerivationRouteAuth;
+    }
+  | {
+      readonly kind: 'recovery';
+      readonly path: typeof ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH;
+      readonly request: RouterAbEcdsaDerivationRecoveryRequestV1;
+      readonly auth: ThresholdEcdsaDerivationRouteAuth;
+    };
 
 export type ThresholdEcdsaDerivationRouteAuth =
   | AppOrWalletSessionAuth
@@ -363,7 +343,7 @@ function parseEcdsaDerivationRoleLocalPublicIdentity(
   };
 }
 
-function parseThresholdEcdsaDerivationRoleLocalBootstrapValue(
+export function parseThresholdEcdsaDerivationRoleLocalBootstrapValue(
   value: unknown,
 ): ThresholdEcdsaDerivationRoleLocalBootstrapValue {
   const record = requireRecord(value, 'value');
@@ -469,32 +449,6 @@ function parseThresholdEcdsaDerivationRoleLocalBootstrapValue(
   };
 }
 
-function parseThresholdEcdsaDerivationRoleLocalExportShareValue(
-  value: unknown,
-): ThresholdEcdsaDerivationRoleLocalExportShareValue {
-  const record = requireRecord(value, 'value');
-  return {
-    formatVersion: 'ecdsa-derivation-role-local-export',
-    walletId: toWalletId(record.walletId),
-    evmFamilySigningKeySlotId: requireNonEmptyString(record.evmFamilySigningKeySlotId, 'evmFamilySigningKeySlotId'),
-    ecdsaThresholdKeyId: toEcdsaDerivationThresholdKeyId(record.ecdsaThresholdKeyId),
-    relayerKeyId: requireNonEmptyString(record.relayerKeyId, 'relayerKeyId'),
-    contextBinding32B64u: requireNonEmptyString(
-      record.contextBinding32B64u,
-      'contextBinding32B64u',
-    ),
-    publicIdentity: parseEcdsaDerivationRoleLocalPublicIdentity(record.publicIdentity),
-    exportAuthorizationDigest32B64u: requireNonEmptyString(
-      record.exportAuthorizationDigest32B64u,
-      'exportAuthorizationDigest32B64u',
-    ),
-    serverExportShare32B64u: requireNonEmptyString(
-      record.serverExportShare32B64u,
-      'serverExportShare32B64u',
-    ),
-  };
-}
-
 function resolveBearerToken(auth?: ThresholdEcdsaDerivationRouteAuth): string {
   if (!auth) return '';
   if (auth.kind === 'app_session') return requireAppSessionJwt(auth.jwt);
@@ -536,6 +490,166 @@ async function parseRelayJson<T>(response: Response): Promise<T> {
     } as T;
   }
   return parseJsonText<T>(text);
+}
+
+async function executeRouterAbEcdsaPostRegistrationClientProofCall(
+  relayServerUrl: string,
+  call: RouterAbEcdsaPostRegistrationClientProofCall,
+): Promise<
+  ThresholdEcdsaDerivationRoleLocalRouteResult<RouterAbEcdsaStrictForwardedRegistrationResponseV1>
+> {
+  try {
+    const base = normalizeRelayerBaseUrl(relayServerUrl);
+    if (!base) throw new Error('Missing relayServerUrl');
+    const response = await fetch(
+      `${base}${call.path}`,
+      buildRelayRequestInit({
+        auth: call.auth,
+        body: call.request,
+      }),
+    );
+    const json = await parseRelayJson<unknown>(response);
+    if (!response.ok) {
+      const failure =
+        json && typeof json === 'object' && !Array.isArray(json)
+          ? (json as { code?: unknown; message?: unknown })
+          : null;
+      return {
+        ok: false,
+        code: String(failure?.code || 'http_error'),
+        message: String(failure?.message || `HTTP ${response.status}`),
+      };
+    }
+    return {
+      ok: true,
+      value: parseRouterAbEcdsaStrictForwardedRegistrationResponseV1(json),
+    };
+  } catch (error: unknown) {
+    return {
+      ok: false,
+      error: errorMessage(error) || `Router A/B ECDSA ${call.kind} failed`,
+    };
+  }
+}
+
+export async function routerAbEcdsaExplicitExport(
+  relayServerUrl: string,
+  input: {
+    readonly request: RouterAbEcdsaDerivationExplicitExportRequestV1;
+    readonly auth: ThresholdEcdsaDerivationRouteAuth;
+  },
+): Promise<
+  ThresholdEcdsaDerivationRoleLocalRouteResult<RouterAbEcdsaStrictForwardedRegistrationResponseV1>
+> {
+  return await executeRouterAbEcdsaPostRegistrationClientProofCall(relayServerUrl, {
+    kind: 'explicit_export',
+    path: ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH,
+    request: input.request,
+    auth: input.auth,
+  });
+}
+
+export async function routerAbEcdsaRecovery(
+  relayServerUrl: string,
+  input: {
+    readonly request: RouterAbEcdsaDerivationRecoveryRequestV1;
+    readonly auth: ThresholdEcdsaDerivationRouteAuth;
+  },
+): Promise<
+  ThresholdEcdsaDerivationRoleLocalRouteResult<RouterAbEcdsaStrictForwardedRegistrationResponseV1>
+> {
+  return await executeRouterAbEcdsaPostRegistrationClientProofCall(relayServerUrl, {
+    kind: 'recovery',
+    path: ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH,
+    request: input.request,
+    auth: input.auth,
+  });
+}
+
+export async function routerAbEcdsaActivationRefresh(
+  relayServerUrl: string,
+  input: {
+    readonly request: RouterAbEcdsaDerivationActivationRefreshRequestV1;
+    readonly auth: ThresholdEcdsaDerivationRouteAuth;
+  },
+): Promise<
+  ThresholdEcdsaDerivationRoleLocalRouteResult<RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1>
+> {
+  try {
+    const base = normalizeRelayerBaseUrl(relayServerUrl);
+    if (!base) throw new Error('Missing relayServerUrl');
+    const response = await fetch(
+      `${base}${ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH}`,
+      buildRelayRequestInit({
+        auth: input.auth,
+        body: input.request,
+      }),
+    );
+    const json = await parseRelayJson<unknown>(response);
+    if (!response.ok) {
+      const failure =
+        json && typeof json === 'object' && !Array.isArray(json)
+          ? (json as { code?: unknown; message?: unknown })
+          : null;
+      return {
+        ok: false,
+        code: String(failure?.code || 'http_error'),
+        message: String(failure?.message || `HTTP ${response.status}`),
+      };
+    }
+    return {
+      ok: true,
+      value: parseRouterAbEcdsaDerivationActivationRefreshForwardedResponseV1(json),
+    };
+  } catch (error: unknown) {
+    return {
+      ok: false,
+      error: errorMessage(error) || 'Router A/B ECDSA activation refresh failed',
+    };
+  }
+}
+
+export async function activateRouterAbEcdsaPostRegistrationSession(
+  relayServerUrl: string,
+  input: {
+    readonly request: RouterAbEcdsaPostRegistrationSessionActivationRequestV1;
+    readonly auth: ThresholdEcdsaDerivationRouteAuth;
+  },
+): Promise<
+  ThresholdEcdsaDerivationRoleLocalRouteResult<RouterAbEcdsaPostRegistrationSessionActivationResponseV1>
+> {
+  try {
+    const base = normalizeRelayerBaseUrl(relayServerUrl);
+    if (!base) throw new Error('Missing relayServerUrl');
+    const response = await fetch(
+      `${base}${ROUTER_AB_ECDSA_DERIVATION_SESSION_ACTIVATION_PATH}`,
+      buildRelayRequestInit({
+        auth: input.auth,
+        body: input.request,
+      }),
+    );
+    const json = await parseRelayJson<unknown>(response);
+    if (!response.ok) {
+      const failure =
+        json && typeof json === 'object' && !Array.isArray(json)
+          ? (json as { code?: unknown; message?: unknown })
+          : null;
+      return {
+        ok: false,
+        code: String(failure?.code || 'http_error'),
+        message: String(failure?.message || `HTTP ${response.status}`),
+      };
+    }
+    return {
+      ok: true,
+      value: parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(json),
+    };
+  } catch (error: unknown) {
+    return {
+      ok: false,
+      error: errorMessage(error) || 'Router A/B ECDSA session activation failed',
+    };
+  }
 }
 
 async function readResponseText(response: Response): Promise<string> {
@@ -675,85 +789,6 @@ export async function thresholdEcdsaDerivationRoleLocalBootstrap(
     return {
       ok: false,
       error: errorMessage(error) || 'Failed to bootstrap threshold-ecdsa role-local derivation',
-    };
-  }
-}
-
-export async function thresholdEcdsaDerivationRoleLocalExportShare(
-  relayServerUrl: string,
-  args: ThresholdEcdsaDerivationRoleLocalExportShareRequest,
-): Promise<
-  ThresholdEcdsaDerivationRoleLocalRouteResult<ThresholdEcdsaDerivationRoleLocalExportShareValue>
-> {
-  try {
-    const base = normalizeRelayerBaseUrl(relayServerUrl);
-    if (!base) throw new Error('Missing relayServerUrl');
-    const body: ThresholdEcdsaDerivationRoleLocalExportShareBody = {
-      formatVersion: 'ecdsa-derivation-role-local-export',
-      walletId: requireNonEmptyString(args.walletId, 'walletId'),
-      evmFamilySigningKeySlotId: requireNonEmptyString(args.evmFamilySigningKeySlotId, 'evmFamilySigningKeySlotId'),
-      ecdsaThresholdKeyId: requireNonEmptyString(args.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId'),
-      relayerKeyId: requireNonEmptyString(args.relayerKeyId, 'relayerKeyId'),
-      contextBinding32B64u: requireNonEmptyString(
-        args.contextBinding32B64u,
-        'contextBinding32B64u',
-      ),
-      publicIdentity: {
-        derivationClientSharePublicKey33B64u: requireNonEmptyString(
-          args.publicIdentity.derivationClientSharePublicKey33B64u,
-          'publicIdentity.derivationClientSharePublicKey33B64u',
-        ) as DerivationClientSharePublicKey33B64u,
-        relayerPublicKey33B64u: requireNonEmptyString(
-          args.publicIdentity.relayerPublicKey33B64u,
-          'publicIdentity.relayerPublicKey33B64u',
-        ) as EcdsaDerivationRelayerPublicKey33B64u,
-        groupPublicKey33B64u: requireNonEmptyString(
-          args.publicIdentity.groupPublicKey33B64u,
-          'publicIdentity.groupPublicKey33B64u',
-        ),
-        ethereumAddress: requireNonEmptyString(
-          args.publicIdentity.ethereumAddress,
-          'publicIdentity.ethereumAddress',
-        ),
-      },
-      exportRequestNonce32B64u: requireNonEmptyString(
-        args.exportRequestNonce32B64u,
-        'exportRequestNonce32B64u',
-      ),
-      confirmationDigest32B64u: requireNonEmptyString(
-        args.confirmationDigest32B64u,
-        'confirmationDigest32B64u',
-      ),
-      authorizationDigest32B64u: requireNonEmptyString(
-        args.authorizationDigest32B64u,
-        'authorizationDigest32B64u',
-      ),
-      issuedAtUnixMs: requireNumber(args.issuedAtUnixMs, 'issuedAtUnixMs'),
-      expiresAtUnixMs: requireNumber(args.expiresAtUnixMs, 'expiresAtUnixMs'),
-      clientDeviceId: requireNonEmptyString(args.clientDeviceId, 'clientDeviceId'),
-      clientSessionId: requireNonEmptyString(args.clientSessionId, 'clientSessionId'),
-    };
-    const response = await fetch(
-      `${base}${ROUTER_AB_ECDSA_DERIVATION_EXPORT_SHARE_PATH}`,
-      buildRelayRequestInit({
-        auth: args.auth,
-        body,
-      }),
-    );
-    const json =
-      await parseRelayJson<RawThresholdEcdsaDerivationRoleLocalRouteResponse<unknown>>(response);
-    if (!response.ok || json.ok !== true) {
-      return {
-        ok: false,
-        code: json.code || (response.ok ? 'server_rejected' : 'http_error'),
-        message: json.message || `HTTP ${response.status}`,
-      };
-    }
-    return { ok: true, value: parseThresholdEcdsaDerivationRoleLocalExportShareValue(json.value) };
-  } catch (error: unknown) {
-    return {
-      ok: false,
-      error: errorMessage(error) || 'Failed to export threshold-ecdsa role-local derivation share',
     };
   }
 }

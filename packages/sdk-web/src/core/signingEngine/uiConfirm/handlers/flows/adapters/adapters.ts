@@ -14,9 +14,10 @@ import { UserConfirmationType } from '@/core/signingEngine/stepUpConfirmation/ch
 import type { UserConfirmSecurityContext } from '@/core/types';
 import {
   awaitConfirmUIDecision,
-  mountConfirmUI,
+  prepareConfirmUISurface,
   type ConfirmUIHandle,
   type ConfirmUIPromptDiagnostics,
+  type ConfirmUISurfaceSource,
   type ConfirmUIUpdate,
 } from '../../../ui/confirm-ui';
 import {
@@ -245,6 +246,7 @@ type BaseRenderConfirmUIArgs = {
   securityContext?: Partial<UserConfirmSecurityContext>;
   loading?: boolean;
   theme: ThemeMode;
+  surface: ConfirmUISurfaceSource;
   onMounted?: (handle: ConfirmUIHandle) => void;
 };
 
@@ -275,7 +277,7 @@ async function renderAutoProceedConfirmUI(
   },
 ): Promise<RenderConfirmUIResult> {
   const mountStartedAt = performance.now();
-  const handle = await mountConfirmUI({
+  const handle = await prepareConfirmUISurface({
     ctx: args.ctx,
     summary: args.transactionSummary,
     txSigningRequests: args.txSigningRequests,
@@ -287,6 +289,7 @@ async function renderAutoProceedConfirmUI(
     nearAccountIdOverride: args.nearAccountIdForUi,
     signingAuthMode: args.signingAuthMode,
     emailOtpPrompt: args.emailOtpPrompt,
+    surface: args.surface,
   });
   const mountMs = Math.max(0, Math.round(performance.now() - mountStartedAt));
   args.onMounted?.(handle);
@@ -323,6 +326,7 @@ async function renderInteractiveConfirmUI(
       onMounted: args.onMounted,
       signingAuthMode: args.signingAuthMode,
       emailOtpPrompt: args.emailOtpPrompt,
+      surface: args.surface,
     });
   return {
     confirmed,
@@ -342,6 +346,7 @@ async function renderConfirmUI({
   securityContext,
   loading,
   theme,
+  surface,
   onMounted,
 }: BaseRenderConfirmUIArgs): Promise<RenderConfirmUIResult> {
   const nearAccountIdForUi = getSubjectLabel(request);
@@ -356,6 +361,9 @@ async function renderConfirmUI({
 
   switch (confirmationConfig.kind) {
     case 'silent': {
+      if (surface.kind === 'reuse_mounted') {
+        surface.handle.close(true);
+      }
       return {
         confirmed: true,
         confirmHandle: undefined,
@@ -371,6 +379,7 @@ async function renderConfirmUI({
         securityContext,
         loading,
         theme,
+        surface,
         onMounted,
         txSigningRequests,
         model,
@@ -388,6 +397,7 @@ async function renderConfirmUI({
         securityContext,
         loading,
         theme,
+        surface,
         onMounted,
         txSigningRequests,
         model,
@@ -445,6 +455,7 @@ export function createConfirmSession({
   confirmationConfig,
   transactionSummary,
   theme,
+  surface,
 }: {
   adapters: ConfirmTxFlowAdapters;
   worker: UserConfirmResponsePort;
@@ -452,6 +463,7 @@ export function createConfirmSession({
   confirmationConfig: NormalizedConfirmationConfig;
   transactionSummary: TransactionSummary;
   theme: ThemeMode;
+  surface: ConfirmUISurfaceSource;
 }): {
   setNonceLeases: (leases?: readonly NonceLease[]) => void;
   updateUI: (props: ConfirmUIUpdate) => void;
@@ -507,6 +519,7 @@ export function createConfirmSession({
       securityContext,
       loading,
       theme,
+      surface,
       onMounted: (mountedHandle) => {
         confirmHandle = mountedHandle;
         onMounted?.(mountedHandle);

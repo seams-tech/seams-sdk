@@ -273,8 +273,6 @@ export class SeamsWebIframe {
       registerWallet: async (args) => await this.registerWalletDomain(args),
       registerWithEmailOtp: async (args) => await this.registerWalletDomain(args),
       registerPasskey: async (options) => await this.registerPasskeyDomain(options),
-      createPasskeyRegistrationActivationSurface: (args) =>
-        this.router.createPasskeyRegistrationActivationSurface(args),
       requestEmailOtpEnrollmentChallenge: async (args) =>
         await this.router.requestEmailOtpEnrollmentChallenge(args),
       enrollEmailOtp: async (args) => await this.router.enrollEmailOtp(args),

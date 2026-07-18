@@ -4,15 +4,16 @@ import {
   thresholdEcdsaChainTargetKey,
   type ThresholdEcdsaChainTarget,
 } from '../thresholdEcdsaChainTarget';
-import type { RouterAbEcdsaBootstrapExportPort } from '../routerAbSigning/RouterAbEcdsaBootstrapExportRuntime';
 import type { NormalizedLogger } from '../logger';
+import type { WalletEcdsaSignerRecord } from '../WalletStore';
+import { walletIdFromString, type WalletId } from '@shared/utils/registrationIntent';
 import { isObject } from './record';
 
 export type ThresholdEcdsaKeyInventoryDiagnostics = {
   userId: string;
   inputCount: number;
   returnedCount: number;
-  ecdsaBootstrapExportRuntimePresent: boolean;
+  publicCapabilityStorePresent: boolean;
   rejected: Record<string, number>;
 };
 
@@ -103,7 +104,10 @@ export async function listThresholdEcdsaKeyIdentityTargetsForUser(input: {
   userId: string;
   rpId: string;
   keyTargets: readonly unknown[];
-  ecdsaBootstrapExportRuntime: RouterAbEcdsaBootstrapExportPort | null;
+  getEcdsaSignerByKeyHandle: (input: {
+    walletId: WalletId;
+    keyHandle: string;
+  }) => Promise<WalletEcdsaSignerRecord | null>;
   logger?: NormalizedLogger;
 }): Promise<{
   records: ThresholdEcdsaKeyInventoryRecord[];
@@ -115,18 +119,13 @@ export async function listThresholdEcdsaKeyIdentityTargetsForUser(input: {
     userId: userId || '',
     inputCount: input.keyTargets.length,
     returnedCount: 0,
-    ecdsaBootstrapExportRuntimePresent: Boolean(input.ecdsaBootstrapExportRuntime),
+    publicCapabilityStorePresent: true,
     rejected: {},
   };
   if (!userId || !rpId) {
     incrementCount(diagnostics.rejected, 'missing_scope');
     return { records: [], diagnostics };
   }
-  if (!input.ecdsaBootstrapExportRuntime) {
-    incrementCount(diagnostics.rejected, 'ecdsa_bootstrap_export_runtime_missing');
-    return { records: [], diagnostics };
-  }
-
   const records: ThresholdEcdsaKeyInventoryRecord[] = [];
   const seen = new Set<string>();
   for (const rawTarget of input.keyTargets) {
@@ -142,14 +141,15 @@ export async function listThresholdEcdsaKeyIdentityTargetsForUser(input: {
       continue;
     }
     seen.add(requestKey);
-    const identity = await input.ecdsaBootstrapExportRuntime.getEcdsaKeyIdentityMetadata({
-      walletId: userId,
-      keySelector: parsed.value.keySelector,
+    const signer = await input.getEcdsaSignerByKeyHandle({
+      walletId: walletIdFromString(userId),
+      keyHandle: parsed.value.keySelector.keyHandle,
     });
-    if (!identity) {
+    if (!signer) {
       incrementCount(diagnostics.rejected, 'identity_not_found');
       continue;
     }
+    const identity = signer.walletKey;
     if (
       identity.walletId !== userId ||
       !thresholdEcdsaKeyInventorySelectorMatchesIdentity(parsed.value.keySelector, identity)

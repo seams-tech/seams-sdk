@@ -1,6 +1,8 @@
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import type { ThresholdEcdsaActivationRequest } from '../../session/passkey/ecdsaSessionProvision';
 import { clearRouterAbEcdsaDerivationClientPresignaturesForLane } from '../../routerAb/ecdsaDerivation/presignaturePool';
+import { thresholdEcdsaRoleLocalRetirePresignaturePoolWasm } from '../../threshold/crypto/ecdsaDerivationClientWasm';
+import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import type {
   UiConfirmContextPort,
   UiConfirmSecureConfirmationPort,
@@ -29,12 +31,8 @@ import type {
   ConsumeSingleUseEmailOtpEcdsaLaneResult,
   ThresholdEcdsaSessionRecord,
 } from '../../session/persistence/records';
-import {
-  type ThresholdEcdsaSessionStoreSource,
-} from '../../session/identity/laneIdentity';
-import {
-  toVerifiedEcdsaPublicFactsFromRecord,
-} from '../../session/identity/evmFamilyEcdsaIdentity';
+import { type ThresholdEcdsaSessionStoreSource } from '../../session/identity/laneIdentity';
+import { toVerifiedEcdsaPublicFactsFromRecord } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { EvmFamilyEcdsaSessionReaderDeps } from '../../interfaces/operationDeps';
 import type { EvmFamilyChain } from './types';
 import {
@@ -43,6 +41,7 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type EvmFamilyWarmSessionServicesDeps = EvmFamilyEcdsaSessionReaderDeps & {
+  getSignerWorkerContext: () => WorkerOperationContext;
   touchConfirm: UiConfirmContextPort &
     UiConfirmSigningPort &
     UiConfirmSecureConfirmationPort &
@@ -86,9 +85,11 @@ export function createEvmFamilyWarmSessionServices(
   ): Promise<void> => {
     const publicFacts = await toVerifiedEcdsaPublicFactsFromRecord({ record });
     if (record.routerAbEcdsaDerivationNormalSigning) {
-      clearRouterAbEcdsaDerivationClientPresignaturesForLane({
+      await clearRouterAbEcdsaDerivationClientPresignaturesForLane({
         relayerUrl: record.relayerUrl,
         scope: record.routerAbEcdsaDerivationNormalSigning.scope,
+        workerCtx: deps.getSignerWorkerContext(),
+        retireClientPresignaturePool: thresholdEcdsaRoleLocalRetirePresignaturePoolWasm,
       });
     }
     const thresholdSessionId = parseVolatileWarmSessionId(
@@ -151,8 +152,7 @@ export function createEvmFamilyWarmSessionServices(
           provisionThresholdEcdsaSession: (provisionRequest) =>
             deps.provisionThresholdEcdsaSession(provisionRequest),
           touchConfirm: deps.touchConfirm,
-          resolveExactEcdsaRecord: (recordArgs) =>
-            statusReader.resolveExactEcdsaRecord(recordArgs),
+          resolveExactEcdsaRecord: (recordArgs) => statusReader.resolveExactEcdsaRecord(recordArgs),
           readEcdsaCapabilityForLane: (lane) => capabilityReader.getEcdsaCapabilityForLane(lane),
           reconnectInFlightByCapability,
         },
@@ -162,8 +162,7 @@ export function createEvmFamilyWarmSessionServices(
       applyWarmSessionEcdsaPostSignPolicy(
         {
           getWarmSession: (walletId) => capabilityReader.getWarmSession(walletId),
-          resolveExactEcdsaRecord: (recordArgs) =>
-            statusReader.resolveExactEcdsaRecord(recordArgs),
+          resolveExactEcdsaRecord: (recordArgs) => statusReader.resolveExactEcdsaRecord(recordArgs),
           consumeSingleUseEmailOtpEcdsaLane: deps.consumeSingleUseEmailOtpEcdsaLane,
           clearEcdsaEphemeralMaterial: ({ record, thresholdSessionId }) =>
             clearEcdsaEphemeralMaterial(record, thresholdSessionId),
@@ -174,8 +173,7 @@ export function createEvmFamilyWarmSessionServices(
       assertWarmSessionEcdsaOperationAllowed(
         {
           getWarmSession: (walletId) => capabilityReader.getWarmSession(walletId),
-          resolveExactEcdsaRecord: (recordArgs) =>
-            statusReader.resolveExactEcdsaRecord(recordArgs),
+          resolveExactEcdsaRecord: (recordArgs) => statusReader.resolveExactEcdsaRecord(recordArgs),
         },
         operationArgs,
       ),

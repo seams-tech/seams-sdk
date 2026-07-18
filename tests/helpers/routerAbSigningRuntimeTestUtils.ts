@@ -313,7 +313,6 @@ export function createRouterAbSigningRuntimesForUnitTests(input: {
     config: parseRouterAbEcdsaPresignRuntimeConfig(config),
     ecdsaSessionStore,
     ecdsaPoolFillSessionStore: ecdsaSigningStores.poolFillSessionStore,
-    ecdsaPresignaturePool: ecdsaSigningStores.presignaturePool,
     ecdsaKeyStore,
     normalSigningRuntime: normalSigning,
     ensureReady: async () => {},

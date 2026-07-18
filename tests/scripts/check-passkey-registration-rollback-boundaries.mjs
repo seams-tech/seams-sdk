@@ -102,7 +102,7 @@ function collectPasskeyRegistrationHelperViolations() {
   const functionBlock = sourceBlock(
     seamsWebSource,
     'private async registerPasskeyDomain',
-    'private createPasskeyRegistrationActivationSurfaceDomain',
+    'private emailOtpRegistrationFlowId',
     seamsWebPath,
     violations,
   );

@@ -61,6 +61,7 @@ export function createRecoveryPublicDeps(args: {
     exportEd25519YaoSeedWithFreshEmailOtpLane: RecoveryPublicDeps['ed25519Yao']['emailOtp']['exportSeedWithFreshAuthorization'];
   };
   provisionPasskeyEcdsaExplicitExportSession: RecoveryPublicDeps['ecdsa']['provisionPasskeyEcdsaExplicitExportSession'];
+  resolvePasskeyEcdsaExportRouteAuth: RecoveryPublicDeps['ecdsa']['resolvePasskeyEcdsaExportRouteAuth'];
   warmSessionPolicy: {
     getWarmSession: WarmSessionCapabilityReader['getWarmSession'];
     resolveExactEcdsaRecord: WarmSigningStatusReader['resolveExactEcdsaRecord'];
@@ -127,6 +128,7 @@ export function createRecoveryPublicDeps(args: {
       warmSessionPolicy: args.warmSessionPolicy,
       provisionPasskeyEcdsaExplicitExportSession: (request) =>
         args.provisionPasskeyEcdsaExplicitExportSession(request),
+      resolvePasskeyEcdsaExportRouteAuth: args.resolvePasskeyEcdsaExportRouteAuth,
       getSignerWorkerContext: () => args.signerWorkerManager.getContext(),
     },
     ed25519Yao: {

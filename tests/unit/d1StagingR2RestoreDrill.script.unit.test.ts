@@ -28,14 +28,14 @@ type R2RestoreDrillPlan = {
 type R2RestoreDrillModule = {
   readonly buildD1StagingR2RestoreDrillPlan: (input: {
     readonly consoleConfigPath: string;
-    readonly routerApiConfigPath: string;
+    readonly gatewayConfigPath: string;
     readonly generatedAtIso?: string;
     readonly mode?: 'dry-run' | 'remote';
     readonly r2Bucket: string;
   }) => R2RestoreDrillPlan;
   readonly runD1StagingR2RestoreDrill: (input: {
     readonly consoleConfigPath: string;
-    readonly routerApiConfigPath: string;
+    readonly gatewayConfigPath: string;
     readonly generatedAtIso?: string;
     readonly manifestPath: string;
     readonly mode?: 'dry-run' | 'remote';

@@ -7,6 +7,7 @@ import type {
 import type { ThresholdStoreConfigInput } from '../../core/types';
 import type { RouterAbSigningRuntimeBundle } from '../../core/routerAbSigning/createRouterAbSigningRuntimes';
 import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../routerAbEd25519YaoProductRegistration';
+import type { RouterAbEcdsaStrictRegistrationPort } from '../routerAbEcdsaStrictRegistration';
 import {
   formatSigningSessionSealKeyVersionForWire,
   formatSigningSessionSealShamirPrimeB64uForWire,
@@ -90,6 +91,7 @@ export interface CloudflareD1RouterApiAuthServiceOptions {
   readonly thresholdStore?: ThresholdStoreConfigInput | null;
   readonly routerAbSigningRuntimes?: RouterAbSigningRuntimeBundle | null;
   readonly ed25519YaoProductRegistration?: RouterAbEd25519YaoProductRegistrationRuntimeV1 | null;
+  readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
 }
 
 export type EmailOtpDeliveryMode = 'email_provider' | 'log' | 'dev_d1_outbox';
@@ -235,6 +237,7 @@ export function normalizeD1RouterApiAuthOptions(
     thresholdStore: input.thresholdStore,
     routerAbSigningRuntimes: input.routerAbSigningRuntimes,
     ed25519YaoProductRegistration: input.ed25519YaoProductRegistration,
+    ecdsaStrictRegistration: input.ecdsaStrictRegistration,
   };
 }
 

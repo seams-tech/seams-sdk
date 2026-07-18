@@ -18,7 +18,6 @@ import {
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaDerivationPresignBridge';
 import {
   InMemoryRouterAbEcdsaDerivationPoolFillSessionStore,
-  InMemoryRouterAbEcdsaDerivationPresignaturePool,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/EcdsaSigningStore';
 
 import { initSync as initRouterAbEcdsaSigningWorkerWasmSync } from '../../wasm/router_ab_ecdsa_signing_worker/pkg/router_ab_ecdsa_signing_worker.js';
@@ -45,9 +44,6 @@ const TEST_RUNTIME_SCOPE = {
   signingRootVersion: 'root-v1',
 } as const;
 const TEST_SIGNING_ROOT_ID = `${TEST_RUNTIME_SCOPE.projectId}:${TEST_RUNTIME_SCOPE.envId}`;
-const TEST_ECDSA_PRESIGN_POOL_KEY_VERSION = 'v2';
-const TEST_ECDSA_ROLE_LOCAL_WALLET_KEY_VERSION = 'v1';
-const TEST_ECDSA_ROLE_LOCAL_DERIVATION_VERSION = 1;
 const TEST_ECDSA_CHAIN_TARGET = {
   kind: 'evm',
   namespace: 'eip155',
@@ -141,12 +137,6 @@ function invertSecpScalar(value: bigint): bigint {
   return modSecpScalar(oldCoefficient);
 }
 
-function mapSigningWorkerAdditiveShare2p(additiveShare32: Uint8Array): Uint8Array {
-  const additiveShare = bytesToNumberBE(additiveShare32);
-  const inverseNegativeTwo = (SECP256K1_ORDER - (SECP256K1_ORDER + 1n) / 2n) % SECP256K1_ORDER;
-  return numberToBytesBE((additiveShare * inverseNegativeTwo) % SECP256K1_ORDER, 32);
-}
-
 function bytesToHex(input: Uint8Array): string {
   return Array.from(input, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
@@ -187,7 +177,6 @@ function buildRoleLocalKeyRecord(input: {
     clientVerifyingShare33,
     relayerVerifyingShare33,
   );
-  const relayerMappedPrivateShare32 = mapSigningWorkerAdditiveShare2p(relayerSigningShare32);
   const nowMs = Date.now();
   return {
     version: 'threshold_ecdsa_derivation_role_local_v2' as const,
@@ -205,11 +194,6 @@ function buildRoleLocalKeyRecord(input: {
     clientPublicKey33B64u: input.clientVerifyingShareB64u,
     groupPublicKey33B64u: base64UrlEncode(groupPublicKey33),
     ethereumAddress: `0x${'11'.repeat(20)}`,
-    relayerCaitSithInput: {
-      participantId: 2 as const,
-      mappedPrivateShare32B64u: base64UrlEncode(relayerMappedPrivateShare32),
-      verifyingShare33B64u: base64UrlEncode(relayerVerifyingShare33),
-    },
     publicTranscriptDigest32B64u: base64UrlEncode(new Uint8Array(32).fill(4)),
     createdAtMs: nowMs,
     updatedAtMs: nowMs,
@@ -260,40 +244,6 @@ function buildRouterAbEcdsaDerivationPoolFill(
     scope: buildRouterAbEcdsaDerivationScope(roleLocalKey),
     expiresAtMs,
   };
-}
-
-function presignPoolKeyPart(value: string | number, fieldName: string): string {
-  const normalized = typeof value === 'number' ? String(value) : value.trim();
-  if (!normalized) throw new Error(`${fieldName} is required for test presign pool key`);
-  return encodeURIComponent(normalized);
-}
-
-function presignPoolKeyForRoleLocalKey(
-  roleLocalKey: ReturnType<typeof buildRoleLocalKeyRecord>,
-): string {
-  return [
-    TEST_ECDSA_PRESIGN_POOL_KEY_VERSION,
-    `keyHandle=${presignPoolKeyPart(roleLocalKey.keyHandle, 'keyHandle')}`,
-    `ecdsaThresholdKeyId=${presignPoolKeyPart(
-      roleLocalKey.ecdsaThresholdKeyId,
-      'ecdsaThresholdKeyId',
-    )}`,
-    `relayerKeyId=${presignPoolKeyPart(roleLocalKey.relayerKeyId, 'relayerKeyId')}`,
-    `signingRootId=${presignPoolKeyPart(roleLocalKey.signingRootId, 'signingRootId')}`,
-    `signingRootVersion=${presignPoolKeyPart(
-      roleLocalKey.signingRootVersion || 'default',
-      'signingRootVersion',
-    )}`,
-    `walletKeyVersion=${presignPoolKeyPart(
-      TEST_ECDSA_ROLE_LOCAL_WALLET_KEY_VERSION,
-      'walletKeyVersion',
-    )}`,
-    `derivationVersion=${presignPoolKeyPart(
-      TEST_ECDSA_ROLE_LOCAL_DERIVATION_VERSION,
-      'derivationVersion',
-    )}`,
-    `groupPublicKey=${presignPoolKeyPart(roleLocalKey.groupPublicKey33B64u, 'groupPublicKey')}`,
-  ].join('|');
 }
 
 type TestEcdsaMpcSessionRecord = Record<string, unknown> & { expiresAtMs: number };
@@ -379,7 +329,6 @@ test.describe('Router A/B ECDSA derivation pool-fill distributed session store',
       relayerParticipantId: 2,
       sessionStore: createEmptyEcdsaMpcSessionStore() as any,
       poolFillSessionStore: new InMemoryRouterAbEcdsaDerivationPoolFillSessionStore(),
-      presignaturePool: new InMemoryRouterAbEcdsaDerivationPresignaturePool(),
       resolveRoleLocalKeyRecord: async () => null,
       ensureReady: async () => {},
       createPoolFillSessionId: () => 'unused-missing-pool-fill-test',
@@ -448,7 +397,6 @@ test.describe('Router A/B ECDSA derivation pool-fill distributed session store',
     );
 
     const sharedPresignSessionStore = new InMemoryRouterAbEcdsaDerivationPoolFillSessionStore();
-    const sharedPresignaturePool = new InMemoryRouterAbEcdsaDerivationPresignaturePool();
 
     const fakeSessionStore = createEmptyEcdsaMpcSessionStore();
     const fetchImpl: typeof fetch = async (_url, init) => {
@@ -492,7 +440,6 @@ test.describe('Router A/B ECDSA derivation pool-fill distributed session store',
         relayerParticipantId,
         sessionStore: fakeSessionStore as any,
         poolFillSessionStore: sharedPresignSessionStore,
-        presignaturePool: sharedPresignaturePool,
         resolveRoleLocalKeyRecord: async (requestedKeyHandle) =>
           requestedKeyHandle === keyHandle ? roleLocalKeyRecord : null,
         ensureReady: async () => {},
@@ -672,7 +619,6 @@ test.describe('Router A/B ECDSA derivation pool-fill distributed session store',
     );
 
     const sharedPresignSessionStore = new InMemoryRouterAbEcdsaDerivationPoolFillSessionStore();
-    const sharedPresignaturePool = new InMemoryRouterAbEcdsaDerivationPresignaturePool();
     const fakeSessionStore = createEmptyEcdsaMpcSessionStore();
     const poolFillRequests: Array<
       ReturnType<typeof parseCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutRequestV1>
@@ -725,7 +671,6 @@ test.describe('Router A/B ECDSA derivation pool-fill distributed session store',
       relayerParticipantId,
       sessionStore: fakeSessionStore as any,
       poolFillSessionStore: sharedPresignSessionStore,
-      presignaturePool: sharedPresignaturePool,
       resolveRoleLocalKeyRecord: async (requestedKeyHandle) =>
         requestedKeyHandle === keyHandle ? roleLocalKeyRecord : null,
       ensureReady: async () => {},
@@ -848,9 +793,6 @@ test.describe('Router A/B ECDSA derivation pool-fill distributed session store',
       server_big_r33_b64u: serverBigRB64u,
       expires_at_ms: poolFillExpiresAtMs,
     });
-    expect(
-      await sharedPresignaturePool.reserve(presignPoolKeyForRoleLocalKey(roleLocalKeyRecord)),
-    ).toBeNull();
   });
 
   test('returns retriable stale_session_state on cross-instance cache miss', async () => {
@@ -886,7 +828,6 @@ test.describe('Router A/B ECDSA derivation pool-fill distributed session store',
     });
 
     const sharedPresignSessionStore = new InMemoryRouterAbEcdsaDerivationPoolFillSessionStore();
-    const sharedPresignaturePool = new InMemoryRouterAbEcdsaDerivationPresignaturePool();
 
     const fakeSessionStore = createEmptyEcdsaMpcSessionStore();
 
@@ -905,7 +846,6 @@ test.describe('Router A/B ECDSA derivation pool-fill distributed session store',
         relayerParticipantId,
         sessionStore: fakeSessionStore as any,
         poolFillSessionStore: sharedPresignSessionStore,
-        presignaturePool: sharedPresignaturePool,
         resolveRoleLocalKeyRecord: async (requestedKeyHandle) =>
           requestedKeyHandle === roleLocalKeyRecord.keyHandle ? roleLocalKeyRecord : null,
         ensureReady: async () => {},
@@ -984,7 +924,6 @@ test.describe('Router A/B ECDSA derivation pool-fill distributed session store',
     });
 
     const sharedPresignSessionStore = new InMemoryRouterAbEcdsaDerivationPoolFillSessionStore();
-    const sharedPresignaturePool = new InMemoryRouterAbEcdsaDerivationPresignaturePool();
 
     const fakeSessionStore = createEmptyEcdsaMpcSessionStore();
 
@@ -1008,7 +947,6 @@ test.describe('Router A/B ECDSA derivation pool-fill distributed session store',
         coordinatorPeers: input.peers,
         sessionStore: fakeSessionStore as any,
         poolFillSessionStore: sharedPresignSessionStore,
-        presignaturePool: sharedPresignaturePool,
         resolveRoleLocalKeyRecord: async (requestedKeyHandle) =>
           requestedKeyHandle === roleLocalKeyRecord.keyHandle ? roleLocalKeyRecord : null,
         ensureReady: async () => {},
@@ -1120,7 +1058,6 @@ test.describe('Router A/B ECDSA derivation pool-fill distributed session store',
     });
 
     const sharedPresignSessionStore = new InMemoryRouterAbEcdsaDerivationPoolFillSessionStore();
-    const sharedPresignaturePool = new InMemoryRouterAbEcdsaDerivationPresignaturePool();
 
     const fakeSessionStore = createEmptyEcdsaMpcSessionStore();
 
@@ -1144,7 +1081,6 @@ test.describe('Router A/B ECDSA derivation pool-fill distributed session store',
         coordinatorPeers: input.peers,
         sessionStore: fakeSessionStore as any,
         poolFillSessionStore: sharedPresignSessionStore,
-        presignaturePool: sharedPresignaturePool,
         resolveRoleLocalKeyRecord: async (requestedKeyHandle) =>
           requestedKeyHandle === roleLocalKeyRecord.keyHandle ? roleLocalKeyRecord : null,
         ensureReady: async () => {},
@@ -1230,7 +1166,6 @@ test.describe('Router A/B ECDSA derivation pool-fill distributed session store',
     });
 
     const sharedPresignSessionStore = new InMemoryRouterAbEcdsaDerivationPoolFillSessionStore();
-    const sharedPresignaturePool = new InMemoryRouterAbEcdsaDerivationPresignaturePool();
 
     const fakeSessionStore = createEmptyEcdsaMpcSessionStore();
 
@@ -1249,7 +1184,6 @@ test.describe('Router A/B ECDSA derivation pool-fill distributed session store',
         relayerParticipantId,
         sessionStore: fakeSessionStore as any,
         poolFillSessionStore: sharedPresignSessionStore,
-        presignaturePool: sharedPresignaturePool,
         resolveRoleLocalKeyRecord: async (requestedKeyHandle) =>
           requestedKeyHandle === roleLocalKeyRecord.keyHandle ? roleLocalKeyRecord : null,
         ensureReady: async () => {},
@@ -1332,7 +1266,6 @@ test.describe('Router A/B ECDSA derivation pool-fill distributed session store',
     });
 
     const sharedPresignSessionStore = new InMemoryRouterAbEcdsaDerivationPoolFillSessionStore();
-    const sharedPresignaturePool = new InMemoryRouterAbEcdsaDerivationPresignaturePool();
     const fakeSessionStore = createEmptyEcdsaMpcSessionStore();
     let presignIdCounter = 0;
     const handler = new RouterAbEcdsaDerivationPoolFillHandlers({
@@ -1343,7 +1276,6 @@ test.describe('Router A/B ECDSA derivation pool-fill distributed session store',
       relayerParticipantId,
       sessionStore: fakeSessionStore as any,
       poolFillSessionStore: sharedPresignSessionStore,
-      presignaturePool: sharedPresignaturePool,
       resolveRoleLocalKeyRecord: async (requestedKeyHandle) =>
         requestedKeyHandle === roleLocalKeyRecord.keyHandle ? roleLocalKeyRecord : null,
       ensureReady: async () => {},
@@ -1415,7 +1347,6 @@ test.describe('Router A/B ECDSA derivation pool-fill distributed session store',
     });
 
     const sharedPresignSessionStore = new InMemoryRouterAbEcdsaDerivationPoolFillSessionStore();
-    const sharedPresignaturePool = new InMemoryRouterAbEcdsaDerivationPresignaturePool();
     const securityEvents: unknown[] = [];
     const handler = new RouterAbEcdsaDerivationPoolFillHandlers({
       logger: {
@@ -1430,7 +1361,6 @@ test.describe('Router A/B ECDSA derivation pool-fill distributed session store',
       relayerParticipantId,
       sessionStore: createEmptyEcdsaMpcSessionStore() as any,
       poolFillSessionStore: sharedPresignSessionStore,
-      presignaturePool: sharedPresignaturePool,
       resolveRoleLocalKeyRecord: async (requestedKeyHandle) =>
         requestedKeyHandle === roleLocalKeyRecord.keyHandle ? roleLocalKeyRecord : null,
       ensureReady: async () => {},
@@ -1528,7 +1458,6 @@ test.describe('Router A/B ECDSA derivation pool-fill distributed session store',
     );
 
     const sharedPresignSessionStore = new InMemoryRouterAbEcdsaDerivationPoolFillSessionStore();
-    const sharedPresignaturePool = new InMemoryRouterAbEcdsaDerivationPresignaturePool();
 
     const fakeSessionStore = createEmptyEcdsaMpcSessionStore();
 
@@ -1546,7 +1475,6 @@ test.describe('Router A/B ECDSA derivation pool-fill distributed session store',
       relayerParticipantId,
       sessionStore: fakeSessionStore as any,
       poolFillSessionStore: sharedPresignSessionStore,
-      presignaturePool: sharedPresignaturePool,
       resolveRoleLocalKeyRecord: async (requestedKeyHandle) =>
         requestedKeyHandle === roleLocalKeyRecord.keyHandle ? roleLocalKeyRecord : null,
       ensureReady: async () => {},

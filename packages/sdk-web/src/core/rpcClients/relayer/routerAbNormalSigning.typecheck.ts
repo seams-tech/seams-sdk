@@ -147,6 +147,7 @@ const ecdsaFinalizeCoreRequest = {
   signing_digest_b64u: 'signing-digest',
   server_presignature_id: 'server-presignature-1',
   client_signature_share32_b64u: 'client-signature-share',
+  client_rerandomization_contribution32_b64u: 'client-rerandomization-contribution',
 } satisfies RouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV1Wire;
 void ecdsaFinalizeCoreRequest;
 
@@ -157,6 +158,7 @@ const ecdsaCoreRequestWithBudgetMetadata = {
   signing_digest_b64u: 'signing-digest',
   server_presignature_id: 'server-presignature-1',
   client_signature_share32_b64u: 'client-signature-share',
+  client_rerandomization_contribution32_b64u: 'client-rerandomization-contribution',
   // @ts-expect-error core finalize request excludes public Router budget metadata.
   budget_reservation_id: 'budget-reservation-1',
   budget_operation_id: 'budget-operation-1',

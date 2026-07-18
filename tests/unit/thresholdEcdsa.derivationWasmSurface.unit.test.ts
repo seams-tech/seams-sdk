@@ -2,13 +2,14 @@ import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import * as RouterAbEcdsaSigningWorkerWasm from '../../wasm/router_ab_ecdsa_signing_worker/pkg/router_ab_ecdsa_signing_worker.js';
 import * as EcdsaDerivationClientWasm from '../../wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.js';
+import * as EcdsaRegistrationClientWasm from '../../wasm/ecdsa_registration_client/pkg/ecdsa_registration_client.js';
 
 const ROUTER_AB_ECDSA_SIGNING_WORKER_WASM_URL = new URL(
   '../../wasm/router_ab_ecdsa_signing_worker/pkg/router_ab_ecdsa_signing_worker_bg.wasm',
   import.meta.url,
 );
-const ECDSA_DERIVATION_CLIENT_WASM_URL = new URL(
-  '../../wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client_bg.wasm',
+const ECDSA_REGISTRATION_CLIENT_WASM_URL = new URL(
+  '../../wasm/ecdsa_registration_client/pkg/ecdsa_registration_client_bg.wasm',
   import.meta.url,
 );
 const FIXTURE_URL = new URL(
@@ -17,7 +18,7 @@ const FIXTURE_URL = new URL(
 );
 
 let routerAbEcdsaSigningWorkerWasmInitialized = false;
-let ecdsaDerivationClientWasmInitialized = false;
+let ecdsaRegistrationClientWasmInitialized = false;
 
 function ensureRouterAbEcdsaSigningWorkerWasm(): void {
   if (routerAbEcdsaSigningWorkerWasmInitialized) return;
@@ -27,10 +28,12 @@ function ensureRouterAbEcdsaSigningWorkerWasm(): void {
   routerAbEcdsaSigningWorkerWasmInitialized = true;
 }
 
-function ensureEcdsaDerivationClientWasm(): void {
-  if (ecdsaDerivationClientWasmInitialized) return;
-  EcdsaDerivationClientWasm.initSync({ module: readFileSync(ECDSA_DERIVATION_CLIENT_WASM_URL) });
-  ecdsaDerivationClientWasmInitialized = true;
+function ensureEcdsaRegistrationClientWasm(): void {
+  if (ecdsaRegistrationClientWasmInitialized) return;
+  EcdsaRegistrationClientWasm.initSync({
+    module: readFileSync(ECDSA_REGISTRATION_CLIENT_WASM_URL),
+  });
+  ecdsaRegistrationClientWasmInitialized = true;
 }
 
 function hexToBytes(hex: string): Uint8Array {
@@ -79,7 +82,7 @@ function prepareFixtureClientBootstrap(fixture: ReturnType<typeof readRoleLocalF
   clientShareRetryCounter: number;
 } {
   const output = JSON.parse(
-    EcdsaDerivationClientWasm.prepare_ecdsa_client_bootstrap_from_resolved_email_otp_root_v1(
+    EcdsaRegistrationClientWasm.prepare_ecdsa_client_bootstrap_from_resolved_email_otp_root_v1(
       JSON.stringify({
         kind: 'prepare_ecdsa_client_bootstrap_from_resolved_email_otp_root_v1',
         algorithm: 'router_ab_ecdsa_derivation_secp256k1_role_local_v1',
@@ -124,17 +127,23 @@ test.describe('threshold ECDSA derivation WASM surface', () => {
     }
   });
 
-  test('client bundle does not expose relayer or joined-root derivation helpers', () => {
-    const clientExports = EcdsaDerivationClientWasm as Record<string, unknown>;
-    expect('threshold_ecdsa_derivation_role_local_client_bootstrap' in clientExports).toBe(false);
-    expect('threshold_ecdsa_derivation_role_local_prepare_client_bootstrap' in clientExports).toBe(
+  test('registration and export bundles expose disjoint client surfaces', () => {
+    const registrationExports = EcdsaRegistrationClientWasm as Record<string, unknown>;
+    const exportClientExports = EcdsaDerivationClientWasm as Record<string, unknown>;
+    expect('threshold_ecdsa_derivation_role_local_client_bootstrap' in registrationExports).toBe(
       false,
     );
     expect(
-      typeof clientExports.prepare_ecdsa_client_bootstrap_from_resolved_email_otp_root_v1,
+      'threshold_ecdsa_derivation_role_local_prepare_client_bootstrap' in registrationExports,
+    ).toBe(false);
+    expect(
+      typeof registrationExports.prepare_ecdsa_client_bootstrap_from_resolved_email_otp_root_v1,
     ).toBe('function');
-    expect(typeof clientExports.open_ecdsa_role_local_signing_share_v1).toBe('function');
-    expect(typeof clientExports.build_ecdsa_role_local_export_artifact_v1).toBe('function');
+    expect(typeof registrationExports.open_ecdsa_role_local_signing_share_v1).toBe('function');
+    expect('build_ecdsa_role_local_export_artifact_v1' in registrationExports).toBe(false);
+    expect(typeof exportClientExports.build_ecdsa_role_local_export_artifact_v1).toBe('function');
+    expect('prepare_ecdsa_client_bootstrap_v1' in exportClientExports).toBe(false);
+    expect('open_ecdsa_role_local_signing_share_v1' in exportClientExports).toBe(false);
 
     for (const forbidden of [
       'threshold_ecdsa_derivation_role_local_export_artifact',
@@ -143,13 +152,14 @@ test.describe('threshold ECDSA derivation WASM surface', () => {
       'ecdsa_derivation_derive_additive_shares',
       'ecdsa_derivation_explicit_export',
     ]) {
-      expect(forbidden in clientExports, forbidden).toBe(false);
+      expect(forbidden in registrationExports, forbidden).toBe(false);
+      expect(forbidden in exportClientExports, forbidden).toBe(false);
     }
   });
 
   test('relayer bootstrap FFI accepts fixture little-endian scalars and compressed SEC1 public keys', () => {
     ensureRouterAbEcdsaSigningWorkerWasm();
-    ensureEcdsaDerivationClientWasm();
+    ensureEcdsaRegistrationClientWasm();
     const fixture = readRoleLocalFixture();
     const relayerContext = contextPayload(fixture);
     const clientBootstrap = prepareFixtureClientBootstrap(fixture);
@@ -199,7 +209,7 @@ test.describe('threshold ECDSA derivation WASM surface', () => {
     ensureRouterAbEcdsaSigningWorkerWasm();
     const fixture = readRoleLocalFixture();
     const relayerContext = contextPayload(fixture);
-    ensureEcdsaDerivationClientWasm();
+    ensureEcdsaRegistrationClientWasm();
     const clientBootstrap = prepareFixtureClientBootstrap(fixture);
     const validClientPublicKey33 = Array.from(
       Buffer.from(clientBootstrap.derivationClientSharePublicKey33B64u, 'base64url'),

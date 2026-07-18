@@ -113,7 +113,7 @@ function parseReadyStateBlob(
 export function toGeneratedPrepareEcdsaClientBootstrapCommand(
   input: PrepareEcdsaClientBootstrapInput,
 ): GeneratedPrepareEcdsaClientBootstrapCommand {
-  const base = {
+  return {
     kind: input.kind,
     algorithm: input.algorithm,
     context: {
@@ -124,28 +124,15 @@ export function toGeneratedPrepareEcdsaClientBootstrapCommand(
       relayerParticipantId: input.participants.relayerParticipantId,
       participantIds: [...input.participants.participantIds],
     },
+    secretSource: {
+      kind: 'threshold_prf_x_client_base',
+      xClientBaseB64u: requireBase64UrlBytes(
+        input.secretSource.xClientBaseB64u,
+        'secretSource.xClientBaseB64u',
+        32,
+      ),
+    },
   };
-
-  switch (input.secretSource.kind) {
-    case 'webauthn_prf_first':
-      return {
-        ...base,
-        secretSource: {
-          kind: 'webauthn_prf_first',
-          prfFirstB64u: input.secretSource.prfFirstB64u,
-          rpId: input.secretSource.rpId,
-          credentialIdB64u: input.secretSource.credentialIdB64u,
-        },
-      };
-    case 'email_otp_worker_session':
-    case 'secure_enclave_wrapped_secret':
-    case 'fido2_hmac_secret':
-      throw new Error(
-        `[signer-core-command] unsupported ECDSA bootstrap secret source: ${input.secretSource.kind}`,
-      );
-    default:
-      return assertNeverSignerCoreCommand(input.secretSource);
-  }
 }
 
 export function parseGeneratedPrepareEcdsaClientBootstrapOutput(
@@ -192,6 +179,7 @@ export function toGeneratedFinalizeEcdsaClientBootstrapCommand(
       relayerPublicKey33B64u: input.relayerPublicIdentity.relayerPublicKey33B64u,
       groupPublicKey33B64u: input.relayerPublicIdentity.groupPublicKey33B64u,
       ethereumAddress: input.relayerPublicIdentity.ethereumAddress,
+      relayerShareRetryCounter: input.relayerPublicIdentity.relayerShareRetryCounter,
     },
   };
 }
@@ -281,8 +269,4 @@ export function parseGeneratedBuildEcdsaRoleLocalExportArtifactOutput(
     privateKeyHex: parseHexBytes(input.privateKeyHex, 'privateKeyHex', 32),
     ethereumAddress: parseEthereumAddress(input.ethereumAddress),
   };
-}
-
-function assertNeverSignerCoreCommand(value: never): never {
-  throw new Error(`[signer-core-command] unhandled branch: ${String(value)}`);
 }

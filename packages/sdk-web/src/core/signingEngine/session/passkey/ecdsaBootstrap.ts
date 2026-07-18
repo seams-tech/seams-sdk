@@ -44,6 +44,7 @@ import {
 import type { PasskeyEcdsaReadyPersistInput } from '../warmCapabilities/persistencePorts';
 import { SIGNER_AUTH_METHODS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaBootstrapSignerAuth } from '../warmCapabilities/ecdsaBootstrapPersistence';
+import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 
 export type ExistingEcdsaBootstrapKeyIntent = {
   kind: 'existing_ecdsa_key';
@@ -68,12 +69,14 @@ type EcdsaBootstrapTargetIdentity = {
   chainTarget: ThresholdEcdsaChainTarget;
   key?: never;
   lanePolicy?: never;
+  publicCapability?: never;
 };
 
 type EcdsaBootstrapExactIdentity = {
   keyHandle: EvmFamilyEcdsaKeyHandle | string;
   key: EvmFamilyEcdsaKeyIdentity;
   lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
+  publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
   walletId?: never;
   subjectId?: never;
   chainTarget?: never;
@@ -188,7 +191,7 @@ export type PasskeyEcdsaExportBootstrapRequest = Omit<
   PasskeyWebAuthnPrfBootstrapAuth & {
     kind: 'passkey_ecdsa_export_bootstrap';
     purpose: 'explicit_key_export';
-    routeAuth?: never;
+    routeAuth: PasskeyFreshBootstrapRouteAuth;
   };
 
 export type PasskeyFreshEcdsaBootstrapRequest =
@@ -423,8 +426,7 @@ function toActivateEcdsaSessionRequest(
             kind: 'requested_session' as const,
             sessionKind: targetRequest.sessionKind,
             sessionId: buildEcdsaSessionIdentity(targetRequest.sessionIdentity).thresholdSessionId,
-            signingGrantId: buildEcdsaSessionIdentity(targetRequest.sessionIdentity)
-              .signingGrantId,
+            signingGrantId: buildEcdsaSessionIdentity(targetRequest.sessionIdentity).signingGrantId,
           }
         : undefined;
     return {
@@ -492,6 +494,7 @@ function toActivateEcdsaSessionRequest(
       keyHandle: toEvmFamilyEcdsaKeyHandle(exactRequest.keyHandle),
       key: exactRequest.key,
       lanePolicy: exactRequest.lanePolicy,
+      publicCapability: exactRequest.publicCapability,
       ...(exactRequest.requestId ? { requestId: exactRequest.requestId } : {}),
       ...auth,
       ...(walletSessionRouteAuth ? { walletSessionRouteAuth } : {}),
@@ -572,10 +575,12 @@ function toActivateExplicitKeyExportEcdsaSessionRequest(
     keyHandle: toEvmFamilyEcdsaKeyHandle(request.keyHandle),
     key: request.key,
     lanePolicy: request.lanePolicy,
+    publicCapability: request.publicCapability,
     requestId: request.requestId,
     authKind: 'passkey_webauthn_prf_b64u',
     webauthnAuthentication: request.webauthnAuthentication,
     passkeyPrfFirstB64u: request.passkeyPrfFirstB64u,
+    walletSessionRouteAuth: request.routeAuth,
     runtimeScopeBootstrap: request.runtimeScopeBootstrap,
   };
 }
@@ -704,9 +709,7 @@ export async function bootstrapEcdsaSessionValue(
       curve: 'ecdsa',
       walletId,
       chainTarget,
-      signingGrantId: SigningSessionIds.signingGrant(
-        activation.session.signingGrantId,
-      ),
+      signingGrantId: SigningSessionIds.signingGrant(activation.session.signingGrantId),
       thresholdSessionId,
       persistenceSource: passkeyPersistenceSource,
       passkeyPrfSealMaterial: {

@@ -76,7 +76,7 @@ export async function handleSyncAccount(ctx: CloudflareRouterApiContext): Promis
           { status: 500 },
         );
       }
-      const capability = yaoRuntime.resolveActiveCapability({
+      const capability = await yaoRuntime.resolveActiveCapability({
         kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
         walletId,
         nearAccountId,

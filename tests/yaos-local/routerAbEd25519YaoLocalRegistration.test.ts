@@ -8,10 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 import { type RouterAbEd25519YaoRegistrationAdmissionRequestV1 } from '@shared/utils/routerAbEd25519Yao';
 import { coerceRouterLogger } from '../../packages/sdk-server-ts/src/router/logger';
-import {
-  RouterAbEd25519YaoHttpRegistrationBackendStateV1,
-  createRouterAbEd25519YaoHttpRegistrationBackendFromEnv,
-} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoHttpRegistrationBackend';
+import { createRouterAbEd25519YaoHttpRegistrationBackendFromEnv } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoHttpRegistrationBackend';
 import {
   InMemoryRouterAbEd25519YaoRegistrationService,
   createRouterAbEd25519YaoRegistrationModule,
@@ -22,7 +19,6 @@ import {
 import type { RouterApiRouteExtension } from '../../packages/sdk-server-ts/src/router/routeExtensions';
 import type { RouteDefinition } from '../../packages/sdk-server-ts/src/router/routeDefinitions';
 import {
-  buildRouterAbEd25519PrivateSigningWorkerBody,
   handleRouterAbEd25519NormalSigningRouteCore,
   ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS,
   type RouterAbNormalSigningAdmissionAdapter,
@@ -495,7 +491,6 @@ async function runLocalRegistrationTest(): Promise<void> {
     const backend = createRouterAbEd25519YaoHttpRegistrationBackendFromEnv({
       env: processes.routerEnv,
       fetch: globalThis.fetch,
-      state: new RouterAbEd25519YaoHttpRegistrationBackendStateV1(),
     });
     const service = new InMemoryRouterAbEd25519YaoRegistrationService(backend);
     const module = createRouterAbEd25519YaoRegistrationModule({
@@ -629,29 +624,6 @@ async function signWithActivatedYaoShares(input: {
       client_signature_share_b64u: clientShare.clientSignatureShareB64u,
     },
   };
-  const privateFinalizeBody = buildRouterAbEd25519PrivateSigningWorkerBody({
-    body: finalizeRequest,
-  });
-  const serializedPrivateFinalize = JSON.parse(JSON.stringify(privateFinalizeBody)) as Record<
-    string,
-    unknown
-  >;
-  const serializedRequest = requireRecord(
-    serializedPrivateFinalize.request,
-    'serialized private finalize request',
-  );
-  const serializedProtocol = requireRecord(
-    serializedRequest.protocol,
-    'serialized private finalize protocol',
-  );
-  expect(Object.keys(serializedProtocol).sort()).toEqual([
-    'client_commitments',
-    'client_signature_share_b64u',
-    'client_verifying_share_b64u',
-    'kind',
-    'server_commitments',
-    'server_verifying_share_b64u',
-  ]);
   const signingRaw = await requireOkPublicSigningResult(
     input.signingRouter.handle('finalize', finalizeRequest),
     'public normal-signing finalize',

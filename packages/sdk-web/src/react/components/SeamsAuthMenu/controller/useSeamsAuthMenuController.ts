@@ -25,13 +25,9 @@ import type {
   GoogleEmailOtpWalletAuthLoginFlow,
   GoogleEmailOtpWalletAuthRegistrationFlow,
 } from '@/SeamsWeb';
-import type { RegistrationActivationSurfaceState } from '@/SeamsWeb/publicApi/types';
 import type { SocialLoginHandlers } from '../ui/SocialProviders';
 import { useSeamsAuthMenuForceInitialRegister } from '../hydrationContext';
-import {
-  NO_LAST_USED_LOGIN_METHOD,
-  type LastUsedLoginMethod,
-} from './lastUsedLoginMethod';
+import { NO_LAST_USED_LOGIN_METHOD, type LastUsedLoginMethod } from './lastUsedLoginMethod';
 import { useAuthMenuMode } from './mode';
 import { getProceedEligibility } from './proceedEligibility';
 import { extractUsernameFromAccountId } from '@/react/hooks/useAccountInput';
@@ -82,6 +78,11 @@ function providedRegistrationWalletFromValue(walletId: string): ProvidedRegistra
     kind: 'provided',
     walletId: walletIdFromString(walletId),
   };
+}
+
+function isPasskeyInteractionReady(runtime: SeamsAuthMenuRuntime): boolean {
+  if (runtime.seamsWeb.configs?.wallet?.mode !== 'iframe') return true;
+  return runtime.walletIframeConnected;
 }
 
 function createSeamsAuthMenuRegistrationRequest(input: {
@@ -184,7 +185,6 @@ export interface SeamsAuthMenuController {
   accountInputReadOnly: boolean;
   accountInputRerollLabel?: string;
   accountInputRerollDisabled: boolean;
-  registrationActivationWallet?: ProvidedRegistrationWalletInput;
   onAccountInputReroll?: () => void;
   targetExists: boolean;
   passkeyAccountOptions: StoredAccountOption[];
@@ -203,7 +203,6 @@ export interface SeamsAuthMenuController {
   onResetToStart: () => void;
   openScanDevice: () => void;
   onSocialLogin: (provider: keyof SocialLoginHandlers, modeOverride?: AuthMenuMode) => void;
-  onRegistrationActivationSurfaceStateChange: (state: RegistrationActivationSurfaceState) => void;
   closeLinkDeviceView: (reason: 'user' | 'flow') => void;
   linkDevice: SeamsAuthMenuLinkDeviceController;
 }
@@ -505,10 +504,6 @@ function isRegistrationCancellationError(error: unknown): boolean {
   );
 }
 
-function assertNeverRegistrationActivationSurfaceState(state: never): never {
-  throw new Error(`Unhandled registration activation surface state: ${JSON.stringify(state)}`);
-}
-
 function formatEmailOtpResendError(error: unknown): string {
   const code =
     error && typeof error === 'object' && 'code' in error
@@ -723,9 +718,8 @@ export function useSeamsAuthMenuController(
   const [postRecoveryRotationBusy, setPostRecoveryRotationBusy] = React.useState(false);
   const [postRecoveryRotationError, setPostRecoveryRotationError] = React.useState('');
   const [methodError, setMethodError] = React.useState<string>('');
-  const [lastUsedLoginMethod, setLastUsedLoginMethod] = React.useState<LastUsedLoginMethod>(
-    NO_LAST_USED_LOGIN_METHOD,
-  );
+  const [lastUsedLoginMethod, setLastUsedLoginMethod] =
+    React.useState<LastUsedLoginMethod>(NO_LAST_USED_LOGIN_METHOD);
   const [passkeyRegistrationDraft, setPasskeyRegistrationDraft] = React.useState(
     createPasskeyRegistrationDraft,
   );
@@ -830,17 +824,15 @@ export function useSeamsAuthMenuController(
   const canSubmitMethodSelectedLogin =
     mode === AuthMenuMode.Login && passkeyLoginAccount != null && !!passkeyLoginWalletId;
   const canShowContinue = baseProceedEligibility.canShowContinue || canSubmitMethodSelectedLogin;
-  const canSubmit = baseProceedEligibility.canSubmit || canSubmitMethodSelectedLogin;
+  const canSubmit =
+    (baseProceedEligibility.canSubmit || canSubmitMethodSelectedLogin) &&
+    isPasskeyInteractionReady(runtime);
   const showAccountInput =
     mode === AuthMenuMode.Login ||
     registrationRequiresAccountInput ||
     (registrationUsesGeneratedWalletInput && showGeneratedRegistrationInput);
   const accountInputReadOnly =
     mode === AuthMenuMode.Register && registrationUsesGeneratedWalletInput;
-  const registrationActivationWallet =
-    mode === AuthMenuMode.Register && registrationUsesGeneratedWalletInput
-      ? passkeyRegistrationDraft.wallet
-      : undefined;
   const onAccountInputReroll = React.useCallback(() => {
     setPasskeyRegistrationDraft(createPasskeyRegistrationDraft());
     setMethodError('');
@@ -1095,8 +1087,7 @@ export function useSeamsAuthMenuController(
       const handler = props.socialLogin?.[provider];
       if (typeof handler !== 'function') return;
       const socialMode = modeOverride ?? mode;
-      const socialLoginWalletId =
-        socialMode === AuthMenuMode.Login ? emailOtpLoginWalletId : '';
+      const socialLoginWalletId = socialMode === AuthMenuMode.Login ? emailOtpLoginWalletId : '';
       if (socialLoginWalletId) {
         setCurrentValue(socialLoginWalletId);
       }
@@ -1651,92 +1642,6 @@ export function useSeamsAuthMenuController(
     [showScanDevice, closeLinkDeviceView, handleLinkDeviceEvent, handleLinkDeviceError],
   );
 
-  const activationRefreshLoginState = runtime.refreshLoginState;
-  const onRegistrationActivationSurfaceStateChange = React.useCallback(
-    (state: RegistrationActivationSurfaceState) => {
-      switch (state.kind) {
-        case 'idle':
-        case 'mounting':
-        case 'ready':
-          setMethodError('');
-          return;
-        case 'starting':
-          setMethodError('');
-          setWaiting(true);
-          setWaitingReason('passkey');
-          setPostRecoveryRotationPromptState(null);
-          setPostRecoveryRotationError('');
-          return;
-        case 'completed': {
-          const result = state.result;
-          if (!result.success) {
-            setWaiting(false);
-            setWaitingReason(null);
-            if (isRegistrationCancellationError(result.error)) {
-              setMethodError('');
-              return;
-            }
-            const error = result.error || 'Wallet registration failed.';
-            if (isWalletRequestRuntimeError(error)) {
-              warnSeamsAuthMenuAsyncError('wallet registration failed', error, error);
-              setMethodError('');
-              return;
-            }
-            setMethodError(error);
-            return;
-          }
-          const walletId = String(result.walletId || '').trim();
-          const displayAccountId = walletId;
-          setMethodError('');
-          setWaiting(true);
-          setWaitingReason('passkey');
-          setPostRecoveryRotationPromptState(null);
-          setPostRecoveryRotationError('');
-          closeLinkDeviceView('flow');
-          if (walletId) {
-            const username = extractUsernameFromAccountId(displayAccountId);
-            if (username) setCurrentValue(username);
-            void activationRefreshLoginState(walletId).catch(() => {
-              setWaiting(false);
-              setWaitingReason(null);
-              setMode(AuthMenuMode.Login);
-              setMethodError('Registration completed, but session refresh failed. Try signing in.');
-            });
-          }
-          return;
-        }
-        case 'cancelled':
-          if (state.reason === 'disposed') return;
-          setWaiting(false);
-          setWaitingReason(null);
-          if (state.reason === 'expired') {
-            setMethodError('');
-            return;
-          }
-          setMethodError('');
-          return;
-        case 'failed':
-          setWaiting(false);
-          setWaitingReason(null);
-          if (isRegistrationCancellationError(state.error)) {
-            setMethodError('');
-            return;
-          }
-          const error = state.error || 'Wallet registration failed.';
-          if (isWalletRequestRuntimeError(error)) {
-            warnSeamsAuthMenuAsyncError('wallet registration failed', error, error);
-            setMethodError('');
-            return;
-          }
-          setMethodError(error);
-          return;
-        default:
-          return assertNeverRegistrationActivationSurfaceState(state);
-      }
-    },
-    [activationRefreshLoginState, closeLinkDeviceView, setCurrentValue, setMode],
-  );
-
   return {
     mode,
     title,
@@ -1755,7 +1660,6 @@ export function useSeamsAuthMenuController(
         ? 'Generate another wallet name'
         : undefined,
     accountInputRerollDisabled: waiting,
-    ...(registrationActivationWallet ? { registrationActivationWallet } : {}),
     onAccountInputReroll:
       mode === AuthMenuMode.Register && registrationUsesGeneratedWalletInput
         ? onAccountInputReroll
@@ -1777,7 +1681,6 @@ export function useSeamsAuthMenuController(
     onResetToStart,
     openScanDevice,
     onSocialLogin,
-    onRegistrationActivationSurfaceStateChange,
     closeLinkDeviceView,
     linkDevice,
   };

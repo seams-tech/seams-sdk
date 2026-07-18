@@ -1,13 +1,8 @@
 import { BrowserSigningSurface } from '@/SeamsWeb/signingSurface/BrowserSigningSurface';
 import {
   addWalletSigner as addWalletSignerWithUnifiedCeremony,
-  disposeWalletRegistrationPrecompute,
   isRegistrationBenchmarkDiagnosticsEnabled,
-  preparePasskeyRegistrationPrecompute,
   registerWallet as registerWalletWithUnifiedCeremony,
-  registerWalletWithPreparedPasskeyAuthority,
-  startWalletRegistrationPrecompute,
-  type PreparedPasskeyRegistrationPrecompute,
   WALLET_IFRAME_TRANSPORT_TIMING_LABEL,
 } from '@/SeamsWeb/operations/registration/registration';
 import {
@@ -62,7 +57,6 @@ import { buildConfigsFromEnv } from '@/core/config/defaultConfigs';
 import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
 import { resolveAppearanceTheme, resolveThemePalette } from '@/core/config/configHelpers';
 import { WalletIframeCoordinator } from '@/SeamsWeb/walletIframe/coordinator';
-import { isWalletIframeReadyTimeoutError } from '@/SeamsWeb/walletIframe/client/transport/iframe-transport-handshake';
 import { resolveBrowserWorkerWarmupPolicy } from './assembly/browserWorkerWarmupPolicy';
 import { configureBrowserIndexedDB } from './assembly/configureBrowserIndexedDB';
 import { createBrowserSigningRuntime } from './assembly/createBrowserSigningRuntime';
@@ -141,7 +135,6 @@ import {
 } from '@/SeamsWeb/operations/authMethods/emailOtp/walletActivation';
 import {
   walletIdFromString,
-  type RegistrationSignerRequest,
   type RegistrationSignerSetSelection,
 } from '@shared/utils/registrationIntent';
 import {
@@ -156,19 +149,7 @@ import {
 } from '@/SeamsWeb/operations/registration/registrationSignerSet';
 import { createServerAllocatedWalletId } from '@shared/utils/registrationIntent';
 import { isObject } from '@shared/utils/validation';
-import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 import { DEV_DEFAULT_UNLOCK_REMAINING_USES } from '@/core/signingEngine/session/budget/policy';
-import type {
-  RegistrationActivationId,
-  RegistrationActivationMessageIdentity,
-  WalletIframeRequestId,
-  WalletIframeSurfaceId,
-} from './publicApi/types';
-import type {
-  RegistrationWebAuthnPromptOwner,
-  ReservedRegistrationWebAuthnPrompt,
-} from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/webauthnPromptCoordinator';
-import { collectPasskeyRegistrationAuthorityFromCredential } from './operations/authMethods/passkey/registrationAuthority';
 
 function requireSeamsWebRegistrationRpId(value: string): WebAuthnRpId {
   const parsed = parseWebAuthnRpId(value);
@@ -178,201 +159,10 @@ function requireSeamsWebRegistrationRpId(value: string): WebAuthnRpId {
   return parsed.value;
 }
 
-function requireNearRegistrationSignerSlot(
-  selection: Parameters<RegistrationCapability['registerWallet']>[0]['signerSelection'],
-): number {
-  for (const signer of selection.signers) {
-    if (signer.kind === 'near_ed25519') return signer.signerSlot;
-  }
-  throw new Error('Passkey registration requires a NEAR Ed25519 signer');
-}
-
-type PreparedIframePasskeyRegistrationInput = Readonly<{
-  wallet: Readonly<
-    Extract<Parameters<RegistrationCapability['registerWallet']>[0]['wallet'], { kind: 'provided' }>
-  >;
-  authMethod: Readonly<
-    Extract<
-      Parameters<RegistrationCapability['registerWallet']>[0]['authMethod'],
-      { kind: 'passkey' }
-    >
-  >;
-  signerSelection: Readonly<RegistrationSignerSetSelection>;
-  options: RegistrationHooksOptions;
-}>;
-
 type EmailOtpEd25519YaoLoginDomainArgs = Omit<
   LoginWithEmailOtpEd25519YaoCapabilityInternalArgs,
   'emailHashHex'
 >;
-
-export type PreparedIframePasskeyRegistration = Readonly<{
-  kind: 'prepared_iframe_passkey_registration_v1';
-  registration: PreparedIframePasskeyRegistrationInput;
-  precompute: PreparedPasskeyRegistrationPrecompute;
-  walletId: string;
-  rpId: WebAuthnRpId;
-  signerSlot: number;
-  challengeB64u: string;
-  expiresAtMs: number;
-}>;
-
-export type RegistrationActivationWebAuthnPromptOwner = Extract<
-  RegistrationWebAuthnPromptOwner,
-  { kind: 'registration_activation' }
->;
-
-const activatedPreparedIframePasskeyRegistrationBrand: unique symbol = Symbol(
-  'activatedPreparedIframePasskeyRegistration',
-);
-
-type ActivatedRegistrationReservation = Readonly<
-  Omit<ReservedRegistrationWebAuthnPrompt<RegistrationActivationWebAuthnPromptOwner>, 'owner'> & {
-    owner: Readonly<RegistrationActivationWebAuthnPromptOwner>;
-  }
->;
-
-export type ActivatedPreparedIframePasskeyRegistration = Readonly<{
-  readonly [activatedPreparedIframePasskeyRegistrationBrand]: true;
-  kind: 'activated_prepared_iframe_passkey_registration_v1';
-  prepared: PreparedIframePasskeyRegistration;
-  activation: Readonly<{
-    identity: Readonly<RegistrationActivationMessageIdentity>;
-    activatedAtMs: number;
-  }>;
-  reservation: ActivatedRegistrationReservation;
-  cancellation: Readonly<{ kind: 'abort_signal'; signal: AbortSignal }>;
-}>;
-
-function cloneAndFreezePreparedIframeSignerRequest(
-  signer: RegistrationSignerRequest,
-): RegistrationSignerRequest {
-  switch (signer.kind) {
-    case 'near_ed25519':
-      return Object.freeze({
-        kind: 'near_ed25519',
-        accountProvisioning: Object.freeze({ ...signer.accountProvisioning }),
-        signerSlot: signer.signerSlot,
-        participantIds: Object.freeze([...signer.participantIds]),
-        derivationVersion: signer.derivationVersion,
-      });
-    case 'evm_family_ecdsa':
-      return Object.freeze({
-        kind: 'evm_family_ecdsa',
-        participantIds: Object.freeze([...signer.participantIds]),
-        chainTargets: Object.freeze(
-          signer.chainTargets.map((target) =>
-            isObject(target) ? Object.freeze({ ...target }) : target,
-          ),
-        ),
-      });
-    default: {
-      const exhaustive: never = signer;
-      return exhaustive;
-    }
-  }
-}
-
-function cloneAndFreezePreparedIframeSignerSelection(
-  selection: RegistrationSignerSetSelection,
-): Readonly<RegistrationSignerSetSelection> {
-  return Object.freeze({
-    kind: 'signer_set',
-    signers: Object.freeze(selection.signers.map(cloneAndFreezePreparedIframeSignerRequest)),
-  });
-}
-
-function createPreparedIframePasskeyRegistrationInput(args: {
-  wallet: Extract<
-    Parameters<RegistrationCapability['registerWallet']>[0]['wallet'],
-    { kind: 'provided' }
-  >;
-  rpId: WebAuthnRpId;
-  signerSelection: RegistrationSignerSetSelection;
-  options: RegistrationHooksOptions;
-}): PreparedIframePasskeyRegistrationInput {
-  return Object.freeze({
-    wallet: Object.freeze({ kind: 'provided', walletId: args.wallet.walletId }),
-    authMethod: Object.freeze({ kind: 'passkey', rpId: args.rpId }),
-    signerSelection: cloneAndFreezePreparedIframeSignerSelection(args.signerSelection),
-    options: args.options,
-  });
-}
-
-function registrationActivationMessageIdentitiesEqual(
-  left: RegistrationActivationMessageIdentity,
-  right: RegistrationActivationMessageIdentity,
-): boolean {
-  return (
-    left.surfaceId === right.surfaceId &&
-    left.activationId === right.activationId &&
-    left.requestId === right.requestId
-  );
-}
-
-export function activatePreparedIframePasskeyRegistration(args: {
-  prepared: PreparedIframePasskeyRegistration;
-  identity: RegistrationActivationMessageIdentity;
-  reservation: ReservedRegistrationWebAuthnPrompt<RegistrationActivationWebAuthnPromptOwner>;
-  cancellation: { kind: 'abort_signal'; signal: AbortSignal };
-  activatedAtMs: number;
-}): ActivatedPreparedIframePasskeyRegistration {
-  if (
-    !registrationActivationMessageIdentitiesEqual(args.reservation.owner.identity, args.identity)
-  ) {
-    throw new Error('Registration activation reservation identity does not match');
-  }
-  if (args.cancellation.signal.aborted) {
-    throw new Error('Registration activation was cancelled before activation');
-  }
-  const identity = Object.freeze({
-    surfaceId: args.identity.surfaceId,
-    activationId: args.identity.activationId,
-    requestId: args.identity.requestId,
-  });
-  const reservation = Object.freeze({
-    kind: 'reserved_registration_webauthn_prompt_v1' as const,
-    reservationId: args.reservation.reservationId,
-    owner: Object.freeze({ kind: 'registration_activation' as const, identity }),
-    expiresAtMs: args.reservation.expiresAtMs,
-  });
-  return Object.freeze({
-    [activatedPreparedIframePasskeyRegistrationBrand]: true as const,
-    kind: 'activated_prepared_iframe_passkey_registration_v1',
-    prepared: args.prepared,
-    activation: Object.freeze({
-      identity,
-      activatedAtMs: args.activatedAtMs,
-    }),
-    reservation,
-    cancellation: Object.freeze({
-      kind: 'abort_signal' as const,
-      signal: args.cancellation.signal,
-    }),
-  });
-}
-
-type PasskeyRegistrationActivationSurface = ReturnType<
-  RegistrationCapability['createPasskeyRegistrationActivationSurface']
->;
-type PasskeyRegistrationActivationSurfaceState = ReturnType<
-  PasskeyRegistrationActivationSurface['state']
->;
-type PasskeyRegistrationActivationSurfaceMountLifecycle =
-  | { kind: 'idle' }
-  | { kind: 'mounting' }
-  | {
-      kind: 'mounted';
-      surface: PasskeyRegistrationActivationSurface;
-      unsubscribe(): void;
-    }
-  | { kind: 'disposed' };
-
-function readPasskeyRegistrationActivationSurfaceMountLifecycle(
-  lifecycle: PasskeyRegistrationActivationSurfaceMountLifecycle,
-): PasskeyRegistrationActivationSurfaceMountLifecycle {
-  return lifecycle;
-}
 
 ///////////////////////////////////////
 // PASSKEY MANAGER
@@ -990,8 +780,6 @@ export class SeamsWeb {
         addWalletSigner: async (args) => await this.registerWalletSignerDomain(args),
         registerWallet: async (args) => await this.registerWalletDomain(args),
         registerPasskey: async (options) => await this.registerPasskeyDomain(options),
-        createPasskeyRegistrationActivationSurface: (args) =>
-          this.createPasskeyRegistrationActivationSurfaceDomain(args),
         requestEmailOtpEnrollmentChallenge: async (args) =>
           await this.requestEmailOtpEnrollmentChallengeDomain(args),
         enrollEmailOtp: async (args) => await this.enrollEmailOtpDomain(args),
@@ -1309,180 +1097,6 @@ export class SeamsWeb {
       }),
       options: registrationOptions,
     });
-  }
-
-  async prepareIframePasskeyRegistration(args: {
-    wallet: Extract<
-      Parameters<RegistrationCapability['registerWallet']>[0]['wallet'],
-      { kind: 'provided' }
-    >;
-    signerSelection: RegistrationSignerSetSelection;
-    options: RegistrationHooksOptions;
-    expiresAtMs: number;
-  }): Promise<PreparedIframePasskeyRegistration> {
-    if (Date.now() >= args.expiresAtMs) {
-      throw new Error('Registration activation expired before preparation');
-    }
-    const rpId = requireSeamsWebRegistrationRpId(this.signingEngine.getRpId());
-    const signerSlot = requireNearRegistrationSignerSlot(args.signerSelection);
-    const registration = createPreparedIframePasskeyRegistrationInput({
-      wallet: args.wallet,
-      rpId,
-      signerSelection: args.signerSelection,
-      options: args.options,
-    });
-    const handle = startWalletRegistrationPrecompute({
-      context: this.getContext(),
-      authMethod: registration.authMethod,
-      wallet: registration.wallet,
-      signerSelection: registration.signerSelection,
-    });
-    try {
-      const precompute = await preparePasskeyRegistrationPrecompute(handle);
-      if (Date.now() >= args.expiresAtMs) {
-        throw new Error('Registration activation expired during preparation');
-      }
-      return Object.freeze({
-        kind: 'prepared_iframe_passkey_registration_v1',
-        registration,
-        precompute,
-        walletId: precompute.walletId,
-        rpId,
-        signerSlot,
-        challengeB64u: precompute.registrationIntentDigestB64u,
-        expiresAtMs: args.expiresAtMs,
-      });
-    } catch (error) {
-      disposeWalletRegistrationPrecompute(handle);
-      throw error;
-    }
-  }
-
-  continuePreparedIframePasskeyRegistration(
-    activated: ActivatedPreparedIframePasskeyRegistration,
-  ): Promise<RegistrationResult> {
-    if (activated[activatedPreparedIframePasskeyRegistrationBrand] !== true) {
-      throw new Error('Registration activation lifecycle is invalid');
-    }
-    if (Date.now() >= activated.prepared.expiresAtMs) {
-      disposeWalletRegistrationPrecompute(activated.prepared.precompute.handle);
-      throw new Error('Registration activation expired before WebAuthn');
-    }
-    const credential = this.signingEngine.startPreparedPasskeyRegistrationCredential({
-      walletId: activated.prepared.walletId,
-      signerSlot: activated.prepared.signerSlot,
-      challengeB64u: activated.prepared.challengeB64u,
-      expectedRpId: activated.prepared.rpId,
-      reservation: activated.reservation,
-      owner: activated.reservation.owner,
-      cancellation: activated.cancellation,
-    });
-    const authority = collectPasskeyRegistrationAuthorityFromCredential(credential);
-    return registerWalletWithPreparedPasskeyAuthority({
-      context: this.getContext(),
-      authMethod: activated.prepared.registration.authMethod,
-      wallet: activated.prepared.registration.wallet,
-      signerSelection: activated.prepared.registration.signerSelection,
-      options: {
-        ...activated.prepared.registration.options,
-        walletIframeActivation: {
-          kind: 'wallet_iframe_registration_activation_v1',
-          activationId: activated.activation.identity.activationId,
-          activatedAtMs: activated.activation.activatedAtMs,
-        },
-      },
-      authenticatorOptions: cloneAuthenticatorOptions(this.configs.webauthn.authenticatorOptions),
-      precompute: activated.prepared.precompute,
-      authority,
-      cancellation: activated.cancellation,
-    });
-  }
-
-  disposePreparedIframePasskeyRegistration(prepared: PreparedIframePasskeyRegistration): void {
-    disposeWalletRegistrationPrecompute(prepared.precompute.handle);
-  }
-
-  private createPasskeyRegistrationActivationSurfaceDomain(
-    args: Parameters<RegistrationCapability['createPasskeyRegistrationActivationSurface']>[0],
-  ): ReturnType<RegistrationCapability['createPasskeyRegistrationActivationSurface']> {
-    if (!this.walletIframe.shouldUseWalletIframe()) {
-      throw new Error('[SeamsWeb] Registration activation surfaces require wallet iframe mode.');
-    }
-    let state: PasskeyRegistrationActivationSurfaceState = { kind: 'idle' };
-    let mountLifecycle: PasskeyRegistrationActivationSurfaceMountLifecycle = { kind: 'idle' };
-    const listeners = new Set<(next: PasskeyRegistrationActivationSurfaceState) => void>();
-    const setState = (next: PasskeyRegistrationActivationSurfaceState): void => {
-      state = next;
-      for (const listener of listeners) {
-        try {
-          listener(next);
-        } catch {}
-      }
-    };
-    const activationWalletId = String(args.wallet.walletId);
-    const initializationIdentity: RegistrationActivationMessageIdentity = {
-      surfaceId:
-        `regsurf-init-${secureRandomBase36(12, 'registration initialization surface IDs')}` as WalletIframeSurfaceId,
-      activationId:
-        `regact-init-${secureRandomBase36(12, 'registration initialization activation IDs')}` as RegistrationActivationId,
-      requestId:
-        `regreq-init-${secureRandomBase36(12, 'registration initialization request IDs')}` as WalletIframeRequestId,
-    };
-    void this.initWalletIframe(activationWalletId).catch(() => {});
-    return {
-      kind: 'wallet_iframe_registration_activation_surface_v1',
-      mount: (target: HTMLElement) => {
-        if (mountLifecycle.kind !== 'idle') return;
-        mountLifecycle = { kind: 'mounting' };
-        void (async () => {
-          try {
-            const router = await this.walletIframe.requireRouter(activationWalletId);
-            if (mountLifecycle.kind !== 'mounting') return;
-            const surface = router.createPasskeyRegistrationActivationSurface(args);
-            const unsubscribe = surface.onStateChange(setState);
-            mountLifecycle = { kind: 'mounted', surface, unsubscribe };
-            surface.mount(target);
-          } catch (error) {
-            const failedLifecycle =
-              readPasskeyRegistrationActivationSurfaceMountLifecycle(mountLifecycle);
-            if (failedLifecycle.kind === 'disposed') return;
-            if (failedLifecycle.kind === 'mounted') {
-              failedLifecycle.surface.dispose();
-              failedLifecycle.unsubscribe();
-            }
-            mountLifecycle = { kind: 'disposed' };
-            if (isWalletIframeReadyTimeoutError(error)) {
-              setState({
-                kind: 'cancelled',
-                identity: initializationIdentity,
-                reason: 'target_unavailable',
-              });
-              return;
-            }
-            const message =
-              error instanceof Error ? error.message : 'Registration activation failed';
-            setState({ kind: 'failed', identity: initializationIdentity, error: message });
-          }
-        })();
-      },
-      dispose: () => {
-        const lifecycle = mountLifecycle;
-        if (lifecycle.kind === 'disposed') return;
-        mountLifecycle = { kind: 'disposed' };
-        if (lifecycle.kind === 'mounted') {
-          lifecycle.surface.dispose();
-          lifecycle.unsubscribe();
-        }
-        if (state.kind === 'idle') {
-          setState({ kind: 'cancelled', identity: initializationIdentity, reason: 'disposed' });
-        }
-      },
-      state: () => state,
-      onStateChange: (listener) => {
-        listeners.add(listener);
-        return () => listeners.delete(listener);
-      },
-    };
   }
 
   private emailOtpRegistrationFlowId(walletId: string, challengeId?: string): string {
@@ -1985,23 +1599,6 @@ export class SeamsWeb {
           await this.exchangeGoogleEmailOtpSessionDomain(exchangeArgs),
         requestEmailOtpChallenge: async (challengeArgs) =>
           await this.requestEmailOtpChallengeDomain(challengeArgs),
-        prepareEmailOtpRegistrationEnrollmentMaterial: async (prepareArgs) =>
-          await this.signingEngine.prepareEmailOtpRegistrationEnrollmentMaterialInternal({
-            relayUrl: prepareArgs.relayUrl,
-            walletId: walletIdFromString(prepareArgs.walletId),
-            userId: prepareArgs.userId,
-            appSessionJwt: prepareArgs.appSessionJwt,
-            ed25519YaoFactor: {
-              kind: 'ed25519_yao_factor_requested',
-              providerSubject: prepareArgs.userId,
-            },
-            ...(prepareArgs.ecdsaMaterial.kind === 'requested'
-              ? {
-                  kind: 'ecdsa_root_requested' as const,
-                  targets: prepareArgs.ecdsaMaterial.targets,
-                }
-              : { kind: 'ecdsa_root_not_requested' as const }),
-          }),
         registerWallet: async (registerArgs) => await this.registerWalletDomain(registerArgs),
         loginWithEmailOtpEcdsaCapability: async (loginArgs) =>
           await this.loginWithEmailOtpEcdsaCapabilityDomain(loginArgs),

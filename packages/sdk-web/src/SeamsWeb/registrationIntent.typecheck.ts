@@ -88,12 +88,6 @@ const validEd25519AddSignerStart = {
 } satisfies WalletAddSignerStartResponse;
 void validEd25519AddSignerStart;
 
-void ({
-  ...validEd25519AddSignerStart,
-  ecdsa: { kind: 'evm_family_ecdsa_keygen', targets: [] },
-  // @ts-expect-error A near-Ed25519 start response cannot carry ECDSA work.
-} satisfies WalletAddSignerStartResponse);
-
 // @ts-expect-error A near-Ed25519 start response requires its admission branch.
 const missingEd25519AddSignerStartBranch: WalletAddSignerStartResponse = {
   ok: true,

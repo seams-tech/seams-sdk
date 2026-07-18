@@ -1,5 +1,8 @@
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import type { ServerAllocatedWalletId } from '@shared/utils/registrationIntent';
+import {
+  parseServerAllocatedWalletId,
+  type ServerAllocatedWalletId,
+} from '@shared/utils/registrationIntent';
 import type { CloudflareDurableObjectStubLike } from '../../core/types';
 import {
   StoredAddAuthMethodIntent,
@@ -10,7 +13,10 @@ import {
   StoredWalletAddSignerFinalizeReplay,
   StoredWalletRegistrationCeremony,
   StoredWalletRegistrationFinalizeReplay,
+  parseTerminalRegistrationCeremonyCancellationResult,
+  type TerminalRegistrationCeremonyCancellationResult,
 } from '../../core/RegistrationCeremonyStore';
+import type { WalletId } from '../../core/registrationContracts';
 import {
   callRegistrationCeremonyDo,
   resolveRegistrationCeremonyDoStub,
@@ -67,12 +73,13 @@ export class CloudflareD1RegistrationCeremonyIntentStore {
     if (!walletId || !Number.isSafeInteger(expiresAtMs) || expiresAtMs <= Date.now()) {
       return false;
     }
-    const response = await callRegistrationCeremonyDo<{ readonly reserved: true }>(this.stub, {
-      op: 'authReserveReplayGuard',
+    const response = await callRegistrationCeremonyDo<unknown>(this.stub, {
+      op: 'registrationReserveWalletId',
       key: this.key(
         'server-allocated-wallet-reservation',
         serverAllocatedWalletReservationKey(input),
       ),
+      walletId,
       expiresAtMs,
     });
     return response.ok;
@@ -160,6 +167,39 @@ export class CloudflareD1RegistrationCeremonyIntentStore {
     const id = toOptionalTrimmedString(registrationCeremonyId);
     if (!id) return false;
     return await this.del('ceremony', id);
+  }
+
+  async cancelTerminalCeremony(input: {
+    readonly registrationCeremonyId: string;
+    readonly walletId: WalletId;
+  }): Promise<TerminalRegistrationCeremonyCancellationResult> {
+    const registrationCeremonyId = toOptionalTrimmedString(input.registrationCeremonyId);
+    const walletId = toOptionalTrimmedString(input.walletId);
+    if (!registrationCeremonyId || !walletId) {
+      throw new Error('Terminal registration cancellation requires ceremony and wallet IDs');
+    }
+    const serverAllocatedWalletId = parseServerAllocatedWalletId(input.walletId);
+    const response = await callRegistrationCeremonyDo<unknown>(this.stub, {
+      op: 'registrationCancelTerminal',
+      ceremonyKey: this.key('ceremony', registrationCeremonyId),
+      registrationCeremonyId,
+      walletId,
+      reservation: serverAllocatedWalletId.ok
+        ? {
+            kind: 'server_allocated_wallet',
+            key: this.key(
+              'server-allocated-wallet-reservation',
+              serverAllocatedWalletReservationKey({
+                walletId: serverAllocatedWalletId.value,
+              }),
+            ),
+          }
+        : { kind: 'none' },
+    });
+    if (!response.ok) throw new Error(response.message);
+    const result = parseTerminalRegistrationCeremonyCancellationResult(response.value);
+    if (!result) throw new Error('Terminal registration cancellation returned an invalid result');
+    return result;
   }
 
   async putFinalizeReplay(replay: StoredWalletRegistrationFinalizeReplay): Promise<void> {

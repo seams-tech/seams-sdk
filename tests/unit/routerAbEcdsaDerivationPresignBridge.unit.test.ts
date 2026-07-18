@@ -244,7 +244,7 @@ test.describe('Router A/B ECDSA derivation presign bridge', () => {
 
     await expect(
       putRouterAbEcdsaDerivationPresignaturePoolFill({
-        signingWorkerBaseUrl: 'http://127.0.0.1:9093',
+        signingWorkerBaseUrl: 'http://127.0.0.1:9103',
         request: poolFillRequest,
         auth: { kind: 'internal_service_auth_secret', secret: 'private-route-token' },
         fetchImpl,
@@ -253,7 +253,7 @@ test.describe('Router A/B ECDSA derivation presign bridge', () => {
       ok: false,
       code: 'network_error',
       message:
-        'pool-fill request to http://127.0.0.1:9093/router-ab/signing-worker/ecdsa-derivation/presignature-pool/put failed: fetch failed',
+        'pool-fill request to http://127.0.0.1:9103/router-ab/signing-worker/ecdsa-derivation/presignature-pool/put failed: fetch failed',
     });
   });
 

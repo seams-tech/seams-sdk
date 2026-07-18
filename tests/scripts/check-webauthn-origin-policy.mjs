@@ -109,37 +109,89 @@ function findWalletRegistrationOriginViolations() {
 
   const hostPath = 'packages/sdk-web/src/SeamsWeb/walletIframe/host/handlers/near.ts';
   const host = readRepoFile(hostPath);
-  if (!/continuePreparedIframePasskeyRegistration\(activated\)/.test(host)) {
-    violations.push(`${hostPath} does not use the prepared registration continuation`);
+  if (!/PM_REGISTER_WALLET:[\s\S]{0,1000}pm\.registration\.registerWallet\(\{/.test(host)) {
+    violations.push(`${hostPath} does not route iframe registration through registerWallet`);
   }
-  if (/registerPasskey\s*\(/.test(host)) {
-    violations.push(`${hostPath} invokes the broad registerPasskey path after activation`);
-  }
-  const continuationCall = host.indexOf('continuePreparedIframePasskeyRegistration(activated)');
-  const continuationThen = host.indexOf('registration.then', continuationCall);
-  if (continuationCall < 0 || continuationThen < continuationCall) {
-    violations.push(`${hostPath} does not start the prepared continuation before promise dispatch`);
+  if (/registrationActivation|continuePreparedIframePasskeyRegistration/.test(host)) {
+    violations.push(`${hostPath} retains the obsolete registration activation path`);
   }
 
-  const seamsWebPath = 'packages/sdk-web/src/SeamsWeb/SeamsWeb.ts';
-  const seamsWeb = readRepoFile(seamsWebPath);
-  const continuationStart = seamsWeb.indexOf('continuePreparedIframePasskeyRegistration(');
-  const credentialStart = seamsWeb.indexOf(
-    'startPreparedPasskeyRegistrationCredential',
-    continuationStart,
-  );
-  const registrationStart = seamsWeb.indexOf(
-    'registerWalletWithPreparedPasskeyAuthority',
-    credentialStart,
-  );
+  const hostEntryPath = 'packages/sdk-web/src/SeamsWeb/walletIframe/host/index.ts';
+  const hostEntry = readRepoFile(hostEntryPath);
+  const configPreload = hostEntry.indexOf('await preloadWalletHostRegistrationSurface()');
+  const configReady = hostEntry.indexOf("post({ type: 'PONG', requestId })", configPreload);
+  if (configPreload < 0 || configReady < configPreload) {
+    violations.push(`${hostEntryPath} does not preload registration UI before config readiness`);
+  }
   if (
-    continuationStart < 0 ||
-    credentialStart < continuationStart ||
-    registrationStart < credentialStart
+    /openRegistrationPreparationIfNeeded|openWalletHostRegistrationPreparation|preparationHandle/.test(
+      hostEntry,
+    )
+  ) {
+    violations.push(`${hostEntryPath} mounts an obsolete duplicate registration shell`);
+  }
+
+  const preloadPath =
+    'packages/sdk-web/src/SeamsWeb/walletIframe/host/registrationPreparationPreload.ts';
+  const preload = readRepoFile(preloadPath);
+  if (
+    !/preloadWalletHostRegistrationPreparation\([\s\S]{0,600}prewarmTxConfirmerUi\(\)/.test(
+      preload,
+    )
+  ) {
+    violations.push(`${preloadPath} does not preload the registration modal element`);
+  }
+
+  const authMenuAdapterPath =
+    'packages/sdk-web/src/react/components/SeamsAuthMenu/adapters/seams.ts';
+  const authMenuAdapter = readRepoFile(authMenuAdapterPath);
+  if (!/walletIframeConnected:\s*ctx\.walletIframeConnected/.test(authMenuAdapter)) {
+    violations.push(`${authMenuAdapterPath} does not expose iframe readiness to the auth menu`);
+  }
+  const authMenuControllerPath =
+    'packages/sdk-web/src/react/components/SeamsAuthMenu/controller/useSeamsAuthMenuController.ts';
+  const authMenuController = readRepoFile(authMenuControllerPath);
+  if (
+    !/const canSubmit =[\s\S]{0,220}isPasskeyInteractionReady\(runtime\)/.test(authMenuController)
   ) {
     violations.push(
-      `${seamsWebPath} does not start WebAuthn before registration continuation work`,
+      `${authMenuControllerPath} enables passkey interaction before iframe readiness`,
     );
+  }
+
+  const registrationPath = 'packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts';
+  const registration = readRepoFile(registrationPath);
+  const modalStart = registration.indexOf(
+    'const modalPromise = args.context.signingEngine.openRegistrationPreparationModal(',
+  );
+  const precomputeStart = registration.indexOf(
+    'const readyPromise = startWalletRegistrationPrecomputeReady(args);',
+    modalStart,
+  );
+  const parallelAwait = registration.indexOf(
+    'await Promise.all([readyPromise, modalPromise])',
+    precomputeStart,
+  );
+  if (modalStart < 0 || precomputeStart < modalStart || parallelAwait < precomputeStart) {
+    violations.push(
+      `${registrationPath} does not open the modal before parallel registration precompute`,
+    );
+  }
+  const uiConfirmPath = 'packages/sdk-web/src/core/signingEngine/uiConfirm/UiConfirmManager.ts';
+  const uiConfirm = readRepoFile(uiConfirmPath);
+  if (
+    !/openRegistrationPreparationModal\([\s\S]{0,1800}loading:\s*true[\s\S]{0,500}uiMode:\s*'modal'/.test(
+      uiConfirm,
+    )
+  ) {
+    violations.push(`${uiConfirmPath} does not mount an immediate loading registration modal`);
+  }
+  if (
+    !/takeRegistrationConfirmationSurface\(\)[\s\S]{0,700}kind:\s*'reuse_mounted'/.test(
+      uiConfirm,
+    )
+  ) {
+    violations.push(`${uiConfirmPath} does not reuse the preparation modal for confirmation`);
   }
   return violations;
 }

@@ -74,7 +74,7 @@ import {
   toExactEcdsaSigningLaneIdentity,
   type ThresholdEcdsaSessionRecord,
 } from '../../session/persistence/records';
-import { parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord } from '../../session/persistence/ecdsaRoleLocalRecords';
+import { readThresholdEcdsaSessionRecordRoleLocalReadyRecord } from '../../session/persistence/ecdsaRoleLocalRecords';
 import type { WalletBudgetUnknown } from '../../session/budget/budgetProjection';
 import type { ReauthAnchorIdentity } from '../../session/operationState/transactionState';
 import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
@@ -840,7 +840,7 @@ function passkeyAuthorityFromRecord(
   if (record.source === SIGNER_AUTH_METHODS.emailOtp) {
     throw new Error('[SigningEngine][ecdsa] passkey committed lane requires passkey record source');
   }
-  const readyRecord = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record);
+  const readyRecord = readThresholdEcdsaSessionRecordRoleLocalReadyRecord(record);
   if (readyRecord.authMethod.kind !== 'passkey') {
     throw new Error('[SigningEngine][ecdsa] passkey committed lane requires passkey record auth');
   }

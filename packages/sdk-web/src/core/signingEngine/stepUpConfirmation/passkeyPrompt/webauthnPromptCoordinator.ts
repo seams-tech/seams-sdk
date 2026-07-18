@@ -1,7 +1,4 @@
-import type {
-  RegistrationActivationMessageIdentity,
-  WalletIframeRequestId,
-} from '@/core/types/registrationActivationIdentity';
+import type { WalletIframeRequestId } from '@/core/types/walletIframeIdentity';
 import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 
 export type WebAuthnPromptReservationId = string & {
@@ -12,15 +9,10 @@ export type WebAuthnPromptOperationId = string & {
   readonly __webAuthnPromptOperationId: unique symbol;
 };
 
-export type RegistrationWebAuthnPromptOwner =
-  | {
-      kind: 'registration_activation';
-      identity: RegistrationActivationMessageIdentity;
-    }
-  | {
-      kind: 'registration_modal';
-      requestId: WalletIframeRequestId;
-    };
+export type RegistrationWebAuthnPromptOwner = {
+  kind: 'registration_modal';
+  requestId: WalletIframeRequestId;
+};
 
 export type WebAuthnPromptOwner =
   | RegistrationWebAuthnPromptOwner
@@ -87,31 +79,11 @@ export type WebAuthnPromptCancellation =
   | { kind: 'none'; signal?: never }
   | { kind: 'abort_signal'; signal: AbortSignal };
 
-function registrationActivationIdentitiesEqual(
-  left: RegistrationActivationMessageIdentity,
-  right: RegistrationActivationMessageIdentity,
-): boolean {
-  return (
-    left.surfaceId === right.surfaceId &&
-    left.activationId === right.activationId &&
-    left.requestId === right.requestId
-  );
-}
-
 function registrationPromptOwnersEqual(
   left: RegistrationWebAuthnPromptOwner,
   right: RegistrationWebAuthnPromptOwner,
 ): boolean {
-  if (left.kind !== right.kind) return false;
-  switch (left.kind) {
-    case 'registration_activation':
-      return (
-        right.kind === 'registration_activation' &&
-        registrationActivationIdentitiesEqual(left.identity, right.identity)
-      );
-    case 'registration_modal':
-      return right.kind === 'registration_modal' && left.requestId === right.requestId;
-  }
+  return left.requestId === right.requestId;
 }
 
 function createReservationId(): WebAuthnPromptReservationId {

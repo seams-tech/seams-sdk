@@ -10,6 +10,7 @@ import {
   parseEcdsaKeyHandle,
   parseEcdsaRelayerKeyId,
   parseEcdsaRoleLocalBindingDigest,
+  parseEcdsaRoleLocalDurableMaterialRef,
   parseEcdsaRoleLocalMaterialHandle,
   parseEcdsaThresholdKeyId,
   type EcdsaClientVerifyingShareB64u,
@@ -116,6 +117,7 @@ export function buildEcdsaRoleLocalSigningMaterialHandle(
     kind: 'role_local_worker_session',
     materialHandle: identity.materialHandle,
     bindingDigest: identity.bindingDigest,
+    durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef(identity.materialHandle),
   };
 }
 

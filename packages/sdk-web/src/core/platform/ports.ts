@@ -30,6 +30,16 @@ import type {
 } from './generated/signerCoreCommands';
 import type { ThresholdRuntimePolicyScope } from '../signingEngine/threshold/sessionPolicy';
 import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
+import type {
+  CloseRouterAbEcdsaRegistrationCeremonyRequestV1,
+  CloseRouterAbEcdsaRegistrationCeremonyResultV1,
+  CreateRouterAbEcdsaRegistrationCeremonyRequestV1,
+  CreateRouterAbEcdsaRegistrationCeremonyResultV1,
+  FinalizeRouterAbEcdsaRegistrationActivationRequestV1,
+  FinalizeRouterAbEcdsaRegistrationActivationResultV1,
+  VerifyRouterAbEcdsaRegistrationClientProofsRequestV1,
+  VerifyRouterAbEcdsaRegistrationClientProofsResultV1,
+} from '../signingEngine/routerAb/ecdsaDerivation/clientCeremony';
 import type { PlatformResult } from './http';
 import type {
   CleanupMalformedEcdsaRoleLocalRecordInput,
@@ -366,6 +376,7 @@ export type FinalizeEcdsaClientBootstrapInput = {
     relayerPublicKey33B64u: EcdsaDerivationRelayerPublicKey33B64u;
     groupPublicKey33B64u: string;
     ethereumAddress: `0x${string}`;
+    relayerShareRetryCounter: number;
   };
 };
 
@@ -474,6 +485,18 @@ export type EcdsaProvisioningState =
 
 export type SignerCryptoPort = {
   kind: 'signer_crypto';
+  createRouterAbEcdsaRegistrationCeremony(
+    input: CreateRouterAbEcdsaRegistrationCeremonyRequestV1,
+  ): Promise<CreateRouterAbEcdsaRegistrationCeremonyResultV1>;
+  verifyRouterAbEcdsaRegistrationClientProofs(
+    input: VerifyRouterAbEcdsaRegistrationClientProofsRequestV1,
+  ): Promise<VerifyRouterAbEcdsaRegistrationClientProofsResultV1>;
+  finalizeRouterAbEcdsaRegistrationActivation(
+    input: FinalizeRouterAbEcdsaRegistrationActivationRequestV1,
+  ): Promise<FinalizeRouterAbEcdsaRegistrationActivationResultV1>;
+  closeRouterAbEcdsaRegistrationCeremony(
+    input: CloseRouterAbEcdsaRegistrationCeremonyRequestV1,
+  ): Promise<CloseRouterAbEcdsaRegistrationCeremonyResultV1>;
   prepareEcdsaClientBootstrap(
     input: PrepareEcdsaClientBootstrapInput,
   ): Promise<

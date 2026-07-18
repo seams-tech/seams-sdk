@@ -243,7 +243,7 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
           >
         </div>
         <div class="passkey-registration-confirm__row">
-          <span class="passkey-registration-confirm__label">Relying party</span>
+          <span class="passkey-registration-confirm__label">Website</span>
           <span class="passkey-registration-confirm__value" title=${display.rpId}
             >${display.rpId}</span
           >
@@ -298,11 +298,13 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
               <w3a-passkey-halo-loading
                 .theme=${this.theme}
                 .appearance=${this.appearance}
-                .animated=${!this.errorMessage}
+                .animated=${this.loading && !this.errorMessage}
                 .ringGap=${4}
                 .ringWidth=${4}
                 .ringBorderRadius=${'1.125rem'}
-                .ringBackground=${'var(--w3a-modal__passkey-halo-loading__ring-background)'}
+                .ringBackground=${this.loading && !this.errorMessage
+                  ? 'var(--w3a-modal__passkey-halo-loading__ring-background)'
+                  : 'transparent'}
                 .innerPadding=${'0px'}
                 .innerBackground=${'var(--w3a-modal__passkey-halo-loading__inner-background)'}
                 .iconVariant=${'fingerprint'}

@@ -152,21 +152,6 @@ function requireWalletId(body: unknown, name: string): WalletId | null {
   return parsed.ok ? parsed.value : null;
 }
 
-function resolveSelfHostedWalletVerifier(
-  ctx: SelfHostedCloudflareRouterApiContext,
-) {
-  return ctx.service.thresholdRuntime.getRouterAbEcdsaBootstrapExportRuntime();
-}
-
-function selfHostedSigningRootResultStatus(result: unknown): number {
-  if (isPlainObject(result) && result.ok === true) return 200;
-  const code = isPlainObject(result) && typeof result.code === 'string' ? result.code : '';
-  if (code === 'not_configured' || code === 'not_implemented') return 501;
-  if (code === 'unauthorized') return 403;
-  if (code === 'invalid_body' || code === 'invalid_request') return 400;
-  return 400;
-}
-
 function selfHostedHealthResponse(ctx: SelfHostedCloudflareRouterApiContext): Response | null {
   if (ctx.method !== 'GET') return null;
   if (ctx.pathname !== '/healthz' && ctx.pathname !== '/readyz') return null;
@@ -251,77 +236,6 @@ async function handleSigningRootAdminRoutes(
       signingRootVersion,
     });
     return json(result);
-  }
-
-  if (ctx.method === 'POST' && ctx.pathname === '/self-host/signing-root/verify-wallet') {
-    const body = await readJson(ctx.request);
-    const signingRootId = requireBodyString(body, 'signingRootId');
-    const signingRootVersion = requireBodyString(body, 'signingRootVersion');
-    const walletSessionUserId = requireBodyString(body, 'walletSessionUserId');
-    const walletId = requireWalletId(body, 'subjectId');
-    const chainTarget = isPlainObject(body)
-      ? thresholdEcdsaChainTargetFromValue(body.chainTarget)
-      : null;
-    const ecdsaThresholdKeyId = requireBodyString(body, 'ecdsaThresholdKeyId');
-    const parsedEvmFamilySigningKeySlotId = isPlainObject(body)
-      ? parseEvmFamilySigningKeySlotId(body.evmFamilySigningKeySlotId)
-      : null;
-    const evmFamilySigningKeySlotId = parsedEvmFamilySigningKeySlotId?.ok
-      ? parsedEvmFamilySigningKeySlotId.value
-      : null;
-    const signingGrantId = requireBodyString(body, 'signingGrantId');
-    const thresholdSessionId = requireBodyString(body, 'thresholdSessionId');
-    const rpId = requireBodyString(body, 'rpId');
-    const clientPublicKey33B64u = requireBodyString(body, 'clientPublicKey33B64u');
-    if (
-      !signingRootId ||
-      !signingRootVersion ||
-      !walletSessionUserId ||
-      !walletId ||
-      !chainTarget ||
-      !ecdsaThresholdKeyId ||
-      !evmFamilySigningKeySlotId ||
-      !signingGrantId ||
-      !thresholdSessionId ||
-      !rpId ||
-      !clientPublicKey33B64u
-    ) {
-      return json(
-        {
-          ok: false,
-          code: 'invalid_request',
-          message:
-            'signingRootId, signingRootVersion, walletSessionUserId, subjectId, chainTarget, ecdsaThresholdKeyId, evmFamilySigningKeySlotId, signingGrantId, thresholdSessionId, rpId, and clientPublicKey33B64u are required',
-        },
-        { status: 400 },
-      );
-    }
-    const verifier = resolveSelfHostedWalletVerifier(ctx);
-    if (!verifier) {
-      return json(
-        {
-          ok: false,
-          code: 'not_configured',
-          message:
-            'self-host wallet verification requires a threshold service with signing-root verification support',
-        },
-        { status: 501 },
-      );
-    }
-    const expectedEthereumAddress = optionalBodyString(body, 'expectedEthereumAddress');
-    const walletKeyVersion = optionalBodyString(body, 'walletKeyVersion');
-    const result = await verifier.verifyEcdsaSigningRootWalletAddress({
-      signingRootId,
-      signingRootVersion,
-      walletId,
-      chainTarget,
-      ecdsaThresholdKeyId,
-      evmFamilySigningKeySlotId,
-      clientPublicKey33B64u,
-      ...(expectedEthereumAddress ? { expectedEthereumAddress } : {}),
-      ...(walletKeyVersion ? { walletKeyVersion } : {}),
-    });
-    return json(result, { status: selfHostedSigningRootResultStatus(result) });
   }
 
   return null;

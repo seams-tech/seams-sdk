@@ -102,92 +102,30 @@ function checkVisibleIframePasskeyRegistrationUsesProvidedWalletId() {
   const controller = readRepoSource(
     'packages/sdk-web/src/react/components/SeamsAuthMenu/controller/useSeamsAuthMenuController.ts',
   );
-  const seamsAuthMenuTypes = readRepoSource(
-    'packages/sdk-web/src/react/components/SeamsAuthMenu/types.ts',
-  );
-  const hostNear = readRepoSource(
-    'packages/sdk-web/src/SeamsWeb/walletIframe/host/handlers/near.ts',
-  );
-  const touchIdPrompt = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt.ts',
-  );
-  const registrationFlow = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/uiConfirm/handlers/flows/registration.ts',
-  );
-  const activationSurfaceArgs = extractSourceBlock(
-    publicTypes,
-    'export type CreatePasskeyRegistrationActivationSurfaceArgs = {',
-    '};',
-    'passkey registration activation surface args',
-  );
-  const activationPreparePayload = extractSourceBlock(
-    messages,
-    'export interface PMRegistrationActivationPreparePayload extends RegistrationActivationMessageIdentity {',
-    '\n}',
-    'registration activation prepare payload',
+  const client = readRepoSource(
+    'packages/sdk-web/src/react/components/SeamsAuthMenu/client.tsx',
   );
 
-  assertContains(
-    activationSurfaceArgs,
-    "wallet: Extract<RegisterWalletInput, { kind: 'provided' }>",
-    'activation surface args',
-  );
-  assertContains(
-    activationPreparePayload,
-    "wallet: Extract<RegisterWalletInput, { kind: 'provided' }>",
-    'activation prepare payload',
-  );
-  assertNotContains(
-    activationSurfaceArgs,
-    "wallet?: Extract<RegisterWalletInput, { kind: 'provided' }>",
-    'activation surface args',
-  );
-  assertNotContains(
-    activationPreparePayload,
-    "wallet?: Extract<RegisterWalletInput, { kind: 'provided' }>",
-    'activation prepare payload',
-  );
   assertContains(controller, 'type PasskeyRegistrationDraft', 'SeamsAuthMenu controller');
   assertContains(controller, 'createReadableWalletId()', 'SeamsAuthMenu controller');
-  assertContains(
-    controller,
-    'createSeamsAuthMenuRegistrationRequest',
-    'SeamsAuthMenu controller',
-  );
   assertContains(
     controller,
     'props.onRegister?.(registrationRequest)',
     'SeamsAuthMenu controller',
   );
-  assertContains(
-    seamsAuthMenuTypes,
-    'export type SeamsAuthMenuRegistrationRequest =',
-    'SeamsAuthMenu types',
-  );
-  assertContains(seamsAuthMenuTypes, "kind: 'implicit_wallet'", 'SeamsAuthMenu types');
-  assertContains(
-    seamsAuthMenuTypes,
-    "kind: 'sponsored_named_near_account'",
-    'SeamsAuthMenu types',
-  );
-  assertNotContains(seamsAuthMenuTypes, 'onRegister?: (options?:', 'SeamsAuthMenu types');
+  assertContains(client, 'onClick={controller.onProceed}', 'SeamsAuthMenu client');
   assertNotContains(
-    controller,
-    'props.onRegister?.(registrationOptions)',
-    'SeamsAuthMenu controller',
+    publicTypes,
+    'CreatePasskeyRegistrationActivationSurfaceArgs',
+    'registration public types',
   );
-  assertNotContains(controller, 'createServerAllocatedWalletId', 'SeamsAuthMenu controller');
-  assertNotContains(controller, 'createReadableRegistrationWalletId', 'SeamsAuthMenu controller');
-  assertContains(hostNear, 'parseRegistrationActivationProvidedWallet', 'wallet iframe NEAR host');
-  assertNotContains(hostNear, '...(payload.wallet', 'wallet iframe NEAR host');
-  assertContains(touchIdPrompt, 'requireExpectedPasskeyRegistrationUser', 'Touch ID prompt');
-  assertNotContains(touchIdPrompt, 'generateSignerSlotDisplayName', 'Touch ID prompt');
   assertNotContains(
-    registrationFlow,
-    'derivePasskeyRegistrationIntendedUserName',
-    'registration UI flow',
+    messages,
+    'PM_REGISTRATION_ACTIVATION_PREPARE',
+    'wallet iframe messages',
   );
 }
+
 
 function checkPostStartRegistrationRoutesUseStoredPreparedState() {
   const service = readRepoSource(
@@ -238,7 +176,7 @@ function checkRegistrationIntentDigestVerificationStaysAtResponseBoundary() {
   const digestBoundary = extractSourceBlock(
     registration,
     'async function verifyWalletRegistrationIntentResponse(input: {',
-    '\n}\n\nfunction walletScopeKey',
+    '\n}\n\ntype WalletRegistrationPrecomputeReady',
     'registration intent response verifier',
   );
 

@@ -3,7 +3,6 @@ export type {
   SigningRuntimeConfig,
   SigningRuntimeDeps,
   SigningRuntimeEcdsaStatePorts,
-  SigningRuntimeRelayerClients,
   SigningRuntimeServices,
   SigningRuntimeStatePorts,
   SigningRuntimeUiDeps,

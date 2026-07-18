@@ -106,7 +106,7 @@ function requireLowerHex(value: unknown, label: string, byteLength: number): str
   return hex;
 }
 
-function requireHpkePublicKey(value: unknown, label: string): string {
+export function requireRouterAbX25519PublicKey(value: unknown, label: string): string {
   const publicKey = requireNonEmptyString(value, label);
   if (!/^x25519:[0-9a-f]{64}$/.test(publicKey)) {
     throw new Error(`${label} must use x25519:<64 lowercase hex chars> encoding`);
@@ -123,7 +123,7 @@ function parseSignerEnvelopeHpkePublicKey(
   return {
     role: requireSignerRole(record.role, `${label}.role`),
     key_epoch: requireNonEmptyString(record.key_epoch, `${label}.key_epoch`),
-    public_key: requireHpkePublicKey(record.public_key, `${label}.public_key`),
+    public_key: requireRouterAbX25519PublicKey(record.public_key, `${label}.public_key`),
   };
 }
 
@@ -245,7 +245,7 @@ function parsePublicHpkeKeyDescriptor(
   requireExactKeys(record, ['key_epoch', 'public_key'], label);
   return {
     key_epoch: requireNonEmptyString(record.key_epoch, `${label}.key_epoch`),
-    public_key: requireHpkePublicKey(record.public_key, `${label}.public_key`),
+    public_key: requireRouterAbX25519PublicKey(record.public_key, `${label}.public_key`),
   };
 }
 

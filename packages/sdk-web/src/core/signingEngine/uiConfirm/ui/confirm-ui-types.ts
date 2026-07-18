@@ -49,6 +49,14 @@ export interface ConfirmUIHandle {
   onCancel?(listener: (detail: { error?: string }) => void): () => void;
 }
 
+export interface MountedConfirmUIHandle extends ConfirmUIHandle {
+  readonly element: HTMLElement;
+}
+
+export type ConfirmUISurfaceSource =
+  | { kind: 'mount_new' }
+  | { kind: 'reuse_mounted'; handle: MountedConfirmUIHandle };
+
 export type ConfirmUIPromptDiagnostics = {
   kind: 'confirm_ui_prompt_diagnostics_v1';
   elementDefineMs: number;

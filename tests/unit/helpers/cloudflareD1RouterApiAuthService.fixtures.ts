@@ -203,6 +203,12 @@ export class RecordingDurableObjectStub implements CloudflareDurableObjectStubLi
     if (op === 'getdel') return this.handleGetDel(request);
     if (op === 'del') return this.handleDel(request);
     if (op === 'authReserveReplayGuard') return this.handleReserveReplayGuard(request);
+    if (op === 'registrationReserveWalletId') {
+      return this.handleRegistrationWalletReservation(request);
+    }
+    if (op === 'registrationCancelTerminal') {
+      return this.handleRegistrationTerminalCancellation(request);
+    }
     return recordingDurableObjectJson({
       ok: false,
       code: 'unsupported_op',
@@ -271,6 +277,77 @@ export class RecordingDurableObjectStub implements CloudflareDurableObjectStubLi
     this.values.set(key, { expiresAtMs });
     return recordingDurableObjectJson({ ok: true, value: { reserved: true } });
   }
+
+  private handleRegistrationWalletReservation(request: Record<string, unknown>): Response {
+    const key = String(request.key || '').trim();
+    const walletId = String(request.walletId || '').trim();
+    const expiresAtMs = Number(request.expiresAtMs);
+    const existing = this.values.get(key);
+    if (isActiveRecordingReplayGuard(existing)) {
+      return recordingDurableObjectJson({
+        ok: false,
+        code: 'wallet_id_reserved',
+        message: 'walletId is already reserved',
+      });
+    }
+    this.values.set(key, {
+      kind: 'registration_wallet_reservation_v1',
+      walletId,
+      expiresAtMs,
+    });
+    return recordingDurableObjectJson({ ok: true, value: { reserved: true } });
+  }
+
+  private handleRegistrationTerminalCancellation(request: Record<string, unknown>): Response {
+    const ceremonyKey = String(request.ceremonyKey || '').trim();
+    const registrationCeremonyId = String(request.registrationCeremonyId || '').trim();
+    const walletId = String(request.walletId || '').trim();
+    const ceremony = this.values.get(ceremonyKey);
+    if (ceremony === null || ceremony === undefined) {
+      return recordingDurableObjectJson({
+        ok: true,
+        value: {
+          kind: 'not_found',
+          ceremonyDeleted: false,
+          walletReservationReleased: false,
+        },
+      });
+    }
+    if (!recordingCeremonyIdentityMatches({ ceremony, registrationCeremonyId, walletId })) {
+      return recordingDurableObjectJson({
+        ok: false,
+        code: 'registration_ceremony_identity_mismatch',
+        message: 'Terminal registration cancellation does not match the stored ceremony',
+      });
+    }
+    const reservation = isSqliteJsonRow(request.reservation) ? request.reservation : {};
+    const reservationKey =
+      reservation.kind === 'server_allocated_wallet' ? String(reservation.key || '').trim() : '';
+    const storedReservation = reservationKey ? this.values.get(reservationKey) : null;
+    if (
+      storedReservation !== null &&
+      storedReservation !== undefined &&
+      (!isSqliteJsonRow(storedReservation) || storedReservation.walletId !== walletId)
+    ) {
+      return recordingDurableObjectJson({
+        ok: false,
+        code: 'registration_wallet_reservation_identity_mismatch',
+        message: 'Terminal registration cancellation does not match the wallet reservation',
+      });
+    }
+    this.values.delete(ceremonyKey);
+    const walletReservationReleased = reservationKey
+      ? this.values.delete(reservationKey)
+      : false;
+    return recordingDurableObjectJson({
+      ok: true,
+      value: {
+        kind: 'cancelled',
+        ceremonyDeleted: true,
+        walletReservationReleased,
+      },
+    });
+  }
 }
 
 export class RecordingDurableObjectNamespace implements CloudflareDurableObjectNamespaceLike {
@@ -310,7 +387,20 @@ export function isActiveRecordingReplayGuard(value: unknown): boolean {
 export function isRecordingDurableObjectReplayReservationRequest(
   request: Record<string, unknown>,
 ): boolean {
-  return String(request.op || '') === 'authReserveReplayGuard';
+  return String(request.op || '') === 'registrationReserveWalletId';
+}
+
+function recordingCeremonyIdentityMatches(input: {
+  readonly ceremony: unknown;
+  readonly registrationCeremonyId: string;
+  readonly walletId: string;
+}): boolean {
+  if (!isSqliteJsonRow(input.ceremony)) return false;
+  if (String(input.ceremony.registrationCeremonyId || '').trim() !== input.registrationCeremonyId) {
+    return false;
+  }
+  if (!isSqliteJsonRow(input.ceremony.intent)) return false;
+  return String(input.ceremony.intent.walletId || '').trim() === input.walletId;
 }
 
 export function recordingDurableObjectRequestKey(request: Record<string, unknown>): string {

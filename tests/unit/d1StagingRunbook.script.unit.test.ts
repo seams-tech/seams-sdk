@@ -11,23 +11,23 @@ import {
 type RunbookModule = {
   readonly buildD1StagingRunbook: (input: {
     readonly consoleConfigPath: string;
-    readonly routerApiConfigPath: string;
+    readonly gatewayConfigPath: string;
     readonly outputPath?: string;
     readonly generatedAtIso?: string;
     readonly operator?: string;
     readonly r2Bucket?: string;
     readonly consoleOrigin?: string;
-    readonly routerApiOrigin?: string;
+    readonly gatewayOrigin?: string;
   }) => string;
   readonly writeD1StagingRunbook: (input: {
     readonly consoleConfigPath: string;
-    readonly routerApiConfigPath: string;
+    readonly gatewayConfigPath: string;
     readonly outputPath: string;
     readonly generatedAtIso?: string;
     readonly operator?: string;
     readonly r2Bucket?: string;
     readonly consoleOrigin?: string;
-    readonly routerApiOrigin?: string;
+    readonly gatewayOrigin?: string;
   }) => {
     readonly outputPath: string;
     readonly markdown: string;
@@ -42,7 +42,7 @@ const runbookOptions = {
   operator: 'staging-operator',
   r2Bucket: 'seams-staging-backups',
   consoleOrigin: 'https://console.staging.example',
-  routerApiOrigin: 'https://router-api.staging.example',
+  gatewayOrigin: 'https://gateway.staging.example',
 };
 const finalEvidenceManifestFlags = [
   '--resources "$RESOURCE_INVENTORY_MANIFEST"',
@@ -87,8 +87,8 @@ test('D1 staging runbook renders exact Phase 6 command sequence from readiness-c
   expect(markdown).toContain('--missing-kek-expected-status 503');
   expect(markdown).toContain('ecdsa_export_share_missing_kek_fail_closed');
   expect(markdown).toContain('--console-origin https://console.staging.example');
-  expect(markdown).toContain('Router API `/router-ab/ed25519/healthz` configured');
-  expect(markdown).toContain('Router API `/router-ab/ecdsa-derivation/healthz` configured');
+  expect(markdown).toContain('Gateway `/router-ab/ed25519/healthz` configured');
+  expect(markdown).toContain('Gateway `/router-ab/ecdsa-derivation/healthz` configured');
   expect(markdown).toContain('Fixture-backed signer custody, KEK isolation, and missing-KEK fail-closed');
   expect(markdown.indexOf('## Preflight')).toBeLessThan(
     markdown.indexOf('## Resource Inventory Capture'),
@@ -129,9 +129,9 @@ test('D1 staging runbook requires concrete HTTPS origins', async () => {
   expect(() =>
     module.buildD1StagingRunbook({
       ...runbookOptions,
-      routerApiOrigin: 'http://router-api.staging.example',
+      gatewayOrigin: 'http://gateway.staging.example',
     }),
-  ).toThrow(/--router-api-origin must use https/);
+  ).toThrow(/--gateway-origin must use https/);
 });
 
 test('D1 staging runbook rejects placeholder endpoint commands', async () => {

@@ -14,9 +14,10 @@ import {
   emailOtpAuthContextRetention,
 } from '../../session/identity/laneIdentity';
 import {
-  classifyRouterAbEcdsaDerivationPersistedSigningRecord,
   requireRouterAbEcdsaDerivationSigningWalletSessionFromRecord,
 } from '../../session/routerAbSigningWalletSession';
+import { resolveEcdsaCapabilityHydration } from '../../session/identity/ecdsaCapabilityHydration';
+import type { MpcCapabilityHydrationEntryPoint } from '../../capability/mpcCapabilityHydration';
 import {
   buildReadySecp256k1SigningMaterial,
   type ReadySecp256k1SigningMaterial,
@@ -38,6 +39,7 @@ export async function buildReadySecp256k1SigningMaterialFromRecord(args: {
   record: ThresholdEcdsaSessionRecord;
   requestLabel: unknown;
   evmFamilySigningKeySlotId: unknown;
+  hydrationEntryPoint: MpcCapabilityHydrationEntryPoint;
 }): Promise<ReadySecp256k1SigningMaterial> {
   const evmFamilySigningKeySlotId = requireEvmFamilySigningKeySlotId(
     args.evmFamilySigningKeySlotId,
@@ -51,7 +53,7 @@ export async function buildReadySecp256k1SigningMaterialFromRecord(args: {
   });
   assertMatchingEvmFamilySigningKeySlotId({
     expected: evmFamilySigningKeySlotId,
-    actual: args.record.ecdsaRoleLocalReadyRecord.publicFacts.evmFamilySigningKeySlotId,
+    actual: args.record.ecdsaRoleLocalPublicFacts.evmFamilySigningKeySlotId,
     actualLabel: 'threshold-ecdsa role-local publicFacts evmFamilySigningKeySlotId',
     message: '[multichain] threshold-ecdsa evmFamilySigningKeySlotId mismatch; reconnect threshold session',
   });
@@ -69,11 +71,23 @@ export async function buildReadySecp256k1SigningMaterialFromRecord(args: {
     );
   }
 
-  const workerMaterial = classifyRouterAbEcdsaDerivationPersistedSigningRecord(args.record);
-  if (workerMaterial.kind !== 'runtime_validated') {
-    throw new Error(
-      `[multichain] threshold-ecdsa role-local worker material is not runtime-validated: ${workerMaterial.reason}`,
-    );
+  const hydration = resolveEcdsaCapabilityHydration({
+    record: args.record,
+    entryPoint: args.hydrationEntryPoint,
+    nowMs: Date.now(),
+  });
+  switch (hydration.plan.kind) {
+    case 'use_live_runtime':
+    case 'rehydrate_active_session':
+      break;
+    case 'reauthorize_public_anchor':
+      throw new Error(
+        `[multichain] threshold-ecdsa role-local session requires ${hydration.plan.retirement} reauthorization`,
+      );
+    case 'blocked':
+      throw new Error(
+        `[multichain] threshold-ecdsa role-local session hydration is blocked: ${hydration.plan.reason}`,
+      );
   }
 
   const signingWalletSession = requireRouterAbEcdsaDerivationSigningWalletSessionFromRecord(args.record);

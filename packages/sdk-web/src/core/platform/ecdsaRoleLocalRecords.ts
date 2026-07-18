@@ -8,6 +8,7 @@ import type {
 import type { WalletId } from '@shared/utils/domainIds';
 import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import type { PlatformResult } from './http';
+import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 
 export type {
   EcdsaThresholdKeyId,
@@ -74,6 +75,7 @@ export type EcdsaRoleLocalPublicFacts = {
   relayerPublicKey33B64u: EcdsaDerivationRelayerPublicKey33B64u;
   groupPublicKey33B64u: EcdsaGroupPublicKey33B64u;
   ethereumAddress: `0x${string}`;
+  publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 };
 
 export type EcdsaRoleLocalAuthMethod =

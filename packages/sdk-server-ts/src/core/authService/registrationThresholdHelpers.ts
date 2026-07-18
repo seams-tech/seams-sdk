@@ -4,21 +4,20 @@ import {
   type RouterAbEd25519NormalSigningState,
 } from '@shared/utils/signingSessionSeal';
 import { ensureEd25519Prefix, toOptionalTrimmedString } from '@shared/utils/validation';
+import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type {
   EcdsaDerivationClientBootstrapRequest,
   EcdsaDerivationServerBootstrapResponse,
   ThresholdEd25519AuthorityScope,
-  ThresholdRuntimePolicyScope
+  ThresholdRuntimePolicyScope,
 } from '../types';
 import type {
   WalletRegistrationEcdsaClientBootstrap,
   WalletRegistrationEcdsaPrepareContext,
   WalletRegistrationEcdsaPreparePayload,
-  WalletRegistrationEcdsaWalletKey
+  WalletRegistrationEcdsaWalletKey,
 } from '../registrationContracts';
-import {
-  parseThresholdEd25519AuthorityScope,
-} from '../ThresholdService/validation';
+import { parseThresholdEd25519AuthorityScope } from '../ThresholdService/validation';
 import type { WebAuthnCredentialBindingStore } from '../WebAuthnCredentialBindingStore';
 import type { ThresholdEcdsaChainTarget } from '../thresholdEcdsaChainTarget';
 import { isObject } from './record';
@@ -141,6 +140,7 @@ export type EcdsaWalletKeyBuildResult =
 export function buildEcdsaWalletKeysFromBootstrap(args: {
   bootstrap: EcdsaDerivationServerBootstrapResponse;
   chainTargets: readonly ThresholdEcdsaChainTarget[];
+  publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
   errorContext: string;
 }): EcdsaWalletKeyBuildResult {
   const bootstrap = args.bootstrap;
@@ -155,6 +155,10 @@ export function buildEcdsaWalletKeysFromBootstrap(args: {
     thresholdOwnerAddress: toOptionalTrimmedString(bootstrap.ethereumAddress),
     relayerKeyId: toOptionalTrimmedString(bootstrap.relayerKeyId),
     relayerVerifyingShareB64u: toOptionalTrimmedString(bootstrap.relayerVerifyingShareB64u),
+    contextBinding32B64u: toOptionalTrimmedString(bootstrap.contextBinding32B64u),
+    derivationClientSharePublicKey33B64u: toOptionalTrimmedString(
+      bootstrap.publicIdentity.derivationClientSharePublicKey33B64u,
+    ),
   };
   const missingField = Object.entries(required).find(([, value]) => !value)?.[0];
   if (missingField) {
@@ -169,7 +173,11 @@ export function buildEcdsaWalletKeysFromBootstrap(args: {
         .map((participantId) => Number(participantId))
         .filter((participantId) => Number.isSafeInteger(participantId) && participantId > 0)
     : [];
-  if (participantIds.length === 0) {
+  if (
+    participantIds.length !== 2 ||
+    participantIds[0] !== 1 ||
+    participantIds[1] !== 2
+  ) {
     return {
       ok: false,
       code: 'incomplete_ecdsa_wallet_key',
@@ -198,7 +206,13 @@ export function buildEcdsaWalletKeysFromBootstrap(args: {
       thresholdOwnerAddress: required.thresholdOwnerAddress,
       relayerKeyId: required.relayerKeyId,
       relayerVerifyingShareB64u: required.relayerVerifyingShareB64u,
-      participantIds,
+      contextBinding32B64u: required.contextBinding32B64u,
+      derivationClientSharePublicKey33B64u:
+        bootstrap.publicIdentity.derivationClientSharePublicKey33B64u,
+      clientShareRetryCounter: bootstrap.clientShareRetryCounter,
+      relayerShareRetryCounter: bootstrap.relayerShareRetryCounter,
+      participantIds: [1, 2],
+      publicCapability: args.publicCapability,
     })),
   };
 }
@@ -241,9 +255,7 @@ export function toEcdsaDerivationClientBootstrapRequest(
     signingRootVersion: clientBootstrap.signingRootVersion,
     keyScope: clientBootstrap.keyScope,
     relayerKeyId: clientBootstrap.relayerKeyId,
-    ...(clientBootstrap.registrationPreparationId
-      ? { registrationPreparationId: clientBootstrap.registrationPreparationId }
-      : {}),
+    registrationPreparationId: clientBootstrap.registrationPreparationId,
     derivationClientSharePublicKey33B64u: clientBootstrap.derivationClientSharePublicKey33B64u,
     clientShareRetryCounter: clientBootstrap.clientShareRetryCounter,
     contextBinding32B64u: clientBootstrap.contextBinding32B64u,
@@ -252,10 +264,8 @@ export function toEcdsaDerivationClientBootstrapRequest(
     signingGrantId: clientBootstrap.signingGrantId,
     ttlMs: clientBootstrap.ttlMs,
     remainingUses: clientBootstrap.remainingUses,
-    participantIds: clientBootstrap.participantIds,
-    ...(clientBootstrap.runtimePolicyScope
-      ? { runtimePolicyScope: clientBootstrap.runtimePolicyScope }
-      : {}),
+    participantIds: [...clientBootstrap.participantIds],
+    runtimePolicyScope: clientBootstrap.runtimePolicyScope,
   };
 }
 

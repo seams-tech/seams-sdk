@@ -27,7 +27,7 @@ type BookmarkPlan = {
 type BookmarkModule = {
   readonly buildD1StagingTimeTravelBookmarkPlan: (input: {
     readonly consoleConfigPath: string;
-    readonly routerApiConfigPath: string;
+    readonly gatewayConfigPath: string;
     readonly generatedAtIso?: string;
     readonly mode?: 'dry-run' | 'remote';
     readonly purpose: string;
@@ -35,7 +35,7 @@ type BookmarkModule = {
   }) => BookmarkPlan;
   readonly runD1StagingTimeTravelBookmark: (input: {
     readonly consoleConfigPath: string;
-    readonly routerApiConfigPath: string;
+    readonly gatewayConfigPath: string;
     readonly generatedAtIso?: string;
     readonly manifestPath: string;
     readonly mode?: 'dry-run' | 'remote';

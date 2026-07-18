@@ -3,18 +3,12 @@ import {
   WebAuthnPromptCoordinator,
   WebAuthnPromptCoordinatorError,
 } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/webauthnPromptCoordinator';
-import { parseRegistrationActivationMessageIdentity } from '@/SeamsWeb/walletIframe/shared/messages';
+import { walletIframeRequestIdFromBoundary } from '@/core/types/walletIframeIdentity';
 
-function activationOwner(suffix = '1') {
-  const identity = parseRegistrationActivationMessageIdentity({
-    surfaceId: `surface-${suffix}`,
-    activationId: `activation-${suffix}`,
-    requestId: `request-${suffix}`,
-  });
-  if (!identity) throw new Error('Test activation identity is invalid');
+function registrationOwner(suffix = '1') {
   return {
-    kind: 'registration_activation' as const,
-    identity,
+    kind: 'registration_modal' as const,
+    requestId: walletIframeRequestIdFromBoundary(`request-${suffix}`),
   };
 }
 
@@ -31,7 +25,7 @@ function deferred<T>() {
 test.describe('WebAuthnPromptCoordinator', () => {
   test('transitions idle to reserved to running and starts inline', async () => {
     const coordinator = new WebAuthnPromptCoordinator();
-    const owner = activationOwner();
+    const owner = registrationOwner();
     const reservation = await coordinator.reserveRegistrationPrompt({
       owner,
       expiresAtMs: Date.now() + 10_000,
@@ -60,7 +54,7 @@ test.describe('WebAuthnPromptCoordinator', () => {
 
   test('rejects owner mismatch and reservation reuse before invoking WebAuthn', async () => {
     const coordinator = new WebAuthnPromptCoordinator();
-    const owner = activationOwner();
+    const owner = registrationOwner();
     const reservation = await coordinator.reserveRegistrationPrompt({
       owner,
       expiresAtMs: Date.now() + 10_000,
@@ -71,7 +65,7 @@ test.describe('WebAuthnPromptCoordinator', () => {
     expect(() =>
       coordinator.runReserved({
         reservation,
-        owner: activationOwner('2'),
+        owner: registrationOwner('2'),
         operation: async () => {
           calls += 1;
           return 'wrong';
@@ -108,7 +102,7 @@ test.describe('WebAuthnPromptCoordinator', () => {
     let reserved = false;
     const reservationPromise = coordinator
       .reserveRegistrationPrompt({
-        owner: activationOwner(),
+        owner: registrationOwner(),
         expiresAtMs: Date.now() + 10_000,
         cancellation: { kind: 'none' },
       })
@@ -132,7 +126,7 @@ test.describe('WebAuthnPromptCoordinator', () => {
 
   test('blocks competing operations and rejects expired reservations before invocation', async () => {
     const coordinator = new WebAuthnPromptCoordinator();
-    const owner = activationOwner();
+    const owner = registrationOwner();
     const reservation = await coordinator.reserveRegistrationPrompt({
       owner,
       expiresAtMs: Date.now() + 20,
@@ -170,7 +164,7 @@ test.describe('WebAuthnPromptCoordinator', () => {
     });
     const abortController = new AbortController();
     const reservation = coordinator.reserveRegistrationPrompt({
-      owner: activationOwner(),
+      owner: registrationOwner(),
       expiresAtMs: Date.now() + 10_000,
       cancellation: { kind: 'abort_signal', signal: abortController.signal },
     });
@@ -185,7 +179,7 @@ test.describe('WebAuthnPromptCoordinator', () => {
 
   test('returns to idle when a reserved credential operation fails', async () => {
     const coordinator = new WebAuthnPromptCoordinator();
-    const owner = activationOwner();
+    const owner = registrationOwner();
     const reservation = await coordinator.reserveRegistrationPrompt({
       owner,
       expiresAtMs: Date.now() + 10_000,

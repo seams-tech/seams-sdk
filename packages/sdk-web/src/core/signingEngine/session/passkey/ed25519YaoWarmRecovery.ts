@@ -36,6 +36,11 @@ import {
 } from '@shared/utils/walletAuthAuthority';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
 import { isPlainObject } from '@shared/utils/validation';
+import {
+  getSessionJwtExpiresAtMs,
+  isSessionJwtUnexpired,
+  isWalletSessionJwt,
+} from '@shared/utils/sessionTokens';
 
 type PasskeyEd25519WarmRecoveryPorts = Pick<
   DurableSealedSessionPort & VolatileWarmMaterialPort,
@@ -490,6 +495,40 @@ export async function resolvePasskeyEd25519YaoExportContextV1(input: {
     listExactSealedSessionsForWallet,
     nowMs: Date.now,
   });
+}
+
+export async function resolvePasskeyEd25519WalletSessionRouteAuthV1(
+  walletId: string,
+): Promise<{ kind: 'wallet_session'; jwt: string } | null> {
+  const records = await listExactSealedSessionsForWallet({
+    walletId,
+    filter: { authMethod: 'passkey', curve: 'ed25519' },
+  });
+  let selected: { jwt: string; expiresAtMs: number } | null = null;
+  for (const record of records) {
+    if (
+      record.curve !== 'ed25519' ||
+      record.expiresAtMs <= Date.now() ||
+      record.remainingUses < 1 ||
+      record.ed25519Restore.sessionKind !== 'jwt'
+    ) {
+      continue;
+    }
+    const jwt = String(record.ed25519Restore.walletSessionJwt || '').trim();
+    const expiresAtMs = getSessionJwtExpiresAtMs(jwt);
+    if (
+      !jwt ||
+      !expiresAtMs ||
+      !isWalletSessionJwt(jwt) ||
+      !isSessionJwtUnexpired(jwt, { skewMs: 30_000 })
+    ) {
+      continue;
+    }
+    if (!selected || expiresAtMs > selected.expiresAtMs) {
+      selected = { jwt, expiresAtMs };
+    }
+  }
+  return selected ? { kind: 'wallet_session', jwt: selected.jwt } : null;
 }
 
 export async function resolvePasskeyEd25519YaoExportContextWithRuntimeV1(

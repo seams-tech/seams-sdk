@@ -19,6 +19,10 @@ export type EcdsaRelayerKeyId = Brand<string, 'EcdsaRelayerKeyId'>;
 export type EcdsaKeyHandle = Brand<string, 'EcdsaKeyHandle'>;
 export type EcdsaRoleLocalMaterialHandle = Brand<string, 'EcdsaRoleLocalMaterialHandle'>;
 export type EcdsaRoleLocalBindingDigest = Brand<string, 'EcdsaRoleLocalBindingDigest'>;
+export type EcdsaRoleLocalDurableMaterialRef = Brand<
+  string,
+  'EcdsaRoleLocalDurableMaterialRef'
+>;
 export type EcdsaClientAdditiveShareHandle = Brand<
   string,
   'EcdsaClientAdditiveShareHandle'
@@ -93,6 +97,15 @@ export function parseEcdsaRoleLocalBindingDigest(
   return parseNonEmptyBrand<'EcdsaRoleLocalBindingDigest'>(
     value,
     'ECDSA role-local binding digest',
+  );
+}
+
+export function parseEcdsaRoleLocalDurableMaterialRef(
+  value: unknown,
+): EcdsaRoleLocalDurableMaterialRef {
+  return parseNonEmptyBrand<'EcdsaRoleLocalDurableMaterialRef'>(
+    value,
+    'ECDSA role-local durable material reference',
   );
 }
 

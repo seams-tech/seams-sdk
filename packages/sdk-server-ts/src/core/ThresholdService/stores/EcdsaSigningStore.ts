@@ -4,44 +4,26 @@ import type {
   ThresholdEcdsaSigningRootMetadata,
   ThresholdStoreConfigInput,
 } from '../../types';
-import { RedisTcpClient, UpstashRedisRestClient, redisGetdelJson, redisSetJson } from '../kv';
+import { RedisTcpClient, UpstashRedisRestClient, redisSetJson } from '../kv';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import {
   isObject,
   parseRouterAbEcdsaDerivationPoolFillSessionRecord,
-  parseRouterAbEcdsaDerivationServerPresignatureShareRecord,
   toThresholdEcdsaPresignPrefix,
   toThresholdEcdsaPrefixFromBase,
 } from '../validation';
 import { createCloudflareDurableObjectThresholdEcdsaStores } from './CloudflareDurableObjectStore';
 import { readNonDurableObjectThresholdStoreKind } from './StoreConfig';
-import { secureRandomIdFragment } from '../secureRandomId';
-
-export type RouterAbEcdsaDerivationServerPresignatureShareRecord = {
-  relayerKeyId: string;
-  presignatureId: string;
-  bigRB64u: string;
-  /** Base64url-encoded scalar share for k^{-1}. */
-  kShareB64u: string;
-  /** Base64url-encoded scalar share for x*k^{-1}. */
-  sigmaShareB64u: string;
-  createdAtMs: number;
-};
 
 export type RouterAbEcdsaDerivationPoolFillSessionStage = 'triples' | 'triples_done' | 'presign' | 'done';
 
-export type RouterAbEcdsaDerivationPoolFillSessionDestination =
-  | {
-      kind: 'local_threshold_ecdsa_presignature_pool';
-      routerAbEcdsaDerivation?: never;
-    }
-  | {
-      kind: 'router_ab_ecdsa_derivation_signing_worker_pool';
-      routerAbEcdsaDerivation: {
-        scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
-        expiresAtMs: number;
-      };
-    };
+export type RouterAbEcdsaDerivationPoolFillSessionDestination = {
+  kind: 'router_ab_ecdsa_derivation_signing_worker_pool';
+  routerAbEcdsaDerivation: {
+    scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
+    expiresAtMs: number;
+  };
+};
 
 export type RouterAbEcdsaDerivationPoolFillSessionRecord = {
   expiresAtMs: number;
@@ -78,20 +60,6 @@ export interface RouterAbEcdsaDerivationPoolFillSessionStore {
     ttlMs: number;
   }): Promise<RouterAbEcdsaDerivationPoolFillSessionCasResult>;
   deleteSession(id: string): Promise<void>;
-}
-
-export interface RouterAbEcdsaDerivationPresignaturePool {
-  reserve(relayerKeyId: string): Promise<RouterAbEcdsaDerivationServerPresignatureShareRecord | null>;
-  reserveById(
-    relayerKeyId: string,
-    presignatureId: string,
-  ): Promise<RouterAbEcdsaDerivationServerPresignatureShareRecord | null>;
-  consume(
-    relayerKeyId: string,
-    presignatureId: string,
-  ): Promise<RouterAbEcdsaDerivationServerPresignatureShareRecord | null>;
-  discard(relayerKeyId: string, presignatureId: string): Promise<void>;
-  put(record: RouterAbEcdsaDerivationServerPresignatureShareRecord): Promise<void>;
 }
 
 type ThresholdEcdsaSigningStoreConfigRecord = Record<string, unknown>;
@@ -172,125 +140,6 @@ export class InMemoryRouterAbEcdsaDerivationPoolFillSessionStore implements Rout
     const key = toOptionalTrimmedString(id);
     if (!key) return;
     this.map.delete(key);
-  }
-}
-
-export class InMemoryRouterAbEcdsaDerivationPresignaturePool implements RouterAbEcdsaDerivationPresignaturePool {
-  private readonly availableByKey = new Map<
-    string,
-    RouterAbEcdsaDerivationServerPresignatureShareRecord[]
-  >();
-  private readonly reservedByKey = new Map<
-    string,
-    Map<string, { value: RouterAbEcdsaDerivationServerPresignatureShareRecord; expiresAtMs: number }>
-  >();
-  private readonly reservationTtlMs: number;
-
-  constructor(input?: { reservationTtlMs?: number }) {
-    this.reservationTtlMs = Math.max(1, Math.floor(Number(input?.reservationTtlMs) || 120_000));
-  }
-
-  private gc(relayerKeyId: string): void {
-    const reserved = this.reservedByKey.get(relayerKeyId);
-    if (!reserved) return;
-    const now = Date.now();
-    for (const [id, entry] of reserved.entries()) {
-      if (now > entry.expiresAtMs) reserved.delete(id);
-    }
-    if (reserved.size === 0) this.reservedByKey.delete(relayerKeyId);
-  }
-
-  async put(record: RouterAbEcdsaDerivationServerPresignatureShareRecord): Promise<void> {
-    const relayerKeyId = toOptionalTrimmedString(record.relayerKeyId);
-    const presignatureId = toOptionalTrimmedString(record.presignatureId);
-    if (!relayerKeyId || !presignatureId) throw new Error('Missing relayerKeyId/presignatureId');
-
-    const list = this.availableByKey.get(relayerKeyId) || [];
-    if (list.some((entry) => entry.presignatureId === presignatureId)) {
-      return;
-    }
-    if (this.reservedByKey.get(relayerKeyId)?.has(presignatureId)) {
-      return;
-    }
-    list.push(record);
-    this.availableByKey.set(relayerKeyId, list);
-  }
-
-  async reserve(
-    relayerKeyId: string,
-  ): Promise<RouterAbEcdsaDerivationServerPresignatureShareRecord | null> {
-    const key = toOptionalTrimmedString(relayerKeyId);
-    if (!key) return null;
-    this.gc(key);
-    const list = this.availableByKey.get(key);
-    if (!list || list.length === 0) return null;
-    const record = list.shift()!;
-    this.availableByKey.set(key, list);
-
-    let reserved = this.reservedByKey.get(key);
-    if (!reserved) {
-      reserved = new Map();
-      this.reservedByKey.set(key, reserved);
-    }
-    reserved.set(record.presignatureId, {
-      value: record,
-      expiresAtMs: Date.now() + this.reservationTtlMs,
-    });
-    return record;
-  }
-
-  async reserveById(
-    relayerKeyId: string,
-    presignatureId: string,
-  ): Promise<RouterAbEcdsaDerivationServerPresignatureShareRecord | null> {
-    const key = toOptionalTrimmedString(relayerKeyId);
-    const id = toOptionalTrimmedString(presignatureId);
-    if (!key || !id) return null;
-    this.gc(key);
-    const list = this.availableByKey.get(key);
-    if (!list || list.length === 0) return null;
-    const idx = list.findIndex((entry) => entry.presignatureId === id);
-    if (idx < 0) return null;
-    const [record] = list.splice(idx, 1);
-    if (!record) return null;
-    this.availableByKey.set(key, list);
-
-    let reserved = this.reservedByKey.get(key);
-    if (!reserved) {
-      reserved = new Map();
-      this.reservedByKey.set(key, reserved);
-    }
-    reserved.set(record.presignatureId, {
-      value: record,
-      expiresAtMs: Date.now() + this.reservationTtlMs,
-    });
-    return record;
-  }
-
-  async consume(
-    relayerKeyId: string,
-    presignatureId: string,
-  ): Promise<RouterAbEcdsaDerivationServerPresignatureShareRecord | null> {
-    const key = toOptionalTrimmedString(relayerKeyId);
-    const id = toOptionalTrimmedString(presignatureId);
-    if (!key || !id) return null;
-    this.gc(key);
-    const reserved = this.reservedByKey.get(key);
-    if (!reserved) return null;
-    const entry = reserved.get(id) || null;
-    reserved.delete(id);
-    if (reserved.size === 0) this.reservedByKey.delete(key);
-    return entry?.value || null;
-  }
-
-  async discard(relayerKeyId: string, presignatureId: string): Promise<void> {
-    const key = toOptionalTrimmedString(relayerKeyId);
-    const id = toOptionalTrimmedString(presignatureId);
-    if (!key || !id) return;
-    this.gc(key);
-    const reserved = this.reservedByKey.get(key);
-    reserved?.delete(id);
-    if (reserved && reserved.size === 0) this.reservedByKey.delete(key);
   }
 }
 
@@ -521,64 +370,6 @@ function parseJson(raw: string): unknown | null {
   }
 }
 
-const ECDSA_PRESIGN_RESERVE_LUA = `
-local listKey = KEYS[1]
-local reservedKeyPrefix = KEYS[2]
-local ttlSeconds = tonumber(ARGV[1]) or 120
-local maxAttempts = tonumber(ARGV[2]) or 8
-
-for _ = 1, maxAttempts do
-  local item = redis.call('LPOP', listKey)
-  if not item then
-    return nil
-  end
-  local ok, decoded = pcall(cjson.decode, item)
-  if ok and type(decoded) == 'table' then
-    local presignatureId = decoded['presignatureId']
-    if type(presignatureId) == 'string' and presignatureId ~= '' then
-      redis.call('SET', reservedKeyPrefix .. presignatureId, item, 'EX', ttlSeconds)
-      return item
-    end
-  end
-end
-
-return nil
-`.trim();
-
-const ECDSA_PRESIGN_RESERVE_BY_ID_LUA = `
-local listKey = KEYS[1]
-local reservedKey = KEYS[2]
-local requestedId = ARGV[1]
-local ttlSeconds = tonumber(ARGV[2]) or 120
-local marker = ARGV[3]
-
-if type(requestedId) ~= 'string' or requestedId == '' then
-  return nil
-end
-if type(marker) ~= 'string' or marker == '' then
-  marker = '__seams_threshold_ecdsa_presign_deleted__'
-end
-
-local len = redis.call('LLEN', listKey)
-for i = 0, len - 1 do
-  local item = redis.call('LINDEX', listKey, i)
-  if item then
-    local ok, decoded = pcall(cjson.decode, item)
-    if ok and type(decoded) == 'table' then
-      local presignatureId = decoded['presignatureId']
-      if presignatureId == requestedId then
-        redis.call('LSET', listKey, i, marker)
-        redis.call('LREM', listKey, 1, marker)
-        redis.call('SET', reservedKey, item, 'EX', ttlSeconds)
-        return item
-      end
-    end
-  end
-end
-
-return nil
-`.trim();
-
 const ECDSA_PRESIGN_SESSION_CREATE_LUA = `
 local key = KEYS[1]
 local value = ARGV[1]
@@ -643,26 +434,8 @@ end
 return nextValue
 `.trim();
 
-function toRedisSeconds(ms: number): number {
-  return Math.max(1, Math.ceil(Math.max(0, Number(ms) || 0) / 1000));
-}
-
 function toRedisMilliseconds(ms: number): number {
   return Math.max(1, Math.ceil(Math.max(0, Number(ms) || 0)));
-}
-
-function parsePresignatureRecordFromRaw(
-  raw: unknown,
-): RouterAbEcdsaDerivationServerPresignatureShareRecord | null {
-  if (raw === null || raw === undefined) return null;
-  if (typeof raw === 'string') {
-    return parseRouterAbEcdsaDerivationServerPresignatureShareRecord(
-      parseJson(raw),
-    ) as RouterAbEcdsaDerivationServerPresignatureShareRecord | null;
-  }
-  return parseRouterAbEcdsaDerivationServerPresignatureShareRecord(
-    raw,
-  ) as RouterAbEcdsaDerivationServerPresignatureShareRecord | null;
 }
 
 function parseRouterAbEcdsaDerivationPoolFillSessionRecordFromRaw(raw: unknown): RouterAbEcdsaDerivationPoolFillSessionRecord | null {
@@ -702,247 +475,11 @@ function isEvalUnsupportedError(message: string): boolean {
   );
 }
 
-class UpstashRedisRestRouterAbEcdsaDerivationPresignaturePool implements RouterAbEcdsaDerivationPresignaturePool {
-  private readonly client: UpstashRedisRestClient;
-  private readonly keyPrefix: string;
-  private readonly reservationTtlMs: number;
-
-  constructor(input: { url: string; token: string; keyPrefix: string; reservationTtlMs?: number }) {
-    this.client = new UpstashRedisRestClient({ url: input.url, token: input.token });
-    this.keyPrefix = input.keyPrefix;
-    this.reservationTtlMs = Math.max(1, Math.floor(Number(input.reservationTtlMs) || 120_000));
-  }
-
-  private availKey(relayerKeyId: string): string {
-    return `${this.keyPrefix}avail:${relayerKeyId}`;
-  }
-
-  private reservedKey(relayerKeyId: string, presignatureId: string): string {
-    return `${this.keyPrefix}res:${relayerKeyId}:${presignatureId}`;
-  }
-
-  private reservedKeyPrefix(relayerKeyId: string): string {
-    return `${this.keyPrefix}res:${relayerKeyId}:`;
-  }
-
-  async put(record: RouterAbEcdsaDerivationServerPresignatureShareRecord): Promise<void> {
-    const relayerKeyId = toOptionalTrimmedString(record.relayerKeyId);
-    const presignatureId = toOptionalTrimmedString(record.presignatureId);
-    if (!relayerKeyId || !presignatureId) throw new Error('Missing relayerKeyId/presignatureId');
-    await this.client.rpush(this.availKey(relayerKeyId), JSON.stringify(record));
-  }
-
-  async reserve(
-    relayerKeyId: string,
-  ): Promise<RouterAbEcdsaDerivationServerPresignatureShareRecord | null> {
-    const key = toOptionalTrimmedString(relayerKeyId);
-    if (!key) return null;
-    const ttlSeconds = String(toRedisSeconds(this.reservationTtlMs));
-    try {
-      const raw = await this.client.eval(
-        ECDSA_PRESIGN_RESERVE_LUA,
-        [this.availKey(key), this.reservedKeyPrefix(key)],
-        [ttlSeconds, '8'],
-      );
-      return parsePresignatureRecordFromRaw(raw);
-    } catch (e: unknown) {
-      const msg = String(
-        e && typeof e === 'object' && 'message' in e
-          ? (e as { message?: unknown }).message
-          : e || '',
-      );
-      if (isEvalUnsupportedError(msg)) {
-        throw new Error(
-          '[threshold-ecdsa] Upstash EVAL is required for atomic presignature reserve; ensure scripting is enabled',
-        );
-      }
-      throw e;
-    }
-  }
-
-  async reserveById(
-    relayerKeyId: string,
-    presignatureId: string,
-  ): Promise<RouterAbEcdsaDerivationServerPresignatureShareRecord | null> {
-    const key = toOptionalTrimmedString(relayerKeyId);
-    const id = toOptionalTrimmedString(presignatureId);
-    if (!key || !id) return null;
-    const ttlSeconds = String(toRedisSeconds(this.reservationTtlMs));
-    const marker = `__seams_threshold_ecdsa_presign_deleted__:${Date.now()}:${secureRandomIdFragment()}`;
-    try {
-      const raw = await this.client.eval(
-        ECDSA_PRESIGN_RESERVE_BY_ID_LUA,
-        [this.availKey(key), this.reservedKey(key, id)],
-        [id, ttlSeconds, marker],
-      );
-      return parsePresignatureRecordFromRaw(raw);
-    } catch (e: unknown) {
-      const msg = String(
-        e && typeof e === 'object' && 'message' in e
-          ? (e as { message?: unknown }).message
-          : e || '',
-      );
-      if (isEvalUnsupportedError(msg)) {
-        throw new Error(
-          '[threshold-ecdsa] Upstash EVAL is required for atomic presignature reserve-by-id; ensure scripting is enabled',
-        );
-      }
-      throw e;
-    }
-  }
-
-  async consume(
-    relayerKeyId: string,
-    presignatureId: string,
-  ): Promise<RouterAbEcdsaDerivationServerPresignatureShareRecord | null> {
-    const key = toOptionalTrimmedString(relayerKeyId);
-    const id = toOptionalTrimmedString(presignatureId);
-    if (!key || !id) return null;
-    const raw = await this.client.getdelJson(this.reservedKey(key, id));
-    return parseRouterAbEcdsaDerivationServerPresignatureShareRecord(
-      raw,
-    ) as RouterAbEcdsaDerivationServerPresignatureShareRecord | null;
-  }
-
-  async discard(relayerKeyId: string, presignatureId: string): Promise<void> {
-    const key = toOptionalTrimmedString(relayerKeyId);
-    const id = toOptionalTrimmedString(presignatureId);
-    if (!key || !id) return;
-    await this.client.del(this.reservedKey(key, id));
-  }
-}
-
-async function redisRpushRaw(client: RedisTcpClient, key: string, value: string): Promise<void> {
-  const resp = await client.send(['RPUSH', key, value]);
-  if (resp.type === 'error') throw new Error(`Redis RPUSH error: ${resp.value}`);
-}
-
-class RedisTcpRouterAbEcdsaDerivationPresignaturePool implements RouterAbEcdsaDerivationPresignaturePool {
-  private readonly client: RedisTcpClient;
-  private readonly keyPrefix: string;
-  private readonly reservationTtlMs: number;
-
-  constructor(input: { redisUrl: string; keyPrefix: string; reservationTtlMs?: number }) {
-    const url = toOptionalTrimmedString(input.redisUrl);
-    if (!url) throw new Error('redis-tcp presignature pool missing redisUrl');
-    this.client = new RedisTcpClient(url);
-    this.keyPrefix = input.keyPrefix;
-    this.reservationTtlMs = Math.max(1, Math.floor(Number(input.reservationTtlMs) || 120_000));
-  }
-
-  private availKey(relayerKeyId: string): string {
-    return `${this.keyPrefix}avail:${relayerKeyId}`;
-  }
-
-  private reservedKey(relayerKeyId: string, presignatureId: string): string {
-    return `${this.keyPrefix}res:${relayerKeyId}:${presignatureId}`;
-  }
-
-  private reservedKeyPrefix(relayerKeyId: string): string {
-    return `${this.keyPrefix}res:${relayerKeyId}:`;
-  }
-
-  async put(record: RouterAbEcdsaDerivationServerPresignatureShareRecord): Promise<void> {
-    const relayerKeyId = toOptionalTrimmedString(record.relayerKeyId);
-    const presignatureId = toOptionalTrimmedString(record.presignatureId);
-    if (!relayerKeyId || !presignatureId) throw new Error('Missing relayerKeyId/presignatureId');
-    await redisRpushRaw(this.client, this.availKey(relayerKeyId), JSON.stringify(record));
-  }
-
-  async reserve(
-    relayerKeyId: string,
-  ): Promise<RouterAbEcdsaDerivationServerPresignatureShareRecord | null> {
-    const key = toOptionalTrimmedString(relayerKeyId);
-    if (!key) return null;
-    const ttlSeconds = String(toRedisSeconds(this.reservationTtlMs));
-    const evalResp = await this.client.send([
-      'EVAL',
-      ECDSA_PRESIGN_RESERVE_LUA,
-      '2',
-      this.availKey(key),
-      this.reservedKeyPrefix(key),
-      ttlSeconds,
-      '8',
-    ]);
-    if (evalResp.type === 'bulk') {
-      return parsePresignatureRecordFromRaw(evalResp.value);
-    }
-    if (evalResp.type === 'error') {
-      if (isEvalUnsupportedError(evalResp.value)) {
-        throw new Error(
-          '[threshold-ecdsa] Redis EVAL is required for atomic presignature reserve; enable scripting permissions',
-        );
-      }
-      throw new Error(`Redis EVAL error: ${evalResp.value}`);
-    }
-    throw new Error(
-      `[threshold-ecdsa] Redis EVAL returned unexpected response type: ${evalResp.type}`,
-    );
-  }
-
-  async reserveById(
-    relayerKeyId: string,
-    presignatureId: string,
-  ): Promise<RouterAbEcdsaDerivationServerPresignatureShareRecord | null> {
-    const key = toOptionalTrimmedString(relayerKeyId);
-    const id = toOptionalTrimmedString(presignatureId);
-    if (!key || !id) return null;
-    const ttlSeconds = String(toRedisSeconds(this.reservationTtlMs));
-    const marker = `__seams_threshold_ecdsa_presign_deleted__:${Date.now()}:${secureRandomIdFragment()}`;
-    const evalResp = await this.client.send([
-      'EVAL',
-      ECDSA_PRESIGN_RESERVE_BY_ID_LUA,
-      '2',
-      this.availKey(key),
-      this.reservedKey(key, id),
-      id,
-      ttlSeconds,
-      marker,
-    ]);
-    if (evalResp.type === 'bulk') {
-      return parsePresignatureRecordFromRaw(evalResp.value);
-    }
-    if (evalResp.type === 'error') {
-      if (isEvalUnsupportedError(evalResp.value)) {
-        throw new Error(
-          '[threshold-ecdsa] Redis EVAL is required for atomic presignature reserve-by-id; enable scripting permissions',
-        );
-      }
-      throw new Error(`Redis EVAL error: ${evalResp.value}`);
-    }
-    throw new Error(
-      `[threshold-ecdsa] Redis EVAL returned unexpected response type: ${evalResp.type}`,
-    );
-  }
-
-  async consume(
-    relayerKeyId: string,
-    presignatureId: string,
-  ): Promise<RouterAbEcdsaDerivationServerPresignatureShareRecord | null> {
-    const key = toOptionalTrimmedString(relayerKeyId);
-    const id = toOptionalTrimmedString(presignatureId);
-    if (!key || !id) return null;
-    const raw = await redisGetdelJson(this.client, this.reservedKey(key, id));
-    return parseRouterAbEcdsaDerivationServerPresignatureShareRecord(
-      raw,
-    ) as RouterAbEcdsaDerivationServerPresignatureShareRecord | null;
-  }
-
-  async discard(relayerKeyId: string, presignatureId: string): Promise<void> {
-    const key = toOptionalTrimmedString(relayerKeyId);
-    const id = toOptionalTrimmedString(presignatureId);
-    if (!key || !id) return;
-    const resp = await this.client.send(['DEL', this.reservedKey(key, id)]);
-    if (resp.type === 'error') throw new Error(`Redis DEL error: ${resp.value}`);
-  }
-}
-
 export function createThresholdEcdsaSigningStores(input: {
   config?: ThresholdStoreConfigInput | null;
   logger: NormalizedLogger;
   isNode: boolean;
 }): {
-  presignaturePool: RouterAbEcdsaDerivationPresignaturePool;
   poolFillSessionStore: RouterAbEcdsaDerivationPoolFillSessionStore;
 } {
   const doStores = createCloudflareDurableObjectThresholdEcdsaStores({
@@ -951,7 +488,6 @@ export function createThresholdEcdsaSigningStores(input: {
   });
   if (doStores) {
     return {
-      presignaturePool: doStores.presignaturePool,
       poolFillSessionStore: doStores.poolFillSessionStore,
     };
   }
@@ -973,7 +509,6 @@ export function createThresholdEcdsaSigningStores(input: {
       );
     }
     return {
-      presignaturePool: new InMemoryRouterAbEcdsaDerivationPresignaturePool(),
       poolFillSessionStore: new InMemoryRouterAbEcdsaDerivationPoolFillSessionStore(),
     };
   }
@@ -990,11 +525,6 @@ export function createThresholdEcdsaSigningStores(input: {
         '[threshold-ecdsa] upstash-redis-rest selected but UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are not set',
       );
     return {
-      presignaturePool: new UpstashRedisRestRouterAbEcdsaDerivationPresignaturePool({
-        url,
-        token,
-        keyPrefix: presignPrefix,
-      }),
       poolFillSessionStore: new UpstashRedisRestRouterAbEcdsaDerivationPoolFillSessionStore({
         url,
         token,
@@ -1018,15 +548,10 @@ export function createThresholdEcdsaSigningStores(input: {
         '[threshold-ecdsa] redis-tcp is not supported in this runtime; falling back to in-memory',
       );
       return {
-        presignaturePool: new InMemoryRouterAbEcdsaDerivationPresignaturePool(),
         poolFillSessionStore: new InMemoryRouterAbEcdsaDerivationPoolFillSessionStore(),
       };
     }
     return {
-      presignaturePool: new RedisTcpRouterAbEcdsaDerivationPresignaturePool({
-        redisUrl,
-        keyPrefix: presignPrefix,
-      }),
       poolFillSessionStore: new RedisTcpRouterAbEcdsaDerivationPoolFillSessionStore({
         redisUrl,
         keyPrefix: presignPrefix,
@@ -1045,11 +570,6 @@ export function createThresholdEcdsaSigningStores(input: {
     }
     input.logger.info('[threshold-ecdsa] Using Upstash REST for presign pool');
     return {
-      presignaturePool: new UpstashRedisRestRouterAbEcdsaDerivationPresignaturePool({
-        url: upstashUrl,
-        token: upstashToken,
-        keyPrefix: presignPrefix,
-      }),
       poolFillSessionStore: new UpstashRedisRestRouterAbEcdsaDerivationPoolFillSessionStore({
         url: upstashUrl,
         token: upstashToken,
@@ -1070,16 +590,11 @@ export function createThresholdEcdsaSigningStores(input: {
         '[threshold-ecdsa] REDIS_URL is set but TCP Redis is not supported in this runtime; falling back to in-memory',
       );
       return {
-        presignaturePool: new InMemoryRouterAbEcdsaDerivationPresignaturePool(),
         poolFillSessionStore: new InMemoryRouterAbEcdsaDerivationPoolFillSessionStore(),
       };
     }
     input.logger.info('[threshold-ecdsa] Using redis-tcp for presign pool');
     return {
-      presignaturePool: new RedisTcpRouterAbEcdsaDerivationPresignaturePool({
-        redisUrl,
-        keyPrefix: presignPrefix,
-      }),
       poolFillSessionStore: new RedisTcpRouterAbEcdsaDerivationPoolFillSessionStore({
         redisUrl,
         keyPrefix: presignPrefix,
@@ -1097,7 +612,6 @@ export function createThresholdEcdsaSigningStores(input: {
     '[threshold-ecdsa] Using in-memory presign pool (non-persistent)',
   );
   return {
-    presignaturePool: new InMemoryRouterAbEcdsaDerivationPresignaturePool(),
     poolFillSessionStore: new InMemoryRouterAbEcdsaDerivationPoolFillSessionStore(),
   };
 }

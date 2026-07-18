@@ -9,6 +9,7 @@ import {
   routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestDigestV1,
   routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestFromBudgetedV1,
   routerAbEcdsaDerivationEvmDigestSigningRequestDigestV1,
+  routerAbEcdsaRerandomizationClientCommitmentV1,
   type RouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1Wire,
   type RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1Wire,
   type RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire,
@@ -44,6 +45,8 @@ const ecdsaThresholdPublicKey33B64u = hexB64u(
 const ecdsaServerBigR33B64u = hexB64u(
   '03f28773c2d975288bc7d1d205c3748651b075fbc6610e58cddeeddf8f19405aa8',
 );
+const clientRerandomizationCommitment32 = new Uint8Array(32).fill(12);
+const clientRerandomizationContribution32 = new Uint8Array(32).fill(13);
 
 const stableContext = {
   application_binding_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
@@ -85,6 +88,7 @@ function prepareRequest() {
     clientPresignatureId: 'presig-client-selected',
     expiresAtMs: 1_900_000_000_000,
     signingDigest32: new Uint8Array(32).fill(11),
+    clientRerandomizationCommitment32,
   });
 }
 
@@ -105,7 +109,7 @@ async function prepareResponse(
     signing_digest: digest(11),
     server_presignature_id: request.client_presignature_id,
     server_big_r33_b64u: ecdsaServerBigR33B64u,
-    rerandomization_entropy32_b64u: b64u(14, 32),
+    signing_worker_rerandomization_contribution32_b64u: b64u(14, 32),
     signature_scheme: 'ecdsa_secp256k1_recoverable_v1',
     prepared_at_ms: 1_800_000_000_000,
     expires_at_ms: request.expires_at_ms,
@@ -143,6 +147,7 @@ test.describe('Router A/B ECDSA derivation normal-signing boundary', () => {
       client_presignature_id: 'presig-client-selected',
       expires_at_ms: 1_900_000_000_000,
       signing_digest_b64u: b64u(11, 32),
+      client_rerandomization_commitment32_b64u: b64u(12, 32),
     });
 
     const finalizeRequest = buildRouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1({
@@ -154,6 +159,7 @@ test.describe('Router A/B ECDSA derivation normal-signing boundary', () => {
       signingDigest32: new Uint8Array(32).fill(11),
       serverPresignatureId: request.client_presignature_id,
       clientSignatureShare32: new Uint8Array(32).fill(17),
+      clientRerandomizationContribution32,
     });
 
     expect(finalizeRequest).toEqual({
@@ -165,7 +171,17 @@ test.describe('Router A/B ECDSA derivation normal-signing boundary', () => {
       signing_digest_b64u: b64u(11, 32),
       server_presignature_id: 'presig-client-selected',
       client_signature_share32_b64u: b64u(17, 32),
+      client_rerandomization_contribution32_b64u: b64u(13, 32),
     });
+  });
+
+  test('matches the Rust client rerandomization commitment vector', async () => {
+    const commitment = await routerAbEcdsaRerandomizationClientCommitmentV1(
+      new Uint8Array(32).fill(0x44),
+    );
+    expect(Buffer.from(commitment).toString('base64url')).toBe(
+      'S9FX5zM9m3vAn8E1xDn0YqbRjAG_nibOaiphjxKGhmw',
+    );
   });
 
   test('rejects request digests when scope context binding does not match context', async () => {
@@ -187,6 +203,7 @@ test.describe('Router A/B ECDSA derivation normal-signing boundary', () => {
       clientPresignatureId: 'presig-client-selected',
       expiresAtMs: 1_900_000_000_000,
       signingDigest32: new Uint8Array(32).fill(11),
+      clientRerandomizationCommitment32,
     });
 
     await expect(routerAbEcdsaDerivationEvmDigestSigningRequestDigestV1(request)).rejects.toThrow(
@@ -238,6 +255,7 @@ test.describe('Router A/B ECDSA derivation normal-signing boundary', () => {
       signingDigest32: new Uint8Array(32).fill(11),
       serverPresignatureId: request.client_presignature_id,
       clientSignatureShare32: new Uint8Array(32).fill(17),
+      clientRerandomizationContribution32,
     });
 
     await expect(
@@ -263,6 +281,7 @@ test.describe('Router A/B ECDSA derivation normal-signing boundary', () => {
       signingDigest32: new Uint8Array(32).fill(11),
       serverPresignatureId: preparedResponse.server_presignature_id,
       clientSignatureShare32: new Uint8Array(32).fill(17),
+      clientRerandomizationContribution32,
     });
     const signedResponse = await signingResponse(finalizeRequest);
     const calls: Array<{ url: string; init: RequestInit }> = [];

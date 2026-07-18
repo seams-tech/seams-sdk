@@ -1,5 +1,5 @@
 import { alphabetizeStringify, sha256Bytes, sha256BytesUtf8 } from '../utils/digests';
-import { base64UrlEncode } from '../utils/encoders';
+import { base64UrlDecode, base64UrlEncode } from '../utils/encoders';
 import type { WalletId } from '../utils/domainIds';
 
 const THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID = 'threshold-secp256k1-ecdsa-2p-v1';
@@ -18,6 +18,17 @@ export type EcdsaClientRootPublicKey33B64u = string & {
 export type DerivationClientSharePublicKey33B64u = string & {
   readonly __brand: 'DerivationClientSharePublicKey33B64u';
 };
+
+export function derivationClientSharePublicKey33B64uFromString(
+  value: string,
+): DerivationClientSharePublicKey33B64u {
+  const normalized = value.trim();
+  const bytes = base64UrlDecode(normalized);
+  if (bytes.length !== 33 || base64UrlEncode(bytes) !== normalized) {
+    throw new Error('derivation client share public key must be canonical base64url for 33 bytes');
+  }
+  return normalized as DerivationClientSharePublicKey33B64u;
+}
 
 export type EcdsaDerivationRelayerPublicKey33B64u = string & {
   readonly __brand: 'EcdsaDerivationRelayerPublicKey33B64u';

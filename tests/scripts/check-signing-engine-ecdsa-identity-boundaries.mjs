@@ -1109,9 +1109,13 @@ function checkEcdsaDerivationRoleLocalBootstrapTypesKeepLaneIdentityExplicit() {
         'relayerPublicKey33B64u',
         'groupPublicKey33B64u',
         'relayerShare32B64u',
-        'relayerCaitSithInput',
         'publicTranscriptDigest32B64u',
       ],
+      'packages/sdk-server-ts/src/core/types.ts EcdsaDerivationRoleLocalKeyRecord',
+    ),
+    ...expectNoField(
+      serverRoleLocalRecordBlock,
+      'relayerCaitSithInput',
       'packages/sdk-server-ts/src/core/types.ts EcdsaDerivationRoleLocalKeyRecord',
     ),
     ...expectNoField(

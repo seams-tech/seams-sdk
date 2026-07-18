@@ -28,6 +28,22 @@ print_success() { echo -e "${GREEN}✅ $1${NC}"; }
 print_error() { echo -e "${RED}❌ $1${NC}"; }
 print_warning() { echo -e "${YELLOW}⚠️ $1${NC}"; }
 
+require_ecdsa_commitment_policy_build_pins() {
+  local name
+  for name in \
+    ROUTER_AB_ECDSA_COMMITMENT_POLICY_RELEASE_AUTHORITY_PUBLIC_KEY_HEX \
+    ROUTER_AB_ECDSA_COMMITMENT_POLICY_DIGEST_HEX \
+    ROUTER_AB_ECDSA_COMMITMENT_POLICY_MINIMUM_RELEASE_EPOCH
+  do
+    if [ -z "${!name:-}" ]; then
+      print_error "Missing required ECDSA commitment-policy build pin: $name"
+      exit 1
+    fi
+  done
+}
+
+require_ecdsa_commitment_policy_build_pins
+
 WASM_SDK_BUILD_MODE="${WASM_SDK_BUILD_MODE:-dev}"
 case "$WASM_SDK_BUILD_MODE" in
   dev)
@@ -81,6 +97,12 @@ build_ed25519_yao_client() {
   run_in_dir "$SOURCE_ED25519_YAO_CLIENT" \
     with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/Cargo.lock" \
       wasm-pack build --locked --target web --out-dir pkg --out-name router_ab_ed25519_yao_client --release
+}
+
+build_ecdsa_registration_client() {
+  run_in_dir "$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT" \
+    with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT/Cargo.lock" \
+      wasm-pack build --locked --target web --out-dir pkg --out-name ecdsa_registration_client --release
 }
 
 build_router_ab_ecdsa_derivation_client() {
@@ -220,6 +242,7 @@ print_step "Cleaning previous WASM package outputs..."
 rm -rf \
   "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg" \
   "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg" \
+  "$SDK_ROOT/$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT/pkg" \
   "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg" \
   "$SDK_ROOT/$SOURCE_WASM_ECDSA_PRESIGN_CLIENT/pkg" \
   "$SDK_ROOT/$SOURCE_WASM_ECDSA_ONLINE_CLIENT/pkg" \
@@ -235,6 +258,7 @@ print_step "Building WASM packages in parallel..."
 JOB_LOG_DIR="$(mktemp -d)"
 start_job "NEAR signer WASM (release)" build_near_signer
 start_job "Ed25519 Yao Client WASM (release)" build_ed25519_yao_client
+start_job "ECDSA registration client WASM (release)" build_ecdsa_registration_client
 start_job "ECDSA client signer WASM (release)" build_router_ab_ecdsa_derivation_client
 start_job "ECDSA presign client WASM (release)" build_router_ab_ecdsa_presign_client
 start_job "ECDSA online client WASM (release)" build_router_ab_ecdsa_online_client
@@ -256,6 +280,11 @@ if node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$SOUR
   print_success "Ed25519 Yao Client WASM package metadata optimized"
 else
   print_warning "Failed to optimize Ed25519 Yao Client WASM package metadata"
+fi
+if node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT/pkg" 2>/dev/null; then
+  print_success "ECDSA registration client WASM package metadata optimized"
+else
+  print_warning "Failed to optimize ECDSA registration client WASM package metadata"
 fi
 if node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg" 2>/dev/null; then
   print_success "ECDSA client WASM package metadata optimized"
@@ -295,6 +324,9 @@ require_file "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg/wasm_signer_worker_bg.wasm"
 require_file "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client.js"
 require_file "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client.d.ts"
 require_file "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client_bg.wasm"
+require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT/pkg/ecdsa_registration_client.js"
+require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT/pkg/ecdsa_registration_client.d.ts"
+require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT/pkg/ecdsa_registration_client_bg.wasm"
 require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg/router_ab_ecdsa_derivation_client.js"
 require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg/router_ab_ecdsa_derivation_client.d.ts"
 require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg/router_ab_ecdsa_derivation_client_bg.wasm"

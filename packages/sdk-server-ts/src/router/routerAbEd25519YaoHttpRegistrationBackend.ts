@@ -1,8 +1,9 @@
 import {
   deriveRouterAbEd25519YaoStableContextBindingV1,
   parseRouterAbEd25519YaoEncryptedPackageV1,
-  parseRouterAbEd25519YaoRecoveryActivationRequestV1,
   type RouterAbEd25519YaoActivationExecuteRequestV1,
+  type RouterAbEd25519YaoActivationBindingV1,
+  type RouterAbEd25519YaoCeremonyBindingV1,
   type RouterAbEd25519YaoDeriverRoleV1,
   type RouterAbEd25519YaoEncryptedPackageV1,
   type RouterAbEd25519YaoPackageKindV1,
@@ -27,23 +28,14 @@ type RouterAbEd25519YaoRecoveryExecuteRequestV1 =
 const INTERNAL_AUTH_HEADER = 'x-router-ab-internal-service-auth';
 const DERIVER_B_STAGE_PATH = '/router-ab/deriver-b/ed25519-yao/activation/stage';
 const DERIVER_A_START_PATH = '/router-ab/deriver-a/ed25519-yao/activation/start';
-const DERIVER_B_RESULT_PATH = '/router-ab/deriver-b/ed25519-yao/result';
-const DERIVER_A_CLIENT_PACKAGE_PATH = '/router-ab/deriver-a/ed25519-yao/activation/client-package';
-const DERIVER_B_CLIENT_PACKAGE_PATH = '/router-ab/deriver-b/ed25519-yao/activation/client-package';
-const DERIVER_A_SIGNING_WORKER_PACKAGE_PATH =
-  '/router-ab/deriver-a/ed25519-yao/activation/signing-worker-package';
-const DERIVER_B_SIGNING_WORKER_PACKAGE_PATH =
-  '/router-ab/deriver-b/ed25519-yao/activation/signing-worker-package';
+const DERIVER_B_ACTIVATION_RESULT_PATH = '/router-ab/deriver-b/ed25519-yao/activation/result';
 const SIGNING_WORKER_DERIVER_A_PATH = '/router-ab/signing-worker/ed25519-yao/activation/deriver-a';
 const SIGNING_WORKER_DERIVER_B_PATH = '/router-ab/signing-worker/ed25519-yao/activation/deriver-b';
 const SIGNING_WORKER_RECOVERY_PROMOTE_PATH =
   '/router-ab/signing-worker/ed25519-yao/recovery/promote';
 const DERIVER_B_EXPORT_STAGE_PATH = '/router-ab/deriver-b/ed25519-yao/export/stage';
 const DERIVER_A_EXPORT_START_PATH = '/router-ab/deriver-a/ed25519-yao/export/start';
-const DERIVER_A_EXPORT_PACKAGE_PATH =
-  '/router-ab/deriver-a/ed25519-yao/export/client-package';
-const DERIVER_B_EXPORT_PACKAGE_PATH =
-  '/router-ab/deriver-b/ed25519-yao/export/client-package';
+const DERIVER_B_EXPORT_RESULT_PATH = '/router-ab/deriver-b/ed25519-yao/export/result';
 
 const ROUTER_AB_ENV_KEYS = {
   deriverAUrl: 'DERIVER_A_URL',
@@ -85,11 +77,21 @@ type ValidatedHttpBackendConfig = {
 type HttpSuccess = { ok: true; body: unknown };
 type HttpResult = HttpSuccess | RouterAbEd25519YaoRegistrationBackendFailure;
 
-type ActivationCompletion = {
-  session: readonly number[];
+type ActivationRoleExecution = {
+  binding: RouterAbEd25519YaoActivationBindingV1;
+  deriver: RouterAbEd25519YaoDeriverRoleV1;
   transcript: readonly number[];
   clientCommitment: readonly number[];
   signingWorkerCommitment: readonly number[];
+  clientPackage: RouterAbEd25519YaoEncryptedPackageV1;
+  signingWorkerPackage: RouterAbEd25519YaoEncryptedPackageV1;
+};
+
+type ExportRoleExecution = {
+  binding: RouterAbEd25519YaoCeremonyBindingV1;
+  deriver: RouterAbEd25519YaoDeriverRoleV1;
+  transcript: readonly number[];
+  clientPackage: RouterAbEd25519YaoEncryptedPackageV1;
 };
 
 type ActiveSigningWorkerReceipt = {
@@ -102,56 +104,9 @@ type ActiveSigningWorkerReceipt = {
   stateEpoch: number;
 };
 
-type StagedRecoveryReceipt = {
-  activeReceipt: ActiveSigningWorkerReceipt;
-  promotion: Record<string, unknown>;
-};
-
-type RecoveryPromotionState =
-  | {
-      readonly kind: 'staged';
-      readonly activation: RouterAbEd25519YaoRecoveryActivationRequestV1;
-      readonly promotion: Record<string, unknown>;
-    }
-  | {
-      readonly kind: 'promoted';
-      readonly activation: RouterAbEd25519YaoRecoveryActivationRequestV1;
-      readonly promotion: Record<string, unknown>;
-    };
-
-export class RouterAbEd25519YaoHttpRegistrationBackendStateV1 {
-  private readonly recoveryPromotions = new Map<string, RecoveryPromotionState>();
-
-  stageRecovery(
-    activation: RouterAbEd25519YaoRecoveryActivationRequestV1,
-    promotion: Record<string, unknown>,
-  ): void {
-    this.recoveryPromotions.set(bytesToHex(activation.binding.session_id), {
-      kind: 'staged',
-      activation,
-      promotion,
-    });
-  }
-
-  recoveryPromotion(sessionId: readonly number[]): RecoveryPromotionState | undefined {
-    return this.recoveryPromotions.get(bytesToHex(sessionId));
-  }
-
-  markRecoveryPromoted(activation: RouterAbEd25519YaoRecoveryActivationRequestV1): void {
-    const key = bytesToHex(activation.binding.session_id);
-    const current = this.recoveryPromotions.get(key);
-    if (!current) throw new Error('recovery promotion state is missing');
-    this.recoveryPromotions.set(key, {
-      kind: 'promoted',
-      activation: current.activation,
-      promotion: current.promotion,
-    });
-  }
-}
-
 type SigningWorkerDeliveryReceipt =
   | { kind: 'active'; activeReceipt: ActiveSigningWorkerReceipt }
-  | { kind: 'staged_recovery'; staged: StagedRecoveryReceipt };
+  | { kind: 'staged_recovery'; stagedReceipt: ActiveSigningWorkerReceipt };
 
 function requireRecord(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -218,12 +173,6 @@ function equalBytes(left: readonly number[], right: readonly number[]): boolean 
     if (left[index] !== right[index]) return false;
   }
   return true;
-}
-
-function bytesToHex(bytes: readonly number[]): string {
-  let encoded = '';
-  for (const byte of bytes) encoded += byte.toString(16).padStart(2, '0');
-  return encoded;
 }
 
 function hexToBytes32(value: unknown, label: string): number[] {
@@ -322,89 +271,160 @@ function unavailableFailure(error: unknown): RouterAbEd25519YaoRegistrationBacke
   };
 }
 
-function parseActivationCompletion(
-  value: unknown,
-  expectedSession: readonly number[],
-): ActivationCompletion {
-  const record = requireRecord(value, 'activation completion');
-  requireExactKeys(record, 'activation completion', [
-    'family',
-    'session_hex',
-    'transcript_hex',
-    'client_commitment_hex',
-    'signing_worker_commitment_hex',
-    'frame_count',
-    'deriver_a_to_b_transport_bytes',
-    'deriver_b_to_a_transport_bytes',
-    'total_ab_transport_bytes',
-  ]);
-  if (record.family !== 'activation') throw new Error('activation completion has wrong family');
-  const session = hexToBytes32(record.session_hex, 'activation completion session');
-  if (!equalBytes(session, expectedSession)) {
-    throw new Error('activation completion session does not match admission');
+function requireMatchingString(value: unknown, expected: string, label: string): void {
+  if (value !== expected) throw new Error(`${label} does not match the admitted ceremony`);
+}
+
+function requireMatchingBytes32(value: unknown, expected: readonly number[], label: string): void {
+  const parsed = requireBytes32(value, label);
+  if (!equalBytes(parsed, expected)) {
+    throw new Error(`${label} does not match the admitted ceremony`);
   }
-  requirePositiveSafeInteger(record.frame_count, 'activation completion frame_count');
-  requirePositiveSafeInteger(
-    record.deriver_a_to_b_transport_bytes,
-    'activation completion deriver_a_to_b_transport_bytes',
+}
+
+function requireExactCeremonyBinding<Binding extends RouterAbEd25519YaoCeremonyBindingV1>(
+  value: unknown,
+  expected: Binding,
+  label: string,
+): Binding {
+  const binding = requireRecord(value, label);
+  requireExactKeys(binding, label, [
+    'lifecycle',
+    'operation',
+    'session_id',
+    'stable_key_context_binding',
+  ]);
+  const lifecycle = requireRecord(binding.lifecycle, `${label}.lifecycle`);
+  requireExactKeys(lifecycle, `${label}.lifecycle`, [
+    'lifecycle_id',
+    'work_kind',
+    'primitive_request_kind',
+    'root_share_epoch',
+    'account_id',
+    'session_id',
+    'signer_set_id',
+    'selected_server_id',
+  ]);
+  requireMatchingString(
+    lifecycle.lifecycle_id,
+    expected.lifecycle.lifecycle_id,
+    `${label}.lifecycle.lifecycle_id`,
   );
-  requirePositiveSafeInteger(
-    record.deriver_b_to_a_transport_bytes,
-    'activation completion deriver_b_to_a_transport_bytes',
+  requireMatchingString(
+    lifecycle.work_kind,
+    expected.lifecycle.work_kind,
+    `${label}.lifecycle.work_kind`,
   );
-  requirePositiveSafeInteger(
-    record.total_ab_transport_bytes,
-    'activation completion total_ab_transport_bytes',
+  requireMatchingString(
+    lifecycle.primitive_request_kind,
+    expected.lifecycle.primitive_request_kind,
+    `${label}.lifecycle.primitive_request_kind`,
   );
+  requireMatchingString(
+    lifecycle.root_share_epoch,
+    expected.lifecycle.root_share_epoch,
+    `${label}.lifecycle.root_share_epoch`,
+  );
+  requireMatchingString(
+    lifecycle.account_id,
+    expected.lifecycle.account_id,
+    `${label}.lifecycle.account_id`,
+  );
+  requireMatchingString(
+    lifecycle.session_id,
+    expected.lifecycle.session_id,
+    `${label}.lifecycle.session_id`,
+  );
+  requireMatchingString(
+    lifecycle.signer_set_id,
+    expected.lifecycle.signer_set_id,
+    `${label}.lifecycle.signer_set_id`,
+  );
+  requireMatchingString(
+    lifecycle.selected_server_id,
+    expected.lifecycle.selected_server_id,
+    `${label}.lifecycle.selected_server_id`,
+  );
+  requireMatchingString(binding.operation, expected.operation, `${label}.operation`);
+  requireMatchingBytes32(binding.session_id, expected.session_id, `${label}.session_id`);
+  requireMatchingBytes32(
+    binding.stable_key_context_binding,
+    expected.stable_key_context_binding,
+    `${label}.stable_key_context_binding`,
+  );
+  return expected;
+}
+
+function parseActivationRoleExecution(
+  value: unknown,
+  expectedBinding: RouterAbEd25519YaoActivationBindingV1,
+  expectedDeriver: RouterAbEd25519YaoDeriverRoleV1,
+): ActivationRoleExecution {
+  const label = `${expectedDeriver} activation execution`;
+  const record = requireRecord(value, label);
+  requireExactKeys(record, label, [
+    'family',
+    'binding',
+    'deriver',
+    'transcript',
+    'client_commitment',
+    'signing_worker_commitment',
+    'client_package',
+    'signing_worker_package',
+  ]);
+  if (record.family !== 'activation') throw new Error(`${label} has wrong family`);
+  if (record.deriver !== expectedDeriver) throw new Error(`${label} has wrong Deriver role`);
+  const binding = requireExactCeremonyBinding(record.binding, expectedBinding, `${label}.binding`);
+  const transcript = requireBytes32(record.transcript, `${label}.transcript`);
   return {
-    session,
-    transcript: hexToBytes32(record.transcript_hex, 'activation completion transcript'),
-    clientCommitment: hexToBytes32(
-      record.client_commitment_hex,
-      'activation completion client commitment',
+    binding,
+    deriver: expectedDeriver,
+    transcript,
+    clientCommitment: requireBytes32(record.client_commitment, `${label}.client_commitment`),
+    signingWorkerCommitment: requireBytes32(
+      record.signing_worker_commitment,
+      `${label}.signing_worker_commitment`,
     ),
-    signingWorkerCommitment: hexToBytes32(
-      record.signing_worker_commitment_hex,
-      'activation completion SigningWorker commitment',
+    clientPackage: requirePackage(
+      record.client_package,
+      'activation_client',
+      expectedDeriver,
+      expectedBinding.session_id,
+      transcript,
+    ),
+    signingWorkerPackage: requirePackage(
+      record.signing_worker_package,
+      'activation_signing_worker',
+      expectedDeriver,
+      expectedBinding.session_id,
+      transcript,
     ),
   };
 }
 
-function parseExportCompletion(value: unknown, expectedSession: readonly number[]): {
-  readonly session: readonly number[];
-  readonly transcript: readonly number[];
-} {
-  const record = requireRecord(value, 'export completion');
-  requireExactKeys(record, 'export completion', [
-    'family',
-    'session_hex',
-    'transcript_hex',
-    'frame_count',
-    'deriver_a_to_b_transport_bytes',
-    'deriver_b_to_a_transport_bytes',
-    'total_ab_transport_bytes',
-  ]);
-  if (record.family !== 'export') throw new Error('export completion has wrong family');
-  const session = hexToBytes32(record.session_hex, 'export completion session');
-  if (!equalBytes(session, expectedSession)) {
-    throw new Error('export completion session does not match admission');
-  }
-  requirePositiveSafeInteger(record.frame_count, 'export completion frame_count');
-  requirePositiveSafeInteger(
-    record.deriver_a_to_b_transport_bytes,
-    'export completion deriver_a_to_b_transport_bytes',
-  );
-  requirePositiveSafeInteger(
-    record.deriver_b_to_a_transport_bytes,
-    'export completion deriver_b_to_a_transport_bytes',
-  );
-  requirePositiveSafeInteger(
-    record.total_ab_transport_bytes,
-    'export completion total_ab_transport_bytes',
-  );
+function parseExportRoleExecution(
+  value: unknown,
+  expectedBinding: RouterAbEd25519YaoCeremonyBindingV1,
+  expectedDeriver: RouterAbEd25519YaoDeriverRoleV1,
+): ExportRoleExecution {
+  const label = `${expectedDeriver} export execution`;
+  const record = requireRecord(value, label);
+  requireExactKeys(record, label, ['family', 'binding', 'deriver', 'transcript', 'client_package']);
+  if (record.family !== 'export') throw new Error(`${label} has wrong family`);
+  if (record.deriver !== expectedDeriver) throw new Error(`${label} has wrong Deriver role`);
+  const binding = requireExactCeremonyBinding(record.binding, expectedBinding, `${label}.binding`);
+  const transcript = requireBytes32(record.transcript, `${label}.transcript`);
   return {
-    session,
-    transcript: hexToBytes32(record.transcript_hex, 'export completion transcript'),
+    binding,
+    deriver: expectedDeriver,
+    transcript,
+    clientPackage: requirePackage(
+      record.client_package,
+      'export_client',
+      expectedDeriver,
+      expectedBinding.session_id,
+      transcript,
+    ),
   };
 }
 
@@ -451,13 +471,15 @@ function parsePendingSigningWorkerReceipt(
   }
 }
 
-function parseActiveSigningWorkerReceipt(
+function parseSigningWorkerReceipt(
   value: unknown,
   session: readonly number[],
   transcript: readonly number[],
+  expectedStatus: 'active' | 'staged',
 ): ActiveSigningWorkerReceipt {
-  const record = requireRecord(value, 'active SigningWorker receipt');
-  requireExactKeys(record, 'active SigningWorker receipt', [
+  const label = `${expectedStatus} SigningWorker receipt`;
+  const record = requireRecord(value, label);
+  requireExactKeys(record, label, [
     'status',
     'session',
     'transcript',
@@ -467,120 +489,55 @@ function parseActiveSigningWorkerReceipt(
     'signing_worker_verifying_share',
     'state_epoch',
   ]);
-  if (record.status !== 'active') throw new Error('SigningWorker did not activate');
-  const parsedSession = requireBytes32(record.session, 'active receipt session');
-  const parsedTranscript = requireBytes32(record.transcript, 'active receipt transcript');
+  if (record.status !== expectedStatus) {
+    throw new Error(`SigningWorker did not return a ${expectedStatus} receipt`);
+  }
+  const parsedSession = requireBytes32(record.session, `${label} session`);
+  const parsedTranscript = requireBytes32(record.transcript, `${label} transcript`);
   if (!equalBytes(parsedSession, session) || !equalBytes(parsedTranscript, transcript)) {
-    throw new Error('active SigningWorker receipt does not match the ceremony');
+    throw new Error(`${label} does not match the ceremony`);
   }
   const receipt = {
     session: parsedSession,
     transcript: parsedTranscript,
     registeredPublicKey: requireBytes32(
       record.registered_public_key,
-      'active receipt registered_public_key',
+      `${label} registered_public_key`,
     ),
     joinedClientCommitment: requireBytes32(
       record.joined_client_commitment,
-      'active receipt joined_client_commitment',
+      `${label} joined_client_commitment`,
     ),
     joinedSigningWorkerCommitment: requireBytes32(
       record.joined_signing_worker_commitment,
-      'active receipt joined_signing_worker_commitment',
+      `${label} joined_signing_worker_commitment`,
     ),
     signingWorkerVerifyingShare: requireBytes32(
       record.signing_worker_verifying_share,
-      'active receipt signing_worker_verifying_share',
+      `${label} signing_worker_verifying_share`,
     ),
-    stateEpoch: requirePositiveSafeInteger(record.state_epoch, 'active receipt state_epoch'),
+    stateEpoch: requirePositiveSafeInteger(record.state_epoch, `${label} state_epoch`),
   };
   if (!equalBytes(receipt.signingWorkerVerifyingShare, receipt.joinedSigningWorkerCommitment)) {
-    throw new Error('active SigningWorker receipt verifying share does not match its commitment');
+    throw new Error(`${label} verifying share does not match its commitment`);
   }
   return receipt;
 }
 
-function parseStagedRecoveryReceipt(
+function parseActiveSigningWorkerReceipt(
   value: unknown,
   session: readonly number[],
   transcript: readonly number[],
-): StagedRecoveryReceipt {
-  const record = requireRecord(value, 'staged recovery receipt');
-  requireExactKeys(record, 'staged recovery receipt', ['status', 'promotion']);
-  if (record.status !== 'staged') throw new Error('SigningWorker did not stage recovery');
-  const promotion = requireRecord(record.promotion, 'staged recovery promotion');
-  requireExactKeys(promotion, 'staged recovery promotion', [
-    'binding',
-    'session',
-    'transcript',
-    'registered_public_key',
-    'joined_client_commitment',
-    'joined_signing_worker_commitment',
-    'signing_worker_verifying_share',
-    'state_epoch',
-  ]);
-  const parsedSession = requireBytes32(promotion.session, 'staged recovery session');
-  const parsedTranscript = requireBytes32(promotion.transcript, 'staged recovery transcript');
-  if (!equalBytes(parsedSession, session) || !equalBytes(parsedTranscript, transcript)) {
-    throw new Error('staged recovery receipt does not match the ceremony');
-  }
-  const publicReceipt = {
-    transcript: parsedTranscript,
-    registered_public_key: requireBytes32(
-      promotion.registered_public_key,
-      'staged recovery registered_public_key',
-    ),
-    joined_client_commitment: requireBytes32(
-      promotion.joined_client_commitment,
-      'staged recovery joined_client_commitment',
-    ),
-    joined_signing_worker_commitment: requireBytes32(
-      promotion.joined_signing_worker_commitment,
-      'staged recovery joined_signing_worker_commitment',
-    ),
-    signing_worker_verifying_share: requireBytes32(
-      promotion.signing_worker_verifying_share,
-      'staged recovery signing_worker_verifying_share',
-    ),
-    state_epoch: requirePositiveSafeInteger(promotion.state_epoch, 'staged recovery state_epoch'),
-  };
-  const parsedActivation = parseRouterAbEd25519YaoRecoveryActivationRequestV1({
-    binding: promotion.binding,
-    public_receipt: publicReceipt,
-  });
-  if (!parsedActivation.ok) throw new Error(parsedActivation.message);
-  if (!equalBytes(parsedActivation.value.binding.session_id, session)) {
-    throw new Error('staged recovery binding does not match the ceremony session');
-  }
-  if (
-    !equalBytes(
-      publicReceipt.signing_worker_verifying_share,
-      publicReceipt.joined_signing_worker_commitment,
-    )
-  ) {
-    throw new Error('staged recovery verifying share does not match its commitment');
-  }
-  return {
-    activeReceipt: {
-      session: parsedSession,
-      transcript: parsedTranscript,
-      registeredPublicKey: publicReceipt.registered_public_key,
-      joinedClientCommitment: publicReceipt.joined_client_commitment,
-      joinedSigningWorkerCommitment: publicReceipt.joined_signing_worker_commitment,
-      signingWorkerVerifyingShare: publicReceipt.signing_worker_verifying_share,
-      stateEpoch: publicReceipt.state_epoch,
-    },
-    promotion: {
-      binding: parsedActivation.value.binding,
-      session: parsedSession,
-      transcript: parsedTranscript,
-      registered_public_key: publicReceipt.registered_public_key,
-      joined_client_commitment: publicReceipt.joined_client_commitment,
-      joined_signing_worker_commitment: publicReceipt.joined_signing_worker_commitment,
-      signing_worker_verifying_share: publicReceipt.signing_worker_verifying_share,
-      state_epoch: publicReceipt.state_epoch,
-    },
-  };
+): ActiveSigningWorkerReceipt {
+  return parseSigningWorkerReceipt(value, session, transcript, 'active');
+}
+
+function parseStagedSigningWorkerReceipt(
+  value: unknown,
+  session: readonly number[],
+  transcript: readonly number[],
+): ActiveSigningWorkerReceipt {
+  return parseSigningWorkerReceipt(value, session, transcript, 'staged');
 }
 
 function activeReceiptMatchesRecoveryActivation(
@@ -606,14 +563,9 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
   implements RouterAbEd25519YaoRegistrationBackend, RouterAbEd25519YaoExportBackend
 {
   private readonly config: ValidatedHttpBackendConfig;
-  private readonly state: RouterAbEd25519YaoHttpRegistrationBackendStateV1;
 
-  constructor(
-    config: RouterAbEd25519YaoHttpRegistrationBackendConfig,
-    state: RouterAbEd25519YaoHttpRegistrationBackendStateV1,
-  ) {
+  constructor(config: RouterAbEd25519YaoHttpRegistrationBackendConfig) {
     this.config = validateConfig(config);
-    this.state = state;
   }
 
   async admit(
@@ -692,37 +644,35 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
         request.deriver_a_input,
       );
       if (!deriverAResult.ok) return deriverAResult;
-      const deriverBResult = await this.get(this.config.deriverBUrl, DERIVER_B_RESULT_PATH);
+      const deriverBResult = await this.post(
+        this.config.deriverBUrl,
+        DERIVER_B_EXPORT_RESULT_PATH,
+        {
+          family: 'export',
+          session_id: request.binding.ceremony.session_id,
+        },
+      );
       if (!deriverBResult.ok) return deriverBResult;
-      const session = request.binding.ceremony.session_id;
-      const completionA = parseExportCompletion(deriverAResult.body, session);
-      const completionB = parseExportCompletion(deriverBResult.body, session);
-      if (!equalBytes(completionA.transcript, completionB.transcript)) {
+      const executionA = parseExportRoleExecution(
+        deriverAResult.body,
+        request.binding.ceremony,
+        'deriver_a',
+      );
+      const executionB = parseExportRoleExecution(
+        deriverBResult.body,
+        request.binding.ceremony,
+        'deriver_b',
+      );
+      if (!equalBytes(executionA.transcript, executionB.transcript)) {
         return internalFailure('transcript_mismatch', 'Deriver export transcripts differ');
       }
-      const packageA = await this.get(this.config.deriverAUrl, DERIVER_A_EXPORT_PACKAGE_PATH);
-      if (!packageA.ok) return packageA;
-      const packageB = await this.get(this.config.deriverBUrl, DERIVER_B_EXPORT_PACKAGE_PATH);
-      if (!packageB.ok) return packageB;
       return {
         ok: true,
         body: {
           binding: request.binding,
-          transcript: completionA.transcript,
-          deriver_a_client_package: requirePackage(
-            packageA.body,
-            'export_client',
-            'deriver_a',
-            session,
-            completionA.transcript,
-          ),
-          deriver_b_client_package: requirePackage(
-            packageB.body,
-            'export_client',
-            'deriver_b',
-            session,
-            completionA.transcript,
-          ),
+          transcript: executionA.transcript,
+          deriver_a_client_package: executionA.clientPackage,
+          deriver_b_client_package: executionB.clientPackage,
         },
       };
     } catch (error: unknown) {
@@ -825,28 +775,10 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
   async activateRecovery(
     request: RouterAbEd25519YaoRecoveryActivationRequestV1,
   ): Promise<RouterAbEd25519YaoRegistrationBackendResult> {
-    const staged = this.state.recoveryPromotion(request.binding.session_id);
-    if (!staged) {
-      return {
-        ok: false,
-        status: 409,
-        code: 'recovery_candidate_missing',
-        message: 'SigningWorker has no staged recovery candidate',
-      };
-    }
-    if (JSON.stringify(staged.activation) !== JSON.stringify(request)) {
-      return {
-        ok: false,
-        status: 409,
-        code: 'recovery_candidate_mismatch',
-        message: 'recovery activation does not match the staged result',
-      };
-    }
-    if (staged.kind === 'promoted') return { ok: true, body: staged.activation };
     const promoted = await this.post(
       this.config.signingWorkerUrl,
       SIGNING_WORKER_RECOVERY_PROMOTE_PATH,
-      staged.promotion,
+      request,
     );
     if (!promoted.ok) return promoted;
     const activeReceipt = parseActiveSigningWorkerReceipt(
@@ -860,8 +792,7 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
         'SigningWorker promotion receipt does not match the verified recovery result',
       );
     }
-    this.state.markRecoveryPromoted(request);
-    return { ok: true, body: staged.activation };
+    return { ok: true, body: request };
   }
 
   private async executeInner(
@@ -880,23 +811,31 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
       request.deriver_a_input,
     );
     if (!deriverAResult.ok) return deriverAResult;
-    const deriverBResult = await this.get(this.config.deriverBUrl, DERIVER_B_RESULT_PATH);
+    const deriverBResult = await this.post(
+      this.config.deriverBUrl,
+      DERIVER_B_ACTIVATION_RESULT_PATH,
+      {
+        family: 'activation',
+        session_id: request.binding.session_id,
+      },
+    );
     if (!deriverBResult.ok) return deriverBResult;
 
-    const completionA = parseActivationCompletion(deriverAResult.body, request.binding.session_id);
-    const completionB = parseActivationCompletion(deriverBResult.body, request.binding.session_id);
-    if (!equalBytes(completionA.transcript, completionB.transcript)) {
+    const executionA = parseActivationRoleExecution(
+      deriverAResult.body,
+      request.binding,
+      'deriver_a',
+    );
+    const executionB = parseActivationRoleExecution(
+      deriverBResult.body,
+      request.binding,
+      'deriver_b',
+    );
+    if (!equalBytes(executionA.transcript, executionB.transcript)) {
       return internalFailure('transcript_mismatch', 'Deriver completion transcripts differ');
     }
 
-    const packages = await this.collectPackages(request, completionA.transcript);
-    if (!packages.ok) return packages;
-    const delivered = await this.deliverSigningWorkerPackages(
-      request,
-      completionA,
-      completionB,
-      packages.body,
-    );
+    const delivered = await this.deliverSigningWorkerPackages(request, executionA, executionB);
     if (!delivered.ok) return delivered;
     let activeReceipt: ActiveSigningWorkerReceipt;
     switch (delivered.body.kind) {
@@ -916,19 +855,7 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
             'registration execution returned a staged recovery candidate',
           );
         }
-        activeReceipt = delivered.body.staged.activeReceipt;
-        const activation: RouterAbEd25519YaoRecoveryActivationRequestV1 = {
-          binding: request.binding,
-          public_receipt: {
-            transcript: activeReceipt.transcript,
-            registered_public_key: activeReceipt.registeredPublicKey,
-            joined_client_commitment: activeReceipt.joinedClientCommitment,
-            joined_signing_worker_commitment: activeReceipt.joinedSigningWorkerCommitment,
-            signing_worker_verifying_share: activeReceipt.signingWorkerVerifyingShare,
-            state_epoch: activeReceipt.stateEpoch,
-          },
-        };
-        this.state.stageRecovery(activation, delivered.body.staged.promotion);
+        activeReceipt = delivered.body.stagedReceipt;
         break;
       }
     }
@@ -936,8 +863,8 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
       ok: true,
       body: {
         binding: request.binding,
-        deriver_a_client_package: packages.body.deriverAClient,
-        deriver_b_client_package: packages.body.deriverBClient,
+        deriver_a_client_package: executionA.clientPackage,
+        deriver_b_client_package: executionB.clientPackage,
         public_receipt: {
           transcript: activeReceipt.transcript,
           registered_public_key: activeReceipt.registeredPublicKey,
@@ -950,74 +877,10 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
     };
   }
 
-  private async collectPackages(
-    request: RouterAbEd25519YaoActivationExecuteRequestV1,
-    transcript: readonly number[],
-  ): Promise<
-    | {
-        ok: true;
-        body: {
-          deriverAClient: RouterAbEd25519YaoEncryptedPackageV1;
-          deriverBClient: RouterAbEd25519YaoEncryptedPackageV1;
-          deriverAWorker: RouterAbEd25519YaoEncryptedPackageV1;
-          deriverBWorker: RouterAbEd25519YaoEncryptedPackageV1;
-        };
-      }
-    | RouterAbEd25519YaoRegistrationBackendFailure
-  > {
-    const aClient = await this.get(this.config.deriverAUrl, DERIVER_A_CLIENT_PACKAGE_PATH);
-    if (!aClient.ok) return aClient;
-    const bClient = await this.get(this.config.deriverBUrl, DERIVER_B_CLIENT_PACKAGE_PATH);
-    if (!bClient.ok) return bClient;
-    const aWorker = await this.get(this.config.deriverAUrl, DERIVER_A_SIGNING_WORKER_PACKAGE_PATH);
-    if (!aWorker.ok) return aWorker;
-    const bWorker = await this.get(this.config.deriverBUrl, DERIVER_B_SIGNING_WORKER_PACKAGE_PATH);
-    if (!bWorker.ok) return bWorker;
-    return {
-      ok: true,
-      body: {
-        deriverAClient: requirePackage(
-          aClient.body,
-          'activation_client',
-          'deriver_a',
-          request.binding.session_id,
-          transcript,
-        ),
-        deriverBClient: requirePackage(
-          bClient.body,
-          'activation_client',
-          'deriver_b',
-          request.binding.session_id,
-          transcript,
-        ),
-        deriverAWorker: requirePackage(
-          aWorker.body,
-          'activation_signing_worker',
-          'deriver_a',
-          request.binding.session_id,
-          transcript,
-        ),
-        deriverBWorker: requirePackage(
-          bWorker.body,
-          'activation_signing_worker',
-          'deriver_b',
-          request.binding.session_id,
-          transcript,
-        ),
-      },
-    };
-  }
-
   private async deliverSigningWorkerPackages(
     request: RouterAbEd25519YaoActivationExecuteRequestV1,
-    completionA: ActivationCompletion,
-    completionB: ActivationCompletion,
-    packages: {
-      deriverAClient: RouterAbEd25519YaoEncryptedPackageV1;
-      deriverBClient: RouterAbEd25519YaoEncryptedPackageV1;
-      deriverAWorker: RouterAbEd25519YaoEncryptedPackageV1;
-      deriverBWorker: RouterAbEd25519YaoEncryptedPackageV1;
-    },
+    executionA: ActivationRoleExecution,
+    executionB: ActivationRoleExecution,
   ): Promise<
     { ok: true; body: SigningWorkerDeliveryReceipt } | RouterAbEd25519YaoRegistrationBackendFailure
   > {
@@ -1026,16 +889,16 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
       SIGNING_WORKER_DERIVER_A_PATH,
       {
         binding: request.binding,
-        client_commitment: completionA.clientCommitment,
-        signing_worker_commitment: completionA.signingWorkerCommitment,
-        package: packages.deriverAWorker,
+        client_commitment: executionA.clientCommitment,
+        signing_worker_commitment: executionA.signingWorkerCommitment,
+        package: executionA.signingWorkerPackage,
       },
     );
     if (!deliveredA.ok) return deliveredA;
     parsePendingSigningWorkerReceipt(
       deliveredA.body,
       request.binding.session_id,
-      completionA.transcript,
+      executionA.transcript,
     );
 
     const deliveredB = await this.post(
@@ -1043,9 +906,9 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
       SIGNING_WORKER_DERIVER_B_PATH,
       {
         binding: request.binding,
-        client_commitment: completionB.clientCommitment,
-        signing_worker_commitment: completionB.signingWorkerCommitment,
-        package: packages.deriverBWorker,
+        client_commitment: executionB.clientCommitment,
+        signing_worker_commitment: executionB.signingWorkerCommitment,
+        package: executionB.signingWorkerPackage,
       },
     );
     if (!deliveredB.ok) return deliveredB;
@@ -1058,7 +921,7 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
             activeReceipt: parseActiveSigningWorkerReceipt(
               deliveredB.body,
               request.binding.session_id,
-              completionA.transcript,
+              executionA.transcript,
             ),
           },
         };
@@ -1067,10 +930,10 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
           ok: true,
           body: {
             kind: 'staged_recovery',
-            staged: parseStagedRecoveryReceipt(
+            stagedReceipt: parseStagedSigningWorkerReceipt(
               deliveredB.body,
               request.binding.session_id,
-              completionA.transcript,
+              executionA.transcript,
             ),
           },
         };
@@ -1085,10 +948,6 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
     });
   }
 
-  private async get(baseUrl: string, path: string): Promise<HttpResult> {
-    return await this.request(baseUrl, path, { method: 'GET', headers: this.headers() });
-  }
-
   private headers(): Record<string, string> {
     return {
       'content-type': 'application/json',
@@ -1099,16 +958,19 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
   private async request(baseUrl: string, path: string, init: RequestInit): Promise<HttpResult> {
     const response = await this.config.fetch.call(globalThis, `${baseUrl}${path}`, init);
     const text = await response.text();
-    let body: unknown;
-    try {
-      body = text ? JSON.parse(text) : null;
-    } catch {
-      return internalFailure('worker_invalid_json', `worker ${path} returned invalid JSON`);
-    }
     if (!response.ok) {
       return internalFailure(
         'worker_rejected',
         `worker ${path} returned HTTP ${response.status}: ${text}`,
+      );
+    }
+    let body: unknown;
+    try {
+      body = text ? JSON.parse(text) : null;
+    } catch {
+      return internalFailure(
+        'worker_invalid_json',
+        `worker ${path} returned HTTP ${response.status} with invalid JSON`,
       );
     }
     return { ok: true, body };
@@ -1118,45 +980,41 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
 export function createRouterAbEd25519YaoHttpRegistrationBackendFromEnv(input: {
   env: RouterAbEd25519YaoHttpRegistrationBackendRawEnv;
   fetch: typeof fetch;
-  state: RouterAbEd25519YaoHttpRegistrationBackendStateV1;
 }): RouterAbEd25519YaoHttpRegistrationBackend {
   const env = input.env;
-  return new RouterAbEd25519YaoHttpRegistrationBackend(
-    {
-      deriverAUrl: requireNonEmpty(
-        envValue(env, ROUTER_AB_ENV_KEYS.deriverAUrl),
-        ROUTER_AB_ENV_KEYS.deriverAUrl,
-      ),
-      deriverBUrl: requireNonEmpty(
-        envValue(env, ROUTER_AB_ENV_KEYS.deriverBUrl),
-        ROUTER_AB_ENV_KEYS.deriverBUrl,
-      ),
-      signingWorkerUrl: requireNonEmpty(
-        envValue(env, ROUTER_AB_ENV_KEYS.signingWorkerUrl),
-        ROUTER_AB_ENV_KEYS.signingWorkerUrl,
-      ),
-      signingWorkerId: requireNonEmpty(
-        envValue(env, ROUTER_AB_ENV_KEYS.signingWorkerId),
-        ROUTER_AB_ENV_KEYS.signingWorkerId,
-      ),
-      internalServiceAuth: requireNonEmpty(
-        envValue(env, ROUTER_AB_ENV_KEYS.internalServiceAuth),
-        ROUTER_AB_ENV_KEYS.internalServiceAuth,
-      ),
-      deriverAInputPublicKey: x25519PublicKeyFromEnv(
-        envValue(env, ROUTER_AB_ENV_KEYS.deriverAInputPublicKey),
-        ROUTER_AB_ENV_KEYS.deriverAInputPublicKey,
-      ),
-      deriverBInputPublicKey: x25519PublicKeyFromEnv(
-        envValue(env, ROUTER_AB_ENV_KEYS.deriverBInputPublicKey),
-        ROUTER_AB_ENV_KEYS.deriverBInputPublicKey,
-      ),
-      signingWorkerRecipientPublicKey: x25519PublicKeyFromEnv(
-        envValue(env, ROUTER_AB_ENV_KEYS.signingWorkerRecipientPublicKey),
-        ROUTER_AB_ENV_KEYS.signingWorkerRecipientPublicKey,
-      ),
-      fetch: input.fetch,
-    },
-    input.state,
-  );
+  return new RouterAbEd25519YaoHttpRegistrationBackend({
+    deriverAUrl: requireNonEmpty(
+      envValue(env, ROUTER_AB_ENV_KEYS.deriverAUrl),
+      ROUTER_AB_ENV_KEYS.deriverAUrl,
+    ),
+    deriverBUrl: requireNonEmpty(
+      envValue(env, ROUTER_AB_ENV_KEYS.deriverBUrl),
+      ROUTER_AB_ENV_KEYS.deriverBUrl,
+    ),
+    signingWorkerUrl: requireNonEmpty(
+      envValue(env, ROUTER_AB_ENV_KEYS.signingWorkerUrl),
+      ROUTER_AB_ENV_KEYS.signingWorkerUrl,
+    ),
+    signingWorkerId: requireNonEmpty(
+      envValue(env, ROUTER_AB_ENV_KEYS.signingWorkerId),
+      ROUTER_AB_ENV_KEYS.signingWorkerId,
+    ),
+    internalServiceAuth: requireNonEmpty(
+      envValue(env, ROUTER_AB_ENV_KEYS.internalServiceAuth),
+      ROUTER_AB_ENV_KEYS.internalServiceAuth,
+    ),
+    deriverAInputPublicKey: x25519PublicKeyFromEnv(
+      envValue(env, ROUTER_AB_ENV_KEYS.deriverAInputPublicKey),
+      ROUTER_AB_ENV_KEYS.deriverAInputPublicKey,
+    ),
+    deriverBInputPublicKey: x25519PublicKeyFromEnv(
+      envValue(env, ROUTER_AB_ENV_KEYS.deriverBInputPublicKey),
+      ROUTER_AB_ENV_KEYS.deriverBInputPublicKey,
+    ),
+    signingWorkerRecipientPublicKey: x25519PublicKeyFromEnv(
+      envValue(env, ROUTER_AB_ENV_KEYS.signingWorkerRecipientPublicKey),
+      ROUTER_AB_ENV_KEYS.signingWorkerRecipientPublicKey,
+    ),
+    fetch: input.fetch,
+  });
 }

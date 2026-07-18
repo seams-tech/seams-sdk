@@ -172,7 +172,7 @@ function buildOrganizationStatement(config) {
   return `INSERT INTO organizations
   (namespace, id, name, slug, created_by_user_id, status, created_at_ms, updated_at_ms)
 VALUES
-  (${sqlString(config.namespace)}, ${sqlString(config.orgId)}, 'Intended Local Org',
+  (${sqlString(config.namespace)}, ${sqlString(config.orgId)}, 'Pokopia Labs',
    'intended-local-org', 'intended-local-seed', 'ACTIVE', ${config.nowMs}, ${config.nowMs})
 ON CONFLICT(namespace, id) DO UPDATE SET
   name = excluded.name,
@@ -186,7 +186,7 @@ function buildProjectStatement(config) {
   (namespace, id, org_id, name, slug, status, created_at_ms, updated_at_ms)
 VALUES
   (${sqlString(config.namespace)}, ${sqlString(config.projectId)}, ${sqlString(config.orgId)},
-   'Intended Local Project', 'intended-local-project', 'ACTIVE', ${config.nowMs}, ${config.nowMs})
+   'Pokopia', 'intended-local-project', 'ACTIVE', ${config.nowMs}, ${config.nowMs})
 ON CONFLICT(namespace, id) DO UPDATE SET
   org_id = excluded.org_id,
   name = excluded.name,

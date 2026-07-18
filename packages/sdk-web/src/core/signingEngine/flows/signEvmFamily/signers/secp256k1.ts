@@ -40,7 +40,10 @@ export type BuildReadySecp256k1SigningMaterialInput =
 
 type RouterAbEcdsaDerivationSigningRefillTrigger = 'commit_start' | 'post_sign_success';
 
-function resolveRouterAbEcdsaDerivationPoolFillExpiresAtMs(
+// The SigningWorker admits at most five minutes; retain one minute for transit and clock skew.
+const ROUTER_AB_ECDSA_DERIVATION_PRESIGN_MATERIAL_TTL_MS = 4 * 60_000;
+
+function resolveRouterAbEcdsaDerivationPresignMaterialExpiresAtMs(
   signerSession: ReadyEcdsaSignerSession,
 ): number {
   const policyExpiresAtMs = Math.floor(Number(signerSession.session.policy.expiresAtMs));
@@ -50,7 +53,7 @@ function resolveRouterAbEcdsaDerivationPoolFillExpiresAtMs(
   const expiresAtMs = Math.min(
     policyExpiresAtMs,
     walletSessionExpiresAtMs ?? 0,
-    Date.now() + 60_000,
+    Date.now() + ROUTER_AB_ECDSA_DERIVATION_PRESIGN_MATERIAL_TTL_MS,
   );
   if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= Date.now()) {
     throw new Error('[multichain] Router A/B ECDSA derivation wallet-session expiry is unavailable');
@@ -98,7 +101,7 @@ function scheduleRouterAbEcdsaDerivationSigningRefill(args: {
     routerAbEcdsaDerivationPoolFill: {
       kind: 'router_ab_ecdsa_derivation_signing_worker_pool',
       scope: signerSession.routerAbEcdsaDerivationNormalSigning.state.scope,
-      expiresAtMs: resolveRouterAbEcdsaDerivationPoolFillExpiresAtMs(signerSession),
+      expiresAtMs: resolveRouterAbEcdsaDerivationPresignMaterialExpiresAtMs(signerSession),
     },
     workerCtx: args.workerCtx,
     ...(args.trigger === 'commit_start' ? { triggerIfDepthAtOrBelow: 0 } : {}),
@@ -147,7 +150,7 @@ export class Secp256k1Engine {
         keyHandle: parseEcdsaKeyHandle(publicFacts.keyHandle),
         signingDigest32: req.digest32,
         clientSigningMaterial: loadedMaterial.clientSigningMaterial,
-        expiresAtMs: resolveRouterAbEcdsaDerivationPoolFillExpiresAtMs(signerSession),
+        expiresAtMs: resolveRouterAbEcdsaDerivationPresignMaterialExpiresAtMs(signerSession),
         workerCtx: this.workerCtx,
       });
       if (!signed.ok) {

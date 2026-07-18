@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export type D1StagingConfigPaths = {
   readonly consoleConfigPath: string;
-  readonly routerApiConfigPath: string;
+  readonly gatewayConfigPath: string;
 };
 
 export type D1StagingCommandResult = {
@@ -19,7 +19,7 @@ export type D1StagingCommandRunner = (command: string) => D1StagingCommandResult
 
 export const D1_STAGING_GENERATED_AT_ISO = '2026-06-28T00:00:00.000Z';
 export const D1_STAGING_CONSOLE_ORIGIN = 'https://console.staging.example';
-export const D1_STAGING_ROUTER_API_ORIGIN = 'https://router-api.staging.example';
+export const D1_STAGING_GATEWAY_ORIGIN = 'https://gateway.staging.example';
 export const D1_STAGING_REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../../..',
@@ -120,10 +120,10 @@ export function writeValidD1StagingConfigFiles(prefix: string): D1StagingConfigP
       'wrangler.d1-staging-console.toml',
       validD1ConsoleStagingConfig(),
     ),
-    routerApiConfigPath: writeD1StagingTempFile(
+    gatewayConfigPath: writeD1StagingTempFile(
       prefix,
-      'wrangler.d1-staging-router-api.toml',
-      validD1RouterApiStagingConfig(),
+      'wrangler.d1-staging-gateway.toml',
+      validD1GatewayStagingConfig(),
     ),
   };
 }
@@ -133,12 +133,12 @@ export function writeMisScopedConsoleD1StagingConfigFiles(prefix: string): D1Sta
     consoleConfigPath: writeD1StagingTempFile(
       prefix,
       'wrangler.d1-staging-console.toml',
-      validD1RouterApiStagingConfig(),
+      validD1GatewayStagingConfig(),
     ),
-    routerApiConfigPath: writeD1StagingTempFile(
+    gatewayConfigPath: writeD1StagingTempFile(
       prefix,
-      'wrangler.d1-staging-router-api.toml',
-      validD1RouterApiStagingConfig(),
+      'wrangler.d1-staging-gateway.toml',
+      validD1GatewayStagingConfig(),
     ),
   };
 }
@@ -166,9 +166,9 @@ required = ["CONSOLE_SESSION_HMAC_SECRET"]
 `;
 }
 
-export function validD1RouterApiStagingConfig(): string {
+export function validD1GatewayStagingConfig(): string {
   return `
-name = "seams-sdk-d1-router-api-staging"
+name = "seams-sdk-d1-gateway-staging"
 main = "src/router/cloudflare/d1RouterApiStagingWorker.ts"
 compatibility_date = "2026-04-17"
 compatibility_flags = ["nodejs_compat"]
@@ -189,9 +189,29 @@ migrations_dir = "../sdk-server-ts/migrations/d1-signer"
 name = "THRESHOLD_STORE"
 class_name = "ThresholdStoreDurableObject"
 
+[[durable_objects.bindings]]
+name = "ROUTER_API_RUNTIME"
+class_name = "RouterApiRuntimeDurableObject"
+
+[[services]]
+binding = "DERIVER_A"
+service = "router-ab-deriver-a-staging"
+
+[[services]]
+binding = "DERIVER_B"
+service = "router-ab-deriver-b-staging"
+
+[[services]]
+binding = "SIGNING_WORKER"
+service = "router-ab-signing-worker-staging"
+
 [[migrations]]
 tag = "threshold-store-sqlite-v1"
 new_sqlite_classes = ["ThresholdStoreDurableObject"]
+
+[[migrations]]
+tag = "router-api-runtime-sqlite-v1"
+new_sqlite_classes = ["RouterApiRuntimeDurableObject"]
 
 [[secrets_store_secrets]]
 binding = "SIGNING_ROOT_KEK_STAGING_R1"
@@ -203,16 +223,20 @@ SEAMS_TENANT_STORAGE_NAMESPACE = "seams-staging"
 SEAMS_STAGING_ORG_ID = "org_staging"
 SEAMS_STAGING_PROJECT_ID = "project_staging"
 SEAMS_STAGING_ENV_ID = "staging"
-ROUTER_AB_NORMAL_SIGNING_WORKER_ID = "seams-d1-router-api-staging"
+ROUTER_AB_NORMAL_SIGNING_WORKER_ID = "router-ab-signing-worker-staging"
+SIGNING_WORKER_ID = "router-ab-signing-worker-staging"
+DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY = "x25519:1111111111111111111111111111111111111111111111111111111111111111"
+DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY = "x25519:2222222222222222222222222222222222222222222222222222222222222222"
+SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY = "x25519:3333333333333333333333333333333333333333333333333333333333333333"
 RELAYER_ACCOUNT_ID = "seams-relayer-staging.testnet"
 RELAYER_PUBLIC_KEY = "ed25519:11111111111111111111111111111111"
-RELAY_SESSION_ISSUER = "seams-router-api-staging"
+RELAY_SESSION_ISSUER = "seams-gateway-staging"
 RELAY_SESSION_AUDIENCE = "seams-wallet-session"
 SIGNING_ROOT_KEK_PROVIDER = "cloudflare_secrets_store"
 SIGNING_ROOT_KEK_ENCODING = "base64url"
 SIGNING_ROOT_KEK_IDS = "signing-root-kek-staging-r1"
 
 [secrets]
-required = ["RELAY_SESSION_HMAC_SECRET", "ACCOUNT_ID_DERIVATION_SECRET", "SPONSORED_EVM_EXECUTORS_JSON"]
+required = ["RELAY_SESSION_HMAC_SECRET", "ACCOUNT_ID_DERIVATION_SECRET", "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET", "SPONSORED_EVM_EXECUTORS_JSON"]
 `;
 }

@@ -159,18 +159,25 @@ export function resolveAppearanceTheme(args: {
     throw new Error("[configPresets] Invalid config: appearance.theme.mode must be 'light' or 'dark'");
   }
 
+  /* A different theme id is a theme switch: replace colors/shape wholesale.
+     Merging across ids lets keys the new theme doesn't define (e.g.
+     passkeyHaloBackground) leak from the old theme forever — only same-id
+     updates are partial. */
+  const id = resolveAppearanceThemeId({ value: record.id, fallback: args.fallback.id });
+  const isThemeSwitch = id !== args.fallback.id;
+
   /* shape merges like colors (incoming keys win); toColorTokenRecord is a
      generic string-record filter despite the name */
   const shape = {
-    ...(fallbackShape || {}),
+    ...(isThemeSwitch ? {} : fallbackShape || {}),
     ...toColorTokenRecord(record.shape),
   };
 
   return {
-    id: resolveAppearanceThemeId({ value: record.id, fallback: args.fallback.id }),
+    id,
     mode,
     colors: {
-      ...args.fallback.colors,
+      ...(isThemeSwitch ? {} : args.fallback.colors),
       ...readLegacyTokenColors(args.legacyTokens, mode),
       ...toColorTokenRecord(record.colors),
     },

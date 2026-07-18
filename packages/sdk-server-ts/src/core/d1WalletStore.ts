@@ -16,13 +16,21 @@ import {
   parseRouterAbEd25519YaoRegistrationActivationResultV1,
   parseRouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
+import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type {
+  WalletEcdsaPendingSessionActivationRecord,
+  WalletEcdsaPostRegistrationPublicRequest,
   WalletEd25519YaoActiveCapabilityRecord,
   WalletEd25519SignerRecord,
   WalletEcdsaSignerRecord,
   WalletRecord,
   WalletSignerRecord,
   WalletStore,
+} from './WalletStore';
+import {
+  ecdsaPostRegistrationRequestMatchesCapability,
+  parseWalletEcdsaPendingSessionActivationRecord,
+  parseWalletEcdsaSignerRecord,
 } from './WalletStore';
 
 export type {
@@ -154,6 +162,30 @@ export const WALLET_STORE_D1_SCHEMA_SQL = Object.freeze([
         signer_family,
         chain_target_key
       )
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS wallet_ecdsa_pending_session_activations (
+      namespace TEXT NOT NULL,
+      org_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      env_id TEXT NOT NULL,
+      wallet_id TEXT NOT NULL,
+      lifecycle_id TEXT NOT NULL,
+      request_id TEXT NOT NULL,
+      record_json TEXT NOT NULL,
+      expires_at_ms INTEGER NOT NULL,
+      PRIMARY KEY (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        wallet_id,
+        lifecycle_id,
+        request_id
+      ),
+      CHECK (json_valid(record_json)),
+      CHECK (expires_at_ms > 0)
+    )
   `,
 ] as const);
 
@@ -564,6 +596,289 @@ export class D1WalletStore implements WalletStore {
       )
       .first<D1WalletRow>();
     return parseWalletRecord(parseD1JsonColumn(row?.record_json));
+  }
+
+  async getEcdsaSignerByKeyHandle(input: {
+    walletId: WalletId;
+    keyHandle: string;
+  }): Promise<WalletEcdsaSignerRecord | null> {
+    await this.ensureSchema();
+    const walletId = toOptionalTrimmedString(input.walletId);
+    const keyHandle = toOptionalTrimmedString(input.keyHandle);
+    if (!walletId || !keyHandle) return null;
+    const result = await this.database
+      .prepare(
+        `SELECT record_json
+           FROM wallet_signers
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND wallet_id = ?
+            AND signer_family = 'ecdsa'
+            AND json_extract(record_json, '$.walletKey.keyHandle') = ?
+          LIMIT 2`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        walletId,
+        keyHandle,
+      )
+      .all<D1WalletRow>();
+    const rows = result.results || [];
+    if (rows.length === 0) return null;
+    if (rows.length !== 1) {
+      throw new Error('Wallet has duplicate ECDSA key handles');
+    }
+    const signer = parseWalletEcdsaSignerRecord(parseD1JsonColumn(rows[0]?.record_json));
+    if (
+      !signer ||
+      signer.walletId !== walletId ||
+      signer.walletKey.keyHandle !== keyHandle
+    ) {
+      throw new Error('Wallet ECDSA key-handle record is invalid');
+    }
+    return signer;
+  }
+
+  async getEcdsaSignerByPublicCapability(input: {
+    walletId: WalletId;
+    publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+  }): Promise<WalletEcdsaSignerRecord | null> {
+    await this.ensureSchema();
+    const walletId = toOptionalTrimmedString(input.walletId);
+    if (!walletId) return null;
+    const result = await this.database
+      .prepare(
+        `SELECT record_json
+           FROM wallet_signers
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND wallet_id = ?
+            AND signer_family = 'ecdsa'
+            AND json_extract(
+              record_json,
+              '$.walletKey.publicCapability.registration_request_digest_b64u'
+            ) = ?
+          LIMIT 2`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        walletId,
+        input.publicCapability.registration_request_digest_b64u,
+      )
+      .all<D1WalletRow>();
+    const rows = result.results || [];
+    if (rows.length === 0) return null;
+    const matches = rows
+      .map((row) => parseWalletEcdsaSignerRecord(parseD1JsonColumn(row.record_json)))
+      .filter(
+        (record): record is WalletEcdsaSignerRecord =>
+          Boolean(record) &&
+          alphabetizeStringify(record?.walletKey.publicCapability) ===
+            alphabetizeStringify(input.publicCapability),
+      );
+    if (matches.length === 0) return null;
+    const keyHandle = matches[0]?.walletKey.keyHandle;
+    if (!keyHandle || matches.some((record) => record.walletKey.keyHandle !== keyHandle)) {
+      throw new Error('Wallet has conflicting ECDSA public capabilities');
+    }
+    return matches[0] ?? null;
+  }
+
+  async getEcdsaSignerByPostRegistrationRequest(input: {
+    walletId: WalletId;
+    request: WalletEcdsaPostRegistrationPublicRequest;
+  }): Promise<WalletEcdsaSignerRecord | null> {
+    await this.ensureSchema();
+    const walletId = toOptionalTrimmedString(input.walletId);
+    if (!walletId) return null;
+    const result = await this.database
+      .prepare(
+        `SELECT record_json
+           FROM wallet_signers
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND wallet_id = ?
+            AND signer_family = 'ecdsa'
+            AND json_extract(
+              record_json,
+              '$.walletKey.publicCapability.public_identity.context_binding_b64u'
+            ) = ?
+          LIMIT 4`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        walletId,
+        input.request.public_identity.context_binding_b64u,
+      )
+      .all<D1WalletRow>();
+    const matches = (result.results || [])
+      .map((row) => parseWalletEcdsaSignerRecord(parseD1JsonColumn(row.record_json)))
+      .filter(
+        (record): record is WalletEcdsaSignerRecord =>
+          record !== null &&
+          ecdsaPostRegistrationRequestMatchesCapability({
+            request: input.request,
+            capability: record.walletKey.publicCapability,
+          }),
+      );
+    if (matches.length === 0) return null;
+    const keyHandle = matches[0]?.walletKey.keyHandle;
+    if (!keyHandle || matches.some((record) => record.walletKey.keyHandle !== keyHandle)) {
+      throw new Error('Wallet has conflicting ECDSA post-registration identities');
+    }
+    return matches[0] ?? null;
+  }
+
+  async putEcdsaPendingSessionActivation(
+    record: WalletEcdsaPendingSessionActivationRecord,
+  ): Promise<void> {
+    await this.ensureSchema();
+    await this.database
+      .prepare(
+        `INSERT INTO wallet_ecdsa_pending_session_activations (
+          namespace,
+          org_id,
+          project_id,
+          env_id,
+          wallet_id,
+          lifecycle_id,
+          request_id,
+          record_json,
+          expires_at_ms
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (
+          namespace,
+          org_id,
+          project_id,
+          env_id,
+          wallet_id,
+          lifecycle_id,
+          request_id
+        ) DO NOTHING`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        record.walletId,
+        record.lifecycleId,
+        record.requestId,
+        JSON.stringify(record),
+        record.expiresAtMs,
+      )
+      .run();
+  }
+
+  async takeEcdsaPendingSessionActivationPair(input: {
+    walletId: WalletId;
+    recovery: { readonly lifecycleId: string; readonly requestId: string };
+    refresh: { readonly lifecycleId: string; readonly requestId: string };
+  }): Promise<{
+    readonly recovery: Extract<
+      WalletEcdsaPendingSessionActivationRecord,
+      { readonly operation: 'recovery' }
+    >;
+    readonly refresh: Extract<
+      WalletEcdsaPendingSessionActivationRecord,
+      { readonly operation: 'refresh' }
+    >;
+  } | null> {
+    await this.ensureSchema();
+    const result = await this.database
+      .prepare(
+        `DELETE FROM wallet_ecdsa_pending_session_activations
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND wallet_id = ?
+            AND (
+              (lifecycle_id = ? AND request_id = ?)
+              OR
+              (lifecycle_id = ? AND request_id = ?)
+            )
+            AND 2 = (
+              SELECT COUNT(*)
+                FROM wallet_ecdsa_pending_session_activations AS pending
+               WHERE pending.namespace = ?
+                 AND pending.org_id = ?
+                 AND pending.project_id = ?
+                 AND pending.env_id = ?
+                 AND pending.wallet_id = ?
+                 AND (
+                   (pending.lifecycle_id = ? AND pending.request_id = ?)
+                   OR
+                   (pending.lifecycle_id = ? AND pending.request_id = ?)
+                 )
+            )
+          RETURNING record_json`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        input.walletId,
+        input.recovery.lifecycleId,
+        input.recovery.requestId,
+        input.refresh.lifecycleId,
+        input.refresh.requestId,
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        input.walletId,
+        input.recovery.lifecycleId,
+        input.recovery.requestId,
+        input.refresh.lifecycleId,
+        input.refresh.requestId,
+      )
+      .all<D1WalletRow>();
+    const records = (result.results || [])
+      .map((row) =>
+        parseWalletEcdsaPendingSessionActivationRecord(
+          parseD1JsonColumn(row.record_json),
+        ),
+      )
+      .filter(
+        (record): record is WalletEcdsaPendingSessionActivationRecord =>
+          record !== null && record.expiresAtMs > Date.now(),
+      );
+    const recovery = records.find(
+      (
+        record,
+      ): record is Extract<
+        WalletEcdsaPendingSessionActivationRecord,
+        { readonly operation: 'recovery' }
+      > => record.operation === 'recovery',
+    );
+    const refresh = records.find(
+      (
+        record,
+      ): record is Extract<
+        WalletEcdsaPendingSessionActivationRecord,
+        { readonly operation: 'refresh' }
+      > => record.operation === 'refresh',
+    );
+    return records.length === 2 && recovery && refresh
+      ? { recovery, refresh }
+      : null;
   }
 
   async getEd25519Signer(input: {

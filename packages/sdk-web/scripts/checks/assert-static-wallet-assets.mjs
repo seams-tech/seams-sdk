@@ -204,7 +204,10 @@ function assertUniqueAssets(assets) {
   const sourceFiles = new Set();
   for (const asset of assets) {
     assert(!routes.has(asset.route), `Duplicate wallet asset route: ${asset.route}`);
-    assert(!sourceFiles.has(asset.sourceFile), `Duplicate wallet asset source: ${asset.sourceFile}`);
+    assert(
+      !sourceFiles.has(asset.sourceFile),
+      `Duplicate wallet asset source: ${asset.sourceFile}`,
+    );
     routes.add(asset.route);
     sourceFiles.add(asset.sourceFile);
   }
@@ -228,8 +231,13 @@ function assertNoHostedExportViewerRoute(assetsManifest, headersManifest, routes
     !Object.prototype.hasOwnProperty.call(assetsManifest, 'exportViewerPath'),
     'wallet-assets.manifest.json must not expose exportViewerPath',
   );
-  const routeClasses = new Set(headersManifest.routeClasses?.map((entry) => entry.routePattern) || []);
-  assert(!routeClasses.has('/export-viewer'), 'headers.manifest.json must not expose /export-viewer');
+  const routeClasses = new Set(
+    headersManifest.routeClasses?.map((entry) => entry.routePattern) || [],
+  );
+  assert(
+    !routeClasses.has('/export-viewer'),
+    'headers.manifest.json must not expose /export-viewer',
+  );
 }
 
 async function assertCanonicalWalletStaticAssets() {
@@ -272,6 +280,22 @@ function assertRequiredHeaders(assets) {
         `Access-Control-Allow-Origin header for ${asset.route} must be *`,
       );
     }
+  }
+}
+
+function assertWorkerWasmCompressionEligibility(assets) {
+  const workerWasmAssets = assets.filter((asset) => isWalletWorkerWasmRoute(asset.route));
+  for (const asset of workerWasmAssets) {
+    assert(
+      asset.contentType === 'application/wasm',
+      `${asset.route} must use application/wasm for edge compression`,
+    );
+    assert(
+      !String(asset.cachePolicy || '')
+        .toLowerCase()
+        .includes('no-transform'),
+      `${asset.route} must remain eligible for Cloudflare Brotli/Gzip transformation`,
+    );
   }
 }
 
@@ -452,7 +476,10 @@ function assertManifestShape(assetsManifest, headersManifest) {
   assert(assetsManifest.schemaVersion === 1, 'wallet-assets.manifest.json schemaVersion must be 1');
   assert(headersManifest.schemaVersion === 1, 'headers.manifest.json schemaVersion must be 1');
   assert(Array.isArray(assetsManifest.assets), 'wallet-assets.manifest.json must contain assets[]');
-  assert(assetsManifest.headersManifest === 'headers.manifest.json', 'assets manifest must point at headers.manifest.json');
+  assert(
+    assetsManifest.headersManifest === 'headers.manifest.json',
+    'assets manifest must point at headers.manifest.json',
+  );
   assertVersionSkewContract(assetsManifest.versionSkewContract);
 }
 
@@ -470,6 +497,7 @@ async function assertStaticWalletAssets() {
   await assertManifestFilesExist(assets);
   assertContentTypes(assets);
   assertRequiredHeaders(assets);
+  assertWorkerWasmCompressionEligibility(assets);
   const routes = assetByRoute(assets);
   assertRequiredRoutes(routes);
   assertNoHostedExportViewerRoute(assetsManifest, headersManifest, routes);

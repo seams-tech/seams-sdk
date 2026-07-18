@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 import {
+  buildRouterAbEd25519PrivateSigningWorkerBody,
   handleRouterAbEd25519NormalSigningRouteCore,
   ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS,
   type RouterAbNormalSigningAdmissionAdapter,
@@ -10,11 +12,31 @@ import type {
   RouterAbNormalSigningBudgetReleaseInput,
   RouterAbNormalSigningBudgetReservationInput,
 } from '../../packages/sdk-server-ts/src/core/routerAbSigning/RouterAbNormalSigningRuntime';
+import { parseRouterAbEd25519WalletSessionClaims } from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
 import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 
 type Ed25519RouteInput = Parameters<typeof handleRouterAbEd25519NormalSigningRouteCore>[0];
 type Ed25519NormalSigningRuntime = NonNullable<Ed25519RouteInput['runtime']>;
+
+const normalSigningVectors = JSON.parse(
+  readFileSync(
+    new URL(
+      '../../crates/router-ab-core/fixtures/protocol/normal-signing/normal-signing-vectors-v2.json',
+      import.meta.url,
+    ),
+    'utf8',
+  ),
+) as {
+  cases: Array<{
+    case_id: string;
+    prepare_request_json: Record<string, unknown>;
+    intent_digest_b64u: string;
+    signing_payload_digest_b64u: string;
+    admitted_signing_digest_b64u: string;
+    round1_binding_digest_b64u: string;
+  }>;
+};
 
 const thresholdSessionId = 'threshold-ed25519-session-1';
 const signingGrantId = 'signing-grant-1';
@@ -65,6 +87,12 @@ function walletSessionClaims(): Record<string, unknown> {
   };
 }
 
+function parsedWalletSessionClaims() {
+  const parsed = parseRouterAbEd25519WalletSessionClaims(walletSessionClaims());
+  if (!parsed) throw new Error('wallet session claims fixture is invalid');
+  return parsed;
+}
+
 function sessionAdapter(): SessionAdapter {
   return {
     async signJwt() {
@@ -107,12 +135,23 @@ function prepareBody(): Record<string, unknown> {
     scope: routerAbScope('prepare-request-1'),
     expires_at_ms: expiresAtMs,
     intent: {
+      kind: 'near_transaction_v1',
       operation_id: 'operation-1',
+      operation_fingerprint: 'operation-fingerprint-1',
+      near_account_id: walletId,
+      near_network_id: 'testnet',
+      transactions: [
+        {
+          receiver_id: 'contract.testnet',
+          action_fingerprint: 'action-fingerprint-1',
+        },
+      ],
+      unsigned_transaction_borsh_b64u: 'AQID',
     },
     signing_payload: {
       kind: 'near_unsigned_transaction_borsh_v1',
       unsigned_transaction_borsh_b64u: 'AQID',
-      expected_signing_digest_b64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+      expected_signing_digest_b64u: 'A5BYxvLAy0ksUzsKTRTvd8wPeKvMztUofYShogEc-4E',
     },
   };
 }
@@ -134,7 +173,7 @@ function finalizeBody(): Record<string, unknown> {
       round1_binding_digest: { bytes: Array.from(new Uint8Array(32).fill(6)) },
       intent_digest: { bytes: Array.from(new Uint8Array(32).fill(5)) },
       signing_payload_digest: {
-        bytes: Array.from(Buffer.from('AbtCmiEEvKTXVsYJeTBQLryqUuVoUjxQWTbN6PWNzf8', 'base64url')),
+        bytes: Array.from(Buffer.from('PYo-Uu3D3rEWSPO7bJM8XSbkpWuMuVPK7f6MpsCfUrE', 'base64url')),
       },
     },
     protocol: {
@@ -252,15 +291,80 @@ async function okRouterAbEd25519SigningWorkerFetch(
   init?: Parameters<typeof fetch>[1],
 ): Promise<Response> {
   const privateBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
-  expect(privateBody.kind).toBe('router_ab_ed25519_signing_worker_active_state_request_v1');
   expect(Object.hasOwn(privateBody, 'server_material')).toBe(false);
   const path = String(url).endsWith('/sign/prepare')
     ? ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.prepare
     : ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.finalize;
+  if (path === ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.prepare) {
+    expect(privateBody.scope).toEqual(routerAbScope('prepare-request-1'));
+    expect(privateBody.admission_candidate).toMatchObject({
+      account_id: walletId,
+      subject_id: walletId,
+      threshold_session_id: thresholdSessionId,
+      signing_worker_id: signingWorkerId,
+      request_id: 'prepare-request-1',
+      expires_at_ms: expiresAtMs,
+    });
+    expect(privateBody.trusted_admission).toMatchObject({
+      metadata: {
+        org_id: 'org-1',
+        project_id: 'project-1',
+        environment: 'env-1',
+        account_id: walletId,
+        trusted_source_digest: {
+          bytes: Array.from(
+            Buffer.from('zV9QyP4XJjcW9OEwvRRDDMyxGcdOmL7Uf9hB0oQD-PM', 'base64url'),
+          ),
+        },
+      },
+      decision: {
+        kind: 'accepted',
+        request_id: 'prepare-request-1',
+      },
+    });
+  } else {
+    expect(privateBody.request).toMatchObject({
+      scope: routerAbScope('prepare-request-1'),
+      expires_at_ms: expiresAtMs,
+    });
+    expect(privateBody).not.toHaveProperty('kind');
+  }
   return new Response(JSON.stringify({ ok: true, privatePath: path }), { status: 200 });
 }
 
+function digestB64u(value: unknown): string {
+  const record = value as { bytes?: unknown };
+  if (!Array.isArray(record.bytes)) throw new Error('digest bytes are missing');
+  return Buffer.from(record.bytes).toString('base64url');
+}
+
 test.describe('Router A/B Ed25519 route-core budget gates', () => {
+  test('private prepare admission matches the committed Rust protocol vectors', async () => {
+    for (const vector of normalSigningVectors.cases) {
+      const privateBody = await buildRouterAbEd25519PrivateSigningWorkerBody({
+        phase: 'prepare',
+        body: vector.prepare_request_json,
+        claims: parsedWalletSessionClaims(),
+        headers: { origin: 'https://localhost' },
+      });
+      if (!('admission_candidate' in privateBody)) {
+        throw new Error(`${vector.case_id} did not produce a prepare admission`);
+      }
+      expect(digestB64u(privateBody.admission_candidate.intent_digest)).toBe(
+        vector.intent_digest_b64u,
+      );
+      expect(digestB64u(privateBody.admission_candidate.signing_payload_digest)).toBe(
+        vector.signing_payload_digest_b64u,
+      );
+      expect(digestB64u(privateBody.admission_candidate.admitted_signing_digest)).toBe(
+        vector.admitted_signing_digest_b64u,
+      );
+      expect(digestB64u(privateBody.admission_candidate.round1_binding_digest)).toBe(
+        vector.round1_binding_digest_b64u,
+      );
+    }
+  });
+
   test('prepare rejects missing admission adapter before private SigningWorker forwarding', async () => {
     const harness = createNormalSigningRuntime();
     const fetchCalls: string[] = [];

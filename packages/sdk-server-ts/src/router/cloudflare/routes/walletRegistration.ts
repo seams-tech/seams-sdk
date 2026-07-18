@@ -6,9 +6,11 @@ import {
   handleRouterApiWalletAddAuthMethodStart,
   handleRouterApiWalletAddSignerFinalize,
   handleRouterApiWalletAddSignerEcdsaDerivationRespond,
+  handleRouterApiWalletAddSignerEcdsaActivation,
   handleRouterApiWalletAddSignerIntent,
   handleRouterApiWalletAddSignerStart,
   handleRouterApiWalletRegistrationFinalize,
+  handleRouterApiWalletRegistrationEcdsaActivation,
   handleRouterApiWalletRegistrationEcdsaDerivationRespond,
   handleRouterApiWalletRegistrationIntent,
   handleRouterApiWalletRegistrationIntentCancel,
@@ -32,10 +34,12 @@ const ROUTE_IDS = [
   'wallet_registration_intent_cancel',
   'wallet_registration_start',
   'wallet_registration_ecdsa_derivation_respond',
+  'wallet_registration_ecdsa_activation',
   'wallet_registration_finalize',
   'wallet_add_signer_intent',
   'wallet_add_signer_start',
   'wallet_add_signer_ecdsa_derivation_respond',
+  'wallet_add_signer_ecdsa_activation',
   'wallet_add_signer_finalize',
   'wallet_add_auth_method_intent',
   'wallet_add_auth_method_start',
@@ -104,7 +108,9 @@ export async function handleWalletRegistration(
             ? await handleRouterApiWalletRegistrationStart(common)
             : route.id === 'wallet_registration_ecdsa_derivation_respond'
               ? await handleRouterApiWalletRegistrationEcdsaDerivationRespond(common)
-              : route.id === 'wallet_registration_finalize'
+              : route.id === 'wallet_registration_ecdsa_activation'
+                ? await handleRouterApiWalletRegistrationEcdsaActivation(common)
+                : route.id === 'wallet_registration_finalize'
                   ? await handleRouterApiWalletRegistrationFinalize(common)
                   : route.id === 'wallet_add_signer_intent'
                     ? await handleRouterApiWalletAddSignerIntent(common)
@@ -112,6 +118,8 @@ export async function handleWalletRegistration(
                       ? await handleRouterApiWalletAddSignerStart(common)
                       : route.id === 'wallet_add_signer_ecdsa_derivation_respond'
                         ? await handleRouterApiWalletAddSignerEcdsaDerivationRespond(common)
+                        : route.id === 'wallet_add_signer_ecdsa_activation'
+                          ? await handleRouterApiWalletAddSignerEcdsaActivation(common)
                         : route.id === 'wallet_add_signer_finalize'
                           ? await handleRouterApiWalletAddSignerFinalize(common)
                           : route.id === 'wallet_add_auth_method_intent'

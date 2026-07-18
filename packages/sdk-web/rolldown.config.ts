@@ -25,6 +25,12 @@ const ED25519_YAO_CLIENT_WASM_JS_ABS = path.resolve(
 );
 const ED25519_YAO_CLIENT_WASM_JS_OUT =
   'wasm/router_ab_ed25519_yao_client/pkg/router_ab_ed25519_yao_client.js';
+const ECDSA_REGISTRATION_CLIENT_WASM_JS_ABS = path.resolve(
+  SDK_ROOT_ABS,
+  '../../wasm/ecdsa_registration_client/pkg/ecdsa_registration_client.js',
+);
+const ECDSA_REGISTRATION_CLIENT_WASM_JS_OUT =
+  'wasm/ecdsa_registration_client/pkg/ecdsa_registration_client.js';
 const ECDSA_DERIVATION_CLIENT_WASM_JS_ABS = path.resolve(
   SDK_ROOT_ABS,
   '../../wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.js',
@@ -48,6 +54,9 @@ const preservedModuleOut = (opts: { facadeModuleId: string; rootAbs: string; pre
   const facadeAbs = path.resolve(opts.facadeModuleId);
   if (facadeAbs === NEAR_SIGNER_WASM_JS_ABS) return NEAR_SIGNER_WASM_JS_OUT;
   if (facadeAbs === ED25519_YAO_CLIENT_WASM_JS_ABS) return ED25519_YAO_CLIENT_WASM_JS_OUT;
+  if (facadeAbs === ECDSA_REGISTRATION_CLIENT_WASM_JS_ABS) {
+    return ECDSA_REGISTRATION_CLIENT_WASM_JS_OUT;
+  }
   if (facadeAbs === ECDSA_DERIVATION_CLIENT_WASM_JS_ABS) return ECDSA_DERIVATION_CLIENT_WASM_JS_OUT;
 
   const rel = toPosixPath(path.relative(opts.rootAbs, facadeAbs));
@@ -344,13 +353,6 @@ const emitWalletServiceStaticAssets = async (sdkRoot = process.cwd()): Promise<v
     path.join(sdkDir, 'passkey-halo-loading.css'),
   );
   copyIfMissing(
-    path.join(
-      sdkRoot,
-      'src/core/signingEngine/uiConfirm/ui/lit-components/css/seams-passkey-registration-btn.css',
-    ),
-    path.join(sdkDir, 'seams-passkey-registration-btn.css'),
-  );
-  copyIfMissing(
     path.join(sdkRoot, 'src/core/signingEngine/uiConfirm/ui/lit-components/css/padlock-icon.css'),
     path.join(sdkDir, 'padlock-icon.css'),
   );
@@ -637,6 +639,51 @@ const configs = [
     ],
   },
   {
+    input:
+      '../../wasm/ecdsa_registration_client/pkg/ecdsa_registration_client.js',
+    output: {
+      dir: BUILD_PATHS.BUILD.ESM,
+      format: 'esm',
+      entryFileNames:
+        'wasm/ecdsa_registration_client/pkg/ecdsa_registration_client.js',
+    },
+    plugins: [
+      {
+        name: 'emit-ecdsa-registration-client-wasm',
+        generateBundle(_options, bundle) {
+          for (const output of Object.values(bundle)) {
+            if (
+              output.type !== 'chunk' ||
+              output.fileName !== ECDSA_REGISTRATION_CLIENT_WASM_JS_OUT
+            ) {
+              continue;
+            }
+          }
+          try {
+            const source = fs.readFileSync(
+              path.join(
+                SDK_ROOT_ABS,
+                '../../wasm/ecdsa_registration_client/pkg/ecdsa_registration_client_bg.wasm',
+              ),
+            );
+            (this as any).emitFile({
+              type: 'asset',
+              fileName:
+                'wasm/ecdsa_registration_client/pkg/ecdsa_registration_client_bg.wasm',
+              source,
+            });
+            console.log(
+              '✅ Emitted dist/esm/wasm/ecdsa_registration_client/pkg/ecdsa_registration_client_bg.wasm',
+            );
+          } catch (error) {
+            console.error('❌ Failed to copy ECDSA registration client WASM asset:', error);
+            throw error;
+          }
+        },
+      },
+    ],
+  },
+  {
     input: '../../wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.js',
     output: {
       dir: BUILD_PATHS.BUILD.ESM,
@@ -703,8 +750,6 @@ const configs = [
       // Tx Confirmer component
       'w3a-tx-confirmer':
         'src/core/signingEngine/uiConfirm/ui/lit-components/IframeTxConfirmer/tx-confirmer-wrapper.ts',
-      'seams-passkey-registration-btn':
-        'src/core/signingEngine/uiConfirm/ui/lit-components/passkey-registration-btn/entrypoints/seams-passkey-registration-btn.ts',
       // Wallet service host (headless)
       'wallet-iframe-host-runtime': 'src/SeamsWeb/walletIframe/host/index.ts',
       'wallet-iframe-host-near': 'src/SeamsWeb/walletIframe/host/entry-near.ts',

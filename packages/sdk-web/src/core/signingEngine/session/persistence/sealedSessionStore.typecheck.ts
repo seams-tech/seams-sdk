@@ -9,11 +9,15 @@ import type {
 } from './sealedSessionStore';
 import type { SealedSigningSessionEcdsaRestoreMetadata } from '@shared/utils/signingSessionSeal';
 import type { SealedSigningSessionEd25519RestoreMetadata } from '@shared/utils/signingSessionSeal';
-import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type {
+  RouterAbEcdsaDerivationNormalSigningStateV1,
+  RouterAbEcdsaDerivationPublicCapabilityV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 
 declare const currentEd25519Record: CurrentEd25519SealedSessionRecord;
 declare const currentEcdsaRecord: CurrentEcdsaSealedSessionRecord;
 declare const routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
+declare const publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 declare const ecdsaReauthAnchorPublicRestore: EcdsaReauthAnchorPublicRestore;
 void currentEd25519Record;
 void currentEcdsaRecord;
@@ -203,6 +207,7 @@ const invalidEcdsaWriteInput: BuildCurrentEcdsaSealedSessionRecordInput = {
     relayerKeyId: 'relayer-key',
     participantIds: [1, 2, 3],
     routerAbEcdsaDerivationNormalSigning,
+    publicCapability,
   },
   issuedAtMs: 1,
   expiresAtMs: 1,

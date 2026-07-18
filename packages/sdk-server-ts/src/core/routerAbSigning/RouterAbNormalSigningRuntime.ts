@@ -17,6 +17,7 @@ import {
 import type {
   Ed25519WalletSessionStore,
   Ed25519WalletSessionRecord,
+  EcdsaWalletSessionRecord,
   EcdsaWalletSessionStore,
   WalletSigningBudgetEcdsaBinding,
   WalletSigningBudgetEd25519Binding,
@@ -245,6 +246,31 @@ export type RouterAbEd25519YaoNormalSigningBudgetRefreshInput = {
 export type RouterAbEd25519YaoNormalSigningBudgetRefreshResult =
   RouterAbEd25519YaoNormalSigningSessionProvisionResult;
 
+export type RouterAbEcdsaNormalSigningSessionProvisionInput = {
+  readonly kind: 'router_ab_ecdsa_normal_signing_session_v1';
+  readonly walletId: string;
+  readonly evmFamilySigningKeySlotId: string;
+  readonly relayerKeyId: string;
+  readonly thresholdSessionId: string;
+  readonly signingGrantId: string;
+  readonly signingRootId: string;
+  readonly signingRootVersion: string;
+  readonly participantIds: readonly [number, number];
+  readonly expiresAtMs: number;
+  readonly remainingUses: number;
+};
+
+export type RouterAbEcdsaNormalSigningSessionProvisionResult =
+  | {
+      readonly ok: true;
+      readonly thresholdSessionId: string;
+      readonly signingGrantId: string;
+      readonly expiresAtMs: number;
+      readonly remainingUses: number;
+      readonly participantIds: readonly [number, number];
+    }
+  | { readonly ok: false; readonly code: string; readonly message: string };
+
 type BudgetCurve = 'ed25519' | 'ecdsa';
 
 type ResolvedSigningGrantBudget =
@@ -272,6 +298,36 @@ function participantIdsEqual(left: readonly number[], right: readonly number[]):
     if (left[index] !== right[index]) return false;
   }
   return true;
+}
+
+function normalizeExactEcdsaParticipantIds(
+  raw: readonly [number, number],
+): [number, number] | null {
+  const first = Number(raw[0]);
+  const second = Number(raw[1]);
+  if (
+    !Number.isSafeInteger(first) ||
+    first <= 0 ||
+    !Number.isSafeInteger(second) ||
+    second <= 0 ||
+    first === second
+  ) {
+    return null;
+  }
+  return [first, second];
+}
+
+function ecdsaWalletSessionsEqual(
+  left: EcdsaWalletSessionRecord,
+  right: EcdsaWalletSessionRecord,
+): boolean {
+  return (
+    left.expiresAtMs === right.expiresAtMs &&
+    left.relayerKeyId === right.relayerKeyId &&
+    left.walletId === right.walletId &&
+    left.evmFamilySigningKeySlotId === right.evmFamilySigningKeySlotId &&
+    participantIdsEqual(left.participantIds, right.participantIds)
+  );
 }
 
 function ed25519WalletSessionsHaveSameAuthority(
@@ -774,6 +830,90 @@ export class RouterAbNormalSigningRuntime {
         message: errorMessage(error) || 'Ed25519 Yao normal-signing provisioning failed',
       };
     }
+  }
+
+  async provisionRouterAbEcdsaNormalSigningSession(
+    input: RouterAbEcdsaNormalSigningSessionProvisionInput,
+  ): Promise<RouterAbEcdsaNormalSigningSessionProvisionResult> {
+    const walletId = parseWalletId(input.walletId);
+    const evmFamilySigningKeySlotId = toOptionalTrimmedString(input.evmFamilySigningKeySlotId);
+    const relayerKeyId = toOptionalTrimmedString(input.relayerKeyId);
+    const thresholdSessionId = toOptionalTrimmedString(input.thresholdSessionId);
+    const signingGrantId = toOptionalTrimmedString(input.signingGrantId);
+    const signingRootId = toOptionalTrimmedString(input.signingRootId);
+    const signingRootVersion = toOptionalTrimmedString(input.signingRootVersion);
+    const expiresAtMs = Number(input.expiresAtMs);
+    const remainingUses = Math.floor(Number(input.remainingUses));
+    const participantIds = normalizeExactEcdsaParticipantIds(input.participantIds);
+    if (
+      input.kind !== 'router_ab_ecdsa_normal_signing_session_v1' ||
+      !walletId.ok ||
+      !evmFamilySigningKeySlotId ||
+      !relayerKeyId ||
+      !thresholdSessionId ||
+      !signingGrantId ||
+      !signingRootId ||
+      !signingRootVersion ||
+      !participantIds ||
+      !Number.isSafeInteger(remainingUses) ||
+      remainingUses <= 0 ||
+      !Number.isFinite(expiresAtMs) ||
+      expiresAtMs <= Date.now()
+    ) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'Router A/B ECDSA normal-signing session is invalid',
+      };
+    }
+    const requestedSession: EcdsaWalletSessionRecord = {
+      expiresAtMs,
+      relayerKeyId,
+      walletId: walletId.value,
+      evmFamilySigningKeySlotId,
+      participantIds,
+    };
+    const existingSession = await this.ecdsaWalletSessionStore.getSession(thresholdSessionId);
+    if (existingSession && !ecdsaWalletSessionsEqual(existingSession, requestedSession)) {
+      return {
+        ok: false,
+        code: 'conflict',
+        message: 'thresholdSessionId already belongs to another ECDSA signing authority',
+      };
+    }
+    const ttlMs = Math.max(1, Math.floor(expiresAtMs - Date.now()));
+    const budget = await this.ensureSigningGrantBudget({
+      signingGrantId,
+      curve: 'ecdsa',
+      thresholdSessionId,
+      userId: walletId.value,
+      evmFamilySigningKeySlotId,
+      participantIds,
+      ttlMs,
+      remainingUses,
+      operation: 'provision_curve_binding',
+    });
+    if (!budget.ok) return budget;
+    await this.ecdsaWalletSessionStore.putSession(thresholdSessionId, requestedSession, {
+      ttlMs,
+      remainingUses,
+    });
+    const status = await this.getSigningGrantBudgetStatus(signingGrantId);
+    if (!status) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'Router A/B ECDSA signing budget was not persisted',
+      };
+    }
+    return {
+      ok: true,
+      thresholdSessionId,
+      signingGrantId,
+      expiresAtMs: budget.expiresAtMs,
+      remainingUses: status.remainingUses,
+      participantIds,
+    };
   }
 
   async refreshRouterAbEd25519YaoNormalSigningBudget(

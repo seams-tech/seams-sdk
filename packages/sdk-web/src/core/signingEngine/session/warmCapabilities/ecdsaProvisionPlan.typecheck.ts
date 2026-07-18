@@ -135,6 +135,8 @@ const reconnectRecord = {
   relayerKeyId: 'relayer-key-1',
   clientVerifyingShareB64u: 'share',
   ecdsaRoleLocalReadyRecord: roleLocalReadyRecord,
+  ecdsaRoleLocalAuthMethod: roleLocalReadyRecord.authMethod,
+  ecdsaRoleLocalPublicFacts: roleLocalReadyRecord.publicFacts,
   participantIds: [1, 2],
   thresholdSessionKind: 'jwt',
   walletSessionJwt: 'jwt-token',

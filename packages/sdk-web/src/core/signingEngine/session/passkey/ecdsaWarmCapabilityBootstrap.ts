@@ -12,7 +12,7 @@ import {
   type ThresholdEcdsaSessionRecord,
   type ThresholdEcdsaSessionStoreDeps,
 } from '../persistence/records';
-import { parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord } from '../persistence/ecdsaRoleLocalRecords';
+import { readThresholdEcdsaSessionRecordRoleLocalReadyRecord } from '../persistence/ecdsaRoleLocalRecords';
 import {
   ecdsaBootstrapChainTarget,
   ecdsaBootstrapWalletId,
@@ -46,7 +46,7 @@ type SharedEd25519WalletSessionGrant = {
 type PasskeyRoleLocalEcdsaRecord = {
   kind: 'passkey_role_local_ecdsa_record_v1';
   record: ThresholdEcdsaSessionRecord;
-  readyRecord: ReturnType<typeof parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord>;
+  readyRecord: ReturnType<typeof readThresholdEcdsaSessionRecordRoleLocalReadyRecord>;
   passkeyCredentialIdB64u: string;
 };
 
@@ -107,9 +107,9 @@ function selectPasskeyRoleLocalEcdsaRecord(args: {
   });
   for (const record of records) {
     if (record.source === 'email_otp') continue;
-    let readyRecord: ReturnType<typeof parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord>;
+    let readyRecord: ReturnType<typeof readThresholdEcdsaSessionRecordRoleLocalReadyRecord>;
     try {
-      readyRecord = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record);
+      readyRecord = readThresholdEcdsaSessionRecordRoleLocalReadyRecord(record);
     } catch {
       continue;
     }
@@ -362,6 +362,7 @@ async function tryNoPromptWalletSessionReconnect(args: {
     relayerUrl,
     keyHandle: record.keyHandle,
     key: readModel.key,
+    publicCapability: selected.readyRecord.publicFacts.publicCapability,
     lanePolicy: buildEvmFamilyEcdsaSessionLanePolicy({
       chainTarget: args.request.chainTarget,
       thresholdSessionId: record.thresholdSessionId,

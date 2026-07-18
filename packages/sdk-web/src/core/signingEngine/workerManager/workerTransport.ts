@@ -206,7 +206,6 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
   private readonly errorHandlers = new Map<SignerWorkerKind, (event: ErrorEvent) => void>();
   private derivationPresignConnected = false;
   private emailOtpPresignConnected = false;
-  private presignOnlineConnected = false;
 
   setWorkerBaseOrigin(origin: string | undefined): void {
     if (this.workerBaseOrigin === origin) return;
@@ -472,32 +471,7 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
     this.workers.set(kind, worker);
     this.messageHandlers.set(kind, messageHandler);
     this.errorHandlers.set(kind, errorHandler);
-    this.connectEcdsaClientWorkerChannels(kind);
     return worker;
-  }
-
-  private connectEcdsaClientWorkerChannels(kind: SignerWorkerKind): void {
-    if (kind === 'ecdsaOnlineClient' && !this.presignOnlineConnected) {
-      const presignWorker = this.getOrCreateWorker('ecdsaPresignClient');
-      const onlineWorker = this.workers.get('ecdsaOnlineClient');
-      if (!onlineWorker) throw new Error('ECDSA online worker was not created');
-      const channel = new MessageChannel();
-      presignWorker.postMessage(
-        {
-          kind: EcdsaClientWorkerControlKind.AttachPresignToOnline,
-          port: channel.port1,
-        },
-        [channel.port1],
-      );
-      onlineWorker.postMessage(
-        {
-          kind: EcdsaClientWorkerControlKind.AttachPresignToOnline,
-          port: channel.port2,
-        },
-        [channel.port2],
-      );
-      this.presignOnlineConnected = true;
-    }
   }
 
   private connectPresignAuthorityChannel(
@@ -926,15 +900,10 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
   private resetWorker(kind: SignerWorkerKind): void {
     if (kind === 'ecdsaDerivationClient') {
       this.derivationPresignConnected = false;
-      this.presignOnlineConnected = false;
       this.resetWorker('ecdsaPresignClient');
     } else if (kind === 'ecdsaPresignClient') {
       this.derivationPresignConnected = false;
       this.emailOtpPresignConnected = false;
-      this.presignOnlineConnected = false;
-      this.resetWorker('ecdsaOnlineClient');
-    } else if (kind === 'ecdsaOnlineClient') {
-      this.presignOnlineConnected = false;
     } else if (kind === 'emailOtp') {
       this.emailOtpPresignConnected = false;
       this.resetWorker('ecdsaPresignClient');

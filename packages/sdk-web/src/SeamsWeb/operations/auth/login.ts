@@ -68,7 +68,7 @@ import {
   type ThresholdEcdsaSessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
 import { parseWarmEd25519SigningSessionAuthorizationFromRecord } from '@/core/signingEngine/session/warmCapabilities/ed25519Authorization';
-import { parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
+import { readThresholdEcdsaSessionRecordRoleLocalReadyRecord } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 import type {
   ThresholdEcdsaEmailOtpAuthContext,
   ThresholdEcdsaSessionStoreSource,
@@ -109,6 +109,7 @@ import {
 import { assertWalletRuntimePostconditions } from '@/core/signingEngine/session/postconditions/runtimePostconditions';
 import {
   thresholdEcdsaChainTargetKey,
+  type ThresholdEcdsaChainTarget,
   type WalletId,
   toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -153,6 +154,7 @@ import {
 } from '@/core/signingEngine/session/budget/policy';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import { computeWalletEcdsaKeyFactsInventoryChallengeDigestB64u } from '@shared/utils/ecdsaKeyFactsInventory';
+import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
   buildEmailOtpWalletAuthMethodBinding,
   buildNoCurrentWalletAuthMethod,
@@ -2187,13 +2189,52 @@ type ThresholdEcdsaAuthorizedEd25519Mint = {
 
 function passkeyCredentialIdB64uFromEcdsaRecord(record: ThresholdEcdsaSessionRecord): string {
   try {
-    const readyRecord = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record);
+    const readyRecord = readThresholdEcdsaSessionRecordRoleLocalReadyRecord(record);
     return readyRecord.authMethod.kind === 'passkey'
       ? String(readyRecord.authMethod.credentialIdB64u || '').trim()
       : '';
   } catch {
     return '';
   }
+}
+
+function resolvePersistedEcdsaPublicCapabilityForLogin(args: {
+  signingEngine: Pick<
+    EcdsaLoginSessionSurface,
+    'listThresholdEcdsaSessionRecordsForWalletTarget'
+  >;
+  walletId: WalletId;
+  chainTarget: ThresholdEcdsaChainTarget;
+  keyHandle: string;
+}): RouterAbEcdsaDerivationPublicCapabilityV1 {
+  const candidates = args.signingEngine
+    .listThresholdEcdsaSessionRecordsForWalletTarget({
+      walletId: args.walletId,
+      chainTarget: args.chainTarget,
+    })
+    .flatMap((record) => {
+      try {
+        const readyRecord = readThresholdEcdsaSessionRecordRoleLocalReadyRecord(record);
+        return readyRecord.publicFacts.keyHandle === args.keyHandle
+          ? [
+              {
+                publicCapability: readyRecord.publicFacts.publicCapability,
+                updatedAtMs: record.updatedAtMs,
+              },
+            ]
+          : [];
+      } catch {
+        return [];
+      }
+    });
+  candidates.sort((left, right) => right.updatedAtMs - left.updatedAtMs);
+  const selected = candidates[0];
+  if (!selected) {
+    throw new Error(
+      `[login] threshold ECDSA warm-up requires one exact persisted public capability for ${thresholdEcdsaChainTargetKey(args.chainTarget)}`,
+    );
+  }
+  return selected.publicCapability;
 }
 
 function buildThresholdLoginWarmSignerSelection(
@@ -2362,7 +2403,8 @@ function buildLoginEd25519WalletSessionMintAuthorization(args: {
 
 async function primeThresholdLoginWarmSigners(args: {
   context: LoginWebContext;
-  signingEngine: LoginWarmSigningSurface;
+  signingEngine: LoginWarmSigningSurface &
+    Pick<EcdsaLoginSessionSurface, 'listThresholdEcdsaSessionRecordsForWalletTarget'>;
   walletBinding: ResolvedLoginWalletBinding;
   nearAccountId: AccountId;
   signerSlot: number;
@@ -2675,6 +2717,12 @@ async function primeThresholdLoginWarmSigners(args: {
               ? { runtimePolicyScope: activeCanonicalEcdsaContext.runtimePolicyScope }
               : {}),
           });
+          const publicCapability = resolvePersistedEcdsaPublicCapabilityForLogin({
+            signingEngine: args.signingEngine,
+            walletId: args.walletBinding.walletId,
+            chainTarget: target.chainTarget,
+            keyHandle: targetEcdsaKey.keyHandle,
+          });
           const bootstrappedPasskeyPrfFirstB64u = String(
             ecdsaAuthorizedEd25519Mint?.passkeyPrfFirstB64u || '',
           ).trim();
@@ -2712,6 +2760,7 @@ async function primeThresholdLoginWarmSigners(args: {
               keyHandle: toEvmFamilyEcdsaKeyHandle(targetEcdsaKey.keyHandle),
               key: targetEcdsaKey.key,
               lanePolicy,
+              publicCapability,
               passkeyPrfFirstB64u: passkeyPrfFirstB64u,
               passkeyCredentialIdB64u,
               routeAuth: reconnectRouteAuth,
@@ -2735,6 +2784,7 @@ async function primeThresholdLoginWarmSigners(args: {
                 keyHandle: toEvmFamilyEcdsaKeyHandle(targetEcdsaKey.keyHandle),
                 key: targetEcdsaKey.key,
                 lanePolicy,
+                publicCapability,
                 routeAuth,
                 ...passkeyBootstrapProof,
                 ...(runtimeScopeBootstrap ? { runtimeScopeBootstrap } : {}),
@@ -2747,6 +2797,7 @@ async function primeThresholdLoginWarmSigners(args: {
               keyHandle: toEvmFamilyEcdsaKeyHandle(targetEcdsaKey.keyHandle),
               key: targetEcdsaKey.key,
               lanePolicy,
+              publicCapability,
               ...passkeyBootstrapProof,
               ...(runtimeScopeBootstrap ? { runtimeScopeBootstrap } : {}),
             });
@@ -2758,6 +2809,7 @@ async function primeThresholdLoginWarmSigners(args: {
             keyHandle: toEvmFamilyEcdsaKeyHandle(targetEcdsaKey.keyHandle),
             key: targetEcdsaKey.key,
             lanePolicy,
+            publicCapability,
             ...(runtimeScopeBootstrap ? { runtimeScopeBootstrap } : {}),
           });
         };

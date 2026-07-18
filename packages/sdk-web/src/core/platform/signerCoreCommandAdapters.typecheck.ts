@@ -21,7 +21,7 @@ import type {
   FinalizeEcdsaClientBootstrapOutput,
   PrepareEcdsaClientBootstrapInput,
   PrepareEcdsaClientBootstrapOutput,
-  WebAuthnPrfFirstSecretSource,
+  ThresholdPrfXClientBaseSecretSource,
 } from './types';
 
 type StringKeys<T> = Extract<keyof T, string>;
@@ -64,26 +64,38 @@ type _PrepareParticipantsNoMissing = AssertNever<
     StringKeys<PrepareEcdsaClientBootstrapInput['participants']>
   >
 >;
-type _WebAuthnSecretSourceNoExtra = AssertNever<
+type _ThresholdPrfSecretSourceNoExtra = AssertNever<
   Exclude<
-    StringKeys<WebAuthnPrfFirstSecretSource>,
+    StringKeys<ThresholdPrfXClientBaseSecretSource>,
     StringKeys<
-      Extract<RawPrepareEcdsaClientBootstrapCommand['secretSource'], { kind: 'webauthn_prf_first' }>
+      Extract<
+        RawPrepareEcdsaClientBootstrapCommand['secretSource'],
+        { kind: 'threshold_prf_x_client_base' }
+      >
     >
   >
 >;
-type _WebAuthnSecretSourceNoMissing = AssertNever<
+type _ThresholdPrfSecretSourceNoMissing = AssertNever<
   Exclude<
     StringKeys<
-      Extract<RawPrepareEcdsaClientBootstrapCommand['secretSource'], { kind: 'webauthn_prf_first' }>
+      Extract<
+        RawPrepareEcdsaClientBootstrapCommand['secretSource'],
+        { kind: 'threshold_prf_x_client_base' }
+      >
     >,
-    StringKeys<WebAuthnPrfFirstSecretSource>
+    StringKeys<ThresholdPrfXClientBaseSecretSource>
   >
 >;
-type _GeneratedPrepareSecretSourceDoesNotExposeEmailOtp = AssertNever<
+type _GeneratedPrepareSecretSourceIsOnlyThresholdPrf = AssertNever<
   Extract<
     RawPrepareEcdsaClientBootstrapCommand['secretSource'],
-    { kind: 'email_otp_worker_session' }
+    {
+      kind:
+        | 'email_otp_worker_session'
+        | 'webauthn_prf_first'
+        | 'secure_enclave_wrapped_secret'
+        | 'fido2_hmac_secret';
+    }
   >
 >;
 

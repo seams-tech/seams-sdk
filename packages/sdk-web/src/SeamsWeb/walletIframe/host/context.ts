@@ -182,13 +182,17 @@ function normalizeWalletHostAppearance(args: {
   if (args.incoming === undefined) return args.previous;
   const mode = appearanceMode(args.incoming) ?? appearanceMode(args.previous);
   if (!mode) return args.previous;
-  const id = appearanceThemeId(args.incoming, appearanceThemeId(args.previous, 'default'));
+  const previousId = appearanceThemeId(args.previous, 'default');
+  const id = appearanceThemeId(args.incoming, previousId);
+  /* A different theme id is a theme switch: replace colors/shape wholesale so
+     keys the new theme doesn't define can't leak from the old one. */
+  const isThemeSwitch = id !== previousId;
   const colors = {
-    ...appearanceColors(args.previous, mode),
+    ...(isThemeSwitch ? {} : appearanceColors(args.previous, mode)),
     ...appearanceColors(args.incoming, mode),
   };
   const shape = {
-    ...appearanceShape(args.previous),
+    ...(isThemeSwitch ? {} : appearanceShape(args.previous)),
     ...appearanceShape(args.incoming),
   };
   return {

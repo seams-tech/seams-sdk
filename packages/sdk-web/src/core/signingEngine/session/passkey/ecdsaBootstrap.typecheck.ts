@@ -10,6 +10,7 @@ import type {
   EvmFamilyEcdsaKeyIdentity,
   EvmFamilyEcdsaSessionLanePolicy,
 } from '../identity/evmFamilyEcdsaIdentity';
+import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 
 declare const walletId: WalletId;
 declare const subjectId: WalletId;
@@ -23,6 +24,7 @@ declare const keyHandle: EvmFamilyEcdsaKeyHandle;
 declare const key: EvmFamilyEcdsaKeyIdentity;
 declare const lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
 declare const passkeyCredentialIdB64u: string;
+declare const publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 
 const sessionIdentity = buildEcdsaSessionIdentity({
   thresholdSessionId: 'threshold-session-id',
@@ -116,6 +118,7 @@ const validWalletSessionReconnectBootstrap = {
   keyHandle,
   key,
   lanePolicy,
+  publicCapability,
   passkeyPrfFirstB64u: 'passkey-prf-first',
   passkeyCredentialIdB64u,
   routeAuth: {
@@ -129,6 +132,7 @@ const invalidCookieWalletSessionReconnectBootstrap: EcdsaBootstrapRequest = {
   keyHandle,
   key,
   lanePolicy,
+  publicCapability,
   passkeyPrfFirstB64u: 'passkey-prf-first',
   passkeyCredentialIdB64u,
   routeAuth: {
@@ -144,6 +148,7 @@ const invalidWalletSessionReconnectWithoutPasskeyPrfFirst: EcdsaBootstrapRequest
   keyHandle,
   key,
   lanePolicy,
+  publicCapability,
   routeAuth: {
     kind: 'wallet_session',
     jwt: 'threshold-session-jwt',
@@ -237,6 +242,7 @@ const invalidWalletSessionReconnectWithWebauthn: EcdsaBootstrapRequest = {
   keyHandle,
   key,
   lanePolicy,
+  publicCapability,
   passkeyPrfFirstB64u: 'passkey-prf-first',
   routeAuth: {
     kind: 'wallet_session',
@@ -244,6 +250,21 @@ const invalidWalletSessionReconnectWithWebauthn: EcdsaBootstrapRequest = {
   },
   webauthnAuthentication,
 };
+
+// @ts-expect-error exact reconnect requires its persisted public capability
+const invalidWalletSessionReconnectWithoutPublicCapability: EcdsaBootstrapRequest = {
+  kind: 'wallet_session_reconnect_ecdsa_bootstrap',
+  keyHandle,
+  key,
+  lanePolicy,
+  passkeyPrfFirstB64u: 'passkey-prf-first',
+  passkeyCredentialIdB64u,
+  routeAuth: {
+    kind: 'wallet_session',
+    jwt: 'threshold-session-jwt',
+  },
+};
+void invalidWalletSessionReconnectWithoutPublicCapability;
 
 // @ts-expect-error Email OTP bootstrap requires Email OTP auth context
 const invalidEmailOtpBootstrapWithoutAuthContext: EcdsaBootstrapRequest = {

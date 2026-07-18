@@ -50,13 +50,14 @@ import {
   parseRouterAbEd25519NormalSigningState,
 } from '@shared/utils/signingSessionSeal';
 import {
+  routerAbEcdsaExplicitExport,
   thresholdEcdsaDerivationRoleLocalBootstrap,
-  thresholdEcdsaDerivationRoleLocalExportShare,
   type ThresholdEcdsaDerivationRoleLocalBootstrapRequest,
   type ThresholdEcdsaDerivationRoleLocalClientRootProof,
   type ThresholdEcdsaDerivationRouteAuth,
 } from '@/core/rpcClients/relayer/thresholdEcdsa';
 import { decodeJwtPayloadRecord, type AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
+import { parseRouterAbEcdsaDerivationExplicitExportRequestV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/types';
 import {
@@ -186,10 +187,13 @@ import initEvmCrypto, {
 } from '../../../../../../../wasm/evm_crypto/pkg/evm_crypto.js';
 import initEcdsaDerivationClient, {
   build_ecdsa_role_local_export_artifact_v1,
+  RouterAbEcdsaClientCeremonyV1,
+} from '../../../../../../../wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.js';
+import initEcdsaRegistrationClient, {
   finalize_ecdsa_client_bootstrap_v1,
   open_ecdsa_role_local_signing_share_v1,
   prepare_ecdsa_client_bootstrap_from_resolved_email_otp_root_v1,
-} from '../../../../../../../wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.js';
+} from '../../../../../../../wasm/ecdsa_registration_client/pkg/ecdsa_registration_client.js';
 import initEmailOtpRuntime, {
   derive_email_otp_ecdsa_client_root_share32_from_secret32,
   derive_email_otp_unlock_auth_seed_from_secret32,
@@ -957,6 +961,13 @@ function readString(value: unknown, label: string): string {
   return requireTrimmedString(value, label);
 }
 
+function requireNonNegativeInteger(value: unknown, label: string): number {
+  if (!Number.isSafeInteger(value) || Number(value) < 0) {
+    throw new Error(`${label} must be a non-negative safe integer`);
+  }
+  return Number(value);
+}
+
 function readEvmFamilySigningKeySlotId(value: unknown, label: string) {
   return requireEvmFamilySigningKeySlotId(value, label);
 }
@@ -1625,6 +1636,7 @@ function finalizeEcdsaClientBootstrapWithGeneratedCommand(args: {
   relayerPublicKey33B64u: string;
   groupPublicKey33B64u: string;
   ethereumAddress: string;
+  relayerShareRetryCounter: number;
 }): GeneratedFinalizeEcdsaClientBootstrapOutput {
   return JSON.parse(
     finalize_ecdsa_client_bootstrap_v1(
@@ -1642,6 +1654,10 @@ function finalizeEcdsaClientBootstrapWithGeneratedCommand(args: {
           relayerPublicKey33B64u: readString(args.relayerPublicKey33B64u, 'relayerPublicKey33B64u'),
           groupPublicKey33B64u: readString(args.groupPublicKey33B64u, 'groupPublicKey33B64u'),
           ethereumAddress: readString(args.ethereumAddress, 'ethereumAddress'),
+          relayerShareRetryCounter: requireNonNegativeInteger(
+            args.relayerShareRetryCounter,
+            'relayerShareRetryCounter',
+          ),
         },
       }),
     ),
@@ -2397,6 +2413,10 @@ const ecdsaDerivationClientWasmUrl = resolveWasmUrl(
   'router_ab_ecdsa_derivation_client_bg.wasm',
   'Email OTP ECDSA DERIVATION',
 );
+const ecdsaRegistrationClientWasmUrl = resolveWasmUrl(
+  'ecdsa_registration_client_bg.wasm',
+  'Email OTP ECDSA REGISTRATION',
+);
 const emailOtpRuntimeWasmUrl = resolveWasmUrl('email_otp_runtime_bg.wasm', 'Email OTP Runtime');
 const nearSignerRecoveryWasmUrl = resolveWasmUrl(
   'wasm_signer_worker_bg.wasm',
@@ -2404,6 +2424,7 @@ const nearSignerRecoveryWasmUrl = resolveWasmUrl(
 );
 let evmCryptoInitPromise: Promise<void> | null = null;
 let ecdsaDerivationClientInitPromise: Promise<void> | null = null;
+let ecdsaRegistrationClientInitPromise: Promise<void> | null = null;
 let emailOtpRuntimeInitPromise: Promise<void> | null = null;
 let nearSignerRecoveryInitPromise: Promise<void> | null = null;
 
@@ -2430,6 +2451,21 @@ async function ensureEcdsaDerivationClientWasm(): Promise<void> {
     });
   })();
   return ecdsaDerivationClientInitPromise;
+}
+
+async function initializeEcdsaRegistrationClientWasm(): Promise<void> {
+  await initializeWasm({
+    workerName: 'Email OTP ECDSA REGISTRATION',
+    wasmUrl: ecdsaRegistrationClientWasmUrl,
+    initFunction: initEcdsaRegistrationClient as unknown as (wasmModule?: unknown) => Promise<void>,
+  });
+}
+
+async function ensureEcdsaRegistrationClientWasm(): Promise<void> {
+  if (!ecdsaRegistrationClientInitPromise) {
+    ecdsaRegistrationClientInitPromise = initializeEcdsaRegistrationClientWasm();
+  }
+  return ecdsaRegistrationClientInitPromise;
 }
 
 async function ensureEmailOtpRuntimeWasm(): Promise<void> {
@@ -3745,7 +3781,7 @@ async function buildEmailOtpEcdsaClientRootProof(args: {
 async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
   args: ThresholdEcdsaEmailOtpBootstrapFromClientRootShareArgs,
 ): Promise<EmailOtpThresholdEcdsaBootstrapResult> {
-  await ensureEcdsaDerivationClientWasm();
+  await ensureEcdsaRegistrationClientWasm();
   const relayerUrl = readString(args.relayUrl, 'relayUrl');
   const exactSessionBootstrap = args.operation === 'session_bootstrap';
   const walletId = toWalletId(
@@ -3924,6 +3960,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
       relayerPublicKey33B64u: value.publicIdentity.relayerPublicKey33B64u,
       groupPublicKey33B64u: value.publicIdentity.groupPublicKey33B64u,
       ethereumAddress: value.publicIdentity.ethereumAddress,
+      relayerShareRetryCounter: value.relayerShareRetryCounter,
     });
     const readyStateBlobB64u = readString(
       finalized.stateBlob.stateBlobB64u,
@@ -4336,44 +4373,81 @@ async function runThresholdEcdsaRoleLocalExportFromReadyRecord(args: {
     thresholdExpiresAtMs: args.thresholdExpiresAtMs,
     participantIds,
   });
-  const exportShare = await thresholdEcdsaDerivationRoleLocalExportShare(relayerUrl, {
-    formatVersion: 'ecdsa-derivation-role-local-export',
-    walletId,
-    evmFamilySigningKeySlotId,
-    ecdsaThresholdKeyId,
-    relayerKeyId,
-    contextBinding32B64u,
-    publicIdentity,
-    exportRequestNonce32B64u,
-    confirmationDigest32B64u,
-    authorizationDigest32B64u,
-    issuedAtUnixMs,
-    expiresAtUnixMs,
-    clientDeviceId: signingGrantId,
-    clientSessionId: thresholdSessionId,
-    auth: routeAuth,
-  });
-  if (!exportShare.ok) {
-    throw new Error(
-      exportShare.error ||
-        exportShare.message ||
-        exportShare.code ||
-        'Threshold export share failed',
+  const publicCapability = publicFacts.publicCapability;
+  const ceremonyId = `ecdsa-export:${exportRequestNonce32B64u}`;
+  const ceremony = new RouterAbEcdsaClientCeremonyV1();
+  let serverExportShare32B64u: string;
+  try {
+    const request = parseRouterAbEcdsaDerivationExplicitExportRequestV1(
+      JSON.parse(
+        ceremony.build_explicit_export_request(
+          JSON.stringify({
+            context: publicCapability.context,
+            lifecycle: {
+              lifecycle_id: ceremonyId,
+              work_kind: 'key_export',
+              primitive_request_kind: 'export',
+              root_share_epoch: publicCapability.activation_epoch,
+              account_id: String(walletId),
+              session_id: thresholdSessionId,
+              signer_set_id: publicCapability.signer_set.signer_set_id,
+              selected_server_id: publicCapability.signer_set.selected_server.server_id,
+            },
+            public_identity: publicCapability.public_identity,
+            signer_set: publicCapability.signer_set,
+            router_id: publicCapability.router_id,
+            client_id: publicCapability.client_id,
+            export_authorization_digest_b64u: authorizationDigest32B64u,
+            export_nonce: exportRequestNonce32B64u,
+            expires_at_ms: expiresAtUnixMs,
+            deriver_recipient_keys: publicCapability.deriver_recipient_keys,
+          }),
+        ),
+      ),
     );
-  }
-  if (
-    exportShare.value.contextBinding32B64u !== contextBinding32B64u ||
-    exportShare.value.publicIdentity.groupPublicKey33B64u !== publicIdentity.groupPublicKey33B64u ||
-    exportShare.value.publicIdentity.ethereumAddress !== publicIdentity.ethereumAddress
-  ) {
-    throw new Error('Email OTP ECDSA export relayer share identity mismatch');
+    const forwarded = await routerAbEcdsaExplicitExport(relayerUrl, {
+      request,
+      auth: routeAuth,
+    });
+    if (!forwarded.ok) {
+      throw new Error(
+        forwarded.error ||
+          forwarded.message ||
+          forwarded.code ||
+          'Strict ECDSA explicit export failed',
+      );
+    }
+    const finalized = workerPayloadObject(
+      JSON.parse(
+        ceremony.finalize_encrypted_proof_bundles(
+          JSON.stringify({
+            kind: 'finalize_encrypted_client_proof_bundles_v1',
+            verificationTimeMs: Date.now(),
+            bundles: forwarded.value.response.bundles,
+            commitmentRegistry: forwarded.value.response.commitmentRegistry,
+          }),
+        ),
+      ),
+    );
+    if (
+      !finalized ||
+      finalized.kind !== 'router_ab_ecdsa_prf_output_v1'
+    ) {
+      throw new Error('Strict ECDSA explicit export proof output is invalid');
+    }
+    serverExportShare32B64u = readString(
+      finalized.output32B64u,
+      'strict export output32B64u',
+    );
+  } finally {
+    ceremony.close();
   }
   const generatedCommand = toGeneratedBuildEcdsaRoleLocalExportArtifactCommand({
     kind: 'build_ecdsa_role_local_export_artifact_v1',
     algorithm: 'router_ab_ecdsa_derivation_secp256k1_role_local_v1',
     stateBlob: readyRecord.stateBlob,
     publicFacts,
-    serverExportShare32B64u: exportShare.value.serverExportShare32B64u,
+    serverExportShare32B64u,
   });
   const generatedOutput = JSON.parse(
     build_ecdsa_role_local_export_artifact_v1(JSON.stringify(generatedCommand)),
@@ -5488,8 +5562,15 @@ function parseWalletRegistrationEcdsaPrepareContext(
       'Email OTP wallet-registration ECDSA prepare requires ttl, uses, and participants',
     );
   }
-  const registrationPreparationIdRaw =
-    typeof obj.registrationPreparationId === 'string' ? obj.registrationPreparationId.trim() : '';
+  const registrationPreparationId = registrationPreparationIdFromString(
+    readString(obj.registrationPreparationId, 'prepare.registrationPreparationId'),
+  );
+  const runtimePolicyScope = parseOptionalWorkerRuntimePolicyScope(obj.runtimePolicyScope);
+  if (!runtimePolicyScope) {
+    throw new Error(
+      'Email OTP wallet-registration ECDSA prepare requires runtimePolicyScope',
+    );
+  }
   return {
     formatVersion: 'ecdsa-derivation-role-local',
     walletId: readString(obj.walletId, 'prepare.walletId'),
@@ -5504,22 +5585,14 @@ function parseWalletRegistrationEcdsaPrepareContext(
     signingRootVersion: readString(obj.signingRootVersion, 'prepare.signingRootVersion'),
     keyScope: 'evm-family',
     relayerKeyId: readString(obj.relayerKeyId, 'prepare.relayerKeyId'),
-    ...(registrationPreparationIdRaw
-      ? {
-          registrationPreparationId: registrationPreparationIdFromString(
-            registrationPreparationIdRaw,
-          ),
-        }
-      : {}),
+    registrationPreparationId,
     requestId: readString(obj.requestId, 'prepare.requestId'),
     thresholdSessionId: readString(obj.thresholdSessionId, 'prepare.thresholdSessionId'),
     signingGrantId: readString(obj.signingGrantId, 'prepare.signingGrantId'),
     ttlMs,
     remainingUses,
     participantIds,
-    ...(parseOptionalWorkerRuntimePolicyScope(obj.runtimePolicyScope)
-      ? { runtimePolicyScope: parseOptionalWorkerRuntimePolicyScope(obj.runtimePolicyScope)! }
-      : {}),
+    runtimePolicyScope,
   };
 }
 
@@ -6615,7 +6688,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
       case 'prepareWalletRegistrationEcdsaPreparedClientBootstrapFromEmailOtpHandle': {
         let clientRootShare32: Uint8Array | null = null;
         try {
-          await ensureEcdsaDerivationClientWasm();
+          await ensureEcdsaRegistrationClientWasm();
           const prepare = msg.payload.prepare;
           clientRootShare32 = claimEmailOtpWalletRegistrationEcdsaClientRootShare({
             handle: msg.payload.clientRootShareHandle,
@@ -6689,7 +6762,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
         return;
       }
       case 'prepareEcdsaClientBootstrapFromEmailOtpHandle': {
-        await ensureEcdsaDerivationClientWasm();
+        await ensureEcdsaRegistrationClientWasm();
         postToMainThread({
           id: msg.id,
           ok: true,

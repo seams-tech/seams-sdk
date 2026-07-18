@@ -14,6 +14,69 @@ export type MpcLifecycleBindingRef = DomainId<'MpcLifecycleBindingRef'>;
 export type MpcPolicyBindingRef = DomainId<'MpcPolicyBindingRef'>;
 export type MpcRegisteredPublicKeyBindingRef = DomainId<'MpcRegisteredPublicKeyBindingRef'>;
 
+function parseMpcDomainRef<T extends string>(
+  value: unknown,
+  label: string,
+): DomainId<T> {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) throw new Error(`${label} is required`);
+  return normalized as DomainId<T>;
+}
+
+export function capabilityInstanceRef(value: unknown): CapabilityInstanceRef {
+  return parseMpcDomainRef<'CapabilityInstanceRef'>(value, 'capability instance ref');
+}
+
+export function mpcMaterialOwnerRef(value: unknown): MpcMaterialOwnerRef {
+  return parseMpcDomainRef<'MpcMaterialOwnerRef'>(value, 'MPC material owner ref');
+}
+
+export function walletAuthAuthorityRef(value: unknown): WalletAuthAuthorityRef {
+  return parseMpcDomainRef<'WalletAuthAuthorityRef'>(value, 'wallet auth authority ref');
+}
+
+export function mpcCapabilityRuntimeRef(value: unknown): MpcCapabilityRuntimeRef {
+  return parseMpcDomainRef<'MpcCapabilityRuntimeRef'>(value, 'MPC capability runtime ref');
+}
+
+export function activeMpcMaterialSessionRef(value: unknown): ActiveMpcMaterialSessionRef {
+  return parseMpcDomainRef<'ActiveMpcMaterialSessionRef'>(
+    value,
+    'active MPC material session ref',
+  );
+}
+
+export function restorableMpcMaterialRef(value: unknown): RestorableMpcMaterialRef {
+  return parseMpcDomainRef<'RestorableMpcMaterialRef'>(
+    value,
+    'restorable MPC material ref',
+  );
+}
+
+export function mpcKeyBindingRef(value: unknown): MpcKeyBindingRef {
+  return parseMpcDomainRef<'MpcKeyBindingRef'>(value, 'MPC key binding ref');
+}
+
+export function mpcLifecycleBindingRef(value: unknown): MpcLifecycleBindingRef {
+  return parseMpcDomainRef<'MpcLifecycleBindingRef'>(
+    value,
+    'MPC lifecycle binding ref',
+  );
+}
+
+export function mpcPolicyBindingRef(value: unknown): MpcPolicyBindingRef {
+  return parseMpcDomainRef<'MpcPolicyBindingRef'>(value, 'MPC policy binding ref');
+}
+
+export function mpcRegisteredPublicKeyBindingRef(
+  value: unknown,
+): MpcRegisteredPublicKeyBindingRef {
+  return parseMpcDomainRef<'MpcRegisteredPublicKeyBindingRef'>(
+    value,
+    'MPC registered public-key binding ref',
+  );
+}
+
 export type MpcCapabilityHydrationEntryPoint =
   | 'post_registration'
   | 'post_wallet_unlock'

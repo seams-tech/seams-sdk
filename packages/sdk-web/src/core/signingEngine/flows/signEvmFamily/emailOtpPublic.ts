@@ -21,11 +21,7 @@ import type {
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import type { WarmSessionEcdsaCapabilityState } from '../../session/warmCapabilities/types';
-import type {
-  EmailOtpWalletRegistrationEcdsaPrepareHandleBinding,
-  EmailOtpWalletRegistrationEcdsaPrepareHandleRequest,
-  EmailOtpWorkerProgressEvent,
-} from '../../workerManager/workerTypes';
+import type { EmailOtpWorkerProgressEvent } from '../../workerManager/workerTypes';
 import type { EmailOtpEcdsaBootstrapAuthorization } from '../../session/emailOtp/routePlan';
 import {
   requestEmailOtpSigningSessionChallenge as requestEmailOtpSigningSessionChallengeValue,
@@ -136,25 +132,6 @@ export type RotateEmailOtpRecoveryCodesInternalResult = Awaited<
   ReturnType<typeof rotateEmailOtpRecoveryCodesWithWorker>
 >;
 
-type PrepareEmailOtpRegistrationEnrollmentMaterialEcdsaRoot =
-  | {
-      kind: 'ecdsa_root_requested';
-      targets: readonly [
-        {
-          evmFamilySigningKeySlotId: string;
-          chainTarget: ThresholdEcdsaChainTarget;
-        },
-        ...{
-          evmFamilySigningKeySlotId: string;
-          chainTarget: ThresholdEcdsaChainTarget;
-        }[],
-      ];
-    }
-  | {
-      kind: 'ecdsa_root_not_requested';
-      targets?: never;
-    };
-
 export type PrepareEmailOtpRegistrationEnrollmentMaterialEd25519YaoFactor =
   | {
       kind: 'ed25519_yao_factor_requested';
@@ -176,10 +153,9 @@ type PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgsBase = {
 };
 
 export type PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgs =
-  PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgsBase &
-    PrepareEmailOtpRegistrationEnrollmentMaterialEcdsaRoot & {
-      ed25519YaoFactor: PrepareEmailOtpRegistrationEnrollmentMaterialEd25519YaoFactor;
-    };
+  PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgsBase & {
+    ed25519YaoFactor: PrepareEmailOtpRegistrationEnrollmentMaterialEd25519YaoFactor;
+  };
 
 export type PrepareEmailOtpRegistrationEnrollmentMaterialInternalResult = Awaited<
   ReturnType<typeof prepareEmailOtpRegistrationEnrollmentMaterial>
@@ -293,42 +269,6 @@ function emailOtpEcdsaEnrollmentCoreArgsFromBoundary(
     ...(args.registrationAttemptId ? { registrationAttemptId: args.registrationAttemptId } : {}),
     ...(args.onProgress ? { onProgress: args.onProgress } : {}),
   };
-}
-
-function emailOtpRegistrationEcdsaPrepareHandleRequestFromBoundary(
-  args: PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgs,
-): EmailOtpWalletRegistrationEcdsaPrepareHandleRequest {
-  switch (args.kind) {
-    case 'ecdsa_root_requested': {
-      const bindings: EmailOtpWalletRegistrationEcdsaPrepareHandleBinding[] = [];
-      for (const target of args.targets) {
-        const evmFamilySigningKeySlotId = String(target.evmFamilySigningKeySlotId).trim();
-        if (!evmFamilySigningKeySlotId) {
-          throw new Error('Email OTP registration ECDSA root request requires key slot id');
-        }
-        bindings.push({
-          evmFamilySigningKeySlotId,
-          authSubjectId: String(args.userId).trim(),
-          action: 'wallet_registration_ecdsa_prepare',
-          operation: 'registration',
-          keyScope: 'evm-family',
-          chainTarget: target.chainTarget,
-        });
-      }
-      const first = bindings[0];
-      if (!first) {
-        throw new Error('Email OTP registration ECDSA root request requires targets');
-      }
-      return {
-        kind: 'requested',
-        bindings: [first, ...bindings.slice(1)],
-      };
-    }
-    case 'ecdsa_root_not_requested':
-      return { kind: 'not_requested' };
-    default:
-      throw new Error('Unsupported Email OTP registration ECDSA root request');
-  }
 }
 
 function emailOtpRegistrationEd25519YaoFactorRequestFromBoundary(
@@ -498,7 +438,7 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterialInternal(
     workerCtx: deps.getSignerWorkerContext(),
     appSessionJwt: args.appSessionJwt,
     otpChannel: args.otpChannel,
-    ecdsaClientRootHandle: emailOtpRegistrationEcdsaPrepareHandleRequestFromBoundary(args),
+    ecdsaClientRootHandle: { kind: 'not_requested' },
     ed25519YaoFactor: emailOtpRegistrationEd25519YaoFactorRequestFromBoundary(args),
     ...(args.clientSecret32 ? { clientSecret32: args.clientSecret32 } : {}),
   });

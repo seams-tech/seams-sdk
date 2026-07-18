@@ -3,7 +3,6 @@ import { deriveThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHa
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import {
   parseCurrentRouterAbEcdsaDerivationPoolFillSessionRow,
-  parseCurrentRouterAbEcdsaDerivationServerPresignatureRecord,
   parseCurrentThresholdEd25519KeyRecord,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/persistedRecords';
 import {
@@ -64,11 +63,6 @@ async function makeRoleLocalKeyRecord(
     clientPublicKey33B64u: publicKey33B64u(4, 0x03),
     groupPublicKey33B64u: publicKey33B64u(5),
     ethereumAddress: '0x1111111111111111111111111111111111111111',
-    relayerCaitSithInput: {
-      participantId: 2,
-      mappedPrivateShare32B64u: b64uBytes(32, 6),
-      verifyingShare33B64u: publicKey33B64u(7, 0x03),
-    },
     publicTranscriptDigest32B64u: b64uBytes(32, 8),
     createdAtMs: 100,
     updatedAtMs: 200,
@@ -165,26 +159,12 @@ test.describe('threshold ecdsa persisted records', () => {
       }),
     ).toBeNull();
 
-    const roleLocalRecord = await makeRoleLocalKeyRecord({
-      relayerCaitSithInput: {
-        participantId: 2,
-        mappedPrivateShare32B64u: b64uBytes(32, 9),
-        verifyingShare33B64u: publicKey33B64u(10, 0x03),
-      },
-    });
+    const roleLocalRecord = await makeRoleLocalKeyRecord();
     expect(parseEcdsaDerivationRoleLocalKeyRecord(roleLocalRecord)).toEqual(roleLocalRecord);
-    for (const field of [
-      'subjectId',
-      'walletSessionUserId',
-      'subject_id',
-      'wallet_session_user_id',
-    ] as const) {
-      expect(parseEcdsaDerivationRoleLocalKeyRecord({ ...roleLocalRecord, [field]: 'stale' })).toBeNull();
-    }
     expect(
       parseEcdsaDerivationRoleLocalKeyRecord({
         ...roleLocalRecord,
-        relayerCaitSithInput: { ...roleLocalRecord.relayerCaitSithInput, participantId: 1 },
+        unexpectedField: 'rejected',
       }),
     ).toBeNull();
     expect(
@@ -197,7 +177,7 @@ test.describe('threshold ecdsa persisted records', () => {
     ).toBeNull();
   });
 
-  test('rejects malformed presign session rows and presignatures', () => {
+  test('rejects obsolete or malformed presign session rows', () => {
     const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
       walletId: 'alice.testnet',
       signingRootId: 'signing-root',
@@ -226,28 +206,7 @@ test.describe('threshold ecdsa persisted records', () => {
         },
         expiresAtMs: 999_999,
       }),
-    ).toEqual({
-      record: {
-        expiresAtMs: 999_999,
-        walletId: 'alice.testnet',
-        evmFamilySigningKeySlotId,
-        relayerKeyId: 'relayer-key',
-        presignPoolKey: 'keyHandle:threshold-key',
-        poolFill: { kind: 'local_threshold_ecdsa_presignature_pool' },
-        participantIds: [1, 2],
-        clientParticipantId: 1,
-        relayerParticipantId: 2,
-        stage: 'triples',
-        version: 1,
-        createdAtMs: 100,
-        updatedAtMs: 150,
-        signingRootId: 'signing-root',
-        signingRootVersion: 'default',
-        walletKeyVersion: 'wallet-key-v1',
-        derivationVersion: 1,
-      },
-      expiresAtMs: 999_999,
-    });
+    ).toBeNull();
 
     expect(
       parseCurrentRouterAbEcdsaDerivationPoolFillSessionRow({
@@ -272,34 +231,6 @@ test.describe('threshold ecdsa persisted records', () => {
       }),
     ).toBeNull();
 
-    expect(
-      parseCurrentRouterAbEcdsaDerivationServerPresignatureRecord({
-        relayerKeyId: 'relayer-key',
-        presignatureId: 'presignature',
-        bigRB64u: 'big-r',
-        kShareB64u: 'k-share',
-        sigmaShareB64u: 'sigma-share',
-        createdAtMs: 123,
-      }),
-    ).toEqual({
-      relayerKeyId: 'relayer-key',
-      presignatureId: 'presignature',
-      bigRB64u: 'big-r',
-      kShareB64u: 'k-share',
-      sigmaShareB64u: 'sigma-share',
-      createdAtMs: 123,
-    });
-
-    expect(
-      parseCurrentRouterAbEcdsaDerivationServerPresignatureRecord({
-        relayerKeyId: 'relayer-key',
-        presignatureId: 'presignature',
-        bigRB64u: 'big-r',
-        kShareB64u: 'k-share',
-        sigmaShareB64u: 'sigma-share',
-        createdAtMs: 0,
-      }),
-    ).toBeNull();
   });
 
   test('server key store rejects a second shared EVM-family role-local key identity', async () => {
