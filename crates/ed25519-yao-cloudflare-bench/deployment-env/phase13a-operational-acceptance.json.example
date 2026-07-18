@@ -6,6 +6,5 @@
   "independent_two_account_administration_accepted": true,
   "pricing_source_reviewed": true,
   "pricing_effective_date": "REPLACE_WITH_YYYY_MM_DD",
-  "maximum_same_account_usd_per_million": 0,
   "maximum_cross_account_usd_per_million": 0
 }

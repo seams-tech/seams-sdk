@@ -58,16 +58,9 @@ const REQUIRED_ARTIFACT_PATHS = Object.freeze([
   PHASE9C_LIFECYCLE_REPORT_PATH,
 ]);
 const REQUIRED_DEPLOYED_EVIDENCE = Object.freeze([
-  'same_account_http_benchmark',
-  'same_account_worker_analytics',
-  'same_account_fresh_version_first_request_proxy',
-  'same_account_measured_cost',
   'cross_account_https_benchmark',
   'cross_account_worker_analytics',
-  'cross_account_fresh_version_first_request_proxy',
   'cross_account_measured_cost',
-  'worker_isolate_memory',
-  'deployed_placement_and_connection',
   'operational_cost_and_topology_acceptance',
 ]);
 

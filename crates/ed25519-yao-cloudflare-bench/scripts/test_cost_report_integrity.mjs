@@ -49,7 +49,7 @@ function testEnvironment(receiptPath) {
     YAOS_AB_B_SCRIPT_NAME: "ed25519-yao-ab-benchmark-b-cross-account",
     YAOS_AB_A_PUBLIC_ENDPOINT: "https://a.yao-bench.example/benchmark/activation",
     YAOS_AB_B_HOSTNAME: "b.yao-bench.example",
-    YAOS_AB_B_HTTPS_ENDPOINT: "https://b.yao-bench.example/benchmark/activation",
+    YAOS_AB_B_WEBSOCKET_ENDPOINT: "wss://b.yao-bench.example/benchmark/activation",
     YAOS_AB_SAMPLE_COUNT: "51",
     YAOS_AB_REGION_LABEL: "tokyo-runner-1",
     YAOS_AB_DEPLOYMENT_RECEIPT_PATH: receiptPath,

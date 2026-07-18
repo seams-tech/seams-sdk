@@ -13,21 +13,25 @@ Local compile-time fault results are recorded in
 [`docs/phase9b-worker-fault-report.md`](docs/phase9b-worker-fault-report.md) and
 [`docs/phase9b-worker-fault-remaining-report.md`](docs/phase9b-worker-fault-remaining-report.md).
 
-The `deriver-a` and `deriver-b` artifacts carry fixed
-`same-account-service-binding` metrics. Deriver A calls B once through the
-`DERIVER_B` service binding. The `deriver-a-cross-account` and
-`deriver-b-cross-account` artifacts carry fixed `cross-account-https` metrics;
-A sends the identical full-duplex POST through global HTTPS to the required
-`DERIVER_B_HTTPS_ENDPOINT` binding.
-There is no runtime topology selection. Both artifacts use the same role driver,
-retain at most one queued outbound envelope, parse arbitrary body fragmentation
-incrementally, and mint directional EOF evidence only when their owned body
-stream ends.
+The canonical `deriver-a` and `deriver-b` artifacts carry fixed
+`same-account-service-binding-websocket` metrics. Deriver A opens one binary
+WebSocket upgrade through the private `DERIVER_B` Service Binding. The
+`deriver-a-cross-account` and
+`deriver-b-cross-account` artifacts carry fixed `cross-account-websocket`
+metrics. A opens one binary WebSocket to the required
+`DERIVER_B_WEBSOCKET_ENDPOINT` binding. This is the single bounded transport
+experiment opened after the deployed global-HTTPS request-stream attempt timed
+out before completing a ceremony. There is no runtime topology selection or
+alternate cross-account transport. Both artifacts use the same fixed protocol
+role drivers and exact envelope encoding. Each adapter maps an envelope to one
+binary message, retains one Rust-owned encoded envelope at a time, and mints
+directional EOF evidence only when its owned direction ends.
 
 The cross-account endpoint is parsed once at the Worker boundary. It must use
-HTTPS, contain no credentials, query, or fragment, and end at exactly
-`/benchmark/activation`. The checked-in domain is an inert example and must be
-replaced with Deriver B's fixed custom domain before a deployed benchmark.
+WSS, contain no credentials, query, or fragment, use either the default port or
+port 443, and end at exactly `/benchmark/activation`. The checked-in domain is
+an inert example and must be replaced with Deriver B's fixed custom domain
+before a deployed benchmark.
 
 The A response JSON and B completion log report adapter-visible incoming bytes,
 the largest incoming fragment delivered by the platform, total and peak
@@ -78,7 +82,7 @@ curl --fail-with-body --silent --show-error --max-time 120 \
 jq -e '
   .ok == true and
   .benchmark_only == true and
-  .topology == "same-account-service-binding" and
+  .topology == "same-account-service-binding-websocket" and
   .family == "activation" and
   .profile == "128KiB" and
   .table_payload_bytes == 2104960
@@ -88,7 +92,7 @@ jq -e '
 A successful response proves the local runtime exposed B's response before A
 closed its request: A cannot send `BaseChoices` until it receives B's `Offer`,
 while request EOF occurs only after `Translation`. The adapter aborts after 15
-seconds if the runtime is half duplex or the ceremony stalls.
+seconds if the transport or ceremony stalls.
 
 After the smoke passes, collect one first-request observation and sequential
 warm samples:
@@ -172,16 +176,17 @@ chunks. The public A endpoint also consumes and rejects any non-empty request
 body before it creates a session or contacts B. Verify that boundary against
 any running A fault pair with `npm run smoke:public-body-rejection`.
 
-The development command disables Wrangler's unused-request-body drain
-middleware. The full-duplex B response intentionally owns and consumes the
-request stream after the handler returns, so that development-only middleware
-would otherwise attempt to acquire a second reader for a correctly locked
-stream.
+The HTTP-stream fault artifacts disable Wrangler's unused-request-body drain
+middleware because those isolated tests intentionally retain the old stream
+boundary long enough to exercise disconnect, fragmentation, and trailing-byte
+failures. They are not deployable transport alternatives.
 
-Deployment is outside this slice. The cross-account dry run proves the separate
-artifact and fixed endpoint boundary bundle cleanly. A real two-account test is
-still required to establish whether Cloudflare exposes B's early response while
-A's request body remains open across the public HTTPS hop.
+The deployed cross-account HTTPS attempt reached the independently administered
+B Worker but did not complete the interactive request/response ceremony before
+the adapter timeout. The fixed WebSocket artifact is the only bounded fallback
+experiment. A real two-account WebSocket run must prove complete ceremony EOF,
+the unchanged protocol wire ledger, and the latency and resource gates before
+any production transport decision.
 
 ## Deployed measurement tooling
 
@@ -189,14 +194,13 @@ The [deployed benchmark runbook](docs/phase9b-deployed-measurements.md) provides
 strict one-account and two-account environment templates, plan-only deployment
 orchestration, an opt-in `--execute` boundary, a sequential HTTP collector,
 read-only Workers GraphQL CPU/memory/colo collection, a receipt-bound cost
-calculator, and a fresh-version first-request cold-proxy assembler. It also
-includes a fail-closed offline Phase 13A deployed-viability evaluator for
-finalized same-account and cross-account reports. Offline fixtures run with:
+calculator, and a fail-closed offline Phase 13A deployed-viability evaluator
+for the intended cross-account topology. Same-account deployment remains a
+diagnostic lower bound. Offline fixtures run with:
 
 ```sh
 npm run test:deployment-tooling
 npm run test:cost-report-integrity
-npm run test:fresh-version-first-request-series
 npm run test:rendered-deployment-configs
 npm run test:constant-time-codegen
 ```

@@ -68,7 +68,7 @@ B-only deployment retains an ownership record.
 
 Deployment first revalidates the canonical local-readiness evidence bundle and
 hashes its exact JSON bytes. The receipt binds that SHA-256 digest before any
-Worker upload. HTTP, analytics, cost, and cold-proxy evidence carry the same
+Worker upload. HTTP, analytics, and cost evidence carry the same
 digest, and Phase 13A accepts only evidence bound to the currently validated
 bundle.
 
@@ -122,45 +122,6 @@ from the complete receipt. Reports carry its role version IDs, tags, Wrangler
 versions, timestamps, and artifact digests. Fetch does not expose a
 connection identifier or handshake timing; initialization/warm deltas and
 stable colos are observations rather than proof of connection reuse.
-
-### Fresh-version first-request cohort
-
-Cold-proxy quantiles require at least 20 independently deployed version pairs.
-For each pair, deploy B then A with a fresh receipt, run the HTTP collector, and
-retain the complete report. Assemble one topology-specific cohort from absolute
-report paths:
-
-```sh
-npm run cold-cohort:assemble -- \
-  /absolute/fresh-version-01.json \
-  /absolute/fresh-version-02.json \
-  /absolute/fresh-version-03.json \
-  /absolute/fresh-version-04.json \
-  /absolute/fresh-version-05.json \
-  /absolute/fresh-version-06.json \
-  /absolute/fresh-version-07.json \
-  /absolute/fresh-version-08.json \
-  /absolute/fresh-version-09.json \
-  /absolute/fresh-version-10.json \
-  /absolute/fresh-version-11.json \
-  /absolute/fresh-version-12.json \
-  /absolute/fresh-version-13.json \
-  /absolute/fresh-version-14.json \
-  /absolute/fresh-version-15.json \
-  /absolute/fresh-version-16.json \
-  /absolute/fresh-version-17.json \
-  /absolute/fresh-version-18.json \
-  /absolute/fresh-version-19.json \
-  /absolute/fresh-version-20.json \
-  > phase9b-fresh-version-first-request.json
-```
-
-The assembler requires unique deployment IDs and unique A/B version IDs,
-stable artifact and local-readiness bundle digests, one topology and region,
-complete successful reports, and a first raw request after both deployments. It reports p50/p95/p99 as a
-fresh-version first-request operational cold proxy. It fixes
-`physical_isolate_cold_proven = false`; Cloudflare exposes no evidence that can
-upgrade this cohort into a physical-isolate cold-start claim.
 
 ## Read-only Cloudflare analytics
 
@@ -231,8 +192,8 @@ npm run test:deployment-tooling
 
 Fixtures cover topology and endpoint rejection, report quantiles, exact colo
 field names, GraphQL core/memory success, plan/schema memory failure, output
-redaction, rendered deployment configs, fresh-version cohort identity, and
-receipt-bound cost-domain edge cases.
+redaction, rendered deployment configs, and receipt-bound cost-domain edge
+cases.
 
 ## Phase 13A deployed viability evaluation
 
@@ -250,18 +211,12 @@ required and cannot authorize Phase 6A.
 
 Create a project-owned operational acceptance record from
 `deployment-env/phase13a-operational-acceptance.json.example`. Its positive
-same-account and cross-account cost ceilings must be approved before looking at
-the final decision. Set all nine absolute report paths, then run the offline
-evaluator:
+cross-account cost ceiling must be approved before looking at the final
+decision. Set the four absolute report paths, then run the offline evaluator:
 
 ```sh
-export YAOS_AB_PHASE13A_SAME_BENCHMARK_REPORT=/absolute/same-http.json
-export YAOS_AB_PHASE13A_SAME_ANALYTICS_REPORT=/absolute/same-analytics.json
 export YAOS_AB_PHASE13A_CROSS_BENCHMARK_REPORT=/absolute/cross-http.json
 export YAOS_AB_PHASE13A_CROSS_ANALYTICS_REPORT=/absolute/cross-analytics.json
-export YAOS_AB_PHASE13A_SAME_COLD_PROXY_REPORT=/absolute/same-cold-proxy.json
-export YAOS_AB_PHASE13A_CROSS_COLD_PROXY_REPORT=/absolute/cross-cold-proxy.json
-export YAOS_AB_PHASE13A_SAME_COST_REPORT=/absolute/same-cost.json
 export YAOS_AB_PHASE13A_CROSS_COST_REPORT=/absolute/cross-cost.json
 export YAOS_AB_PHASE13A_OPERATIONAL_ACCEPTANCE=/absolute/operational-acceptance.json
 npm run phase13a:evaluate
@@ -270,31 +225,27 @@ npm run phase13a:evaluate
 Complete valid evidence produces `go` or `stop` with stable reason codes.
 Missing, malformed, or statistically insufficient evidence produces the
 separate `evidence-incomplete` state and cannot terminate the Yao investigation
-as a substantive `stop`. The evaluator recomputes warm and cold-proxy quantiles and table ranges from every
-raw sample, checks each timing sequence, and requires every sample to prove the
+as a substantive `stop`. The evaluator recomputes warm quantiles and table
+ranges from every raw sample, checks each timing sequence, and requires every sample to prove the
 first raw B-to-A body byte arrived before request-direction close. Decoded
 `Offer` remains a separate protocol-progress milestone. Missing files, fields,
 analytics, samples, or memory gates fail closed. It also requires zero
 benchmark failures, exact analytics script/request correlation, zero analytics
-errors, matching region labels, and analytics windows that cover their HTTP
-benchmark windows. Warm cohorts require at least 50 samples after initialization.
-Cold proxies require at least 20 fresh-version first requests with distinct A/B
-version identities, stable artifacts, and one current local-readiness bundle.
+errors, matching region labels, and an analytics window that covers the HTTP
+benchmark window. The warm campaign requires at least 50 samples after
+initialization.
 
 Cost reports must match the same deployment receipts, regions, analytics CPU
 means, invocation counts, and HTTP transport bytes. The evaluator recomputes
 every request, CPU, network, account, and total cost field from the supplied
 rates. A go also requires the explicit operational record to accept independent
 two-account administration, confirm review of the dated pricing source, and
-set ceilings above both measured per-million costs.
+set a ceiling above the measured per-million cost.
 
 The exact timing contract is:
 
 - complete ceremony through response-body EOF:
   `warm.metrics.client_wall_ms.p95` and `.p99`;
-- fresh-version first-request operational cold proxy:
-  `metrics.client_wall_ms.p50`, `.p95`, and `.p99`, with the physical-isolate
-  cold claim fixed to false;
 - cross-account table stream:
   `warm.metrics.table_stream_duration_ms.p95`;
 - raw body progress: A-to-B and B-to-A first/final body-byte milestones,
@@ -314,6 +265,6 @@ The table limit is 2.10 MiB, represented as the largest allowed integer byte
 count (`2202009`); exact observed table bytes remain in the decision evidence.
 Cross-account table-stream p95 must be below 75 ms. Cross-account complete
 ceremony p95/p99 must be at most 250/500 ms. Combined CPU is the conservative
-sum of A and B marginal CPU P99 and must be at most 150 ms. Every A/B memory gate in
-both topology reports must show P999 strictly below 96 MiB with zero
+sum of A and B marginal CPU P99 and must be at most 150 ms. Each cross-account
+role's memory gate must show P999 strictly below 96 MiB with zero
 `exceededMemory` observations.

@@ -27,7 +27,7 @@ function fixtureEnvironment() {
     YAOS_AB_B_SCRIPT_NAME: "ed25519-yao-ab-benchmark-b-cross-account",
     YAOS_AB_A_PUBLIC_ENDPOINT: "https://a-benchmark.example.com/benchmark/activation",
     YAOS_AB_B_HOSTNAME: "b-benchmark.example.com",
-    YAOS_AB_B_HTTPS_ENDPOINT: "https://b-benchmark.example.com/benchmark/activation",
+    YAOS_AB_B_WEBSOCKET_ENDPOINT: "wss://b-benchmark.example.com/benchmark/activation",
     YAOS_AB_SAMPLE_COUNT: "2",
     YAOS_AB_REGION_LABEL: "rendered-config-fixture",
   };

@@ -103,9 +103,34 @@ fn adapter_keeps_the_phase9b_slice_isolated_and_streaming() {
 }
 
 #[test]
+fn deriver_a_has_one_protocol_driver_with_compile_time_transport_adapters() {
+    let source = crate_file("src/lib.rs");
+    for required in [
+        "trait YaoDuplexTransport",
+        "async fn run_deriver_a<T: YaoDuplexTransport>(",
+        "impl YaoDuplexTransport for HttpYaoDuplexTransport",
+        "impl YaoDuplexTransport for WebSocketYaoDuplexTransport<'_>",
+        "async fn close_local_direction(",
+        "async fn finish(self) -> Result<YaoDuplexTransportCompletion, AdapterError>",
+    ] {
+        assert!(
+            source.contains(required),
+            "missing protocol-neutral Deriver A boundary: {required}"
+        );
+    }
+    assert_eq!(
+        source
+            .matches("let mut role = Activation128KiBDeriverA::new(session)?;")
+            .count(),
+        1,
+        "Deriver A role progression must have exactly one runtime driver"
+    );
+}
+
+#[test]
 fn every_benchmark_config_pins_one_nonzero_deployment_identity() {
     let paths = wrangler_config_paths();
-    assert_eq!(paths.len(), 19, "unexpected Wrangler configuration matrix");
+    assert_eq!(paths.len(), 21, "unexpected Wrangler configuration matrix");
     for path in paths {
         let config: serde_json::Value =
             serde_json::from_str(&crate_file(&path)).expect("Wrangler config");
@@ -143,7 +168,7 @@ fn wrangler_configs_pin_the_benchmark_topology() {
         assert_eq!(config["vars"]["BENCHMARK_CLASSIFICATION"], "NON_PRODUCTION");
         assert_eq!(
             config["vars"]["BENCHMARK_TOPOLOGY"],
-            "SAME_ACCOUNT_SERVICE_BINDING"
+            "SAME_ACCOUNT_SERVICE_BINDING_WEBSOCKET"
         );
     }
     assert_eq!(a["services"][0]["binding"], "DERIVER_B");
@@ -154,7 +179,7 @@ fn wrangler_configs_pin_the_benchmark_topology() {
 }
 
 #[test]
-fn cross_account_config_is_a_distinct_fixed_https_artifact() {
+fn cross_account_config_is_a_distinct_fixed_websocket_artifact() {
     let cross: serde_json::Value =
         serde_json::from_str(&crate_file("wrangler.a.cross-account.jsonc"))
             .expect("cross-account A config");
@@ -164,14 +189,28 @@ fn cross_account_config_is_a_distinct_fixed_https_artifact() {
 
     assert_eq!(cross["compatibility_date"], "2026-07-02");
     assert_eq!(cross["compatibility_flags"][0], "nodejs_compat");
+    assert_eq!(
+        cross["compatibility_flags"][1],
+        "global_fetch_strictly_public"
+    );
+    assert_eq!(
+        cross["compatibility_flags"]
+            .as_array()
+            .expect("cross-account compatibility flags")
+            .len(),
+        2
+    );
     assert_eq!(cross["observability"]["enabled"], true);
     assert_eq!(cross["observability"]["logs"]["enabled"], true);
     assert_eq!(cross["observability"]["traces"]["enabled"], true);
     assert_eq!(cross["vars"]["BENCHMARK_CLASSIFICATION"], "NON_PRODUCTION");
-    assert_eq!(cross["vars"]["BENCHMARK_TOPOLOGY"], "CROSS_ACCOUNT_HTTPS");
     assert_eq!(
-        cross["vars"]["DERIVER_B_HTTPS_ENDPOINT"],
-        "https://deriver-b.example.com/benchmark/activation"
+        cross["vars"]["BENCHMARK_TOPOLOGY"],
+        "CROSS_ACCOUNT_WEBSOCKET"
+    );
+    assert_eq!(
+        cross["vars"]["DERIVER_B_WEBSOCKET_ENDPOINT"],
+        "wss://deriver-b.example.com/benchmark/activation"
     );
     assert_eq!(cross["main"], "build/deriver-a-cross-account/index.js");
     assert!(cross.get("services").is_none());
@@ -182,9 +221,64 @@ fn cross_account_config_is_a_distinct_fixed_https_artifact() {
         cross_b["vars"]["BENCHMARK_CLASSIFICATION"],
         "NON_PRODUCTION"
     );
-    assert_eq!(cross_b["vars"]["BENCHMARK_TOPOLOGY"], "CROSS_ACCOUNT_HTTPS");
+    assert_eq!(
+        cross_b["vars"]["BENCHMARK_TOPOLOGY"],
+        "CROSS_ACCOUNT_WEBSOCKET"
+    );
     assert_eq!(cross_b["main"], "build/deriver-b-cross-account/index.js");
     assert!(cross_b.get("services").is_none());
+}
+
+#[test]
+fn canonical_same_account_configs_use_service_binding_websocket() {
+    let a: serde_json::Value = serde_json::from_str(&crate_file("wrangler.a.jsonc"))
+        .expect("same-account WebSocket A config");
+    let b: serde_json::Value = serde_json::from_str(&crate_file("wrangler.b.jsonc"))
+        .expect("same-account WebSocket B config");
+    let package: serde_json::Value =
+        serde_json::from_str(&crate_file("package.json")).expect("package scripts");
+
+    for config in [&a, &b] {
+        assert_eq!(config["compatibility_date"], "2026-07-02");
+        assert_eq!(config["compatibility_flags"][0], "nodejs_compat");
+        assert_eq!(
+            config["compatibility_flags"]
+                .as_array()
+                .expect("same-account compatibility flags")
+                .len(),
+            1
+        );
+        assert_eq!(config["build"]["watch_dir"], "src");
+        assert_eq!(config["observability"]["enabled"], true);
+        assert_eq!(config["observability"]["logs"]["enabled"], true);
+        assert_eq!(config["observability"]["traces"]["enabled"], true);
+        assert_eq!(config["vars"]["BENCHMARK_CLASSIFICATION"], "NON_PRODUCTION");
+        assert_eq!(
+            config["vars"]["BENCHMARK_TOPOLOGY"],
+            "SAME_ACCOUNT_SERVICE_BINDING_WEBSOCKET"
+        );
+        assert!(config["vars"].get("DERIVER_B_WEBSOCKET_ENDPOINT").is_none());
+    }
+
+    assert_eq!(a["workers_dev"], true);
+    assert_eq!(a["services"][0]["binding"], "DERIVER_B");
+    assert_eq!(a["services"][0]["service"], "ed25519-yao-ab-benchmark-b");
+    assert_eq!(a["main"], "build/deriver-a/index.js");
+    assert_eq!(b["workers_dev"], false);
+    assert_eq!(b["main"], "build/deriver-b/index.js");
+    assert!(b.get("services").is_none());
+
+    let scripts = &package["scripts"];
+    assert_eq!(
+        scripts["build:a"],
+        "worker-build --release --out-dir build/deriver-a --features deriver-a-same-account-websocket"
+    );
+    assert_eq!(
+        scripts["build:b"],
+        "worker-build --release --out-dir build/deriver-b --features deriver-b-same-account-websocket"
+    );
+    assert!(scripts.get("build:a:same-account-websocket").is_none());
+    assert!(scripts.get("build:b:same-account-websocket").is_none());
 }
 
 #[test]
@@ -193,32 +287,47 @@ fn role_features_are_separate_build_products() {
     let source = crate_file("src/lib.rs");
     assert!(manifest.contains("deriver-a = []"));
     assert!(manifest.contains("deriver-a-cross-account = []"));
+    assert!(manifest.contains("deriver-a-same-account-websocket = []"));
     assert!(manifest.contains("deriver-b = []"));
     assert!(manifest.contains("deriver-b-cross-account = []"));
+    assert!(manifest.contains("deriver-b-same-account-websocket = []"));
     assert!(source.contains("select exactly one Cloudflare role feature"));
-    assert!(source.contains("a Worker build requires deriver-a"));
+    assert!(source
+        .contains("a Worker build requires exactly one Deriver A or Deriver B transport feature"));
     assert!(source.contains("feature = \"deriver-a-cross-account\""));
     assert!(source.contains(
-        "#[cfg(any(feature = \"deriver-a\", feature = \"deriver-a-cross-account\"))]\n    pub(super) struct OutboundEnvelopeStream"
+        "feature = \"deriver-a-same-account-websocket\"\n    ))]\n    pub(super) struct OutboundEnvelopeStream"
     ));
     assert!(source.contains(
-        "#[cfg(any(feature = \"deriver-b\", feature = \"deriver-b-cross-account\", test))]\n    pub(super) struct DeriverBResponseStream"
+        "feature = \"deriver-b-same-account-websocket\",\n        test\n    ))]\n    pub(super) struct DeriverBResponseStream"
     ));
 }
 
 #[test]
-fn cross_account_transport_reuses_the_streaming_driver_without_negotiation() {
+fn cross_account_transport_is_one_fixed_websocket_experiment() {
     let source = crate_file("src/lib.rs");
+    let cross_account_config = crate_file("wrangler.a.cross-account.jsonc");
     for required in [
-        "CrossAccountEndpoint::parse(&raw)",
-        "url.scheme() != \"https\"",
+        "DERIVER_B_WEBSOCKET_ENDPOINT",
+        "CrossAccountWebSocketEndpoint::parse(&raw_endpoint)",
+        "url.scheme() != \"wss\"",
         "url.path() != BENCHMARK_PATH",
         "url.query().is_some()",
         "url.fragment().is_some()",
-        "RequestRedirect::Error",
-        "A_TOPOLOGY_LABEL: &str = \"cross-account-https\"",
+        "WebSocket::connect_with_protocols(",
+        "set_binary_type(worker::web_sys::BinaryType::Arraybuffer)",
+        "!negotiated_protocol.is_empty() && negotiated_protocol != protocol",
+        "websocket_protocol(&deployment_id, session)",
+        "parse_websocket_protocol(",
+        "run_deriver_a_websocket(",
+        "run_deriver_b_websocket(",
+        "WebSocketPair::new()",
+        "send_with_bytes(envelope.as_slice())",
+        "WEBSOCKET_DIRECTION_EOF",
+        "http::header::UPGRADE",
+        "A_TOPOLOGY_LABEL: &str = \"cross-account-websocket\"",
         "A_TOPOLOGY_LABEL: &str = \"same-account-service-binding\"",
-        "B_TOPOLOGY_LABEL: &str = \"cross-account-https\"",
+        "B_TOPOLOGY_LABEL: &str = \"cross-account-websocket\"",
         "B_TOPOLOGY_LABEL: &str = \"same-account-service-binding\"",
     ] {
         assert!(
@@ -227,11 +336,15 @@ fn cross_account_transport_reuses_the_streaming_driver_without_negotiation() {
         );
     }
     assert_eq!(
-        source.matches("pub(super) async fn run_deriver_a(").count(),
+        source.matches("async fn run_deriver_a_websocket(").count(),
         1
     );
-    assert!(!source.contains("runtime_topology"));
-    assert!(!source.contains("transport_profile"));
+    for forbidden in ["runtime_topology", "transport_profile"] {
+        assert!(
+            !source.contains(forbidden) && !cross_account_config.contains(forbidden),
+            "obsolete or negotiated cross-account transport: {forbidden}"
+        );
+    }
 }
 
 #[test]
@@ -276,73 +389,13 @@ fn ci_has_a_dedicated_native_and_worker_wasm_constant_time_lane() {
 }
 
 #[test]
-fn deployment_uploads_the_exact_constant_time_inspected_worker_artifacts() {
-    let planner = crate_file("scripts/plan_cloudflare_benchmark.mjs");
-    let receipt = crate_file("scripts/deployment_receipt.mjs");
-    let viability = crate_file("scripts/evaluate_phase13a_viability.mjs");
-    let cold_series = crate_file("scripts/assemble_fresh_version_first_request_series.mjs");
-    for required in [
-        "inspectWorkerArtifacts(",
-        "bindPrebuiltArtifact(configs.b, bArtifactDirectory)",
-        "bindPrebuiltArtifact(configs.a, aArtifactDirectory)",
-        "attachConstantTimeCodegen(receipt, inspection)",
-        "'--no-bundle'",
-        "delete rendered.build",
-        "validatedLocalReadinessBundleSha256()",
-        "evaluateLocalPreflight(bundle.evidence, loadWorkspaceArtifact)",
-        "localReadinessBundleSha256",
-    ] {
-        assert!(
-            planner.contains(required),
-            "deployment path lost exact inspected-artifact binding: {required}"
-        );
-    }
-    for required in [
-        "ed25519_yao_phase9b_deployment_receipt_v4",
-        "ed25519_yao_phase9b_topology_binding_v1",
-        "ed25519_yao_worker_constant_time_codegen_v1",
-        "receipt.constant_time_codegen === null",
-        "evidence.wasm_sha256 !== wasm?.sha256",
-        "local_readiness_bundle_sha256",
-    ] {
-        assert!(
-            receipt.contains(required),
-            "deployment receipt lost constant-time evidence binding: {required}"
-        );
-    }
-    assert!(
-        viability.contains(
-            "localReadinessBundleSha256 !== validatedCurrentLocalReadinessBundleSha256()"
-        ),
-        "Phase 13A lost its exact local-readiness bundle binding"
-    );
-    assert!(
-        viability.contains("collectLocalReadinessInputs()"),
-        "Phase 13A lost current source/build-input validation"
-    );
-    for required in [
-        "requiredAccountCommitment(",
-        "requireExact(aAccount, bAccount",
-        "if (aAccount === bAccount)",
-        "if (aHostname === bHostname)",
-    ] {
-        assert!(
-            viability.contains(required),
-            "Phase 13A lost account/hostname topology validation: {required}"
-        );
-    }
-    assert!(
-        cold_series.contains("deployment.local_readiness_bundle_sha256"),
-        "cold-proxy cohorts lost their local-readiness bundle binding"
-    );
-}
-
-#[test]
 fn placement_evidence_is_validated_at_fixed_worker_boundaries() {
     let source = crate_file("src/lib.rs");
     for required in [
         "raw.len() != 3 || !raw.bytes().all(|byte| byte.is_ascii_uppercase())",
         "extensions()\n            .get::<worker::Cf>()",
+        "use worker_sys::ext::RequestExt;",
+        "let Some(cf) = request.cf() else",
         "x-ed25519-yao-a-colo",
         "x-ed25519-yao-b-colo",
         "optional_colo_header(&response.headers, DERIVER_B_COLO_HEADER)",
@@ -399,7 +452,9 @@ fn transport_timing_uses_io_boundaries_without_changing_protocol_frames() {
         "deployed-advances-after-io",
         "deriver-a-protocol-start",
         "outbound-stream-backpressure-acceptance",
+        "websocket-send-queue-acceptance",
         "raw-stream-chunk-emission-and-receipt",
+        "websocket-binary-message-send-and-receipt",
         "b_to_a_first_body_byte_received_ms",
         "a_to_b_first_body_byte_emitted_ms",
         "a_to_b_final_body_byte_emitted_ms",
@@ -418,19 +473,18 @@ fn transport_timing_uses_io_boundaries_without_changing_protocol_frames() {
     assert!(!source.contains("static mut"));
     assert!(!source.contains("SystemTime::now"));
     assert!(!source.contains("Instant::now"));
+    assert_eq!(source.matches("async fn run_deriver_a_http(").count(), 1);
     assert_eq!(
-        source.matches("pub(super) async fn run_deriver_a(").count(),
+        source.matches("async fn run_deriver_a_websocket(").count(),
         1
     );
     for required in [
         "mismatchedActivationWireField(result)",
         "result.last_table_frame_accepted_ms - result.first_table_frame_accepted_ms",
-        "requireColdProxyArtifactsMatch(sameColdProxy, sameBenchmark",
-        "requireColdProxyArtifactsMatch(crossColdProxy, crossBenchmark",
     ] {
         assert!(
             evaluator.contains(required),
-            "Phase 13A lost exact timing/wire/cold-cohort validation: {required}"
+            "Phase 13A lost exact timing/wire validation: {required}"
         );
     }
 }

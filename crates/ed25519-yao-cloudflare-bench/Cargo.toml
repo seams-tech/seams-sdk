@@ -15,8 +15,12 @@ crate-type = ["rlib", "cdylib"]
 default = []
 deriver-a = []
 deriver-a-cross-account = []
+deriver-a-same-account-rpc = ["deriver-a"]
+deriver-a-same-account-websocket = []
 deriver-b = []
 deriver-b-cross-account = []
+deriver-b-same-account-rpc = ["deriver-b"]
+deriver-b-same-account-websocket = []
 fault-fragmentation = []
 fault-request-disconnect-after-base-choices = []
 fault-response-disconnect-after-offer = []
@@ -39,6 +43,7 @@ http-body-util = "0.1.3"
 serde_json = "1.0"
 worker = { version = "=0.8.5", features = ["http"] }
 worker-sys = "=0.8.5"
+wasm-bindgen = "=0.2.126"
 wasm-streams = "=0.6.0"
 url = "2.5"
 zeroize = "1.8"

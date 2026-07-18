@@ -1,19 +1,18 @@
 {
   "$schema": "../../packages/console-server-ts/node_modules/wrangler/config-schema.json",
-  "name": "ed25519-yao-ab-benchmark-a-cross-account",
-  "main": "build/deriver-a-cross-account/index.js",
+  "name": "ed25519-yao-ab-benchmark-b-rpc",
+  "main": "rpc/deriver-b-entrypoint.mjs",
   "compatibility_date": "2026-07-02",
-  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
-  "workers_dev": true,
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
   "vars": {
     "BENCHMARK_DEPLOYMENT_ID": "0123456789abcdef0123456789abcdef",
     "BENCHMARK_CLASSIFICATION": "NON_PRODUCTION",
-    "BENCHMARK_TOPOLOGY": "CROSS_ACCOUNT_WEBSOCKET",
-    "DERIVER_B_WEBSOCKET_ENDPOINT": "wss://deriver-b.example.com/benchmark/activation"
+    "BENCHMARK_TOPOLOGY": "SAME_ACCOUNT_SERVICE_BINDING_RPC_STREAMS"
   },
   "build": {
-    "command": "worker-build --release --out-dir build/deriver-a-cross-account --features deriver-a-cross-account",
-    "watch_dir": "src"
+    "command": "worker-build --release --out-dir build/deriver-b-rpc --features deriver-b-same-account-rpc",
+    "watch_dir": ["src", "rpc"]
   },
   "observability": {
     "enabled": true,

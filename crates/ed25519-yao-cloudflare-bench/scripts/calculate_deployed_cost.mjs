@@ -182,8 +182,8 @@ function expectedRequestShape(selectedTopology) {
 
 function expectedTopologyLabel(selectedTopology) {
   return selectedTopology === "one-account"
-    ? "same-account-service-binding"
-    : "cross-account-https";
+    ? "same-account-service-binding-websocket"
+    : "cross-account-websocket";
 }
 
 export function costEvidenceMetadata(deploymentConfiguration, receipt, generatedAt) {
