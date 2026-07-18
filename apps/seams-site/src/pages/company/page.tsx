@@ -148,7 +148,7 @@ function renderResource(resource: CompanyResource): React.JSX.Element {
 
 export function CompanyPage(): React.JSX.Element {
   return (
-    <div className="h2-page h2-page--zoom company-page">
+    <div className="h2-page company-page">
       <NavbarStatic appearance="light" />
       <div className="h2-col">
         <main className="company-main" aria-labelledby="company-page-title">

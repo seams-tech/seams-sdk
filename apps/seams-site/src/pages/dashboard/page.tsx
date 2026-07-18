@@ -1101,14 +1101,14 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
           onSelect: setSelectedProductId,
         }}
         workspace={{
-          options: dropdownOptions.organization,
-          currentValue: selectedContext.organization,
-          onSelect: (value) => onSelectContext('organization', value),
-        }}
-        contextCard={{
           projectOptions: dropdownOptions.project,
           projectValue: selectedContext.project,
           onSelectProject: (value) => onSelectContext('project', value),
+          organizationOptions: dropdownOptions.organization,
+          organizationValue: selectedContext.organization,
+          onSelectOrganization: (value) => onSelectContext('organization', value),
+        }}
+        contextCard={{
           environmentOptions: dropdownOptions.environment,
           environmentValue: selectedContext.environment,
           onSelectEnvironment: (value) => onSelectContext('environment', value),

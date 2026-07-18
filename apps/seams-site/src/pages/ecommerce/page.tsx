@@ -58,7 +58,7 @@ function EcommerceHero(): React.JSX.Element {
 
 export function EcommercePage(): React.JSX.Element {
   return (
-    <div className="h2-page h2-page--zoom">
+    <div className="h2-page">
       <NavbarStatic appearance="light" />
       <div className="h2-col">
         <EcommerceHero />

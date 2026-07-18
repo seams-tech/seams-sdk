@@ -41,7 +41,7 @@ function DashboardWindow(): React.JSX.Element {
     <div className="h2-window" role="img" aria-label="Seams merchant dashboard overview">
       <div className="h2-window__side">
         <div className="h2-window__brand">
-          <SeamsWordmark height={15} theme="light" />
+          <SeamsWordmark height={14} theme="light" />
         </div>
         <div className="h2-window__navitem is-active">
           <Home aria-hidden /> Home
@@ -612,7 +612,7 @@ function HomeHeroMedia(): React.JSX.Element {
             <span>Action receipts</span>
             <a href={agentsProps.href} onClick={agentsProps.onClick}>
               Explore Ecommerce Agents
-              <ArrowRightAnim size={13} />
+              <ArrowRightAnim size={12} />
             </a>
           </div>
         </div>
@@ -692,7 +692,7 @@ function HomeDuo(): React.JSX.Element {
             </div>
             <span className="h2-duo__cta">
               Explore Embedded Wallet
-              <ArrowRightAnim size={13} />
+              <ArrowRightAnim size={12} />
             </span>
           </a>
           <a className="h2-duo__panel" href={agentsProps.href} onClick={agentsProps.onClick}>
@@ -705,7 +705,7 @@ function HomeDuo(): React.JSX.Element {
               and an audit trail on every action.
             </p>
             <div className="h2-duo__visual">
-              <div className="h2-chat" style={{ maxWidth: 360 }}>
+              <div className="h2-chat" style={{ maxWidth: 324 }}>
                 <div className="h2-chat__bubble">
                   <small>Seams Harness · 09:14</small>
                   Held: 12% discount for cart #8841 needs owner approval.
@@ -717,7 +717,7 @@ function HomeDuo(): React.JSX.Element {
             </div>
             <span className="h2-duo__cta">
               Explore Ecommerce Agents
-              <ArrowRightAnim size={13} />
+              <ArrowRightAnim size={12} />
             </span>
           </a>
         </div>
@@ -732,7 +732,7 @@ type HomeFrameProps = {
 
 function HomeFrame({ hero }: HomeFrameProps): React.JSX.Element {
   return (
-    <div className="h2-page h2-page--zoom">
+    <div className="h2-page">
       <NavbarStatic appearance="light" />
       <div className="h2-col">
         {hero}
