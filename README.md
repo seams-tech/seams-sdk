@@ -9,7 +9,7 @@ self-hostable signing infrastructure.
 pnpm install
 ```
 
-Run the local site, wallet origin, docs, Router API server, and Router A/B workers
+Run the local site, wallet origin, docs, Gateway, and Router A/B workers
 from the repo root:
 
 ```bash
@@ -19,18 +19,20 @@ pnpm router
 
 - Run the commands above in separate terminals.
 - `pnpm run site` is the canonical local UI entrypoint. It starts Caddy + site + docs for local HTTPS (`brew install caddy`; first run may prompt for trust via `caddy trust`).
-- If SDK wallet assets are missing or stale, refresh them explicitly with `pnpm build:sdk`. After Rust/WASM changes, run `pnpm build:sdk-full`.
-- `pnpm router` starts Deriver A, Deriver B, SigningWorker, and the Router API server. It starts the API server through `pnpm router:server` when `127.0.0.1:9090` is not already ready.
-- Primary local endpoints: app `https://localhost`, wallet `https://localhost:8443`, Router API base `https://localhost:9444`.
+- If SDK wallet assets or Router A/B Worker artifacts are missing or stale,
+  refresh them explicitly with `pnpm build:sdk`. After browser WASM changes,
+  run `pnpm build:sdk-full`.
+- `pnpm router` starts Gateway, MPCRouter, Deriver A, Deriver B, and SigningWorker. It starts Gateway through `pnpm gateway:server` when `127.0.0.1:9090` is not already ready.
+- Primary local endpoints: app `https://localhost`, wallet `https://localhost:8443`, Gateway base `https://localhost:9444`.
 - Docs default origin: `https://docs.localhost`.
-- Internal dev ports: Vite on `http://localhost:3600`, Router API server on `http://127.0.0.1:9090`.
+- Internal dev ports: Vite on `http://localhost:3600`, Gateway on `http://127.0.0.1:9090`, and MPCRouter on `http://127.0.0.1:9100`.
 - Browser-managed registration in the local site uses
   `VITE_SEAMS_PROJECT_ENVIRONMENT_ID` and `VITE_SEAMS_PUBLISHABLE_KEY`.
 
 ## Repo Layout
 
 - `apps/seams-site`: local app, wallet origin, and Caddy config.
-- `apps/web-server`: Router API server runtime.
+- `apps/web-server`: Gateway runtime.
 - `apps/docs`: documentation site.
 - `packages/sdk-web`: browser SDK package.
 - `packages/sdk-server-ts`: server-side Router helpers.
@@ -44,9 +46,9 @@ pnpm router
 
 ### Useful commands
 
-- Build WASM workers: `pnpm build:wasm`
-- Build SDK from existing WASM outputs: `pnpm build:sdk`
-- Build WASM workers + SDK: `pnpm build:sdk-full`
+- Build browser WASM packages: `pnpm build:wasm`
+- Build SDK from existing browser WASM outputs plus Router A/B Workers: `pnpm build:sdk`
+- Build browser WASM packages, SDK, and Router A/B Workers: `pnpm build:sdk-full`
 - Build SDK (prod/release-style): `pnpm build:sdk-prod`
 - SDK type check: `pnpm type-check:sdk`
 - Tests: `pnpm test`
@@ -71,9 +73,10 @@ the existing domain type.
 
 These commands launch Router A/B protocol harnesses. Browser account creation at
 `https://localhost` still needs the local site; `pnpm router` and
-`pnpm router:multiplex` start the Router server at `127.0.0.1:9090` when it is
-not already running. After SDK or WASM changes, run `pnpm build:sdk-full`
-explicitly before restarting local services.
+`pnpm router:multiplex` start Gateway at `127.0.0.1:9090` when it is
+not already running. Run `pnpm build:sdk` after SDK or Router A/B Rust changes.
+Run `pnpm build:sdk-full` after browser WASM changes. `pnpm router` validates
+the existing strict Worker artifacts and starts services without rebuilding.
 
 See `docs/router-a-b-local-dev.md` for the full local-development flow.
 

@@ -8,7 +8,7 @@ import {
   isDirectInvocation,
   arrayTableBodies,
   commaList,
-  normalizeConsoleRouterApiD1StagingOptions,
+  normalizeConsoleGatewayD1StagingOptions,
   normalizeString,
   packageRoot,
   parseFlagArgs,
@@ -24,17 +24,17 @@ import {
   writeD1StagingManifest,
   wranglerCommand,
 } from './d1-staging-config.mjs';
-import { requireConsoleAndRouterApiD1StagingReadiness } from './d1-staging-readiness-check.mjs';
+import { requireConsoleAndGatewayD1StagingReadiness } from './d1-staging-readiness-check.mjs';
 
 const defaultManifestRoot = path.join(packageRoot, '.wrangler/d1-staging-resource-inventory');
 const inventoryModes = Object.freeze(['dry-run', 'remote']);
 
 export function buildD1StagingResourceInventoryPlan(input = {}) {
   const options = normalizeOptions(input);
-  requireConsoleAndRouterApiD1StagingReadiness({
+  requireConsoleAndGatewayD1StagingReadiness({
     label: 'resource inventory',
     consoleConfigPath: options.consoleConfigPath,
-    routerApiConfigPath: options.routerApiConfigPath,
+    gatewayConfigPath: options.gatewayConfigPath,
     environmentName: options.environmentName,
   });
   const consoleConfig = readProfileInventory({
@@ -42,14 +42,14 @@ export function buildD1StagingResourceInventoryPlan(input = {}) {
     configPath: options.consoleConfigPath,
     environmentName: options.environmentName,
   });
-  const routerApiConfig = readProfileInventory({
-    profile: 'router-api',
-    configPath: options.routerApiConfigPath,
+  const gatewayConfig = readProfileInventory({
+    profile: 'gateway',
+    configPath: options.gatewayConfigPath,
     environmentName: options.environmentName,
   });
   const commands = inventoryCommands({
     consoleConfigPath: options.consoleConfigPath,
-    routerApiConfigPath: options.routerApiConfigPath,
+    gatewayConfigPath: options.gatewayConfigPath,
   });
 
   return {
@@ -58,10 +58,10 @@ export function buildD1StagingResourceInventoryPlan(input = {}) {
     mode: options.mode,
     environmentName: options.environmentName,
     consoleConfigPath: relativeToRepo(options.consoleConfigPath),
-    routerApiConfigPath: relativeToRepo(options.routerApiConfigPath),
+    gatewayConfigPath: relativeToRepo(options.gatewayConfigPath),
     resources: {
       consoleWorker: consoleConfig,
-      routerApiWorker: routerApiConfig,
+      gatewayWorker: gatewayConfig,
     },
     commands,
   };
@@ -110,7 +110,7 @@ function parseArgs(args) {
 }
 
 function normalizeOptions(input) {
-  return normalizeConsoleRouterApiD1StagingOptions(input, {
+  return normalizeConsoleGatewayD1StagingOptions(input, {
     modes: inventoryModes,
     modeLabel: 'staging resource inventory',
   });
@@ -210,7 +210,7 @@ function inventoryCommands(input) {
       target: 'signer_d1',
       command: wranglerCommand(
         'd1 info seams-signer-staging --json',
-        input.routerApiConfigPath,
+        input.gatewayConfigPath,
       ),
     }),
     inventoryCommand({
@@ -221,7 +221,7 @@ function inventoryCommands(input) {
     inventoryCommand({
       id: 'router_api_worker_deployment_status',
       target: 'router_api_worker',
-      command: wranglerCommand('deployments status --json', input.routerApiConfigPath),
+      command: wranglerCommand('deployments status --json', input.gatewayConfigPath),
     }),
   ];
 }

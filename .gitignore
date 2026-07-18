@@ -28,7 +28,7 @@ packages/console-server-ts/.wrangler/
 packages/console-server-ts/.dev.vars
 packages/sdk-server-ts/.dev.vars
 packages/console-server-ts/wrangler.d1-staging-console.toml
-packages/console-server-ts/wrangler.d1-staging-router-api.toml
+packages/console-server-ts/wrangler.d1-staging-gateway.toml
 sqlite/
 packages/sdk-server-ts/.wrangler/
 

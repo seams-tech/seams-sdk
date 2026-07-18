@@ -8,7 +8,7 @@ import {
   d1StagingConfigManifestFlagFields,
   isDirectInvocation,
   compactIsoStamp,
-  normalizeConsoleRouterApiD1StagingOptions,
+  normalizeConsoleGatewayD1StagingOptions,
   normalizeOptionalIso,
   normalizeString,
   packageRoot,
@@ -21,7 +21,7 @@ import {
   writeD1StagingManifest,
   wranglerCommand,
 } from './d1-staging-config.mjs';
-import { requireConsoleAndRouterApiD1StagingReadiness } from './d1-staging-readiness-check.mjs';
+import { requireConsoleAndGatewayD1StagingReadiness } from './d1-staging-readiness-check.mjs';
 
 const defaultBookmarkRoot = path.join(packageRoot, '.wrangler/d1-staging-bookmarks');
 const bookmarkModes = Object.freeze(['dry-run', 'remote']);
@@ -29,10 +29,10 @@ const purposePattern = /^[a-z][a-z0-9_]{2,63}$/;
 
 export function buildD1StagingTimeTravelBookmarkPlan(input = {}) {
   const options = normalizeOptions(input);
-  requireConsoleAndRouterApiD1StagingReadiness({
+  requireConsoleAndGatewayD1StagingReadiness({
     label: 'Time Travel bookmark capture',
     consoleConfigPath: options.consoleConfigPath,
-    routerApiConfigPath: options.routerApiConfigPath,
+    gatewayConfigPath: options.gatewayConfigPath,
     environmentName: options.environmentName,
   });
   const paths = bookmarkPaths(options);
@@ -44,7 +44,7 @@ export function buildD1StagingTimeTravelBookmarkPlan(input = {}) {
     timestampIso: options.timestampIso,
     stamp: options.stamp,
     consoleConfigPath: relativeToRepo(options.consoleConfigPath),
-    routerApiConfigPath: relativeToRepo(options.routerApiConfigPath),
+    gatewayConfigPath: relativeToRepo(options.gatewayConfigPath),
     artifacts: {
       bookmarkDir: paths.bookmarkDir,
       consoleBookmarkPath: paths.consoleBookmarkPath,
@@ -106,7 +106,7 @@ function parseArgs(args) {
 }
 
 function normalizeOptions(input) {
-  const base = normalizeConsoleRouterApiD1StagingOptions(input, {
+  const base = normalizeConsoleGatewayD1StagingOptions(input, {
     modes: bookmarkModes,
     modeLabel: 'Time Travel bookmark',
   });
@@ -154,7 +154,7 @@ function bookmarkCommands(input) {
         `d1 time-travel info seams-signer-staging --timestamp ${shellArg(
           input.options.timestampIso,
         )} --json`,
-        input.options.routerApiConfigPath,
+        input.options.gatewayConfigPath,
       ),
       '>',
       shellArg(input.paths.signerBookmarkPath),

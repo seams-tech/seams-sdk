@@ -23,7 +23,7 @@ github_actions:
     - router
 
 github_environments:
-  staging-router:
+  staging-mpc-router:
     vars:
       ROUTER_AB_JWT_ISSUER: 'https://issuer-staging.example'
       ROUTER_AB_JWT_AUDIENCE: 'router-ab'
@@ -34,7 +34,7 @@ github_environments:
       ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX: '<64-lowercase-hex>'
       ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX: '<64-lowercase-hex>'
     secrets:
-      CLOUDFLARE_API_TOKEN: '<router-worker-deploy-token>'
+      CLOUDFLARE_API_TOKEN: '<mpc-router-worker-deploy-token>'
       CLOUDFLARE_ACCOUNT_ID: '<account-id>'
       ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: '<shared-internal-service-auth-secret>'
 
@@ -78,8 +78,8 @@ cloudflare_workers:
     dispatch_role: router
     wrangler_config: crates/router-ab-cloudflare/wrangler.router.toml
     worker_names:
-      staging: router-ab-router-staging
-      production: router-ab-router
+      staging: router-ab-mpc-router-staging
+      production: router-ab-mpc-router
     durable_objects:
       ROUTER_REPLAY_DO: RouterAbRouterReplayDurableObject
       ROUTER_LIFECYCLE_DO: RouterAbRouterLifecycleDurableObject

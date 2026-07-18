@@ -11,7 +11,7 @@ import {
   d1StagingConfigManifestArgDefaults,
   d1StagingConfigManifestFlagFields,
   isDirectInvocation,
-  normalizeConsoleRouterApiD1StagingOptions,
+  normalizeConsoleGatewayD1StagingOptions,
   normalizeString,
   packageRoot,
   parseFlagArgs,
@@ -26,7 +26,7 @@ import {
   writeD1StagingManifest,
   wranglerCommand,
 } from './d1-staging-config.mjs';
-import { requireConsoleAndRouterApiD1StagingReadiness } from './d1-staging-readiness-check.mjs';
+import { requireConsoleAndGatewayD1StagingReadiness } from './d1-staging-readiness-check.mjs';
 
 const defaultManifestRoot = path.join(packageRoot, '.wrangler/d1-staging-fixture-imports');
 const importModes = Object.freeze(['dry-run', 'remote']);
@@ -44,9 +44,9 @@ const fixtureTargets = Object.freeze([
   Object.freeze({
     logicalName: 'signer',
     tableFamily: 'signer',
-    profile: 'router-api',
+    profile: 'gateway',
     databaseName: 'seams-signer-staging',
-    configField: 'routerApiConfigPath',
+    configField: 'gatewayConfigPath',
     fixtureField: 'signerFixturePath',
     allowedTableNames: readD1MigrationTableNames('../sdk-server-ts/migrations/d1-signer'),
   }),
@@ -54,10 +54,10 @@ const fixtureTargets = Object.freeze([
 
 export function buildD1StagingFixtureImportPlan(input = {}) {
   const options = normalizeOptions(input);
-  requireConsoleAndRouterApiD1StagingReadiness({
+  requireConsoleAndGatewayD1StagingReadiness({
     label: 'fixture import',
     consoleConfigPath: options.consoleConfigPath,
-    routerApiConfigPath: options.routerApiConfigPath,
+    gatewayConfigPath: options.gatewayConfigPath,
     environmentName: options.environmentName,
   });
 
@@ -90,7 +90,7 @@ export function buildD1StagingFixtureImportPlan(input = {}) {
     mode: options.mode,
     environmentName: options.environmentName,
     consoleConfigPath: relativeToRepo(options.consoleConfigPath),
-    routerApiConfigPath: relativeToRepo(options.routerApiConfigPath),
+    gatewayConfigPath: relativeToRepo(options.gatewayConfigPath),
     fixtures,
     commands,
   };
@@ -137,7 +137,7 @@ function parseArgs(args) {
 
 function normalizeOptions(input) {
   return {
-    ...normalizeConsoleRouterApiD1StagingOptions(input, {
+    ...normalizeConsoleGatewayD1StagingOptions(input, {
       modes: importModes,
       modeLabel: 'fixture import',
     }),

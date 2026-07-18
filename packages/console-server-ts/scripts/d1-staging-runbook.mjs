@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import {
   isDirectInvocation,
-  normalizeConsoleRouterApiD1StagingConfig,
+  normalizeConsoleGatewayD1StagingConfig,
   normalizeGeneratedAtIso,
   normalizeString,
   normalizeR2BucketName,
@@ -18,17 +18,17 @@ import {
   shellArg,
   wranglerCommand,
 } from './d1-staging-config.mjs';
-import { requireConsoleAndRouterApiD1StagingReadiness } from './d1-staging-readiness-check.mjs';
+import { requireConsoleAndGatewayD1StagingReadiness } from './d1-staging-readiness-check.mjs';
 
 const defaultOutputPath = path.join(repoRoot, 'docs/deployment/refactor-82-staging-log.md');
 
 export function buildD1StagingRunbook(input = {}) {
   const options = normalizeOptions(input);
-  const checks = requireConsoleAndRouterApiD1StagingReadiness({
+  const checks = requireConsoleAndGatewayD1StagingReadiness({
     label: 'runbook generation',
     errorFormat: 'profile_config',
     consoleConfigPath: options.consoleConfigPath,
-    routerApiConfigPath: options.routerApiConfigPath,
+    gatewayConfigPath: options.gatewayConfigPath,
     environmentName: options.environmentName,
   });
   return renderRunbook({
@@ -64,10 +64,10 @@ function parseArgs(args) {
     generatedAtIso: '',
     operator: '',
     outputPath: '',
-    routerApiConfigPath: '',
+    gatewayConfigPath: '',
     r2Bucket: '',
     consoleOrigin: '',
-    routerApiOrigin: '',
+    gatewayOrigin: '',
   }, {
     '--console-config': 'consoleConfigPath',
     '--console-origin': 'consoleOrigin',
@@ -76,20 +76,20 @@ function parseArgs(args) {
     '--operator': 'operator',
     '--output': 'outputPath',
     '--r2-bucket': 'r2Bucket',
-    '--router-api-config': 'routerApiConfigPath',
-    '--router-api-origin': 'routerApiOrigin',
+    '--gateway-config': 'gatewayConfigPath',
+    '--gateway-origin': 'gatewayOrigin',
   });
 }
 
 function normalizeOptions(input) {
   return {
-    ...normalizeConsoleRouterApiD1StagingConfig(input),
+    ...normalizeConsoleGatewayD1StagingConfig(input),
     outputPath: resolvePackagePath(input.outputPath, defaultOutputPath),
     generatedAtIso: normalizeGeneratedAtIso(input.generatedAtIso),
     operator: normalizeString(input.operator) || '<operator>',
     r2Bucket: normalizeR2BucketName(input.r2Bucket),
     consoleOrigin: normalizeStagingOrigin(input.consoleOrigin, '--console-origin'),
-    routerApiOrigin: normalizeStagingOrigin(input.routerApiOrigin, '--router-api-origin'),
+    gatewayOrigin: normalizeStagingOrigin(input.gatewayOrigin, '--gateway-origin'),
   };
 }
 
@@ -101,7 +101,7 @@ function renderRunbook(input) {
   lines.push(`Operator: ${input.options.operator}`);
   lines.push(`Environment: ${input.options.environmentName}`);
   lines.push(`Console config: ${relativeToRepo(input.options.consoleConfigPath)}`);
-  lines.push(`Router API config: ${relativeToRepo(input.options.routerApiConfigPath)}`);
+  lines.push(`Gateway config: ${relativeToRepo(input.options.gatewayConfigPath)}`);
   lines.push('');
   lines.push('Do not record secret values in this file. Record secret names, binding names,');
   lines.push('Cloudflare resource IDs, command output summaries, object keys, bookmarks,');
@@ -144,12 +144,12 @@ function appendResourceInventory(lines) {
   lines.push('| Cloudflare account ID |  |  |');
   lines.push('| Console D1 database ID |  | `wrangler d1 info seams-console-staging` |');
   lines.push('| Signer D1 database ID |  | `wrangler d1 info seams-signer-staging` |');
-  lines.push('| Threshold Durable Object namespace |  | router-api Wrangler config |');
-  lines.push('| Secrets Store ID |  | router-api Wrangler config |');
-  lines.push('| Signer KEK secret names |  | router-api Wrangler config, secret metadata only |');
+  lines.push('| Threshold Durable Object namespace |  | gateway Wrangler config |');
+  lines.push('| Secrets Store ID |  | gateway Wrangler config |');
+  lines.push('| Signer KEK secret names |  | gateway Wrangler config, secret metadata only |');
   lines.push('| R2 backup bucket |  | bucket metadata |');
   lines.push('| Console Worker version |  | deploy output |');
-  lines.push('| Router API Worker version |  | deploy output |');
+  lines.push('| Gateway Worker version |  | deploy output |');
   lines.push('');
 }
 
@@ -173,8 +173,8 @@ function preflightCommands(options) {
       shellArg(options.r2Bucket),
       '--console-origin',
       shellArg(options.consoleOrigin),
-      '--router-api-origin',
-      shellArg(options.routerApiOrigin),
+      '--gateway-origin',
+      shellArg(options.gatewayOrigin),
     ].join(' '),
   ];
 }
@@ -233,14 +233,14 @@ function fixtureImportCommands(options) {
       '--console-fixture "$CONSOLE_FIXTURE_SQL"',
       '--signer-fixture "$SIGNER_FIXTURE_SQL"',
     ].join(' '),
-    '# Import Durable Object fixture state only through the router-api Worker route or typed admin tool chosen for staging.',
+    '# Import Durable Object fixture state only through the gateway Worker route or typed admin tool chosen for staging.',
   ];
 }
 
 function deployCommands(options) {
   return [
     wranglerCommand('deploy --message "refactor-82 console D1 staging"', options.consoleConfigPath),
-    wranglerCommand('deploy --message "refactor-82 router-api D1/DO staging"', options.routerApiConfigPath),
+    wranglerCommand('deploy --message "refactor-82 gateway D1/DO staging"', options.gatewayConfigPath),
   ];
 }
 
@@ -251,16 +251,16 @@ function smokeCommands(options) {
       '--mode dry-run',
       '--console-origin',
       shellArg(options.consoleOrigin),
-      '--router-api-origin',
-      shellArg(options.routerApiOrigin),
+      '--gateway-origin',
+      shellArg(options.gatewayOrigin),
     ].join(' '),
     [
       'pnpm --dir packages/console-server-ts run d1:staging:smoke --',
       '--mode remote',
       '--console-origin',
       shellArg(options.consoleOrigin),
-      '--router-api-origin',
-      shellArg(options.routerApiOrigin),
+      '--gateway-origin',
+      shellArg(options.gatewayOrigin),
     ].join(' '),
   ];
 }
@@ -281,8 +281,8 @@ function signerCustodyCommands(options) {
     [
       'pnpm --dir packages/console-server-ts run d1:staging:signer-custody --',
       '--mode dry-run',
-      '--router-api-origin',
-      shellArg(options.routerApiOrigin),
+      '--gateway-origin',
+      shellArg(options.gatewayOrigin),
       '--origin',
       shellArg(options.consoleOrigin),
       '--export-share-fixture "$ECDSA_EXPORT_SHARE_FIXTURE"',
@@ -295,8 +295,8 @@ function signerCustodyCommands(options) {
     [
       'pnpm --dir packages/console-server-ts run d1:staging:signer-custody --',
       '--mode remote',
-      '--router-api-origin',
-      shellArg(options.routerApiOrigin),
+      '--gateway-origin',
+      shellArg(options.gatewayOrigin),
       '--origin',
       shellArg(options.consoleOrigin),
       '--export-share-fixture "$ECDSA_EXPORT_SHARE_FIXTURE"',
@@ -368,9 +368,9 @@ function appendEvidenceTable(lines) {
   lines.push('| Fixture import |  |  |');
   lines.push('| Time Travel before route switch |  |  |');
   lines.push('| Console `/readyz` |  |  |');
-  lines.push('| Router API `/readyz` |  |  |');
-  lines.push('| Router API `/router-ab/ed25519/healthz` configured |  |  |');
-  lines.push('| Router API `/router-ab/ecdsa-derivation/healthz` configured |  |  |');
+  lines.push('| Gateway `/readyz` |  |  |');
+  lines.push('| Gateway `/router-ab/ed25519/healthz` configured |  |  |');
+  lines.push('| Gateway `/router-ab/ecdsa-derivation/healthz` configured |  |  |');
   lines.push('| Dashboard reconciliation |  |  |');
   lines.push('| Sponsored gas settlement and prepaid billing |  |  |');
   lines.push('| Fixture-backed signer custody, KEK isolation, and missing-KEK fail-closed |  |  |');

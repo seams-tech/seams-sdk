@@ -104,7 +104,7 @@ const consoleConfigEvidenceIds = Object.freeze([
   'r2_restore_drill',
 ]);
 
-const routerApiConfigEvidenceIds = Object.freeze([
+const gatewayConfigEvidenceIds = Object.freeze([
   'resource_inventory',
   'hosted_signer_kek_metadata',
   'remote_d1_migrations',
@@ -142,8 +142,14 @@ const requiredResourceInventoryCheckIds = Object.freeze([
   'router_api_worker_deployment_status',
 ]);
 const signerOnlyConsoleD1Bindings = Object.freeze(['SIGNER_DB']);
-const signerOnlyConsoleDurableObjectBindings = Object.freeze(['THRESHOLD_STORE']);
-const requiredRouterApiDurableObjectBindings = Object.freeze(['THRESHOLD_STORE']);
+const signerOnlyConsoleDurableObjectBindings = Object.freeze([
+  'THRESHOLD_STORE',
+  'ROUTER_API_RUNTIME',
+]);
+const requiredGatewayDurableObjectBindings = Object.freeze([
+  'THRESHOLD_STORE',
+  'ROUTER_API_RUNTIME',
+]);
 const requiredMigrationTargetActionPairs = Object.freeze([
   'console:list_before',
   'console:apply',
@@ -175,7 +181,7 @@ const smokeExpectedStatusesById = Object.freeze({
   signer_custody_ed25519_healthz: 200,
   signer_custody_ecdsa_derivation_healthz: 200,
 });
-const routerApiSmokeCheckIds = Object.freeze([
+const gatewaySmokeCheckIds = Object.freeze([
   'router_api_readyz',
   'router_api_healthz',
   'signer_custody_ed25519_healthz',
@@ -346,7 +352,7 @@ function validateResourceInventory(input) {
   }
   validateResourceInventoryD1Metadata(input, checks);
   validateResourceInventorySignerIsolation(input);
-  validateResourceInventoryRouterApiSignerBindings(input);
+  validateResourceInventoryGatewaySignerBindings(input);
 }
 
 function validateResourceInventoryCommandCoverage(input, checks) {
@@ -416,18 +422,18 @@ function validateResourceInventoryD1Metadata(input, checks) {
   });
   const relayConsoleDatabaseId = requireResourceD1DatabaseId({
     input,
-    workerFieldName: 'routerApiWorker',
+    workerFieldName: 'gatewayWorker',
     binding: 'CONSOLE_DB',
   });
   const signerDatabaseId = requireResourceD1DatabaseId({
     input,
-    workerFieldName: 'routerApiWorker',
+    workerFieldName: 'gatewayWorker',
     binding: 'SIGNER_DB',
   });
 
   if (consoleDatabaseId && relayConsoleDatabaseId && consoleDatabaseId !== relayConsoleDatabaseId) {
     input.errors.push(
-      `resource_inventory: routerApiWorker CONSOLE_DB databaseId ${relayConsoleDatabaseId} must match consoleWorker CONSOLE_DB ${consoleDatabaseId}`,
+      `resource_inventory: gatewayWorker CONSOLE_DB databaseId ${relayConsoleDatabaseId} must match consoleWorker CONSOLE_DB ${consoleDatabaseId}`,
     );
   }
 
@@ -471,19 +477,19 @@ function validateResourceInventorySignerIsolation(input) {
   validateConsoleDoesNotReceiveSignerKeks(input, consoleWorker);
 }
 
-function validateResourceInventoryRouterApiSignerBindings(input) {
-  const routerApiWorker = resourceInventoryWorker(input.manifest, 'routerApiWorker');
-  if (!routerApiWorker) return;
+function validateResourceInventoryGatewaySignerBindings(input) {
+  const gatewayWorker = resourceInventoryWorker(input.manifest, 'gatewayWorker');
+  if (!gatewayWorker) return;
   validateRequiredResourceBindings({
     id: input.id,
     errors: input.errors,
-    workerFieldName: 'routerApiWorker',
+    workerFieldName: 'gatewayWorker',
     resourceFieldName: 'durableObjects',
     bindingFieldName: 'name',
-    bindings: readArray(routerApiWorker.durableObjects),
-    requiredBindings: requiredRouterApiDurableObjectBindings,
+    bindings: readArray(gatewayWorker.durableObjects),
+    requiredBindings: requiredGatewayDurableObjectBindings,
   });
-  validateRouterApiReceivesConfiguredSignerKeks(input, routerApiWorker);
+  validateGatewayReceivesConfiguredSignerKeks(input, gatewayWorker);
 }
 
 function validateForbiddenResourceBindings(input) {
@@ -529,17 +535,17 @@ function validateConsoleDoesNotReceiveSignerKeks(input, consoleWorker) {
   }
 }
 
-function validateRouterApiReceivesConfiguredSignerKeks(input, routerApiWorker) {
+function validateGatewayReceivesConfiguredSignerKeks(input, gatewayWorker) {
   const signerKekIds = resourceInventorySignerKekIds(input.manifest);
-  const routerApiSecretNames = new Set();
-  for (const secret of readArray(routerApiWorker.secretsStoreSecrets)) {
+  const gatewaySecretNames = new Set();
+  for (const secret of readArray(gatewayWorker.secretsStoreSecrets)) {
     const secretName = normalizeString(secret?.secretName);
-    if (secretName) routerApiSecretNames.add(secretName);
+    if (secretName) gatewaySecretNames.add(secretName);
   }
   for (const kekId of signerKekIds) {
-    if (routerApiSecretNames.has(kekId)) continue;
+    if (gatewaySecretNames.has(kekId)) continue;
     input.errors.push(
-      `${input.id}: resources.routerApiWorker.secretsStoreSecrets missing signer KEK secret ${kekId}`,
+      `${input.id}: resources.gatewayWorker.secretsStoreSecrets missing signer KEK secret ${kekId}`,
     );
   }
 }
@@ -905,8 +911,8 @@ function validateSmoke(input) {
 function validateSmokeWorkerOriginSeparation(input) {
   const checks = readArray(input.manifest.checks);
   const consoleOrigin = resultOrigin(checks, 'console_readyz');
-  const routerApiOrigin = resultOrigin(checks, 'router_api_readyz');
-  if (!consoleOrigin || !routerApiOrigin || consoleOrigin !== routerApiOrigin) return;
+  const gatewayOrigin = resultOrigin(checks, 'router_api_readyz');
+  if (!consoleOrigin || !gatewayOrigin || consoleOrigin !== gatewayOrigin) return;
   input.errors.push(
     `${input.id}: console_readyz and router_api_readyz must use distinct Worker origins, got ${consoleOrigin}`,
   );
@@ -1581,12 +1587,12 @@ function validateManifestConsistency(input) {
   validateSharedFieldConsistency({
     manifestsById: input.manifestsById,
     errors: input.errors,
-    ids: routerApiConfigEvidenceIds,
-    fieldName: 'routerApiConfigPath',
+    ids: gatewayConfigEvidenceIds,
+    fieldName: 'gatewayConfigPath',
   });
   validateTenantConsistency(input);
   validateKekConfigConsistency(input);
-  validateRouterApiOriginConsistency(input);
+  validateGatewayOriginConsistency(input);
   validateRunOrder(input);
 }
 
@@ -1625,7 +1631,7 @@ function validateTenantConsistency(input) {
     const resourceValue = normalizeString(resourceTenant?.[fieldName]);
     const reconciliationValue = normalizeString(reconciliationTenant?.[fieldName]);
     if (!resourceValue) {
-      input.errors.push(`resource_inventory: resources.routerApiWorker.stagingVars.${fieldName} must be present`);
+      input.errors.push(`resource_inventory: resources.gatewayWorker.stagingVars.${fieldName} must be present`);
       continue;
     }
     if (!reconciliationValue) {
@@ -1649,10 +1655,10 @@ function validateKekConfigConsistency(input) {
   const provider = normalizeString(resourceTenant?.signingRootKekProvider);
   const configuredKekIds = readArray(resourceTenant?.signingRootKekIds).map(String).filter(Boolean);
   if (!provider) {
-    input.errors.push('resource_inventory: resources.routerApiWorker.stagingVars.signingRootKekProvider must be present');
+    input.errors.push('resource_inventory: resources.gatewayWorker.stagingVars.signingRootKekProvider must be present');
   }
   if (configuredKekIds.length === 0) {
-    input.errors.push('resource_inventory: resources.routerApiWorker.stagingVars.signingRootKekIds must be non-empty');
+    input.errors.push('resource_inventory: resources.gatewayWorker.stagingVars.signingRootKekIds must be non-empty');
   }
 
   const presentSecretNames = new Set();
@@ -1668,17 +1674,17 @@ function validateKekConfigConsistency(input) {
   }
 }
 
-function validateRouterApiOriginConsistency(input) {
+function validateGatewayOriginConsistency(input) {
   const smoke = input.manifestsById.get('staging_smoke');
   const signerCustody = input.manifestsById.get('signer_custody');
   if (!smoke) return;
 
-  const expectedOrigin = routerApiOriginFromSmoke(smoke);
+  const expectedOrigin = gatewayOriginFromSmoke(smoke);
   if (!expectedOrigin) return;
 
   for (const check of readArray(smoke.checks)) {
     const checkId = String(check?.id || '');
-    if (!routerApiSmokeCheckIds.includes(checkId)) continue;
+    if (!gatewaySmokeCheckIds.includes(checkId)) continue;
     validateEvidenceUrlOrigin({
       id: 'staging_smoke',
       errors: input.errors,
@@ -1703,7 +1709,7 @@ function validateRouterApiOriginConsistency(input) {
   }
 }
 
-function routerApiOriginFromSmoke(manifest) {
+function gatewayOriginFromSmoke(manifest) {
   for (const check of readArray(manifest.checks)) {
     if (check?.id !== 'router_api_readyz') continue;
     return urlOrigin(normalizeString(check?.url));
@@ -1782,8 +1788,8 @@ function orderedTimestampField(id) {
 
 function resourceInventoryTenant(manifest) {
   const resources = recordOrNull(manifest.resources);
-  const routerApiWorker = recordOrNull(resources?.routerApiWorker);
-  return recordOrNull(routerApiWorker?.stagingVars);
+  const gatewayWorker = recordOrNull(resources?.gatewayWorker);
+  return recordOrNull(gatewayWorker?.stagingVars);
 }
 
 function requireNonEmpty(input, values, fieldName) {

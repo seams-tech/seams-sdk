@@ -12,7 +12,7 @@ import {
   d1StagingConfigManifestFlagFields,
   d1StagingCommandLines,
   isDirectInvocation,
-  normalizeConsoleRouterApiD1StagingOptions,
+  normalizeConsoleGatewayD1StagingOptions,
   packageRoot,
   parseFlagArgs,
   printD1StagingCliError,
@@ -23,7 +23,7 @@ import {
   writeD1StagingManifest,
   wranglerCommand,
 } from './d1-staging-config.mjs';
-import { requireConsoleAndRouterApiD1StagingReadiness } from './d1-staging-readiness-check.mjs';
+import { requireConsoleAndGatewayD1StagingReadiness } from './d1-staging-readiness-check.mjs';
 
 const defaultManifestRoot = path.join(packageRoot, '.wrangler/d1-staging-migrations');
 const migrationModes = Object.freeze(['dry-run', 'remote']);
@@ -38,19 +38,19 @@ const migrationTargets = Object.freeze([
   }),
   Object.freeze({
     logicalName: 'signer',
-    profile: 'router-api',
+    profile: 'gateway',
     databaseName: 'seams-signer-staging',
-    configField: 'routerApiConfigPath',
+    configField: 'gatewayConfigPath',
     migrationsDir: '../sdk-server-ts/migrations/d1-signer',
   }),
 ]);
 
 export function buildD1StagingMigrationPlan(input = {}) {
   const options = normalizeOptions(input);
-  requireConsoleAndRouterApiD1StagingReadiness({
+  requireConsoleAndGatewayD1StagingReadiness({
     label: 'migration apply',
     consoleConfigPath: options.consoleConfigPath,
-    routerApiConfigPath: options.routerApiConfigPath,
+    gatewayConfigPath: options.gatewayConfigPath,
     environmentName: options.environmentName,
   });
 
@@ -71,7 +71,7 @@ export function buildD1StagingMigrationPlan(input = {}) {
     mode: options.mode,
     environmentName: options.environmentName,
     consoleConfigPath: relativeToRepo(options.consoleConfigPath),
-    routerApiConfigPath: relativeToRepo(options.routerApiConfigPath),
+    gatewayConfigPath: relativeToRepo(options.gatewayConfigPath),
     targets,
     commands,
   };
@@ -114,7 +114,7 @@ function parseArgs(args) {
 }
 
 function normalizeOptions(input) {
-  return normalizeConsoleRouterApiD1StagingOptions(input, {
+  return normalizeConsoleGatewayD1StagingOptions(input, {
     modes: migrationModes,
     modeLabel: 'staging migration',
   });

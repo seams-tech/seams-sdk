@@ -8,7 +8,7 @@ import {
   isDirectInvocation,
   isJsonRecord,
   commaList,
-  normalizeConsoleRouterApiD1StagingOptions,
+  normalizeConsoleGatewayD1StagingOptions,
   normalizeString,
   packageRoot,
   parseFlagArgs,
@@ -25,26 +25,26 @@ import {
   writeD1StagingManifest,
   wranglerCommand,
 } from './d1-staging-config.mjs';
-import { requireConsoleAndRouterApiD1StagingReadiness } from './d1-staging-readiness-check.mjs';
+import { requireConsoleAndGatewayD1StagingReadiness } from './d1-staging-readiness-check.mjs';
 
 const defaultManifestRoot = path.join(packageRoot, '.wrangler/d1-staging-reconciliation');
 const reconciliationModes = Object.freeze(['dry-run', 'remote']);
 
 export function buildD1StagingReconciliationPlan(input = {}) {
   const options = normalizeOptions(input);
-  requireConsoleAndRouterApiD1StagingReadiness({
+  requireConsoleAndGatewayD1StagingReadiness({
     label: 'reconciliation',
     consoleConfigPath: options.consoleConfigPath,
-    routerApiConfigPath: options.routerApiConfigPath,
+    gatewayConfigPath: options.gatewayConfigPath,
     environmentName: options.environmentName,
   });
-  const stagingVars = readRouterApiStagingVars({
-    configPath: options.routerApiConfigPath,
+  const stagingVars = readGatewayStagingVars({
+    configPath: options.gatewayConfigPath,
     environmentName: options.environmentName,
   });
   const checks = reconciliationChecks({
     consoleConfigPath: options.consoleConfigPath,
-    routerApiConfigPath: options.routerApiConfigPath,
+    gatewayConfigPath: options.gatewayConfigPath,
     stagingVars,
   });
   return {
@@ -53,7 +53,7 @@ export function buildD1StagingReconciliationPlan(input = {}) {
     mode: options.mode,
     environmentName: options.environmentName,
     consoleConfigPath: relativeToRepo(options.consoleConfigPath),
-    routerApiConfigPath: relativeToRepo(options.routerApiConfigPath),
+    gatewayConfigPath: relativeToRepo(options.gatewayConfigPath),
     tenant: {
       namespace: stagingVars.namespace,
       orgId: stagingVars.orgId,
@@ -108,17 +108,17 @@ function parseArgs(args) {
 }
 
 function normalizeOptions(input) {
-  return normalizeConsoleRouterApiD1StagingOptions(input, {
+  return normalizeConsoleGatewayD1StagingOptions(input, {
     modes: reconciliationModes,
     modeLabel: 'staging reconciliation',
   });
 }
 
-function readRouterApiStagingVars(input) {
+function readGatewayStagingVars(input) {
   const source = readSelectedWranglerConfig({
     configPath: input.configPath,
     environmentName: input.environmentName,
-    label: 'Router API',
+    label: 'Gateway',
   });
   const vars = tableBody(source, 'vars');
   const stagingVars = {
@@ -134,7 +134,7 @@ function readRouterApiStagingVars(input) {
 
 function readRequiredVar(source, key) {
   const value = readString(source, key);
-  if (!value) throw new Error(`${key} is required under router-api [vars]`);
+  if (!value) throw new Error(`${key} is required under gateway [vars]`);
   return value;
 }
 
@@ -166,14 +166,14 @@ function reconciliationChecks(input) {
     }),
     signerCheck({
       id: 'signer_share_unknown_kek',
-      description: 'Signer sealed-share rows must use a KEK configured in the Router API staging profile.',
-      configPath: input.routerApiConfigPath,
+      description: 'Signer sealed-share rows must use a KEK configured in the Gateway staging profile.',
+      configPath: input.gatewayConfigPath,
       sql: signerShareUnknownKekSql(input.stagingVars),
     }),
     signerCheck({
       id: 'signer_share_invalid_rotation_state',
       description: 'Signer sealed-share rotation fields must match the selected lifecycle state.',
-      configPath: input.routerApiConfigPath,
+      configPath: input.gatewayConfigPath,
       sql: signerShareInvalidRotationStateSql(input.stagingVars),
     }),
   ];

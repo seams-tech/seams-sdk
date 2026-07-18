@@ -65,11 +65,11 @@ export function buildD1StagingSignerCustodyPlan(input = {}) {
     version: 'seams_d1_staging_signer_custody_v1',
     generatedAtIso: options.generatedAtIso,
     mode: options.mode,
-    routerApiOrigin: options.routerApiOrigin,
+    gatewayOrigin: options.gatewayOrigin,
     timeoutMs: options.timeoutMs,
     healthChecks: healthChecks.map((check) => ({
       ...check,
-      url: `${options.routerApiOrigin}${check.path}`,
+      url: `${options.gatewayOrigin}${check.path}`,
     })),
     checks: signerCustodyChecks({
       options,
@@ -139,7 +139,7 @@ function parseArgs(args) {
     missingKekJwtEnvName: '',
     mode: 'dry-run',
     origin: '',
-    routerApiOrigin: '',
+    gatewayOrigin: '',
     timeoutMs: '',
     walletSessionJwtEnvName: '',
   }, {
@@ -152,7 +152,7 @@ function parseArgs(args) {
     '--missing-kek-wallet-session-jwt-env': 'missingKekJwtEnvName',
     '--mode': 'mode',
     '--origin': 'origin',
-    '--router-api-origin': 'routerApiOrigin',
+    '--gateway-origin': 'gatewayOrigin',
     '--timeout-ms': 'timeoutMs',
     '--wallet-session-jwt-env': 'walletSessionJwtEnvName',
   });
@@ -177,7 +177,7 @@ function normalizeOptions(input) {
       normalizeString(input.missingKekJwtEnvName) || 'SEAMS_STAGING_MISSING_KEK_WALLET_SESSION_JWT',
     mode,
     origin: normalizeOptionalOrigin(input.origin, mode),
-    routerApiOrigin: normalizeStagingOrigin(input.routerApiOrigin, '--router-api-origin', {
+    gatewayOrigin: normalizeStagingOrigin(input.gatewayOrigin, '--gateway-origin', {
       allowHttpInDryRun: true,
       mode,
     }),
@@ -194,7 +194,7 @@ function signerCustodyChecks(input) {
       id: 'ecdsa_export_share_success',
       method: 'POST',
       path: ecdsaExportSharePath,
-      url: `${input.options.routerApiOrigin}${ecdsaExportSharePath}`,
+      url: `${input.options.gatewayOrigin}${ecdsaExportSharePath}`,
       expectedStatus: 200,
       expectedJson: { ok: true },
       expectServerExportShare: true,
@@ -208,7 +208,7 @@ function signerCustodyChecks(input) {
       id: 'ecdsa_export_share_missing_kek_fail_closed',
       method: 'POST',
       path: ecdsaExportSharePath,
-      url: `${input.options.routerApiOrigin}${ecdsaExportSharePath}`,
+      url: `${input.options.gatewayOrigin}${ecdsaExportSharePath}`,
       expectedStatus: input.options.missingKekExpectedStatus,
       expectedJson: missingKekExpectedJson(input.options.missingKekExpectedCode),
       expectServerExportShare: false,
