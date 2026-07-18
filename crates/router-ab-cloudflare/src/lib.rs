@@ -213,7 +213,8 @@ use router_ab_core::{
     EcdsaThresholdPrfProofBatchPayloadV1, EcdsaThresholdPrfRequestV1, EncryptedPayloadV1,
     ExpensiveWorkGateContextV1, ExpensiveWorkGateDecisionV1, ExpensiveWorkKindV1,
     GateDeferReasonV1, GatePrincipalV1, GateRejectReasonV1, MpcPrfSigningRootShareWireV1,
-    MpcPrfThresholdSignerBatchOutputV1, NormalSigningEd25519TwoPartyFrostCommitmentsV1,
+    MpcPrfOutputRequestV1, MpcPrfThresholdSignerBatchOutputV1,
+    NormalSigningEd25519TwoPartyFrostCommitmentsV1,
     NormalSigningResponseV1, NormalSigningRound1PrepareResponseV1, NormalSigningScopeV1,
     NormalSigningSignatureSchemeV1, OpenedShareKind, PeerTransport, PublicDigest32,
     RecipientOutputCiphertextV1, RecipientOutputEncryptionAlgorithmV1,
@@ -221,6 +222,7 @@ use router_ab_core::{
     RecipientProofBundleCiphertextV1, RecipientProofBundleEncryptionRequestV1,
     RecipientProofBundleEncryptorV1, RecipientProofBundlePayloadV1, Role, RoleEnvelopeAadV1,
     RootShareEpoch, RouterAbDerivationError, RouterAbEcdsaDerivationActivationReceiptV1,
+    RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1,
     RouterAbEcdsaDerivationActivationRefreshRequestV1,
     RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
     RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1,
@@ -233,8 +235,9 @@ use router_ab_core::{
     RouterAbEd25519NormalSigningFinalizeProtocolV2, RouterAbEd25519NormalSigningFinalizeRequestV2,
     RouterAbEd25519NormalSigningPrepareRequestV2, RouterAbLifecycleStateV1,
     RouterToSignerPayloadV1, SecretMaterial32, ServerIdentityV1, SignerEnvelopeHpkePayloadV1,
-    SignerIdentityV1, SignerInputPlaintextV1, SignerKeyStore, SignerSetV1, SigningRootShareStore,
-    SigningWorkerActivationContextV1, WireMessageKindV1, WireMessageV1,
+    SignerIdentityV1, SignerInputPlaintextV1, SignerInputQuorumPolicyV1, SignerKeyStore,
+    SignerSetV1, SigningRootShareStore, SigningWorkerActivationContextV1, WireMessageKindV1,
+    WireMessageV1,
     MPC_PRF_SIGNING_ROOT_SHARE_WIRE_V1_LEN,
 };
 use router_ab_core::{RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult};
@@ -8158,6 +8161,96 @@ pub async fn decrypt_cloudflare_validated_signer_private_request_v1(
     )
 }
 
+#[cfg(feature = "workers-rs")]
+#[allow(clippy::too_many_arguments)]
+async fn decrypt_cloudflare_validated_ecdsa_derivation_signer_private_request_v1(
+    env: &worker::Env,
+    worker_role: CloudflareWorkerRoleV1,
+    message: WireMessageV1,
+    envelope_decrypt_keys: &CloudflareSignerEnvelopeHpkeDecryptKeyBindingSetV1,
+    aad: &RoleEnvelopeAadV1,
+    router_request_digest: PublicDigest32,
+    root_share_metadata: &CloudflareRootShareStartupMetadataV1,
+    expected_plaintext: &RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1,
+    now_unix_ms: u64,
+) -> RouterAbProtocolResult<CloudflareValidatedSignerPrivateRequestV1> {
+    validate_cloudflare_signer_private_request_v1(worker_role, &message)?;
+    root_share_metadata.validate()?;
+    expected_plaintext.validate()?;
+    let plaintext_bytes = decrypt_cloudflare_signer_envelope_hpke_payload_with_key_set_v1(
+        env,
+        worker_role,
+        &message,
+        envelope_decrypt_keys,
+        aad,
+        now_unix_ms,
+    )
+    .await?;
+    if plaintext_bytes != expected_plaintext.canonical_plaintext_bytes()? {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "Router A/B ECDSA derivation decrypted plaintext does not match the typed ceremony request",
+        ));
+    }
+    let router_payload = decode_router_to_signer_payload_v1(message.payload.as_bytes())?;
+    let signer_role = cloudflare_worker_signer_role_v1(worker_role)?;
+    let assignment = router_payload.require_recipient_role(signer_role)?;
+    expected_plaintext.validate_for_envelope(&assignment.envelope)?;
+    let output_requests = match expected_plaintext.output_kind() {
+        router_ab_core::RouterAbEcdsaDerivationOutputKindV1::ClientExport => vec![
+            MpcPrfOutputRequestV1::new(
+                OpenedShareKind::XClientBase,
+                Role::Client,
+                expected_plaintext.common().client_id.clone(),
+            )
+            .map_err(map_derivation_to_protocol)?,
+        ],
+        router_ab_core::RouterAbEcdsaDerivationOutputKindV1::SigningWorkerActivation => vec![
+            MpcPrfOutputRequestV1::new(
+                OpenedShareKind::XClientBase,
+                Role::Client,
+                expected_plaintext.common().client_id.clone(),
+            )
+            .map_err(map_derivation_to_protocol)?,
+            MpcPrfOutputRequestV1::new(
+                OpenedShareKind::XServerBase,
+                Role::Server,
+                router_payload.signer_set().selected_server.server_id.clone(),
+            )
+            .map_err(map_derivation_to_protocol)?,
+        ],
+    };
+    let signer_input = SignerInputPlaintextV1::new(
+        router_payload.lifecycle().primitive_request_kind,
+        router_payload.lifecycle().lifecycle_id.clone(),
+        router_payload.signer_set().signer_set_id.clone(),
+        SignerInputQuorumPolicyV1::All2,
+        signer_role,
+        assignment.signer.signer_id.clone(),
+        assignment.signer.key_epoch.clone(),
+        root_share_metadata.root_share_epoch.clone(),
+        router_payload.signer_set().selected_server.server_id.clone(),
+        router_payload.signer_set().selected_server.key_epoch.clone(),
+        router_payload.transcript_digest(),
+        router_request_digest,
+        assignment.envelope.aad_digest,
+        output_requests,
+    )
+    .map_err(map_derivation_to_protocol)?;
+    validate_signer_input_plaintext_binding_v1(
+        &router_payload,
+        &signer_input,
+        router_request_digest,
+        &root_share_metadata.root_share_epoch,
+    )?;
+    CloudflareValidatedSignerPrivateRequestV1::new(
+        worker_role,
+        message,
+        router_payload,
+        signer_input,
+    )
+}
+
 /// Decrypts, validates, and handles an MPC PRF private signer request with strict delivery.
 #[cfg(feature = "workers-rs")]
 #[allow(clippy::too_many_arguments)]
@@ -8225,7 +8318,14 @@ pub async fn decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_registrati
         registration_request,
         signer_bootstrap: bootstrap,
     } = request;
-    let validated = decrypt_cloudflare_validated_signer_private_request_v1(
+    let expected_plaintext =
+        RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1::registration_for_request(
+            &registration_request,
+            cloudflare_worker_signer_role_v1(worker_role)?,
+            bootstrap.aad.digest(),
+        )?;
+    let validated =
+        decrypt_cloudflare_validated_ecdsa_derivation_signer_private_request_v1(
         env,
         worker_role,
         bootstrap.message,
@@ -8233,6 +8333,7 @@ pub async fn decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_registrati
         &bootstrap.aad,
         bootstrap.router_request_digest,
         root_share_metadata,
+        &expected_plaintext,
         now_unix_ms,
     )
     .await?;
@@ -8281,7 +8382,14 @@ pub async fn decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_export_sig
         export_request,
         signer_bootstrap: bootstrap,
     } = request;
-    let validated = decrypt_cloudflare_validated_signer_private_request_v1(
+    let expected_plaintext =
+        RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1::export_for_request(
+            &export_request,
+            cloudflare_worker_signer_role_v1(worker_role)?,
+            bootstrap.aad.digest(),
+        )?;
+    let validated =
+        decrypt_cloudflare_validated_ecdsa_derivation_signer_private_request_v1(
         env,
         worker_role,
         bootstrap.message,
@@ -8289,6 +8397,7 @@ pub async fn decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_export_sig
         &bootstrap.aad,
         bootstrap.router_request_digest,
         root_share_metadata,
+        &expected_plaintext,
         now_unix_ms,
     )
     .await?;
@@ -8338,7 +8447,14 @@ pub async fn decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_recovery_s
         recovery_request,
         signer_bootstrap: bootstrap,
     } = request;
-    let validated = decrypt_cloudflare_validated_signer_private_request_v1(
+    let expected_plaintext =
+        RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1::recovery_for_request(
+            &recovery_request,
+            cloudflare_worker_signer_role_v1(worker_role)?,
+            bootstrap.aad.digest(),
+        )?;
+    let validated =
+        decrypt_cloudflare_validated_ecdsa_derivation_signer_private_request_v1(
         env,
         worker_role,
         bootstrap.message,
@@ -8346,6 +8462,7 @@ pub async fn decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_recovery_s
         &bootstrap.aad,
         bootstrap.router_request_digest,
         root_share_metadata,
+        &expected_plaintext,
         now_unix_ms,
     )
     .await?;
@@ -8395,7 +8512,14 @@ pub async fn decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_activation
         refresh_request,
         signer_bootstrap: bootstrap,
     } = request;
-    let validated = decrypt_cloudflare_validated_signer_private_request_v1(
+    let expected_plaintext =
+        RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1::refresh_for_request(
+            &refresh_request,
+            cloudflare_worker_signer_role_v1(worker_role)?,
+            bootstrap.aad.digest(),
+        )?;
+    let validated =
+        decrypt_cloudflare_validated_ecdsa_derivation_signer_private_request_v1(
         env,
         worker_role,
         bootstrap.message,
@@ -8403,6 +8527,7 @@ pub async fn decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_activation
         &bootstrap.aad,
         bootstrap.router_request_digest,
         root_share_metadata,
+        &expected_plaintext,
         now_unix_ms,
     )
     .await?;
@@ -10643,9 +10768,18 @@ where
         })?;
     let status = response.status_code();
     if !(200..=299).contains(&status) {
+        let response_body = response.text().await.map_err(|err| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("{label} error response body read failed: {err}"),
+            )
+        })?;
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-            format!("{label} service returned HTTP status {status}"),
+            format!(
+                "{label} service returned HTTP status {status}: {}",
+                response_body.trim()
+            ),
         ));
     }
     response.json::<TResp>().await.map_err(|err| {

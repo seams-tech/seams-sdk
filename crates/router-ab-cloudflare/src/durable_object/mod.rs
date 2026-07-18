@@ -40,7 +40,8 @@ use crate::{
     ROUTER_ABUSE_DO_BINDING_ENV, ROUTER_ABUSE_DO_KEY_PREFIX_ENV, ROUTER_ABUSE_DO_OBJECT_ENV,
     ROUTER_LIFECYCLE_DO_BINDING_ENV, ROUTER_LIFECYCLE_DO_KEY_PREFIX_ENV,
     ROUTER_LIFECYCLE_DO_OBJECT_ENV, ROUTER_PROJECT_POLICY_DO_BINDING_ENV,
-    ROUTER_PROJECT_POLICY_DO_KEY_PREFIX_ENV, ROUTER_PROJECT_POLICY_DO_OBJECT_ENV,
+    ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON_ENV, ROUTER_PROJECT_POLICY_DO_KEY_PREFIX_ENV,
+    ROUTER_PROJECT_POLICY_DO_OBJECT_ENV,
     ROUTER_QUOTA_DO_BINDING_ENV, ROUTER_QUOTA_DO_KEY_PREFIX_ENV, ROUTER_QUOTA_DO_OBJECT_ENV,
     ROUTER_REPLAY_DO_BINDING_ENV, ROUTER_REPLAY_DO_KEY_PREFIX_ENV, ROUTER_REPLAY_DO_OBJECT_ENV,
     ROUTER_WALLET_BUDGET_DO_BINDING_ENV, ROUTER_WALLET_BUDGET_DO_KEY_PREFIX_ENV,
@@ -57,6 +58,7 @@ pub use memory_storage::CloudflareDurableObjectMemoryStorageV1;
 #[cfg(feature = "workers-rs")]
 use worker_storage::{
     cloudflare_durable_object_class_binding_v1, handle_cloudflare_durable_object_class_fetch_v1,
+    handle_cloudflare_project_policy_durable_object_class_fetch_v1,
     handle_cloudflare_signing_worker_ecdsa_pool_alarm_v1,
 };
 #[cfg(feature = "workers-rs")]
@@ -139,11 +141,12 @@ impl worker::DurableObject for RouterAbRouterProjectPolicyDurableObject {
     }
 
     async fn fetch(&self, request: worker::Request) -> worker::Result<worker::Response> {
-        handle_cloudflare_durable_object_class_fetch_v1(
+        handle_cloudflare_project_policy_durable_object_class_fetch_v1(
             CloudflareDurableObjectScopeV1::RouterProjectPolicy,
             ROUTER_PROJECT_POLICY_DO_BINDING_ENV,
             ROUTER_PROJECT_POLICY_DO_OBJECT_ENV,
             ROUTER_PROJECT_POLICY_DO_KEY_PREFIX_ENV,
+            ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON_ENV,
             &self.env,
             &self.state,
             request,

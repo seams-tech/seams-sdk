@@ -4,14 +4,17 @@ use std::{
 };
 
 use base64::Engine;
+use router_ab_cloudflare::{
+    CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2,
+    CloudflareSigningWorkerAdmittedNormalSigningPrepareRequestV2,
+};
 use router_ab_core::{
     ActiveSigningWorkerStateV1, CanonicalWireBytesV1, Ed25519YaoCeremonyBindingV1,
     Ed25519YaoOperationV1, Ed25519YaoRefreshBindingV1, Ed25519YaoStateEpochV1,
     NormalSigningEd25519TwoPartyFrostCommitmentsV1, NormalSigningResponseV1,
     NormalSigningRound1PrepareResponseV1, NormalSigningScopeV1, NormalSigningSignatureSchemeV1,
-    PublicDigest32, RouterAbEd25519NormalSigningFinalizeProtocolV2,
-    RouterAbEd25519NormalSigningFinalizeRequestV2, RouterAbEd25519NormalSigningPrepareRequestV2,
-    RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult, ServerIdentityV1,
+    PublicDigest32, RouterAbEd25519NormalSigningFinalizeProtocolV2, RouterAbProtocolError,
+    RouterAbProtocolErrorCode, RouterAbProtocolResult, ServerIdentityV1,
 };
 use router_ab_ed25519_yao::recipient::signing_worker::{
     combine_signing_worker_activation_packages, SigningWorkerBaseScalar,
@@ -185,20 +188,6 @@ struct PendingNormalSigningRound {
     expires_at_ms: u64,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ActiveStatePrepareRequest {
-    kind: String,
-    request: RouterAbEd25519NormalSigningPrepareRequestV2,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ActiveStateFinalizeRequest {
-    kind: String,
-    request: RouterAbEd25519NormalSigningFinalizeRequestV2,
-}
-
 #[derive(Default)]
 pub struct LocalEd25519YaoSigningWorkerStateV1 {
     identities: BTreeMap<LocalEd25519YaoEffectiveIdentityV1, LocalEd25519YaoSigningIdentityStateV1>,
@@ -357,9 +346,11 @@ impl LocalEd25519YaoSigningWorkerStateV1 {
         config: &LocalSigningWorkerConfigV1,
         body: &[u8],
     ) -> RouterAbProtocolResult<String> {
-        let request = serde_json::from_slice::<ActiveStatePrepareRequest>(body)
-            .map_err(|_| invalid_normal_signing("SigningWorker prepare request is malformed"))?;
-        let identity = self.identity_for_scope(&request.request.scope)?;
+        let request = serde_json::from_slice::<
+            CloudflareSigningWorkerAdmittedNormalSigningPrepareRequestV2,
+        >(body)
+        .map_err(|_| invalid_normal_signing("SigningWorker prepare request is malformed"))?;
+        let identity = self.identity_for_scope(&request.scope)?;
         self.identities
             .get_mut(&identity)
             .expect("normal-signing identity was selected from the same map")
@@ -371,12 +362,14 @@ impl LocalEd25519YaoSigningWorkerStateV1 {
         config: &LocalSigningWorkerConfigV1,
         body: &[u8],
     ) -> RouterAbProtocolResult<String> {
-        let request =
-            serde_json::from_slice::<ActiveStateFinalizeRequest>(body).map_err(|error| {
-                invalid_normal_signing(format!(
-                    "SigningWorker finalize request is malformed: {error}"
-                ))
-            })?;
+        let request = serde_json::from_slice::<
+            CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2,
+        >(body)
+        .map_err(|error| {
+            invalid_normal_signing(format!(
+                "SigningWorker finalize request is malformed: {error}"
+            ))
+        })?;
         let identity = self.identity_for_scope(&request.request.scope)?;
         self.identities
             .get_mut(&identity)
@@ -634,21 +627,26 @@ impl LocalEd25519YaoSigningIdentityStateV1 {
         config: &LocalSigningWorkerConfigV1,
         body: &[u8],
     ) -> RouterAbProtocolResult<String> {
-        let private_request = serde_json::from_slice::<ActiveStatePrepareRequest>(body)
-            .map_err(|_| invalid_normal_signing("SigningWorker prepare request is malformed"))?;
-        validate_active_state_request_kind(&private_request.kind)?;
-        private_request.request.validate()?;
-        let request = private_request.request;
+        let private_request = serde_json::from_slice::<
+            CloudflareSigningWorkerAdmittedNormalSigningPrepareRequestV2,
+        >(body)
+        .map_err(|_| invalid_normal_signing("SigningWorker prepare request is malformed"))?;
+        private_request.validate()?;
+        let request_scope = private_request.scope;
+        let request_expires_at_ms = private_request.expires_at_ms;
+        let admission = private_request.admission_candidate;
+        let round1_binding_digest = admission.round1_binding_digest.ok_or_else(|| {
+            invalid_normal_signing("SigningWorker prepare request lacks round-1 binding")
+        })?;
         let prepared_at_ms = now_unix_ms()?;
-        if prepared_at_ms >= request.expires_at_ms {
+        if prepared_at_ms >= request_expires_at_ms {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::ExpiredLocalRequest,
                 "SigningWorker prepare request expired",
             ));
         }
-        let admission = request.admission_material()?;
         let active_state =
-            self.active_normal_signing_state(config, &request.scope, prepared_at_ms)?;
+            self.active_normal_signing_state(config, &request_scope, prepared_at_ms)?;
         let active = self.active.as_ref().ok_or_else(|| {
             invalid_normal_signing("SigningWorker has no active Yao signing share")
         })?;
@@ -666,14 +664,13 @@ impl LocalEd25519YaoSigningIdentityStateV1 {
         rand_core::RngCore::fill_bytes(&mut rand_core::OsRng, &mut handle_random);
         let server_round1_handle = format!(
             "yao-server-round1/{}/{}",
-            request.scope.request_id,
+            request_scope.request_id,
             base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(handle_random)
         );
         let server_commitments = normal_signing_commitments(&round1.commitments_wire)?;
         let server_verifying_share = verifying_share_bytes_from_signing_share_bytes(&active.scalar);
-        let round1_binding_digest = request.round1_binding_digest()?;
         let record = PendingNormalSigningRound {
-            scope: request.scope.clone(),
+            scope: request_scope.clone(),
             state_epoch: active.state_epoch,
             registered_public_key: active.registered_public_key,
             round1_binding_digest,
@@ -681,7 +678,7 @@ impl LocalEd25519YaoSigningIdentityStateV1 {
             signing_payload_digest: admission.signing_payload_digest,
             admitted_signing_digest: admission.admitted_signing_digest,
             round1,
-            expires_at_ms: request.expires_at_ms,
+            expires_at_ms: request_expires_at_ms,
         };
         if self
             .pending_normal_signing
@@ -693,7 +690,7 @@ impl LocalEd25519YaoSigningIdentityStateV1 {
             ));
         }
         let response = NormalSigningRound1PrepareResponseV1::new(
-            request.scope.clone(),
+            request_scope,
             admission.signing_payload_digest,
             round1_binding_digest,
             active_state.signing_worker,
@@ -702,9 +699,8 @@ impl LocalEd25519YaoSigningIdentityStateV1 {
             base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(server_verifying_share),
             NormalSigningSignatureSchemeV1::Ed25519V1,
             prepared_at_ms,
-            request.expires_at_ms,
+            request_expires_at_ms,
         )?;
-        response.validate_for_v2_prepare_request(&request)?;
         serde_json::to_string(&response)
             .map_err(|_| invalid_normal_signing("SigningWorker prepare response encoding failed"))
     }
@@ -714,14 +710,15 @@ impl LocalEd25519YaoSigningIdentityStateV1 {
         config: &LocalSigningWorkerConfigV1,
         body: &[u8],
     ) -> RouterAbProtocolResult<String> {
-        let private_request =
-            serde_json::from_slice::<ActiveStateFinalizeRequest>(body).map_err(|error| {
-                invalid_normal_signing(format!(
-                    "SigningWorker finalize request is malformed: {error}"
-                ))
-            })?;
-        validate_active_state_request_kind(&private_request.kind)?;
-        private_request.request.validate()?;
+        let private_request = serde_json::from_slice::<
+            CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2,
+        >(body)
+        .map_err(|error| {
+            invalid_normal_signing(format!(
+                "SigningWorker finalize request is malformed: {error}"
+            ))
+        })?;
+        private_request.validate()?;
         let request = private_request.request;
         let signed_at_ms = now_unix_ms()?;
         let active_state =
@@ -1420,15 +1417,6 @@ fn activate_refresh(
 
 fn signing_scalar(value: SigningWorkerBaseScalar) -> Zeroizing<[u8; 32]> {
     Zeroizing::new(value.into_bytes())
-}
-
-fn validate_active_state_request_kind(kind: &str) -> RouterAbProtocolResult<()> {
-    if kind == "router_ab_ed25519_signing_worker_active_state_request_v1" {
-        return Ok(());
-    }
-    Err(invalid_normal_signing(
-        "SigningWorker request kind is invalid",
-    ))
 }
 
 fn normal_signing_commitments(

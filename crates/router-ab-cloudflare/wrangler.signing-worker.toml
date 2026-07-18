@@ -4,16 +4,21 @@ compatibility_date = "2026-06-12"
 workers_dev = false
 
 [build]
-command = "cargo install -q worker-build --version 0.8.4 && worker-build --release --out-dir build/signing-worker --features strict-worker-signing-worker-entrypoint"
+command = "cargo install -q worker-build --version 0.8.4 && bash ./scripts/build-strict-worker.sh signing-worker"
 
 [durable_objects]
 bindings = [
   { name = "SIGNING_WORKER_SERVER_OUTPUT_DO", class_name = "RouterAbSigningWorkerServerOutputDurableObject" },
+  { name = "SIGNING_WORKER_ED25519_YAO_DO", class_name = "RouterAbSigningWorkerEd25519YaoDurableObject" },
 ]
 
 [[migrations]]
 tag = "router_ab_signing_worker_v1"
 new_sqlite_classes = ["RouterAbSigningWorkerServerOutputDurableObject"]
+
+[[migrations]]
+tag = "router_ab_signing_worker_v2"
+new_sqlite_classes = ["RouterAbSigningWorkerEd25519YaoDurableObject"]
 
 [vars]
 ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING = "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"
@@ -22,7 +27,7 @@ SIGNING_WORKER_SERVER_OUTPUT_DO_OBJECT = "signing-worker-server-output"
 SIGNING_WORKER_SERVER_OUTPUT_DO_KEY_PREFIX = "signing-worker-server-output/"
 SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_BINDING = "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY"
 SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH = "epoch-1"
-SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY = "x25519:3333333333333333333333333333333333333333333333333333333333333333"
+SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY = "x25519:d0a06a6445d78bc87f449dfac2b427ad1857a0b00d91e20f152031ad49c18010"
 
 [env.staging]
 name = "router-ab-signing-worker-staging"
@@ -32,14 +37,19 @@ workers_dev = false
 name = "SIGNING_WORKER_SERVER_OUTPUT_DO"
 class_name = "RouterAbSigningWorkerServerOutputDurableObject"
 
+[[env.staging.durable_objects.bindings]]
+name = "SIGNING_WORKER_ED25519_YAO_DO"
+class_name = "RouterAbSigningWorkerEd25519YaoDurableObject"
+
 [env.staging.vars]
 ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING = "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"
+ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON = '{"policy":{"manifest":{"releaseEpoch":1,"minimumRootVersion":1,"minimumAuthorityKeyEpoch":1,"revokedAuthorityKeyEpochs":[],"revokedRecordDigestsHex":[],"signerAAuthority":{"operatorIdentity":"signer-a","authorityKeyEpoch":1,"validFromMs":1,"validUntilMs":4102444800000,"verifyingKeyHex":"7084304ccbfdc9bca888d410412951359a7f7afb6e9499695580cb23aa83e02e"},"signerBAuthority":{"operatorIdentity":"signer-b","authorityKeyEpoch":1,"validFromMs":1,"validUntilMs":4102444800000,"verifyingKeyHex":"e747647c55cbb93cd7d51b7bc1e8f20205fbe3ab797f756b6d300cd59b181999"}},"manifestDigestHex":"85852240947ae7aee43ca868f56c5f6f3cee2e2f1b3c65014fd80f2b4bb17910","releaseAuthoritySignatureHex":"9cfdd77879f368cc44cda5869f6be2e76463ce9886bcbed60faaf82bc6694866608edb031db82a309bad31e8384c0bd951fe1391c97bf6e8fa7e6f977c78a008"},"records":{"signerA":{"rootId":"signing-root-v1","rootVersion":1,"rootShareEpoch":"epoch-1","commitmentHex":"0001bedac10036b8c588092eb059c7a331c52398ff20291b0846602c4e17fcdba748","operatorIdentity":"signer-a","authorityKeyEpoch":1,"recordValidFromMs":1,"recordValidUntilMs":4102444800000,"signedDigestHex":"2a840efa2b69d438a4fb2a3fba1e6bfcd5e788543c1560fd010d98ac05c9a834","signatureHex":"698d6f6da76c23c93aa7255d3353ff2804d0f2bc1a80b9e210914ec6f0f808bd92696ccea9acd3b1932676635ba1be1b115ea8940297c6343edacbd65f15050e"},"signerB":{"rootId":"signing-root-v1","rootVersion":1,"rootShareEpoch":"epoch-1","commitmentHex":"00027ed9eca966611f6b9aed5184b11ea6230d43acaefbc9b30e10934ca0e2a72430","operatorIdentity":"signer-b","authorityKeyEpoch":1,"recordValidFromMs":1,"recordValidUntilMs":4102444800000,"signedDigestHex":"e267a5ccaac7778b63ece2e20d6b5511504d5d67f39648bd1d91807d48aff8a5","signatureHex":"8e9b4f919e6ac602142380a32fec2ab504c1cd6fa8336c8d7079c9da830fd93594613627f32b3fb4bfb9c59939cc2782d5b8bfd4a95f4942aef2a981e9fad409"}}}'
 SIGNING_WORKER_SERVER_OUTPUT_DO_BINDING = "SIGNING_WORKER_SERVER_OUTPUT_DO"
 SIGNING_WORKER_SERVER_OUTPUT_DO_OBJECT = "signing-worker-server-output"
 SIGNING_WORKER_SERVER_OUTPUT_DO_KEY_PREFIX = "signing-worker-server-output/"
 SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_BINDING = "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY"
 SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH = "epoch-1"
-SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY = "x25519:3333333333333333333333333333333333333333333333333333333333333333"
+SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY = "x25519:d0a06a6445d78bc87f449dfac2b427ad1857a0b00d91e20f152031ad49c18010"
 
 [observability]
   [observability.logs]

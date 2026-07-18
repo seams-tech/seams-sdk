@@ -125,48 +125,28 @@ pub fn open_local_ed25519_yao_activation_deriver_a_input_v1(
     envelope: &Ed25519YaoEncryptedInputV1,
     private_key: &LocalEd25519YaoRecipientPrivateKeyV1,
 ) -> RouterAbProtocolResult<LocalEd25519YaoActivationDeriverARequestV1> {
-    open_input(
-        envelope,
-        Ed25519YaoInputKindV1::Activation,
-        Ed25519YaoDeriverRoleV1::DeriverA,
-        private_key,
-    )
+    router_ab_ed25519_yao::open_ed25519_yao_activation_deriver_a_input_v1(envelope, private_key)
 }
 
 pub fn open_local_ed25519_yao_activation_deriver_b_input_v1(
     envelope: &Ed25519YaoEncryptedInputV1,
     private_key: &LocalEd25519YaoRecipientPrivateKeyV1,
 ) -> RouterAbProtocolResult<LocalEd25519YaoActivationDeriverBRequestV1> {
-    open_input(
-        envelope,
-        Ed25519YaoInputKindV1::Activation,
-        Ed25519YaoDeriverRoleV1::DeriverB,
-        private_key,
-    )
+    router_ab_ed25519_yao::open_ed25519_yao_activation_deriver_b_input_v1(envelope, private_key)
 }
 
 pub fn open_local_ed25519_yao_export_deriver_a_input_v1(
     envelope: &Ed25519YaoEncryptedInputV1,
     private_key: &LocalEd25519YaoRecipientPrivateKeyV1,
 ) -> RouterAbProtocolResult<LocalEd25519YaoExportDeriverARequestV1> {
-    open_input(
-        envelope,
-        Ed25519YaoInputKindV1::Export,
-        Ed25519YaoDeriverRoleV1::DeriverA,
-        private_key,
-    )
+    router_ab_ed25519_yao::open_ed25519_yao_export_deriver_a_input_v1(envelope, private_key)
 }
 
 pub fn open_local_ed25519_yao_export_deriver_b_input_v1(
     envelope: &Ed25519YaoEncryptedInputV1,
     private_key: &LocalEd25519YaoRecipientPrivateKeyV1,
 ) -> RouterAbProtocolResult<LocalEd25519YaoExportDeriverBRequestV1> {
-    open_input(
-        envelope,
-        Ed25519YaoInputKindV1::Export,
-        Ed25519YaoDeriverRoleV1::DeriverB,
-        private_key,
-    )
+    router_ab_ed25519_yao::open_ed25519_yao_export_deriver_b_input_v1(envelope, private_key)
 }
 
 pub fn open_local_ed25519_yao_refresh_deriver_a_input_v1(
@@ -325,80 +305,9 @@ fn seal_input<Request: Serialize>(
     )
 }
 
-fn open_input<Request: DeserializeOwned + BoundInput>(
-    envelope: &Ed25519YaoEncryptedInputV1,
-    expected_kind: Ed25519YaoInputKindV1,
-    expected_deriver: Ed25519YaoDeriverRoleV1,
-    private_key: &LocalEd25519YaoRecipientPrivateKeyV1,
-) -> RouterAbProtocolResult<Request> {
-    envelope.validate()?;
-    if envelope.kind() != expected_kind || envelope.deriver() != expected_deriver {
-        return Err(invalid_input(
-            "Deriver input role or circuit family is invalid",
-        ));
-    }
-    let encapsulated_key = DhKemX25519HkdfSha256::enc_from_bytes(envelope.encapsulated_key())
-        .map_err(map_hpke_error)?;
-    let private_key =
-        DhKemX25519HkdfSha256::sk_from_bytes(private_key.as_bytes()).map_err(map_hpke_error)?;
-    let aad = ed25519_yao_input_aad_v1(
-        envelope.kind(),
-        envelope.deriver(),
-        envelope.operation(),
-        envelope.session(),
-        envelope.stable_context_binding(),
-    );
-    let mut plaintext = Zeroizing::new(
-        InputHpkeV1::open_base(
-            &encapsulated_key,
-            &private_key,
-            ED25519_YAO_INPUT_HPKE_INFO_V1,
-            &aad,
-            envelope.ciphertext(),
-        )
-        .map_err(map_hpke_error)?,
-    );
-    let request = serde_json::from_slice::<Request>(&plaintext)
-        .map_err(|_| invalid_input("Deriver input plaintext is malformed"))?;
-    plaintext.zeroize();
-    let binding = request.binding();
-    if binding.operation != envelope.operation()
-        || binding.session_id.into_bytes() != envelope.session()
-        || binding.stable_key_context_binding.into_bytes() != envelope.stable_context_binding()
-    {
-        return Err(invalid_input(
-            "Deriver input envelope does not match its admitted binding",
-        ));
-    }
-    Ok(request)
-}
-
-trait BoundInput {
-    fn binding(&self) -> &Ed25519YaoCeremonyBindingV1;
-}
-
 trait BoundRefreshInput {
     fn refresh_binding(&self) -> &Ed25519YaoRefreshBindingV1;
 }
-
-macro_rules! impl_bound_input {
-    ($($request:ty),+ $(,)?) => {
-        $(
-            impl BoundInput for $request {
-                fn binding(&self) -> &Ed25519YaoCeremonyBindingV1 {
-                    &self.binding
-                }
-            }
-        )+
-    };
-}
-
-impl_bound_input!(
-    LocalEd25519YaoActivationDeriverARequestV1,
-    LocalEd25519YaoActivationDeriverBRequestV1,
-    LocalEd25519YaoExportDeriverARequestV1,
-    LocalEd25519YaoExportDeriverBRequestV1,
-);
 
 impl BoundRefreshInput for LocalEd25519YaoRefreshDeriverARequestV1 {
     fn refresh_binding(&self) -> &Ed25519YaoRefreshBindingV1 {

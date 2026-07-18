@@ -31,26 +31,22 @@ use crate::{
     LocalEd25519YaoRefreshDeriverBRequestV1, LocalEd25519YaoSigningWorkerPackageDeliveryV1,
     LocalEd25519YaoSigningWorkerRecoveryPromotionRequestV1,
     LocalEd25519YaoSigningWorkerRefreshPackageDeliveryV1, LocalEd25519YaoSigningWorkerStateV1,
-    LocalWorkerRoleConfigV1, LOCAL_DERIVER_A_ED25519_YAO_ACTIVATION_CLIENT_PACKAGE_PATH,
-    LOCAL_DERIVER_A_ED25519_YAO_ACTIVATION_SIGNING_WORKER_PACKAGE_PATH,
-    LOCAL_DERIVER_A_ED25519_YAO_ACTIVATION_START_PATH,
-    LOCAL_DERIVER_A_ED25519_YAO_EXPORT_CLIENT_PACKAGE_PATH,
+    LocalWorkerRoleConfigV1, LOCAL_DERIVER_A_ED25519_YAO_ACTIVATION_START_PATH,
     LOCAL_DERIVER_A_ED25519_YAO_EXPORT_START_PATH,
     LOCAL_DERIVER_A_ED25519_YAO_REFRESH_CLIENT_PACKAGE_PATH,
     LOCAL_DERIVER_A_ED25519_YAO_REFRESH_PROMOTE_PATH,
     LOCAL_DERIVER_A_ED25519_YAO_REFRESH_SIGNING_WORKER_PACKAGE_PATH,
-    LOCAL_DERIVER_A_ED25519_YAO_REFRESH_START_PATH, LOCAL_DERIVER_A_ED25519_YAO_RESULT_PATH,
-    LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_CLIENT_PACKAGE_PATH,
-    LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_SIGNING_WORKER_PACKAGE_PATH,
+    LOCAL_DERIVER_A_ED25519_YAO_REFRESH_START_PATH,
+    LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_RESULT_PATH,
     LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_STAGE_PATH,
-    LOCAL_DERIVER_B_ED25519_YAO_EXPORT_CLIENT_PACKAGE_PATH,
-    LOCAL_DERIVER_B_ED25519_YAO_EXPORT_STAGE_PATH, LOCAL_DERIVER_B_ED25519_YAO_PEER_PATH,
-    LOCAL_DERIVER_B_ED25519_YAO_REFRESH_CLIENT_PACKAGE_PATH,
+    LOCAL_DERIVER_B_ED25519_YAO_EXPORT_RESULT_PATH, LOCAL_DERIVER_B_ED25519_YAO_EXPORT_STAGE_PATH,
+    LOCAL_DERIVER_B_ED25519_YAO_PEER_PATH, LOCAL_DERIVER_B_ED25519_YAO_REFRESH_CLIENT_PACKAGE_PATH,
     LOCAL_DERIVER_B_ED25519_YAO_REFRESH_DELTA_PATH,
     LOCAL_DERIVER_B_ED25519_YAO_REFRESH_PROMOTE_PATH,
+    LOCAL_DERIVER_B_ED25519_YAO_REFRESH_RESULT_PATH,
     LOCAL_DERIVER_B_ED25519_YAO_REFRESH_SIGNING_WORKER_PACKAGE_PATH,
-    LOCAL_DERIVER_B_ED25519_YAO_REFRESH_STAGE_PATH, LOCAL_DERIVER_B_ED25519_YAO_RESULT_PATH,
-    LOCAL_HTTP_SERVICE_BINDING_TIMEOUT_MS_V1, LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
+    LOCAL_DERIVER_B_ED25519_YAO_REFRESH_STAGE_PATH, LOCAL_HTTP_SERVICE_BINDING_TIMEOUT_MS_V1,
+    LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
     LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_DERIVER_A_PATH,
     LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_DERIVER_B_PATH,
     LOCAL_SIGNING_WORKER_ED25519_YAO_RECOVERY_PROMOTE_PATH,
@@ -63,11 +59,11 @@ use router_ab_core::{
     Ed25519YaoStateEpochV1, LocalServiceRoleV1, RouterAbProtocolError, RouterAbProtocolErrorCode,
     RouterAbProtocolResult,
 };
-use router_ab_ed25519_yao::relay::{
-    ActivationDeriverACompletion, ActivationDeriverBCompletion, ExportDeriverACompletion,
-    ExportDeriverBCompletion,
+use router_ab_ed25519_yao::relay::{ActivationDeriverACompletion, ActivationDeriverBCompletion};
+use router_ab_ed25519_yao::{
+    ActivationDeriverA, ActivationDeriverB, Ed25519YaoActivationRoleExecutionV1,
+    Ed25519YaoExportRoleExecutionV1, Ed25519YaoRoleExecutionV1, ExportDeriverB,
 };
-use router_ab_ed25519_yao::{ActivationDeriverA, ActivationDeriverB, ExportDeriverB};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -80,7 +76,7 @@ use zeroize::{Zeroize, Zeroizing};
 
 enum PendingDeriverBRoleV1 {
     Activation {
-        session: [u8; 32],
+        binding: Ed25519YaoCeremonyBindingV1,
         recipients: LocalEd25519YaoActivationRecipientsV1,
         initial_effective: Option<LocalEd25519YaoDeriverBEffectiveStateV1>,
         role: ActivationDeriverB,
@@ -93,7 +89,7 @@ enum PendingDeriverBRoleV1 {
         role: ActivationDeriverB,
     },
     Export {
-        session: [u8; 32],
+        binding: Ed25519YaoCeremonyBindingV1,
         recipient: LocalEd25519YaoExportRecipientV1,
         role: ExportDeriverB,
     },
@@ -102,7 +98,9 @@ enum PendingDeriverBRoleV1 {
 impl PendingDeriverBRoleV1 {
     fn session(&self) -> [u8; 32] {
         match self {
-            Self::Activation { session, .. } | Self::Export { session, .. } => *session,
+            Self::Activation { binding, .. } | Self::Export { binding, .. } => {
+                binding.session_id.into_bytes()
+            }
             Self::Refresh { binding, .. } => binding.ceremony().session_id.into_bytes(),
         }
     }
@@ -110,9 +108,7 @@ impl PendingDeriverBRoleV1 {
 
 enum CompletedDeriverBRoleV1 {
     Activation {
-        session: [u8; 32],
-        packages: EncryptedActivationPackagesV1,
-        completion: Box<ActivationDeriverBCompletion>,
+        execution: Ed25519YaoActivationRoleExecutionV1,
     },
     Refresh {
         binding: Ed25519YaoRefreshBindingV1,
@@ -122,29 +118,16 @@ enum CompletedDeriverBRoleV1 {
         completion: Box<ActivationDeriverBCompletion>,
     },
     Export {
-        session: [u8; 32],
-        client_package: Ed25519YaoEncryptedPackageV1,
-        completion: Box<ExportDeriverBCompletion>,
+        execution: Ed25519YaoExportRoleExecutionV1,
     },
 }
 
 enum CompletedDeriverARoleV1 {
-    Activation {
-        session: [u8; 32],
-        packages: EncryptedActivationPackagesV1,
-        completion: Box<ActivationDeriverACompletion>,
-    },
     Refresh {
         binding: Ed25519YaoRefreshBindingV1,
         binding_digest: [u8; 32],
         packages: EncryptedActivationPackagesV1,
         promotion: DeriverARefreshPromotionStateV1,
-        completion: Box<ActivationDeriverACompletion>,
-    },
-    Export {
-        session: [u8; 32],
-        client_package: Ed25519YaoEncryptedPackageV1,
-        completion: Box<ExportDeriverACompletion>,
     },
 }
 
@@ -499,6 +482,13 @@ pub enum LocalEd25519YaoRoleCompletionV1 {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "family", rename_all = "snake_case", deny_unknown_fields)]
+enum LocalEd25519YaoRoleExecutionResultRequestV1 {
+    Activation { session_id: [u8; 32] },
+    Export { session_id: [u8; 32] },
+}
+
 pub fn dispatch_local_ed25519_yao_connection_v1(
     mut stream: TcpStream,
     config: &LocalWorkerRoleConfigV1,
@@ -549,7 +539,7 @@ fn handle_yao_control_request(
             consume_deriver_b_session(state, binding.session_id.into_bytes())?;
             state.completed_deriver_b = None;
             state.pending_deriver_b = Some(PendingDeriverBRoleV1::Activation {
-                session: binding.session_id.into_bytes(),
+                binding,
                 recipients,
                 initial_effective,
                 role,
@@ -579,7 +569,7 @@ fn handle_yao_control_request(
             consume_deriver_b_session(state, binding.session_id.into_bytes())?;
             state.completed_deriver_b = None;
             state.pending_deriver_b = Some(PendingDeriverBRoleV1::Export {
-                session: binding.session_id.into_bytes(),
+                binding,
                 recipient,
                 role,
             });
@@ -696,7 +686,15 @@ fn handle_yao_control_request(
                 completion.client_package().as_bytes(),
                 completion.signing_worker_package().as_bytes(),
             )?;
-            let receipt = public_activation_a_completion(session, &completion);
+            let execution = Ed25519YaoActivationRoleExecutionV1::new(
+                binding,
+                Ed25519YaoDeriverRoleV1::DeriverA,
+                completion.final_transcript(),
+                completion.client_commitment(),
+                completion.signing_worker_commitment(),
+                packages.client,
+                packages.signing_worker,
+            )?;
             if let Some(initial_effective) = initial_effective {
                 let identity = initial_effective.identity().clone();
                 if state
@@ -710,12 +708,11 @@ fn handle_yao_control_request(
                     .into());
                 }
             }
-            state.completed_deriver_a = Some(CompletedDeriverARoleV1::Activation {
-                session,
-                packages,
-                completion: Box::new(completion),
-            });
-            write_local_dev_http_response_v1(stream, 200, &serde_json::to_string(&receipt)?)
+            write_local_dev_http_response_v1(
+                stream,
+                200,
+                &serde_json::to_string(&Ed25519YaoRoleExecutionV1::Activation(execution))?,
+            )
         }
         (
             LocalWorkerRoleConfigV1::DeriverA(config),
@@ -752,13 +749,17 @@ fn handle_yao_control_request(
                 completion.final_transcript(),
                 completion.export_package().as_bytes(),
             )?;
-            let receipt = public_export_a_completion(session, &completion);
-            state.completed_deriver_a = Some(CompletedDeriverARoleV1::Export {
-                session,
+            let execution = Ed25519YaoExportRoleExecutionV1::new(
+                binding,
+                Ed25519YaoDeriverRoleV1::DeriverA,
+                completion.final_transcript(),
                 client_package,
-                completion: Box::new(completion),
-            });
-            write_local_dev_http_response_v1(stream, 200, &serde_json::to_string(&receipt)?)
+            )?;
+            write_local_dev_http_response_v1(
+                stream,
+                200,
+                &serde_json::to_string(&Ed25519YaoRoleExecutionV1::Export(execution))?,
+            )
         }
         (
             LocalWorkerRoleConfigV1::DeriverA(config),
@@ -830,13 +831,12 @@ fn handle_yao_control_request(
                 completion.client_package().as_bytes(),
                 completion.signing_worker_package().as_bytes(),
             )?;
-            let receipt = public_activation_a_completion(session, &completion);
+            let receipt = public_refresh_a_completion(session, &completion);
             state.completed_deriver_a = Some(CompletedDeriverARoleV1::Refresh {
                 binding,
                 binding_digest,
                 packages,
                 promotion: DeriverARefreshPromotionStateV1::Prepared(prepared),
-                completion: Box::new(completion),
             });
             write_local_dev_http_response_v1(stream, 200, &serde_json::to_string(&receipt)?)
         }
@@ -858,40 +858,38 @@ fn handle_yao_control_request(
             let receipt = promote_deriver_b_refresh(state, promotion)?;
             write_local_dev_http_response_v1(stream, 200, &serde_json::to_string(&receipt)?)
         }
-        (LocalWorkerRoleConfigV1::DeriverA(_), LOCAL_DERIVER_A_ED25519_YAO_RESULT_PATH) => {
-            let receipt = state
-                .completed_deriver_a
-                .as_ref()
-                .map(public_deriver_a_completion)
-                .ok_or_else(|| io::Error::other("no completed Deriver A Yao ceremony"))?;
-            write_local_dev_http_response_v1(stream, 200, &serde_json::to_string(&receipt)?)
+        (
+            LocalWorkerRoleConfigV1::DeriverB(_),
+            path @ (LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_RESULT_PATH
+            | LOCAL_DERIVER_B_ED25519_YAO_EXPORT_RESULT_PATH),
+        ) => {
+            let result_request = serde_json::from_slice::<
+                LocalEd25519YaoRoleExecutionResultRequestV1,
+            >(&request.body)?;
+            let execution = completed_deriver_b_execution(state, path, result_request)?;
+            write_local_dev_http_response_v1(stream, 200, &serde_json::to_string(&execution)?)
         }
-        (LocalWorkerRoleConfigV1::DeriverB(_), LOCAL_DERIVER_B_ED25519_YAO_RESULT_PATH) => {
+        (LocalWorkerRoleConfigV1::DeriverB(_), LOCAL_DERIVER_B_ED25519_YAO_REFRESH_RESULT_PATH) => {
             let receipt = state
                 .completed_deriver_b
                 .as_ref()
                 .map(public_deriver_b_completion)
-                .ok_or_else(|| io::Error::other("no completed Deriver B Yao ceremony"))?;
+                .transpose()?
+                .ok_or_else(|| io::Error::other("no completed Deriver B refresh"))?;
             write_local_dev_http_response_v1(stream, 200, &serde_json::to_string(&receipt)?)
         }
         (
             LocalWorkerRoleConfigV1::DeriverA(_),
-            path @ (LOCAL_DERIVER_A_ED25519_YAO_ACTIVATION_CLIENT_PACKAGE_PATH
-            | LOCAL_DERIVER_A_ED25519_YAO_ACTIVATION_SIGNING_WORKER_PACKAGE_PATH
-            | LOCAL_DERIVER_A_ED25519_YAO_REFRESH_CLIENT_PACKAGE_PATH
-            | LOCAL_DERIVER_A_ED25519_YAO_REFRESH_SIGNING_WORKER_PACKAGE_PATH
-            | LOCAL_DERIVER_A_ED25519_YAO_EXPORT_CLIENT_PACKAGE_PATH),
+            path @ (LOCAL_DERIVER_A_ED25519_YAO_REFRESH_CLIENT_PACKAGE_PATH
+            | LOCAL_DERIVER_A_ED25519_YAO_REFRESH_SIGNING_WORKER_PACKAGE_PATH),
         ) => {
             let envelope = encrypted_deriver_a_package(state, path)?;
             write_local_dev_http_response_v1(stream, 200, &serde_json::to_string(&envelope)?)
         }
         (
             LocalWorkerRoleConfigV1::DeriverB(_),
-            path @ (LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_CLIENT_PACKAGE_PATH
-            | LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_SIGNING_WORKER_PACKAGE_PATH
-            | LOCAL_DERIVER_B_ED25519_YAO_REFRESH_CLIENT_PACKAGE_PATH
-            | LOCAL_DERIVER_B_ED25519_YAO_REFRESH_SIGNING_WORKER_PACKAGE_PATH
-            | LOCAL_DERIVER_B_ED25519_YAO_EXPORT_CLIENT_PACKAGE_PATH),
+            path @ (LOCAL_DERIVER_B_ED25519_YAO_REFRESH_CLIENT_PACKAGE_PATH
+            | LOCAL_DERIVER_B_ED25519_YAO_REFRESH_SIGNING_WORKER_PACKAGE_PATH),
         ) => {
             let envelope = encrypted_deriver_b_package(state, path)?;
             write_local_dev_http_response_v1(stream, 200, &serde_json::to_string(&envelope)?)
@@ -1044,10 +1042,7 @@ fn promote_deriver_a_refresh(
         binding_digest,
         promotion,
         ..
-    } = completed
-    else {
-        return Err(invalid_worker_state("Deriver A has no completed refresh"));
-    };
+    } = completed;
     if request.binding_digest != *binding_digest
         || request.session != binding.ceremony().session_id.into_bytes()
     {
@@ -1221,15 +1216,38 @@ fn seal_export_output_v1(
     )
 }
 
+fn completed_deriver_b_execution(
+    state: &LocalEd25519YaoWorkerStateV1,
+    path: &str,
+    request: LocalEd25519YaoRoleExecutionResultRequestV1,
+) -> Result<Ed25519YaoRoleExecutionV1, Box<dyn std::error::Error>> {
+    match (&state.completed_deriver_b, path, request) {
+        (
+            Some(CompletedDeriverBRoleV1::Activation { execution }),
+            LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_RESULT_PATH,
+            LocalEd25519YaoRoleExecutionResultRequestV1::Activation { session_id },
+        ) if execution.binding.session_id.into_bytes() == session_id => {
+            Ok(Ed25519YaoRoleExecutionV1::Activation(execution.clone()))
+        }
+        (
+            Some(CompletedDeriverBRoleV1::Export { execution }),
+            LOCAL_DERIVER_B_ED25519_YAO_EXPORT_RESULT_PATH,
+            LocalEd25519YaoRoleExecutionResultRequestV1::Export { session_id },
+        ) if execution.binding.session_id.into_bytes() == session_id => {
+            Ok(Ed25519YaoRoleExecutionV1::Export(execution.clone()))
+        }
+        _ => Err(io::Error::other(
+            "completed Deriver B execution does not match the requested family and session",
+        )
+        .into()),
+    }
+}
+
 fn encrypted_deriver_a_package(
     state: &LocalEd25519YaoWorkerStateV1,
     path: &str,
 ) -> Result<Ed25519YaoEncryptedPackageV1, Box<dyn std::error::Error>> {
     match (&state.completed_deriver_a, path) {
-        (
-            Some(CompletedDeriverARoleV1::Activation { packages, .. }),
-            LOCAL_DERIVER_A_ED25519_YAO_ACTIVATION_CLIENT_PACKAGE_PATH,
-        ) => Ok(packages.client.clone()),
         (
             Some(CompletedDeriverARoleV1::Refresh { packages, .. }),
             LOCAL_DERIVER_A_ED25519_YAO_REFRESH_CLIENT_PACKAGE_PATH,
@@ -1238,14 +1256,6 @@ fn encrypted_deriver_a_package(
             Some(CompletedDeriverARoleV1::Refresh { packages, .. }),
             LOCAL_DERIVER_A_ED25519_YAO_REFRESH_SIGNING_WORKER_PACKAGE_PATH,
         ) => Ok(packages.signing_worker.clone()),
-        (
-            Some(CompletedDeriverARoleV1::Activation { packages, .. }),
-            LOCAL_DERIVER_A_ED25519_YAO_ACTIVATION_SIGNING_WORKER_PACKAGE_PATH,
-        ) => Ok(packages.signing_worker.clone()),
-        (
-            Some(CompletedDeriverARoleV1::Export { client_package, .. }),
-            LOCAL_DERIVER_A_ED25519_YAO_EXPORT_CLIENT_PACKAGE_PATH,
-        ) => Ok(client_package.clone()),
         _ => Err(io::Error::other("requested Deriver A package is unavailable").into()),
     }
 }
@@ -1256,10 +1266,6 @@ fn encrypted_deriver_b_package(
 ) -> Result<Ed25519YaoEncryptedPackageV1, Box<dyn std::error::Error>> {
     match (&state.completed_deriver_b, path) {
         (
-            Some(CompletedDeriverBRoleV1::Activation { packages, .. }),
-            LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_CLIENT_PACKAGE_PATH,
-        ) => Ok(packages.client.clone()),
-        (
             Some(CompletedDeriverBRoleV1::Refresh { packages, .. }),
             LOCAL_DERIVER_B_ED25519_YAO_REFRESH_CLIENT_PACKAGE_PATH,
         ) => Ok(packages.client.clone()),
@@ -1267,14 +1273,6 @@ fn encrypted_deriver_b_package(
             Some(CompletedDeriverBRoleV1::Refresh { packages, .. }),
             LOCAL_DERIVER_B_ED25519_YAO_REFRESH_SIGNING_WORKER_PACKAGE_PATH,
         ) => Ok(packages.signing_worker.clone()),
-        (
-            Some(CompletedDeriverBRoleV1::Activation { packages, .. }),
-            LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_SIGNING_WORKER_PACKAGE_PATH,
-        ) => Ok(packages.signing_worker.clone()),
-        (
-            Some(CompletedDeriverBRoleV1::Export { client_package, .. }),
-            LOCAL_DERIVER_B_ED25519_YAO_EXPORT_CLIENT_PACKAGE_PATH,
-        ) => Ok(client_package.clone()),
         _ => Err(io::Error::other("requested Deriver B package is unavailable").into()),
     }
 }
@@ -1297,11 +1295,12 @@ fn handle_deriver_b_peer_stream(
         .ok_or_else(|| io::Error::other("authenticated Deriver B role disappeared"))?;
     let completed = match pending {
         PendingDeriverBRoleV1::Activation {
-            session,
+            binding,
             recipients,
             initial_effective,
             role,
         } => {
+            let session = binding.session_id.into_bytes();
             let completion =
                 run_local_activation_deriver_b_authenticated_http_v1(authenticated, role)?;
             let packages = seal_activation_output_v1(
@@ -1325,11 +1324,16 @@ fn handle_deriver_b_peer_stream(
                     .into());
                 }
             }
-            CompletedDeriverBRoleV1::Activation {
-                session,
-                packages,
-                completion: Box::new(completion),
-            }
+            let execution = Ed25519YaoActivationRoleExecutionV1::new(
+                binding,
+                Ed25519YaoDeriverRoleV1::DeriverB,
+                completion.final_transcript(),
+                completion.client_commitment(),
+                completion.signing_worker_commitment(),
+                packages.client,
+                packages.signing_worker,
+            )?;
+            CompletedDeriverBRoleV1::Activation { execution }
         }
         PendingDeriverBRoleV1::Refresh {
             binding,
@@ -1358,10 +1362,11 @@ fn handle_deriver_b_peer_stream(
             }
         }
         PendingDeriverBRoleV1::Export {
-            session,
+            binding,
             recipient,
             role,
         } => {
+            let session = binding.session_id.into_bytes();
             let completion = run_local_export_deriver_b_authenticated_http_v1(authenticated, role)?;
             let client_package = seal_export_output_v1(
                 Ed25519YaoDeriverRoleV1::DeriverB,
@@ -1370,11 +1375,13 @@ fn handle_deriver_b_peer_stream(
                 completion.final_transcript(),
                 completion.export_package().as_bytes(),
             )?;
-            CompletedDeriverBRoleV1::Export {
-                session,
+            let execution = Ed25519YaoExportRoleExecutionV1::new(
+                binding,
+                Ed25519YaoDeriverRoleV1::DeriverB,
+                completion.final_transcript(),
                 client_package,
-                completion: Box::new(completion),
-            }
+            )?;
+            CompletedDeriverBRoleV1::Export { execution }
         }
     };
     state.completed_deriver_b = Some(completed);
@@ -1417,20 +1424,15 @@ fn is_yao_control_path(path: &str) -> bool {
             | LOCAL_DERIVER_B_ED25519_YAO_REFRESH_STAGE_PATH
             | LOCAL_DERIVER_B_ED25519_YAO_REFRESH_DELTA_PATH
             | LOCAL_DERIVER_B_ED25519_YAO_REFRESH_PROMOTE_PATH
-            | LOCAL_DERIVER_B_ED25519_YAO_RESULT_PATH
+            | LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_RESULT_PATH
+            | LOCAL_DERIVER_B_ED25519_YAO_EXPORT_RESULT_PATH
+            | LOCAL_DERIVER_B_ED25519_YAO_REFRESH_RESULT_PATH
             | LOCAL_DERIVER_A_ED25519_YAO_ACTIVATION_START_PATH
             | LOCAL_DERIVER_A_ED25519_YAO_EXPORT_START_PATH
             | LOCAL_DERIVER_A_ED25519_YAO_REFRESH_START_PATH
             | LOCAL_DERIVER_A_ED25519_YAO_REFRESH_PROMOTE_PATH
-            | LOCAL_DERIVER_A_ED25519_YAO_RESULT_PATH
-            | LOCAL_DERIVER_A_ED25519_YAO_ACTIVATION_CLIENT_PACKAGE_PATH
-            | LOCAL_DERIVER_A_ED25519_YAO_ACTIVATION_SIGNING_WORKER_PACKAGE_PATH
-            | LOCAL_DERIVER_A_ED25519_YAO_EXPORT_CLIENT_PACKAGE_PATH
             | LOCAL_DERIVER_A_ED25519_YAO_REFRESH_CLIENT_PACKAGE_PATH
             | LOCAL_DERIVER_A_ED25519_YAO_REFRESH_SIGNING_WORKER_PACKAGE_PATH
-            | LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_CLIENT_PACKAGE_PATH
-            | LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_SIGNING_WORKER_PACKAGE_PATH
-            | LOCAL_DERIVER_B_ED25519_YAO_EXPORT_CLIENT_PACKAGE_PATH
             | LOCAL_DERIVER_B_ED25519_YAO_REFRESH_CLIENT_PACKAGE_PATH
             | LOCAL_DERIVER_B_ED25519_YAO_REFRESH_SIGNING_WORKER_PACKAGE_PATH
             | LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_DERIVER_A_PATH
@@ -1462,7 +1464,7 @@ fn deriver_input_private_key(
     Ok(LocalEd25519YaoRecipientPrivateKeyV1::from_bytes(bytes))
 }
 
-fn public_activation_a_completion(
+fn public_refresh_a_completion(
     session: [u8; 32],
     completion: &ActivationDeriverACompletion,
 ) -> LocalEd25519YaoRoleCompletionV1 {
@@ -1479,48 +1481,15 @@ fn public_activation_a_completion(
     }
 }
 
-fn public_export_a_completion(
-    session: [u8; 32],
-    completion: &ExportDeriverACompletion,
-) -> LocalEd25519YaoRoleCompletionV1 {
-    let wire = completion.wire_byte_ledger();
-    LocalEd25519YaoRoleCompletionV1::Export {
-        session_hex: hex::encode(session),
-        transcript_hex: hex::encode(completion.final_transcript()),
-        frame_count: completion.stream_metrics().frame_count(),
-        deriver_a_to_b_transport_bytes: wire.deriver_a_to_b_transport_bytes(),
-        deriver_b_to_a_transport_bytes: wire.deriver_b_to_a_transport_bytes(),
-        total_ab_transport_bytes: wire.total_ab_transport_bytes(),
-    }
-}
-
 fn public_deriver_b_completion(
     completion: &CompletedDeriverBRoleV1,
-) -> LocalEd25519YaoRoleCompletionV1 {
+) -> Result<LocalEd25519YaoRoleCompletionV1, Box<dyn std::error::Error>> {
     match completion {
-        CompletedDeriverBRoleV1::Activation {
-            session,
-            completion,
-            ..
-        } => LocalEd25519YaoRoleCompletionV1::Activation {
-            deriver_a_to_b_transport_bytes: completion
-                .wire_byte_ledger()
-                .deriver_a_to_b_transport_bytes(),
-            deriver_b_to_a_transport_bytes: completion
-                .wire_byte_ledger()
-                .deriver_b_to_a_transport_bytes(),
-            total_ab_transport_bytes: completion.wire_byte_ledger().total_ab_transport_bytes(),
-            session_hex: hex::encode(session),
-            transcript_hex: hex::encode(completion.final_transcript()),
-            client_commitment_hex: hex::encode(completion.client_commitment()),
-            signing_worker_commitment_hex: hex::encode(completion.signing_worker_commitment()),
-            frame_count: completion.stream_metrics().frame_count(),
-        },
         CompletedDeriverBRoleV1::Refresh {
             binding,
             completion,
             ..
-        } => LocalEd25519YaoRoleCompletionV1::Activation {
+        } => Ok(LocalEd25519YaoRoleCompletionV1::Activation {
             deriver_a_to_b_transport_bytes: completion
                 .wire_byte_ledger()
                 .deriver_a_to_b_transport_bytes(),
@@ -1533,45 +1502,10 @@ fn public_deriver_b_completion(
             client_commitment_hex: hex::encode(completion.client_commitment()),
             signing_worker_commitment_hex: hex::encode(completion.signing_worker_commitment()),
             frame_count: completion.stream_metrics().frame_count(),
-        },
-        CompletedDeriverBRoleV1::Export {
-            session,
-            completion,
-            ..
-        } => LocalEd25519YaoRoleCompletionV1::Export {
-            deriver_a_to_b_transport_bytes: completion
-                .wire_byte_ledger()
-                .deriver_a_to_b_transport_bytes(),
-            deriver_b_to_a_transport_bytes: completion
-                .wire_byte_ledger()
-                .deriver_b_to_a_transport_bytes(),
-            total_ab_transport_bytes: completion.wire_byte_ledger().total_ab_transport_bytes(),
-            session_hex: hex::encode(session),
-            transcript_hex: hex::encode(completion.final_transcript()),
-            frame_count: completion.stream_metrics().frame_count(),
-        },
-    }
-}
-
-fn public_deriver_a_completion(
-    completion: &CompletedDeriverARoleV1,
-) -> LocalEd25519YaoRoleCompletionV1 {
-    match completion {
-        CompletedDeriverARoleV1::Activation {
-            session,
-            completion,
-            ..
-        } => public_activation_a_completion(*session, completion),
-        CompletedDeriverARoleV1::Refresh {
-            binding,
-            completion,
-            ..
-        } => public_activation_a_completion(binding.ceremony().session_id.into_bytes(), completion),
-        CompletedDeriverARoleV1::Export {
-            session,
-            completion,
-            ..
-        } => public_export_a_completion(*session, completion),
+        }),
+        CompletedDeriverBRoleV1::Activation { .. } | CompletedDeriverBRoleV1::Export { .. } => {
+            Err(io::Error::other("completed Deriver B role is not a refresh").into())
+        }
     }
 }
 

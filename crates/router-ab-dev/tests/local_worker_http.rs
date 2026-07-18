@@ -1,11 +1,18 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use router_ab_cloudflare::{
+    CloudflareRouterAuthContextV1, CloudflareRouterNormalSigningPrepareAdmissionCandidateV2,
+    CloudflareRouterNormalSigningTrustedAdmissionV1,
+    CloudflareRouterNormalSigningTrustedMetadataV1,
+    CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2,
+    CloudflareSigningWorkerAdmittedNormalSigningPrepareRequestV2,
+};
 use router_ab_core::{
     router_ab_ed25519_nep413_canonical_message_b64u_v2, Ed25519YaoEpochTransitionV1,
     Ed25519YaoRefreshBindingV1, Ed25519YaoRefreshEpochsV1, Ed25519YaoSessionIdV1,
-    Ed25519YaoStateEpochV1, LocalHttpPathV1, LocalServiceRoleV1,
+    Ed25519YaoStateEpochV1, ExpensiveWorkGateDecisionV1, LocalHttpPathV1, LocalServiceRoleV1,
     NormalSigningEd25519TwoPartyFrostCommitmentsV1, NormalSigningResponseV1,
-    NormalSigningRound1PrepareResponseV1, NormalSigningScopeV1, RootShareEpoch,
+    NormalSigningRound1PrepareResponseV1, NormalSigningScopeV1, PublicDigest32, RootShareEpoch,
     RouterAbEd25519NormalSigningFinalizeProtocolV2, RouterAbEd25519NormalSigningFinalizeRequestV2,
     RouterAbEd25519NormalSigningIntentV2, RouterAbEd25519NormalSigningPrepareBindingV2,
     RouterAbEd25519NormalSigningPrepareRequestV2, RouterAbEd25519SigningPayloadV2,
@@ -39,25 +46,21 @@ use router_ab_dev::{
     LocalEd25519YaoSigningWorkerRefreshReceiptV1, LocalHttpServiceBindingClientV1,
     RouterAbEd25519YaoApplicationBindingFactsV1, RouterAbEd25519YaoLifecycleScopeV1,
     RouterAbEd25519YaoRegistrationAdmissionRequestV1,
-    LOCAL_DERIVER_A_ED25519_YAO_ACTIVATION_CLIENT_PACKAGE_PATH,
-    LOCAL_DERIVER_A_ED25519_YAO_ACTIVATION_SIGNING_WORKER_PACKAGE_PATH,
     LOCAL_DERIVER_A_ED25519_YAO_ACTIVATION_START_PATH,
-    LOCAL_DERIVER_A_ED25519_YAO_EXPORT_CLIENT_PACKAGE_PATH,
     LOCAL_DERIVER_A_ED25519_YAO_EXPORT_START_PATH,
     LOCAL_DERIVER_A_ED25519_YAO_REFRESH_CLIENT_PACKAGE_PATH,
     LOCAL_DERIVER_A_ED25519_YAO_REFRESH_PROMOTE_PATH,
     LOCAL_DERIVER_A_ED25519_YAO_REFRESH_SIGNING_WORKER_PACKAGE_PATH,
     LOCAL_DERIVER_A_ED25519_YAO_REFRESH_START_PATH,
-    LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_CLIENT_PACKAGE_PATH,
-    LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_SIGNING_WORKER_PACKAGE_PATH,
+    LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_RESULT_PATH,
     LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_STAGE_PATH,
-    LOCAL_DERIVER_B_ED25519_YAO_EXPORT_CLIENT_PACKAGE_PATH,
-    LOCAL_DERIVER_B_ED25519_YAO_EXPORT_STAGE_PATH, LOCAL_DERIVER_B_ED25519_YAO_PEER_PATH,
-    LOCAL_DERIVER_B_ED25519_YAO_REFRESH_CLIENT_PACKAGE_PATH,
+    LOCAL_DERIVER_B_ED25519_YAO_EXPORT_RESULT_PATH, LOCAL_DERIVER_B_ED25519_YAO_EXPORT_STAGE_PATH,
+    LOCAL_DERIVER_B_ED25519_YAO_PEER_PATH, LOCAL_DERIVER_B_ED25519_YAO_REFRESH_CLIENT_PACKAGE_PATH,
     LOCAL_DERIVER_B_ED25519_YAO_REFRESH_DELTA_PATH,
     LOCAL_DERIVER_B_ED25519_YAO_REFRESH_PROMOTE_PATH,
+    LOCAL_DERIVER_B_ED25519_YAO_REFRESH_RESULT_PATH,
     LOCAL_DERIVER_B_ED25519_YAO_REFRESH_SIGNING_WORKER_PACKAGE_PATH,
-    LOCAL_DERIVER_B_ED25519_YAO_REFRESH_STAGE_PATH, LOCAL_DERIVER_B_ED25519_YAO_RESULT_PATH,
+    LOCAL_DERIVER_B_ED25519_YAO_REFRESH_STAGE_PATH,
     LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_DEFAULT_SECRET_V1,
     LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
     LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_DERIVER_A_PATH,
@@ -74,6 +77,9 @@ use router_ab_ed25519_yao::relay::{
     derive_registration_receipt, ActivationDeriverAClientPackage, ActivationDeriverBClientPackage,
     ActivationPublicCommitments, ActivationPublicReceipt, ExportDeriverAClientPackage,
     ExportDeriverBClientPackage,
+};
+use router_ab_ed25519_yao::{
+    Ed25519YaoActivationRoleExecutionV1, Ed25519YaoExportRoleExecutionV1, Ed25519YaoRoleExecutionV1,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -116,6 +122,82 @@ fn signer_commitments_wire(
         hiding: commitments.hiding.clone(),
         binding: commitments.binding.clone(),
     }
+}
+
+fn local_normal_signing_trusted_admission(
+    scope: &NormalSigningScopeV1,
+    intent_digest: PublicDigest32,
+    trusted_source_digest: PublicDigest32,
+) -> Result<CloudflareRouterNormalSigningTrustedAdmissionV1, Box<dyn std::error::Error>> {
+    let metadata = CloudflareRouterNormalSigningTrustedMetadataV1::new(
+        "local-org",
+        "local-project",
+        "local",
+        scope.account_id.clone(),
+        CloudflareRouterAuthContextV1::authenticated_session(
+            scope.account_id.clone(),
+            scope.session_id.clone(),
+        )?,
+        trusted_source_digest,
+        intent_digest,
+    )?;
+    Ok(CloudflareRouterNormalSigningTrustedAdmissionV1::new(
+        metadata,
+        ExpensiveWorkGateDecisionV1::accepted(scope.request_id.clone())?,
+    )?)
+}
+
+fn local_admitted_normal_signing_prepare(
+    request: &RouterAbEd25519NormalSigningPrepareRequestV2,
+) -> Result<CloudflareSigningWorkerAdmittedNormalSigningPrepareRequestV2, Box<dyn std::error::Error>>
+{
+    let material = request.admission_material()?;
+    let trusted_source_digest = PublicDigest32::new([0x41; 32]);
+    let candidate = CloudflareRouterNormalSigningPrepareAdmissionCandidateV2::new(
+        "local-org",
+        "local-project",
+        "local",
+        request.scope.account_id.clone(),
+        request.scope.account_id.clone(),
+        request.scope.session_id.clone(),
+        request.scope.signing_worker_id.clone(),
+        request.scope.request_id.clone(),
+        material.intent_digest,
+        material.signing_payload_digest,
+        material.admitted_signing_digest,
+        Some(request.round1_binding_digest()?),
+        trusted_source_digest,
+        request.expires_at_ms,
+    )?;
+    let trusted_admission = CloudflareRouterNormalSigningTrustedAdmissionV1::new(
+        candidate.to_v1_trusted_metadata()?,
+        ExpensiveWorkGateDecisionV1::accepted(request.scope.request_id.clone())?,
+    )?;
+    Ok(
+        CloudflareSigningWorkerAdmittedNormalSigningPrepareRequestV2::new(
+            request.scope.clone(),
+            request.expires_at_ms,
+            candidate,
+            trusted_admission,
+        )?,
+    )
+}
+
+fn local_admitted_normal_signing_finalize(
+    request: &RouterAbEd25519NormalSigningFinalizeRequestV2,
+) -> Result<CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2, Box<dyn std::error::Error>>
+{
+    let trusted_admission = local_normal_signing_trusted_admission(
+        &request.scope,
+        request.intent_digest(),
+        PublicDigest32::new([0x41; 32]),
+    )?;
+    Ok(
+        CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2::new(
+            request.clone(),
+            trusted_admission,
+        )?,
+    )
 }
 
 fn router_ab_dev_local_service_http_source() -> String {
@@ -262,17 +344,32 @@ fn local_router_ab_ecdsa_derivation_pool_lifecycle_store_lives_outside_monolith(
     let lib_source = router_ab_dev_source();
     let helper_source = router_ab_dev_local_router_ab_ecdsa_derivation_pool_store_source();
     for expected in [
-        "enum LocalSigningWorkerRouterAbEcdsaDerivationPresignaturePoolLifecycleV1",
-        "pub(crate) fn local_signing_worker_router_ab_ecdsa_derivation_presignature_pool_store_put_v1",
-        "pub(crate) fn local_signing_worker_router_ab_ecdsa_derivation_presignature_pool_store_take_v1",
+        "CloudflareSigningWorkerEcdsaPoolLifecycleRecordV1",
+        "pub(crate) fn local_signing_worker_ecdsa_pool_mutate_v1",
+        "apply_cloudflare_signing_worker_ecdsa_pool_command_v1",
     ] {
         assert!(
             helper_source.contains(expected),
             "local Router A/B ECDSA derivation pool-store module should own {expected}"
         );
+    }
+    for helper_only in [
+        "pub(crate) fn local_signing_worker_ecdsa_pool_mutate_v1",
+        "apply_cloudflare_signing_worker_ecdsa_pool_command_v1",
+    ] {
         assert!(
-            !lib_source.contains(expected),
-            "router-ab-dev lib.rs should not own {expected}"
+            !lib_source.contains(helper_only),
+            "router-ab-dev lib.rs should not own {helper_only}"
+        );
+    }
+    for obsolete in [
+        "LocalSigningWorkerRouterAbEcdsaDerivationPresignaturePoolLifecycleV1",
+        "local_signing_worker_router_ab_ecdsa_derivation_presignature_pool_store_put_v1",
+        "local_signing_worker_router_ab_ecdsa_derivation_presignature_pool_store_take_v1",
+    ] {
+        assert!(
+            !lib_source.contains(obsolete) && !helper_source.contains(obsolete),
+            "obsolete delete-based local ECDSA pool symbol must remain deleted: {obsolete}"
         );
     }
 }
@@ -659,19 +756,15 @@ fn run_local_activation_process_v1(
     )?;
     assert_eq!(stage_status, 200);
     if context.mode.exercises_faults() {
+        let result_request = serde_json::json!({
+            "family": "activation",
+            "session_id": context.request_b.binding.session_id.into_bytes(),
+        });
         assert_eq!(
-            get_path_with_headers(
+            post_json_to_path_with_headers(
                 context.deriver_b_url,
-                LOCAL_DERIVER_B_ED25519_YAO_RESULT_PATH,
-                &auth_headers,
-            )?
-            .0,
-            400
-        );
-        assert_eq!(
-            get_path_with_headers(
-                context.deriver_b_url,
-                LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_CLIENT_PACKAGE_PATH,
+                LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_RESULT_PATH,
+                &result_request,
                 &auth_headers,
             )?
             .0,
@@ -685,40 +778,26 @@ fn run_local_activation_process_v1(
         &auth_headers,
     )?;
     assert_eq!(a_status, 200);
-    let (b_status, b_body) = get_path_with_headers(
+    let result_request = serde_json::json!({
+        "family": "activation",
+        "session_id": context.request_b.binding.session_id.into_bytes(),
+    });
+    let (b_status, b_body) = post_json_to_path_with_headers(
         context.deriver_b_url,
-        LOCAL_DERIVER_B_ED25519_YAO_RESULT_PATH,
+        LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_RESULT_PATH,
+        &result_request,
         &auth_headers,
     )?;
     assert_eq!(b_status, 200);
-    assert_typed_completion_pair(&a_body, &b_body)?;
-    let a_receipt: serde_json::Value = serde_json::from_str(&a_body)?;
-    let b_receipt: serde_json::Value = serde_json::from_str(&b_body)?;
-    assert_eq!(a_receipt["family"], "activation");
-    assert_eq!(a_receipt["frame_count"], 17);
-    assert_eq!(a_receipt["transcript_hex"], b_receipt["transcript_hex"]);
-    assert_exact_wire_ledger(&a_receipt, &b_receipt, 2_185_420, 37_164, 2_222_584);
-
-    let a_client_envelope = get_encrypted_package(
-        context.deriver_a_url,
-        LOCAL_DERIVER_A_ED25519_YAO_ACTIVATION_CLIENT_PACKAGE_PATH,
-        &auth_headers,
-    )?;
-    let b_client_envelope = get_encrypted_package(
-        context.deriver_b_url,
-        LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_CLIENT_PACKAGE_PATH,
-        &auth_headers,
-    )?;
-    let a_worker_envelope = get_encrypted_package(
-        context.deriver_a_url,
-        LOCAL_DERIVER_A_ED25519_YAO_ACTIVATION_SIGNING_WORKER_PACKAGE_PATH,
-        &auth_headers,
-    )?;
-    let b_worker_envelope = get_encrypted_package(
-        context.deriver_b_url,
-        LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_SIGNING_WORKER_PACKAGE_PATH,
-        &auth_headers,
-    )?;
+    let a_execution = activation_execution_from_json(&a_body, Ed25519YaoDeriverRoleV1::DeriverA)?;
+    let b_execution = activation_execution_from_json(&b_body, Ed25519YaoDeriverRoleV1::DeriverB)?;
+    assert_eq!(a_execution.binding, context.request_a.binding);
+    assert_eq!(b_execution.binding, context.request_b.binding);
+    assert_eq!(a_execution.transcript, b_execution.transcript);
+    let a_client_envelope = a_execution.client_package.clone();
+    let b_client_envelope = b_execution.client_package.clone();
+    let a_worker_envelope = a_execution.signing_worker_package.clone();
+    let b_worker_envelope = b_execution.signing_worker_package.clone();
     if context.mode.exercises_faults() {
         assert!(open_local_ed25519_yao_client_package_v1(
             &a_client_envelope,
@@ -731,16 +810,18 @@ fn run_local_activation_process_v1(
         )
         .is_err());
         assert_eq!(
-            a_client_envelope,
-            get_encrypted_package(
-                context.deriver_a_url,
-                LOCAL_DERIVER_A_ED25519_YAO_ACTIVATION_CLIENT_PACKAGE_PATH,
+            b_body,
+            post_json_to_path_with_headers(
+                context.deriver_b_url,
+                LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_RESULT_PATH,
+                &result_request,
                 &auth_headers,
             )?
+            .1
         );
     }
     let activation_session = context.request_a.binding.session_id.into_bytes();
-    let activation_transcript = json_hex_32(&a_receipt, "transcript_hex")?;
+    let activation_transcript = a_execution.transcript;
     let mut a_client_plaintext = open_local_ed25519_yao_client_package_v1(
         &a_client_envelope,
         &context.client_recipient.private_key,
@@ -764,14 +845,14 @@ fn run_local_activation_process_v1(
     );
     let a_delivery = LocalEd25519YaoSigningWorkerPackageDeliveryV1 {
         binding: context.request_a.binding.clone(),
-        client_commitment: json_hex_32(&a_receipt, "client_commitment_hex")?,
-        signing_worker_commitment: json_hex_32(&a_receipt, "signing_worker_commitment_hex")?,
+        client_commitment: a_execution.client_commitment,
+        signing_worker_commitment: a_execution.signing_worker_commitment,
         package: a_worker_envelope,
     };
     let b_delivery = LocalEd25519YaoSigningWorkerPackageDeliveryV1 {
         binding: context.request_b.binding.clone(),
-        client_commitment: json_hex_32(&b_receipt, "client_commitment_hex")?,
-        signing_worker_commitment: json_hex_32(&b_receipt, "signing_worker_commitment_hex")?,
+        client_commitment: b_execution.client_commitment,
+        signing_worker_commitment: b_execution.signing_worker_commitment,
         package: b_worker_envelope,
     };
     let (delivery_status, delivery_body) = post_json_to_path_with_headers(
@@ -860,10 +941,10 @@ fn run_local_activation_process_v1(
             }
         };
     let commitments = ActivationPublicCommitments::new(
-        json_hex_32(&a_receipt, "client_commitment_hex")?,
-        json_hex_32(&b_receipt, "client_commitment_hex")?,
-        json_hex_32(&a_receipt, "signing_worker_commitment_hex")?,
-        json_hex_32(&b_receipt, "signing_worker_commitment_hex")?,
+        a_execution.client_commitment,
+        b_execution.client_commitment,
+        a_execution.signing_worker_commitment,
+        b_execution.signing_worker_commitment,
     );
     let public_receipt = derive_registration_receipt(commitments)?;
     let derived_public_key = compute_threshold_ed25519_group_public_key_2p_from_verifying_shares(
@@ -943,7 +1024,7 @@ fn run_local_refresh_process_v1(
         assert_eq!(
             get_path_with_headers(
                 context.deriver_b_url,
-                LOCAL_DERIVER_B_ED25519_YAO_RESULT_PATH,
+                LOCAL_DERIVER_B_ED25519_YAO_REFRESH_RESULT_PATH,
                 &auth_headers,
             )?
             .0,
@@ -968,7 +1049,7 @@ fn run_local_refresh_process_v1(
     assert_eq!(a_status, 200, "{a_body}");
     let (b_status, b_body) = get_path_with_headers(
         context.deriver_b_url,
-        LOCAL_DERIVER_B_ED25519_YAO_RESULT_PATH,
+        LOCAL_DERIVER_B_ED25519_YAO_REFRESH_RESULT_PATH,
         &auth_headers,
     )?;
     assert_eq!(b_status, 200);
@@ -1551,19 +1632,15 @@ fn run_local_ed25519_yao_lifecycle(
     )?;
     assert_eq!(stage_status, 200);
     if mode.exercises_faults() {
+        let result_request = serde_json::json!({
+            "family": "activation",
+            "session_id": activation_session,
+        });
         assert_eq!(
-            get_path_with_headers(
+            post_json_to_path_with_headers(
                 &deriver_b_url,
-                LOCAL_DERIVER_B_ED25519_YAO_RESULT_PATH,
-                &auth_headers,
-            )?
-            .0,
-            400
-        );
-        assert_eq!(
-            get_path_with_headers(
-                &deriver_b_url,
-                LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_CLIENT_PACKAGE_PATH,
+                LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_RESULT_PATH,
+                &result_request,
                 &auth_headers,
             )?
             .0,
@@ -1592,41 +1669,39 @@ fn run_local_ed25519_yao_lifecycle(
         &auth_headers,
     )?;
     assert_eq!(a_status, 200);
-    let (b_status, b_body) = get_path_with_headers(
+    let result_request = serde_json::json!({
+        "family": "activation",
+        "session_id": activation_session,
+    });
+    let (b_status, b_body) = post_json_to_path_with_headers(
         &deriver_b_url,
-        LOCAL_DERIVER_B_ED25519_YAO_RESULT_PATH,
+        LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_RESULT_PATH,
+        &result_request,
         &auth_headers,
     )?;
     assert_eq!(b_status, 200);
-    assert_typed_completion_pair(&a_body, &b_body)?;
-    let a_receipt: serde_json::Value = serde_json::from_str(&a_body)?;
-    let b_receipt: serde_json::Value = serde_json::from_str(&b_body)?;
-    assert_eq!(a_receipt["family"], "activation");
-    assert_eq!(a_receipt["frame_count"], 17);
-    assert_eq!(a_receipt["transcript_hex"], b_receipt["transcript_hex"]);
-    assert_exact_wire_ledger(&a_receipt, &b_receipt, 2_185_420, 37_164, 2_222_584);
-
-    let a_client_envelope = get_encrypted_package(
-        &deriver_a_url,
-        LOCAL_DERIVER_A_ED25519_YAO_ACTIVATION_CLIENT_PACKAGE_PATH,
-        &auth_headers,
-    )?;
-    let b_client_envelope = get_encrypted_package(
-        &deriver_b_url,
-        LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_CLIENT_PACKAGE_PATH,
-        &auth_headers,
-    )?;
-    let a_worker_envelope = get_encrypted_package(
-        &deriver_a_url,
-        LOCAL_DERIVER_A_ED25519_YAO_ACTIVATION_SIGNING_WORKER_PACKAGE_PATH,
-        &auth_headers,
-    )?;
-    let b_worker_envelope = get_encrypted_package(
-        &deriver_b_url,
-        LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_SIGNING_WORKER_PACKAGE_PATH,
-        &auth_headers,
-    )?;
-    let activation_transcript = json_hex_32(&a_receipt, "transcript_hex")?;
+    let a_execution = activation_execution_from_json(&a_body, Ed25519YaoDeriverRoleV1::DeriverA)?;
+    let b_execution = activation_execution_from_json(&b_body, Ed25519YaoDeriverRoleV1::DeriverB)?;
+    assert_eq!(a_execution.binding, request_a.binding);
+    assert_eq!(b_execution.binding, request_b.binding);
+    assert_eq!(a_execution.transcript, b_execution.transcript);
+    let a_client_envelope = a_execution.client_package.clone();
+    let b_client_envelope = b_execution.client_package.clone();
+    let a_worker_envelope = a_execution.signing_worker_package.clone();
+    let b_worker_envelope = b_execution.signing_worker_package.clone();
+    if mode.exercises_faults() {
+        assert_eq!(
+            b_body,
+            post_json_to_path_with_headers(
+                &deriver_b_url,
+                LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_RESULT_PATH,
+                &result_request,
+                &auth_headers,
+            )?
+            .1
+        );
+    }
+    let activation_transcript = a_execution.transcript;
     let mut a_client_plaintext = open_local_ed25519_yao_client_package_v1(
         &a_client_envelope,
         &client_recipient.private_key,
@@ -1650,14 +1725,14 @@ fn run_local_ed25519_yao_lifecycle(
     );
     let a_delivery = LocalEd25519YaoSigningWorkerPackageDeliveryV1 {
         binding: request_a.binding.clone(),
-        client_commitment: json_hex_32(&a_receipt, "client_commitment_hex")?,
-        signing_worker_commitment: json_hex_32(&a_receipt, "signing_worker_commitment_hex")?,
+        client_commitment: a_execution.client_commitment,
+        signing_worker_commitment: a_execution.signing_worker_commitment,
         package: a_worker_envelope,
     };
     let b_delivery = LocalEd25519YaoSigningWorkerPackageDeliveryV1 {
         binding: request_b.binding.clone(),
-        client_commitment: json_hex_32(&b_receipt, "client_commitment_hex")?,
-        signing_worker_commitment: json_hex_32(&b_receipt, "signing_worker_commitment_hex")?,
+        client_commitment: b_execution.client_commitment,
+        signing_worker_commitment: b_execution.signing_worker_commitment,
         package: b_worker_envelope,
     };
     let (delivery_status, delivery_body) = post_json_to_path_with_headers(
@@ -1699,10 +1774,10 @@ fn run_local_ed25519_yao_lifecycle(
         assert!(replay_body.contains("already has an active Yao signing share"));
     }
     let commitments = ActivationPublicCommitments::new(
-        json_hex_32(&a_receipt, "client_commitment_hex")?,
-        json_hex_32(&b_receipt, "client_commitment_hex")?,
-        json_hex_32(&a_receipt, "signing_worker_commitment_hex")?,
-        json_hex_32(&b_receipt, "signing_worker_commitment_hex")?,
+        a_execution.client_commitment,
+        b_execution.client_commitment,
+        a_execution.signing_worker_commitment,
+        b_execution.signing_worker_commitment,
     );
     let registration_receipt = derive_registration_receipt(commitments)?;
     let derived_public_key = compute_threshold_ed25519_group_public_key_2p_from_verifying_shares(
@@ -2081,19 +2156,15 @@ fn run_local_ed25519_yao_lifecycle(
     )?;
     assert_eq!(stage_status, 200);
     if mode.exercises_faults() {
+        let result_request = serde_json::json!({
+            "family": "export",
+            "session_id": export_session,
+        });
         assert_eq!(
-            get_path_with_headers(
+            post_json_to_path_with_headers(
                 &deriver_b_url,
-                LOCAL_DERIVER_B_ED25519_YAO_RESULT_PATH,
-                &auth_headers,
-            )?
-            .0,
-            400
-        );
-        assert_eq!(
-            get_path_with_headers(
-                &deriver_b_url,
-                LOCAL_DERIVER_B_ED25519_YAO_EXPORT_CLIENT_PACKAGE_PATH,
+                LOCAL_DERIVER_B_ED25519_YAO_EXPORT_RESULT_PATH,
+                &result_request,
                 &auth_headers,
             )?
             .0,
@@ -2107,41 +2178,37 @@ fn run_local_ed25519_yao_lifecycle(
         &auth_headers,
     )?;
     assert_eq!(a_status, 200);
-    let (b_status, b_body) = get_path_with_headers(
+    let result_request = serde_json::json!({
+        "family": "export",
+        "session_id": export_session,
+    });
+    let (b_status, b_body) = post_json_to_path_with_headers(
         &deriver_b_url,
-        LOCAL_DERIVER_B_ED25519_YAO_RESULT_PATH,
+        LOCAL_DERIVER_B_ED25519_YAO_EXPORT_RESULT_PATH,
+        &result_request,
         &auth_headers,
     )?;
     assert_eq!(b_status, 200);
-    assert_typed_completion_pair(&a_body, &b_body)?;
-    let a_receipt: serde_json::Value = serde_json::from_str(&a_body)?;
-    let b_receipt: serde_json::Value = serde_json::from_str(&b_body)?;
-    assert_eq!(a_receipt["family"], "export");
-    assert_eq!(a_receipt["frame_count"], 1);
-    assert_eq!(a_receipt["transcript_hex"], b_receipt["transcript_hex"]);
-    assert_exact_wire_ledger(&a_receipt, &b_receipt, 82_636, 20_780, 103_416);
-
-    let a_export_envelope = get_encrypted_package(
-        &deriver_a_url,
-        LOCAL_DERIVER_A_ED25519_YAO_EXPORT_CLIENT_PACKAGE_PATH,
-        &auth_headers,
-    )?;
-    let b_export_envelope = get_encrypted_package(
-        &deriver_b_url,
-        LOCAL_DERIVER_B_ED25519_YAO_EXPORT_CLIENT_PACKAGE_PATH,
-        &auth_headers,
-    )?;
+    let a_execution = export_execution_from_json(&a_body, Ed25519YaoDeriverRoleV1::DeriverA)?;
+    let b_execution = export_execution_from_json(&b_body, Ed25519YaoDeriverRoleV1::DeriverB)?;
+    assert_eq!(a_execution.binding, export_a.binding);
+    assert_eq!(b_execution.binding, export_b.binding);
+    assert_eq!(a_execution.transcript, b_execution.transcript);
+    let a_export_envelope = a_execution.client_package.clone();
+    let b_export_envelope = b_execution.client_package.clone();
     if mode.exercises_faults() {
         assert_eq!(
-            a_export_envelope,
-            get_encrypted_package(
-                &deriver_a_url,
-                LOCAL_DERIVER_A_ED25519_YAO_EXPORT_CLIENT_PACKAGE_PATH,
+            b_body,
+            post_json_to_path_with_headers(
+                &deriver_b_url,
+                LOCAL_DERIVER_B_ED25519_YAO_EXPORT_RESULT_PATH,
+                &result_request,
                 &auth_headers,
             )?
+            .1
         );
     }
-    let export_transcript = json_hex_32(&a_receipt, "transcript_hex")?;
+    let export_transcript = a_execution.transcript;
     let mut a_export_plaintext = open_local_ed25519_yao_client_package_v1(
         &a_export_envelope,
         &client_recipient.private_key,
@@ -2220,10 +2287,7 @@ fn run_local_ed25519_yao_lifecycle(
     if mode.exercises_faults() {
         let mut stale_prepare_request = prepare_request.clone();
         stale_prepare_request.scope.session_id = "wallet-session-before-refresh".to_owned();
-        let stale_private_request = serde_json::json!({
-            "kind": "router_ab_ed25519_signing_worker_active_state_request_v1",
-            "request": stale_prepare_request,
-        });
+        let stale_private_request = local_admitted_normal_signing_prepare(&stale_prepare_request)?;
         let (stale_status, stale_body) = post_json_to_path_with_headers(
             &signing_worker_url,
             LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH,
@@ -2233,10 +2297,7 @@ fn run_local_ed25519_yao_lifecycle(
         assert_eq!(stale_status, 400);
         assert!(stale_body.contains("normal-signing scope does not match active Yao lifecycle"));
     }
-    let private_prepare_request = serde_json::json!({
-        "kind": "router_ab_ed25519_signing_worker_active_state_request_v1",
-        "request": prepare_request,
-    });
+    let private_prepare_request = local_admitted_normal_signing_prepare(&prepare_request)?;
     let (prepare_status, prepare_body) = post_json_to_path_with_headers(
         &signing_worker_url,
         LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH,
@@ -2296,10 +2357,7 @@ fn run_local_ed25519_yao_lifecycle(
             )?,
         ),
     )?;
-    let private_finalize_request = serde_json::json!({
-        "kind": "router_ab_ed25519_signing_worker_active_state_request_v1",
-        "request": finalize_request,
-    });
+    let private_finalize_request = local_admitted_normal_signing_finalize(&finalize_request)?;
     let (sign_status, sign_body) = post_json_to_path_with_headers(
         &signing_worker_url,
         LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH,
@@ -2439,8 +2497,8 @@ fn write_deriver_envs_to_roots(
         };
         let contents = file
             .contents
-            .replace("http://127.0.0.1:9091", deriver_a_url)
-            .replace("http://127.0.0.1:9092", deriver_b_url);
+            .replace("http://127.0.0.1:9101", deriver_a_url)
+            .replace("http://127.0.0.1:9102", deriver_b_url);
         fs::write(root.join(file.path), contents)?;
     }
     Ok(())
@@ -2459,7 +2517,7 @@ fn write_signing_worker_env(
         }
         let contents = file
             .contents
-            .replace("http://127.0.0.1:9093", signing_worker_url);
+            .replace("http://127.0.0.1:9103", signing_worker_url);
         fs::write(root.join(file.path), contents)?;
     }
     Ok(())
@@ -2614,6 +2672,46 @@ fn get_encrypted_package(
         return Err(format!("encrypted package route {path} returned {status}").into());
     }
     Ok(serde_json::from_str(&body)?)
+}
+
+fn activation_execution_from_json(
+    body: &str,
+    expected_deriver: Ed25519YaoDeriverRoleV1,
+) -> Result<Ed25519YaoActivationRoleExecutionV1, Box<dyn std::error::Error>> {
+    let execution: Ed25519YaoRoleExecutionV1 = serde_json::from_str(body)?;
+    execution.validate()?;
+    match execution {
+        Ed25519YaoRoleExecutionV1::Activation(execution)
+            if execution.deriver == expected_deriver =>
+        {
+            Ok(execution)
+        }
+        Ed25519YaoRoleExecutionV1::Activation(_) => {
+            Err("activation execution used the wrong Deriver role".into())
+        }
+        Ed25519YaoRoleExecutionV1::Export(_) => {
+            Err("activation result returned an export execution".into())
+        }
+    }
+}
+
+fn export_execution_from_json(
+    body: &str,
+    expected_deriver: Ed25519YaoDeriverRoleV1,
+) -> Result<Ed25519YaoExportRoleExecutionV1, Box<dyn std::error::Error>> {
+    let execution: Ed25519YaoRoleExecutionV1 = serde_json::from_str(body)?;
+    execution.validate()?;
+    match execution {
+        Ed25519YaoRoleExecutionV1::Export(execution) if execution.deriver == expected_deriver => {
+            Ok(execution)
+        }
+        Ed25519YaoRoleExecutionV1::Export(_) => {
+            Err("export execution used the wrong Deriver role".into())
+        }
+        Ed25519YaoRoleExecutionV1::Activation(_) => {
+            Err("export result returned an activation execution".into())
+        }
+    }
 }
 
 fn json_hex_32(

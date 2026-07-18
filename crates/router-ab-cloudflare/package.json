@@ -4,10 +4,10 @@
   "type": "module",
   "scripts": {
     "worker-build:install": "cargo install -q worker-build --version 0.8.4",
-    "build:router": "worker-build --release --out-dir build/router --features strict-worker-router-entrypoint",
-    "build:deriver-a": "worker-build --release --out-dir build/deriver-a --features strict-worker-deriver-a-entrypoint",
-    "build:deriver-b": "worker-build --release --out-dir build/deriver-b --features strict-worker-deriver-b-entrypoint",
-    "build:signing-worker": "worker-build --release --out-dir build/signing-worker --features strict-worker-signing-worker-entrypoint",
+    "build:router": "bash ./scripts/build-strict-worker.sh router",
+    "build:deriver-a": "bash ./scripts/build-strict-worker.sh deriver-a",
+    "build:deriver-b": "bash ./scripts/build-strict-worker.sh deriver-b",
+    "build:signing-worker": "bash ./scripts/build-strict-worker.sh signing-worker",
     "dry-run:router": "wrangler deploy --dry-run --config wrangler.router.toml --outdir bundled/router --metafile bundled/router/metafile.json",
     "dry-run:deriver-a": "wrangler deploy --dry-run --config wrangler.deriver-a.toml --outdir bundled/deriver-a --metafile bundled/deriver-a/metafile.json",
     "dry-run:deriver-b": "wrangler deploy --dry-run --config wrangler.deriver-b.toml --outdir bundled/deriver-b --metafile bundled/deriver-b/metafile.json",
@@ -18,6 +18,6 @@
     "test:wasm-vectors": "bash -lc 'if [ -z \"${CC_wasm32_unknown_unknown:-}\" ] && [ -x /opt/homebrew/opt/llvm/bin/clang ]; then export CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang; fi; wasm-pack test --node . --features strict-worker-router-entrypoint --test wasm_vector_adapters'"
   },
   "devDependencies": {
-    "wrangler": "^4.40.2"
+    "wrangler": "4.111.0"
   }
 }

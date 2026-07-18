@@ -105,13 +105,17 @@ pub fn handle_cloudflare_durable_object_call_v1(
             };
             CloudflareDurableObjectResponseV1::root_share_has(present)
         }
-        CloudflareDurableObjectRequestV1::RootShareStartupMetadata { lookup } => {
-            let metadata = require_existing_record_v1(
+        CloudflareDurableObjectRequestV1::RootShareStartupMetadata { metadata } => {
+            let stored = validate_idempotent_put_record_v1(
                 storage.root_share_startup_metadata(&storage_key)?,
-                "root-share startup metadata is missing",
+                metadata,
+                CloudflareRootShareStartupMetadataV1::validate,
+                "root-share startup metadata is already initialized with different material",
             )?;
-            metadata.validate_matches_lookup(lookup)?;
-            CloudflareDurableObjectResponseV1::root_share_startup_metadata(metadata)?
+            if stored {
+                storage.put_root_share_startup_metadata(&storage_key, metadata.clone())?;
+            }
+            CloudflareDurableObjectResponseV1::root_share_startup_metadata(metadata.clone())?
         }
         CloudflareDurableObjectRequestV1::RootShareRewrapStartupMetadata { request } => {
             let existing = require_existing_record_v1(
@@ -356,13 +360,22 @@ pub fn handle_cloudflare_durable_object_call_v1(
             {
                 Some(existing) => {
                     existing.validate()?;
-                    if existing.activation == *activation && existing.material == *material {
-                        (existing.active_signing_worker_state, false)
-                    } else {
-                        return Err(RouterAbProtocolError::new(
+                    match existing {
+                        CloudflareSigningWorkerOutputActivationRecordV1::RecipientProofBundle {
+                            activation: existing_activation,
+                            active_signing_worker_state,
+                            material: existing_material,
+                        } if existing_activation == *activation
+                            && existing_material == *material =>
+                        {
+                            (active_signing_worker_state, false)
+                        }
+                        _ => {
+                            return Err(RouterAbProtocolError::new(
                                 RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
                                 "server-output activation conflicts with existing activation or material",
                             ));
+                        }
                     }
                 }
                 None => {
@@ -403,22 +416,6 @@ pub fn handle_cloudflare_durable_object_call_v1(
                 )?,
             )?
         }
-        CloudflareDurableObjectRequestV1::SigningWorkerDirectActivationPut { delivery } => {
-            let outcome = match storage.signing_worker_direct_activation(&storage_key)? {
-                Some(existing) => existing.apply_delivery(delivery.clone())?,
-                None => {
-                    let record =
-                        CloudflareSigningWorkerDirectRecipientProofBundleActivationPendingRecordV1::new(
-                            delivery.clone(),
-                        )?;
-                    storage.put_signing_worker_direct_activation(&storage_key, record.clone())?;
-                    CloudflareSigningWorkerDirectRecipientProofBundleActivationPutOutcomeV1::pending(
-                        record,
-                    )?
-                }
-            };
-            CloudflareDurableObjectResponseV1::signing_worker_direct_activation_put(outcome)?
-        }
         CloudflareDurableObjectRequestV1::SigningWorkerOutputActiveStateGet { lookup } => {
             lookup.validate()?;
             let active_signing_worker_state = require_existing_record_v1(
@@ -437,14 +434,16 @@ pub fn handle_cloudflare_durable_object_call_v1(
                 "SigningWorker-output material is missing",
             )?;
             record.validate()?;
-            if record.active_signing_worker_state != lookup.active_signing_worker_state {
+            if record.active_signing_worker_state() != &lookup.active_signing_worker_state {
                 return Err(RouterAbProtocolError::new(
                     RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
                     "SigningWorker-output material active state does not match lookup",
                 ));
             }
-            lookup.validate_material(&record.material)?;
-            CloudflareDurableObjectResponseV1::signing_worker_output_material_get(record.material)?
+            lookup.validate_material(record.material())?;
+            CloudflareDurableObjectResponseV1::signing_worker_output_material_get(
+                record.into_material(),
+            )?
         }
         CloudflareDurableObjectRequestV1::SigningWorkerRound1Put { record } => {
             record.validate()?;
@@ -477,77 +476,14 @@ pub fn handle_cloudflare_durable_object_call_v1(
                 storage.cleanup_expired_signing_worker_round1_records(cleanup.now_unix_ms)?,
             )?
         }
-        CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignaturePut { record } => {
-            record.validate()?;
-            let stored = validate_idempotent_put_record_v1(
-                storage.signing_worker_ecdsa_presignature(&storage_key)?,
-                record,
-                CloudflareSigningWorkerEcdsaPresignatureRecordV1::validate,
-                "SigningWorker ECDSA presignature id is already stored for different material",
+        CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPoolMutate { command } => {
+            let outcome = apply_cloudflare_signing_worker_ecdsa_pool_command_v1(
+                storage.signing_worker_ecdsa_pool_lifecycle(&storage_key)?,
+                command.clone(),
             )?;
-            if stored {
-                storage.put_signing_worker_ecdsa_presignature(&storage_key, record.clone())?;
-            }
-            CloudflareDurableObjectResponseV1::signing_worker_ecdsa_presignature_put(
-                CloudflareSigningWorkerEcdsaPresignaturePutReceiptV1::from_record(record, stored)?,
-            )?
-        }
-        CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignatureTake { lookup } => {
-            lookup.validate()?;
-            let record = require_existing_record_v1(
-                storage.signing_worker_ecdsa_presignature(&storage_key)?,
-                "SigningWorker ECDSA presignature material is missing",
-            )?;
-            record.validate_for_lookup(lookup)?;
-            storage.take_signing_worker_ecdsa_presignature(&storage_key)?;
-            CloudflareDurableObjectResponseV1::signing_worker_ecdsa_presignature_take(record)?
-        }
-        CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignatureCleanupExpired {
-            cleanup,
-        } => {
-            cleanup.validate()?;
-            CloudflareDurableObjectResponseV1::signing_worker_ecdsa_presignature_cleanup_expired(
-                storage.cleanup_expired_signing_worker_ecdsa_presignature_records(
-                    cleanup.now_unix_ms,
-                )?,
-            )?
-        }
-        CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignaturePoolPut { record } => {
-            record.validate()?;
-            let stored = validate_idempotent_put_record_v1(
-                storage.signing_worker_ecdsa_presignature_pool(&storage_key)?,
-                record,
-                CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1::validate,
-                "SigningWorker ECDSA presignature pool id is already stored for different material",
-            )?;
-            if stored {
-                storage.put_signing_worker_ecdsa_presignature_pool(&storage_key, record.clone())?;
-            }
-            CloudflareDurableObjectResponseV1::signing_worker_ecdsa_presignature_pool_put(
-                CloudflareSigningWorkerEcdsaPresignaturePoolPutReceiptV1::from_record(
-                    record, stored,
-                )?,
-            )?
-        }
-        CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignaturePoolTake { lookup } => {
-            lookup.validate()?;
-            let record = require_existing_record_v1(
-                storage.signing_worker_ecdsa_presignature_pool(&storage_key)?,
-                "SigningWorker ECDSA presignature pool material is missing",
-            )?;
-            record.validate_for_lookup(lookup)?;
-            storage.take_signing_worker_ecdsa_presignature_pool(&storage_key)?;
-            CloudflareDurableObjectResponseV1::signing_worker_ecdsa_presignature_pool_take(record)?
-        }
-        CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignaturePoolCleanupExpired {
-            cleanup,
-        } => {
-            cleanup.validate()?;
-            CloudflareDurableObjectResponseV1::signing_worker_ecdsa_presignature_pool_cleanup_expired(
-                storage.cleanup_expired_signing_worker_ecdsa_presignature_pool_records(
-                    cleanup.now_unix_ms,
-                )?,
-            )?
+            storage
+                .put_signing_worker_ecdsa_pool_lifecycle(&storage_key, outcome.record().clone())?;
+            CloudflareDurableObjectResponseV1::signing_worker_ecdsa_pool_mutate(outcome)?
         }
     };
     response.validate_for_request(&call.request)?;

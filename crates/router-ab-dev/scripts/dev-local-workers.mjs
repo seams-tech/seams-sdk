@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
@@ -8,41 +9,30 @@ import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 
 import { prepareRouterAbD1LocalRuntimeConfig } from './d1-local-runtime-config.mjs';
+import { prepareRouterAbStrictLocalRuntimeConfigs } from './strict-local-runtime-config.mjs';
 
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url));
 dotenv.config({ path: join(repoRoot, '.env.intended.local') });
-const workerBinary = join(
-  repoRoot,
-  'crates',
-  'router-ab-dev',
-  'target',
-  'debug',
-  process.platform === 'win32' ? 'router_ab_local_worker.exe' : 'router_ab_local_worker',
-);
-const routerServerHost = '127.0.0.1';
-const routerServerPort = 9090;
-const routerServerBaseUrl = `http://${routerServerHost}:${routerServerPort}`;
-const routerServerInternalWellKnownUrl = `${routerServerBaseUrl}/.well-known/webauthn`;
-const routerServerPublicUrl = 'https://localhost:9444';
-const routerServerPublicWellKnownUrl = `${routerServerPublicUrl}/.well-known/webauthn`;
-const routerServerPublicHost = 'localhost';
-const routerServerPublicPort = 9444;
+const gatewayHost = '127.0.0.1';
+const gatewayPort = 9090;
+const gatewayBaseUrl = `http://${gatewayHost}:${gatewayPort}`;
+const gatewayInternalWellKnownUrl = `${gatewayBaseUrl}/.well-known/webauthn`;
+const gatewayPublicUrl = 'https://localhost:9444';
+const gatewayPublicWellKnownUrl = `${gatewayPublicUrl}/.well-known/webauthn`;
+const gatewayPublicHost = 'localhost';
+const gatewayPublicPort = 9444;
 const commitmentPolicyBuildEnvFile = '.env.router-ab.ecdsa-commitment-policy.build.local';
+const productionWorkerEndpoints = Object.freeze([
+  { role: 'router', label: 'mpc-router', port: 9100, url: 'http://127.0.0.1:9100' },
+  { role: 'deriver-a', port: 9101, url: 'http://127.0.0.1:9101' },
+  { role: 'deriver-b', port: 9102, url: 'http://127.0.0.1:9102' },
+  { role: 'signing-worker', port: 9103, url: 'http://127.0.0.1:9103' },
+]);
 
-const staleWorkerRoles = [
+const localEnvRoles = [
   {
-    role: 'router',
-    envFile: '.env.router-ab.router.local',
-  },
-];
-
-const workerRoles = [
-  {
-    title: 'Deriver A',
     role: 'deriver-a',
     envFile: '.env.router-ab.deriver-a.local',
-    urlKey: 'DERIVER_A_URL',
-    defaultUrl: 'http://127.0.0.1:9091',
     requiredKeys: [
       'ROUTER_AB_LOCAL_WORKER_ROLE',
       'DERIVER_A_URL',
@@ -57,11 +47,8 @@ const workerRoles = [
     ],
   },
   {
-    title: 'Deriver B',
     role: 'deriver-b',
     envFile: '.env.router-ab.deriver-b.local',
-    urlKey: 'DERIVER_B_URL',
-    defaultUrl: 'http://127.0.0.1:9092',
     requiredKeys: [
       'ROUTER_AB_LOCAL_WORKER_ROLE',
       'DERIVER_B_URL',
@@ -76,11 +63,8 @@ const workerRoles = [
     ],
   },
   {
-    title: 'SigningWorker',
     role: 'signing-worker',
     envFile: '.env.router-ab.signing-worker.local',
-    urlKey: 'SIGNING_WORKER_URL',
-    defaultUrl: 'http://127.0.0.1:9093',
     requiredKeys: [
       'ROUTER_AB_LOCAL_WORKER_ROLE',
       'SIGNING_WORKER_URL',
@@ -89,8 +73,9 @@ const workerRoles = [
       'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
       'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY',
       'SIGNING_WORKER_SERVER_OUTPUT_STORAGE_PATH',
-      'SIGNING_WORKER_ECDSA_COMMITMENT_REGISTRY_JSON',
+      'ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON',
     ],
+    requiredJsonObjectKeys: ['ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON'],
     forbiddenKeys: [
       'SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PUBLIC_KEY',
       'SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PRIVATE_KEY',
@@ -109,19 +94,83 @@ const d1LocalWranglerConfigPath = resolvePath(
   process.env.SEAMS_D1_LOCAL_WRANGLER_CONFIG ||
     join(root, '.runtime', 'wrangler-d1-local', 'wrangler.d1-local.toml'),
 );
+const strictPersistPath = join(root, '.runtime', 'router-ab-strict-state');
+const strictWorkerBuildRoot = join(repoRoot, 'crates', 'router-ab-cloudflare', 'build');
+const strictBuildReceiptPath = join(strictWorkerBuildRoot, 'local-build-receipt.json');
+const ecdsaDerivationClientRoot = join(repoRoot, 'wasm', 'router_ab_ecdsa_derivation_client');
+const ecdsaDerivationClientDependencyPath = join(
+  ecdsaDerivationClientRoot,
+  'target',
+  'wasm32-unknown-unknown',
+  'release',
+  'deps',
+  'router_ab_ecdsa_derivation_client.d',
+);
+const ecdsaDerivationClientPackageWasmPath = join(
+  ecdsaDerivationClientRoot,
+  'pkg',
+  'router_ab_ecdsa_derivation_client_bg.wasm',
+);
+const ecdsaDerivationClientSdkWasmPaths = [
+  join(
+    repoRoot,
+    'packages',
+    'sdk-web',
+    'dist',
+    'workers',
+    'router_ab_ecdsa_derivation_client_bg.wasm',
+  ),
+  join(
+    repoRoot,
+    'packages',
+    'sdk-web',
+    'dist',
+    'public',
+    'sdk',
+    'workers',
+    'router_ab_ecdsa_derivation_client_bg.wasm',
+  ),
+  join(
+    repoRoot,
+    'packages',
+    'sdk-web',
+    'dist',
+    'esm',
+    'wasm',
+    'router_ab_ecdsa_derivation_client',
+    'pkg',
+    'router_ab_ecdsa_derivation_client_bg.wasm',
+  ),
+];
+const ecdsaCommitmentPolicyBuildKeys = [
+  'ROUTER_AB_ECDSA_COMMITMENT_POLICY_RELEASE_AUTHORITY_PUBLIC_KEY_HEX',
+  'ROUTER_AB_ECDSA_COMMITMENT_POLICY_DIGEST_HEX',
+  'ROUTER_AB_ECDSA_COMMITMENT_POLICY_MINIMUM_RELEASE_EPOCH',
+];
+let strictRuntime;
 const displayMode = options.mode === 'multiplex' && process.stdout.isTTY ? 'multiplex' : 'logs';
-const labelWidth = Math.max('router-server'.length, ...workerRoles.map((role) => role.role.length));
-const routerServerPane = {
-  title: 'Router Server',
-  role: 'router-server',
+const labelWidth = 'signing-worker'.length;
+const gatewayPane = {
+  title: 'Gateway',
+  role: 'gateway',
+  logLabel: 'gateway',
   status: 'pending',
   pid: null,
-  url: routerServerBaseUrl,
+  url: gatewayBaseUrl,
   lines: [],
   child: null,
   exitPromise: null,
 };
-const workerPanes = workerRoles.map((role) => ({
+const workerPanes = [
+  { title: 'MPCRouter', role: 'mpc-router', logLabel: 'mpc-router' },
+  { title: 'Deriver A', role: 'deriver-a', logLabel: 'deriver-a' },
+  { title: 'Deriver B', role: 'deriver-b', logLabel: 'deriver-b' },
+  {
+    title: 'SigningWorker',
+    role: 'signing-worker',
+    logLabel: 'signing-worker',
+  },
+].map((role) => ({
   ...role,
   status: 'pending',
   pid: null,
@@ -129,27 +178,28 @@ const workerPanes = workerRoles.map((role) => ({
   lines: [],
   child: null,
   exitPromise: null,
+  killAsGroup: false,
 }));
-const panes = [routerServerPane, ...workerPanes];
-staleWorkerRoles.push(...workerRoles);
+const panes = [gatewayPane, ...workerPanes];
 
 let screenActive = false;
 let renderTimer = null;
 let shutdownStarted = false;
 let rawModeEnabled = false;
-const routerServer = {
+const gateway = {
   child: null,
   exitPromise: null,
   killAsGroup: false,
 };
-const routerHttpsProxy = {
+const gatewayHttpsProxy = {
   child: null,
   exitPromise: null,
   killAsGroup: false,
 };
 
 const labelColors = {
-  'router-server': '\x1b[36m',
+  gateway: '\x1b[36m',
+  'mpc-router': '\x1b[94m',
   'deriver-a': '\x1b[32m',
   'deriver-b': '\x1b[33m',
   'signing-worker': '\x1b[35m',
@@ -164,16 +214,31 @@ try {
 
   process.once('SIGINT', () => shutdown(130));
   process.once('SIGTERM', () => shutdown(143));
+  if (options.buildOnly) {
+    await assertProductionWorkerPortsAvailable();
+  } else {
+    await stopExistingProductionWorkerProcesses();
+  }
   ensureLocalEnv();
+  if (options.buildOnly) {
+    buildProductionWorkerBinaries();
+    console.log('Router A/B Cloudflare Worker artifacts are ready.');
+    process.exit(0);
+  }
+  strictRuntime = prepareRouterAbStrictLocalRuntimeConfigs({
+    repoRoot,
+    localEnvRoot: root,
+  });
   prepareD1LocalRouterConfig();
-  await stopStaleLocalWorkers();
-  buildWorkerBinary();
-  await assertWorkerPortsAvailable();
-  await ensureRouterServer();
+  assertProductionWorkerBinariesReady();
+  assertBrowserEcdsaClientPolicyReady();
+  await assertProductionWorkerPortsAvailable();
   if (options.mode === 'multiplex' && displayMode === 'logs') {
     console.log('Multiplex mode requires a TTY; using interleaved logs.');
   }
-  startWorkers();
+  startProductionWorkers();
+  await waitForProductionWorkers();
+  await ensureGateway();
   if (displayMode === 'multiplex') {
     enterDashboard();
     captureInput();
@@ -188,10 +253,13 @@ try {
 }
 
 function ensureLocalEnv() {
-  const missing = workerRoles.filter((role) => !existsSync(join(root, role.envFile)));
+  const missing = localEnvRoles.filter((role) => !existsSync(join(root, role.envFile)));
   const commitmentPolicyBuildEnvMissing = !existsSync(join(root, commitmentPolicyBuildEnvFile));
   const invalid = missing.length > 0 ? [] : collectInvalidLocalEnvFiles();
-  if (options.noInit && (missing.length > 0 || invalid.length > 0 || commitmentPolicyBuildEnvMissing)) {
+  if (
+    options.noInit &&
+    (missing.length > 0 || invalid.length > 0 || commitmentPolicyBuildEnvMissing)
+  ) {
     const details = [
       ...missing.map((role) => `${role.envFile}: missing`),
       ...invalid.map((entry) => `${entry.role.envFile}: ${entry.reason}`),
@@ -199,7 +267,12 @@ function ensureLocalEnv() {
     ];
     throw new Error(`invalid Router A/B local env files: ${details.join(', ')}`);
   }
-  if (!options.fresh && missing.length === 0 && invalid.length === 0 && !commitmentPolicyBuildEnvMissing) {
+  if (
+    !options.fresh &&
+    missing.length === 0 &&
+    invalid.length === 0 &&
+    !commitmentPolicyBuildEnvMissing
+  ) {
     return;
   }
   if (!options.fresh && invalid.length > 0) {
@@ -220,9 +293,6 @@ function ensureLocalEnv() {
     root,
     '--force',
   ];
-  if (options.ephemeralPorts) {
-    args.push('--ephemeral-ports');
-  }
   run('cargo', args);
 }
 
@@ -231,12 +301,13 @@ function prepareD1LocalRouterConfig() {
     repoRoot,
     localEnvRoot: root,
     outputConfigPath: d1LocalWranglerConfigPath,
+    workerUrls: strictRuntime.workerUrls,
   });
 }
 
 function collectInvalidLocalEnvFiles() {
   const invalid = [];
-  for (const role of workerRoles) {
+  for (const role of localEnvRoles) {
     const path = join(root, role.envFile);
     const env = readEnvFile(path);
     const missingKey = role.requiredKeys.find((key) => !env.has(key) || !env.get(key));
@@ -249,82 +320,307 @@ function collectInvalidLocalEnvFiles() {
       invalid.push({ role, reason: `contains obsolete ${forbiddenKey}` });
       continue;
     }
-    if (!options.ephemeralPorts && env.get(role.urlKey) !== role.defaultUrl) {
-      invalid.push({
-        role,
-        reason: `${role.urlKey} is ${env.get(role.urlKey) || 'missing'}; expected ${role.defaultUrl}`,
-      });
+    const invalidJsonObjectKey = role.requiredJsonObjectKeys?.find(
+      (key) => !isJsonObject(env.get(key)),
+    );
+    if (invalidJsonObjectKey) {
+      invalid.push({ role, reason: `${invalidJsonObjectKey} must be a JSON object` });
     }
   }
   return invalid;
 }
 
-async function stopStaleLocalWorkers() {
-  const staleWorkers = findStaleLocalWorkers();
-  if (staleWorkers.length === 0) {
-    return;
+function isJsonObject(value) {
+  if (typeof value !== 'string') return false;
+  try {
+    const parsed = JSON.parse(value);
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed);
+  } catch {
+    return false;
+  }
+}
+
+function buildProductionWorkerBinaries() {
+  const buildEnvironment = loadCommitmentPolicyBuildEnvironment();
+  const strictWorkerRoot = join(repoRoot, 'crates', 'router-ab-cloudflare');
+  for (const role of ['router', 'deriver-a', 'deriver-b', 'signing-worker']) {
+    run('bash', ['scripts/build-strict-worker.sh', role], buildEnvironment, strictWorkerRoot);
+  }
+  const missingArtifacts = missingProductionWorkerArtifactPaths();
+  if (missingArtifacts.length > 0) {
+    throw new Error(
+      `Router A/B Worker build completed without required artifacts: ${missingArtifacts.join(', ')}`,
+    );
+  }
+  mkdirSync(strictWorkerBuildRoot, { recursive: true });
+  writeFileSync(
+    strictBuildReceiptPath,
+    `${JSON.stringify(
+      {
+        schema_version: 'router_ab_strict_local_build_v1',
+        commitment_policy_build_sha256: commitmentPolicyBuildSha256(),
+        roles: ['router', 'deriver-a', 'deriver-b', 'signing-worker'],
+      },
+      null,
+      2,
+    )}\n`,
+    { mode: 0o600 },
+  );
+}
+
+function assertProductionWorkerBinariesReady() {
+  const missingArtifacts = missingProductionWorkerArtifactPaths();
+  if (missingArtifacts.length > 0) {
+    throw new Error(
+      `Router A/B Worker artifacts are missing. Run pnpm build:sdk before pnpm router. Missing: ${missingArtifacts.join(', ')}`,
+    );
+  }
+  if (!existsSync(strictBuildReceiptPath)) {
+    throw new Error(
+      'Router A/B Worker build receipt is missing. Run pnpm build:sdk before pnpm router.',
+    );
   }
 
-  const pane = getRouterPane();
-  for (const stale of staleWorkers) {
-    appendLine(pane, `stopping stale ${stale.role} worker pid ${stale.pid}`);
-    killPid(stale.pid, 'SIGTERM');
+  let receipt;
+  try {
+    receipt = JSON.parse(readFileSync(strictBuildReceiptPath, 'utf8'));
+  } catch {
+    throw new Error(
+      'Router A/B Worker build receipt is invalid. Run pnpm build:sdk before pnpm router.',
+    );
+  }
+  const expectedRoles = ['router', 'deriver-a', 'deriver-b', 'signing-worker'];
+  const rolesMatch =
+    Array.isArray(receipt.roles) &&
+    receipt.roles.length === expectedRoles.length &&
+    receipt.roles.join('\0') === expectedRoles.join('\0');
+  if (
+    receipt.schema_version !== 'router_ab_strict_local_build_v1' ||
+    receipt.commitment_policy_build_sha256 !== commitmentPolicyBuildSha256() ||
+    !rolesMatch
+  ) {
+    throw new Error(
+      'Router A/B Worker artifacts do not match the current local commitment policy. Run pnpm build:sdk before pnpm router.',
+    );
+  }
+}
+
+function assertBrowserEcdsaClientPolicyReady() {
+  const requiredPaths = [
+    ecdsaDerivationClientDependencyPath,
+    ecdsaDerivationClientPackageWasmPath,
+    ...ecdsaDerivationClientSdkWasmPaths,
+  ];
+  const missingPaths = [];
+  for (const path of requiredPaths) {
+    if (!existsSync(path)) {
+      missingPaths.push(path);
+    }
+  }
+  if (missingPaths.length > 0) {
+    throw staleBrowserEcdsaClientError(`Missing: ${missingPaths.join(', ')}`);
   }
 
-  const deadline = Date.now() + 1_500;
-  while (Date.now() < deadline && staleWorkers.some((stale) => isPidRunning(stale.pid))) {
-    await sleep(100);
+  const compiledPins = parseCompiledEcdsaCommitmentPolicyPins(
+    readFileSync(ecdsaDerivationClientDependencyPath, 'utf8'),
+  );
+  const expectedPins = loadCommitmentPolicyBuildEnvironment();
+  for (const key of ecdsaCommitmentPolicyBuildKeys) {
+    if (compiledPins[key] !== expectedPins[key]) {
+      throw staleBrowserEcdsaClientError(`Compile-time pin mismatch: ${key}`);
+    }
   }
 
-  for (const stale of staleWorkers) {
-    if (isPidRunning(stale.pid)) {
-      appendLine(pane, `force stopping stale ${stale.role} worker pid ${stale.pid}`);
-      killPid(stale.pid, 'SIGKILL');
+  const packageWasmSha256 = sha256File(ecdsaDerivationClientPackageWasmPath);
+  for (const path of ecdsaDerivationClientSdkWasmPaths) {
+    if (sha256File(path) !== packageWasmSha256) {
+      throw staleBrowserEcdsaClientError(`Bundled WASM does not match package output: ${path}`);
     }
   }
 }
 
-function findStaleLocalWorkers() {
-  const child = spawnSync('ps', ['-ww', '-axo', 'pid=,command='], {
+function parseCompiledEcdsaCommitmentPolicyPins(dependencyMetadata) {
+  const pins = {};
+  for (const line of dependencyMetadata.split('\n')) {
+    const match = /^# env-dep:([^=]+)=(.*)$/.exec(line);
+    if (match && ecdsaCommitmentPolicyBuildKeys.includes(match[1])) {
+      pins[match[1]] = match[2];
+    }
+  }
+  return pins;
+}
+
+function sha256File(path) {
+  return createHash('sha256').update(readFileSync(path)).digest('hex');
+}
+
+function staleBrowserEcdsaClientError(detail) {
+  return new Error(
+    `Browser ECDSA client artifacts do not match the current local commitment policy. Run pnpm build:sdk-full before pnpm router. ${detail}`,
+  );
+}
+
+function productionWorkerArtifactPaths() {
+  const paths = [];
+  for (const role of ['router', 'deriver-a', 'deriver-b', 'signing-worker']) {
+    paths.push(join(strictWorkerBuildRoot, role, 'worker', 'shim.mjs'));
+    paths.push(join(strictWorkerBuildRoot, role, 'index_bg.wasm'));
+  }
+  return paths;
+}
+
+function missingProductionWorkerArtifactPaths() {
+  const missing = [];
+  for (const path of productionWorkerArtifactPaths()) {
+    if (!existsSync(path)) {
+      missing.push(path);
+    }
+  }
+  return missing;
+}
+
+function commitmentPolicyBuildSha256() {
+  const source = readFileSync(join(root, commitmentPolicyBuildEnvFile));
+  return createHash('sha256').update(source).digest('hex');
+}
+
+async function stopExistingProductionWorkerProcesses() {
+  const processGroups = findExistingProductionWorkerProcessGroups();
+  if (processGroups.length === 0) {
+    await assertProductionWorkerPortsAvailable();
+    return;
+  }
+
+  console.log(
+    `Stopping existing Router A/B local Worker topology (${processGroups.length} process groups)...`,
+  );
+  signalProductionWorkerProcessGroups(processGroups, 'SIGTERM');
+  if (await waitForProductionWorkerPortsFree(2_000)) {
+    return;
+  }
+
+  console.log('Existing Router A/B Workers did not stop cleanly; forcing shutdown...');
+  signalProductionWorkerProcessGroups(processGroups, 'SIGKILL');
+  await waitForProductionWorkerPortsFree(1_500);
+  await assertProductionWorkerPortsAvailable();
+}
+
+function findExistingProductionWorkerProcessGroups() {
+  if (process.platform === 'win32') {
+    return [];
+  }
+  const child = spawnSync('ps', ['-ww', '-axo', 'pid=,pgid=,command='], {
     encoding: 'utf8',
   });
   if (child.status !== 0 || !child.stdout) {
     return [];
   }
 
-  const stale = [];
+  const specs = productionWorkerProcessSpecs();
+  const groups = new Map();
   for (const line of child.stdout.split(/\r?\n/)) {
-    const match = line.match(/^\s*(\d+)\s+(.+)$/);
+    const match = line.match(/^\s*(\d+)\s+(\d+)\s+(.+)$/);
     if (!match) {
       continue;
     }
     const pid = Number(match[1]);
-    const command = match[2];
-    if (!Number.isSafeInteger(pid) || pid === process.pid) {
+    const processGroupId = Number(match[2]);
+    const command = match[3];
+    if (
+      !Number.isSafeInteger(pid) ||
+      !Number.isSafeInteger(processGroupId) ||
+      pid === process.pid
+    ) {
       continue;
     }
-    for (const role of staleWorkerRoles) {
-      const envPath = join(root, role.envFile);
-      if (
-        command.includes('router_ab_local_worker') &&
-        command.includes(`--role ${role.role}`) &&
-        command.includes(`--env ${envPath}`)
-      ) {
-        stale.push({ pid, role: role.role });
-      }
+    const spec = matchingProductionWorkerProcessSpec(command, specs);
+    if (!spec) {
+      continue;
     }
+    const group = groups.get(processGroupId) ?? {
+      processGroupId,
+      role: spec.label ?? spec.role,
+      memberPids: [],
+      hasMatchedLeader: false,
+    };
+    group.memberPids.push(pid);
+    group.hasMatchedLeader ||= pid === processGroupId;
+    groups.set(processGroupId, group);
   }
-  return stale;
+  return [...groups.values()];
 }
 
-function buildWorkerBinary() {
-  run('cargo', [
-    'build',
-    '--manifest-path',
-    'crates/router-ab-dev/Cargo.toml',
-    '--bin',
-    'router_ab_local_worker',
-  ], loadCommitmentPolicyBuildEnvironment());
+function productionWorkerProcessSpecs() {
+  const strictConfigRoot = join(root, '.runtime', 'router-ab-strict');
+  const specs = [];
+  for (const endpoint of productionWorkerEndpoints) {
+    specs.push({
+      role: endpoint.role,
+      label: endpoint.label,
+      port: endpoint.port,
+      configPath: join(strictConfigRoot, `wrangler.${endpoint.role}.toml`),
+      persistPath: join(strictPersistPath, endpoint.role),
+    });
+  }
+  return specs;
+}
+
+function matchingProductionWorkerProcessSpec(command, specs) {
+  if (!command.includes('wrangler') || !command.includes(' dev ')) {
+    return null;
+  }
+  for (const spec of specs) {
+    if (
+      command.includes(spec.configPath) &&
+      command.includes(spec.persistPath) &&
+      command.includes(`--port ${spec.port}`)
+    ) {
+      return spec;
+    }
+  }
+  return null;
+}
+
+function signalProductionWorkerProcessGroups(processGroups, signal) {
+  for (const group of processGroups) {
+    if (group.hasMatchedLeader) {
+      signalPid(-group.processGroupId, signal);
+      continue;
+    }
+    for (const pid of group.memberPids) {
+      signalPid(pid, signal);
+    }
+  }
+}
+
+function signalPid(pid, signal) {
+  try {
+    process.kill(pid, signal);
+  } catch (error) {
+    if (error?.code !== 'ESRCH') {
+      throw error;
+    }
+  }
+}
+
+async function waitForProductionWorkerPortsFree(timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await productionWorkerPortsAreFree()) {
+      return true;
+    }
+    await sleep(100);
+  }
+  return productionWorkerPortsAreFree();
+}
+
+async function productionWorkerPortsAreFree() {
+  for (const config of productionWorkerEndpoints) {
+    if (await tcpIsListening('127.0.0.1', config.port)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function loadCommitmentPolicyBuildEnvironment() {
@@ -335,233 +631,215 @@ function loadCommitmentPolicyBuildEnvironment() {
   return { ...process.env, ...dotenv.parse(readFileSync(path)) };
 }
 
-function startWorkers() {
-  for (const pane of workerPanes) {
-    pane.url = readEnvValue(join(root, pane.envFile), pane.urlKey);
-    appendLine(pane, `env ${relative(repoRoot, join(root, pane.envFile))}`);
-    appendLine(pane, `url ${pane.url}`);
-    appendLine(pane, 'starting worker...');
+function startProductionWorkers() {
+  for (let index = 0; index < strictRuntime.configs.length; index += 1) {
+    const config = strictRuntime.configs[index];
+    const pane = workerPanes[index];
+    pane.url = config.url;
     pane.status = 'starting';
+    appendLine(pane, `config ${relative(repoRoot, config.configPath)}`);
+    appendLine(pane, `url ${config.url}`);
 
-    const child = spawn(workerBinary, ['--role', pane.role, '--env', join(root, pane.envFile)], {
-      cwd: root,
-      env: process.env,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    const child = spawn(
+      'pnpm',
+      [
+        'exec',
+        'wrangler',
+        'dev',
+        '--config',
+        config.configPath,
+        '--port',
+        String(config.port),
+        '--inspector-port',
+        String(config.port + 100),
+        '--persist-to',
+        join(strictPersistPath, config.role),
+        '--env-file',
+        config.secretPath,
+        '--local',
+        '--show-interactive-dev-session=false',
+      ],
+      {
+        cwd: repoRoot,
+        env: process.env,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        detached: process.platform !== 'win32',
+      },
+    );
     pane.child = child;
     pane.pid = child.pid ?? null;
+    pane.killAsGroup = process.platform !== 'win32';
     pane.exitPromise = new Promise((resolve) => child.once('exit', resolve));
-
     child.stdout.on('data', (chunk) => appendChunk(pane, chunk));
     child.stderr.on('data', (chunk) => appendChunk(pane, chunk, 'stderr: '));
     child.once('spawn', () => {
       appendLine(pane, `pid ${child.pid}`);
       appendProcessStatus(pane, child.pid);
-      pollReady(pane);
     });
     child.once('exit', (code, signal) => {
       pane.status = signal ? `signal ${signal}` : `exit ${code ?? 'unknown'}`;
       appendLine(pane, `worker stopped: ${pane.status}`);
-      scheduleRender();
-      if (!shutdownStarted) {
-        shutdown(exitCodeForChildExit(code, signal));
-      }
+      if (!shutdownStarted) shutdown(exitCodeForChildExit(code, signal));
     });
     child.once('error', (error) => {
       pane.status = 'spawn error';
       appendLine(pane, `spawn error: ${error.message}`);
-      scheduleRender();
+      if (!shutdownStarted) shutdown(1);
     });
   }
 }
 
-async function assertWorkerPortsAvailable() {
+async function waitForProductionWorkers() {
+  for (let index = 0; index < strictRuntime.configs.length; index += 1) {
+    const config = strictRuntime.configs[index];
+    await waitForUrlResponse(config.url, 90_000);
+    workerPanes[index].status = 'ready';
+    appendLine(workerPanes[index], 'worker ready');
+  }
+  const keysetUrl = `${strictRuntime.mpcRouterUrl}/.well-known/router-ab/keyset`;
+  await waitForUrlStatus(keysetUrl, 90_000);
+  appendLine(workerPanes[0], 'production topology ready');
+}
+
+async function assertProductionWorkerPortsAvailable() {
   const conflicts = [];
-  for (const pane of workerPanes) {
-    const url = readEnvValue(join(root, pane.envFile), pane.urlKey);
-    const endpoint = localTcpEndpoint(url);
-    if (!endpoint) {
-      continue;
-    }
-    if (await tcpIsListening(endpoint.host, endpoint.port)) {
-      conflicts.push({
-        role: pane.role,
-        url,
-        owner: describeListeningProcess(endpoint.port),
-      });
+  for (const config of productionWorkerEndpoints) {
+    if (await tcpIsListening('127.0.0.1', config.port)) {
+      conflicts.push(`${config.label ?? config.role} ${config.url}`);
     }
   }
-  if (conflicts.length === 0) {
-    return;
+  if (conflicts.length > 0) {
+    throw new Error(
+      `production-shaped MPC worker port conflict: ${conflicts.join(', ')}. Stop the processes using these ports and retry.`,
+    );
   }
-  throw new Error(
-    [
-      'Router A/B local worker port conflict:',
-      ...conflicts.map(
-        (conflict) =>
-          `- ${conflict.role} ${conflict.url} is already listening${conflict.owner ? ` (${conflict.owner})` : ''}`,
-      ),
-      'Stop the listed process, or regenerate Router A/B env files with --fresh.',
-    ].join('\n'),
-  );
 }
 
-function localTcpEndpoint(urlValue) {
-  let url;
-  try {
-    url = new URL(urlValue);
-  } catch {
-    return null;
-  }
-  if (url.protocol !== 'http:' || !url.hostname || !url.port) {
-    return null;
-  }
-  return { host: url.hostname, port: Number(url.port) };
-}
-
-function describeListeningProcess(port) {
-  if (process.platform === 'win32') {
-    return '';
-  }
-  const child = spawnSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN'], {
-    encoding: 'utf8',
-  });
-  if (child.status !== 0 || !child.stdout) {
-    return '';
-  }
-  const [, firstProcess] = child.stdout.trim().split(/\r?\n/);
-  return firstProcess ? firstProcess.replace(/\s+/g, ' ') : '';
-}
-
-async function ensureRouterServer() {
-  const pane = getRouterPane();
-  if (options.noRouterServer) {
-    appendLine(pane, 'router server auto-start disabled');
-    if (!(await routerServerIsReady())) {
-      const status = await describeUrlStatus(`${routerServerBaseUrl}/healthz`);
+async function ensureGateway() {
+  const pane = getGatewayPane();
+  if (options.noGateway) {
+    appendLine(pane, 'Gateway auto-start disabled');
+    if (!(await gatewayIsReady())) {
+      const status = await describeUrlStatus(`${gatewayBaseUrl}/healthz`);
       throw new Error(
-        `${routerServerBaseUrl} is not a healthy external Router server (${status}). Start it with pnpm router:server or omit --no-router-server.`,
+        `${gatewayBaseUrl} is not a healthy external Gateway (${status}). Start it with pnpm gateway:server or omit --no-gateway.`,
       );
     }
-    appendLine(pane, `external router server ready at ${routerServerBaseUrl}`);
-    await ensureRouterServerHttpsProxy();
+    appendLine(pane, `external Gateway ready at ${gatewayBaseUrl}`);
+    await ensureGatewayHttpsProxy();
     return;
   }
-  if (await tcpIsListening(routerServerHost, routerServerPort)) {
-    const healthStatus = await describeUrlStatus(`${routerServerBaseUrl}/healthz`);
-    const wellKnownStatus = await describeUrlStatus(routerServerInternalWellKnownUrl);
+  if (await tcpIsListening(gatewayHost, gatewayPort)) {
+    const healthStatus = await describeUrlStatus(`${gatewayBaseUrl}/healthz`);
+    const wellKnownStatus = await describeUrlStatus(gatewayInternalWellKnownUrl);
     throw new Error(
-      `${routerServerBaseUrl} is already listening (${healthStatus}, well-known ${wellKnownStatus}). ` +
-        'Stop that process so pnpm router can supervise the Router server, or run pnpm router -- --no-router-server to use an external Router server explicitly.',
+      `${gatewayBaseUrl} is already listening (${healthStatus}, well-known ${wellKnownStatus}). ` +
+        'Stop that process so pnpm router can supervise the Gateway, or run pnpm router -- --no-gateway to use an external Gateway explicitly.',
     );
   }
 
-  appendLine(pane, 'router server not running; starting pnpm router:server...');
-  const signingWorkerUrl = readEnvValue(
-    join(root, '.env.router-ab.signing-worker.local'),
-    'SIGNING_WORKER_URL',
-  );
-  const child = spawn('pnpm', ['run', 'router:server'], {
+  appendLine(pane, 'Gateway not running; starting pnpm gateway:server...');
+  const child = spawn('pnpm', ['run', 'gateway:server'], {
     cwd: repoRoot,
     env: {
       ...process.env,
       SEAMS_D1_LOCAL_PERSIST_TO: d1LocalPersistPath,
       SEAMS_D1_LOCAL_WRANGLER_CONFIG: d1LocalWranglerConfigPath,
-      ROUTER_AB_SIGNING_WORKER_URL: signingWorkerUrl,
+      ROUTER_AB_SIGNING_WORKER_URL: strictRuntime.workerUrls.signingWorker,
       ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET:
         process.env.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET || 'dev-router-ab-internal-service-auth',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: process.platform !== 'win32',
   });
-  routerServer.child = child;
-  routerServer.killAsGroup = process.platform !== 'win32';
-  routerServer.exitPromise = new Promise((resolve) => child.once('exit', resolve));
+  gateway.child = child;
+  gateway.killAsGroup = process.platform !== 'win32';
+  gateway.exitPromise = new Promise((resolve) => child.once('exit', resolve));
 
   child.stdout.on('data', (chunk) => appendChunk(pane, chunk));
   child.stderr.on('data', (chunk) => appendChunk(pane, chunk, 'stderr: '));
   child.once('spawn', () => {
-    appendLine(pane, `router server pid ${child.pid}`);
+    appendLine(pane, `Gateway pid ${child.pid}`);
     appendProcessStatus(pane, child.pid);
   });
   child.once('exit', (code, signal) => {
     const status = signal ? `signal ${signal}` : `exit ${code ?? 'unknown'}`;
-    appendLine(pane, `router server stopped: ${status}`);
+    appendLine(pane, `Gateway stopped: ${status}`);
     scheduleRender();
     if (!shutdownStarted) {
       shutdown(exitCodeForChildExit(code, signal));
     }
   });
   child.once('error', (error) => {
-    appendLine(pane, `router server spawn error: ${error.message}`);
+    appendLine(pane, `Gateway spawn error: ${error.message}`);
     scheduleRender();
     if (!shutdownStarted) {
       shutdown(1);
     }
   });
 
-  await waitForHealthz(routerServerBaseUrl, 90_000);
-  appendLine(pane, `router server ready at ${routerServerBaseUrl}`);
-  await ensureRouterServerHttpsProxy();
+  await waitForHealthz(gatewayBaseUrl, 90_000);
+  appendLine(pane, `Gateway ready at ${gatewayBaseUrl}`);
+  await ensureGatewayHttpsProxy();
 }
 
-async function ensureRouterServerHttpsProxy() {
-  const pane = getRouterPane();
-  if (await urlStatusIsReady(routerServerPublicWellKnownUrl)) {
-    await waitForStableUrlStatus(routerServerPublicWellKnownUrl, 2_000, 15_000);
-    appendLine(pane, `router HTTPS proxy ready at ${routerServerPublicUrl}`);
+async function ensureGatewayHttpsProxy() {
+  const pane = getGatewayPane();
+  if (await urlStatusIsReady(gatewayPublicWellKnownUrl)) {
+    await waitForStableUrlStatus(gatewayPublicWellKnownUrl, 2_000, 15_000);
+    appendLine(pane, `Gateway HTTPS proxy ready at ${gatewayPublicUrl}`);
     return;
   }
 
-  if (await tcpIsListening(routerServerPublicHost, routerServerPublicPort)) {
+  if (await tcpIsListening(gatewayPublicHost, gatewayPublicPort)) {
     try {
-      await waitForUrlStatus(routerServerPublicWellKnownUrl, 5_000);
-      await waitForStableUrlStatus(routerServerPublicWellKnownUrl, 2_000, 15_000);
-      appendLine(pane, `router HTTPS proxy ready at ${routerServerPublicUrl}`);
+      await waitForUrlStatus(gatewayPublicWellKnownUrl, 5_000);
+      await waitForStableUrlStatus(gatewayPublicWellKnownUrl, 2_000, 15_000);
+      appendLine(pane, `Gateway HTTPS proxy ready at ${gatewayPublicUrl}`);
       return;
     } catch {
-      const status = await describeUrlStatus(routerServerPublicWellKnownUrl);
+      const status = await describeUrlStatus(gatewayPublicWellKnownUrl);
       throw new Error(
-        `${routerServerPublicWellKnownUrl} is listening but not healthy (${status}). ` +
-          `${routerServerBaseUrl}/healthz is healthy, so restart the local Caddy proxy with pnpm caddy or stop the process on ${routerServerPublicPort}.`,
+        `${gatewayPublicWellKnownUrl} is listening but not healthy (${status}). ` +
+          `${gatewayBaseUrl}/healthz is healthy, so restart the local Caddy proxy with pnpm caddy or stop the process on ${gatewayPublicPort}.`,
       );
     }
   }
 
-  appendLine(pane, 'router HTTPS proxy not running; starting pnpm caddy...');
+  appendLine(pane, 'Gateway HTTPS proxy not running; starting pnpm caddy...');
   const child = spawn('pnpm', ['run', 'caddy'], {
     cwd: repoRoot,
     env: process.env,
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: process.platform !== 'win32',
   });
-  routerHttpsProxy.child = child;
-  routerHttpsProxy.killAsGroup = process.platform !== 'win32';
-  routerHttpsProxy.exitPromise = new Promise((resolve) => child.once('exit', resolve));
+  gatewayHttpsProxy.child = child;
+  gatewayHttpsProxy.killAsGroup = process.platform !== 'win32';
+  gatewayHttpsProxy.exitPromise = new Promise((resolve) => child.once('exit', resolve));
 
   child.stdout.on('data', (chunk) => appendChunk(pane, chunk, 'caddy: '));
   child.stderr.on('data', (chunk) => appendChunk(pane, chunk, 'caddy stderr: '));
   child.once('spawn', () => {
-    appendLine(pane, `router HTTPS proxy pid ${child.pid}`);
+    appendLine(pane, `Gateway HTTPS proxy pid ${child.pid}`);
     appendProcessStatus(pane, child.pid);
   });
   child.once('exit', (code, signal) => {
     const status = signal ? `signal ${signal}` : `exit ${code ?? 'unknown'}`;
-    appendLine(pane, `router HTTPS proxy stopped: ${status}`);
+    appendLine(pane, `Gateway HTTPS proxy stopped: ${status}`);
     scheduleRender();
     handleRouterHttpsProxyExit(child, code, signal);
   });
   child.once('error', (error) => {
-    appendLine(pane, `router HTTPS proxy spawn error: ${error.message}`);
+    appendLine(pane, `Gateway HTTPS proxy spawn error: ${error.message}`);
     scheduleRender();
     if (!shutdownStarted) {
       shutdown(1);
     }
   });
 
-  await waitForUrlStatus(routerServerPublicWellKnownUrl, 90_000);
-  await waitForStableUrlStatus(routerServerPublicWellKnownUrl, 2_000, 15_000);
-  appendLine(pane, `router HTTPS proxy ready at ${routerServerPublicUrl}`);
+  await waitForUrlStatus(gatewayPublicWellKnownUrl, 90_000);
+  await waitForStableUrlStatus(gatewayPublicWellKnownUrl, 2_000, 15_000);
+  appendLine(pane, `Gateway HTTPS proxy ready at ${gatewayPublicUrl}`);
 }
 
 async function handleRouterHttpsProxyExit(child, code, signal) {
@@ -569,40 +847,20 @@ async function handleRouterHttpsProxyExit(child, code, signal) {
     return;
   }
   try {
-    await waitForStableUrlStatus(routerServerPublicWellKnownUrl, 750, 10_000);
-    if (routerHttpsProxy.child === child) {
-      routerHttpsProxy.child = null;
-      routerHttpsProxy.exitPromise = null;
-      routerHttpsProxy.killAsGroup = false;
+    await waitForStableUrlStatus(gatewayPublicWellKnownUrl, 750, 10_000);
+    if (gatewayHttpsProxy.child === child) {
+      gatewayHttpsProxy.child = null;
+      gatewayHttpsProxy.exitPromise = null;
+      gatewayHttpsProxy.killAsGroup = false;
     }
     appendLine(
-      getRouterPane(),
-      `router HTTPS proxy still healthy at ${routerServerPublicUrl}; continuing with external proxy`,
+      getGatewayPane(),
+      `Gateway HTTPS proxy still healthy at ${gatewayPublicUrl}; continuing with external proxy`,
     );
     scheduleRender();
     return;
   } catch {}
   shutdown(exitCodeForChildExit(code, signal));
-}
-
-function pollReady(pane, attempts = 0) {
-  if (shutdownStarted || pane.status.startsWith('exit') || pane.status.startsWith('signal')) {
-    return;
-  }
-  healthCheck(pane.url)
-    .then(() => {
-      pane.status = 'ready';
-      appendLine(pane, 'health ready');
-    })
-    .catch(() => {
-      if (attempts < 100) {
-        setTimeout(() => pollReady(pane, attempts + 1), 50);
-      } else {
-        pane.status = 'not ready';
-        appendLine(pane, 'health check timed out');
-      }
-    })
-    .finally(scheduleRender);
 }
 
 function healthCheck(baseUrl) {
@@ -622,11 +880,11 @@ async function healthzIsReady(baseUrl) {
   }
 }
 
-async function routerServerIsReady() {
-  if (!(await healthzIsReady(routerServerBaseUrl))) {
+async function gatewayIsReady() {
+  if (!(await healthzIsReady(gatewayBaseUrl))) {
     return false;
   }
-  return urlStatusIsReady(routerServerInternalWellKnownUrl);
+  return urlStatusIsReady(gatewayInternalWellKnownUrl);
 }
 
 function tcpIsListening(host, port) {
@@ -656,7 +914,7 @@ async function waitForHealthz(baseUrl, timeoutMs) {
     }
     await sleep(250);
   }
-  throw new Error(`router server did not become healthy at ${baseUrl}/healthz`);
+  throw new Error(`Gateway did not become healthy at ${baseUrl}/healthz`);
 }
 
 async function urlStatusIsReady(url) {
@@ -678,6 +936,20 @@ async function waitForUrlStatus(url, timeoutMs) {
   }
   const status = await describeUrlStatus(url);
   throw new Error(`${url} did not return HTTP 200 (${status})`);
+}
+
+async function waitForUrlResponse(url, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      await requestStatus(url, 750);
+      return;
+    } catch {
+      await sleep(250);
+    }
+  }
+  const status = await describeUrlStatus(url);
+  throw new Error(`${url} did not accept HTTP requests (${status})`);
 }
 
 async function waitForStableUrlStatus(url, stableMs, timeoutMs) {
@@ -732,19 +1004,19 @@ async function shutdown(exitCode) {
     return;
   }
   shutdownStarted = true;
-  if (isChildRunning(routerHttpsProxy.child)) {
-    appendLine(getRouterPane(), 'stopping router HTTPS proxy...');
-    killChild(routerHttpsProxy.child, 'SIGTERM', routerHttpsProxy.killAsGroup);
+  if (isChildRunning(gatewayHttpsProxy.child)) {
+    appendLine(getGatewayPane(), 'stopping Gateway HTTPS proxy...');
+    killChild(gatewayHttpsProxy.child, 'SIGTERM', gatewayHttpsProxy.killAsGroup);
   }
-  if (isChildRunning(routerServer.child)) {
-    appendLine(getRouterPane(), 'stopping router server...');
-    killChild(routerServer.child, 'SIGTERM', routerServer.killAsGroup);
+  if (isChildRunning(gateway.child)) {
+    appendLine(getGatewayPane(), 'stopping Gateway...');
+    killChild(gateway.child, 'SIGTERM', gateway.killAsGroup);
   }
   for (const pane of workerPanes) {
     if (isChildRunning(pane.child)) {
       pane.status = 'stopping';
       appendLine(pane, 'stopping worker...');
-      killChild(pane.child, 'SIGTERM');
+      killChild(pane.child, 'SIGTERM', pane.killAsGroup);
     }
   }
   scheduleRender();
@@ -752,47 +1024,47 @@ async function shutdown(exitCode) {
   await Promise.race([
     Promise.all(
       [
-        routerHttpsProxy.exitPromise,
-        routerServer.exitPromise,
+        gatewayHttpsProxy.exitPromise,
+        gateway.exitPromise,
         ...workerPanes.map((pane) => pane.exitPromise),
       ].filter(Boolean),
     ),
     sleep(1200),
   ]);
 
-  if (isChildRunning(routerHttpsProxy.child)) {
-    killChild(routerHttpsProxy.child, 'SIGKILL', routerHttpsProxy.killAsGroup);
+  if (isChildRunning(gatewayHttpsProxy.child)) {
+    killChild(gatewayHttpsProxy.child, 'SIGKILL', gatewayHttpsProxy.killAsGroup);
   }
-  if (isChildRunning(routerServer.child)) {
-    killChild(routerServer.child, 'SIGKILL', routerServer.killAsGroup);
+  if (isChildRunning(gateway.child)) {
+    killChild(gateway.child, 'SIGKILL', gateway.killAsGroup);
   }
   for (const pane of workerPanes) {
     if (isChildRunning(pane.child)) {
-      killChild(pane.child, 'SIGKILL');
+      killChild(pane.child, 'SIGKILL', pane.killAsGroup);
     }
   }
   restoreTerminal();
-  console.log('Stopped Router A/B local dev workers, Router server, and HTTPS proxy.');
+  console.log('Stopped Router A/B local dev workers, Gateway, and HTTPS proxy.');
   process.exit(exitCode);
 }
 
 async function stopStartedChildren() {
   for (const pane of workerPanes) {
     if (isChildRunning(pane.child)) {
-      killChild(pane.child, 'SIGTERM');
+      killChild(pane.child, 'SIGTERM', pane.killAsGroup);
     }
   }
-  if (isChildRunning(routerServer.child)) {
-    killChild(routerServer.child, 'SIGTERM', routerServer.killAsGroup);
+  if (isChildRunning(gateway.child)) {
+    killChild(gateway.child, 'SIGTERM', gateway.killAsGroup);
   }
-  if (isChildRunning(routerHttpsProxy.child)) {
-    killChild(routerHttpsProxy.child, 'SIGTERM', routerHttpsProxy.killAsGroup);
+  if (isChildRunning(gatewayHttpsProxy.child)) {
+    killChild(gatewayHttpsProxy.child, 'SIGTERM', gatewayHttpsProxy.killAsGroup);
   }
   await Promise.race([
     Promise.all(
       [
-        routerHttpsProxy.exitPromise,
-        routerServer.exitPromise,
+        gatewayHttpsProxy.exitPromise,
+        gateway.exitPromise,
         ...workerPanes.map((pane) => pane.exitPromise),
       ].filter(Boolean),
     ),
@@ -815,25 +1087,6 @@ function exitCodeForChildExit(code, signal) {
     return 143;
   }
   return 1;
-}
-
-function isPidRunning(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function killPid(pid, signal) {
-  try {
-    process.kill(pid, signal);
-  } catch (error) {
-    if (error?.code !== 'ESRCH') {
-      throw error;
-    }
-  }
 }
 
 function killChild(child, signal, killAsGroup = false) {
@@ -941,62 +1194,77 @@ function renderDashboard() {
   const width = Math.max(process.stdout.columns ?? 120, 60);
   const height = Math.max(process.stdout.rows ?? 32, 16);
   const grid = Array.from({ length: height }, () => Array(width).fill(' '));
-  const centerX = Math.floor(width / 2);
-  const splitY = Math.floor(height / 2);
-  drawDashboardBorders(grid, width, height, centerX, splitY);
-  const layouts = [
-    { x: 1, y: 1, w: centerX - 1, h: splitY - 1, headerX: 2, headerY: 0 },
-    {
-      x: centerX + 1,
-      y: 1,
-      w: width - centerX - 2,
-      h: splitY - 1,
-      headerX: centerX + 2,
-      headerY: 0,
-    },
-    {
-      x: 1,
-      y: splitY + 1,
-      w: centerX - 1,
-      h: height - splitY - 2,
-      headerX: 2,
-      headerY: splitY,
-    },
-    {
-      x: centerX + 1,
-      y: splitY + 1,
-      w: width - centerX - 2,
-      h: height - splitY - 2,
-      headerX: centerX + 2,
-      headerY: splitY,
-    },
-  ];
+  const columnCount = width >= 100 ? 2 : 1;
+  const rowCount = Math.ceil(panes.length / columnCount);
+  const columnBounds = gridBounds(width, columnCount);
+  const rowBounds = gridBounds(height, rowCount);
+  drawDashboardBorders(grid, columnBounds, rowBounds);
+  const layouts = panes.map((_, index) =>
+    dashboardPaneLayout(index, columnCount, columnBounds, rowBounds),
+  );
 
   panes.forEach((pane, index) => drawPane(grid, layouts[index], pane));
   process.stdout.write(`\x1b[H${grid.map((row) => row.join('')).join('\n')}`);
 }
 
-function drawDashboardBorders(grid, width, height, centerX, splitY) {
-  for (let col = 0; col < width; col += 1) {
-    grid[0][col] = '─';
-    grid[splitY][col] = '─';
-    grid[height - 1][col] = '─';
-  }
-  for (let row = 0; row < height; row += 1) {
-    grid[row][0] = '│';
-    grid[row][centerX] = '│';
-    grid[row][width - 1] = '│';
-  }
+function gridBounds(size, partitionCount) {
+  return Array.from({ length: partitionCount + 1 }, (_, index) =>
+    Math.floor((index * (size - 1)) / partitionCount),
+  );
+}
 
-  grid[0][0] = '┌';
-  grid[0][centerX] = '┬';
-  grid[0][width - 1] = '┐';
-  grid[splitY][0] = '├';
-  grid[splitY][centerX] = '┼';
-  grid[splitY][width - 1] = '┤';
-  grid[height - 1][0] = '└';
-  grid[height - 1][centerX] = '┴';
-  grid[height - 1][width - 1] = '┘';
+function dashboardPaneLayout(index, columnCount, columnBounds, rowBounds) {
+  const column = index % columnCount;
+  const row = Math.floor(index / columnCount);
+  const left = columnBounds[column];
+  const right = columnBounds[column + 1];
+  const top = rowBounds[row];
+  const bottom = rowBounds[row + 1];
+  return {
+    x: left + 1,
+    y: top + 1,
+    w: right - left - 1,
+    h: bottom - top - 1,
+    headerX: left + 2,
+    headerY: top,
+  };
+}
+
+function drawDashboardBorders(grid, columnBounds, rowBounds) {
+  for (const row of rowBounds) {
+    for (let column = 0; column < grid[row].length; column += 1) {
+      grid[row][column] = '─';
+    }
+  }
+  for (const column of columnBounds) {
+    for (let row = 0; row < grid.length; row += 1) {
+      grid[row][column] = '│';
+    }
+  }
+  const lastColumnIndex = columnBounds.length - 1;
+  const lastRowIndex = rowBounds.length - 1;
+  for (let rowIndex = 0; rowIndex <= lastRowIndex; rowIndex += 1) {
+    for (let columnIndex = 0; columnIndex <= lastColumnIndex; columnIndex += 1) {
+      grid[rowBounds[rowIndex]][columnBounds[columnIndex]] = borderIntersection(
+        rowIndex,
+        columnIndex,
+        lastRowIndex,
+        lastColumnIndex,
+      );
+    }
+  }
+}
+
+function borderIntersection(row, column, lastRow, lastColumn) {
+  if (row === 0 && column === 0) return '┌';
+  if (row === 0 && column === lastColumn) return '┐';
+  if (row === lastRow && column === 0) return '└';
+  if (row === lastRow && column === lastColumn) return '┘';
+  if (row === 0) return '┬';
+  if (row === lastRow) return '┴';
+  if (column === 0) return '├';
+  if (column === lastColumn) return '┤';
+  return '┼';
 }
 
 function drawPane(grid, layout, pane) {
@@ -1051,7 +1319,7 @@ function appendLine(pane, line) {
 }
 
 function formatLogLine(pane, line) {
-  const label = pane.role.padEnd(labelWidth, ' ');
+  const label = (pane.logLabel ?? pane.role).padEnd(labelWidth, ' ');
   if (!process.stdout.isTTY || process.env.NO_COLOR) {
     return `${label} | ${line}`;
   }
@@ -1097,15 +1365,6 @@ function stripAnsi(value) {
   return value.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
 }
 
-function readEnvValue(path, key) {
-  const env = readEnvFile(path);
-  const value = env.get(key);
-  if (value) {
-    return value;
-  }
-  throw new Error(`${path} is missing ${key}`);
-}
-
 function readEnvFile(path) {
   const env = new Map();
   const contents = readFileSync(path, 'utf8');
@@ -1131,9 +1390,9 @@ function readEnvFile(path) {
   return env;
 }
 
-function run(command, args, env = process.env) {
+function run(command, args, env = process.env, cwd = repoRoot) {
   const child = spawnSync(command, args, {
-    cwd: repoRoot,
+    cwd,
     stdio: 'inherit',
     env,
   });
@@ -1151,9 +1410,9 @@ function parseArgs(args) {
     root: '.',
     mode: 'logs',
     fresh: false,
-    ephemeralPorts: false,
     noInit: false,
-    noRouterServer: false,
+    noGateway: false,
+    buildOnly: false,
     help: false,
   };
   for (let index = 0; index < args.length; index += 1) {
@@ -1175,14 +1434,14 @@ function parseArgs(args) {
       case '--fresh':
         parsed.fresh = true;
         break;
-      case '--ephemeral-ports':
-        parsed.ephemeralPorts = true;
-        break;
       case '--no-init':
         parsed.noInit = true;
         break;
-      case '--no-router-server':
-        parsed.noRouterServer = true;
+      case '--no-gateway':
+        parsed.noGateway = true;
+        break;
+      case '--build-only':
+        parsed.buildOnly = true;
         break;
       case '--help':
       case '-h':
@@ -1195,7 +1454,7 @@ function parseArgs(args) {
   return parsed;
 }
 
-function getRouterPane() {
+function getGatewayPane() {
   return panes[0];
 }
 
@@ -1216,21 +1475,22 @@ function printUsage() {
 }
 
 function usage() {
-  return `usage: pnpm router [-- --root <path>] [--fresh] [--ephemeral-ports] [--no-init] [--no-router-server]
-       pnpm router:multiplex [-- --root <path>] [--fresh] [--ephemeral-ports] [--no-init] [--no-router-server]
+  return `usage: pnpm router [-- --root <path>] [--fresh] [--no-init] [--no-gateway]
+       pnpm router:multiplex [-- --root <path>] [--fresh] [--no-init] [--no-gateway]
+       pnpm router:build [-- --root <path>] [--fresh] [--no-init]
 
-Runs the Router server, Deriver A, Deriver B, and SigningWorker in one terminal.
-Also starts the Router server on 127.0.0.1:9090 when it is not already running.
+Runs Gateway, MPCRouter, Deriver A, Deriver B, and SigningWorker in one terminal.
+Also starts the Gateway on 127.0.0.1:9090 when it is not already running.
 Also verifies https://localhost:9444/.well-known/webauthn and starts Caddy when that local HTTPS proxy is absent.
 
 Options:
   --root <path>      Local root containing generated env files. Defaults to repo root.
   --mode <mode>      Display mode: logs or multiplex. Defaults to logs.
   --fresh           Regenerate env files before launch.
-  --ephemeral-ports Use free localhost ports instead of the default 9090-9093 ports.
   --no-init         Require env files to already exist.
-  --no-router-server
-                    Use an already-running external Router server on 127.0.0.1:9090.
+  --no-gateway
+                    Use an already-running external Gateway on 127.0.0.1:9090.
+  --build-only      Build strict Worker artifacts and exit without starting services.
 
-Press Ctrl-C to stop all workers, stop started Router/proxy processes, and restore the terminal.`;
+Press Ctrl-C to stop all workers, stop started Gateway/proxy processes, and restore the terminal.`;
 }

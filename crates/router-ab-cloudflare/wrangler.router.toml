@@ -1,10 +1,10 @@
-name = "router-ab-router"
+name = "router-ab-mpc-router"
 main = "build/router/worker/shim.mjs"
 compatibility_date = "2026-06-12"
 workers_dev = true
 
 [build]
-command = "cargo install -q worker-build --version 0.8.4 && worker-build --release --out-dir build/router --features strict-worker-router-entrypoint"
+command = "cargo install -q worker-build --version 0.8.4 && bash ./scripts/build-strict-worker.sh router"
 
 [durable_objects]
 bindings = [
@@ -66,6 +66,7 @@ ROUTER_LIFECYCLE_DO_KEY_PREFIX = "router-lifecycle/"
 ROUTER_PROJECT_POLICY_DO_BINDING = "ROUTER_PROJECT_POLICY_DO"
 ROUTER_PROJECT_POLICY_DO_OBJECT = "router-project-policy"
 ROUTER_PROJECT_POLICY_DO_KEY_PREFIX = "router-project-policy/"
+ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON = '{"org_id":"org_staging","project_id":"project_staging","environment":"staging","allowed_work_kinds":["registration_prepare","key_export","recovery","server_share_refresh"],"allow_normal_signing":true,"rejected_retry_after_ms":1000}'
 ROUTER_QUOTA_DO_BINDING = "ROUTER_QUOTA_DO"
 ROUTER_QUOTA_DO_OBJECT = "router-quota"
 ROUTER_QUOTA_DO_KEY_PREFIX = "router-quota/"
@@ -81,7 +82,7 @@ SIGNING_WORKER_PEER_BINDING = "SIGNING_WORKER"
 
 # Deployment targets keep Worker names and service bindings explicit.
 [env.staging]
-name = "router-ab-router-staging"
+name = "router-ab-mpc-router-staging"
 workers_dev = true
 
 [[env.staging.durable_objects.bindings]]
@@ -122,17 +123,18 @@ service = "router-ab-signing-worker-staging"
 
 [env.staging.vars]
 ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING = "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"
-ROUTER_JWT_ISSUER = "https://issuer-staging.example"
+ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON = '{"policy":{"manifest":{"releaseEpoch":1,"minimumRootVersion":1,"minimumAuthorityKeyEpoch":1,"revokedAuthorityKeyEpochs":[],"revokedRecordDigestsHex":[],"signerAAuthority":{"operatorIdentity":"signer-a","authorityKeyEpoch":1,"validFromMs":1,"validUntilMs":4102444800000,"verifyingKeyHex":"7084304ccbfdc9bca888d410412951359a7f7afb6e9499695580cb23aa83e02e"},"signerBAuthority":{"operatorIdentity":"signer-b","authorityKeyEpoch":1,"validFromMs":1,"validUntilMs":4102444800000,"verifyingKeyHex":"e747647c55cbb93cd7d51b7bc1e8f20205fbe3ab797f756b6d300cd59b181999"}},"manifestDigestHex":"85852240947ae7aee43ca868f56c5f6f3cee2e2f1b3c65014fd80f2b4bb17910","releaseAuthoritySignatureHex":"9cfdd77879f368cc44cda5869f6be2e76463ce9886bcbed60faaf82bc6694866608edb031db82a309bad31e8384c0bd951fe1391c97bf6e8fa7e6f977c78a008"},"records":{"signerA":{"rootId":"signing-root-v1","rootVersion":1,"rootShareEpoch":"epoch-1","commitmentHex":"0001bedac10036b8c588092eb059c7a331c52398ff20291b0846602c4e17fcdba748","operatorIdentity":"signer-a","authorityKeyEpoch":1,"recordValidFromMs":1,"recordValidUntilMs":4102444800000,"signedDigestHex":"2a840efa2b69d438a4fb2a3fba1e6bfcd5e788543c1560fd010d98ac05c9a834","signatureHex":"698d6f6da76c23c93aa7255d3353ff2804d0f2bc1a80b9e210914ec6f0f808bd92696ccea9acd3b1932676635ba1be1b115ea8940297c6343edacbd65f15050e"},"signerB":{"rootId":"signing-root-v1","rootVersion":1,"rootShareEpoch":"epoch-1","commitmentHex":"00027ed9eca966611f6b9aed5184b11ea6230d43acaefbc9b30e10934ca0e2a72430","operatorIdentity":"signer-b","authorityKeyEpoch":1,"recordValidFromMs":1,"recordValidUntilMs":4102444800000,"signedDigestHex":"e267a5ccaac7778b63ece2e20d6b5511504d5d67f39648bd1d91807d48aff8a5","signatureHex":"8e9b4f919e6ac602142380a32fec2ab504c1cd6fa8336c8d7079c9da830fd93594613627f32b3fb4bfb9c59939cc2782d5b8bfd4a95f4942aef2a981e9fad409"}}}'
+ROUTER_JWT_ISSUER = "https://seams-sdk-d1-gateway-staging.n6378056.workers.dev"
 ROUTER_JWT_AUDIENCE = "router-ab"
-ROUTER_JWT_JWKS_URL = "https://issuer-staging.example/.well-known/jwks.json"
+ROUTER_JWT_JWKS_URL = "https://seams-sdk-d1-gateway-staging.n6378056.workers.dev/.well-known/router-ab-ceremony-jwks.json"
 DERIVER_A_ENVELOPE_HPKE_KEY_EPOCH = "epoch-1"
-DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY = "x25519:1111111111111111111111111111111111111111111111111111111111111111"
+DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY = "x25519:2693d0896a85398a7bef705c714590bbd99e0c91be62323d33c421d5be597257"
 DERIVER_B_ENVELOPE_HPKE_KEY_EPOCH = "epoch-1"
-DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY = "x25519:2222222222222222222222222222222222222222222222222222222222222222"
-DERIVER_A_PEER_VERIFYING_KEY_HEX = "5afa80b305e72e02615ed1f580144a40a42a71dfcac175809ceb5d79e740d015"
-DERIVER_B_PEER_VERIFYING_KEY_HEX = "0c700dd63695221e508f3164b528f190bed63a4437d38e882308f9a57acc1bc3"
+DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY = "x25519:5e2819f555ecfcc996761ca4558551172f06052fb9f80123a88f4e0094c3b13a"
+DERIVER_A_PEER_VERIFYING_KEY_HEX = "d6d21d388a92e6eb9d85d9fcdbcba81c383d7102717b7160fab5e2b501555907"
+DERIVER_B_PEER_VERIFYING_KEY_HEX = "1a369e342f555305e278312f3b704465e11fadbbab09134ed897402ed65c2d4a"
 SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH = "epoch-1"
-SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY = "x25519:3333333333333333333333333333333333333333333333333333333333333333"
+SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY = "x25519:d0a06a6445d78bc87f449dfac2b427ad1857a0b00d91e20f152031ad49c18010"
 ROUTER_REPLAY_DO_BINDING = "ROUTER_REPLAY_DO"
 ROUTER_REPLAY_DO_OBJECT = "router-replay"
 ROUTER_REPLAY_DO_KEY_PREFIX = "router-replay/"
@@ -142,6 +144,7 @@ ROUTER_LIFECYCLE_DO_KEY_PREFIX = "router-lifecycle/"
 ROUTER_PROJECT_POLICY_DO_BINDING = "ROUTER_PROJECT_POLICY_DO"
 ROUTER_PROJECT_POLICY_DO_OBJECT = "router-project-policy"
 ROUTER_PROJECT_POLICY_DO_KEY_PREFIX = "router-project-policy/"
+ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON = '{"org_id":"org_staging","project_id":"project_staging","environment":"staging","allowed_work_kinds":["registration_prepare","key_export","recovery","server_share_refresh"],"allow_normal_signing":true,"rejected_retry_after_ms":1000}'
 ROUTER_QUOTA_DO_BINDING = "ROUTER_QUOTA_DO"
 ROUTER_QUOTA_DO_OBJECT = "router-quota"
 ROUTER_QUOTA_DO_KEY_PREFIX = "router-quota/"

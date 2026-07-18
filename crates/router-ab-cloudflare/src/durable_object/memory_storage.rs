@@ -13,16 +13,10 @@ pub struct CloudflareDurableObjectMemoryStorageV1 {
     quota_reservations: BTreeMap<String, CloudflareRouterQuotaReservationV1>,
     wallet_budget_grants: BTreeMap<String, CloudflareRouterWalletBudgetGrantRecordV1>,
     signing_worker_activations: BTreeMap<String, CloudflareSigningWorkerOutputActivationRecordV1>,
-    signing_worker_direct_activations: BTreeMap<
-        String,
-        CloudflareSigningWorkerDirectRecipientProofBundleActivationPendingRecordV1,
-    >,
     active_signing_worker_states: BTreeMap<String, ActiveSigningWorkerStateV1>,
     signing_worker_round1_records: BTreeMap<String, CloudflareSigningWorkerRound1RecordV1>,
-    signing_worker_ecdsa_presignature_records:
-        BTreeMap<String, CloudflareSigningWorkerEcdsaPresignatureRecordV1>,
-    signing_worker_ecdsa_presignature_pool_records:
-        BTreeMap<String, CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1>,
+    signing_worker_ecdsa_pool_lifecycles:
+        BTreeMap<String, CloudflareSigningWorkerEcdsaPoolLifecycleRecordV1>,
 }
 
 impl CloudflareDurableObjectMemoryStorageV1 {
@@ -91,14 +85,6 @@ impl CloudflareDurableObjectMemoryStorageV1 {
         self.signing_worker_activations.get(storage_key)
     }
 
-    /// Reads a pending direct activation delivery for tests and local smoke checks.
-    pub fn signing_worker_direct_activation(
-        &self,
-        storage_key: &str,
-    ) -> Option<&CloudflareSigningWorkerDirectRecipientProofBundleActivationPendingRecordV1> {
-        self.signing_worker_direct_activations.get(storage_key)
-    }
-
     /// Reads indexed active SigningWorker state for tests and local smoke checks.
     pub fn active_signing_worker_state(
         &self,
@@ -131,22 +117,12 @@ impl CloudflareDurableObjectMemoryStorageV1 {
         self.wallet_budget_grants.get(storage_key)
     }
 
-    /// Reads a stored ECDSA presignature for tests and local smoke checks.
-    pub fn signing_worker_ecdsa_presignature(
+    /// Reads a stored ECDSA pool lifecycle for tests and local smoke checks.
+    pub fn signing_worker_ecdsa_pool_lifecycle(
         &self,
         storage_key: &str,
-    ) -> Option<&CloudflareSigningWorkerEcdsaPresignatureRecordV1> {
-        self.signing_worker_ecdsa_presignature_records
-            .get(storage_key)
-    }
-
-    /// Reads a stored unbound ECDSA presignature pool record for tests and local smoke checks.
-    pub fn signing_worker_ecdsa_presignature_pool(
-        &self,
-        storage_key: &str,
-    ) -> Option<&CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1> {
-        self.signing_worker_ecdsa_presignature_pool_records
-            .get(storage_key)
+    ) -> Option<&CloudflareSigningWorkerEcdsaPoolLifecycleRecordV1> {
+        self.signing_worker_ecdsa_pool_lifecycles.get(storage_key)
     }
 }
 
@@ -342,34 +318,9 @@ impl CloudflareDurableObjectStorageV1 for CloudflareDurableObjectMemoryStorageV1
         record.validate()?;
         self.active_signing_worker_states.insert(
             active_state_index_key.to_owned(),
-            record.active_signing_worker_state.clone(),
+            record.active_signing_worker_state().clone(),
         );
         self.signing_worker_activations
-            .insert(storage_key.to_owned(), record);
-        Ok(())
-    }
-
-    fn signing_worker_direct_activation(
-        &self,
-        storage_key: &str,
-    ) -> RouterAbProtocolResult<
-        Option<CloudflareSigningWorkerDirectRecipientProofBundleActivationPendingRecordV1>,
-    > {
-        require_non_empty("storage_key", storage_key)?;
-        Ok(self
-            .signing_worker_direct_activations
-            .get(storage_key)
-            .cloned())
-    }
-
-    fn put_signing_worker_direct_activation(
-        &mut self,
-        storage_key: &str,
-        record: CloudflareSigningWorkerDirectRecipientProofBundleActivationPendingRecordV1,
-    ) -> RouterAbProtocolResult<()> {
-        require_non_empty("storage_key", storage_key)?;
-        record.validate()?;
-        self.signing_worker_direct_activations
             .insert(storage_key.to_owned(), record);
         Ok(())
     }
@@ -428,99 +379,26 @@ impl CloudflareDurableObjectStorageV1 for CloudflareDurableObjectMemoryStorageV1
         )
     }
 
-    fn signing_worker_ecdsa_presignature(
+    fn signing_worker_ecdsa_pool_lifecycle(
         &self,
         storage_key: &str,
-    ) -> RouterAbProtocolResult<Option<CloudflareSigningWorkerEcdsaPresignatureRecordV1>> {
+    ) -> RouterAbProtocolResult<Option<CloudflareSigningWorkerEcdsaPoolLifecycleRecordV1>> {
         require_non_empty("storage_key", storage_key)?;
         Ok(self
-            .signing_worker_ecdsa_presignature_records
+            .signing_worker_ecdsa_pool_lifecycles
             .get(storage_key)
             .cloned())
     }
 
-    fn put_signing_worker_ecdsa_presignature(
+    fn put_signing_worker_ecdsa_pool_lifecycle(
         &mut self,
         storage_key: &str,
-        record: CloudflareSigningWorkerEcdsaPresignatureRecordV1,
+        record: CloudflareSigningWorkerEcdsaPoolLifecycleRecordV1,
     ) -> RouterAbProtocolResult<()> {
         require_non_empty("storage_key", storage_key)?;
         record.validate()?;
-        self.signing_worker_ecdsa_presignature_records
+        self.signing_worker_ecdsa_pool_lifecycles
             .insert(storage_key.to_owned(), record);
         Ok(())
-    }
-
-    fn take_signing_worker_ecdsa_presignature(
-        &mut self,
-        storage_key: &str,
-    ) -> RouterAbProtocolResult<Option<CloudflareSigningWorkerEcdsaPresignatureRecordV1>> {
-        require_non_empty("storage_key", storage_key)?;
-        Ok(self
-            .signing_worker_ecdsa_presignature_records
-            .remove(storage_key))
-    }
-
-    fn cleanup_expired_signing_worker_ecdsa_presignature_records(
-        &mut self,
-        now_unix_ms: u64,
-    ) -> RouterAbProtocolResult<CloudflareExpiredStateCleanupReportV1> {
-        require_positive_ms("cleanup now_unix_ms", now_unix_ms)?;
-        let before = self.signing_worker_ecdsa_presignature_records.len();
-        self.signing_worker_ecdsa_presignature_records
-            .retain(|_, record| record.expires_at_ms > now_unix_ms);
-        CloudflareExpiredStateCleanupReportV1::new(
-            now_unix_ms,
-            (before - self.signing_worker_ecdsa_presignature_records.len()) as u64,
-            0,
-        )
-    }
-
-    fn signing_worker_ecdsa_presignature_pool(
-        &self,
-        storage_key: &str,
-    ) -> RouterAbProtocolResult<Option<CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1>> {
-        require_non_empty("storage_key", storage_key)?;
-        Ok(self
-            .signing_worker_ecdsa_presignature_pool_records
-            .get(storage_key)
-            .cloned())
-    }
-
-    fn put_signing_worker_ecdsa_presignature_pool(
-        &mut self,
-        storage_key: &str,
-        record: CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1,
-    ) -> RouterAbProtocolResult<()> {
-        require_non_empty("storage_key", storage_key)?;
-        record.validate()?;
-        self.signing_worker_ecdsa_presignature_pool_records
-            .insert(storage_key.to_owned(), record);
-        Ok(())
-    }
-
-    fn take_signing_worker_ecdsa_presignature_pool(
-        &mut self,
-        storage_key: &str,
-    ) -> RouterAbProtocolResult<Option<CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1>> {
-        require_non_empty("storage_key", storage_key)?;
-        Ok(self
-            .signing_worker_ecdsa_presignature_pool_records
-            .remove(storage_key))
-    }
-
-    fn cleanup_expired_signing_worker_ecdsa_presignature_pool_records(
-        &mut self,
-        now_unix_ms: u64,
-    ) -> RouterAbProtocolResult<CloudflareExpiredStateCleanupReportV1> {
-        require_positive_ms("cleanup now_unix_ms", now_unix_ms)?;
-        let before = self.signing_worker_ecdsa_presignature_pool_records.len();
-        self.signing_worker_ecdsa_presignature_pool_records
-            .retain(|_, record| record.expires_at_ms > now_unix_ms);
-        CloudflareExpiredStateCleanupReportV1::new(
-            now_unix_ms,
-            (before - self.signing_worker_ecdsa_presignature_pool_records.len()) as u64,
-            0,
-        )
     }
 }

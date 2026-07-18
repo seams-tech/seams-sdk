@@ -2,12 +2,14 @@ use ed25519_dalek::{Signer, SigningKey};
 use rand_core::{CryptoRng, Error as RandError, RngCore};
 use router_ab_core::{RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult};
 use router_ab_ecdsa_client_protocol::{
-    authenticate_ecdsa_commitment_registry_v1, EcdsaCommitmentAuthorityV1,
-    EcdsaCommitmentPolicyManifestV1, EcdsaCommitmentPolicyPinsV1, EcdsaCommitmentRegistryBindingV1,
-    EcdsaCommitmentStatementV1, EcdsaDeriverRoleV1, EcdsaSignedCommitmentPolicyV1,
+    authenticate_ecdsa_commitment_registry_v1, EcdsaCommitmentAuthorityDeliveryV1,
+    EcdsaCommitmentAuthorityV1, EcdsaCommitmentPolicyManifestDeliveryV1,
+    EcdsaCommitmentPolicyManifestV1, EcdsaCommitmentPolicyPinsV1, EcdsaCommitmentRecordDeliveryV1,
+    EcdsaCommitmentRecordsDeliveryV1, EcdsaCommitmentRegistryBindingV1,
+    EcdsaCommitmentRegistryDeliveryV1, EcdsaCommitmentStatementV1, EcdsaDeriverRoleV1,
+    EcdsaSignedCommitmentPolicyDeliveryV1, EcdsaSignedCommitmentPolicyV1,
     EcdsaSignedCommitmentRecordV1,
 };
-use serde::Serialize;
 use sha2::{Digest, Sha256};
 use threshold_prf::{
     generate_signing_root, split_signing_root, SigningRootShareCommitment, SigningRootShareWire,
@@ -16,8 +18,8 @@ use threshold_prf::{
 
 use crate::local_generated_secret_bytes_v1;
 
-pub const LOCAL_SIGNING_WORKER_ECDSA_COMMITMENT_REGISTRY_ENV_V1: &str =
-    "SIGNING_WORKER_ECDSA_COMMITMENT_REGISTRY_JSON";
+pub const LOCAL_ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_ENV_V1: &str =
+    "ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON";
 pub const LOCAL_ECDSA_COMMITMENT_POLICY_RELEASE_AUTHORITY_PUBLIC_KEY_BUILD_ENV_V1: &str =
     "ROUTER_AB_ECDSA_COMMITMENT_POLICY_RELEASE_AUTHORITY_PUBLIC_KEY_HEX";
 pub const LOCAL_ECDSA_COMMITMENT_POLICY_DIGEST_BUILD_ENV_V1: &str =
@@ -28,14 +30,15 @@ pub const LOCAL_ECDSA_COMMITMENT_POLICY_BUILD_ENV_FILE_V1: &str =
     ".env.router-ab.ecdsa-commitment-policy.build.local";
 
 const ROOT_ID: &str = "signing-root-v1";
-const ROOT_EPOCH: &str = "epoch-1";
+const ROOT_EPOCH: &str = "default";
 const SIGNER_A: &str = "signer-a";
 const SIGNER_B: &str = "signer-b";
 const RELEASE_EPOCH: u64 = 1;
 const ROOT_VERSION: u64 = 1;
 const AUTHORITY_EPOCH: u64 = 1;
 const VALID_FROM_MS: u64 = 1;
-const VALID_UNTIL_MS: u64 = u64::MAX;
+// Year 2100 is effectively unbounded for local dev and remains exact in JavaScript numbers.
+const VALID_UNTIL_MS: u64 = 4_102_444_800_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalEcdsaCommitmentPolicyPackageV1 {
@@ -45,59 +48,6 @@ pub struct LocalEcdsaCommitmentPolicyPackageV1 {
     pub deriver_b_root_share_wire_secret: String,
     pub policy_digest_hex: String,
     pub release_authority_public_key_hex: String,
-}
-
-#[derive(Serialize)]
-struct RegistryJson {
-    policy: PolicyJson,
-    records: RecordsJson,
-}
-
-#[derive(Serialize)]
-struct PolicyJson {
-    manifest: ManifestJson,
-    manifest_digest_hex: String,
-    release_authority_signature_hex: String,
-}
-
-#[derive(Serialize)]
-struct ManifestJson {
-    release_epoch: u64,
-    minimum_root_version: u64,
-    minimum_authority_key_epoch: u64,
-    revoked_authority_key_epochs: Vec<u64>,
-    revoked_record_digests_hex: Vec<String>,
-    signer_a_authority: AuthorityJson,
-    signer_b_authority: AuthorityJson,
-}
-
-#[derive(Serialize)]
-struct AuthorityJson {
-    operator_identity: String,
-    authority_key_epoch: u64,
-    valid_from_ms: u64,
-    valid_until_ms: u64,
-    verifying_key_hex: String,
-}
-
-#[derive(Serialize)]
-struct RecordsJson {
-    signer_a: RecordJson,
-    signer_b: RecordJson,
-}
-
-#[derive(Serialize)]
-struct RecordJson {
-    root_id: String,
-    root_version: u64,
-    root_share_epoch: String,
-    commitment_hex: String,
-    operator_identity: String,
-    authority_key_epoch: u64,
-    record_valid_from_ms: u64,
-    record_valid_until_ms: u64,
-    signed_digest_hex: String,
-    signature_hex: String,
 }
 
 pub fn local_ecdsa_commitment_policy_package_v1(
@@ -174,7 +124,7 @@ pub fn local_ecdsa_commitment_policy_package_v1(
         LOCAL_ECDSA_COMMITMENT_POLICY_MINIMUM_RELEASE_EPOCH_BUILD_ENV_V1,
         RELEASE_EPOCH,
     );
-    let registry_json = serde_json::to_string(&registry_json(&policy, &record_a, &record_b))
+    let registry_json = serde_json::to_string(&registry_delivery(&policy, &record_a, &record_b))
         .map_err(package_error)?;
     Ok(LocalEcdsaCommitmentPolicyPackageV1 {
         registry_json,
@@ -237,14 +187,14 @@ fn signed_record(
     })
 }
 
-fn registry_json(
+fn registry_delivery(
     policy: &EcdsaSignedCommitmentPolicyV1,
     signer_a: &EcdsaSignedCommitmentRecordV1,
     signer_b: &EcdsaSignedCommitmentRecordV1,
-) -> RegistryJson {
-    RegistryJson {
-        policy: PolicyJson {
-            manifest: ManifestJson {
+) -> EcdsaCommitmentRegistryDeliveryV1 {
+    EcdsaCommitmentRegistryDeliveryV1 {
+        policy: EcdsaSignedCommitmentPolicyDeliveryV1 {
+            manifest: EcdsaCommitmentPolicyManifestDeliveryV1 {
                 release_epoch: policy.manifest.release_epoch,
                 minimum_root_version: policy.manifest.minimum_root_version,
                 minimum_authority_key_epoch: policy.manifest.minimum_authority_key_epoch,
@@ -255,21 +205,21 @@ fn registry_json(
                     .iter()
                     .map(hex::encode)
                     .collect(),
-                signer_a_authority: authority_json(&policy.manifest.signer_a_authority),
-                signer_b_authority: authority_json(&policy.manifest.signer_b_authority),
+                signer_a_authority: authority_delivery(&policy.manifest.signer_a_authority),
+                signer_b_authority: authority_delivery(&policy.manifest.signer_b_authority),
             },
             manifest_digest_hex: hex::encode(policy.manifest_digest),
             release_authority_signature_hex: hex::encode(policy.release_authority_signature),
         },
-        records: RecordsJson {
-            signer_a: record_json(signer_a),
-            signer_b: record_json(signer_b),
+        records: EcdsaCommitmentRecordsDeliveryV1 {
+            signer_a: record_delivery(signer_a),
+            signer_b: record_delivery(signer_b),
         },
     }
 }
 
-fn authority_json(value: &EcdsaCommitmentAuthorityV1) -> AuthorityJson {
-    AuthorityJson {
+fn authority_delivery(value: &EcdsaCommitmentAuthorityV1) -> EcdsaCommitmentAuthorityDeliveryV1 {
+    EcdsaCommitmentAuthorityDeliveryV1 {
         operator_identity: value.operator_identity.clone(),
         authority_key_epoch: value.authority_key_epoch,
         valid_from_ms: value.valid_from_ms,
@@ -278,8 +228,8 @@ fn authority_json(value: &EcdsaCommitmentAuthorityV1) -> AuthorityJson {
     }
 }
 
-fn record_json(value: &EcdsaSignedCommitmentRecordV1) -> RecordJson {
-    RecordJson {
+fn record_delivery(value: &EcdsaSignedCommitmentRecordV1) -> EcdsaCommitmentRecordDeliveryV1 {
+    EcdsaCommitmentRecordDeliveryV1 {
         root_id: value.statement.root_id.clone(),
         root_version: value.statement.root_version,
         root_share_epoch: value.statement.root_share_epoch.clone(),
@@ -380,6 +330,39 @@ mod tests {
         assert!(first
             .deriver_b_root_share_wire_secret
             .starts_with("mpc-prf-root-share-wire-v1:0002"));
+    }
+
+    #[test]
+    fn local_policy_registry_uses_worker_delivery_schema() {
+        let package =
+            local_ecdsa_commitment_policy_package_v1(b"delivery-schema-seed").expect("package");
+        let delivery: EcdsaCommitmentRegistryDeliveryV1 =
+            serde_json::from_str(&package.registry_json).expect("Worker delivery schema");
+
+        assert_eq!(delivery.policy.manifest.release_epoch, RELEASE_EPOCH);
+        assert_eq!(
+            delivery.policy.manifest.signer_a_authority.valid_until_ms,
+            VALID_UNTIL_MS
+        );
+        assert_eq!(
+            delivery.policy.manifest.signer_b_authority.valid_until_ms,
+            VALID_UNTIL_MS
+        );
+        assert_eq!(
+            delivery.records.signer_a.record_valid_until_ms,
+            VALID_UNTIL_MS
+        );
+        assert_eq!(
+            delivery.records.signer_b.record_valid_until_ms,
+            VALID_UNTIL_MS
+        );
+        assert!(VALID_UNTIL_MS <= 9_007_199_254_740_991);
+        assert_eq!(delivery.records.signer_a.root_share_epoch, ROOT_EPOCH);
+        assert_eq!(delivery.records.signer_b.root_share_epoch, ROOT_EPOCH);
+        assert!(package.registry_json.contains("\"releaseEpoch\""));
+        assert!(package.registry_json.contains("\"signerA\""));
+        assert!(!package.registry_json.contains("\"release_epoch\""));
+        assert!(!package.registry_json.contains("\"signer_a\""));
     }
 
     #[test]

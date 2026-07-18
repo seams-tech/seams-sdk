@@ -185,7 +185,7 @@ const LOCAL_DEV_ACCOUNT_PUBLIC_KEY_V1: &str = "ed25519:1111111111111111111111111
 /// Local worker role env key used by the private-worker development harness.
 pub const LOCAL_WORKER_ROLE_ENV_V1: &str = "ROUTER_AB_LOCAL_WORKER_ROLE";
 /// Router public URL env key.
-pub const LOCAL_ROUTER_PUBLIC_URL_ENV_V1: &str = "ROUTER_PUBLIC_URL";
+pub const LOCAL_GATEWAY_PUBLIC_URL_ENV_V1: &str = "GATEWAY_PUBLIC_URL";
 /// Deriver A private URL env key.
 pub const LOCAL_DERIVER_A_URL_ENV_V1: &str = "DERIVER_A_URL";
 /// Deriver B private URL env key.
@@ -1193,7 +1193,7 @@ pub fn parse_local_worker_role_config_for_role_v1(
         LocalServiceRoleV1::Router => {
             reject_forbidden_env_keys_v1(&env, LOCAL_ROUTER_FORBIDDEN_ENV_KEYS_V1)?;
             Ok(LocalWorkerRoleConfigV1::Router(LocalRouterWorkerConfigV1 {
-                public_url: required_env_v1(&env, LOCAL_ROUTER_PUBLIC_URL_ENV_V1)?,
+                public_url: required_env_v1(&env, LOCAL_GATEWAY_PUBLIC_URL_ENV_V1)?,
                 deriver_a_url: required_env_v1(&env, LOCAL_DERIVER_A_URL_ENV_V1)?,
                 deriver_b_url: required_env_v1(&env, LOCAL_DERIVER_B_URL_ENV_V1)?,
                 signing_worker_url: required_env_v1(&env, LOCAL_SIGNING_WORKER_URL_ENV_V1)?,
@@ -2534,29 +2534,29 @@ fn local_service_stack_v1() -> RouterAbProtocolResult<LocalServiceStackV1> {
 fn router_endpoint_v1() -> RouterAbProtocolResult<LocalRouterEndpointV1> {
     LocalRouterEndpointV1::new(
         "http://127.0.0.1:9090",
-        "http://127.0.0.1:9091",
-        "http://127.0.0.1:9092",
-        "http://127.0.0.1:9093",
+        "http://127.0.0.1:9101",
+        "http://127.0.0.1:9102",
+        "http://127.0.0.1:9103",
     )
 }
 
 fn deriver_a_endpoint_v1() -> RouterAbProtocolResult<LocalDeriverAEndpointV1> {
-    LocalDeriverAEndpointV1::new("http://127.0.0.1:9091", "http://127.0.0.1:9092")
+    LocalDeriverAEndpointV1::new("http://127.0.0.1:9101", "http://127.0.0.1:9102")
 }
 
 fn deriver_b_endpoint_v1() -> RouterAbProtocolResult<LocalDeriverBEndpointV1> {
-    LocalDeriverBEndpointV1::new("http://127.0.0.1:9092", "http://127.0.0.1:9091")
+    LocalDeriverBEndpointV1::new("http://127.0.0.1:9102", "http://127.0.0.1:9101")
 }
 
 fn signing_worker_endpoint_v1() -> RouterAbProtocolResult<LocalSigningWorkerEndpointV1> {
-    LocalSigningWorkerEndpointV1::new("http://127.0.0.1:9093", "local-server-output")
+    LocalSigningWorkerEndpointV1::new("http://127.0.0.1:9103", "local-server-output")
 }
 
 fn router_env_snapshot_v1() -> RouterAbProtocolResult<LocalEnvSnapshotV1> {
     LocalEnvSnapshotV1::new(
         LocalServiceRoleV1::Router,
         vec![
-            "ROUTER_PUBLIC_URL".to_owned(),
+            "GATEWAY_PUBLIC_URL".to_owned(),
             "DERIVER_A_URL".to_owned(),
             "DERIVER_B_URL".to_owned(),
             "SIGNING_WORKER_URL".to_owned(),

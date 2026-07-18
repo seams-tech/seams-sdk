@@ -207,7 +207,8 @@ fn strict_signing_worker_handler_is_protocol_aware() {
         "SigningWorkerOnlineInput::new",
         "server_k_share32_b64u",
         "server_sigma_share32_b64u",
-        "rerandomization_entropy32_b64u",
+        "signing_worker_rerandomization_contribution32_b64u",
+        "combine_rerandomization_contributions",
         "client_signature_share32",
     ] {
         assert!(
@@ -382,6 +383,12 @@ fn strict_signing_worker_entrypoint_routes_normal_signing() {
     let body = extract_function_body(&strict_worker_rs, "handle_strict_signing_worker_fetch_v1");
 
     for required in [
+        "CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_DERIVER_A_PATH",
+        "handle_cloudflare_signing_worker_ed25519_yao_deriver_a_v1",
+        "CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_DERIVER_B_PATH",
+        "handle_cloudflare_signing_worker_ed25519_yao_deriver_b_v1",
+        "CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_RECOVERY_PROMOTE_PATH",
+        "handle_cloudflare_signing_worker_ed25519_yao_recovery_promote_v1",
         "CLOUDFLARE_SIGNING_WORKER_PROOF_BUNDLE_ACTIVATION_PATH",
         "handle_cloudflare_signing_worker_recipient_proof_bundle_activation_fetch_v1",
         "CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_PATH",
@@ -400,6 +407,64 @@ fn strict_signing_worker_entrypoint_routes_normal_signing() {
         assert!(
             body.contains(required),
             "strict SigningWorker entrypoint must route through `{required}`"
+        );
+    }
+}
+
+#[test]
+fn signing_worker_yao_lifecycle_is_exact_and_commits_normal_signing_state_atomically() {
+    let yao_source = read_src_file("ed25519_yao_signing_worker.rs");
+    for required_state in [
+        "RegistrationPending",
+        "RegistrationStaged",
+        "Active",
+        "RecoveryPending",
+        "RecoveryStaged",
+    ] {
+        assert!(
+            yao_source.contains(required_state),
+            "Signing Worker Yao lifecycle must model `{required_state}` explicitly"
+        );
+    }
+    for required_route in [
+        "/router-ab/signing-worker/ed25519-yao/activation/deriver-a",
+        "/router-ab/signing-worker/ed25519-yao/activation/deriver-b",
+        "/router-ab/signing-worker/ed25519-yao/recovery/promote",
+    ] {
+        assert!(
+            yao_source.contains(required_route),
+            "Signing Worker Yao lifecycle must expose `{required_route}`"
+        );
+    }
+    assert!(
+        !yao_source.contains("/router-ab/signing-worker/ed25519-yao/refresh/"),
+        "Signing Worker Yao activation must not retain a compatibility refresh route"
+    );
+
+    let durable_object_source = read_src_file("durable_object.rs");
+    for required in [
+        "CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_OUTPUT_ACTIVATE_DO_PATH",
+        "put_multiple(writes)",
+        "active-signing-worker",
+    ] {
+        assert!(
+            durable_object_source.contains(required),
+            "Signing Worker Yao output persistence must contain `{required}`"
+        );
+    }
+
+    let wrangler = fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("wrangler.signing-worker.toml"),
+    )
+    .expect("Signing Worker Wrangler config should read");
+    for required in [
+        "SIGNING_WORKER_ED25519_YAO_DO",
+        "RouterAbSigningWorkerEd25519YaoDurableObject",
+        "router_ab_signing_worker_v2",
+    ] {
+        assert!(
+            wrangler.contains(required),
+            "Signing Worker deployment must configure `{required}`"
         );
     }
 }

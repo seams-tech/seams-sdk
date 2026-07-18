@@ -292,9 +292,9 @@ pub fn write_materialized_envs_with_urls(
         let contents = file
             .contents
             .replace("http://127.0.0.1:9090", &urls.router)
-            .replace("http://127.0.0.1:9091", &urls.deriver_a)
-            .replace("http://127.0.0.1:9092", &urls.deriver_b)
-            .replace("http://127.0.0.1:9093", &urls.signing_worker);
+            .replace("http://127.0.0.1:9101", &urls.deriver_a)
+            .replace("http://127.0.0.1:9102", &urls.deriver_b)
+            .replace("http://127.0.0.1:9103", &urls.signing_worker);
         let path = root.join(file.path);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;

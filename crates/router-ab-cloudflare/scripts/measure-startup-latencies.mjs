@@ -39,6 +39,7 @@ const roleVarKeys = {
     'DERIVER_A_PEER_VERIFYING_KEY_HEX',
     'DERIVER_B_PEER_VERIFYING_KEY_HEX',
     'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
+    'ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON',
   ],
   'deriver-a': [
     'DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY',
@@ -50,7 +51,10 @@ const roleVarKeys = {
     'DERIVER_A_PEER_VERIFYING_KEY_HEX',
     'DERIVER_B_PEER_VERIFYING_KEY_HEX',
   ],
-  'signing-worker': ['SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY'],
+  'signing-worker': [
+    'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
+    'ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON',
+  ],
 };
 
 const argv = process.argv.slice(2).filter((arg) => arg !== '--');

@@ -15,6 +15,9 @@ pub const CLOUDFLARE_ROUTER_NORMAL_SIGNING_ROUND1_PREPARE_PUBLIC_REQUEST_PATH: &
 /// Public Router endpoint for Router A/B ECDSA derivation Router A/B registration/bootstrap.
 pub const CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_REGISTRATION_PUBLIC_REQUEST_PATH: &str =
     "/router-ab/ecdsa-derivation/register";
+/// Public Router endpoint for completing registration after client proof verification.
+pub const CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_PUBLIC_REQUEST_PATH: &str =
+    "/router-ab/ecdsa-derivation/activate";
 /// Public Router endpoint for bootstrapping an additional ECDSA signer.
 pub const CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ADD_SIGNER_PUBLIC_REQUEST_PATH: &str =
     "/router-ab/ecdsa-derivation/add-signer";

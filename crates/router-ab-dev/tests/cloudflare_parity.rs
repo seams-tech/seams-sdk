@@ -84,9 +84,9 @@ fn local_env_templates_match_wrangler_startup_manifests() {
         wrangler: include_str!("../../router-ab-cloudflare/wrangler.router.toml"),
     };
     router.assert_local("ROUTER_AB_LOCAL_WORKER_ROLE=router");
-    router.assert_wrangler("name = \"router-ab-router\"");
+    router.assert_wrangler("name = \"router-ab-mpc-router\"");
     router.assert_wrangler("[env.staging]");
-    router.assert_wrangler("name = \"router-ab-router-staging\"");
+    router.assert_wrangler("name = \"router-ab-mpc-router-staging\"");
     router.assert_wrangler("service = \"router-ab-deriver-a-staging\"");
     router.assert_wrangler("service = \"router-ab-deriver-b-staging\"");
     router.assert_wrangler("service = \"router-ab-signing-worker-staging\"");
@@ -101,9 +101,9 @@ fn local_env_templates_match_wrangler_startup_manifests() {
     router.assert_wrangler("ROUTER_PROJECT_POLICY_DO_BINDING = \"ROUTER_PROJECT_POLICY_DO\"");
     router.assert_wrangler("ROUTER_QUOTA_DO_BINDING = \"ROUTER_QUOTA_DO\"");
     router.assert_wrangler("ROUTER_ABUSE_DO_BINDING = \"ROUTER_ABUSE_DO\"");
-    router.assert_local("DERIVER_A_URL=http://127.0.0.1:9091");
-    router.assert_local("DERIVER_B_URL=http://127.0.0.1:9092");
-    router.assert_local("SIGNING_WORKER_URL=http://127.0.0.1:9093");
+    router.assert_local("DERIVER_A_URL=http://127.0.0.1:9101");
+    router.assert_local("DERIVER_B_URL=http://127.0.0.1:9102");
+    router.assert_local("SIGNING_WORKER_URL=http://127.0.0.1:9103");
     router.assert_local("ROUTER_REPLAY_STORAGE_PATH=.router-ab-local/router/replay.sqlite");
     router.assert_local("ROUTER_LIFECYCLE_STORAGE_PATH=.router-ab-local/router/lifecycle.sqlite");
     router.assert_local(
@@ -133,7 +133,7 @@ fn local_env_templates_match_wrangler_startup_manifests() {
     );
     deriver_a
         .assert_wrangler("DERIVER_A_PEER_SIGNING_KEY_BINDING = \"DERIVER_A_PEER_SIGNING_KEY\"");
-    deriver_a.assert_local("DERIVER_B_URL=http://127.0.0.1:9092");
+    deriver_a.assert_local("DERIVER_B_URL=http://127.0.0.1:9102");
     deriver_a.assert_local("DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY=");
     deriver_a.assert_local("DERIVER_A_ROOT_SHARE_WIRE_SECRET=");
     deriver_a.assert_local("DERIVER_A_PEER_SIGNING_KEY=");
@@ -165,7 +165,7 @@ fn local_env_templates_match_wrangler_startup_manifests() {
     );
     deriver_b
         .assert_wrangler("DERIVER_B_PEER_SIGNING_KEY_BINDING = \"DERIVER_B_PEER_SIGNING_KEY\"");
-    deriver_b.assert_local("DERIVER_A_URL=http://127.0.0.1:9091");
+    deriver_b.assert_local("DERIVER_A_URL=http://127.0.0.1:9101");
     deriver_b.assert_local("DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY=");
     deriver_b.assert_local("DERIVER_B_ROOT_SHARE_WIRE_SECRET=");
     deriver_b.assert_local("DERIVER_B_PEER_SIGNING_KEY=");
@@ -195,7 +195,7 @@ fn local_env_templates_match_wrangler_startup_manifests() {
     signing_worker.assert_wrangler(
         "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY = \"x25519:3333333333333333333333333333333333333333333333333333333333333333\"",
     );
-    signing_worker.assert_local("SIGNING_WORKER_URL=http://127.0.0.1:9093");
+    signing_worker.assert_local("SIGNING_WORKER_URL=http://127.0.0.1:9103");
     signing_worker.assert_local("SIGNING_WORKER_ID=local-signing-worker");
     signing_worker.assert_local("SIGNING_WORKER_KEY_EPOCH=epoch-1");
     signing_worker.assert_local(
