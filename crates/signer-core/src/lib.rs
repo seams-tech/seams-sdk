@@ -5,7 +5,6 @@ pub mod codec;
 #[cfg(all(
     feature = "typescript-bindings",
     any(
-        feature = "threshold-ecdsa",
         feature = "near-threshold-ed25519",
         feature = "ecdsa-role-local-client"
     )
@@ -29,8 +28,6 @@ pub mod near_threshold_frost;
 pub mod secp256k1;
 #[cfg(feature = "tx-finalization")]
 pub mod tempo_tx;
-#[cfg(feature = "threshold-ecdsa")]
-pub mod threshold_ecdsa;
 #[cfg(feature = "webauthn-p256")]
 pub mod webauthn_p256;
 

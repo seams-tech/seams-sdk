@@ -1,9 +1,7 @@
 use crate::error::{RouterAbEcdsaDerivationError, RouterAbEcdsaDerivationResult};
 use crate::shared::secp256k1::{
-    add_secp256k1_public_keys_33, map_additive_share_to_threshold_signatures_share_2p,
-    secp256k1_private_key_32_to_public_key_33, secp256k1_public_key_33_to_ethereum_address_20,
-    validate_secp256k1_public_key_33, THRESHOLD_SECP256K1_2P_CLIENT_PARTICIPANT_ID,
-    THRESHOLD_SECP256K1_2P_RELAYER_PARTICIPANT_ID,
+    add_secp256k1_public_keys_33, secp256k1_private_key_32_to_public_key_33,
+    secp256k1_public_key_33_to_ethereum_address_20, validate_secp256k1_public_key_33,
 };
 use core::fmt;
 use k256::elliptic_curve::bigint::U512;
@@ -55,7 +53,6 @@ pub struct ClientRoleShare {
     pub retry_counter: u32,
     pub x_client32: [u8; 32],
     pub derivation_client_share_public_key33: [u8; 33],
-    pub mapped_client_share32: [u8; 32],
 }
 
 impl fmt::Debug for ClientRoleShare {
@@ -69,7 +66,6 @@ impl fmt::Debug for ClientRoleShare {
                 "derivation_client_share_public_key33",
                 &self.derivation_client_share_public_key33,
             )
-            .field("mapped_client_share32", &"<redacted>")
             .finish()
     }
 }
@@ -82,7 +78,6 @@ pub struct RelayerRoleShare {
     pub retry_counter: u32,
     pub x_relayer32: [u8; 32],
     pub relayer_public_key33: [u8; 33],
-    pub mapped_relayer_share32: [u8; 32],
 }
 
 impl fmt::Debug for RelayerRoleShare {
@@ -93,7 +88,6 @@ impl fmt::Debug for RelayerRoleShare {
             .field("retry_counter", &self.retry_counter)
             .field("x_relayer32", &"<redacted>")
             .field("relayer_public_key33", &self.relayer_public_key33)
-            .field("mapped_relayer_share32", &"<redacted>")
             .finish()
     }
 }
@@ -335,21 +329,12 @@ fn derive_client_share_from_context_bytes(
     )?;
     let derivation_client_share_public_key33 =
         private_key_to_public_key33(&x_client32, "client role public key")?;
-    let mapped_client_share32 = vec_to_fixed_32(
-        map_additive_share_to_threshold_signatures_share_2p(
-            &x_client32,
-            THRESHOLD_SECP256K1_2P_CLIENT_PARTICIPANT_ID,
-        )?,
-        "mapped client share",
-    )?;
-
     Ok(ClientRoleShare {
         context_bytes,
         context_binding32,
         retry_counter,
         x_client32,
         derivation_client_share_public_key33,
-        mapped_client_share32,
     })
 }
 
@@ -369,21 +354,12 @@ fn derive_relayer_share_from_context_bytes(
     )?;
     let relayer_public_key33 =
         private_key_to_public_key33(&x_relayer32, "relayer role public key")?;
-    let mapped_relayer_share32 = vec_to_fixed_32(
-        map_additive_share_to_threshold_signatures_share_2p(
-            &x_relayer32,
-            THRESHOLD_SECP256K1_2P_RELAYER_PARTICIPANT_ID,
-        )?,
-        "mapped relayer share",
-    )?;
-
     Ok(RelayerRoleShare {
         context_bytes,
         context_binding32,
         retry_counter,
         x_relayer32,
         relayer_public_key33,
-        mapped_relayer_share32,
     })
 }
 
@@ -584,20 +560,6 @@ fn vec_to_fixed_20(bytes: Vec<u8>, field_name: &str) -> RouterAbEcdsaDerivationR
     bytes.try_into().map_err(|_| {
         RouterAbEcdsaDerivationError::invalid_length(format!(
             "{field_name} must be exactly 20 bytes"
-        ))
-    })
-}
-
-fn vec_to_fixed_32(bytes: Vec<u8>, field_name: &str) -> RouterAbEcdsaDerivationResult<[u8; 32]> {
-    if bytes.len() != 32 {
-        return Err(RouterAbEcdsaDerivationError::invalid_length(format!(
-            "{field_name} must be 32 bytes (got {})",
-            bytes.len()
-        )));
-    }
-    bytes.try_into().map_err(|_| {
-        RouterAbEcdsaDerivationError::invalid_length(format!(
-            "{field_name} must be exactly 32 bytes"
         ))
     })
 }

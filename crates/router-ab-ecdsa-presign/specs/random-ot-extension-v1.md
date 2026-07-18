@@ -1,7 +1,8 @@
 # Fixed malicious random-OT extension v1
 
-Status: implementation checkpoint 5. This construction requires independent
-review before MTA output may enter triple generation.
+Status: implemented and integrated. MTA consumes the sealed extension output in
+the fixed backend. Independent review of the corrected malicious composition
+remains mandatory before production promotion.
 
 ## Fixed shape
 
@@ -109,8 +110,9 @@ for the complete ECDSA construction.
 - missing, substituted, or altered sender acceptance.
 
 Fixed message arrays reject malformed lengths by construction after boundary
-decoding. Wire decoding and authenticated transport remain future integration
-work.
+decoding. The canonical eleven-round codec and authenticated Router A/B
+transport carry these messages with fixed role, round, context, and length
+bindings.
 
 ## Secret handling and constant-time boundary
 
@@ -122,14 +124,15 @@ primitives. The only secret-derived branch is the terminal aggregate
 consistency result, which is an explicit protocol abort.
 
 Source review found no secret-indexed lookup or secret-sized loop in this
-checkpoint. The optimized native arm64 assembly audit analyzed 21 extension
-functions with zero errors. Its single warning is the bounds branch in
-`ChoiceBits::bit`; the index comes only from fixed public loop counters. Wasm
-compiled evidence remains open under assumption `A-CT`.
+layer. Native release analysis reports zero division or square-root errors for
+the complete presign crate, and the release Wasm scan reports zero unapproved
+variable-time operators. Conditional branch dataflow and target-runtime timing
+remain explicit non-claims under `A-CT-BRANCH-DATAFLOW` and `A-CT-RUNTIME`.
 
-## Deferred claims
+## Claim boundary
 
-This checkpoint does not emit triples. Fixed-size MTA, product-share proofs,
-terminal committed-triple checks, transcript transport authentication,
-persistence, one-use destruction, timeout behavior, and complete online
-signing remain required before production use.
+This layer emits sealed random-OT material and makes no standalone ECDSA
+security claim. Fixed-size MTA, product-share proofs, terminal committed-triple
+checks, authenticated transport, persistent one-use destruction, and online
+signing are integrated in the complete local path. Independent review of their
+composition remains the production-promotion gate.

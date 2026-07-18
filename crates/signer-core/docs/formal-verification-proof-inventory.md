@@ -13,8 +13,8 @@ The current recommendation is:
 
 Current implementation status:
 
-- `FV-SIGNER-CORE-001` through `FV-SIGNER-CORE-004` have first Verus models
-  and executable anti-drift coverage.
+- `FV-SIGNER-CORE-001` and `FV-SIGNER-CORE-003` have first Verus models and
+  executable anti-drift coverage.
 - `FV-SIGNER-CORE-005` has a first Verus public-key helper model and
   executable anti-drift coverage through committed secp256k1 fixtures.
 - `FV-SIGNER-CORE-006` has a first Verus derivation model.
@@ -57,31 +57,6 @@ Remaining trust:
 - SHA-256/HKDF and `k256` reduction internals remain trusted primitive/library
   seams.
 
-## FV-SIGNER-CORE-002
-
-Target:
-
-- `src/secp256k1.rs`
-- `derive_threshold_secp256k1_relayer_share`
-
-Property:
-
-- for fixed `(master_secret, relayer_key_id)`, relayer-share derivation is deterministic
-- the returned signing share is valid and non-zero
-- the returned verifying share is the compressed public key of that signing share
-- the output layout is exactly `signing_share32 || verifying_share33`
-
-Why it matters:
-
-- this helper defines the threshold relayer-share shape consumed downstream
-
-Status:
-
-- Verus output-shape model exists.
-- Determinism theorem exists.
-- Signing-share scalar-domain theorem exists.
-- Executable anti-drift checks cover output layout and public-key consistency.
-
 ## FV-SIGNER-CORE-003
 
 Target:
@@ -108,35 +83,6 @@ Status:
 - Private-key scalar-domain theorem exists.
 - Executable anti-drift checks cover output layout, public-key consistency,
   address consistency, and reduction formula parity.
-
-## FV-SIGNER-CORE-004
-
-Target:
-
-- `src/secp256k1.rs`
-- `map_additive_share_to_threshold_signatures_share_2p`
-
-Property:
-
-- participant-ID handling is fixed to `{1, 2}`
-- unsupported IDs are rejected
-- the mapping uses the intended fixed lambdas
-- mapped outputs remain valid non-zero scalars
-- mapped-share semantics preserve the same local additive-share meaning
-
-Why it matters:
-
-- this is the shared backend-mapping seam beneath `router-ab-ecdsa-derivation`
-
-Status:
-
-- Verus mapping model exists.
-- Fixed participant-ID lemmas exist.
-- Unsupported-ID rejection lemma exists.
-- Lambda inverse correctness lemmas exist.
-- Mapped-share scalar-domain theorem exists.
-- Mapped-share semantic-preservation theorem exists.
-- Executable anti-drift checks cover mapping formula parity and rejected IDs.
 
 ## FV-SIGNER-CORE-005
 
@@ -281,12 +227,10 @@ Remaining trust:
 Implement in this order:
 
 1. `FV-SIGNER-CORE-001`
-2. `FV-SIGNER-CORE-002`
-3. `FV-SIGNER-CORE-003`
-4. `FV-SIGNER-CORE-004`
-5. `FV-SIGNER-CORE-005`
-6. `FV-SIGNER-CORE-006`
-7. `FV-SIGNER-CORE-007`
-8. `FV-SIGNER-CORE-008`
+2. `FV-SIGNER-CORE-003`
+3. `FV-SIGNER-CORE-005`
+4. `FV-SIGNER-CORE-006`
+5. `FV-SIGNER-CORE-007`
+6. `FV-SIGNER-CORE-008`
 
-If only one initial slice is funded, stop after `FV-SIGNER-CORE-004`.
+If only one initial slice is funded, stop after `FV-SIGNER-CORE-003`.

@@ -37,27 +37,6 @@ Remaining trust:
 
 - SHA-256/HKDF and `k256` reduction internals are trusted primitive/library seams
 
-## FV-SIGNER-CORE-002
-
-Target:
-
-- `src/secp256k1.rs`
-- `derive_threshold_secp256k1_relayer_share`
-
-Property:
-
-- derivation from `(master_secret, relayer_key_id)` is deterministic
-- signing share is a valid non-zero scalar
-- verifying share is the compressed public key for that signing share
-- output layout is `signing_share32 || verifying_share33`
-
-Status:
-
-- Verus output-shape model exists
-- determinism theorem exists
-- signing-share scalar-domain theorem exists
-- executable anti-drift checks cover output layout and public-key consistency
-
 ## FV-SIGNER-CORE-003
 
 Target:
@@ -80,31 +59,6 @@ Status:
 - private-key scalar-domain theorem exists
 - executable anti-drift checks cover output layout, public-key consistency,
   address consistency, and reduction formula parity
-
-## FV-SIGNER-CORE-004
-
-Target:
-
-- `src/secp256k1.rs`
-- `map_additive_share_to_threshold_signatures_share_2p`
-
-Property:
-
-- participant IDs are fixed to `{1, 2}`
-- unsupported IDs are rejected
-- mapping uses the intended lambdas
-- mapped outputs remain valid non-zero scalars
-- mapped-share semantics preserve local additive-share meaning
-
-Status:
-
-- Verus mapping model exists
-- fixed participant-ID lemmas exist
-- unsupported-ID rejection lemma exists
-- lambda inverse correctness lemmas exist
-- mapped-share scalar-domain theorem exists
-- mapped-share semantic-preservation theorem exists
-- executable anti-drift checks cover mapping formula parity and rejected IDs
 
 ## FV-SIGNER-CORE-005
 

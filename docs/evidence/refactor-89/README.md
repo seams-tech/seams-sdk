@@ -78,18 +78,63 @@ fetch or startup latency.
 
 ## Phase 5 production presign cutover
 
-`phase5-presign-cutover-v1.json` records the first production build in which
-both Client and SigningWorker presigning use the purpose-built fixed 2-of-2
-backend. The Client artifact is 173,835 raw, 74,075 gzip-9, and 61,211
+`phase5-presign-cutover-v1.json` records the production build in which both
+Client and SigningWorker presigning use the purpose-built fixed 2-of-2
+backend. The Client artifact is 172,561 raw, 73,497 gzip-9, and 60,605
 Brotli-11 bytes. The SigningWorker artifact, which also contains role-local
-derivation bootstrap, is 200,975 raw, 88,469 gzip-9, and 74,407 Brotli-11
+derivation bootstrap, is 199,117 raw, 87,788 gzip-9, and 73,935 Brotli-11
 bytes. Both normal dependency graphs exclude `signer-core` and
 `threshold-signatures`.
 
 The historical 553,854-byte mixed artifact owned more responsibilities, so its
 209,954-byte gzip size is contextual rather than a like-for-like presign-only
-comparison. The production Client presign artifact is nevertheless 135,879
+comparison. The production Client presign artifact is nevertheless 136,457
 gzip bytes smaller, and its dependency attribution is now unambiguous.
+
+## Phase E local readiness
+
+`phase-e-local-artifacts-v1.json` records the final role-specific Wasm and
+worker digests, compressed sizes, zero-old-caller counts, and validation
+checkpoint. `phase-e-local-timings-v1.json` records reproducible local Wasm
+compile/instantiate medians and the native fixed presign/online lifecycle.
+Cloudflare network, placement, CPU, and tail-latency results remain deployment
+evidence.
+
+`client-bundle-size-improvements-v1.md` summarizes the client-visible result:
+normal pool-hit signing falls from 329,411 to 39,927 gzip bytes, an 87.9%
+reduction, and first registration falls from approximately 250,506 to 102,165
+gzip bytes, a 59.2% reduction. It also records which larger lifecycle-specific
+artifacts are deferred.
+
+`completion-audit-v1.md` derives the 30 authoritative tracker requirements,
+maps every requirement to current implementation and executable evidence, and
+records 27 requirements as aligned. B3, B6, and D7 are blocked by the completed
+Cloudflare lifecycle review. It also records the resolved checkpoint-era
+documentation drift found during the audit.
+
+`final-local-test-receipt-v1.md` records the final Rust, Cloudflare route,
+SDK/server build, source-guard, and focused browser rerun. It also separates
+fresh local evidence from credential-dependent and deployment-owned cases.
+
+`registration-package-delta-review-v1.md` records the sound registration-only
+Wasm split, renamed production asset, compressed-size evidence, and browser
+waterfall. It rejects whole-tree closure as packaging-only and now delegates
+the reviewed lifecycle blockers to the lifecycle receipt.
+
+`cloudflare-signing-lifecycle-security-review-v1.md` is the bounded security
+review for the newer SigningWorker pool/online lifecycle and the live
+same-account Ed25519 Yao adapter. It contains 19 Spec-IR entries, 69
+function-level Code-IR records, full Alignment-IR, six findings,
+platform-assumption citations,
+focused check results, and the independent `REJECTED` verdict.
+`cloudflare-signing-lifecycle-manifest-v1.json` pins the exact reviewed source,
+specification, and test corpus plus the executed checks.
+
+`rar-01-public-coin-remediation-v1.md` records the low-latency two-role online
+rerandomization fix, its cross-language commitment vector, regenerated
+artifacts, and the complete post-remediation test matrix. The superseding
+digest-pinned decision in `docs/security/router-ab-ecdsa-phase4-review.md`
+approves that exact receipt and closes `RAR-01`.
 
 ## Evidence assigned to implementation phases
 

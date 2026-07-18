@@ -5,7 +5,6 @@ use ts_rs::TS;
 use crate::{
     codec::hex_to_bytes,
     ecdsa_role_local_client::{
-        derive_passkey_threshold_ecdsa_client_root_share32_from_prf_first,
         finalize_ecdsa_client_bootstrap, prepare_ecdsa_client_bootstrap,
         EcdsaRoleLocalPendingStateBlob as CoreEcdsaRoleLocalPendingStateBlob,
         FinalizeEcdsaClientBootstrapCommand as CoreFinalizeEcdsaClientBootstrapCommand,
@@ -25,9 +24,6 @@ use zeroize::Zeroize;
 const ROUTER_AB_ECDSA_DERIVATION_CLIENT_PARTICIPANT_ID: u32 = 1;
 #[cfg(feature = "ecdsa-role-local-client")]
 const ROUTER_AB_ECDSA_DERIVATION_RELAYER_PARTICIPANT_ID: u32 = 2;
-#[cfg(feature = "ecdsa-role-local-client")]
-const ROUTER_AB_ECDSA_DERIVATION_RELAYER_SHARE_RETRY_COUNTER_V1: u32 = 0;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(rename_all = "snake_case")]
@@ -72,10 +68,8 @@ pub struct EcdsaClientBootstrapParticipantsV1 {
     rename_all_fields = "camelCase"
 )]
 pub enum EcdsaBootstrapSecretSourceV1 {
-    WebauthnPrfFirst {
-        prf_first_b64u: String,
-        rp_id: String,
-        credential_id_b64u: String,
+    ThresholdPrfXClientBase {
+        x_client_base_b64u: String,
     },
 }
 
@@ -218,6 +212,7 @@ pub struct RelayerPublicIdentityV1 {
     pub relayer_public_key33_b64u: String,
     pub group_public_key33_b64u: String,
     pub ethereum_address: String,
+    pub relayer_share_retry_counter: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -335,7 +330,9 @@ pub fn finalize_ecdsa_client_bootstrap_command_v1(
             ethereum_address20: decode_ethereum_address20(
                 &command.relayer_public_identity.ethereum_address,
             )?,
-            relayer_share_retry_counter: ROUTER_AB_ECDSA_DERIVATION_RELAYER_SHARE_RETRY_COUNTER_V1,
+            relayer_share_retry_counter: command
+                .relayer_public_identity
+                .relayer_share_retry_counter,
         },
     })?;
 
@@ -416,26 +413,15 @@ fn client_root_share_from_secret_source(
     secret_source: EcdsaBootstrapSecretSourceV1,
 ) -> CoreResult<[u8; 32]> {
     match secret_source {
-        EcdsaBootstrapSecretSourceV1::WebauthnPrfFirst {
-            prf_first_b64u,
-            rp_id,
-            credential_id_b64u,
+        EcdsaBootstrapSecretSourceV1::ThresholdPrfXClientBase {
+            mut x_client_base_b64u,
         } => {
-            require_ascii_nonempty(rp_id, "secretSource.rpId")?;
-            let mut credential_id =
-                decode_base64_url(&credential_id_b64u, "secretSource.credentialIdB64u")?;
-            if credential_id.is_empty() {
-                return Err(SignerCoreError::invalid_input(
-                    "secretSource.credentialIdB64u must decode to at least one byte",
-                ));
-            }
-            credential_id.zeroize();
-            let mut prf_first32 =
-                decode_base64_url_fixed(&prf_first_b64u, "secretSource.prfFirstB64u")?;
-            let derived =
-                derive_passkey_threshold_ecdsa_client_root_share32_from_prf_first(&prf_first32);
-            prf_first32.zeroize();
-            derived
+            let decoded = decode_base64_url_fixed(
+                &x_client_base_b64u,
+                "secretSource.xClientBaseB64u",
+            );
+            x_client_base_b64u.zeroize();
+            decoded
         }
     }
 }
@@ -594,26 +580,21 @@ mod command_tests {
             algorithm: EcdsaClientBootstrapAlgorithmV1::RouterAbEcdsaDerivationSecp256k1RoleLocalV1,
             context: context(),
             participants: participants(),
-            secret_source: EcdsaBootstrapSecretSourceV1::WebauthnPrfFirst {
-                prf_first_b64u: encode_base64_url(&[0x33u8; 32]),
-                rp_id: "localhost".to_owned(),
-                credential_id_b64u: encode_base64_url(b"credential"),
+            secret_source: EcdsaBootstrapSecretSourceV1::ThresholdPrfXClientBase {
+                x_client_base_b64u: encode_base64_url(&[0x33u8; 32]),
             },
         }
     }
 
     #[test]
-    fn prepare_command_matches_core_prepare_with_rust_passkey_derivation() {
+    fn prepare_command_matches_core_prepare_with_threshold_prf_output() {
         let output =
             prepare_ecdsa_client_bootstrap_command_v1(prepare_command()).expect("prepare command");
         let stable_context =
             stable_key_context_from_prepare_context(context()).expect("stable context");
-        let client_root_share32 =
-            derive_passkey_threshold_ecdsa_client_root_share32_from_prf_first(&[0x33u8; 32])
-                .expect("derive client root");
         let direct = prepare_core_ecdsa_client_bootstrap(CorePrepareEcdsaClientBootstrapCommand {
             context: stable_context,
-            client_root_share32,
+            client_root_share32: [0x33u8; 32],
         })
         .expect("core prepare");
 
@@ -671,6 +652,7 @@ mod command_tests {
                     relayer_public_key33_b64u: encode_base64_url(&identity.relayer_public_key33),
                     group_public_key33_b64u: encode_base64_url(&identity.threshold_public_key33),
                     ethereum_address: hex_prefixed(&identity.threshold_ethereum_address20),
+                    relayer_share_retry_counter: identity.relayer_share_retry_counter,
                 },
             })
             .expect("finalize command");

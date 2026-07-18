@@ -5,7 +5,9 @@ use k256::{
     Scalar, WideBytes,
 };
 use rand_core::CryptoRngCore;
-use router_ab_ecdsa_wire::{PresignPairContext, ScalarBytes};
+use router_ab_ecdsa_wire::PresignPairContext;
+#[cfg(any(test, feature = "test-utils"))]
+use router_ab_ecdsa_wire::ScalarBytes;
 use sha2::{Digest, Sha512};
 use subtle::{Choice, ConditionallySelectable};
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -76,6 +78,7 @@ pub struct SigningWorkerMultiplicationOperands(MultiplicationOperands);
 macro_rules! define_operands {
     ($name:ident) => {
         impl $name {
+            #[cfg(any(test, feature = "test-utils"))]
             pub fn from_parts(
                 context: PresignPairContext,
                 triple_index: TripleIndex,

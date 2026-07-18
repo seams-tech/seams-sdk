@@ -9,7 +9,8 @@ use router_ab_core::{
     parse_router_ab_ecdsa_derivation_normal_signing_scope_v1_json,
     parse_router_ab_ecdsa_derivation_recovery_request_v1_json,
     parse_router_ab_ecdsa_derivation_registration_bootstrap_request_v1_json,
-    router_ab_ecdsa_derivation_active_state_session_id_v1, EncryptedPayloadV1, ExpensiveWorkKindV1,
+    router_ab_ecdsa_derivation_active_state_session_id_v1,
+    router_ab_ecdsa_rerandomization_client_commitment_v1, EncryptedPayloadV1, ExpensiveWorkKindV1,
     LifecycleScopeV1, PublicDigest32, Role, RoleEncryptedEnvelopeV1, RootShareEpoch,
     RouterAbEcdsaDerivationActivationRefreshRequestV1,
     RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1,
@@ -238,6 +239,9 @@ fn normal_signing_request() -> RouterAbEcdsaDerivationEvmDigestSigningRequestV1 
         "server-presignature-1",
         1_900_000_000_000,
         b64u(&[0x66; 32]),
+        b64u(&router_ab_ecdsa_rerandomization_client_commitment_v1(
+            [0x44; 32],
+        )),
     )
     .expect("normal signing request")
 }
@@ -250,6 +254,7 @@ fn normal_signing_finalize_request() -> RouterAbEcdsaDerivationEvmDigestSigningF
         b64u(&[0x66; 32]),
         "server-presignature-1",
         b64u(&[0x77; 32]),
+        b64u(&[0x44; 32]),
     )
     .expect("normal signing finalize request")
 }
@@ -1065,7 +1070,7 @@ fn router_ab_ecdsa_derivation_prepare_response_rejects_bad_server_presignature_p
 }
 
 #[test]
-fn router_ab_ecdsa_derivation_prepare_response_rejects_bad_rerandomization_entropy() {
+fn router_ab_ecdsa_derivation_prepare_response_rejects_bad_worker_contribution() {
     let request = normal_signing_request();
 
     let err = RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1::new_for_request(
@@ -1075,9 +1080,37 @@ fn router_ab_ecdsa_derivation_prepare_response_rejects_bad_rerandomization_entro
         b64u(&[0x55; 31]),
         1_800_000_000_000,
     )
-    .expect_err("bad entropy rejects");
+    .expect_err("bad SigningWorker contribution rejects");
 
     assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
+}
+
+#[test]
+fn router_ab_ecdsa_derivation_finalize_opening_reconstructs_only_its_prepare_commitment() {
+    let prepare = normal_signing_request();
+    let finalize = normal_signing_finalize_request();
+    assert_eq!(
+        finalize.prepare_request_digest().expect("matching opening"),
+        prepare.request_digest().expect("prepare digest")
+    );
+
+    let mut substituted = finalize;
+    substituted.client_rerandomization_contribution32_b64u = b64u(&[0x45; 32]);
+    assert_ne!(
+        substituted
+            .prepare_request_digest()
+            .expect("substituted opening digest"),
+        prepare.request_digest().expect("prepare digest")
+    );
+}
+
+#[test]
+fn router_ab_ecdsa_derivation_client_rerandomization_commitment_vector_is_frozen() {
+    let commitment = router_ab_ecdsa_rerandomization_client_commitment_v1([0x44; 32]);
+    assert_eq!(
+        b64u(&commitment),
+        "S9FX5zM9m3vAn8E1xDn0YqbRjAG_nibOaiphjxKGhmw"
+    );
 }
 
 #[test]

@@ -62,18 +62,6 @@ fn vectors_v1_match_expected_outputs() {
 
     assert_eq!(
         to_hex(
-            signer_core::secp256k1::map_additive_share_to_threshold_signatures_share_2p(
-                from_hex(MAP_ADDITIVE_SHARE_HEX).as_slice(),
-                MAP_PARTICIPANT_ID,
-            )
-            .expect("map share")
-            .as_slice()
-        ),
-        MAP_EXPECTED
-    );
-
-    assert_eq!(
-        to_hex(
             signer_core::secp256k1::validate_secp256k1_public_key_33(
                 from_hex(VALIDATE_PK_HEX).as_slice(),
             )

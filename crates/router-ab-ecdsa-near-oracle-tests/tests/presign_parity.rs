@@ -7,8 +7,12 @@ use router_ab_ecdsa_presign::{
     SigningWorkerPresignInput, TriplePublic, ValidatedTriple,
 };
 use router_ab_ecdsa_wire::{
-    CompressedPointBytes, PairContextDigest, PresignPairContext, ScalarBytes, SigningScopeDigest,
+    ClientAlphaBetaMessage, ClientEShareMessage, CompressedPointBytes, PairContextDigest,
+    PresignPairContext, ScalarBytes, SigningScopeDigest, SigningWorkerAlphaBetaMessage,
+    SigningWorkerEShareMessage,
 };
+use serde::de::DeserializeOwned;
+use sha2::{Digest, Sha256};
 use threshold_signatures::{
     ecdsa::{
         ot_based_ecdsa::{
@@ -29,6 +33,7 @@ const CLIENT_COORDINATE: u64 = 2;
 const SIGNING_WORKER_COORDINATE: u64 = 3;
 const CLIENT_LAGRANGE: u64 = 3;
 const SIGNING_WORKER_LAGRANGE_MAGNITUDE: u64 = 2;
+const NEAR_MESSAGE_HEADER_LENGTH: usize = 40;
 const EXPECTED_BIG_R: [u8; 33] = [
     3, 97, 26, 55, 117, 255, 79, 62, 90, 207, 12, 55, 27, 90, 190, 23, 216, 213, 123, 57, 135, 16,
     189, 139, 16, 37, 151, 245, 115, 43, 105, 212, 133,
@@ -56,6 +61,18 @@ struct Fixture {
     triple0_slopes: [Scalar; 3],
     triple1_secrets: [Scalar; 3],
     triple1_slopes: [Scalar; 3],
+}
+
+#[derive(Default)]
+struct NearRoleSemanticTrace {
+    e: Option<Scalar>,
+    alpha_beta: Option<(Scalar, Scalar)>,
+}
+
+#[derive(Default)]
+struct NearSemanticTrace {
+    client: NearRoleSemanticTrace,
+    signing_worker: NearRoleSemanticTrace,
 }
 
 impl Fixture {
@@ -242,6 +259,7 @@ fn step_protocol(
     protocol: &mut Option<Box<dyn Protocol<Output = NearPresignOutput>>>,
     peer: &mut Option<Box<dyn Protocol<Output = NearPresignOutput>>>,
     output: &mut Option<NearPresignOutput>,
+    trace: &mut NearSemanticTrace,
 ) -> Result<bool, String> {
     let Some(active_protocol) = protocol.as_mut() else {
         return Ok(false);
@@ -253,6 +271,7 @@ fn step_protocol(
     match action {
         Action::Wait => Ok(false),
         Action::SendMany(message) => {
+            record_near_semantic_message(sender, &message, trace)?;
             let peer = peer
                 .as_mut()
                 .ok_or_else(|| "NEAR peer completed before receiving a message".to_string())?;
@@ -268,15 +287,53 @@ fn step_protocol(
     }
 }
 
+fn decode_near_payload<T: DeserializeOwned>(message: &[u8]) -> Result<T, String> {
+    let payload = message
+        .get(NEAR_MESSAGE_HEADER_LENGTH..)
+        .ok_or_else(|| "NEAR message omitted its 40-byte channel header".to_string())?;
+    rmp_serde::from_slice(payload)
+        .map_err(|error| format!("invalid NEAR semantic payload: {error}"))
+}
+
+fn record_near_role_message(
+    message: &[u8],
+    trace: &mut NearRoleSemanticTrace,
+) -> Result<(), String> {
+    if trace.e.is_none() {
+        trace.e = Some(decode_near_payload(message)?);
+        return Ok(());
+    }
+    if trace.alpha_beta.is_none() {
+        trace.alpha_beta = Some(decode_near_payload(message)?);
+        return Ok(());
+    }
+    Err("NEAR presign emitted more than two shared messages for one role".to_string())
+}
+
+fn record_near_semantic_message(
+    sender: Participant,
+    message: &[u8],
+    trace: &mut NearSemanticTrace,
+) -> Result<(), String> {
+    match u32::from(sender) {
+        CLIENT_PARTICIPANT_ID => record_near_role_message(message, &mut trace.client),
+        SIGNING_WORKER_PARTICIPANT_ID => {
+            record_near_role_message(message, &mut trace.signing_worker)
+        }
+        _ => Err("NEAR presign emitted a message from an unknown role".to_string()),
+    }
+}
+
 fn drive_near_pair(
     client: Box<dyn Protocol<Output = NearPresignOutput>>,
     signing_worker: Box<dyn Protocol<Output = NearPresignOutput>>,
-) -> Result<(NearPresignOutput, NearPresignOutput), String> {
+) -> Result<(NearPresignOutput, NearPresignOutput, NearSemanticTrace), String> {
     let participants = near_participants();
     let mut client_protocol = Some(client);
     let mut worker_protocol = Some(signing_worker);
     let mut client_output = None;
     let mut worker_output = None;
+    let mut trace = NearSemanticTrace::default();
 
     for _ in 0..64 {
         let client_progress = step_protocol(
@@ -284,18 +341,21 @@ fn drive_near_pair(
             &mut client_protocol,
             &mut worker_protocol,
             &mut client_output,
+            &mut trace,
         )?;
         let worker_progress = step_protocol(
             participants[1],
             &mut worker_protocol,
             &mut client_protocol,
             &mut worker_output,
+            &mut trace,
         )?;
 
         if client_output.is_some() && worker_output.is_some() {
             return Ok((
                 client_output.take().expect("checked client output"),
                 worker_output.take().expect("checked worker output"),
+                trace,
             ));
         }
         if !client_progress && !worker_progress {
@@ -345,16 +405,44 @@ fn assert_role_parity(new: PresignOutput, near: &NearPresignOutput) {
     assert_eq!(sigma.into_bytes(), near_scalar_bytes(near.sigma));
 }
 
-#[test]
-fn purpose_built_presign_matches_pinned_near_oracle_exactly() {
-    let fixture = Fixture::new();
-    let (new_client, new_worker) = run_new_pair(&fixture);
+fn run_near_pair(fixture: &Fixture) -> (NearPresignOutput, NearPresignOutput, NearSemanticTrace) {
     let participants = near_participants();
     let near_client = fixture.near_protocol(participants[0], Scalar::from(CLIENT_COORDINATE));
     let near_worker =
         fixture.near_protocol(participants[1], Scalar::from(SIGNING_WORKER_COORDINATE));
-    let (near_client, near_worker) =
-        drive_near_pair(near_client, near_worker).expect("NEAR oracle completes");
+    drive_near_pair(near_client, near_worker).expect("NEAR oracle completes")
+}
+
+fn required_trace_e(trace: &NearRoleSemanticTrace) -> Scalar {
+    trace.e.expect("NEAR role emitted e")
+}
+
+fn required_trace_alpha_beta(trace: &NearRoleSemanticTrace) -> (Scalar, Scalar) {
+    trace.alpha_beta.expect("NEAR role emitted alpha and beta")
+}
+
+fn semantic_trace_digest(trace: &NearSemanticTrace) -> [u8; 32] {
+    let mut digest = Sha256::new();
+    for (role, role_trace) in [(1u8, &trace.client), (2u8, &trace.signing_worker)] {
+        let (alpha, beta) = required_trace_alpha_beta(role_trace);
+        digest.update([role]);
+        digest.update(required_trace_e(role_trace).to_bytes());
+        digest.update(alpha.to_bytes());
+        digest.update(beta.to_bytes());
+    }
+    digest.finalize().into()
+}
+
+#[test]
+fn purpose_built_presign_matches_pinned_near_oracle_exactly() {
+    let fixture = Fixture::new();
+    let (new_client, new_worker) = run_new_pair(&fixture);
+    let (near_client, near_worker, trace) = run_near_pair(&fixture);
+
+    assert_eq!(
+        hex::encode(semantic_trace_digest(&trace)),
+        "2d6d2691b277b65ebd66fe81d66d0c875412747265d18c7131963f1b8ab72d06"
+    );
 
     assert_eq!(near_point_bytes(near_client.big_r), EXPECTED_BIG_R);
     assert_eq!(near_scalar_bytes(near_client.k), EXPECTED_CLIENT_K);
@@ -368,4 +456,48 @@ fn purpose_built_presign_matches_pinned_near_oracle_exactly() {
 
     assert_role_parity(new_client, &near_client);
     assert_role_parity(new_worker, &near_worker);
+}
+
+#[test]
+fn purpose_built_client_replays_pinned_near_signing_worker_semantics() {
+    let fixture = Fixture::new();
+    let (near_client, _, trace) = run_near_pair(&fixture);
+    let (state, _) = start_client(fixture.new_client_input()).expect("client start");
+    let worker_e = SigningWorkerEShareMessage::new(
+        fixture.context,
+        scalar_bytes(required_trace_e(&trace.signing_worker)),
+    );
+    let (state, _) = state.receive(worker_e).expect("client receives NEAR e");
+    let (alpha, beta) = required_trace_alpha_beta(&trace.signing_worker);
+    let worker_alpha_beta = SigningWorkerAlphaBetaMessage::new(
+        fixture.context,
+        scalar_bytes(alpha),
+        scalar_bytes(beta),
+    );
+    let output = state
+        .receive(worker_alpha_beta)
+        .expect("client receives NEAR alpha and beta");
+
+    assert_role_parity(output, &near_client);
+}
+
+#[test]
+fn purpose_built_signing_worker_replays_pinned_near_client_semantics() {
+    let fixture = Fixture::new();
+    let (_, near_worker, trace) = run_near_pair(&fixture);
+    let (state, _) =
+        start_signing_worker(fixture.new_signing_worker_input()).expect("worker start");
+    let client_e = ClientEShareMessage::new(
+        fixture.context,
+        scalar_bytes(required_trace_e(&trace.client)),
+    );
+    let (state, _) = state.receive(client_e).expect("worker receives NEAR e");
+    let (alpha, beta) = required_trace_alpha_beta(&trace.client);
+    let client_alpha_beta =
+        ClientAlphaBetaMessage::new(fixture.context, scalar_bytes(alpha), scalar_bytes(beta));
+    let output = state
+        .receive(client_alpha_beta)
+        .expect("worker receives NEAR alpha and beta");
+
+    assert_role_parity(output, &near_worker);
 }

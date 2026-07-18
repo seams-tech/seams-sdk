@@ -11,17 +11,30 @@ use router_ab_ecdsa_client_protocol::{
     EcdsaRegistrationPurposeV1, EcdsaRegistrationRecipientKeysV1, EcdsaRegistrationRequestV1,
     EcdsaRegistrationSealSeedsV1, EcdsaRegistrationSignerSetV1, EcdsaSelectedServerIdentityV1,
     EcdsaSignerEnvelopePublicKeyV1, EcdsaSignerIdentityV1, EcdsaStableKeyContextV1,
+    EcdsaVerifiedClientActivationFactsV1,
 };
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 use zeroize::Zeroize;
 
-use crate::ecdsa_prf_finalizer::finalize_encrypted_client_proof_bundles_v1;
+use crate::ecdsa_prf_finalizer::{
+    finalize_encrypted_client_proof_bundles_v1, finalize_encrypted_client_proof_input_v1,
+    FinalizeEncryptedClientProofBundlesInputV1,
+};
+use crate::encoders::base64_url_encode;
+use signer_core::commands::{
+    prepare_ecdsa_client_bootstrap_command_v1, EcdsaBootstrapSecretSourceV1,
+    EcdsaClientBootstrapAlgorithmV1, EcdsaClientBootstrapContextV1,
+    EcdsaClientBootstrapParticipantsV1, PrepareEcdsaClientBootstrapCommandKindV1,
+    PrepareEcdsaClientBootstrapCommandV1, PrepareEcdsaClientBootstrapOutputV1,
+};
 
 /// Rust-owned client ceremony whose X25519 private key never crosses WASM.
 #[wasm_bindgen]
 pub struct RouterAbEcdsaClientCeremonyV1 {
     keypair: Option<EcdsaClientEphemeralKeyPairV1>,
+    registration_binding: Option<RegistrationBindingV1>,
+    recovery_transcript_digest_b64u: Option<String>,
 }
 
 #[wasm_bindgen]
@@ -34,6 +47,8 @@ impl RouterAbEcdsaClientCeremonyV1 {
         seed.zeroize();
         Ok(Self {
             keypair: Some(keypair.map_err(js_error)?),
+            registration_binding: None,
+            recovery_transcript_digest_b64u: None,
         })
     }
 
@@ -43,7 +58,12 @@ impl RouterAbEcdsaClientCeremonyV1 {
     }
 
     /// Builds a strict wallet-registration or wallet-add-signer request.
-    pub fn build_registration_request(&self, input_json: &str) -> Result<String, JsValue> {
+    pub fn build_registration_request(&mut self, input_json: &str) -> Result<String, JsValue> {
+        if self.registration_binding.is_some() {
+            return Err(JsValue::from_str(
+                "Router A/B ECDSA registration request was already built",
+            ));
+        }
         let input: RegistrationRequestInputV1 = parse_json(input_json)?;
         let purpose = EcdsaRegistrationPurposeV1::from_wire_label(&input.registration_purpose)
             .map_err(protocol_error)
@@ -63,10 +83,6 @@ impl RouterAbEcdsaClientCeremonyV1 {
             client_ephemeral_public_key: self.active_keypair()?.public_key().to_owned(),
             replay_nonce: input.replay_nonce.clone(),
             expires_at_ms: input.expires_at_ms,
-            derivation_client_share_public_key33_b64u: input
-                .derivation_client_share_public_key33_b64u
-                .clone(),
-            client_share_retry_counter: input.client_share_retry_counter,
         })
         .map_err(protocol_error)
         .map_err(js_error)?;
@@ -77,7 +93,28 @@ impl RouterAbEcdsaClientCeremonyV1 {
         )
         .map_err(protocol_error)
         .map_err(js_error)?;
-        serialize_registration_request(input, request, self.active_keypair()?.public_key())
+        let registration_binding = RegistrationBindingV1 {
+            context: EcdsaClientBootstrapContextV1 {
+                application_binding_digest_b64u: input
+                    .context
+                    .application_binding_digest_b64u
+                    .clone(),
+            },
+            request_digest_b64u: base64_url_encode(
+                &request.digest().map_err(protocol_error).map_err(js_error)?,
+            ),
+            transcript_digest_b64u: base64_url_encode(
+                &request
+                    .header()
+                    .transcript_digest()
+                    .map_err(protocol_error)
+                    .map_err(js_error)?,
+            ),
+        };
+        let serialized =
+            serialize_registration_request(input, request, self.active_keypair()?.public_key())?;
+        self.registration_binding = Some(registration_binding);
+        Ok(serialized)
     }
 
     /// Builds a strict explicit client-export request.
@@ -99,7 +136,12 @@ impl RouterAbEcdsaClientCeremonyV1 {
     }
 
     /// Builds a strict same-root client recovery request.
-    pub fn build_recovery_request(&self, input_json: &str) -> Result<String, JsValue> {
+    pub fn build_recovery_request(&mut self, input_json: &str) -> Result<String, JsValue> {
+        if self.recovery_transcript_digest_b64u.is_some() {
+            return Err(JsValue::from_str(
+                "Router A/B ECDSA recovery request was already built",
+            ));
+        }
         let input: RecoveryRequestInputV1 = parse_json(input_json)?;
         let header = self.post_registration_header(
             &input.common,
@@ -113,7 +155,24 @@ impl RouterAbEcdsaClientCeremonyV1 {
             },
         )?;
         let request = self.build_post_request(header, &input.common.deriver_recipient_keys)?;
-        serialize_recovery_request(input, request, self.active_keypair()?.public_key())
+        let transcript_digest_b64u = base64_url_encode(
+            &request
+                .header()
+                .transcript_digest()
+                .map_err(protocol_error)
+                .map_err(js_error)?,
+        );
+        let serialized =
+            serialize_recovery_request(input, request, self.active_keypair()?.public_key())?;
+        self.recovery_transcript_digest_b64u = Some(transcript_digest_b64u);
+        Ok(serialized)
+    }
+
+    /// Returns the canonical transcript digest for the active recovery request.
+    pub fn recovery_transcript_digest_b64u(&self) -> Result<String, JsValue> {
+        self.recovery_transcript_digest_b64u
+            .clone()
+            .ok_or_else(|| JsValue::from_str("Router A/B ECDSA recovery request was not built"))
     }
 
     /// Builds a strict SigningWorker activation-refresh request.
@@ -147,10 +206,204 @@ impl RouterAbEcdsaClientCeremonyV1 {
         .map_err(js_error)
     }
 
+    /// Verifies A/B proofs and creates the only client bootstrap accepted by activation.
+    pub fn finalize_registration_client_bootstrap(
+        &self,
+        input_json: &str,
+    ) -> Result<String, JsValue> {
+        let input: RegistrationClientBootstrapFinalizationInputV1 = parse_json(input_json)?;
+        let registration_binding = self.registration_binding.clone().ok_or_else(|| {
+            JsValue::from_str("Router A/B ECDSA registration request was not built")
+        })?;
+        let proof_transcript_digest_b64u = require_exact_proof_transcript_digest(
+            &input.client_proof_finalization,
+            &registration_binding.transcript_digest_b64u,
+        )?;
+        let mut x_client_base = finalize_encrypted_client_proof_input_v1(
+            input.client_proof_finalization,
+            self.active_keypair()?.private_key_bytes(),
+        )
+        .map_err(js_error)?;
+        let prepare_result =
+            prepare_ecdsa_client_bootstrap_command_v1(PrepareEcdsaClientBootstrapCommandV1 {
+                kind: PrepareEcdsaClientBootstrapCommandKindV1::PrepareEcdsaClientBootstrapV1,
+                algorithm:
+                    EcdsaClientBootstrapAlgorithmV1::RouterAbEcdsaDerivationSecp256k1RoleLocalV1,
+                context: registration_binding.context,
+                participants: fixed_ecdsa_participants_v1(),
+                secret_source: EcdsaBootstrapSecretSourceV1::ThresholdPrfXClientBase {
+                    x_client_base_b64u: base64_url_encode(&x_client_base),
+                },
+            });
+        x_client_base.zeroize();
+        let prepared_client_bootstrap =
+            prepare_result.map_err(|error| js_error(error.to_string()))?;
+        let activation_facts = EcdsaVerifiedClientActivationFactsV1 {
+            registration_request_digest_b64u: registration_binding.request_digest_b64u,
+            proof_transcript_digest_b64u,
+            context_binding32_b64u: prepared_client_bootstrap
+                .client_bootstrap
+                .context_binding32_b64u
+                .clone(),
+            derivation_client_share_public_key33_b64u: prepared_client_bootstrap
+                .client_bootstrap
+                .derivation_client_share_public_key33_b64u
+                .clone(),
+            client_share_retry_counter: prepared_client_bootstrap
+                .client_bootstrap
+                .client_share_retry_counter,
+            participant_id: prepared_client_bootstrap.client_bootstrap.participant_id,
+        };
+        activation_facts
+            .validate()
+            .map_err(protocol_error)
+            .map_err(js_error)?;
+        serde_json::to_string(&RegistrationClientBootstrapFinalizationResultV1 {
+            kind: RegistrationClientBootstrapFinalizationResultKindV1::RouterAbEcdsaRegistrationClientBootstrapVerifiedV1,
+            prepared_client_bootstrap,
+            activation_facts,
+        })
+        .map_err(|error| js_error(error.to_string()))
+    }
+
+    /// Verifies recovery proof bundles and prepares role-local signing material without
+    /// exposing the recovered client share outside this WASM ceremony.
+    pub fn finalize_recovery_client_bootstrap(
+        &self,
+        input_json: &str,
+    ) -> Result<String, JsValue> {
+        let input: RecoveryClientBootstrapFinalizationInputV1 = parse_json(input_json)?;
+        require_exact_proof_transcript_digest(
+            &input.client_proof_finalization,
+            &input.proof_bundle_transcript_digest_b64u,
+        )?;
+        let mut x_client_base = finalize_encrypted_client_proof_input_v1(
+            input.client_proof_finalization,
+            self.active_keypair()?.private_key_bytes(),
+        )
+        .map_err(js_error)?;
+        let prepare_result =
+            prepare_ecdsa_client_bootstrap_command_v1(PrepareEcdsaClientBootstrapCommandV1 {
+                kind: PrepareEcdsaClientBootstrapCommandKindV1::PrepareEcdsaClientBootstrapV1,
+                algorithm:
+                    EcdsaClientBootstrapAlgorithmV1::RouterAbEcdsaDerivationSecp256k1RoleLocalV1,
+                context: input.context,
+                participants: fixed_ecdsa_participants_v1(),
+                secret_source: EcdsaBootstrapSecretSourceV1::ThresholdPrfXClientBase {
+                    x_client_base_b64u: base64_url_encode(&x_client_base),
+                },
+            });
+        x_client_base.zeroize();
+        let prepared_client_bootstrap =
+            prepare_result.map_err(|error| js_error(error.to_string()))?;
+        let activation_facts = EcdsaVerifiedClientActivationFactsV1 {
+            registration_request_digest_b64u: input.registration_request_digest_b64u,
+            proof_transcript_digest_b64u: input.activation_proof_transcript_digest_b64u,
+            context_binding32_b64u: prepared_client_bootstrap
+                .client_bootstrap
+                .context_binding32_b64u
+                .clone(),
+            derivation_client_share_public_key33_b64u: prepared_client_bootstrap
+                .client_bootstrap
+                .derivation_client_share_public_key33_b64u
+                .clone(),
+            client_share_retry_counter: prepared_client_bootstrap
+                .client_bootstrap
+                .client_share_retry_counter,
+            participant_id: prepared_client_bootstrap.client_bootstrap.participant_id,
+        };
+        activation_facts
+            .validate()
+            .map_err(protocol_error)
+            .map_err(js_error)?;
+        serde_json::to_string(&RecoveryClientBootstrapFinalizationResultV1 {
+            kind: RecoveryClientBootstrapFinalizationResultKindV1::RouterAbEcdsaRecoveryClientBootstrapVerifiedV1,
+            prepared_client_bootstrap,
+            activation_facts,
+        })
+        .map_err(|error| js_error(error.to_string()))
+    }
+
     /// Explicitly destroys the worker-local key before normal object collection.
     pub fn close(&mut self) {
+        self.registration_binding.take();
+        self.recovery_transcript_digest_b64u.take();
         self.keypair.take();
     }
+}
+
+#[derive(Debug, Clone)]
+struct RegistrationBindingV1 {
+    context: EcdsaClientBootstrapContextV1,
+    request_digest_b64u: String,
+    transcript_digest_b64u: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RegistrationClientBootstrapFinalizationInputV1 {
+    client_proof_finalization: FinalizeEncryptedClientProofBundlesInputV1,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RecoveryClientBootstrapFinalizationInputV1 {
+    client_proof_finalization: FinalizeEncryptedClientProofBundlesInputV1,
+    context: EcdsaClientBootstrapContextV1,
+    registration_request_digest_b64u: String,
+    proof_bundle_transcript_digest_b64u: String,
+    activation_proof_transcript_digest_b64u: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RegistrationClientBootstrapFinalizationResultV1 {
+    kind: RegistrationClientBootstrapFinalizationResultKindV1,
+    prepared_client_bootstrap: PrepareEcdsaClientBootstrapOutputV1,
+    activation_facts: EcdsaVerifiedClientActivationFactsV1,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum RegistrationClientBootstrapFinalizationResultKindV1 {
+    RouterAbEcdsaRegistrationClientBootstrapVerifiedV1,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RecoveryClientBootstrapFinalizationResultV1 {
+    kind: RecoveryClientBootstrapFinalizationResultKindV1,
+    prepared_client_bootstrap: PrepareEcdsaClientBootstrapOutputV1,
+    activation_facts: EcdsaVerifiedClientActivationFactsV1,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum RecoveryClientBootstrapFinalizationResultKindV1 {
+    RouterAbEcdsaRecoveryClientBootstrapVerifiedV1,
+}
+
+fn fixed_ecdsa_participants_v1() -> EcdsaClientBootstrapParticipantsV1 {
+    EcdsaClientBootstrapParticipantsV1 {
+        client_participant_id: 1,
+        relayer_participant_id: 2,
+        participant_ids: vec![1, 2],
+    }
+}
+
+fn require_exact_proof_transcript_digest(
+    input: &FinalizeEncryptedClientProofBundlesInputV1,
+    expected_transcript_digest_b64u: &str,
+) -> Result<String, JsValue> {
+    let transcript_digest_b64u = input
+        .proof_transcript_digest_b64u()
+        .map_err(js_error)?;
+    if transcript_digest_b64u != expected_transcript_digest_b64u {
+        return Err(JsValue::from_str(
+            "verified client proof bundles do not match the registration transcript",
+        ));
+    }
+    Ok(transcript_digest_b64u)
 }
 
 impl RouterAbEcdsaClientCeremonyV1 {
@@ -316,8 +569,6 @@ struct RegistrationRequestInputV1 {
     client_id: String,
     replay_nonce: String,
     expires_at_ms: u64,
-    derivation_client_share_public_key33_b64u: String,
-    client_share_retry_counter: u32,
     deriver_recipient_keys: RecipientKeysInputV1,
 }
 
@@ -393,8 +644,6 @@ struct RegistrationRequestWireV1 {
     client_ephemeral_public_key: String,
     replay_nonce: String,
     expires_at_ms: u64,
-    derivation_client_share_public_key33_b64u: String,
-    client_share_retry_counter: u32,
     deriver_a_envelope: EnvelopeWireV1,
     deriver_b_envelope: EnvelopeWireV1,
 }
@@ -562,8 +811,6 @@ fn serialize_registration_request(
         client_ephemeral_public_key: public_key.to_owned(),
         replay_nonce: input.replay_nonce,
         expires_at_ms: input.expires_at_ms,
-        derivation_client_share_public_key33_b64u: input.derivation_client_share_public_key33_b64u,
-        client_share_retry_counter: input.client_share_retry_counter,
         deriver_a_envelope: envelope_wire(request.deriver_a_envelope()),
         deriver_b_envelope: envelope_wire(request.deriver_b_envelope()),
     })
@@ -703,6 +950,8 @@ mod tests {
                 derive_ecdsa_client_ephemeral_keypair_v1([0x91; 32])
                     .expect("client ceremony keypair"),
             ),
+            registration_binding: None,
+            recovery_transcript_digest_b64u: None,
         }
     }
 
@@ -826,8 +1075,6 @@ mod tests {
             client_id: "browser-client-1".to_owned(),
             replay_nonce: "registration-nonce-1".to_owned(),
             expires_at_ms: 8_000_000,
-            derivation_client_share_public_key33_b64u: compressed_public_key(0x02, 0x11),
-            client_share_retry_counter: 5,
             deriver_recipient_keys: test_recipient_keys(),
         };
         serde_json::to_string(&input).expect("registration input JSON")
@@ -839,12 +1086,17 @@ mod tests {
 
     #[test]
     fn opaque_ceremony_builds_all_strict_request_branches_without_private_material() {
-        let ceremony = test_ceremony();
+        let mut ceremony = test_ceremony();
         let client_public_key = ceremony
             .active_keypair()
             .expect("active ceremony")
             .public_key()
             .to_owned();
+        assert_eq!(client_public_key.len(), 71);
+        assert!(client_public_key.starts_with("x25519:"));
+        assert!(client_public_key["x25519:".len()..]
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)));
 
         let registration = parse_output(
             ceremony
@@ -883,6 +1135,13 @@ mod tests {
                 .expect("recovery request"),
         );
         assert_eq!(recovery["client_ephemeral_public_key"], client_public_key);
+        assert_eq!(
+            ceremony
+                .recovery_transcript_digest_b64u()
+                .expect("recovery transcript")
+                .len(),
+            43,
+        );
 
         let signing_worker_public_key = x25519_public_key([0x81; 32]);
         let refresh_input = ActivationRefreshRequestInputV1 {

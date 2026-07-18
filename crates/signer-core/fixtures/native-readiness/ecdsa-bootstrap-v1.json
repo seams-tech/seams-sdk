@@ -16,10 +16,8 @@
       ]
     },
     "secretSource": {
-      "kind": "webauthn_prf_first",
-      "prfFirstB64u": "MzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM",
-      "rpId": "localhost",
-      "credentialIdB64u": "Y3JlZGVudGlhbA"
+      "kind": "threshold_prf_x_client_base",
+      "xClientBaseB64u": "MzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM"
     }
   },
   "relayerRootShare32B64u": "REREREREREREREREREREREREREREREREREREREREREQ",
@@ -29,7 +27,7 @@
       "curve": "secp256k1",
       "encoding": "base64url",
       "producer": "signer_core",
-      "stateBlobB64u": "UkFFRFAxAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVYGtvbqG1th75M_BZw596y4cRPwCBbmQw3bSA53pbIm3AAAAAHjBxf0UMHDzHuNEGlo5WPFaLFhqHIwP6JxhmfQT6MYYAtwt5jXVelj7TRZgVnmNBX0EQ2GY6bQrhRtfKfqOiuZqKECXVFwQJaZfoRazc2hy-x4OyCNe2Vqi3sszUVv4Qgg"
+      "stateBlobB64u": "UkFFRFAyAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVYGtvbqG1th75M_BZw596y4cRPwCBbmQw3bSA53pbIm3AAAAAHjBxf0UMHDzHuNEGlo5WPFaLFhqHIwP6JxhmfQT6MYYAtwt5jXVelj7TRZgVnmNBX0EQ2GY6bQrhRtfKfqOiuZq"
     },
     "clientBootstrap": {
       "contextBinding32B64u": "ga29uobW2Hvkz8FnDn3rLhxE_AIFuZDDdtIDnelsibc",
@@ -49,7 +47,7 @@
       "curve": "secp256k1",
       "encoding": "base64url",
       "producer": "signer_core",
-      "stateBlobB64u": "UkFFRFAxAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVYGtvbqG1th75M_BZw596y4cRPwCBbmQw3bSA53pbIm3AAAAAHjBxf0UMHDzHuNEGlo5WPFaLFhqHIwP6JxhmfQT6MYYAtwt5jXVelj7TRZgVnmNBX0EQ2GY6bQrhRtfKfqOiuZqKECXVFwQJaZfoRazc2hy-x4OyCNe2Vqi3sszUVv4Qgg"
+      "stateBlobB64u": "UkFFRFAyAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVYGtvbqG1th75M_BZw596y4cRPwCBbmQw3bSA53pbIm3AAAAAHjBxf0UMHDzHuNEGlo5WPFaLFhqHIwP6JxhmfQT6MYYAtwt5jXVelj7TRZgVnmNBX0EQ2GY6bQrhRtfKfqOiuZq"
     },
     "relayerPublicIdentity": {
       "relayerKeyId": "relayer-key",
@@ -64,7 +62,7 @@
       "curve": "secp256k1",
       "encoding": "base64url",
       "producer": "signer_core",
-      "stateBlobB64u": "UkFFRFIxAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVQALcmVsYXllci1rZXmBrb26htbYe-TPwWcOfesuHET8AgW5kMN20gOd6WyJtwAAAAB4wcX9FDBw8x7jRBpaOVjxWixYahyMD-icYZn0E-jGGALcLeY11XpY-00WYFZ5jQV9BENhmOm0K4UbXyn6jormaihAl1RcECWmX6EWs3NocvseDsgjXtlaot7LM1Fb-EIIAAAAAAOrWzgu9cDgOp5FqmbXSqSfixogkiQDZFDqctr_HmMWDgONG-9Tp4x1w6QH46Ta5g7aJ-a7UPrNm_YolV0_d07QDBYClAQ34boT4GxaRSgz2t8IGtHy"
+      "stateBlobB64u": "UkFFRFIyAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVQALcmVsYXllci1rZXmBrb26htbYe-TPwWcOfesuHET8AgW5kMN20gOd6WyJtwAAAAB4wcX9FDBw8x7jRBpaOVjxWixYahyMD-icYZn0E-jGGALcLeY11XpY-00WYFZ5jQV9BENhmOm0K4UbXyn6jormagAAAAADq1s4LvXA4DqeRapm10qkn4saIJIkA2RQ6nLa_x5jFg4DjRvvU6eMdcOkB-Ok2uYO2ifmu1D6zZv2KJVdP3dO0AwWApQEN-G6E-BsWkUoM9rfCBrR8g"
     },
     "publicFacts": {
       "contextBinding32B64u": "ga29uobW2Hvkz8FnDn3rLhxE_AIFuZDDdtIDnelsibc",

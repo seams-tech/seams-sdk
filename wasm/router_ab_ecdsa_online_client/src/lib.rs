@@ -1,6 +1,8 @@
 #![forbid(unsafe_code)]
 
-use router_ab_ecdsa_online::{ClientPresignMaterial, OnlineClientInput, OnlineError};
+use router_ab_ecdsa_online::{
+    combine_rerandomization_contributions, ClientPresignMaterial, OnlineClientInput, OnlineError,
+};
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 use zeroize::Zeroize;
@@ -35,7 +37,8 @@ pub fn compute_client_signature_share(
     mut client_k_share32: Vec<u8>,
     mut client_sigma_share32: Vec<u8>,
     mut digest32: Vec<u8>,
-    mut entropy32: Vec<u8>,
+    mut client_rerandomization_contribution32: Vec<u8>,
+    mut signing_worker_rerandomization_contribution32: Vec<u8>,
 ) -> Result<Vec<u8>, JsValue> {
     let result = compute_client_signature_share_inner(
         &group_public_key33,
@@ -44,14 +47,16 @@ pub fn compute_client_signature_share(
         &client_k_share32,
         &client_sigma_share32,
         &digest32,
-        &entropy32,
+        &client_rerandomization_contribution32,
+        &signing_worker_rerandomization_contribution32,
     )
     .map(array_to_vec)
     .map_err(js_online_error);
     client_k_share32.zeroize();
     client_sigma_share32.zeroize();
     digest32.zeroize();
-    entropy32.zeroize();
+    client_rerandomization_contribution32.zeroize();
+    signing_worker_rerandomization_contribution32.zeroize();
     result
 }
 
@@ -62,18 +67,29 @@ fn compute_client_signature_share_inner(
     client_k_share32: &[u8],
     client_sigma_share32: &[u8],
     digest32: &[u8],
-    entropy32: &[u8],
+    client_rerandomization_contribution32: &[u8],
+    signing_worker_rerandomization_contribution32: &[u8],
 ) -> Result<[u8; 32], OnlineError> {
     let material = ClientPresignMaterial::from_bytes(
         fixed_bytes::<33>(presign_big_r33, "presign_big_r33")?,
         fixed_bytes::<32>(client_k_share32, "client_k_share32")?,
         fixed_bytes::<32>(client_sigma_share32, "client_sigma_share32")?,
     )?;
+    let entropy32 = combine_rerandomization_contributions(
+        fixed_bytes::<32>(
+            client_rerandomization_contribution32,
+            "client_rerandomization_contribution32",
+        )?,
+        fixed_bytes::<32>(
+            signing_worker_rerandomization_contribution32,
+            "signing_worker_rerandomization_contribution32",
+        )?,
+    );
     let input = OnlineClientInput::new(
         fixed_bytes::<33>(group_public_key33, "group_public_key33")?,
         fixed_bytes::<33>(expected_presign_big_r33, "expected_presign_big_r33")?,
         fixed_bytes::<32>(digest32, "digest32")?,
-        fixed_bytes::<32>(entropy32, "entropy32")?,
+        entropy32,
     )?;
     let committed = material.reserve().commit(input)?;
     router_ab_ecdsa_online::compute_client_signature_share(committed)

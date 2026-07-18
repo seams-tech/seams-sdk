@@ -1,0 +1,64 @@
+{
+  "schema": "seams.refactor89.phase-e-local-timings.v1",
+  "capturedAt": "2026-07-17",
+  "host": {
+    "runtime": "node-v24.18.0",
+    "profile": "native-release",
+    "note": "Local filesystem and native execution only; deployed Cloudflare network, placement, CPU, and tail latency remain deployment evidence."
+  },
+  "wasmLoad": {
+    "iterations": 11,
+    "command": "node scripts/refactor-89/wasm-load-benchmark.mjs <bindings.js> <artifact.wasm>",
+    "artifacts": [
+      {
+        "role": "derivation-client",
+        "rawBytes": 614063,
+        "compileMedianMs": 0.502,
+        "instantiateMedianMs": 0.116,
+        "initializedLinearMemoryBytes": 1179648
+      },
+      {
+        "role": "presign-client",
+        "rawBytes": 172561,
+        "compileMedianMs": 0.273,
+        "instantiateMedianMs": 0.094,
+        "initializedLinearMemoryBytes": 1114112
+      },
+      {
+        "role": "online-client",
+        "rawBytes": 68477,
+        "compileMedianMs": 0.141,
+        "instantiateMedianMs": 0.066,
+        "initializedLinearMemoryBytes": 1114112
+      },
+      {
+        "role": "signing-worker",
+        "rawBytes": 199117,
+        "compileMedianMs": 0.284,
+        "instantiateMedianMs": 0.129,
+        "initializedLinearMemoryBytes": 1114112
+      }
+    ]
+  },
+  "nativeLifecycle": {
+    "iterations": 25,
+    "command": "cargo run --release --locked --offline --manifest-path crates/router-ab-ecdsa-presign/Cargo.toml --example local_lifecycle_timing",
+    "medianMs": {
+      "presignSessionInitializeBothRoles": 0.454,
+      "presignTripleRounds": 34.960,
+      "presignFinalRounds": 0.165,
+      "presignTotal": 35.579,
+      "onlineClientShare": 0.039,
+      "onlineSigningWorkerFinalizeAndVerify": 0.157
+    },
+    "validatedOutput": {
+      "signatureBytes": 65,
+      "recoveryId": 0
+    }
+  },
+  "interpretation": {
+    "poolHit": "The online Client artifact has the smallest compile/instantiate medians and the local online equations complete below one millisecond.",
+    "poolFill": "Triple generation dominates local presigning; it is intentionally moved off the pool-hit path.",
+    "deploymentOwner": "docs/router-a-b-deployment.md owns ECDSA independent-account network and lifecycle measurements. docs/yaos-ab-deployment.md owns Ed25519 Yao deployment evidence."
+  }
+}

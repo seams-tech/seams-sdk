@@ -5,10 +5,12 @@
 
 use vstd::prelude::*;
 
-use crate::integration::share_mapping::{Bytes20, Bytes33};
 use crate::shared::derivation::Bytes32;
 
 verus! {
+
+pub type Bytes20 = [u8; 20];
+pub type Bytes33 = [u8; 33];
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum TrueBlindOperationKind {
@@ -335,4 +337,3 @@ pub proof fn client_export_authorization_match_implies_same_context_binding(
 }
 
 }
-

@@ -4,7 +4,5 @@
 //! stable slice so proofs can track the implementation closely without
 //! polluting production runtime code.
 
-pub mod integration;
 pub mod server;
 pub mod shared;
-

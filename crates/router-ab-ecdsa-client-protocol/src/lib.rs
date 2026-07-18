@@ -19,12 +19,22 @@ use sha2::{Digest, Sha256, Sha512};
 use subtle::ConstantTimeEq;
 
 #[cfg(feature = "hpke")]
+mod activation;
+mod material_possession;
+#[cfg(feature = "hpke")]
 mod post_registration;
 #[cfg(feature = "hpke")]
 mod recipient_proof;
 #[cfg(feature = "hpke")]
 mod registration;
 
+#[cfg(feature = "hpke")]
+pub use activation::EcdsaVerifiedClientActivationFactsV1;
+pub use material_possession::{
+    verify_ecdsa_client_material_possession_proof_v1, EcdsaClientMaterialPossessionChallengeV1,
+    EcdsaClientMaterialPossessionError, EcdsaClientMaterialPossessionProofSchemeV1,
+    EcdsaClientMaterialPossessionProofV1,
+};
 #[cfg(feature = "hpke")]
 pub use post_registration::{
     build_ecdsa_post_registration_request_v1, EcdsaPostRegistrationCeremonyV1,
@@ -455,6 +465,130 @@ pub struct EcdsaSignedCommitmentRecordV1 {
     pub signed_digest: [u8; 32],
     /// Ed25519 commitment-authority signature.
     pub signature: [u8; 64],
+}
+
+/// Client-ready recipient-encrypted proof bundle.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EcdsaClientProofBundleDeliveryV1 {
+    /// Fixed recipient proof-bundle wire kind.
+    pub kind: EcdsaClientProofBundleDeliveryKindV1,
+    /// Base64url transcript digest.
+    pub transcript_digest_b64u: String,
+    /// Base64url recipient-encrypted proof-bundle payload.
+    pub payload_b64u: String,
+}
+
+/// Fixed client proof-bundle delivery kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EcdsaClientProofBundleDeliveryKindV1 {
+    /// Recipient-encrypted proof bundle.
+    RecipientProofBundle,
+}
+
+/// Exact Deriver A/B client proof bundles for one ceremony transcript.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EcdsaClientProofBundlePairDeliveryV1 {
+    /// Deriver A client proof bundle.
+    pub signer_a: EcdsaClientProofBundleDeliveryV1,
+    /// Deriver B client proof bundle.
+    pub signer_b: EcdsaClientProofBundleDeliveryV1,
+}
+
+/// Public signed commitment policy and exact A/B records delivered to a finalizing client.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EcdsaCommitmentRegistryDeliveryV1 {
+    /// Release-authority-signed commitment trust policy.
+    pub policy: EcdsaSignedCommitmentPolicyDeliveryV1,
+    /// Exact authority-signed Deriver A/B commitment records.
+    pub records: EcdsaCommitmentRecordsDeliveryV1,
+}
+
+/// Release-authority-signed commitment policy delivery.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EcdsaSignedCommitmentPolicyDeliveryV1 {
+    /// Canonical signed policy manifest.
+    pub manifest: EcdsaCommitmentPolicyManifestDeliveryV1,
+    /// Lowercase-hex SHA-256 digest of the canonical manifest.
+    pub manifest_digest_hex: String,
+    /// Lowercase-hex Ed25519 release-authority signature.
+    pub release_authority_signature_hex: String,
+}
+
+/// Canonical signed commitment-policy manifest delivery.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EcdsaCommitmentPolicyManifestDeliveryV1 {
+    /// Monotonic policy release epoch.
+    pub release_epoch: u64,
+    /// Minimum root version accepted by the policy.
+    pub minimum_root_version: u64,
+    /// Minimum commitment-authority key epoch.
+    pub minimum_authority_key_epoch: u64,
+    /// Revoked commitment-authority key epochs.
+    pub revoked_authority_key_epochs: Vec<u64>,
+    /// Lowercase-hex revoked commitment-record digests.
+    pub revoked_record_digests_hex: Vec<String>,
+    /// Deriver A commitment authority.
+    pub signer_a_authority: EcdsaCommitmentAuthorityDeliveryV1,
+    /// Deriver B commitment authority.
+    pub signer_b_authority: EcdsaCommitmentAuthorityDeliveryV1,
+}
+
+/// One commitment-authority key delivery.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EcdsaCommitmentAuthorityDeliveryV1 {
+    /// Exact operator identity.
+    pub operator_identity: String,
+    /// Commitment-authority key epoch.
+    pub authority_key_epoch: u64,
+    /// Inclusive authority validity start.
+    pub valid_from_ms: u64,
+    /// Exclusive authority validity end.
+    pub valid_until_ms: u64,
+    /// Lowercase-hex Ed25519 verification key.
+    pub verifying_key_hex: String,
+}
+
+/// Exact authority-signed A/B commitment records.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EcdsaCommitmentRecordsDeliveryV1 {
+    /// Deriver A signed commitment record.
+    pub signer_a: EcdsaCommitmentRecordDeliveryV1,
+    /// Deriver B signed commitment record.
+    pub signer_b: EcdsaCommitmentRecordDeliveryV1,
+}
+
+/// One authority-signed commitment-record delivery.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EcdsaCommitmentRecordDeliveryV1 {
+    /// Stable signing-root identifier.
+    pub root_id: String,
+    /// Monotonic signing-root version.
+    pub root_version: u64,
+    /// Exact lifecycle root-share epoch.
+    pub root_share_epoch: String,
+    /// Lowercase-hex threshold-PRF commitment wire.
+    pub commitment_hex: String,
+    /// Exact Deriver operator identity.
+    pub operator_identity: String,
+    /// Commitment-authority key epoch.
+    pub authority_key_epoch: u64,
+    /// Inclusive record validity start.
+    pub record_valid_from_ms: u64,
+    /// Exclusive record validity end.
+    pub record_valid_until_ms: u64,
+    /// Lowercase-hex canonical statement digest.
+    pub signed_digest_hex: String,
+    /// Lowercase-hex Ed25519 commitment-authority signature.
+    pub signature_hex: String,
 }
 
 /// Exact public lifecycle binding expected by the finalizing recipient.
@@ -1013,6 +1147,19 @@ fn decode_x25519_public_key(value: &str) -> Result<[u8; 32], EcdsaClientProtocol
         bytes[index] = (high << 4) | low;
     }
     Ok(bytes)
+}
+
+#[cfg(feature = "hpke")]
+fn encode_x25519_public_key(bytes: &[u8; 32]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+
+    let mut encoded = String::with_capacity("x25519:".len() + bytes.len() * 2);
+    encoded.push_str("x25519:");
+    for byte in bytes {
+        encoded.push(HEX[(byte >> 4) as usize] as char);
+        encoded.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    encoded
 }
 
 #[cfg(feature = "hpke")]

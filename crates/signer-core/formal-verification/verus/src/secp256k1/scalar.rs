@@ -10,12 +10,6 @@ pub type Bytes33 = [u8; 33];
 pub type Bytes64 = [u8; 64];
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct RelayerShareOutputV1 {
-    pub signing_share32: Bytes32,
-    pub verifying_share33: Bytes33,
-}
-
-#[derive(Debug, PartialEq, Eq)]
 pub struct CanonicalKeypairOutputV1 {
     pub private_key32: Bytes32,
     pub public_key33: Bytes33,
@@ -50,11 +44,6 @@ pub uninterp spec fn compressed_public_key_from_scalar_v1_spec(scalar32: Bytes32
 
 pub uninterp spec fn ethereum_address_from_public_key_v1_spec(public_key33: Bytes33) -> Bytes20;
 
-pub uninterp spec fn relayer_share_hkdf_output_v1_spec(
-    master_secret: Seq<u8>,
-    relayer_key_id: Seq<u8>,
-) -> Bytes64;
-
 pub uninterp spec fn prf_second_hkdf_output_v1_spec(
     prf_second: Seq<u8>,
     near_account_id: Seq<u8>,
@@ -65,19 +54,6 @@ pub broadcast axiom fn axiom_reduced_hkdf_output_is_valid_nonzero_scalar_v1(okm6
         #![trigger reduce_hkdf_output_to_nonzero_scalar_v1_spec(okm64)]
         is_valid_nonzero_scalar_v1_spec(reduce_hkdf_output_to_nonzero_scalar_v1_spec(okm64)),
 ;
-
-pub open spec fn derive_threshold_secp256k1_relayer_share_v1_spec(
-    master_secret: Seq<u8>,
-    relayer_key_id: Seq<u8>,
-) -> RelayerShareOutputV1 {
-    let signing_share32 = reduce_hkdf_output_to_nonzero_scalar_v1_spec(
-        relayer_share_hkdf_output_v1_spec(master_secret, relayer_key_id),
-    );
-    RelayerShareOutputV1 {
-        signing_share32,
-        verifying_share33: compressed_public_key_from_scalar_v1_spec(signing_share32),
-    }
-}
 
 pub open spec fn derive_secp256k1_keypair_from_prf_second_v1_spec(
     prf_second: Seq<u8>,
@@ -108,57 +84,6 @@ pub proof fn hkdf_output_reduction_is_valid_nonzero_scalar_v1(okm64: Bytes64)
         is_valid_nonzero_scalar_v1_spec(reduce_hkdf_output_to_nonzero_scalar_v1_spec(okm64)),
 {
     broadcast use axiom_reduced_hkdf_output_is_valid_nonzero_scalar_v1;
-}
-
-pub proof fn relayer_share_derivation_is_deterministic_v1(
-    left_master_secret: Seq<u8>,
-    left_relayer_key_id: Seq<u8>,
-    right_master_secret: Seq<u8>,
-    right_relayer_key_id: Seq<u8>,
-)
-    requires
-        left_master_secret == right_master_secret,
-        left_relayer_key_id == right_relayer_key_id,
-    ensures
-        derive_threshold_secp256k1_relayer_share_v1_spec(
-            left_master_secret,
-            left_relayer_key_id,
-        ) == derive_threshold_secp256k1_relayer_share_v1_spec(
-            right_master_secret,
-            right_relayer_key_id,
-        ),
-{
-}
-
-pub proof fn relayer_signing_share_is_valid_nonzero_scalar_v1(
-    master_secret: Seq<u8>,
-    relayer_key_id: Seq<u8>,
-)
-    ensures
-        is_valid_nonzero_scalar_v1_spec(
-            derive_threshold_secp256k1_relayer_share_v1_spec(
-                master_secret,
-                relayer_key_id,
-            ).signing_share32,
-        ),
-{
-    broadcast use axiom_reduced_hkdf_output_is_valid_nonzero_scalar_v1;
-}
-
-pub proof fn relayer_share_output_layout_is_fixed_v1(
-    master_secret: Seq<u8>,
-    relayer_key_id: Seq<u8>,
-)
-    ensures
-        derive_threshold_secp256k1_relayer_share_v1_spec(
-            master_secret,
-            relayer_key_id,
-        ).signing_share32@.len() == secp256k1_scalar_width_bytes_v1_spec(),
-        derive_threshold_secp256k1_relayer_share_v1_spec(
-            master_secret,
-            relayer_key_id,
-        ).verifying_share33@.len() == secp256k1_compressed_public_key_width_bytes_v1_spec(),
-{
 }
 
 pub proof fn canonical_keypair_derivation_is_deterministic_v1(

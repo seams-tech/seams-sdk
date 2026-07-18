@@ -77,6 +77,60 @@ fn signer_input(output_requests: Vec<MpcPrfOutputRequestV1>) -> MpcPrfSignerPart
     .expect("signer input")
 }
 
+fn context_for_ceremony(ceremony_id: &str) -> DerivationContext {
+    DerivationContext::new(
+        RequestKind::Registration,
+        AccountScope::new(
+            "near-testnet",
+            "alice.testnet",
+            "ed25519:11111111111111111111111111111111",
+        )
+        .expect("account scope"),
+        RootShareEpoch::new("epoch-1").expect("epoch"),
+        ceremony_id,
+    )
+    .expect("context")
+}
+
+fn transcript_for_client_recipient(
+    context: DerivationContext,
+    client_ephemeral_public_key: &str,
+) -> TranscriptBinding {
+    TranscriptBinding::new(
+        context,
+        "role:router:local:sha256-router",
+        SignerSetBinding::v1_all2(
+            "signer-set-v1",
+            "role:signer-a:local:sha256-a",
+            "key-epoch-a-1",
+            "role:signer-b:local:sha256-b",
+            "key-epoch-b-1",
+        )
+        .expect("signer set"),
+        "role:server:local:sha256-r",
+        "x25519:1111111111111111111111111111111111111111111111111111111111111111",
+        "role:client:local:sha256-c",
+        client_ephemeral_public_key,
+    )
+    .expect("transcript")
+}
+
+fn signer_input_for_transcript(
+    context: DerivationContext,
+    transcript: TranscriptBinding,
+    request: MpcPrfOutputRequestV1,
+) -> MpcPrfSignerPartialInputV1 {
+    MpcPrfSignerPartialInputV1::new(
+        context,
+        transcript,
+        Role::SignerA,
+        "role:signer-a:local:sha256-a",
+        RootShareEpoch::new("epoch-1").expect("epoch"),
+        vec![request],
+    )
+    .expect("signer input")
+}
+
 fn threshold_purpose(output_purpose: MpcPrfOutputPurposeV1) -> PrfPurpose {
     match output_purpose {
         MpcPrfOutputPurposeV1::RouterAbXClientBase => PrfPurpose::RouterAbXClientBaseV1,
@@ -161,4 +215,79 @@ fn client_and_server_purpose_plans_produce_distinct_outputs() {
     let server_output = evaluate_direct_reference(&root, &server_context).expect("server");
 
     assert_ne!(client_output, server_output);
+}
+
+#[test]
+fn fresh_ceremony_transcript_produces_a_distinct_client_share_output() {
+    let request = output_request(OpenedShareKind::XClientBase);
+    let registration_context = context_for_ceremony("registration-ceremony");
+    let recovery_context = context_for_ceremony("recovery-ceremony");
+    let registration_input = signer_input_for_transcript(
+        registration_context.clone(),
+        transcript_for_client_recipient(
+            registration_context,
+            "x25519:registration-client-ephemeral-public-key",
+        ),
+        request.clone(),
+    );
+    let recovery_input = signer_input_for_transcript(
+        recovery_context.clone(),
+        transcript_for_client_recipient(
+            recovery_context,
+            "x25519:recovery-client-ephemeral-public-key",
+        ),
+        request.clone(),
+    );
+    let registration_plan =
+        plan_mpc_prf_purpose_binding_v1(&registration_input, &request).expect("registration plan");
+    let recovery_plan =
+        plan_mpc_prf_purpose_binding_v1(&recovery_input, &request).expect("recovery plan");
+    let mut setup_rng = seeded_rng(44);
+    let root = generate_signing_root(&mut setup_rng);
+    let registration_output =
+        evaluate_direct_reference(&root, &threshold_context(&registration_plan))
+            .expect("registration output");
+    let recovery_output = evaluate_direct_reference(&root, &threshold_context(&recovery_plan))
+        .expect("recovery output");
+
+    assert_ne!(
+        registration_plan.threshold_prf_context_digest,
+        recovery_plan.threshold_prf_context_digest
+    );
+    assert_ne!(registration_output, recovery_output);
+}
+
+#[test]
+fn client_recipient_substitution_produces_a_distinct_client_share_output() {
+    let request = output_request(OpenedShareKind::XClientBase);
+    let first_context = context_for_ceremony("same-ceremony");
+    let second_context = first_context.clone();
+    let first_input = signer_input_for_transcript(
+        first_context.clone(),
+        transcript_for_client_recipient(first_context, "x25519:first-client-ephemeral-public-key"),
+        request.clone(),
+    );
+    let second_input = signer_input_for_transcript(
+        second_context.clone(),
+        transcript_for_client_recipient(
+            second_context,
+            "x25519:second-client-ephemeral-public-key",
+        ),
+        request.clone(),
+    );
+    let first_plan = plan_mpc_prf_purpose_binding_v1(&first_input, &request).expect("first plan");
+    let second_plan =
+        plan_mpc_prf_purpose_binding_v1(&second_input, &request).expect("second plan");
+    let mut setup_rng = seeded_rng(45);
+    let root = generate_signing_root(&mut setup_rng);
+    let first_output =
+        evaluate_direct_reference(&root, &threshold_context(&first_plan)).expect("first output");
+    let second_output =
+        evaluate_direct_reference(&root, &threshold_context(&second_plan)).expect("second output");
+
+    assert_ne!(
+        first_plan.threshold_prf_context_digest,
+        second_plan.threshold_prf_context_digest
+    );
+    assert_ne!(first_output, second_output);
 }

@@ -210,7 +210,7 @@ public transcript.
 ### Public Key Validation
 
 Every public key accepted from another role must pass these checks before it is
-stored, transcript-bound, or used for Cait-Sith setup:
+stored, transcript-bound, or used for presign admission:
 
 - exactly 33 bytes
 - SEC1 compressed encoding
@@ -320,8 +320,8 @@ The target lifecycle is:
 2. Server derives `x_relayer` locally from `y_relayer` and context.
 3. Client and server exchange public share commitments and transcript metadata.
 4. Both roles verify the same public identity `X` and address.
-5. Non-export signing maps role-local shares into the Cait-Sith backend share
-   format.
+5. Purpose-built presign and online signing consume the role-local additive
+   shares directly.
 6. Explicit export returns an authorized relayer export share to the client.
 7. The client reconstructs and verifies `x` locally.
 
@@ -336,33 +336,33 @@ Scope:
 - fixed participant IDs:
   - client = `1`
   - relayer = `2`
-- integration through the existing 2-party additive-share mapping layer
+- direct integration with the fixed Client and SigningWorker presign and
+  online role APIs
 
 Out of scope:
 
 - generalized `t-of-n`
 - alternate participant-ID layouts
-- a second share-mapping implementation path
+- runtime-selectable signing constructions
 
-## Backend Share Mapping
+## Purpose-Built Signing Seam
 
-The threshold backend receives mapped shares derived from:
+The fixed role APIs receive the additive shares directly:
 
 ```text
 x_client
 x_relayer
 ```
 
-The mapping layer must preserve the effective signing key:
+Presign admission and online signing must preserve the same logical key:
 
 ```text
-effective_backend_secret == x_client + x_relayer mod n
-backend_public_key == X
-backend_address == ethereum_address(X)
+logical_signing_secret == x_client + x_relayer mod n
+signing_public_key == X
+signing_address == ethereum_address(X)
 ```
 
-If backend compatibility requires resharing, the resharing step must preserve
-the same `X` and address.
+No resharing or backend-specific secret representation is permitted.
 
 ## Wire And Retained-State Contract
 
@@ -415,19 +415,15 @@ reuse of `x_relayer` under a different operator key.
 
 Browser WASM may expose only client-role operations:
 
-- `derive_client_role_share`
-- `verify_role_local_public_identity`
-- `map_client_role_share_for_cait_sith`
-- `authorize_explicit_export`
-- `reconstruct_explicit_export`
+- prepare and finalize role-local Client bootstrap
+- extract the Client additive signing share only inside the isolated worker
+- authorize and reconstruct explicit export
 
 Server/native WASM or server Rust may expose only relayer-role operations:
 
-- `derive_relayer_role_share`
-- `compose_role_local_public_identity`
-- `map_relayer_role_share_for_cait_sith`
-- `authorize_relayer_export_share`
-- `release_authorized_relayer_export_share`
+- derive the role-local SigningWorker share and compose the public identity
+- admit the SigningWorker additive share into the fixed presign lifecycle
+- authorize and release the explicit additive export share
 
 Browser/client bundles must not export relayer derivation or relayer export-share
 release functions. Server bundles must not export client derivation or canonical
@@ -465,7 +461,7 @@ The next committed role-local fixture corpus should cover:
 - `X_relayer`
 - `X`
 - Ethereum address
-- mapped backend shares for participant IDs `{1, 2}`
+- direct fixed-role purpose-built presign inputs for Client and SigningWorker
 - explicit export reconstruction `x_export`
 
 Reference-only code may reconstruct `x` for fixture generation and algebraic
@@ -505,8 +501,7 @@ Forbidden log/audit fields:
 - `x_client`
 - `x_relayer`
 - canonical `x`
-- mapped backend threshold private shares
-- Cait-Sith triple, presignature scalar, nonce, or sigma shares
+- purpose-built triple, presignature scalar, nonce, or sigma shares
 - raw root-share material
 
 Secret-bearing types should either omit `Debug` or implement redacted `Debug`.
@@ -542,5 +537,4 @@ document are the design source of truth.
 - Export semantics:
   [export.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/router-ab-ecdsa-derivation/specs/export.md)
 - Integration shape:
-  [integration-cait-sith-backend.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/router-ab-ecdsa-derivation/specs/integration-cait-sith-backend.md)
-
+  [integration-purpose-built-ecdsa.md](integration-purpose-built-ecdsa.md)

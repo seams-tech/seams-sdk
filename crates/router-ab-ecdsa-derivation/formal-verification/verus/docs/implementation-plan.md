@@ -17,9 +17,8 @@ the specs:
 1. `encode_context_v2`
 2. canonical `x` derivation shape
 3. additive-share derivation shape
-4. fixed participant-ID mapping shape into the current backend seam
-5. explicit-export output-policy shape
-6. initial true-blind role-local boundary shape
+4. explicit-export output-policy shape
+5. initial true-blind role-local boundary shape
 
 ## Phase 0: Bootstrap
 
@@ -38,15 +37,7 @@ the specs:
 - [x] prove additive-share reconstruction and non-zero outputs
 - [x] connect proofs to the fixture corpus
 
-## Phase 2: Backend Seam
-
-- [x] add `src/integration/share_mapping.rs`
-- [x] prove the fixed `{1, 2}` participant-ID mapping
-- [x] prove mapped shares preserve the same effective signing key
-- [x] prove threshold public key equals `x * G`
-- [x] prove threshold signing address equals `addr(x * G)`
-
-## Phase 3: Output Policy
+## Phase 2: Output Policy
 
 - [x] add `src/server/policy.rs`
 - [x] add `src/server/state.rs`
@@ -54,7 +45,7 @@ the specs:
 - [x] prove non-export operations cannot return canonical `x`
 - [x] prove retained-state exclusions for forbidden root material
 
-## Phase 4: True-Blind Boundary Mirror
+## Phase 3: True-Blind Boundary Mirror
 
 - [x] add `src/shared/true_blind_boundary.rs`
 - [x] mirror the settled Lean true-blind boundary contract in Rust-shaped Verus
@@ -79,4 +70,3 @@ Remaining outside this bootstrap:
 - full integration/runtime correctness
 
 Those remain follow-on work after the production Rust boundary exists.
-

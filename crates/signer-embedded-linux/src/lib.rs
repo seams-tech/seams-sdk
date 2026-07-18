@@ -5,9 +5,6 @@ pub use signer_core::webauthn_p256;
 #[cfg(feature = "secp256k1")]
 pub use signer_core::secp256k1;
 
-#[cfg(feature = "threshold-ecdsa")]
-pub use signer_core::threshold_ecdsa;
-
 #[cfg(any(feature = "near-ed25519-recovery", feature = "near-threshold-ed25519"))]
 pub use signer_core::near_ed25519_recovery;
 #[cfg(feature = "near-threshold-ed25519")]

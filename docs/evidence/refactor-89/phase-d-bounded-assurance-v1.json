@@ -1,0 +1,130 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-07-17",
+  "scope": "router-ab-ecdsa fixed-role API and constant-time checkpoint",
+  "toolchain": {
+    "rustc": "1.96.0 (ac68faa20 2026-05-25)",
+    "host": "aarch64-apple-darwin",
+    "llvm": "22.1.2",
+    "constantTimeAnalyzer": "/Users/pta/.codex/skills/constant-time-analysis/ct_analyzer/analyzer.py"
+  },
+  "apiBoundary": {
+    "presignRuntimeTests": 44,
+    "presignCompileFailDoctests": 7,
+    "onlineRuntimeTests": 2,
+    "onlineCompileFailDoctests": 5,
+    "productionBoundaryTests": 5,
+    "claims": [
+      "default production API hides codec and driver internals",
+      "proof and triple internals require the explicit test-utils oracle feature",
+      "runtime participants and thresholds are absent",
+      "Client and SigningWorker messages and online inputs cannot cross roles",
+      "available, reserved, and committed one-use states cannot be reordered or reused",
+      "secret-bearing key shares and presign material expose neither Clone nor Debug"
+    ]
+  },
+  "onlinePublicCoin": {
+    "construction": "Client commits SHA-256(domain || uniform 32-byte contribution); SigningWorker samples and persists its uniform 32-byte contribution after admission; finalize opens the Client contribution; XOR is the HKDF entropy input",
+    "additionalNetworkRoundTrips": 0,
+    "commitmentVectorB64u": "S9FX5zM9m3vAn8E1xDn0YqbRjAG_nibOaiphjxKGhmw",
+    "commitmentVectorInput": "32 bytes of 0x44",
+    "evidence": [
+      "router_ab_ecdsa_derivation_client_rerandomization_commitment_vector_is_frozen",
+      "router_ab_ecdsa_derivation_finalize_opening_reconstructs_only_its_prepare_commitment",
+      "public_coin_requires_both_role_contributions",
+      "signing_worker_ecdsa_pool_lifecycle_burns_substituted_commit",
+      "routerAbEcdsaPoolHitWaterfall.unit.test.ts"
+    ],
+    "excludedClaim": "fairness and availability against selective abort"
+  },
+  "oracle": {
+    "commit": "db609be5021eb9d794f577601f422818fbdfe246",
+    "gitTree": "05f60d54971e2f1e417dab7191f0f5d02f82468c",
+    "manifestSha256": "0e38983aebc110b4f0407a6b2d0349b3e398b373e0639472e1510e47113fc577",
+    "pinnedSourceAndDocumentFiles": 23,
+    "vectorFamilies": 7,
+    "fixedPathInventoryRows": 47,
+    "semanticReplayCases": 4,
+    "semanticTraceSha256": "2d6d2691b277b65ebd66fe81d66d0c875412747265d18c7131963f1b8ab72d06",
+    "criticalAbortCorpus": "crates/router-ab-ecdsa-presign/specs/abort-corpus-v1.md",
+    "abortCorpusIndexTest": "crates/router-ab-ecdsa-near-oracle-tests/tests/abort_corpus_index.rs"
+  },
+  "nativeArm64Release": [
+    {
+      "crate": "router-ab-ecdsa-presign",
+      "assemblySha256": "aef9ea765a248d38ac62010cacd553c0c7d353d626d8d4d4617c348b6c406f11",
+      "functions": 3884,
+      "instructions": 29311,
+      "divisionOrSqrtErrors": 0,
+      "conditionalBranchWarnings": 1054
+    },
+    {
+      "crate": "router-ab-ecdsa-online",
+      "assemblySha256": "e5bdf51abc1c758f1af74e22c7d56cf2fb56fb035559a6b276cebc1f95337eab",
+      "functions": 629,
+      "instructions": 4194,
+      "divisionOrSqrtErrors": 0,
+      "conditionalBranchWarnings": 93
+    }
+  ],
+  "wasmRelease": {
+    "test": "crates/router-ab-ecdsa-near-oracle-tests/tests/wasm_constant_time.rs",
+    "forbiddenOperators": [
+      "i32.div_s",
+      "i32.div_u",
+      "i32.rem_s",
+      "i32.rem_u",
+      "i64.div_s",
+      "i64.div_u",
+      "i64.rem_s",
+      "i64.rem_u",
+      "f32.div",
+      "f32.sqrt",
+      "f64.div",
+      "f64.sqrt"
+    ],
+    "approvedPublicOperands": [
+      "collection and iterator lengths",
+      "public OID parsing",
+      "numeric error formatting",
+      "SigningWorker progress-message serialization",
+      "fixed/public digest block lengths",
+      "fixed 32-byte HKDF input-key length"
+    ],
+    "artifacts": [
+      {
+        "role": "presign-client",
+        "sha256": "439d417595fc3cd6f87c26be72a2f1ff716d7d1a964d099d5e02bed2a15e3d30",
+        "unapprovedVariableTimeOperators": 0
+      },
+      {
+        "role": "signing-worker",
+        "sha256": "eeb826c138fcd13cde73ff084f101d80797db91f8ee166437b5ddfd8a97e3427",
+        "unapprovedVariableTimeOperators": 0
+      },
+      {
+        "role": "online-client",
+        "sha256": "53b4b67aa25775d70290cd73c89ba8e33cdf1f717177447ae67011e62e23938e",
+        "unapprovedVariableTimeOperators": 0
+      }
+    ]
+  },
+  "sourceReview": {
+    "secretLogging": "production source guard rejects println, eprintln, dbg, tracing, and log calls",
+    "secretTypes": "secret-bearing protocol states use Zeroize/ZeroizeOnDrop or explicit Drop zeroization",
+    "divisionAndRemainder": "purpose-built source occurrences operate only on fixed constants, public indexes, public lengths, or deterministic test inputs"
+  },
+  "openAssumptions": [
+    {
+      "id": "A-CT-BRANCH-DATAFLOW",
+      "statement": "The heuristic analyzer does not prove whether every compiled conditional branch depends only on public data or an explicit aggregate protocol-validity result.",
+      "promotionImpact": "Requires bounded independent review or stronger dataflow tooling before a comprehensive constant-time claim."
+    },
+    {
+      "id": "A-CT-RUNTIME",
+      "statement": "Static native and Wasm opcode inspection does not cover JavaScript engine, Workers runtime, cache, allocator, or microarchitectural timing behavior.",
+      "promotionImpact": "No target-runtime constant-time claim is made."
+    }
+  ],
+  "deploymentApplicability": ["same-account development", "independent-account production"]
+}

@@ -1,0 +1,116 @@
+{
+  "schema": "seams.refactor89.phase-e-local-artifacts.v1",
+  "capturedAt": "2026-07-17",
+  "status": "local-readiness-complete; RAR-01-remediated; independent-rereview-pending",
+  "artifacts": [
+    {
+      "role": "derivation-client-wasm",
+      "path": "wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client_bg.wasm",
+      "sha256": "ffecf5aab120047bb616d239f7465cc57c4e29b9fb0156c466875cca640336f9",
+      "rawBytes": 614063,
+      "gzip9Bytes": 243600,
+      "brotli11Bytes": 194288
+    },
+    {
+      "role": "presign-client-wasm",
+      "path": "wasm/router_ab_ecdsa_presign_client/pkg/router_ab_ecdsa_presign_client_bg.wasm",
+      "sha256": "6ca761202f79d45c3875f21fd37e600ab0f59cf829218e748dc42471dd1de24e",
+      "rawBytes": 172561,
+      "gzip9Bytes": 73497,
+      "brotli11Bytes": 60605
+    },
+    {
+      "role": "online-client-wasm",
+      "path": "wasm/router_ab_ecdsa_online_client/pkg/router_ab_ecdsa_online_client_bg.wasm",
+      "sha256": "05f441332aa7c410207e3df2fb8d1d73e1c874d351af9e92ac106655a2dab657",
+      "rawBytes": 68810,
+      "gzip9Bytes": 31615,
+      "brotli11Bytes": 26327
+    },
+    {
+      "role": "signing-worker-wasm",
+      "path": "wasm/router_ab_ecdsa_signing_worker/pkg/router_ab_ecdsa_signing_worker_bg.wasm",
+      "sha256": "a6f960c9b15699bc9e3065883e772a6b2089b437ad2b7cd80effc810d4e7f813",
+      "rawBytes": 199117,
+      "gzip9Bytes": 87788,
+      "brotli11Bytes": 73935
+    },
+    {
+      "role": "public-evm-utilities-wasm",
+      "path": "wasm/evm_crypto/pkg/evm_crypto_bg.wasm",
+      "sha256": "9671af7e245d87b6758fd9564806765b12495afae0ded4777dca9e8dbe7f07f9",
+      "rawBytes": 163537,
+      "gzip9Bytes": 71916,
+      "brotli11Bytes": 60149
+    },
+    {
+      "role": "derivation-client-worker",
+      "path": "packages/sdk-web/dist/workers/ecdsa-derivation-client.worker.js",
+      "sha256": "847fbd297964303bafb5711562c907b0fd50d287cceff9f85b4a411459e1d637",
+      "rawBytes": 20267,
+      "gzip9Bytes": 6906,
+      "brotli11Bytes": 6158
+    },
+    {
+      "role": "presign-client-worker",
+      "path": "packages/sdk-web/dist/workers/ecdsa-presign-client.worker.js",
+      "sha256": "8e8d324652bb7adb163e03172c7006b2c8b3bbcf7b5df5cf98abf84c70f596bc",
+      "rawBytes": 39377,
+      "gzip9Bytes": 11124,
+      "brotli11Bytes": 9757
+    },
+    {
+      "role": "online-client-worker",
+      "path": "packages/sdk-web/dist/workers/ecdsa-online-client.worker.js",
+      "sha256": "25c2cb8601e9835a44752821bb9ad610a751de737508af5bc20005cf4a41fcce",
+      "rawBytes": 28733,
+      "gzip9Bytes": 8312,
+      "brotli11Bytes": 7288
+    }
+  ],
+  "zeroOldCallerReport": {
+    "productionSignerCoreThresholdEcdsa": 0,
+    "productionThresholdSignaturesDependencies": 0,
+    "productionMappedShareFields": 0,
+    "productionCaitSithRecordFields": 0,
+    "genericPresignatureStoreImplementations": 0,
+    "genericPresignatureDurableObjectOperations": 0,
+    "allowedReferences": [
+      "pinned dev/test oracle",
+      "explicit deleted-symbol guards",
+      "historical plan text"
+    ]
+  },
+  "verification": {
+    "sdkServerProductionBuild": "passed",
+    "sdkWebProductionBuild": "passed",
+    "signerCoreFocusedTests": "17 passed across lib and integration targets",
+    "roleLocalDerivationTests": "14 passed",
+    "crossWasmAndPersistenceTests": "22 passed",
+    "strictPoolFillAndPersistenceTests": "20 passed; 2 external Redis/Upstash cases skipped without credentials",
+    "identityBudgetBootstrapExportTests": "62 passed",
+    "completeIntendedBehaviourContracts": "11 passed",
+    "presignExpiryRegression": "five failing lifecycle contracts reproduced before the fix; all 11 contracts passed after separating material and lease expiry",
+    "productionBoundaryTests": "6 passed",
+    "signerCoreVerus": "41 verified, 0 errors",
+    "derivationVerus": "52 verified, 0 errors",
+    "bundleSizeReport": "passed",
+    "deletedServerStoreSymbolGuard": "passed"
+  },
+  "rar01Remediation": {
+    "construction": "Client commit, post-admission SigningWorker contribution, Client opening, XOR public coin",
+    "additionalNetworkRoundTrips": 0,
+    "rustCommitmentVector": "passed",
+    "typescriptCommitmentVector": "passed",
+    "openingSubstitution": "changes the prepare digest and reaches the existing terminal binding-rejection path",
+    "twoContributionInfluence": "passed",
+    "browserPoolHitWaterfall": "passed after rebuilding generated worker artifacts",
+    "nativeConstantTimeScan": "629 functions; 4194 instructions; 0 division/sqrt errors; 93 heuristic branch warnings retained as non-claims",
+    "wasmConstantTimeScan": "passed for all three fixed-role Wasm kernels"
+  },
+  "localTimingEvidence": "docs/evidence/refactor-89/phase-e-local-timings-v1.json",
+  "open": [
+    "bounded independent cryptographic review",
+    "ECDSA Cloudflare rollout and measurements owned by docs/router-a-b-deployment.md; docs/yaos-ab-deployment.md owns the separate Ed25519 Yao gate"
+  ]
+}

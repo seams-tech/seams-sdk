@@ -91,9 +91,10 @@ share commitment, binds it to the polynomial contribution, and rejects a
 corrupted exchange at the terminal product equation before `ValidatedTriple`
 emission.
 
-Transport must provide private authenticated role-to-role delivery. Replay,
-timeout, persistence, one-use destruction, and ambiguous-delivery handling
-remain integration work.
+Transport provides private authenticated role-to-role delivery. The canonical
+driver rejects role, round, context, and replay substitutions. The persistent
+pool adapters own timeout, one-use destruction, crash recovery, and ambiguous
+delivery after presign output exists.
 
 ## Pinned source alignment
 
@@ -109,8 +110,8 @@ remain integration work.
 
 No mismatch was found in the MTA or multiplication equations. The
 domain-separated coefficient derivation and fixed role schedule are deliberate
-adaptations, recorded above. These mappings establish behavioral alignment;
-the complete construction still requires the terminal proof and triple checks.
+adaptations, recorded above. Terminal proof and triple checks consume this
+layer before a `ValidatedTriple` becomes reachable.
 
 ## Constant-time boundary
 
@@ -120,9 +121,8 @@ selection. Scalar arithmetic and reduction use `k256`. Division and remainder
 operations apply only to public bit indexes. The only protocol branches inspect
 public context, role, index, or canonical boundary data.
 
-The optimized native arm64 audit analyzed 12 MTA functions with zero errors.
-Its seven warnings occur in context/index/role and two-triple bundle checks or
-canonical parsing of peer-supplied response values. Those branch inputs are
-public protocol data; none derive from local masks, operands, OT choices, or
-multiplication shares. Wasm compiled evidence remains open under assumption
-`A-CT`.
+The optimized native arm64 audit reports zero division or square-root errors for
+the complete presign crate. The release Wasm scan rejects unapproved integer
+division/remainder and floating division/square-root operators. Conditional
+branch dataflow and target-runtime timing remain explicit non-claims under
+`A-CT-BRANCH-DATAFLOW` and `A-CT-RUNTIME` in `assurance-ledger-v1.md`.

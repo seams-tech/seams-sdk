@@ -8,7 +8,7 @@ Current bootstrap scope after old-context removal:
 - `encode_context_v2`
 - canonical `x` derivation shape
 - additive-share derivation with explicit retry/share-construction logic
-- fixed participant-ID mapping with the actual `{1,2}` 2P mapping formula
+- additive-share preservation through the role-local boundary
 - explicit-export output-policy shape
 - initial true-blind role-local boundary mirror
 
@@ -22,7 +22,6 @@ This is intentionally narrower than the full privacy/boundary stack. The Aeneas
 - `src/shared/context.rs`
 - `src/shared/derivation.rs`
 - `src/shared/true_blind_boundary.rs`
-- `src/integration/share_mapping.rs`
 - `src/server/policy.rs`
 - `src/server/state.rs`
 - `docs/implementation-plan.md`
@@ -39,7 +38,6 @@ pretending the full protocol is already implemented.
   - `src/shared/context.rs`
   - `src/shared/derivation.rs`
   - `src/shared/true_blind_boundary.rs`
-  - `src/integration/share_mapping.rs`
   - `src/server/policy.rs`
   - `src/server/state.rs`
 - proof inventory exists at:
@@ -68,7 +66,7 @@ The current Verus boundary is frozen at:
 - fixed `evm-family` key-scope encoding for EVM-family addresses
 - canonical `x` derivation shape
 - additive-share derivation with explicit retry/share-construction logic
-- fixed participant-ID mapping with the actual `{1, 2}` mapping formula
+- direct additive-share ownership by the purpose-built presign protocol
 - explicit-export output-policy shape
 - finalized retained-state exclusion shape
 - true-blind role-local wire/session boundary shape
@@ -76,11 +74,10 @@ The current Verus boundary is frozen at:
 Remaining outside this scope:
 
 - cryptographic privacy claims
-- backend-equivalence theorems beyond the current fixed-ID seam
+- purpose-built presign and online protocol correctness
 - retained-state privacy claims beyond the modeled boundary shape
 - end-to-end integration behavior
 
 See:
 
 - [docs/implementation-plan.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/router-ab-ecdsa-derivation/formal-verification/verus/docs/implementation-plan.md)
-

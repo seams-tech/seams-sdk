@@ -18,10 +18,8 @@ use signer_core::near_threshold_ed25519::{
     verifying_share_bytes_from_signing_share_bytes,
 };
 use signer_core::secp256k1::{
-    derive_secp256k1_keypair_from_prf_second, derive_threshold_secp256k1_relayer_share,
-    map_additive_share_to_threshold_signatures_share_2p, secp256k1_private_key_32_to_public_key_33,
-    secp256k1_public_key_33_to_ethereum_address_20, THRESHOLD_SECP256K1_2P_CLIENT_PARTICIPANT_ID,
-    THRESHOLD_SECP256K1_2P_RELAYER_PARTICIPANT_ID,
+    derive_secp256k1_keypair_from_prf_second, secp256k1_private_key_32_to_public_key_33,
+    secp256k1_public_key_33_to_ethereum_address_20,
 };
 
 const FIXTURE_FORMAT_VERSION: &str = "signer-core-secp256k1-v1";
@@ -29,8 +27,6 @@ const FIXTURE_CORPUS_JSON: &str = include_str!("../../fixtures/secp256k1_v1.json
 const ED25519_FIXTURE_FORMAT_VERSION: &str = "signer-core-near-threshold-ed25519-v1";
 const ED25519_FIXTURE_CORPUS_JSON: &str =
     include_str!("../../fixtures/near_threshold_ed25519_v1.json");
-const THRESHOLD_SECP256K1_RELAYER_SHARE_SALT_V1: &[u8] =
-    b"seams/lite/threshold-secp256k1-ecdsa/relayer-share:v1";
 const EVM_SECP256K1_PRF_SECOND_HKDF_INFO_V1: &[u8] = b"secp256k1-signing-key-dual-prf-v1";
 const EVM_SECP256K1_PRF_SECOND_SALT_PREFIX_V1: &str = "evm-key-derivation:";
 const THRESHOLD_ED25519_CLIENT_SHARE_SALT_V1: &[u8] =
@@ -41,20 +37,8 @@ const SECP256K1_ORDER_HEX: &str =
 #[derive(Debug, Deserialize)]
 struct FixtureCorpus {
     format_version: String,
-    relayer_share_vectors: Vec<RelayerShareVector>,
     prf_second_keypair_vectors: Vec<PrfSecondKeypairVector>,
-    mapping_vectors: Vec<MappingVector>,
     rejected_scalar_vectors: Vec<RejectedScalarVector>,
-}
-
-#[derive(Debug, Deserialize)]
-struct RelayerShareVector {
-    name: String,
-    master_secret_hex: String,
-    relayer_key_id: String,
-    okm64_hex: String,
-    signing_share32_hex: String,
-    verifying_share33_hex: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -66,14 +50,6 @@ struct PrfSecondKeypairVector {
     private_key32_hex: String,
     public_key33_hex: String,
     ethereum_address20_hex: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct MappingVector {
-    name: String,
-    additive_share32_hex: String,
-    mapped_client_share32_hex: String,
-    mapped_relayer_share32_hex: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -134,16 +110,8 @@ fn fixture_corpus() -> FixtureCorpus {
         serde_json::from_str(FIXTURE_CORPUS_JSON).expect("fixture corpus should parse");
     assert_eq!(corpus.format_version, FIXTURE_FORMAT_VERSION);
     assert!(
-        !corpus.relayer_share_vectors.is_empty(),
-        "relayer vectors must not be empty"
-    );
-    assert!(
         !corpus.prf_second_keypair_vectors.is_empty(),
         "PRF.second vectors must not be empty"
-    );
-    assert!(
-        !corpus.mapping_vectors.is_empty(),
-        "mapping vectors must not be empty"
     );
     assert!(
         !corpus.rejected_scalar_vectors.is_empty(),
@@ -222,17 +190,6 @@ fn reduce_64_k256(okm64: &[u8; 64]) -> [u8; 32] {
     field_bytes_to_array32(&FieldBytes::from(
         <NonZeroScalar as Reduce<U512>>::reduce_bytes(&wide),
     ))
-}
-
-fn relayer_hkdf_okm(master_secret: &[u8], relayer_key_id: &str) -> [u8; 64] {
-    let hk = Hkdf::<Sha256>::new(
-        Some(THRESHOLD_SECP256K1_RELAYER_SHARE_SALT_V1),
-        master_secret,
-    );
-    let mut okm64 = [0u8; 64];
-    hk.expand(relayer_key_id.as_bytes(), &mut okm64)
-        .expect("HKDF expand for relayer share");
-    okm64
 }
 
 fn prf_second_hkdf_okm(prf_second: &[u8], near_account_id: &str) -> [u8; 64] {
@@ -353,58 +310,6 @@ fn ethereum_address_from_private_key(private_key32: &[u8; 32]) -> Vec<u8> {
 }
 
 #[test]
-fn anti_drift_relayer_share_derivation_matches_committed_vectors() {
-    for vector in fixture_corpus().relayer_share_vectors {
-        let master_secret = hex_to_vec(&vector.master_secret_hex);
-        let expected_okm64 = hex_to_array::<64>(&vector.okm64_hex);
-        let expected_signing_share32 = hex_to_array::<32>(&vector.signing_share32_hex);
-        let expected_verifying_share33 = hex_to_vec(&vector.verifying_share33_hex);
-
-        let derived =
-            derive_threshold_secp256k1_relayer_share(&master_secret, &vector.relayer_key_id)
-                .unwrap_or_else(|err| panic!("{} relayer derivation failed: {err}", vector.name));
-        assert_eq!(derived.len(), 65, "{} output layout drifted", vector.name);
-
-        let signing_share32: [u8; 32] = derived[..32]
-            .try_into()
-            .expect("signing share must be 32 bytes");
-        let verifying_share33 = &derived[32..65];
-        assert_eq!(verifying_share33.len(), 33);
-
-        let okm64 = relayer_hkdf_okm(&master_secret, &vector.relayer_key_id);
-        assert_eq!(okm64, expected_okm64, "{} HKDF OKM drifted", vector.name);
-        assert_eq!(
-            signing_share32, expected_signing_share32,
-            "{} signing share drifted",
-            vector.name
-        );
-        assert_eq!(
-            signing_share32,
-            reduce_64_formula(&okm64),
-            "{} reduction formula drifted",
-            vector.name
-        );
-        assert_eq!(
-            signing_share32,
-            reduce_64_k256(&okm64),
-            "{} k256 reduction drifted",
-            vector.name
-        );
-        assert_eq!(
-            verifying_share33, expected_verifying_share33,
-            "{} verifying share drifted",
-            vector.name
-        );
-        assert_eq!(
-            verifying_share33,
-            compressed_public_key_from_private_key(&signing_share32),
-            "{} verifying share no longer matches signing share",
-            vector.name
-        );
-    }
-}
-
-#[test]
 fn anti_drift_prf_second_keypair_matches_committed_vectors() {
     for vector in fixture_corpus().prf_second_keypair_vectors {
         let prf_second = hex_to_vec(&vector.prf_second_hex);
@@ -478,70 +383,13 @@ fn anti_drift_prf_second_keypair_matches_committed_vectors() {
 }
 
 #[test]
-fn anti_drift_additive_share_mapping_matches_committed_vectors() {
-    let corpus = fixture_corpus();
-    for vector in corpus.mapping_vectors.iter() {
-        let additive_share32 = hex_to_array::<32>(&vector.additive_share32_hex);
-        let expected_mapped_client = hex_to_vec(&vector.mapped_client_share32_hex);
-        let expected_mapped_relayer = hex_to_vec(&vector.mapped_relayer_share32_hex);
-
-        let mapped_client = map_additive_share_to_threshold_signatures_share_2p(
-            &additive_share32,
-            THRESHOLD_SECP256K1_2P_CLIENT_PARTICIPANT_ID,
-        )
-        .unwrap_or_else(|err| panic!("{} client participant mapping failed: {err}", vector.name));
-        let mapped_relayer = map_additive_share_to_threshold_signatures_share_2p(
-            &additive_share32,
-            THRESHOLD_SECP256K1_2P_RELAYER_PARTICIPANT_ID,
-        )
-        .unwrap_or_else(|err| panic!("{} relayer participant mapping failed: {err}", vector.name));
-
-        assert_eq!(
-            mapped_client, expected_mapped_client,
-            "{} client mapped share drifted",
-            vector.name
-        );
-        assert_eq!(
-            mapped_relayer, expected_mapped_relayer,
-            "{} relayer mapped share drifted",
-            vector.name
-        );
-    }
-
-    let first_share = hex_to_array::<32>(&corpus.mapping_vectors[0].additive_share32_hex);
-    let unsupported = map_additive_share_to_threshold_signatures_share_2p(&first_share, 3);
-    assert!(
-        unsupported.is_err(),
-        "unsupported 2P participant IDs must fail"
-    );
-}
-
-#[test]
 fn anti_drift_scalar_domain_boundaries_match_public_api_parsing() {
     let corpus = fixture_corpus();
     for vector in corpus.rejected_scalar_vectors {
         let rejected_scalar = hex_to_array::<32>(&vector.scalar32_hex);
         assert!(
-            map_additive_share_to_threshold_signatures_share_2p(
-                &rejected_scalar,
-                THRESHOLD_SECP256K1_2P_CLIENT_PARTICIPANT_ID
-            )
-            .is_err(),
-            "{} invalid scalar should be rejected by mapping",
-            vector.name
-        );
-        assert!(
             secp256k1_private_key_32_to_public_key_33(&rejected_scalar).is_err(),
             "{} invalid scalar should be rejected by private-key helper",
-            vector.name
-        );
-    }
-
-    for vector in fixture_corpus().mapping_vectors {
-        let valid_scalar = hex_to_array::<32>(&vector.additive_share32_hex);
-        assert!(
-            secp256k1_private_key_32_to_public_key_33(&valid_scalar).is_ok(),
-            "{} valid scalar should be accepted by private-key helper",
             vector.name
         );
     }

@@ -1,0 +1,246 @@
+{
+  "schema": "seams.refactor89.cloudflare-signing-lifecycle-review.v1",
+  "review_date": "2026-07-17",
+  "base_git_commit": "186e55d99f0a1df0f0229b44e6ceaf3aec00f013",
+  "decision": "rejected_pending_remediation",
+  "independent_review": {
+    "reviewer": "Codex independent cryptographic review agent",
+    "decision": "rejected",
+    "confidence": 0.99
+  },
+  "scope": {
+    "primary": "Cloudflare SigningWorker ECDSA persistent pool lifecycle and output-release path",
+    "secondary": "same-account Ed25519 Yao session, SigningWorker activation, normal signing, and production dependency boundary",
+    "excluded": [
+      "cryptographic construction already covered by docs/security/router-ab-ecdsa-phase4-review.md",
+      "Client IndexedDB adapter already covered by the Phase 4 review",
+      "promotion of the separately implemented cross-account benchmark connector, deployed account attestation, and credentialed Cloudflare operations"
+    ]
+  },
+  "corpus_root_algorithm": "SHA-256 over ordered UTF-8 lines `<path> <artifact_sha256>\\n`",
+  "corpus_root_sha256": "6fb71068f483fdfe1bf2acf5af0351a9e50f174c2c13ca5861a2003c6f35fe5a",
+  "artifacts": [
+    {
+      "path": "crates/router-ab-cloudflare/Cargo.toml",
+      "sha256": "1d709044d22611378f6f597296812435f0f9060abdf6a3ae52c8255ce71397b1"
+    },
+    {
+      "path": "crates/router-ab-cloudflare/Cargo.lock",
+      "sha256": "f989c8520ca4ecf51f2117a46ccc262d0175e3ceff7121d5c7f030f52af254f0"
+    },
+    {
+      "path": "crates/router-ab-cloudflare/src/lib.rs",
+      "sha256": "93034e75f8e1320b205a0b27213ca171f35dd766c1b4859272daaea0ac171fef"
+    },
+    {
+      "path": "crates/router-ab-cloudflare/src/ecdsa_pool_lifecycle.rs",
+      "sha256": "90ffe9cd5e615f4a60322616627eda9f5d3cea8aa7561a16ad54d933ca4a10a3"
+    },
+    {
+      "path": "crates/router-ab-cloudflare/src/ed25519_yao_websocket.rs",
+      "sha256": "2e308e96f5f82be3c3bf51b5c8ae5b10312614fbcf7a7ce739a5af4fc8bc3513"
+    },
+    {
+      "path": "crates/router-ab-cloudflare/src/ed25519_yao_lifecycle.rs",
+      "sha256": "f9a77f6d36c02e86502d4ebbe05fb8dc1ab8019b3a54a45a9c919f383ec9f74c"
+    },
+    {
+      "path": "crates/router-ab-cloudflare/src/ed25519_yao_signing_worker.rs",
+      "sha256": "dc3bea3af3d4ffb1dd0bd763bfc8bd2f96919e09d15dabb5fd23f957c0c784d7"
+    },
+    {
+      "path": "crates/router-ab-cloudflare/src/hpke.rs",
+      "sha256": "46d3365ed42cbebb892609244d1b427930519781f4eb5017c8ee04efdf2a93cc"
+    },
+    {
+      "path": "crates/router-ab-cloudflare/src/durable_object/mod.rs",
+      "sha256": "6270c9d917d6a255cf49877bc68b393e9965d11c08e601706a94cd5cd207cbe5"
+    },
+    {
+      "path": "crates/router-ab-cloudflare/src/durable_object/handlers.rs",
+      "sha256": "e3ab26e83a5072f95f9156acf4939679d58b71dd4c268bb344a84abd46036a2c"
+    },
+    {
+      "path": "crates/router-ab-cloudflare/src/durable_object/worker_storage.rs",
+      "sha256": "347ba3a18ae8410aced3086b665cd1e2892016e91cdedc6d6df5a7c457758244"
+    },
+    {
+      "path": "crates/router-ab-cloudflare/src/durable_object/memory_storage.rs",
+      "sha256": "0feefaa435c94c5c30005688303dbc50b12c228ebd077688ceae5c0f788cb45a"
+    },
+    {
+      "path": "crates/router-ab-cloudflare/src/signing_worker/mod.rs",
+      "sha256": "10ace1439118fbb0f0c3bb3a2fb014dcbaafabb73bfc380cb9c407cc4b32d210"
+    },
+    {
+      "path": "crates/router-ab-cloudflare/src/strict_worker/mod.rs",
+      "sha256": "535ee43e5ba5c13229721776a273ae636703d03dbd85caba41d3904f35140d94"
+    },
+    {
+      "path": "crates/router-ab-cloudflare/src/strict_worker/signing_worker.rs",
+      "sha256": "95aaa14cd64b7da389ce207ce7f77cf2dd33552b383eaff7789ba1dcb585f4c9"
+    },
+    {
+      "path": "crates/router-ab-cloudflare/src/strict_worker/deriver.rs",
+      "sha256": "95ad97ac8c6f7480380a6990896ad1608aa8dffb86879f64734d7374fb3a8058"
+    },
+    {
+      "path": "crates/router-ab-cloudflare/wrangler.deriver-a.toml",
+      "sha256": "c8e7a8113f380e8d97764d02e2d2275513b912dd6989bb7aab15392783f5a229"
+    },
+    {
+      "path": "crates/router-ab-cloudflare/wrangler.deriver-b.toml",
+      "sha256": "5a84d8ded0f62c49a63225edc59cd1a226f143ed649995a93849468e09cccc8f"
+    },
+    {
+      "path": "crates/router-ab-cloudflare/wrangler.signing-worker.toml",
+      "sha256": "4c0c23a2ada62ce376e3d3ae2b8a45c65b6daab218899daa158fa1f87e45cac6"
+    },
+    {
+      "path": "crates/router-ab-cloudflare/tests/bindings.rs",
+      "sha256": "e0c413b917799d0ecd72b30a35627f2236050aadc54e5189ef9d499e9fc9cce8"
+    },
+    {
+      "path": "crates/router-ab-cloudflare/tests/ecdsa_derivation_activation_boundaries.rs",
+      "sha256": "1d430be963e228075954c5b132c201a0830e7241d2cf5fb489cb9ecd33f722d9"
+    },
+    {
+      "path": "crates/router-ab-cloudflare/tests/ecdsa_derivation_lifecycle_matrix.rs",
+      "sha256": "2839754f9ffe96460ed355572e7127079054c5bfa4384bff01c0d85a6916cfbe"
+    },
+    {
+      "path": "crates/router-ab-cloudflare/tests/ecdsa_derivation_normal_signing_boundaries.rs",
+      "sha256": "939656611e28301259d569f035de6d7387ed531dda2398735528caa955b9f322"
+    },
+    {
+      "path": "crates/router-ab-cloudflare/tests/normal_signing_worker_boundaries.rs",
+      "sha256": "8d7c55a33f1047432ed755bdc0684243539c53e9d4fbaa11b6cbda1e7dc00bca"
+    },
+    {
+      "path": "crates/router-ab-core/src/protocol/ed25519_yao.rs",
+      "sha256": "4fea8f32a85344ea85d1a2018bd5f6b81834a17353f39d3d25fcac4c191c7457"
+    },
+    {
+      "path": "crates/router-ab-core/src/protocol/normal_signing.rs",
+      "sha256": "e627318f0630253a3edfe6cf20e8633095a5bea16df4f46292ce63b1040141bc"
+    },
+    {
+      "path": "crates/router-ab-ed25519-yao/src/activation.rs",
+      "sha256": "3e2dfe6055a5b65908b83b36db3257bc7e0a41f051f91260a60a14b58f09de92"
+    },
+    {
+      "path": "crates/router-ab-ed25519-yao/src/lib.rs",
+      "sha256": "a889602807f0fc22d3b7be83073114aaf020de5e3b6fef889a89001023de07a5"
+    },
+    {
+      "path": "crates/router-ab-ecdsa-pool/src/lib.rs",
+      "sha256": "e588fec5eefe8a3c9d7dd272b1361103109d85df19b5ac8eac34b3a79f830a7e"
+    },
+    {
+      "path": "crates/router-ab-ecdsa-pool/specs/persistent-pool-lifecycle-v1.md",
+      "sha256": "1fa79931d6bbd056384b75f62abf4397485af471c42921d346efc8c968e83f93"
+    },
+    {
+      "path": "crates/router-ab-ecdsa-online/src/lib.rs",
+      "sha256": "d9aba9a3cc2d230de2b453a7e82a2ed1c781b23cb4eb3a45290a37bf2bd0fb0e"
+    },
+    {
+      "path": "crates/router-ab-ecdsa-online/specs/online-lifecycle-v1.md",
+      "sha256": "7de84596087ffd4b69c4f140d9a856f5dde72091441d0c064362d846467aa7e0"
+    },
+    {
+      "path": "crates/router-ab-ecdsa-presign/specs/assurance-ledger-v1.md",
+      "sha256": "9cb381cbf9decdd687cfbe3ab6b28b223c484d8877185f228bd1abec681ceda8"
+    },
+    {
+      "path": "docs/refactor-89-slimmer-near-ecdsa.md",
+      "sha256": "6906809de59cc693c63f71e4334c65cd8f29dbc23b9ca65e390a3d7b46c52eeb"
+    },
+    {
+      "path": "docs/yaos-ab.md",
+      "sha256": "b4c55d81ed6a7e62a584f6436dbdd29d9a586fff29f2b94aa4f9964baf6517d1"
+    },
+    {
+      "path": "docs/yaos-ab-deployment.md",
+      "sha256": "57c0cb03cf68998c9bd8895061fd62ae406156f6bce6bd5e874dda869717c9b0"
+    }
+  ],
+  "checks": [
+    {
+      "command": "cargo test --locked --manifest-path crates/router-ab-cloudflare/Cargo.toml",
+      "result": "passed",
+      "tests": 333,
+      "notes": "Includes 280 binding tests and focused ECDSA/Yao boundary suites; one unused-import warning."
+    },
+    {
+      "command": "cargo test --locked --manifest-path crates/router-ab-ecdsa-pool/Cargo.toml",
+      "result": "passed",
+      "tests": 9,
+      "notes": "8 runtime tests and 1 compile-fail doctest."
+    },
+    {
+      "command": "cargo check --locked --manifest-path crates/router-ab-cloudflare/Cargo.toml --no-default-features --features strict-worker-deriver-a-entrypoint --target wasm32-unknown-unknown",
+      "result": "passed"
+    },
+    {
+      "command": "cargo check --locked --manifest-path crates/router-ab-cloudflare/Cargo.toml --no-default-features --features strict-worker-deriver-b-entrypoint --target wasm32-unknown-unknown",
+      "result": "passed"
+    },
+    {
+      "command": "cargo check --locked --manifest-path crates/router-ab-cloudflare/Cargo.toml --no-default-features --features strict-worker-signing-worker-entrypoint --target wasm32-unknown-unknown",
+      "result": "passed",
+      "notes": "One unused-context warning."
+    },
+    {
+      "command": "node tests/scripts/check-ecdsa-client-worker-split.mjs",
+      "result": "passed"
+    },
+    {
+      "command": "node tests/scripts/check-ed25519-yao-near-signing-boundaries.mjs",
+      "result": "passed"
+    }
+  ],
+  "evidence_limits": [
+    "This review did not rerun deployed workerd/Miniflare concurrency, crash, cancellation, alarm, point-in-time restore, or the already recorded cross-account transport campaign.",
+    "Cloudflare platform consistency and output-gate behavior are documented assumptions, not locally re-proven.",
+    "The independent reviewer covered the ECDSA lifecycle and an earlier same-turn Yao snapshot; the final Yao delta was reconciled by the primary review."
+  ],
+  "findings": [
+    {
+      "id": "CF-LC-001",
+      "severity": "high",
+      "status": "open",
+      "summary": "Committed SigningWorker material remains durably serialized until a later finish mutation; crash recovery has no production invocation path."
+    },
+    {
+      "id": "CF-LC-002",
+      "severity": "medium",
+      "status": "open",
+      "summary": "Post-reservation failure paths and expired or retired available records do not all persist terminal tombstones."
+    },
+    {
+      "id": "CF-LC-003",
+      "severity": "medium",
+      "status": "open",
+      "summary": "Backup and point-in-time restore can revive pre-tombstone material unless deployment advances an independently authoritative epoch."
+    },
+    {
+      "id": "CF-LC-004",
+      "severity": "high",
+      "status": "open",
+      "summary": "Yao sessions claim Running once in the current generation, but lack terminal failure/expiry states, crash recovery, bounded retention, and a rollback-generation floor."
+    },
+    {
+      "id": "CF-LC-005",
+      "severity": "medium",
+      "status": "open",
+      "summary": "SigningWorker prepare does not cap reservation expiry at the minimum of request expiry, material expiry, and 60 seconds."
+    },
+    {
+      "id": "CF-LC-006",
+      "severity": "medium",
+      "status": "open",
+      "summary": "SigningWorker Yao activation duplicates plaintext scalar material across orchestration and output Durable Objects and does not retire failed or superseded material."
+    }
+  ]
+}

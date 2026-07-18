@@ -25,7 +25,7 @@ pub struct EcdsaClientProofBundleEnvelopeV1 {
     pub signer: EcdsaSignerIdentityV1,
     /// Exact client identity selected by the ceremony.
     pub recipient_identity: String,
-    /// Canonical `x25519:<64 lowercase hex>` client ephemeral public key.
+    /// Canonical `x25519:<64 lowercase hex chars>` client ephemeral public key.
     pub recipient_public_key: String,
     /// Exact Router transcript digest.
     pub transcript_digest: [u8; 32],
@@ -414,6 +414,7 @@ impl<'a> Decoder<'a> {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     struct SealedClientFixture {
@@ -552,10 +553,12 @@ mod tests {
             .as_slice()
             .try_into()
             .expect("recipient private key bytes");
-        let recipient_public_key = format!(
-            "x25519:{}",
-            lower_hex(&DhKemX25519HkdfSha256::pk_to_bytes(&recipient_public_key)),
-        );
+        let recipient_public_key_bytes: [u8; 32] =
+            DhKemX25519HkdfSha256::pk_to_bytes(&recipient_public_key)
+                .as_slice()
+                .try_into()
+                .expect("fixed recipient public key");
+        let recipient_public_key = encode_x25519_public_key(&recipient_public_key_bytes);
         let mut envelope = EcdsaClientProofBundleEnvelopeV1 {
             signer: signer_identity,
             recipient_identity: "client-1".to_owned(),

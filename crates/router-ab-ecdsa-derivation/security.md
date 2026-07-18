@@ -220,9 +220,8 @@ Export authorization freshness:
 
 WASM API separation:
 
-- browser WASM exposes client derivation, client public-identity verification,
-  client Cait-Sith share mapping, export authorization, and export
-  reconstruction
+- browser derivation WASM exposes role-local Client bootstrap, public-identity
+  verification, export authorization, and export reconstruction
 - browser WASM does not expose relayer derivation or relayer export-share
   release
 - server/native bindings expose relayer operations and omit client export
@@ -419,10 +418,8 @@ Still intentionally out of scope:
 - Export semantics:
   [specs/export.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/router-ab-ecdsa-derivation/specs/export.md)
 - Integration with the current backend:
-  [specs/integration-cait-sith-backend.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/router-ab-ecdsa-derivation/specs/integration-cait-sith-backend.md)
+  [specs/integration-purpose-built-ecdsa.md](specs/integration-purpose-built-ecdsa.md)
 - Implementation plan:
   [docs/plans/implementation-plan.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/router-ab-ecdsa-derivation/docs/plans/implementation-plan.md)
 - Share-derivation design memo:
   [docs/plans/share-derivation-design-memo.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/router-ab-ecdsa-derivation/docs/plans/share-derivation-design-memo.md)
-
-

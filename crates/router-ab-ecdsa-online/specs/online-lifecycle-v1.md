@@ -1,8 +1,9 @@
 # Fixed 2-of-2 ECDSA Online Lifecycle v1
 
-Status: checkpoint 10 implementation map. The persistent lifecycle contract is
-complete; production promotion remains blocked on its concrete adapters and
-the other integration requirements identified below.
+Status: complete local implementation map. The persistent lifecycle contract,
+encrypted IndexedDB Client adapter, and atomic SigningWorker adapter are
+integrated. Bounded independent cryptographic review remains the local
+production-promotion gate.
 
 ## Scope and roles
 
@@ -34,11 +35,40 @@ finalization entrypoints consume committed-use material. A failed transition
 also consumes its input, so the same Rust value cannot re-enter the protocol.
 
 The kernel deliberately has no reusable completed-session value.
-`router-ab-ecdsa-pool` now defines the exact persistent record key, revisions,
+`router-ab-ecdsa-pool` defines the exact persistent record key, revisions,
 forward-only transitions, terminal reasons, and compare-and-swap mutations.
-The browser and SigningWorker adapters must atomically apply that contract
-before releasing an online output. They must retain a tombstone after timeouts,
-ambiguous delivery, crashes, and peer aborts.
+The browser and SigningWorker adapters atomically apply that contract before
+releasing an online output and retain a tombstone after timeouts, ambiguous
+delivery, crashes, and peer aborts.
+
+## Two-role rerandomization coin
+
+The existing prepare/finalize exchange also realizes the public coin without
+another network round trip:
+
+```text
+client_contribution32 <- CSPRNG(32)
+client_commitment32 = SHA-256(
+    "router-ab-ecdsa-derivation/client-rerandomization-commitment/v1" ||
+    client_contribution32
+)
+
+signing_worker_contribution32 <- CSPRNG(32)  // after prepare admission
+entropy32 = client_contribution32 XOR signing_worker_contribution32
+```
+
+Prepare binds `client_commitment32` into the reservation digest. The
+SigningWorker persists its contribution before returning it. Finalize carries
+the Client opening; the SigningWorker derives its commitment and requires the
+resulting prepare digest to equal the reserved digest before committed material
+is exposed. Mismatch, timeout, abort, and ambiguous delivery are terminal burns.
+
+If the Client is honest, its committed uniform value remains hidden when the
+SigningWorker selects its contribution. If the SigningWorker is honest, its
+post-admission uniform contribution makes the XOR uniform even for a malicious
+Client. SHA-256 binding prevents the Client from adapting its opening after the
+SigningWorker reveal. Fairness and availability under selective abort remain
+excluded claims.
 
 ## Requirement-to-code map
 
@@ -52,10 +82,11 @@ ambiguous delivery, crashes, and peer aborts.
 | OL-SHARE-01 | The fixed Client and SigningWorker equations reproduce the pinned NEAR semantic outputs. | `src/lib.rs:223-257`; `../router-ab-ecdsa-near-oracle-tests/tests/online_parity.rs` | Full for the pinned valid trace | 1.00 |
 | OL-LOW-S-01 | Finalization selects low-`s` without a secret-dependent branch. | `src/lib.rs:256-257` | Full in-kernel | 1.00 |
 | OL-FINAL-01 | SigningWorker verifies the final prehash signature and derives a recovery ID for the registered group public key before output. | `src/lib.rs:259-290` | Full in-kernel | 1.00 |
-| OL-PERSIST-01 | Reserve, commit, consumption, and destruction survive crashes and ambiguous delivery. | `../router-ab-ecdsa-pool/src/lib.rs:183-202`, `../router-ab-ecdsa-pool/src/lib.rs:213-698`; concrete browser and SigningWorker adapters remain absent. | Partial; adapter integration blocker | 1.00 |
-| OL-REGISTRY-01 | The group public key and role shares are bound to the authenticated root-share commitment registry. | The kernel accepts the already-resolved group public key. Registry verification remains upstream. | Missing integration; production blocker | 1.00 |
-| OL-CONTEXT-01 | Wallet, account, scope, pair, and request identities bind the pool record and online receipt. | The online kernel binds `R`, digest, group key, entropy, and fixed participant IDs. `../router-ab-ecdsa-pool/src/lib.rs:11-181` and `:331-346` bind persistent wallet, account, scope, pair, role, epochs, protocol, request, and reservation identities. Boundary codecs and adapters remain absent. | Partial; adapter integration blocker | 1.00 |
-| OL-CORPUS-01 | Valid and invalid behavior matches the complete NEAR oracle corpus. | One exact valid trace and three high-value negative cases are implemented. | Partial | 1.00 |
+| OL-PERSIST-01 | Reserve, commit, consumption, and destruction survive crashes and ambiguous delivery. | `../router-ab-ecdsa-pool/src/lib.rs:218-465`; `packages/sdk-web/.../ecdsaPresignMaterialStore.ts`; `crates/router-ab-cloudflare/src/ecdsa_pool_lifecycle.rs` | Full local integration | 0.99 |
+| OL-REGISTRY-01 | The group public key and role shares are bound to the authenticated root-share commitment registry. | The kernel accepts the resolved group public key; strict derivation activation verifies recipient proof bundles against the authenticated registry before persisting role-local shares. | Full composed integration | 0.98 |
+| OL-CONTEXT-01 | Wallet, account, scope, pair, and request identities bind the pool record and online receipt. | The online kernel binds `R`, digest, group key, entropy, and fixed participant IDs. The pool contract and both concrete adapters bind wallet, account, scope, pair, role, epochs, protocol, request, and reservation identities. | Full local integration | 0.99 |
+| OL-COIN-01 | Either honest signing role makes rerandomization entropy unpredictable to the corrupt peer. | Prepare request digest binds the Client SHA-256 commitment; SigningWorker samples and persists its contribution only after admission; finalize opens the commitment before material access; the kernel XORs the two contributions before the context-bound HKDF. | Full composed integration | 0.99 |
+| OL-CORPUS-01 | Valid and invalid behavior matches the bounded pinned NEAR oracle corpus. | Four semantic cases, the critical abort corpus, and the final signature parity vectors execute against the digest-pinned oracle manifest. | Full bounded corpus | 1.00 |
 
 Line references describe checkpoint 10 and must be refreshed when the source
 layout changes.
@@ -64,9 +95,8 @@ layout changes.
 
 The Rust type system establishes one-use behavior for a value inside one
 process execution. The persistent lifecycle crate establishes the valid record
-states and mutations. Database transactions and Durable Object execution must
-establish atomicity across retries and crashes. The storage integration must
-own:
+states and mutations. IndexedDB transactions and Durable Object execution
+establish atomicity across retries and crashes. Each storage integration owns:
 
 1. authenticated lookup of the exact wallet, account, scope, role, and pair;
 2. atomic transition from available to reserved before either party starts;
@@ -77,10 +107,10 @@ own:
 5. rejection of cross-wallet, cross-account, cross-scope, cross-pair, and
    cross-request substitution.
 
-These are production requirements. The record schema and atomic transition API
-are isolated for review in
+The record schema and atomic transition API are isolated for review in
 `../router-ab-ecdsa-pool/specs/persistent-pool-lifecycle-v1.md`. Concrete
-adapter evidence is still required.
+adapter and fault evidence is indexed by
+`docs/evidence/refactor-89/phase-e-local-artifacts-v1.json`.
 
 ## Verification evidence
 
@@ -106,13 +136,12 @@ Checkpoint 9 also records:
 - automated normal and Wasm resolved-graph guards: no `threshold-signatures`,
   `signer-core`, futures family, generic threshold runtime, or unrelated curve
   library in the isolated production crates and online Client wrapper;
-- browser Wasm release: 68,477 bytes raw, 31,430 bytes gzip-9, and 26,282 bytes
+- browser Wasm release: 68,477 bytes raw, 31,432 bytes gzip-9, and 26,231 bytes
   Brotli-11; and
 - ARM64 release static constant-time scan: zero errors; warnings are confined
   to public boundary parsing and public commitment mismatch control flow.
 
-The static constant-time scanner is heuristic. Compiled-Wasm inspection and
-target-runtime timing evidence remain required before production promotion.
-The current NEAR-backed presign Client and SigningWorker wrappers are outside
-the promotion graph and must be replaced before these guards expand to the
-complete deployed surface.
+The static constant-time scanner is heuristic. Compiled-Wasm opcode inspection
+is complete; conditional-branch dataflow and target-runtime timing remain
+explicit non-claims. The production presign Client and SigningWorker wrappers
+use the purpose-built fixed backend and exclude the NEAR dependency graph.

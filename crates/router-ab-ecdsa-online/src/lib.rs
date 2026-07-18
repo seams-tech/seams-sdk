@@ -1,3 +1,29 @@
+//! Fixed-role online ECDSA signing over one-use presign material.
+//!
+//! Client and SigningWorker inputs are distinct types and cannot cross roles.
+//!
+//! ```compile_fail
+//! use router_ab_ecdsa_online::{ClientPresignMaterial, SigningWorkerOnlineInput};
+//! fn cross_role(material: ClientPresignMaterial, input: SigningWorkerOnlineInput) {
+//!     let _ = material.reserve().commit(input);
+//! }
+//! ```
+//!
+//! ```compile_fail
+//! use router_ab_ecdsa_online::ClientPresignMaterial;
+//! fn require_clone<T: Clone>() {}
+//! fn duplicate_secret() {
+//!     require_clone::<ClientPresignMaterial>();
+//! }
+//! ```
+//!
+//! ```compile_fail
+//! use router_ab_ecdsa_online::ClientPresignMaterial;
+//! fn expose_secret(material: &ClientPresignMaterial) {
+//!     let _ = format!("{material:?}");
+//! }
+//! ```
+
 #![forbid(unsafe_code)]
 
 use core::fmt;
@@ -27,6 +53,20 @@ const RERANDOMIZATION_SALT: [u8; 32] = [
     0x32, 0x8a, 0x47, 0xc2, 0xb8, 0x79, 0x44, 0x45, 0x25, 0x5c, 0x16, 0x47, 0x60, 0x8d, 0xf5, 0xdb,
     0x85, 0xc6, 0x8b, 0xb0, 0xe7, 0x17, 0x0a, 0xbe, 0xc5, 0x34, 0xdf, 0x27, 0x64, 0xa4, 0x58, 0x31,
 ];
+
+/// Combines contributions after the Client has committed and the SigningWorker has revealed.
+/// If either contribution is uniformly random and hidden from the other role when selected,
+/// the resulting entropy is uniformly random.
+pub fn combine_rerandomization_contributions(
+    client_contribution32: [u8; 32],
+    signing_worker_contribution32: [u8; 32],
+) -> [u8; 32] {
+    let mut entropy32 = client_contribution32;
+    for (left, right) in entropy32.iter_mut().zip(signing_worker_contribution32) {
+        *left ^= right;
+    }
+    entropy32
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OnlineError {
@@ -362,9 +402,28 @@ mod tests {
     use k256::Scalar;
 
     use super::{
-        compute_client_signature_share, finalize_signing_worker_signature, ClientPresignMaterial,
-        OnlineClientInput, OnlineError, SigningWorkerOnlineInput, SigningWorkerPresignMaterial,
+        combine_rerandomization_contributions, compute_client_signature_share,
+        finalize_signing_worker_signature, ClientPresignMaterial, OnlineClientInput, OnlineError,
+        SigningWorkerOnlineInput, SigningWorkerPresignMaterial,
     };
+
+    #[test]
+    fn public_coin_requires_both_role_contributions() {
+        let client = [0x60; 32];
+        let worker = [0x01; 32];
+        assert_eq!(
+            combine_rerandomization_contributions(client, worker),
+            [0x61; 32]
+        );
+        assert_ne!(
+            combine_rerandomization_contributions([0x62; 32], worker),
+            combine_rerandomization_contributions(client, worker)
+        );
+        assert_ne!(
+            combine_rerandomization_contributions(client, [0x02; 32]),
+            combine_rerandomization_contributions(client, worker)
+        );
+    }
 
     #[test]
     fn generated_presign_fixture_matches_oracle_finalization() {

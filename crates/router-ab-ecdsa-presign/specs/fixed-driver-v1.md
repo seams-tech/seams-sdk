@@ -1,8 +1,9 @@
 # Fixed 2-of-2 Presign Driver v1
 
-Status: implemented isolated checkpoint. The native driver and a deterministic
-new/new vertical vector are complete. The canonical byte codec and production
-Wasm adapters remain open.
+Status: implemented local production path. The native driver, deterministic
+new/new vertical vector, canonical byte codec, fixed-role Wasm adapters, and
+concrete one-use persistence adapters are complete. Independent cryptographic
+review remains the production-promotion gate.
 
 This document freezes the role, round, and validation order implemented by
 `driver.rs`. It does not promote the construction for production use. Promotion
@@ -153,9 +154,9 @@ The classifications in this table are bounded to the isolated Rust checkpoint.
 | Deterministic new/new driver plus purpose-built online signature vector | Full | `src/driver.rs`: `fixed_driver_completes_new_new_online_signature` |
 | Canonical numeric wire registry, bounded encoding, and strict decoder | Full | `src/codec.rs`: fixed header and role/round registry, exact per-round widths, 49,228-byte ceiling, role-specific decode functions, and canonical field constructors |
 | Encoded new/new semantic replay | Full | `src/codec.rs`: `every_fixed_round_round_trips_and_drives_new_new` encodes and decodes every peer message before advancing |
-| Parser mutation and fuzz corpus | Partial | Header role, round, flags, length, and trailing-byte rejection are tested; broader body mutation and fuzz coverage remain open |
+| Parser mutation and fuzz corpus | Full | Every frame is tested under every strict truncation, trailing bytes, header mutations, oversized length declarations, sampled body mutations, and a 4,096-case seeded mutation sweep |
 | Production Client and SigningWorker Wasm adapters use this driver | Full | `wasm/router_ab_ecdsa_presign_client` and `wasm/router_ab_ecdsa_signing_worker`; the cross-Wasm distributed suite completes all rounds |
-| Persistence-backed exactly-once consumption | Partial | `router-ab-ecdsa-pool` defines the storage-independent contract; concrete Client and SigningWorker adapters remain open |
+| Persistence-backed exactly-once consumption | Full | `router-ab-ecdsa-pool` defines the contract; the encrypted IndexedDB Client store and atomic SigningWorker lifecycle reducer implement forward-only reserve, commit, terminal deletion, recovery, and retirement |
 
 ## Frozen deterministic vector
 

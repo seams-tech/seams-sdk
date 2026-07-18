@@ -9,8 +9,8 @@ use router_ab_ecdsa_derivation::{
 };
 use sha2::Sha256;
 
-const PENDING_BLOB_MAGIC: &[u8; 8] = b"RAEDP1\0\0";
-const READY_BLOB_MAGIC: &[u8; 8] = b"RAEDR1\0\0";
+const PENDING_BLOB_MAGIC: &[u8; 8] = b"RAEDP2\0\0";
+const READY_BLOB_MAGIC: &[u8; 8] = b"RAEDR2\0\0";
 const ROUTER_AB_ECDSA_DERIVATION_CLIENT_PARTICIPANT_ID: u32 = 1;
 const PASSKEY_THRESHOLD_ECDSA_CLIENT_ROOT_INFO_V1: &[u8] =
     b"seams/passkey/threshold-ecdsa-client-root/v1";
@@ -121,7 +121,6 @@ struct PendingState {
     client_share_retry_counter: u32,
     x_client32: [u8; 32],
     derivation_client_share_public_key33: [u8; 33],
-    mapped_client_share32: [u8; 32],
 }
 
 #[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
@@ -134,7 +133,6 @@ struct ReadyState {
     client_share_retry_counter: u32,
     x_client32: [u8; 32],
     derivation_client_share_public_key33: [u8; 33],
-    mapped_client_share32: [u8; 32],
     relayer_share_retry_counter: u32,
     relayer_public_key33: [u8; 33],
     group_public_key33: [u8; 33],
@@ -289,7 +287,6 @@ pub fn build_ecdsa_role_local_export_artifact(
         retry_counter: ready_state.client_share_retry_counter,
         x_client32: ready_state.x_client32,
         derivation_client_share_public_key33: ready_state.derivation_client_share_public_key33,
-        mapped_client_share32: ready_state.mapped_client_share32,
     };
     let private_key32_result =
         reconstruct_export_key(&client_share, &input.server_export_share32, &identity);
@@ -313,7 +310,6 @@ fn pending_state_from_client_share(
         client_share_retry_counter: client_share.retry_counter,
         x_client32: client_share.x_client32,
         derivation_client_share_public_key33: client_share.derivation_client_share_public_key33,
-        mapped_client_share32: client_share.mapped_client_share32,
     }
 }
 
@@ -325,7 +321,6 @@ fn serialize_pending_state(state: &PendingState) -> CoreResult<Vec<u8>> {
     out.extend_from_slice(&state.client_share_retry_counter.to_be_bytes());
     out.extend_from_slice(&state.x_client32);
     out.extend_from_slice(&state.derivation_client_share_public_key33);
-    out.extend_from_slice(&state.mapped_client_share32);
     Ok(out)
 }
 
@@ -342,7 +337,6 @@ fn serialize_ready_state(
     out.extend_from_slice(&pending_state.client_share_retry_counter.to_be_bytes());
     out.extend_from_slice(&pending_state.x_client32);
     out.extend_from_slice(&pending_state.derivation_client_share_public_key33);
-    out.extend_from_slice(&pending_state.mapped_client_share32);
     out.extend_from_slice(&public_facts.relayer_share_retry_counter.to_be_bytes());
     out.extend_from_slice(&public_facts.relayer_public_key33);
     out.extend_from_slice(&public_facts.group_public_key33);
@@ -359,7 +353,6 @@ fn parse_pending_state(bytes: &[u8]) -> CoreResult<PendingState> {
     let x_client32 = cursor.read_array::<32>("x_client32")?;
     let derivation_client_share_public_key33 =
         cursor.read_array::<33>("derivation_client_share_public_key33")?;
-    let mapped_client_share32 = cursor.read_array::<32>("mapped_client_share32")?;
     cursor.expect_end()?;
 
     Ok(PendingState {
@@ -368,7 +361,6 @@ fn parse_pending_state(bytes: &[u8]) -> CoreResult<PendingState> {
         client_share_retry_counter,
         x_client32,
         derivation_client_share_public_key33,
-        mapped_client_share32,
     })
 }
 
@@ -382,7 +374,6 @@ fn parse_ready_state(bytes: &[u8]) -> CoreResult<ReadyState> {
     let x_client32 = cursor.read_array::<32>("x_client32")?;
     let derivation_client_share_public_key33 =
         cursor.read_array::<33>("derivation_client_share_public_key33")?;
-    let mapped_client_share32 = cursor.read_array::<32>("mapped_client_share32")?;
     let relayer_share_retry_counter = cursor.read_u32("relayer_share_retry_counter")?;
     let relayer_public_key33 = cursor.read_array::<33>("relayer_public_key33")?;
     let group_public_key33 = cursor.read_array::<33>("group_public_key33")?;
@@ -396,7 +387,6 @@ fn parse_ready_state(bytes: &[u8]) -> CoreResult<ReadyState> {
         client_share_retry_counter,
         x_client32,
         derivation_client_share_public_key33,
-        mapped_client_share32,
         relayer_share_retry_counter,
         relayer_public_key33,
         group_public_key33,

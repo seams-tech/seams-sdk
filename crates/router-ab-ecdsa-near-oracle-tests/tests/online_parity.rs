@@ -38,19 +38,11 @@ fn purpose_built_online_roles_match_pinned_near_oracle() {
         .commit(OnlineClientInput::new(group_public_key33, big_r33, digest32, entropy32).unwrap())
         .unwrap();
     let client_share = compute_client_signature_share(client_committed).unwrap();
-    let oracle_client_share =
-        signer_core::threshold_ecdsa::threshold_ecdsa_compute_signature_share(
-            &[1, 2],
-            1,
-            &group_public_key33,
-            &big_r33,
-            &client_k,
-            &client_sigma,
-            &digest32,
-            &entropy32,
-        )
-        .unwrap();
-    assert_eq!(client_share.as_slice(), oracle_client_share);
+    let oracle_client_share = [
+        8, 46, 156, 40, 245, 90, 89, 122, 17, 195, 125, 69, 237, 224, 21, 99, 97, 131, 12, 51, 124,
+        227, 87, 88, 198, 192, 41, 38, 207, 186, 26, 74,
+    ];
+    assert_eq!(client_share, oracle_client_share);
 
     let worker_committed =
         SigningWorkerPresignMaterial::from_bytes(big_r33, worker_k, worker_sigma)
@@ -62,17 +54,11 @@ fn purpose_built_online_roles_match_pinned_near_oracle() {
             )
             .unwrap();
     let signature = finalize_signing_worker_signature(worker_committed, client_share).unwrap();
-    let oracle_signature = signer_core::threshold_ecdsa::threshold_ecdsa_finalize_signature(
-        &[1, 2],
-        2,
-        &group_public_key33,
-        &big_r33,
-        &worker_k,
-        &worker_sigma,
-        &digest32,
-        &entropy32,
-        &oracle_client_share,
-    )
-    .unwrap();
-    assert_eq!(signature.as_slice(), oracle_signature);
+    let oracle_signature = [
+        194, 198, 128, 183, 98, 145, 10, 127, 191, 70, 33, 14, 150, 127, 179, 126, 216, 238, 197,
+        63, 123, 123, 8, 115, 253, 92, 93, 141, 245, 191, 76, 31, 111, 24, 87, 46, 67, 101, 139,
+        50, 54, 227, 82, 3, 166, 64, 143, 16, 66, 242, 134, 90, 126, 102, 115, 130, 87, 45, 50, 39,
+        183, 123, 152, 98, 0,
+    ];
+    assert_eq!(signature, oracle_signature);
 }
