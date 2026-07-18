@@ -66,7 +66,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 55
     environment:
-      name: ${{ format('{0}-router', inputs.target) }}
+      name: ${{ format('{0}-mpc-router', inputs.target) }}
     env:
       ROUTER_JWT_ISSUER: ${{ vars.ROUTER_AB_JWT_ISSUER }}
       ROUTER_JWT_AUDIENCE: ${{ vars.ROUTER_AB_JWT_AUDIENCE }}
@@ -514,8 +514,8 @@ jobs:
           path: crates/router-ab-cloudflare/reports/startup-latencies/*.json
           if-no-files-found: ignore
 
-  upload_or_deploy_router:
-    name: Upload or Deploy Router
+  upload_or_deploy_mpc_router:
+    name: Upload or Deploy MPCRouter
     if: |
       always() &&
       (github.event_name == 'workflow_call' || inputs.operation != 'validate') &&
@@ -537,7 +537,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
-      name: ${{ format('{0}-router', inputs.target) }}
+      name: ${{ format('{0}-mpc-router', inputs.target) }}
     env:
       WORKER_ENV: ${{ inputs.target == 'staging' && 'staging' || '' }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -584,7 +584,7 @@ jobs:
       - name: Install deps (workspace)
         run: pnpm install --frozen-lockfile
 
-      - name: Check Router environment
+      - name: Check MPCRouter environment
         run: |
           set -euo pipefail
           test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "::error title=Missing GitHub secret::CLOUDFLARE_API_TOKEN is required"; exit 1; }
@@ -606,7 +606,7 @@ jobs:
             test -n "${ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON:-}" || { echo "::error title=Missing GitHub Environment variable::ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON is required for production"; exit 1; }
           fi
 
-      - name: Put Router secrets
+      - name: Put MPCRouter secrets
         run: |
           set -euo pipefail
           wrangler_env_args=()
@@ -616,7 +616,7 @@ jobs:
           printf '%s' "$ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET" \
             | pnpm -C crates/router-ab-cloudflare exec wrangler secret put ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET --config wrangler.router.toml "${wrangler_env_args[@]}"
 
-      - name: Upload Router version
+      - name: Upload MPCRouter version
         if: env.DEPLOY_OPERATION == 'upload-version'
         run: |
           set -euo pipefail
@@ -629,7 +629,7 @@ jobs:
           fi
           pnpm router:deploy:upload -- "${args[@]}"
 
-      - name: Deploy Router
+      - name: Deploy MPCRouter
         if: env.DEPLOY_OPERATION == 'deploy'
         run: |
           set -euo pipefail
@@ -654,7 +654,7 @@ jobs:
             --var "ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON:${ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON}" \
             "${project_policy_args[@]}"
 
-      - name: Upload Router report
+      - name: Upload MPCRouter report
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -662,12 +662,12 @@ jobs:
           path: crates/router-ab-cloudflare/reports/startup-latencies/*.json
           if-no-files-found: ignore
 
-  deploy_router_api:
+  deploy_gateway:
     name: Deploy Gateway and D1
     if: >-
       ${{
         always() &&
-        needs.upload_or_deploy_router.result == 'success' &&
+        needs.upload_or_deploy_mpc_router.result == 'success' &&
         (
           github.event_name == 'workflow_call' ||
           (
@@ -676,7 +676,7 @@ jobs:
           )
         )
       }}
-    needs: upload_or_deploy_router
+    needs: upload_or_deploy_mpc_router
     uses: ./.github/workflows/deploy-gateway.yml
     with:
       target: ${{ inputs.target }}
@@ -686,8 +686,8 @@ jobs:
 
   deploy_pages:
     name: Deploy seams.sh and wallet.seams.sh
-    if: ${{ always() && needs.deploy_router_api.result == 'success' }}
-    needs: deploy_router_api
+    if: ${{ always() && needs.deploy_gateway.result == 'success' }}
+    needs: deploy_gateway
     uses: ./.github/workflows/deploy-pages.yml
     with:
       target: all

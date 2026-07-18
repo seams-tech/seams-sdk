@@ -62,8 +62,7 @@ import {
 import { parseWebAuthnRpId } from '@seams-internal/shared-ts/utils/domainIds';
 import {
   createRouterAbEd25519YaoHttpRegistrationBackendFromEnv,
-  RouterAbEd25519YaoHttpRegistrationBackendStateV1,
-  createRouterAbEd25519YaoProductRegistrationCompositionV1,
+  createRouterAbEd25519YaoProductRegistrationStatefulCompositionV1,
   createRouterAbEd25519YaoProductRegistrationStateV1,
   CloudflareD1WebAuthnAuthService,
   CloudflareD1WebAuthnStore,
@@ -73,6 +72,16 @@ import {
 import type { SessionAdapter } from '@seams/sdk-server/internal/router/routerApi';
 import { D1WalletStore } from '@seams/sdk-server/internal/core/d1WalletStore';
 import { CloudflareD1RouterAbEd25519YaoCapabilityPersistence } from '@seams/sdk-server/internal/router/cloudflare/d1Ed25519YaoCapabilityPersistence';
+import {
+  createRouterAbEcdsaEd25519CeremonyTokenIssuer,
+  createRouterAbEcdsaStrictPostRegistrationPort,
+  createRouterAbEcdsaStrictRegistrationPort,
+  parseRouterAbEcdsaEd25519PrivateJwk,
+  parseRouterAbEcdsaStrictRegistrationTopology,
+  type RouterAbEcdsaEd25519PrivateJwk,
+  type RouterAbEcdsaStrictPostRegistrationPort,
+  type RouterAbEcdsaStrictRegistrationPort,
+} from '@seams/sdk-server/internal/router/routerAbEcdsaStrictRegistration';
 
 export { ThresholdStoreDurableObject };
 
@@ -100,6 +109,13 @@ interface LocalD1DevEnv {
   readonly GOOGLE_OIDC_CLIENT_IDS?: string;
   readonly SEAMS_LOCAL_OIDC_EXCHANGE_JSON?: string;
   readonly ROUTER_AB_SIGNING_WORKER_URL?: string;
+  readonly GATEWAY_PUBLIC_URL?: string;
+  readonly ROUTER_AB_MPC_ROUTER_URL?: string;
+  readonly ROUTER_AB_CEREMONY_JWT_ISSUER?: string;
+  readonly ROUTER_AB_CEREMONY_JWT_AUDIENCE?: string;
+  readonly ROUTER_AB_CEREMONY_JWT_KEY_ID?: string;
+  readonly ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK?: string;
+  readonly ROUTER_AB_ECDSA_REGISTRATION_TOPOLOGY_JSON?: string;
   readonly SIGNING_WORKER_URL?: string;
   readonly ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET?: string;
   readonly RELAY_SESSION_HMAC_SECRET?: string;
@@ -179,7 +195,109 @@ const DEFAULT_LOCAL_CONSOLE_ROLES = Object.freeze([
 const DEFAULT_LOCAL_SIGNING_ROOT_KEK_ID = 'signing-root-kek-local-r1';
 const DEFAULT_LOCAL_SIGNING_ROOT_KEK_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const DEFAULT_LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET = 'dev-router-ab-internal-service-auth';
-const DEFAULT_LOCAL_ROUTER_AB_SIGNING_WORKER_URL = 'http://127.0.0.1:9093';
+const DEFAULT_LOCAL_ROUTER_AB_SIGNING_WORKER_URL = 'http://127.0.0.1:9103';
+const DEFAULT_LOCAL_ROUTER_AB_ROUTER_URL = 'http://127.0.0.1:9090';
+const DEFAULT_LOCAL_ROUTER_AB_MPC_ROUTER_URL = 'http://127.0.0.1:9100';
+const LOCAL_ROUTER_AB_CEREMONY_JWKS_PATH = '/.well-known/router-ab-ceremony-jwks.json';
+
+export function buildLocalRouterRequest(
+  routerUrl: string,
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Request {
+  const source =
+    input instanceof Request
+      ? new Request(input, init)
+      : new Request(new URL(String(input), routerUrl), init);
+  const sourceUrl = new URL(source.url);
+  const targetUrl = new URL(`${sourceUrl.pathname}${sourceUrl.search}`, routerUrl);
+  return new Request(targetUrl, source);
+}
+
+class LocalRouterFetchBinding {
+  constructor(private readonly routerUrl: string) {}
+
+  fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    return globalThis.fetch(buildLocalRouterRequest(this.routerUrl, input, init));
+  }
+}
+
+type LocalEcdsaStrictPorts = {
+  readonly registration: RouterAbEcdsaStrictRegistrationPort;
+  readonly postRegistration: RouterAbEcdsaStrictPostRegistrationPort;
+};
+
+const localEcdsaStrictPortsByEnv = new WeakMap<LocalD1DevEnv, LocalEcdsaStrictPorts>();
+
+function localEcdsaStrictPorts(env: LocalD1DevEnv): LocalEcdsaStrictPorts {
+  const existing = localEcdsaStrictPortsByEnv.get(env);
+  if (existing) return existing;
+  const privateJwkSource = normalizeLocalString(env.ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK);
+  const topologySource = normalizeLocalString(env.ROUTER_AB_ECDSA_REGISTRATION_TOPOLOGY_JSON);
+  const privateJwk = parseRouterAbEcdsaEd25519PrivateJwk(
+    privateJwkSource ? JSON.parse(privateJwkSource) : null,
+  );
+  const topology = parseRouterAbEcdsaStrictRegistrationTopology(
+    topologySource ? JSON.parse(topologySource) : null,
+  );
+  if (!privateJwk || !topology) {
+    throw new Error(
+      'Local strict ECDSA registration requires ceremony JWK and registration topology',
+    );
+  }
+  const tokenIssuer = localEcdsaCeremonyTokenIssuer(env, privateJwk);
+  const config = {
+    router: new LocalRouterFetchBinding(
+      normalizeLocalString(env.ROUTER_AB_MPC_ROUTER_URL) ||
+        DEFAULT_LOCAL_ROUTER_AB_MPC_ROUTER_URL,
+    ),
+    tokenIssuer,
+    tokenScope: {
+      orgId: localConsoleOrgId(env),
+      projectId: localConsoleProjectId(env),
+      environment: localConsoleEnvironmentId(env),
+    },
+    topology,
+  };
+  const ports = {
+    registration: createRouterAbEcdsaStrictRegistrationPort(config),
+    postRegistration: createRouterAbEcdsaStrictPostRegistrationPort(config),
+  };
+  localEcdsaStrictPortsByEnv.set(env, ports);
+  return ports;
+}
+
+function localEcdsaCeremonyTokenIssuer(
+  env: LocalD1DevEnv,
+  privateJwk: RouterAbEcdsaEd25519PrivateJwk,
+) {
+  return createRouterAbEcdsaEd25519CeremonyTokenIssuer({
+    issuer:
+      normalizeLocalString(env.ROUTER_AB_CEREMONY_JWT_ISSUER) ||
+      DEFAULT_LOCAL_ROUTER_AB_ROUTER_URL,
+    audience: normalizeLocalString(env.ROUTER_AB_CEREMONY_JWT_AUDIENCE) || 'router-ab',
+    keyId: normalizeLocalString(env.ROUTER_AB_CEREMONY_JWT_KEY_ID) || 'local-router-ab-r1',
+    privateJwk,
+  });
+}
+
+function localRouterAbCeremonyJwksResponse(env: LocalD1DevEnv): Response {
+  const privateJwkSource = normalizeLocalString(env.ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK);
+  const privateJwk = parseRouterAbEcdsaEd25519PrivateJwk(
+    privateJwkSource ? JSON.parse(privateJwkSource) : null,
+  );
+  if (!privateJwk) {
+    throw new Error('Local ceremony JWT private JWK is required');
+  }
+  const issuer = localEcdsaCeremonyTokenIssuer(env, privateJwk);
+  return new Response(JSON.stringify(issuer.publicJwks()), {
+    status: 200,
+    headers: {
+      'cache-control': 'public, max-age=300',
+      'content-type': 'application/json; charset=utf-8',
+    },
+  });
+}
 const LOCAL_ROUTER_AB_ED25519_SEED_PATH = '/router-ab/dev/ed25519/normal-signing/seed';
 const LOCAL_ROUTER_AB_ECDSA_DERIVATION_SEED_PATH = '/router-ab/dev/ecdsa-derivation/normal-signing/seed';
 const LOCAL_SIGNING_ROOT_SECRET_SHARE_ENVELOPE_VERSION = 'local-d1-signing-root-share-v1';
@@ -804,6 +922,7 @@ async function createLocalRouterApiHandler(env: LocalD1DevEnv): Promise<FetchHan
     audience: localRouterApiSessionAudience(env),
   });
   const ed25519Yao = await createLocalEd25519YaoProductComposition(env, session);
+  const ecdsaStrictPorts = localEcdsaStrictPorts(env);
   const routerApiService = createLocalD1RouterApiAuthService(env, ed25519Yao);
   const emailRecoveryAuthService = createLocalD1EmailRecoveryAuthService(env);
   return createCloudflareRouter(routerApiService, {
@@ -818,6 +937,7 @@ async function createLocalRouterApiHandler(env: LocalD1DevEnv): Promise<FetchHan
       ? { routerAbEd25519YaoProduct: ed25519Yao.composition.runtime }
       : {}),
     ...(sessionCookieName ? { sessionCookieName } : {}),
+    routerAbEcdsaStrictPostRegistration: ecdsaStrictPorts.postRegistration,
     emailRecovery: {
       kind: 'prepare_only',
       authService: emailRecoveryAuthService,
@@ -890,6 +1010,7 @@ function localD1RouterApiAuthServiceOptions(
     emailOtpGoogleRegistrationAttemptRateLimitWindowMs:
       env.EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS,
     thresholdStore: localThresholdStoreConfig(env),
+    ecdsaStrictRegistration: localEcdsaStrictPorts(env).registration,
     ...(ed25519Yao.kind === 'enabled'
       ? { ed25519YaoProductRegistration: ed25519Yao.composition.runtime }
       : {}),
@@ -908,11 +1029,6 @@ const localEd25519YaoProductStateByEnv = new WeakMap<
   RouterAbEd25519YaoProductRegistrationStateV1
 >();
 
-const localEd25519YaoHttpBackendStateByEnv = new WeakMap<
-  LocalD1DevEnv,
-  RouterAbEd25519YaoHttpRegistrationBackendStateV1
->();
-
 function localEd25519YaoProductState(
   env: LocalD1DevEnv,
 ): RouterAbEd25519YaoProductRegistrationStateV1 {
@@ -920,16 +1036,6 @@ function localEd25519YaoProductState(
   if (existing) return existing;
   const state = createRouterAbEd25519YaoProductRegistrationStateV1();
   localEd25519YaoProductStateByEnv.set(env, state);
-  return state;
-}
-
-function localEd25519YaoHttpBackendState(
-  env: LocalD1DevEnv,
-): RouterAbEd25519YaoHttpRegistrationBackendStateV1 {
-  const existing = localEd25519YaoHttpBackendStateByEnv.get(env);
-  if (existing) return existing;
-  const state = new RouterAbEd25519YaoHttpRegistrationBackendStateV1();
-  localEd25519YaoHttpBackendStateByEnv.set(env, state);
   return state;
 }
 
@@ -963,7 +1069,6 @@ async function createLocalEd25519YaoProductComposition(
       ),
     },
     fetch: globalThis.fetch,
-    state: localEd25519YaoHttpBackendState(env),
   });
   const walletStore = new D1WalletStore({
     database: env.SIGNER_DB,
@@ -973,7 +1078,7 @@ async function createLocalEd25519YaoProductComposition(
     envId: localConsoleEnvironmentId(env),
     ensureSchema: false,
   });
-  const composition = createRouterAbEd25519YaoProductRegistrationCompositionV1({
+  const composition = createRouterAbEd25519YaoProductRegistrationStatefulCompositionV1({
     signingWorkerId,
     backend,
     session,
@@ -991,7 +1096,7 @@ async function createLocalEd25519YaoProductComposition(
   });
   const signers = await walletStore.listEd25519Signers();
   for (const signer of signers) {
-    const installed = composition.runtime.installPersistedActiveCapability(
+    const installed = await composition.runtime.installPersistedActiveCapability(
       signer.activeYaoCapability,
     );
     if (!installed.ok) {
@@ -1479,6 +1584,9 @@ async function fetch(
   const url = new URL(request.url);
   if (url.pathname === '/healthz') return jsonResponse({ ok: true });
   if (url.pathname === '/readyz') return await handleReady(env);
+  if (request.method === 'GET' && url.pathname === LOCAL_ROUTER_AB_CEREMONY_JWKS_PATH) {
+    return localRouterAbCeremonyJwksResponse(env);
+  }
   if (url.pathname === LOCAL_ROUTER_AB_ED25519_SEED_PATH) {
     return await handleLocalRouterAbEd25519Seed(request, env);
   }

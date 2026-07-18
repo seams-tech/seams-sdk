@@ -2,12 +2,12 @@
 import path from 'node:path';
 
 import {
-  d1StagingRouterApiManifestArgDefaults,
+  d1StagingGatewayManifestArgDefaults,
   isDirectInvocation,
   normalizeGeneratedAtIso,
   arrayTableBodies,
   commaList,
-  normalizeRouterApiD1StagingConfig,
+  normalizeGatewayD1StagingConfig,
   normalizeString,
   normalizeStagingMode,
   packageRoot,
@@ -26,20 +26,20 @@ import {
   writeD1StagingManifest,
   wranglerPackageCommand,
 } from './d1-staging-config.mjs';
-import { requireRouterApiD1StagingReadiness } from './d1-staging-readiness-check.mjs';
+import { requireGatewayD1StagingReadiness } from './d1-staging-readiness-check.mjs';
 
 const defaultManifestRoot = path.join(packageRoot, '.wrangler/d1-staging-kek-checks');
 const checkModes = Object.freeze(['dry-run', 'remote']);
 
 export function buildD1StagingKekCheckPlan(input = {}) {
   const options = normalizeOptions(input);
-  requireRouterApiD1StagingReadiness({
+  requireGatewayD1StagingReadiness({
     label: 'KEK check',
-    routerApiConfigPath: options.routerApiConfigPath,
+    gatewayConfigPath: options.gatewayConfigPath,
     environmentName: options.environmentName,
   });
-  const keks = readRouterApiKekMetadata({
-    configPath: options.routerApiConfigPath,
+  const keks = readGatewayKekMetadata({
+    configPath: options.gatewayConfigPath,
     environmentName: options.environmentName,
   });
   return {
@@ -47,7 +47,7 @@ export function buildD1StagingKekCheckPlan(input = {}) {
     generatedAtIso: options.generatedAtIso,
     mode: options.mode,
     environmentName: options.environmentName,
-    routerApiConfigPath: relativeToRepo(options.routerApiConfigPath),
+    gatewayConfigPath: relativeToRepo(options.gatewayConfigPath),
     keks,
     commands: listSecretsStoreCommands(keks),
   };
@@ -94,18 +94,18 @@ function main() {
 }
 
 function parseArgs(args) {
-  return parseFlagArgs(args, d1StagingRouterApiManifestArgDefaults, {
+  return parseFlagArgs(args, d1StagingGatewayManifestArgDefaults, {
     '--environment': 'environmentName',
     '--generated-at': 'generatedAtIso',
     '--manifest': 'manifestPath',
     '--mode': 'mode',
-    '--router-api-config': 'routerApiConfigPath',
+    '--gateway-config': 'gatewayConfigPath',
   });
 }
 
 function normalizeOptions(input) {
   return {
-    ...normalizeRouterApiD1StagingConfig(input),
+    ...normalizeGatewayD1StagingConfig(input),
     generatedAtIso: normalizeGeneratedAtIso(input.generatedAtIso),
     manifestPath: normalizeString(input.manifestPath),
     mode: normalizeStagingMode(input.mode, checkModes, 'KEK check'),
@@ -113,11 +113,11 @@ function normalizeOptions(input) {
   };
 }
 
-function readRouterApiKekMetadata(input) {
+function readGatewayKekMetadata(input) {
   const source = readSelectedWranglerConfig({
     configPath: input.configPath,
     environmentName: input.environmentName,
-    label: 'Router API',
+    label: 'Gateway',
   });
   const vars = tableBody(source, 'vars');
   const kekIds = commaList(readString(vars, 'SIGNING_ROOT_KEK_IDS'));

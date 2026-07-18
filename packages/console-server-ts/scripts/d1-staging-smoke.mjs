@@ -71,14 +71,14 @@ function parseArgs(args) {
     generatedAtIso: '',
     manifestPath: '',
     mode: 'dry-run',
-    routerApiOrigin: '',
+    gatewayOrigin: '',
     timeoutMs: '',
   }, {
     '--console-origin': 'consoleOrigin',
     '--generated-at': 'generatedAtIso',
     '--manifest': 'manifestPath',
     '--mode': 'mode',
-    '--router-api-origin': 'routerApiOrigin',
+    '--gateway-origin': 'gatewayOrigin',
     '--timeout-ms': 'timeoutMs',
   });
 }
@@ -90,7 +90,7 @@ function normalizeOptions(input) {
       allowHttpInDryRun: true,
       mode,
     }),
-    routerApiOrigin: normalizeStagingOrigin(input.routerApiOrigin, '--router-api-origin', {
+    gatewayOrigin: normalizeStagingOrigin(input.gatewayOrigin, '--gateway-origin', {
       allowHttpInDryRun: true,
       mode,
     }),
@@ -117,7 +117,7 @@ function smokeEndpoints(options) {
     {
       id: 'router_api_readyz',
       method: 'GET',
-      url: `${options.routerApiOrigin}/readyz`,
+      url: `${options.gatewayOrigin}/readyz`,
       expectedStatus: 200,
       expectedJson: {
         ok: true,
@@ -126,7 +126,7 @@ function smokeEndpoints(options) {
     {
       id: 'router_api_healthz',
       method: 'GET',
-      url: `${options.routerApiOrigin}/healthz`,
+      url: `${options.gatewayOrigin}/healthz`,
       expectedStatus: 200,
       expectedJson: {
         ok: true,
@@ -135,7 +135,7 @@ function smokeEndpoints(options) {
     {
       id: 'signer_custody_ed25519_healthz',
       method: 'GET',
-      url: `${options.routerApiOrigin}/router-ab/ed25519/healthz`,
+      url: `${options.gatewayOrigin}/router-ab/ed25519/healthz`,
       expectedStatus: 200,
       expectedJson: {
         ok: true,
@@ -145,7 +145,7 @@ function smokeEndpoints(options) {
     {
       id: 'signer_custody_ecdsa_derivation_healthz',
       method: 'GET',
-      url: `${options.routerApiOrigin}/router-ab/ecdsa-derivation/healthz`,
+      url: `${options.gatewayOrigin}/router-ab/ecdsa-derivation/healthz`,
       expectedStatus: 200,
       expectedJson: {
         ok: true,

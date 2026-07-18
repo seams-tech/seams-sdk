@@ -6,15 +6,21 @@ import { fileURLToPath } from 'node:url';
 
 export const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const repoRoot = path.resolve(packageRoot, '../..');
-export const defaultD1StagingConsoleConfigPath = path.join(packageRoot, 'wrangler.d1-staging-console.toml');
-export const defaultD1StagingRouterApiConfigPath = path.join(packageRoot, 'wrangler.d1-staging-router-api.toml');
+export const defaultD1StagingConsoleConfigPath = path.join(
+  packageRoot,
+  'wrangler.d1-staging-console.toml',
+);
+export const defaultD1StagingGatewayConfigPath = path.join(
+  packageRoot,
+  'wrangler.d1-staging-gateway.toml',
+);
 export const d1StagingConfigManifestFlagFields = Object.freeze({
   '--console-config': 'consoleConfigPath',
   '--environment': 'environmentName',
   '--generated-at': 'generatedAtIso',
   '--manifest': 'manifestPath',
   '--mode': 'mode',
-  '--router-api-config': 'routerApiConfigPath',
+  '--gateway-config': 'gatewayConfigPath',
 });
 export const d1StagingConfigManifestArgDefaults = Object.freeze({
   consoleConfigPath: '',
@@ -22,19 +28,21 @@ export const d1StagingConfigManifestArgDefaults = Object.freeze({
   generatedAtIso: '',
   manifestPath: '',
   mode: 'dry-run',
-  routerApiConfigPath: '',
+  gatewayConfigPath: '',
 });
-export const d1StagingRouterApiManifestArgDefaults = Object.freeze({
+export const d1StagingGatewayManifestArgDefaults = Object.freeze({
   environmentName: 'staging',
   generatedAtIso: '',
   manifestPath: '',
   mode: 'dry-run',
-  routerApiConfigPath: '',
+  gatewayConfigPath: '',
 });
 
 export function readSelectedWranglerConfig(input) {
   if (!existsSync(input.configPath)) {
-    throw new Error(`${input.label} Wrangler config does not exist: ${relativeToRepo(input.configPath)}`);
+    throw new Error(
+      `${input.label} Wrangler config does not exist: ${relativeToRepo(input.configPath)}`,
+    );
   }
   const rawSource = readFileSync(input.configPath, 'utf8');
   return selectEnvironmentSource(rawSource, input.environmentName);
@@ -118,7 +126,9 @@ export function commaList(input) {
 }
 
 export function secretStoreBindingNameForSecretName(secretName) {
-  return normalizeString(secretName).toUpperCase().replace(/[^A-Z0-9]+/g, '_');
+  return normalizeString(secretName)
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_');
 }
 
 export function valueLooksPlaceholder(value) {
@@ -233,33 +243,33 @@ export function resolveManifestOutputPath(input, fallbackPath) {
   return resolvePackagePath(input, fallbackPath);
 }
 
-export function normalizeConsoleRouterApiD1StagingConfig(input, config = {}) {
+export function normalizeConsoleGatewayD1StagingConfig(input, config = {}) {
   return {
     consoleConfigPath: resolvePackagePath(
       input.consoleConfigPath,
       config.consoleConfigPath || defaultD1StagingConsoleConfigPath,
     ),
-    routerApiConfigPath: resolvePackagePath(
-      input.routerApiConfigPath,
-      config.routerApiConfigPath || defaultD1StagingRouterApiConfigPath,
+    gatewayConfigPath: resolvePackagePath(
+      input.gatewayConfigPath,
+      config.gatewayConfigPath || defaultD1StagingGatewayConfigPath,
     ),
     environmentName: normalizeString(input.environmentName) || 'staging',
   };
 }
 
-export function normalizeRouterApiD1StagingConfig(input, config = {}) {
+export function normalizeGatewayD1StagingConfig(input, config = {}) {
   return {
-    routerApiConfigPath: resolvePackagePath(
-      input.routerApiConfigPath,
-      config.routerApiConfigPath || defaultD1StagingRouterApiConfigPath,
+    gatewayConfigPath: resolvePackagePath(
+      input.gatewayConfigPath,
+      config.gatewayConfigPath || defaultD1StagingGatewayConfigPath,
     ),
     environmentName: normalizeString(input.environmentName) || 'staging',
   };
 }
 
-export function normalizeConsoleRouterApiD1StagingOptions(input, config) {
+export function normalizeConsoleGatewayD1StagingOptions(input, config) {
   return {
-    ...normalizeConsoleRouterApiD1StagingConfig(input, config),
+    ...normalizeConsoleGatewayD1StagingConfig(input, config),
     generatedAtIso: normalizeGeneratedAtIso(input.generatedAtIso),
     manifestPath: normalizeString(input.manifestPath),
     mode: normalizeStagingMode(input.mode, config.modes, config.modeLabel),
@@ -279,7 +289,10 @@ export function wranglerPackageCommand(args, options = {}) {
 }
 
 export function wranglerCommand(args, configPath, options = {}) {
-  return wranglerPackageCommand(`${args} --config ${shellArg(relativeToPackage(configPath))}`, options);
+  return wranglerPackageCommand(
+    `${args} --config ${shellArg(relativeToPackage(configPath))}`,
+    options,
+  );
 }
 
 export function wranglerR2Command(args, configPath) {
@@ -368,7 +381,11 @@ function collectD1IntegrityCheckValues(value, output) {
 }
 
 function d1IntegrityCheckKey(input) {
-  return String(input).toLowerCase().replace(/[^a-z0-9]+/g, '') === 'integritycheck';
+  return (
+    String(input)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '') === 'integritycheck'
+  );
 }
 
 export function d1TimeTravelBookmarkValue(input) {
@@ -392,7 +409,11 @@ function collectD1TimeTravelBookmarkValues(value, output) {
 }
 
 function d1TimeTravelBookmarkKey(input) {
-  return String(input).toLowerCase().replace(/[^a-z0-9]+/g, '') === 'bookmark';
+  return (
+    String(input)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '') === 'bookmark'
+  );
 }
 
 function isUsableD1TimeTravelBookmarkValue(input) {

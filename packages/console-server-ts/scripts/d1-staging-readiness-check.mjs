@@ -24,10 +24,9 @@ import {
 
 const defaultConfigByProfile = Object.freeze({
   console: 'wrangler.d1-staging-console.toml',
-  'router-api': 'wrangler.d1-staging-router-api.toml',
+  gateway: 'wrangler.d1-staging-gateway.toml',
 });
-const uuidPattern =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const consoleD1Database = Object.freeze({
   binding: 'CONSOLE_DB',
@@ -41,19 +40,20 @@ const signerD1Database = Object.freeze({
 });
 const requiredD1DatabasesByProfile = Object.freeze({
   console: Object.freeze([consoleD1Database]),
-  'router-api': Object.freeze([consoleD1Database, signerD1Database]),
+  gateway: Object.freeze([consoleD1Database, signerD1Database]),
 });
 
-const stagingProfiles = Object.freeze(['console', 'router-api']);
+const stagingProfiles = Object.freeze(['console', 'gateway']);
 const expectedMainByProfile = Object.freeze({
   console: 'src/router/cloudflare/d1ConsoleStagingWorker.ts',
-  'router-api': 'src/router/cloudflare/d1RouterApiStagingWorker.ts',
+  gateway: 'src/router/cloudflare/d1RouterApiStagingWorker.ts',
 });
 const requiredSecretVarsByProfile = Object.freeze({
   console: Object.freeze(['CONSOLE_SESSION_HMAC_SECRET']),
-  'router-api': Object.freeze([
+  gateway: Object.freeze([
     'RELAY_SESSION_HMAC_SECRET',
     'ACCOUNT_ID_DERIVATION_SECRET',
+    'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
     'SPONSORED_EVM_EXECUTORS_JSON',
   ]),
 });
@@ -63,12 +63,16 @@ const requiredVarsByProfile = Object.freeze({
     'CONSOLE_SESSION_ISSUER',
     'CONSOLE_SESSION_AUDIENCE',
   ]),
-  'router-api': Object.freeze([
+  gateway: Object.freeze([
     'SEAMS_TENANT_STORAGE_NAMESPACE',
     'SEAMS_STAGING_ORG_ID',
     'SEAMS_STAGING_PROJECT_ID',
     'SEAMS_STAGING_ENV_ID',
     'ROUTER_AB_NORMAL_SIGNING_WORKER_ID',
+    'SIGNING_WORKER_ID',
+    'DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY',
+    'DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY',
+    'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
     'RELAYER_ACCOUNT_ID',
     'RELAYER_PUBLIC_KEY',
     'RELAY_SESSION_ISSUER',
@@ -122,8 +126,9 @@ export function checkD1StagingReadiness(input = {}) {
   checkRequiredVars(source, profile, errors);
   checkSecretVars(source, profile, errors);
   checkD1Databases(source, profile, errors);
-  if (profile === 'router-api') {
+  if (profile === 'gateway') {
     checkDurableObject(source, errors);
+    checkRouterAbServiceBindings(source, errors);
     checkSigningRootKekProvider(source, errors);
   }
 
@@ -136,7 +141,7 @@ export function checkD1StagingReadiness(input = {}) {
   };
 }
 
-export function requireConsoleAndRouterApiD1StagingReadiness(input = {}) {
+export function requireConsoleAndGatewayD1StagingReadiness(input = {}) {
   return requireD1StagingReadiness({
     label: input.label,
     errorFormat: input.errorFormat,
@@ -147,22 +152,22 @@ export function requireConsoleAndRouterApiD1StagingReadiness(input = {}) {
         environmentName: input.environmentName,
       },
       {
-        profile: 'router-api',
-        configPath: input.routerApiConfigPath,
+        profile: 'gateway',
+        configPath: input.gatewayConfigPath,
         environmentName: input.environmentName,
       },
     ],
   });
 }
 
-export function requireRouterApiD1StagingReadiness(input = {}) {
+export function requireGatewayD1StagingReadiness(input = {}) {
   return requireD1StagingReadiness({
     label: input.label,
     errorFormat: input.errorFormat,
     checks: [
       {
-        profile: 'router-api',
-        configPath: input.routerApiConfigPath,
+        profile: 'gateway',
+        configPath: input.gatewayConfigPath,
         environmentName: input.environmentName,
       },
     ],
@@ -223,19 +228,23 @@ function main() {
 }
 
 function parseArgs(args) {
-  return parseFlagArgs(args, {
-    configPath: '',
-    environmentName: 'staging',
-    profile: 'router-api',
-  }, {
-    '--config': 'configPath',
-    '--environment': 'environmentName',
-    '--profile': 'profile',
-  });
+  return parseFlagArgs(
+    args,
+    {
+      configPath: '',
+      environmentName: 'staging',
+      profile: 'gateway',
+    },
+    {
+      '--config': 'configPath',
+      '--environment': 'environmentName',
+      '--profile': 'profile',
+    },
+  );
 }
 
 function normalizeProfile(input) {
-  const value = normalizeString(input) || 'router-api';
+  const value = normalizeString(input) || 'gateway';
   for (const profile of stagingProfiles) {
     if (value === profile) return value;
   }
@@ -342,7 +351,7 @@ function checkD1Databases(source, profile, errors) {
 }
 
 function stagingProfileLabel(profile) {
-  if (profile === 'router-api') return 'Router API';
+  if (profile === 'gateway') return 'Gateway';
   return profile;
 }
 
@@ -352,20 +361,73 @@ function d1DatabaseBinding(database) {
 
 function checkDurableObject(source, errors) {
   const blocks = arrayTableBodies(source, 'durable_objects.bindings');
-  const block = findBlockByAssignment(blocks, 'name', 'THRESHOLD_STORE');
+  checkRequiredDurableObject({
+    source,
+    blocks,
+    bindingName: 'THRESHOLD_STORE',
+    className: 'ThresholdStoreDurableObject',
+    errors,
+  });
+  checkRequiredDurableObject({
+    source,
+    blocks,
+    bindingName: 'ROUTER_API_RUNTIME',
+    className: 'RouterApiRuntimeDurableObject',
+    errors,
+  });
+}
+
+function checkRequiredDurableObject(input) {
+  const block = findBlockByAssignment(input.blocks, 'name', input.bindingName);
   if (!block) {
-    errors.push('missing Durable Object binding THRESHOLD_STORE');
+    input.errors.push(`missing Durable Object binding ${input.bindingName}`);
     return;
   }
   checkExactString(
     readString(block, 'class_name'),
-    'ThresholdStoreDurableObject',
-    'THRESHOLD_STORE.class_name',
-    errors,
+    input.className,
+    `${input.bindingName}.class_name`,
+    input.errors,
   );
-  if (!hasSqliteClassMigration(source, 'ThresholdStoreDurableObject')) {
-    errors.push('missing Durable Object new_sqlite_classes migration for ThresholdStoreDurableObject');
+  if (!hasSqliteClassMigration(input.source, input.className)) {
+    input.errors.push(`missing Durable Object new_sqlite_classes migration for ${input.className}`);
   }
+}
+
+function checkRouterAbServiceBindings(source, errors) {
+  const blocks = arrayTableBodies(source, 'services');
+  checkRequiredServiceBinding({
+    blocks,
+    bindingName: 'DERIVER_A',
+    serviceName: 'router-ab-deriver-a-staging',
+    errors,
+  });
+  checkRequiredServiceBinding({
+    blocks,
+    bindingName: 'DERIVER_B',
+    serviceName: 'router-ab-deriver-b-staging',
+    errors,
+  });
+  checkRequiredServiceBinding({
+    blocks,
+    bindingName: 'SIGNING_WORKER',
+    serviceName: 'router-ab-signing-worker-staging',
+    errors,
+  });
+}
+
+function checkRequiredServiceBinding(input) {
+  const block = findBlockByAssignment(input.blocks, 'binding', input.bindingName);
+  if (!block) {
+    input.errors.push(`missing Service Binding ${input.bindingName}`);
+    return;
+  }
+  checkExactString(
+    readString(block, 'service'),
+    input.serviceName,
+    `${input.bindingName}.service`,
+    input.errors,
+  );
 }
 
 function checkRequiredVars(source, profile, errors) {
@@ -385,7 +447,8 @@ function checkRequiredVars(source, profile, errors) {
 function checkSecretVars(source, profile, errors) {
   const secretVars = readArray(tableBody(source, 'secrets'), 'required');
   for (const required of requiredSecretVarsByProfile[profile]) {
-    if (!includesString(secretVars, required)) errors.push(`${required} must be declared under [secrets].required`);
+    if (!includesString(secretVars, required))
+      errors.push(`${required} must be declared under [secrets].required`);
   }
 }
 

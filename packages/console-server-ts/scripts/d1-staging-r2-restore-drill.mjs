@@ -8,7 +8,7 @@ import {
   d1StagingConfigManifestFlagFields,
   isDirectInvocation,
   compactIsoStamp,
-  normalizeConsoleRouterApiD1StagingOptions,
+  normalizeConsoleGatewayD1StagingOptions,
   normalizeString,
   normalizeR2BucketName,
   packageRoot,
@@ -23,17 +23,17 @@ import {
   wranglerCommand,
   wranglerR2Command,
 } from './d1-staging-config.mjs';
-import { requireConsoleAndRouterApiD1StagingReadiness } from './d1-staging-readiness-check.mjs';
+import { requireConsoleAndGatewayD1StagingReadiness } from './d1-staging-readiness-check.mjs';
 
 const defaultManifestRoot = path.join(packageRoot, '.wrangler/d1-staging-r2-restore-drills');
 const drillModes = Object.freeze(['dry-run', 'remote']);
 
 export function buildD1StagingR2RestoreDrillPlan(input = {}) {
   const options = normalizeOptions(input);
-  requireConsoleAndRouterApiD1StagingReadiness({
+  requireConsoleAndGatewayD1StagingReadiness({
     label: 'R2 restore drill',
     consoleConfigPath: options.consoleConfigPath,
-    routerApiConfigPath: options.routerApiConfigPath,
+    gatewayConfigPath: options.gatewayConfigPath,
     environmentName: options.environmentName,
   });
   const paths = drillPaths(options);
@@ -44,7 +44,7 @@ export function buildD1StagingR2RestoreDrillPlan(input = {}) {
     r2Bucket: options.r2Bucket,
     stamp: options.stamp,
     consoleConfigPath: relativeToRepo(options.consoleConfigPath),
-    routerApiConfigPath: relativeToRepo(options.routerApiConfigPath),
+    gatewayConfigPath: relativeToRepo(options.gatewayConfigPath),
     artifacts: drillArtifacts(paths),
     commands: drillCommands({
       options,
@@ -98,7 +98,7 @@ function parseArgs(args) {
 }
 
 function normalizeOptions(input) {
-  const base = normalizeConsoleRouterApiD1StagingOptions(input, {
+  const base = normalizeConsoleGatewayD1StagingOptions(input, {
     modes: drillModes,
     modeLabel: 'R2 restore drill',
   });
@@ -149,31 +149,31 @@ function drillCommands(input) {
     ),
     wranglerCommand(
       `d1 export seams-signer-staging --remote --output ${shellArg(input.paths.signerExportPath)}`,
-      input.options.routerApiConfigPath,
+      input.options.gatewayConfigPath,
     ),
     wranglerR2Command(
       `object put ${shellArg(input.paths.consoleObjectPath)} --remote --file ${shellArg(
         input.paths.consoleExportPath,
       )}`,
-      input.options.routerApiConfigPath,
+      input.options.gatewayConfigPath,
     ),
     wranglerR2Command(
       `object put ${shellArg(input.paths.signerObjectPath)} --remote --file ${shellArg(
         input.paths.signerExportPath,
       )}`,
-      input.options.routerApiConfigPath,
+      input.options.gatewayConfigPath,
     ),
     wranglerR2Command(
       `object get ${shellArg(input.paths.consoleObjectPath)} --remote --file ${shellArg(
         input.paths.consoleRestorePath,
       )}`,
-      input.options.routerApiConfigPath,
+      input.options.gatewayConfigPath,
     ),
     wranglerR2Command(
       `object get ${shellArg(input.paths.signerObjectPath)} --remote --file ${shellArg(
         input.paths.signerRestorePath,
       )}`,
-      input.options.routerApiConfigPath,
+      input.options.gatewayConfigPath,
     ),
     wranglerCommand(
       `d1 create ${shellArg(input.paths.consoleRestoreDatabaseName)}`,
@@ -181,7 +181,7 @@ function drillCommands(input) {
     ),
     wranglerCommand(
       `d1 create ${shellArg(input.paths.signerRestoreDatabaseName)}`,
-      input.options.routerApiConfigPath,
+      input.options.gatewayConfigPath,
     ),
     wranglerCommand(
       `d1 execute ${shellArg(input.paths.consoleRestoreDatabaseName)} --remote --yes --file ${shellArg(
@@ -193,7 +193,7 @@ function drillCommands(input) {
       `d1 execute ${shellArg(input.paths.signerRestoreDatabaseName)} --remote --yes --file ${shellArg(
         input.paths.signerRestorePath,
       )}`,
-      input.options.routerApiConfigPath,
+      input.options.gatewayConfigPath,
     ),
     wranglerCommand(
       `d1 execute ${shellArg(
@@ -205,7 +205,7 @@ function drillCommands(input) {
       `d1 execute ${shellArg(
         input.paths.signerRestoreDatabaseName,
       )} --remote --json --command "PRAGMA integrity_check;"`,
-      input.options.routerApiConfigPath,
+      input.options.gatewayConfigPath,
     ),
   ];
 }

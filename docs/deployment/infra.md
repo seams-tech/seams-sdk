@@ -5,7 +5,7 @@ This repo deploys these hosted surfaces:
 - SDK runtime bundles in Cloudflare R2.
 - App and wallet Pages projects from `apps/seams-site`.
 - Router A/B Workers from `crates/router-ab-cloudflare`.
-- Router API Workers from `packages/console-server-ts`.
+- Gateway Workers from `packages/console-server-ts`.
 
 The web server persists state in Cloudflare data services:
 
@@ -26,8 +26,8 @@ Create these general GitHub Environments:
 Use the same variable names in both environments. Values differ per
 environment.
 
-Create `staging-router-api` and `production-router-api` for the backend
-composition Worker. Create `staging-router`, `staging-deriver-a`,
+Create `staging-gateway` and `production-gateway` for Gateway. Create
+`staging-mpc-router`, `staging-deriver-a`,
 `staging-deriver-b`, `staging-signing-worker`, plus matching `production-*`
 role environments. Each role environment owns its Cloudflare credentials,
 private material, variables, and protected approver set.
@@ -60,12 +60,12 @@ entrypoint YAML instead of a caller-selected runtime flag.
 | `DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY`            | Router A/B deploy               | Deriver B signer-envelope HPKE private key.                                            |
 | `DERIVER_B_PEER_SIGNING_KEY`                     | Router A/B deploy               | Deriver B private key for A/B peer messages.                                           |
 | `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY` | Router A/B deploy               | SigningWorker server-output HPKE private key.                                          |
-| `RELAY_SESSION_HMAC_SECRET`                    | Router API deploy               | Environment-specific browser session signing secret.                                   |
-| `ACCOUNT_ID_DERIVATION_SECRET`                 | Router API deploy               | Environment-specific account identifier derivation secret.                             |
-| `ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET`       | Router A/B and Router API       | Shared only by Workers inside one environment. Never share it across staging and production. |
-| `ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK`           | Router API deploy               | Private ceremony JWT signing key for this environment.                                  |
-| `RELAYER_PRIVATE_KEY`                          | Router API deploy               | Relayer key matching `RELAYER_PUBLIC_KEY`.                                              |
-| `SPONSORED_EVM_EXECUTORS_JSON`                 | Router API deploy               | Environment-specific sponsored EVM executor secrets.                                   |
+| `RELAY_SESSION_HMAC_SECRET`                    | Gateway deploy                  | Environment-specific browser session signing secret.                                   |
+| `ACCOUNT_ID_DERIVATION_SECRET`                 | Gateway deploy                  | Environment-specific account identifier derivation secret.                             |
+| `ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET`       | Router A/B and Gateway          | Shared only by Workers inside one environment. Never share it across staging and production. |
+| `ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK`           | Gateway deploy                  | Private ceremony JWT signing key for this environment.                                  |
+| `RELAYER_PRIVATE_KEY`                          | Gateway deploy                  | Relayer key matching `RELAYER_PUBLIC_KEY`.                                              |
+| `SPONSORED_EVM_EXECUTORS_JSON`                 | Gateway deploy                  | Environment-specific sponsored EVM executor secrets.                                   |
 
 ### Variables
 
@@ -79,11 +79,11 @@ entrypoint YAML instead of a caller-selected runtime flag.
 | `ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY` | Router A/B deploy | Public key matching `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY`.         |
 | `ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX`              | Router A/B deploy | Public verifying key matching `DERIVER_A_PEER_SIGNING_KEY`.                   |
 | `ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX`              | Router A/B deploy | Public verifying key matching `DERIVER_B_PEER_SIGNING_KEY`.                   |
-| `VITE_RELAYER_URL`                                       | Pages build       | Public Router API base URL; historical env var name.                         |
+| `VITE_RELAYER_URL`                                       | Pages build       | Public Gateway base URL; historical env var name.                            |
 | `VITE_CONSOLE_BASE_URL`                                  | Pages build       | Optional console API base URL; defaults in app code when unset.              |
 | `VITE_RELAYER_ACCOUNT_ID`                                | Pages build       | Parent NEAR account used for account creation.                               |
 | `VITE_SEAMS_PROJECT_ENVIRONMENT_ID`                      | Pages build       | Project-environment id for managed registration and sponsored actions.       |
-| `VITE_SEAMS_PUBLISHABLE_KEY`                             | Pages build       | Publishable key for browser-managed Router API calls.                        |
+| `VITE_SEAMS_PUBLISHABLE_KEY`                             | Pages build       | Publishable key for browser-managed Gateway calls.                           |
 | `VITE_WALLET_ORIGIN`                                     | Pages build       | Wallet origin. Must match CORS and WebAuthn RP configuration.                |
 | `VITE_WALLET_SERVICE_PATH`                               | Pages build       | Wallet service path; defaults to `/wallet-service` when unset.               |
 | `VITE_SDK_BASE_PATH`                                     | Pages build       | SDK asset path; defaults to `/sdk` when unset.                               |
@@ -98,23 +98,23 @@ entrypoint YAML instead of a caller-selected runtime flag.
 | `VITE_ARC_RPC_URL`                                       | Pages build       | Optional Arc RPC URL.                                                        |
 | `VITE_ARC_EXPLORER`                                      | Pages build       | Optional Arc explorer URL.                                                   |
 | `VITE_SIGNING_SESSION_PERSISTENCE_MODE`                  | Pages build       | Set when enabling sealed-refresh client flows.                               |
-| `VITE_SIGNING_SESSION_SEAL_KEY_VERSION`                  | Pages build       | Must match the active Router API seal key version when sealed-refresh is enabled. |
+| `VITE_SIGNING_SESSION_SEAL_KEY_VERSION`                  | Pages build       | Must match the active Gateway seal key version when sealed-refresh is enabled. |
 | `VITE_SIGNING_SESSION_SHAMIR_P_B64U`                     | Pages build       | Public Shamir prime value for sealed-refresh clients.                        |
 | `VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID`                | Pages build       | Exact SigningWorker id bound into Router A/B warm signing sessions.          |
 | `VITE_DASHBOARD_WALLETS_ROUTES_ENABLED`                  | Pages build       | Optional dashboard route gate.                                               |
 
-The Router API environments additionally require:
+The Gateway environments additionally require:
 
-- distinct `ROUTER_API_WORKER_NAME`,
-  `ROUTER_API_CONSOLE_D1_DATABASE_NAME`,
-  `ROUTER_API_CONSOLE_D1_DATABASE_ID`,
-  `ROUTER_API_SIGNER_D1_DATABASE_NAME`, and
-  `ROUTER_API_SIGNER_D1_DATABASE_ID`;
-- `ROUTER_API_SECRETS_STORE_ID`, `SIGNING_ROOT_KEK_ID`,
+- distinct `GATEWAY_WORKER_NAME`,
+  `GATEWAY_CONSOLE_D1_DATABASE_NAME`,
+  `GATEWAY_CONSOLE_D1_DATABASE_ID`,
+  `GATEWAY_SIGNER_D1_DATABASE_NAME`, and
+  `GATEWAY_SIGNER_D1_DATABASE_ID`;
+- `GATEWAY_SECRETS_STORE_ID`, `SIGNING_ROOT_KEK_ID`,
   `SIGNING_ROOT_KEK_SECRET_NAME`, and `SIGNING_ROOT_KEK_ENCODING`;
 - tenant identity (`SEAMS_TENANT_STORAGE_NAMESPACE`, `SEAMS_ORG_ID`,
   `SEAMS_PROJECT_ID`, `SEAMS_ENV_ID`);
-- public Router A/B keyset, topology, HPKE keys, Router API origin, relayer
+- public Router A/B keyset, topology, HPKE keys, Gateway origin, relayer
   identity, NEAR configuration, session issuer/audience, allowed origins,
   cookie name, and Google OIDC client ID.
 
@@ -173,14 +173,14 @@ Router A/B Worker configuration lives in:
 
 Wrangler environments:
 
-| Target    | Router                     | Deriver A                    | Deriver B                    | SigningWorker                      |
+| Target    | MPCRouter                  | Deriver A                    | Deriver B                    | SigningWorker                      |
 | --------- | -------------------------- | ---------------------------- | ---------------------------- | ---------------------------------- |
-| `staging` | `router-ab-router-staging` | `router-ab-deriver-a-staging` | `router-ab-deriver-b-staging` | `router-ab-signing-worker-staging` |
-| `production` | `router-ab-router` | `router-ab-deriver-a` | `router-ab-deriver-b` | `router-ab-signing-worker` |
+| `staging` | `router-ab-mpc-router-staging` | `router-ab-deriver-a-staging` | `router-ab-deriver-b-staging` | `router-ab-signing-worker-staging` |
+| `production` | `router-ab-mpc-router` | `router-ab-deriver-a` | `router-ab-deriver-b` | `router-ab-signing-worker` |
 
 The checked-in Wrangler vars contain placeholder public keys so dry-run builds
 work without environment configuration. The `deploy-router-ab` workflow injects
-the real public keys and Router JWT values from GitHub Environment variables
+the real public keys and MPCRouter JWT values from GitHub Environment variables
 during `upload-version` and `deploy`, then writes the private values to the
 corresponding Cloudflare Worker secrets before uploading or deploying Workers.
 
@@ -285,8 +285,8 @@ The Router serves public deployment keys at:
 - `/.well-known/router-ab/keyset`
 - `/router-ab/keyset`
 
-Self-hosted Router API deployments may serve the same public keyset routes when
-`routerAbPublicKeyset` is provided to the Router API router. The browser SDK
+Self-hosted Gateway deployments may serve the same public keyset routes when
+`routerAbPublicKeyset` is provided to the Gateway router. The browser SDK
 prefetches `/router-ab/keyset` during registration precompute whenever
 Router A/B normal signing is enabled.
 
@@ -352,8 +352,8 @@ wrangler d1 create seams-console-staging
 wrangler d1 create seams-signer-staging
 cp packages/console-server-ts/wrangler.d1-staging-console.toml.example \
   packages/console-server-ts/wrangler.d1-staging-console.toml
-cp packages/console-server-ts/wrangler.d1-staging-router-api.toml.example \
-  packages/console-server-ts/wrangler.d1-staging-router-api.toml
+cp packages/console-server-ts/wrangler.d1-staging-gateway.toml.example \
+  packages/console-server-ts/wrangler.d1-staging-gateway.toml
 pnpm --dir packages/console-server-ts run d1:staging:check
 wrangler d1 migrations apply seams-console-staging --remote
 wrangler d1 migrations apply seams-signer-staging --remote
@@ -361,12 +361,12 @@ wrangler d1 migrations apply seams-signer-staging --remote
 
 The staging templates already point at the deployable Worker entrypoints:
 `src/router/cloudflare/d1ConsoleStagingWorker.ts` for the dashboard Worker and
-`src/router/cloudflare/d1RouterApiStagingWorker.ts` for the Router API/signer Worker.
-Fill `wrangler.d1-staging-console.toml` and `wrangler.d1-staging-router-api.toml`
+`src/router/cloudflare/d1RouterApiStagingWorker.ts` for Gateway.
+Fill `wrangler.d1-staging-console.toml` and `wrangler.d1-staging-gateway.toml`
 with remote D1 database IDs, Cloudflare Secrets Store ID, relayer public key, and
 the required Wrangler secret declarations before running the preflight. The
-console Worker config binds only `CONSOLE_DB`. The Router API Worker config binds
-`CONSOLE_DB`, `SIGNER_DB`, `THRESHOLD_STORE`, hosted signer KEKs, Router API
+console Worker config binds only `CONSOLE_DB`. The Gateway config binds
+`CONSOLE_DB`, `SIGNER_DB`, `THRESHOLD_STORE`, hosted signer KEKs, Gateway
 session env secrets, and relayer secrets. The check fails if either config points at the wrong staging Worker,
 contains Postgres env tokens, stores signer KEKs, session secrets, or
 sponsored-EVM executor config in plaintext vars, omits required profile
@@ -386,7 +386,7 @@ pnpm --dir packages/console-server-ts run d1:staging:runbook -- \
   --output ../../docs/deployment/refactor-82-staging-log.md \
   --r2-bucket <staging-r2-backup-bucket> \
   --console-origin <console-staging-origin> \
-  --router-api-origin <router-api-staging-origin>
+  --gateway-origin <gateway-staging-origin>
 ```
 
 Use that generated log for the live Phase 6 evidence: migration versions, D1 Time
@@ -414,7 +414,7 @@ pnpm --dir packages/console-server-ts run d1:staging:migrate -- --mode dry-run
 pnpm --dir packages/console-server-ts run d1:staging:migrate -- --mode remote
 ```
 
-The migration script validates the console and Router API staging configs, records
+The migration script validates the console and Gateway staging configs, records
 local migration file hashes, runs remote `wrangler d1 migrations list`, applies
 remote migrations with `CI=true`, lists again after apply, and writes a manifest
 under `packages/console-server-ts/.wrangler/d1-staging-migrations`.
@@ -430,20 +430,20 @@ pnpm --dir packages/console-server-ts run d1:staging:bookmark -- \
   --purpose before_route_switch
 ```
 
-The bookmark script validates the same console and Router API staging configs as the
+The bookmark script validates the same console and Gateway staging configs as the
 readiness gate, captures console and signer bookmark JSON via `wrangler d1
 time-travel info`, and writes manifests under
 `packages/console-server-ts/.wrangler/d1-staging-bookmarks`.
 
 Check hosted signer KEK metadata through Wrangler Secrets Store before deploying
-the Router API Worker:
+Gateway:
 
 ```bash
 pnpm --dir packages/console-server-ts run d1:staging:kek-check -- --mode dry-run
 pnpm --dir packages/console-server-ts run d1:staging:kek-check -- --mode remote
 ```
 
-The check reads the Router API staging Wrangler config, derives the expected
+The check reads the Gateway staging Wrangler config, derives the expected
 Cloudflare Secrets Store secret names and binding names, lists remote Secrets
 Store metadata, and writes a manifest under
 `packages/console-server-ts/.wrangler/d1-staging-kek-checks`. Do not use `wrangler
@@ -463,7 +463,7 @@ pnpm --dir packages/console-server-ts run d1:staging:import-fixtures -- \
   --signer-fixture ./staging/fixtures/signer.sql
 ```
 
-The import script uses the same console and Router API readiness checks as the runbook,
+The import script uses the same console and Gateway readiness checks as the runbook,
 rejects schema-changing SQL, rejects console fixtures touching signer tables and
 signer fixtures touching console tables, and writes a manifest with fixture hashes
 under `packages/console-server-ts/.wrangler/d1-staging-fixture-imports`.
@@ -474,11 +474,11 @@ After both Workers deploy, capture readiness evidence with:
 pnpm --dir packages/console-server-ts run d1:staging:smoke -- \
   --mode remote \
   --console-origin <console-staging-origin> \
-  --router-api-origin <router-api-staging-origin>
+  --gateway-origin <gateway-staging-origin>
 ```
 
 The smoke script checks `/console/readyz` on the console Worker, `/readyz` plus
-`/healthz` on the Router API Worker, and the configured signer custody health routes
+`/healthz` on Gateway, and the configured signer custody health routes
 `/router-ab/ed25519/healthz` and `/router-ab/ecdsa-hss/healthz`. It records
 response bodies, statuses, and timestamps under
 `packages/console-server-ts/.wrangler/d1-staging-smoke`.
@@ -503,11 +503,11 @@ reconciliation:
 export SEAMS_STAGING_ECDSA_WALLET_SESSION_JWT="<fixture-wallet-session-jwt>"
 pnpm --dir packages/console-server-ts run d1:staging:signer-custody -- \
   --mode dry-run \
-  --router-api-origin <router-api-staging-origin> \
+  --gateway-origin <gateway-staging-origin> \
   --export-share-fixture ./staging/fixtures/ecdsa-export-share.json
 pnpm --dir packages/console-server-ts run d1:staging:signer-custody -- \
   --mode remote \
-  --router-api-origin <router-api-staging-origin> \
+  --gateway-origin <gateway-staging-origin> \
   --export-share-fixture ./staging/fixtures/ecdsa-export-share.json
 ```
 

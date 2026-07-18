@@ -46,8 +46,8 @@ with `seedD1ConsoleStaticEvmSponsorshipPricingRule`.
 
 Before applying remote D1 migrations, copy
 `wrangler.d1-staging-console.toml.example` to
-`wrangler.d1-staging-console.toml` and `wrangler.d1-staging-router-api.toml.example`
-to `wrangler.d1-staging-router-api.toml`. These concrete staging config files are
+`wrangler.d1-staging-console.toml` and `wrangler.d1-staging-gateway.toml.example`
+to `wrangler.d1-staging-gateway.toml`. These concrete staging config files are
 gitignored; keep the `.example` templates as the tracked source of structure. The
 examples already point at the staging entrypoints:
 
@@ -65,7 +65,7 @@ The check is static and credential-free. It rejects local-only Worker config,
 wrong staging entrypoints, Postgres env tokens, placeholder D1 IDs, missing
 profile bindings, signer/DO/KEK bindings on the console Worker, plaintext signer
 KEKs, plaintext session secrets, plaintext sponsored-EVM executor config, and
-missing signer KEK Secrets Store bindings on the Router API Worker.
+missing signer KEK Secrets Store bindings on Gateway.
 
 After the check passes, generate the credential-free staging deployment log:
 
@@ -74,7 +74,7 @@ pnpm run d1:staging:runbook -- \
   --output ../../docs/deployment/refactor-82-staging-log.md \
   --r2-bucket <staging-r2-backup-bucket> \
   --console-origin <console-staging-origin> \
-  --router-api-origin <router-api-staging-origin>
+  --gateway-origin <gateway-staging-origin>
 ```
 
 The generated log contains the exact Wrangler 4.111.0 command sequence for
@@ -100,7 +100,7 @@ pnpm run d1:staging:migrate -- --mode dry-run
 pnpm run d1:staging:migrate -- --mode remote
 ```
 
-The migration script checks the console and Router API staging Wrangler profiles,
+The migration script checks the console and Gateway staging Wrangler profiles,
 hashes the local console/signer migration files, lists unapplied remote
 migrations, applies them with `CI=true` for noninteractive Wrangler execution,
 lists again after apply, and writes command evidence under
@@ -127,14 +127,14 @@ The bookmark script checks the staging Wrangler profiles, captures console and
 signer D1 bookmark JSON with `wrangler d1 time-travel info`, and writes a
 manifest under `.wrangler/d1-staging-bookmarks`.
 
-Verify hosted signer KEK metadata before deploying the Router API Worker:
+Verify hosted signer KEK metadata before deploying Gateway:
 
 ```sh
 pnpm run d1:staging:kek-check -- --mode dry-run
 pnpm run d1:staging:kek-check -- --mode remote
 ```
 
-The KEK check parses the Router API staging Wrangler config, derives the expected
+The KEK check parses the Gateway staging Wrangler config, derives the expected
 Cloudflare Secrets Store binding names, lists remote Secrets Store metadata with
 Wrangler, and records only secret names, bindings, store IDs, and command status.
 It never prints or stores secret values.
@@ -162,15 +162,15 @@ Run staging smoke after deploy:
 pnpm run d1:staging:smoke -- \
   --mode dry-run \
   --console-origin <console-staging-origin> \
-  --router-api-origin <router-api-staging-origin>
+  --gateway-origin <gateway-staging-origin>
 pnpm run d1:staging:smoke -- \
   --mode remote \
   --console-origin <console-staging-origin> \
-  --router-api-origin <router-api-staging-origin>
+  --gateway-origin <gateway-staging-origin>
 ```
 
 The smoke script checks the actual staging readiness endpoints:
-`/console/readyz` on the console Worker, `/readyz` and `/healthz` on the Router API
+`/console/readyz` on the console Worker, `/readyz` and `/healthz` on Gateway,
 Worker, and the configured signer custody health routes
 `/router-ab/ed25519/healthz` and `/router-ab/ecdsa-derivation/healthz`. It writes a
 JSON evidence manifest under `.wrangler/d1-staging-smoke`.
@@ -196,7 +196,7 @@ export SEAMS_STAGING_ECDSA_WALLET_SESSION_JWT="<fixture-wallet-session-jwt>"
 export SEAMS_STAGING_MISSING_KEK_WALLET_SESSION_JWT="<fixture-wallet-session-jwt-with-missing-kek>"
 pnpm run d1:staging:signer-custody -- \
   --mode dry-run \
-  --router-api-origin <router-api-staging-origin> \
+  --gateway-origin <gateway-staging-origin> \
   --origin <console-staging-origin> \
   --export-share-fixture ./staging/fixtures/ecdsa-export-share.json \
   --wallet-session-jwt-env SEAMS_STAGING_ECDSA_WALLET_SESSION_JWT \
@@ -206,7 +206,7 @@ pnpm run d1:staging:signer-custody -- \
   --missing-kek-expected-code missing_signing_root_kek
 pnpm run d1:staging:signer-custody -- \
   --mode remote \
-  --router-api-origin <router-api-staging-origin> \
+  --gateway-origin <gateway-staging-origin> \
   --origin <console-staging-origin> \
   --export-share-fixture ./staging/fixtures/ecdsa-export-share.json \
   --wallet-session-jwt-env SEAMS_STAGING_ECDSA_WALLET_SESSION_JWT \
