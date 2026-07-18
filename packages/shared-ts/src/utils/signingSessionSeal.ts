@@ -1,4 +1,7 @@
-import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from './routerAbEcdsaDerivation';
+import type {
+  RouterAbEcdsaDerivationNormalSigningStateV1,
+  RouterAbEcdsaDerivationPublicCapabilityV1,
+} from './routerAbEcdsaDerivation';
 import type { EmailOtpProvider } from './walletAuthAuthority';
 
 export const SIGNING_SESSION_SEALED_RECORD_VERSION = 1 as const;
@@ -111,6 +114,7 @@ type SealedSigningSessionEcdsaRestoreMetadataBase = SealedSigningSessionWalletSe
   participantIds: number[];
   runtimePolicyScope?: unknown;
   routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
+  publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 };
 
 export type SealedSigningSessionEcdsaRestoreMetadata =

@@ -261,6 +261,7 @@ const ecdsaPresignInitRequest: EcdsaPresignClientSessionInitRequest = {
   authority: {
     kind: 'role_local_derivation_handle',
     materialHandle: 'ecdsa-material-handle',
+    durableMaterialRef: 'ecdsa-durable-material',
     expectedBindingDigest: 'ecdsa-binding-digest',
   },
   sessionId: 'presign-session',
@@ -284,6 +285,7 @@ const ecdsaPresignInitWithoutMaterialExpiry: EcdsaPresignClientSessionInitReques
   authority: {
     kind: 'role_local_derivation_handle',
     materialHandle: 'ecdsa-material-handle',
+    durableMaterialRef: 'ecdsa-durable-material',
     expectedBindingDigest: 'ecdsa-binding-digest',
   },
   sessionId: 'presign-session',
@@ -330,7 +332,8 @@ const invalidRawOnlineSecretShares: EcdsaOnlineClientComputeSignatureShareReques
   groupPublicKey33: incomingMessage,
   expectedPresignBigR33: incomingMessage,
   digest32: incomingMessage,
-  entropy32: incomingMessage,
+  clientRerandomizationContribution32: incomingMessage,
+  signingWorkerRerandomizationContribution32: incomingMessage,
   // @ts-expect-error host-facing online requests must use an opaque presign handle.
   kShare32: incomingMessage,
 };

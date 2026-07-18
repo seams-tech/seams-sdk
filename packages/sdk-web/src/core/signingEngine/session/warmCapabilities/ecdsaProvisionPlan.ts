@@ -8,7 +8,7 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
-import { parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord } from '../persistence/ecdsaRoleLocalRecords';
+import { readThresholdEcdsaSessionRecordRoleLocalReadyRecord } from '../persistence/ecdsaRoleLocalRecords';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '../identity/laneIdentity';
 import {
   resolveThresholdEcdsaKeyIdFromRecord,
@@ -406,7 +406,7 @@ function verifyEcdsaWalletSessionAuth(args: {
 }
 
 function passkeyCredentialIdB64uFromReconnectRecord(record: ThresholdEcdsaSessionRecord): string {
-  const readyRecord = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record);
+  const readyRecord = readThresholdEcdsaSessionRecordRoleLocalReadyRecord(record);
   if (readyRecord.authMethod.kind !== 'passkey') {
     throw new Error('[SigningEngine][ecdsa] passkey reconnect requires passkey ready record');
   }

@@ -4,6 +4,7 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
+import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import { buildEmailOtpAuthContextForWalletAuthMethod } from '../identity/laneIdentity';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
@@ -38,6 +39,7 @@ const sessionIdentity = buildEcdsaSessionIdentity({
 const runtimePolicy = { kind: 'default_policy' } as const;
 const passkeyCredentialIdB64u = 'passkey-credential-id';
 declare const webauthnAuthentication: WebAuthnAuthenticationCredential;
+declare const publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 declare const emailOtpWorkerSessionHandle: Extract<
   EmailOtpWorkerIssuedSessionHandle,
   { action: 'threshold_ecdsa_bootstrap' }
@@ -54,9 +56,9 @@ const walletSessionAuth = {
 } satisfies VerifiedEcdsaWalletSessionAuth;
 
 const emailOtpAuthContext = buildEmailOtpAuthContextForWalletAuthMethod({
-walletId: 'wallet.testnet',
-emailHashHex: 'email-hash',
-policy: 'session',
+  walletId: 'wallet.testnet',
+  emailHashHex: 'email-hash',
+  policy: 'session',
   retention: 'session',
   reason: 'sign',
   provider: 'google',
@@ -64,9 +66,9 @@ policy: 'session',
 });
 
 const emailOtpSessionAuthContext = buildEmailOtpAuthContextForWalletAuthMethod({
-walletId: 'wallet.testnet',
-emailHashHex: 'email-hash',
-policy: 'session',
+  walletId: 'wallet.testnet',
+  emailHashHex: 'email-hash',
+  policy: 'session',
   retention: 'session',
   reason: 'sign',
   provider: 'google',
@@ -74,9 +76,9 @@ policy: 'session',
 });
 
 const emailOtpSingleUseAuthContext = buildEmailOtpAuthContextForWalletAuthMethod({
-walletId: 'wallet.testnet',
-emailHashHex: 'email-hash',
-policy: 'per_operation',
+  walletId: 'wallet.testnet',
+  emailHashHex: 'email-hash',
+  policy: 'per_operation',
   retention: 'single_use',
   provider: 'google',
   providerUserId: 'google-subject-1',
@@ -133,6 +135,7 @@ const exactActivationCommon = {
   runtimePolicy,
   walletKey,
   lanePolicy,
+  publicCapability,
 };
 
 void buildPasskeyRegistrationEcdsaActivation({
@@ -145,6 +148,21 @@ void buildPasskeyRegistrationEcdsaActivation({
 
 void buildPasskeyReconnectEcdsaActivation({
   ...exactActivationCommon,
+  sessionIdentity,
+  sessionKind: 'jwt',
+  passkeyPrfFirstB64u: 'client-root',
+  webauthnAuthentication,
+});
+
+// @ts-expect-error persisted ECDSA activation requires its exact public capability
+void buildPasskeyReconnectEcdsaActivation({
+  source: 'login',
+  relayerUrl: 'https://relay.example',
+  sessionBudgetUses: 1,
+  requestId: 'missing-public-capability',
+  runtimePolicy,
+  walletKey,
+  lanePolicy,
   sessionIdentity,
   sessionKind: 'jwt',
   passkeyPrfFirstB64u: 'client-root',
@@ -182,6 +200,7 @@ void buildEcdsaExportActivation({
   sessionKind: 'jwt',
   passkeyPrfFirstB64u: 'client-root',
   webauthnAuthentication,
+  walletSessionRouteAuth: { kind: 'wallet_session', jwt: 'wallet-session-jwt' },
 });
 
 // @ts-expect-error activation builders require canonical key and lane policy

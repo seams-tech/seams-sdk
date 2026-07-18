@@ -264,7 +264,7 @@ export class InMemoryRouterAbEd25519YaoExportService implements RouterAbEd25519Y
       });
     }
     this.state.authorizationNonces.add(nonce);
-    const active = this.capabilities.resolveActiveCapability({
+    const active = await this.capabilities.resolveActiveCapability({
       kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
       walletId: request.application_binding.wallet_id,
       nearAccountId: bytesToHex(request.registered_public_key),

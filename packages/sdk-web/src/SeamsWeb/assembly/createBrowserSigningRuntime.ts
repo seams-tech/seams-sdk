@@ -6,7 +6,6 @@ import type { SigningRuntime, SigningRuntimeConfig } from '@/core/runtime/runtim
 import { createBrowserPlatformRuntime } from '@/core/platform';
 import { IndexedDBManager } from '@/core/indexedDB';
 import type { SignerWorkerManagerContext } from '@/core/signingEngine/workerManager/SignerWorkerManager';
-import { createThresholdEcdsaRelayerClient } from '@/core/rpcClients/relayer/ecdsaUseCaseClient';
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import { toSigningRuntimeConfig } from './runtimeConfig';
 import type { RegistrationAccountLifecycleDeps } from '@/core/signingEngine/interfaces/operationDeps';
@@ -38,11 +37,6 @@ export function createBrowserSigningRuntime(
 
   return createSigningRuntime({
     runtimePorts,
-    relayers: {
-      ecdsa: createThresholdEcdsaRelayerClient({
-        relayerUrl: config.network.relayer.url,
-      }),
-    },
     workers: {
       emailOtp: args.workerCtx,
     },

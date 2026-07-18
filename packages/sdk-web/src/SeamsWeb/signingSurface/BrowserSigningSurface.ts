@@ -29,7 +29,6 @@ import type {
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { UiConfirmRuntimeBridgePort } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type { TouchIdPrompt } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt';
-import type { RegistrationActivationProof } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import type { WebAuthnAllowCredential } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import type { EvmSigningRequest } from '@/core/signingEngine/chains/evm/evmSigning.types';
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
@@ -107,11 +106,7 @@ import {
 import * as emailOtpPublic from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
 import { createManagerAssembly } from '@/core/signingEngine/assembly/createManagers';
 import { verifySealedRefreshStartupParity } from '@/core/rpcClients/relayer/sealedRefreshCapabilities';
-import {
-  ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap,
-  isRetryableSealedRefreshCapabilityFetchError,
-  type ThresholdEcdsaBootstrapParityArgs,
-} from '@/core/signingEngine/session/warmCapabilities/sealedRefreshParity';
+import { isRetryableSealedRefreshCapabilityFetchError } from '@/core/signingEngine/session/warmCapabilities/sealedRefreshParity';
 import type { EmailOtpWalletSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';
 import type { WarmSessionEcdsaCapabilityState } from '@/core/signingEngine/session/warmCapabilities/types';
 import type {
@@ -130,7 +125,10 @@ import {
 } from '@/core/signingEngine/session/emailOtp/ed25519YaoBudgetRecovery';
 import type { EmailOtpEd25519YaoRecoveryBootstrapV1 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { EmailOtpEd25519YaoPendingFactorHandle } from '@/core/signingEngine/session/emailOtp/ed25519YaoRootVault';
-import { readExactSealedSession } from '@/core/signingEngine/session/persistence/sealedSessionStore';
+import {
+  persistActivePasskeyEcdsaReauthAnchor,
+  readExactSealedSession,
+} from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import {
   recoverEmailOtpEd25519YaoFromSealedSessionV1,
   resolveEmailOtpEd25519YaoExportContextV1,
@@ -170,18 +168,7 @@ import {
   type BrowserSigningSurfaceEnginePorts,
 } from '../assembly/browserSigningSurfaceAssembly';
 import type { BrowserSigningSurfaceConstructorDeps } from '../assembly/browserSigningSurfacePorts';
-import {
-  finalizeWalletRegistrationEcdsaClientBootstrap,
-  prepareEmailOtpWalletRegistrationEcdsaClientBootstrap,
-  preparePasskeyWalletRegistrationEcdsaClientBootstrap,
-  storeWalletRegistrationEcdsaClientSigningMaterial,
-} from '@/core/signingEngine/flows/registration/services/ecdsaRegistrationBootstrap';
-
-import {
-  finalizeWalletRegistrationEcdsaSessions as finalizeWalletRegistrationEcdsaSessionsOperation,
-  type FinalizeWalletRegistrationEcdsaSessionsDeps,
-} from '@/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions';
-import { commitEvmFamilyThresholdEcdsaSessions } from '@/core/signingEngine/session/emailOtp/ecdsaBootstrapCommit';
+import { finalizeWalletRegistrationEcdsaSessions as finalizeWalletRegistrationEcdsaSessionsOperation } from '@/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions';
 import type {
   WorkerResourceWarmupAccountContext,
   WorkerResourceWarmupDiagnostics,
@@ -1091,22 +1078,36 @@ export class BrowserSigningSurface {
     );
   }
 
-  preparePasskeyEcdsaBootstrap(
-    input: Parameters<typeof preparePasskeyWalletRegistrationEcdsaClientBootstrap>[1],
-  ): ReturnType<typeof preparePasskeyWalletRegistrationEcdsaClientBootstrap> {
-    return preparePasskeyWalletRegistrationEcdsaClientBootstrap(
-      { signerCrypto: this.runtimePorts.signerCrypto },
-      input,
-    );
+  createRouterAbEcdsaRegistrationCeremony(
+    input: Parameters<
+      typeof this.runtimePorts.signerCrypto.createRouterAbEcdsaRegistrationCeremony
+    >[0],
+  ): ReturnType<typeof this.runtimePorts.signerCrypto.createRouterAbEcdsaRegistrationCeremony> {
+    return this.runtimePorts.signerCrypto.createRouterAbEcdsaRegistrationCeremony(input);
   }
 
-  prepareEmailOtpEcdsaBootstrap(
-    input: Parameters<typeof prepareEmailOtpWalletRegistrationEcdsaClientBootstrap>[1],
-  ): ReturnType<typeof prepareEmailOtpWalletRegistrationEcdsaClientBootstrap> {
-    return prepareEmailOtpWalletRegistrationEcdsaClientBootstrap(
-      { emailOtpWorker: this.signerWorkerManager.getContext() },
-      input,
-    );
+  verifyRouterAbEcdsaRegistrationClientProofs(
+    input: Parameters<
+      typeof this.runtimePorts.signerCrypto.verifyRouterAbEcdsaRegistrationClientProofs
+    >[0],
+  ): ReturnType<typeof this.runtimePorts.signerCrypto.verifyRouterAbEcdsaRegistrationClientProofs> {
+    return this.runtimePorts.signerCrypto.verifyRouterAbEcdsaRegistrationClientProofs(input);
+  }
+
+  finalizeRouterAbEcdsaRegistrationActivation(
+    input: Parameters<
+      typeof this.runtimePorts.signerCrypto.finalizeRouterAbEcdsaRegistrationActivation
+    >[0],
+  ): ReturnType<typeof this.runtimePorts.signerCrypto.finalizeRouterAbEcdsaRegistrationActivation> {
+    return this.runtimePorts.signerCrypto.finalizeRouterAbEcdsaRegistrationActivation(input);
+  }
+
+  closeRouterAbEcdsaRegistrationCeremony(
+    input: Parameters<
+      typeof this.runtimePorts.signerCrypto.closeRouterAbEcdsaRegistrationCeremony
+    >[0],
+  ): ReturnType<typeof this.runtimePorts.signerCrypto.closeRouterAbEcdsaRegistrationCeremony> {
+    return this.runtimePorts.signerCrypto.closeRouterAbEcdsaRegistrationCeremony(input);
   }
 
   finalizeWalletRegistrationEcdsaSessions(
@@ -1114,99 +1115,11 @@ export class BrowserSigningSurface {
   ): ReturnType<typeof finalizeWalletRegistrationEcdsaSessionsOperation> {
     return finalizeWalletRegistrationEcdsaSessionsOperation(
       {
-        registrationBootstrap: {
-          finalizeClientBootstrap: (bootstrapInput) =>
-            finalizeWalletRegistrationEcdsaClientBootstrap(
-              { signerCrypto: this.runtimePorts.signerCrypto },
-              bootstrapInput,
-            ),
-          storeClientSigningMaterial: (storeInput) =>
-            storeWalletRegistrationEcdsaClientSigningMaterial(
-              { signerCrypto: this.runtimePorts.signerCrypto },
-              storeInput,
-            ),
-        },
         bootstrapStore: this.ecdsaBootstrapStore,
         sessionStore: this.warmSigning.ecdsaSessions,
-        persistEcdsaRoleLocalReadyRecord:
-          this.runtimePorts.storage.persistEcdsaRoleLocalReadyRecord,
-        warmSessions: {
-          hydrateSigningSession: (hydrateInput) =>
-            warmCapabilitiesPublic.hydrateSigningSession(
-              this.warmCapabilitiesPublicDeps,
-              hydrateInput,
-            ),
-        },
-        commitEmailOtpEcdsaSession: this.commitEmailOtpRegistrationEcdsaSession.bind(this),
-        commitEmailOtpEcdsaRegistrationWarmMaterial:
-          this.commitEmailOtpEcdsaRegistrationWarmMaterial.bind(this),
-        signingSessionSeal: this.seamsWebConfigs.signing.sessionSeal,
+        persistActivePasskeyEcdsaReauthAnchor,
       },
       input,
-    );
-  }
-
-  private async commitEmailOtpRegistrationEcdsaSession(
-    input: Parameters<FinalizeWalletRegistrationEcdsaSessionsDeps['commitEmailOtpEcdsaSession']>[0],
-  ): ReturnType<typeof commitEvmFamilyThresholdEcdsaSessions> {
-    const committed = await commitEvmFamilyThresholdEcdsaSessions(
-      {
-        queueByWallet: this.thresholdEcdsaBootstrapQueueByWallet,
-        bootstrapStore: this.ecdsaBootstrapStore,
-        ecdsaSessions: this.warmSigning.ecdsaSessions,
-        persistEcdsaRoleLocalReadyRecord:
-          this.runtimePorts.storage.persistEcdsaRoleLocalReadyRecord,
-        warmCapabilityReader: this.warmSigning.capabilityReader,
-        ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap:
-          this.ensureEmailOtpRegistrationEcdsaSealedRefreshParity.bind(this),
-      },
-      input,
-    );
-    const runtimePolicyScope = committed.warmCapability.record?.runtimePolicyScope;
-    if (!runtimePolicyScope) {
-      throw new Error('Email OTP ECDSA registration requires an exact runtime policy scope');
-    }
-    await this.emailOtpSessions.persistEcdsaSessionForRefresh({
-      walletId: input.walletId,
-      chainTarget: input.chainTarget,
-      bootstrap: committed.bootstrap,
-      runtimePolicyScope,
-      emailOtpAuthContext: input.emailOtpAuthContext,
-    });
-    return committed;
-  }
-
-  private async commitEmailOtpEcdsaRegistrationWarmMaterial(
-    input: Parameters<
-      FinalizeWalletRegistrationEcdsaSessionsDeps['commitEmailOtpEcdsaRegistrationWarmMaterial']
-    >[0],
-  ): Promise<void> {
-    const result = await this.signerWorkerManager.getContext().requestWorkerOperation({
-      kind: 'emailOtp',
-      request: {
-        type: 'commitEmailOtpEcdsaRegistrationWarmMaterial',
-        payload: {
-          walletId: String(input.walletId),
-          chainTarget: input.chainTarget,
-          retainedClientRootShareHandle:
-            input.preparedClientBootstrap.retainedClientRootShareHandle,
-          thresholdSessionId: input.bootstrap.session.thresholdSessionId,
-          expiresAtMs: input.bootstrap.session.expiresAtMs,
-          remainingUses: input.bootstrap.session.remainingUses,
-        },
-      },
-    });
-    if (!result.committed) {
-      throw new Error('Email OTP ECDSA registration warm material was not committed');
-    }
-  }
-
-  private ensureEmailOtpRegistrationEcdsaSealedRefreshParity(
-    parityArgs: ThresholdEcdsaBootstrapParityArgs,
-  ): Promise<void> {
-    return ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap(
-      () => this.ensureSealedRefreshStartupParity(),
-      parityArgs,
     );
   }
 
@@ -1285,12 +1198,22 @@ export class BrowserSigningSurface {
     confirmerText?: { title?: string; body?: string };
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
     challengeB64u?: string;
-    walletIframeActivation?: RegistrationActivationProof;
   }): Promise<RegistrationCredentialConfirmationPayload> {
     return registrationPublic.requestRegistrationCredentialConfirmation(
       this.registrationPublicDeps,
       params,
     );
+  }
+
+  openRegistrationPreparationModal(params: {
+    walletLabel: string;
+    signerSlot: number;
+  }): Promise<void> {
+    return this.touchConfirm.openRegistrationPreparationModal(params);
+  }
+
+  closeRegistrationPreparationModal(): void {
+    this.touchConfirm.closeRegistrationPreparationModal();
   }
 
   startPreparedPasskeyRegistrationCredential(args: {

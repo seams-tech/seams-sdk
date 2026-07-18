@@ -6,9 +6,9 @@ import type {
   ThresholdStoreConfigInput
 } from './types';
 import type {
-  WalletRegistrationEcdsaPreparePayload,
-  WalletRegistrationEcdsaPrepareTarget
+  WalletRegistrationEcdsaPrepareContext,
 } from './registrationContracts';
+import { registrationPreparationIdFromString } from './registrationContracts';
 import { THRESHOLD_PREFIX_DEFAULT } from './defaultConfigsServer';
 import { isObject as isObjectLoose, toOptionalTrimmedString } from '@shared/utils/validation';
 import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
@@ -29,7 +29,23 @@ import type { D1DatabaseLike } from '../storage/tenantRoute';
 import {
   thresholdEcdsaChainTargetFromValue,
   thresholdEcdsaChainTargetKey,
+  type ThresholdEcdsaChainTarget,
 } from './thresholdEcdsaChainTarget';
+import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import { parseSdkEcdsaDerivationThresholdKeyId } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
+
+export type EmailRecoveryEcdsaPrepareTarget = {
+  readonly chainTarget: ThresholdEcdsaChainTarget;
+  readonly prepare: WalletRegistrationEcdsaPrepareContext;
+};
+
+export type EmailRecoveryEcdsaPreparePayload = {
+  readonly kind: 'evm_family_ecdsa_recovery';
+  readonly targets: readonly [
+    EmailRecoveryEcdsaPrepareTarget,
+    ...EmailRecoveryEcdsaPrepareTarget[],
+  ];
+};
 
 export type EmailRecoveryPreparedThresholdEd25519Record = {
   relayerKeyId: string;
@@ -65,7 +81,7 @@ export type EmailRecoveryPreparationRecord = {
   createdAtMs: number;
   expiresAtMs: number;
   thresholdEd25519: EmailRecoveryPreparedThresholdEd25519Record;
-  ecdsa: WalletRegistrationEcdsaPreparePayload;
+  ecdsa: EmailRecoveryEcdsaPreparePayload;
   existingRuntimePolicyScope?: ThresholdRuntimePolicyScope;
 };
 
@@ -327,20 +343,22 @@ function parsePreparedThresholdEd25519(
   };
 }
 
-function parseEcdsaPreparePayload(raw: unknown): WalletRegistrationEcdsaPreparePayload | null {
+function parseEcdsaPreparePayload(raw: unknown): EmailRecoveryEcdsaPreparePayload | null {
   if (!isObject(raw)) return null;
   const kind = toOptionalTrimmedString(raw.kind);
   const targets = parseEcdsaPrepareTargets(raw.targets);
-  if (kind !== 'evm_family_ecdsa_keygen' || !targets) return null;
+  if (kind !== 'evm_family_ecdsa_recovery' || !targets) return null;
   return {
-    kind: 'evm_family_ecdsa_keygen',
+    kind: 'evm_family_ecdsa_recovery',
     targets,
   };
 }
 
-function parseEcdsaPrepareTargets(raw: unknown): WalletRegistrationEcdsaPrepareTarget[] | null {
+function parseEcdsaPrepareTargets(
+  raw: unknown,
+): EmailRecoveryEcdsaPreparePayload['targets'] | null {
   if (!Array.isArray(raw) || raw.length === 0) return null;
-  const targets: WalletRegistrationEcdsaPrepareTarget[] = [];
+  const targets: EmailRecoveryEcdsaPrepareTarget[] = [];
   const seenTargets = new Set<string>();
   for (const item of raw) {
     const target = parseEcdsaPrepareTarget(item);
@@ -350,10 +368,11 @@ function parseEcdsaPrepareTargets(raw: unknown): WalletRegistrationEcdsaPrepareT
     seenTargets.add(targetKey);
     targets.push(target);
   }
-  return targets;
+  const firstTarget = targets[0];
+  return firstTarget ? [firstTarget, ...targets.slice(1)] : null;
 }
 
-function parseEcdsaPrepareTarget(raw: unknown): WalletRegistrationEcdsaPrepareTarget | null {
+function parseEcdsaPrepareTarget(raw: unknown): EmailRecoveryEcdsaPrepareTarget | null {
   if (!isObject(raw)) return null;
   const chainTarget = thresholdEcdsaChainTargetFromValue(raw.chainTarget);
   const prepare = isObject(raw.prepare) ? raw.prepare : null;
@@ -370,6 +389,7 @@ function parseEcdsaPrepareTarget(raw: unknown): WalletRegistrationEcdsaPrepareTa
     signingRootVersion: toOptionalTrimmedString(prepare.signingRootVersion),
     keyScope: toOptionalTrimmedString(prepare.keyScope),
     relayerKeyId: toOptionalTrimmedString(prepare.relayerKeyId),
+    registrationPreparationId: toOptionalTrimmedString(prepare.registrationPreparationId),
     requestId: toOptionalTrimmedString(prepare.requestId),
     thresholdSessionId: toOptionalTrimmedString(prepare.thresholdSessionId),
     signingGrantId: toOptionalTrimmedString(prepare.signingGrantId),
@@ -383,39 +403,44 @@ function parseEcdsaPrepareTarget(raw: unknown): WalletRegistrationEcdsaPrepareTa
     !required.signingRootId ||
     !required.signingRootVersion ||
     !required.relayerKeyId ||
+    !required.registrationPreparationId ||
     !required.requestId ||
     !required.thresholdSessionId ||
     !required.signingGrantId ||
     ttlMs === undefined ||
     remainingUses === undefined ||
-    !participantIds
+    !participantIds ||
+    participantIds.length !== 2 ||
+    participantIds[0] !== 1 ||
+    participantIds[1] !== 2
   ) {
     return null;
   }
+  const runtimePolicyScope = normalizeRuntimePolicyScope(prepare.runtimePolicyScope);
+  if (!runtimePolicyScope) return null;
   return {
     chainTarget,
     prepare: {
       formatVersion: 'ecdsa-derivation-role-local',
       walletId: required.walletId,
       evmFamilySigningKeySlotId: required.evmFamilySigningKeySlotId,
-      ecdsaThresholdKeyId: required.ecdsaThresholdKeyId,
+      ecdsaThresholdKeyId: parseSdkEcdsaDerivationThresholdKeyId(
+        required.ecdsaThresholdKeyId,
+      ),
       signingRootId: required.signingRootId,
       signingRootVersion: required.signingRootVersion,
       keyScope: 'evm-family',
       relayerKeyId: required.relayerKeyId,
+      registrationPreparationId: registrationPreparationIdFromString(
+        required.registrationPreparationId,
+      ),
       requestId: required.requestId,
       thresholdSessionId: required.thresholdSessionId,
       signingGrantId: required.signingGrantId,
       ttlMs,
       remainingUses,
-      participantIds,
-      ...(isObject(prepare.runtimePolicyScope)
-        ? {
-            runtimePolicyScope: prepare.runtimePolicyScope as NonNullable<
-              WalletRegistrationEcdsaPrepareTarget['prepare']['runtimePolicyScope']
-            >,
-          }
-        : {}),
+      participantIds: [1, 2],
+      runtimePolicyScope,
     },
   };
 }

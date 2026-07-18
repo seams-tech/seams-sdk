@@ -1049,12 +1049,16 @@ test('Refactor 88 intended CI config owns service startup', () => {
   expect(startupSource).toContain("['-C', 'apps/seams-site', 'run', 'vite']");
   expect(startupSource).not.toContain("spawnManaged('site', ['run', 'site']");
   expect(startupSource).toContain("spawnManaged('router'");
-  expect(startupSource).toContain("['run', 'router', '--', '--no-init']");
+  expect(startupSource).toContain(
+    "['run', 'router', '--', '--root', routerAbLocalRoot, '--no-init']",
+  );
+  expect(startupSource).toContain('localEnvRoot: routerAbLocalRoot');
+  expect(startupSource).toContain('SEAMS_INTENDED_ROUTER_AB_ROOT');
   expect(startupSource).toContain('function initializeRouterAbLocalEnv()');
   expect(startupSource).toContain("'--bin',");
   expect(startupSource).toContain("'router_ab_local_init',");
   expect(startupSource).toContain("'--force',");
-  expect(startupSource).toContain("removePath('.router-ab-local')");
+  expect(startupSource).toContain('removeAbsolutePath(routerAbLocalRoot)');
   expect(startupSource).toContain(
     "removePath('packages/console-server-ts/.wrangler/state/seams-d1')",
   );

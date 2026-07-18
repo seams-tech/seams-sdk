@@ -18,8 +18,10 @@ import type { EmailOtpConfirmPrompt, SigningAuthMode } from '../../stepUpConfirm
 import type {
   ConfirmUIHandle,
   ConfirmUIPromptDiagnostics,
+  ConfirmUISurfaceSource,
   ConfirmUIUpdate,
   ConfirmationUIMode,
+  MountedConfirmUIHandle,
 } from './confirm-ui-types';
 import {
   CONFIRM_UI_ELEMENT_SELECTORS,
@@ -31,8 +33,10 @@ import {
 export type {
   ConfirmUIHandle,
   ConfirmUIPromptDiagnostics,
+  ConfirmUISurfaceSource,
   ConfirmUIUpdate,
   ConfirmationUIMode,
+  MountedConfirmUIHandle,
 } from './confirm-ui-types';
 
 const CONFIRM_STACK_CSS_VAR = '--w3a-confirm-stack-index';
@@ -88,6 +92,15 @@ type ConfirmUIInternalUpdate = ConfirmUIUpdate & {
   evmExplorerUrl?: string;
 };
 
+export type ConfirmUIRenderContext = {
+  userPreferencesManager: Pick<UiConfirmContext['userPreferencesManager'], 'getCurrentWalletId'>;
+  chains?: UiConfirmContext['chains'];
+  getAppearance?: UiConfirmContext['getAppearance'];
+  nearExplorerUrl?: string;
+  tempoExplorerUrl?: string;
+  evmExplorerUrl?: string;
+};
+
 async function ensureTxConfirmerElementDefined(): Promise<void> {
   await ensureDefined(
     W3A_TX_CONFIRMER_ID,
@@ -124,7 +137,7 @@ function withAppearanceMode(appearance: AppearanceConfig, mode?: ThemeMode): App
 }
 
 function resolveAppearance(args: {
-  ctx: UiConfirmContext;
+  ctx: ConfirmUIRenderContext;
   requestedAppearance?: AppearanceConfig;
   requestedMode?: ThemeMode;
 }): AppearanceConfig {
@@ -288,7 +301,7 @@ function setErrorAttribute(element: HTMLElement, message: string): void {
 }
 
 function resolveExplorerUrlsFromModel(
-  ctx: UiConfirmContext,
+  ctx: ConfirmUIRenderContext,
   model?: TxDisplayModel,
 ): Pick<ConfirmUIUpdate, 'nearExplorerUrl' | 'tempoExplorerUrl' | 'evmExplorerUrl'> {
   const chain = model?.chain;
@@ -307,7 +320,7 @@ function resolveExplorerUrlsFromModel(
 }
 
 function applyHostElementProps(
-  ctx: UiConfirmContext,
+  ctx: ConfirmUIRenderContext,
   element: HostTxConfirmerElement,
   props?: ConfirmUIUpdate,
 ): void {
@@ -376,12 +389,13 @@ function applyHostElementProps(
 }
 
 function createHostConfirmHandle(
-  ctx: UiConfirmContext,
+  ctx: ConfirmUIRenderContext,
   element: HostTxConfirmerElement,
   onClose: () => void,
-): ConfirmUIHandle {
+): MountedConfirmUIHandle {
   let closed = false;
   return {
+    element,
     close: (confirmed: boolean) => {
       if (closed) return;
       closed = true;
@@ -405,7 +419,7 @@ export async function mountConfirmUI({
   signingAuthMode,
   emailOtpPrompt,
 }: {
-  ctx: UiConfirmContext;
+  ctx: ConfirmUIRenderContext;
   summary: TransactionSummary;
   txSigningRequests?: TransactionInputWasm[];
   model?: TxDisplayModel;
@@ -417,7 +431,7 @@ export async function mountConfirmUI({
   nearAccountIdOverride?: string;
   signingAuthMode?: SigningAuthMode;
   emailOtpPrompt?: EmailOtpConfirmPrompt;
-}): Promise<ConfirmUIHandle> {
+}): Promise<MountedConfirmUIHandle> {
   await ensureTxConfirmerElementDefined();
 
   const variant = uiModeToVariant(uiMode);
@@ -438,6 +452,130 @@ export async function mountConfirmUI({
   return handle;
 }
 
+type ResolveDecisionSurfaceArgs = {
+  ctx: ConfirmUIRenderContext;
+  summary: TransactionSummary;
+  txSigningRequests: TransactionInputWasm[];
+  model?: TxDisplayModel;
+  securityContext?: Partial<UserConfirmSecurityContext>;
+  loading?: boolean;
+  theme: ThemeMode;
+  appearance?: AppearanceConfig;
+  variant: 'modal' | 'drawer';
+  nearAccountIdOverride: string;
+  signingAuthMode?: SigningAuthMode;
+  emailOtpPrompt?: EmailOtpConfirmPrompt;
+  surface: ConfirmUISurfaceSource;
+};
+
+function reuseMountedDecisionSurface(
+  args: ResolveDecisionSurfaceArgs & {
+    surface: Extract<ConfirmUISurfaceSource, { kind: 'reuse_mounted' }>;
+  },
+): {
+  el: HostTxConfirmerElement;
+  handle: MountedConfirmUIHandle;
+  reused: true;
+} {
+  const handle = args.surface.handle;
+  const el = handle.element as HostTxConfirmerElement;
+  if (!el.isConnected) {
+    throw new Error('Cannot reuse a detached confirmation surface');
+  }
+  el.variant = args.variant;
+  el.txSigningRequests = args.txSigningRequests;
+  el.model = args.model;
+  el.intentDigest = args.summary.intentDigest;
+  el.securityContext = args.securityContext;
+  el.appearance = resolveAppearance({
+    ctx: args.ctx,
+    requestedAppearance: args.appearance,
+    requestedMode: args.theme,
+  });
+  el.theme = el.appearance.theme.mode;
+  el.loading = args.loading ?? false;
+  el.nearAccountId = args.nearAccountIdOverride;
+  el.title = args.summary.title ?? '';
+  el.body = args.summary.body ?? '';
+  el.signingAuthMode = args.signingAuthMode;
+  el.emailOtpPrompt = args.emailOtpPrompt;
+  el.errorMessage = '';
+  el.removeAttribute('data-error-message');
+  el.requestUpdate?.();
+  return { el, handle, reused: true };
+}
+
+function assertNeverConfirmationSurface(value: never): never {
+  throw new Error(`Unhandled confirmation surface: ${JSON.stringify(value)}`);
+}
+
+function resolveDecisionSurface(args: ResolveDecisionSurfaceArgs): {
+  el: HostTxConfirmerElement;
+  handle: MountedConfirmUIHandle;
+  reused: boolean;
+} {
+  switch (args.surface.kind) {
+    case 'mount_new': {
+      const mounted = mountHostElement({
+        ctx: args.ctx,
+        summary: args.summary,
+        txSigningRequests: args.txSigningRequests,
+        model: args.model,
+        securityContext: args.securityContext,
+        loading: args.loading,
+        theme: args.theme,
+        appearance: args.appearance,
+        variant: args.variant,
+        nearAccountIdOverride: args.nearAccountIdOverride,
+        signingAuthMode: args.signingAuthMode,
+        emailOtpPrompt: args.emailOtpPrompt,
+      });
+      return { ...mounted, reused: false };
+    }
+    case 'reuse_mounted':
+      return reuseMountedDecisionSurface({
+        ...args,
+        surface: args.surface,
+      });
+    default:
+      return assertNeverConfirmationSurface(args.surface);
+  }
+}
+
+export async function prepareConfirmUISurface(args: {
+  ctx: ConfirmUIRenderContext;
+  summary: TransactionSummary;
+  txSigningRequests: TransactionInputWasm[];
+  model?: TxDisplayModel;
+  securityContext?: Partial<UserConfirmSecurityContext>;
+  loading?: boolean;
+  theme: ThemeMode;
+  appearance?: AppearanceConfig;
+  uiMode: ConfirmationUIMode;
+  nearAccountIdOverride: string;
+  signingAuthMode?: SigningAuthMode;
+  emailOtpPrompt?: EmailOtpConfirmPrompt;
+  surface: ConfirmUISurfaceSource;
+}): Promise<MountedConfirmUIHandle> {
+  await ensureTxConfirmerElementDefined();
+  const resolved = resolveDecisionSurface({
+    ctx: args.ctx,
+    summary: args.summary,
+    txSigningRequests: args.txSigningRequests,
+    model: args.model,
+    securityContext: args.securityContext,
+    loading: args.loading,
+    theme: args.theme,
+    appearance: args.appearance,
+    variant: uiModeToVariant(args.uiMode),
+    nearAccountIdOverride: args.nearAccountIdOverride,
+    signingAuthMode: args.signingAuthMode,
+    emailOtpPrompt: args.emailOtpPrompt,
+    surface: args.surface,
+  });
+  return resolved.handle;
+}
+
 export async function awaitConfirmUIDecision({
   ctx,
   summary,
@@ -452,8 +590,9 @@ export async function awaitConfirmUIDecision({
   onMounted,
   signingAuthMode,
   emailOtpPrompt,
+  surface,
 }: {
-  ctx: UiConfirmContext;
+  ctx: ConfirmUIRenderContext;
   summary: TransactionSummary;
   txSigningRequests: TransactionInputWasm[];
   model?: TxDisplayModel;
@@ -466,6 +605,7 @@ export async function awaitConfirmUIDecision({
   onMounted?: (handle: ConfirmUIHandle) => void;
   signingAuthMode?: SigningAuthMode;
   emailOtpPrompt?: EmailOtpConfirmPrompt;
+  surface: ConfirmUISurfaceSource;
 }): Promise<
   ConfirmDecisionResult & {
     handle: ConfirmUIHandle;
@@ -481,7 +621,7 @@ export async function awaitConfirmUIDecision({
 
   return new Promise((resolve) => {
     const mountStartedAt = performance.now();
-    const { el, handle } = mountHostElement({
+    const { el, handle, reused } = resolveDecisionSurface({
       ctx,
       summary,
       txSigningRequests,
@@ -494,11 +634,12 @@ export async function awaitConfirmUIDecision({
       nearAccountIdOverride,
       signingAuthMode,
       emailOtpPrompt,
+      surface,
     });
     const mountMs = roundConfirmUiDurationMs(mountStartedAt);
     const decisionWaitStartedAt = performance.now();
     let hostFirstUpdateMs = 0;
-    let hostInteractiveMs = 0;
+    let hostInteractiveMs = reused ? mountMs : 0;
     let confirmEventMs = 0;
     const markDecisionWaitOffset = (currentValue: number): number =>
       currentValue > 0 ? currentValue : roundConfirmUiDurationMs(decisionWaitStartedAt);
@@ -556,11 +697,11 @@ export async function awaitConfirmUIDecision({
       }
 
       finalize({
-          confirmed: true,
-          ...(typeof detail?.otpCode === 'string' ? { otpCode: detail.otpCode } : {}),
-          ...(typeof detail?.emailOtpChallengeId === 'string'
-            ? { emailOtpChallengeId: detail.emailOtpChallengeId }
-            : {}),
+        confirmed: true,
+        ...(typeof detail?.otpCode === 'string' ? { otpCode: detail.otpCode } : {}),
+        ...(typeof detail?.emailOtpChallengeId === 'string'
+          ? { emailOtpChallengeId: detail.emailOtpChallengeId }
+          : {}),
       });
     };
 
@@ -616,7 +757,7 @@ function mountHostElement({
   signingAuthMode,
   emailOtpPrompt,
 }: {
-  ctx: UiConfirmContext;
+  ctx: ConfirmUIRenderContext;
   summary: TransactionSummary;
   txSigningRequests?: TransactionInputWasm[];
   model?: TxDisplayModel;
@@ -628,7 +769,7 @@ function mountHostElement({
   nearAccountIdOverride?: string;
   signingAuthMode?: SigningAuthMode;
   emailOtpPrompt?: EmailOtpConfirmPrompt;
-}): { el: HostTxConfirmerElement; handle: ConfirmUIHandle } {
+}): { el: HostTxConfirmerElement; handle: MountedConfirmUIHandle } {
   const resolvedVariant: 'modal' | 'drawer' = variant || 'modal';
   cleanupExistingConfirmers();
 

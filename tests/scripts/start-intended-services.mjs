@@ -19,9 +19,18 @@ const walletOrigin = process.env.SEAMS_INTENDED_WALLET_ORIGIN || 'https://localh
 const projectEnvironmentId = process.env.SEAMS_INTENDED_PROJECT_ENVIRONMENT_ID || 'local-env';
 const publishableKey = process.env.SEAMS_INTENDED_PUBLISHABLE_KEY || 'pk_local';
 const docsOrigin = process.env.SEAMS_INTENDED_DOCS_ORIGIN || 'https://docs.localhost';
+const routerAbWorkerUrls = Object.freeze({
+  router: 'http://127.0.0.1:9100',
+  deriverA: 'http://127.0.0.1:9101',
+  deriverB: 'http://127.0.0.1:9102',
+  signingWorker: 'http://127.0.0.1:9103',
+});
 const d1LocalPersistPath =
   process.env.SEAMS_INTENDED_D1_PERSIST_TO ||
   path.join(tmpdir(), `${path.basename(repoRoot)}-intended-d1`);
+const routerAbLocalRoot =
+  process.env.SEAMS_INTENDED_ROUTER_AB_ROOT ||
+  path.join(tmpdir(), `${path.basename(repoRoot)}-intended-router-ab`);
 const d1LocalWranglerRuntimeDir =
   process.env.SEAMS_INTENDED_D1_WRANGLER_RUNTIME_DIR ||
   path.join(repoRoot, '.runtime', 'wrangler-d1-local');
@@ -135,6 +144,7 @@ function printResolvedConfig() {
         projectEnvironmentId,
         publishableKey,
         d1LocalPersistPath,
+        routerAbLocalRoot,
         d1LocalWranglerConfigPath,
         siteViteCacheDir,
         resetState,
@@ -147,7 +157,7 @@ function printResolvedConfig() {
 }
 
 function resetLocalState() {
-  removePath('.router-ab-local');
+  removeAbsolutePath(routerAbLocalRoot);
   removePath('packages/console-server-ts/.wrangler/state/seams-d1');
   removePath('.runtime/intended-d1');
   removeAbsolutePath(d1LocalPersistPath);
@@ -230,7 +240,11 @@ function startSite() {
 }
 
 function startRouter() {
-  return spawnManaged('router', ['run', 'router', '--', '--no-init'], routerEnv());
+  return spawnManaged(
+    'router',
+    ['run', 'router', '--', '--root', routerAbLocalRoot, '--no-init'],
+    routerEnv(),
+  );
 }
 
 function initializeRouterAbLocalEnv() {
@@ -246,7 +260,7 @@ function initializeRouterAbLocalEnv() {
       'router_ab_local_init',
       '--',
       '--root',
-      repoRoot,
+      routerAbLocalRoot,
       '--force',
     ],
     {
@@ -314,8 +328,9 @@ function routerEnv() {
 function prepareD1LocalWranglerRuntimeConfig() {
   prepareRouterAbD1LocalRuntimeConfig({
     repoRoot,
-    localEnvRoot: repoRoot,
+    localEnvRoot: routerAbLocalRoot,
     outputConfigPath: d1LocalWranglerConfigPath,
+    workerUrls: routerAbWorkerUrls,
   });
 
   console.log(

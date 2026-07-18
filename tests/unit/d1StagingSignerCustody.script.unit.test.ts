@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   D1_STAGING_GENERATED_AT_ISO,
-  D1_STAGING_ROUTER_API_ORIGIN,
+  D1_STAGING_GATEWAY_ORIGIN,
   d1StagingJsonResponse,
   d1StagingManifestPath,
   d1StagingRequestUrl,
@@ -23,7 +23,7 @@ type SignerCustodyPlan = {
 
 type SignerCustodyModule = {
   readonly buildD1StagingSignerCustodyPlan: (input: {
-    readonly routerApiOrigin: string;
+    readonly gatewayOrigin: string;
     readonly exportShareFixturePath: string;
     readonly generatedAtIso?: string;
     readonly missingKekExpectedCode?: string;
@@ -34,7 +34,7 @@ type SignerCustodyModule = {
     readonly origin?: string;
   }) => SignerCustodyPlan;
   readonly runD1StagingSignerCustody: (input: {
-    readonly routerApiOrigin: string;
+    readonly gatewayOrigin: string;
     readonly exportShareFixturePath: string;
     readonly generatedAtIso?: string;
     readonly manifestPath: string;
@@ -89,7 +89,7 @@ function signerCustodyInput(): SignerCustodyPlanInput {
   return {
     exportShareFixturePath: writeExportShareFixture(),
     generatedAtIso: D1_STAGING_GENERATED_AT_ISO,
-    routerApiOrigin: D1_STAGING_ROUTER_API_ORIGIN,
+    gatewayOrigin: D1_STAGING_GATEWAY_ORIGIN,
   };
 }
 
@@ -105,13 +105,13 @@ function requestAuthorization(init?: RequestInit): string {
 
 async function signerCustodyFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
   const url = d1StagingRequestUrl(input);
-  if (url === `${D1_STAGING_ROUTER_API_ORIGIN}/router-ab/ed25519/healthz`) {
+  if (url === `${D1_STAGING_GATEWAY_ORIGIN}/router-ab/ed25519/healthz`) {
     return d1StagingJsonResponse({ ok: true, configured: true }, 200);
   }
-  if (url === `${D1_STAGING_ROUTER_API_ORIGIN}/router-ab/ecdsa-derivation/healthz`) {
+  if (url === `${D1_STAGING_GATEWAY_ORIGIN}/router-ab/ecdsa-derivation/healthz`) {
     return d1StagingJsonResponse({ ok: true, configured: true }, 200);
   }
-  if (url === `${D1_STAGING_ROUTER_API_ORIGIN}/router-ab/ecdsa-derivation/export/share`) {
+  if (url === `${D1_STAGING_GATEWAY_ORIGIN}/router-ab/ecdsa-derivation/export/share`) {
     expect(init?.method).toBe('POST');
     const authorization = requestAuthorization(init);
     if (authorization === 'Bearer missing-kek-jwt') {
@@ -144,13 +144,13 @@ test('D1 staging signer custody builds a fixture-backed production-route plan', 
 
   expect(plan.mode).toBe('dry-run');
   expect(plan.healthChecks.map((check) => check.url)).toEqual([
-    'https://router-api.staging.example/router-ab/ed25519/healthz',
-    'https://router-api.staging.example/router-ab/ecdsa-derivation/healthz',
+    'https://gateway.staging.example/router-ab/ed25519/healthz',
+    'https://gateway.staging.example/router-ab/ecdsa-derivation/healthz',
   ]);
   expect(plan.checks).toEqual([
     expect.objectContaining({
       id: 'ecdsa_export_share_success',
-      url: 'https://router-api.staging.example/router-ab/ecdsa-derivation/export/share',
+      url: 'https://gateway.staging.example/router-ab/ecdsa-derivation/export/share',
       walletSessionJwtEnvName: 'SEAMS_STAGING_ECDSA_WALLET_SESSION_JWT',
     }),
   ]);
@@ -241,15 +241,15 @@ test('D1 staging signer custody remote mode requires JWTs from env', async () =>
   ).rejects.toThrow(/SEAMS_STAGING_ECDSA_WALLET_SESSION_JWT is required/);
 });
 
-test('D1 staging signer custody requires HTTPS Router API origins in remote mode', async () => {
+test('D1 staging signer custody requires HTTPS Gateway origins in remote mode', async () => {
   const module = await signerCustodyModule;
   expect(() =>
     module.buildD1StagingSignerCustodyPlan({
       ...signerCustodyInput(),
-      routerApiOrigin: 'http://router-api.staging.example',
+      gatewayOrigin: 'http://gateway.staging.example',
       mode: 'remote',
     }),
-  ).toThrow(/--router-api-origin must use https in remote mode/);
+  ).toThrow(/--gateway-origin must use https in remote mode/);
 });
 
 test('D1 staging signer custody requires HTTPS request origins in remote mode', async () => {

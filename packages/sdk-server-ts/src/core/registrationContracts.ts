@@ -8,6 +8,15 @@ import type {
 } from '@shared/utils/routerAbEd25519Yao';
 import type { RouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import type {
+  RouterAbEcdsaDerivationPublicCapabilityV1,
+  RouterAbEcdsaRegistrationActivationRequestV1,
+  RouterAbEcdsaRegistrationActivationReceiptV1,
+  RouterAbEcdsaRegistrationRequestFactsV1,
+  RouterAbEcdsaRegistrationRequestV1,
+  RouterAbEcdsaStrictForwardedRegistrationResponseV1,
+  RouterAbEcdsaVerifiedClientActivationFactsV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
+import type {
   AddAuthMethodInput,
   AddAuthMethodIntentGrant,
   AddAuthMethodIntentV1,
@@ -306,7 +315,7 @@ export type WalletAddSignerStartResponse =
           }
         | {
             kind: 'evm_family_ecdsa';
-            ecdsa: WalletRegistrationEcdsaPreparePayload;
+            ecdsa: WalletAddSignerEcdsaPreparePayload;
             ed25519?: never;
           }
       ))
@@ -319,10 +328,8 @@ export type WalletAddSignerStartResponse =
 export type WalletAddSignerEcdsaDerivationRespondRequest = {
   addSignerCeremonyId: string;
   ecdsa: {
-    clientBootstraps: {
-      chainTarget: ThresholdEcdsaChainTarget;
-      clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
-    }[];
+    kind: 'router_ab_ecdsa_registration_v1';
+    strictRegistration: RouterAbEcdsaRegistrationRequestV1;
   };
 };
 
@@ -331,10 +338,32 @@ export type WalletAddSignerEcdsaDerivationRespondResponse =
       ok: true;
       addSignerCeremonyId: string;
       ecdsa: {
-        bootstraps: {
-          chainTarget: ThresholdEcdsaChainTarget;
-          bootstrap: EcdsaDerivationServerBootstrapResponse;
-        }[];
+        kind: 'router_ab_ecdsa_registration_forwarded_v1';
+        strictResult: RouterAbEcdsaStrictForwardedRegistrationResponseV1;
+      };
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+    };
+
+export type WalletAddSignerEcdsaActivationRequest = {
+  addSignerCeremonyId: string;
+  ecdsa: {
+    kind: 'router_ab_ecdsa_registration_activation_v1';
+    publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
+  };
+};
+
+export type WalletAddSignerEcdsaActivationResponse =
+  | {
+      ok: true;
+      addSignerCeremonyId: string;
+      ecdsa: {
+        kind: 'router_ab_ecdsa_registration_activated_v1';
+        activation: RouterAbEcdsaRegistrationActivationReceiptV1;
+        bootstrap: EcdsaDerivationServerBootstrapResponse;
       };
     }
   | {
@@ -356,7 +385,7 @@ export type WalletAddSignerFinalizeRequest = {
     | {
         kind: 'evm_family_ecdsa';
         ecdsa: {
-          expectedKeyHandles?: string[];
+          expectedKeyHandles: readonly [string];
         };
         ed25519?: never;
       }
@@ -429,25 +458,27 @@ export type WalletRegistrationEcdsaPrepareContext = {
   signingRootVersion: string;
   keyScope: EcdsaDerivationKeyScope;
   relayerKeyId: string;
-  registrationPreparationId?: RegistrationPreparationId;
+  registrationPreparationId: RegistrationPreparationId;
   requestId: string;
   thresholdSessionId: string;
   signingGrantId: string;
   ttlMs: number;
   remainingUses: number;
-  participantIds: number[];
-  runtimePolicyScope?: RuntimePolicyScope;
-};
-
-export type WalletRegistrationEcdsaPrepareTarget = {
-  chainTarget: ThresholdEcdsaChainTarget;
-  prepare: WalletRegistrationEcdsaPrepareContext;
+  participantIds: readonly [1, 2];
+  runtimePolicyScope: RuntimePolicyScope;
 };
 
 export type WalletRegistrationEcdsaPreparePayload = {
   kind: 'evm_family_ecdsa_keygen';
-  targets: WalletRegistrationEcdsaPrepareTarget[];
+  chainTargets: readonly [
+    ThresholdEcdsaChainTarget,
+    ...ThresholdEcdsaChainTarget[],
+  ];
+  prepare: WalletRegistrationEcdsaPrepareContext;
+  strictRegistration: RouterAbEcdsaRegistrationRequestFactsV1;
 };
+
+export type WalletAddSignerEcdsaPreparePayload = WalletRegistrationEcdsaPreparePayload;
 
 export type WalletRegistrationEcdsaClientBootstrap = {
   formatVersion: EcdsaDerivationRoleLocalFormatVersion;
@@ -458,7 +489,7 @@ export type WalletRegistrationEcdsaClientBootstrap = {
   signingRootVersion: string;
   keyScope: EcdsaDerivationKeyScope;
   relayerKeyId: string;
-  registrationPreparationId?: RegistrationPreparationId;
+  registrationPreparationId: RegistrationPreparationId;
   derivationClientSharePublicKey33B64u: DerivationClientSharePublicKey33B64u;
   clientShareRetryCounter: number;
   contextBinding32B64u: string;
@@ -467,8 +498,8 @@ export type WalletRegistrationEcdsaClientBootstrap = {
   signingGrantId: string;
   ttlMs: number;
   remainingUses: number;
-  participantIds: number[];
-  runtimePolicyScope?: RuntimePolicyScope;
+  participantIds: readonly [1, 2];
+  runtimePolicyScope: RuntimePolicyScope;
   clientRootProof?: never;
   passkeyBootstrapAuthorization?: never;
 };
@@ -486,7 +517,12 @@ export type WalletRegistrationEcdsaWalletKey = {
   thresholdOwnerAddress: string;
   relayerKeyId: string;
   relayerVerifyingShareB64u: string;
-  participantIds: number[];
+  contextBinding32B64u: string;
+  derivationClientSharePublicKey33B64u: DerivationClientSharePublicKey33B64u;
+  clientShareRetryCounter: number;
+  relayerShareRetryCounter: number;
+  participantIds: readonly [1, 2];
+  publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 };
 
 export type WalletRegistrationEd25519YaoStart = {
@@ -521,7 +557,7 @@ export type WalletRegistrationEd25519YaoFinalize = {
 };
 
 export type WalletRegistrationEcdsaFinalize = {
-  expectedKeyHandles?: string[];
+  expectedKeyHandles: readonly [string];
 };
 
 export type WalletRegistrationFinalizeSignerWork =
@@ -593,10 +629,8 @@ export type WalletRegistrationStartResponse =
 export type WalletRegistrationEcdsaDerivationRespondRequest = {
   registrationCeremonyId: string;
   ecdsa: {
-    clientBootstraps: {
-      chainTarget: ThresholdEcdsaChainTarget;
-      clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
-    }[];
+    kind: 'router_ab_ecdsa_registration_v1';
+    strictRegistration: RouterAbEcdsaRegistrationRequestV1;
   };
 };
 
@@ -606,10 +640,27 @@ export type WalletRegistrationEcdsaDerivationRespondResponse =
       registrationCeremonyId: string;
       registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
       ecdsa: {
-        bootstraps: {
-          chainTarget: ThresholdEcdsaChainTarget;
-          bootstrap: EcdsaDerivationServerBootstrapResponse;
-        }[];
+        kind: 'router_ab_ecdsa_registration_forwarded_v1';
+        strictResult: RouterAbEcdsaStrictForwardedRegistrationResponseV1;
+      };
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+    };
+
+export type WalletRegistrationEcdsaActivationRequest =
+  RouterAbEcdsaRegistrationActivationRequestV1;
+
+export type WalletRegistrationEcdsaActivationResponse =
+  | {
+      ok: true;
+      registrationCeremonyId: string;
+      ecdsa: {
+        kind: 'router_ab_ecdsa_registration_activated_v1';
+        activation: RouterAbEcdsaRegistrationActivationReceiptV1;
+        bootstrap: EcdsaDerivationServerBootstrapResponse;
       };
     }
   | {

@@ -181,7 +181,7 @@ The key point is that public progress events are bridged through the MessagePort
 
 So yes, your understanding is correct: **SeamsWebIframe → WalletIframeRouter → posts to host/index.ts**, with the additional detail that progress events flow back through the same channel to provide real-time updates to the caller.
 
-## Activation Overlay (iframe sizing behavior)
+## Modal Overlay (iframe sizing behavior)
 
 The wallet iframe mounts as a hidden surface. `WalletIframeRouter` owns one
 typed foreground surface at a time and the surface renderer is the only writer
@@ -190,8 +190,6 @@ of iframe visibility, geometry, focusability, title, and pointer events.
 ### Surface lifecycle
 
 - `hidden`: no footprint and no hit target.
-- `anchored_registration_activation`: an iframe-owned registration button
-  exactly covers the app-owned CTA.
 - `modal_registration_confirm`, `modal_transaction_confirm`,
   `modal_key_export_confirm`, and `modal_unlock_confirm`: viewport modal
   surfaces that expose wallet-origin confirmation controls.
@@ -201,10 +199,9 @@ request identity. Result, error, cancellation, timeout, and connection close
 events clear only a matching active surface. Progress events remain available
 to app callbacks and diagnostics; they cannot modify the iframe DOM.
 
-`OverlayController` is a low-level renderer target with only
-`applyHidden()`, `applyAnchored()`, `applyAnchoredSuspended()`, and
-`applyViewportModal()` operations. Styling is CSP-safe and uses the shared
-overlay stylesheet. The default z-index is `2147483646`.
+`OverlayController` is a low-level renderer target. The surface renderer uses
+its hidden and viewport-modal operations. Styling is CSP-safe and uses the
+shared overlay stylesheet. The default z-index is `2147483646`.
 
 ### Notes
 

@@ -15,14 +15,13 @@ import {
 import {
   isAttachEcdsaDerivationToPresignPort,
   isAttachEmailOtpToPresignPort,
-  isAttachEcdsaPresignToOnlinePort,
-  isEcdsaPresignMaterialRequest,
   type EcdsaDerivationAdditiveShareResponse,
-  type EcdsaPresignMaterialRequest,
-  type EcdsaPresignMaterialResponse,
   type EmailOtpEcdsaSigningShareResponse,
 } from '../ecdsaClientWorkerChannels';
-import { IndexedDbClientPresignMaterialStore } from './ecdsaPresignMaterialStore';
+import {
+  IndexedDbClientPresignMaterialStore,
+  type DurableClientPresignatureRef,
+} from './ecdsaPresignMaterialStore';
 import {
   parseEcdsaClientPresignPoolIdentity,
   type EcdsaClientPresignPoolIdentity,
@@ -42,6 +41,24 @@ type SessionMaterialBinding = {
   readonly expiresAtMs: number;
   readonly poolIdentity: EcdsaClientPresignPoolIdentity;
 };
+
+type WorkerClientPresignatureRef = {
+  presignatureId: string;
+  materialHandle: string;
+  bigR33: ArrayBuffer;
+  createdAtMs: number;
+  expiresAtMs: number;
+};
+
+function durableRefToWorkerRef(ref: DurableClientPresignatureRef): WorkerClientPresignatureRef {
+  return {
+    presignatureId: ref.presignatureId,
+    materialHandle: ref.materialHandle,
+    bigR33: ref.bigR33.buffer,
+    createdAtMs: ref.createdAtMs,
+    expiresAtMs: ref.expiresAtMs,
+  };
+}
 
 type PendingAdditiveShare = {
   readonly resolve: (share: Uint8Array) => void;
@@ -70,7 +87,6 @@ const pendingAdditiveShares = new Map<string, PendingAdditiveShare>();
 const pendingEmailOtpSigningShares = new Map<string, PendingEmailOtpSigningShare>();
 let derivationPort: MessagePort | null = null;
 let emailOtpPort: MessagePort | null = null;
-let onlinePort: MessagePort | null = null;
 let wasmInitPromise: Promise<void> | null = null;
 let messageQueue: Promise<void> = Promise.resolve();
 
@@ -232,6 +248,8 @@ function handleEmailOtpResponse(event: MessageEvent<EmailOtpEcdsaSigningShareRes
 
 function requestAdditiveShare(args: {
   materialHandle: string;
+  durableMaterialRef: string;
+  poolIdentity: EcdsaClientPresignPoolIdentity;
   expectedBindingDigest: string;
 }): Promise<Uint8Array> {
   if (!derivationPort) {
@@ -244,6 +262,8 @@ function requestAdditiveShare(args: {
     kind: 'ecdsa_derivation_additive_share_request_v1',
     requestId,
     materialHandle: args.materialHandle,
+    durableMaterialRef: args.durableMaterialRef,
+    poolIdentity: args.poolIdentity,
     expectedBindingDigest: args.expectedBindingDigest,
   });
   return deferred.promise;
@@ -272,12 +292,18 @@ async function initializeSession(
   await initializePresignWasm();
   const sessionId = requireString(payload.sessionId, 'sessionId');
   freeSession(sessionId);
+  const poolIdentity = parseEcdsaClientPresignPoolIdentity(payload.poolIdentity);
   let additiveShare32: Uint8Array;
   let emailOtpAuthority: { remainingUses: number; expiresAtMs: number } | null = null;
   switch (payload.authority.kind) {
     case 'role_local_derivation_handle':
       additiveShare32 = await requestAdditiveShare({
         materialHandle: requireString(payload.authority.materialHandle, 'materialHandle'),
+        durableMaterialRef: requireString(
+          payload.authority.durableMaterialRef,
+          'durableMaterialRef',
+        ),
+        poolIdentity,
         expectedBindingDigest: requireString(
           payload.authority.expectedBindingDigest,
           'expectedBindingDigest',
@@ -305,7 +331,6 @@ async function initializeSession(
     payload.materialExpiresAtMs,
     'materialExpiresAtMs',
   );
-  const poolIdentity = parseEcdsaClientPresignPoolIdentity(payload.poolIdentity);
   try {
     const session = new ClientPresignSession(additiveShare32, groupPublicKey33, sessionId);
     sessions.set(sessionId, session);
@@ -372,6 +397,7 @@ async function admitPresignature(
   const admitted = await materialStore.admit({
     materialHandle,
     expectedPresignatureId,
+    poolIdentity: parseEcdsaClientPresignPoolIdentity(payload.poolIdentity),
     nowMs: Date.now(),
   });
   if (!admitted.ok) {
@@ -391,7 +417,13 @@ async function destroyPresignature(
   materialHandle: string;
 }> {
   const materialHandle = requireString(payload.materialHandle, 'materialHandle');
-  if (!(await materialStore.destroy(materialHandle, Date.now()))) {
+  if (
+    !(await materialStore.destroy(
+      materialHandle,
+      parseEcdsaClientPresignPoolIdentity(payload.poolIdentity),
+      Date.now(),
+    ))
+  ) {
     throw new Error('ECDSA Client presignature destruction failed');
   }
   return { kind: 'ecdsa_client_presignature_destroyed_v1', materialHandle };
@@ -406,6 +438,7 @@ async function reservePresignature(
   const materialHandle = requireString(payload.materialHandle, 'materialHandle');
   const result = await materialStore.reserve({
     materialHandle,
+    poolIdentity: parseEcdsaClientPresignPoolIdentity(payload.poolIdentity),
     requestBinding: requireString(payload.requestBinding, 'requestBinding'),
     reservationId: requireString(payload.reservationId, 'reservationId'),
     leaseExpiresAtMs: requireFutureTimestamp(payload.leaseExpiresAtMs, 'leaseExpiresAtMs'),
@@ -424,6 +457,7 @@ async function commitPresignature(
   const materialHandle = requireString(payload.materialHandle, 'materialHandle');
   const result = await materialStore.commit({
     materialHandle,
+    poolIdentity: parseEcdsaClientPresignPoolIdentity(payload.poolIdentity),
     requestBinding: requireString(payload.requestBinding, 'requestBinding'),
     reservationId: requireString(payload.reservationId, 'reservationId'),
     nowMs: Date.now(),
@@ -432,49 +466,14 @@ async function commitPresignature(
   return { kind: 'ecdsa_client_presignature_lifecycle_advanced_v1', materialHandle };
 }
 
-async function handleOnlineMaterialRequest(
-  event: MessageEvent<EcdsaPresignMaterialRequest>,
-): Promise<void> {
-  if (!onlinePort) return;
-  if (!isEcdsaPresignMaterialRequest(event.data)) return;
-  const request = event.data;
-  const taken = await materialStore.takeForOnline({
-    materialHandle: request.materialHandle,
-    requestBinding: request.requestBinding,
-    reservationId: request.reservationId,
-    groupPublicKey33: new Uint8Array(request.groupPublicKey33),
-    expectedBigR33: new Uint8Array(request.expectedBigR33),
-    nowMs: Date.now(),
-  });
-  if (!taken.ok) {
-    const failure: EcdsaPresignMaterialResponse = {
-      kind: 'ecdsa_presign_material_result_v1',
-      requestId: request.requestId,
-      ok: false,
-      error: `ECDSA Client presign material unavailable: ${taken.code}`,
-    };
-    onlinePort.postMessage(failure);
-    return;
-  }
-  const material = taken.material;
-  const bigR33 = material.bigR33.buffer;
-  const kShare32 = material.kShare32.buffer;
-  const sigmaShare32 = material.sigmaShare32.buffer;
-  try {
-    const success: EcdsaPresignMaterialResponse = {
-      kind: 'ecdsa_presign_material_result_v1',
-      requestId: request.requestId,
-      ok: true,
-      bigR33,
-      kShare32,
-      sigmaShare32,
-    };
-    onlinePort.postMessage(success, [bigR33, kShare32, sigmaShare32]);
-  } finally {
-    zeroize(material.bigR33);
-    zeroize(material.kShare32);
-    zeroize(material.sigmaShare32);
-  }
+async function listAvailablePresignatures(
+  payload: EcdsaPresignClientOperationMap[typeof EcdsaPresignClientRequestType.ListAvailable]['payload'],
+): Promise<WorkerClientPresignatureRef[]> {
+  const refs = await materialStore.listAvailable(
+    parseEcdsaClientPresignPoolIdentity(payload.poolIdentity),
+    Date.now(),
+  );
+  return refs.map(durableRefToWorkerRef);
 }
 
 function attachControlChannel(value: unknown): boolean {
@@ -483,13 +482,6 @@ function attachControlChannel(value: unknown): boolean {
     derivationPort = value.port;
     derivationPort.onmessage = handleDerivationResponse;
     derivationPort.start();
-    return true;
-  }
-  if (isAttachEcdsaPresignToOnlinePort(value)) {
-    onlinePort?.close();
-    onlinePort = value.port;
-    onlinePort.onmessage = handleOnlineMaterialRequest;
-    onlinePort.start();
     return true;
   }
   if (isAttachEmailOtpToPresignPort(value)) {
@@ -572,6 +564,16 @@ async function handleRpcRequest(request: PresignRpcRequest): Promise<void> {
           result: {
             type: EcdsaPresignClientResponseType.CommitSuccess,
             payload: await commitPresignature(request.payload),
+          },
+        });
+        return;
+      case EcdsaPresignClientRequestType.ListAvailable:
+        self.postMessage({
+          id: request.id,
+          ok: true,
+          result: {
+            type: EcdsaPresignClientResponseType.ListAvailableSuccess,
+            payload: await listAvailablePresignatures(request.payload),
           },
         });
         return;

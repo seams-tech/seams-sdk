@@ -6,7 +6,6 @@ import {
   type RegistrationUserConfirmRequest,
   type TransactionSummary,
   UserConfirmMessageType,
-  type RegistrationActivationProof,
 } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import {
   parseAndValidateRegistrationCredentialConfirmationPayload,
@@ -27,6 +26,7 @@ import {
 import { coerceThemeMode } from '@shared/utils/theme';
 import { isBoolean, isObject, isString } from '@shared/utils/validation';
 import { errorMessage } from '@shared/utils/errors';
+import type { ConfirmUISurfaceSource } from '../../ui/confirm-ui';
 
 type RegistrationCredentialConfirmationArgs = {
   walletId: string;
@@ -35,7 +35,6 @@ type RegistrationCredentialConfirmationArgs = {
   confirmerText?: { title?: string; body?: string };
   confirmationConfig?: Partial<ConfirmationConfig>;
   challengeB64u?: string;
-  walletIframeActivation?: RegistrationActivationProof;
 };
 
 type RegistrationCredentialDecisionInput = {
@@ -56,7 +55,6 @@ export async function requestRegistrationCredentialConfirmation({
   confirmerText,
   confirmationConfig,
   challengeB64u,
-  walletIframeActivation,
 }: {
   touchConfirm: Pick<UiConfirmSecureConfirmationPort, 'requestUserConfirmation'>;
 } & RegistrationCredentialConfirmationArgs): Promise<RegistrationCredentialConfirmationPayload> {
@@ -71,7 +69,6 @@ export async function requestRegistrationCredentialConfirmation({
     confirmerText,
     confirmationConfig,
     challengeB64u,
-    walletIframeActivation,
   });
   const decision = await touchConfirm.requestUserConfirmation(request);
   return parseRegistrationCredentialDecision({ requestId: request.requestId, decision });
@@ -79,15 +76,16 @@ export async function requestRegistrationCredentialConfirmation({
 
 export async function requestRegistrationCredentialConfirmationOnMainThread({
   ctx,
+  surface,
   walletId,
   nearAccountId,
   signerSlot,
   confirmerText,
   confirmationConfig,
   challengeB64u,
-  walletIframeActivation,
 }: {
   ctx: UiConfirmContext;
+  surface: ConfirmUISurfaceSource;
 } & RegistrationCredentialConfirmationArgs): Promise<RegistrationCredentialConfirmationPayload> {
   const request = buildRegistrationCredentialConfirmationRequest({
     walletId,
@@ -96,7 +94,6 @@ export async function requestRegistrationCredentialConfirmationOnMainThread({
     confirmerText,
     confirmationConfig,
     challengeB64u,
-    walletIframeActivation,
   });
   validateUserConfirmRequest(request);
   assertNoForbiddenMainThreadSigningSecrets(request);
@@ -106,6 +103,7 @@ export async function requestRegistrationCredentialConfirmationOnMainThread({
   const theme = coerceThemeMode(ctx.getTheme?.()) ?? 'dark';
   const decision = await runRegistrationFlowOnMainThread({
     ctx,
+    surface,
     request,
     confirmationConfig: resolvedConfirmationConfig,
     transactionSummary,
@@ -121,7 +119,6 @@ function buildRegistrationCredentialConfirmationRequest({
   confirmerText,
   confirmationConfig,
   challengeB64u,
-  walletIframeActivation,
 }: RegistrationCredentialConfirmationArgs): RegistrationUserConfirmRequest {
   const requestId = secureRandomId('register', 32, 'registration credential confirmation IDs');
   const title = confirmerText?.title;
@@ -153,7 +150,6 @@ function buildRegistrationCredentialConfirmationRequest({
             },
           }
         : {}),
-      ...(walletIframeActivation ? { walletIframeActivation } : {}),
     },
     confirmationConfig,
     intentDigest: `register:${normalizedWalletId}:${signerSlot}`,
@@ -173,12 +169,14 @@ function buildRegistrationTransactionSummary(
 
 async function runRegistrationFlowOnMainThread({
   ctx,
+  surface,
   request,
   confirmationConfig,
   transactionSummary,
   theme,
 }: {
   ctx: UiConfirmContext;
+  surface: ConfirmUISurfaceSource;
   request: RegistrationUserConfirmRequest;
   confirmationConfig: NormalizedConfirmationConfig;
   transactionSummary: TransactionSummary;
@@ -205,6 +203,7 @@ async function runRegistrationFlowOnMainThread({
     confirmationConfig,
     transactionSummary,
     theme,
+    surface,
   }).then(
     () => {
       if (!decisionSettled) {

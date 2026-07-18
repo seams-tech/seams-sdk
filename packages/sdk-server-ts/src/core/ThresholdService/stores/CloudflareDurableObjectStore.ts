@@ -8,7 +8,6 @@ import {
   parseEcdsaDerivationRoleLocalKeyRecord,
   isObject,
   parseRouterAbEcdsaDerivationPoolFillSessionRecord,
-  parseRouterAbEcdsaDerivationServerPresignatureShareRecord,
   parseEcdsaWalletSessionRecord,
   parseEd25519WalletSessionRecord,
   parseWalletSigningBudgetSessionRecord,
@@ -72,8 +71,6 @@ import type {
   RouterAbEcdsaDerivationPoolFillSessionCasResult,
   RouterAbEcdsaDerivationPoolFillSessionRecord,
   RouterAbEcdsaDerivationPoolFillSessionStore,
-  RouterAbEcdsaDerivationPresignaturePool,
-  RouterAbEcdsaDerivationServerPresignatureShareRecord,
 } from './EcdsaSigningStore';
 import type {
   RouterAbEcdsaDerivationPoolFillLiveSessionCreateInput,
@@ -159,25 +156,6 @@ type DoAuthReserveReplayGuardRequest = {
   key: string;
   expiresAtMs: number;
 };
-type DoRouterAbEcdsaDerivationPresignaturePutRequest = {
-  op: 'routerAbEcdsaDerivationPresignaturePut';
-  listKey: string;
-  dedupeKey: string;
-  value: unknown;
-};
-type DoRouterAbEcdsaDerivationPresignatureReserveRequest = {
-  op: 'routerAbEcdsaDerivationPresignatureReserve';
-  listKey: string;
-  reservedKeyPrefix: string;
-  ttlMs?: number;
-};
-type DoRouterAbEcdsaDerivationPresignatureReserveByIdRequest = {
-  op: 'routerAbEcdsaDerivationPresignatureReserveById';
-  listKey: string;
-  reservedKeyPrefix: string;
-  presignatureId: string;
-  ttlMs?: number;
-};
 type DoRouterAbEcdsaDerivationPoolFillSessionCreateRequest = {
   op: 'routerAbEcdsaDerivationPoolFillSessionCreate';
   key: string;
@@ -222,9 +200,6 @@ type DoRequest =
   | DoAuthReleaseReservedBudgetUseCountRequest
   | DoAuthReleaseReservedBudgetUseCountForIdentityRequest
   | DoAuthReserveReplayGuardRequest
-  | DoRouterAbEcdsaDerivationPresignaturePutRequest
-  | DoRouterAbEcdsaDerivationPresignatureReserveRequest
-  | DoRouterAbEcdsaDerivationPresignatureReserveByIdRequest
   | DoRouterAbEcdsaDerivationPoolFillSessionCreateRequest
   | DoRouterAbEcdsaDerivationPoolFillSessionAdvanceCasRequest
   | DoRouterAbEcdsaDerivationPoolFillLiveSessionCreateRequest
@@ -1132,114 +1107,6 @@ export class CloudflareDurableObjectRouterAbEcdsaDerivationPoolFillLiveSessionOw
   }
 }
 
-export class CloudflareDurableObjectRouterAbEcdsaDerivationPresignaturePool implements RouterAbEcdsaDerivationPresignaturePool {
-  private readonly stub: DurableObjectStubLike;
-  private readonly keyPrefix: string;
-  private readonly reservationTtlMs: number;
-
-  constructor(input: {
-    namespace: CloudflareDurableObjectNamespaceLike;
-    objectName: string;
-    keyPrefix: string;
-    reservationTtlMs?: number;
-  }) {
-    this.stub = resolveDoStub({ namespace: input.namespace, objectName: input.objectName });
-    this.keyPrefix = input.keyPrefix;
-    this.reservationTtlMs = Math.max(1, Math.floor(Number(input.reservationTtlMs) || 120_000));
-  }
-
-  private listKey(relayerKeyId: string): string {
-    return `${this.keyPrefix}avail:${relayerKeyId}`;
-  }
-
-  private reservedKeyPrefix(relayerKeyId: string): string {
-    return `${this.keyPrefix}res:${relayerKeyId}:`;
-  }
-
-  private reservedKey(relayerKeyId: string, presignatureId: string): string {
-    return `${this.reservedKeyPrefix(relayerKeyId)}${presignatureId}`;
-  }
-
-  private dedupeKey(relayerKeyId: string, presignatureId: string): string {
-    return `${this.keyPrefix}done:${relayerKeyId}:${presignatureId}`;
-  }
-
-  async put(record: RouterAbEcdsaDerivationServerPresignatureShareRecord): Promise<void> {
-    const relayerKeyId = toOptionalTrimmedString(record.relayerKeyId);
-    const presignatureId = toOptionalTrimmedString(record.presignatureId);
-    if (!relayerKeyId || !presignatureId) throw new Error('Missing relayerKeyId/presignatureId');
-    const resp = await callDo<void>(this.stub, {
-      op: 'routerAbEcdsaDerivationPresignaturePut',
-      listKey: this.listKey(relayerKeyId),
-      dedupeKey: this.dedupeKey(relayerKeyId, presignatureId),
-      value: record,
-    });
-    if (!resp.ok) throw new Error(resp.message);
-  }
-
-  async reserve(
-    relayerKeyId: string,
-  ): Promise<RouterAbEcdsaDerivationServerPresignatureShareRecord | null> {
-    const key = toOptionalTrimmedString(relayerKeyId);
-    if (!key) return null;
-    const resp = await callDo<unknown | null>(this.stub, {
-      op: 'routerAbEcdsaDerivationPresignatureReserve',
-      listKey: this.listKey(key),
-      reservedKeyPrefix: this.reservedKeyPrefix(key),
-      ttlMs: this.reservationTtlMs,
-    });
-    if (!resp.ok) return null;
-    return parseRouterAbEcdsaDerivationServerPresignatureShareRecord(
-      resp.value,
-    ) as RouterAbEcdsaDerivationServerPresignatureShareRecord | null;
-  }
-
-  async reserveById(
-    relayerKeyId: string,
-    presignatureId: string,
-  ): Promise<RouterAbEcdsaDerivationServerPresignatureShareRecord | null> {
-    const key = toOptionalTrimmedString(relayerKeyId);
-    const id = toOptionalTrimmedString(presignatureId);
-    if (!key || !id) return null;
-    const resp = await callDo<unknown | null>(this.stub, {
-      op: 'routerAbEcdsaDerivationPresignatureReserveById',
-      listKey: this.listKey(key),
-      reservedKeyPrefix: this.reservedKeyPrefix(key),
-      presignatureId: id,
-      ttlMs: this.reservationTtlMs,
-    });
-    if (!resp.ok) return null;
-    return parseRouterAbEcdsaDerivationServerPresignatureShareRecord(
-      resp.value,
-    ) as RouterAbEcdsaDerivationServerPresignatureShareRecord | null;
-  }
-
-  async consume(
-    relayerKeyId: string,
-    presignatureId: string,
-  ): Promise<RouterAbEcdsaDerivationServerPresignatureShareRecord | null> {
-    const key = toOptionalTrimmedString(relayerKeyId);
-    const id = toOptionalTrimmedString(presignatureId);
-    if (!key || !id) return null;
-    const resp = await callDo<unknown | null>(this.stub, {
-      op: 'getdel',
-      key: this.reservedKey(key, id),
-    });
-    if (!resp.ok) return null;
-    return parseRouterAbEcdsaDerivationServerPresignatureShareRecord(
-      resp.value,
-    ) as RouterAbEcdsaDerivationServerPresignatureShareRecord | null;
-  }
-
-  async discard(relayerKeyId: string, presignatureId: string): Promise<void> {
-    const key = toOptionalTrimmedString(relayerKeyId);
-    const id = toOptionalTrimmedString(presignatureId);
-    if (!key || !id) return;
-    const resp = await callDo<void>(this.stub, { op: 'del', key: this.reservedKey(key, id) });
-    if (!resp.ok) throw new Error(resp.message);
-  }
-}
-
 export function createCloudflareDurableObjectThresholdEd25519Stores(input: {
   config?: ThresholdStoreConfigInput | null;
   logger: NormalizedLogger;
@@ -1340,7 +1207,6 @@ export function createCloudflareDurableObjectThresholdEcdsaStores(input: {
   walletSessionStore: EcdsaWalletSessionStore;
   poolFillSessionStore: RouterAbEcdsaDerivationPoolFillSessionStore;
   poolFillLiveSessionOwner: RouterAbEcdsaDerivationPoolFillLiveSessionOwner;
-  presignaturePool: RouterAbEcdsaDerivationPresignaturePool;
 } | null {
   const config = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
   const kind = toOptionalTrimmedString(config.kind);
@@ -1394,11 +1260,6 @@ export function createCloudflareDurableObjectThresholdEcdsaStores(input: {
     poolFillLiveSessionOwner: new CloudflareDurableObjectRouterAbEcdsaDerivationPoolFillLiveSessionOwner({
       namespace,
       objectName,
-    }),
-    presignaturePool: new CloudflareDurableObjectRouterAbEcdsaDerivationPresignaturePool({
-      namespace,
-      objectName,
-      keyPrefix: presignPrefix,
     }),
   };
 }

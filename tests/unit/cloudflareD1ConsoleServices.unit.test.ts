@@ -23,7 +23,9 @@ import type {
   D1ResultLike,
 } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
 import type { CfExecutionContext } from '../../packages/sdk-server-ts/src/router/cloudflare/cloudflare.types';
-import localD1DevWorker from '../../packages/console-server-ts/src/router/cloudflare/d1LocalDevWorker';
+import localD1DevWorker, {
+  buildLocalRouterRequest,
+} from '../../packages/console-server-ts/src/router/cloudflare/d1LocalDevWorker';
 import { parseEcdsaDerivationClientBootstrapRequest } from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
 import type { SponsoredEvmCallExecutorConfig } from '../../packages/console-server-ts/src/sponsorship/evmExecutorTypes';
 import {
@@ -42,7 +44,7 @@ import {
   ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
   type RouterAbPublicKeysetV2,
 } from '../../packages/shared-ts/src/utils/routerAbPublicKeyset';
-import { initSync as initEcdsaDerivationClientWasmSync } from '../../wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.js';
+import { initSync as initEcdsaRegistrationClientWasmSync } from '../../wasm/ecdsa_registration_client/pkg/ecdsa_registration_client.js';
 import { prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest } from '../helpers/thresholdEcdsaClientBootstrap';
 import { createFixtureSigningRootShareResolverForUnitTests } from '../helpers/routerAbSigningRuntimeTestUtils';
 import {
@@ -65,12 +67,37 @@ const LOCAL_D1_WORKFLOW_SIGNING_WORKER_ID = 'signing-worker.local';
 const LOCAL_POOL_FILL_SESSION_SECRET = 'local-pool-fill-session-secret-for-d1-do-smoke';
 const LOCAL_POOL_FILL_SESSION_ISSUER = 'local-pool-fill-issuer';
 const LOCAL_POOL_FILL_SESSION_AUDIENCE = 'local-pool-fill-audience';
-const ECDSA_DERIVATION_CLIENT_WASM_URL = new URL(
-  '../../wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client_bg.wasm',
+const ECDSA_REGISTRATION_CLIENT_WASM_URL = new URL(
+  '../../wasm/ecdsa_registration_client/pkg/ecdsa_registration_client_bg.wasm',
   import.meta.url,
 );
 
-let ecdsaDerivationClientWasmInitialized = false;
+let ecdsaRegistrationClientWasmInitialized = false;
+
+test('local Router binding rewrites the origin and preserves authenticated POST requests', async () => {
+  const request = buildLocalRouterRequest(
+    'http://127.0.0.1:9090',
+    new Request(
+      'https://router.router-ab.internal/router-ab/ecdsa-derivation/register?attempt=1',
+      {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer ceremony-token',
+          'content-type': 'application/json',
+        },
+        body: '{"registration":"payload"}',
+      },
+    ),
+  );
+
+  expect(request.url).toBe(
+    'http://127.0.0.1:9090/router-ab/ecdsa-derivation/register?attempt=1',
+  );
+  expect(request.method).toBe('POST');
+  expect(request.headers.get('authorization')).toBe('Bearer ceremony-token');
+  expect(request.headers.get('content-type')).toBe('application/json');
+  expect(await request.text()).toBe('{"registration":"payload"}');
+});
 
 class FakeD1PreparedStatement implements D1PreparedStatementLike {
   constructor(private readonly query: string) {}
@@ -413,10 +440,10 @@ function isJsonRecord(value: unknown): value is JsonRecord {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
-function ensureEcdsaDerivationClientWasm(): void {
-  if (ecdsaDerivationClientWasmInitialized) return;
-  initEcdsaDerivationClientWasmSync({ module: readFileSync(ECDSA_DERIVATION_CLIENT_WASM_URL) });
-  ecdsaDerivationClientWasmInitialized = true;
+function ensureEcdsaRegistrationClientWasm(): void {
+  if (ecdsaRegistrationClientWasmInitialized) return;
+  initEcdsaRegistrationClientWasmSync({ module: readFileSync(ECDSA_REGISTRATION_CLIENT_WASM_URL) });
+  ecdsaRegistrationClientWasmInitialized = true;
 }
 
 function rootShare32B64u(byte: number): string {
@@ -501,7 +528,7 @@ async function bootstrapLocalPoolFillEcdsaSession(input: {
   readonly keyHandle: string;
   readonly scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
 }> {
-  ensureEcdsaDerivationClientWasm();
+  ensureEcdsaRegistrationClientWasm();
   const walletId = 'local-pool-fill-wallet';
   const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
     walletId,

@@ -137,7 +137,6 @@ export async function roleLocalThresholdEcdsaDerivationRelayerBootstrap(input: {
   relayerPublicKey33: Uint8Array;
   groupPublicKey33: Uint8Array;
   ethereumAddress20: Uint8Array;
-  relayerMappedPrivateShare32: Uint8Array;
   relayerShareRetryCounter: number;
   publicTranscriptDigest32: Uint8Array;
 }> {
@@ -157,7 +156,6 @@ export async function roleLocalThresholdEcdsaDerivationRelayerBootstrap(input: {
     relayerPublicKey33: Uint8Array;
     groupPublicKey33: Uint8Array;
     ethereumAddress20: Uint8Array;
-    relayerMappedPrivateShare32: Uint8Array;
     relayerShareRetryCounter: number;
     publicTranscriptDigest32: Uint8Array;
   };
@@ -167,11 +165,6 @@ export async function roleLocalThresholdEcdsaDerivationRelayerBootstrap(input: {
     relayerPublicKey33: checkedBytes('relayerPublicKey33', raw.relayerPublicKey33, 33),
     groupPublicKey33: checkedBytes('groupPublicKey33', raw.groupPublicKey33, 33),
     ethereumAddress20: checkedBytes('ethereumAddress20', raw.ethereumAddress20, 20),
-    relayerMappedPrivateShare32: checkedBytes(
-      'relayerMappedPrivateShare32',
-      raw.relayerMappedPrivateShare32,
-      32,
-    ),
     relayerShareRetryCounter: raw.relayerShareRetryCounter,
     publicTranscriptDigest32: checkedBytes(
       'publicTranscriptDigest32',

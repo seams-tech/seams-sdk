@@ -65,43 +65,30 @@ function randPrefix(tag: string): string {
   return `test:${tag}:${Date.now()}:${Math.random().toString(16).slice(2)}:`;
 }
 
-function makePresignRecord(args: {
-  relayerKeyId: string;
-  presignatureId: string;
-  createdAtMs?: number;
-}) {
-  return {
-    relayerKeyId: args.relayerKeyId,
-    presignatureId: args.presignatureId,
-    bigRB64u: 'ddddddddddddddddddddddddddddddddddddddddddd',
-    kShareB64u: 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
-    sigmaShareB64u: 'fffffffffffffffffffffffffffffffffffffffffff',
-    createdAtMs: args.createdAtMs ?? Date.now(),
-  };
-}
-
 function makePresignSessionRecord(args?: {
   version?: number;
   stage?: 'triples' | 'triples_done' | 'presign' | 'done';
 }) {
   const version = args?.version ?? 1;
+  const nowMs = Date.now();
+  const expiresAtMs = nowMs + 60_000;
   return {
-    expiresAtMs: Date.now() + 60_000,
-    userId: 'user-1',
-    rpId: 'example.localhost',
+    expiresAtMs,
+    walletId: 'wallet-do-1',
+    evmFamilySigningKeySlotId: 'wallet-key:evm-family:wallet-do-1:signing-root-do-1:root-v1',
     relayerKeyId: 'rk-presign',
     presignPoolKey: 'keyHandle:rk-presign',
-    poolFill: { kind: 'local_threshold_ecdsa_presignature_pool' },
+    poolFill: makeSigningWorkerPoolFill(expiresAtMs),
     participantIds: [1, 2],
     clientParticipantId: 1,
     relayerParticipantId: 2,
     stage: args?.stage ?? 'triples',
     version,
-    wasmSessionStateB64u: 'cHJlc2lnbi1zZXNzaW9uLXN0YXRl',
-    createdAtMs: Date.now(),
-    updatedAtMs: Date.now(),
-    signingRootId: 'signing-root',
-    walletKeyVersion: 'v1',
+    createdAtMs: nowMs,
+    updatedAtMs: nowMs + version,
+    signingRootId: 'signing-root-do-1',
+    signingRootVersion: 'root-v1',
+    walletKeyVersion: 'wallet-key-version-1',
     derivationVersion: 1,
   };
 }
@@ -139,7 +126,7 @@ function makeCloudflareDoPresignSessionRecord(input: {
     evmFamilySigningKeySlotId: 'wallet-key:evm-family:wallet-do-1:signing-root-do-1:root-v1',
     relayerKeyId: input.relayerKeyId,
     presignPoolKey: `keyHandle:${input.relayerKeyId}`,
-    poolFill: { kind: 'local_threshold_ecdsa_presignature_pool' },
+    poolFill: makeSigningWorkerPoolFill(nowMs + 60_000),
     participantIds: [1, 2],
     clientParticipantId: 1,
     relayerParticipantId: 2,
@@ -158,6 +145,49 @@ function randomSecpSecretKey32(): Uint8Array {
   const utils = (secp256k1 as unknown as { utils?: { randomSecretKey?: () => Uint8Array } }).utils;
   if (utils?.randomSecretKey) return utils.randomSecretKey();
   throw new Error('secp256k1 random secret key generator is unavailable');
+}
+
+function makeSigningWorkerPoolFill(expiresAtMs: number) {
+  const clientShare32 = new Uint8Array(32).fill(1);
+  const serverShare32 = new Uint8Array(32).fill(2);
+  const groupShare32 = new Uint8Array(32).fill(3);
+  return {
+    kind: 'router_ab_ecdsa_derivation_signing_worker_pool' as const,
+    routerAbEcdsaDerivation: {
+      expiresAtMs,
+      scope: {
+        wallet_key_id: 'wallet-key:evm-family:wallet-do-1:signing-root-do-1:root-v1',
+        wallet_id: 'wallet-do-1',
+        ecdsa_threshold_key_id: 'threshold-key-do-1',
+        signing_root_id: 'signing-root-do-1',
+        signing_root_version: 'root-v1',
+        context: {
+          application_binding_digest_b64u: base64UrlEncode(new Uint8Array(32).fill(4)),
+        },
+        public_identity: {
+          context_binding_b64u: base64UrlEncode(new Uint8Array(32).fill(5)),
+          derivation_client_share_public_key33_b64u: base64UrlEncode(
+            secp256k1.getPublicKey(clientShare32, true),
+          ),
+          server_public_key33_b64u: base64UrlEncode(
+            secp256k1.getPublicKey(serverShare32, true),
+          ),
+          threshold_public_key33_b64u: base64UrlEncode(
+            secp256k1.getPublicKey(groupShare32, true),
+          ),
+          ethereum_address20_b64u: base64UrlEncode(new Uint8Array(20).fill(6)),
+          client_share_retry_counter: 0,
+          server_share_retry_counter: 0,
+        },
+        signing_worker: {
+          server_id: 'signing-worker-a',
+          key_epoch: 'epoch-1',
+          recipient_encryption_key: 'recipient-key',
+        },
+        activation_epoch: 'activation-1',
+      },
+    },
+  };
 }
 
 function makeEcdsaDerivationPoolFillLiveSessionMaterial(): {
@@ -246,93 +276,6 @@ test.describe('threshold-ecdsa durable presign stores', () => {
   });
 
   test.describe('Cloudflare Durable Object', () => {
-    test('presignaturePool reserve/consume are single-use under concurrency', async () => {
-      const prefix = randPrefix('threshold-ecdsa:presign:cloudflare-do');
-      const { presignaturePool } = createThresholdEcdsaSigningStores({
-        config: {
-          kind: 'cloudflare-do',
-          namespace: createMemoryDurableObjectNamespace(),
-          name: randPrefix('threshold-ecdsa:do-object'),
-          THRESHOLD_ECDSA_PRESIGN_PREFIX: prefix,
-        },
-        logger: testLogger,
-        isNode: false,
-      });
-
-      const relayerKeyId = 'rk-do-2';
-      await presignaturePool.put(
-        makePresignRecord({
-          relayerKeyId,
-          presignatureId: 'ps-do-a',
-          createdAtMs: Date.now() - 2,
-        }),
-      );
-      await presignaturePool.put(
-        makePresignRecord({
-          relayerKeyId,
-          presignatureId: 'ps-do-b',
-          createdAtMs: Date.now() - 1,
-        }),
-      );
-
-      const [a, b] = await Promise.all([
-        presignaturePool.reserve(relayerKeyId),
-        presignaturePool.reserve(relayerKeyId),
-      ]);
-      expect(a && b).toBeTruthy();
-      expect(a?.presignatureId).not.toBe(b?.presignatureId);
-
-      const a1 = await presignaturePool.consume(relayerKeyId, a?.presignatureId || '');
-      const a2 = await presignaturePool.consume(relayerKeyId, a?.presignatureId || '');
-      expect(a1?.presignatureId).toBe(a?.presignatureId);
-      expect(a2).toBeNull();
-
-      const b1 = await presignaturePool.consume(relayerKeyId, b?.presignatureId || '');
-      const b2 = await presignaturePool.consume(relayerKeyId, b?.presignatureId || '');
-      expect(b1?.presignatureId).toBe(b?.presignatureId);
-      expect(b2).toBeNull();
-    });
-
-    test('presignaturePool reserveById selects requested item and preserves others', async () => {
-      const prefix = randPrefix('threshold-ecdsa:presign:cloudflare-do-by-id');
-      const { presignaturePool } = createThresholdEcdsaSigningStores({
-        config: {
-          kind: 'cloudflare-do',
-          namespace: createMemoryDurableObjectNamespace(),
-          name: randPrefix('threshold-ecdsa:do-object-by-id'),
-          THRESHOLD_ECDSA_PRESIGN_PREFIX: prefix,
-        },
-        logger: testLogger,
-        isNode: false,
-      });
-
-      const relayerKeyId = 'rk-do-by-id';
-      await presignaturePool.put(
-        makePresignRecord({
-          relayerKeyId,
-          presignatureId: 'ps-do-by-a',
-          createdAtMs: Date.now() - 2,
-        }),
-      );
-      await presignaturePool.put(
-        makePresignRecord({
-          relayerKeyId,
-          presignatureId: 'ps-do-by-b',
-          createdAtMs: Date.now() - 1,
-        }),
-      );
-
-      const reservedById = await presignaturePool.reserveById(relayerKeyId, 'ps-do-by-b');
-      expect(reservedById?.presignatureId).toBe('ps-do-by-b');
-      const consumedById = await presignaturePool.consume(relayerKeyId, 'ps-do-by-b');
-      expect(consumedById?.presignatureId).toBe('ps-do-by-b');
-
-      const remaining = await presignaturePool.reserve(relayerKeyId);
-      expect(remaining?.presignatureId).toBe('ps-do-by-a');
-      const consumedRemaining = await presignaturePool.consume(relayerKeyId, 'ps-do-by-a');
-      expect(consumedRemaining?.presignatureId).toBe('ps-do-by-a');
-    });
-
     test('poolFillSessionStore CAS transitions are atomic', async () => {
       const prefix = randPrefix('threshold-ecdsa:presign:cloudflare-do-cas');
       const relayerKeyId = 'rk-do-cas';
@@ -451,91 +394,6 @@ test.describe('threshold-ecdsa durable presign stores', () => {
     const enabled = Boolean(redisUrl);
     const presignPrefix = randPrefix('threshold-ecdsa:presign:redis');
 
-    test('presignaturePool reserve/consume are single-use under concurrency', async () => {
-      test.skip(!enabled, 'REDIS_URL not set');
-      const { presignaturePool } = createThresholdEcdsaSigningStores({
-        config: {
-          kind: 'redis-tcp',
-          REDIS_URL: redisUrl,
-          THRESHOLD_ECDSA_PRESIGN_PREFIX: presignPrefix,
-        } as any,
-        logger: console as any,
-        isNode: true,
-      });
-
-      const relayerKeyId = 'rk-11';
-      await presignaturePool.put(
-        makePresignRecord({
-          relayerKeyId,
-          presignatureId: 'ps-ra',
-          createdAtMs: Date.now() - 2,
-        }) as any,
-      );
-      await presignaturePool.put(
-        makePresignRecord({
-          relayerKeyId,
-          presignatureId: 'ps-rb',
-          createdAtMs: Date.now() - 1,
-        }) as any,
-      );
-
-      const [a, b] = await Promise.all([
-        presignaturePool.reserve(relayerKeyId),
-        presignaturePool.reserve(relayerKeyId),
-      ]);
-      expect(a && b).toBeTruthy();
-      expect(a!.presignatureId).not.toBe(b!.presignatureId);
-
-      const a1 = await presignaturePool.consume(relayerKeyId, a!.presignatureId);
-      const a2 = await presignaturePool.consume(relayerKeyId, a!.presignatureId);
-      expect(a1?.presignatureId).toBe(a!.presignatureId);
-      expect(a2).toBeNull();
-
-      const b1 = await presignaturePool.consume(relayerKeyId, b!.presignatureId);
-      const b2 = await presignaturePool.consume(relayerKeyId, b!.presignatureId);
-      expect(b1?.presignatureId).toBe(b!.presignatureId);
-      expect(b2).toBeNull();
-    });
-
-    test('presignaturePool reserveById selects requested item and preserves others', async () => {
-      test.skip(!enabled, 'REDIS_URL not set');
-      const { presignaturePool } = createThresholdEcdsaSigningStores({
-        config: {
-          kind: 'redis-tcp',
-          REDIS_URL: redisUrl,
-          THRESHOLD_ECDSA_PRESIGN_PREFIX: presignPrefix,
-        } as any,
-        logger: console as any,
-        isNode: true,
-      });
-
-      const relayerKeyId = 'rk-11-by-id';
-      await presignaturePool.put(
-        makePresignRecord({
-          relayerKeyId,
-          presignatureId: 'ps-rby-a',
-          createdAtMs: Date.now() - 2,
-        }) as any,
-      );
-      await presignaturePool.put(
-        makePresignRecord({
-          relayerKeyId,
-          presignatureId: 'ps-rby-b',
-          createdAtMs: Date.now() - 1,
-        }) as any,
-      );
-
-      const reservedById = await presignaturePool.reserveById(relayerKeyId, 'ps-rby-b');
-      expect(reservedById?.presignatureId).toBe('ps-rby-b');
-      const consumedById = await presignaturePool.consume(relayerKeyId, 'ps-rby-b');
-      expect(consumedById?.presignatureId).toBe('ps-rby-b');
-
-      const remaining = await presignaturePool.reserve(relayerKeyId);
-      expect(remaining?.presignatureId).toBe('ps-rby-a');
-      const consumedRemaining = await presignaturePool.consume(relayerKeyId, 'ps-rby-a');
-      expect(consumedRemaining?.presignatureId).toBe('ps-rby-a');
-    });
-
     test('poolFillSessionStore CAS transitions are atomic', async () => {
       test.skip(!enabled, 'REDIS_URL not set');
       const { poolFillSessionStore } = createThresholdEcdsaSigningStores({
@@ -600,93 +458,6 @@ test.describe('threshold-ecdsa durable presign stores', () => {
     const upstashToken = String(process.env.UPSTASH_REDIS_REST_TOKEN || '').trim();
     const enabled = Boolean(upstashUrl && upstashToken);
     const presignPrefix = randPrefix('threshold-ecdsa:presign:upstash');
-
-    test('presignaturePool reserve/consume are single-use under concurrency', async () => {
-      test.skip(!enabled, 'UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN not set');
-      const { presignaturePool } = createThresholdEcdsaSigningStores({
-        config: {
-          kind: 'upstash-redis-rest',
-          UPSTASH_REDIS_REST_URL: upstashUrl,
-          UPSTASH_REDIS_REST_TOKEN: upstashToken,
-          THRESHOLD_ECDSA_PRESIGN_PREFIX: presignPrefix,
-        } as any,
-        logger: console as any,
-        isNode: true,
-      });
-
-      const relayerKeyId = 'rk-u2';
-      await presignaturePool.put(
-        makePresignRecord({
-          relayerKeyId,
-          presignatureId: 'ps-ua',
-          createdAtMs: Date.now() - 2,
-        }) as any,
-      );
-      await presignaturePool.put(
-        makePresignRecord({
-          relayerKeyId,
-          presignatureId: 'ps-ub',
-          createdAtMs: Date.now() - 1,
-        }) as any,
-      );
-
-      const [a, b] = await Promise.all([
-        presignaturePool.reserve(relayerKeyId),
-        presignaturePool.reserve(relayerKeyId),
-      ]);
-      expect(a && b).toBeTruthy();
-      expect(a!.presignatureId).not.toBe(b!.presignatureId);
-
-      const a1 = await presignaturePool.consume(relayerKeyId, a!.presignatureId);
-      const a2 = await presignaturePool.consume(relayerKeyId, a!.presignatureId);
-      expect(a1?.presignatureId).toBe(a!.presignatureId);
-      expect(a2).toBeNull();
-
-      const b1 = await presignaturePool.consume(relayerKeyId, b!.presignatureId);
-      const b2 = await presignaturePool.consume(relayerKeyId, b!.presignatureId);
-      expect(b1?.presignatureId).toBe(b!.presignatureId);
-      expect(b2).toBeNull();
-    });
-
-    test('presignaturePool reserveById selects requested item and preserves others', async () => {
-      test.skip(!enabled, 'UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN not set');
-      const { presignaturePool } = createThresholdEcdsaSigningStores({
-        config: {
-          kind: 'upstash-redis-rest',
-          UPSTASH_REDIS_REST_URL: upstashUrl,
-          UPSTASH_REDIS_REST_TOKEN: upstashToken,
-          THRESHOLD_ECDSA_PRESIGN_PREFIX: presignPrefix,
-        } as any,
-        logger: console as any,
-        isNode: true,
-      });
-
-      const relayerKeyId = 'rk-u2-by-id';
-      await presignaturePool.put(
-        makePresignRecord({
-          relayerKeyId,
-          presignatureId: 'ps-uby-a',
-          createdAtMs: Date.now() - 2,
-        }) as any,
-      );
-      await presignaturePool.put(
-        makePresignRecord({
-          relayerKeyId,
-          presignatureId: 'ps-uby-b',
-          createdAtMs: Date.now() - 1,
-        }) as any,
-      );
-
-      const reservedById = await presignaturePool.reserveById(relayerKeyId, 'ps-uby-b');
-      expect(reservedById?.presignatureId).toBe('ps-uby-b');
-      const consumedById = await presignaturePool.consume(relayerKeyId, 'ps-uby-b');
-      expect(consumedById?.presignatureId).toBe('ps-uby-b');
-
-      const remaining = await presignaturePool.reserve(relayerKeyId);
-      expect(remaining?.presignatureId).toBe('ps-uby-a');
-      const consumedRemaining = await presignaturePool.consume(relayerKeyId, 'ps-uby-a');
-      expect(consumedRemaining?.presignatureId).toBe('ps-uby-a');
-    });
 
     test('poolFillSessionStore CAS transitions are atomic', async () => {
       test.skip(!enabled, 'UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN not set');

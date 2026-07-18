@@ -1,610 +1,27 @@
-import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
-import { sha256BytesUtf8 } from '@shared/utils/digests';
-import { secureRandomId } from '@shared/utils/secureRandomId';
-import {
-  ECDSA_DERIVATION_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION,
-  computeEcdsaDerivationRoleLocalFirstBootstrapRootProofDigest32B64u,
-  computeEcdsaDerivationRoleLocalPasskeyBootstrapAuthDigest32B64u,
-  computeEcdsaDerivationRoleLocalRelayerKeyId,
-  computeEcdsaDerivationRoleLocalThresholdKeyId,
-  computeSdkEcdsaDerivationApplicationBindingDigestB64u,
-  type EcdsaClientRootPublicKey33B64u,
-  type DerivationClientSharePublicKey33B64u,
-} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
-import type { ThresholdEcdsaDerivationRoleLocalClientState } from '../../interfaces/signing';
-import {
-  thresholdEcdsaDerivationRoleLocalBootstrap,
-  type ThresholdEcdsaDerivationRoleLocalClientRootProof,
-  type ThresholdEcdsaDerivationRoleLocalPasskeyBootstrapAuthorization,
-  type ThresholdEcdsaDerivationRoleLocalBootstrapRequest,
-  type ThresholdEcdsaDerivationRouteAuth,
-} from '@/core/rpcClients/relayer/thresholdEcdsa';
-import { decodeJwtPayloadRecord } from '@shared/utils/sessionTokens';
-import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import type { ThresholdEcdsaDerivationRouteAuth } from '@/core/rpcClients/relayer/thresholdEcdsa';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
-import type { EmailOtpPrepareEcdsaClientBootstrapInput } from '../../workerManager/workerTypes';
-import {
-  type ThresholdCredentialStorePort,
-  type ThresholdWebAuthnPromptPort,
+import type {
+  ThresholdCredentialStorePort,
+  ThresholdWebAuthnPromptPort,
 } from '../crypto/webauthn';
 import {
-  buildEcdsaDerivationSessionPolicy,
-  clampThresholdSessionPolicy,
-  DEFAULT_THRESHOLD_SESSION_POLICY,
-  generateThresholdSessionId,
-  generateSigningGrantId,
   normalizeThresholdRuntimePolicyScope,
   type ThresholdRuntimePolicyScope,
-  type ThresholdSessionKind,
 } from '../sessionPolicy';
-import {
-  toEcdsaDerivationSigningRootId,
-  toEcdsaDerivationSigningRootVersion,
-  toEcdsaDerivationThresholdKeyId,
-} from '../../session/identity/emailOtpEcdsaDerivationIdentity';
-import {
-  finalizeEcdsaClientBootstrapCommandWasm,
-  prepareEcdsaClientBootstrapCommandWasm,
-} from '../crypto/ecdsaDerivationClientWasm';
-import {
-  buildEmailOtpWorkerSessionSecretSource,
-  buildWebAuthnPrfFirstSecretSourceFromParts,
-  type EcdsaBootstrapSecretSource,
-  type EmailOtpWorkerIssuedSessionHandle,
-  type PrepareEcdsaClientBootstrapOutput,
-} from '@/core/platform/types';
-import {
-  parseGeneratedFinalizeEcdsaClientBootstrapOutput,
-  parseGeneratedPrepareEcdsaClientBootstrapOutput,
-  toGeneratedFinalizeEcdsaClientBootstrapCommand,
-  toGeneratedPrepareEcdsaClientBootstrapCommand,
-} from '@/core/platform/signerCoreCommandAdapters';
-import { type ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   EvmFamilyEcdsaKeyHandle,
   EvmFamilyEcdsaKeyIdentity,
   EvmFamilyEcdsaSessionLanePolicy,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
-import {
-  deriveEvmFamilyKeyFingerprint,
-  toRpId,
-} from '../../session/identity/evmFamilyEcdsaIdentity';
-import { thresholdEcdsaChainTargetKey, toWalletId } from '../../interfaces/ecdsaChainTarget';
-import { collectAuthenticationCredentialForWalletChallengeB64u } from '../../webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
-import { getPrfFirstB64uFromCredential } from '../../webauthnAuth/credentials/credentialExtensions';
-import { buildEcdsaRoleLocalPublicFacts } from '../../session/persistence/ecdsaRoleLocalRecords';
-import {
-  secp256k1PrivateKey32ToPublicKey33Wasm,
-  signSecp256k1RecoverableWasm,
-} from '../../chains/evm/evmCryptoWasm';
-import { deriveWebCryptoHkdfSha256Bits256 } from '@/core/platform/webCryptoHkdf';
-import { requireEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
-
-const PASSKEY_THRESHOLD_ECDSA_CLIENT_ROOT_INFO_V1 = 'seams/passkey/threshold-ecdsa-client-root/v1';
-
-function joinUrlPath(base: string, path: string): string {
-  return `${String(base || '').replace(/\/+$/, '')}/${String(path || '').replace(/^\/+/, '')}`;
-}
-
-async function postJsonExpectOk(args: {
-  url: string;
-  headers?: Record<string, string>;
-  operation: string;
-  body: unknown;
-}): Promise<Record<string, unknown>> {
-  if (typeof fetch !== 'function') {
-    throw new Error(`${args.operation} requires fetch`);
-  }
-  const response = await fetch(args.url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(args.headers || {}),
-    },
-    credentials: 'omit',
-    body: JSON.stringify(args.body),
-  });
-  const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-  if (!response.ok || data.ok === false) {
-    throw new Error(
-      String(data.message || data.code || `${args.operation} failed with HTTP ${response.status}`),
-    );
-  }
-  return data;
-}
-
-async function requestManagedRegistrationBootstrapGrant(args: {
-  relayerUrl: string;
-  environmentId: string;
-  publishableKey: string;
-  walletId: string;
-  rpId: string;
-}): Promise<{ token: string; runtimePolicyScope: ThresholdRuntimePolicyScope }> {
-  const data = await postJsonExpectOk({
-    url: joinUrlPath(args.relayerUrl, '/v1/registration/bootstrap-grants'),
-    headers: { Authorization: `Bearer ${args.publishableKey}` },
-    operation: 'Managed registration bootstrap grant',
-    body: {
-      environmentId: args.environmentId,
-      newAccountId: args.walletId,
-      rpId: args.rpId,
-      flow: 'registration_v1',
-    },
-  });
-  const grant =
-    data.grant && typeof data.grant === 'object' && !Array.isArray(data.grant)
-      ? (data.grant as Record<string, unknown>)
-      : {};
-  const token = String(grant.token || '').trim();
-  const orgId = String(grant.orgId || '').trim();
-  const projectId = String(grant.projectId || '').trim();
-  const envId = String(grant.envId || '').trim();
-  const signingRootVersion = String(grant.signingRootVersion || '').trim();
-  if (!token || !orgId || !projectId || !envId || !signingRootVersion) {
-    throw new Error('Managed registration grant response missing token or runtime scope');
-  }
-  return {
-    token,
-    runtimePolicyScope: {
-      orgId,
-      projectId,
-      envId,
-      signingRootVersion,
-    },
-  };
-}
-
-function generateKeygenSessionId(): string {
-  return secureRandomId('tecdsa-keygen', 32, 'threshold ECDSA keygen session IDs');
-}
-
-function summarizeJwtClaims(jwtRaw: string | undefined): Record<string, unknown> {
-  const payload = decodeJwtPayloadRecord(String(jwtRaw || '').trim());
-  if (!payload) return { present: false };
-  return {
-    present: true,
-    kind: payload.kind,
-    sub: payload.sub,
-    walletId: payload.walletId,
-    userId: payload.userId,
-    sessionId: payload.sessionId,
-    signingGrantId: payload.signingGrantId,
-    exp: payload.exp,
-  };
-}
-
-function summarizeDerivationRouteAuth(
-  auth: ThresholdEcdsaDerivationRouteAuth | undefined,
-): Record<string, unknown> {
-  if (!auth) return { kind: 'none' };
-  if (auth.kind === 'wallet_session' || auth.kind === 'app_session') {
-    return {
-      kind: auth.kind,
-      jwtClaims: summarizeJwtClaims(auth.jwt),
-    };
-  }
-  return { kind: auth.kind, hasToken: Boolean(String(auth.token || '').trim()) };
-}
-
-async function emitBootstrapChallengeDiagnostic(args: {
-  challengeB64u?: string;
-  requestId: string;
-  sessionId: string;
-  signingGrantId: string;
-  challengeKind: 'ecdsa_role_local_bootstrap';
-}): Promise<void> {
-  const challengeB64u = String(args.challengeB64u || '').trim();
-  if (!challengeB64u) return;
-  try {
-    const challengeHash8 = base64UrlEncode(await sha256BytesUtf8(challengeB64u)).slice(0, 8);
-    console.info('[threshold-ecdsa][webauthn-challenge]', {
-      stage: 'bootstrap_verify',
-      challengeKind: args.challengeKind,
-      challengeHash8,
-      requestId: args.requestId,
-      thresholdSessionId: args.sessionId,
-      signingGrantId: args.signingGrantId,
-    });
-  } catch {}
-}
-
-type BootstrapSecretSourceResolution =
-  | {
-      ok: true;
-      kind: 'email_otp';
-      secretSource: EcdsaBootstrapSecretSource;
-      authorizationCredential?: never;
-      passkeyPrfFirstB64u?: never;
-      credentialIdB64u?: never;
-    }
-  | {
-      ok: true;
-      kind: 'passkey';
-      secretSource: Extract<EcdsaBootstrapSecretSource, { kind: 'webauthn_prf_first' }>;
-      authorizationCredential: WebAuthnAuthenticationCredential | null;
-      passkeyPrfFirstB64u: string;
-      credentialIdB64u: string;
-    }
-  | {
-      ok: false;
-      code: string;
-      message: string;
-    };
-
-function credentialIdB64uFromAuthenticationCredential(
-  credential: WebAuthnAuthenticationCredential,
-): string {
-  const credentialIdB64u = String(credential.rawId || credential.id || '').trim();
-  if (!credentialIdB64u) {
-    throw new Error('threshold-ecdsa passkey bootstrap requires credential id');
-  }
-  return credentialIdB64u;
-}
-
-function normalizeBootstrapWalletKeyId(value: unknown): string {
-  return String(requireEvmFamilySigningKeySlotId(value, 'evmFamilySigningKeySlotId'));
-}
-
-function passkeyPrfSecretSourceFromParts(args: {
-  prfFirstB64u: string;
-  rpId: string;
-  credentialIdB64u: string;
-}): Extract<EcdsaBootstrapSecretSource, { kind: 'webauthn_prf_first' }> {
-  return buildWebAuthnPrfFirstSecretSourceFromParts({
-    prfFirstB64u: args.prfFirstB64u,
-    rpId: toRpId(args.rpId),
-    credentialIdB64u: args.credentialIdB64u,
-  });
-}
-
-type ResolveBootstrapSecretSourceRequest =
-  | {
-      kind: 'email_otp';
-      emailOtpWorkerSessionHandle: Extract<
-        EmailOtpWorkerIssuedSessionHandle,
-        { action: 'threshold_ecdsa_bootstrap' }
-      >;
-    }
-  | {
-      kind: 'passkey_prf_first_bytes';
-      providedPrfFirst32: Uint8Array;
-      credentialIdB64u: string;
-      authorizationCredential: WebAuthnAuthenticationCredential | null;
-      rpId: string;
-    }
-  | {
-      kind: 'passkey_prf_first_b64u';
-      providedPrfFirstB64u: string;
-      credentialIdB64u: string;
-      authorizationCredential: WebAuthnAuthenticationCredential | null;
-      rpId: string;
-    }
-  | {
-      kind: 'passkey_webauthn_credential';
-      credential: WebAuthnAuthenticationCredential;
-      rpId: string;
-    }
-  | {
-      kind: 'passkey_webauthn_challenge';
-      credentialStore: ThresholdCredentialStorePort;
-      touchIdPrompt: ThresholdWebAuthnPromptPort;
-      walletId: string;
-      challengeB64u: string;
-      rpId: string;
-    };
-
-type BuildBootstrapSecretSourceRequestResult =
-  | {
-      ok: true;
-      request: ResolveBootstrapSecretSourceRequest;
-    }
-  | {
-      ok: false;
-      code: string;
-      message: string;
-    };
-
-function passkeyBootstrapSecretSourceResolution(args: {
-  prfFirstB64u: string;
-  credentialIdB64u: string;
-  authorizationCredential: WebAuthnAuthenticationCredential | null;
-  rpId: string;
-}): BootstrapSecretSourceResolution {
-  return {
-    ok: true,
-    kind: 'passkey',
-    passkeyPrfFirstB64u: args.prfFirstB64u,
-    credentialIdB64u: args.credentialIdB64u,
-    authorizationCredential: args.authorizationCredential,
-    secretSource: passkeyPrfSecretSourceFromParts({
-      prfFirstB64u: args.prfFirstB64u,
-      rpId: args.rpId,
-      credentialIdB64u: args.credentialIdB64u,
-    }),
-  };
-}
-
-function passkeyBootstrapSecretSourceResolutionFromCredential(args: {
-  credential: WebAuthnAuthenticationCredential;
-  rpId: string;
-}): BootstrapSecretSourceResolution {
-  const passkeyPrfFirstB64u = String(getPrfFirstB64uFromCredential(args.credential) || '').trim();
-  if (!passkeyPrfFirstB64u) {
-    return {
-      ok: false,
-      code: 'unsupported',
-      message: 'Missing PRF.first output from credential (requires a PRF-enabled passkey)',
-    };
-  }
-  let credentialIdB64u: string;
-  try {
-    credentialIdB64u = credentialIdB64uFromAuthenticationCredential(args.credential);
-  } catch (error) {
-    return {
-      ok: false,
-      code: 'invalid_args',
-      message:
-        error instanceof Error
-          ? error.message
-          : 'threshold-ecdsa passkey bootstrap requires credential id',
-    };
-  }
-  return passkeyBootstrapSecretSourceResolution({
-    prfFirstB64u: passkeyPrfFirstB64u,
-    credentialIdB64u,
-    authorizationCredential: args.credential,
-    rpId: args.rpId,
-  });
-}
-
-async function derivePasskeyThresholdEcdsaClientRootSigningKey32(args: {
-  prfFirstB64u: string;
-}): Promise<Uint8Array> {
-  const prfFirst32 = base64UrlDecode(args.prfFirstB64u);
-  const salt32 = new Uint8Array(32);
-  if (prfFirst32.length !== 32) {
-    prfFirst32.fill(0);
-    throw new Error('threshold-ecdsa passkey PRF.first must be 32 bytes');
-  }
-  try {
-    return await deriveWebCryptoHkdfSha256Bits256({
-      ikm32: prfFirst32,
-      salt: salt32,
-      info: new TextEncoder().encode(PASSKEY_THRESHOLD_ECDSA_CLIENT_ROOT_INFO_V1),
-      unavailableMessage: 'threshold-ecdsa passkey client root proof requires WebCrypto HKDF',
-    });
-  } finally {
-    prfFirst32.fill(0);
-    salt32.fill(0);
-  }
-}
-
-async function buildEcdsaClientRootProof(args: {
-  bootstrapRequest: ThresholdEcdsaDerivationRoleLocalBootstrapRequest;
-  passkeyPrfFirstB64u: string;
-  workerCtx: WorkerOperationContext;
-}): Promise<ThresholdEcdsaDerivationRoleLocalClientRootProof> {
-  const digest32B64u = await computeEcdsaDerivationRoleLocalFirstBootstrapRootProofDigest32B64u(
-    args.bootstrapRequest,
-  );
-  const digest32 = base64UrlDecode(digest32B64u);
-  const clientRootSigningKey32 = await derivePasskeyThresholdEcdsaClientRootSigningKey32({
-    prfFirstB64u: args.passkeyPrfFirstB64u,
-  });
-  try {
-    const clientRootPublicKey33 = await secp256k1PrivateKey32ToPublicKey33Wasm({
-      privateKey32: clientRootSigningKey32,
-      workerCtx: args.workerCtx,
-    });
-    const signature65 = await signSecp256k1RecoverableWasm({
-      digest32,
-      privateKey32: clientRootSigningKey32,
-      workerCtx: args.workerCtx,
-    });
-    return {
-      version: ECDSA_DERIVATION_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION,
-      clientRootPublicKey33B64u: base64UrlEncode(
-        clientRootPublicKey33,
-      ) as EcdsaClientRootPublicKey33B64u,
-      digest32B64u,
-      signature65B64u: base64UrlEncode(signature65),
-    };
-  } finally {
-    digest32.fill(0);
-    clientRootSigningKey32.fill(0);
-  }
-}
-
-async function resolveBootstrapSecretSource(
-  args: ResolveBootstrapSecretSourceRequest,
-): Promise<BootstrapSecretSourceResolution> {
-  switch (args.kind) {
-    case 'email_otp':
-      return {
-        ok: true,
-        kind: 'email_otp',
-        secretSource: buildEmailOtpWorkerSessionSecretSource(args.emailOtpWorkerSessionHandle),
-      };
-    case 'passkey_prf_first_bytes':
-      if (args.providedPrfFirst32.length !== 32) {
-        return {
-          ok: false,
-          code: 'invalid_args',
-          message: 'threshold-ecdsa passkey PRF.first bytes must be 32 bytes',
-        };
-      }
-      return passkeyBootstrapSecretSourceResolution({
-        prfFirstB64u: base64UrlEncode(args.providedPrfFirst32),
-        credentialIdB64u: args.credentialIdB64u,
-        authorizationCredential: args.authorizationCredential,
-        rpId: args.rpId,
-      });
-    case 'passkey_prf_first_b64u':
-      return passkeyBootstrapSecretSourceResolution({
-        prfFirstB64u: args.providedPrfFirstB64u,
-        credentialIdB64u: args.credentialIdB64u,
-        authorizationCredential: args.authorizationCredential,
-        rpId: args.rpId,
-      });
-    case 'passkey_webauthn_credential':
-      return passkeyBootstrapSecretSourceResolutionFromCredential({
-        credential: args.credential,
-        rpId: args.rpId,
-      });
-    case 'passkey_webauthn_challenge': {
-      const credential = await collectAuthenticationCredentialForWalletChallengeB64u({
-        credentialStore: args.credentialStore,
-        touchIdPrompt: args.touchIdPrompt,
-        walletId: args.walletId,
-        challengeB64u: args.challengeB64u,
-      });
-      if (!credential) {
-        return {
-          ok: false,
-          code: 'invalid_args',
-          message:
-            'Missing threshold-ecdsa passkey PRF.first for bootstrap; reconnect with WebAuthn or provide primed session material',
-        };
-      }
-      return passkeyBootstrapSecretSourceResolutionFromCredential({
-        credential,
-        rpId: args.rpId,
-      });
-    }
-  }
-  args satisfies never;
-  return { ok: false, code: 'invalid_args', message: 'Unsupported ECDSA bootstrap secret source' };
-}
-
-function buildBootstrapSecretSourceRequest(args: {
-  sessionArgs: BootstrapEcdsaSessionArgs;
-  challengeB64u: string;
-  userId: string;
-  rpId: string;
-}): BuildBootstrapSecretSourceRequestResult {
-  switch (args.sessionArgs.authKind) {
-    case 'email_otp':
-      return {
-        ok: true,
-        request: {
-          kind: 'email_otp',
-          emailOtpWorkerSessionHandle: args.sessionArgs.emailOtpWorkerSessionHandle,
-        },
-      };
-    case 'passkey_prf_bytes':
-      return {
-        ok: true,
-        request: {
-          kind: 'passkey_prf_first_bytes',
-          providedPrfFirst32: args.sessionArgs.passkeyPrfFirst32,
-          credentialIdB64u: args.sessionArgs.passkeyCredentialIdB64u,
-          authorizationCredential: null,
-          rpId: args.rpId,
-        },
-      };
-    case 'passkey_prf_b64u':
-      return {
-        ok: true,
-        request: {
-          kind: 'passkey_prf_first_b64u',
-          providedPrfFirstB64u: args.sessionArgs.passkeyPrfFirstB64u,
-          credentialIdB64u: args.sessionArgs.passkeyCredentialIdB64u,
-          authorizationCredential: null,
-          rpId: args.rpId,
-        },
-      };
-    case 'passkey_webauthn_prf_b64u': {
-      let credentialIdB64u: string;
-      try {
-        credentialIdB64u = credentialIdB64uFromAuthenticationCredential(
-          args.sessionArgs.webauthnAuthentication,
-        );
-      } catch (error) {
-        return {
-          ok: false,
-          code: 'invalid_args',
-          message:
-            error instanceof Error
-              ? error.message
-              : 'threshold-ecdsa passkey bootstrap requires credential id',
-        };
-      }
-      return {
-        ok: true,
-        request: {
-          kind: 'passkey_prf_first_b64u',
-          providedPrfFirstB64u: args.sessionArgs.passkeyPrfFirstB64u,
-          credentialIdB64u,
-          authorizationCredential: args.sessionArgs.webauthnAuthentication,
-          rpId: args.rpId,
-        },
-      };
-    }
-    case 'passkey_webauthn':
-      return {
-        ok: true,
-        request: {
-          kind: 'passkey_webauthn_credential',
-          credential: args.sessionArgs.webauthnAuthentication,
-          rpId: args.rpId,
-        },
-      };
-    case 'passkey_prompt':
-      if (args.challengeB64u) {
-        return {
-          ok: true,
-          request: {
-            kind: 'passkey_webauthn_challenge',
-            credentialStore: args.sessionArgs.credentialStore,
-            touchIdPrompt: args.sessionArgs.touchIdPrompt,
-            walletId: args.userId,
-            challengeB64u: args.challengeB64u,
-            rpId: args.rpId,
-          },
-        };
-      }
-      return {
-        ok: false,
-        code: 'invalid_args',
-        message:
-          'Missing threshold-ecdsa passkey PRF.first for bootstrap; reconnect with WebAuthn or provide primed session material',
-      };
-  }
-  args.sessionArgs satisfies never;
-  return { ok: false, code: 'invalid_args', message: 'Unsupported ECDSA bootstrap auth source' };
-}
-
-async function prepareEcdsaClientBootstrapForSecretSource(args: {
-  input: Parameters<typeof toGeneratedPrepareEcdsaClientBootstrapCommand>[0];
-  workerCtx: WorkerOperationContext;
-}): Promise<PrepareEcdsaClientBootstrapOutput> {
-  if (args.input.secretSource.kind === 'email_otp_worker_session') {
-    const emailOtpInput: EmailOtpPrepareEcdsaClientBootstrapInput = {
-      kind: args.input.kind,
-      algorithm: args.input.algorithm,
-      context: args.input.context,
-      participants: args.input.participants,
-      secretSource: args.input.secretSource,
-    };
-    const generatedOutput = await args.workerCtx.requestWorkerOperation({
-      kind: 'emailOtp',
-      request: {
-        type: 'prepareEcdsaClientBootstrapFromEmailOtpHandle',
-        timeoutMs: 60_000,
-        payload: { input: emailOtpInput },
-      },
-    });
-    return parseGeneratedPrepareEcdsaClientBootstrapOutput(generatedOutput);
-  }
-  const command = toGeneratedPrepareEcdsaClientBootstrapCommand(args.input);
-  const generatedOutput = await prepareEcdsaClientBootstrapCommandWasm({
-    command,
-    workerCtx: args.workerCtx,
-  });
-  return parseGeneratedPrepareEcdsaClientBootstrapOutput(generatedOutput);
-}
+import type { ThresholdEcdsaChainTarget } from '../../interfaces/ecdsaChainTarget';
+import type { EmailOtpWorkerIssuedSessionHandle } from '@/core/platform/types';
+import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { FinalizeRouterAbEcdsaRecoveryActivationResultV1 } from '../../workerManager/ecdsaClientWorkerChannels';
+import { activateStrictEcdsaPostRegistrationSession } from './postRegistrationSessionActivation';
+import { bytesToHex } from '../../chains/evm/bytes';
+import { secureRandomId } from '@shared/utils/secureRandomId';
 
 type BootstrapEcdsaSessionBaseArgs = {
   credentialStore: ThresholdCredentialStorePort;
@@ -697,20 +114,31 @@ type BootstrapEcdsaRegistrationArgs = BootstrapEcdsaSessionBaseArgs &
     ecdsaThresholdKeyId?: string;
     sessionId?: string;
     signingGrantId?: string;
+    keyHandle?: never;
+    key?: never;
+    lanePolicy?: never;
+    publicCapability?: never;
   };
 
 type BootstrapEcdsaExactSessionArgs = BootstrapEcdsaSessionBaseArgs &
   BootstrapEcdsaSessionAuthArgs & {
-    bootstrapAuth?: ThresholdEcdsaDerivationRouteAuth;
+    bootstrapAuth: Extract<
+      ThresholdEcdsaDerivationRouteAuth,
+      { kind: 'app_session' | 'wallet_session' }
+    >;
     keyHandle: EvmFamilyEcdsaKeyHandle;
     key: EvmFamilyEcdsaKeyIdentity;
     lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
+    publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+    evmFamilySigningKeySlotId?: never;
     ecdsaThresholdKeyId?: never;
     sessionId?: never;
     signingGrantId?: never;
   };
 
-type BootstrapEcdsaSessionArgs = BootstrapEcdsaRegistrationArgs | BootstrapEcdsaExactSessionArgs;
+type BootstrapEcdsaSessionArgs =
+  | BootstrapEcdsaRegistrationArgs
+  | BootstrapEcdsaExactSessionArgs;
 
 type BootstrapEcdsaSessionFailure = {
   ok: false;
@@ -720,6 +148,7 @@ type BootstrapEcdsaSessionFailure = {
 
 type BootstrapEcdsaSessionSuccessCommon = {
   ok: true;
+  bootstrapKind: 'strict_post_registration';
   keygenSessionId: string;
   rpId: string;
   evmFamilySigningKeySlotId: string;
@@ -738,11 +167,14 @@ type BootstrapEcdsaSessionSuccessCommon = {
   signingGrantId: string;
   expiresAtMs: number;
   remainingUses: number;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
   signingRootId: string;
   signingRootVersion: string;
-  jwt?: string;
-  ecdsaDerivationRoleLocalClientState: ThresholdEcdsaDerivationRoleLocalClientState;
+  jwt: string;
+  roleLocalActivation: FinalizeRouterAbEcdsaRecoveryActivationResultV1;
+  routerAbEcdsaDerivationNormalSigning: Awaited<
+    ReturnType<typeof activateStrictEcdsaPostRegistrationSession>
+  >['sessionActivation']['normal_signing'];
 };
 
 type BootstrapEcdsaPasskeySessionSuccess = BootstrapEcdsaSessionSuccessCommon & {
@@ -765,636 +197,138 @@ export type BootstrapEcdsaSessionResult =
 function isExactSessionBootstrapArgs(
   args: BootstrapEcdsaSessionArgs,
 ): args is BootstrapEcdsaExactSessionArgs {
-  return Boolean(
-    'keyHandle' in args &&
-    args.keyHandle &&
-    'key' in args &&
-    args.key &&
-    'lanePolicy' in args &&
-    args.lanePolicy,
-  );
+  return Boolean(args.keyHandle && args.key && args.lanePolicy && args.publicCapability);
 }
 
-function bootstrapAuthProvidesPasskeyPrfFirst(args: BootstrapEcdsaSessionArgs): boolean {
+function credentialIdFromCredential(credential: WebAuthnAuthenticationCredential): string {
+  const credentialId = String(credential.rawId || credential.id || '').trim();
+  if (!credentialId) {
+    throw new Error('Strict passkey ECDSA activation requires a credential id');
+  }
+  return credentialId;
+}
+
+function strictPasskeyMaterial(
+  args: BootstrapEcdsaExactSessionArgs,
+): { passkeyPrfFirstB64u: string; passkeyCredentialIdB64u: string } | null {
   switch (args.authKind) {
     case 'passkey_prf_bytes':
+      return {
+        passkeyPrfFirstB64u: base64UrlEncode(args.passkeyPrfFirst32),
+        passkeyCredentialIdB64u: args.passkeyCredentialIdB64u,
+      };
     case 'passkey_prf_b64u':
+      return {
+        passkeyPrfFirstB64u: args.passkeyPrfFirstB64u,
+        passkeyCredentialIdB64u: args.passkeyCredentialIdB64u,
+      };
     case 'passkey_webauthn_prf_b64u':
-      return true;
+      return {
+        passkeyPrfFirstB64u: args.passkeyPrfFirstB64u,
+        passkeyCredentialIdB64u: credentialIdFromCredential(args.webauthnAuthentication),
+      };
     case 'passkey_prompt':
     case 'passkey_webauthn':
+      throw new Error('Strict passkey ECDSA activation requires PRF.first material');
     case 'email_otp':
-      return false;
+      return null;
   }
   args satisfies never;
-  return false;
+  throw new Error('Strict ECDSA activation auth kind is invalid');
+}
+
+async function bootstrapStrictExistingEcdsaSession(
+  args: BootstrapEcdsaExactSessionArgs,
+  rpId: string,
+): Promise<BootstrapEcdsaPasskeySessionSuccess | BootstrapEcdsaEmailOtpSessionSuccess> {
+  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(
+    args.lanePolicy.runtimePolicyScope,
+  );
+  if (!runtimePolicyScope) {
+    throw new Error('Strict ECDSA session activation requires runtimePolicyScope');
+  }
+  const strict = await activateStrictEcdsaPostRegistrationSession({
+    relayerUrl: args.relayerUrl,
+    routeAuth: args.bootstrapAuth,
+    workerCtx: args.workerCtx,
+    publicCapability: args.publicCapability,
+    walletId: String(args.key.walletId),
+    thresholdSessionId: String(args.lanePolicy.thresholdSessionId),
+    signingGrantId: String(args.lanePolicy.signingGrantId),
+    ttlMs: args.lanePolicy.ttlMs,
+    remainingUses: args.lanePolicy.remainingUses,
+    runtimePolicyScope,
+  });
+  const capability = strict.sessionActivation.public_capability;
+  const publicIdentity = capability.public_identity;
+  const common: BootstrapEcdsaSessionSuccessCommon = {
+    ok: true,
+    bootstrapKind: 'strict_post_registration',
+    keygenSessionId:
+      String(args.requestId || '').trim() ||
+      secureRandomId('tecdsa-keygen', 32, 'threshold ECDSA session IDs'),
+    rpId,
+    evmFamilySigningKeySlotId: String(args.key.evmFamilySigningKeySlotId),
+    keyHandle: String(args.keyHandle),
+    ecdsaThresholdKeyId: String(args.key.ecdsaThresholdKeyId),
+    clientVerifyingShareB64u:
+      publicIdentity.derivation_client_share_public_key33_b64u,
+    thresholdEcdsaPublicKeyB64u: publicIdentity.threshold_public_key33_b64u,
+    ethereumAddress: `0x${bytesToHex(
+      base64UrlDecode(publicIdentity.ethereum_address20_b64u),
+    )}`,
+    relayerKeyId: capability.signer_set.selected_server.server_id,
+    relayerVerifyingShareB64u: publicIdentity.server_public_key33_b64u,
+    clientShareRetryCounter: publicIdentity.client_share_retry_counter,
+    relayerShareRetryCounter: publicIdentity.server_share_retry_counter,
+    participantIds: args.key.participantIds.map(Number),
+    chainId: args.lanePolicy.chainTarget.chainId,
+    sessionId: strict.sessionActivation.session.threshold_session_id,
+    signingGrantId: strict.sessionActivation.session.signing_grant_id,
+    expiresAtMs: strict.sessionActivation.session.expires_at_ms,
+    remainingUses: strict.sessionActivation.session.remaining_uses,
+    runtimePolicyScope,
+    signingRootId: String(args.key.signingRootId),
+    signingRootVersion: String(args.key.signingRootVersion),
+    jwt: strict.sessionActivation.session.wallet_session_jwt,
+    roleLocalActivation: strict.roleLocalActivation,
+    routerAbEcdsaDerivationNormalSigning: strict.sessionActivation.normal_signing,
+  };
+  const passkeyMaterial = strictPasskeyMaterial(args);
+  return passkeyMaterial
+    ? {
+        ...common,
+        secretSourceKind: 'passkey',
+        passkeyPrfFirstB64u: passkeyMaterial.passkeyPrfFirstB64u,
+        passkeyCredentialIdB64u: passkeyMaterial.passkeyCredentialIdB64u,
+      }
+    : {
+        ...common,
+        secretSourceKind: 'email_otp',
+      };
 }
 
 export async function bootstrapEcdsaSession(
   args: BootstrapEcdsaSessionArgs,
 ): Promise<BootstrapEcdsaSessionResult> {
-  const exactSessionBootstrap = isExactSessionBootstrapArgs(args);
-  const sessionKind = 'jwt';
   const rpId = args.touchIdPrompt.getRpId();
   if (!rpId) {
     return { ok: false, code: 'invalid_args', message: 'Missing rpId for WebAuthn' };
   }
-
-  const userId = exactSessionBootstrap
-    ? String(args.key.walletId).trim()
-    : String(args.userId || '').trim();
-  if (!userId) {
-    return { ok: false, code: 'invalid_args', message: 'Missing userId' };
-  }
-
-  const requestedKeygenSessionId = String(args.requestId || '').trim();
-  const keygenSessionId = requestedKeygenSessionId || generateKeygenSessionId();
-  const requestedSessionId = exactSessionBootstrap
-    ? String(args.lanePolicy.thresholdSessionId).trim()
-    : String(args.sessionId || '').trim();
-  const requestedSigningGrantId = exactSessionBootstrap
-    ? String(args.lanePolicy.signingGrantId).trim()
-    : String(args.signingGrantId || '').trim();
-  const keyHandle = exactSessionBootstrap ? String(args.keyHandle).trim() : '';
-  let evmFamilySigningKeySlotId = '';
-  try {
-    evmFamilySigningKeySlotId = exactSessionBootstrap
-      ? normalizeBootstrapWalletKeyId(args.key.evmFamilySigningKeySlotId)
-      : normalizeBootstrapWalletKeyId(args.evmFamilySigningKeySlotId);
-  } catch (error) {
+  if (!isExactSessionBootstrapArgs(args)) {
     return {
       ok: false,
-      code: 'invalid_args',
-      message: error instanceof Error ? error.message : 'Invalid evmFamilySigningKeySlotId',
-    };
-  }
-  const ecdsaThresholdKeyId = exactSessionBootstrap
-    ? ''
-    : String(args.ecdsaThresholdKeyId || '').trim();
-  if (
-    !exactSessionBootstrap &&
-    args.bootstrapAuth &&
-    ecdsaThresholdKeyId &&
-    requestedSessionId &&
-    requestedSigningGrantId
-  ) {
-    return {
-      ok: false,
-      code: 'invalid_args',
-      message: 'Threshold ECDSA session bootstrap requires shared key identity and lane policy',
-    };
-  }
-  if (exactSessionBootstrap && (!keyHandle || !requestedSessionId || !requestedSigningGrantId)) {
-    return {
-      ok: false,
-      code: 'invalid_args',
-      message:
-        'Threshold ECDSA session bootstrap requires keyHandle, sessionId, and signingGrantId',
+      code: 'strict_key_identity_required',
+      message: 'ECDSA bootstrap requires an existing strict Router A/B key identity',
     };
   }
   try {
-    const { ttlMs, remainingUses } = clampThresholdSessionPolicy({
-      ttlMs: exactSessionBootstrap
-        ? args.lanePolicy.ttlMs
-        : (args.ttlMs ?? DEFAULT_THRESHOLD_SESSION_POLICY.ttlMs),
-      remainingUses: exactSessionBootstrap
-        ? args.lanePolicy.remainingUses
-        : (args.remainingUses ?? DEFAULT_THRESHOLD_SESSION_POLICY.remainingUses),
-    });
-    const participantIds = normalizeThresholdEd25519ParticipantIds(args.participantIds);
-    const projectEnvironmentId = String(
-      args.runtimeScopeBootstrap?.projectEnvironmentId || '',
-    ).trim();
-    const runtimeScopePublishableKey = String(
-      args.runtimeScopeBootstrap?.publishableKey || '',
-    ).trim();
-    const managedBootstrapGrant =
-      !exactSessionBootstrap &&
-      !args.runtimePolicyScope &&
-      projectEnvironmentId &&
-      runtimeScopePublishableKey
-        ? await requestManagedRegistrationBootstrapGrant({
-            relayerUrl: args.relayerUrl,
-            environmentId: projectEnvironmentId,
-            publishableKey: runtimeScopePublishableKey,
-            walletId: userId,
-            rpId: toRpId(rpId),
-          })
-        : null;
-    const runtimePolicyScope =
-      (exactSessionBootstrap
-        ? normalizeThresholdRuntimePolicyScope(args.lanePolicy.runtimePolicyScope)
-        : normalizeThresholdRuntimePolicyScope(args.runtimePolicyScope)) ||
-      managedBootstrapGrant?.runtimePolicyScope;
-    const sessionId = requestedSessionId || generateThresholdSessionId();
-    const signingGrantId = requestedSigningGrantId || generateSigningGrantId();
-    const sessionPolicyChainTarget = exactSessionBootstrap
-      ? args.lanePolicy.chainTarget
-      : args.chainTarget;
-    const sessionPolicyParticipantIds = exactSessionBootstrap
-      ? args.key.participantIds.map((participantId) => Number(participantId))
-      : participantIds || undefined;
-    const exactBootstrapSigningRootScope = exactSessionBootstrap
-      ? {
-          signingRootId: args.key.signingRootId,
-          signingRootVersion: args.key.signingRootVersion,
-        }
-      : null;
-    const firstBootstrapSigningRootScope =
-      !exactSessionBootstrap && runtimePolicyScope
-        ? signingRootScopeFromRuntimePolicyScope(runtimePolicyScope)
-        : null;
-    const roleLocalSigningRootScope =
-      exactBootstrapSigningRootScope || firstBootstrapSigningRootScope;
-    const exactBootstrapRelayerKeyId = exactSessionBootstrap
-      ? await computeEcdsaDerivationRoleLocalRelayerKeyId({
-          walletId: userId,
-          evmFamilySigningKeySlotId,
-        })
-      : '';
-    const firstBootstrapRelayerKeyId = firstBootstrapSigningRootScope
-      ? await computeEcdsaDerivationRoleLocalRelayerKeyId({
-          walletId: userId,
-          evmFamilySigningKeySlotId,
-        })
-      : '';
-    const firstBootstrapThresholdKeyId = firstBootstrapSigningRootScope
-      ? await computeEcdsaDerivationRoleLocalThresholdKeyId({
-          walletId: userId,
-          evmFamilySigningKeySlotId,
-          signingRootId: firstBootstrapSigningRootScope.signingRootId,
-          signingRootVersion: firstBootstrapSigningRootScope.signingRootVersion || 'default',
-        })
-      : '';
-    const passkeyBootstrapIdentity =
-      exactSessionBootstrap && exactBootstrapSigningRootScope && exactBootstrapRelayerKeyId
-        ? {
-            walletId: userId,
-            evmFamilySigningKeySlotId,
-            rpId: toRpId(rpId),
-            ecdsaThresholdKeyId: toEcdsaDerivationThresholdKeyId(args.key.ecdsaThresholdKeyId),
-            signingRootId: exactBootstrapSigningRootScope.signingRootId,
-            signingRootVersion: exactBootstrapSigningRootScope.signingRootVersion || 'default',
-            keyScope: 'evm-family' as const,
-            relayerKeyId: exactBootstrapRelayerKeyId,
-            requestId: keygenSessionId,
-            sessionId,
-            signingGrantId,
-            ttlMs,
-            remainingUses,
-            participantIds: sessionPolicyParticipantIds || [1, 2],
-          }
-        : !exactSessionBootstrap &&
-            firstBootstrapSigningRootScope &&
-            firstBootstrapRelayerKeyId &&
-            firstBootstrapThresholdKeyId &&
-            (!ecdsaThresholdKeyId || ecdsaThresholdKeyId === firstBootstrapThresholdKeyId)
-          ? {
-              walletId: userId,
-              evmFamilySigningKeySlotId,
-              rpId,
-              ecdsaThresholdKeyId: firstBootstrapThresholdKeyId,
-              signingRootId: firstBootstrapSigningRootScope.signingRootId,
-              signingRootVersion: firstBootstrapSigningRootScope.signingRootVersion || 'default',
-              keyScope: 'evm-family' as const,
-              relayerKeyId: firstBootstrapRelayerKeyId,
-              requestId: keygenSessionId,
-              sessionId,
-              signingGrantId,
-              ttlMs,
-              remainingUses,
-              participantIds: sessionPolicyParticipantIds || [1, 2],
-            }
-          : null;
-    if (!exactSessionBootstrap && !passkeyBootstrapIdentity) {
-      return {
-        ok: false,
-        code: 'role_local_required',
-        message:
-          'Threshold ECDSA registration bootstrap requires runtimePolicyScope or runtimeScopeBootstrap for role-local key creation',
-      };
-    }
-    const challengeB64u = passkeyBootstrapIdentity
-      ? await computeEcdsaDerivationRoleLocalPasskeyBootstrapAuthDigest32B64u(
-          passkeyBootstrapIdentity,
-        )
-      : undefined;
-    await emitBootstrapChallengeDiagnostic({
-      challengeB64u,
-      requestId: keygenSessionId,
-      sessionId,
-      signingGrantId,
-      challengeKind: 'ecdsa_role_local_bootstrap',
-    });
-    const secretSourceRequest = buildBootstrapSecretSourceRequest({
-      sessionArgs: args,
-      challengeB64u: challengeB64u || '',
-      userId,
-      rpId,
-    });
-    if (!secretSourceRequest.ok) {
-      return secretSourceRequest;
-    }
-    const resolvedSecretSource = await resolveBootstrapSecretSource(secretSourceRequest.request);
-    if (!resolvedSecretSource.ok) {
-      return resolvedSecretSource;
-    }
-    // Authorization bootstraps may still be driven by a fresh WebAuthn proof
-    // during passkey reauth. Preserve that proof so the server can refresh the
-    // signing grant budget for the newly minted threshold material.
-    const webauthnAuthentication =
-      resolvedSecretSource.kind === 'passkey'
-        ? resolvedSecretSource.authorizationCredential || undefined
-        : undefined;
-    const derivationAuth: ThresholdEcdsaDerivationRouteAuth | undefined = args.bootstrapAuth;
-    const evmFamilyKeyFingerprint = exactSessionBootstrap
-      ? deriveEvmFamilyKeyFingerprint(args.key)
-      : undefined;
-    const sessionPolicy = buildEcdsaDerivationSessionPolicy({
-      walletId: userId,
-      evmFamilySigningKeySlotId,
-      chainTarget: sessionPolicyChainTarget,
-      ...(keyHandle ? { keyHandle } : {}),
-      ...(ecdsaThresholdKeyId || firstBootstrapThresholdKeyId
-        ? { ecdsaThresholdKeyId: ecdsaThresholdKeyId || firstBootstrapThresholdKeyId }
-        : {}),
-      sessionId,
-      signingGrantId,
-      ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-      participantIds: sessionPolicyParticipantIds,
-      ttlMs,
-      remainingUses,
-    });
-    const preparedEcdsaThresholdKeyId = exactSessionBootstrap
-      ? toEcdsaDerivationThresholdKeyId(args.key.ecdsaThresholdKeyId)
-      : sessionPolicy.ecdsaThresholdKeyId ||
-        (ecdsaThresholdKeyId ? toEcdsaDerivationThresholdKeyId(ecdsaThresholdKeyId) : undefined);
-    const derivationDiagnosticIdentity = {
-      operation: exactSessionBootstrap ? 'session_bootstrap' : 'key_enrollment_bootstrap',
-      userId,
-      evmFamilySigningKeySlotId,
-      keygenSessionId,
-      chainTargetKey: thresholdEcdsaChainTargetKey(sessionPolicyChainTarget),
-      ...(evmFamilyKeyFingerprint ? { evmFamilyKeyFingerprint } : {}),
-      keyHandle: keyHandle || undefined,
-      ecdsaThresholdKeyId: ecdsaThresholdKeyId || undefined,
-      requestedSessionId: requestedSessionId || undefined,
-    };
-    try {
-      console.info('[threshold-ecdsa][derivation-prepare][diagnostic]', {
-        ...derivationDiagnosticIdentity,
-        chainId: sessionPolicyChainTarget.chainId,
-        plannedSessionPolicy: {
-          sessionId: sessionPolicy.sessionId,
-          signingGrantId: sessionPolicy.signingGrantId,
-          remainingUses: sessionPolicy.remainingUses,
-          ttlMs: sessionPolicy.ttlMs,
-          participantCount: Array.isArray(sessionPolicy.participantIds)
-            ? sessionPolicy.participantIds.length
-            : 0,
-          runtimePolicyScope: sessionPolicy.runtimePolicyScope,
-        },
-        auth: summarizeDerivationRouteAuth(derivationAuth),
-        hasWebAuthnAuthentication: Boolean(webauthnAuthentication),
-        hasProvidedPasskeyPrfFirst: bootstrapAuthProvidesPasskeyPrfFirst(args),
-      });
-    } catch {}
-    const roleLocalRelayerKeyId =
-      exactBootstrapRelayerKeyId || (passkeyBootstrapIdentity ? firstBootstrapRelayerKeyId : '');
-    const canUseRoleLocalBootstrap =
-      Boolean(preparedEcdsaThresholdKeyId) &&
-      Boolean(roleLocalSigningRootScope?.signingRootId) &&
-      Boolean(roleLocalRelayerKeyId);
-    if (
-      canUseRoleLocalBootstrap &&
-      preparedEcdsaThresholdKeyId &&
-      roleLocalSigningRootScope &&
-      roleLocalRelayerKeyId
-    ) {
-      let prepared: PrepareEcdsaClientBootstrapOutput;
-      let applicationBindingDigestB64u: string;
-      try {
-        applicationBindingDigestB64u = await computeSdkEcdsaDerivationApplicationBindingDigestB64u({
-          walletId: toWalletId(sessionPolicy.walletId),
-          ecdsaThresholdKeyId: preparedEcdsaThresholdKeyId,
-          signingRootId: toEcdsaDerivationSigningRootId(roleLocalSigningRootScope.signingRootId),
-          signingRootVersion: toEcdsaDerivationSigningRootVersion(
-            roleLocalSigningRootScope.signingRootVersion || 'default',
-          ),
-        });
-        prepared = await prepareEcdsaClientBootstrapForSecretSource({
-          input: {
-            kind: 'prepare_ecdsa_client_bootstrap_v1',
-            algorithm: 'router_ab_ecdsa_derivation_secp256k1_role_local_v1',
-            context: {
-              applicationBindingDigestB64u,
-            },
-            participants: {
-              clientParticipantId: 1,
-              relayerParticipantId: 2,
-              participantIds: [1, 2],
-            },
-            secretSource: resolvedSecretSource.secretSource,
-          },
-          workerCtx: args.workerCtx,
-        });
-      } catch (error) {
-        return {
-          ok: false,
-          code: 'internal',
-          message:
-            error instanceof Error
-              ? error.message
-              : 'Threshold ECDSA role-local client bootstrap failed',
-        };
-      }
-
-      const bootstrapRequestBase = {
-        formatVersion: 'ecdsa-derivation-role-local',
-        walletId: toWalletId(sessionPolicy.walletId),
-        evmFamilySigningKeySlotId: sessionPolicy.evmFamilySigningKeySlotId,
-        ecdsaThresholdKeyId: preparedEcdsaThresholdKeyId,
-        signingRootId: toEcdsaDerivationSigningRootId(roleLocalSigningRootScope.signingRootId),
-        signingRootVersion: toEcdsaDerivationSigningRootVersion(
-          roleLocalSigningRootScope.signingRootVersion || 'default',
-        ),
-        keyScope: 'evm-family',
-        relayerKeyId: roleLocalRelayerKeyId,
-        derivationClientSharePublicKey33B64u: prepared.clientBootstrap
-          .derivationClientSharePublicKey33B64u as DerivationClientSharePublicKey33B64u,
-        clientShareRetryCounter: prepared.clientBootstrap.clientShareRetryCounter,
-        contextBinding32B64u: prepared.clientBootstrap.contextBinding32B64u,
-        requestId: keygenSessionId,
-        sessionId,
-        signingGrantId,
-        ttlMs,
-        remainingUses,
-        participantIds: sessionPolicyParticipantIds || [1, 2],
-        auth: derivationAuth,
-        ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-      } satisfies ThresholdEcdsaDerivationRoleLocalBootstrapRequest;
-      let passkeyBootstrapAuthorization: ThresholdEcdsaDerivationRoleLocalPasskeyBootstrapAuthorization | null =
-        null;
-      if (!args.bootstrapAuth && passkeyBootstrapIdentity && webauthnAuthentication) {
-        passkeyBootstrapAuthorization = runtimePolicyScope
-          ? {
-              kind: 'passkey_bootstrap',
-              rpId,
-              webauthn_authentication: webauthnAuthentication,
-              runtimePolicyScope,
-            }
-          : projectEnvironmentId && runtimeScopePublishableKey
-            ? {
-                kind: 'passkey_bootstrap',
-                rpId,
-                webauthn_authentication: webauthnAuthentication,
-                projectEnvironmentId,
-                projectEnvironmentPublishableKey: runtimeScopePublishableKey,
-              }
-            : null;
-      }
-      let clientRootProof: ThresholdEcdsaDerivationRoleLocalClientRootProof | null = null;
-      if (
-        !passkeyBootstrapAuthorization &&
-        args.bootstrapAuth &&
-        resolvedSecretSource.kind === 'passkey'
-      ) {
-        clientRootProof = await buildEcdsaClientRootProof({
-          bootstrapRequest: bootstrapRequestBase,
-          passkeyPrfFirstB64u: resolvedSecretSource.passkeyPrfFirstB64u,
-          workerCtx: args.workerCtx,
-        });
-      }
-      let bootstrapRequest: ThresholdEcdsaDerivationRoleLocalBootstrapRequest;
-      if (passkeyBootstrapAuthorization) {
-        bootstrapRequest = { ...bootstrapRequestBase, passkeyBootstrapAuthorization };
-      } else if (clientRootProof) {
-        bootstrapRequest = { ...bootstrapRequestBase, clientRootProof };
-      } else {
-        bootstrapRequest = bootstrapRequestBase;
-      }
-      const bootstrap = await thresholdEcdsaDerivationRoleLocalBootstrap(
-        args.relayerUrl,
-        bootstrapRequest,
-      );
-      if (!bootstrap.ok) {
-        return {
-          ok: false,
-          code: bootstrap.code || 'bootstrap_failed',
-          message: bootstrap.error || bootstrap.message || 'Threshold role-local bootstrap failed',
-        };
-      }
-      const value = bootstrap.value;
-      let finalized;
-      try {
-        const generatedOutput = await finalizeEcdsaClientBootstrapCommandWasm({
-          command: toGeneratedFinalizeEcdsaClientBootstrapCommand({
-            kind: 'finalize_ecdsa_client_bootstrap_v1',
-            pendingStateBlob: prepared.pendingStateBlob,
-            relayerPublicIdentity: {
-              relayerKeyId: value.relayerKeyId,
-              relayerPublicKey33B64u: value.publicIdentity.relayerPublicKey33B64u,
-              groupPublicKey33B64u: value.publicIdentity.groupPublicKey33B64u,
-              ethereumAddress: value.publicIdentity.ethereumAddress as `0x${string}`,
-            },
-          }),
-          workerCtx: args.workerCtx,
-        });
-        finalized = parseGeneratedFinalizeEcdsaClientBootstrapOutput(generatedOutput);
-      } catch (error) {
-        return {
-          ok: false,
-          code: 'internal',
-          message:
-            error instanceof Error
-              ? error.message
-              : 'Threshold ECDSA role-local client finalize failed',
-        };
-      }
-      const thresholdEcdsaPublicKeyB64u =
-        String(value.thresholdEcdsaPublicKeyB64u || '').trim() ||
-        finalized.publicFacts.groupPublicKey33B64u;
-      const ethereumAddress =
-        String(value.ethereumAddress || '').trim() || finalized.publicFacts.ethereumAddress;
-      const publicFacts = buildEcdsaRoleLocalPublicFacts({
-        walletId: toWalletId(sessionPolicy.walletId),
-        evmFamilySigningKeySlotId: sessionPolicy.evmFamilySigningKeySlotId,
-        chainTarget: sessionPolicyChainTarget,
-        keyHandle: value.keyHandle,
-        ecdsaThresholdKeyId: value.ecdsaThresholdKeyId,
-        signingRootId: value.signingRootId,
-        signingRootVersion: value.signingRootVersion,
-        applicationBindingDigestB64u,
-        clientParticipantId: 1,
-        relayerParticipantId: 2,
-        participantIds: value.participantIds,
-        contextBinding32B64u: finalized.publicFacts.contextBinding32B64u,
-        derivationClientSharePublicKey33B64u:
-          finalized.publicFacts.derivationClientSharePublicKey33B64u,
-        relayerPublicKey33B64u: finalized.publicFacts.relayerPublicKey33B64u,
-        groupPublicKey33B64u: finalized.publicFacts.groupPublicKey33B64u,
-        ethereumAddress,
-      });
-      const ecdsaDerivationRoleLocalClientState: ThresholdEcdsaDerivationRoleLocalClientState = {
-        kind: 'role_local_ready',
-        artifactKind: 'ecdsa-derivation-role-local-client-state',
-        stateBlob: finalized.stateBlob,
-        publicFacts,
-      };
-      try {
-        console.info('[threshold-ecdsa][derivation-role-local-bootstrap][diagnostic]', {
-          ...derivationDiagnosticIdentity,
-          ok: true,
-          thresholdSessionId: value.thresholdSessionId,
-          signingGrantId: value.signingGrantId,
-          keyHandle: value.keyHandle,
-          signingRootId: value.signingRootId,
-          signingRootVersion: value.signingRootVersion,
-        });
-      } catch {}
-      if (
-        String(finalized.publicFacts.groupPublicKey33B64u || '').trim() !==
-          thresholdEcdsaPublicKeyB64u ||
-        String(finalized.publicFacts.ethereumAddress || '')
-          .trim()
-          .toLowerCase() !== ethereumAddress.toLowerCase()
-      ) {
-        return {
-          ok: false,
-          code: 'identity_mismatch',
-          message: 'Threshold ECDSA role-local bootstrap public identity mismatch',
-        };
-      }
-      const jwt = String(value.jwt || '').trim();
-      if (resolvedSecretSource.kind === 'passkey') {
-        if (jwt) {
-          return {
-            ok: true,
-            secretSourceKind: 'passkey',
-            keygenSessionId,
-            rpId,
-            evmFamilySigningKeySlotId: value.evmFamilySigningKeySlotId,
-            keyHandle: value.keyHandle,
-            ecdsaThresholdKeyId: value.ecdsaThresholdKeyId,
-            clientVerifyingShareB64u: finalized.publicFacts.derivationClientSharePublicKey33B64u,
-            thresholdEcdsaPublicKeyB64u,
-            ethereumAddress,
-            relayerKeyId: value.relayerKeyId,
-            relayerVerifyingShareB64u: value.relayerVerifyingShareB64u,
-            clientShareRetryCounter: value.clientShareRetryCounter,
-            relayerShareRetryCounter: value.relayerShareRetryCounter,
-            participantIds: value.participantIds,
-            chainId: sessionPolicyChainTarget.chainId,
-            sessionId: value.thresholdSessionId,
-            signingGrantId: value.signingGrantId,
-            expiresAtMs: value.expiresAtMs,
-            remainingUses: value.remainingUses,
-            ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-            jwt,
-            signingRootId: value.signingRootId,
-            signingRootVersion: value.signingRootVersion,
-            ecdsaDerivationRoleLocalClientState,
-            passkeyPrfFirstB64u: resolvedSecretSource.passkeyPrfFirstB64u,
-            passkeyCredentialIdB64u: resolvedSecretSource.credentialIdB64u,
-          };
-        }
-        return {
-          ok: true,
-          secretSourceKind: 'passkey',
-          keygenSessionId,
-          rpId,
-          evmFamilySigningKeySlotId: value.evmFamilySigningKeySlotId,
-          keyHandle: value.keyHandle,
-          ecdsaThresholdKeyId: value.ecdsaThresholdKeyId,
-          clientVerifyingShareB64u: finalized.publicFacts.derivationClientSharePublicKey33B64u,
-          thresholdEcdsaPublicKeyB64u,
-          ethereumAddress,
-          relayerKeyId: value.relayerKeyId,
-          relayerVerifyingShareB64u: value.relayerVerifyingShareB64u,
-          clientShareRetryCounter: value.clientShareRetryCounter,
-          relayerShareRetryCounter: value.relayerShareRetryCounter,
-          participantIds: value.participantIds,
-          chainId: sessionPolicyChainTarget.chainId,
-          sessionId: value.thresholdSessionId,
-          signingGrantId: value.signingGrantId,
-          expiresAtMs: value.expiresAtMs,
-          remainingUses: value.remainingUses,
-          ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-          signingRootId: value.signingRootId,
-          signingRootVersion: value.signingRootVersion,
-          ecdsaDerivationRoleLocalClientState,
-          passkeyPrfFirstB64u: resolvedSecretSource.passkeyPrfFirstB64u,
-          passkeyCredentialIdB64u: resolvedSecretSource.credentialIdB64u,
-        };
-      }
-      if (jwt) {
-        return {
-          ok: true,
-          secretSourceKind: 'email_otp',
-          keygenSessionId,
-          rpId,
-          evmFamilySigningKeySlotId: value.evmFamilySigningKeySlotId,
-          keyHandle: value.keyHandle,
-          ecdsaThresholdKeyId: value.ecdsaThresholdKeyId,
-          clientVerifyingShareB64u: finalized.publicFacts.derivationClientSharePublicKey33B64u,
-          thresholdEcdsaPublicKeyB64u,
-          ethereumAddress,
-          relayerKeyId: value.relayerKeyId,
-          relayerVerifyingShareB64u: value.relayerVerifyingShareB64u,
-          clientShareRetryCounter: value.clientShareRetryCounter,
-          relayerShareRetryCounter: value.relayerShareRetryCounter,
-          participantIds: value.participantIds,
-          chainId: sessionPolicyChainTarget.chainId,
-          sessionId: value.thresholdSessionId,
-          signingGrantId: value.signingGrantId,
-          expiresAtMs: value.expiresAtMs,
-          remainingUses: value.remainingUses,
-          ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-          jwt,
-          signingRootId: value.signingRootId,
-          signingRootVersion: value.signingRootVersion,
-          ecdsaDerivationRoleLocalClientState,
-        };
-      }
-      return {
-        ok: true,
-        secretSourceKind: 'email_otp',
-        keygenSessionId,
-        rpId,
-        evmFamilySigningKeySlotId: value.evmFamilySigningKeySlotId,
-        keyHandle: value.keyHandle,
-        ecdsaThresholdKeyId: value.ecdsaThresholdKeyId,
-        clientVerifyingShareB64u: finalized.publicFacts.derivationClientSharePublicKey33B64u,
-        thresholdEcdsaPublicKeyB64u,
-        ethereumAddress,
-        relayerKeyId: value.relayerKeyId,
-        relayerVerifyingShareB64u: value.relayerVerifyingShareB64u,
-        clientShareRetryCounter: value.clientShareRetryCounter,
-        relayerShareRetryCounter: value.relayerShareRetryCounter,
-        participantIds: value.participantIds,
-        chainId: sessionPolicyChainTarget.chainId,
-        sessionId: value.thresholdSessionId,
-        signingGrantId: value.signingGrantId,
-        expiresAtMs: value.expiresAtMs,
-        remainingUses: value.remainingUses,
-        ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-        signingRootId: value.signingRootId,
-        signingRootVersion: value.signingRootVersion,
-        ecdsaDerivationRoleLocalClientState,
-      };
-    }
+    return await bootstrapStrictExistingEcdsaSession(args, rpId);
+  } catch (error: unknown) {
     return {
       ok: false,
-      code: 'role_local_required',
-      message:
-        'Threshold ECDSA session bootstrap requires a role-local key identity and relayerKeyId',
+      code: 'strict_post_registration_failed',
+      message: error instanceof Error ? error.message : String(error),
     };
-  } catch (e: unknown) {
-    const msg = String(
-      e && typeof e === 'object' && 'message' in e
-        ? (e as { message?: unknown }).message
-        : e || 'bootstrap failed',
-    );
-    return { ok: false, code: 'internal', message: msg };
   }
 }

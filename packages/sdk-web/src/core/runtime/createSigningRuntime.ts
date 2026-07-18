@@ -78,25 +78,6 @@ export function createSigningRuntime(deps: SigningRuntimeDeps): SigningRuntime {
       (await getRegistrationAccounts()).rollbackWalletEd25519SignerRegistration(receipt),
   };
 
-  const getEcdsaRegistrationBootstrap = memoizeService(async () => {
-    const { createEcdsaRegistrationBootstrapService } =
-      await import('@/core/signingEngine/flows/registration/services/ecdsaRegistrationBootstrap');
-    return createEcdsaRegistrationBootstrapService({
-      signerCrypto: deps.runtimePorts.signerCrypto,
-      emailOtpWorker: deps.workers.emailOtp,
-    });
-  });
-  const ecdsaRegistrationBootstrap: SigningRuntimeServices['ecdsaRegistrationBootstrap'] = {
-    preparePasskeyClientBootstrap: async (input) =>
-      (await getEcdsaRegistrationBootstrap()).preparePasskeyClientBootstrap(input),
-    prepareEmailOtpClientBootstrap: async (input) =>
-      (await getEcdsaRegistrationBootstrap()).prepareEmailOtpClientBootstrap(input),
-    finalizeClientBootstrap: async (input) =>
-      (await getEcdsaRegistrationBootstrap()).finalizeClientBootstrap(input),
-    storeClientSigningMaterial: async (input) =>
-      (await getEcdsaRegistrationBootstrap()).storeClientSigningMaterial(input),
-  };
-
   const getEcdsaWalletRecords = memoizeService(async () => {
     const { createEcdsaWalletRecordsService } =
       await import('@/core/signingEngine/flows/registration/services/ecdsaWalletRecords');
@@ -115,21 +96,6 @@ export function createSigningRuntime(deps: SigningRuntimeDeps): SigningRuntime {
       (await getEcdsaWalletRecords()).finalizeWalletEcdsaRegistration(input),
     storeWalletEmailOtpEcdsaRegistrationData: async (input) =>
       (await getEcdsaWalletRecords()).storeWalletEmailOtpEcdsaRegistrationData(input),
-  };
-
-  const getEcdsaProvisioning = memoizeService(async () => {
-    const { createProvisionEcdsaUseCase } =
-      await import('@/core/signingEngine/useCases/provisionEcdsa');
-    return createProvisionEcdsaUseCase({
-      authenticator: deps.runtimePorts.authenticator,
-      signerCrypto: deps.runtimePorts.signerCrypto,
-      storage: deps.runtimePorts.storage,
-      relayer: deps.relayers.ecdsa,
-      clock: deps.runtimePorts.clock,
-    });
-  });
-  const ecdsaProvisioning: SigningRuntimeServices['ecdsaProvisioning'] = {
-    provision: async (input) => (await getEcdsaProvisioning()).provision(input),
   };
 
   const nearSigning: SigningRuntimeServices['nearSigning'] = {
@@ -179,9 +145,7 @@ export function createSigningRuntime(deps: SigningRuntimeDeps): SigningRuntime {
       registrationAccounts,
       nearSigning,
       evmFamilySigning,
-      ecdsaRegistrationBootstrap,
       ecdsaWalletRecords,
-      ecdsaProvisioning,
     },
   };
 }

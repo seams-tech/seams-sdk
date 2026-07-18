@@ -317,7 +317,7 @@ check('route/lifecycle boundary link-device server routes are absent until the f
   expect(serverRouteSurface).not.toContain('handleLinkDevice');
 });
 
-check('route/lifecycle boundary email-recovery routes parse request bodies at the boundary', () => {
+check('route/lifecycle boundary email-recovery prepare parses request bodies at the boundary', () => {
   const parserSource = readRepoSource(
     'packages/sdk-server-ts/src/router/emailRecoveryRequestValidation.ts',
   );
@@ -326,10 +326,8 @@ check('route/lifecycle boundary email-recovery routes parse request bodies at th
   ];
 
   expect(parserSource).toContain('export function parsePrepareEmailRecoveryRequest');
-  expect(parserSource).toContain('export function parseRespondEmailRecoveryEcdsaRequest');
   expect(parserSource).toContain('Unsupported ${context} field');
   expect(parserSource).toContain("'email-recovery prepare'");
-  expect(parserSource).toContain("'email-recovery ECDSA respond'");
   expect(parserSource).toContain('threshold_ecdsa_prepare: Record<string, unknown>;');
   expect(parserSource).not.toMatch(/['"]requestId['"]/);
   expect(parserSource).not.toMatch(/['"]accountId['"]/);
@@ -339,10 +337,7 @@ check('route/lifecycle boundary email-recovery routes parse request bodies at th
   for (const relativePath of guardedFiles) {
     const source = readRepoSource(relativePath);
     expect(source).toContain('parsePrepareEmailRecoveryRequest');
-    expect(source).toContain('parseRespondEmailRecoveryEcdsaRequest');
     expect(source).not.toContain('prepareEmailRecovery({');
-    expect(source).not.toContain('respondEmailRecoveryEcdsa({ ...(req.body || {}) })');
-    expect(source).not.toContain('respondEmailRecoveryEcdsa(body as any)');
     expect(source).not.toContain('body as any');
     expect(source).not.toContain('(req.body || {}).rp_id');
     expect(source).not.toContain('(body as Record<string, unknown>).rp_id');

@@ -3,9 +3,13 @@ import type {
   SealedSigningSessionEd25519RestoreMetadata,
   SealedSigningSessionRecord,
 } from './signingSessionSeal';
-import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from './routerAbEcdsaDerivation';
+import type {
+  RouterAbEcdsaDerivationNormalSigningStateV1,
+  RouterAbEcdsaDerivationPublicCapabilityV1,
+} from './routerAbEcdsaDerivation';
 
 declare const routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
+declare const publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 
 const validEcdsaSealedSessionRecord = {
   v: 1,
@@ -43,6 +47,7 @@ const validEcdsaSealedSessionRecord = {
     relayerKeyId: 'relayer-key',
     participantIds: [1, 2],
     routerAbEcdsaDerivationNormalSigning,
+    publicCapability,
   },
   issuedAtMs: 1,
   expiresAtMs: 2,

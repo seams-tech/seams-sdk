@@ -4,6 +4,7 @@ import { type SDKFlowRuntime, type StoredAccountOption } from '@/react/types';
 
 export interface SeamsAuthMenuRuntime {
   seamsWeb: SeamsWeb;
+  walletIframeConnected: boolean;
   accountExists: boolean;
   passkeyCredentialExists: boolean;
   inputUsername: string;
@@ -23,6 +24,7 @@ export function useSeamsAuthMenuRuntime(): SeamsAuthMenuRuntime {
   const passkeyCredentialExists = !!ctx.accountInputState?.passkeyCredentialExists;
   return {
     seamsWeb: ctx.seams,
+    walletIframeConnected: ctx.walletIframeConnected,
     accountExists,
     passkeyCredentialExists,
     inputUsername: ctx.accountInputState?.inputUsername ?? '',

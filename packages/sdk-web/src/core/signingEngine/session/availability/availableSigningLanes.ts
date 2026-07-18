@@ -277,6 +277,13 @@ export function availableEd25519SigningLaneAuthMethod(
 
 export type AvailableLaneStateAdvisory =
   | {
+      kind: 'runtime_material';
+      thresholdSessionId: string;
+      remainingUses: number;
+      expiresAtMs: number;
+      code?: never;
+    }
+  | {
       kind: 'warm_status';
       status: 'active';
       thresholdSessionId: string;
@@ -1351,12 +1358,12 @@ async function reauthAnchorToEcdsaLane(args: {
     ...authFields,
     curve: 'ecdsa',
     chainTarget: args.chainTarget,
-    state: record.retirement,
+    state: record.state === 'active' ? 'restorable' : record.state,
     source: 'durable_sealed_record',
     publicReauthAuthority: record.ecdsaRestore,
     signingGrantId: record.signingGrantId,
     thresholdSessionId: record.thresholdSessionIds.ecdsa,
-    remainingUses: record.retirement === 'exhausted' ? 0 : record.remainingUses,
+    remainingUses: record.state === 'exhausted' ? 0 : record.remainingUses,
     expiresAtMs: record.expiresAtMs,
     updatedAtMs: record.updatedAtMs,
     policyHint: durablePolicyHint(record),
@@ -1470,7 +1477,10 @@ async function recordToEcdsaLane(args: {
   });
   if (!authFields) return null;
   if (!args.record.ecdsaRestore) return null;
-  const publicReauthAuthority = buildEcdsaReauthAnchorPublicRestore(args.record.ecdsaRestore);
+  const publicReauthAuthority = buildEcdsaReauthAnchorPublicRestore(
+    args.record.ecdsaRestore,
+    args.record.relayerUrl,
+  );
   if (!publicReauthAuthority) return null;
 
   return {
@@ -1549,6 +1559,8 @@ function advisoryToLaneState(
     durableLane && durableLane.state !== 'missing' ? durableLane.state : undefined;
   if (!advisory) return recordPolicyState || durableConcreteState || 'deferred';
   switch (advisory.kind) {
+    case 'runtime_material':
+      return recordPolicyState || 'ready';
     case 'durable_policy':
       return recordPolicyState || advisory.state;
     case 'warm_status': {
@@ -3164,15 +3176,18 @@ export async function readAvailableSigningLanes(
   };
   if (collectDiagnostics && missingEcdsaTargets.length > 0) {
     try {
-      console.warn('[SigningLanes][available][ecdsa][missing-candidates]', {
-        ...laneDiagnosticPayload,
-        missingEcdsaTargets,
-      });
+      console.warn(
+        '[SigningLanes][available][ecdsa][missing-candidates]',
+        JSON.stringify({
+          ...laneDiagnosticPayload,
+          missingEcdsaTargets,
+        }),
+      );
     } catch {}
   }
   if (collectDiagnostics) {
     try {
-      console.info('[SigningLanes][available][ecdsa]', laneDiagnosticPayload);
+      console.info('[SigningLanes][available][ecdsa]', JSON.stringify(laneDiagnosticPayload));
     } catch {}
   }
   return availableLanes;

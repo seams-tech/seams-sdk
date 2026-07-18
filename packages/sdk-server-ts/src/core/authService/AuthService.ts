@@ -17,10 +17,6 @@ import {
 } from '@shared/utils/emailOtpDomain';
 import { createRouterAbSigningRuntimes } from '../routerAbSigning/createRouterAbSigningRuntimes';
 import type { RouterAbNormalSigningRuntime } from '../routerAbSigning/RouterAbNormalSigningRuntime';
-import type {
-  RouterAbEcdsaBootstrapExportPort,
-  RouterAbEcdsaBootstrapExportRuntimeState,
-} from '../routerAbSigning/RouterAbEcdsaBootstrapExportRuntime';
 import type { RouterAbEcdsaPresignRuntime } from '../routerAbSigning/RouterAbEcdsaPresignRuntime';
 import { sha256BytesUtf8 } from '@shared/utils/digests';
 
@@ -32,15 +28,9 @@ import type {
   FundImplicitNearAccountRequest,
   FundImplicitNearAccountResult,
   ThresholdRuntimePolicyScope,
-  EcdsaDerivationClientBootstrapRequest,
-  EcdsaDerivationExportShareRequest,
-  EcdsaDerivationExportShareResponse,
-  EcdsaDerivationRouteResult,
-  EcdsaDerivationServerBootstrapResponse,
   WebAuthnAuthenticationCredential,
 } from '../types';
 import type { WalletRegistrationFinalizeRequest } from '../registrationContracts';
-import { type RouterAbEcdsaDerivationWalletSessionClaims } from '../ThresholdService/validation';
 import type { GoogleEmailOtpResolutionResult } from './googleEmailOtpRegistration';
 export type {
   GoogleEmailOtpRegistrationOffer,
@@ -178,16 +168,6 @@ import {
 import { consumeEmailOtpRateLimit as consumeEmailOtpRateLimitWithDeps } from './rateLimits';
 import { isObject } from './record';
 import { summarizeThresholdStoreConfig } from './thresholdStoreSummary';
-import {
-  listThresholdEcdsaKeyIdentityTargetsForUser as listThresholdEcdsaKeyIdentityTargetsForUserWithDeps,
-  type ThresholdEcdsaKeyInventoryDiagnostics,
-  type ThresholdEcdsaKeyInventoryRecord,
-} from './thresholdEcdsaKeyInventory';
-import {
-  ecdsaDerivationRoleLocalBootstrapWithRuntime,
-  ecdsaDerivationRoleLocalExportShareWithRuntime,
-  verifyEcdsaDerivationRoleLocalClientRootProofForExistingKeyWithRuntime,
-} from './thresholdEcdsaOperations';
 import { normalizeThresholdRuntimePolicyScope } from './thresholdRuntimePolicy';
 import {
   buildEcdsaWalletKeysFromBootstrap,
@@ -260,19 +240,16 @@ type AuthServiceRouterAbSigningRuntimeState =
   | {
       readonly kind: 'uninitialized';
       readonly normalSigning?: never;
-      readonly ecdsaBootstrapExport?: never;
       readonly ecdsaPresign?: never;
     }
   | {
       readonly kind: 'unconfigured';
       readonly normalSigning?: never;
-      readonly ecdsaBootstrapExport?: never;
       readonly ecdsaPresign?: never;
     }
   | {
       readonly kind: 'ready';
       readonly normalSigning: RouterAbNormalSigningRuntime;
-      readonly ecdsaBootstrapExport: RouterAbEcdsaBootstrapExportRuntimeState;
       readonly ecdsaPresign: RouterAbEcdsaPresignRuntime;
     };
 
@@ -596,14 +573,6 @@ export class AuthService {
     return state.kind === 'ready' ? state.normalSigning : null;
   }
 
-  getRouterAbEcdsaBootstrapExportRuntime(): RouterAbEcdsaBootstrapExportPort | null {
-    const state = this.getRouterAbSigningRuntimeState();
-    if (state.kind !== 'ready') return null;
-    return state.ecdsaBootstrapExport.kind === 'configured'
-      ? state.ecdsaBootstrapExport.runtime
-      : null;
-  }
-
   getRouterAbEcdsaPresignRuntime(): RouterAbEcdsaPresignRuntime | null {
     const state = this.getRouterAbSigningRuntimeState();
     return state.kind === 'ready' ? state.ecdsaPresign : null;
@@ -626,7 +595,6 @@ export class AuthService {
         this.routerAbSigningRuntimeState = {
           kind: 'ready',
           normalSigning: runtimes.normalSigning,
-          ecdsaBootstrapExport: runtimes.ecdsaBootstrapExport,
           ecdsaPresign: runtimes.ecdsaPresign,
         };
       }
@@ -1591,71 +1559,6 @@ export class AuthService {
     });
   }
 
-  async listThresholdEcdsaKeyIdentityTargetsForUser(input: {
-    userId: string;
-    rpId: string;
-    keyTargets: readonly unknown[];
-  }): Promise<{
-    records: ThresholdEcdsaKeyInventoryRecord[];
-    diagnostics: ThresholdEcdsaKeyInventoryDiagnostics;
-  }> {
-    return await listThresholdEcdsaKeyIdentityTargetsForUserWithDeps({
-      userId: input.userId,
-      rpId: input.rpId,
-      keyTargets: input.keyTargets,
-      ecdsaBootstrapExportRuntime: this.getRouterAbEcdsaBootstrapExportRuntime(),
-      logger: this.logger,
-    });
-  }
-
-  async listWalletEcdsaKeyFactsInventory(input: {
-    walletId: string;
-    rpId: string;
-    keyTargets: readonly unknown[];
-  }): Promise<{
-    records: ThresholdEcdsaKeyInventoryRecord[];
-    diagnostics: ThresholdEcdsaKeyInventoryDiagnostics;
-  }> {
-    return await this.listThresholdEcdsaKeyIdentityTargetsForUser({
-      userId: input.walletId,
-      rpId: input.rpId,
-      keyTargets: input.keyTargets,
-    });
-  }
-
-  async ecdsaDerivationRoleLocalBootstrap(
-    request: EcdsaDerivationClientBootstrapRequest,
-  ): Promise<EcdsaDerivationRouteResult<EcdsaDerivationServerBootstrapResponse>> {
-    return await ecdsaDerivationRoleLocalBootstrapWithRuntime({
-      deps: { runtime: this.getRouterAbEcdsaBootstrapExportRuntime() },
-      request,
-    });
-  }
-
-  async verifyEcdsaDerivationRoleLocalClientRootProofForExistingKey(
-    request: EcdsaDerivationClientBootstrapRequest & {
-      clientRootProof: NonNullable<EcdsaDerivationClientBootstrapRequest['clientRootProof']>;
-    },
-  ): Promise<EcdsaDerivationRouteResult<{ keyHandle: string }>> {
-    return await verifyEcdsaDerivationRoleLocalClientRootProofForExistingKeyWithRuntime({
-      deps: { runtime: this.getRouterAbEcdsaBootstrapExportRuntime() },
-      request,
-    });
-  }
-
-  async ecdsaDerivationRoleLocalExportShare(input: {
-    request: EcdsaDerivationExportShareRequest;
-    keyHandle: string;
-    claims: RouterAbEcdsaDerivationWalletSessionClaims;
-  }): Promise<EcdsaDerivationRouteResult<EcdsaDerivationExportShareResponse>> {
-    return await ecdsaDerivationRoleLocalExportShareWithRuntime({
-      deps: { runtime: this.getRouterAbEcdsaBootstrapExportRuntime() },
-      request: input.request,
-      keyHandle: input.keyHandle,
-      claims: input.claims,
-    });
-  }
-
   async verifyWebAuthnSyncAccount(
     request: WebAuthnSyncAccountVerificationRequest,
   ): Promise<WebAuthnSyncAccountVerificationResult> {
@@ -1670,12 +1573,8 @@ export class AuthService {
   private emailRecoveryAuthOperations(): EmailRecoveryAuthOperations {
     return new EmailRecoveryAuthOperations({
       ensureSignerAndRelayerAccount: this._ensureSignerAndRelayerAccount.bind(this),
-      getRouterAbEcdsaBootstrapExportRuntime:
-        this.getRouterAbEcdsaBootstrapExportRuntime.bind(this),
-      webAuthnAuthenticatorStore: this.stores.getWebAuthnAuthenticatorStore(),
       webAuthnCredentialBindingStore: this.stores.getWebAuthnCredentialBindingStore(),
       emailRecoveryPreparationStore: this.stores.getEmailRecoveryPreparationStore(),
-      recoverySessionStore: this.stores.getRecoverySessionStore(),
     });
   }
 
@@ -1683,12 +1582,6 @@ export class AuthService {
     request: Parameters<EmailRecoveryAuthOperations['prepareEmailRecovery']>[0],
   ): ReturnType<EmailRecoveryAuthOperations['prepareEmailRecovery']> {
     return this.emailRecoveryAuthOperations().prepareEmailRecovery(request);
-  }
-
-  respondEmailRecoveryEcdsa(
-    request: Parameters<EmailRecoveryAuthOperations['respondEmailRecoveryEcdsa']>[0],
-  ): ReturnType<EmailRecoveryAuthOperations['respondEmailRecoveryEcdsa']> {
-    return this.emailRecoveryAuthOperations().respondEmailRecoveryEcdsa(request);
   }
 
   /**

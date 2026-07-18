@@ -4,9 +4,11 @@ import type { EcdsaThresholdKeyId } from '../session/identity/laneIdentity';
 import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type {
   EcdsaRoleLocalBindingDigest,
+  EcdsaRoleLocalDurableMaterialRef,
   EcdsaRoleLocalMaterialHandle,
 } from '../session/keyMaterialBrands';
 import type {
+  EcdsaRoleLocalAuthMethod,
   EcdsaRoleLocalPublicFacts,
   EcdsaRoleLocalReadyRecord,
   EcdsaRoleLocalReadyStateBlob,
@@ -39,6 +41,7 @@ export type ThresholdEcdsaRoleLocalWorkerShareHandle = {
   kind: 'role_local_worker_session';
   materialHandle: EcdsaRoleLocalMaterialHandle;
   bindingDigest: EcdsaRoleLocalBindingDigest;
+  durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
 };
 
 export type ThresholdEcdsaDerivationRoleLocalClientState = {
@@ -50,14 +53,11 @@ export type ThresholdEcdsaDerivationRoleLocalClientState = {
 
 export type ThresholdEcdsaBackendBindingCommon = {
   /**
-   * Backend integration identifier for the current threshold-signatures signer
-   * path. This is not part of the public threshold identity seam.
+   * SigningWorker key identifier for the fixed Router A/B ECDSA path. This is
+   * separate from the public threshold identity seam.
    */
   relayerKeyId: string;
-  /**
-   * Backend integration detail for the current threshold-signatures signer
-   * path. This is not part of the public threshold identity seam.
-   */
+  /** Client public share used to bind the fixed Router A/B signing scope. */
   clientVerifyingShareB64u: string;
 };
 
@@ -86,7 +86,33 @@ export type ThresholdEcdsaRoleLocalWorkerHandleBackendBinding =
   ThresholdEcdsaBackendBindingCommon & {
     materialKind: 'role_local_worker_handle';
     roleLocalMaterialHandle: ThresholdEcdsaRoleLocalWorkerShareHandle;
-    ecdsaRoleLocalReadyRecord: EcdsaRoleLocalReadyRecord;
+    publicFacts: EcdsaRoleLocalPublicFacts;
+    authMethod: EcdsaRoleLocalAuthMethod;
+    ecdsaRoleLocalReadyRecord?: never;
+    stateBlob?: never;
+    clientAdditiveShareHandle?: never;
+    ecdsaDerivationRoleLocalClientState?: never;
+  };
+
+export type ThresholdEcdsaRoleLocalDurablePublicAnchorBackendBinding =
+  ThresholdEcdsaBackendBindingCommon & {
+    materialKind: 'role_local_durable_public_anchor';
+    publicFacts: EcdsaRoleLocalPublicFacts;
+    roleLocalMaterialHandle?: never;
+    ecdsaRoleLocalReadyRecord?: never;
+    stateBlob?: never;
+    clientAdditiveShareHandle?: never;
+    ecdsaDerivationRoleLocalClientState?: never;
+  };
+
+export type ThresholdEcdsaRoleLocalDurableSealedBackendBinding =
+  ThresholdEcdsaBackendBindingCommon & {
+    materialKind: 'role_local_durable_sealed_ref';
+    durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
+    bindingDigest: EcdsaRoleLocalBindingDigest;
+    publicFacts: EcdsaRoleLocalPublicFacts;
+    roleLocalMaterialHandle?: never;
+    ecdsaRoleLocalReadyRecord?: never;
     stateBlob?: never;
     clientAdditiveShareHandle?: never;
     ecdsaDerivationRoleLocalClientState?: never;
@@ -103,6 +129,8 @@ export type ThresholdEcdsaMetadataOnlyBackendBinding = ThresholdEcdsaBackendBind
 export type ThresholdEcdsaBackendBinding =
   | ThresholdEcdsaEmailOtpWorkerBackendBinding
   | ThresholdEcdsaRoleLocalWorkerHandleBackendBinding
+  | ThresholdEcdsaRoleLocalDurableSealedBackendBinding
+  | ThresholdEcdsaRoleLocalDurablePublicAnchorBackendBinding
   | ThresholdEcdsaRoleLocalReadyStateBlobBackendBinding
   | ThresholdEcdsaMetadataOnlyBackendBinding;
 

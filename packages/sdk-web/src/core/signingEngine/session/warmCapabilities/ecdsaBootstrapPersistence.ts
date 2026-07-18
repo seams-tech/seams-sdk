@@ -13,14 +13,8 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toWalletId, type WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ActivateAccountSignerInput } from '@/core/indexedDB/accountSignerLifecycle';
-import {
-  SIGNER_AUTH_METHODS,
-  SIGNER_KINDS,
-  SIGNER_SOURCES,
-} from '@shared/utils/signerDomain';
-import {
-  resolveThresholdSigningRootBindingFromRecord,
-} from '../identity/evmFamilyEcdsaIdentity';
+import { SIGNER_AUTH_METHODS, SIGNER_KINDS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
+import { resolveThresholdSigningRootBindingFromRecord } from '../identity/evmFamilyEcdsaIdentity';
 
 export type ThresholdEcdsaBootstrapStorePort = {
   upsertProfile: (input: UpsertProfileInput) => Promise<unknown>;
@@ -85,7 +79,9 @@ function requireParticipantIds(value: unknown): number[] {
   return value.map((participantId) => {
     const normalized = Number(participantId);
     if (!Number.isSafeInteger(normalized) || normalized <= 0) {
-      throw new Error('[SigningEngine] threshold-ecdsa bootstrap participantIds must be positive integers');
+      throw new Error(
+        '[SigningEngine] threshold-ecdsa bootstrap participantIds must be positive integers',
+      );
     }
     return normalized;
   });
@@ -110,15 +106,19 @@ function ecdsaBootstrapSignerActivation(args: {
     field: 'ecdsaThresholdKeyId',
   });
   const ecdsaRoleLocalReadyRecord = keyRef.backendBinding?.ecdsaRoleLocalReadyRecord;
-  if (!ecdsaRoleLocalReadyRecord) {
+  const ecdsaRoleLocalPublicFacts =
+    keyRef.backendBinding?.materialKind === 'role_local_worker_handle'
+      ? keyRef.backendBinding.publicFacts
+      : ecdsaRoleLocalReadyRecord?.publicFacts;
+  if (!ecdsaRoleLocalPublicFacts) {
     throw new Error(
-      '[SigningEngine] threshold-ecdsa bootstrap did not provide role-local ready record',
+      '[SigningEngine] threshold-ecdsa bootstrap did not provide role-local public facts',
     );
   }
   const signingRootBinding = resolveThresholdSigningRootBindingFromRecord({
     record: {
-      signingRootId: ecdsaRoleLocalReadyRecord.publicFacts.signingRootId,
-      signingRootVersion: ecdsaRoleLocalReadyRecord.publicFacts.signingRootVersion,
+      signingRootId: ecdsaRoleLocalPublicFacts.signingRootId,
+      signingRootVersion: ecdsaRoleLocalPublicFacts.signingRootVersion,
     },
   });
   const signingRootId = String(signingRootBinding.signingRootId);
@@ -140,7 +140,10 @@ function ecdsaBootstrapSignerActivation(args: {
     'relayerVerifyingShareB64u',
   );
   const participantIds = requireParticipantIds(keyRef.participantIds || keygen.participantIds);
-	  const evmFamilySigningKeySlotId = requireBootstrapString(keygen.evmFamilySigningKeySlotId, 'evmFamilySigningKeySlotId');
+  const evmFamilySigningKeySlotId = requireBootstrapString(
+    keygen.evmFamilySigningKeySlotId,
+    'evmFamilySigningKeySlotId',
+  );
   const chainIdKey = resolveBootstrapTargetChainIdKey({
     chainTarget: args.chainTarget,
     bootstrap: args.bootstrap,
@@ -164,11 +167,11 @@ function ecdsaBootstrapSignerActivation(args: {
         accountAddress: thresholdOwnerAddress,
         ownerAddress: thresholdOwnerAddress,
         thresholdOwnerAddress,
-	        keyScope: 'evm-family',
-	        keyHandle,
-	        walletId: args.walletId,
-	        evmFamilySigningKeySlotId,
-	        ecdsaThresholdKeyId,
+        keyScope: 'evm-family',
+        keyHandle,
+        walletId: args.walletId,
+        evmFamilySigningKeySlotId,
+        ecdsaThresholdKeyId,
         signingRootId,
         signingRootVersion,
         relayerKeyId,
@@ -180,10 +183,10 @@ function ecdsaBootstrapSignerActivation(args: {
           targetKey: chainIdKey,
           chainTarget: args.chainTarget,
         },
-	        sharedEvmFamilyKey: {
-	          walletId: args.walletId,
-	          evmFamilySigningKeySlotId,
-	          keyScope: 'evm-family',
+        sharedEvmFamilyKey: {
+          walletId: args.walletId,
+          evmFamilySigningKeySlotId,
+          keyScope: 'evm-family',
           keyHandle,
           ecdsaThresholdKeyId,
           signingRootId,

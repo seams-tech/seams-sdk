@@ -3,9 +3,12 @@ import initThresholdPrfWasm, {
   threshold_prf_derive_router_ab_ecdsa_derivation_y_relayer,
 } from '../../../../../wasm/threshold_prf/pkg/threshold_prf.js';
 import type { InitInput } from '../../../../../wasm/threshold_prf/pkg/threshold_prf.js';
-import type { ThresholdPrfPolicy } from './signingRootShareResolver';
 
-export type { ThresholdPrfPolicy } from './signingRootShareResolver';
+export type ThresholdPrfPolicy = {
+  readonly protocol: 'threshold-prf';
+  readonly threshold: number;
+  readonly shareCount: number;
+};
 
 const THRESHOLD_PRF_WASM_PATH_CANDIDATES = [
   '../../wasm/threshold_prf/pkg/threshold_prf_bg.wasm',

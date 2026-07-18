@@ -15,6 +15,7 @@ import {
   type EvmFamilySigningKeySlotId,
 } from '@shared/signing-lanes';
 import type { RelayerKeyId } from './ecdsaRoleLocalRecords';
+import { base64UrlDecode } from '@shared/utils/base64';
 
 const clientSecretSourceBrand: unique symbol = Symbol('ClientSecretSource');
 const emailOtpWorkerSessionHandleBrand: unique symbol = Symbol('EmailOtpWorkerSessionHandle');
@@ -29,6 +30,12 @@ export type WebAuthnPrfFirstSecretSource = ClientSecretSourceBrand<'webauthn_prf
   rpId: RpId;
   credentialIdB64u: string;
 };
+
+export type ThresholdPrfXClientBaseSecretSource =
+  ClientSecretSourceBrand<'threshold_prf_x_client_base'> & {
+    kind: 'threshold_prf_x_client_base';
+    xClientBaseB64u: string;
+  };
 
 export type SecureEnclaveWrappedSecretSource =
   ClientSecretSourceBrand<'secure_enclave_wrapped_secret'> & {
@@ -104,12 +111,30 @@ export type ClientSecretSource =
   | Fido2HmacSecretSource
   | EmailOtpWorkerSessionSecretSource;
 
-export type EcdsaBootstrapSecretSource = ClientSecretSource;
+export type EcdsaBootstrapSecretSource = ThresholdPrfXClientBaseSecretSource;
 
 function requirePlatformString(value: string, field: string): string {
   const normalized = String(value || '').trim();
   if (!normalized) {
     throw new Error(`[platform] ${field} is required`);
+  }
+  return normalized;
+}
+
+function requirePlatformBase64UrlFixed(
+  value: string,
+  field: string,
+  byteLength: number,
+): string {
+  const normalized = requirePlatformString(value, field);
+  let decoded: Uint8Array;
+  try {
+    decoded = base64UrlDecode(normalized);
+  } catch {
+    throw new Error(`[platform] ${field} must be unpadded base64url`);
+  }
+  if (decoded.length !== byteLength) {
+    throw new Error(`[platform] ${field} must decode to ${byteLength} bytes`);
   }
   return normalized;
 }
@@ -156,6 +181,20 @@ export function buildWebAuthnPrfFirstSecretSourceFromParts(input: {
     rpId: input.rpId,
     credentialIdB64u: requirePlatformString(input.credentialIdB64u, 'credentialIdB64u'),
     [clientSecretSourceBrand]: 'webauthn_prf_first',
+  };
+}
+
+export function buildThresholdPrfXClientBaseSecretSource(input: {
+  xClientBaseB64u: string;
+}): ThresholdPrfXClientBaseSecretSource {
+  return {
+    kind: 'threshold_prf_x_client_base',
+    xClientBaseB64u: requirePlatformBase64UrlFixed(
+      input.xClientBaseB64u,
+      'xClientBaseB64u',
+      32,
+    ),
+    [clientSecretSourceBrand]: 'threshold_prf_x_client_base',
   };
 }
 

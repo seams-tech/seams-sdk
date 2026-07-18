@@ -12,7 +12,7 @@ import {
   type SealedSigningRootShare,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootShareResolver';
 import { secp256k1PrivateKey32ToPublicKey33 } from '../../packages/sdk-server-ts/src/core/ThresholdService/evmCryptoWasm';
-import { initSync as initEcdsaDerivationClientWasmSync } from '../../wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.js';
+import { initSync as initEcdsaRegistrationClientWasmSync } from '../../wasm/ecdsa_registration_client/pkg/ecdsa_registration_client.js';
 import { prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest } from '../helpers/thresholdEcdsaClientBootstrap';
 import type { DerivationClientSharePublicKey33B64u } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
@@ -39,8 +39,8 @@ type ThresholdPrfFixtureCorpus = {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURE_PATH = resolve(__dirname, '../../crates/threshold-prf/fixtures/protocol-t-of-n.json');
-const ECDSA_DERIVATION_CLIENT_WASM_URL = new URL(
-  '../../wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client_bg.wasm',
+const ECDSA_REGISTRATION_CLIENT_WASM_URL = new URL(
+  '../../wasm/ecdsa_registration_client/pkg/ecdsa_registration_client_bg.wasm',
   import.meta.url,
 );
 const PROJECT_ID = 'project-alpha';
@@ -70,12 +70,12 @@ const ECDSA_CONTEXT = {
   keyVersion: 'v1',
 };
 const ECDSA_SUBJECT_ID = ECDSA_CONTEXT.walletId;
-let ecdsaDerivationClientWasmInitialized = false;
+let ecdsaRegistrationClientWasmInitialized = false;
 
-function ensureEcdsaDerivationClientWasm(): void {
-  if (ecdsaDerivationClientWasmInitialized) return;
-  initEcdsaDerivationClientWasmSync({ module: readFileSync(ECDSA_DERIVATION_CLIENT_WASM_URL) });
-  ecdsaDerivationClientWasmInitialized = true;
+function ensureEcdsaRegistrationClientWasm(): void {
+  if (ecdsaRegistrationClientWasmInitialized) return;
+  initEcdsaRegistrationClientWasmSync({ module: readFileSync(ECDSA_REGISTRATION_CLIENT_WASM_URL) });
+  ecdsaRegistrationClientWasmInitialized = true;
 }
 
 function loadFixtureCorpus(): ThresholdPrfFixtureCorpus {
@@ -163,7 +163,7 @@ async function roleLocalBootstrapWithClientShare(args: {
   signingRootId?: string;
   signingRootVersion?: string;
 }) {
-  ensureEcdsaDerivationClientWasm();
+  ensureEcdsaRegistrationClientWasm();
   const signingRootId = args.signingRootId || SIGNING_ROOT_ID;
   const signingRootVersion = args.signingRootVersion || SIGNING_ROOT_VERSION;
   const clientBootstrap = prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest({

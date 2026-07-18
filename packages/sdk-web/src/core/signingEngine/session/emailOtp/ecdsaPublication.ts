@@ -329,6 +329,7 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
   const thresholdEcdsaPublicKeyB64u = String(keyRef.thresholdEcdsaPublicKeyB64u || '').trim();
   const relayerKeyId = String(keyRef.backendBinding?.relayerKeyId || '').trim();
   const routerAbEcdsaDerivationNormalSigning = keyRef.routerAbEcdsaDerivationNormalSigning;
+  const publicCapability = keyRef.backendBinding?.ecdsaRoleLocalReadyRecord?.publicFacts.publicCapability;
   const participantIds = Array.isArray(keyRef.participantIds)
     ? keyRef.participantIds
         .map((participantId) => Math.floor(Number(participantId)))
@@ -344,6 +345,7 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
     !clientVerifyingShareB64u ||
     !relayerKeyId ||
     !routerAbEcdsaDerivationNormalSigning ||
+    !publicCapability ||
     !participantIds.length ||
     !walletSessionJwt ||
     !signingRootId ||
@@ -444,6 +446,7 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
       ...(thresholdEcdsaPublicKeyB64u ? { thresholdEcdsaPublicKeyB64u } : {}),
       participantIds,
       routerAbEcdsaDerivationNormalSigning,
+      publicCapability,
     },
     updatedAtMs: persistedAtMs,
   });

@@ -178,28 +178,26 @@ function exactEcdsaExportSessionFromAvailableLane(args: {
 }): ExactEcdsaExportSession {
   const authMethod = availableEcdsaSigningLaneAuthMethod(args.lane);
   const signingGrantId = SigningSessionIds.signingGrant(args.lane.signingGrantId);
-  const thresholdSessionId = SigningSessionIds.thresholdEcdsaSession(
-    args.lane.thresholdSessionId,
-  );
+  const thresholdSessionId = SigningSessionIds.thresholdEcdsaSession(args.lane.thresholdSessionId);
   const material = ecdsaExportMaterialAvailabilityForLane(args.lane);
+  if (args.lane.source === 'durable_sealed_record') {
+    return {
+      chainTarget: args.chainTarget,
+      authMethod,
+      signingGrantId,
+      thresholdSessionId,
+      material,
+      state: args.lane.state,
+      source: 'durable_sealed_record',
+      publicReauthAuthority: args.lane.publicReauthAuthority,
+    };
+  }
   switch (args.lane.state) {
     case 'expired':
     case 'exhausted':
-      if (args.lane.source !== 'durable_sealed_record') {
-        throw new Error(
-          '[SigningEngine][ecdsa-export] expired export lane requires durable public reauth authority',
-        );
-      }
-      return {
-        chainTarget: args.chainTarget,
-        authMethod,
-        signingGrantId,
-        thresholdSessionId,
-        material,
-        state: args.lane.state,
-        source: 'durable_sealed_record',
-        publicReauthAuthority: args.lane.publicReauthAuthority,
-      };
+      throw new Error(
+        '[SigningEngine][ecdsa-export] expired export lane requires durable public reauth authority',
+      );
     case 'ready':
     case 'restorable':
     case 'deferred':

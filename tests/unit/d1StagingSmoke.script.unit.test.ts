@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   D1_STAGING_CONSOLE_ORIGIN,
   D1_STAGING_GENERATED_AT_ISO,
-  D1_STAGING_ROUTER_API_ORIGIN,
+  D1_STAGING_GATEWAY_ORIGIN,
   d1StagingJsonResponse,
   d1StagingManifestPath,
   d1StagingRequestUrl,
@@ -24,13 +24,13 @@ type SmokePlan = {
 type SmokeModule = {
   readonly buildD1StagingSmokePlan: (input: {
     readonly consoleOrigin: string;
-    readonly routerApiOrigin: string;
+    readonly gatewayOrigin: string;
     readonly generatedAtIso?: string;
     readonly mode?: 'dry-run' | 'remote';
   }) => SmokePlan;
   readonly runD1StagingSmoke: (input: {
     readonly consoleOrigin: string;
-    readonly routerApiOrigin: string;
+    readonly gatewayOrigin: string;
     readonly generatedAtIso?: string;
     readonly manifestPath: string;
     readonly mode?: 'dry-run' | 'remote';
@@ -51,7 +51,7 @@ const smokeModule = loadD1StagingScriptModule<SmokeModule>('d1-staging-smoke.mjs
 const smokeInput = {
   consoleOrigin: D1_STAGING_CONSOLE_ORIGIN,
   generatedAtIso: D1_STAGING_GENERATED_AT_ISO,
-  routerApiOrigin: D1_STAGING_ROUTER_API_ORIGIN,
+  gatewayOrigin: D1_STAGING_GATEWAY_ORIGIN,
 };
 
 function smokeEndpointTuple(endpoint: SmokeEndpoint): readonly [string, string, string] {
@@ -63,16 +63,16 @@ async function smokeFetch(input: string | URL | Request): Promise<Response> {
   if (url === `${D1_STAGING_CONSOLE_ORIGIN}/console/readyz`) {
     return d1StagingJsonResponse({ ok: true, service: 'console' }, 200);
   }
-  if (url === `${D1_STAGING_ROUTER_API_ORIGIN}/readyz`) {
+  if (url === `${D1_STAGING_GATEWAY_ORIGIN}/readyz`) {
     return d1StagingJsonResponse({ ok: true, thresholdEd25519: { configured: false } }, 200);
   }
-  if (url === `${D1_STAGING_ROUTER_API_ORIGIN}/healthz`) {
+  if (url === `${D1_STAGING_GATEWAY_ORIGIN}/healthz`) {
     return d1StagingJsonResponse({ ok: true }, 200);
   }
-  if (url === `${D1_STAGING_ROUTER_API_ORIGIN}/router-ab/ed25519/healthz`) {
+  if (url === `${D1_STAGING_GATEWAY_ORIGIN}/router-ab/ed25519/healthz`) {
     return d1StagingJsonResponse({ ok: true, configured: true }, 200);
   }
-  if (url === `${D1_STAGING_ROUTER_API_ORIGIN}/router-ab/ecdsa-derivation/healthz`) {
+  if (url === `${D1_STAGING_GATEWAY_ORIGIN}/router-ab/ecdsa-derivation/healthz`) {
     return d1StagingJsonResponse({ ok: true, configured: true }, 200);
   }
   return d1StagingJsonResponse({ ok: false }, 404);
@@ -82,17 +82,17 @@ async function failingSmokeFetch(_input: string | URL | Request): Promise<Respon
   return d1StagingJsonResponse({ ok: false }, 503);
 }
 
-test('D1 staging smoke builds the actual console and router-api readiness endpoint plan', async () => {
+test('D1 staging smoke builds the actual console and gateway readiness endpoint plan', async () => {
   const module = await smokeModule;
   const plan = module.buildD1StagingSmokePlan(smokeInput);
 
   expect(plan.mode).toBe('dry-run');
   expect(plan.endpoints.map(smokeEndpointTuple)).toEqual([
     ['console_readyz', 'GET', `${D1_STAGING_CONSOLE_ORIGIN}/console/readyz`],
-    ['router_api_readyz', 'GET', `${D1_STAGING_ROUTER_API_ORIGIN}/readyz`],
-    ['router_api_healthz', 'GET', `${D1_STAGING_ROUTER_API_ORIGIN}/healthz`],
-    ['signer_custody_ed25519_healthz', 'GET', `${D1_STAGING_ROUTER_API_ORIGIN}/router-ab/ed25519/healthz`],
-    ['signer_custody_ecdsa_derivation_healthz', 'GET', `${D1_STAGING_ROUTER_API_ORIGIN}/router-ab/ecdsa-derivation/healthz`],
+    ['router_api_readyz', 'GET', `${D1_STAGING_GATEWAY_ORIGIN}/readyz`],
+    ['router_api_healthz', 'GET', `${D1_STAGING_GATEWAY_ORIGIN}/healthz`],
+    ['signer_custody_ed25519_healthz', 'GET', `${D1_STAGING_GATEWAY_ORIGIN}/router-ab/ed25519/healthz`],
+    ['signer_custody_ecdsa_derivation_healthz', 'GET', `${D1_STAGING_GATEWAY_ORIGIN}/router-ab/ecdsa-derivation/healthz`],
   ]);
 });
 
@@ -164,7 +164,7 @@ test('D1 staging smoke fails when a readiness endpoint is unhealthy', async () =
 
 async function unconfiguredSignerSmokeFetch(input: string | URL | Request): Promise<Response> {
   const url = d1StagingRequestUrl(input);
-  if (url === `${D1_STAGING_ROUTER_API_ORIGIN}/router-ab/ed25519/healthz`) {
+  if (url === `${D1_STAGING_GATEWAY_ORIGIN}/router-ab/ed25519/healthz`) {
     return d1StagingJsonResponse({ ok: true, configured: false }, 200);
   }
   return smokeFetch(input);

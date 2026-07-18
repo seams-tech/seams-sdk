@@ -423,6 +423,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
       clientPresignatureId: 'client-presignature-test',
       expiresAtMs: ecdsaBootstrap.expiresAtMs,
       signingDigest32: Uint8Array.from({ length: 32 }, (_, index) => index),
+      clientRerandomizationCommitment32: new Uint8Array(32).fill(0x31),
     });
     expect(
       validateRouterAbEcdsaDerivationNormalSigningPrepareRequest({
@@ -630,6 +631,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
       clientPresignatureId: 'client-presignature-private-validator',
       expiresAtMs: claims.thresholdExpiresAtMs,
       signingDigest32: Uint8Array.from({ length: 32 }, (_, index) => index + 1),
+      clientRerandomizationCommitment32: new Uint8Array(32).fill(0x31),
     });
     const finalizeRequest = buildRouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1({
       scope,
@@ -640,6 +642,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
       signingDigest32: Uint8Array.from({ length: 32 }, (_, index) => index + 1),
       serverPresignatureId: prepareRequest.client_presignature_id,
       clientSignatureShare32: Uint8Array.from({ length: 32 }, (_, index) => 255 - index),
+      clientRerandomizationContribution32: new Uint8Array(32).fill(0x41),
     });
     expect(
       validateRouterAbEcdsaDerivationNormalSigningPrepareRequest({

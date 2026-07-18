@@ -273,7 +273,6 @@ test.describe('Router API route surface wiring', () => {
     );
 
     expect(prepareOnlyIds.has('email_recovery_prepare')).toBe(true);
-    expect(prepareOnlyIds.has('email_recovery_ecdsa_respond')).toBe(true);
     expect(prepareOnlyIds.has('recover_email')).toBe(false);
 
     const executableSurface = getRouterApiRouteSurface(
@@ -290,7 +289,6 @@ test.describe('Router API route surface wiring', () => {
     );
 
     expect(executableIds.has('email_recovery_prepare')).toBe(true);
-    expect(executableIds.has('email_recovery_ecdsa_respond')).toBe(true);
     expect(executableIds.has('recover_email')).toBe(true);
   });
 

@@ -9,13 +9,16 @@ import {
   finalizeEcdsaClientBootstrapCommandWasm,
   prepareEcdsaClientBootstrapCommandWasm,
   buildEcdsaRoleLocalExportArtifactCommandWasm,
+  closeRouterAbEcdsaRegistrationCeremonyWasm,
+  createRouterAbEcdsaRegistrationCeremonyWasm,
+  finalizeRouterAbEcdsaRegistrationActivationWasm,
+  verifyRouterAbEcdsaRegistrationClientProofsWasm,
   storeEcdsaRoleLocalSigningMaterialWasm,
 } from '../../signingEngine/threshold/crypto/ecdsaDerivationClientWasm';
 import type { WorkerOperationContext } from '../../signingEngine/workerManager/executeWorkerOperation';
 import {
   getSignerWorkerOperationCoreCode,
   getSignerWorkerOperationErrorCode,
-  type EmailOtpPrepareEcdsaClientBootstrapInput,
 } from '../../signingEngine/workerManager/workerTypes';
 import {
   serializeAuthenticationCredentialWithPRF,
@@ -36,6 +39,7 @@ import {
 } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 import {
   parseEcdsaRoleLocalBindingDigest,
+  parseEcdsaRoleLocalDurableMaterialRef,
   parseEcdsaRoleLocalMaterialHandle,
 } from '../../signingEngine/session/keyMaterialBrands';
 import {
@@ -102,6 +106,7 @@ type BrowserRelayerPublicIdentity = {
   relayerPublicKey33B64u: EcdsaDerivationRelayerPublicKey33B64u;
   groupPublicKey33B64u: string;
   ethereumAddress: `0x${string}`;
+  relayerShareRetryCounter: number;
 };
 
 type SignerCryptoInvocationFailure<CommandCode extends string> = Extract<
@@ -138,6 +143,17 @@ function requiredStringFromRecord(record: Record<string, unknown>, field: string
     throw new Error(`ECDSA client bootstrap state is missing ${field}`);
   }
   return value;
+}
+
+function requiredNonNegativeIntegerFromRecord(
+  record: Record<string, unknown>,
+  field: string,
+): number {
+  const value = record[field];
+  if (!Number.isSafeInteger(value) || Number(value) < 0) {
+    throw new Error(`${field} must be a non-negative safe integer`);
+  }
+  return Number(value);
 }
 
 function requireBase64UrlBytes(value: string, field: string, byteLength: number): string {
@@ -264,6 +280,10 @@ function parseRelayerPublicIdentity(input: unknown): BrowserRelayerPublicIdentit
       'groupPublicKey33B64u',
     ),
     ethereumAddress: parseEthereumAddress(input.ethereumAddress),
+    relayerShareRetryCounter: requiredNonNegativeIntegerFromRecord(
+      input,
+      'relayerShareRetryCounter',
+    ),
   };
 }
 
@@ -590,6 +610,42 @@ function createBrowserSignerCryptoPort(
 ): SignerCryptoPort {
   return {
     kind: 'signer_crypto',
+    async createRouterAbEcdsaRegistrationCeremony(input) {
+      if (!workerCtx) {
+        throw new Error('ECDSA derivation client worker context is unavailable');
+      }
+      return createRouterAbEcdsaRegistrationCeremonyWasm({
+        command: input,
+        workerCtx,
+      });
+    },
+    async verifyRouterAbEcdsaRegistrationClientProofs(input) {
+      if (!workerCtx) {
+        throw new Error('ECDSA derivation client worker context is unavailable');
+      }
+      return verifyRouterAbEcdsaRegistrationClientProofsWasm({
+        command: input,
+        workerCtx,
+      });
+    },
+    async finalizeRouterAbEcdsaRegistrationActivation(input) {
+      if (!workerCtx) {
+        throw new Error('ECDSA derivation client worker context is unavailable');
+      }
+      return finalizeRouterAbEcdsaRegistrationActivationWasm({
+        command: input,
+        workerCtx,
+      });
+    },
+    async closeRouterAbEcdsaRegistrationCeremony(input) {
+      if (!workerCtx) {
+        throw new Error('ECDSA derivation client worker context is unavailable');
+      }
+      return closeRouterAbEcdsaRegistrationCeremonyWasm({
+        command: input,
+        workerCtx,
+      });
+    },
     async prepareEcdsaClientBootstrap(
       input,
     ): Promise<
@@ -602,27 +658,6 @@ function createBrowserSignerCryptoPort(
         );
       }
       try {
-        if (input.secretSource.kind === 'email_otp_worker_session') {
-          const emailOtpInput: EmailOtpPrepareEcdsaClientBootstrapInput = {
-            kind: input.kind,
-            algorithm: input.algorithm,
-            context: input.context,
-            participants: input.participants,
-            secretSource: input.secretSource,
-          };
-          const generatedOutput = await workerCtx.requestWorkerOperation({
-            kind: 'emailOtp',
-            request: {
-              type: 'prepareEcdsaClientBootstrapFromEmailOtpHandle',
-              timeoutMs: 60_000,
-              payload: { input: emailOtpInput },
-            },
-          });
-          return {
-            ok: true,
-            value: parseGeneratedPrepareEcdsaClientBootstrapOutput(generatedOutput),
-          };
-        }
         const generatedCommand = toGeneratedPrepareEcdsaClientBootstrapCommand(input);
         const generatedOutput = await prepareEcdsaClientBootstrapCommandWasm({
           command: generatedCommand,
@@ -723,6 +758,7 @@ function createBrowserSignerCryptoPort(
             handle: {
               kind: 'role_local_worker_session',
               materialHandle: parseEcdsaRoleLocalMaterialHandle(stored.materialHandle),
+              durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef(stored.materialHandle),
               bindingDigest: parseEcdsaRoleLocalBindingDigest(stored.bindingDigest),
             },
           },

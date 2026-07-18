@@ -43,19 +43,10 @@
  */
 
 import {
-  parseRegistrationActivationButtonStatePayload,
-  parseRegistrationActivationFocusExitPayload,
-  parseRegistrationActivationReadyPayload,
-  parseRegistrationActivationStartedPayload,
   type ParentToChildEnvelope,
   type ChildToParentEnvelope,
   type ProgressPayload,
   type PreferencesChangedPayload,
-  type RegistrationActivationButtonInteractionState,
-  type PMRegistrationActivationButtonStatePayload,
-  type PMRegistrationActivationFocusExitPayload,
-  type PMRegistrationActivationReadyPayload,
-  type PMRegistrationActivationStartedPayload,
   type PMExportKeypairUiPayload,
 } from '../shared/messages';
 import { SignedTransaction } from '@/core/rpcClients/near/NearClient';
@@ -104,16 +95,8 @@ import type {
   SeamsChainConfig,
   SeamsConfigsInput,
 } from '@/core/types/seams';
-import type {
-  CreatePasskeyRegistrationActivationSurfaceArgs,
-  RegistrationActivationMessageIdentity,
-  RegistrationActivationSurfaceState,
-  WalletIframeRegistrationActivationSurface,
-  WalletIframeRequestId,
-  WalletIframeSurfaceId,
-  RegistrationActivationId,
-} from '@/SeamsWeb/publicApi/types';
-import { walletIframeSurfaceIdFromBoundary } from '@/core/types/registrationActivationIdentity';
+import type { WalletIframeRequestId } from '@/SeamsWeb/publicApi/types';
+import { walletIframeSurfaceIdFromBoundary } from '@/core/types/walletIframeIdentity';
 import type { MultichainSigningRequest } from '@/core/signingEngine/chains/tempo/tempoSigning.types';
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
 import type { TempoSignedResult } from '@/core/signingEngine/chains/tempo/tempoAdapter';
@@ -173,21 +156,14 @@ import type {
 import { ActionArgs, TransactionInput, TxExecutionStatus } from '@/core/types';
 import type { DelegateActionInput } from '@/core/types/delegate';
 import { IframeTransport } from './transport/IframeTransport';
-import OverlayController, { type DOMRectLike } from './overlay/overlay-controller';
+import OverlayController from './overlay/overlay-controller';
 import {
   hiddenWalletIframeSurface,
-  interactiveRegistrationPlacement,
   passkeyRegistrationPreparationReceipt,
-  parseRegistrationActivationSurfaceIdentity,
   requestSurfaceIdentity,
   reduceWalletIframeSurface,
-  registrationActivationSurfaceIdentitiesEqual,
-  registrationActivationSurfaceIdentity,
-  suspendedRegistrationPlacement,
   walletIframeConnectionIdFromBoundary,
-  type AnchoredRegistrationPlacement,
   type ReduceWalletIframeSurfaceResult,
-  type RegistrationActivationSurfaceIdentity,
   type RequestSurfaceIdentity,
   type WalletIframeConnectionId,
   type WalletIframeSurface,
@@ -454,44 +430,6 @@ type PostResult<T> = {
   result: T;
 };
 
-type RegistrationActivationMountCleanup = {
-  dispose(): void;
-};
-
-const REGISTRATION_ACTIVATION_TARGET_VISIBILITY_TIMEOUT_MS = 1200;
-const REGISTRATION_ACTIVATION_TARGET_VISIBILITY_MAX_FRAMES = 45;
-
-const REGISTRATION_ACTIVATION_ACTIVE_ATTRIBUTE = 'data-seams-registration-button-active';
-const REGISTRATION_ACTIVATION_STATE_ATTRIBUTES = {
-  hovered: 'data-seams-registration-button-hovered',
-  focused: 'data-seams-registration-button-focused',
-  pressed: 'data-seams-registration-button-pressed',
-  busy: 'data-seams-registration-button-busy',
-  disabled: 'data-seams-registration-button-disabled',
-} as const;
-const REGISTRATION_ACTIVATION_MOUNTING_BUTTON_STATE: RegistrationActivationButtonInteractionState =
-  {
-    kind: 'registration_activation_button_interaction_state_v1',
-    hovered: false,
-    focused: false,
-    pressed: false,
-    busy: true,
-    disabled: true,
-  };
-const REGISTRATION_ACTIVATION_READY_BUTTON_STATE: RegistrationActivationButtonInteractionState = {
-  kind: 'registration_activation_button_interaction_state_v1',
-  hovered: false,
-  focused: false,
-  pressed: false,
-  busy: false,
-  disabled: false,
-};
-
-type RegistrationActivationCancelReason = Extract<
-  RegistrationActivationSurfaceState,
-  { kind: 'cancelled' }
->['reason'];
-
 function getErrorCode(error: Error): string {
   if (!isObject(error)) return '';
   const code = (error as { code?: unknown }).code;
@@ -512,28 +450,6 @@ function walletIframeSurfaceBusyError(
   return error;
 }
 
-function shouldTreatRegistrationActivationErrorAsExpired(error: Error): boolean {
-  const message = error.message.toLowerCase();
-  if (message.includes('registration activation expired')) return true;
-  return message.includes('wallet request timeout for pm_registration_activation_prepare');
-}
-
-function shouldCancelRegistrationActivationOnDispose(
-  state: RegistrationActivationSurfaceState,
-): boolean {
-  switch (state.kind) {
-    case 'idle':
-    case 'mounting':
-    case 'ready':
-    case 'starting':
-      return true;
-    case 'completed':
-    case 'cancelled':
-    case 'failed':
-      return false;
-  }
-}
-
 function createTerminalProgressForRequest(args: {
   requestType: ParentToChildEnvelope['type'];
   requestId: string;
@@ -547,7 +463,6 @@ function createTerminalProgressForRequest(args: {
   const common = { flowId, requestId, status, message, error };
   const registrationRequests = new Set<ParentToChildEnvelope['type']>([
     'PM_REGISTER_WALLET',
-    'PM_REGISTRATION_ACTIVATION_PREPARE',
     'PM_REQUEST_EMAIL_OTP_ENROLLMENT_CHALLENGE',
     'PM_ENROLL_EMAIL_OTP',
     'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY',
@@ -638,416 +553,6 @@ function sanitizeEmailOtpIframeResult<T>(value: T): T {
   return out as T;
 }
 
-function setRegistrationActivationBooleanAttribute(
-  target: HTMLElement,
-  name: string,
-  active: boolean,
-): void {
-  if (active) {
-    target.setAttribute(name, 'true');
-  } else {
-    target.setAttribute(name, 'false');
-  }
-}
-
-function canApplyRegistrationActivationButtonState(
-  state: RegistrationActivationSurfaceState,
-): boolean {
-  switch (state.kind) {
-    case 'ready':
-    case 'starting':
-      return true;
-    case 'idle':
-    case 'mounting':
-    case 'completed':
-    case 'cancelled':
-    case 'failed':
-      return false;
-  }
-}
-
-function applyRegistrationActivationButtonState(args: {
-  target: HTMLElement | null;
-  state: RegistrationActivationButtonInteractionState;
-}): void {
-  if (!args.target) return;
-  setRegistrationActivationBooleanAttribute(
-    args.target,
-    REGISTRATION_ACTIVATION_STATE_ATTRIBUTES.hovered,
-    args.state.hovered,
-  );
-  setRegistrationActivationBooleanAttribute(
-    args.target,
-    REGISTRATION_ACTIVATION_STATE_ATTRIBUTES.focused,
-    args.state.focused,
-  );
-  setRegistrationActivationBooleanAttribute(
-    args.target,
-    REGISTRATION_ACTIVATION_STATE_ATTRIBUTES.pressed,
-    args.state.pressed,
-  );
-  setRegistrationActivationBooleanAttribute(
-    args.target,
-    REGISTRATION_ACTIVATION_STATE_ATTRIBUTES.busy,
-    args.state.busy,
-  );
-  setRegistrationActivationBooleanAttribute(
-    args.target,
-    REGISTRATION_ACTIVATION_STATE_ATTRIBUTES.disabled,
-    args.state.disabled,
-  );
-}
-
-type ParsedRegistrationActivationChildMessage =
-  | {
-      type: 'PM_REGISTRATION_ACTIVATION_READY';
-      payload: PMRegistrationActivationReadyPayload;
-    }
-  | {
-      type: 'PM_REGISTRATION_ACTIVATION_STARTED';
-      payload: PMRegistrationActivationStartedPayload;
-    }
-  | {
-      type: 'PM_REGISTRATION_ACTIVATION_BUTTON_STATE';
-      payload: PMRegistrationActivationButtonStatePayload;
-    }
-  | {
-      type: 'PM_REGISTRATION_ACTIVATION_FOCUS_EXIT';
-      payload: PMRegistrationActivationFocusExitPayload;
-    };
-
-function parseRegistrationActivationChildMessage(
-  msg: ChildToParentEnvelope,
-): ParsedRegistrationActivationChildMessage | null {
-  switch (msg.type) {
-    case 'PM_REGISTRATION_ACTIVATION_READY': {
-      const payload = parseRegistrationActivationReadyPayload(msg.payload);
-      return payload ? { type: msg.type, payload } : null;
-    }
-    case 'PM_REGISTRATION_ACTIVATION_STARTED': {
-      const payload = parseRegistrationActivationStartedPayload(msg.payload);
-      return payload ? { type: msg.type, payload } : null;
-    }
-    case 'PM_REGISTRATION_ACTIVATION_BUTTON_STATE': {
-      const payload = parseRegistrationActivationButtonStatePayload(msg.payload);
-      return payload ? { type: msg.type, payload } : null;
-    }
-    case 'PM_REGISTRATION_ACTIVATION_FOCUS_EXIT': {
-      const payload = parseRegistrationActivationFocusExitPayload(msg.payload);
-      return payload ? { type: msg.type, payload } : null;
-    }
-    default:
-      return null;
-  }
-}
-
-function clearRegistrationActivationButtonState(target: HTMLElement | null): void {
-  if (!target) return;
-  target.removeAttribute(REGISTRATION_ACTIVATION_ACTIVE_ATTRIBUTE);
-  for (const attributeName of Object.values(REGISTRATION_ACTIVATION_STATE_ATTRIBUTES)) {
-    target.removeAttribute(attributeName);
-  }
-}
-
-function registrationActivationIdentitiesEqual(
-  left: RegistrationActivationMessageIdentity,
-  right: RegistrationActivationMessageIdentity,
-): boolean {
-  return (
-    left.surfaceId === right.surfaceId &&
-    left.activationId === right.activationId &&
-    left.requestId === right.requestId
-  );
-}
-
-function focusableRegistrationActivationElements(doc: Document): HTMLElement[] {
-  const selector = [
-    'a[href]',
-    'button:not([disabled])',
-    'input:not([disabled])',
-    'select:not([disabled])',
-    'textarea:not([disabled])',
-    '[tabindex]:not([tabindex="-1"])',
-  ].join(',');
-  return Array.from(doc.querySelectorAll<HTMLElement>(selector)).filter((element) => {
-    if (!element.isConnected || element.closest('[inert]')) return false;
-    const style = doc.defaultView?.getComputedStyle(element);
-    if (style?.display === 'none' || style?.visibility === 'hidden') return false;
-    return element.getClientRects().length > 0;
-  });
-}
-
-function focusRegistrationActivationSibling(
-  target: HTMLElement,
-  direction: 'forward' | 'backward',
-): void {
-  const elements = focusableRegistrationActivationElements(target.ownerDocument);
-  const targetIndex = elements.indexOf(target);
-  const nextIndex = direction === 'forward' ? targetIndex + 1 : targetIndex - 1;
-  const next = elements[nextIndex];
-  if (next && next !== target) {
-    next.focus({ preventScroll: true });
-    return;
-  }
-  target.blur();
-}
-
-function readRegistrationActivationTargetRect(target: HTMLElement): DOMRectLike | null {
-  if (target.isConnected === false) return null;
-  if (typeof target.getClientRects === 'function' && target.getClientRects().length === 0) {
-    return null;
-  }
-  const rect = target.getBoundingClientRect();
-  const top = Number(rect.top);
-  const left = Number(rect.left);
-  const width = Number(rect.width);
-  const height = Number(rect.height);
-  if (
-    !Number.isFinite(top) ||
-    !Number.isFinite(left) ||
-    !Number.isFinite(width) ||
-    !Number.isFinite(height) ||
-    width < 44 ||
-    height < 44
-  ) {
-    return null;
-  }
-  return { top, left, width, height };
-}
-
-type RegistrationActivationTargetGeometry =
-  | { kind: 'interactive'; rect: DOMRectLike }
-  | { kind: 'suspended'; rect: DOMRectLike }
-  | { kind: 'unavailable'; rect?: never };
-
-function isRegistrationActivationClippingValue(value: string): boolean {
-  return value === 'hidden' || value === 'clip' || value === 'auto' || value === 'scroll';
-}
-
-function registrationActivationTargetGeometry(
-  target: HTMLElement,
-): RegistrationActivationTargetGeometry {
-  const rect = readRegistrationActivationTargetRect(target);
-  if (!rect || typeof window === 'undefined' || typeof window.getComputedStyle !== 'function') {
-    return rect ? { kind: 'interactive', rect } : { kind: 'unavailable' };
-  }
-  let effectiveOpacity = 1;
-  let current: HTMLElement | null = target;
-  let partiallyClipped = false;
-  while (current) {
-    if (current.hasAttribute('inert')) return { kind: 'unavailable' };
-    const styles = window.getComputedStyle(current);
-    if (
-      styles.display === 'none' ||
-      styles.visibility === 'hidden' ||
-      styles.visibility === 'collapse' ||
-      styles.contentVisibility === 'hidden'
-    ) {
-      return { kind: 'unavailable' };
-    }
-    const opacity = Number(styles.opacity);
-    effectiveOpacity *= Number.isFinite(opacity) ? opacity : 1;
-    if (effectiveOpacity < 0.1) return { kind: 'unavailable' };
-    if (current !== target) {
-      const ancestorRect = current.getBoundingClientRect();
-      const clipsX = isRegistrationActivationClippingValue(styles.overflowX);
-      const clipsY = isRegistrationActivationClippingValue(styles.overflowY);
-      if (
-        (clipsX &&
-          (rect.left < ancestorRect.left || rect.left + rect.width > ancestorRect.right)) ||
-        (clipsY && (rect.top < ancestorRect.top || rect.top + rect.height > ancestorRect.bottom))
-      ) {
-        partiallyClipped = true;
-      }
-    }
-    current = current.parentElement;
-  }
-  return partiallyClipped ? { kind: 'suspended', rect } : { kind: 'interactive', rect };
-}
-
-function registrationActivationPlacementFromTarget(
-  target: HTMLElement,
-): AnchoredRegistrationPlacement | null {
-  const geometry = registrationActivationTargetGeometry(target);
-  switch (geometry.kind) {
-    case 'interactive':
-      return interactiveRegistrationPlacement(geometry.rect);
-    case 'suspended':
-      return suspendedRegistrationPlacement(geometry.rect);
-    case 'unavailable':
-      return null;
-  }
-}
-
-function installRegistrationActivationTargetProxy(args: {
-  target: HTMLElement;
-  accessibleLabel: string;
-  onFocusRequest(): void;
-}): RegistrationActivationMountCleanup {
-  const role = args.target.getAttribute('role');
-  const tabindex = args.target.getAttribute('tabindex');
-  const ariaLabel = args.target.getAttribute('aria-label');
-  const active = args.target.getAttribute(REGISTRATION_ACTIVATION_ACTIVE_ATTRIBUTE);
-  args.target.setAttribute(REGISTRATION_ACTIVATION_ACTIVE_ATTRIBUTE, 'true');
-  if (role === null) args.target.setAttribute('role', 'button');
-  if (tabindex === null) args.target.setAttribute('tabindex', '0');
-  if (ariaLabel === null) args.target.setAttribute('aria-label', args.accessibleLabel);
-  const onFocus = (): void => {
-    args.onFocusRequest();
-  };
-  const consumeActivationEvent = (event: Event): void => {
-    event.preventDefault();
-    event.stopPropagation();
-    event.stopImmediatePropagation?.();
-  };
-  const onKeyDown = (event: KeyboardEvent): void => {
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    consumeActivationEvent(event);
-    args.onFocusRequest();
-  };
-  const onKeyUp = (event: KeyboardEvent): void => {
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    consumeActivationEvent(event);
-  };
-  const onClick = (event: MouseEvent): void => {
-    consumeActivationEvent(event);
-    args.onFocusRequest();
-  };
-  args.target.addEventListener('focus', onFocus);
-  args.target.addEventListener('keydown', onKeyDown, true);
-  args.target.addEventListener('keyup', onKeyUp, true);
-  args.target.addEventListener('click', onClick, true);
-  return {
-    dispose: (): void => {
-      args.target.removeEventListener('focus', onFocus);
-      args.target.removeEventListener('keydown', onKeyDown, true);
-      args.target.removeEventListener('keyup', onKeyUp, true);
-      args.target.removeEventListener('click', onClick, true);
-      clearRegistrationActivationButtonState(args.target);
-      restoreNullableAttribute(args.target, 'role', role);
-      restoreNullableAttribute(args.target, 'tabindex', tabindex);
-      restoreNullableAttribute(args.target, 'aria-label', ariaLabel);
-      restoreNullableAttribute(args.target, REGISTRATION_ACTIVATION_ACTIVE_ATTRIBUTE, active);
-    },
-  };
-}
-
-function restoreNullableAttribute(target: HTMLElement, name: string, value: string | null): void {
-  if (value === null) {
-    target.removeAttribute(name);
-    return;
-  }
-  target.setAttribute(name, value);
-}
-
-function nextRegistrationActivationLayoutFrame(): Promise<void> {
-  return new Promise((resolve) => {
-    if (typeof requestAnimationFrame === 'function') {
-      requestAnimationFrame(() => resolve());
-      return;
-    }
-    setTimeout(resolve, 16);
-  });
-}
-
-async function waitForVisibleRegistrationActivationTarget(target: HTMLElement): Promise<boolean> {
-  const deadline = Date.now() + REGISTRATION_ACTIVATION_TARGET_VISIBILITY_TIMEOUT_MS;
-  let frames = 0;
-  while (frames < REGISTRATION_ACTIVATION_TARGET_VISIBILITY_MAX_FRAMES && Date.now() <= deadline) {
-    if (registrationActivationTargetGeometry(target).kind !== 'unavailable') return true;
-    await nextRegistrationActivationLayoutFrame();
-    frames += 1;
-  }
-  return registrationActivationTargetGeometry(target).kind !== 'unavailable';
-}
-
-function collectRegistrationActivationGeometryTargets(target: HTMLElement): EventTarget[] {
-  const events: EventTarget[] = [];
-  if (typeof window !== 'undefined') {
-    events.push(window);
-  }
-  if (typeof window === 'undefined' || typeof window.getComputedStyle !== 'function') {
-    return events;
-  }
-  let current = target.parentElement;
-  while (current) {
-    const styles = window.getComputedStyle(current);
-    const overflow = `${styles.overflow} ${styles.overflowX} ${styles.overflowY}`;
-    if (/\b(auto|scroll|overlay|hidden|clip)\b/.test(overflow)) {
-      events.push(current);
-    }
-    current = current.parentElement;
-  }
-  return events;
-}
-
-function installRegistrationActivationOverlayGeometry(args: {
-  target: HTMLElement;
-  onPlacementChanged(placement: AnchoredRegistrationPlacement): void;
-  onTargetUnavailable(): void;
-}): RegistrationActivationMountCleanup | null {
-  const applyRect = (): boolean => {
-    const geometry = registrationActivationTargetGeometry(args.target);
-    switch (geometry.kind) {
-      case 'unavailable':
-        return false;
-      case 'suspended':
-        args.onPlacementChanged(suspendedRegistrationPlacement(geometry.rect));
-        return true;
-      case 'interactive':
-        args.onPlacementChanged(interactiveRegistrationPlacement(geometry.rect));
-        return true;
-    }
-  };
-  if (!applyRect()) return null;
-  let disposed = false;
-  const onGeometryChanged = (): void => {
-    if (disposed) return;
-    if (applyRect()) return;
-    args.onTargetUnavailable();
-  };
-  const resizeObserver =
-    typeof ResizeObserver !== 'undefined' ? new ResizeObserver(onGeometryChanged) : null;
-  resizeObserver?.observe(args.target);
-  const eventTargets = collectRegistrationActivationGeometryTargets(args.target);
-  if (typeof window !== 'undefined' && window.visualViewport) {
-    eventTargets.push(window.visualViewport);
-  }
-  for (const eventTarget of eventTargets) {
-    eventTarget.addEventListener('scroll', onGeometryChanged, true);
-    eventTarget.addEventListener('resize', onGeometryChanged);
-  }
-  let animationFrameId: number | null = null;
-  let alignmentFrameCount = 0;
-  const scheduleAlignmentFrame = (): void => {
-    if (typeof requestAnimationFrame !== 'function') return;
-    if (animationFrameId !== null || disposed) return;
-    animationFrameId = requestAnimationFrame(() => {
-      animationFrameId = null;
-      if (disposed) return;
-      alignmentFrameCount += 1;
-      onGeometryChanged();
-      if (alignmentFrameCount < 12) {
-        scheduleAlignmentFrame();
-      }
-    });
-  };
-  scheduleAlignmentFrame();
-  return {
-    dispose: (): void => {
-      disposed = true;
-      if (animationFrameId !== null && typeof cancelAnimationFrame === 'function') {
-        cancelAnimationFrame(animationFrameId);
-      }
-      resizeObserver?.disconnect();
-      for (const eventTarget of eventTargets) {
-        eventTarget.removeEventListener('scroll', onGeometryChanged, true);
-        eventTarget.removeEventListener('resize', onGeometryChanged);
-      }
-    },
-  };
-}
-
 const CANONICAL_SIGNER_BOUNDARY_MESSAGES: Record<string, string> = {
   commit_queue_overflow:
     'Threshold signing commit queue is full. Wait for pending requests and retry.',
@@ -1094,10 +599,6 @@ export class WalletIframeRouter {
     loginStatus: new Set<(status: { isLoggedIn: boolean; walletId: string | null }) => void>(),
     preferencesChanged: new Set<(payload: PreferencesChangedPayload) => void>(),
   };
-  private readonly registrationActivationListeners = new Map<
-    string,
-    Set<(event: ChildToParentEnvelope, connectionId: WalletIframeConnectionId) => void>
-  >();
   private lastPreferencesChangedPayload: PreferencesChangedPayload | null = null;
   private progressBus: OnEventsProgressBus;
   private debug = false;
@@ -1325,17 +826,6 @@ export class WalletIframeRouter {
     const surface = this.walletIframeSurface;
     if (surface.kind !== 'modal_device_link_qr') return;
     this.finishRequestSurface(surface.identity.requestId, true);
-  }
-
-  private ownsRegistrationActivationSurface(
-    connectionId: WalletIframeConnectionId,
-    identity: RegistrationActivationSurfaceIdentity,
-  ): boolean {
-    return (
-      this.walletIframeSurface.kind === 'anchored_registration_activation' &&
-      this.walletIframeSurface.connectionId === connectionId &&
-      registrationActivationSurfaceIdentitiesEqual(this.walletIframeSurface.identity, identity)
-    );
   }
 
   /**
@@ -1606,310 +1096,6 @@ export class WalletIframeRouter {
       options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isSigningFlowEvent) },
     });
     return res.result;
-  }
-
-  createPasskeyRegistrationActivationSurface(
-    payload: CreatePasskeyRegistrationActivationSurfaceArgs,
-  ): WalletIframeRegistrationActivationSurface {
-    const identity: RegistrationActivationMessageIdentity = {
-      surfaceId:
-        `regsurf-${secureRandomBase36(16, 'registration activation surface IDs')}` as WalletIframeSurfaceId,
-      activationId:
-        `regact-${secureRandomBase36(16, 'registration activation IDs')}` as RegistrationActivationId,
-      requestId: this.allocateRequestId(),
-    };
-    const expiresAtMs = Date.now() + 5 * 60 * 1000;
-    const surfaceIdentity = registrationActivationSurfaceIdentity(identity);
-    let currentState: RegistrationActivationSurfaceState = { kind: 'idle' };
-    let mounted = false;
-    let disposed = false;
-    let target: HTMLElement | null = null;
-    let targetCleanup: RegistrationActivationMountCleanup | null = null;
-    let geometryCleanup: RegistrationActivationMountCleanup | null = null;
-    let owningConnectionId: WalletIframeConnectionId | null = null;
-    const listeners = new Set<(state: RegistrationActivationSurfaceState) => void>();
-    const setState = (next: RegistrationActivationSurfaceState): void => {
-      currentState = next;
-      for (const listener of listeners) {
-        try {
-          listener(next);
-        } catch {}
-      }
-    };
-    const cleanupActivationMount = (): void => {
-      geometryCleanup?.dispose();
-      geometryCleanup = null;
-      targetCleanup?.dispose();
-      targetCleanup = null;
-      clearRegistrationActivationButtonState(target);
-      target = null;
-    };
-    const releaseActivationSurface = (): void => {
-      cleanupActivationMount();
-      if (owningConnectionId) {
-        this.transitionWalletIframeSurface({
-          kind: 'registration_activation_finished',
-          connectionId: owningConnectionId,
-          identity: surfaceIdentity,
-        });
-      }
-    };
-    const postActivationCancel = (reason: RegistrationActivationCancelReason): void => {
-      void this.post({
-        type: 'PM_REGISTRATION_ACTIVATION_CANCEL',
-        payload: { ...identity, reason },
-      }).catch(() => {});
-    };
-    const cancelActivation = (reason: RegistrationActivationCancelReason): void => {
-      if (disposed) return;
-      disposed = true;
-      this.registrationActivationListeners.delete(identity.activationId);
-      postActivationCancel(reason);
-      setState({ kind: 'cancelled', identity, reason });
-      if (owningConnectionId) {
-        this.transitionWalletIframeSurface({
-          kind: 'registration_activation_cancelled',
-          connectionId: owningConnectionId,
-          identity: surfaceIdentity,
-          reason,
-        });
-      }
-      cleanupActivationMount();
-    };
-    const failActivation = (error: string): void => {
-      if (disposed) return;
-      disposed = true;
-      this.registrationActivationListeners.delete(identity.activationId);
-      postActivationCancel('disposed');
-      setState({ kind: 'failed', identity, error });
-      if (owningConnectionId) {
-        this.transitionWalletIframeSurface({
-          kind: 'registration_activation_cancelled',
-          connectionId: owningConnectionId,
-          identity: surfaceIdentity,
-          reason: 'disposed',
-        });
-      }
-      cleanupActivationMount();
-    };
-    const activationEventListener = (
-      event: ChildToParentEnvelope,
-      connectionId: WalletIframeConnectionId,
-    ): void => {
-      const parsed = parseRegistrationActivationChildMessage(event);
-      if (!parsed || !registrationActivationIdentitiesEqual(parsed.payload, identity)) return;
-      const inboundIdentity = parseRegistrationActivationSurfaceIdentity(parsed.payload);
-      if (!inboundIdentity) return;
-      if (!registrationActivationSurfaceIdentitiesEqual(inboundIdentity, surfaceIdentity)) return;
-      if (parsed.type === 'PM_REGISTRATION_ACTIVATION_READY') {
-        if (parsed.payload.expiresAtMs <= Date.now()) {
-          cancelActivation('expired');
-          return;
-        }
-        if (!target) {
-          cancelActivation('target_unavailable');
-          return;
-        }
-        if (!geometryCleanup) {
-          const placement = registrationActivationPlacementFromTarget(target);
-          if (!placement) {
-            cancelActivation('target_unavailable');
-            return;
-          }
-          if (this.overlayState.controller.getState().visible) {
-            failActivation('wallet_iframe_surface_busy');
-            return;
-          }
-          const prepared = this.transitionWalletIframeSurface({
-            kind: 'registration_activation_prepared',
-            connectionId,
-            identity: surfaceIdentity,
-            wallet: payload.wallet,
-            preparation: passkeyRegistrationPreparationReceipt(parsed.payload.expiresAtMs),
-            presentation: payload.presentation,
-            placement,
-          });
-          if (prepared.kind === 'rejected') {
-            failActivation(walletIframeSurfaceBusyError(prepared.error).message);
-            return;
-          }
-          owningConnectionId = connectionId;
-          geometryCleanup = installRegistrationActivationOverlayGeometry({
-            target,
-            onPlacementChanged: (nextPlacement): void => {
-              this.transitionWalletIframeSurface({
-                kind: 'registration_activation_placement_changed',
-                connectionId,
-                identity: surfaceIdentity,
-                placement: nextPlacement,
-              });
-            },
-            onTargetUnavailable: () => cancelActivation('target_unavailable'),
-          });
-          if (!geometryCleanup) {
-            cancelActivation('target_unavailable');
-            return;
-          }
-          if (!this.ownsRegistrationActivationSurface(connectionId, surfaceIdentity)) {
-            failActivation('wallet_iframe_surface_busy');
-            return;
-          }
-        }
-        if (!geometryCleanup) {
-          cancelActivation('target_unavailable');
-          return;
-        }
-        applyRegistrationActivationButtonState({
-          target,
-          state: REGISTRATION_ACTIVATION_READY_BUTTON_STATE,
-        });
-        setState({
-          kind: 'ready',
-          identity,
-          expiresAtMs: parsed.payload.expiresAtMs,
-        });
-        return;
-      }
-      if (parsed.type === 'PM_REGISTRATION_ACTIVATION_STARTED') {
-        if (currentState.kind !== 'ready') return;
-        setState({ kind: 'starting', identity });
-        releaseActivationSurface();
-        return;
-      }
-      if (parsed.type === 'PM_REGISTRATION_ACTIVATION_BUTTON_STATE') {
-        if (!canApplyRegistrationActivationButtonState(currentState)) return;
-        applyRegistrationActivationButtonState({ target, state: parsed.payload.state });
-        this.transitionWalletIframeSurface({
-          kind: 'registration_activation_focus_owner_changed',
-          connectionId,
-          identity: surfaceIdentity,
-          focusOwner: parsed.payload.state.focused
-            ? { kind: 'iframe_button' }
-            : { kind: 'outside' },
-        });
-        return;
-      }
-      if (parsed.type === 'PM_REGISTRATION_ACTIVATION_FOCUS_EXIT') {
-        if (!target || !canApplyRegistrationActivationButtonState(currentState)) return;
-        this.transitionWalletIframeSurface({
-          kind: 'registration_activation_focus_owner_changed',
-          connectionId,
-          identity: surfaceIdentity,
-          focusOwner: { kind: 'outside' },
-        });
-        focusRegistrationActivationSibling(target, parsed.payload.direction);
-      }
-    };
-
-    return {
-      kind: 'wallet_iframe_registration_activation_surface_v1',
-      mount: (mountTarget: HTMLElement): void => {
-        if (mounted || disposed) return;
-        target = mountTarget;
-        targetCleanup = installRegistrationActivationTargetProxy({
-          target: mountTarget,
-          accessibleLabel: payload.presentation.accessibleLabel,
-          onFocusRequest: () => {
-            if (owningConnectionId) {
-              this.transitionWalletIframeSurface({
-                kind: 'registration_activation_focus_owner_changed',
-                connectionId: owningConnectionId,
-                identity: surfaceIdentity,
-                focusOwner: { kind: 'proxy' },
-              });
-            }
-            void this.post({
-              type: 'PM_REGISTRATION_ACTIVATION_FOCUS',
-              payload: identity,
-            }).catch(() => {});
-          },
-        });
-        applyRegistrationActivationButtonState({
-          target: mountTarget,
-          state: REGISTRATION_ACTIVATION_MOUNTING_BUTTON_STATE,
-        });
-        mounted = true;
-        setState({ kind: 'mounting', identity });
-        this.registrationActivationListeners.set(
-          identity.activationId,
-          new Set([activationEventListener]),
-        );
-        void (async () => {
-          try {
-            const targetVisible = await waitForVisibleRegistrationActivationTarget(mountTarget);
-            if (disposed) return;
-            if (!targetVisible) {
-              cancelActivation('target_unavailable');
-              return;
-            }
-            const res = await this.post<RegistrationResult>(
-              {
-                type: 'PM_REGISTRATION_ACTIVATION_PREPARE',
-                payload: {
-                  ...identity,
-                  expiresAtMs,
-                  wallet: payload.wallet,
-                  signerSelection: registrationSignerSetRequestSelection(payload.signerSelection),
-                  presentation: payload.presentation,
-                },
-                options: {
-                  onProgress: this.wrapOnEvent(payload.options?.onEvent, isRegistrationFlowEvent),
-                },
-              },
-              {
-                timeoutMs: Math.max(1, expiresAtMs - Date.now()),
-                requestId: identity.requestId,
-              },
-            );
-            setState({ kind: 'completed', identity, result: res.result });
-            const walletId = res.result?.success ? String(res.result.walletId || '') : '';
-            if (walletId) {
-              const { login: st } = await this.getWalletSession(walletId);
-              this.emitLoginStatusFromState(st);
-            }
-          } catch (error) {
-            if (disposed) return;
-            const err = toError(error);
-            const code = getErrorCode(err);
-            if (code === 'cancelled') {
-              postActivationCancel('user_cancelled');
-              setState({ kind: 'cancelled', identity, reason: 'user_cancelled' });
-            } else if (shouldTreatRegistrationActivationErrorAsExpired(err)) {
-              postActivationCancel('expired');
-              setState({ kind: 'cancelled', identity, reason: 'expired' });
-            } else {
-              setState({
-                kind: 'failed',
-                identity,
-                error: err.message || 'Registration failed',
-              });
-            }
-          } finally {
-            this.registrationActivationListeners.delete(identity.activationId);
-            releaseActivationSurface();
-          }
-        })();
-      },
-      dispose: (): void => {
-        if (disposed) return;
-        disposed = true;
-        this.registrationActivationListeners.delete(identity.activationId);
-        if (shouldCancelRegistrationActivationOnDispose(currentState)) {
-          postActivationCancel('disposed');
-          setState({ kind: 'cancelled', identity, reason: 'disposed' });
-        }
-        releaseActivationSurface();
-      },
-      state: (): RegistrationActivationSurfaceState => currentState,
-      onStateChange: (
-        listener: (state: RegistrationActivationSurfaceState) => void,
-      ): (() => void) => {
-        listeners.add(listener);
-        return () => {
-          listeners.delete(listener);
-        };
-      },
-    };
   }
 
   async registerWallet(
@@ -2960,7 +2146,6 @@ export class WalletIframeRouter {
     await this.post<void>({ type: 'PM_CANCEL', payload: {} }).catch(() => {});
     this.progressBus.clearAll();
     if (this.walletIframeSurface.kind === 'hidden') return;
-    if (this.walletIframeSurface.kind === 'anchored_registration_activation') return;
     this.transitionWalletIframeSurface({
       kind: 'request_cancelled',
       connectionId: this.walletIframeSurface.connectionId,
@@ -2978,24 +2163,6 @@ export class WalletIframeRouter {
     if (msg.type === 'PREFERENCES_CHANGED') {
       const payload = msg.payload as PreferencesChangedPayload;
       this.emitPreferencesChanged(payload);
-      return;
-    }
-    if (
-      msg.type === 'PM_REGISTRATION_ACTIVATION_READY' ||
-      msg.type === 'PM_REGISTRATION_ACTIVATION_STARTED' ||
-      msg.type === 'PM_REGISTRATION_ACTIVATION_BUTTON_STATE' ||
-      msg.type === 'PM_REGISTRATION_ACTIVATION_FOCUS_EXIT'
-    ) {
-      const parsed = parseRegistrationActivationChildMessage(msg);
-      if (parsed) {
-        const listeners = this.registrationActivationListeners.get(parsed.payload.activationId);
-        if (!listeners) return;
-        for (const listener of listeners) {
-          try {
-            listener(msg, connectionId);
-          } catch {}
-        }
-      }
       return;
     }
     const requestId = msg.requestId;
@@ -3206,8 +2373,7 @@ export class WalletIframeRouter {
   /** Public helper for tests/tools: inspect current overlay state. */
   getOverlayState(): {
     visible: boolean;
-    mode: 'hidden' | 'fullscreen' | 'anchored';
-    rect?: DOMRectLike;
+    mode: 'hidden' | 'fullscreen';
   } {
     return this.overlayState.controller.getState();
   }

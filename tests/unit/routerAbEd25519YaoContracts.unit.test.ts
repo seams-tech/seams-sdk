@@ -28,10 +28,7 @@ import {
   type RouterAbEd25519YaoRegistrationBackendResult,
 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRegistration';
 import { coerceRouterLogger } from '../../packages/sdk-server-ts/src/router/logger';
-import {
-  RouterAbEd25519YaoHttpRegistrationBackendStateV1,
-  createRouterAbEd25519YaoHttpRegistrationBackendFromEnv,
-} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoHttpRegistrationBackend';
+import { createRouterAbEd25519YaoHttpRegistrationBackendFromEnv } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoHttpRegistrationBackend';
 
 type RouterAbEd25519YaoRegistrationBindingV1 =
   RouterAbEd25519YaoActivationBindingV1<'registration'>;
@@ -151,17 +148,9 @@ class ScriptedLocalYaoFetch {
       case '/router-ab/deriver-b/ed25519-yao/activation/stage':
         return this.json({ status: 'staged' });
       case '/router-ab/deriver-a/ed25519-yao/activation/start':
-        return this.json(activationCompletion(session, 21, 23));
-      case '/router-ab/deriver-b/ed25519-yao/result':
-        return this.json(activationCompletion(session, 22, 15));
-      case '/router-ab/deriver-a/ed25519-yao/activation/client-package':
-        return this.json(encryptedPackage(session, 'activation_client', 'deriver_a', 31));
-      case '/router-ab/deriver-b/ed25519-yao/activation/client-package':
-        return this.json(encryptedPackage(session, 'activation_client', 'deriver_b', 32));
-      case '/router-ab/deriver-a/ed25519-yao/activation/signing-worker-package':
-        return this.json(encryptedPackage(session, 'activation_signing_worker', 'deriver_a', 33));
-      case '/router-ab/deriver-b/ed25519-yao/activation/signing-worker-package':
-        return this.json(encryptedPackage(session, 'activation_signing_worker', 'deriver_b', 34));
+        return this.json(activationRoleExecution(binding, 'deriver_a', 21, 23, 31, 33));
+      case '/router-ab/deriver-b/ed25519-yao/activation/result':
+        return this.json(activationRoleExecution(binding, 'deriver_b', 22, 15, 32, 34));
       case '/router-ab/signing-worker/ed25519-yao/activation/deriver-a':
         return this.json({
           status: 'pending',
@@ -173,16 +162,13 @@ class ScriptedLocalYaoFetch {
         if (binding.operation === 'recovery') {
           return this.json({
             status: 'staged',
-            promotion: {
-              binding,
-              session,
-              transcript: bytes(11),
-              registered_public_key: bytes(12),
-              joined_client_commitment: bytes(13),
-              joined_signing_worker_commitment: bytes(15),
-              signing_worker_verifying_share: bytes(15),
-              state_epoch: 2,
-            },
+            session,
+            transcript: bytes(11),
+            registered_public_key: bytes(12),
+            joined_client_commitment: bytes(13),
+            joined_signing_worker_commitment: bytes(15),
+            signing_worker_verifying_share: bytes(15),
+            state_epoch: 2,
           });
         }
         return this.json({
@@ -334,21 +320,33 @@ function encryptedInputForBinding(
   };
 }
 
-function activationCompletion(
-  session: readonly number[],
+function activationRoleExecution(
+  binding: RouterAbEd25519YaoActivationBindingV1,
+  deriver: 'deriver_a' | 'deriver_b',
   clientCommitmentSeed: number,
   signingWorkerCommitmentSeed: number,
+  clientCiphertextSeed: number,
+  signingWorkerCiphertextSeed: number,
 ): Record<string, unknown> {
   return {
     family: 'activation',
-    session_hex: hex(session),
-    transcript_hex: hex(bytes(11)),
-    client_commitment_hex: hex(bytes(clientCommitmentSeed)),
-    signing_worker_commitment_hex: hex(bytes(signingWorkerCommitmentSeed)),
-    frame_count: 17,
-    deriver_a_to_b_transport_bytes: 2_185_420,
-    deriver_b_to_a_transport_bytes: 37_164,
-    total_ab_transport_bytes: 2_222_584,
+    binding,
+    deriver,
+    transcript: bytes(11),
+    client_commitment: bytes(clientCommitmentSeed),
+    signing_worker_commitment: bytes(signingWorkerCommitmentSeed),
+    client_package: encryptedPackage(
+      binding.session_id,
+      'activation_client',
+      deriver,
+      clientCiphertextSeed,
+    ),
+    signing_worker_package: encryptedPackage(
+      binding.session_id,
+      'activation_signing_worker',
+      deriver,
+      signingWorkerCiphertextSeed,
+    ),
   };
 }
 
@@ -467,7 +465,6 @@ function createMalformedLocalRegistrationBackend(): void {
       SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: 'x25519:00',
     },
     fetch: globalThis.fetch,
-    state: new RouterAbEd25519YaoHttpRegistrationBackendStateV1(),
   });
 }
 
@@ -803,7 +800,6 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
         SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: x25519(3),
       },
       fetch: scriptedFetch.fetch.bind(scriptedFetch),
-      state: new RouterAbEd25519YaoHttpRegistrationBackendStateV1(),
     });
 
     const admitted = await backend.admit(parsedAdmissionRequest());
@@ -826,23 +822,17 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     expect(scriptedFetch.calls).toEqual([
       'POST /router-ab/deriver-b/ed25519-yao/activation/stage',
       'POST /router-ab/deriver-a/ed25519-yao/activation/start',
-      'GET /router-ab/deriver-b/ed25519-yao/result',
-      'GET /router-ab/deriver-a/ed25519-yao/activation/client-package',
-      'GET /router-ab/deriver-b/ed25519-yao/activation/client-package',
-      'GET /router-ab/deriver-a/ed25519-yao/activation/signing-worker-package',
-      'GET /router-ab/deriver-b/ed25519-yao/activation/signing-worker-package',
+      'POST /router-ab/deriver-b/ed25519-yao/activation/result',
       'POST /router-ab/signing-worker/ed25519-yao/activation/deriver-a',
       'POST /router-ab/signing-worker/ed25519-yao/activation/deriver-b',
     ]);
   });
 
-  test('retains staged recovery promotion across request-scoped HTTP backends', async () => {
+  test('promotes a SigningWorker-owned staged recovery across request-scoped HTTP backends', async () => {
     const scriptedFetch = new ScriptedLocalYaoFetch();
-    const sharedState = new RouterAbEd25519YaoHttpRegistrationBackendStateV1();
     const executionBackend = createRouterAbEd25519YaoHttpRegistrationBackendFromEnv({
       env: localHttpBackendEnv(),
       fetch: scriptedFetch.fetch.bind(scriptedFetch),
-      state: sharedState,
     });
     const parsedRecoveryAdmission = parseRouterAbEd25519YaoRecoveryAdmissionRequestV1(
       recoveryAdmissionRequest(),
@@ -875,7 +865,6 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     const activationBackend = createRouterAbEd25519YaoHttpRegistrationBackendFromEnv({
       env: localHttpBackendEnv(),
       fetch: scriptedFetch.fetch.bind(scriptedFetch),
-      state: sharedState,
     });
     expect(await activationBackend.activateRecovery(parsedActivation.value)).toEqual({
       ok: true,
@@ -885,7 +874,6 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     const retryBackend = createRouterAbEd25519YaoHttpRegistrationBackendFromEnv({
       env: localHttpBackendEnv(),
       fetch: scriptedFetch.fetch.bind(scriptedFetch),
-      state: sharedState,
     });
     expect(await retryBackend.activateRecovery(parsedActivation.value)).toEqual({
       ok: true,
@@ -895,18 +883,15 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
       scriptedFetch.calls.filter(
         (call) => call === 'POST /router-ab/signing-worker/ed25519-yao/recovery/promote',
       ),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
 
     const isolatedBackend = createRouterAbEd25519YaoHttpRegistrationBackendFromEnv({
       env: localHttpBackendEnv(),
       fetch: scriptedFetch.fetch.bind(scriptedFetch),
-      state: new RouterAbEd25519YaoHttpRegistrationBackendStateV1(),
     });
     expect(await isolatedBackend.activateRecovery(parsedActivation.value)).toEqual({
-      ok: false,
-      status: 409,
-      code: 'recovery_candidate_missing',
-      message: 'SigningWorker has no staged recovery candidate',
+      ok: true,
+      body: parsedActivation.value,
     });
   });
 

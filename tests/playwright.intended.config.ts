@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig, devices } from '@playwright/test';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-dotenv.config({ path: path.join(repoRoot, '.env.intended.local'), override: true });
+dotenv.config({ path: path.join(repoRoot, '.env.intended.local'), override: false });
 
 const APP_URL = process.env.SEAMS_INTENDED_APP_URL || 'https://localhost';
 

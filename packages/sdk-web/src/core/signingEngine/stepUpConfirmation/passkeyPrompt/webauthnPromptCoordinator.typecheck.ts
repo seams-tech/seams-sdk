@@ -4,16 +4,16 @@ import type {
   WebAuthnPromptReservationId,
   ReservedRegistrationWebAuthnPrompt,
 } from './webauthnPromptCoordinator';
-import type { RegistrationActivationMessageIdentity } from '@/core/types/registrationActivationIdentity';
+import type { WalletIframeRequestId } from '@/core/types/walletIframeIdentity';
 
-declare const identity: RegistrationActivationMessageIdentity;
+declare const requestId: WalletIframeRequestId;
 declare const reservationId: WebAuthnPromptReservationId;
 declare const operationId: WebAuthnPromptOperationId;
 
 const reservation: ReservedRegistrationWebAuthnPrompt = {
   kind: 'reserved_registration_webauthn_prompt_v1',
   reservationId,
-  owner: { kind: 'registration_activation', identity },
+  owner: { kind: 'registration_modal', requestId },
   expiresAtMs: 1_900_000_000_000,
 };
 
@@ -35,7 +35,7 @@ void invalidReservedState;
 const invalidRunningState: WebAuthnPromptCoordinatorState = {
   kind: 'running',
   operationId,
-  owner: { kind: 'registration_activation', identity },
+  owner: { kind: 'registration_modal', requestId },
   reservation,
 };
 void invalidRunningState;

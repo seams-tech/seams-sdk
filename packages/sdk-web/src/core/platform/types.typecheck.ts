@@ -19,6 +19,7 @@ import {
   buildEmailOtpWorkerSessionSecretSource,
   buildFido2HmacSecretSource,
   buildSecureEnclaveWrappedSecretSource,
+  buildThresholdPrfXClientBaseSecretSource,
   buildWebAuthnPrfFirstSecretSource,
 } from './types';
 import type {
@@ -98,7 +99,9 @@ const prepareInput = {
     relayerParticipantId: 2,
     participantIds: [1, 2],
   },
-  secretSource: buildWebAuthnPrfFirstSecretSource(requiredPrfAuthenticatorSuccess),
+  secretSource: buildThresholdPrfXClientBaseSecretSource({
+    xClientBaseB64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+  }),
 } satisfies PrepareEcdsaClientBootstrapInput;
 
 runtime.signerCrypto.prepareEcdsaClientBootstrap(prepareInput);
@@ -110,6 +113,7 @@ runtime.signerCrypto.finalizeEcdsaClientBootstrap({
     relayerPublicKey33B64u,
     groupPublicKey33B64u: 'group',
     ethereumAddress: '0x0000000000000000000000000000000000000001',
+    relayerShareRetryCounter: 0,
   },
 });
 runtime.signerCrypto.buildEcdsaRoleLocalExportArtifact({
@@ -164,6 +168,7 @@ switch (secretSource.kind) {
 
 runtime.signerCrypto.prepareEcdsaClientBootstrap({
   ...prepareInput,
+  // @ts-expect-error ECDSA bootstrap accepts only a prepared threshold-PRF Client base.
   secretSource: buildSecureEnclaveWrappedSecretSource({
     keyId: 'key',
     accessGroup: 'group',
@@ -172,6 +177,7 @@ runtime.signerCrypto.prepareEcdsaClientBootstrap({
 
 runtime.signerCrypto.prepareEcdsaClientBootstrap({
   ...prepareInput,
+  // @ts-expect-error ECDSA bootstrap accepts only a prepared threshold-PRF Client base.
   secretSource: buildFido2HmacSecretSource({
     credentialIdB64u: 'credential',
     rpId: toRpId('wallet.example'),
@@ -193,6 +199,7 @@ runtime.signerCrypto.finalizeEcdsaClientBootstrap({
     relayerPublicKey33B64u,
     groupPublicKey33B64u: 'group',
     ethereumAddress: '0x0000000000000000000000000000000000000001',
+    relayerShareRetryCounter: 0,
   },
 });
 

@@ -5,8 +5,16 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { brotliCompressSync, constants as zlibConstants, gzipSync } from 'node:zlib';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const ecdsaRegistrationClientManifest = 'wasm/ecdsa_registration_client/Cargo.toml';
+const ecdsaRegistrationClientWasm =
+  'wasm/ecdsa_registration_client/pkg/ecdsa_registration_client_bg.wasm';
+const ecdsaRegistrationClientGeneratedJs =
+  'wasm/ecdsa_registration_client/pkg/ecdsa_registration_client.js';
+const ecdsaRegistrationClientGeneratedTypes =
+  'wasm/ecdsa_registration_client/pkg/ecdsa_registration_client.d.ts';
 const ecdsaDerivationClientManifest = 'wasm/router_ab_ecdsa_derivation_client/Cargo.toml';
 const ecdsaDerivationClientWasm =
   'wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client_bg.wasm';
@@ -31,14 +39,14 @@ const forbiddenEcdsaDerivationClientPackages = new Map([
   ['hss_client_signer', 'retired mixed HSS client artifact'],
 ]);
 
-const allowedEcdsaDerivationClientExports = new Set([
-  'build_ecdsa_role_local_export_artifact_v1',
+const allowedEcdsaRegistrationClientExports = new Set([
   'finalize_ecdsa_client_bootstrap_v1',
   'open_ecdsa_role_local_signing_share_v1',
   'prepare_ecdsa_client_bootstrap_from_resolved_email_otp_root_v1',
   'prepare_ecdsa_client_bootstrap_v1',
-  'threshold_ecdsa_derivation_role_local_finalize_client_bootstrap',
 ]);
+
+const allowedEcdsaDerivationClientExports = new Set(['build_ecdsa_role_local_export_artifact_v1']);
 
 const allowedEcdsaClientCeremonyWasmExports = new Set([
   '__wbg_routerabecdsaclientceremonyv1_free',
@@ -164,6 +172,7 @@ function checkNoRuntimeV1DerivationSurfaces() {
     'packages/sdk-server-ts/src',
     'packages/shared-ts/src',
     'wasm/evm_crypto/src',
+    'wasm/ecdsa_registration_client/src',
     'wasm/router_ab_ecdsa_derivation_client/src',
     'wasm/router_ab_ecdsa_online_client/src',
     'wasm/router_ab_ecdsa_presign_client/src',
@@ -362,6 +371,7 @@ function checkActiveSourceUsesCurrentVocabulary() {
     'packages/sdk-web/src',
     'packages/shared-ts/src',
     'wasm/evm_crypto/src',
+    'wasm/ecdsa_registration_client/src',
     'wasm/router_ab_ecdsa_derivation_client/src',
     'wasm/router_ab_ecdsa_online_client/src',
     'wasm/router_ab_ecdsa_presign_client/src',
@@ -427,6 +437,7 @@ const retiredVocabularyGuardPaths = new Set([
   'tests/scripts/check-auth-secret-terminology.mjs',
   'tests/scripts/check-cloudflare-d1-runtime-boundaries.mjs',
   'tests/scripts/check-cross-platform-boundaries.mjs',
+  'tests/scripts/check-ecdsa-client-worker-split.mjs',
   'tests/scripts/check-ed25519-yao-near-signing-boundaries.mjs',
   'tests/scripts/check-key-export-boundaries.mjs',
   'tests/scripts/check-route-lifecycle-domain-boundaries.mjs',
@@ -723,14 +734,14 @@ function parseCargoTreePackageNames(tree) {
   return packageNames;
 }
 
-function checkLockedEcdsaDerivationClientDependencyTree() {
+function checkLockedEcdsaClientDependencyTree(input) {
   const result = spawnSync(
     'cargo',
     [
       'tree',
       '--locked',
       '--manifest-path',
-      ecdsaDerivationClientManifest,
+      input.manifest,
       '--target',
       'wasm32-unknown-unknown',
       '--edges',
@@ -749,13 +760,13 @@ function checkLockedEcdsaDerivationClientDependencyTree() {
   assert.equal(
     result.status,
     0,
-    `locked ECDSA derivation client cargo tree failed\n${result.stderr || result.stdout}`,
+    `locked ${input.label} cargo tree failed\n${result.stderr || result.stdout}`,
   );
 
   const packageNames = parseCargoTreePackageNames(result.stdout);
   assert.ok(
-    packageNames.has('router_ab_ecdsa_derivation_client'),
-    'locked dependency tree is missing the ECDSA derivation client root package',
+    packageNames.has(input.rootPackage),
+    `locked dependency tree is missing the ${input.label} root package`,
   );
   assert.ok(
     packageNames.has('router-ab-ecdsa-derivation'),
@@ -773,9 +784,22 @@ function checkLockedEcdsaDerivationClientDependencyTree() {
     }
   }
   assertNoOffenders(
-    'locked ECDSA derivation client dependency tree contains forbidden ownership',
+    `locked ${input.label} dependency tree contains forbidden ownership`,
     offenders,
   );
+}
+
+function checkLockedEcdsaClientDependencyTrees() {
+  checkLockedEcdsaClientDependencyTree({
+    manifest: ecdsaRegistrationClientManifest,
+    rootPackage: 'ecdsa_registration_client',
+    label: 'ECDSA registration client',
+  });
+  checkLockedEcdsaClientDependencyTree({
+    manifest: ecdsaDerivationClientManifest,
+    rootPackage: 'router_ab_ecdsa_derivation_client',
+    label: 'ECDSA export client',
+  });
 }
 
 function isAllowedWasmBindgenRuntimeExport(name) {
@@ -815,6 +839,7 @@ function checkOpaqueEcdsaClientCeremonySourceBoundary() {
   const roots = [
     'packages/sdk-web/src',
     'packages/shared-ts/src',
+    'wasm/ecdsa_registration_client/src',
     'wasm/router_ab_ecdsa_derivation_client/src',
   ];
   const offenders = [];
@@ -831,6 +856,116 @@ function checkOpaqueEcdsaClientCeremonySourceBoundary() {
   assertNoOffenders(
     'Router A/B ECDSA client private material must remain inside the opaque Rust ceremony',
     offenders,
+  );
+}
+
+function checkGeneratedEcdsaRegistrationClientArtifactSurface() {
+  const wasmPath = path.join(repoRoot, ecdsaRegistrationClientWasm);
+  const generatedJsPath = path.join(repoRoot, ecdsaRegistrationClientGeneratedJs);
+  const generatedTypesPath = path.join(repoRoot, ecdsaRegistrationClientGeneratedTypes);
+  for (const requiredPath of [wasmPath, generatedJsPath, generatedTypesPath]) {
+    assert.ok(
+      fs.existsSync(requiredPath),
+      `missing generated ECDSA registration client artifact: ${path.relative(repoRoot, requiredPath)}; run pnpm -C packages/sdk-web build:wasm`,
+    );
+  }
+
+  const wasmBytes = fs.readFileSync(wasmPath);
+  const module = new WebAssembly.Module(wasmBytes);
+  const wasmImports = WebAssembly.Module.imports(module);
+  const wasmExports = WebAssembly.Module.exports(module);
+  const unexpectedImports = [];
+  for (const entry of wasmImports) {
+    const allowedName = entry.name.startsWith('__wbindgen_') || entry.name.startsWith('__wbg_');
+    if (entry.module !== 'wbg' || entry.kind !== 'function' || !allowedName) {
+      unexpectedImports.push(`${entry.module}.${entry.name}:${entry.kind}`);
+    }
+  }
+  assertNoOffenders(
+    'generated ECDSA registration client WASM has unexpected host imports',
+    unexpectedImports,
+  );
+
+  const namedWasmExports = wasmExports.map((entry) => entry.name);
+  const unexpectedExports = wasmExports
+    .filter((entry) => {
+      return (
+        !allowedEcdsaRegistrationClientExports.has(entry.name) &&
+        !isAllowedWasmBindgenRuntimeExport(entry.name)
+      );
+    })
+    .map((entry) => `${entry.name}:${entry.kind}`);
+  assertNoOffenders(
+    'generated ECDSA registration client WASM exposes a post-registration API',
+    unexpectedExports,
+  );
+  for (const requiredExport of allowedEcdsaRegistrationClientExports) {
+    assert.ok(
+      namedWasmExports.includes(requiredExport),
+      `generated ECDSA registration client WASM is missing ${requiredExport}`,
+    );
+  }
+
+  const generatedJs = fs.readFileSync(generatedJsPath, 'utf8');
+  const generatedTypes = fs.readFileSync(generatedTypesPath, 'utf8');
+  const typeFunctionExports = generatedTypeScriptFunctionExports(generatedTypes);
+  const unexpectedTypeExports = typeFunctionExports.filter((exportName) => {
+    return exportName !== 'initSync' && !allowedEcdsaRegistrationClientExports.has(exportName);
+  });
+  assertNoOffenders(
+    'generated ECDSA registration client TypeScript exposes a post-registration API',
+    unexpectedTypeExports,
+  );
+  for (const requiredExport of allowedEcdsaRegistrationClientExports) {
+    assert.ok(
+      typeFunctionExports.includes(requiredExport),
+      `generated ECDSA registration client TypeScript is missing ${requiredExport}`,
+    );
+  }
+  for (const forbiddenToken of [
+    'build_ecdsa_role_local_export_artifact_v1',
+    'RouterAbEcdsaClientCeremonyV1',
+    'build_explicit_export_request',
+    'build_recovery_request',
+    'build_activation_refresh_request',
+  ]) {
+    assert.equal(
+      generatedJs.includes(forbiddenToken) || generatedTypes.includes(forbiddenToken),
+      false,
+      `generated ECDSA registration client artifact contains ${forbiddenToken}`,
+    );
+  }
+
+  const gzipBytes = gzipSync(wasmBytes, { level: 9 }).length;
+  const brotliBytes = brotliCompressSync(wasmBytes, {
+    params: {
+      [zlibConstants.BROTLI_PARAM_QUALITY]: 11,
+    },
+  }).length;
+  assert.ok(
+    gzipBytes <= 100 * 1024,
+    `ECDSA registration client WASM exceeds the 100 KiB gzip budget: ${gzipBytes} bytes`,
+  );
+  assert.ok(
+    brotliBytes <= 85 * 1024,
+    `ECDSA registration client WASM exceeds the 85 KiB Brotli budget: ${brotliBytes} bytes`,
+  );
+
+  const importAndExportNames = [...namedWasmExports, ...typeFunctionExports];
+  for (const entry of wasmImports) {
+    importAndExportNames.push(entry.module, entry.name);
+  }
+  checkForbiddenArtifactTokens(
+    'generated ECDSA registration client import/export names retain forbidden ownership',
+    importAndExportNames,
+  );
+  checkForbiddenArtifactSource(
+    `${ecdsaRegistrationClientGeneratedJs} retains forbidden ownership`,
+    generatedJs,
+  );
+  checkForbiddenArtifactSource(
+    `${ecdsaRegistrationClientGeneratedTypes} retains forbidden ownership`,
+    generatedTypes,
   );
 }
 
@@ -954,8 +1089,9 @@ checkActiveSourceUsesCurrentVocabulary();
 checkRuntimeArtifactsAreNotSourceSurfaces();
 checkRepositorySurfacesUseCurrentVocabulary();
 checkNormalSigningHasOneRuntimeOwner();
-checkLockedEcdsaDerivationClientDependencyTree();
+checkLockedEcdsaClientDependencyTrees();
 checkOpaqueEcdsaClientCeremonySourceBoundary();
+checkGeneratedEcdsaRegistrationClientArtifactSurface();
 checkGeneratedEcdsaDerivationClientArtifactSurface();
 
 console.log('[check-router-ab-ecdsa-derivation-boundaries] passed');

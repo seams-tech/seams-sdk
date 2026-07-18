@@ -15,7 +15,6 @@ import {
 } from '../../../core/ThresholdService/signingRootRecords';
 import {
   parseRouterAbEcdsaDerivationPoolFillSessionRecord as parseFullRouterAbEcdsaDerivationPoolFillSessionRecord,
-  parseRouterAbEcdsaDerivationServerPresignatureShareRecord,
   parseWalletSigningBudgetSessionRecord,
 } from '../../../core/ThresholdService/validation';
 import type { RouterAbEcdsaDerivationPoolFillSessionRecord } from '../../../core/ThresholdService/stores/EcdsaSigningStore';
@@ -85,31 +84,32 @@ type DoReq =
   | { op: 'authReleaseReservedBudgetUseCountForIdentity'; key: string; input: unknown }
   | { op: 'authReserveReplayGuard'; key: string; expiresAtMs: number }
   | {
+      op: 'registrationReserveWalletId';
+      key: string;
+      walletId: string;
+      expiresAtMs: number;
+    }
+  | {
+      op: 'registrationCancelTerminal';
+      ceremonyKey: string;
+      registrationCeremonyId: string;
+      walletId: string;
+      reservation:
+        | {
+            kind: 'server_allocated_wallet';
+            key: string;
+          }
+        | {
+            kind: 'none';
+          };
+    }
+  | {
       op: 'routerAbNormalSigningReserveQuota';
       key: string;
       requestId: string;
       lifecycleId: string;
       expiresAtMs: number;
       nowMs: number;
-    }
-  | {
-      op: 'routerAbEcdsaDerivationPresignaturePut';
-      listKey: string;
-      dedupeKey: string;
-      value: unknown;
-    }
-  | {
-      op: 'routerAbEcdsaDerivationPresignatureReserve';
-      listKey: string;
-      reservedKeyPrefix: string;
-      ttlMs?: number;
-    }
-  | {
-      op: 'routerAbEcdsaDerivationPresignatureReserveById';
-      listKey: string;
-      reservedKeyPrefix: string;
-      presignatureId: string;
-      ttlMs?: number;
     }
   | {
       op: 'routerAbEcdsaDerivationPoolFillSessionCreate';
@@ -765,6 +765,70 @@ async function withTxn<T>(
   return await fn(state.storage);
 }
 
+async function withRequiredTxn<T>(
+  state: DurableObjectStateLike,
+  operation: (store: DurableObjectStorageLike) => Promise<T>,
+): Promise<T> {
+  if (typeof state.storage.transaction !== 'function') {
+    throw new Error('Registration wallet lifecycle requires transactional Durable Object storage');
+  }
+  return await state.storage.transaction(operation);
+}
+
+type RegistrationWalletReservation = {
+  readonly kind: 'registration_wallet_reservation_v1';
+  readonly walletId: string;
+  readonly expiresAtMs: number;
+};
+
+type RegistrationTerminalCancellationReservation =
+  | {
+      readonly kind: 'server_allocated_wallet';
+      readonly key: string;
+    }
+  | {
+      readonly kind: 'none';
+    };
+
+function parseRegistrationWalletReservation(raw: unknown): RegistrationWalletReservation | null {
+  if (!isPlainObject(raw)) return null;
+  const walletId = toKey(raw.walletId);
+  const expiresAtMs = Math.floor(Number(raw.expiresAtMs));
+  if (
+    raw.kind !== 'registration_wallet_reservation_v1' ||
+    !walletId ||
+    !Number.isSafeInteger(expiresAtMs)
+  ) {
+    return null;
+  }
+  return {
+    kind: 'registration_wallet_reservation_v1',
+    walletId,
+    expiresAtMs,
+  };
+}
+
+function parseRegistrationTerminalCancellationReservation(
+  raw: unknown,
+): RegistrationTerminalCancellationReservation | null {
+  if (!isPlainObject(raw)) return null;
+  if (raw.kind === 'none') return { kind: 'none' };
+  if (raw.kind !== 'server_allocated_wallet') return null;
+  const key = toKey(raw.key);
+  return key ? { kind: 'server_allocated_wallet', key } : null;
+}
+
+function registrationCeremonyIdentityMatches(input: {
+  readonly raw: unknown;
+  readonly registrationCeremonyId: string;
+  readonly walletId: string;
+}): boolean {
+  if (!isPlainObject(input.raw)) return false;
+  if (toKey(input.raw.registrationCeremonyId) !== input.registrationCeremonyId) return false;
+  if (!isPlainObject(input.raw.intent)) return false;
+  return toKey(input.raw.intent.walletId) === input.walletId;
+}
+
 export class ThresholdStoreDurableObject {
   private readonly state: DurableObjectStateLike;
   private readonly ecdsaPoolFillLiveSessions =
@@ -930,6 +994,116 @@ export class ThresholdStoreDurableObject {
         };
       });
       return json(ok(value));
+    }
+
+    if (op === 'registrationReserveWalletId') {
+      const key = toKey((req as { key?: unknown }).key);
+      const walletId = toKey((req as { walletId?: unknown }).walletId);
+      const expiresAtMs = Math.floor(Number((req as { expiresAtMs?: unknown }).expiresAtMs));
+      if (!key) return json(err('invalid_body', 'Missing registration wallet reservation key'));
+      if (!walletId) return json(err('invalid_body', 'Missing registration walletId'));
+      if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= Date.now()) {
+        return json(err('invalid_body', 'Invalid registration wallet reservation expiry'));
+      }
+      const result = await withRequiredTxn(this.state, async (store) => {
+        const existingRaw = await store.get(key);
+        if (existingRaw !== null && existingRaw !== undefined) {
+          const existing = parseRegistrationWalletReservation(existingRaw);
+          if (!existing) {
+            return err(
+              'registration_wallet_reservation_corrupt',
+              'Registration wallet reservation has an invalid stored shape',
+            );
+          }
+          if (existing.expiresAtMs > Date.now()) {
+            return err('wallet_id_reserved', 'walletId is already reserved');
+          }
+          await store.delete(key);
+        }
+        const reservation: RegistrationWalletReservation = {
+          kind: 'registration_wallet_reservation_v1',
+          walletId,
+          expiresAtMs,
+        };
+        const ttlSeconds = Math.max(1, Math.ceil((expiresAtMs - Date.now()) / 1000));
+        await store.put(key, reservation, { expirationTtl: ttlSeconds });
+        return ok({ reserved: true });
+      });
+      return json(result);
+    }
+
+    if (op === 'registrationCancelTerminal') {
+      const ceremonyKey = toKey((req as { ceremonyKey?: unknown }).ceremonyKey);
+      const registrationCeremonyId = toKey(
+        (req as { registrationCeremonyId?: unknown }).registrationCeremonyId,
+      );
+      const walletId = toKey((req as { walletId?: unknown }).walletId);
+      const reservation = parseRegistrationTerminalCancellationReservation(
+        (req as { reservation?: unknown }).reservation,
+      );
+      if (!ceremonyKey) {
+        return json(err('invalid_body', 'Missing terminal registration ceremony key'));
+      }
+      if (!registrationCeremonyId) {
+        return json(err('invalid_body', 'Missing terminal registration ceremony ID'));
+      }
+      if (!walletId) return json(err('invalid_body', 'Missing terminal registration walletId'));
+      if (!reservation) {
+        return json(err('invalid_body', 'Invalid terminal registration reservation'));
+      }
+      const result = await withRequiredTxn(this.state, async (store) => {
+        const ceremony = await store.get(ceremonyKey);
+        if (ceremony === null || ceremony === undefined) {
+          return ok({
+            kind: 'not_found',
+            ceremonyDeleted: false,
+            walletReservationReleased: false,
+          });
+        }
+        if (
+          !registrationCeremonyIdentityMatches({
+            raw: ceremony,
+            registrationCeremonyId,
+            walletId,
+          })
+        ) {
+          return err(
+            'registration_ceremony_identity_mismatch',
+            'Terminal registration cancellation does not match the stored ceremony',
+          );
+        }
+        let reservationExists = false;
+        if (reservation.kind === 'server_allocated_wallet') {
+          const reservationRaw = await store.get(reservation.key);
+          if (reservationRaw !== null && reservationRaw !== undefined) {
+            const storedReservation = parseRegistrationWalletReservation(reservationRaw);
+            if (!storedReservation) {
+              return err(
+                'registration_wallet_reservation_corrupt',
+                'Registration wallet reservation has an invalid stored shape',
+              );
+            }
+            if (storedReservation.walletId !== walletId) {
+              return err(
+                'registration_wallet_reservation_identity_mismatch',
+                'Terminal registration cancellation does not match the wallet reservation',
+              );
+            }
+            reservationExists = true;
+          }
+        }
+        await store.delete(ceremonyKey);
+        const walletReservationReleased =
+          reservation.kind === 'server_allocated_wallet' && reservationExists
+            ? await store.delete(reservation.key)
+            : false;
+        return ok({
+          kind: 'cancelled',
+          ceremonyDeleted: true,
+          walletReservationReleased,
+        });
+      });
+      return json(result);
     }
 
     if (op === 'routerAbNormalSigningReserveQuota') {
@@ -1442,96 +1616,6 @@ export class ThresholdStoreDurableObject {
       });
 
       return json(res);
-    }
-
-    if (op === 'routerAbEcdsaDerivationPresignaturePut') {
-      const listKey = toKey((req as { listKey?: unknown }).listKey);
-      const dedupeKey = toKey((req as { dedupeKey?: unknown }).dedupeKey);
-      if (!listKey) return json(err('invalid_body', 'Missing listKey'));
-      if (!dedupeKey) return json(err('invalid_body', 'Missing dedupeKey'));
-      const value = parseRouterAbEcdsaDerivationServerPresignatureShareRecord(
-        (req as { value?: unknown }).value,
-      );
-      if (!value)
-        return json(err('invalid_body', 'Invalid Router A/B ECDSA derivation presignature record'));
-      await withTxn(this.state, async (store) => {
-        const duplicate = await store.get(dedupeKey);
-        if (duplicate !== null && duplicate !== undefined) return;
-        const raw = await store.get(listKey);
-        const list = Array.isArray(raw) ? [...raw] : [];
-        if (list.some((entry) => entry?.presignatureId === value.presignatureId)) {
-          await store.put(dedupeKey, { presignatureId: value.presignatureId });
-          return;
-        }
-        list.push(value);
-        await store.put(listKey, list);
-        await store.put(dedupeKey, { presignatureId: value.presignatureId });
-      });
-      return json(ok(true));
-    }
-
-    if (op === 'routerAbEcdsaDerivationPresignatureReserve') {
-      const listKey = toKey((req as { listKey?: unknown }).listKey);
-      const reservedKeyPrefix = toKey((req as { reservedKeyPrefix?: unknown }).reservedKeyPrefix);
-      const ttlSeconds = toTtlSeconds((req as { ttlMs?: unknown }).ttlMs) || 120;
-      if (!listKey) return json(err('invalid_body', 'Missing listKey'));
-      if (!reservedKeyPrefix) return json(err('invalid_body', 'Missing reservedKeyPrefix'));
-
-      const value = await withTxn(this.state, async (store) => {
-        const raw = await store.get(listKey);
-        const list = Array.isArray(raw) ? [...raw] : [];
-        if (!list.length) return null;
-        const item = list.shift();
-        await store.put(listKey, list);
-
-        const presignatureId = isPlainObject(item)
-          ? toKey((item as { presignatureId?: unknown }).presignatureId)
-          : '';
-        if (presignatureId) {
-          await store.put(`${reservedKeyPrefix}${presignatureId}`, item, {
-            expirationTtl: ttlSeconds,
-          });
-        }
-        return item ?? null;
-      });
-
-      return json(ok(value));
-    }
-
-    if (op === 'routerAbEcdsaDerivationPresignatureReserveById') {
-      const listKey = toKey((req as { listKey?: unknown }).listKey);
-      const reservedKeyPrefix = toKey((req as { reservedKeyPrefix?: unknown }).reservedKeyPrefix);
-      const presignatureId = toKey((req as { presignatureId?: unknown }).presignatureId);
-      const ttlSeconds = toTtlSeconds((req as { ttlMs?: unknown }).ttlMs) || 120;
-      if (!listKey) return json(err('invalid_body', 'Missing listKey'));
-      if (!reservedKeyPrefix) return json(err('invalid_body', 'Missing reservedKeyPrefix'));
-      if (!presignatureId) return json(err('invalid_body', 'Missing presignatureId'));
-
-      const value = await withTxn(this.state, async (store) => {
-        const raw = await store.get(listKey);
-        const list = Array.isArray(raw) ? [...raw] : [];
-        if (!list.length) return null;
-        let pickedIndex = -1;
-        for (let i = 0; i < list.length; i += 1) {
-          const item = list[i];
-          const itemPresignatureId = isPlainObject(item)
-            ? toKey((item as { presignatureId?: unknown }).presignatureId)
-            : '';
-          if (itemPresignatureId === presignatureId) {
-            pickedIndex = i;
-            break;
-          }
-        }
-        if (pickedIndex < 0) return null;
-        const [item] = list.splice(pickedIndex, 1);
-        await store.put(listKey, list);
-        await store.put(`${reservedKeyPrefix}${presignatureId}`, item, {
-          expirationTtl: ttlSeconds,
-        });
-        return item ?? null;
-      });
-
-      return json(ok(value));
     }
 
     if (op === 'routerAbEcdsaDerivationPoolFillSessionCreate') {

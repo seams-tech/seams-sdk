@@ -23,18 +23,11 @@ import type {
   GoogleEmailOtpWalletAuthFailure,
   GoogleEmailOtpWalletAuthPromptCopy,
   GoogleEmailOtpWalletAuthRegistrationCompleted,
-  RegistrationActivationButtonPresentation,
   GoogleEmailOtpWalletAuthResolvedMode,
   GoogleEmailOtpWalletAuthRequestedMode,
   GoogleEmailOtpWalletAuthSubmitSuccess,
   ResolveExactKeyExportLaneInput,
 } from '@/SeamsWeb/publicApi/types';
-import {
-  registrationActivationIdFromBoundary,
-  walletIframeRequestIdFromBoundary,
-  walletIframeSurfaceIdFromBoundary,
-  type RegistrationActivationMessageIdentity,
-} from '@/core/types/registrationActivationIdentity';
 import type {
   AddSignerSelection,
   RegistrationAuthMethodInput,
@@ -58,9 +51,6 @@ export type ParentToChildType =
   | 'PM_SET_CONFIG'
   | 'PM_CANCEL'
   // SeamsWeb API surface
-  | 'PM_REGISTRATION_ACTIVATION_PREPARE'
-  | 'PM_REGISTRATION_ACTIVATION_CANCEL'
-  | 'PM_REGISTRATION_ACTIVATION_FOCUS'
   | 'PM_REGISTER_WALLET'
   | 'PM_ADD_WALLET_SIGNER'
   | 'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION'
@@ -120,10 +110,6 @@ export type ChildToParentType =
   | 'PONG'
   | 'PROGRESS'
   | 'PREFERENCES_CHANGED'
-  | 'PM_REGISTRATION_ACTIVATION_READY'
-  | 'PM_REGISTRATION_ACTIVATION_STARTED'
-  | 'PM_REGISTRATION_ACTIVATION_BUTTON_STATE'
-  | 'PM_REGISTRATION_ACTIVATION_FOCUS_EXIT'
   | 'PM_RESULT'
   | 'ERROR';
 
@@ -158,130 +144,6 @@ export interface PMSetConfigPayload extends Partial<SeamsConfigsInput> {
 
 export interface PMCancelPayload {
   requestId?: string; // when omitted, host may attempt best-effort global cancel (close UIs)
-}
-
-export interface PMRegistrationActivationPreparePayload extends RegistrationActivationMessageIdentity {
-  expiresAtMs: number;
-  wallet: Extract<RegisterWalletInput, { kind: 'provided' }>;
-  signerSelection: RegistrationSignerSetSelection;
-  presentation: RegistrationActivationButtonPresentation;
-}
-
-export interface PMRegistrationActivationCancelPayload extends RegistrationActivationMessageIdentity {
-  reason: 'user_cancelled' | 'expired' | 'disposed' | 'target_unavailable';
-}
-
-export type PMRegistrationActivationFocusPayload = RegistrationActivationMessageIdentity;
-
-export interface PMRegistrationActivationReadyPayload extends RegistrationActivationMessageIdentity {
-  expiresAtMs: number;
-}
-
-export type PMRegistrationActivationStartedPayload = RegistrationActivationMessageIdentity;
-
-export interface PMRegistrationActivationFocusExitPayload extends RegistrationActivationMessageIdentity {
-  direction: 'forward' | 'backward';
-}
-
-function recordPayload(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  return value as Record<string, unknown>;
-}
-
-function nonEmptyPayloadString(record: Record<string, unknown>, field: string): string | null {
-  if (typeof record[field] !== 'string') return null;
-  const value = record[field].trim();
-  return value || null;
-}
-
-function positiveSafeIntegerPayloadNumber(
-  record: Record<string, unknown>,
-  field: string,
-): number | null {
-  if (typeof record[field] !== 'number') return null;
-  const value = record[field];
-  return Number.isSafeInteger(value) && value > 0 ? value : null;
-}
-
-export function parseRegistrationActivationMessageIdentity(
-  value: unknown,
-): RegistrationActivationMessageIdentity | null {
-  const record = recordPayload(value);
-  if (!record) return null;
-  const surfaceId = nonEmptyPayloadString(record, 'surfaceId');
-  const activationId = nonEmptyPayloadString(record, 'activationId');
-  const requestId = nonEmptyPayloadString(record, 'requestId');
-  if (!surfaceId || !activationId || !requestId) return null;
-  return {
-    surfaceId: walletIframeSurfaceIdFromBoundary(surfaceId),
-    activationId: registrationActivationIdFromBoundary(activationId),
-    requestId: walletIframeRequestIdFromBoundary(requestId),
-  };
-}
-
-export function parseRegistrationActivationReadyPayload(
-  value: unknown,
-): PMRegistrationActivationReadyPayload | null {
-  const record = recordPayload(value);
-  if (!record) return null;
-  const identity = parseRegistrationActivationMessageIdentity(record);
-  const expiresAtMs = positiveSafeIntegerPayloadNumber(record, 'expiresAtMs');
-  if (!identity || !expiresAtMs) return null;
-  return { ...identity, expiresAtMs };
-}
-
-export function parseRegistrationActivationStartedPayload(
-  value: unknown,
-): PMRegistrationActivationStartedPayload | null {
-  return parseRegistrationActivationMessageIdentity(value);
-}
-
-export function parseRegistrationActivationFocusExitPayload(
-  value: unknown,
-): PMRegistrationActivationFocusExitPayload | null {
-  const record = recordPayload(value);
-  if (!record) return null;
-  const identity = parseRegistrationActivationMessageIdentity(record);
-  if (!identity || (record.direction !== 'forward' && record.direction !== 'backward')) return null;
-  return { ...identity, direction: record.direction };
-}
-
-export type RegistrationActivationButtonInteractionState = {
-  kind: 'registration_activation_button_interaction_state_v1';
-  hovered: boolean;
-  focused: boolean;
-  pressed: boolean;
-  busy: boolean;
-  disabled: boolean;
-};
-
-export function isRegistrationActivationButtonInteractionState(
-  value: unknown,
-): value is RegistrationActivationButtonInteractionState {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const record = value as Record<string, unknown>;
-  return (
-    record.kind === 'registration_activation_button_interaction_state_v1' &&
-    typeof record.hovered === 'boolean' &&
-    typeof record.focused === 'boolean' &&
-    typeof record.pressed === 'boolean' &&
-    typeof record.busy === 'boolean' &&
-    typeof record.disabled === 'boolean'
-  );
-}
-
-export interface PMRegistrationActivationButtonStatePayload extends RegistrationActivationMessageIdentity {
-  state: RegistrationActivationButtonInteractionState;
-}
-
-export function parseRegistrationActivationButtonStatePayload(
-  value: unknown,
-): PMRegistrationActivationButtonStatePayload | null {
-  const record = recordPayload(value);
-  if (!record) return null;
-  const identity = parseRegistrationActivationMessageIdentity(record);
-  if (!identity || !isRegistrationActivationButtonInteractionState(record.state)) return null;
-  return { ...identity, state: record.state };
 }
 
 export interface PMRegisterWalletPayload {
@@ -658,9 +520,6 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PING'>
   | RpcEnvelope<'PM_SET_CONFIG', PMSetConfigPayload>
   | RpcEnvelope<'PM_CANCEL', PMCancelPayload>
-  | RpcEnvelope<'PM_REGISTRATION_ACTIVATION_PREPARE', PMRegistrationActivationPreparePayload>
-  | RpcEnvelope<'PM_REGISTRATION_ACTIVATION_CANCEL', PMRegistrationActivationCancelPayload>
-  | RpcEnvelope<'PM_REGISTRATION_ACTIVATION_FOCUS', PMRegistrationActivationFocusPayload>
   | RpcEnvelope<'PM_REGISTER_WALLET', PMRegisterWalletPayload>
   | RpcEnvelope<'PM_ADD_WALLET_SIGNER', PMAddWalletSignerPayload>
   | RpcEnvelope<'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION', PMBootstrapThresholdEcdsaSessionPayload>
@@ -759,12 +618,5 @@ export type ChildToParentEnvelope =
   | RpcEnvelope<'PONG'>
   | RpcEnvelope<'PROGRESS', ProgressPayload>
   | RpcEnvelope<'PREFERENCES_CHANGED', PreferencesChangedPayload>
-  | RpcEnvelope<'PM_REGISTRATION_ACTIVATION_READY', PMRegistrationActivationReadyPayload>
-  | RpcEnvelope<'PM_REGISTRATION_ACTIVATION_STARTED', PMRegistrationActivationStartedPayload>
-  | RpcEnvelope<
-      'PM_REGISTRATION_ACTIVATION_BUTTON_STATE',
-      PMRegistrationActivationButtonStatePayload
-    >
-  | RpcEnvelope<'PM_REGISTRATION_ACTIVATION_FOCUS_EXIT', PMRegistrationActivationFocusExitPayload>
   | RpcEnvelope<'PM_RESULT', PMResultPayload>
   | RpcEnvelope<'ERROR', ErrorPayload>;

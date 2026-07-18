@@ -257,6 +257,7 @@ export async function handleTransactionSigningFlow(
     confirmationConfig,
     transactionSummary,
     theme,
+    surface: { kind: 'mount_new' },
   });
   const nearAccountId = getNearAccountId(request);
   let resolvedIntentDigestForResponse = String(getIntentDigest(request) || '').trim() || undefined;
@@ -631,6 +632,7 @@ export async function handleIntentDigestSigningFlow(
     confirmationConfig,
     transactionSummary,
     theme,
+    surface: { kind: 'mount_new' },
   });
 
   const signingSubject = getSignIntentDigestSubject(request);

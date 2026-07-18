@@ -10,14 +10,6 @@ export type PrepareEmailRecoveryRequest = {
   signer_slot?: number;
 };
 
-export type RespondEmailRecoveryEcdsaRequest = {
-  request_id: string;
-  clientBootstraps: Array<{
-    chainTarget: Record<string, unknown>;
-    clientBootstrap: Record<string, unknown>;
-  }>;
-};
-
 export type EmailRecoveryRouteErrorBody = {
   ok: false;
   code: 'invalid_body';
@@ -36,7 +28,6 @@ const PREPARE_KEYS = [
   'rp_id',
   'webauthn_registration',
 ] as const;
-const RESPOND_ECDSA_KEYS = ['request_id', 'client_bootstraps'] as const;
 
 function invalidEmailRecoveryBody(message: string): EmailRecoveryRouteParseResult<never> {
   return {
@@ -121,17 +112,6 @@ function parseRequiredObjectField(
   return { ok: true, request: value };
 }
 
-function parseRequiredObjectArrayField(
-  record: Record<string, unknown>,
-  fieldName: string,
-): EmailRecoveryRouteParseResult<Record<string, unknown>[]> {
-  const value = record[fieldName];
-  if (!Array.isArray(value) || value.length === 0 || !value.every(isPlainObject)) {
-    return invalidEmailRecoveryBody(`${fieldName} is required`);
-  }
-  return { ok: true, request: value };
-}
-
 export function parsePrepareEmailRecoveryRequest(input: {
   body: unknown;
   origin: unknown;
@@ -171,39 +151,6 @@ export function parsePrepareEmailRecoveryRequest(input: {
       expected_origin: expectedOrigin,
       ...(signerSlot.value ? { signer_slot: signerSlot.value } : {}),
       ...(thresholdEd25519.request ? { threshold_ed25519: thresholdEd25519.request } : {}),
-    },
-  };
-}
-
-export function parseRespondEmailRecoveryEcdsaRequest(
-  raw: unknown,
-): EmailRecoveryRouteParseResult<RespondEmailRecoveryEcdsaRequest> {
-  const body = requireJsonObject(raw);
-  if (!body.ok) return body;
-  const keys = requireOnlyAllowedKeys(body.request, RESPOND_ECDSA_KEYS, 'email-recovery ECDSA respond');
-  if (!keys.ok) return keys;
-
-  const requestId = requireTrimmedField(body.request, 'request_id');
-  if (!requestId.ok) return requestId;
-  const clientBootstraps = parseRequiredObjectArrayField(body.request, 'client_bootstraps');
-  if (!clientBootstraps.ok) return clientBootstraps;
-  const parsedClientBootstraps: RespondEmailRecoveryEcdsaRequest['clientBootstraps'] = [];
-  for (const entry of clientBootstraps.request) {
-    const chainTarget = parseRequiredObjectField(entry, 'chain_target');
-    if (!chainTarget.ok) return chainTarget;
-    const clientBootstrap = parseRequiredObjectField(entry, 'client_bootstrap');
-    if (!clientBootstrap.ok) return clientBootstrap;
-    parsedClientBootstraps.push({
-      chainTarget: chainTarget.request,
-      clientBootstrap: clientBootstrap.request,
-    });
-  }
-
-  return {
-    ok: true,
-    request: {
-      request_id: requestId.request,
-      clientBootstraps: parsedClientBootstraps,
     },
   };
 }

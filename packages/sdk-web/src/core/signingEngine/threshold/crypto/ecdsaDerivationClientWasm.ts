@@ -27,6 +27,20 @@ import {
   type ThresholdEcdsaPresignProgressResult,
 } from '../../workerManager/workerTypes';
 import type {
+  CloseRouterAbEcdsaPostRegistrationCeremonyRequestV1,
+  CloseRouterAbEcdsaPostRegistrationCeremonyResultV1,
+  CreateRouterAbEcdsaPostRegistrationCeremonyRequestV1,
+  CreateRouterAbEcdsaPostRegistrationCeremonyResultV1,
+  FinalizeRouterAbEcdsaExplicitExportRequestV1,
+  FinalizeRouterAbEcdsaExplicitExportResultV1,
+  FinalizeRouterAbEcdsaRecoveryActivationRequestV1,
+  FinalizeRouterAbEcdsaRecoveryActivationResultV1,
+  VerifyRouterAbEcdsaRecoveryClientProofsRequestV1,
+  VerifyRouterAbEcdsaRecoveryClientProofsResultV1,
+  VerifyRouterAbEcdsaRefreshClientProofsRequestV1,
+  VerifyRouterAbEcdsaRefreshClientProofsResultV1,
+} from '../../workerManager/ecdsaClientWorkerChannels';
+import type {
   BuildEcdsaRoleLocalExportArtifactCommand as GeneratedBuildEcdsaRoleLocalExportArtifactCommand,
   BuildEcdsaRoleLocalExportArtifactOutput as GeneratedBuildEcdsaRoleLocalExportArtifactOutput,
   EcdsaRoleLocalReadyStateBlob as GeneratedEcdsaRoleLocalReadyStateBlob,
@@ -49,9 +63,46 @@ import {
   type SigningRootId,
   type SigningRootVersion,
 } from '../../session/identity/emailOtpEcdsaDerivationIdentity';
-import type { EcdsaClientPresignPoolIdentity } from '../../workerManager/ecdsaPresignPoolIdentity';
+import {
+  equalEcdsaClientPresignPoolIdentity,
+  type EcdsaClientPresignPoolIdentity,
+} from '../../workerManager/ecdsaPresignPoolIdentity';
+import type {
+  CloseRouterAbEcdsaRegistrationCeremonyRequestV1,
+  CloseRouterAbEcdsaRegistrationCeremonyResultV1,
+  CreateRouterAbEcdsaRegistrationCeremonyRequestV1,
+  CreateRouterAbEcdsaRegistrationCeremonyResultV1,
+  FinalizeRouterAbEcdsaRegistrationActivationRequestV1,
+  FinalizeRouterAbEcdsaRegistrationActivationResultV1,
+  VerifyRouterAbEcdsaRegistrationClientProofsRequestV1,
+  VerifyRouterAbEcdsaRegistrationClientProofsResultV1,
+} from '../../routerAb/ecdsaDerivation/clientCeremony';
 
 const ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS = 20_000;
+
+type ListedClientPresignature = {
+  presignatureId: string;
+  materialHandle: string;
+  bigR33: Uint8Array;
+  createdAtMs: number;
+  expiresAtMs: number;
+};
+
+function parseListedClientPresignature(ref: {
+  presignatureId: string;
+  materialHandle: string;
+  bigR33: ArrayBuffer;
+  createdAtMs: number;
+  expiresAtMs: number;
+}): ListedClientPresignature {
+  return {
+    presignatureId: ref.presignatureId,
+    materialHandle: ref.materialHandle,
+    bigR33: new Uint8Array(ref.bigR33),
+    createdAtMs: ref.createdAtMs,
+    expiresAtMs: ref.expiresAtMs,
+  };
+}
 
 export type EcdsaDerivationClientThresholdEcdsaPresignProgress = Omit<
   ThresholdEcdsaPresignProgressResult,
@@ -209,6 +260,217 @@ export async function finalizeEcdsaClientBootstrapCommandWasm(input: {
   return response.payload as GeneratedFinalizeEcdsaClientBootstrapOutput;
 }
 
+export async function createRouterAbEcdsaRegistrationCeremonyWasm(input: {
+  command: CreateRouterAbEcdsaRegistrationCeremonyRequestV1;
+  workerCtx: WorkerOperationContext;
+}): Promise<CreateRouterAbEcdsaRegistrationCeremonyResultV1> {
+  const response = await requestEcdsaDerivationRoleLocalMaterialOperation({
+    workerCtx: input.workerCtx,
+    request: {
+      type: EcdsaDerivationClientCustomRequestType.CreateRouterAbEcdsaRegistrationCeremony,
+      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
+      payload: input.command,
+    },
+  });
+  if (
+    response.type !==
+    EcdsaDerivationClientCustomResponseType.CreateRouterAbEcdsaRegistrationCeremonySuccess
+  ) {
+    throw new Error('Router A/B ECDSA registration ceremony creation failed');
+  }
+  return response.payload;
+}
+
+export async function verifyRouterAbEcdsaRegistrationClientProofsWasm(input: {
+  command: VerifyRouterAbEcdsaRegistrationClientProofsRequestV1;
+  workerCtx: WorkerOperationContext;
+}): Promise<VerifyRouterAbEcdsaRegistrationClientProofsResultV1> {
+  const response = await requestEcdsaDerivationRoleLocalMaterialOperation({
+    workerCtx: input.workerCtx,
+    request: {
+      type: EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaRegistrationClientProofs,
+      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
+      payload: input.command,
+    },
+  });
+  if (
+    response.type !==
+    EcdsaDerivationClientCustomResponseType.VerifyRouterAbEcdsaRegistrationClientProofsSuccess
+  ) {
+    throw new Error('Router A/B ECDSA registration client proof verification failed');
+  }
+  return response.payload;
+}
+
+export async function finalizeRouterAbEcdsaRegistrationActivationWasm(input: {
+  command: FinalizeRouterAbEcdsaRegistrationActivationRequestV1;
+  workerCtx: WorkerOperationContext;
+}): Promise<FinalizeRouterAbEcdsaRegistrationActivationResultV1> {
+  const response = await requestEcdsaDerivationRoleLocalMaterialOperation({
+    workerCtx: input.workerCtx,
+    request: {
+      type: EcdsaDerivationClientCustomRequestType.FinalizeRouterAbEcdsaRegistrationActivation,
+      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
+      payload: input.command,
+    },
+  });
+  if (
+    response.type !==
+    EcdsaDerivationClientCustomResponseType.FinalizeRouterAbEcdsaRegistrationActivationSuccess
+  ) {
+    throw new Error('Router A/B ECDSA registration activation finalization failed');
+  }
+  return response.payload;
+}
+
+export async function closeRouterAbEcdsaRegistrationCeremonyWasm(input: {
+  command: CloseRouterAbEcdsaRegistrationCeremonyRequestV1;
+  workerCtx: WorkerOperationContext;
+}): Promise<CloseRouterAbEcdsaRegistrationCeremonyResultV1> {
+  const response = await requestEcdsaDerivationRoleLocalMaterialOperation({
+    workerCtx: input.workerCtx,
+    request: {
+      type: EcdsaDerivationClientCustomRequestType.CloseRouterAbEcdsaRegistrationCeremony,
+      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
+      payload: input.command,
+    },
+  });
+  if (
+    response.type !==
+    EcdsaDerivationClientCustomResponseType.CloseRouterAbEcdsaRegistrationCeremonySuccess
+  ) {
+    throw new Error('Router A/B ECDSA registration ceremony close failed');
+  }
+  return response.payload;
+}
+
+export async function createRouterAbEcdsaPostRegistrationCeremonyWasm(input: {
+  command: CreateRouterAbEcdsaPostRegistrationCeremonyRequestV1;
+  workerCtx: WorkerOperationContext;
+}): Promise<CreateRouterAbEcdsaPostRegistrationCeremonyResultV1> {
+  const response = await requestEcdsaDerivationRoleLocalMaterialOperation({
+    workerCtx: input.workerCtx,
+    request: {
+      type: EcdsaDerivationClientCustomRequestType.CreateRouterAbEcdsaPostRegistrationCeremony,
+      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
+      payload: input.command,
+    },
+  });
+  if (
+    response.type !==
+    EcdsaDerivationClientCustomResponseType.CreateRouterAbEcdsaPostRegistrationCeremonySuccess
+  ) {
+    throw new Error('Router A/B ECDSA post-registration ceremony creation failed');
+  }
+  return response.payload;
+}
+
+export async function finalizeRouterAbEcdsaExplicitExportWasm(input: {
+  command: FinalizeRouterAbEcdsaExplicitExportRequestV1;
+  workerCtx: WorkerOperationContext;
+}): Promise<FinalizeRouterAbEcdsaExplicitExportResultV1> {
+  const response = await requestEcdsaDerivationRoleLocalMaterialOperation({
+    workerCtx: input.workerCtx,
+    request: {
+      type:
+        EcdsaDerivationClientCustomRequestType.FinalizeRouterAbEcdsaExplicitExport,
+      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
+      payload: input.command,
+    },
+  });
+  if (
+    response.type !==
+    EcdsaDerivationClientCustomResponseType.FinalizeRouterAbEcdsaExplicitExportSuccess
+  ) {
+    throw new Error('Router A/B ECDSA post-registration client proof finalization failed');
+  }
+  return response.payload;
+}
+
+export async function closeRouterAbEcdsaPostRegistrationCeremonyWasm(input: {
+  command: CloseRouterAbEcdsaPostRegistrationCeremonyRequestV1;
+  workerCtx: WorkerOperationContext;
+}): Promise<CloseRouterAbEcdsaPostRegistrationCeremonyResultV1> {
+  const response = await requestEcdsaDerivationRoleLocalMaterialOperation({
+    workerCtx: input.workerCtx,
+    request: {
+      type: EcdsaDerivationClientCustomRequestType.CloseRouterAbEcdsaPostRegistrationCeremony,
+      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
+      payload: input.command,
+    },
+  });
+  if (
+    response.type !==
+    EcdsaDerivationClientCustomResponseType.CloseRouterAbEcdsaPostRegistrationCeremonySuccess
+  ) {
+    throw new Error('Router A/B ECDSA post-registration ceremony close failed');
+  }
+  return response.payload;
+}
+
+export async function verifyRouterAbEcdsaRecoveryClientProofsWasm(input: {
+  command: VerifyRouterAbEcdsaRecoveryClientProofsRequestV1;
+  workerCtx: WorkerOperationContext;
+}): Promise<VerifyRouterAbEcdsaRecoveryClientProofsResultV1> {
+  const response = await requestEcdsaDerivationRoleLocalMaterialOperation({
+    workerCtx: input.workerCtx,
+    request: {
+      type: EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaRecoveryClientProofs,
+      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
+      payload: input.command,
+    },
+  });
+  if (
+    response.type !==
+    EcdsaDerivationClientCustomResponseType.VerifyRouterAbEcdsaRecoveryClientProofsSuccess
+  ) {
+    throw new Error('Router A/B ECDSA recovery client proof verification failed');
+  }
+  return response.payload;
+}
+
+export async function finalizeRouterAbEcdsaRecoveryActivationWasm(input: {
+  command: FinalizeRouterAbEcdsaRecoveryActivationRequestV1;
+  workerCtx: WorkerOperationContext;
+}): Promise<FinalizeRouterAbEcdsaRecoveryActivationResultV1> {
+  const response = await requestEcdsaDerivationRoleLocalMaterialOperation({
+    workerCtx: input.workerCtx,
+    request: {
+      type: EcdsaDerivationClientCustomRequestType.FinalizeRouterAbEcdsaRecoveryActivation,
+      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
+      payload: input.command,
+    },
+  });
+  if (
+    response.type !==
+    EcdsaDerivationClientCustomResponseType.FinalizeRouterAbEcdsaRecoveryActivationSuccess
+  ) {
+    throw new Error('Router A/B ECDSA recovery activation finalization failed');
+  }
+  return response.payload;
+}
+
+export async function verifyRouterAbEcdsaRefreshClientProofsWasm(input: {
+  command: VerifyRouterAbEcdsaRefreshClientProofsRequestV1;
+  workerCtx: WorkerOperationContext;
+}): Promise<VerifyRouterAbEcdsaRefreshClientProofsResultV1> {
+  const response = await requestEcdsaDerivationRoleLocalMaterialOperation({
+    workerCtx: input.workerCtx,
+    request: {
+      type: EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaRefreshClientProofs,
+      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
+      payload: input.command,
+    },
+  });
+  if (
+    response.type !==
+    EcdsaDerivationClientCustomResponseType.VerifyRouterAbEcdsaRefreshClientProofsSuccess
+  ) {
+    throw new Error('Router A/B ECDSA refresh client proof verification failed');
+  }
+  return response.payload;
+}
+
 export async function buildEcdsaRoleLocalExportArtifactCommandWasm(input: {
   command: GeneratedBuildEcdsaRoleLocalExportArtifactCommand;
   workerCtx: WorkerOperationContext;
@@ -282,6 +544,7 @@ function asEcdsaDerivationPresignProgress(
 
 export async function thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandleWasm(input: {
   materialHandle: string;
+  durableMaterialRef: string;
   expectedBindingDigest: string;
   sessionId: string;
   groupPublicKey33: Uint8Array;
@@ -299,6 +562,7 @@ export async function thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandl
         authority: {
           kind: 'role_local_derivation_handle',
           materialHandle: input.materialHandle,
+          durableMaterialRef: input.durableMaterialRef,
           expectedBindingDigest: input.expectedBindingDigest,
         },
         sessionId: input.sessionId,
@@ -417,6 +681,7 @@ export async function thresholdEcdsaRoleLocalPresignSessionAbortWasm(input: {
 export async function thresholdEcdsaRoleLocalAdmitPresignatureWasm(input: {
   materialHandle: string;
   expectedPresignatureId: string;
+  poolIdentity: EcdsaClientPresignPoolIdentity;
   workerCtx: WorkerOperationContext;
 }): Promise<void> {
   const response = await requestEcdsaPresignOperation({
@@ -427,6 +692,7 @@ export async function thresholdEcdsaRoleLocalAdmitPresignatureWasm(input: {
       payload: {
         materialHandle: input.materialHandle,
         expectedPresignatureId: input.expectedPresignatureId,
+        poolIdentity: input.poolIdentity,
       },
     },
   });
@@ -444,6 +710,7 @@ export async function thresholdEcdsaRoleLocalAdmitPresignatureWasm(input: {
 
 export async function thresholdEcdsaRoleLocalDestroyPresignatureWasm(input: {
   materialHandle: string;
+  poolIdentity: EcdsaClientPresignPoolIdentity;
   workerCtx: WorkerOperationContext;
 }): Promise<void> {
   const response = await requestEcdsaPresignOperation({
@@ -451,7 +718,7 @@ export async function thresholdEcdsaRoleLocalDestroyPresignatureWasm(input: {
     request: {
       type: EcdsaPresignClientRequestType.Destroy,
       timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
-      payload: { materialHandle: input.materialHandle },
+      payload: { materialHandle: input.materialHandle, poolIdentity: input.poolIdentity },
     },
   });
   if (response.type !== EcdsaPresignClientResponseType.DestroySuccess) {
@@ -467,6 +734,7 @@ export async function thresholdEcdsaRoleLocalDestroyPresignatureWasm(input: {
 
 export async function thresholdEcdsaRoleLocalReservePresignatureWasm(input: {
   materialHandle: string;
+  poolIdentity: EcdsaClientPresignPoolIdentity;
   requestBinding: string;
   reservationId: string;
   leaseExpiresAtMs: number;
@@ -479,6 +747,7 @@ export async function thresholdEcdsaRoleLocalReservePresignatureWasm(input: {
       timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
       payload: {
         materialHandle: input.materialHandle,
+        poolIdentity: input.poolIdentity,
         requestBinding: input.requestBinding,
         reservationId: input.reservationId,
         leaseExpiresAtMs: input.leaseExpiresAtMs,
@@ -492,6 +761,7 @@ export async function thresholdEcdsaRoleLocalReservePresignatureWasm(input: {
 
 export async function thresholdEcdsaRoleLocalCommitPresignatureWasm(input: {
   materialHandle: string;
+  poolIdentity: EcdsaClientPresignPoolIdentity;
   requestBinding: string;
   reservationId: string;
   workerCtx: WorkerOperationContext;
@@ -503,6 +773,7 @@ export async function thresholdEcdsaRoleLocalCommitPresignatureWasm(input: {
       timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
       payload: {
         materialHandle: input.materialHandle,
+        poolIdentity: input.poolIdentity,
         requestBinding: input.requestBinding,
         reservationId: input.reservationId,
       },
@@ -513,20 +784,70 @@ export async function thresholdEcdsaRoleLocalCommitPresignatureWasm(input: {
   }
 }
 
+export async function thresholdEcdsaRoleLocalListAvailablePresignaturesWasm(input: {
+  poolIdentity: EcdsaClientPresignPoolIdentity;
+  workerCtx: WorkerOperationContext;
+}): Promise<ListedClientPresignature[]> {
+  const response = await requestEcdsaPresignOperation({
+    workerCtx: input.workerCtx,
+    request: {
+      type: EcdsaPresignClientRequestType.ListAvailable,
+      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
+      payload: { poolIdentity: input.poolIdentity },
+    },
+  });
+  if (response.type !== EcdsaPresignClientResponseType.ListAvailableSuccess) {
+    throw new Error('ThresholdEcdsaRoleLocalListAvailablePresignatures failed');
+  }
+  return response.payload.map(parseListedClientPresignature);
+}
+
+export async function thresholdEcdsaRoleLocalRetirePresignaturePoolWasm(input: {
+  poolIdentity: EcdsaClientPresignPoolIdentity;
+  reason: 'key_epoch_retired' | 'activation_epoch_retired';
+  workerCtx: WorkerOperationContext;
+}): Promise<number> {
+  const response = await requestEcdsaOnlineOperation({
+    workerCtx: input.workerCtx,
+    request: {
+      type: EcdsaOnlineClientRequestType.RetirePool,
+      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
+      payload: { poolIdentity: input.poolIdentity, reason: input.reason },
+    },
+  });
+  if (response.type !== EcdsaOnlineClientResponseType.RetirePoolSuccess) {
+    throw new Error('ThresholdEcdsaRoleLocalRetirePresignaturePool failed');
+  }
+  if (
+    response.payload.kind !== 'ecdsa_client_presignature_pool_retired_v1' ||
+    response.payload.reason !== input.reason ||
+    !equalEcdsaClientPresignPoolIdentity(response.payload.poolIdentity, input.poolIdentity) ||
+    !Number.isSafeInteger(response.payload.retiredCount) ||
+    response.payload.retiredCount < 0
+  ) {
+    throw new Error('ThresholdEcdsaRoleLocalRetirePresignaturePool returned invalid receipt');
+  }
+  return response.payload.retiredCount;
+}
+
 export async function thresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandleWasm(input: {
   materialHandle: string;
+  poolIdentity: EcdsaClientPresignPoolIdentity;
   requestBinding: string;
   reservationId: string;
   groupPublicKey33: Uint8Array;
   expectedPresignBigR33: Uint8Array;
   digest32: Uint8Array;
-  entropy32: Uint8Array;
+  clientRerandomizationContribution32: Uint8Array;
+  signingWorkerRerandomizationContribution32: Uint8Array;
   workerCtx: WorkerOperationContext;
 }): Promise<Uint8Array> {
   const groupPublicKey33 = input.groupPublicKey33.slice();
   const expectedPresignBigR33 = input.expectedPresignBigR33.slice();
   const digest32 = input.digest32.slice();
-  const entropy32 = input.entropy32.slice();
+  const clientRerandomizationContribution32 = input.clientRerandomizationContribution32.slice();
+  const signingWorkerRerandomizationContribution32 =
+    input.signingWorkerRerandomizationContribution32.slice();
   const response = await requestEcdsaOnlineOperation({
     workerCtx: input.workerCtx,
     request: {
@@ -534,18 +855,22 @@ export async function thresholdEcdsaRoleLocalComputeSignatureShareFromPresignatu
       timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
       payload: {
         materialHandle: input.materialHandle,
+        poolIdentity: input.poolIdentity,
         requestBinding: input.requestBinding,
         reservationId: input.reservationId,
         groupPublicKey33: groupPublicKey33.buffer,
         expectedPresignBigR33: expectedPresignBigR33.buffer,
         digest32: digest32.buffer,
-        entropy32: entropy32.buffer,
+        clientRerandomizationContribution32: clientRerandomizationContribution32.buffer,
+        signingWorkerRerandomizationContribution32:
+          signingWorkerRerandomizationContribution32.buffer,
       },
       transfer: [
         groupPublicKey33.buffer,
         expectedPresignBigR33.buffer,
         digest32.buffer,
-        entropy32.buffer,
+        clientRerandomizationContribution32.buffer,
+        signingWorkerRerandomizationContribution32.buffer,
       ],
     },
   });

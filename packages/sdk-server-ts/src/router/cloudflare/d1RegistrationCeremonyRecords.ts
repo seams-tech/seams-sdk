@@ -1,4 +1,5 @@
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
+import { derivationClientSharePublicKey33B64uFromString } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import {
   addAuthMethodIntentGrantFromString,
   addSignerIntentGrantFromString,
@@ -59,6 +60,16 @@ import {
   parseRouterAbEd25519YaoRegistrationActivationResultV1,
   parseRouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
+import {
+  parseRouterAbEcdsaDerivationPublicCapabilityV1,
+  parseRouterAbEcdsaRegistrationActivationReceiptV1,
+  parseRouterAbEcdsaRegistrationRequestV1,
+  parseRouterAbEcdsaRegistrationRequestFactsV1,
+  parseRouterAbEcdsaStrictForwardedRegistrationResponseV1,
+  parseRouterAbEcdsaVerifiedClientActivationFactsV1,
+  type RouterAbEcdsaDerivationPublicCapabilityV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
+import { parseStoredRouterAbEcdsaPendingActivationV1 } from '../routerAbEcdsaStrictRegistration';
 import { registrationPreparationIdFromString } from '../../core/registrationContracts';
 import type {
   EcdsaDerivationClientBootstrapRequest,
@@ -88,7 +99,8 @@ import {
   parseStoredRegistrationSignerPlan,
   storedRegistrationSignerPlansMatch,
   type StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch,
-  type StoredWalletRegistrationEvmFamilyEcdsaRespondedBranch,
+  type StoredWalletRegistrationEvmFamilyEcdsaActivatedBranch,
+  type StoredWalletRegistrationEvmFamilyEcdsaPendingActivationBranch,
   type StoredWalletRegistrationNearEd25519YaoAuthorizedBranch,
   type StoredWalletRegistrationSignerBranch,
   type StoredWalletRegistrationSignerSetState,
@@ -269,6 +281,8 @@ export function parseD1StoredRegistrationIntent(raw: unknown): StoredRegistratio
   const intent = parseD1RegistrationIntent(record.intent);
   const digestB64u = toOptionalTrimmedString(record.digestB64u);
   const orgId = toOptionalTrimmedString(record.orgId);
+  const signingRootId = toOptionalTrimmedString(record.signingRootId);
+  const signingRootVersion = toOptionalTrimmedString(record.signingRootVersion);
   const expiresAtMs = safeInteger(record.expiresAtMs);
   if (!grant || !intent || !digestB64u || !orgId || expiresAtMs === null) return null;
   return {
@@ -340,6 +354,8 @@ export function parseD1StoredWalletRegistrationCeremony(
     !intent ||
     !digestB64u ||
     !orgId ||
+    !signingRootId ||
+    !signingRootVersion ||
     expiresAtMs === null ||
     !authority ||
     !signerPlan ||
@@ -832,7 +848,21 @@ function parseD1WalletRegistrationEcdsaWalletKey(
   const thresholdOwnerAddress = toOptionalTrimmedString(record.thresholdOwnerAddress);
   const relayerKeyId = toOptionalTrimmedString(record.relayerKeyId);
   const relayerVerifyingShareB64u = toOptionalTrimmedString(record.relayerVerifyingShareB64u);
+  const contextBinding32B64u = toOptionalTrimmedString(record.contextBinding32B64u);
+  const rawDerivationClientSharePublicKey33B64u = toOptionalTrimmedString(
+    record.derivationClientSharePublicKey33B64u,
+  );
+  const clientShareRetryCounter = safeInteger(record.clientShareRetryCounter);
+  const relayerShareRetryCounter = safeInteger(record.relayerShareRetryCounter);
   const participantIds = parseD1PositiveIntegerArray(record.participantIds);
+  let publicCapability;
+  try {
+    publicCapability = parseRouterAbEcdsaDerivationPublicCapabilityV1(
+      record.publicCapability,
+    );
+  } catch {
+    return null;
+  }
   if (
     !chainTarget ||
     !walletId ||
@@ -845,8 +875,26 @@ function parseD1WalletRegistrationEcdsaWalletKey(
     !thresholdOwnerAddress ||
     !relayerKeyId ||
     !relayerVerifyingShareB64u ||
-    !participantIds
+    !contextBinding32B64u ||
+    !rawDerivationClientSharePublicKey33B64u ||
+    clientShareRetryCounter === null ||
+    clientShareRetryCounter < 0 ||
+    relayerShareRetryCounter === null ||
+    relayerShareRetryCounter < 0 ||
+    !participantIds ||
+    participantIds.length !== 2 ||
+    participantIds[0] !== 1 ||
+    participantIds[1] !== 2
   ) {
+    return null;
+  }
+  let derivationClientSharePublicKey33B64u;
+  try {
+    derivationClientSharePublicKey33B64u =
+      derivationClientSharePublicKey33B64uFromString(
+        rawDerivationClientSharePublicKey33B64u,
+      );
+  } catch {
     return null;
   }
   return {
@@ -862,7 +910,12 @@ function parseD1WalletRegistrationEcdsaWalletKey(
     thresholdOwnerAddress,
     relayerKeyId,
     relayerVerifyingShareB64u,
-    participantIds,
+    contextBinding32B64u,
+    derivationClientSharePublicKey33B64u,
+    clientShareRetryCounter,
+    relayerShareRetryCounter,
+    participantIds: [1, 2],
+    publicCapability,
   };
 }
 
@@ -873,8 +926,6 @@ function parseD1StoredWalletRegistrationSignerState(
   if (!record) return null;
   const kind = toOptionalTrimmedString(record.kind);
   if (kind === 'signer_set_registration') return parseD1StoredSignerSetRegistrationState(record);
-  if (kind === 'ecdsa_prepared') return parseD1StoredEcdsaRegistrationPrepared(record);
-  if (kind === 'ecdsa_responded') return parseD1StoredEcdsaRegistrationResponded(record);
   return null;
 }
 
@@ -905,8 +956,10 @@ function parseD1StoredSignerSetRegistrationBranch(
       return parseD1StoredNearEd25519YaoAuthorizedBranch(record);
     case 'evm_family_ecdsa_prepared':
       return parseD1StoredEvmFamilyEcdsaPreparedBranch(record);
-    case 'evm_family_ecdsa_responded':
-      return parseD1StoredEvmFamilyEcdsaRespondedBranch(record);
+    case 'evm_family_ecdsa_pending_activation':
+      return parseD1StoredEvmFamilyEcdsaPendingActivationBranch(record);
+    case 'evm_family_ecdsa_activated':
+      return parseD1StoredEvmFamilyEcdsaActivatedBranch(record);
     default:
       return null;
   }
@@ -931,38 +984,69 @@ function parseD1StoredEvmFamilyEcdsaPreparedBranch(
   record: Record<string, unknown>,
 ): StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch | null {
   const branchKey = parseD1RegistrationSignerBranchKey(record.branchKey);
-  const prepared = parseD1StoredEcdsaRegistrationPrepared({
-    kind: 'ecdsa_prepared',
-    derivationKind: record.derivationKind,
-    targets: record.targets,
-  });
+  const prepared = parseD1StoredEcdsaRegistrationBase(record);
   if (!branchKey || !prepared) return null;
   return {
     kind: 'evm_family_ecdsa_prepared',
     branchKey,
     derivationKind: prepared.derivationKind,
-    targets: prepared.targets,
+    chainTargets: prepared.chainTargets,
+    prepare: prepared.prepare,
+    strictRegistration: prepared.strictRegistration,
   };
 }
 
-function parseD1StoredEvmFamilyEcdsaRespondedBranch(
+function parseD1StoredEvmFamilyEcdsaPendingActivationBranch(
   record: Record<string, unknown>,
-): StoredWalletRegistrationEvmFamilyEcdsaRespondedBranch | null {
+): StoredWalletRegistrationEvmFamilyEcdsaPendingActivationBranch | null {
   const branchKey = parseD1RegistrationSignerBranchKey(record.branchKey);
-  const responded = parseD1StoredEcdsaRegistrationResponded({
-    kind: 'ecdsa_responded',
-    derivationKind: record.derivationKind,
-    targets: record.targets,
-    responded: record.responded,
-  });
-  if (!branchKey || !responded) return null;
-  return {
-    kind: 'evm_family_ecdsa_responded',
-    branchKey,
-    derivationKind: responded.derivationKind,
-    targets: responded.targets,
-    responded: responded.responded,
-  };
+  const prepared = parseD1StoredEcdsaRegistrationBase(record);
+  if (!branchKey || !prepared) return null;
+  try {
+    return {
+      kind: 'evm_family_ecdsa_pending_activation',
+      branchKey,
+      derivationKind: prepared.derivationKind,
+      chainTargets: prepared.chainTargets,
+      prepare: prepared.prepare,
+      strictRegistration: prepared.strictRegistration,
+      registrationRequest: parseRouterAbEcdsaRegistrationRequestV1(record.registrationRequest),
+      pendingActivation: parseStoredRouterAbEcdsaPendingActivationV1(record.pendingActivation),
+      publicResponse: parseRouterAbEcdsaStrictForwardedRegistrationResponseV1(
+        record.publicResponse,
+      ),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseD1StoredEvmFamilyEcdsaActivatedBranch(
+  record: Record<string, unknown>,
+): StoredWalletRegistrationEvmFamilyEcdsaActivatedBranch | null {
+  const branchKey = parseD1RegistrationSignerBranchKey(record.branchKey);
+  const prepared = parseD1StoredEcdsaRegistrationBase(record);
+  const bootstrap = parseD1EcdsaDerivationServerBootstrapResponse(record.bootstrap);
+  if (!branchKey || !prepared || !bootstrap || bootstrap.jwt) return null;
+  try {
+    return {
+      kind: 'evm_family_ecdsa_activated',
+      branchKey,
+      derivationKind: prepared.derivationKind,
+      chainTargets: prepared.chainTargets,
+      prepare: prepared.prepare,
+      strictRegistration: prepared.strictRegistration,
+      registrationRequest: parseRouterAbEcdsaRegistrationRequestV1(record.registrationRequest),
+      publicFacts: parseRouterAbEcdsaVerifiedClientActivationFactsV1(record.publicFacts),
+      activation: parseRouterAbEcdsaRegistrationActivationReceiptV1(record.activation),
+      publicCapability: parseRouterAbEcdsaDerivationPublicCapabilityV1(
+        record.publicCapability,
+      ),
+      bootstrap,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function parseD1RegistrationSignerBranchKey(raw: unknown): RegistrationSignerBranchKey | null {
@@ -975,37 +1059,31 @@ function parseD1RegistrationSignerBranchKey(raw: unknown): RegistrationSignerBra
   }
 }
 
-function parseD1StoredEcdsaRegistrationPrepared(
-  record: Record<string, unknown>,
-): Extract<StoredWalletRegistrationCeremony['signerState'], { kind: 'ecdsa_prepared' }> | null {
+function parseD1StoredEcdsaRegistrationBase(record: Record<string, unknown>): {
+  readonly derivationKind: 'evm_family_ecdsa_keygen';
+  readonly chainTargets: readonly [
+    ThresholdEcdsaChainTarget,
+    ...ThresholdEcdsaChainTarget[],
+  ];
+  readonly prepare: WalletRegistrationEcdsaPrepareContext;
+  readonly strictRegistration: WalletRegistrationEcdsaPreparePayload['strictRegistration'];
+} | null {
   const derivationKind = toOptionalTrimmedString(record.derivationKind);
-  const targets = parseD1WalletRegistrationEcdsaPrepareTargets(record.targets);
-  if (derivationKind !== 'evm_family_ecdsa_keygen' || !targets) return null;
-  return {
-    kind: 'ecdsa_prepared',
-    derivationKind,
-    targets,
-  };
-}
-
-function parseD1StoredEcdsaRegistrationResponded(
-  record: Record<string, unknown>,
-): Extract<StoredWalletRegistrationCeremony['signerState'], { kind: 'ecdsa_responded' }> | null {
-  const derivationKind = toOptionalTrimmedString(record.derivationKind);
-  const responded = toRecordValue(record.responded);
-  const targets = parseD1WalletRegistrationEcdsaPrepareTargets(record.targets);
-  const bootstraps = parseD1WalletRegistrationEcdsaBootstrapTargets(responded?.bootstraps);
-  if (derivationKind !== 'evm_family_ecdsa_keygen' || !targets || !bootstraps) {
+  const chainTargets = parseD1ThresholdEcdsaChainTargets(record.chainTargets);
+  const prepare = parseD1WalletRegistrationEcdsaPrepare(record.prepare);
+  if (derivationKind !== 'evm_family_ecdsa_keygen' || !chainTargets || !prepare) return null;
+  try {
+    return {
+      derivationKind,
+      chainTargets,
+      prepare,
+      strictRegistration: parseRouterAbEcdsaRegistrationRequestFactsV1(
+        record.strictRegistration,
+      ),
+    };
+  } catch {
     return null;
   }
-  return {
-    kind: 'ecdsa_responded',
-    derivationKind,
-    targets,
-    responded: {
-      bootstraps,
-    },
-  };
 }
 
 export function parseD1StoredAddSignerIntent(raw: unknown): StoredAddSignerIntent | null {
@@ -1065,6 +1143,8 @@ export function parseD1StoredWalletAddSignerCeremony(
   const intent = parseD1AddSignerIntent(record.intent);
   const digestB64u = toOptionalTrimmedString(record.digestB64u);
   const orgId = toOptionalTrimmedString(record.orgId);
+  const signingRootId = toOptionalTrimmedString(record.signingRootId);
+  const signingRootVersion = toOptionalTrimmedString(record.signingRootVersion);
   const expiresAtMs = safeInteger(record.expiresAtMs);
   const auth = parseD1StoredAddSignerAuth(record.auth);
   const signerState = parseD1StoredWalletAddSignerSignerState(record.signerState);
@@ -1073,6 +1153,8 @@ export function parseD1StoredWalletAddSignerCeremony(
     !intent ||
     !digestB64u ||
     !orgId ||
+    !signingRootId ||
+    !signingRootVersion ||
     expiresAtMs === null ||
     !auth ||
     !signerState
@@ -1091,14 +1173,12 @@ export function parseD1StoredWalletAddSignerCeremony(
     intent,
     digestB64u,
     orgId,
+    signingRootId,
+    signingRootVersion,
     expiresAtMs,
     auth,
     signerState,
   };
-  const signingRootId = toOptionalTrimmedString(record.signingRootId);
-  const signingRootVersion = toOptionalTrimmedString(record.signingRootVersion);
-  if (signingRootId) ceremony.signingRootId = signingRootId;
-  if (signingRootVersion) ceremony.signingRootVersion = signingRootVersion;
   return ceremony;
 }
 
@@ -1166,8 +1246,11 @@ function parseD1StoredWalletAddSignerSignerState(
   if (kind === 'ecdsa_add_signer_prepared') {
     return parseD1StoredEcdsaAddSignerPrepared(record);
   }
-  if (kind === 'ecdsa_add_signer_responded') {
-    return parseD1StoredEcdsaAddSignerResponded(record);
+  if (kind === 'ecdsa_add_signer_pending_activation') {
+    return parseD1StoredEcdsaAddSignerPendingActivation(record);
+  }
+  if (kind === 'ecdsa_add_signer_activated') {
+    return parseD1StoredEcdsaAddSignerActivated(record);
   }
   return null;
 }
@@ -1238,18 +1321,20 @@ function parseD1WalletAddSignerFinalizeRequest(
       activationReference: { lifecycleId, sessionId },
     };
   }
-  if (record.kind !== 'evm_family_ecdsa' || !Array.isArray(record.expectedKeyHandles)) return null;
-  const expectedKeyHandles: string[] = [];
-  for (const rawKeyHandle of record.expectedKeyHandles) {
-    const keyHandle = toOptionalTrimmedString(rawKeyHandle);
-    if (!keyHandle) return null;
-    expectedKeyHandles.push(keyHandle);
+  if (
+    record.kind !== 'evm_family_ecdsa' ||
+    !Array.isArray(record.expectedKeyHandles) ||
+    record.expectedKeyHandles.length !== 1
+  ) {
+    return null;
   }
+  const expectedKeyHandle = toOptionalTrimmedString(record.expectedKeyHandles[0]);
+  if (!expectedKeyHandle) return null;
   return {
     kind: 'evm_family_ecdsa',
     addSignerCeremonyId,
     idempotencyKey,
-    expectedKeyHandles,
+    expectedKeyHandles: [expectedKeyHandle],
   };
 }
 
@@ -1273,80 +1358,100 @@ function parseD1StoredEcdsaAddSignerPrepared(
   StoredWalletAddSignerCeremony['signerState'],
   { kind: 'ecdsa_add_signer_prepared' }
 > | null {
-  const derivationKind = toOptionalTrimmedString(record.derivationKind);
-  const targets = parseD1WalletRegistrationEcdsaPrepareTargets(record.targets);
-  if (derivationKind !== 'evm_family_ecdsa_keygen' || !targets) return null;
+  const prepared = parseD1StoredEcdsaRegistrationBase(record);
+  if (!prepared) return null;
   return {
     kind: 'ecdsa_add_signer_prepared',
-    derivationKind,
-    targets,
+    derivationKind: prepared.derivationKind,
+    chainTargets: prepared.chainTargets,
+    prepare: prepared.prepare,
+    strictRegistration: prepared.strictRegistration,
   };
 }
 
-function parseD1StoredEcdsaAddSignerResponded(
+function parseD1StoredEcdsaAddSignerPendingActivation(
   record: Record<string, unknown>,
 ): Extract<
   StoredWalletAddSignerCeremony['signerState'],
-  { kind: 'ecdsa_add_signer_responded' }
+  { kind: 'ecdsa_add_signer_pending_activation' }
 > | null {
-  const derivationKind = toOptionalTrimmedString(record.derivationKind);
-  const targets = parseD1WalletRegistrationEcdsaPrepareTargets(record.targets);
-  const responded = toRecordValue(record.responded);
-  const bootstraps = parseD1WalletRegistrationEcdsaBootstrapTargets(responded?.bootstraps);
-  if (derivationKind !== 'evm_family_ecdsa_keygen' || !targets || !bootstraps) {
+  const prepared = parseD1StoredEcdsaRegistrationBase(record);
+  if (!prepared) return null;
+  try {
+    return {
+      kind: 'ecdsa_add_signer_pending_activation',
+      derivationKind: prepared.derivationKind,
+      chainTargets: prepared.chainTargets,
+      prepare: prepared.prepare,
+      strictRegistration: prepared.strictRegistration,
+      registrationRequest: parseRouterAbEcdsaRegistrationRequestV1(record.registrationRequest),
+      pendingActivation: parseStoredRouterAbEcdsaPendingActivationV1(record.pendingActivation),
+      publicResponse: parseRouterAbEcdsaStrictForwardedRegistrationResponseV1(
+        record.publicResponse,
+      ),
+    };
+  } catch {
     return null;
   }
-  return {
-    kind: 'ecdsa_add_signer_responded',
-    derivationKind,
-    targets,
-    responded: {
-      bootstraps,
-    },
-  };
 }
 
-function parseD1WalletRegistrationEcdsaPrepareTargets(
-  raw: unknown,
-): WalletRegistrationEcdsaPreparePayload['targets'] | null {
-  if (!Array.isArray(raw) || raw.length === 0) return null;
-  const targets: WalletRegistrationEcdsaPreparePayload['targets'] = [];
-  const seen = new Set<string>();
-  for (const item of raw) {
-    const record = toRecordValue(item);
-    if (!record) return null;
-    const chainTarget = thresholdEcdsaChainTargetFromValue(record.chainTarget);
-    const prepare = parseD1WalletRegistrationEcdsaPrepare(record.prepare);
-    if (!chainTarget || !prepare) return null;
-    const targetKey = thresholdEcdsaChainTargetKey(chainTarget);
-    if (seen.has(targetKey)) return null;
-    seen.add(targetKey);
-    targets.push({ chainTarget, prepare });
+function parseD1StoredEcdsaAddSignerActivated(
+  record: Record<string, unknown>,
+): Extract<
+  StoredWalletAddSignerCeremony['signerState'],
+  { kind: 'ecdsa_add_signer_activated' }
+> | null {
+  const prepared = parseD1StoredEcdsaRegistrationBase(record);
+  const bootstrap = parseD1EcdsaDerivationServerBootstrapResponse(record.bootstrap);
+  if (!prepared || !bootstrap || bootstrap.jwt) return null;
+  try {
+    return {
+      kind: 'ecdsa_add_signer_activated',
+      derivationKind: prepared.derivationKind,
+      chainTargets: prepared.chainTargets,
+      prepare: prepared.prepare,
+      strictRegistration: prepared.strictRegistration,
+      registrationRequest: parseRouterAbEcdsaRegistrationRequestV1(record.registrationRequest),
+      publicFacts: parseRouterAbEcdsaVerifiedClientActivationFactsV1(record.publicFacts),
+      activation: parseRouterAbEcdsaRegistrationActivationReceiptV1(record.activation),
+      publicCapability: parseRouterAbEcdsaDerivationPublicCapabilityV1(
+        record.publicCapability,
+      ),
+      bootstrap,
+    };
+  } catch {
+    return null;
   }
-  return targets;
 }
 
-function parseD1WalletRegistrationEcdsaBootstrapTargets(
+function parseD1ThresholdEcdsaChainTargets(
   raw: unknown,
-): { chainTarget: ThresholdEcdsaChainTarget; bootstrap: EcdsaDerivationServerBootstrapResponse }[] | null {
+): readonly [ThresholdEcdsaChainTarget, ...ThresholdEcdsaChainTarget[]] | null {
   if (!Array.isArray(raw) || raw.length === 0) return null;
-  const targets: {
-    chainTarget: ThresholdEcdsaChainTarget;
-    bootstrap: EcdsaDerivationServerBootstrapResponse;
-  }[] = [];
+  const targets: ThresholdEcdsaChainTarget[] = [];
   const seen = new Set<string>();
-  for (const item of raw) {
-    const record = toRecordValue(item);
-    if (!record) return null;
-    const chainTarget = thresholdEcdsaChainTargetFromValue(record.chainTarget);
-    const bootstrap = parseD1EcdsaDerivationServerBootstrapResponse(record.bootstrap);
-    if (!chainTarget || !bootstrap) return null;
-    const targetKey = thresholdEcdsaChainTargetKey(chainTarget);
+  for (const rawTarget of raw) {
+    const target = thresholdEcdsaChainTargetFromValue(rawTarget);
+    if (!target) return null;
+    const targetKey = thresholdEcdsaChainTargetKey(target);
     if (seen.has(targetKey)) return null;
     seen.add(targetKey);
-    targets.push({ chainTarget, bootstrap });
+    targets.push(target);
   }
-  return targets;
+  const firstTarget = targets[0];
+  return firstTarget ? [firstTarget, ...targets.slice(1)] : null;
+}
+
+function parseD1EcdsaParticipantPair(raw: unknown): readonly [1, 2] | null {
+  if (
+    !Array.isArray(raw) ||
+    raw.length !== 2 ||
+    raw[0] !== 1 ||
+    raw[1] !== 2
+  ) {
+    return null;
+  }
+  return [1, 2];
 }
 
 function parseD1WalletRegistrationEcdsaPrepare(
@@ -1367,9 +1472,10 @@ function parseD1WalletRegistrationEcdsaPrepare(
   const signingGrantId = toOptionalTrimmedString(record.signingGrantId);
   const ttlMs = safeInteger(record.ttlMs);
   const remainingUses = safeInteger(record.remainingUses);
-  const participantIds = parseD1PositiveIntegerArray(record.participantIds);
+  const participantIds = parseD1EcdsaParticipantPair(record.participantIds);
   const runtimePolicyScope = parseD1RuntimePolicyScope(record.runtimePolicyScope);
   if (
+    !registrationPreparationId ||
     !walletId ||
     !evmFamilySigningKeySlotId ||
     !ecdsaThresholdKeyId ||
@@ -1382,7 +1488,7 @@ function parseD1WalletRegistrationEcdsaPrepare(
     ttlMs === null ||
     remainingUses === null ||
     !participantIds ||
-    (record.runtimePolicyScope !== undefined && !runtimePolicyScope)
+    !runtimePolicyScope
   ) {
     return null;
   }
@@ -1395,18 +1501,14 @@ function parseD1WalletRegistrationEcdsaPrepare(
     signingRootVersion,
     keyScope: 'evm-family',
     relayerKeyId,
-    ...(registrationPreparationId
-      ? {
-          registrationPreparationId: registrationPreparationIdFromString(registrationPreparationId),
-        }
-      : {}),
+    registrationPreparationId: registrationPreparationIdFromString(registrationPreparationId),
     requestId,
     thresholdSessionId,
     signingGrantId,
     ttlMs,
     remainingUses,
     participantIds,
-    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+    runtimePolicyScope,
   };
 }
 
@@ -1431,7 +1533,7 @@ function parseD1EcdsaDerivationServerBootstrapResponse(
   const thresholdEcdsaPublicKeyB64u = toOptionalTrimmedString(record.thresholdEcdsaPublicKeyB64u);
   const ethereumAddress = toOptionalTrimmedString(record.ethereumAddress);
   const relayerVerifyingShareB64u = toOptionalTrimmedString(record.relayerVerifyingShareB64u);
-  const participantIds = parseD1PositiveIntegerArray(record.participantIds);
+  const participantIds = parseD1EcdsaParticipantPair(record.participantIds);
   const thresholdSessionId = toOptionalTrimmedString(record.thresholdSessionId);
   const signingGrantId = toOptionalTrimmedString(record.signingGrantId);
   const expiresAtMs = safeInteger(record.expiresAtMs);
@@ -1481,7 +1583,7 @@ function parseD1EcdsaDerivationServerBootstrapResponse(
     thresholdEcdsaPublicKeyB64u,
     ethereumAddress,
     relayerVerifyingShareB64u,
-    participantIds,
+    participantIds: [...participantIds],
     thresholdSessionId,
     signingGrantId,
     expiresAtMs,
@@ -1603,9 +1705,7 @@ export function toD1EcdsaDerivationClientBootstrapRequest(
     signingRootVersion: clientBootstrap.signingRootVersion,
     keyScope: clientBootstrap.keyScope,
     relayerKeyId: clientBootstrap.relayerKeyId,
-    ...(clientBootstrap.registrationPreparationId
-      ? { registrationPreparationId: clientBootstrap.registrationPreparationId }
-      : {}),
+    registrationPreparationId: clientBootstrap.registrationPreparationId,
     derivationClientSharePublicKey33B64u: clientBootstrap.derivationClientSharePublicKey33B64u,
     clientShareRetryCounter: clientBootstrap.clientShareRetryCounter,
     contextBinding32B64u: clientBootstrap.contextBinding32B64u,
@@ -1614,45 +1714,9 @@ export function toD1EcdsaDerivationClientBootstrapRequest(
     signingGrantId: clientBootstrap.signingGrantId,
     ttlMs: clientBootstrap.ttlMs,
     remainingUses: clientBootstrap.remainingUses,
-    participantIds: clientBootstrap.participantIds,
-    ...(clientBootstrap.runtimePolicyScope
-      ? { runtimePolicyScope: clientBootstrap.runtimePolicyScope }
-      : {}),
+    participantIds: [...clientBootstrap.participantIds],
+    runtimePolicyScope: clientBootstrap.runtimePolicyScope,
   };
-}
-
-export function buildD1EcdsaAddSignerRespondedCeremony(input: {
-  readonly ceremony: StoredWalletAddSignerCeremony;
-  readonly bootstraps: readonly {
-    readonly chainTarget: ThresholdEcdsaChainTarget;
-    readonly bootstrap: EcdsaDerivationServerBootstrapResponse;
-  }[];
-}): StoredWalletAddSignerCeremony {
-  const state = input.ceremony.signerState;
-  if (state.kind !== 'ecdsa_add_signer_prepared') {
-    throw new Error('ECDSA add-signer ceremony must be prepared before respond');
-  }
-  const ceremony: StoredWalletAddSignerCeremony = {
-    addSignerCeremonyId: input.ceremony.addSignerCeremonyId,
-    intent: input.ceremony.intent,
-    digestB64u: input.ceremony.digestB64u,
-    orgId: input.ceremony.orgId,
-    expiresAtMs: input.ceremony.expiresAtMs,
-    auth: input.ceremony.auth,
-    signerState: {
-      kind: 'ecdsa_add_signer_responded',
-      derivationKind: state.derivationKind,
-      targets: state.targets,
-      responded: {
-        bootstraps: [...input.bootstraps],
-      },
-    },
-  };
-  if (input.ceremony.signingRootId) ceremony.signingRootId = input.ceremony.signingRootId;
-  if (input.ceremony.signingRootVersion) {
-    ceremony.signingRootVersion = input.ceremony.signingRootVersion;
-  }
-  return ceremony;
 }
 
 export type D1EcdsaWalletKeyBuildResult =
@@ -1677,6 +1741,10 @@ type RequiredD1EcdsaWalletKeyBootstrapFields = {
   readonly thresholdOwnerAddress: string | undefined;
   readonly relayerKeyId: string | undefined;
   readonly relayerVerifyingShareB64u: string | undefined;
+  readonly contextBinding32B64u: string | undefined;
+  readonly derivationClientSharePublicKey33B64u: string | undefined;
+  readonly clientShareRetryCounter: number | undefined;
+  readonly relayerShareRetryCounter: number | undefined;
 };
 
 type CompleteD1EcdsaWalletKeyBootstrapFields = {
@@ -1690,6 +1758,11 @@ type CompleteD1EcdsaWalletKeyBootstrapFields = {
   readonly thresholdOwnerAddress: string;
   readonly relayerKeyId: string;
   readonly relayerVerifyingShareB64u: string;
+  readonly contextBinding32B64u: string;
+  readonly derivationClientSharePublicKey33B64u:
+    WalletRegistrationEcdsaWalletKey['derivationClientSharePublicKey33B64u'];
+  readonly clientShareRetryCounter: number;
+  readonly relayerShareRetryCounter: number;
 };
 
 type D1EcdsaWalletKeyBootstrapFieldCheck =
@@ -1707,6 +1780,7 @@ export function buildD1EcdsaWalletKeysFromBootstrap(input: {
     readonly chainTarget: ThresholdEcdsaChainTarget;
     readonly bootstrap: EcdsaDerivationServerBootstrapResponse;
   }[];
+  readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
   readonly errorContext: string;
 }): D1EcdsaWalletKeyBuildResult {
   if (input.bootstraps.length === 0) {
@@ -1731,6 +1805,7 @@ export function buildD1EcdsaWalletKeysFromBootstrap(input: {
     const walletKey = buildD1EcdsaWalletKeyFromBootstrap({
       bootstrap: targetBootstrap.bootstrap,
       chainTarget: targetBootstrap.chainTarget,
+      publicCapability: input.publicCapability,
       errorContext: input.errorContext,
     });
     if (!walletKey.ok) return walletKey;
@@ -1797,6 +1872,21 @@ function firstD1EvmFamilyWalletKeyMaterialMismatch(
   if (left.relayerVerifyingShareB64u !== right.relayerVerifyingShareB64u) {
     return 'relayerVerifyingShareB64u';
   }
+  if (left.contextBinding32B64u !== right.contextBinding32B64u) {
+    return 'contextBinding32B64u';
+  }
+  if (
+    left.derivationClientSharePublicKey33B64u !==
+    right.derivationClientSharePublicKey33B64u
+  ) {
+    return 'derivationClientSharePublicKey33B64u';
+  }
+  if (left.clientShareRetryCounter !== right.clientShareRetryCounter) {
+    return 'clientShareRetryCounter';
+  }
+  if (left.relayerShareRetryCounter !== right.relayerShareRetryCounter) {
+    return 'relayerShareRetryCounter';
+  }
   if (d1EvmFamilyParticipantKey(left.participantIds) !== d1EvmFamilyParticipantKey(right.participantIds)) {
     return 'participantIds';
   }
@@ -1814,6 +1904,7 @@ function d1EvmFamilyParticipantKey(participantIds: readonly number[]): string {
 function buildD1EcdsaWalletKeyFromBootstrap(input: {
   readonly bootstrap: EcdsaDerivationServerBootstrapResponse;
   readonly chainTarget: ThresholdEcdsaChainTarget;
+  readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
   readonly errorContext: string;
 }):
   | {
@@ -1837,6 +1928,12 @@ function buildD1EcdsaWalletKeyFromBootstrap(input: {
     thresholdOwnerAddress: toOptionalTrimmedString(bootstrap.ethereumAddress),
     relayerKeyId: toOptionalTrimmedString(bootstrap.relayerKeyId),
     relayerVerifyingShareB64u: toOptionalTrimmedString(bootstrap.relayerVerifyingShareB64u),
+    contextBinding32B64u: toOptionalTrimmedString(bootstrap.contextBinding32B64u),
+    derivationClientSharePublicKey33B64u: toOptionalTrimmedString(
+      bootstrap.publicIdentity?.derivationClientSharePublicKey33B64u,
+    ),
+    clientShareRetryCounter: safeInteger(bootstrap.clientShareRetryCounter) ?? undefined,
+    relayerShareRetryCounter: safeInteger(bootstrap.relayerShareRetryCounter) ?? undefined,
   };
   const complete = requireD1EcdsaWalletKeyBootstrapFields(required);
   if (!complete.ok) {
@@ -1847,7 +1944,12 @@ function buildD1EcdsaWalletKeyFromBootstrap(input: {
     };
   }
   const participantIds = parseD1PositiveIntegerArray(bootstrap.participantIds);
-  if (!participantIds) {
+  if (
+    !participantIds ||
+    participantIds.length !== 2 ||
+    participantIds[0] !== 1 ||
+    participantIds[1] !== 2
+  ) {
     return {
       ok: false,
       code: 'incomplete_ecdsa_wallet_key',
@@ -1860,6 +1962,7 @@ function buildD1EcdsaWalletKeyFromBootstrap(input: {
       required: complete.value,
       participantIds,
       chainTarget: input.chainTarget,
+      publicCapability: input.publicCapability,
     }),
   };
 }
@@ -1886,6 +1989,27 @@ function requireD1EcdsaWalletKeyBootstrapFields(
   if (!fields.relayerVerifyingShareB64u) {
     return { ok: false, missingField: 'relayerVerifyingShareB64u' };
   }
+  if (!fields.contextBinding32B64u) {
+    return { ok: false, missingField: 'contextBinding32B64u' };
+  }
+  if (!fields.derivationClientSharePublicKey33B64u) {
+    return { ok: false, missingField: 'derivationClientSharePublicKey33B64u' };
+  }
+  if (fields.clientShareRetryCounter === undefined || fields.clientShareRetryCounter < 0) {
+    return { ok: false, missingField: 'clientShareRetryCounter' };
+  }
+  if (fields.relayerShareRetryCounter === undefined || fields.relayerShareRetryCounter < 0) {
+    return { ok: false, missingField: 'relayerShareRetryCounter' };
+  }
+  let derivationClientSharePublicKey33B64u;
+  try {
+    derivationClientSharePublicKey33B64u =
+      derivationClientSharePublicKey33B64uFromString(
+        fields.derivationClientSharePublicKey33B64u,
+      );
+  } catch {
+    return { ok: false, missingField: 'derivationClientSharePublicKey33B64u' };
+  }
   return {
     ok: true,
     value: {
@@ -1899,6 +2023,10 @@ function requireD1EcdsaWalletKeyBootstrapFields(
       thresholdOwnerAddress: fields.thresholdOwnerAddress,
       relayerKeyId: fields.relayerKeyId,
       relayerVerifyingShareB64u: fields.relayerVerifyingShareB64u,
+      contextBinding32B64u: fields.contextBinding32B64u,
+      derivationClientSharePublicKey33B64u,
+      clientShareRetryCounter: fields.clientShareRetryCounter,
+      relayerShareRetryCounter: fields.relayerShareRetryCounter,
     },
   };
 }
@@ -1907,6 +2035,7 @@ function d1EcdsaWalletKeyForChainTarget(input: {
   readonly required: CompleteD1EcdsaWalletKeyBootstrapFields;
   readonly participantIds: readonly number[];
   readonly chainTarget: ThresholdEcdsaChainTarget;
+  readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 }): WalletRegistrationEcdsaWalletKey {
   return {
     keyScope: 'evm-family',
@@ -1921,7 +2050,13 @@ function d1EcdsaWalletKeyForChainTarget(input: {
     thresholdOwnerAddress: input.required.thresholdOwnerAddress,
     relayerKeyId: input.required.relayerKeyId,
     relayerVerifyingShareB64u: input.required.relayerVerifyingShareB64u,
-    participantIds: [...input.participantIds],
+    contextBinding32B64u: input.required.contextBinding32B64u,
+    derivationClientSharePublicKey33B64u:
+      input.required.derivationClientSharePublicKey33B64u,
+    clientShareRetryCounter: input.required.clientShareRetryCounter,
+    relayerShareRetryCounter: input.required.relayerShareRetryCounter,
+    participantIds: [1, 2],
+    publicCapability: input.publicCapability,
   };
 }
 

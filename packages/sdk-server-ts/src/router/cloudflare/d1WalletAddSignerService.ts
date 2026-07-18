@@ -11,16 +11,19 @@ import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthori
 import type {
   WalletAddSignerFinalizeRequest,
   WalletAddSignerFinalizeResponse,
+  WalletAddSignerEcdsaActivationRequest,
+  WalletAddSignerEcdsaActivationResponse,
   WalletAddSignerEcdsaDerivationRespondRequest,
   WalletAddSignerEcdsaDerivationRespondResponse,
   WalletAddSignerStartRequest,
   WalletAddSignerStartResponse,
 } from '../../core/registrationContracts';
+import { registrationPreparationIdFromString } from '../../core/registrationContracts';
 import type { D1WalletStore } from '../../core/d1WalletStore';
 import type { RouterAbNormalSigningRuntime } from '../../core/routerAbSigning/RouterAbNormalSigningRuntime';
-import type { RouterAbEcdsaBootstrapExportPort } from '../../core/routerAbSigning/RouterAbEcdsaBootstrapExportRuntime';
 import type {
   StoredEd25519YaoAddSignerActivation,
+  StoredEcdsaAddSignerActivated,
   StoredWalletAddSignerCeremony,
   StoredWalletAddSignerFinalizeRequest,
   StoredWalletAddSignerSignerState,
@@ -30,18 +33,14 @@ import {
   missingRegistrationCeremonyDoStore,
 } from './d1RegistrationCeremonyStore';
 import {
-  buildD1EcdsaAddSignerRespondedCeremony,
   buildD1EcdsaWalletKeysFromBootstrap,
   buildD1WalletEcdsaSignerRecords,
-  isMatchingD1EcdsaClientBootstrap,
   normalizeThresholdEcdsaChainTargets,
   parseD1RuntimePolicyScope,
   parseWalletIdForIntent,
-  toD1EcdsaDerivationClientBootstrapRequest,
 } from './d1RegistrationCeremonyRecords';
 import { buildD1EvmFamilyEcdsaRegistrationPrepare } from './d1EvmFamilyEcdsaRegistrationBranch';
 import { CloudflareD1WalletAuthMethodService } from './d1WalletAuthMethodService';
-import { thresholdEcdsaChainTargetKey } from '../../core/thresholdEcdsaChainTarget';
 import {
   buildRouterAbEd25519YaoAddSignerAdmissionRequestV1,
   type RouterAbEd25519YaoProductRegistrationRuntimeV1,
@@ -52,33 +51,25 @@ import {
   ed25519NearPublicKeyFromBytes,
   implicitNearAccountIdFromEd25519PublicKeyBytes,
 } from './d1Ed25519YaoWalletSigner';
+import {
+  buildRouterAbEcdsaDerivationPublicCapabilityV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
+import {
+  routerAbEcdsaStrictRegistrationRequestMatchesFacts,
+  type RouterAbEcdsaStrictRegistrationPort,
+} from '../routerAbEcdsaStrictRegistration';
+import {
+  buildActivatedEcdsaFamilyBootstrap,
+  ecdsaStrictRegistrationAuthority,
+  exactEcdsaParticipantPair,
+} from './d1WalletRegistrationService';
 
 type StartWalletAddSignerInput = WalletAddSignerStartRequest;
 type RespondWalletAddSignerDerivationInput = WalletAddSignerEcdsaDerivationRespondRequest;
+type ActivateWalletAddSignerEcdsaInput = WalletAddSignerEcdsaActivationRequest;
 type FinalizeWalletAddSignerInput = WalletAddSignerFinalizeRequest;
-type AddSignerClientBootstrapEntry = NonNullable<
-  WalletAddSignerEcdsaDerivationRespondRequest['ecdsa']
->['clientBootstraps'][number];
-type AddSignerPreparedTarget = NonNullable<
-  Extract<WalletAddSignerStartResponse, { ok: true }>['ecdsa']
->['targets'][number];
-type AddSignerServerBootstrapEntry = NonNullable<
-  Extract<WalletAddSignerEcdsaDerivationRespondResponse, { ok: true }>['ecdsa']
->['bootstraps'][number];
-
-type AddSignerClientBootstrapResolution =
-  | {
-      readonly ok: true;
-      readonly entries: AddSignerClientBootstrapEntry[];
-    }
-  | {
-      readonly ok: false;
-      readonly code: 'invalid_body';
-      readonly message: string;
-    };
 
 type RegistrationCeremonyStoreProvider = () => CloudflareD1RegistrationCeremonyIntentStore | null;
-type RouterAbEcdsaBootstrapExportRuntimeProvider = () => RouterAbEcdsaBootstrapExportPort | null;
 type RouterAbNormalSigningRuntimeProvider = () => RouterAbNormalSigningRuntime | null;
 type WalletStoreProvider = () => D1WalletStore;
 type Ed25519YaoProductRegistrationProvider =
@@ -93,74 +84,6 @@ const ADD_SIGNER_REPLAY_TTL_MS = 10 * 60_000;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error || '');
-}
-
-function hasUnexpectedKeyHandle(expectedKeyHandles: readonly string[], keyHandle: string): boolean {
-  return expectedKeyHandles.length > 0 && !expectedKeyHandles.includes(keyHandle);
-}
-
-function resolveAddSignerClientBootstraps(input: {
-  readonly expectedTargets: readonly AddSignerPreparedTarget[];
-  readonly actualEntries: readonly AddSignerClientBootstrapEntry[];
-}): AddSignerClientBootstrapResolution {
-  if (input.actualEntries.length !== input.expectedTargets.length) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'ECDSA add-signer bootstrap target count mismatch',
-    };
-  }
-  const matchedEntries: AddSignerClientBootstrapEntry[] = [];
-  const seenTargets = new Set<string>();
-  for (const expectedTarget of input.expectedTargets) {
-    const targetKey = thresholdEcdsaChainTargetKey(expectedTarget.chainTarget);
-    const entry = findAddSignerClientBootstrapEntry({
-      entries: input.actualEntries,
-      targetKey,
-    });
-    if (!entry) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: `ECDSA add-signer bootstrap missing target ${targetKey}`,
-      };
-    }
-    if (seenTargets.has(targetKey)) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: `ECDSA add-signer bootstrap has duplicate target ${targetKey}`,
-      };
-    }
-    seenTargets.add(targetKey);
-    if (
-      !isMatchingD1EcdsaClientBootstrap({
-        expected: expectedTarget.prepare,
-        actual: entry.clientBootstrap,
-      })
-    ) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'ECDSA add-signer bootstrap identity mismatch',
-      };
-    }
-    matchedEntries.push(entry);
-  }
-  return { ok: true, entries: matchedEntries };
-}
-
-function findAddSignerClientBootstrapEntry(input: {
-  readonly entries: readonly AddSignerClientBootstrapEntry[];
-  readonly targetKey: string;
-}): AddSignerClientBootstrapEntry | null {
-  let matched: AddSignerClientBootstrapEntry | null = null;
-  for (const entry of input.entries) {
-    if (thresholdEcdsaChainTargetKey(entry.chainTarget) !== input.targetKey) continue;
-    if (matched) return null;
-    matched = entry;
-  }
-  return matched;
 }
 
 function resolveEd25519AddSignerParticipantIds(
@@ -217,20 +140,17 @@ function normalizeWalletAddSignerFinalizeRequest(
       },
     };
   }
-  const expectedKeyHandles: string[] = [];
-  for (const rawKeyHandle of request.ecdsa.expectedKeyHandles || []) {
-    const keyHandle = toOptionalTrimmedString(rawKeyHandle);
-    if (keyHandle) expectedKeyHandles.push(keyHandle);
-  }
+  const expectedKeyHandle = toOptionalTrimmedString(request.ecdsa.expectedKeyHandles[0]);
+  if (!expectedKeyHandle) throw new Error('one exact ECDSA key handle is required');
   return {
     kind: 'evm_family_ecdsa',
     addSignerCeremonyId: request.addSignerCeremonyId,
     idempotencyKey,
-    expectedKeyHandles,
+    expectedKeyHandles: [expectedKeyHandle],
   };
 }
 
-function updateEd25519AddSignerCeremony(input: {
+function updateAddSignerCeremonyState(input: {
   readonly ceremony: StoredWalletAddSignerCeremony;
   readonly signingRootId: string;
   readonly signingRootVersion: string;
@@ -249,11 +169,46 @@ function updateEd25519AddSignerCeremony(input: {
   };
 }
 
+function bootstrapWithProvisionedSession(input: {
+  readonly bootstrap: StoredEcdsaAddSignerActivated['bootstrap'];
+  readonly provisioned: {
+    readonly expiresAtMs: number;
+    readonly remainingUses: number;
+    readonly participantIds: readonly number[];
+  };
+}): StoredEcdsaAddSignerActivated['bootstrap'] {
+  return {
+    formatVersion: input.bootstrap.formatVersion,
+    walletId: input.bootstrap.walletId,
+    evmFamilySigningKeySlotId: input.bootstrap.evmFamilySigningKeySlotId,
+    ecdsaThresholdKeyId: input.bootstrap.ecdsaThresholdKeyId,
+    relayerKeyId: input.bootstrap.relayerKeyId,
+    applicationBindingDigestB64u: input.bootstrap.applicationBindingDigestB64u,
+    contextBinding32B64u: input.bootstrap.contextBinding32B64u,
+    publicIdentity: input.bootstrap.publicIdentity,
+    clientShareRetryCounter: input.bootstrap.clientShareRetryCounter,
+    relayerShareRetryCounter: input.bootstrap.relayerShareRetryCounter,
+    publicTranscriptDigest32B64u: input.bootstrap.publicTranscriptDigest32B64u,
+    keyHandle: input.bootstrap.keyHandle,
+    signingRootId: input.bootstrap.signingRootId,
+    signingRootVersion: input.bootstrap.signingRootVersion,
+    thresholdEcdsaPublicKeyB64u: input.bootstrap.thresholdEcdsaPublicKeyB64u,
+    ethereumAddress: input.bootstrap.ethereumAddress,
+    relayerVerifyingShareB64u: input.bootstrap.relayerVerifyingShareB64u,
+    thresholdSessionId: input.bootstrap.thresholdSessionId,
+    signingGrantId: input.bootstrap.signingGrantId,
+    expiresAtMs: input.provisioned.expiresAtMs,
+    expiresAt: new Date(input.provisioned.expiresAtMs).toISOString(),
+    remainingUses: input.provisioned.remainingUses,
+    participantIds: [...input.provisioned.participantIds],
+  };
+}
+
 export class CloudflareD1WalletAddSignerService {
   private readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
   private readonly getEd25519YaoProductRegistration: Ed25519YaoProductRegistrationProvider;
   private readonly getRouterAbNormalSigningRuntime: RouterAbNormalSigningRuntimeProvider;
-  private readonly getRouterAbEcdsaBootstrapExportRuntime: RouterAbEcdsaBootstrapExportRuntimeProvider;
+  private readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
   private readonly getWalletStore: WalletStoreProvider;
   private readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
 
@@ -261,16 +216,26 @@ export class CloudflareD1WalletAddSignerService {
     readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
     readonly getEd25519YaoProductRegistration: Ed25519YaoProductRegistrationProvider;
     readonly getRouterAbNormalSigningRuntime: RouterAbNormalSigningRuntimeProvider;
-    readonly getRouterAbEcdsaBootstrapExportRuntime: RouterAbEcdsaBootstrapExportRuntimeProvider;
+    readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
     readonly getWalletStore: WalletStoreProvider;
     readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
   }) {
     this.getRegistrationCeremonyIntentStore = input.getRegistrationCeremonyIntentStore;
     this.getEd25519YaoProductRegistration = input.getEd25519YaoProductRegistration;
     this.getRouterAbNormalSigningRuntime = input.getRouterAbNormalSigningRuntime;
-    this.getRouterAbEcdsaBootstrapExportRuntime = input.getRouterAbEcdsaBootstrapExportRuntime;
+    this.ecdsaStrictRegistration = input.ecdsaStrictRegistration;
     this.getWalletStore = input.getWalletStore;
     this.walletAuthMethods = input.walletAuthMethods;
+  }
+
+  async getWalletAddSignerRuntimePolicyScope(
+    addSignerCeremonyId: string,
+  ): Promise<NonNullable<ReturnType<typeof parseD1RuntimePolicyScope>> | null> {
+    const store = this.getRegistrationCeremonyIntentStore();
+    if (!store) return null;
+    const ceremony = await store.getAddSignerCeremony(addSignerCeremonyId);
+    if (!ceremony) return null;
+    return parseD1RuntimePolicyScope(ceremony.intent.runtimePolicyScope) ?? null;
   }
 
   async startWalletAddSigner(
@@ -374,12 +339,6 @@ export class CloudflareD1WalletAddSignerService {
             message: 'Ed25519 Yao add-signer is not configured on this server',
           };
         }
-      } else if (!this.getRouterAbEcdsaBootstrapExportRuntime()) {
-        return {
-          ok: false,
-          code: 'not_configured',
-          message: 'threshold signing is not configured on this server',
-        };
       }
       const storedIntent = await store.takeAddSignerIntent(grant);
       if (!storedIntent) {
@@ -467,12 +426,16 @@ export class CloudflareD1WalletAddSignerService {
 
       const prepared = await buildD1EvmFamilyEcdsaRegistrationPrepare({
         registrationCeremonyId: addSignerCeremonyId,
+        registrationPreparationId: registrationPreparationIdFromString(
+          `regprep_${secureRandomBase64Url(24)}`,
+        ),
         walletId,
         signingRootId,
         signingRootVersion,
         chainTargets,
         participantIds: [...selection.ecdsa.participantIds],
         runtimePolicyScope,
+        strictRegistration: this.ecdsaStrictRegistration,
       });
       if (!prepared.ok) return prepared;
       const ecdsa = prepared.ecdsa;
@@ -488,7 +451,9 @@ export class CloudflareD1WalletAddSignerService {
         signerState: {
           kind: 'ecdsa_add_signer_prepared',
           derivationKind: ecdsa.kind,
-          targets: ecdsa.targets,
+          chainTargets: ecdsa.chainTargets,
+          prepare: ecdsa.prepare,
+          strictRegistration: ecdsa.strictRegistration,
         },
       });
       return {
@@ -524,61 +489,81 @@ export class CloudflareD1WalletAddSignerService {
           message: 'Cloudflare D1 add-signer respond currently supports ECDSA signer selection',
         };
       }
-      if (!request.ecdsa) {
+      if (ceremony.signerState.kind === 'ecdsa_add_signer_pending_activation') {
+        if (
+          !routerAbEcdsaStrictRegistrationRequestMatchesFacts({
+            request: request.ecdsa.strictRegistration,
+            facts: ceremony.signerState.strictRegistration,
+          })
+        ) {
+          return {
+            ok: false,
+            code: 'scope_mismatch',
+            message: 'ECDSA add-signer replay changed the admitted registration request',
+          };
+        }
         return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'missing ECDSA add-signer DERIVATION response',
+          ok: true,
+          addSignerCeremonyId: ceremony.addSignerCeremonyId,
+          ecdsa: {
+            kind: 'router_ab_ecdsa_registration_forwarded_v1',
+            strictResult: ceremony.signerState.publicResponse,
+          },
         };
       }
       if (ceremony.signerState.kind !== 'ecdsa_add_signer_prepared') {
         return {
           ok: false,
           code: 'invalid_state',
-          message: 'ECDSA add-signer DERIVATION response already recorded',
+          message: 'one prepared ECDSA add-signer registration is required',
         };
       }
-      const resolvedBootstraps = resolveAddSignerClientBootstraps({
-        expectedTargets: ceremony.signerState.targets,
-        actualEntries: request.ecdsa.clientBootstraps,
-      });
-      if (!resolvedBootstraps.ok) return resolvedBootstraps;
-      const runtime = this.getRouterAbEcdsaBootstrapExportRuntime();
-      if (!runtime) {
+      if (
+        !routerAbEcdsaStrictRegistrationRequestMatchesFacts({
+          request: request.ecdsa.strictRegistration,
+          facts: ceremony.signerState.strictRegistration,
+        })
+      ) {
         return {
           ok: false,
-          code: 'not_configured',
-          message: 'threshold signing is not configured on this server',
+          code: 'scope_mismatch',
+          message: 'ECDSA add-signer request does not match the admitted ceremony facts',
         };
       }
-      const bootstraps: AddSignerServerBootstrapEntry[] = [];
-      for (const entry of resolvedBootstraps.entries) {
-        const bootstrap = await runtime.ecdsaDerivationRoleLocalBootstrap(
-          toD1EcdsaDerivationClientBootstrapRequest(entry.clientBootstrap),
-        );
-        if (!bootstrap.ok) {
-          return {
-            ok: false,
-            code: bootstrap.code || 'ecdsa_derivation_respond_failed',
-            message: bootstrap.message || 'ECDSA add-signer DERIVATION bootstrap failed',
-          };
-        }
-        bootstraps.push({
-          chainTarget: entry.chainTarget,
-          bootstrap: bootstrap.value,
-        });
+      const registered = await this.ecdsaStrictRegistration.register({
+        request: request.ecdsa.strictRegistration,
+        authority: ecdsaStrictRegistrationAuthority(ceremony.signerState.strictRegistration),
+      });
+      if (!registered.ok) {
+        return {
+          ok: false,
+          code: registered.code,
+          message: registered.message,
+        };
       }
       await store.updateAddSignerCeremony(
-        buildD1EcdsaAddSignerRespondedCeremony({
+        updateAddSignerCeremonyState({
           ceremony,
-          bootstraps,
+          signingRootId: ceremony.signingRootId,
+          signingRootVersion: ceremony.signingRootVersion,
+          signerState: {
+            kind: 'ecdsa_add_signer_pending_activation',
+            derivationKind: ceremony.signerState.derivationKind,
+            chainTargets: ceremony.signerState.chainTargets,
+            prepare: ceremony.signerState.prepare,
+            strictRegistration: ceremony.signerState.strictRegistration,
+            registrationRequest: request.ecdsa.strictRegistration,
+            pendingActivation: registered.value.pendingActivation,
+            publicResponse: registered.value.publicResponse,
+          },
         }),
       );
       return {
         ok: true,
         addSignerCeremonyId: ceremony.addSignerCeremonyId,
         ecdsa: {
-          bootstraps,
+          kind: 'router_ab_ecdsa_registration_forwarded_v1',
+          strictResult: registered.value.publicResponse,
         },
       };
     } catch (error: unknown) {
@@ -586,6 +571,124 @@ export class CloudflareD1WalletAddSignerService {
         ok: false,
         code: 'internal',
         message: errorMessage(error) || 'Failed to respond to wallet add-signer ceremony',
+      };
+    }
+  }
+
+  async activateWalletAddSignerEcdsa(
+    request: ActivateWalletAddSignerEcdsaInput,
+  ): Promise<WalletAddSignerEcdsaActivationResponse> {
+    const store = this.getRegistrationCeremonyIntentStore();
+    if (!store) return missingRegistrationCeremonyDoStore();
+    const ceremony = await store.getAddSignerCeremony(request.addSignerCeremonyId);
+    if (!ceremony) {
+      return { ok: false, code: 'not_found', message: 'add-signer ceremony not found' };
+    }
+    const state = ceremony.signerState;
+    if (state.kind === 'ecdsa_add_signer_activated') {
+      if (
+        alphabetizeStringify(state.publicFacts) !==
+        alphabetizeStringify(request.ecdsa.publicFacts)
+      ) {
+        return {
+          ok: false,
+          code: 'scope_mismatch',
+          message: 'ECDSA add-signer activation replay changed the verified client facts',
+        };
+      }
+      return {
+        ok: true,
+        addSignerCeremonyId: ceremony.addSignerCeremonyId,
+        ecdsa: {
+          kind: 'router_ab_ecdsa_registration_activated_v1',
+          activation: state.activation,
+          bootstrap: state.bootstrap,
+        },
+      };
+    }
+    if (
+      ceremony.intent.signerSelection.mode !== 'ecdsa' ||
+      state.kind !== 'ecdsa_add_signer_pending_activation'
+    ) {
+      return {
+        ok: false,
+        code: 'invalid_state',
+        message: 'one pending ECDSA add-signer activation is required',
+      };
+    }
+    const activated = await this.ecdsaStrictRegistration.activate({
+      pendingActivation: state.pendingActivation,
+      clientActivation: request.ecdsa.publicFacts,
+      authority: ecdsaStrictRegistrationAuthority(state.strictRegistration),
+    });
+    if (!activated.ok) {
+      if (!activated.retryable) await store.takeAddSignerCeremony(ceremony.addSignerCeremonyId);
+      return { ok: false, code: activated.code, message: activated.message };
+    }
+    try {
+      const bootstrap = await buildActivatedEcdsaFamilyBootstrap({
+        branch: state,
+        publicFacts: request.ecdsa.publicFacts,
+        activation: activated.value,
+      });
+      const normalSigningRuntime = this.getRouterAbNormalSigningRuntime();
+      if (!normalSigningRuntime) {
+        throw new Error('Router A/B normal signing is not configured');
+      }
+      const provisioned = await normalSigningRuntime.provisionRouterAbEcdsaNormalSigningSession({
+        kind: 'router_ab_ecdsa_normal_signing_session_v1',
+        walletId: bootstrap.walletId,
+        evmFamilySigningKeySlotId: bootstrap.evmFamilySigningKeySlotId,
+        relayerKeyId: bootstrap.relayerKeyId,
+        thresholdSessionId: bootstrap.thresholdSessionId,
+        signingGrantId: bootstrap.signingGrantId,
+        signingRootId: bootstrap.signingRootId,
+        signingRootVersion: bootstrap.signingRootVersion,
+        participantIds: exactEcdsaParticipantPair(bootstrap.participantIds),
+        expiresAtMs: bootstrap.expiresAtMs,
+        remainingUses: bootstrap.remainingUses,
+      });
+      if (!provisioned.ok) throw new Error(provisioned.message);
+      const activatedState: StoredEcdsaAddSignerActivated = {
+        kind: 'ecdsa_add_signer_activated',
+        derivationKind: state.derivationKind,
+        chainTargets: state.chainTargets,
+        prepare: state.prepare,
+        strictRegistration: state.strictRegistration,
+        registrationRequest: state.registrationRequest,
+        publicFacts: request.ecdsa.publicFacts,
+        activation: activated.value,
+        publicCapability: buildRouterAbEcdsaDerivationPublicCapabilityV1({
+          registrationFacts: state.strictRegistration,
+          registrationRequest: state.registrationRequest,
+          clientActivation: request.ecdsa.publicFacts,
+          activationReceipt: activated.value,
+        }),
+        bootstrap: bootstrapWithProvisionedSession({ bootstrap, provisioned }),
+      };
+      await store.updateAddSignerCeremony(
+        updateAddSignerCeremonyState({
+          ceremony,
+          signingRootId: ceremony.signingRootId,
+          signingRootVersion: ceremony.signingRootVersion,
+          signerState: activatedState,
+        }),
+      );
+      return {
+        ok: true,
+        addSignerCeremonyId: ceremony.addSignerCeremonyId,
+        ecdsa: {
+          kind: 'router_ab_ecdsa_registration_activated_v1',
+          activation: activatedState.activation,
+          bootstrap: activatedState.bootstrap,
+        },
+      };
+    } catch (error: unknown) {
+      await store.takeAddSignerCeremony(ceremony.addSignerCeremonyId);
+      return {
+        ok: false,
+        code: 'ecdsa_activation_terminal_failure',
+        message: errorMessage(error) || 'ECDSA add-signer activation failed',
       };
     }
   }
@@ -697,7 +800,7 @@ export class CloudflareD1WalletAddSignerService {
               message: 'Ed25519 signer slot is already occupied',
             };
           }
-          const consumed = yaoRuntime.consumeActivated({
+          const consumed = await yaoRuntime.consumeActivated({
             reference: requestedActivationReference,
             consumerBinding: alphabetizeStringify(finalizeRequest),
           });
@@ -717,7 +820,7 @@ export class CloudflareD1WalletAddSignerService {
             activation: consumed.activation,
           };
           await store.updateAddSignerCeremony(
-            updateEd25519AddSignerCeremony({
+            updateAddSignerCeremonyState({
               ceremony,
               signingRootId,
               signingRootVersion,
@@ -828,7 +931,7 @@ export class CloudflareD1WalletAddSignerService {
             now: finalizingAtMs,
           });
           await store.updateAddSignerCeremony(
-            updateEd25519AddSignerCeremony({
+            updateAddSignerCeremonyState({
               ceremony,
               signingRootId,
               signingRootVersion,
@@ -901,7 +1004,9 @@ export class CloudflareD1WalletAddSignerService {
             };
           }
         }
-        const installed = yaoRuntime.installPersistedActiveCapability(signer.activeYaoCapability);
+        const installed = await yaoRuntime.installPersistedActiveCapability(
+          signer.activeYaoCapability,
+        );
         if (!installed.ok) return installed;
         await store.putAddSignerFinalizeReplay({
           kind: 'wallet_add_signer_finalize_replay_v1',
@@ -920,27 +1025,35 @@ export class CloudflareD1WalletAddSignerService {
       }
       if (
         ceremony.intent.signerSelection.mode !== 'ecdsa' ||
-        ceremony.signerState.kind !== 'ecdsa_add_signer_responded'
+        ceremony.signerState.kind !== 'ecdsa_add_signer_activated'
       ) {
         return {
           ok: false,
           code: 'invalid_state',
-          message: 'ECDSA add-signer DERIVATION response is required before finalize',
+          message: 'activated ECDSA add-signer registration is required before finalize',
         };
       }
-      const bootstraps = ceremony.signerState.responded.bootstraps;
-      const expectedKeyHandles = request.ecdsa.expectedKeyHandles || [];
-      for (const entry of bootstraps) {
-        if (hasUnexpectedKeyHandle(expectedKeyHandles, entry.bootstrap.keyHandle)) {
-          return {
-            ok: false,
-            code: 'key_handle_mismatch',
-            message: 'ECDSA add-signer finalize expected key handle mismatch',
-          };
-        }
+      const expectedKeyHandle = request.ecdsa.expectedKeyHandles[0];
+      if (expectedKeyHandle !== ceremony.signerState.bootstrap.keyHandle) {
+        return {
+          ok: false,
+          code: 'key_handle_mismatch',
+          message: 'ECDSA add-signer finalize expected key handle mismatch',
+        };
+      }
+      const bootstraps: {
+        chainTarget: StoredEcdsaAddSignerActivated['chainTargets'][number];
+        bootstrap: StoredEcdsaAddSignerActivated['bootstrap'];
+      }[] = [];
+      for (const chainTarget of ceremony.signerState.chainTargets) {
+        bootstraps.push({
+          chainTarget,
+          bootstrap: ceremony.signerState.bootstrap,
+        });
       }
       const walletKeyResult = buildD1EcdsaWalletKeysFromBootstrap({
         bootstraps,
+        publicCapability: ceremony.signerState.publicCapability,
         errorContext: 'ECDSA add-signer finalize',
       });
       if (!walletKeyResult.ok) return walletKeyResult;

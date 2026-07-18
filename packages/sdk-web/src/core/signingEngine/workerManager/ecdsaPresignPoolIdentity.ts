@@ -45,3 +45,19 @@ export function parseEcdsaClientPresignPoolIdentity(
     protocolId: FIXED_ECDSA_PRESIGN_PROTOCOL_ID,
   };
 }
+
+export function equalEcdsaClientPresignPoolIdentity(
+  left: EcdsaClientPresignPoolIdentity,
+  right: EcdsaClientPresignPoolIdentity,
+): boolean {
+  return (
+    left.poolKey === right.poolKey &&
+    left.walletKeyId === right.walletKeyId &&
+    left.walletId === right.walletId &&
+    left.signingScopeB64u === right.signingScopeB64u &&
+    left.pairRole === right.pairRole &&
+    left.keyEpoch === right.keyEpoch &&
+    left.activationEpoch === right.activationEpoch &&
+    left.protocolId === right.protocolId
+  );
+}

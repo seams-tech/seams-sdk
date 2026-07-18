@@ -7,9 +7,6 @@ import type {
 } from '@/core/types/seams';
 import type { ThresholdEcdsaCanonicalExportArtifact } from '@/core/signingEngine/interfaces/signing';
 import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
-import type { EcdsaRelayerClient } from '@/core/platform';
-import type { ProvisionEcdsaUseCase } from '@/core/signingEngine/useCases/provisionEcdsa';
-import type { EcdsaRegistrationBootstrapService } from '@/core/signingEngine/flows/registration/services/ecdsaRegistrationBootstrap';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { RegistrationAccountLifecycleDeps } from '@/core/signingEngine/interfaces/operationDeps';
 import type { EcdsaWalletRecordsService } from '@/core/signingEngine/flows/registration/services/ecdsaWalletRecords';
@@ -55,10 +52,6 @@ export type SigningRuntimeEcdsaStatePorts = {
 
 export type SigningRuntimeStatePorts = {
   ecdsaSessions: SigningRuntimeEcdsaStatePorts;
-};
-
-export type SigningRuntimeRelayerClients = {
-  ecdsa: Pick<EcdsaRelayerClient, 'bootstrapEcdsaSession'>;
 };
 
 export type SigningRuntimeWarmSessionUiPorts = {
@@ -111,14 +104,11 @@ export type SigningRuntimeServices = {
   registrationAccounts: RegistrationAccountsService;
   nearSigning: SigningRuntimeNearSigningService;
   evmFamilySigning: SigningRuntimeEvmFamilySigningService;
-  ecdsaRegistrationBootstrap: EcdsaRegistrationBootstrapService;
   ecdsaWalletRecords: EcdsaWalletRecordsService;
-  ecdsaProvisioning: ProvisionEcdsaUseCase;
 };
 
 export type SigningRuntimeDeps = {
   runtimePorts: RuntimePorts;
-  relayers: SigningRuntimeRelayerClients;
   workers: SigningRuntimeWorkerPorts;
   signing: {
     near: SigningRuntimeNearSigningDeps;

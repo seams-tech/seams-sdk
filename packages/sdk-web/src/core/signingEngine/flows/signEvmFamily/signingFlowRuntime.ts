@@ -64,10 +64,6 @@ import {
   resolveRouterAbEcdsaWalletSessionAuthFromRecord,
 } from '../../session/warmCapabilities/routerAbEcdsaWalletSessionAuth';
 import {
-  classifyRouterAbEcdsaDerivationPersistedSigningRecord,
-  type RouterAbEcdsaDerivationPersistedSigningRecordState,
-} from '../../session/routerAbSigningWalletSession';
-import {
   normalizeStepUpOperationId,
   resolvePostExhaustionStepUpBudgetPolicy,
   resolveSigningBudgetPolicyRemainingUses,
@@ -163,46 +159,18 @@ function generateEvmFamilyEcdsaBootstrapRequestId(): string {
   return secureRandomId('tecdsa-keygen', 32, 'EVM family ECDSA bootstrap request IDs');
 }
 
-function unavailableEcdsaSigningMaterialPlanForRecordState(
-  state: RouterAbEcdsaDerivationPersistedSigningRecordState,
-): EcdsaSigningMaterialPlan {
-  switch (state.kind) {
-    case 'runtime_validated':
-      throw new Error('runtime-validated ECDSA material state is not unavailable');
-    case 'invalid':
-      return {
-        kind: 'unavailable',
-        reason: state.reason === 'missing_record' ? 'missing_record' : 'not_runtime_validated',
-      };
-    case 'restore_available':
-    case 'material_hint_unvalidated':
-    case 'expired':
-    case 'exhausted':
-    case 'non_signing':
-      return { kind: 'unavailable', reason: 'not_runtime_validated' };
-    default: {
-      const exhaustive: never = state;
-      return exhaustive;
-    }
-  }
-}
-
-// Final ECDSA signing consumes only runtime-validated material. Restore,
-// reconnect, and step-up must complete before this plan returns ready material.
-async function resolveRuntimeValidatedEcdsaSigningMaterialPlan(args: {
+async function resolveEcdsaSigningMaterialHydrationPlan(args: {
   record: ThresholdEcdsaSessionRecord | undefined;
   requestLabel: unknown;
   evmFamilySigningKeySlotId: unknown;
 }): Promise<EcdsaSigningMaterialPlan> {
-  const recordState = classifyRouterAbEcdsaDerivationPersistedSigningRecord(args.record);
-  if (recordState.kind !== 'runtime_validated') {
-    return unavailableEcdsaSigningMaterialPlanForRecordState(recordState);
-  }
+  if (!args.record) return { kind: 'unavailable', reason: 'missing_record' };
   try {
     const material = await buildReadySecp256k1SigningMaterialFromRecord({
-      record: recordState.record,
+      record: args.record,
       requestLabel: args.requestLabel,
       evmFamilySigningKeySlotId: args.evmFamilySigningKeySlotId,
+      hydrationEntryPoint: 'post_page_refresh',
     });
     return { kind: 'material_from_runtime_validated_record', material };
   } catch (error) {
@@ -556,7 +524,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
           }: {
             requestLabel: unknown;
           }) =>
-            await resolveRuntimeValidatedEcdsaSigningMaterialPlan({
+            await resolveEcdsaSigningMaterialHydrationPlan({
               record: runtimeValidatedThresholdEcdsaRecord,
               requestLabel,
               evmFamilySigningKeySlotId: args.getResolvedEcdsaSigningLane().key.evmFamilySigningKeySlotId,

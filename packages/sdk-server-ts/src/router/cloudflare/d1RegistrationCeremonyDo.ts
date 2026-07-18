@@ -18,10 +18,26 @@ type CloudflareDoSetRequest = {
   readonly ttlMs?: number;
 };
 
-type CloudflareDoReserveReplayGuardRequest = {
-  readonly op: 'authReserveReplayGuard';
+type CloudflareDoRegistrationReserveWalletIdRequest = {
+  readonly op: 'registrationReserveWalletId';
   readonly key: string;
+  readonly walletId: string;
   readonly expiresAtMs: number;
+};
+
+type CloudflareDoRegistrationCancelTerminalRequest = {
+  readonly op: 'registrationCancelTerminal';
+  readonly ceremonyKey: string;
+  readonly registrationCeremonyId: string;
+  readonly walletId: string;
+  readonly reservation:
+    | {
+        readonly kind: 'server_allocated_wallet';
+        readonly key: string;
+      }
+    | {
+        readonly kind: 'none';
+      };
 };
 
 type CloudflareDoGetRequest = {
@@ -41,7 +57,8 @@ type CloudflareDoDelRequest = {
 
 type CloudflareRegistrationIntentDoRequest =
   | CloudflareDoSetRequest
-  | CloudflareDoReserveReplayGuardRequest
+  | CloudflareDoRegistrationReserveWalletIdRequest
+  | CloudflareDoRegistrationCancelTerminalRequest
   | CloudflareDoGetRequest
   | CloudflareDoGetDelRequest
   | CloudflareDoDelRequest;

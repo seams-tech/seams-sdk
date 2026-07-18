@@ -255,7 +255,7 @@ function isRecord(input: unknown): input is Record<string, unknown> {
 
 function passingManifests(dir: string): PassingEvidenceManifests {
   const consoleConfigPath = 'packages/console-server-ts/wrangler.d1-staging-console.toml';
-  const routerApiConfigPath = 'packages/console-server-ts/wrangler.d1-staging-router-api.toml';
+  const gatewayConfigPath = 'packages/console-server-ts/wrangler.d1-staging-gateway.toml';
   const environmentName = 'staging';
   const tenant = {
     namespace: 'tenant-route-staging',
@@ -270,7 +270,7 @@ function passingManifests(dir: string): PassingEvidenceManifests {
       mode: 'remote',
       environmentName,
       consoleConfigPath,
-      routerApiConfigPath,
+      gatewayConfigPath,
       resources: {
         consoleWorker: {
           d1Databases: [
@@ -279,13 +279,14 @@ function passingManifests(dir: string): PassingEvidenceManifests {
           durableObjects: [],
           secretsStoreSecrets: [],
         },
-        routerApiWorker: {
+        gatewayWorker: {
           d1Databases: [
             { binding: 'CONSOLE_DB', databaseId: 'd1-console-id' },
             { binding: 'SIGNER_DB', databaseId: 'd1-signer-id' },
           ],
           durableObjects: [
             { name: 'THRESHOLD_STORE', className: 'ThresholdStore' },
+            { name: 'ROUTER_API_RUNTIME', className: 'RouterApiRuntimeDurableObject' },
           ],
           secretsStoreSecrets: [
             {
@@ -305,7 +306,7 @@ function passingManifests(dir: string): PassingEvidenceManifests {
         { id: 'console_d1_info', command: 'resource console d1 info' },
         { id: 'signer_d1_info', command: 'resource signer d1 info' },
         { id: 'console_worker_deployment_status', command: 'resource console deployments status' },
-        { id: 'router_api_worker_deployment_status', command: 'resource Router API deployments status' },
+        { id: 'router_api_worker_deployment_status', command: 'resource Gateway deployments status' },
       ],
       checks: [
         {
@@ -329,8 +330,8 @@ function passingManifests(dir: string): PassingEvidenceManifests {
         {
           id: 'router_api_worker_deployment_status',
           status: 0,
-          command: 'resource Router API deployments status',
-          json: { id: 'router-api-worker' },
+          command: 'resource Gateway deployments status',
+          json: { id: 'gateway-worker' },
         },
       ],
     }),
@@ -339,7 +340,7 @@ function passingManifests(dir: string): PassingEvidenceManifests {
       generatedAtIso: '2026-06-28T00:00:00.000Z',
       mode: 'remote',
       environmentName,
-      routerApiConfigPath,
+      gatewayConfigPath,
       keks: [{ kekId: 'kek-r1', storeId: 'secret-store', secretName: 'kek-r1' }],
       commands: ['secrets-store secret list secret-store'],
       checks: [
@@ -357,7 +358,7 @@ function passingManifests(dir: string): PassingEvidenceManifests {
       mode: 'remote',
       environmentName,
       consoleConfigPath,
-      routerApiConfigPath,
+      gatewayConfigPath,
       commands: [
         { target: 'console', action: 'list_before', command: 'migration console list before' },
         { target: 'console', action: 'apply', command: 'migration console apply' },
@@ -382,7 +383,7 @@ function passingManifests(dir: string): PassingEvidenceManifests {
       purpose: 'before_fixture_import',
       timestampIso: '2026-06-28T00:02:00.000Z',
       consoleConfigPath,
-      routerApiConfigPath,
+      gatewayConfigPath,
       artifacts: {
         consoleBookmarkPath: 'bookmarks/console-before-fixture-import.json',
         signerBookmarkPath: 'bookmarks/signer-before-fixture-import.json',
@@ -411,7 +412,7 @@ function passingManifests(dir: string): PassingEvidenceManifests {
       mode: 'remote',
       environmentName,
       consoleConfigPath,
-      routerApiConfigPath,
+      gatewayConfigPath,
       fixtures: [{ logicalName: 'console' }, { logicalName: 'signer' }],
       commands: ['import console', 'import signer'],
       executed: [
@@ -426,7 +427,7 @@ function passingManifests(dir: string): PassingEvidenceManifests {
       purpose: 'before_route_switch',
       timestampIso: '2026-06-28T00:04:00.000Z',
       consoleConfigPath,
-      routerApiConfigPath,
+      gatewayConfigPath,
       artifacts: {
         consoleBookmarkPath: 'bookmarks/console-before-route-switch.json',
         signerBookmarkPath: 'bookmarks/signer-before-route-switch.json',
@@ -463,43 +464,43 @@ function passingManifests(dir: string): PassingEvidenceManifests {
         {
           id: 'router_api_readyz',
           method: 'GET',
-          url: 'https://router-api.staging.example/readyz',
+          url: 'https://gateway.staging.example/readyz',
           expectedStatus: 200,
         },
         {
           id: 'router_api_healthz',
           method: 'GET',
-          url: 'https://router-api.staging.example/healthz',
+          url: 'https://gateway.staging.example/healthz',
           expectedStatus: 200,
         },
         {
           id: 'signer_custody_ed25519_healthz',
           method: 'GET',
-          url: 'https://router-api.staging.example/router-ab/ed25519/healthz',
+          url: 'https://gateway.staging.example/router-ab/ed25519/healthz',
           expectedStatus: 200,
         },
         {
           id: 'signer_custody_ecdsa_derivation_healthz',
           method: 'GET',
-          url: 'https://router-api.staging.example/router-ab/ecdsa-derivation/healthz',
+          url: 'https://gateway.staging.example/router-ab/ecdsa-derivation/healthz',
           expectedStatus: 200,
         },
       ],
       checks: [
         { id: 'console_readyz', ok: true, status: 200, url: 'https://console.staging.example/console/readyz' },
-        { id: 'router_api_readyz', ok: true, status: 200, url: 'https://router-api.staging.example/readyz' },
-        { id: 'router_api_healthz', ok: true, status: 200, url: 'https://router-api.staging.example/healthz' },
+        { id: 'router_api_readyz', ok: true, status: 200, url: 'https://gateway.staging.example/readyz' },
+        { id: 'router_api_healthz', ok: true, status: 200, url: 'https://gateway.staging.example/healthz' },
         {
           id: 'signer_custody_ed25519_healthz',
           ok: true,
           status: 200,
-          url: 'https://router-api.staging.example/router-ab/ed25519/healthz',
+          url: 'https://gateway.staging.example/router-ab/ed25519/healthz',
         },
         {
           id: 'signer_custody_ecdsa_derivation_healthz',
           ok: true,
           status: 200,
-          url: 'https://router-api.staging.example/router-ab/ecdsa-derivation/healthz',
+          url: 'https://gateway.staging.example/router-ab/ecdsa-derivation/healthz',
         },
       ],
     }),
@@ -509,7 +510,7 @@ function passingManifests(dir: string): PassingEvidenceManifests {
       mode: 'remote',
       environmentName,
       consoleConfigPath,
-      routerApiConfigPath,
+      gatewayConfigPath,
       tenant,
       checks: [
         {
@@ -584,13 +585,13 @@ function passingManifests(dir: string): PassingEvidenceManifests {
         {
           id: 'signer_custody_ed25519_healthz',
           method: 'GET',
-          url: 'https://router-api.staging.example/router-ab/ed25519/healthz',
+          url: 'https://gateway.staging.example/router-ab/ed25519/healthz',
           expectedStatus: 200,
         },
         {
           id: 'signer_custody_ecdsa_derivation_healthz',
           method: 'GET',
-          url: 'https://router-api.staging.example/router-ab/ecdsa-derivation/healthz',
+          url: 'https://gateway.staging.example/router-ab/ecdsa-derivation/healthz',
           expectedStatus: 200,
         },
       ],
@@ -598,13 +599,13 @@ function passingManifests(dir: string): PassingEvidenceManifests {
         {
           id: 'ecdsa_export_share_success',
           method: 'POST',
-          url: 'https://router-api.staging.example/router-ab/ecdsa-derivation/export/share',
+          url: 'https://gateway.staging.example/router-ab/ecdsa-derivation/export/share',
           expectedStatus: 200,
         },
         {
           id: 'ecdsa_export_share_missing_kek_fail_closed',
           method: 'POST',
-          url: 'https://router-api.staging.example/router-ab/ecdsa-derivation/export/share',
+          url: 'https://gateway.staging.example/router-ab/ecdsa-derivation/export/share',
           expectedStatus: 503,
         },
       ],
@@ -613,25 +614,25 @@ function passingManifests(dir: string): PassingEvidenceManifests {
           id: 'signer_custody_ed25519_healthz',
           ok: true,
           status: 200,
-          url: 'https://router-api.staging.example/router-ab/ed25519/healthz',
+          url: 'https://gateway.staging.example/router-ab/ed25519/healthz',
         },
         {
           id: 'signer_custody_ecdsa_derivation_healthz',
           ok: true,
           status: 200,
-          url: 'https://router-api.staging.example/router-ab/ecdsa-derivation/healthz',
+          url: 'https://gateway.staging.example/router-ab/ecdsa-derivation/healthz',
         },
         {
           id: 'ecdsa_export_share_success',
           ok: true,
           status: 200,
-          url: 'https://router-api.staging.example/router-ab/ecdsa-derivation/export/share',
+          url: 'https://gateway.staging.example/router-ab/ecdsa-derivation/export/share',
         },
         {
           id: 'ecdsa_export_share_missing_kek_fail_closed',
           ok: true,
           status: 503,
-          url: 'https://router-api.staging.example/router-ab/ecdsa-derivation/export/share',
+          url: 'https://gateway.staging.example/router-ab/ecdsa-derivation/export/share',
           body: { ok: false, code: 'missing_signing_root_kek' },
         },
       ],
@@ -641,7 +642,7 @@ function passingManifests(dir: string): PassingEvidenceManifests {
       generatedAtIso: '2026-06-28T00:08:00.000Z',
       mode: 'remote',
       consoleConfigPath,
-      routerApiConfigPath,
+      gatewayConfigPath,
       artifacts: {
         consoleExportPath: 'console.sql',
         signerExportPath: 'signer.sql',
@@ -772,7 +773,7 @@ const evidenceMutationCases: readonly EvidenceMutationCase[] = [
     name: 'D1 staging evidence verifier rejects missing D1 binding IDs in resource inventory',
     mutate: (m) => patchManifest(m.resources, {
       resources: {
-        routerApiWorker: {
+        gatewayWorker: {
           d1Databases: [
             { binding: 'CONSOLE_DB', databaseId: 'd1-console-id' },
             { binding: 'SIGNER_DB', databaseId: 'd1-signer-id' },
@@ -813,14 +814,14 @@ const evidenceMutationCases: readonly EvidenceMutationCase[] = [
     expectedError: /resource_inventory: resources\.consoleWorker\.secretsStoreSecrets must not include signer KEK binding SIGNING_ROOT_KEK_R1/,
   },
   {
-    name: 'D1 staging evidence verifier rejects router-api resource inventory without signer DO binding',
-    mutate: (m) => patchResourceWorker(m.resources, 'routerApiWorker', { durableObjects: [] }),
-    expectedError: /resource_inventory: resources\.routerApiWorker\.durableObjects missing THRESHOLD_STORE/,
+    name: 'D1 staging evidence verifier rejects gateway resource inventory without signer DO binding',
+    mutate: (m) => patchResourceWorker(m.resources, 'gatewayWorker', { durableObjects: [] }),
+    expectedError: /resource_inventory: resources\.gatewayWorker\.durableObjects missing THRESHOLD_STORE/,
   },
   {
-    name: 'D1 staging evidence verifier rejects router-api resource inventory without configured signer KEKs',
-    mutate: (m) => patchResourceWorker(m.resources, 'routerApiWorker', { secretsStoreSecrets: [] }),
-    expectedError: /resource_inventory: resources\.routerApiWorker\.secretsStoreSecrets missing signer KEK secret kek-r1/,
+    name: 'D1 staging evidence verifier rejects gateway resource inventory without configured signer KEKs',
+    mutate: (m) => patchResourceWorker(m.resources, 'gatewayWorker', { secretsStoreSecrets: [] }),
+    expectedError: /resource_inventory: resources\.gatewayWorker\.secretsStoreSecrets missing signer KEK secret kek-r1/,
   },
   {
     name: 'D1 staging evidence verifier rejects mismatched remote D1 database evidence',
@@ -829,20 +830,20 @@ const evidenceMutationCases: readonly EvidenceMutationCase[] = [
         { id: 'console_d1_info', status: 0, json: { uuid: 'other-console-d1-id' } },
         { id: 'signer_d1_info', status: 0, json: { uuid: 'd1-signer-id' } },
         { id: 'console_worker_deployment_status', status: 0, json: { id: 'console-worker' } },
-        { id: 'router_api_worker_deployment_status', status: 0, json: { id: 'router-api-worker' } },
+        { id: 'router_api_worker_deployment_status', status: 0, json: { id: 'gateway-worker' } },
       ],
     }),
     expectedError: /checks\.console_d1_info\.json database id other-console-d1-id must match CONSOLE_DB d1-console-id/,
   },
   {
-    name: 'D1 staging evidence verifier rejects Router API config pointed at a different console D1',
-    mutate: (m) => patchResourceWorker(m.resources, 'routerApiWorker', {
+    name: 'D1 staging evidence verifier rejects Gateway config pointed at a different console D1',
+    mutate: (m) => patchResourceWorker(m.resources, 'gatewayWorker', {
       d1Databases: [
         { binding: 'CONSOLE_DB', databaseId: 'other-console-d1-id' },
         { binding: 'SIGNER_DB', databaseId: 'd1-signer-id' },
       ],
     }),
-    expectedError: /routerApiWorker CONSOLE_DB databaseId other-console-d1-id must match consoleWorker CONSOLE_DB d1-console-id/,
+    expectedError: /gatewayWorker CONSOLE_DB databaseId other-console-d1-id must match consoleWorker CONSOLE_DB d1-console-id/,
   },
   {
     name: 'D1 staging evidence verifier rejects incomplete migration evidence',
@@ -904,13 +905,13 @@ const evidenceMutationCases: readonly EvidenceMutationCase[] = [
   },
   {
     name: 'D1 staging evidence verifier rejects smoke responses for unplanned URLs',
-    mutate: (m) => patchManifestRecordById(m.smoke, 'endpoints', 'router_api_readyz', { url: 'https://router-api.staging.example/other-readyz' }),
+    mutate: (m) => patchManifestRecordById(m.smoke, 'endpoints', 'router_api_readyz', { url: 'https://gateway.staging.example/other-readyz' }),
     expectedError: /staging_smoke: checks\.router_api_readyz\.url does not match planned endpoints\.router_api_readyz\.url/,
   },
   {
     name: 'D1 staging evidence verifier rejects duplicate smoke response IDs',
     mutate: (m) => appendManifestRecords(m.smoke, {
-      checks: { id: 'router_api_readyz', ok: true, status: 200, url: 'https://router-api.staging.example/readyz' },
+      checks: { id: 'router_api_readyz', ok: true, status: 200, url: 'https://gateway.staging.example/readyz' },
     }),
     expectedError: /staging_smoke: checks\.router_api_readyz is duplicated/,
   },
@@ -920,8 +921,8 @@ const evidenceMutationCases: readonly EvidenceMutationCase[] = [
     expectedError: /staging_smoke: checks.console_readyz.url must be an HTTPS URL/,
   },
   {
-    name: 'D1 staging evidence verifier rejects shared console and Router API smoke origins',
-    mutate: (m) => patchManifestRecordsById(m.smoke, ['endpoints', 'checks'], 'console_readyz', { url: 'https://router-api.staging.example/console/readyz' }),
+    name: 'D1 staging evidence verifier rejects shared console and Gateway smoke origins',
+    mutate: (m) => patchManifestRecordsById(m.smoke, ['endpoints', 'checks'], 'console_readyz', { url: 'https://gateway.staging.example/console/readyz' }),
     expectedError: /staging_smoke: console_readyz and router_api_readyz must use distinct Worker origins/,
   },
   {
@@ -931,7 +932,7 @@ const evidenceMutationCases: readonly EvidenceMutationCase[] = [
   },
   {
     name: 'D1 staging evidence verifier rejects smoke evidence on wrong endpoint paths',
-    mutate: (m) => patchManifestRecordById(m.smoke, 'checks', 'router_api_readyz', { url: 'https://router-api.staging.example/not-readyz' }),
+    mutate: (m) => patchManifestRecordById(m.smoke, 'checks', 'router_api_readyz', { url: 'https://gateway.staging.example/not-readyz' }),
     expectedError: /staging_smoke: checks\.router_api_readyz\.url uses path \/not-readyz, expected \/readyz/,
   },
   {
@@ -946,18 +947,18 @@ const evidenceMutationCases: readonly EvidenceMutationCase[] = [
   },
   {
     name: 'D1 staging evidence verifier rejects signer custody responses for unplanned URLs',
-    mutate: (m) => patchManifestRecordById(m.signerCustody, 'checks', 'ecdsa_export_share_success', { url: 'https://router-api.staging.example/router-ab/ecdsa-derivation/export/other-share' }),
+    mutate: (m) => patchManifestRecordById(m.signerCustody, 'checks', 'ecdsa_export_share_success', { url: 'https://gateway.staging.example/router-ab/ecdsa-derivation/export/other-share' }),
     expectedError: /signer_custody: results\.ecdsa_export_share_success\.url does not match planned plannedChecks\.ecdsa_export_share_success\.url/,
   },
   {
     name: 'D1 staging evidence verifier rejects HTTP signer custody evidence URLs',
-    mutate: (m) => patchManifestRecordById(m.signerCustody, 'results', 'ecdsa_export_share_success', { url: 'http://router-api.staging.example/router-ab/ecdsa-derivation/export/share' }),
+    mutate: (m) => patchManifestRecordById(m.signerCustody, 'results', 'ecdsa_export_share_success', { url: 'http://gateway.staging.example/router-ab/ecdsa-derivation/export/share' }),
     expectedError: /signer_custody: results.ecdsa_export_share_success.url must be an HTTPS URL/,
   },
   {
-    name: 'D1 staging evidence verifier rejects signer custody from a different Router API origin',
-    mutate: (m) => patchManifestRecordById(m.signerCustody, 'results', 'signer_custody_ed25519_healthz', { url: 'https://other-router-api.staging.example/router-ab/ed25519/healthz' }),
-    expectedError: /signer_custody: results\.signer_custody_ed25519_healthz\.url uses https:\/\/other-router-api\.staging\.example, expected https:\/\/router-api\.staging\.example from staging_smoke router_api_readyz/,
+    name: 'D1 staging evidence verifier rejects signer custody from a different Gateway origin',
+    mutate: (m) => patchManifestRecordById(m.signerCustody, 'results', 'signer_custody_ed25519_healthz', { url: 'https://other-gateway.staging.example/router-ab/ed25519/healthz' }),
+    expectedError: /signer_custody: results\.signer_custody_ed25519_healthz\.url uses https:\/\/other-gateway\.staging\.example, expected https:\/\/gateway\.staging\.example from staging_smoke router_api_readyz/,
   },
   {
     name: 'D1 staging evidence verifier rejects wrong signer custody status codes',
@@ -976,7 +977,7 @@ const evidenceMutationCases: readonly EvidenceMutationCase[] = [
   },
   {
     name: 'D1 staging evidence verifier rejects signer custody evidence on wrong endpoint paths',
-    mutate: (m) => patchManifestRecordById(m.signerCustody, 'results', 'ecdsa_export_share_success', { url: 'https://router-api.staging.example/router-ab/ecdsa-derivation/export/share?debug=true' }),
+    mutate: (m) => patchManifestRecordById(m.signerCustody, 'results', 'ecdsa_export_share_success', { url: 'https://gateway.staging.example/router-ab/ecdsa-derivation/export/share?debug=true' }),
     expectedError: /signer_custody: results\.ecdsa_export_share_success\.url uses path \/router-ab\/ecdsa-derivation\/export\/share\?debug=true, expected \/router-ab\/ecdsa-derivation\/export\/share/,
   },
   {
@@ -1036,9 +1037,9 @@ const evidenceMutationCases: readonly EvidenceMutationCase[] = [
     expectedError: /r2_restore_drill: missing signer restore integrity-check command evidence/,
   },
   {
-    name: 'D1 staging evidence verifier rejects mixed Router API config paths',
-    mutate: (m) => patchManifest(m.fixtureImport, { routerApiConfigPath: 'packages/console-server-ts/wrangler.other-router-api.toml' }),
-    expectedError: /routerApiConfigPath mismatch/,
+    name: 'D1 staging evidence verifier rejects mixed Gateway config paths',
+    mutate: (m) => patchManifest(m.fixtureImport, { gatewayConfigPath: 'packages/console-server-ts/wrangler.other-gateway.toml' }),
+    expectedError: /gatewayConfigPath mismatch/,
   },
   {
     name: 'D1 staging evidence verifier rejects mixed tenant evidence',

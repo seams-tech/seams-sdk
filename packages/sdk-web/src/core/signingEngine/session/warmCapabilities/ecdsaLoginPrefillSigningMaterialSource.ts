@@ -1,11 +1,13 @@
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
-import { parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord } from '../persistence/ecdsaRoleLocalRecords';
+import { readThresholdEcdsaSessionRecordRoleLocalReadyRecord } from '../persistence/ecdsaRoleLocalRecords';
 import {
   storeEcdsaRoleLocalSigningMaterialWasm,
   thresholdEcdsaRoleLocalAdmitPresignatureWasm,
   thresholdEcdsaRoleLocalDestroyPresignatureWasm,
   thresholdEcdsaRoleLocalReservePresignatureWasm,
   thresholdEcdsaRoleLocalCommitPresignatureWasm,
+  thresholdEcdsaRoleLocalListAvailablePresignaturesWasm,
+  thresholdEcdsaRoleLocalRetirePresignaturePoolWasm,
   thresholdEcdsaEmailOtpPresignSessionInitWasm,
   thresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandleWasm,
   thresholdEcdsaRoleLocalPresignSessionAbortWasm,
@@ -65,7 +67,7 @@ export function createEcdsaLoginPrefillClientSigningMaterialSource(
     kind: 'router_ab_ecdsa_derivation_client_signing_material_source_v1',
     initClientPresignSession: async (input) => {
       if (materialOwner === 'role_local_worker') {
-        const readyRecord = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record);
+        const readyRecord = readThresholdEcdsaSessionRecordRoleLocalReadyRecord(record);
         const handle = buildRoleLocalWorkerShareHandleFromRecord(record);
         await storeEcdsaRoleLocalSigningMaterialWasm({
           materialHandle: handle.materialHandle,
@@ -78,6 +80,7 @@ export function createEcdsaLoginPrefillClientSigningMaterialSource(
         }
         return await thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandleWasm({
           materialHandle: handle.materialHandle,
+          durableMaterialRef: handle.durableMaterialRef,
           expectedBindingDigest: handle.bindingDigest,
           ...input,
         });
@@ -94,6 +97,8 @@ export function createEcdsaLoginPrefillClientSigningMaterialSource(
     destroyClientPresignature: thresholdEcdsaRoleLocalDestroyPresignatureWasm,
     reserveClientPresignature: thresholdEcdsaRoleLocalReservePresignatureWasm,
     commitClientPresignature: thresholdEcdsaRoleLocalCommitPresignatureWasm,
+    listAvailableClientPresignatures: thresholdEcdsaRoleLocalListAvailablePresignaturesWasm,
+    retireClientPresignaturePool: thresholdEcdsaRoleLocalRetirePresignaturePoolWasm,
     computeSignatureShareFromPresignatureHandle:
       thresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandleWasm,
   };

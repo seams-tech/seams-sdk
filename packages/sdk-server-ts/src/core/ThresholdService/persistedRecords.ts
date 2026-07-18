@@ -4,7 +4,6 @@ import {
   parseThresholdEd25519CoordinatorSigningSessionRecord,
   parseEd25519WalletSessionRecord,
   parseRouterAbEcdsaDerivationPoolFillSessionRecord,
-  parseRouterAbEcdsaDerivationServerPresignatureShareRecord,
   parseThresholdEd25519KeyRecord,
   parseThresholdEd25519MpcSessionRecord,
   parseThresholdEd25519SigningSessionRecord,
@@ -57,10 +56,6 @@ export type CurrentRouterAbEcdsaDerivationPoolFillSessionRow = {
   record: CurrentRouterAbEcdsaDerivationPoolFillSessionRecord;
   expiresAtMs: number;
 };
-
-export type CurrentRouterAbEcdsaDerivationServerPresignatureRecord = NonNullable<
-  ReturnType<typeof parseRouterAbEcdsaDerivationServerPresignatureShareRecord>
->;
 
 export type CurrentSigningRootSecretShareRecord = SealedSigningRootSecretShare & {
   createdAtMs: number;
@@ -216,20 +211,6 @@ export function parseCurrentRouterAbEcdsaDerivationPoolFillSessionRow(input: {
   return {
     record,
     expiresAtMs,
-  };
-}
-
-export function parseCurrentRouterAbEcdsaDerivationServerPresignatureRecord(
-  raw: unknown,
-): CurrentRouterAbEcdsaDerivationServerPresignatureRecord | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const record = raw as Record<string, unknown>;
-  const parsed = parseRouterAbEcdsaDerivationServerPresignatureShareRecord(record);
-  const createdAtMs = toPositiveSafeInt(record.createdAtMs);
-  if (!parsed || !createdAtMs) return null;
-  return {
-    ...parsed,
-    createdAtMs,
   };
 }
 

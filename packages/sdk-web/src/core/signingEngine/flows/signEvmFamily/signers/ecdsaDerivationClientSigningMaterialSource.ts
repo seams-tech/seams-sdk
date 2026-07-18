@@ -11,6 +11,8 @@ import {
   thresholdEcdsaRoleLocalDestroyPresignatureWasm,
   thresholdEcdsaRoleLocalReservePresignatureWasm,
   thresholdEcdsaRoleLocalCommitPresignatureWasm,
+  thresholdEcdsaRoleLocalListAvailablePresignaturesWasm,
+  thresholdEcdsaRoleLocalRetirePresignaturePoolWasm,
   thresholdEcdsaEmailOtpPresignSessionInitWasm,
   thresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandleWasm,
   thresholdEcdsaRoleLocalPresignSessionAbortWasm,
@@ -144,6 +146,7 @@ export async function loadRouterAbEcdsaDerivationSigningMaterialSource(args: {
         });
         return await thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandleWasm({
           materialHandle: signerSession.clientShare.handle.materialHandle,
+          durableMaterialRef: signerSession.clientShare.handle.durableMaterialRef,
           expectedBindingDigest: signerSession.clientShare.handle.bindingDigest,
           ...input,
         });
@@ -154,6 +157,8 @@ export async function loadRouterAbEcdsaDerivationSigningMaterialSource(args: {
       destroyClientPresignature: thresholdEcdsaRoleLocalDestroyPresignatureWasm,
       reserveClientPresignature: thresholdEcdsaRoleLocalReservePresignatureWasm,
       commitClientPresignature: thresholdEcdsaRoleLocalCommitPresignatureWasm,
+      listAvailableClientPresignatures: thresholdEcdsaRoleLocalListAvailablePresignaturesWasm,
+      retireClientPresignaturePool: thresholdEcdsaRoleLocalRetirePresignaturePoolWasm,
       computeSignatureShareFromPresignatureHandle:
         thresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandleWasm,
     },

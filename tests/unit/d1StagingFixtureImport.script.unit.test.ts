@@ -26,7 +26,7 @@ type FixtureImportPlan = {
 type FixtureImportModule = {
   readonly buildD1StagingFixtureImportPlan: (input: {
     readonly consoleConfigPath: string;
-    readonly routerApiConfigPath: string;
+    readonly gatewayConfigPath: string;
     readonly consoleFixturePath: string;
     readonly signerFixturePath: string;
     readonly generatedAtIso?: string;
@@ -34,7 +34,7 @@ type FixtureImportModule = {
   }) => FixtureImportPlan;
   readonly runD1StagingFixtureImport: (input: {
     readonly consoleConfigPath: string;
-    readonly routerApiConfigPath: string;
+    readonly gatewayConfigPath: string;
     readonly consoleFixturePath: string;
     readonly signerFixturePath: string;
     readonly generatedAtIso?: string;

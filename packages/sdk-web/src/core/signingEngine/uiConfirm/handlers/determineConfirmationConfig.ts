@@ -5,7 +5,6 @@ import type { UiConfirmContext } from '../uiConfirm.types';
 import type { UserConfirmRequest } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import { UserConfirmationType } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import { needsExplicitActivation } from '@/react/deviceDetection';
-import { isObject, isString } from '@shared/utils/validation';
 
 /**
  * determineConfirmationConfig
@@ -22,9 +21,6 @@ import { isObject, isString } from '@shared/utils/validation';
  * - When running inside the wallet-iframe host context, always clamp registration/link flows to
  *   `{ uiMode: 'modal', behavior: 'requireClick' }` so the user activation happens inside the iframe.
  *   This intentionally overrides both user preferences and request-level overrides.
- * - A wallet-iframe registration activation proof is the narrow exception for registration: the
- *   iframe-owned activation button already supplied the wallet-origin click.
- *
  * Notes
  * - The function is pure (does not mutate the input object) and safe to call multiple times.
  * - Unrelated options are preserved in all cases.
@@ -79,16 +75,6 @@ export function determineConfirmationConfig(
     (request.type === UserConfirmationType.REGISTER_ACCOUNT ||
       request.type === UserConfirmationType.LINK_DEVICE)
   ) {
-    if (
-      request.type === UserConfirmationType.REGISTER_ACCOUNT &&
-      hasWalletIframeRegistrationActivation(request.payload)
-    ) {
-      return normalizeConfirmationConfig({
-        uiMode: 'none',
-        behavior: 'skipClick',
-        autoProceedDelay: 0,
-      });
-    }
     return normalizeConfirmationConfig({
       uiMode: 'modal',
       behavior: 'requireClick',
@@ -98,18 +84,4 @@ export function determineConfirmationConfig(
 
   // Otherwise honor caller/user configuration
   return normalizeConfirmationConfig(cfg);
-}
-
-function hasWalletIframeRegistrationActivation(payload: unknown): boolean {
-  if (!isObject(payload)) return false;
-  const activation = (payload as { walletIframeActivation?: unknown }).walletIframeActivation;
-  if (!isObject(activation)) return false;
-  const proof = activation as { kind?: unknown; activationId?: unknown; activatedAtMs?: unknown };
-  return (
-    proof.kind === 'wallet_iframe_registration_activation_v1' &&
-    isString(proof.activationId) &&
-    proof.activationId.trim().length > 0 &&
-    typeof proof.activatedAtMs === 'number' &&
-    Number.isFinite(proof.activatedAtMs)
-  );
 }

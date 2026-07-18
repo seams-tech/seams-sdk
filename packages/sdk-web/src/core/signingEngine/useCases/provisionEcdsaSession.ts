@@ -1,4 +1,7 @@
-import { thresholdEcdsaRecordHasRoleLocalSigningMaterial } from '../session/persistence/ecdsaRoleLocalRecords';
+import {
+  readThresholdEcdsaSessionRecordRoleLocalReadyRecord,
+  thresholdEcdsaRecordHasRoleLocalSigningMaterial,
+} from '../session/persistence/ecdsaRoleLocalRecords';
 import {
   toExactEcdsaSigningLaneIdentity,
   type ThresholdEcdsaSessionRecord,
@@ -77,6 +80,7 @@ import {
   type EvmFamilyEcdsaSessionLanePolicy,
 } from '../session/identity/evmFamilyEcdsaIdentity';
 import { buildThresholdEcdsaSecp256k1KeyRefFromRecord } from '../session/identity/thresholdEcdsaSignerAdapter';
+import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 
 export type WarmSessionEcdsaProvisionerDeps = {
   getWarmSession: (walletId: WalletId) => Promise<WarmSessionEnvelope>;
@@ -116,6 +120,7 @@ type EcdsaProvisionActivationCommon = {
   source: ThresholdEcdsaSessionStoreSource;
   walletKey: EvmFamilyEcdsaWalletKey;
   lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
+  publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
   sessionIdentity: EcdsaSessionIdentity;
   sessionKind: 'jwt';
   sessionBudgetUses: number;
@@ -175,6 +180,7 @@ type EcdsaActivationOptions = Pick<
 type EcdsaActivationIdentityPair = {
   walletKey: EvmFamilyEcdsaWalletKey;
   lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
+  publicCapability: ReturnType<typeof readThresholdEcdsaSessionRecordRoleLocalReadyRecord>['publicFacts']['publicCapability'];
 };
 
 function assertPersistedEcdsaWarmSessionRecord(args: {
@@ -406,8 +412,12 @@ function buildActivationKeyAndLanePolicy(args: {
     thresholdOwnerAddress: args.record.ethereumAddress,
   });
   const sessionIdentity = getEcdsaProvisionPlanLaneIdentity(args.plan);
+  const publicCapability = readThresholdEcdsaSessionRecordRoleLocalReadyRecord(
+    args.record,
+  ).publicFacts.publicCapability;
   const runtimePolicyScope = runtimePolicyScopeFromActivationPolicy(args.runtimePolicy);
   return {
+    publicCapability,
     walletKey: buildEvmFamilyEcdsaWalletKey({
       walletId: key.walletId,
       evmFamilySigningKeySlotId: key.evmFamilySigningKeySlotId,
@@ -448,6 +458,7 @@ function buildPasskeyEcdsaActivation(args: {
     source: args.source,
     walletKey: args.identityPair.walletKey,
     lanePolicy: args.identityPair.lanePolicy,
+    publicCapability: args.identityPair.publicCapability,
     sessionIdentity: args.plan.newSessionIdentity,
     sessionKind: args.plan.sessionKind,
     sessionBudgetUses: args.plan.sessionBudgetUses,
@@ -487,6 +498,7 @@ function buildEmailOtpEcdsaActivation(args: {
     source: args.source,
     walletKey: args.identityPair.walletKey,
     lanePolicy: args.identityPair.lanePolicy,
+    publicCapability: args.identityPair.publicCapability,
     sessionIdentity: args.plan.newSessionIdentity,
     sessionKind: args.plan.sessionKind,
     sessionBudgetUses: args.plan.sessionBudgetUses,
@@ -526,6 +538,7 @@ function buildWalletSessionEcdsaActivation(args: {
     source: args.source,
     walletKey: args.identityPair.walletKey,
     lanePolicy: args.identityPair.lanePolicy,
+    publicCapability: args.identityPair.publicCapability,
     sessionIdentity: args.plan.existingSessionIdentity,
     sessionKind: 'jwt',
     sessionBudgetUses: args.plan.sessionBudgetUses,
@@ -604,6 +617,7 @@ async function provisionPasskeyEcdsaSession(
       webauthnAuthentication: baseArgs.webauthnAuthentication,
       walletKey: activation.walletKey,
       lanePolicy: activation.lanePolicy,
+      publicCapability: activation.publicCapability,
     }),
   );
 }
@@ -654,6 +668,7 @@ async function reconnectWalletSessionEcdsaSession(
       walletSessionAuth: baseArgs.walletSessionAuth,
       walletKey: activation.walletKey,
       lanePolicy: activation.lanePolicy,
+      publicCapability: activation.publicCapability,
     }),
   );
 }
@@ -693,6 +708,7 @@ async function provisionEmailOtpEcdsaSession(
         emailOtpWorkerSessionHandle: baseArgs.emailOtpWorkerSessionHandle,
         walletKey: activation.walletKey,
         lanePolicy: activation.lanePolicy,
+        publicCapability: activation.publicCapability,
         emailOtpAuthContext,
       }),
     );
@@ -713,6 +729,7 @@ async function provisionEmailOtpEcdsaSession(
         emailOtpWorkerSessionHandle: baseArgs.emailOtpWorkerSessionHandle,
         walletKey: activation.walletKey,
         lanePolicy: activation.lanePolicy,
+        publicCapability: activation.publicCapability,
         emailOtpAuthContext,
       }),
     );

@@ -6,6 +6,7 @@ import {
   type EcdsaDerivationStableKeyPrfContext,
   type SigningRootShareWireSet,
   type SigningRootShareWire,
+  type ThresholdPrfPolicy,
 } from './thresholdPrfWasm';
 import {
   MISSING_SIGNING_ROOT_KEK_CODE,
@@ -15,13 +16,9 @@ import {
 } from './signingRootSecretShareWires';
 import { isMissingSigningRootKekError } from './signingRootKekProvider';
 
-export const MAX_THRESHOLD_PRF_SHARE_COUNT = 255;
+export type { ThresholdPrfPolicy } from './thresholdPrfWasm';
 
-export type ThresholdPrfPolicy = {
-  readonly protocol: 'threshold-prf';
-  readonly threshold: number;
-  readonly shareCount: number;
-};
+export const MAX_THRESHOLD_PRF_SHARE_COUNT = 255;
 
 export type SigningRootShareSet = SigningRootShareWireSet;
 

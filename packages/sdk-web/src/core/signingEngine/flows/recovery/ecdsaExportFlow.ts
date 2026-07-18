@@ -5,6 +5,7 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { SENSITIVE_OPERATION_POLICIES } from '@shared/utils/signerDomain';
+import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { WarmSessionPostSignPolicyAdapterDeps } from '../../session/operationState/warmSessionPolicyAdapter';
 import { assertWarmSessionEcdsaOperationAllowed } from '../../session/operationState/warmSessionPolicyAdapter';
@@ -101,6 +102,10 @@ export type EcdsaExportFlowDeps = {
   provisionPasskeyEcdsaExplicitExportSession: (
     args: ThresholdEcdsaPasskeyExportActivationRequest,
   ) => Promise<ThresholdEcdsaExplicitKeyExportBootstrapResult>;
+  resolvePasskeyEcdsaExportRouteAuth: (
+    walletId: string,
+    chainTarget: ThresholdEcdsaChainTarget,
+  ) => Promise<AppOrWalletSessionAuth>;
   getSignerWorkerContext: () => WorkerOperationContext;
 };
 
@@ -108,6 +113,14 @@ type EcdsaExportOptions = {
   variant?: 'drawer' | 'modal';
   theme?: 'dark' | 'light';
 };
+
+async function resolvePasskeyEcdsaExportRouteAuth(args: {
+  deps: Pick<EcdsaExportFlowDeps, 'resolvePasskeyEcdsaExportRouteAuth'>;
+  walletId: string;
+  chainTarget: ThresholdEcdsaChainTarget;
+}): Promise<AppOrWalletSessionAuth> {
+  return await args.deps.resolvePasskeyEcdsaExportRouteAuth(args.walletId, args.chainTarget);
+}
 
 function emitEcdsaMaterialStarted(args: {
   flowId: string;
@@ -358,6 +371,11 @@ async function prepareFreshPasskeyEcdsaExportMaterial(
   if (!passkeyPrfFirstB64u) {
     throw new Error('[SigningEngine][ecdsa-export] passkey export requires PRF.first');
   }
+  const walletSessionRouteAuth = await resolvePasskeyEcdsaExportRouteAuth({
+    deps,
+    walletId: args.walletId,
+    chainTarget: args.exportLane.session.chainTarget,
+  });
   const provisionedResult = await deps.provisionPasskeyEcdsaExplicitExportSession(
     buildEcdsaExportActivation({
       walletKey: walletKeyForFreshPasskeyEcdsaExport({
@@ -383,8 +401,10 @@ async function prepareFreshPasskeyEcdsaExportMaterial(
       sessionBudgetUses: planned.policy.remainingUses,
       requestId,
       runtimePolicy: { kind: 'scoped_policy', scope: args.material.runtimePolicyScope },
+      publicCapability: args.material.publicCapability,
       passkeyPrfFirstB64u,
       webauthnAuthentication: exportCredential.credential,
+      walletSessionRouteAuth,
     }),
   );
   return {

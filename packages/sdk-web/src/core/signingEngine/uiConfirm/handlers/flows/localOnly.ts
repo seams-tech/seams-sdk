@@ -158,6 +158,7 @@ export async function handleLocalOnlyFlow(
     confirmationConfig,
     transactionSummary,
     theme,
+    surface: { kind: 'mount_new' },
   });
 
   // SHOW_SECURE_PRIVATE_KEY_UI: purely visual; keep UI open and return confirmed immediately

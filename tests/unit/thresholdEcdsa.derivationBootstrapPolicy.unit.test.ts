@@ -8,11 +8,11 @@ import {
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { createRouterAbSigningRuntimesForUnitTests } from '../helpers/routerAbSigningRuntimeTestUtils';
-import { initSync as initEcdsaDerivationClientWasmSync } from '../../wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.js';
+import { initSync as initEcdsaRegistrationClientWasmSync } from '../../wasm/ecdsa_registration_client/pkg/ecdsa_registration_client.js';
 import { prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest } from '../helpers/thresholdEcdsaClientBootstrap';
 
-const ECDSA_DERIVATION_CLIENT_WASM_URL = new URL(
-  '../../wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client_bg.wasm',
+const ECDSA_REGISTRATION_CLIENT_WASM_URL = new URL(
+  '../../wasm/ecdsa_registration_client/pkg/ecdsa_registration_client_bg.wasm',
   import.meta.url,
 );
 const TEST_RUNTIME_SCOPE = {
@@ -23,12 +23,12 @@ const TEST_RUNTIME_SCOPE = {
 } as const;
 const TEST_SIGNING_ROOT_ID = `${TEST_RUNTIME_SCOPE.projectId}:${TEST_RUNTIME_SCOPE.envId}`;
 
-let ecdsaDerivationClientWasmInitialized = false;
+let ecdsaRegistrationClientWasmInitialized = false;
 
-function ensureEcdsaDerivationClientWasm(): void {
-  if (ecdsaDerivationClientWasmInitialized) return;
-  initEcdsaDerivationClientWasmSync({ module: readFileSync(ECDSA_DERIVATION_CLIENT_WASM_URL) });
-  ecdsaDerivationClientWasmInitialized = true;
+function ensureEcdsaRegistrationClientWasm(): void {
+  if (ecdsaRegistrationClientWasmInitialized) return;
+  initEcdsaRegistrationClientWasmSync({ module: readFileSync(ECDSA_REGISTRATION_CLIENT_WASM_URL) });
+  ecdsaRegistrationClientWasmInitialized = true;
 }
 
 function rootShare32B64u(byte: number): string {
@@ -87,7 +87,7 @@ async function createRoleLocalBootstrap(args: {
   signingRootId?: string;
   signingRootVersion?: string;
 }) {
-  ensureEcdsaDerivationClientWasm();
+  ensureEcdsaRegistrationClientWasm();
   const signingRootId = args.signingRootId || TEST_SIGNING_ROOT_ID;
   const signingRootVersion = args.signingRootVersion || TEST_RUNTIME_SCOPE.signingRootVersion;
   const participantIds = args.participantIds || [1, 2];
@@ -302,7 +302,7 @@ test.describe('threshold ECDSA role-local derivation bootstrap policy', () => {
       sessionId: 'ecdsa-session-relayer-rotation-first',
     });
 
-    ensureEcdsaDerivationClientWasm();
+    ensureEcdsaRegistrationClientWasm();
     const clientBootstrap = prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest({
       context: {
         walletId,
@@ -351,7 +351,7 @@ test.describe('threshold ECDSA role-local derivation bootstrap policy', () => {
       sessionId: 'ecdsa-session-client-share-first',
     });
 
-    ensureEcdsaDerivationClientWasm();
+    ensureEcdsaRegistrationClientWasm();
     const changedClientBootstrap = prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest({
       context: {
         walletId,

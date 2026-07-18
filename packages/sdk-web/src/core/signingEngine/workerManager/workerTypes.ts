@@ -42,10 +42,35 @@ import type {
   EcdsaPreparePublicFacts,
   EcdsaRoleLocalPendingStateBlob,
   EcdsaRoleLocalReadyStateBlob,
+  EmailOtpWorkerSessionSecretSource,
   PrepareEcdsaClientBootstrapInput,
 } from '@/core/platform';
 import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/types';
 import type { GeneratedPrepareEcdsaClientBootstrapOutput } from '@/core/platform/signerCoreCommandAdapters';
+import type {
+  CloseRouterAbEcdsaPostRegistrationCeremonyRequestV1,
+  CloseRouterAbEcdsaPostRegistrationCeremonyResultV1,
+  CreateRouterAbEcdsaPostRegistrationCeremonyRequestV1,
+  CreateRouterAbEcdsaPostRegistrationCeremonyResultV1,
+  FinalizeRouterAbEcdsaExplicitExportRequestV1,
+  FinalizeRouterAbEcdsaExplicitExportResultV1,
+  FinalizeRouterAbEcdsaRecoveryActivationRequestV1,
+  FinalizeRouterAbEcdsaRecoveryActivationResultV1,
+  VerifyRouterAbEcdsaRecoveryClientProofsRequestV1,
+  VerifyRouterAbEcdsaRecoveryClientProofsResultV1,
+  VerifyRouterAbEcdsaRefreshClientProofsRequestV1,
+  VerifyRouterAbEcdsaRefreshClientProofsResultV1,
+} from '@/core/signingEngine/workerManager/ecdsaClientWorkerChannels';
+import type {
+  CloseRouterAbEcdsaRegistrationCeremonyRequestV1,
+  CloseRouterAbEcdsaRegistrationCeremonyResultV1,
+  CreateRouterAbEcdsaRegistrationCeremonyRequestV1,
+  CreateRouterAbEcdsaRegistrationCeremonyResultV1,
+  FinalizeRouterAbEcdsaRegistrationActivationRequestV1,
+  FinalizeRouterAbEcdsaRegistrationActivationResultV1,
+  VerifyRouterAbEcdsaRegistrationClientProofsRequestV1,
+  VerifyRouterAbEcdsaRegistrationClientProofsResultV1,
+} from '@/core/signingEngine/routerAb/ecdsaDerivation/clientCeremony';
 import type {
   EmailOtpEd25519YaoPendingFactorHandle,
   EmailOtpEd25519YaoRootHandle,
@@ -317,10 +342,7 @@ export type EmailOtpPrepareEcdsaClientBootstrapInput = Omit<
   PrepareEcdsaClientBootstrapInput,
   'secretSource'
 > & {
-  secretSource: Extract<
-    PrepareEcdsaClientBootstrapInput['secretSource'],
-    { kind: 'email_otp_worker_session' }
-  >;
+  secretSource: EmailOtpWorkerSessionSecretSource;
 };
 
 export type EmailOtpEcdsaSessionBootstrapHandleBinding = {
@@ -1100,6 +1122,16 @@ export const EcdsaDerivationClientCustomRequestType = {
   PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap: 70_000,
   FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap: 70_001,
   BuildThresholdEcdsaDerivationRoleLocalExportArtifact: 70_002,
+  CreateRouterAbEcdsaRegistrationCeremony: 70_005,
+  VerifyRouterAbEcdsaRegistrationClientProofs: 70_006,
+  CloseRouterAbEcdsaRegistrationCeremony: 70_007,
+  FinalizeRouterAbEcdsaRegistrationActivation: 70_008,
+  CreateRouterAbEcdsaPostRegistrationCeremony: 70_009,
+  FinalizeRouterAbEcdsaExplicitExport: 70_010,
+  CloseRouterAbEcdsaPostRegistrationCeremony: 70_011,
+  VerifyRouterAbEcdsaRecoveryClientProofs: 70_012,
+  FinalizeRouterAbEcdsaRecoveryActivation: 70_013,
+  VerifyRouterAbEcdsaRefreshClientProofs: 70_014,
   StoreThresholdEcdsaRoleLocalSigningMaterial: 70_004,
 } as const;
 
@@ -1110,6 +1142,16 @@ export const EcdsaDerivationClientCustomResponseType = {
   PrepareThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess: 70_100,
   FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess: 70_101,
   BuildThresholdEcdsaDerivationRoleLocalExportArtifactSuccess: 70_102,
+  CreateRouterAbEcdsaRegistrationCeremonySuccess: 70_105,
+  VerifyRouterAbEcdsaRegistrationClientProofsSuccess: 70_106,
+  CloseRouterAbEcdsaRegistrationCeremonySuccess: 70_107,
+  FinalizeRouterAbEcdsaRegistrationActivationSuccess: 70_108,
+  CreateRouterAbEcdsaPostRegistrationCeremonySuccess: 70_109,
+  FinalizeRouterAbEcdsaExplicitExportSuccess: 70_110,
+  CloseRouterAbEcdsaPostRegistrationCeremonySuccess: 70_111,
+  VerifyRouterAbEcdsaRecoveryClientProofsSuccess: 70_112,
+  FinalizeRouterAbEcdsaRecoveryActivationSuccess: 70_113,
+  VerifyRouterAbEcdsaRefreshClientProofsSuccess: 70_114,
   StoreThresholdEcdsaRoleLocalSigningMaterialSuccess: 70_104,
 } as const;
 
@@ -1146,6 +1188,7 @@ export type EcdsaPresignClientSessionInitRequest = EcdsaPresignClientSessionPara
         authority: {
           kind: 'role_local_derivation_handle';
           materialHandle: string;
+          durableMaterialRef: string;
           expectedBindingDigest: string;
           emailOtpSessionId?: never;
         };
@@ -1155,6 +1198,7 @@ export type EcdsaPresignClientSessionInitRequest = EcdsaPresignClientSessionPara
           kind: 'email_otp_worker_session';
           emailOtpSessionId: string;
           materialHandle?: never;
+          durableMaterialRef?: never;
           expectedBindingDigest?: never;
         };
       }
@@ -1205,6 +1249,7 @@ export type EcdsaPresignClientSessionAbortResponse = {
 export type EcdsaPresignClientAdmitRequest = {
   materialHandle: string;
   expectedPresignatureId: string;
+  poolIdentity: EcdsaClientPresignPoolIdentity;
 };
 
 export type EcdsaPresignClientAdmitResponse = {
@@ -1219,6 +1264,7 @@ export type EcdsaPresignClientAdmitResponse = {
 
 export type EcdsaPresignClientDestroyRequest = {
   materialHandle: string;
+  poolIdentity: EcdsaClientPresignPoolIdentity;
 };
 
 export type EcdsaPresignClientDestroyResponse = {
@@ -1232,6 +1278,7 @@ export type EcdsaPresignClientDestroyResponse = {
 
 export type EcdsaPresignClientUseBinding = {
   materialHandle: string;
+  poolIdentity: EcdsaClientPresignPoolIdentity;
   requestBinding: string;
   reservationId: string;
 };
@@ -1251,14 +1298,32 @@ export type EcdsaPresignClientLifecycleResponse = {
   diagnostics?: WorkerResponseDiagnostics;
 };
 
+export type EcdsaPresignClientListAvailableRequest = {
+  poolIdentity: EcdsaClientPresignPoolIdentity;
+};
+
+export type EcdsaPresignClientListAvailableResponse = {
+  type: typeof EcdsaPresignClientResponseType.ListAvailableSuccess;
+  payload: Array<{
+    presignatureId: string;
+    materialHandle: string;
+    bigR33: ArrayBuffer;
+    createdAtMs: number;
+    expiresAtMs: number;
+  }>;
+  diagnostics?: WorkerResponseDiagnostics;
+};
+
 export type EcdsaOnlineClientComputeSignatureShareRequest = {
   materialHandle: string;
+  poolIdentity: EcdsaClientPresignPoolIdentity;
   requestBinding: string;
   reservationId: string;
   groupPublicKey33: ArrayBuffer;
   expectedPresignBigR33: ArrayBuffer;
   digest32: ArrayBuffer;
-  entropy32: ArrayBuffer;
+  clientRerandomizationContribution32: ArrayBuffer;
+  signingWorkerRerandomizationContribution32: ArrayBuffer;
 };
 
 export type EcdsaOnlineClientComputeSignatureShareResponse = {
@@ -1267,7 +1332,103 @@ export type EcdsaOnlineClientComputeSignatureShareResponse = {
   diagnostics?: WorkerResponseDiagnostics;
 };
 
+export type EcdsaOnlineClientRetirePoolRequest = {
+  poolIdentity: EcdsaClientPresignPoolIdentity;
+  reason: 'key_epoch_retired' | 'activation_epoch_retired';
+};
+
+export type EcdsaOnlineClientRetirePoolResponse = {
+  type: typeof EcdsaOnlineClientResponseType.RetirePoolSuccess;
+  payload: {
+    kind: 'ecdsa_client_presignature_pool_retired_v1';
+    poolIdentity: EcdsaClientPresignPoolIdentity;
+    reason: EcdsaOnlineClientRetirePoolRequest['reason'];
+    retiredCount: number;
+  };
+  diagnostics?: WorkerResponseDiagnostics;
+};
+
 type EcdsaDerivationClientCustomOperationMap = {
+  [EcdsaDerivationClientCustomRequestType.CreateRouterAbEcdsaRegistrationCeremony]: {
+    payload: CreateRouterAbEcdsaRegistrationCeremonyRequestV1;
+    result: {
+      type: typeof EcdsaDerivationClientCustomResponseType.CreateRouterAbEcdsaRegistrationCeremonySuccess;
+      payload: CreateRouterAbEcdsaRegistrationCeremonyResultV1;
+      diagnostics?: WorkerResponseDiagnostics;
+    };
+  };
+  [EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaRegistrationClientProofs]: {
+    payload: VerifyRouterAbEcdsaRegistrationClientProofsRequestV1;
+    result: {
+      type: typeof EcdsaDerivationClientCustomResponseType.VerifyRouterAbEcdsaRegistrationClientProofsSuccess;
+      payload: VerifyRouterAbEcdsaRegistrationClientProofsResultV1;
+      diagnostics?: WorkerResponseDiagnostics;
+    };
+  };
+  [EcdsaDerivationClientCustomRequestType.FinalizeRouterAbEcdsaRegistrationActivation]: {
+    payload: FinalizeRouterAbEcdsaRegistrationActivationRequestV1;
+    result: {
+      type: typeof EcdsaDerivationClientCustomResponseType.FinalizeRouterAbEcdsaRegistrationActivationSuccess;
+      payload: FinalizeRouterAbEcdsaRegistrationActivationResultV1;
+      diagnostics?: WorkerResponseDiagnostics;
+    };
+  };
+  [EcdsaDerivationClientCustomRequestType.CloseRouterAbEcdsaRegistrationCeremony]: {
+    payload: CloseRouterAbEcdsaRegistrationCeremonyRequestV1;
+    result: {
+      type: typeof EcdsaDerivationClientCustomResponseType.CloseRouterAbEcdsaRegistrationCeremonySuccess;
+      payload: CloseRouterAbEcdsaRegistrationCeremonyResultV1;
+      diagnostics?: WorkerResponseDiagnostics;
+    };
+  };
+  [EcdsaDerivationClientCustomRequestType.CreateRouterAbEcdsaPostRegistrationCeremony]: {
+    payload: CreateRouterAbEcdsaPostRegistrationCeremonyRequestV1;
+    result: {
+      type: typeof EcdsaDerivationClientCustomResponseType.CreateRouterAbEcdsaPostRegistrationCeremonySuccess;
+      payload: CreateRouterAbEcdsaPostRegistrationCeremonyResultV1;
+      diagnostics?: WorkerResponseDiagnostics;
+    };
+  };
+  [EcdsaDerivationClientCustomRequestType.FinalizeRouterAbEcdsaExplicitExport]: {
+    payload: FinalizeRouterAbEcdsaExplicitExportRequestV1;
+    result: {
+      type: typeof EcdsaDerivationClientCustomResponseType.FinalizeRouterAbEcdsaExplicitExportSuccess;
+      payload: FinalizeRouterAbEcdsaExplicitExportResultV1;
+      diagnostics?: WorkerResponseDiagnostics;
+    };
+  };
+  [EcdsaDerivationClientCustomRequestType.CloseRouterAbEcdsaPostRegistrationCeremony]: {
+    payload: CloseRouterAbEcdsaPostRegistrationCeremonyRequestV1;
+    result: {
+      type: typeof EcdsaDerivationClientCustomResponseType.CloseRouterAbEcdsaPostRegistrationCeremonySuccess;
+      payload: CloseRouterAbEcdsaPostRegistrationCeremonyResultV1;
+      diagnostics?: WorkerResponseDiagnostics;
+    };
+  };
+  [EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaRecoveryClientProofs]: {
+    payload: VerifyRouterAbEcdsaRecoveryClientProofsRequestV1;
+    result: {
+      type: typeof EcdsaDerivationClientCustomResponseType.VerifyRouterAbEcdsaRecoveryClientProofsSuccess;
+      payload: VerifyRouterAbEcdsaRecoveryClientProofsResultV1;
+      diagnostics?: WorkerResponseDiagnostics;
+    };
+  };
+  [EcdsaDerivationClientCustomRequestType.FinalizeRouterAbEcdsaRecoveryActivation]: {
+    payload: FinalizeRouterAbEcdsaRecoveryActivationRequestV1;
+    result: {
+      type: typeof EcdsaDerivationClientCustomResponseType.FinalizeRouterAbEcdsaRecoveryActivationSuccess;
+      payload: FinalizeRouterAbEcdsaRecoveryActivationResultV1;
+      diagnostics?: WorkerResponseDiagnostics;
+    };
+  };
+  [EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaRefreshClientProofs]: {
+    payload: VerifyRouterAbEcdsaRefreshClientProofsRequestV1;
+    result: {
+      type: typeof EcdsaDerivationClientCustomResponseType.VerifyRouterAbEcdsaRefreshClientProofsSuccess;
+      payload: VerifyRouterAbEcdsaRefreshClientProofsResultV1;
+      diagnostics?: WorkerResponseDiagnostics;
+    };
+  };
   [EcdsaDerivationClientCustomRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap]: {
     payload: WasmPrepareThresholdEcdsaDerivationRoleLocalClientBootstrapRequest;
     result: {
@@ -1306,6 +1467,7 @@ export const EcdsaPresignClientRequestType = {
   Destroy: 71_004,
   Reserve: 71_005,
   Commit: 71_006,
+  ListAvailable: 71_007,
 } as const;
 
 export const EcdsaPresignClientResponseType = {
@@ -1316,6 +1478,7 @@ export const EcdsaPresignClientResponseType = {
   DestroySuccess: 71_104,
   ReserveSuccess: 71_105,
   CommitSuccess: 71_106,
+  ListAvailableSuccess: 71_107,
 } as const;
 
 export type EcdsaPresignClientOperationMap = {
@@ -1347,20 +1510,30 @@ export type EcdsaPresignClientOperationMap = {
     payload: EcdsaPresignClientUseBinding;
     result: EcdsaPresignClientLifecycleResponse;
   };
+  [EcdsaPresignClientRequestType.ListAvailable]: {
+    payload: EcdsaPresignClientListAvailableRequest;
+    result: EcdsaPresignClientListAvailableResponse;
+  };
 };
 
 export const EcdsaOnlineClientRequestType = {
   ComputeSignatureShare: 72_000,
+  RetirePool: 72_001,
 } as const;
 
 export const EcdsaOnlineClientResponseType = {
   ComputeSignatureShareSuccess: 72_100,
+  RetirePoolSuccess: 72_101,
 } as const;
 
 export type EcdsaOnlineClientOperationMap = {
   [EcdsaOnlineClientRequestType.ComputeSignatureShare]: {
     payload: EcdsaOnlineClientComputeSignatureShareRequest;
     result: EcdsaOnlineClientComputeSignatureShareResponse;
+  };
+  [EcdsaOnlineClientRequestType.RetirePool]: {
+    payload: EcdsaOnlineClientRetirePoolRequest;
+    result: EcdsaOnlineClientRetirePoolResponse;
   };
 };
 
@@ -1388,6 +1561,16 @@ export type DerivationSignerWorkerOperationMap = {
 };
 
 export type EcdsaDerivationRoleLocalMaterialOperationType =
+  | typeof EcdsaDerivationClientCustomRequestType.CreateRouterAbEcdsaRegistrationCeremony
+  | typeof EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaRegistrationClientProofs
+  | typeof EcdsaDerivationClientCustomRequestType.FinalizeRouterAbEcdsaRegistrationActivation
+  | typeof EcdsaDerivationClientCustomRequestType.CloseRouterAbEcdsaRegistrationCeremony
+  | typeof EcdsaDerivationClientCustomRequestType.CreateRouterAbEcdsaPostRegistrationCeremony
+  | typeof EcdsaDerivationClientCustomRequestType.FinalizeRouterAbEcdsaExplicitExport
+  | typeof EcdsaDerivationClientCustomRequestType.CloseRouterAbEcdsaPostRegistrationCeremony
+  | typeof EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaRecoveryClientProofs
+  | typeof EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaRefreshClientProofs
+  | typeof EcdsaDerivationClientCustomRequestType.FinalizeRouterAbEcdsaRecoveryActivation
   | typeof EcdsaDerivationClientCustomRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap
   | typeof EcdsaDerivationClientCustomRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap
   | typeof EcdsaDerivationClientCustomRequestType.BuildThresholdEcdsaDerivationRoleLocalExportArtifact

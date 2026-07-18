@@ -3,7 +3,7 @@
 
 export type SignerCommandVersion = "v1";
 
-export type EcdsaBootstrapSecretSource = { "kind": "webauthn_prf_first", prfFirstB64u: string, rpId: string, credentialIdB64u: string, };
+export type EcdsaBootstrapSecretSource = { "kind": "threshold_prf_x_client_base", xClientBaseB64u: string, };
 
 export type EcdsaClientBootstrapAlgorithm = "router_ab_ecdsa_derivation_secp256k1_role_local_v1";
 
@@ -37,7 +37,7 @@ export type PrepareEcdsaClientBootstrapOutput = { pendingStateBlob: EcdsaRoleLoc
 
 export type PrepareEcdsaClientBootstrapErrorCode = "unsupported_secret_source" | "invalid_secret_source" | "invalid_context" | "invalid_threshold_parameters" | "invalid_public_material" | "crypto_failure";
 
-export type RelayerPublicIdentity = { relayerKeyId: string, relayerPublicKey33B64u: string, groupPublicKey33B64u: string, ethereumAddress: string, };
+export type RelayerPublicIdentity = { relayerKeyId: string, relayerPublicKey33B64u: string, groupPublicKey33B64u: string, ethereumAddress: string, relayerShareRetryCounter: number, };
 
 export type FinalizeEcdsaClientBootstrapCommandKind = "finalize_ecdsa_client_bootstrap_v1";
 

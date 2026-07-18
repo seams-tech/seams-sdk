@@ -8,7 +8,7 @@ import {
   readD1StagingJsonFile,
   type D1StagingCommandResult,
   type D1StagingCommandRunner,
-  validD1RouterApiStagingConfig,
+  validD1GatewayStagingConfig,
   writeD1StagingTempFile,
 } from './helpers/d1StagingScriptFixtures';
 
@@ -25,12 +25,12 @@ type KekCheckPlan = {
 
 type KekCheckModule = {
   readonly buildD1StagingKekCheckPlan: (input: {
-    readonly routerApiConfigPath: string;
+    readonly gatewayConfigPath: string;
     readonly generatedAtIso?: string;
     readonly mode?: 'dry-run' | 'remote';
   }) => KekCheckPlan;
   readonly runD1StagingKekCheck: (input: {
-    readonly routerApiConfigPath: string;
+    readonly gatewayConfigPath: string;
     readonly generatedAtIso?: string;
     readonly manifestPath: string;
     readonly mode?: 'dry-run' | 'remote';
@@ -44,12 +44,12 @@ type KekCheckModule = {
 };
 
 const kekCheckModule = loadD1StagingScriptModule<KekCheckModule>('d1-staging-kek-check.mjs');
-const kekRouterApiConfigPath = writeD1StagingTempFile(
-  'seams-d1-kek-check-', 'wrangler.d1-staging-router-api.toml', validD1RouterApiStagingConfig(),
+const kekGatewayConfigPath = writeD1StagingTempFile(
+  'seams-d1-kek-check-', 'wrangler.d1-staging-gateway.toml', validD1GatewayStagingConfig(),
 );
 const kekCheckInput = {
   generatedAtIso: D1_STAGING_GENERATED_AT_ISO,
-  routerApiConfigPath: kekRouterApiConfigPath,
+  gatewayConfigPath: kekGatewayConfigPath,
 };
 
 function listedSecretRunner(command: string): D1StagingCommandResult {

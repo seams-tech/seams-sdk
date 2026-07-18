@@ -80,7 +80,7 @@ const platformBoundaryFiles = guardBoundaryFiles([
   },
 ]);
 
-const rawHssBoundaryFiles = guardBoundaryFiles([]);
+const rawLegacyShareBoundaryFiles = guardBoundaryFiles([]);
 const rawDbRecordBoundaryFiles = guardBoundaryFiles([]);
 const ecdsaDerivationClientWorkerConstructionBoundaryFiles = guardBoundaryFiles([]);
 const secretSourceCastBoundaryFiles = new Set([
@@ -117,7 +117,7 @@ const platformLeakagePatterns = [
   /\bcrypto\.subtle\b/,
 ];
 
-const rawHssPatterns = [
+const rawLegacySharePatterns = [
   /\bclientShare32B64u\b/,
   /\bclientAdditiveShare32B64u\b/,
   /\bmappedPrivateShare32B64u\b/,
@@ -275,11 +275,11 @@ function collectPlatformApiViolations() {
   );
 }
 
-function collectRawHssViolations() {
+function collectRawLegacyShareViolations() {
   return collectPatternViolations(
     listTypeScriptFilesInRoots(activeCoreSigningRoots),
-    rawHssBoundaryFiles,
-    rawHssPatterns,
+    rawLegacyShareBoundaryFiles,
+    rawLegacySharePatterns,
     'raw Router A/B ECDSA derivation share field in active core signing root',
   );
 }
@@ -493,7 +493,7 @@ function collectLifecycleWorkerResultViolations() {
 function main() {
   const violations = [
     ...collectPlatformApiViolations(),
-    ...collectRawHssViolations(),
+    ...collectRawLegacyShareViolations(),
     ...collectClientRootShareViolations(),
     ...collectSecretSourceCastViolations(),
     ...collectRuntimePortsAggregateViolations(),

@@ -343,47 +343,6 @@
   color: var(--w3a-colors-textButton, white);
 }
 
-.seams-passkey-registration-btn {
-  position: relative;
-  outline: none;
-  user-select: none;
-}
-
-.seams-passkey-registration-btn.is-activation-mounting {
-  cursor: progress;
-  opacity: 0.85;
-}
-
-.seams-passkey-registration-btn > span {
-  pointer-events: none;
-}
-
-.seams-passkey-registration-btn[data-seams-registration-button-hovered='true'],
-.seams-passkey-registration-btn[data-seams-registration-button-focused='true'] {
-  background: var(--w3a-colors-buttonHoverBackground, var(--w3a-colors-primaryHover, #2563eb));
-  color: var(--w3a-colors-textButton, white);
-}
-
-.seams-passkey-registration-btn[data-seams-registration-button-focused='true'] {
-  box-shadow:
-    0 0 0 3px color-mix(in srgb, var(--w3a-colors-buttonBackground, #3b82f6), transparent 70%),
-    var(--w3a-shadows-sm);
-}
-
-.seams-passkey-registration-btn[data-seams-registration-button-pressed='true'] {
-  background: color-mix(
-    in srgb,
-    var(--w3a-colors-buttonHoverBackground, var(--w3a-colors-primaryHover, #2563eb)),
-    black 8%
-  );
-}
-
-.seams-passkey-registration-btn[data-seams-registration-button-busy='true'],
-.seams-passkey-registration-btn[data-seams-registration-button-disabled='true'] {
-  cursor: progress;
-  opacity: 0.85;
-}
-
 /* secondary accent (social/SSO) button: themes tint it via the
    secondaryButton* tokens; defaults preserve the plain surface look */
 .w3a-auth-method-btn-secondary {
@@ -433,30 +392,14 @@
   .w3a-auth-method-arrow
   > .HoverArrow
   .HoverArrow__linePath,
-.w3a-auth-method-btn:focus-visible .w3a-auth-method-arrow > .HoverArrow .HoverArrow__linePath,
-.seams-passkey-registration-btn[data-seams-registration-button-hovered='true']
-  .w3a-auth-method-arrow
-  > .HoverArrow
-  .HoverArrow__linePath,
-.seams-passkey-registration-btn[data-seams-registration-button-focused='true']
-  .w3a-auth-method-arrow
-  > .HoverArrow
-  .HoverArrow__linePath {
+.w3a-auth-method-btn:focus-visible .w3a-auth-method-arrow > .HoverArrow .HoverArrow__linePath {
   opacity: 1;
   filter: none;
   transform: scaleX(1);
 }
 
 .w3a-auth-method-btn:hover:not(:disabled) .w3a-auth-method-arrow > .HoverArrow .HoverArrow__tipPath,
-.w3a-auth-method-btn:focus-visible .w3a-auth-method-arrow > .HoverArrow .HoverArrow__tipPath,
-.seams-passkey-registration-btn[data-seams-registration-button-hovered='true']
-  .w3a-auth-method-arrow
-  > .HoverArrow
-  .HoverArrow__tipPath,
-.seams-passkey-registration-btn[data-seams-registration-button-focused='true']
-  .w3a-auth-method-arrow
-  > .HoverArrow
-  .HoverArrow__tipPath {
+.w3a-auth-method-btn:focus-visible .w3a-auth-method-arrow > .HoverArrow .HoverArrow__tipPath {
   transform: translateX(3px);
 }
 

@@ -1,19 +1,38 @@
 import type { RuntimeWalletHostRoute } from './requestRouter';
 
 export type WalletHostRuntimeModule = typeof import('./runtime');
+export type WalletHostRegistrationPreparationModule =
+  typeof import('./registrationPreparationPreload');
+type WalletHostRuntimeKind = RuntimeWalletHostRoute['kind'];
 
-const runtimePromises: Partial<Record<RuntimeWalletHostRoute['kind'], Promise<WalletHostRuntimeModule>>> =
+const runtimePromises: Partial<Record<WalletHostRuntimeKind, Promise<WalletHostRuntimeModule>>> =
   {};
+let registrationPreparationPromise: Promise<WalletHostRegistrationPreparationModule> | null = null;
 
 export function loadWalletHostRuntime(
   route: RuntimeWalletHostRoute,
 ): Promise<WalletHostRuntimeModule> {
-  runtimePromises[route.kind] ??= loadRuntimeForRoute(route);
+  runtimePromises[route.kind] ??= loadRuntimeForKind(route.kind);
   return runtimePromises[route.kind]!;
 }
 
-function loadRuntimeForRoute(route: RuntimeWalletHostRoute): Promise<WalletHostRuntimeModule> {
-  switch (route.kind) {
+export async function preloadWalletHostRegistrationSurface(): Promise<void> {
+  runtimePromises.near ??= loadRuntimeForKind('near');
+  await Promise.all([runtimePromises.near, preloadRegistrationPreparation()]);
+}
+
+export function loadWalletHostRegistrationPreparation(): Promise<WalletHostRegistrationPreparationModule> {
+  registrationPreparationPromise ??= import('./registrationPreparationPreload');
+  return registrationPreparationPromise;
+}
+
+async function preloadRegistrationPreparation(): Promise<void> {
+  const registrationPreparation = await loadWalletHostRegistrationPreparation();
+  await registrationPreparation.preloadWalletHostRegistrationPreparation();
+}
+
+function loadRuntimeForKind(kind: WalletHostRuntimeKind): Promise<WalletHostRuntimeModule> {
+  switch (kind) {
     case 'auth':
       return import('./runtime-auth');
     case 'near':
@@ -31,7 +50,7 @@ function loadRuntimeForRoute(route: RuntimeWalletHostRoute): Promise<WalletHostR
     case 'preferences':
       return import('./runtime-preferences');
   }
-  return assertNever(route);
+  return assertNever(kind);
 }
 
 function assertNever(value: never): never {

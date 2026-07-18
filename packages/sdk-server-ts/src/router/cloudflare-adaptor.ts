@@ -75,13 +75,13 @@ export {
 export { InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationAdapter } from './routerAbEd25519YaoRegistrationIntentAuthorization';
 export {
   buildRouterAbEd25519YaoProductAdmissionRequestV1,
-  createRouterAbEd25519YaoProductRegistrationCompositionV1,
+  createRouterAbEd25519YaoProductRegistrationStatefulCompositionV1,
+  createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV1,
   createRouterAbEd25519YaoProductRegistrationStateV1,
   createRouterAbEd25519YaoProductRegistrationRuntimeV1,
 } from './routerAbEd25519YaoProductRegistration';
 export {
   RouterAbEd25519YaoHttpRegistrationBackend,
-  RouterAbEd25519YaoHttpRegistrationBackendStateV1,
   createRouterAbEd25519YaoHttpRegistrationBackendFromEnv,
 } from './routerAbEd25519YaoHttpRegistrationBackend';
 export type {

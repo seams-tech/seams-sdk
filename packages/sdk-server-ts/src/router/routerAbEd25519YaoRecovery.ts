@@ -179,13 +179,17 @@ export type RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallResultV1 =
 export interface RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallerV1 {
   installRegistrationFinalizeCapability(
     input: RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallationV1,
-  ): RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallResultV1;
+  ):
+    | Promise<RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallResultV1>
+    | RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallResultV1;
 }
 
 export interface RouterAbEd25519YaoPersistedActiveCapabilityInstallerV1 {
   installPersistedActiveCapability(
     input: WalletEd25519YaoActiveCapabilityRecord,
-  ): RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallResultV1;
+  ):
+    | Promise<RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallResultV1>
+    | RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallResultV1;
 }
 
 export type RouterAbEd25519YaoCapabilityPersistenceResultV1 =
@@ -267,7 +271,9 @@ export type RouterAbEd25519YaoWarmRecoveryBootstrapV1 = {
 export interface RouterAbEd25519YaoActiveCapabilityResolverV1 {
   resolveActiveCapability(
     input: RouterAbEd25519YaoActiveCapabilityLookupV1,
-  ): RouterAbEd25519YaoActiveCapabilityLookupResultV1;
+  ):
+    | Promise<RouterAbEd25519YaoActiveCapabilityLookupResultV1>
+    | RouterAbEd25519YaoActiveCapabilityLookupResultV1;
 }
 
 export interface RouterAbEd25519YaoRecoveryRuntimePortV1
@@ -1073,19 +1079,25 @@ class RouterAbEd25519YaoRecoveryRuntimePort implements RouterAbEd25519YaoRecover
 
   installRegistrationFinalizeCapability(
     input: RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallationV1,
-  ): RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallResultV1 {
+  ):
+    | Promise<RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallResultV1>
+    | RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallResultV1 {
     return this.service.installRegistrationFinalizeCapability(input);
   }
 
   installPersistedActiveCapability(
     input: WalletEd25519YaoActiveCapabilityRecord,
-  ): RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallResultV1 {
+  ):
+    | Promise<RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallResultV1>
+    | RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallResultV1 {
     return this.service.installPersistedActiveCapability(input);
   }
 
   resolveActiveCapability(
     input: RouterAbEd25519YaoActiveCapabilityLookupV1,
-  ): RouterAbEd25519YaoActiveCapabilityLookupResultV1 {
+  ):
+    | Promise<RouterAbEd25519YaoActiveCapabilityLookupResultV1>
+    | RouterAbEd25519YaoActiveCapabilityLookupResultV1 {
     return this.service.resolveActiveCapability(input);
   }
 }
@@ -1875,7 +1887,7 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
       body: parsed.value,
     });
     if (!authorization.ok) return routeFailureResponse(authorization);
-    const activeCapability = this.capabilities.resolveActiveCapability({
+    const activeCapability = await this.capabilities.resolveActiveCapability({
       kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
       walletId: parsed.value.walletId,
       nearAccountId: parsed.value.nearAccountId,

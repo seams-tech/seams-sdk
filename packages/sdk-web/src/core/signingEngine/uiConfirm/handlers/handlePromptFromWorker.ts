@@ -189,6 +189,7 @@ const HANDLERS: Partial<Record<UserConfirmationType, Handler>> = {
       confirmationConfig,
       transactionSummary,
       theme,
+      surface: { kind: 'mount_new' },
     });
   },
   [UserConfirmationType.LINK_DEVICE]: async ({
@@ -207,6 +208,7 @@ const HANDLERS: Partial<Record<UserConfirmationType, Handler>> = {
       confirmationConfig,
       transactionSummary,
       theme,
+      surface: { kind: 'mount_new' },
     });
   },
   [UserConfirmationType.SIGN_TRANSACTION]: async ({

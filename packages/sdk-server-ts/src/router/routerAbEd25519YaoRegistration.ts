@@ -181,7 +181,9 @@ export type RouterAbEd25519YaoActivationConsumptionResultV1 =
 export interface RouterAbEd25519YaoActivationConsumerV1 {
   consumeActivated(
     request: RouterAbEd25519YaoActivationConsumptionRequestV1,
-  ): RouterAbEd25519YaoActivationConsumptionResultV1;
+  ):
+    | Promise<RouterAbEd25519YaoActivationConsumptionResultV1>
+    | RouterAbEd25519YaoActivationConsumptionResultV1;
 }
 
 function registrationSessionKey(receipt: RouterAbEd25519YaoRegistrationAdmissionReceiptV1): string {

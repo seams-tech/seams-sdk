@@ -330,6 +330,14 @@ function applyWalletBudgetStatusToAdvisory(args: {
   if (!budgetStatus) return args.localAdvisory;
   if (budgetStatus.status === 'active') {
     const budgetExpiresAtMs = Math.floor(Number(budgetStatus.expiresAtMs) || 0);
+    if (args.localAdvisory?.kind === 'runtime_material') {
+      return {
+        kind: 'runtime_material',
+        thresholdSessionId: args.sessionId,
+        remainingUses: Math.max(0, Math.floor(Number(budgetStatus.remainingUses) || 0)),
+        expiresAtMs: budgetExpiresAtMs > 0 ? budgetExpiresAtMs : args.localAdvisory.expiresAtMs,
+      };
+    }
     if (args.localAdvisory?.kind === 'durable_policy') {
       return {
         kind: 'durable_policy',
@@ -365,6 +373,18 @@ function applyWalletBudgetStatusToAdvisory(args: {
     };
   }
   return args.localAdvisory;
+}
+
+function runtimeMaterialAdvisory(args: {
+  record: ThresholdEcdsaSessionRecord;
+  thresholdSessionId: string;
+}): AvailableLaneStateAdvisory {
+  return {
+    kind: 'runtime_material',
+    thresholdSessionId: args.thresholdSessionId,
+    remainingUses: Math.max(0, Math.floor(Number(args.record.remainingUses) || 0)),
+    expiresAtMs: Math.max(0, Math.floor(Number(args.record.expiresAtMs) || 0)),
+  };
 }
 
 type PersistedBudgetStatusAuthParseResult =
@@ -879,15 +899,10 @@ export async function readPersistedAvailableSigningLanesForTargets(
             } else {
               const materialState = classifyRouterAbEcdsaDerivationPersistedSigningRecord(ecdsaRecord);
               if (materialState.kind === 'runtime_validated') {
-                const status = await deps.statusReader
-                  .getWarmSessionStatus({ sessionId })
-                  .catch(() => null);
-                localAdvisory = status
-                  ? warmStatusToAvailableLaneStateAdvisory({
-                      thresholdSessionId: sessionId,
-                      status,
-                    })
-                  : null;
+                localAdvisory = runtimeMaterialAdvisory({
+                  record: ecdsaRecord,
+                  thresholdSessionId: sessionId,
+                });
               } else if (materialState.kind === 'restore_available') {
                 localAdvisory = durableRecordPolicyAdvisory({
                   thresholdSessionId: sessionId,

@@ -1,4 +1,5 @@
 import {
+  equalEcdsaClientPresignPoolIdentity,
   FIXED_ECDSA_PRESIGN_PROTOCOL_ID,
   type EcdsaClientPresignPoolIdentity,
 } from '../ecdsaPresignPoolIdentity';
@@ -78,7 +79,16 @@ type TombstoneReason =
   | 'binding_rejected'
   | 'material_expired'
   | 'persistence_failure'
-  | 'generation_aborted';
+  | 'generation_aborted'
+  | 'crash_recovery'
+  | 'ambiguous_delivery'
+  | 'key_epoch_retired'
+  | 'activation_epoch_retired';
+
+export type ClientPresignPoolRetirementReason = Extract<
+  TombstoneReason,
+  'key_epoch_retired' | 'activation_epoch_retired'
+>;
 
 type TombstonePresignRecord = PresignRecordHeader & {
   readonly state: 'tombstone';
@@ -102,6 +112,14 @@ export type DurableClientPresignMaterial = {
   readonly sigmaShare32: Uint8Array;
 };
 
+export type DurableClientPresignatureRef = {
+  readonly presignatureId: string;
+  readonly materialHandle: string;
+  readonly bigR33: Uint8Array;
+  readonly createdAtMs: number;
+  readonly expiresAtMs: number;
+};
+
 export type StoreClientPresignMaterialInput = DurableClientPresignMaterial & {
   readonly materialHandle: string;
   readonly presignSessionId: string;
@@ -114,6 +132,7 @@ export type StoreClientPresignMaterialInput = DurableClientPresignMaterial & {
 export type AdmitClientPresignMaterialInput = {
   readonly materialHandle: string;
   readonly expectedPresignatureId: string;
+  readonly poolIdentity: EcdsaClientPresignPoolIdentity;
   readonly nowMs: number;
 };
 
@@ -132,6 +151,7 @@ export type AdmitClientPresignMaterialResult =
 
 export type TakeClientPresignMaterialInput = {
   readonly materialHandle: string;
+  readonly poolIdentity: EcdsaClientPresignPoolIdentity;
   readonly requestBinding: string;
   readonly reservationId: string;
   readonly expectedBigR33: Uint8Array;
@@ -141,6 +161,7 @@ export type TakeClientPresignMaterialInput = {
 
 export type ClientPresignUseBinding = {
   readonly materialHandle: string;
+  readonly poolIdentity: EcdsaClientPresignPoolIdentity;
   readonly requestBinding: string;
   readonly reservationId: string;
   readonly nowMs: number;
@@ -204,16 +225,10 @@ function requirePoolIdentity(
     poolKey: requireNonEmpty(value.poolKey, 'poolIdentity.poolKey'),
     walletKeyId: requireNonEmpty(value.walletKeyId, 'poolIdentity.walletKeyId'),
     walletId: requireNonEmpty(value.walletId, 'poolIdentity.walletId'),
-    signingScopeB64u: requireNonEmpty(
-      value.signingScopeB64u,
-      'poolIdentity.signingScopeB64u',
-    ),
+    signingScopeB64u: requireNonEmpty(value.signingScopeB64u, 'poolIdentity.signingScopeB64u'),
     pairRole: 'client',
     keyEpoch: requireNonEmpty(value.keyEpoch, 'poolIdentity.keyEpoch'),
-    activationEpoch: requireNonEmpty(
-      value.activationEpoch,
-      'poolIdentity.activationEpoch',
-    ),
+    activationEpoch: requireNonEmpty(value.activationEpoch, 'poolIdentity.activationEpoch'),
     protocolId: FIXED_ECDSA_PRESIGN_PROTOCOL_ID,
   };
 }
@@ -283,7 +298,8 @@ function deleteMaterialDatabase(dbName: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.deleteDatabase(dbName);
     request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error || new Error('Failed to delete presign IndexedDB'));
+    request.onerror = () =>
+      reject(request.error || new Error('Failed to delete presign IndexedDB'));
     request.onblocked = () => reject(new Error('Presign IndexedDB deletion is blocked'));
   });
 }
@@ -510,7 +526,11 @@ function parseRecord(raw: unknown): PresignRecord | null {
       raw.reason === 'binding_rejected' ||
       raw.reason === 'material_expired' ||
       raw.reason === 'persistence_failure' ||
-      raw.reason === 'generation_aborted')
+      raw.reason === 'generation_aborted' ||
+      raw.reason === 'crash_recovery' ||
+      raw.reason === 'ambiguous_delivery' ||
+      raw.reason === 'key_epoch_retired' ||
+      raw.reason === 'activation_epoch_retired')
   ) {
     return {
       ...header,
@@ -581,11 +601,10 @@ export class IndexedDbClientPresignMaterialStore {
     const existing = await this.readSealingKey(db);
     if (existing) return existing;
 
-    const key = await crypto.subtle.generateKey(
-      { name: 'AES-GCM', length: 256 },
-      false,
-      ['encrypt', 'decrypt'],
-    );
+    const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, [
+      'encrypt',
+      'decrypt',
+    ]);
     const write = db.transaction(KEY_STORE, 'readwrite');
     write.objectStore(KEY_STORE).add({ id: PRIMARY_KEY_ID, key } satisfies StoredSealingKey);
     try {
@@ -658,14 +677,13 @@ export class IndexedDbClientPresignMaterialStore {
     }
   }
 
-  async admit(
-    input: AdmitClientPresignMaterialInput,
-  ): Promise<AdmitClientPresignMaterialResult> {
+  async admit(input: AdmitClientPresignMaterialInput): Promise<AdmitClientPresignMaterialResult> {
     const materialHandle = requireNonEmpty(input.materialHandle, 'materialHandle');
     const expectedPresignatureId = requireNonEmpty(
       input.expectedPresignatureId,
       'expectedPresignatureId',
     );
+    const poolIdentity = requirePoolIdentity(input.poolIdentity);
     const nowMs = requireTimestamp(input.nowMs, 'nowMs');
     let db: IDBDatabase;
     try {
@@ -684,6 +702,11 @@ export class IndexedDbClientPresignMaterialStore {
       if (record.state === 'tombstone') {
         await transactionResult(transaction);
         return { ok: false, code: 'already_consumed' };
+      }
+      if (!equalEcdsaClientPresignPoolIdentity(record.poolIdentity, poolIdentity)) {
+        store.put(tombstone(record, 'binding_rejected', nowMs));
+        await transactionResult(transaction);
+        return { ok: false, code: 'binding_rejected' };
       }
       if (record.state === 'available') {
         if (record.presignatureId !== expectedPresignatureId) {
@@ -731,8 +754,13 @@ export class IndexedDbClientPresignMaterialStore {
     }
   }
 
-  async destroy(materialHandleInput: string, nowMsInput: number): Promise<boolean> {
+  async destroy(
+    materialHandleInput: string,
+    poolIdentityInput: EcdsaClientPresignPoolIdentity,
+    nowMsInput: number,
+  ): Promise<boolean> {
     const materialHandle = requireNonEmpty(materialHandleInput, 'materialHandle');
+    const poolIdentity = requirePoolIdentity(poolIdentityInput);
     const nowMs = requireTimestamp(nowMsInput, 'nowMs');
     let db: IDBDatabase;
     try {
@@ -752,6 +780,11 @@ export class IndexedDbClientPresignMaterialStore {
         await transactionResult(transaction);
         return true;
       }
+      if (!equalEcdsaClientPresignPoolIdentity(record.poolIdentity, poolIdentity)) {
+        store.put(tombstone(record, 'binding_rejected', nowMs));
+        await transactionResult(transaction);
+        return false;
+      }
       store.put(tombstone(record, 'generation_aborted', nowMs));
       await transactionResult(transaction);
       return true;
@@ -763,10 +796,9 @@ export class IndexedDbClientPresignMaterialStore {
     }
   }
 
-  async reserve(
-    input: ReserveClientPresignMaterialInput,
-  ): Promise<ClientPresignLifecycleResult> {
+  async reserve(input: ReserveClientPresignMaterialInput): Promise<ClientPresignLifecycleResult> {
     const materialHandle = requireNonEmpty(input.materialHandle, 'materialHandle');
+    const poolIdentity = requirePoolIdentity(input.poolIdentity);
     const requestBinding = requireNonEmpty(input.requestBinding, 'requestBinding');
     const reservationId = requireNonEmpty(input.reservationId, 'reservationId');
     const nowMs = requireTimestamp(input.nowMs, 'nowMs');
@@ -788,6 +820,11 @@ export class IndexedDbClientPresignMaterialStore {
       if (record.state !== 'available') {
         await transactionResult(transaction);
         return { ok: false, code: 'invalid_state' };
+      }
+      if (!equalEcdsaClientPresignPoolIdentity(record.poolIdentity, poolIdentity)) {
+        store.put(tombstone(record, 'binding_rejected', nowMs));
+        await transactionResult(transaction);
+        return { ok: false, code: 'binding_rejected' };
       }
       if (nowMs >= record.expiresAtMs || leaseExpiresAtMs > record.expiresAtMs) {
         store.put(tombstone(record, 'material_expired', nowMs));
@@ -832,6 +869,7 @@ export class IndexedDbClientPresignMaterialStore {
 
   async commit(input: ClientPresignUseBinding): Promise<ClientPresignLifecycleResult> {
     const materialHandle = requireNonEmpty(input.materialHandle, 'materialHandle');
+    const poolIdentity = requirePoolIdentity(input.poolIdentity);
     const requestBinding = requireNonEmpty(input.requestBinding, 'requestBinding');
     const reservationId = requireNonEmpty(input.reservationId, 'reservationId');
     const nowMs = requireTimestamp(input.nowMs, 'nowMs');
@@ -854,7 +892,9 @@ export class IndexedDbClientPresignMaterialStore {
         return { ok: false, code: 'invalid_state' };
       }
       const bindingMatches =
-        record.requestBinding === requestBinding && record.reservationId === reservationId;
+        equalEcdsaClientPresignPoolIdentity(record.poolIdentity, poolIdentity) &&
+        record.requestBinding === requestBinding &&
+        record.reservationId === reservationId;
       if (!bindingMatches) {
         store.put(tombstone(record, 'binding_rejected', nowMs));
         await transactionResult(transaction);
@@ -901,6 +941,7 @@ export class IndexedDbClientPresignMaterialStore {
     input: TakeClientPresignMaterialInput,
   ): Promise<TakeClientPresignMaterialResult> {
     const materialHandle = requireNonEmpty(input.materialHandle, 'materialHandle');
+    const poolIdentity = requirePoolIdentity(input.poolIdentity);
     const requestBinding = requireNonEmpty(input.requestBinding, 'requestBinding');
     const reservationId = requireNonEmpty(input.reservationId, 'reservationId');
     const expectedBigR33 = requireBytes(input.expectedBigR33, BIG_R_SIZE, 'expectedBigR33');
@@ -938,6 +979,7 @@ export class IndexedDbClientPresignMaterialStore {
       const storedBigR33 = new Uint8Array(record.bigR33);
       const storedGroupPublicKey33 = new Uint8Array(record.groupPublicKey33);
       const bindingMatches =
+        equalEcdsaClientPresignPoolIdentity(record.poolIdentity, poolIdentity) &&
         record.requestBinding === requestBinding &&
         record.reservationId === reservationId &&
         equalBytes(storedBigR33, expectedBigR33) &&
@@ -977,6 +1019,95 @@ export class IndexedDbClientPresignMaterialStore {
         transaction.abort();
       } catch {}
       return { ok: false, code: 'persistence_failure' };
+    }
+  }
+
+  async listAvailable(
+    poolIdentityInput: EcdsaClientPresignPoolIdentity,
+    nowMsInput: number,
+  ): Promise<DurableClientPresignatureRef[]> {
+    const poolIdentity = requirePoolIdentity(poolIdentityInput);
+    const nowMs = requireTimestamp(nowMsInput, 'nowMs');
+    const db = await this.database();
+    const transaction = db.transaction(RECORD_STORE, 'readwrite');
+    const store = transaction.objectStore(RECORD_STORE);
+    const refs: DurableClientPresignatureRef[] = [];
+    try {
+      const rawRecords = await requestResult(store.getAll());
+      for (const raw of rawRecords) {
+        const record = parseRecord(raw);
+        if (!record || !equalEcdsaClientPresignPoolIdentity(record.poolIdentity, poolIdentity)) {
+          continue;
+        }
+        if (record.state === 'available') {
+          if (nowMs >= record.expiresAtMs) {
+            store.put(tombstone(record, 'material_expired', nowMs));
+            continue;
+          }
+          refs.push({
+            presignatureId: record.presignatureId,
+            materialHandle: record.materialHandle,
+            bigR33: new Uint8Array(record.bigR33),
+            createdAtMs: record.createdAtMs,
+            expiresAtMs: record.expiresAtMs,
+          });
+          continue;
+        }
+        if (record.state === 'pending_admission' && nowMs >= record.expiresAtMs) {
+          store.put(tombstone(record, 'material_expired', nowMs));
+          continue;
+        }
+        if (record.state === 'reserved' && nowMs >= record.leaseExpiresAtMs) {
+          store.put(tombstone(record, 'crash_recovery', nowMs));
+          continue;
+        }
+        if (record.state === 'committed_use' && nowMs >= record.leaseExpiresAtMs) {
+          store.put(tombstone(record, 'ambiguous_delivery', nowMs));
+        }
+      }
+      await transactionResult(transaction);
+      refs.sort((left, right) => left.createdAtMs - right.createdAtMs);
+      return refs;
+    } catch (error: unknown) {
+      try {
+        transaction.abort();
+      } catch {}
+      throw error;
+    }
+  }
+
+  async retirePool(
+    poolIdentityInput: EcdsaClientPresignPoolIdentity,
+    reason: ClientPresignPoolRetirementReason,
+    nowMsInput: number,
+  ): Promise<number> {
+    const poolIdentity = requirePoolIdentity(poolIdentityInput);
+    const nowMs = requireTimestamp(nowMsInput, 'nowMs');
+    const db = await this.database();
+    const transaction = db.transaction(RECORD_STORE, 'readwrite');
+    const store = transaction.objectStore(RECORD_STORE);
+    let retiredCount = 0;
+    try {
+      const rawRecords = await requestResult(store.getAll());
+      for (const raw of rawRecords) {
+        const record = parseRecord(raw);
+        if (
+          !record ||
+          record.state === 'tombstone' ||
+          !equalEcdsaClientPresignPoolIdentity(record.poolIdentity, poolIdentity)
+        ) {
+          continue;
+        }
+        store.put(tombstone(record, reason, nowMs));
+        retiredCount += 1;
+      }
+      await transactionResult(transaction);
+      return retiredCount;
+    } catch (error: unknown) {
+      try {
+        transaction.abort();
+      } catch {}
+      throw error;
     }
   }
 

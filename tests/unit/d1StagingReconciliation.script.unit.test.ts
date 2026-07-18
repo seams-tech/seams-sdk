@@ -30,13 +30,13 @@ type ReconciliationPlan = {
 type ReconciliationModule = {
   readonly buildD1StagingReconciliationPlan: (input: {
     readonly consoleConfigPath: string;
-    readonly routerApiConfigPath: string;
+    readonly gatewayConfigPath: string;
     readonly generatedAtIso?: string;
     readonly mode?: 'dry-run' | 'remote';
   }) => ReconciliationPlan;
   readonly runD1StagingReconciliation: (input: {
     readonly consoleConfigPath: string;
-    readonly routerApiConfigPath: string;
+    readonly gatewayConfigPath: string;
     readonly generatedAtIso?: string;
     readonly manifestPath: string;
     readonly mode?: 'dry-run' | 'remote';

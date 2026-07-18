@@ -1,4 +1,4 @@
-import { thresholdEcdsaDerivationRoleLocalExportShare } from '@/core/rpcClients/relayer/thresholdEcdsa';
+import { routerAbEcdsaExplicitExport } from '@/core/rpcClients/relayer/thresholdEcdsa';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
@@ -8,11 +8,11 @@ import {
   toEcdsaDerivationSigningRootVersion,
   toEcdsaDerivationThresholdKeyId,
 } from '../../session/identity/emailOtpEcdsaDerivationIdentity';
-import { buildEcdsaRoleLocalExportArtifactCommandWasm } from '../../threshold/crypto/ecdsaDerivationClientWasm';
 import {
-  parseGeneratedBuildEcdsaRoleLocalExportArtifactOutput,
-  toGeneratedBuildEcdsaRoleLocalExportArtifactCommand,
-} from '@/core/platform/signerCoreCommandAdapters';
+  closeRouterAbEcdsaPostRegistrationCeremonyWasm,
+  createRouterAbEcdsaPostRegistrationCeremonyWasm,
+  finalizeRouterAbEcdsaExplicitExportWasm,
+} from '../../threshold/crypto/ecdsaDerivationClientWasm';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import {
@@ -23,7 +23,8 @@ import type { ThresholdEcdsaExplicitKeyExportBootstrapResult } from '../../sessi
 import type { ReadyEcdsaSignerSession } from '../../session/identity/evmFamilyEcdsaIdentity';
 import { parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial } from '../../session/persistence/ecdsaRoleLocalRecords';
 import type { ReadyEcdsaExportLane } from './ecdsaExportMaterial';
-import type { EcdsaRoleLocalReadyRecord } from '@/core/platform';
+import type { EcdsaRoleLocalPublicFacts } from '@/core/platform';
+import type { FinalizeRouterAbEcdsaExplicitExportRequestV1 } from '../../workerManager/ecdsaClientWorkerChannels';
 
 const ECDSA_DERIVATION_EXPORT_CONFIRMATION_DIGEST_VERSION =
   'ecdsa-derivation:role-local:product-export-confirmation:v2';
@@ -41,7 +42,9 @@ type ExplicitKeyExportMaterial = ThresholdEcdsaExplicitKeyExportBootstrapResult[
 type ResolvedEcdsaDerivationExportMaterial = {
   walletSessionAuthority: EcdsaWalletSessionAuthority;
   relayerUrl: string;
-  readyRecord: EcdsaRoleLocalReadyRecord;
+  publicFacts: EcdsaRoleLocalPublicFacts;
+  roleLocalMaterial: FinalizeRouterAbEcdsaExplicitExportRequestV1['roleLocalMaterial'];
+  passkeyCredentialIdB64u: string;
   ecdsaThresholdKeyId: ReturnType<typeof toEcdsaDerivationThresholdKeyId>;
   signingRootId: string;
   signingRootVersion: string;
@@ -96,8 +99,7 @@ function assertExplicitKeyExportMaterialBinding(args: {
   walletSessionAuthority: EcdsaWalletSessionAuthority;
   walletSessionUserId: string;
 }): void {
-  const readyRecord = args.material.ecdsaRoleLocalReadyRecord;
-  const publicFacts = readyRecord.publicFacts;
+  const publicFacts = args.material.publicFacts;
   const checks: ReadonlyArray<readonly [field: string, actual: string, expected: string]> = [
     ['walletId', String(publicFacts.walletId), String(args.material.walletId)],
     [
@@ -188,17 +190,13 @@ async function executeEcdsaDerivationExport(
   privateKeyHex: string;
   ethereumAddress: string;
 }> {
-  const readyRecord = material.readyRecord;
-  if (readyRecord.authMethod.kind !== 'passkey') {
-    throw new Error('[SigningEngine][ecdsa-export] passkey export requires passkey ready material');
-  }
   const authorizedCredentialId = String(
     material.credential.rawId || material.credential.id || '',
   ).trim();
   if (!authorizedCredentialId) {
     throw new Error('[SigningEngine][ecdsa-export] passkey authorization credential is missing');
   }
-  if (authorizedCredentialId !== readyRecord.authMethod.credentialIdB64u) {
+  if (authorizedCredentialId !== material.passkeyCredentialIdB64u) {
     throw new Error(
       '[SigningEngine][ecdsa-export] passkey export authorization credential mismatch',
     );
@@ -214,10 +212,10 @@ async function executeEcdsaDerivationExport(
 
   const publicIdentity = {
     derivationClientSharePublicKey33B64u:
-      readyRecord.publicFacts.derivationClientSharePublicKey33B64u,
-    relayerPublicKey33B64u: readyRecord.publicFacts.relayerPublicKey33B64u,
-    groupPublicKey33B64u: readyRecord.publicFacts.groupPublicKey33B64u,
-    ethereumAddress: readyRecord.publicFacts.ethereumAddress,
+      material.publicFacts.derivationClientSharePublicKey33B64u,
+    relayerPublicKey33B64u: material.publicFacts.relayerPublicKey33B64u,
+    groupPublicKey33B64u: material.publicFacts.groupPublicKey33B64u,
+    ethereumAddress: material.publicFacts.ethereumAddress,
   };
   const exportRequestNonce32B64u = randomB64u32();
   const confirmationDigest32B64u = await digestB64u({
@@ -226,7 +224,7 @@ async function executeEcdsaDerivationExport(
     evmFamilySigningKeySlotId: material.walletSessionAuthority.evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId: material.ecdsaThresholdKeyId,
     relayerKeyId: material.walletSessionAuthority.relayerKeyId,
-    contextBinding32B64u: readyRecord.publicFacts.contextBinding32B64u,
+    contextBinding32B64u: material.publicFacts.contextBinding32B64u,
     publicIdentity,
     clientDeviceId: material.walletSessionAuthority.signingGrantId,
     clientSessionId: material.walletSessionAuthority.thresholdSessionId,
@@ -239,7 +237,7 @@ async function executeEcdsaDerivationExport(
       ecdsaThresholdKeyId: material.ecdsaThresholdKeyId,
       signingRootId: material.signingRootId,
       signingRootVersion: material.signingRootVersion,
-      contextBinding32B64u: readyRecord.publicFacts.contextBinding32B64u,
+      contextBinding32B64u: material.publicFacts.contextBinding32B64u,
       publicIdentity,
       exportRequestNonce32B64u,
       confirmationDigest32B64u,
@@ -249,51 +247,90 @@ async function executeEcdsaDerivationExport(
     }),
   );
 
-  const exportShare = await thresholdEcdsaDerivationRoleLocalExportShare(material.relayerUrl, {
-    formatVersion: 'ecdsa-derivation-role-local-export',
-    walletId: material.walletSessionAuthority.walletId,
-    evmFamilySigningKeySlotId: material.walletSessionAuthority.evmFamilySigningKeySlotId,
-    ecdsaThresholdKeyId: material.ecdsaThresholdKeyId,
-    relayerKeyId: material.walletSessionAuthority.relayerKeyId,
-    contextBinding32B64u: readyRecord.publicFacts.contextBinding32B64u,
-    publicIdentity,
-    exportRequestNonce32B64u,
-    confirmationDigest32B64u,
-    authorizationDigest32B64u,
-    issuedAtUnixMs,
-    expiresAtUnixMs,
-    clientDeviceId: material.walletSessionAuthority.signingGrantId,
-    clientSessionId: material.walletSessionAuthority.thresholdSessionId,
-    auth: {
-      kind: 'wallet_session',
-      jwt: material.walletSessionAuthority.walletSessionJwt,
+  const publicCapability = material.publicFacts.publicCapability;
+  const ceremonyId = `ecdsa-export:${exportRequestNonce32B64u}`;
+  const created = await createRouterAbEcdsaPostRegistrationCeremonyWasm({
+    workerCtx: deps.getSignerWorkerContext(),
+    command: {
+      kind: 'create_router_ab_ecdsa_explicit_export_ceremony_v1',
+      ceremonyId,
+      request: {
+        context: publicCapability.context,
+        lifecycle: {
+          lifecycle_id: ceremonyId,
+          work_kind: 'key_export',
+          primitive_request_kind: 'export',
+          root_share_epoch: publicCapability.activation_epoch,
+          account_id: String(material.walletSessionAuthority.walletId),
+          session_id: String(material.walletSessionAuthority.thresholdSessionId),
+          signer_set_id: publicCapability.signer_set.signer_set_id,
+          selected_server_id: publicCapability.signer_set.selected_server.server_id,
+        },
+        public_identity: publicCapability.public_identity,
+        signer_set: publicCapability.signer_set,
+        router_id: publicCapability.router_id,
+        client_id: publicCapability.client_id,
+        export_authorization_digest_b64u: authorizationDigest32B64u,
+        export_nonce: exportRequestNonce32B64u,
+        expires_at_ms: expiresAtUnixMs,
+        deriver_recipient_keys: publicCapability.deriver_recipient_keys,
+      },
     },
   });
-  if (!exportShare.ok) {
-    throw new Error(
-      exportShare.error || exportShare.message || 'Threshold explicit export share request failed',
-    );
+  if (created.kind !== 'router_ab_ecdsa_explicit_export_ceremony_created_v1') {
+    throw new Error('[SigningEngine][ecdsa-export] strict export ceremony kind mismatch');
   }
-  if (
-    exportShare.value.contextBinding32B64u !== readyRecord.publicFacts.contextBinding32B64u ||
-    exportShare.value.publicIdentity.groupPublicKey33B64u !== publicIdentity.groupPublicKey33B64u ||
-    exportShare.value.publicIdentity.ethereumAddress !== publicIdentity.ethereumAddress
-  ) {
-    throw new Error('[SigningEngine][ecdsa-export] relayer export share identity mismatch');
+  try {
+    const forwarded = await routerAbEcdsaExplicitExport(material.relayerUrl, {
+      request: created.request,
+      auth: {
+        kind: 'wallet_session',
+        jwt: material.walletSessionAuthority.walletSessionJwt,
+      },
+    });
+    if (!forwarded.ok) {
+      throw new Error(
+        forwarded.error ||
+          forwarded.message ||
+          forwarded.code ||
+          'Strict ECDSA explicit export request failed',
+      );
+    }
+    const finalized = await finalizeRouterAbEcdsaExplicitExportWasm({
+      workerCtx: deps.getSignerWorkerContext(),
+      command: {
+        kind: 'finalize_router_ab_ecdsa_explicit_export_v1',
+        ceremonyId,
+        clientProofFinalization: {
+          kind: 'finalize_encrypted_client_proof_bundles_v1',
+          verificationTimeMs: Date.now(),
+          bundles: forwarded.value.response.bundles,
+          commitmentRegistry: forwarded.value.response.commitmentRegistry,
+        },
+        roleLocalMaterial: {
+          materialHandle: material.roleLocalMaterial.materialHandle,
+          bindingDigest: material.roleLocalMaterial.bindingDigest,
+          durableMaterialRef: material.roleLocalMaterial.durableMaterialRef,
+        },
+        publicFacts: material.publicFacts,
+      },
+    });
+    return {
+      publicKeyHex: finalized.publicKeyHex,
+      privateKeyHex: finalized.privateKeyHex,
+      ethereumAddress: finalized.ethereumAddress,
+    };
+  } catch (error: unknown) {
+    await closeRouterAbEcdsaPostRegistrationCeremonyWasm({
+      workerCtx: deps.getSignerWorkerContext(),
+      command: {
+        kind: 'close_router_ab_ecdsa_post_registration_ceremony_v1',
+        ceremonyId,
+      },
+    }).catch(() => undefined);
+    throw error;
   }
 
-  const generatedCommand = toGeneratedBuildEcdsaRoleLocalExportArtifactCommand({
-    kind: 'build_ecdsa_role_local_export_artifact_v1',
-    algorithm: 'router_ab_ecdsa_derivation_secp256k1_role_local_v1',
-    stateBlob: readyRecord.stateBlob,
-    publicFacts: readyRecord.publicFacts,
-    serverExportShare32B64u: exportShare.value.serverExportShare32B64u,
-  });
-  const generatedOutput = await buildEcdsaRoleLocalExportArtifactCommandWasm({
-    command: generatedCommand,
-    workerCtx: deps.getSignerWorkerContext(),
-  });
-  return parseGeneratedBuildEcdsaRoleLocalExportArtifactOutput(generatedOutput);
 }
 
 export async function exportEcdsaDerivationKeyWithExplicitExportSession(
@@ -349,7 +386,7 @@ export async function exportEcdsaDerivationKeyWithExplicitExportSession(
     );
   }
 
-  const readyRecord = material.ecdsaRoleLocalReadyRecord;
+  const publicFacts = material.publicFacts;
   const evmFamilySigningKeySlotId = String(material.evmFamilySigningKeySlotId || '').trim();
   if (!evmFamilySigningKeySlotId) {
     throw new Error(
@@ -361,18 +398,20 @@ export async function exportEcdsaDerivationKeyWithExplicitExportSession(
       '[SigningEngine][ecdsa-export] committed lane Wallet Session key slot mismatch',
     );
   }
-  if (String(readyRecord.publicFacts.evmFamilySigningKeySlotId) !== evmFamilySigningKeySlotId) {
+  if (String(publicFacts.evmFamilySigningKeySlotId) !== evmFamilySigningKeySlotId) {
     throw new Error('[SigningEngine][ecdsa-export] role-local evmFamilySigningKeySlotId mismatch');
   }
   const ecdsaThresholdKeyId = toEcdsaDerivationThresholdKeyId(material.ecdsaThresholdKeyId);
-  const signingRootId = toEcdsaDerivationSigningRootId(readyRecord.publicFacts.signingRootId);
+  const signingRootId = toEcdsaDerivationSigningRootId(publicFacts.signingRootId);
   const signingRootVersion = toEcdsaDerivationSigningRootVersion(
-    readyRecord.publicFacts.signingRootVersion || ECDSA_DERIVATION_SIGNING_ROOT_VERSION_DEFAULT,
+    publicFacts.signingRootVersion || ECDSA_DERIVATION_SIGNING_ROOT_VERSION_DEFAULT,
   );
   return await executeEcdsaDerivationExport(deps, {
     walletSessionAuthority,
     relayerUrl,
-    readyRecord,
+    publicFacts,
+    roleLocalMaterial: material.roleLocalMaterial,
+    passkeyCredentialIdB64u: args.exportProvision.passkeyCredentialIdB64u,
     ecdsaThresholdKeyId,
     signingRootId,
     signingRootVersion,
@@ -436,6 +475,13 @@ export async function exportEcdsaDerivationKeyWithWalletSession(
 
   const roleLocalMaterial = parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial(record);
   const readyRecord = roleLocalMaterial.readyRecord;
+  if (readyRecord.authMethod.kind !== 'passkey') {
+    throw new Error('[SigningEngine][ecdsa-export] passkey export requires passkey ready material');
+  }
+  const exactRoleLocalMaterial = record.roleLocalMaterialHandle;
+  if (!exactRoleLocalMaterial) {
+    throw new Error('[SigningEngine][ecdsa-export] exact role-local material handle is unavailable');
+  }
   const evmFamilySigningKeySlotId = String(record.evmFamilySigningKeySlotId).trim();
   if (!evmFamilySigningKeySlotId) {
     throw new Error(
@@ -458,7 +504,9 @@ export async function exportEcdsaDerivationKeyWithWalletSession(
   return await executeEcdsaDerivationExport(deps, {
     walletSessionAuthority,
     relayerUrl,
-    readyRecord,
+    publicFacts: readyRecord.publicFacts,
+    roleLocalMaterial: exactRoleLocalMaterial,
+    passkeyCredentialIdB64u: readyRecord.authMethod.credentialIdB64u,
     ecdsaThresholdKeyId,
     signingRootId,
     signingRootVersion,

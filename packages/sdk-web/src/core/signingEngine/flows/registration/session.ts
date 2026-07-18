@@ -13,9 +13,6 @@ export async function requestRegistrationSessionCredentialConfirmation(
     confirmerText?: { title?: string; body?: string };
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
     challengeB64u?: string;
-    walletIframeActivation?: Parameters<
-      RegistrationSessionDeps['touchConfirm']['requestRegistrationCredentialConfirmation']
-    >[0]['walletIframeActivation'];
   },
 ): Promise<RegistrationCredentialConfirmationPayload> {
   return await deps.touchConfirm.requestRegistrationCredentialConfirmation({
@@ -25,7 +22,6 @@ export async function requestRegistrationSessionCredentialConfirmation(
     confirmerText: params.confirmerText,
     confirmationConfigOverride: params.confirmationConfigOverride,
     challengeB64u: params.challengeB64u,
-    walletIframeActivation: params.walletIframeActivation,
   });
 }
 

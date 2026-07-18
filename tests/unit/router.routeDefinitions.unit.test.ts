@@ -40,7 +40,6 @@ const ALLOWLISTED_PUBLIC_RELAY_ROUTE_IDS = [
   'sync_account_options',
   'sync_account_verify',
   'email_recovery_prepare',
-  'email_recovery_ecdsa_respond',
   'email_recovery_ed25519_respond',
   'email_recovery_ed25519_finalize',
   'router_ab_ed25519_healthz',

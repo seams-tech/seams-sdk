@@ -26,8 +26,6 @@ import type {
   RouterAbEcdsaDerivationPoolFillSessionRecord,
   RouterAbEcdsaDerivationPoolFillSessionDestination,
   RouterAbEcdsaDerivationPoolFillSessionStore,
-  RouterAbEcdsaDerivationServerPresignatureShareRecord,
-  RouterAbEcdsaDerivationPresignaturePool,
 } from '../stores/EcdsaSigningStore';
 import {
   buildRouterAbEcdsaDerivationPresignaturePoolPutRequest,
@@ -235,10 +233,6 @@ type RouterAbEcdsaDerivationSigningWorkerPoolFillDestination = Extract<
   RouterAbEcdsaDerivationPoolFillSessionDestination,
   { kind: 'router_ab_ecdsa_derivation_signing_worker_pool' }
 >;
-
-function assertNever(value: never): never {
-  throw new Error(`Unexpected threshold-ecdsa branch: ${String(value)}`);
-}
 
 function requireExactPoolFillKeys(
   record: Record<string, unknown>,
@@ -518,7 +512,6 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
     claimMpcSession(id: string, version: string): Promise<ThresholdEcdsaClaimMpcSessionResult>;
   };
   private readonly poolFillSessionStore: RouterAbEcdsaDerivationPoolFillSessionStore;
-  private readonly presignaturePool: RouterAbEcdsaDerivationPresignaturePool;
   private readonly resolveRoleLocalKeyRecord: (
     keyHandle: string,
   ) => Promise<EcdsaDerivationRoleLocalKeyRecord | null>;
@@ -543,7 +536,6 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
       claimMpcSession(id: string, version: string): Promise<ThresholdEcdsaClaimMpcSessionResult>;
     };
     poolFillSessionStore: RouterAbEcdsaDerivationPoolFillSessionStore;
-    presignaturePool: RouterAbEcdsaDerivationPresignaturePool;
     resolveRoleLocalKeyRecord: (
       keyHandle: string,
     ) => Promise<EcdsaDerivationRoleLocalKeyRecord | null>;
@@ -580,7 +572,6 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
         : 1;
     this.sessionStore = input.sessionStore;
     this.poolFillSessionStore = input.poolFillSessionStore;
-    this.presignaturePool = input.presignaturePool;
     this.resolveRoleLocalKeyRecord = input.resolveRoleLocalKeyRecord;
     this.ensureReady = input.ensureReady;
     this.createPoolFillSessionId = input.createPoolFillSessionId;
@@ -736,7 +727,7 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
     record: RouterAbEcdsaDerivationPoolFillSessionRecord;
     presignature: RouterAbEcdsaDerivationPresignatureMaterial;
   }): Promise<ParseResult<null>> {
-    const shareRecord: RouterAbEcdsaDerivationServerPresignatureShareRecord = {
+    const shareRecord = {
       relayerKeyId: input.record.presignPoolKey,
       presignatureId: input.presignature.presignatureId,
       bigRB64u: input.presignature.bigRB64u,
@@ -745,56 +736,42 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
       createdAtMs: Date.now(),
     };
 
-    switch (input.record.poolFill.kind) {
-      case 'local_threshold_ecdsa_presignature_pool':
-        await this.presignaturePool.put(shareRecord);
-        return { ok: true, value: null };
-      case 'router_ab_ecdsa_derivation_signing_worker_pool': {
-        const target = this.routerAbEcdsaDerivationPoolFillTarget;
-        if (target.kind !== 'strict_private_http') {
-          return {
-            ok: false,
-            code: 'internal',
-            message: 'Router A/B ECDSA derivation presignature pool-fill target is not configured',
-          };
-        }
-        const fetchImpl = target.fetchImpl || resolvePoolFillFetchImpl();
-        if (!fetchImpl) {
-          return {
-            ok: false,
-            code: 'internal',
-            message:
-              'Router A/B ECDSA derivation presignature pool-fill target fetch is unavailable',
-          };
-        }
-        const request = buildRouterAbEcdsaDerivationPresignaturePoolPutRequest({
-          scope: input.record.poolFill.routerAbEcdsaDerivation.scope,
-          presignature: {
-            serverKeyId: shareRecord.relayerKeyId,
-            presignatureId: shareRecord.presignatureId,
-            bigRB64u: shareRecord.bigRB64u,
-            kShareB64u: shareRecord.kShareB64u,
-            sigmaShareB64u: shareRecord.sigmaShareB64u,
-            createdAtMs: shareRecord.createdAtMs,
-          },
-          expiresAtMs: input.record.poolFill.routerAbEcdsaDerivation.expiresAtMs,
-        });
-        const result = await putRouterAbEcdsaDerivationPresignaturePoolFill({
-          signingWorkerBaseUrl: target.signingWorkerBaseUrl,
-          request,
-          auth: target.auth,
-          fetchImpl,
-        });
-        if (result.ok) return { ok: true, value: null };
-        return {
-          ok: false,
-          code: result.code,
-          message: result.message,
-        };
-      }
-      default:
-        return assertNever(input.record.poolFill);
+    const target = this.routerAbEcdsaDerivationPoolFillTarget;
+    if (target.kind !== 'strict_private_http') {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'Router A/B ECDSA derivation presignature pool-fill target is not configured',
+      };
     }
+    const fetchImpl = target.fetchImpl || resolvePoolFillFetchImpl();
+    if (!fetchImpl) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'Router A/B ECDSA derivation presignature pool-fill target fetch is unavailable',
+      };
+    }
+    const request = buildRouterAbEcdsaDerivationPresignaturePoolPutRequest({
+      scope: input.record.poolFill.routerAbEcdsaDerivation.scope,
+      presignature: {
+        serverKeyId: shareRecord.relayerKeyId,
+        presignatureId: shareRecord.presignatureId,
+        bigRB64u: shareRecord.bigRB64u,
+        kShareB64u: shareRecord.kShareB64u,
+        sigmaShareB64u: shareRecord.sigmaShareB64u,
+        createdAtMs: shareRecord.createdAtMs,
+      },
+      expiresAtMs: input.record.poolFill.routerAbEcdsaDerivation.expiresAtMs,
+    });
+    const result = await putRouterAbEcdsaDerivationPresignaturePoolFill({
+      signingWorkerBaseUrl: target.signingWorkerBaseUrl,
+      request,
+      auth: target.auth,
+      fetchImpl,
+    });
+    if (result.ok) return { ok: true, value: null };
+    return { ok: false, code: result.code, message: result.message };
   }
 
   private isPresignSessionOwnedLocally(

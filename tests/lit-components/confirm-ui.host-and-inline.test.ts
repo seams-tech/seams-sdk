@@ -47,6 +47,7 @@ test.describe('confirm-ui inline confirmer', () => {
 
         const decisionPromise = awaitConfirmUIDecision({
           ctx: ctx as any,
+          surface: { kind: 'mount_new' },
           summary,
           txSigningRequests: [],
           securityContext: securityContext as any,
@@ -79,6 +80,86 @@ test.describe('confirm-ui inline confirmer', () => {
     );
 
     expect(result.confirmed).toBe(true);
+  });
+
+  test('registration preparation becomes interactive without remounting the modal', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ securityContext, waitForSource, paths }) => {
+        const waitFor = eval(waitForSource) as typeof harnessWaitFor;
+        const mod = await import(paths.confirmUi);
+        const events = await import(paths.events);
+        const { awaitConfirmUIDecision, mountConfirmUI } =
+          mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
+        const ctx = {
+          userPreferencesManager: {
+            getCurrentWalletId: () => 'alice.testnet',
+          },
+        };
+        const preparationHandle = await mountConfirmUI({
+          ctx,
+          summary: {
+            title: 'Create your passkey',
+            body: 'Preparing secure registration…',
+          },
+          securityContext: securityContext as any,
+          loading: true,
+          theme: 'dark',
+          uiMode: 'modal',
+          nearAccountIdOverride: 'alice.testnet',
+        });
+        const preparationElement = preparationHandle.element as any;
+        const decisionPromise = awaitConfirmUIDecision({
+          ctx,
+          surface: {
+            kind: 'reuse_mounted',
+            handle: preparationHandle,
+          },
+          summary: {
+            title: 'Create your passkey',
+            body: 'Use Touch ID or your device passkey to create credentials for this account.',
+          },
+          txSigningRequests: [],
+          securityContext: securityContext as any,
+          theme: 'dark',
+          uiMode: 'modal',
+          nearAccountIdOverride: 'alice.testnet',
+        });
+
+        await waitFor(
+          () =>
+            preparationElement.loading === false &&
+            preparationElement.body.startsWith('Use Touch ID'),
+        );
+        const interactiveElement = document.querySelector('w3a-tx-confirmer');
+        const modalCount = document.querySelectorAll('w3a-tx-confirmer').length;
+        preparationElement.dispatchEvent(
+          new CustomEvent(events.WalletIframeDomEvents.TX_CONFIRMER_CANCEL, {
+            bubbles: true,
+            composed: true,
+          }),
+        );
+        const decision = await decisionPromise;
+        decision.handle.close(false);
+        return {
+          sameElement: preparationElement === interactiveElement,
+          modalCount,
+          confirmed: decision.confirmed,
+        };
+      },
+      {
+        securityContext: SECURITY_CONTEXT,
+        waitForSource: WAIT_FOR_SOURCE,
+        paths: IMPORT_PATHS,
+      },
+    );
+
+    expect(result).toEqual({
+      sameElement: true,
+      modalCount: 1,
+      confirmed: false,
+    });
   });
 
   test('drawer cancel resolves with confirmed=false', async ({ page }) => {
@@ -117,6 +198,7 @@ test.describe('confirm-ui inline confirmer', () => {
 
         const decisionPromise = awaitConfirmUIDecision({
           ctx: ctx as any,
+          surface: { kind: 'mount_new' },
           summary,
           txSigningRequests: [],
           securityContext: securityContext as any,
@@ -172,6 +254,7 @@ test.describe('confirm-ui inline confirmer', () => {
 
         const decisionPromise = awaitConfirmUIDecision({
           ctx: ctx as any,
+          surface: { kind: 'mount_new' },
           summary,
           txSigningRequests: [],
           securityContext: securityContext as any,
@@ -228,6 +311,7 @@ test.describe('confirm-ui inline confirmer', () => {
 
         const decisionPromise = awaitConfirmUIDecision({
           ctx: ctx as any,
+          surface: { kind: 'mount_new' },
           summary,
           txSigningRequests: [],
           securityContext: securityContext as any,
@@ -281,6 +365,7 @@ test.describe('confirm-ui inline confirmer', () => {
 
         const decisionPromise = awaitConfirmUIDecision({
           ctx: ctx as any,
+          surface: { kind: 'mount_new' },
           summary,
           txSigningRequests: [],
           securityContext: securityContext as any,
@@ -344,6 +429,7 @@ test.describe('confirm-ui inline confirmer', () => {
 
         const decisionPromise = awaitConfirmUIDecision({
           ctx: ctx as any,
+          surface: { kind: 'mount_new' },
           summary,
           txSigningRequests: [],
           securityContext: securityContext as any,
@@ -417,6 +503,7 @@ test.describe('confirm-ui inline confirmer', () => {
 
         const decisionPromise = awaitConfirmUIDecision({
           ctx: ctx,
+          surface: { kind: 'mount_new' },
           summary: { intentDigest: 'bogus-digest' },
           txSigningRequests,
           securityContext: {
@@ -481,6 +568,7 @@ test.describe('confirm-ui inline confirmer', () => {
 
         const decisionPromise = awaitConfirmUIDecision({
           ctx: ctx as any,
+          surface: { kind: 'mount_new' },
           summary: { intentDigest: 'fallback-intent' },
           txSigningRequests: [],
           model: {

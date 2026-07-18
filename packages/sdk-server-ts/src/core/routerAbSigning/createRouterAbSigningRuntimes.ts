@@ -2,7 +2,6 @@ import { isObject } from '@shared/utils/validation';
 import type { AuthService } from '../AuthService';
 import { coerceLogger, type Logger } from '../logger';
 import type { ThresholdStoreConfigInput } from '../types';
-import { parseThresholdEd25519ParticipantIds2p } from '../ThresholdService/config';
 import { createThresholdEcdsaSigningStores } from '../ThresholdService/stores/EcdsaSigningStore';
 import {
   createThresholdEcdsaKeyStore,
@@ -14,12 +13,6 @@ import {
   createEd25519WalletSessionStore,
   createWalletSigningBudgetSessionStore,
 } from '../ThresholdService/stores/WalletSessionStore';
-import { createConfiguredSigningRootShareResolver } from '../ThresholdService/signingRootSecretConfig';
-import type { SigningRootShareResolver } from '../ThresholdService/signingRootShareResolver';
-import {
-  RouterAbEcdsaBootstrapExportRuntime,
-  type RouterAbEcdsaBootstrapExportRuntimeState,
-} from './RouterAbEcdsaBootstrapExportRuntime';
 import {
   parseRouterAbEcdsaPresignRuntimeConfig,
   RouterAbEcdsaPresignRuntime,
@@ -33,7 +26,6 @@ import {
 export type RouterAbSigningRuntimeBundle = {
   readonly normalSigning: RouterAbNormalSigningRuntime;
   readonly localSigningSeed: RouterAbLocalSigningSeedRuntime;
-  readonly ecdsaBootstrapExport: RouterAbEcdsaBootstrapExportRuntimeState;
   readonly ecdsaPresign: RouterAbEcdsaPresignRuntime;
 };
 
@@ -43,26 +35,6 @@ async function ensureRouterAbSigningRuntimeReady(
   this: RouterAbSigningReadyAuthPort,
 ): Promise<void> {
   await this.getRelayerAccount();
-}
-
-export function createRouterAbEcdsaBootstrapExportRuntimeState(input: {
-  readonly runtimeInput: Omit<
-    ConstructorParameters<typeof RouterAbEcdsaBootstrapExportRuntime>[0],
-    'signingRootShareResolver'
-  >;
-  readonly signingRootShareResolver: SigningRootShareResolver | null;
-}): RouterAbEcdsaBootstrapExportRuntimeState {
-  if (!input.signingRootShareResolver) return { kind: 'unconfigured' };
-  return {
-    kind: 'configured',
-    runtime: new RouterAbEcdsaBootstrapExportRuntime({
-      ecdsaKeyStore: input.runtimeInput.ecdsaKeyStore,
-      ecdsaWalletSessionStore: input.runtimeInput.ecdsaWalletSessionStore,
-      routerAbNormalSigningRuntime: input.runtimeInput.routerAbNormalSigningRuntime,
-      participantIds: input.runtimeInput.participantIds,
-      signingRootShareResolver: input.signingRootShareResolver,
-    }),
-  };
 }
 
 function isNodeEnvironment(): boolean {
@@ -120,7 +92,6 @@ function resolveThresholdStoreConfig(input: {
 export function createRouterAbSigningRuntimes(input: {
   readonly authService: Pick<AuthService, 'getRelayerAccount'>;
   readonly thresholdStore?: ThresholdStoreConfigInput | null;
-  readonly signingRootShareResolver?: SigningRootShareResolver | null;
   readonly logger?: Logger | null;
   readonly isNode?: boolean;
 }): RouterAbSigningRuntimeBundle {
@@ -147,8 +118,6 @@ export function createRouterAbSigningRuntimes(input: {
   const ecdsaSessionStore = createThresholdEcdsaSessionStore({ config, logger, isNode });
   const ecdsaWalletSessionStore = createEcdsaWalletSessionStore({ config, logger, isNode });
   const ecdsaSigningStores = createThresholdEcdsaSigningStores({ config, logger, isNode });
-  const signingRootShareResolver =
-    input.signingRootShareResolver ?? createConfiguredSigningRootShareResolver(config);
   const ensureReady = ensureRouterAbSigningRuntimeReady.bind(input.authService);
 
   const normalSigning = new RouterAbNormalSigningRuntime({
@@ -163,30 +132,16 @@ export function createRouterAbSigningRuntimes(input: {
     ecdsaWalletSessionStore,
     normalSigningRuntime: normalSigning,
   });
-  const participantIds = parseThresholdEd25519ParticipantIds2p(configRecord);
-  const ecdsaBootstrapExport = createRouterAbEcdsaBootstrapExportRuntimeState({
-    signingRootShareResolver,
-    runtimeInput: {
-      ecdsaKeyStore,
-      ecdsaWalletSessionStore,
-      routerAbNormalSigningRuntime: normalSigning,
-      participantIds: [
-        participantIds.clientParticipantId,
-        participantIds.relayerParticipantId,
-      ],
-    },
-  });
   const ecdsaPresign = new RouterAbEcdsaPresignRuntime({
     logger,
     config: parseRouterAbEcdsaPresignRuntimeConfig(configRecord),
     ecdsaSessionStore,
     ecdsaPoolFillSessionStore: ecdsaSigningStores.poolFillSessionStore,
-    ecdsaPresignaturePool: ecdsaSigningStores.presignaturePool,
     ecdsaKeyStore,
     normalSigningRuntime: normalSigning,
     ensureReady,
     liveSessionOwner: undefined,
   });
 
-  return { normalSigning, localSigningSeed, ecdsaBootstrapExport, ecdsaPresign };
+  return { normalSigning, localSigningSeed, ecdsaPresign };
 }

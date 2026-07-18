@@ -211,6 +211,7 @@ const freshPasskeyExportMaterial: FreshPasskeyEcdsaExportMaterial = {
   chainTarget: record.chainTarget,
   publicFacts,
   runtimePolicyScope,
+  publicCapability: record.ecdsaRoleLocalPublicFacts.publicCapability,
   bootstrap: passkeyBootstrap,
 };
 void freshPasskeyExportMaterial;

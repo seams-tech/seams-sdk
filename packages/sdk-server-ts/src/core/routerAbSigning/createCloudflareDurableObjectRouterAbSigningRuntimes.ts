@@ -5,14 +5,11 @@ import type {
   VerifyAuthenticationResponse,
   WebAuthnAuthenticationCredential,
 } from '../types';
-import { parseThresholdEd25519ParticipantIds2p } from '../ThresholdService/config';
-import { createConfiguredSigningRootShareResolver } from '../ThresholdService/signingRootSecretConfig';
 import {
   createCloudflareDurableObjectThresholdEcdsaStores,
   createCloudflareDurableObjectThresholdEd25519Stores,
   createCloudflareDurableObjectWalletSigningBudgetStores,
 } from '../ThresholdService/stores/CloudflareDurableObjectStore';
-import { createRouterAbEcdsaBootstrapExportRuntimeState } from './createRouterAbSigningRuntimes';
 import type { RouterAbSigningRuntimeBundle } from './createRouterAbSigningRuntimes';
 import {
   parseRouterAbEcdsaPresignRuntimeConfig,
@@ -84,31 +81,16 @@ export function createCloudflareDurableObjectRouterAbSigningRuntimes(input: {
     ecdsaWalletSessionStore: ecdsaStores.walletSessionStore,
     normalSigningRuntime: normalSigning,
   });
-  const signingRootShareResolver = createConfiguredSigningRootShareResolver(input.thresholdStore);
-  const participantIds = parseThresholdEd25519ParticipantIds2p(input.thresholdStore);
-  const ecdsaBootstrapExport = createRouterAbEcdsaBootstrapExportRuntimeState({
-    signingRootShareResolver,
-    runtimeInput: {
-      ecdsaKeyStore: ecdsaStores.keyStore,
-      ecdsaWalletSessionStore: ecdsaStores.walletSessionStore,
-      routerAbNormalSigningRuntime: normalSigning,
-      participantIds: [
-        participantIds.clientParticipantId,
-        participantIds.relayerParticipantId,
-      ],
-    },
-  });
   const ecdsaPresign = new RouterAbEcdsaPresignRuntime({
     logger,
     config: parseRouterAbEcdsaPresignRuntimeConfig(input.thresholdStore),
     ecdsaSessionStore: ecdsaStores.sessionStore,
     ecdsaPoolFillSessionStore: ecdsaStores.poolFillSessionStore,
-    ecdsaPresignaturePool: ecdsaStores.presignaturePool,
     ecdsaKeyStore: ecdsaStores.keyStore,
     normalSigningRuntime: normalSigning,
     ensureReady,
     liveSessionOwner: ecdsaStores.poolFillLiveSessionOwner,
   });
 
-  return { normalSigning, localSigningSeed, ecdsaBootstrapExport, ecdsaPresign };
+  return { normalSigning, localSigningSeed, ecdsaPresign };
 }

@@ -1,5 +1,8 @@
 import { base64UrlDecode } from '@shared/utils/base64';
 import {
+  parseRouterAbEcdsaDerivationPublicCapabilityV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
+import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
   thresholdEcdsaChainTargetFromRequest,
@@ -175,6 +178,10 @@ function parseAuthMethod(input: unknown): EcdsaRoleLocalAuthMethod {
   }
 }
 
+export function parseEcdsaRoleLocalAuthMethod(input: unknown): EcdsaRoleLocalAuthMethod {
+  return parseAuthMethod(input);
+}
+
 export function buildEcdsaRoleLocalPasskeyAuthMethod(input: {
   credentialIdB64u: unknown;
   rpId: unknown;
@@ -293,6 +300,9 @@ function parsePublicFacts(input: unknown): EcdsaRoleLocalPublicFacts {
     relayerPublicKey33B64u,
     groupPublicKey33B64u: parseGroupPublicKey(input.groupPublicKey33B64u),
     ethereumAddress: parseEthereumAddress(input.ethereumAddress),
+    publicCapability: parseRouterAbEcdsaDerivationPublicCapabilityV1(
+      input.publicCapability,
+    ),
   };
 }
 
@@ -367,6 +377,12 @@ function thresholdEcdsaSessionRecordAsRoleLocalReadyRecord(
     throw new Error('[platform][ecdsa-role-local] session record is missing role-local state');
   }
   return parseEcdsaRoleLocalReadyRecord(record.ecdsaRoleLocalReadyRecord);
+}
+
+export function readThresholdEcdsaSessionRecordRoleLocalReadyRecord(
+  record: ThresholdEcdsaSessionRecord,
+): EcdsaRoleLocalReadyRecord {
+  return thresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record);
 }
 
 export function parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(
@@ -572,6 +588,7 @@ function serializeEcdsaRoleLocalPublicFacts(
     relayerPublicKey33B64u: facts.relayerPublicKey33B64u,
     groupPublicKey33B64u: facts.groupPublicKey33B64u,
     ethereumAddress: facts.ethereumAddress,
+    publicCapability: facts.publicCapability,
   };
 }
 

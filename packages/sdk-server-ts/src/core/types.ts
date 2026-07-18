@@ -764,12 +764,6 @@ export interface EcdsaDerivationPublicIdentity {
   ethereumAddress: string;
 }
 
-export interface EcdsaDerivationCaitSithInput {
-  participantId: 1 | 2;
-  mappedPrivateShare32B64u: string;
-  verifyingShare33B64u: string;
-}
-
 export interface EcdsaDerivationClientRootProof {
   version: 'ecdsa-derivation:role-local:first-bootstrap-root-proof:v2';
   clientRootPublicKey33B64u: EcdsaClientRootPublicKey33B64u;
@@ -865,7 +859,6 @@ export interface EcdsaDerivationRoleLocalKeyRecord {
   clientPublicKey33B64u: string;
   groupPublicKey33B64u: string;
   ethereumAddress: string;
-  relayerCaitSithInput: EcdsaDerivationCaitSithInput & { participantId: 2 };
   publicTranscriptDigest32B64u: string;
   createdAtMs: number;
   updatedAtMs: number;

@@ -19,6 +19,8 @@ import type {
   CreateRegistrationIntentResponse,
   WalletAddSignerFinalizeRequest,
   WalletAddSignerFinalizeResponse,
+  WalletAddSignerEcdsaActivationRequest,
+  WalletAddSignerEcdsaActivationResponse,
   WalletAddSignerEcdsaDerivationRespondRequest,
   WalletAddSignerEcdsaDerivationRespondResponse,
   WalletAddSignerStartRequest,
@@ -30,6 +32,8 @@ import type {
   WalletAddAuthMethodStartRequest,
   WalletAddAuthMethodStartResponse,
   WalletRegistrationFinalizeRequest,
+  WalletRegistrationEcdsaActivationRequest,
+  WalletRegistrationEcdsaActivationResponse,
   WalletRegistrationEcdsaFinalize,
   WalletRegistrationEd25519YaoActivationReference,
   WalletRegistrationFinalizeSignerWork,
@@ -73,6 +77,11 @@ import type { RouteDefinition } from './routeDefinitions';
 import type { RouteErrorBody } from './routeResponses';
 import { routeError, routeJson } from './routeResponses';
 import { isPlainObject } from '@shared/utils/validation';
+import {
+  parseRouterAbEcdsaRegistrationActivationRequestV1,
+  parseRouterAbEcdsaRegistrationRequestV1,
+  parseRouterAbEcdsaVerifiedClientActivationFactsV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import type { RouterAbPublicKeysetV2 } from '@shared/utils/routerAbPublicKeyset';
 import { normalizeCorsOrigin } from '../core/SessionService';
 import { computeWalletEcdsaKeyFactsInventoryChallengeDigestB64u } from '@shared/utils/ecdsaKeyFactsInventory';
@@ -586,30 +595,6 @@ async function attachEcdsaWalletSessionJwt(
   }
   bootstrap.jwt = signed.jwt;
   return null;
-}
-
-function registrationClientBootstrapRuntimePolicyScope(input: {
-  readonly request: WalletRegistrationEcdsaDerivationRespondRequest;
-  readonly chainTarget: ThresholdEcdsaChainTarget;
-}): RuntimePolicyScope | undefined {
-  const targetKey = thresholdEcdsaChainTargetKey(input.chainTarget);
-  for (const entry of input.request.ecdsa?.clientBootstraps || []) {
-    if (thresholdEcdsaChainTargetKey(entry.chainTarget) !== targetKey) continue;
-    return entry.clientBootstrap.runtimePolicyScope;
-  }
-  return undefined;
-}
-
-function addSignerClientBootstrapRuntimePolicyScope(input: {
-  readonly request: WalletAddSignerEcdsaDerivationRespondRequest;
-  readonly chainTarget: ThresholdEcdsaChainTarget;
-}): RuntimePolicyScope | undefined {
-  const targetKey = thresholdEcdsaChainTargetKey(input.chainTarget);
-  for (const entry of input.request.ecdsa?.clientBootstraps || []) {
-    if (thresholdEcdsaChainTargetKey(entry.chainTarget) !== targetKey) continue;
-    return entry.clientBootstrap.runtimePolicyScope;
-  }
-  return undefined;
 }
 
 function parseAddSignerSelection(raw: unknown): ParseResult<AddSignerSelection> {
@@ -1487,105 +1472,51 @@ function parseWalletRegistrationEcdsaDerivationRespondRequest(
     'registrationCeremonyId is required',
   );
   if (!registrationCeremonyId.ok) return registrationCeremonyId;
-  if (!hasBranch(body, 'ecdsa')) {
+  const ecdsa = isPlainObject(body.ecdsa) ? body.ecdsa : null;
+  if (!ecdsa || ecdsa.kind !== 'router_ab_ecdsa_registration_v1') {
     return {
       ok: false,
       code: 'invalid_body',
-      message: 'ECDSA DERIVATION response is required',
+      message: 'strict Router A/B ECDSA registration response is required',
     };
   }
-  const value: WalletRegistrationEcdsaDerivationRespondRequest = {
-    registrationCeremonyId: registrationCeremonyId.value,
-    ecdsa: { clientBootstraps: [] },
-  };
-  if (hasBranch(body, 'ecdsa')) {
-    const ecdsa = isPlainObject(body.ecdsa) ? body.ecdsa : null;
-    if (!ecdsa) {
-      return { ok: false, code: 'invalid_body', message: 'ecdsa response is invalid' };
-    }
-    const clientBootstraps = Array.isArray(ecdsa.clientBootstraps) ? ecdsa.clientBootstraps : null;
-    if (!clientBootstraps || clientBootstraps.length === 0) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'ecdsa.clientBootstraps is required',
-      };
-    }
-    const parsedEntries: NonNullable<
-      WalletRegistrationEcdsaDerivationRespondRequest['ecdsa']
-    >['clientBootstraps'] = [];
-    const seenTargets = new Set<string>();
-    for (const entry of clientBootstraps) {
-      const entryRecord = isPlainObject(entry) ? entry : null;
-      const clientBootstrap = isPlainObject(entryRecord?.clientBootstrap)
-        ? entryRecord.clientBootstrap
-        : null;
-      const chainTarget = thresholdEcdsaChainTargetFromValue(entryRecord?.chainTarget);
-      if (!entryRecord || !clientBootstrap || !chainTarget) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'ecdsa.clientBootstraps entry is invalid',
-        };
-      }
-      const targetKey = thresholdEcdsaChainTargetKey(chainTarget);
-      if (seenTargets.has(targetKey)) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'ecdsa.clientBootstraps contains duplicate chain targets',
-        };
-      }
-      seenTargets.add(targetKey);
-      const forbiddenField = findOwnField(
-        clientBootstrap,
-        ECDSA_REGISTRATION_ECDSA_DERIVATION_RESPOND_FORBIDDEN_FIELDS,
-      );
-      if (forbiddenField) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: `ecdsa.clientBootstraps.clientBootstrap.${forbiddenField} must stay outside the registration ceremony request`,
-        };
-      }
-      const parsed = parseWalletRegistrationEcdsaClientBootstrap(clientBootstrap);
-      if (!parsed) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'ecdsa.clientBootstraps clientBootstrap is invalid',
-        };
-      }
-      parsedEntries.push({
-        chainTarget,
-        clientBootstrap: {
-          formatVersion: parsed.formatVersion,
-          walletId: parsed.walletId,
-          evmFamilySigningKeySlotId: parsed.evmFamilySigningKeySlotId,
-          ecdsaThresholdKeyId: parsed.ecdsaThresholdKeyId,
-          signingRootId: parsed.signingRootId,
-          signingRootVersion: parsed.signingRootVersion,
-          keyScope: parsed.keyScope,
-          relayerKeyId: parsed.relayerKeyId,
-          ...(parsed.registrationPreparationId
-            ? { registrationPreparationId: parsed.registrationPreparationId }
-            : {}),
-          derivationClientSharePublicKey33B64u: parsed.derivationClientSharePublicKey33B64u,
-          clientShareRetryCounter: parsed.clientShareRetryCounter,
-          contextBinding32B64u: parsed.contextBinding32B64u,
-          requestId: parsed.requestId,
-          thresholdSessionId: parsed.thresholdSessionId,
-          signingGrantId: parsed.signingGrantId,
-          ttlMs: parsed.ttlMs,
-          remainingUses: parsed.remainingUses,
-          participantIds: parsed.participantIds,
-          ...(parsed.runtimePolicyScope ? { runtimePolicyScope: parsed.runtimePolicyScope } : {}),
-        },
-      });
-    }
-    value.ecdsa = { clientBootstraps: parsedEntries };
+  let strictRegistration: WalletRegistrationEcdsaDerivationRespondRequest['ecdsa']['strictRegistration'];
+  try {
+    strictRegistration = parseRouterAbEcdsaRegistrationRequestV1(ecdsa.strictRegistration);
+  } catch {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'strict Router A/B ECDSA registration request is invalid',
+    };
   }
-  return { ok: true, value };
+  return {
+    ok: true,
+    value: {
+      registrationCeremonyId: registrationCeremonyId.value,
+      ecdsa: {
+        kind: 'router_ab_ecdsa_registration_v1',
+        strictRegistration,
+      },
+    },
+  };
+}
+
+function parseWalletRegistrationEcdsaActivationRequest(
+  body: Record<string, unknown>,
+): ParseResult<WalletRegistrationEcdsaActivationRequest> {
+  try {
+    return {
+      ok: true,
+      value: parseRouterAbEcdsaRegistrationActivationRequestV1(body),
+    };
+  } catch {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'strict Router A/B ECDSA activation request is invalid',
+    };
+  }
 }
 
 function parseEmailOtpBackupAck(
@@ -1809,25 +1740,25 @@ function parseWalletRegistrationEcdsaFinalize(
       message: `ecdsa.${unknownField} is not supported`,
     };
   }
-  if (ecdsa.expectedKeyHandles === undefined) return { ok: true, value: {} };
-  if (!Array.isArray(ecdsa.expectedKeyHandles)) {
+  if (!Array.isArray(ecdsa.expectedKeyHandles) || ecdsa.expectedKeyHandles.length !== 1) {
     return {
       ok: false,
       code: 'invalid_body',
-      message: 'ecdsa.expectedKeyHandles must be an array',
+      message: 'ecdsa.expectedKeyHandles must contain one family key handle',
     };
   }
-  const expectedKeyHandles = ecdsa.expectedKeyHandles.map((keyHandle) =>
-    typeof keyHandle === 'string' ? keyHandle.trim() : '',
-  );
-  if (expectedKeyHandles.some((keyHandle) => !keyHandle)) {
+  const expectedKeyHandle =
+    typeof ecdsa.expectedKeyHandles[0] === 'string'
+      ? ecdsa.expectedKeyHandles[0].trim()
+      : '';
+  if (!expectedKeyHandle) {
     return {
       ok: false,
       code: 'invalid_body',
-      message: 'ecdsa.expectedKeyHandles contains an invalid key handle',
+      message: 'ecdsa.expectedKeyHandles contains an invalid family key handle',
     };
   }
-  return { ok: true, value: { expectedKeyHandles } };
+  return { ok: true, value: { expectedKeyHandles: [expectedKeyHandle] } };
 }
 
 function parseWalletRegistrationFinalizeSignerWork(
@@ -2036,24 +1967,111 @@ export function parseWalletRegistrationFinalizeRequest(
 function parseWalletAddSignerEcdsaDerivationRespondRequest(
   body: Record<string, unknown>,
 ): ParseResult<WalletAddSignerEcdsaDerivationRespondRequest> {
+  const unknownBodyField = findUnknownField(body, ['addSignerCeremonyId', 'ecdsa']);
+  if (unknownBodyField) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: `add-signer ECDSA request field ${unknownBodyField} is unsupported`,
+    };
+  }
   const addSignerCeremonyId = trimRequiredString(
     body,
     'addSignerCeremonyId',
     'addSignerCeremonyId is required',
   );
   if (!addSignerCeremonyId.ok) return addSignerCeremonyId;
-  const registrationLike = parseWalletRegistrationEcdsaDerivationRespondRequest({
-    ...body,
-    registrationCeremonyId: addSignerCeremonyId.value,
-  });
-  if (!registrationLike.ok) return registrationLike;
+  const ecdsa = isPlainObject(body.ecdsa) ? body.ecdsa : null;
+  if (!ecdsa || ecdsa.kind !== 'router_ab_ecdsa_registration_v1') {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'strict Router A/B ECDSA add-signer request is required',
+    };
+  }
+  const unknownEcdsaField = findUnknownField(ecdsa, ['kind', 'strictRegistration']);
+  if (unknownEcdsaField) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: `add-signer ECDSA field ${unknownEcdsaField} is unsupported`,
+    };
+  }
+  let strictRegistration: WalletAddSignerEcdsaDerivationRespondRequest['ecdsa']['strictRegistration'];
+  try {
+    strictRegistration = parseRouterAbEcdsaRegistrationRequestV1(ecdsa.strictRegistration);
+  } catch {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'strict Router A/B ECDSA add-signer request is invalid',
+    };
+  }
   return {
     ok: true,
     value: {
       addSignerCeremonyId: addSignerCeremonyId.value,
-      ecdsa: registrationLike.value.ecdsa,
+      ecdsa: {
+        kind: 'router_ab_ecdsa_registration_v1',
+        strictRegistration,
+      },
     },
   };
+}
+
+function parseWalletAddSignerEcdsaActivationRequest(
+  body: Record<string, unknown>,
+): ParseResult<WalletAddSignerEcdsaActivationRequest> {
+  const unknownBodyField = findUnknownField(body, ['addSignerCeremonyId', 'ecdsa']);
+  if (unknownBodyField) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: `add-signer ECDSA activation field ${unknownBodyField} is unsupported`,
+    };
+  }
+  const addSignerCeremonyId = trimRequiredString(
+    body,
+    'addSignerCeremonyId',
+    'addSignerCeremonyId is required',
+  );
+  if (!addSignerCeremonyId.ok) return addSignerCeremonyId;
+  const ecdsa = isPlainObject(body.ecdsa) ? body.ecdsa : null;
+  if (!ecdsa || ecdsa.kind !== 'router_ab_ecdsa_registration_activation_v1') {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'strict Router A/B ECDSA add-signer activation is required',
+    };
+  }
+  const unknownEcdsaField = findUnknownField(ecdsa, ['kind', 'publicFacts']);
+  if (unknownEcdsaField) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: `add-signer ECDSA activation field ${unknownEcdsaField} is unsupported`,
+    };
+  }
+  try {
+    return {
+      ok: true,
+      value: {
+        addSignerCeremonyId: addSignerCeremonyId.value,
+        ecdsa: {
+          kind: 'router_ab_ecdsa_registration_activation_v1',
+          publicFacts: parseRouterAbEcdsaVerifiedClientActivationFactsV1(
+            ecdsa.publicFacts,
+          ),
+        },
+      },
+    };
+  } catch {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'strict Router A/B ECDSA add-signer activation facts are invalid',
+    };
+  }
 }
 
 function parseWalletAddSignerFinalizeRequest(
@@ -2415,23 +2433,35 @@ export async function handleRouterApiWalletRegistrationEcdsaDerivationRespond(
   const result = await input.services.walletRegistration.respondWalletRegistrationEcdsaDerivation(
     request.value,
   );
-  if (result.ok && result.ecdsa) {
-    for (const entry of result.ecdsa.bootstraps) {
-      const signingError = await attachEcdsaWalletSessionJwt(
-        input,
-        entry.bootstrap,
-        registrationClientBootstrapRuntimePolicyScope({
-          request: request.value,
-          chainTarget: entry.chainTarget,
-        }),
-      );
-      if (signingError) return signingError;
-    }
-  }
   const response = exposesRegistrationRouteDiagnostics(input)
     ? result
     : stripRegistrationRouteDiagnostics(result);
   return routeJson(result.ok ? 200 : 400, response);
+}
+
+export async function handleRouterApiWalletRegistrationEcdsaActivation(
+  input: RouterApiWalletRegistrationInput,
+): Promise<RouteResponse<WalletRegistrationEcdsaActivationResponse | RouteErrorBody>> {
+  if (!isPlainObject(input.body)) {
+    return routeError(400, 'invalid_body', 'JSON body required');
+  }
+  const request = parseWalletRegistrationEcdsaActivationRequest(input.body);
+  if (!request.ok) return routeError(400, request.code, request.message);
+  const result = await input.services.walletRegistration.activateWalletRegistrationEcdsa(
+    request.value,
+  );
+  if (!result.ok) return routeJson(400, result);
+  const runtimePolicyScope =
+    await input.services.walletRegistration.getWalletRegistrationRuntimePolicyScope(
+      request.value.registrationCeremonyId,
+    );
+  const signingError = await attachEcdsaWalletSessionJwt(
+    input,
+    result.ecdsa.bootstrap,
+    runtimePolicyScope,
+  );
+  if (signingError) return signingError;
+  return routeJson(200, result);
 }
 
 export async function handleRouterApiWalletRegistrationFinalize(
@@ -2566,20 +2596,32 @@ export async function handleRouterApiWalletAddSignerEcdsaDerivationRespond(
   const request = parseWalletAddSignerEcdsaDerivationRespondRequest(input.body);
   if (!request.ok) return routeError(400, request.code, request.message);
   const result = await input.services.walletRegistration.respondWalletAddSignerEcdsaDerivation(request.value);
-  if (result.ok && result.ecdsa) {
-    for (const entry of result.ecdsa.bootstraps) {
-      const signingError = await attachEcdsaWalletSessionJwt(
-        input,
-        entry.bootstrap,
-        addSignerClientBootstrapRuntimePolicyScope({
-          request: request.value,
-          chainTarget: entry.chainTarget,
-        }),
-      );
-      if (signingError) return signingError;
-    }
-  }
   return routeJson(result.ok ? 200 : 400, result);
+}
+
+export async function handleRouterApiWalletAddSignerEcdsaActivation(
+  input: RouterApiWalletRegistrationInput,
+): Promise<RouteResponse<WalletAddSignerEcdsaActivationResponse | RouteErrorBody>> {
+  if (!isPlainObject(input.body)) {
+    return routeError(400, 'invalid_body', 'JSON body required');
+  }
+  const request = parseWalletAddSignerEcdsaActivationRequest(input.body);
+  if (!request.ok) return routeError(400, request.code, request.message);
+  const result = await input.services.walletRegistration.activateWalletAddSignerEcdsa(
+    request.value,
+  );
+  if (!result.ok) return routeJson(400, result);
+  const runtimePolicyScope =
+    await input.services.walletRegistration.getWalletAddSignerRuntimePolicyScope(
+      request.value.addSignerCeremonyId,
+    );
+  const signingError = await attachEcdsaWalletSessionJwt(
+    input,
+    result.ecdsa.bootstrap,
+    runtimePolicyScope || undefined,
+  );
+  if (signingError) return signingError;
+  return routeJson(200, result);
 }
 
 export async function handleRouterApiWalletAddSignerFinalize(

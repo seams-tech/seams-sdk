@@ -39,7 +39,8 @@ Options:
 Budget keys:
   walletHostGzip, walletHostBootPathGzip, walletHostStaticImportsGzip
   workerAndWasmGzip, ecdsaWasmGzip, nearWasmGzip, tempoWasmGzip
-  derivationWasmGzip, presignWasmGzip, onlineWasmGzip, ed25519YaoClientWasmGzip
+  ecdsaRegistrationPathGzip, registrationWasmGzip, derivationWasmGzip
+  presignWasmGzip, onlineWasmGzip, ed25519YaoClientWasmGzip
 `.trim(),
   );
   process.exit(0);
@@ -119,7 +120,10 @@ function resolveImport(fromAbs, specifier) {
     `${base}.css`,
     path.join(base, 'index.js'),
   ];
-  return candidates.find((candidate) => fs.existsSync(candidate) && fs.statSync(candidate).isFile()) ?? null;
+  return (
+    candidates.find((candidate) => fs.existsSync(candidate) && fs.statSync(candidate).isFile()) ??
+    null
+  );
 }
 
 function collectStaticImports(entryAbs) {
@@ -200,16 +204,29 @@ const workerTargets = [
   ['tempoWasm', 'Tempo signer WASM', 'dist/workers/tempo_signer.wasm'],
   [
     'ecdsaDerivationClientWorker',
-    'ECDSA derivation client worker',
+    'ECDSA bootstrap/export client worker',
     'dist/workers/ecdsa-derivation-client.worker.js',
   ],
-  ['derivationWasm', 'ECDSA client WASM', 'dist/workers/router_ab_ecdsa_derivation_client_bg.wasm'],
+  [
+    'registrationWasm',
+    'ECDSA registration client WASM',
+    'dist/workers/ecdsa_registration_client_bg.wasm',
+  ],
+  [
+    'derivationWasm',
+    'ECDSA deferred export client WASM',
+    'dist/workers/router_ab_ecdsa_derivation_client_bg.wasm',
+  ],
   [
     'ecdsaPresignClientWorker',
     'ECDSA presign client worker',
     'dist/workers/ecdsa-presign-client.worker.js',
   ],
-  ['presignWasm', 'ECDSA presign client WASM', 'dist/workers/router_ab_ecdsa_presign_client_bg.wasm'],
+  [
+    'presignWasm',
+    'ECDSA presign client WASM',
+    'dist/workers/router_ab_ecdsa_presign_client_bg.wasm',
+  ],
   [
     'ecdsaOnlineClientWorker',
     'ECDSA online client worker',
@@ -235,7 +252,9 @@ const workerRows = [];
 if (fs.existsSync(hostAbs)) {
   hostRows.push(makeRow('wallet host runtime', hostAbs, 'walletHost'));
   for (const staticImportAbs of collectStaticImports(hostAbs)) {
-    staticImportRows.push(makeRow(path.basename(staticImportAbs), staticImportAbs, 'walletHostStaticImport'));
+    staticImportRows.push(
+      makeRow(path.basename(staticImportAbs), staticImportAbs, 'walletHostStaticImport'),
+    );
   }
 } else {
   missing.push(relFromSdk(hostAbs));
@@ -254,17 +273,23 @@ const hostTotal = sumRows(hostRows);
 const staticImportTotal = sumRows(staticImportRows);
 const bootPathTotal = sumRows([...hostRows, ...staticImportRows]);
 const workerTotal = sumRows(workerRows);
+const ecdsaRegistrationPathRows = workerRows.filter((row) => {
+  return row.id === 'ecdsaDerivationClientWorker' || row.id === 'registrationWasm';
+});
+const ecdsaRegistrationPathTotal = sumRows(ecdsaRegistrationPathRows);
 
 const metrics = {
   walletHostGzip: hostTotal.gzip,
   walletHostBootPathGzip: bootPathTotal.gzip,
   walletHostStaticImportsGzip: staticImportTotal.gzip,
   workerAndWasmGzip: workerTotal.gzip,
+  ecdsaRegistrationPathGzip: ecdsaRegistrationPathTotal.gzip,
 };
 for (const row of workerRows) {
   if (row.id === 'ecdsaWasm') metrics.ecdsaWasmGzip = row.gzip;
   if (row.id === 'nearWasm') metrics.nearWasmGzip = row.gzip;
   if (row.id === 'tempoWasm') metrics.tempoWasmGzip = row.gzip;
+  if (row.id === 'registrationWasm') metrics.registrationWasmGzip = row.gzip;
   if (row.id === 'derivationWasm') metrics.derivationWasmGzip = row.gzip;
   if (row.id === 'presignWasm') metrics.presignWasmGzip = row.gzip;
   if (row.id === 'onlineWasm') metrics.onlineWasmGzip = row.gzip;
@@ -283,6 +308,7 @@ if (jsonOutput) {
           walletHost: hostTotal,
           walletHostStaticImports: staticImportTotal,
           walletHostBootPath: bootPathTotal,
+          ecdsaRegistrationPath: ecdsaRegistrationPathTotal,
           workerAndWasm: workerTotal,
         },
         metrics,
@@ -300,6 +326,9 @@ if (jsonOutput) {
     `\nWallet host boot-path total: ${formatBytes(bootPathTotal.raw)} raw / ${formatBytes(bootPathTotal.gzip)} gzip / ${formatBytes(bootPathTotal.brotli)} brotli`,
   );
   printRows('Wallet workers and WASM', workerRows);
+  console.log(
+    `\nECDSA registration path: ${formatBytes(ecdsaRegistrationPathTotal.raw)} raw / ${formatBytes(ecdsaRegistrationPathTotal.gzip)} gzip / ${formatBytes(ecdsaRegistrationPathTotal.brotli)} brotli`,
+  );
   console.log(
     `\nWorker/WASM total: ${formatBytes(workerTotal.raw)} raw / ${formatBytes(workerTotal.gzip)} gzip / ${formatBytes(workerTotal.brotli)} brotli`,
   );

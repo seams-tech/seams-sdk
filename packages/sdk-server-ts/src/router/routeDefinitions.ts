@@ -8,13 +8,15 @@ import {
   ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH,
 } from '@shared/utils/routerAbPublicKeyset';
 import {
-  ROUTER_AB_ECDSA_DERIVATION_BOOTSTRAP_PATH,
-  ROUTER_AB_ECDSA_DERIVATION_EXPORT_SHARE_PATH,
+  ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH,
   ROUTER_AB_ECDSA_DERIVATION_HEALTH_PATH,
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PATH,
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PREPARE_PATH,
   ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH,
   ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_STEP_PATH,
+  ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH,
+  ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH,
+  ROUTER_AB_ECDSA_DERIVATION_SESSION_ACTIVATION_PATH,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
   ROUTER_AB_ED25519_HEALTH_PATH,
@@ -148,7 +150,7 @@ const ROUTER_API_THRESHOLD_SESSION_SERVICES = [
   'thresholdRuntime',
   'session',
 ] as const satisfies readonly RouteServiceKey[];
-const ROUTER_API_ECDSA_BOOTSTRAP_SERVICES = [
+const ROUTER_API_ECDSA_STRICT_LIFECYCLE_SERVICES = [
   'thresholdRuntime',
   'webAuthn',
   'sessionVersions',
@@ -1511,6 +1513,19 @@ export function createRouterApiRouteDefinitions(
       ROUTER_API_WALLET_REGISTRATION_SERVICES,
     ),
     publicRoute(
+      'wallet_registration_ecdsa_activation',
+      'POST',
+      '/wallets/register/derivation/activate',
+      'Activate one verified wallet ECDSA family registration',
+      {
+        plane: 'public',
+        proof: 'threshold_protocol_state',
+        rationale:
+          'Registration activation is bound to one unexpired server-retained Router ceremony.',
+      },
+      ROUTER_API_WALLET_REGISTRATION_SERVICES,
+    ),
+    publicRoute(
       'wallet_registration_finalize',
       'POST',
       '/wallets/register/finalize',
@@ -1560,6 +1575,18 @@ export function createRouterApiRouteDefinitions(
         plane: 'public',
         proof: 'threshold_protocol_state',
         rationale: 'Add-signer DERIVATION respond is bound to an unexpired ceremony id.',
+      },
+      ROUTER_API_WALLET_REGISTRATION_SERVICES,
+    ),
+    publicRoute(
+      'wallet_add_signer_ecdsa_activation',
+      'POST',
+      '/wallets/:walletId/signers/derivation/activate',
+      'Activate a verified wallet add-signer ECDSA registration',
+      {
+        plane: 'public',
+        proof: 'threshold_protocol_state',
+        rationale: 'Add-signer activation is bound to one pending strict Router ceremony.',
       },
       ROUTER_API_WALLET_REGISTRATION_SERVICES,
     ),
@@ -1735,20 +1762,36 @@ export function createRouterApiRouteDefinitions(
       ROUTER_API_THRESHOLD_RUNTIME_SERVICES,
     ),
     thresholdSessionRoute(
-      'router_ab_ecdsa_derivation_bootstrap',
+      'router_ab_ecdsa_derivation_export',
       'POST',
-      ROUTER_AB_ECDSA_DERIVATION_BOOTSTRAP_PATH,
-      'Bootstrap Router A/B ECDSA derivation material',
+      ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH,
+      'Export authorized Router A/B ECDSA derivation material',
       'ecdsa',
-      ROUTER_API_ECDSA_BOOTSTRAP_SERVICES,
+      ROUTER_API_ECDSA_STRICT_LIFECYCLE_SERVICES,
     ),
     thresholdSessionRoute(
-      'router_ab_ecdsa_derivation_export_share',
+      'router_ab_ecdsa_derivation_recovery',
       'POST',
-      ROUTER_AB_ECDSA_DERIVATION_EXPORT_SHARE_PATH,
-      'Release an authorized Router A/B ECDSA derivation export share',
+      ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH,
+      'Recover Router A/B ECDSA derivation material',
       'ecdsa',
-      ROUTER_API_ECDSA_BOOTSTRAP_SERVICES,
+      ROUTER_API_ECDSA_STRICT_LIFECYCLE_SERVICES,
+    ),
+    thresholdSessionRoute(
+      'router_ab_ecdsa_derivation_refresh',
+      'POST',
+      ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH,
+      'Refresh Router A/B ECDSA derivation activation',
+      'ecdsa',
+      ROUTER_API_ECDSA_STRICT_LIFECYCLE_SERVICES,
+    ),
+    thresholdSessionRoute(
+      'router_ab_ecdsa_derivation_session_activate',
+      'POST',
+      ROUTER_AB_ECDSA_DERIVATION_SESSION_ACTIVATION_PATH,
+      'Activate Router A/B ECDSA normal-signing session',
+      'ecdsa',
+      ROUTER_API_THRESHOLD_SESSION_SERVICES,
     ),
     thresholdSessionRoute(
       'router_ab_ecdsa_derivation_sign_prepare',
@@ -2044,19 +2087,6 @@ export function createRouterApiRouteDefinitions(
           plane: 'public',
           proof: 'recovery_proof',
           rationale: 'Email recovery preparation is a public recovery bootstrap route.',
-        },
-        ROUTER_API_EMAIL_RECOVERY_AUTH_SERVICES,
-      ),
-      publicRoute(
-        'email_recovery_ecdsa_respond',
-        'POST',
-        '/email-recovery/ecdsa/respond',
-        'Respond to email recovery ECDSA DERIVATION prepare context',
-        {
-          plane: 'public',
-          proof: 'recovery_proof',
-          rationale:
-            'Email recovery ECDSA respond is scoped by the recovery request id and stored prepare context.',
         },
         ROUTER_API_EMAIL_RECOVERY_AUTH_SERVICES,
       ),

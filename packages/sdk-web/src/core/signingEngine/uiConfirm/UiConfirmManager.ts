@@ -82,7 +82,13 @@ import type {
   NearTransactionSigningConfirmationResult,
 } from '../stepUpConfirmation/confirmOperation';
 import { requestRegistrationCredentialConfirmationOnMainThread } from './handlers/flows/requestRegistrationCredentialConfirmation';
+import {
+  mountConfirmUI,
+  type ConfirmUISurfaceSource,
+  type MountedConfirmUIHandle,
+} from './ui/confirm-ui';
 import type {
+  OpenRegistrationPreparationModalParams,
   RequestRegistrationCredentialConfirmationParams,
   ExportPrivateKeysWithUiOptions,
   RequestUserConfirmationOptions,
@@ -132,6 +138,11 @@ type PendingWorkerRequest = {
   resolve: (response: UserConfirmWorkerResponse) => void;
   reject: (error: Error) => void;
 };
+
+type RegistrationPreparationModalState =
+  | { kind: 'closed'; generation: number }
+  | { kind: 'opening'; generation: number }
+  | { kind: 'open'; generation: number; handle: MountedConfirmUIHandle };
 
 const USER_CONFIRM_WORKER_STARTUP_PING_TIMEOUT_MS = 15_000;
 
@@ -653,6 +664,10 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
   >();
   private readonly boundHandleWorkerMessage = this.handleWorkerMessage.bind(this);
   private readonly boundHandleWorkerError = this.handleWorkerError.bind(this);
+  private registrationPreparationModalState: RegistrationPreparationModalState = {
+    kind: 'closed',
+    generation: 0,
+  };
 
   constructor(config: UiConfirmManagerConfig, context: UiConfirmContext) {
     this.config = {
@@ -1278,9 +1293,10 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
             })
           : null
         : null;
+    const ecdsaReadyRecord = ecdsaRecord?.ecdsaRoleLocalReadyRecord;
     const ecdsaPasskeyCredentialId =
-      ecdsaRecord?.ecdsaRoleLocalReadyRecord.authMethod.kind === 'passkey'
-        ? ecdsaRecord.ecdsaRoleLocalReadyRecord.authMethod.credentialIdB64u
+      ecdsaReadyRecord?.authMethod.kind === 'passkey'
+        ? ecdsaReadyRecord.authMethod.credentialIdB64u
         : '';
     const walletId = String(
       ed25519Record?.walletId || ecdsaRecord?.walletId || args.walletId || '',
@@ -1327,6 +1343,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
               ? { runtimePolicyScope: ecdsaRecord.runtimePolicyScope }
               : {}),
             routerAbEcdsaDerivationNormalSigning: ecdsaRecord.routerAbEcdsaDerivationNormalSigning,
+            publicCapability: ecdsaRecord.ecdsaRoleLocalPublicFacts.publicCapability,
           }
         : undefined;
     const ed25519Restore = currentEd25519RestoreMetadataFromSessionRecord(ed25519Record);
@@ -2407,16 +2424,100 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
   async requestRegistrationCredentialConfirmation(
     params: RequestRegistrationCredentialConfirmationParams,
   ) {
-    return requestRegistrationCredentialConfirmationOnMainThread({
+    const surface = this.takeRegistrationConfirmationSurface();
+    try {
+      return await requestRegistrationCredentialConfirmationOnMainThread({
+        ctx: this.getContext(),
+        surface,
+        walletId: params.walletId,
+        nearAccountId: params.nearAccountId,
+        signerSlot: params.signerSlot,
+        confirmerText: params.confirmerText,
+        confirmationConfig: params.confirmationConfigOverride,
+        challengeB64u: params.challengeB64u,
+      });
+    } catch (error) {
+      if (surface.kind === 'reuse_mounted') {
+        surface.handle.close(false);
+      }
+      throw error;
+    }
+  }
+
+  private takeRegistrationConfirmationSurface(): ConfirmUISurfaceSource {
+    const state = this.registrationPreparationModalState;
+    switch (state.kind) {
+      case 'closed':
+        return { kind: 'mount_new' };
+      case 'opening':
+        throw new Error('Registration confirmation started before its preparation modal opened');
+      case 'open':
+        this.registrationPreparationModalState = {
+          kind: 'closed',
+          generation: state.generation,
+        };
+        return { kind: 'reuse_mounted', handle: state.handle };
+      default:
+        return assertNever(state);
+    }
+  }
+
+  async openRegistrationPreparationModal(
+    params: OpenRegistrationPreparationModalParams,
+  ): Promise<void> {
+    const walletLabel = String(params.walletLabel || '').trim();
+    if (!walletLabel) {
+      throw new Error('Registration preparation modal requires a wallet label');
+    }
+    if (!Number.isInteger(params.signerSlot) || params.signerSlot < 1) {
+      throw new Error('Registration preparation modal requires a positive signer slot');
+    }
+    const rpId = String(this.context.touchIdPrompt.getRpId() || '').trim();
+    if (!rpId) {
+      throw new Error('Registration preparation modal requires an RP ID');
+    }
+
+    this.closeRegistrationPreparationModal();
+    const generation = this.registrationPreparationModalState.generation + 1;
+    this.registrationPreparationModalState = { kind: 'opening', generation };
+    const handle = await mountConfirmUI({
       ctx: this.getContext(),
-      walletId: params.walletId,
-      nearAccountId: params.nearAccountId,
-      signerSlot: params.signerSlot,
-      confirmerText: params.confirmerText,
-      confirmationConfig: params.confirmationConfigOverride,
-      challengeB64u: params.challengeB64u,
-      walletIframeActivation: params.walletIframeActivation,
+      summary: {
+        title: 'Create your passkey',
+        body: 'Preparing secure registration…',
+      },
+      securityContext: {
+        rpId,
+        passkeyRegistration: {
+          kind: 'passkey_registration_confirm_display_v1',
+          intendedUserName: walletLabel,
+          accountId: walletLabel,
+          rpId,
+          signerSlot: params.signerSlot,
+        },
+      },
+      loading: true,
+      theme: this.context.getTheme?.() ?? 'dark',
+      uiMode: 'modal',
+      nearAccountIdOverride: walletLabel,
     });
+    const state = this.registrationPreparationModalState;
+    if (state.kind !== 'opening' || state.generation !== generation) {
+      handle.close(false);
+      return;
+    }
+    this.registrationPreparationModalState = { kind: 'open', generation, handle };
+  }
+
+  closeRegistrationPreparationModal(): void {
+    const state = this.registrationPreparationModalState;
+    this.registrationPreparationModalState = {
+      kind: 'closed',
+      generation: state.generation,
+    };
+    if (state.kind === 'open') {
+      state.handle.close(false);
+    }
   }
 
   setWorkerBaseOrigin(origin: string | undefined): void {

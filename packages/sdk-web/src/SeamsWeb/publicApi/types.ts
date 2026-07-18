@@ -1,16 +1,12 @@
 import type { NonceCoordinator } from '@/core/signingEngine/nonce/NonceCoordinator';
 import type {
-  RegistrationActivationId,
-  RegistrationActivationMessageIdentity,
   WalletIframeRequestId,
   WalletIframeSurfaceId,
-} from '@/core/types/registrationActivationIdentity';
+} from '@/core/types/walletIframeIdentity';
 export type {
-  RegistrationActivationId,
-  RegistrationActivationMessageIdentity,
   WalletIframeRequestId,
   WalletIframeSurfaceId,
-} from '@/core/types/registrationActivationIdentity';
+} from '@/core/types/walletIframeIdentity';
 import type {
   NearAccountRef,
   ThresholdEcdsaChainTarget,
@@ -160,12 +156,6 @@ import type {
   ClientUserData,
   StoreUserDataInput,
 } from '@/core/accountData/near/nearAccountData.types';
-import type {
-  EmailOtpWalletRegistrationEcdsaPreparedClientBootstrap,
-  PasskeyWalletRegistrationEcdsaPreparedClientBootstrap,
-  PrepareEmailOtpWalletRegistrationEcdsaClientBootstrapInput,
-  PreparePasskeyWalletRegistrationEcdsaClientBootstrapInput,
-} from '@/core/signingEngine/flows/registration/services/ecdsaRegistrationBootstrap';
 import type { FinalizeWalletRegistrationEcdsaSessionsInput } from '@/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions';
 import type {
   StoreAuthenticatorInput,
@@ -738,9 +728,6 @@ export interface RegistrationCapability {
     options?: RegistrationHooksOptions;
   }): Promise<RegistrationResult>;
   registerPasskey(options?: PasskeyRegistrationOptions): Promise<RegistrationResult>;
-  createPasskeyRegistrationActivationSurface(
-    args: CreatePasskeyRegistrationActivationSurfaceArgs,
-  ): WalletIframeRegistrationActivationSurface;
   requestEmailOtpEnrollmentChallenge(args: {
     walletId: string;
     relayUrl?: string;
@@ -761,48 +748,6 @@ export interface RegistrationCapability {
     args: EmailOtpEcdsaEnrollmentCapabilityArgs,
   ): Promise<EmailOtpEcdsaEnrollmentCapabilityResult>;
 }
-
-export type RegistrationActivationSurfaceState =
-  | { kind: 'idle' }
-  | { kind: 'mounting'; identity: RegistrationActivationMessageIdentity }
-  | { kind: 'ready'; identity: RegistrationActivationMessageIdentity; expiresAtMs: number }
-  | { kind: 'starting'; identity: RegistrationActivationMessageIdentity }
-  | {
-      kind: 'completed';
-      identity: RegistrationActivationMessageIdentity;
-      result: RegistrationResult;
-    }
-  | {
-      kind: 'cancelled';
-      identity: RegistrationActivationMessageIdentity;
-      reason: 'user_cancelled' | 'expired' | 'disposed' | 'target_unavailable';
-    }
-  | { kind: 'failed'; identity: RegistrationActivationMessageIdentity; error: string };
-
-export type WalletIframeRegistrationActivationSurface = {
-  kind: 'wallet_iframe_registration_activation_surface_v1';
-  mount(target: HTMLElement): void;
-  dispose(): void;
-  state(): RegistrationActivationSurfaceState;
-  onStateChange(listener: (state: RegistrationActivationSurfaceState) => void): () => void;
-};
-
-export type CreatePasskeyRegistrationActivationSurfaceArgs = {
-  wallet: Extract<RegisterWalletInput, { kind: 'provided' }>;
-  signerSelection: RegistrationSignerSetSelection;
-  options?: RegistrationHooksOptions;
-  presentation: RegistrationActivationButtonPresentation;
-};
-
-export type RegistrationActivationButtonPresentation = {
-  kind: 'outline_overlay';
-  label: string;
-  busyLabel: string;
-  accessibleLabel: string;
-  iframeButtonStyle?: never;
-  iframeVisualStyle?: never;
-  shadowPaddingPx?: never;
-};
 
 export interface NearSignerCapability {
   registerNearWallet(args: RegisterNearWalletArgs): Promise<RegistrationResult>;

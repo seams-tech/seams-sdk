@@ -35,13 +35,24 @@ export type Ed25519WalletSessionRecord = {
   participantIds: number[];
 } & Partial<ThresholdEcdsaSigningRootMetadata>;
 
-export type EcdsaWalletSessionRecord = {
+type EcdsaWalletSessionRecordCore = {
   expiresAtMs: number;
   relayerKeyId: string;
   walletId: string;
   evmFamilySigningKeySlotId: string;
   participantIds: number[];
-} & Partial<ThresholdEcdsaSigningRootMetadata>;
+};
+
+export type EcdsaWalletSessionRecord = EcdsaWalletSessionRecordCore &
+  (
+    | {
+        signingRootId?: never;
+        signingRootVersion?: never;
+        walletKeyVersion?: never;
+        derivationVersion?: never;
+      }
+    | ThresholdEcdsaSigningRootMetadata
+  );
 
 export type WalletSigningBudgetEd25519Binding = {
   thresholdSessionId: string;

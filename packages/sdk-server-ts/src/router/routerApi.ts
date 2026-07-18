@@ -13,7 +13,7 @@ import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { RouterAbPublicKeysetV2 } from '@shared/utils/routerAbPublicKeyset';
 import type { RouterAbNormalSigningAdmissionAdapter } from './routerAbPrivateSigningWorker';
 import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from './routerAbEd25519YaoProductRegistration';
-import type { RouterAbEcdsaDerivationRefreshPort } from './routerAbEcdsaDerivationRefreshPort';
+import type { RouterAbEcdsaStrictPostRegistrationPort } from './routerAbEcdsaStrictRegistration';
 import type { EmailRecoveryService } from '../email-recovery';
 import type {
   RouterApiAuthenticatedPublishableCredential,
@@ -24,10 +24,7 @@ import type {
   RouterApiPublishableKeyAuthAdapter,
   RouterApiUsageMeterAdapter,
 } from './apiCredentialPorts';
-import type {
-  PrepareEmailRecoveryRequest,
-  RespondEmailRecoveryEcdsaRequest,
-} from './emailRecoveryRequestValidation';
+import type { PrepareEmailRecoveryRequest } from './emailRecoveryRequestValidation';
 import type { EmailRecoveryResolvedWalletBinding } from '../core/EmailRecoveryPreparationStore';
 
 export type {
@@ -200,9 +197,6 @@ export type RouterApiEmailRecoveryResult =
 
 export interface RouterApiEmailRecoveryAuthService {
   prepareEmailRecovery(request: PrepareEmailRecoveryRequest): Promise<RouterApiEmailRecoveryResult>;
-  respondEmailRecoveryEcdsa(
-    request: RespondEmailRecoveryEcdsaRequest,
-  ): Promise<RouterApiEmailRecoveryResult>;
 }
 
 export type RouterApiEmailRecoveryExecutionService = Pick<
@@ -420,8 +414,8 @@ export interface RouterApiOptions {
    * Router A/B normal-signing requests.
    */
   routerAbNormalSigningAdmission?: RouterAbNormalSigningAdmissionAdapter | null;
-  /** Cryptographic refresh owner for strict Router A/B ECDSA derivation requests. */
-  routerAbEcdsaDerivationRefresh?: RouterAbEcdsaDerivationRefreshPort | null;
+  /** Strict Router A/B owner for ECDSA export, recovery, and activation refresh. */
+  routerAbEcdsaStrictPostRegistration?: RouterAbEcdsaStrictPostRegistrationPort | null;
   /** Local product runtime used to restore an authenticated Ed25519 Yao capability. */
   routerAbEd25519YaoProduct?: RouterAbEd25519YaoProductRegistrationRuntimeV1 | null;
   /**
