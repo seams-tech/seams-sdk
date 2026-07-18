@@ -13,8 +13,19 @@ use crate::ed25519_yao_signing_worker::{
 #[cfg(feature = "workers-rs")]
 pub async fn handle_cloudflare_durable_object_fetch_v1(
     binding: &CloudflareDurableObjectBindingV1,
+    request: worker::Request,
+    storage: &worker::Storage,
+) -> worker::Result<worker::Response> {
+    handle_cloudflare_durable_object_fetch_with_project_policy_v1(binding, request, storage, None)
+        .await
+}
+
+#[cfg(feature = "workers-rs")]
+async fn handle_cloudflare_durable_object_fetch_with_project_policy_v1(
+    binding: &CloudflareDurableObjectBindingV1,
     mut request: worker::Request,
     storage: &worker::Storage,
+    project_policy_bootstrap: Option<&CloudflareRouterProjectPolicyRecordV1>,
 ) -> worker::Result<worker::Response> {
     if request.method() != worker::Method::Post {
         return worker::Response::error("Router A/B Durable Object requires POST", 405);
@@ -38,13 +49,81 @@ pub async fn handle_cloudflare_durable_object_fetch_v1(
             404,
         );
     }
-    match handle_cloudflare_durable_object_worker_request_v1(binding, parsed, storage).await {
+    match handle_cloudflare_durable_object_worker_request_with_project_policy_v1(
+        binding,
+        parsed,
+        storage,
+        project_policy_bootstrap,
+    )
+    .await
+    {
         Ok(response) => worker::Response::from_json(&response),
         Err(err) => worker::Response::error(
             format!("{:?}: {}", err.code(), err.message()),
             durable_object_error_status(err.code()),
         ),
     }
+}
+
+#[cfg(feature = "workers-rs")]
+pub(super) async fn handle_cloudflare_project_policy_durable_object_class_fetch_v1(
+    scope: CloudflareDurableObjectScopeV1,
+    binding_env_key: &str,
+    object_env_key: &str,
+    key_prefix_env_key: &str,
+    bootstrap_json_env_key: &str,
+    env: &worker::Env,
+    state: &worker::State,
+    request: worker::Request,
+) -> worker::Result<worker::Response> {
+    let binding = match cloudflare_durable_object_class_binding_v1(
+        scope,
+        binding_env_key,
+        object_env_key,
+        key_prefix_env_key,
+        env,
+    ) {
+        Ok(binding) => binding,
+        Err(err) => {
+            return worker::Response::error(
+                format!("{:?}: {}", err.code(), err.message()),
+                durable_object_error_status(err.code()),
+            );
+        }
+    };
+    let bootstrap_json =
+        match read_cloudflare_durable_object_class_env_text_v1(env, bootstrap_json_env_key) {
+            Ok(value) => value,
+            Err(err) => {
+                return worker::Response::error(
+                    format!("{:?}: {}", err.code(), err.message()),
+                    durable_object_error_status(err.code()),
+                );
+            }
+        };
+    let bootstrap =
+        match serde_json::from_str::<CloudflareRouterProjectPolicyRecordV1>(&bootstrap_json) {
+            Ok(record) => record,
+            Err(err) => {
+                return worker::Response::error(
+                    format!("Router project-policy bootstrap JSON parse failed: {err}"),
+                    500,
+                );
+            }
+        };
+    if let Err(err) = bootstrap.validate() {
+        return worker::Response::error(
+            format!("{:?}: {}", err.code(), err.message()),
+            durable_object_error_status(err.code()),
+        );
+    }
+    handle_cloudflare_durable_object_fetch_with_project_policy_v1(
+        &binding,
+        request,
+        &state.storage(),
+        Some(&bootstrap),
+    )
+    .await
 }
 
 #[cfg(feature = "workers-rs")]
@@ -259,12 +338,100 @@ fn single_index_cleanup_report_v1(
     CloudflareExpiredStateCleanupReportV1::new(now_unix_ms, records_removed, 0)
 }
 
+#[cfg(feature = "workers-rs")]
+#[derive(Clone, Copy)]
+struct WorkerProjectPolicyScopeV1<'a> {
+    org_id: &'a str,
+    project_id: &'a str,
+    environment: &'a str,
+}
+
+#[cfg(feature = "workers-rs")]
+impl WorkerProjectPolicyScopeV1<'_> {
+    fn matches(self, policy: &CloudflareRouterProjectPolicyRecordV1) -> bool {
+        policy.org_id == self.org_id
+            && policy.project_id == self.project_id
+            && policy.environment == self.environment
+    }
+}
+
+#[cfg(feature = "workers-rs")]
+async fn worker_storage_project_policy_v1(
+    storage: &worker::Storage,
+    storage_key: &str,
+    operation_kind: CloudflareDurableObjectOperationKindV1,
+    bootstrap: Option<&CloudflareRouterProjectPolicyRecordV1>,
+    expected_scope: WorkerProjectPolicyScopeV1<'_>,
+) -> RouterAbProtocolResult<CloudflareRouterProjectPolicyRecordV1> {
+    if let Some(existing) = worker_storage_get::<CloudflareRouterProjectPolicyRecordV1>(
+        storage,
+        storage_key,
+        operation_kind,
+    )
+    .await?
+    {
+        existing.validate()?;
+        if expected_scope.matches(&existing) {
+            if bootstrap.is_some_and(|configured| configured != &existing) {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                    "router project-policy bootstrap does not match durable state",
+                ));
+            }
+            return Ok(existing);
+        }
+        let configured = bootstrap.ok_or_else(|| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "router project-policy durable state has an invalid scope",
+            )
+        })?;
+        configured.validate()?;
+        if !expected_scope.matches(configured) {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "router project-policy bootstrap does not match the requested scope",
+            ));
+        }
+        worker_storage_put(storage, storage_key, configured.clone(), operation_kind).await?;
+        return Ok(configured.clone());
+    }
+    let policy = bootstrap.cloned().ok_or_else(|| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MissingLocalBinding,
+            "router project-policy record is missing",
+        )
+    })?;
+    policy.validate()?;
+    if !expected_scope.matches(&policy) {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "router project-policy bootstrap does not match the requested scope",
+        ));
+    }
+    worker_storage_put(storage, storage_key, policy.clone(), operation_kind).await?;
+    Ok(policy)
+}
+
 /// Handles a parsed Durable Object request against real Cloudflare storage.
 #[cfg(feature = "workers-rs")]
 pub async fn handle_cloudflare_durable_object_worker_request_v1(
     binding: &CloudflareDurableObjectBindingV1,
     request: CloudflareDurableObjectRequestV1,
     storage: &worker::Storage,
+) -> RouterAbProtocolResult<CloudflareDurableObjectResponseV1> {
+    handle_cloudflare_durable_object_worker_request_with_project_policy_v1(
+        binding, request, storage, None,
+    )
+    .await
+}
+
+#[cfg(feature = "workers-rs")]
+async fn handle_cloudflare_durable_object_worker_request_with_project_policy_v1(
+    binding: &CloudflareDurableObjectBindingV1,
+    request: CloudflareDurableObjectRequestV1,
+    storage: &worker::Storage,
+    project_policy_bootstrap: Option<&CloudflareRouterProjectPolicyRecordV1>,
 ) -> RouterAbProtocolResult<CloudflareDurableObjectResponseV1> {
     let worker_role = worker_role_for_durable_object_scope(binding.scope)?;
     let call = CloudflareDurableObjectCallV1::new(worker_role, binding.clone(), request)?;
@@ -428,18 +595,18 @@ pub async fn handle_cloudflare_durable_object_worker_request_v1(
             )?
         }
         CloudflareDurableObjectRequestV1::RouterProjectPolicyEvaluate { request } => {
-            let policy = worker_storage_get::<CloudflareRouterProjectPolicyRecordV1>(
+            let policy = worker_storage_project_policy_v1(
                 storage,
                 &storage_key,
                 call.operation_kind(),
+                project_policy_bootstrap,
+                WorkerProjectPolicyScopeV1 {
+                    org_id: &request.metadata.org_id,
+                    project_id: &request.metadata.project_id,
+                    environment: &request.metadata.environment,
+                },
             )
             .await?
-            .ok_or_else(|| {
-                RouterAbProtocolError::new(
-                    RouterAbProtocolErrorCode::MissingLocalBinding,
-                    "router project-policy record is missing",
-                )
-            })?
             .evaluate(request)?;
             CloudflareDurableObjectResponseV1::router_project_policy_evaluate(policy)?
         }
@@ -509,18 +676,18 @@ pub async fn handle_cloudflare_durable_object_worker_request_v1(
             CloudflareDurableObjectResponseV1::router_abuse_evaluate(abuse)?
         }
         CloudflareDurableObjectRequestV1::RouterNormalSigningProjectPolicyEvaluate { request } => {
-            let policy = worker_storage_get::<CloudflareRouterProjectPolicyRecordV1>(
+            let policy = worker_storage_project_policy_v1(
                 storage,
                 &storage_key,
                 call.operation_kind(),
+                project_policy_bootstrap,
+                WorkerProjectPolicyScopeV1 {
+                    org_id: &request.metadata.org_id,
+                    project_id: &request.metadata.project_id,
+                    environment: &request.metadata.environment,
+                },
             )
             .await?
-            .ok_or_else(|| {
-                RouterAbProtocolError::new(
-                    RouterAbProtocolErrorCode::MissingLocalBinding,
-                    "router project-policy record is missing",
-                )
-            })?
             .evaluate_normal_signing(request)?;
             CloudflareDurableObjectResponseV1::router_normal_signing_project_policy_evaluate(
                 policy,
