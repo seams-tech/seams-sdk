@@ -14,8 +14,8 @@ const EXPECTED_BENCHMARK = "phase9b-cloudflare-activation-128kib";
 const EXPECTED_TABLE_PAYLOAD_BYTES = 2_104_960;
 const EXPECTED_TIMING_SEMANTICS =
   "worker-date-now;deployed-advances-after-io;milestones-relative-to-deriver-a-protocol-start";
-const EXPECTED_TABLE_TIMING_BOUNDARY = "outbound-stream-backpressure-acceptance";
-const EXPECTED_BODY_BYTE_TIMING_BOUNDARY = "raw-stream-chunk-emission-and-receipt";
+const EXPECTED_TABLE_TIMING_BOUNDARY = "websocket-send-queue-acceptance";
+const EXPECTED_BODY_BYTE_TIMING_BOUNDARY = "websocket-binary-message-send-and-receipt";
 const EXPECTED_INCOMING_SECRET_BUFFER_DISPOSAL =
   "rust-wasm-copy-zeroized-js-view-overwritten-platform-copies-uncontrolled";
 const METRIC_FIELDS = Object.freeze([
@@ -517,7 +517,7 @@ export function buildDeployedReport(configuration, receipt, results, startedAt, 
     colo: Object.freeze({
       a: Object.freeze({ source: "A Worker cf.colo", values: sampleAColos(successes) }),
       b: Object.freeze({
-        source: "validated Deriver B x-ed25519-yao-b-colo response metadata",
+        source: "validated Deriver B transport placement evidence when available",
         values: sampleBColos(successes),
       }),
       client_edge_cross_check: Object.freeze({

@@ -172,7 +172,7 @@ function topologyBinding(configuration) {
   }
   return {
     schema: 'ed25519_yao_phase9b_topology_binding_v1',
-    kind: 'cross-account-https',
+    kind: 'cross-account-websocket',
     ...common,
     b_public_hostname: configuration.b.publicHostname,
   };
@@ -195,7 +195,7 @@ function validateTopologyBinding(binding, configuration) {
   if (
     (expected.kind === 'same-account-service-binding' &&
       binding.b_service_name !== expected.b_service_name) ||
-    (expected.kind === 'cross-account-https' &&
+    (expected.kind === 'cross-account-websocket' &&
       binding.b_public_hostname !== expected.b_public_hostname)
   ) {
     fail('deployment receipt topology binding does not match the benchmark configuration');

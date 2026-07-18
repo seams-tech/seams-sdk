@@ -172,6 +172,7 @@ dependencies = [
  "http-body-util",
  "serde_json",
  "url",
+ "wasm-bindgen",
  "wasm-streams",
  "worker",
  "worker-sys",

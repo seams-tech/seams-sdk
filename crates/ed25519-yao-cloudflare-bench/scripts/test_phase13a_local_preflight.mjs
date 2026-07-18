@@ -164,7 +164,7 @@ function run() {
   assert.equal(result.phase13a_decision, 'unavailable');
   assert.equal(result.production_eligible, false);
   assert.equal(result.local_checks.length, 13);
-  assert.equal(result.deployed_evidence_unavailable.length, 11);
+  assert.equal(result.deployed_evidence_unavailable.length, 4);
 
   assertMutationRejected(corruptArtifactDigest);
   assertMutationRejected(corruptValidatedInputTree);

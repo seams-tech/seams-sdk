@@ -122,15 +122,15 @@ function hostname(environment, name) {
   return raw;
 }
 
-function canonicalHttpsEndpoint(raw, name, expectedHostname) {
+function canonicalEndpoint(raw, name, expectedHostname, protocol) {
   let url;
   try {
     url = new URL(raw);
   } catch {
-    throw new BoundaryError(`${name} must be an absolute HTTPS URL`);
+    throw new BoundaryError(`${name} must be an absolute ${protocol.toUpperCase()} URL`);
   }
   if (
-    url.protocol !== "https:" ||
+    url.protocol !== `${protocol}:` ||
     url.username !== "" ||
     url.password !== "" ||
     url.port !== "" ||
@@ -140,7 +140,7 @@ function canonicalHttpsEndpoint(raw, name, expectedHostname) {
     url.hostname !== expectedHostname
   ) {
     throw new BoundaryError(
-      `${name} must be https://${expectedHostname}${CANONICAL_PATH}`,
+      `${name} must be ${protocol}://${expectedHostname}${CANONICAL_PATH}`,
     );
   }
   return url.href;
@@ -157,7 +157,7 @@ function publicAEndpoint(environment) {
   const host = parsed.hostname;
   validateHostnameLabels(host, "YAOS_AB_A_PUBLIC_ENDPOINT");
   return {
-    endpoint: canonicalHttpsEndpoint(raw, "YAOS_AB_A_PUBLIC_ENDPOINT", host),
+    endpoint: canonicalEndpoint(raw, "YAOS_AB_A_PUBLIC_ENDPOINT", host, "https"),
     hostname: host,
   };
 }
@@ -167,10 +167,11 @@ function crossAccountBEndpoint(environment, aHostname) {
   if (bHostname === aHostname) {
     throw new BoundaryError("A and B hostnames must differ in two-account mode");
   }
-  const endpoint = canonicalHttpsEndpoint(
-    required(environment, "YAOS_AB_B_HTTPS_ENDPOINT"),
-    "YAOS_AB_B_HTTPS_ENDPOINT",
+  const endpoint = canonicalEndpoint(
+    required(environment, "YAOS_AB_B_WEBSOCKET_ENDPOINT"),
+    "YAOS_AB_B_WEBSOCKET_ENDPOINT",
     bHostname,
+    "wss",
   );
   return { hostname: bHostname, endpoint };
 }
@@ -206,7 +207,9 @@ export function parseDeploymentEnvironment(environment) {
   return Object.freeze({
     topology,
     expectedTopologyLabel:
-      topology === "one-account" ? "same-account-service-binding" : "cross-account-https",
+      topology === "one-account"
+        ? "same-account-service-binding-websocket"
+        : "cross-account-websocket",
     a: Object.freeze({
       accountId: aAccount,
       profile: aProfile,

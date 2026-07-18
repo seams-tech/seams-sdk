@@ -10,8 +10,8 @@ const DEFAULT_ENDPOINT = "http://127.0.0.1:8787/benchmark/activation";
 const EXPECTED_TABLE_PAYLOAD_BYTES = 2_104_960;
 const EXPECTED_TIMING_SEMANTICS =
   "worker-date-now;deployed-advances-after-io;milestones-relative-to-deriver-a-protocol-start";
-const EXPECTED_TABLE_TIMING_BOUNDARY = "outbound-stream-backpressure-acceptance";
-const EXPECTED_BODY_BYTE_TIMING_BOUNDARY = "raw-stream-chunk-emission-and-receipt";
+const EXPECTED_TABLE_TIMING_BOUNDARY = "websocket-send-queue-acceptance";
+const EXPECTED_BODY_BYTE_TIMING_BOUNDARY = "websocket-binary-message-send-and-receipt";
 const EXPECTED_INCOMING_SECRET_BUFFER_DISPOSAL =
   "rust-wasm-copy-zeroized-js-view-overwritten-platform-copies-uncontrolled";
 const TIMING_FIELDS = Object.freeze([
@@ -120,7 +120,7 @@ export function validateResult(result) {
     result.incoming_secret_buffer_disposal !== EXPECTED_INCOMING_SECRET_BUFFER_DISPOSAL ||
     result.benchmark !== "phase9b-cloudflare-activation-128kib" ||
     result.role !== "deriver-a" ||
-    result.topology !== "same-account-service-binding" ||
+    result.topology !== "same-account-service-binding-websocket" ||
     result.family !== "activation" ||
     result.profile !== "128KiB" ||
     result.timing_semantics !== EXPECTED_TIMING_SEMANTICS ||
@@ -188,7 +188,7 @@ export function buildReport(endpoint, samples) {
   return {
     benchmark: "phase9b-cloudflare-activation-128kib",
     benchmark_only: true,
-    topology: "same-account-service-binding",
+    topology: "same-account-service-binding-websocket",
     generated_at: new Date().toISOString(),
     endpoint,
     sample_count: samples.length,

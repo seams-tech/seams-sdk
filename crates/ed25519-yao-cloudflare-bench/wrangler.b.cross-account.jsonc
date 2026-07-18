@@ -8,7 +8,7 @@
   "vars": {
     "BENCHMARK_DEPLOYMENT_ID": "0123456789abcdef0123456789abcdef",
     "BENCHMARK_CLASSIFICATION": "NON_PRODUCTION",
-    "BENCHMARK_TOPOLOGY": "CROSS_ACCOUNT_HTTPS"
+    "BENCHMARK_TOPOLOGY": "CROSS_ACCOUNT_WEBSOCKET"
   },
   "build": {
     "command": "worker-build --release --out-dir build/deriver-b-cross-account --features deriver-b-cross-account",

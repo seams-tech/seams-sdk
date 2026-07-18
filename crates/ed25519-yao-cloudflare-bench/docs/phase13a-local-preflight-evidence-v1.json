@@ -1,14 +1,14 @@
 {
   "schema": "phase13a-local-preflight-evidence-v1",
-  "recorded_at": "2026-07-16",
+  "recorded_at": "2026-07-17",
   "scope": "local-evidence-only",
   "phase13a_decision": "unavailable",
   "production_eligible": false,
   "validated_inputs": {
     "schema": "ed25519_yao_local_readiness_inputs_v1",
-    "file_count": 2364,
-    "total_bytes": 37981661,
-    "sha256": "0ab2ae0b8c6fc4e2eca417908ce985e17305abac47bc9f061e0e7bdf63d16f83"
+    "file_count": 2349,
+    "total_bytes": 34293845,
+    "sha256": "6f02b1e3c1093ffa5c2c634fa4b01fd3d9574bc0ffff0f69c6d99d091a528818"
   },
   "phase9c_validation": {
     "receipt_path": "crates/router-ab-dev/target/phase9c-yaos-ab-local-evidence-v1.json",
@@ -166,11 +166,11 @@
     },
     {
       "path": "crates/ed25519-yao-cloudflare-bench/tests/source_guards.rs",
-      "sha256": "aad5f48a2d1623b1cc26dde448ccde1d08f3599acfbf0a0238b22bd9bbd74977"
+      "sha256": "d187a0bb38cb264cbb71ea96a1a59b7245f4880b124cce718cb11b0c929d9448"
     },
     {
       "path": "crates/ed25519-yao-cloudflare-bench/Cargo.toml",
-      "sha256": "8ee61044cba3ff5571f7c385875395f6bfe7821244f58fe0be3b6a35bddee793"
+      "sha256": "5f1d047adbe3685f719be5c29ec5d289168ef192df6a7e563c9505e2089d0d80"
     },
     {
       "path": "crates/router-ab-dev/reports/ed25519-yao-local-latency-v1.json",
@@ -178,16 +178,9 @@
     }
   ],
   "deployed_evidence_unavailable": [
-    "same_account_http_benchmark",
-    "same_account_worker_analytics",
-    "same_account_fresh_version_first_request_proxy",
-    "same_account_measured_cost",
     "cross_account_https_benchmark",
     "cross_account_worker_analytics",
-    "cross_account_fresh_version_first_request_proxy",
     "cross_account_measured_cost",
-    "worker_isolate_memory",
-    "deployed_placement_and_connection",
     "operational_cost_and_topology_acceptance"
   ]
 }

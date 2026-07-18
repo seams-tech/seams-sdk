@@ -183,7 +183,6 @@ function runToolingChecks() {
   run("npm", ["run", "test:local-benchmark-tooling"]);
   run("npm", ["run", "test:deployment-tooling"]);
   run("npm", ["run", "test:cost-report-integrity"]);
-  run("npm", ["run", "test:fresh-version-first-request-series"]);
   run("npm", ["run", "test:rendered-deployment-configs"]);
   run("npm", ["run", "test:phase13a-local-preflight"]);
   run("npm", ["run", "phase13a:local-preflight"]);

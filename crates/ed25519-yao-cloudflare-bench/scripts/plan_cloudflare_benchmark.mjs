@@ -91,7 +91,7 @@ function renderRoleConfig(configuration, role, deploymentId) {
     if (configuration.topology === 'one-account') {
       rendered.services[0].service = configuration.b.scriptName;
     } else {
-      rendered.vars.DERIVER_B_HTTPS_ENDPOINT = configuration.b.publicEndpoint;
+      rendered.vars.DERIVER_B_WEBSOCKET_ENDPOINT = configuration.b.publicEndpoint;
     }
   } else if (configuration.topology === 'two-account') {
     rendered.workers_dev = false;
@@ -171,7 +171,7 @@ export function buildDeploymentPlan(configuration, mode) {
     sample_count: configuration.sampleCount,
     endpoints: Object.freeze({
       a_public: configuration.a.publicEndpoint,
-      b_https: configuration.b.publicEndpoint ?? null,
+      b_websocket: configuration.b.publicEndpoint ?? null,
     }),
     operations: planOperations(configuration, lifecycle),
     external_state_change_requested: execute,

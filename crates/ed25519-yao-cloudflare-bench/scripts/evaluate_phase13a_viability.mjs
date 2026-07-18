@@ -8,16 +8,13 @@ import { collectLocalReadinessInputs } from "./local_readiness_inputs.mjs";
 const BENCHMARK_ID = "phase9b-cloudflare-activation-128kib";
 const ANALYTICS_ID = "phase9b-cloudflare-workers-analytics";
 const COST_ID = "phase9b-cloudflare-cost-model";
-const COLD_SERIES_SCHEMA = "ed25519_yao_phase9b_fresh_version_first_request_series_v1";
-const COLD_SERIES_CLASSIFICATION = "fresh-version-first-request-operational-cold-proxy";
 const OPERATIONAL_ACCEPTANCE_SCHEMA = "ed25519_yao_phase13a_operational_acceptance_v1";
-const SAME_TOPOLOGY = "same-account-service-binding";
-const CROSS_TOPOLOGY = "cross-account-https";
+const SAME_TOPOLOGY = "same-account-service-binding-websocket";
+const CROSS_TOPOLOGY = "cross-account-websocket";
 const INCOMING_SECRET_BUFFER_DISPOSAL =
   "rust-wasm-copy-zeroized-js-view-overwritten-platform-copies-uncontrolled";
 const MAX_REPORT_BYTES = 16 * 1024 * 1024;
 const MINIMUM_WARM_SAMPLES = 50;
-const MINIMUM_COLD_PROXY_SAMPLES = 20;
 const COST_MODEL_CEREMONIES = 1_000_000;
 const TABLE_MAX_BYTES_FLOOR = Math.floor(2.1 * 1024 * 1024);
 const MEMORY_MAX_BYTES = 96 * 1024 * 1024;
@@ -46,7 +43,6 @@ export const PHASE13A_THRESHOLDS = Object.freeze({
   combined_cpu_p95_ms_max: 150,
   role_memory_p999_bytes_exclusive: MEMORY_MAX_BYTES,
   warm_sample_count_min: MINIMUM_WARM_SAMPLES,
-  fresh_version_first_request_sample_count_min: MINIMUM_COLD_PROXY_SAMPLES,
 });
 
 export class EvidenceError extends Error {
@@ -617,7 +613,7 @@ function parseRawSample(raw, topology, deploymentId, fieldPrefix, window) {
   requireExact(result.production_eligible, false, `${fieldPrefix}.result.production_eligible`);
   requireExact(
     result.body_byte_timing_boundary,
-    "raw-stream-chunk-emission-and-receipt",
+    "websocket-binary-message-send-and-receipt",
     `${fieldPrefix}.result.body_byte_timing_boundary`,
   );
   requireExact(result.role, "deriver-a", `${fieldPrefix}.result.role`);
@@ -766,188 +762,6 @@ function parseBenchmarkReport(report, topology, fieldPrefix, requireTableStream)
     early_response_sample_count: samples.length,
     deployment,
   });
-}
-
-function parseColdProxySample(raw, topology, fieldPrefix) {
-  const root = requiredObject(raw, fieldPrefix);
-  const sourceReport = requiredString(root.source_report, `${fieldPrefix}.source_report`);
-  if (!sourceReport.startsWith("/") || /[\r\n\0]/.test(sourceReport)) {
-    evidenceError("PHASE13A_INVALID_EVIDENCE_TYPE", `${fieldPrefix}.source_report`);
-  }
-  const deployment = parseDeploymentEvidence(
-    root.deployment,
-    topology,
-    `${fieldPrefix}.deployment`,
-  );
-  const sample = requiredObject(root.first_raw_sample, `${fieldPrefix}.first_raw_sample`);
-  requireExact(sample.index, 0, `${fieldPrefix}.first_raw_sample.index`);
-  const started = requiredInstant(
-    sample.started_at,
-    `${fieldPrefix}.first_raw_sample.started_at`,
-  );
-  const latestDeployment = Math.max(
-    Date.parse(deployment.a.deployed_at),
-    Date.parse(deployment.b.deployed_at),
-  );
-  if (started.timestamp < latestDeployment) {
-    evidenceError("PHASE13A_COLD_PROXY_SAMPLE_PREDEPLOYMENT", fieldPrefix);
-  }
-  const clientWall = requiredNumber(
-    sample.client_wall_ms,
-    `${fieldPrefix}.first_raw_sample.client_wall_ms`,
-  );
-  const result = requiredObject(
-    sample.result,
-    `${fieldPrefix}.first_raw_sample.result`,
-  );
-  requireExact(result.benchmark, BENCHMARK_ID, `${fieldPrefix}.first_raw_sample.result.benchmark`);
-  requireExact(result.benchmark_only, true, `${fieldPrefix}.first_raw_sample.result.benchmark_only`);
-  requireExact(
-    result.production_eligible,
-    false,
-    `${fieldPrefix}.first_raw_sample.result.production_eligible`,
-  );
-  requireExact(
-    result.body_byte_timing_boundary,
-    "raw-stream-chunk-emission-and-receipt",
-    `${fieldPrefix}.first_raw_sample.result.body_byte_timing_boundary`,
-  );
-  validateFixedActivationWireProfile(result, `${fieldPrefix}.first_raw_sample`);
-  validateSecretTransportAccounting(result, `${fieldPrefix}.first_raw_sample`);
-  requireExact(result.role, "deriver-a", `${fieldPrefix}.first_raw_sample.result.role`);
-  requireExact(result.topology, topology, `${fieldPrefix}.first_raw_sample.result.topology`);
-  requireExact(
-    result.deployment_id,
-    deployment.deployment_id,
-    `${fieldPrefix}.first_raw_sample.result.deployment_id`,
-  );
-  validateSampleTiming(result, `${fieldPrefix}.first_raw_sample`);
-  if (clientWall < result.total_protocol_duration_ms) {
-    evidenceError("PHASE13A_CLIENT_WALL_INCOMPLETE", `${fieldPrefix}.first_raw_sample`);
-  }
-  return Object.freeze({
-    deployment,
-    client_wall_ms: clientWall,
-    table_stream_duration_ms: result.table_stream_duration_ms,
-  });
-}
-
-function requireDistinct(value, values, field) {
-  if (values.has(value)) {
-    evidenceError("PHASE13A_COLD_PROXY_IDENTITY_REUSED", field);
-  }
-  values.add(value);
-}
-
-function parseColdProxySeries(report, topology, fieldPrefix) {
-  const root = requiredObject(report, fieldPrefix);
-  requireExact(root.schema, COLD_SERIES_SCHEMA, `${fieldPrefix}.schema`);
-  requireExact(root.benchmark, BENCHMARK_ID, `${fieldPrefix}.benchmark`);
-  requireExact(root.benchmark_only, true, `${fieldPrefix}.benchmark_only`);
-  requireExact(root.topology, topology, `${fieldPrefix}.topology`);
-  requireExact(
-    root.classification,
-    COLD_SERIES_CLASSIFICATION,
-    `${fieldPrefix}.classification`,
-  );
-  requireExact(
-    root.physical_isolate_cold_proven,
-    false,
-    `${fieldPrefix}.physical_isolate_cold_proven`,
-  );
-  const regionLabel = requiredString(root.region_label, `${fieldPrefix}.region_label`);
-  const sampleCount = requiredInteger(root.sample_count, `${fieldPrefix}.sample_count`);
-  const samples = requiredArray(root.samples, `${fieldPrefix}.samples`);
-  requireExact(samples.length, sampleCount, `${fieldPrefix}.samples.length`);
-  if (sampleCount < MINIMUM_COLD_PROXY_SAMPLES) {
-    evidenceError("PHASE13A_COLD_PROXY_SAMPLE_COUNT_INSUFFICIENT", `${fieldPrefix}.sample_count`);
-  }
-  const deploymentIds = new Set();
-  const versionIds = new Set();
-  const clientValues = [];
-  const tableValues = [];
-  let artifactA = null;
-  let artifactB = null;
-  let topologyBinding = null;
-  let parsedTopologyBinding = null;
-  for (let index = 0; index < samples.length; index += 1) {
-    const sample = parseColdProxySample(samples[index], topology, `${fieldPrefix}.samples.${index}`);
-    requireDistinct(
-      sample.deployment.deployment_id,
-      deploymentIds,
-      `${fieldPrefix}.samples.${index}.deployment.deployment_id`,
-    );
-    requireDistinct(
-      sample.deployment.a.version_id,
-      versionIds,
-      `${fieldPrefix}.samples.${index}.deployment.a.version_id`,
-    );
-    requireDistinct(
-      sample.deployment.b.version_id,
-      versionIds,
-      `${fieldPrefix}.samples.${index}.deployment.b.version_id`,
-    );
-    artifactA ??= sample.deployment.a.artifact_sha256;
-    artifactB ??= sample.deployment.b.artifact_sha256;
-    topologyBinding ??= JSON.stringify(sample.deployment.topology_binding);
-    parsedTopologyBinding ??= sample.deployment.topology_binding;
-    requireExact(
-      sample.deployment.a.artifact_sha256,
-      artifactA,
-      `${fieldPrefix}.samples.${index}.deployment.a.artifact_sha256`,
-    );
-    requireExact(
-      sample.deployment.b.artifact_sha256,
-      artifactB,
-      `${fieldPrefix}.samples.${index}.deployment.b.artifact_sha256`,
-    );
-    requireExact(
-      JSON.stringify(sample.deployment.topology_binding),
-      topologyBinding,
-      `${fieldPrefix}.samples.${index}.deployment.topology_binding`,
-    );
-    clientValues.push(sample.client_wall_ms);
-    tableValues.push(sample.table_stream_duration_ms);
-  }
-  const metrics = requiredObject(root.metrics, `${fieldPrefix}.metrics`);
-  const clientSummary = requireSummaryMatchesValues(
-    metrics.client_wall_ms,
-    clientValues,
-    `${fieldPrefix}.metrics.client_wall_ms`,
-  );
-  const tableSummary = requireSummaryMatchesValues(
-    metrics.table_stream_duration_ms,
-    tableValues,
-    `${fieldPrefix}.metrics.table_stream_duration_ms`,
-  );
-  return Object.freeze({
-    classification: COLD_SERIES_CLASSIFICATION,
-    physical_isolate_cold_proven: false,
-    region_label: regionLabel,
-    sample_count: sampleCount,
-    client_wall_ms: clientSummary,
-    table_stream_duration_ms: tableSummary,
-    artifact_sha256: Object.freeze({ a: artifactA, b: artifactB }),
-    topology_binding: parsedTopologyBinding,
-  });
-}
-
-function requireColdProxyArtifactsMatch(coldProxy, benchmark, fieldPrefix) {
-  requireExact(
-    coldProxy.artifact_sha256.a,
-    benchmark.deployment.a.artifact_sha256,
-    `${fieldPrefix}.artifact_sha256.a`,
-  );
-  requireExact(
-    coldProxy.artifact_sha256.b,
-    benchmark.deployment.b.artifact_sha256,
-    `${fieldPrefix}.artifact_sha256.b`,
-  );
-  requireExact(
-    JSON.stringify(coldProxy.topology_binding),
-    JSON.stringify(benchmark.deployment.topology_binding),
-    `${fieldPrefix}.topology_binding`,
-  );
 }
 
 function analyticsWindow(report, fieldPrefix) {
@@ -1213,10 +1027,6 @@ function parseAnalyticsReport(report, topology, fieldPrefix) {
   });
 }
 
-function rawCostTopology(topology) {
-  return topology === SAME_TOPOLOGY ? "one-account" : "two-account";
-}
-
 function parseCostRates(raw, fieldPrefix) {
   const root = requiredObject(raw, fieldPrefix);
   return Object.freeze({
@@ -1273,15 +1083,19 @@ function requireAccountCost(raw, expected, fieldPrefix) {
   return expected;
 }
 
-function parseCostReport(report, topology, fieldPrefix) {
+function parseCostReport(report, fieldPrefix) {
   const root = requiredObject(report, fieldPrefix);
   requireExact(root.benchmark, COST_ID, `${fieldPrefix}.benchmark`);
   requireExact(root.benchmark_only, true, `${fieldPrefix}.benchmark_only`);
-  requireExact(root.topology, rawCostTopology(topology), `${fieldPrefix}.topology`);
+  requireExact(root.topology, "two-account", `${fieldPrefix}.topology`);
   requireExact(root.ceremonies, COST_MODEL_CEREMONIES, `${fieldPrefix}.ceremonies`);
   requiredInstant(root.generated_at, `${fieldPrefix}.generated_at`);
   const regionLabel = requiredString(root.region_label, `${fieldPrefix}.region_label`);
-  const deployment = parseDeploymentEvidence(root.deployment, topology, `${fieldPrefix}.deployment`);
+  const deployment = parseDeploymentEvidence(
+    root.deployment,
+    CROSS_TOPOLOGY,
+    `${fieldPrefix}.deployment`,
+  );
   const measured = requiredObject(root.measured, `${fieldPrefix}.measured`);
   const parsedMeasured = Object.freeze({
     requests_a: requiredNumber(
@@ -1310,9 +1124,8 @@ function parseCostReport(report, topology, fieldPrefix) {
     "GraphQL mean CPU from sum.cpuTimeUs/requests",
     `${fieldPrefix}.measured.statistic`,
   );
-  const expectedRequests = topology === SAME_TOPOLOGY ? { a: 1, b: 0 } : { a: 1, b: 1 };
-  requireExact(parsedMeasured.requests_a, expectedRequests.a, `${fieldPrefix}.measured.requestsAPerCeremony`);
-  requireExact(parsedMeasured.requests_b, expectedRequests.b, `${fieldPrefix}.measured.requestsBPerCeremony`);
+  requireExact(parsedMeasured.requests_a, 1, `${fieldPrefix}.measured.requestsAPerCeremony`);
+  requireExact(parsedMeasured.requests_b, 1, `${fieldPrefix}.measured.requestsBPerCeremony`);
   const requestModel = requiredObject(root.request_model, `${fieldPrefix}.request_model`);
   requireExact(requestModel.matches_expected, true, `${fieldPrefix}.request_model.matches_expected`);
   const pricing = requiredObject(root.pricing, `${fieldPrefix}.pricing`);
@@ -1324,43 +1137,29 @@ function parseCostReport(report, topology, fieldPrefix) {
   const accounts = requiredObject(pricing.accounts, `${fieldPrefix}.pricing.accounts`);
   const ratesA = parseCostRates(accounts.a, `${fieldPrefix}.pricing.accounts.a`);
   const ratesB = parseCostRates(accounts.b, `${fieldPrefix}.pricing.accounts.b`);
-  const expectedA =
-    topology === SAME_TOPOLOGY
-      ? expectedAccountCost(
-          COST_MODEL_CEREMONIES * (parsedMeasured.requests_a + parsedMeasured.requests_b),
-          COST_MODEL_CEREMONIES * (parsedMeasured.cpu_a_ms + parsedMeasured.cpu_b_ms),
-          ratesA,
-        )
-      : expectedAccountCost(
-          COST_MODEL_CEREMONIES * parsedMeasured.requests_a,
-          COST_MODEL_CEREMONIES * parsedMeasured.cpu_a_ms,
-          ratesA,
-        );
-  const expectedB =
-    topology === SAME_TOPOLOGY
-      ? null
-      : expectedAccountCost(
-          COST_MODEL_CEREMONIES * parsedMeasured.requests_b,
-          COST_MODEL_CEREMONIES * parsedMeasured.cpu_b_ms,
-          ratesB,
-        );
+  const expectedA = expectedAccountCost(
+    COST_MODEL_CEREMONIES * parsedMeasured.requests_a,
+    COST_MODEL_CEREMONIES * parsedMeasured.cpu_a_ms,
+    ratesA,
+  );
+  const expectedB = expectedAccountCost(
+    COST_MODEL_CEREMONIES * parsedMeasured.requests_b,
+    COST_MODEL_CEREMONIES * parsedMeasured.cpu_b_ms,
+    ratesB,
+  );
   const accountCosts = requiredObject(root.account_costs, `${fieldPrefix}.account_costs`);
   requireAccountCost(accountCosts.a_account_combined, expectedA, `${fieldPrefix}.account_costs.a_account_combined`);
-  if (expectedB === null) {
-    requireExact(accountCosts.b_account, null, `${fieldPrefix}.account_costs.b_account`);
-  } else {
-    requireAccountCost(accountCosts.b_account, expectedB, `${fieldPrefix}.account_costs.b_account`);
-  }
+  requireAccountCost(accountCosts.b_account, expectedB, `${fieldPrefix}.account_costs.b_account`);
   const network = requiredObject(root.network, `${fieldPrefix}.network`);
   const networkBytes = COST_MODEL_CEREMONIES * parsedMeasured.network_bytes;
   requireExact(network.measured_bytes, networkBytes, `${fieldPrefix}.network.measured_bytes`);
   requireExact(network.decimal_gb, networkBytes / 1_000_000_000, `${fieldPrefix}.network.decimal_gb`);
   requireExact(network.usd, 0, `${fieldPrefix}.network.usd`);
-  const totalUsd = expectedA.subtotal_usd + (expectedB?.subtotal_usd ?? 0);
+  const totalUsd = expectedA.subtotal_usd + expectedB.subtotal_usd;
   requireExact(root.total_usd, totalUsd, `${fieldPrefix}.total_usd`);
   requireExact(root.usd_per_ceremony, totalUsd / COST_MODEL_CEREMONIES, `${fieldPrefix}.usd_per_ceremony`);
   return Object.freeze({
-    topology,
+    topology: CROSS_TOPOLOGY,
     deployment,
     region_label: regionLabel,
     pricing_effective_date: effectiveDate,
@@ -1391,10 +1190,6 @@ function parseOperationalAcceptance(raw) {
     pricing_effective_date: requiredDate(
       root.pricing_effective_date,
       "operational_acceptance.pricing_effective_date",
-    ),
-    maximum_same_account_usd_per_million: requiredPositiveNumber(
-      root.maximum_same_account_usd_per_million,
-      "operational_acceptance.maximum_same_account_usd_per_million",
     ),
     maximum_cross_account_usd_per_million: requiredPositiveNumber(
       root.maximum_cross_account_usd_per_million,
@@ -1515,47 +1310,9 @@ function pushMemoryReason(reasons, role, topologyName, roleName) {
   }
 }
 
-function pushColdProxyReasons(reasons, evidence, prefix) {
-  if (evidence.client_wall_ms.p95 > PHASE13A_THRESHOLDS.ceremony_p95_ms_max) {
-    reasons.push(
-      reason(
-        `PHASE13A_${prefix}_COLD_PROXY_CEREMONY_P95_EXCEEDED`,
-        evidence.client_wall_ms.p95,
-        PHASE13A_THRESHOLDS.ceremony_p95_ms_max,
-        "<=",
-      ),
-    );
-  }
-  if (evidence.client_wall_ms.p99 > PHASE13A_THRESHOLDS.ceremony_p99_ms_max) {
-    reasons.push(
-      reason(
-        `PHASE13A_${prefix}_COLD_PROXY_CEREMONY_P99_EXCEEDED`,
-        evidence.client_wall_ms.p99,
-        PHASE13A_THRESHOLDS.ceremony_p99_ms_max,
-        "<=",
-      ),
-    );
-  }
-}
-
-function pushCostReasons(reasons, sameCost, crossCost, acceptance) {
-  if (sameCost.pricing_effective_date !== crossCost.pricing_effective_date) {
-    reasons.push(reason("PHASE13A_COST_PRICING_DATE_MISMATCH", null, null, "equal"));
-  }
+function pushCostReasons(reasons, crossCost, acceptance) {
   if (acceptance.pricing_effective_date !== crossCost.pricing_effective_date) {
     reasons.push(reason("PHASE13A_COST_ACCEPTANCE_DATE_MISMATCH", null, null, "equal"));
-  }
-  if (
-    sameCost.total_usd_per_million > acceptance.maximum_same_account_usd_per_million
-  ) {
-    reasons.push(
-      reason(
-        "PHASE13A_SAME_COST_EXCEEDED",
-        sameCost.total_usd_per_million,
-        acceptance.maximum_same_account_usd_per_million,
-        "<=",
-      ),
-    );
   }
   if (
     crossCost.total_usd_per_million > acceptance.maximum_cross_account_usd_per_million
@@ -1580,100 +1337,70 @@ function windowsCover(benchmark, analytics) {
 
 export function evaluatePhase13A(input) {
   const root = requiredObject(input, "input");
-  const sameBenchmark = parseBenchmarkReport(
-    root.same_benchmark,
-    SAME_TOPOLOGY,
-    "same_benchmark",
-    false,
-  );
   const crossBenchmark = parseBenchmarkReport(
     root.cross_benchmark,
     CROSS_TOPOLOGY,
     "cross_benchmark",
     true,
   );
-  const sameAnalytics = parseAnalyticsReport(
-    root.same_analytics,
-    SAME_TOPOLOGY,
-    "same_analytics",
-  );
   const crossAnalytics = parseAnalyticsReport(
     root.cross_analytics,
     CROSS_TOPOLOGY,
     "cross_analytics",
   );
-  const sameColdProxy = parseColdProxySeries(
-    root.same_cold_proxy,
-    SAME_TOPOLOGY,
-    "same_cold_proxy",
-  );
-  const crossColdProxy = parseColdProxySeries(
-    root.cross_cold_proxy,
-    CROSS_TOPOLOGY,
-    "cross_cold_proxy",
-  );
-  requireColdProxyArtifactsMatch(sameColdProxy, sameBenchmark, "same_cold_proxy");
-  requireColdProxyArtifactsMatch(crossColdProxy, crossBenchmark, "cross_cold_proxy");
-  const sameCost = parseCostReport(root.same_cost, SAME_TOPOLOGY, "same_cost");
-  const crossCost = parseCostReport(root.cross_cost, CROSS_TOPOLOGY, "cross_cost");
+  const crossCost = parseCostReport(root.cross_cost, "cross_cost");
   const operationalAcceptance = parseOperationalAcceptance(root.operational_acceptance);
-  if (
-    operationalAcceptance.accepted_at_ms >
-    Math.min(sameBenchmark.measurement_window.start_ms, crossBenchmark.measurement_window.start_ms)
-  ) {
+  if (operationalAcceptance.accepted_at_ms > crossBenchmark.measurement_window.start_ms) {
     evidenceError(
       "PHASE13A_OPERATIONAL_ACCEPTANCE_POSTMEASUREMENT",
       "operational_acceptance.accepted_at",
     );
   }
   const reasons = [];
-  pushSampleReasons(reasons, sameBenchmark, "SAME");
   pushSampleReasons(reasons, crossBenchmark, "CROSS");
-  pushTableReason(reasons, sameBenchmark, "SAME");
   pushTableReason(reasons, crossBenchmark, "CROSS");
-  pushAnalyticsAvailabilityReasons(reasons, sameAnalytics, "SAME");
   pushAnalyticsAvailabilityReasons(reasons, crossAnalytics, "CROSS");
-  pushAnalyticsRequestReasons(reasons, sameAnalytics, sameBenchmark, "SAME");
   pushAnalyticsRequestReasons(reasons, crossAnalytics, crossBenchmark, "CROSS");
-  if (sameBenchmark.region_label !== sameAnalytics.region_label) {
-    reasons.push(reason("PHASE13A_SAME_REGION_MISMATCH", null, null, "equal"));
-  }
   if (crossBenchmark.region_label !== crossAnalytics.region_label) {
     reasons.push(reason("PHASE13A_CROSS_REGION_MISMATCH", null, null, "equal"));
-  }
-  if (!windowsCover(sameBenchmark, sameAnalytics)) {
-    reasons.push(reason("PHASE13A_SAME_ANALYTICS_WINDOW_MISMATCH", null, null, "covers"));
   }
   if (!windowsCover(crossBenchmark, crossAnalytics)) {
     reasons.push(reason("PHASE13A_CROSS_ANALYTICS_WINDOW_MISMATCH", null, null, "covers"));
   }
-  if (!deploymentsMatch(sameBenchmark, sameAnalytics)) {
-    reasons.push(reason("PHASE13A_SAME_DEPLOYMENT_MISMATCH", null, null, "equal"));
-  }
   if (!deploymentsMatch(crossBenchmark, crossAnalytics)) {
     reasons.push(reason("PHASE13A_CROSS_DEPLOYMENT_MISMATCH", null, null, "equal"));
   }
-  if (sameBenchmark.deployment.deployment_id === crossBenchmark.deployment.deployment_id) {
-    reasons.push(reason("PHASE13A_TOPOLOGY_DEPLOYMENTS_NOT_DISTINCT", null, null, "distinct"));
-  }
-  if (crossBenchmark.table_stream_p95_ms >= 75) {
+  if (
+    crossBenchmark.table_stream_p95_ms >=
+    PHASE13A_THRESHOLDS.cross_account_table_stream_p95_ms_exclusive
+  ) {
     reasons.push(
       reason(
         "PHASE13A_CROSS_TABLE_STREAM_P95_EXCEEDED",
         crossBenchmark.table_stream_p95_ms,
-        75,
+        PHASE13A_THRESHOLDS.cross_account_table_stream_p95_ms_exclusive,
         "<",
       ),
     );
   }
-  if (crossBenchmark.client_wall_p95_ms > 250) {
+  if (crossBenchmark.client_wall_p95_ms > PHASE13A_THRESHOLDS.ceremony_p95_ms_max) {
     reasons.push(
-      reason("PHASE13A_CROSS_CEREMONY_P95_EXCEEDED", crossBenchmark.client_wall_p95_ms, 250, "<="),
+      reason(
+        "PHASE13A_CROSS_CEREMONY_P95_EXCEEDED",
+        crossBenchmark.client_wall_p95_ms,
+        PHASE13A_THRESHOLDS.ceremony_p95_ms_max,
+        "<=",
+      ),
     );
   }
-  if (crossBenchmark.client_wall_p99_ms > 500) {
+  if (crossBenchmark.client_wall_p99_ms > PHASE13A_THRESHOLDS.ceremony_p99_ms_max) {
     reasons.push(
-      reason("PHASE13A_CROSS_CEREMONY_P99_EXCEEDED", crossBenchmark.client_wall_p99_ms, 500, "<="),
+      reason(
+        "PHASE13A_CROSS_CEREMONY_P99_EXCEEDED",
+        crossBenchmark.client_wall_p99_ms,
+        PHASE13A_THRESHOLDS.ceremony_p99_ms_max,
+        "<=",
+      ),
     );
   }
   const combinedCpuP95Bound =
@@ -1681,52 +1408,36 @@ export function evaluatePhase13A(input) {
       ? null
       : crossAnalytics.a.cpu_p99_ms + crossAnalytics.b.cpu_p99_ms;
   if (combinedCpuP95Bound === null) {
-    reasons.push(reason("PHASE13A_COMBINED_CPU_P95_UNAVAILABLE", null, 150, "<="));
-  } else if (combinedCpuP95Bound > 150) {
-    reasons.push(reason("PHASE13A_COMBINED_CPU_P95_EXCEEDED", combinedCpuP95Bound, 150, "<="));
-  }
-  pushMemoryReason(reasons, sameAnalytics.a, "SAME", "A");
-  pushMemoryReason(reasons, sameAnalytics.b, "SAME", "B");
-  pushMemoryReason(reasons, crossAnalytics.a, "CROSS", "A");
-  pushMemoryReason(reasons, crossAnalytics.b, "CROSS", "B");
-  pushColdProxyReasons(reasons, sameColdProxy, "SAME");
-  pushColdProxyReasons(reasons, crossColdProxy, "CROSS");
-  if (
-    crossColdProxy.table_stream_duration_ms.p95 >=
-    PHASE13A_THRESHOLDS.cross_account_table_stream_p95_ms_exclusive
-  ) {
     reasons.push(
       reason(
-        "PHASE13A_CROSS_COLD_PROXY_TABLE_STREAM_P95_EXCEEDED",
-        crossColdProxy.table_stream_duration_ms.p95,
-        PHASE13A_THRESHOLDS.cross_account_table_stream_p95_ms_exclusive,
-        "<",
+        "PHASE13A_COMBINED_CPU_P95_UNAVAILABLE",
+        null,
+        PHASE13A_THRESHOLDS.combined_cpu_p95_ms_max,
+        "<=",
+      ),
+    );
+  } else if (combinedCpuP95Bound > PHASE13A_THRESHOLDS.combined_cpu_p95_ms_max) {
+    reasons.push(
+      reason(
+        "PHASE13A_COMBINED_CPU_P95_EXCEEDED",
+        combinedCpuP95Bound,
+        PHASE13A_THRESHOLDS.combined_cpu_p95_ms_max,
+        "<=",
       ),
     );
   }
-  if (sameColdProxy.region_label !== sameBenchmark.region_label) {
-    reasons.push(reason("PHASE13A_SAME_COLD_PROXY_REGION_MISMATCH", null, null, "equal"));
-  }
-  if (crossColdProxy.region_label !== crossBenchmark.region_label) {
-    reasons.push(reason("PHASE13A_CROSS_COLD_PROXY_REGION_MISMATCH", null, null, "equal"));
-  }
-  if (!costEvidenceMatches(sameCost, sameBenchmark, sameAnalytics)) {
-    reasons.push(reason("PHASE13A_SAME_COST_EVIDENCE_MISMATCH", null, null, "equal"));
-  }
+  pushMemoryReason(reasons, crossAnalytics.a, "CROSS", "A");
+  pushMemoryReason(reasons, crossAnalytics.b, "CROSS", "B");
   if (!costEvidenceMatches(crossCost, crossBenchmark, crossAnalytics)) {
     reasons.push(reason("PHASE13A_CROSS_COST_EVIDENCE_MISMATCH", null, null, "equal"));
   }
-  pushCostReasons(reasons, sameCost, crossCost, operationalAcceptance);
+  pushCostReasons(reasons, crossCost, operationalAcceptance);
   return Object.freeze({
     evaluator: "phase13a-deployed-viability-v1",
     decision: reasons.length === 0 ? "go" : "stop",
     thresholds: PHASE13A_THRESHOLDS,
     evidence: Object.freeze({
-      same_account: sameBenchmark,
       cross_account: crossBenchmark,
-      same_account_cold_proxy: sameColdProxy,
-      cross_account_cold_proxy: crossColdProxy,
-      same_account_cost: sameCost,
       cross_account_cost: crossCost,
       operational_acceptance: operationalAcceptance,
       combined_cross_account_cpu_p95_upper_bound_ms: combinedCpuP95Bound,
@@ -1768,14 +1479,6 @@ function readReport(path, field) {
 
 function loadInput(environment) {
   return Object.freeze({
-    same_benchmark: readReport(
-      requiredReportPath(environment, "YAOS_AB_PHASE13A_SAME_BENCHMARK_REPORT"),
-      "same_benchmark",
-    ),
-    same_analytics: readReport(
-      requiredReportPath(environment, "YAOS_AB_PHASE13A_SAME_ANALYTICS_REPORT"),
-      "same_analytics",
-    ),
     cross_benchmark: readReport(
       requiredReportPath(environment, "YAOS_AB_PHASE13A_CROSS_BENCHMARK_REPORT"),
       "cross_benchmark",
@@ -1783,18 +1486,6 @@ function loadInput(environment) {
     cross_analytics: readReport(
       requiredReportPath(environment, "YAOS_AB_PHASE13A_CROSS_ANALYTICS_REPORT"),
       "cross_analytics",
-    ),
-    same_cold_proxy: readReport(
-      requiredReportPath(environment, "YAOS_AB_PHASE13A_SAME_COLD_PROXY_REPORT"),
-      "same_cold_proxy",
-    ),
-    cross_cold_proxy: readReport(
-      requiredReportPath(environment, "YAOS_AB_PHASE13A_CROSS_COLD_PROXY_REPORT"),
-      "cross_cold_proxy",
-    ),
-    same_cost: readReport(
-      requiredReportPath(environment, "YAOS_AB_PHASE13A_SAME_COST_REPORT"),
-      "same_cost",
     ),
     cross_cost: readReport(
       requiredReportPath(environment, "YAOS_AB_PHASE13A_CROSS_COST_REPORT"),

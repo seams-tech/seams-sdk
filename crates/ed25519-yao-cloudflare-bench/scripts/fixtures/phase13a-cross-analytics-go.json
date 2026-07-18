@@ -1,7 +1,7 @@
 {
   "benchmark": "phase9b-cloudflare-workers-analytics",
   "benchmark_only": true,
-  "topology": "cross-account-https",
+  "topology": "cross-account-websocket",
   "region_label": "tokyo-runner-1",
   "adaptive_sampling": true,
   "memory_evidence_classification": "cloudflare-reservoir-sampled-shared-isolate-operational-proxy",

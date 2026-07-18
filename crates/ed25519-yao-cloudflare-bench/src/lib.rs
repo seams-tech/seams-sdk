@@ -4,14 +4,38 @@
 
 #[cfg(any(
     all(feature = "deriver-a", feature = "deriver-a-cross-account"),
+    all(feature = "deriver-a", feature = "deriver-a-same-account-websocket"),
     all(feature = "deriver-a", feature = "deriver-b"),
     all(feature = "deriver-a", feature = "deriver-b-cross-account"),
+    all(feature = "deriver-a", feature = "deriver-b-same-account-websocket"),
+    all(
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ),
     all(feature = "deriver-a-cross-account", feature = "deriver-b"),
     all(
         feature = "deriver-a-cross-account",
         feature = "deriver-b-cross-account"
     ),
-    all(feature = "deriver-b", feature = "deriver-b-cross-account")
+    all(
+        feature = "deriver-a-cross-account",
+        feature = "deriver-b-same-account-websocket"
+    ),
+    all(feature = "deriver-a-same-account-websocket", feature = "deriver-b"),
+    all(
+        feature = "deriver-a-same-account-websocket",
+        feature = "deriver-b-cross-account"
+    ),
+    all(
+        feature = "deriver-a-same-account-websocket",
+        feature = "deriver-b-same-account-websocket"
+    ),
+    all(feature = "deriver-b", feature = "deriver-b-cross-account"),
+    all(feature = "deriver-b", feature = "deriver-b-same-account-websocket"),
+    all(
+        feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket"
+    )
 ))]
 compile_error!("select exactly one Cloudflare role feature");
 
@@ -118,38 +142,68 @@ compile_error!("fault-session-mismatch requires same-account deriver-b");
     not(any(
         feature = "deriver-a",
         feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
         feature = "deriver-b",
-        feature = "deriver-b-cross-account"
+        feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket"
     ))
 ))]
-compile_error!(
-    "a Worker build requires deriver-a, deriver-a-cross-account, deriver-b, or deriver-b-cross-account"
-);
+compile_error!("a Worker build requires exactly one Deriver A or Deriver B transport feature");
 
 #[cfg(any(
     feature = "deriver-a",
     feature = "deriver-a-cross-account",
+    feature = "deriver-a-same-account-websocket",
     feature = "deriver-b",
     feature = "deriver-b-cross-account",
+    feature = "deriver-b-same-account-websocket",
     test
 ))]
 mod adapter {
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account", test))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        test
+    ))]
     use std::cell::RefCell;
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
     use std::collections::VecDeque;
     use std::fmt;
     use std::pin::Pin;
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account", test))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        test
+    ))]
     use std::rc::Rc;
     use std::task::{Context, Poll};
 
     use bytes::Bytes;
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account", test))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        test
+    ))]
     use ed25519_yao::phase9_role_benchmark::Activation128KiBDeriverA;
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
     use ed25519_yao::phase9_role_benchmark::ActivationDeriverACompletion;
-    #[cfg(any(feature = "deriver-b", feature = "deriver-b-cross-account", test))]
+    #[cfg(any(
+        feature = "deriver-b",
+        feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket",
+        test
+    ))]
     use ed25519_yao::phase9_role_benchmark::{
         Activation128KiBDeriverB, ActivationDeriverBCompletion,
     };
@@ -158,39 +212,71 @@ mod adapter {
         RelayEvent, RelayInstruction, RelayStep, WireByteLedger, WireDirection, WireMessage,
         WireMessageKind,
     };
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account", test))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        test
+    ))]
     use futures_channel::mpsc;
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
     use futures_channel::oneshot;
     use futures_core::Stream;
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
     use futures_util::future::{select, Either as FutureEither};
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
     use futures_util::SinkExt;
     #[cfg(any(
         feature = "deriver-a",
         feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
         feature = "deriver-b",
-        feature = "deriver-b-cross-account"
+        feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket"
     ))]
     use futures_util::StreamExt;
     use http_body::Frame;
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+    #[cfg(feature = "deriver-a")]
     use http_body_util::StreamBody;
+    #[cfg(feature = "deriver-a-same-account-rpc")]
+    use worker::js_sys::futures::{spawn_local, JsFuture};
     #[cfg(any(
         feature = "deriver-a",
         feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
         feature = "deriver-b",
-        feature = "deriver-b-cross-account"
+        feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket"
     ))]
     use worker::wasm_bindgen::JsCast;
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account", test))]
+    #[cfg(feature = "deriver-a-same-account-rpc")]
+    use worker::wasm_bindgen::{prelude::wasm_bindgen, JsValue};
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        test
+    ))]
     use worker::Body;
     #[cfg(any(
         feature = "deriver-a",
         feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
         feature = "deriver-b",
-        feature = "deriver-b-cross-account"
+        feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket"
     ))]
     use worker::Env;
     use zeroize::Zeroizing;
@@ -198,66 +284,172 @@ mod adapter {
     #[cfg(any(
         feature = "deriver-a",
         feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
         feature = "deriver-b",
         feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket",
         test
     ))]
     pub(super) const BENCHMARK_PATH: &str = "/benchmark/activation";
     #[cfg(any(
         feature = "deriver-a",
         feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
         feature = "deriver-b",
-        feature = "deriver-b-cross-account"
+        feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket"
     ))]
     pub(super) const SESSION_HEADER: &str = "x-ed25519-yao-session";
     #[cfg(any(
         feature = "deriver-a",
         feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
         feature = "deriver-b",
         feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket",
         test
     ))]
     pub(super) const DEPLOYMENT_ID_HEADER: &str = "x-ed25519-yao-deployment-id";
     #[cfg(any(
         feature = "deriver-a",
         feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
         feature = "deriver-b",
-        feature = "deriver-b-cross-account"
+        feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket"
     ))]
     const BENCHMARK_DEPLOYMENT_ID: &str = "BENCHMARK_DEPLOYMENT_ID";
     #[cfg(any(
         feature = "deriver-a",
         feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
         feature = "deriver-b",
         feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket",
         test
     ))]
     pub(super) const DERIVER_A_COLO_HEADER: &str = "x-ed25519-yao-a-colo";
     #[cfg(any(
         feature = "deriver-a",
         feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
         feature = "deriver-b",
         feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket",
         test
     ))]
     pub(super) const DERIVER_B_COLO_HEADER: &str = "x-ed25519-yao-b-colo";
-    #[cfg(feature = "deriver-a")]
+    #[cfg(any(feature = "deriver-a", feature = "deriver-a-same-account-websocket"))]
     const DERIVER_B_BINDING: &str = "DERIVER_B";
-    #[cfg(feature = "deriver-a")]
+    #[cfg(any(feature = "deriver-a", feature = "deriver-a-same-account-websocket"))]
     const DERIVER_B_URL: &str = "https://ed25519-yao-b.internal/benchmark/activation";
     #[cfg(feature = "deriver-a-cross-account")]
-    const DERIVER_B_HTTPS_ENDPOINT: &str = "DERIVER_B_HTTPS_ENDPOINT";
-    #[cfg(feature = "deriver-a")]
+    const DERIVER_B_WEBSOCKET_ENDPOINT: &str = "DERIVER_B_WEBSOCKET_ENDPOINT";
+
+    #[cfg(feature = "deriver-a-same-account-rpc")]
+    #[wasm_bindgen]
+    extern "C" {
+        #[wasm_bindgen(extends = worker::js_sys::Object)]
+        #[derive(Clone)]
+        type DeriverBRpc;
+
+        #[wasm_bindgen(method, catch, js_name = runCeremony)]
+        fn run_ceremony(
+            this: &DeriverBRpc,
+            a_to_b: worker::web_sys::ReadableStream,
+            b_to_a: worker::web_sys::WritableStream,
+            deployment_id: &str,
+            session: &str,
+            deriver_a_colo: JsValue,
+        ) -> Result<worker::js_sys::Promise, JsValue>;
+    }
+
+    #[cfg(feature = "deriver-a-same-account-rpc")]
+    #[wasm_bindgen(module = "/rpc/identity-byte-pipe.mjs")]
+    extern "C" {
+        #[derive(Clone)]
+        type RpcIdentityBytePipe;
+
+        #[wasm_bindgen(js_name = createRpcIdentityBytePipe)]
+        fn create_rpc_identity_byte_pipe() -> RpcIdentityBytePipe;
+
+        #[wasm_bindgen(method, getter)]
+        fn readable(this: &RpcIdentityBytePipe) -> worker::web_sys::ReadableStream;
+
+        #[wasm_bindgen(method, getter)]
+        fn writable(this: &RpcIdentityBytePipe) -> worker::web_sys::WritableStream;
+
+        #[wasm_bindgen(method, catch)]
+        fn write(
+            this: &RpcIdentityBytePipe,
+            chunk: &[u8],
+        ) -> Result<worker::js_sys::Promise, JsValue>;
+
+        #[wasm_bindgen(method, catch)]
+        fn close(this: &RpcIdentityBytePipe) -> Result<worker::js_sys::Promise, JsValue>;
+
+        #[wasm_bindgen(method, catch)]
+        fn abort(
+            this: &RpcIdentityBytePipe,
+            reason: &str,
+        ) -> Result<worker::js_sys::Promise, JsValue>;
+    }
+    #[cfg(any(
+        feature = "deriver-a-cross-account",
+        feature = "deriver-b-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        feature = "deriver-b-same-account-websocket",
+        test
+    ))]
+    const WEBSOCKET_PROTOCOL_PREFIX: &str = "yaos-ab-v1";
+    #[cfg(any(
+        feature = "deriver-a-cross-account",
+        feature = "deriver-b-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        feature = "deriver-b-same-account-websocket",
+        test
+    ))]
+    const WEBSOCKET_DIRECTION_EOF: &[u8] = b"YAOEOF01A";
+    #[cfg(all(feature = "deriver-a", not(feature = "deriver-a-same-account-rpc")))]
     pub(super) const A_TOPOLOGY_LABEL: &str = "same-account-service-binding";
+    #[cfg(feature = "deriver-a-same-account-rpc")]
+    pub(super) const A_TOPOLOGY_LABEL: &str = "same-account-service-binding-rpc-streams";
     #[cfg(feature = "deriver-a-cross-account")]
-    pub(super) const A_TOPOLOGY_LABEL: &str = "cross-account-https";
-    #[cfg(feature = "deriver-b")]
+    pub(super) const A_TOPOLOGY_LABEL: &str = "cross-account-websocket";
+    #[cfg(feature = "deriver-a-same-account-websocket")]
+    pub(super) const A_TOPOLOGY_LABEL: &str = "same-account-service-binding-websocket";
+    #[cfg(all(feature = "deriver-a", not(feature = "deriver-a-same-account-rpc")))]
+    pub(super) const TABLE_TIMING_BOUNDARY: &str = "outbound-stream-backpressure-acceptance";
+    #[cfg(feature = "deriver-a-same-account-rpc")]
+    pub(super) const TABLE_TIMING_BOUNDARY: &str = "rpc-writable-stream-backpressure-acceptance";
+    #[cfg(feature = "deriver-a-cross-account")]
+    pub(super) const TABLE_TIMING_BOUNDARY: &str = "websocket-send-queue-acceptance";
+    #[cfg(feature = "deriver-a-same-account-websocket")]
+    pub(super) const TABLE_TIMING_BOUNDARY: &str = "websocket-send-queue-acceptance";
+    #[cfg(all(feature = "deriver-a", not(feature = "deriver-a-same-account-rpc")))]
+    pub(super) const BODY_BYTE_TIMING_BOUNDARY: &str = "raw-stream-chunk-emission-and-receipt";
+    #[cfg(feature = "deriver-a-same-account-rpc")]
+    pub(super) const BODY_BYTE_TIMING_BOUNDARY: &str =
+        "rpc-transferred-stream-chunk-emission-and-receipt";
+    #[cfg(feature = "deriver-a-cross-account")]
+    pub(super) const BODY_BYTE_TIMING_BOUNDARY: &str = "websocket-binary-message-send-and-receipt";
+    #[cfg(feature = "deriver-a-same-account-websocket")]
+    pub(super) const BODY_BYTE_TIMING_BOUNDARY: &str = "websocket-binary-message-send-and-receipt";
+    #[cfg(all(feature = "deriver-b", not(feature = "deriver-b-same-account-rpc")))]
     pub(super) const B_TOPOLOGY_LABEL: &str = "same-account-service-binding";
+    #[cfg(feature = "deriver-b-same-account-rpc")]
+    pub(super) const B_TOPOLOGY_LABEL: &str = "same-account-service-binding-rpc-streams";
     #[cfg(feature = "deriver-b-cross-account")]
-    pub(super) const B_TOPOLOGY_LABEL: &str = "cross-account-https";
+    pub(super) const B_TOPOLOGY_LABEL: &str = "cross-account-websocket";
+    #[cfg(feature = "deriver-b-same-account-websocket")]
+    pub(super) const B_TOPOLOGY_LABEL: &str = "same-account-service-binding-websocket";
     #[cfg(all(
         test,
-        not(any(feature = "deriver-b", feature = "deriver-b-cross-account"))
+        not(any(
+            feature = "deriver-b",
+            feature = "deriver-b-cross-account",
+            feature = "deriver-b-same-account-websocket"
+        ))
     ))]
     const B_TOPOLOGY_LABEL: &str = "test-only";
     pub(super) const WORKERS_RS_VERSION: &str = "0.8.5";
@@ -390,12 +582,20 @@ mod adapter {
         );
     }
     #[cfg(all(
-        any(feature = "deriver-a", feature = "deriver-a-cross-account"),
+        any(
+            feature = "deriver-a",
+            feature = "deriver-a-cross-account",
+            feature = "deriver-a-same-account-websocket"
+        ),
         feature = "fault-short-timeout"
     ))]
     const CEREMONY_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(250);
     #[cfg(all(
-        any(feature = "deriver-a", feature = "deriver-a-cross-account"),
+        any(
+            feature = "deriver-a",
+            feature = "deriver-a-cross-account",
+            feature = "deriver-a-same-account-websocket"
+        ),
         not(feature = "fault-short-timeout")
     ))]
     const CEREMONY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
@@ -406,32 +606,100 @@ mod adapter {
         Envelope,
         InboundBody,
         OutboundBody,
-        #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+        #[cfg(any(
+            feature = "deriver-a",
+            feature = "deriver-a-cross-account",
+            feature = "deriver-a-same-account-websocket"
+        ))]
         OutboundClosed,
-        #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+        #[cfg(any(
+            feature = "deriver-a",
+            feature = "deriver-a-cross-account",
+            feature = "deriver-a-same-account-websocket"
+        ))]
         OutboundEof,
-        #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account", test))]
+        #[cfg(any(
+            feature = "deriver-a",
+            feature = "deriver-a-cross-account",
+            feature = "deriver-a-same-account-websocket",
+            test
+        ))]
         PeerStatus,
         ProtocolState,
-        #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+        #[cfg(any(
+            feature = "deriver-a",
+            feature = "deriver-a-cross-account",
+            feature = "deriver-a-same-account-websocket"
+        ))]
         Randomness,
         #[cfg(any(feature = "deriver-a-cross-account", test))]
         CrossAccountEndpoint,
         PlacementEvidence,
         DeploymentIdentity,
-        #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account", test))]
+        #[cfg(any(
+            feature = "deriver-a",
+            feature = "deriver-a-cross-account",
+            feature = "deriver-a-same-account-websocket",
+            test
+        ))]
         TimingEvidence,
-        #[cfg(feature = "deriver-a-cross-account")]
-        GlobalFetch,
-        #[cfg(feature = "deriver-a")]
+        #[cfg(any(
+            feature = "deriver-a-cross-account",
+            feature = "deriver-b-cross-account",
+            feature = "deriver-a-same-account-websocket",
+            feature = "deriver-b-same-account-websocket"
+        ))]
+        WebSocket,
+        #[cfg(any(
+            feature = "deriver-a-cross-account",
+            feature = "deriver-b-cross-account",
+            feature = "deriver-a-same-account-websocket",
+            feature = "deriver-b-same-account-websocket"
+        ))]
+        WebSocketConnect,
+        #[cfg(any(
+            feature = "deriver-a-cross-account",
+            feature = "deriver-b-cross-account",
+            feature = "deriver-a-same-account-websocket",
+            feature = "deriver-b-same-account-websocket",
+            test
+        ))]
+        WebSocketProtocol,
+        #[cfg(any(
+            feature = "deriver-a-cross-account",
+            feature = "deriver-b-cross-account",
+            feature = "deriver-a-same-account-websocket",
+            feature = "deriver-b-same-account-websocket"
+        ))]
+        WebSocketEvent,
+        #[cfg(any(
+            feature = "deriver-a-cross-account",
+            feature = "deriver-b-cross-account",
+            feature = "deriver-a-same-account-websocket",
+            feature = "deriver-b-same-account-websocket"
+        ))]
+        WebSocketSend,
+        #[cfg(any(feature = "deriver-a", feature = "deriver-a-same-account-websocket"))]
         ServiceBinding,
-        #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+        #[cfg(any(
+            feature = "deriver-a",
+            feature = "deriver-a-cross-account",
+            feature = "deriver-a-same-account-websocket"
+        ))]
         Timeout,
         MeasurementOverflow,
         WireAccounting,
-        #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+        #[cfg(any(
+            feature = "deriver-a",
+            feature = "deriver-a-cross-account",
+            feature = "deriver-a-same-account-websocket"
+        ))]
         PublicRequestBodyNonEmpty,
-        #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+        #[cfg(any(
+            feature = "deriver-a",
+            feature = "deriver-a-cross-account",
+            feature = "deriver-a-same-account-websocket"
+        ))]
         PublicRequestBodyUnreadable,
         #[cfg(feature = "fault-request-disconnect-after-base-choices")]
         InjectedRequestDisconnect,
@@ -446,32 +714,100 @@ mod adapter {
                 Self::Envelope => "YAOS_AB_ENVELOPE",
                 Self::InboundBody => "YAOS_AB_INBOUND_BODY",
                 Self::OutboundBody => "YAOS_AB_OUTBOUND_BODY",
-                #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+                #[cfg(any(
+                    feature = "deriver-a",
+                    feature = "deriver-a-cross-account",
+                    feature = "deriver-a-same-account-websocket"
+                ))]
                 Self::OutboundClosed => "YAOS_AB_OUTBOUND_CLOSED",
-                #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+                #[cfg(any(
+                    feature = "deriver-a",
+                    feature = "deriver-a-cross-account",
+                    feature = "deriver-a-same-account-websocket"
+                ))]
                 Self::OutboundEof => "YAOS_AB_OUTBOUND_EOF",
-                #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account", test))]
+                #[cfg(any(
+                    feature = "deriver-a",
+                    feature = "deriver-a-cross-account",
+                    feature = "deriver-a-same-account-websocket",
+                    test
+                ))]
                 Self::PeerStatus => "YAOS_AB_PEER_STATUS",
                 Self::ProtocolState => "YAOS_AB_PROTOCOL_STATE",
-                #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+                #[cfg(any(
+                    feature = "deriver-a",
+                    feature = "deriver-a-cross-account",
+                    feature = "deriver-a-same-account-websocket"
+                ))]
                 Self::Randomness => "YAOS_AB_RANDOMNESS",
                 #[cfg(any(feature = "deriver-a-cross-account", test))]
                 Self::CrossAccountEndpoint => "YAOS_AB_CROSS_ACCOUNT_ENDPOINT",
                 Self::PlacementEvidence => "YAOS_AB_PLACEMENT_EVIDENCE",
                 Self::DeploymentIdentity => "YAOS_AB_DEPLOYMENT_IDENTITY",
-                #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account", test))]
+                #[cfg(any(
+                    feature = "deriver-a",
+                    feature = "deriver-a-cross-account",
+                    feature = "deriver-a-same-account-websocket",
+                    test
+                ))]
                 Self::TimingEvidence => "YAOS_AB_TIMING_EVIDENCE",
-                #[cfg(feature = "deriver-a-cross-account")]
-                Self::GlobalFetch => "YAOS_AB_GLOBAL_FETCH",
-                #[cfg(feature = "deriver-a")]
+                #[cfg(any(
+                    feature = "deriver-a-cross-account",
+                    feature = "deriver-b-cross-account",
+                    feature = "deriver-a-same-account-websocket",
+                    feature = "deriver-b-same-account-websocket"
+                ))]
+                Self::WebSocket => "YAOS_AB_WEBSOCKET",
+                #[cfg(any(
+                    feature = "deriver-a-cross-account",
+                    feature = "deriver-b-cross-account",
+                    feature = "deriver-a-same-account-websocket",
+                    feature = "deriver-b-same-account-websocket"
+                ))]
+                Self::WebSocketConnect => "YAOS_AB_WEBSOCKET_CONNECT",
+                #[cfg(any(
+                    feature = "deriver-a-cross-account",
+                    feature = "deriver-b-cross-account",
+                    feature = "deriver-a-same-account-websocket",
+                    feature = "deriver-b-same-account-websocket",
+                    test
+                ))]
+                Self::WebSocketProtocol => "YAOS_AB_WEBSOCKET_PROTOCOL",
+                #[cfg(any(
+                    feature = "deriver-a-cross-account",
+                    feature = "deriver-b-cross-account",
+                    feature = "deriver-a-same-account-websocket",
+                    feature = "deriver-b-same-account-websocket"
+                ))]
+                Self::WebSocketEvent => "YAOS_AB_WEBSOCKET_EVENT",
+                #[cfg(any(
+                    feature = "deriver-a-cross-account",
+                    feature = "deriver-b-cross-account",
+                    feature = "deriver-a-same-account-websocket",
+                    feature = "deriver-b-same-account-websocket"
+                ))]
+                Self::WebSocketSend => "YAOS_AB_WEBSOCKET_SEND",
+                #[cfg(any(feature = "deriver-a", feature = "deriver-a-same-account-websocket"))]
                 Self::ServiceBinding => "YAOS_AB_SERVICE_BINDING",
-                #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+                #[cfg(any(
+                    feature = "deriver-a",
+                    feature = "deriver-a-cross-account",
+                    feature = "deriver-a-same-account-websocket"
+                ))]
                 Self::Timeout => "YAOS_AB_TIMEOUT",
                 Self::MeasurementOverflow => "YAOS_AB_MEASUREMENT_OVERFLOW",
                 Self::WireAccounting => "YAOS_AB_WIRE_ACCOUNTING",
-                #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+                #[cfg(any(
+                    feature = "deriver-a",
+                    feature = "deriver-a-cross-account",
+                    feature = "deriver-a-same-account-websocket"
+                ))]
                 Self::PublicRequestBodyNonEmpty => "YAOS_AB_PUBLIC_BODY_NONEMPTY",
-                #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+                #[cfg(any(
+                    feature = "deriver-a",
+                    feature = "deriver-a-cross-account",
+                    feature = "deriver-a-same-account-websocket"
+                ))]
                 Self::PublicRequestBodyUnreadable => "YAOS_AB_PUBLIC_BODY_UNREADABLE",
                 #[cfg(feature = "fault-request-disconnect-after-base-choices")]
                 Self::InjectedRequestDisconnect => "YAOS_AB_INJECTED_REQUEST_DISCONNECT",
@@ -523,8 +859,10 @@ mod adapter {
     #[cfg(any(
         feature = "deriver-a",
         feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
         feature = "deriver-b",
-        feature = "deriver-b-cross-account"
+        feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket"
     ))]
     pub(super) fn deployment_id(env: &Env) -> Result<DeploymentId, AdapterError> {
         let raw = env
@@ -558,7 +896,12 @@ mod adapter {
         Ok(())
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account", test))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        test
+    ))]
     fn validate_deriver_b_response_identity(
         status: http::StatusCode,
         headers: &http::HeaderMap,
@@ -619,22 +962,40 @@ mod adapter {
         }
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account", test))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        test
+    ))]
     trait IoBoundaryClock {
         fn now_ms(&self) -> f64;
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
     struct WorkerIoBoundaryClock;
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
     impl IoBoundaryClock for WorkerIoBoundaryClock {
         fn now_ms(&self) -> f64 {
             worker::js_sys::Date::now()
         }
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account", test))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        test
+    ))]
     #[derive(Debug, Clone, Copy, Default, PartialEq)]
     struct TimingMilestones {
         last_observed_ms: Option<f64>,
@@ -653,7 +1014,12 @@ mod adapter {
         response_eof_complete_ms: Option<f64>,
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account", test))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        test
+    ))]
     #[derive(Debug, Clone, Copy, PartialEq)]
     pub(super) struct TransportPhaseTimings {
         b_response_headers_received_ms: f64,
@@ -673,7 +1039,12 @@ mod adapter {
         total_protocol_duration_ms: f64,
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account", test))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        test
+    ))]
     impl TransportPhaseTimings {
         pub(super) const fn b_response_headers_received_ms(self) -> f64 {
             self.b_response_headers_received_ms
@@ -736,7 +1107,12 @@ mod adapter {
         }
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account", test))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        test
+    ))]
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum TimingEvent {
         BResponseHeadersReceived,
@@ -751,7 +1127,12 @@ mod adapter {
         ResponseEofComplete,
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account", test))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        test
+    ))]
     #[derive(Clone)]
     struct TransportTimingRecorder {
         clock: Rc<dyn IoBoundaryClock>,
@@ -759,7 +1140,12 @@ mod adapter {
         milestones: Rc<RefCell<TimingMilestones>>,
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account", test))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        test
+    ))]
     impl TransportTimingRecorder {
         fn new(clock: Rc<dyn IoBoundaryClock>) -> Result<Self, AdapterError> {
             let started_ms = clock.now_ms();
@@ -773,7 +1159,11 @@ mod adapter {
             })
         }
 
-        #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+        #[cfg(any(
+            feature = "deriver-a",
+            feature = "deriver-a-cross-account",
+            feature = "deriver-a-same-account-websocket"
+        ))]
         fn worker() -> Result<Self, AdapterError> {
             Self::new(Rc::new(WorkerIoBoundaryClock))
         }
@@ -886,7 +1276,12 @@ mod adapter {
         }
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account", test))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        test
+    ))]
     fn set_once(slot: &mut Option<f64>, value: f64) -> Result<(), AdapterError> {
         if slot.replace(value).is_some() {
             return Err(AdapterError::TimingEvidence);
@@ -894,12 +1289,22 @@ mod adapter {
         Ok(())
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account", test))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        test
+    ))]
     fn required(value: Option<f64>) -> Result<f64, AdapterError> {
         value.ok_or(AdapterError::TimingEvidence)
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account", test))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        test
+    ))]
     pub(super) fn incoming_colo(
         request: &worker::HttpRequest,
     ) -> Result<Option<Colo>, AdapterError> {
@@ -910,21 +1315,19 @@ mod adapter {
             .transpose()
     }
 
-    #[cfg(any(feature = "deriver-b", feature = "deriver-b-cross-account"))]
+    #[cfg(any(
+        feature = "deriver-b",
+        feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket"
+    ))]
     pub(super) fn raw_incoming_colo(
         request: &worker::web_sys::Request,
     ) -> Result<Option<Colo>, AdapterError> {
-        let raw = worker::js_sys::Reflect::get(
-            request.as_ref(),
-            &worker::wasm_bindgen::JsValue::from_str("cf"),
-        )
-        .map_err(|_| AdapterError::PlacementEvidence)?;
-        if raw.is_null() || raw.is_undefined() {
+        use worker_sys::ext::RequestExt;
+
+        let Some(cf) = request.cf() else {
             return Ok(None);
-        }
-        let cf = raw
-            .dyn_into::<worker_sys::IncomingRequestCfProperties>()
-            .map_err(|_| AdapterError::PlacementEvidence)?;
+        };
         let colo = cf.colo().map_err(|_| AdapterError::PlacementEvidence)?;
         Colo::parse(&colo).map(Some)
     }
@@ -1019,7 +1422,11 @@ mod adapter {
             Ok(())
         }
 
-        #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+        #[cfg(any(
+            feature = "deriver-a",
+            feature = "deriver-a-cross-account",
+            feature = "deriver-a-same-account-websocket"
+        ))]
         pub(super) fn merge(self, other: Self) -> Result<Self, AdapterError> {
             Ok(Self {
                 total_incoming_body_bytes: self
@@ -1095,10 +1502,43 @@ mod adapter {
         }
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
     pub(super) enum InboundTransportEvent {
         Message(WireMessage),
         Eof(DirectionalEofEvidence),
+    }
+
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
+    struct YaoDuplexTransportCompletion {
+        io_metrics: AdapterIoMetrics,
+    }
+
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
+    trait YaoDuplexTransport {
+        async fn send(
+            &mut self,
+            message: WireMessage,
+        ) -> Result<Option<InboundTransportEvent>, AdapterError>;
+
+        async fn receive(&mut self) -> Result<InboundTransportEvent, AdapterError>;
+
+        async fn close_local_direction(
+            &mut self,
+        ) -> Result<(DirectionalEofEvidence, Option<InboundTransportEvent>), AdapterError>;
+
+        async fn finish(self) -> Result<YaoDuplexTransportCompletion, AdapterError>;
     }
 
     struct EnvelopeDecoder {
@@ -1146,7 +1586,11 @@ mod adapter {
         }
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
     pub(super) struct OutboundDirectionClose {
         pub(super) evidence: DirectionalEofEvidence,
         pub(super) metrics: AdapterIoMetrics,
@@ -1183,7 +1627,11 @@ mod adapter {
         }
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
     pub(super) struct OutboundEnvelopeStream {
         receiver: mpsc::Receiver<WireMessage>,
         encoder: Option<DirectionalWireEncoder>,
@@ -1197,7 +1645,11 @@ mod adapter {
         terminated: bool,
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
     impl OutboundEnvelopeStream {
         fn new(
             session: [u8; 32],
@@ -1272,7 +1724,11 @@ mod adapter {
         }
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
     fn finish_encoder(
         encoder: DirectionalWireEncoder,
         metrics: AdapterIoMetrics,
@@ -1283,7 +1739,11 @@ mod adapter {
         })
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
     impl Stream for OutboundEnvelopeStream {
         type Item = Result<Frame<Bytes>, AdapterError>;
 
@@ -1372,7 +1832,11 @@ mod adapter {
         }
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
     impl Drop for OutboundEnvelopeStream {
         fn drop(&mut self) {
             if self.terminated {
@@ -1391,12 +1855,7 @@ mod adapter {
     }
 
     impl SecretIncomingBody {
-        #[cfg(any(
-            feature = "deriver-a",
-            feature = "deriver-a-cross-account",
-            feature = "deriver-b",
-            feature = "deriver-b-cross-account"
-        ))]
+        #[cfg(any(feature = "deriver-a", feature = "deriver-b"))]
         pub(super) fn new(stream: worker::web_sys::ReadableStream) -> Result<Self, AdapterError> {
             let readable = wasm_streams::ReadableStream::from_raw(stream.unchecked_into());
             let inner = readable
@@ -1408,7 +1867,12 @@ mod adapter {
             })
         }
 
-        #[cfg(any(feature = "deriver-b", feature = "deriver-b-cross-account", test))]
+        #[cfg(any(
+            feature = "deriver-b",
+            feature = "deriver-b-cross-account",
+            feature = "deriver-b-same-account-websocket",
+            test
+        ))]
         pub(super) fn empty() -> Self {
             Self {
                 inner: Box::pin(futures_util::stream::empty()),
@@ -1416,12 +1880,7 @@ mod adapter {
         }
     }
 
-    #[cfg(any(
-        feature = "deriver-a",
-        feature = "deriver-a-cross-account",
-        feature = "deriver-b",
-        feature = "deriver-b-cross-account"
-    ))]
+    #[cfg(any(feature = "deriver-a", feature = "deriver-b"))]
     fn secret_chunk_from_js(
         item: Result<worker::wasm_bindgen::JsValue, worker::wasm_bindgen::JsValue>,
     ) -> Result<Bytes, AdapterError> {
@@ -1444,7 +1903,11 @@ mod adapter {
         }
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
     struct InboundEnvelopeBody {
         body: SecretIncomingBody,
         timing: TransportTimingRecorder,
@@ -1455,7 +1918,11 @@ mod adapter {
         ended: bool,
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
     impl InboundEnvelopeBody {
         fn new(
             body: SecretIncomingBody,
@@ -1517,7 +1984,11 @@ mod adapter {
         }
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
     enum AProgress {
         Continue(Activation128KiBDeriverA),
         Send {
@@ -1527,7 +1998,11 @@ mod adapter {
         Complete(ActivationDeriverACompletion),
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
     pub(super) struct DeriverABenchmarkCompletion {
         completion: ActivationDeriverACompletion,
         deployment_id: DeploymentId,
@@ -1536,7 +2011,11 @@ mod adapter {
         timings: TransportPhaseTimings,
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
     impl DeriverABenchmarkCompletion {
         pub(super) const fn completion(&self) -> &ActivationDeriverACompletion {
             &self.completion
@@ -1559,7 +2038,11 @@ mod adapter {
         }
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
     fn validate_deriver_a_wire_bytes(
         completion: &ActivationDeriverACompletion,
         metrics: AdapterIoMetrics,
@@ -1573,7 +2056,12 @@ mod adapter {
         Ok(())
     }
 
-    #[cfg(any(feature = "deriver-b", feature = "deriver-b-cross-account", test))]
+    #[cfg(any(
+        feature = "deriver-b",
+        feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket",
+        test
+    ))]
     fn validate_deriver_b_wire_bytes(
         completion: &ActivationDeriverBCompletion,
         metrics: AdapterIoMetrics,
@@ -1587,7 +2075,11 @@ mod adapter {
         Ok(())
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
     fn advance_a(
         role: Activation128KiBDeriverA,
         event: RelayEvent,
@@ -1599,7 +2091,11 @@ mod adapter {
         })
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
     async fn send_while_polling_peer(
         sender: &mut mpsc::Sender<WireMessage>,
         message: WireMessage,
@@ -1624,14 +2120,22 @@ mod adapter {
         }
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
     fn resolve_local_eof(
         result: Result<Result<OutboundDirectionClose, AdapterError>, oneshot::Canceled>,
     ) -> Result<OutboundDirectionClose, AdapterError> {
         result.map_err(|_| AdapterError::OutboundEof)?
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
     async fn close_while_polling_peer(
         sender: mpsc::Sender<WireMessage>,
         eof_receiver: oneshot::Receiver<Result<OutboundDirectionClose, AdapterError>>,
@@ -1651,18 +2155,59 @@ mod adapter {
         }
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
-    async fn next_a_inbound(
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
+    fn push_deferred_transport_event(
         deferred: &mut VecDeque<InboundTransportEvent>,
-        inbound: &mut InboundEnvelopeBody,
+        event: InboundTransportEvent,
+    ) -> Result<(), AdapterError> {
+        if !deferred.is_empty() {
+            return Err(AdapterError::ProtocolState);
+        }
+        deferred.push_back(event);
+        Ok(())
+    }
+
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
+    async fn next_a_transport_event<T: YaoDuplexTransport>(
+        deferred: &mut VecDeque<InboundTransportEvent>,
+        transport: &mut T,
     ) -> Result<InboundTransportEvent, AdapterError> {
         if let Some(event) = deferred.pop_front() {
             return Ok(event);
         }
-        inbound.next_event().await
+        transport.receive().await
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
+    fn mark_deriver_a_receive_timing(
+        timing: &TransportTimingRecorder,
+        kind: WireMessageKind,
+    ) -> Result<(), AdapterError> {
+        match kind {
+            WireMessageKind::BaseOtOffer => timing.mark(TimingEvent::OfferReceived),
+            WireMessageKind::OtExtensionMatrix => timing.mark(TimingEvent::ExtensionReceived),
+            WireMessageKind::ReturnedOutputLabels => timing.mark(TimingEvent::ReturnedReceived),
+            _ => Ok(()),
+        }
+    }
+
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
     fn accept_a_continue(progress: AProgress) -> Result<Activation128KiBDeriverA, AdapterError> {
         match progress {
             AProgress::Continue(role) => Ok(role),
@@ -1683,15 +2228,15 @@ mod adapter {
 
     #[cfg(any(feature = "deriver-a-cross-account", test))]
     #[derive(Debug, Clone, PartialEq, Eq)]
-    struct CrossAccountEndpoint {
+    struct CrossAccountWebSocketEndpoint {
         url: url::Url,
     }
 
     #[cfg(any(feature = "deriver-a-cross-account", test))]
-    impl CrossAccountEndpoint {
+    impl CrossAccountWebSocketEndpoint {
         fn parse(raw: &str) -> Result<Self, AdapterError> {
             let url = url::Url::parse(raw).map_err(|_| AdapterError::CrossAccountEndpoint)?;
-            if url.scheme() != "https"
+            if url.scheme() != "wss"
                 || !url.has_host()
                 || !url.username().is_empty()
                 || url.password().is_some()
@@ -1708,17 +2253,480 @@ mod adapter {
         fn as_str(&self) -> &str {
             self.url.as_str()
         }
+
+        fn url(&self) -> &url::Url {
+            &self.url
+        }
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+    #[cfg(any(
+        feature = "deriver-a-cross-account",
+        feature = "deriver-b-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        feature = "deriver-b-same-account-websocket",
+        test
+    ))]
+    fn websocket_protocol(deployment_id: &DeploymentId, session: [u8; 32]) -> String {
+        format!(
+            "{WEBSOCKET_PROTOCOL_PREFIX}.{}.{}",
+            deployment_id.as_str(),
+            encode_session(session)
+        )
+    }
+
+    #[cfg(any(
+        feature = "deriver-a-cross-account",
+        feature = "deriver-b-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        feature = "deriver-b-same-account-websocket",
+        test
+    ))]
+    pub(super) fn parse_websocket_protocol(
+        raw: &str,
+    ) -> Result<(DeploymentId, [u8; 32]), AdapterError> {
+        let mut parts = raw.split('.');
+        let prefix = parts.next().ok_or(AdapterError::WebSocketProtocol)?;
+        let deployment_id = parts.next().ok_or(AdapterError::WebSocketProtocol)?;
+        let session = parts.next().ok_or(AdapterError::WebSocketProtocol)?;
+        if prefix != WEBSOCKET_PROTOCOL_PREFIX || parts.next().is_some() {
+            return Err(AdapterError::WebSocketProtocol);
+        }
+        Ok((
+            DeploymentId::parse(deployment_id)?,
+            decode_session(session)?,
+        ))
+    }
+
+    #[cfg(any(
+        feature = "deriver-a-cross-account",
+        feature = "deriver-b-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        feature = "deriver-b-same-account-websocket"
+    ))]
+    enum WebSocketTransportEvent {
+        Binary(Bytes),
+        Closed,
+    }
+
+    #[cfg(any(
+        feature = "deriver-a-cross-account",
+        feature = "deriver-b-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        feature = "deriver-b-same-account-websocket"
+    ))]
+    async fn next_websocket_event(
+        events: &mut worker::EventStream<'_>,
+    ) -> Result<WebSocketTransportEvent, AdapterError> {
+        match events.next().await {
+            Some(Ok(worker::WebsocketEvent::Message(message))) => {
+                let data = message.as_ref().data();
+                if !data.is_object() {
+                    return Err(AdapterError::WebSocketEvent);
+                }
+                let array = worker::js_sys::Uint8Array::new(&data);
+                let length =
+                    usize::try_from(array.length()).map_err(|_| AdapterError::WebSocketEvent)?;
+                let mut bytes = Zeroizing::new(vec![0_u8; length]);
+                array.copy_to(bytes.as_mut_slice());
+                array.fill(0, 0, array.length());
+                Ok(WebSocketTransportEvent::Binary(Bytes::from_owner(bytes)))
+            }
+            Some(Ok(worker::WebsocketEvent::Close(close)))
+                if close.was_clean() && close.code() == 1000 =>
+            {
+                Ok(WebSocketTransportEvent::Closed)
+            }
+            Some(Ok(worker::WebsocketEvent::Close(close))) => {
+                worker::console_error!(
+                    "{{\"event\":\"ed25519_yao_websocket_closed\",\"code\":{},\"was_clean\":{},\"reason\":{:?}}}",
+                    close.code(),
+                    close.was_clean(),
+                    close.reason(),
+                );
+                Err(AdapterError::WebSocketEvent)
+            }
+            Some(Err(error)) => {
+                worker::console_error!(
+                    "{{\"event\":\"ed25519_yao_websocket_error\",\"detail\":{:?}}}",
+                    error,
+                );
+                Err(AdapterError::WebSocketEvent)
+            }
+            None => {
+                worker::console_error!(
+                    "{{\"event\":\"ed25519_yao_websocket_event_stream_ended\"}}"
+                );
+                Err(AdapterError::WebSocketEvent)
+            }
+        }
+    }
+
+    #[cfg(any(
+        feature = "deriver-a-cross-account",
+        feature = "deriver-b-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        feature = "deriver-b-same-account-websocket"
+    ))]
+    fn decode_websocket_envelope(
+        decoder: &mut EnvelopeDecoder,
+        payload: Bytes,
+        metrics: &mut AdapterIoMetrics,
+    ) -> Result<WireMessage, AdapterError> {
+        if payload.is_empty() || payload.as_ref() == WEBSOCKET_DIRECTION_EOF {
+            return Err(AdapterError::Envelope);
+        }
+        metrics.record_incoming_fragment(payload.len())?;
+        let mut offset = 0;
+        while offset < payload.len() {
+            offset += decoder.push_once(&payload[offset..])?;
+        }
+        let message = decoder.pop_message().ok_or(AdapterError::Envelope)?;
+        if decoder.pop_message().is_some() {
+            return Err(AdapterError::Envelope);
+        }
+        Ok(message)
+    }
+
+    #[cfg(any(
+        feature = "deriver-a-cross-account",
+        feature = "deriver-b-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        feature = "deriver-b-same-account-websocket"
+    ))]
+    fn send_websocket_envelope(
+        socket: &worker::WebSocket,
+        encoder: &mut DirectionalWireEncoder,
+        message: WireMessage,
+        metrics: &mut AdapterIoMetrics,
+    ) -> Result<(), AdapterError> {
+        let envelope = Zeroizing::new(
+            encoder
+                .encode(message)
+                .map_err(|_| AdapterError::OutboundBody)?,
+        );
+        metrics.record_outgoing_envelope(envelope.len())?;
+        socket
+            .send_with_bytes(envelope.as_slice())
+            .map_err(|_| AdapterError::WebSocketSend)
+    }
+
+    #[cfg(feature = "deriver-a-cross-account")]
+    async fn connect_deriver_b_websocket(
+        env: &Env,
+        protocol: &str,
+    ) -> Result<worker::WebSocket, AdapterError> {
+        let raw_endpoint = env
+            .var(DERIVER_B_WEBSOCKET_ENDPOINT)
+            .map_err(|_| AdapterError::CrossAccountEndpoint)?
+            .to_string();
+        let endpoint = CrossAccountWebSocketEndpoint::parse(&raw_endpoint)?;
+        worker::WebSocket::connect_with_protocols(endpoint.url().clone(), Some(vec![protocol]))
+            .await
+            .map_err(|_| AdapterError::WebSocketConnect)
+    }
+
+    #[cfg(feature = "deriver-a-same-account-websocket")]
+    async fn connect_deriver_b_websocket(
+        env: &Env,
+        protocol: &str,
+    ) -> Result<worker::WebSocket, AdapterError> {
+        let request = http::Request::builder()
+            .method(http::Method::GET)
+            .uri(DERIVER_B_URL)
+            .header(http::header::UPGRADE, "websocket")
+            .header(http::header::SEC_WEBSOCKET_PROTOCOL, protocol)
+            .body(Body::empty())
+            .map_err(|_| AdapterError::WebSocketConnect)?;
+        let mut response = env
+            .service(DERIVER_B_BINDING)
+            .map_err(|_| AdapterError::ServiceBinding)?
+            .fetch_request(request)
+            .await
+            .map_err(|_| AdapterError::WebSocketConnect)?;
+        if response.status() != http::StatusCode::SWITCHING_PROTOCOLS {
+            return Err(AdapterError::PeerStatus);
+        }
+        let negotiated_protocol = response
+            .headers()
+            .get(http::header::SEC_WEBSOCKET_PROTOCOL)
+            .and_then(|value| value.to_str().ok())
+            .ok_or(AdapterError::WebSocketProtocol)?;
+        if negotiated_protocol != protocol {
+            return Err(AdapterError::WebSocketProtocol);
+        }
+        response
+            .extensions_mut()
+            .remove::<worker::WebSocket>()
+            .ok_or(AdapterError::WebSocketConnect)
+    }
+
+    #[cfg(any(
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
+    struct WebSocketYaoDuplexTransport<'socket> {
+        socket: &'socket worker::WebSocket,
+        events: worker::EventStream<'socket>,
+        encoder: Option<DirectionalWireEncoder>,
+        decoder: Option<EnvelopeDecoder>,
+        timing: TransportTimingRecorder,
+        metrics: AdapterIoMetrics,
+    }
+
+    #[cfg(any(
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
+    impl<'socket> WebSocketYaoDuplexTransport<'socket> {
+        fn new(
+            socket: &'socket worker::WebSocket,
+            events: worker::EventStream<'socket>,
+            session: [u8; 32],
+            timing: TransportTimingRecorder,
+        ) -> Result<Self, AdapterError> {
+            Ok(Self {
+                socket,
+                events,
+                encoder: Some(DirectionalWireEncoder::new(
+                    WireDirection::DeriverAToDeriverB,
+                    session,
+                )?),
+                decoder: Some(EnvelopeDecoder::new(
+                    WireDirection::DeriverBToDeriverA,
+                    session,
+                )?),
+                timing,
+                metrics: AdapterIoMetrics::default(),
+            })
+        }
+    }
+
+    #[cfg(any(
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
+    impl YaoDuplexTransport for WebSocketYaoDuplexTransport<'_> {
+        async fn send(
+            &mut self,
+            message: WireMessage,
+        ) -> Result<Option<InboundTransportEvent>, AdapterError> {
+            let message_kind = message.kind();
+            send_websocket_envelope(
+                self.socket,
+                self.encoder.as_mut().ok_or(AdapterError::ProtocolState)?,
+                message,
+                &mut self.metrics,
+            )?;
+            self.timing.mark(TimingEvent::AToBBodyByteEmitted)?;
+            match message_kind {
+                WireMessageKind::TableFrame => {
+                    self.timing.mark(TimingEvent::TableFrameAccepted)?;
+                }
+                WireMessageKind::OutputTranslation => {
+                    self.timing.mark(TimingEvent::TranslationAccepted)?;
+                }
+                _ => {}
+            }
+            Ok(None)
+        }
+
+        async fn receive(&mut self) -> Result<InboundTransportEvent, AdapterError> {
+            match next_websocket_event(&mut self.events).await? {
+                WebSocketTransportEvent::Binary(payload) => {
+                    self.timing.mark(TimingEvent::BToABodyByteReceived)?;
+                    let message = decode_websocket_envelope(
+                        self.decoder.as_mut().ok_or(AdapterError::ProtocolState)?,
+                        payload,
+                        &mut self.metrics,
+                    )?;
+                    Ok(InboundTransportEvent::Message(message))
+                }
+                WebSocketTransportEvent::Closed => {
+                    let evidence = self
+                        .decoder
+                        .take()
+                        .ok_or(AdapterError::ProtocolState)?
+                        .finish()?;
+                    Ok(InboundTransportEvent::Eof(evidence))
+                }
+            }
+        }
+
+        async fn close_local_direction(
+            &mut self,
+        ) -> Result<(DirectionalEofEvidence, Option<InboundTransportEvent>), AdapterError> {
+            let evidence = self
+                .encoder
+                .take()
+                .ok_or(AdapterError::ProtocolState)?
+                .finish_after_transport_close()?;
+            self.socket
+                .send_with_bytes(WEBSOCKET_DIRECTION_EOF)
+                .map_err(|_| AdapterError::WebSocketSend)?;
+            self.timing.mark(TimingEvent::RequestDirectionClosed)?;
+            Ok((evidence, None))
+        }
+
+        async fn finish(self) -> Result<YaoDuplexTransportCompletion, AdapterError> {
+            if self.encoder.is_some() || self.decoder.is_some() {
+                return Err(AdapterError::ProtocolState);
+            }
+            Ok(YaoDuplexTransportCompletion {
+                io_metrics: self.metrics,
+            })
+        }
+    }
+
+    #[cfg(any(
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
+    async fn run_deriver_a_websocket(
+        env: &Env,
+        deployment_id: DeploymentId,
+        session: [u8; 32],
+        deriver_a_colo: Option<Colo>,
+        timeout_socket: Rc<RefCell<Option<worker::WebSocket>>>,
+    ) -> Result<DeriverABenchmarkCompletion, AdapterError> {
+        let timing = TransportTimingRecorder::worker()?;
+        let protocol = websocket_protocol(&deployment_id, session);
+        let socket = connect_deriver_b_websocket(env, &protocol).await?;
+        *timeout_socket
+            .try_borrow_mut()
+            .map_err(|_| AdapterError::WebSocketConnect)? = Some(socket.clone());
+        let negotiated_protocol = socket.as_ref().protocol();
+        if !negotiated_protocol.is_empty() && negotiated_protocol != protocol {
+            return Err(AdapterError::WebSocketProtocol);
+        }
+        socket
+            .as_ref()
+            .set_binary_type(worker::web_sys::BinaryType::Arraybuffer);
+        let events = socket
+            .events()
+            .map_err(|_| AdapterError::WebSocketConnect)?;
+        socket
+            .accept()
+            .map_err(|_| AdapterError::WebSocketConnect)?;
+
+        timing.mark(TimingEvent::BResponseHeadersReceived)?;
+        let transport = WebSocketYaoDuplexTransport::new(&socket, events, session, timing.clone())?;
+        run_deriver_a(
+            transport,
+            deployment_id,
+            session,
+            PlacementEvidence::new(deriver_a_colo, None),
+            timing,
+        )
+        .await
+    }
+
+    #[cfg(feature = "deriver-a")]
+    enum PeerCompletion {
+        #[cfg(not(feature = "deriver-a-same-account-rpc"))]
+        Fetch,
+        #[cfg(feature = "deriver-a-same-account-rpc")]
+        Rpc {
+            method: oneshot::Receiver<Result<(), AdapterError>>,
+            outbound: oneshot::Receiver<Result<(), AdapterError>>,
+        },
+    }
+
+    #[cfg(feature = "deriver-a-same-account-rpc")]
+    async fn resolve_rpc_peer_completion(completion: JsFuture) -> Result<(), AdapterError> {
+        let result = completion.await.map_err(|_| AdapterError::ServiceBinding)?;
+        if result.as_string().as_deref() != Some("ok") {
+            return Err(AdapterError::PeerStatus);
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "deriver-a-same-account-rpc")]
+    fn start_rpc_peer_completion(
+        completion: worker::js_sys::Promise,
+    ) -> oneshot::Receiver<Result<(), AdapterError>> {
+        let (sender, receiver) = oneshot::channel();
+        spawn_local(async move {
+            let outcome = resolve_rpc_peer_completion(JsFuture::from(completion)).await;
+            let _ = sender.send(outcome);
+        });
+        receiver
+    }
+
+    #[cfg(feature = "deriver-a-same-account-rpc")]
+    async fn pump_rpc_outbound(
+        mut outbound: StreamBody<OutboundEnvelopeStream>,
+        pipe: RpcIdentityBytePipe,
+    ) -> Result<(), AdapterError> {
+        while let Some(frame) = outbound.next().await {
+            let frame = frame?;
+            let bytes = frame.into_data().map_err(|_| AdapterError::OutboundBody)?;
+            let write = pipe
+                .write(bytes.as_ref())
+                .map_err(|_| AdapterError::OutboundBody)?;
+            JsFuture::from(write)
+                .await
+                .map_err(|_| AdapterError::OutboundBody)?;
+        }
+        let close = pipe.close().map_err(|_| AdapterError::OutboundEof)?;
+        JsFuture::from(close)
+            .await
+            .map_err(|_| AdapterError::OutboundEof)?;
+        Ok(())
+    }
+
+    #[cfg(feature = "deriver-a-same-account-rpc")]
+    async fn resolve_rpc_outbound(
+        outbound: StreamBody<OutboundEnvelopeStream>,
+        pipe: RpcIdentityBytePipe,
+    ) -> Result<(), AdapterError> {
+        let outcome = pump_rpc_outbound(outbound, pipe.clone()).await;
+        if let Err(error) = outcome {
+            if let Ok(abort) = pipe.abort(error.code()) {
+                let _ = JsFuture::from(abort).await;
+            }
+        }
+        outcome
+    }
+
+    #[cfg(feature = "deriver-a-same-account-rpc")]
+    fn start_rpc_outbound(
+        outbound: StreamBody<OutboundEnvelopeStream>,
+        pipe: RpcIdentityBytePipe,
+    ) -> oneshot::Receiver<Result<(), AdapterError>> {
+        let (sender, receiver) = oneshot::channel();
+        spawn_local(async move {
+            let outcome = resolve_rpc_outbound(outbound, pipe).await;
+            let _ = sender.send(outcome);
+        });
+        receiver
+    }
+
+    #[cfg(feature = "deriver-a")]
+    impl PeerCompletion {
+        async fn finish(self) -> Result<(), AdapterError> {
+            match self {
+                #[cfg(not(feature = "deriver-a-same-account-rpc"))]
+                Self::Fetch => Ok(()),
+                #[cfg(feature = "deriver-a-same-account-rpc")]
+                Self::Rpc { method, outbound } => {
+                    outbound.await.map_err(|_| AdapterError::OutboundEof)??;
+                    method.await.map_err(|_| AdapterError::ServiceBinding)?
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "deriver-a")]
     struct DeriverBPeerResponse {
         status: http::StatusCode,
         headers: http::HeaderMap,
         body: SecretIncomingBody,
+        completion: PeerCompletion,
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+    #[cfg(feature = "deriver-a")]
     impl DeriverBPeerResponse {
+        #[cfg(not(feature = "deriver-a-same-account-rpc"))]
         fn from_raw(response: worker::web_sys::Response) -> Result<Self, AdapterError> {
             let body = response.body().ok_or(AdapterError::InboundBody)?;
             let body = SecretIncomingBody::new(body)?;
@@ -1729,15 +2737,18 @@ mod adapter {
                 status,
                 headers,
                 body,
+                completion: PeerCompletion::Fetch,
             })
         }
     }
 
     #[cfg(any(
-        feature = "deriver-a",
+        all(feature = "deriver-a", not(feature = "deriver-a-same-account-rpc")),
         feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
         feature = "deriver-b",
-        feature = "deriver-b-cross-account"
+        feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket"
     ))]
     pub(super) fn header_map_from_web_headers(
         headers: worker::web_sys::Headers,
@@ -1766,16 +2777,7 @@ mod adapter {
         Ok(DERIVER_B_URL.to_owned())
     }
 
-    #[cfg(feature = "deriver-a-cross-account")]
-    fn deriver_b_request_url(env: &Env) -> Result<String, AdapterError> {
-        let raw = env
-            .var(DERIVER_B_HTTPS_ENDPOINT)
-            .map_err(|_| AdapterError::CrossAccountEndpoint)?
-            .to_string();
-        Ok(CrossAccountEndpoint::parse(&raw)?.as_str().to_owned())
-    }
-
-    #[cfg(feature = "deriver-a")]
+    #[cfg(all(feature = "deriver-a", not(feature = "deriver-a-same-account-rpc")))]
     async fn fetch_deriver_b(
         env: &Env,
         request: http::Request<StreamBody<OutboundEnvelopeStream>>,
@@ -1793,28 +2795,120 @@ mod adapter {
         DeriverBPeerResponse::from_raw(response)
     }
 
-    #[cfg(feature = "deriver-a-cross-account")]
+    #[cfg(feature = "deriver-a-same-account-rpc")]
     async fn fetch_deriver_b(
-        _env: &Env,
+        env: &Env,
         request: http::Request<StreamBody<OutboundEnvelopeStream>>,
-        abort_signal: &worker::AbortSignal,
+        _abort_signal: &worker::AbortSignal,
     ) -> Result<DeriverBPeerResponse, AdapterError> {
-        let request = worker::request_to_wasm(request).map_err(|_| AdapterError::GlobalFetch)?;
-        let init = worker::web_sys::RequestInit::new();
-        init.set_redirect(worker::web_sys::RequestRedirect::Error);
-        init.set_signal(Some(abort_signal));
-        let scope: worker::web_sys::WorkerGlobalScope = worker::js_sys::global().unchecked_into();
-        let promise = scope.fetch_with_request_and_init(&request, &init);
-        let response = worker::js_sys::futures::JsFuture::from(promise)
-            .await
-            .map_err(|_| AdapterError::GlobalFetch)?
-            .dyn_into::<worker::web_sys::Response>()
-            .map_err(|_| AdapterError::GlobalFetch)?;
-        DeriverBPeerResponse::from_raw(response)
+        let deployment_id = request
+            .headers()
+            .get(DEPLOYMENT_ID_HEADER)
+            .and_then(|value| value.to_str().ok())
+            .ok_or(AdapterError::DeploymentIdentity)?
+            .to_owned();
+        let session = request
+            .headers()
+            .get(SESSION_HEADER)
+            .and_then(|value| value.to_str().ok())
+            .ok_or(AdapterError::Envelope)?
+            .to_owned();
+        let deriver_a_colo = request
+            .headers()
+            .get(DERIVER_A_COLO_HEADER)
+            .and_then(|value| value.to_str().ok())
+            .map(JsValue::from_str)
+            .unwrap_or(JsValue::NULL);
+        let outbound = request.into_body();
+        let a_to_b = create_rpc_identity_byte_pipe();
+        let a_to_b_readable = a_to_b.readable();
+        let b_to_a = create_rpc_identity_byte_pipe();
+        let completion = rpc_binding(env)?
+            .run_ceremony(
+                a_to_b_readable,
+                b_to_a.writable(),
+                &deployment_id,
+                &session,
+                deriver_a_colo,
+            )
+            .map_err(|_| AdapterError::ServiceBinding)?;
+        let outbound = start_rpc_outbound(outbound, a_to_b);
+
+        let mut headers = http::HeaderMap::new();
+        headers.insert(
+            DEPLOYMENT_ID_HEADER,
+            http::HeaderValue::from_str(&deployment_id)
+                .map_err(|_| AdapterError::DeploymentIdentity)?,
+        );
+        Ok(DeriverBPeerResponse {
+            status: http::StatusCode::OK,
+            headers,
+            body: SecretIncomingBody::new(b_to_a.readable())?,
+            completion: PeerCompletion::Rpc {
+                method: start_rpc_peer_completion(completion),
+                outbound,
+            },
+        })
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
-    pub(super) async fn run_deriver_a(
+    #[cfg(feature = "deriver-a")]
+    struct HttpYaoDuplexTransport {
+        sender: Option<mpsc::Sender<WireMessage>>,
+        eof_receiver: Option<oneshot::Receiver<Result<OutboundDirectionClose, AdapterError>>>,
+        inbound: InboundEnvelopeBody,
+        peer_completion: Option<PeerCompletion>,
+        outbound_metrics: Option<AdapterIoMetrics>,
+    }
+
+    #[cfg(feature = "deriver-a")]
+    impl YaoDuplexTransport for HttpYaoDuplexTransport {
+        async fn send(
+            &mut self,
+            message: WireMessage,
+        ) -> Result<Option<InboundTransportEvent>, AdapterError> {
+            send_while_polling_peer(
+                self.sender.as_mut().ok_or(AdapterError::ProtocolState)?,
+                message,
+                &mut self.inbound,
+            )
+            .await
+        }
+
+        async fn receive(&mut self) -> Result<InboundTransportEvent, AdapterError> {
+            self.inbound.next_event().await
+        }
+
+        async fn close_local_direction(
+            &mut self,
+        ) -> Result<(DirectionalEofEvidence, Option<InboundTransportEvent>), AdapterError> {
+            let (closed, event) = close_while_polling_peer(
+                self.sender.take().ok_or(AdapterError::ProtocolState)?,
+                self.eof_receiver
+                    .take()
+                    .ok_or(AdapterError::ProtocolState)?,
+                &mut self.inbound,
+            )
+            .await?;
+            self.outbound_metrics = Some(closed.metrics);
+            Ok((closed.evidence, event))
+        }
+
+        async fn finish(mut self) -> Result<YaoDuplexTransportCompletion, AdapterError> {
+            self.peer_completion
+                .take()
+                .ok_or(AdapterError::ProtocolState)?
+                .finish()
+                .await?;
+            let io_metrics = self
+                .inbound
+                .metrics()
+                .merge(self.outbound_metrics.ok_or(AdapterError::ProtocolState)?)?;
+            Ok(YaoDuplexTransportCompletion { io_metrics })
+        }
+    }
+
+    #[cfg(feature = "deriver-a")]
+    async fn run_deriver_a_http(
         env: &Env,
         deployment_id: DeploymentId,
         session: [u8; 32],
@@ -1822,7 +2916,6 @@ mod adapter {
         deriver_a_colo: Option<Colo>,
     ) -> Result<DeriverABenchmarkCompletion, AdapterError> {
         let timing = TransportTimingRecorder::worker()?;
-        let role = Activation128KiBDeriverA::new(session)?;
         // futures-channel adds one guaranteed slot per sender, so a zero buffer
         // gives this single-sender stream exactly one queued envelope.
         let (sender, receiver) = mpsc::channel(0);
@@ -1847,12 +2940,37 @@ mod adapter {
         timing.mark(TimingEvent::BResponseHeadersReceived)?;
         validate_deriver_b_response_identity(response.status, &response.headers, &deployment_id)?;
         let deriver_b_colo = optional_colo_header(&response.headers, DERIVER_B_COLO_HEADER)?;
-        let mut inbound = InboundEnvelopeBody::new(response.body, session, timing.clone())?;
+        let transport = HttpYaoDuplexTransport {
+            sender: Some(sender),
+            eof_receiver: Some(eof_receiver),
+            inbound: InboundEnvelopeBody::new(response.body, session, timing.clone())?,
+            peer_completion: Some(response.completion),
+            outbound_metrics: None,
+        };
+        run_deriver_a(
+            transport,
+            deployment_id,
+            session,
+            PlacementEvidence::new(deriver_a_colo, deriver_b_colo),
+            timing,
+        )
+        .await
+    }
+
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
+    async fn run_deriver_a<T: YaoDuplexTransport>(
+        mut transport: T,
+        deployment_id: DeploymentId,
+        session: [u8; 32],
+        placement: PlacementEvidence,
+        timing: TransportTimingRecorder,
+    ) -> Result<DeriverABenchmarkCompletion, AdapterError> {
+        let mut role = Activation128KiBDeriverA::new(session)?;
         let mut deferred = VecDeque::with_capacity(1);
-        let mut role = role;
-        let mut sender = Some(sender);
-        let mut eof_receiver = Some(eof_receiver);
-        let mut outbound_metrics = None;
 
         loop {
             match role.instruction()? {
@@ -1862,17 +2980,8 @@ mod adapter {
                         role: next,
                         message,
                     } => {
-                        let event = send_while_polling_peer(
-                            sender.as_mut().ok_or(AdapterError::ProtocolState)?,
-                            message,
-                            &mut inbound,
-                        )
-                        .await?;
-                        if let Some(event) = event {
-                            if !deferred.is_empty() {
-                                return Err(AdapterError::ProtocolState);
-                            }
-                            deferred.push_back(event);
+                        if let Some(event) = transport.send(message).await? {
+                            push_deferred_transport_event(&mut deferred, event)?;
                         }
                         role = next;
                     }
@@ -1882,107 +2991,145 @@ mod adapter {
                     kind,
                     payload_bytes,
                 } => {
-                    let event = next_a_inbound(&mut deferred, &mut inbound).await?;
+                    let event = next_a_transport_event(&mut deferred, &mut transport).await?;
                     let InboundTransportEvent::Message(message) = event else {
                         return Err(AdapterError::ProtocolState);
                     };
                     validate_inbound_message(&message, kind, payload_bytes)?;
-                    match kind {
-                        WireMessageKind::BaseOtOffer => timing.mark(TimingEvent::OfferReceived)?,
-                        WireMessageKind::OtExtensionMatrix => {
-                            timing.mark(TimingEvent::ExtensionReceived)?;
-                        }
-                        WireMessageKind::ReturnedOutputLabels => {
-                            timing.mark(TimingEvent::ReturnedReceived)?;
-                        }
-                        _ => {}
-                    }
+                    mark_deriver_a_receive_timing(&timing, kind)?;
                     role = accept_a_continue(advance_a(role, RelayEvent::Inbound(message))?)?;
                 }
                 RelayInstruction::CloseLocalDirection { terminal_kind } => {
                     if terminal_kind != WireMessageKind::OutputTranslation {
                         return Err(AdapterError::ProtocolState);
                     }
-                    let (closed, event) = close_while_polling_peer(
-                        sender.take().ok_or(AdapterError::ProtocolState)?,
-                        eof_receiver.take().ok_or(AdapterError::ProtocolState)?,
-                        &mut inbound,
-                    )
-                    .await?;
+                    let (evidence, event) = transport.close_local_direction().await?;
                     if let Some(event) = event {
-                        deferred.push_back(event);
+                        push_deferred_transport_event(&mut deferred, event)?;
                     }
                     role = accept_a_continue(advance_a(
                         role,
-                        RelayEvent::LocalDirectionalEof(closed.evidence),
+                        RelayEvent::LocalDirectionalEof(evidence),
                     )?)?;
-                    outbound_metrics = Some(closed.metrics);
                 }
                 RelayInstruction::ObservePeerEof { terminal_kind } => {
                     if terminal_kind != WireMessageKind::ReturnedOutputLabels {
                         return Err(AdapterError::ProtocolState);
                     }
-                    let event = next_a_inbound(&mut deferred, &mut inbound).await?;
+                    let event = next_a_transport_event(&mut deferred, &mut transport).await?;
                     let InboundTransportEvent::Eof(evidence) = event else {
                         return Err(AdapterError::ProtocolState);
                     };
                     timing.mark(TimingEvent::ResponseEofComplete)?;
-                    match advance_a(role, RelayEvent::InboundDirectionalEof(evidence))? {
-                        AProgress::Complete(completion) => {
-                            let io_metrics = inbound
-                                .metrics()
-                                .merge(outbound_metrics.ok_or(AdapterError::ProtocolState)?)?;
-                            validate_deriver_a_wire_bytes(&completion, io_metrics)?;
-                            return Ok(DeriverABenchmarkCompletion {
-                                completion,
-                                deployment_id,
-                                io_metrics,
-                                placement: PlacementEvidence::new(deriver_a_colo, deriver_b_colo),
-                                timings: timing.finish()?,
-                            });
-                        }
-                        AProgress::Continue(_) | AProgress::Send { .. } => {
-                            return Err(AdapterError::ProtocolState)
-                        }
-                    }
+                    let AProgress::Complete(completion) =
+                        advance_a(role, RelayEvent::InboundDirectionalEof(evidence))?
+                    else {
+                        return Err(AdapterError::ProtocolState);
+                    };
+                    let transport_completion = transport.finish().await?;
+                    validate_deriver_a_wire_bytes(&completion, transport_completion.io_metrics)?;
+                    return Ok(DeriverABenchmarkCompletion {
+                        completion,
+                        deployment_id,
+                        io_metrics: transport_completion.io_metrics,
+                        placement,
+                        timings: timing.finish()?,
+                    });
                 }
             }
         }
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
     pub(super) async fn run_deriver_a_with_timeout(
         env: &Env,
         deployment_id: DeploymentId,
         session: [u8; 32],
         deriver_a_colo: Option<Colo>,
     ) -> Result<DeriverABenchmarkCompletion, AdapterError> {
+        #[cfg(feature = "deriver-a")]
         let controller = worker::AbortController::default();
-        let ceremony = Box::pin(run_deriver_a(
+        #[cfg(any(
+            feature = "deriver-a-cross-account",
+            feature = "deriver-a-same-account-websocket"
+        ))]
+        let timeout_socket = Rc::new(RefCell::new(None));
+        #[cfg(feature = "deriver-a")]
+        let ceremony = Box::pin(run_deriver_a_http(
             env,
             deployment_id,
             session,
             controller.signal(),
             deriver_a_colo,
         ));
+        #[cfg(any(
+            feature = "deriver-a-cross-account",
+            feature = "deriver-a-same-account-websocket"
+        ))]
+        let ceremony = Box::pin(run_deriver_a_websocket(
+            env,
+            deployment_id,
+            session,
+            deriver_a_colo,
+            timeout_socket.clone(),
+        ));
         let timeout = Box::pin(worker::Delay::from(CEREMONY_TIMEOUT));
         match select(ceremony, timeout).await {
-            FutureEither::Left((result, _timeout)) => result,
+            FutureEither::Left((result, _timeout)) => {
+                #[cfg(any(
+                    feature = "deriver-a-cross-account",
+                    feature = "deriver-a-same-account-websocket"
+                ))]
+                if let Ok(mut socket) = timeout_socket.try_borrow_mut() {
+                    if result.is_err() {
+                        if let Some(socket) = socket.as_ref() {
+                            let _ignored = socket.close(Some(1011), Some("ceremony failed"));
+                        }
+                    }
+                    socket.take();
+                }
+                result
+            }
             FutureEither::Right(((), _ceremony)) => {
+                #[cfg(feature = "deriver-a")]
                 controller.abort();
+                #[cfg(any(
+                    feature = "deriver-a-cross-account",
+                    feature = "deriver-a-same-account-websocket"
+                ))]
+                if let Ok(mut socket) = timeout_socket.try_borrow_mut() {
+                    if let Some(socket) = socket.take() {
+                        let _ignored = socket.close(Some(1011), Some("ceremony timeout"));
+                    }
+                }
                 Err(AdapterError::Timeout)
             }
         }
     }
 
-    #[cfg(feature = "deriver-a")]
+    #[cfg(all(feature = "deriver-a", not(feature = "deriver-a-same-account-rpc")))]
     fn service_binding(env: &Env) -> Result<worker_sys::Fetcher, AdapterError> {
         env.service(DERIVER_B_BINDING)
             .map(worker::Fetcher::into_rpc::<worker_sys::Fetcher>)
             .map_err(|_| AdapterError::ServiceBinding)
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+    #[cfg(feature = "deriver-a-same-account-rpc")]
+    fn rpc_binding(env: &Env) -> Result<DeriverBRpc, AdapterError> {
+        env.service(DERIVER_B_BINDING)
+            .map(worker::Fetcher::into_rpc::<DeriverBRpc>)
+            .map_err(|_| AdapterError::ServiceBinding)
+    }
+
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
     pub(super) fn random_session() -> Result<[u8; 32], AdapterError> {
         loop {
             let mut session = [0_u8; 32];
@@ -1993,7 +3140,11 @@ mod adapter {
         }
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
     pub(super) async fn require_empty_public_request_body(
         body: &mut Body,
     ) -> Result<(), AdapterError> {
@@ -2007,7 +3158,14 @@ mod adapter {
         Ok(())
     }
 
-    #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account", test))]
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket",
+        test
+    ))]
     pub(super) fn encode_session(session: [u8; 32]) -> String {
         const HEX: &[u8; 16] = b"0123456789abcdef";
         let mut encoded = String::with_capacity(64);
@@ -2018,7 +3176,14 @@ mod adapter {
         encoded
     }
 
-    #[cfg(any(feature = "deriver-b", feature = "deriver-b-cross-account", test))]
+    #[cfg(any(
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        feature = "deriver-b",
+        feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket",
+        test
+    ))]
     pub(super) fn decode_session(encoded: &str) -> Result<[u8; 32], AdapterError> {
         if encoded.len() != 64 {
             return Err(AdapterError::Envelope);
@@ -2036,7 +3201,14 @@ mod adapter {
         Ok(session)
     }
 
-    #[cfg(any(feature = "deriver-b", feature = "deriver-b-cross-account", test))]
+    #[cfg(any(
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        feature = "deriver-b",
+        feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket",
+        test
+    ))]
     fn decode_nibble(byte: u8) -> Result<u8, AdapterError> {
         match byte {
             b'0'..=b'9' => Ok(byte - b'0'),
@@ -2046,7 +3218,12 @@ mod adapter {
     }
 
     // Keeping the role continuation inline avoids allocating per table frame.
-    #[cfg(any(feature = "deriver-b", feature = "deriver-b-cross-account", test))]
+    #[cfg(any(
+        feature = "deriver-b",
+        feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket",
+        test
+    ))]
     #[allow(clippy::large_enum_variant)]
     enum BProgress {
         Continue(Activation128KiBDeriverB),
@@ -2057,7 +3234,12 @@ mod adapter {
         Complete(ActivationDeriverBCompletion),
     }
 
-    #[cfg(any(feature = "deriver-b", feature = "deriver-b-cross-account", test))]
+    #[cfg(any(
+        feature = "deriver-b",
+        feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket",
+        test
+    ))]
     fn advance_b(
         role: Activation128KiBDeriverB,
         event: RelayEvent,
@@ -2069,8 +3251,142 @@ mod adapter {
         })
     }
 
+    #[cfg(any(
+        feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket"
+    ))]
+    fn continue_deriver_b_websocket(
+        socket: &worker::WebSocket,
+        encoder: &mut DirectionalWireEncoder,
+        metrics: &mut AdapterIoMetrics,
+        progress: BProgress,
+    ) -> Result<Activation128KiBDeriverB, AdapterError> {
+        match progress {
+            BProgress::Continue(role) => Ok(role),
+            BProgress::Send { role, message } => {
+                send_websocket_envelope(socket, encoder, message, metrics)?;
+                Ok(role)
+            }
+            BProgress::Complete(_) => Err(AdapterError::ProtocolState),
+        }
+    }
+
+    #[cfg(any(
+        feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket"
+    ))]
+    pub(super) async fn run_deriver_b_websocket(
+        socket: worker::WebSocket,
+        deployment_id: DeploymentId,
+        session: [u8; 32],
+        placement: PlacementEvidence,
+    ) -> Result<(), AdapterError> {
+        socket
+            .as_ref()
+            .set_binary_type(worker::web_sys::BinaryType::Arraybuffer);
+        let mut events = socket
+            .events()
+            .map_err(|_| AdapterError::WebSocketConnect)?;
+        socket
+            .accept()
+            .map_err(|_| AdapterError::WebSocketConnect)?;
+        let mut role = Activation128KiBDeriverB::new(role_session(session))?;
+        let mut decoder = Some(EnvelopeDecoder::new(
+            WireDirection::DeriverAToDeriverB,
+            session,
+        )?);
+        let mut encoder = Some(DirectionalWireEncoder::new(
+            WireDirection::DeriverBToDeriverA,
+            session,
+        )?);
+        let mut metrics = AdapterIoMetrics::default();
+
+        loop {
+            match role.instruction()? {
+                RelayInstruction::Advance => {
+                    role = continue_deriver_b_websocket(
+                        &socket,
+                        encoder.as_mut().ok_or(AdapterError::ProtocolState)?,
+                        &mut metrics,
+                        advance_b(role, RelayEvent::Advance)?,
+                    )?;
+                }
+                RelayInstruction::Receive {
+                    kind,
+                    payload_bytes,
+                } => {
+                    let WebSocketTransportEvent::Binary(payload) =
+                        next_websocket_event(&mut events).await?
+                    else {
+                        return Err(AdapterError::ProtocolState);
+                    };
+                    let message = decode_websocket_envelope(
+                        decoder.as_mut().ok_or(AdapterError::ProtocolState)?,
+                        payload,
+                        &mut metrics,
+                    )?;
+                    validate_inbound_message(&message, kind, payload_bytes)?;
+                    role = continue_deriver_b_websocket(
+                        &socket,
+                        encoder.as_mut().ok_or(AdapterError::ProtocolState)?,
+                        &mut metrics,
+                        advance_b(role, RelayEvent::Inbound(message))?,
+                    )?;
+                }
+                RelayInstruction::ObservePeerEof { terminal_kind } => {
+                    if terminal_kind != WireMessageKind::OutputTranslation {
+                        return Err(AdapterError::ProtocolState);
+                    }
+                    let WebSocketTransportEvent::Binary(payload) =
+                        next_websocket_event(&mut events).await?
+                    else {
+                        return Err(AdapterError::ProtocolState);
+                    };
+                    if payload.as_ref() != WEBSOCKET_DIRECTION_EOF {
+                        return Err(AdapterError::ProtocolState);
+                    }
+                    let evidence = decoder
+                        .take()
+                        .ok_or(AdapterError::ProtocolState)?
+                        .finish()?;
+                    role = continue_deriver_b_websocket(
+                        &socket,
+                        encoder.as_mut().ok_or(AdapterError::ProtocolState)?,
+                        &mut metrics,
+                        advance_b(role, RelayEvent::InboundDirectionalEof(evidence))?,
+                    )?;
+                }
+                RelayInstruction::CloseLocalDirection { terminal_kind } => {
+                    if terminal_kind != WireMessageKind::ReturnedOutputLabels {
+                        return Err(AdapterError::ProtocolState);
+                    }
+                    let evidence = encoder
+                        .take()
+                        .ok_or(AdapterError::ProtocolState)?
+                        .finish_after_transport_close()?;
+                    let BProgress::Complete(completion) =
+                        advance_b(role, RelayEvent::LocalDirectionalEof(evidence))?
+                    else {
+                        return Err(AdapterError::ProtocolState);
+                    };
+                    validate_deriver_b_wire_bytes(&completion, metrics)?;
+                    log_b_completion(&completion, &deployment_id, metrics, &placement);
+                    socket
+                        .close(Some(1000), Some("complete"))
+                        .map_err(|_| AdapterError::WebSocketSend)?;
+                    return Ok(());
+                }
+            }
+        }
+    }
+
     #[cfg(all(
-        any(feature = "deriver-b", feature = "deriver-b-cross-account", test),
+        any(
+            feature = "deriver-b",
+            feature = "deriver-b-cross-account",
+            feature = "deriver-b-same-account-websocket",
+            test
+        ),
         feature = "fault-session-mismatch"
     ))]
     fn role_session(mut framing_session: [u8; 32]) -> [u8; 32] {
@@ -2082,7 +3398,12 @@ mod adapter {
     }
 
     #[cfg(all(
-        any(feature = "deriver-b", feature = "deriver-b-cross-account", test),
+        any(
+            feature = "deriver-b",
+            feature = "deriver-b-cross-account",
+            feature = "deriver-b-same-account-websocket",
+            test
+        ),
         not(feature = "fault-session-mismatch")
     ))]
     const fn role_session(framing_session: [u8; 32]) -> [u8; 32] {
@@ -2101,7 +3422,12 @@ mod adapter {
         envelope
     }
 
-    #[cfg(any(feature = "deriver-b", feature = "deriver-b-cross-account", test))]
+    #[cfg(any(
+        feature = "deriver-b",
+        feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket",
+        test
+    ))]
     pub(super) struct DeriverBResponseStream {
         role: Option<Activation128KiBDeriverB>,
         deployment_id: DeploymentId,
@@ -2123,7 +3449,12 @@ mod adapter {
         terminated: bool,
     }
 
-    #[cfg(any(feature = "deriver-b", feature = "deriver-b-cross-account", test))]
+    #[cfg(any(
+        feature = "deriver-b",
+        feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket",
+        test
+    ))]
     impl DeriverBResponseStream {
         pub(super) fn new(
             deployment_id: DeploymentId,
@@ -2269,7 +3600,12 @@ mod adapter {
         }
     }
 
-    #[cfg(any(feature = "deriver-b", feature = "deriver-b-cross-account", test))]
+    #[cfg(any(
+        feature = "deriver-b",
+        feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket",
+        test
+    ))]
     fn log_b_completion(
         completion: &ActivationDeriverBCompletion,
         deployment_id: &DeploymentId,
@@ -2310,7 +3646,12 @@ mod adapter {
         worker::console_log!("{}", report);
     }
 
-    #[cfg(any(feature = "deriver-b", feature = "deriver-b-cross-account", test))]
+    #[cfg(any(
+        feature = "deriver-b",
+        feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket",
+        test
+    ))]
     pub(super) fn log_b_failure(error: AdapterError) {
         #[cfg(target_arch = "wasm32")]
         worker::console_error!(
@@ -2322,7 +3663,12 @@ mod adapter {
         let _ignored = error;
     }
 
-    #[cfg(any(feature = "deriver-b", feature = "deriver-b-cross-account", test))]
+    #[cfg(any(
+        feature = "deriver-b",
+        feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket",
+        test
+    ))]
     impl Stream for DeriverBResponseStream {
         type Item = Result<Frame<Bytes>, AdapterError>;
 
@@ -2561,6 +3907,28 @@ mod adapter {
             assert_eq!(decode_session(&encoded), Ok(session));
             assert!(decode_session(&encoded.to_uppercase()).is_err());
             assert!(decode_session(&"0".repeat(64)).is_err());
+        }
+
+        #[test]
+        fn websocket_subprotocol_binds_exact_deployment_and_session() {
+            let deployment_id = fixture_deployment_id();
+            let session = [0xa5; 32];
+            let protocol = websocket_protocol(&deployment_id, session);
+            assert_eq!(
+                parse_websocket_protocol(&protocol),
+                Ok((deployment_id, session))
+            );
+            for rejected in [
+                "yaos-ab-v1",
+                "yaos-ab-v2.0123456789abcdef0123456789abcdef.a5",
+                "yaos-ab-v1.0123456789abcdef0123456789abcdef.0000000000000000000000000000000000000000000000000000000000000000",
+                "yaos-ab-v1.0123456789abcdef0123456789abcdef.a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5.extra",
+            ] {
+                assert!(
+                    parse_websocket_protocol(rejected).is_err(),
+                    "accepted invalid WebSocket subprotocol: {rejected}"
+                );
+            }
         }
 
         #[test]
@@ -2848,28 +4216,31 @@ mod adapter {
         }
 
         #[test]
-        fn cross_account_endpoint_accepts_only_the_fixed_https_route() {
-            let endpoint =
-                CrossAccountEndpoint::parse("https://deriver-b.example.com/benchmark/activation")
-                    .expect("fixed endpoint");
+        fn cross_account_endpoint_accepts_only_the_fixed_websocket_route() {
+            let endpoint = CrossAccountWebSocketEndpoint::parse(
+                "wss://deriver-b.example.com/benchmark/activation",
+            )
+            .expect("fixed endpoint");
             assert_eq!(
                 endpoint.as_str(),
-                "https://deriver-b.example.com/benchmark/activation"
+                "wss://deriver-b.example.com/benchmark/activation"
             );
 
             for rejected in [
+                "https://deriver-b.example.com/benchmark/activation",
+                "ws://deriver-b.example.com/benchmark/activation",
                 "http://deriver-b.example.com/benchmark/activation",
-                "https://user@deriver-b.example.com/benchmark/activation",
-                "https://user:password@deriver-b.example.com/benchmark/activation",
-                "https://deriver-b.example.com:8443/benchmark/activation",
-                "https://deriver-b.example.com/benchmark/activation/",
-                "https://deriver-b.example.com/benchmark/export",
-                "https://deriver-b.example.com/benchmark/activation?profile=128",
-                "https://deriver-b.example.com/benchmark/activation#fragment",
+                "wss://user@deriver-b.example.com/benchmark/activation",
+                "wss://user:password@deriver-b.example.com/benchmark/activation",
+                "wss://deriver-b.example.com:8443/benchmark/activation",
+                "wss://deriver-b.example.com/benchmark/activation/",
+                "wss://deriver-b.example.com/benchmark/export",
+                "wss://deriver-b.example.com/benchmark/activation?profile=128",
+                "wss://deriver-b.example.com/benchmark/activation#fragment",
                 "/benchmark/activation",
             ] {
                 assert!(
-                    CrossAccountEndpoint::parse(rejected).is_err(),
+                    CrossAccountWebSocketEndpoint::parse(rejected).is_err(),
                     "accepted invalid endpoint: {rejected}"
                 );
             }
@@ -2985,7 +4356,11 @@ mod adapter {
             assert_eq!(CEREMONY_TIMEOUT, std::time::Duration::from_millis(250));
         }
 
-        #[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+        #[cfg(any(
+            feature = "deriver-a",
+            feature = "deriver-a-cross-account",
+            feature = "deriver-a-same-account-websocket"
+        ))]
         #[test]
         fn dropping_outbound_body_cancels_eof_without_minting_evidence() {
             let session = [0x18; 32];
@@ -3076,7 +4451,11 @@ mod adapter {
     }
 }
 
-#[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+#[cfg(any(
+    feature = "deriver-a",
+    feature = "deriver-a-cross-account",
+    feature = "deriver-a-same-account-websocket"
+))]
 fn json_response(
     status: http::StatusCode,
     body: String,
@@ -3088,7 +4467,11 @@ fn json_response(
         .body(http_body_util::Full::new(bytes::Bytes::from(body)))?)
 }
 
-#[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+#[cfg(any(
+    feature = "deriver-a",
+    feature = "deriver-a-cross-account",
+    feature = "deriver-a-same-account-websocket"
+))]
 fn deriver_a_report(result: &adapter::DeriverABenchmarkCompletion, elapsed_ms: f64) -> String {
     let completion = result.completion();
     let metrics = completion.stream_metrics();
@@ -3111,8 +4494,8 @@ fn deriver_a_report(result: &adapter::DeriverABenchmarkCompletion, elapsed_ms: f
         "deriver_b_colo": placement.deriver_b_colo().map(adapter::Colo::as_str),
         "elapsed_ms": elapsed_ms,
         "timing_semantics": "worker-date-now;deployed-advances-after-io;milestones-relative-to-deriver-a-protocol-start",
-        "table_timing_boundary": "outbound-stream-backpressure-acceptance",
-        "body_byte_timing_boundary": "raw-stream-chunk-emission-and-receipt",
+        "table_timing_boundary": adapter::TABLE_TIMING_BOUNDARY,
+        "body_byte_timing_boundary": adapter::BODY_BYTE_TIMING_BOUNDARY,
         "b_response_headers_received_ms": timings.b_response_headers_received_ms(),
         "offer_received_ms": timings.offer_received_ms(),
         "extension_received_ms": timings.extension_received_ms(),
@@ -3148,7 +4531,11 @@ fn deriver_a_report(result: &adapter::DeriverABenchmarkCompletion, elapsed_ms: f
     report.to_string()
 }
 
-#[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+#[cfg(any(
+    feature = "deriver-a",
+    feature = "deriver-a-cross-account",
+    feature = "deriver-a-same-account-websocket"
+))]
 fn add_body_byte_timing_fields(
     report: &mut serde_json::Value,
     timings: adapter::TransportPhaseTimings,
@@ -3178,7 +4565,11 @@ fn add_body_byte_timing_fields(
     }
 }
 
-#[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+#[cfg(any(
+    feature = "deriver-a",
+    feature = "deriver-a-cross-account",
+    feature = "deriver-a-same-account-websocket"
+))]
 fn deriver_a_error_body(error: &str) -> String {
     serde_json::json!({
         "ok": false,
@@ -3190,7 +4581,11 @@ fn deriver_a_error_body(error: &str) -> String {
 }
 
 /// Runs Deriver A's isolated activation benchmark endpoint.
-#[cfg(any(feature = "deriver-a", feature = "deriver-a-cross-account"))]
+#[cfg(any(
+    feature = "deriver-a",
+    feature = "deriver-a-cross-account",
+    feature = "deriver-a-same-account-websocket"
+))]
 #[worker::event(fetch)]
 pub async fn main(
     mut request: worker::HttpRequest,
@@ -3263,13 +4658,13 @@ pub async fn main(
     }
 }
 
-#[cfg(any(feature = "deriver-b", feature = "deriver-b-cross-account"))]
+#[cfg(feature = "deriver-b")]
 type DeriverBBody = http_body_util::Either<
     http_body_util::StreamBody<adapter::DeriverBResponseStream>,
     http_body_util::Full<bytes::Bytes>,
 >;
 
-#[cfg(any(feature = "deriver-b", feature = "deriver-b-cross-account"))]
+#[cfg(feature = "deriver-b")]
 fn deriver_b_error_response(
     status: http::StatusCode,
     error_code: &'static str,
@@ -3291,7 +4686,7 @@ fn deriver_b_error_response(
         )))?)
 }
 
-#[cfg(any(feature = "deriver-b", feature = "deriver-b-cross-account"))]
+#[cfg(feature = "deriver-b")]
 fn request_session(headers: &http::HeaderMap) -> Result<[u8; 32], adapter::AdapterError> {
     let encoded = headers
         .get(adapter::SESSION_HEADER)
@@ -3301,7 +4696,7 @@ fn request_session(headers: &http::HeaderMap) -> Result<[u8; 32], adapter::Adapt
 }
 
 /// Serves Deriver B's isolated activation benchmark stream.
-#[cfg(any(feature = "deriver-b", feature = "deriver-b-cross-account"))]
+#[cfg(feature = "deriver-b")]
 #[worker::event(fetch)]
 pub async fn main(
     request: worker::web_sys::Request,
@@ -3391,4 +4786,122 @@ pub async fn main(
     Ok(response.body(http_body_util::Either::Left(
         http_body_util::StreamBody::new(stream),
     ))?)
+}
+
+#[cfg(any(
+    feature = "deriver-b-cross-account",
+    feature = "deriver-b-same-account-websocket"
+))]
+fn deriver_b_websocket_error_response(
+    status: http::StatusCode,
+    error: adapter::AdapterError,
+) -> worker::Result<worker::Response> {
+    let headers = worker::Headers::new();
+    headers.set(http::header::CACHE_CONTROL.as_str(), "no-store")?;
+    Ok(worker::Response::from_json(&serde_json::json!({
+        "ok": false,
+        "benchmark_only": true,
+        "topology": adapter::B_TOPOLOGY_LABEL,
+        "error_code": error.code(),
+    }))?
+    .with_headers(headers)
+    .with_status(status.as_u16()))
+}
+
+/// Upgrades Deriver B to the fixed binary WebSocket benchmark transport.
+#[cfg(any(
+    feature = "deriver-b-cross-account",
+    feature = "deriver-b-same-account-websocket"
+))]
+#[worker::event(fetch)]
+pub async fn main(
+    request: worker::web_sys::Request,
+    env: worker::Env,
+    context: worker::Context,
+) -> worker::Result<worker::Response> {
+    let request_url = url::Url::parse(&request.url());
+    if request.method() != http::Method::GET.as_str()
+        || request_url.as_ref().map(url::Url::path) != Ok(adapter::BENCHMARK_PATH)
+    {
+        return deriver_b_websocket_error_response(
+            http::StatusCode::NOT_FOUND,
+            adapter::AdapterError::WebSocket,
+        );
+    }
+    let headers = match adapter::header_map_from_web_headers(request.headers()) {
+        Ok(headers) => headers,
+        Err(error) => {
+            return deriver_b_websocket_error_response(http::StatusCode::BAD_REQUEST, error)
+        }
+    };
+    if !headers
+        .get(http::header::UPGRADE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.eq_ignore_ascii_case("websocket"))
+    {
+        return deriver_b_websocket_error_response(
+            http::StatusCode::UPGRADE_REQUIRED,
+            adapter::AdapterError::WebSocket,
+        );
+    }
+    let protocol = match headers
+        .get(http::header::SEC_WEBSOCKET_PROTOCOL)
+        .and_then(|value| value.to_str().ok())
+    {
+        Some(protocol) => protocol.to_owned(),
+        None => {
+            return deriver_b_websocket_error_response(
+                http::StatusCode::BAD_REQUEST,
+                adapter::AdapterError::WebSocket,
+            )
+        }
+    };
+    let (protocol_deployment_id, session) = match adapter::parse_websocket_protocol(&protocol) {
+        Ok(binding) => binding,
+        Err(error) => {
+            return deriver_b_websocket_error_response(http::StatusCode::BAD_REQUEST, error)
+        }
+    };
+    let deployment_id = match adapter::deployment_id(&env) {
+        Ok(deployment_id) => deployment_id,
+        Err(error) => {
+            adapter::log_b_failure(error);
+            return deriver_b_websocket_error_response(
+                http::StatusCode::PRECONDITION_FAILED,
+                error,
+            );
+        }
+    };
+    if protocol_deployment_id != deployment_id {
+        return deriver_b_websocket_error_response(
+            http::StatusCode::PRECONDITION_FAILED,
+            adapter::AdapterError::DeploymentIdentity,
+        );
+    }
+    let deriver_b_colo = match adapter::raw_incoming_colo(&request) {
+        Ok(colo) => colo,
+        Err(error) => {
+            return deriver_b_websocket_error_response(
+                http::StatusCode::INTERNAL_SERVER_ERROR,
+                error,
+            )
+        }
+    };
+    let placement = adapter::PlacementEvidence::new(None, deriver_b_colo);
+    let pair = worker::WebSocketPair::new()?;
+    let server = pair.server;
+    let server_for_error = server.clone();
+    context.wait_until(async move {
+        if let Err(error) =
+            adapter::run_deriver_b_websocket(server, deployment_id, session, placement).await
+        {
+            adapter::log_b_failure(error);
+            let _ignored = server_for_error.close(Some(1011), Some(error.code()));
+        }
+    });
+
+    let response_headers = worker::Headers::new();
+    response_headers.set(http::header::SEC_WEBSOCKET_PROTOCOL.as_str(), &protocol)?;
+    response_headers.set(http::header::CACHE_CONTROL.as_str(), "no-store")?;
+    Ok(worker::Response::from_websocket(pair.client)?.with_headers(response_headers))
 }

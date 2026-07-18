@@ -64,9 +64,7 @@ const GRAPHQL_MEMORY_BELOW = fixture('graphql-memory-below-threshold.json');
 const GRAPHQL_MEMORY_ABOVE = fixture('graphql-memory-above-threshold.json');
 const GRAPHQL_MEMORY_UNAVAILABLE = fixture('graphql-memory-unavailable.json');
 const GRAPHQL_CORE_EXCEEDED_MEMORY = fixture('graphql-core-exceeded-memory.json');
-const PHASE13A_SAME_BENCHMARK = fixture('phase13a-same-benchmark-go.json');
 const PHASE13A_CROSS_BENCHMARK = fixture('phase13a-cross-benchmark-go.json');
-const PHASE13A_SAME_ANALYTICS = fixture('phase13a-same-analytics-go.json');
 const PHASE13A_CROSS_ANALYTICS = fixture('phase13a-cross-analytics-go.json');
 const DELAYED_BODY_MS = 25;
 const FIXTURE_DEPLOYMENT_ID = 'ab'.repeat(16);
@@ -120,7 +118,7 @@ function twoAccountEnvironment() {
     YAOS_AB_B_SCRIPT_NAME: 'ed25519-yao-ab-benchmark-b-cross-account',
     YAOS_AB_A_PUBLIC_ENDPOINT: 'https://a-benchmark.example.com/benchmark/activation',
     YAOS_AB_B_HOSTNAME: 'b-benchmark.example.com',
-    YAOS_AB_B_HTTPS_ENDPOINT: 'https://b-benchmark.example.com/benchmark/activation',
+    YAOS_AB_B_WEBSOCKET_ENDPOINT: 'wss://b-benchmark.example.com/benchmark/activation',
     YAOS_AB_SAMPLE_COUNT: '3',
     YAOS_AB_REGION_LABEL: 'tokyo-runner-1',
   };
@@ -134,7 +132,7 @@ function oneAccountEnvironment() {
   environment.YAOS_AB_A_SCRIPT_NAME = 'ed25519-yao-ab-benchmark-a';
   environment.YAOS_AB_B_SCRIPT_NAME = 'ed25519-yao-ab-benchmark-b';
   delete environment.YAOS_AB_B_HOSTNAME;
-  delete environment.YAOS_AB_B_HTTPS_ENDPOINT;
+  delete environment.YAOS_AB_B_WEBSOCKET_ENDPOINT;
   return environment;
 }
 
@@ -155,42 +153,19 @@ function cloneJson(value) {
 
 function phase13aInput() {
   const input = {
-    same_benchmark: cloneJson(PHASE13A_SAME_BENCHMARK),
     cross_benchmark: cloneJson(PHASE13A_CROSS_BENCHMARK),
-    same_analytics: cloneJson(PHASE13A_SAME_ANALYTICS),
     cross_analytics: cloneJson(PHASE13A_CROSS_ANALYTICS),
   };
-  attachRawSamples(input.same_benchmark);
   attachRawSamples(input.cross_benchmark);
-  const sameReceipt = completeReceipt(
-    parseDeploymentEnvironment(oneAccountEnvironment()),
-    'cd'.repeat(16),
-  );
   const crossReceipt = completeReceipt(
     parseDeploymentEnvironment(twoAccountEnvironment()),
     FIXTURE_DEPLOYMENT_ID,
   );
-  input.same_benchmark.deployment = cloneJson(deploymentReceiptEvidence(sameReceipt));
-  input.same_analytics.deployment = cloneJson(deploymentReceiptEvidence(sameReceipt));
   input.cross_benchmark.deployment = cloneJson(deploymentReceiptEvidence(crossReceipt));
   input.cross_analytics.deployment = cloneJson(deploymentReceiptEvidence(crossReceipt));
-  for (const sample of input.same_benchmark.samples) {
-    sample.result.deployment_id = sameReceipt.deployment_id;
-  }
   for (const sample of input.cross_benchmark.samples) {
     sample.result.deployment_id = crossReceipt.deployment_id;
   }
-  input.same_cold_proxy = coldProxySeries(
-    input.same_benchmark,
-    deploymentReceiptEvidence(sameReceipt),
-    'same',
-  );
-  input.cross_cold_proxy = coldProxySeries(
-    input.cross_benchmark,
-    deploymentReceiptEvidence(crossReceipt),
-    'cross',
-  );
-  input.same_cost = phase13CostReport(oneAccountEnvironment(), sameReceipt);
   input.cross_cost = phase13CostReport(twoAccountEnvironment(), crossReceipt);
   input.operational_acceptance = operationalAcceptance();
   return input;
@@ -220,7 +195,7 @@ function rawPhase13aSample(report, index) {
         'rust-wasm-copy-zeroized-js-view-overwritten-platform-copies-uncontrolled',
       role: 'deriver-a',
       topology: report.topology,
-      body_byte_timing_boundary: 'raw-stream-chunk-emission-and-receipt',
+      body_byte_timing_boundary: 'websocket-binary-message-send-and-receipt',
       table_payload_bytes: 2_104_960,
       total_ab_transport_bytes: 2_222_584,
       ot_message_count: 4,
@@ -485,56 +460,6 @@ function completeReceipt(configuration, deploymentId = FIXTURE_DEPLOYMENT_ID) {
   return receipt;
 }
 
-function coldDeploymentId(prefix, index) {
-  return createHash('sha256').update(`${prefix}:${index}`).digest('hex').slice(0, 32);
-}
-
-function coldVersionId(prefix, role, index) {
-  return `cold-${prefix}-${role}-${String(index).padStart(4, '0')}`;
-}
-
-function constantMetricSummary(value) {
-  return { p50: value, p95: value, p99: value };
-}
-
-function coldProxySeries(report, receiptEvidence, prefix) {
-  const samples = [];
-  const first = report.samples[0];
-  for (let index = 0; index < 20; index += 1) {
-    const deployment = cloneJson(receiptEvidence);
-    const deploymentId = coldDeploymentId(prefix, index);
-    deployment.deployment_id = deploymentId;
-    deployment.a.version_id = coldVersionId(prefix, 'a', index);
-    deployment.b.version_id = coldVersionId(prefix, 'b', index);
-    const sample = cloneJson(first);
-    sample.index = 0;
-    sample.started_at = new Date(
-      Date.parse('2026-07-13T00:10:00.000Z') + index * 1_000,
-    ).toISOString();
-    sample.result.deployment_id = deploymentId;
-    samples.push({
-      source_report: `/tmp/${prefix}-${index}.json`,
-      deployment,
-      first_raw_sample: sample,
-    });
-  }
-  return {
-    schema: 'ed25519_yao_phase9b_fresh_version_first_request_series_v1',
-    benchmark: report.benchmark,
-    benchmark_only: true,
-    topology: report.topology,
-    region_label: report.region_label,
-    sample_count: samples.length,
-    classification: 'fresh-version-first-request-operational-cold-proxy',
-    physical_isolate_cold_proven: false,
-    metrics: {
-      client_wall_ms: constantMetricSummary(first.client_wall_ms),
-      table_stream_duration_ms: constantMetricSummary(first.result.table_stream_duration_ms),
-    },
-    samples,
-  };
-}
-
 function phase13CostReport(deploymentEnvironment, receipt) {
   const environment = costEnvironment();
   environment.YAOS_AB_TOPOLOGY = deploymentEnvironment.YAOS_AB_TOPOLOGY;
@@ -559,7 +484,6 @@ function operationalAcceptance() {
     independent_two_account_administration_accepted: true,
     pricing_source_reviewed: true,
     pricing_effective_date: '2026-07-12',
-    maximum_same_account_usd_per_million: 10,
     maximum_cross_account_usd_per_million: 10,
   };
 }
@@ -662,27 +586,6 @@ function evaluateTablePayloadDrift() {
   evaluatePhase13A(input);
 }
 
-function evaluateColdWireProfileDrift() {
-  const input = phase13aInput();
-  input.cross_cold_proxy.samples[0].first_raw_sample.result.ot_message_count = 3;
-  evaluatePhase13A(input);
-}
-
-function evaluateColdArtifactDriftFromWarmCampaign() {
-  const input = phase13aInput();
-  for (const sample of input.cross_cold_proxy.samples) {
-    sample.deployment.a.artifact_sha256 = 'f'.repeat(64);
-    sample.deployment.constant_time_codegen.roles.a.artifact_sha256 = 'f'.repeat(64);
-  }
-  evaluatePhase13A(input);
-}
-
-function evaluateMissingColdProxy() {
-  const input = phase13aInput();
-  delete input.cross_cold_proxy;
-  evaluatePhase13A(input);
-}
-
 function evaluateMissingCost() {
   const input = phase13aInput();
   delete input.cross_cost;
@@ -702,13 +605,6 @@ function evaluateInsufficientWarmSamples() {
   input.cross_benchmark.success_count = 2;
   input.cross_benchmark.warm.success_count = 1;
   input.cross_benchmark.samples = input.cross_benchmark.samples.slice(0, 2);
-  evaluatePhase13A(input);
-}
-
-function evaluateReusedColdVersion() {
-  const input = phase13aInput();
-  input.cross_cold_proxy.samples[1].deployment.a.version_id =
-    input.cross_cold_proxy.samples[0].deployment.a.version_id;
   evaluatePhase13A(input);
 }
 
@@ -774,15 +670,6 @@ function evaluateCrossAccountHostnameEquality() {
   evaluatePhase13A(input);
 }
 
-function evaluateColdTopologyBindingDrift() {
-  const input = phase13aInput();
-  for (const sample of input.cross_cold_proxy.samples) {
-    sample.deployment.topology_binding.a_account_sha256 = '3'.repeat(64);
-    sample.deployment.topology_binding.b_account_sha256 = '4'.repeat(64);
-  }
-  evaluatePhase13A(input);
-}
-
 function assertEvidenceErrorCode(action, expectedCode) {
   let observed = null;
   try {
@@ -799,13 +686,13 @@ function assertEvidenceErrorCode(action, expectedCode) {
 
 function testEnvironmentBoundaries() {
   const two = parseDeploymentEnvironment(twoAccountEnvironment());
-  assert.equal(two.expectedTopologyLabel, 'cross-account-https');
+  assert.equal(two.expectedTopologyLabel, 'cross-account-websocket');
   assert.equal(two.a.publicHostname, 'a-benchmark.example.com');
   assert.equal(two.b.publicHostname, 'b-benchmark.example.com');
   assert.equal(two.sampleCount, 3);
 
   const one = parseDeploymentEnvironment(oneAccountEnvironment());
-  assert.equal(one.expectedTopologyLabel, 'same-account-service-binding');
+  assert.equal(one.expectedTopologyLabel, 'same-account-service-binding-websocket');
   assert.equal(one.b.publicEndpoint, undefined);
 
   const equalAccounts = twoAccountEnvironment();
@@ -813,7 +700,7 @@ function testEnvironmentBoundaries() {
   assertEnvironmentRejected(equalAccounts);
 
   const wrongBEndpoint = twoAccountEnvironment();
-  wrongBEndpoint.YAOS_AB_B_HTTPS_ENDPOINT = 'https://other.example.com/benchmark/activation';
+  wrongBEndpoint.YAOS_AB_B_WEBSOCKET_ENDPOINT = 'wss://other.example.com/benchmark/activation';
   assertEnvironmentRejected(wrongBEndpoint);
 
   const queryEndpoint = twoAccountEnvironment();
@@ -1158,7 +1045,7 @@ function testDeploymentPlan() {
   const twoConfigs = renderDeploymentConfigs(two);
   assert.equal(twoConfigs.a.account_id, two.a.accountId);
   assert.equal(twoConfigs.b.account_id, two.b.accountId);
-  assert.equal(twoConfigs.a.vars.DERIVER_B_HTTPS_ENDPOINT, two.b.publicEndpoint);
+  assert.equal(twoConfigs.a.vars.DERIVER_B_WEBSOCKET_ENDPOINT, two.b.publicEndpoint);
   assert.equal(twoConfigs.a.routes[0].pattern, two.a.publicHostname);
   assert.equal(twoConfigs.b.routes[0].pattern, two.b.publicHostname);
   assert.equal(twoConfigs.a.main.startsWith('/'), true);
@@ -1291,19 +1178,12 @@ function testPhase13aEvaluator() {
   );
   assertEvidenceErrorCode(evaluateForgedTransportBytes, 'PHASE13A_RAW_SAMPLE_WIRE_PROFILE');
   assertEvidenceErrorCode(evaluateTablePayloadDrift, 'PHASE13A_RAW_SAMPLE_WIRE_PROFILE');
-  assertEvidenceErrorCode(evaluateColdWireProfileDrift, 'PHASE13A_RAW_SAMPLE_WIRE_PROFILE');
-  assertEvidenceErrorCode(
-    evaluateColdArtifactDriftFromWarmCampaign,
-    'PHASE13A_REPORT_IDENTITY_MISMATCH',
-  );
-  assert.throws(evaluateMissingColdProxy, EvidenceError);
   assert.throws(evaluateMissingCost, EvidenceError);
   assert.throws(evaluateMissingOperationalAcceptance, EvidenceError);
   assertEvidenceErrorCode(
     evaluateInsufficientWarmSamples,
     'PHASE13A_WARM_SAMPLE_COUNT_INSUFFICIENT',
   );
-  assertEvidenceErrorCode(evaluateReusedColdVersion, 'PHASE13A_COLD_PROXY_IDENTITY_REUSED');
   assertEvidenceErrorCode(
     evaluatePostmeasurementAcceptance,
     'PHASE13A_OPERATIONAL_ACCEPTANCE_POSTMEASUREMENT',
@@ -1340,10 +1220,6 @@ function testPhase13aEvaluator() {
   assertEvidenceErrorCode(
     evaluateCrossAccountHostnameEquality,
     'PHASE13A_DEPLOYMENT_IDENTITY',
-  );
-  assertEvidenceErrorCode(
-    evaluateColdTopologyBindingDrift,
-    'PHASE13A_REPORT_IDENTITY_MISMATCH',
   );
 }
 

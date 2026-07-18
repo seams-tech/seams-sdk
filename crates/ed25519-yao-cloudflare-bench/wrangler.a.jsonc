@@ -8,10 +8,10 @@
   "vars": {
     "BENCHMARK_DEPLOYMENT_ID": "0123456789abcdef0123456789abcdef",
     "BENCHMARK_CLASSIFICATION": "NON_PRODUCTION",
-    "BENCHMARK_TOPOLOGY": "SAME_ACCOUNT_SERVICE_BINDING"
+    "BENCHMARK_TOPOLOGY": "SAME_ACCOUNT_SERVICE_BINDING_WEBSOCKET"
   },
   "build": {
-    "command": "worker-build --release --out-dir build/deriver-a --features deriver-a",
+    "command": "worker-build --release --out-dir build/deriver-a --features deriver-a-same-account-websocket",
     "watch_dir": "src"
   },
   "services": [

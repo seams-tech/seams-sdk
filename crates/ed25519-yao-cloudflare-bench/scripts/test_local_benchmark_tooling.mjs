@@ -6,7 +6,7 @@ import { buildReport, validateResult } from "./run_same_account_benchmark.mjs";
 function fixtureResult() {
   const fixtureUrl = new URL("./fixtures/deployed-success.json", import.meta.url);
   const result = JSON.parse(readFileSync(fixtureUrl, "utf8"));
-  result.topology = "same-account-service-binding";
+  result.topology = "same-account-service-binding-websocket";
   result.deriver_b_colo = null;
   return result;
 }
@@ -92,10 +92,10 @@ function run() {
   ]);
   assert.equal(report.warm.client_wall_ms.p95, 110);
   assert.equal(report.warm.transport_timing_ms.table_stream_duration_ms.p95, 40);
-  assert.equal(report.invariants.table_timing_boundary, "outbound-stream-backpressure-acceptance");
+  assert.equal(report.invariants.table_timing_boundary, "websocket-send-queue-acceptance");
   assert.equal(
     report.invariants.body_byte_timing_boundary,
-    "raw-stream-chunk-emission-and-receipt",
+    "websocket-binary-message-send-and-receipt",
   );
   assert.equal(report.invariants.total_ab_transport_bytes, 2_222_584);
 }
