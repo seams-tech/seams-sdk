@@ -33,6 +33,8 @@ const signingWorkerWrangler = readRepoFile(
   'crates/router-ab-cloudflare/wrangler.signing-worker.toml',
 );
 const deployRouterAbWorkflow = readRepoFile('.github/workflows/deploy-router-ab.yml');
+const deployStagingWorkflow = readRepoFile('.github/workflows/deploy-staging.yml');
+const deployProductionWorkflow = readRepoFile('.github/workflows/deploy-production.yml');
 const deploymentSources = [
   routerWrangler,
   deriverAWrangler,
@@ -63,9 +65,6 @@ for (const [label, source] of [
   if (source.includes('[env.production]')) {
     blockers.push(`P1: ${label} still exposes an unselected production Wrangler branch`);
   }
-}
-if (/^\s*- production\s*$/m.test(deployRouterAbWorkflow)) {
-  blockers.push('P1: deployment workflow still exposes the unselected production target');
 }
 if (strictWorkerSource.includes('strict SigningWorker normal-signing handler is not configured')) {
   blockers.push('P1: strict SigningWorker normal-signing handler is still fail-closed');
@@ -271,6 +270,11 @@ for (const [label, source, startNeedle] of [
   );
 }
 requireDeployWorkflowSplitEnvironmentBoundary(deployRouterAbWorkflow);
+requireDeployWorkflowBranchPromotionBoundary(
+  deployRouterAbWorkflow,
+  deployStagingWorkflow,
+  deployProductionWorkflow,
+);
 for (const functionName of [
   'execute_cloudflare_router_ab_ecdsa_derivation_deriver_registration_service_call_v1',
   'execute_cloudflare_router_ab_ecdsa_derivation_deriver_export_service_call_v1',
@@ -333,45 +337,40 @@ for (const [label, source, needle] of [
     strictWorkerSource,
     'CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PRIVATE_REQUEST_PATH',
   ],
-  [
-    'P0: Deriver A wrangler config is missing SIGNING_WORKER service binding',
-    deriverAWrangler,
-    'binding = "SIGNING_WORKER"',
-  ],
-  [
-    'P0: Deriver B wrangler config is missing SIGNING_WORKER service binding',
-    deriverBWrangler,
-    'binding = "SIGNING_WORKER"',
-  ],
-  [
-    'P0: Deriver A wrangler config is missing SIGNING_WORKER peer var',
-    deriverAWrangler,
-    'SIGNING_WORKER_PEER_BINDING = "SIGNING_WORKER"',
-  ],
-  [
-    'P0: Deriver B wrangler config is missing SIGNING_WORKER peer var',
-    deriverBWrangler,
-    'SIGNING_WORKER_PEER_BINDING = "SIGNING_WORKER"',
-  ],
 ]) {
   if (!source.includes(needle)) {
     blockers.push(label);
   }
 }
-requireSourceRangeIncludes(
-  'P0: Deriver A runtime does not carry a SigningWorker peer binding',
-  cloudflareSource,
-  'pub struct CloudflareDeriverABindingsV1',
-  '/// SigningWorker startup bindings.',
-  'pub signing_worker: CloudflarePeerBindingV1',
-);
-requireSourceRangeIncludes(
-  'P0: Deriver B runtime does not carry a SigningWorker peer binding',
-  cloudflareSource,
-  'pub struct CloudflareDeriverBBindingsV1',
-  'impl CloudflareDeriverBBindingsV1',
-  'pub signing_worker: CloudflarePeerBindingV1',
-);
+for (const [label, source, forbidden] of [
+  [
+    'P0: Deriver A must not retain a direct SigningWorker service binding',
+    deriverAWrangler,
+    'binding = "SIGNING_WORKER"',
+  ],
+  [
+    'P0: Deriver B must not retain a direct SigningWorker service binding',
+    deriverBWrangler,
+    'binding = "SIGNING_WORKER"',
+  ],
+  [
+    'P0: Deriver A must not retain a direct SigningWorker peer variable',
+    deriverAWrangler,
+    'SIGNING_WORKER_PEER_BINDING',
+  ],
+  [
+    'P0: Deriver B must not retain a direct SigningWorker peer variable',
+    deriverBWrangler,
+    'SIGNING_WORKER_PEER_BINDING',
+  ],
+]) {
+  if (source.includes(forbidden)) {
+    blockers.push(label);
+  }
+}
+if (strictDeriverSource.includes('send_strict_deriver_direct_activation_delivery_v1')) {
+  blockers.push('P0: Derivers still push activation bundles directly to SigningWorker');
+}
 for (const [label, needle] of [
   [
     'P0: Router A/B ECDSA derivation normal-signing prepare strict-route wiring is not implemented',
@@ -433,21 +432,24 @@ function requireDeployWorkflowSplitEnvironmentBoundary(workflowSource) {
     blockers.push('P1: deploy-router-ab workflow still uses the shared target environment');
   }
 
-  for (const [jobId, expectedEnvironmentName] of [
-    ['validate_router_ab', '${{ inputs.target }}-router'],
-    ['upload_or_deploy_router', '${{ inputs.target }}-router'],
-    ['upload_or_deploy_deriver_a', '${{ inputs.target }}-deriver-a'],
-    ['upload_or_deploy_deriver_b', '${{ inputs.target }}-deriver-b'],
-    ['upload_or_deploy_signing_worker', '${{ inputs.target }}-signing-worker'],
+  for (const [jobId, requiredEnvironmentExpression] of [
+    ['validate_router_ab', "format('{0}-router', inputs.target)"],
+    ['upload_or_deploy_router', "format('{0}-router', inputs.target)"],
+    ['upload_or_deploy_deriver_a', "format('{0}-deriver-a', inputs.target)"],
+    ['upload_or_deploy_deriver_b', "format('{0}-deriver-b', inputs.target)"],
+    [
+      'upload_or_deploy_signing_worker',
+      "format('{0}-signing-worker', inputs.target)",
+    ],
   ]) {
     const jobSource = workflowJobSource(workflowSource, jobId);
     if (!jobSource) {
       blockers.push(`P1: deploy-router-ab workflow is missing ${jobId}`);
       continue;
     }
-    if (!jobSource.includes(`name: ${expectedEnvironmentName}`)) {
+    if (!jobSource.includes(requiredEnvironmentExpression)) {
       blockers.push(
-        `P1: deploy-router-ab ${jobId} does not use environment ${expectedEnvironmentName}`,
+        `P1: deploy-router-ab ${jobId} does not derive its protected environment from the fixed release target`,
       );
     }
   }
@@ -505,6 +507,100 @@ function requireDeployWorkflowSplitEnvironmentBoundary(workflowSource) {
           `P1: deploy-router-ab ${jobId} references forbidden secret ${forbiddenNeedle}`,
         );
       }
+    }
+  }
+}
+
+function requireDeployWorkflowBranchPromotionBoundary(
+  workflowSource,
+  stagingWorkflowSource,
+  productionWorkflowSource,
+) {
+  for (const [label, entrypointSource, requiredNeedles] of [
+    [
+      'staging',
+      stagingWorkflowSource,
+      [
+        'name: deploy-staging',
+        "workflows: ['ci']",
+        'branches: [dev]',
+        "github.event.workflow_run.conclusion == 'success'",
+        "github.event.workflow_run.event == 'push'",
+        "github.event.workflow_run.head_branch == 'dev'",
+        'target: staging',
+        'source_branch: dev',
+      ],
+    ],
+    [
+      'production',
+      productionWorkflowSource,
+      [
+        'name: deploy-production',
+        "workflows: ['ci']",
+        'branches: [main]',
+        "github.event.workflow_run.conclusion == 'success'",
+        "github.event.workflow_run.event == 'push'",
+        "github.event.workflow_run.head_branch == 'main'",
+        'target: production',
+        'source_branch: main',
+      ],
+    ],
+  ]) {
+    for (const requiredNeedle of requiredNeedles) {
+      if (!entrypointSource.includes(requiredNeedle)) {
+        blockers.push(`P1: ${label} branch promotion is missing ${requiredNeedle}`);
+      }
+    }
+  }
+
+  for (const requiredNeedle of [
+    'workflow_call:',
+    "DEPLOY_OPERATION: ${{ github.event_name == 'workflow_call' && 'deploy' || inputs.operation }}",
+    "DEPLOY_ROLE: ${{ github.event_name == 'workflow_call' && 'all' || inputs.role }}",
+    "ref: ${{ env.DEPLOY_SHA }}",
+  ]) {
+    if (!workflowSource.includes(requiredNeedle)) {
+      blockers.push(`P1: shared deploy-router-ab workflow is missing ${requiredNeedle}`);
+    }
+  }
+
+  if (!/^\s*- production\s*$/m.test(workflowSource)) {
+    blockers.push('P1: deploy-router-ab manual dispatch is missing the production target');
+  }
+
+  for (const jobId of [
+    'upload_or_deploy_router',
+    'upload_or_deploy_deriver_a',
+    'upload_or_deploy_deriver_b',
+    'upload_or_deploy_signing_worker',
+  ]) {
+    const jobSource = workflowJobSource(workflowSource, jobId);
+    for (const requiredNeedle of [
+      "WORKER_ENV: ${{ inputs.target == 'staging' && 'staging' || '' }}",
+      'wrangler_env_args=()',
+      'wrangler_env_args=(--env "$WORKER_ENV")',
+      '"${wrangler_env_args[@]}"',
+    ]) {
+      if (!jobSource.includes(requiredNeedle)) {
+        blockers.push(
+          `P1: deploy-router-ab ${jobId} does not safely map staging to Wrangler --env and production to the top-level Worker`,
+        );
+        break;
+      }
+    }
+  }
+
+  const routerJobSource = workflowJobSource(workflowSource, 'upload_or_deploy_router');
+  for (const requiredNeedle of [
+    'ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON: ${{ vars.ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON }}',
+    'ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON is required for production',
+    'ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON:${ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON}',
+  ]) {
+    if (!routerJobSource.includes(requiredNeedle)) {
+      blockers.push(
+        'P1: deploy-router-ab production Router does not require and override the project policy bootstrap',
+      );
+      break;
     }
   }
 }

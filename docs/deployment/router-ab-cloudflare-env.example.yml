@@ -1,12 +1,15 @@
 # Router A/B Cloudflare deployment environment contract.
-# Copy the values into the split staging GitHub Environments.
+# Copy each role into its matching protected GitHub Environment.
 # Keep real private values in GitHub secrets or a secret manager.
-# Production Router A/B configuration is intentionally absent until Phase 6A.
+# Mirror each staging role under the matching production-* environment with
+# independent values. Production deploys the unsuffixed Worker names.
 
 version: 1
 
 github_actions:
-  workflow: .github/workflows/deploy-router-ab.yml
+  staging_workflow: .github/workflows/deploy-staging.yml
+  production_workflow: .github/workflows/deploy-production.yml
+  shared_workflow: .github/workflows/deploy-router-ab.yml
   dispatch_roles:
     - all
     - router
@@ -20,7 +23,7 @@ github_actions:
     - router
 
 github_environments:
-  staging:
+  staging-router:
     vars:
       ROUTER_AB_JWT_ISSUER: 'https://issuer-staging.example'
       ROUTER_AB_JWT_AUDIENCE: 'router-ab'
@@ -31,14 +34,43 @@ github_environments:
       ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX: '<64-lowercase-hex>'
       ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX: '<64-lowercase-hex>'
     secrets:
-      CLOUDFLARE_API_TOKEN: '<worker-deploy-token>'
+      CLOUDFLARE_API_TOKEN: '<router-worker-deploy-token>'
       CLOUDFLARE_ACCOUNT_ID: '<account-id>'
+      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: '<shared-internal-service-auth-secret>'
+
+  staging-deriver-a:
+    vars:
+      ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY: 'x25519:<64-lowercase-hex>'
+      ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX: '<64-lowercase-hex>'
+      ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX: '<64-lowercase-hex>'
+    secrets:
+      CLOUDFLARE_API_TOKEN: '<deriver-a-worker-deploy-token>'
+      CLOUDFLARE_ACCOUNT_ID: '<account-id>'
+      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: '<shared-internal-service-auth-secret>'
       DERIVER_A_ROOT_SHARE_WIRE_SECRET: 'mpc-prf-root-share-wire-v1:<hex-wire-secret>'
       DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY: 'hpke-x25519-private-v1:<64-lowercase-hex>'
       DERIVER_A_PEER_SIGNING_KEY: '<32-byte-unpadded-base64url>'
+
+  staging-deriver-b:
+    vars:
+      ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY: 'x25519:<64-lowercase-hex>'
+      ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX: '<64-lowercase-hex>'
+      ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX: '<64-lowercase-hex>'
+    secrets:
+      CLOUDFLARE_API_TOKEN: '<deriver-b-worker-deploy-token>'
+      CLOUDFLARE_ACCOUNT_ID: '<account-id>'
+      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: '<shared-internal-service-auth-secret>'
       DERIVER_B_ROOT_SHARE_WIRE_SECRET: 'mpc-prf-root-share-wire-v1:<hex-wire-secret>'
       DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY: 'hpke-x25519-private-v1:<64-lowercase-hex>'
       DERIVER_B_PEER_SIGNING_KEY: '<32-byte-unpadded-base64url>'
+
+  staging-signing-worker:
+    vars:
+      ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: 'x25519:<64-lowercase-hex>'
+    secrets:
+      CLOUDFLARE_API_TOKEN: '<signing-worker-deploy-token>'
+      CLOUDFLARE_ACCOUNT_ID: '<account-id>'
+      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: '<shared-internal-service-auth-secret>'
       SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY: 'hpke-x25519-server-output-private-v1:<64-lowercase-hex>'
 
 cloudflare_workers:
@@ -47,6 +79,7 @@ cloudflare_workers:
     wrangler_config: crates/router-ab-cloudflare/wrangler.router.toml
     worker_names:
       staging: router-ab-router-staging
+      production: router-ab-router
     durable_objects:
       ROUTER_REPLAY_DO: RouterAbRouterReplayDurableObject
       ROUTER_LIFECYCLE_DO: RouterAbRouterLifecycleDurableObject
@@ -76,6 +109,7 @@ cloudflare_workers:
     wrangler_config: crates/router-ab-cloudflare/wrangler.deriver-a.toml
     worker_names:
       staging: router-ab-deriver-a-staging
+      production: router-ab-deriver-a
     durable_objects:
       DERIVER_A_ROOT_SHARE_DO: RouterAbDeriverARootShareDurableObject
     service_bindings:
@@ -98,6 +132,7 @@ cloudflare_workers:
     wrangler_config: crates/router-ab-cloudflare/wrangler.deriver-b.toml
     worker_names:
       staging: router-ab-deriver-b-staging
+      production: router-ab-deriver-b
     durable_objects:
       DERIVER_B_ROOT_SHARE_DO: RouterAbDeriverBRootShareDurableObject
     service_bindings:
@@ -120,6 +155,7 @@ cloudflare_workers:
     wrangler_config: crates/router-ab-cloudflare/wrangler.signing-worker.toml
     worker_names:
       staging: router-ab-signing-worker-staging
+      production: router-ab-signing-worker
     durable_objects:
       SIGNING_WORKER_SERVER_OUTPUT_DO: RouterAbSigningWorkerServerOutputDurableObject
     service_bindings: {}
@@ -135,3 +171,4 @@ workflow_commands:
   validate_staging: 'gh workflow run deploy-router-ab.yml --ref dev -f target=staging -f operation=validate -f role=all'
   upload_staging: 'gh workflow run deploy-router-ab.yml --ref dev -f target=staging -f operation=upload-version -f role=all'
   deploy_staging: 'gh workflow run deploy-router-ab.yml --ref dev -f target=staging -f operation=deploy -f role=all'
+  deploy_production: 'gh workflow run deploy-router-ab.yml --ref main -f target=production -f operation=deploy -f role=all'
