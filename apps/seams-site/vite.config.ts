@@ -34,8 +34,8 @@ export default defineConfig(({ mode }) => {
 
   const appSrc = fileURLToPath(new URL('./src', import.meta.url));
   const appPublic = fileURLToPath(new URL('./src/public', import.meta.url));
-  const appNodeModules = fileURLToPath(new URL('./node_modules', import.meta.url));
   const workspaceRoot = fileURLToPath(new URL('../..', import.meta.url));
+  const workspaceNodeModules = fileURLToPath(new URL('../../node_modules', import.meta.url));
   const cacheDir = env.VITE_CACHE_DIR || undefined;
 
   return {
@@ -61,19 +61,19 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: [
         { find: '@', replacement: appSrc },
-        { find: /^react$/, replacement: `${appNodeModules}/react/index.js` },
+        { find: /^react$/, replacement: `${workspaceNodeModules}/react/index.js` },
         {
           find: /^react\/jsx-runtime$/,
-          replacement: `${appNodeModules}/react/jsx-runtime.js`,
+          replacement: `${workspaceNodeModules}/react/jsx-runtime.js`,
         },
         {
           find: /^react\/jsx-dev-runtime$/,
-          replacement: `${appNodeModules}/react/jsx-dev-runtime.js`,
+          replacement: `${workspaceNodeModules}/react/jsx-dev-runtime.js`,
         },
-        { find: /^react-dom$/, replacement: `${appNodeModules}/react-dom/index.js` },
+        { find: /^react-dom$/, replacement: `${workspaceNodeModules}/react-dom/index.js` },
         {
           find: /^react-dom\/client$/,
-          replacement: `${appNodeModules}/react-dom/client.js`,
+          replacement: `${workspaceNodeModules}/react-dom/client.js`,
         },
       ],
       dedupe: ['react', 'react-dom'],

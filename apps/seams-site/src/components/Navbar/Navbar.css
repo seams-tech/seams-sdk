@@ -74,9 +74,9 @@
   max-width: calc(100vw - 2rem);
   min-height: 52px;
   display: grid;
-  grid-template-columns: auto auto auto;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
-  column-gap: 1.25rem;
+  column-gap: 28px;
   border-radius: 1rem;
   padding: 6px 8px 6px 20px;
   border: 0;
@@ -110,10 +110,11 @@ html[data-w3a-theme='light'] .navbar-static__shell.is-scrolled {
   z-index: 2;
 }
 
+/* Links run immediately after the logo (reference layout), not centered */
 .navbar-static__center {
   display: flex;
-  justify-content: center;
-  justify-self: center;
+  justify-content: flex-start;
+  justify-self: start;
   max-width: 100%;
   min-width: 0;
   z-index: 1;
@@ -128,33 +129,29 @@ html[data-w3a-theme='light'] .navbar-static__shell.is-scrolled {
   z-index: 2;
 }
 
+/* Logo sits in a 36px round hover target, bled left so the wordmark's visual
+   edge lands on the content rail (reference: ElevenLabs nav) */
 .navbar-static__brand {
   display: inline-flex;
   align-items: center;
   gap: 0;
   min-width: fit-content;
-  height: 40px;
-  padding: 0 0.4rem;
-  border-radius: 10px;
-  border: 1px solid transparent;
+  height: 36px;
+  padding: 0 12px;
+  margin-left: -12px;
+  border-radius: 9999px;
   color: var(--navbar-text);
   text-decoration: none;
-  font-weight: 700;
-  font-size: 1.1rem;
-  letter-spacing: 0;
-  transition:
-    border-color 180ms ease,
-    background 180ms ease;
+  transition: background-color 150ms ease;
 }
 
 .navbar-static__brand:hover {
-  border-color: transparent;
   background: transparent;
 }
 
 .navbar-static__brand-wordmark {
   display: block;
-  height: 28px;
+  height: 17px;
   width: auto;
 }
 
@@ -165,28 +162,28 @@ html[data-w3a-theme='light'] .navbar-static__shell.is-scrolled {
   min-width: 0;
 }
 
-/* Triggers stay plain text (like the reference site): resting slightly muted,
-   hover/open resolve to full ink — no filled box behind the label. */
+/* Triggers are small plain-text pills (reference: ElevenLabs nav): 12px/20px
+   type, full ink at rest, and a faint dark wash behind the label on
+   hover/open — no border, no chevron. */
 .navbar-static__link {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  height: 40px;
+  height: 36px;
   padding: 8px 12px;
-  border-radius: 10px;
-  border: 1px solid transparent;
-  color: color-mix(in srgb, var(--navbar-text) 82%, var(--navbar-access-muted) 18%);
+  border-radius: 18px;
+  border: 0;
+  color: var(--navbar-text);
   text-decoration: none;
-  font-size: 1rem;
-  font-weight: 500;
-  line-height: 1.5rem;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 20px;
   white-space: nowrap;
-  transition: color 150ms ease;
+  transition: background-color 150ms ease;
 }
 
 .navbar-static__link:hover {
-  color: var(--navbar-text);
+  background: rgba(31, 41, 55, 0.05);
 }
 
 .navbar-static__link--button {
@@ -198,16 +195,16 @@ html[data-w3a-theme='light'] .navbar-static__shell.is-scrolled {
 }
 
 .navbar-static__link--button.is-active {
-  color: var(--navbar-text);
+  background: rgba(31, 41, 55, 0.05);
 }
 
 .navbar-static__group {
   position: relative;
   display: inline-flex;
   align-items: center;
-  font-size: 1rem;
-  font-weight: 500;
-  line-height: 1.5rem;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 20px;
 }
 
 .navbar-static__chevron {
@@ -273,8 +270,11 @@ html[data-w3a-theme='light'] .navbar-static__shell.is-scrolled {
 }
 
 /* Panes sit absolute at their natural size (so they can be measured while
-   hidden) and swap with a plain blur crossfade — no translation, so the
-   content doesn't appear to shift while the chrome resizes. */
+   hidden) and swap with a blur crossfade plus a short directional slide:
+   inactive panes park 16px toward their side of the active one, so switching
+   menus glides content in from the direction of travel while the chrome
+   resizes. The outgoing pane keeps its visibility until the fade completes
+   (the 200ms visibility delay); the incoming pane flips visible instantly. */
 .navbar-static__access-pane {
   position: absolute;
   top: 0;
@@ -284,18 +284,34 @@ html[data-w3a-theme='light'] .navbar-static__shell.is-scrolled {
   filter: blur(3px);
   visibility: hidden;
   pointer-events: none;
-  will-change: opacity;
+  will-change: opacity, transform;
   transition:
+    transform 250ms cubic-bezier(0.5, 1, 0.89, 1),
     opacity 180ms ease,
-    filter 180ms ease;
+    filter 180ms ease,
+    visibility 0s linear 200ms;
 }
 
 .navbar-static__access-pane.is-active {
   opacity: 1;
   filter: blur(0);
   visibility: visible;
+  transform: translateX(0);
   pointer-events: auto;
   z-index: 2;
+  transition:
+    transform 250ms cubic-bezier(0.5, 1, 0.89, 1),
+    opacity 180ms ease,
+    filter 180ms ease,
+    visibility 0s;
+}
+
+.navbar-static__access-pane.is-before {
+  transform: translateX(-16px);
+}
+
+.navbar-static__access-pane.is-after {
+  transform: translateX(16px);
 }
 
 /* ---------- menu interior: kicker + icon rows + optional highlight card ---------- */
@@ -315,26 +331,26 @@ html[data-w3a-theme='light'] .navbar-static__shell.is-scrolled {
   display: grid;
   gap: 2px;
   align-content: start;
-  min-width: 296px;
+  min-width: 264px;
 }
 
 .navbar-static__menu-kicker {
-  margin: 8px 10px 10px;
+  margin: 6px 10px 8px;
   font-family:
     'SFMono-Regular', ui-monospace, 'Menlo', 'Monaco', 'Cascadia Mono', monospace;
-  font-size: 0.8rem;
+  font-size: 10.5px;
   font-weight: 500;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--navbar-access-muted);
 }
 
 .navbar-static__menu-row {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) auto;
-  gap: 12px;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 10px;
   align-items: start;
-  padding: 9px 10px;
+  padding: 8px 10px;
   border-radius: 10px;
   color: var(--navbar-text);
   text-decoration: none;
@@ -349,8 +365,8 @@ html[data-w3a-theme='light'] .navbar-static__shell.is-scrolled {
 .navbar-static__menu-row-icon {
   display: grid;
   place-items: center;
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   margin-top: 1px;
   color: var(--navbar-access-muted);
 }
@@ -366,16 +382,18 @@ html[data-w3a-theme='light'] .navbar-static__shell.is-scrolled {
   gap: 2px;
 }
 
+/* ElevenLabs-scale type: 13px medium titles, 12px muted descriptions */
 .navbar-static__menu-row-title {
-  font-size: 1rem;
-  font-weight: 600;
-  line-height: 1.35;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
   color: var(--navbar-text);
 }
 
 .navbar-static__menu-row-description {
-  font-size: 0.9rem;
-  line-height: 1.45;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
   color: var(--navbar-access-muted);
 }
 
@@ -383,7 +401,7 @@ html[data-w3a-theme='light'] .navbar-static__shell.is-scrolled {
   margin-top: 3px;
   font-family:
     'SFMono-Regular', ui-monospace, 'Menlo', 'Monaco', 'Cascadia Mono', monospace;
-  font-size: 0.8rem;
+  font-size: 10.5px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--navbar-access-muted);
@@ -433,15 +451,15 @@ html[data-w3a-theme='light'] .navbar-static__shell.is-scrolled {
 }
 
 .navbar-static__menu-highlight-title {
-  font-size: 1rem;
+  font-size: 13px;
   font-weight: 600;
   line-height: 1.3;
   text-shadow: 0 1px 10px rgba(0, 0, 0, 0.3);
 }
 
 .navbar-static__menu-highlight-description {
-  font-size: 0.8rem;
-  line-height: 1.4;
+  font-size: 12px;
+  line-height: 1.45;
   color: rgba(255, 255, 255, 0.85);
   text-shadow: 0 1px 10px rgba(0, 0, 0, 0.3);
 }
@@ -459,9 +477,9 @@ html[data-w3a-theme='light'] .navbar-static__shell.is-scrolled {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 13px 20px;
-  font-size: 0.9rem;
-  font-weight: 600;
+  padding: 11px 18px;
+  font-size: 12.5px;
+  font-weight: 500;
   color: var(--navbar-access-muted);
   text-decoration: none;
   transition:
@@ -526,7 +544,7 @@ html[data-w3a-theme='light'] .navbar-static,
   border-radius: 10px;
   padding: 0 0.9rem;
   border: 1px solid transparent;
-  font-size: 1rem;
+  font-size: 13px;
   font-weight: 700;
   text-decoration: none;
   white-space: nowrap;

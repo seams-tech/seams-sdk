@@ -3,13 +3,13 @@
 }
 
 .company-hero {
-  padding: 140px 0 88px;
+  padding: 128px 0 80px;
 }
 
 .company-hero__inner {
   display: grid;
-  grid-template-columns: minmax(0, 7fr) minmax(280px, 5fr);
-  gap: 28px 64px;
+  grid-template-columns: minmax(0, 7fr) minmax(256px, 5fr);
+  gap: 26px 58px;
   align-items: end;
 }
 
@@ -22,16 +22,16 @@
 
 .company-hero__title {
   margin: 0;
-  font-size: clamp(72px, 10vw, 136px);
+  font-size: clamp(65px, 9vw, 122.5px);
   font-weight: 400;
   line-height: 0.9;
 }
 
 .company-hero__copy {
-  margin: 18px 0 0;
-  max-width: 620px;
+  margin: 16px 0 0;
+  max-width: 560px;
   color: var(--h2-graphite);
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1.6;
 }
 
@@ -39,20 +39,20 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 32px;
+  gap: 11px;
+  margin-top: 28px;
 }
 
 .company-statement {
-  padding: 72px 0;
+  padding: 64px 0;
   background: var(--h2-taupe);
 }
 
 .company-statement p {
   margin: 0;
-  max-width: 890px;
+  max-width: 800px;
   color: var(--h2-ink);
-  font-size: clamp(26px, 3.2vw, 42px);
+  font-size: clamp(23.5px, 2.9vw, 38px);
   font-weight: 300;
   line-height: 1.18;
   text-wrap: balance;
@@ -61,11 +61,11 @@
 .company-focus,
 .company-principles,
 .company-resources {
-  padding: 88px 0;
+  padding: 80px 0;
 }
 
 .company-section-head {
-  margin-bottom: 48px;
+  margin-bottom: 44px;
 }
 
 .company-focus__grid {
@@ -76,8 +76,8 @@
 }
 
 .company-focus-card {
-  min-height: 230px;
-  padding: 24px;
+  min-height: 208px;
+  padding: 22px;
   border-right: 1px solid var(--h2-stone);
   border-bottom: 1px solid var(--h2-stone);
   background: var(--h2-bg);
@@ -86,15 +86,15 @@
 .company-focus-card h2 {
   margin: 0;
   color: var(--h2-ink);
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 400;
   line-height: 1.2;
 }
 
 .company-focus-card p {
-  margin: 16px 0 0;
+  margin: 14px 0 0;
   color: var(--h2-smoke);
-  font-size: 15.5px;
+  font-size: 14px;
   line-height: 1.58;
 }
 
@@ -106,15 +106,15 @@
 .company-resources__grid {
   display: grid;
   grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-  gap: 48px;
+  gap: 44px;
   align-items: start;
 }
 
 .company-principles__grid h2,
 .company-resources__grid h2 {
-  margin-top: 12px;
-  max-width: 420px;
-  font-size: clamp(30px, 3vw, 42px);
+  margin-top: 11px;
+  max-width: 376px;
+  font-size: clamp(27px, 2.7vw, 38px);
   font-weight: 400;
 }
 
@@ -127,15 +127,15 @@
 
 .company-principle {
   display: grid;
-  grid-template-columns: 52px minmax(0, 1fr);
-  gap: 20px;
-  padding: 22px 0;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 18px;
+  padding: 20px 0;
   border-bottom: 1px solid var(--h2-stone);
 }
 
 .company-principle > span {
   font-family: var(--h2-mono);
-  font-size: 11px;
+  font-size: 10px;
   letter-spacing: 0.12em;
   color: var(--h2-ash);
 }
@@ -143,15 +143,15 @@
 .company-principle h3 {
   margin: 0;
   color: var(--h2-ink);
-  font-size: 19px;
+  font-size: 17px;
   font-weight: 500;
   line-height: 1.25;
 }
 
 .company-principle p {
-  margin: 8px 0 0;
+  margin: 7px 0 0;
   color: var(--h2-smoke);
-  font-size: 15px;
+  font-size: 13.5px;
   line-height: 1.55;
 }
 
@@ -159,8 +159,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 24px;
-  padding: 20px 0;
+  gap: 22px;
+  padding: 18px 0;
   border-bottom: 1px solid var(--h2-stone);
   color: var(--h2-graphite);
   transition: color 150ms ease;
@@ -181,20 +181,20 @@
 
 .company-resource strong {
   color: currentColor;
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 500;
 }
 
 .company-resource small {
-  margin-top: 6px;
+  margin-top: 5px;
   color: var(--h2-smoke);
-  font-size: 14.5px;
+  font-size: 13px;
   line-height: 1.45;
 }
 
 @media (max-width: 980px) {
   .company-hero {
-    padding: 120px 0 72px;
+    padding: 112px 0 64px;
   }
 
   .company-hero__inner,
@@ -214,18 +214,18 @@
 
 @media (max-width: 640px) {
   .company-hero {
-    padding: 108px 0 64px;
+    padding: 96px 0 58px;
   }
 
   .company-statement,
   .company-focus,
   .company-principles,
   .company-resources {
-    padding: 64px 0;
+    padding: 58px 0;
   }
 
   .company-principle {
     grid-template-columns: 1fr;
-    gap: 8px;
+    gap: 7px;
   }
 }

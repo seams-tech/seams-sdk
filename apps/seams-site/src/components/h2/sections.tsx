@@ -1,26 +1,21 @@
 import React from 'react';
 import {
-  BarChart3,
   ChevronLeft,
   ChevronRight,
-  CreditCard,
   Fingerprint,
   Github,
   KeyRound,
-  LifeBuoy,
   ListChecks,
   Lock,
-  Mail,
-  Package,
   ScrollText,
   Share2,
   ShieldCheck,
-  Store,
   Twitter,
   Wallet,
 } from 'lucide-react';
 import { Theme, useSeams, type AuthMenuMode, type WalletShapeId } from '@seams/sdk/react';
 import SeamsWordmark from '@/components/icons/SeamsWordmark';
+import { EcosystemLattice } from '@/components/h2/EcosystemLattice';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
 import { useRevealOnIdle } from '@/shared/hooks/useRevealOnIdle';
 import {
@@ -150,17 +145,21 @@ export function H2DemoHero({
             className="h2-demo-theme-root"
             style={{ display: 'contents' }}
           >
-            {show ? (
-              <React.Suspense fallback={<div className="h2-demo__placeholder" />}>
-                <DemoPasskeyColumnLazy
-                  currentPage={demoPage}
-                  onCurrentPageChange={setDemoPage}
-                  defaultModeWhenNoDetectedAccount={authDefaultModeWhenNoDetectedAccount}
-                />
-              </React.Suspense>
-            ) : (
-              <div className="h2-demo__placeholder" />
-            )}
+            {/* SDK card renders in its own px; scoped zoom keeps the designed
+                hero proportion now that the page-level zoom is gone */}
+            <div className="h2-sdk-zoom">
+              {show ? (
+                <React.Suspense fallback={<div className="h2-demo__placeholder" />}>
+                  <DemoPasskeyColumnLazy
+                    currentPage={demoPage}
+                    onCurrentPageChange={setDemoPage}
+                    defaultModeWhenNoDetectedAccount={authDefaultModeWhenNoDetectedAccount}
+                  />
+                </React.Suspense>
+              ) : (
+                <div className="h2-demo__placeholder" />
+              )}
+            </div>
           </Theme>
           <div className="h2-themeswitch" role="group" aria-label="Preview theme">
             {DEMO_THEME_PRESETS.map((t) => (
@@ -240,16 +239,6 @@ export function H2DemoHero({
 
 const networks = ['Ethereum', 'Stripe Tempo', 'Circle Arc', 'NEAR', 'Hyperliquid', 'Polygon'];
 
-/* Tool categories stand in for brand logos until real integrations ship. */
-const stackCategories = [
-  { label: 'Storefronts', icon: Store, x: 10, y: 30 },
-  { label: 'Payments', icon: CreditCard, x: 27, y: 66 },
-  { label: 'Email & messaging', icon: Mail, x: 46, y: 26 },
-  { label: 'Support desk', icon: LifeBuoy, x: 63, y: 64 },
-  { label: 'Fulfillment', icon: Package, x: 78, y: 30 },
-  { label: 'Analytics', icon: BarChart3, x: 90, y: 62 },
-];
-
 export function H2Ecosystem(): React.JSX.Element {
   const { linkProps } = useSiteRouter();
   const docsProps = linkProps('/docs/concepts/');
@@ -259,7 +248,7 @@ export function H2Ecosystem(): React.JSX.Element {
       <div className="h2-shell">
         <div className="h2-eco__head">
           <div>
-            <p className="h2-kicker" style={{ marginBottom: 12 }}>
+            <p className="h2-kicker" style={{ marginBottom: 11 }}>
               Ecosystem
             </p>
             <h2 id="h2-eco-title" className="h2-display h2-eco__title">
@@ -274,25 +263,25 @@ export function H2Ecosystem(): React.JSX.Element {
             Read the docs
           </a>
         </div>
-        <div className="h2-lattice" role="img" aria-label="Commerce tool categories Seams connects">
-          {stackCategories.map((c) => {
-            const Icon = c.icon;
-            return (
-              <span
-                key={c.label}
-                className="h2-lattice__chip"
-                style={{ left: `${c.x}%`, top: `${c.y}%` }}
-              >
-                <Icon aria-hidden />
-                {c.label}
-              </span>
-            );
-          })}
-        </div>
-        <p className="h2-networks-line">
-          <span className="h2-networks-line__label">Networks</span>
-          {networks.join(' · ')}
-        </p>
+        <EcosystemLattice />
+      </div>
+    </section>
+  );
+}
+
+/* Reference-style logo band (wallet page): the supported networks as a quiet,
+   evenly spaced wordmark row. Text wordmarks stand in until brand SVGs land. */
+export function H2Networks(): React.JSX.Element {
+  return (
+    <section className="h2-section h2-rule h2-networks" aria-label="Supported networks">
+      <div className="h2-shell">
+        <ul className="h2-networks__row">
+          {networks.map((name) => (
+            <li key={name} className="h2-networks__mark">
+              {name}
+            </li>
+          ))}
+        </ul>
       </div>
     </section>
   );
@@ -827,7 +816,7 @@ export function H2Security(): React.JSX.Element {
       <div className="h2-shell">
         <div className="h2-security">
           <div>
-            <p className="h2-kicker" style={{ marginBottom: 22 }}>
+            <p className="h2-kicker" style={{ marginBottom: 20 }}>
               Security
             </p>
             <h2 id="h2-security-title" className="h2-display h2-security__title">
@@ -944,7 +933,7 @@ export function H2Start(): React.JSX.Element {
       <div className="h2-shell">
         <div className="h2-eco__head h2-starthead">
           <div>
-            <p className="h2-kicker" style={{ marginBottom: 12 }}>
+            <p className="h2-kicker" style={{ marginBottom: 11 }}>
               Get started
             </p>
             <h2 id="h2-start-title" className="h2-display h2-eco__title">
@@ -1199,7 +1188,7 @@ export function H2Footer(): React.JSX.Element {
           <div className="h2-footer__brand">
             <a href={homeProps.href} onClick={homeProps.onClick} aria-label="Seams home">
               {/* the page is always light; pin the light wordmark */}
-              <SeamsWordmark height={22} theme="light" />
+              <SeamsWordmark height={20} theme="light" />
             </a>
           </div>
           {footerGroups.map((group) => (
@@ -1225,7 +1214,7 @@ export function H2Footer(): React.JSX.Element {
               rel="noopener noreferrer"
               aria-label="X"
             >
-              <Twitter size={16} aria-hidden />
+              <Twitter size={14} aria-hidden />
             </a>
             <a
               href="https://github.com/seams-tech"
@@ -1233,7 +1222,7 @@ export function H2Footer(): React.JSX.Element {
               rel="noopener noreferrer"
               aria-label="GitHub"
             >
-              <Github size={16} aria-hidden />
+              <Github size={14} aria-hidden />
             </a>
           </span>
         </div>

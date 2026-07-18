@@ -6,7 +6,7 @@ import './styles.css';
 
 export function ContactPage(): React.JSX.Element {
   return (
-    <div className="h2-page h2-page--zoom">
+    <div className="h2-page">
       <NavbarStatic appearance="light" />
       <div className="h2-col">
         <main className="contact-page" aria-labelledby="contact-page-title">

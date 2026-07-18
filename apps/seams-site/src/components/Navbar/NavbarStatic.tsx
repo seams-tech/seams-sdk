@@ -213,6 +213,21 @@ const dropdownPanes: DropdownPane[] = [
   pricingDropdownPane,
 ];
 
+/* Visual left-to-right order of the dropdown triggers in the bar; drives which
+   side inactive panes park on so a menu switch slides content in from the
+   direction of travel (restores the pre-refresh pane slide). */
+const DROPDOWN_VISUAL_ORDER: DropdownId[] = ['documentation', 'products', 'pricing', 'about'];
+
+function paneOrderIndex(id: DropdownId): number {
+  return DROPDOWN_VISUAL_ORDER.indexOf(id);
+}
+
+function paneVisualClass(paneId: DropdownId, activeId: DropdownId | null): string {
+  if (paneId === activeId) return 'is-active';
+  if (!activeId) return 'is-after';
+  return paneOrderIndex(paneId) < paneOrderIndex(activeId) ? 'is-before' : 'is-after';
+}
+
 const primaryDropdownTriggers: DropdownTriggerConfig[] = [
   {
     id: 'documentation',
@@ -770,11 +785,6 @@ export function NavbarStatic({ appearance = 'auto' }: NavbarStaticProps = {}): R
           onKeyDown={(e) => onDropdownButtonKeyDown(e, config.id)}
         >
           <span>{config.label}</span>
-          <ChevronDown
-            size={16}
-            className={`navbar-static__chevron${isOpen ? ' is-open' : ''}`}
-            aria-hidden
-          />
         </button>
       </div>
     );
@@ -782,7 +792,7 @@ export function NavbarStatic({ appearance = 'auto' }: NavbarStaticProps = {}): R
 
   function renderAccessPane(pane: DropdownPane): React.JSX.Element {
     const isActive = pane.id === openDropdown;
-    const paneClassName = `navbar-static__access-pane${isActive ? ' is-active' : ''}`;
+    const paneClassName = `navbar-static__access-pane ${paneVisualClass(pane.id, openDropdown)}`;
 
     const highlightProps = pane.highlight ? getNavLinkProps(pane.highlight.to) : null;
 
@@ -814,7 +824,7 @@ export function NavbarStatic({ appearance = 'auto' }: NavbarStaticProps = {}): R
                     tabIndex={isActive ? undefined : -1}
                   >
                     <span className="navbar-static__menu-row-icon" aria-hidden>
-                      <Icon size={18} strokeWidth={1.7} />
+                      <Icon size={16} strokeWidth={1.7} />
                     </span>
                     <span className="navbar-static__menu-row-text">
                       <span className="navbar-static__menu-row-title">{row.title}</span>
@@ -887,7 +897,7 @@ export function NavbarStatic({ appearance = 'auto' }: NavbarStaticProps = {}): R
           >
             <SeamsWordmark
               className="navbar-static__brand-wordmark"
-              height={28}
+              height={17}
               theme={appearance === 'light' ? 'light' : undefined}
             />
           </a>
