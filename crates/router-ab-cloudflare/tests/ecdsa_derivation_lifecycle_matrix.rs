@@ -38,7 +38,7 @@ fn strict_router_ab_ecdsa_derivation_lifecycle_matrix_has_exact_owners() {
             required: &[
                 "execute_cloudflare_router_ab_ecdsa_derivation_deriver_registration_service_call_v1",
                 "CloudflareSigningWorkerRecipientProofBundleActivationV1::new",
-                "execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_service_call_v1",
+                "CloudflareRouterAbEcdsaDerivationPendingSigningWorkerActivationV1::new",
             ],
             forbidden: &[
                 "execute_cloudflare_router_ab_ecdsa_derivation_deriver_export_service_call_v1",

@@ -893,6 +893,16 @@ export async function readPersistedAvailableSigningLanesForTargets(
                   expiresAtMs: ecdsaRecord.expiresAtMs,
                   state: 'restorable',
                 });
+              } else if (
+                roleLocalState.kind === 'ready_email_otp_role_local_material_v1' &&
+                roleLocalState.inlineSigningMaterial.kind === 'role_local_durable_material'
+              ) {
+                localAdvisory = durableRecordPolicyAdvisory({
+                  thresholdSessionId: sessionId,
+                  remainingUses: ecdsaRecord.remainingUses,
+                  expiresAtMs: ecdsaRecord.expiresAtMs,
+                  state: 'restorable',
+                });
               } else {
                 localAdvisory = null;
               }

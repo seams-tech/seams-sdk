@@ -10,7 +10,7 @@ const TEST_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = path.resolve(TEST_DIRECTORY, '../..');
 const STORE_SOURCE = path.join(
   REPOSITORY_ROOT,
-  'packages/sdk-web/src/core/signingEngine/workerManager/workers/ecdsaPresignMaterialStore.ts',
+  'packages/sdk-web/src/core/indexedDB/seamsWalletDB/ecdsaPresignMaterialStore.ts',
 );
 const STORE_BUNDLE_PATH = path.join(tmpdir(), `seams-ecdsa-presign-store-${process.pid}.mjs`);
 const STORE_MODULE = '/__ecdsa-presign-material-store-test.mjs';
@@ -73,9 +73,9 @@ test.describe('ECDSA Client presign material store', () => {
             request.onsuccess = () => resolve(request.result);
             request.onerror = () => reject(request.error);
           });
-          const transaction = database.transaction('presign_records', 'readonly');
+          const transaction = database.transaction('ecdsa_presign_records', 'readonly');
           const record = await new Promise<Record<string, unknown>>((resolve, reject) => {
-            const request = transaction.objectStore('presign_records').get('material-1');
+            const request = transaction.objectStore('ecdsa_presign_records').get('material-1');
             request.onsuccess = () => resolve(request.result as Record<string, unknown>);
             request.onerror = () => reject(request.error);
           });
@@ -873,9 +873,9 @@ test.describe('ECDSA Client presign material store', () => {
           request.onsuccess = () => resolve(request.result);
           request.onerror = () => reject(request.error);
         });
-        const transaction = database.transaction('presign_records', 'readonly');
+        const transaction = database.transaction('ecdsa_presign_records', 'readonly');
         const records = await new Promise<Array<Record<string, unknown>>>((resolve, reject) => {
-          const request = transaction.objectStore('presign_records').getAll();
+          const request = transaction.objectStore('ecdsa_presign_records').getAll();
           request.onsuccess = () => resolve(request.result as Array<Record<string, unknown>>);
           request.onerror = () => reject(request.error);
         });

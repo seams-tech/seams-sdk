@@ -196,6 +196,7 @@ function bootstrapWithProvisionedSession(input: {
     ethereumAddress: input.bootstrap.ethereumAddress,
     relayerVerifyingShareB64u: input.bootstrap.relayerVerifyingShareB64u,
     thresholdSessionId: input.bootstrap.thresholdSessionId,
+    activationEpoch: input.bootstrap.activationEpoch,
     signingGrantId: input.bootstrap.signingGrantId,
     expiresAtMs: input.provisioned.expiresAtMs,
     expiresAt: new Date(input.provisioned.expiresAtMs).toISOString(),

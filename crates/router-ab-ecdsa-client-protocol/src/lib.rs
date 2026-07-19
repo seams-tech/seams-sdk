@@ -8,7 +8,6 @@
 use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT;
 use curve25519_dalek::ristretto::{CompressedRistretto, RistrettoPoint};
 use curve25519_dalek::scalar::Scalar;
-use ed25519_dalek::{Signature, VerifyingKey};
 #[cfg(feature = "hpke")]
 use hpke_ng::{Aes256Gcm, DhKemX25519HkdfSha256, HkdfSha256, Hpke, Kem};
 #[cfg(feature = "hpke")]
@@ -20,6 +19,8 @@ use subtle::ConstantTimeEq;
 
 #[cfg(feature = "hpke")]
 mod activation;
+#[cfg(feature = "hpke")]
+mod export_share;
 mod material_possession;
 #[cfg(feature = "hpke")]
 mod post_registration;
@@ -30,6 +31,11 @@ mod registration;
 
 #[cfg(feature = "hpke")]
 pub use activation::EcdsaVerifiedClientActivationFactsV1;
+#[cfg(feature = "hpke")]
+pub use export_share::{
+    open_ecdsa_signing_worker_export_share_v1, seal_ecdsa_signing_worker_export_share_v1,
+    EcdsaSigningWorkerExportShareBindingV1, EcdsaSigningWorkerExportShareEnvelopeV1,
+};
 pub use material_possession::{
     verify_ecdsa_client_material_possession_proof_v1, EcdsaClientMaterialPossessionChallengeV1,
     EcdsaClientMaterialPossessionError, EcdsaClientMaterialPossessionProofSchemeV1,
@@ -78,10 +84,6 @@ const PRF_INPUT_DOMAIN_V1: &[u8] = b"threshold-prf/input";
 const PRF_PARTIAL_CONTEXT_DOMAIN_V1: &[u8] = b"threshold-prf/partial-context";
 const PRF_DLEQ_DOMAIN_V1: &[u8] = b"threshold-prf/dleq";
 const PRF_SUITE_V1: &[u8] = b"threshold-prf/ristretto255-sha512";
-const COMMITMENT_POLICY_MANIFEST_DOMAIN_V1: &[u8] =
-    b"router-ab-cloudflare/ecdsa-commitment-trust-policy-manifest/v1";
-const COMMITMENT_RECORD_VERSION_V1: &[u8] =
-    b"router-ab-ecdsa-derivation/root-share-commitment-record/v1";
 
 /// One Deriver role in the fixed all(2) protocol.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -256,10 +258,6 @@ pub enum EcdsaClientProtocolError {
     InvalidDleqProof,
     /// Public PRF proof was created for a different canonical context.
     ContextMismatch,
-    /// Signed commitment policy did not satisfy its build pins.
-    InvalidCommitmentPolicy,
-    /// Signed commitment record did not satisfy policy or lifecycle bindings.
-    InvalidCommitmentRecord,
 }
 
 /// Fixed public threshold-PRF purpose verified by the browser client.
@@ -312,161 +310,6 @@ pub struct EcdsaRoleBoundPrfProofV1 {
     pub proof: EcdsaPrfPublicProofBundleV1,
 }
 
-/// One commitment-authority key named by the signed trust policy.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EcdsaCommitmentAuthorityV1 {
-    /// Exact Deriver role controlled by this authority.
-    pub role: EcdsaDeriverRoleV1,
-    /// Exact operator identity expected in the lifecycle signer set.
-    pub operator_identity: String,
-    /// Monotonic authority key epoch.
-    pub authority_key_epoch: u64,
-    /// Inclusive key validity start in Unix milliseconds.
-    pub valid_from_ms: u64,
-    /// Exclusive key validity end in Unix milliseconds.
-    pub valid_until_ms: u64,
-    /// Ed25519 commitment-authority public key.
-    pub verifying_key: [u8; 32],
-}
-
-/// Release-authority-signed commitment trust manifest.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EcdsaCommitmentPolicyManifestV1 {
-    /// Monotonic signed-policy release epoch.
-    pub release_epoch: u64,
-    /// Minimum accepted root version.
-    pub minimum_root_version: u64,
-    /// Minimum accepted commitment-authority key epoch.
-    pub minimum_authority_key_epoch: u64,
-    /// Sorted revoked authority epochs.
-    pub revoked_authority_key_epochs: Vec<u64>,
-    /// Lexicographically sorted revoked record digests.
-    pub revoked_record_digests: Vec<[u8; 32]>,
-    /// Deriver A commitment authority.
-    pub signer_a_authority: EcdsaCommitmentAuthorityV1,
-    /// Deriver B commitment authority.
-    pub signer_b_authority: EcdsaCommitmentAuthorityV1,
-}
-
-impl EcdsaCommitmentPolicyManifestV1 {
-    /// Returns exact bytes signed by the release authority.
-    pub fn signing_bytes(&self) -> Result<Vec<u8>, EcdsaClientProtocolError> {
-        validate_commitment_manifest(self)?;
-        let mut bytes = Vec::new();
-        push_bytes(&mut bytes, COMMITMENT_POLICY_MANIFEST_DOMAIN_V1);
-        push_bytes(&mut bytes, PRF_SUITE_V1);
-        push_bytes(&mut bytes, &self.release_epoch.to_be_bytes());
-        push_bytes(&mut bytes, &self.minimum_root_version.to_be_bytes());
-        push_bytes(&mut bytes, &self.minimum_authority_key_epoch.to_be_bytes());
-        push_bytes(
-            &mut bytes,
-            &(self.revoked_authority_key_epochs.len() as u64).to_be_bytes(),
-        );
-        for epoch in &self.revoked_authority_key_epochs {
-            push_bytes(&mut bytes, &epoch.to_be_bytes());
-        }
-        push_bytes(
-            &mut bytes,
-            &(self.revoked_record_digests.len() as u64).to_be_bytes(),
-        );
-        for digest in &self.revoked_record_digests {
-            push_bytes(&mut bytes, digest);
-        }
-        push_commitment_authority(&mut bytes, &self.signer_a_authority);
-        push_commitment_authority(&mut bytes, &self.signer_b_authority);
-        Ok(bytes)
-    }
-
-    /// Returns the SHA-256 digest pinned by a client build.
-    pub fn digest(&self) -> Result<[u8; 32], EcdsaClientProtocolError> {
-        digest32(&self.signing_bytes()?)
-    }
-}
-
-/// Signed commitment policy transported beside commitment records.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EcdsaSignedCommitmentPolicyV1 {
-    /// Canonical manifest.
-    pub manifest: EcdsaCommitmentPolicyManifestV1,
-    /// Explicit digest of the canonical manifest.
-    pub manifest_digest: [u8; 32],
-    /// Ed25519 release-authority signature over canonical manifest bytes.
-    pub release_authority_signature: [u8; 64],
-}
-
-/// Immutable client-build trust anchors for commitment policy verification.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct EcdsaCommitmentPolicyPinsV1 {
-    /// Ed25519 release-authority public key.
-    pub release_authority_public_key: [u8; 32],
-    /// Exact accepted policy digest.
-    pub exact_policy_digest: [u8; 32],
-    /// Minimum accepted signed-policy release epoch.
-    pub minimum_release_epoch: u64,
-}
-
-/// Public commitment statement signed by one Deriver authority.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EcdsaCommitmentStatementV1 {
-    /// Deriver role and fixed share-id owner.
-    pub role: EcdsaDeriverRoleV1,
-    /// Fixed share ID: A is 1 and B is 2.
-    pub share_id: u16,
-    /// Stable root identifier.
-    pub root_id: String,
-    /// Monotonic root version.
-    pub root_version: u64,
-    /// Exact lifecycle root-share epoch.
-    pub root_share_epoch: String,
-    /// Canonical threshold-PRF commitment wire.
-    pub commitment_wire: [u8; 34],
-    /// Exact Deriver operator identity.
-    pub operator_identity: String,
-    /// Commitment-authority key epoch.
-    pub authority_key_epoch: u64,
-    /// Inclusive record validity start in Unix milliseconds.
-    pub valid_from_ms: u64,
-    /// Exclusive record validity end in Unix milliseconds.
-    pub valid_until_ms: u64,
-}
-
-impl EcdsaCommitmentStatementV1 {
-    /// Returns exact bytes signed by the commitment authority.
-    pub fn signing_bytes(&self) -> Result<Vec<u8>, EcdsaClientProtocolError> {
-        validate_commitment_statement(self)?;
-        let mut bytes = Vec::new();
-        push_bytes(&mut bytes, COMMITMENT_RECORD_VERSION_V1);
-        push_bytes(&mut bytes, PRF_SUITE_V1);
-        push_bytes(&mut bytes, self.role.wire_label().as_bytes());
-        push_bytes(&mut bytes, &self.share_id.to_be_bytes());
-        push_bytes(&mut bytes, self.root_id.as_bytes());
-        push_bytes(&mut bytes, &self.root_version.to_be_bytes());
-        push_bytes(&mut bytes, self.root_share_epoch.as_bytes());
-        push_bytes(&mut bytes, &self.commitment_wire);
-        push_bytes(&mut bytes, self.operator_identity.as_bytes());
-        push_bytes(&mut bytes, &self.authority_key_epoch.to_be_bytes());
-        push_bytes(&mut bytes, &self.valid_from_ms.to_be_bytes());
-        push_bytes(&mut bytes, &self.valid_until_ms.to_be_bytes());
-        Ok(bytes)
-    }
-
-    /// Returns the digest explicitly carried beside the record signature.
-    pub fn digest(&self) -> Result<[u8; 32], EcdsaClientProtocolError> {
-        digest32(&self.signing_bytes()?)
-    }
-}
-
-/// One authority-signed commitment record.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EcdsaSignedCommitmentRecordV1 {
-    /// Signed statement.
-    pub statement: EcdsaCommitmentStatementV1,
-    /// Explicit digest of the canonical statement.
-    pub signed_digest: [u8; 32],
-    /// Ed25519 commitment-authority signature.
-    pub signature: [u8; 64],
-}
-
 /// Client-ready recipient-encrypted proof bundle.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -497,216 +340,12 @@ pub struct EcdsaClientProofBundlePairDeliveryV1 {
     pub signer_b: EcdsaClientProofBundleDeliveryV1,
 }
 
-/// Public signed commitment policy and exact A/B records delivered to a finalizing client.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct EcdsaCommitmentRegistryDeliveryV1 {
-    /// Release-authority-signed commitment trust policy.
-    pub policy: EcdsaSignedCommitmentPolicyDeliveryV1,
-    /// Exact authority-signed Deriver A/B commitment records.
-    pub records: EcdsaCommitmentRecordsDeliveryV1,
-}
-
-/// Release-authority-signed commitment policy delivery.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct EcdsaSignedCommitmentPolicyDeliveryV1 {
-    /// Canonical signed policy manifest.
-    pub manifest: EcdsaCommitmentPolicyManifestDeliveryV1,
-    /// Lowercase-hex SHA-256 digest of the canonical manifest.
-    pub manifest_digest_hex: String,
-    /// Lowercase-hex Ed25519 release-authority signature.
-    pub release_authority_signature_hex: String,
-}
-
-/// Canonical signed commitment-policy manifest delivery.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct EcdsaCommitmentPolicyManifestDeliveryV1 {
-    /// Monotonic policy release epoch.
-    pub release_epoch: u64,
-    /// Minimum root version accepted by the policy.
-    pub minimum_root_version: u64,
-    /// Minimum commitment-authority key epoch.
-    pub minimum_authority_key_epoch: u64,
-    /// Revoked commitment-authority key epochs.
-    pub revoked_authority_key_epochs: Vec<u64>,
-    /// Lowercase-hex revoked commitment-record digests.
-    pub revoked_record_digests_hex: Vec<String>,
-    /// Deriver A commitment authority.
-    pub signer_a_authority: EcdsaCommitmentAuthorityDeliveryV1,
-    /// Deriver B commitment authority.
-    pub signer_b_authority: EcdsaCommitmentAuthorityDeliveryV1,
-}
-
-/// One commitment-authority key delivery.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct EcdsaCommitmentAuthorityDeliveryV1 {
-    /// Exact operator identity.
-    pub operator_identity: String,
-    /// Commitment-authority key epoch.
-    pub authority_key_epoch: u64,
-    /// Inclusive authority validity start.
-    pub valid_from_ms: u64,
-    /// Exclusive authority validity end.
-    pub valid_until_ms: u64,
-    /// Lowercase-hex Ed25519 verification key.
-    pub verifying_key_hex: String,
-}
-
-/// Exact authority-signed A/B commitment records.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct EcdsaCommitmentRecordsDeliveryV1 {
-    /// Deriver A signed commitment record.
-    pub signer_a: EcdsaCommitmentRecordDeliveryV1,
-    /// Deriver B signed commitment record.
-    pub signer_b: EcdsaCommitmentRecordDeliveryV1,
-}
-
-/// One authority-signed commitment-record delivery.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct EcdsaCommitmentRecordDeliveryV1 {
-    /// Stable signing-root identifier.
-    pub root_id: String,
-    /// Monotonic signing-root version.
-    pub root_version: u64,
-    /// Exact lifecycle root-share epoch.
-    pub root_share_epoch: String,
-    /// Lowercase-hex threshold-PRF commitment wire.
-    pub commitment_hex: String,
-    /// Exact Deriver operator identity.
-    pub operator_identity: String,
-    /// Commitment-authority key epoch.
-    pub authority_key_epoch: u64,
-    /// Inclusive record validity start.
-    pub record_valid_from_ms: u64,
-    /// Exclusive record validity end.
-    pub record_valid_until_ms: u64,
-    /// Lowercase-hex canonical statement digest.
-    pub signed_digest_hex: String,
-    /// Lowercase-hex Ed25519 commitment-authority signature.
-    pub signature_hex: String,
-}
-
-/// Exact public lifecycle binding expected by the finalizing recipient.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EcdsaCommitmentRegistryBindingV1 {
-    /// Verification time in Unix milliseconds.
-    pub now_ms: u64,
-    /// Exact lifecycle root-share epoch.
-    pub root_share_epoch: String,
-    /// Exact Deriver A signer identity.
-    pub signer_a_identity: String,
-    /// Exact Deriver B signer identity.
-    pub signer_b_identity: String,
-}
-
-/// Authenticated fixed A/B commitments accepted by the client finalizer.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EcdsaAuthenticatedCommitmentRegistryV1 {
-    binding: EcdsaCommitmentRegistryBindingV1,
-    signer_a_record: EcdsaSignedCommitmentRecordV1,
-    signer_b_record: EcdsaSignedCommitmentRecordV1,
-}
-
-impl EcdsaAuthenticatedCommitmentRegistryV1 {
-    /// Returns the authenticated commitment for one exact Deriver role.
-    pub fn commitment_for(&self, role: EcdsaDeriverRoleV1) -> &[u8; 34] {
-        match role {
-            EcdsaDeriverRoleV1::A => &self.signer_a_record.statement.commitment_wire,
-            EcdsaDeriverRoleV1::B => &self.signer_b_record.statement.commitment_wire,
-        }
-    }
-
-    /// Confirms that a boundary adapter received the exact authenticated binding and record.
-    pub fn authenticates_exact_record(
-        &self,
-        binding: &EcdsaCommitmentRegistryBindingV1,
-        role: EcdsaDeriverRoleV1,
-        record: &EcdsaSignedCommitmentRecordV1,
-    ) -> bool {
-        if self.binding != *binding {
-            return false;
-        }
-        match role {
-            EcdsaDeriverRoleV1::A => self.signer_a_record == *record,
-            EcdsaDeriverRoleV1::B => self.signer_b_record == *record,
-        }
-    }
-}
-
-/// Authenticates the signed policy and exact A/B commitment records.
-pub fn authenticate_ecdsa_commitment_registry_v1(
-    pins: &EcdsaCommitmentPolicyPinsV1,
-    policy: &EcdsaSignedCommitmentPolicyV1,
-    binding: &EcdsaCommitmentRegistryBindingV1,
-    signer_a_record: &EcdsaSignedCommitmentRecordV1,
-    signer_b_record: &EcdsaSignedCommitmentRecordV1,
-) -> Result<EcdsaAuthenticatedCommitmentRegistryV1, EcdsaClientProtocolError> {
-    validate_commitment_policy_pins(pins)?;
-    validate_commitment_registry_binding(binding)?;
-    let signing_bytes = policy.manifest.signing_bytes()?;
-    let computed_digest = digest32(&signing_bytes)?;
-    if policy.manifest.release_epoch < pins.minimum_release_epoch
-        || !bool::from(computed_digest.ct_eq(&policy.manifest_digest))
-        || !bool::from(computed_digest.ct_eq(&pins.exact_policy_digest))
-    {
-        return Err(EcdsaClientProtocolError::InvalidCommitmentPolicy);
-    }
-    verify_ed25519_signature(
-        &pins.release_authority_public_key,
-        &signing_bytes,
-        &policy.release_authority_signature,
-        EcdsaClientProtocolError::InvalidCommitmentPolicy,
-    )?;
-    authenticate_commitment_record(
-        &policy.manifest,
-        binding,
-        signer_a_record,
-        EcdsaDeriverRoleV1::A,
-    )?;
-    authenticate_commitment_record(
-        &policy.manifest,
-        binding,
-        signer_b_record,
-        EcdsaDeriverRoleV1::B,
-    )?;
-    if signer_a_record.statement.root_id != signer_b_record.statement.root_id
-        || signer_a_record.statement.root_version != signer_b_record.statement.root_version
-        || signer_a_record.statement.root_share_epoch != signer_b_record.statement.root_share_epoch
-    {
-        return Err(EcdsaClientProtocolError::InvalidCommitmentRecord);
-    }
-    Ok(EcdsaAuthenticatedCommitmentRegistryV1 {
-        binding: binding.clone(),
-        signer_a_record: signer_a_record.clone(),
-        signer_b_record: signer_b_record.clone(),
-    })
-}
-
-/// Verifies authenticated commitment equality, verifies both DLEQs, and combines the output.
+/// Verifies both proof-contained commitments and DLEQs, then combines the output.
 pub fn finalize_ecdsa_prf_two_party_output_v1(
     context: &EcdsaPrfPublicContextV1,
-    registry: &EcdsaAuthenticatedCommitmentRegistryV1,
     deriver_a: &EcdsaRoleBoundPrfProofV1,
     deriver_b: &EcdsaRoleBoundPrfProofV1,
 ) -> Result<[u8; 32], EcdsaClientProtocolError> {
-    if !bool::from(
-        deriver_a
-            .proof
-            .commitment_wire
-            .ct_eq(registry.commitment_for(EcdsaDeriverRoleV1::A)),
-    ) || !bool::from(
-        deriver_b
-            .proof
-            .commitment_wire
-            .ct_eq(registry.commitment_for(EcdsaDeriverRoleV1::B)),
-    ) {
-        return Err(EcdsaClientProtocolError::InvalidCommitmentRecord);
-    }
     finalize_role_bound_ecdsa_prf_two_party_output_v1(context, deriver_a, deriver_b)
 }
 
@@ -839,168 +478,6 @@ fn require_non_empty(value: &str) -> Result<(), EcdsaClientProtocolError> {
         return Err(EcdsaClientProtocolError::InvalidShape);
     }
     Ok(())
-}
-
-fn validate_commitment_policy_pins(
-    pins: &EcdsaCommitmentPolicyPinsV1,
-) -> Result<(), EcdsaClientProtocolError> {
-    if pins.minimum_release_epoch == 0
-        || VerifyingKey::from_bytes(&pins.release_authority_public_key).is_err()
-    {
-        return Err(EcdsaClientProtocolError::InvalidCommitmentPolicy);
-    }
-    Ok(())
-}
-
-fn validate_commitment_manifest(
-    manifest: &EcdsaCommitmentPolicyManifestV1,
-) -> Result<(), EcdsaClientProtocolError> {
-    if manifest.release_epoch == 0
-        || manifest.minimum_root_version == 0
-        || manifest.minimum_authority_key_epoch == 0
-        || manifest
-            .revoked_authority_key_epochs
-            .windows(2)
-            .any(|pair| pair[0] >= pair[1])
-        || manifest
-            .revoked_record_digests
-            .windows(2)
-            .any(|pair| pair[0] >= pair[1])
-    {
-        return Err(EcdsaClientProtocolError::InvalidCommitmentPolicy);
-    }
-    validate_commitment_authority(&manifest.signer_a_authority, EcdsaDeriverRoleV1::A)?;
-    validate_commitment_authority(&manifest.signer_b_authority, EcdsaDeriverRoleV1::B)?;
-    Ok(())
-}
-
-fn validate_commitment_authority(
-    authority: &EcdsaCommitmentAuthorityV1,
-    expected_role: EcdsaDeriverRoleV1,
-) -> Result<(), EcdsaClientProtocolError> {
-    if authority.role != expected_role
-        || authority.operator_identity.is_empty()
-        || authority.authority_key_epoch == 0
-        || authority.valid_from_ms >= authority.valid_until_ms
-        || VerifyingKey::from_bytes(&authority.verifying_key).is_err()
-    {
-        return Err(EcdsaClientProtocolError::InvalidCommitmentPolicy);
-    }
-    Ok(())
-}
-
-fn validate_commitment_registry_binding(
-    binding: &EcdsaCommitmentRegistryBindingV1,
-) -> Result<(), EcdsaClientProtocolError> {
-    if binding.now_ms == 0
-        || binding.root_share_epoch.is_empty()
-        || binding.signer_a_identity.is_empty()
-        || binding.signer_b_identity.is_empty()
-    {
-        return Err(EcdsaClientProtocolError::InvalidCommitmentRecord);
-    }
-    Ok(())
-}
-
-fn validate_commitment_statement(
-    statement: &EcdsaCommitmentStatementV1,
-) -> Result<(), EcdsaClientProtocolError> {
-    let expected_share_id = match statement.role {
-        EcdsaDeriverRoleV1::A => 1,
-        EcdsaDeriverRoleV1::B => 2,
-    };
-    let commitment_share_id =
-        u16::from_be_bytes([statement.commitment_wire[0], statement.commitment_wire[1]]);
-    if statement.share_id != expected_share_id
-        || commitment_share_id != expected_share_id
-        || statement.root_id.is_empty()
-        || statement.root_version == 0
-        || statement.root_share_epoch.is_empty()
-        || statement.operator_identity.is_empty()
-        || statement.authority_key_epoch == 0
-        || statement.valid_from_ms >= statement.valid_until_ms
-    {
-        return Err(EcdsaClientProtocolError::InvalidCommitmentRecord);
-    }
-    Ok(())
-}
-
-fn authenticate_commitment_record(
-    manifest: &EcdsaCommitmentPolicyManifestV1,
-    binding: &EcdsaCommitmentRegistryBindingV1,
-    record: &EcdsaSignedCommitmentRecordV1,
-    expected_role: EcdsaDeriverRoleV1,
-) -> Result<(), EcdsaClientProtocolError> {
-    validate_commitment_statement(&record.statement)?;
-    let authority = commitment_authority_for_role(manifest, expected_role);
-    let expected_identity = commitment_identity_for_role(binding, expected_role);
-    let computed_digest = record.statement.digest()?;
-    if record.statement.role != expected_role
-        || record.statement.root_version < manifest.minimum_root_version
-        || record.statement.authority_key_epoch < manifest.minimum_authority_key_epoch
-        || record.statement.authority_key_epoch != authority.authority_key_epoch
-        || record.statement.operator_identity != authority.operator_identity
-        || record.statement.operator_identity != expected_identity
-        || record.statement.root_share_epoch != binding.root_share_epoch
-        || binding.now_ms < record.statement.valid_from_ms
-        || binding.now_ms >= record.statement.valid_until_ms
-        || binding.now_ms < authority.valid_from_ms
-        || binding.now_ms >= authority.valid_until_ms
-        || manifest
-            .revoked_authority_key_epochs
-            .contains(&record.statement.authority_key_epoch)
-        || manifest.revoked_record_digests.contains(&computed_digest)
-        || !bool::from(computed_digest.ct_eq(&record.signed_digest))
-    {
-        return Err(EcdsaClientProtocolError::InvalidCommitmentRecord);
-    }
-    verify_ed25519_signature(
-        &authority.verifying_key,
-        &record.statement.signing_bytes()?,
-        &record.signature,
-        EcdsaClientProtocolError::InvalidCommitmentRecord,
-    )
-}
-
-fn commitment_authority_for_role(
-    manifest: &EcdsaCommitmentPolicyManifestV1,
-    role: EcdsaDeriverRoleV1,
-) -> &EcdsaCommitmentAuthorityV1 {
-    match role {
-        EcdsaDeriverRoleV1::A => &manifest.signer_a_authority,
-        EcdsaDeriverRoleV1::B => &manifest.signer_b_authority,
-    }
-}
-
-fn commitment_identity_for_role(
-    binding: &EcdsaCommitmentRegistryBindingV1,
-    role: EcdsaDeriverRoleV1,
-) -> &str {
-    match role {
-        EcdsaDeriverRoleV1::A => &binding.signer_a_identity,
-        EcdsaDeriverRoleV1::B => &binding.signer_b_identity,
-    }
-}
-
-fn verify_ed25519_signature(
-    verifying_key: &[u8; 32],
-    message: &[u8],
-    signature: &[u8; 64],
-    error: EcdsaClientProtocolError,
-) -> Result<(), EcdsaClientProtocolError> {
-    let verifying_key = VerifyingKey::from_bytes(verifying_key).map_err(|_| error)?;
-    verifying_key
-        .verify_strict(message, &Signature::from_bytes(signature))
-        .map_err(|_| error)
-}
-
-fn push_commitment_authority(output: &mut Vec<u8>, authority: &EcdsaCommitmentAuthorityV1) {
-    push_bytes(output, authority.role.wire_label().as_bytes());
-    push_bytes(output, authority.operator_identity.as_bytes());
-    push_bytes(output, &authority.authority_key_epoch.to_be_bytes());
-    push_bytes(output, &authority.valid_from_ms.to_be_bytes());
-    push_bytes(output, &authority.valid_until_ms.to_be_bytes());
-    push_bytes(output, &authority.verifying_key);
 }
 
 fn push_bytes(out: &mut Vec<u8>, value: &[u8]) {

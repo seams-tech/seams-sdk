@@ -1,7 +1,7 @@
 /* Expander (LinkedDevicesSection) — same grid-rows collapse mechanism as the
    Transaction Settings / Accounts expanders */
 .w3a-dropdown-linked-devices-root {
-  background-color: var(--w3a-colors-surface);
+  background-color: var(--w3a-expander-surface, var(--w3a-colors-surface));
   transform-origin: top;
   display: grid;
   grid-template-rows: 0fr;

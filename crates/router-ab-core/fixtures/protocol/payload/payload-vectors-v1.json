@@ -180,7 +180,7 @@
           "work_kind": "registration_prepare"
         },
         "signer_set": {
-          "policy": "all2",
+          "policy": "all_2",
           "selected_server": {
             "key_epoch": "server-key-epoch-1",
             "recipient_encryption_key": "x25519:1111111111111111111111111111111111111111111111111111111111111111",
@@ -424,7 +424,7 @@
           "work_kind": "registration_prepare"
         },
         "signer_set": {
-          "policy": "all2",
+          "policy": "all_2",
           "selected_server": {
             "key_epoch": "server-key-epoch-1",
             "recipient_encryption_key": "x25519:1111111111111111111111111111111111111111111111111111111111111111",

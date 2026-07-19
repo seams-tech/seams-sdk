@@ -250,8 +250,10 @@ export function generateThresholdSessionId(): string {
   return secureRandomId('tsess', 32, 'threshold session IDs');
 }
 
-export function generateSigningGrantId(): string {
-  return secureRandomId('wsess', 32, 'signing grant IDs');
+export function generateSigningGrantId(): SigningGrantId {
+  return toEcdsaDerivationSigningGrantId(
+    secureRandomId('wsess', 32, 'signing grant IDs'),
+  );
 }
 
 export async function computeEd25519SessionPolicyDigest32(

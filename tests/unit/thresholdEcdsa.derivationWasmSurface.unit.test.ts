@@ -142,8 +142,23 @@ test.describe('threshold ECDSA derivation WASM surface', () => {
     expect(typeof registrationExports.open_ecdsa_role_local_signing_share_v1).toBe('function');
     expect('build_ecdsa_role_local_export_artifact_v1' in registrationExports).toBe(false);
     expect(typeof exportClientExports.build_ecdsa_role_local_export_artifact_v1).toBe('function');
-    expect('prepare_ecdsa_client_bootstrap_v1' in exportClientExports).toBe(false);
-    expect('open_ecdsa_role_local_signing_share_v1' in exportClientExports).toBe(false);
+    const ceremonyPrototype = (
+      exportClientExports.RouterAbEcdsaClientCeremonyV1 as {
+        prototype?: Record<string, unknown>;
+      }
+    ).prototype;
+    expect(typeof ceremonyPrototype?.registration_binding).toBe('function');
+
+    for (const forbidden of [
+      'prepare_ecdsa_client_bootstrap_v1',
+      'finalize_ecdsa_client_bootstrap_v1',
+      'open_ecdsa_role_local_signing_share_v1',
+      'routerabecdsaclientceremonyv1_finalize_registration_client_bootstrap',
+      'routerabecdsaclientceremonyv1_finalize_recovery_client_bootstrap',
+      'routerabecdsaclientceremonyv1_recovery_transcript_digest_b64u',
+    ]) {
+      expect(forbidden in exportClientExports, forbidden).toBe(false);
+    }
 
     for (const forbidden of [
       'threshold_ecdsa_derivation_role_local_export_artifact',

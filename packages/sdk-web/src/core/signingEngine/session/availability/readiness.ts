@@ -307,6 +307,7 @@ function buildEmailOtpEcdsaDiscoveredLaneForRecord(args: {
           };
         }
         case 'role_local_ready_state_blob':
+        case 'role_local_durable_material':
           return {
             curve: 'ecdsa',
             chain: args.chain,

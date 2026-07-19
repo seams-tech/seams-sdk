@@ -742,7 +742,7 @@ function createContext(captures: Record<string, unknown>): any {
     }),
     storeClientSigningMaterial: async () => ({
       handle: {
-        kind: 'role_local_worker_session' as const,
+        kind: 'ecdsa_role_local_worker_handle_v1' as const,
         materialHandle: parseEcdsaRoleLocalMaterialHandle('registration-ecdsa-role-local-material'),
         bindingDigest: parseEcdsaRoleLocalBindingDigest('registration-ecdsa-role-local-binding'),
       },

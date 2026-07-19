@@ -33,13 +33,16 @@ import type {
   CreateRouterAbEcdsaPostRegistrationCeremonyResultV1,
   FinalizeRouterAbEcdsaExplicitExportRequestV1,
   FinalizeRouterAbEcdsaExplicitExportResultV1,
-  FinalizeRouterAbEcdsaRecoveryActivationRequestV1,
-  FinalizeRouterAbEcdsaRecoveryActivationResultV1,
-  VerifyRouterAbEcdsaRecoveryClientProofsRequestV1,
-  VerifyRouterAbEcdsaRecoveryClientProofsResultV1,
+  RehydrateEcdsaRoleLocalSigningMaterialResultV1,
   VerifyRouterAbEcdsaRefreshClientProofsRequestV1,
   VerifyRouterAbEcdsaRefreshClientProofsResultV1,
 } from '../../workerManager/ecdsaClientWorkerChannels';
+import {
+  parseEcdsaRoleLocalPersistedMaterialRef,
+  parseEcdsaRoleLocalWorkerHandle,
+  type EcdsaRoleLocalPersistedMaterialRef,
+  type EcdsaRoleLocalWorkerHandle,
+} from '../../session/keyMaterialBrands';
 import type {
   BuildEcdsaRoleLocalExportArtifactCommand as GeneratedBuildEcdsaRoleLocalExportArtifactCommand,
   BuildEcdsaRoleLocalExportArtifactOutput as GeneratedBuildEcdsaRoleLocalExportArtifactOutput,
@@ -372,8 +375,7 @@ export async function finalizeRouterAbEcdsaExplicitExportWasm(input: {
   const response = await requestEcdsaDerivationRoleLocalMaterialOperation({
     workerCtx: input.workerCtx,
     request: {
-      type:
-        EcdsaDerivationClientCustomRequestType.FinalizeRouterAbEcdsaExplicitExport,
+      type: EcdsaDerivationClientCustomRequestType.FinalizeRouterAbEcdsaExplicitExport,
       timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
       payload: input.command,
     },
@@ -404,48 +406,6 @@ export async function closeRouterAbEcdsaPostRegistrationCeremonyWasm(input: {
     EcdsaDerivationClientCustomResponseType.CloseRouterAbEcdsaPostRegistrationCeremonySuccess
   ) {
     throw new Error('Router A/B ECDSA post-registration ceremony close failed');
-  }
-  return response.payload;
-}
-
-export async function verifyRouterAbEcdsaRecoveryClientProofsWasm(input: {
-  command: VerifyRouterAbEcdsaRecoveryClientProofsRequestV1;
-  workerCtx: WorkerOperationContext;
-}): Promise<VerifyRouterAbEcdsaRecoveryClientProofsResultV1> {
-  const response = await requestEcdsaDerivationRoleLocalMaterialOperation({
-    workerCtx: input.workerCtx,
-    request: {
-      type: EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaRecoveryClientProofs,
-      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
-      payload: input.command,
-    },
-  });
-  if (
-    response.type !==
-    EcdsaDerivationClientCustomResponseType.VerifyRouterAbEcdsaRecoveryClientProofsSuccess
-  ) {
-    throw new Error('Router A/B ECDSA recovery client proof verification failed');
-  }
-  return response.payload;
-}
-
-export async function finalizeRouterAbEcdsaRecoveryActivationWasm(input: {
-  command: FinalizeRouterAbEcdsaRecoveryActivationRequestV1;
-  workerCtx: WorkerOperationContext;
-}): Promise<FinalizeRouterAbEcdsaRecoveryActivationResultV1> {
-  const response = await requestEcdsaDerivationRoleLocalMaterialOperation({
-    workerCtx: input.workerCtx,
-    request: {
-      type: EcdsaDerivationClientCustomRequestType.FinalizeRouterAbEcdsaRecoveryActivation,
-      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
-      payload: input.command,
-    },
-  });
-  if (
-    response.type !==
-    EcdsaDerivationClientCustomResponseType.FinalizeRouterAbEcdsaRecoveryActivationSuccess
-  ) {
-    throw new Error('Router A/B ECDSA recovery activation finalization failed');
   }
   return response.payload;
 }
@@ -521,6 +481,76 @@ export async function storeEcdsaRoleLocalSigningMaterialWasm(input: {
   }
 
   return response.payload as StoreThresholdEcdsaRoleLocalSigningMaterialResult;
+}
+
+function ecdsaRoleLocalWorkerHandleMatchesPersistedRef(
+  materialRef: EcdsaRoleLocalPersistedMaterialRef,
+  liveHandle: EcdsaRoleLocalWorkerHandle,
+): boolean {
+  return (
+    liveHandle.durableMaterialRef === materialRef.durableMaterialRef &&
+    liveHandle.bindingDigest === materialRef.bindingDigest
+  );
+}
+
+export type RehydrateEcdsaRoleLocalSigningMaterialWasmResult =
+  | {
+      readonly ok: true;
+      readonly liveHandle: EcdsaRoleLocalWorkerHandle;
+      readonly reason?: never;
+    }
+  | {
+      readonly ok: false;
+      readonly reason: 'missing' | 'expired' | 'binding_mismatch' | 'corrupt';
+      readonly liveHandle?: never;
+    };
+
+export async function rehydrateEcdsaRoleLocalSigningMaterialWasm(input: {
+  materialRef: EcdsaRoleLocalPersistedMaterialRef;
+  workerCtx: WorkerOperationContext;
+}): Promise<RehydrateEcdsaRoleLocalSigningMaterialWasmResult> {
+  const materialRef = parseEcdsaRoleLocalPersistedMaterialRef(input.materialRef);
+  const response = await requestEcdsaDerivationRoleLocalMaterialOperation({
+    workerCtx: input.workerCtx,
+    request: {
+      type: EcdsaDerivationClientCustomRequestType.RehydrateEcdsaRoleLocalSigningMaterial,
+      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
+      payload: {
+        kind: 'rehydrate_ecdsa_role_local_signing_material_v1',
+        materialRef,
+      },
+    },
+  });
+  if (
+    response.type !==
+    EcdsaDerivationClientCustomResponseType.RehydrateEcdsaRoleLocalSigningMaterialSuccess
+  ) {
+    throw new Error('RehydrateEcdsaRoleLocalSigningMaterial failed');
+  }
+  const payload: RehydrateEcdsaRoleLocalSigningMaterialResultV1 = response.payload;
+  switch (payload.kind) {
+    case 'ecdsa_role_local_signing_material_unavailable_v1':
+      return {
+        ok: false,
+        reason: payload.reason,
+      };
+    case 'ecdsa_role_local_signing_material_rehydrated_v1': {
+      const liveHandle = parseEcdsaRoleLocalWorkerHandle(payload.liveHandle);
+      if (!ecdsaRoleLocalWorkerHandleMatchesPersistedRef(materialRef, liveHandle)) {
+        throw new Error('ECDSA role-local signing material hydration changed its identity');
+      }
+      return {
+        ok: true,
+        liveHandle,
+      };
+    }
+    default: {
+      const exhaustive: never = payload;
+      throw new Error(
+        `ECDSA role-local signing material hydration response kind is invalid: ${String(exhaustive)}`,
+      );
+    }
+  }
 }
 
 function asEcdsaDerivationPresignProgress(

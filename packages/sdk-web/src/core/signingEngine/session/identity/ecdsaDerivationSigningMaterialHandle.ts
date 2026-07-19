@@ -1,10 +1,13 @@
 import { base64UrlEncode } from '@shared/utils/base64';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import { sha256 } from '@noble/hashes/sha2.js';
-import type { ThresholdEcdsaRoleLocalWorkerShareHandle } from '../../interfaces/signing';
 import type { ThresholdEcdsaChainTarget } from '../../interfaces/ecdsaChainTarget';
 import type { ReadyEcdsaSignerSession } from './evmFamilyEcdsaIdentity';
-import { SigningSessionIds, type SigningGrantId, type ThresholdEcdsaSessionId } from '../operationState/types';
+import {
+  SigningSessionIds,
+  type SigningGrantId,
+  type ThresholdEcdsaSessionId,
+} from '../operationState/types';
 import {
   parseEcdsaClientVerifyingShareB64u,
   parseEcdsaKeyHandle,
@@ -16,16 +19,16 @@ import {
   type EcdsaClientVerifyingShareB64u,
   type EcdsaKeyHandle,
   type EcdsaRelayerKeyId,
-  type EcdsaRoleLocalBindingDigest,
-  type EcdsaRoleLocalMaterialHandle,
+  type EcdsaRoleLocalWorkerHandle,
   type EcdsaThresholdKeyId,
 } from '../keyMaterialBrands';
+import { parseEcdsaActiveStateId, type EcdsaActiveStateId } from '@shared/utils/domainIds';
 
 export type BuildEcdsaRoleLocalSigningMaterialHandleInput = {
   thresholdSessionId: string;
   signingGrantId: string;
   keyHandle: EcdsaKeyHandle;
-  routerAbStateSessionId: string;
+  activeStateId: EcdsaActiveStateId;
   chainTarget: ThresholdEcdsaChainTarget;
   clientVerifyingShareB64u: EcdsaClientVerifyingShareB64u;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
@@ -33,11 +36,11 @@ export type BuildEcdsaRoleLocalSigningMaterialHandleInput = {
   relayerKeyId: EcdsaRelayerKeyId;
 };
 
-export type EcdsaRoleLocalMaterialBinding = {
+type EcdsaRoleLocalMaterialBinding = {
   readonly thresholdSessionId: ThresholdEcdsaSessionId;
   readonly signingGrantId: SigningGrantId;
   readonly keyHandle: EcdsaKeyHandle;
-  readonly routerAbStateSessionId: string;
+  readonly activeStateId: EcdsaActiveStateId;
   readonly chainTarget: ThresholdEcdsaChainTarget;
   readonly clientVerifyingShareB64u: EcdsaClientVerifyingShareB64u;
   readonly ecdsaThresholdKeyId: EcdsaThresholdKeyId;
@@ -45,17 +48,12 @@ export type EcdsaRoleLocalMaterialBinding = {
   readonly relayerKeyId: EcdsaRelayerKeyId;
 };
 
-export type EcdsaRoleLocalMaterialIdentity = {
-  readonly bindingDigest: EcdsaRoleLocalBindingDigest;
-  readonly materialHandle: EcdsaRoleLocalMaterialHandle;
-};
-
-function requireRouterAbStateSessionId(value: unknown): string {
-  const normalized = String(value || '').trim();
-  if (!normalized) {
-    throw new Error('[evm-family-ecdsa] ECDSA role-local material requires routerAbStateSessionId');
+function requireEcdsaActiveStateId(value: unknown): EcdsaActiveStateId {
+  const parsed = parseEcdsaActiveStateId(value);
+  if (!parsed.ok) {
+    throw new Error('[evm-family-ecdsa] ECDSA role-local material requires activeStateId');
   }
-  return normalized;
+  return parsed.value;
 }
 
 function normalizeEcdsaRoleLocalMaterialBinding(
@@ -65,21 +63,19 @@ function normalizeEcdsaRoleLocalMaterialBinding(
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(input.thresholdSessionId),
     signingGrantId: SigningSessionIds.signingGrant(input.signingGrantId),
     keyHandle: parseEcdsaKeyHandle(input.keyHandle),
-    routerAbStateSessionId: requireRouterAbStateSessionId(input.routerAbStateSessionId),
+    activeStateId: requireEcdsaActiveStateId(input.activeStateId),
     chainTarget: input.chainTarget,
-    clientVerifyingShareB64u: parseEcdsaClientVerifyingShareB64u(
-      input.clientVerifyingShareB64u,
-    ),
+    clientVerifyingShareB64u: parseEcdsaClientVerifyingShareB64u(input.clientVerifyingShareB64u),
     ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(input.ecdsaThresholdKeyId),
     participantIds: input.participantIds.map((participantId) => Number(participantId)),
     relayerKeyId: parseEcdsaRelayerKeyId(input.relayerKeyId),
   };
 }
 
-export function buildEcdsaRoleLocalMaterialIdentity(
+function buildEcdsaRoleLocalSigningMaterialHandleFromBinding(
   binding: EcdsaRoleLocalMaterialBinding,
-): EcdsaRoleLocalMaterialIdentity {
-  const routerAbStateSessionId = requireRouterAbStateSessionId(binding.routerAbStateSessionId);
+): EcdsaRoleLocalWorkerHandle {
+  const activeStateId = requireEcdsaActiveStateId(binding.activeStateId);
   const bindingDigest = parseEcdsaRoleLocalBindingDigest(
     alphabetizeStringify({
       kind: 'router_ab_ecdsa_role_local_signing_material_binding_v1',
@@ -91,46 +87,39 @@ export function buildEcdsaRoleLocalMaterialIdentity(
       keyHandle: parseEcdsaKeyHandle(binding.keyHandle),
       participantIds: binding.participantIds.map((participantId) => Number(participantId)),
       relayerKeyId: parseEcdsaRelayerKeyId(binding.relayerKeyId),
-      routerAbStateSessionId,
+      activeStateId,
       signingGrantId: SigningSessionIds.signingGrant(binding.signingGrantId),
       thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(binding.thresholdSessionId),
     }),
   );
-  const bindingDigestHashB64u = base64UrlEncode(
-    sha256(new TextEncoder().encode(bindingDigest)),
+  const bindingDigestHashB64u = base64UrlEncode(sha256(new TextEncoder().encode(bindingDigest)));
+  const materialHandle = parseEcdsaRoleLocalMaterialHandle(
+    `router-ab-ecdsa-role-local:${binding.thresholdSessionId}:${binding.keyHandle}:${activeStateId}:${bindingDigestHashB64u}`,
   );
   return {
+    kind: 'ecdsa_role_local_worker_handle_v1',
+    materialHandle,
     bindingDigest,
-    materialHandle: parseEcdsaRoleLocalMaterialHandle(
-      `router-ab-ecdsa-role-local:${binding.thresholdSessionId}:${binding.keyHandle}:${routerAbStateSessionId}:${bindingDigestHashB64u}`,
-    ),
+    durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef(materialHandle),
   };
 }
 
 export function buildEcdsaRoleLocalSigningMaterialHandle(
   input: BuildEcdsaRoleLocalSigningMaterialHandleInput,
-): ThresholdEcdsaRoleLocalWorkerShareHandle {
-  const identity = buildEcdsaRoleLocalMaterialIdentity(
+): EcdsaRoleLocalWorkerHandle {
+  return buildEcdsaRoleLocalSigningMaterialHandleFromBinding(
     normalizeEcdsaRoleLocalMaterialBinding(input),
   );
-  return {
-    kind: 'role_local_worker_session',
-    materialHandle: identity.materialHandle,
-    bindingDigest: identity.bindingDigest,
-    durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef(identity.materialHandle),
-  };
 }
 
 export function ecdsaRoleLocalSigningMaterialHandleFromReadySignerSession(
   signerSession: ReadyEcdsaSignerSession,
-): ThresholdEcdsaRoleLocalWorkerShareHandle {
+): EcdsaRoleLocalWorkerHandle {
   return buildEcdsaRoleLocalSigningMaterialHandle({
     thresholdSessionId: String(signerSession.session.thresholdSessionId),
     signingGrantId: String(signerSession.session.signingGrantId),
     keyHandle: parseEcdsaKeyHandle(signerSession.publicFacts.keyHandle),
-    routerAbStateSessionId: String(
-      signerSession.routerAbEcdsaDerivationNormalSigning.walletSessionSessionId,
-    ),
+    activeStateId: signerSession.routerAbEcdsaDerivationNormalSigning.activeStateId,
     chainTarget: signerSession.chainTarget,
     clientVerifyingShareB64u: parseEcdsaClientVerifyingShareB64u(
       signerSession.transport.signingMaterial.clientVerifier33B64u,

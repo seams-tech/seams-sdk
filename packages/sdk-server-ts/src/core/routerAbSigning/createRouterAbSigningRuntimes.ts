@@ -4,10 +4,8 @@ import { coerceLogger, type Logger } from '../logger';
 import type { ThresholdStoreConfigInput } from '../types';
 import { createThresholdEcdsaSigningStores } from '../ThresholdService/stores/EcdsaSigningStore';
 import {
-  createThresholdEcdsaKeyStore,
   createThresholdEd25519KeyStore,
 } from '../ThresholdService/stores/KeyStore';
-import { createThresholdEcdsaSessionStore } from '../ThresholdService/stores/SessionStore';
 import {
   createEcdsaWalletSessionStore,
   createEd25519WalletSessionStore,
@@ -20,6 +18,7 @@ import {
 import { RouterAbLocalSigningSeedRuntime } from './RouterAbLocalSigningSeedRuntime';
 import {
   parseRouterAbNormalSigningRuntimeConfig,
+  requireRouterAbConfiguredSigningWorkerPrivateTransport,
   RouterAbNormalSigningRuntime,
 } from './RouterAbNormalSigningRuntime';
 
@@ -114,17 +113,19 @@ export function createRouterAbSigningRuntimes(input: {
     logger,
     isNode,
   });
-  const ecdsaKeyStore = createThresholdEcdsaKeyStore({ config, logger, isNode });
-  const ecdsaSessionStore = createThresholdEcdsaSessionStore({ config, logger, isNode });
   const ecdsaWalletSessionStore = createEcdsaWalletSessionStore({ config, logger, isNode });
   const ecdsaSigningStores = createThresholdEcdsaSigningStores({ config, logger, isNode });
   const ensureReady = ensureRouterAbSigningRuntimeReady.bind(input.authService);
+  const normalSigningConfig = parseRouterAbNormalSigningRuntimeConfig(configRecord);
+  const signingWorkerTransport = requireRouterAbConfiguredSigningWorkerPrivateTransport(
+    normalSigningConfig.signingWorkerTransport,
+  );
 
   const normalSigning = new RouterAbNormalSigningRuntime({
     walletSessionStore: ed25519WalletSessionStore,
     ecdsaWalletSessionStore,
     walletBudgetSessionStore,
-    config: parseRouterAbNormalSigningRuntimeConfig(configRecord),
+    config: normalSigningConfig,
   });
   const localSigningSeed = new RouterAbLocalSigningSeedRuntime({
     ed25519KeyStore,
@@ -135,12 +136,9 @@ export function createRouterAbSigningRuntimes(input: {
   const ecdsaPresign = new RouterAbEcdsaPresignRuntime({
     logger,
     config: parseRouterAbEcdsaPresignRuntimeConfig(configRecord),
-    ecdsaSessionStore,
     ecdsaPoolFillSessionStore: ecdsaSigningStores.poolFillSessionStore,
-    ecdsaKeyStore,
-    normalSigningRuntime: normalSigning,
+    signingWorkerTransport,
     ensureReady,
-    liveSessionOwner: undefined,
   });
 
   return { normalSigning, localSigningSeed, ecdsaPresign };

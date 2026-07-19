@@ -184,7 +184,7 @@ test.describe('Threshold Ed25519 session record supersession', () => {
     expect(record?.remainingUses).toBe(2);
   });
 
-  test('equal generation with a different session keeps both facts as anomaly evidence', () => {
+  test('equal generation with a different session leaves the current store unchanged', () => {
     const first = makeEd25519Fact({
       thresholdSessionId: 'tsess-ed25519-equal-a',
       signingGrantId: 'wsess-ed25519-equal-a',
@@ -206,7 +206,7 @@ test.describe('Threshold Ed25519 session record supersession', () => {
       listStoredThresholdEd25519SessionLaneRecordsForWallet(WALLET_ID).map(
         (record) => record.thresholdSessionId,
       ),
-    ).toEqual(['tsess-ed25519-equal-a', 'tsess-ed25519-equal-b']);
+    ).toEqual(['tsess-ed25519-equal-a']);
   });
 
   test('current commit retires same-group null-generation legacy facts with diagnostics', () => {

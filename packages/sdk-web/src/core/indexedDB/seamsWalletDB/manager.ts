@@ -4,10 +4,8 @@ import {
   upgradeSeamsWalletDBSchema,
   type SeamsWalletDBConfig,
 } from './schema';
-import {
-  SEAMS_WALLET_DB_NAME,
-  type SeamsWalletStoreName,
-} from '../schemaNames';
+import { SEAMS_WALLET_DB_NAME, type SeamsWalletStoreName } from '../schemaNames';
+import { deleteObsoleteStandaloneWalletDatabases } from './obsoleteDatabases';
 
 export type SeamsWalletTransactionMode = 'readonly' | 'readwrite';
 
@@ -152,7 +150,11 @@ export class SeamsWalletDBManager {
         throw error;
       });
     }
-    return await this.dbPromise;
+    const db = await this.dbPromise;
+    if (this.config.dbName === SEAMS_WALLET_DB_NAME) {
+      await deleteObsoleteStandaloneWalletDatabases();
+    }
+    return db;
   }
 
   async runTransaction<T>(

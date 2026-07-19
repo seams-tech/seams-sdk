@@ -6,7 +6,6 @@ import {
   type EcdsaRoleLocalPublicFacts,
   type EmailOtpWorkerIssuedSessionHandle,
 } from '@/core/platform';
-import type { FinalizeRouterAbEcdsaRecoveryActivationResultV1 } from '../../workerManager/ecdsaClientWorkerChannels';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
@@ -60,11 +59,13 @@ import {
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
   parseRouterAbEcdsaDerivationNormalSigningStateV1,
   routerAbEcdsaDerivationStableKeyContextFromSdkFactsV1,
-  routerAbEcdsaDerivationActiveStateSessionId,
   verifyRouterAbEcdsaDerivationNormalSigningScopeContextBindingV1,
   type RouterAbEcdsaDerivationPublicCapabilityV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { RootShareEpoch } from '@shared/utils/domainIds';
+import type { PersistedEcdsaRoleLocalMaterial } from '../../session/persistence/records';
+import type { ExistingEcdsaRoleLocalActivation } from './postRegistrationSessionActivation';
 
 export type ThresholdEcdsaEvmChainTarget = EvmEip155ChainTarget;
 export type ThresholdEcdsaTempoChainTarget = TempoChainTarget;
@@ -135,8 +136,7 @@ export type ThresholdEcdsaExplicitKeyExportActivationResult = {
     expiresAtMs: number;
     remainingUses: number;
     walletSessionJwt: string;
-    roleLocalMaterial:
-      FinalizeRouterAbEcdsaRecoveryActivationResultV1['roleLocalMaterial'];
+    roleLocalMaterial: ExistingEcdsaRoleLocalActivation['roleLocalMaterial'];
     publicFacts: EcdsaRoleLocalPublicFacts;
   };
   passkeyPrfFirstB64u: string;
@@ -188,7 +188,7 @@ async function buildRouterAbEcdsaDerivationNormalSigningState(args: {
   ethereumAddress: string;
   clientShareRetryCounter: number;
   serverShareRetryCounter: number;
-  activationEpoch: string;
+  activationEpoch: RootShareEpoch;
 }): Promise<RouterAbEcdsaDerivationNormalSigningStateV1> {
   switch (args.config.mode) {
     case 'disabled':
@@ -342,6 +342,7 @@ type ActivateEcdsaExistingSessionRequestBase = ActivateEcdsaSessionRequestCommon
   key: EvmFamilyEcdsaKeyIdentity;
   lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
   publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+  existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
   walletSessionRouteAuth?: ThresholdEcdsaDerivationRouteAuth;
   walletId?: never;
   subjectId?: never;
@@ -682,6 +683,7 @@ async function activateEcdsaSessionByPurpose(
           key: args.key,
           lanePolicy: args.lanePolicy,
           publicCapability: args.publicCapability,
+          existingRoleLocalMaterial: args.existingRoleLocalMaterial,
         })
       : args.walletSessionRouteAuth
         ? await bootstrapEcdsaSession({
@@ -790,19 +792,15 @@ async function activateEcdsaSessionByPurpose(
           signingRootId: bootstrap.signingRootId,
           signingRootVersion: bootstrap.signingRootVersion,
           applicationBindingDigestB64u:
-            bootstrap.roleLocalActivation.publicCapability.context
-              .application_binding_digest_b64u,
+            bootstrap.roleLocalActivation.publicCapability.context.application_binding_digest_b64u,
           clientParticipantId: 1,
           relayerParticipantId: 2,
           participantIds,
-          contextBinding32B64u:
-            bootstrap.roleLocalActivation.publicFacts.contextBinding32B64u,
+          contextBinding32B64u: bootstrap.roleLocalActivation.publicFacts.contextBinding32B64u,
           derivationClientSharePublicKey33B64u:
             bootstrap.roleLocalActivation.publicFacts.derivationClientSharePublicKey33B64u,
-          relayerPublicKey33B64u:
-            bootstrap.roleLocalActivation.publicFacts.relayerPublicKey33B64u,
-          groupPublicKey33B64u:
-            bootstrap.roleLocalActivation.publicFacts.groupPublicKey33B64u,
+          relayerPublicKey33B64u: bootstrap.roleLocalActivation.publicFacts.relayerPublicKey33B64u,
+          groupPublicKey33B64u: bootstrap.roleLocalActivation.publicFacts.groupPublicKey33B64u,
           ethereumAddress: bootstrap.roleLocalActivation.publicFacts.ethereumAddress,
           publicCapability: bootstrap.roleLocalActivation.publicCapability,
         })
@@ -844,12 +842,7 @@ async function activateEcdsaSessionByPurpose(
     };
   }
   const routerAbEcdsaDerivationNormalSigning = bootstrap.routerAbEcdsaDerivationNormalSigning;
-  const roleLocalMaterialHandle = {
-    kind: 'role_local_worker_session' as const,
-    materialHandle: bootstrap.roleLocalActivation.roleLocalMaterial.materialHandle,
-    bindingDigest: bootstrap.roleLocalActivation.roleLocalMaterial.bindingDigest,
-    durableMaterialRef: bootstrap.roleLocalActivation.roleLocalMaterial.durableMaterialRef,
-  };
+  const roleLocalMaterialHandle = bootstrap.roleLocalActivation.roleLocalMaterial;
   const roleLocalAuthMethod = roleLocalAuthMethodForActivation({
     request: args,
     bootstrap,

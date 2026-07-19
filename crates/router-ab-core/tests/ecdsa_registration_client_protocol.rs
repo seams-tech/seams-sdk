@@ -59,12 +59,6 @@ fn selected_server() -> EcdsaSelectedServerIdentityV1 {
     }
 }
 
-fn client_share_public_key() -> String {
-    let mut key = [0x37; 33];
-    key[0] = 0x02;
-    Base64UrlUnpadded::encode_string(&key)
-}
-
 fn application_binding_digest() -> String {
     Base64UrlUnpadded::encode_string(&[0x29; 32])
 }
@@ -88,8 +82,6 @@ fn client_header() -> EcdsaRegistrationHeaderV1 {
         client_ephemeral_public_key: client_ephemeral.public_key().to_owned(),
         replay_nonce: "registration-nonce-1".to_owned(),
         expires_at_ms: 8_000_000,
-        derivation_client_share_public_key33_b64u: client_share_public_key(),
-        client_share_retry_counter: 6,
     })
     .expect("header")
 }
@@ -196,8 +188,6 @@ fn core_request(
         client.header().client_ephemeral_public_key(),
         client.header().replay_nonce(),
         client.header().expires_at_ms(),
-        client.header().derivation_client_share_public_key33_b64u(),
-        client.header().client_share_retry_counter(),
         core_envelope(client.deriver_a_envelope()),
         core_envelope(client.deriver_b_envelope()),
     )

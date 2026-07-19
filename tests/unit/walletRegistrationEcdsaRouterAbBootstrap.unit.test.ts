@@ -15,7 +15,6 @@ import {
   type WalletRegistrationEcdsaClientBootstrap,
   type WalletRegistrationEcdsaWalletKey,
 } from '@/core/rpcClients/relayer/walletRegistration';
-import type { ThresholdEcdsaRoleLocalWorkerShareHandle } from '@/core/signingEngine/interfaces/signing';
 import type { ThresholdEcdsaDerivationRoleLocalBootstrapValue } from '@/core/rpcClients/relayer/thresholdEcdsa';
 import {
   thresholdEcdsaChainTargetKey,
@@ -25,20 +24,27 @@ import {
 import { toEcdsaDerivationThresholdKeyId } from '@/core/signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
 import {
   clearAllThresholdEcdsaSessionRecords,
+  getInMemoryEcdsaRoleLocalHandle,
   listThresholdEcdsaRuntimeLanesForWallet,
+  parseRawThresholdEcdsaSessionRecord,
   upsertThresholdEcdsaSessionFromBootstrap,
   type ThresholdEcdsaSessionStoreDeps,
 } from '@/core/signingEngine/session/persistence/records';
-import { buildEcdsaRoleLocalPublicFacts } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
+import {
+  buildEcdsaRoleLocalPublicFacts,
+  thresholdEcdsaRecordHasRoleLocalSigningMaterial,
+} from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 import { readPersistedAvailableSigningLanesForTargets } from '@/core/signingEngine/session/availability/persistedAvailableSigningLanes';
 import {
   clearRouterAbEcdsaDerivationWorkerMaterialRuntimeValidation,
   markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated,
 } from '@/core/signingEngine/session/routerAbSigningWalletSession';
+import { buildThresholdEcdsaSecp256k1KeyRefFromRecord } from '@/core/signingEngine/session/identity/thresholdEcdsaSignerAdapter';
 import {
   parseEcdsaRoleLocalBindingDigest,
   parseEcdsaRoleLocalDurableMaterialRef,
   parseEcdsaRoleLocalMaterialHandle,
+  type EcdsaRoleLocalWorkerHandle,
 } from '@/core/signingEngine/session/keyMaterialBrands';
 
 const WALLET_ID = 'router-ab-registration.testnet';
@@ -50,19 +56,22 @@ const RELAYER_KEY_ID = 'relayer-key-1';
 const SIGNING_ROOT_ID = 'project-registration:local';
 const SIGNING_ROOT_VERSION = 'signing-root-v1';
 const THRESHOLD_SESSION_ID = 'threshold-ecdsa-session-1';
+const ACTIVATION_EPOCH = 'root-share-epoch-1';
 const WALLET_SIGNING_SESSION_ID = 'signing-grant-1';
 const EXPIRES_AT_MS = 1_900_000_000_000;
 const OWNER_ADDRESS = '0x1111111111111111111111111111111111111111';
 const NOW_MS = 1_800_000_000_000;
 const CREDENTIAL_ID_B64U = 'credential-router-ab-registration';
+const APPLICATION_BINDING_DIGEST_B64U = '_GFCif_z_CIBtKY-QsAe-qAvAdMeemgOPJSAQGMOnb8';
+const CONTEXT_BINDING_32_B64U = 'OyVzuOm6z7oD9lROMqtIK1MZuxTy-l6AMUji9knVQ6w';
 const ROLE_LOCAL_MATERIAL_HANDLE =
   'router-ab-ecdsa-role-local:threshold-ecdsa-session-1:router-ab-ecdsa-key:session-1:fixture-binding';
 const ROLE_LOCAL_SIGNING_MATERIAL_HANDLE = {
-  kind: 'role_local_worker_session',
+  kind: 'ecdsa_role_local_worker_handle_v1',
   materialHandle: parseEcdsaRoleLocalMaterialHandle(ROLE_LOCAL_MATERIAL_HANDLE),
-  bindingDigest: parseEcdsaRoleLocalBindingDigest(b64u(15, 32)),
+  bindingDigest: parseEcdsaRoleLocalBindingDigest(CONTEXT_BINDING_32_B64U),
   durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef(ROLE_LOCAL_MATERIAL_HANDLE),
-} satisfies ThresholdEcdsaRoleLocalWorkerShareHandle;
+} satisfies EcdsaRoleLocalWorkerHandle;
 
 const EVM_TARGET: ThresholdEcdsaChainTarget = {
   kind: 'evm',
@@ -89,9 +98,6 @@ function jwtWithPayload(payload: Record<string, unknown>): string {
   return `${jsonB64u({ alg: 'none', typ: 'JWT' })}.${jsonB64u(payload)}.sig`;
 }
 
-const APPLICATION_BINDING_DIGEST_B64U = '_GFCif_z_CIBtKY-QsAe-qAvAdMeemgOPJSAQGMOnb8';
-const CONTEXT_BINDING_32_B64U = 'OyVzuOm6z7oD9lROMqtIK1MZuxTy-l6AMUji9knVQ6w';
-const READY_STATE_BLOB_32_B64U = b64u(10, 32);
 const CLIENT_PUBLIC_KEY_33_B64U = publicKey33(2, 11) as DerivationClientSharePublicKey33B64u;
 const RELAYER_PUBLIC_KEY_33_B64U = publicKey33(3, 12) as EcdsaRelayerDerivationPublicKey33B64u;
 const GROUP_PUBLIC_KEY_33_B64U = publicKey33(2, 13);
@@ -126,7 +132,7 @@ function routerAbEcdsaDerivationNormalSigningState(): RouterAbEcdsaDerivationNor
         key_epoch: 'worker-epoch-1',
         recipient_encryption_key: SIGNING_WORKER_RECIPIENT_KEY,
       },
-      activation_epoch: THRESHOLD_SESSION_ID,
+      activation_epoch: ACTIVATION_EPOCH,
     },
   });
   if (!state) throw new Error('Router A/B ECDSA derivation normal signing fixture failed');
@@ -171,19 +177,17 @@ function publicCapability() {
       deriver_a: {
         role: 'signer_a',
         key_epoch: 'epoch-1',
-        public_key:
-          'x25519:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        public_key: 'x25519:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
       },
       deriver_b: {
         role: 'signer_b',
         key_epoch: 'epoch-1',
-        public_key:
-          'x25519:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+        public_key: 'x25519:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
       },
     },
     router_id: 'router-1',
     client_id: WALLET_ID,
-    activation_epoch: THRESHOLD_SESSION_ID,
+    activation_epoch: ACTIVATION_EPOCH,
     registration_request_digest_b64u: b64u(16, 32),
     proof_transcript_digest_b64u: b64u(17, 32),
   });
@@ -228,10 +232,11 @@ function walletSessionJwt(
         ethereumAddress: OWNER_ADDRESS,
       },
       signingWorkerId: 'signing-worker-1',
-      activationEpoch: THRESHOLD_SESSION_ID,
+      activationEpoch: ACTIVATION_EPOCH,
     };
   } else if (args.mode !== 'missing_normal_signing') {
-    payload.routerAbEcdsaDerivationNormalSigning = args.state || routerAbEcdsaDerivationNormalSigningState();
+    payload.routerAbEcdsaDerivationNormalSigning =
+      args.state || routerAbEcdsaDerivationNormalSigningState();
   }
   return jwtWithPayload(payload);
 }
@@ -289,6 +294,7 @@ function serverBootstrap(
     relayerVerifyingShareB64u: RELAYER_PUBLIC_KEY_33_B64U,
     participantIds: [1, 2],
     thresholdSessionId: THRESHOLD_SESSION_ID,
+    activationEpoch: ACTIVATION_EPOCH,
     signingGrantId: WALLET_SIGNING_SESSION_ID,
     expiresAtMs: EXPIRES_AT_MS,
     expiresAt: new Date(EXPIRES_AT_MS).toISOString(),
@@ -316,23 +322,13 @@ function walletKey(): WalletRegistrationEcdsaWalletKey {
   };
 }
 
-async function buildRegistrationBootstrap(
-  args: {
-    signingMaterialHandle?: ThresholdEcdsaRoleLocalWorkerShareHandle;
-  } = {},
-) {
+async function buildRegistrationBootstrap() {
   const parsed = parseWalletRegistrationEcdsaDerivationRespond({
     clientBootstrap: clientBootstrap(),
     serverBootstrap: serverBootstrap(),
+    activationEpoch: ACTIVATION_EPOCH,
   });
   const capability = publicCapability();
-  const stateBlob = {
-    kind: 'ecdsa_role_local_state_blob_v1',
-    curve: 'secp256k1',
-    encoding: 'base64url',
-    producer: 'signer_core',
-    stateBlobB64u: READY_STATE_BLOB_32_B64U,
-  } as const;
   const publicFacts = buildEcdsaRoleLocalPublicFacts({
     walletId: WALLET_ID,
     evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
@@ -366,16 +362,11 @@ async function buildRegistrationBootstrap(
       credentialIdB64u: CREDENTIAL_ID_B64U,
       rpId: RP_ID,
     },
-    material: args.signingMaterialHandle
-      ? {
-          kind: 'worker_handle',
-          handle: args.signingMaterialHandle,
-          publicFacts,
-        }
-      : {
-          kind: 'ready_state_blob',
-          stateBlob,
-        },
+    material: {
+      kind: 'worker_handle',
+      handle: ROLE_LOCAL_SIGNING_MATERIAL_HANDLE,
+      publicFacts,
+    },
   });
 }
 
@@ -387,13 +378,36 @@ function createEcdsaSessionStore(): ThresholdEcdsaSessionStoreDeps {
   };
 }
 
+async function buildRawPersistedRegistrationRecord(): Promise<Record<string, unknown>> {
+  const store = createEcdsaSessionStore();
+  const bootstrap = await buildRegistrationBootstrap();
+  const record = upsertThresholdEcdsaSessionFromBootstrap(store, {
+    walletId: toWalletId(WALLET_ID),
+    chainTarget: EVM_TARGET,
+    bootstrap,
+    source: 'registration',
+  });
+  return structuredClone(record) as unknown as Record<string, unknown>;
+}
+
+function requireRawRecordField(
+  record: Record<string, unknown>,
+  field: string,
+): Record<string, unknown> {
+  const value = record[field];
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`expected ${field} to be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
 test.describe('wallet registration Router A/B ECDSA bootstrap', () => {
   test.afterEach(() => {
     clearAllThresholdEcdsaSessionRecords(createEcdsaSessionStore());
     clearRouterAbEcdsaDerivationWorkerMaterialRuntimeValidation();
   });
 
-  test('persists a ready-state bootstrap as a restorable ECDSA lane', async () => {
+  test('persists worker-owned registration material as a restorable ECDSA lane', async () => {
     const store = createEcdsaSessionStore();
     const bootstrap = await buildRegistrationBootstrap();
     expect(bootstrap.thresholdEcdsaKeyRef.routerAbEcdsaDerivationNormalSigning).toEqual(
@@ -438,9 +452,7 @@ test.describe('wallet registration Router A/B ECDSA bootstrap', () => {
   });
 
   test('uses worker-owned role-local material handles for signable registration key refs', async () => {
-    const bootstrap = await buildRegistrationBootstrap({
-      signingMaterialHandle: ROLE_LOCAL_SIGNING_MATERIAL_HANDLE,
-    });
+    const bootstrap = await buildRegistrationBootstrap();
     const binding = bootstrap.thresholdEcdsaKeyRef.backendBinding;
     if (binding?.materialKind !== 'role_local_worker_handle') {
       throw new Error('expected role-local worker handle backend binding');
@@ -453,9 +465,7 @@ test.describe('wallet registration Router A/B ECDSA bootstrap', () => {
 
   test('keeps volatile worker handles out of the durable session store', async () => {
     const store = createEcdsaSessionStore();
-    const bootstrap = await buildRegistrationBootstrap({
-      signingMaterialHandle: ROLE_LOCAL_SIGNING_MATERIAL_HANDLE,
-    });
+    const bootstrap = await buildRegistrationBootstrap();
 
     const runtimeRecord = upsertThresholdEcdsaSessionFromBootstrap(store, {
       walletId: toWalletId(WALLET_ID),
@@ -465,11 +475,29 @@ test.describe('wallet registration Router A/B ECDSA bootstrap', () => {
     });
     const durableRecord = Array.from(store.recordsByLane.values())[0];
 
-    expect(runtimeRecord.roleLocalMaterialHandle).toEqual(ROLE_LOCAL_SIGNING_MATERIAL_HANDLE);
-    expect(durableRecord?.roleLocalMaterialHandle).toBeUndefined();
+    expect(getInMemoryEcdsaRoleLocalHandle(runtimeRecord)).toEqual(
+      ROLE_LOCAL_SIGNING_MATERIAL_HANDLE,
+    );
+    expect(durableRecord).not.toHaveProperty('roleLocalMaterialHandle');
     expect(durableRecord?.roleLocalDurableMaterialRef).toBe(
       ROLE_LOCAL_SIGNING_MATERIAL_HANDLE.durableMaterialRef,
     );
+    if (!durableRecord) throw new Error('expected durable threshold ECDSA session record');
+    expect(thresholdEcdsaRecordHasRoleLocalSigningMaterial(runtimeRecord)).toBe(true);
+    expect(thresholdEcdsaRecordHasRoleLocalSigningMaterial(durableRecord)).toBe(true);
+    const reloadedDurableRecord = parseRawThresholdEcdsaSessionRecord(
+      structuredClone(durableRecord),
+    );
+    expect(getInMemoryEcdsaRoleLocalHandle(reloadedDurableRecord)).toEqual(
+      ROLE_LOCAL_SIGNING_MATERIAL_HANDLE,
+    );
+    const durableKeyRef = buildThresholdEcdsaSecp256k1KeyRefFromRecord({
+      record: reloadedDurableRecord,
+    });
+    expect(durableKeyRef.backendBinding).toMatchObject({
+      materialKind: 'role_local_worker_handle',
+      roleLocalMaterialHandle: ROLE_LOCAL_SIGNING_MATERIAL_HANDLE,
+    });
     const [runtimeLane] = listThresholdEcdsaRuntimeLanesForWallet(store, WALLET_ID);
     expect(runtimeLane).toBeDefined();
     expect(markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(runtimeRecord)).toBe(true);
@@ -501,11 +529,69 @@ test.describe('wallet registration Router A/B ECDSA bootstrap', () => {
     ).toMatchObject([{ state: 'ready', source: 'runtime_session_record' }]);
   });
 
+  test('rejects role-local public facts bound to another wallet', async () => {
+    const rawRecord = await buildRawPersistedRegistrationRecord();
+    const publicFacts = requireRawRecordField(rawRecord, 'ecdsaRoleLocalPublicFacts');
+    publicFacts.walletId = 'substituted-wallet.testnet';
+
+    expect(() => parseRawThresholdEcdsaSessionRecord(rawRecord)).toThrow(
+      /role-local publicFacts walletId mismatch/,
+    );
+  });
+
+  test('rejects an embedded public capability bound to different public facts', async () => {
+    const rawRecord = await buildRawPersistedRegistrationRecord();
+    const publicFacts = requireRawRecordField(rawRecord, 'ecdsaRoleLocalPublicFacts');
+    const publicCapability = requireRawRecordField(publicFacts, 'publicCapability');
+    const capabilityContext = requireRawRecordField(publicCapability, 'context');
+    capabilityContext.application_binding_digest_b64u = b64u(99, 32);
+
+    expect(() => parseRawThresholdEcdsaSessionRecord(rawRecord)).toThrow(
+      /publicCapability\.context\.application_binding_digest_b64u mismatch/,
+    );
+  });
+
+  test('rejects an embedded public capability bound to another wallet', async () => {
+    const rawRecord = await buildRawPersistedRegistrationRecord();
+    const publicFacts = requireRawRecordField(rawRecord, 'ecdsaRoleLocalPublicFacts');
+    const publicCapability = requireRawRecordField(publicFacts, 'publicCapability');
+    publicCapability.client_id = 'substituted-wallet.testnet';
+
+    expect(() => parseRawThresholdEcdsaSessionRecord(rawRecord)).toThrow(
+      /publicCapability\.client_id mismatch/,
+    );
+  });
+
+  test('rejects normal-signing state bound to different role-local public facts', async () => {
+    const rawRecord = await buildRawPersistedRegistrationRecord();
+    const normalSigning = requireRawRecordField(rawRecord, 'routerAbEcdsaDerivationNormalSigning');
+    const scope = requireRawRecordField(normalSigning, 'scope');
+    const publicIdentity = requireRawRecordField(scope, 'public_identity');
+    publicIdentity.context_binding_b64u = b64u(98, 32);
+
+    expect(() => parseRawThresholdEcdsaSessionRecord(rawRecord)).toThrow(
+      /normalSigning\.public_identity\.context_binding_b64u mismatch/,
+    );
+  });
+
+  test('rejects an Email OTP auth method substituted into a passkey record', async () => {
+    const rawRecord = await buildRawPersistedRegistrationRecord();
+    rawRecord.ecdsaRoleLocalAuthMethod = {
+      kind: 'email_otp',
+      authSubjectId: 'google:substituted-subject',
+    };
+
+    expect(() => parseRawThresholdEcdsaSessionRecord(rawRecord)).toThrow(
+      /passkey source requires passkey auth/,
+    );
+  });
+
   test('rejects a Wallet Session JWT missing Router A/B ECDSA normal-signing state', () => {
     expect(() =>
       parseWalletRegistrationEcdsaDerivationRespond({
         clientBootstrap: clientBootstrap(),
         serverBootstrap: serverBootstrap({ jwtMode: 'missing_normal_signing' }),
+        activationEpoch: ACTIVATION_EPOCH,
       }),
     ).toThrow(/missing routerAbEcdsaDerivationNormalSigning/);
   });
@@ -515,6 +601,7 @@ test.describe('wallet registration Router A/B ECDSA bootstrap', () => {
       parseWalletRegistrationEcdsaDerivationRespond({
         clientBootstrap: clientBootstrap(),
         serverBootstrap: serverBootstrap({ jwtMode: 'issuer_binding_only' }),
+        activationEpoch: ACTIVATION_EPOCH,
       }),
     ).toThrow(/issuer-binding-only/);
   });
@@ -526,6 +613,7 @@ test.describe('wallet registration Router A/B ECDSA bootstrap', () => {
       parseWalletRegistrationEcdsaDerivationRespond({
         clientBootstrap: clientBootstrap(),
         serverBootstrap: substituted,
+        activationEpoch: ACTIVATION_EPOCH,
       }),
     ).toThrow(/signingGrantId mismatch/);
   });
@@ -537,6 +625,7 @@ test.describe('wallet registration Router A/B ECDSA bootstrap', () => {
       parseWalletRegistrationEcdsaDerivationRespond({
         clientBootstrap: clientBootstrap(),
         serverBootstrap: substituted,
+        activationEpoch: ACTIVATION_EPOCH,
       }),
     ).toThrow(/remainingUses mismatch/);
   });

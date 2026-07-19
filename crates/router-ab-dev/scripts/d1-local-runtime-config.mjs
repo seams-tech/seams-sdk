@@ -28,7 +28,6 @@ const ROUTER_RUNTIME_ASSIGNMENTS = Object.freeze([
 export function prepareRouterAbD1LocalRuntimeConfig(input) {
   const repoRoot = path.resolve(input.repoRoot);
   const localEnvRoot = path.resolve(input.localEnvRoot ?? repoRoot);
-  const workerUrls = parseWorkerUrls(input.workerUrls);
   const sourceConfigPath = path.resolve(
     input.sourceConfigPath ??
       path.join(repoRoot, 'packages/console-server-ts/wrangler.d1-local.toml'),
@@ -55,18 +54,6 @@ export function prepareRouterAbD1LocalRuntimeConfig(input) {
   for (const key of ROUTER_RUNTIME_ASSIGNMENTS) {
     runtimeConfig = replaceTomlAssignment(runtimeConfig, key, requiredEnv(routerEnv, key));
   }
-  runtimeConfig = replaceTomlAssignment(runtimeConfig, 'DERIVER_A_URL', workerUrls.deriverA);
-  runtimeConfig = replaceTomlAssignment(runtimeConfig, 'DERIVER_B_URL', workerUrls.deriverB);
-  runtimeConfig = replaceTomlAssignment(
-    runtimeConfig,
-    'SIGNING_WORKER_URL',
-    workerUrls.signingWorker,
-  );
-  runtimeConfig = replaceTomlAssignment(
-    runtimeConfig,
-    'ROUTER_AB_SIGNING_WORKER_URL',
-    workerUrls.signingWorker,
-  );
   runtimeConfig = replaceTomlAssignment(
     runtimeConfig,
     'DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY',
@@ -91,11 +78,6 @@ export function prepareRouterAbD1LocalRuntimeConfig(input) {
     runtimeConfig,
     'GATEWAY_PUBLIC_URL',
     requiredEnv(routerEnv, 'GATEWAY_PUBLIC_URL'),
-  );
-  runtimeConfig = replaceTomlAssignment(
-    runtimeConfig,
-    'ROUTER_AB_MPC_ROUTER_URL',
-    workerUrls.mpcRouter,
   );
   runtimeConfig = replaceTomlAssignment(
     runtimeConfig,
@@ -236,29 +218,6 @@ function requiredEnv(env, key) {
     throw new Error(`Router A/B local runtime env is missing ${key}`);
   }
   return value.trim();
-}
-
-function parseWorkerUrls(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('Router A/B local runtime requires production worker URLs');
-  }
-  return Object.freeze({
-    mpcRouter: parseWorkerUrl(value.mpcRouter, 'MPC Router'),
-    deriverA: parseWorkerUrl(value.deriverA, 'Deriver A'),
-    deriverB: parseWorkerUrl(value.deriverB, 'Deriver B'),
-    signingWorker: parseWorkerUrl(value.signingWorker, 'SigningWorker'),
-  });
-}
-
-function parseWorkerUrl(value, label) {
-  if (typeof value !== 'string' || !value.trim()) {
-    throw new Error(`${label} local worker URL is required`);
-  }
-  const parsed = new URL(value);
-  if (parsed.protocol !== 'http:' || parsed.pathname !== '/' || parsed.search || parsed.hash) {
-    throw new Error(`${label} local worker URL must be an HTTP origin`);
-  }
-  return parsed.origin;
 }
 
 function assertRuntimeHpkeKeysAgree(router, deriverA, deriverB, signingWorker) {

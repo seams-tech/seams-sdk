@@ -47,6 +47,7 @@ import type {
   WalletRegistrationStartResponse,
 } from '../core/registrationContracts';
 import { registrationPreparationIdFromString } from '../core/registrationContracts';
+import type { RootShareEpoch } from '@shared/utils/domainIds';
 import type { ThresholdEcdsaChainTarget } from '../core/thresholdEcdsaChainTarget';
 import {
   thresholdEcdsaChainTargetFromValue,
@@ -541,9 +542,13 @@ function parseParticipantIds(raw: unknown, field: string): ParseResult<number[]>
 async function attachEcdsaWalletSessionJwt(
   input: RouterApiWalletRegistrationInput,
   bootstrap: EcdsaDerivationServerBootstrapResponse | undefined,
+  activationEpoch: RootShareEpoch,
   runtimePolicyScope?: RuntimePolicyScope,
 ): Promise<RouteResponse<RouteErrorBody> | null> {
   if (!bootstrap) return null;
+  if (bootstrap.activationEpoch !== activationEpoch) {
+    return routeError(500, 'internal', 'Router A/B ECDSA activation epoch mismatch');
+  }
   const normalSigningRuntime = input.services.walletRegistration.getRouterAbNormalSigningRuntime();
   if (!normalSigningRuntime) {
     return routeError(500, 'internal', 'Router A/B normal signing is not configured');
@@ -551,6 +556,7 @@ async function attachEcdsaWalletSessionJwt(
   const signingWorkerId = normalSigningRuntime.getSigningWorkerId();
   const routerAbEcdsaDerivationNormalSigning = buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap({
     bootstrap,
+    activationEpoch,
     routerAbPublicKeyset: input.services.routerAbPublicKeyset,
     signingWorkerId,
   });
@@ -581,7 +587,7 @@ async function attachEcdsaWalletSessionJwt(
         contextBinding32B64u: bootstrap.contextBinding32B64u,
       },
       publicIdentity: bootstrap.publicIdentity,
-      activationEpoch: bootstrap.thresholdSessionId,
+      activationEpoch,
       signingWorkerId,
       routerAbEcdsaDerivationNormalSigning: routerAbEcdsaDerivationNormalSigning.state,
     },
@@ -2458,6 +2464,7 @@ export async function handleRouterApiWalletRegistrationEcdsaActivation(
   const signingError = await attachEcdsaWalletSessionJwt(
     input,
     result.ecdsa.bootstrap,
+    result.ecdsa.activation.ecdsa_activation.activation_epoch,
     runtimePolicyScope,
   );
   if (signingError) return signingError;
@@ -2618,6 +2625,7 @@ export async function handleRouterApiWalletAddSignerEcdsaActivation(
   const signingError = await attachEcdsaWalletSessionJwt(
     input,
     result.ecdsa.bootstrap,
+    result.ecdsa.activation.ecdsa_activation.activation_epoch,
     runtimePolicyScope || undefined,
   );
   if (signingError) return signingError;

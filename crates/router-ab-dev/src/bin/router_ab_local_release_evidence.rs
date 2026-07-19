@@ -131,7 +131,7 @@ fn router_ab_ecdsa_derivation_evidence() -> RouterAbProtocolResult<RouterAbEcdsa
         b64u(&[0x44; 32]),
     )?;
     let response = RouterAbEcdsaDerivationEvmDigestSigningResponseV1::new_for_request(
-        &prepare,
+        &finalize,
         b64u(&[0x88; 65]),
     )?;
     let timing = time_iterations(ITERATIONS, || {
@@ -170,8 +170,8 @@ fn router_ab_ecdsa_derivation_evidence() -> RouterAbProtocolResult<RouterAbEcdsa
         }
 
         response
-            .validate_for_request(&parsed_prepare)
-            .expect("ECDSA response binds request");
+            .validate_for_request(&parsed_finalize)
+            .expect("ECDSA response binds finalize request");
     });
 
     Ok(RouterAbEcdsaDerivationEvidence {

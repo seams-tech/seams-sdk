@@ -24,6 +24,38 @@ print_success() { echo -e "${GREEN}✅ $1${NC}"; }
 print_error() { echo -e "${RED}❌ $1${NC}"; }
 print_warning() { echo -e "${YELLOW}⚠️ $1${NC}"; }
 
+REQUIRED_WASM_OUTPUTS=(
+  "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg/wasm_signer_worker.js"
+  "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg/wasm_signer_worker.d.ts"
+  "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg/wasm_signer_worker_bg.wasm"
+  "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client.js"
+  "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client.d.ts"
+  "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client_bg.wasm"
+  "$SDK_ROOT/$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT/pkg/ecdsa_registration_client.js"
+  "$SDK_ROOT/$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT/pkg/ecdsa_registration_client.d.ts"
+  "$SDK_ROOT/$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT/pkg/ecdsa_registration_client_bg.wasm"
+  "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg/router_ab_ecdsa_derivation_client.js"
+  "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg/router_ab_ecdsa_derivation_client.d.ts"
+  "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg/router_ab_ecdsa_derivation_client_bg.wasm"
+  "$SDK_ROOT/$SOURCE_WASM_ECDSA_PRESIGN_CLIENT/pkg/router_ab_ecdsa_presign_client.js"
+  "$SDK_ROOT/$SOURCE_WASM_ECDSA_PRESIGN_CLIENT/pkg/router_ab_ecdsa_presign_client.d.ts"
+  "$SDK_ROOT/$SOURCE_WASM_ECDSA_PRESIGN_CLIENT/pkg/router_ab_ecdsa_presign_client_bg.wasm"
+  "$SDK_ROOT/$SOURCE_WASM_ECDSA_ONLINE_CLIENT/pkg/router_ab_ecdsa_online_client.js"
+  "$SDK_ROOT/$SOURCE_WASM_ECDSA_ONLINE_CLIENT/pkg/router_ab_ecdsa_online_client.d.ts"
+  "$SDK_ROOT/$SOURCE_WASM_ECDSA_ONLINE_CLIENT/pkg/router_ab_ecdsa_online_client_bg.wasm"
+  "$SDK_ROOT/$SOURCE_WASM_EVM_CRYPTO/pkg/evm_crypto.js"
+  "$SDK_ROOT/$SOURCE_WASM_EVM_CRYPTO/pkg/evm_crypto.d.ts"
+  "$SDK_ROOT/$SOURCE_WASM_EVM_CRYPTO/pkg/evm_crypto_bg.wasm"
+  "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/pkg/tempo_signer.js"
+  "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/pkg/tempo_signer.d.ts"
+  "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/pkg/tempo_signer_bg.wasm"
+  "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/pkg/shamir3pass_runtime.js"
+  "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/pkg/shamir3pass_runtime_bg.wasm"
+  "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg/email_otp_runtime.js"
+  "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg/email_otp_runtime_bg.wasm"
+  "$SDK_ROOT/$SOURCE_WASM_THRESHOLD_PRF/pkg/threshold_prf_bg.wasm"
+)
+
 cleanup_build_sdk() {
   release_build_output_lock
 }
@@ -34,9 +66,17 @@ require_file() {
   local path="$1"
   if [ ! -f "$path" ]; then
     print_error "Missing required WASM output: $path"
-    echo "Run pnpm build:wasm or pnpm build:sdk-full first."
     exit 1
   fi
+}
+
+wasm_outputs_present() {
+  local path
+  for path in "${REQUIRED_WASM_OUTPUTS[@]}"; do
+    if [ ! -f "$path" ]; then
+      return 1
+    fi
+  done
 }
 
 if command -v bun >/dev/null 2>&1; then BUN_BIN="$(command -v bun)"; elif [ -x "$HOME/.bun/bin/bun" ]; then BUN_BIN="$HOME/.bun/bin/bun"; else BUN_BIN=""; fi
@@ -46,35 +86,18 @@ acquire_build_output_lock
 print_success "WASM package-output build lock acquired"
 
 print_step "Checking existing WASM package outputs..."
-require_file "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg/wasm_signer_worker.js"
-require_file "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg/wasm_signer_worker.d.ts"
-require_file "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg/wasm_signer_worker_bg.wasm"
-require_file "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client.js"
-require_file "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client.d.ts"
-require_file "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client_bg.wasm"
-require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT/pkg/ecdsa_registration_client.js"
-require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT/pkg/ecdsa_registration_client.d.ts"
-require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT/pkg/ecdsa_registration_client_bg.wasm"
-require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg/router_ab_ecdsa_derivation_client.js"
-require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg/router_ab_ecdsa_derivation_client.d.ts"
-require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg/router_ab_ecdsa_derivation_client_bg.wasm"
-require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_PRESIGN_CLIENT/pkg/router_ab_ecdsa_presign_client.js"
-require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_PRESIGN_CLIENT/pkg/router_ab_ecdsa_presign_client.d.ts"
-require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_PRESIGN_CLIENT/pkg/router_ab_ecdsa_presign_client_bg.wasm"
-require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_ONLINE_CLIENT/pkg/router_ab_ecdsa_online_client.js"
-require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_ONLINE_CLIENT/pkg/router_ab_ecdsa_online_client.d.ts"
-require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_ONLINE_CLIENT/pkg/router_ab_ecdsa_online_client_bg.wasm"
-require_file "$SDK_ROOT/$SOURCE_WASM_EVM_CRYPTO/pkg/evm_crypto.js"
-require_file "$SDK_ROOT/$SOURCE_WASM_EVM_CRYPTO/pkg/evm_crypto.d.ts"
-require_file "$SDK_ROOT/$SOURCE_WASM_EVM_CRYPTO/pkg/evm_crypto_bg.wasm"
-require_file "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/pkg/tempo_signer.js"
-require_file "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/pkg/tempo_signer.d.ts"
-require_file "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/pkg/tempo_signer_bg.wasm"
-require_file "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/pkg/shamir3pass_runtime.js"
-require_file "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/pkg/shamir3pass_runtime_bg.wasm"
-require_file "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg/email_otp_runtime.js"
-require_file "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg/email_otp_runtime_bg.wasm"
-require_file "$SDK_ROOT/$SOURCE_WASM_THRESHOLD_PRF/pkg/threshold_prf_bg.wasm"
+if ! wasm_outputs_present; then
+  print_warning "WASM package outputs are incomplete; building them now..."
+  if "$SCRIPT_DIR/build-wasm.sh"; then
+    print_success "Missing WASM package outputs rebuilt"
+  else
+    print_error "Failed to rebuild missing WASM package outputs"
+    exit 1
+  fi
+fi
+for path in "${REQUIRED_WASM_OUTPUTS[@]}"; do
+  require_file "$path"
+done
 print_success "WASM package outputs are present"
 
 print_step "Cleaning previous SDK build artifacts..."

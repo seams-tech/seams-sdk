@@ -15,10 +15,8 @@ import type {
 import type { RouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import type { RouterAbEcdsaDerivationNormalSigningScopeV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
-import type {
-  WalletId,
-} from '@shared/utils/registrationIntent';
-import type { WebAuthnRpId } from '@shared/utils/domainIds';
+import type { WalletId } from '@shared/utils/registrationIntent';
+import type { RootShareEpoch, WebAuthnRpId } from '@shared/utils/domainIds';
 import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import type {
   CreateHostedSigningRootShareResolverInput,
@@ -231,6 +229,8 @@ export type ThresholdStoreEnvInput = {
   ROUTER_AB_SIGNING_WORKER_URL?: string;
   /** Secret value sent in `x-router-ab-internal-service-auth` to private workers. */
   ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET?: string;
+  /** Fetch transport for hosted runtimes that reach the SigningWorker through a service binding. */
+  routerAbSigningWorkerFetch?: typeof globalThis.fetch;
   /** Optional signing session-seal key metadata and Shamir 3-pass parameters. */
   SIGNING_SESSION_SEAL_KEY_VERSION?: string;
   SIGNING_SESSION_SHAMIR_P_B64U?: string;
@@ -836,6 +836,7 @@ export interface EcdsaDerivationServerBootstrapResponse {
   relayerVerifyingShareB64u: string;
   participantIds: number[];
   thresholdSessionId: string;
+  activationEpoch: RootShareEpoch;
   signingGrantId: string;
   expiresAtMs: number;
   expiresAt: string;

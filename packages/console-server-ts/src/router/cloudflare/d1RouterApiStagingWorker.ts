@@ -15,7 +15,10 @@ import type {
   CloudflareD1OidcExchangeConfig,
   CloudflareD1OidcExchangeIssuerConfig,
 } from '@seams/sdk-server/internal/router/cloudflare/d1OidcBoundary';
-import type { CfExecutionContext, FetchHandler } from '@seams/sdk-server/internal/router/cloudflare/cloudflare.types';
+import type {
+  CfExecutionContext,
+  FetchHandler,
+} from '@seams/sdk-server/internal/router/cloudflare/cloudflare.types';
 import { ThresholdStoreDurableObject } from '@seams/sdk-server/internal/router/cloudflare/durableObjects/thresholdStore';
 import { createRouterAbEd25519YaoHttpRegistrationBackendFromEnv } from '@seams/sdk-server/internal/router/routerAbEd25519YaoHttpRegistrationBackend';
 import {
@@ -52,24 +55,18 @@ import {
   parseRouterAbPublicKeysetV2,
   type RouterAbPublicKeysetV2,
 } from '@seams-internal/shared-ts/utils/routerAbPublicKeyset';
+import {
+  createRouterAbServiceBindingFetch,
+  ROUTER_AB_DERIVER_A_ORIGIN,
+  ROUTER_AB_DERIVER_B_ORIGIN,
+  ROUTER_AB_SIGNING_WORKER_ORIGIN,
+  type RouterAbServiceBindingEnv,
+} from './routerAbServiceBindings';
 
 export { ThresholdStoreDurableObject };
 
-interface CloudflareServiceBindingFetcher {
-  fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
-}
-
-export interface RouterAbServiceBindingEnv {
-  readonly MPC_ROUTER: CloudflareServiceBindingFetcher;
-  readonly DERIVER_A: CloudflareServiceBindingFetcher;
-  readonly DERIVER_B: CloudflareServiceBindingFetcher;
-  readonly SIGNING_WORKER: CloudflareServiceBindingFetcher;
-}
-
 interface CloudflareD1RouterApiStagingEnv
-  extends CloudflareD1StagingSecretEnv,
-    CloudflareD1StagingSessionEnv,
-    RouterAbServiceBindingEnv {
+  extends CloudflareD1StagingSecretEnv, CloudflareD1StagingSessionEnv, RouterAbServiceBindingEnv {
   readonly CONSOLE_DB: D1DatabaseLike;
   readonly SIGNER_DB: D1DatabaseLike;
   readonly THRESHOLD_STORE: CloudflareDurableObjectNamespaceLike;
@@ -166,54 +163,7 @@ const RELAY_SIGNER_READY_TABLES = Object.freeze([
   'signing_root_secret_shares',
 ]);
 
-const ROUTER_AB_DERIVER_A_ORIGIN = 'https://deriver-a.router-ab.internal';
-const ROUTER_AB_DERIVER_B_ORIGIN = 'https://deriver-b.router-ab.internal';
-const ROUTER_AB_SIGNING_WORKER_ORIGIN = 'https://signing-worker.router-ab.internal';
 const ROUTER_AB_CEREMONY_JWKS_PATH = '/.well-known/router-ab-ceremony-jwks.json';
-
-type RouterAbServiceBindingOrigin =
-  | typeof ROUTER_AB_DERIVER_A_ORIGIN
-  | typeof ROUTER_AB_DERIVER_B_ORIGIN
-  | typeof ROUTER_AB_SIGNING_WORKER_ORIGIN;
-
-class RouterAbServiceBindingDispatcher {
-  constructor(private readonly env: RouterAbServiceBindingEnv) {}
-
-  async fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-    const request = new Request(input, init);
-    const binding = this.bindingForOrigin(new URL(request.url).origin);
-    return await binding.fetch(request);
-  }
-
-  private bindingForOrigin(origin: string): CloudflareServiceBindingFetcher {
-    switch (parseRouterAbServiceBindingOrigin(origin)) {
-      case ROUTER_AB_DERIVER_A_ORIGIN:
-        return this.env.DERIVER_A;
-      case ROUTER_AB_DERIVER_B_ORIGIN:
-        return this.env.DERIVER_B;
-      case ROUTER_AB_SIGNING_WORKER_ORIGIN:
-        return this.env.SIGNING_WORKER;
-    }
-  }
-}
-
-function parseRouterAbServiceBindingOrigin(origin: string): RouterAbServiceBindingOrigin {
-  switch (origin) {
-    case ROUTER_AB_DERIVER_A_ORIGIN:
-    case ROUTER_AB_DERIVER_B_ORIGIN:
-    case ROUTER_AB_SIGNING_WORKER_ORIGIN:
-      return origin;
-    default:
-      throw new Error(`Unsupported Router A/B service-binding origin: ${origin}`);
-  }
-}
-
-export function createRouterAbServiceBindingFetch(
-  env: RouterAbServiceBindingEnv,
-): typeof globalThis.fetch {
-  const dispatcher = new RouterAbServiceBindingDispatcher(env);
-  return dispatcher.fetch.bind(dispatcher);
-}
 
 export function createStagingEd25519YaoBackend(env: CloudflareD1RouterApiStagingEnv) {
   return createRouterAbEd25519YaoHttpRegistrationBackendFromEnv({
@@ -465,10 +415,13 @@ function stagingThresholdStoreConfig(
     kind: 'cloudflare-do',
     namespace: env.THRESHOLD_STORE,
     THRESHOLD_PREFIX: namespace,
-    ROUTER_AB_NORMAL_SIGNING_WORKER_ID: requireEnvString(
+    ROUTER_AB_NORMAL_SIGNING_WORKER_ID: requireEnvString(env, 'ROUTER_AB_NORMAL_SIGNING_WORKER_ID'),
+    ROUTER_AB_SIGNING_WORKER_URL: ROUTER_AB_SIGNING_WORKER_ORIGIN,
+    ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: requireEnvString(
       env,
-      'ROUTER_AB_NORMAL_SIGNING_WORKER_ID',
+      'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
     ),
+    routerAbSigningWorkerFetch: createRouterAbServiceBindingFetch(env),
   };
 }
 
@@ -486,7 +439,6 @@ function stagingSigningSessionSealOptions(
     thresholdStoreConfig,
   });
 }
-
 
 function createRouterApiReadyCheck(env: CloudflareD1RouterApiStagingEnv): () => Promise<void> {
   const check = new RouterApiStagingReadyCheck(env);
@@ -540,20 +492,10 @@ function stagingEmailOtpServerSealConfig(
   const shamirPrimeB64u = readEnvString(env, 'SIGNING_SESSION_SHAMIR_P_B64U');
   const serverEncryptExponentB64u = readEnvString(env, 'SIGNING_SESSION_SEAL_E_S_B64U');
   const serverDecryptExponentB64u = readEnvString(env, 'SIGNING_SESSION_SEAL_D_S_B64U');
-  if (
-    !keyVersion &&
-    !shamirPrimeB64u &&
-    !serverEncryptExponentB64u &&
-    !serverDecryptExponentB64u
-  ) {
+  if (!keyVersion && !shamirPrimeB64u && !serverEncryptExponentB64u && !serverDecryptExponentB64u) {
     return undefined;
   }
-  if (
-    !keyVersion ||
-    !shamirPrimeB64u ||
-    !serverEncryptExponentB64u ||
-    !serverDecryptExponentB64u
-  ) {
+  if (!keyVersion || !shamirPrimeB64u || !serverEncryptExponentB64u || !serverDecryptExponentB64u) {
     throw new Error(
       'Email OTP server seal requires SIGNING_SESSION_SEAL_KEY_VERSION, SIGNING_SESSION_SHAMIR_P_B64U, SIGNING_SESSION_SEAL_E_S_B64U, and SIGNING_SESSION_SEAL_D_S_B64U',
     );
@@ -600,9 +542,7 @@ function parseOidcExchangeIssuers(input: unknown): CloudflareD1OidcExchangeIssue
   return issuers;
 }
 
-function parseOidcExchangeIssuer(
-  input: unknown,
-): CloudflareD1OidcExchangeIssuerConfig | null {
+function parseOidcExchangeIssuer(input: unknown): CloudflareD1OidcExchangeIssuerConfig | null {
   if (!isRecord(input)) return null;
   const issuer = normalizeString(input.issuer);
   const jwksUrl = normalizeString(input.jwksUrl);
@@ -659,9 +599,7 @@ function normalizeString(input: unknown): string {
   return String(input || '').trim();
 }
 
-function readRouterApiYaoState(
-  persisted: unknown,
-): RouterAbEd25519YaoProductRegistrationStateV1 {
+function readRouterApiYaoState(persisted: unknown): RouterAbEd25519YaoProductRegistrationStateV1 {
   if (persisted === null || persisted === undefined) {
     return createRouterAbEd25519YaoProductRegistrationStateV1();
   }
@@ -672,13 +610,9 @@ function readRouterApiYaoState(
 
 function routerApiRuntimeInstanceName(env: CloudflareD1RouterApiStagingEnv): string {
   const scope = stagingTenantScope(env);
-  return [
-    'router-api-runtime-v1',
-    scope.namespace,
-    scope.orgId,
-    scope.projectId,
-    scope.envId,
-  ].join(':');
+  return ['router-api-runtime-v1', scope.namespace, scope.orgId, scope.projectId, scope.envId].join(
+    ':',
+  );
 }
 
 function routerApiRuntimeFailureResponse(error: unknown): Response {
@@ -739,10 +673,7 @@ async function fetch(
   env: CloudflareD1RouterApiStagingEnv,
   _ctx: CfExecutionContext,
 ): Promise<Response> {
-  if (
-    request.method === 'GET' &&
-    new URL(request.url).pathname === ROUTER_AB_CEREMONY_JWKS_PATH
-  ) {
+  if (request.method === 'GET' && new URL(request.url).pathname === ROUTER_AB_CEREMONY_JWKS_PATH) {
     return routerAbCeremonyJwksResponse(env);
   }
   const id = env.ROUTER_API_RUNTIME.idFromName(routerApiRuntimeInstanceName(env));

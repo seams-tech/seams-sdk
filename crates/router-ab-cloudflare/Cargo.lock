@@ -1136,6 +1136,7 @@ dependencies = [
  "ecdsa",
  "elliptic-curve 0.13.8",
  "sha2 0.10.9",
+ "signature",
 ]
 
 [[package]]
@@ -1548,8 +1549,8 @@ version = "0.1.0"
 dependencies = [
  "base64ct",
  "curve25519-dalek",
- "ed25519-dalek",
  "hpke-ng",
+ "k256",
  "rand_chacha 0.9.0",
  "rand_core 0.9.5",
  "serde",

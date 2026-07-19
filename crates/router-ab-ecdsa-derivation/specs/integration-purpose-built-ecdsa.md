@@ -33,7 +33,8 @@ and build dependency graphs for all production owners.
 
 1. Router A/B derivation produces `x_client`, `x_relayer`, their public shares,
    the group public key, and the Ethereum address under one stable context.
-2. Activation verifies the authenticated registry identity before admitting
+2. Activation verifies both proof-contained DLEQ commitments and the fixed
+   A/B recipient, transcript, epoch, and lifecycle bindings before admitting
    either presignature half.
 3. Presigning binds both halves to the fixed protocol, public key, SigningWorker
    epoch, activation epoch, authenticated scope, and pair identifier.
@@ -50,13 +51,13 @@ Normal signing does not call either Deriver after activation.
 ## Required invariants
 
 - Both additive shares are canonical non-zero secp256k1 scalars.
-- The public shares sum to the registered group public key.
-- The registered Ethereum address is derived from that same group public key.
+- The public shares sum to the group public key used for the request.
+- The Ethereum address is derived from that same group public key.
 - A presignature pair is usable only under its exact authenticated scope and
   pair binding.
 - A pair half cannot be cloned, revived, substituted across scopes, or consumed
   twice.
-- Final signatures are canonical low-`s`, verify against the registered group
+- Final signatures are canonical low-`s`, verify against the request-bound group
   key, and carry the correct recovery identifier.
 - Client secrets never cross the Client boundary. SigningWorker secrets never
   cross the SigningWorker boundary except the explicitly authorized additive

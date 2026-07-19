@@ -355,7 +355,7 @@ per production Worker.
 
 The build and launch phases are separate. `pnpm build:sdk` builds the SDK and
 the four strict Rust/WASM Workers. `pnpm router` validates the Worker artifacts
-and their commitment-policy receipt, then starts the topology without invoking
+and their build profile, then starts the topology without invoking
 `worker-build`. `pnpm router:build` rebuilds only the strict Workers.
 
 Before launch, `pnpm router` stops existing Wrangler process groups whose

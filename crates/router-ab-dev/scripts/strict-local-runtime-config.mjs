@@ -25,10 +25,6 @@ export function prepareRouterAbStrictLocalRuntimeConfigs(input) {
   const signingWorkerEnv = readEnvMap(
     path.join(localEnvRoot, '.env.router-ab.signing-worker.local'),
   );
-  const commitmentRegistryJson = requiredJsonObjectEnv(
-    signingWorkerEnv,
-    'ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON',
-  );
   const sdkRouterUrl = requiredEnv(routerEnv, 'GATEWAY_PUBLIC_URL');
   const mpcRouterUrl = `http://127.0.0.1:${STRICT_WORKER_ROLES[0].port}`;
 
@@ -58,7 +54,6 @@ export function prepareRouterAbStrictLocalRuntimeConfigs(input) {
       deriverAEnv,
       deriverBEnv,
       signingWorkerEnv,
-      commitmentRegistryJson,
     });
     writeFileSync(outputPath, config);
     const secretPath = path.join(outputRoot, `.dev.vars.${role}`);
@@ -109,12 +104,6 @@ function applyRoleVars(source, role, env) {
         `${env.sdkRouterUrl}/.well-known/router-ab-ceremony-jwks.json`,
       );
       config = replaceTopologyPublicVars(config, env);
-      config = setTomlSectionAssignment(
-        config,
-        'vars',
-        'ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON',
-        env.commitmentRegistryJson,
-      );
       return replaceTomlAssignment(
         config,
         'ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON',
@@ -170,12 +159,7 @@ function applyRoleVars(source, role, env) {
         'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
         requiredEnv(env.signingWorkerEnv, 'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY'),
       );
-      return setTomlSectionAssignment(
-        config,
-        'vars',
-        'ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON',
-        env.commitmentRegistryJson,
-      );
+      return config;
     default:
       throw new Error(`unsupported strict local worker role ${role}`);
   }
@@ -322,20 +306,6 @@ function requiredEnv(env, key) {
     throw new Error(`strict local runtime env is missing ${key}`);
   }
   return value.trim();
-}
-
-function requiredJsonObjectEnv(env, key) {
-  const value = requiredEnv(env, key);
-  let parsed;
-  try {
-    parsed = JSON.parse(value);
-  } catch {
-    throw new Error(`strict local runtime env ${key} must be valid JSON`);
-  }
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    throw new Error(`strict local runtime env ${key} must be a JSON object`);
-  }
-  return value;
 }
 
 function versionedHexSecret(value, prefix, label) {

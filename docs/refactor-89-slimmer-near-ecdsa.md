@@ -85,8 +85,8 @@ is:
 
 ### Completed product checkpoint
 
-- [x] Strict Router A/B ECDSA derivation with authenticated root-share
-      commitments and registry-bound DLEQ verification.
+- [x] Strict Router A/B ECDSA derivation with proof-contained root-share
+      commitments and direct DLEQ verification.
 - [x] Recipient-encrypted ECDSA proof-bundle verification at the Client
       boundary.
 - [x] Zero Deriver calls during normal signing, enforced by focused tests and
@@ -239,7 +239,7 @@ Current Phase A implementation checkpoint:
       absorbing semantics.
 - [x] Release a signature share or final signature only after the local
       committed-use mutation and material deletion succeed.
-- [x] Bind pool creation to the authenticated registry record and exact wallet
+- [x] Bind pool creation to the verified derivation pair and exact wallet
       public key before either party accepts usable presign material.
 - [ ] Complete deployed fault testing for the concrete SigningWorker adapter:
       concurrency,
@@ -908,7 +908,7 @@ parity does not require preserving obsolete names or a generic facade.
 | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Reusing a nonce, triple, or presignature after a retry or partial failure                                       | Commit local use before output; treat uncertain delivery as consumed; make terminal states irreversible                                              |
 | Treating rerandomization as permission to reuse base material                                                   | Keep one-use semantics even with fresh rerandomization entropy                                                                                       |
-| Accepting a public key or public-share commitment from the signing request                                      | Resolve authenticated registry state by exact wallet/key/role/epoch and compare before protocol work                                                 |
+| Accepting a public key or public-share commitment from the signing request                                      | Bind the request to authenticated activation/session state and verify each proof against its proof-contained commitment before protocol work             |
 | Allowing either role to reach `available` independently                                                         | Commit the matched pair through one transcript/pair receipt; expose neither half after a partial pool fill                                           |
 | Retrying a state-machine transition with changed bytes                                                          | Pin round, direction, sequence, and message digest; abort and burn on equivocation                                                                   |
 | Sharing mutable session state across concurrent requests                                                        | Consume typed states by value and permit one in-flight transition for each session/pair                                                              |
@@ -1707,7 +1707,7 @@ assumption identifier, reviewer disposition, and confidence from `0.00` to
   participant identifiers, thresholds, and participant vectors do not exist in
   the production type system.
 - `X`, the role, key epoch, activation epoch, normal-signing scope digest, and
-  pool-pair identifier come from authenticated registry/session state. Signing
+  pool-pair identifier come from authenticated activation/session state. Signing
   requests cannot supply replacements for those values.
 
 #### Construction stack
@@ -2104,7 +2104,7 @@ owner, reviewer, and disposition.
 | `A-RNG`      | Each honest role has a cryptographic RNG; named production random values are independent, fresh, secret where required, and never reused                                                                                |
 | `A-ENTROPY`  | Commitment-bound role contributions make rerandomization entropy unpredictable before committed use when either role is honest                                                                                          |
 | `A-CHANNEL`  | Private messages have end-to-end confidentiality, integrity, sender authentication, and session binding; public messages have integrity, sender authentication, and consistent context                                  |
-| `A-REGISTRY` | The authenticated registry uniquely binds scope, role, public-share commitment, combined public key, protocol version, and epochs before protocol work                                                                  |
+| `A-BINDING`  | Authenticated activation and session state uniquely bind scope, role, public-share commitment, combined public key, protocol version, and epochs before protocol work                                                   |
 | `A-STATE`    | Atomic persistence and tombstones enforce one-use transitions; rollback protection and epoch invalidation prevent revival                                                                                               |
 | `A-DIGEST`   | The 32-byte signing input is the exact authorized EVM digest; arbitrary unhashed scalar signing is unreachable                                                                                                          |
 | `A-CT`       | Secret-bearing production kernels satisfy the separate source and compiled native/Wasm constant-time gate                                                                                                               |

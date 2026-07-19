@@ -6,16 +6,24 @@ import {
   type AppOrWalletSessionAuth,
 } from '@shared/utils/sessionTokens';
 import {
+  parseRootShareEpoch,
+  parseSigningGrantId,
+  type RootShareEpoch,
+  type SigningGrantId,
+} from '@shared/utils/domainIds';
+import {
   ROUTER_AB_ECDSA_DERIVATION_BOOTSTRAP_PATH,
   ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH,
   ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH,
   ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH,
   ROUTER_AB_ECDSA_DERIVATION_SESSION_ACTIVATION_PATH,
   parseRouterAbEcdsaDerivationActivationRefreshForwardedResponseV1,
+  parseRouterAbEcdsaExplicitExportForwardedResponseV1,
   parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1,
   parseRouterAbEcdsaStrictForwardedRegistrationResponseV1,
   parseRouterAbEcdsaDerivationNormalSigningFromWalletRegistrationJwtV1,
   type RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1,
+  type RouterAbEcdsaExplicitExportForwardedResponseV1,
   type RouterAbEcdsaDerivationActivationRefreshRequestV1,
   type RouterAbEcdsaDerivationExplicitExportRequestV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
@@ -45,6 +53,21 @@ import {
 } from './relayerHttp';
 
 const WRANGLER_WORKER_RESTARTED_MID_REQUEST = 'Your worker restarted mid-request';
+
+function requireThresholdEcdsaRootShareEpoch(value: unknown, field: string) {
+  const parsed = parseRootShareEpoch(value);
+  if (!parsed.ok) throw new Error(`${field} is invalid`);
+  return parsed.value;
+}
+
+function requireThresholdEcdsaSigningGrantId(
+  value: unknown,
+  field: string,
+): SigningGrantId {
+  const parsed = parseSigningGrantId(value);
+  if (!parsed.ok) throw new Error(`${field} is invalid`);
+  return parsed.value;
+}
 
 export type EcdsaDerivationRoleLocalPublicIdentity = {
   derivationClientSharePublicKey33B64u: DerivationClientSharePublicKey33B64u;
@@ -92,7 +115,7 @@ export type ThresholdEcdsaDerivationRoleLocalBootstrapRequest = {
   contextBinding32B64u: string;
   requestId: string;
   sessionId: string;
-  signingGrantId: string;
+  signingGrantId: SigningGrantId;
   ttlMs: number;
   remainingUses: number;
   participantIds: number[];
@@ -204,7 +227,8 @@ export type ThresholdEcdsaDerivationRoleLocalBootstrapValue = {
   relayerVerifyingShareB64u: string;
   participantIds: number[];
   thresholdSessionId: string;
-  signingGrantId: string;
+  activationEpoch: RootShareEpoch;
+  signingGrantId: SigningGrantId;
   expiresAtMs: number;
   expiresAt: string;
   remainingUses: number;
@@ -301,6 +325,7 @@ const NON_EXPORT_BOOTSTRAP_RESPONSE_FIELDS = new Set([
   'relayerVerifyingShareB64u',
   'participantIds',
   'thresholdSessionId',
+  'activationEpoch',
   'signingGrantId',
   'expiresAtMs',
   'expiresAt',
@@ -380,7 +405,11 @@ export function parseThresholdEcdsaDerivationRoleLocalBootstrapValue(
     record.thresholdSessionId,
     'thresholdSessionId',
   );
-  const signingGrantId = requireNonEmptyString(
+  const activationEpoch = requireThresholdEcdsaRootShareEpoch(
+    record.activationEpoch,
+    'activationEpoch',
+  );
+  const signingGrantId = requireThresholdEcdsaSigningGrantId(
     record.signingGrantId,
     'signingGrantId',
   );
@@ -398,6 +427,7 @@ export function parseThresholdEcdsaDerivationRoleLocalBootstrapValue(
         signingRootId,
         signingRootVersion,
         thresholdSessionId,
+        activationEpoch,
         signingGrantId,
         expiresAtMs,
         participantIds,
@@ -440,6 +470,7 @@ export function parseThresholdEcdsaDerivationRoleLocalBootstrapValue(
     ),
     participantIds,
     thresholdSessionId,
+    activationEpoch,
     signingGrantId,
     expiresAtMs,
     expiresAt: requireNonEmptyString(record.expiresAt, 'expiresAt'),
@@ -539,14 +570,40 @@ export async function routerAbEcdsaExplicitExport(
     readonly auth: ThresholdEcdsaDerivationRouteAuth;
   },
 ): Promise<
-  ThresholdEcdsaDerivationRoleLocalRouteResult<RouterAbEcdsaStrictForwardedRegistrationResponseV1>
+  ThresholdEcdsaDerivationRoleLocalRouteResult<RouterAbEcdsaExplicitExportForwardedResponseV1>
 > {
-  return await executeRouterAbEcdsaPostRegistrationClientProofCall(relayServerUrl, {
-    kind: 'explicit_export',
-    path: ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH,
-    request: input.request,
-    auth: input.auth,
-  });
+  try {
+    const base = normalizeRelayerBaseUrl(relayServerUrl);
+    if (!base) throw new Error('Missing relayServerUrl');
+    const response = await fetch(
+      `${base}${ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH}`,
+      buildRelayRequestInit({
+        auth: input.auth,
+        body: input.request,
+      }),
+    );
+    const json = await parseRelayJson<unknown>(response);
+    if (!response.ok) {
+      const failure =
+        json && typeof json === 'object' && !Array.isArray(json)
+          ? (json as { code?: unknown; message?: unknown })
+          : null;
+      return {
+        ok: false,
+        code: String(failure?.code || 'http_error'),
+        message: String(failure?.message || `HTTP ${response.status}`),
+      };
+    }
+    return {
+      ok: true,
+      value: parseRouterAbEcdsaExplicitExportForwardedResponseV1(json),
+    };
+  } catch (error: unknown) {
+    return {
+      ok: false,
+      error: errorMessage(error) || 'Router A/B ECDSA explicit export failed',
+    };
+  }
 }
 
 export async function routerAbEcdsaRecovery(

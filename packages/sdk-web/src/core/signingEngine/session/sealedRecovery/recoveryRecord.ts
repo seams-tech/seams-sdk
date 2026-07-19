@@ -8,7 +8,9 @@ import {
 } from '@/core/signingEngine/threshold/sessionPolicy';
 import {
   parseRouterAbEcdsaDerivationNormalSigningStateV1,
+  parseRouterAbEcdsaDerivationPublicCapabilityV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
+  type RouterAbEcdsaDerivationPublicCapabilityV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
@@ -45,6 +47,8 @@ type RawEcdsaRestoreMetadata = {
   participantIds?: unknown;
   runtimePolicyScope?: unknown;
   routerAbEcdsaDerivationNormalSigning?: unknown;
+  publicCapability?: unknown;
+  roleLocalDurableMaterialRef?: unknown;
 };
 
 export type RawSigningSessionSealedStoreRecord = RawSealedSessionRecord & {
@@ -111,12 +115,13 @@ type EcdsaSealedRecoveryRecordBase = SealedRecoveryRecordBase & {
   keyHandle: string;
   ecdsaThresholdKeyId: string;
   ethereumAddress: `0x${string}`;
-  thresholdEcdsaPublicKeyB64u?: string;
+  thresholdEcdsaPublicKeyB64u: string;
   participantIds: readonly number[];
   relayerUrl: string;
   relayerKeyId: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
+  publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 };
 
 export type SealedRecoveryWalletSessionAuth = {
@@ -135,6 +140,7 @@ export type PasskeyEcdsaSealedRecoveryRecord = EcdsaSealedRecoveryRecordBase &
     authority: PasskeyWalletAuthAuthority;
     evmFamilySigningKeySlotId: string;
     clientVerifyingShareB64u: string;
+    roleLocalDurableMaterialRef: string;
     rpId?: never;
     credentialIdB64u?: never;
     providerSubjectId?: never;
@@ -153,6 +159,7 @@ export type EmailOtpEcdsaSealedRecoveryRecord = EcdsaSealedRecoveryRecordBase &
     providerSubjectId?: never;
     emailHashHex?: never;
     authSubjectId?: never;
+    roleLocalDurableMaterialRef?: never;
     rpId?: never;
   };
 
@@ -186,6 +193,16 @@ function normalizeRouterAbEcdsaDerivationNormalSigningState(
 ): RouterAbEcdsaDerivationNormalSigningStateV1 | null {
   try {
     return parseRouterAbEcdsaDerivationNormalSigningStateV1(value);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeRouterAbEcdsaDerivationPublicCapability(
+  value: unknown,
+): RouterAbEcdsaDerivationPublicCapabilityV1 | null {
+  try {
+    return parseRouterAbEcdsaDerivationPublicCapabilityV1(value);
   } catch {
     return null;
   }
@@ -453,6 +470,12 @@ export function normalizeSealedRecoveryRecord(
   const routerAbEcdsaDerivationNormalSigning = normalizeRouterAbEcdsaDerivationNormalSigningState(
     restore?.routerAbEcdsaDerivationNormalSigning,
   );
+  const publicCapability = normalizeRouterAbEcdsaDerivationPublicCapability(
+    restore?.publicCapability,
+  );
+  const roleLocalDurableMaterialRef = normalizeNonEmptyString(
+    restore?.roleLocalDurableMaterialRef,
+  );
   const clientVerifyingShareB64u = normalizeNonEmptyString(restore?.clientVerifyingShareB64u);
   const passkeyClientVerifyingShareB64u =
     raw.authMethod === 'passkey' ? clientVerifyingShareB64u : null;
@@ -484,9 +507,12 @@ export function normalizeSealedRecoveryRecord(
     !relayerKeyId ||
     !keyHandle ||
     !ethereumAddress ||
+    !thresholdEcdsaPublicKeyB64u ||
     !routerAbEcdsaDerivationNormalSigning ||
+    !publicCapability ||
     !participantIds.length ||
-    (raw.authMethod === 'passkey' && !passkeyClientVerifyingShareB64u)
+    (raw.authMethod === 'passkey' &&
+      (!passkeyClientVerifyingShareB64u || !roleLocalDurableMaterialRef))
   ) {
     return reject(raw, 'missing_restore_metadata');
   }
@@ -549,14 +575,16 @@ export function normalizeSealedRecoveryRecord(
           keyHandle,
           ecdsaThresholdKeyId,
           ethereumAddress,
-          ...(thresholdEcdsaPublicKeyB64u ? { thresholdEcdsaPublicKeyB64u } : {}),
+          thresholdEcdsaPublicKeyB64u,
           participantIds,
           relayerUrl,
           relayerKeyId,
           ...walletSessionAuth,
           ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
           routerAbEcdsaDerivationNormalSigning,
+          publicCapability,
           clientVerifyingShareB64u: passkeyClientVerifyingShareB64u!,
+          roleLocalDurableMaterialRef: roleLocalDurableMaterialRef!,
         }
       : {
           storeKey,
@@ -585,13 +613,14 @@ export function normalizeSealedRecoveryRecord(
           keyHandle,
           ecdsaThresholdKeyId,
           ethereumAddress,
-          ...(thresholdEcdsaPublicKeyB64u ? { thresholdEcdsaPublicKeyB64u } : {}),
+          thresholdEcdsaPublicKeyB64u,
           participantIds,
           relayerUrl,
           relayerKeyId,
           ...walletSessionAuth,
           ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
           routerAbEcdsaDerivationNormalSigning,
+          publicCapability,
           ...(clientVerifyingShareB64u ? { clientVerifyingShareB64u } : {}),
         };
   return { kind: 'accepted', record: accepted };

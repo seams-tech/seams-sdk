@@ -162,6 +162,7 @@ function normalizeThresholdStoreConfig(
     toOptionalTrimmedString(c.ROUTER_AB_NORMAL_SIGNING_WORKER_ID) ||
     toOptionalTrimmedString(c.ROUTER_AB_SIGNING_WORKER_URL) ||
     toOptionalTrimmedString(c.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET) ||
+    typeof c.routerAbSigningWorkerFetch === 'function' ||
     toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_KEY_VERSION) ||
     toOptionalTrimmedString(c.SIGNING_SESSION_SHAMIR_P_B64U) ||
     toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_E_S_B64U) ||

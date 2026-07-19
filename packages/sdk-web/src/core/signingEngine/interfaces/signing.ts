@@ -5,7 +5,7 @@ import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/
 import type {
   EcdsaRoleLocalBindingDigest,
   EcdsaRoleLocalDurableMaterialRef,
-  EcdsaRoleLocalMaterialHandle,
+  EcdsaRoleLocalWorkerHandle,
 } from '../session/keyMaterialBrands';
 import type {
   EcdsaRoleLocalAuthMethod,
@@ -35,13 +35,6 @@ export type { EcdsaThresholdKeyId };
 export type ThresholdEcdsaClientAdditiveShareHandle = {
   kind: 'email_otp_worker_session';
   sessionId: string;
-};
-
-export type ThresholdEcdsaRoleLocalWorkerShareHandle = {
-  kind: 'role_local_worker_session';
-  materialHandle: EcdsaRoleLocalMaterialHandle;
-  bindingDigest: EcdsaRoleLocalBindingDigest;
-  durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
 };
 
 export type ThresholdEcdsaDerivationRoleLocalClientState = {
@@ -85,7 +78,7 @@ export type ThresholdEcdsaRoleLocalReadyStateBlobBackendBinding =
 export type ThresholdEcdsaRoleLocalWorkerHandleBackendBinding =
   ThresholdEcdsaBackendBindingCommon & {
     materialKind: 'role_local_worker_handle';
-    roleLocalMaterialHandle: ThresholdEcdsaRoleLocalWorkerShareHandle;
+    roleLocalMaterialHandle: EcdsaRoleLocalWorkerHandle;
     publicFacts: EcdsaRoleLocalPublicFacts;
     authMethod: EcdsaRoleLocalAuthMethod;
     ecdsaRoleLocalReadyRecord?: never;

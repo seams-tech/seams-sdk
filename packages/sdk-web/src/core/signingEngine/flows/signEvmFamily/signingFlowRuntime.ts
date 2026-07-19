@@ -60,9 +60,7 @@ import {
   buildEvmFamilyPasskeyEcdsaProvisionPlan,
   buildEvmFamilyWarmSessionReconnectPlan,
 } from './provisionPlan';
-import {
-  resolveRouterAbEcdsaWalletSessionAuthFromRecord,
-} from '../../session/warmCapabilities/routerAbEcdsaWalletSessionAuth';
+import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from '../../session/warmCapabilities/routerAbEcdsaWalletSessionAuth';
 import {
   normalizeStepUpOperationId,
   resolvePostExhaustionStepUpBudgetPolicy,
@@ -163,6 +161,7 @@ async function resolveEcdsaSigningMaterialHydrationPlan(args: {
   record: ThresholdEcdsaSessionRecord | undefined;
   requestLabel: unknown;
   evmFamilySigningKeySlotId: unknown;
+  workerCtx: ReturnType<EvmFamilySigningDeps['getSignerWorkerContext']>;
 }): Promise<EcdsaSigningMaterialPlan> {
   if (!args.record) return { kind: 'unavailable', reason: 'missing_record' };
   try {
@@ -170,7 +169,7 @@ async function resolveEcdsaSigningMaterialHydrationPlan(args: {
       record: args.record,
       requestLabel: args.requestLabel,
       evmFamilySigningKeySlotId: args.evmFamilySigningKeySlotId,
-      hydrationEntryPoint: 'post_page_refresh',
+      workerCtx: args.workerCtx,
     });
     return { kind: 'material_from_runtime_validated_record', material };
   } catch (error) {
@@ -288,7 +287,9 @@ export async function createEvmFamilySigningFlowRuntime(args: {
         );
         const evmFamilySigningKeySlotId = String(signer.key.evmFamilySigningKeySlotId || '').trim();
         if (!evmFamilySigningKeySlotId) {
-          throw new Error('[SigningEngine] missing evmFamilySigningKeySlotId for passkey ECDSA reconnect');
+          throw new Error(
+            '[SigningEngine] missing evmFamilySigningKeySlotId for passkey ECDSA reconnect',
+          );
         }
         const signingKeyContext = signingKeyContextFromPasskeyEcdsaReconnectMaterial(material);
         const materialRelayerKeyId = relayerKeyIdFromPasskeyEcdsaReconnectMaterial(material);
@@ -519,15 +520,13 @@ export async function createEvmFamilySigningFlowRuntime(args: {
     },
     ...(runtimeValidatedThresholdEcdsaRecord
       ? {
-          resolveEcdsaSigningMaterialPlan: async ({
-            requestLabel,
-          }: {
-            requestLabel: unknown;
-          }) =>
+          resolveEcdsaSigningMaterialPlan: async ({ requestLabel }: { requestLabel: unknown }) =>
             await resolveEcdsaSigningMaterialHydrationPlan({
               record: runtimeValidatedThresholdEcdsaRecord,
               requestLabel,
-              evmFamilySigningKeySlotId: args.getResolvedEcdsaSigningLane().key.evmFamilySigningKeySlotId,
+              evmFamilySigningKeySlotId:
+                args.getResolvedEcdsaSigningLane().key.evmFamilySigningKeySlotId,
+              workerCtx: signerWorkerCtx,
             }),
         }
       : {}),

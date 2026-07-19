@@ -64,25 +64,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         fs::write(path, &file.contents)?;
     }
-    let build_environment_path = options.root.join(&plan.build_environment.path);
-    if build_environment_path.exists() && !options.force {
-        return Err(format!(
-            "{} already exists; pass --force to regenerate local env files",
-            build_environment_path.display()
-        )
-        .into());
-    }
-    fs::write(&build_environment_path, &plan.build_environment.contents)?;
-
     let summary = InitSummary {
         root: options.root.display().to_string(),
         directories: plan.directories,
-        files: plan
-            .files
-            .into_iter()
-            .map(|file| file.path)
-            .chain(std::iter::once(plan.build_environment.path))
-            .collect(),
+        files: plan.files.into_iter().map(|file| file.path).collect(),
         urls,
     };
     println!("{}", serde_json::to_string_pretty(&summary)?);

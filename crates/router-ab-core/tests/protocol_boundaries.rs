@@ -1,9 +1,6 @@
 use std::fs;
 use std::path::Path;
 
-#[path = "support/ecdsa_commitment.rs"]
-mod ecdsa_commitment;
-
 use ed25519_dalek::SigningKey;
 use rand_chacha::ChaCha20Rng;
 use rand_core::SeedableRng;
@@ -40,11 +37,11 @@ use router_ab_core::{
     RecipientOutputEncryptionRequestV1, RecipientProofBundleCiphertextV1,
     RecipientProofBundleEncryptionRequestV1, RecipientProofBundleEncryptorV1,
     RecipientProofBundlePayloadV1, RequestKind, RoleEncryptedEnvelopeV1, RoleEnvelopeAadV1,
-    RoleEnvelopeAssignmentV1, RootShareCommitmentRegistryV1, RouterAbDerivationErrorCode,
-    RouterAbLifecycleStateV1, RouterAbProtocolErrorCode, RouterAbProtocolResult,
-    RouterEnvelopeDigestSetV1, RouterToSignerPayloadV1, RouterTranscriptMetadataV1,
-    ServerIdentityV1, SignerIdentityV1, SignerInputPlaintextV1, SignerInputQuorumPolicyV1,
-    SignerSetBinding, SignerSetV1, TranscriptBinding, WireMessageKindV1, WireMessageV1,
+    RoleEnvelopeAssignmentV1, RouterAbDerivationErrorCode, RouterAbLifecycleStateV1,
+    RouterAbProtocolErrorCode, RouterAbProtocolResult, RouterEnvelopeDigestSetV1,
+    RouterToSignerPayloadV1, RouterTranscriptMetadataV1, ServerIdentityV1, SignerIdentityV1,
+    SignerInputPlaintextV1, SignerInputQuorumPolicyV1, SignerSetBinding, SignerSetV1,
+    TranscriptBinding, WireMessageKindV1, WireMessageV1,
 };
 use router_ab_core::{OpenedShareKind, PublicDigest32, Role, RootShareEpoch, SecretMaterial32};
 use threshold_prf::{
@@ -53,33 +50,6 @@ use threshold_prf::{
 
 fn digest(seed: u8) -> PublicDigest32 {
     PublicDigest32::new([seed; 32])
-}
-
-fn commitment_registry_for_proof_batches(
-    router_payload: &RouterToSignerPayloadV1,
-    signer_a_batch: &EcdsaThresholdPrfProofBatchPayloadV1,
-    signer_b_batch: &EcdsaThresholdPrfProofBatchPayloadV1,
-) -> RootShareCommitmentRegistryV1 {
-    let transcript = router_transcript_binding_v1(
-        router_payload.lifecycle(),
-        router_payload.signer_set(),
-        router_payload.transcript_metadata(),
-        router_payload.lifecycle().root_share_epoch.clone(),
-    )
-    .expect("registry transcript");
-    ecdsa_commitment::authenticated_registry(
-        &transcript,
-        &signer_a_batch
-            .proof_bundles
-            .first()
-            .expect("Signer A proof bundle")
-            .commitment_wire,
-        &signer_b_batch
-            .proof_bundles
-            .first()
-            .expect("Signer B proof bundle")
-            .commitment_wire,
-    )
 }
 
 struct TestRecipientProofBundleEncryptor;
@@ -1821,11 +1791,8 @@ fn recipient_proof_bundle_ciphertext_rejects_payload_mismatch() {
 #[test]
 fn mpc_prf_recipient_scoped_combine_opens_only_requested_output() {
     let (payload, proof_batch_a, proof_batch_b) = router_scoped_ab_proof_batches();
-    let registry = commitment_registry_for_proof_batches(&payload, &proof_batch_a, &proof_batch_b);
-
     let client_output = combine_mpc_prf_recipient_output_from_ab_proof_batches_v1(
         &payload,
-        &registry,
         proof_batch_a.clone(),
         proof_batch_b.clone(),
         OpenedShareKind::XClientBase,
@@ -1835,7 +1802,6 @@ fn mpc_prf_recipient_scoped_combine_opens_only_requested_output() {
     .expect("client recipient output");
     let server_output = combine_mpc_prf_recipient_output_from_ab_proof_batches_v1(
         &payload,
-        &registry,
         proof_batch_a,
         proof_batch_b,
         OpenedShareKind::XServerBase,
@@ -1865,7 +1831,6 @@ fn mpc_prf_recipient_scoped_combine_opens_only_requested_output() {
 #[test]
 fn mpc_prf_recipient_scoped_combine_accepts_decrypted_proof_bundle_payloads() {
     let (payload, proof_batch_a, proof_batch_b) = router_scoped_ab_proof_batches();
-    let registry = commitment_registry_for_proof_batches(&payload, &proof_batch_a, &proof_batch_b);
     let deriver_a_payload = recipient_proof_bundle_payload_from_ab_proof_batch_v1(
         &payload.lifecycle().lifecycle_id,
         proof_batch_a,
@@ -1885,7 +1850,6 @@ fn mpc_prf_recipient_scoped_combine_accepts_decrypted_proof_bundle_payloads() {
 
     let client_output = combine_mpc_prf_recipient_output_from_proof_bundle_payloads_v1(
         &payload,
-        &registry,
         deriver_a_payload,
         deriver_b_payload,
         OpenedShareKind::XClientBase,
@@ -1905,7 +1869,6 @@ fn mpc_prf_recipient_scoped_combine_accepts_decrypted_proof_bundle_payloads() {
 #[test]
 fn mpc_prf_recipient_scoped_combine_rejects_mixed_proof_bundle_recipients() {
     let (payload, proof_batch_a, proof_batch_b) = router_scoped_ab_proof_batches();
-    let registry = commitment_registry_for_proof_batches(&payload, &proof_batch_a, &proof_batch_b);
     let deriver_a_payload = recipient_proof_bundle_payload_from_ab_proof_batch_v1(
         &payload.lifecycle().lifecycle_id,
         proof_batch_a,
@@ -1925,7 +1888,6 @@ fn mpc_prf_recipient_scoped_combine_rejects_mixed_proof_bundle_recipients() {
 
     let err = combine_mpc_prf_recipient_output_from_proof_bundle_payloads_v1(
         &payload,
-        &registry,
         deriver_a_payload,
         deriver_b_payload,
         OpenedShareKind::XClientBase,
@@ -1940,11 +1902,8 @@ fn mpc_prf_recipient_scoped_combine_rejects_mixed_proof_bundle_recipients() {
 #[test]
 fn mpc_prf_recipient_scoped_combine_rejects_missing_output_binding() {
     let (payload, proof_batch_a, proof_batch_b) = router_scoped_ab_proof_batches();
-    let registry = commitment_registry_for_proof_batches(&payload, &proof_batch_a, &proof_batch_b);
-
     let err = combine_mpc_prf_recipient_output_from_ab_proof_batches_v1(
         &payload,
-        &registry,
         proof_batch_a,
         proof_batch_b,
         OpenedShareKind::XClientBase,

@@ -55,6 +55,11 @@ type DoReq =
       expectedRelated: unknown;
     }
   | {
+      op: 'walletTakeEcdsaPendingSessionActivationPair';
+      recoveryKey: string;
+      refreshKey: string;
+    }
+  | {
       op: 'setWithIdentityGuard';
       key: string;
       identityKey: string;
@@ -992,6 +997,31 @@ export class ThresholdStoreDurableObject {
           matched: true,
           value: v ?? null,
         };
+      });
+      return json(ok(value));
+    }
+    if (op === 'walletTakeEcdsaPendingSessionActivationPair') {
+      const recoveryKey = toKey((req as { recoveryKey?: unknown }).recoveryKey);
+      const refreshKey = toKey((req as { refreshKey?: unknown }).refreshKey);
+      if (!recoveryKey) return json(err('invalid_body', 'Missing recoveryKey'));
+      if (!refreshKey) return json(err('invalid_body', 'Missing refreshKey'));
+      if (recoveryKey === refreshKey) {
+        return json(err('invalid_body', 'Recovery and refresh keys must be distinct'));
+      }
+      const value = await withRequiredTxn(this.state, async (store) => {
+        const recovery = await store.get(recoveryKey);
+        const refresh = await store.get(refreshKey);
+        if (
+          recovery === null ||
+          recovery === undefined ||
+          refresh === null ||
+          refresh === undefined
+        ) {
+          return null;
+        }
+        await store.delete(recoveryKey);
+        await store.delete(refreshKey);
+        return { recovery, refresh };
       });
       return json(ok(value));
     }

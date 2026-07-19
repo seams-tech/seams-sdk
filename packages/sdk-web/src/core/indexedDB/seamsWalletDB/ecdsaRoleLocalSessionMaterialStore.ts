@@ -1,7 +1,10 @@
-const DATABASE_NAME = 'seams_router_ab_ecdsa_role_local_session_v1';
-const DATABASE_VERSION = 1;
-const KEY_STORE = 'sealing_keys';
-const MATERIAL_STORE = 'active_material';
+import { unwrap } from 'idb';
+import { seamsWalletDB } from '../singletons';
+import { SEAMS_WALLET_STORES } from '../schemaNames';
+import type { SeamsWalletDBManager } from './manager';
+
+const KEY_STORE = SEAMS_WALLET_STORES.ecdsaRoleLocalSealingKeys;
+const MATERIAL_STORE = SEAMS_WALLET_STORES.ecdsaRoleLocalActiveMaterial;
 const PRIMARY_KEY_ID = 'primary';
 const AES_GCM_IV_BYTES = 12;
 
@@ -10,7 +13,8 @@ type StoredSealingKey = {
   readonly key: CryptoKey;
 };
 
-type ActiveMaterialHeader = {
+// Version 1 bound device key material to registration-ceremony expiry in its AES-GCM AAD.
+type ActiveMaterialHeaderV1 = {
   readonly version: 1;
   readonly durableMaterialRef: string;
   readonly bindingDigest: string;
@@ -21,12 +25,22 @@ type ActiveMaterialHeader = {
   readonly expiresAtMs: number;
 };
 
-type ActiveMaterialRecord = ActiveMaterialHeader & {
+type ActiveMaterialHeader = {
+  readonly version: 2;
+  readonly durableMaterialRef: string;
+  readonly bindingDigest: string;
+  readonly lifecycleId: string;
+  readonly transcriptDigestB64u: string;
+  readonly activationDigestB64u: string;
+  readonly activatedAtMs: number;
+};
+
+type ActiveMaterialRecord = (ActiveMaterialHeaderV1 | ActiveMaterialHeader) & {
   readonly iv12: ArrayBuffer;
   readonly ciphertext: ArrayBuffer;
 };
 
-export type StoreActiveEcdsaRoleLocalMaterialInput = ActiveMaterialHeader & {
+export type StoreActiveEcdsaRoleLocalMaterialInput = Omit<ActiveMaterialHeader, 'version'> & {
   readonly stateBlobB64u: string;
 };
 
@@ -38,11 +52,10 @@ export type RestoreActiveEcdsaRoleLocalMaterialResult =
       readonly transcriptDigestB64u: string;
       readonly activationDigestB64u: string;
       readonly activatedAtMs: number;
-      readonly expiresAtMs: number;
     }
   | {
       readonly ok: false;
-      readonly reason: 'missing' | 'expired' | 'binding_mismatch' | 'corrupt';
+      readonly reason: 'missing' | 'binding_mismatch' | 'corrupt';
     };
 
 function requestResult<T>(request: IDBRequest<T>): Promise<T> {
@@ -62,24 +75,6 @@ function transactionResult(transaction: IDBTransaction): Promise<void> {
   });
 }
 
-function openMaterialDatabase(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains(KEY_STORE)) {
-        db.createObjectStore(KEY_STORE, { keyPath: 'id' });
-      }
-      if (!db.objectStoreNames.contains(MATERIAL_STORE)) {
-        db.createObjectStore(MATERIAL_STORE, { keyPath: 'durableMaterialRef' });
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () =>
-      reject(request.error ?? new Error('Failed to open ECDSA role-local material database'));
-  });
-}
-
 function requireNonEmpty(value: unknown, label: string): string {
   const normalized = String(value ?? '').trim();
   if (!normalized) throw new Error(`${label} is required`);
@@ -96,35 +91,28 @@ function requireTimestamp(value: unknown, label: string): number {
 
 function activeMaterialHeader(input: StoreActiveEcdsaRoleLocalMaterialInput): ActiveMaterialHeader {
   return {
-    version: 1,
+    version: 2,
     durableMaterialRef: requireNonEmpty(input.durableMaterialRef, 'durableMaterialRef'),
     bindingDigest: requireNonEmpty(input.bindingDigest, 'bindingDigest'),
     lifecycleId: requireNonEmpty(input.lifecycleId, 'lifecycleId'),
-    transcriptDigestB64u: requireNonEmpty(
-      input.transcriptDigestB64u,
-      'transcriptDigestB64u',
-    ),
-    activationDigestB64u: requireNonEmpty(
-      input.activationDigestB64u,
-      'activationDigestB64u',
-    ),
+    transcriptDigestB64u: requireNonEmpty(input.transcriptDigestB64u, 'transcriptDigestB64u'),
+    activationDigestB64u: requireNonEmpty(input.activationDigestB64u, 'activationDigestB64u'),
     activatedAtMs: requireTimestamp(input.activatedAtMs, 'activatedAtMs'),
-    expiresAtMs: requireTimestamp(input.expiresAtMs, 'expiresAtMs'),
   };
 }
 
-function additionalData(header: ActiveMaterialHeader): Uint8Array {
+function additionalData(header: ActiveMaterialHeaderV1 | ActiveMaterialHeader): Uint8Array {
+  const common = [
+    header.version,
+    header.durableMaterialRef,
+    header.bindingDigest,
+    header.lifecycleId,
+    header.transcriptDigestB64u,
+    header.activationDigestB64u,
+    header.activatedAtMs,
+  ];
   return new TextEncoder().encode(
-    JSON.stringify([
-      header.version,
-      header.durableMaterialRef,
-      header.bindingDigest,
-      header.lifecycleId,
-      header.transcriptDigestB64u,
-      header.activationDigestB64u,
-      header.activatedAtMs,
-      header.expiresAtMs,
-    ]),
+    JSON.stringify(header.version === 1 ? [...common, header.expiresAtMs] : common),
   );
 }
 
@@ -138,7 +126,7 @@ function parseActiveMaterialRecord(value: unknown): ActiveMaterialRecord | null 
   if (!value || typeof value !== 'object') return null;
   const record = value as Record<string, unknown>;
   if (
-    record.version !== 1 ||
+    (record.version !== 1 && record.version !== 2) ||
     !(record.iv12 instanceof ArrayBuffer) ||
     record.iv12.byteLength !== AES_GCM_IV_BYTES ||
     !(record.ciphertext instanceof ArrayBuffer)
@@ -146,24 +134,25 @@ function parseActiveMaterialRecord(value: unknown): ActiveMaterialRecord | null 
     return null;
   }
   try {
-    const header: ActiveMaterialHeader = {
-      version: 1,
+    const common = {
       durableMaterialRef: requireNonEmpty(record.durableMaterialRef, 'durableMaterialRef'),
       bindingDigest: requireNonEmpty(record.bindingDigest, 'bindingDigest'),
       lifecycleId: requireNonEmpty(record.lifecycleId, 'lifecycleId'),
-      transcriptDigestB64u: requireNonEmpty(
-        record.transcriptDigestB64u,
-        'transcriptDigestB64u',
-      ),
-      activationDigestB64u: requireNonEmpty(
-        record.activationDigestB64u,
-        'activationDigestB64u',
-      ),
+      transcriptDigestB64u: requireNonEmpty(record.transcriptDigestB64u, 'transcriptDigestB64u'),
+      activationDigestB64u: requireNonEmpty(record.activationDigestB64u, 'activationDigestB64u'),
       activatedAtMs: requireTimestamp(record.activatedAtMs, 'activatedAtMs'),
-      expiresAtMs: requireTimestamp(record.expiresAtMs, 'expiresAtMs'),
     };
     return {
-      ...header,
+      ...(record.version === 1
+        ? {
+            version: 1 as const,
+            ...common,
+            expiresAtMs: requireTimestamp(record.expiresAtMs, 'expiresAtMs'),
+          }
+        : {
+            version: 2 as const,
+            ...common,
+          }),
       iv12: record.iv12,
       ciphertext: record.ciphertext,
     };
@@ -173,11 +162,16 @@ function parseActiveMaterialRecord(value: unknown): ActiveMaterialRecord | null 
 }
 
 export class IndexedDbEcdsaRoleLocalSessionMaterialStore {
+  private readonly manager: SeamsWalletDBManager;
   private dbPromise: Promise<IDBDatabase> | null = null;
   private keyPromise: Promise<CryptoKey> | null = null;
 
+  constructor(manager: SeamsWalletDBManager = seamsWalletDB) {
+    this.manager = manager;
+  }
+
   private database(): Promise<IDBDatabase> {
-    this.dbPromise ??= openMaterialDatabase();
+    this.dbPromise ??= this.manager.getDB().then((db) => unwrap(db) as IDBDatabase);
     return this.dbPromise;
   }
 
@@ -219,9 +213,6 @@ export class IndexedDbEcdsaRoleLocalSessionMaterialStore {
   async putActive(input: StoreActiveEcdsaRoleLocalMaterialInput): Promise<void> {
     const header = activeMaterialHeader(input);
     const stateBlobB64u = requireNonEmpty(input.stateBlobB64u, 'stateBlobB64u');
-    if (header.expiresAtMs <= header.activatedAtMs) {
-      throw new Error('ECDSA role-local material expiry must follow activation');
-    }
     const plaintext = new TextEncoder().encode(stateBlobB64u);
     const iv12 = crypto.getRandomValues(new Uint8Array(AES_GCM_IV_BYTES));
     try {
@@ -245,10 +236,7 @@ export class IndexedDbEcdsaRoleLocalSessionMaterialStore {
   }
 
   async burn(durableMaterialRefValue: string): Promise<void> {
-    const durableMaterialRef = requireNonEmpty(
-      durableMaterialRefValue,
-      'durableMaterialRef',
-    );
+    const durableMaterialRef = requireNonEmpty(durableMaterialRefValue, 'durableMaterialRef');
     const db = await this.database();
     const transaction = db.transaction(MATERIAL_STORE, 'readwrite');
     transaction.objectStore(MATERIAL_STORE).delete(durableMaterialRef);
@@ -258,12 +246,8 @@ export class IndexedDbEcdsaRoleLocalSessionMaterialStore {
   async restoreActive(input: {
     readonly durableMaterialRef: string;
     readonly expectedBindingDigest: string;
-    readonly nowMs: number;
   }): Promise<RestoreActiveEcdsaRoleLocalMaterialResult> {
-    const durableMaterialRef = requireNonEmpty(
-      input.durableMaterialRef,
-      'durableMaterialRef',
-    );
+    const durableMaterialRef = requireNonEmpty(input.durableMaterialRef, 'durableMaterialRef');
     const expectedBindingDigest = requireNonEmpty(
       input.expectedBindingDigest,
       'expectedBindingDigest',
@@ -283,10 +267,6 @@ export class IndexedDbEcdsaRoleLocalSessionMaterialStore {
       await this.burn(durableMaterialRef);
       return { ok: false, reason: 'binding_mismatch' };
     }
-    if (input.nowMs >= record.expiresAtMs) {
-      await this.burn(durableMaterialRef);
-      return { ok: false, reason: 'expired' };
-    }
     try {
       const plaintext = await crypto.subtle.decrypt(
         {
@@ -299,17 +279,32 @@ export class IndexedDbEcdsaRoleLocalSessionMaterialStore {
       );
       const bytes = new Uint8Array(plaintext);
       try {
+        const stateBlobB64u = requireNonEmpty(
+          new TextDecoder().decode(bytes),
+          'restored stateBlobB64u',
+        );
+        if (record.version === 1) {
+          try {
+            await this.putActive({
+              durableMaterialRef: record.durableMaterialRef,
+              bindingDigest: record.bindingDigest,
+              lifecycleId: record.lifecycleId,
+              transcriptDigestB64u: record.transcriptDigestB64u,
+              activationDigestB64u: record.activationDigestB64u,
+              activatedAtMs: record.activatedAtMs,
+              stateBlobB64u,
+            });
+          } catch {
+            // The decrypted version-1 record remains usable and can be migrated on a later restore.
+          }
+        }
         return {
           ok: true,
-          stateBlobB64u: requireNonEmpty(
-            new TextDecoder().decode(bytes),
-            'restored stateBlobB64u',
-          ),
+          stateBlobB64u,
           lifecycleId: record.lifecycleId,
           transcriptDigestB64u: record.transcriptDigestB64u,
           activationDigestB64u: record.activationDigestB64u,
           activatedAtMs: record.activatedAtMs,
-          expiresAtMs: record.expiresAtMs,
         };
       } finally {
         bytes.fill(0);

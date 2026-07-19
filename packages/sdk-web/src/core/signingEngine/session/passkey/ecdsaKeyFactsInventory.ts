@@ -17,12 +17,27 @@ import {
   type EvmFamilyEcdsaWalletKey,
 } from '../identity/evmFamilyEcdsaIdentity';
 import { SIGNER_AUTH_METHODS, SIGNER_KINDS } from '@shared/utils/signerDomain';
+import {
+  parseRouterAbEcdsaDerivationPublicCapabilityV1,
+  type RouterAbEcdsaDerivationPublicCapabilityV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 
 export type ThresholdEcdsaKeyIdentityInventoryEntry = {
   accountAddress: string;
   ownerAddress: string;
   walletKey: EvmFamilyEcdsaWalletKey;
+  publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 };
+
+export type EcdsaPublicCapabilityState =
+  | {
+      kind: 'persisted_public_capability';
+      value: RouterAbEcdsaDerivationPublicCapabilityV1;
+    }
+  | {
+      kind: 'missing_public_capability';
+      value?: never;
+    };
 
 export type ProfileContinuityEcdsaWarmKeyParseResult =
   | {
@@ -30,6 +45,7 @@ export type ProfileContinuityEcdsaWarmKeyParseResult =
       chainTarget: ThresholdEcdsaChainTarget;
       targetKey: string;
       walletKey: EvmFamilyEcdsaWalletKey;
+      publicCapability: EcdsaPublicCapabilityState;
       keyHandle?: never;
       reason?: never;
     }
@@ -72,10 +88,9 @@ function normalizeEvmOwnerAddress(value: unknown): string {
 
 const EVM_FAMILY_ECDSA_KEY_HANDLE_PATTERN = /^ederivation-key-[A-Za-z0-9_-]+$/;
 
-function parseCurrentEcdsaKeyHandle(value: unknown):
-  | { kind: 'resolved'; keyHandle: string }
-  | { kind: 'missing' }
-  | { kind: 'invalid' } {
+function parseCurrentEcdsaKeyHandle(
+  value: unknown,
+): { kind: 'resolved'; keyHandle: string } | { kind: 'missing' } | { kind: 'invalid' } {
   const normalized = String(value || '').trim();
   if (!normalized) return { kind: 'missing' };
   if (!EVM_FAMILY_ECDSA_KEY_HANDLE_PATTERN.test(normalized)) return { kind: 'invalid' };
@@ -133,7 +148,8 @@ function parseProfileContinuityEvmFamilyEcdsaWalletKey(args: {
       keyFacts.thresholdOwnerAddress ||
       args.metadata.thresholdOwnerAddress ||
       args.metadata.ownerAddress;
-    const evmFamilySigningKeySlotId = keyFacts.evmFamilySigningKeySlotId || args.metadata.evmFamilySigningKeySlotId;
+    const evmFamilySigningKeySlotId =
+      keyFacts.evmFamilySigningKeySlotId || args.metadata.evmFamilySigningKeySlotId;
     if (!evmFamilySigningKeySlotId) return null;
     return buildEvmFamilyEcdsaWalletKey({
       walletId: keyWalletId,
@@ -147,6 +163,26 @@ function parseProfileContinuityEvmFamilyEcdsaWalletKey(args: {
       thresholdOwnerAddress,
       thresholdEcdsaPublicKeyB64u,
     });
+  } catch {
+    return null;
+  }
+}
+
+function parseProfilePublicCapability(args: {
+  raw: unknown;
+  walletId: WalletId;
+  thresholdEcdsaPublicKeyB64u: string;
+}): RouterAbEcdsaDerivationPublicCapabilityV1 | null {
+  try {
+    const publicCapability = parseRouterAbEcdsaDerivationPublicCapabilityV1(args.raw);
+    if (
+      String(publicCapability.client_id) !== String(args.walletId) ||
+      publicCapability.public_identity.threshold_public_key33_b64u !==
+        args.thresholdEcdsaPublicKeyB64u
+    ) {
+      return null;
+    }
+    return publicCapability;
   } catch {
     return null;
   }
@@ -213,11 +249,24 @@ export function parseProfileContinuityEcdsaWarmKey(args: {
       reason: 'missing_key_facts',
     };
   }
+  const publicCapability = parseProfilePublicCapability({
+    raw: metadata.publicCapability,
+    walletId: args.walletId,
+    thresholdEcdsaPublicKeyB64u: walletKey.keyFacts.thresholdEcdsaPublicKeyB64u,
+  });
   return {
     kind: 'active_wallet_key',
     chainTarget,
     targetKey,
     walletKey,
+    publicCapability: publicCapability
+      ? {
+          kind: 'persisted_public_capability',
+          value: publicCapability,
+        }
+      : {
+          kind: 'missing_public_capability',
+        },
   };
 }
 
@@ -264,6 +313,12 @@ function parseThresholdEcdsaKeyIdentityRecord(args: {
     return null;
   }
   try {
+    const publicCapability = parseProfilePublicCapability({
+      raw: raw.publicCapability,
+      walletId: args.walletId,
+      thresholdEcdsaPublicKeyB64u,
+    });
+    if (!publicCapability) return null;
     const canonicalKeyHandle = toEvmFamilyEcdsaKeyHandle(keyHandle.keyHandle);
     const ecdsaThresholdKeyId = resolveThresholdEcdsaKeyIdFromRecord({
       record: {
@@ -274,11 +329,13 @@ function parseThresholdEcdsaKeyIdentityRecord(args: {
       signingRootId: raw.signingRootId || rawKey.signingRootId,
       signingRootVersion: raw.signingRootVersion || rawKey.signingRootVersion,
     });
-    const evmFamilySigningKeySlotId = rawKey.evmFamilySigningKeySlotId || raw.evmFamilySigningKeySlotId;
+    const evmFamilySigningKeySlotId =
+      rawKey.evmFamilySigningKeySlotId || raw.evmFamilySigningKeySlotId;
     if (!evmFamilySigningKeySlotId) return null;
     return {
       accountAddress,
       ownerAddress,
+      publicCapability,
       walletKey: buildEvmFamilyEcdsaWalletKey({
         walletId: args.walletId,
         evmFamilySigningKeySlotId,

@@ -210,6 +210,18 @@ function ecdsaRestoreWalletSessionAuthFields(
   return record.thresholdSessionKind === 'cookie' ? { sessionKind: 'cookie' } : null;
 }
 
+function requirePasskeyEcdsaRestoreOutcome(
+  result: WarmSessionStatusResult | null,
+  success: Extract<RestoreSealedRecordResult, 'ready' | 'restored'>,
+): RestoreSealedRecordResult {
+  if (!result) return 'deferred';
+  if (result.ok) return success;
+  if (result.code === 'exhausted') return 'ready';
+  throw new Error(
+    `[UiConfirm] passkey ECDSA sealed-session restore failed (${result.code}): ${result.message}`,
+  );
+}
+
 type PasskeySealedRecordAccountMetadata = {
   walletId?: string;
   signingRootId?: string;
@@ -1293,11 +1305,13 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
             })
           : null
         : null;
-    const ecdsaReadyRecord = ecdsaRecord?.ecdsaRoleLocalReadyRecord;
     const ecdsaPasskeyCredentialId =
-      ecdsaReadyRecord?.authMethod.kind === 'passkey'
-        ? ecdsaReadyRecord.authMethod.credentialIdB64u
+      ecdsaRecord?.ecdsaRoleLocalAuthMethod.kind === 'passkey'
+        ? ecdsaRecord.ecdsaRoleLocalAuthMethod.credentialIdB64u
         : '';
+    const ecdsaRoleLocalDurableMaterialRef = String(
+      ecdsaRecord?.roleLocalDurableMaterialRef || '',
+    ).trim();
     const walletId = String(
       ed25519Record?.walletId || ecdsaRecord?.walletId || args.walletId || '',
     ).trim();
@@ -1316,6 +1330,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       ecdsaRecord.chainTarget &&
       ecdsaPasskeySource &&
       ecdsaPasskeyCredentialId &&
+      ecdsaRoleLocalDurableMaterialRef &&
       ecdsaWalletSessionAuth &&
       ecdsaSigningRootId &&
       ecdsaSigningRootVersion &&
@@ -1327,6 +1342,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
             signingRootVersion: ecdsaSigningRootVersion,
             source: ecdsaPasskeySource,
             evmFamilySigningKeySlotId: ecdsaRecord.evmFamilySigningKeySlotId,
+            roleLocalDurableMaterialRef: ecdsaRoleLocalDurableMaterialRef,
             rpId: thresholdEcdsaRecordRpId(ecdsaRecord),
             credentialIdB64u: ecdsaPasskeyCredentialId,
             ...ecdsaWalletSessionAuth,
@@ -1416,7 +1432,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     const inFlight = signingSessionRehydrateSingleFlight.get(singleFlightKey);
     if (inFlight) {
       const result = await inFlight;
-      return result?.ok ? 'ready' : 'deferred';
+      return requirePasskeyEcdsaRestoreOutcome(result, 'ready');
     }
 
     const task = (async (): Promise<WarmSessionStatusResult | null> => {
@@ -1519,7 +1535,6 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
             }
             return parsed;
           },
-          loadEcdsaRoleLocalReadyRecord: this.loadEcdsaRoleLocalReadyRecord.bind(this),
           updatePersistedPolicy: async (policy) =>
             await updateExactSealedSessionPolicy({
               thresholdSessionId,
@@ -1536,7 +1551,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
 
     signingSessionRehydrateSingleFlight.set(singleFlightKey, task);
     const result = await task;
-    return result?.ok ? 'restored' : 'deferred';
+    return requirePasskeyEcdsaRestoreOutcome(result, 'restored');
   }
 
   putWarmSessionMaterial = async (args: {

@@ -183,6 +183,7 @@ export type EcdsaReauthAnchorPublicRestore =
       source: Exclude<SealedSigningSessionEcdsaRestoreSource, 'email_otp'>;
       rpId: string;
       credentialIdB64u: string;
+      roleLocalDurableMaterialRef: string;
       providerSubjectId?: never;
       emailHashHex?: never;
     })
@@ -191,6 +192,7 @@ export type EcdsaReauthAnchorPublicRestore =
       provider: 'google' | 'email';
       providerSubjectId: string;
       emailHashHex: string;
+      roleLocalDurableMaterialRef?: never;
       rpId?: never;
       credentialIdB64u?: never;
     });
@@ -624,6 +626,9 @@ function normalizeEcdsaRestoreMetadata(
   const signingRootVersion =
     explicitSigningRootVersion || runtimeSigningRootBinding?.signingRootVersion || '';
   const credentialIdB64u = normalizeOptionalNonEmptyString(obj.credentialIdB64u);
+  const roleLocalDurableMaterialRef = normalizeOptionalNonEmptyString(
+    obj.roleLocalDurableMaterialRef,
+  );
   const provider = obj.provider === 'google' || obj.provider === 'email' ? obj.provider : null;
   const providerSubjectId = normalizeOptionalNonEmptyString(obj.providerSubjectId);
   const emailHashHex = normalizeOptionalNonEmptyString(obj.emailHashHex);
@@ -664,8 +669,18 @@ function normalizeEcdsaRestoreMetadata(
     return undefined;
   }
   const authBranch =
-    evmFamilySigningKeySlotId && credentialIdB64u && rpId && source !== 'email_otp'
-      ? ({ source, evmFamilySigningKeySlotId, rpId, credentialIdB64u } as const)
+    evmFamilySigningKeySlotId &&
+    credentialIdB64u &&
+    rpId &&
+    roleLocalDurableMaterialRef &&
+    source !== 'email_otp'
+      ? ({
+          source,
+          evmFamilySigningKeySlotId,
+          roleLocalDurableMaterialRef,
+          rpId,
+          credentialIdB64u,
+        } as const)
       : evmFamilySigningKeySlotId &&
           providerSubjectId &&
           provider &&
@@ -1478,6 +1493,9 @@ function normalizeEcdsaReauthAnchorPublicRestore(
   const relayerUrl = normalizeOptionalNonEmptyString(obj.relayerUrl);
   const signingRootVersion = normalizeOptionalNonEmptyString(obj.signingRootVersion);
   const evmFamilySigningKeySlotId = normalizeOptionalNonEmptyString(obj.evmFamilySigningKeySlotId);
+  const roleLocalDurableMaterialRef = normalizeOptionalNonEmptyString(
+    obj.roleLocalDurableMaterialRef,
+  );
   const keyHandle = normalizeOptionalNonEmptyString(obj.keyHandle);
   const ecdsaThresholdKeyId = normalizeOptionalNonEmptyString(obj.ecdsaThresholdKeyId);
   const ethereumAddress = normalizeOptionalNonEmptyString(obj.ethereumAddress);
@@ -1540,7 +1558,13 @@ function normalizeEcdsaReauthAnchorPublicRestore(
     case 'manual-bootstrap': {
       const rpId = normalizeOptionalNonEmptyString(obj.rpId);
       const credentialIdB64u = normalizeOptionalNonEmptyString(obj.credentialIdB64u);
-      if (!rpId || !credentialIdB64u || obj.providerSubjectId != null || obj.emailHashHex != null) {
+      if (
+        !rpId ||
+        !credentialIdB64u ||
+        !roleLocalDurableMaterialRef ||
+        obj.providerSubjectId != null ||
+        obj.emailHashHex != null
+      ) {
         return null;
       }
       return {
@@ -1559,6 +1583,7 @@ function normalizeEcdsaReauthAnchorPublicRestore(
         routerAbEcdsaDerivationNormalSigning,
         publicCapability,
         source: obj.source,
+        roleLocalDurableMaterialRef,
         rpId,
         credentialIdB64u,
       };
@@ -1624,25 +1649,34 @@ function normalizeEcdsaReauthAnchorRecord(value: unknown): EcdsaReauthAnchorReco
   });
   if (normalizeOptionalNonEmptyString(obj.storeKey) !== storeKey) return null;
   switch (state) {
-    case 'active':
-      return remainingUses > 0 && expiresAtMs > Date.now() && obj.retirement == null
+    case 'active': {
+      if (remainingUses <= 0 || obj.retirement != null) return null;
+      const base = {
+        recordKind: ECDSA_REAUTH_ANCHOR_RECORD_KIND,
+        storeKey,
+        authMethod,
+        curve: 'ecdsa',
+        signingGrantId,
+        thresholdSessionIds: { ecdsa: thresholdSessionIds.ecdsa },
+        walletId,
+        relayerUrl,
+        ecdsaRestore,
+        issuedAtMs,
+        expiresAtMs,
+        updatedAtMs,
+        remainingUses,
+      } as const;
+      return expiresAtMs > Date.now()
         ? {
-            recordKind: ECDSA_REAUTH_ANCHOR_RECORD_KIND,
-            storeKey,
-            authMethod,
-            curve: 'ecdsa',
-            signingGrantId,
-            thresholdSessionIds: { ecdsa: thresholdSessionIds.ecdsa },
-            walletId,
-            relayerUrl,
-            ecdsaRestore,
-            issuedAtMs,
-            expiresAtMs,
-            updatedAtMs,
+            ...base,
             state: 'active',
-            remainingUses,
           }
-        : null;
+        : {
+            ...base,
+            state: 'expired',
+            retirement: 'expired',
+          };
+    }
     case 'exhausted':
       return remainingUses === 0 && obj.retirement === 'exhausted'
         ? {
@@ -2262,6 +2296,7 @@ export function buildEcdsaReauthAnchorPublicRestore(
         routerAbEcdsaDerivationNormalSigning: restore.routerAbEcdsaDerivationNormalSigning,
         publicCapability: restore.publicCapability,
         source: restore.source,
+        roleLocalDurableMaterialRef: restore.roleLocalDurableMaterialRef,
         rpId: restore.rpId,
         credentialIdB64u: restore.credentialIdB64u,
       };
@@ -2348,10 +2383,14 @@ function activePasskeyEcdsaPublicRestore(
     ? parseRouterAbEcdsaDerivationNormalSigningStateV1(record.routerAbEcdsaDerivationNormalSigning)
     : null;
   const ethereumAddress = normalizeOptionalNonEmptyString(record.ethereumAddress);
+  const roleLocalDurableMaterialRef = normalizeOptionalNonEmptyString(
+    record.roleLocalDurableMaterialRef,
+  );
   if (
     !thresholdEcdsaPublicKeyB64u ||
     !routerAbEcdsaDerivationNormalSigning ||
     !ethereumAddress ||
+    !roleLocalDurableMaterialRef ||
     !/^0x[0-9a-f]{40}$/i.test(ethereumAddress)
   ) {
     throw new Error(
@@ -2376,6 +2415,7 @@ function activePasskeyEcdsaPublicRestore(
       record.ecdsaRoleLocalPublicFacts.publicCapability,
     ),
     source: record.source,
+    roleLocalDurableMaterialRef,
     rpId: record.ecdsaRoleLocalAuthMethod.rpId,
     credentialIdB64u: record.ecdsaRoleLocalAuthMethod.credentialIdB64u,
   };

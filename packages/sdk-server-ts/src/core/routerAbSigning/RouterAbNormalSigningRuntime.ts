@@ -39,12 +39,30 @@ export type RouterAbSigningWorkerPrivateTransport =
         readonly kind: 'internal_service_auth_secret';
         readonly secret: string;
       };
+      readonly fetchImpl?: typeof fetch;
     }
   | {
       readonly kind: 'unconfigured';
       readonly signingWorkerBaseUrl?: never;
       readonly auth?: never;
+      readonly fetchImpl?: never;
     };
+
+export type RouterAbConfiguredSigningWorkerPrivateTransport = Extract<
+  RouterAbSigningWorkerPrivateTransport,
+  { readonly kind: 'configured' }
+>;
+
+export function requireRouterAbConfiguredSigningWorkerPrivateTransport(
+  transport: RouterAbSigningWorkerPrivateTransport,
+): RouterAbConfiguredSigningWorkerPrivateTransport {
+  if (transport.kind !== 'configured') {
+    throw new Error(
+      'InvalidLocalServiceConfig: ROUTER_AB_SIGNING_WORKER_URL and ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET are required for Router A/B ECDSA presign',
+    );
+  }
+  return transport;
+}
 
 export type RouterAbNormalSigningRuntimeConfig = {
   readonly policy: RouterAbNormalSigningServerPolicy;
@@ -317,12 +335,11 @@ function normalizeExactEcdsaParticipantIds(
   return [first, second];
 }
 
-function ecdsaWalletSessionsEqual(
+function ecdsaWalletSessionsHaveSameAuthority(
   left: EcdsaWalletSessionRecord,
   right: EcdsaWalletSessionRecord,
 ): boolean {
   return (
-    left.expiresAtMs === right.expiresAtMs &&
     left.relayerKeyId === right.relayerKeyId &&
     left.walletId === right.walletId &&
     left.evmFamilySigningKeySlotId === right.evmFamilySigningKeySlotId &&
@@ -612,6 +629,10 @@ function parseSigningWorkerTransport(
 ): RouterAbSigningWorkerPrivateTransport {
   const signingWorkerBaseUrl = toOptionalTrimmedString(config.ROUTER_AB_SIGNING_WORKER_URL);
   const secret = toOptionalTrimmedString(config.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET);
+  const fetchImpl =
+    typeof config.routerAbSigningWorkerFetch === 'function'
+      ? (config.routerAbSigningWorkerFetch as typeof fetch)
+      : undefined;
   if (!signingWorkerBaseUrl && !secret) return { kind: 'unconfigured' };
   if (!signingWorkerBaseUrl) {
     throw new Error(
@@ -627,6 +648,7 @@ function parseSigningWorkerTransport(
     kind: 'configured',
     signingWorkerBaseUrl,
     auth: { kind: 'internal_service_auth_secret', secret },
+    ...(fetchImpl ? { fetchImpl } : {}),
   };
 }
 
@@ -874,7 +896,10 @@ export class RouterAbNormalSigningRuntime {
       participantIds,
     };
     const existingSession = await this.ecdsaWalletSessionStore.getSession(thresholdSessionId);
-    if (existingSession && !ecdsaWalletSessionsEqual(existingSession, requestedSession)) {
+    if (
+      existingSession &&
+      !ecdsaWalletSessionsHaveSameAuthority(existingSession, requestedSession)
+    ) {
       return {
         ok: false,
         code: 'conflict',

@@ -64,9 +64,17 @@ export type ThresholdEd25519SessionId = DomainId<'ThresholdEd25519SessionId'>;
 // Server threshold ECDSA session id used for Tempo/EVM signing and ECDSA export.
 export type ThresholdEcdsaSessionId = DomainId<'ThresholdEcdsaSessionId'>;
 
+// Deterministic selector for one activated ECDSA key state. This is durable
+// key identity and must never be used as an authorization-session id.
+export type EcdsaActiveStateId = DomainId<'EcdsaActiveStateId'>;
+
 // Curve-specific server threshold session id. Use this only at APIs that are
 // genuinely curve-generic; prefer the curve-specific id in curve-specific code.
 export type ThresholdSessionId = ThresholdEd25519SessionId | ThresholdEcdsaSessionId;
+
+// Root-share epoch activated by the signing worker. This identifies durable
+// ECDSA key material and must never be substituted with a threshold session id.
+export type RootShareEpoch = DomainId<'RootShareEpoch'>;
 
 // Stable wallet key identity. A wallet can have multiple signing lanes that
 // all sign for this same wallet key.
@@ -189,9 +197,7 @@ export function parseVerifiedGoogleEmail(raw: unknown): DomainIdParseResult<Veri
   return { ok: true, value: normalized as VerifiedGoogleEmail };
 }
 
-export function parseVerifiedEmailAddress(
-  raw: unknown,
-): DomainIdParseResult<VerifiedEmailAddress> {
+export function parseVerifiedEmailAddress(raw: unknown): DomainIdParseResult<VerifiedEmailAddress> {
   const parsed = parseDomainId<VerifiedEmailAddress>(raw, 'verifiedEmailAddress');
   if (!parsed.ok) return parsed;
   const normalized = parsed.value.toLowerCase();
@@ -256,9 +262,7 @@ export function parseWebAuthnCredentialIdB64u(
   return parseDomainId(raw, 'credentialIdB64u');
 }
 
-export function parseWalletAuthMethodId(
-  raw: unknown,
-): DomainIdParseResult<WalletAuthMethodId> {
+export function parseWalletAuthMethodId(raw: unknown): DomainIdParseResult<WalletAuthMethodId> {
   return parseDomainId(raw, 'walletAuthMethodId');
 }
 
@@ -276,9 +280,7 @@ export function formatWebAuthnRpIdForWire(value: WebAuthnRpId): string {
   return value;
 }
 
-export function parseSigningGrantId(
-  raw: unknown,
-): DomainIdParseResult<SigningGrantId> {
+export function parseSigningGrantId(raw: unknown): DomainIdParseResult<SigningGrantId> {
   return parseDomainId(raw, 'signingGrantId');
 }
 
@@ -294,8 +296,16 @@ export function parseThresholdEcdsaSessionId(
   return parseDomainId(raw, 'thresholdEcdsaSessionId');
 }
 
+export function parseEcdsaActiveStateId(raw: unknown): DomainIdParseResult<EcdsaActiveStateId> {
+  return parseDomainId(raw, 'ecdsaActiveStateId');
+}
+
 export function parseThresholdSessionId(raw: unknown): DomainIdParseResult<ThresholdSessionId> {
   return parseDomainId(raw, 'thresholdSessionId');
+}
+
+export function parseRootShareEpoch(raw: unknown): DomainIdParseResult<RootShareEpoch> {
+  return parseDomainId(raw, 'rootShareEpoch');
 }
 
 export function parseWalletKeyId(raw: unknown): DomainIdParseResult<WalletKeyId> {
@@ -322,9 +332,7 @@ export function parseMandatePolicyId(raw: unknown): DomainIdParseResult<MandateP
   return parseDomainId(raw, 'mandatePolicyId');
 }
 
-export function parseRotationOperationId(
-  raw: unknown,
-): DomainIdParseResult<RotationOperationId> {
+export function parseRotationOperationId(raw: unknown): DomainIdParseResult<RotationOperationId> {
   return parseDomainId(raw, 'rotationOperationId');
 }
 
@@ -340,8 +348,6 @@ export function parseDelegatedIdempotencyKey(
   return parseDomainId(raw, 'delegatedIdempotencyKey');
 }
 
-export function parseLinkDeviceSessionId(
-  raw: unknown,
-): DomainIdParseResult<LinkDeviceSessionId> {
+export function parseLinkDeviceSessionId(raw: unknown): DomainIdParseResult<LinkDeviceSessionId> {
   return parseDomainId(raw, 'linkDeviceSessionId');
 }

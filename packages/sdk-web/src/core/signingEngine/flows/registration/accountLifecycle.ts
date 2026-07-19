@@ -10,6 +10,7 @@ import {
   type WalletId,
 } from '@shared/utils/registrationIntent';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
+import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import { compactImplicitNearAccountId } from '@shared/utils/near';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { sha256HexUtf8 } from '@shared/utils/digests';
@@ -138,7 +139,8 @@ export type StoreWalletEcdsaWalletKey = {
   thresholdOwnerAddress: string;
   relayerKeyId: string;
   relayerVerifyingShareB64u: string;
-  participantIds: readonly number[];
+  participantIds: readonly [number, number];
+  publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 };
 
 export type StoreWalletEcdsaSignerRecordsInput = {
@@ -1473,17 +1475,13 @@ function requireStoreWalletString(value: unknown, field: string): string {
   return normalized;
 }
 
-function normalizeStoreWalletParticipantIds(value: readonly number[]): number[] {
-  if (!Array.isArray(value) || value.length === 0) {
-    throw new Error('SeamsWalletDB: threshold ECDSA participantIds are required');
+function normalizeStoreWalletParticipantIds(
+  value: readonly [number, number],
+): readonly [1, 2] {
+  if (!Array.isArray(value) || value.length !== 2 || value[0] !== 1 || value[1] !== 2) {
+    throw new Error('SeamsWalletDB: threshold ECDSA participantIds must be [1, 2]');
   }
-  return value.map((participantId) => {
-    const normalized = Number(participantId);
-    if (!Number.isSafeInteger(normalized) || normalized <= 0) {
-      throw new Error('SeamsWalletDB: threshold ECDSA participantIds must be positive integers');
-    }
-    return normalized;
-  });
+  return [1, 2];
 }
 
 type PreparedWalletEcdsaSignerActivation = {
@@ -1591,6 +1589,7 @@ function prepareWalletEcdsaSignerActivations(
               walletKey.relayerVerifyingShareB64u,
               'wallet key relayerVerifyingShareB64u',
             ),
+            publicCapability: walletKey.publicCapability,
             thresholdEcdsaPublicKeyB64u,
             participantIds,
             chainTarget: walletKey.chainTarget,

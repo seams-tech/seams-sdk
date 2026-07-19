@@ -1,6 +1,3 @@
-#[path = "support/ecdsa_commitment.rs"]
-mod ecdsa_commitment;
-
 use router_ab_core::{
     plan_mpc_prf_combine_v1, plan_mpc_prf_partial_verification_v1, plan_mpc_prf_purpose_binding_v1,
     AccountScope, DerivationContext, MpcPrfCombinerInputV1, MpcPrfDleqProofWireV1,
@@ -140,37 +137,6 @@ fn proof_bundle(role: Role, identity: &str, byte: u8) -> MpcPrfPartialProofBundl
         MpcPrfDleqProofWireV1::new(vec![byte; MPC_PRF_DLEQ_PROOF_WIRE_V1_LEN]).expect("proof"),
     )
     .expect("proof bundle")
-}
-
-fn authenticated_commitment(
-    transcript: &TranscriptBinding,
-    bundle: &MpcPrfPartialProofBundleV1,
-) -> router_ab_core::AuthenticatedRootShareCommitmentV1 {
-    let bundle_role = bundle.signer_partial.binding.signer_role;
-    let peer_role = match bundle_role {
-        Role::SignerA => Role::SignerB,
-        Role::SignerB => Role::SignerA,
-        _ => panic!("bundle requires signer role"),
-    };
-    let peer_identity = transcript
-        .signer_set()
-        .signer_for_role(peer_role)
-        .expect("peer signer")
-        .signer_id();
-    let peer_bundle = proof_bundle(peer_role, peer_identity, 0x7a);
-    let (signer_a_bundle, signer_b_bundle) = match bundle_role {
-        Role::SignerA => (bundle, &peer_bundle),
-        Role::SignerB => (&peer_bundle, bundle),
-        _ => unreachable!(),
-    };
-    ecdsa_commitment::authenticated_registry(
-        transcript,
-        &signer_a_bundle.commitment_wire,
-        &signer_b_bundle.commitment_wire,
-    )
-    .commitment_for(bundle_role)
-    .expect("authenticated commitment")
-    .clone()
 }
 
 #[test]
@@ -333,14 +299,11 @@ fn purpose_binding_plan_rejects_request_missing_from_signer_input() {
 
 #[test]
 fn partial_verification_plan_accepts_transcript_bound_bundle() {
-    let context = context();
-    let transcript = transcript(context);
+    let transcript = transcript(context());
     let bundle = proof_bundle(Role::SignerA, "role:signer-a:local:sha256-a", 0x0a);
-    let registered_commitment = authenticated_commitment(&transcript, &bundle);
     let plan = plan_mpc_prf_partial_verification_v1(MpcPrfPartialVerificationInputV1 {
         transcript,
         proof_bundle: bundle,
-        authenticated_commitment: registered_commitment,
     })
     .expect("verification plan");
 
@@ -366,12 +329,9 @@ fn partial_verification_plan_rejects_transcript_mismatch() {
     .expect("context");
     let mismatched_transcript = transcript(mismatched_context);
     let bundle = proof_bundle(Role::SignerA, "role:signer-a:local:sha256-a", 0x0a);
-    let original_transcript = transcript(context());
-    let registered_commitment = authenticated_commitment(&original_transcript, &bundle);
     let err = plan_mpc_prf_partial_verification_v1(MpcPrfPartialVerificationInputV1 {
         transcript: mismatched_transcript,
         proof_bundle: bundle,
-        authenticated_commitment: registered_commitment,
     })
     .expect_err("transcript mismatch should fail");
 
@@ -383,13 +343,11 @@ fn partial_verification_plan_rejects_root_epoch_mismatch() {
     let context = context();
     let transcript = transcript(context);
     let mut bundle = proof_bundle(Role::SignerA, "role:signer-a:local:sha256-a", 0x0a);
-    let registered_commitment = authenticated_commitment(&transcript, &bundle);
     bundle.signer_partial.binding.root_share_epoch = RootShareEpoch::new("epoch-2").expect("epoch");
 
     let err = plan_mpc_prf_partial_verification_v1(MpcPrfPartialVerificationInputV1 {
         transcript,
         proof_bundle: bundle,
-        authenticated_commitment: registered_commitment,
     })
     .expect_err("root epoch mismatch should fail");
 

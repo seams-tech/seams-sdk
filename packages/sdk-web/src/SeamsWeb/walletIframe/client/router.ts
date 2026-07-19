@@ -172,6 +172,10 @@ import {
 } from './surface/domain';
 import { WalletIframeSurfaceRenderer } from './surface/renderer';
 import {
+  WalletIframeTransactionSurfaceQueue,
+  type WalletIframeTransactionSurfaceLease,
+} from './surface/transactionSurfaceQueue';
+import {
   isObject,
   isPlainSignedTransactionLike,
   extractBorshBytesFromPlainSignedTx,
@@ -607,6 +611,7 @@ export class WalletIframeRouter {
   private overlayState: WalletIframeOverlayState;
   private walletIframeSurface: WalletIframeSurface = hiddenWalletIframeSurface();
   private surfaceRenderer: WalletIframeSurfaceRenderer;
+  private readonly transactionSurfaceQueue = new WalletIframeTransactionSurfaceQueue();
 
   constructor(options: WalletIframeRouterOptions) {
     if (!options?.walletOrigin) {
@@ -2283,71 +2288,84 @@ export class WalletIframeRouter {
     const maxLifetimeMs = Math.max(timeoutMs, timeoutMs * progressTimeoutExtensionFactor);
     const deadlineAtMs = requestStartMs + maxLifetimeMs;
     const surfaceKind = requestSurfaceKindForMessage(envelope.type, full.payload);
-    if (surfaceKind) {
-      this.beginRequestSurface({ kind: surfaceKind, requestId, deadlineAtMs });
+    let transactionSurfaceLease: WalletIframeTransactionSurfaceLease | null = null;
+    if (surfaceKind === 'transaction') {
+      transactionSurfaceLease = await this.transactionSurfaceQueue.acquire({
+        requestId,
+        deadlineAtMs,
+      });
     }
 
-    return new Promise<PostResult<T>>((resolve, reject) => {
-      const onTimeout = () => {
-        const pending = this.state.pending.get(requestId);
-        if (pending?.timer !== undefined) window.clearTimeout(pending.timer);
-        this.state.pending.delete(requestId);
-        this.progressBus.unregister(requestId);
-        this.finishRequestSurface(requestId, true);
-        this.sendBestEffortCancel(requestId);
-        const elapsedMs = Math.max(0, Date.now() - requestStartMs);
-        return new Error(`Wallet request timeout for ${envelope.type} after ${elapsedMs}ms`);
-      };
-
-      // Step 3: Set up timeout handler for request
-      const timer = window.setTimeout(() => {
-        const err = onTimeout();
-        reject(err);
-      }, timeoutMs);
-
-      // Step 4: Register pending request for correlation
-      this.state.pending.set(requestId, {
-        resolve: (v) => resolve(v as PostResult<T>),
-        reject,
-        timer,
-        timeoutMs,
-        deadlineAtMs,
-        onProgress: options?.onProgress,
-        requestType: envelope.type,
-        onTimeout,
-      });
-
-      // Step 5: Register progress handler for real-time updates
-      this.progressBus.register({
-        requestId: requestId,
-        sticky: !!options?.sticky, // Some flows need to persist after completion
-        onProgress: (payload: ProgressPayload) => {
-          // Bridge progress events from iframe back to parent callback
-          try {
-            options?.onProgress?.(payload);
-          } catch {}
-        },
-      });
-
-      try {
-        // Step 6: Strip non-cloneable fields (functions) from envelope options before posting
-        const stickyVal = isObject(options) ? (options as { sticky?: unknown }).sticky : undefined;
-        const wireOptions = isBoolean(stickyVal) ? { sticky: stickyVal } : undefined;
-        const serializableFull = wireOptions
-          ? { ...full, options: wireOptions }
-          : { ...full, options: undefined };
-
-        // Send message to iframe via MessagePort after its surface owns visibility.
-        this.state.port!.postMessage(serializableFull as ParentToChildEnvelope);
-      } catch (err) {
-        // Step 8: Handle send errors - clean up and reject
-        this.state.pending.delete(requestId);
-        window.clearTimeout(timer);
-        this.progressBus.unregister(requestId);
-        this.finishRequestSurface(requestId, true);
-        reject(toError(err));
+    try {
+      if (surfaceKind) {
+        this.beginRequestSurface({ kind: surfaceKind, requestId, deadlineAtMs });
       }
-    });
+
+      return await new Promise<PostResult<T>>((resolve, reject) => {
+        const onTimeout = () => {
+          const pending = this.state.pending.get(requestId);
+          if (pending?.timer !== undefined) window.clearTimeout(pending.timer);
+          this.state.pending.delete(requestId);
+          this.progressBus.unregister(requestId);
+          this.finishRequestSurface(requestId, true);
+          this.sendBestEffortCancel(requestId);
+          const elapsedMs = Math.max(0, Date.now() - requestStartMs);
+          return new Error(`Wallet request timeout for ${envelope.type} after ${elapsedMs}ms`);
+        };
+
+        // Step 3: Set up timeout handler for request
+        const initialTimeoutMs = Math.max(1, Math.min(timeoutMs, deadlineAtMs - Date.now()));
+        const timer = window.setTimeout(() => {
+          const err = onTimeout();
+          reject(err);
+        }, initialTimeoutMs);
+
+        // Step 4: Register pending request for correlation
+        this.state.pending.set(requestId, {
+          resolve: (v) => resolve(v as PostResult<T>),
+          reject,
+          timer,
+          timeoutMs,
+          deadlineAtMs,
+          onProgress: options?.onProgress,
+          requestType: envelope.type,
+          onTimeout,
+        });
+
+        // Step 5: Register progress handler for real-time updates
+        this.progressBus.register({
+          requestId: requestId,
+          sticky: !!options?.sticky, // Some flows need to persist after completion
+          onProgress: (payload: ProgressPayload) => {
+            // Bridge progress events from iframe back to parent callback
+            try {
+              options?.onProgress?.(payload);
+            } catch {}
+          },
+        });
+
+        try {
+          // Step 6: Strip non-cloneable fields (functions) from envelope options before posting
+          const stickyVal = isObject(options) ? (options as { sticky?: unknown }).sticky : undefined;
+          const wireOptions = isBoolean(stickyVal) ? { sticky: stickyVal } : undefined;
+          const serializableFull = wireOptions
+            ? { ...full, options: wireOptions }
+            : { ...full, options: undefined };
+
+          // Send message to iframe via MessagePort after its surface owns visibility.
+          this.state.port!.postMessage(serializableFull as ParentToChildEnvelope);
+        } catch (err) {
+          // Step 8: Handle send errors - clean up and reject
+          this.state.pending.delete(requestId);
+          window.clearTimeout(timer);
+          this.progressBus.unregister(requestId);
+          this.finishRequestSurface(requestId, true);
+          reject(toError(err));
+        }
+      });
+    } finally {
+      transactionSurfaceLease?.release();
+    }
   }
 
   private allocateRequestId(): WalletIframeRequestId {

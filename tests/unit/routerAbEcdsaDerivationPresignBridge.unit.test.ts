@@ -9,9 +9,14 @@ import {
 import {
   buildRouterAbEcdsaDerivationPresignaturePoolPutRequest,
   CLOUDFLARE_SIGNING_WORKER_ECDSA_DERIVATION_PRESIGNATURE_POOL_PUT_PATH,
+  CLOUDFLARE_SIGNING_WORKER_ECDSA_PRESIGN_SESSION_INIT_PATH,
+  CLOUDFLARE_SIGNING_WORKER_ECDSA_PRESIGN_SESSION_STEP_PATH,
   putRouterAbEcdsaDerivationPresignaturePoolFill,
   ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
+  startRouterAbEcdsaPresignSession,
+  stepRouterAbEcdsaPresignSession,
 } from '@server/core/ThresholdService/routerAb/ecdsaDerivationPresignBridge';
+import { parseRouterAbNormalSigningRuntimeConfig } from '@server/core/routerAbSigning/RouterAbNormalSigningRuntime';
 
 function b64u(byte: number, length: number): string {
   return Buffer.from(new Uint8Array(length).fill(byte)).toString('base64url');
@@ -30,7 +35,7 @@ const scope: RouterAbEcdsaDerivationNormalSigningScopeV1 = {
     context_binding_b64u: b64u(1, 32),
     derivation_client_share_public_key33_b64u: b64u(2, 33),
     server_public_key33_b64u: b64u(3, 33),
-    threshold_public_key33_b64u: b64u(4, 33),
+    threshold_public_key33_b64u: b64u(2, 33),
     ethereum_address20_b64u: b64u(5, 20),
     client_share_retry_counter: 0,
     server_share_retry_counter: 1,
@@ -47,7 +52,7 @@ const scope: RouterAbEcdsaDerivationNormalSigningScopeV1 = {
 const presignature = {
   serverKeyId: 'server-key-1',
   presignatureId: 'presig-client-selected',
-  bigRB64u: b64u(6, 33),
+  bigRB64u: b64u(2, 33),
   kShareB64u: b64u(7, 32),
   sigmaShareB64u: b64u(8, 32),
   createdAtMs: 1_800_000_000_000,
@@ -56,6 +61,8 @@ const presignature = {
 function digest(byte: number): { bytes: number[] } {
   return { bytes: Array.from(new Uint8Array(32).fill(byte)) };
 }
+
+const hostedSigningWorkerFetch: typeof fetch = async () => Response.json({ ok: true });
 
 function request(): CloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutRequestV1Wire {
   return buildRouterAbEcdsaDerivationPresignaturePoolPutRequest({
@@ -87,6 +94,89 @@ function receipt(
 }
 
 test.describe('Router A/B ECDSA derivation presign bridge', () => {
+  test('preserves the hosted SigningWorker service-binding transport', () => {
+    const config = parseRouterAbNormalSigningRuntimeConfig({
+      ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker-1',
+      ROUTER_AB_SIGNING_WORKER_URL: 'https://signing-worker.router-ab.internal',
+      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: 'test-secret',
+      routerAbSigningWorkerFetch: hostedSigningWorkerFetch,
+    });
+    expect(config.signingWorkerTransport.kind).toBe('configured');
+    if (config.signingWorkerTransport.kind !== 'configured') {
+      throw new Error('expected configured SigningWorker transport');
+    }
+    expect(config.signingWorkerTransport.fetchImpl).toBe(hostedSigningWorkerFetch);
+  });
+
+  test('relays presign init and step through the SigningWorker without server shares', async () => {
+    const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const url = String(input);
+      requests.push({
+        url,
+        body: JSON.parse(String(init?.body || '{}')) as Record<string, unknown>,
+      });
+      if (url.endsWith(CLOUDFLARE_SIGNING_WORKER_ECDSA_PRESIGN_SESSION_INIT_PATH)) {
+        return new Response(
+          JSON.stringify({
+            kind: 'continue',
+            presign_session_id: 'presign-session-1',
+            stage: 'triples',
+            event: 'none',
+            outgoing_messages_b64u: [b64u(9, 4)],
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          kind: 'complete',
+          presign_session_id: 'presign-session-1',
+          server_presignature_id: 'presig-public-1',
+          server_big_r33_b64u: b64u(2, 33),
+        }),
+        { status: 200 },
+      );
+    };
+
+    const started = await startRouterAbEcdsaPresignSession({
+      signingWorkerBaseUrl: 'http://127.0.0.1:9103',
+      scope,
+      presignSessionId: 'presign-session-1',
+      expiresAtMs: 1_800_000_060_000,
+      auth: { kind: 'internal_service_auth_secret', secret: 'test-secret' },
+      fetchImpl,
+    });
+    expect(started).toMatchObject({
+      ok: true,
+      value: { kind: 'continue', presignSessionId: 'presign-session-1', stage: 'triples' },
+    });
+
+    const stepped = await stepRouterAbEcdsaPresignSession({
+      signingWorkerBaseUrl: 'http://127.0.0.1:9103',
+      scope,
+      presignSessionId: 'presign-session-1',
+      requestedStage: 'presign',
+      outgoingMessagesB64u: [b64u(10, 4)],
+      expiresAtMs: 1_800_000_060_000,
+      auth: { kind: 'internal_service_auth_secret', secret: 'test-secret' },
+      fetchImpl,
+    });
+    expect(stepped).toMatchObject({
+      ok: true,
+      value: {
+        kind: 'complete',
+        presignSessionId: 'presign-session-1',
+        serverPresignatureId: 'presig-public-1',
+      },
+    });
+    expect(requests[0]?.url).toContain(CLOUDFLARE_SIGNING_WORKER_ECDSA_PRESIGN_SESSION_INIT_PATH);
+    expect(requests[0]?.body).not.toHaveProperty('relayer_share32_b64u');
+    expect(requests[1]?.url).toContain(CLOUDFLARE_SIGNING_WORKER_ECDSA_PRESIGN_SESSION_STEP_PATH);
+    expect(requests[1]?.body).not.toHaveProperty('server_k_share32_b64u');
+    expect(requests[1]?.body).not.toHaveProperty('server_sigma_share32_b64u');
+  });
+
   test('maps a completed threshold ECDSA server presignature into the strict Worker pool-fill wire shape', () => {
     const poolFillRequest = request();
 

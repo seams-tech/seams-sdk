@@ -8,6 +8,7 @@ import type { NormalizedLogger } from '../logger';
 import type { WalletEcdsaSignerRecord } from '../WalletStore';
 import { walletIdFromString, type WalletId } from '@shared/utils/registrationIntent';
 import { isObject } from './record';
+import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 
 export type ThresholdEcdsaKeyInventoryDiagnostics = {
   userId: string;
@@ -32,6 +33,7 @@ export type ThresholdEcdsaKeyInventoryTarget = {
 export type ThresholdEcdsaKeyInventoryRecord = {
   keyHandle: string;
   ecdsaThresholdKeyId: string;
+  publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
   chainTarget: ThresholdEcdsaChainTarget;
   targetKey: string;
   accountAddress: string;
@@ -107,6 +109,7 @@ export async function listThresholdEcdsaKeyIdentityTargetsForUser(input: {
   getEcdsaSignerByKeyHandle: (input: {
     walletId: WalletId;
     keyHandle: string;
+    chainTarget: ThresholdEcdsaChainTarget;
   }) => Promise<WalletEcdsaSignerRecord | null>;
   logger?: NormalizedLogger;
 }): Promise<{
@@ -144,6 +147,7 @@ export async function listThresholdEcdsaKeyIdentityTargetsForUser(input: {
     const signer = await input.getEcdsaSignerByKeyHandle({
       walletId: walletIdFromString(userId),
       keyHandle: parsed.value.keySelector.keyHandle,
+      chainTarget: parsed.value.chainTarget,
     });
     if (!signer) {
       incrementCount(diagnostics.rejected, 'identity_not_found');
@@ -170,6 +174,7 @@ export async function listThresholdEcdsaKeyIdentityTargetsForUser(input: {
     records.push({
       keyHandle,
       ecdsaThresholdKeyId: identity.ecdsaThresholdKeyId,
+      publicCapability: identity.publicCapability,
       chainTarget: parsed.value.chainTarget,
       targetKey,
       accountAddress: ownerAddress,

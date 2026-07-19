@@ -178,6 +178,7 @@ function ecdsaBootstrapSignerActivation(args: {
         relayerVerifyingShareB64u,
         thresholdEcdsaPublicKeyB64u,
         participantIds,
+        publicCapability: ecdsaRoleLocalPublicFacts.publicCapability,
         chainTarget: args.chainTarget,
         targetMembership: {
           targetKey: chainIdKey,

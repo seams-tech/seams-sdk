@@ -756,7 +756,7 @@ function createBrowserSignerCryptoPort(
           ok: true,
           value: {
             handle: {
-              kind: 'role_local_worker_session',
+              kind: 'ecdsa_role_local_worker_handle_v1',
               materialHandle: parseEcdsaRoleLocalMaterialHandle(stored.materialHandle),
               durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef(stored.materialHandle),
               bindingDigest: parseEcdsaRoleLocalBindingDigest(stored.bindingDigest),

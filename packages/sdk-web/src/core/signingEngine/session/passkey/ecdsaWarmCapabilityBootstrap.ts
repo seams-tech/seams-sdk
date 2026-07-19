@@ -3,16 +3,19 @@ import {
   toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { DurableRecordStore } from '@/core/platform';
-import type { DurableSealedSessionPort, UiConfirmRuntimeBridgePort } from '../../uiConfirm/uiConfirm.types';
+import type {
+  DurableSealedSessionPort,
+  UiConfirmRuntimeBridgePort,
+} from '../../uiConfirm/uiConfirm.types';
 import { SigningOperationIntent } from '../operationState/types';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import {
   thresholdEcdsaSessionRecordReadModel,
   listThresholdEcdsaSessionRecordsForWalletTarget,
+  requirePersistedEcdsaRoleLocalMaterial,
   type ThresholdEcdsaSessionRecord,
   type ThresholdEcdsaSessionStoreDeps,
 } from '../persistence/records';
-import { readThresholdEcdsaSessionRecordRoleLocalReadyRecord } from '../persistence/ecdsaRoleLocalRecords';
 import {
   ecdsaBootstrapChainTarget,
   ecdsaBootstrapWalletId,
@@ -29,10 +32,7 @@ import {
   provisionThresholdEcdsaSessionFromBootstrapArgs,
   type ProvisionThresholdEcdsaSessionDeps,
 } from './ecdsaSessionProvision';
-import type {
-  WarmSessionCapabilityReader,
-  WarmSessionEnvelope,
-} from '../warmCapabilities/types';
+import type { WarmSessionCapabilityReader, WarmSessionEnvelope } from '../warmCapabilities/types';
 import { buildEvmFamilyEcdsaSessionLanePolicy } from '../identity/evmFamilyEcdsaIdentity';
 
 type SharedEd25519WalletSessionGrant = {
@@ -46,7 +46,6 @@ type SharedEd25519WalletSessionGrant = {
 type PasskeyRoleLocalEcdsaRecord = {
   kind: 'passkey_role_local_ecdsa_record_v1';
   record: ThresholdEcdsaSessionRecord;
-  readyRecord: ReturnType<typeof readThresholdEcdsaSessionRecordRoleLocalReadyRecord>;
   passkeyCredentialIdB64u: string;
 };
 
@@ -107,19 +106,14 @@ function selectPasskeyRoleLocalEcdsaRecord(args: {
   });
   for (const record of records) {
     if (record.source === 'email_otp') continue;
-    let readyRecord: ReturnType<typeof readThresholdEcdsaSessionRecordRoleLocalReadyRecord>;
-    try {
-      readyRecord = readThresholdEcdsaSessionRecordRoleLocalReadyRecord(record);
-    } catch {
-      continue;
-    }
-    if (readyRecord.authMethod.kind !== 'passkey') continue;
-    const passkeyCredentialIdB64u = String(readyRecord.authMethod.credentialIdB64u || '').trim();
+    if (record.ecdsaRoleLocalAuthMethod.kind !== 'passkey') continue;
+    const passkeyCredentialIdB64u = String(
+      record.ecdsaRoleLocalAuthMethod.credentialIdB64u || '',
+    ).trim();
     if (!passkeyCredentialIdB64u) continue;
     return {
       kind: 'passkey_role_local_ecdsa_record_v1',
       record,
-      readyRecord,
       passkeyCredentialIdB64u,
     };
   }
@@ -155,10 +149,7 @@ export type NoPromptWarmSessionDeps = {
   >;
   claimEcdsaPasskeyPrfFirst: (args: NoPromptEcdsaPasskeyPrfFirstClaim) => Promise<string>;
   reconnectWithWalletSessionAuth: (
-    request: Extract<
-      EcdsaBootstrapRequest,
-      { kind: 'wallet_session_reconnect_ecdsa_bootstrap' }
-    >,
+    request: Extract<EcdsaBootstrapRequest, { kind: 'wallet_session_reconnect_ecdsa_bootstrap' }>,
   ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
   ecdsaSessions: ThresholdEcdsaSessionStoreDeps;
   prompt?: never;
@@ -362,7 +353,8 @@ async function tryNoPromptWalletSessionReconnect(args: {
     relayerUrl,
     keyHandle: record.keyHandle,
     key: readModel.key,
-    publicCapability: selected.readyRecord.publicFacts.publicCapability,
+    publicCapability: record.ecdsaRoleLocalPublicFacts.publicCapability,
+    existingRoleLocalMaterial: requirePersistedEcdsaRoleLocalMaterial(record),
     lanePolicy: buildEvmFamilyEcdsaSessionLanePolicy({
       chainTarget: args.request.chainTarget,
       thresholdSessionId: record.thresholdSessionId,

@@ -1,7 +1,5 @@
 import { base64UrlDecode } from '@shared/utils/base64';
-import {
-  parseRouterAbEcdsaDerivationPublicCapabilityV1,
-} from '@shared/utils/routerAbEcdsaDerivation';
+import { parseRouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
@@ -15,10 +13,7 @@ import {
   toEcdsaDerivationThresholdKeyId,
   toEmailOtpAuthSubjectId,
 } from '../identity/emailOtpEcdsaDerivationIdentity';
-import {
-  parseRawThresholdEcdsaSessionRecord,
-  type ThresholdEcdsaSessionRecord,
-} from './records';
+import { parseRawThresholdEcdsaSessionRecord, type ThresholdEcdsaSessionRecord } from './records';
 import type {
   CleanupMalformedEcdsaRoleLocalRecordInput,
   CredentialIdB64u,
@@ -79,14 +74,18 @@ function parseCompressedSecp256k1PublicKey(value: unknown, field: string): strin
   return normalized;
 }
 
-function parseEcdsaDerivationClientSharePublicKey(value: unknown): DerivationClientSharePublicKey33B64u {
+function parseEcdsaDerivationClientSharePublicKey(
+  value: unknown,
+): DerivationClientSharePublicKey33B64u {
   return parseCompressedSecp256k1PublicKey(
     value,
     'derivationClientSharePublicKey33B64u',
   ) as DerivationClientSharePublicKey33B64u;
 }
 
-function parseRelayerEcdsaDerivationPublicKey(value: unknown): EcdsaDerivationRelayerPublicKey33B64u {
+function parseRelayerEcdsaDerivationPublicKey(
+  value: unknown,
+): EcdsaDerivationRelayerPublicKey33B64u {
   return parseCompressedSecp256k1PublicKey(
     value,
     'relayerPublicKey33B64u',
@@ -156,7 +155,7 @@ function toWalletKeyId(value: unknown) {
   return requireEvmFamilySigningKeySlotId(value);
 }
 
-function parseAuthMethod(input: unknown): EcdsaRoleLocalAuthMethod {
+export function parseEcdsaRoleLocalAuthMethod(input: unknown): EcdsaRoleLocalAuthMethod {
   if (!isRecord(input)) {
     throw new Error('[platform][ecdsa-role-local] authMethod must be an object');
   }
@@ -176,10 +175,6 @@ function parseAuthMethod(input: unknown): EcdsaRoleLocalAuthMethod {
     default:
       throw new Error('[platform][ecdsa-role-local] authMethod kind is invalid');
   }
-}
-
-export function parseEcdsaRoleLocalAuthMethod(input: unknown): EcdsaRoleLocalAuthMethod {
-  return parseAuthMethod(input);
 }
 
 export function buildEcdsaRoleLocalPasskeyAuthMethod(input: {
@@ -300,9 +295,7 @@ function parsePublicFacts(input: unknown): EcdsaRoleLocalPublicFacts {
     relayerPublicKey33B64u,
     groupPublicKey33B64u: parseGroupPublicKey(input.groupPublicKey33B64u),
     ethereumAddress: parseEthereumAddress(input.ethereumAddress),
-    publicCapability: parseRouterAbEcdsaDerivationPublicCapabilityV1(
-      input.publicCapability,
-    ),
+    publicCapability: parseRouterAbEcdsaDerivationPublicCapabilityV1(input.publicCapability),
   };
 }
 
@@ -310,9 +303,7 @@ export function buildEcdsaRoleLocalPublicFacts(input: unknown): EcdsaRoleLocalPu
   return parsePublicFacts(input);
 }
 
-export function parseEcdsaRoleLocalReadyRecord(
-  input: unknown,
-): EcdsaRoleLocalReadyRecord {
+export function parseEcdsaRoleLocalReadyRecord(input: unknown): EcdsaRoleLocalReadyRecord {
   if (!isRecord(input)) {
     throw new Error('[platform][ecdsa-role-local] ready record must be an object');
   }
@@ -325,7 +316,7 @@ export function parseEcdsaRoleLocalReadyRecord(
   }
   const publicFacts = parsePublicFacts(input.publicFacts);
   const stateBlob = parseReadyStateBlob(input.stateBlob);
-  const authMethod = parseAuthMethod(input.authMethod);
+  const authMethod = parseEcdsaRoleLocalAuthMethod(input.authMethod);
   const parsed = readyRecordFromParts({
     stateBlob,
     publicFacts,
@@ -415,10 +406,8 @@ export function classifyThresholdEcdsaSessionRecordRoleLocalState(args: {
   nowMs: number;
 }): EcdsaRoleLocalSessionRecordState {
   let record: ThresholdEcdsaSessionRecord;
-  let readyRecord: EcdsaRoleLocalReadyRecord;
   try {
     record = parseRawThresholdEcdsaSessionRecord(args.record);
-    readyRecord = thresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record);
   } catch (error) {
     return {
       kind: 'cleanup_only_raw_role_local_record_v1',
@@ -430,13 +419,14 @@ export function classifyThresholdEcdsaSessionRecordRoleLocalState(args: {
     };
   }
 
-  const authMethod = readyRecord.authMethod;
+  const authMethod = record.ecdsaRoleLocalAuthMethod;
+  const publicFacts = record.ecdsaRoleLocalPublicFacts;
   const remainingUses = Math.floor(Number(record.remainingUses) || 0);
   if (remainingUses <= 0) {
     return {
       kind: 'reauth_required_role_local_material_v1',
       authMethod,
-      readyRecord,
+      publicFacts,
       reason: 'exhausted',
     };
   }
@@ -445,7 +435,7 @@ export function classifyThresholdEcdsaSessionRecordRoleLocalState(args: {
     return {
       kind: 'reauth_required_role_local_material_v1',
       authMethod,
-      readyRecord,
+      publicFacts,
       reason: 'expired',
     };
   }
@@ -453,6 +443,51 @@ export function classifyThresholdEcdsaSessionRecordRoleLocalState(args: {
   const handle = record.clientAdditiveShareHandle;
   const workerSessionId =
     handle?.kind === 'email_otp_worker_session' ? String(handle.sessionId || '').trim() : '';
+  if (authMethod.kind === 'passkey') {
+    if (workerSessionId) {
+      return {
+        kind: 'reauth_required_role_local_material_v1',
+        authMethod,
+        publicFacts,
+        reason: 'unsupported_material_owner',
+      };
+    }
+    if (!record.roleLocalDurableMaterialRef) {
+      return {
+        kind: 'reauth_required_role_local_material_v1',
+        authMethod,
+        publicFacts,
+        reason: 'missing_durable_material',
+      };
+    }
+    return {
+      kind: 'ready_passkey_role_local_material_v1',
+      authMethod,
+      publicFacts,
+      durableMaterialRef: record.roleLocalDurableMaterialRef,
+    };
+  }
+
+  if (record.roleLocalDurableMaterialRef) {
+    return {
+      kind: 'ready_email_otp_role_local_material_v1',
+      authMethod,
+      publicFacts,
+      inlineSigningMaterial: {
+        kind: 'role_local_durable_material',
+        durableMaterialRef: record.roleLocalDurableMaterialRef,
+      },
+    };
+  }
+
+  const readyRecord = record.ecdsaRoleLocalReadyRecord;
+  if (!readyRecord || readyRecord.authMethod.kind !== 'email_otp') {
+    return {
+      kind: 'cleanup_only_raw_role_local_record_v1',
+      reason: 'malformed_record',
+      message: '[platform][ecdsa-role-local] Email OTP session is missing role-local state',
+    };
+  }
   if (readyRecord.kind === 'ecdsa_role_local_ready_email_otp_v1' && workerSessionId) {
     return {
       kind: 'ready_email_otp_role_local_material_v1',
@@ -475,29 +510,10 @@ export function classifyThresholdEcdsaSessionRecordRoleLocalState(args: {
       },
     };
   }
-  if (readyRecord.kind === 'ecdsa_role_local_ready_passkey_v1' && workerSessionId) {
-    return {
-      kind: 'reauth_required_role_local_material_v1',
-      authMethod,
-      readyRecord,
-      reason: 'unsupported_material_owner',
-    };
-  }
-  if (readyRecord.kind === 'ecdsa_role_local_ready_passkey_v1') {
-    return {
-      kind: 'ready_passkey_role_local_material_v1',
-      authMethod: readyRecord.authMethod,
-      readyRecord,
-      inlineSigningMaterial: {
-        kind: 'role_local_ready_state_blob',
-        stateBlob: readyRecord.stateBlob,
-      },
-    };
-  }
   return {
     kind: 'reauth_required_role_local_material_v1',
     authMethod,
-    readyRecord,
+    publicFacts,
     reason: 'unsupported_material_owner',
   };
 }

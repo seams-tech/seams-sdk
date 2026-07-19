@@ -244,30 +244,73 @@ async fn persist_cloudflare_ed25519_yao_output_activation_v1(
         existing_active_state.as_ref(),
         &active_state,
     )?;
-    let mut writes = BTreeMap::new();
-    writes.insert(
-        material_key,
-        serde_json::to_value(&request.record).map_err(|err| {
-            RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::MalformedWirePayload,
-                format!("Signing Worker Ed25519 Yao material encoding failed: {err}"),
-            )
-        })?,
-    );
-    writes.insert(
-        active_state_key,
-        serde_json::to_value(&active_state).map_err(|err| {
-            RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::MalformedWirePayload,
-                format!("Signing Worker Ed25519 Yao active-state encoding failed: {err}"),
-            )
-        })?,
-    );
+    let writes = worker::js_sys::Object::new();
+    set_durable_object_put_multiple_value(
+        &writes,
+        &material_key,
+        &request.record,
+        "Signing Worker Ed25519 Yao material",
+    )?;
+    set_durable_object_put_multiple_value(
+        &writes,
+        &active_state_key,
+        &active_state,
+        "Signing Worker Ed25519 Yao active state",
+    )?;
     storage
-        .put_multiple(writes)
+        .put_multiple_raw(writes)
         .await
         .map_err(|err| ed25519_yao_output_storage_error("commit activation", err))?;
+    let committed_record = storage
+        .get::<CloudflareSigningWorkerOutputActivationRecordV1>(&material_key)
+        .await
+        .map_err(|err| ed25519_yao_output_storage_error("verify committed material", err))?;
+    let committed_active_state = storage
+        .get::<ActiveSigningWorkerStateV1>(&active_state_key)
+        .await
+        .map_err(|err| ed25519_yao_output_storage_error("verify committed active state", err))?;
+    if committed_record.as_ref() != Some(&request.record)
+        || committed_active_state.as_ref() != Some(&active_state)
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "Signing Worker Ed25519 Yao activation did not commit exact durable state",
+        ));
+    }
     CloudflareEd25519YaoOutputActivationReceiptV1::new(active_state, true)
+}
+
+#[cfg(feature = "workers-rs")]
+fn set_durable_object_put_multiple_value<T: Serialize>(
+    writes: &worker::js_sys::Object,
+    key: &str,
+    value: &T,
+    label: &'static str,
+) -> RouterAbProtocolResult<()> {
+    let json = serde_json::to_string(value).map_err(|err| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("{label} encoding failed: {err}"),
+        )
+    })?;
+    let js_value = worker::js_sys::JSON::parse(&json).map_err(|err| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("{label} JavaScript encoding failed: {err:?}"),
+        )
+    })?;
+    worker::js_sys::Reflect::set(
+        writes,
+        &worker::wasm_bindgen::JsValue::from_str(key),
+        &js_value,
+    )
+    .map_err(|err| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("{label} Durable Object write assembly failed: {err:?}"),
+        )
+    })?;
+    Ok(())
 }
 
 #[cfg(feature = "workers-rs")]
@@ -840,15 +883,17 @@ async fn handle_cloudflare_durable_object_worker_request_with_project_policy_v1(
             activated_at_ms,
         } => {
             let active_state_index_key = call.active_signing_worker_state_index_storage_key()?;
-            let (active_signing_worker_state, activated) = match worker_storage_get::<
+            let existing_record = worker_storage_get::<
                 CloudflareSigningWorkerOutputActivationRecordV1,
-            >(
+            >(storage, &storage_key, call.operation_kind())
+            .await?;
+            let existing_active_state = worker_storage_get::<ActiveSigningWorkerStateV1>(
                 storage,
-                &storage_key,
+                &active_state_index_key,
                 call.operation_kind(),
             )
-            .await?
-            {
+            .await?;
+            let (record, active_signing_worker_state, activated) = match existing_record {
                 Some(existing) => {
                     existing.validate()?;
                     match existing {
@@ -859,7 +904,12 @@ async fn handle_cloudflare_durable_object_worker_request_with_project_policy_v1(
                         } if existing_activation == *activation
                             && existing_material == *material =>
                         {
-                            (active_signing_worker_state, false)
+                            let record = CloudflareSigningWorkerOutputActivationRecordV1::new(
+                                existing_activation,
+                                active_signing_worker_state.clone(),
+                                existing_material,
+                            )?;
+                            (record, active_signing_worker_state, false)
                         }
                         _ => {
                             return Err(RouterAbProtocolError::new(
@@ -876,33 +926,29 @@ async fn handle_cloudflare_durable_object_worker_request_with_project_policy_v1(
                             storage_key.clone(),
                             *activated_at_ms,
                         )?;
-                    let existing_active_state = worker_storage_get::<ActiveSigningWorkerStateV1>(
-                        storage,
-                        &active_state_index_key,
-                        call.operation_kind(),
-                    )
-                    .await?;
-                    validate_signing_worker_output_active_state_replacement_v1(
-                        existing_active_state.as_ref(),
-                        &active_signing_worker_state,
-                    )?;
                     let record = CloudflareSigningWorkerOutputActivationRecordV1::new(
                         activation.clone(),
                         active_signing_worker_state.clone(),
                         material.clone(),
                     )?;
-                    worker_storage_put(storage, &storage_key, record, call.operation_kind())
-                        .await?;
-                    worker_storage_put(
-                        storage,
-                        &active_state_index_key,
-                        active_signing_worker_state.clone(),
-                        call.operation_kind(),
-                    )
-                    .await?;
-                    (active_signing_worker_state, true)
+                    (record, active_signing_worker_state, true)
                 }
             };
+            if activated || existing_active_state.as_ref() != Some(&active_signing_worker_state) {
+                validate_signing_worker_output_active_state_replacement_v1(
+                    existing_active_state.as_ref(),
+                    &active_signing_worker_state,
+                )?;
+                persist_cloudflare_signing_worker_output_activation_pair_v1(
+                    storage,
+                    &storage_key,
+                    &active_state_index_key,
+                    &record,
+                    &active_signing_worker_state,
+                    call.operation_kind(),
+                )
+                .await?;
+            }
             let activation_context = &activation.activation_context;
             let selected_server = &activation_context.signer_set().selected_server;
             CloudflareDurableObjectResponseV1::signing_worker_output_activate(
@@ -917,15 +963,29 @@ async fn handle_cloudflare_durable_object_worker_request_with_project_policy_v1(
         }
         CloudflareDurableObjectRequestV1::SigningWorkerOutputActiveStateGet { lookup } => {
             lookup.validate()?;
-            let active_signing_worker_state = require_existing_record_v1(
-                worker_storage_get::<ActiveSigningWorkerStateV1>(
+            let active_signing_worker_state =
+                match worker_storage_get::<ActiveSigningWorkerStateV1>(
                     storage,
                     &storage_key,
                     call.operation_kind(),
                 )
-                .await?,
-                "active SigningWorker state is missing",
-            )?;
+                .await?
+                {
+                    Some(active_signing_worker_state) => active_signing_worker_state,
+                    None => recover_signing_worker_output_active_state_index_v1(
+                        binding,
+                        storage,
+                        lookup,
+                        call.operation_kind(),
+                    )
+                    .await?
+                    .ok_or_else(|| {
+                        RouterAbProtocolError::new(
+                            RouterAbProtocolErrorCode::MissingLocalBinding,
+                            "active SigningWorker state is missing",
+                        )
+                    })?,
+                };
             lookup.validate_active_state(&active_signing_worker_state)?;
             CloudflareDurableObjectResponseV1::signing_worker_output_active_state_get(
                 active_signing_worker_state,
@@ -1031,6 +1091,145 @@ async fn handle_cloudflare_durable_object_worker_request_with_project_policy_v1(
     };
     response.validate_for_request(&call.request)?;
     Ok(response)
+}
+
+#[cfg(feature = "workers-rs")]
+// Repair the denormalized active-state index from the canonical activation record.
+async fn recover_signing_worker_output_active_state_index_v1(
+    binding: &CloudflareDurableObjectBindingV1,
+    storage: &worker::Storage,
+    lookup: &CloudflareActiveSigningWorkerStateLookupV1,
+    operation_kind: CloudflareDurableObjectOperationKindV1,
+) -> RouterAbProtocolResult<Option<ActiveSigningWorkerStateV1>> {
+    binding.validate()?;
+    lookup.validate()?;
+    let output_prefix = format!("{}signing-worker-output/", binding.key_prefix);
+    let values = storage
+        .list_with_options(worker::ListOptions::new().prefix(&output_prefix))
+        .await
+        .map_err(|error| {
+            worker_storage_error(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                operation_kind,
+                &output_prefix,
+                format!("Durable Object activation-record list failed: {error}"),
+            )
+        })?;
+    let keys = worker::js_sys::Array::from(&values.keys());
+    let mut recovered: Option<ActiveSigningWorkerStateV1> = None;
+    for key in keys.iter() {
+        let material_key = key.as_string().ok_or_else(|| {
+            worker_storage_error(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                operation_kind,
+                &output_prefix,
+                "Durable Object activation-record list returned a non-string key".to_owned(),
+            )
+        })?;
+        let Some(record) = worker_storage_get::<CloudflareSigningWorkerOutputActivationRecordV1>(
+            storage,
+            &material_key,
+            operation_kind,
+        )
+        .await?
+        else {
+            continue;
+        };
+        record.validate()?;
+        let candidate = record.active_signing_worker_state();
+        if lookup.validate_active_state(candidate).is_err() {
+            continue;
+        }
+        if recovered
+            .as_ref()
+            .is_some_and(|existing| existing != candidate)
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "multiple conflicting SigningWorker activation records match active-state lookup",
+            ));
+        }
+        recovered = Some(candidate.clone());
+    }
+    let Some(active_signing_worker_state) = recovered else {
+        return Ok(None);
+    };
+    let active_state_key = format!(
+        "{}active-signing-worker/{}/{}/{}",
+        binding.key_prefix, lookup.account_id, lookup.session_id, lookup.signing_worker_id
+    );
+    worker_storage_put(
+        storage,
+        &active_state_key,
+        active_signing_worker_state.clone(),
+        operation_kind,
+    )
+    .await?;
+    let committed = worker_storage_get::<ActiveSigningWorkerStateV1>(
+        storage,
+        &active_state_key,
+        operation_kind,
+    )
+    .await?;
+    if committed.as_ref() != Some(&active_signing_worker_state) {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "recovered active SigningWorker state did not commit exact durable state",
+        ));
+    }
+    Ok(Some(active_signing_worker_state))
+}
+
+#[cfg(feature = "workers-rs")]
+async fn persist_cloudflare_signing_worker_output_activation_pair_v1(
+    storage: &worker::Storage,
+    material_key: &str,
+    active_state_key: &str,
+    record: &CloudflareSigningWorkerOutputActivationRecordV1,
+    active_state: &ActiveSigningWorkerStateV1,
+    operation_kind: CloudflareDurableObjectOperationKindV1,
+) -> RouterAbProtocolResult<()> {
+    let writes = worker::js_sys::Object::new();
+    set_durable_object_put_multiple_value(
+        &writes,
+        material_key,
+        record,
+        "SigningWorker ECDSA activation material",
+    )?;
+    set_durable_object_put_multiple_value(
+        &writes,
+        active_state_key,
+        active_state,
+        "SigningWorker ECDSA active state",
+    )?;
+    storage.put_multiple_raw(writes).await.map_err(|error| {
+        worker_storage_error(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            operation_kind,
+            material_key,
+            format!("Durable Object atomic activation write failed: {error}"),
+        )
+    })?;
+    let committed_record = worker_storage_get::<CloudflareSigningWorkerOutputActivationRecordV1>(
+        storage,
+        material_key,
+        operation_kind,
+    )
+    .await?;
+    let committed_active_state =
+        worker_storage_get::<ActiveSigningWorkerStateV1>(storage, active_state_key, operation_kind)
+            .await?;
+    if committed_record.as_ref() != Some(record)
+        || committed_active_state.as_ref() != Some(active_state)
+    {
+        return Err(worker_storage_error(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            operation_kind,
+            material_key,
+            "Durable Object activation read-back did not match the exact committed pair".to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(feature = "workers-rs")]
@@ -1240,10 +1439,11 @@ pub async fn execute_cloudflare_durable_object_call_v1(
     })?;
     let status = response.status_code();
     if !(200..=299).contains(&status) {
+        let body = response.text().await.unwrap_or_default();
         return Err(worker_do_error(
             RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
             call,
-            format!("Durable Object returned HTTP status {status}"),
+            format!("Durable Object returned HTTP status {status}: {body}"),
         ));
     }
     let parsed = response
@@ -1258,4 +1458,70 @@ pub async fn execute_cloudflare_durable_object_call_v1(
         })?;
     parsed.validate_for_request(&call.request)?;
     Ok(parsed)
+}
+
+/// Executes a private JSON call against a role-owned Durable Object route.
+#[cfg(feature = "workers-rs")]
+pub(crate) async fn execute_cloudflare_durable_object_custom_json_call_v1<TRequest, TResponse>(
+    env: &worker::Env,
+    binding: &CloudflareDurableObjectBindingV1,
+    path: &str,
+    request: &TRequest,
+) -> RouterAbProtocolResult<TResponse>
+where
+    TRequest: Serialize,
+    TResponse: DeserializeOwned,
+{
+    binding.validate_visible_to(CloudflareWorkerRoleV1::SigningWorker)?;
+    require_non_empty("Durable Object custom path", path)?;
+    let namespace = env.durable_object(&binding.binding_name).map_err(|error| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MissingLocalBinding,
+            format!("Durable Object namespace lookup failed: {error}"),
+        )
+    })?;
+    let stub = namespace
+        .get_by_name(&binding.object_name)
+        .map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                format!("Durable Object stub lookup failed: {error}"),
+            )
+        })?;
+    let request_body = serde_json::to_string(request).map_err(|error| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("Durable Object custom request encoding failed: {error}"),
+        )
+    })?;
+    let mut init = worker::RequestInit::new();
+    init.with_method(worker::Method::Post)
+        .with_body(Some(worker::wasm_bindgen::JsValue::from_str(&request_body)));
+    let url = format!("https://router-ab-do.internal{path}");
+    let request = worker::Request::new_with_init(&url, &init).map_err(|error| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            format!("Durable Object custom request construction failed: {error}"),
+        )
+    })?;
+    let mut response = stub.fetch_with_request(request).await.map_err(|error| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            format!("Durable Object custom request failed: {error}"),
+        )
+    })?;
+    let status = response.status_code();
+    if !(200..=299).contains(&status) {
+        let body = response.text().await.unwrap_or_default();
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            format!("Durable Object custom request returned HTTP {status}: {body}"),
+        ));
+    }
+    response.json::<TResponse>().await.map_err(|error| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("Durable Object custom response JSON is invalid: {error}"),
+        )
+    })
 }

@@ -142,8 +142,12 @@ export const DemoPage: React.FC = () => {
     },
   ];
 
+  /* The card chrome is fully static, so it renders immediately and enters in
+     one motion; async values (greeting, funding status) fill same-size
+     reserved slots afterwards instead of gating the card behind a skeleton. */
   return (
     <AnimatedHeight>
+      <div className="demo-card-reveal">
       <div className="demo-page-header">
         <h2 className="demo-title">Welcome</h2>
       </div>
@@ -173,6 +177,7 @@ export const DemoPage: React.FC = () => {
         tempoPreparationUnavailableReason={thresholdSigners.tempoPreparationUnavailableReason}
         tempoFundingStatus={tempoFunding.status}
       />
+      </div>
     </AnimatedHeight>
   );
 };

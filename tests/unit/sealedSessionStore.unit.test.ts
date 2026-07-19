@@ -1,23 +1,65 @@
 import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
+import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
+import { testEcdsaChainTarget } from './helpers/ecdsaChainTarget.fixtures';
+import {
+  upsertThresholdEcdsaSessionFromBootstrap,
+  type ThresholdEcdsaSessionStoreDeps,
+} from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
+import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  parseEcdsaRoleLocalBindingDigest,
+  parseEcdsaRoleLocalDurableMaterialRef,
+  parseEcdsaRoleLocalMaterialHandle,
+} from '../../packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands';
 
 const IMPORT_PATHS = {
   indexedDB: '/_test-sdk/esm/core/indexedDB/index.js',
   sealedSessionStore: '/_test-sdk/esm/core/signingEngine/session/persistence/sealedSessionStore.js',
 } as const;
 
+const ECDSA_RESTORE_BOOTSTRAP = createThresholdEcdsaBootstrapFixture({
+  nearAccountId: 'sealed-store.testnet',
+  chain: 'tempo',
+  rpId: 'wallet.example.localhost',
+  passkeyCredentialIdB64u: 'passkey-ecdsa-credential',
+  keyHandle: 'key-handle-ecdsa',
+  ecdsaThresholdKeyId: 'ecdsa-threshold-key-sealed-store',
+  relayerKeyId: 'relayer-key',
+  sessionKind: 'cookie',
+  signingRootId: 'sealed-store:local',
+  signingRootVersion: 'v1',
+  ethereumAddress: `0x${'33'.repeat(20)}`,
+  participantIds: [1, 2],
+});
+const ECDSA_RESTORE_BINDING = ECDSA_RESTORE_BOOTSTRAP.thresholdEcdsaKeyRef.backendBinding;
+if (ECDSA_RESTORE_BINDING?.materialKind !== 'role_local_ready_state_blob') {
+  throw new Error('expected role-local ECDSA sealed-session fixture');
+}
+const ECDSA_RESTORE_PUBLIC_FACTS = ECDSA_RESTORE_BINDING.ecdsaRoleLocalReadyRecord.publicFacts;
+
 const ECDSA_RESTORE = {
-  chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
+  chainTarget: ECDSA_RESTORE_BOOTSTRAP.thresholdEcdsaKeyRef.chainTarget,
   source: 'manual-bootstrap',
-  evmFamilySigningKeySlotId: 'wallet-key:evm-family:passkey-fixture',
+  evmFamilySigningKeySlotId: ECDSA_RESTORE_BOOTSTRAP.keygen.evmFamilySigningKeySlotId,
+  roleLocalDurableMaterialRef: 'role-local:sealed-store-fixture',
   rpId: 'wallet.example.localhost',
   credentialIdB64u: 'passkey-ecdsa-credential',
   sessionKind: 'cookie',
-  keyHandle: 'key-handle-ecdsa',
-  ethereumAddress: `0x${'33'.repeat(20)}`,
-  relayerKeyId: 'relayer-key',
-  thresholdEcdsaPublicKeyB64u: 'threshold-public-key',
-  participantIds: [1, 2, 3],
+  signingRootId: ECDSA_RESTORE_PUBLIC_FACTS.signingRootId,
+  signingRootVersion: ECDSA_RESTORE_PUBLIC_FACTS.signingRootVersion,
+  keyHandle: ECDSA_RESTORE_BOOTSTRAP.thresholdEcdsaKeyRef.keyHandle,
+  ecdsaThresholdKeyId: ECDSA_RESTORE_BOOTSTRAP.thresholdEcdsaKeyRef.ecdsaThresholdKeyId,
+  ethereumAddress: ECDSA_RESTORE_BOOTSTRAP.thresholdEcdsaKeyRef.ethereumAddress,
+  relayerKeyId: ECDSA_RESTORE_BINDING.relayerKeyId,
+  clientVerifyingShareB64u: ECDSA_RESTORE_BINDING.clientVerifyingShareB64u,
+  thresholdEcdsaPublicKeyB64u:
+    ECDSA_RESTORE_BOOTSTRAP.thresholdEcdsaKeyRef.thresholdEcdsaPublicKeyB64u,
+  participantIds: ECDSA_RESTORE_BOOTSTRAP.thresholdEcdsaKeyRef.participantIds,
+  runtimePolicyScope: ECDSA_RESTORE_BOOTSTRAP.session.runtimePolicyScope,
+  routerAbEcdsaDerivationNormalSigning:
+    ECDSA_RESTORE_BOOTSTRAP.thresholdEcdsaKeyRef.routerAbEcdsaDerivationNormalSigning,
+  publicCapability: ECDSA_RESTORE_PUBLIC_FACTS.publicCapability,
 } as const;
 
 const EMAIL_OTP_EMAIL_HASH_HEX = 'email-otp-email-hash';
@@ -26,14 +68,22 @@ const EMAIL_OTP_ECDSA_RESTORE = {
   chainTarget: ECDSA_RESTORE.chainTarget,
   source: 'email_otp',
   evmFamilySigningKeySlotId: 'wallet-key:evm-family:email-otp-fixture',
+  provider: 'google',
   providerSubjectId: 'email-otp-subject',
   emailHashHex: EMAIL_OTP_EMAIL_HASH_HEX,
   sessionKind: 'cookie',
+  signingRootId: ECDSA_RESTORE.signingRootId,
+  signingRootVersion: ECDSA_RESTORE.signingRootVersion,
   keyHandle: ECDSA_RESTORE.keyHandle,
+  ecdsaThresholdKeyId: ECDSA_RESTORE.ecdsaThresholdKeyId,
   ethereumAddress: ECDSA_RESTORE.ethereumAddress,
   relayerKeyId: ECDSA_RESTORE.relayerKeyId,
+  clientVerifyingShareB64u: ECDSA_RESTORE.clientVerifyingShareB64u,
   thresholdEcdsaPublicKeyB64u: ECDSA_RESTORE.thresholdEcdsaPublicKeyB64u,
   participantIds: ECDSA_RESTORE.participantIds,
+  runtimePolicyScope: ECDSA_RESTORE.runtimePolicyScope,
+  routerAbEcdsaDerivationNormalSigning: ECDSA_RESTORE.routerAbEcdsaDerivationNormalSigning,
+  publicCapability: ECDSA_RESTORE.publicCapability,
 } as const;
 
 const ED25519_RESTORE_BASE = {
@@ -57,6 +107,7 @@ const PASSKEY_ED25519_RESTORE = {
 
 const EMAIL_OTP_ED25519_RESTORE = {
   ...ED25519_RESTORE_BASE,
+  provider: 'google',
   providerSubjectId: 'email-otp-subject',
   emailHashHex: EMAIL_OTP_EMAIL_HASH_HEX,
   sessionKind: 'jwt',
@@ -105,6 +156,99 @@ test.describe('signing session sealed store', () => {
         emailOtpEd25519Restore: EMAIL_OTP_ED25519_RESTORE,
       },
     );
+  });
+
+  test('preserves an expired active ECDSA anchor for the next unlock', async ({ page }) => {
+    const walletId = toWalletId('expired-anchor.testnet');
+    const chainTarget = testEcdsaChainTarget('tempo');
+    const store: ThresholdEcdsaSessionStoreDeps = {
+      recordsByLane: new Map(),
+      exportArtifactsByLane: new Map(),
+    };
+    const fixtureBootstrap = createThresholdEcdsaBootstrapFixture({
+      nearAccountId: walletId,
+      chain: 'tempo',
+      expiresAtMs: Date.now() + 2_000,
+      remainingUses: 3,
+    });
+    const fixtureBinding = fixtureBootstrap.thresholdEcdsaKeyRef.backendBinding;
+    if (fixtureBinding?.materialKind !== 'role_local_ready_state_blob') {
+      throw new Error('expected role-local fixture');
+    }
+    const durableMaterialRef = parseEcdsaRoleLocalDurableMaterialRef('role-local:expired-anchor');
+    const bootstrap = {
+      ...fixtureBootstrap,
+      thresholdEcdsaKeyRef: {
+        ...fixtureBootstrap.thresholdEcdsaKeyRef,
+        backendBinding: {
+          materialKind: 'role_local_worker_handle' as const,
+          relayerKeyId: fixtureBinding.relayerKeyId,
+          clientVerifyingShareB64u: fixtureBinding.clientVerifyingShareB64u,
+          roleLocalMaterialHandle: {
+            kind: 'ecdsa_role_local_worker_handle_v1' as const,
+            materialHandle: parseEcdsaRoleLocalMaterialHandle('role-local:expired-anchor'),
+            bindingDigest: parseEcdsaRoleLocalBindingDigest(
+              fixtureBinding.ecdsaRoleLocalReadyRecord.publicFacts.contextBinding32B64u,
+            ),
+            durableMaterialRef,
+          },
+          publicFacts: fixtureBinding.ecdsaRoleLocalReadyRecord.publicFacts,
+          authMethod: fixtureBinding.ecdsaRoleLocalReadyRecord.authMethod,
+        },
+      },
+    };
+    const runtimeRecord = upsertThresholdEcdsaSessionFromBootstrap(store, {
+      walletId,
+      chainTarget,
+      bootstrap,
+      source: 'registration',
+    });
+    const persistedRecord = {
+      ...runtimeRecord,
+      roleLocalDurableMaterialRef: durableMaterialRef,
+      expiresAtMs: Date.now() + 2_000,
+      updatedAtMs: Date.now(),
+    };
+
+    const result = await page.evaluate(
+      async ({ paths, record, walletId: rawWalletId, chainTarget: rawChainTarget }) => {
+        const mod = await import(paths.sealedSessionStore);
+        await mod.clearAllSealedSessions();
+        await mod.persistActivePasskeyEcdsaReauthAnchor(record);
+        await new Promise((resolve) => setTimeout(resolve, 2_100));
+        const records = await mod.listEcdsaSealedSessionsForWallet({
+          walletId: rawWalletId,
+          filter: {
+            authMethod: 'passkey',
+            curve: 'ecdsa',
+          },
+        });
+        const matching = records.find(
+          (candidate: any) =>
+            candidate.ecdsaRestore?.chainTarget?.kind === rawChainTarget.kind &&
+            candidate.ecdsaRestore?.chainTarget?.chainId === rawChainTarget.chainId,
+        );
+        return matching
+          ? {
+              state: matching.state,
+              retirement: matching.retirement,
+              publicCapability: matching.ecdsaRestore.publicCapability,
+            }
+          : null;
+      },
+      {
+        paths: IMPORT_PATHS,
+        record: persistedRecord,
+        walletId,
+        chainTarget,
+      },
+    );
+
+    expect(result).toMatchObject({
+      state: 'expired',
+      retirement: 'expired',
+      publicCapability: runtimeRecord.ecdsaRoleLocalPublicFacts.publicCapability,
+    });
   });
 
   test('writes shamir3pass records to IndexedDB without persisting plaintext secret or JWT auth', async ({
@@ -746,15 +890,12 @@ test.describe('signing session sealed store', () => {
     expect(result.built).toBeNull();
   });
 
-  test('rejects JWT sealed restore metadata without wallet-session authority', async ({
-    page,
-  }) => {
+  test('rejects JWT sealed restore metadata without wallet-session authority', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.sealedSessionStore);
-        const { walletSessionJwt: _walletSessionJwt, ...restoreWithoutJwt } = (
-          globalThis as any
-        ).EMAIL_OTP_ECDSA_RESTORE;
+        const { walletSessionJwt: _walletSessionJwt, ...restoreWithoutJwt } = (globalThis as any)
+          .EMAIL_OTP_ECDSA_RESTORE;
         const rawRecord = {
           v: 1,
           alg: 'shamir3pass-v1',
@@ -997,40 +1138,41 @@ test.describe('signing session sealed store', () => {
         const oldPersistedAtMs = Date.now() - 1_000;
         const newPersistedAtMs = Date.now();
 
-        await mod.writeExactSealedSession(
-          mod.buildCurrentSealedSessionRecord({
-            thresholdSessionId: 'old-email-otp-ed25519-session',
-            signingGrantId: 'old-email-otp-ed25519-wallet-session',
-            thresholdSessionIds: { ed25519: 'old-email-otp-ed25519-session' },
-            curve: 'ed25519',
-            authMethod: 'email_otp',
-            walletId: 'alice.testnet',
-            ed25519Restore: EMAIL_OTP_ED25519_RESTORE,
-            relayerUrl: 'https://relay.example',
-            sealedSecretB64u: 'old-ed25519',
-            issuedAtMs: oldPersistedAtMs,
-            expiresAtMs: oldPersistedAtMs + 60_000,
-            remainingUses: 1,
-            updatedAtMs: oldPersistedAtMs,
-          })!,
-        );
-        await mod.writeExactSealedSession(
-          mod.buildCurrentSealedSessionRecord({
-            thresholdSessionId: 'new-email-otp-ed25519-session',
-            signingGrantId: 'new-email-otp-ed25519-wallet-session',
-            thresholdSessionIds: { ed25519: 'new-email-otp-ed25519-session' },
-            curve: 'ed25519',
-            authMethod: 'email_otp',
-            walletId: 'alice.testnet',
-            ed25519Restore: EMAIL_OTP_ED25519_RESTORE,
-            relayerUrl: 'https://relay.example',
-            sealedSecretB64u: 'new-ed25519',
-            issuedAtMs: newPersistedAtMs,
-            expiresAtMs: newPersistedAtMs + 60_000,
-            remainingUses: 1,
-            updatedAtMs: newPersistedAtMs,
-          })!,
-        );
+        const oldEd25519Record = mod.buildCurrentSealedSessionRecord({
+          thresholdSessionId: 'old-email-otp-ed25519-session',
+          signingGrantId: 'old-email-otp-ed25519-wallet-session',
+          thresholdSessionIds: { ed25519: 'old-email-otp-ed25519-session' },
+          curve: 'ed25519',
+          authMethod: 'email_otp',
+          walletId: 'alice.testnet',
+          ed25519Restore: EMAIL_OTP_ED25519_RESTORE,
+          relayerUrl: 'https://relay.example',
+          sealedSecretB64u: 'old-ed25519',
+          issuedAtMs: oldPersistedAtMs,
+          expiresAtMs: oldPersistedAtMs + 60_000,
+          remainingUses: 1,
+          updatedAtMs: oldPersistedAtMs,
+        });
+        const newEd25519Record = mod.buildCurrentSealedSessionRecord({
+          thresholdSessionId: 'new-email-otp-ed25519-session',
+          signingGrantId: 'new-email-otp-ed25519-wallet-session',
+          thresholdSessionIds: { ed25519: 'new-email-otp-ed25519-session' },
+          curve: 'ed25519',
+          authMethod: 'email_otp',
+          walletId: 'alice.testnet',
+          ed25519Restore: EMAIL_OTP_ED25519_RESTORE,
+          relayerUrl: 'https://relay.example',
+          sealedSecretB64u: 'new-ed25519',
+          issuedAtMs: newPersistedAtMs,
+          expiresAtMs: newPersistedAtMs + 60_000,
+          remainingUses: 1,
+          updatedAtMs: newPersistedAtMs,
+        });
+        if (!oldEd25519Record || !newEd25519Record) {
+          throw new Error('expected canonical Email OTP Ed25519 sealed records');
+        }
+        await mod.writeExactSealedSession(oldEd25519Record);
+        await mod.writeExactSealedSession(newEd25519Record);
 
         await mod.writeExactSealedSession(
           mod.buildCurrentSealedSessionRecord({
@@ -1711,8 +1853,7 @@ test.describe('signing session sealed store', () => {
         await mod.clearAllSealedSessions();
 
         const walletId = 'frost-vermillion-k7p9m2';
-        const nearAccountId =
-          '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+        const nearAccountId = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
         const nearEd25519SigningKeyId = 'near-ed25519-frost-vermillion-k7p9m2';
         const thresholdSessionId = 'split-ed25519-sealed-session';
 

@@ -14,7 +14,7 @@ import { parseEcdsaClientPresignPoolIdentity } from '../ecdsaPresignPoolIdentity
 import {
   IndexedDbClientPresignMaterialStore,
   type DurableClientPresignMaterial,
-} from './ecdsaPresignMaterialStore';
+} from '../../../indexedDB/seamsWalletDB/ecdsaPresignMaterialStore';
 
 type OnlineOperationType = keyof EcdsaOnlineClientOperationMap;
 type OnlineRpcRequest = {

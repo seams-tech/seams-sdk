@@ -9,7 +9,7 @@ const TEST_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = path.resolve(TEST_DIRECTORY, '../..');
 const STORE_SOURCE = path.join(
   REPOSITORY_ROOT,
-  'packages/sdk-web/src/core/signingEngine/workerManager/workers/ecdsaPresignMaterialStore.ts',
+  'packages/sdk-web/src/core/indexedDB/seamsWalletDB/ecdsaPresignMaterialStore.ts',
 );
 const STORE_BUNDLE_PATH = path.join(tmpdir(), `seams-ecdsa-pool-hit-store-${process.pid}.mjs`);
 const ONLINE_WORKER_PATH = path.join(

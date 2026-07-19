@@ -358,34 +358,34 @@ const passkeyReadyBlobRoleLocalState = {
     credentialIdB64u: 'credential',
     rpId: toRpId('wallet.example'),
   }),
+  publicFacts,
   readyRecord: passkeyReadyRecord,
   inlineSigningMaterial: {
     kind: 'role_local_ready_state_blob',
     stateBlob: readyBlob,
   },
-} satisfies EcdsaRoleLocalSessionRecordState;
+};
+// @ts-expect-error passkey role-local state requires a durable material reference
+passkeyReadyBlobRoleLocalState satisfies EcdsaRoleLocalSessionRecordState;
 void passkeyReadyBlobRoleLocalState;
 
-const passkeyWorkerRoleLocalState = {
+const passkeyDurableRoleLocalState = {
   kind: 'ready_passkey_role_local_material_v1',
   authMethod: buildEcdsaRoleLocalPasskeyAuthMethod({
     credentialIdB64u: 'credential',
     rpId: toRpId('wallet.example'),
   }),
-  readyRecord: passkeyReadyRecord,
-  inlineSigningMaterial: {
-    kind: 'email_otp_worker_share',
-    workerSessionId: 'otp-session',
-  },
-};
-// @ts-expect-error passkey-ready role-local state cannot carry Email OTP worker material
-passkeyWorkerRoleLocalState satisfies EcdsaRoleLocalSessionRecordState;
+  publicFacts,
+  durableMaterialRef: 'router-ab-ecdsa-registration:ceremony',
+} satisfies EcdsaRoleLocalSessionRecordState;
+void passkeyDurableRoleLocalState;
 
 const reauthWithReadyBlobRoleLocalState = {
   kind: 'reauth_required_role_local_material_v1',
   authMethod: buildEcdsaRoleLocalEmailOtpAuthMethod({
     authSubjectId: toEmailOtpAuthSubjectId('google:alice'),
   }),
+  publicFacts,
   readyRecord,
   reason: 'expired',
   inlineSigningMaterial: {

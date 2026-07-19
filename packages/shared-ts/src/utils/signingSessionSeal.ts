@@ -121,6 +121,7 @@ export type SealedSigningSessionEcdsaRestoreMetadata =
   | (SealedSigningSessionEcdsaRestoreMetadataBase & {
       source: Exclude<SealedSigningSessionEcdsaRestoreSource, 'email_otp'>;
       evmFamilySigningKeySlotId: string;
+      roleLocalDurableMaterialRef: string;
       rpId: string;
       credentialIdB64u: string;
       providerSubjectId?: never;
@@ -133,6 +134,7 @@ export type SealedSigningSessionEcdsaRestoreMetadata =
       providerSubjectId: string;
       emailHashHex: string;
       authSubjectId?: never;
+      roleLocalDurableMaterialRef?: never;
       rpId?: never;
       credentialIdB64u?: never;
     });

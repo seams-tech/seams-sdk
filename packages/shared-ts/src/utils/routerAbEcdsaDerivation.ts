@@ -12,14 +12,25 @@ import {
   type RuntimePolicyScope,
 } from '../threshold/signingRootScope';
 import { requireRouterAbX25519PublicKey } from './routerAbPublicKeyset';
+import {
+  parseEcdsaActiveStateId,
+  parseRootShareEpoch,
+  parseSigningGrantId,
+  parseThresholdEcdsaSessionId,
+  type EcdsaActiveStateId,
+  type RootShareEpoch,
+  type SigningGrantId,
+  type ThresholdEcdsaSessionId,
+} from './domainIds';
 
 export const ROUTER_AB_ECDSA_DERIVATION_KEY_SCOPE_V1 = 'evm-family' as const;
 export const ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1 =
   'router_ab_ecdsa_derivation_normal_signing_v1' as const;
-export const ROUTER_AB_ECDSA_DERIVATION_HEALTH_PATH = '/router-ab/ecdsa-derivation/healthz' as const;
-export const ROUTER_AB_ECDSA_DERIVATION_BOOTSTRAP_PATH = '/router-ab/ecdsa-derivation/bootstrap' as const;
-export const ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH =
-  '/router-ab/ecdsa-derivation/export' as const;
+export const ROUTER_AB_ECDSA_DERIVATION_HEALTH_PATH =
+  '/router-ab/ecdsa-derivation/healthz' as const;
+export const ROUTER_AB_ECDSA_DERIVATION_BOOTSTRAP_PATH =
+  '/router-ab/ecdsa-derivation/bootstrap' as const;
+export const ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH = '/router-ab/ecdsa-derivation/export' as const;
 export const ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH =
   '/router-ab/ecdsa-derivation/recover' as const;
 export const ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH =
@@ -28,13 +39,13 @@ export const ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_STEP_PATH =
   '/router-ab/ecdsa-derivation/presignature-pool/fill/step' as const;
 export const ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PREPARE_PATH =
   '/router-ab/ecdsa-derivation/sign/prepare' as const;
-export const ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PATH = '/router-ab/ecdsa-derivation/sign' as const;
+export const ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PATH =
+  '/router-ab/ecdsa-derivation/sign' as const;
 export const ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH =
   '/router-ab/ecdsa-derivation/refresh' as const;
 export const ROUTER_AB_ECDSA_DERIVATION_SESSION_ACTIVATION_PATH =
   '/router-ab/ecdsa-derivation/session/activate' as const;
-const ECDSA_DERIVATION_CONTEXT_DOMAIN_TAG_V1 =
-  'router-ab-ecdsa-derivation/context/v1' as const;
+const ECDSA_DERIVATION_CONTEXT_DOMAIN_TAG_V1 = 'router-ab-ecdsa-derivation/context/v1' as const;
 const ECDSA_DERIVATION_CONTEXT_BINDING_DOMAIN_V1 =
   'router-ab-ecdsa-derivation/role-local/context-binding/v1' as const;
 const ECDSA_DERIVATION_SCHEME_ID_V1 = 'router-ab-ecdsa-derivation-v1' as const;
@@ -79,9 +90,9 @@ export type RouterAbEcdsaDerivationPostRegistrationLifecycleScopeV1<
   lifecycle_id: string;
   work_kind: WorkKind;
   primitive_request_kind: PrimitiveRequestKind;
-  root_share_epoch: string;
+  root_share_epoch: RootShareEpoch;
   account_id: string;
-  session_id: string;
+  session_id: ThresholdEcdsaSessionId;
   signer_set_id: string;
   selected_server_id: string;
 };
@@ -93,14 +104,9 @@ export type RouterAbEcdsaDerivationRecoveryLifecycleScopeV1 =
   RouterAbEcdsaDerivationPostRegistrationLifecycleScopeV1<'recovery', 'recovery'>;
 
 export type RouterAbEcdsaDerivationRefreshLifecycleScopeV1 =
-  RouterAbEcdsaDerivationPostRegistrationLifecycleScopeV1<
-    'server_share_refresh',
-    'refresh'
-  >;
+  RouterAbEcdsaDerivationPostRegistrationLifecycleScopeV1<'server_share_refresh', 'refresh'>;
 
-export type RouterAbEcdsaDerivationSignerIdentityV1<
-  Role extends 'signer_a' | 'signer_b',
-> = {
+export type RouterAbEcdsaDerivationSignerIdentityV1<Role extends 'signer_a' | 'signer_b'> = {
   role: Role;
   signer_id: string;
   key_epoch: string;
@@ -114,15 +120,13 @@ export type RouterAbEcdsaDerivationSignerSetV1 = {
   selected_server: RouterAbServerIdentityV1;
 };
 
-export type RouterAbEcdsaRegistrationPurposeV1 =
-  | 'wallet_registration'
-  | 'wallet_add_signer';
+export type RouterAbEcdsaRegistrationPurposeV1 = 'wallet_registration' | 'wallet_add_signer';
 
 export type RouterAbEcdsaRegistrationLifecycleV1 = {
   lifecycle_id: string;
   work_kind: 'registration_prepare';
   primitive_request_kind: 'registration';
-  root_share_epoch: string;
+  root_share_epoch: RootShareEpoch;
   account_id: string;
   session_id: string;
   signer_set_id: string;
@@ -169,53 +173,8 @@ export type RouterAbEcdsaClientProofBundleV1 = {
   payloadB64u: string;
 };
 
-export type RouterAbEcdsaCommitmentAuthorityV1 = {
-  operatorIdentity: string;
-  authorityKeyEpoch: number;
-  validFromMs: number;
-  validUntilMs: number;
-  verifyingKeyHex: string;
-};
-
-export type RouterAbEcdsaSignedCommitmentPolicyV1 = {
-  manifest: {
-    releaseEpoch: number;
-    minimumRootVersion: number;
-    minimumAuthorityKeyEpoch: number;
-    revokedAuthorityKeyEpochs: readonly number[];
-    revokedRecordDigestsHex: readonly string[];
-    signerAAuthority: RouterAbEcdsaCommitmentAuthorityV1;
-    signerBAuthority: RouterAbEcdsaCommitmentAuthorityV1;
-  };
-  manifestDigestHex: string;
-  releaseAuthoritySignatureHex: string;
-};
-
-export type RouterAbEcdsaSignedCommitmentRecordV1 = {
-  rootId: string;
-  rootVersion: number;
-  rootShareEpoch: string;
-  commitmentHex: string;
-  operatorIdentity: string;
-  authorityKeyEpoch: number;
-  recordValidFromMs: number;
-  recordValidUntilMs: number;
-  signedDigestHex: string;
-  signatureHex: string;
-};
-
-export type RouterAbEcdsaCommitmentRegistryV1 = {
-  policy: RouterAbEcdsaSignedCommitmentPolicyV1;
-  records: {
-    signerA: RouterAbEcdsaSignedCommitmentRecordV1;
-    signerB: RouterAbEcdsaSignedCommitmentRecordV1;
-  };
-};
-
 export type RouterAbEcdsaClientProofFinalizationV1 = {
   kind: 'finalize_encrypted_client_proof_bundles_v1';
-  verificationTimeMs: number;
-  commitmentRegistry: RouterAbEcdsaCommitmentRegistryV1;
   bundles: {
     signerA: RouterAbEcdsaClientProofBundleV1;
     signerB: RouterAbEcdsaClientProofBundleV1;
@@ -251,12 +210,45 @@ export type RouterAbEcdsaStrictForwardedRegistrationResponseV1 = {
       stored: true;
     };
     bundles: RouterAbEcdsaClientProofFinalizationV1['bundles'];
-    commitmentRegistry: RouterAbEcdsaCommitmentRegistryV1;
   };
 };
 
 export type RouterAbEcdsaStrictForwardedProofResponseV1 =
   RouterAbEcdsaStrictForwardedRegistrationResponseV1;
+
+export type RouterAbEcdsaSigningWorkerExportShareBindingV1 = {
+  wallet_id: string;
+  key_handle: string;
+  ecdsa_threshold_key_id: string;
+  signing_root_id: string;
+  signing_root_version: string;
+  activation_epoch: RootShareEpoch;
+  signing_worker_id: string;
+  context_binding_b64u: string;
+  threshold_public_key33_b64u: string;
+  export_request_digest_b64u: string;
+  export_authorization_digest_b64u: string;
+  export_nonce: string;
+  threshold_session_id: ThresholdEcdsaSessionId;
+  signing_grant_id: SigningGrantId;
+  lifecycle_id: string;
+  recipient_identity: string;
+  recipient_public_key: string;
+  expires_at_ms: number;
+};
+
+export type RouterAbEcdsaSigningWorkerExportShareEnvelopeV1 = {
+  version: 'router-ab-ecdsa-derivation/signing-worker-export-share-envelope/v1';
+  algorithm: 'hpke_x25519_hkdf_sha256_aes256gcm_v1';
+  binding: RouterAbEcdsaSigningWorkerExportShareBindingV1;
+  ciphertext_and_tag: number[];
+};
+
+export type RouterAbEcdsaExplicitExportForwardedResponseV1 = {
+  result: 'forwarded';
+  response: RouterAbEcdsaStrictForwardedRegistrationResponseV1['response'];
+  signing_worker_export: RouterAbEcdsaSigningWorkerExportShareEnvelopeV1;
+};
 
 export type RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1 = {
   result: 'forwarded';
@@ -277,7 +269,7 @@ export type RouterAbEcdsaRegistrationActivationReceiptV1 = {
     context: RouterAbEcdsaDerivationStableKeyContextV1;
     public_identity: RouterAbEcdsaDerivationPublicIdentityV1;
     signing_worker: RouterAbServerIdentityV1;
-    activation_epoch: string;
+    activation_epoch: RootShareEpoch;
     activation_digest_b64u: string;
     activated_at_ms: number;
   };
@@ -297,19 +289,14 @@ export type RouterAbEcdsaDerivationPublicCapabilityV1 = {
   deriver_recipient_keys: RouterAbEcdsaRegistrationRecipientKeysV1;
   router_id: string;
   client_id: string;
-  activation_epoch: string;
+  activation_epoch: RootShareEpoch;
   registration_request_digest_b64u: string;
   proof_transcript_digest_b64u: string;
 };
 
-export type RouterAbEcdsaPostRegistrationProofBindingV1 = {
-  lifecycle_id: string;
-  request_id: string;
-};
-
 export type RouterAbEcdsaPostRegistrationSessionPolicyV1 = {
-  threshold_session_id: string;
-  signing_grant_id: string;
+  threshold_session_id: ThresholdEcdsaSessionId;
+  signing_grant_id: SigningGrantId;
   ttl_ms: number;
   remaining_uses: number;
   runtime_policy_scope: RuntimePolicyScope;
@@ -317,10 +304,7 @@ export type RouterAbEcdsaPostRegistrationSessionPolicyV1 = {
 
 export type RouterAbEcdsaPostRegistrationSessionActivationRequestV1 = {
   kind: 'router_ab_ecdsa_post_registration_session_activation_v1';
-  recovery_binding: RouterAbEcdsaPostRegistrationProofBindingV1;
-  refresh_binding: RouterAbEcdsaPostRegistrationProofBindingV1;
   public_capability: RouterAbEcdsaDerivationPublicCapabilityV1;
-  verified_client_facts: RouterAbEcdsaVerifiedClientActivationFactsV1;
   session_policy: RouterAbEcdsaPostRegistrationSessionPolicyV1;
 };
 
@@ -328,19 +312,16 @@ export type RouterAbEcdsaPostRegistrationSessionActivationResponseV1 = {
   kind: 'router_ab_ecdsa_post_registration_session_activated_v1';
   public_capability: RouterAbEcdsaDerivationPublicCapabilityV1;
   session: {
-    threshold_session_id: string;
-    signing_grant_id: string;
+    threshold_session_id: ThresholdEcdsaSessionId;
+    signing_grant_id: SigningGrantId;
     expires_at_ms: number;
     remaining_uses: number;
     wallet_session_jwt: string;
   };
   normal_signing: RouterAbEcdsaDerivationNormalSigningStateV1;
-  signing_worker_activation: RouterAbEcdsaRegistrationActivationReceiptV1;
 };
 
-export type RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<
-  Role extends 'signer_a' | 'signer_b',
-> = {
+export type RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<Role extends 'signer_a' | 'signer_b'> = {
   recipient_role: Role;
   header_digest: RouterAbPublicDigest32V1Wire;
   aad_digest: RouterAbPublicDigest32V1Wire;
@@ -387,8 +368,8 @@ export type RouterAbEcdsaDerivationActivationRefreshRequestV1 = {
   signing_worker_ephemeral_public_key: string;
   refresh_authorization_digest_b64u: string;
   refresh_nonce: string;
-  previous_activation_epoch: string;
-  next_activation_epoch: string;
+  previous_activation_epoch: RootShareEpoch;
+  next_activation_epoch: RootShareEpoch;
   expires_at_ms: number;
   deriver_a_refresh_envelope: RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<'signer_a'>;
   deriver_b_refresh_envelope: RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<'signer_b'>;
@@ -418,7 +399,7 @@ export type RouterAbEcdsaDerivationNormalSigningScopeV1 = {
   context: RouterAbEcdsaDerivationStableKeyContextV1;
   public_identity: RouterAbEcdsaDerivationPublicIdentityV1;
   signing_worker: RouterAbServerIdentityV1;
-  activation_epoch: string;
+  activation_epoch: RootShareEpoch;
 };
 
 export type RouterAbEcdsaDerivationNormalSigningStateV1 = {
@@ -435,7 +416,8 @@ export type RouterAbEcdsaDerivationWalletRegistrationJwtBindingFactsV1 = {
   signingRootId: string;
   signingRootVersion: string;
   thresholdSessionId: string;
-  signingGrantId: string;
+  activationEpoch: RootShareEpoch;
+  signingGrantId: SigningGrantId;
   expiresAtMs: number;
   participantIds: readonly number[];
   applicationBindingDigestB64u: string;
@@ -555,6 +537,24 @@ function requireAsciiNonEmptyString(value: unknown, label: string): string {
   if (!parsed) throw new Error(`${label} is required`);
   if (!/^[\x20-\x7e]+$/.test(parsed)) throw new Error(`${label} must be printable ASCII`);
   return parsed;
+}
+
+function requireRootShareEpoch(value: unknown, label: string): RootShareEpoch {
+  const parsed = parseRootShareEpoch(requireAsciiNonEmptyString(value, label));
+  if (!parsed.ok) throw new Error(`${label} is invalid`);
+  return parsed.value;
+}
+
+function requireSigningGrantId(value: unknown, label: string): SigningGrantId {
+  const parsed = parseSigningGrantId(requireAsciiNonEmptyString(value, label));
+  if (!parsed.ok) throw new Error(`${label} is invalid`);
+  return parsed.value;
+}
+
+function requireThresholdEcdsaSessionId(value: unknown, label: string): ThresholdEcdsaSessionId {
+  const parsed = parseThresholdEcdsaSessionId(requireAsciiNonEmptyString(value, label));
+  if (!parsed.ok) throw new Error(`${label} is invalid`);
+  return parsed.value;
 }
 
 function requirePositiveUnixMs(value: unknown, label: string): number {
@@ -778,10 +778,7 @@ function parsePostRegistrationLifecycleScope<
   label: string,
   expectedWorkKind: WorkKind,
   expectedPrimitiveRequestKind: PrimitiveRequestKind,
-): RouterAbEcdsaDerivationPostRegistrationLifecycleScopeV1<
-  WorkKind,
-  PrimitiveRequestKind
-> {
+): RouterAbEcdsaDerivationPostRegistrationLifecycleScopeV1<WorkKind, PrimitiveRequestKind> {
   const record = requireRecord(value, label);
   requireExactKeys(record, label, [
     'lifecycle_id',
@@ -802,24 +799,16 @@ function parsePostRegistrationLifecycleScope<
     `${label}.primitive_request_kind`,
   );
   if (requestKind !== expectedPrimitiveRequestKind) {
-    throw new Error(
-      `${label}.primitive_request_kind must be ${expectedPrimitiveRequestKind}`,
-    );
+    throw new Error(`${label}.primitive_request_kind must be ${expectedPrimitiveRequestKind}`);
   }
   return {
     lifecycle_id: requireAsciiNonEmptyString(record.lifecycle_id, `${label}.lifecycle_id`),
     work_kind: expectedWorkKind,
     primitive_request_kind: expectedPrimitiveRequestKind,
-    root_share_epoch: requireAsciiNonEmptyString(
-      record.root_share_epoch,
-      `${label}.root_share_epoch`,
-    ),
+    root_share_epoch: requireRootShareEpoch(record.root_share_epoch, `${label}.root_share_epoch`),
     account_id: requireAsciiNonEmptyString(record.account_id, `${label}.account_id`),
-    session_id: requireAsciiNonEmptyString(record.session_id, `${label}.session_id`),
-    signer_set_id: requireAsciiNonEmptyString(
-      record.signer_set_id,
-      `${label}.signer_set_id`,
-    ),
+    session_id: requireThresholdEcdsaSessionId(record.session_id, `${label}.session_id`),
+    signer_set_id: requireAsciiNonEmptyString(record.signer_set_id, `${label}.signer_set_id`),
     selected_server_id: requireAsciiNonEmptyString(
       record.selected_server_id,
       `${label}.selected_server_id`,
@@ -888,12 +877,7 @@ function parsePostRegistrationRoleEnvelope<Role extends 'signer_a' | 'signer_b'>
   expectedRole: Role,
 ): RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<Role> {
   const record = requireRecord(value, label);
-  requireExactKeys(record, label, [
-    'recipient_role',
-    'header_digest',
-    'aad_digest',
-    'ciphertext',
-  ]);
+  requireExactKeys(record, label, ['recipient_role', 'header_digest', 'aad_digest', 'ciphertext']);
   const recipientRole = requireAsciiNonEmptyString(
     record.recipient_role,
     `${label}.recipient_role`,
@@ -918,9 +902,7 @@ function parsePostRegistrationRoleEnvelope<Role extends 'signer_a' | 'signer_b'>
   };
 }
 
-function parseRegistrationLifecycle(
-  value: unknown,
-): RouterAbEcdsaRegistrationLifecycleV1 {
+function parseRegistrationLifecycle(value: unknown): RouterAbEcdsaRegistrationLifecycleV1 {
   const label = 'registration.lifecycle';
   const record = requireRecord(value, label);
   requireExactKeys(record, label, [
@@ -943,16 +925,10 @@ function parseRegistrationLifecycle(
     lifecycle_id: requireAsciiNonEmptyString(record.lifecycle_id, `${label}.lifecycle_id`),
     work_kind: 'registration_prepare',
     primitive_request_kind: 'registration',
-    root_share_epoch: requireAsciiNonEmptyString(
-      record.root_share_epoch,
-      `${label}.root_share_epoch`,
-    ),
+    root_share_epoch: requireRootShareEpoch(record.root_share_epoch, `${label}.root_share_epoch`),
     account_id: requireAsciiNonEmptyString(record.account_id, `${label}.account_id`),
     session_id: requireAsciiNonEmptyString(record.session_id, `${label}.session_id`),
-    signer_set_id: requireAsciiNonEmptyString(
-      record.signer_set_id,
-      `${label}.signer_set_id`,
-    ),
+    signer_set_id: requireAsciiNonEmptyString(record.signer_set_id, `${label}.signer_set_id`),
     selected_server_id: requireAsciiNonEmptyString(
       record.selected_server_id,
       `${label}.selected_server_id`,
@@ -984,16 +960,8 @@ function parseRegistrationRecipientKeys(
   const record = requireRecord(value, label);
   requireExactKeys(record, label, ['deriver_a', 'deriver_b']);
   return {
-    deriver_a: parseRegistrationRecipientKey(
-      record.deriver_a,
-      `${label}.deriver_a`,
-      'signer_a',
-    ),
-    deriver_b: parseRegistrationRecipientKey(
-      record.deriver_b,
-      `${label}.deriver_b`,
-      'signer_b',
-    ),
+    deriver_a: parseRegistrationRecipientKey(record.deriver_a, `${label}.deriver_a`, 'signer_a'),
+    deriver_b: parseRegistrationRecipientKey(record.deriver_b, `${label}.deriver_b`, 'signer_b'),
   };
 }
 
@@ -1020,10 +988,7 @@ export function parseRouterAbEcdsaRegistrationRequestFactsV1(
     throw new Error(`${label}.registration_purpose is invalid`);
   }
   const lifecycle = parseRegistrationLifecycle(record.lifecycle);
-  const signerSet = parsePostRegistrationSignerSet(
-    record.signer_set,
-    `${label}.signer_set`,
-  );
+  const signerSet = parsePostRegistrationSignerSet(record.signer_set, `${label}.signer_set`);
   if (lifecycle.signer_set_id !== signerSet.signer_set_id) {
     throw new Error(`${label}.lifecycle signer set does not match signer_set`);
   }
@@ -1075,10 +1040,7 @@ export function parseRouterAbEcdsaRegistrationRequestV1(
     throw new Error(`${label}.registration_purpose is invalid`);
   }
   const lifecycle = parseRegistrationLifecycle(record.lifecycle);
-  const signerSet = parsePostRegistrationSignerSet(
-    record.signer_set,
-    `${label}.signer_set`,
-  );
+  const signerSet = parsePostRegistrationSignerSet(record.signer_set, `${label}.signer_set`);
   if (lifecycle.signer_set_id !== signerSet.signer_set_id) {
     throw new Error(`${label}.lifecycle signer set does not match signer_set`);
   }
@@ -1131,198 +1093,6 @@ function parseRouterAbEcdsaClientProofBundleV1(
   };
 }
 
-function parseRouterAbEcdsaCommitmentAuthorityV1(
-  value: unknown,
-  label: string,
-): RouterAbEcdsaCommitmentAuthorityV1 {
-  const record = requireRecord(value, label);
-  requireExactKeys(record, label, [
-    'operatorIdentity',
-    'authorityKeyEpoch',
-    'validFromMs',
-    'validUntilMs',
-    'verifyingKeyHex',
-  ]);
-  const validFromMs = requirePositiveUnixMs(record.validFromMs, `${label}.validFromMs`);
-  const validUntilMs = requirePositiveUnixMs(record.validUntilMs, `${label}.validUntilMs`);
-  if (validUntilMs <= validFromMs) {
-    throw new Error(`${label}.validUntilMs must be later than validFromMs`);
-  }
-  return {
-    operatorIdentity: requireAsciiNonEmptyString(
-      record.operatorIdentity,
-      `${label}.operatorIdentity`,
-    ),
-    authorityKeyEpoch: requirePositiveCounter(
-      record.authorityKeyEpoch,
-      `${label}.authorityKeyEpoch`,
-    ),
-    validFromMs,
-    validUntilMs,
-    verifyingKeyHex: requireLowerHexFixed(
-      record.verifyingKeyHex,
-      `${label}.verifyingKeyHex`,
-      32,
-    ),
-  };
-}
-
-function parseRouterAbEcdsaSignedCommitmentPolicyV1(
-  value: unknown,
-): RouterAbEcdsaSignedCommitmentPolicyV1 {
-  const label = 'registration.response.commitmentRegistry.policy';
-  const record = requireRecord(value, label);
-  requireExactKeys(record, label, [
-    'manifest',
-    'manifestDigestHex',
-    'releaseAuthoritySignatureHex',
-  ]);
-  const manifestLabel = `${label}.manifest`;
-  const manifest = requireRecord(record.manifest, manifestLabel);
-  requireExactKeys(manifest, manifestLabel, [
-    'releaseEpoch',
-    'minimumRootVersion',
-    'minimumAuthorityKeyEpoch',
-    'revokedAuthorityKeyEpochs',
-    'revokedRecordDigestsHex',
-    'signerAAuthority',
-    'signerBAuthority',
-  ]);
-  if (!Array.isArray(manifest.revokedAuthorityKeyEpochs)) {
-    throw new Error(`${manifestLabel}.revokedAuthorityKeyEpochs must be an array`);
-  }
-  if (!Array.isArray(manifest.revokedRecordDigestsHex)) {
-    throw new Error(`${manifestLabel}.revokedRecordDigestsHex must be an array`);
-  }
-  return {
-    manifest: {
-      releaseEpoch: requirePositiveCounter(
-        manifest.releaseEpoch,
-        `${manifestLabel}.releaseEpoch`,
-      ),
-      minimumRootVersion: requirePositiveCounter(
-        manifest.minimumRootVersion,
-        `${manifestLabel}.minimumRootVersion`,
-      ),
-      minimumAuthorityKeyEpoch: requirePositiveCounter(
-        manifest.minimumAuthorityKeyEpoch,
-        `${manifestLabel}.minimumAuthorityKeyEpoch`,
-      ),
-      revokedAuthorityKeyEpochs: manifest.revokedAuthorityKeyEpochs.map(
-        (entry, index) =>
-          requireNonNegativeInteger(
-            entry,
-            `${manifestLabel}.revokedAuthorityKeyEpochs[${index}]`,
-          ),
-      ),
-      revokedRecordDigestsHex: manifest.revokedRecordDigestsHex.map((entry, index) =>
-        requireLowerHexFixed(
-          entry,
-          `${manifestLabel}.revokedRecordDigestsHex[${index}]`,
-          32,
-        ),
-      ),
-      signerAAuthority: parseRouterAbEcdsaCommitmentAuthorityV1(
-        manifest.signerAAuthority,
-        `${manifestLabel}.signerAAuthority`,
-      ),
-      signerBAuthority: parseRouterAbEcdsaCommitmentAuthorityV1(
-        manifest.signerBAuthority,
-        `${manifestLabel}.signerBAuthority`,
-      ),
-    },
-    manifestDigestHex: requireLowerHexFixed(
-      record.manifestDigestHex,
-      `${label}.manifestDigestHex`,
-      32,
-    ),
-    releaseAuthoritySignatureHex: requireLowerHexFixed(
-      record.releaseAuthoritySignatureHex,
-      `${label}.releaseAuthoritySignatureHex`,
-      64,
-    ),
-  };
-}
-
-function parseRouterAbEcdsaSignedCommitmentRecordV1(
-  value: unknown,
-  label: string,
-): RouterAbEcdsaSignedCommitmentRecordV1 {
-  const record = requireRecord(value, label);
-  requireExactKeys(record, label, [
-    'rootId',
-    'rootVersion',
-    'rootShareEpoch',
-    'commitmentHex',
-    'operatorIdentity',
-    'authorityKeyEpoch',
-    'recordValidFromMs',
-    'recordValidUntilMs',
-    'signedDigestHex',
-    'signatureHex',
-  ]);
-  const recordValidFromMs = requirePositiveUnixMs(
-    record.recordValidFromMs,
-    `${label}.recordValidFromMs`,
-  );
-  const recordValidUntilMs = requirePositiveUnixMs(
-    record.recordValidUntilMs,
-    `${label}.recordValidUntilMs`,
-  );
-  if (recordValidUntilMs <= recordValidFromMs) {
-    throw new Error(`${label}.recordValidUntilMs must be later than recordValidFromMs`);
-  }
-  return {
-    rootId: requireAsciiNonEmptyString(record.rootId, `${label}.rootId`),
-    rootVersion: requirePositiveCounter(record.rootVersion, `${label}.rootVersion`),
-    rootShareEpoch: requireAsciiNonEmptyString(
-      record.rootShareEpoch,
-      `${label}.rootShareEpoch`,
-    ),
-    commitmentHex: requireLowerHexFixed(record.commitmentHex, `${label}.commitmentHex`, 34),
-    operatorIdentity: requireAsciiNonEmptyString(
-      record.operatorIdentity,
-      `${label}.operatorIdentity`,
-    ),
-    authorityKeyEpoch: requirePositiveCounter(
-      record.authorityKeyEpoch,
-      `${label}.authorityKeyEpoch`,
-    ),
-    recordValidFromMs,
-    recordValidUntilMs,
-    signedDigestHex: requireLowerHexFixed(
-      record.signedDigestHex,
-      `${label}.signedDigestHex`,
-      32,
-    ),
-    signatureHex: requireLowerHexFixed(record.signatureHex, `${label}.signatureHex`, 64),
-  };
-}
-
-function parseRouterAbEcdsaCommitmentRegistryV1(
-  value: unknown,
-): RouterAbEcdsaCommitmentRegistryV1 {
-  const label = 'registration.response.commitmentRegistry';
-  const record = requireRecord(value, label);
-  requireExactKeys(record, label, ['policy', 'records']);
-  const recordsLabel = `${label}.records`;
-  const records = requireRecord(record.records, recordsLabel);
-  requireExactKeys(records, recordsLabel, ['signerA', 'signerB']);
-  return {
-    policy: parseRouterAbEcdsaSignedCommitmentPolicyV1(record.policy),
-    records: {
-      signerA: parseRouterAbEcdsaSignedCommitmentRecordV1(
-        records.signerA,
-        `${recordsLabel}.signerA`,
-      ),
-      signerB: parseRouterAbEcdsaSignedCommitmentRecordV1(
-        records.signerB,
-        `${recordsLabel}.signerB`,
-      ),
-    },
-  };
-}
-
 export function parseRouterAbEcdsaStrictForwardedRegistrationResponseV1(
   value: unknown,
 ): RouterAbEcdsaStrictForwardedRegistrationResponseV1 {
@@ -1334,9 +1104,138 @@ export function parseRouterAbEcdsaStrictForwardedRegistrationResponseV1(
   }
   return {
     result: 'forwarded',
-    response: parseRouterAbEcdsaStrictProofResponseV1(
-      record.response,
-      `${label}.response`,
+    response: parseRouterAbEcdsaStrictProofResponseV1(record.response, `${label}.response`),
+  };
+}
+
+export function parseRouterAbEcdsaExplicitExportForwardedResponseV1(
+  value: unknown,
+): RouterAbEcdsaExplicitExportForwardedResponseV1 {
+  const label = 'explicitExportForwarded';
+  const record = requireRecord(value, label);
+  requireExactKeys(record, label, ['result', 'response', 'signing_worker_export']);
+  if (record.result !== 'forwarded') {
+    throw new Error(`${label}.result must be forwarded`);
+  }
+  return {
+    result: 'forwarded',
+    response: parseRouterAbEcdsaStrictProofResponseV1(record.response, `${label}.response`),
+    signing_worker_export: parseRouterAbEcdsaSigningWorkerExportShareEnvelopeV1(
+      record.signing_worker_export,
+    ),
+  };
+}
+
+function parseRouterAbEcdsaSigningWorkerExportShareEnvelopeV1(
+  value: unknown,
+): RouterAbEcdsaSigningWorkerExportShareEnvelopeV1 {
+  const label = 'signingWorkerExportShare';
+  const record = requireRecord(value, label);
+  requireExactKeys(record, label, ['version', 'algorithm', 'binding', 'ciphertext_and_tag']);
+  if (record.version !== 'router-ab-ecdsa-derivation/signing-worker-export-share-envelope/v1') {
+    throw new Error(`${label}.version is invalid`);
+  }
+  if (record.algorithm !== 'hpke_x25519_hkdf_sha256_aes256gcm_v1') {
+    throw new Error(`${label}.algorithm is invalid`);
+  }
+  const bindingLabel = `${label}.binding`;
+  const binding = requireRecord(record.binding, bindingLabel);
+  requireExactKeys(binding, bindingLabel, [
+    'wallet_id',
+    'key_handle',
+    'ecdsa_threshold_key_id',
+    'signing_root_id',
+    'signing_root_version',
+    'activation_epoch',
+    'signing_worker_id',
+    'context_binding_b64u',
+    'threshold_public_key33_b64u',
+    'export_request_digest_b64u',
+    'export_authorization_digest_b64u',
+    'export_nonce',
+    'threshold_session_id',
+    'signing_grant_id',
+    'lifecycle_id',
+    'recipient_identity',
+    'recipient_public_key',
+    'expires_at_ms',
+  ]);
+  if (!Array.isArray(record.ciphertext_and_tag) || record.ciphertext_and_tag.length <= 48) {
+    throw new Error(`${label}.ciphertext_and_tag is invalid`);
+  }
+  return {
+    version: 'router-ab-ecdsa-derivation/signing-worker-export-share-envelope/v1',
+    algorithm: 'hpke_x25519_hkdf_sha256_aes256gcm_v1',
+    binding: {
+      wallet_id: requireAsciiNonEmptyString(binding.wallet_id, `${bindingLabel}.wallet_id`),
+      key_handle: requireAsciiNonEmptyString(binding.key_handle, `${bindingLabel}.key_handle`),
+      ecdsa_threshold_key_id: requireAsciiNonEmptyString(
+        binding.ecdsa_threshold_key_id,
+        `${bindingLabel}.ecdsa_threshold_key_id`,
+      ),
+      signing_root_id: requireAsciiNonEmptyString(
+        binding.signing_root_id,
+        `${bindingLabel}.signing_root_id`,
+      ),
+      signing_root_version: requireAsciiNonEmptyString(
+        binding.signing_root_version,
+        `${bindingLabel}.signing_root_version`,
+      ),
+      activation_epoch: requireRootShareEpoch(
+        binding.activation_epoch,
+        `${bindingLabel}.activation_epoch`,
+      ),
+      signing_worker_id: requireAsciiNonEmptyString(
+        binding.signing_worker_id,
+        `${bindingLabel}.signing_worker_id`,
+      ),
+      context_binding_b64u: requireBase64UrlFixed(
+        binding.context_binding_b64u,
+        `${bindingLabel}.context_binding_b64u`,
+        32,
+      ),
+      threshold_public_key33_b64u: requireCompressedSecp256k1PublicKey(
+        binding.threshold_public_key33_b64u,
+        `${bindingLabel}.threshold_public_key33_b64u`,
+      ),
+      export_request_digest_b64u: requireBase64UrlFixed(
+        binding.export_request_digest_b64u,
+        `${bindingLabel}.export_request_digest_b64u`,
+        32,
+      ),
+      export_authorization_digest_b64u: requireBase64UrlFixed(
+        binding.export_authorization_digest_b64u,
+        `${bindingLabel}.export_authorization_digest_b64u`,
+        32,
+      ),
+      export_nonce: requireAsciiNonEmptyString(
+        binding.export_nonce,
+        `${bindingLabel}.export_nonce`,
+      ),
+      threshold_session_id: requireThresholdEcdsaSessionId(
+        binding.threshold_session_id,
+        `${bindingLabel}.threshold_session_id`,
+      ),
+      signing_grant_id: requireSigningGrantId(
+        binding.signing_grant_id,
+        `${bindingLabel}.signing_grant_id`,
+      ),
+      lifecycle_id: requireAsciiNonEmptyString(
+        binding.lifecycle_id,
+        `${bindingLabel}.lifecycle_id`,
+      ),
+      recipient_identity: requireAsciiNonEmptyString(
+        binding.recipient_identity,
+        `${bindingLabel}.recipient_identity`,
+      ),
+      recipient_public_key: requireX25519PublicKey(
+        binding.recipient_public_key,
+        `${bindingLabel}.recipient_public_key`,
+      ),
+      expires_at_ms: requirePositiveUnixMs(binding.expires_at_ms, `${bindingLabel}.expires_at_ms`),
+    },
+    ciphertext_and_tag: record.ciphertext_and_tag.map((entry, index) =>
+      requireByte(entry, `${label}.ciphertext_and_tag[${index}]`),
     ),
   };
 }
@@ -1346,12 +1245,7 @@ function parseRouterAbEcdsaStrictProofResponseV1(
   label: string,
 ): RouterAbEcdsaStrictForwardedProofResponseV1['response'] {
   const response = requireRecord(value, label);
-  requireExactKeys(response, label, [
-    'replay',
-    'lifecycle',
-    'bundles',
-    'commitmentRegistry',
-  ]);
+  requireExactKeys(response, label, ['replay', 'lifecycle', 'bundles']);
   const bundlesLabel = `${label}.bundles`;
   const bundles = requireRecord(response.bundles, bundlesLabel);
   requireExactKeys(bundles, bundlesLabel, ['signerA', 'signerB']);
@@ -1369,10 +1263,7 @@ function parseRouterAbEcdsaStrictProofResponseV1(
   }
   return {
     replay: {
-      request_id: requireAsciiNonEmptyString(
-        replay.request_id,
-        `${replayLabel}.request_id`,
-      ),
+      request_id: requireAsciiNonEmptyString(replay.request_id, `${replayLabel}.request_id`),
       reserved: true,
     },
     lifecycle: {
@@ -1383,18 +1274,9 @@ function parseRouterAbEcdsaStrictProofResponseV1(
       stored: true,
     },
     bundles: {
-      signerA: parseRouterAbEcdsaClientProofBundleV1(
-        bundles.signerA,
-        `${bundlesLabel}.signerA`,
-      ),
-      signerB: parseRouterAbEcdsaClientProofBundleV1(
-        bundles.signerB,
-        `${bundlesLabel}.signerB`,
-      ),
+      signerA: parseRouterAbEcdsaClientProofBundleV1(bundles.signerA, `${bundlesLabel}.signerA`),
+      signerB: parseRouterAbEcdsaClientProofBundleV1(bundles.signerB, `${bundlesLabel}.signerB`),
     },
-    commitmentRegistry: parseRouterAbEcdsaCommitmentRegistryV1(
-      response.commitmentRegistry,
-    ),
   };
 }
 
@@ -1403,20 +1285,13 @@ export function parseRouterAbEcdsaDerivationActivationRefreshForwardedResponseV1
 ): RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1 {
   const label = 'activationRefreshForwarded';
   const record = requireRecord(value, label);
-  requireExactKeys(record, label, [
-    'result',
-    'response',
-    'signing_worker_activation',
-  ]);
+  requireExactKeys(record, label, ['result', 'response', 'signing_worker_activation']);
   if (record.result !== 'forwarded') {
     throw new Error(`${label}.result must be forwarded`);
   }
   return {
     result: 'forwarded',
-    response: parseRouterAbEcdsaStrictProofResponseV1(
-      record.response,
-      `${label}.response`,
-    ),
+    response: parseRouterAbEcdsaStrictProofResponseV1(record.response, `${label}.response`),
     signing_worker_activation: parseRouterAbEcdsaRegistrationActivationReceiptV1(
       record.signing_worker_activation,
     ),
@@ -1485,9 +1360,7 @@ export function parseRouterAbEcdsaRegistrationActivationRequestV1(
     ),
     ecdsa: {
       kind: 'router_ab_ecdsa_registration_activation_v1',
-      publicFacts: parseRouterAbEcdsaVerifiedClientActivationFactsV1(
-        ecdsa.publicFacts,
-      ),
+      publicFacts: parseRouterAbEcdsaVerifiedClientActivationFactsV1(ecdsa.publicFacts),
     },
   };
 }
@@ -1534,7 +1407,7 @@ export function parseRouterAbEcdsaRegistrationActivationReceiptV1(
       context: parseStableKeyContext(activation.context),
       public_identity: parsePublicIdentity(activation.public_identity),
       signing_worker: signingWorker,
-      activation_epoch: requireAsciiNonEmptyString(
+      activation_epoch: requireRootShareEpoch(
         activation.activation_epoch,
         `${activationLabel}.activation_epoch`,
       ),
@@ -1544,10 +1417,7 @@ export function parseRouterAbEcdsaRegistrationActivationReceiptV1(
         `${activationLabel}.activated_at_ms`,
       ),
     },
-    lifecycle_id: requireAsciiNonEmptyString(
-      record.lifecycle_id,
-      `${label}.lifecycle_id`,
-    ),
+    lifecycle_id: requireAsciiNonEmptyString(record.lifecycle_id, `${label}.lifecycle_id`),
     transcript_digest: transcriptDigest,
     activated: true,
   };
@@ -1644,10 +1514,7 @@ export function parseRouterAbEcdsaDerivationPublicCapabilityV1(
   if (record.kind !== 'router_ab_ecdsa_derivation_public_capability_v1') {
     throw new Error(`${label}.kind is invalid`);
   }
-  const signerSet = parsePostRegistrationSignerSet(
-    record.signer_set,
-    `${label}.signer_set`,
-  );
+  const signerSet = parsePostRegistrationSignerSet(record.signer_set, `${label}.signer_set`);
   const recipientKeys = parseRegistrationRecipientKeys(
     record.deriver_recipient_keys,
     `${label}.deriver_recipient_keys`,
@@ -1666,10 +1533,7 @@ export function parseRouterAbEcdsaDerivationPublicCapabilityV1(
     deriver_recipient_keys: recipientKeys,
     router_id: requireAsciiNonEmptyString(record.router_id, `${label}.router_id`),
     client_id: requireAsciiNonEmptyString(record.client_id, `${label}.client_id`),
-    activation_epoch: requireAsciiNonEmptyString(
-      record.activation_epoch,
-      `${label}.activation_epoch`,
-    ),
+    activation_epoch: requireRootShareEpoch(record.activation_epoch, `${label}.activation_epoch`),
     registration_request_digest_b64u: requireBase64UrlFixed(
       record.registration_request_digest_b64u,
       `${label}.registration_request_digest_b64u`,
@@ -1680,21 +1544,6 @@ export function parseRouterAbEcdsaDerivationPublicCapabilityV1(
       `${label}.proof_transcript_digest_b64u`,
       32,
     ),
-  };
-}
-
-function parsePostRegistrationProofBinding(
-  value: unknown,
-  label: string,
-): RouterAbEcdsaPostRegistrationProofBindingV1 {
-  const record = requireRecord(value, label);
-  requireExactKeys(record, label, ['lifecycle_id', 'request_id']);
-  return {
-    lifecycle_id: requireAsciiNonEmptyString(
-      record.lifecycle_id,
-      `${label}.lifecycle_id`,
-    ),
-    request_id: requireAsciiNonEmptyString(record.request_id, `${label}.request_id`),
   };
 }
 
@@ -1711,19 +1560,13 @@ function parsePostRegistrationSessionPolicy(
     'runtime_policy_scope',
   ]);
   return {
-    threshold_session_id: requireAsciiNonEmptyString(
+    threshold_session_id: requireThresholdEcdsaSessionId(
       record.threshold_session_id,
       `${label}.threshold_session_id`,
     ),
-    signing_grant_id: requireAsciiNonEmptyString(
-      record.signing_grant_id,
-      `${label}.signing_grant_id`,
-    ),
+    signing_grant_id: requireSigningGrantId(record.signing_grant_id, `${label}.signing_grant_id`),
     ttl_ms: requirePositiveCounter(record.ttl_ms, `${label}.ttl_ms`),
-    remaining_uses: requirePositiveCounter(
-      record.remaining_uses,
-      `${label}.remaining_uses`,
-    ),
+    remaining_uses: requirePositiveCounter(record.remaining_uses, `${label}.remaining_uses`),
     runtime_policy_scope: normalizeRuntimePolicyScope(record.runtime_policy_scope),
   };
 }
@@ -1749,49 +1592,14 @@ export function parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1(
 ): RouterAbEcdsaPostRegistrationSessionActivationRequestV1 {
   const label = 'postRegistrationSessionActivation';
   const record = requireRecord(value, label);
-  requireExactKeys(record, label, [
-    'kind',
-    'recovery_binding',
-    'refresh_binding',
-    'public_capability',
-    'verified_client_facts',
-    'session_policy',
-  ]);
+  requireExactKeys(record, label, ['kind', 'public_capability', 'session_policy']);
   if (record.kind !== 'router_ab_ecdsa_post_registration_session_activation_v1') {
     throw new Error(`${label}.kind is invalid`);
   }
-  const publicCapability = parseRouterAbEcdsaDerivationPublicCapabilityV1(
-    record.public_capability,
-  );
-  const verifiedClientFacts = parseRouterAbEcdsaVerifiedClientActivationFactsV1(
-    record.verified_client_facts,
-  );
-  if (
-    verifiedClientFacts.registrationRequestDigestB64u !==
-      publicCapability.registration_request_digest_b64u ||
-    verifiedClientFacts.proofTranscriptDigestB64u !==
-      publicCapability.proof_transcript_digest_b64u ||
-    verifiedClientFacts.contextBinding32B64u !==
-      publicCapability.public_identity.context_binding_b64u ||
-    verifiedClientFacts.derivationClientSharePublicKey33B64u !==
-      publicCapability.public_identity.derivation_client_share_public_key33_b64u ||
-    verifiedClientFacts.clientShareRetryCounter !==
-      publicCapability.public_identity.client_share_retry_counter
-  ) {
-    throw new Error(`${label}.verified_client_facts do not match public_capability`);
-  }
+  const publicCapability = parseRouterAbEcdsaDerivationPublicCapabilityV1(record.public_capability);
   return {
     kind: 'router_ab_ecdsa_post_registration_session_activation_v1',
-    recovery_binding: parsePostRegistrationProofBinding(
-      record.recovery_binding,
-      `${label}.recovery_binding`,
-    ),
-    refresh_binding: parsePostRegistrationProofBinding(
-      record.refresh_binding,
-      `${label}.refresh_binding`,
-    ),
     public_capability: publicCapability,
-    verified_client_facts: verifiedClientFacts,
     session_policy: parsePostRegistrationSessionPolicy(record.session_policy),
   };
 }
@@ -1801,19 +1609,11 @@ export function parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(
 ): RouterAbEcdsaPostRegistrationSessionActivationResponseV1 {
   const label = 'postRegistrationSessionActivated';
   const record = requireRecord(value, label);
-  requireExactKeys(record, label, [
-    'kind',
-    'public_capability',
-    'session',
-    'normal_signing',
-    'signing_worker_activation',
-  ]);
+  requireExactKeys(record, label, ['kind', 'public_capability', 'session', 'normal_signing']);
   if (record.kind !== 'router_ab_ecdsa_post_registration_session_activated_v1') {
     throw new Error(`${label}.kind is invalid`);
   }
-  const publicCapability = parseRouterAbEcdsaDerivationPublicCapabilityV1(
-    record.public_capability,
-  );
+  const publicCapability = parseRouterAbEcdsaDerivationPublicCapabilityV1(record.public_capability);
   const sessionRecord = requireRecord(record.session, `${label}.session`);
   requireExactKeys(sessionRecord, `${label}.session`, [
     'threshold_session_id',
@@ -1822,38 +1622,28 @@ export function parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(
     'remaining_uses',
     'wallet_session_jwt',
   ]);
-  const normalSigning = requireRouterAbEcdsaDerivationNormalSigningStateV1(
-    record.normal_signing,
-  );
-  const signingWorkerActivation =
-    parseRouterAbEcdsaRegistrationActivationReceiptV1(
-      record.signing_worker_activation,
-    );
+  const normalSigning = requireRouterAbEcdsaDerivationNormalSigningStateV1(record.normal_signing);
   if (
-    !publicIdentitiesMatch(
-      publicCapability.public_identity,
-      normalSigning.scope.public_identity,
-    ) ||
+    !publicIdentitiesMatch(publicCapability.public_identity, normalSigning.scope.public_identity) ||
     publicCapability.context.application_binding_digest_b64u !==
       normalSigning.scope.context.application_binding_digest_b64u ||
-    normalSigning.scope.activation_epoch !==
-      signingWorkerActivation.ecdsa_activation.activation_epoch ||
+    normalSigning.scope.activation_epoch !== publicCapability.activation_epoch ||
     !sameServerIdentity(
       normalSigning.scope.signing_worker,
-      signingWorkerActivation.ecdsa_activation.signing_worker,
+      publicCapability.signer_set.selected_server,
     )
   ) {
-    throw new Error(`${label} normal-signing activation does not match public capability`);
+    throw new Error(`${label} normal-signing state does not match public capability`);
   }
   return {
     kind: 'router_ab_ecdsa_post_registration_session_activated_v1',
     public_capability: publicCapability,
     session: {
-      threshold_session_id: requireAsciiNonEmptyString(
+      threshold_session_id: requireThresholdEcdsaSessionId(
         sessionRecord.threshold_session_id,
         `${label}.session.threshold_session_id`,
       ),
-      signing_grant_id: requireAsciiNonEmptyString(
+      signing_grant_id: requireSigningGrantId(
         sessionRecord.signing_grant_id,
         `${label}.session.signing_grant_id`,
       ),
@@ -1871,7 +1661,6 @@ export function parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(
       ),
     },
     normal_signing: normalSigning,
-    signing_worker_activation: signingWorkerActivation,
   };
 }
 
@@ -1886,9 +1675,7 @@ export function buildRouterAbEcdsaDerivationPublicCapabilityV1(input: {
   const clientActivation = parseRouterAbEcdsaVerifiedClientActivationFactsV1(
     input.clientActivation,
   );
-  const receipt = parseRouterAbEcdsaRegistrationActivationReceiptV1(
-    input.activationReceipt,
-  );
+  const receipt = parseRouterAbEcdsaRegistrationActivationReceiptV1(input.activationReceipt);
   requireRegistrationFactsMatchRequest({ facts, request });
   const activated = receipt.ecdsa_activation;
   if (
@@ -1897,8 +1684,7 @@ export function buildRouterAbEcdsaDerivationPublicCapabilityV1(input: {
     activated.context.application_binding_digest_b64u !==
       request.context.application_binding_digest_b64u ||
     !sameServerIdentity(activated.signing_worker, request.signer_set.selected_server) ||
-    activated.public_identity.context_binding_b64u !==
-      clientActivation.contextBinding32B64u ||
+    activated.public_identity.context_binding_b64u !== clientActivation.contextBinding32B64u ||
     activated.public_identity.derivation_client_share_public_key33_b64u !==
       clientActivation.derivationClientSharePublicKey33B64u ||
     activated.public_identity.client_share_retry_counter !==
@@ -1917,8 +1703,7 @@ export function buildRouterAbEcdsaDerivationPublicCapabilityV1(input: {
     router_id: request.router_id,
     client_id: request.client_id,
     activation_epoch: activated.activation_epoch,
-    registration_request_digest_b64u:
-      clientActivation.registrationRequestDigestB64u,
+    registration_request_digest_b64u: clientActivation.registrationRequestDigestB64u,
     proof_transcript_digest_b64u: clientActivation.proofTranscriptDigestB64u,
   });
 }
@@ -1966,10 +1751,7 @@ export function parseRouterAbEcdsaDerivationExplicitExportRequestV1(
     'key_export',
     'export',
   );
-  const signerSet = parsePostRegistrationSignerSet(
-    record.signer_set,
-    `${label}.signer_set`,
-  );
+  const signerSet = parsePostRegistrationSignerSet(record.signer_set, `${label}.signer_set`);
   requirePostRegistrationBindings(label, lifecycle, signerSet);
   return {
     context: parseStableKeyContext(record.context),
@@ -2027,10 +1809,7 @@ export function parseRouterAbEcdsaDerivationRecoveryRequestV1(
     'recovery',
     'recovery',
   );
-  const signerSet = parsePostRegistrationSignerSet(
-    record.signer_set,
-    `${label}.signer_set`,
-  );
+  const signerSet = parsePostRegistrationSignerSet(record.signer_set, `${label}.signer_set`);
   requirePostRegistrationBindings(label, lifecycle, signerSet);
   return {
     context: parseStableKeyContext(record.context),
@@ -2048,10 +1827,7 @@ export function parseRouterAbEcdsaDerivationRecoveryRequestV1(
       `${label}.recovery_authorization_digest_b64u`,
       32,
     ),
-    recovery_nonce: requireAsciiNonEmptyString(
-      record.recovery_nonce,
-      `${label}.recovery_nonce`,
-    ),
+    recovery_nonce: requireAsciiNonEmptyString(record.recovery_nonce, `${label}.recovery_nonce`),
     expires_at_ms: requirePositiveUnixMs(record.expires_at_ms, `${label}.expires_at_ms`),
     deriver_a_recovery_envelope: parsePostRegistrationRoleEnvelope(
       record.deriver_a_recovery_envelope,
@@ -2093,15 +1869,12 @@ export function parseRouterAbEcdsaDerivationActivationRefreshRequestV1(
     'server_share_refresh',
     'refresh',
   );
-  const signerSet = parsePostRegistrationSignerSet(
-    record.signer_set,
-    `${label}.signer_set`,
-  );
-  const previousActivationEpoch = requireAsciiNonEmptyString(
+  const signerSet = parsePostRegistrationSignerSet(record.signer_set, `${label}.signer_set`);
+  const previousActivationEpoch = requireRootShareEpoch(
     record.previous_activation_epoch,
     `${label}.previous_activation_epoch`,
   );
-  const nextActivationEpoch = requireAsciiNonEmptyString(
+  const nextActivationEpoch = requireRootShareEpoch(
     record.next_activation_epoch,
     `${label}.next_activation_epoch`,
   );
@@ -2227,7 +2000,10 @@ function pushServerIdentity(out: number[], server: RouterAbServerIdentityV1): vo
 
 async function sha256Bytes(input: Uint8Array): Promise<Uint8Array> {
   const subtle = globalThis.crypto?.subtle;
-  if (!subtle) throw new Error('crypto.subtle is required for Router A/B ECDSA derivation request digest binding');
+  if (!subtle)
+    throw new Error(
+      'crypto.subtle is required for Router A/B ECDSA derivation request digest binding',
+    );
   const buffer = new ArrayBuffer(input.byteLength);
   new Uint8Array(buffer).set(input);
   return new Uint8Array(await subtle.digest('SHA-256', buffer));
@@ -2249,7 +2025,9 @@ export async function routerAbEcdsaRerandomizationClientCommitmentV1(
   );
 }
 
-function canonicalStableKeyContextBytes(context: RouterAbEcdsaDerivationStableKeyContextV1): Uint8Array {
+function canonicalStableKeyContextBytes(
+  context: RouterAbEcdsaDerivationStableKeyContextV1,
+): Uint8Array {
   const parsed = parseStableKeyContext(context);
   const out: number[] = [];
   pushBytes(out, asciiBytes(ECDSA_DERIVATION_CONTEXT_DOMAIN_TAG_V1));
@@ -2265,7 +2043,8 @@ export async function routerAbEcdsaDerivationStableKeyContextFromSdkFactsV1(
   facts: SdkEcdsaDerivationBindingFacts,
 ): Promise<RouterAbEcdsaDerivationStableKeyContextV1> {
   return {
-    application_binding_digest_b64u: await computeSdkEcdsaDerivationApplicationBindingDigestB64u(facts),
+    application_binding_digest_b64u:
+      await computeSdkEcdsaDerivationApplicationBindingDigestB64u(facts),
   };
 }
 
@@ -2310,7 +2089,9 @@ function canonicalPublicIdentityBytes(
   return new Uint8Array(out);
 }
 
-function canonicalNormalSigningScopeBytes(scope: RouterAbEcdsaDerivationNormalSigningScopeV1): Uint8Array {
+function canonicalNormalSigningScopeBytes(
+  scope: RouterAbEcdsaDerivationNormalSigningScopeV1,
+): Uint8Array {
   const parsed = parseRouterAbEcdsaDerivationNormalSigningScopeV1(scope);
   const out: number[] = [];
   pushLen32(out, asciiBytes(ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_SCOPE_VERSION_V1));
@@ -2452,7 +2233,7 @@ export function parseRouterAbEcdsaDerivationNormalSigningScopeV1(
     context: parseStableKeyContext(record.context),
     public_identity: parsePublicIdentity(record.public_identity),
     signing_worker: parseServerIdentity(record.signing_worker),
-    activation_epoch: requireAsciiNonEmptyString(record.activation_epoch, 'scope.activation_epoch'),
+    activation_epoch: requireRootShareEpoch(record.activation_epoch, 'scope.activation_epoch'),
   };
 }
 
@@ -2674,7 +2455,8 @@ export function parseRouterAbEcdsaDerivationNormalSigningFromWalletRegistrationJ
     actual: publicIdentity.context_binding_b64u,
   });
   requireWalletRegistrationMatchingString({
-    field: 'routerAbEcdsaDerivationNormalSigning.scope.public_identity.derivation_client_share_public_key33_b64u',
+    field:
+      'routerAbEcdsaDerivationNormalSigning.scope.public_identity.derivation_client_share_public_key33_b64u',
     expected: expected.clientPublicKey33B64u,
     actual: publicIdentity.derivation_client_share_public_key33_b64u,
   });
@@ -2705,7 +2487,7 @@ export function parseRouterAbEcdsaDerivationNormalSigningFromWalletRegistrationJ
   });
   requireWalletRegistrationMatchingString({
     field: 'routerAbEcdsaDerivationNormalSigning.scope.activation_epoch',
-    expected: expected.thresholdSessionId,
+    expected: expected.activationEpoch,
     actual: normalSigning.scope.activation_epoch,
   });
   if (!String(normalSigning.scope.signing_worker.server_id || '').trim()) {
@@ -2714,15 +2496,44 @@ export function parseRouterAbEcdsaDerivationNormalSigningFromWalletRegistrationJ
   return normalSigning;
 }
 
-export function routerAbEcdsaDerivationActiveStateSessionId(
-  state: RouterAbEcdsaDerivationNormalSigningStateV1,
-): string {
-  return [
-    state.scope.ecdsa_threshold_key_id,
-    state.scope.signing_root_id,
-    state.scope.signing_root_version,
-    state.scope.activation_epoch,
+export function buildRouterAbEcdsaDerivationActiveStateIdV1(input: {
+  ecdsaThresholdKeyId: string;
+  signingRootId: string;
+  signingRootVersion: string;
+  activationEpoch: RootShareEpoch;
+}): EcdsaActiveStateId {
+  const ecdsaThresholdKeyId = requireAsciiNonEmptyString(
+    input.ecdsaThresholdKeyId,
+    'ecdsaThresholdKeyId',
+  );
+  const signingRootId = requireAsciiNonEmptyString(input.signingRootId, 'signingRootId');
+  const signingRootVersion = requireAsciiNonEmptyString(
+    input.signingRootVersion,
+    'signingRootVersion',
+  );
+  const activationEpoch = requireRootShareEpoch(input.activationEpoch, 'activationEpoch');
+  const activeStateId = [
+    ecdsaThresholdKeyId,
+    signingRootId,
+    signingRootVersion,
+    activationEpoch,
   ].join(':');
+  const parsed = parseEcdsaActiveStateId(activeStateId);
+  if (!parsed.ok) {
+    throw new Error(`activeStateId ${parsed.error.message}`);
+  }
+  return parsed.value;
+}
+
+export function routerAbEcdsaDerivationActiveStateId(
+  state: RouterAbEcdsaDerivationNormalSigningStateV1,
+): EcdsaActiveStateId {
+  return buildRouterAbEcdsaDerivationActiveStateIdV1({
+    ecdsaThresholdKeyId: state.scope.ecdsa_threshold_key_id,
+    signingRootId: state.scope.signing_root_id,
+    signingRootVersion: state.scope.signing_root_version,
+    activationEpoch: state.scope.activation_epoch,
+  });
 }
 
 export function buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1(input: {
@@ -2906,12 +2717,13 @@ export function routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestFromBu
     signing_digest_b64u: parsed.signing_digest_b64u,
     server_presignature_id: parsed.server_presignature_id,
     client_signature_share32_b64u: parsed.client_signature_share32_b64u,
-    client_rerandomization_contribution32_b64u:
-      parsed.client_rerandomization_contribution32_b64u,
+    client_rerandomization_contribution32_b64u: parsed.client_rerandomization_contribution32_b64u,
   };
 }
 
-function parseServerPresignatureShare(value: unknown): RouterAbEcdsaDerivationServerPresignatureShareV1 {
+function parseServerPresignatureShare(
+  value: unknown,
+): RouterAbEcdsaDerivationServerPresignatureShareV1 {
   const record = requireRecord(value, 'presignature');
   requireExactKeys(record, 'presignature', [
     'serverKeyId',
@@ -3256,7 +3068,8 @@ export function parseCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutRe
   request: CloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutRequestV1Wire,
   value: unknown,
 ): CloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutReceiptV1Wire {
-  const parsedRequest = parseCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutRequestV1(request);
+  const parsedRequest =
+    parseCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutRequestV1(request);
   const receipt = parseCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutReceiptV1(value);
   if (receipt.server_presignature_id !== parsedRequest.server_presignature_id) {
     throw new Error('receipt.server_presignature_id does not match pool-fill request');

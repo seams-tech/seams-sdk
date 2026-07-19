@@ -14,6 +14,7 @@ import {
   parseSdkEcdsaDerivationSigningRootVersion,
   parseSdkEcdsaDerivationThresholdKeyId,
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
+import { parseSigningGrantId } from '@shared/utils/domainIds';
 
 export type {
   EcdsaThresholdKeyId,
@@ -108,7 +109,13 @@ export function toEcdsaDerivationThresholdSessionId(value: unknown): ThresholdEc
 }
 
 export function toEcdsaDerivationSigningGrantId(value: unknown): SigningGrantId {
-  return requiredEmailOtpDerivationString(value, 'signingGrantId') as SigningGrantId;
+  const parsed = parseSigningGrantId(
+    requiredEmailOtpDerivationString(value, 'signingGrantId'),
+  );
+  if (!parsed.ok) {
+    throw new Error('[email-otp-derivation] signingGrantId is invalid');
+  }
+  return parsed.value;
 }
 
 export function toEcdsaDerivationThresholdOwnerAddress(value: unknown): ThresholdOwnerAddress {

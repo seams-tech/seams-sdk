@@ -27,8 +27,8 @@ use crate::{
     CloudflareDurableObjectScopeV1, CloudflareRouterAbuseCheckV1,
     CloudflareRouterNormalSigningTrustedMetadataV1, CloudflareRouterProjectPolicyV1,
     CloudflareRouterQuotaCheckV1, CloudflareRouterTrustedRequestMetadataV1,
-    CloudflareServerOutputMaterialRecordV1,
-    CloudflareSigningWorkerEcdsaPoolCommandV1, CloudflareSigningWorkerEcdsaPoolLifecycleRecordV1,
+    CloudflareServerOutputMaterialRecordV1, CloudflareSigningWorkerEcdsaPoolCommandV1,
+    CloudflareSigningWorkerEcdsaPoolLifecycleRecordV1,
     CloudflareSigningWorkerEcdsaPoolMutationOutcomeV1,
     CloudflareSigningWorkerRecipientProofBundleActivationRequestV1, CloudflareWorkerRoleV1,
 };
@@ -39,22 +39,36 @@ use crate::{
     DERIVER_B_ROOT_SHARE_DO_KEY_PREFIX_ENV, DERIVER_B_ROOT_SHARE_DO_OBJECT_ENV,
     ROUTER_ABUSE_DO_BINDING_ENV, ROUTER_ABUSE_DO_KEY_PREFIX_ENV, ROUTER_ABUSE_DO_OBJECT_ENV,
     ROUTER_LIFECYCLE_DO_BINDING_ENV, ROUTER_LIFECYCLE_DO_KEY_PREFIX_ENV,
-    ROUTER_LIFECYCLE_DO_OBJECT_ENV, ROUTER_PROJECT_POLICY_DO_BINDING_ENV,
-    ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON_ENV, ROUTER_PROJECT_POLICY_DO_KEY_PREFIX_ENV,
-    ROUTER_PROJECT_POLICY_DO_OBJECT_ENV,
-    ROUTER_QUOTA_DO_BINDING_ENV, ROUTER_QUOTA_DO_KEY_PREFIX_ENV, ROUTER_QUOTA_DO_OBJECT_ENV,
-    ROUTER_REPLAY_DO_BINDING_ENV, ROUTER_REPLAY_DO_KEY_PREFIX_ENV, ROUTER_REPLAY_DO_OBJECT_ENV,
+    ROUTER_LIFECYCLE_DO_OBJECT_ENV, ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON_ENV,
+    ROUTER_PROJECT_POLICY_DO_BINDING_ENV, ROUTER_PROJECT_POLICY_DO_KEY_PREFIX_ENV,
+    ROUTER_PROJECT_POLICY_DO_OBJECT_ENV, ROUTER_QUOTA_DO_BINDING_ENV,
+    ROUTER_QUOTA_DO_KEY_PREFIX_ENV, ROUTER_QUOTA_DO_OBJECT_ENV, ROUTER_REPLAY_DO_BINDING_ENV,
+    ROUTER_REPLAY_DO_KEY_PREFIX_ENV, ROUTER_REPLAY_DO_OBJECT_ENV,
     ROUTER_WALLET_BUDGET_DO_BINDING_ENV, ROUTER_WALLET_BUDGET_DO_KEY_PREFIX_ENV,
     ROUTER_WALLET_BUDGET_DO_OBJECT_ENV, SIGNING_WORKER_SERVER_OUTPUT_DO_BINDING_ENV,
     SIGNING_WORKER_SERVER_OUTPUT_DO_KEY_PREFIX_ENV, SIGNING_WORKER_SERVER_OUTPUT_DO_OBJECT_ENV,
 };
 
+#[cfg(feature = "workers-rs")]
+mod ecdsa_presign_live_session;
 mod handlers;
 mod memory_storage;
 #[cfg(feature = "workers-rs")]
 mod worker_storage;
+#[cfg(feature = "workers-rs")]
+use ecdsa_presign_live_session::{
+    handle_cloudflare_signing_worker_ecdsa_presign_session_do_fetch_v1,
+    CloudflareSigningWorkerEcdsaPresignLiveSessionsV1,
+};
+#[cfg(feature = "workers-rs")]
+pub(crate) use ecdsa_presign_live_session::{
+    CloudflareSigningWorkerEcdsaPresignSessionDoInitRequestV1,
+    CloudflareSigningWorkerEcdsaPresignSessionDoProgressV1,
+};
 pub use handlers::handle_cloudflare_durable_object_call_v1;
 pub use memory_storage::CloudflareDurableObjectMemoryStorageV1;
+#[cfg(feature = "workers-rs")]
+pub(crate) use worker_storage::execute_cloudflare_durable_object_custom_json_call_v1;
 #[cfg(feature = "workers-rs")]
 use worker_storage::{
     cloudflare_durable_object_class_binding_v1, handle_cloudflare_durable_object_class_fetch_v1,
@@ -271,19 +285,35 @@ impl worker::DurableObject for RouterAbDeriverARootShareDurableObject {
 
 /// SigningWorker server-output Durable Object class.
 #[cfg(feature = "workers-rs")]
-#[worker::durable_object(fetch)]
+#[worker::durable_object(alarm)]
 pub struct RouterAbSigningWorkerServerOutputDurableObject {
     state: worker::State,
     env: worker::Env,
+    ecdsa_presign_sessions: CloudflareSigningWorkerEcdsaPresignLiveSessionsV1,
 }
 
 #[cfg(feature = "workers-rs")]
 impl worker::DurableObject for RouterAbSigningWorkerServerOutputDurableObject {
     fn new(state: worker::State, env: worker::Env) -> Self {
-        Self { state, env }
+        Self {
+            state,
+            env,
+            ecdsa_presign_sessions: Default::default(),
+        }
     }
 
     async fn fetch(&self, request: worker::Request) -> worker::Result<worker::Response> {
+        if matches!(
+            request.path().as_str(),
+            crate::CLOUDFLARE_SIGNING_WORKER_ECDSA_PRESIGN_SESSION_DO_INIT_PATH
+                | crate::CLOUDFLARE_SIGNING_WORKER_ECDSA_PRESIGN_SESSION_DO_STEP_PATH
+        ) {
+            return handle_cloudflare_signing_worker_ecdsa_presign_session_do_fetch_v1(
+                request,
+                &self.ecdsa_presign_sessions,
+            )
+            .await;
+        }
         handle_cloudflare_durable_object_class_fetch_v1(
             CloudflareDurableObjectScopeV1::signing_worker_server_output(),
             SIGNING_WORKER_SERVER_OUTPUT_DO_BINDING_ENV,

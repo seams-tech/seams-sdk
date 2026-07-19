@@ -61,10 +61,7 @@ use router_ab_cloudflare::{
     validate_cloudflare_signer_private_request_v1,
     validate_cloudflare_signer_recipient_proof_bundle_private_response_v1,
     verify_cloudflare_deriver_peer_message_authentication_v1,
-    CloudflareActiveSigningWorkerStateLookupV1, EcdsaCommitmentAuthorityDeliveryV1,
-    EcdsaCommitmentPolicyManifestDeliveryV1, EcdsaCommitmentRecordDeliveryV1,
-    EcdsaCommitmentRecordsDeliveryV1, EcdsaCommitmentRegistryDeliveryV1,
-    CloudflareDerivationCeremonyPutReceiptV1,
+    CloudflareActiveSigningWorkerStateLookupV1, CloudflareDerivationCeremonyPutReceiptV1,
     CloudflareDerivationCeremonyStateLabelV1, CloudflareDerivationCeremonyV1,
     CloudflareDeriverABindingsV1, CloudflareDeriverAWorkerRuntimeV1, CloudflareDeriverBBindingsV1,
     CloudflareDeriverBWorkerRuntimeV1, CloudflareDurableObjectBindingV1,
@@ -86,11 +83,11 @@ use router_ab_cloudflare::{
     CloudflareRouterAbEcdsaDerivationDeriverRegistrationPrivateRequestV1,
     CloudflareRouterAbEcdsaDerivationEvmDigestFinalizeAdmissionCandidateV1,
     CloudflareRouterAbEcdsaDerivationEvmDigestPrepareAdmissionCandidateV1,
+    CloudflareRouterAbEcdsaDerivationPendingSigningWorkerActivationV1,
     CloudflareRouterAbEcdsaDerivationRecoveryAdmissionResponseV1,
     CloudflareRouterAbEcdsaDerivationSigningWorkerActivationReceiptV1,
     CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRefreshRequestV1,
     CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRequestV1,
-    CloudflareRouterAbEcdsaDerivationPendingSigningWorkerActivationV1,
     CloudflareRouterAbuseCheckV1, CloudflareRouterAbuseRecordV1, CloudflareRouterAbuseStoreV1,
     CloudflareRouterAdmissionBindingsV1, CloudflareRouterAdmissionChecksV1,
     CloudflareRouterAdmissionProviderOutputV1, CloudflareRouterAdmissionProviderV1,
@@ -120,9 +117,7 @@ use router_ab_cloudflare::{
     CloudflareServerOutputHpkeDecryptKeyBindingV1, CloudflareServerOutputMaterialRecordV1,
     CloudflareSignerClientRecipientProofBundleResponseV1,
     CloudflareSignerEnvelopeHpkeDecryptKeyBindingSetV1,
-    EcdsaSignedCommitmentPolicyDeliveryV1, EcdsaVerifiedClientActivationFactsV1,
-    CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1,
-    CloudflareSignerEnvelopeHpkePublicKeySetV1,
+    CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1, CloudflareSignerEnvelopeHpkePublicKeySetV1,
     CloudflareSignerEnvelopeHpkePublicKeyV1, CloudflareSignerEnvelopeHpkeRotationPublicKeySetV1,
     CloudflareSignerHostPeerPreloadInputV1, CloudflareSignerHostPreloadInputV1,
     CloudflareSignerHostPreloadPlanV1, CloudflareSignerPeerSigningKeyBindingV1,
@@ -133,8 +128,8 @@ use router_ab_cloudflare::{
     CloudflareSigningWorkerAdmittedNormalSigningPrepareRequestV2,
     CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinalizeRequestV1,
     CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
-    CloudflareSigningWorkerBindingsV1,
-    CloudflareSigningWorkerEcdsaPoolCommandV1, CloudflareSigningWorkerEcdsaPoolConsumeDecisionV1,
+    CloudflareSigningWorkerBindingsV1, CloudflareSigningWorkerEcdsaPoolCommandV1,
+    CloudflareSigningWorkerEcdsaPoolConsumeDecisionV1,
     CloudflareSigningWorkerEcdsaPoolLifecycleRecordV1,
     CloudflareSigningWorkerEcdsaPoolMutationOutcomeV1,
     CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1,
@@ -150,7 +145,8 @@ use router_ab_cloudflare::{
     CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestPreparedV1,
     CloudflareSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutRequestV1,
     CloudflareSigningWorkerRuntimeV1, CloudflareWorkerBindingsV1, CloudflareWorkerRoleV1,
-    PoolRecord, TombstoneReason, CLOUDFLARE_ROOT_SHARE_WIRE_SECRET_PREFIX_V1,
+    EcdsaVerifiedClientActivationFactsV1, PoolRecord, TombstoneReason,
+    CLOUDFLARE_ROOT_SHARE_WIRE_SECRET_PREFIX_V1,
     CLOUDFLARE_SERVER_OUTPUT_HPKE_PRIVATE_KEY_SECRET_PREFIX_V1,
     CLOUDFLARE_SIGNER_ENVELOPE_HPKE_PRIVATE_KEY_SECRET_PREFIX_V1,
     DERIVER_A_ENVELOPE_HPKE_KEY_EPOCH_ENV, DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
@@ -249,58 +245,6 @@ const ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_VERSION: &str = "root-version-1";
 
 fn root_epoch() -> RootShareEpoch {
     RootShareEpoch::new("epoch-1").expect("root epoch")
-}
-
-fn commitment_authority_delivery_fixture(
-    operator_identity: &str,
-) -> EcdsaCommitmentAuthorityDeliveryV1 {
-    EcdsaCommitmentAuthorityDeliveryV1 {
-        operator_identity: operator_identity.to_owned(),
-        authority_key_epoch: 1,
-        valid_from_ms: 1,
-        valid_until_ms: u64::MAX,
-        verifying_key_hex: "11".repeat(32),
-    }
-}
-
-fn commitment_record_delivery_fixture(
-    operator_identity: &str,
-    share_id: u16,
-) -> EcdsaCommitmentRecordDeliveryV1 {
-    EcdsaCommitmentRecordDeliveryV1 {
-        root_id: "root-1".to_owned(),
-        root_version: 1,
-        root_share_epoch: root_epoch().as_str().to_owned(),
-        commitment_hex: format!("{share_id:04x}{}", "22".repeat(32)),
-        operator_identity: operator_identity.to_owned(),
-        authority_key_epoch: 1,
-        record_valid_from_ms: 1,
-        record_valid_until_ms: u64::MAX,
-        signed_digest_hex: "33".repeat(32),
-        signature_hex: "44".repeat(64),
-    }
-}
-
-fn commitment_registry_delivery_fixture() -> EcdsaCommitmentRegistryDeliveryV1 {
-    EcdsaCommitmentRegistryDeliveryV1 {
-        policy: EcdsaSignedCommitmentPolicyDeliveryV1 {
-            manifest: EcdsaCommitmentPolicyManifestDeliveryV1 {
-                release_epoch: 1,
-                minimum_root_version: 1,
-                minimum_authority_key_epoch: 1,
-                revoked_authority_key_epochs: Vec::new(),
-                revoked_record_digests_hex: Vec::new(),
-                signer_a_authority: commitment_authority_delivery_fixture("signer-a"),
-                signer_b_authority: commitment_authority_delivery_fixture("signer-b"),
-            },
-            manifest_digest_hex: "55".repeat(32),
-            release_authority_signature_hex: "66".repeat(64),
-        },
-        records: EcdsaCommitmentRecordsDeliveryV1 {
-            signer_a: commitment_record_delivery_fixture("signer-a", 1),
-            signer_b: commitment_record_delivery_fixture("signer-b", 2),
-        },
-    }
 }
 
 fn next_root_epoch() -> RootShareEpoch {
@@ -1451,8 +1395,6 @@ fn router_ab_ecdsa_derivation_registration_request(
         "x25519:client-ephemeral-public-key",
         "ecdsa-replay-1",
         2_000,
-        b64u(&ecdsa_derivation_client_share_public_key33()),
-        0,
         role_envelope(Role::SignerA, 0xa3),
         role_envelope(Role::SignerB, 0xb3),
     )
@@ -1509,7 +1451,8 @@ fn router_ab_ecdsa_derivation_public_identity() -> RouterAbEcdsaDerivationPublic
     let activation = router_ab_ecdsa_derivation_activation_request();
     let material = router_ab_ecdsa_derivation_server_material_record(&activation);
     cloudflare_router_ab_ecdsa_derivation_public_identity_from_activation_material_v1(
-        &activation.registration,
+        &activation.pending.registration,
+        &activation.client_activation,
         &material,
     )
     .expect("Router A/B ECDSA derivation public identity")
@@ -1706,10 +1649,7 @@ fn router_ab_ecdsa_derivation_activation_request(
                 .as_bytes(),
         ),
         proof_transcript_digest_b64u: b64u(
-            pending
-                .activation_context
-                .transcript_digest()
-                .as_bytes(),
+            pending.activation_context.transcript_digest().as_bytes(),
         ),
         context_binding32_b64u: b64u(
             pending
@@ -1719,7 +1659,7 @@ fn router_ab_ecdsa_derivation_activation_request(
                 .expect("context binding")
                 .as_bytes(),
         ),
-        derivation_client_share_public_key33_b64u: secp256k1_public_key33_b64u(0x03, 0x44),
+        derivation_client_share_public_key33_b64u: b64u(&ecdsa_derivation_client_share_public_key33()),
         client_share_retry_counter: 0,
         participant_id: 1,
     };
@@ -1758,9 +1698,9 @@ fn router_ab_ecdsa_derivation_activation_refresh_request(
 fn router_ab_ecdsa_derivation_server_material_record(
     activation: &CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRequestV1,
 ) -> CloudflareServerOutputMaterialRecordV1 {
-    let selected_server = &activation.activation_context.signer_set().selected_server;
+    let selected_server = &activation.pending.activation_context.signer_set().selected_server;
     CloudflareServerOutputMaterialRecordV1::new(
-        activation.activation_context.transcript_digest(),
+        activation.pending.activation_context.transcript_digest(),
         OpenedShareKind::XServerBase,
         Role::Server,
         selected_server.server_id.clone(),
@@ -5141,7 +5081,6 @@ fn router_ab_ecdsa_derivation_recovery_public_admission_response_validates_clien
             .expect("recovery lifecycle"),
         signer_a_response.client_bundle.clone(),
         signer_b_response.client_bundle.clone(),
-        commitment_registry_delivery_fixture(),
     )
     .expect("Router A/B ECDSA derivation recovery Router response");
     router_response
@@ -5162,7 +5101,6 @@ fn router_ab_ecdsa_derivation_recovery_public_admission_response_validates_clien
             .expect("recovery lifecycle"),
         signer_b_response.client_bundle,
         signer_a_response.client_bundle,
-        commitment_registry_delivery_fixture(),
     )
     .expect_err("swapped recovery client bundles must fail");
     assert_eq!(
@@ -6549,7 +6487,6 @@ fn cloudflare_proof_batch_helpers_build_recipient_proof_bundle_response() {
         CloudflareLifecyclePutReceiptV1::new("lifecycle-1", true).expect("lifecycle"),
         deriver_a_strict.client_bundle.clone(),
         deriver_b_strict.client_bundle.clone(),
-        commitment_registry_delivery_fixture(),
     )
     .expect("strict router proof-bundle response");
     router_strict
@@ -6570,7 +6507,6 @@ fn cloudflare_proof_batch_helpers_build_recipient_proof_bundle_response() {
         CloudflareLifecyclePutReceiptV1::new("lifecycle-1", true).expect("lifecycle"),
         deriver_b_strict.client_bundle.clone(),
         deriver_a_strict.client_bundle.clone(),
-        commitment_registry_delivery_fixture(),
     )
     .expect_err("swapped strict client bundles must fail");
     assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidSignerIdentity);
@@ -6795,7 +6731,6 @@ fn cloudflare_validated_mpc_prf_handler_returns_signer_responses_for_a_and_b() {
         CloudflareLifecyclePutReceiptV1::new("lifecycle-1", true).expect("lifecycle"),
         strict_response_a.client_bundle.clone(),
         strict_response_b.client_bundle.clone(),
-        commitment_registry_delivery_fixture(),
     )
     .expect("strict router response");
     strict_router_response
@@ -6838,18 +6773,20 @@ fn router_ab_ecdsa_derivation_activation_material_derives_context_bound_public_i
 
     let identity =
         cloudflare_router_ab_ecdsa_derivation_public_identity_from_activation_material_v1(
-            &activation.registration,
+            &activation.pending.registration,
+            &activation.client_activation,
             &material,
         )
         .expect("Router A/B ECDSA derivation public identity");
 
     identity
-        .validate_for_context(&activation.registration.context)
+        .validate_for_context(&activation.pending.registration.context)
         .expect("identity must validate against core Router A/B ECDSA derivation context");
     assert_eq!(
         identity.context_binding_b64u,
         b64u(
             activation
+                .pending
                 .registration
                 .context
                 .context_binding_digest()
@@ -6860,7 +6797,7 @@ fn router_ab_ecdsa_derivation_activation_material_derives_context_bound_public_i
     assert_eq!(
         identity.derivation_client_share_public_key33_b64u,
         activation
-            .registration
+            .client_activation
             .derivation_client_share_public_key33_b64u
     );
 
@@ -6874,7 +6811,11 @@ fn router_ab_ecdsa_derivation_activation_material_derives_context_bound_public_i
     assert_eq!(receipt.public_identity, identity);
     assert_eq!(
         receipt.signing_worker,
-        activation.activation_context.signer_set().selected_server
+        activation
+            .pending
+            .activation_context
+            .signer_set()
+            .selected_server
     );
 }
 
@@ -7004,7 +6945,6 @@ fn router_ab_ecdsa_derivation_activation_refresh_public_admission_response_valid
             .expect("refresh lifecycle"),
         client_proof_bundle_wire(&router_payload, Role::SignerA, 0x61),
         client_proof_bundle_wire(&router_payload, Role::SignerB, 0x62),
-        commitment_registry_delivery_fixture(),
     )
     .expect("refresh public Router response");
 
@@ -7088,7 +7028,7 @@ impl CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestFinalizeHandlerV1
             request.request.request.server_presignature_id
         );
         RouterAbEcdsaDerivationEvmDigestSigningResponseV1::new_for_request(
-            &request.prepare_request()?,
+            &request.request.request,
             b64u(&[0x99; 65]),
         )
     }
@@ -7643,7 +7583,6 @@ fn router_ab_ecdsa_derivation_evm_digest_finalize_private_handler_consumes_presi
     let activation = router_ab_ecdsa_derivation_activation_request();
     let material = router_ab_ecdsa_derivation_server_material_record(&activation);
     let finalize_request = router_ab_ecdsa_derivation_digest_signing_finalize_request();
-    let prepare_request = finalize_request.prepare_request().expect("prepare request");
     let admitted =
         admitted_router_ab_ecdsa_derivation_digest_finalize_request(finalize_request.clone());
     let response =
@@ -7658,8 +7597,8 @@ fn router_ab_ecdsa_derivation_evm_digest_finalize_private_handler_consumes_presi
         .expect("Router A/B ECDSA derivation digest finalize response");
 
     response
-        .validate_for_request(&prepare_request)
-        .expect("response validates against prepare request");
+        .validate_for_request(&finalize_request)
+        .expect("response validates against finalize request");
     assert_eq!(response.signature65_b64u, b64u(&[0x99; 65]));
 }
 
@@ -7668,14 +7607,14 @@ fn router_ab_ecdsa_derivation_production_finalize_handler_returns_real_recoverab
     let activation = router_ab_ecdsa_derivation_activation_request();
     let material = router_ab_ecdsa_derivation_server_material_record(&activation);
     let ecdsa_context = cloudflare_router_ab_ecdsa_derivation_stable_key_context_v1(
-        &activation.registration.context,
+        &activation.pending.registration.context,
     )
     .expect("Router A/B ECDSA derivation context");
     let (_relayer_role_share, identity) = derive_relayer_share_for_client_public(
         &ecdsa_context,
         *material.output_material.as_bytes(),
         &ecdsa_derivation_client_share_public_key33(),
-        activation.registration.client_share_retry_counter,
+        activation.client_activation.client_share_retry_counter,
     )
     .expect("relayer role share");
     let client_additive_share32 = ecdsa_scalar_one_be32();
@@ -7759,7 +7698,7 @@ fn router_ab_ecdsa_derivation_production_finalize_handler_returns_real_recoverab
         handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_finalize_private_request_v1(
             &CloudflareRoleSeparatedRouterAbEcdsaDerivationEvmDigestFinalizeHandlerV1,
             TEST_ACTIVATED_AT_MS + 2,
-            admitted_router_ab_ecdsa_derivation_digest_finalize_request(finalize_request),
+            admitted_router_ab_ecdsa_derivation_digest_finalize_request(finalize_request.clone()),
             active_signing_worker_state_for_router_ab_ecdsa_derivation(),
             material,
             presignature_record,
@@ -7767,8 +7706,8 @@ fn router_ab_ecdsa_derivation_production_finalize_handler_returns_real_recoverab
         .expect("production Router A/B ECDSA derivation finalize response");
 
     response
-        .validate_for_request(&prepare_request)
-        .expect("production response binds prepare request");
+        .validate_for_request(&finalize_request)
+        .expect("production response binds finalize request");
     assert_ne!(response.signature65_b64u, b64u(&[0x99; 65]));
 }
 

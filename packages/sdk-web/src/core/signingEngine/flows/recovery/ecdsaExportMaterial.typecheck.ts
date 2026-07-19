@@ -3,7 +3,10 @@ import type {
   ReadyEcdsaSignerSession,
   VerifiedEcdsaPublicFacts,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
-import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
+import type {
+  PersistedEcdsaRoleLocalMaterial,
+  ThresholdEcdsaSessionRecord,
+} from '../../session/persistence/records';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import type {
   AuthFactorIdentity,
@@ -26,6 +29,7 @@ import type { EmailOtpEcdsaSigningSessionAuthority } from '../../session/emailOt
 declare const signerSession: ReadyEcdsaSignerSession;
 declare const publicFacts: VerifiedEcdsaPublicFacts;
 declare const record: ThresholdEcdsaSessionRecord;
+declare const existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
 declare const keyRef: unknown;
 declare const evmFamilyKeyFingerprint: EvmFamilyKeyFingerprint;
 declare const runtimePolicyScope: ThresholdRuntimePolicyScope;
@@ -212,6 +216,7 @@ const freshPasskeyExportMaterial: FreshPasskeyEcdsaExportMaterial = {
   publicFacts,
   runtimePolicyScope,
   publicCapability: record.ecdsaRoleLocalPublicFacts.publicCapability,
+  existingRoleLocalMaterial,
   bootstrap: passkeyBootstrap,
 };
 void freshPasskeyExportMaterial;

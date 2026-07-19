@@ -38,6 +38,7 @@ import {
   type RouterAbEcdsaDerivationNormalSigningStateV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RouterAbPublicKeysetV2 } from '@shared/utils/routerAbPublicKeyset';
+import type { RootShareEpoch } from '@shared/utils/domainIds';
 import {
   normalizeRuntimePolicyScope,
   normalizeRuntimePolicyScopeFields,
@@ -385,6 +386,7 @@ function decodeEthereumAddress20Hex(address: string): Uint8Array {
 
 export function buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap(input: {
   bootstrap: EcdsaDerivationServerBootstrapResponse;
+  activationEpoch: RootShareEpoch;
   routerAbPublicKeyset: RouterAbPublicKeysetV2 | null | undefined;
   signingWorkerId: string;
 }):
@@ -429,7 +431,7 @@ export function buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap(input
           key_epoch: signingWorkerHpke.key_epoch,
           recipient_encryption_key: signingWorkerHpke.public_key,
         },
-        activation_epoch: bootstrap.thresholdSessionId,
+        activation_epoch: input.activationEpoch,
       },
     });
     if (!state) {

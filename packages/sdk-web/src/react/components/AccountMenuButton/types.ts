@@ -70,6 +70,9 @@ export interface AccountMenuButtonProps {
   username?: string | null;
   hideUsername?: boolean;
   onLock?: () => void;
+  // Key-export failures surface here so the host can toast/log them;
+  // the menu itself never renders error text inline
+  onExportKeyError?: (error: Error) => void;
   // QR Code Scanner parameters
   deviceLinkingScannerParams?: DeviceLinkingScannerParams;
   // styles
@@ -119,7 +122,6 @@ export interface ProfileDropdownProps {
   linkedDevicesOpen?: boolean;
   exportKeysOpen?: boolean;
   exportLoadingChain?: ExportChain | null;
-  exportRestrictionMessage?: string | null;
   onExportChain?: (chain: ExportChain) => void;
   walletId?: string | null;
   nearAccountId?: string | null;

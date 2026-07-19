@@ -123,8 +123,7 @@ pub const ROUTER_PROJECT_POLICY_DO_OBJECT_ENV: &str = "ROUTER_PROJECT_POLICY_DO_
 /// Router project-policy Durable Object key-prefix env key.
 pub const ROUTER_PROJECT_POLICY_DO_KEY_PREFIX_ENV: &str = "ROUTER_PROJECT_POLICY_DO_KEY_PREFIX";
 /// Exact Router project-policy record used to initialize an empty Durable Object.
-pub const ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON_ENV: &str =
-    "ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON";
+pub const ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON_ENV: &str = "ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON";
 /// Router quota Durable Object binding env key.
 pub const ROUTER_QUOTA_DO_BINDING_ENV: &str = "ROUTER_QUOTA_DO_BINDING";
 /// Router quota Durable Object object-name env key.

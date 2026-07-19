@@ -2057,15 +2057,10 @@ proceeds in this order:
       for registration, add-signer, export, recovery, and refresh, including
       lifecycle, recipient, authorization, nonce, transcript, AAD, and epoch
       drift rejection.
-- [x] Implement the authenticated ECDSA root-share commitment registry, bind
-      DLEQ verification to registry records, and cover rollback, rotation,
-      revocation, substitution, stale-epoch, wrong-role, and replay failures.
-      The core registry and Cloudflare composition now verify registry-owned
-      DLEQ commitments, exact A/B role/share bindings, and a separately signed
-      trust policy. The build pins the external release authority, exact policy
-      digest, and monotonic release floor. Runtime records cannot supply trust
-      anchors; rollback, revocation, substitution, malformed policy, and replay
-      cases fail closed in focused tests.
+- [x] Verify each ECDSA proof bundle directly against its proof-contained
+      root-share commitment, then enforce the fixed A/B role, recipient,
+      transcript, epoch, and replay bindings. A commitment supplied outside the
+      proof bundle is not part of the derivation protocol.
 - [x] Finish the three responsibility-local ECDSA browser workers for
       derivation, presign, and online signing.
       Derivation, presign, and online signing now use separate narrow Wasm
@@ -4926,25 +4921,10 @@ through narrow source-guard allowlists.
       branch. Exact client-side request builders are parity-tested against the
       core parser and plaintext encoder, while normal signing is isolated to
       Router, Client, and SigningWorker ownership.
-- [x] Implement an authenticated root-share commitment registry. Each accepted
-      record binds the fixed threshold-PRF suite, Deriver role and share id,
-      root id, root version, epoch, public commitment, operator identity,
-      authority key epoch, validity interval, and signed record digest.
-      Runtime records carry no trust keys. A separate fixed-domain canonical
-      policy manifest owns the floors, revocations, and A/B authority keys; an
-      external Ed25519 release authority signs it. The SigningWorker build pins
-      that release public key, the exact manifest digest, and the minimum
-      release epoch. Missing pins, unknown fields, noncanonical hex, policy
-      digest/signature mismatch, rollback, and record substitution fail closed.
-- [x] Require DLEQ verification against the authenticated registry commitment.
-      A commitment supplied only by the responding Deriver is insufficient.
-- [x] Add registry rollback floors, root rotation, authority-key rotation,
-      revocation, stale epoch, wrong role/id, substituted commitment, and replay
-      tests. Cloudflare boundary tests also cover the independently signed
-      policy manifest, all three missing build pins, exact digest and signature
-      mismatch, release rollback, unknown policy/record fields, embedded trust
-      keys in runtime records, noncanonical hex, and cross-role record
-      substitution.
+- [x] Verify every A/B DLEQ proof against the commitment carried in its proof
+      bundle and bind the bundle pair to the fixed role, recipient, transcript,
+      root-share epoch, lifecycle, and output purpose. Commitment substitution,
+      malformed proofs, stale epochs, wrong roles, and replay fail closed.
 - [x] Encrypt each A/B proof bundle directly to its fixed Client or
       SigningWorker recipient. Bind recipient identity, output kind, transcript,
       root epoch, lifecycle, and suite into the ciphertext AAD.

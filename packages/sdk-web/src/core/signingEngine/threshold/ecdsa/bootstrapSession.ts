@@ -2,10 +2,7 @@ import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { ThresholdEcdsaDerivationRouteAuth } from '@/core/rpcClients/relayer/thresholdEcdsa';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
-import type {
-  ThresholdCredentialStorePort,
-  ThresholdWebAuthnPromptPort,
-} from '../crypto/webauthn';
+import type { ThresholdCredentialStorePort, ThresholdWebAuthnPromptPort } from '../crypto/webauthn';
 import {
   normalizeThresholdRuntimePolicyScope,
   type ThresholdRuntimePolicyScope,
@@ -18,10 +15,14 @@ import type {
 import type { ThresholdEcdsaChainTarget } from '../../interfaces/ecdsaChainTarget';
 import type { EmailOtpWorkerIssuedSessionHandle } from '@/core/platform/types';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
-import type { FinalizeRouterAbEcdsaRecoveryActivationResultV1 } from '../../workerManager/ecdsaClientWorkerChannels';
-import { activateStrictEcdsaPostRegistrationSession } from './postRegistrationSessionActivation';
+import {
+  activateStrictEcdsaPostRegistrationSession,
+  type ExistingEcdsaRoleLocalActivation,
+} from './postRegistrationSessionActivation';
 import { bytesToHex } from '../../chains/evm/bytes';
 import { secureRandomId } from '@shared/utils/secureRandomId';
+import type { PersistedEcdsaRoleLocalMaterial } from '../../session/persistence/records';
+import { computeEcdsaDerivationRoleLocalRelayerKeyId } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 
 type BootstrapEcdsaSessionBaseArgs = {
   credentialStore: ThresholdCredentialStorePort;
@@ -130,15 +131,14 @@ type BootstrapEcdsaExactSessionArgs = BootstrapEcdsaSessionBaseArgs &
     key: EvmFamilyEcdsaKeyIdentity;
     lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
     publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+    existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
     evmFamilySigningKeySlotId?: never;
     ecdsaThresholdKeyId?: never;
     sessionId?: never;
     signingGrantId?: never;
   };
 
-type BootstrapEcdsaSessionArgs =
-  | BootstrapEcdsaRegistrationArgs
-  | BootstrapEcdsaExactSessionArgs;
+type BootstrapEcdsaSessionArgs = BootstrapEcdsaRegistrationArgs | BootstrapEcdsaExactSessionArgs;
 
 type BootstrapEcdsaSessionFailure = {
   ok: false;
@@ -171,7 +171,7 @@ type BootstrapEcdsaSessionSuccessCommon = {
   signingRootId: string;
   signingRootVersion: string;
   jwt: string;
-  roleLocalActivation: FinalizeRouterAbEcdsaRecoveryActivationResultV1;
+  roleLocalActivation: ExistingEcdsaRoleLocalActivation;
   routerAbEcdsaDerivationNormalSigning: Awaited<
     ReturnType<typeof activateStrictEcdsaPostRegistrationSession>
   >['sessionActivation']['normal_signing'];
@@ -252,15 +252,20 @@ async function bootstrapStrictExistingEcdsaSession(
     routeAuth: args.bootstrapAuth,
     workerCtx: args.workerCtx,
     publicCapability: args.publicCapability,
+    persistedRoleLocalMaterial: args.existingRoleLocalMaterial,
     walletId: String(args.key.walletId),
-    thresholdSessionId: String(args.lanePolicy.thresholdSessionId),
-    signingGrantId: String(args.lanePolicy.signingGrantId),
+    thresholdSessionId: args.lanePolicy.thresholdSessionId,
+    signingGrantId: args.lanePolicy.signingGrantId,
     ttlMs: args.lanePolicy.ttlMs,
     remainingUses: args.lanePolicy.remainingUses,
     runtimePolicyScope,
   });
   const capability = strict.sessionActivation.public_capability;
   const publicIdentity = capability.public_identity;
+  const relayerKeyId = await computeEcdsaDerivationRoleLocalRelayerKeyId({
+    walletId: String(args.key.walletId),
+    evmFamilySigningKeySlotId: String(args.key.evmFamilySigningKeySlotId),
+  });
   const common: BootstrapEcdsaSessionSuccessCommon = {
     ok: true,
     bootstrapKind: 'strict_post_registration',
@@ -271,13 +276,10 @@ async function bootstrapStrictExistingEcdsaSession(
     evmFamilySigningKeySlotId: String(args.key.evmFamilySigningKeySlotId),
     keyHandle: String(args.keyHandle),
     ecdsaThresholdKeyId: String(args.key.ecdsaThresholdKeyId),
-    clientVerifyingShareB64u:
-      publicIdentity.derivation_client_share_public_key33_b64u,
+    clientVerifyingShareB64u: publicIdentity.derivation_client_share_public_key33_b64u,
     thresholdEcdsaPublicKeyB64u: publicIdentity.threshold_public_key33_b64u,
-    ethereumAddress: `0x${bytesToHex(
-      base64UrlDecode(publicIdentity.ethereum_address20_b64u),
-    )}`,
-    relayerKeyId: capability.signer_set.selected_server.server_id,
+    ethereumAddress: bytesToHex(base64UrlDecode(publicIdentity.ethereum_address20_b64u)),
+    relayerKeyId,
     relayerVerifyingShareB64u: publicIdentity.server_public_key33_b64u,
     clientShareRetryCounter: publicIdentity.client_share_retry_counter,
     relayerShareRetryCounter: publicIdentity.server_share_retry_counter,

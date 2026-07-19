@@ -2985,6 +2985,24 @@ export class SeamsWalletRepositories {
       'readwrite',
       async (ctx) => {
         const profileStore = ctx.store(SEAMS_WALLET_STORES.wallets);
+        if (input.lastProfileState) {
+          const appStateStore = ctx.store(SEAMS_WALLET_STORES.appState);
+          const key = scopedLastProfileStateAppStateKey(input.lastProfileState.scope);
+          const previousRow = (await appStateStore.get(key)) as AppStateRow | undefined;
+          const committed: LastProfileState = {
+            profileId: input.lastProfileState.profileId,
+            activeSignerSlot: input.lastProfileState.activeSignerSlot,
+            ...(input.lastProfileState.scope
+              ? { scope: normalizeLastUserScope(input.lastProfileState.scope) }
+              : {}),
+          };
+          lastProfileState = {
+            key,
+            committed,
+            previousPresent: previousRow !== undefined,
+            previousValue: previousRow?.value,
+          };
+        }
         for (const profile of input.profiles) {
           const profileId = toTrimmedString(profile.profileId || '');
           if (!profileId) throw new Error('[SeamsWalletDB] profileId is required');
@@ -3013,22 +3031,13 @@ export class SeamsWalletRepositories {
 
         if (input.lastProfileState) {
           const appStateStore = ctx.store(SEAMS_WALLET_STORES.appState);
-          const key = scopedLastProfileStateAppStateKey(input.lastProfileState.scope);
-          const previousRow = (await appStateStore.get(key)) as AppStateRow | undefined;
-          const committed: LastProfileState = {
-            profileId: input.lastProfileState.profileId,
-            activeSignerSlot: input.lastProfileState.activeSignerSlot,
-            ...(input.lastProfileState.scope
-              ? { scope: normalizeLastUserScope(input.lastProfileState.scope) }
-              : {}),
-          };
-          await appStateStore.put({ key, value: committed });
-          lastProfileState = {
-            key,
-            committed,
-            previousPresent: previousRow !== undefined,
-            previousValue: previousRow?.value,
-          };
+          if (!lastProfileState) {
+            throw new Error('[SeamsWalletDB] last profile rollback state was not captured');
+          }
+          await appStateStore.put({
+            key: lastProfileState.key,
+            value: lastProfileState.committed,
+          });
         }
       },
     );

@@ -1010,6 +1010,7 @@ dependencies = [
  "ecdsa",
  "elliptic-curve 0.13.8",
  "sha2 0.10.9",
+ "signature",
 ]
 
 [[package]]
@@ -1321,6 +1322,8 @@ dependencies = [
  "router-ab-ecdsa-derivation",
  "router-ab-ecdsa-online",
  "router-ab-ecdsa-pool",
+ "router-ab-ecdsa-presign",
+ "router-ab-ecdsa-wire",
  "router-ab-ed25519-yao",
  "serde",
  "serde_json",
@@ -1386,8 +1389,8 @@ version = "0.1.0"
 dependencies = [
  "base64ct",
  "curve25519-dalek",
- "ed25519-dalek",
  "hpke-ng",
+ "k256",
  "rand_chacha",
  "rand_core 0.9.5",
  "serde",

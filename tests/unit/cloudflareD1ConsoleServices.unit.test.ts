@@ -588,6 +588,7 @@ async function bootstrapLocalPoolFillEcdsaSession(input: {
 
   const normalSigning = buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap({
     bootstrap: bootstrap.value,
+    activationEpoch: bootstrap.value.thresholdSessionId,
     routerAbPublicKeyset: createLocalPoolFillRouterAbPublicKeyset(),
     signingWorkerId: LOCAL_D1_WORKFLOW_SIGNING_WORKER_ID,
   });

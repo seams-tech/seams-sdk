@@ -71,17 +71,20 @@ pnpm build:sdk
 pnpm router
 ```
 
-`pnpm router` checks that all four artifacts exist and match the current local
-commitment-policy build receipt. It does not compile Rust/WASM during startup.
-Use `pnpm router:build` when only the strict Workers need rebuilding. Stop a
+Local `pnpm build:sdk` uses the fast Rust development profile for the strict
+Workers (`--dev --no-opt`). Use
+`ROUTER_AB_WORKER_BUILD_PROFILE=release pnpm build:sdk` when optimized Worker
+artifacts are required, and use the same variable with `pnpm router` to launch
+those artifacts. `pnpm router` checks that all four artifacts exist and match
+the current build profile. It does not compile Rust/WASM during startup. Use
+`pnpm router:build` when only the strict Workers need rebuilding. Stop a
 running Router topology before either build command; the build refuses to
-replace artifacts while ports `9100-9103` are active.
+replace artifacts while ports `9100-3` are active.
 
-Starting `pnpm router` replaces an existing topology launched from this
-repository. It identifies the four Wrangler process groups from their generated
-config and persistence paths, stops them, and then claims ports `9100-9103`.
-An unrelated listener on one of those ports still produces a port-conflict
-error.
+Starting `pnpm router` replaces any processes listening on ports `9100-9103`.
+It stops the existing listeners, waits for the ports to clear, and then claims
+them for the new topology. A port-conflict error means a listener survived both
+graceful and forced shutdown.
 
 Pass `--fresh` to regenerate local role secrets before launch:
 

@@ -20,7 +20,7 @@ import type {
 } from '@/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions';
 import { type ConfirmationConfig } from '@/core/types/signer-worker';
 import { getUserFriendlyErrorMessage } from '@shared/utils/errors';
-import { sha256HexUtf8 } from '@shared/utils/digests';
+import { alphabetizeStringify, sha256HexUtf8 } from '@shared/utils/digests';
 import { redactCredentialExtensionOutputs } from '@/core/signingEngine/webauthnAuth/credentials/credentialExtensions';
 import { normalizeRegistrationCredential } from '@/core/signingEngine/webauthnAuth/credentials/helpers';
 import { IndexedDBManager } from '@/core/indexedDB';
@@ -97,9 +97,7 @@ import {
   type WalletAddSignerFinalizeResponse,
   type WalletAddSignerStartResponse,
 } from '@/core/rpcClients/relayer/walletRegistration';
-import type {
-  FinalizeRouterAbEcdsaRegistrationActivationResultV1,
-} from '@/core/signingEngine/routerAb/ecdsaDerivation/clientCeremony';
+import type { FinalizeRouterAbEcdsaRegistrationActivationResultV1 } from '@/core/signingEngine/routerAb/ecdsaDerivation/clientCeremony';
 import {
   collectPasskeyRegistrationAuthority,
   type PasskeyRegistrationAuthorityDiagnostics,
@@ -112,9 +110,7 @@ import type {
 } from '@/SeamsWeb/publicApi/types';
 import { registrationFinalizeIdempotencyKeyFromString } from '@/SeamsWeb/publicApi/types';
 import { collectEmailOtpRegistrationAuthority } from '@/SeamsWeb/operations/authMethods/emailOtp/registrationAuthority';
-import type {
-  PrepareEmailOtpRegistrationEnrollmentMaterialInternalResult as EmailOtpRegistrationEnrollmentMaterial,
-} from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
+import type { PrepareEmailOtpRegistrationEnrollmentMaterialInternalResult as EmailOtpRegistrationEnrollmentMaterial } from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
 import { requirePasskeyPrfFirstB64u } from '@/SeamsWeb/operations/authMethods/passkey/ecdsaBootstrap';
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
 import { startEmailOtpEd25519YaoWorkerRegistrationV1 } from '@/core/signingEngine/session/emailOtp/ed25519YaoWorkerClient';
@@ -1200,6 +1196,78 @@ class RegistrationEcdsaSessionFinalizeDiagnostics implements FinalizeWalletRegis
       case 'runtime_session_commit':
         this.registrationTiming.record('ecdsaRegistrationRoleLocalRecordPersistenceMs', durationMs);
         return;
+      case 'passkey_warm_session_hydration':
+        this.registrationTiming.record('ecdsaRegistrationWarmSessionHydrationMs', durationMs);
+        return;
+      case 'passkey_warm_session_worker_ready':
+        this.registrationTiming.record('ecdsaRegistrationWarmSessionWorkerReadyMs', durationMs);
+        return;
+      case 'passkey_warm_session_worker_put':
+        this.registrationTiming.record('ecdsaRegistrationWarmSessionWorkerPutMs', durationMs);
+        return;
+      case 'passkey_warm_session_sealed_record_persist':
+        this.registrationTiming.record(
+          'ecdsaRegistrationWarmSessionSealedRecordPersistMs',
+          durationMs,
+        );
+        return;
+      case 'passkey_warm_session_sealed_record_resolve_transport':
+        this.registrationTiming.record(
+          'ecdsaRegistrationWarmSessionSealResolveTransportMs',
+          durationMs,
+        );
+        return;
+      case 'passkey_warm_session_sealed_record_existing_read':
+        this.registrationTiming.record(
+          'ecdsaRegistrationWarmSessionSealExistingRecordReadMs',
+          durationMs,
+        );
+        return;
+      case 'passkey_warm_session_sealed_record_policy_read':
+        this.registrationTiming.record('ecdsaRegistrationWarmSessionSealPolicyReadMs', durationMs);
+        return;
+      case 'passkey_warm_session_sealed_record_apply_server_seal':
+        this.registrationTiming.record(
+          'ecdsaRegistrationWarmSessionSealApplyServerSealMs',
+          durationMs,
+        );
+        return;
+      case 'passkey_warm_session_sealed_record_apply_runtime_setup':
+        this.registrationTiming.record(
+          'ecdsaRegistrationWarmSessionSealApplyRuntimeSetupMs',
+          durationMs,
+        );
+        return;
+      case 'passkey_warm_session_sealed_record_apply_client_seal':
+        this.registrationTiming.record(
+          'ecdsaRegistrationWarmSessionSealApplyClientSealMs',
+          durationMs,
+        );
+        return;
+      case 'passkey_warm_session_sealed_record_apply_server_route':
+        this.registrationTiming.record(
+          'ecdsaRegistrationWarmSessionSealApplyServerRouteMs',
+          durationMs,
+        );
+        return;
+      case 'passkey_warm_session_sealed_record_apply_client_unseal':
+        this.registrationTiming.record(
+          'ecdsaRegistrationWarmSessionSealApplyClientUnsealMs',
+          durationMs,
+        );
+        return;
+      case 'passkey_warm_session_sealed_record_apply_policy_update':
+        this.registrationTiming.record(
+          'ecdsaRegistrationWarmSessionSealApplyPolicyUpdateMs',
+          durationMs,
+        );
+        return;
+      case 'passkey_warm_session_sealed_record_register':
+        this.registrationTiming.record('ecdsaRegistrationWarmSessionSealRegisterMs', durationMs);
+        return;
+      case 'passkey_warm_session_sealed_record_verify_read':
+        this.registrationTiming.record('ecdsaRegistrationWarmSessionSealVerifyReadMs', durationMs);
+        return;
       default:
         return assertNever(bucket);
     }
@@ -1810,6 +1878,7 @@ type RegistrationPersistenceAuth =
       rpId: string;
       credential: WebAuthnRegistrationCredential;
       credentialPublicKeyB64u: string;
+      passkeyPrfFirstB64u: string;
       email?: never;
       registrationAuthorityId?: never;
       emailOtpAuthContext?: never;
@@ -1875,6 +1944,7 @@ async function buildRegistrationPersistenceAuth(args: {
           finalized: args.finalized,
           credential: args.passkeyAuthority.credential,
         }),
+        passkeyPrfFirstB64u: args.passkeyAuthority.prfFirstB64u,
       };
     }
     case 'email_otp': {
@@ -1916,6 +1986,20 @@ function assertSharedRegistrationEvmFamilyWalletKeyMaterial(
   }
 }
 
+function assertRegistrationWalletKeyCapabilities(args: {
+  readonly session: RegistrationEcdsaSession;
+  readonly walletKeys: readonly WalletRegistrationEcdsaWalletKey[];
+}): void {
+  const expected = alphabetizeStringify(args.session.publicCapability);
+  for (const walletKey of args.walletKeys) {
+    if (alphabetizeStringify(walletKey.publicCapability) !== expected) {
+      throw new Error(
+        'ECDSA registration wallet key public capability does not match client-verified activation',
+      );
+    }
+  }
+}
+
 function registrationParticipantIdsMatch(
   left: readonly number[],
   right: readonly number[],
@@ -1946,14 +2030,9 @@ function assertMixedRegistrationSharedSigningBudget(args: {
     clientBootstrap.remainingUses !== ed25519Session.remainingUses ||
     serverBootstrap.remainingUses !== ed25519Session.remainingUses ||
     serverBootstrap.expiresAtMs !== ed25519Session.expiresAtMs ||
-    !registrationParticipantIdsMatch(
-      clientBootstrap.participantIds,
-      serverBootstrap.participantIds,
-    )
+    !registrationParticipantIdsMatch(clientBootstrap.participantIds, serverBootstrap.participantIds)
   ) {
-    throw new Error(
-      'Mixed registration must persist one signing budget across Ed25519 and ECDSA',
-    );
+    throw new Error('Mixed registration must persist one signing budget across Ed25519 and ECDSA');
   }
 }
 
@@ -2000,14 +2079,15 @@ function buildRegistrationPersistenceEcdsa(args: {
   }
   if (
     args.session.chainTargets.length !== args.expectedChainTargets.length ||
-    !registrationChainTargetListsMatch(
-      args.session.chainTargets,
-      args.expectedChainTargets,
-    )
+    !registrationChainTargetListsMatch(args.session.chainTargets, args.expectedChainTargets)
   ) {
     throw new Error('ECDSA registration family session target projection is incomplete');
   }
   assertSharedRegistrationEvmFamilyWalletKeyMaterial(args.walletKeys);
+  assertRegistrationWalletKeyCapabilities({
+    session: args.session,
+    walletKeys: args.walletKeys,
+  });
   return {
     kind: 'evm_family_ecdsa',
     session: args.session,
@@ -2025,19 +2105,14 @@ function registrationChainTargetListsMatch(
     const leftTarget = left[index];
     const rightTarget = right[index];
     if (!leftTarget || !rightTarget) return false;
-    if (
-      thresholdEcdsaChainTargetKey(leftTarget) !==
-      thresholdEcdsaChainTargetKey(rightTarget)
-    ) {
+    if (thresholdEcdsaChainTargetKey(leftTarget) !== thresholdEcdsaChainTargetKey(rightTarget)) {
       return false;
     }
   }
   return true;
 }
 
-function registrationEcdsaExpectedKeyHandles(
-  session: RegistrationEcdsaSession,
-): string[] {
+function registrationEcdsaExpectedKeyHandles(session: RegistrationEcdsaSession): string[] {
   const keyHandle = String(session.bootstrap.keyHandle || '').trim();
   if (!keyHandle) throw new Error('Registration ECDSA session is missing keyHandle');
   return [keyHandle];
@@ -2083,8 +2158,7 @@ function buildStrictRegistrationClientBootstrap(args: {
     remainingUses: prepare.remainingUses,
     participantIds: [...prepare.participantIds],
     runtimePolicyScope: prepare.runtimePolicyScope,
-    derivationClientSharePublicKey33B64u:
-      args.verified.derivationClientSharePublicKey33B64u,
+    derivationClientSharePublicKey33B64u: args.verified.derivationClientSharePublicKey33B64u,
     clientShareRetryCounter: args.verified.clientShareRetryCounter,
     contextBinding32B64u: args.verified.contextBinding32B64u,
   };
@@ -2119,9 +2193,7 @@ async function forwardStrictEcdsaFamilyRegistration(args: {
   relayerUrl: string;
   route: StrictEcdsaFamilyCeremonyRoute;
   strictRegistration: Awaited<
-    ReturnType<
-      RegistrationWebContext['signingEngine']['createRouterAbEcdsaRegistrationCeremony']
-    >
+    ReturnType<RegistrationWebContext['signingEngine']['createRouterAbEcdsaRegistrationCeremony']>
   >['registrationRequest'];
 }) {
   switch (args.route.kind) {
@@ -2202,9 +2274,7 @@ async function runStrictEcdsaFamilyCeremony(args: {
       ceremonyId,
       clientProofFinalization: {
         kind: 'finalize_encrypted_client_proof_bundles_v1',
-        verificationTimeMs: Date.now(),
         bundles: forwarded.ecdsa.strictResult.response.bundles,
-        commitmentRegistry: forwarded.ecdsa.strictResult.response.commitmentRegistry,
       },
     });
     const activated = await activateStrictEcdsaFamilyRegistration({
@@ -2215,6 +2285,7 @@ async function runStrictEcdsaFamilyCeremony(args: {
     const finalized = await args.context.signingEngine.finalizeRouterAbEcdsaRegistrationActivation({
       kind: 'finalize_router_ab_ecdsa_registration_activation_v1',
       ceremonyId,
+      relayerKeyId: args.started.prepare.relayerKeyId,
       activationReceipt: activated.ecdsa.activation,
     });
     const clientBootstrap = buildStrictRegistrationClientBootstrap({
@@ -2227,6 +2298,7 @@ async function runStrictEcdsaFamilyCeremony(args: {
       bootstrap: parseWalletRegistrationEcdsaDerivationRespond({
         clientBootstrap,
         serverBootstrap: activated.ecdsa.bootstrap,
+        activationEpoch: finalized.publicCapability.activation_epoch,
       }),
       roleLocalMaterial: finalized.roleLocalMaterial,
       clientPublicFacts: finalized.publicFacts,
@@ -2254,9 +2326,7 @@ function buildRegistrationPersistencePlan(args: {
   };
 }
 
-function registrationEcdsaFinalizeAuth(
-  auth: RegistrationPersistenceAuth,
-):
+function registrationEcdsaFinalizeAuth(auth: RegistrationPersistenceAuth):
   | {
       kind: 'email_otp';
       emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
@@ -2265,6 +2335,7 @@ function registrationEcdsaFinalizeAuth(
       kind: 'passkey';
       credentialIdB64u: string;
       rpId: string;
+      passkeyPrfFirstB64u: string;
     } {
   switch (auth.kind) {
     case 'email_otp':
@@ -2277,6 +2348,7 @@ function registrationEcdsaFinalizeAuth(
         kind: 'passkey',
         credentialIdB64u: String(auth.credential.rawId),
         rpId: auth.rpId,
+        passkeyPrfFirstB64u: auth.passkeyPrfFirstB64u,
       };
   }
 }
@@ -2287,6 +2359,7 @@ async function finalizeRegistrationEcdsaSessions(args: {
   registrationTiming: RegistrationTimingRecorder;
   plan: RegistrationPersistencePlan;
 }): Promise<void> {
+  args.registrationTiming.record('ecdsaRegistrationTargetCount', args.plan.ecdsa.walletKeys.length);
   const startedAt = performance.now();
   try {
     await args.context.signingEngine.finalizeWalletRegistrationEcdsaSessions({
@@ -2356,7 +2429,6 @@ async function commitRegistrationPersistencePlan(args: {
   registrationTiming: RegistrationTimingRecorder;
   plan: RegistrationPersistencePlan;
 }): Promise<void> {
-  args.registrationTiming.record('ecdsaRegistrationTargetCount', args.plan.ecdsa.walletKeys.length);
   await args.registrationTiming.measure(
     'ecdsaRegistrationPersistenceMs',
     registrationEcdsaPlanPersistenceWork(args),
@@ -2882,7 +2954,6 @@ async function registerEcdsaOrMixedWallet(
 
     const walletId = intentResponse.intent.walletId;
     const eventAccountId = registrationEventAccountId(String(walletId));
-    let passkeyPrfFirstB64u = '';
     let emailOtpEnrollmentMaterial: Promise<EmailOtpRegistrationEnrollmentMaterial> | null = null;
     let emailOtpRegistrationAuthorityId = '';
     let emailOtpEmail = '';
@@ -2928,7 +2999,6 @@ async function registerEcdsaOrMixedWallet(
         }),
       );
       registrationTiming.capturePasskeyAuthDiagnostics(passkeyAuthority.diagnostics);
-      passkeyPrfFirstB64u = passkeyAuthority.prfFirstB64u;
       startAuthority = {
         kind: 'passkey',
         webauthnRegistration: passkeyAuthority.webauthnRegistration,
@@ -4341,6 +4411,7 @@ async function addPasskeyEcdsaWalletSigner(
       kind: 'passkey',
       credentialIdB64u: input.credentialIdB64u,
       rpId: input.rpId,
+      passkeyPrfFirstB64u: input.passkeyPrfFirstB64u,
     },
   });
   await input.context.signingEngine.storeWalletEcdsaSignerRecords({

@@ -194,6 +194,7 @@ export function createWarmSessionStatusReader(
                 : null;
             }
             case 'role_local_ready_state_blob':
+            case 'role_local_durable_material':
               return warmClaimFromRecordPolicy({
                 sessionId: identity.thresholdSessionId,
                 remainingUses: record.remainingUses,

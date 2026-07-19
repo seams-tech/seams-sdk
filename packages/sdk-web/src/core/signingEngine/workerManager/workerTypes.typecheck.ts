@@ -20,12 +20,14 @@ import type {
   NearWorkerOperationRequest,
   EcdsaPresignClientSessionStepRequest,
 } from './workerTypes';
+import type { RootShareEpoch } from '@shared/utils/domainIds';
 import {
   EcdsaDerivationClientCustomRequestType,
   EcdsaPresignClientRequestType,
 } from './workerTypes';
 import { parseSigningSessionSealKeyVersion } from '../session/keyMaterialBrands';
 
+declare const rootShareEpoch: RootShareEpoch;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const publicationTargetPlans: EmailOtpEcdsaPublicationTargetPlan[];
 declare const runtimePolicyScope: ThresholdRuntimePolicyScope;
@@ -274,7 +276,7 @@ const ecdsaPresignInitRequest: EcdsaPresignClientSessionInitRequest = {
     signingScopeB64u: 'scope',
     pairRole: 'client',
     keyEpoch: 'key-epoch',
-    activationEpoch: 'activation-epoch',
+    activationEpoch: rootShareEpoch,
     protocolId: 'seams/router-ab-ecdsa-presign/fixed-2of2/v1',
   },
 };

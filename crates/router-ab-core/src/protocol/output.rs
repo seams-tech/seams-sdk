@@ -2,7 +2,7 @@ use crate::derivation::{
     combine_mpc_prf_proof_bundles_with_threshold_backend_v1, MpcPrfPartialProofBundleV1,
     MpcPrfThresholdCombineInputV1, MpcPrfThresholdCombinedOutputV1,
     MpcPrfThresholdSignerBatchOutputV1, OpenedShareKind, PublicDigest32, Role,
-    RootShareCommitmentRegistryV1, RouterAbDerivationError, SecretMaterial32,
+    RouterAbDerivationError, SecretMaterial32,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -547,7 +547,6 @@ pub fn recipient_proof_bundle_wire_message_from_ab_proof_batch_v1(
 /// Combines exactly one recipient-scoped output from authenticated A/B proof batches.
 pub fn combine_mpc_prf_recipient_output_from_ab_proof_batches_v1(
     router_payload: &RouterToSignerPayloadV1,
-    commitment_registry: &RootShareCommitmentRegistryV1,
     proof_batch_a: EcdsaThresholdPrfProofBatchPayloadV1,
     proof_batch_b: EcdsaThresholdPrfProofBatchPayloadV1,
     opened_share_kind: OpenedShareKind,
@@ -560,7 +559,6 @@ pub fn combine_mpc_prf_recipient_output_from_ab_proof_batches_v1(
         router_payload.signer_set(),
         router_payload.transcript_metadata(),
         router_payload.transcript_digest(),
-        commitment_registry,
         proof_batch_a,
         proof_batch_b,
         opened_share_kind,
@@ -572,7 +570,6 @@ pub fn combine_mpc_prf_recipient_output_from_ab_proof_batches_v1(
 /// Combines one recipient output from decrypted Signer A/B proof-bundle payloads.
 pub fn combine_mpc_prf_recipient_output_from_proof_bundle_payloads_v1(
     router_payload: &RouterToSignerPayloadV1,
-    commitment_registry: &RootShareCommitmentRegistryV1,
     signer_a_payload: RecipientProofBundlePayloadV1,
     signer_b_payload: RecipientProofBundlePayloadV1,
     opened_share_kind: OpenedShareKind,
@@ -599,7 +596,6 @@ pub fn combine_mpc_prf_recipient_output_from_proof_bundle_payloads_v1(
     )?;
     combine_mpc_prf_recipient_output_from_ab_proof_batches_v1(
         router_payload,
-        commitment_registry,
         signer_a_payload.proof_batch,
         signer_b_payload.proof_batch,
         opened_share_kind,
@@ -611,7 +607,6 @@ pub fn combine_mpc_prf_recipient_output_from_proof_bundle_payloads_v1(
 /// Combines SigningWorker `x_server_base` output from decrypted A/B proof-bundle payloads.
 pub fn combine_mpc_prf_signing_worker_output_from_activation_context_v1(
     activation_context: &SigningWorkerActivationContextV1,
-    commitment_registry: &RootShareCommitmentRegistryV1,
     signer_a_payload: RecipientProofBundlePayloadV1,
     signer_b_payload: RecipientProofBundlePayloadV1,
 ) -> RouterAbProtocolResult<MpcPrfThresholdCombinedOutputV1> {
@@ -640,7 +635,6 @@ pub fn combine_mpc_prf_signing_worker_output_from_activation_context_v1(
         activation_context.signer_set(),
         activation_context.transcript_metadata(),
         activation_context.transcript_digest(),
-        commitment_registry,
         signer_a_payload.proof_batch,
         signer_b_payload.proof_batch,
         OpenedShareKind::XServerBase,
@@ -706,7 +700,6 @@ fn combine_mpc_prf_recipient_output_from_public_context_v1(
     signer_set: &SignerSetV1,
     transcript_metadata: &RouterTranscriptMetadataV1,
     expected_transcript_digest: PublicDigest32,
-    commitment_registry: &RootShareCommitmentRegistryV1,
     proof_batch_a: EcdsaThresholdPrfProofBatchPayloadV1,
     proof_batch_b: EcdsaThresholdPrfProofBatchPayloadV1,
     opened_share_kind: OpenedShareKind,
@@ -748,7 +741,6 @@ fn combine_mpc_prf_recipient_output_from_public_context_v1(
     let right = single_proof_bundle_v1("proof_batch_b", proof_batch_b.proof_bundles)?;
     combine_mpc_prf_proof_bundles_with_threshold_backend_v1(MpcPrfThresholdCombineInputV1 {
         transcript,
-        commitment_registry: commitment_registry.clone(),
         opened_share_kind,
         recipient_role,
         recipient_identity: recipient_identity.to_owned(),

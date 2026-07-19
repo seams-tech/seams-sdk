@@ -1,3 +1,7 @@
+import { execFileSync } from 'node:child_process';
+import { readFileSync, unlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 import {
@@ -12,11 +16,44 @@ import {
 
 const CANONICAL_NAME_PATTERN = /^seams_[a-z0-9]+(?:_[a-z0-9]+)*$/;
 const SNAKE_CASE_PATTERN = /^[a-z0-9]+(?:_[a-z0-9]+)*$/;
+const ECDSA_MATERIAL_STORE_SOURCES = [
+  new URL(
+    '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/ecdsaRoleLocalSessionMaterialStore.ts',
+    import.meta.url,
+  ),
+  new URL(
+    '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/ecdsaPresignMaterialStore.ts',
+    import.meta.url,
+  ),
+] as const;
+const ROLE_LOCAL_STORE_SOURCE = fileURLToPath(ECDSA_MATERIAL_STORE_SOURCES[0]);
+const ROLE_LOCAL_STORE_BUNDLE_PATH = `${tmpdir()}/seams-ecdsa-role-local-store-${process.pid}.mjs`;
+const ROLE_LOCAL_STORE_MODULE = '/__ecdsa-role-local-material-store-test.mjs';
 
 test.describe('IndexedDB consolidation', () => {
+  test.beforeAll(() => {
+    execFileSync(
+      'bun',
+      [
+        'build',
+        ROLE_LOCAL_STORE_SOURCE,
+        '--target=browser',
+        '--format=esm',
+        `--outfile=${ROLE_LOCAL_STORE_BUNDLE_PATH}`,
+      ],
+      { stdio: 'pipe' },
+    );
+  });
+
+  test.afterAll(() => {
+    try {
+      unlinkSync(ROLE_LOCAL_STORE_BUNDLE_PATH);
+    } catch {}
+  });
+
   test('canonical wallet schema names use one Seams-prefixed DB and unprefixed snake_case stores', () => {
     expect(SEAMS_WALLET_DB_NAME).toBe('seams_wallet');
-    expect(SEAMS_WALLET_DB_VERSION).toBe(5);
+    expect(SEAMS_WALLET_DB_VERSION).toBe(9);
     expect(Object.values(SEAMS_WALLET_STORES).every((name) => !name.startsWith('seams_'))).toBe(
       true,
     );
@@ -51,6 +88,107 @@ test.describe('IndexedDB consolidation', () => {
         expect(index.name, `${entry.store}:${index.name}`).toMatch(SNAKE_CASE_PATTERN);
       }
     }
+  });
+
+  test('ECDSA material stores use the canonical wallet database manager', () => {
+    for (const sourceUrl of ECDSA_MATERIAL_STORE_SOURCES) {
+      const source = readFileSync(sourceUrl, 'utf8');
+      expect(source).toContain('seamsWalletDB');
+      expect(source).not.toContain('indexedDB.open(');
+      expect(source).not.toContain('seams_router_ab_ecdsa_role_local_session_v1');
+      expect(source).not.toContain('seams_router_ab_ecdsa_presign_material_v2');
+    }
+  });
+
+  test('ECDSA role-local material persists in the canonical wallet schema', async ({ page }) => {
+    await page.route(`**${ROLE_LOCAL_STORE_MODULE}`, async (route) => {
+      await route.fulfill({
+        path: ROLE_LOCAL_STORE_BUNDLE_PATH,
+        contentType: 'application/javascript',
+      });
+    });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
+    const result = await page.evaluate(async (storeModulePath) => {
+      await new Promise<void>((resolve) => {
+        const request = indexedDB.deleteDatabase('seams_wallet');
+        request.onsuccess = () => resolve();
+        request.onerror = () => resolve();
+        request.onblocked = () => resolve();
+      });
+      const storeModule = await import(storeModulePath);
+      const store = new storeModule.IndexedDbEcdsaRoleLocalSessionMaterialStore();
+
+      await store.putActive({
+        version: 1,
+        durableMaterialRef: 'role-local-material-1',
+        bindingDigest: 'binding-digest-1',
+        lifecycleId: 'lifecycle-1',
+        transcriptDigestB64u: 'transcript-1',
+        activationDigestB64u: 'activation-1',
+        activatedAtMs: 1_000,
+        expiresAtMs: 10_000,
+        stateBlobB64u: 'encrypted-state-blob',
+      });
+      const restored = await store.restoreActive({
+        durableMaterialRef: 'role-local-material-1',
+        expectedBindingDigest: 'binding-digest-1',
+        nowMs: 2_000,
+      });
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open('seams_wallet');
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const observed = {
+        restored,
+        dbName: db.name,
+        stores: Array.from(db.objectStoreNames),
+      };
+      db.close();
+      return observed;
+    }, ROLE_LOCAL_STORE_MODULE);
+
+    expect(result.dbName).toBe(SEAMS_WALLET_DB_NAME);
+    expect(result.stores).toContain(SEAMS_WALLET_STORES.ecdsaRoleLocalSealingKeys);
+    expect(result.stores).toContain(SEAMS_WALLET_STORES.ecdsaRoleLocalActiveMaterial);
+    expect(result.restored).toEqual({
+      ok: true,
+      stateBlobB64u: 'encrypted-state-blob',
+      lifecycleId: 'lifecycle-1',
+      transcriptDigestB64u: 'transcript-1',
+      activationDigestB64u: 'activation-1',
+      activatedAtMs: 1_000,
+      expiresAtMs: 10_000,
+    });
+  });
+
+  test('opening seams_wallet deletes obsolete standalone ECDSA databases', async ({ page }) => {
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
+    const databaseNames = await page.evaluate(async () => {
+      const obsoleteNames = [
+        'seams_router_ab_ecdsa_role_local_session_v1',
+        'seams_router_ab_ecdsa_presign_material_v2',
+      ];
+      for (const dbName of obsoleteNames) {
+        await new Promise<void>((resolve, reject) => {
+          const request = indexedDB.open(dbName, 1);
+          request.onsuccess = () => {
+            request.result.close();
+            resolve();
+          };
+          request.onerror = () => reject(request.error);
+        });
+      }
+
+      const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
+      const manager = new managerModule.SeamsWalletDBManager();
+      await manager.getDB();
+      manager.close();
+      return (await indexedDB.databases()).map((database) => database.name);
+    });
+
+    expect(databaseNames).not.toContain('seams_router_ab_ecdsa_role_local_session_v1');
+    expect(databaseNames).not.toContain('seams_router_ab_ecdsa_presign_material_v2');
   });
 
   test('fresh seams wallet databases match the schema manifest', async ({ page }) => {
@@ -357,7 +495,7 @@ test.describe('IndexedDB consolidation', () => {
     ]);
   });
 
-  test('wallet signer rows mirror branch identity fields and ECDSA signers do not create NEAR projections', async ({
+  test('wallet signer rows mirror branch identity fields and replace duplicate ECDSA key identities', async ({
     page,
   }) => {
     await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
@@ -393,6 +531,9 @@ test.describe('IndexedDB consolidation', () => {
           signerKind: 'threshold-ed25519',
           signerAuthMethod: 'passkey',
           signerSource: 'passkey_registration',
+          metadata: {
+            nearEd25519SigningKeyId: 'near-key-credential-1',
+          },
         },
         activationPolicy: { mode: 'allocate_next_free' },
       });
@@ -419,7 +560,7 @@ test.describe('IndexedDB consolidation', () => {
         activationPolicy: { mode: 'allocate_next_free' },
       });
 
-      const duplicateEcdsaKeyHandleRejected = await repositories
+      const duplicateEcdsaKeyHandleReplaced = await repositories
         .activateAccountSigner({
           account: {
             profileId: 'wallet_alice',
@@ -442,8 +583,8 @@ test.describe('IndexedDB consolidation', () => {
           },
           activationPolicy: { mode: 'allocate_next_free' },
         })
-        .then(() => false)
-        .catch(() => true);
+        .then(() => true)
+        .catch(() => false);
       const chainTargetDriftRejected = await repositories
         .activateAccountSigner({
           account: {
@@ -510,7 +651,7 @@ test.describe('IndexedDB consolidation', () => {
         ecdsaThresholdKeyId: ecdsaRow?.ecdsa_threshold_key_id,
         ecdsaOwnerAddress: ecdsaRow?.threshold_owner_address,
         ecdsaChainTargetKey: ecdsaRow?.chain_target_key,
-        duplicateEcdsaKeyHandleRejected,
+        duplicateEcdsaKeyHandleReplaced,
         chainTargetDriftRejected,
         nearProjectionModels: nearProjections.map(
           (projection: { accountModel: string }) => projection.accountModel,
@@ -525,13 +666,13 @@ test.describe('IndexedDB consolidation', () => {
       ed25519NearSignerSlot: 1,
       ed25519KeyHandle: null,
       ecdsaKeyHandle: 'ecdsa-key-handle-1',
-      ecdsaThresholdKeyId: 'ecdsa-threshold-key-1',
-      ecdsaOwnerAddress: '0x1111111111111111111111111111111111111111',
+      ecdsaThresholdKeyId: 'ecdsa-threshold-key-2',
+      ecdsaOwnerAddress: '0x2222222222222222222222222222222222222222',
       ecdsaChainTargetKey: 'evm:eip155:1',
-      duplicateEcdsaKeyHandleRejected: true,
+      duplicateEcdsaKeyHandleReplaced: true,
       chainTargetDriftRejected: true,
       nearProjectionModels: ['near-native'],
-      parsedSignerKindsAfterMirrorDrift: ['threshold-ed25519'],
+      parsedSignerKindsAfterMirrorDrift: [],
     });
   });
 
@@ -569,6 +710,7 @@ test.describe('IndexedDB consolidation', () => {
                 signerAuthMethod: 'passkey',
                 signerSource: 'passkey_registration',
                 metadata: {
+                  nearEd25519SigningKeyId: 'near-key-missing-key',
                   operationalPublicKey: 'ed25519:missing-key',
                 },
               },
@@ -931,6 +1073,7 @@ test.describe('IndexedDB consolidation', () => {
           signerAuthMethod: 'passkey',
           signerSource: 'passkey_registration',
           metadata: {
+            nearEd25519SigningKeyId: 'near-key-old-missing-key',
             operationalPublicKey: 'ed25519:old-missing-key',
           },
         },
@@ -957,6 +1100,7 @@ test.describe('IndexedDB consolidation', () => {
                 signerAuthMethod: 'passkey',
                 signerSource: 'passkey_registration',
                 metadata: {
+                  nearEd25519SigningKeyId: 'near-key-new-with-key',
                   operationalPublicKey: 'ed25519:new-with-key',
                 },
               },
@@ -1054,6 +1198,7 @@ test.describe('IndexedDB consolidation', () => {
           signerAuthMethod: 'passkey',
           signerSource: 'passkey_registration',
           metadata: {
+            nearEd25519SigningKeyId: 'near-key-real-material',
             operationalPublicKey: 'ed25519:real-material',
           },
         },

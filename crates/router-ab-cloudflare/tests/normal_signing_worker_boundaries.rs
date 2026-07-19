@@ -444,7 +444,10 @@ fn signing_worker_yao_lifecycle_is_exact_and_commits_normal_signing_state_atomic
     let durable_object_source = read_src_file("durable_object.rs");
     for required in [
         "CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_OUTPUT_ACTIVATE_DO_PATH",
-        "put_multiple(writes)",
+        "put_multiple_raw(writes)",
+        "set_durable_object_put_multiple_value(",
+        "verify committed material",
+        "verify committed active state",
         "active-signing-worker",
     ] {
         assert!(
@@ -452,6 +455,10 @@ fn signing_worker_yao_lifecycle_is_exact_and_commits_normal_signing_state_atomic
             "Signing Worker Yao output persistence must contain `{required}`"
         );
     }
+    assert!(
+        !durable_object_source.contains("put_multiple(writes)"),
+        "Signing Worker Yao output persistence must not serialize a Rust map into Durable Object putMultiple"
+    );
 
     let wrangler = fs::read_to_string(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("wrangler.signing-worker.toml"),

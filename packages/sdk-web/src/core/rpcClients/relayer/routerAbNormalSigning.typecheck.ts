@@ -7,6 +7,9 @@ import type {
   RouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1Wire,
   RouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV1Wire,
 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { RootShareEpoch } from '@shared/utils/domainIds';
+
+declare const rootShareEpoch: RootShareEpoch;
 
 const scope = {
   request_id: 'router-ab-normal-signing/request-1',
@@ -137,7 +140,7 @@ const ecdsaScope = {
     key_epoch: 'epoch-1',
     recipient_encryption_key: 'recipient-key',
   },
-  activation_epoch: 'wallet-session-1',
+  activation_epoch: rootShareEpoch,
 };
 
 const ecdsaFinalizeCoreRequest = {

@@ -402,6 +402,7 @@ async function prepareFreshPasskeyEcdsaExportMaterial(
       requestId,
       runtimePolicy: { kind: 'scoped_policy', scope: args.material.runtimePolicyScope },
       publicCapability: args.material.publicCapability,
+      existingRoleLocalMaterial: args.material.existingRoleLocalMaterial,
       passkeyPrfFirstB64u,
       webauthnAuthentication: exportCredential.credential,
       walletSessionRouteAuth,

@@ -45,6 +45,7 @@ import type { PasskeyEcdsaReadyPersistInput } from '../warmCapabilities/persiste
 import { SIGNER_AUTH_METHODS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaBootstrapSignerAuth } from '../warmCapabilities/ecdsaBootstrapPersistence';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { PersistedEcdsaRoleLocalMaterial } from '../persistence/records';
 
 export type ExistingEcdsaBootstrapKeyIntent = {
   kind: 'existing_ecdsa_key';
@@ -77,6 +78,7 @@ type EcdsaBootstrapExactIdentity = {
   key: EvmFamilyEcdsaKeyIdentity;
   lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
   publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+  existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
   walletId?: never;
   subjectId?: never;
   chainTarget?: never;
@@ -249,7 +251,7 @@ export type EmailOtpEcdsaBootstrapRequest =
       emailOtpWorkerSessionHandle: EmailOtpEcdsaBootstrapWorkerHandle;
       passkeyPrfFirstB64u?: never;
       webauthnAuthentication?: never;
-      routeAuth?: EmailOtpBootstrapRouteAuth;
+      routeAuth?: AppOrWalletSessionAuth;
     });
 
 export type EcdsaBootstrapRequest =
@@ -495,6 +497,7 @@ function toActivateEcdsaSessionRequest(
       key: exactRequest.key,
       lanePolicy: exactRequest.lanePolicy,
       publicCapability: exactRequest.publicCapability,
+      existingRoleLocalMaterial: exactRequest.existingRoleLocalMaterial,
       ...(exactRequest.requestId ? { requestId: exactRequest.requestId } : {}),
       ...auth,
       ...(walletSessionRouteAuth ? { walletSessionRouteAuth } : {}),
@@ -576,6 +579,7 @@ function toActivateExplicitKeyExportEcdsaSessionRequest(
     key: request.key,
     lanePolicy: request.lanePolicy,
     publicCapability: request.publicCapability,
+    existingRoleLocalMaterial: request.existingRoleLocalMaterial,
     requestId: request.requestId,
     authKind: 'passkey_webauthn_prf_b64u',
     webauthnAuthentication: request.webauthnAuthentication,

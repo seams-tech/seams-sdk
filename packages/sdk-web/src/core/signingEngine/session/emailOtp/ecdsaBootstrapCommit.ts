@@ -4,25 +4,21 @@ import type {
   ThresholdEcdsaEmailOtpAuthContext,
   ThresholdEcdsaSessionStoreSource,
 } from '../identity/laneIdentity';
-import {
-  emailOtpAuthContextReason,
-  emailOtpAuthContextRetention,
-} from '../identity/laneIdentity';
+import { emailOtpAuthContextReason, emailOtpAuthContextRetention } from '../identity/laneIdentity';
 import {
   upsertThresholdEcdsaSessionFromBootstrap,
   toExactEcdsaSigningLaneIdentity,
   type ThresholdEcdsaSessionRecord,
   type ThresholdEcdsaSessionStoreDeps,
 } from '../persistence/records';
-import {
-  ecdsaRoleLocalReadyRecordStorageKeyFacts,
-} from '../persistence/ecdsaRoleLocalRecords';
+import { ecdsaRoleLocalReadyRecordStorageKeyFacts } from '../persistence/ecdsaRoleLocalRecords';
 import {
   thresholdEcdsaChainTargetKey,
   ThresholdEcdsaChainTarget,
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
+import type { ThresholdEcdsaBackendBinding } from '../../interfaces/signing';
 import { withThresholdEcdsaBootstrapQueue } from '../warmCapabilities/ecdsaBootstrapQueue';
 import {
   persistThresholdEcdsaBootstrapForWalletTarget,
@@ -95,9 +91,7 @@ type CommitEvmFamilyThresholdEcdsaSessionsArgs =
   | CommitEmailOtpEvmFamilyThresholdEcdsaSessionsArgs
   | CommitPasskeyEvmFamilyThresholdEcdsaSessionsArgs;
 
-function assertNeverThresholdEcdsaBootstrapBackendBinding(
-  value: never,
-): never {
+function assertNeverThresholdEcdsaBootstrapBackendBinding(value: never): never {
   throw new Error(
     `[SigningEngine] unsupported threshold ECDSA bootstrap backend binding: ${JSON.stringify(value)}`,
   );
@@ -117,9 +111,7 @@ function isRuntimeValidatedWorkerBootstrapBinding(
     case 'metadata_only':
       return false;
     default:
-      return assertNeverThresholdEcdsaBootstrapBackendBinding(
-        binding satisfies never,
-      );
+      return assertNeverThresholdEcdsaBootstrapBackendBinding(binding satisfies never);
   }
 }
 
@@ -136,9 +128,7 @@ function canonicalizeWorkerProvisionedBootstrap(
   }
   const ecdsaThresholdKeyId = parseEcdsaThresholdKeyId(ecdsaThresholdKeyIdRaw);
   const signingGrantId = String(
-    bootstrap.session.signingGrantId ||
-      bootstrap.thresholdEcdsaKeyRef.signingGrantId ||
-      '',
+    bootstrap.session.signingGrantId || bootstrap.thresholdEcdsaKeyRef.signingGrantId || '',
   ).trim();
   return {
     ...bootstrap,
@@ -223,10 +213,12 @@ async function persistWorkerProvisionedRoleLocalReadyRecord(args: {
   deps: CommitWorkerProvisionedThresholdEcdsaSessionDeps;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
 }): Promise<void> {
-  const record = args.bootstrap.thresholdEcdsaKeyRef.backendBinding?.ecdsaRoleLocalReadyRecord;
-  if (!record) {
-    throw new Error('[SigningEngine] ECDSA bootstrap is missing role-local ready record');
+  const binding = args.bootstrap.thresholdEcdsaKeyRef.backendBinding;
+  if (!binding) {
+    throw new Error('[SigningEngine] ECDSA bootstrap is missing its backend binding');
   }
+  const record = workerProvisionedReadyRecordForPersistence(binding);
+  if (!record) return;
   const persisted = await args.deps.persistEcdsaRoleLocalReadyRecord({
     record,
     storageKeyFacts: ecdsaRoleLocalReadyRecordStorageKeyFacts(record),
@@ -235,6 +227,23 @@ async function persistWorkerProvisionedRoleLocalReadyRecord(args: {
     throw new Error(
       `[SigningEngine] ECDSA role-local ready record persistence failed (${persisted.code}): ${persisted.message}`,
     );
+  }
+}
+
+function workerProvisionedReadyRecordForPersistence(
+  binding: ThresholdEcdsaBackendBinding,
+): ThresholdEcdsaBackendBinding['ecdsaRoleLocalReadyRecord'] | null {
+  switch (binding.materialKind) {
+    case 'email_otp_worker_handle':
+    case 'role_local_ready_state_blob':
+      return binding.ecdsaRoleLocalReadyRecord;
+    case 'role_local_worker_handle':
+    case 'role_local_durable_public_anchor':
+    case 'role_local_durable_sealed_ref':
+    case 'metadata_only':
+      return null;
+    default:
+      return assertNeverThresholdEcdsaBootstrapBackendBinding(binding satisfies never);
   }
 }
 
@@ -276,7 +285,7 @@ export async function commitWorkerProvisionedThresholdEcdsaSession(
           : {
               authMethod: SIGNER_AUTH_METHODS.passkey,
               signerSource: SIGNER_SOURCES.passkeyRegistration,
-      },
+            },
     });
     await persistWorkerProvisionedRoleLocalReadyRecord({
       deps,
