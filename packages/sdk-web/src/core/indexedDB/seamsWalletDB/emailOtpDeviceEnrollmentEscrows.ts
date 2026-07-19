@@ -239,9 +239,16 @@ export class EmailOtpDeviceEnrollmentEscrowRepository {
       [EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_STORE_NAME],
       'readwrite',
       async (ctx) => {
-        await ctx
-          .store(EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_STORE_NAME)
-          .put(emailOtpDeviceEnrollmentEscrowStorageRow(record));
+        const store = ctx.store(EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_STORE_NAME);
+        const existing = normalizeEmailOtpDeviceEnrollmentEscrowRecord(
+          await store.get([record.walletId, record.authSubjectId, record.enrollmentId]),
+        );
+        if (existing && existing.encSB64u !== record.encSB64u) {
+          throw new Error(
+            'Email OTP device enrollment escrow already exists for this wallet and subject; refusing to replace active local material',
+          );
+        }
+        await store.put(emailOtpDeviceEnrollmentEscrowStorageRow(record));
       },
     );
   }
