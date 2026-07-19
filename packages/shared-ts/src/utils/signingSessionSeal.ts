@@ -134,7 +134,7 @@ export type SealedSigningSessionEcdsaRestoreMetadata =
       providerSubjectId: string;
       emailHashHex: string;
       authSubjectId?: never;
-      roleLocalDurableMaterialRef?: never;
+      roleLocalDurableMaterialRef: string;
       rpId?: never;
       credentialIdB64u?: never;
     });

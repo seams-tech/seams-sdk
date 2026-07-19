@@ -1916,6 +1916,10 @@ type RegistrationPersistencePlan = {
   ecdsa: RegistrationPersistenceEcdsa;
 };
 
+type RegistrationLocalEcdsaWalletKeys = Awaited<
+  ReturnType<RegistrationSigningSurface['finalizeWalletRegistrationEcdsaSessions']>
+>;
+
 type MixedRegistrationEd25519Session = Extract<
   WalletRegistrationFinalizeResponse,
   { kind: 'near_ed25519_and_evm_family_ecdsa' }
@@ -2358,11 +2362,11 @@ async function finalizeRegistrationEcdsaSessions(args: {
   relayerUrl: string;
   registrationTiming: RegistrationTimingRecorder;
   plan: RegistrationPersistencePlan;
-}): Promise<void> {
+}): Promise<RegistrationLocalEcdsaWalletKeys> {
   args.registrationTiming.record('ecdsaRegistrationTargetCount', args.plan.ecdsa.walletKeys.length);
   const startedAt = performance.now();
   try {
-    await args.context.signingEngine.finalizeWalletRegistrationEcdsaSessions({
+    return await args.context.signingEngine.finalizeWalletRegistrationEcdsaSessions({
       walletId: toWalletId(args.plan.walletId),
       relayerUrl: args.relayerUrl,
       session: args.plan.ecdsa.session,
@@ -2381,13 +2385,14 @@ async function finalizeRegistrationEcdsaSessions(args: {
 async function persistRegistrationEcdsaLocalRecords(args: {
   context: RegistrationWebContext;
   plan: RegistrationPersistencePlan;
+  walletKeys: RegistrationLocalEcdsaWalletKeys;
 }): Promise<void> {
   if (args.plan.auth.kind === 'passkey') {
     await args.context.signingEngine.finalizeWalletEcdsaRegistration({
       walletId: args.plan.walletId,
       credential: args.plan.auth.credential,
       credentialPublicKeyB64u: args.plan.auth.credentialPublicKeyB64u,
-      walletKeys: args.plan.ecdsa.walletKeys,
+      walletKeys: args.walletKeys,
     });
     return;
   }
@@ -2395,7 +2400,7 @@ async function persistRegistrationEcdsaLocalRecords(args: {
     walletId: args.plan.walletId,
     email: args.plan.auth.email,
     registrationAuthorityId: args.plan.auth.registrationAuthorityId,
-    walletKeys: args.plan.ecdsa.walletKeys,
+    walletKeys: args.walletKeys,
   });
 }
 
@@ -2405,10 +2410,14 @@ async function persistRegistrationEcdsaPlan(args: {
   registrationTiming: RegistrationTimingRecorder;
   plan: RegistrationPersistencePlan;
 }): Promise<void> {
-  await finalizeRegistrationEcdsaSessions(args);
+  const walletKeys = await finalizeRegistrationEcdsaSessions(args);
   const startedAt = performance.now();
   try {
-    await persistRegistrationEcdsaLocalRecords({ context: args.context, plan: args.plan });
+    await persistRegistrationEcdsaLocalRecords({
+      context: args.context,
+      plan: args.plan,
+      walletKeys,
+    });
   } finally {
     args.registrationTiming.record(
       'ecdsaRegistrationLocalRecordPersistenceMs',
@@ -2744,7 +2753,7 @@ async function persistAndActivateMixedRegistration(args: {
     ed25519Session: args.finalized.ed25519.session,
     ecdsa: args.persistencePlan.ecdsa,
   });
-  await finalizeRegistrationEcdsaSessions({
+  const localEcdsaWalletKeys = await finalizeRegistrationEcdsaSessions({
     context: args.context,
     relayerUrl: args.relayerUrl,
     registrationTiming: args.registrationTiming,
@@ -2779,7 +2788,7 @@ async function persistAndActivateMixedRegistration(args: {
         relayerKeyId: args.finalized.ed25519.relayerKeyId,
         keyVersion: args.finalized.ed25519.keyVersion,
         participantIds: [...args.finalized.ed25519.participantIds],
-        walletKeys: [...args.persistencePlan.ecdsa.walletKeys],
+        walletKeys: localEcdsaWalletKeys,
       });
       record = persistWarmSessionEd25519Capability({
         kind: 'jwt_passkey',
@@ -2821,7 +2830,7 @@ async function persistAndActivateMixedRegistration(args: {
         relayerKeyId: args.finalized.ed25519.relayerKeyId,
         keyVersion: args.finalized.ed25519.keyVersion,
         participantIds: [...args.finalized.ed25519.participantIds],
-        walletKeys: [...args.persistencePlan.ecdsa.walletKeys],
+        walletKeys: localEcdsaWalletKeys,
       });
       record = persistWarmSessionEd25519Capability({
         kind: 'jwt_email_otp',
@@ -4402,21 +4411,22 @@ async function addPasskeyEcdsaWalletSigner(
     phase: RegistrationEventPhase.STEP_08_STORAGE_PERSIST_STARTED,
     status: 'running',
   });
-  await input.context.signingEngine.finalizeWalletRegistrationEcdsaSessions({
-    walletId: toWalletId(input.walletId),
-    relayerUrl: input.relayerUrl,
-    session,
-    walletKeys: [primaryKey, ...walletKeys.slice(1)],
-    auth: {
-      kind: 'passkey',
-      credentialIdB64u: input.credentialIdB64u,
-      rpId: input.rpId,
-      passkeyPrfFirstB64u: input.passkeyPrfFirstB64u,
-    },
-  });
+  const localEcdsaWalletKeys =
+    await input.context.signingEngine.finalizeWalletRegistrationEcdsaSessions({
+      walletId: toWalletId(input.walletId),
+      relayerUrl: input.relayerUrl,
+      session,
+      walletKeys: [primaryKey, ...walletKeys.slice(1)],
+      auth: {
+        kind: 'passkey',
+        credentialIdB64u: input.credentialIdB64u,
+        rpId: input.rpId,
+        passkeyPrfFirstB64u: input.passkeyPrfFirstB64u,
+      },
+    });
   await input.context.signingEngine.storeWalletEcdsaSignerRecords({
     walletId: input.walletId,
-    walletKeys,
+    walletKeys: localEcdsaWalletKeys,
   });
   emitAddSignerEventSafely(input.onEvent, input.eventAccountId, {
     phase: RegistrationEventPhase.STEP_08_STORAGE_PERSIST_SUCCEEDED,

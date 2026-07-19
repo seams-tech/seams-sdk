@@ -127,6 +127,7 @@ import type { EmailOtpEd25519YaoRecoveryBootstrapV1 } from '@/core/signingEngine
 import type { EmailOtpEd25519YaoPendingFactorHandle } from '@/core/signingEngine/session/emailOtp/ed25519YaoRootVault';
 import {
   persistActivePasskeyEcdsaReauthAnchor,
+  persistEmailOtpEcdsaRegistrationReauthAnchor,
   readExactSealedSession,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import {
@@ -1118,6 +1119,7 @@ export class BrowserSigningSurface {
         bootstrapStore: this.ecdsaBootstrapStore,
         sessionStore: this.warmSigning.ecdsaSessions,
         persistActivePasskeyEcdsaReauthAnchor,
+        persistEmailOtpEcdsaRegistrationReauthAnchor,
         warmSessions: this.signingRuntime.services.warmSessions,
         signingSessionSeal: this.seamsWebConfigs.signing.sessionSeal,
       },

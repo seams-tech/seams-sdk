@@ -56,6 +56,8 @@ import type {
 } from '@/core/indexedDB';
 import type { StoreWalletSignerFinalizeRollbackReceipt } from '@/core/indexedDB/seamsWalletDB/repositories';
 import type { RegistrationAccountLifecycleDeps } from '../../interfaces/operationDeps';
+import type { EcdsaRoleLocalPublicFacts } from '@/core/platform';
+import type { EcdsaRoleLocalDurableMaterialRef } from '../../session/keyMaterialBrands';
 import {
   thresholdEcdsaChainTargetKey,
   toWalletId,
@@ -141,6 +143,8 @@ export type StoreWalletEcdsaWalletKey = {
   relayerVerifyingShareB64u: string;
   participantIds: readonly [number, number];
   publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+  roleLocalDurableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
+  ecdsaRoleLocalPublicFacts: EcdsaRoleLocalPublicFacts;
 };
 
 export type StoreWalletEcdsaSignerRecordsInput = {
@@ -1475,9 +1479,7 @@ function requireStoreWalletString(value: unknown, field: string): string {
   return normalized;
 }
 
-function normalizeStoreWalletParticipantIds(
-  value: readonly [number, number],
-): readonly [1, 2] {
+function normalizeStoreWalletParticipantIds(value: readonly [number, number]): readonly [1, 2] {
   if (!Array.isArray(value) || value.length !== 2 || value[0] !== 1 || value[1] !== 2) {
     throw new Error('SeamsWalletDB: threshold ECDSA participantIds must be [1, 2]');
   }
@@ -1590,6 +1592,8 @@ function prepareWalletEcdsaSignerActivations(
               'wallet key relayerVerifyingShareB64u',
             ),
             publicCapability: walletKey.publicCapability,
+            roleLocalDurableMaterialRef: walletKey.roleLocalDurableMaterialRef,
+            ecdsaRoleLocalPublicFacts: walletKey.ecdsaRoleLocalPublicFacts,
             thresholdEcdsaPublicKeyB64u,
             participantIds,
             chainTarget: walletKey.chainTarget,
