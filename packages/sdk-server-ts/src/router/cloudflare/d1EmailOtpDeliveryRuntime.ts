@@ -7,10 +7,37 @@ type EmailOtpDeliveryRuntimeResult =
   | { readonly ok: true; readonly deliveryMode: EmailOtpDeliveryMode; readonly emailHint: string }
   | { readonly ok: false; readonly code: string; readonly message: string };
 
+function logDevelopmentEmailOtpCode(
+  record: EmailOtpChallengeRecord,
+  deliveryMode: EmailOtpDeliveryMode,
+  deliveryStatus: 'sent' | 'reused',
+): void {
+  console.warn('[email-otp] development OTP code', {
+    challengeId: record.challengeId,
+    walletId: record.walletId,
+    userId: record.challengeSubjectId,
+    otpChannel: EMAIL_OTP_CHANNEL,
+    action: record.action,
+    operation: record.operation,
+    deliveryMode,
+    deliveryStatus,
+    emailHint: maskEmail(record.email),
+    devOtpCode: record.otpCode,
+    expiresAtMs: record.expiresAtMs,
+  });
+}
+
 export class CloudflareD1EmailOtpDeliveryRuntime {
   constructor(private readonly config: EmailOtpRuntimeConfig) {}
 
-  async deliverEmailOtpCode(record: EmailOtpChallengeRecord): Promise<EmailOtpDeliveryRuntimeResult> {
+  reportReusedDevelopmentOtpCode(record: EmailOtpChallengeRecord): void {
+    if (this.config.production || this.config.deliveryMode === 'email_provider') return;
+    logDevelopmentEmailOtpCode(record, this.config.deliveryMode, 'reused');
+  }
+
+  async deliverEmailOtpCode(
+    record: EmailOtpChallengeRecord,
+  ): Promise<EmailOtpDeliveryRuntimeResult> {
     if (this.config.production && this.config.deliveryMode !== 'email_provider') {
       return {
         ok: false,
@@ -44,18 +71,7 @@ export class CloudflareD1EmailOtpDeliveryRuntime {
       if (!delivered.ok) return delivered;
       return { ok: true, deliveryMode: 'email_provider', emailHint };
     }
-    console.warn('[email-otp] development OTP code', {
-      challengeId: record.challengeId,
-      walletId: record.walletId,
-      userId: record.challengeSubjectId,
-      otpChannel: EMAIL_OTP_CHANNEL,
-      action: record.action,
-      operation: record.operation,
-      deliveryMode: this.config.deliveryMode,
-      emailHint,
-      devOtpCode: record.otpCode,
-      expiresAtMs: record.expiresAtMs,
-    });
+    logDevelopmentEmailOtpCode(record, this.config.deliveryMode, 'sent');
     return { ok: true, deliveryMode: this.config.deliveryMode, emailHint };
   }
 }

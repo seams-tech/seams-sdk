@@ -208,6 +208,7 @@ export class CloudflareD1EmailOtpChallengeIssuer {
           nowMs,
         });
         if (existing) {
+          this.emailOtpDelivery.reportReusedDevelopmentOtpCode(existing);
           return {
             ok: true,
             challenge: {
