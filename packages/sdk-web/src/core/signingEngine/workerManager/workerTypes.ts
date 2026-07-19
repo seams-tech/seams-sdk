@@ -396,19 +396,12 @@ export type EmailOtpEcdsaClientRootHandleBinding =
   | EmailOtpEcdsaSessionBootstrapHandleBinding
   | EmailOtpWalletRegistrationEcdsaPrepareHandleBinding;
 
-export type EmailOtpEcdsaPublicationTargetPlan =
-  | {
-      kind: 'new_key_publication_target';
-      chainTarget: ThresholdEcdsaChainTarget;
-      evmFamilySigningKeySlotId: string;
-      keyHandle?: never;
-    }
-  | {
-      kind: 'existing_key_publication_target';
-      chainTarget: ThresholdEcdsaChainTarget;
-      evmFamilySigningKeySlotId: string;
-      keyHandle: string;
-    };
+export type EmailOtpEcdsaPublicationTargetPlan = {
+  kind: 'new_key_publication_target';
+  chainTarget: ThresholdEcdsaChainTarget;
+  evmFamilySigningKeySlotId: string;
+  keyHandle?: never;
+};
 
 type EmailOtpEcdsaBootstrapBasePayload = {
   relayUrl: string;
@@ -424,7 +417,6 @@ type EmailOtpEcdsaBootstrapBasePayload = {
   signingGrantId?: string;
   ttlMs?: number;
   remainingUses?: number;
-  includeEcdsaExportArtifact?: boolean;
 };
 
 type EmailOtpEcdsaBootstrapJwtPayload = {
@@ -746,6 +738,17 @@ export interface EmailOtpWorkerOperationMap {
       };
     };
   };
+  bindEmailOtpEcdsaWarmSessionFromWorkerHandle: {
+    payload: {
+      clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
+      thresholdSessionId: string;
+      remainingUses: number;
+      expiresAtMs: number;
+    };
+    result:
+      | { ok: true; remainingUses: number; expiresAtMs: number }
+      | { ok: false; code: string; message: string };
+  };
   getEmailOtpWarmSessionStatus: {
     payload: {
       sessionId: string;
@@ -809,12 +812,7 @@ export interface EmailOtpWorkerOperationMap {
         walletId: string;
         evmFamilySigningKeySlotId: string;
         chainTarget: ThresholdEcdsaChainTarget;
-        signingGrantId: string;
-        keyHandle: string;
-        relayerKeyId: string;
-        participantIds: number[];
-        sessionKind: 'jwt';
-        runtimePolicyScope?: ThresholdRuntimePolicyScope;
+        authSubjectId: string;
       };
     };
     result:
@@ -822,7 +820,7 @@ export interface EmailOtpWorkerOperationMap {
           ok: true;
           remainingUses: number;
           expiresAtMs: number;
-          bootstrap: ThresholdEcdsaSessionBootstrapResult;
+          clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
         }
       | { ok: false; code: string; message: string };
   };
@@ -859,33 +857,6 @@ export interface EmailOtpWorkerOperationMap {
     result: {
       ok: true;
       cleared: true;
-    };
-  };
-  exportThresholdEcdsaDerivationKeyWithEmailOtpAuthorization: {
-    payload: {
-      relayUrl: string;
-      walletId: string;
-      userId: string;
-      challengeId: string;
-      otpCode: string;
-      shamirPrimeB64u: string;
-      routePlan: EmailOtpRoutePlan;
-      evmFamilySigningKeySlotId: string;
-      walletSessionJwt: string;
-      ecdsaThresholdKeyId: string;
-      relayerKeyId: string;
-      readyRecord: EcdsaRoleLocalReadyRecord;
-      thresholdSessionId: string;
-      signingGrantId: string;
-      thresholdExpiresAtMs: number;
-      participantIds: number[];
-      keyHandle: string;
-      runtimePolicyScope: ThresholdRuntimePolicyScope;
-    };
-    result: {
-      publicKeyHex: string;
-      privateKeyHex: string;
-      ethereumAddress: string;
     };
   };
   exportEmailOtpEd25519YaoSeedWithAuthorization: {
@@ -1010,6 +981,7 @@ export type EmailOtpRestoreOperationType =
 export type EmailOtpWarmSessionOperationType =
   | 'loginWithEmailOtpWallet'
   | 'bootstrapEmailOtpEcdsaSessionsFromWorkerHandle'
+  | 'bindEmailOtpEcdsaWarmSessionFromWorkerHandle'
   | 'getEmailOtpWarmSessionStatus'
   | 'claimEmailOtpWarmSessionMaterial'
   | 'consumeEmailOtpWarmSessionUses'
@@ -1017,9 +989,7 @@ export type EmailOtpWarmSessionOperationType =
   | 'rehydrateEmailOtpEcdsaWarmSessionMaterial'
   | 'rehydrateEmailOtpEd25519YaoFactor'
   | 'clearEmailOtpWarmSessionMaterial';
-export type EmailOtpExportOperationType =
-  | 'exportThresholdEcdsaDerivationKeyWithEmailOtpAuthorization'
-  | 'exportEmailOtpEd25519YaoSeedWithAuthorization';
+export type EmailOtpExportOperationType = 'exportEmailOtpEd25519YaoSeedWithAuthorization';
 export type EmailOtpDomainOperationType =
   | EmailOtpChallengeOperationType
   | EmailOtpEnrollmentOperationType

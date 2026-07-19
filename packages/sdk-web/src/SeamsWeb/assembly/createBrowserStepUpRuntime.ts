@@ -4,9 +4,7 @@ import type { UiConfirmRuntimeBridgePort } from '@/core/signingEngine/uiConfirm/
 import type { TouchIdPrompt } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { SignerWorkerManager } from '@/core/signingEngine/workerManager/SignerWorkerManager';
 import type { SigningEngineStorePorts } from '@/core/signingEngine/assembly/ports/shared';
-import type {
-  EmailOtpSealedSessionStorePorts,
-} from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';
+import type { EmailOtpSealedSessionStorePorts } from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';
 import {
   createStepUpRuntime,
   type StepUpRuntime,
@@ -38,15 +36,19 @@ export function createBrowserStepUpRuntime(args: {
     baseTouchConfirm: args.baseTouchConfirm,
     getSignerWorkerContext: () =>
       args.getEnginePorts().walletSessionActivationDeps.getSignerWorkerContext(),
+    provisionThresholdEcdsaSession: (request) =>
+      args.getEnginePorts().tempoSigningDeps.provisionThresholdEcdsaSession(request),
     thresholdEcdsaBootstrapQueueByWallet: args.thresholdEcdsaBootstrapQueueByWallet,
-    persistEcdsaRoleLocalReadyRecord:
-      args.runtimePorts.storage.persistEcdsaRoleLocalReadyRecord,
+    persistEcdsaRoleLocalReadyRecord: args.runtimePorts.storage.persistEcdsaRoleLocalReadyRecord,
+    listActiveEcdsaSignersForWallet: (signerArgs) =>
+      args.stores.walletProfileAndSignerRecords.walletSignerStore.listActiveWalletSigners({
+        walletId: signerArgs.walletId,
+        signerFamily: 'ecdsa',
+      }),
     getEcdsaSessions: () => args.getWarmSigning().ecdsaSessions,
     getWarmCapabilityReader: () => args.getWarmSigning().capabilityReader,
     getThresholdEcdsaSessionRecordByThresholdSessionId: (thresholdSessionId) =>
-      args.getWarmSigning().getThresholdEcdsaSessionRecordByThresholdSessionId(
-        thresholdSessionId,
-      ),
+      args.getWarmSigning().getThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId),
     ensureSealedRefreshStartupParity: args.ensureSealedRefreshStartupParity,
   });
 }

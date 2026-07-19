@@ -185,6 +185,7 @@ void buildEmailOtpSessionBootstrapEcdsaActivation({
   sessionKind: 'jwt',
   emailOtpWorkerSessionHandle,
   emailOtpAuthContext: emailOtpSessionAuthContext,
+  walletSessionRouteAuth,
 });
 
 void buildEmailOtpPerOperationReauthEcdsaActivation({
@@ -193,6 +194,7 @@ void buildEmailOtpPerOperationReauthEcdsaActivation({
   sessionKind: 'jwt',
   emailOtpWorkerSessionHandle,
   emailOtpAuthContext: emailOtpSingleUseAuthContext,
+  walletSessionRouteAuth,
 });
 
 void buildWalletSessionReconnectEcdsaActivation({
@@ -250,6 +252,7 @@ void buildEmailOtpSessionBootstrapEcdsaActivation({
   sessionIdentity,
   sessionKind: 'jwt',
   emailOtpWorkerSessionHandle,
+  walletSessionRouteAuth,
   // @ts-expect-error session Email OTP bootstrap must use session-retained auth
   emailOtpAuthContext: emailOtpSingleUseAuthContext,
 });
@@ -259,6 +262,7 @@ void buildEmailOtpPerOperationReauthEcdsaActivation({
   sessionIdentity,
   sessionKind: 'jwt',
   emailOtpWorkerSessionHandle,
+  walletSessionRouteAuth,
   // @ts-expect-error per-operation Email OTP reauth must use single-use auth
   emailOtpAuthContext: emailOtpSessionAuthContext,
 });
@@ -269,6 +273,7 @@ void buildEmailOtpSessionBootstrapEcdsaActivation({
   sessionKind: 'jwt',
   emailOtpWorkerSessionHandle,
   emailOtpAuthContext,
+  walletSessionRouteAuth,
   // @ts-expect-error Email OTP builder must not accept WebAuthn auth
   webauthnAuthentication,
 });

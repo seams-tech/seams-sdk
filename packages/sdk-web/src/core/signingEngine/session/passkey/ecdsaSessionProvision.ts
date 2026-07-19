@@ -138,9 +138,9 @@ export type ThresholdEcdsaEmailOtpActivationRequest = ThresholdEcdsaActivationRe
   sessionKind: 'jwt';
   emailOtpWorkerSessionHandle: EmailOtpEcdsaBootstrapWorkerHandle;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
+  walletSessionRouteAuth: AppOrWalletSessionAuth;
   passkeyPrfFirstB64u?: never;
   webauthnAuthentication?: never;
-  walletSessionRouteAuth?: never;
 };
 
 export type ThresholdEcdsaWalletSessionReconnectRequest = ThresholdEcdsaActivationRequestCommon & {
@@ -188,9 +188,9 @@ type BuildEmailOtpSessionBootstrapEcdsaActivationArgs =
     sessionKind: 'jwt';
     emailOtpWorkerSessionHandle: EmailOtpEcdsaBootstrapWorkerHandle;
     emailOtpAuthContext: ThresholdEcdsaEmailOtpSessionAuthContext;
+    walletSessionRouteAuth: AppOrWalletSessionAuth;
     passkeyPrfFirstB64u?: never;
     webauthnAuthentication?: never;
-    walletSessionRouteAuth?: never;
   };
 
 type BuildEmailOtpPerOperationReauthEcdsaActivationArgs =
@@ -199,9 +199,9 @@ type BuildEmailOtpPerOperationReauthEcdsaActivationArgs =
     sessionKind: 'jwt';
     emailOtpWorkerSessionHandle: EmailOtpEcdsaBootstrapWorkerHandle;
     emailOtpAuthContext: ThresholdEcdsaEmailOtpPendingSingleUseAuthContext;
+    walletSessionRouteAuth: AppOrWalletSessionAuth;
     passkeyPrfFirstB64u?: never;
     webauthnAuthentication?: never;
-    walletSessionRouteAuth?: never;
   };
 
 type BuildWalletSessionReconnectEcdsaActivationArgs = BuildThresholdEcdsaActivationRequestCommon & {
@@ -290,6 +290,7 @@ function buildEmailOtpEcdsaActivationRequest(
     runtimePolicy: args.runtimePolicy,
     emailOtpWorkerSessionHandle: args.emailOtpWorkerSessionHandle,
     emailOtpAuthContext: args.emailOtpAuthContext,
+    walletSessionRouteAuth: args.walletSessionRouteAuth,
   };
   return applyOptionalActivationFields(request, args);
 }
@@ -482,6 +483,7 @@ function toBootstrapEcdsaSessionRequest(
           relayerUrl: command.request.relayerUrl,
           emailOtpWorkerSessionHandle: command.request.emailOtpWorkerSessionHandle,
           emailOtpAuthContext: command.request.emailOtpAuthContext,
+          routeAuth: command.request.walletSessionRouteAuth,
         },
         command.request,
       );

@@ -6,12 +6,10 @@ import type {
   EmailOtpEd25519YaoActiveCapabilityDescriptorV1,
   EmailOtpEcdsaPublicationTargetPlan,
   EmailOtpEcdsaSessionBootstrapHandlePayload,
-  EmailOtpExportOperationRequest,
   EmailOtpWalletRegistrationEcdsaPrepareHandlePayload,
   EmailOtpWorkerIssuedSessionHandlePayload,
   EmailOtpWorkerOperationRequestEnvelope,
   EmailOtpWorkerOperationMap,
-  EmailOtpWarmSessionOperationRequest,
   EvmCryptoLocalSecp256k1OperationRequest,
   EvmCryptoTransactionOperationRequest,
   EcdsaDerivationRoleLocalMaterialOperationRequest,
@@ -144,8 +142,6 @@ const cookieBootstrapWithRouteAuth: EmailOtpEcdsaBootstrapStrictPayload = {
 void cookieBootstrapWithRouteAuth;
 
 type PresignStepPayload = EcdsaPresignClientSessionStepRequest;
-type EmailOtpEcdsaExportPayload =
-  EmailOtpWorkerOperationMap['exportThresholdEcdsaDerivationKeyWithEmailOtpAuthorization']['payload'];
 type EmailOtpEd25519YaoExportPayload =
   EmailOtpWorkerOperationMap['exportEmailOtpEd25519YaoSeedWithAuthorization']['payload'];
 type EmailOtpWalletUnlockPayload = EmailOtpWorkerOperationMap['loginWithEmailOtpWallet']['payload'];
@@ -521,53 +517,6 @@ const emailOtpRecoveryCodeRotationResultWithSigningRoot = {
 } satisfies EmailOtpRecoveryCodeRotationResult;
 void emailOtpRecoveryCodeRotationResultWithSigningRoot;
 
-declare const emailOtpEcdsaExportRoutePlan: EmailOtpEcdsaExportPayload['routePlan'];
-declare const emailOtpEcdsaExportReadyRecord: EmailOtpEcdsaExportPayload['readyRecord'];
-
-const emailOtpEcdsaExportPayload: EmailOtpEcdsaExportPayload = {
-  relayUrl: 'https://relay.example',
-  walletId: 'wallet.testnet',
-  userId: 'wallet.testnet',
-  challengeId: 'challenge-1',
-  otpCode: '123456',
-  shamirPrimeB64u: 'prime',
-  routePlan: emailOtpEcdsaExportRoutePlan,
-  evmFamilySigningKeySlotId: 'wallet-key-localhost',
-  walletSessionJwt: 'wallet-session-jwt',
-  ecdsaThresholdKeyId: 'ecdsa-threshold-key',
-  relayerKeyId: 'relayer-key',
-  readyRecord: emailOtpEcdsaExportReadyRecord,
-  thresholdSessionId: 'threshold-session',
-  signingGrantId: 'signing-grant',
-  thresholdExpiresAtMs: 1_900_000_000_000,
-  participantIds: [1, 2],
-  keyHandle: 'key-handle',
-  runtimePolicyScope,
-};
-void emailOtpEcdsaExportPayload;
-
-const emailOtpEcdsaExportPayloadWithoutRuntimePolicyScope = {
-  ...emailOtpEcdsaExportPayload,
-  // @ts-expect-error Email OTP ECDSA export requires runtimePolicyScope.
-  runtimePolicyScope: undefined,
-} satisfies EmailOtpEcdsaExportPayload;
-void emailOtpEcdsaExportPayloadWithoutRuntimePolicyScope;
-
-const emailOtpEcdsaExportPayloadWithSigningRoot = {
-  ...emailOtpEcdsaExportPayload,
-  // @ts-expect-error Email OTP ECDSA export derives signing root from readyRecord.publicFacts.
-  signingRootId: 'signing-root',
-} satisfies EmailOtpEcdsaExportPayload;
-void emailOtpEcdsaExportPayloadWithSigningRoot;
-
-const emailOtpEcdsaExportWorkerRequest: EmailOtpExportOperationRequest<'exportThresholdEcdsaDerivationKeyWithEmailOtpAuthorization'> =
-  {
-    id: 'export-request-1',
-    type: 'exportThresholdEcdsaDerivationKeyWithEmailOtpAuthorization',
-    payload: emailOtpEcdsaExportPayload,
-  };
-void emailOtpEcdsaExportWorkerRequest;
-
 declare const emailOtpEd25519YaoExportRoutePlan: EmailOtpEd25519YaoExportPayload['routePlan'];
 const emailOtpEd25519YaoExportPayload: EmailOtpEd25519YaoExportPayload = {
   relayUrl: 'https://relay.example',
@@ -594,11 +543,5 @@ const emailOtpEd25519YaoExportPayloadWithPasskey = {
   webauthnAuthentication: {},
 } satisfies EmailOtpEd25519YaoExportPayload;
 void emailOtpEd25519YaoExportPayloadWithPasskey;
-
-type InvalidEmailOtpExportAsWarmSession =
-  // @ts-expect-error Email OTP export operations cannot use the warm-session domain.
-  EmailOtpWarmSessionOperationRequest<'exportThresholdEcdsaDerivationKeyWithEmailOtpAuthorization'>;
-declare const invalidEmailOtpExportAsWarmSession: InvalidEmailOtpExportAsWarmSession;
-void invalidEmailOtpExportAsWarmSession;
 
 export {};

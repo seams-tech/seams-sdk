@@ -130,7 +130,13 @@ export class EmailOtpExportRecoveryRuntime {
   async exportEcdsaKeyWithAuthorization(
     args: ExportEcdsaKeyWithAuthorizationArgs,
   ): Promise<EmailOtpEcdsaExportArtifact> {
-    return await exportEcdsaKeyWithAuthorization(this.signingSessionWorkerPorts(), args);
+    return await exportEcdsaKeyWithAuthorization(this.signingSessionWorkerPorts(), {
+      walletSession: args.walletSession,
+      challengeId: args.challengeId,
+      otpCode: args.otpCode,
+      committedLane: args.committedLane,
+      loginWithEcdsaCapabilityInternal: this.ports.loginWithEcdsaCapabilityInternal,
+    });
   }
 
   async exportEcdsaKeyWithDurableAuthorization(
@@ -138,6 +144,7 @@ export class EmailOtpExportRecoveryRuntime {
   ): Promise<EmailOtpEcdsaExportArtifact> {
     return await exportEcdsaKeyWithDurableAuthorization(
       {
+        getSignerWorkerContext: this.ports.getSignerWorkerContext,
         requireRelayUrl: this.ports.requireRelayUrl,
         buildSigningSessionRoutePlan: buildEmailOtpSigningSessionRoutePlan,
       },
@@ -159,6 +166,7 @@ export class EmailOtpExportRecoveryRuntime {
   ): Promise<EmailOtpEcdsaExportArtifact> {
     return await exportEcdsaKeyWithPublicReauthAuthorization(
       {
+        getSignerWorkerContext: this.ports.getSignerWorkerContext,
         requireRelayUrl: this.ports.requireRelayUrl,
       },
       {
