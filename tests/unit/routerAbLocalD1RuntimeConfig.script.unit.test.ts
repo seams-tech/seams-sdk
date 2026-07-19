@@ -121,7 +121,7 @@ test('local Gateway startup projects the generated HPKE keyset into D1 Wrangler'
   expect(config).not.toContain('DERIVER_B_URL =');
   expect(config).not.toContain('SIGNING_WORKER_URL =');
   expect(config).not.toContain('ROUTER_AB_SIGNING_WORKER_URL =');
-  expect(config).toContain('GATEWAY_PUBLIC_URL = "http://127.0.0.1:9190"');
+  expect(config).not.toContain('GATEWAY_PUBLIC_URL =');
   expect(config).not.toContain('ROUTER_AB_MPC_ROUTER_URL =');
   expect(config).toContain(
     `DERIVER_A_PEER_VERIFYING_KEY_HEX = "${localPeerVerifyingKeyHex(

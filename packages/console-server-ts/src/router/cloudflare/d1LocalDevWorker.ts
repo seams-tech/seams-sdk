@@ -115,7 +115,6 @@ interface LocalD1DevEnv extends RouterAbServiceBindingEnv {
   readonly GOOGLE_OIDC_CLIENT_ID?: string;
   readonly GOOGLE_OIDC_CLIENT_IDS?: string;
   readonly SEAMS_LOCAL_OIDC_EXCHANGE_JSON?: string;
-  readonly GATEWAY_PUBLIC_URL?: string;
   readonly ROUTER_AB_CEREMONY_JWT_ISSUER?: string;
   readonly ROUTER_AB_CEREMONY_JWT_AUDIENCE?: string;
   readonly ROUTER_AB_CEREMONY_JWT_KEY_ID?: string;
