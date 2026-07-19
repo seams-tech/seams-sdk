@@ -76,6 +76,7 @@ test.describe('threshold ECDSA export viewer payload', () => {
       walletId: 'frost-vermillion-k7p9m2',
     });
     expect(capturedPayload.loading).toBe(true);
+    expect(capturedPayload.variant).toBe('drawer');
     expect(capturedPayload.keys).toEqual([
       {
         scheme: 'secp256k1',

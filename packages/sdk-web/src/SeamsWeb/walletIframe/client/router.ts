@@ -320,6 +320,12 @@ function isTerminalStickyWalletFlowProgress(payload: ProgressPayload): boolean {
   );
 }
 
+function shouldHideWalletIframeSurface(payload: ProgressPayload): boolean {
+  if (payload.interaction?.overlay !== 'hide') return false;
+  if (payload.flow !== 'key_export') return true;
+  return isTerminalStickyWalletFlowProgress(payload);
+}
+
 const WALLET_IFRAME_PROGRESS_TIMEOUT_EXTENSION_FACTOR = 4;
 const WALLET_IFRAME_REGISTRATION_TIMEOUT_MS = 180_000;
 const WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS = 30_000;
@@ -822,6 +828,16 @@ export class WalletIframeRouter {
     if (!connectionId) return;
     this.transitionWalletIframeSurface({
       kind: cancelled ? 'request_cancelled' : 'request_finished',
+      connectionId,
+      identity: this.requestSurfaceIdentity(requestId),
+    });
+  }
+
+  private hideRequestSurface(requestId: WalletIframeRequestId): void {
+    const connectionId = this.state.connectionId;
+    if (!connectionId) return;
+    this.transitionWalletIframeSurface({
+      kind: 'request_surface_hidden',
       connectionId,
       identity: this.requestSurfaceIdentity(requestId),
     });
@@ -2177,6 +2193,9 @@ export class WalletIframeRouter {
     if (msg.type === 'PROGRESS') {
       const payload = msg.payload as ProgressPayload;
       this.progressBus.dispatch({ requestId: requestId, payload: payload });
+      if (shouldHideWalletIframeSurface(payload)) {
+        this.hideRequestSurface(requestId as WalletIframeRequestId);
+      }
       if (this.progressBus.isSticky(requestId) && isTerminalStickyWalletFlowProgress(payload)) {
         this.progressBus.unregister(requestId);
         this.finishRequestSurface(requestId as WalletIframeRequestId, payload.status === 'cancelled');

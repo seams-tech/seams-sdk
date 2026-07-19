@@ -129,6 +129,7 @@ export type WalletIframeSurfaceEvent =
       operation: ModalRecoveryCodesSurface['operation'];
     })
   | (RequestOwnedEvent & { kind: 'device_link_qr_modal_request_started' })
+  | (RequestOwnedEvent & { kind: 'request_surface_hidden' })
   | (RequestOwnedEvent & { kind: 'request_finished' })
   | (RequestOwnedEvent & { kind: 'request_cancelled' })
   | { kind: 'connection_closed'; connectionId: WalletIframeConnectionId };
@@ -403,6 +404,10 @@ export function reduceWalletIframeSurface(
           }),
         ),
       );
+    case 'request_surface_hidden':
+      return requestEventOwnsSurface(current, event)
+        ? { kind: 'applied', surface: hiddenWalletIframeSurface() }
+        : { kind: 'ignored', surface: current };
     case 'request_finished':
     case 'request_cancelled':
       return requestEventOwnsSurface(current, event)

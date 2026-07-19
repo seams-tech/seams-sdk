@@ -80,6 +80,16 @@ test.describe('wallet iframe surface domain', () => {
         connectionId,
         identity: staleIdentity,
       });
+      const hidden = domain.reduceWalletIframeSurface(surface, {
+        kind: 'request_surface_hidden',
+        connectionId,
+        identity,
+      });
+      const staleHidden = domain.reduceWalletIframeSurface(surface, {
+        kind: 'request_surface_hidden',
+        connectionId,
+        identity: staleIdentity,
+      });
       const transaction = domain.reduceWalletIframeSurface(domain.hiddenWalletIframeSurface(), {
         kind: 'transaction_modal_request_started',
         connectionId,
@@ -138,11 +148,16 @@ test.describe('wallet iframe surface domain', () => {
       for (const candidate of surfaces) {
         surfaceRenderer.render(candidate);
       }
-      return { staleFinish, modes: renderModes };
+      return { staleFinish, hidden, staleHidden, modes: renderModes };
     }, SURFACE_DOMAIN_PATH);
 
     expect(result.staleFinish.kind).toBe('ignored');
     expect(result.staleFinish.surface.kind).toBe('modal_registration_confirm');
+    expect(result.hidden).toMatchObject({ kind: 'applied', surface: { kind: 'hidden' } });
+    expect(result.staleHidden).toMatchObject({
+      kind: 'ignored',
+      surface: { kind: 'modal_registration_confirm' },
+    });
     expect(result.modes).toEqual([
       'hidden',
       'viewport_modal',

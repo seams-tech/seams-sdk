@@ -115,6 +115,29 @@ const staleGenericCloseAfterExportViewerScript = String.raw`
                 payload: {
                   version: 2,
                   flow: 'key_export',
+                  step: 2,
+                  phase: 'key_export.auth.passkey.prompt.succeeded',
+                  status: 'succeeded',
+                  message: 'Passkey confirmed',
+                  flowId: 'key_export:test:' + data.requestId,
+                  requestId: data.requestId,
+                  interaction: { kind: 'passkey_assert', overlay: 'hide' },
+                },
+              });
+              window.parent?.postMessage({ type: 'TEST_MARKER', marker: 'PASSKEY_AUTH_HIDDEN' }, '*');
+            } catch (err) {
+              console.error('Failed to post export passkey completion', err);
+            }
+          }, 70);
+
+          setTimeout(() => {
+            try {
+              adoptedPort.postMessage({
+                type: 'PROGRESS',
+                requestId: data.requestId,
+                payload: {
+                  version: 2,
+                  flow: 'key_export',
                   step: 4,
                   phase: 'key_export.viewer.opened',
                   status: 'waiting_for_user',
@@ -204,6 +227,7 @@ test.describe('wallet-origin export flow integration', () => {
 
           const marks: Record<string, boolean> = {};
           let visibleAtStaleGenericClose = false;
+          let visibleAtPasskeyAuthHide = false;
           window.addEventListener('message', (ev) => {
             const data = ev.data || {};
             if (!data || typeof data !== 'object') return;
@@ -213,6 +237,10 @@ test.describe('wallet-origin export flow integration', () => {
             if (marker === 'STALE_GENERIC_UI_CLOSED') {
               const state = capture();
               visibleAtStaleGenericClose = state.exists && state.visible;
+            }
+            if (marker === 'PASSKEY_AUTH_HIDDEN') {
+              const state = capture();
+              visibleAtPasskeyAuthHide = state.exists && state.visible;
             }
           });
 
@@ -267,6 +295,7 @@ test.describe('wallet-origin export flow integration', () => {
             visibleWhileExportSurfaceOwnsTheIframe,
             staleCloseMarker,
             visibleAtStaleGenericClose,
+            visibleAtPasskeyAuthHide,
             closeMarker,
             hiddenAfterExportClose,
           } as const;
@@ -296,6 +325,7 @@ test.describe('wallet-origin export flow integration', () => {
     expect(result.visibleWhileExportSurfaceOwnsTheIframe).toBe(true);
     expect(result.staleCloseMarker).toBe(true);
     expect(result.visibleAtStaleGenericClose).toBe(true);
+    expect(result.visibleAtPasskeyAuthHide).toBe(true);
     expect(result.closeMarker).toBe(true);
     expect(result.hiddenAfterExportClose).toBe(true);
   });

@@ -11,6 +11,37 @@ const WALLET_ORIGIN = 'https://wallet.example.localhost';
 const WALLET_SERVICE_ROUTE = '**://wallet.example.localhost/wallet-service*';
 const WAIT_FOR_SOURCE = `(${waitFor.toString()})`;
 const CAPTURE_OVERLAY_SOURCE = `(${captureOverlay.toString()})`;
+const HIDE_SIGNING_SURFACE_SCRIPT = String.raw`
+      const originalAdoptPort = adoptPort;
+      adoptPort = function patchedAdoptPort(port) {
+        originalAdoptPort(port);
+        if (!adoptedPort) return;
+        const originalHandler = adoptedPort.onmessage;
+        adoptedPort.onmessage = (event) => {
+          originalHandler?.(event);
+          const data = event.data || {};
+          if (!data || typeof data !== 'object') return;
+          if (data.type !== 'PM_EXECUTE_ACTION' || typeof data.requestId !== 'string') return;
+          setTimeout(() => {
+            adoptedPort.postMessage({
+              type: 'PROGRESS',
+              requestId: data.requestId,
+              payload: {
+                version: 2,
+                flow: 'signing',
+                step: 5,
+                phase: 'signing.confirmation.approved',
+                status: 'succeeded',
+                message: 'Confirmation approved; signing in progress',
+                flowId: 'signing:test:' + data.requestId,
+                requestId: data.requestId,
+                interaction: { kind: 'transaction_confirmation', overlay: 'hide' },
+              },
+            });
+          }, 20);
+        };
+      };
+`;
 const SIGN_TEMPO_SESSION_LOSS_SCRIPT = String.raw`
       const originalAdoptPort = adoptPort;
       adoptPort = function patchedAdoptPort(port) {
@@ -229,6 +260,68 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
       console.log('[router.behavior] overlay state after timeout', result.after);
     }
     expect(result.hidden).toBe(true);
+  });
+
+  test('executeAction hides the overlay when signing progress releases the surface', async ({
+    page,
+  }) => {
+    await page.unroute(WALLET_SERVICE_ROUTE).catch(() => {});
+    await registerWalletServiceRoute(
+      page,
+      buildWalletServiceHtml({ extraScript: HIDE_SIGNING_SURFACE_SCRIPT }),
+      WALLET_SERVICE_ROUTE,
+    );
+
+    const routerPath = SDK_ESM_PATHS.walletIframeRouter;
+    const result = await page.evaluate(
+      async ({ walletOrigin, captureOverlaySource, waitForSource, routerPath }) => {
+        const waitFor = eval(waitForSource) as typeof import('./harness').waitFor;
+        const capture = eval(captureOverlaySource) as typeof import('./harness').captureOverlay;
+        const mod = await import(routerPath);
+        const { WalletIframeRouter } =
+          mod as typeof import('@/SeamsWeb/walletIframe/client/router');
+        const router = new WalletIframeRouter({
+          walletOrigin,
+          servicePath: '/wallet-service',
+          connectTimeoutMs: 3000,
+          requestTimeoutMs: 1000,
+          debug: true,
+          sdkBasePath: '/sdk',
+        });
+        await router.init();
+
+        const pending = router
+          .executeAction({
+            walletId: 'e2e_router_signing.testnet',
+            nearAccountId: 'e2e_router_signing.testnet',
+            receiverId: 'w3a-v1.testnet',
+            actionArgs: { type: 'Transfer', amount: '1' } as any,
+            options: {},
+          })
+          .catch((error: unknown) => String((error as Error)?.message || error));
+
+        const shown = await waitFor(() => {
+          const state = capture();
+          return !!(state.exists && state.visible);
+        }, 3000);
+        const hidden = await waitFor(() => {
+          const state = capture();
+          return !state.exists || !state.visible;
+        }, 3000);
+        const requestResult = await pending;
+        return { shown, hidden, requestResult };
+      },
+      {
+        walletOrigin: WALLET_ORIGIN,
+        captureOverlaySource: CAPTURE_OVERLAY_SOURCE,
+        waitForSource: WAIT_FOR_SOURCE,
+        routerPath,
+      },
+    );
+
+    expect(result.shown).toBe(true);
+    expect(result.hidden).toBe(true);
+    expect(result.requestResult).toContain('Wallet request timeout');
   });
 
   test('executeAction still times out when host keeps sending PROGRESS frames', async ({
