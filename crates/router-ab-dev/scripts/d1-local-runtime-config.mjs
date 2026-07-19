@@ -76,11 +76,6 @@ export function prepareRouterAbD1LocalRuntimeConfig(input) {
   );
   runtimeConfig = replaceTomlAssignment(
     runtimeConfig,
-    'GATEWAY_PUBLIC_URL',
-    requiredEnv(routerEnv, 'GATEWAY_PUBLIC_URL'),
-  );
-  runtimeConfig = replaceTomlAssignment(
-    runtimeConfig,
     'ROUTER_AB_CEREMONY_JWT_ISSUER',
     requiredEnv(routerEnv, 'GATEWAY_PUBLIC_URL'),
   );
