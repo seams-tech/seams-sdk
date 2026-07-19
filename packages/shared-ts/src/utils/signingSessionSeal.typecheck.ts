@@ -45,6 +45,7 @@ const validEcdsaSealedSessionRecord = {
     ecdsaThresholdKeyId: 'ecdsa-key',
     ethereumAddress: `0x${'11'.repeat(20)}`,
     relayerKeyId: 'relayer-key',
+    roleLocalDurableMaterialRef: 'role-local-material',
     participantIds: [1, 2],
     routerAbEcdsaDerivationNormalSigning,
     publicCapability,

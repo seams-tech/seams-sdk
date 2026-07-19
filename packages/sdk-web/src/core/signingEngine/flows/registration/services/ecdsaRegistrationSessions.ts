@@ -34,6 +34,7 @@ import type {
   WarmSessionMaterialWriteDiagnostics,
 } from '@/core/signingEngine/session/passkey/warmSessionMaterialWriter';
 import { SIGNER_AUTH_METHODS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
+import type { StoreWalletEcdsaWalletKey } from '../accountLifecycle';
 
 type WalletRegistrationEcdsaSessionBootstrap = Awaited<
   ReturnType<typeof buildWalletRegistrationEcdsaSessionBootstrap>
@@ -104,6 +105,9 @@ export type FinalizeWalletRegistrationEcdsaSessionsDeps = {
   bootstrapStore: ThresholdEcdsaBootstrapStorePort;
   sessionStore: ThresholdEcdsaSessionStoreDeps;
   persistActivePasskeyEcdsaReauthAnchor: (record: ThresholdEcdsaSessionRecord) => Promise<void>;
+  persistEmailOtpEcdsaRegistrationReauthAnchor: (
+    record: ThresholdEcdsaSessionRecord,
+  ) => Promise<void>;
   warmSessions: Pick<WarmSessionHydrationService, 'hydrateSigningSession'>;
   signingSessionSeal: {
     signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
@@ -167,6 +171,32 @@ function sessionTargetsMatchWalletKeys(args: {
   return true;
 }
 
+function storeWalletEcdsaKeyWithRoleLocalMaterial(args: {
+  walletKey: WalletRegistrationEcdsaWalletKey;
+  publicFacts: ReturnType<typeof buildEcdsaRoleLocalPublicFacts>;
+  durableMaterialRef: FinalizeRouterAbEcdsaRegistrationActivationResultV1['roleLocalMaterial']['durableMaterialRef'];
+}): StoreWalletEcdsaWalletKey {
+  const walletKey = args.walletKey;
+  return {
+    keyScope: walletKey.keyScope,
+    chainTarget: walletKey.chainTarget,
+    walletId: walletKey.walletId,
+    evmFamilySigningKeySlotId: walletKey.evmFamilySigningKeySlotId,
+    keyHandle: walletKey.keyHandle,
+    ecdsaThresholdKeyId: walletKey.ecdsaThresholdKeyId,
+    signingRootId: walletKey.signingRootId,
+    signingRootVersion: walletKey.signingRootVersion,
+    thresholdEcdsaPublicKeyB64u: walletKey.thresholdEcdsaPublicKeyB64u,
+    thresholdOwnerAddress: walletKey.thresholdOwnerAddress,
+    relayerKeyId: walletKey.relayerKeyId,
+    relayerVerifyingShareB64u: walletKey.relayerVerifyingShareB64u,
+    participantIds: walletKey.participantIds,
+    publicCapability: walletKey.publicCapability,
+    roleLocalDurableMaterialRef: args.durableMaterialRef,
+    ecdsaRoleLocalPublicFacts: args.publicFacts,
+  };
+}
+
 function commitRegistrationRuntimeSession(args: {
   deps: FinalizeWalletRegistrationEcdsaSessionsDeps;
   input: FinalizeWalletRegistrationEcdsaSessionsInput;
@@ -203,9 +233,7 @@ function markRegistrationRuntimeSessionValidated(record: ThresholdEcdsaSessionRe
 }
 
 class RegistrationEcdsaWarmSessionDiagnostics implements WarmSessionMaterialWriteDiagnostics {
-  constructor(
-    private readonly diagnostics: FinalizeWalletRegistrationEcdsaSessionsDiagnostics,
-  ) {}
+  constructor(private readonly diagnostics: FinalizeWalletRegistrationEcdsaSessionsDiagnostics) {}
 
   recordDuration(bucket: WarmSessionMaterialWriteDiagnosticBucket, durationMs: number): void {
     this.diagnostics.recordDuration(mapWarmSessionDiagnosticBucket(bucket), durationMs);
@@ -281,8 +309,7 @@ async function hydratePasskeyRegistrationSession(args: {
     },
     ...(args.deps.signingSessionSeal.signingSessionSealKeyVersion
       ? {
-          signingSessionSealKeyVersion:
-            args.deps.signingSessionSeal.signingSessionSealKeyVersion,
+          signingSessionSealKeyVersion: args.deps.signingSessionSeal.signingSessionSealKeyVersion,
         }
       : {}),
     ...(args.deps.signingSessionSeal.shamirPrimeB64u
@@ -316,7 +343,7 @@ function recordDiagnosticDuration(args: {
 export async function finalizeWalletRegistrationEcdsaSessions(
   deps: FinalizeWalletRegistrationEcdsaSessionsDeps,
   input: FinalizeWalletRegistrationEcdsaSessionsInput,
-): Promise<void> {
+): Promise<readonly [StoreWalletEcdsaWalletKey, ...StoreWalletEcdsaWalletKey[]]> {
   if (!sessionTargetsMatchWalletKeys({ session: input.session, walletKeys: input.walletKeys })) {
     throw new Error(
       '[SigningEngine] strict ECDSA registration requires one family session projected to every wallet target',
@@ -326,6 +353,7 @@ export async function finalizeWalletRegistrationEcdsaSessions(
   const authMethod = bootstrapAuthMethod(input.auth);
   const signerAuth = bootstrapSignerAuth(input.auth);
   const workerHandle = input.session.roleLocalMaterial;
+  const storedWalletKeys: StoreWalletEcdsaWalletKey[] = [];
 
   for (const walletKey of input.walletKeys) {
     const bootstrapStartedAt = performance.now();
@@ -395,31 +423,49 @@ export async function finalizeWalletRegistrationEcdsaSessions(
       bootstrap,
     });
     markRegistrationRuntimeSessionValidated(record);
-    if (input.auth.kind === 'passkey') {
-      await deps.persistActivePasskeyEcdsaReauthAnchor(record);
-      const warmSessionStartedAt = performance.now();
-      try {
-        await hydratePasskeyRegistrationSession({
-          deps,
-          relayerUrl: input.relayerUrl,
-          auth: input.auth,
-          diagnostics: input.diagnostics,
-          walletId,
-          walletKey,
-          bootstrap,
-        });
-      } finally {
-        recordDiagnosticDuration({
-          diagnostics: input.diagnostics,
-          bucket: 'passkey_warm_session_hydration',
-          startedAt: warmSessionStartedAt,
-        });
+    switch (input.auth.kind) {
+      case 'passkey': {
+        await deps.persistActivePasskeyEcdsaReauthAnchor(record);
+        const warmSessionStartedAt = performance.now();
+        try {
+          await hydratePasskeyRegistrationSession({
+            deps,
+            relayerUrl: input.relayerUrl,
+            auth: input.auth,
+            diagnostics: input.diagnostics,
+            walletId,
+            walletKey,
+            bootstrap,
+          });
+        } finally {
+          recordDiagnosticDuration({
+            diagnostics: input.diagnostics,
+            bucket: 'passkey_warm_session_hydration',
+            startedAt: warmSessionStartedAt,
+          });
+        }
+        break;
       }
+      case 'email_otp':
+        await deps.persistEmailOtpEcdsaRegistrationReauthAnchor(record);
+        break;
     }
+    storedWalletKeys.push(
+      storeWalletEcdsaKeyWithRoleLocalMaterial({
+        walletKey,
+        publicFacts,
+        durableMaterialRef: workerHandle.durableMaterialRef,
+      }),
+    );
     recordDiagnosticDuration({
       diagnostics: input.diagnostics,
       bucket: 'runtime_session_commit',
       startedAt: runtimeCommitStartedAt,
     });
   }
+  const [firstStoredWalletKey, ...remainingStoredWalletKeys] = storedWalletKeys;
+  if (!firstStoredWalletKey) {
+    throw new Error('[SigningEngine] strict ECDSA registration did not persist any wallet keys');
+  }
+  return [firstStoredWalletKey, ...remainingStoredWalletKeys];
 }

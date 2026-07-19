@@ -159,7 +159,7 @@ export type EmailOtpEcdsaSealedRecoveryRecord = EcdsaSealedRecoveryRecordBase &
     providerSubjectId?: never;
     emailHashHex?: never;
     authSubjectId?: never;
-    roleLocalDurableMaterialRef?: never;
+    roleLocalDurableMaterialRef: string;
     rpId?: never;
   };
 
@@ -511,8 +511,8 @@ export function normalizeSealedRecoveryRecord(
     !routerAbEcdsaDerivationNormalSigning ||
     !publicCapability ||
     !participantIds.length ||
-    (raw.authMethod === 'passkey' &&
-      (!passkeyClientVerifyingShareB64u || !roleLocalDurableMaterialRef))
+    !roleLocalDurableMaterialRef ||
+    (raw.authMethod === 'passkey' && !passkeyClientVerifyingShareB64u)
   ) {
     return reject(raw, 'missing_restore_metadata');
   }
@@ -622,6 +622,7 @@ export function normalizeSealedRecoveryRecord(
           routerAbEcdsaDerivationNormalSigning,
           publicCapability,
           ...(clientVerifyingShareB64u ? { clientVerifyingShareB64u } : {}),
+          roleLocalDurableMaterialRef,
         };
   return { kind: 'accepted', record: accepted };
 }

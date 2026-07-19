@@ -87,6 +87,23 @@ function requireParticipantIds(value: unknown): number[] {
   });
 }
 
+function roleLocalDurableMaterialRefFromBootstrap(
+  binding: ThresholdEcdsaSessionBootstrapResult['thresholdEcdsaKeyRef']['backendBinding'],
+): string | null {
+  if (!binding) return null;
+  switch (binding.materialKind) {
+    case 'role_local_worker_handle':
+      return binding.roleLocalMaterialHandle.durableMaterialRef;
+    case 'role_local_durable_sealed_ref':
+      return binding.durableMaterialRef;
+    case 'email_otp_worker_handle':
+    case 'role_local_durable_public_anchor':
+    case 'role_local_ready_state_blob':
+    case 'metadata_only':
+      return null;
+  }
+}
+
 function ecdsaBootstrapSignerActivation(args: {
   walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -148,6 +165,49 @@ function ecdsaBootstrapSignerActivation(args: {
     chainTarget: args.chainTarget,
     bootstrap: args.bootstrap,
   });
+  const roleLocalDurableMaterialRef = roleLocalDurableMaterialRefFromBootstrap(
+    keyRef.backendBinding,
+  );
+  const metadata: Record<string, unknown> = {
+    accountModel: 'threshold-ecdsa',
+    accountAddress: thresholdOwnerAddress,
+    ownerAddress: thresholdOwnerAddress,
+    thresholdOwnerAddress,
+    keyScope: 'evm-family',
+    keyHandle,
+    walletId: args.walletId,
+    evmFamilySigningKeySlotId,
+    ecdsaThresholdKeyId,
+    signingRootId,
+    signingRootVersion,
+    relayerKeyId,
+    relayerVerifyingShareB64u,
+    thresholdEcdsaPublicKeyB64u,
+    participantIds,
+    publicCapability: ecdsaRoleLocalPublicFacts.publicCapability,
+    ecdsaRoleLocalPublicFacts,
+    chainTarget: args.chainTarget,
+    targetMembership: {
+      targetKey: chainIdKey,
+      chainTarget: args.chainTarget,
+    },
+    sharedEvmFamilyKey: {
+      walletId: args.walletId,
+      evmFamilySigningKeySlotId,
+      keyScope: 'evm-family',
+      keyHandle,
+      ecdsaThresholdKeyId,
+      signingRootId,
+      signingRootVersion,
+      participantIds,
+      thresholdOwnerAddress,
+      thresholdEcdsaPublicKeyB64u,
+    },
+    chainId: args.chainTarget.chainId,
+  };
+  if (roleLocalDurableMaterialRef) {
+    metadata.roleLocalDurableMaterialRef = roleLocalDurableMaterialRef;
+  }
 
   return {
     account: {
@@ -162,42 +222,7 @@ function ecdsaBootstrapSignerActivation(args: {
       signerKind: SIGNER_KINDS.thresholdEcdsa,
       signerAuthMethod: args.signerAuth.authMethod,
       signerSource: args.signerAuth.signerSource,
-      metadata: {
-        accountModel: 'threshold-ecdsa',
-        accountAddress: thresholdOwnerAddress,
-        ownerAddress: thresholdOwnerAddress,
-        thresholdOwnerAddress,
-        keyScope: 'evm-family',
-        keyHandle,
-        walletId: args.walletId,
-        evmFamilySigningKeySlotId,
-        ecdsaThresholdKeyId,
-        signingRootId,
-        signingRootVersion,
-        relayerKeyId,
-        relayerVerifyingShareB64u,
-        thresholdEcdsaPublicKeyB64u,
-        participantIds,
-        publicCapability: ecdsaRoleLocalPublicFacts.publicCapability,
-        chainTarget: args.chainTarget,
-        targetMembership: {
-          targetKey: chainIdKey,
-          chainTarget: args.chainTarget,
-        },
-        sharedEvmFamilyKey: {
-          walletId: args.walletId,
-          evmFamilySigningKeySlotId,
-          keyScope: 'evm-family',
-          keyHandle,
-          ecdsaThresholdKeyId,
-          signingRootId,
-          signingRootVersion,
-          participantIds,
-          thresholdOwnerAddress,
-          thresholdEcdsaPublicKeyB64u,
-        },
-        chainId: args.chainTarget.chainId,
-      },
+      metadata,
     },
     activationPolicy: { mode: 'allocate_next_free' },
     preferredSlot: 1,

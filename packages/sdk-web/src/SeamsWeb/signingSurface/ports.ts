@@ -64,6 +64,7 @@ import type {
   StoredRegistrationData,
   StoredWalletEd25519SignerRegistration,
   StoreWalletEcdsaRegistrationInput,
+  StoreWalletEcdsaWalletKey,
   StoreWalletEcdsaSignerRecordsInput,
   StoreWalletEcdsaSignerRecordsResult,
   StoreWalletEd25519RegistrationInput,
@@ -268,7 +269,7 @@ export interface EcdsaRegistrationSurface {
   ): Promise<CloseRouterAbEcdsaRegistrationCeremonyResultV1>;
   finalizeWalletRegistrationEcdsaSessions(
     input: FinalizeWalletRegistrationEcdsaSessionsInput,
-  ): Promise<void>;
+  ): Promise<readonly [StoreWalletEcdsaWalletKey, ...StoreWalletEcdsaWalletKey[]]>;
   storeWalletEcdsaSignerRecords(
     input: StoreWalletEcdsaSignerRecordsInput,
   ): Promise<StoreWalletEcdsaSignerRecordsResult>;

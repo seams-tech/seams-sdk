@@ -47,6 +47,11 @@ import {
   clearStoredThresholdEcdsaSessionRecordsForWalletKeyHandle,
   type ThresholdEcdsaSessionRecord,
 } from './records';
+import {
+  emailOtpAuthContextEmailHashHex,
+  emailOtpAuthContextProvider,
+  emailOtpAuthContextProviderUserId,
+} from '../identity/laneIdentity';
 
 export type SigningSessionRestoreLease = {
   v: 1;
@@ -192,7 +197,7 @@ export type EcdsaReauthAnchorPublicRestore =
       provider: 'google' | 'email';
       providerSubjectId: string;
       emailHashHex: string;
-      roleLocalDurableMaterialRef?: never;
+      roleLocalDurableMaterialRef: string;
       rpId?: never;
       credentialIdB64u?: never;
     });
@@ -685,6 +690,7 @@ function normalizeEcdsaRestoreMetadata(
           providerSubjectId &&
           provider &&
           emailHashHex &&
+          roleLocalDurableMaterialRef &&
           source === 'email_otp'
         ? ({
             source,
@@ -692,6 +698,7 @@ function normalizeEcdsaRestoreMetadata(
             provider,
             providerSubjectId,
             emailHashHex,
+            roleLocalDurableMaterialRef,
           } as const)
         : null;
   if (!authBranch) return undefined;
@@ -1527,6 +1534,7 @@ function normalizeEcdsaReauthAnchorPublicRestore(
         !provider ||
         !providerSubjectId ||
         !emailHashHex ||
+        !roleLocalDurableMaterialRef ||
         obj.rpId != null ||
         obj.credentialIdB64u != null
       ) {
@@ -1551,6 +1559,7 @@ function normalizeEcdsaReauthAnchorPublicRestore(
         provider,
         providerSubjectId,
         emailHashHex,
+        roleLocalDurableMaterialRef,
       };
     }
     case 'login':
@@ -2276,6 +2285,7 @@ export function buildEcdsaReauthAnchorPublicRestore(
         provider: restore.provider,
         providerSubjectId: restore.providerSubjectId,
         emailHashHex: restore.emailHashHex,
+        roleLocalDurableMaterialRef: restore.roleLocalDurableMaterialRef,
       };
     case 'login':
     case 'registration':
@@ -2365,17 +2375,9 @@ function requireEcdsaReauthAnchor(args: {
   return anchor;
 }
 
-function activePasskeyEcdsaPublicRestore(
+function registrationEcdsaPublicRestore(
   record: ThresholdEcdsaSessionRecord,
-): Extract<
-  EcdsaReauthAnchorPublicRestore,
-  { source: Exclude<SealedSigningSessionEcdsaRestoreSource, 'email_otp'> }
-> {
-  if (record.source === 'email_otp' || record.ecdsaRoleLocalAuthMethod.kind !== 'passkey') {
-    throw new Error(
-      '[SigningSessionSealedStore] active passkey ECDSA anchor requires passkey authority',
-    );
-  }
+): EcdsaReauthAnchorPublicRestore {
   const thresholdEcdsaPublicKeyB64u = normalizeOptionalNonEmptyString(
     record.thresholdEcdsaPublicKeyB64u,
   );
@@ -2394,10 +2396,10 @@ function activePasskeyEcdsaPublicRestore(
     !/^0x[0-9a-f]{40}$/i.test(ethereumAddress)
   ) {
     throw new Error(
-      '[SigningSessionSealedStore] active passkey ECDSA anchor requires exact public restore facts',
+      '[SigningSessionSealedStore] registration ECDSA anchor requires exact public restore facts',
     );
   }
-  return {
+  const common = {
     chainTarget: record.chainTarget,
     relayerUrl: record.relayerUrl,
     signingRootId: record.signingRootId,
@@ -2414,11 +2416,35 @@ function activePasskeyEcdsaPublicRestore(
     publicCapability: parseRouterAbEcdsaDerivationPublicCapabilityV1(
       record.ecdsaRoleLocalPublicFacts.publicCapability,
     ),
-    source: record.source,
     roleLocalDurableMaterialRef,
-    rpId: record.ecdsaRoleLocalAuthMethod.rpId,
-    credentialIdB64u: record.ecdsaRoleLocalAuthMethod.credentialIdB64u,
   };
+  switch (record.ecdsaRoleLocalAuthMethod.kind) {
+    case 'passkey':
+      if (record.source === 'email_otp') {
+        throw new Error(
+          '[SigningSessionSealedStore] passkey ECDSA anchor requires passkey authority',
+        );
+      }
+      return {
+        ...common,
+        source: record.source,
+        rpId: record.ecdsaRoleLocalAuthMethod.rpId,
+        credentialIdB64u: record.ecdsaRoleLocalAuthMethod.credentialIdB64u,
+      };
+    case 'email_otp':
+      if (record.source !== 'email_otp') {
+        throw new Error(
+          '[SigningSessionSealedStore] Email OTP ECDSA anchor requires Email OTP authority',
+        );
+      }
+      return {
+        ...common,
+        source: 'email_otp',
+        provider: emailOtpAuthContextProvider(record.emailOtpAuthContext),
+        providerSubjectId: emailOtpAuthContextProviderUserId(record.emailOtpAuthContext),
+        emailHashHex: emailOtpAuthContextEmailHashHex(record.emailOtpAuthContext),
+      };
+  }
 }
 
 async function writeEcdsaReauthAnchor(record: EcdsaReauthAnchorRecord): Promise<void> {
@@ -2456,7 +2482,7 @@ export async function persistActivePasskeyEcdsaReauthAnchor(
       '[SigningSessionSealedStore] active passkey ECDSA anchor requires an active session policy',
     );
   }
-  const ecdsaRestore = activePasskeyEcdsaPublicRestore(record);
+  const ecdsaRestore = registrationEcdsaPublicRestore(record);
   await writeEcdsaReauthAnchor({
     recordKind: ECDSA_REAUTH_ANCHOR_RECORD_KIND,
     storeKey: makeSealedRecordStoreKey({
@@ -2477,6 +2503,50 @@ export async function persistActivePasskeyEcdsaReauthAnchor(
     updatedAtMs,
     state: 'active',
     remainingUses,
+  });
+}
+
+export async function persistEmailOtpEcdsaRegistrationReauthAnchor(
+  record: ThresholdEcdsaSessionRecord,
+): Promise<void> {
+  if (record.source !== 'email_otp' || record.ecdsaRoleLocalAuthMethod.kind !== 'email_otp') {
+    throw new Error(
+      '[SigningSessionSealedStore] Email OTP registration anchor requires Email OTP authority',
+    );
+  }
+  const expiresAtMs = Math.floor(Number(record.expiresAtMs));
+  const updatedAtMs = Math.floor(Number(record.updatedAtMs));
+  if (
+    !Number.isSafeInteger(expiresAtMs) ||
+    expiresAtMs <= 0 ||
+    !Number.isSafeInteger(updatedAtMs) ||
+    updatedAtMs <= 0
+  ) {
+    throw new Error(
+      '[SigningSessionSealedStore] Email OTP registration anchor requires a valid session policy',
+    );
+  }
+  await writeEcdsaReauthAnchor({
+    recordKind: ECDSA_REAUTH_ANCHOR_RECORD_KIND,
+    storeKey: makeSealedRecordStoreKey({
+      signingGrantId: record.signingGrantId,
+      authMethod: 'email_otp',
+      curve: 'ecdsa',
+      chainTarget: record.chainTarget,
+    }),
+    authMethod: 'email_otp',
+    curve: 'ecdsa',
+    signingGrantId: record.signingGrantId,
+    thresholdSessionIds: { ecdsa: record.thresholdSessionId },
+    walletId: record.walletId,
+    relayerUrl: record.relayerUrl,
+    ecdsaRestore: registrationEcdsaPublicRestore(record),
+    issuedAtMs: updatedAtMs,
+    expiresAtMs,
+    updatedAtMs,
+    state: 'exhausted',
+    retirement: 'exhausted',
+    remainingUses: 0,
   });
 }
 
