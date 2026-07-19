@@ -28,6 +28,8 @@ router-ab-ecdsa-derivation = { path = "../router-ab-ecdsa-derivation" }
 router-ab-ecdsa-client-protocol = { path = "../router-ab-ecdsa-client-protocol" }
 router-ab-ecdsa-online = { path = "../router-ab-ecdsa-online" }
 router-ab-ecdsa-pool = { path = "../router-ab-ecdsa-pool" }
+router-ab-ecdsa-presign = { path = "../router-ab-ecdsa-presign" }
+router-ab-ecdsa-wire = { path = "../router-ab-ecdsa-wire" }
 router-ab-ed25519-yao = { path = "../router-ab-ed25519-yao" }
 ed25519-dalek = { version = "2.1", default-features = false }
 frost-ed25519 = { version = "2.2", default-features = false, features = ["serialization", "std"] }
@@ -47,6 +49,4 @@ zeroize = { version = "1.8", features = ["zeroize_derive"] }
 
 [dev-dependencies]
 rand_chacha = "0.3"
-router-ab-ecdsa-presign = { path = "../router-ab-ecdsa-presign" }
-router-ab-ecdsa-wire = { path = "../router-ab-ecdsa-wire" }
 wasm-bindgen-test = "0.3"

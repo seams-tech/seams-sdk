@@ -5,7 +5,7 @@
 Router A/B ECDSA derivation uses one compile-time construction:
 
 - Ristretto255/SHA-512 threshold PRF;
-- a fixed 2-of-2 policy;
+- a fixed 2-of-2 construction;
 - Deriver A share id `1`;
 - Deriver B share id `2`;
 - DLEQ verification for every partial;
@@ -43,9 +43,9 @@ bundles before threshold combination.
 - Deriver A requires id `1`; Deriver B requires id `2`.
 - `EcdsaThresholdPrfProofBatchPayloadV1` is the only A/B derivation
   proof-batch payload.
-- `RootShareCommitmentRegistryV1` is required by every partial-verification and
-  combine path. A proof-bundle commitment is compared with the registry and is
-  never a trust anchor.
+- Each proof bundle carries the public share commitment used by its DLEQ proof.
+  The recipient verifies that proof-contained commitment before combining the
+  bundle with its peer.
 
 The reusable `threshold-prf` crate may support general t-of-n policies. That
 generality does not cross the Router A/B ECDSA adapter.
@@ -57,7 +57,6 @@ generality does not cross the Router A/B ECDSA adapter.
 - `router-ab-protocol/ecdsa-threshold-prf-request/v1`
 - `router-ab-protocol/ecdsa-threshold-prf-request-context/v1`
 - `router-ab-protocol/ecdsa-threshold-prf-proof-batch-payload/v1`
-- `router-ab-ecdsa-derivation/root-share-commitment-record/v1`
 - `threshold-prf/ristretto255-sha512`
 - `threshold_prf_ristretto255_sha512`
 - `router-ab/x_client_base/v1`
@@ -72,46 +71,26 @@ share commitment and fixed PRF context. Transcript, role, recipient, epoch,
 and output-purpose validation prevents cross-session and cross-recipient
 substitution.
 
-The authenticated commitment registry contains exactly one record-only Deriver
-A entry and one record-only Deriver B entry for the same root id, version, and
-epoch. Every signed record binds the fixed suite, role and share id, root
-identity, public commitment, operator identity, authority-key epoch, and
-validity interval. Runtime records carry no trust keys.
-
-The trust policy is a separate manifest signed by an external Ed25519 release
-authority. Fixed domain-separated canonical bytes cover the release epoch,
-fixed suite, minimum root-version and authority-key-epoch floors, revocations,
-and both role-specific authority keys and validity intervals. The
-SigningWorker build pins the external release-authority public key, the exact
-SHA-256 manifest digest, and a minimum release epoch. Runtime configuration
-cannot replace its own trust root or roll back floors, keys, or revocations.
-Missing pins, noncanonical encodings, unknown fields, digest or signature
-mismatch, release rollback, duplicate authority tuples, mixed roots, stale
-epochs, role/share mismatches, operator substitution, and record substitution
-fail closed.
-
-The Cloudflare adapter reads the signed manifest and record set from
-`SIGNING_WORKER_ECDSA_COMMITMENT_REGISTRY_JSON`. Its binary must be built with
-`ROUTER_AB_ECDSA_COMMITMENT_POLICY_RELEASE_AUTHORITY_PUBLIC_KEY_HEX`,
-`ROUTER_AB_ECDSA_COMMITMENT_POLICY_DIGEST_HEX`, and
-`ROUTER_AB_ECDSA_COMMITMENT_POLICY_MINIMUM_RELEASE_EPOCH`. These are build
-inputs. Wrangler runtime variables cannot override them.
+The recipient verifies each proof against the commitment carried in that proof
+bundle, then checks the fixed role, recipient, transcript, root-share epoch,
+output kind, and peer relationship before combining the two bundles. A
+commitment supplied outside the proof bundle is not part of the protocol.
 
 After activation, presignatures and the server additive share remain owned by
 the SigningWorker. Ordinary ECDSA signing uses the Router, Client, and
 SigningWorker and performs zero Deriver calls.
 
-Deployment separation, transport authentication, durable replay state,
-credential isolation, and independent custody of the build-pinned release
-authority remain composition requirements owned by the wider Router A/B plan.
+Deployment separation, transport authentication, durable replay state, and
+credential isolation remain composition requirements owned by the wider Router
+A/B plan.
 
 ## Validation evidence
 
 - deterministic direct-reference versus 2-of-2 combine tests;
 - malformed proof, role/id swap, transcript, epoch, output-purpose, and
   recipient rejection tests;
-- registry rollback, rotation, revocation, ambiguity, mixed-root, stale-epoch,
-  wrong-role/share-id, operator, and commitment-substitution tests;
+- proof-contained commitment, role/share-id, transcript, epoch, and
+  commitment-substitution tests;
 - recipient-ciphertext AAD tests binding the fixed suite and proof payload;
 - source guards proving normal signing has no Deriver invocation;
 - committed canonical payload vectors;

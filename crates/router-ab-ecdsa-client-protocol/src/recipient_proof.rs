@@ -106,16 +106,6 @@ impl EcdsaOpenedClientProofBundlePairV1 {
         &self.signer_b
     }
 
-    /// Builds the authenticated commitment-registry lifecycle binding.
-    pub fn commitment_registry_binding(&self, now_ms: u64) -> EcdsaCommitmentRegistryBindingV1 {
-        EcdsaCommitmentRegistryBindingV1 {
-            now_ms,
-            root_share_epoch: self.signer_a.root_share_epoch.clone(),
-            signer_a_identity: self.signer_a.signer.signer_id.clone(),
-            signer_b_identity: self.signer_b.signer.signer_id.clone(),
-        }
-    }
-
     /// Builds the exact threshold-PRF public context for this pair.
     pub fn prf_context(&self) -> Result<EcdsaPrfPublicContextV1, EcdsaClientProtocolError> {
         ecdsa_client_prf_public_context_v1(

@@ -58,7 +58,7 @@ import type {
 } from './ecdsaRoleLocalRecords';
 
 export type { CredentialIdB64u } from './ecdsaRoleLocalRecords';
-import type { ThresholdEcdsaRoleLocalWorkerShareHandle } from '../signingEngine/interfaces/signing';
+import type { EcdsaRoleLocalWorkerHandle } from '../signingEngine/session/keyMaterialBrands';
 import type { EcdsaBootstrapSecretSource } from './secretSources';
 
 export type SignerCryptoInvocationErrorCode =
@@ -398,12 +398,12 @@ export type FinalizeEcdsaClientBootstrapErrorCode = GeneratedFinalizeEcdsaClient
 
 export type StoreEcdsaRoleLocalSigningMaterialInput = {
   kind: 'store_ecdsa_role_local_signing_material_v1';
-  handle: ThresholdEcdsaRoleLocalWorkerShareHandle;
+  handle: EcdsaRoleLocalWorkerHandle;
   stateBlob: EcdsaRoleLocalReadyStateBlob;
 };
 
 export type StoreEcdsaRoleLocalSigningMaterialOutput = {
-  handle: ThresholdEcdsaRoleLocalWorkerShareHandle;
+  handle: EcdsaRoleLocalWorkerHandle;
 };
 
 export type StoreEcdsaRoleLocalSigningMaterialErrorCode =

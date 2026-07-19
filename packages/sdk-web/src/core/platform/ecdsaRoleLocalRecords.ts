@@ -143,34 +143,57 @@ export type EcdsaRoleLocalReadyStateBlobSigningMaterial = {
   workerSessionId?: never;
 };
 
+export type EcdsaRoleLocalDurableSigningMaterial = {
+  kind: 'role_local_durable_material';
+  durableMaterialRef: string;
+  stateBlob?: never;
+  workerSessionId?: never;
+};
+
 export type EcdsaRoleLocalSessionRecordState =
   | {
       kind: 'ready_passkey_role_local_material_v1';
       authMethod: Extract<EcdsaRoleLocalAuthMethod, { kind: 'passkey' }>;
-      readyRecord: Extract<EcdsaRoleLocalReadyRecord, { authMethod: { kind: 'passkey' } }>;
-      inlineSigningMaterial: EcdsaRoleLocalReadyStateBlobSigningMaterial;
+      publicFacts: EcdsaRoleLocalPublicFacts;
+      durableMaterialRef: string;
+      readyRecord?: never;
+      inlineSigningMaterial?: never;
       reauth?: never;
       cleanup?: never;
     }
-  | {
+  | ({
       kind: 'ready_email_otp_role_local_material_v1';
       authMethod: Extract<EcdsaRoleLocalAuthMethod, { kind: 'email_otp' }>;
-      readyRecord: Extract<EcdsaRoleLocalReadyRecord, { authMethod: { kind: 'email_otp' } }>;
-      inlineSigningMaterial:
-        | EcdsaRoleLocalEmailOtpWorkerShare
-        | EcdsaRoleLocalReadyStateBlobSigningMaterial;
       reauth?: never;
       cleanup?: never;
-    }
+    } & (
+      | {
+          publicFacts: EcdsaRoleLocalPublicFacts;
+          readyRecord?: never;
+          inlineSigningMaterial: EcdsaRoleLocalDurableSigningMaterial;
+        }
+      | {
+          publicFacts?: never;
+          readyRecord: Extract<
+            EcdsaRoleLocalReadyRecord,
+            { authMethod: { kind: 'email_otp' } }
+          >;
+          inlineSigningMaterial:
+            | EcdsaRoleLocalEmailOtpWorkerShare
+            | EcdsaRoleLocalReadyStateBlobSigningMaterial;
+        }
+    ))
   | {
       kind: 'reauth_required_role_local_material_v1';
       authMethod: EcdsaRoleLocalAuthMethod;
-      readyRecord: EcdsaRoleLocalReadyRecord;
+      publicFacts: EcdsaRoleLocalPublicFacts;
       reason:
         | 'missing_worker_share'
+        | 'missing_durable_material'
         | 'expired'
         | 'exhausted'
         | 'unsupported_material_owner';
+      readyRecord?: never;
       inlineSigningMaterial?: never;
       cleanup?: never;
     }

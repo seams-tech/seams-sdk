@@ -110,7 +110,7 @@ where
 {
     validate_signing_worker_target(peer, "Router A/B ECDSA derivation finalize")?;
     request.validate()?;
-    let expected_prepare_request = request.request.prepare_request()?;
+    let expected_finalize_request = request.request.clone();
     let response = transport
         .send(
             peer,
@@ -120,7 +120,7 @@ where
     let CloudflareRouterAbEcdsaNormalSigningServiceResponseV1::Finalize(response) = response else {
         return Err(wrong_response_branch("finalize"));
     };
-    response.validate_for_request(&expected_prepare_request)?;
+    response.validate_for_request(&expected_finalize_request)?;
     Ok(response)
 }
 
@@ -207,7 +207,7 @@ mod tests {
                     CloudflareRouterAbEcdsaNormalSigningServiceRequestV1::Finalize(request) => {
                         let response =
                             RouterAbEcdsaDerivationEvmDigestSigningResponseV1::new_for_request(
-                                &request.request.prepare_request()?,
+                                &request.request,
                                 base64url(&[0x99; 65]),
                             )?;
                         Ok(

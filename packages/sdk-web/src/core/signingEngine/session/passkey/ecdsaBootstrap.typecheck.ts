@@ -11,6 +11,7 @@ import type {
   EvmFamilyEcdsaSessionLanePolicy,
 } from '../identity/evmFamilyEcdsaIdentity';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { PersistedEcdsaRoleLocalMaterial } from '../persistence/records';
 
 declare const walletId: WalletId;
 declare const subjectId: WalletId;
@@ -25,6 +26,7 @@ declare const key: EvmFamilyEcdsaKeyIdentity;
 declare const lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
 declare const passkeyCredentialIdB64u: string;
 declare const publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+declare const existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
 
 const sessionIdentity = buildEcdsaSessionIdentity({
   thresholdSessionId: 'threshold-session-id',
@@ -119,6 +121,7 @@ const validWalletSessionReconnectBootstrap = {
   key,
   lanePolicy,
   publicCapability,
+  existingRoleLocalMaterial,
   passkeyPrfFirstB64u: 'passkey-prf-first',
   passkeyCredentialIdB64u,
   routeAuth: {

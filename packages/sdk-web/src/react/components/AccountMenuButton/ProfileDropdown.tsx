@@ -41,7 +41,6 @@ export const ProfileDropdown = forwardRef<HTMLDivElement, ProfileDropdownWithRef
       linkedDevicesOpen = false,
       exportKeysOpen = false,
       exportLoadingChain = null,
-      exportRestrictionMessage,
       onExportChain,
       walletId,
       nearAccountId,
@@ -117,7 +116,6 @@ export const ProfileDropdown = forwardRef<HTMLDivElement, ProfileDropdownWithRef
                   <ExportKeysSection
                     isOpen={exportKeysOpen}
                     loadingChain={exportLoadingChain}
-                    restrictionMessage={exportRestrictionMessage}
                     onSelectChain={onExportChain}
                     style={{ ['--stagger-item-n' as any]: index }}
                   />

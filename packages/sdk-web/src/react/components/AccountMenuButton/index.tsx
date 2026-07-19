@@ -83,6 +83,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
   username: usernameProp,
   hideUsername = false,
   onLock: onLock,
+  onExportKeyError,
   deviceLinkingScannerParams,
   toggleColors,
   style,
@@ -111,7 +112,6 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
   const [showRecoveryCodes, setShowRecoveryCodes] = useState(false);
   const [exportKeysOpen, setExportKeysOpen] = useState(false);
   const [exportLoadingChain, setExportLoadingChain] = useState<ExportChain | null>(null);
-  const [exportRestrictionMessage, setExportRestrictionMessage] = useState<string | null>(null);
   const [transactionSettingsOpen, setTransactionSettingsOpen] = useState(false);
   const [accountsOpen, setAccountsOpen] = useState(false);
   const [currentConfirmConfig, setCurrentConfirmConfig] = useState<ConfirmationConfig | null>(null);
@@ -194,7 +194,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
     async (chain: ExportChain) => {
       if (exportLoadingChain) return;
       if (!loginState.isLoggedIn || !walletId) {
-        setExportRestrictionMessage('Key export requires an unlocked wallet.');
+        onExportKeyError?.(new Error('Key export requires an unlocked wallet.'));
         return;
       }
 
@@ -204,7 +204,6 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
       });
 
       setExportLoadingChain(chain);
-      setExportRestrictionMessage(null);
       try {
         if (chain === 'near') {
           if (!nearAccountId) {
@@ -249,14 +248,14 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
           },
         });
       } catch (error: unknown) {
-        const message = formatExportKeyErrorMessage(error);
-        setExportRestrictionMessage(message);
         console.error('[AccountMenuButton] Key export failed:', error);
+        // Surface through the host (e.g. as a toast) instead of inline menu UI
+        onExportKeyError?.(new Error(formatExportKeyErrorMessage(error)));
       } finally {
         setExportLoadingChain(null);
       }
     },
-    [exportLoadingChain, loginState.isLoggedIn, nearAccountId, seams, walletId],
+    [exportLoadingChain, loginState.isLoggedIn, nearAccountId, onExportKeyError, seams, walletId],
   );
 
   // Chain rows for the Accounts expander: one per configured chain with a
@@ -319,7 +318,6 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
       description: 'Export wallet signing keys',
       disabled: !loginState.isLoggedIn,
       onClick: () => {
-        setExportRestrictionMessage(null);
         setExportKeysOpen((v) => !v);
       },
       keepOpenOnClick: true,
@@ -442,7 +440,6 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
         linkedDevicesOpen={linkedDevicesOpen}
         exportKeysOpen={exportKeysOpen}
         exportLoadingChain={exportLoadingChain}
-        exportRestrictionMessage={exportRestrictionMessage}
         onExportChain={startExportKeyFlow}
         walletId={walletId}
         nearAccountId={nearAccountId}

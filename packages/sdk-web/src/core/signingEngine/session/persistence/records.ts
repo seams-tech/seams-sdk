@@ -29,7 +29,6 @@ import { THRESHOLD_ECDSA_SESSION_STORE_SOURCES } from '../identity/laneIdentity'
 import type {
   ThresholdEcdsaClientAdditiveShareHandle,
   ThresholdEcdsaCanonicalExportArtifact,
-  ThresholdEcdsaRoleLocalWorkerShareHandle,
   ThresholdEcdsaSecp256k1KeyRef,
 } from '../../interfaces/signing';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
@@ -41,12 +40,24 @@ import {
   parseRouterAbEcdsaDerivationNormalSigningStateV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
+import { alphabetizeStringify } from '@shared/utils/digests';
 import {
   formatSigningSessionSealKeyVersionForWire,
+  parseEcdsaRoleLocalBindingDigest,
   parseEcdsaRoleLocalDurableMaterialRef,
   type EcdsaRoleLocalDurableMaterialRef,
+  type EcdsaRoleLocalWorkerHandle,
   type SigningSessionSealKeyVersion,
 } from '../keyMaterialBrands';
+import {
+  bindLiveEcdsaRoleLocalMaterial,
+  buildPersistedEcdsaRoleLocalMaterial,
+  clearEcdsaRoleLocalWorkerRuntimeState,
+  forgetLiveEcdsaRoleLocalMaterial,
+  getLiveEcdsaRoleLocalMaterial,
+  requireMatchingLiveEcdsaRoleLocalMaterial,
+  type PersistedEcdsaRoleLocalMaterial,
+} from '../material/ecdsaRoleLocalMaterialResolver';
 import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
@@ -151,7 +162,6 @@ type ThresholdEcdsaSessionRecordCore = {
   relayerKeyId: string;
   clientVerifyingShareB64u: string;
   clientAdditiveShareHandle?: ThresholdEcdsaClientAdditiveShareHandle;
-  roleLocalMaterialHandle?: ThresholdEcdsaRoleLocalWorkerShareHandle;
   roleLocalDurableMaterialRef?: EcdsaRoleLocalDurableMaterialRef;
   ecdsaRoleLocalAuthMethod: EcdsaRoleLocalAuthMethod;
   ecdsaRoleLocalPublicFacts: EcdsaRoleLocalPublicFacts;
@@ -181,6 +191,9 @@ export type RawThresholdEcdsaSessionRecord = Record<string, unknown>;
 type NormalizedThresholdEcdsaSessionRecordShared = Omit<
   ThresholdEcdsaSessionRecordCore,
   | 'clientAdditiveShareHandle'
+  | 'roleLocalDurableMaterialRef'
+  | 'ecdsaRoleLocalAuthMethod'
+  | 'ecdsaRoleLocalReadyRecord'
   | 'emailOtpAuthContext'
   | 'source'
   | 'verifiedPublicFacts'
@@ -192,19 +205,42 @@ type NormalizedThresholdEcdsaSessionRecordShared = Omit<
 
 export type ReadyPasskeyEcdsaSessionRecord = NormalizedThresholdEcdsaSessionRecordShared & {
   source: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
-  clientAdditiveShareHandle?: ThresholdEcdsaClientAdditiveShareHandle;
+  roleLocalDurableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
+  ecdsaRoleLocalAuthMethod: Extract<EcdsaRoleLocalAuthMethod, { kind: 'passkey' }>;
+  ecdsaRoleLocalReadyRecord?: never;
+  clientAdditiveShareHandle?: never;
+  emailOtpAuthContext?: never;
 };
 
-export type EmailOtpEcdsaSessionRecord = Omit<
+type EmailOtpEcdsaSessionRecordShared = Omit<
   NormalizedThresholdEcdsaSessionRecordShared,
   'thresholdSessionKind' | 'walletSessionJwt'
 > & {
   source: 'email_otp';
   thresholdSessionKind: 'jwt';
   walletSessionJwt: string;
-  clientAdditiveShareHandle?: ThresholdEcdsaClientAdditiveShareHandle;
+  ecdsaRoleLocalAuthMethod: Extract<EcdsaRoleLocalAuthMethod, { kind: 'email_otp' }>;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
 };
+
+type WorkerOwnedEmailOtpEcdsaSessionRecord = EmailOtpEcdsaSessionRecordShared & {
+  roleLocalDurableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
+  ecdsaRoleLocalReadyRecord?: never;
+  clientAdditiveShareHandle?: never;
+};
+
+type InlineEmailOtpEcdsaSessionRecord = EmailOtpEcdsaSessionRecordShared & {
+  roleLocalDurableMaterialRef?: never;
+  ecdsaRoleLocalReadyRecord: Extract<
+    EcdsaRoleLocalReadyRecord,
+    { kind: 'ecdsa_role_local_ready_email_otp_v1' }
+  >;
+  clientAdditiveShareHandle?: ThresholdEcdsaClientAdditiveShareHandle;
+};
+
+export type EmailOtpEcdsaSessionRecord =
+  | WorkerOwnedEmailOtpEcdsaSessionRecord
+  | InlineEmailOtpEcdsaSessionRecord;
 
 export type NormalizedThresholdEcdsaSessionRecord =
   | ReadyPasskeyEcdsaSessionRecord
@@ -1296,8 +1332,8 @@ function assertEcdsaRoleLocalPublicFactMatches(args: {
   }
 }
 
-function assertEcdsaRoleLocalReadyRecordMatchesSessionRecord(args: {
-  readyRecord: EcdsaRoleLocalReadyRecord;
+function assertEcdsaRoleLocalPublicFactsMatchSessionRecord(args: {
+  publicFacts: EcdsaRoleLocalPublicFacts;
   walletId: WalletId;
   evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -1305,10 +1341,13 @@ function assertEcdsaRoleLocalReadyRecordMatchesSessionRecord(args: {
   ecdsaThresholdKeyId: string;
   signingRootId: string;
   signingRootVersion?: string;
+  clientVerifyingShareB64u: string;
   participantIds: readonly number[];
+  thresholdEcdsaPublicKeyB64u?: string;
   ethereumAddress: string;
+  relayerVerifyingShareB64u?: string;
 }): void {
-  const facts = args.readyRecord.publicFacts;
+  const facts = args.publicFacts;
   const expectedSigningRootVersion = args.signingRootVersion || 'default';
   assertMatchingEvmFamilySigningKeySlotId({
     expected: args.evmFamilySigningKeySlotId,
@@ -1324,6 +1363,11 @@ function assertEcdsaRoleLocalReadyRecordMatchesSessionRecord(args: {
     ['signingRootId', String(facts.signingRootId), args.signingRootId],
     ['signingRootVersion', String(facts.signingRootVersion), expectedSigningRootVersion],
     [
+      'derivationClientSharePublicKey33B64u',
+      String(facts.derivationClientSharePublicKey33B64u),
+      args.clientVerifyingShareB64u,
+    ],
+    [
       'participantIds',
       ecdsaParticipantIdsKey(facts.participantIds),
       ecdsaParticipantIdsKey(args.participantIds),
@@ -1334,6 +1378,20 @@ function assertEcdsaRoleLocalReadyRecordMatchesSessionRecord(args: {
       args.ethereumAddress.toLowerCase(),
     ],
   ];
+  if (args.thresholdEcdsaPublicKeyB64u) {
+    checks.push([
+      'groupPublicKey33B64u',
+      String(facts.groupPublicKey33B64u),
+      args.thresholdEcdsaPublicKeyB64u,
+    ]);
+  }
+  if (args.relayerVerifyingShareB64u) {
+    checks.push([
+      'relayerPublicKey33B64u',
+      String(facts.relayerPublicKey33B64u),
+      args.relayerVerifyingShareB64u,
+    ]);
+  }
   for (const [field, actual, expected] of checks) {
     assertEcdsaRoleLocalPublicFactMatches({ field, actual, expected });
   }
@@ -1342,6 +1400,146 @@ function assertEcdsaRoleLocalReadyRecordMatchesSessionRecord(args: {
       'Invalid threshold ECDSA canonical session record: role-local publicFacts chainTarget mismatch',
     );
   }
+}
+
+function assertEcdsaRoleLocalPublicCapabilityMatchesFacts(args: {
+  facts: EcdsaRoleLocalPublicFacts;
+  walletId: WalletId;
+}): void {
+  const facts = args.facts;
+  const capability = facts.publicCapability;
+  const publicIdentity = capability.public_identity;
+  const checks: Array<[string, string, string]> = [
+    ['publicCapability.client_id', capability.client_id, String(args.walletId)],
+    [
+      'publicCapability.context.application_binding_digest_b64u',
+      capability.context.application_binding_digest_b64u,
+      facts.applicationBindingDigestB64u,
+    ],
+    [
+      'publicCapability.public_identity.context_binding_b64u',
+      publicIdentity.context_binding_b64u,
+      facts.contextBinding32B64u,
+    ],
+    [
+      'publicCapability.public_identity.derivation_client_share_public_key33_b64u',
+      publicIdentity.derivation_client_share_public_key33_b64u,
+      facts.derivationClientSharePublicKey33B64u,
+    ],
+    [
+      'publicCapability.public_identity.server_public_key33_b64u',
+      publicIdentity.server_public_key33_b64u,
+      facts.relayerPublicKey33B64u,
+    ],
+    [
+      'publicCapability.public_identity.threshold_public_key33_b64u',
+      publicIdentity.threshold_public_key33_b64u,
+      facts.groupPublicKey33B64u,
+    ],
+    [
+      'publicCapability.public_identity.ethereum_address20_b64u',
+      normalizeEthereumAddress20B64u(publicIdentity.ethereum_address20_b64u),
+      facts.ethereumAddress.toLowerCase(),
+    ],
+  ];
+  for (const [field, actual, expected] of checks) {
+    assertEcdsaRoleLocalPublicFactMatches({ field, actual, expected });
+  }
+}
+
+function assertEcdsaRoleLocalPublicFactsMatchNormalSigningState(args: {
+  publicFacts: EcdsaRoleLocalPublicFacts;
+  normalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
+}): void {
+  const scope = args.normalSigning.scope;
+  const facts = args.publicFacts;
+  const publicCapability = facts.publicCapability;
+  const publicIdentity = scope.public_identity;
+  const checks: Array<[string, string, string]> = [
+    ['normalSigning.activation_epoch', scope.activation_epoch, publicCapability.activation_epoch],
+    [
+      'normalSigning.context.application_binding_digest_b64u',
+      scope.context.application_binding_digest_b64u,
+      facts.applicationBindingDigestB64u,
+    ],
+    [
+      'normalSigning.public_identity.context_binding_b64u',
+      publicIdentity.context_binding_b64u,
+      facts.contextBinding32B64u,
+    ],
+    [
+      'normalSigning.public_identity.derivation_client_share_public_key33_b64u',
+      publicIdentity.derivation_client_share_public_key33_b64u,
+      facts.derivationClientSharePublicKey33B64u,
+    ],
+    [
+      'normalSigning.public_identity.server_public_key33_b64u',
+      publicIdentity.server_public_key33_b64u,
+      facts.relayerPublicKey33B64u,
+    ],
+    [
+      'normalSigning.public_identity.threshold_public_key33_b64u',
+      publicIdentity.threshold_public_key33_b64u,
+      facts.groupPublicKey33B64u,
+    ],
+    [
+      'normalSigning.public_identity.ethereum_address20_b64u',
+      normalizeEthereumAddress20B64u(publicIdentity.ethereum_address20_b64u),
+      facts.ethereumAddress.toLowerCase(),
+    ],
+    [
+      'normalSigning.public_identity.client_share_retry_counter',
+      String(publicIdentity.client_share_retry_counter),
+      String(publicCapability.public_identity.client_share_retry_counter),
+    ],
+    [
+      'normalSigning.public_identity.server_share_retry_counter',
+      String(publicIdentity.server_share_retry_counter),
+      String(publicCapability.public_identity.server_share_retry_counter),
+    ],
+    [
+      'normalSigning.signing_worker.server_id',
+      scope.signing_worker.server_id,
+      publicCapability.signer_set.selected_server.server_id,
+    ],
+    [
+      'normalSigning.signing_worker.key_epoch',
+      scope.signing_worker.key_epoch,
+      publicCapability.signer_set.selected_server.key_epoch,
+    ],
+    [
+      'normalSigning.signing_worker.recipient_encryption_key',
+      scope.signing_worker.recipient_encryption_key,
+      publicCapability.signer_set.selected_server.recipient_encryption_key,
+    ],
+  ];
+  for (const [field, actual, expected] of checks) {
+    assertEcdsaRoleLocalPublicFactMatches({ field, actual, expected });
+  }
+}
+
+function requireEmailOtpRoleLocalRecordMatchesCanonicalFields(args: {
+  authMethod: Extract<EcdsaRoleLocalAuthMethod, { kind: 'email_otp' }>;
+  publicFacts: EcdsaRoleLocalPublicFacts;
+  readyRecord: EcdsaRoleLocalReadyRecord | null;
+}): Extract<EcdsaRoleLocalReadyRecord, { kind: 'ecdsa_role_local_ready_email_otp_v1' }> {
+  const readyRecord = args.readyRecord;
+  if (!readyRecord || readyRecord.kind !== 'ecdsa_role_local_ready_email_otp_v1') {
+    throw new Error(
+      'Invalid threshold ECDSA canonical session record: Email OTP requires Email OTP role-local state',
+    );
+  }
+  if (readyRecord.authMethod.authSubjectId !== args.authMethod.authSubjectId) {
+    throw new Error(
+      'Invalid threshold ECDSA canonical session record: Email OTP role-local auth mismatch',
+    );
+  }
+  if (alphabetizeStringify(readyRecord.publicFacts) !== alphabetizeStringify(args.publicFacts)) {
+    throw new Error(
+      'Invalid threshold ECDSA canonical session record: Email OTP role-local publicFacts mismatch',
+    );
+  }
+  return readyRecord;
 }
 
 function normalizeThresholdEcdsaSessionRecord(
@@ -1434,12 +1632,8 @@ function normalizeThresholdEcdsaSessionRecord(
   const ecdsaRoleLocalReadyRecord = normalizeEcdsaRoleLocalReadyRecord(
     obj.ecdsaRoleLocalReadyRecord,
   );
-  const ecdsaRoleLocalAuthMethod = parseEcdsaRoleLocalAuthMethod(
-    obj.ecdsaRoleLocalAuthMethod ?? ecdsaRoleLocalReadyRecord?.authMethod,
-  );
-  const ecdsaRoleLocalPublicFacts = buildEcdsaRoleLocalPublicFacts(
-    obj.ecdsaRoleLocalPublicFacts || ecdsaRoleLocalReadyRecord?.publicFacts,
-  );
+  const ecdsaRoleLocalAuthMethod = parseEcdsaRoleLocalAuthMethod(obj.ecdsaRoleLocalAuthMethod);
+  const ecdsaRoleLocalPublicFacts = buildEcdsaRoleLocalPublicFacts(obj.ecdsaRoleLocalPublicFacts);
 
   if (
     !relayerUrl ||
@@ -1471,25 +1665,33 @@ function normalizeThresholdEcdsaSessionRecord(
   if (normalizeOptionalNonEmptyString(obj.subjectId)) {
     throw new Error('Invalid threshold ECDSA canonical session record: unexpected subjectId');
   }
-  if (obj.ecdsaDerivationRoleLocalClientState !== undefined && obj.ecdsaDerivationRoleLocalClientState !== null) {
+  if (
+    obj.ecdsaDerivationRoleLocalClientState !== undefined &&
+    obj.ecdsaDerivationRoleLocalClientState !== null
+  ) {
     throw new Error(
       'Invalid threshold ECDSA canonical session record: deleted ecdsaDerivationRoleLocalClientState',
     );
   }
-  if (ecdsaRoleLocalReadyRecord) {
-    assertEcdsaRoleLocalReadyRecordMatchesSessionRecord({
-      readyRecord: ecdsaRoleLocalReadyRecord,
-      walletId,
-      evmFamilySigningKeySlotId,
-      chainTarget,
-      keyHandle,
-      ecdsaThresholdKeyId,
-      signingRootId: signingRootBinding.signingRootId,
-      signingRootVersion: signingRootBinding.signingRootVersion,
-      participantIds,
-      ethereumAddress,
-    });
-  }
+  assertEcdsaRoleLocalPublicFactsMatchSessionRecord({
+    publicFacts: ecdsaRoleLocalPublicFacts,
+    walletId,
+    evmFamilySigningKeySlotId,
+    chainTarget,
+    keyHandle,
+    ecdsaThresholdKeyId,
+    signingRootId: signingRootBinding.signingRootId,
+    signingRootVersion: signingRootBinding.signingRootVersion,
+    clientVerifyingShareB64u,
+    participantIds,
+    thresholdEcdsaPublicKeyB64u: thresholdEcdsaPublicKeyB64u || undefined,
+    ethereumAddress,
+    relayerVerifyingShareB64u: relayerVerifyingShareB64u || undefined,
+  });
+  assertEcdsaRoleLocalPublicCapabilityMatchesFacts({
+    facts: ecdsaRoleLocalPublicFacts,
+    walletId,
+  });
   if (thresholdSessionKind === 'jwt' && !walletSessionJwt) {
     throw new Error('Invalid threshold ECDSA canonical session record: missing walletSessionJwt');
   }
@@ -1499,19 +1701,26 @@ function normalizeThresholdEcdsaSessionRecord(
   if (remainingUses == null || remainingUses < 0) {
     throw new Error('Invalid threshold ECDSA canonical session record: missing remainingUses');
   }
-  const routerAbEcdsaDerivationNormalSigning = normalizeStoredRouterAbEcdsaDerivationNormalSigningState({
-    raw: obj.routerAbEcdsaDerivationNormalSigning,
-    walletId,
-    evmFamilySigningKeySlotId,
-    ecdsaThresholdKeyId,
-    signingRootId: signingRootBinding.signingRootId,
-    signingRootVersion: signingRootBinding.signingRootVersion,
-    clientVerifyingShareB64u,
-    ...(roleLocalDurableMaterialRef ? { roleLocalDurableMaterialRef } : {}),
-    thresholdEcdsaPublicKeyB64u,
-    ethereumAddress,
-    relayerVerifyingShareB64u,
-  });
+  const routerAbEcdsaDerivationNormalSigning =
+    normalizeStoredRouterAbEcdsaDerivationNormalSigningState({
+      raw: obj.routerAbEcdsaDerivationNormalSigning,
+      walletId,
+      evmFamilySigningKeySlotId,
+      ecdsaThresholdKeyId,
+      signingRootId: signingRootBinding.signingRootId,
+      signingRootVersion: signingRootBinding.signingRootVersion,
+      clientVerifyingShareB64u,
+      ...(roleLocalDurableMaterialRef ? { roleLocalDurableMaterialRef } : {}),
+      thresholdEcdsaPublicKeyB64u,
+      ethereumAddress,
+      relayerVerifyingShareB64u,
+    });
+  if (routerAbEcdsaDerivationNormalSigning) {
+    assertEcdsaRoleLocalPublicFactsMatchNormalSigningState({
+      publicFacts: ecdsaRoleLocalPublicFacts,
+      normalSigning: routerAbEcdsaDerivationNormalSigning,
+    });
+  }
   const verifiedPublicFacts = normalizeStoredVerifiedPublicFacts({
     rawVerifiedPublicFacts: obj.verifiedPublicFacts,
     keyHandle,
@@ -1538,10 +1747,7 @@ function normalizeThresholdEcdsaSessionRecord(
       : {}),
     relayerKeyId,
     clientVerifyingShareB64u,
-    ...(roleLocalDurableMaterialRef ? { roleLocalDurableMaterialRef } : {}),
-    ecdsaRoleLocalAuthMethod,
     ecdsaRoleLocalPublicFacts,
-    ...(ecdsaRoleLocalReadyRecord ? { ecdsaRoleLocalReadyRecord } : {}),
     participantIds,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     ...(routerAbEcdsaDerivationNormalSigning ? { routerAbEcdsaDerivationNormalSigning } : {}),
@@ -1561,6 +1767,11 @@ function normalizeThresholdEcdsaSessionRecord(
     chainTarget,
   };
   if (source === 'email_otp') {
+    if (ecdsaRoleLocalAuthMethod.kind !== 'email_otp') {
+      throw new Error(
+        'Invalid threshold ECDSA canonical session record: Email OTP source requires Email OTP auth',
+      );
+    }
     if (thresholdSessionKind !== 'jwt') {
       throw new Error(
         'Invalid threshold ECDSA canonical session record: Email OTP requires jwt session kind',
@@ -1576,19 +1787,75 @@ function normalizeThresholdEcdsaSessionRecord(
         'Invalid threshold ECDSA canonical session record: missing Email OTP context',
       );
     }
+    if (!ecdsaRoleLocalReadyRecord) {
+      if (!roleLocalDurableMaterialRef) {
+        throw new Error(
+          'Invalid threshold ECDSA canonical session record: Email OTP requires worker-owned or inline role-local material',
+        );
+      }
+      if (clientAdditiveShareHandle) {
+        throw new Error(
+          'Invalid threshold ECDSA canonical session record: worker-owned Email OTP cannot use inline worker material',
+        );
+      }
+      return {
+        ...sharedRecord,
+        purpose: 'transaction_signing',
+        thresholdSessionKind: 'jwt',
+        walletSessionJwt,
+        roleLocalDurableMaterialRef,
+        ecdsaRoleLocalAuthMethod,
+        emailOtpAuthContext,
+        source,
+      };
+    }
+    if (roleLocalDurableMaterialRef) {
+      throw new Error(
+        'Invalid threshold ECDSA canonical session record: Email OTP cannot combine worker-owned and inline role-local material',
+      );
+    }
+    const emailOtpRoleLocalReadyRecord = requireEmailOtpRoleLocalRecordMatchesCanonicalFields({
+      authMethod: ecdsaRoleLocalAuthMethod,
+      publicFacts: ecdsaRoleLocalPublicFacts,
+      readyRecord: ecdsaRoleLocalReadyRecord,
+    });
     return {
       ...sharedRecord,
       purpose: 'transaction_signing',
       thresholdSessionKind: 'jwt',
       walletSessionJwt,
+      ecdsaRoleLocalAuthMethod,
+      ecdsaRoleLocalReadyRecord: emailOtpRoleLocalReadyRecord,
       ...(clientAdditiveShareHandle ? { clientAdditiveShareHandle } : {}),
       emailOtpAuthContext,
       source,
     };
   }
+  if (ecdsaRoleLocalAuthMethod.kind !== 'passkey') {
+    throw new Error(
+      'Invalid threshold ECDSA canonical session record: passkey source requires passkey auth',
+    );
+  }
+  if (ecdsaRoleLocalReadyRecord) {
+    throw new Error(
+      'Invalid threshold ECDSA canonical session record: passkey role-local state must remain worker-owned',
+    );
+  }
+  if (clientAdditiveShareHandle) {
+    throw new Error(
+      'Invalid threshold ECDSA canonical session record: passkey source cannot use Email OTP worker material',
+    );
+  }
+  if (!roleLocalDurableMaterialRef) {
+    throw new Error(
+      'Invalid threshold ECDSA canonical session record: passkey source requires durable role-local material',
+    );
+  }
   return {
     ...sharedRecord,
     purpose: 'transaction_signing',
+    roleLocalDurableMaterialRef,
+    ecdsaRoleLocalAuthMethod,
     source,
   };
 }
@@ -2460,10 +2727,6 @@ export function commitCurrentThresholdEd25519Session(args: {
       };
     }
     if (existingCurrent && existingGeneration === incomingGeneration) {
-      storeThresholdEd25519SessionFact({
-        record: incomingRecord,
-        defaultPolicy: 'prefer_current_generation',
-      });
       return {
         kind: 'same_generation_distinct_session',
         incoming: incomingRecord,
@@ -2557,6 +2820,23 @@ function rememberInMemoryThresholdEcdsaRecord(record: ThresholdEcdsaSessionRecor
 
   inMemoryEcdsaRecordsByLane.set(laneKey, record);
   indexThresholdEcdsaRecord(inMemoryEcdsaRecordIndex, laneKey, record);
+  if (
+    previous?.roleLocalDurableMaterialRef &&
+    previous.roleLocalDurableMaterialRef !== record.roleLocalDurableMaterialRef
+  ) {
+    forgetUnreferencedInMemoryEcdsaRoleLocalHandle(previous.roleLocalDurableMaterialRef);
+  }
+}
+
+function forgetUnreferencedInMemoryEcdsaRoleLocalHandle(
+  durableMaterialRef: EcdsaRoleLocalDurableMaterialRef,
+): void {
+  for (const record of inMemoryEcdsaRecordsByLane.values()) {
+    if (record.roleLocalDurableMaterialRef === durableMaterialRef) {
+      return;
+    }
+  }
+  forgetLiveEcdsaRoleLocalMaterial(durableMaterialRef);
 }
 
 function forgetInMemoryThresholdEcdsaRecord(laneKey: string): void {
@@ -2565,6 +2845,31 @@ function forgetInMemoryThresholdEcdsaRecord(laneKey: string): void {
     deindexThresholdEcdsaRecord(inMemoryEcdsaRecordIndex, laneKey, record);
   }
   inMemoryEcdsaRecordsByLane.delete(laneKey);
+  if (record?.roleLocalDurableMaterialRef) {
+    forgetUnreferencedInMemoryEcdsaRoleLocalHandle(record.roleLocalDurableMaterialRef);
+  }
+}
+
+export { buildPersistedEcdsaRoleLocalMaterial };
+export type { PersistedEcdsaRoleLocalMaterial };
+
+export function requirePersistedEcdsaRoleLocalMaterial(
+  record: ThresholdEcdsaSessionRecord,
+): PersistedEcdsaRoleLocalMaterial {
+  if (!record.roleLocalDurableMaterialRef) {
+    throw new Error('[SigningEngine] ECDSA session record requires durable role-local material');
+  }
+  return buildPersistedEcdsaRoleLocalMaterial({
+    durableMaterialRef: record.roleLocalDurableMaterialRef,
+    publicFacts: record.ecdsaRoleLocalPublicFacts,
+  });
+}
+
+export function getInMemoryEcdsaRoleLocalHandle(
+  record: ThresholdEcdsaSessionRecord,
+): EcdsaRoleLocalWorkerHandle | null {
+  if (!record.roleLocalDurableMaterialRef) return null;
+  return getLiveEcdsaRoleLocalMaterial(requirePersistedEcdsaRoleLocalMaterial(record));
 }
 
 function getInMemoryThresholdEcdsaSessionRecordByThresholdSessionId(
@@ -3013,10 +3318,6 @@ function buildEcdsaRecordFromBootstrap(
   const clientAdditiveShareHandle = normalizeThresholdEcdsaClientAdditiveShareHandle(
     keyRef.backendBinding?.clientAdditiveShareHandle,
   );
-  const roleLocalMaterialHandle =
-    keyRef.backendBinding?.materialKind === 'role_local_worker_handle'
-      ? keyRef.backendBinding.roleLocalMaterialHandle
-      : null;
   const roleLocalDurableMaterialRef = durableRoleLocalMaterialRefFromBackendBinding(
     keyRef.backendBinding,
   );
@@ -3090,13 +3391,7 @@ function buildEcdsaRecordFromBootstrap(
     updatedAtMs: args.nowMs,
     source: args.source,
   };
-  const normalized = normalizeThresholdEcdsaSessionRecord(
-    rawRecord,
-    'transaction_signing',
-  );
-  if (!roleLocalMaterialHandle) return normalized;
-  normalized.roleLocalMaterialHandle = roleLocalMaterialHandle;
-  return normalized;
+  return normalizeThresholdEcdsaSessionRecord(rawRecord, 'transaction_signing');
 }
 
 function setEcdsaExportArtifactForLane(args: {
@@ -3219,19 +3514,6 @@ function thresholdEcdsaSameTargetRecords(args: {
   );
 }
 
-function durableThresholdEcdsaSessionRecord(
-  record: ThresholdEcdsaSessionRecord,
-): ThresholdEcdsaSessionRecord {
-  if (!record.roleLocalMaterialHandle) return record;
-  const durableRecord: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(record)) {
-    if (key !== 'roleLocalMaterialHandle') {
-      durableRecord[key] = value;
-    }
-  }
-  return normalizeThresholdEcdsaSessionRecord(durableRecord, 'transaction_signing');
-}
-
 function storeThresholdEcdsaSessionFact(args: {
   deps: ThresholdEcdsaSessionStoreDeps;
   laneKey: string;
@@ -3242,9 +3524,8 @@ function storeThresholdEcdsaSessionFact(args: {
   if (previous) {
     deindexThresholdEcdsaRecord(depsIndex, args.laneKey, previous);
   }
-  const durableRecord = durableThresholdEcdsaSessionRecord(args.record);
-  args.deps.recordsByLane.set(args.laneKey, durableRecord);
-  indexThresholdEcdsaRecord(depsIndex, args.laneKey, durableRecord);
+  args.deps.recordsByLane.set(args.laneKey, args.record);
+  indexThresholdEcdsaRecord(depsIndex, args.laneKey, args.record);
   rememberInMemoryThresholdEcdsaRecord(args.record);
   return args.record;
 }
@@ -3278,11 +3559,6 @@ export function commitCurrentThresholdEcdsaSession(args: {
       };
     }
     if (existingCurrent && existingGeneration === incomingGeneration) {
-      storeThresholdEcdsaSessionFact({
-        deps: args.deps,
-        laneKey: incomingLaneKey,
-        record: incomingRecord,
-      });
       return {
         kind: 'same_generation_distinct_session',
         incoming: incomingRecord,
@@ -3348,6 +3624,11 @@ export function upsertThresholdEcdsaSessionFromBootstrap(
   args: EcdsaRecordFromBootstrapArgs,
 ): ThresholdEcdsaSessionRecord {
   const nowMs = Math.max(0, Math.floor((deps.now || Date.now)()));
+  const backendBinding = args.bootstrap.thresholdEcdsaKeyRef.backendBinding;
+  const roleLocalMaterialHandle =
+    backendBinding?.materialKind === 'role_local_worker_handle'
+      ? backendBinding.roleLocalMaterialHandle
+      : null;
   const record =
     args.source === 'email_otp'
       ? buildEcdsaRecordFromBootstrap({
@@ -3384,6 +3665,15 @@ export function upsertThresholdEcdsaSessionFromBootstrap(
   if (!currentRecord) {
     throw new Error('Threshold ECDSA bootstrap did not produce an operation-usable session');
   }
+  const persistedRoleLocalMaterial = roleLocalMaterialHandle
+    ? requirePersistedEcdsaRoleLocalMaterial(record)
+    : null;
+  if (roleLocalMaterialHandle && persistedRoleLocalMaterial) {
+    requireMatchingLiveEcdsaRoleLocalMaterial({
+      persistedMaterial: persistedRoleLocalMaterial,
+      liveHandle: roleLocalMaterialHandle,
+    });
+  }
   requireCommittedThresholdEcdsaSession(
     commitCurrentThresholdEcdsaSession({
       deps,
@@ -3391,6 +3681,12 @@ export function upsertThresholdEcdsaSessionFromBootstrap(
       transition: args.source === 'registration' ? 'registration' : 'wallet_unlock',
     }),
   );
+  if (roleLocalMaterialHandle && persistedRoleLocalMaterial) {
+    bindLiveEcdsaRoleLocalMaterial({
+      persistedMaterial: persistedRoleLocalMaterial,
+      liveHandle: roleLocalMaterialHandle,
+    });
+  }
   setEcdsaExportArtifactForLane({
     deps,
     laneKey,
@@ -3408,10 +3704,13 @@ export function upsertThresholdEcdsaSessionFact(
 ): ThresholdEcdsaSessionRecord {
   const rawObject =
     recordRaw && typeof recordRaw === 'object' ? (recordRaw as Record<string, unknown>) : {};
-  const record = normalizeThresholdEcdsaSessionRecord({
-    ...rawObject,
-    updatedAtMs: Math.max(0, Math.floor((deps.now || Date.now)())),
-  }, 'transaction_signing');
+  const record = normalizeThresholdEcdsaSessionRecord(
+    {
+      ...rawObject,
+      updatedAtMs: Math.max(0, Math.floor((deps.now || Date.now)())),
+    },
+    'transaction_signing',
+  );
   const laneKey = getThresholdEcdsaSessionLaneKeyForRecord(record);
   assertUniqueEvmFamilyEcdsaIdentityForStore({
     recordsByLane: deps.recordsByLane,
@@ -3866,6 +4165,7 @@ export function clearAllThresholdEcdsaSessionRecords(deps: ThresholdEcdsaSession
   deps.exportArtifactsByLane?.clear();
   clearThresholdEcdsaRuntimeRecordIndex(getThresholdEcdsaRuntimeRecordIndex(deps));
   inMemoryEcdsaRecordsByLane.clear();
+  clearEcdsaRoleLocalWorkerRuntimeState();
   clearThresholdEcdsaRuntimeRecordIndex(inMemoryEcdsaRecordIndex);
 }
 
@@ -4423,6 +4723,7 @@ export function clearAllStoredThresholdSessionRecords(curve?: ThresholdSessionCu
   }
   if (!curve || curve === 'ecdsa') {
     inMemoryEcdsaRecordsByLane.clear();
+    clearEcdsaRoleLocalWorkerRuntimeState();
     clearThresholdEcdsaRuntimeRecordIndex(inMemoryEcdsaRecordIndex);
   }
 }

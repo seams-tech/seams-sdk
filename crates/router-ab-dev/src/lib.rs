@@ -48,17 +48,12 @@ use std::{
 };
 
 mod local_dev_http;
-mod local_ecdsa_commitment_policy;
+mod local_ecdsa_root_shares;
 mod local_ed25519_yao_api;
 mod local_ed25519_yao_delivery;
 
-pub use local_ecdsa_commitment_policy::{
-    local_ecdsa_commitment_policy_package_v1, LocalEcdsaCommitmentPolicyPackageV1,
-    LOCAL_ECDSA_COMMITMENT_POLICY_BUILD_ENV_FILE_V1,
-    LOCAL_ECDSA_COMMITMENT_POLICY_DIGEST_BUILD_ENV_V1,
-    LOCAL_ECDSA_COMMITMENT_POLICY_MINIMUM_RELEASE_EPOCH_BUILD_ENV_V1,
-    LOCAL_ECDSA_COMMITMENT_POLICY_RELEASE_AUTHORITY_PUBLIC_KEY_BUILD_ENV_V1,
-    LOCAL_ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_ENV_V1,
+pub use local_ecdsa_root_shares::{
+    local_ecdsa_root_share_package_v1, LocalEcdsaRootSharePackageV1,
 };
 mod local_ed25519_yao_input;
 mod local_ed25519_yao_profiles;
@@ -478,7 +473,6 @@ const LOCAL_DERIVER_A_FORBIDDEN_ENV_KEYS_V1: &[&str] = &[
     LOCAL_DERIVER_B_SEALED_ROOT_SHARES_PATH_ENV_V1,
     LOCAL_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_ENV_V1,
     LOCAL_SIGNING_WORKER_SERVER_OUTPUT_STORAGE_PATH_ENV_V1,
-    LOCAL_ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_ENV_V1,
 ];
 
 const LOCAL_DERIVER_B_FORBIDDEN_ENV_KEYS_V1: &[&str] = &[
@@ -495,7 +489,6 @@ const LOCAL_DERIVER_B_FORBIDDEN_ENV_KEYS_V1: &[&str] = &[
     LOCAL_DERIVER_A_SEALED_ROOT_SHARES_PATH_ENV_V1,
     LOCAL_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_ENV_V1,
     LOCAL_SIGNING_WORKER_SERVER_OUTPUT_STORAGE_PATH_ENV_V1,
-    LOCAL_ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_ENV_V1,
 ];
 
 const LOCAL_SIGNING_WORKER_FORBIDDEN_ENV_KEYS_V1: &[&str] = &[
@@ -616,8 +609,6 @@ pub struct LocalSigningWorkerConfigV1 {
     pub server_output_hpke_private_key: String,
     /// SigningWorker server-output storage path.
     pub server_output_storage_path: String,
-    /// Externally signed fixed A/B threshold-PRF commitment package.
-    pub ecdsa_commitment_registry_json: String,
 }
 
 /// Role-specific local worker config.
@@ -1017,8 +1008,6 @@ pub struct LocalEnvMaterializationPlanV1 {
     pub directories: Vec<String>,
     /// Env files to write.
     pub files: Vec<LocalEnvMaterializedFileV1>,
-    /// Compile-time policy pins consumed by local build commands.
-    pub build_environment: LocalEnvMaterializedFileV1,
 }
 
 impl LocalEnvMaterializationPlanV1 {
@@ -1047,18 +1036,6 @@ impl LocalEnvMaterializationPlanV1 {
                 ));
             }
         }
-        if self.build_environment.role != LocalServiceRoleV1::SigningWorker
-            || self.build_environment.path != LOCAL_ECDSA_COMMITMENT_POLICY_BUILD_ENV_FILE_V1
-        {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-                "local commitment policy build environment has invalid ownership or path",
-            ));
-        }
-        require_non_empty(
-            "local commitment policy build environment",
-            &self.build_environment.contents,
-        )?;
         Ok(())
     }
 }
@@ -1068,7 +1045,7 @@ pub fn local_env_materialization_plan_v1(
     seed: &[u8],
 ) -> RouterAbProtocolResult<LocalEnvMaterializationPlanV1> {
     require_non_empty("local env materialization seed", &hex::encode(seed))?;
-    let commitment_policy = local_ecdsa_commitment_policy_package_v1(seed)?;
+    let root_shares = local_ecdsa_root_share_package_v1(seed)?;
     let plan = LocalEnvMaterializationPlanV1 {
         directories: vec![
             LOCAL_ROUTER_STATE_DIR_V1.to_owned(),
@@ -1083,7 +1060,7 @@ pub fn local_env_materialization_plan_v1(
                 contents: materialize_template_v1(
                     include_str!("../env/router.local.example"),
                     seed,
-                    &commitment_policy,
+                    &root_shares,
                 )?,
             },
             LocalEnvMaterializedFileV1 {
@@ -1092,7 +1069,7 @@ pub fn local_env_materialization_plan_v1(
                 contents: materialize_template_v1(
                     include_str!("../env/deriver-a.local.example"),
                     seed,
-                    &commitment_policy,
+                    &root_shares,
                 )?,
             },
             LocalEnvMaterializedFileV1 {
@@ -1101,7 +1078,7 @@ pub fn local_env_materialization_plan_v1(
                 contents: materialize_template_v1(
                     include_str!("../env/deriver-b.local.example"),
                     seed,
-                    &commitment_policy,
+                    &root_shares,
                 )?,
             },
             LocalEnvMaterializedFileV1 {
@@ -1110,15 +1087,10 @@ pub fn local_env_materialization_plan_v1(
                 contents: materialize_template_v1(
                     include_str!("../env/signing-worker.local.example"),
                     seed,
-                    &commitment_policy,
+                    &root_shares,
                 )?,
             },
         ],
-        build_environment: LocalEnvMaterializedFileV1 {
-            role: LocalServiceRoleV1::SigningWorker,
-            path: LOCAL_ECDSA_COMMITMENT_POLICY_BUILD_ENV_FILE_V1.to_owned(),
-            contents: commitment_policy.build_env.clone(),
-        },
     };
     plan.validate()?;
     Ok(plan)
@@ -1333,10 +1305,6 @@ pub fn parse_local_worker_role_config_for_role_v1(
                     server_output_storage_path: required_env_v1(
                         &env,
                         LOCAL_SIGNING_WORKER_SERVER_OUTPUT_STORAGE_PATH_ENV_V1,
-                    )?,
-                    ecdsa_commitment_registry_json: required_env_v1(
-                        &env,
-                        LOCAL_ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_ENV_V1,
                     )?,
                 },
             ))
@@ -2727,7 +2695,7 @@ fn map_local_http_io_error_v1(error: std::io::Error) -> RouterAbProtocolError {
 fn materialize_template_v1(
     template: &str,
     seed: &[u8],
-    commitment_policy: &LocalEcdsaCommitmentPolicyPackageV1,
+    root_shares: &LocalEcdsaRootSharePackageV1,
 ) -> RouterAbProtocolResult<String> {
     require_non_empty("local env materialization template", template)?;
     let replacements = [
@@ -2751,15 +2719,11 @@ fn materialize_template_v1(
     let mut contents = template.to_owned();
     contents = contents.replace(
         "dev-only-deriver-a-root-share-wire-secret",
-        &commitment_policy.deriver_a_root_share_wire_secret,
+        &root_shares.deriver_a_root_share_wire_secret,
     );
     contents = contents.replace(
         "dev-only-deriver-b-root-share-wire-secret",
-        &commitment_policy.deriver_b_root_share_wire_secret,
-    );
-    contents = contents.replace(
-        "dev-only-signing-worker-ecdsa-commitment-registry-json",
-        &commitment_policy.registry_json,
+        &root_shares.deriver_b_root_share_wire_secret,
     );
     for (placeholder, label) in replacements {
         let material = local_generated_secret_v1(label, seed)?;

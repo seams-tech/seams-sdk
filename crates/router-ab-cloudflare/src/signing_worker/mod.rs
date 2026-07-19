@@ -57,6 +57,87 @@ pub trait CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestFinalizeHandler
     ) -> RouterAbProtocolResult<RouterAbEcdsaDerivationEvmDigestSigningResponseV1>;
 }
 
+/// Client-requested phase for one SigningWorker-owned ECDSA presign session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CloudflareSigningWorkerEcdsaPresignRequestedStageV1 {
+    Triples,
+    Presign,
+}
+
+/// Private request to create a SigningWorker-owned ECDSA presign session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudflareSigningWorkerEcdsaPresignSessionInitRequestV1 {
+    pub scope: RouterAbEcdsaDerivationNormalSigningScopeV1,
+    pub presign_session_id: String,
+    pub expires_at_ms: u64,
+}
+
+impl CloudflareSigningWorkerEcdsaPresignSessionInitRequestV1 {
+    pub fn validate_at(&self, now_unix_ms: u64) -> RouterAbProtocolResult<()> {
+        self.scope.validate()?;
+        require_non_empty("presign_session_id", &self.presign_session_id)?;
+        require_positive_ms("ECDSA presign session expires_at_ms", self.expires_at_ms)?;
+        require_positive_ms("ECDSA presign session now_unix_ms", now_unix_ms)?;
+        if self.expires_at_ms <= now_unix_ms {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ExpiredLocalRequest,
+                "ECDSA presign session request expired",
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Private request to advance a SigningWorker-owned ECDSA presign session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudflareSigningWorkerEcdsaPresignSessionStepRequestV1 {
+    pub scope: RouterAbEcdsaDerivationNormalSigningScopeV1,
+    pub presign_session_id: String,
+    pub requested_stage: CloudflareSigningWorkerEcdsaPresignRequestedStageV1,
+    pub outgoing_messages_b64u: Vec<String>,
+    pub expires_at_ms: u64,
+}
+
+impl CloudflareSigningWorkerEcdsaPresignSessionStepRequestV1 {
+    pub fn validate_at(&self, now_unix_ms: u64) -> RouterAbProtocolResult<()> {
+        self.scope.validate()?;
+        require_non_empty("presign_session_id", &self.presign_session_id)?;
+        require_positive_ms("ECDSA presign session expires_at_ms", self.expires_at_ms)?;
+        require_positive_ms("ECDSA presign session now_unix_ms", now_unix_ms)?;
+        if self.expires_at_ms <= now_unix_ms {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ExpiredLocalRequest,
+                "ECDSA presign session request expired",
+            ));
+        }
+        for message in &self.outgoing_messages_b64u {
+            let decoded = decode_base64url_bytes_v1("ECDSA presign message", message)?;
+            require_non_empty_vec("ECDSA presign message", &decoded)?;
+        }
+        Ok(())
+    }
+}
+
+/// Public progress returned by the SigningWorker-owned ECDSA presign session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CloudflareSigningWorkerEcdsaPresignSessionProgressV1 {
+    Continue {
+        presign_session_id: String,
+        stage: String,
+        event: String,
+        outgoing_messages_b64u: Vec<String>,
+    },
+    Complete {
+        presign_session_id: String,
+        server_presignature_id: String,
+        server_big_r33_b64u: String,
+    },
+}
+
 /// Private SigningWorker request to fill the Router A/B ECDSA derivation presignature pool.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -660,10 +741,10 @@ where
             server_presignature,
             now_unix_ms,
         )?;
-    let prepare_request = materialized.prepare_request()?;
+    let finalize_request = materialized.request.request.clone();
     let response =
         handler.handle_router_ab_ecdsa_derivation_evm_digest_finalize_request_v1(materialized)?;
-    response.validate_for_request(&prepare_request)?;
+    response.validate_for_request(&finalize_request)?;
     Ok(response)
 }
 
@@ -1008,7 +1089,7 @@ impl CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestFinalizeHandlerV1
         let signature65 = finalize_signing_worker_signature(committed, client_signature_share32)
             .map_err(map_cloudflare_online_ecdsa_error_v1)?;
         RouterAbEcdsaDerivationEvmDigestSigningResponseV1::new_for_request(
-            &prepare_request,
+            &request.request.request,
             encode_base64url_bytes_v1(&signature65),
         )
     }

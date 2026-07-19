@@ -4,20 +4,14 @@ import type {
   RouterAbEcdsaDerivationActivationRefreshRequestV1,
   RouterAbEcdsaDerivationExplicitExportRequestV1,
   RouterAbEcdsaDerivationPublicCapabilityV1,
-  RouterAbEcdsaDerivationRecoveryRequestV1,
-  RouterAbEcdsaRegistrationActivationReceiptV1,
   RouterAbEcdsaRegistrationRecipientKeysV1,
-  RouterAbEcdsaVerifiedClientActivationFactsV1,
+  RouterAbEcdsaSigningWorkerExportShareEnvelopeV1,
+  RouterAbEcdsaSigningWorkerExportShareBindingV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type {
-  EcdsaRoleLocalBindingDigest,
-  EcdsaRoleLocalDurableMaterialRef,
-  EcdsaRoleLocalMaterialHandle,
+  EcdsaRoleLocalPersistedMaterialRef,
+  EcdsaRoleLocalWorkerHandle,
 } from '@/core/signingEngine/session/keyMaterialBrands';
-import type {
-  WasmFinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapResult,
-  WasmPrepareThresholdEcdsaDerivationRoleLocalClientBootstrapResult,
-} from '@/core/types/signer-worker';
 import type { EcdsaRoleLocalPublicFacts } from '@/core/platform';
 import type { EcdsaClientPresignPoolIdentity } from './ecdsaPresignPoolIdentity';
 
@@ -61,6 +55,25 @@ export type EcdsaDerivationAdditiveShareResponse =
       readonly error: string;
     };
 
+export type RehydrateEcdsaRoleLocalSigningMaterialRequestV1 = {
+  readonly kind: 'rehydrate_ecdsa_role_local_signing_material_v1';
+  readonly materialRef: EcdsaRoleLocalPersistedMaterialRef;
+};
+
+export type RehydrateEcdsaRoleLocalSigningMaterialResultV1 =
+  | {
+      readonly kind: 'ecdsa_role_local_signing_material_rehydrated_v1';
+      readonly ok: true;
+      readonly liveHandle: EcdsaRoleLocalWorkerHandle;
+      readonly reason?: never;
+    }
+  | {
+      readonly kind: 'ecdsa_role_local_signing_material_unavailable_v1';
+      readonly ok: false;
+      readonly reason: 'missing' | 'expired' | 'binding_mismatch' | 'corrupt';
+      readonly liveHandle?: never;
+    };
+
 export type EmailOtpEcdsaSigningShareRequest = {
   readonly kind: 'email_otp_ecdsa_signing_share_request_v1';
   readonly requestId: string;
@@ -89,18 +102,7 @@ export type EmailOtpEcdsaSigningShareResponse =
 
 export type RouterAbEcdsaExplicitExportRequestFactsV1 = Omit<
   RouterAbEcdsaDerivationExplicitExportRequestV1,
-  | 'client_ephemeral_public_key'
-  | 'deriver_a_export_envelope'
-  | 'deriver_b_export_envelope'
-> & {
-  readonly deriver_recipient_keys: RouterAbEcdsaRegistrationRecipientKeysV1;
-};
-
-export type RouterAbEcdsaRecoveryRequestFactsV1 = Omit<
-  RouterAbEcdsaDerivationRecoveryRequestV1,
-  | 'client_ephemeral_public_key'
-  | 'deriver_a_recovery_envelope'
-  | 'deriver_b_recovery_envelope'
+  'client_ephemeral_public_key' | 'deriver_a_export_envelope' | 'deriver_b_export_envelope'
 > & {
   readonly deriver_recipient_keys: RouterAbEcdsaRegistrationRecipientKeysV1;
 };
@@ -119,12 +121,6 @@ export type CreateRouterAbEcdsaPostRegistrationCeremonyRequestV1 =
       readonly request: RouterAbEcdsaExplicitExportRequestFactsV1;
     }
   | {
-      readonly kind: 'create_router_ab_ecdsa_recovery_ceremony_v1';
-      readonly ceremonyId: string;
-      readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
-      readonly request: RouterAbEcdsaRecoveryRequestFactsV1;
-    }
-  | {
       readonly kind: 'create_router_ab_ecdsa_activation_refresh_ceremony_v1';
       readonly ceremonyId: string;
       readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
@@ -138,11 +134,6 @@ export type CreateRouterAbEcdsaPostRegistrationCeremonyResultV1 =
       readonly request: RouterAbEcdsaDerivationExplicitExportRequestV1;
     }
   | {
-      readonly kind: 'router_ab_ecdsa_recovery_ceremony_created_v1';
-      readonly ceremonyId: string;
-      readonly request: RouterAbEcdsaDerivationRecoveryRequestV1;
-    }
-  | {
       readonly kind: 'router_ab_ecdsa_activation_refresh_ceremony_created_v1';
       readonly ceremonyId: string;
       readonly request: RouterAbEcdsaDerivationActivationRefreshRequestV1;
@@ -152,11 +143,9 @@ export type FinalizeRouterAbEcdsaExplicitExportRequestV1 = {
   readonly kind: 'finalize_router_ab_ecdsa_explicit_export_v1';
   readonly ceremonyId: string;
   readonly clientProofFinalization: RouterAbEcdsaClientProofFinalizationV1;
-  readonly roleLocalMaterial: {
-    readonly materialHandle: EcdsaRoleLocalMaterialHandle;
-    readonly bindingDigest: EcdsaRoleLocalBindingDigest;
-    readonly durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
-  };
+  readonly signingWorkerExport: RouterAbEcdsaSigningWorkerExportShareEnvelopeV1;
+  readonly signingGrantId: RouterAbEcdsaSigningWorkerExportShareBindingV1['signing_grant_id'];
+  readonly roleLocalMaterial: EcdsaRoleLocalWorkerHandle;
   readonly publicFacts: EcdsaRoleLocalPublicFacts;
 };
 
@@ -171,20 +160,6 @@ export type FinalizeRouterAbEcdsaExplicitExportResultV1 = {
   readonly output32B64u?: never;
 };
 
-export type VerifyRouterAbEcdsaRecoveryClientProofsRequestV1 = {
-  readonly kind: 'verify_router_ab_ecdsa_recovery_client_proofs_v1';
-  readonly ceremonyId: string;
-  readonly clientProofFinalization: RouterAbEcdsaClientProofFinalizationV1;
-};
-
-export type VerifyRouterAbEcdsaRecoveryClientProofsResultV1 = {
-  readonly kind: 'router_ab_ecdsa_recovery_client_proofs_verified_v1';
-  readonly ceremonyId: string;
-  readonly clientBootstrap:
-    WasmPrepareThresholdEcdsaDerivationRoleLocalClientBootstrapResult['clientBootstrap'];
-  readonly publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
-};
-
 export type VerifyRouterAbEcdsaRefreshClientProofsRequestV1 = {
   readonly kind: 'verify_router_ab_ecdsa_refresh_client_proofs_v1';
   readonly ceremonyId: string;
@@ -194,30 +169,6 @@ export type VerifyRouterAbEcdsaRefreshClientProofsRequestV1 = {
 export type VerifyRouterAbEcdsaRefreshClientProofsResultV1 = {
   readonly kind: 'router_ab_ecdsa_refresh_client_proofs_verified_v1';
   readonly ceremonyId: string;
-};
-
-export type FinalizeRouterAbEcdsaRecoveryActivationRequestV1 = {
-  readonly kind: 'finalize_router_ab_ecdsa_recovery_activation_v1';
-  readonly ceremonyId: string;
-  readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
-  readonly expectedLifecycleId: string;
-  readonly expectedTranscriptDigestB64u: string;
-  readonly expectedActivationEpoch: string;
-  readonly expiresAtMs: number;
-};
-
-export type FinalizeRouterAbEcdsaRecoveryActivationResultV1 = {
-  readonly kind: 'router_ab_ecdsa_recovery_activation_finalized_v1';
-  readonly ceremonyId: string;
-  readonly roleLocalMaterial: {
-    readonly kind: 'ecdsa_role_local_worker_handle_v1';
-    readonly materialHandle: EcdsaRoleLocalMaterialHandle;
-    readonly bindingDigest: EcdsaRoleLocalBindingDigest;
-    readonly durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
-  };
-  readonly publicFacts:
-    WasmFinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapResult['publicFacts'];
-  readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 };
 
 export type CloseRouterAbEcdsaPostRegistrationCeremonyRequestV1 = {

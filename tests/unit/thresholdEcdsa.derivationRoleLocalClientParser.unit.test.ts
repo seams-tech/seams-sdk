@@ -9,9 +9,16 @@ import {
   toEcdsaDerivationThresholdKeyId,
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
 import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import { parseSigningGrantId } from '@shared/utils/domainIds';
 
 function toDerivationClientSharePublicKey33B64uForTest(value: string): DerivationClientSharePublicKey33B64u {
   return value as DerivationClientSharePublicKey33B64u;
+}
+
+function signingGrantIdForTest(value: string) {
+  const parsed = parseSigningGrantId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
 }
 
 function base64UrlEncodeJsonFixture(value: unknown): string {
@@ -27,8 +34,10 @@ const APPLICATION_BINDING_DIGEST_32_B64U = 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcH
 const EVM_FAMILY_SIGNING_KEY_SLOT_ID = 'wallet-key:evm-family:wallet-user:project%3Aenv:default';
 const CLIENT_PUBLIC_KEY_33_B64U = 'AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIC';
 const RELAYER_PUBLIC_KEY_33_B64U = 'AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMD';
-const GROUP_PUBLIC_KEY_33_B64U = 'BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE';
+const GROUP_PUBLIC_KEY_33_B64U = CLIENT_PUBLIC_KEY_33_B64U;
 const ETHEREUM_ADDRESS20_B64U = 'ERERERERERERERERERERERERERE';
+const SIGNING_GRANT_ID = signingGrantIdForTest('signing-grant');
+const ACTIVATION_EPOCH = 'activation-epoch';
 
 function buildRouterAbEcdsaDerivationWalletSessionJwtFixture(args: { expiresAtMs: number }): string {
   return buildUnsignedJwtFixture({
@@ -68,7 +77,7 @@ function buildRouterAbEcdsaDerivationWalletSessionJwtFixture(args: { expiresAtMs
           key_epoch: 'signing-worker-output-epoch',
           recipient_encryption_key: `x25519:${'33'.repeat(32)}`,
         },
-        activation_epoch: 'threshold-session',
+        activation_epoch: ACTIVATION_EPOCH,
       },
     },
   });
@@ -89,7 +98,7 @@ const BOOTSTRAP_ARGS = {
   contextBinding32B64u: CONTEXT_BINDING_32_B64U,
   requestId: 'request-id',
   sessionId: 'threshold-session',
-  signingGrantId: 'signing-grant',
+  signingGrantId: SIGNING_GRANT_ID,
   ttlMs: 60_000,
   remainingUses: 2,
   participantIds: [1, 2],
@@ -122,6 +131,7 @@ function bootstrapValue(overrides?: Record<string, unknown>): Record<string, unk
     relayerVerifyingShareB64u: RELAYER_PUBLIC_KEY_33_B64U,
     participantIds: [1, 2],
     thresholdSessionId: 'threshold-session',
+    activationEpoch: ACTIVATION_EPOCH,
     signingGrantId: 'signing-grant',
     expiresAtMs,
     expiresAt: new Date(expiresAtMs).toISOString(),
@@ -172,7 +182,7 @@ test.describe('threshold ECDSA derivation role-local client parser', () => {
         },
       });
 
-      expect(result).toMatchObject({ ok: true });
+      expect(result, JSON.stringify(result)).toMatchObject({ ok: true });
       expect((capturedInit?.headers as Record<string, string> | undefined)?.Authorization).toBe(
         'Bearer pk_test_runtime',
       );

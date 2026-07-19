@@ -1118,6 +1118,8 @@ export class BrowserSigningSurface {
         bootstrapStore: this.ecdsaBootstrapStore,
         sessionStore: this.warmSigning.ecdsaSessions,
         persistActivePasskeyEcdsaReauthAnchor,
+        warmSessions: this.signingRuntime.services.warmSessions,
+        signingSessionSeal: this.seamsWebConfigs.signing.sessionSeal,
       },
       input,
     );

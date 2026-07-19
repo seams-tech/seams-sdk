@@ -27,8 +27,11 @@ import type {
 import { isConcreteAvailableSigningLane } from '../../session/availability/availableSigningLanes';
 import {
   deriveThresholdEcdsaRuntimeLaneKey,
+  buildPersistedEcdsaRoleLocalMaterial,
   getThresholdEcdsaSessionRecordByKey,
+  requirePersistedEcdsaRoleLocalMaterial,
   thresholdEcdsaLaneCandidateFromSessionRecord,
+  type PersistedEcdsaRoleLocalMaterial,
   type ThresholdEcdsaSessionRecord,
 } from '../../session/persistence/records';
 import type { ThresholdEcdsaSessionStoreSource } from '../../session/identity/laneIdentity';
@@ -66,6 +69,8 @@ import {
   type RecordBackedEcdsaCommittedLane,
 } from '../signEvmFamily/ecdsaSelection';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import { buildEcdsaRoleLocalPublicFacts } from '@/core/platform';
+import { parseEcdsaRoleLocalDurableMaterialRef } from '../../session/keyMaterialBrands';
 
 export type EcdsaExportMaterialAvailability =
   | { kind: 'loaded_worker_material' }
@@ -218,6 +223,7 @@ export type FreshPasskeyEcdsaExportMaterial = {
   publicFacts: VerifiedEcdsaPublicFacts;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+  existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
   bootstrap: PasskeyEcdsaExportBootstrapContext;
 };
 
@@ -795,6 +801,7 @@ export async function resolveEcdsaExportMaterialForLane(
       publicFacts,
       runtimePolicyScope,
       publicCapability: runtimeRecord.ecdsaRoleLocalPublicFacts.publicCapability,
+      existingRoleLocalMaterial: requirePersistedEcdsaRoleLocalMaterial(runtimeRecord),
       bootstrap: passkeyEcdsaExportBootstrapFromRuntimeRecord(runtimeRecord, exportLane),
     };
   }
@@ -837,6 +844,36 @@ export async function resolveEcdsaExportMaterialForLane(
     publicFacts,
     runtimePolicyScope,
     publicCapability: restore.publicCapability,
+    existingRoleLocalMaterial: buildPersistedEcdsaRoleLocalMaterial({
+      durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef(
+        restore.roleLocalDurableMaterialRef,
+      ),
+      publicFacts: buildEcdsaRoleLocalPublicFacts({
+        walletId: exportLane.key.walletId,
+        evmFamilySigningKeySlotId: restore.evmFamilySigningKeySlotId,
+        chainTarget: exportLane.session.chainTarget,
+        keyHandle: restore.keyHandle,
+        ecdsaThresholdKeyId: restore.ecdsaThresholdKeyId,
+        signingRootId: restore.signingRootId,
+        signingRootVersion: restore.signingRootVersion,
+        applicationBindingDigestB64u:
+          restore.publicCapability.context.application_binding_digest_b64u,
+        clientParticipantId: 1,
+        relayerParticipantId: 2,
+        participantIds: restore.participantIds,
+        contextBinding32B64u:
+          restore.publicCapability.public_identity.context_binding_b64u,
+        derivationClientSharePublicKey33B64u:
+          restore.publicCapability.public_identity
+            .derivation_client_share_public_key33_b64u,
+        relayerPublicKey33B64u:
+          restore.publicCapability.public_identity.server_public_key33_b64u,
+        groupPublicKey33B64u:
+          restore.publicCapability.public_identity.threshold_public_key33_b64u,
+        ethereumAddress: restore.ethereumAddress,
+        publicCapability: restore.publicCapability,
+      }),
+    }),
     bootstrap: {
       source: restore.source,
       relayerUrl: requirePasskeyEcdsaExportField(relayerUrl, 'relayerUrl'),

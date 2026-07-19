@@ -52,20 +52,20 @@ const allowedEcdsaClientCeremonyWasmExports = new Set([
   '__wbg_routerabecdsaclientceremonyv1_free',
   'routerabecdsaclientceremonyv1_build_activation_refresh_request',
   'routerabecdsaclientceremonyv1_build_explicit_export_request',
-  'routerabecdsaclientceremonyv1_build_recovery_request',
   'routerabecdsaclientceremonyv1_build_registration_request',
   'routerabecdsaclientceremonyv1_close',
   'routerabecdsaclientceremonyv1_finalize_encrypted_proof_bundles',
   'routerabecdsaclientceremonyv1_new',
   'routerabecdsaclientceremonyv1_public_key',
+  'routerabecdsaclientceremonyv1_registration_binding',
 ]);
 
 const requiredEcdsaClientCeremonyTypeMethods = [
   'free',
   'public_key',
   'build_registration_request',
+  'registration_binding',
   'build_explicit_export_request',
-  'build_recovery_request',
   'build_activation_refresh_request',
   'finalize_encrypted_proof_bundles',
   'close',
@@ -151,19 +151,6 @@ function checkPresignRefillScheduler() {
     source.includes("trigger: 'post_sign_success'"),
     'missing post_sign_success refill trigger',
   );
-}
-
-function checkRoleLocalSigningAuthorization() {
-  const source = readRepoFile(
-    'packages/sdk-server-ts/src/core/routerAbSigning/RouterAbEcdsaBootstrapExportRuntime.ts',
-  );
-  for (const token of [
-    'deriveEcdsaKeyMaterialFromPersistedBackend',
-    'bootstrapEcdsaFromRegistrationMaterial',
-    'getEcdsaIntegratedKeyRecordByKeyHandle',
-  ]) {
-    assert.equal(source.includes(token), false, `ECDSA bootstrap/export runtime retained ${token}`);
-  }
 }
 
 function checkNoRuntimeV1DerivationSurfaces() {
@@ -356,6 +343,27 @@ function checkEcdsaDerivationClientHasOneExplicitOwner() {
   }
 
   assertNoOffenders('ECDSA derivation client must have one explicit ECDSA owner', offenders);
+}
+
+function checkRegistrationProofVerificationInitializesBothWasmOwners() {
+  const source = readRepoFile(
+    'packages/sdk-web/src/core/signingEngine/workerManager/workers/ecdsa-derivation-client.worker.ts',
+  );
+  const verifyCase = source.indexOf(
+    'case EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaRegistrationClientProofs:',
+  );
+  const nextReturn = source.indexOf('      return;', verifyCase);
+  assert.ok(verifyCase >= 0, 'registration proof verification operation is missing');
+  assert.ok(nextReturn > verifyCase, 'registration proof verification initialization is incomplete');
+  const initializationBlock = source.slice(verifyCase, nextReturn);
+  assert.ok(
+    initializationBlock.includes('initializeEcdsaDerivationClientWasm()'),
+    'registration proof verification must initialize the derivation ceremony WASM',
+  );
+  assert.ok(
+    initializationBlock.includes('initializeEcdsaRegistrationClientWasm()'),
+    'registration proof verification must initialize the registration bootstrap WASM',
+  );
 }
 
 function checkActiveSourceUsesCurrentVocabulary() {
@@ -1080,11 +1088,11 @@ function checkGeneratedEcdsaDerivationClientArtifactSurface() {
 }
 
 checkPresignRefillScheduler();
-checkRoleLocalSigningAuthorization();
 checkNoRuntimeV1DerivationSurfaces();
 checkProductionBridgeDoesNotExposeRootMaterial();
 checkEcdsaDerivationCrateHasNoOldContextVersionApi();
 checkEcdsaDerivationClientHasOneExplicitOwner();
+checkRegistrationProofVerificationInitializesBothWasmOwners();
 checkActiveSourceUsesCurrentVocabulary();
 checkRuntimeArtifactsAreNotSourceSurfaces();
 checkRepositorySurfacesUseCurrentVocabulary();

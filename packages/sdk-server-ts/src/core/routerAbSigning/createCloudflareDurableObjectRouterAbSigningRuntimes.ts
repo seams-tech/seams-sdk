@@ -18,6 +18,7 @@ import {
 import { RouterAbLocalSigningSeedRuntime } from './RouterAbLocalSigningSeedRuntime';
 import {
   parseRouterAbNormalSigningRuntimeConfig,
+  requireRouterAbConfiguredSigningWorkerPrivateTransport,
   RouterAbNormalSigningRuntime,
 } from './RouterAbNormalSigningRuntime';
 
@@ -69,11 +70,15 @@ export function createCloudflareDurableObjectRouterAbSigningRuntimes(input: {
     throw new Error('Cloudflare D1 Router API thresholdStore must use kind: "cloudflare-do"');
   }
   const ensureReady = ensureCloudflareRouterAbSigningRuntimeReady.bind(input.auth);
+  const normalSigningConfig = parseRouterAbNormalSigningRuntimeConfig(input.thresholdStore);
+  const signingWorkerTransport = requireRouterAbConfiguredSigningWorkerPrivateTransport(
+    normalSigningConfig.signingWorkerTransport,
+  );
   const normalSigning = new RouterAbNormalSigningRuntime({
     walletSessionStore: ed25519Stores.walletSessionStore,
     ecdsaWalletSessionStore: ecdsaStores.walletSessionStore,
     walletBudgetSessionStore: walletBudgetStores.walletSessionStore,
-    config: parseRouterAbNormalSigningRuntimeConfig(input.thresholdStore),
+    config: normalSigningConfig,
   });
   const localSigningSeed = new RouterAbLocalSigningSeedRuntime({
     ed25519KeyStore: ed25519Stores.keyStore,
@@ -84,12 +89,9 @@ export function createCloudflareDurableObjectRouterAbSigningRuntimes(input: {
   const ecdsaPresign = new RouterAbEcdsaPresignRuntime({
     logger,
     config: parseRouterAbEcdsaPresignRuntimeConfig(input.thresholdStore),
-    ecdsaSessionStore: ecdsaStores.sessionStore,
     ecdsaPoolFillSessionStore: ecdsaStores.poolFillSessionStore,
-    ecdsaKeyStore: ecdsaStores.keyStore,
-    normalSigningRuntime: normalSigning,
+    signingWorkerTransport,
     ensureReady,
-    liveSessionOwner: ecdsaStores.poolFillLiveSessionOwner,
   });
 
   return { normalSigning, localSigningSeed, ecdsaPresign };

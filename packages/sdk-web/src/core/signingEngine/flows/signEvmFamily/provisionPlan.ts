@@ -10,6 +10,7 @@ import {
   type PasskeyEcdsaSessionProvision,
   type WalletSessionEcdsaReconnect,
 } from '../../session/warmCapabilities/ecdsaProvisionPlan';
+import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from '../../session/warmCapabilities/routerAbEcdsaWalletSessionAuth';
 import type { ResolvedEvmFamilyEcdsaSigningLane } from './ecdsaLanes';
 import type {
   EvmFamilyEcdsaPasskeyStepUpAuthorization,
@@ -67,6 +68,12 @@ export async function buildEvmFamilyPasskeyEcdsaProvisionPlan(args: {
       '[SigningEngine][ecdsa] passkey ECDSA provision requires PRF.first from WebAuthn',
     );
   }
+  const routeAuthority = resolveRouterAbEcdsaWalletSessionAuthFromRecord(args.material.record);
+  if (routeAuthority.kind !== 'ready') {
+    throw new Error(
+      `[SigningEngine][ecdsa] passkey ECDSA provision requires Wallet Session route authority (${routeAuthority.reason})`,
+    );
+  }
   const baseArgs = {
     key: args.material.lane.key,
     chainTarget: args.material.lane.chainTarget,
@@ -85,6 +92,10 @@ export async function buildEvmFamilyPasskeyEcdsaProvisionPlan(args: {
       webauthnAuthentication: args.authorization.credential,
     }),
     activationMaterial: { kind: 'session_record' } as const,
+    walletSessionRouteAuth: {
+      kind: 'wallet_session' as const,
+      jwt: routeAuthority.walletSessionJwt,
+    },
   };
   const runtimePolicyScope = args.material.record.runtimePolicyScope;
   if (runtimePolicyScope) {
@@ -98,6 +109,7 @@ export async function buildEvmFamilyPasskeyEcdsaProvisionPlan(args: {
       requestId: baseArgs.requestId,
       provisionSecretSource: baseArgs.provisionSecretSource,
       activationMaterial: baseArgs.activationMaterial,
+      walletSessionRouteAuth: baseArgs.walletSessionRouteAuth,
       runtimePolicyScope,
     });
   }

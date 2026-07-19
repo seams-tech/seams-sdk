@@ -303,7 +303,7 @@ pub(super) async fn handle_strict_router_fetch_v1(
         };
         let export_request = match parse_router_public_body_v1(
             &request_body,
-            parse_router_ab_ecdsa_derivation_explicit_export_request_v1_json,
+            parse_cloudflare_router_ab_ecdsa_derivation_export_command_v1_json,
             &request,
             &env,
         )? {

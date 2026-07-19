@@ -175,8 +175,8 @@ configuration points `main` at the corresponding
 `build/<role>/worker/shim.mjs`.
 
 Cargo compilation is incremental. Role packaging and `wasm-opt` still add
-build time. `pnpm router` performs a fast artifact and commitment-policy receipt
-check and does not invoke `worker-build`.
+build time. `pnpm router` performs a fast artifact and build-profile check and
+does not invoke `worker-build`.
 
 ## Native Rust Workers
 
@@ -225,7 +225,6 @@ The launcher validates the following files:
 .env.router-ab.deriver-a.local
 .env.router-ab.deriver-b.local
 .env.router-ab.signing-worker.local
-.env.router-ab.ecdsa-commitment-policy.build.local
 ```
 
 If required files are absent or invalid, the launcher runs
@@ -266,14 +265,7 @@ that Worker:
 
 Wrangler receives the role file through an explicit `--env-file` argument.
 
-### 4. Build-time policy pins
-
-`.env.router-ab.ecdsa-commitment-policy.build.local` is loaded only into the
-Rust worker build environment. It supplies the signed commitment-policy
-authority key, digest, and minimum release epoch compiled into Router and
-SigningWorker.
-
-### 5. Gateway configuration
+### 4. Gateway configuration
 
 `d1-local-runtime-config.mjs` projects the local topology into:
 
@@ -302,7 +294,7 @@ packages/console-server-ts/.dev.vars
 They provide SDK Router secrets and local integration configuration outside the
 Router A/B role files.
 
-### 6. Caddy environment
+### 5. Caddy environment
 
 Caddy receives `SEAMS_WALLET_PUBLIC_ROOT`, which points at
 `packages/sdk-web/dist/public`. Router A/B secrets are not passed to Caddy.
@@ -344,8 +336,8 @@ unless the associated state is intentionally migrated.
 3. Validate or generate local role material.
 4. Generate four strict Worker Wrangler configs and secret files.
 5. Generate the Gateway D1 Wrangler config.
-6. Verify that all strict Worker artifacts exist and match the current local
-   commitment-policy build receipt.
+6. Verify that all strict Worker artifacts exist and match the selected build
+   profile.
 7. Verify that ports `9100-9103` are available.
 8. Start the four Wrangler Worker processes.
 9. Wait for the Worker origins and MPCRouter keyset route.
@@ -368,22 +360,6 @@ to replace watched Worker artifacts while ports `9100-9103` are active.
 Stopping the launcher terminates the Worker processes, Gateway process,
 and Caddy process that it started. An independently running healthy Caddy
 instance remains external to the launcher.
-
-## Commitment Registry Parity
-
-The local configuration generator reads
-`ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON` from the generated SigningWorker role
-environment, validates it as a JSON object, and writes it into the active base
-`[vars]` section of the local SigningWorker Wrangler configuration.
-
-The registry remains public signed policy material. It is excluded from the
-SigningWorker `.dev.vars` secret file. Router and SigningWorker also compile
-against the corresponding signed commitment-policy authority, digest, and
-minimum release epoch from the generated build environment.
-
-Strict ECDSA, Yao role routes, Yao Durable Objects, activation, and normal
-signing are therefore served by the production Rust/WASM Workers with the
-required local runtime policy material.
 
 ## Relevant Files
 

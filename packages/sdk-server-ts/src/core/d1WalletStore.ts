@@ -4,7 +4,10 @@ import { d1ChangedRows, formatD1ExecStatement, parseD1JsonColumn } from '../stor
 import type { D1DatabaseLike, D1PreparedStatementLike } from '../storage/tenantRoute';
 import type { WalletId, WalletRegistrationEcdsaWalletKey } from './registrationContracts';
 import { alphabetizeStringify } from '@shared/utils/digests';
-import { thresholdEcdsaChainTargetKey } from './thresholdEcdsaChainTarget';
+import {
+  thresholdEcdsaChainTargetKey,
+  type ThresholdEcdsaChainTarget,
+} from './thresholdEcdsaChainTarget';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import {
   normalizeRuntimePolicyScope,
@@ -601,12 +604,14 @@ export class D1WalletStore implements WalletStore {
   async getEcdsaSignerByKeyHandle(input: {
     walletId: WalletId;
     keyHandle: string;
+    chainTarget: ThresholdEcdsaChainTarget;
   }): Promise<WalletEcdsaSignerRecord | null> {
     await this.ensureSchema();
     const walletId = toOptionalTrimmedString(input.walletId);
     const keyHandle = toOptionalTrimmedString(input.keyHandle);
     if (!walletId || !keyHandle) return null;
-    const result = await this.database
+    const chainTargetKey = thresholdEcdsaChainTargetKey(input.chainTarget);
+    const row = await this.database
       .prepare(
         `SELECT record_json
            FROM wallet_signers
@@ -616,8 +621,9 @@ export class D1WalletStore implements WalletStore {
             AND env_id = ?
             AND wallet_id = ?
             AND signer_family = 'ecdsa'
+            AND chain_target_key = ?
             AND json_extract(record_json, '$.walletKey.keyHandle') = ?
-          LIMIT 2`,
+          LIMIT 1`,
       )
       .bind(
         this.scope.namespace,
@@ -625,21 +631,18 @@ export class D1WalletStore implements WalletStore {
         this.scope.projectId,
         this.scope.envId,
         walletId,
+        chainTargetKey,
         keyHandle,
       )
-      .all<D1WalletRow>();
-    const rows = result.results || [];
-    if (rows.length === 0) return null;
-    if (rows.length !== 1) {
-      throw new Error('Wallet has duplicate ECDSA key handles');
-    }
-    const signer = parseWalletEcdsaSignerRecord(parseD1JsonColumn(rows[0]?.record_json));
+      .first<D1WalletRow>();
+    const signer = parseWalletEcdsaSignerRecord(parseD1JsonColumn(row?.record_json));
     if (
       !signer ||
       signer.walletId !== walletId ||
-      signer.walletKey.keyHandle !== keyHandle
+      signer.walletKey.keyHandle !== keyHandle ||
+      signer.chainTargetKey !== chainTargetKey
     ) {
-      throw new Error('Wallet ECDSA key-handle record is invalid');
+      return null;
     }
     return signer;
   }

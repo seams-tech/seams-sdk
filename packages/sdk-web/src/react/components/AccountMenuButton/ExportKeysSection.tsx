@@ -6,7 +6,6 @@ import './ExportKeysSection.css';
 export interface ExportKeysSectionProps {
   isOpen?: boolean;
   loadingChain: ExportChain | null;
-  restrictionMessage?: string | null;
   onSelectChain: (chain: ExportChain) => void;
   className?: string;
   style?: React.CSSProperties;
@@ -22,7 +21,6 @@ const EXPORT_ROWS: Array<{ chain: ExportChain; label: string; description: strin
 export const ExportKeysSection: React.FC<ExportKeysSectionProps> = ({
   isOpen = false,
   loadingChain,
-  restrictionMessage,
   onSelectChain,
   className,
   style,
@@ -45,11 +43,6 @@ export const ExportKeysSection: React.FC<ExportKeysSectionProps> = ({
           aria-hidden={!isOpen}
           style={{ pointerEvents: isOpen ? 'auto' : 'none' }}
         >
-          {restrictionMessage && (
-            <div className="w3a-export-keys-restriction" role="status">
-              {restrictionMessage}
-            </div>
-          )}
           {EXPORT_ROWS.map((row) => (
             <button
               key={row.chain}
@@ -64,9 +57,11 @@ export const ExportKeysSection: React.FC<ExportKeysSectionProps> = ({
             >
               <span className="w3a-export-keys-row-label">{row.label}</span>
               <span className="w3a-export-keys-row-description">{row.description}</span>
-              {loadingChain === row.chain && (
-                <SpinnerIcon className="w3a-export-keys-row-spinner" />
-              )}
+              {/* always-reserved slot: the spinner appearing must not resize
+                  the row (and with it the menu) */}
+              <span className="w3a-export-keys-row-spinner" aria-hidden>
+                {loadingChain === row.chain ? <SpinnerIcon /> : null}
+              </span>
             </button>
           ))}
         </div>

@@ -113,10 +113,8 @@ test.describe('Router A/B ECDSA registration browser waterfall', () => {
                   participantIds: [1, 2],
                 },
                 secretSource: {
-                  kind: 'webauthn_prf_first',
-                  prfFirstB64u: 'AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI',
-                  rpId: 'wallet.example.localhost',
-                  credentialIdB64u: 'Aw',
+                  kind: 'threshold_prf_x_client_base',
+                  xClientBaseB64u: 'AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI',
                 },
               },
             });

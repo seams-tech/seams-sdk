@@ -2176,9 +2176,9 @@ pub struct RouterAbEcdsaDerivationEvmDigestSigningResponseV1 {
 }
 
 impl RouterAbEcdsaDerivationEvmDigestSigningResponseV1 {
-    /// Creates a validated response bound to a typed Router A/B ECDSA derivation signing request.
+    /// Creates a validated response bound to a typed Router A/B ECDSA derivation finalize request.
     pub fn new_for_request(
-        request: &RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
+        request: &RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
         signature65_b64u: impl Into<String>,
     ) -> RouterAbProtocolResult<Self> {
         request.validate()?;
@@ -2205,7 +2205,7 @@ impl RouterAbEcdsaDerivationEvmDigestSigningResponseV1 {
     /// Validates the response is bound to the exact request and signing digest.
     pub fn validate_for_request(
         &self,
-        request: &RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
+        request: &RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
     ) -> RouterAbProtocolResult<()> {
         self.validate()?;
         request.validate()?;

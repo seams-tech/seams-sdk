@@ -3,12 +3,10 @@ use std::path::Path;
 
 mod support;
 
-use support::{
-    extract_braced_block_after_marker, extract_function_body, extract_struct_block, read_src_file,
-};
+use support::{extract_braced_block_after_marker, extract_function_body, read_src_file};
 
 #[test]
-fn signing_worker_opens_and_verifies_encrypted_proof_bundles_before_registry_bound_combine() {
+fn signing_worker_opens_and_verifies_encrypted_proof_bundles_before_combine() {
     let hpke_rs = read_src_file("hpke.rs");
     let body = extract_function_body(
         &hpke_rs,
@@ -28,10 +26,6 @@ fn signing_worker_opens_and_verifies_encrypted_proof_bundles_before_registry_bou
     assert!(
         open_a < open_b && open_b < combine,
         "SigningWorker must open and verify both recipient ciphertexts before combining"
-    );
-    assert!(
-        body.contains("commitment_registry"),
-        "SigningWorker combine must require the authenticated root-share commitment registry"
     );
 }
 
@@ -109,7 +103,7 @@ fn router_ab_ecdsa_derivation_registration_uses_protocol_specific_deriver_path()
     for required in [
         "execute_cloudflare_router_ab_ecdsa_derivation_deriver_registration_service_call_v1",
         "CloudflareSigningWorkerRecipientProofBundleActivationV1::new",
-        "execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_service_call_v1",
+        "CloudflareRouterAbEcdsaDerivationPendingSigningWorkerActivationV1::new",
     ] {
         assert!(
             registration_body.contains(required),
@@ -268,8 +262,7 @@ fn router_ab_ecdsa_derivation_registration_and_export_have_separate_activation_b
         "handle_cloudflare_router_ab_ecdsa_derivation_explicit_export_authenticated_public_request_v1",
     );
     for required in [
-        "CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRequestV1::new",
-        "execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_service_call_v1",
+        "CloudflareRouterAbEcdsaDerivationPendingSigningWorkerActivationV1::new",
         "CloudflareRouterAbEcdsaDerivationRegistrationAdmissionResponseV1::forwarded",
     ] {
         assert!(
@@ -277,6 +270,15 @@ fn router_ab_ecdsa_derivation_registration_and_export_have_separate_activation_b
             "Router A/B ECDSA derivation registration must activate through `{required}`"
         );
     }
+    let activation_body = extract_function_body(
+        &lib_rs,
+        "handle_cloudflare_router_ab_ecdsa_derivation_activation_authenticated_public_request_v1",
+    );
+    assert!(
+        activation_body
+            .contains("execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_service_call_v1"),
+        "Router A/B ECDSA derivation activation must call the SigningWorker activation service"
+    );
     for forbidden in [
         "CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRequestV1::new",
         "execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_service_call_v1",

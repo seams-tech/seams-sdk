@@ -82,10 +82,17 @@ import {
   type RouterAbEcdsaStrictPostRegistrationPort,
   type RouterAbEcdsaStrictRegistrationPort,
 } from '@seams/sdk-server/internal/router/routerAbEcdsaStrictRegistration';
+import {
+  createRouterAbServiceBindingFetch,
+  ROUTER_AB_DERIVER_A_ORIGIN,
+  ROUTER_AB_DERIVER_B_ORIGIN,
+  ROUTER_AB_SIGNING_WORKER_ORIGIN,
+  type RouterAbServiceBindingEnv,
+} from './routerAbServiceBindings';
 
 export { ThresholdStoreDurableObject };
 
-interface LocalD1DevEnv {
+interface LocalD1DevEnv extends RouterAbServiceBindingEnv {
   readonly CONSOLE_DB: D1DatabaseLike;
   readonly SIGNER_DB: D1DatabaseLike;
   readonly THRESHOLD_STORE: CloudflareDurableObjectNamespaceLike;
@@ -108,23 +115,18 @@ interface LocalD1DevEnv {
   readonly GOOGLE_OIDC_CLIENT_ID?: string;
   readonly GOOGLE_OIDC_CLIENT_IDS?: string;
   readonly SEAMS_LOCAL_OIDC_EXCHANGE_JSON?: string;
-  readonly ROUTER_AB_SIGNING_WORKER_URL?: string;
   readonly GATEWAY_PUBLIC_URL?: string;
-  readonly ROUTER_AB_MPC_ROUTER_URL?: string;
   readonly ROUTER_AB_CEREMONY_JWT_ISSUER?: string;
   readonly ROUTER_AB_CEREMONY_JWT_AUDIENCE?: string;
   readonly ROUTER_AB_CEREMONY_JWT_KEY_ID?: string;
   readonly ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK?: string;
   readonly ROUTER_AB_ECDSA_REGISTRATION_TOPOLOGY_JSON?: string;
-  readonly SIGNING_WORKER_URL?: string;
   readonly ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET?: string;
   readonly RELAY_SESSION_HMAC_SECRET?: string;
   readonly SESSION_COOKIE_NAME?: string;
   readonly RELAY_SESSION_ISSUER?: string;
   readonly RELAY_SESSION_AUDIENCE?: string;
   readonly ROUTER_AB_NORMAL_SIGNING_WORKER_ID?: string;
-  readonly DERIVER_A_URL?: string;
-  readonly DERIVER_B_URL?: string;
   readonly SIGNING_WORKER_ID?: string;
   readonly DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY?: string;
   readonly DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY?: string;
@@ -195,9 +197,7 @@ const DEFAULT_LOCAL_CONSOLE_ROLES = Object.freeze([
 const DEFAULT_LOCAL_SIGNING_ROOT_KEK_ID = 'signing-root-kek-local-r1';
 const DEFAULT_LOCAL_SIGNING_ROOT_KEK_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const DEFAULT_LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET = 'dev-router-ab-internal-service-auth';
-const DEFAULT_LOCAL_ROUTER_AB_SIGNING_WORKER_URL = 'http://127.0.0.1:9103';
 const DEFAULT_LOCAL_ROUTER_AB_ROUTER_URL = 'http://127.0.0.1:9090';
-const DEFAULT_LOCAL_ROUTER_AB_MPC_ROUTER_URL = 'http://127.0.0.1:9100';
 const LOCAL_ROUTER_AB_CEREMONY_JWKS_PATH = '/.well-known/router-ab-ceremony-jwks.json';
 
 export function buildLocalRouterRequest(
@@ -212,14 +212,6 @@ export function buildLocalRouterRequest(
   const sourceUrl = new URL(source.url);
   const targetUrl = new URL(`${sourceUrl.pathname}${sourceUrl.search}`, routerUrl);
   return new Request(targetUrl, source);
-}
-
-class LocalRouterFetchBinding {
-  constructor(private readonly routerUrl: string) {}
-
-  fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-    return globalThis.fetch(buildLocalRouterRequest(this.routerUrl, input, init));
-  }
 }
 
 type LocalEcdsaStrictPorts = {
@@ -247,10 +239,7 @@ function localEcdsaStrictPorts(env: LocalD1DevEnv): LocalEcdsaStrictPorts {
   }
   const tokenIssuer = localEcdsaCeremonyTokenIssuer(env, privateJwk);
   const config = {
-    router: new LocalRouterFetchBinding(
-      normalizeLocalString(env.ROUTER_AB_MPC_ROUTER_URL) ||
-        DEFAULT_LOCAL_ROUTER_AB_MPC_ROUTER_URL,
-    ),
+    router: env.MPC_ROUTER,
     tokenIssuer,
     tokenScope: {
       orgId: localConsoleOrgId(env),
@@ -954,10 +943,9 @@ function localThresholdStoreConfig(env: LocalD1DevEnv): ThresholdStoreConfigInpu
     ROUTER_AB_NORMAL_SIGNING_WORKER_ID:
       normalizeLocalString(env.ROUTER_AB_NORMAL_SIGNING_WORKER_ID) ||
       'local-d1-threshold-signing-worker',
-    ROUTER_AB_SIGNING_WORKER_URL:
-      normalizeLocalString(env.ROUTER_AB_SIGNING_WORKER_URL) ||
-      DEFAULT_LOCAL_ROUTER_AB_SIGNING_WORKER_URL,
+    ROUTER_AB_SIGNING_WORKER_URL: ROUTER_AB_SIGNING_WORKER_ORIGIN,
     ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: localRouterAbInternalServiceAuthSecret(env),
+    routerAbSigningWorkerFetch: createRouterAbServiceBindingFetch(env),
     signingRootShareResolverAdapters: createLocalD1SigningRootShareResolverAdapters(env),
   };
 }
@@ -1043,17 +1031,14 @@ async function createLocalEd25519YaoProductComposition(
   env: LocalD1DevEnv,
   session: SessionAdapter,
 ): Promise<LocalEd25519YaoProductCompositionState> {
-  const deriverAUrl = normalizeLocalString(env.DERIVER_A_URL);
-  const deriverBUrl = normalizeLocalString(env.DERIVER_B_URL);
-  if (!deriverAUrl && !deriverBUrl) return { kind: 'disabled' };
   const signingWorkerId =
     normalizeLocalString(env.SIGNING_WORKER_ID) ||
     normalizeLocalString(env.ROUTER_AB_NORMAL_SIGNING_WORKER_ID);
   const backend = createRouterAbEd25519YaoHttpRegistrationBackendFromEnv({
     env: {
-      DERIVER_A_URL: deriverAUrl,
-      DERIVER_B_URL: deriverBUrl,
-      SIGNING_WORKER_URL: normalizeLocalString(env.SIGNING_WORKER_URL),
+      DERIVER_A_URL: ROUTER_AB_DERIVER_A_ORIGIN,
+      DERIVER_B_URL: ROUTER_AB_DERIVER_B_ORIGIN,
+      SIGNING_WORKER_URL: ROUTER_AB_SIGNING_WORKER_ORIGIN,
       SIGNING_WORKER_ID: signingWorkerId,
       ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: normalizeLocalString(
         env.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET,
@@ -1068,7 +1053,7 @@ async function createLocalEd25519YaoProductComposition(
         env.SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY,
       ),
     },
-    fetch: globalThis.fetch,
+    fetch: createRouterAbServiceBindingFetch(env),
   });
   const walletStore = new D1WalletStore({
     database: env.SIGNER_DB,

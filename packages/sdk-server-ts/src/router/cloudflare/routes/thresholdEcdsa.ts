@@ -3,6 +3,7 @@ import { json, readJson } from '../http';
 import {
   parseAppSessionClaims,
   parseRouterAbEcdsaDerivationWalletSessionClaims,
+  type RouterAbEcdsaDerivationWalletSessionClaims,
   parseRouterAbEd25519WalletSessionClaims,
   resolveAppSessionWalletIdForWalletScope,
   resolveAppSessionProviderUserIdForWalletScope,
@@ -45,6 +46,7 @@ import {
 import type {
   RouterAbEcdsaStrictPostRegistrationPort,
   RouterAbEcdsaStrictPostRegistrationResult,
+  RouterAbEcdsaStrictExportAuthority,
   RouterAbEcdsaStrictRegistrationAuthority,
 } from '../../routerAbEcdsaStrictRegistration';
 
@@ -159,6 +161,7 @@ type StrictEcdsaPostRegistrationAuthorization =
   | {
       readonly ok: true;
       readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
+      readonly ecdsaClaims: RouterAbEcdsaDerivationWalletSessionClaims | null;
     }
   | {
       readonly ok: false;
@@ -284,14 +287,14 @@ async function authorizeStrictEcdsaPostRegistrationRequest(input: {
     ecdsaClaims?.walletId === authority.accountId ||
     ed25519Claims?.walletId === authority.accountId
   ) {
-    return { ok: true, authority };
+    return { ok: true, authority, ecdsaClaims };
   }
   const appSessionWalletId = resolveAppSessionWalletIdForWalletScope(
     appSessionClaims,
     authority.accountId,
   );
   if (appSessionWalletId === authority.accountId) {
-    return { ok: true, authority };
+    return { ok: true, authority, ecdsaClaims: null };
   }
   const providerUserId = resolveAppSessionProviderUserIdForWalletScope(
     appSessionClaims,
@@ -307,7 +310,7 @@ async function authorizeStrictEcdsaPostRegistrationRequest(input: {
       enrollment.ok &&
       enrollment.enrollment.providerUserId === providerUserId
     ) {
-      return { ok: true, authority };
+      return { ok: true, authority, ecdsaClaims: null };
     }
   }
   return {
@@ -360,9 +363,23 @@ async function handleStrictEcdsaPostRegistrationRoute(input: {
   }
   switch (parsed.kind) {
     case 'export': {
+      const exportAuthority = strictEcdsaExportAuthority({
+        request: parsed.request,
+        authorization: authorized,
+      });
+      if (!exportAuthority) {
+        return json(
+          {
+            ok: false,
+            code: 'identity_mismatch',
+            message: 'ECDSA export requires the exact authenticated ECDSA Wallet Session',
+          },
+          { status: 403 },
+        );
+      }
       const result = await input.port.explicitExport({
         request: parsed.request,
-        authority: authorized.authority,
+        authority: exportAuthority,
       });
       if (!result.ok) return strictPostRegistrationFailureResponse(result);
       return json(result.value, { status: 200 });
@@ -402,6 +419,45 @@ async function handleStrictEcdsaPostRegistrationRoute(input: {
       return json(result.value, { status: 200 });
     }
   }
+}
+
+function strictEcdsaExportAuthority(input: {
+  readonly request: RouterAbEcdsaDerivationExplicitExportRequestV1;
+  readonly authorization: Extract<StrictEcdsaPostRegistrationAuthorization, { readonly ok: true }>;
+}): RouterAbEcdsaStrictExportAuthority | null {
+  const claims = input.authorization.ecdsaClaims;
+  if (
+    !claims ||
+    claims.walletId !== input.request.lifecycle.account_id ||
+    claims.thresholdSessionId !== input.request.lifecycle.session_id ||
+    claims.evmFamilySigningKeySlotId !==
+      claims.routerAbEcdsaDerivationNormalSigning.scope.wallet_key_id
+  ) {
+    return null;
+  }
+  const scope = claims.routerAbEcdsaDerivationNormalSigning.scope;
+  if (
+    scope.wallet_id !== input.request.lifecycle.account_id ||
+    scope.context.application_binding_digest_b64u !==
+      input.request.context.application_binding_digest_b64u ||
+    scope.public_identity.context_binding_b64u !==
+      input.request.public_identity.context_binding_b64u ||
+    scope.public_identity.threshold_public_key33_b64u !==
+      input.request.public_identity.threshold_public_key33_b64u ||
+    scope.signing_worker.server_id !== input.request.lifecycle.selected_server_id ||
+    scope.activation_epoch !== input.request.lifecycle.root_share_epoch
+  ) {
+    return null;
+  }
+  return {
+    subjectId: input.authorization.authority.subjectId,
+    sessionId: input.authorization.authority.sessionId,
+    accountId: input.authorization.authority.accountId,
+    expiresAtMs: input.authorization.authority.expiresAtMs,
+    keyHandle: claims.keyHandle,
+    signingGrantId: claims.signingGrantId,
+    normalSigningScope: scope,
+  };
 }
 
 function strictPostRegistrationFailureResponse(
@@ -534,8 +590,7 @@ async function handleStrictEcdsaSessionActivation(input: {
   if (!activated.ok) {
     return json(activated, {
       status:
-        activated.code === 'not_found' ||
-        activated.code === 'proof_not_found'
+        activated.code === 'not_found'
           ? 404
           : activated.code === 'internal'
             ? 500
@@ -611,7 +666,6 @@ async function handleStrictEcdsaSessionActivation(input: {
         wallet_session_jwt: signed.jwt,
       },
       normal_signing: normalSigning,
-      signing_worker_activation: activated.signingWorkerActivation,
     },
     { status: 200 },
   );

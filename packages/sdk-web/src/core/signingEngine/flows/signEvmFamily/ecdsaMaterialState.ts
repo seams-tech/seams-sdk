@@ -663,6 +663,7 @@ export function resolveEmailOtpEcdsaReadinessSource(args: {
   }
   switch (roleLocalState.inlineSigningMaterial.kind) {
     case 'role_local_ready_state_blob':
+    case 'role_local_durable_material':
       return {
         kind: 'persisted_record_policy',
         expiresAtMs: Math.floor(Number(args.record.expiresAtMs) || 0),

@@ -144,6 +144,7 @@ function routerAbEcdsaIssuerBinding(overrides: Record<string, unknown> = {}) {
 function routerAbEcdsaClaims(overrides: Record<string, unknown> = {}) {
   const normalSigning = buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap({
     bootstrap: routerAbEcdsaBootstrap(),
+    activationEpoch: 'activation-epoch-1',
     routerAbPublicKeyset,
     signingWorkerId: 'signing-worker-1',
   });
@@ -380,6 +381,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
     const ecdsaBootstrap = routerAbEcdsaBootstrap();
     const ecdsaNormalSigning = buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap({
       bootstrap: ecdsaBootstrap,
+      activationEpoch: 'activation-epoch-1',
       routerAbPublicKeyset,
       signingWorkerId: 'signing-worker-1',
     });
@@ -401,7 +403,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
           runtimePolicyScope,
           keyHandle: ecdsaBootstrap.keyHandle,
           ...routerAbEcdsaIssuerBinding(),
-          activationEpoch: ecdsaBootstrap.thresholdSessionId,
+          activationEpoch: 'activation-epoch-1',
           routerAbEcdsaDerivationNormalSigning: ecdsaNormalSigning.state,
         },
         requireJwtErrorMessage: 'jwt required',

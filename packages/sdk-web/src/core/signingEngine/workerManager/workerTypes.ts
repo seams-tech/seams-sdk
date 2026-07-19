@@ -54,10 +54,8 @@ import type {
   CreateRouterAbEcdsaPostRegistrationCeremonyResultV1,
   FinalizeRouterAbEcdsaExplicitExportRequestV1,
   FinalizeRouterAbEcdsaExplicitExportResultV1,
-  FinalizeRouterAbEcdsaRecoveryActivationRequestV1,
-  FinalizeRouterAbEcdsaRecoveryActivationResultV1,
-  VerifyRouterAbEcdsaRecoveryClientProofsRequestV1,
-  VerifyRouterAbEcdsaRecoveryClientProofsResultV1,
+  RehydrateEcdsaRoleLocalSigningMaterialRequestV1,
+  RehydrateEcdsaRoleLocalSigningMaterialResultV1,
   VerifyRouterAbEcdsaRefreshClientProofsRequestV1,
   VerifyRouterAbEcdsaRefreshClientProofsResultV1,
 } from '@/core/signingEngine/workerManager/ecdsaClientWorkerChannels';
@@ -1129,10 +1127,9 @@ export const EcdsaDerivationClientCustomRequestType = {
   CreateRouterAbEcdsaPostRegistrationCeremony: 70_009,
   FinalizeRouterAbEcdsaExplicitExport: 70_010,
   CloseRouterAbEcdsaPostRegistrationCeremony: 70_011,
-  VerifyRouterAbEcdsaRecoveryClientProofs: 70_012,
-  FinalizeRouterAbEcdsaRecoveryActivation: 70_013,
   VerifyRouterAbEcdsaRefreshClientProofs: 70_014,
   StoreThresholdEcdsaRoleLocalSigningMaterial: 70_004,
+  RehydrateEcdsaRoleLocalSigningMaterial: 70_015,
 } as const;
 
 export type EcdsaDerivationClientCustomRequestType =
@@ -1149,10 +1146,9 @@ export const EcdsaDerivationClientCustomResponseType = {
   CreateRouterAbEcdsaPostRegistrationCeremonySuccess: 70_109,
   FinalizeRouterAbEcdsaExplicitExportSuccess: 70_110,
   CloseRouterAbEcdsaPostRegistrationCeremonySuccess: 70_111,
-  VerifyRouterAbEcdsaRecoveryClientProofsSuccess: 70_112,
-  FinalizeRouterAbEcdsaRecoveryActivationSuccess: 70_113,
   VerifyRouterAbEcdsaRefreshClientProofsSuccess: 70_114,
   StoreThresholdEcdsaRoleLocalSigningMaterialSuccess: 70_104,
+  RehydrateEcdsaRoleLocalSigningMaterialSuccess: 70_115,
 } as const;
 
 export type EcdsaDerivationClientCustomResponseType =
@@ -1405,22 +1401,6 @@ type EcdsaDerivationClientCustomOperationMap = {
       diagnostics?: WorkerResponseDiagnostics;
     };
   };
-  [EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaRecoveryClientProofs]: {
-    payload: VerifyRouterAbEcdsaRecoveryClientProofsRequestV1;
-    result: {
-      type: typeof EcdsaDerivationClientCustomResponseType.VerifyRouterAbEcdsaRecoveryClientProofsSuccess;
-      payload: VerifyRouterAbEcdsaRecoveryClientProofsResultV1;
-      diagnostics?: WorkerResponseDiagnostics;
-    };
-  };
-  [EcdsaDerivationClientCustomRequestType.FinalizeRouterAbEcdsaRecoveryActivation]: {
-    payload: FinalizeRouterAbEcdsaRecoveryActivationRequestV1;
-    result: {
-      type: typeof EcdsaDerivationClientCustomResponseType.FinalizeRouterAbEcdsaRecoveryActivationSuccess;
-      payload: FinalizeRouterAbEcdsaRecoveryActivationResultV1;
-      diagnostics?: WorkerResponseDiagnostics;
-    };
-  };
   [EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaRefreshClientProofs]: {
     payload: VerifyRouterAbEcdsaRefreshClientProofsRequestV1;
     result: {
@@ -1456,6 +1436,14 @@ type EcdsaDerivationClientCustomOperationMap = {
   [EcdsaDerivationClientCustomRequestType.StoreThresholdEcdsaRoleLocalSigningMaterial]: {
     payload: StoreThresholdEcdsaRoleLocalSigningMaterialRequest;
     result: StoreThresholdEcdsaRoleLocalSigningMaterialResponse;
+  };
+  [EcdsaDerivationClientCustomRequestType.RehydrateEcdsaRoleLocalSigningMaterial]: {
+    payload: RehydrateEcdsaRoleLocalSigningMaterialRequestV1;
+    result: {
+      type: typeof EcdsaDerivationClientCustomResponseType.RehydrateEcdsaRoleLocalSigningMaterialSuccess;
+      payload: RehydrateEcdsaRoleLocalSigningMaterialResultV1;
+      diagnostics?: WorkerResponseDiagnostics;
+    };
   };
 };
 
@@ -1568,13 +1556,12 @@ export type EcdsaDerivationRoleLocalMaterialOperationType =
   | typeof EcdsaDerivationClientCustomRequestType.CreateRouterAbEcdsaPostRegistrationCeremony
   | typeof EcdsaDerivationClientCustomRequestType.FinalizeRouterAbEcdsaExplicitExport
   | typeof EcdsaDerivationClientCustomRequestType.CloseRouterAbEcdsaPostRegistrationCeremony
-  | typeof EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaRecoveryClientProofs
   | typeof EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaRefreshClientProofs
-  | typeof EcdsaDerivationClientCustomRequestType.FinalizeRouterAbEcdsaRecoveryActivation
   | typeof EcdsaDerivationClientCustomRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap
   | typeof EcdsaDerivationClientCustomRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap
   | typeof EcdsaDerivationClientCustomRequestType.BuildThresholdEcdsaDerivationRoleLocalExportArtifact
-  | typeof EcdsaDerivationClientCustomRequestType.StoreThresholdEcdsaRoleLocalSigningMaterial;
+  | typeof EcdsaDerivationClientCustomRequestType.StoreThresholdEcdsaRoleLocalSigningMaterial
+  | typeof EcdsaDerivationClientCustomRequestType.RehydrateEcdsaRoleLocalSigningMaterial;
 
 export type EcdsaDerivationRoleLocalMaterialOperationRequest<
   T extends EcdsaDerivationRoleLocalMaterialOperationType,

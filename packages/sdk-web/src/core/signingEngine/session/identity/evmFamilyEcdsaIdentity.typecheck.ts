@@ -5,6 +5,7 @@ import type {
   ThresholdEcdsaSecp256k1KeyRef,
 } from '../../interfaces/signing';
 import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/types';
+import type { EcdsaActiveStateId } from '@shared/utils/domainIds';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   buildEvmFamilyEcdsaKeyIdentity,
@@ -494,6 +495,7 @@ void invalidReadyMaterialWithSubjectId;
 declare const signerSession: ReadyEcdsaSignerSession;
 void signerSession;
 declare const routerAbEcdsaDerivationNormalSigningState: RouterAbEcdsaDerivationNormalSigningStateV1;
+declare const ecdsaActiveStateId: EcdsaActiveStateId;
 
 const invalidSignerSessionWithKeyRef: ReadyEcdsaSignerSession = {
   ...signerSession,
@@ -570,7 +572,7 @@ const invalidRouterAbReadyWithCookieCredential: ReadyRouterAbEcdsaDerivationNorm
   state: routerAbEcdsaDerivationNormalSigningState,
   // @ts-expect-error Router A/B ECDSA derivation normal signing credentials are bearer JWTs.
   credential: { kind: 'cookie' },
-  walletSessionSessionId: 'wallet-session-1',
+  activeStateId: ecdsaActiveStateId,
 };
 void invalidRouterAbReadyWithCookieCredential;
 

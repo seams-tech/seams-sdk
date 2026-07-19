@@ -48,6 +48,13 @@
   overflow: hidden;
   min-height: 0;
   min-width: 0;
+  /* Expanded sections sit on a slightly deeper surface than the menu itself.
+     Derived from the theme's own surface tones so it tracks light/dark. */
+  --w3a-expander-surface: color-mix(
+    in srgb,
+    var(--w3a-colors-surface2) 45%,
+    var(--w3a-colors-surface)
+  );
 }
 
 /* Global theme pulse when toggling theme */

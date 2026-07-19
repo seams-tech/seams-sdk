@@ -7,8 +7,8 @@ Rust/WASM proof generation and activation integration remain pending.
 
 ## Dependencies
 
-- [Refactor 90](./refactor-90-modular-auth-capabilities-plan.md) Pre-Phases
-  4/19A and 4/19B own canonical MPC hydration,
+- [Refactor 90](./refactor-90-modular-auth-capabilities-plan.md) Foundations A
+  and B own canonical MPC hydration,
   `ActiveEcdsaCapabilityManifest`, `DurableEcdsaMaterialBinding`,
   `ActiveEcdsaMaterialSession`, `EcdsaRuntimeObservation`, and the
   `EcdsaCapabilityActivationCommitJournal`. They must land before this patch
@@ -21,8 +21,7 @@ Rust/WASM proof generation and activation integration remain pending.
   linked-device product behavior and admission.
 
 Device linking currently fails closed. This patch may land in development with
-`device_link_required`; cross-device release remains gated on Refactors 97 and
-98.
+`device_link_required`; cross-device release remains gated on Refactors 97 and 98.
 
 ## Decision
 
@@ -126,10 +125,10 @@ the strict ECDSA derivation recovery protocol.
 1. Threshold-PRF derivation creates the initial owner-lane ECDSA client share
    only during registration.
 2. The client-share public key, threshold public key, EVM address, participant
-   set, signing-root scope, material owner, lane, and lane epoch remain exact
+   set, signing-root scope, material owner, lane, and lane-share epoch remain exact
    for one active capability manifest revision.
 3. Session activation requires possession of the exact role-local client
-   material bound to the active manifest and lane epoch.
+   material bound to the active manifest and lane-share epoch.
 4. Activation refresh may rotate SigningWorker material and activation epoch
    only when the resulting public identity exactly equals the registered
    public identity.
@@ -145,7 +144,7 @@ the strict ECDSA derivation recovery protocol.
 10. Recovery compatibility code is not retained. Pending recovery ceremonies
     and records are development-only obsolete state.
 11. Refactor 97 additive lane resharing may replace holder and server shares at
-    the next lane epoch while preserving the wallet key and EVM address.
+    the next lane-share epoch while preserving the wallet key and EVM address.
 12. `SigningWorkerActivationRefresh` preserves the client share.
     `EcdsaLaneShareRefresh` replaces lane material through the explicit
     Refactor 97 protocol.
@@ -195,10 +194,11 @@ sequenceDiagram
     SW-->>Gateway: "identity-preserving refresh receipt"
     Gateway-->>Client: "refresh binding and transcript"
     Client->>Client: "prove possession of active lane client share"
+    Client->>Client: "persist activation_prepared journal"
     Client->>Gateway: "refresh binding and exact-material proof"
     Gateway->>Gateway: "verify proof and consume refresh once"
     Gateway-->>Client: "activation receipt and server generation"
-    Client->>Client: "commit through Refactor 90 activation journal"
+    Client->>Client: "advance journal, commit manifest, read back, publish runtime"
 ```
 
 ### Missing Local Material
@@ -236,31 +236,43 @@ does not define another local-material union or persistence priority.
 
 Branch behavior:
 
-| Hydration branch | This patch's action |
-| --- | --- |
-| `use_live_runtime` | Validate the runtime proof and continue to exact-material activation. |
-| `rehydrate_active_session` | Open the exact `DurableEcdsaMaterialBinding`, publish a validated runtime observation, then continue. |
-| `reauthorize_public_anchor` | Resolve Refactor 95 exact custody. Restore the same share through `commitEcdsaCapabilityActivation(...)` when authorized. |
-| `blocked` with no exact custody source | Return `device_link_required` only after exact custody resolution. |
-| `blocked` for revoked, replaced, conflict, corruption, mismatch, or unavailable persistence | Return the exact fail-closed state. |
+| Hydration branch                                                                            | This patch's action                                                                                                       |
+| ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `use_live_runtime`                                                                          | Validate the runtime proof and continue to exact-material activation.                                                     |
+| `rehydrate_active_session`                                                                  | Open the exact `DurableEcdsaMaterialBinding`, publish a validated runtime observation, then continue.                     |
+| `reauthorize_public_anchor`                                                                 | Resolve Refactor 95 exact custody. Restore the same share through `commitEcdsaCapabilityActivation(...)` when authorized. |
+| `blocked` with no exact custody source                                                      | Return `device_link_required` only after exact custody resolution.                                                        |
+| `blocked` for revoked, replaced, conflict, corruption, mismatch, or unavailable persistence | Return the exact fail-closed state.                                                                                       |
 
 The activation coordinator accepts only a `use_live_runtime` plan carrying an
 `ActiveEcdsaCapabilityManifest` reference and exact runtime validation proof.
+
+`device_link_required` is an ECDSA product projection produced after hydration
+and exact-custody resolution. It is absent from hydration and persistence
+unions. For `reauthorize_public_anchor`, the exact public anchor and fresh
+authorization select the Refactor 95 custody envelope. For
+`blocked: missing_material`, a boundary coordinator independently resolves the
+registered signer and authorized custody envelope before it may produce
+`device_link_required`. It cannot reinterpret the blocked hydration result as
+an active capability or copy authority from diagnostics.
 
 ### Existing-Material Activation Request
 
 Replace the recovery-plus-refresh activation request with one exact contract:
 
 ```ts
+type EcdsaExistingMaterialActivationLocatorV1 = {
+  kind: 'ecdsa_existing_material_activation_locator_v1';
+  capability: CapabilityInstanceRef;
+  manifestId: EcdsaCapabilityManifestId;
+  expectedManifestRevision: EcdsaCapabilityManifestRevision;
+  laneId: SigningLaneId;
+  laneShareEpoch: LaneShareEpoch;
+};
+
 type RouterAbEcdsaExistingMaterialSessionActivationRequestV1 = {
   kind: 'router_ab_ecdsa_existing_material_session_activation_v1';
-  registeredSigner: RegisteredEvmFamilySigner;
-  activeCapability: ActiveEcdsaCapabilityRef;
-  materialOwner: MpcMaterialOwnerRef;
-  laneId: EcdsaLaneId;
-  laneEpoch: EcdsaLaneEpoch;
-  thresholdMaterialSessionId: ThresholdEcdsaSessionId;
-  expectedServerGeneration: EcdsaServerGeneration;
+  capabilityLocator: EcdsaExistingMaterialActivationLocatorV1;
   refreshBinding: RouterAbEcdsaPostRegistrationProofBindingV1;
   refreshTranscriptDigestB64u: PublicDigest32B64u;
   runtimePolicyBindingDigestB64u: PublicDigest32B64u;
@@ -272,10 +284,18 @@ type RouterAbEcdsaExistingMaterialSessionActivationRequestV1 = {
 ```
 
 Every field is required. Remove `recovery_binding` and
-`verified_client_facts`; the canonical registered signer, active manifest
-reference, material session, refresh receipt, and possession proof supply the
-required identity evidence. Operation grants, signing quotas, transaction
-nonces, and bearer credentials are forbidden. They enter later through
+`verified_client_facts`. The locator is untrusted request input used only to
+load one exact manifest revision. The Gateway resolves the canonical
+`RegisteredEvmFamilySigner`, `WalletAuthAuthorityRef`, `ActiveEcdsaCapabilityRef`,
+`MpcMaterialOwnerRef`, `ThresholdEcdsaSessionId`, registered public facts, and
+`EcdsaServerGeneration` from that manifest under the authenticated route
+authority. It rejects every locator, refresh, or proof fact that disagrees with
+the resolved manifest. The client cannot submit a full internal signer,
+material-session, authority, or public-capability aggregate as selection
+authority.
+
+Operation grants, signing quotas, transaction nonces, and bearer credentials
+are forbidden. They enter later through
 `selectExactEcdsaOperationLane(...)`.
 
 ### Client-Material Possession Proof
@@ -315,7 +335,9 @@ The Rust signer implementation must:
 
 - prove knowledge of the scalar corresponding to
   `derivation_client_share_public_key33_b64u`;
-- use a fresh nonce generated inside the Rust/WASM worker;
+- generate fresh auxiliary randomness from the worker CSPRNG and use the
+  audited `k256` BIP340 nonce derivation;
+- add no custom scalar reduction, division, or secret-indexed lookup path;
 - use a fixed protocol and ciphersuite label;
 - use canonical scalar and point encodings;
 - reject infinity, non-curve points, and non-canonical BIP340 signatures;
@@ -329,9 +351,10 @@ The challenge digest must bind:
 protocol version
 registered signer digest
 registered public-capability digest
+active capability and manifest ID/revision
 authority-reference digest
 material-owner reference
-lane ID and lane epoch
+lane ID and lane-share epoch
 active lane client-share public key
 threshold material-session ID
 expected server generation
@@ -347,7 +370,10 @@ idempotency correlation
 
 The Gateway derives the challenge independently from parsed domain values.
 The client cannot provide an arbitrary challenge digest for the verifier to
-trust.
+trust. The refresh binding, one-use nonce, expiry, and idempotency correlation
+are server-issued. Registered signer, authority, public facts, material owner,
+material session, server generation, and manifest facts come from the exact
+server-resolved capability.
 
 ## Lifecycle Contract
 
@@ -356,40 +382,91 @@ Use one server-side refresh and activation-attempt lifecycle. Refactor 90's
 browser commit lifecycle.
 
 ```ts
-type EcdsaExistingMaterialActivationAttemptState =
-  | {
-      state: 'refresh_pending';
-      refreshBinding: RouterAbEcdsaPostRegistrationProofBindingV1;
-      expiresAtMs: number;
-    }
-  | {
-      state: 'refresh_ready';
-      refreshBinding: RouterAbEcdsaPostRegistrationProofBindingV1;
-      refreshTranscriptDigestB64u: string;
-      nextActivationEpoch: string;
-      expiresAtMs: number;
-    }
-  | {
-      state: 'activating';
-      refreshBinding: RouterAbEcdsaPostRegistrationProofBindingV1;
-      activationOperationId: string;
-      claimedAtMs: number;
-    }
-  | {
-      state: 'server_activation_committed';
-      refreshBinding: RouterAbEcdsaPostRegistrationProofBindingV1;
-      activationOperationId: string;
-      thresholdMaterialSessionId: ThresholdEcdsaSessionId;
-      serverGeneration: EcdsaServerGeneration;
-      activationReceipt: EcdsaServerActivationReceipt;
-      committedAtMs: number;
-    }
-  | {
-      state: 'terminal';
-      refreshBinding: RouterAbEcdsaPostRegistrationProofBindingV1;
-      reason: 'expired' | 'cancelled' | 'invalid_proof' | 'identity_mismatch';
-      terminalAtMs: number;
-    };
+type RouterAbEcdsaActivationEpoch = Brand<string, 'RouterAbEcdsaActivationEpoch'>;
+
+type EcdsaExistingMaterialActivationAttemptCommon = {
+  capability: CapabilityInstanceRef;
+  manifestId: EcdsaCapabilityManifestId;
+  expectedManifestRevision: EcdsaCapabilityManifestRevision;
+  signerId: EvmFamilyEcdsaSignerId;
+  authority: WalletAuthAuthorityRef;
+  materialOwner: MpcMaterialOwnerRef;
+  laneId: SigningLaneId;
+  laneShareEpoch: LaneShareEpoch;
+  thresholdMaterialSessionId: ThresholdEcdsaSessionId;
+  expectedServerGeneration: EcdsaServerGeneration;
+  refreshBinding: RouterAbEcdsaPostRegistrationProofBindingV1;
+  idempotencyCorrelation: CorrelationId;
+};
+
+type EcdsaExistingMaterialActivationAttemptState = EcdsaExistingMaterialActivationAttemptCommon &
+  (
+    | {
+        state: 'refresh_pending';
+        expiresAtMs: number;
+        refreshTranscriptDigestB64u?: never;
+        nextActivationEpoch?: never;
+        activationOperationId?: never;
+        claimedAtMs?: never;
+        serverGeneration?: never;
+        activationReceipt?: never;
+        committedAtMs?: never;
+        terminalReason?: never;
+        terminalAtMs?: never;
+      }
+    | {
+        state: 'refresh_ready';
+        refreshTranscriptDigestB64u: PublicDigest32B64u;
+        nextActivationEpoch: RouterAbEcdsaActivationEpoch;
+        expiresAtMs: number;
+        activationOperationId?: never;
+        claimedAtMs?: never;
+        serverGeneration?: never;
+        activationReceipt?: never;
+        committedAtMs?: never;
+        terminalReason?: never;
+        terminalAtMs?: never;
+      }
+    | {
+        state: 'activating';
+        refreshTranscriptDigestB64u: PublicDigest32B64u;
+        nextActivationEpoch: RouterAbEcdsaActivationEpoch;
+        activationOperationId: CorrelationId;
+        claimedAtMs: number;
+        expiresAtMs: number;
+        serverGeneration?: never;
+        activationReceipt?: never;
+        committedAtMs?: never;
+        terminalReason?: never;
+        terminalAtMs?: never;
+      }
+    | {
+        state: 'server_activation_committed';
+        refreshTranscriptDigestB64u: PublicDigest32B64u;
+        nextActivationEpoch: RouterAbEcdsaActivationEpoch;
+        activationOperationId: CorrelationId;
+        claimedAtMs: number;
+        expiresAtMs: number;
+        serverGeneration: EcdsaServerGeneration;
+        activationReceipt: EcdsaServerActivationReceipt;
+        committedAtMs: number;
+        terminalReason?: never;
+        terminalAtMs?: never;
+      }
+    | {
+        state: 'terminal';
+        terminalReason: 'expired' | 'cancelled' | 'invalid_proof' | 'identity_mismatch';
+        terminalAtMs: number;
+        expiresAtMs: number;
+        refreshTranscriptDigestB64u?: never;
+        nextActivationEpoch?: never;
+        activationOperationId?: never;
+        claimedAtMs?: never;
+        serverGeneration?: never;
+        activationReceipt?: never;
+        committedAtMs?: never;
+      }
+  );
 ```
 
 Requirements:
@@ -405,15 +482,18 @@ Requirements:
 - allow a new refresh ceremony after a terminal attempt;
 - reject concurrent activation attempts for the same refresh binding.
 
-After server commitment, the SDK passes the exact receipt, generation,
-idempotency correlation, active material, and expected manifest revision to
-`commitEcdsaCapabilityActivation(...)`. That journal performs:
+Before submitting the consuming activation request, the SDK persists the
+`activation_prepared` branch of
+`EcdsaCapabilityActivationCommitJournal`. It binds the exact candidate
+material, capability, signer, authority, material owner, expected manifest
+revision, expected server generation, activation request digest, and
+idempotency correlation. After server commitment, the SDK advances the same
+journal with the exact receipt and generation, then performs:
 
-1. server receipt persistence;
-2. atomic encrypted-material plus active-manifest commit;
-3. authenticated readback;
-4. runtime publication;
-5. reload reconciliation by exact idempotency correlation.
+1. atomic encrypted-material plus active-manifest commit;
+2. authenticated readback;
+3. runtime publication;
+4. reload reconciliation by exact idempotency correlation.
 
 The server attempt state cannot independently publish a ready browser
 capability.
@@ -422,7 +502,7 @@ capability.
 
 Required order:
 
-1. Complete Refactor 90 Pre-Phases 4/19A and 4/19B.
+1. Complete Refactor 90 Foundations A and B.
 2. Freeze this patch's PRF regression and possession-proof contract.
 3. Integrate Refactor 95 exact-custody restoration with the canonical manifest
    commit.
@@ -444,9 +524,10 @@ Required order:
       its canonical encoding and challenge transcript in this document.
 - [ ] Obtain cryptographic review of the proof construction and its use of the
       existing client-share scalar.
-- [ ] Run constant-time analysis at relevant optimization levels and available
-      architectures, then manually review secret dataflow, nonce generation,
-      and zeroization. Static instruction scanning is supporting evidence.
+- [ ] Run constant-time analysis at `O0` and `O3` for `x86_64` and `arm64`
+      deployment targets where supported, then manually review secret dataflow,
+      nonce generation, memory access, and zeroization. Static instruction
+      scanning is supporting evidence.
 
 Exit criteria:
 
@@ -479,7 +560,7 @@ Exit criteria:
 
 ### Phase 2: Replace The SDK Bootstrap State Machine
 
-- [ ] Depend on Refactor 90 Pre-Phases 4/19A and 4/19B.
+- [ ] Depend on Refactor 90 Foundations A and B.
 - [ ] Call the shared hydration resolver before any activation network request.
 - [ ] Continue immediately from `use_live_runtime`.
 - [ ] Rehydrate `rehydrate_active_session` through the canonical durable
@@ -496,6 +577,8 @@ Exit criteria:
       call in this coordinator.
 - [ ] Create the client possession proof after receiving the exact refresh
       binding and transcript.
+- [ ] Persist the `activation_prepared` journal branch before submitting the
+      consuming activation request.
 - [ ] Submit the new activation request.
 - [ ] Reuse the exact validated runtime handle selected by hydration.
 - [ ] Commit the server receipt and material through
@@ -518,10 +601,14 @@ Exit criteria:
 
 - [ ] Add the strict parser for
       `RouterAbEcdsaExistingMaterialSessionActivationRequestV1`.
-- [ ] Normalize route auth, public capability, refresh binding, proof, and
+- [ ] Normalize route auth, capability locator, refresh binding, proof, and
       material-activation facts once at the request boundary.
+- [ ] Load the exact manifest revision from the locator and build the canonical
+      `ActiveEcdsaCapabilityRef` server-side. Reject request bodies that attempt
+      to supply a full signer, authority, material session, or public-capability
+      aggregate.
 - [ ] Resolve the exact registered signer, authority, active capability,
-      material owner, lane epoch, material session, and server-generation
+      material owner, lane-share epoch, material session, and server-generation
       expectation.
 - [ ] Verify the refresh receipt preserves the complete registered public
       identity.
@@ -615,20 +702,27 @@ outside this deletion check.
 - [ ] Update Refactor 95 so passkey or recovery-code custody recovery restores
       exact wrapped ECDSA role-local material and never invokes same-root
       Deriver rederivation.
+- [ ] Replace Refactor 95 ECDSA custody bindings that carry
+      `evmFamilySigningKeySlotId` with the final `EvmFamilyEcdsaSignerId`,
+      capability, material-owner, lane, and lane-share-epoch identity.
 - [ ] Update Refactors 97 and 98 to remain the only new-device ECDSA lane
       provisioning path.
+- [ ] Delete tests and fixtures that manufacture
+      `ThresholdEcdsaSessionRecordCore`, ready records, or partial lifecycle
+      objects. Current-state tests use canonical boundary builders and the
+      capability persistence adapter.
 
 Existing development accounts:
 
-| State | Result |
-| --- | --- |
-| Live runtime matching an active manifest | Existing-material activation |
-| Active manifest and exact durable material | `rehydrate_active_session`, then activation |
-| Reauthorization anchor and exact wrapped owner custody | Authorized exact-custody restore, journal commit, then activation |
-| No live/durable material and no exact custody source for this device | `device_link_required` |
-| Conflicting, corrupt, revoked, replaced, mismatched, or unavailable state | Exact blocked state |
-| Pending strict ECDSA derivation recovery ceremony | Delete or expire |
-| New registration | Create the initial owner-lane share and commit the canonical manifest |
+| State                                                                     | Result                                                                |
+| ------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Live runtime matching an active manifest                                  | Existing-material activation                                          |
+| Active manifest and exact durable material                                | `rehydrate_active_session`, then activation                           |
+| Reauthorization anchor and exact wrapped owner custody                    | Authorized exact-custody restore, journal commit, then activation     |
+| No live/durable material and no exact custody source for this device      | `device_link_required`                                                |
+| Conflicting, corrupt, revoked, replaced, mismatched, or unavailable state | Exact blocked state                                                   |
+| Pending strict ECDSA derivation recovery ceremony                         | Delete or expire                                                      |
+| New registration                                                          | Create the initial owner-lane share and commit the canonical manifest |
 
 No compatibility reconstruction route is added.
 
@@ -642,12 +736,15 @@ No compatibility reconstruction route is added.
       no recovery or Deriver request.
 - [ ] Activation refresh preserves the exact client public share, threshold
       public key, EVM address, registered signer, capability, material owner,
-      lane epoch, participant set, and signing-root scope.
+      lane-share epoch, participant set, and signing-root scope.
 - [ ] A tampered local record fails before network activation.
 - [ ] A proof for another signer, capability, authority, material owner, lane,
-      lane epoch, material session, server generation, refresh, policy, nonce,
-      expiry, or idempotency correlation is rejected.
+      lane-share epoch, material session, server generation, refresh, policy,
+      nonce, expiry, or idempotency correlation is rejected.
 - [ ] Replayed and concurrent activation requests produce at most one session.
+- [ ] Failure injection after journal preparation, server commitment, local
+      transaction commit, readback, and runtime publication proves exact reload
+      reconciliation without replaying a consuming server effect.
 - [ ] Explicit ECDSA export still requires its own authorization and audit
       event.
 - [ ] Email OTP/recovery-code restore tests prove exact wrapped-material
@@ -655,6 +752,9 @@ No compatibility reconstruction route is added.
 - [ ] Cloudflare and local production-equivalent topologies exercise the same
       activation request and proof verifier.
 - [ ] Type checks reject invalid lifecycle and material combinations.
+- [ ] Type fixtures reject direct invalid object literals, broad lifecycle
+      spreads, full internal aggregates in activation requests, and operation
+      grant or quota fields in material activation.
 - [ ] Rust protocol, WASM, shared TypeScript, SDK web, SDK server, and local
       Router smoke checks pass.
 - [ ] The release bundle and route inventory contain no strict ECDSA derivation
@@ -699,17 +799,22 @@ This patch is complete when:
 1. Threshold-PRF derivation creates the initial owner-lane ECDSA client share
    during registration and never rederives it.
 2. Existing-device session activation proves possession of the exact client
-   share bound to the active manifest and lane epoch.
+   share bound to the active manifest and lane-share epoch.
 3. SigningWorker activation refresh preserves the complete registered public
    identity.
 4. Refactor 90 hydration and Refactor 95 exact-custody resolution run before
    `device_link_required`.
 5. Additive lane resharing remains an explicit Refactor 97 operation with a new
-   lane epoch.
+   lane-share epoch.
 6. The strict ECDSA derivation recovery protocol has been deleted end to end.
 7. Transcript and recipient bindings remain part of the threshold-PRF context.
 8. Material activation contains no operation grant or signing quota.
 9. Server activation commits through Refactor 90's activation journal before
    runtime publication.
 10. Local and production-equivalent Router topologies use the same corrected
-   protocol.
+    protocol.
+11. Activation requests carry only an exact locator and proof inputs; the
+    Gateway resolves canonical signer, authority, material-session, public, and
+    generation facts.
+12. Server activation-attempt states and browser activation-journal states
+    remain separate exhaustive unions joined by one idempotency correlation.

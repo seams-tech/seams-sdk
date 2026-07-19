@@ -152,8 +152,6 @@ fn registration_request_for(
         "client-ephemeral-public-key-1",
         "registration-nonce-1",
         1_900_000_000_000,
-        public_key33(0x02, 0x11),
-        0,
         envelope(Role::SignerA, b"a"),
         envelope(Role::SignerB, b"b"),
     )
@@ -376,8 +374,6 @@ fn router_ab_ecdsa_derivation_registration_request_rejects_swapped_deriver_envel
         "client-ephemeral-public-key-1",
         "registration-nonce-1",
         1_900_000_000_000,
-        public_key33(0x02, 0x11),
-        0,
         envelope(Role::SignerB, b"wrong-a"),
         envelope(Role::SignerB, b"b"),
     )
@@ -1215,7 +1211,7 @@ fn router_ab_ecdsa_derivation_finalize_request_rejects_expired_router_time() {
 
 #[test]
 fn router_ab_ecdsa_derivation_evm_digest_signing_response_binds_request_digest() {
-    let request = normal_signing_request();
+    let request = normal_signing_finalize_request();
     let response = RouterAbEcdsaDerivationEvmDigestSigningResponseV1::new_for_request(
         &request,
         b64u(&[0x88; 65]),
@@ -1237,7 +1233,7 @@ fn router_ab_ecdsa_derivation_evm_digest_signing_response_binds_request_digest()
 
 #[test]
 fn router_ab_ecdsa_derivation_evm_digest_signing_response_rejects_bad_signature_length() {
-    let request = normal_signing_request();
+    let request = normal_signing_finalize_request();
 
     let err = RouterAbEcdsaDerivationEvmDigestSigningResponseV1::new_for_request(
         &request,

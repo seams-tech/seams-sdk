@@ -1,5 +1,8 @@
 import type { AccountSignerRecord } from '@/core/indexedDB/passkeyClientDB.types';
-import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
+import type {
+  PersistedEcdsaRoleLocalMaterial,
+  ThresholdEcdsaSessionRecord,
+} from '../persistence/records';
 import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
@@ -14,9 +17,12 @@ import {
 } from '../identity/evmFamilyEcdsaIdentity';
 import {
   parseProfileContinuityEcdsaWarmKey,
+  type EcdsaPublicCapabilityState,
   type ProfileContinuityEcdsaWarmKeyParseResult,
 } from './ecdsaKeyFactsInventory';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
+import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import { alphabetizeStringify } from '@shared/utils/digests';
 
 export type WalletUnlockSelection =
   | {
@@ -48,6 +54,7 @@ export type ActiveEcdsaSignerRecord = {
   targetKey: string;
   chainTarget: ThresholdEcdsaChainTarget;
   walletKey: EvmFamilyEcdsaWalletKey;
+  publicCapability: EcdsaPublicCapabilityState;
   signerId?: string;
   source: 'profile_continuity' | 'wallet';
 };
@@ -86,6 +93,7 @@ export type EcdsaWarmupReadyTarget = {
   targetKey: string;
   chainTarget: ThresholdEcdsaChainTarget;
   walletKey: EvmFamilyEcdsaWalletKey;
+  publicCapability: EcdsaPublicCapabilityState;
   localSessionRecord?: ThresholdEcdsaSessionRecord;
 };
 
@@ -104,6 +112,8 @@ export type ConfiguredTargetThresholdEcdsaWarmKey = {
   keyHandle: string;
   key?: EvmFamilyEcdsaKeyIdentity;
   passkeyCredentialIdB64u?: string;
+  existingRoleLocalMaterial?: PersistedEcdsaRoleLocalMaterial;
+  publicCapability: EcdsaPublicCapabilityState;
 };
 
 export type CanonicalThresholdEcdsaWarmSessionContext = {
@@ -218,6 +228,7 @@ export function parseActiveEcdsaSignerRecordForUnlock(args: {
         targetKey: parsed.targetKey,
         chainTarget: parsed.chainTarget,
         walletKey: parsed.walletKey,
+        publicCapability: parsed.publicCapability,
         source: 'profile_continuity',
         ...(signerId ? { signerId } : {}),
       };
@@ -299,18 +310,38 @@ export function configuredTargetThresholdEcdsaWarmKey(args: {
   keyHandle: string;
   key?: EvmFamilyEcdsaKeyIdentity;
   passkeyCredentialIdB64u?: string;
+  publicCapability?: RouterAbEcdsaDerivationPublicCapabilityV1;
+  existingRoleLocalMaterial?: PersistedEcdsaRoleLocalMaterial;
 }): ConfiguredTargetThresholdEcdsaWarmKey {
   const keyHandle = String(args.keyHandle || '').trim();
   if (!keyHandle) {
     throw new Error('[login] configured-target ECDSA warm key requires keyHandle');
   }
   const passkeyCredentialIdB64u = String(args.passkeyCredentialIdB64u || '').trim();
+  if (
+    args.key &&
+    args.publicCapability &&
+    String(args.publicCapability.client_id) !== String(args.key.walletId)
+  ) {
+    throw new Error('[login] configured-target ECDSA public capability wallet mismatch');
+  }
   return {
     chainTarget: args.chainTarget,
     targetKey: thresholdEcdsaChainTargetKey(args.chainTarget),
     keyHandle,
     ...(args.key ? { key: args.key } : {}),
     ...(passkeyCredentialIdB64u ? { passkeyCredentialIdB64u } : {}),
+    ...(args.existingRoleLocalMaterial
+      ? { existingRoleLocalMaterial: args.existingRoleLocalMaterial }
+      : {}),
+    publicCapability: args.publicCapability
+      ? {
+          kind: 'persisted_public_capability',
+          value: args.publicCapability,
+        }
+      : {
+          kind: 'missing_public_capability',
+        },
   };
 }
 
@@ -339,11 +370,55 @@ export function collectConfiguredTargetThresholdEcdsaWarmKeys(args: {
         `[login] threshold ECDSA warm-up received ambiguous ${args.source} key fingerprints for ${targetKey}`,
       );
     }
+    const existingPublicCapability =
+      existing?.publicCapability.kind === 'persisted_public_capability'
+        ? existing.publicCapability.value
+        : null;
+    const incomingPublicCapability =
+      key.publicCapability.kind === 'persisted_public_capability'
+        ? key.publicCapability.value
+        : null;
+    if (
+      existingPublicCapability &&
+      incomingPublicCapability &&
+      alphabetizeStringify(existingPublicCapability) !==
+        alphabetizeStringify(incomingPublicCapability)
+    ) {
+      throw new Error(
+        `[login] threshold ECDSA warm-up received ambiguous ${args.source} public capabilities for ${targetKey}`,
+      );
+    }
+    const publicCapability = incomingPublicCapability || existingPublicCapability;
+    const passkeyCredentialIdB64u = String(
+      key.passkeyCredentialIdB64u || existing?.passkeyCredentialIdB64u || '',
+    ).trim();
+    const existingRoleLocalMaterial =
+      key.existingRoleLocalMaterial || existing?.existingRoleLocalMaterial;
+    if (
+      key.existingRoleLocalMaterial &&
+      existing?.existingRoleLocalMaterial &&
+      key.existingRoleLocalMaterial.materialRef.durableMaterialRef !==
+        existing.existingRoleLocalMaterial.materialRef.durableMaterialRef
+    ) {
+      throw new Error(
+        `[login] threshold ECDSA warm-up received ambiguous ${args.source} role-local material for ${targetKey}`,
+      );
+    }
     byTarget.set(targetKey, {
       chainTarget: key.chainTarget,
       targetKey,
       keyHandle: keyHandle || existingKeyHandle,
       ...(key.key || existing?.key ? { key: key.key || existing?.key } : {}),
+      ...(passkeyCredentialIdB64u ? { passkeyCredentialIdB64u } : {}),
+      ...(existingRoleLocalMaterial ? { existingRoleLocalMaterial } : {}),
+      publicCapability: publicCapability
+        ? {
+            kind: 'persisted_public_capability',
+            value: publicCapability,
+          }
+        : {
+            kind: 'missing_public_capability',
+          },
     });
   }
   return [...byTarget.values()];
@@ -498,6 +573,7 @@ export function planUnlockEcdsaWarmup(args: {
         targetKey,
         chainTarget,
         walletKey: active.walletKey,
+        publicCapability: active.publicCapability,
         ...(localSessionForTarget({
           walletKey: active.walletKey,
           localSessionRecords: args.localSessionRecords,

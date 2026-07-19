@@ -1,13 +1,16 @@
+import { unwrap } from 'idb';
+import { seamsWalletDB } from '../singletons';
+import { SEAMS_WALLET_DB_VERSION, SEAMS_WALLET_STORES } from '../schemaNames';
+import { SeamsWalletDBManager } from './manager';
 import {
   equalEcdsaClientPresignPoolIdentity,
   FIXED_ECDSA_PRESIGN_PROTOCOL_ID,
+  parseEcdsaClientPresignPoolIdentity,
   type EcdsaClientPresignPoolIdentity,
-} from '../ecdsaPresignPoolIdentity';
+} from '../../signingEngine/workerManager/ecdsaPresignPoolIdentity';
 
-const DATABASE_NAME = 'seams_router_ab_ecdsa_presign_material_v2';
-const DATABASE_VERSION = 1;
-const KEY_STORE = 'sealing_keys';
-const RECORD_STORE = 'presign_records';
+const KEY_STORE = SEAMS_WALLET_STORES.ecdsaPresignSealingKeys;
+const RECORD_STORE = SEAMS_WALLET_STORES.ecdsaPresignRecords;
 const PRIMARY_KEY_ID = 'primary';
 const MATERIAL_SIZE = 97;
 const BIG_R_SIZE = 33;
@@ -217,20 +220,7 @@ function requireTimestamp(value: number, label: string): number {
 function requirePoolIdentity(
   value: EcdsaClientPresignPoolIdentity,
 ): EcdsaClientPresignPoolIdentity {
-  if (value.pairRole !== 'client') throw new Error('poolIdentity.pairRole must be client');
-  if (value.protocolId !== FIXED_ECDSA_PRESIGN_PROTOCOL_ID) {
-    throw new Error('poolIdentity.protocolId is unsupported');
-  }
-  return {
-    poolKey: requireNonEmpty(value.poolKey, 'poolIdentity.poolKey'),
-    walletKeyId: requireNonEmpty(value.walletKeyId, 'poolIdentity.walletKeyId'),
-    walletId: requireNonEmpty(value.walletId, 'poolIdentity.walletId'),
-    signingScopeB64u: requireNonEmpty(value.signingScopeB64u, 'poolIdentity.signingScopeB64u'),
-    pairRole: 'client',
-    keyEpoch: requireNonEmpty(value.keyEpoch, 'poolIdentity.keyEpoch'),
-    activationEpoch: requireNonEmpty(value.activationEpoch, 'poolIdentity.activationEpoch'),
-    protocolId: FIXED_ECDSA_PRESIGN_PROTOCOL_ID,
-  };
+  return parseEcdsaClientPresignPoolIdentity(value);
 }
 
 function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
@@ -273,24 +263,6 @@ function transactionResult(transaction: IDBTransaction): Promise<void> {
       reject(transaction.error || new Error('IndexedDB transaction aborted'));
     transaction.onerror = () =>
       reject(transaction.error || new Error('IndexedDB transaction failed'));
-  });
-}
-
-function openMaterialDatabase(dbName: string): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(dbName, DATABASE_VERSION);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains(KEY_STORE)) {
-        db.createObjectStore(KEY_STORE, { keyPath: 'id' });
-      }
-      if (!db.objectStoreNames.contains(RECORD_STORE)) {
-        db.createObjectStore(RECORD_STORE, { keyPath: 'materialHandle' });
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error || new Error('Failed to open presign IndexedDB'));
-    request.onblocked = () => reject(new Error('Presign IndexedDB open is blocked'));
   });
 }
 
@@ -362,35 +334,11 @@ function materialFromPlaintext(plaintext: Uint8Array): DurableClientPresignMater
 }
 
 function parsePoolIdentity(raw: unknown): EcdsaClientPresignPoolIdentity | null {
-  if (!isObjectRecord(raw)) return null;
-  if (
-    typeof raw.poolKey !== 'string' ||
-    !raw.poolKey.trim() ||
-    typeof raw.walletKeyId !== 'string' ||
-    !raw.walletKeyId.trim() ||
-    typeof raw.walletId !== 'string' ||
-    !raw.walletId.trim() ||
-    typeof raw.signingScopeB64u !== 'string' ||
-    !raw.signingScopeB64u.trim() ||
-    raw.pairRole !== 'client' ||
-    typeof raw.keyEpoch !== 'string' ||
-    !raw.keyEpoch.trim() ||
-    typeof raw.activationEpoch !== 'string' ||
-    !raw.activationEpoch.trim() ||
-    raw.protocolId !== FIXED_ECDSA_PRESIGN_PROTOCOL_ID
-  ) {
+  try {
+    return parseEcdsaClientPresignPoolIdentity(raw);
+  } catch {
     return null;
   }
-  return {
-    poolKey: raw.poolKey,
-    walletKeyId: raw.walletKeyId,
-    walletId: raw.walletId,
-    signingScopeB64u: raw.signingScopeB64u,
-    pairRole: 'client',
-    keyEpoch: raw.keyEpoch,
-    activationEpoch: raw.activationEpoch,
-    protocolId: FIXED_ECDSA_PRESIGN_PROTOCOL_ID,
-  };
 }
 
 function parseRecord(raw: unknown): PresignRecord | null {
@@ -571,16 +519,21 @@ function tombstone(
 }
 
 export class IndexedDbClientPresignMaterialStore {
-  private readonly dbName: string;
+  private readonly manager: SeamsWalletDBManager;
   private dbPromise: Promise<IDBDatabase> | null = null;
   private keyPromise: Promise<CryptoKey> | null = null;
 
-  constructor(dbName = DATABASE_NAME) {
-    this.dbName = dbName;
+  constructor(dbName?: string) {
+    this.manager = dbName
+      ? new SeamsWalletDBManager({
+          dbName,
+          dbVersion: SEAMS_WALLET_DB_VERSION,
+        })
+      : seamsWalletDB;
   }
 
   private database(): Promise<IDBDatabase> {
-    this.dbPromise ??= openMaterialDatabase(this.dbName);
+    this.dbPromise ??= this.manager.getDB().then((db) => unwrap(db) as IDBDatabase);
     return this.dbPromise;
   }
 
@@ -1112,13 +1065,14 @@ export class IndexedDbClientPresignMaterialStore {
   }
 
   close(): void {
-    if (this.dbPromise) void this.dbPromise.then((db) => db.close()).catch(() => undefined);
+    this.manager.close();
     this.dbPromise = null;
     this.keyPromise = null;
   }
 
   async deleteDatabaseForTests(): Promise<void> {
+    const dbName = this.manager.getDbName();
     this.close();
-    await deleteMaterialDatabase(this.dbName);
+    await deleteMaterialDatabase(dbName);
   }
 }

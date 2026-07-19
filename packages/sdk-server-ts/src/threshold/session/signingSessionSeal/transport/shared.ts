@@ -1,5 +1,6 @@
 import { ensureLeadingSlash } from '@shared/utils/validation';
 import { WALLET_SESSION_SEAL_BASE_PATH } from '@shared/utils/signingSessionSeal';
+import { parseThresholdSessionId } from '@shared/utils/domainIds';
 import type {
   SigningSessionSealApplyServerSealRequest,
   SigningSessionSealAuthorizeResult,
@@ -12,7 +13,6 @@ import type {
 } from '../signingSessionSeal.types';
 
 const DEFAULT_BASE_PATH = WALLET_SESSION_SEAL_BASE_PATH;
-const THRESHOLD_SESSION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/;
 
 type ParseResult<T> = { ok: true; value: T } | { ok: false; code: 'invalid_body'; message: string };
 
@@ -65,7 +65,8 @@ export function parseSigningSessionSealApplyBody(
       message: 'thresholdSessionId and ciphertext are required',
     };
   }
-  if (!THRESHOLD_SESSION_ID_RE.test(thresholdSessionId)) {
+  const parsedThresholdSessionId = parseThresholdSessionId(thresholdSessionId);
+  if (!parsedThresholdSessionId.ok) {
     return {
       ok: false,
       code: 'invalid_body',
@@ -76,7 +77,7 @@ export function parseSigningSessionSealApplyBody(
   return {
     ok: true,
     value: {
-      thresholdSessionId,
+      thresholdSessionId: parsedThresholdSessionId.value,
       ciphertext,
       keyVersion: readOptionalString(obj, 'keyVersion'),
       metadata: readOptionalMetadata(obj.metadata),
@@ -100,7 +101,8 @@ export function parseSigningSessionSealRemoveBody(
       message: 'thresholdSessionId and ciphertext are required',
     };
   }
-  if (!THRESHOLD_SESSION_ID_RE.test(thresholdSessionId)) {
+  const parsedThresholdSessionId = parseThresholdSessionId(thresholdSessionId);
+  if (!parsedThresholdSessionId.ok) {
     return {
       ok: false,
       code: 'invalid_body',
@@ -111,7 +113,7 @@ export function parseSigningSessionSealRemoveBody(
   return {
     ok: true,
     value: {
-      thresholdSessionId,
+      thresholdSessionId: parsedThresholdSessionId.value,
       ciphertext,
       keyVersion: readOptionalString(obj, 'keyVersion'),
       metadata: readOptionalMetadata(obj.metadata),
@@ -210,7 +212,9 @@ export function signingSessionSealStatusCode(result: SigningSessionSealRouteResu
   }
 }
 
-export function signingSessionSealAuthorizeStatusCode(result: SigningSessionSealAuthorizeResult): number {
+export function signingSessionSealAuthorizeStatusCode(
+  result: SigningSessionSealAuthorizeResult,
+): number {
   if (result.ok) return 200;
   if (Number.isFinite(Number(result.status))) {
     return Math.max(100, Math.floor(Number(result.status)));

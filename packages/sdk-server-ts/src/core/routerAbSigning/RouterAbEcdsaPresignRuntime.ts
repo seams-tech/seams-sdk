@@ -1,20 +1,15 @@
 import type { NormalizedLogger } from '../logger';
-import type {
-  RouterAbEcdsaDerivationPoolFillSessionStore,
-} from '../ThresholdService/stores/EcdsaSigningStore';
-import type { ThresholdEcdsaIntegratedKeyStore } from '../ThresholdService/stores/KeyStore';
-import type { ThresholdEcdsaSessionStore } from '../ThresholdService/stores/SessionStore';
+import type { RouterAbEcdsaDerivationPoolFillSessionStore } from '../ThresholdService/stores/EcdsaSigningStore';
 import {
   coerceThresholdNodeRole,
-  parseThresholdCoordinatorPeers,
   parseThresholdEd25519ParticipantIds2p,
 } from '../ThresholdService/config';
 import { secureRandomIdFragment } from '../ThresholdService/secureRandomId';
 import {
   RouterAbEcdsaDerivationPoolFillHandlers,
+  type RouterAbEcdsaPresignSigningWorkerTransport,
 } from '../ThresholdService/routerAb/ecdsaDerivationPoolFillHandlers';
-import type { RouterAbEcdsaDerivationPoolFillLiveSessionOwner } from '../ThresholdService/routerAb/ecdsaDerivationPoolFillLiveSession';
-import type { RouterAbNormalSigningRuntime } from './RouterAbNormalSigningRuntime';
+import type { RouterAbConfiguredSigningWorkerPrivateTransport } from './RouterAbNormalSigningRuntime';
 
 export type RouterAbEcdsaPresignRuntimeConfig = {
   readonly nodeRole: ReturnType<typeof coerceThresholdNodeRole>;
@@ -23,23 +18,14 @@ export type RouterAbEcdsaPresignRuntimeConfig = {
     readonly relayerParticipantId: number;
     readonly participantIds2p: number[];
   };
-  readonly coordinatorInstanceId: string | null;
-  readonly coordinatorPeers: ReturnType<typeof parseThresholdCoordinatorPeers>;
 };
 
 export function parseRouterAbEcdsaPresignRuntimeConfig(
   input: Record<string, unknown>,
 ): RouterAbEcdsaPresignRuntimeConfig {
-  const coordinatorInstanceIdRaw = input.THRESHOLD_COORDINATOR_INSTANCE_ID;
-  const coordinatorInstanceId =
-    typeof coordinatorInstanceIdRaw === 'string' && coordinatorInstanceIdRaw.trim()
-      ? coordinatorInstanceIdRaw.trim()
-      : null;
   return {
     nodeRole: coerceThresholdNodeRole(input.THRESHOLD_NODE_ROLE),
     participantIds: parseThresholdEd25519ParticipantIds2p(input),
-    coordinatorInstanceId,
-    coordinatorPeers: parseThresholdCoordinatorPeers(input.THRESHOLD_COORDINATOR_PEERS),
   };
 }
 
@@ -52,15 +38,44 @@ type RouterAbEcdsaPresignStepInput = Parameters<
 >[0];
 
 type RouterAbEcdsaPresignInitResult = Awaited<
-  ReturnType<RouterAbEcdsaDerivationPoolFillHandlers['routerAbEcdsaDerivationPresignaturePoolFillInit']>
+  ReturnType<
+    RouterAbEcdsaDerivationPoolFillHandlers['routerAbEcdsaDerivationPresignaturePoolFillInit']
+  >
 >;
 
 type RouterAbEcdsaPresignStepResult = Awaited<
-  ReturnType<RouterAbEcdsaDerivationPoolFillHandlers['routerAbEcdsaDerivationPresignaturePoolFillStep']>
+  ReturnType<
+    RouterAbEcdsaDerivationPoolFillHandlers['routerAbEcdsaDerivationPresignaturePoolFillStep']
+  >
 >;
 
 function createPresignSessionId(): string {
   return `ecdsa-presign-${secureRandomIdFragment()}`;
+}
+
+function routerAbEcdsaPresignGlobalFetch(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<Response> {
+  return globalThis.fetch(input, init);
+}
+
+function resolveSigningWorkerTransport(
+  input: RouterAbConfiguredSigningWorkerPrivateTransport,
+): RouterAbEcdsaPresignSigningWorkerTransport {
+  const fetchImpl =
+    input.fetchImpl ??
+    (typeof globalThis.fetch === 'function' ? routerAbEcdsaPresignGlobalFetch : null);
+  if (!fetchImpl) {
+    throw new Error(
+      'InvalidLocalServiceConfig: fetch is required for Router A/B ECDSA SigningWorker presign transport',
+    );
+  }
+  return {
+    signingWorkerBaseUrl: input.signingWorkerBaseUrl,
+    auth: input.auth,
+    fetchImpl,
+  };
 }
 
 export class RouterAbEcdsaPresignRuntime {
@@ -69,41 +84,20 @@ export class RouterAbEcdsaPresignRuntime {
   constructor(input: {
     readonly logger: NormalizedLogger;
     readonly config: RouterAbEcdsaPresignRuntimeConfig;
-    readonly ecdsaSessionStore: ThresholdEcdsaSessionStore;
     readonly ecdsaPoolFillSessionStore: RouterAbEcdsaDerivationPoolFillSessionStore;
-    readonly ecdsaKeyStore: ThresholdEcdsaIntegratedKeyStore;
-    readonly normalSigningRuntime: RouterAbNormalSigningRuntime;
+    readonly signingWorkerTransport: RouterAbConfiguredSigningWorkerPrivateTransport;
     readonly ensureReady: () => Promise<void>;
-    readonly liveSessionOwner: RouterAbEcdsaDerivationPoolFillLiveSessionOwner | undefined;
   }) {
-    const privateTransport = input.normalSigningRuntime.getSigningWorkerPrivateTransport();
-    const poolFillTransport =
-      privateTransport.kind === 'configured'
-        ? {
-            signingWorkerBaseUrl: privateTransport.signingWorkerBaseUrl,
-            auth: privateTransport.auth,
-          }
-        : null;
     this.handlers = new RouterAbEcdsaDerivationPoolFillHandlers({
       logger: input.logger,
       nodeRole: input.config.nodeRole,
       participantIds2p: input.config.participantIds.participantIds2p,
       clientParticipantId: input.config.participantIds.clientParticipantId,
       relayerParticipantId: input.config.participantIds.relayerParticipantId,
-      coordinatorInstanceId: input.config.coordinatorInstanceId,
-      coordinatorPeers: input.config.coordinatorPeers ?? [],
-      sessionStore: {
-        readMpcSession: input.ecdsaSessionStore.readMpcSession.bind(input.ecdsaSessionStore),
-        claimMpcSession: input.ecdsaSessionStore.claimMpcSession.bind(input.ecdsaSessionStore),
-      },
       poolFillSessionStore: input.ecdsaPoolFillSessionStore,
-      resolveRoleLocalKeyRecord: input.ecdsaKeyStore.getRoleLocalByKeyHandle.bind(
-        input.ecdsaKeyStore,
-      ),
       ensureReady: input.ensureReady,
       createPoolFillSessionId: createPresignSessionId,
-      liveSessionOwner: input.liveSessionOwner,
-      routerAbEcdsaDerivationPoolFill: poolFillTransport,
+      signingWorkerTransport: resolveSigningWorkerTransport(input.signingWorkerTransport),
     });
   }
 

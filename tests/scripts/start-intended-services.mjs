@@ -19,12 +19,6 @@ const walletOrigin = process.env.SEAMS_INTENDED_WALLET_ORIGIN || 'https://localh
 const projectEnvironmentId = process.env.SEAMS_INTENDED_PROJECT_ENVIRONMENT_ID || 'local-env';
 const publishableKey = process.env.SEAMS_INTENDED_PUBLISHABLE_KEY || 'pk_local';
 const docsOrigin = process.env.SEAMS_INTENDED_DOCS_ORIGIN || 'https://docs.localhost';
-const routerAbWorkerUrls = Object.freeze({
-  router: 'http://127.0.0.1:9100',
-  deriverA: 'http://127.0.0.1:9101',
-  deriverB: 'http://127.0.0.1:9102',
-  signingWorker: 'http://127.0.0.1:9103',
-});
 const d1LocalPersistPath =
   process.env.SEAMS_INTENDED_D1_PERSIST_TO ||
   path.join(tmpdir(), `${path.basename(repoRoot)}-intended-d1`);
@@ -89,6 +83,10 @@ async function main() {
 
   installSignalHandlers();
   await terminateManagedProcessLeaksBeforeStartup();
+  if (resetState) {
+    resetLocalState();
+  }
+  initializeRouterAbLocalEnv();
   if (skipBuild) {
     console.log('[intended-services] skipping SDK build because SEAMS_INTENDED_SKIP_BUILD=1');
   } else {
@@ -97,10 +95,6 @@ async function main() {
   assertSdkDistArtifacts();
   assertD1LocalWasmArtifacts();
   clearTransientViteCaches();
-  if (resetState) {
-    resetLocalState();
-  }
-  initializeRouterAbLocalEnv();
   prepareD1LocalWranglerRuntimeConfig();
 
   const router = startRouter();
@@ -165,7 +159,10 @@ function resetLocalState() {
 }
 
 function buildSdkArtifacts() {
-  runRequiredBuild('sdk', ['run', 'build:sdk-full']);
+  runRequiredBuild('sdk and Router A/B Workers', ['run', 'build:sdk-full'], {
+    ...process.env,
+    SEAMS_ROUTER_AB_LOCAL_ROOT: routerAbLocalRoot,
+  });
 }
 
 function assertSdkDistArtifacts() {
@@ -248,6 +245,11 @@ function startRouter() {
 }
 
 function initializeRouterAbLocalEnv() {
+  const buildEnvironmentPath = path.join(routerAbLocalRoot, '.env.router-ab.router.local');
+  if (!resetState && existsSync(buildEnvironmentPath)) {
+    console.log('[intended-services] reusing Router A/B local runtime identity');
+    return;
+  }
   console.log('[intended-services] generating Router A/B local runtime identity');
   const result = spawnSync(
     'cargo',
@@ -261,7 +263,6 @@ function initializeRouterAbLocalEnv() {
       '--',
       '--root',
       routerAbLocalRoot,
-      '--force',
     ],
     {
       cwd: repoRoot,
@@ -330,7 +331,6 @@ function prepareD1LocalWranglerRuntimeConfig() {
     repoRoot,
     localEnvRoot: routerAbLocalRoot,
     outputConfigPath: d1LocalWranglerConfigPath,
-    workerUrls: routerAbWorkerUrls,
   });
 
   console.log(

@@ -24,7 +24,7 @@ import {
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
   parseRouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1,
   parseRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
-  routerAbEcdsaDerivationActiveStateSessionId,
+  routerAbEcdsaDerivationActiveStateId,
   routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestDigestV1,
   routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestFromBudgetedV1,
   routerAbEcdsaDerivationEvmDigestSigningRequestDigestV1,
@@ -312,23 +312,14 @@ export type RouterAbEd25519PrivateSigningWorkerBody =
   | RouterAbEd25519PrivatePrepareSigningWorkerBody
   | RouterAbEd25519PrivateFinalizeSigningWorkerBody;
 
-type RouterAbEcdsaDerivationTrustedAdmissionV1 = {
-  account_id: string;
-  session_id: string;
-  request_digest: RouterAbPublicDigest32V1Wire;
-  signing_digest: RouterAbPublicDigest32V1Wire;
-  admitted_at_ms: number;
-  expires_at_ms: number;
-};
-
 type RouterAbEcdsaDerivationPrivatePrepareSigningWorkerBody = {
   request: RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire;
-  trusted_admission: RouterAbEcdsaDerivationTrustedAdmissionV1;
+  trusted_admission: RouterAbNormalSigningTrustedAdmissionV1;
 };
 
 type RouterAbEcdsaDerivationPrivateFinalizeSigningWorkerBody = {
   request: RouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV1Wire;
-  trusted_admission: RouterAbEcdsaDerivationTrustedAdmissionV1;
+  trusted_admission: RouterAbNormalSigningTrustedAdmissionV1;
 };
 
 export type RouterAbEcdsaDerivationPrivateSigningWorkerBody =
@@ -991,29 +982,31 @@ async function privateSigningTrustedSourceDigest(
 }
 
 function privateSigningTrustedAdmission(input: {
-  readonly claims: RouterAbEd25519WalletSessionClaims;
-  readonly scope: RouterAbEd25519NormalSigningScopeV1;
+  readonly runtimePolicyScope: RuntimePolicyScope;
+  readonly subjectId: string;
+  readonly accountId: string;
+  readonly sessionId: string;
+  readonly requestId: string;
   readonly intentDigest: RouterAbPublicDigest32V1Wire;
   readonly trustedSourceDigest: RouterAbPublicDigest32V1Wire;
 }): RouterAbNormalSigningTrustedAdmissionV1 {
-  const policyScope = input.claims.runtimePolicyScope;
   return {
     metadata: {
-      org_id: policyScope.orgId,
-      project_id: policyScope.projectId,
-      environment: policyScope.envId,
-      account_id: input.scope.account_id,
+      org_id: input.runtimePolicyScope.orgId,
+      project_id: input.runtimePolicyScope.projectId,
+      environment: input.runtimePolicyScope.envId,
+      account_id: input.accountId,
       auth: {
         auth: 'authenticated_session',
-        subject_id: input.claims.sub,
-        session_id: input.scope.session_id,
+        subject_id: input.subjectId,
+        session_id: input.sessionId,
       },
       trusted_source_digest: input.trustedSourceDigest,
       intent_digest: input.intentDigest,
     },
     decision: {
       kind: 'accepted',
-      request_id: input.scope.request_id,
+      request_id: input.requestId,
     },
   };
 }
@@ -1038,8 +1031,11 @@ export async function buildRouterAbEd25519PrivateSigningWorkerBody(input: {
     return {
       request: stripRouterAbBudgetMetadata(input.body),
       trusted_admission: privateSigningTrustedAdmission({
-        claims: input.claims,
-        scope,
+        runtimePolicyScope: input.claims.runtimePolicyScope,
+        subjectId: input.claims.sub,
+        accountId: scope.account_id,
+        sessionId: scope.session_id,
+        requestId: scope.request_id,
         intentDigest,
         trustedSourceDigest,
       }),
@@ -1060,8 +1056,11 @@ export async function buildRouterAbEd25519PrivateSigningWorkerBody(input: {
     ...material,
   });
   const trustedAdmission = privateSigningTrustedAdmission({
-    claims: input.claims,
-    scope,
+    runtimePolicyScope: input.claims.runtimePolicyScope,
+    subjectId: input.claims.sub,
+    accountId: scope.account_id,
+    sessionId: scope.session_id,
+    requestId: scope.request_id,
     intentDigest: material.intentDigest,
     trustedSourceDigest,
   });
@@ -1088,39 +1087,33 @@ export async function buildRouterAbEd25519PrivateSigningWorkerBody(input: {
   };
 }
 
-function ecdsaDerivationTrustedAdmission(input: {
-  scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
-  requestDigest: RouterAbPublicDigest32V1Wire;
-  signingDigestB64u: string;
-  expiresAtMs: number;
-}): RouterAbEcdsaDerivationTrustedAdmissionV1 {
-  return {
-    account_id: input.scope.wallet_id,
-    session_id: routerAbEcdsaDerivationActiveStateSessionId({
-      kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
-      scope: input.scope,
-    }),
-    request_digest: input.requestDigest,
-    signing_digest: digest32FromB64u(input.signingDigestB64u),
-    admitted_at_ms: Math.max(1, Math.floor(Date.now())),
-    expires_at_ms: input.expiresAtMs,
-  };
-}
-
 export async function buildRouterAbEcdsaDerivationPrivateSigningWorkerBody(input: {
   phase: 'prepare' | 'finalize';
   body: Record<string, unknown>;
+  claims: RouterAbEcdsaDerivationWalletSessionClaims;
+  headers: Record<string, string | string[] | undefined>;
 }): Promise<RouterAbEcdsaDerivationPrivateSigningWorkerBody> {
+  const runtimePolicyScope = input.claims.runtimePolicyScope;
+  if (!runtimePolicyScope) {
+    throw new Error('Router A/B ECDSA derivation trusted admission requires runtime policy scope');
+  }
+  const trustedSourceDigest = await privateSigningTrustedSourceDigest(input.headers);
   if (input.phase === 'prepare') {
     const request = parseRouterAbEcdsaDerivationEvmDigestSigningRequestV1(input.body);
     const requestDigest = await routerAbEcdsaDerivationEvmDigestSigningRequestDigestV1(request);
     return {
       request,
-      trusted_admission: ecdsaDerivationTrustedAdmission({
-        scope: request.scope,
-        requestDigest,
-        signingDigestB64u: request.signing_digest_b64u,
-        expiresAtMs: request.expires_at_ms,
+      trusted_admission: privateSigningTrustedAdmission({
+        runtimePolicyScope,
+        subjectId: input.claims.sub,
+        accountId: request.scope.wallet_id,
+        sessionId: routerAbEcdsaDerivationActiveStateId({
+          kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
+          scope: request.scope,
+        }),
+        requestId: request.request_id,
+        intentDigest: requestDigest,
+        trustedSourceDigest,
       }),
     };
   }
@@ -1133,11 +1126,17 @@ export async function buildRouterAbEcdsaDerivationPrivateSigningWorkerBody(input
     await routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestDigestV1(request);
   return {
     request,
-    trusted_admission: ecdsaDerivationTrustedAdmission({
-      scope: request.scope,
-      requestDigest,
-      signingDigestB64u: request.signing_digest_b64u,
-      expiresAtMs: request.expires_at_ms,
+    trusted_admission: privateSigningTrustedAdmission({
+      runtimePolicyScope,
+      subjectId: input.claims.sub,
+      accountId: request.scope.wallet_id,
+      sessionId: routerAbEcdsaDerivationActiveStateId({
+        kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
+        scope: request.scope,
+      }),
+      requestId: request.request_id,
+      intentDigest: requestDigest,
+      trustedSourceDigest,
     }),
   };
 }
@@ -1697,6 +1696,8 @@ export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input:
   const privateBody = await buildRouterAbEcdsaDerivationPrivateSigningWorkerBody({
     phase: input.phase,
     body: input.body,
+    claims: validated.claims,
+    headers: input.headers,
   });
   let prepareBudgetReservation: {
     reservationId: string;
@@ -1888,9 +1889,8 @@ export async function postRouterAbSigningWorkerJson(input: {
   config: RouterAbConfiguredSigningWorkerPrivateTransport;
   path: RouterAbEd25519PrivateSigningPath | RouterAbEcdsaDerivationPrivateSigningPath;
   body: unknown;
-  fetchImpl?: typeof fetch;
 }): Promise<RouterAbSigningWorkerJsonResult> {
-  const fetchImpl = resolveRouterAbSigningWorkerFetch(input.fetchImpl);
+  const fetchImpl = resolveRouterAbSigningWorkerFetch(input.config.fetchImpl);
   if (!fetchImpl) {
     return routerAbSigningError(500, 'internal', 'fetch is not available in this runtime');
   }

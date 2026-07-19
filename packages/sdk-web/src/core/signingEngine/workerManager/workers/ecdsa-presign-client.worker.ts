@@ -21,7 +21,7 @@ import {
 import {
   IndexedDbClientPresignMaterialStore,
   type DurableClientPresignatureRef,
-} from './ecdsaPresignMaterialStore';
+} from '../../../indexedDB/seamsWalletDB/ecdsaPresignMaterialStore';
 import {
   parseEcdsaClientPresignPoolIdentity,
   type EcdsaClientPresignPoolIdentity,

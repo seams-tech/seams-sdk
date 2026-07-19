@@ -450,11 +450,7 @@ export function isEmailOtpThresholdEcdsaSigningContext(args: {
   record: ThresholdEcdsaSessionRecord;
   keyRef?: never;
 }): boolean {
-  const record = args.record;
-  return (
-    record.source === SIGNER_AUTH_METHODS.emailOtp ||
-    record.clientAdditiveShareHandle?.kind === 'email_otp_worker_session'
-  );
+  return args.record.source === SIGNER_AUTH_METHODS.emailOtp;
 }
 
 function ecdsaMaterialSourceMatchesAuth(args: {

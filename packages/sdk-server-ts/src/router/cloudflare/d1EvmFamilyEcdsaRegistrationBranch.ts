@@ -7,19 +7,26 @@ import {
   parseSdkEcdsaDerivationThresholdKeyId,
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
+import { parseRootShareEpoch } from '@shared/utils/domainIds';
+import { buildRouterAbEcdsaDerivationActiveStateIdV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { WalletId } from '@shared/utils/registrationIntent';
-import type {
-  ThresholdEcdsaChainTarget,
-  ThresholdRuntimePolicyScope
-} from '../../core/types';
+import type { ThresholdEcdsaChainTarget, ThresholdRuntimePolicyScope } from '../../core/types';
 import type {
   RegistrationPreparationId,
-  WalletRegistrationEcdsaPreparePayload
+  WalletRegistrationEcdsaPreparePayload,
 } from '../../core/registrationContracts';
 import { deriveEvmFamilySigningKeySlotId } from './d1RegistrationCeremonyRecords';
 import type { RouterAbEcdsaStrictRegistrationPort } from '../routerAbEcdsaStrictRegistration';
 
 const REGISTRATION_WALLET_SIGNING_SESSION_REMAINING_USES = 3;
+
+function requireRegistrationRootShareEpoch(value: unknown) {
+  const parsed = parseRootShareEpoch(value);
+  if (!parsed.ok) {
+    throw new Error('ECDSA registration signingRootVersion must identify a root-share epoch');
+  }
+  return parsed.value;
+}
 
 export async function buildD1EvmFamilyEcdsaRegistrationPrepare(input: {
   readonly registrationCeremonyId: string;
@@ -57,10 +64,10 @@ export async function buildD1EvmFamilyEcdsaRegistrationPrepare(input: {
       message: 'ECDSA registration requires at least one chain target',
     };
   }
-  const chainTargets: readonly [
-    ThresholdEcdsaChainTarget,
-    ...ThresholdEcdsaChainTarget[],
-  ] = [firstChainTarget, ...input.chainTargets.slice(1)];
+  const chainTargets: readonly [ThresholdEcdsaChainTarget, ...ThresholdEcdsaChainTarget[]] = [
+    firstChainTarget,
+    ...input.chainTargets.slice(1),
+  ];
   if (
     input.participantIds.length !== 2 ||
     input.participantIds[0] !== 1 ||
@@ -87,6 +94,13 @@ export async function buildD1EvmFamilyEcdsaRegistrationPrepare(input: {
     walletId: input.walletId,
     evmFamilySigningKeySlotId,
   });
+  const rootShareEpoch = requireRegistrationRootShareEpoch(input.signingRootVersion);
+  const activeStateId = buildRouterAbEcdsaDerivationActiveStateIdV1({
+    ecdsaThresholdKeyId,
+    signingRootId: input.signingRootId,
+    signingRootVersion: input.signingRootVersion,
+    activationEpoch: rootShareEpoch,
+  });
   const signingGrantId = `wss_${secureRandomBase64Url(24)}`;
   const thresholdSessionId = `tederivation_${secureRandomBase64Url(24)}`;
   const ttlMs = 10 * 60_000;
@@ -110,15 +124,12 @@ export async function buildD1EvmFamilyEcdsaRegistrationPrepare(input: {
     runtimePolicyScope: input.runtimePolicyScope,
   } satisfies WalletRegistrationEcdsaPreparePayload['prepare'];
   const topology = input.strictRegistration.topology();
-  const applicationBindingDigestB64u =
-    await computeSdkEcdsaDerivationApplicationBindingDigestB64u({
-      walletId: input.walletId,
-      ecdsaThresholdKeyId: parseSdkEcdsaDerivationThresholdKeyId(ecdsaThresholdKeyId),
-      signingRootId: parseSdkEcdsaDerivationSigningRootId(input.signingRootId),
-      signingRootVersion: parseSdkEcdsaDerivationSigningRootVersion(
-        input.signingRootVersion,
-      ),
-    });
+  const applicationBindingDigestB64u = await computeSdkEcdsaDerivationApplicationBindingDigestB64u({
+    walletId: input.walletId,
+    ecdsaThresholdKeyId: parseSdkEcdsaDerivationThresholdKeyId(ecdsaThresholdKeyId),
+    signingRootId: parseSdkEcdsaDerivationSigningRootId(input.signingRootId),
+    signingRootVersion: parseSdkEcdsaDerivationSigningRootVersion(input.signingRootVersion),
+  });
   return {
     ok: true,
     ecdsa: {
@@ -134,9 +145,9 @@ export async function buildD1EvmFamilyEcdsaRegistrationPrepare(input: {
           lifecycle_id: input.registrationCeremonyId,
           work_kind: 'registration_prepare',
           primitive_request_kind: 'registration',
-          root_share_epoch: input.signingRootVersion,
+          root_share_epoch: rootShareEpoch,
           account_id: String(input.walletId),
-          session_id: thresholdSessionId,
+          session_id: activeStateId,
           signer_set_id: topology.signerSet.signer_set_id,
           selected_server_id: topology.signerSet.selected_server.server_id,
         },

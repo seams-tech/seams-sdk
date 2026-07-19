@@ -109,8 +109,12 @@ export function ChainSigningSection(props: ChainSigningSectionProps) {
           />
         </div>
 
-        {chain.statusText ? <div className="near-funding-status">{chain.statusText}</div> : null}
-        {chain.errorText ? <div className="error-message">{chain.errorText}</div> : null}
+        {/* reserved slot: late-arriving status/error text fills space that is
+            already there instead of pushing the buttons down */}
+        <div className="demo-status-slot" role="status" aria-live="polite">
+          {chain.statusText ? <div className="near-funding-status">{chain.statusText}</div> : null}
+          {chain.errorText ? <div className="error-message">{chain.errorText}</div> : null}
+        </div>
 
         {/* funding is the precondition, so it leads; hidden once the probe
             confirms the AlphaUSD fee token is set and funded ('ready'), and

@@ -3,6 +3,7 @@ import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { errorMessage } from '@shared/utils/errors';
 import { secureRandomId } from '@shared/utils/secureRandomId';
+import { parseSigningGrantId, type SigningGrantId } from '@shared/utils/domainIds';
 import {
   assertEvmFamilySigningKeySlotIdMatchesPlan,
   requireEvmFamilySigningKeySlotId,
@@ -959,6 +960,14 @@ function asWorkerErrorPayload(err: unknown): WorkerErrorPayload {
 
 function readString(value: unknown, label: string): string {
   return requireTrimmedString(value, label);
+}
+
+function readSigningGrantId(value: unknown, label: string): SigningGrantId {
+  const parsed = parseSigningGrantId(value);
+  if (!parsed.ok) {
+    throw new Error(`${label} is invalid`);
+  }
+  return parsed.value;
 }
 
 function requireNonNegativeInteger(value: unknown, label: string): number {
@@ -3820,9 +3829,12 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
   const requestedSessionId = exactSessionBootstrap
     ? String(args.lanePolicy.thresholdSessionId).trim()
     : String(args.sessionId || '').trim();
-  const requestedSigningGrantId = exactSessionBootstrap
+  const requestedSigningGrantIdRaw = exactSessionBootstrap
     ? String(args.lanePolicy.signingGrantId).trim()
     : String(args.signingGrantId || '').trim();
+  const requestedSigningGrantId = requestedSigningGrantIdRaw
+    ? readSigningGrantId(requestedSigningGrantIdRaw, 'signingGrantId')
+    : null;
   const sessionId = requestedSessionId || generateThresholdSessionId();
   const signingGrantId = requestedSigningGrantId || generateSigningGrantId();
   if (
@@ -4422,9 +4434,7 @@ async function runThresholdEcdsaRoleLocalExportFromReadyRecord(args: {
         ceremony.finalize_encrypted_proof_bundles(
           JSON.stringify({
             kind: 'finalize_encrypted_client_proof_bundles_v1',
-            verificationTimeMs: Date.now(),
             bundles: forwarded.value.response.bundles,
-            commitmentRegistry: forwarded.value.response.commitmentRegistry,
           }),
         ),
       ),
@@ -5557,7 +5567,14 @@ function parseWalletRegistrationEcdsaPrepareContext(
   const ttlMs = optionalWorkerPositiveInteger(obj.ttlMs);
   const remainingUses = optionalWorkerPositiveInteger(obj.remainingUses);
   const participantIds = parseWorkerParticipantIds(obj.participantIds);
-  if (!ttlMs || !remainingUses || !participantIds?.length) {
+  if (
+    !ttlMs ||
+    !remainingUses ||
+    !participantIds ||
+    participantIds.length !== 2 ||
+    participantIds[0] !== 1 ||
+    participantIds[1] !== 2
+  ) {
     throw new Error(
       'Email OTP wallet-registration ECDSA prepare requires ttl, uses, and participants',
     );
@@ -5588,10 +5605,10 @@ function parseWalletRegistrationEcdsaPrepareContext(
     registrationPreparationId,
     requestId: readString(obj.requestId, 'prepare.requestId'),
     thresholdSessionId: readString(obj.thresholdSessionId, 'prepare.thresholdSessionId'),
-    signingGrantId: readString(obj.signingGrantId, 'prepare.signingGrantId'),
+    signingGrantId: readSigningGrantId(obj.signingGrantId, 'prepare.signingGrantId'),
     ttlMs,
     remainingUses,
-    participantIds,
+    participantIds: [1, 2],
     runtimePolicyScope,
   };
 }

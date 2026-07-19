@@ -8,7 +8,10 @@ import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/types';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import { buildEmailOtpAuthContextForWalletAuthMethod } from '../identity/laneIdentity';
-import { parseEcdsaThresholdKeyId } from '../keyMaterialBrands';
+import {
+  parseEcdsaRoleLocalDurableMaterialRef,
+  parseEcdsaThresholdKeyId,
+} from '../keyMaterialBrands';
 import {
   buildEvmFamilyEcdsaKeyIdentityFromRecord,
   toEvmFamilyEcdsaKeyHandle,
@@ -62,7 +65,10 @@ declare const emailOtpWorkerHandle: Extract<
   EmailOtpWorkerIssuedSessionHandle,
   { action: 'threshold_ecdsa_bootstrap' }
 >;
-declare const roleLocalReadyRecord: EcdsaRoleLocalReadyRecord;
+declare const passkeyRoleLocalReadyRecord: Extract<
+  EcdsaRoleLocalReadyRecord,
+  { kind: 'ecdsa_role_local_ready_passkey_v1' }
+>;
 const walletSessionAuth = {
   kind: 'wallet_session',
   curve: 'ecdsa',
@@ -73,9 +79,9 @@ const walletSessionAuth = {
   relayerKeyId: 'relayer-key-1',
 } satisfies VerifiedEcdsaWalletSessionAuth;
 const emailOtpAuthContext = buildEmailOtpAuthContextForWalletAuthMethod({
-walletId: 'wallet.testnet',
-emailHashHex: 'email-hash',
-policy: 'session',
+  walletId: 'wallet.testnet',
+  emailHashHex: 'email-hash',
+  policy: 'session',
   retention: 'session',
   reason: 'sign',
   provider: 'google',
@@ -86,6 +92,10 @@ const passkeyProvisionSecretSource = buildPasskeyEcdsaProvisionSecretSource({
   webauthnAuthentication,
 });
 const recordBackedPasskeyActivationMaterial = { kind: 'session_record' } as const;
+const walletSessionRouteAuth = {
+  kind: 'wallet_session',
+  jwt: 'wallet-session-jwt',
+} as const;
 const invalidUnbrandedPasskeyProvisionSecretSource: PasskeyEcdsaProvisionSecretSource = {
   kind: 'webauthn_prf_first_v1',
   // @ts-expect-error PRF.first must be normalized by buildPasskeyEcdsaProvisionSecretSource.
@@ -134,9 +144,9 @@ const reconnectRecord = {
   signingRootVersion: 'v1',
   relayerKeyId: 'relayer-key-1',
   clientVerifyingShareB64u: 'share',
-  ecdsaRoleLocalReadyRecord: roleLocalReadyRecord,
-  ecdsaRoleLocalAuthMethod: roleLocalReadyRecord.authMethod,
-  ecdsaRoleLocalPublicFacts: roleLocalReadyRecord.publicFacts,
+  roleLocalDurableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef('role-local-material-ref'),
+  ecdsaRoleLocalAuthMethod: passkeyRoleLocalReadyRecord.authMethod,
+  ecdsaRoleLocalPublicFacts: passkeyRoleLocalReadyRecord.publicFacts,
   participantIds: [1, 2],
   thresholdSessionKind: 'jwt',
   walletSessionJwt: 'jwt-token',
@@ -162,6 +172,7 @@ void buildPasskeyEcdsaSessionProvision({
   requestId: 'request-1',
   provisionSecretSource: passkeyProvisionSecretSource,
   activationMaterial: recordBackedPasskeyActivationMaterial,
+  walletSessionRouteAuth,
 });
 
 void buildPasskeyEcdsaSessionProvision({
@@ -175,6 +186,7 @@ void buildPasskeyEcdsaSessionProvision({
   requestId: 'request-1',
   provisionSecretSource: passkeyProvisionSecretSource,
   activationMaterial: recordBackedPasskeyActivationMaterial,
+  walletSessionRouteAuth,
 });
 
 void buildPasskeyEcdsaSessionProvision({
@@ -187,6 +199,7 @@ void buildPasskeyEcdsaSessionProvision({
   requestId: 'request-1',
   provisionSecretSource: passkeyProvisionSecretSource,
   activationMaterial: recordBackedPasskeyActivationMaterial,
+  walletSessionRouteAuth,
   // @ts-expect-error passkey provision PRF.first must be wrapped in provisionSecretSource
   passkeyPrfFirstB64u: 'prf-first',
 });
@@ -201,6 +214,7 @@ void buildPasskeyEcdsaSessionProvision({
   requestId: 'request-1',
   provisionSecretSource: passkeyProvisionSecretSource,
   activationMaterial: recordBackedPasskeyActivationMaterial,
+  walletSessionRouteAuth,
   // @ts-expect-error passkey provision must not accept Wallet Session auth
   walletSessionAuth,
 });
@@ -217,6 +231,7 @@ void buildPasskeyEcdsaSessionProvision({
   requestId: 'request-1',
   provisionSecretSource: passkeyProvisionSecretSource,
   activationMaterial: recordBackedPasskeyActivationMaterial,
+  walletSessionRouteAuth,
 });
 
 void buildWalletSessionEcdsaReconnect({
@@ -344,6 +359,7 @@ const validPasskeyProvisionPlan = buildEcdsaSessionProvisionPlan({
   requestId: 'request-1',
   provisionSecretSource: passkeyProvisionSecretSource,
   activationMaterial: recordBackedPasskeyActivationMaterial,
+  walletSessionRouteAuth,
   reconnectMaterial: buildEcdsaReconnectMaterial({
     record: reconnectRecord,
   }),
@@ -360,6 +376,7 @@ void buildEcdsaSessionProvisionPlan({
   requestId: 'request-1',
   provisionSecretSource: passkeyProvisionSecretSource,
   activationMaterial: recordBackedPasskeyActivationMaterial,
+  walletSessionRouteAuth,
 });
 if (validPasskeyProvisionPlan.kind !== 'passkey_ecdsa_session_provision') {
   throw new Error('expected passkey_ecdsa_session_provision');
@@ -381,6 +398,7 @@ void buildEcdsaSessionProvisionPlan({
   requestId: 'request-1',
   provisionSecretSource: passkeyProvisionSecretSource,
   activationMaterial: recordBackedPasskeyActivationMaterial,
+  walletSessionRouteAuth,
 });
 
 // @ts-expect-error passkey planning requires explicit activation material
@@ -394,6 +412,7 @@ void buildEcdsaSessionProvisionPlan({
   sessionBudgetUses: 1,
   requestId: 'request-1',
   provisionSecretSource: passkeyProvisionSecretSource,
+  walletSessionRouteAuth,
 });
 
 void buildEcdsaSessionProvisionPlan({
@@ -407,6 +426,7 @@ void buildEcdsaSessionProvisionPlan({
   requestId: 'request-1',
   provisionSecretSource: passkeyProvisionSecretSource,
   activationMaterial: recordBackedPasskeyActivationMaterial,
+  walletSessionRouteAuth,
   // @ts-expect-error passkey planning must not accept top-level WebAuthn credentials
   webauthnAuthentication,
 });
@@ -423,6 +443,7 @@ void buildEcdsaSessionProvisionPlan({
   sessionBudgetUses: 1,
   provisionSecretSource: passkeyProvisionSecretSource,
   activationMaterial: recordBackedPasskeyActivationMaterial,
+  walletSessionRouteAuth,
 });
 
 export {};

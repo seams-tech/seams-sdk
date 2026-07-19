@@ -95,7 +95,7 @@ fn strict_router_router_ab_ecdsa_derivation_routes_apply_boundary_parsers() {
         "parse_router_ab_ecdsa_derivation_registration_bootstrap_request_v1_json",
         "router_ab_ecdsa_derivation_registration_purpose_for_public_path",
         "validate_for_registration_purpose",
-        "parse_router_ab_ecdsa_derivation_explicit_export_request_v1_json",
+        "parse_cloudflare_router_ab_ecdsa_derivation_export_command_v1_json",
         "parse_router_ab_ecdsa_derivation_recovery_request_v1_json",
         "parse_router_ab_ecdsa_derivation_activation_refresh_request_v1_json",
         "parse_router_ab_ecdsa_derivation_evm_digest_signing_request_v1_json",

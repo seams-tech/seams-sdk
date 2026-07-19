@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   createRouterAbServiceBindingFetch,
   type RouterAbServiceBindingEnv,
-} from '../../packages/console-server-ts/src/router/cloudflare/d1RouterApiStagingWorker';
+} from '../../packages/console-server-ts/src/router/cloudflare/routerAbServiceBindings';
 
 class RecordingServiceBinding {
   readonly requests: Request[] = [];

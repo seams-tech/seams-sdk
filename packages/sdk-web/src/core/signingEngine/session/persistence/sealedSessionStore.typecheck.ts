@@ -197,6 +197,7 @@ const invalidEcdsaWriteInput: BuildCurrentEcdsaSealedSessionRecordInput = {
     chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
     source: 'manual-bootstrap',
     evmFamilySigningKeySlotId: 'wallet-key:evm-family:wallet.testnet:project%3Adev:default',
+    roleLocalDurableMaterialRef: 'router-ab-ecdsa-registration:ceremony',
     signingRootId: 'project:dev',
     signingRootVersion: 'default',
     rpId: 'wallet.example.localhost',

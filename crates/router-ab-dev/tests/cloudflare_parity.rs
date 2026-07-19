@@ -193,7 +193,7 @@ fn local_env_templates_match_wrangler_startup_manifests() {
         "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_BINDING = \"SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY\"",
     );
     signing_worker.assert_wrangler(
-        "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY = \"x25519:3333333333333333333333333333333333333333333333333333333333333333\"",
+        "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY = \"x25519:d0a06a6445d78bc87f449dfac2b427ad1857a0b00d91e20f152031ad49c18010\"",
     );
     signing_worker.assert_local("SIGNING_WORKER_URL=http://127.0.0.1:9103");
     signing_worker.assert_local("SIGNING_WORKER_ID=local-signing-worker");

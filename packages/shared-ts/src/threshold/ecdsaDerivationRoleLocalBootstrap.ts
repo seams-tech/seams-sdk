@@ -1,6 +1,6 @@
 import { alphabetizeStringify, sha256Bytes, sha256BytesUtf8 } from '../utils/digests';
 import { base64UrlDecode, base64UrlEncode } from '../utils/encoders';
-import type { WalletId } from '../utils/domainIds';
+import type { SigningGrantId, WalletId } from '../utils/domainIds';
 
 const THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID = 'threshold-secp256k1-ecdsa-2p-v1';
 const SDK_ECDSA_DERIVATION_APPLICATION_BINDING_DOMAIN_V1 =
@@ -66,7 +66,7 @@ export type EcdsaDerivationRoleLocalBootstrapIdentity = {
   contextBinding32B64u: string;
   requestId: string;
   sessionId: string;
-  signingGrantId: string;
+  signingGrantId: SigningGrantId;
   ttlMs: number;
   remainingUses: number;
   participantIds: number[];

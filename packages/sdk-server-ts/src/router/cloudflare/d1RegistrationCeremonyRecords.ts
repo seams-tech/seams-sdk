@@ -41,6 +41,7 @@ import {
   parseEmailOtpChallengeId,
   parseOrgId,
   parseProviderSubject,
+  parseRootShareEpoch,
   parseWebAuthnRpId,
 } from '@shared/utils/domainIds';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
@@ -1535,6 +1536,8 @@ function parseD1EcdsaDerivationServerBootstrapResponse(
   const relayerVerifyingShareB64u = toOptionalTrimmedString(record.relayerVerifyingShareB64u);
   const participantIds = parseD1EcdsaParticipantPair(record.participantIds);
   const thresholdSessionId = toOptionalTrimmedString(record.thresholdSessionId);
+  const activationEpochResult = parseRootShareEpoch(record.activationEpoch);
+  const activationEpoch = activationEpochResult.ok ? activationEpochResult.value : null;
   const signingGrantId = toOptionalTrimmedString(record.signingGrantId);
   const expiresAtMs = safeInteger(record.expiresAtMs);
   const expiresAt = toOptionalTrimmedString(record.expiresAt);
@@ -1558,6 +1561,7 @@ function parseD1EcdsaDerivationServerBootstrapResponse(
     !relayerVerifyingShareB64u ||
     !participantIds ||
     !thresholdSessionId ||
+    !activationEpoch ||
     !signingGrantId ||
     expiresAtMs === null ||
     !expiresAt ||
@@ -1585,6 +1589,7 @@ function parseD1EcdsaDerivationServerBootstrapResponse(
     relayerVerifyingShareB64u,
     participantIds: [...participantIds],
     thresholdSessionId,
+    activationEpoch,
     signingGrantId,
     expiresAtMs,
     expiresAt,

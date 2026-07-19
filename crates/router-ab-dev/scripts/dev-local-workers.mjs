@@ -21,7 +21,6 @@ const gatewayPublicUrl = 'https://localhost:9444';
 const gatewayPublicWellKnownUrl = `${gatewayPublicUrl}/.well-known/webauthn`;
 const gatewayPublicHost = 'localhost';
 const gatewayPublicPort = 9444;
-const commitmentPolicyBuildEnvFile = '.env.router-ab.ecdsa-commitment-policy.build.local';
 const productionWorkerEndpoints = Object.freeze([
   { role: 'router', label: 'mpc-router', port: 9100, url: 'http://127.0.0.1:9100' },
   { role: 'deriver-a', port: 9101, url: 'http://127.0.0.1:9101' },
@@ -73,9 +72,7 @@ const localEnvRoles = [
       'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
       'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY',
       'SIGNING_WORKER_SERVER_OUTPUT_STORAGE_PATH',
-      'ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON',
     ],
-    requiredJsonObjectKeys: ['ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON'],
     forbiddenKeys: [
       'SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PUBLIC_KEY',
       'SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PRIVATE_KEY',
@@ -97,6 +94,7 @@ const d1LocalWranglerConfigPath = resolvePath(
 const strictPersistPath = join(root, '.runtime', 'router-ab-strict-state');
 const strictWorkerBuildRoot = join(repoRoot, 'crates', 'router-ab-cloudflare', 'build');
 const strictBuildReceiptPath = join(strictWorkerBuildRoot, 'local-build-receipt.json');
+const strictWorkerBuildProfile = process.env.ROUTER_AB_WORKER_BUILD_PROFILE || 'dev';
 const ecdsaDerivationClientRoot = join(repoRoot, 'wasm', 'router_ab_ecdsa_derivation_client');
 const ecdsaDerivationClientDependencyPath = join(
   ecdsaDerivationClientRoot,
@@ -141,11 +139,6 @@ const ecdsaDerivationClientSdkWasmPaths = [
     'pkg',
     'router_ab_ecdsa_derivation_client_bg.wasm',
   ),
-];
-const ecdsaCommitmentPolicyBuildKeys = [
-  'ROUTER_AB_ECDSA_COMMITMENT_POLICY_RELEASE_AUTHORITY_PUBLIC_KEY_HEX',
-  'ROUTER_AB_ECDSA_COMMITMENT_POLICY_DIGEST_HEX',
-  'ROUTER_AB_ECDSA_COMMITMENT_POLICY_MINIMUM_RELEASE_EPOCH',
 ];
 let strictRuntime;
 const displayMode = options.mode === 'multiplex' && process.stdout.isTTY ? 'multiplex' : 'logs';
@@ -214,9 +207,7 @@ try {
 
   process.once('SIGINT', () => shutdown(130));
   process.once('SIGTERM', () => shutdown(143));
-  if (options.buildOnly) {
-    await assertProductionWorkerPortsAvailable();
-  } else {
+  if (!options.buildOnly) {
     await stopExistingProductionWorkerProcesses();
   }
   ensureLocalEnv();
@@ -231,7 +222,7 @@ try {
   });
   prepareD1LocalRouterConfig();
   assertProductionWorkerBinariesReady();
-  assertBrowserEcdsaClientPolicyReady();
+  assertBrowserEcdsaClientReady();
   await assertProductionWorkerPortsAvailable();
   if (options.mode === 'multiplex' && displayMode === 'logs') {
     console.log('Multiplex mode requires a TTY; using interleaved logs.');
@@ -254,25 +245,15 @@ try {
 
 function ensureLocalEnv() {
   const missing = localEnvRoles.filter((role) => !existsSync(join(root, role.envFile)));
-  const commitmentPolicyBuildEnvMissing = !existsSync(join(root, commitmentPolicyBuildEnvFile));
   const invalid = missing.length > 0 ? [] : collectInvalidLocalEnvFiles();
-  if (
-    options.noInit &&
-    (missing.length > 0 || invalid.length > 0 || commitmentPolicyBuildEnvMissing)
-  ) {
+  if (options.noInit && (missing.length > 0 || invalid.length > 0)) {
     const details = [
       ...missing.map((role) => `${role.envFile}: missing`),
       ...invalid.map((entry) => `${entry.role.envFile}: ${entry.reason}`),
-      ...(commitmentPolicyBuildEnvMissing ? [`${commitmentPolicyBuildEnvFile}: missing`] : []),
     ];
     throw new Error(`invalid Router A/B local env files: ${details.join(', ')}`);
   }
-  if (
-    !options.fresh &&
-    missing.length === 0 &&
-    invalid.length === 0 &&
-    !commitmentPolicyBuildEnvMissing
-  ) {
+  if (!options.fresh && missing.length === 0 && invalid.length === 0) {
     return;
   }
   if (!options.fresh && invalid.length > 0) {
@@ -301,7 +282,6 @@ function prepareD1LocalRouterConfig() {
     repoRoot,
     localEnvRoot: root,
     outputConfigPath: d1LocalWranglerConfigPath,
-    workerUrls: strictRuntime.workerUrls,
   });
 }
 
@@ -320,28 +300,15 @@ function collectInvalidLocalEnvFiles() {
       invalid.push({ role, reason: `contains obsolete ${forbiddenKey}` });
       continue;
     }
-    const invalidJsonObjectKey = role.requiredJsonObjectKeys?.find(
-      (key) => !isJsonObject(env.get(key)),
-    );
-    if (invalidJsonObjectKey) {
-      invalid.push({ role, reason: `${invalidJsonObjectKey} must be a JSON object` });
-    }
   }
   return invalid;
 }
 
-function isJsonObject(value) {
-  if (typeof value !== 'string') return false;
-  try {
-    const parsed = JSON.parse(value);
-    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed);
-  } catch {
-    return false;
-  }
-}
-
 function buildProductionWorkerBinaries() {
-  const buildEnvironment = loadCommitmentPolicyBuildEnvironment();
+  const buildEnvironment = {
+    ...process.env,
+    ROUTER_AB_WORKER_BUILD_PROFILE: strictWorkerBuildProfile,
+  };
   const strictWorkerRoot = join(repoRoot, 'crates', 'router-ab-cloudflare');
   for (const role of ['router', 'deriver-a', 'deriver-b', 'signing-worker']) {
     run('bash', ['scripts/build-strict-worker.sh', role], buildEnvironment, strictWorkerRoot);
@@ -357,8 +324,8 @@ function buildProductionWorkerBinaries() {
     strictBuildReceiptPath,
     `${JSON.stringify(
       {
-        schema_version: 'router_ab_strict_local_build_v1',
-        commitment_policy_build_sha256: commitmentPolicyBuildSha256(),
+        schema_version: 'router_ab_strict_local_build_v3',
+        worker_build_profile: strictWorkerBuildProfile,
         roles: ['router', 'deriver-a', 'deriver-b', 'signing-worker'],
       },
       null,
@@ -395,17 +362,17 @@ function assertProductionWorkerBinariesReady() {
     receipt.roles.length === expectedRoles.length &&
     receipt.roles.join('\0') === expectedRoles.join('\0');
   if (
-    receipt.schema_version !== 'router_ab_strict_local_build_v1' ||
-    receipt.commitment_policy_build_sha256 !== commitmentPolicyBuildSha256() ||
+    receipt.schema_version !== 'router_ab_strict_local_build_v3' ||
+    receipt.worker_build_profile !== strictWorkerBuildProfile ||
     !rolesMatch
   ) {
     throw new Error(
-      'Router A/B Worker artifacts do not match the current local commitment policy. Run pnpm build:sdk before pnpm router.',
+      `Router A/B Worker artifacts do not match the current ${strictWorkerBuildProfile} build profile. Run pnpm build:sdk before pnpm router.`,
     );
   }
 }
 
-function assertBrowserEcdsaClientPolicyReady() {
+function assertBrowserEcdsaClientReady() {
   const requiredPaths = [
     ecdsaDerivationClientDependencyPath,
     ecdsaDerivationClientPackageWasmPath,
@@ -421,16 +388,6 @@ function assertBrowserEcdsaClientPolicyReady() {
     throw staleBrowserEcdsaClientError(`Missing: ${missingPaths.join(', ')}`);
   }
 
-  const compiledPins = parseCompiledEcdsaCommitmentPolicyPins(
-    readFileSync(ecdsaDerivationClientDependencyPath, 'utf8'),
-  );
-  const expectedPins = loadCommitmentPolicyBuildEnvironment();
-  for (const key of ecdsaCommitmentPolicyBuildKeys) {
-    if (compiledPins[key] !== expectedPins[key]) {
-      throw staleBrowserEcdsaClientError(`Compile-time pin mismatch: ${key}`);
-    }
-  }
-
   const packageWasmSha256 = sha256File(ecdsaDerivationClientPackageWasmPath);
   for (const path of ecdsaDerivationClientSdkWasmPaths) {
     if (sha256File(path) !== packageWasmSha256) {
@@ -439,24 +396,13 @@ function assertBrowserEcdsaClientPolicyReady() {
   }
 }
 
-function parseCompiledEcdsaCommitmentPolicyPins(dependencyMetadata) {
-  const pins = {};
-  for (const line of dependencyMetadata.split('\n')) {
-    const match = /^# env-dep:([^=]+)=(.*)$/.exec(line);
-    if (match && ecdsaCommitmentPolicyBuildKeys.includes(match[1])) {
-      pins[match[1]] = match[2];
-    }
-  }
-  return pins;
-}
-
 function sha256File(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
 }
 
 function staleBrowserEcdsaClientError(detail) {
   return new Error(
-    `Browser ECDSA client artifacts do not match the current local commitment policy. Run pnpm build:sdk-full before pnpm router. ${detail}`,
+    `Browser ECDSA client artifacts are stale. Run pnpm build:sdk-full before pnpm router. ${detail}`,
   );
 }
 
@@ -479,11 +425,6 @@ function missingProductionWorkerArtifactPaths() {
   return missing;
 }
 
-function commitmentPolicyBuildSha256() {
-  const source = readFileSync(join(root, commitmentPolicyBuildEnvFile));
-  return createHash('sha256').update(source).digest('hex');
-}
-
 async function stopExistingProductionWorkerProcesses() {
   const processGroups = findExistingProductionWorkerProcessGroups();
   if (processGroups.length === 0) {
@@ -492,62 +433,131 @@ async function stopExistingProductionWorkerProcesses() {
   }
 
   console.log(
-    `Stopping existing Router A/B local Worker topology (${processGroups.length} process groups)...`,
+    `Stopping existing processes on Router A/B worker ports (${processGroups.length} process groups)...`,
   );
   signalProductionWorkerProcessGroups(processGroups, 'SIGTERM');
   if (await waitForProductionWorkerPortsFree(2_000)) {
+    await assertProductionWorkerPortsAvailable();
     return;
   }
 
-  console.log('Existing Router A/B Workers did not stop cleanly; forcing shutdown...');
+  console.log('Existing processes did not stop cleanly; forcing shutdown...');
   signalProductionWorkerProcessGroups(processGroups, 'SIGKILL');
   await waitForProductionWorkerPortsFree(1_500);
   await assertProductionWorkerPortsAvailable();
 }
 
 function findExistingProductionWorkerProcessGroups() {
-  if (process.platform === 'win32') {
-    return [];
-  }
   const child = spawnSync('ps', ['-ww', '-axo', 'pid=,pgid=,command='], {
+    encoding: 'utf8',
+  });
+  const specs = productionWorkerProcessSpecs();
+  const groups = new Map();
+  if (child.status === 0 && child.stdout) {
+    for (const line of child.stdout.split(/\r?\n/)) {
+      const match = line.match(/^\s*(\d+)\s+(\d+)\s+(.+)$/);
+      if (!match) {
+        continue;
+      }
+      const pid = Number(match[1]);
+      const processGroupId = Number(match[2]);
+      const command = match[3];
+      if (
+        !Number.isSafeInteger(pid) ||
+        !Number.isSafeInteger(processGroupId) ||
+        pid === process.pid
+      ) {
+        continue;
+      }
+      const spec = matchingProductionWorkerProcessSpec(command, specs);
+      if (!spec) {
+        continue;
+      }
+      const group = groups.get(processGroupId) ?? {
+        processGroupId,
+        role: spec.label ?? spec.role,
+        memberPids: [],
+        hasMatchedLeader: false,
+      };
+      group.memberPids.push(pid);
+      group.hasMatchedLeader ||= pid === processGroupId;
+      groups.set(processGroupId, group);
+    }
+  }
+  addListeningProcessGroups(groups);
+  return [...groups.values()];
+}
+
+function addListeningProcessGroups(groups) {
+  for (const pid of findListeningProductionWorkerPids()) {
+    if (pid === process.pid) {
+      continue;
+    }
+    const processGroupId = findProcessGroupId(pid);
+    const group = groups.get(processGroupId) ?? {
+      processGroupId,
+      role: 'port listener',
+      memberPids: [],
+      hasMatchedLeader: false,
+    };
+    if (!group.memberPids.includes(pid)) {
+      group.memberPids.push(pid);
+    }
+    groups.set(processGroupId, group);
+  }
+}
+
+function findListeningProductionWorkerPids() {
+  if (process.platform === 'win32') {
+    return findWindowsListeningProductionWorkerPids();
+  }
+  const pids = new Set();
+  for (const endpoint of productionWorkerEndpoints) {
+    const child = spawnSync('lsof', ['-nP', '-t', `-iTCP:${endpoint.port}`, '-sTCP:LISTEN'], {
+      encoding: 'utf8',
+    });
+    if (child.status !== 0 || !child.stdout) {
+      continue;
+    }
+    for (const line of child.stdout.split(/\r?\n/)) {
+      const pid = Number(line.trim());
+      if (Number.isSafeInteger(pid) && pid > 0) {
+        pids.add(pid);
+      }
+    }
+  }
+  return [...pids];
+}
+
+function findWindowsListeningProductionWorkerPids() {
+  const child = spawnSync('netstat', ['-ano', '-p', 'TCP'], {
     encoding: 'utf8',
   });
   if (child.status !== 0 || !child.stdout) {
     return [];
   }
-
-  const specs = productionWorkerProcessSpecs();
-  const groups = new Map();
+  const workerPorts = new Set(productionWorkerEndpoints.map((endpoint) => endpoint.port));
+  const pids = new Set();
   for (const line of child.stdout.split(/\r?\n/)) {
-    const match = line.match(/^\s*(\d+)\s+(\d+)\s+(.+)$/);
+    const match = line.match(/^\s*TCP\s+\S+:(\d+)\s+\S+\s+LISTENING\s+(\d+)\s*$/i);
     if (!match) {
       continue;
     }
-    const pid = Number(match[1]);
-    const processGroupId = Number(match[2]);
-    const command = match[3];
-    if (
-      !Number.isSafeInteger(pid) ||
-      !Number.isSafeInteger(processGroupId) ||
-      pid === process.pid
-    ) {
-      continue;
+    const port = Number(match[1]);
+    const pid = Number(match[2]);
+    if (workerPorts.has(port) && Number.isSafeInteger(pid) && pid > 0) {
+      pids.add(pid);
     }
-    const spec = matchingProductionWorkerProcessSpec(command, specs);
-    if (!spec) {
-      continue;
-    }
-    const group = groups.get(processGroupId) ?? {
-      processGroupId,
-      role: spec.label ?? spec.role,
-      memberPids: [],
-      hasMatchedLeader: false,
-    };
-    group.memberPids.push(pid);
-    group.hasMatchedLeader ||= pid === processGroupId;
-    groups.set(processGroupId, group);
   }
-  return [...groups.values()];
+  return [...pids];
+}
+
+function findProcessGroupId(pid) {
+  const child = spawnSync('ps', ['-p', String(pid), '-o', 'pgid='], {
+    encoding: 'utf8',
+  });
+  const processGroupId = Number(child.stdout?.trim());
+  return Number.isSafeInteger(processGroupId) && processGroupId > 0 ? processGroupId : pid;
 }
 
 function productionWorkerProcessSpecs() {
@@ -578,7 +588,31 @@ function matchingProductionWorkerProcessSpec(command, specs) {
       return spec;
     }
   }
-  return null;
+
+  return matchingGeneratedProductionWorkerProcessSpec(command);
+}
+
+function matchingGeneratedProductionWorkerProcessSpec(command) {
+  const configMatch = command.match(
+    /(?:^|\s)--config\s+(\S+\/\.runtime\/router-ab-strict\/wrangler\.(router|deriver-a|deriver-b|signing-worker)\.toml)(?:\s|$)/,
+  );
+  if (!configMatch) return null;
+
+  const role = configMatch[2];
+  const endpoint = productionWorkerEndpoints.find((candidate) => candidate.role === role);
+  if (!endpoint) return null;
+  const persistPath = `${configMatch[1].replace(
+    /\/\.runtime\/router-ab-strict\/wrangler\.[^.]+\.toml$/,
+    '/.runtime/router-ab-strict-state',
+  )}/${role}`;
+  if (
+    !command.includes(`--port ${endpoint.port}`) ||
+    !command.includes(`--persist-to ${persistPath}`) ||
+    !command.includes('--local')
+  ) {
+    return null;
+  }
+  return endpoint;
 }
 
 function signalProductionWorkerProcessGroups(processGroups, signal) {
@@ -596,10 +630,33 @@ function signalProductionWorkerProcessGroups(processGroups, signal) {
 function signalPid(pid, signal) {
   try {
     process.kill(pid, signal);
+    return;
   } catch (error) {
-    if (error?.code !== 'ESRCH') {
+    if (error?.code === 'ESRCH') {
+      return;
+    }
+    if (error?.code !== 'EPERM' || process.platform === 'win32') {
       throw error;
     }
+  }
+
+  const fallback = spawnSync('kill', [signalFlag(signal), '--', String(pid)], {
+    encoding: 'utf8',
+  });
+  if (fallback.status !== 0) {
+    const detail = fallback.stderr?.trim() || `exit status ${fallback.status}`;
+    throw new Error(`failed to send ${signal} to process group ${pid}: ${detail}`);
+  }
+}
+
+function signalFlag(signal) {
+  switch (signal) {
+    case 'SIGTERM':
+      return '-TERM';
+    case 'SIGKILL':
+      return '-KILL';
+    default:
+      throw new Error(`unsupported worker shutdown signal: ${signal}`);
   }
 }
 
@@ -621,14 +678,6 @@ async function productionWorkerPortsAreFree() {
     }
   }
   return true;
-}
-
-function loadCommitmentPolicyBuildEnvironment() {
-  const path = join(root, commitmentPolicyBuildEnvFile);
-  if (!existsSync(path)) {
-    throw new Error(`missing signed commitment policy build pins: ${path}`);
-  }
-  return { ...process.env, ...dotenv.parse(readFileSync(path)) };
 }
 
 function startProductionWorkers() {
@@ -710,7 +759,7 @@ async function assertProductionWorkerPortsAvailable() {
   }
   if (conflicts.length > 0) {
     throw new Error(
-      `production-shaped MPC worker port conflict: ${conflicts.join(', ')}. Stop the processes using these ports and retry.`,
+      `production-shaped MPC worker ports remain occupied after shutdown: ${conflicts.join(', ')}.`,
     );
   }
 }
@@ -745,7 +794,6 @@ async function ensureGateway() {
       ...process.env,
       SEAMS_D1_LOCAL_PERSIST_TO: d1LocalPersistPath,
       SEAMS_D1_LOCAL_WRANGLER_CONFIG: d1LocalWranglerConfigPath,
-      ROUTER_AB_SIGNING_WORKER_URL: strictRuntime.workerUrls.signingWorker,
       ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET:
         process.env.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET || 'dev-router-ab-internal-service-auth',
     },
@@ -1100,6 +1148,10 @@ function killChild(child, signal, killAsGroup = false) {
       child.kill(signal);
     }
   } catch (error) {
+    if (killAsGroup && error?.code === 'EPERM') {
+      child.kill(signal);
+      return;
+    }
     if (error?.code !== 'ESRCH') {
       throw error;
     }

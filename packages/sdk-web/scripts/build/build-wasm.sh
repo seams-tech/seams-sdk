@@ -28,22 +28,6 @@ print_success() { echo -e "${GREEN}✅ $1${NC}"; }
 print_error() { echo -e "${RED}❌ $1${NC}"; }
 print_warning() { echo -e "${YELLOW}⚠️ $1${NC}"; }
 
-require_ecdsa_commitment_policy_build_pins() {
-  local name
-  for name in \
-    ROUTER_AB_ECDSA_COMMITMENT_POLICY_RELEASE_AUTHORITY_PUBLIC_KEY_HEX \
-    ROUTER_AB_ECDSA_COMMITMENT_POLICY_DIGEST_HEX \
-    ROUTER_AB_ECDSA_COMMITMENT_POLICY_MINIMUM_RELEASE_EPOCH
-  do
-    if [ -z "${!name:-}" ]; then
-      print_error "Missing required ECDSA commitment-policy build pin: $name"
-      exit 1
-    fi
-  done
-}
-
-require_ecdsa_commitment_policy_build_pins
-
 WASM_SDK_BUILD_MODE="${WASM_SDK_BUILD_MODE:-dev}"
 case "$WASM_SDK_BUILD_MODE" in
   dev)

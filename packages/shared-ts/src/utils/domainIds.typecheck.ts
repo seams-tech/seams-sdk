@@ -4,6 +4,7 @@ import type {
   AgentPrincipalId,
   DelegatedIdempotencyKey,
   DelegatedIntentDigest,
+  EcdsaActiveStateId,
   EmailOtpChallengeId,
   EmailOtpRegistrationAttemptId,
   GoogleProviderSubject,
@@ -13,6 +14,7 @@ import type {
   MandatePolicyId,
   OrgId,
   ProviderSubject,
+  RootShareEpoch,
   RotationOperationId,
   SigningLaneId,
   ThresholdEcdsaSessionId,
@@ -35,6 +37,8 @@ declare const registrationAttemptId: EmailOtpRegistrationAttemptId;
 declare const signingGrantId: SigningGrantId;
 declare const thresholdEd25519SessionId: ThresholdEd25519SessionId;
 declare const thresholdEcdsaSessionId: ThresholdEcdsaSessionId;
+declare const ecdsaActiveStateId: EcdsaActiveStateId;
+declare const rootShareEpoch: RootShareEpoch;
 declare const walletKeyId: WalletKeyId;
 declare const signingLaneId: SigningLaneId;
 declare const laneShareEpoch: LaneShareEpoch;
@@ -94,6 +98,14 @@ function acceptsThresholdEcdsaSessionId(value: ThresholdEcdsaSessionId): void {
   void value;
 }
 
+function acceptsEcdsaActiveStateId(value: EcdsaActiveStateId): void {
+  void value;
+}
+
+function acceptsRootShareEpoch(value: RootShareEpoch): void {
+  void value;
+}
+
 function acceptsWalletKeyId(value: WalletKeyId): void {
   void value;
 }
@@ -147,6 +159,8 @@ acceptsEmailOtpRegistrationAttemptId(registrationAttemptId);
 acceptsSigningGrantId(signingGrantId);
 acceptsThresholdEd25519SessionId(thresholdEd25519SessionId);
 acceptsThresholdEcdsaSessionId(thresholdEcdsaSessionId);
+acceptsEcdsaActiveStateId(ecdsaActiveStateId);
+acceptsRootShareEpoch(rootShareEpoch);
 acceptsWalletKeyId(walletKeyId);
 acceptsSigningLaneId(signingLaneId);
 acceptsLaneShareEpoch(laneShareEpoch);
@@ -199,6 +213,18 @@ acceptsThresholdEcdsaSessionId(thresholdEd25519SessionId);
 
 // @ts-expect-error Threshold ECDSA session ids are not signing grant ids.
 acceptsSigningGrantId(thresholdEcdsaSessionId);
+
+// @ts-expect-error Threshold ECDSA session ids are not root-share epochs.
+acceptsRootShareEpoch(thresholdEcdsaSessionId);
+
+// @ts-expect-error Root-share epochs are not threshold ECDSA session ids.
+acceptsThresholdEcdsaSessionId(rootShareEpoch);
+
+// @ts-expect-error ECDSA active-state ids are not authorization-session ids.
+acceptsThresholdEcdsaSessionId(ecdsaActiveStateId);
+
+// @ts-expect-error ECDSA authorization-session ids are not active-state ids.
+acceptsEcdsaActiveStateId(thresholdEcdsaSessionId);
 
 // @ts-expect-error Wallet keys are not wallet ids.
 acceptsWalletId(walletKeyId);

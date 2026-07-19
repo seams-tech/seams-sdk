@@ -11,20 +11,21 @@ case "$role" in
     ;;
 esac
 
-if [ "$role" = "router" ] || [ "$role" = "signing-worker" ]; then
-  for name in \
-    ROUTER_AB_ECDSA_COMMITMENT_POLICY_RELEASE_AUTHORITY_PUBLIC_KEY_HEX \
-    ROUTER_AB_ECDSA_COMMITMENT_POLICY_DIGEST_HEX \
-    ROUTER_AB_ECDSA_COMMITMENT_POLICY_MINIMUM_RELEASE_EPOCH
-  do
-    if [ -z "${!name:-}" ]; then
-      echo "missing required ECDSA commitment-policy build pin: $name" >&2
-      exit 1
-    fi
-  done
-fi
+worker_build_profile="${ROUTER_AB_WORKER_BUILD_PROFILE:-release}"
+case "$worker_build_profile" in
+  dev)
+    worker_build_flags=(--dev --no-opt)
+    ;;
+  release)
+    worker_build_flags=(--release)
+    ;;
+  *)
+    echo "invalid ROUTER_AB_WORKER_BUILD_PROFILE: $worker_build_profile (expected dev or release)" >&2
+    exit 2
+    ;;
+esac
 
 worker-build \
-  --release \
+  "${worker_build_flags[@]}" \
   --out-dir "build/$role" \
   --features "strict-worker-$role-entrypoint"

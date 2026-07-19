@@ -339,19 +339,6 @@ function checkEcdsaDerivationExportConfirmationDigestBindsSlot() {
   const emailOtpWorkerSource = readRepoFile(
     'packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
   );
-  const bootstrapExportRuntimeSource = readRepoFile(
-    'packages/sdk-server-ts/src/core/routerAbSigning/RouterAbEcdsaBootstrapExportRuntime.ts',
-  );
-  const bootstrapExportRuntimeMethod = findMethodDeclarationAndBody(
-    bootstrapExportRuntimeSource,
-    'computeEcdsaDerivationExportConfirmationDigest32',
-  );
-  if (!bootstrapExportRuntimeMethod) {
-    throw new Error(
-      'Missing server Router A/B ECDSA derivation export confirmation digest builder',
-    );
-  }
-
   const passkeyDigest = findObjectBlockAfter(
     passkeyExportSource,
     'const confirmationDigest32B64u = await digestB64u(',
@@ -360,13 +347,11 @@ function checkEcdsaDerivationExportConfirmationDigestBindsSlot() {
     emailOtpWorkerSource,
     'const confirmationDigest32B64u = await digestB64u(',
   );
-  const serverDigest = findObjectBlockAfter(bootstrapExportRuntimeMethod, 'alphabetizeStringify(');
   const offenders = [];
 
   for (const [block, context] of [
     [passkeyDigest, 'passkey export digest'],
     [emailOtpDigest, 'Email OTP export digest'],
-    [serverDigest, 'server export digest'],
   ]) {
     if (!block.includes('evmFamilySigningKeySlotId')) {
       offenders.push(`${context} does not bind evmFamilySigningKeySlotId`);

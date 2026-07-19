@@ -102,9 +102,24 @@ pub const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_PATH: 
 /// Private SigningWorker endpoint for Router A/B ECDSA derivation activation refresh.
 pub const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH: &str =
     "/router-ab/signing-worker/ecdsa-derivation/refresh";
+/// Private SigningWorker endpoint for one-time explicit-export share delivery.
+pub const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_EXPORT_SHARE_PATH: &str =
+    "/router-ab/signing-worker/ecdsa-derivation/export-share";
 /// Private SigningWorker endpoint for filling the Router A/B ECDSA derivation presignature pool.
 pub const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_PUT_PATH: &str =
     "/router-ab/signing-worker/ecdsa-derivation/presignature-pool/put";
+/// Private SigningWorker endpoint for starting an ECDSA presign session.
+pub const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_SESSION_INIT_PATH:
+    &str = "/router-ab/signing-worker/ecdsa-derivation/presignature-session/init";
+/// Private SigningWorker endpoint for advancing an ECDSA presign session.
+pub const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_SESSION_STEP_PATH:
+    &str = "/router-ab/signing-worker/ecdsa-derivation/presignature-session/step";
+/// SigningWorker-output Durable Object endpoint for starting a live ECDSA presign session.
+pub const CLOUDFLARE_SIGNING_WORKER_ECDSA_PRESIGN_SESSION_DO_INIT_PATH: &str =
+    "/router-ab/internal/signing-worker/ecdsa-presign-session/init";
+/// SigningWorker-output Durable Object endpoint for advancing a live ECDSA presign session.
+pub const CLOUDFLARE_SIGNING_WORKER_ECDSA_PRESIGN_SESSION_DO_STEP_PATH: &str =
+    "/router-ab/internal/signing-worker/ecdsa-presign-session/step";
 /// Private SigningWorker endpoint for normal signing.
 pub const CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_PATH: &str = "/router-ab/signing-worker/sign";
 /// Private SigningWorker endpoint for normal-signing round-1 prepare.
@@ -176,6 +191,11 @@ const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_URL: &str 
 const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_REFRESH_URL: &str = concat!(
     "https://router-ab-signing-worker.internal",
     "/router-ab/signing-worker/ecdsa-derivation/refresh"
+);
+#[cfg(feature = "workers-rs")]
+const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_EXPORT_SHARE_URL: &str = concat!(
+    "https://router-ab-signing-worker.internal",
+    "/router-ab/signing-worker/ecdsa-derivation/export-share"
 );
 #[cfg(feature = "workers-rs")]
 const CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_URL: &str = concat!(
@@ -313,6 +333,17 @@ pub(crate) fn cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_re
         peer,
         CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_REFRESH_URL,
         "strict Router A/B ECDSA derivation SigningWorker activation refresh can target only SigningWorker",
+    )
+}
+
+#[cfg(feature = "workers-rs")]
+pub(crate) fn cloudflare_router_ab_ecdsa_derivation_signing_worker_export_share_service_url(
+    peer: &CloudflarePeerBindingV1,
+) -> RouterAbProtocolResult<&'static str> {
+    cloudflare_signing_worker_url(
+        peer,
+        CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_EXPORT_SHARE_URL,
+        "strict Router A/B ECDSA export-share redemption can target only SigningWorker",
     )
 }
 

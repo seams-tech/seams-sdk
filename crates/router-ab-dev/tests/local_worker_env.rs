@@ -16,13 +16,9 @@ use router_ab_dev::{
     LOCAL_DERIVER_A_PRIVATE_PATH, LOCAL_DERIVER_A_STATE_DIR_V1,
     LOCAL_DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1, LOCAL_DERIVER_B_ENV_FILE_V1,
     LOCAL_DERIVER_B_PEER_PATH, LOCAL_DERIVER_B_PEER_SIGNING_KEY_ENV_V1,
-    LOCAL_DERIVER_B_PRIVATE_PATH, LOCAL_DERIVER_B_STATE_DIR_V1,
-    LOCAL_ECDSA_COMMITMENT_POLICY_BUILD_ENV_FILE_V1,
-    LOCAL_ECDSA_COMMITMENT_POLICY_DIGEST_BUILD_ENV_V1,
-    LOCAL_ECDSA_COMMITMENT_POLICY_MINIMUM_RELEASE_EPOCH_BUILD_ENV_V1,
-    LOCAL_ECDSA_COMMITMENT_POLICY_RELEASE_AUTHORITY_PUBLIC_KEY_BUILD_ENV_V1,
-    LOCAL_GATEWAY_PUBLIC_URL_ENV_V1, LOCAL_HTTP_CANONICAL_WIRE_CONTENT_TYPE_V1,
-    LOCAL_HTTP_JSON_CONTENT_TYPE_V1, LOCAL_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PATH,
+    LOCAL_DERIVER_B_PRIVATE_PATH, LOCAL_DERIVER_B_STATE_DIR_V1, LOCAL_GATEWAY_PUBLIC_URL_ENV_V1,
+    LOCAL_HTTP_CANONICAL_WIRE_CONTENT_TYPE_V1, LOCAL_HTTP_JSON_CONTENT_TYPE_V1,
+    LOCAL_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PATH,
     LOCAL_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PREPARE_PATH, LOCAL_ROUTER_ENV_FILE_V1,
     LOCAL_ROUTER_NORMAL_SIGNING_PATH, LOCAL_ROUTER_NORMAL_SIGNING_PREPARE_PATH,
     LOCAL_ROUTER_STATE_DIR_V1, LOCAL_SIGNING_WORKER_ENV_FILE_V1,
@@ -399,21 +395,6 @@ fn local_env_materialization_plan_generates_parseable_role_env_files() {
             LOCAL_SIGNING_WORKER_ENV_FILE_V1,
         ]
     );
-    assert_eq!(
-        plan.build_environment.path,
-        LOCAL_ECDSA_COMMITMENT_POLICY_BUILD_ENV_FILE_V1
-    );
-    let build_environment = parse_local_env_file_contents_v1(&plan.build_environment.contents)
-        .expect("commitment policy build environment parses");
-    for required_key in [
-        LOCAL_ECDSA_COMMITMENT_POLICY_RELEASE_AUTHORITY_PUBLIC_KEY_BUILD_ENV_V1,
-        LOCAL_ECDSA_COMMITMENT_POLICY_DIGEST_BUILD_ENV_V1,
-        LOCAL_ECDSA_COMMITMENT_POLICY_MINIMUM_RELEASE_EPOCH_BUILD_ENV_V1,
-    ] {
-        assert!(build_environment
-            .iter()
-            .any(|(key, value)| key == required_key && !value.is_empty()));
-    }
     for file in &plan.files {
         assert!(!file.contents.contains("dev-only-deriver"));
         assert!(!file.contents.contains("dev-only-signing-worker"));
@@ -436,12 +417,6 @@ fn local_env_materialization_plan_generates_parseable_role_env_files() {
             parse_local_env_file_contents_v1(&file.contents).expect("generated env parses"),
         )
         .expect("generated env validates against role");
-        if let LocalWorkerRoleConfigV1::SigningWorker(signing_worker) = &config {
-            let registry: serde_json::Value =
-                serde_json::from_str(&signing_worker.ecdsa_commitment_registry_json)
-                    .expect("generated commitment registry is JSON");
-            assert!(registry.is_object());
-        }
         assert_eq!(config.role(), file.role);
     }
 }

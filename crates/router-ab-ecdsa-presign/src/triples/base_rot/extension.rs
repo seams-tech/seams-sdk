@@ -36,7 +36,7 @@ const OUTPUT_DOMAIN: &[u8] = b"seams/router-ab-ecdsa-presign/random-ot-output/v1
 const ACCEPTANCE_DOMAIN: &[u8] = b"seams/router-ab-ecdsa-presign/random-ot-accept/v1";
 const SUITE: &[u8] = b"secp256k1+sha256+sha512";
 
-type SenderValues = [[Scalar; 2]; EXTENDED_OT_COUNT];
+type SenderValues = Box<[[Scalar; 2]]>;
 type ReceiverValues = [Scalar; EXTENDED_OT_COUNT];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -646,7 +646,7 @@ macro_rules! define_sender_test_parts {
     ($name:ident) => {
         impl $name {
             pub fn into_test_values(self) -> SenderValues {
-                self.0.values
+                self.0.values.clone()
             }
         }
     };
@@ -1028,7 +1028,7 @@ fn sender_output(
     delta: BitRow,
     q: &SecretMatrix,
 ) -> ExtensionSenderOutput {
-    let mut values = [[Scalar::ZERO; 2]; EXTENDED_OT_COUNT];
+    let mut values = vec![[Scalar::ZERO; 2]; EXTENDED_OT_COUNT].into_boxed_slice();
     for (index, (target, q_row)) in values.iter_mut().zip(q.0.iter()).enumerate() {
         target[0] = hash_row_to_scalar(context, triple_index, sender_role, index, *q_row);
         target[1] = hash_row_to_scalar(context, triple_index, sender_role, index, q_row.xor(delta));

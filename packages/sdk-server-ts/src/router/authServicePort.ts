@@ -1,6 +1,7 @@
 import type { WalletEmailOtpAction } from '@shared/utils/emailOtpDomain';
 import type { WebAuthnRpId } from '@shared/utils/domainIds';
 import type { WebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
+import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type {
   EmailOtpChannel,
   EmailOtpChallengeOperation,
@@ -70,7 +71,6 @@ import type {
   RouterAbEcdsaDerivationNormalSigningStateV1,
   RouterAbEcdsaDerivationRecoveryRequestV1,
   RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
-  RouterAbEcdsaRegistrationActivationReceiptV1,
   RouterAbEcdsaStrictForwardedRegistrationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 
@@ -300,6 +300,7 @@ type ThresholdEcdsaKeyInventoryDiagnostics = {
 type ThresholdEcdsaKeyInventoryRecord = {
   readonly keyHandle: string;
   readonly ecdsaThresholdKeyId: string;
+  readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
   readonly chainTarget: ThresholdEcdsaChainTarget;
   readonly targetKey: string;
   readonly accountAddress: string;
@@ -1097,8 +1098,7 @@ export interface RouterApiWalletRegistrationService {
           readonly response: RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1;
         },
   ): Promise<
-    | { readonly ok: true }
-    | { readonly ok: false; readonly code: string; readonly message: string }
+    { readonly ok: true } | { readonly ok: false; readonly code: string; readonly message: string }
   >;
   activateEcdsaPostRegistrationSession(
     input: RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
@@ -1113,7 +1113,6 @@ export interface RouterApiWalletRegistrationService {
           readonly remainingUses: number;
         };
         readonly normalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
-        readonly signingWorkerActivation: RouterAbEcdsaRegistrationActivationReceiptV1;
       }
     | { readonly ok: false; readonly code: string; readonly message: string }
   >;
@@ -1323,8 +1322,7 @@ export interface RouterApiWebAuthnService {
   ): Promise<RouterApiMethodTypes['verifyWebAuthnSyncAccount']['result']>;
 }
 
-export interface RouterApiThresholdRuntimeService extends RouterAbSigningRuntimeService {
-}
+export interface RouterApiThresholdRuntimeService extends RouterAbSigningRuntimeService {}
 
 export interface RouterApiNearFundingService {
   fundImplicitNearAccount(

@@ -563,9 +563,7 @@ function finalizePasskeyRpId(authority: StoredRegistrationAuthority): string {
   return authority.rpId;
 }
 
-export function ecdsaStrictRegistrationAuthority(
-  facts: RouterAbEcdsaRegistrationRequestFactsV1,
-): {
+export function ecdsaStrictRegistrationAuthority(facts: RouterAbEcdsaRegistrationRequestFactsV1): {
   readonly subjectId: string;
   readonly sessionId: string;
   readonly accountId: string;
@@ -579,9 +577,7 @@ export function ecdsaStrictRegistrationAuthority(
   };
 }
 
-export function exactEcdsaParticipantPair(
-  participantIds: readonly number[],
-): readonly [1, 2] {
+export function exactEcdsaParticipantPair(participantIds: readonly number[]): readonly [1, 2] {
   if (participantIds.length !== 2 || participantIds[0] !== 1 || participantIds[1] !== 2) {
     throw new Error('ECDSA registration requires participant pair [1, 2]');
   }
@@ -600,8 +596,7 @@ function ethereumAddressHexFromBase64Url(value: string): string {
 
 type D1PendingEcdsaFamilyActivation = {
   readonly prepare: StoredWalletRegistrationEvmFamilyEcdsaPendingActivationBranch['prepare'];
-  readonly strictRegistration:
-    StoredWalletRegistrationEvmFamilyEcdsaPendingActivationBranch['strictRegistration'];
+  readonly strictRegistration: StoredWalletRegistrationEvmFamilyEcdsaPendingActivationBranch['strictRegistration'];
 };
 
 function requireActivatedEcdsaIdentity(input: {
@@ -638,12 +633,9 @@ export async function buildActivatedEcdsaFamilyBootstrap(input: {
   const prepare = input.branch.prepare;
   const identity = input.activation.ecdsa_activation.public_identity;
   const expiresAtMs = input.branch.strictRegistration.expires_at_ms;
-  const ethereumAddress = ethereumAddressHexFromBase64Url(
-    identity.ethereum_address20_b64u,
-  );
+  const ethereumAddress = ethereumAddressHexFromBase64Url(identity.ethereum_address20_b64u);
   const publicIdentity = parseEcdsaDerivationPublicIdentity({
-    derivationClientSharePublicKey33B64u:
-      input.publicFacts.derivationClientSharePublicKey33B64u,
+    derivationClientSharePublicKey33B64u: input.publicFacts.derivationClientSharePublicKey33B64u,
     relayerPublicKey33B64u: identity.server_public_key33_b64u,
     groupPublicKey33B64u: identity.threshold_public_key33_b64u,
     ethereumAddress,
@@ -677,6 +669,7 @@ export async function buildActivatedEcdsaFamilyBootstrap(input: {
     relayerVerifyingShareB64u: identity.server_public_key33_b64u,
     participantIds: [...exactEcdsaParticipantPair(prepare.participantIds)],
     thresholdSessionId: prepare.thresholdSessionId,
+    activationEpoch: input.activation.ecdsa_activation.activation_epoch,
     signingGrantId: prepare.signingGrantId,
     expiresAtMs,
     expiresAt: new Date(expiresAtMs).toISOString(),
@@ -707,14 +700,11 @@ function postRegistrationProofResponse(
   }
 }
 
-function postRegistrationProofMatchesRequest(
-  input: EcdsaPostRegistrationProofInput,
-): boolean {
+function postRegistrationProofMatchesRequest(input: EcdsaPostRegistrationProofInput): boolean {
   const response = postRegistrationProofResponse(input);
   return (
     response.lifecycle.lifecycle_id === input.request.lifecycle.lifecycle_id &&
-    response.bundles.signerA.transcriptDigestB64u ===
-      response.bundles.signerB.transcriptDigestB64u
+    response.bundles.signerA.transcriptDigestB64u === response.bundles.signerB.transcriptDigestB64u
   );
 }
 
@@ -752,37 +742,11 @@ function pendingEcdsaSessionActivationRecord(input: {
   }
 }
 
-function refreshedActivationMatchesCapability(input: {
-  readonly activation: RouterAbEcdsaRegistrationActivationReceiptV1;
-  readonly refreshRequest: RouterAbEcdsaDerivationActivationRefreshRequestV1;
-  readonly refreshResponse: RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1;
-  readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
-}): boolean {
-  const activation = input.activation.ecdsa_activation;
-  const bundles = input.refreshResponse.response.bundles;
-  return (
-    input.refreshRequest.previous_activation_epoch ===
-      input.publicCapability.activation_epoch &&
-    input.refreshRequest.next_activation_epoch === activation.activation_epoch &&
-    input.refreshRequest.lifecycle.lifecycle_id === input.activation.lifecycle_id &&
-    alphabetizeStringify(activation.context) ===
-      alphabetizeStringify(input.publicCapability.context) &&
-    alphabetizeStringify(activation.public_identity) ===
-      alphabetizeStringify(input.publicCapability.public_identity) &&
-    alphabetizeStringify(activation.signing_worker) ===
-      alphabetizeStringify(input.publicCapability.signer_set.selected_server) &&
-    base64UrlEncode(Uint8Array.from(input.activation.transcript_digest.bytes)) ===
-      bundles.signerA.transcriptDigestB64u &&
-    bundles.signerA.transcriptDigestB64u ===
-      bundles.signerB.transcriptDigestB64u
-  );
-}
-
 function buildPostRegistrationEcdsaNormalSigningState(input: {
   readonly walletKey: WalletRegistrationEcdsaWalletKey;
-  readonly activation: RouterAbEcdsaRegistrationActivationReceiptV1;
+  readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 }): RouterAbEcdsaDerivationNormalSigningStateV1 {
-  const activation = input.activation.ecdsa_activation;
+  const capability = input.publicCapability;
   const state = parseRouterAbEcdsaDerivationNormalSigningStateV1({
     kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
     scope: {
@@ -791,14 +755,14 @@ function buildPostRegistrationEcdsaNormalSigningState(input: {
       ecdsa_threshold_key_id: input.walletKey.ecdsaThresholdKeyId,
       signing_root_id: input.walletKey.signingRootId,
       signing_root_version: input.walletKey.signingRootVersion,
-      context: activation.context,
-      public_identity: activation.public_identity,
-      signing_worker: activation.signing_worker,
-      activation_epoch: activation.activation_epoch,
+      context: capability.context,
+      public_identity: capability.public_identity,
+      signing_worker: capability.signer_set.selected_server,
+      activation_epoch: capability.activation_epoch,
     },
   });
   if (!state) {
-    throw new Error('refreshed ECDSA normal-signing state is invalid');
+    throw new Error('registered ECDSA normal-signing state is invalid');
   }
   return state;
 }
@@ -866,15 +830,11 @@ export class CloudflareD1WalletRegistrationService {
   async recordEcdsaPostRegistrationProof(
     input: EcdsaPostRegistrationProofInput,
   ): Promise<
-    | { readonly ok: true }
-    | { readonly ok: false; readonly code: string; readonly message: string }
+    { readonly ok: true } | { readonly ok: false; readonly code: string; readonly message: string }
   > {
     try {
       const nowMs = Date.now();
-      if (
-        input.request.expires_at_ms <= nowMs ||
-        !postRegistrationProofMatchesRequest(input)
-      ) {
+      if (input.request.expires_at_ms <= nowMs || !postRegistrationProofMatchesRequest(input)) {
         return {
           ok: false,
           code: 'scope_mismatch',
@@ -882,10 +842,7 @@ export class CloudflareD1WalletRegistrationService {
         };
       }
       const walletId = walletIdFromString(input.request.lifecycle.account_id);
-      if (
-        input.request.client_id !== walletId ||
-        input.request.lifecycle.root_share_epoch === ''
-      ) {
+      if (input.request.client_id !== walletId || input.request.lifecycle.root_share_epoch === '') {
         return {
           ok: false,
           code: 'identity_mismatch',
@@ -949,7 +906,6 @@ export class CloudflareD1WalletRegistrationService {
           readonly remainingUses: number;
         };
         readonly normalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
-        readonly signingWorkerActivation: RouterAbEcdsaRegistrationActivationReceiptV1;
       }
     | { readonly ok: false; readonly code: string; readonly message: string }
   > {
@@ -982,51 +938,9 @@ export class CloudflareD1WalletRegistrationService {
           message: 'ECDSA session policy is outside the registered signing-root scope',
         };
       }
-      const pending = await store.takeEcdsaPendingSessionActivationPair({
-        walletId,
-        recovery: {
-          lifecycleId: input.recovery_binding.lifecycle_id,
-          requestId: input.recovery_binding.request_id,
-        },
-        refresh: {
-          lifecycleId: input.refresh_binding.lifecycle_id,
-          requestId: input.refresh_binding.request_id,
-        },
-      });
-      if (
-        !pending ||
-        alphabetizeStringify(pending.recovery.publicCapability) !==
-          alphabetizeStringify(input.public_capability) ||
-        alphabetizeStringify(pending.refresh.publicCapability) !==
-          alphabetizeStringify(input.public_capability)
-      ) {
-        return {
-          ok: false,
-          code: 'proof_not_found',
-          message: 'Exact one-time ECDSA recovery and refresh proofs are required',
-        };
-      }
-      const signingWorkerActivation =
-        pending.refresh.response.signing_worker_activation;
-      if (
-        !refreshedActivationMatchesCapability({
-          activation: signingWorkerActivation,
-          refreshRequest: pending.refresh.request,
-          refreshResponse: pending.refresh.response,
-          publicCapability: input.public_capability,
-        }) ||
-        input.session_policy.threshold_session_id !==
-          signingWorkerActivation.ecdsa_activation.activation_epoch
-      ) {
-        return {
-          ok: false,
-          code: 'scope_mismatch',
-          message: 'ECDSA refreshed activation does not match the registered public capability',
-        };
-      }
       const normalSigning = buildPostRegistrationEcdsaNormalSigningState({
         walletKey,
-        activation: signingWorkerActivation,
+        publicCapability: input.public_capability,
       });
       const expiresAtMs = nowMs + input.session_policy.ttl_ms;
       const normalSigningRuntime = this.getRouterAbNormalSigningRuntime();
@@ -1037,20 +951,19 @@ export class CloudflareD1WalletRegistrationService {
           message: 'Router A/B normal signing is not configured',
         };
       }
-      const provisioned =
-        await normalSigningRuntime.provisionRouterAbEcdsaNormalSigningSession({
-          kind: 'router_ab_ecdsa_normal_signing_session_v1',
-          walletId,
-          evmFamilySigningKeySlotId: walletKey.evmFamilySigningKeySlotId,
-          relayerKeyId: walletKey.relayerKeyId,
-          thresholdSessionId: input.session_policy.threshold_session_id,
-          signingGrantId: input.session_policy.signing_grant_id,
-          signingRootId: walletKey.signingRootId,
-          signingRootVersion: walletKey.signingRootVersion,
-          participantIds: walletKey.participantIds,
-          expiresAtMs,
-          remainingUses: input.session_policy.remaining_uses,
-        });
+      const provisioned = await normalSigningRuntime.provisionRouterAbEcdsaNormalSigningSession({
+        kind: 'router_ab_ecdsa_normal_signing_session_v1',
+        walletId,
+        evmFamilySigningKeySlotId: walletKey.evmFamilySigningKeySlotId,
+        relayerKeyId: walletKey.relayerKeyId,
+        thresholdSessionId: input.session_policy.threshold_session_id,
+        signingGrantId: input.session_policy.signing_grant_id,
+        signingRootId: walletKey.signingRootId,
+        signingRootVersion: walletKey.signingRootVersion,
+        participantIds: walletKey.participantIds,
+        expiresAtMs,
+        remainingUses: input.session_policy.remaining_uses,
+      });
       if (!provisioned.ok) {
         return {
           ok: false,
@@ -1068,7 +981,6 @@ export class CloudflareD1WalletRegistrationService {
           remainingUses: provisioned.remainingUses,
         },
         normalSigning,
-        signingWorkerActivation,
       };
     } catch (error: unknown) {
       return {
@@ -1877,46 +1789,47 @@ export class CloudflareD1WalletRegistrationService {
           throw new Error(provisioned.message);
         }
         const activatedBranch: StoredWalletRegistrationEvmFamilyEcdsaActivatedBranch = {
-        kind: 'evm_family_ecdsa_activated',
-        branchKey: ecdsaBranch.branchKey,
-        derivationKind: ecdsaBranch.derivationKind,
-        chainTargets: ecdsaBranch.chainTargets,
-        prepare: ecdsaBranch.prepare,
-        strictRegistration: ecdsaBranch.strictRegistration,
-        registrationRequest: ecdsaBranch.registrationRequest,
-        publicFacts: request.ecdsa.publicFacts,
-        activation: activated.value,
-        publicCapability: buildRouterAbEcdsaDerivationPublicCapabilityV1({
-          registrationFacts: ecdsaBranch.strictRegistration,
+          kind: 'evm_family_ecdsa_activated',
+          branchKey: ecdsaBranch.branchKey,
+          derivationKind: ecdsaBranch.derivationKind,
+          chainTargets: ecdsaBranch.chainTargets,
+          prepare: ecdsaBranch.prepare,
+          strictRegistration: ecdsaBranch.strictRegistration,
           registrationRequest: ecdsaBranch.registrationRequest,
-          clientActivation: request.ecdsa.publicFacts,
-          activationReceipt: activated.value,
-        }),
-        bootstrap: {
-          formatVersion: bootstrap.formatVersion,
-          walletId: bootstrap.walletId,
-          evmFamilySigningKeySlotId: bootstrap.evmFamilySigningKeySlotId,
-          ecdsaThresholdKeyId: bootstrap.ecdsaThresholdKeyId,
-          relayerKeyId: bootstrap.relayerKeyId,
-          applicationBindingDigestB64u: bootstrap.applicationBindingDigestB64u,
-          contextBinding32B64u: bootstrap.contextBinding32B64u,
-          publicIdentity: bootstrap.publicIdentity,
-          clientShareRetryCounter: bootstrap.clientShareRetryCounter,
-          relayerShareRetryCounter: bootstrap.relayerShareRetryCounter,
-          publicTranscriptDigest32B64u: bootstrap.publicTranscriptDigest32B64u,
-          keyHandle: bootstrap.keyHandle,
-          signingRootId: bootstrap.signingRootId,
-          signingRootVersion: bootstrap.signingRootVersion,
-          thresholdEcdsaPublicKeyB64u: bootstrap.thresholdEcdsaPublicKeyB64u,
-          ethereumAddress: bootstrap.ethereumAddress,
-          relayerVerifyingShareB64u: bootstrap.relayerVerifyingShareB64u,
-          thresholdSessionId: bootstrap.thresholdSessionId,
-          signingGrantId: bootstrap.signingGrantId,
-          expiresAtMs: provisioned.expiresAtMs,
-          expiresAt: new Date(provisioned.expiresAtMs).toISOString(),
-          remainingUses: provisioned.remainingUses,
-          participantIds: [...provisioned.participantIds],
-        },
+          publicFacts: request.ecdsa.publicFacts,
+          activation: activated.value,
+          publicCapability: buildRouterAbEcdsaDerivationPublicCapabilityV1({
+            registrationFacts: ecdsaBranch.strictRegistration,
+            registrationRequest: ecdsaBranch.registrationRequest,
+            clientActivation: request.ecdsa.publicFacts,
+            activationReceipt: activated.value,
+          }),
+          bootstrap: {
+            formatVersion: bootstrap.formatVersion,
+            walletId: bootstrap.walletId,
+            evmFamilySigningKeySlotId: bootstrap.evmFamilySigningKeySlotId,
+            ecdsaThresholdKeyId: bootstrap.ecdsaThresholdKeyId,
+            relayerKeyId: bootstrap.relayerKeyId,
+            applicationBindingDigestB64u: bootstrap.applicationBindingDigestB64u,
+            contextBinding32B64u: bootstrap.contextBinding32B64u,
+            publicIdentity: bootstrap.publicIdentity,
+            clientShareRetryCounter: bootstrap.clientShareRetryCounter,
+            relayerShareRetryCounter: bootstrap.relayerShareRetryCounter,
+            publicTranscriptDigest32B64u: bootstrap.publicTranscriptDigest32B64u,
+            keyHandle: bootstrap.keyHandle,
+            signingRootId: bootstrap.signingRootId,
+            signingRootVersion: bootstrap.signingRootVersion,
+            thresholdEcdsaPublicKeyB64u: bootstrap.thresholdEcdsaPublicKeyB64u,
+            ethereumAddress: bootstrap.ethereumAddress,
+            relayerVerifyingShareB64u: bootstrap.relayerVerifyingShareB64u,
+            thresholdSessionId: bootstrap.thresholdSessionId,
+            activationEpoch: bootstrap.activationEpoch,
+            signingGrantId: bootstrap.signingGrantId,
+            expiresAtMs: provisioned.expiresAtMs,
+            expiresAt: new Date(provisioned.expiresAtMs).toISOString(),
+            remainingUses: provisioned.remainingUses,
+            participantIds: [...provisioned.participantIds],
+          },
         };
         await store.updateCeremony({
           ...ceremony,
@@ -2227,10 +2140,9 @@ export class CloudflareD1WalletRegistrationService {
           registrationResult: consumed.activation.result,
           runtimePolicyScope,
         };
-        const activeYaoCapability =
-          buildRouterAbEd25519YaoRegistrationCapabilityRecordV1(
-            ed25519CapabilityInstallation,
-          );
+        const activeYaoCapability = buildRouterAbEd25519YaoRegistrationCapabilityRecordV1(
+          ed25519CapabilityInstallation,
+        );
         if (!activeYaoCapability.ok) {
           return {
             ok: false,

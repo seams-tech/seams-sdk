@@ -1,10 +1,13 @@
 import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { RootShareEpoch } from '@shared/utils/domainIds';
 import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import { buildRouterAbEcdsaDerivationSigningMaterialRef } from '../routerAb/ecdsaDerivation/signingMaterialRef';
 import type {
   RouterAbEcdsaDerivationSigningWalletSession,
   RouterAbSigningWalletSessionAuth,
 } from './routerAbSigningWalletSession';
+
+declare const rootShareEpoch: RootShareEpoch;
 
 const walletSessionAuth = {
   kind: 'wallet_session_jwt',
@@ -47,7 +50,7 @@ const routerAbNormalSigning = {
       key_epoch: 'epoch-1',
       recipient_encryption_key: 'x25519:recipient',
     },
-    activation_epoch: 'activation-epoch-1',
+    activation_epoch: rootShareEpoch,
   },
 } satisfies RouterAbEcdsaDerivationNormalSigningStateV1;
 

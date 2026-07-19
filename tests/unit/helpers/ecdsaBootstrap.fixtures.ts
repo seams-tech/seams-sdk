@@ -17,7 +17,9 @@ import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import {
+  parseRouterAbEcdsaDerivationPublicCapabilityV1,
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
+  type RouterAbEcdsaDerivationPublicCapabilityV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import { testEcdsaChainId, testEcdsaChainTarget } from './ecdsaChainTarget.fixtures';
@@ -50,7 +52,7 @@ function fixtureRouterAbEcdsaDerivationNormalSigning(args: {
       signing_root_id: args.signingRootId,
       signing_root_version: args.signingRootVersion,
       context: {
-        application_binding_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+        application_binding_digest_b64u: VALID_ECDSA_SHARE32_B64U,
       },
       public_identity: {
         context_binding_b64u: VALID_ECDSA_SHARE32_B64U,
@@ -70,6 +72,50 @@ function fixtureRouterAbEcdsaDerivationNormalSigning(args: {
       activation_epoch: args.sessionId,
     },
   };
+}
+
+function fixtureRouterAbEcdsaDerivationPublicCapability(args: {
+  walletId: string;
+  sessionId: string;
+  normalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
+}): RouterAbEcdsaDerivationPublicCapabilityV1 {
+  return parseRouterAbEcdsaDerivationPublicCapabilityV1({
+    kind: 'router_ab_ecdsa_derivation_public_capability_v1',
+    context: args.normalSigning.scope.context,
+    public_identity: args.normalSigning.scope.public_identity,
+    signer_set: {
+      signer_set_id: 'signer-set-warm-session-fixture',
+      policy: 'all_2',
+      signer_a: {
+        role: 'signer_a',
+        signer_id: 'signer-a-warm-session-fixture',
+        key_epoch: 'epoch-warm-session-fixture',
+      },
+      signer_b: {
+        role: 'signer_b',
+        signer_id: 'signer-b-warm-session-fixture',
+        key_epoch: 'epoch-warm-session-fixture',
+      },
+      selected_server: args.normalSigning.scope.signing_worker,
+    },
+    deriver_recipient_keys: {
+      deriver_a: {
+        role: 'signer_a',
+        key_epoch: 'epoch-warm-session-fixture',
+        public_key: 'x25519:2222222222222222222222222222222222222222222222222222222222222222',
+      },
+      deriver_b: {
+        role: 'signer_b',
+        key_epoch: 'epoch-warm-session-fixture',
+        public_key: 'x25519:3333333333333333333333333333333333333333333333333333333333333333',
+      },
+    },
+    router_id: 'router-warm-session-fixture',
+    client_id: args.walletId,
+    activation_epoch: args.sessionId,
+    registration_request_digest_b64u: VALID_ECDSA_SHARE32_B64U,
+    proof_transcript_digest_b64u: VALID_ECDSA_SHARE32_B64U,
+  });
 }
 
 export function fixtureRuntimePolicyScopeFromSigningRoot(
@@ -149,6 +195,17 @@ export function createThresholdEcdsaBootstrapFixture(args: {
           credentialIdB64u: passkeyCredentialIdB64u,
           rpId,
         });
+  const normalSigning = fixtureRouterAbEcdsaDerivationNormalSigning({
+    walletId: args.nearAccountId,
+    walletKeyId: evmFamilySigningKeySlotId,
+    ecdsaThresholdKeyId,
+    signingRootId,
+    signingRootVersion,
+    sessionId,
+    clientVerifyingShareB64u,
+    thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
+    ethereumAddress,
+  });
   const ecdsaRoleLocalReadyRecord = buildEcdsaRoleLocalReadyRecord({
     stateBlob: {
       kind: 'ecdsa_role_local_state_blob_v1',
@@ -174,6 +231,11 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       relayerPublicKey33B64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
       groupPublicKey33B64u: VALID_ECDSA_PUBLIC_KEY_B64U,
       ethereumAddress,
+      publicCapability: fixtureRouterAbEcdsaDerivationPublicCapability({
+        walletId: args.nearAccountId,
+        sessionId,
+        normalSigning,
+      }),
     }),
     authMethod: roleLocalAuthMethod,
   });
@@ -212,17 +274,7 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       thresholdSessionId: sessionId,
       signingGrantId,
       ...(walletSessionJwt ? { walletSessionJwt } : {}),
-      routerAbEcdsaDerivationNormalSigning: fixtureRouterAbEcdsaDerivationNormalSigning({
-        walletId: args.nearAccountId,
-        walletKeyId: evmFamilySigningKeySlotId,
-        ecdsaThresholdKeyId,
-        signingRootId,
-        signingRootVersion,
-        sessionId,
-        clientVerifyingShareB64u,
-        thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
-        ethereumAddress,
-      }),
+      routerAbEcdsaDerivationNormalSigning: normalSigning,
       ethereumAddress,
       thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
       relayerVerifyingShareB64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,

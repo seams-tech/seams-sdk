@@ -1,3 +1,5 @@
+import { parseRootShareEpoch, type RootShareEpoch } from '@shared/utils/domainIds';
+
 export const FIXED_ECDSA_PRESIGN_PROTOCOL_ID =
   'seams/router-ab-ecdsa-presign/fixed-2of2/v1' as const;
 
@@ -8,7 +10,7 @@ export type EcdsaClientPresignPoolIdentity = {
   readonly signingScopeB64u: string;
   readonly pairRole: 'client';
   readonly keyEpoch: string;
-  readonly activationEpoch: string;
+  readonly activationEpoch: RootShareEpoch;
   readonly protocolId: typeof FIXED_ECDSA_PRESIGN_PROTOCOL_ID;
 };
 
@@ -38,12 +40,15 @@ export function parseEcdsaClientPresignPoolIdentity(
     ),
     pairRole: 'client',
     keyEpoch: requireIdentityString(raw.keyEpoch, 'poolIdentity.keyEpoch'),
-    activationEpoch: requireIdentityString(
-      raw.activationEpoch,
-      'poolIdentity.activationEpoch',
-    ),
+    activationEpoch: requirePoolRootShareEpoch(raw.activationEpoch),
     protocolId: FIXED_ECDSA_PRESIGN_PROTOCOL_ID,
   };
+}
+
+function requirePoolRootShareEpoch(value: unknown): RootShareEpoch {
+  const parsed = parseRootShareEpoch(value);
+  if (!parsed.ok) throw new Error('poolIdentity.activationEpoch is invalid');
+  return parsed.value;
 }
 
 export function equalEcdsaClientPresignPoolIdentity(

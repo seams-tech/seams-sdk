@@ -1,4 +1,7 @@
-import type { ThresholdSessionSealTransportAuthMaterial } from '../persistence/records';
+import type {
+  PersistedEcdsaRoleLocalMaterial,
+  ThresholdSessionSealTransportAuthMaterial,
+} from '../persistence/records';
 import type { DurableRecordStore, EmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
@@ -49,6 +52,7 @@ import type {
   ThresholdRuntimePolicyScope,
   ThresholdSessionKind,
 } from '../../threshold/sessionPolicy';
+import type { ThresholdEcdsaBackendBinding } from '../../interfaces/signing';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 
@@ -90,6 +94,7 @@ type ThresholdEcdsaActivationRequestIdentityFields = {
   walletKey: EvmFamilyEcdsaWalletKey;
   lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
   publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+  existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
   keyHandle?: never;
   key?: never;
   walletId?: never;
@@ -110,7 +115,7 @@ export type ThresholdEcdsaPasskeyActivationRequest = ThresholdEcdsaActivationReq
   requestId: string;
   passkeyPrfFirstB64u: string;
   webauthnAuthentication: WebAuthnAuthenticationCredential;
-  walletSessionRouteAuth?: never;
+  walletSessionRouteAuth: AppOrWalletSessionAuth;
   emailOtpAuthContext?: never;
 };
 
@@ -166,7 +171,7 @@ type BuildPasskeyEcdsaActivationArgs = BuildThresholdEcdsaActivationRequestCommo
   requestId: string;
   passkeyPrfFirstB64u: string;
   webauthnAuthentication: WebAuthnAuthenticationCredential;
-  walletSessionRouteAuth?: never;
+  walletSessionRouteAuth: AppOrWalletSessionAuth;
   emailOtpAuthContext?: never;
 };
 
@@ -238,6 +243,7 @@ function buildPasskeyEcdsaActivationRequest(
     walletKey: args.walletKey,
     lanePolicy: args.lanePolicy,
     publicCapability: args.publicCapability,
+    existingRoleLocalMaterial: args.existingRoleLocalMaterial,
     source: args.source,
     relayerUrl: args.relayerUrl,
     sessionIdentity: args.sessionIdentity,
@@ -247,6 +253,7 @@ function buildPasskeyEcdsaActivationRequest(
     runtimePolicy: args.runtimePolicy,
     passkeyPrfFirstB64u: args.passkeyPrfFirstB64u,
     webauthnAuthentication: args.webauthnAuthentication,
+    walletSessionRouteAuth: args.walletSessionRouteAuth,
   };
   return applyOptionalActivationFields(request, args);
 }
@@ -274,6 +281,7 @@ function buildEmailOtpEcdsaActivationRequest(
     walletKey: args.walletKey,
     lanePolicy: args.lanePolicy,
     publicCapability: args.publicCapability,
+    existingRoleLocalMaterial: args.existingRoleLocalMaterial,
     source: args.source,
     relayerUrl: args.relayerUrl,
     sessionIdentity: args.sessionIdentity,
@@ -328,6 +336,7 @@ export function buildWalletSessionReconnectEcdsaActivation(
     walletKey: args.walletKey,
     lanePolicy: args.lanePolicy,
     publicCapability: args.publicCapability,
+    existingRoleLocalMaterial: args.existingRoleLocalMaterial,
     source: args.source,
     relayerUrl: args.relayerUrl,
     sessionIdentity: args.sessionIdentity,
@@ -356,6 +365,7 @@ export function buildEcdsaExportActivation(
     walletKey: args.walletKey,
     lanePolicy: args.lanePolicy,
     publicCapability: args.publicCapability,
+    existingRoleLocalMaterial: args.existingRoleLocalMaterial,
     source: args.source,
     relayerUrl: args.relayerUrl,
     sessionIdentity: args.sessionIdentity,
@@ -449,11 +459,13 @@ function toBootstrapEcdsaSessionRequest(
           key: evmFamilyEcdsaWalletKeyToIdentity(command.request.walletKey),
           lanePolicy: command.request.lanePolicy,
           publicCapability: command.request.publicCapability,
+          existingRoleLocalMaterial: command.request.existingRoleLocalMaterial,
           source: command.request.source,
           relayerUrl: command.request.relayerUrl,
           requestId: command.request.requestId,
           passkeyPrfFirstB64u: command.request.passkeyPrfFirstB64u,
           webauthnAuthentication: command.request.webauthnAuthentication,
+          routeAuth: command.request.walletSessionRouteAuth,
         },
         command.request,
       );
@@ -465,6 +477,7 @@ function toBootstrapEcdsaSessionRequest(
           key: evmFamilyEcdsaWalletKeyToIdentity(command.request.walletKey),
           lanePolicy: command.request.lanePolicy,
           publicCapability: command.request.publicCapability,
+          existingRoleLocalMaterial: command.request.existingRoleLocalMaterial,
           source: 'email_otp',
           relayerUrl: command.request.relayerUrl,
           emailOtpWorkerSessionHandle: command.request.emailOtpWorkerSessionHandle,
@@ -482,6 +495,7 @@ function toBootstrapEcdsaSessionRequest(
           key: evmFamilyEcdsaWalletKeyToIdentity(command.request.walletKey),
           lanePolicy: command.request.lanePolicy,
           publicCapability: command.request.publicCapability,
+          existingRoleLocalMaterial: command.request.existingRoleLocalMaterial,
           passkeyPrfFirstB64u: command.request.passkeyPrfFirstB64u,
           passkeyCredentialIdB64u: command.request.passkeyCredentialIdB64u,
           routeAuth: {
@@ -507,6 +521,7 @@ function toExplicitKeyExportEcdsaBootstrapRequest(
       key: evmFamilyEcdsaWalletKeyToIdentity(request.walletKey),
       lanePolicy: request.lanePolicy,
       publicCapability: request.publicCapability,
+      existingRoleLocalMaterial: request.existingRoleLocalMaterial,
       source: request.source,
       relayerUrl: request.relayerUrl,
       requestId: request.requestId,
@@ -610,12 +625,12 @@ async function persistEcdsaRoleLocalReadyRecordForBootstrap(args: {
   deps: ProvisionThresholdEcdsaSessionDeps;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
 }): Promise<void> {
-  const record = args.bootstrap.thresholdEcdsaKeyRef.backendBinding?.ecdsaRoleLocalReadyRecord;
-  if (!record) {
-    throw new Error(
-      '[WarmSessionStore] threshold ECDSA bootstrap is missing role-local ready record',
-    );
+  const binding = args.bootstrap.thresholdEcdsaKeyRef.backendBinding;
+  if (!binding) {
+    throw new Error('[WarmSessionStore] threshold ECDSA bootstrap is missing its backend binding');
   }
+  const record = roleLocalReadyRecordForPersistence(binding);
+  if (!record) return;
   const persisted = await args.deps.persistEcdsaRoleLocalReadyRecord({
     record,
     storageKeyFacts: ecdsaRoleLocalReadyRecordStorageKeyFacts(record),
@@ -624,6 +639,27 @@ async function persistEcdsaRoleLocalReadyRecordForBootstrap(args: {
     throw new Error(
       `[WarmSessionStore] threshold ECDSA role-local ready record persistence failed (${persisted.code}): ${persisted.message}`,
     );
+  }
+}
+
+function roleLocalReadyRecordForPersistence(
+  binding: ThresholdEcdsaBackendBinding,
+): ThresholdEcdsaBackendBinding['ecdsaRoleLocalReadyRecord'] | null {
+  switch (binding.materialKind) {
+    case 'email_otp_worker_handle':
+    case 'role_local_ready_state_blob':
+      return binding.ecdsaRoleLocalReadyRecord;
+    case 'role_local_worker_handle':
+    case 'role_local_durable_public_anchor':
+    case 'role_local_durable_sealed_ref':
+    case 'metadata_only':
+      return null;
+    default: {
+      const exhaustive: never = binding;
+      throw new Error(
+        `[WarmSessionStore] unsupported threshold ECDSA backend binding: ${JSON.stringify(exhaustive)}`,
+      );
+    }
   }
 }
 

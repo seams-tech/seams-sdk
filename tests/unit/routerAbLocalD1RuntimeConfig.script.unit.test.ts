@@ -11,17 +11,6 @@ import { prepareRouterAbStrictLocalRuntimeConfigs } from '../../crates/router-ab
 
 const DERIVER_A_PEER_KEY_HEX = '11'.repeat(32);
 const DERIVER_B_PEER_KEY_HEX = '22'.repeat(32);
-const ECDSA_COMMITMENT_REGISTRY = Object.freeze({
-  policy: Object.freeze({ releaseEpoch: 7 }),
-  records: Object.freeze({ signerA: 'fixture-a', signerB: 'fixture-b' }),
-});
-const PRODUCTION_WORKER_URLS = Object.freeze({
-  mpcRouter: 'http://127.0.0.1:9100',
-  deriverA: 'http://127.0.0.1:9101',
-  deriverB: 'http://127.0.0.1:9102',
-  signingWorker: 'http://127.0.0.1:9103',
-});
-
 type X25519Fixture = {
   readonly publicKey: string;
   readonly privateKeyHex: string;
@@ -95,7 +84,6 @@ function createRuntimeFixture(): RuntimeFixture {
     SIGNING_WORKER_KEY_EPOCH: 'signing-worker-epoch-7',
     SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: signingWorker.publicKey,
     SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY: signingWorker.privateKeyHex,
-    ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON: JSON.stringify(ECDSA_COMMITMENT_REGISTRY),
   });
   const outputConfigPath = path.join(root, '.runtime/wrangler/wrangler.d1-local.toml');
   mkdirSync(path.dirname(outputConfigPath), { recursive: true });
@@ -109,7 +97,6 @@ test('local Gateway startup projects the generated HPKE keyset into D1 Wrangler'
     repoRoot: repoRoot(),
     localEnvRoot: fixture.root,
     outputConfigPath: fixture.outputConfigPath,
-    workerUrls: PRODUCTION_WORKER_URLS,
   });
 
   const config = readFileSync(fixture.outputConfigPath, 'utf8');
@@ -122,12 +109,20 @@ test('local Gateway startup projects the generated HPKE keyset into D1 Wrangler'
   expect(config).not.toContain(
     'x25519:2222222222222222222222222222222222222222222222222222222222222222',
   );
-  expect(config).toContain('DERIVER_A_URL = "http://127.0.0.1:9101"');
-  expect(config).toContain('DERIVER_B_URL = "http://127.0.0.1:9102"');
-  expect(config).toContain('SIGNING_WORKER_URL = "http://127.0.0.1:9103"');
-  expect(config).toContain('ROUTER_AB_SIGNING_WORKER_URL = "http://127.0.0.1:9103"');
+  expect(config).toContain('binding = "MPC_ROUTER"');
+  expect(config).toContain('service = "router-ab-mpc-router"');
+  expect(config).toContain('binding = "DERIVER_A"');
+  expect(config).toContain('service = "router-ab-deriver-a"');
+  expect(config).toContain('binding = "DERIVER_B"');
+  expect(config).toContain('service = "router-ab-deriver-b"');
+  expect(config).toContain('binding = "SIGNING_WORKER"');
+  expect(config).toContain('service = "router-ab-signing-worker"');
+  expect(config).not.toContain('DERIVER_A_URL =');
+  expect(config).not.toContain('DERIVER_B_URL =');
+  expect(config).not.toContain('SIGNING_WORKER_URL =');
+  expect(config).not.toContain('ROUTER_AB_SIGNING_WORKER_URL =');
   expect(config).toContain('GATEWAY_PUBLIC_URL = "http://127.0.0.1:9190"');
-  expect(config).toContain('ROUTER_AB_MPC_ROUTER_URL = "http://127.0.0.1:9100"');
+  expect(config).not.toContain('ROUTER_AB_MPC_ROUTER_URL =');
   expect(config).toContain(
     `DERIVER_A_PEER_VERIFYING_KEY_HEX = "${localPeerVerifyingKeyHex(
       `dev-only-generated-a:${DERIVER_A_PEER_KEY_HEX}`,
@@ -144,7 +139,6 @@ test('local Gateway startup projects the generated HPKE keyset into D1 Wrangler'
     repoRoot: repoRoot(),
     localEnvRoot: fixture.root,
     outputConfigPath: fixture.outputConfigPath,
-    workerUrls: PRODUCTION_WORKER_URLS,
   });
   expect(
     parseTomlJsonAssignment(
@@ -198,7 +192,12 @@ test('local Gateway startup renders the production-shaped MPC Worker topology', 
   });
 
   expect(runtime.mpcRouterUrl).toBe('http://127.0.0.1:9100');
-  expect(runtime.workerUrls).toEqual(PRODUCTION_WORKER_URLS);
+  expect(runtime.workerUrls).toEqual({
+    mpcRouter: 'http://127.0.0.1:9100',
+    deriverA: 'http://127.0.0.1:9101',
+    deriverB: 'http://127.0.0.1:9102',
+    signingWorker: 'http://127.0.0.1:9103',
+  });
   expect(runtime.configs.map(({ role, port }) => ({ role, port }))).toEqual([
     { role: 'router', port: 9100 },
     { role: 'deriver-a', port: 9101 },
@@ -207,10 +206,6 @@ test('local Gateway startup renders the production-shaped MPC Worker topology', 
   ]);
 
   const routerConfig = readFileSync(runtime.configs[0].configPath, 'utf8');
-  const routerBaseVars = tomlSection(routerConfig, 'vars');
-  expect(
-    parseTomlJsonAssignment(routerBaseVars, 'ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON'),
-  ).toEqual(ECDSA_COMMITMENT_REGISTRY);
   expect(routerConfig).toContain('ROUTER_JWT_ISSUER = "http://127.0.0.1:9190"');
   expect(routerConfig).toContain(
     'ROUTER_JWT_JWKS_URL = "http://127.0.0.1:9190/.well-known/router-ab-ceremony-jwks.json"',
@@ -234,16 +229,10 @@ test('local Gateway startup renders the production-shaped MPC Worker topology', 
   expect(deriverASecretFile).not.toContain('SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY');
   expect(deriverASecretFile).not.toContain('dev-only-generated');
   const signingWorkerSecretFile = readFileSync(runtime.configs[3].secretPath, 'utf8');
-  const signingWorkerConfig = readFileSync(runtime.configs[3].configPath, 'utf8');
-  const signingWorkerBaseVars = tomlSection(signingWorkerConfig, 'vars');
-  expect(
-    parseTomlJsonAssignment(signingWorkerBaseVars, 'ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON'),
-  ).toEqual(ECDSA_COMMITMENT_REGISTRY);
   expect(signingWorkerSecretFile).toContain(
     'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY=hpke-x25519-server-output-private-v1:',
   );
   expect(signingWorkerSecretFile).not.toContain('DERIVER_A_ROOT_SHARE_WIRE_SECRET');
-  expect(signingWorkerSecretFile).not.toContain('ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON');
   for (const config of runtime.configs) {
     expect(statSync(config.secretPath).mode & 0o777).toBe(0o600);
   }
@@ -281,57 +270,6 @@ test('local Gateway startup rejects a generated MPCRouter/Deriver HPKE mismatch'
       repoRoot: repoRoot(),
       localEnvRoot: fixture.root,
       outputConfigPath: fixture.outputConfigPath,
-      workerUrls: PRODUCTION_WORKER_URLS,
     }),
   ).toThrow('Deriver B input HPKE public/private keys do not match');
 });
-
-test('strict local runtime rejects a malformed SigningWorker commitment registry', () => {
-  const fixture = createRuntimeFixture();
-  const signingWorkerEnvPath = path.join(fixture.root, '.env.router-ab.signing-worker.local');
-  const malformed = readFileSync(signingWorkerEnvPath, 'utf8').replace(
-    /^ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON=.*$/m,
-    'ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON=not-json',
-  );
-  writeFileSync(signingWorkerEnvPath, malformed);
-
-  expect(() =>
-    prepareRouterAbStrictLocalRuntimeConfigs({
-      repoRoot: repoRoot(),
-      localEnvRoot: fixture.root,
-    }),
-  ).toThrow('strict local runtime env ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON must be valid JSON');
-});
-
-test('strict local runtime preserves commitment registry integer literals', () => {
-  const fixture = createRuntimeFixture();
-  const signingWorkerEnvPath = path.join(fixture.root, '.env.router-ab.signing-worker.local');
-  const exactRegistryJson =
-    '{"policy":{"manifest":{"valid_until_ms":18446744073709551615}},"records":{}}';
-  const source = readFileSync(signingWorkerEnvPath, 'utf8').replace(
-    /^ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON=.*$/m,
-    `ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON=${exactRegistryJson}`,
-  );
-  writeFileSync(signingWorkerEnvPath, source);
-
-  const runtime = prepareRouterAbStrictLocalRuntimeConfigs({
-    repoRoot: repoRoot(),
-    localEnvRoot: fixture.root,
-  });
-
-  for (const configIndex of [0, 3]) {
-    const config = readFileSync(runtime.configs[configIndex].configPath, 'utf8');
-    const vars = tomlSection(config, 'vars');
-    expect(parseTomlStringAssignment(vars, 'ROUTER_AB_ECDSA_COMMITMENT_REGISTRY_JSON')).toBe(
-      exactRegistryJson,
-    );
-  }
-});
-
-function parseTomlStringAssignment(config: string, key: string): string {
-  for (const line of config.split(/\r?\n/)) {
-    if (!line.startsWith(`${key} = `)) continue;
-    return JSON.parse(line.slice(line.indexOf('=') + 1).trim()) as string;
-  }
-  throw new Error(`Missing ${key}`);
-}

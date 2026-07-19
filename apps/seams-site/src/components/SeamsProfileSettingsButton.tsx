@@ -87,6 +87,10 @@ export const SeamsProfileSettingsButton: React.FC<SeamsProfileSettingsButtonProp
         <AccountMenuButton
           nearAccountId={loginState.nearAccountId!}
           nearExplorerBaseUrl="https://testnet.nearblocks.io"
+          onExportKeyError={(error: Error) => {
+            console.error('Key export error:', error);
+            toast.error(error.message || 'Key export failed', { id: 'key-export' });
+          }}
           hideUsername={isMobile}
           className={className}
           style={

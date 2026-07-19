@@ -454,9 +454,7 @@ pub fn verify_partial_dleq_proof(
         Err(
             EcdsaClientProtocolError::InvalidShape
             | EcdsaClientProtocolError::HpkeFailed
-            | EcdsaClientProtocolError::InvalidDleqProof
-            | EcdsaClientProtocolError::InvalidCommitmentPolicy
-            | EcdsaClientProtocolError::InvalidCommitmentRecord,
+            | EcdsaClientProtocolError::InvalidDleqProof,
         ) => Err(ThresholdPrfError::InvalidDleqProof),
     }
 }

@@ -140,6 +140,7 @@ export interface WalletStore {
   getEcdsaSignerByKeyHandle(input: {
     walletId: WalletId;
     keyHandle: string;
+    chainTarget: ThresholdEcdsaChainTarget;
   }): Promise<WalletEcdsaSignerRecord | null>;
   getEcdsaSignerByPublicCapability(input: {
     walletId: WalletId;
@@ -315,9 +316,7 @@ export function parseWalletEcdsaSignerRecord(raw: unknown): WalletEcdsaSignerRec
   const chainTargetKey = toOptionalTrimmedString(raw.chainTargetKey);
   const chainTarget = thresholdEcdsaChainTargetFromValue(raw.chainTarget);
   const walletKeyRaw = isObject(raw.walletKey) ? raw.walletKey : null;
-  const walletKey = walletKeyRaw
-    ? parseWalletRegistrationEcdsaWalletKey(walletKeyRaw)
-    : null;
+  const walletKey = walletKeyRaw ? parseWalletRegistrationEcdsaWalletKey(walletKeyRaw) : null;
   const createdAtMs = normalizeTimestampMs(raw.createdAtMs);
   const updatedAtMs = normalizeTimestampMs(raw.updatedAtMs);
   if (
@@ -359,18 +358,15 @@ function parseWalletRegistrationEcdsaWalletKey(
   const relayerShareRetryCounter = normalizeNonNegativeInteger(raw.relayerShareRetryCounter);
   let publicCapability;
   try {
-    publicCapability = parseRouterAbEcdsaDerivationPublicCapabilityV1(
-      raw.publicCapability,
-    );
+    publicCapability = parseRouterAbEcdsaDerivationPublicCapabilityV1(raw.publicCapability);
   } catch {
     return null;
   }
   let derivationClientSharePublicKey33B64u;
   try {
-    derivationClientSharePublicKey33B64u =
-      derivationClientSharePublicKey33B64uFromString(
-        toOptionalTrimmedString(raw.derivationClientSharePublicKey33B64u) || '',
-      );
+    derivationClientSharePublicKey33B64u = derivationClientSharePublicKey33B64uFromString(
+      toOptionalTrimmedString(raw.derivationClientSharePublicKey33B64u) || '',
+    );
   } catch {
     return null;
   }
@@ -397,9 +393,7 @@ function parseWalletRegistrationEcdsaWalletKey(
   }
   const signingRootId = toOptionalTrimmedString(raw.signingRootId);
   const signingRootVersion = toOptionalTrimmedString(raw.signingRootVersion);
-  const thresholdEcdsaPublicKeyB64u = toOptionalTrimmedString(
-    raw.thresholdEcdsaPublicKeyB64u,
-  );
+  const thresholdEcdsaPublicKeyB64u = toOptionalTrimmedString(raw.thresholdEcdsaPublicKeyB64u);
   const thresholdOwnerAddress = toOptionalTrimmedString(raw.thresholdOwnerAddress);
   const relayerKeyId = toOptionalTrimmedString(raw.relayerKeyId);
   const relayerVerifyingShareB64u = toOptionalTrimmedString(raw.relayerVerifyingShareB64u);
@@ -490,24 +484,20 @@ class InMemoryWalletStore implements WalletStore {
   async getEcdsaSignerByKeyHandle(input: {
     walletId: WalletId;
     keyHandle: string;
+    chainTarget: ThresholdEcdsaChainTarget;
   }): Promise<WalletEcdsaSignerRecord | null> {
     const walletId = toOptionalTrimmedString(input.walletId);
     const keyHandle = toOptionalTrimmedString(input.keyHandle);
     if (!walletId || !keyHandle) return null;
+    const chainTargetKey = thresholdEcdsaChainTargetKey(input.chainTarget);
     const matches = [...this.signers.values()].filter(
       (record): record is WalletEcdsaSignerRecord =>
         record.version === 'wallet_signer_ecdsa_v1' &&
         record.walletId === walletId &&
-        record.walletKey.keyHandle === keyHandle,
+        record.walletKey.keyHandle === keyHandle &&
+        record.chainTargetKey === chainTargetKey,
     );
-    if (matches.length === 0) return null;
-    if (matches.some((record) => record.walletKey !== matches[0]?.walletKey)) {
-      const canonical = JSON.stringify(matches[0]?.walletKey);
-      if (matches.some((record) => JSON.stringify(record.walletKey) !== canonical)) {
-        throw new Error('Wallet has conflicting ECDSA public anchors for one key handle');
-      }
-    }
-    return matches[0] ?? null;
+    return matches.length === 1 ? matches[0] : null;
   }
 
   async getEcdsaSignerByPublicCapability(input: {
@@ -577,10 +567,8 @@ class InMemoryWalletStore implements WalletStore {
       { readonly operation: 'refresh' }
     >;
   } | null> {
-    const recoveryKey =
-      `${input.walletId}:${input.recovery.lifecycleId}:${input.recovery.requestId}`;
-    const refreshKey =
-      `${input.walletId}:${input.refresh.lifecycleId}:${input.refresh.requestId}`;
+    const recoveryKey = `${input.walletId}:${input.recovery.lifecycleId}:${input.recovery.requestId}`;
+    const refreshKey = `${input.walletId}:${input.refresh.lifecycleId}:${input.refresh.requestId}`;
     const recovery = this.pendingEcdsaActivations.get(recoveryKey);
     const refresh = this.pendingEcdsaActivations.get(refreshKey);
     const now = Date.now();
@@ -646,27 +634,6 @@ class CloudflareDurableObjectWalletStore implements WalletStore {
     }
   }
 
-  private async takeEcdsaPendingSessionActivation(input: {
-    readonly walletId: WalletId;
-    readonly lifecycleId: string;
-    readonly requestId: string;
-  }): Promise<WalletEcdsaPendingSessionActivationRecord | null> {
-    const response = await this.stub.fetch('https://threshold-store.invalid/', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        op: 'getdel',
-        key: this.key(
-          'ecdsa-session-activation',
-          `${input.walletId}:${input.lifecycleId}:${input.requestId}`,
-        ),
-      }),
-    });
-    if (!response.ok) return null;
-    const current = (await response.json().catch(() => null)) as { value?: unknown } | null;
-    return parseWalletEcdsaPendingSessionActivationRecord(current?.value);
-  }
-
   async putSubject(record: WalletRecord): Promise<void> {
     await this.put(this.key('subject', record.walletId), record);
   }
@@ -687,16 +654,18 @@ class CloudflareDurableObjectWalletStore implements WalletStore {
   async getEcdsaSignerByKeyHandle(input: {
     walletId: WalletId;
     keyHandle: string;
+    chainTarget: ThresholdEcdsaChainTarget;
   }): Promise<WalletEcdsaSignerRecord | null> {
     const walletId = toOptionalTrimmedString(input.walletId);
     const keyHandle = toOptionalTrimmedString(input.keyHandle);
     if (!walletId || !keyHandle) return null;
+    const chainTargetKey = thresholdEcdsaChainTargetKey(input.chainTarget);
     const response = await this.stub.fetch('https://threshold-store.invalid/', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         op: 'get',
-        key: this.key('signer', `${walletId}:ecdsa-key-handle:${keyHandle}`),
+        key: this.key('signer', `${walletId}:ecdsa-key-handle:${keyHandle}:${chainTargetKey}`),
       }),
     });
     if (!response.ok) return null;
@@ -738,10 +707,7 @@ class CloudflareDurableObjectWalletStore implements WalletStore {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         op: 'get',
-        key: this.key(
-          'signer',
-          `${input.walletId}:ecdsa-context-binding:${capabilityDigest}`,
-        ),
+        key: this.key('signer', `${input.walletId}:ecdsa-context-binding:${capabilityDigest}`),
       }),
     });
     if (!response.ok) return null;
@@ -782,16 +748,28 @@ class CloudflareDurableObjectWalletStore implements WalletStore {
       { readonly operation: 'refresh' }
     >;
   } | null> {
-    const recovery = await this.takeEcdsaPendingSessionActivation({
-      walletId: input.walletId,
-      lifecycleId: input.recovery.lifecycleId,
-      requestId: input.recovery.requestId,
+    const response = await this.stub.fetch('https://threshold-store.invalid/', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        op: 'walletTakeEcdsaPendingSessionActivationPair',
+        recoveryKey: this.key(
+          'ecdsa-session-activation',
+          `${input.walletId}:${input.recovery.lifecycleId}:${input.recovery.requestId}`,
+        ),
+        refreshKey: this.key(
+          'ecdsa-session-activation',
+          `${input.walletId}:${input.refresh.lifecycleId}:${input.refresh.requestId}`,
+        ),
+      }),
     });
-    const refresh = await this.takeEcdsaPendingSessionActivation({
-      walletId: input.walletId,
-      lifecycleId: input.refresh.lifecycleId,
-      requestId: input.refresh.requestId,
-    });
+    if (!response.ok) return null;
+    const current: unknown = await response.json().catch(() => null);
+    if (!isObject(current) || current.ok !== true || !isObject(current.value)) {
+      return null;
+    }
+    const recovery = parseWalletEcdsaPendingSessionActivationRecord(current.value.recovery);
+    const refresh = parseWalletEcdsaPendingSessionActivationRecord(current.value.refresh);
     const now = Date.now();
     if (
       recovery?.operation !== 'recovery' ||
@@ -813,7 +791,7 @@ class CloudflareDurableObjectWalletStore implements WalletStore {
       await this.put(
         this.key(
           'signer',
-          `${record.walletId}:ecdsa-key-handle:${record.walletKey.keyHandle}`,
+          `${record.walletId}:ecdsa-key-handle:${record.walletKey.keyHandle}:${record.chainTargetKey}`,
         ),
         record,
       );

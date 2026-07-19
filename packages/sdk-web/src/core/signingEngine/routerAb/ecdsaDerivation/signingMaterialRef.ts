@@ -1,6 +1,6 @@
 import {
   requireRouterAbEcdsaDerivationNormalSigningStateV1,
-  routerAbEcdsaDerivationActiveStateSessionId,
+  routerAbEcdsaDerivationActiveStateId,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
@@ -9,10 +9,11 @@ import {
   type EcdsaClientVerifyingShareB64u,
   type EcdsaThresholdKeyId,
 } from '../../session/keyMaterialBrands';
+import type { EcdsaActiveStateId } from '@shared/utils/domainIds';
 
 export type RouterAbEcdsaDerivationSigningMaterialRef = {
   kind: 'router_ab_ecdsa_derivation_signing_material_ref_v1';
-  routerAbStateSessionId: string;
+  activeStateId: EcdsaActiveStateId;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   signingRootId: string;
   signingRootVersion: string;
@@ -32,7 +33,7 @@ export function buildRouterAbEcdsaDerivationSigningMaterialRef(args: {
   const routerAbState = requireRouterAbEcdsaDerivationNormalSigningStateV1(args.routerAbState);
   return {
     kind: 'router_ab_ecdsa_derivation_signing_material_ref_v1',
-    routerAbStateSessionId: routerAbEcdsaDerivationActiveStateSessionId(routerAbState),
+    activeStateId: routerAbEcdsaDerivationActiveStateId(routerAbState),
     ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(routerAbState.scope.ecdsa_threshold_key_id),
     signingRootId: routerAbState.scope.signing_root_id,
     signingRootVersion: routerAbState.scope.signing_root_version,

@@ -1,5 +1,6 @@
 import {
   parseRouterAbEcdsaDerivationExplicitExportRequestV1,
+  parseRouterAbEcdsaExplicitExportForwardedResponseV1,
   parseRouterAbEcdsaDerivationRecoveryRequestV1,
   parseRouterAbEcdsaDerivationActivationRefreshRequestV1,
   parseRouterAbEcdsaDerivationActivationRefreshForwardedResponseV1,
@@ -8,6 +9,8 @@ import {
   type RouterAbEcdsaDerivationActivationRefreshRequestV1,
   type RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1,
   type RouterAbEcdsaDerivationExplicitExportRequestV1,
+  type RouterAbEcdsaDerivationNormalSigningScopeV1,
+  type RouterAbEcdsaExplicitExportForwardedResponseV1,
   type RouterAbEcdsaDerivationRecoveryRequestV1,
   type RouterAbEcdsaDerivationSignerSetV1,
   type RouterAbEcdsaRegistrationActivationReceiptV1,
@@ -62,6 +65,12 @@ export type RouterAbEcdsaStrictRegistrationAuthority = {
   readonly expiresAtMs: number;
 };
 
+export type RouterAbEcdsaStrictExportAuthority = RouterAbEcdsaStrictRegistrationAuthority & {
+  readonly keyHandle: string;
+  readonly signingGrantId: string;
+  readonly normalSigningScope: RouterAbEcdsaDerivationNormalSigningScopeV1;
+};
+
 export type RouterAbEcdsaStrictRegistrationTopology = {
   readonly routerId: string;
   readonly signerSet: RouterAbEcdsaDerivationSignerSetV1;
@@ -88,6 +97,13 @@ export type RouterAbEcdsaStrictPostRegistrationResult =
     }
   | RouterAbEcdsaStrictFailure;
 
+export type RouterAbEcdsaStrictExportResult =
+  | {
+      readonly ok: true;
+      readonly value: RouterAbEcdsaExplicitExportForwardedResponseV1;
+    }
+  | RouterAbEcdsaStrictFailure;
+
 export type RouterAbEcdsaStrictRefreshResult =
   | {
       readonly ok: true;
@@ -99,8 +115,8 @@ export interface RouterAbEcdsaStrictPostRegistrationPort {
   topology(): RouterAbEcdsaStrictRegistrationTopology;
   explicitExport(input: {
     readonly request: RouterAbEcdsaDerivationExplicitExportRequestV1;
-    readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
-  }): Promise<RouterAbEcdsaStrictPostRegistrationResult>;
+    readonly authority: RouterAbEcdsaStrictExportAuthority;
+  }): Promise<RouterAbEcdsaStrictExportResult>;
   recover(input: {
     readonly request: RouterAbEcdsaDerivationRecoveryRequestV1;
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
@@ -263,13 +279,28 @@ class StrictPostRegistrationForwarder implements RouterAbEcdsaStrictPostRegistra
 
   async explicitExport(input: {
     readonly request: RouterAbEcdsaDerivationExplicitExportRequestV1;
-    readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
-  }): Promise<RouterAbEcdsaStrictPostRegistrationResult> {
-    return await this.forward({
+    readonly authority: RouterAbEcdsaStrictExportAuthority;
+  }): Promise<RouterAbEcdsaStrictExportResult> {
+    const forwarded = await this.forwardRaw({
+      kind: 'explicit_export',
       path: STRICT_ECDSA_EXPORT_PATH,
       request: parseRouterAbEcdsaDerivationExplicitExportRequestV1(input.request),
       authority: input.authority,
     });
+    if (!forwarded.ok) return forwarded;
+    try {
+      return {
+        ok: true,
+        value: parseRouterAbEcdsaExplicitExportForwardedResponseV1(forwarded.value),
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'mpc_router_export_response_invalid',
+        message: errorMessage(error, 'MPCRouter returned an invalid ECDSA export response'),
+        retryable: false,
+      };
+    }
   }
 
   async recover(input: {
@@ -288,6 +319,7 @@ class StrictPostRegistrationForwarder implements RouterAbEcdsaStrictPostRegistra
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
   }): Promise<RouterAbEcdsaStrictRefreshResult> {
     const forwarded = await this.forwardRaw({
+      kind: 'post_registration_proof',
       path: STRICT_ECDSA_REFRESH_PATH,
       request: parseRouterAbEcdsaDerivationActivationRefreshRequestV1(input.request),
       authority: input.authority,
@@ -311,12 +343,16 @@ class StrictPostRegistrationForwarder implements RouterAbEcdsaStrictPostRegistra
   private async forward(input: {
     readonly path: string;
     readonly request:
-      | RouterAbEcdsaDerivationExplicitExportRequestV1
       | RouterAbEcdsaDerivationRecoveryRequestV1
       | RouterAbEcdsaDerivationActivationRefreshRequestV1;
     readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
   }): Promise<RouterAbEcdsaStrictPostRegistrationResult> {
-    const forwarded = await this.forwardRaw(input);
+    const forwarded = await this.forwardRaw({
+      kind: 'post_registration_proof',
+      path: input.path,
+      request: input.request,
+      authority: input.authority,
+    });
     if (!forwarded.ok) return forwarded;
     try {
       return {
@@ -336,14 +372,23 @@ class StrictPostRegistrationForwarder implements RouterAbEcdsaStrictPostRegistra
     }
   }
 
-  private async forwardRaw(input: {
-    readonly path: string;
-    readonly request:
-      | RouterAbEcdsaDerivationExplicitExportRequestV1
-      | RouterAbEcdsaDerivationRecoveryRequestV1
-      | RouterAbEcdsaDerivationActivationRefreshRequestV1;
-    readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
-  }): Promise<{ readonly ok: true; readonly value: unknown } | RouterAbEcdsaStrictFailure> {
+  private async forwardRaw(
+    input:
+      | {
+          readonly kind: 'explicit_export';
+          readonly path: string;
+          readonly request: RouterAbEcdsaDerivationExplicitExportRequestV1;
+          readonly authority: RouterAbEcdsaStrictExportAuthority;
+        }
+      | {
+          readonly kind: 'post_registration_proof';
+          readonly path: string;
+          readonly request:
+            | RouterAbEcdsaDerivationRecoveryRequestV1
+            | RouterAbEcdsaDerivationActivationRefreshRequestV1;
+          readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
+        },
+  ): Promise<{ readonly ok: true; readonly value: unknown } | RouterAbEcdsaStrictFailure> {
     const authorityFailure = validatePostRegistrationAuthorityBinding(input);
     if (authorityFailure) return authorityFailure;
     const token = await this.config.tokenIssuer.issue(
@@ -356,7 +401,7 @@ class StrictPostRegistrationForwarder implements RouterAbEcdsaStrictPostRegistra
           authorization: `Bearer ${token}`,
           'content-type': JSON_CONTENT_TYPE,
         },
-        body: JSON.stringify(input.request),
+        body: strictPostRegistrationForwardBodyJson(input),
       }),
     );
     const body = await readJsonResponse(response);
@@ -370,6 +415,36 @@ class StrictPostRegistrationForwarder implements RouterAbEcdsaStrictPostRegistra
       };
     }
     return { ok: true, value: body };
+  }
+}
+
+function strictPostRegistrationForwardBodyJson(
+  input:
+    | {
+        readonly kind: 'explicit_export';
+        readonly request: RouterAbEcdsaDerivationExplicitExportRequestV1;
+        readonly authority: RouterAbEcdsaStrictExportAuthority;
+      }
+    | {
+        readonly kind: 'post_registration_proof';
+        readonly request:
+          | RouterAbEcdsaDerivationRecoveryRequestV1
+          | RouterAbEcdsaDerivationActivationRefreshRequestV1;
+        readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
+      },
+): string {
+  switch (input.kind) {
+    case 'explicit_export':
+      return JSON.stringify({
+        request: input.request,
+        export_authority: {
+          key_handle: input.authority.keyHandle,
+          signing_grant_id: input.authority.signingGrantId,
+          normal_signing_scope: input.authority.normalSigningScope,
+        },
+      });
+    case 'post_registration_proof':
+      return JSON.stringify(input.request);
   }
 }
 

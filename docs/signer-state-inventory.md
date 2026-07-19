@@ -8,7 +8,7 @@ refactor.
 
 Disposition: the canonical ECDSA capability manifest, persistence commit, flow
 cutover, and `ThresholdEcdsaSessionRecordCore` deletion described here are now
-owned by Refactor 90 Pre-Phase 4/19B. Refactor 90 Pre-Phase 4/19A owns the shared
+owned by Refactor 90 Foundation B. Refactor 90 Foundation A owns the shared
 MPC hydration outcome.
 
 ## Finding

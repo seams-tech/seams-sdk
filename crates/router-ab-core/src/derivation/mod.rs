@@ -7,7 +7,6 @@
 
 mod context;
 mod diagnostics;
-mod ecdsa_commitment_registry;
 mod ecdsa_threshold_prf;
 mod ecdsa_threshold_prf_backend;
 mod error;
@@ -22,9 +21,6 @@ pub use self::context::{
     context_digest_v1, AccountScope, DerivationContext, RequestKind, RootShareEpoch,
 };
 pub use self::diagnostics::redacted_diagnostic;
-pub use self::ecdsa_commitment_registry::{
-    AuthenticatedRootShareCommitmentV1, RootShareCommitmentRegistryV1,
-};
 pub use self::ecdsa_threshold_prf::{
     plan_mpc_prf_combine_v1, plan_mpc_prf_partial_verification_v1, plan_mpc_prf_purpose_binding_v1,
     MpcPrfCombinePlanV1, MpcPrfCombinerInputV1, MpcPrfDleqProofWireV1, MpcPrfOutputPurposeV1,

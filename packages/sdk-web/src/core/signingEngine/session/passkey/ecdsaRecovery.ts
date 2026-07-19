@@ -2,11 +2,6 @@ import {
   toWalletId,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type {
-  EcdsaRoleLocalReadyRecord,
-  LoadEcdsaRoleLocalReadyRecordInput,
-  LoadEcdsaRoleLocalReadyRecordResult,
-} from '@/core/platform';
 import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
 import type { RestorePersistedEcdsaSessionPurpose } from '@/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
 import {
@@ -20,16 +15,18 @@ import { toEvmFamilyEcdsaKeyHandle } from '@/core/signingEngine/session/identity
 import { publishResolvedIdentity } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import {
   parseSigningSessionSealKeyVersion,
+  parseEcdsaRoleLocalDurableMaterialRef,
   type SigningSessionSealKeyVersion,
 } from '../keyMaterialBrands';
 import {
   getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
-  getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget,
   toExactEcdsaSigningLaneIdentity,
   upsertRestoredThresholdEcdsaSessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
-import { markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated } from '@/core/signingEngine/session/routerAbSigningWalletSession';
-import { buildEcdsaRoleLocalPasskeyAuthMethod } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
+import {
+  buildEcdsaRoleLocalPasskeyAuthMethod,
+  buildEcdsaRoleLocalPublicFacts,
+} from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 import { buildEcdsaSessionIdentity } from '@/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan';
 import { claimWarmSessionPrfFirst, type PasskeyWarmSessionRecoveryPorts } from './prfClaim';
 import { requireEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
@@ -75,14 +72,6 @@ export type PasskeyEcdsaPrfClaimArgs = PasskeySessionRestoreIdentity & {
   consume?: boolean;
 };
 
-type LoadPasskeyEcdsaRoleLocalReadyRecord = (
-  input: LoadEcdsaRoleLocalReadyRecordInput,
-) => Promise<LoadEcdsaRoleLocalReadyRecordResult>;
-
-function assertNeverEcdsaRoleLocalLoadValue(value: never): never {
-  throw new Error(`Unhandled ECDSA role-local ready-record load value: ${String(value)}`);
-}
-
 function passkeyEcdsaRoleLocalParticipantIds(participantIds: readonly number[]): readonly [1, 2] {
   if (participantIds.length !== 2 || participantIds[0] !== 1 || participantIds[1] !== 2) {
     throw new Error('passkey ECDSA restore requires participantIds [1, 2]');
@@ -90,78 +79,47 @@ function passkeyEcdsaRoleLocalParticipantIds(participantIds: readonly number[]):
   return [1, 2] as const;
 }
 
-function passkeyEcdsaRoleLocalReadyRecordLookupInput(args: {
+function passkeyEcdsaRoleLocalAuthMethod(args: {
   walletId: string;
   record: PasskeyEcdsaSealedRecoveryRecord;
-}): LoadEcdsaRoleLocalReadyRecordInput {
-  return {
+}) {
+  if (String(args.record.authority.walletId) !== String(toWalletId(args.walletId))) {
+    throw new Error('passkey ECDSA restore authority wallet does not match record wallet');
+  }
+  return buildEcdsaRoleLocalPasskeyAuthMethod({
+    credentialIdB64u: args.record.authority.factor.credentialIdB64u,
+    rpId: args.record.authority.verifier.rpId,
+  });
+}
+
+function passkeyEcdsaRoleLocalPublicFacts(args: {
+  walletId: string;
+  record: PasskeyEcdsaSealedRecoveryRecord;
+}) {
+  const capability = args.record.publicCapability;
+  const publicIdentity = capability.public_identity;
+  return buildEcdsaRoleLocalPublicFacts({
     walletId: toWalletId(args.walletId),
     evmFamilySigningKeySlotId: requireEvmFamilySigningKeySlotId(
       args.record.evmFamilySigningKeySlotId,
       'evmFamilySigningKeySlotId',
     ),
     chainTarget: args.record.chainTarget,
-    keyHandle: String(args.record.keyHandle || '').trim(),
+    keyHandle: args.record.keyHandle,
     ecdsaThresholdKeyId: parseSdkEcdsaDerivationThresholdKeyId(args.record.ecdsaThresholdKeyId),
     signingRootId: parseSdkEcdsaDerivationSigningRootId(args.record.signingRootId),
     signingRootVersion: parseSdkEcdsaDerivationSigningRootVersion(args.record.signingRootVersion),
+    applicationBindingDigestB64u: capability.context.application_binding_digest_b64u,
+    clientParticipantId: 1,
+    relayerParticipantId: 2,
     participantIds: passkeyEcdsaRoleLocalParticipantIds(args.record.participantIds),
-    authMethod: buildEcdsaRoleLocalPasskeyAuthMethod({
-      credentialIdB64u: args.record.authority.factor.credentialIdB64u,
-      rpId: args.record.authority.verifier.rpId,
-    }),
-  };
-}
-
-async function loadPasskeyEcdsaRoleLocalReadyRecord(args: {
-  walletId: string;
-  record: PasskeyEcdsaSealedRecoveryRecord;
-  loadEcdsaRoleLocalReadyRecord: LoadPasskeyEcdsaRoleLocalReadyRecord;
-}): Promise<EcdsaRoleLocalReadyRecord | null> {
-  const loaded = await args.loadEcdsaRoleLocalReadyRecord(
-    passkeyEcdsaRoleLocalReadyRecordLookupInput({
-      walletId: args.walletId,
-      record: args.record,
-    }),
-  );
-  if (!loaded.ok) {
-    throw new Error(loaded.message);
-  }
-  switch (loaded.value.kind) {
-    case 'found':
-      return loaded.value.record;
-    case 'not_found':
-    case 'reauth_required':
-      return null;
-    case 'malformed':
-      throw new Error(loaded.value.message);
-    default:
-      return assertNeverEcdsaRoleLocalLoadValue(loaded.value);
-  }
-}
-
-async function resolvePasskeyEcdsaRoleLocalReadyRecord(args: {
-  walletId: string;
-  record: PasskeyEcdsaSealedRecoveryRecord;
-  chainTarget: ThresholdEcdsaChainTarget;
-  thresholdSessionId: string;
-  loadEcdsaRoleLocalReadyRecord: LoadPasskeyEcdsaRoleLocalReadyRecord;
-}): Promise<EcdsaRoleLocalReadyRecord> {
-  const existingRecord = getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget({
-    thresholdSessionId: args.thresholdSessionId,
-    chainTarget: args.chainTarget,
+    contextBinding32B64u: publicIdentity.context_binding_b64u,
+    derivationClientSharePublicKey33B64u: publicIdentity.derivation_client_share_public_key33_b64u,
+    relayerPublicKey33B64u: publicIdentity.server_public_key33_b64u,
+    groupPublicKey33B64u: publicIdentity.threshold_public_key33_b64u,
+    ethereumAddress: args.record.ethereumAddress,
+    publicCapability: capability,
   });
-  const ecdsaRoleLocalReadyRecord =
-    existingRecord?.ecdsaRoleLocalReadyRecord ||
-    (await loadPasskeyEcdsaRoleLocalReadyRecord({
-      walletId: args.walletId,
-      record: args.record,
-      loadEcdsaRoleLocalReadyRecord: args.loadEcdsaRoleLocalReadyRecord,
-    }));
-  if (!ecdsaRoleLocalReadyRecord) {
-    throw new Error('passkey ECDSA restore requires role-local ready record');
-  }
-  return ecdsaRoleLocalReadyRecord;
 }
 
 async function publishPasskeyEcdsaSealedRecordForWallet(args: {
@@ -171,22 +129,22 @@ async function publishPasskeyEcdsaSealedRecordForWallet(args: {
   thresholdSessionId: string;
   signingGrantId: string;
   policy: PasskeyEcdsaSealedPolicy;
-  loadEcdsaRoleLocalReadyRecord: LoadPasskeyEcdsaRoleLocalReadyRecord;
 }): Promise<void> {
   const walletSessionJwt = sealedRecoveryWalletSessionJwt(args.record.walletSessionAuth);
   const existingRecord = getStoredThresholdEcdsaSessionRecordByThresholdSessionId(
     args.thresholdSessionId,
   );
-  const ecdsaRoleLocalReadyRecord = await resolvePasskeyEcdsaRoleLocalReadyRecord({
+  const ecdsaRoleLocalAuthMethod = passkeyEcdsaRoleLocalAuthMethod({
     walletId: args.walletId,
     record: args.record,
-    chainTarget: args.chainTarget,
-    thresholdSessionId: args.thresholdSessionId,
-    loadEcdsaRoleLocalReadyRecord: args.loadEcdsaRoleLocalReadyRecord,
+  });
+  const ecdsaRoleLocalPublicFacts = passkeyEcdsaRoleLocalPublicFacts({
+    walletId: args.walletId,
+    record: args.record,
   });
   const updatedAtMs = Date.now();
 
-  const restoredRecord = upsertRestoredThresholdEcdsaSessionRecord({
+  upsertRestoredThresholdEcdsaSessionRecord({
     purpose: 'transaction_signing',
     walletId: toWalletId(args.walletId),
     evmFamilySigningKeySlotId: args.record.evmFamilySigningKeySlotId,
@@ -194,13 +152,17 @@ async function publishPasskeyEcdsaSealedRecordForWallet(args: {
     relayerUrl: args.record.relayerUrl,
     keyHandle: toEvmFamilyEcdsaKeyHandle(args.record.keyHandle),
     ecdsaThresholdKeyId: args.record.ecdsaThresholdKeyId,
+    signingRootId: args.record.signingRootId,
+    signingRootVersion: args.record.signingRootVersion,
     relayerKeyId: args.record.relayerKeyId,
     clientVerifyingShareB64u: args.record.clientVerifyingShareB64u,
-    ecdsaRoleLocalReadyRecord,
+    roleLocalDurableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef(
+      args.record.roleLocalDurableMaterialRef,
+    ),
+    ecdsaRoleLocalAuthMethod,
+    ecdsaRoleLocalPublicFacts,
     participantIds: [...args.record.participantIds],
-    ...(args.record.thresholdEcdsaPublicKeyB64u
-      ? { thresholdEcdsaPublicKeyB64u: args.record.thresholdEcdsaPublicKeyB64u }
-      : {}),
+    thresholdEcdsaPublicKeyB64u: args.record.thresholdEcdsaPublicKeyB64u,
     ethereumAddress: args.record.ethereumAddress,
     ...(args.record.runtimePolicyScope
       ? { runtimePolicyScope: args.record.runtimePolicyScope }
@@ -221,9 +183,6 @@ async function publishPasskeyEcdsaSealedRecordForWallet(args: {
     updatedAtMs,
     source: args.record.source,
   });
-  if (!markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(restoredRecord)) {
-    throw new Error('passkey ECDSA restore requires runtime-valid Router A/B DERIVATION state');
-  }
   publishResolvedIdentity({
     walletId: args.walletId,
     authMethod: 'passkey',
@@ -303,7 +262,6 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
   deletePersistedRecord: () => Promise<void>;
   recordSessionMaterialRestored: (status: WarmSessionStatusResult) => Promise<void>;
   readWarmSessionStatusFromWorker: (sessionId: string) => Promise<WarmSessionStatusResult | null>;
-  loadEcdsaRoleLocalReadyRecord: LoadPasskeyEcdsaRoleLocalReadyRecord;
   updatePersistedPolicy: (args: {
     expiresAtMs: number;
     remainingUses: number;
@@ -330,12 +288,11 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
         expiresAtMs: Math.floor(Number(args.record.expiresAtMs) || 0),
         remainingUses: Math.max(0, Math.floor(Number(args.record.remainingUses) || 0)),
       },
-      loadEcdsaRoleLocalReadyRecord: args.loadEcdsaRoleLocalReadyRecord,
     });
   } catch (error) {
     return {
       ok: false,
-      code: 'missing_role_local_ready_record',
+      code: 'invalid_role_local_durable_restore',
       message: error instanceof Error ? error.message : String(error),
     };
   }
@@ -363,7 +320,6 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
           expiresAtMs: Math.floor(Number(args.record.expiresAtMs) || 0),
           remainingUses: 0,
         },
-        loadEcdsaRoleLocalReadyRecord: args.loadEcdsaRoleLocalReadyRecord,
       }).catch(() => undefined);
     }
     if (shouldDeletePasskeyEcdsaSealedRecordAfterRestoreFailure(rehydrated)) {
@@ -384,12 +340,11 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
         expiresAtMs: rehydrated.expiresAtMs,
         remainingUses: rehydrated.remainingUses,
       },
-      loadEcdsaRoleLocalReadyRecord: args.loadEcdsaRoleLocalReadyRecord,
     });
   } catch (error) {
     return {
       ok: false,
-      code: 'missing_role_local_ready_record',
+      code: 'invalid_role_local_durable_restore',
       message: error instanceof Error ? error.message : String(error),
     };
   }
@@ -413,7 +368,6 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
         expiresAtMs: parsed.expiresAtMs,
         remainingUses: parsed.remainingUses,
       },
-      loadEcdsaRoleLocalReadyRecord: args.loadEcdsaRoleLocalReadyRecord,
     }).catch(() => undefined);
     await args
       .updatePersistedPolicy({
@@ -434,8 +388,7 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
           expiresAtMs: Math.floor(Number(args.record.expiresAtMs) || 0),
           remainingUses: 0,
         },
-        loadEcdsaRoleLocalReadyRecord: args.loadEcdsaRoleLocalReadyRecord,
-      }).catch(() => undefined);
+      });
     }
     if (shouldDeletePasskeyEcdsaSealedRecordAfterRestoreFailure(parsed)) {
       await args.deletePersistedRecord().catch(() => undefined);

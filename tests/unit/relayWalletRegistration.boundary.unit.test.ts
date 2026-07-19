@@ -5,13 +5,11 @@ import {
   handleRouterApiWalletRevokeAuthMethod,
   handleRouterApiWalletAddAuthMethodStart,
   handleRouterApiWalletAddSignerFinalize,
-  handleRouterApiWalletAddSignerDerivationRespond,
   handleRouterApiWalletAddSignerIntent,
   handleRouterApiWalletAddSignerStart,
   handleRouterApiWalletRegistrationIntent,
   handleRouterApiWalletRegistrationStart,
   handleRouterApiWalletRegistrationFinalize,
-  handleRouterApiWalletRegistrationDerivationRespond,
   handleRouterApiWalletEcdsaKeyFactsInventory,
 } from '../../packages/sdk-server-ts/src/router/walletRegistrationRoutes';
 import {
@@ -20,7 +18,6 @@ import {
   type RouteDefinition,
 } from '../../packages/sdk-server-ts/src/router/routeDefinitions';
 import { computeWalletEcdsaKeyFactsInventoryChallengeDigestB64u } from '../../packages/shared-ts/src/utils/ecdsaKeyFactsInventory';
-import { ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND } from '../../packages/shared-ts/src/utils/sessionTokens';
 import { ROUTER_AB_PUBLIC_KEYSET_VERSION_V2 } from '../../packages/shared-ts/src/utils/routerAbPublicKeyset';
 import {
   computeAddAuthMethodIntentDigestB64u,
@@ -49,12 +46,6 @@ function namedProvisioning(accountId: string) {
   if (!parsed.ok) throw new Error(parsed.message);
   return sponsoredNamedNearAccountProvisioning(parsed.value);
 }
-
-const ECDSA_REGISTRATION_DERIVATION_RESPOND_FORBIDDEN_FIELDS = [
-  'clientRootProof',
-  'passkeyBootstrapAuthorization',
-  'sessionKind',
-] as const;
 
 const ROUTER_AB_PUBLIC_KEYSET = {
   keyset_version: ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
@@ -97,7 +88,6 @@ function route(id: string): RouteDefinition {
 function inputFor(
   routeId:
     | 'wallet_registration_start'
-    | 'wallet_registration_derivation_respond'
     | 'wallet_registration_finalize',
   body: unknown,
   authService: Record<string, unknown>,
@@ -154,7 +144,6 @@ function addSignerInputFor(args: {
   routeId:
     | 'wallet_add_signer_intent'
     | 'wallet_add_signer_start'
-    | 'wallet_add_signer_derivation_respond'
     | 'wallet_add_signer_finalize';
   body: unknown;
   authService: Record<string, unknown>;
@@ -284,53 +273,6 @@ function validEcdsaClientBootstrap() {
       projectId: 'project',
       envId: 'dev',
       signingRootVersion: 'default',
-    },
-  };
-}
-
-function validNormalizedEcdsaClientBootstrap() {
-  return validEcdsaClientBootstrap();
-}
-
-function validEcdsaServerBootstrap() {
-  return {
-    formatVersion: 'ecdsa-derivation-role-local',
-    walletId: 'wallet_alice',
-    evmFamilySigningKeySlotId: ECDSA_SIGNING_KEY_SLOT_ID,
-    ecdsaThresholdKeyId: 'ederivation-alice',
-    relayerKeyId: 'ederivation-relayer-alice',
-    applicationBindingDigestB64u: b64u(Array(32).fill(9)),
-    contextBinding32B64u: b64u(Array(32).fill(2)),
-    publicIdentity: {
-      derivationClientSharePublicKey33B64u: b64u([2, ...Array(32).fill(1)]),
-      relayerPublicKey33B64u: b64u([3, ...Array(32).fill(6)]),
-      groupPublicKey33B64u: b64u([2, ...Array(32).fill(5)]),
-      ethereumAddress: '0x1111111111111111111111111111111111111111',
-    },
-    clientShareRetryCounter: 0,
-    relayerShareRetryCounter: 1,
-    publicTranscriptDigest32B64u: b64u(Array(32).fill(4)),
-    keyHandle: 'ederivation-key-alice',
-    signingRootId: 'project:dev',
-    signingRootVersion: 'default',
-    thresholdEcdsaPublicKeyB64u: b64u([2, ...Array(32).fill(5)]),
-    ethereumAddress: '0x1111111111111111111111111111111111111111',
-    relayerVerifyingShareB64u: b64u([3, ...Array(32).fill(6)]),
-    participantIds: [1, 2],
-    thresholdSessionId: 'session-1',
-    signingGrantId: 'signing-grant-1',
-    expiresAtMs: Date.now() + 300_000,
-    expiresAt: new Date(Date.now() + 300_000).toISOString(),
-    remainingUses: 1,
-  };
-}
-
-function signingSessionWithCapturedClaims(out: { claims: Record<string, unknown> | null }) {
-  return {
-    signJwt: async (sub: string, claims: Record<string, unknown>) => {
-      void sub;
-      out.claims = claims;
-      return `signed:${String(claims.kind || '')}:${String(claims.thresholdSessionId || '')}`;
     },
   };
 }
@@ -710,163 +652,6 @@ test.describe('wallet registration route boundaries', () => {
     });
   });
 
-  for (const forbiddenField of ECDSA_REGISTRATION_DERIVATION_RESPOND_FORBIDDEN_FIELDS) {
-    test(`respond rejects ECDSA registration field ${forbiddenField}`, async () => {
-      let called = false;
-      const response = await handleRouterApiWalletRegistrationDerivationRespond(
-        inputFor(
-          'wallet_registration_derivation_respond',
-          {
-            registrationCeremonyId: 'wrc_123',
-            ecdsa: {
-              clientBootstraps: [
-                {
-                  chainTarget: ECDSA_CHAIN_TARGET,
-                  clientBootstrap: {
-                    ...validEcdsaClientBootstrap(),
-                    [forbiddenField]: 'server-auth-owned',
-                  },
-                },
-              ],
-            },
-          },
-          {
-            respondWalletRegistrationDerivation: async () => {
-              called = true;
-              return { ok: true };
-            },
-          },
-        ),
-      );
-
-      expect(called).toBe(false);
-      expect(response.status).toBe(400);
-      expect(response.body).toMatchObject({
-        ok: false,
-        code: 'invalid_body',
-        message: `ecdsa.clientBootstraps.clientBootstrap.${forbiddenField} must stay outside the registration ceremony request`,
-      });
-    });
-  }
-
-  test('respond forwards normalized ECDSA registration client bootstrap', async () => {
-    let captured: unknown = null;
-    const signedClaims: { claims: Record<string, unknown> | null } = { claims: null };
-    const clientBootstrap = validEcdsaClientBootstrap();
-    const response = await handleRouterApiWalletRegistrationDerivationRespond(
-      inputFor(
-        'wallet_registration_derivation_respond',
-        {
-          registrationCeremonyId: ' wrc_123 ',
-          ecdsa: {
-            clientBootstraps: [
-              {
-                chainTarget: ECDSA_CHAIN_TARGET,
-                clientBootstrap,
-              },
-            ],
-          },
-        },
-        {
-          respondWalletRegistrationDerivation: async (request: unknown) => {
-            captured = request;
-            return {
-              ok: true,
-              registrationCeremonyId: 'wrc_123',
-              ecdsa: {
-                bootstraps: [
-                  {
-                    chainTarget: ECDSA_CHAIN_TARGET,
-                    bootstrap: validEcdsaServerBootstrap(),
-                  },
-                ],
-              },
-            };
-          },
-          getRouterAbNormalSigningRuntime: () => ({
-            getSigningWorkerId: () => 'router-ab-signing-worker-local',
-          }),
-        },
-        signingSessionWithCapturedClaims(signedClaims),
-      ),
-    );
-
-    expect(response.status).toBe(200);
-    expect(captured).toEqual({
-      registrationCeremonyId: 'wrc_123',
-      ecdsa: {
-        clientBootstraps: [
-          {
-            chainTarget: ECDSA_CHAIN_TARGET,
-            clientBootstrap: validNormalizedEcdsaClientBootstrap(),
-          },
-        ],
-      },
-    });
-    expect((response.body as any).ecdsa.bootstraps[0].bootstrap.jwt).toBe(
-      `signed:${ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND}:session-1`,
-    );
-    expect(signedClaims.claims).toMatchObject({
-      kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
-      routerAbEcdsaDerivationNormalSigning: {
-        kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
-        scope: {
-          wallet_key_id: ECDSA_SIGNING_KEY_SLOT_ID,
-          wallet_id: 'wallet_alice',
-          ecdsa_threshold_key_id: 'ederivation-alice',
-          signing_root_id: 'project:dev',
-          signing_root_version: 'default',
-          context: {
-            application_binding_digest_b64u: b64u(Array(32).fill(9)),
-          },
-          signing_worker: {
-            server_id: 'router-ab-signing-worker-local',
-            key_epoch: 'epoch-server',
-          },
-          activation_epoch: 'session-1',
-        },
-      },
-    });
-    expect(signedClaims.claims?.routerAbEcdsaDerivationIssuerBinding).toBeUndefined();
-  });
-
-  test('finalize forwards normalized ECDSA expected key handles', async () => {
-    let captured: unknown = null;
-    const response = await handleRouterApiWalletRegistrationFinalize(
-      inputFor(
-        'wallet_registration_finalize',
-        {
-          registrationCeremonyId: ' wrc_123 ',
-          kind: 'evm_family_ecdsa',
-          ecdsa: {
-            expectedKeyHandles: [' ederivation-key-alice ', 'ederivation-key-bob'],
-          },
-        },
-        {
-          finalizeWalletRegistration: async (request: unknown) => {
-            captured = request;
-            return {
-              ok: true,
-              walletId: 'wallet_alice',
-              rpId: 'wallet.example.test',
-              kind: 'evm_family_ecdsa',
-              ecdsa: { walletKeys: [] },
-            };
-          },
-        },
-      ),
-    );
-
-    expect(response.status).toBe(200);
-    expect(captured).toEqual({
-      registrationCeremonyId: 'wrc_123',
-      kind: 'evm_family_ecdsa',
-      ecdsa: {
-        expectedKeyHandles: ['ederivation-key-alice', 'ederivation-key-bob'],
-      },
-    });
-  });
-
   test('finalize forwards normalized Email OTP backup acknowledgement metadata', async () => {
     let captured: unknown = null;
     const response = await handleRouterApiWalletRegistrationFinalize(
@@ -894,11 +679,34 @@ test.describe('wallet registration route boundaries', () => {
             return {
               ok: true,
               walletId: 'wallet_alice',
-              rpId: 'wallet.example.test',
+              authority: {
+                walletId: 'wallet_alice',
+                factor: {
+                  kind: 'email_otp',
+                  provider: 'google',
+                  providerUserId: 'google:alice',
+                },
+                verifier: {
+                  kind: 'email_otp_wallet_auth_method',
+                  emailHashHex: 'email-hash',
+                },
+                bindingId: 'wallet-auth-method-1',
+              },
+              authMethod: {
+                kind: 'email_otp',
+                registrationAuthorityId: 'registration-authority-1',
+              },
               kind: 'evm_family_ecdsa',
               ecdsa: { walletKeys: [] },
             };
           },
+          getOrCreateAppSessionVersion: async () => ({
+            ok: true,
+            appSessionVersion: 'app-session-v1',
+          }),
+        },
+        {
+          signJwt: async () => 'app-session-jwt',
         },
       ),
     );
@@ -1052,7 +860,7 @@ test.describe('wallet registration route boundaries', () => {
     expect(response.body).toMatchObject({
       ok: false,
       code: 'invalid_body',
-      message: 'ecdsa.expectedKeyHandles contains an invalid key handle',
+      message: 'ecdsa.expectedKeyHandles must contain one family key handle',
     });
   });
 
@@ -1332,35 +1140,8 @@ test.describe('wallet registration route boundaries', () => {
     });
   });
 
-  test('add-signer DERIVATION respond and finalize normalize ECDSA payloads', async () => {
-    let respondRequest: unknown = null;
+  test('add-signer finalize normalizes ECDSA payloads', async () => {
     let finalizeRequest: unknown = null;
-    const respond = await handleRouterApiWalletAddSignerDerivationRespond(
-      addSignerInputFor({
-        routeId: 'wallet_add_signer_derivation_respond',
-        body: {
-          addSignerCeremonyId: ' wasc_1 ',
-          ecdsa: {
-            clientBootstraps: [
-              {
-                chainTarget: ECDSA_CHAIN_TARGET,
-                clientBootstrap: validEcdsaClientBootstrap(),
-              },
-            ],
-          },
-        },
-        authService: {
-          respondWalletAddSignerDerivation: async (request: unknown) => {
-            respondRequest = request;
-            return {
-              ok: true,
-              addSignerCeremonyId: 'wasc_1',
-              ecdsa: { bootstraps: [] },
-            };
-          },
-        },
-      }),
-    );
     const finalize = await handleRouterApiWalletAddSignerFinalize(
       addSignerInputFor({
         routeId: 'wallet_add_signer_finalize',
@@ -1387,19 +1168,7 @@ test.describe('wallet registration route boundaries', () => {
       }),
     );
 
-    expect(respond.status).toBe(200);
     expect(finalize.status).toBe(200);
-    expect(respondRequest).toEqual({
-      addSignerCeremonyId: 'wasc_1',
-      ecdsa: {
-        clientBootstraps: [
-          {
-            chainTarget: ECDSA_CHAIN_TARGET,
-            clientBootstrap: validNormalizedEcdsaClientBootstrap(),
-          },
-        ],
-      },
-    });
     expect(finalizeRequest).toEqual({
       addSignerCeremonyId: 'wasc_1',
       idempotencyKey: 'add-signer-finalize-1',

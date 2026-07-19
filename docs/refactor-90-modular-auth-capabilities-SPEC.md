@@ -2275,10 +2275,10 @@ type MpcCapabilityHydrationPlan =
         | "missing_material"
         | "revoked"
         | "replaced"
-        | "ambiguous_authority"
+        | "authority_ambiguous"
         | "binding_mismatch"
         | "exact_record_conflict"
-        | "corrupt_persistence"
+        | "corrupt"
         | "persistence_unavailable";
       materialOwner?: never;
       authority?: never;
@@ -2345,7 +2345,6 @@ type EcdsaCapabilityScope =
     };
 
 type EcdsaRoleLocalMaterialBinding = {
-  thresholdSessionId: ThresholdEcdsaSessionId;
   keyHandle: EcdsaKeyHandle;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   clientVerifyingPublicKey33B64u: EcdsaClientVerifyingPublicKey33B64u;

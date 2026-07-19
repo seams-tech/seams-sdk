@@ -59,9 +59,7 @@ import {
   exactEcdsaSigningLaneIdentityFromSelectedLane,
   exactSigningLaneIdentityKey,
 } from '../../session/identity/exactSigningLaneIdentity';
-import {
-  toEvmFamilyEcdsaKeyHandle,
-} from '../../session/identity/evmFamilyEcdsaIdentity';
+import { toEvmFamilyEcdsaKeyHandle } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { EvmFamilyChain, EvmFamilySenderSignatureAlgorithm } from './types';
 import {
   thresholdEcdsaChainTargetsEqual,
@@ -74,7 +72,6 @@ import {
   toExactEcdsaSigningLaneIdentity,
   type ThresholdEcdsaSessionRecord,
 } from '../../session/persistence/records';
-import { readThresholdEcdsaSessionRecordRoleLocalReadyRecord } from '../../session/persistence/ecdsaRoleLocalRecords';
 import type { WalletBudgetUnknown } from '../../session/budget/budgetProjection';
 import type { ReauthAnchorIdentity } from '../../session/operationState/transactionState';
 import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
@@ -346,7 +343,10 @@ function buildPasskeyEcdsaPublicReauthLane(args: {
   lane: ResolvedEvmFamilyEcdsaSigningLane;
   material: EcdsaMaterialState;
   reauthAnchor: ReauthAnchorIdentity;
-  publicRestore: Extract<EcdsaReauthAnchorPublicRestore, { source: Exclude<EcdsaReauthAnchorPublicRestore['source'], 'email_otp'> }>;
+  publicRestore: Extract<
+    EcdsaReauthAnchorPublicRestore,
+    { source: Exclude<EcdsaReauthAnchorPublicRestore['source'], 'email_otp'> }
+  >;
 }): PasskeyEcdsaPublicReauthLane {
   const laneIdentityKey = exactSigningLaneIdentityKey(
     exactEcdsaSigningLaneIdentityFromSelectedLane(args.lane),
@@ -840,14 +840,13 @@ function passkeyAuthorityFromRecord(
   if (record.source === SIGNER_AUTH_METHODS.emailOtp) {
     throw new Error('[SigningEngine][ecdsa] passkey committed lane requires passkey record source');
   }
-  const readyRecord = readThresholdEcdsaSessionRecordRoleLocalReadyRecord(record);
-  if (readyRecord.authMethod.kind !== 'passkey') {
+  if (record.ecdsaRoleLocalAuthMethod.kind !== 'passkey') {
     throw new Error('[SigningEngine][ecdsa] passkey committed lane requires passkey record auth');
   }
   return buildPasskeyWalletAuthAuthority({
     walletId: record.walletId,
-    rpId: readyRecord.authMethod.rpId,
-    credentialIdB64u: readyRecord.authMethod.credentialIdB64u,
+    rpId: record.ecdsaRoleLocalAuthMethod.rpId,
+    credentialIdB64u: record.ecdsaRoleLocalAuthMethod.credentialIdB64u,
   });
 }
 
@@ -1407,7 +1406,9 @@ function requirePublicEcdsaSelectionReauth(
   reauth: EcdsaSelectionReauthInput,
 ): Extract<EcdsaSelectionReauthInput, { kind: 'public_anchor' }> {
   if (reauth.kind === 'public_anchor') return reauth;
-  throw new Error('[SigningEngine][ecdsa] expired/exhausted selection requires public reauth facts');
+  throw new Error(
+    '[SigningEngine][ecdsa] expired/exhausted selection requires public reauth facts',
+  );
 }
 
 export async function resolveEvmFamilyEcdsaSigningSelection(args: {
@@ -1565,7 +1566,9 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
     const reauth = requirePublicEcdsaSelectionReauth(args.reauth);
     if (candidateAuthMethod === SIGNER_AUTH_METHODS.emailOtp) {
       if (reauth.publicRestore.source !== 'email_otp') {
-        throw new Error('[SigningEngine][ecdsa] Email OTP selection requires Email OTP public reauth facts');
+        throw new Error(
+          '[SigningEngine][ecdsa] Email OTP selection requires Email OTP public reauth facts',
+        );
       }
       const reauthLane = buildEmailOtpEcdsaPublicReauthLane({
         lane,
@@ -1583,7 +1586,9 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
       });
     }
     if (reauth.publicRestore.source === 'email_otp') {
-      throw new Error('[SigningEngine][ecdsa] passkey selection requires passkey public reauth facts');
+      throw new Error(
+        '[SigningEngine][ecdsa] passkey selection requires passkey public reauth facts',
+      );
     }
     const reauthLane = buildPasskeyEcdsaPublicReauthLane({
       lane,

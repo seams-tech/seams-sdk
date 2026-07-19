@@ -435,7 +435,7 @@ here.
 - New vocabulary lands in new modules first. Wallet-touching renames wait for
   Slice B, after Slice A has proven the model.
 - Resolve MPC capability hydration from canonical current state through the
-  Pre-Phase 4/19A union and, for ECDSA, only from the Pre-Phase 4/19B manifest
+  Foundation A union and, for ECDSA, only from the Foundation B manifest
   plus runtime observation. Registration, unlock, and refresh may supply provenance to
   diagnostics and tests; they cannot select separate recovery implementations.
 - When moving code, name the target owner from the Simplified End State tree so
@@ -477,11 +477,11 @@ capability/
   mpcWalletAuthority
     signingQuota
   vault
-    nearEd25519Mpc
-      operationPreparation
-      yaoRuntime
-      yaoRecovery
-      yaoRootMaterialAdapters
+  nearEd25519Mpc
+    operationPreparation
+    yaoRuntime
+    yaoRecovery
+    yaoRootMaterialAdapters
   evmEcdsaMpc
     capabilityManifest
     activationCommitJournal
@@ -514,8 +514,8 @@ these internal module boundaries are stable.
 
 | Phase | Contents | Status |
 | -------------- | --------------------------------------------------- | ----------- |
-| Pre-Phase 4/19A | Canonical MPC capability hydration lifecycle       | In progress |
-| Pre-Phase 4/19B | Canonical ECDSA capability state and persistence   | Planning    |
+| Foundation A | Canonical MPC capability hydration lifecycle       | In progress |
+| Foundation B | Canonical ECDSA capability state and persistence   | Planning    |
 | Phase 1 | Signer-set registration cut | Complete |
 | Phase 2 | Wallet-rooted confirmation subjects | Complete |
 | Phase 3 | AuthService mechanical module split | Complete |
@@ -551,7 +551,7 @@ after Phase 7; Refactor 86 hosted-asset work may proceed independently until the
 SDK config cut is ready.
 The lifecycle and ECDSA state/persistence pre-phases may proceed beside Phase 4
 and Phase 5. Both must close before either tactical phase closes or Phase 19/23
-begins. Pre-Phase 4/19A defines the shared hydration outcome. Pre-Phase 4/19B
+begins. Foundation A defines the shared hydration outcome. Foundation B
 defines the exact ECDSA inputs, persistence owner, and transitions that construct
 that outcome.
 
@@ -562,8 +562,8 @@ documents:
 
 | Old phase | New home |
 | ---------------------------------------------- | ------------------------------------------------------------------ |
-| July 16 lifecycle convergence review           | Pre-Phase 4/19A + Phases 4, 19, and 23                             |
-| July 18 ECDSA state convergence review         | Pre-Phase 4/19B + Phases 5, 17, 18, 19, and 23                     |
+| July 16 lifecycle convergence review           | Foundation A + Phases 4, 19, and 23                             |
+| July 18 ECDSA state convergence review         | Foundation B + Phases 5, 17, 18, 19, and 23                     |
 | Legacy 0A, 0B, 0D, 0F, 0E | Phases 1, 2, 4, 5, 8 |
 | 0 (Inventory) | Phase 6 |
 | 0C (Public surface and deployment inventory) | Phase 6 |
@@ -592,7 +592,7 @@ documents:
 These phases fix the current wallet-first stack. They are prerequisites or
 parallel work, not part of the vertical slices.
 
-## Pre-Phase 4/19A: Canonical MPC Capability Hydration Lifecycle
+## Foundation A: Canonical MPC Capability Hydration
 
 Status: in progress. The slim protocol-neutral leaf model, branch builders, and
 type fixtures are implemented. Protocol adapters, canonical inventory
@@ -664,10 +664,10 @@ type MpcCapabilityHydrationPlan =
         | 'missing_material'
         | 'revoked'
         | 'replaced'
-        | 'ambiguous_authority'
+        | 'authority_ambiguous'
         | 'binding_mismatch'
         | 'exact_record_conflict'
-        | 'corrupt_persistence'
+        | 'corrupt'
         | 'persistence_unavailable';
       runtime?: never;
       activeMaterialSession?: never;
@@ -679,6 +679,9 @@ type MpcCapabilityHydrationPlan =
 
 The target names may change in the companion SPEC, but the four branches and
 their `never` exclusions are fixed. This plan describes material access only.
+Its `blocked` branch is distinct from the capability preparation `blocked`
+state used by Phases 18-19; the two reason unions are separate vocabularies
+and are not interchangeable.
 Operation grants, signing quota, transaction nonce state, export admission, and
 session transport remain independent preparation domains.
 Entry-point provenance wraps the plan for diagnostics and tests; capability
@@ -764,13 +767,13 @@ Check:
       fresh authorization and requires no preceding transaction or full wallet
       unlock.
 
-## Pre-Phase 4/19B: Canonical ECDSA Capability State And Persistence
+## Foundation B: Canonical ECDSA Capability State And Persistence
 
 Status: planning. This pre-phase folds the
 `ThresholdEcdsaSessionRecordCore` replacement into Refactor 90. It must land
 before Phase 4 or Phase 5 closes and before Phases 19 or 23 begin.
 
-Prerequisites: Pre-Phase 4/19A owns the shared hydration result. This pre-phase
+Prerequisites: Foundation A owns the shared hydration result. This foundation
 may proceed while Phase 5 finalizes `EcdsaRoleLocalMaterialBinding`, then both
 close together against the same SPEC-owned shape. Pull the existing exact
 `WalletAuthAuthorityRef` leaf scaffold and its boundary builder forward; this
@@ -792,9 +795,11 @@ Canonical domains:
   server-issued generation, lifecycle binding, material-use retention, expiry,
   and recovery policy. Operation grant and wallet signing quota remain separate
   domains.
-- `DurableEcdsaMaterialBinding` owns the exact material owner, durable material
-  ref, binding digest, lifecycle ID, authenticated ciphertext digest, activation
-  digest, and material expiry. Every field is required.
+- `DurableEcdsaMaterialBinding` owns the exact material owner, the nested
+  role-local material binding (Phase 5's final `EcdsaRoleLocalMaterialBinding`,
+  carried as `roleLocalBinding` per the SPEC), durable material ref, binding
+  digest, lifecycle ID, authenticated ciphertext digest, activation digest, and
+  material expiry. Every field is required.
 - `ActiveEcdsaCapabilityManifest` binds one registered signer, one active
   material session, one durable material binding, one server activation receipt,
   and one manifest revision. It is the only persisted shape from which an active
@@ -886,7 +891,7 @@ Flow cutover:
   `commitEcdsaCapabilityActivation(...)` boundary after their factor-specific
   protocols produce normalized activation input.
 - Page refresh calls `readEcdsaCapabilityManifest(...)`, observes worker runtime
-  independently, and passes those exact facts to the Pre-Phase 4/19A hydration
+  independently, and passes those exact facts to the Foundation A hydration
   resolver.
 - Recovery and reauthorization finish through the same activation commit and
   exact post-effect read. They cannot publish a shortcut runtime record.
@@ -988,7 +993,7 @@ type RegistrationSignerRequest =
   | {
       kind: 'near_ed25519';
       accountProvisioning: RegistrationNearAccountProvisioning;
-      signerSlot: PositiveSignerSlot;
+      signerSlot: SignerSlot;
       participantIds: readonly number[];
       derivationVersion: 1;
     }
@@ -1163,7 +1168,7 @@ Status: in progress. Durable NEAR unlock-subject resolution is implemented;
 full branch-specific `unlockCore(subject)` remains. Phase 5 exclusively owns
 ECDSA role-local material identity and cache semantics.
 
-Prerequisite to close: Pre-Phases 4/19A and 4/19B are complete and the companion
+Prerequisite to close: Foundations A and B are complete and the companion
 SPEC owns the canonical capability hydration plan plus the ECDSA capability
 manifest and persistence lifecycle.
 
@@ -1178,7 +1183,7 @@ This phase addresses the wallet-unlock bug found during local D1 testing:
 Do:
 
 - Keep capability-subject resolution separate from hydration resolution.
-  `WalletUnlockSubjectSet` identifies requested capabilities; the Pre-Phase 4/19A
+  `WalletUnlockSubjectSet` identifies requested capabilities; the Foundation A
   resolver determines `use_live_runtime`, `rehydrate_active_session`,
   `reauthorize_public_anchor`, or `blocked` from current canonical state. Unlock and
   page-refresh code may not construct readiness directly.
@@ -1354,9 +1359,10 @@ Cross-plan notes:
 Status: in progress. The `evmFamilySigningKeySlotId` role-local material-handle
 slice is complete; broader Phase 5 slimming remains pending.
 
-Prerequisite to close: Pre-Phase 4/19B is complete. The final material binding
+Prerequisite to close: Foundation B is complete. The final material binding
 must land directly in the canonical ECDSA manifest and runtime-observation
-model; do not add another tactical session-record representation.
+model; do not add another tactical session-record representation. Where this
+phase and Foundation B disagree, Foundation B is the newer model and wins.
 
 > This phase's material-only `EcdsaRoleLocalMaterialBinding` is the
 > authoritative target shape. It supersedes the wider Phase 4 field list.
@@ -1367,9 +1373,10 @@ normal-signing state remain the authority for chain/session use.
 
 Evidence from the current implementation:
 
-- `routerAbStateSessionId` is derived from
-  `RouterAbEcdsaHssNormalSigningStateV1.scope` and the state's
-  `activation_epoch` is issued from `thresholdSessionId`.
+- `activeStateId` (the renamed `routerAbStateSessionId`) is derived from
+  `RouterAbEcdsaDerivationNormalSigningStateV1` key, signing-root, version, and
+  `activation_epoch` facts, and that epoch is issued from
+  `thresholdSessionId`, so it transitively carries session identity.
 - ECDSA `thresholdSessionId` values are generated with the `tehss_` prefix and
   24 random bytes, so they can serve as the unique live session identifier.
 - `chainTarget` is required in exact signing lane/session-record identity. The
@@ -1471,7 +1478,7 @@ Do:
   - Wallet Session claims;
   - Router A/B normal-signing scope;
   - `EcdsaRoleLocalPublicFacts`;
-  - the legacy `ThresholdEcdsaSessionRecord` during the Pre-Phase 4/19B cutover;
+  - the legacy `ThresholdEcdsaSessionRecord` during the Foundation B cutover;
   - sealed recovery records;
   - role-local material handles or binding digests.
 - If no multi-ECDSA-key-per-wallet use case exists today, use
@@ -1481,13 +1488,11 @@ Do:
 
 ```ts
 type EcdsaRoleLocalMaterialBinding = {
-  walletId: WalletId;
-  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
   thresholdSessionId: ThresholdEcdsaSessionId;
   signingGrantId: SigningGrantId;
   keyHandle: EcdsaKeyHandle;
-  routerAbStateSessionId: RouterAbStateSessionId;
-  chainTarget: EvmFamilyChainTarget;
+  activeStateId: EcdsaActiveStateId;
+  chainTarget: ThresholdEcdsaChainTarget;
   clientVerifyingShareB64u: EcdsaClientVerifyingShareB64u;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   participantIds: readonly number[];
@@ -1499,7 +1504,6 @@ type EcdsaRoleLocalMaterialBinding = {
 
 ```ts
 type EcdsaRoleLocalMaterialBinding = {
-  thresholdSessionId: ThresholdEcdsaSessionId;
   keyHandle: EcdsaKeyHandle;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   clientVerifyingPublicKey33B64u: EcdsaClientVerifyingPublicKey33B64u;
@@ -1508,9 +1512,25 @@ type EcdsaRoleLocalMaterialBinding = {
 };
 ```
 
-- Remove `routerAbStateSessionId` from `EcdsaRoleLocalMaterialBinding`,
-  `EcdsaRoleLocalBindingDigest`, `EcdsaRoleLocalMaterialHandle`, worker-store
-  payloads, runtime material validation keys, tests, and diagnostics.
+  This binding is the shape the SPEC nests as
+  `DurableEcdsaMaterialBinding.roleLocalBinding` inside the Foundation B
+  manifest, and it carries material facts only. Session identity
+  (`thresholdSessionId`) lives solely in the manifest's
+  `ActiveEcdsaMaterialSession`; the manifest revision binds material to its
+  session, and lane/session validation proves the threshold session before
+  worker material is opened, mirroring the `chainTarget` rule.
+
+- Remove `thresholdSessionId` from `EcdsaRoleLocalMaterialBinding`,
+  `EcdsaRoleLocalBindingDigest`, and `EcdsaRoleLocalMaterialHandle`
+  (Foundation B owns this cut). The active manifest links material to its
+  exact `ActiveEcdsaMaterialSession`; selected lanes keep proving
+  `thresholdSessionId` against the session record before worker material
+  access.
+
+- Remove `activeStateId` (the renamed `routerAbStateSessionId`) from
+  `EcdsaRoleLocalMaterialBinding`, `EcdsaRoleLocalBindingDigest`,
+  `EcdsaRoleLocalMaterialHandle`, worker-store payloads, runtime material
+  validation keys, tests, and diagnostics.
 - Remove `chainTarget` from `EcdsaRoleLocalMaterialBinding`,
   `EcdsaRoleLocalBindingDigest`, and `EcdsaRoleLocalMaterialHandle`.
 - Remove `signingGrantId`, `CapabilityGrantId`, `MpcWalletSigningQuotaId`, and
@@ -1550,7 +1570,8 @@ type EcdsaRoleLocalMaterialBinding = {
   different role-local worker material handles for the same material. Replace it
   with a test proving a Tempo lane cannot open/sign through an ARC session
   record, even when the worker material handle is shared.
-- Add a guard rejecting `chainTarget` and `routerAbStateSessionId` inside
+- Add a guard rejecting `chainTarget`, `thresholdSessionId`, and
+  `activeStateId`/`routerAbStateSessionId` inside
   `EcdsaRoleLocalMaterialBinding` and the role-local material handle/digest
   builder.
 - Add a guard rejecting `evmFamilySigningKeySlotId` in runtime authority types
@@ -1570,7 +1591,8 @@ Check:
 - [x] Focused regression test covers the narrowed material-handle API:
   `pnpm -C tests exec playwright test unit/evmFamilyEcdsaIdentity.unit.test.ts -g "without signing key slot identity"`.
 - [ ] `buildEcdsaRoleLocalMaterialIdentity()` has no `chainTarget`,
-  `walletId`, `evmFamilySigningKeySlotId`, or `routerAbStateSessionId` input.
+  `walletId`, `evmFamilySigningKeySlotId`, `thresholdSessionId`,
+  `activeStateId`, or `routerAbStateSessionId` input.
 - [ ] `buildEcdsaRoleLocalMaterialIdentity()` and its handle/digest builders have
   no grant, quota, remaining-use, or expiry input.
 - [ ] `evmFamilySigningKeySlotId` is either deleted from runtime paths or renamed
@@ -1587,9 +1609,9 @@ Check:
 - [ ] Router A/B signing requests carry and validate the signed ECDSA derivation
   normal-signing scope against Wallet Session claims; current HSS-named fields
   survive only until the coordinated Phase 14B rename.
-- [ ] `routerAbStateSessionId` appears only in Router A/B state/admission
-  helpers, request builders, and diagnostics that describe the signed Router A/B
-  scope.
+- [ ] `activeStateId` (the renamed `routerAbStateSessionId`) appears only in
+  Router A/B state/admission helpers, request builders, and diagnostics that
+  describe the signed Router A/B scope.
 - [ ] Focused ECDSA signing tests cover same-material cross-chain reuse,
   cross-chain lane mismatch rejection, page-reload restored material, and
   registration-created material.
@@ -1819,8 +1841,11 @@ Do:
   Point 5).
 - Keep the SPEC Target Domain Types and the Phase 7 implementation in lockstep with
   the simplified shape above.
-- Leave wallet code untouched in this phase: `AuthMethod = SignerAuthMethod`
-  stays; `SignerAuthMethod`/`WalletAuthMethod` move in Phase 18.
+- Leave wallet code untouched in this phase, with one named exception: the
+  staged 82B `WalletAuthAuthority` flip above is 82B-owned wallet-auth work
+  that lands as its own coordinated cut beside this phase. Otherwise
+  `AuthMethod = SignerAuthMethod` stays; `SignerAuthMethod`/`WalletAuthMethod`
+  move in Phase 18.
 
 Check:
 
@@ -2620,7 +2645,7 @@ Status: planning. The shared authority/ref scaffold exists; exact factor and
 wallet-auth-method binding IDs, final persistence shape, and lane/runtime
 migration remain. Start after Phase 7 lands the Refactor 82B vocabulary mapping.
 This is the narrow bridge from Refactor 82B's stable `WalletAuthAuthority`
-model into Slice B's auth/capability migration. Pre-Phase 4/19B pulls the leaf
+model into Slice B's auth/capability migration. Foundation B pulls the leaf
 `WalletAuthAuthorityRef` and its exact boundary builder forward for the ECDSA
 manifest; Phase 17 completes the cross-capability migration without changing
 that identity.
@@ -2648,7 +2673,7 @@ Do:
 - Resolve user preference and policy into `any_authority` or one exact authority
   reference before lane selection. Core selectors never accept `authMethod` as
   an independent identity input.
-- Preserve the authority ref in the Pre-Phase 4/19B ECDSA manifest, exact
+- Preserve the authority ref in the Foundation B ECDSA manifest, exact
   operation lanes, material, recovery, restore, and export records. Carry it
   through Ed25519 Yao
   registration/admission, active runtime binding, public capability locator,
@@ -2757,7 +2782,7 @@ Do:
   `mpc_wallet_auth_authorities` rows referencing exact Phase 7 `factor_id`
   values. Replaced/revoked bindings remain explicit lifecycle rows and cannot be
   parsed as active authority.
-- Preserve the Pre-Phase 4/19B ECDSA manifest, activation journal, persistence
+- Preserve the Foundation B ECDSA manifest, activation journal, persistence
   lookup union, and commit/read API as the canonical ECDSA state boundary.
   Phase 18 migrates wallet vocabulary and server authority rows around that
   boundary; it cannot reintroduce a broad signing-session record or a second
@@ -3054,7 +3079,7 @@ Check:
 
 Status: planning. Old Phase 9 (MPC part).
 
-Prerequisites: Pre-Phases 4/19A and 4/19B plus Phases 5, 12, 14, 17, and 18 are
+Prerequisites: Foundations A and B plus Phases 5, 12, 14, 17, and 18 are
 complete, and
 the companion SPEC contains the auth-agnostic Near preparation domain, public
 locator, sealed and fresh recovery source union, exact Yao lifecycle ref, refresh-safe verified
@@ -3077,7 +3102,7 @@ Do:
 
 - Define `near_ed25519_mpc_signing` and `evm_ecdsa_mpc_signing` modules under
   `capability/`.
-- Make both modules consume the Pre-Phase 4/19A
+- Make both modules consume the Foundation A
   `MpcCapabilityHydrationPlan`. Registration
   finalization, wallet-unlock warmup, page-refresh restoration, signing, step-up,
   and export resolve the same plan from current canonical state. Protocol adapters
@@ -4192,8 +4217,9 @@ Check:
 Status: planning. Old Phase 7 remainder.
 
 Prerequisites: Phase 5 must finish removing `chainTarget`,
-`routerAbStateSessionId`, and authorization/quota identity from material-handle
-builders and role-local material surfaces. The Phase 19/20 no-release tranche must
+`thresholdSessionId`, `activeStateId` (the renamed `routerAbStateSessionId`),
+and authorization/quota identity from material-handle builders and role-local
+material surfaces. The Phase 19/20 no-release tranche must
 finish the material adapters, operation preparation/results, and discriminated
 claim paths. The companion SPEC must carry the YAOS client/runtime and
 responsibility-local ECDSA worker boundaries before this phase starts.
@@ -4332,7 +4358,7 @@ Check:
 
 Status: planning. Old Phase 10.
 
-Prerequisite: Pre-Phases 4/19A and 4/19B are complete so capability
+Prerequisite: Foundations A and B are complete so capability
 provisioning publishes the canonical inventory consumed by unlock and refresh.
 
 Resolve before starting: are Ed25519 and ECDSA MPC capabilities provisioned
@@ -4664,13 +4690,13 @@ Targeted tests (owning phase in parentheses):
   EVM-family ECDSA. Include post-registration -> refresh and post-unlock ->
   refresh transitions, mixed-wallet independent branches, operation-scoped
   public-anchor step-up/export, and absence of entry-point-specific recovery
-  implementations (Pre-Phase 4/19A; Phases 4, 19, and 23).
+  implementations (Foundation A; Phases 4, 19, and 23).
 - Canonical ECDSA capability-state transition matrix: registration and unlock
   activation commits, refresh/runtime destruction, durable rehydration,
   public-anchor reauthorization, retirement, exact conflict, corruption,
   unavailable persistence, and failure after every commit stage. Tests assert
   one manifest and exact lane across Passkey, Email OTP, and a synthetic third
-  factor (Pre-Phase 4/19B; Phases 5, 19, and 23).
+  factor (Foundation B; Phases 5, 19, and 23).
 - Wallet auth authority refs on Ed25519/ECDSA signing lanes, multi-factor
   collision and re-enrollment fixtures, and deletion of the interim admission
   authority-key helper (Phase 17).

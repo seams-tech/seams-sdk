@@ -1,7 +1,7 @@
 /* Expander (ExportKeysSection) — same grid-rows collapse mechanism as the
    Transaction Settings / Accounts expanders so all sections open with one motion */
 .w3a-dropdown-export-keys-root {
-  background-color: var(--w3a-colors-surface);
+  background-color: var(--w3a-expander-surface, var(--w3a-colors-surface));
   transform-origin: top;
   display: grid;
   grid-template-rows: 0fr;
@@ -35,16 +35,6 @@
 .w3a-dropdown-export-keys-root.is-expanded .w3a-dropdown-export-keys-content {
   opacity: 1;
   transform: translateY(0);
-}
-
-.w3a-export-keys-restriction {
-  padding: 8px 10px;
-  border: 1px solid oklch(0.64 0.15 20 / 0.45);
-  border-radius: var(--w3a-shape-item, 8px);
-  background: oklch(0.68 0.12 20 / 0.12);
-  color: var(--w3a-colors-textPrimary);
-  font-size: 12px;
-  line-height: 1.4;
 }
 
 .w3a-export-keys-row {
@@ -90,9 +80,17 @@
   color: var(--w3a-colors-textSecondary);
 }
 
+/* always-present slot: reserves the spinner's footprint so toggling the
+   export loading state never changes the row (or menu) size */
 .w3a-export-keys-row-spinner {
   flex: 0 0 auto;
   width: 14px;
   height: 14px;
   color: var(--w3a-colors-textSecondary);
+}
+
+.w3a-export-keys-row-spinner svg {
+  display: block;
+  width: 100%;
+  height: 100%;
 }

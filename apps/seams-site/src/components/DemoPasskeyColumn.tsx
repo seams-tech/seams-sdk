@@ -3,6 +3,7 @@ import NavbarProfileOverlay from './Navbar/NavbarProfileOverlay';
 import { preloadSeamsAuthMenu, useSeams, useTheme, type AuthMenuMode } from '@seams/sdk/react';
 
 import { GlassBorder } from './GlassBorder';
+import { DemoTxCardSkeleton } from './DemoTxCardSkeleton';
 import { Carousel } from './Carousel/Carousel';
 
 // Lazily load the most common flows to shrink the initial bundle.
@@ -122,13 +123,23 @@ export function DemoPasskeyColumn({
     setCurrentPage(loginState?.isLoggedIn ? 1 : 0);
   }, [loginState?.isLoggedIn, setCurrentPage]);
 
-  // Warm the post-login page chunks on unlock so paginating to them can't
-  // suspend and flash the Suspense fallback mid-transition.
+  // Warm the post-login page chunks while the visitor is still on the login
+  // page (idle time), so the unlock-time page switch never suspends into the
+  // fallback. Warming at unlock raced the switch and always flashed once.
   React.useEffect(() => {
-    if (!loginState?.isLoggedIn) return;
-    void import('@/flows/demo/DemoPage').catch(() => {});
-    void import('@/flows/demo/SyncAccount').catch(() => {});
-  }, [loginState?.isLoggedIn]);
+    const warm = () => {
+      void import('@/flows/demo/DemoPage').catch(() => {});
+      void import('@/flows/demo/SyncAccount').catch(() => {});
+    };
+    const ric = (window as Window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number })
+      .requestIdleCallback;
+    if (typeof ric === 'function') {
+      const id = ric(warm, { timeout: 2000 });
+      return () => (window as Window & { cancelIdleCallback?: (id: number) => void }).cancelIdleCallback?.(id);
+    }
+    const t = window.setTimeout(warm, 300);
+    return () => window.clearTimeout(t);
+  }, []);
 
   const pages = React.useMemo(
     () => [
@@ -159,7 +170,7 @@ export function DemoPasskeyColumn({
                  420px matches the auth card so both demo pages read as one */
               style={{ width: 'min(420px, calc(100vw - 2rem))', marginTop: '1rem' }}
             >
-              <React.Suspense fallback={<SuspenseFallback />}>
+              <React.Suspense fallback={<DemoTxCardSkeleton />}>
                 <DemoPage />
               </React.Suspense>
             </GlassBorder>

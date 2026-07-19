@@ -115,18 +115,18 @@ fn router_ab_ecdsa_derivation_finalize_helper_materializes_presignature_before_h
     let materialized = body
         .find("CloudflareSigningWorkerMaterializedRouterAbEcdsaDerivationEvmDigestFinalizeRequestV1::new")
         .expect("Router A/B ECDSA derivation finalize helper must materialize active state and presignature");
-    let prepare_request = body
-        .find("materialized.prepare_request()?")
-        .expect("Router A/B ECDSA derivation finalize helper must derive prepare request");
+    let finalize_request = body
+        .find("let finalize_request = materialized.request.request.clone();")
+        .expect("Router A/B ECDSA derivation finalize helper must derive finalize request");
     let handler = body
         .find("handler.handle_router_ab_ecdsa_derivation_evm_digest_finalize_request_v1")
         .expect("Router A/B ECDSA derivation finalize helper must call the handler");
     let response_validation = body
-        .find("response.validate_for_request(&prepare_request)?")
+        .find("response.validate_for_request(&finalize_request)?")
         .expect("Router A/B ECDSA derivation finalize helper must validate response binding");
     assert!(
-        materialized < prepare_request && prepare_request < handler && handler < response_validation,
-        "Router A/B ECDSA derivation finalize helper must materialize, derive prepare binding, call handler, then validate response"
+        materialized < finalize_request && finalize_request < handler && handler < response_validation,
+        "Router A/B ECDSA derivation finalize helper must materialize, derive finalize binding, call handler, then validate response"
     );
     for forbidden in [
         "execute_cloudflare_signer_recipient_proof_bundle_service_call_v1",
