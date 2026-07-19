@@ -1,6 +1,8 @@
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
+import type { AccountSignerRecord } from '@/core/indexedDB/passkeyClientDB.types';
 import {
   thresholdEcdsaChainTargetKey,
+  thresholdEcdsaChainTargetFromRequest,
   thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
   type WalletId,
@@ -17,10 +19,14 @@ import {
   type BuildCurrentSealedSessionRecordInput,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
-import {
-  type ThresholdRuntimePolicyScope,
-} from '@/core/signingEngine/threshold/sessionPolicy';
+import { type ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { EmailOtpEcdsaPublicationTargetPlan } from '@/core/signingEngine/workerManager/workerTypes';
+import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import {
+  listStoredThresholdEcdsaSessionRecordsForWallet,
+  requirePersistedEcdsaRoleLocalMaterial,
+  type ThresholdEcdsaSessionRecord,
+} from '../persistence/records';
 import type { WarmSessionEcdsaCapabilityState } from '@/core/signingEngine/session/warmCapabilities/types';
 import type { EmailOtpEcdsaReadyPersistInput } from '@/core/signingEngine/session/warmCapabilities/persistencePorts';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
@@ -30,7 +36,22 @@ import { ecdsaBootstrapWithSigningGrantId } from './routePlan';
 import { requestSealEmailOtpWarmSessionMaterial } from './workerRequests';
 import { formatSigningSessionSealKeyVersionForWire } from '../keyMaterialBrands';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
-import { deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope } from '../identity/evmFamilyEcdsaIdentity';
+import {
+  buildEvmFamilyEcdsaWalletKey,
+  deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope,
+  type EvmFamilyEcdsaWalletKey,
+} from '../identity/evmFamilyEcdsaIdentity';
+import { computeEcdsaDerivationRoleLocalThresholdKeyId } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
+import { SIGNER_AUTH_METHODS, SIGNER_KINDS } from '@shared/utils/signerDomain';
+import { parseRouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import { alphabetizeStringify } from '@shared/utils/digests';
+import { isObject } from '@shared/utils/validation';
+import { buildEcdsaRoleLocalPublicFacts } from '../persistence/ecdsaRoleLocalRecords';
+import {
+  buildPersistedEcdsaRoleLocalMaterial,
+  type PersistedEcdsaRoleLocalMaterial,
+} from '../material/ecdsaRoleLocalMaterialResolver';
+import { parseEcdsaRoleLocalDurableMaterialRef } from '../keyMaterialBrands';
 
 export type EmailOtpEcdsaPublicationTimingBucket =
   | 'signingSessionSealApplyMs'
@@ -91,6 +112,10 @@ export type EmailOtpEcdsaPublicationPorts = {
     record: Extract<BuildCurrentSealedSessionRecordInput, { curve: 'ecdsa' }>,
   ) => Promise<void>;
   readExactSealedSession: typeof readExactSealedSession;
+  listThresholdEcdsaSessionRecordsForWallet: typeof listStoredThresholdEcdsaSessionRecordsForWallet;
+  listActiveEcdsaSignersForWallet: (args: {
+    walletId: WalletId;
+  }) => Promise<readonly AccountSignerRecord[]>;
 };
 
 export function emailOtpEcdsaPublicationChainTargets(args: {
@@ -126,13 +151,11 @@ export function emailOtpEcdsaPublicationChainTargets(args: {
 export function emailOtpEcdsaPublicationTargetPlans(args: {
   walletId: WalletId;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
-  chainTarget: ThresholdEcdsaChainTarget;
   publicationChainTargets: readonly ThresholdEcdsaChainTarget[];
-  keyHandle?: string;
 }): EmailOtpEcdsaPublicationTargetPlan[] {
-  const primaryKeyHandle = String(args.keyHandle || '').trim();
   return args.publicationChainTargets.map((publicationChainTarget) => {
-    const base = {
+    return {
+      kind: 'new_key_publication_target',
       chainTarget: publicationChainTarget,
       evmFamilySigningKeySlotId: String(
         deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope({
@@ -141,17 +164,314 @@ export function emailOtpEcdsaPublicationTargetPlans(args: {
         }),
       ),
     };
-    if (primaryKeyHandle && thresholdEcdsaChainTargetsEqual(publicationChainTarget, args.chainTarget)) {
-      return {
-        ...base,
-        kind: 'existing_key_publication_target',
-        keyHandle: primaryKeyHandle,
-      };
-    }
+  });
+}
+
+export async function requireEmailOtpExistingEcdsaPublicCapability(args: {
+  walletId: WalletId;
+  chainTarget: ThresholdEcdsaChainTarget;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  keyHandle: string;
+  listThresholdEcdsaSessionRecordsForWallet: typeof listStoredThresholdEcdsaSessionRecordsForWallet;
+  listActiveEcdsaSignersForWallet: EmailOtpEcdsaPublicationPorts['listActiveEcdsaSignersForWallet'];
+}): Promise<RouterAbEcdsaDerivationPublicCapabilityV1> {
+  const existing = await resolveEmailOtpExistingEcdsaKey({
+    walletId: args.walletId,
+    chainTarget: args.chainTarget,
+    runtimePolicyScope: args.runtimePolicyScope,
+    keyHandle: args.keyHandle,
+    listThresholdEcdsaSessionRecordsForWallet: args.listThresholdEcdsaSessionRecordsForWallet,
+    listActiveEcdsaSignersForWallet: args.listActiveEcdsaSignersForWallet,
+  });
+  if (!existing) {
+    throw new Error(
+      `Email OTP ECDSA requires one persisted public capability for ${thresholdEcdsaChainTargetKey(args.chainTarget)}`,
+    );
+  }
+  return existing.publicCapability;
+}
+
+type EmailOtpEcdsaPersistedIdentity = {
+  evmFamilySigningKeySlotId: string;
+  ecdsaThresholdKeyId: string;
+  signingRootId: string;
+  signingRootVersion: string;
+};
+
+async function resolveEmailOtpEcdsaPersistedIdentity(args: {
+  walletId: WalletId;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+}): Promise<EmailOtpEcdsaPersistedIdentity> {
+  const signingRoot = signingRootScopeFromRuntimePolicyScope(args.runtimePolicyScope);
+  const signingRootId = String(signingRoot.signingRootId).trim();
+  const signingRootVersion = String(signingRoot.signingRootVersion || 'default').trim();
+  const evmFamilySigningKeySlotId = String(
+    deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope({
+      walletId: args.walletId,
+      runtimePolicyScope: args.runtimePolicyScope,
+    }),
+  ).trim();
+  const ecdsaThresholdKeyId = String(
+    await computeEcdsaDerivationRoleLocalThresholdKeyId({
+      walletId: String(args.walletId),
+      evmFamilySigningKeySlotId,
+      signingRootId,
+      signingRootVersion,
+    }),
+  ).trim();
+  if (!signingRootId || !signingRootVersion || !evmFamilySigningKeySlotId || !ecdsaThresholdKeyId) {
+    throw new Error('Email OTP ECDSA persisted identity is incomplete');
+  }
+  return {
+    evmFamilySigningKeySlotId,
+    ecdsaThresholdKeyId,
+    signingRootId,
+    signingRootVersion,
+  };
+}
+
+export type ResolvedEmailOtpExistingEcdsaKey = {
+  keyHandle: string;
+  publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+  walletKey: EvmFamilyEcdsaWalletKey;
+  persistedRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
+};
+
+export function projectEmailOtpExistingEcdsaKeyToChainTarget(args: {
+  existingKey: ResolvedEmailOtpExistingEcdsaKey;
+  chainTarget: ThresholdEcdsaChainTarget;
+}): ResolvedEmailOtpExistingEcdsaKey {
+  const sourceFacts = args.existingKey.persistedRoleLocalMaterial.publicFacts;
+  const publicFacts = buildEcdsaRoleLocalPublicFacts({
+    walletId: sourceFacts.walletId,
+    evmFamilySigningKeySlotId: sourceFacts.evmFamilySigningKeySlotId,
+    chainTarget: args.chainTarget,
+    keyHandle: sourceFacts.keyHandle,
+    ecdsaThresholdKeyId: sourceFacts.ecdsaThresholdKeyId,
+    signingRootId: sourceFacts.signingRootId,
+    signingRootVersion: sourceFacts.signingRootVersion,
+    applicationBindingDigestB64u: sourceFacts.applicationBindingDigestB64u,
+    clientParticipantId: sourceFacts.clientParticipantId,
+    relayerParticipantId: sourceFacts.relayerParticipantId,
+    participantIds: sourceFacts.participantIds,
+    contextBinding32B64u: sourceFacts.contextBinding32B64u,
+    derivationClientSharePublicKey33B64u: sourceFacts.derivationClientSharePublicKey33B64u,
+    relayerPublicKey33B64u: sourceFacts.relayerPublicKey33B64u,
+    groupPublicKey33B64u: sourceFacts.groupPublicKey33B64u,
+    ethereumAddress: sourceFacts.ethereumAddress,
+    publicCapability: sourceFacts.publicCapability,
+  });
+  return {
+    keyHandle: args.existingKey.keyHandle,
+    publicCapability: publicFacts.publicCapability,
+    walletKey: buildEvmFamilyEcdsaWalletKey({
+      walletId: publicFacts.walletId,
+      evmFamilySigningKeySlotId: publicFacts.evmFamilySigningKeySlotId,
+      keyHandle: publicFacts.keyHandle,
+      chainTarget: args.chainTarget,
+      ecdsaThresholdKeyId: publicFacts.ecdsaThresholdKeyId,
+      signingRootId: publicFacts.signingRootId,
+      signingRootVersion: publicFacts.signingRootVersion,
+      participantIds: publicFacts.participantIds,
+      thresholdOwnerAddress: publicFacts.ethereumAddress,
+      thresholdEcdsaPublicKeyB64u: publicFacts.groupPublicKey33B64u,
+    }),
+    persistedRoleLocalMaterial: buildPersistedEcdsaRoleLocalMaterial({
+      durableMaterialRef:
+        args.existingKey.persistedRoleLocalMaterial.materialRef.durableMaterialRef,
+      publicFacts,
+    }),
+  };
+}
+
+function sessionRecordEmailOtpEcdsaCandidate(
+  record: ThresholdEcdsaSessionRecord,
+): ResolvedEmailOtpExistingEcdsaKey | null {
+  try {
+    const publicFacts = buildEcdsaRoleLocalPublicFacts(record.ecdsaRoleLocalPublicFacts);
+    const persistedRoleLocalMaterial = requirePersistedEcdsaRoleLocalMaterial(record);
+    const walletKey = buildEvmFamilyEcdsaWalletKey({
+      walletId: publicFacts.walletId,
+      evmFamilySigningKeySlotId: publicFacts.evmFamilySigningKeySlotId,
+      keyHandle: publicFacts.keyHandle,
+      chainTarget: publicFacts.chainTarget,
+      ecdsaThresholdKeyId: publicFacts.ecdsaThresholdKeyId,
+      signingRootId: publicFacts.signingRootId,
+      signingRootVersion: publicFacts.signingRootVersion,
+      participantIds: publicFacts.participantIds,
+      thresholdOwnerAddress: publicFacts.ethereumAddress,
+      thresholdEcdsaPublicKeyB64u: publicFacts.groupPublicKey33B64u,
+    });
     return {
-      ...base,
-      kind: 'new_key_publication_target',
+      keyHandle: String(walletKey.keyHandle),
+      publicCapability: publicFacts.publicCapability,
+      walletKey,
+      persistedRoleLocalMaterial,
     };
+  } catch {
+    return null;
+  }
+}
+
+function activeEmailOtpEcdsaSignerCandidates(args: {
+  walletId: WalletId;
+  keyHandle: string;
+  identity: EmailOtpEcdsaPersistedIdentity;
+  signers: readonly AccountSignerRecord[];
+}): ResolvedEmailOtpExistingEcdsaKey[] {
+  const candidates: ResolvedEmailOtpExistingEcdsaKey[] = [];
+  for (const signer of args.signers) {
+    if (
+      signer.status !== 'active' ||
+      signer.signerKind !== SIGNER_KINDS.thresholdEcdsa ||
+      signer.signerAuthMethod !== SIGNER_AUTH_METHODS.emailOtp
+    ) {
+      continue;
+    }
+    const metadata = signer.metadata;
+    if (!metadata || !isObject(metadata.chainTarget)) continue;
+    let chainTarget: ThresholdEcdsaChainTarget;
+    try {
+      chainTarget = thresholdEcdsaChainTargetFromRequest(metadata.chainTarget);
+    } catch {
+      continue;
+    }
+    const keyHandle = String(metadata.keyHandle || '').trim();
+    if (!keyHandle || (args.keyHandle && keyHandle !== args.keyHandle)) continue;
+    if (
+      String(metadata.evmFamilySigningKeySlotId || '').trim() !==
+        args.identity.evmFamilySigningKeySlotId ||
+      String(metadata.ecdsaThresholdKeyId || '').trim() !== args.identity.ecdsaThresholdKeyId ||
+      String(metadata.signingRootId || '').trim() !== args.identity.signingRootId ||
+      String(metadata.signingRootVersion || 'default').trim() !== args.identity.signingRootVersion
+    ) {
+      continue;
+    }
+    const thresholdEcdsaPublicKeyB64u = String(metadata.thresholdEcdsaPublicKeyB64u || '').trim();
+    let candidate: ResolvedEmailOtpExistingEcdsaKey;
+    try {
+      const publicCapability = parseRouterAbEcdsaDerivationPublicCapabilityV1(
+        metadata.publicCapability,
+      );
+      const publicFacts = buildEcdsaRoleLocalPublicFacts(metadata.ecdsaRoleLocalPublicFacts);
+      const durableMaterialRef = parseEcdsaRoleLocalDurableMaterialRef(
+        metadata.roleLocalDurableMaterialRef,
+      );
+      if (
+        alphabetizeStringify(publicFacts.publicCapability) !==
+        alphabetizeStringify(publicCapability)
+      ) {
+        continue;
+      }
+      if (
+        String(publicFacts.walletId) !== String(args.walletId) ||
+        !thresholdEcdsaChainTargetsEqual(publicFacts.chainTarget, chainTarget) ||
+        String(publicFacts.keyHandle) !== keyHandle ||
+        String(publicFacts.evmFamilySigningKeySlotId) !== args.identity.evmFamilySigningKeySlotId ||
+        String(publicFacts.ecdsaThresholdKeyId) !== args.identity.ecdsaThresholdKeyId ||
+        String(publicFacts.signingRootId) !== args.identity.signingRootId ||
+        String(publicFacts.signingRootVersion) !== args.identity.signingRootVersion ||
+        publicFacts.groupPublicKey33B64u !== thresholdEcdsaPublicKeyB64u
+      ) {
+        continue;
+      }
+      candidate = {
+        keyHandle,
+        publicCapability,
+        walletKey: buildEvmFamilyEcdsaWalletKey({
+          walletId: publicFacts.walletId,
+          evmFamilySigningKeySlotId: publicFacts.evmFamilySigningKeySlotId,
+          keyHandle,
+          chainTarget,
+          ecdsaThresholdKeyId: publicFacts.ecdsaThresholdKeyId,
+          signingRootId: publicFacts.signingRootId,
+          signingRootVersion: publicFacts.signingRootVersion,
+          participantIds: publicFacts.participantIds,
+          thresholdOwnerAddress: publicFacts.ethereumAddress,
+          thresholdEcdsaPublicKeyB64u: publicFacts.groupPublicKey33B64u,
+        }),
+        persistedRoleLocalMaterial: buildPersistedEcdsaRoleLocalMaterial({
+          durableMaterialRef,
+          publicFacts,
+        }),
+      };
+    } catch {
+      continue;
+    }
+    if (
+      String(candidate.publicCapability.client_id) !== String(args.walletId) ||
+      candidate.publicCapability.public_identity.threshold_public_key33_b64u !==
+        thresholdEcdsaPublicKeyB64u
+    ) {
+      continue;
+    }
+    candidates.push(candidate);
+  }
+  return candidates;
+}
+
+export async function resolveEmailOtpExistingEcdsaKey(args: {
+  walletId: WalletId;
+  chainTarget: ThresholdEcdsaChainTarget;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  keyHandle?: string;
+  listThresholdEcdsaSessionRecordsForWallet: typeof listStoredThresholdEcdsaSessionRecordsForWallet;
+  listActiveEcdsaSignersForWallet: EmailOtpEcdsaPublicationPorts['listActiveEcdsaSignersForWallet'];
+}): Promise<ResolvedEmailOtpExistingEcdsaKey | null> {
+  const identity = await resolveEmailOtpEcdsaPersistedIdentity({
+    walletId: args.walletId,
+    runtimePolicyScope: args.runtimePolicyScope,
+  });
+  const requestedKeyHandle = String(args.keyHandle || '').trim();
+  const records = args
+    .listThresholdEcdsaSessionRecordsForWallet(args.walletId, {
+      source: 'email_otp',
+    })
+    .filter((record: ThresholdEcdsaSessionRecord) => {
+      return (
+        (!requestedKeyHandle || String(record.keyHandle).trim() === requestedKeyHandle) &&
+        String(record.evmFamilySigningKeySlotId).trim() === identity.evmFamilySigningKeySlotId &&
+        String(record.ecdsaThresholdKeyId).trim() === identity.ecdsaThresholdKeyId &&
+        String(record.signingRootId).trim() === identity.signingRootId &&
+        String(record.signingRootVersion || 'default').trim() === identity.signingRootVersion
+      );
+    });
+  const sessionCandidates = records
+    .map((record) => sessionRecordEmailOtpEcdsaCandidate(record))
+    .filter((value): value is ResolvedEmailOtpExistingEcdsaKey => value !== null);
+  const profileCandidates = activeEmailOtpEcdsaSignerCandidates({
+    walletId: args.walletId,
+    keyHandle: requestedKeyHandle,
+    identity,
+    signers: await args.listActiveEcdsaSignersForWallet({ walletId: args.walletId }),
+  });
+  const candidates = [...sessionCandidates, ...profileCandidates].reduce((unique, candidate) => {
+    const existing = unique.find((value) => value.keyHandle === candidate.keyHandle);
+    if (!existing) {
+      unique.push(candidate);
+      return unique;
+    }
+    if (
+      alphabetizeStringify(existing.publicCapability) !==
+        alphabetizeStringify(candidate.publicCapability) ||
+      existing.persistedRoleLocalMaterial.materialRef.durableMaterialRef !==
+        candidate.persistedRoleLocalMaterial.materialRef.durableMaterialRef
+    ) {
+      throw new Error(
+        `Email OTP ECDSA has conflicting persisted role-local material for ${thresholdEcdsaChainTargetKey(args.chainTarget)}`,
+      );
+    }
+    return unique;
+  }, [] as ResolvedEmailOtpExistingEcdsaKey[]);
+  if (candidates.length === 0) return null;
+  if (candidates.length !== 1) {
+    throw new Error(
+      `Email OTP ECDSA has multiple persisted public capabilities for ${thresholdEcdsaChainTargetKey(args.chainTarget)}`,
+    );
+  }
+  return projectEmailOtpExistingEcdsaKeyToChainTarget({
+    existingKey: candidates[0]!,
+    chainTarget: args.chainTarget,
   });
 }
 
@@ -283,9 +603,7 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
   const thresholdSessionId = String(
     session?.thresholdSessionId || keyRef.thresholdSessionId || '',
   ).trim();
-  const signingGrantId = String(
-    session?.signingGrantId || keyRef.signingGrantId || '',
-  ).trim();
+  const signingGrantId = String(session?.signingGrantId || keyRef.signingGrantId || '').trim();
   const relayerUrl = String(args.relayerUrl || keyRef.relayerUrl || '').trim();
   const shamirPrimeB64u = String(
     args.shamirPrimeB64u || ports.configs.signing.sessionSeal?.shamirPrimeB64u || '',
@@ -319,9 +637,7 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
   const providerSubjectId = String(
     emailOtpAuthContextProviderUserId(args.emailOtpAuthContext) || userId,
   ).trim();
-  const emailHashHex = String(
-    emailOtpAuthContextEmailHashHex(args.emailOtpAuthContext),
-  ).trim();
+  const emailHashHex = String(emailOtpAuthContextEmailHashHex(args.emailOtpAuthContext)).trim();
   const ethereumAddress = normalizeEthereumAddress(keyRef.ethereumAddress);
   const clientVerifyingShareB64u = String(
     keyRef.backendBinding?.clientVerifyingShareB64u || '',
@@ -329,7 +645,18 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
   const thresholdEcdsaPublicKeyB64u = String(keyRef.thresholdEcdsaPublicKeyB64u || '').trim();
   const relayerKeyId = String(keyRef.backendBinding?.relayerKeyId || '').trim();
   const routerAbEcdsaDerivationNormalSigning = keyRef.routerAbEcdsaDerivationNormalSigning;
-  const publicCapability = keyRef.backendBinding?.ecdsaRoleLocalReadyRecord?.publicFacts.publicCapability;
+  const backendBinding = keyRef.backendBinding;
+  let roleLocalDurableMaterialRef = '';
+  let publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1 | null = null;
+  if (backendBinding?.materialKind === 'role_local_worker_handle') {
+    roleLocalDurableMaterialRef = String(
+      backendBinding.roleLocalMaterialHandle.durableMaterialRef,
+    ).trim();
+    publicCapability = backendBinding.publicFacts.publicCapability;
+  } else if (backendBinding?.materialKind === 'role_local_durable_sealed_ref') {
+    roleLocalDurableMaterialRef = String(backendBinding.durableMaterialRef).trim();
+    publicCapability = backendBinding.publicFacts.publicCapability;
+  }
   const participantIds = Array.isArray(keyRef.participantIds)
     ? keyRef.participantIds
         .map((participantId) => Math.floor(Number(participantId)))
@@ -346,6 +673,7 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
     !relayerKeyId ||
     !routerAbEcdsaDerivationNormalSigning ||
     !publicCapability ||
+    !roleLocalDurableMaterialRef ||
     !participantIds.length ||
     !walletSessionJwt ||
     !signingRootId ||
@@ -447,6 +775,7 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
       participantIds,
       routerAbEcdsaDerivationNormalSigning,
       publicCapability,
+      roleLocalDurableMaterialRef,
     },
     updatedAtMs: persistedAtMs,
   });
@@ -473,6 +802,7 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
     persisted.thresholdSessionIds.ecdsa !== thresholdSessionId ||
     persisted.signingGrantId !== signingGrantId ||
     persisted.sealedSecretB64u !== sealedSecretB64u ||
+    persisted.ecdsaRestore?.roleLocalDurableMaterialRef !== roleLocalDurableMaterialRef ||
     !persisted.ecdsaRestore?.chainTarget ||
     !thresholdEcdsaChainTargetsEqual(persisted.ecdsaRestore.chainTarget, actualChainTarget)
   ) {

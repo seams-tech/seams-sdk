@@ -3,6 +3,8 @@ import type { WalletSessionRef } from '@/core/signingEngine/interfaces/ecdsaChai
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { EmailOtpRuntimeConfig } from './runtimeConfig';
 import type { EmailOtpEcdsaPublicationPorts } from './ecdsaPublication';
+import type { ThresholdEcdsaActivationRequest } from '../passkey/ecdsaSessionProvision';
+import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import {
   loginWithEmailOtpEcdsaCapability,
   loginWithEmailOtpEcdsaCapabilityForSigning,
@@ -23,6 +25,9 @@ export class EmailOtpEcdsaLifecycleRuntime {
     private readonly ports: {
       configs: SeamsConfigsReadonly;
       getSignerWorkerContext: () => WorkerOperationContext | null | undefined;
+      provisionThresholdEcdsaSession: (
+        request: ThresholdEcdsaActivationRequest,
+      ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
       runtimeConfig: EmailOtpRuntimeConfig;
       rememberAppSessionJwt: (args: {
         walletId: WalletSessionRef['walletId'];
@@ -55,6 +60,7 @@ export class EmailOtpEcdsaLifecycleRuntime {
     return await loginWithEmailOtpEcdsaCapability(args, {
       configs: this.ports.configs,
       getSignerWorkerContext: this.ports.getSignerWorkerContext,
+      provisionThresholdEcdsaSession: this.ports.provisionThresholdEcdsaSession,
       requireRelayUrl: () => this.ports.runtimeConfig.requireRelayUrl(),
       requireShamirPrimeB64u: () => this.ports.runtimeConfig.requireShamirPrimeB64u(),
       rememberAppSessionJwt: (request) => this.ports.rememberAppSessionJwt(request),
@@ -71,6 +77,7 @@ export class EmailOtpEcdsaLifecycleRuntime {
       requireRelayUrl: () => this.ports.runtimeConfig.requireRelayUrl(),
       requireShamirPrimeB64u: () => this.ports.runtimeConfig.requireShamirPrimeB64u(),
       requireRpId: (operation) => this.ports.runtimeConfig.requireRpId(operation),
+      provisionThresholdEcdsaSession: this.ports.provisionThresholdEcdsaSession,
       rememberAppSessionJwt: (request) => this.ports.rememberAppSessionJwt(request),
       publicationPorts: this.ports.publicationPorts(),
     });

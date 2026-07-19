@@ -66,7 +66,6 @@ export type LoginWithEmailOtpEcdsaCapabilityInternalArgs = {
   emailHashHex: string;
   authSubjectId?: never;
   onProgress?: (progress: EmailOtpWorkerProgressEvent) => void;
-  includeEcdsaExportArtifact?: boolean;
   ed25519YaoRecovery?: Extract<
     LoginEmailOtpEcdsaCapabilityArgs['ed25519YaoRecovery'],
     { kind: 'requested' }
@@ -240,9 +239,6 @@ function emailOtpEcdsaLoginCoreArgsFromBoundary(
     ...(typeof args.remainingUses === 'number' ? { remainingUses: args.remainingUses } : {}),
     ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
     ...(args.onProgress ? { onProgress: args.onProgress } : {}),
-    ...(args.includeEcdsaExportArtifact
-      ? { includeEcdsaExportArtifact: args.includeEcdsaExportArtifact }
-      : {}),
   };
 }
 

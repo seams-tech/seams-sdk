@@ -5,6 +5,7 @@ import type {
   listStoredThresholdEcdsaSessionRecordsForWallet,
   ThresholdEcdsaSessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
+import type { AccountSignerRecord } from '@/core/indexedDB/passkeyClientDB.types';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type {
@@ -21,6 +22,7 @@ import type {
   updateExactSealedSessionPolicy,
   writeExactSealedSession,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
+import type { ThresholdEcdsaActivationRequest } from '@/core/signingEngine/session/passkey/ecdsaSessionProvision';
 
 export type EmailOtpCoordinatorRuntimePorts = {
   configs: SeamsConfigsReadonly;
@@ -31,6 +33,9 @@ export type EmailOtpCoordinatorRuntimePorts = {
 };
 
 export type EmailOtpEcdsaSessionPorts = {
+  provisionThresholdEcdsaSession: (
+    request: ThresholdEcdsaActivationRequest,
+  ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
   commitEvmFamilyThresholdEcdsaSessions: (args: {
     walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
@@ -41,7 +46,10 @@ export type EmailOtpEcdsaSessionPorts = {
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     warmCapability: WarmSessionEcdsaCapabilityState;
   }>;
-  listThresholdEcdsaSessionRecordsForWallet?: typeof listStoredThresholdEcdsaSessionRecordsForWallet;
+  listThresholdEcdsaSessionRecordsForWallet: typeof listStoredThresholdEcdsaSessionRecordsForWallet;
+  listActiveEcdsaSignersForWallet: (args: {
+    walletId: WalletId;
+  }) => Promise<readonly AccountSignerRecord[]>;
   getThresholdEcdsaSessionRecordByThresholdSessionId: (
     thresholdSessionId: string,
   ) => ThresholdEcdsaSessionRecord | null;
@@ -57,7 +65,6 @@ export type EmailOtpSealedSessionStorePorts = {
   updateExactSealedSessionPolicy: typeof updateExactSealedSessionPolicy;
 };
 
-export type EmailOtpWalletSessionCoordinatorDeps =
-  & EmailOtpCoordinatorRuntimePorts
-  & EmailOtpEcdsaSessionPorts
-  & EmailOtpSealedSessionStorePorts;
+export type EmailOtpWalletSessionCoordinatorDeps = EmailOtpCoordinatorRuntimePorts &
+  EmailOtpEcdsaSessionPorts &
+  EmailOtpSealedSessionStorePorts;

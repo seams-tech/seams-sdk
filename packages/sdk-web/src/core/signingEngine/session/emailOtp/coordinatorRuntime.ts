@@ -92,6 +92,8 @@ export class EmailOtpWalletSessionRuntime {
       configs: deps.configs,
       getSignerWorkerContext: deps.getSignerWorkerContext,
       commitEvmFamilyThresholdEcdsaSessions: deps.commitEvmFamilyThresholdEcdsaSessions,
+      listThresholdEcdsaSessionRecordsForWallet: deps.listThresholdEcdsaSessionRecordsForWallet,
+      listActiveEcdsaSignersForWallet: deps.listActiveEcdsaSignersForWallet,
       writeExactSealedSession: deps.writeExactSealedSession,
       readExactSealedSession: deps.readExactSealedSession,
       clearEcdsaRestoreCaches: () => this.clearEcdsaRestoreCaches(),
@@ -99,6 +101,7 @@ export class EmailOtpWalletSessionRuntime {
     this.ecdsaLifecycleRuntime = new EmailOtpEcdsaLifecycleRuntime({
       configs: deps.configs,
       getSignerWorkerContext: deps.getSignerWorkerContext,
+      provisionThresholdEcdsaSession: deps.provisionThresholdEcdsaSession,
       runtimeConfig: this.runtimeConfig,
       rememberAppSessionJwt: (request) => this.rememberAppSessionJwt(request),
       publicationPorts: () => this.sealedSessionRegistry.ecdsaPublicationPorts(),
@@ -114,6 +117,7 @@ export class EmailOtpWalletSessionRuntime {
       createEmailOtpEcdsaSigningSessionMaterialRestorer({
         configs: deps.configs,
         getSignerWorkerContext: deps.getSignerWorkerContext,
+        provisionThresholdEcdsaSession: deps.provisionThresholdEcdsaSession,
         commitEvmFamilyThresholdEcdsaSessions: deps.commitEvmFamilyThresholdEcdsaSessions,
       });
     const warmSessionWorkerClient = createEmailOtpWarmSessionWorkerClient({

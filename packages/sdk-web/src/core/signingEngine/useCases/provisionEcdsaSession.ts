@@ -155,6 +155,10 @@ type EmailOtpEcdsaActivation = EcdsaProvisionActivationCommon & {
     EcdsaSessionProvisionPlan,
     { kind: 'email_otp_ecdsa_session_provision' }
   >['provisionSecretSource']['emailOtpAuthContext'];
+  walletSessionRouteAuth: Extract<
+    EcdsaSessionProvisionPlan,
+    { kind: 'email_otp_ecdsa_session_provision' }
+  >['walletSessionRouteAuth'];
   plan: Extract<EcdsaSessionProvisionPlan, { kind: 'email_otp_ecdsa_session_provision' }>;
 };
 
@@ -512,6 +516,7 @@ function buildEmailOtpEcdsaActivation(args: {
     runtimePolicy: args.runtimePolicy,
     emailOtpWorkerSessionHandle: args.plan.provisionSecretSource.workerHandle,
     emailOtpAuthContext: args.plan.provisionSecretSource.emailOtpAuthContext,
+    walletSessionRouteAuth: args.plan.walletSessionRouteAuth,
     plan: args.plan,
   };
   if (args.options.runtimeScopeBootstrap) {
@@ -723,6 +728,7 @@ async function provisionEmailOtpEcdsaSession(
         publicCapability: activation.publicCapability,
         existingRoleLocalMaterial: activation.existingRoleLocalMaterial,
         emailOtpAuthContext,
+        walletSessionRouteAuth: activation.walletSessionRouteAuth,
       }),
     );
   }
@@ -745,6 +751,7 @@ async function provisionEmailOtpEcdsaSession(
         publicCapability: activation.publicCapability,
         existingRoleLocalMaterial: activation.existingRoleLocalMaterial,
         emailOtpAuthContext,
+        walletSessionRouteAuth: activation.walletSessionRouteAuth,
       }),
     );
   }
@@ -1091,6 +1098,7 @@ export async function ensureWarmEcdsaCapabilityReady(
                 workerHandle: args.plan.provisionSecretSource.workerHandle,
                 emailOtpAuthContext: inheritedEmailOtpRecord.emailOtpAuthContext,
               }),
+              walletSessionRouteAuth: args.plan.walletSessionRouteAuth,
               ...(args.plan.runtimePolicyScope
                 ? { runtimePolicyScope: args.plan.runtimePolicyScope }
                 : {}),

@@ -1,7 +1,10 @@
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import type { SignerWorkerOperationResult } from '@/core/signingEngine/workerManager/workerTypes';
+import type {
+  EmailOtpEcdsaSessionBootstrapHandlePayload,
+  SignerWorkerOperationResult,
+} from '@/core/signingEngine/workerManager/workerTypes';
 import type { SigningSessionSealKeyVersion } from '../keyMaterialBrands';
 
 type EmailOtpWorkerRequester = Pick<WorkerOperationContext, 'requestWorkerOperation'>;
@@ -18,12 +21,7 @@ export type EmailOtpEcdsaWarmSessionRestore = {
   walletId: string;
   evmFamilySigningKeySlotId: string;
   chainTarget: ThresholdEcdsaChainTarget;
-  signingGrantId: string;
-  keyHandle: string;
-  relayerKeyId: string;
-  participantIds: number[];
-  sessionKind: 'jwt';
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  authSubjectId: string;
 };
 
 export type EmailOtpEd25519YaoFactorRestore = {
@@ -45,6 +43,30 @@ export async function requestSealEmailOtpWarmSessionMaterial(args: {
       payload: {
         sessionId: args.sessionId,
         transport: args.transport,
+      },
+    },
+  });
+}
+
+export async function requestBindEmailOtpEcdsaWarmSessionFromWorkerHandle(args: {
+  workerCtx: WorkerOperationContext;
+  clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
+  thresholdSessionId: string;
+  remainingUses: number;
+  expiresAtMs: number;
+}): Promise<
+  SignerWorkerOperationResult<'emailOtp', 'bindEmailOtpEcdsaWarmSessionFromWorkerHandle'>
+> {
+  return await args.workerCtx.requestWorkerOperation({
+    kind: 'emailOtp',
+    request: {
+      type: 'bindEmailOtpEcdsaWarmSessionFromWorkerHandle',
+      timeoutMs: 5_000,
+      payload: {
+        clientRootShareHandle: args.clientRootShareHandle,
+        thresholdSessionId: args.thresholdSessionId,
+        remainingUses: args.remainingUses,
+        expiresAtMs: args.expiresAtMs,
       },
     },
   });

@@ -843,6 +843,81 @@ export function ecdsaAvailableLaneIdentityKey(
   }
 }
 
+export function ecdsaAvailableLaneMaterialKey(
+  lane: EcdsaAvailableLaneIdentityInput | MissingAvailableEcdsaSigningLane | null | undefined,
+): string | null {
+  if (!lane || lane.curve !== 'ecdsa') return null;
+  if (!lane.chainTarget || !('key' in lane) || !lane.key) return null;
+  if (!('auth' in lane) || !lane.auth) return null;
+  const authMethod = signingLaneAuthMethod(lane.auth);
+  const authKey = ecdsaAvailableLaneAuthKey(lane.auth);
+  if (!authMethod || !authKey) return null;
+  try {
+    return [
+      authMethod,
+      'ecdsa',
+      thresholdEcdsaChainTargetKey(lane.chainTarget),
+      authKey,
+      String(lane.key.walletId),
+      String(lane.key.evmFamilySigningKeySlotId),
+      String(lane.key.ecdsaThresholdKeyId),
+      String(lane.key.signingRootId),
+      String(lane.key.signingRootVersion || 'default'),
+      deriveAvailableEcdsaLaneFingerprint(lane),
+    ].join(':');
+  } catch {
+    return null;
+  }
+}
+
+type DurableAvailableEcdsaSigningLane = Extract<
+  ConcreteAvailableEcdsaSigningLane,
+  { source: 'durable_sealed_record' }
+>;
+
+function isDurableAvailableEcdsaSigningLane(
+  lane: AvailableEcdsaSigningLane,
+): lane is DurableAvailableEcdsaSigningLane {
+  return isConcreteAvailableSigningLane(lane) && lane.source === 'durable_sealed_record';
+}
+
+function selectDurableEcdsaLaneForRuntime(args: {
+  runtimeLaneKey: string | null;
+  runtimeLaneMaterialKey: string | null;
+  targetCandidates: AvailableEcdsaSigningLane[];
+  targetLane: AvailableEcdsaSigningLane;
+  chainTarget: ThresholdEcdsaChainTarget;
+}): AvailableEcdsaSigningLane {
+  for (const lane of args.targetCandidates) {
+    if (
+      !isDurableAvailableEcdsaSigningLane(lane) ||
+      args.runtimeLaneKey === null ||
+      ecdsaAvailableLaneIdentityKey(lane) !== args.runtimeLaneKey
+    ) {
+      continue;
+    }
+    return lane;
+  }
+  if (
+    isDurableAvailableEcdsaSigningLane(args.targetLane) &&
+    args.runtimeLaneMaterialKey !== null &&
+    ecdsaAvailableLaneMaterialKey(args.targetLane) === args.runtimeLaneMaterialKey
+  ) {
+    return args.targetLane;
+  }
+  for (const lane of args.targetCandidates) {
+    if (
+      !isDurableAvailableEcdsaSigningLane(lane) ||
+      args.runtimeLaneMaterialKey === null ||
+      ecdsaAvailableLaneMaterialKey(lane) !== args.runtimeLaneMaterialKey
+    ) {
+      continue;
+    }
+    return lane;
+  }
+  return emptyEcdsaLane({ chainTarget: args.chainTarget });
+}
+
 export function ecdsaAvailableLaneAuthKey(auth: SigningLaneAuthBinding): string | null {
   return signingLaneAuthBindingKey(auth);
 }
@@ -1710,13 +1785,13 @@ async function runtimeRecordToEcdsaLane(args: {
     record: args.record,
     publicFacts: args.publicFacts,
   });
-  const runtimeLaneKey = ecdsaAvailableLaneIdentityKey(runtimeLaneIdentity);
-  const durableLaneKey = ecdsaAvailableLaneIdentityKey(args.durableLane);
+  const runtimeLaneMaterialKey = ecdsaAvailableLaneMaterialKey(runtimeLaneIdentity);
+  const durableLaneMaterialKey = ecdsaAvailableLaneMaterialKey(args.durableLane);
   const hasMatchingDurableLane =
     isConcreteAvailableSigningLane(args.durableLane) &&
     args.durableLane.source === 'durable_sealed_record' &&
-    Boolean(runtimeLaneKey) &&
-    durableLaneKey === runtimeLaneKey;
+    Boolean(runtimeLaneMaterialKey) &&
+    durableLaneMaterialKey === runtimeLaneMaterialKey;
   const remainingUses = nullableNonNegativeInteger(
     advisoryRemainingUses(advisory) ?? args.record.remainingUses,
   );
@@ -2963,20 +3038,23 @@ export async function readAvailableSigningLanes(
       });
       continue;
     }
-    const runtimeLaneKey = ecdsaAvailableLaneIdentityKey(
-      buildRuntimeEcdsaAvailableLaneIdentityInput({
-        record: runtimeRecord,
-        publicFacts: runtimePublicFacts,
-      }),
-    );
+    const runtimeLaneIdentity = buildRuntimeEcdsaAvailableLaneIdentityInput({
+      record: runtimeRecord,
+      publicFacts: runtimePublicFacts,
+    });
+    const runtimeLaneKey = ecdsaAvailableLaneIdentityKey(runtimeLaneIdentity);
+    const runtimeLaneMaterialKey = ecdsaAvailableLaneMaterialKey(runtimeLaneIdentity);
     const targetKey = thresholdEcdsaChainTargetKey(runtimeRecord.chainTarget);
     const targetCandidates = ecdsaCandidatesByTarget[targetKey] || [];
     const targetLane =
       ecdsaLanesByTarget[targetKey] || emptyEcdsaLane({ chainTarget: runtimeRecord.chainTarget });
-    const durableLane =
-      (runtimeLaneKey
-        ? targetCandidates.find((lane) => ecdsaAvailableLaneIdentityKey(lane) === runtimeLaneKey)
-        : undefined) || targetLane;
+    const durableLane = selectDurableEcdsaLaneForRuntime({
+      runtimeLaneKey,
+      runtimeLaneMaterialKey,
+      targetCandidates,
+      targetLane,
+      chainTarget: runtimeRecord.chainTarget,
+    });
     const advisoryKey = runtimeEcdsaRecordAdvisoryKey(runtimeRecord);
     const runtimeAdvisory = advisoryKey
       ? advisoriesByEcdsaRecordKey.get(advisoryKey) || null

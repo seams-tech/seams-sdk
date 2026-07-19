@@ -20,6 +20,7 @@ import {
   type EcdsaWalletSessionAuthority,
 } from '../../session/identity/ecdsaWalletSessionAuthority';
 import type { ThresholdEcdsaExplicitKeyExportBootstrapResult } from '../../session/passkey/ecdsaSessionProvision';
+import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import type { ReadyEcdsaSignerSession } from '../../session/identity/evmFamilyEcdsaIdentity';
 import {
   requirePersistedEcdsaRoleLocalMaterial,
@@ -48,16 +49,27 @@ export type EcdsaDerivationExportDeps = {
 
 type ExplicitKeyExportMaterial = ThresholdEcdsaExplicitKeyExportBootstrapResult['material'];
 
+type EcdsaDerivationExportAuthorization =
+  | {
+      kind: 'passkey';
+      passkeyCredentialIdB64u: string;
+      credential: WebAuthnAuthenticationCredential;
+    }
+  | {
+      kind: 'email_otp_verified';
+      passkeyCredentialIdB64u?: never;
+      credential?: never;
+    };
+
 type ResolvedEcdsaDerivationExportMaterial = {
   walletSessionAuthority: EcdsaWalletSessionAuthority;
   relayerUrl: string;
   publicFacts: EcdsaRoleLocalPublicFacts;
   roleLocalMaterial: FinalizeRouterAbEcdsaExplicitExportRequestV1['roleLocalMaterial'];
-  passkeyCredentialIdB64u: string;
   ecdsaThresholdKeyId: ReturnType<typeof toEcdsaDerivationThresholdKeyId>;
   signingRootId: string;
   signingRootVersion: string;
-  credential: WebAuthnAuthenticationCredential;
+  authorization: EcdsaDerivationExportAuthorization;
 };
 
 type EcdsaDerivationExportPublicIdentity = {
@@ -235,16 +247,29 @@ async function executeEcdsaDerivationExport(
   privateKeyHex: string;
   ethereumAddress: string;
 }> {
-  const authorizedCredentialId = String(
-    material.credential.rawId || material.credential.id || '',
-  ).trim();
-  if (!authorizedCredentialId) {
-    throw new Error('[SigningEngine][ecdsa-export] passkey authorization credential is missing');
-  }
-  if (authorizedCredentialId !== material.passkeyCredentialIdB64u) {
-    throw new Error(
-      '[SigningEngine][ecdsa-export] passkey export authorization credential mismatch',
-    );
+  switch (material.authorization.kind) {
+    case 'passkey': {
+      const authorizedCredentialId = String(
+        material.authorization.credential.rawId ||
+          material.authorization.credential.id ||
+          '',
+      ).trim();
+      if (!authorizedCredentialId) {
+        throw new Error('[SigningEngine][ecdsa-export] passkey authorization credential is missing');
+      }
+      if (authorizedCredentialId !== material.authorization.passkeyCredentialIdB64u) {
+        throw new Error(
+          '[SigningEngine][ecdsa-export] passkey export authorization credential mismatch',
+        );
+      }
+      break;
+    }
+    case 'email_otp_verified':
+      break;
+    default: {
+      const exhaustive: never = material.authorization;
+      throw new Error(`Unsupported ECDSA export authorization: ${String(exhaustive)}`);
+    }
   }
   const issuedAtUnixMs = Date.now();
   const expiresAtUnixMs = Math.min(
@@ -450,11 +475,14 @@ export async function exportEcdsaDerivationKeyWithExplicitExportSession(
     relayerUrl,
     publicFacts,
     roleLocalMaterial: material.roleLocalMaterial,
-    passkeyCredentialIdB64u: args.exportProvision.passkeyCredentialIdB64u,
     ecdsaThresholdKeyId,
     signingRootId,
     signingRootVersion,
-    credential: args.credential,
+    authorization: {
+      kind: 'passkey',
+      passkeyCredentialIdB64u: args.exportProvision.passkeyCredentialIdB64u,
+      credential: args.credential,
+    },
   });
 }
 
@@ -545,10 +573,71 @@ export async function exportEcdsaDerivationKeyWithWalletSession(
     relayerUrl,
     publicFacts,
     roleLocalMaterial: exactRoleLocalMaterial,
-    passkeyCredentialIdB64u: authMethod.credentialIdB64u,
     ecdsaThresholdKeyId,
     signingRootId,
     signingRootVersion,
-    credential: args.credential,
+    authorization: {
+      kind: 'passkey',
+      passkeyCredentialIdB64u: authMethod.credentialIdB64u,
+      credential: args.credential,
+    },
+  });
+}
+
+export async function exportEcdsaDerivationKeyWithEmailOtpSession(
+  deps: EcdsaDerivationExportDeps,
+  args: {
+    walletSessionUserId: string;
+    bootstrap: ThresholdEcdsaSessionBootstrapResult;
+  },
+): Promise<{
+  publicKeyHex: string;
+  privateKeyHex: string;
+  ethereumAddress: string;
+}> {
+  const keyRef = args.bootstrap.thresholdEcdsaKeyRef;
+  const backendBinding = keyRef.backendBinding;
+  if (!backendBinding || backendBinding.materialKind !== 'role_local_worker_handle') {
+    throw new Error(
+      '[SigningEngine][ecdsa-export] Email OTP export requires live registered role-local material',
+    );
+  }
+  if (backendBinding.authMethod.kind !== 'email_otp') {
+    throw new Error('[SigningEngine][ecdsa-export] Email OTP export material auth mismatch');
+  }
+  const walletSessionJwt = String(keyRef.walletSessionJwt || args.bootstrap.session.jwt || '').trim();
+  const relayerUrl = String(keyRef.relayerUrl || '').trim();
+  const keyHandle = String(keyRef.keyHandle || '').trim();
+  if (!walletSessionJwt || !relayerUrl || !keyHandle) {
+    throw new Error('[SigningEngine][ecdsa-export] Email OTP export session transport is incomplete');
+  }
+  const walletSessionAuthority = buildEcdsaWalletSessionAuthority({
+    walletSessionJwt,
+    walletId: args.walletSessionUserId,
+    evmFamilySigningKeySlotId: keyRef.evmFamilySigningKeySlotId,
+    keyHandle,
+    thresholdSessionId: args.bootstrap.session.thresholdSessionId,
+    signingGrantId: args.bootstrap.session.signingGrantId,
+  });
+  const publicFacts = backendBinding.publicFacts;
+  if (
+    String(publicFacts.walletId) !== String(walletSessionAuthority.walletId) ||
+    String(publicFacts.evmFamilySigningKeySlotId) !==
+      String(walletSessionAuthority.evmFamilySigningKeySlotId) ||
+    String(publicFacts.keyHandle) !== String(walletSessionAuthority.keyHandle)
+  ) {
+    throw new Error('[SigningEngine][ecdsa-export] Email OTP role-local identity mismatch');
+  }
+  return await executeEcdsaDerivationExport(deps, {
+    walletSessionAuthority,
+    relayerUrl,
+    publicFacts,
+    roleLocalMaterial: backendBinding.roleLocalMaterialHandle,
+    ecdsaThresholdKeyId: toEcdsaDerivationThresholdKeyId(keyRef.ecdsaThresholdKeyId),
+    signingRootId: toEcdsaDerivationSigningRootId(publicFacts.signingRootId),
+    signingRootVersion: toEcdsaDerivationSigningRootVersion(
+      publicFacts.signingRootVersion || ECDSA_DERIVATION_SIGNING_ROOT_VERSION_DEFAULT,
+    ),
+    authorization: { kind: 'email_otp_verified' },
   });
 }

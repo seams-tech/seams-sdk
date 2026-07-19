@@ -40,6 +40,8 @@ export class EmailOtpSealedSessionRegistry {
       }>;
       writeExactSealedSession: typeof writeExactSealedSession;
       readExactSealedSession: typeof readExactSealedSession;
+      listThresholdEcdsaSessionRecordsForWallet: EmailOtpEcdsaPublicationPorts['listThresholdEcdsaSessionRecordsForWallet'];
+      listActiveEcdsaSignersForWallet: EmailOtpEcdsaPublicationPorts['listActiveEcdsaSignersForWallet'];
       clearEcdsaRestoreCaches: () => void;
     },
   ) {}
@@ -63,6 +65,9 @@ export class EmailOtpSealedSessionRegistry {
         this.ports.commitEvmFamilyThresholdEcdsaSessions,
       registerSigningSession: (record) => this.registerSigningSession(record),
       readExactSealedSession: this.ports.readExactSealedSession,
+      listThresholdEcdsaSessionRecordsForWallet:
+        this.ports.listThresholdEcdsaSessionRecordsForWallet,
+      listActiveEcdsaSignersForWallet: this.ports.listActiveEcdsaSignersForWallet,
     };
   }
 

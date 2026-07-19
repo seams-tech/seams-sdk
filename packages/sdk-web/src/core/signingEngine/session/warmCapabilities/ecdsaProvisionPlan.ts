@@ -1,8 +1,5 @@
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
-import {
-  decodeJwtPayloadRecord,
-  type AppOrWalletSessionAuth,
-} from '@shared/utils/sessionTokens';
+import { decodeJwtPayloadRecord, type AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import type { EmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import {
@@ -121,11 +118,11 @@ export type EmailOtpEcdsaSessionProvision = {
 
   // Branch-specific fields.
   provisionSecretSource: EmailOtpEcdsaProvisionSecretSource;
+  walletSessionRouteAuth: AppOrWalletSessionAuth;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   emailOtpAuthContext?: never;
   passkeyPrfFirstB64u?: never;
   webauthnAuthentication?: never;
-  walletSessionRouteAuth?: never;
 };
 
 export type EcdsaSessionProvisionPlan =
@@ -173,6 +170,7 @@ type BuildEmailOtpEcdsaSessionProvisionPlanArgs = {
   sessionKind: 'jwt';
   sessionBudgetUses: number;
   provisionSecretSource: EmailOtpEcdsaProvisionSecretSource;
+  walletSessionRouteAuth: AppOrWalletSessionAuth;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   emailOtpAuthContext?: never;
   passkeyPrfFirstB64u?: never;
@@ -519,6 +517,7 @@ export function buildEmailOtpEcdsaSessionProvision(args: {
   sessionKind: 'jwt';
   sessionBudgetUses: number;
   provisionSecretSource: EmailOtpEcdsaProvisionSecretSource;
+  walletSessionRouteAuth: AppOrWalletSessionAuth;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
 }): EmailOtpEcdsaSessionProvision {
   return {
@@ -532,6 +531,7 @@ export function buildEmailOtpEcdsaSessionProvision(args: {
 
     // Branch-specific fields.
     provisionSecretSource: args.provisionSecretSource,
+    walletSessionRouteAuth: args.walletSessionRouteAuth,
     ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
   } satisfies EmailOtpEcdsaSessionProvision;
 }
@@ -549,6 +549,7 @@ export function buildEcdsaSessionProvisionPlan(
         sessionKind: args.sessionKind,
         sessionBudgetUses: args.sessionBudgetUses,
         provisionSecretSource: args.provisionSecretSource,
+        walletSessionRouteAuth: args.walletSessionRouteAuth,
         ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
       });
     case 'passkey_ecdsa_session_provision':
