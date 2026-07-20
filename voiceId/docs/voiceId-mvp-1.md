@@ -303,10 +303,12 @@ enables it explicitly.
 
 1. Produce one subject-disjoint benchmark for accuracy, stage latency, memory,
    resource use, uncertainty, and failure rate.
-2. Feed phrase, speaker, PAD, and template processing from one canonical decode
-   and shared VAD result in persistent workers.
-3. Select and calibrate the speaker model, constrained expected-phrase scorer,
-   and PAD model on held-out subjects and attacks.
+2. Feed phrase, intent, speaker, PAD, and template processing from one canonical
+   decode and shared VAD result in persistent workers.
+3. Test Moonshine Tiny Streaming and Small Streaming first for flexible
+   challenge-token coverage and semantic-intent verification, then select and
+   calibrate the phrase, intent, speaker, and PAD models on held-out subjects
+   and attacks.
 4. Improve continuous-enrollment aggregation and cross-session template
    stability.
 5. Qualify optimized server, embedded, and iOS research builds with decision
