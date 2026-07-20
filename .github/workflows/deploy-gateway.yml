@@ -89,8 +89,20 @@ jobs:
           node-version: '24'
           cache: 'pnpm'
 
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Add wasm target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Build Gateway WASM dependencies
+        run: pnpm -C packages/console-server-ts run d1:local:ensure-wasm
 
       - name: Validate deployment credentials and secrets
         run: |
