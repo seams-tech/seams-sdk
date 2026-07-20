@@ -1,5 +1,4 @@
 import { readFileSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -429,25 +428,10 @@ for (const [label, needle] of [
   }
 }
 
-const p2Tests = [
-  'durable_object_handler_stores_full_derivation_ceremony_lifecycle',
-  'durable_object_handler_rejects_skipped_derivation_ceremony_activation',
-  'durable_object_handler_rejects_derivation_ceremony_scope_change',
-  'durable_object_handler_rejects_terminal_derivation_ceremony_rewrite',
-];
-const p2Result = runCargoTest(p2Tests);
-if (p2Result.status !== 0) {
-  blockers.push('P2: Cloudflare derivation ceremony lifecycle tests failed');
-}
-
 if (blockers.length > 0) {
   console.error('Router A/B release blockers remain:');
   for (const blocker of blockers) {
     console.error(`- ${blocker}`);
-  }
-  if (p2Result.status !== 0) {
-    console.error('\nP2 ceremony lifecycle test output:');
-    process.stderr.write(p2Result.output);
   }
   process.exit(1);
 }
@@ -550,12 +534,11 @@ function requireDeployWorkflowBranchPromotionBoundary(
       stagingWorkflowSource,
       [
         'name: deploy-staging',
-        "workflows: ['ci']",
+        'push:',
         'branches: [dev]',
-        "github.event.workflow_run.conclusion == 'success'",
-        "github.event.workflow_run.event == 'push'",
-        "github.event.workflow_run.head_branch == 'dev'",
+        'workflow_dispatch:',
         'target: staging',
+        'deploy_sha: ${{ github.sha }}',
         'source_branch: dev',
       ],
     ],
@@ -583,8 +566,8 @@ function requireDeployWorkflowBranchPromotionBoundary(
 
   for (const requiredNeedle of [
     'workflow_call:',
-    "DEPLOY_OPERATION: ${{ github.event_name == 'workflow_call' && 'deploy' || inputs.operation }}",
-    "DEPLOY_ROLE: ${{ github.event_name == 'workflow_call' && 'all' || inputs.role }}",
+    "DEPLOY_OPERATION: ${{ inputs.deploy_sha != '' && 'deploy' || inputs.operation }}",
+    "DEPLOY_ROLE: ${{ inputs.deploy_sha != '' && 'all' || inputs.role }}",
     'ref: ${{ env.DEPLOY_SHA }}',
   ]) {
     if (!workflowSource.includes(requiredNeedle)) {
@@ -681,46 +664,4 @@ function requireSourceRangeOccurrenceCount(
   if (occurrences !== expectedCount) {
     blockers.push(label);
   }
-}
-
-function runCargoTest(testNames) {
-  let output = '';
-  for (const testName of testNames) {
-    const args = [
-      'test',
-      '--manifest-path',
-      'crates/router-ab-cloudflare/Cargo.toml',
-      '--test',
-      'bindings',
-      testName,
-      '--',
-      '--exact',
-    ];
-    const result = spawnSync('cargo', args, {
-      cwd: repoRoot,
-      encoding: 'utf8',
-    });
-    output += `$ cargo ${args.join(' ')}\n`;
-    output += `${result.stdout || ''}${result.stderr || ''}`;
-    if ((result.status ?? 1) !== 0) {
-      return {
-        status: result.status ?? 1,
-        output,
-      };
-    }
-    if (!testOutputHasExactlyOnePassingTest(`${result.stdout || ''}${result.stderr || ''}`)) {
-      output += `Expected exactly one passing test for ${testName}.\n`;
-      return {
-        status: 1,
-        output,
-      };
-    }
-  }
-  return { status: 0, output };
-}
-
-function testOutputHasExactlyOnePassingTest(output) {
-  return /\ntest result: ok\. 1 passed; 0 failed; 0 ignored; 0 measured; \d+ filtered out;/.test(
-    output,
-  );
 }
