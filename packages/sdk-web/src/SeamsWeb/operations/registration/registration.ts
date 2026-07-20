@@ -127,6 +127,10 @@ import {
 import { registerVerifiedPasskeyEd25519YaoV1 } from '@/core/signingEngine/flows/registration/services/passkeyEd25519YaoRegistration';
 import { registerVerifiedPasskeyEd25519YaoAddSignerV1 } from '@/core/signingEngine/flows/registration/services/passkeyEd25519YaoAddSigner';
 import type { ProductEd25519YaoPendingRegistrationPortV1 } from '@/core/signingEngine/flows/registration/services/ed25519YaoRegistration';
+import {
+  deletePasskeyEd25519YaoLocalMaterialV1,
+  persistPasskeyEd25519YaoLocalMaterialV1,
+} from '@/core/signingEngine/session/passkey/ed25519YaoLocalMaterial';
 import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmCapabilities/persistence';
 import { resolveRouterAbEd25519WalletSessionStateFromRecord } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
 import { persistPasskeyEd25519YaoSessionForRefresh } from '@/core/signingEngine/session/passkey/ed25519YaoSealedSession';
@@ -2556,6 +2560,48 @@ class RegistrationYaoWork {
     this.state = { kind: 'committed' };
   }
 
+  async commitPasskey(args: {
+    activation: Parameters<ProductEd25519YaoPendingRegistrationPortV1['commit']>[0]['activation'];
+    walletSessionState: Parameters<
+      ProductEd25519YaoPendingRegistrationPortV1['commit']
+    >[0]['walletSessionState'];
+    rpId: string;
+    credentialIdB64u: string;
+    passkeyPrfFirstB64u: string;
+  }): Promise<void> {
+    if (this.state.kind !== 'pending') {
+      throw new Error('Ed25519 Yao registration must be pending before passkey commit');
+    }
+    const pending = this.state.pending;
+    const source = pending.localMaterialSource();
+    if (source.kind !== 'wasm_activated_client') {
+      throw new Error('Passkey Ed25519 registration requires browser WASM Client material');
+    }
+    await persistPasskeyEd25519YaoLocalMaterialV1({
+      store: IndexedDBManager,
+      activeClient: source.activeClient,
+      walletSessionState: args.walletSessionState,
+      rpId: args.rpId,
+      credentialIdB64u: args.credentialIdB64u,
+      passkeyPrfFirstB64u: args.passkeyPrfFirstB64u,
+    });
+    try {
+      await pending.commit({
+        activation: args.activation,
+        walletSessionState: args.walletSessionState,
+      });
+      this.state = { kind: 'committed' };
+    } catch (error: unknown) {
+      await deletePasskeyEd25519YaoLocalMaterialV1({
+        store: IndexedDBManager,
+        walletSessionState: args.walletSessionState,
+        rpId: args.rpId,
+        credentialIdB64u: args.credentialIdB64u,
+      });
+      throw error;
+    }
+  }
+
   async dispose(): Promise<void> {
     switch (this.state.kind) {
       case 'running': {
@@ -2580,6 +2626,44 @@ class RegistrationYaoWork {
       default:
         return assertNever(this.state);
     }
+  }
+}
+
+async function commitPendingPasskeyEd25519YaoRegistration(args: {
+  pending: ProductEd25519YaoPendingRegistrationPortV1;
+  activation: Parameters<ProductEd25519YaoPendingRegistrationPortV1['commit']>[0]['activation'];
+  walletSessionState: Parameters<
+    ProductEd25519YaoPendingRegistrationPortV1['commit']
+  >[0]['walletSessionState'];
+  rpId: string;
+  credentialIdB64u: string;
+  passkeyPrfFirstB64u: string;
+}): Promise<void> {
+  const source = args.pending.localMaterialSource();
+  if (source.kind !== 'wasm_activated_client') {
+    throw new Error('Passkey Ed25519 registration requires browser WASM Client material');
+  }
+  await persistPasskeyEd25519YaoLocalMaterialV1({
+    store: IndexedDBManager,
+    activeClient: source.activeClient,
+    walletSessionState: args.walletSessionState,
+    rpId: args.rpId,
+    credentialIdB64u: args.credentialIdB64u,
+    passkeyPrfFirstB64u: args.passkeyPrfFirstB64u,
+  });
+  try {
+    await args.pending.commit({
+      activation: args.activation,
+      walletSessionState: args.walletSessionState,
+    });
+  } catch (error: unknown) {
+    await deletePasskeyEd25519YaoLocalMaterialV1({
+      store: IndexedDBManager,
+      walletSessionState: args.walletSessionState,
+      rpId: args.rpId,
+      credentialIdB64u: args.credentialIdB64u,
+    });
+    throw error;
   }
 }
 
@@ -2887,7 +2971,25 @@ async function persistAndActivateMixedRegistration(args: {
       prfFirstB64u: args.passkeyAuthority.prfFirstB64u,
     });
   }
-  await args.yaoWork.commit({ activation: args.context.signingEngine, walletSessionState });
+  if (args.persistencePlan.auth.kind === 'passkey') {
+    if (!args.passkeyAuthority) {
+      throw new Error('Mixed passkey registration lost its verified authority');
+    }
+    await args.yaoWork.commitPasskey({
+      activation: args.context.signingEngine,
+      walletSessionState,
+      rpId: args.context.signingEngine.getRpId(),
+      credentialIdB64u: String(
+        args.passkeyAuthority.credential.rawId || args.passkeyAuthority.credential.id || '',
+      ).trim(),
+      passkeyPrfFirstB64u: args.passkeyAuthority.prfFirstB64u,
+    });
+  } else {
+    await args.yaoWork.commit({
+      activation: args.context.signingEngine,
+      walletSessionState,
+    });
+  }
   if (args.persistencePlan.auth.kind === 'email_otp') {
     await args.context.signingEngine.persistEmailOtpEd25519YaoSessionForRefreshInternal(record);
   }
@@ -3855,7 +3957,14 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
         session: walletSessionState,
         prfFirstB64u: passkeyAuthority.prfFirstB64u,
       });
-      await pending.commit({ activation: context.signingEngine, walletSessionState });
+      await commitPendingPasskeyEd25519YaoRegistration({
+        pending,
+        activation: context.signingEngine,
+        walletSessionState,
+        rpId: finalizedPasskey.rpId,
+        credentialIdB64u: finalizedPasskey.credentialIdB64u,
+        passkeyPrfFirstB64u: passkeyAuthority.prfFirstB64u,
+      });
       emitRegistrationEvent(options.onEvent, eventAccountId, {
         authMethod: 'passkey',
         phase: RegistrationEventPhase.STEP_11_COMPLETED,
@@ -4321,7 +4430,14 @@ async function addPasskeyEd25519YaoWalletSigner(
       session: walletSessionState,
       prfFirstB64u: input.passkeyPrfFirstB64u,
     });
-    await pending.commit({ activation: input.context.signingEngine, walletSessionState });
+    await commitPendingPasskeyEd25519YaoRegistration({
+      pending,
+      activation: input.context.signingEngine,
+      walletSessionState,
+      rpId: input.rpId,
+      credentialIdB64u: input.credentialIdB64u,
+      passkeyPrfFirstB64u: input.passkeyPrfFirstB64u,
+    });
     pending = null;
     persistedSession = null;
     persistedSignerRollbackReceipt = null;

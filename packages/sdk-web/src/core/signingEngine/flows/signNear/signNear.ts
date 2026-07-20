@@ -864,23 +864,22 @@ function requireActiveNearEd25519YaoSigningCapability(args: {
   );
 }
 
-type RecoverExactNearEd25519YaoCapabilityArgs = {
+type RehydrateExactNearEd25519YaoCapabilityArgs = {
   deps: NearSigningApiDeps;
   commandSubject: NearCommandSubject;
   thresholdSessionId: string;
-  signerSlot: number;
+  selectedLane: SelectedEd25519Lane;
 };
 
-async function recoverExactNearEd25519YaoCapability(
-  args: RecoverExactNearEd25519YaoCapabilityArgs,
+async function rehydrateExactNearEd25519YaoCapability(
+  args: RehydrateExactNearEd25519YaoCapabilityArgs,
 ): Promise<NearEd25519YaoSigningCapability> {
   const walletId = toWalletId(args.commandSubject.walletSession.walletId);
   const nearAccountId = toAccountId(args.commandSubject.nearAccount.accountId);
-  const capability = await args.deps.recoverPasskeyEd25519YaoCapabilityForSigning({
+  const capability = await args.deps.rehydratePasskeyEd25519YaoCapabilityForSigning({
     walletId,
     nearAccountId,
-    signerSlot: args.signerSlot,
-    thresholdSessionId: args.thresholdSessionId,
+    laneIdentity: args.selectedLane.identity,
   });
   return validateNearEd25519YaoSigningCapability({
     capability,
@@ -911,12 +910,12 @@ function nearEd25519YaoCapabilitySource(args: {
       return { kind: 'email_otp_reconnect' };
     case 'passkey':
       return {
-        kind: 'capability_recovery',
-        recover: recoverExactNearEd25519YaoCapability.bind(undefined, {
+        kind: 'capability_rehydration',
+        rehydrate: rehydrateExactNearEd25519YaoCapability.bind(undefined, {
           deps: args.deps,
           commandSubject: args.commandSubject,
           thresholdSessionId,
-          signerSlot: args.selectedLane.identity.signer.signerSlot,
+          selectedLane: args.selectedLane,
         }),
       };
   }

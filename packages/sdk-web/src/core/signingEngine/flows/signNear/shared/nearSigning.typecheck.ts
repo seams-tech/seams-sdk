@@ -71,36 +71,36 @@ const activeCapabilitySource: NearEd25519YaoCapabilitySource = {
 };
 void activeCapabilitySource;
 
-const capabilityRecoverySource: NearEd25519YaoCapabilitySource = {
-  kind: 'capability_recovery',
-  recover: recoverYaoCapability,
+const capabilityRehydrationSource: NearEd25519YaoCapabilitySource = {
+  kind: 'capability_rehydration',
+  rehydrate: recoverYaoCapability,
 };
-void capabilityRecoverySource;
+void capabilityRehydrationSource;
 
 const emailOtpReconnectSource: NearEd25519YaoCapabilitySource = {
   kind: 'email_otp_reconnect',
 };
 void emailOtpReconnectSource;
 
-// @ts-expect-error Email OTP reconnect sources reject unrelated recovery behavior.
+// @ts-expect-error Email OTP reconnect sources reject unrelated rehydration behavior.
 const emailOtpReconnectWithRecovery: NearEd25519YaoCapabilitySource = {
   kind: 'email_otp_reconnect',
-  recover: recoverYaoCapability,
+  rehydrate: recoverYaoCapability,
 };
 void emailOtpReconnectWithRecovery;
 
-// @ts-expect-error Active capability sources reject recovery behavior.
+// @ts-expect-error Active capability sources reject rehydration behavior.
 const activeCapabilityWithRecovery: NearEd25519YaoCapabilitySource = {
   kind: 'active_capability',
   capability: yaoCapability,
-  recover: recoverYaoCapability,
+  rehydrate: recoverYaoCapability,
 };
 void activeCapabilityWithRecovery;
 
-// @ts-expect-error Recovery sources reject pre-resolved capabilities.
+// @ts-expect-error Rehydration sources reject pre-resolved capabilities.
 const recoveryWithCapability: NearEd25519YaoCapabilitySource = {
-  kind: 'capability_recovery',
-  recover: recoverYaoCapability,
+  kind: 'capability_rehydration',
+  rehydrate: recoverYaoCapability,
   capability: yaoCapability,
 };
 void recoveryWithCapability;

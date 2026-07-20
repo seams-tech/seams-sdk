@@ -38,8 +38,8 @@ export function createNearSigningDeps(args: {
       }
     },
     readPersistedEd25519SessionRecordForSigning,
-    recoverPasskeyEd25519YaoCapabilityForSigning:
-      createArgs.recoverPasskeyEd25519YaoCapabilityForSigning,
+    rehydratePasskeyEd25519YaoCapabilityForSigning:
+      createArgs.rehydratePasskeyEd25519YaoCapabilityForSigning,
     recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning:
       createArgs.recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning,
     createSigningSessionId: (prefix: string): string => generateSessionIdValue(prefix),
@@ -72,8 +72,8 @@ export function createNearSigningDeps(args: {
           getStoredThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId),
         resolveActiveEd25519YaoSigningCapability: (identity) =>
           args.ed25519YaoActiveClients.resolve(identity),
-        recoverPasskeyEd25519YaoCapabilityForSigning:
-          createArgs.recoverPasskeyEd25519YaoCapabilityForSigning,
+        rehydratePasskeyEd25519YaoCapabilityAfterRefresh:
+          createArgs.rehydratePasskeyEd25519YaoCapabilityAfterRefresh,
         refreshActiveEd25519YaoWalletSession: ({
           identity,
           signingGrantId,

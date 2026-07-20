@@ -47,6 +47,12 @@ export function buildExactPasskeyEd25519RefreshLaneIdentity(args: {
   });
 }
 
+export type RehydratePasskeyEd25519YaoCapabilityAfterRefresh = (args: {
+  walletSessionState: NearEd25519YaoSigningCapability['walletSessionState'];
+  policySecretSource: ThresholdEd25519WebAuthnPrfSecretSource;
+  expectedLaneIdentity: ExactEd25519SigningLaneIdentity;
+}) => Promise<NearEd25519YaoSigningCapability>;
+
 function readRefreshedEd25519Record(args: {
   sessionId: string;
   signingGrantId: string;
@@ -68,19 +74,19 @@ function readRefreshedEd25519Record(args: {
   return record;
 }
 
-function requireRecoveredPasskeyEd25519Capability(args: {
+function requireRehydratedPasskeyEd25519Capability(args: {
   capability: NearEd25519YaoSigningCapability;
   expectedLaneIdentity: ReturnType<typeof buildExactPasskeyEd25519RefreshLaneIdentity>;
 }): NearEd25519YaoSigningCapability {
   if (args.capability.activeClient.status().kind !== 'active') {
-    throw new Error('[SigningEngine][near] recovered passkey Ed25519 Yao client is inactive');
+    throw new Error('[SigningEngine][near] rehydrated passkey Ed25519 Yao client is inactive');
   }
   if (
     exactSigningLaneIdentityKey(args.capability.walletSessionState.signingLane.identity) !==
     exactSigningLaneIdentityKey(args.expectedLaneIdentity)
   ) {
     throw new Error(
-      '[SigningEngine][near] recovered passkey Ed25519 Yao capability changed lifecycle identity',
+      '[SigningEngine][near] rehydrated passkey Ed25519 Yao capability changed lifecycle identity',
     );
   }
   return args.capability;
@@ -109,12 +115,7 @@ export async function refreshPasskeyEd25519CapabilityForSigning(args: {
     signingGrantId: string;
     nextWalletSessionState: NearEd25519YaoSigningCapability['walletSessionState'];
   }) => Ed25519YaoSameIdentityWalletSessionRefreshResultV1;
-  recoverPasskeyEd25519YaoCapabilityForSigning: (args: {
-    walletId: ThresholdEd25519SessionRecord['walletId'];
-    nearAccountId: AccountId;
-    signerSlot: number;
-    thresholdSessionId: string;
-  }) => Promise<NearEd25519YaoSigningCapability>;
+  rehydratePasskeyEd25519YaoCapabilityAfterRefresh: RehydratePasskeyEd25519YaoCapabilityAfterRefresh;
 }): Promise<
   { sessionId: string; record: ThresholdEd25519SessionRecord } & NearEd25519YaoSigningCapability
 > {
@@ -200,17 +201,16 @@ export async function refreshPasskeyEd25519CapabilityForSigning(args: {
     );
   }
   if (!activePrevious) {
-    const recovered = await args.recoverPasskeyEd25519YaoCapabilityForSigning({
-      walletId: args.record.walletId,
-      nearAccountId: args.laneIdentity.signer.account.nearAccountId,
-      signerSlot,
-      thresholdSessionId: sessionId,
+    const rehydrated = await args.rehydratePasskeyEd25519YaoCapabilityAfterRefresh({
+      walletSessionState: nextWalletSessionState,
+      policySecretSource: args.policySecretSource,
+      expectedLaneIdentity: args.laneIdentity,
     });
     return {
       sessionId: provisioned.sessionId,
       record,
-      ...requireRecoveredPasskeyEd25519Capability({
-        capability: recovered,
+      ...requireRehydratedPasskeyEd25519Capability({
+        capability: rehydrated,
         expectedLaneIdentity: args.laneIdentity,
       }),
     };

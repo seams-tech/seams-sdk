@@ -199,6 +199,25 @@ export type RouterAbEd25519YaoActiveClientMetadataV1 = {
   activeCapabilityBinding: RouterAbEd25519YaoBytes32V1;
 };
 
+export type RouterAbEd25519YaoSealedLocalMaterialV1 = {
+  kind: 'router_ab_ed25519_yao_sealed_local_material_v1';
+  nonce: Uint8Array;
+  ciphertext: Uint8Array;
+};
+
+export type RouterAbEd25519YaoSealLocalMaterialInputV1 = {
+  ownedPasskeyPrfFirst: Uint8Array;
+  binding: Uint8Array;
+  nonce: Uint8Array;
+};
+
+export type RouterAbEd25519YaoImportLocalMaterialInputV1 = {
+  ownedPasskeyPrfFirst: Uint8Array;
+  binding: Uint8Array;
+  sealed: RouterAbEd25519YaoSealedLocalMaterialV1;
+  metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+};
+
 export type RouterAbEd25519YaoClientSigningInputV1 = {
   admittedDigest: Uint8Array;
   signingWorkerCommitments: Readonly<{ hiding: string; binding: string }>;
@@ -212,13 +231,13 @@ export type RouterAbEd25519YaoClientSigningShareV1 = {
 };
 
 export type RouterAbEd25519YaoRegistrationResultV1 =
-  | { ok: true; activeClient: RouterAbEd25519YaoActiveClientV1 }
+  | { ok: true; activeClient: RouterAbEd25519YaoSealableActiveClientV1 }
   | RouterAbEd25519YaoRegistrationFailureV1;
 
 export type RouterAbEd25519YaoRecoveryResultV1 =
   | {
       ok: true;
-      activeClient: RouterAbEd25519YaoActiveClientV1;
+      activeClient: RouterAbEd25519YaoSealableActiveClientV1;
       activation: RouterAbEd25519YaoRecoveryActivationReceiptV1;
     }
   | RouterAbEd25519YaoRegistrationFailureV1;
@@ -248,6 +267,13 @@ export interface RouterAbEd25519YaoActiveClientV1 {
   metadata(): RouterAbEd25519YaoActiveClientMetadataV1;
   status(): RouterAbEd25519YaoActiveClientStatusV1;
   dispose(): void;
+}
+
+export interface RouterAbEd25519YaoSealableActiveClientV1
+  extends RouterAbEd25519YaoActiveClientV1 {
+  sealLocalMaterial(
+    input: RouterAbEd25519YaoSealLocalMaterialInputV1,
+  ): RouterAbEd25519YaoSealedLocalMaterialV1;
 }
 
 const ACTIVE_CLIENT_CONSTRUCTION = Symbol('router-ab-ed25519-yao-active-client-construction');
@@ -673,7 +699,9 @@ export class RouterAbEd25519YaoHttpActivationTransportV1
   }
 }
 
-export class WasmRouterAbEd25519YaoActiveClientV1 implements RouterAbEd25519YaoActiveClientV1 {
+export class WasmRouterAbEd25519YaoActiveClientV1
+  implements RouterAbEd25519YaoSealableActiveClientV1
+{
   private readonly activeMetadata: RouterAbEd25519YaoActiveClientMetadataV1;
   private lifecycle: RouterAbEd25519YaoActiveClientLifecycleV1;
 
@@ -708,6 +736,25 @@ export class WasmRouterAbEd25519YaoActiveClientV1 implements RouterAbEd25519YaoA
       kind: 'active',
       activated: args.activated,
     };
+  }
+
+  sealLocalMaterial(
+    input: RouterAbEd25519YaoSealLocalMaterialInputV1,
+  ): RouterAbEd25519YaoSealedLocalMaterialV1 {
+    const activated = requireActiveRegistration(this.lifecycle);
+    try {
+      return {
+        kind: 'router_ab_ed25519_yao_sealed_local_material_v1',
+        nonce: input.nonce.slice(),
+        ciphertext: activated.seal_local_material(
+          requireBytes32(input.ownedPasskeyPrfFirst, 'passkey PRF.first'),
+          input.binding,
+          input.nonce,
+        ),
+      };
+    } finally {
+      input.ownedPasskeyPrfFirst.fill(0);
+    }
   }
 
   async createSigningShare(
@@ -823,6 +870,35 @@ function createVerifiedActiveClient(input: {
   });
 }
 
+function importVerifiedActiveClient(
+  input: RouterAbEd25519YaoImportLocalMaterialInputV1,
+): WasmRouterAbEd25519YaoActiveClientV1 {
+  let activated: WasmActivatedClientV1 | null = null;
+  try {
+    activated = WasmActivatedClientV1.import_local_material(
+      requireBytes32(input.ownedPasskeyPrfFirst, 'passkey PRF.first'),
+      input.binding,
+      input.sealed.nonce,
+      input.sealed.ciphertext,
+      input.metadata.registeredPublicKey,
+      input.metadata.stateEpoch,
+      input.metadata.participantIds[0],
+      input.metadata.participantIds[1],
+      input.metadata.signingWorkerVerifyingShare,
+    );
+    return new WasmRouterAbEd25519YaoActiveClientV1({
+      [ACTIVE_CLIENT_CONSTRUCTION]: true,
+      metadata: input.metadata,
+      activated,
+    });
+  } catch (error) {
+    activated?.free();
+    throw error;
+  } finally {
+    input.ownedPasskeyPrfFirst.fill(0);
+  }
+}
+
 export class RouterAbEd25519YaoClientV1 {
   private constructor() {}
 
@@ -836,6 +912,12 @@ export class RouterAbEd25519YaoClientV1 {
   ): Promise<RouterAbEd25519YaoClientV1> {
     await initializeYaoClientWasm({ module_or_path: moduleOrPath });
     return new RouterAbEd25519YaoClientV1();
+  }
+
+  importLocalMaterial(
+    input: RouterAbEd25519YaoImportLocalMaterialInputV1,
+  ): RouterAbEd25519YaoActiveClientV1 {
+    return importVerifiedActiveClient(input);
   }
 
   async register(args: {

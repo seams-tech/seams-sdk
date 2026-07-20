@@ -498,6 +498,20 @@ export class UnifiedIndexedDBManager {
     return this.seamsWalletRepositories.getKeyMaterial(profileId, signerSlot, chainIdKey, keyKind);
   }
 
+  async deleteKeyMaterial(
+    profileId: string,
+    signerSlot: number,
+    chainIdKey: string,
+    keyKind: KeyMaterialKind,
+  ): Promise<void> {
+    return this.seamsWalletRepositories.deleteKeyMaterial(
+      profileId,
+      signerSlot,
+      chainIdKey,
+      keyKind,
+    );
+  }
+
   async listKeyMaterialByProfile(
     profileId: string,
     chainIdKey?: string,

@@ -95,11 +95,10 @@ export type NearSigningApiDeps = {
     walletId: WalletId;
     laneIdentity: ExactEd25519SigningLaneIdentity;
   }) => Promise<ThresholdEd25519SessionRecord | null>;
-  recoverPasskeyEd25519YaoCapabilityForSigning: (args: {
+  rehydratePasskeyEd25519YaoCapabilityForSigning: (args: {
     walletId: WalletId;
     nearAccountId: AccountId;
-    signerSlot: number;
-    thresholdSessionId: string;
+    laneIdentity: ExactEd25519SigningLaneIdentity;
   }) => Promise<NearEd25519YaoSigningCapability>;
   recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning: (args: {
     walletId: WalletId;

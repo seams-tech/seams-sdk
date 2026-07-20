@@ -1,4 +1,3 @@
-import type { NearEd25519YaoSigningCapability } from '@/core/signingEngine/interfaces/near';
 import type {
   CurrentEd25519SealedSessionRecord,
   CurrentEd25519RestoreMetadata,
@@ -12,13 +11,10 @@ import type {
 import {
   assertEd25519YaoRecoveryDescriptorContinuity,
   parseEd25519YaoRecoveryCapabilityV1,
-  recoverParsedPasskeyEd25519YaoCapabilityV1,
   type ParsedPasskeyEd25519YaoRecoveryDescriptorV1,
-  type PasskeyEd25519YaoRecoveryResultV1,
 } from '@/core/signingEngine/flows/recovery/passkeyEd25519YaoRecovery';
 import { toAccountId } from '@/core/types/accountIds';
 import { base58Encode } from '@shared/utils/base58';
-import { base64UrlDecode } from '@shared/utils/base64';
 import {
   normalizeRuntimePolicyScope,
   signingRootScopeFromRuntimePolicyScope,
@@ -52,16 +48,6 @@ export type PasskeyEd25519RecordRuntimePorts = {
   readonly nowMs: () => number;
 };
 
-export type PasskeyEd25519WarmRecoveryRuntimePorts = PasskeyEd25519RecordRuntimePorts & {
-  readonly recoverCapability: (input: {
-    readonly parsed: ParsedPasskeyEd25519YaoRecoveryDescriptorV1;
-    readonly ownedPasskeyPrfFirst: Uint8Array;
-    readonly relayerUrl: string;
-    readonly rpId: string;
-    readonly fetch: typeof fetch;
-  }) => Promise<PasskeyEd25519YaoRecoveryResultV1<ParsedPasskeyEd25519YaoRecoveryDescriptorV1>>;
-};
-
 export type PasskeyEd25519WarmRecoverySubject = {
   readonly walletId: string;
   readonly nearAccountId: string;
@@ -75,14 +61,18 @@ export type PasskeyEd25519YaoWarmRecoveryUnavailableReason =
   | 'sealed_session_exhausted'
   | 'wallet_session_expired';
 
-export type PasskeyEd25519YaoWarmRecoveryResultV1 =
+export type PasskeyEd25519YaoLocalPrfRestoreResultV1 =
   | {
-      readonly kind: 'recovered';
-      readonly recovery: PasskeyEd25519YaoRecoveryResultV1<ParsedPasskeyEd25519YaoRecoveryDescriptorV1>;
+      readonly kind: 'ready';
+      readonly record: CurrentEd25519SealedSessionRecord;
+      readonly prfFirstB64u: string;
     }
   | {
       readonly kind: 'unavailable';
-      readonly reason: PasskeyEd25519YaoWarmRecoveryUnavailableReason;
+      readonly reason: Exclude<
+        PasskeyEd25519YaoWarmRecoveryUnavailableReason,
+        'wallet_session_expired'
+      >;
     };
 
 export type PasskeyEd25519YaoExportContextV1 = {
@@ -472,18 +462,25 @@ function parseWarmRecoveryDescriptor(args: {
   };
 }
 
-export async function recoverPasskeyEd25519YaoFromSealedSessionV1(input: {
+export async function restorePasskeyEd25519YaoLocalPrfV1(input: {
   readonly subject: PasskeyEd25519WarmRecoverySubject;
-  readonly relayerUrl: string;
-  readonly rpId: string;
-  readonly fetch: typeof fetch;
   readonly ports: PasskeyEd25519WarmRecoveryPorts;
-}): Promise<PasskeyEd25519YaoWarmRecoveryResultV1> {
-  return await recoverPasskeyEd25519YaoFromSealedSessionWithRuntimeV1(input, {
+}): Promise<PasskeyEd25519YaoLocalPrfRestoreResultV1> {
+  const exactRecord = await resolveExactWarmRecoveryRecord(input.subject, {
     listExactSealedSessionsForWallet,
-    recoverCapability: recoverParsedPasskeyEd25519YaoCapabilityV1,
     nowMs: Date.now,
   });
+  if (exactRecord.kind === 'unavailable') return exactRecord;
+  const prf = await restoreAndClaimWarmRecoveryPrf({
+    record: exactRecord.record,
+    ports: input.ports,
+  });
+  if (prf.kind === 'unavailable') return prf;
+  return {
+    kind: 'ready',
+    record: exactRecord.record,
+    prfFirstB64u: prf.prfFirstB64u,
+  };
 }
 
 export async function resolvePasskeyEd25519YaoExportContextV1(input: {
@@ -571,42 +568,4 @@ export async function resolvePasskeyEd25519YaoExportContextWithRuntimeV1(
       rpId: exactRecord.record.ed25519Restore.rpId,
     },
   };
-}
-
-export async function recoverPasskeyEd25519YaoFromSealedSessionWithRuntimeV1(
-  input: {
-    readonly subject: PasskeyEd25519WarmRecoverySubject;
-    readonly relayerUrl: string;
-    readonly rpId: string;
-    readonly fetch: typeof fetch;
-    readonly ports: PasskeyEd25519WarmRecoveryPorts;
-  },
-  runtime: PasskeyEd25519WarmRecoveryRuntimePorts,
-): Promise<PasskeyEd25519YaoWarmRecoveryResultV1> {
-  const exactRecord = await resolveExactWarmRecoveryRecord(input.subject, runtime);
-  if (exactRecord.kind === 'unavailable') return exactRecord;
-  const bootstrap = await fetchWarmRecoveryBootstrap({
-    record: exactRecord.record,
-    relayerUrl: input.relayerUrl,
-    fetch: input.fetch,
-  });
-  if (bootstrap.kind === 'unavailable') return bootstrap;
-  const descriptor = parseWarmRecoveryDescriptor({
-    record: exactRecord.record,
-    response: bootstrap.response,
-  });
-  const prf = await restoreAndClaimWarmRecoveryPrf({
-    record: exactRecord.record,
-    ports: input.ports,
-  });
-  if (prf.kind === 'unavailable') return prf;
-  const ownedPasskeyPrfFirst = base64UrlDecode(prf.prfFirstB64u);
-  const recovery = await runtime.recoverCapability({
-    parsed: descriptor,
-    ownedPasskeyPrfFirst,
-    relayerUrl: input.relayerUrl,
-    rpId: input.rpId,
-    fetch: input.fetch,
-  });
-  return { kind: 'recovered', recovery };
 }

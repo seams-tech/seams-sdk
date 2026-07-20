@@ -17,6 +17,7 @@ import type {
 } from '@/core/types/seams';
 import type {
   EcdsaLoginSessionSurface,
+  Ed25519YaoRegistrationActivationSurface,
   LoginWebContext,
   LoginWarmSigningSurface,
   RecentUnlocksWebContext,
@@ -191,9 +192,11 @@ import {
   passkeyPrfFirstB64uFromCredential,
 } from '@/SeamsWeb/operations/authMethods/passkey/ecdsaBootstrap';
 import {
-  recoverPasskeyEd25519YaoForUnlockV1,
-  type PasskeyEd25519YaoUnlockRecoveryV1,
-} from '@/SeamsWeb/operations/recovery/syncAccount';
+  readPasskeyEd25519YaoLocalMaterialLocatorV1,
+  rehydratePasskeyEd25519YaoLocalMaterialV1,
+  type PasskeyEd25519YaoLocalMaterialLocatorV1,
+} from '@/core/signingEngine/session/passkey/ed25519YaoLocalMaterial';
+import { resolveRouterAbEd25519WalletSessionStateFromRecord } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
 import {
   resolveWalletSessionReadResolution,
   type ResolvedWalletUnlockSubjectSet,
@@ -530,7 +533,7 @@ type LoginWarmupPasskeyCredentialPlan =
       kind: 'no_passkey_credential_required';
     }
   | {
-      kind: 'ed25519_yao_recovery_assertion';
+      kind: 'local_ed25519_material_locator';
     }
   | {
       kind: 'local_unlock_passkey_assertion_after_ecdsa_context';
@@ -600,10 +603,10 @@ type LoginWarmupEd25519MintPlan =
       authorization?: never;
     }
   | {
-      kind: 'recovered';
-      recovery: PasskeyEd25519YaoUnlockRecoveryV1;
-      sessionId?: never;
-      signingGrantId?: never;
+      kind: 'local_material';
+      sessionId: string;
+      signingGrantId: string;
+      serverRefreshScope: PasskeyEd25519YaoLocalMaterialLocatorV1['serverRefreshScope'];
       authorization?: never;
     };
 
@@ -857,8 +860,17 @@ function resolveLoginWarmEd25519ProvisioningIdentity(args: {
   switch (args.mintPlan.kind) {
     case 'not_requested':
       throw new Error('[login] threshold Ed25519 mint plan is missing');
-    case 'recovered':
-      throw new Error('[login] recovered Ed25519 Yao state does not require session provisioning');
+    case 'local_material':
+      return {
+        kind: 'exact_ed25519_provisioning' as const,
+        laneIdentity: loginEd25519ExactProvisionLaneIdentity({
+          walletBinding: args.walletBinding,
+          signerSlot: args.signerSlot,
+          sessionId: args.mintPlan.sessionId,
+          signingGrantId: args.mintPlan.signingGrantId,
+          authority: args.authority,
+        }),
+      };
     case 'fresh':
       return { kind: 'fresh_ed25519_provisioning' as const };
     case 'ecdsa_authorized':
@@ -881,6 +893,26 @@ function resolveLoginWarmEd25519ProvisioningIdentity(args: {
   return assertNeverLoginState(args.mintPlan);
 }
 
+type LoginEd25519ProvisionScope = {
+  relayerKeyId: string;
+  participantIds: readonly number[];
+  runtimePolicyScope: ThresholdRuntimePolicyScope | null;
+  routerAbNormalSigning: PasskeyEd25519YaoLocalMaterialLocatorV1['serverRefreshScope']['routerAbNormalSigning'];
+};
+
+function resolveLoginEd25519ProvisionScope(args: {
+  mintPlan: LoginWarmupEd25519MintPlan;
+  fallback: LoginEd25519ProvisionScope;
+}): LoginEd25519ProvisionScope {
+  if (args.mintPlan.kind !== 'local_material') return args.fallback;
+  return {
+    relayerKeyId: args.mintPlan.serverRefreshScope.relayerKeyId,
+    participantIds: args.mintPlan.serverRefreshScope.participantIds,
+    runtimePolicyScope: args.mintPlan.serverRefreshScope.runtimePolicyScope,
+    routerAbNormalSigning: args.mintPlan.serverRefreshScope.routerAbNormalSigning,
+  };
+}
+
 function resolveLoginNoServerSessionPasskeyCredentialPlan(args: {
   requiresLocalPasskeyUnlock: boolean;
   requireThresholdWarmup: boolean;
@@ -899,7 +931,7 @@ function resolveLoginWarmupPasskeyCredentialPlan(args: {
   warmupPlan: ThresholdLoginWarmupPlan;
 }): LoginWarmupPasskeyCredentialPlan {
   if (args.warmupPlan.signersToWarm.includes('ed25519') && args.requiresLocalPasskeyUnlock) {
-    return { kind: 'ed25519_yao_recovery_assertion' };
+    return { kind: 'local_ed25519_material_locator' };
   }
   if (args.hasLoginCredential) return { kind: 'existing_passkey_credential' };
   switch (args.routeAuthorization.kind) {
@@ -917,13 +949,7 @@ function resolveLoginWarmupPasskeyCredentialPlan(args: {
   return { kind: 'no_passkey_credential_required' };
 }
 
-type LoginPasskeyCredentialCollector = (args: {
-  challengeB64u: string;
-  saveAsLoginCredential: boolean;
-  credentialIds: readonly string[] | null;
-}) => Promise<WebAuthnAuthenticationCredential>;
-
-function authenticatorsForPasskeyYaoRecovery(args: {
+function authenticatorsForCredentialIds(args: {
   authenticators: readonly ClientAuthenticatorData[];
   credentialIds: readonly string[] | null;
 }): readonly ClientAuthenticatorData[] {
@@ -937,20 +963,9 @@ function authenticatorsForPasskeyYaoRecovery(args: {
     }
   }
   if (!authenticators.length) {
-    throw new Error('[login] passkey Yao recovery has no matching local authenticator');
+    throw new Error('[login] no local authenticator matches the required credential');
   }
   return authenticators;
-}
-
-async function collectPasskeyYaoRecoveryCredential(
-  collector: LoginPasskeyCredentialCollector,
-  input: { readonly challengeB64u: string; readonly credentialIds: readonly string[] },
-): Promise<WebAuthnAuthenticationCredential> {
-  return await collector({
-    challengeB64u: input.challengeB64u,
-    saveAsLoginCredential: true,
-    credentialIds: input.credentialIds,
-  });
 }
 
 type ResolveThresholdLoginWarmupPhaseInputArgs = {
@@ -1293,7 +1308,7 @@ async function unlockInternal(
       saveAsLoginCredential: boolean;
       credentialIds: readonly string[] | null;
     }): Promise<WebAuthnAuthenticationCredential> => {
-      const eligibleAuthenticators = authenticatorsForPasskeyYaoRecovery({
+      const eligibleAuthenticators = authenticatorsForCredentialIds({
         authenticators,
         credentialIds: args.credentialIds,
       });
@@ -1490,27 +1505,30 @@ async function unlockInternal(
         case 'app_session_authorized_warmup':
         case 'no_passkey_credential_required':
           break;
-        case 'ed25519_yao_recovery_assertion': {
+        case 'local_ed25519_material_locator': {
           if (warmupInput.ed25519SessionAuthority.kind !== 'passkey') {
-            throw new Error('[login] passkey Yao recovery requires passkey wallet authority');
+            throw new Error('[login] local Ed25519 material requires passkey wallet authority');
           }
-          const recovery = await recoverPasskeyEd25519YaoForUnlockV1({
+          const credentialIdB64u = String(
+            warmupInput.ed25519SessionAuthority.authority.authority.factor.credentialIdB64u,
+          ).trim();
+          const localMaterial = await readPasskeyEd25519YaoLocalMaterialLocatorV1({
+            store: IndexedDBManager,
             walletId: String(walletBinding.walletId),
-            relayerUrl: warmupInput.relayerUrl,
+            nearAccountId: String(walletBinding.nearAccountId),
+            nearEd25519SigningKeyId: String(walletBinding.nearEd25519SigningKeyId),
+            signerSlot: warmupInput.signerSlot,
             rpId: warmupInput.rpId,
-            fetch: fetchWithGlobalThis,
-            collectCredential: collectPasskeyYaoRecoveryCredential.bind(
-              undefined,
-              collectLocalPasskeyCredentialForChallenge,
-            ),
-            activateCapability:
-              signingEngine.activateVerifiedNearEd25519YaoSigningCapability.bind(signingEngine),
-            sessionPersistence: signingEngine,
+            credentialIdB64u,
           });
-          loginCredential = recovery.credential;
+          if (localMaterial.kind === 'unavailable') {
+            throw createThresholdEd25519DeviceLinkRequiredError();
+          }
           ed25519MintPlan = {
-            kind: 'recovered',
-            recovery,
+            kind: 'local_material',
+            sessionId: localMaterial.locator.thresholdSessionId,
+            signingGrantId: localMaterial.locator.signingGrantId,
+            serverRefreshScope: localMaterial.locator.serverRefreshScope,
           };
           break;
         }
@@ -2575,6 +2593,7 @@ function buildLoginEd25519WalletSessionMintAuthorization(args: {
 async function primeThresholdLoginWarmSigners(args: {
   context: LoginWebContext;
   signingEngine: LoginWarmSigningSurface &
+    Ed25519YaoRegistrationActivationSurface &
     Pick<EcdsaLoginSessionSurface, 'listThresholdEcdsaSessionRecordsForWalletTarget'>;
   walletBinding: ResolvedLoginWalletBinding;
   nearAccountId: AccountId;
@@ -2631,28 +2650,6 @@ async function primeThresholdLoginWarmSigners(args: {
       signer: 'ed25519',
       dependencies: args.ed25519DependsOnEcdsa ? ['ecdsa'] : [],
       run: async () => {
-        if (args.ed25519MintPlan.kind === 'recovered') {
-          const session = args.ed25519MintPlan.recovery.recovery.parsed.session;
-          const recoveredPrfFirstB64u =
-            credential === undefined ? '' : passkeyPrfFirstB64uFromCredential(credential);
-          if (signersToWarm.includes('ecdsa') && !recoveredPrfFirstB64u) {
-            throw new Error(
-              '[login] threshold ECDSA warm-up missing passkey PRF.first from Yao recovery',
-            );
-          }
-          warmState.sessionId = session.thresholdSessionId;
-          warmState.signingGrantId = session.signingGrantId;
-          warmState.jwt = session.walletSessionJwt;
-          warmState.expiresAtMs = session.expiresAtMs;
-          warmState.remainingUses = session.remainingUses;
-          warmState.runtimePolicyScope = session.runtimePolicyScope;
-          warmState.ecdsaDerivationPasskeyPrfFirstB64u = recoveredPrfFirstB64u;
-          if (args.ecdsaContextResolution.kind === 'resolve_after_ed25519') {
-            activeCanonicalEcdsaContext =
-              await args.ecdsaContextResolution.resolveAfterEd25519(warmState);
-          }
-          return;
-        }
         const ecdsaMint = ecdsaAuthorizedEd25519Mint;
         const auth = buildLoginEd25519WalletSessionMintAuthorization({
           routeAuthorization: args.routeAuthorization,
@@ -2671,17 +2668,23 @@ async function primeThresholdLoginWarmSigners(args: {
           signerSlot: args.signerSlot,
           authority: ed25519SessionAuthority,
         });
-        const routerAbNormalSigning = createRouterAbNormalSigningPolicy(args.context.configs);
+        const provisionScope = resolveLoginEd25519ProvisionScope({
+          mintPlan: args.ed25519MintPlan,
+          fallback: {
+            relayerKeyId: args.relayerKeyId,
+            participantIds: args.participantIds,
+            runtimePolicyScope: initialCanonicalEcdsaContext.runtimePolicyScope ?? null,
+            routerAbNormalSigning: createRouterAbNormalSigningPolicy(args.context.configs),
+          },
+        });
         const sharedEd25519ConnectArgs = {
           relayerUrl: args.relayerUrl,
-          relayerKeyId: args.relayerKeyId,
-          ...(auth ? { auth } : {}),
-          ...(initialCanonicalEcdsaContext.runtimePolicyScope
-            ? { runtimePolicyScope: initialCanonicalEcdsaContext.runtimePolicyScope }
-            : {}),
-          routerAbNormalSigning,
-          ...(runtimeScopeBootstrap ? { runtimeScopeBootstrap } : {}),
-          participantIds: args.participantIds,
+          relayerKeyId: provisionScope.relayerKeyId,
+          auth,
+          runtimePolicyScope: provisionScope.runtimePolicyScope || undefined,
+          routerAbNormalSigning: provisionScope.routerAbNormalSigning,
+          runtimeScopeBootstrap: runtimeScopeBootstrap || undefined,
+          participantIds: provisionScope.participantIds,
           sessionKind: 'jwt' as const,
           ttlMs: args.ttlMs,
           remainingUses: unlockRemainingUses,
@@ -2742,6 +2745,43 @@ async function primeThresholdLoginWarmSigners(args: {
           throw new Error(
             '[login] threshold ECDSA warm-up missing passkey PRF.first from the primed Ed25519 session',
           );
+        }
+        if (args.ed25519MintPlan.kind === 'local_material') {
+          if (ed25519SessionAuthority.kind !== 'passkey') {
+            throw new Error('[login] local Ed25519 material requires passkey authority');
+          }
+          const passkeyPrfFirstB64u =
+            connectedEcdsaDerivationPasskeyPrfFirstB64u ||
+            (credential ? passkeyPrfFirstB64uFromCredential(credential) : '');
+          if (!passkeyPrfFirstB64u) {
+            throw new Error('[login] local Ed25519 material requires WebAuthn PRF.first');
+          }
+          const record =
+            getStoredThresholdEd25519SessionRecordByThresholdSessionId(connectedSessionId);
+          const walletSessionState =
+            resolveRouterAbEd25519WalletSessionStateFromRecord(record || undefined);
+          if (!walletSessionState) {
+            throw new Error('[login] local Ed25519 material requires a ready Wallet Session');
+          }
+          const rehydrated = await rehydratePasskeyEd25519YaoLocalMaterialV1({
+            store: IndexedDBManager,
+            walletSessionState,
+            rpId: args.signingEngine.getRpId(),
+            credentialIdB64u: localPasskeyCredentialIdB64u,
+            passkeyPrfFirstB64u,
+          });
+          if (rehydrated.kind === 'unavailable') {
+            throw createThresholdEd25519DeviceLinkRequiredError();
+          }
+          try {
+            await args.signingEngine.activateVerifiedNearEd25519YaoSigningCapability({
+              activeClient: rehydrated.activeClient,
+              walletSessionState,
+            });
+          } catch (error) {
+            rehydrated.activeClient.dispose();
+            throw error;
+          }
         }
 
         warmState.sessionId = connectedSessionId;
@@ -3540,6 +3580,16 @@ function createThresholdEcdsaDeviceLinkRequiredError(targetKey: string): Error &
 } {
   const error = new Error(
     `[login] device_link_required: local threshold ECDSA material is unavailable for ${targetKey}`,
+  ) as Error & { code: 'device_link_required' };
+  error.code = 'device_link_required';
+  return error;
+}
+
+function createThresholdEd25519DeviceLinkRequiredError(): Error & {
+  code: 'device_link_required';
+} {
+  const error = new Error(
+    '[login] device_link_required: local threshold Ed25519 material is unavailable',
   ) as Error & { code: 'device_link_required' };
   error.code = 'device_link_required';
   return error;

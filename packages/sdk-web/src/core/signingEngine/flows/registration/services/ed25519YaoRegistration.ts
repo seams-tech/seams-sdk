@@ -14,6 +14,7 @@ import { type Ed25519YaoActiveClientIdentityV1 } from '@/core/signingEngine/thre
 import {
   RouterAbEd25519YaoClientV1,
   type RouterAbEd25519YaoActiveClientV1,
+  type RouterAbEd25519YaoSealableActiveClientV1,
   type RouterAbEd25519YaoClientRootFactorV1,
   type RouterAbEd25519YaoRegistrationFailureV1,
   type RouterAbEd25519YaoRegistrationTransportV1,
@@ -43,9 +44,20 @@ export type ProductEd25519YaoActivationReferenceV1 = {
   session_id: RouterAbEd25519YaoBytes32V1;
 };
 
+export type ProductEd25519YaoPendingLocalMaterialSourceV1 =
+  | {
+      kind: 'wasm_activated_client';
+      activeClient: RouterAbEd25519YaoSealableActiveClientV1;
+    }
+  | {
+      kind: 'worker_owned';
+      activeClient?: never;
+    };
+
 export interface ProductEd25519YaoPendingRegistrationPortV1 {
   publicKey(): string;
   activationReference(): ProductEd25519YaoActivationReferenceV1;
+  localMaterialSource(): ProductEd25519YaoPendingLocalMaterialSourceV1;
   commit(args: {
     activation: ProductEd25519YaoCapabilityActivationPortV1;
     walletSessionState: NearResolvedEd25519SigningSessionState;
@@ -56,7 +68,7 @@ export interface ProductEd25519YaoPendingRegistrationPortV1 {
 type PendingRegistrationLifecycleV1 =
   | {
       kind: 'active_uncommitted';
-      activeClient: RouterAbEd25519YaoActiveClientV1;
+      activeClient: RouterAbEd25519YaoSealableActiveClientV1;
       operationalPublicKey: string;
     }
   | {
@@ -112,7 +124,7 @@ export class PendingProductEd25519YaoRegistrationV1
 {
   private lifecycle: PendingRegistrationLifecycleV1;
 
-  private constructor(activeClient: RouterAbEd25519YaoActiveClientV1) {
+  private constructor(activeClient: RouterAbEd25519YaoSealableActiveClientV1) {
     this.lifecycle = {
       kind: 'active_uncommitted',
       activeClient,
@@ -121,7 +133,7 @@ export class PendingProductEd25519YaoRegistrationV1
   }
 
   static fromVerifiedClient(
-    activeClient: RouterAbEd25519YaoActiveClientV1,
+    activeClient: RouterAbEd25519YaoSealableActiveClientV1,
   ): PendingProductEd25519YaoRegistrationV1 {
     if (activeClient.status().kind !== 'active') {
       throw new Error('Product Ed25519 Yao registration requires active verified Client state');
@@ -148,6 +160,13 @@ export class PendingProductEd25519YaoRegistrationV1
       kind: 'router_ab_ed25519_yao_activation_reference_v1',
       lifecycle_id: metadata.scope.lifecycle_id,
       session_id: metadata.activeCapabilityBinding,
+    };
+  }
+
+  localMaterialSource(): ProductEd25519YaoPendingLocalMaterialSourceV1 {
+    return {
+      kind: 'wasm_activated_client',
+      activeClient: requireActiveClient(this.lifecycle).activeClient,
     };
   }
 
