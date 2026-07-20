@@ -34,7 +34,7 @@ Companion documents:
 - [Independent registration-package delta review](./evidence/refactor-89/registration-package-delta-review-v1.md)
 - [Cloudflare signing lifecycle security review](./evidence/refactor-89/cloudflare-signing-lifecycle-security-review-v1.md)
 
-`yaos-ab.md` Phase 14B completed the active HSS rename, the narrow role-local
+`yaos-ab.md` Phase 14B completed the retirement of active HSS terminology, the narrow role-local
 derivation client, the browser/server dependency boundaries, and local bundle
 evidence. `router-a-b-sol-refactor.md` completed strict Router A/B lifecycle
 migration and deletion of `ThresholdSigningService`. This plan now records the
@@ -105,7 +105,7 @@ is:
 - [x] Local bundle-isolation, source-boundary, dependency, and bounded
       security evidence for the currently integrated lifecycle.
 - [x] Deletion of mixed `eth_signer`/`ecdsa_client_signer` packages, mixed
-      workers, active ECDSA-HSS names, and `ThresholdSigningService`.
+      workers, active legacy ECDSA names, and `ThresholdSigningService`.
 - [x] Deletion of `signer-core::threshold_ecdsa`, the production
       `threshold-signatures` closure, and the obsolete mapped-share/Cait-Sith
       representation. Purpose-built presign consumes additive Router A/B
@@ -2966,10 +2966,9 @@ measurements are deferred**
 
 ## Phase 9: Hard Cutover and Deletion
 
-Status: **partially complete; mixed artifacts, workers, HSS terminology,
-generic service ownership, and the generic presign/finalization backend are
-deleted. Final readiness evidence and remaining topology cleanup continue in
-Local Phase E.**
+Status: **local legacy artifacts, workers, terminology, generic service
+ownership, and the generic presign/finalization backend are deleted. Final
+readiness evidence and deployment topology cleanup continue in Local Phase E.**
 
 ### Historical implementation ledger
 

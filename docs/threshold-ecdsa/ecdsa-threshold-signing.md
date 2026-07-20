@@ -81,7 +81,7 @@ Current implementation and cleanup evidence is tracked in:
 
 - [router-a-b-SPEC.md](../router-a-b-SPEC.md)
 - [router-a-b-deployment.md](../router-a-b-deployment.md)
-- [router-a-b-cleanup.md](../router-a-b-cleanup.md)
+- [router-a-b-SPEC.md](../router-a-b-SPEC.md)
 - [refactor-68-wallet-session-v2.md](../refactor-68-wallet-session-v2.md)
 
 Local type-checks, focused Router A/B Router A/B ECDSA derivation tests, source guards, local

@@ -38,9 +38,9 @@ than preserving adapters.
 The current code mixes several unrelated meanings under the same `v1`/`v2`
 language:
 
-- route namespace version, such as `/v2/router-ab/...` and `/v1/hss/...`;
+- route namespace version, such as `/v2/router-ab/...` and `/v1/legacy/...`;
 - protocol and canonical wire type versions, such as
-  `RouterAbEcdsaHssEvmDigestSigningRequestV1`;
+  `RouterAbEcdsaDerivationEvmDigestSigningRequestV1`;
 - storage record and Durable Object API versions;
 - local-dev route mirror names;
 - test fixture and source-guard names.
@@ -76,22 +76,22 @@ Examples:
 
 ```ts
 // route constant: unversioned
-export const ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH =
-  '/router-ab/ecdsa-hss/sign' as const;
+export const ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PATH =
+  '/router-ab/ecdsa-derivation/sign' as const;
 
 // wire type: versioned
-export type RouterAbEcdsaHssEvmDigestSigningRequestV1 = {
+export type RouterAbEcdsaDerivationEvmDigestSigningRequestV1 = {
   // canonical protocol fields
 };
 ```
 
 ```rust
 // route constant: unversioned
-pub const CLOUDFLARE_ROUTER_ECDSA_HSS_SIGNING_PUBLIC_REQUEST_PATH: &str =
-    "/router-ab/ecdsa-hss/sign";
+pub const CLOUDFLARE_ROUTER_ECDSA_DERIVATION_SIGNING_PUBLIC_REQUEST_PATH: &str =
+    "/router-ab/ecdsa-derivation/sign";
 
 // protocol parser: versioned
-parse_router_ab_ecdsa_hss_evm_digest_signing_request_v1_json(...)
+parse_router_ab_ecdsa_derivation_evm_digest_signing_request_v1_json(...)
 ```
 
 ## Target Route Shape
@@ -100,24 +100,22 @@ Public Router routes:
 
 | Current route | Target route |
 | --- | --- |
-| `/v1/hss/split-derivation` | `/router-ab/split-derivation` |
+| `/v1/legacy/split-derivation` | `/router-ab/split-derivation` |
 | `/v2/router-ab/keyset` | `/router-ab/keyset` |
 | `/.well-known/router-ab/keyset` | keep as canonical well-known alias |
 | `/v2/router-ab/ed25519/sign/prepare` | `/router-ab/ed25519/sign/prepare` |
 | `/v2/router-ab/ed25519/sign/presign-pool/prepare` | `/router-ab/ed25519/sign/presign-pool/prepare` |
 | `/v2/router-ab/ed25519/sign` | `/router-ab/ed25519/sign` |
-| `/router-ab/ecdsa-hss/healthz` | `/router-ab/ecdsa-hss/healthz` |
-| `/router-ab/ecdsa-hss/key-identities` | `/router-ab/ecdsa-hss/key-identities` |
-| `/router-ab/ecdsa-hss/bootstrap` | `/router-ab/ecdsa-hss/bootstrap` |
-| `/router-ab/ecdsa-hss/export/share` | `/router-ab/ecdsa-hss/export/share` |
-| `/v1/hss/ecdsa/register` | `/router-ab/ecdsa-hss/register` |
-| `/v1/hss/ecdsa/export` | `/router-ab/ecdsa-hss/export` |
-| `/v1/hss/ecdsa/recover` | `/router-ab/ecdsa-hss/recover` |
-| `/v1/hss/ecdsa/refresh` | `/router-ab/ecdsa-hss/refresh` |
-| `/v1/hss/ecdsa/sign/prepare` | `/router-ab/ecdsa-hss/sign/prepare` |
-| `/v1/hss/ecdsa/sign` | `/router-ab/ecdsa-hss/sign` |
-| `/router-ab/ecdsa-hss/presignature-pool/fill/init` | `/router-ab/ecdsa-hss/presignature-pool/fill/init` |
-| `/router-ab/ecdsa-hss/presignature-pool/fill/step` | `/router-ab/ecdsa-hss/presignature-pool/fill/step` |
+| `/router-ab/ecdsa-derivation/healthz` | `/router-ab/ecdsa-derivation/healthz` |
+| `/router-ab/ecdsa-derivation/export/share` | `/router-ab/ecdsa-derivation/export/share` |
+| `/v1/legacy/ecdsa/register` | `/router-ab/ecdsa-derivation/register` |
+| `/v1/legacy/ecdsa/export` | `/router-ab/ecdsa-derivation/export` |
+| `/v1/legacy/ecdsa/recover` | `/router-ab/ecdsa-derivation/recover` |
+| `/v1/legacy/ecdsa/refresh` | `/router-ab/ecdsa-derivation/refresh` |
+| `/v1/legacy/ecdsa/sign/prepare` | `/router-ab/ecdsa-derivation/sign/prepare` |
+| `/v1/legacy/ecdsa/sign` | `/router-ab/ecdsa-derivation/sign` |
+| `/router-ab/ecdsa-derivation/presignature-pool/fill/init` | `/router-ab/ecdsa-derivation/presignature-pool/fill/init` |
+| `/router-ab/ecdsa-derivation/presignature-pool/fill/step` | `/router-ab/ecdsa-derivation/presignature-pool/fill/step` |
 | `/session/signing-budget/status` | `/router-ab/wallet-budget/status` |
 | `/router-ab/wallet-session/ed25519` | `/router-ab/wallet-session/ed25519` |
 
@@ -130,8 +128,8 @@ Private Cloudflare/local worker routes:
 | `/router-ab/v1/signer-b` | `/router-ab/signer-b` |
 | `/router-ab/v1/signer-a/peer` | `/router-ab/signer-a/peer` |
 | `/router-ab/v1/signer-b/peer` | `/router-ab/signer-b/peer` |
-| `/router-ab/v1/signer-a/ecdsa-hss/*` | `/router-ab/signer-a/ecdsa-hss/*` |
-| `/router-ab/v1/signer-b/ecdsa-hss/*` | `/router-ab/signer-b/ecdsa-hss/*` |
+| `/router-ab/v1/signer-a/ecdsa-derivation/*` | `/router-ab/signer-a/ecdsa-derivation/*` |
+| `/router-ab/v1/signer-b/ecdsa-derivation/*` | `/router-ab/signer-b/ecdsa-derivation/*` |
 | `/router-ab/v1/signing-worker/*` | `/router-ab/signing-worker/*` |
 
 Durable Object internal call routes:
@@ -150,7 +148,7 @@ Route strings must have no active `/v1/`, `/v2/`, `/router-ab/v1`,
   - [x] `crates/router-ab-cloudflare/src/strict_worker/*`
   - [x] `crates/router-ab-cloudflare/src/durable_object/*`
   - [x] `crates/router-ab-dev/src/*`
-  - [x] `packages/shared-ts/src/utils/routerAbEcdsaHss.ts`
+  - [x] `packages/shared-ts/src/utils/routerAbEcdsaDerivation.ts`
   - [x] `packages/sdk-server-ts/src/router/**`
   - [x] `packages/sdk-server-ts/src/core/ThresholdService/routerAb/**`
   - [x] `packages/sdk-web/src/core/rpcClients/relayer/**`
@@ -171,7 +169,7 @@ Acceptance:
 
 ## Phase 1: Rename Active Route Paths
 
-- [x] Change public Router paths from `/v1/hss/...` and `/v2/router-ab/...` to
+- [x] Change public Router paths from `/v1/legacy/...` and `/v2/router-ab/...` to
       `/router-ab/...`.
 - [x] Change private service-binding paths from `/router-ab/v1/...` to
       `/router-ab/...`.
@@ -195,15 +193,15 @@ Acceptance:
         `CLOUDFLARE_SIGNING_WORKER_*_PATH`
   - [x] `CLOUDFLARE_DURABLE_OBJECT_API_VERSION` should be renamed or
         removed if it only describes route naming.
-- [x] Rename shared TS ECDSA-HSS path constants:
-  - [x] `ROUTER_AB_ECDSA_HSS_*_PATH_V2` -> `ROUTER_AB_ECDSA_HSS_*_PATH`
+- [x] Rename shared TS ECDSA derivation path constants:
+  - [x] `ROUTER_AB_ECDSA_DERIVATION_*_PATH_V2` -> `ROUTER_AB_ECDSA_DERIVATION_*_PATH`
 - [x] Rename local-dev route mirrors:
   - [x] `LOCAL_ROUTER_*_PATH_V2` -> `LOCAL_ROUTER_*_PATH`
   - [x] `LOCAL_DERIVER_*_PATH_V2` -> `LOCAL_DERIVER_*_PATH`
   - [x] `LOCAL_SIGNING_WORKER_*_PATH_V2` -> `LOCAL_SIGNING_WORKER_*_PATH`
 - [x] Rename TypeScript private route constants:
   - [x] `PRIVATE_ED25519_*_PATH_V2` -> `PRIVATE_ED25519_*_PATH`
-  - [x] `PRIVATE_ECDSA_HSS_*_PATH_V2` -> `PRIVATE_ECDSA_HSS_*_PATH`
+  - [x] `PRIVATE_ECDSA_DERIVATION_*_PATH_V2` -> `PRIVATE_ECDSA_DERIVATION_*_PATH`
 
 Acceptance:
 
@@ -236,9 +234,9 @@ Acceptance:
 ## Phase 4: Preserve Protocol Version Names
 
 - [x] Keep canonical protocol and parser names such as:
-  - [x] `RouterAbEcdsaHssEvmDigestSigningRequestV1`
+  - [x] `RouterAbEcdsaDerivationEvmDigestSigningRequestV1`
   - [x] `RouterAbEd25519NormalSigningPrepareRequestV2`
-  - [x] `parse_router_ab_ecdsa_hss_*_v1_json`
+  - [x] `parse_router_ab_ecdsa_derivation_*_v1_json`
   - [x] `parse_router_ab_ed25519_*_v2_json`
 - [x] Keep hash-domain strings such as:
   - [x] `router-ab-protocol/.../v1`
@@ -263,7 +261,7 @@ Acceptance:
   - [x] relayer threshold ECDSA tests
   - [x] Cloudflare/local-dev Rust tests
 - [x] Add a source guard rejecting active route-version strings:
-  - [x] `/v1/hss`
+  - [x] `/v1/legacy`
   - [x] `/v2/router-ab`
   - [x] `/router-ab/v1`
   - [x] `/router-ab/v2`
@@ -291,7 +289,7 @@ Acceptance:
 - [x] Update active docs:
   - [x] [router-a-b-SPEC.md](./router-a-b-SPEC.md)
   - [x] [router-a-b-local-dev.md](./router-a-b-local-dev.md)
-  - [x] [router-a-b-cleanup.md](./router-a-b-cleanup.md)
+  - [x] [router-a-b-SPEC.md](./router-a-b-SPEC.md)
   - [x] [refactor-70-server-budget.md](./refactor-70-server-budget.md)
   - [x] threshold ECDSA integration/signing docs
 - [x] Update release/deploy scripts that probe routes.

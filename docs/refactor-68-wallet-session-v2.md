@@ -34,7 +34,7 @@ The public client boundary no longer exposes a Router normal-signing grant.
 
 Follow-up cleanup for making Router A/B the only Ed25519 and ECDSA signing
 architecture is tracked in
-[router-a-b-cleanup.md](./router-a-b-cleanup.md). That follow-up deletes the
+[router-a-b-SPEC.md](./router-a-b-SPEC.md). That current reference records the
 separate non-Router threshold-session signing stack after Router A/B replacement
 coverage is complete.
 
@@ -886,7 +886,7 @@ ECDSA-HSS Router A/B was promoted to a local release requirement.
       A/B ECDSA-HSS and cleanup plans.
 - [x] Run the final local Router A/B legacy and naming cleanup after Wallet
       Session V2 and ECDSA-HSS support. The canonical cleanup record is
-      [router-a-b-cleanup.md](./router-a-b-cleanup.md); local Router A/B-only
+      [router-a-b-SPEC.md](./router-a-b-SPEC.md); local Router A/B-only
       cleanup is tracked there.
 - [x] Harden the unlock-to-sign readiness boundary for Router A/B-only signing.
       Wallet unlock now requests and persists Ed25519 Router A/B

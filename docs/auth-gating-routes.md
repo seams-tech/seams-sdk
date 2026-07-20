@@ -6,7 +6,7 @@ Date updated: 2026-06-17
 
 This document describes the current route-auth model after the Router A/B
 signing cleanup. Router A/B is the only public signing architecture for
-Ed25519 and ECDSA-HSS product signing. Old public threshold signing route
+Ed25519 and ECDSA product signing. Old public threshold signing route
 families are intentionally absent from the current route surface.
 
 ## Auth Planes
@@ -27,10 +27,12 @@ auth planes. A route must not silently accept credentials from another plane.
 
 ## Router A/B Public Signing
 
-Public Ed25519 and ECDSA-HSS signing uses:
+Public Ed25519 and ECDSA signing uses the current Router A/B route families:
 
 - `POST /router-ab/ed25519/sign/prepare`
 - `POST /router-ab/ed25519/sign`
+- `POST /router-ab/ecdsa-derivation/sign/prepare`
+- `POST /router-ab/ecdsa-derivation/sign`
 
 Router A/B public signing requirements:
 

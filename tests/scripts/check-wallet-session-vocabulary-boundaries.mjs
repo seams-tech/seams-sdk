@@ -17,10 +17,8 @@ const sourceRoots = [
 const activeDocPaths = [
   'apps/docs/src/concepts/sessions/wallet-sessions.md',
   'docs/intended-behaviours.md',
-  'docs/ml-dsa-threshold.md',
   'docs/otp/email-otp.md',
   'docs/refactor-68-wallet-session-v2.md',
-  'docs/router-a-b-cleanup.md',
   'docs/router-a-b-SPEC.md',
   'docs/signing-session-architecture/README.md',
   'docs/signing-session-architecture/sealed-refresh.md',

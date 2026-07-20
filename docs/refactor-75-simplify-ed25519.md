@@ -6,15 +6,15 @@ Status: complete through Phase 10; live Refactor 70 evidence remains separate
 
 Primary source of truth:
 
-- [refactor-74-login-no-hss.md](./refactor-74-login-no-hss.md)
+- [signing-session-architecture](./signing-session-architecture/README.md)
 - [refactor-70-server-budget.md](./refactor-70-server-budget.md)
-- [router-a-b-cleanup.md](./router-a-b-cleanup.md)
+- [router-a-b-SPEC.md](./router-a-b-SPEC.md)
 
 ## Goal
 
 Make Router A/B signing state easier to reason about by separating raw
 persistence records from strict domain states, then shrinking duplicated identity
-fields in active signing material. Ed25519 is the primary target. ECDSA-HSS gets
+fields in active signing material. Ed25519 is the primary target. ECDSA gets
 a focused parity phase for the same persisted-hint versus worker-validation
 boundary.
 
@@ -24,7 +24,7 @@ The customer-facing behavior should stay simple:
 - normal signing restores or validates worker-owned material before producing a
   signature
 - final signing consumes validated worker material only
-- no HSS/raw-material fallback appears in unlock or normal signing
+- no legacy derivation/raw-material fallback appears in unlock or normal signing
 
 This refactor is internal SDK cleanup. It should not change public app concepts
 or require customers to understand material handles, binding digests, session
@@ -94,7 +94,7 @@ The implementation already has partial versions of the target model:
 - `RouterAbEd25519PersistedSigningRecordState` and
   `classifyRouterAbEd25519PersistedSigningRecord` classify persisted Ed25519
   records.
-- `classifyRouterAbEcdsaHssPersistedSigningRecord` exists, but it still treats
+- The ECDSA derivation persisted-record classifier exists, but it still treats
   a parsed persisted ECDSA record as signable.
 - Ed25519 worker-material validation currently uses a process-local marker set.
   That marker must be replaced with a typed, non-secret validation key.
@@ -192,7 +192,7 @@ as separate states.
 
 ## Resolved Spec Details
 
-Use these names and boundaries consistently across Ed25519 and ECDSA-HSS.
+Use these names and boundaries consistently across Ed25519 and ECDSA.
 
 Persisted records can only describe durable facts and restore hints:
 
@@ -220,8 +220,8 @@ activation changes, and verifier changes all invalidate worker-material
 validation. Budget expiry invalidates per-operation admission.
 
 Final signing has one valid input shape: runtime-validated worker-owned material
-plus current Wallet Session budget/auth. It must not claim PRF output, run HSS
-setup, restore sealed material, read raw persistence optionals, or fall back to
+plus current Wallet Session budget/auth. It must not claim PRF output, run a
+derivation setup ceremony, restore sealed material, read raw persistence optionals, or fall back to
 legacy material paths. Restore and validation happen before final signing.
 
 Warm-session and lane readers may report auth or budget readiness from persisted
@@ -401,19 +401,18 @@ Validation:
 
 - [x] Verify active persistence and core signing types use
       `ed25519WorkerMaterialHandle` and `ed25519WorkerMaterialBindingDigest`.
-- [x] Keep any HSS naming that still refers to the actual setup ceremony until
-      Refactor 74 removes or isolates that ceremony surface.
+- [x] Keep setup-ceremony naming isolated from active normal-signing state.
 - [x] Rename stale active normal-signing material kind:
       `RouterAbEd25519SigningMaterialRef.kind` now uses
       `router_ab_ed25519_worker_material_ref_v1`.
-- [x] Rename stale HSS module/file references such as `hssMaterialBinding.ts`
-      after the HSS setup surface is isolated and Refactor 76 branded-key work
-      settles. The active module is now `workerMaterialBinding.ts`.
-- [x] Delete stale helper aliases after callers move. No compatibility import path
-      or alias for `hssMaterialBinding.ts` remains.
-- [x] Add source guards preventing old raw-HSS material fields and HSS
-      reconstruction helpers from returning to active normal signing state.
-      Covered by the Router A/B normal-signing and Refactor 74 source guards.
+- [x] Rename stale legacy material-binding module/file references after the
+      setup surface was isolated. The active module is now
+      `workerMaterialBinding.ts`.
+- [x] Delete stale helper aliases after callers move. No compatibility import
+      path or alias for the former material-binding module remains.
+- [x] Add source guards preventing old raw material fields and reconstruction
+      helpers from returning to active normal signing state. Covered by the
+      Router A/B normal-signing source guards.
 
 Validation:
 
@@ -434,7 +433,7 @@ Validation:
       Covered by the budget evidence harness cold Ed25519 material case, which
       removes the material-handle hint, resets the signer worker, and verifies a
       single worker-material restore before signing.
-- [x] No normal signing flow invokes HSS reconstruction.
+- [x] No normal signing flow invokes legacy derivation reconstruction.
 - [x] No normal signing flow reads raw `xClientBaseB64u`.
 - [x] Source guards prove raw optional persistence fields are isolated to
       parser/write boundaries.
@@ -445,16 +444,15 @@ Validation:
 - [x] `pnpm -C packages/sdk-web type-check`
 - [x] targeted Router A/B and Refactor 74 source guards
 
-## Phase 8: ECDSA-HSS Worker Material Parity
+## Phase 8: ECDSA Worker Material Parity
 
-ECDSA-HSS has the same persisted-hint versus worker-validation boundary as
+ECDSA derivation has the same persisted-hint versus worker-validation boundary as
 Ed25519, with a narrower material surface. The active risk is
 `role_local_ready_state_blob` and record-backed policy being treated as
 sign-ready before the current worker proves the role-local material handle.
 
-- [x] Inventory ECDSA-HSS material/session state types and constructors:
-      `RouterAbEcdsaHssSigningWalletSession`,
-      `RouterAbEcdsaHssSigningMaterialRef`,
+- [x] Inventory ECDSA material/session state types and constructors:
+      current ECDSA derivation signing-session and material-ref types,
       `ThresholdEcdsaSessionRecord`,
       `ThresholdEcdsaSecp256k1KeyRef`,
       `ReadyEcdsaSignerSession`,
@@ -463,7 +461,7 @@ sign-ready before the current worker proves the role-local material handle.
 - [x] Document which ECDSA fields belong to active Router A/B state, stable key
       identity, session/grant identity, chain target identity, worker material
       identity, and public verifier identity.
-- [x] Define `EcdsaHssRuntimeMaterialValidationKey` with:
+- [x] Define the ECDSA runtime material validation key with:
       material handle, binding digest, threshold session id, signing grant id,
       non-secret Wallet Session credential fingerprint, Router A/B active-state
       session id, ECDSA threshold key id, signing root id/version, activation
@@ -479,16 +477,15 @@ sign-ready before the current worker proves the role-local material handle.
 - [x] Treat `role_local_ready_state_blob` as restore material only. It must not
       classify a lane as sign-ready until the worker stores or validates the
       derived `role_local_worker_share` handle for the current binding.
-- [x] Require runtime worker validation before
-      `classifyRouterAbEcdsaHssPersistedSigningRecord` can return a signable
-      state.
+- [x] Require runtime worker validation before the ECDSA persisted-record
+      classifier can return a signable state.
 - [x] Move ECDSA role-local restore out of final signing and into an explicit
       readiness/restore boundary that returns runtime-validated material.
 - [x] Make ECDSA worker-material validation fail closed when the Wallet Session was
       reminted, the shared signing grant changed, the Router A/B activation epoch
       changed, or the persisted role-local blob does not match current public
       identity.
-- [x] Ensure final Tempo/EVM signing accepts only runtime-validated ECDSA-HSS
+- [x] Ensure final Tempo/EVM signing accepts only runtime-validated ECDSA
       material and one-use presignature state.
 - [x] Keep raw `clientSigningShare32` and additive-share bytes inside worker or
       worker-boundary code. Route orchestration and lane selection must consume
@@ -513,8 +510,8 @@ sign-ready before the current worker proves the role-local material handle.
 Validation:
 
 - [x] `pnpm -C packages/sdk-web type-check`
-- [x] `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/routerAbEcdsaHssNormalSigning.unit.test.ts unit/warmSessionStore.reconnect.unit.test.ts --reporter=line`
-- [x] focused ECDSA-HSS source guard
+- [x] `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/routerAbEcdsaDerivationNormalSigning.unit.test.ts unit/warmSessionStore.reconnect.unit.test.ts --reporter=line`
+- [x] focused ECDSA source guard
 - [x] Refactor 70 budget evidence harness still passes after ECDSA changes
 
 ## Phase 9: Fail-Closed Budget Admission And Activation Payload Boundaries
@@ -893,7 +890,7 @@ ECDSA signing-material and budget-admission model:
 - [x] Move record-to-ready-material conversion behind one boundary resolver,
       such as `resolveEcdsaSigningMaterialPlan(...)`. The resolver may build a
       `material_from_runtime_validated_record` branch only after
-      `classifyRouterAbEcdsaHssPersistedSigningRecord(record).kind ===
+      `classifyRouterAbEcdsaDerivationPersistedSigningRecord(record).kind ===
       'runtime_validated'`.
 - [x] Keep ECDSA material readiness separate from budget admission. A
       `material_from_runtime_validated_record` branch proves only worker-material
@@ -976,7 +973,7 @@ Done criteria:
 ## Completion Criteria
 
 - Active Ed25519 final signing accepts only runtime-validated worker material.
-- Active ECDSA-HSS final signing accepts only runtime-validated worker material.
+- Active ECDSA final signing accepts only runtime-validated worker material.
 - Optional material fields exist only in raw persistence/request boundary types.
 - Persisted material handles are named and modeled as hints.
 - `restore_available`, `auth_ready_material_pending`, and `runtime_validated`

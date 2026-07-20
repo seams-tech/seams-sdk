@@ -23,16 +23,16 @@ Last updated: `2026-07-13T00:05:03Z`
 
 ## Audited Files
 
-- `crates/router-ab-core/src/protocol/ecdsa_hss.rs`
-- `packages/shared-ts/src/utils/routerAbEcdsaHss.ts`
+- `packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker.ts`
+- `packages/shared-ts/src/utils/routerAbEcdsaDerivation.ts`
 - `packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigning.ts`
 - `packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession.ts`
 - `packages/sdk-web/src/core/signingEngine/flows/signNear/signNear.ts`
 
 ## Audited Flows
 
-- `Router A/B ECDSA-HSS registration, export, recovery, refresh, and normal-signing boundary`
-- `Wallet SDK Router A/B ECDSA-HSS wire parser, JWT rehydration, request digest binding, and active-session identity`
+- `Router A/B ECDSA derivation registration, export, recovery, refresh, and normal-signing boundary`
+- `Wallet SDK Router A/B ECDSA derivation wire parser, JWT rehydration, request digest binding, and active-session identity`
 - `Wallet SDK Router A/B Ed25519 normal-signing prepare/finalize RPC, presign-pool refill, and budget-bound response binding`
 - `Wallet SDK Router A/B Ed25519 wallet-session authority parsing, persisted-state classification, runtime worker-material validation, and NEAR readiness gating`
 - `Wallet SDK NEAR Ed25519 lane selection, readiness planning, passkey or Email OTP reauth, confirmation funding, and transaction/delegate/NEP-413 signing entrypoints`

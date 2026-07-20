@@ -9,7 +9,7 @@ claiming.
 Related plans:
 
 - [router-a-b-SPEC.md](./router-a-b-SPEC.md)
-- [refactor-64-optimize-registration-2.md](./refactor-64-optimize-registration-2.md)
+- [router-a-b-SPEC.md](./router-a-b-SPEC.md)
 - [refactor-75-simplify-ed25519.md](./refactor-75-simplify-ed25519.md)
 - [refactor-80-switch-case.md](./refactor-80-switch-case.md)
 

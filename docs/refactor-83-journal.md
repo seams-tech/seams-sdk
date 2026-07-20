@@ -420,7 +420,7 @@ Validation:
   tests/e2e/intended-behaviours/harness.ts
   packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts
   packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts
-  docs/refactor-83-registration.md docs/refactor-83-journal.md`
+  docs/refactor-83-journal.md`
 
 Evidence gap at this point: recapture the Phase 1 and Phase 7B matrices with
 the new target-profile parameter. Later July 5 entries record those completed
@@ -612,7 +612,7 @@ Validation:
 - Source inventory only; no code change in this slice.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/registrationCapabilitySubjects.guard.unit.test.ts --reporter=line` passes 11/11.
 - `pnpm --dir packages/sdk-web exec tsc -p tsconfig.json --noEmit --pretty false` passes.
-- `git diff --check -- docs/refactor-83-registration.md docs/refactor-83-journal.md` passes.
+- `git diff --check -- docs/refactor-83-journal.md` passes.
 - `pnpm build:sdk` passes.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/registrationCapabilitySubjects.guard.unit.test.ts --reporter=line` passes 9/9 after SDK build regenerated the local Vite plugin bundle.
 

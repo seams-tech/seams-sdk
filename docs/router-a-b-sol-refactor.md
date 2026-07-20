@@ -3,7 +3,7 @@
 Date created: July 10, 2026
 
 Status: active implementation plan. Phase 0 closed on July 10, 2026. The
-deprecated Ed25519-HSS crate and its Rust dependencies are deleted. The complete
+deprecated Ed25519 backend and its Rust dependencies are deleted. The complete
 P0 Yao lifecycle passes locally, including SDK Router registration and ordinary
 signing. Phase 9C SDK/server cleanup remains active. Production release stays
 blocked on deployed evidence, profile selection, strict Router A/B cutover,
@@ -14,7 +14,7 @@ Companion documents:
 - [Router A/B specification](./router-a-b-SPEC.md)
 - [Router A/B deployment reference](./router-a-b-deployment.md)
 - [Router A/B local development](./router-a-b-local-dev.md)
-- [Router A/B cleanup history](./router-a-b-cleanup.md)
+- [Router A/B specification](./router-a-b-SPEC.md)
 - [Streaming Yao for Deriver A and Deriver B](./yaos-ab.md)
 
 `yaos-ab.md` owns current latency and protocol evidence. This plan owns strict
@@ -195,7 +195,7 @@ responsibility.
 
 | Requirement                                                                      | Intended source                          | Current implementation evidence                                                                                                                 | Classification                  | Confidence | Owning phase |
 | -------------------------------------------------------------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- | ---------: | ------------ |
-| Ed25519 derivation uses strict A/B role processes                                | `router-a-b-SPEC.md` Sections 2-5        | Local Router, separate Deriver A/B processes, and SigningWorker complete the fixed Yao lifecycle; remaining product registration/recovery HSS surfaces are being deleted | High partial match | `0.99` | 9C, 14 |
+| Ed25519 derivation uses strict A/B role processes                                | `router-a-b-SPEC.md` Sections 2-5        | Local Router, separate Deriver A/B processes, and SigningWorker complete the fixed Yao lifecycle; remaining deployment and release gates are tracked separately | Local match; deployment pending | `0.99` | 9C, 14 |
 | Ed25519 identity derives from canonical `d`                                      | `yaos-ab.md` Phase 9C                    | Local export runs `d -> SHA-512(d) -> clamp -> a`, reproduces the registered public key, and creates a standard Ed25519 signature | Local match; deployment pending | `0.99` | 9D, 11 |
 | Neither peer obtains both share sides                                            | `router-a-b-SPEC.md` Section 3           | Role-specific encrypted inputs and recipient packages keep Deriver and Client/SigningWorker views disjoint in the local process suite | Local match; deployment pending | `0.99` | 9D, 11 |
 | A coherent Phase 3A-selected Streaming Yao profile is implemented                | `yaos-ab.md`                             | The complete P0 fixed-circuit implementation passes locally; deployed evidence and final P0-P3 selection remain open | High partial match | `0.99` | 9D, 13A |
@@ -530,11 +530,10 @@ foundation exists; it cannot bypass a blocked dependency or phase exit gate.
 Current status is aligned across plans: the local P0 Streaming Yao construction,
 complete local lifecycle, strict Router/A/B integration, opaque Rust/WASM Client
 state, and standard FROST signing over the activated shares are implemented.
-`yaos-ab.md` Phase 9C is the active gate. The deprecated Ed25519-HSS crate and
-its Rust consumers are deleted; SDK and server deletion of the remaining HSS
-request, persistence, recovery, and material-state surfaces is in progress.
-Cloudflare deployment, profile promotion, and production security claims remain
-deferred until the local SDK intended-behaviour path is clean and passing.
+`yaos-ab.md` Phase 9C is the active gate. The deprecated Ed25519 backend and its
+Rust consumers are deleted, and the current SDK/server derivation boundaries are
+in place. Cloudflare deployment, profile promotion, and production security
+claims remain deferred until their release evidence is complete.
 
 ## Phase 0: Freeze Contract And Stop-Ship Status
 
@@ -1514,8 +1513,8 @@ deployment artifacts that will ship.
 
 ## Phase 10: Hard Cutover And Legacy Deletion
 
-Status: **active; Ed25519-HSS deletion is complete, while generic-service and
-ECDSA cutover tasks remain**
+Status: **local legacy-backend deletion and ECDSA cutover are complete; release
+evidence and deployment remediation remain**
 
 Goal: leave one strict production architecture and no compatibility path.
 
@@ -1590,10 +1589,10 @@ Goal: leave one strict production architecture and no compatibility path.
       role surfaces.
 - [ ] Scan final Worker and browser bundles for forbidden symbols and secret
       owners.
-- [x] Update active Router A/B and Ed25519 documentation for the Yao-only
-      cutover; retain dated HSS review/refactor records as historical evidence.
-- [ ] Update Router A/B ECDSA derivation, deployment, recovery, export, and selected-profile
-      documentation after their remaining phases close.
+- [x] Update active Router A/B and Ed25519 documentation for the current Yao
+      and ECDSA threshold-PRF cutover.
+- [x] Update Router A/B ECDSA derivation, deployment, recovery, and export
+      documentation for the current role-local implementation.
 - [x] Delete tests and fixtures for obsolete Ed25519-HSS and worker-material
       behavior.
 - [ ] Delete remaining generic-service and superseded ECDSA tests after their

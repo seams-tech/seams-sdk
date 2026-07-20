@@ -15,7 +15,6 @@ const authNeutralDocs = Object.freeze([
   'apps/docs/src/concepts/sessions/sealed-refresh.md',
   'docs/otp/email-otp.md',
   'docs/signing-session-architecture/sealed-refresh.md',
-  'docs/refactor-62-hss-prepare-preauth.md',
 ]);
 
 const forbiddenAuthNeutralTerms = Object.freeze([

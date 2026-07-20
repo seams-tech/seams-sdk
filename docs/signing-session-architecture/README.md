@@ -208,7 +208,7 @@ threshold session.
 Use threshold-session auth for:
 
 1. Ed25519 threshold signing and Streaming Yao lifecycle routes.
-2. ECDSA threshold signing, presign, and HSS continuation routes.
+2. ECDSA threshold signing, presign, and derivation-continuation routes.
 3. Threshold export routes after the operation has fresh export authorization.
 
 The threshold session token should be named `thresholdSessionAuthToken` in
@@ -591,7 +591,7 @@ The completed implementation work closed these architecture gaps:
 8. Snapshot ECDSA identity uses concrete `ThresholdEcdsaChainTarget`.
 9. Legacy collapsed ECDSA records are dropped rather than migrated.
 10. Public/internal ECDSA boundaries use wallet id and exact lane identity.
-11. HSS prepare binds ECDSA requests to wallet id and exact chain target.
+11. ECDSA derivation preparation binds requests to wallet id and exact chain target.
 12. Duplicate exact Ed25519 export candidates are normalized by canonical lane
     identity.
 
@@ -627,8 +627,8 @@ Guard tests should reject:
 3. Wallet Session V2 and Router A/B auth:
    [../refactor-68-wallet-session-v2.md](../refactor-68-wallet-session-v2.md).
 4. ECDSA model:
-   [../ecdsa_threshold_signing.md](../ecdsa_threshold_signing.md).
+   [../threshold-ecdsa/ecdsa-threshold-signing.md](../threshold-ecdsa/ecdsa-threshold-signing.md).
 5. Ed25519 model:
    [../yaos-ab.md](../yaos-ab.md).
 6. Nonce coordinator:
-   [../nonce-coordinator.md](../nonce-coordinator.md).
+   [../refactor-27-nonce-coordinator.md](../refactor-27-nonce-coordinator.md).

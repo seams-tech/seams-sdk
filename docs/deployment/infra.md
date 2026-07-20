@@ -479,7 +479,7 @@ pnpm --dir packages/console-server-ts run d1:staging:smoke -- \
 
 The smoke script checks `/console/readyz` on the console Worker, `/readyz` plus
 `/healthz` on Gateway, and the configured signer custody health routes
-`/router-ab/ed25519/healthz` and `/router-ab/ecdsa-hss/healthz`. It records
+`/router-ab/ed25519/healthz` and `/router-ab/ecdsa-derivation/healthz`. It records
 response bodies, statuses, and timestamps under
 `packages/console-server-ts/.wrangler/d1-staging-smoke`.
 
@@ -512,7 +512,7 @@ pnpm --dir packages/console-server-ts run d1:staging:signer-custody -- \
 ```
 
 The signer custody script calls the configured threshold route health endpoints
-and the production `/router-ab/ecdsa-hss/export/share` route with the fixture
+and the production `/router-ab/ecdsa-derivation/export/share` route with the fixture
 request. It writes redacted evidence under
 `packages/console-server-ts/.wrangler/d1-staging-signer-custody` and never records
 the wallet-session JWT or server export share. For the optional missing-KEK
