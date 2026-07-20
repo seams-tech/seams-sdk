@@ -6,6 +6,46 @@ This file holds dated progress entries so the plan stays a readable checklist.
 The plan records only a one-line status per phase; the narrative history lives
 here.
 
+## July 20, 2026: Stable Wallet Lifecycle Checkpoint Reconciliation
+
+- Reconciled stabilization commits after `06c923053` through checkpoint
+  `f978ae98b`. Current head `ac22999de` adds a release guard for centralized
+  worker service authentication and does not change the capability-state model.
+- Production-shaped local execution now separates the Gateway, MPCRouter,
+  Deriver A, Deriver B, and SigningWorker and uses Cloudflare service bindings.
+  Router and SigningWorker persistence, activation lookup, presign routing,
+  registration cleanup, and server key-selector persistence were repaired.
+- ECDSA groundwork for Foundation B landed. Encrypted role-local material and
+  presign records use `seams_wallet`; durable records contain sealed material
+  references and public facts; volatile handles remain in worker memory; lookup
+  is chain-qualified; and registration, unlock, signing, step-up, and export use
+  the shared tactical material resolver. Passkey and Email OTP registration
+  retain public reauthorization anchors.
+- Foundation B remains in progress. The canonical
+  `ActiveEcdsaCapabilityManifest`, activation commit journal, atomic
+  manifest-plus-material transaction, exact manifest read/commit ports,
+  required-field transition model, and
+  `ThresholdEcdsaSessionRecordCore` deletion have not landed.
+- Email OTP registration, immediate signing, step-up, ECDSA export, reload, and
+  later unlock now preserve enrollment escrow and rehydrate exact durable ECDSA
+  material.
+- Passkey Near Ed25519 now persists an authenticated encrypted activated-Client
+  envelope in `seams_wallet`. Routine passkey unlock, page-refresh restoration,
+  signing, and budget refresh import it locally with zero Deriver A/B calls.
+  Device linking and explicit same-root recovery retain the root-recovery
+  lifecycle. Export retains its separate one-use material-acquisition ceremony.
+- Foundation A's four decision branches remain the canonical target. The prior
+  shared implementation and ECDSA adapter over the optional legacy session
+  record are absent at this checkpoint. Reimplementation must begin with exact
+  ECDSA and Near Ed25519 protocol observation unions, followed by the small
+  shared decision contract, narrow proof constructors, and compile-time
+  rejection fixtures.
+- YAOS Phase 14B is complete. Refactor 90 must preserve the responsibility-local
+  derivation, presign, and online-signing worker split and use Router A/B ECDSA
+  derivation terminology in active tasks.
+- The manually verified acceptance matrix and the intended-behaviour guard that
+  rejects routine Deriver A/B recovery are recorded in `f978ae98b`.
+
 Note: the Phase 2A entries below were originally appended to the plan out of
 order. They are re-ordered here by the recorded `AuthService.ts` line count,
 which decreased monotonically through the split. All entries were logged on

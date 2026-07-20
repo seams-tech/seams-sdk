@@ -23,6 +23,26 @@ Rust/WASM proof generation and activation integration remain pending.
 Device linking currently fails closed. This patch may land in development with
 `device_link_required`; cross-device release remains gated on Refactors 97 and 98.
 
+## July 20 Checkpoint Reconciliation
+
+Checkpoint `f978ae98b` landed encrypted ECDSA role-local material in
+`seams_wallet`, runtime-only worker handles, chain-qualified lookup, and one
+shared tactical material resolver across registration, unlock, signing,
+step-up, and export. Email OTP now restores exact durable ECDSA material.
+
+These changes reduce the persistence and flow-migration work required here.
+They do not provide Refactor 90's canonical ECDSA manifest, activation journal,
+atomic manifest-plus-material commit, or required-field
+`ThresholdEcdsaSessionRecordCore` replacement. Foundation A's shared hydration
+decision contract and proof constructors are also pending after deletion of the
+legacy-record adapter. The dependency order remains:
+
+1. land Foundations A and B against the checkpoint material adapters;
+2. integrate exact custody and possession proof with the canonical manifest;
+3. cut activation over to exact live, locally rehydrated, or custody-restored
+   material;
+4. delete strict ECDSA derivation recovery.
+
 ## Decision
 
 Threshold-PRF derivation creates the initial owner-lane ECDSA client share only

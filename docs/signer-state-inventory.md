@@ -2,9 +2,11 @@
 
 Date: 2026-07-18
 
-Status: diagnostic inventory of the current working tree. This document describes
-the implementation as it exists during the active ECDSA role-local material
-refactor.
+Status: historical diagnostic snapshot captured before the July 20, 2026 stable
+wallet lifecycle checkpoint. The target-state analysis remains useful. File
+paths and claims about the current implementation must be checked against the
+checkpoint reconciliation in
+[`refactor-90-journal.md`](./refactor-90-journal.md).
 
 Disposition: the canonical ECDSA capability manifest, persistence commit, flow
 cutover, and `ThresholdEcdsaSessionRecordCore` deletion described here are now
@@ -29,11 +31,13 @@ for:
 - whether material is live, rehydratable, or requires reauthorization;
 - which durable material reference belongs to the selected capability.
 
-The repository already contains most of the intended concepts: exact lane
-identity, canonical lane inventory, runtime validation, durable role-local
-material, public reauthorization anchors, sealed recovery, and the new
-`MpcCapabilityHydrationPlan`. Their composition remains record-shaped and
-flow-specific.
+The repository contains most of the intended concepts: exact lane identity,
+canonical lane inventory, runtime validation, durable role-local material,
+public reauthorization anchors, and sealed recovery. The Refactor 90 SPEC owns
+the target `MpcCapabilityHydrationPlan`. Its earlier legacy-record adapter was
+deleted before the July 20 checkpoint, so the shared decision contract and
+proof constructors remain implementation work. Current protocol composition
+remains record-shaped and flow-specific.
 
 ## Intended Architecture
 
@@ -158,18 +162,18 @@ used by the older sealed-recovery path:
 
 ### Encrypted worker material
 
-The ECDSA derivation worker stores the finalized role-local state blob in its
-own IndexedDB database:
+At the July 20 checkpoint, the ECDSA material adapter stores the encrypted
+finalized role-local state in the shared wallet database:
 
-- database: `seams_router_ab_ecdsa_role_local_session_v1`
-- object store: `active_material`
+- database: `seams_wallet`
+- sealing-key object store: `ecdsa_role_local_sealing_keys`
+- active-material object store: `ecdsa_role_local_active_material`
 - primary key: `durableMaterialRef`
 
 See:
 
-- `packages/sdk-web/src/core/signingEngine/workerManager/workers/ecdsaRoleLocalSessionMaterialStore.ts:1`
-- `packages/sdk-web/src/core/signingEngine/workerManager/workers/ecdsaRoleLocalSessionMaterialStore.ts:65`
-- `packages/sdk-web/src/core/signingEngine/workerManager/workers/ecdsaRoleLocalSessionMaterialStore.ts:220`
+- `packages/sdk-web/src/core/indexedDB/schemaNames.ts`
+- `packages/sdk-web/src/core/indexedDB/seamsWalletDB/ecdsaRoleLocalSessionMaterialStore.ts`
 
 Registration finalization writes the encrypted record and publishes a hot
 worker handle:
@@ -599,17 +603,9 @@ Every field required to address, authenticate, and validate the active
 capability is present. Persistence-boundary parsers produce this type. Core
 signing receives it directly.
 
-### Hydration plan
+### Hydration decision contract
 
-The current working tree already has the right high-level union:
-
-- `packages/sdk-web/src/core/signingEngine/capability/mpcCapabilityHydration.ts:80`
-- `packages/sdk-web/src/core/signingEngine/capability/mpcCapabilityHydration.ts:116`
-- `packages/sdk-web/src/core/signingEngine/capability/mpcCapabilityHydration.ts:129`
-- `packages/sdk-web/src/core/signingEngine/capability/mpcCapabilityHydration.ts:142`
-- `packages/sdk-web/src/core/signingEngine/capability/mpcCapabilityHydration.ts:155`
-
-Its branches are:
+The Refactor 90 SPEC defines the required high-level decision union:
 
 ```text
 use_live_runtime
@@ -618,9 +614,10 @@ reauthorize_public_anchor
 blocked
 ```
 
-Adopt this union as the common outcome for registration, wallet unlock, and
+Implement this union as the common outcome for registration, wallet unlock, and
 page refresh. Keep the entry point as provenance only. The same durable facts
-must resolve to the same plan regardless of entry point.
+must resolve to the same plan regardless of entry point. The shared leaf module,
+narrow proof constructors, and compile-time rejection fixtures are pending.
 
 ## Canonical Transitions
 
