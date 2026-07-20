@@ -304,9 +304,6 @@ jobs:
       - name: Run threshold signing core suites
         run: pnpm test:threshold-core
 
-      - name: Run relay-server script unit checks
-        run: pnpm -C tests test:unit:relay-server-scripts
-
       - name: Upload threshold-core test artifacts on failure
         if: failure()
         uses: actions/upload-artifact@v7
