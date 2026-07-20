@@ -1,4 +1,13 @@
-import { accessSync, constants, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import {
+  accessSync,
+  closeSync,
+  constants,
+  mkdtempSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+} from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -92,6 +101,33 @@ function runCaptured(command, args) {
     fail(`${command} exited with status ${String(result.status)}: ${result.stderr.trim()}`);
   }
   return result.stdout;
+}
+
+function runCapturedThroughFile(command, args) {
+  const temporary = mkdtempSync(join(tmpdir(), 'ed25519-yao-command-output-'));
+  const stdoutPath = join(temporary, 'stdout.txt');
+  const stdout = openSync(stdoutPath, 'w', 0o600);
+  try {
+    let result;
+    try {
+      result = spawnSync(command, args, {
+        cwd: REPOSITORY_ROOT,
+        encoding: 'utf8',
+        stdio: ['ignore', stdout, 'pipe'],
+      });
+    } finally {
+      closeSync(stdout);
+    }
+    if (result.error !== undefined) {
+      fail(`failed to run ${command}: ${result.error.message}`);
+    }
+    if (result.status !== 0) {
+      fail(`${command} exited with status ${String(result.status)}: ${result.stderr.trim()}`);
+    }
+    return readFileSync(stdoutPath, 'utf8');
+  } finally {
+    rmSync(temporary, { recursive: true, force: true });
+  }
 }
 
 function findFiles(directory, predicate) {
@@ -365,7 +401,7 @@ function assertNoSecretBitBranch(disassembly, label) {
 
 function inspectWorkerWasm(llvmObjdump, wasm, feature, requireSender) {
   const symbolTable = runCaptured(llvmObjdump, ['-t', wasm]);
-  const disassembly = runCaptured(llvmObjdump, ['-d', wasm]);
+  const disassembly = runCapturedThroughFile(llvmObjdump, ['-d', wasm]);
   assertNoSecretBitBranch(disassembly, `${feature} Worker WASM`);
 
   const senderSymbols = symbolNames(symbolTable, SENDER_ACCEPT_SYMBOL);
