@@ -16,7 +16,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish-sdk-r2:
+  check-r2-credentials:
+    name: Check R2 publication configuration
     runs-on: ubuntu-latest
     if: >-
       ${{
@@ -32,6 +33,39 @@ jobs:
           )
         )
       }}
+    environment:
+      name: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'dev') && 'staging' || (github.ref_name == 'dev') && 'staging' || 'production' }}
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    env:
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+    steps:
+      - name: Check R2 credentials
+        id: check
+        run: |
+          missing=()
+          for name in R2_ENDPOINT R2_BUCKET AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
+            test -n "${!name:-}" || missing+=("$name")
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=R2 publication skipped::Missing optional R2 configuration: ${missing[*]}"
+            {
+              echo "## R2 publication skipped"
+              echo
+              echo "The optional R2 credentials are not configured: \`${missing[*]}\`."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+  publish-sdk-r2:
+    needs: check-r2-credentials
+    runs-on: ubuntu-latest
+    if: needs.check-r2-credentials.outputs.enabled == 'true'
     environment:
       name: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'dev') && 'staging' || (github.ref_name == 'dev') && 'staging' || 'production' }}
     permissions:
@@ -120,14 +154,6 @@ jobs:
       - name: Run relayer (server) tests
         if: github.event_name == 'workflow_dispatch'
         run: pnpm -C packages/sdk-web test:relayer
-
-      - name: Validate R2 secrets are present
-        run: |
-          set -eu
-          test -n "${R2_ENDPOINT:-}" || (echo "R2_ENDPOINT is not set" >&2; exit 1)
-          test -n "${R2_BUCKET:-}" || (echo "R2_BUCKET is not set" >&2; exit 1)
-          test -n "${AWS_ACCESS_KEY_ID:-}" || (echo "R2_ACCESS_KEY_ID is not set" >&2; exit 1)
-          test -n "${AWS_SECRET_ACCESS_KEY:-}" || (echo "R2_SECRET_ACCESS_KEY is not set" >&2; exit 1)
 
       - name: Generate sha256 manifest (sorted)
         run: |
