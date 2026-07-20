@@ -17,17 +17,17 @@ Follow-up ownership:
   [refactor-71-inventory.md](./refactor-71-inventory.md) and
   [refactor-71-rename-id.md](./refactor-71-rename-id.md).
 - Login without HSS during unlock and worker-owned material restore:
-  [refactor-74-login-no-hss.md](./refactor-74-login-no-hss.md).
+  [signing-session-architecture](./signing-session-architecture/README.md).
 - Ed25519 worker-material simplification:
   [refactor-75-simplify-ed25519.md](./refactor-75-simplify-ed25519.md).
 - Broad Router A/B cleanup, strict signable state, and deployment evidence:
-  [router-a-b-cleanup.md](./router-a-b-cleanup.md).
+  [router-a-b-SPEC.md](./router-a-b-SPEC.md).
 
 Primary source of truth:
 
 - [refactor-68-wallet-session-v2.md](./refactor-68-wallet-session-v2.md)
-- [refactor-70-rename-id.md](./refactor-70-rename-id.md)
-- [router-a-b-cleanup.md](./router-a-b-cleanup.md)
+- [refactor-70-server-budget.md](./refactor-70-server-budget.md)
+- [router-a-b-SPEC.md](./router-a-b-SPEC.md)
 - [router-a-b-SPEC.md](./router-a-b-SPEC.md)
 - [router-a-b-local-dev.md](./router-a-b-local-dev.md)
 
@@ -405,7 +405,7 @@ Update docs that link to deleted report files:
 
 - `docs/router-a-b-SPEC.md`
 - `docs/router-a-b-SPEC.md`
-- `docs/router-a-b-cleanup.md`
+- `docs/router-a-b-SPEC.md`
 - `docs/router-a-b-local-dev.md`
 - `docs/router-a-b-SPEC.md`
 - deployment docs and audits that reference exact report paths
@@ -549,7 +549,7 @@ Possible target shape:
 
 - `crates/router-ab-core/benches/derivation_candidates.rs` remains executable
   evidence.
-- `docs/router-a-b-cleanup.md` or an audit doc summarizes the selected
+- `docs/router-a-b-SPEC.md` or an audit doc summarizes the selected
   candidate evidence.
 - Compiled library API exposes protocol behavior, not release evidence reports.
 
@@ -786,7 +786,7 @@ Current validation note: the targeted Phase 8 package/runtime checks pass. The
 full `rtk pnpm -C tests test:source-guards` suite still fails on broader guard
 debt outside this package-boundary slice. Those failures are scoped to the
 Router A/B signing-state, architecture, fixture, and local harness cleanup
-tracked under `docs/router-a-b-cleanup.md` Phases 15.11 through 15.16, not to
+tracked under the completed Router A/B cleanup, not to
 this package-boundary phase.
 
 ### 69B Execution Order
@@ -1398,11 +1398,10 @@ Active-flow coverage:
 Closure note:
 
 - Raw-material and strict signable-state work moved to
-  `docs/refactor-74-login-no-hss.md`, `docs/refactor-75-simplify-ed25519.md`,
-  and `docs/router-a-b-cleanup.md`.
+  `docs/refactor-75-simplify-ed25519.md`, and `docs/router-a-b-SPEC.md`.
 - Route/auth extraction and SDK route-client helper consolidation landed in
   Phase 6. Remaining route metadata cleanup belongs to
-  `docs/router-a-b-cleanup.md`.
+  `docs/router-a-b-SPEC.md`.
 - Deleted threshold-era tests must stay deleted. Replacement coverage should
   target Router A/B routes, Wallet Session JWT boundaries, worker-owned
   material handles, or explicit persistence/request compatibility parsers.

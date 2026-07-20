@@ -7,8 +7,8 @@ the July 10, 2026 Phase 0 decision. Ed25519 targets actively secure Streaming
 Yao. ECDSA targets strict threshold-PRF derivation and additive scalar shares.
 Deployment profile and rollout details live in
 [router-a-b-deployment.md](./router-a-b-deployment.md). Local commands and smoke
-coverage live in [router-a-b-local-dev.md](./router-a-b-local-dev.md). Historical
-cleanup closure lives in [router-a-b-cleanup.md](./router-a-b-cleanup.md).
+coverage live in [router-a-b-local-dev.md](./router-a-b-local-dev.md). Completed
+cleanup outcomes are reflected directly in this specification.
 
 ## 1. Overview
 
@@ -31,8 +31,9 @@ Approved target status:
 - Wallet Session bearer JWT auth is the public signing authorization boundary.
 - Server-authoritative signing budget and step-up behavior are owned by
   [refactor-70-server-budget.md](./refactor-70-server-budget.md).
-- No-HSS unlock, material restore, and deeper worker-owned material cleanup are
-  owned by Refactor 74/75.
+- Normal unlock, material restore, and worker-owned signing material remain
+  separate from derivation and are governed by the current signing-session
+  architecture.
 - Deployed Cloudflare evidence belongs in
   [router-a-b-deployment.md](./router-a-b-deployment.md).
 
@@ -682,7 +683,7 @@ Every activation-share payload contains exactly one scalar share, its public
 point commitment, and the reviewed active-output binding that ties the decoded
 scalar, point, ciphertext digest, recipient, circuit, ticket, and transcript to
 the actively secure Yao execution. It never contains the joined
-`x_client_base`, joined `x_server_base`, a seed share, or a nested HSS proof
+  `x_client_base`, joined `x_server_base`, a seed share, or a nested legacy proof
 batch. A seed-export payload contains exactly one authenticated seed share and
 cannot be decoded as an activation share.
 
@@ -695,9 +696,9 @@ combining shares. Router verifies only public signatures, digests, and delivery
 metadata.
 
 `RecipientProofBundlePayloadV1`, `RecipientProofBundleCiphertextV1`, the
-`recipient_proof_bundle` wire kind, and nested proof-batch filtering describe the
-historical HSS delivery path currently scheduled for deletion. They are not
-valid target Yao payloads, wire kinds, or release evidence.
+`recipient_proof_bundle` wire kind, and nested proof-batch filtering describe a
+superseded recipient-proof delivery path. They are not valid target Yao
+payloads, wire kinds, or release evidence.
 
 The first deployable strict profile should be:
 
@@ -793,9 +794,9 @@ Old public threshold signing routes are not active product signing paths:
 - `/threshold-ecdsa/presign/*`
 - `/threshold-ecdsa/sign/*`
 
-Threshold- and HSS-named product routes are deleted during the hard cutover.
-Historical route literals may remain only in dated plans or source-guard
-fixtures.
+Threshold-named product routes are deleted from the active product surface.
+Historical route literals may remain only in source-guard fixtures or dated
+audit records.
 
 ### 6.2 Private Route Families
 
@@ -1668,7 +1669,7 @@ Operational rules:
 - early precompute is independently disableable per deployment, org/project
   policy, or incident response state
 - saturated deriver queues return `defer`
-- rejected requests stop before Deriver A, Deriver B, or HSS prepare work
+- rejected requests stop before Deriver A, Deriver B, or derivation work
 - gate records are short-lived, scoped, and cleaned up on completion, expiry, or
   abandon
 
@@ -1989,13 +1990,11 @@ Strict release gates:
 - No Deriver-side combine, synchronous joined-state adapter, or clear
   reconstruction profile satisfies the strict production gate.
 
-Historical implementation note: the current
+Historical implementation note: the superseded
 `RecipientProofBundlePayloadV1`, `RecipientProofBundleCiphertextV1`,
 `WireMessageKindV1::RecipientProofBundle`, and
-`AbDerivationProofBatchPayloadV1` code belongs to the superseded HSS path. It may
-remain temporarily as migration evidence while replacement work is incomplete.
-It is scheduled for hard deletion and supplies no Yao security or release
-evidence.
+`AbDerivationProofBatchPayloadV1` code belongs to the superseded recipient-proof
+path. It supplies no Yao security or release evidence.
 
 Durable Object scopes:
 

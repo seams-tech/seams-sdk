@@ -225,7 +225,7 @@ Flagged issue classes:
 
 Reviewed files:
 
-- `docs/router-a-b-cleanup.md`
+- `docs/router-a-b-SPEC.md`
 - `docs/router-a-b-SPEC.md`
 - `docs/router-a-b-SPEC.md`
 - `docs/router-a-b-SPEC.md`

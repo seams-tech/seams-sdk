@@ -9,14 +9,14 @@ Primary source of truth:
 - [refactor-41.md](./refactor-41.md)
 - [refactor-49-stepup-budget.md](./refactor-49-stepup-budget.md)
 - [refactor-68-wallet-session-v2.md](./refactor-68-wallet-session-v2.md)
-- [router-a-b-cleanup.md](./router-a-b-cleanup.md)
+- [router-a-b-SPEC.md](./router-a-b-SPEC.md)
 
 ## Current Task Board
 
 Refactor 70 owns server-authoritative signing-session budget and post-exhaustion
 step-up behavior. It does not own worker-material restore/readiness; those tasks
-are tracked in `router-a-b-cleanup.md` Phase 15.9 through Phase 15.12 and
-`refactor-74-login-no-hss.md`.
+are tracked in the current Router A/B specification and signing-session
+architecture.
 
 - [x] Inventory existing Wallet Session budget reads, consumes, and Router A/B
       signing routes.
@@ -32,7 +32,7 @@ are tracked in `router-a-b-cleanup.md` Phase 15.9 through Phase 15.12 and
 - [x] Record the current local evidence blocker explicitly instead of treating it
       as budget evidence.
 - [x] Unblock the code-side Ed25519 worker-material readiness prerequisite owned by
-      `refactor-74-login-no-hss.md`.
+      the signing-session architecture.
 - [x] Rerun the Refactor 70 evidence harness against the live local Router stack.
 - [x] Capture local evidence for shared budget `3 -> 2 -> 1 -> 0`.
 - [x] Verify no TouchID prompt appears before budget exhaustion.
@@ -53,8 +53,8 @@ only a UX/concurrency hint. It must never be the policy authority.
 Target invariant:
 
 - A Wallet Session with three remaining signature uses can authorize exactly
-  three successful transaction signatures across NEAR Ed25519, Tempo ECDSA-HSS,
-  and EVM ECDSA-HSS.
+  three successful transaction signatures across NEAR Ed25519, Tempo ECDSA
+  derivation, and EVM ECDSA derivation.
 - The fourth signing operation requires step-up auth before any Router A/B
   SigningWorker signature can be returned.
 - The server consumes budget for successful signing, and the SDK only mirrors
@@ -229,10 +229,10 @@ type RouterAbBudgetOperationIdentity = {
 Definitions:
 
 - `curve` has one canonical external value set: `ed25519 | ecdsa`. Rust may use
-  an internal `EcdsaHss` enum variant for precision, but storage JSON,
+  an internal curve enum variant for precision, but storage JSON,
   telemetry, public responses, and cross-language tests must serialize that
-  branch as `ecdsa`. Do not introduce `ecdsa_hss`, `ecdsa-hss`, or `EcdsaHss`
-  as external budget identity strings.
+  branch as `ecdsa`. Do not introduce legacy derivation names as external budget
+  identity strings.
 - `operationId` is the user-approved signing operation identity. It is stable
   across prepare/finalize retry for the same operation.
 - `requestDigest` is the canonical digest of the final Router A/B signing
@@ -330,8 +330,8 @@ Missing budget records:
   - `POST /router-ab/ed25519/sign/prepare`
   - `POST /router-ab/ed25519/sign/presign-pool/prepare`
   - `POST /router-ab/ed25519/sign`
-  - `POST /router-ab/ecdsa-hss/sign/prepare`
-  - `POST /router-ab/ecdsa-hss/sign`
+  - `POST /router-ab/ecdsa-derivation/sign/prepare`
+  - `POST /router-ab/ecdsa-derivation/sign`
 - [x] Mark presign-pool refill routes as non-consuming unless they return a
       transaction signature.
 - [x] Reconcile the open refactor-41 Phase 1B naming tasks that affect this
@@ -358,8 +358,8 @@ Inventory results:
 - Existing server budget consumes outside Router A/B normal signing are
   signing-session seal `consumeUseCount`, Email OTP session policy helpers, and
   store-level `consumeUseCount` / `consumeUseCountOnce`.
-- Router A/B normal Ed25519 prepare and ECDSA-HSS prepare reserve budget in
-  `routerAbPrivateSigningWorker.ts`. Normal Ed25519 and ECDSA-HSS finalize
+- Router A/B normal Ed25519 prepare and ECDSA derivation prepare reserve budget in
+  `routerAbPrivateSigningWorker.ts`. Normal Ed25519 and ECDSA derivation finalize
   commit the reservation after private SigningWorker success and before returning
   a signature. Ed25519 presign-pool finalize now reserves and commits by
   `operationId + requestDigest` from the final signing request, while
@@ -476,7 +476,7 @@ reserveRouterAbWalletSigningBudget(input: {
 
 - [x] Call the helper from Ed25519 normal-signing prepare routes.
 - [x] Call the helper from Ed25519 presign-pool final-sign routes.
-- [x] Call the helper from ECDSA-HSS normal-signing prepare routes.
+- [x] Call the helper from ECDSA derivation normal-signing prepare routes.
 - [x] Bind the reservation to:
   - Wallet Session JWT kind
   - wallet id/account id
@@ -500,10 +500,10 @@ Implemented scope:
 - Ed25519 normal-signing prepare returns `budget_reservation_id` plus
   `budget_operation_id` and `budget_status`; finalize sends both identifiers
   back.
-- ECDSA-HSS normal-signing prepare returns `budget_reservation_id`,
+- ECDSA derivation normal-signing prepare returns `budget_reservation_id`,
   canonical `budget_operation_id`, and `budget_status`; finalize sends the
   reservation id and canonical operation id back.
-- ECDSA-HSS `budget_operation_id` is derived from active SigningWorker state,
+- ECDSA derivation `budget_operation_id` is derived from active SigningWorker state,
   threshold session id, key scope, activation epoch, public identity,
   presignature id, expiry, and signing digest. It deliberately excludes the
   transport `request_id`.
@@ -554,22 +554,22 @@ commitRouterAbWalletSigningBudget(input: {
 
 Implemented scope:
 
-- Operation-bound Ed25519 and ECDSA-HSS normal finalize require reservation
+- Operation-bound Ed25519 and ECDSA derivation normal finalize require reservation
   metadata, validate the reservation before private SigningWorker forwarding,
   release the active reservation on private SigningWorker failure, and commit
   before returning the signature.
 - Budget reservation identity now includes the SigningWorker id. Cross-worker
   validation and commit attempts fail with `wallet_budget_reservation_mismatch`.
-- ECDSA-HSS budget `requestDigest` uses the canonical Router A/B request digest,
+- ECDSA derivation budget `requestDigest` uses the canonical Router A/B request digest,
   not the ECDSA signing digest alone.
-- ECDSA-HSS budget `operationId` uses the canonical `budget_operation_id`
+- ECDSA derivation budget `operationId` uses the canonical `budget_operation_id`
   returned by prepare. Finalize rejects transport `request_id` or any other
   non-canonical value with `wallet_budget_reservation_mismatch` before private
   SigningWorker forwarding.
 - Ed25519 presign-pool finalization now uses the reservation store. It reserves
   by operation id and canonical Router A/B request digest, releases on private
   SigningWorker failure, then commits before returning the signature.
-- Normal Ed25519 and ECDSA-HSS prepare failures release active reservations
+- Normal Ed25519 and ECDSA derivation prepare failures release active reservations
   after private SigningWorker prepare failure.
 
 Validation added:
@@ -593,14 +593,14 @@ Validation added:
 - `tests/unit/routerAbEd25519BudgetRouteCore.unit.test.ts` proves normal
   Ed25519 prepare and finalize share the same canonical budget request digest,
   and that changing request expiry changes the digest.
-- `tests/unit/routerAbEcdsaHssBudgetRouteCore.unit.test.ts` proves ECDSA-HSS
+- The Router A/B ECDSA derivation budget route-core tests prove ECDSA derivation
   prepare rejects exhausted budget before private SigningWorker forwarding,
-  ECDSA-HSS finalize validates an existing reservation before private
+  ECDSA derivation finalize validates an existing reservation before private
   SigningWorker forwarding, releases the reservation by exact identity when
   validation fails, and private-worker finalize failure releases the active
   reservation without committing budget.
-- `tests/unit/routerAbEcdsaHssBudgetRouteCore.unit.test.ts` proves ECDSA-HSS
-  finalize rejects a transport `request_id` masquerading as
+- The same route-core tests prove ECDSA derivation finalize rejects a transport
+  `request_id` masquerading as
   `budget_operation_id` before budget validation, commit, release, or private
   SigningWorker forwarding.
 
@@ -648,7 +648,7 @@ Acceptance:
       Wallet Session JWT is available.
 - [x] Ensure local completed-spend projection does not double-subtract after the
       server projection version changes.
-- [x] Treat Router A/B Ed25519 and ECDSA-HSS successful signing as
+- [x] Treat Router A/B Ed25519 and ECDSA derivation successful signing as
       server-consumed budget when updating SDK projection state.
 - [x] Map server `wallet_budget_exhausted` and `wallet_budget_in_flight` into
       the existing step-up auth planner.
@@ -769,7 +769,7 @@ Current evidence status:
 - [x] Add `router:deploy:check` guard coverage for budget enforcement hooks on:
   - Ed25519 prepare/finalize
   - Ed25519 presign-pool prepare/finalize
-  - ECDSA-HSS prepare/finalize
+  - ECDSA derivation prepare/finalize
 - [x] Replace the fail-closed strict Cloudflare budget guard with real
       reserve/commit/release calls.
 
@@ -777,10 +777,10 @@ Implemented scope:
 
 - Strict Cloudflare Router owns a `RouterWalletBudget` Durable Object binding
   and validates that only the Router role can access it.
-- Ed25519 prepare and ECDSA-HSS prepare reserve one server signature use before
+- Ed25519 prepare and ECDSA derivation prepare reserve one server signature use before
   private SigningWorker forwarding and release the reservation on private
   prepare failure.
-- Ed25519 normal finalize and ECDSA-HSS finalize require
+- Ed25519 normal finalize and ECDSA derivation finalize require
   `budget_reservation_id + budget_operation_id`, validate the reservation before
   private SigningWorker forwarding, release on private finalize failure, and
   commit before returning the signature.
@@ -1033,9 +1033,9 @@ authorized signer binding set before checking available budget.
 Curve serialization rule:
 
 - `CloudflareRouterWalletBudgetCurveV1::Ed25519` serializes as `ed25519`.
-- `CloudflareRouterWalletBudgetCurveV1::EcdsaHss` serializes as `ecdsa`.
-- Internal Rust type names may mention HSS; budget storage, telemetry, public
-  JSON, and test fixtures use only `ed25519 | ecdsa`.
+- `CloudflareRouterWalletBudgetCurveV1::Ecdsa` serializes as `ecdsa`.
+- Budget storage, telemetry, public JSON, and test fixtures use only
+  `ed25519 | ecdsa`.
 
 #### Canonical Identity Builders
 
@@ -1061,18 +1061,18 @@ fn cloudflare_router_ed25519_presign_pool_hit_budget_identity_v2(
     request: &RouterAbEd25519PresignPoolHitFinalizeRequestV2,
 ) -> RouterAbProtocolResult<CloudflareRouterWalletBudgetOperationIdentityV1>;
 
-fn cloudflare_router_ecdsa_hss_budget_operation_id_v1(
-    request: &RouterAbEcdsaHssEvmDigestSigningRequestV1,
+fn cloudflare_router_ecdsa_derivation_budget_operation_id_v1(
+    request: &RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
     threshold_session_id: &str,
     signing_worker_id: &str,
 ) -> RouterAbProtocolResult<String>;
 
-fn cloudflare_router_ecdsa_hss_budget_request_digest_v1(
-    request: &RouterAbEcdsaHssEvmDigestSigningRequestV1,
+fn cloudflare_router_ecdsa_derivation_budget_request_digest_v1(
+    request: &RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
 ) -> RouterAbProtocolResult<PublicDigest32>;
 
-fn cloudflare_router_ecdsa_hss_finalize_budget_request_digest_v1(
-    request: &RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1,
+fn cloudflare_router_ecdsa_derivation_finalize_budget_request_digest_v1(
+    request: &RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
 ) -> RouterAbProtocolResult<PublicDigest32>;
 ```
 
@@ -1084,21 +1084,21 @@ Builder rules:
   `scope.request_id`.
 - Ed25519 pool-hit finalization derives both operation id and request digest
   from the final signing request.
-- ECDSA-HSS `budget_operation_id` must match the SDK helper
-  `deriveRouterAbEcdsaHssBudgetOperationId`.
-- ECDSA-HSS `budget_operation_id` must include active SigningWorker state,
+- ECDSA derivation `budget_operation_id` must match the SDK helper
+  `deriveRouterAbEcdsaDerivationBudgetOperationId`.
+- ECDSA derivation `budget_operation_id` must include active SigningWorker state,
   threshold session id, key scope, activation epoch, public identity,
   presignature id, expiry, and signing digest.
-- ECDSA-HSS `budget_operation_id` must exclude transport `request_id`.
+- ECDSA derivation `budget_operation_id` must exclude transport `request_id`.
 - Request digest must change when account, session, SigningWorker, expiry,
   signing payload/digest, key scope, activation epoch, or public identity
   changes.
 
 Add shared vector tests:
 
-- TS and Rust derive the same ECDSA-HSS `budget_operation_id`.
+- TS and Rust derive the same ECDSA derivation `budget_operation_id`.
 - Ed25519 prepare and finalize derive the same request digest.
-- Changing only transport `request_id` does not change ECDSA-HSS
+- Changing only transport `request_id` does not change ECDSA derivation
   `budget_operation_id`.
 - Changing expiry changes request digest.
 
@@ -1206,15 +1206,15 @@ status semantics as local Router:
    reservation.
 6. Commit the reservation before returning the signature.
 
-`POST /router-ab/ecdsa-hss/sign/prepare`:
+`POST /router-ab/ecdsa-derivation/sign/prepare`:
 
 1. Validate Wallet Session JWT and require `signingGrantId`.
-2. Validate active ECDSA-HSS scope, activation epoch, public identity,
+2. Validate active ECDSA derivation scope, activation epoch, public identity,
    SigningWorker id, expiry, and request digest.
 3. Reserve replay for the prepare request.
 4. Evaluate Router project-policy, quota, and abuse DOs.
 5. Reserve one Wallet Session signature use with:
-   `curve=ecdsa`, `signature_uses=1`, canonical ECDSA-HSS
+   `curve=ecdsa`, `signature_uses=1`, canonical ECDSA derivation
    `budget_operation_id`, and canonical Router A/B request digest.
 6. Forward admitted prepare to the private SigningWorker.
 7. If private prepare fails before a prepare response is returned, release the
@@ -1222,12 +1222,12 @@ status semantics as local Router:
 8. Return prepare response with:
    `budget_reservation_id`, `budget_operation_id`, and `budget_status`.
 
-`POST /router-ab/ecdsa-hss/sign`:
+`POST /router-ab/ecdsa-derivation/sign`:
 
 1. Validate Wallet Session JWT and require `signingGrantId`.
 2. Require `budget_reservation_id` and `budget_operation_id`.
 3. Reject transport `request_id` used as `budget_operation_id`.
-4. Derive canonical ECDSA-HSS final request digest.
+4. Derive canonical ECDSA derivation final request digest.
 5. Validate the reservation identity before private SigningWorker forwarding.
 6. Forward admitted finalize to the private SigningWorker.
 7. If private finalize fails before a signature is returned, release the
@@ -1334,9 +1334,9 @@ Add focused Rust tests:
 - Ed25519 finalize commits before returning signature
 - Ed25519 pool-hit finalize reserves and commits exactly once
 - Ed25519 presign-pool prepare validates budget status without reserving
-- ECDSA-HSS prepare reserves budget before private forwarding
-- ECDSA-HSS finalize validates before private forwarding
-- ECDSA-HSS finalize rejects transport `request_id` as budget operation id
+- ECDSA derivation prepare reserves budget before private forwarding
+- ECDSA derivation finalize validates before private forwarding
+- ECDSA derivation finalize rejects transport `request_id` as budget operation id
 - duplicate finalize is idempotent
 - expired reservation is rejected and cleaned up
 - cross-worker, cross-curve, and cross-threshold-session reservation attempts
@@ -1394,7 +1394,7 @@ Acceptance:
 Implemented scope:
 
 - `tests/unit/routerAbNormalSigningSdk.guard.unit.test.ts` now guards the TS
-  Ed25519 and ECDSA-HSS public Router route cores so current reservation-backed
+  Ed25519 and ECDSA derivation public Router route cores so current reservation-backed
   prepare/finalize paths keep server budget reservation and commit hooks. It
   also rejects reintroducing the deleted Router A/B direct-consume helper.
 - The same source guard proves active SDK budget projection requires server
@@ -1422,8 +1422,8 @@ Acceptance:
 - Unit: budget status includes reservations and committed consumes.
 - Unit: Router A/B Ed25519 prepare rejects exhausted budget.
 - Unit: Router A/B Ed25519 finalize rejects missing or mismatched reservation.
-- Unit: Router A/B ECDSA-HSS prepare rejects exhausted budget.
-- Unit: Router A/B ECDSA-HSS finalize rejects missing or mismatched reservation.
+- Unit: Router A/B ECDSA derivation prepare rejects exhausted budget.
+- Unit: Router A/B ECDSA derivation finalize rejects missing or mismatched reservation.
 - Unit: duplicate finalize is idempotent.
 - Integration: NEAR + Tempo + EVM share a single `signingGrantId`
   budget.

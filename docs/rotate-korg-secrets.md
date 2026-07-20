@@ -87,7 +87,7 @@ architecture:
 signing_root_secret / k_org
   -> role-specific sealed signing-root shares
   -> split y_relayer / tau_relayer derivation
-  -> A/B HSS derivation
+  -> Ed25519 Streaming Yao or ECDSA threshold-PRF derivation
   -> x_client_base and x_relayer_base output delivery
 ```
 
@@ -176,7 +176,7 @@ B custody share -> B-side derivation material -> y_B, tau_B
 y_A + y_B = y_relayer
 tau_A + tau_B = tau_relayer
 
-A/B HSS derivation -> x_client_A, x_client_B, x_relayer_A, x_relayer_B
+Router A/B derivation -> x_client_A, x_client_B, x_relayer_A, x_relayer_B
 client opens x_client_base
 relayer opens x_relayer_base
 ```
@@ -315,7 +315,7 @@ A derives y_A and tau_A.
 B derives y_B and tau_B.
 No party opens y_relayer = y_A + y_B.
 No party opens tau_relayer = tau_A + tau_B.
-A/B feed split material into the HSS derivation protocol.
+A/B feed split material into the curve-specific Router A/B derivation protocol.
 ```
 
 There are two acceptable implementation paths:
@@ -662,7 +662,7 @@ These phases replace the old single-signer-first rollout.
 1. Choose MPC threshold-PRF-to-shares or a new split root derivation.
 2. Produce `y_A`, `y_B`, `tau_A`, and `tau_B` without opening joined relayer
    root material.
-3. Feed split material into A/B HSS derivation.
+3. Feed split material into the selected A/B derivation protocol.
 4. Produce client-output and relayer-output packages.
 5. Add vectors proving wallet identity is stable across root-share refresh.
 6. Add source guards proving joined secret state does not cross production
@@ -742,7 +742,7 @@ These phases replace the old single-signer-first rollout.
 - [ ] Add canonical vectors for `y_A`, `y_B`, `tau_A`, `tau_B`, and output
       packages.
 - [ ] Prove no one-process combiner opens joined `y_relayer` or `tau_relayer`.
-- [ ] Wire split derivation into A/B HSS.
+- [ ] Wire split derivation into the selected A/B derivation protocol.
 - [ ] Add address/public-key parity tests before and after root-share refresh.
 
 ### Milestone F. Cloudflare Deployment

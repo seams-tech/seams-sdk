@@ -99,8 +99,9 @@ flowchart LR
 
 Remaining local work:
 
-- finish deleting the superseded SDK and server Ed25519-HSS lifecycle surfaces;
-- update intended-behaviour tests around the canonical Yao lifecycle.
+- close the SDK public-route cutover and update intended-behaviour tests around
+  the canonical Yao lifecycle;
+- capture the deferred Cloudflare deployment and timing evidence.
 
 Cloudflare startup and runtime evidence begins only after those local items
 close.
@@ -541,11 +542,11 @@ startup and hot-path measurements are recorded next to those local numbers.
       wrong recipient, malformed framing, disconnect, and promotion failures.
 - [x] Add `pnpm router:yao-smoke` and `pnpm validate:yaos-ab-local`.
 - [x] Record optimized local p50/p95/p99 latency plus exact directional bytes.
-- [x] Remove the obsolete local HSS parity suite and detach the generic local
-      Router/A/B transport smoke from HSS fixtures.
+- [x] Remove the obsolete local parity suite and detach the generic local
+      Router/A/B transport smoke from legacy fixtures.
 - [x] Connect Gateway and the browser client to the Phase 9C Yao
       contracts.
-- [ ] Delete the remaining SDK-bound Ed25519-HSS dependency, state, handlers,
-      and fixtures after the cutover passes.
+- [x] Delete the SDK-bound legacy Ed25519 lifecycle dependency, state, handlers,
+      and fixtures after the cutover.
 - [ ] Run intended-behaviour tests through the SDK public route, then close
       local usability before starting Cloudflare deployment work.

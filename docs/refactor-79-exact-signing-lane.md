@@ -9,7 +9,7 @@ selectors, and removal of volatile warm-status authority.
 
 Related plans:
 
-- [refactor-74-login-no-hss.md](./refactor-74-login-no-hss.md)
+- [signing-session-architecture](./signing-session-architecture/README.md)
 - [refactor-76-branded-keys.md](./refactor-76-branded-keys.md)
 - [refactor-77-near-implicit-accounts.md](./refactor-77-near-implicit-accounts.md)
 - [refactor-78-wallet-capability-bindings.md](./refactor-78-wallet-capability-bindings.md)

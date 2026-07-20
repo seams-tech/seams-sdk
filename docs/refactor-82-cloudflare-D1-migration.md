@@ -1,12 +1,18 @@
 # Cloudflare D1 Migration Plan
 
+Historical execution ledger: active Router A/B route and derivation names are
+defined by [router-a-b-SPEC.md](./router-a-b-SPEC.md),
+[router-a-b-deployment.md](./router-a-b-deployment.md), and the current
+deployment runbook. Older ceremony/type names remain below only where they
+record completed migration work.
+
 Date created: June 26, 2026
 Updated: June 30, 2026
 
 Status: execution checkpoint. Phases 1 through 5 are complete for the current
 D1/DO staging scope. Phase 6 is the real staging deployment phase and has open
-exit criteria. Phase 9 now tracks the ECDSA-HSS pool-fill Durable Object
-ownership fix and is a staging blocker while ECDSA-HSS signing is enabled. This
+exit criteria. Phase 9 tracks the ECDSA derivation pool-fill Durable Object
+ownership fix and is a staging blocker while ECDSA derivation signing is enabled. This
 plan moves the default Seams console and signer persistence path to Cloudflare D1
 plus Durable Objects, while keeping a clean full-family Postgres escape hatch for
 future scale or relational needs.
@@ -28,7 +34,7 @@ Use Cloudflare D1 and Durable Objects as the first production backend family:
 - Durable Objects own signer coordination that needs per-entity serialized
   mutation or short-lived ceremony lifecycle ownership: registration
   ceremonies, session use counts, budget consumption, replay guards,
-  presignature pools, ECDSA-HSS pool-fill live sessions, and signing-root
+  presignature pools, ECDSA derivation pool-fill live sessions, and signing-root
   coordination.
 - Cloudflare Secrets Store is the hosted KEK source for signer share
   encryption. Wrangler secrets are allowed for local development. External KMS
@@ -147,10 +153,10 @@ phases.
       shape, makes D1 registration branch orchestration generic over requested
       signer capabilities, and splits the current D1 ceremony service by domain.
 - [x] Phase 9: Complete the remaining local Tempo/ARC Wrangler/Miniflare route
-      smoke for Durable Object-owned ECDSA-HSS pool-fill sessions. Live
+      smoke for Durable Object-owned ECDSA derivation pool-fill sessions. Live
       `ThresholdEcdsaPresignSession` ownership has moved out of the Router API
       Worker; route-level smoke evidence now covers
-      `/router-ab/ecdsa-hss/presignature-pool/fill/init` and `/fill/step`.
+      `/router-ab/ecdsa-derivation/presignature-pool/fill/init` and `/fill/step`.
 - [x] Phase 10: Move sponsored EVM spend pricing into Console D1. The schema,
       static-pricing adapter, D1 Router API pricing wiring, explicit setup seed,
       and Cloudflare D1 env-pricing guard are implemented; the full
@@ -665,7 +671,7 @@ Current and former Postgres coupling is concentrated in:
 | Legacy threshold key-store records | Former Postgres tables `threshold_ed25519_keys`, `threshold_ecdsa_keys`                                                                                                                                                                                | Durable Object or retired behind sealed signing-root shares | These records are secret-bearing under the current TypeScript interfaces. The partial Postgres key-store backend has been deleted; production D1/DO staging must use sealed signing-root share storage or the existing Durable Object path until raw-share records are retired. Do not add raw-share D1 tables.                                                                                                                                                                                                                                                                                                                         |
 | Sealed signing-root shares         | Former Postgres table `signing_root_secret_shares`; current D1 table `signer_signing_root_secret_shares`                                                                                                                                               | `SIGNER_DB` D1                                              | D1 stores ciphertext, KEK ID, envelope version, AAD digest, ciphertext digest, and audit marker. The partial Postgres signing-root secret store has been deleted; a future Postgres escape hatch must implement the full signer-family contract before selection.                                                                                                                                                                                                                                                                                                                                                                       |
 | Recovery/identity                  | `email_recovery_preparations`, `signer_near_public_keys`, `identity_links`, `app_session_versions`, `recovery_sessions`, `recovery_executions`                                                                                                         | `SIGNER_DB` D1                                              | D1 identity-link, app-session-version, recovery-session, recovery-execution, NEAR public key, and email recovery preparation adapters, append-only migrations, explicit `kind: 'd1'` factory selectors, local smoke coverage, tenant-scoping tests, sole-identity move/unlink tests, app-session rotation tests, recovery-session expiry reads, recovery-execution status query tests, NEAR public key list/upsert tests, and email recovery preparation expiry/delete tests are in place.                                                                                                                                              |
-| Device linking                     | `device_linking_sessions`                                                                                                                                                                                                                              | Future complete route slice                                 | Current route handlers return 410 and `AuthService` returns the unsupported result. Keep device linking out of refactor 82 staging scope until a future device-linking route slice re-enables the feature and defines its persistence contract. Refactor 84 is reserved for Ed25519 HSS payload trimming.                                                                                                                                                                                                                                                                                                                               |
+| Device linking                     | `device_linking_sessions`                                                                                                                                                                                                                              | Future complete route slice                                 | Current route handlers return 410 and `AuthService` returns the unsupported result. Keep device linking out of refactor 82 staging scope until a future device-linking route slice re-enables the feature and defines its persistence contract. Historical payload-trimming work is retained separately from this migration ledger.                                                                                                                                                                                                                                                                                                                               |
 | Signing sessions                   | Former partial Postgres threshold session backends in `SessionStore.ts` and `WalletSessionStore.ts`; former table `threshold_ed25519_sessions`                                                                                                         | Durable Object                                              | Threshold session and wallet-session config types no longer expose `kind: "postgres"` or env-shaped `POSTGRES_URL`; raw explicit unknown store kinds fail at the store boundary. Session use counts and replay-sensitive mutation belong in DO methods. The old shared table bootstrap/reset references have been deleted.                                                                                                                                                                                                                                                                                                              |
 | Budget and replay guards           | Former Postgres tables `threshold_wallet_session_consumptions`, `threshold_wallet_session_budget_reservations`, and `threshold_signing_session_seal_idempotency`                                                                                       | Durable Object                                              | The partial Postgres session-seal idempotency backend and wallet-session budget/replay backend have been deleted. Replace row locks and unique idempotency rows with DO methods that return the same result unions.                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | ECDSA presign                      | Former Postgres tables `threshold_ecdsa_presign_sessions`, `threshold_ecdsa_presignatures`                                                                                                                                                             | Durable Object                                              | The partial Postgres ECDSA presign backend has been deleted; threshold store config types no longer expose `kind: "postgres"` or env-shaped `POSTGRES_URL`. Active presign reservation and pool-fill coordination stays in Durable Objects, Redis, or in-memory test stores.                                                                                                                                                                                                                                                                                                                                                            |
@@ -707,7 +713,7 @@ Before D1 staging, these D1/DO adapters must exist behind domain-store ports:
       provider delivery, Email OTP registration enrollment verification, Email OTP
       unlock challenge/proof flow, Email OTP rate limits, and sealed signing-root
       secret shares.
-- [x] Durable Objects in place: registration intents, HSS preparations,
+- [x] Durable Objects in place: registration intents, registration preparations,
       registration ceremonies, add-signer/add-auth-method ceremonies, finalize
       replay records, signing-session use counts, wallet signing budgets,
       idempotency/replay guards, ECDSA presignature pools, ECDSA pool-fill
@@ -1223,7 +1229,7 @@ Completed:
 - [x] Durable Objects cover registration ceremonies, signing admission, signing
       budgets, replay guards, ECDSA presignature pools, pool-fill CAS, and
       signing-root coordination where serialized mutation is the required property.
-- [x] Finish Ed25519 HSS ceremony persistence contract: durable server-owned
+- [x] Finish Ed25519 ceremony persistence contract: durable server-owned
       finalize state in Durable Object storage, no process-local handles, and no
       client-carried server private state.
 - [x] Cloudflare Router API auth service D1 methods auto-wire threshold signing from
@@ -1681,7 +1687,7 @@ Work:
 
 - [ ] Create or select the staging D1 console and signer databases and the staging
       Durable Object namespace using the approved Cloudflare account/project.
-- [ ] Verify Ed25519 HSS ceremony persistence in staging: durable server-owned
+- [ ] Verify Ed25519 ceremony persistence in staging: durable server-owned
       finalize state is stored in Durable Object storage, no process-local handles
       cross request boundaries, and no server private state is carried by client
       request/response payloads.
@@ -1711,7 +1717,7 @@ Work:
       readiness endpoints: `/console/readyz` on the console Worker, `/readyz`
       and `/healthz` on the router-api Worker, plus configured signer custody health
       routes `/router-ab/ed25519/healthz` and
-      `/router-ab/ecdsa-hss/healthz`.
+      `/router-ab/ecdsa-derivation/healthz`.
 - [x] Add a Time Travel bookmark script for the console and signer D1 databases.
       It reuses readiness-clean staging configs, supports dry-run and remote
       modes, validates lower-snake purpose labels, writes console/signer bookmark
@@ -1733,7 +1739,7 @@ Work:
       integrity, then writes mismatch evidence to a manifest.
 - [x] Add a fixture-backed signer custody route drill. It calls only the
       production threshold route health endpoints and
-      `/router-ab/ecdsa-hss/export/share`, reads the wallet-session JWT from an
+      `/router-ab/ecdsa-derivation/export/share`, reads the wallet-session JWT from an
       operator-selected environment variable, writes fixture hashes, and redacts
       wallet-session JWTs plus server export shares from evidence manifests.
 - [x] Add a remote R2 export/restore drill script for the console and signer D1
@@ -1891,7 +1897,7 @@ dry-run` first to record config-derived resource IDs and exact remote metadata
 <https-router-api-staging-origin>`. The console Worker does not expose a root `/readyz`;
   the canonical console readiness route is `/console/readyz`. The router-api Worker
   owns root `/readyz` and `/healthz`. The same smoke manifest also checks
-  `/router-ab/ed25519/healthz` and `/router-ab/ecdsa-hss/healthz` and requires
+  `/router-ab/ed25519/healthz` and `/router-ab/ecdsa-derivation/healthz` and requires
   both signer custody routes to report `configured: true`. Remote smoke mode
   requires HTTPS console and Router API origins; HTTP origins are dry-run/local
   planning only.
@@ -1916,7 +1922,7 @@ SEAMS_STAGING_MISSING_KEK_WALLET_SESSION_JWT`,
   wallet-session JWT for the staging variant that deliberately omits the selected
   KEK binding, then run `--mode remote` with the same arguments. The script
   checks the configured Ed25519 and ECDSA threshold health endpoints, posts the
-  happy-path fixture body to `/router-ab/ecdsa-hss/export/share`, requires
+  happy-path fixture body to `/router-ab/ecdsa-derivation/export/share`, requires
   `ok: true` with `value.serverExportShare32B64u`, posts the missing-KEK fixture
   body to the same production route, requires the configured 503
   `ok: false` failure with code `missing_signing_root_kek`, and redacts JWTs plus server export shares from the
@@ -2149,9 +2155,9 @@ unit/d1StagingEvidenceVerify.script.unit.test.ts --reporter=line` with 20
 - [x] Hardened the final Phase 6 evidence verifier against evidence IDs pointed
       at the wrong endpoint paths. Smoke evidence must now use the exact
       `/console/readyz`, `/readyz`, `/healthz`,
-      `/router-ab/ed25519/healthz`, and `/router-ab/ecdsa-hss/healthz` paths.
+      `/router-ab/ed25519/healthz`, and `/router-ab/ecdsa-derivation/healthz` paths.
       Signer-custody evidence must now use the exact threshold health paths and
-      `/router-ab/ecdsa-hss/export/share`, with no query string or fragment.
+      `/router-ab/ecdsa-derivation/export/share`, with no query string or fragment.
       This prevents a manifest from proving a generic healthy route while
       claiming signer-custody or readiness evidence. Validation passed:
       `node --check packages/sdk-server-ts/scripts/d1-staging-evidence-verify.mjs`,
@@ -2738,7 +2744,7 @@ Goal:
 Scope after the post-Refactor 82 integration fixes:
 
 - [x] Treat the local D1/Router runtime fixes, D1 signer-set registration fixes,
-      Ed25519 HSS durable-finalize fixes, NEAR Ed25519 signing readiness fixes,
+      Ed25519 durable-finalize fixes, NEAR Ed25519 signing readiness fixes,
       EVM/Tempo/ARC signing fixes, wallet unlock fixes, Router A/B validation
       hardening, and local WASM resolution fixes as product-correctness work, not
       automatic deletion targets.
@@ -2750,7 +2756,7 @@ Scope after the post-Refactor 82 integration fixes:
       long-term `PasskeyRegistrationDraft` model in the Refactor 83 follow-up
       lane. Phase 7 may only touch those files when deleting obsolete Refactor 82
       scaffolding with focused tests.
-- [x] Keep Ed25519 HSS payload-size trimming in Refactor 84. Phase 7 must preserve
+- [x] Keep Ed25519 payload-size trimming in its historical refactor. Phase 7 must preserve
       the durable finalize contract: `serverEvalFinalizeOutputB64u` is required at
       request boundaries, server finalize output is stored durably with the
       ceremony, and process-local staged-artifact handles cannot be required across
@@ -2759,7 +2765,7 @@ Scope after the post-Refactor 82 integration fixes:
       hardening, `chainTarget` / `routerAbStateSessionId` trimming, and
       `clientVerifyingShareB64u` vocabulary cleanup in Refactor 85 Phase 0D/0E.
       Phase 7 should not reshape those public or worker-material contracts.
-- [x] Route live ECDSA-HSS pool-fill session ownership cleanup to Phase 9. The
+- [x] Route live ECDSA derivation pool-fill session ownership cleanup to Phase 9. The
       interim Worker-level live-session caches are staging blockers, but Phase 7
       must not delete them before a Durable Object owner and fresh-Worker-handler
       tests replace them.
@@ -2804,7 +2810,7 @@ Work:
       scaffolding that should be deleted. - [x] Classify the June 30 post-82 integration files separately from
       migration scaffolding. Local D1 startup, D1 registration, signing
       readiness, unlock behavior, Router A/B validation, and explicit WASM
-      loading fixes are retained unless a replacement path is already present. - [x] Classify Worker-level ECDSA-HSS pool-fill live-session cache code as a
+      loading fixes are retained unless a replacement path is already present. - [x] Classify Worker-level ECDSA derivation pool-fill live-session cache code as a
       Phase 9 staging blocker, not generic Phase 7 bloat. Delete it only in
       the same slice that installs the Durable Object owner and proves fresh
       Worker handlers can advance the same pool-fill ceremony through DO
@@ -2829,7 +2835,7 @@ Work:
       route factories with local/staging bindings and avoid carrying duplicate
       route tables, duplicate env parsing, or local-only service graphs in
       runtime source. Current Phase 7 closure finds no Worker-level
-      ECDSA-HSS live-session cache in those runtime files. - [x] Classify the explicit local WASM/runtime support files for Refactor 82
+      ECDSA derivation live-session cache in those runtime files. - [x] Classify the explicit local WASM/runtime support files for Refactor 82
       duplication. Module-local filesystem candidates and explicit D1-local
       WASM setup remain because local source execution and built package
       execution resolve from different places. - [x] Classify D1 schema source-of-truth work by environment. Migrations are
@@ -5518,7 +5524,7 @@ tsconfig.playwright.json --noEmit`; and `git diff --check`.
       net-neutral once untracked files are counted, so Phase 7 still owns the final
       deletion/count pass.
 
-### Phase 9: Durable Object-Owned ECDSA-HSS Pool-Fill Sessions
+### Phase 9: Durable Object-Owned ECDSA Derivation Pool-Fill Sessions
 
 Status: implemented for the current D1/DO staging path. The live WASM state no
 longer belongs to the Router API Worker, and local Tempo/ARC pool-fill route
@@ -5527,9 +5533,9 @@ smoke is covered through D1 plus Durable Objects.
 Trigger:
 
 - Local D1/DO testing exposed that
-  `/router-ab/ecdsa-hss/presignature-pool/fill/init` creates a live
+  `/router-ab/ecdsa-derivation/presignature-pool/fill/init` creates a live
   `ThresholdEcdsaPresignSession` WASM object and
-  `/router-ab/ecdsa-hss/presignature-pool/fill/step` must advance the same live
+  `/router-ab/ecdsa-derivation/presignature-pool/fill/step` must advance the same live
   object.
 - The current interim fix keeps a request-independent module-global live session
   store in the Router API Worker. That can avoid the immediate Cloudflare
@@ -5538,7 +5544,7 @@ Trigger:
   retain cryptographic ceremony state as architecture.
 - Persisting the WASM internals into D1 is also the wrong shape. D1 should store
   metadata, audit state, completed presignatures, and durable coordination
-  records. The live HSS pool-fill object is short-lived actor state.
+  records. The live pool-fill object is short-lived actor state.
 
 Goal:
 
@@ -5555,7 +5561,7 @@ Goal:
 Target ownership:
 
 - Router API Worker:
-  - [x] Parses `/router-ab/ecdsa-hss/presignature-pool/fill/init` and
+  - [x] Parses `/router-ab/ecdsa-derivation/presignature-pool/fill/init` and
         `/fill/step` bodies through the existing route validators.
   - [x] Verifies wallet-session claims and project/runtime scope.
   - [x] Derives a stable live-session DO object id from the pool-fill session id
@@ -5626,10 +5632,10 @@ Implementation inventory:
 Guards and tests:
 
 - [x] Add focused owner-level integration coverage proving fresh DO-backed
-      ECDSA-HSS pool-fill live-session owner instances share live WASM state
+      ECDSA derivation pool-fill live-session owner instances share live WASM state
       through the same Durable Object routing key.
 - [x] Add local D1/DO route-smoke coverage proving fresh Worker handlers can
-      initialize and advance the ECDSA-HSS pool-fill route for the shared
+      initialize and advance the ECDSA derivation pool-fill route for the shared
       EVM-family pool used by Tempo and ARC signing.
 - [x] Add a stale-session test proving a missing live DO session returns the typed
       stale result and the SDK retries by starting a new init.
@@ -5647,10 +5653,10 @@ Guards and tests:
 
 Exit criteria:
 
-- [x] ECDSA-HSS Tempo and ARC signing can fill a presignature pool locally through
+- [x] ECDSA derivation Tempo and ARC signing can fill a presignature pool locally through
       Wrangler/Miniflare D1 plus Durable Objects with fresh Worker handlers per
       request.
-- [x] Router API Worker code has no live ECDSA-HSS pool-fill session cache.
+- [x] Router API Worker code has no live ECDSA derivation pool-fill session cache.
 - [x] D1 stores no live WASM session internals.
 - [x] The typed stale-session path is covered and user-facing retry behavior is
       clear.
@@ -5659,13 +5665,13 @@ Exit criteria:
 - [x] `git diff --check` passes.
 
 Validation evidence: July 3, 2026 focused local D1/DO route smoke passed:
-`pnpm --dir tests exec playwright test -c playwright.unit.config.ts unit/cloudflareD1ConsoleServices.unit.test.ts --grep "ECDSA-HSS pool-fill routes" --reporter=line`.
+`pnpm --dir tests exec playwright test -c playwright.unit.config.ts unit/cloudflareD1ConsoleServices.unit.test.ts --grep "ECDSA derivation pool-fill routes" --reporter=line`.
 
 July 3, 2026 validation evidence:
 
 - [x] `pnpm --dir packages/sdk-server-ts type-check`.
 - [x] Focused local D1/DO route smoke:
-      `pnpm --dir tests exec playwright test -c playwright.unit.config.ts unit/cloudflareD1ConsoleServices.unit.test.ts --grep "ECDSA-HSS pool-fill routes" --reporter=line`.
+      `pnpm --dir tests exec playwright test -c playwright.unit.config.ts unit/cloudflareD1ConsoleServices.unit.test.ts --grep "ECDSA derivation pool-fill routes" --reporter=line`.
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
     unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
     unit/thresholdEcdsa.presignPoolRefill.unit.test.ts --reporter=line`
@@ -6306,10 +6312,10 @@ Minimum checks before first D1 staging deploy:
 - [x] Durable Object coordination tests for normal-signing admission, budgets,
       replay guards, presignature pools, signing-root coordination, and session
       consumption.
-- [x] Durable Object-owned ECDSA-HSS pool-fill tests proving fresh DO-backed
+- [x] Durable Object-owned ECDSA derivation pool-fill tests proving fresh DO-backed
       live-session owner instances share live state without Worker-local live
       session caches.
-- [x] Local D1/DO ECDSA-HSS pool-fill route smoke proving fresh Worker handlers
+- [x] Local D1/DO ECDSA derivation pool-fill route smoke proving fresh Worker handlers
       can advance Tempo-tagged and Arc-tagged pool-fill ceremonies through the
       shared Durable Object namespace.
 - [x] Console-owned sponsored spend pricing tests proving D1-backed pricing
@@ -6388,15 +6394,15 @@ Proceed in this order:
 - [x] Phase 7: Delete legacy migration scaffolding, stale compatibility paths,
       obsolete tests, and temporary guards during cleanup slices. Final count
       closure now records tracked plus untracked text and names the owner for each
-      remaining positive block. Post-82 iframe, HSS payload-trim, and ECDSA
+      remaining positive block. Post-82 iframe, payload-trim, and ECDSA
       material-identity follow-ups stay in their own plans, and Phase 9
-      Worker-level ECDSA-HSS pool-fill cache deletion is included after the Durable
+      Worker-level ECDSA derivation pool-fill cache deletion is included after the Durable
       Object owner landed.
 - [x] Phase 8: Functional signer-set and D1 branch-set ceremony closure is
       validated. The service-split count checkpoint is recorded, and the remaining
       positive count cleanup is rolled into the final Phase 7 deletion/count pass.
 - [x] Phase 9: Complete the remaining local Tempo/ARC Wrangler/Miniflare route
-      smoke for Durable Object-owned ECDSA-HSS pool-fill sessions. The interim
+      smoke for Durable Object-owned ECDSA derivation pool-fill sessions. The interim
       Worker-level live-session cache is deleted; focused route smoke proves
       fresh Worker handlers advance pool-fill ceremonies through DO routing.
 - [x] Phase 10: Move sponsored EVM spend pricing into Console D1. The schema,

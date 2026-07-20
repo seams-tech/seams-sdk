@@ -9,7 +9,7 @@ Primary source of truth:
 
 - [refactor-68-wallet-session-v2.md](./refactor-68-wallet-session-v2.md)
 - [router-a-b-SPEC.md](./router-a-b-SPEC.md)
-- [router-a-b-cleanup.md](./router-a-b-cleanup.md)
+- [router-a-b-SPEC.md](./router-a-b-SPEC.md)
 
 ## Goal
 

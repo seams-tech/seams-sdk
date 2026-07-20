@@ -7,7 +7,7 @@ Owner: SDK React and auth UX
 ## Dependency
 
 Start this refactor after the Router A/B signing cleanup in
-`docs/router-a-b-cleanup.md` is implemented and validated.
+`docs/router-a-b-SPEC.md` is the current validated Router A/B reference.
 
 Reason: Router A/B cleanup changes warm Ed25519 session behavior after unlock.
 This plan simplifies React login and registration surfaces, so it should build

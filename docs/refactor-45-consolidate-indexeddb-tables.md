@@ -509,7 +509,7 @@ projections, and scalar mirror mismatches before any write is committed.
 ### Phase 0. Final Domain Rescan
 
 Run this phase after `docs/rework-registration-flows-2.md`,
-`docs/refactor-40.md`, `docs/refactor-41.md`,
+`docs/refactor-41.md`,
 `docs/refactor-42-stricter-union-types.md`, and `docs/refactor-43-cleanup.md`
 are complete enough that their public types and repository ports have
 stabilized.

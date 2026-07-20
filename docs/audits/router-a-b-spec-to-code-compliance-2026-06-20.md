@@ -24,19 +24,19 @@ test-suite run.
 spec_requirements:
   - id: router_ab_only_signing
     text: "Router A/B is the only SDK/server signing architecture for Ed25519 and ECDSA."
-    evidence: "docs/router-a-b-cleanup.md:24-41"
+    evidence: "docs/router-a-b-SPEC.md:15-37"
     priority: critical
   - id: local_scope_closed
     text: "The local cleanup scope is closed and deployment setup is removed."
-    evidence: "docs/router-a-b-cleanup.md:5-15"
+    evidence: "docs/router-a-b-SPEC.md:5-12"
     priority: high
   - id: supersession_ledger
     text: "No-HSS/material work, server budget work, hygiene, and deployment are owned by separate plans."
-    evidence: "docs/router-a-b-cleanup.md:54-68"
+    evidence: "docs/router-a-b-SPEC.md:20-37"
     priority: high
   - id: no_old_public_signing_routes
     text: "Old public threshold signing routes are confined to cleanup/guard contexts."
-    evidence: "docs/router-a-b-cleanup.md:45-52"
+    evidence: "docs/router-a-b-SPEC.md:789-798"
     priority: critical
   - id: worker_owned_material_boundary
     text: "TypeScript may route handles/public facts; signer-core/WASM owns crypto-secret material."
@@ -44,19 +44,19 @@ spec_requirements:
     priority: critical
   - id: phase_15_9_closed
     text: "Active signing paths moved to worker-handle-backed material for local cleanup."
-    evidence: "docs/router-a-b-cleanup.md:3117-3122"
+    evidence: "docs/router-a-b-SPEC.md:1772-1782"
     priority: high
   - id: phase_15_10_closed
     text: "Stale-record gating required by this cleanup landed for active Router A/B signing."
-    evidence: "docs/router-a-b-cleanup.md:3676-3680"
+    evidence: "docs/router-a-b-SPEC.md:1772-1782"
     priority: high
   - id: phase_15_11_closed
     text: "Strict signable-state work blocks legacy-shaped Router A/B signing state."
-    evidence: "docs/router-a-b-cleanup.md:3830-3835"
+    evidence: "docs/router-a-b-SPEC.md:1772-1782"
     priority: high
   - id: phase_15_12_superseded
     text: "Broad raw-material deletion moved to Refactor 74/75."
-    evidence: "docs/router-a-b-cleanup.md:4208-4214"
+    evidence: "docs/signing-session-architecture/README.md:203-215"
     priority: medium
   - id: server_budget_authority
     text: "Server budget is authoritative; SDK projection is not policy authority."
@@ -72,7 +72,7 @@ spec_requirements:
     priority: high
   - id: runtime_handle_validation_followup
     text: "Persisted material handles are hints; validation must ask the worker."
-    evidence: "docs/refactor-74-login-no-hss.md:277-281"
+    evidence: "docs/signing-session-architecture/README.md:203-215"
     priority: medium
 ```
 
@@ -138,13 +138,13 @@ code_observations:
 
 | Area | Spec Evidence | Code Evidence | Status |
 | --- | --- | --- | --- |
-| Router A/B-only product signing | `docs/router-a-b-cleanup.md:24-52` | Source guard and completion criteria remain tracked in `docs/router-a-b-cleanup.md:5106-5113` | Aligned |
-| Worker-owned client material | `docs/refactor-68-wallet-session-v2.md:105-118` | `routerAbSigningWalletSession.ts:20-52`, `150-187`, `340-399` | Aligned for cleanup scope; deeper no-HSS deletion is Refactor 74/75 |
+| Router A/B-only product signing | `docs/router-a-b-SPEC.md:15-37` | Source guards and current route families are documented in `docs/router-a-b-SPEC.md:789-802` | Aligned |
+| Worker-owned client material | `docs/refactor-68-wallet-session-v2.md:105-118` | `routerAbSigningWalletSession.ts:20-52`, `150-187`, `340-399` | Aligned |
 | Server budget authority | `docs/refactor-70-server-budget.md:136-146` | `routerAbPrivateSigningWorker.ts:114-130`, `577-606` | Aligned |
 | Reserve/commit/release lifecycle | `docs/refactor-70-server-budget.md:177-193` | `routerAbPrivateSigningWorker.ts:885-908`, `989-1015`, `1427-1450`, `1500-1528` | Aligned |
 | Budget status failures | `docs/refactor-70-server-budget.md:251-263` | `signingBudgetStatus.ts:246-292` | Aligned |
 | Shared budget evidence | `docs/refactor-70-server-budget.md:37-40` | `routerAb.serverBudgetEvidence.walletIframe.test.ts:211-246` | Aligned |
-| Deployment work | `docs/router-a-b-cleanup.md:5-15`, `54-68` | No deployment phase remains in this plan | Excluded by request |
+| Deployment work | `docs/router-a-b-SPEC.md:8-12` | Deployment evidence is tracked in the deployment reference | Excluded by request |
 
 ## Divergence Findings
 
@@ -155,9 +155,8 @@ Low/Deferred Notes:
 
 - Deployment setup and deployed runtime evidence are intentionally excluded from
   this plan. This is not a local cleanup finding.
-- Refactor 74/75 still own the deeper no-HSS and raw-material deletion model.
-  This is explicitly superseded by `docs/router-a-b-cleanup.md:58-60` and is not
-  a blocker for this plan.
+- The current signing-session architecture owns the separation between unlock,
+  material restore, and derivation. This is not a blocker for this plan.
 - Refactor 70 owns server-authoritative budget and step-up behavior. That plan
   is referenced as complete for the local evidence slice at
   `docs/refactor-70-server-budget.md:21-40`.
@@ -171,9 +170,7 @@ local Router A/B cleanup scope.
 
 - Read `spec-to-code-compliance` skill instructions and output/checklist
   resources.
-- Reconciled `docs/router-a-b-cleanup.md` Phase 15.9 through 15.12, Phase 15.17,
-  Phase 15.18, and Phase 15.19 against the current owner plans and code
-  evidence.
-- Verified the cleanup plan has no remaining unchecked checklist items after
-  marking stale tasks as superseded.
-- Verified deployment setup was removed from the cleanup plan.
+- Reconciled the current Router A/B specification and signing-session
+  architecture against the code evidence.
+- Verified the retired cleanup and HSS plans have no remaining active links.
+- Verified deployment setup remains in the deployment reference.

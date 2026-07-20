@@ -132,14 +132,6 @@ const siblingLifecycleGateDocs = [
     ],
   },
   {
-    relativePath: 'docs/refactor-83-registration.md',
-    requiredTokens: [
-      'Refactor 88 now provides both local and CI-managed intended lifecycle',
-      'pnpm test:intended',
-      'pre-merge lifecycle gate',
-    ],
-  },
-  {
     relativePath: 'docs/refactor-90-modular-auth-capabilities-plan.md',
     requiredTokens: [
       'Refactor 88 lifecycle contract gate:',

@@ -1,5 +1,10 @@
 # Refactor 76: Branded Key Version Types
 
+Historical note: this HSS-specific branding plan predates the Router A/B YAOS
+and ECDSA derivation cutover. Keep it as migration evidence; current key-version
+domains are defined by the active Router A/B specification and signing-session
+architecture.
+
 ## Goal
 
 Prevent HSS material key versions, ECDSA HSS material key versions, and signing-session seal KEK versions from being interchangeable in TypeScript.
