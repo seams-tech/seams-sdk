@@ -39,6 +39,20 @@ jobs:
       - name: Qualify constant-time analyzer
         run: cargo yao-fv constant-time-qualification
 
+      - name: Prepare protected artifact workspace
+        run: |
+          if ! command -v setfacl >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install --yes acl
+          fi
+          artifact_root="$GITHUB_WORKSPACE/tools/ed25519-yao-generator/target"
+          mkdir -p "$artifact_root"
+          path="$artifact_root"
+          while [ "$path" != "/" ]; do
+            sudo setfacl --remove-all "$path"
+            path="$(dirname "$path")"
+          done
+
       - name: Check Ed25519 Yao reference, Phase 2B, and parity
         run: |
           cargo yao-fv reference-spec-check
