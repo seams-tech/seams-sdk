@@ -25,6 +25,20 @@ case "$worker_build_profile" in
     ;;
 esac
 
+if [[ "${ROUTER_AB_USE_PREBUILT:-0}" == "1" ]]; then
+  : "${ROUTER_AB_DEPLOY_TARGET:?ROUTER_AB_DEPLOY_TARGET is required for prebuilt Workers}"
+  : "${ROUTER_AB_DEPLOY_SHA:?ROUTER_AB_DEPLOY_SHA is required for prebuilt Workers}"
+  artifact_identity_json="${ROUTER_AB_ARTIFACT_IDENTITY_JSON:-"{}"}"
+  node ../../scripts/deployment-artifact.mjs verify \
+    --kind "$role" \
+    --target "$ROUTER_AB_DEPLOY_TARGET" \
+    --sha "$ROUTER_AB_DEPLOY_SHA" \
+    --root "build/$role" \
+    --manifest ".release-artifacts/$role.json" \
+    --identity-json "$artifact_identity_json"
+  exit 0
+fi
+
 worker-build \
   "${worker_build_flags[@]}" \
   --out-dir "build/$role" \

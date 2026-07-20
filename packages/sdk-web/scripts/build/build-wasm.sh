@@ -60,8 +60,12 @@ require_file() {
   local path="$1"
   local canonical_path
   local attempt
+  local attempt_limit=600
+  if [ "${WASM_SDK_USE_PREBUILT:-0}" = "1" ]; then
+    attempt_limit=1
+  fi
   canonical_path="$(node -e "console.log(require('path').resolve(process.argv[1]))" "$path")"
-  for attempt in {1..600}; do
+  for ((attempt = 1; attempt <= attempt_limit; attempt++)); do
     if [ -f "$path" ] || [ -f "$canonical_path" ]; then
       return
     fi
@@ -250,45 +254,49 @@ FULL_SDK_WASM_SOURCES=(
   "$SOURCE_WASM_EMAIL_OTP_RUNTIME"
 )
 
-print_step "Cleaning previous WASM package outputs for $WASM_SDK_BUILD_TARGET target..."
-for source_dir in "${GATEWAY_WASM_SOURCES[@]}"; do
-  rm -rf "$SDK_ROOT/$source_dir/pkg"
-done
-if [ "$WASM_SDK_BUILD_TARGET" = "all" ]; then
-  for source_dir in "${FULL_SDK_WASM_SOURCES[@]}"; do
+if [ "${WASM_SDK_USE_PREBUILT:-0}" = "1" ]; then
+  print_step "Using checksum-keyed prebuilt WASM packages..."
+else
+  print_step "Cleaning previous WASM package outputs for $WASM_SDK_BUILD_TARGET target..."
+  for source_dir in "${GATEWAY_WASM_SOURCES[@]}"; do
     rm -rf "$SDK_ROOT/$source_dir/pkg"
   done
-fi
-print_success "WASM package outputs cleaned"
+  if [ "$WASM_SDK_BUILD_TARGET" = "all" ]; then
+    for source_dir in "${FULL_SDK_WASM_SOURCES[@]}"; do
+      rm -rf "$SDK_ROOT/$source_dir/pkg"
+    done
+  fi
+  print_success "WASM package outputs cleaned"
 
-print_step "Building WASM packages in parallel..."
-JOB_LOG_DIR="$(mktemp -d)"
-start_job "NEAR signer WASM (release)" build_near_signer
-start_job "ECDSA server signing worker WASM (release)" build_router_ab_ecdsa_signing_worker
-start_job "EVM crypto WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_EVM_CRYPTO" evm_crypto
-start_job "threshold-prf WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_THRESHOLD_PRF" threshold_prf
-if [ "$WASM_SDK_BUILD_TARGET" = "all" ]; then
-  start_job "Ed25519 Yao Client WASM (release)" build_ed25519_yao_client
-  start_job "ECDSA registration client WASM (release)" build_ecdsa_registration_client
-  start_job "ECDSA client signer WASM (release)" build_router_ab_ecdsa_derivation_client
-  start_job "ECDSA presign client WASM (release)" build_router_ab_ecdsa_presign_client
-  start_job "ECDSA online client WASM (release)" build_router_ab_ecdsa_online_client
-  start_job "Tempo signer WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_TEMPO_SIGNER" tempo_signer
-  start_job "Shamir3Pass runtime WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_SHAMIR3PASS_RUNTIME" shamir3pass_runtime
-  start_job "Email OTP runtime WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_EMAIL_OTP_RUNTIME" email_otp_runtime
-fi
-wait_for_jobs
+  print_step "Building WASM packages in parallel..."
+  JOB_LOG_DIR="$(mktemp -d)"
+  start_job "NEAR signer WASM (release)" build_near_signer
+  start_job "ECDSA server signing worker WASM (release)" build_router_ab_ecdsa_signing_worker
+  start_job "EVM crypto WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_EVM_CRYPTO" evm_crypto
+  start_job "threshold-prf WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_THRESHOLD_PRF" threshold_prf
+  if [ "$WASM_SDK_BUILD_TARGET" = "all" ]; then
+    start_job "Ed25519 Yao Client WASM (release)" build_ed25519_yao_client
+    start_job "ECDSA registration client WASM (release)" build_ecdsa_registration_client
+    start_job "ECDSA client signer WASM (release)" build_router_ab_ecdsa_derivation_client
+    start_job "ECDSA presign client WASM (release)" build_router_ab_ecdsa_presign_client
+    start_job "ECDSA online client WASM (release)" build_router_ab_ecdsa_online_client
+    start_job "Tempo signer WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_TEMPO_SIGNER" tempo_signer
+    start_job "Shamir3Pass runtime WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_SHAMIR3PASS_RUNTIME" shamir3pass_runtime
+    start_job "Email OTP runtime WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_EMAIL_OTP_RUNTIME" email_otp_runtime
+  fi
+  wait_for_jobs
 
-print_step "Optimizing wasm-pack metadata for tree-shaking..."
-for source_dir in "${GATEWAY_WASM_SOURCES[@]}"; do
-  node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$source_dir/pkg"
-done
-if [ "$WASM_SDK_BUILD_TARGET" = "all" ]; then
-  for source_dir in "${FULL_SDK_WASM_SOURCES[@]}"; do
+  print_step "Optimizing wasm-pack metadata for tree-shaking..."
+  for source_dir in "${GATEWAY_WASM_SOURCES[@]}"; do
     node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$source_dir/pkg"
   done
+  if [ "$WASM_SDK_BUILD_TARGET" = "all" ]; then
+    for source_dir in "${FULL_SDK_WASM_SOURCES[@]}"; do
+      node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$source_dir/pkg"
+    done
+  fi
+  print_success "WASM package metadata optimized"
 fi
-print_success "WASM package metadata optimized"
 
 print_step "Checking expected WASM package outputs..."
 require_file "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg/wasm_signer_worker.js"

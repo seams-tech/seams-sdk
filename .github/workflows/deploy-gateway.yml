@@ -33,40 +33,28 @@ concurrency:
   group: deploy-gateway-${{ inputs.target }}
   cancel-in-progress: false
 
+env:
+  DEPLOY_SHA: ${{ inputs.deploy_sha || github.sha }}
+  DEPLOY_SOURCE_BRANCH: ${{ inputs.source_branch || github.ref_name }}
+  DEPLOY_TARGET: ${{ inputs.target }}
+  RUST_TOOLCHAIN: '1.96.0'
+  GATEWAY_ARTIFACT_NAME: gateway-${{ inputs.target }}-${{ inputs.deploy_sha || github.sha }}
+  GATEWAY_ARTIFACT_IDENTITY: '{"wasmPackageSet":"gateway-v1"}'
+
 jobs:
-  deploy:
-    name: Deploy Gateway and D1
+  build_gateway_artifact:
+    name: Build Gateway artifact
     runs-on: ubuntu-latest
-    timeout-minutes: 35
-    environment:
-      name: ${{ inputs.target == 'production' && 'production-gateway' || 'staging-gateway' }}
-    env:
-      DEPLOY_SHA: ${{ inputs.deploy_sha || github.sha }}
-      DEPLOY_SOURCE_BRANCH: ${{ inputs.source_branch || github.ref_name }}
-      DEPLOY_TARGET: ${{ inputs.target }}
-      WRANGLER_CONFIG: .wrangler/generated/gateway.jsonc
-      GATEWAY_DEPLOYMENT_PLAN: .wrangler/generated/gateway-deployment-plan.json
-      GATEWAY_SECRETS_FILE: .wrangler/generated/gateway-secrets.json
-      GATEWAY_DEPLOYMENT_CONFIG_JSON: ${{ vars.GATEWAY_DEPLOYMENT_CONFIG_JSON }}
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      RELAY_SESSION_HMAC_SECRET: ${{ secrets.RELAY_SESSION_HMAC_SECRET }}
-      ACCOUNT_ID_DERIVATION_SECRET: ${{ secrets.ACCOUNT_ID_DERIVATION_SECRET }}
-      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: ${{ secrets.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET }}
-      ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK: ${{ secrets.ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK }}
-      RELAYER_PRIVATE_KEY: ${{ secrets.RELAYER_PRIVATE_KEY }}
-      SPONSORED_EVM_EXECUTORS_JSON: ${{ secrets.SPONSORED_EVM_EXECUTORS_JSON }}
-      SIGNING_ROOT_KEK_VALUE: ${{ secrets.SIGNING_ROOT_KEK_VALUE }}
-      SIGNING_SESSION_SEAL_KEY_VERSION: ${{ secrets.SIGNING_SESSION_SEAL_KEY_VERSION }}
-      SIGNING_SESSION_SHAMIR_P_B64U: ${{ secrets.SIGNING_SESSION_SHAMIR_P_B64U }}
-      SIGNING_SESSION_SEAL_E_S_B64U: ${{ secrets.SIGNING_SESSION_SEAL_E_S_B64U }}
-      SIGNING_SESSION_SEAL_D_S_B64U: ${{ secrets.SIGNING_SESSION_SEAL_D_S_B64U }}
+    timeout-minutes: 25
     steps:
-      - name: Checkout successful CI revision
+      - name: Checkout selected revision
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
           ref: ${{ env.DEPLOY_SHA }}
+
+      - name: Record artifact build start
+        run: echo "ARTIFACT_BUILD_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
 
       - name: Validate branch and environment mapping
         run: |
@@ -91,41 +79,178 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
 
       - name: Add wasm target
         run: rustup target add wasm32-unknown-unknown
 
+      - name: Cache Rust build inputs
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: gateway-wasm-${{ runner.os }}-${{ env.DEPLOY_TARGET }}
+          workspaces: |
+            wasm/near_signer -> target
+            wasm/threshold_prf -> target
+            wasm/evm_crypto -> target
+            wasm/router_ab_ecdsa_signing_worker -> target
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
 
-      - name: Install prebuilt WASM tooling
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl -sSf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
-          version="$(
-            awk '
-              $0 == "name = \"wasm-bindgen\"" { found = 1; next }
-              found && $1 == "version" {
-                gsub(/"/, "", $3)
-                print $3
-                exit
-              }
-            ' wasm/near_signer/Cargo.lock
-          )"
-          archive="wasm-bindgen-${version}-x86_64-unknown-linux-musl"
-          curl -fsSL \
-            "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/${version}/${archive}.tar.gz" \
-            | tar -xz
-          install -m 0755 "${archive}/wasm-bindgen" "$HOME/.cargo/bin/wasm-bindgen"
-          install -m 0755 "${archive}/wasm-bindgen-test-runner" "$HOME/.cargo/bin/wasm-bindgen-test-runner"
-          install -m 0755 "${archive}/wasm2es6js" "$HOME/.cargo/bin/wasm2es6js"
+      - name: Cache pinned WASM tooling
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/wasm-pack
+            packages/sdk-web/.tooling/wasm-bindgen
+            packages/sdk-web/.tooling/wasm-pack-cache
+          key: wasm-tooling-${{ runner.os }}-${{ hashFiles('packages/sdk-web/scripts/build/install-ci-wasm-tooling.sh', 'wasm/**/Cargo.lock', 'crates/router-ab-ed25519-yao-client/Cargo.lock') }}
+
+      - name: Install pinned WASM tooling
+        run: bash packages/sdk-web/scripts/build/install-ci-wasm-tooling.sh
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Cache generated Gateway WASM
+        id: cache_gateway_wasm
+        uses: actions/cache@v4
+        with:
+          path: |
+            wasm/near_signer/pkg
+            wasm/threshold_prf/pkg
+            wasm/evm_crypto/pkg
+            wasm/router_ab_ecdsa_signing_worker/pkg
+          key: gateway-wasm-${{ runner.os }}-rust-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('wasm/near_signer/**', 'wasm/threshold_prf/**', 'wasm/evm_crypto/**', 'wasm/router_ab_ecdsa_signing_worker/**', 'crates/**/src/**', 'crates/**/Cargo.toml', 'packages/sdk-web/scripts/build/**') }}
+
       - name: Build Gateway WASM dependencies
+        env:
+          WASM_SDK_BUILD_TARGET: gateway
+          WASM_SDK_USE_PREBUILT: ${{ steps.cache_gateway_wasm.outputs.cache-hit == 'true' && '1' || '0' }}
         run: pnpm -C packages/console-server-ts run d1:local:ensure-wasm
+
+      - name: Assemble immutable Gateway artifact
+        run: |
+          set -euo pipefail
+          build_metadata="$(
+            node -e 'process.stdout.write(JSON.stringify({bun:process.argv[1],node:process.argv[2],rustc:process.argv[3],wasmPack:process.argv[4]}))' \
+              "$(bun --version)" \
+              "$(node --version)" \
+              "$(rustc --version)" \
+              "$(wasm-pack --version)"
+          )"
+          artifact_root='.release-artifacts/gateway/payload'
+          mkdir -p "$artifact_root/wasm"
+          for package in \
+            near_signer \
+            threshold_prf \
+            evm_crypto \
+            router_ab_ecdsa_signing_worker
+          do
+            mkdir -p "$artifact_root/wasm/$package"
+            rsync -a "wasm/$package/pkg/" "$artifact_root/wasm/$package/pkg/"
+          done
+          node scripts/deployment-artifact.mjs create \
+            --kind gateway-wasm \
+            --target "$DEPLOY_TARGET" \
+            --sha "$DEPLOY_SHA" \
+            --root "$artifact_root" \
+            --manifest .release-artifacts/gateway/manifest.json \
+            --identity-json "$GATEWAY_ARTIFACT_IDENTITY" \
+            --metadata-json "$build_metadata"
+
+      - name: Upload Gateway artifact
+        id: upload_gateway_artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.GATEWAY_ARTIFACT_NAME }}
+          path: .release-artifacts/gateway
+          if-no-files-found: error
+          include-hidden-files: true
+          overwrite: true
+          retention-days: 30
+          compression-level: 0
+
+      - name: Summarize Gateway artifact
+        env:
+          ACTIONS_ARTIFACT_DIGEST: ${{ steps.upload_gateway_artifact.outputs.artifact-digest }}
+        run: |
+          elapsed_seconds="$(($(date +%s) - ARTIFACT_BUILD_STARTED_AT))"
+          {
+            echo '## Gateway release artifact'
+            echo
+            echo "- Source SHA: \`$DEPLOY_SHA\`"
+            echo "- Target: \`$DEPLOY_TARGET\`"
+            echo "- Artifact: \`$GATEWAY_ARTIFACT_NAME\`"
+            echo "- Actions digest: \`$ACTIONS_ARTIFACT_DIGEST\`"
+            echo "- Build duration: ${elapsed_seconds}s"
+            echo "- Rollback: rerun this workflow at \`$DEPLOY_SHA\` and reuse the accepted artifact"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    name: Deploy Gateway and D1
+    needs: build_gateway_artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: ${{ inputs.target == 'production' && 'production-gateway' || 'staging-gateway' }}
+    env:
+      WRANGLER_CONFIG: .wrangler/generated/gateway.jsonc
+      GATEWAY_DEPLOYMENT_PLAN: .wrangler/generated/gateway-deployment-plan.json
+      GATEWAY_SECRETS_FILE: .wrangler/generated/gateway-secrets.json
+      GATEWAY_DEPLOYMENT_CONFIG_JSON: ${{ vars.GATEWAY_DEPLOYMENT_CONFIG_JSON }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      RELAY_SESSION_HMAC_SECRET: ${{ secrets.RELAY_SESSION_HMAC_SECRET }}
+      ACCOUNT_ID_DERIVATION_SECRET: ${{ secrets.ACCOUNT_ID_DERIVATION_SECRET }}
+      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: ${{ secrets.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET }}
+      ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK: ${{ secrets.ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK }}
+      RELAYER_PRIVATE_KEY: ${{ secrets.RELAYER_PRIVATE_KEY }}
+      SPONSORED_EVM_EXECUTORS_JSON: ${{ secrets.SPONSORED_EVM_EXECUTORS_JSON }}
+      SIGNING_ROOT_KEK_VALUE: ${{ secrets.SIGNING_ROOT_KEK_VALUE }}
+      SIGNING_SESSION_SEAL_KEY_VERSION: ${{ secrets.SIGNING_SESSION_SEAL_KEY_VERSION }}
+      SIGNING_SESSION_SHAMIR_P_B64U: ${{ secrets.SIGNING_SESSION_SHAMIR_P_B64U }}
+      SIGNING_SESSION_SEAL_E_S_B64U: ${{ secrets.SIGNING_SESSION_SEAL_E_S_B64U }}
+      SIGNING_SESSION_SEAL_D_S_B64U: ${{ secrets.SIGNING_SESSION_SEAL_D_S_B64U }}
+    steps:
+      - name: Checkout selected revision
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ env.DEPLOY_SHA }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --filter @seams-internal/console-server...
+
+      - name: Download Gateway artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.GATEWAY_ARTIFACT_NAME }}
+          path: .release-artifacts/gateway
+
+      - name: Verify and restore Gateway artifact
+        run: |
+          set -euo pipefail
+          node scripts/deployment-artifact.mjs verify \
+            --kind gateway-wasm \
+            --target "$DEPLOY_TARGET" \
+            --sha "$DEPLOY_SHA" \
+            --root .release-artifacts/gateway/payload \
+            --manifest .release-artifacts/gateway/manifest.json \
+            --identity-json "$GATEWAY_ARTIFACT_IDENTITY"
+          rsync -a .release-artifacts/gateway/payload/wasm/ wasm/
+          SEAMS_D1_LOCAL_WASM_AUTO_BUILD=0 \
+            pnpm -C packages/console-server-ts run d1:local:ensure-wasm
 
       - name: Validate deployment credentials and secrets
         run: |
@@ -215,13 +340,39 @@ jobs:
             --secrets-file "$GATEWAY_SECRETS_FILE" \
             --message "$DEPLOY_SHA"
 
-      - name: Verify Gateway readiness
+      - name: Verify Gateway readiness and MPC routes
+        id: gateway_readiness
         working-directory: packages/console-server-ts
         run: |
+          set -euo pipefail
           gateway_origin="$(
             node scripts/read-gateway-deployment-plan.mjs \
               --plan "$GATEWAY_DEPLOYMENT_PLAN" \
               --field gateway-origin
           )"
-          curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 3 \
-            "$gateway_origin/readyz"
+          for path in \
+            /readyz \
+            /.well-known/router-ab-ceremony-jwks.json \
+            /router-ab/ed25519/healthz \
+            /router-ab/ecdsa-derivation/healthz
+          do
+            curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 3 \
+              "$gateway_origin$path" > /dev/null
+          done
+          echo "gateway_origin=$gateway_origin" >> "$GITHUB_OUTPUT"
+
+      - name: Summarize Gateway deployment
+        env:
+          GATEWAY_ORIGIN: ${{ steps.gateway_readiness.outputs.gateway_origin }}
+        run: |
+          manifest_digest="$(node -e "const value=require('./.release-artifacts/gateway/manifest.json'); process.stdout.write(value.contentDigestSha256)")"
+          {
+            echo '## Gateway deployment'
+            echo
+            echo "- Source SHA: \`$DEPLOY_SHA\`"
+            echo "- Target: \`$DEPLOY_TARGET\`"
+            echo "- Artifact content digest: \`$manifest_digest\`"
+            echo "- Origin: $GATEWAY_ORIGIN"
+            echo "- Readiness: Gateway, ceremony JWKS, Ed25519, and ECDSA routes passed"
+            echo "- Rollback artifact: \`$GATEWAY_ARTIFACT_NAME\`"
+          } >> "$GITHUB_STEP_SUMMARY"
