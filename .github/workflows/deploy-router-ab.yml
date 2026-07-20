@@ -51,8 +51,8 @@ permissions:
 
 env:
   DEPLOY_TARGET: ${{ inputs.target }}
-  DEPLOY_OPERATION: ${{ github.event_name == 'workflow_call' && 'deploy' || inputs.operation }}
-  DEPLOY_ROLE: ${{ github.event_name == 'workflow_call' && 'all' || inputs.role }}
+  DEPLOY_OPERATION: ${{ inputs.deploy_sha != '' && 'deploy' || inputs.operation }}
+  DEPLOY_ROLE: ${{ inputs.deploy_sha != '' && 'all' || inputs.role }}
   DEPLOY_SHA: ${{ inputs.deploy_sha || github.sha }}
   DEPLOY_SOURCE_BRANCH: ${{ inputs.source_branch || github.ref_name }}
 
@@ -84,7 +84,7 @@ jobs:
           ref: ${{ env.DEPLOY_SHA }}
 
       - name: Reject stale or mismatched automatic releases
-        if: github.event_name == 'workflow_call'
+        if: inputs.deploy_sha != ''
         run: |
           set -euo pipefail
           expected_target='staging'
@@ -173,7 +173,7 @@ jobs:
 
   upload_or_deploy_signing_worker:
     name: Upload or Deploy SigningWorker
-    if: (github.event_name == 'workflow_call' || inputs.operation != 'validate') && (github.event_name == 'workflow_call' || inputs.role == 'all' || inputs.role == 'signing-worker')
+    if: (inputs.deploy_sha != '' || inputs.operation != 'validate') && (inputs.deploy_sha != '' || inputs.role == 'all' || inputs.role == 'signing-worker')
     needs: validate_router_ab
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -273,10 +273,10 @@ jobs:
     name: Upload or Deploy Deriver A
     if: |
       always() &&
-      (github.event_name == 'workflow_call' || inputs.operation != 'validate') &&
-      (github.event_name == 'workflow_call' || inputs.role == 'all' || inputs.role == 'deriver-a') &&
+      (inputs.deploy_sha != '' || inputs.operation != 'validate') &&
+      (inputs.deploy_sha != '' || inputs.role == 'all' || inputs.role == 'deriver-a') &&
       needs.validate_router_ab.result == 'success' &&
-      (github.event_name != 'workflow_call' && inputs.role != 'all' || needs.upload_or_deploy_signing_worker.result == 'success')
+      (inputs.deploy_sha == '' && inputs.role != 'all' || needs.upload_or_deploy_signing_worker.result == 'success')
     needs:
       - validate_router_ab
       - upload_or_deploy_signing_worker
@@ -392,10 +392,10 @@ jobs:
     name: Upload or Deploy Deriver B
     if: |
       always() &&
-      (github.event_name == 'workflow_call' || inputs.operation != 'validate') &&
-      (github.event_name == 'workflow_call' || inputs.role == 'all' || inputs.role == 'deriver-b') &&
+      (inputs.deploy_sha != '' || inputs.operation != 'validate') &&
+      (inputs.deploy_sha != '' || inputs.role == 'all' || inputs.role == 'deriver-b') &&
       needs.validate_router_ab.result == 'success' &&
-      (github.event_name != 'workflow_call' && inputs.role != 'all' || needs.upload_or_deploy_signing_worker.result == 'success')
+      (inputs.deploy_sha == '' && inputs.role != 'all' || needs.upload_or_deploy_signing_worker.result == 'success')
     needs:
       - validate_router_ab
       - upload_or_deploy_signing_worker
@@ -511,11 +511,11 @@ jobs:
     name: Upload or Deploy MPCRouter
     if: |
       always() &&
-      (github.event_name == 'workflow_call' || inputs.operation != 'validate') &&
-      (github.event_name == 'workflow_call' || inputs.role == 'all' || inputs.role == 'router') &&
+      (inputs.deploy_sha != '' || inputs.operation != 'validate') &&
+      (inputs.deploy_sha != '' || inputs.role == 'all' || inputs.role == 'router') &&
       needs.validate_router_ab.result == 'success' &&
       (
-        github.event_name != 'workflow_call' && inputs.role != 'all' ||
+        inputs.deploy_sha == '' && inputs.role != 'all' ||
         (
           needs.upload_or_deploy_signing_worker.result == 'success' &&
           needs.upload_or_deploy_deriver_a.result == 'success' &&
@@ -653,7 +653,7 @@ jobs:
         always() &&
         needs.upload_or_deploy_mpc_router.result == 'success' &&
         (
-          github.event_name == 'workflow_call' ||
+          inputs.deploy_sha != '' ||
           (
             inputs.operation == 'deploy' &&
             inputs.role == 'all'
