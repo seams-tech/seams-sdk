@@ -12,8 +12,10 @@ path = "src/lib.rs"
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
 curve25519-dalek = { version = "=4.1.3", features = ["zeroize"] }
 frost-ed25519 = { version = "2.2", default-features = false, features = ["serialization", "std"] }
+hkdf = "0.12"
 hpke-ng = "0.1.0"
 rand_chacha = "0.9"
 rand_core = "0.9"
@@ -21,6 +23,7 @@ router-ab-core = { path = "../router-ab-core" }
 router-ab-ed25519-yao-protocol = { path = "../router-ab-ed25519-yao-protocol" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+sha2 = "0.10"
 signer-core = { path = "../signer-core", features = ["ed25519-yao-derivation", "near-threshold-ed25519"] }
 subtle = { version = "=2.6.1", default-features = false }
 zeroize = { version = "1.8", features = ["zeroize_derive"] }
