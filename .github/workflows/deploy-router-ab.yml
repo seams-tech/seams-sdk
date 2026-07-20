@@ -55,6 +55,7 @@ env:
   DEPLOY_ROLE: ${{ inputs.deploy_sha != '' && 'all' || inputs.role }}
   DEPLOY_SHA: ${{ inputs.deploy_sha || github.sha }}
   DEPLOY_SOURCE_BRANCH: ${{ inputs.source_branch || github.ref_name }}
+  RUST_TOOLCHAIN: '1.96.0'
 
 concurrency:
   group: deploy-router-ab-${{ inputs.target }}
@@ -114,6 +115,8 @@ jobs:
       - name: Install Rust toolchain
         if: env.DEPLOY_OPERATION != 'deploy'
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
 
       - name: Add wasm target
         if: env.DEPLOY_OPERATION != 'deploy'
@@ -124,7 +127,7 @@ jobs:
         uses: oven-sh/setup-bun@v2
 
       - name: Install deps (workspace)
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --filter router-ab-cloudflare
 
       - name: Run Router A/B tests
         if: env.DEPLOY_OPERATION != 'deploy'
@@ -171,16 +174,178 @@ jobs:
           path: crates/router-ab-cloudflare/reports/startup-latencies/*.json
           if-no-files-found: ignore
 
+  build_router_ab_artifacts:
+    name: Build Router A/B artifacts
+    if: inputs.deploy_sha != '' || inputs.operation != 'validate'
+    needs: validate_router_ab
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout selected revision
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ env.DEPLOY_SHA }}
+
+      - name: Record artifact build start
+        run: echo "ARTIFACT_BUILD_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - name: Add wasm target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Cache Router A/B Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: router-ab-workers-${{ runner.os }}-rust-${{ env.RUST_TOOLCHAIN }}-release
+          workspaces: crates/router-ab-cloudflare -> target
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Install pinned Worker builder
+        run: pnpm -C crates/router-ab-cloudflare run worker-build:install
+
+      - name: Build all role bundles once
+        env:
+          ROUTER_AB_WORKER_BUILD_PROFILE: release
+        run: |
+          set -euo pipefail
+          for role in signing-worker deriver-a deriver-b router; do
+            pnpm -C crates/router-ab-cloudflare run "build:$role"
+          done
+
+      - name: Create role manifests
+        run: |
+          set -euo pipefail
+          build_metadata="$(
+            node -e 'process.stdout.write(JSON.stringify({bun:process.argv[1],node:process.argv[2],rustc:process.argv[3],workerBuild:process.argv[4]}))' \
+              "$(bun --version)" \
+              "$(node --version)" \
+              "$(rustc --version)" \
+              "$(worker-build --version)"
+          )"
+          mkdir -p crates/router-ab-cloudflare/.release-artifacts
+          for role in signing-worker deriver-a deriver-b router; do
+            node scripts/deployment-artifact.mjs create \
+              --kind "$role" \
+              --target "$DEPLOY_TARGET" \
+              --sha "$DEPLOY_SHA" \
+              --root "crates/router-ab-cloudflare/build/$role" \
+              --manifest "crates/router-ab-cloudflare/.release-artifacts/$role.json" \
+              --identity-json "{\"profile\":\"release\",\"role\":\"$role\"}" \
+              --metadata-json "$build_metadata"
+          done
+
+      - name: Upload SigningWorker artifact
+        id: upload_signing_worker
+        uses: actions/upload-artifact@v4
+        with:
+          name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_SHA }}-signing-worker
+          path: |
+            crates/router-ab-cloudflare/build/signing-worker
+            crates/router-ab-cloudflare/.release-artifacts/signing-worker.json
+          if-no-files-found: error
+          include-hidden-files: true
+          overwrite: true
+          retention-days: 30
+          compression-level: 0
+
+      - name: Upload Deriver A artifact
+        id: upload_deriver_a
+        uses: actions/upload-artifact@v4
+        with:
+          name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_SHA }}-deriver-a
+          path: |
+            crates/router-ab-cloudflare/build/deriver-a
+            crates/router-ab-cloudflare/.release-artifacts/deriver-a.json
+          if-no-files-found: error
+          include-hidden-files: true
+          overwrite: true
+          retention-days: 30
+          compression-level: 0
+
+      - name: Upload Deriver B artifact
+        id: upload_deriver_b
+        uses: actions/upload-artifact@v4
+        with:
+          name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_SHA }}-deriver-b
+          path: |
+            crates/router-ab-cloudflare/build/deriver-b
+            crates/router-ab-cloudflare/.release-artifacts/deriver-b.json
+          if-no-files-found: error
+          include-hidden-files: true
+          overwrite: true
+          retention-days: 30
+          compression-level: 0
+
+      - name: Upload MPCRouter artifact
+        id: upload_router
+        uses: actions/upload-artifact@v4
+        with:
+          name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_SHA }}-router
+          path: |
+            crates/router-ab-cloudflare/build/router
+            crates/router-ab-cloudflare/.release-artifacts/router.json
+          if-no-files-found: error
+          include-hidden-files: true
+          overwrite: true
+          retention-days: 30
+          compression-level: 0
+
+      - name: Summarize role artifacts
+        env:
+          SIGNING_WORKER_DIGEST: ${{ steps.upload_signing_worker.outputs.artifact-digest }}
+          DERIVER_A_DIGEST: ${{ steps.upload_deriver_a.outputs.artifact-digest }}
+          DERIVER_B_DIGEST: ${{ steps.upload_deriver_b.outputs.artifact-digest }}
+          ROUTER_DIGEST: ${{ steps.upload_router.outputs.artifact-digest }}
+        run: |
+          elapsed_seconds="$(($(date +%s) - ARTIFACT_BUILD_STARTED_AT))"
+          {
+            echo '## Router A/B release artifacts'
+            echo
+            echo "- Source SHA: \`$DEPLOY_SHA\`"
+            echo "- Target: \`$DEPLOY_TARGET\`"
+            echo "- Build profile: \`release\`"
+            echo "- Build duration: ${elapsed_seconds}s"
+            echo "- SigningWorker: \`$SIGNING_WORKER_DIGEST\`"
+            echo "- Deriver A: \`$DERIVER_A_DIGEST\`"
+            echo "- Deriver B: \`$DERIVER_B_DIGEST\`"
+            echo "- MPCRouter: \`$ROUTER_DIGEST\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   upload_or_deploy_signing_worker:
     name: Upload or Deploy SigningWorker
     if: (inputs.deploy_sha != '' || inputs.operation != 'validate') && (inputs.deploy_sha != '' || inputs.role == 'all' || inputs.role == 'signing-worker')
-    needs: validate_router_ab
+    needs:
+      - validate_router_ab
+      - build_router_ab_artifacts
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
       name: ${{ format('{0}-signing-worker', inputs.target) }}
     env:
       WORKER_ENV: ${{ inputs.target == 'staging' && 'staging' || '' }}
+      ROUTER_AB_USE_PREBUILT: '1'
+      ROUTER_AB_DEPLOY_TARGET: ${{ env.DEPLOY_TARGET }}
+      ROUTER_AB_DEPLOY_SHA: ${{ env.DEPLOY_SHA }}
+      ROUTER_AB_ARTIFACT_IDENTITY_JSON: '{"profile":"release","role":"signing-worker"}'
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: ${{ secrets.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET }}
@@ -202,17 +367,24 @@ jobs:
           node-version: '24'
           cache: 'pnpm'
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Add wasm target
-        run: rustup target add wasm32-unknown-unknown
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-
       - name: Install deps (workspace)
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --filter router-ab-cloudflare
+
+      - name: Download SigningWorker artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_SHA }}-signing-worker
+          path: crates/router-ab-cloudflare
+
+      - name: Verify SigningWorker artifact
+        run: |
+          node scripts/deployment-artifact.mjs verify \
+            --kind signing-worker \
+            --target "$DEPLOY_TARGET" \
+            --sha "$DEPLOY_SHA" \
+            --root crates/router-ab-cloudflare/build/signing-worker \
+            --manifest crates/router-ab-cloudflare/.release-artifacts/signing-worker.json \
+            --identity-json "$ROUTER_AB_ARTIFACT_IDENTITY_JSON"
 
       - name: Check SigningWorker environment
         run: |
@@ -269,6 +441,18 @@ jobs:
           path: crates/router-ab-cloudflare/reports/startup-latencies/*.json
           if-no-files-found: ignore
 
+      - name: Summarize SigningWorker deployment
+        if: env.DEPLOY_OPERATION == 'deploy'
+        run: |
+          manifest_digest="$(node -e "const value=require('./crates/router-ab-cloudflare/.release-artifacts/signing-worker.json'); process.stdout.write(value.contentDigestSha256)")"
+          {
+            echo '## SigningWorker deployment'
+            echo
+            echo "- Source SHA: \`$DEPLOY_SHA\`"
+            echo "- Target: \`$DEPLOY_TARGET\`"
+            echo "- Artifact content digest: \`$manifest_digest\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   upload_or_deploy_deriver_a:
     name: Upload or Deploy Deriver A
     if: |
@@ -276,9 +460,11 @@ jobs:
       (inputs.deploy_sha != '' || inputs.operation != 'validate') &&
       (inputs.deploy_sha != '' || inputs.role == 'all' || inputs.role == 'deriver-a') &&
       needs.validate_router_ab.result == 'success' &&
+      needs.build_router_ab_artifacts.result == 'success' &&
       (inputs.deploy_sha == '' && inputs.role != 'all' || needs.upload_or_deploy_signing_worker.result == 'success')
     needs:
       - validate_router_ab
+      - build_router_ab_artifacts
       - upload_or_deploy_signing_worker
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -286,6 +472,10 @@ jobs:
       name: ${{ format('{0}-deriver-a', inputs.target) }}
     env:
       WORKER_ENV: ${{ inputs.target == 'staging' && 'staging' || '' }}
+      ROUTER_AB_USE_PREBUILT: '1'
+      ROUTER_AB_DEPLOY_TARGET: ${{ env.DEPLOY_TARGET }}
+      ROUTER_AB_DEPLOY_SHA: ${{ env.DEPLOY_SHA }}
+      ROUTER_AB_ARTIFACT_IDENTITY_JSON: '{"profile":"release","role":"deriver-a"}'
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: ${{ secrets.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET }}
@@ -311,17 +501,24 @@ jobs:
           node-version: '24'
           cache: 'pnpm'
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Add wasm target
-        run: rustup target add wasm32-unknown-unknown
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-
       - name: Install deps (workspace)
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --filter router-ab-cloudflare
+
+      - name: Download Deriver A artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_SHA }}-deriver-a
+          path: crates/router-ab-cloudflare
+
+      - name: Verify Deriver A artifact
+        run: |
+          node scripts/deployment-artifact.mjs verify \
+            --kind deriver-a \
+            --target "$DEPLOY_TARGET" \
+            --sha "$DEPLOY_SHA" \
+            --root crates/router-ab-cloudflare/build/deriver-a \
+            --manifest crates/router-ab-cloudflare/.release-artifacts/deriver-a.json \
+            --identity-json "$ROUTER_AB_ARTIFACT_IDENTITY_JSON"
 
       - name: Check Deriver A environment
         run: |
@@ -388,6 +585,18 @@ jobs:
           path: crates/router-ab-cloudflare/reports/startup-latencies/*.json
           if-no-files-found: ignore
 
+      - name: Summarize Deriver A deployment
+        if: env.DEPLOY_OPERATION == 'deploy'
+        run: |
+          manifest_digest="$(node -e "const value=require('./crates/router-ab-cloudflare/.release-artifacts/deriver-a.json'); process.stdout.write(value.contentDigestSha256)")"
+          {
+            echo '## Deriver A deployment'
+            echo
+            echo "- Source SHA: \`$DEPLOY_SHA\`"
+            echo "- Target: \`$DEPLOY_TARGET\`"
+            echo "- Artifact content digest: \`$manifest_digest\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   upload_or_deploy_deriver_b:
     name: Upload or Deploy Deriver B
     if: |
@@ -395,9 +604,11 @@ jobs:
       (inputs.deploy_sha != '' || inputs.operation != 'validate') &&
       (inputs.deploy_sha != '' || inputs.role == 'all' || inputs.role == 'deriver-b') &&
       needs.validate_router_ab.result == 'success' &&
+      needs.build_router_ab_artifacts.result == 'success' &&
       (inputs.deploy_sha == '' && inputs.role != 'all' || needs.upload_or_deploy_signing_worker.result == 'success')
     needs:
       - validate_router_ab
+      - build_router_ab_artifacts
       - upload_or_deploy_signing_worker
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -405,6 +616,10 @@ jobs:
       name: ${{ format('{0}-deriver-b', inputs.target) }}
     env:
       WORKER_ENV: ${{ inputs.target == 'staging' && 'staging' || '' }}
+      ROUTER_AB_USE_PREBUILT: '1'
+      ROUTER_AB_DEPLOY_TARGET: ${{ env.DEPLOY_TARGET }}
+      ROUTER_AB_DEPLOY_SHA: ${{ env.DEPLOY_SHA }}
+      ROUTER_AB_ARTIFACT_IDENTITY_JSON: '{"profile":"release","role":"deriver-b"}'
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: ${{ secrets.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET }}
@@ -430,17 +645,24 @@ jobs:
           node-version: '24'
           cache: 'pnpm'
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Add wasm target
-        run: rustup target add wasm32-unknown-unknown
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-
       - name: Install deps (workspace)
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --filter router-ab-cloudflare
+
+      - name: Download Deriver B artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_SHA }}-deriver-b
+          path: crates/router-ab-cloudflare
+
+      - name: Verify Deriver B artifact
+        run: |
+          node scripts/deployment-artifact.mjs verify \
+            --kind deriver-b \
+            --target "$DEPLOY_TARGET" \
+            --sha "$DEPLOY_SHA" \
+            --root crates/router-ab-cloudflare/build/deriver-b \
+            --manifest crates/router-ab-cloudflare/.release-artifacts/deriver-b.json \
+            --identity-json "$ROUTER_AB_ARTIFACT_IDENTITY_JSON"
 
       - name: Check Deriver B environment
         run: |
@@ -507,6 +729,18 @@ jobs:
           path: crates/router-ab-cloudflare/reports/startup-latencies/*.json
           if-no-files-found: ignore
 
+      - name: Summarize Deriver B deployment
+        if: env.DEPLOY_OPERATION == 'deploy'
+        run: |
+          manifest_digest="$(node -e "const value=require('./crates/router-ab-cloudflare/.release-artifacts/deriver-b.json'); process.stdout.write(value.contentDigestSha256)")"
+          {
+            echo '## Deriver B deployment'
+            echo
+            echo "- Source SHA: \`$DEPLOY_SHA\`"
+            echo "- Target: \`$DEPLOY_TARGET\`"
+            echo "- Artifact content digest: \`$manifest_digest\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   upload_or_deploy_mpc_router:
     name: Upload or Deploy MPCRouter
     if: |
@@ -514,6 +748,7 @@ jobs:
       (inputs.deploy_sha != '' || inputs.operation != 'validate') &&
       (inputs.deploy_sha != '' || inputs.role == 'all' || inputs.role == 'router') &&
       needs.validate_router_ab.result == 'success' &&
+      needs.build_router_ab_artifacts.result == 'success' &&
       (
         inputs.deploy_sha == '' && inputs.role != 'all' ||
         (
@@ -524,6 +759,7 @@ jobs:
       )
     needs:
       - validate_router_ab
+      - build_router_ab_artifacts
       - upload_or_deploy_signing_worker
       - upload_or_deploy_deriver_a
       - upload_or_deploy_deriver_b
@@ -533,6 +769,10 @@ jobs:
       name: ${{ format('{0}-mpc-router', inputs.target) }}
     env:
       WORKER_ENV: ${{ inputs.target == 'staging' && 'staging' || '' }}
+      ROUTER_AB_USE_PREBUILT: '1'
+      ROUTER_AB_DEPLOY_TARGET: ${{ env.DEPLOY_TARGET }}
+      ROUTER_AB_DEPLOY_SHA: ${{ env.DEPLOY_SHA }}
+      ROUTER_AB_ARTIFACT_IDENTITY_JSON: '{"profile":"release","role":"router"}'
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: ${{ secrets.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET }}
@@ -561,17 +801,24 @@ jobs:
           node-version: '24'
           cache: 'pnpm'
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Add wasm target
-        run: rustup target add wasm32-unknown-unknown
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-
       - name: Install deps (workspace)
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --filter router-ab-cloudflare
+
+      - name: Download MPCRouter artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_SHA }}-router
+          path: crates/router-ab-cloudflare
+
+      - name: Verify MPCRouter artifact
+        run: |
+          node scripts/deployment-artifact.mjs verify \
+            --kind router \
+            --target "$DEPLOY_TARGET" \
+            --sha "$DEPLOY_SHA" \
+            --root crates/router-ab-cloudflare/build/router \
+            --manifest crates/router-ab-cloudflare/.release-artifacts/router.json \
+            --identity-json "$ROUTER_AB_ARTIFACT_IDENTITY_JSON"
 
       - name: Check MPCRouter environment
         run: |
@@ -645,6 +892,19 @@ jobs:
           name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_OPERATION }}-router-${{ github.run_id }}
           path: crates/router-ab-cloudflare/reports/startup-latencies/*.json
           if-no-files-found: ignore
+
+      - name: Summarize MPCRouter deployment
+        if: env.DEPLOY_OPERATION == 'deploy'
+        run: |
+          manifest_digest="$(node -e "const value=require('./crates/router-ab-cloudflare/.release-artifacts/router.json'); process.stdout.write(value.contentDigestSha256)")"
+          {
+            echo '## MPCRouter deployment'
+            echo
+            echo "- Source SHA: \`$DEPLOY_SHA\`"
+            echo "- Target: \`$DEPLOY_TARGET\`"
+            echo "- Artifact content digest: \`$manifest_digest\`"
+            echo "- Rollback: rerun this failed job with the accepted artifact"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   deploy_gateway:
     name: Deploy Gateway and D1

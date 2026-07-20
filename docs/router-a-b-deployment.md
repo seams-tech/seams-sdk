@@ -34,10 +34,10 @@ Related active documents:
 
 ## Deployment Profiles
 
-| Profile | Account boundary | Transport | Intended use | Security claim |
-| --- | --- | --- | --- | --- |
-| `router_ab_cloudflare_same_account_p0_v1` | One account, distinct Workers, secrets, storage, and bindings | Service Binding WebSocket | Production, staging, local parity, and benchmarks | Passive/honest-execution P0 claim; excludes account-admin, shared-CI, malicious-role, and joint-role compromise |
-| `router_ab_cloudflare_separate_accounts_v1` | Product/control account plus independent A and B accounts | Public WebSocket | Deferred stronger-operator experiment | May strengthen the administrative corruption boundary after its reconnect, tail-latency, and review gates pass |
+| Profile                                     | Account boundary                                              | Transport                 | Intended use                                      | Security claim                                                                                                  |
+| ------------------------------------------- | ------------------------------------------------------------- | ------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `router_ab_cloudflare_same_account_p0_v1`   | One account, distinct Workers, secrets, storage, and bindings | Service Binding WebSocket | Production, staging, local parity, and benchmarks | Passive/honest-execution P0 claim; excludes account-admin, shared-CI, malicious-role, and joint-role compromise |
+| `router_ab_cloudflare_separate_accounts_v1` | Product/control account plus independent A and B accounts     | Public WebSocket          | Deferred stronger-operator experiment             | May strengthen the administrative corruption boundary after its reconnect, tail-latency, and review gates pass  |
 
 Deployment configuration selects the profile before startup; it is not a
 caller-selected protocol option. Production contains only
@@ -81,14 +81,14 @@ bindings remain role-specific.
 
 ## Network And Authentication Edges
 
-| Edge | Production transport | Required binding |
-| --- | --- | --- |
-| Client -> Router | Public HTTPS | application auth, lifecycle grant, request identity, expiry, replay nonce |
-| Router -> A | Service Binding fetch | internal service authentication, A binding identity, A HPKE ciphertext, body digest |
-| Router -> B | Service Binding fetch | internal service authentication, B binding identity, B HPKE ciphertext, body digest |
-| A -> B / B -> A | Service Binding WebSocket | fixed role, protocol/circuit digest, session-bound framing, transcript, sequence, frame digest, expiry |
-| A/B -> recipients | Router-relayed or direct ciphertext | recipient identity, request kind, output kind, transcript, active-output binding |
-| Router <-> SigningWorker | Product-account Service Binding or signed HTTPS | admitted request, SigningWorker identity, activation/session epoch |
+| Edge                     | Production transport                            | Required binding                                                                                       |
+| ------------------------ | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Client -> Router         | Public HTTPS                                    | application auth, lifecycle grant, request identity, expiry, replay nonce                              |
+| Router -> A              | Service Binding fetch                           | internal service authentication, A binding identity, A HPKE ciphertext, body digest                    |
+| Router -> B              | Service Binding fetch                           | internal service authentication, B binding identity, B HPKE ciphertext, body digest                    |
+| A -> B / B -> A          | Service Binding WebSocket                       | fixed role, protocol/circuit digest, session-bound framing, transcript, sequence, frame digest, expiry |
+| A/B -> recipients        | Router-relayed or direct ciphertext             | recipient identity, request kind, output kind, transcript, active-output binding                       |
+| Router <-> SigningWorker | Product-account Service Binding or signed HTTPS | admitted request, SigningWorker identity, activation/session epoch                                     |
 
 The Router never proxies or buffers Yao table frames. Only Deriver A opens the
 private `DERIVER_B` Service Binding WebSocket. Public requests cannot select a
@@ -128,14 +128,22 @@ The release manifests deploy distinct A and B Workers. The account boundary is
 shared by design; the role, secret, storage, deployment, and audit boundaries
 remain explicit and fixed.
 
+The implemented deployment artifact phase is defined in
+[deployment/README.md](deployment/README.md#follow-up-phase-build-once-deploy-many).
+Its shared release manifest may identify all four public role bundles, but each
+role artifact must remain independently downloadable and deployable. Artifacts
+contain no role secret, generated environment secret, or Cloudflare credential.
+A deployment retry reuses the accepted role artifact and still enters that
+role's protected GitHub Environment.
+
 ## Role Secret Matrix
 
-| Owner | Private material | Forbidden material |
-| --- | --- | --- |
-| Router | admission-signing key, replay and lifecycle stores | A/B roots, A/B envelope private keys, A/B peer-signing keys, Yao state, ECDSA scalar shares |
-| Deriver A | A root/provisioning state, A envelope private key, A peer-signing key, A ticket store | every B private value, SigningWorker private key, joined inputs or outputs |
-| Deriver B | B root/provisioning state, B envelope private key, B peer-signing key, B ticket store | every A private value, SigningWorker private key, joined inputs or outputs |
-| SigningWorker | server-output private key, activated signing state, nonce/presign state | A/B roots, A/B peer keys, client-output private key |
+| Owner         | Private material                                                                      | Forbidden material                                                                          |
+| ------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Router        | admission-signing key, replay and lifecycle stores                                    | A/B roots, A/B envelope private keys, A/B peer-signing keys, Yao state, ECDSA scalar shares |
+| Deriver A     | A root/provisioning state, A envelope private key, A peer-signing key, A ticket store | every B private value, SigningWorker private key, joined inputs or outputs                  |
+| Deriver B     | B root/provisioning state, B envelope private key, B peer-signing key, B ticket store | every A private value, SigningWorker private key, joined inputs or outputs                  |
+| SigningWorker | server-output private key, activated signing state, nonce/presign state               | A/B roots, A/B peer keys, client-output private key                                         |
 
 Public verifying and encryption keys may be distributed through a signed
 deployment manifest. Private keys use role-local secret stores and rotation
@@ -216,11 +224,11 @@ Compatibility logic and dual production profiles are not retained.
 
 ## Decision Log
 
-| Date | Decision | Reason |
-| --- | --- | --- |
-| 2026-07-17 | P0 Half-Gates with the existing OT suite is the production Yao profile | It is the implemented, reviewed construction that satisfies the product latency target |
-| 2026-07-17 | Same-account Service Binding WebSocket is the canonical Cloudflare transport | It has the simplest Worker data path and the best measured latency profile |
+| Date       | Decision                                                                                         | Reason                                                                                                     |
+| ---------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| 2026-07-17 | P0 Half-Gates with the existing OT suite is the production Yao profile                           | It is the implemented, reviewed construction that satisfies the product latency target                     |
+| 2026-07-17 | Same-account Service Binding WebSocket is the canonical Cloudflare transport                     | It has the simplest Worker data path and the best measured latency profile                                 |
 | 2026-07-17 | Distinct Workers, credentials, secrets, storage, and audit boundaries provide P0 role separation | The security claim explicitly excludes account-admin, shared-CI, malicious-role, and joint-role compromise |
-| 2026-07-17 | Independent-account WebSocket remains a deferred stronger-operator experiment | It is unnecessary for the selected P0 release and has higher tail latency |
-| 2026-07-10 | Product account owns Router and SigningWorker | Those roles may share an administrative domain without joining Deriver roots |
-| 2026-07-10 | Ed25519 uses active Streaming Yao; ECDSA uses threshold PRF plus additive shares | Each signature family keeps the construction suited to its key semantics |
+| 2026-07-17 | Independent-account WebSocket remains a deferred stronger-operator experiment                    | It is unnecessary for the selected P0 release and has higher tail latency                                  |
+| 2026-07-10 | Product account owns Router and SigningWorker                                                    | Those roles may share an administrative domain without joining Deriver roots                               |
+| 2026-07-10 | Ed25519 uses active Streaming Yao; ECDSA uses threshold PRF plus additive shares                 | Each signature family keeps the construction suited to its key semantics                                   |

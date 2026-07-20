@@ -61,6 +61,15 @@ gh workflow run deploy-pages.yml --ref dev -f target=app -f deploy_environment=s
 gh workflow run deploy-pages.yml --ref dev -f target=wallet -f deploy_environment=staging
 ```
 
+The implemented
+[build-once deployment phase](README.md#follow-up-phase-build-once-deploy-many)
+keeps production SDK and Vite compilation outside the Pages upload jobs. The
+artifact remains target-specific because Vite embeds environment configuration.
+One artifact must contain both app and wallet outputs so the two Pages projects
+cannot drift to different SDK builds. A Pages-only retry downloads that
+artifact, verifies its manifest, and uploads it without invoking Cargo,
+`wasm-pack`, `pnpm build:sdk-prod`, or Vite.
+
 ## R2 Runtime Publish
 
 `publish-sdk-r2.yml` publishes signed `packages/sdk-web/dist` bundles to R2.
