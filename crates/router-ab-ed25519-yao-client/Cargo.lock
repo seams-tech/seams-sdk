@@ -1469,9 +1469,11 @@ dependencies = [
 name = "router-ab-ed25519-yao-client"
 version = "0.1.0"
 dependencies = [
+ "chacha20poly1305",
  "curve25519-dalek",
  "frost-ed25519",
  "getrandom 0.2.17",
+ "hkdf 0.12.4",
  "hpke-ng",
  "rand_chacha",
  "rand_core 0.9.5",
@@ -1481,6 +1483,7 @@ dependencies = [
  "router-ab-ed25519-yao-protocol",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "signer-core",
  "subtle",
  "wasm-bindgen",
