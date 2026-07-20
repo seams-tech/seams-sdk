@@ -45,49 +45,18 @@ jobs:
       DEPLOY_SOURCE_BRANCH: ${{ inputs.source_branch || github.ref_name }}
       DEPLOY_TARGET: ${{ inputs.target }}
       WRANGLER_CONFIG: .wrangler/generated/gateway.jsonc
+      GATEWAY_DEPLOYMENT_PLAN: .wrangler/generated/gateway-deployment-plan.json
+      GATEWAY_SECRETS_FILE: .wrangler/generated/gateway-secrets.json
+      GATEWAY_DEPLOYMENT_CONFIG_JSON: ${{ vars.GATEWAY_DEPLOYMENT_CONFIG_JSON }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      GATEWAY_WORKER_NAME: ${{ vars.GATEWAY_WORKER_NAME }}
-      GATEWAY_CONSOLE_D1_DATABASE_NAME: ${{ vars.GATEWAY_CONSOLE_D1_DATABASE_NAME }}
-      GATEWAY_CONSOLE_D1_DATABASE_ID: ${{ vars.GATEWAY_CONSOLE_D1_DATABASE_ID }}
-      GATEWAY_SIGNER_D1_DATABASE_NAME: ${{ vars.GATEWAY_SIGNER_D1_DATABASE_NAME }}
-      GATEWAY_SIGNER_D1_DATABASE_ID: ${{ vars.GATEWAY_SIGNER_D1_DATABASE_ID }}
-      GATEWAY_SECRETS_STORE_ID: ${{ vars.GATEWAY_SECRETS_STORE_ID }}
-      SIGNING_ROOT_KEK_ID: ${{ vars.SIGNING_ROOT_KEK_ID }}
-      SIGNING_ROOT_KEK_SECRET_NAME: ${{ vars.SIGNING_ROOT_KEK_SECRET_NAME }}
-      SIGNING_ROOT_KEK_ENCODING: ${{ vars.SIGNING_ROOT_KEK_ENCODING }}
-      SEAMS_TENANT_STORAGE_NAMESPACE: ${{ vars.SEAMS_TENANT_STORAGE_NAMESPACE }}
-      SEAMS_ORG_ID: ${{ vars.SEAMS_ORG_ID }}
-      SEAMS_PROJECT_ID: ${{ vars.SEAMS_PROJECT_ID }}
-      SEAMS_ENV_ID: ${{ vars.SEAMS_ENV_ID }}
-      GATEWAY_ORIGIN: ${{ vars.GATEWAY_ORIGIN }}
-      ROUTER_AB_CEREMONY_JWT_AUDIENCE: ${{ vars.ROUTER_AB_CEREMONY_JWT_AUDIENCE }}
-      ROUTER_AB_CEREMONY_JWT_KEY_ID: ${{ vars.ROUTER_AB_CEREMONY_JWT_KEY_ID }}
-      ROUTER_AB_PUBLIC_KEYSET_JSON: ${{ vars.ROUTER_AB_PUBLIC_KEYSET_JSON }}
-      ROUTER_AB_ECDSA_REGISTRATION_TOPOLOGY_JSON: ${{ vars.ROUTER_AB_ECDSA_REGISTRATION_TOPOLOGY_JSON }}
-      ROUTER_AB_DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY: ${{ vars.ROUTER_AB_DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY }}
-      ROUTER_AB_DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY: ${{ vars.ROUTER_AB_DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY }}
-      ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY }}
-      RELAYER_ACCOUNT_ID: ${{ vars.RELAYER_ACCOUNT_ID }}
-      RELAYER_PUBLIC_KEY: ${{ vars.RELAYER_PUBLIC_KEY }}
-      NEAR_RPC_URL: ${{ vars.NEAR_RPC_URL }}
-      ACCOUNT_INITIAL_BALANCE: ${{ vars.ACCOUNT_INITIAL_BALANCE }}
-      RELAY_SESSION_ISSUER: ${{ vars.RELAY_SESSION_ISSUER }}
-      RELAY_SESSION_AUDIENCE: ${{ vars.RELAY_SESSION_AUDIENCE }}
-      RELAY_CORS_ORIGINS: ${{ vars.RELAY_CORS_ORIGINS }}
-      SESSION_COOKIE_NAME: ${{ vars.SESSION_COOKIE_NAME }}
-      GOOGLE_OIDC_CLIENT_ID: ${{ vars.GOOGLE_OIDC_CLIENT_ID }}
-      SEAMS_OIDC_EXCHANGE_JSON: ${{ vars.SEAMS_OIDC_EXCHANGE_JSON }}
-      EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_MAX: ${{ vars.EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_MAX }}
-      EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_WINDOW_MS: ${{ vars.EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_WINDOW_MS }}
-      EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_MAX: ${{ vars.EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_MAX }}
-      EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS: ${{ vars.EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS }}
       RELAY_SESSION_HMAC_SECRET: ${{ secrets.RELAY_SESSION_HMAC_SECRET }}
       ACCOUNT_ID_DERIVATION_SECRET: ${{ secrets.ACCOUNT_ID_DERIVATION_SECRET }}
       ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: ${{ secrets.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET }}
       ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK: ${{ secrets.ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK }}
       RELAYER_PRIVATE_KEY: ${{ secrets.RELAYER_PRIVATE_KEY }}
       SPONSORED_EVM_EXECUTORS_JSON: ${{ secrets.SPONSORED_EVM_EXECUTORS_JSON }}
+      SIGNING_ROOT_KEK_VALUE: ${{ secrets.SIGNING_ROOT_KEK_VALUE }}
       SIGNING_SESSION_SEAL_KEY_VERSION: ${{ secrets.SIGNING_SESSION_SEAL_KEY_VERSION }}
       SIGNING_SESSION_SHAMIR_P_B64U: ${{ secrets.SIGNING_SESSION_SHAMIR_P_B64U }}
       SIGNING_SESSION_SEAL_E_S_B64U: ${{ secrets.SIGNING_SESSION_SEAL_E_S_B64U }}
@@ -133,11 +102,14 @@ jobs:
             ACCOUNT_ID_DERIVATION_SECRET \
             ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET \
             ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK \
-            RELAYER_PRIVATE_KEY \
-            SPONSORED_EVM_EXECUTORS_JSON
+            SIGNING_ROOT_KEK_VALUE
           do
             test -n "${!name:-}" || { echo "::error title=Missing GitHub Environment secret::$name is required"; exit 1; }
           done
+          test -n "${GATEWAY_DEPLOYMENT_CONFIG_JSON:-}" || {
+            echo "::error title=Missing GitHub Environment variable::GATEWAY_DEPLOYMENT_CONFIG_JSON is required"
+            exit 1
+          }
 
           seal_secret_count=0
           for name in \
@@ -158,7 +130,8 @@ jobs:
         run: |
           node scripts/render-d1-gateway-config.mjs \
             --target "$DEPLOY_TARGET" \
-            --output "$WRANGLER_CONFIG"
+            --output "$WRANGLER_CONFIG" \
+            --deployment-plan-output "$GATEWAY_DEPLOYMENT_PLAN"
 
       - name: Validate Worker bundle
         working-directory: packages/console-server-ts
@@ -167,49 +140,51 @@ jobs:
       - name: Apply remote console D1 migrations
         working-directory: packages/console-server-ts
         run: |
-          pnpm exec wrangler d1 migrations apply "$GATEWAY_CONSOLE_D1_DATABASE_NAME" \
+          pnpm exec wrangler d1 migrations apply CONSOLE_DB \
             --remote \
             --config "$WRANGLER_CONFIG"
 
       - name: Apply remote signer D1 migrations
         working-directory: packages/console-server-ts
         run: |
-          pnpm exec wrangler d1 migrations apply "$GATEWAY_SIGNER_D1_DATABASE_NAME" \
+          pnpm exec wrangler d1 migrations apply SIGNER_DB \
             --remote \
             --config "$WRANGLER_CONFIG"
 
-      - name: Upload required Worker secrets
+      - name: Bootstrap Gateway tenant and publishable key
         working-directory: packages/console-server-ts
         run: |
-          printf '%s' "$RELAY_SESSION_HMAC_SECRET" \
-            | pnpm exec wrangler secret put RELAY_SESSION_HMAC_SECRET --config "$WRANGLER_CONFIG"
-          printf '%s' "$ACCOUNT_ID_DERIVATION_SECRET" \
-            | pnpm exec wrangler secret put ACCOUNT_ID_DERIVATION_SECRET --config "$WRANGLER_CONFIG"
-          printf '%s' "$ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET" \
-            | pnpm exec wrangler secret put ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET --config "$WRANGLER_CONFIG"
-          printf '%s' "$ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK" \
-            | pnpm exec wrangler secret put ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK --config "$WRANGLER_CONFIG"
-          printf '%s' "$RELAYER_PRIVATE_KEY" \
-            | pnpm exec wrangler secret put RELAYER_PRIVATE_KEY --config "$WRANGLER_CONFIG"
-          printf '%s' "$SPONSORED_EVM_EXECUTORS_JSON" \
-            | pnpm exec wrangler secret put SPONSORED_EVM_EXECUTORS_JSON --config "$WRANGLER_CONFIG"
+          node scripts/bootstrap-gateway-deployment.mjs \
+            --plan "$GATEWAY_DEPLOYMENT_PLAN" \
+            --wrangler-config "$WRANGLER_CONFIG"
 
-      - name: Upload signing-session seal secrets
-        if: env.SIGNING_SESSION_SEAL_KEY_VERSION != ''
+      - name: Upsert signing-root KEK in Secrets Store
         working-directory: packages/console-server-ts
         run: |
-          printf '%s' "$SIGNING_SESSION_SEAL_KEY_VERSION" \
-            | pnpm exec wrangler secret put SIGNING_SESSION_SEAL_KEY_VERSION --config "$WRANGLER_CONFIG"
-          printf '%s' "$SIGNING_SESSION_SHAMIR_P_B64U" \
-            | pnpm exec wrangler secret put SIGNING_SESSION_SHAMIR_P_B64U --config "$WRANGLER_CONFIG"
-          printf '%s' "$SIGNING_SESSION_SEAL_E_S_B64U" \
-            | pnpm exec wrangler secret put SIGNING_SESSION_SEAL_E_S_B64U --config "$WRANGLER_CONFIG"
-          printf '%s' "$SIGNING_SESSION_SEAL_D_S_B64U" \
-            | pnpm exec wrangler secret put SIGNING_SESSION_SEAL_D_S_B64U --config "$WRANGLER_CONFIG"
+          node scripts/upsert-signing-root-kek.mjs \
+            --plan "$GATEWAY_DEPLOYMENT_PLAN"
+
+      - name: Build atomic Gateway secrets file
+        working-directory: packages/console-server-ts
+        run: |
+          node scripts/write-gateway-secrets-file.mjs \
+            --output "$GATEWAY_SECRETS_FILE"
 
       - name: Deploy Gateway
         working-directory: packages/console-server-ts
-        run: pnpm exec wrangler deploy --config "$WRANGLER_CONFIG" --message "$DEPLOY_SHA"
+        run: |
+          pnpm exec wrangler deploy \
+            --config "$WRANGLER_CONFIG" \
+            --secrets-file "$GATEWAY_SECRETS_FILE" \
+            --message "$DEPLOY_SHA"
 
       - name: Verify Gateway readiness
-        run: curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 3 "$GATEWAY_ORIGIN/readyz"
+        working-directory: packages/console-server-ts
+        run: |
+          gateway_origin="$(
+            node scripts/read-gateway-deployment-plan.mjs \
+              --plan "$GATEWAY_DEPLOYMENT_PLAN" \
+              --field gateway-origin
+          )"
+          curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 3 \
+            "$gateway_origin/readyz"
