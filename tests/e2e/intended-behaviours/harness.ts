@@ -850,7 +850,7 @@ export class IntendedBehaviourHarness {
     if (snapshot.events.length === 0) {
       throw new Error('Passkey unlock did not emit structured lifecycle events');
     }
-    this.assertRouterAbEd25519YaoRecoveryRoutes(traceStartIndex, 'Passkey unlock');
+    this.assertNoRouterAbEd25519YaoRecoveryRoutes(traceStartIndex, 'Passkey unlock');
     this.currentWarmSigningStage = 'post_unlock';
     this.passkeyPromptCount += 1;
     this.recordService(
@@ -897,7 +897,7 @@ export class IntendedBehaviourHarness {
     }
     const summary = this.assertSigningAuthEvents(snapshot, stage, 'NEAR signing');
     if (stage === 'after_refresh_recovery') {
-      this.assertRouterAbEd25519YaoWarmRecoveryRoutes(traceStartIndex);
+      this.assertNoRouterAbEd25519YaoRecoveryRoutes(traceStartIndex, 'Post-refresh NEAR signing');
     }
     this.assertRouterAbEd25519SigningRoutes(traceStartIndex);
     this.assertNoEd25519YaoRegistrationRoutes(traceStartIndex);
@@ -1500,7 +1500,7 @@ export class IntendedBehaviourHarness {
 
   private assertRouterAbEd25519YaoRecoveryRoutes(
     traceStartIndex: number,
-    flowLabel: 'Passkey unlock' | 'Email OTP cold unlock',
+    flowLabel: 'Email OTP cold unlock',
   ): void {
     const observedPaths = new Set<(typeof ROUTER_AB_ED25519_YAO_RECOVERY_PATHS)[number]>();
     for (const entry of this.trace.slice(traceStartIndex)) {
@@ -1515,26 +1515,21 @@ export class IntendedBehaviourHarness {
     this.recordService(`${flowLabel} traversed all Router A/B Yao recovery routes`);
   }
 
-  private assertRouterAbEd25519YaoWarmRecoveryRoutes(traceStartIndex: number): void {
-    const observedPaths = new Set<
-      (typeof ROUTER_AB_ED25519_YAO_WARM_RECOVERY_PATHS)[number]
-    >();
+  private assertNoRouterAbEd25519YaoRecoveryRoutes(
+    traceStartIndex: number,
+    flowLabel: 'Passkey unlock' | 'Post-refresh NEAR signing',
+  ): void {
+    const observedPaths = new Set<(typeof ROUTER_AB_ED25519_YAO_WARM_RECOVERY_PATHS)[number]>();
     for (const entry of this.trace.slice(traceStartIndex)) {
       const path = routerAbEd25519YaoWarmRecoveryPath(entry.url, this.config.routerUrl);
       if (path) observedPaths.add(path);
     }
-    if (observedPaths.size === 0) {
-      this.recordService('Post-refresh NEAR signing reused the active wallet-worker Yao capability');
-      return;
+    if (observedPaths.size > 0) {
+      throw new Error(
+        `${flowLabel} unexpectedly invoked Yao recovery routes: ${[...observedPaths].join(', ')}`,
+      );
     }
-    for (const expectedPath of ROUTER_AB_ED25519_YAO_WARM_RECOVERY_PATHS) {
-      if (!observedPaths.has(expectedPath)) {
-        throw new Error(`Post-refresh NEAR signing did not traverse ${expectedPath}`);
-      }
-    }
-    this.recordService(
-      'Post-refresh NEAR signing used authenticated warm bootstrap and all Yao recovery routes',
-    );
+    this.recordService(`${flowLabel} rehydrated local Ed25519 material without Yao recovery`);
   }
 
   private assertRouterAbEd25519YaoExportRoutes(traceStartIndex: number): void {
