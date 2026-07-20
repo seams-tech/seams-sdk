@@ -42,7 +42,10 @@ console.log('[d1-local] Building WASM artifacts with pnpm -C packages/sdk-web ru
 
 const result = spawnSync('pnpm', ['-C', 'packages/sdk-web', 'run', 'build:wasm'], {
   cwd: repoRoot,
-  env: process.env,
+  env: {
+    ...process.env,
+    WASM_SDK_BUILD_TARGET: 'gateway',
+  },
   stdio: 'inherit',
 });
 
