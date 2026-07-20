@@ -123,6 +123,8 @@ terminal computation across multiple workers.
       intervals.
 - [ ] Measure phrase substitution, omission, insertion, reordering, and
       ambiguity outcomes.
+- [ ] Measure semantic approve, reject, cancel, repeat, and unrelated-intent
+      outcomes independently from unpredictable challenge-token coverage.
 - [ ] Measure cold and warm p50, p95, and p99 latency for decode, VAD, phrase,
       speaker, PAD, template aggregation, and the complete pipeline.
 - [ ] Record model-load time, peak resident memory, CPU/GPU utilization, queue
@@ -138,10 +140,11 @@ reproducible accuracy, latency, and resource baseline.
 - [ ] Decode and resample each capture exactly once into bounded mono 16 kHz
       PCM inside the verifier boundary.
 - [ ] Reuse the same authoritative PCM, VAD result, and accepted speech windows
-      for phrase, speaker, PAD, and template processing.
-- [ ] Preserve independent typed phrase, speaker, quality, and PAD decisions.
-- [ ] Run phrase, speaker, and PAD inference concurrently after common quality
-      gates accept.
+      for phrase, intent, speaker, PAD, and template processing.
+- [ ] Preserve independent typed phrase, intent, speaker, quality, and PAD
+      decisions.
+- [ ] Run phrase, intent, speaker, and PAD inference concurrently after common
+      quality gates accept.
 - [ ] Replace request-scoped model startup with persistent workers that load
       each model once and report readiness.
 - [ ] Add bounded queues, backpressure, per-stage deadlines, cancellation, and
@@ -153,27 +156,63 @@ reproducible accuracy, latency, and resource baseline.
 Exit gate: one bounded preprocessing pass feeds warm concurrent inference with
 no duplicate decode, resample, VAD, or model initialization.
 
-## Gate E: Speaker And Phrase Model Selection
+## Gate E: Moonshine-First Intent, Phrase, And Speaker Model Selection
 
+- [ ] Run the first phrase-model spike with
+      [Moonshine](https://github.com/moonshine-ai/moonshine) Tiny Streaming and
+      Small Streaming.
+- [ ] Feed Moonshine the verifier-owned canonical mono 16 kHz PCM and accepted
+      speech boundaries. Do not use `MicTranscriber`. Measure unavoidable
+      duplicate VAD or resampling inside the Moonshine runtime as an integration
+      cost.
+- [ ] Evaluate Moonshine `IntentRecognizer` as a separate semantic-intent
+      scorer over a closed set containing approve, reject, cancel, repeat, and
+      unrelated outcomes.
+- [ ] Compare exact normalized phrase matching with a hybrid policy that
+      requires unpredictable challenge-token coverage in any order and accepts
+      natural-language variations of the requested intent.
+- [ ] Keep speaker identity, semantic intent, challenge freshness, phrase
+      evidence, quality, and PAD as independent typed results. Do not use
+      diarization speaker ids as enrolled-speaker identity.
+- [ ] Calibrate the intent threshold and the score margin between the winning
+      intent and conflicting intents. Return `uncertain` for ambiguous,
+      out-of-set, or low-margin utterances.
+- [ ] Determine whether the lower-level runtime exposes token probabilities,
+      decoder logits, or alignment scores suitable for a calibrated uncertainty
+      result. Record unavailable evidence explicitly.
+- [ ] Compare Moonshine with the current Cloudflare Whisper baseline on phrase
+      substitutions, omissions, insertions, reordering, extra speech, accents,
+      noise, and truncated captures.
+- [ ] Compare task completion time, retry rate, user corrections, semantic
+      intent accuracy, challenge-token error, and combined unauthorized
+      acceptance for exact and hybrid policies.
+- [ ] Measure model download size, cold initialization, warm p50/p95/p99
+      end-of-utterance latency, complete capture latency, peak memory, and CPU
+      use on Linux x86, robot-class CPU, and iOS/Core ML.
+- [ ] Pin the Moonshine release, model hashes, architecture, quantization, ONNX
+      Runtime providers, preprocessing, and transcript normalization in the
+      experiment manifest.
+- [ ] Restrict the first product-shaped spike to MIT-licensed English models.
+      Keep non-English models in research until their commercial license is
+      approved.
+- [ ] Promote Moonshine only if it meets the frozen phrase accuracy, latency,
+      resource, reproducibility, and licensing budgets.
+- [ ] Evaluate Parakeet, Nemotron Speech, and a constrained CTC or phoneme
+      scorer only after the Moonshine decision, or when Moonshine misses a
+      frozen gate.
 - [ ] Evaluate the current ECAPA model, NVIDIA TitaNet, and one compact x-vector
-      baseline on the frozen corpus.
-- [ ] Compare accuracy, cross-session drift, cross-device stability, warm
-      latency, memory, and quantization loss.
-- [ ] Evaluate current Whisper phrase matching against Parakeet or Nemotron
-      Speech and a constrained expected-phrase scorer.
-- [ ] Include CTC forced alignment or phoneme-level scoring in the constrained
-      phrase experiment.
-- [ ] Require phrase scoring to detect substitutions, omissions, insertions,
-      reordering, and extra speech.
-- [ ] Select the smallest model that meets each approved platform profile's
-      frozen accuracy and latency budgets.
-- [ ] Version model weights, preprocessing, adapter, threshold, phrase grammar,
-      and calibration as one immutable manifest.
+      speaker baseline on the frozen corpus.
+- [ ] Compare speaker accuracy, cross-session drift, cross-device stability,
+      warm latency, memory, and quantization loss.
+- [ ] Select the smallest intent, phrase, and speaker models that meet each
+      approved platform profile's frozen budgets.
+- [ ] Version model weights, preprocessing, adapters, intent and phrase
+      thresholds, challenge grammar, and calibration as one immutable manifest.
 - [ ] Return `uncertain` for unsupported capture profiles and scores outside the
       calibrated region.
 
-Exit gate: selected speaker and phrase models beat the baseline within frozen
-accuracy and runtime budgets on held-out subjects.
+Exit gate: selected intent, phrase, and speaker models beat the baseline within
+frozen accuracy and runtime budgets on held-out subjects.
 
 ## Gate F: Presentation-Attack Detection
 
