@@ -76,7 +76,8 @@ mod platform {
 
     fn list_extended_attributes(descriptor: BorrowedFd<'_>) -> io::Result<Vec<u8>> {
         for _ in 0..XATTR_READ_ATTEMPTS {
-            let required = rustix::fs::flistxattr(descriptor, &mut [])?;
+            let mut empty = [0_u8; 0];
+            let required = rustix::fs::flistxattr(descriptor, &mut empty)?;
             if required > MAX_XATTR_LIST_BYTES {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
