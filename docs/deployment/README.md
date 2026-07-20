@@ -20,16 +20,16 @@ variables and checked-in Cloudflare config.
 
 ## Workflows
 
-| Workflow                                 | Trigger                                                     | Purpose                                                                                                                                              |
-| ---------------------------------------- | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `.github/workflows/ci.yml`               | `push`, `pull_request`, `merge_group`                       | Builds, lints, type-checks, runs formal verification, D1/DO smoke tests, and threshold signing suites.                                               |
-| `.github/workflows/router-ab.yml`        | Router A/B path changes, or manual dispatch                 | Runs Router A/B core/dev/Cloudflare tests, strict Worker checks, local four-worker smoke, and Wrangler startup dry-run evidence.                     |
-| `.github/workflows/publish-sdk-r2.yml`   | Successful `ci` workflow on deploy refs, or manual dispatch | Builds `packages/sdk-web/dist`, writes `manifest.sha256` and `manifest.json`, signs the manifest with cosign, and publishes SDK runtime bundles to Cloudflare R2. |
-| `.github/workflows/deploy-staging.yml`   | Successful `ci` push on `dev`                               | Clearly labelled staging entrypoint. Deploys only staging resources. |
-| `.github/workflows/deploy-production.yml` | Successful `ci` push on `main`                             | Clearly labelled production entrypoint. Deploys only production resources. |
-| `.github/workflows/deploy-router-ab.yml` | Called by a labelled release, or manual dispatch             | Shared ordered implementation: Router A/B Workers, Gateway/D1, then Pages. Manual dispatch can still target an individual Router A/B role. |
-| `.github/workflows/deploy-gateway.yml` | Called by the release chain, or manual dispatch             | Generates an environment-specific Wrangler config, applies that environment's two D1 migrations, deploys Gateway and its Durable Objects, then checks readiness. |
-| `.github/workflows/deploy-pages.yml`     | Called by the release chain, or manual dispatch              | Builds the exact release SHA and deploys `seams.sh` plus `wallet.seams.sh` with environment-specific frontend values. |
+| Workflow                                  | Trigger                                                     | Purpose                                                                                                                                                           |
+| ----------------------------------------- | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.github/workflows/ci.yml`                | `push`, `pull_request`, `merge_group`                       | Builds, lints, type-checks, runs formal verification, D1/DO smoke tests, and threshold signing suites.                                                            |
+| `.github/workflows/router-ab.yml`         | Router A/B path changes, or manual dispatch                 | Runs Router A/B core/dev/Cloudflare tests, strict Worker checks, local four-worker smoke, and Wrangler startup dry-run evidence.                                  |
+| `.github/workflows/publish-sdk-r2.yml`    | Successful `ci` workflow on deploy refs, or manual dispatch | Builds `packages/sdk-web/dist`, writes `manifest.sha256` and `manifest.json`, signs the manifest with cosign, and publishes SDK runtime bundles to Cloudflare R2. |
+| `.github/workflows/deploy-staging.yml`    | Successful `ci` push on `dev`                               | Clearly labelled staging entrypoint. Deploys only staging resources.                                                                                              |
+| `.github/workflows/deploy-production.yml` | Successful `ci` push on `main`                              | Clearly labelled production entrypoint. Deploys only production resources.                                                                                        |
+| `.github/workflows/deploy-router-ab.yml`  | Called by a labelled release, or manual dispatch            | Shared ordered implementation: Router A/B Workers, Gateway/D1, then Pages. Manual dispatch can still target an individual Router A/B role.                        |
+| `.github/workflows/deploy-gateway.yml`    | Called by the release chain, or manual dispatch             | Generates an environment-specific Wrangler config, applies that environment's two D1 migrations, deploys Gateway and its Durable Objects, then checks readiness.  |
+| `.github/workflows/deploy-pages.yml`      | Called by the release chain, or manual dispatch             | Builds the exact release SHA and deploys `seams.sh` plus `wallet.seams.sh` with environment-specific frontend values.                                             |
 
 Removed testnet-only workflows are replaced by the staging target in the
 workflows above. Move any required GitHub Environment secrets and vars from an
@@ -37,23 +37,23 @@ old `testnet` environment into `staging`.
 
 ## First Deploy Checklist
 
-1. Create the general `staging` and `production` GitHub Environments, the
-   `staging-gateway` and `production-gateway` environments, and all eight
-   split Router A/B role environments.
-2. Add Cloudflare, R2, Pages, Router A/B, and Vite environment values from
-   [infra.md](infra.md).
-3. Generate staging Router A/B deployment identity keys with
-   `pnpm router:deploy:keygen -- --env staging --apply`.
-4. Store `DERIVER_A_ROOT_SHARE_WIRE_SECRET` and
-   `DERIVER_B_ROOT_SHARE_WIRE_SECRET` from
-   `pnpm router:deploy:root-share-keygen` in the matching GitHub Environment.
-5. Provision D1 signer and console databases, Durable Object namespaces, R2
-   backups, and migrations from [infra.md](infra.md#cloudflare-data).
-6. Provision the staging and production Gateway Workers, their distinct
-   `CONSOLE_DB` and `SIGNER_DB` databases, and their Secrets Store entries.
-7. Push `dev` for staging or `main` for production. Successful CI starts the
-   explicitly labelled `deploy-staging` or `deploy-production` workflow.
-8. Let `publish-sdk-r2` publish the same successful CI revision independently.
+1. Create one protected deployment-values file per target from
+   `crates/router-ab-cloudflare/env/deployment-values.example.env`.
+2. Add the scoped Cloudflare API token. Add funded relayer, OAuth, EVM sponsor,
+   or R2 credentials only for features that target will use.
+3. Run `pnpm router:deploy:env-keygen -- --env staging --values-file
+"$HOME/.seams/staging-deployment.env" --apply`, then repeat with an
+   independent production values file. Store each command's stdout backup
+   securely. See [tooling.md](tooling.md#github-environment-bootstrap).
+4. Use `pnpm router:deploy:env-apply -- --env staging --apply` for later
+   operator-owned configuration changes. This preserves generated identities.
+5. Push `dev` for staging or `main` for production. Successful CI applies D1
+   migrations, bootstraps the generated tenant and publishable key, provisions
+   the signing-root secret, and deploys the target Workers and Pages projects.
+6. Configure R2 credentials when SDK bundle publication is required. The R2
+   workflow exits successfully without publishing when they are absent.
+7. Verify D1 backups and restore procedures from
+   [infra.md](infra.md#cloudflare-data).
 
 ## Normal Promotion
 
@@ -73,7 +73,7 @@ Manual deploys:
 
 ```bash
 gh workflow run deploy-pages.yml --ref dev -f target=all -f deploy_environment=staging
-pnpm router:deploy:keygen -- --env staging --apply
+pnpm router:deploy:env-keygen -- --env staging
 gh workflow run deploy-router-ab.yml --ref dev -f target=staging -f operation=upload-version -f role=all
 gh workflow run deploy-router-ab.yml --ref dev -f target=staging -f operation=deploy -f role=all
 gh workflow run publish-sdk-r2.yml --ref dev -f prefix=auto
@@ -99,6 +99,8 @@ An older CI run is rejected after a newer commit becomes the branch tip.
 
 - [infra.md](infra.md): GitHub Environment values, Cloudflare setup, D1/DO/R2
   data services, Worker secrets, and migration commands.
+- [tooling.md](tooling.md): deployment script commands, GitHub Environment
+  bootstrap/apply mode, release validation, and staging operations.
 - [sdk.md](sdk.md): SDK runtime bundle publishing, Pages `/sdk` assets, R2
   prefixes, npm release steps, and rollback.
 - [release.md](release.md): versioned release process.
