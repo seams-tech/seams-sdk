@@ -1809,17 +1809,27 @@ body:has(.h2-page) {
 }
 
 .h2-hero__demo {
+  /* Fixed height so swapping the NEAR/Tempo/Arc tab (or unlocking into the tx
+     card) never resizes this cell and shifts the pager + sections below. The
+     card is vertically centered, so a shorter tab just gains a little breathing
+     room instead of moving the page. Sized to the tallest steady state; single
+     knob below to retune. */
+  --h2-demo-fixed-height: 744px;
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  /* without this the cell's min-content widens the stacked 1fr column on mobile */
+  /* min-width:0 stops min-content widening the 1fr column; min-height:0 is the
+     load-bearing one — without it a grid item defaults to min-height:auto,
+     which resolves to content size and lets a tall tab (Arc) override the fixed
+     height and grow the row. min-height:0 makes the height a hard cap. */
   min-width: 0;
+  min-height: 0;
   padding: 50px 36px 36px;
   border-left: 1px solid var(--h2-stone);
   background-color: color-mix(in srgb, var(--h2-taupe) 55%, var(--h2-bg) 45%);
-  min-height: 544px;
+  height: var(--h2-demo-fixed-height);
 }
 
 .h2-hero__demo .h2-themeswitch {
@@ -2024,6 +2034,8 @@ body:has(.h2-page) {
   .h2-hero__demo {
     border-left: none;
     border-top: 1px solid var(--h2-stone);
+    /* stacked layout: let the cell size to content again */
+    height: auto;
     min-height: 0;
     padding: 44px 22px 50px;
   }
