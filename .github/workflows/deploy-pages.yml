@@ -173,7 +173,7 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${CF_PAGES_PROJECT:-}" || (echo "CF_PAGES_PROJECT_VITE is not set" >&2; exit 1)
-          pnpm -C crates/router-ab-cloudflare exec wrangler pages deploy apps/seams-site/dist \
+          pnpm -C crates/router-ab-cloudflare exec wrangler pages deploy ../../apps/seams-site/dist \
             --project-name "$CF_PAGES_PROJECT" \
             --branch "$PAGES_BRANCH"
 
@@ -184,6 +184,6 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${CF_PAGES_PROJECT:-}" || (echo "CF_PAGES_PROJECT_WALLET is not set" >&2; exit 1)
-          pnpm -C crates/router-ab-cloudflare exec wrangler pages deploy apps/seams-site/dist \
+          pnpm -C crates/router-ab-cloudflare exec wrangler pages deploy ../../apps/seams-site/dist \
             --project-name "$CF_PAGES_PROJECT" \
             --branch "$PAGES_BRANCH"
