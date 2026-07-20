@@ -21,6 +21,11 @@ function main() {
       wranglerConfig: options.wranglerConfig,
       sqlPath,
     });
+    verifyRemoteD1({
+      databaseName: plan.consoleD1.name,
+      wranglerConfig: options.wranglerConfig,
+      query: buildVerificationQuery(plan),
+    });
   } finally {
     fs.rmSync(temporaryDirectory, { recursive: true, force: true });
   }
@@ -111,7 +116,6 @@ function buildBootstrapSql(plan) {
       secretPreview,
       nowMs,
     }),
-    verificationSql(bootstrap, apiKeyId, secretHash, allowedOriginsJson),
     '',
   ].join('\n');
 }
@@ -157,32 +161,27 @@ VALUES
 ON CONFLICT DO NOTHING;`;
 }
 
-function verificationSql(bootstrap, apiKeyId, secretHash, allowedOriginsJson) {
-  return `CREATE TEMP TABLE deployment_bootstrap_assert (
-  value INTEGER NOT NULL CHECK (value = 1)
-);
-INSERT INTO deployment_bootstrap_assert VALUES (
+function buildVerificationQuery(plan) {
+  const bootstrap = plan.d1Bootstrap;
+  const apiKeyId = deterministicApiKeyId(bootstrap);
+  const secretHash = sha256ApiKeySecret(bootstrap.publishableKey);
+  const allowedOriginsJson = JSON.stringify(bootstrap.allowedOrigins);
+  return `SELECT
   (SELECT COUNT(*) FROM organizations
    WHERE namespace = ${sqlText(bootstrap.namespace)}
      AND id = ${sqlText(bootstrap.orgId)}
-     AND status = 'ACTIVE')
-);
-INSERT INTO deployment_bootstrap_assert VALUES (
+     AND status = 'ACTIVE') AS organization_count,
   (SELECT COUNT(*) FROM projects
    WHERE namespace = ${sqlText(bootstrap.namespace)}
      AND id = ${sqlText(bootstrap.projectId)}
      AND org_id = ${sqlText(bootstrap.orgId)}
-     AND status = 'ACTIVE')
-);
-INSERT INTO deployment_bootstrap_assert VALUES (
+     AND status = 'ACTIVE') AS project_count,
   (SELECT COUNT(*) FROM environments
    WHERE namespace = ${sqlText(bootstrap.namespace)}
      AND id = ${sqlText(bootstrap.environmentId)}
      AND project_id = ${sqlText(bootstrap.projectId)}
      AND env_key = ${sqlText(bootstrap.environmentKey)}
-     AND status = 'ACTIVE')
-);
-INSERT INTO deployment_bootstrap_assert VALUES (
+     AND status = 'ACTIVE') AS environment_count,
   (SELECT COUNT(*) FROM api_keys
    WHERE namespace = ${sqlText(bootstrap.namespace)}
      AND org_id = ${sqlText(bootstrap.orgId)}
@@ -191,9 +190,7 @@ INSERT INTO deployment_bootstrap_assert VALUES (
      AND kind = 'publishable_key'
      AND status = 'ACTIVE'
      AND secret_hash = ${sqlText(secretHash)}
-     AND allowed_origins_json = ${sqlText(allowedOriginsJson)})
-);
-DROP TABLE deployment_bootstrap_assert;`;
+     AND allowed_origins_json = ${sqlText(allowedOriginsJson)}) AS publishable_key_count;`;
 }
 
 function executeRemoteD1(input) {
@@ -223,6 +220,75 @@ function executeRemoteD1(input) {
   if (child.status !== 0) {
     throw new Error(`wrangler d1 execute failed with status ${child.status}`);
   }
+}
+
+function verifyRemoteD1(input) {
+  const child = spawnSync(
+    'pnpm',
+    [
+      'exec',
+      'wrangler',
+      'd1',
+      'execute',
+      input.databaseName,
+      '--remote',
+      '--yes',
+      '--json',
+      '--command',
+      input.query,
+      '--config',
+      input.wranglerConfig,
+    ],
+    {
+      cwd: process.cwd(),
+      env: process.env,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'inherit'],
+    },
+  );
+  if (child.error) throw child.error;
+  if (child.status !== 0) {
+    throw new Error(`wrangler D1 bootstrap verification failed with status ${child.status}`);
+  }
+  const row = parseVerificationRow(child.stdout);
+  for (const field of [
+    'organization_count',
+    'project_count',
+    'environment_count',
+    'publishable_key_count',
+  ]) {
+    if (row[field] !== 1) {
+      throw new Error(`Gateway D1 bootstrap verification failed: ${field}=${String(row[field])}`);
+    }
+  }
+}
+
+function parseVerificationRow(source) {
+  let output;
+  try {
+    output = JSON.parse(source);
+  } catch (error) {
+    throw new Error(
+      `Failed to parse Wrangler D1 bootstrap verification JSON: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+  if (!Array.isArray(output) || output.length !== 1) {
+    throw new Error('Wrangler D1 bootstrap verification must return one result batch');
+  }
+  const batch = output[0];
+  if (!batch || typeof batch !== 'object' || batch.success !== true) {
+    throw new Error('Wrangler D1 bootstrap verification batch was not successful');
+  }
+  if (!Array.isArray(batch.results) || batch.results.length !== 1) {
+    throw new Error('Wrangler D1 bootstrap verification must return one row');
+  }
+  const row = batch.results[0];
+  if (!row || typeof row !== 'object' || Array.isArray(row)) {
+    throw new Error('Wrangler D1 bootstrap verification row must be an object');
+  }
+  return row;
 }
 
 function deterministicApiKeyId(bootstrap) {
