@@ -98,6 +98,29 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
 
+      - name: Install prebuilt WASM tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -sSf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
+          version="$(
+            awk '
+              $0 == "name = \"wasm-bindgen\"" { found = 1; next }
+              found && $1 == "version" {
+                gsub(/"/, "", $3)
+                print $3
+                exit
+              }
+            ' wasm/near_signer/Cargo.lock
+          )"
+          archive="wasm-bindgen-${version}-x86_64-unknown-linux-musl"
+          curl -fsSL \
+            "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/${version}/${archive}.tar.gz" \
+            | tar -xz
+          install -m 0755 "${archive}/wasm-bindgen" "$HOME/.cargo/bin/wasm-bindgen"
+          install -m 0755 "${archive}/wasm-bindgen-test-runner" "$HOME/.cargo/bin/wasm-bindgen-test-runner"
+          install -m 0755 "${archive}/wasm2es6js" "$HOME/.cargo/bin/wasm2es6js"
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
