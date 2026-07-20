@@ -28,9 +28,14 @@ Ed25519 signing budget is refreshed by fresh passkey authorization while the
 active Client, threshold session, signing grant, and public key remain fixed.
 Public passkey `syncAccount` recovery now performs the same-root Yao ceremony,
 checks exact credential and lifecycle continuity, commits the replacement
-Client only after server promotion, and disposes failed candidates. Browser
-persistence retains only the public capability identity; page lifecycle and
-explicit lock destroy the live Rust/WASM Client owner.
+Client only after server promotion, and disposes failed candidates. As of the
+July 20 wallet lifecycle checkpoint, browser persistence also retains an
+authenticated, encrypted activated-Client envelope in `seams_wallet`. Page
+lifecycle and explicit lock destroy the live Rust/WASM Client owner; routine
+unlock, page-refresh restoration, signing, and budget refresh import the exact
+local envelope with zero Deriver A/B calls. Device linking and explicit
+same-root recovery use the root-recovery lifecycle. Export uses its separate
+one-use material-acquisition lifecycle.
 Phase 9F is complete. The public Ed25519 export lifecycle and the actual React
 demo's NEAR identity/readiness projection pass through the managed local
 product gate. Cloudflare deployment remains deferred.
@@ -4416,9 +4421,15 @@ unavailable result and obsolete tests in the same change.
       local persistence boundary needed for page lifecycle and explicit lock.
       Persist no raw Client scalar in JavaScript, JSON, IndexedDB records, route
       bodies, logs, or diagnostics.
-  - [x] IndexedDB retains only the exact public capability projection. The live
-        Client remains owned by the Rust/WASM registry, `pagehide` disposes it,
-        and explicit lock also deletes its public reference.
+  - [x] IndexedDB retains the exact public capability projection plus an
+        authenticated ChaCha20-Poly1305 envelope containing the exported
+        activated-Client state and its exact public lifecycle binding. The live
+        Client remains owned by the Rust/WASM registry, and `pagehide` disposes
+        that volatile owner.
+  - [x] Routine wallet unlock, page-refresh restoration, signing, and budget
+        refresh import the locally sealed activated Client and make zero
+        Deriver A/B calls. Envelope authentication and public-identity
+        substitution failures fail closed.
 
 - [x] Reuse the registration transport and lifecycle types for passkey
       same-root recovery. Suspend the previous capability, activate the

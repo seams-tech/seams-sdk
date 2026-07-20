@@ -17,18 +17,25 @@ capability-local readiness, shared wallet signing quota, complete NEAR operation
 family, refresh-safe server-verified export context, exact Yao lifecycle
 continuity, worker-private rehydration/reseal lifecycle, fixed effect order, and
 responsibility-local worker/package boundaries.
-Lifecycle convergence review: July 16, 2026 — post-registration, post-wallet-
-unlock, and post-page-refresh capability material access were unified behind one
-protocol-neutral hydration plan. Active runtime use, active-session sealed
+Lifecycle convergence review: July 16, 2026 — the review specified one target
+hydration decision contract for post-registration, post-wallet-unlock, and
+post-page-refresh capability material access. Active runtime use, active-session sealed
 rehydration, and expired/exhausted public-reauth reprovisioning are distinct
 closed branches shared by signing, step-up, and export.
 ECDSA state convergence review: July 18, 2026 — replacement of the broad
 `ThresholdEcdsaSessionRecordCore` aggregate, one durable ECDSA capability
 manifest, one local commit protocol, and one exact transition path were added as
 a Refactor 90 pre-phase.
+Stable wallet lifecycle checkpoint reconciliation: July 20, 2026 — checkpoint
+`f978ae98b` landed the production-shaped local topology, encrypted ECDSA
+role-local material persistence and shared tactical resolution, repaired Email
+OTP lifecycle continuity, and authenticated local rehydration of the activated
+Passkey Ed25519 Yao Client. These are implementation groundwork for Foundations
+A and B. The canonical hydration decision contract, ECDSA manifest, activation
+journal, required-field record replacement, and full flow cutover remain open.
 
 Status: Phases 1, 2, and 3 are complete. The lifecycle pre-phase is in progress,
-and the ECDSA state/persistence pre-phase is planning. Both gate Phase 4 and
+and the ECDSA state/persistence pre-phase is in progress. Both gate Phase 4 and
 Phase 5 closure plus Phases 19 and 23. Phases 4 and 5 are in progress. Phase 6
 onward is planning.
 
@@ -285,12 +292,15 @@ here.
     Yao active Client and EVM-family ECDSA material.
 21. **Ed25519 durability, recoverability, and runtime readiness are separate.**
     The browser persists a minimal public `NearEd25519YaoCapabilityLocator` and
-    may persist a capability-local sealed root-material recovery record owned by
-    the Near material adapter. It also persists a non-secret capability-local
+    an authenticated capability-local sealed activated-Client envelope for
+    routine local rehydration. It may also persist a separate sealed
+    root-material recovery record owned by the Near material adapter. It persists
+    a non-secret capability-local
     recovery commit journal while promotion, local activation, or required reseal
     finalization is incomplete; lock/logout uses a separate non-secret revocation
-    outbox. A valid exact locator plus matching sealed record
-    yields sealed recovery availability. Normal signing requires both an exact
+    outbox. A valid active-Client envelope yields
+    `rehydrate_active_session`; a matching root-recovery record yields same-root
+    recovery availability. Normal signing requires both an exact
     active Rust/WASM `NearEd25519YaoRuntimeHandle` and a branded
     `committed_ready` publication/durability proof; an active handle with pending
     activation or durability finalization cannot sign. Export requires a correlated one-use export
@@ -303,7 +313,8 @@ here.
     `owned -> consumed` lifecycle. Same-root recovery stages a candidate, promotes
     it only after server continuity succeeds, and disposes every failed or
     replaced candidate. Page lifecycle, explicit lock, and logout destroy the live
-    runtime. ECDSA sealed material remains an independent capability-local
+    runtime while the eligible sealed active-Client envelope remains durable.
+    ECDSA sealed material remains an independent capability-local
     lifecycle.
 22. **Session identity and capability readiness are independent.** A restored
     `SeamsSession` and public wallet identity do not imply a ready signing
@@ -427,8 +438,9 @@ here.
   state. Model quota coverage as a nonempty collection of exact discriminated
   curve bindings.
 - Use Router A/B ECDSA threshold-PRF derivation terminology in target
-  architecture. Retain HSS names only in current-state inventories and explicit
-  deleted-name guards until YAOS Phase 14B removes them.
+  architecture. YAOS Phase 14B completed the destructive rename; active plan
+  tasks and implementation paths use derivation terminology. Retain HSS names
+  only in historical context and explicit deleted-name guards.
 - Treat browser `walletRuntime`, `authMethods`, and `capabilities` as SDK module
   selection only. Server tenant runtime config is authoritative for enabled auth
   methods, capabilities, and policies.
@@ -514,8 +526,8 @@ these internal module boundaries are stable.
 
 | Phase | Contents | Status |
 | -------------- | --------------------------------------------------- | ----------- |
-| Foundation A | Canonical MPC capability hydration lifecycle       | In progress |
-| Foundation B | Canonical ECDSA capability state and persistence   | Planning    |
+| Foundation A | Canonical MPC hydration decision contract          | In progress |
+| Foundation B | Canonical ECDSA capability state and persistence   | In progress |
 | Phase 1 | Signer-set registration cut | Complete |
 | Phase 2 | Wallet-rooted confirmation subjects | Complete |
 | Phase 3 | AuthService mechanical module split | Complete |
@@ -592,22 +604,27 @@ documents:
 These phases fix the current wallet-first stack. They are prerequisites or
 parallel work, not part of the vertical slices.
 
-## Foundation A: Canonical MPC Capability Hydration
+## Foundation A: Canonical MPC Hydration Decision Contract
 
-Status: in progress. The slim protocol-neutral leaf model, branch builders, and
-type fixtures are implemented. Protocol adapters, canonical inventory
-publication, and flow migration remain. This bounded type-and-contract phase
-gates Phase 4 closure and Phases 19 and 23; it does not move protocol
-implementations.
+Status: in progress. The four-branch SPEC vocabulary is frozen. The shared leaf
+contract, narrow proof constructors, and compile-time rejection fixtures are
+absent at the July 20 checkpoint and must be implemented against canonical
+protocol observations. The earlier adapter over
+`ThresholdEcdsaSessionRecordCore` was deleted because it inferred lifecycle and
+authority from optional legacy fields. The checkpoint's tactical ECDSA material
+resolver and Ed25519 local active-Client rehydration provide protocol evidence;
+canonical inventory publication and flow migration remain. This bounded
+type-and-contract foundation gates Phase 4 closure and Phases 19 and 23.
 
 Goal: make post-registration, post-wallet-unlock, and post-page-refresh callers
 resolve the same MPC capability-material lifecycle. Entry-point provenance remains
 observable for tests and diagnostics but cannot select authorization, material,
 or recovery behavior.
 
-Add the following SPEC-owned protocol-neutral shape in a leaf capability
-lifecycle module. Tactical Ed25519 and ECDSA types adapt into it until Phase 19
-deletes them.
+Add the following SPEC-owned decision shape in a leaf capability lifecycle
+module after each protocol exposes a precise observation union. Tactical
+Ed25519 and ECDSA adapters consume those observations until Phase 19 deletes
+the tactical orchestration.
 
 ```ts
 type MpcCapabilityHydrationEntryPoint =
@@ -689,10 +706,10 @@ authorization and material executors receive only `resolution.plan`.
 
 Do:
 
-- Keep the shared module limited to the closed union, branch builders, and
-  precise branded references. Each persistence/runtime adapter parses its real
-  external record once and constructs a branch from normalized facts. Do not
-  create a second versioned observation wire format in the shared core.
+- Keep the shared module limited to the closed union, narrow proof constructors,
+  and precise branded references. Each persistence/runtime adapter parses its
+  real external record once and constructs a branch from normalized facts.
+  Avoid a second versioned observation wire format in the shared core.
 - Define `MpcCapabilityPublicReauthAnchor` as public, exact-authority-bound data. It
   contains the stable capability, material-owner, key/lifecycle, policy, and
   registered-public-key facts needed for fresh authorization. Secret material,
@@ -700,8 +717,14 @@ Do:
   material-session IDs, operation grants, quota state, and nonce state are
   impossible fields.
 - Require `rehydrate_active_session` to prove an unexpired and unexhausted exact
-  material session plus one exact restorable sealed-material reference. The
-  branch performs no fresh factor interaction before policy requests it.
+  material session plus one exact durable active-session material reference.
+  For ECDSA this is encrypted role-local material. For Near Ed25519 this is the
+  authenticated sealed activated-Client envelope in `seams_wallet`. Root
+  recovery material has a distinct type and lifecycle. Decision construction is
+  data-only and requires proof that the exact material-unlock source is already
+  available. If it is unavailable, the protocol adapter returns an explicit
+  typed material-unlock requirement and cannot construct this branch. Execution
+  consumes that source during local import.
 - Require `reauthorize_public_anchor` to prove `expired | exhausted` and one
   exact public anchor. The resulting effect may provision a normal multi-use
   wallet-unlock session or an operation-scoped one-use session. Key export can
@@ -716,6 +739,12 @@ Do:
 - Make registration and unlock publish the same canonical capability inventory
   that refresh reads. Remove entry-point-only shadow state and avoid separate
   post-registration or post-unlock shortcut resolvers.
+- Preserve the checkpoint's routine Passkey Ed25519 rule: wallet unlock, page
+  refresh, signing, and budget refresh import the exact locally sealed activated
+  Client and make zero Deriver A/B calls. Phase 19 generalizes the adapter
+  without assuming that every auth factor already persists this envelope.
+  Device linking and explicit same-root recovery retain the root-recovery
+  lifecycle; export retains its separate one-use material-acquisition ceremony.
 - Require exact canonical re-resolution after rehydration, reauthorization,
   runtime publication, or session replacement. Stable authority/material-owner/
   signer/lifecycle facts must match; current rotating session transport,
@@ -740,16 +769,16 @@ Entry-point contract:
 | Entry point        | Successful immediate state                                                                                                                           | Cold/retired alternatives                                                                                                                                         |
 | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Post-registration  | Every successfully provisioned capability resolves to `use_live_runtime`, and its canonical durable inventory is readable.                           | Failed or rolled-back provisioning is `blocked`; no partial capability masquerades as ready.                                                                      |
-| Post-wallet-unlock | Every successfully requested and warmed capability resolves to `use_live_runtime`. Unrequested capabilities keep their independently resolved state. | Capability-local failure leaves session/public wallet identity active and returns the exact non-ready branch.                                                     |
+| Post-wallet-unlock | A locally durable active session may first resolve to `rehydrate_active_session`; after its effect and exact re-resolution it resolves to `use_live_runtime`. Unrequested capabilities keep their independently resolved state. | Capability-local failure leaves session/public wallet identity active and returns the exact non-ready branch.                                                     |
 | Post-page-refresh  | Volatile runtime handles are absent. A current exact material session with a valid seal resolves to `rehydrate_active_session`.                      | Expired/exhausted material authority resolves to `reauthorize_public_anchor`; missing, corrupt, conflicting, revoked, or unavailable state resolves to `blocked`. |
 
 Check:
 
-- [x] The leaf lifecycle module owns the final union and this plan states that entry-point
+- [ ] The leaf lifecycle module owns the final union and this plan states that entry-point
       provenance cannot influence branch selection.
-- [x] Branch builders reject direct literals, broad spreads, optional identity
+- [ ] Narrow proof constructors reject direct literals, broad spreads, optional identity
       bags, raw strings, and mixed live/sealed/public-anchor fields.
-- [x] `@ts-expect-error` fixtures reject expired/exhausted state without a public
+- [ ] `@ts-expect-error` fixtures reject expired/exhausted state without a public
       anchor, an active session with a public anchor, a sealed branch without an
       exact active material session, and a live branch without capability-local
       runtime readiness proof.
@@ -763,15 +792,26 @@ Check:
 - [ ] Post-registration -> refresh and post-unlock -> refresh transition tests
       prove that only volatile runtime state disappears and that exact durable
       authority/material continuity is preserved.
+- [ ] Near Ed25519 routine unlock, page-refresh restoration, signing, and budget
+      refresh rehydrate the sealed activated Client locally and make zero
+      Deriver A/B calls.
 - [ ] Public-anchor key export provisions one exact one-use export session after
       fresh authorization and requires no preceding transaction or full wallet
       unlock.
 
 ## Foundation B: Canonical ECDSA Capability State And Persistence
 
-Status: planning. This pre-phase folds the
+Status: in progress. This foundation folds the
 `ThresholdEcdsaSessionRecordCore` replacement into Refactor 90. It must land
 before Phase 4 or Phase 5 closes and before Phases 19 or 23 begin.
+
+Checkpoint groundwork already landed: encrypted ECDSA role-local material and
+presign records share `seams_wallet`; worker memory retains opaque runtime
+handles; registration and Email OTP paths preserve durable material identity;
+and the tactical role-local resolver is shared by registration, unlock, and
+refresh-sensitive flows. The canonical active capability manifest, activation
+journal, atomic manifest-plus-material commit, required-field core replacement,
+and deletion of source-priority selection remain.
 
 Prerequisites: Foundation A owns the shared hydration result. This foundation
 may proceed while Phase 5 finalizes `EcdsaRoleLocalMaterialBinding`, then both
@@ -844,11 +884,11 @@ Persistence ownership:
 | ECDSA derivation worker memory | live role-local material and exact runtime-validation proof | durable authority, persisted capability selection, recovery policy |
 | Browser runtime registries | derived hot observations and in-flight coordination keyed by exact material owner | canonical persistence, newest-record selection, durable fallback authority |
 
-Consolidate the current ECDSA role-local material database and active-capability
-metadata under one capability persistence adapter. The encrypted material row and
-the active manifest row commit in one IndexedDB transaction. The worker retains
-exclusive plaintext ownership; the manifest contains only the encrypted
-material reference and authenticated digests.
+Extend the current `seams_wallet` ECDSA material adapter into one capability
+persistence adapter. The encrypted material row and active manifest row commit
+in one IndexedDB transaction. The worker retains exclusive plaintext ownership;
+the manifest contains only the encrypted material reference and authenticated
+digests.
 
 Cross-boundary activation commit:
 
@@ -935,6 +975,11 @@ Check:
 
 - [x] The companion SPEC owns every canonical ECDSA aggregate, journal branch,
       persistence lookup result, and transition named above.
+- [x] Encrypted ECDSA role-local material and presign records use the
+      `seams_wallet` database, while live cryptographic state remains
+      worker-local.
+- [x] Registration and Email OTP lifecycle repair preserve durable ECDSA
+      material identity and use the shared tactical role-local resolver.
 - [ ] `@ts-expect-error` fixtures reject active manifests without an exact
       authority, server generation, durable material ref, binding digest,
       ciphertext digest, or manifest revision.
@@ -1145,7 +1190,7 @@ Split inventory (final):
 | Wallet registration intent/ceremony/finalize helpers | `core/authService/**` plus D1 registration services | Active but duplicated ownership | Route through D1 canonical adapters, then delete old AuthService authority paths. |
 | Ed25519 Yao registration, active Client, recovery, refresh, and export | `packages/sdk-web/src/core/signingEngine/threshold/ed25519/yao*`, `packages/sdk-server-ts/src/router/routerAbEd25519Yao*`, and `crates/router-ab-ed25519-yao*` | Active YAOS lifecycle with capability-local ownership | Move public orchestration behind `capability/nearEd25519Mpc`; preserve the YAOS protocol/runtime boundary and delete factor-specific capability resolvers in Phase 19. |
 | Ed25519/ECDSA ordinary signing, replay, and shared-use accounting | `packages/sdk-server-ts/src/core/routerAbSigning/RouterAbNormalSigningRuntime.ts` plus signing routes/stores | Active shared runtime awaiting decomposition | Move curve policy/admission into each MPC capability, retain a narrow capability-neutral SigningWorker transport/replay port, and replace budget APIs with grant-plus-quota claiming in Phase 20. |
-| Router A/B ECDSA derivation, role-local material, signing, recovery, and export | current ECDSA-HSS-named Router, SDK, WASM, and D1/DO owners | Active strict Router A/B implementation with pre-Phase-14B names | Complete Phase 5 material slimming, migrate behind `capability/evmEcdsaMpc`, and apply YAOS Phase 14B destructive naming/package cleanup. |
+| Router A/B ECDSA derivation, role-local material, signing, recovery, and export | responsibility-local Router, SDK, WASM, and D1/DO owners | Active strict Router A/B implementation after the completed Phase 14B artifact split | Complete Phase 5 material slimming, preserve the three-worker ownership split, and migrate behind `capability/evmEcdsaMpc`. |
 | NEAR account creation, funding, access-key checks, transactions | `core/authService/nearAccountOperations.ts`, `nearTransactions.ts` | Active facade helpers | Account creation and delegate execution stay in the facade until their queueing/registration coordination is split. |
 
 Delete-candidate ledger:
@@ -1271,8 +1316,10 @@ type WalletCapabilitySubjectResolution =
   capability independently reports `ready`, `recovery_required`,
   `authorization_required`, or `blocked` with a typed reason. A page refresh may
   restore an active session and registered NEAR identity while the Ed25519 Yao
-  runtime requires same-root recovery or fresh authorization. ECDSA sealed
-  material may report exact recovery without changing login state.
+  runtime first attempts exact sealed active-Client rehydration, then reports
+  same-root recovery or fresh authorization when local active-session material
+  is unavailable. ECDSA sealed material may report exact recovery without
+  changing login state.
 - Preserve registered NEAR account identity and Ed25519 public key independently
   of lane, grant, quota, or live Client readiness. Session reads remain
   side-effect free; the first signing/export operation owns exact recovery or
@@ -1377,11 +1424,13 @@ Evidence from the current implementation:
   `RouterAbEcdsaDerivationNormalSigningStateV1` key, signing-root, version, and
   `activation_epoch` facts, and that epoch is issued from
   `thresholdSessionId`, so it transitively carries session identity.
-- ECDSA `thresholdSessionId` values are generated with the `tehss_` prefix and
-  24 random bytes, so they can serve as the unique live session identifier.
+- Current ECDSA threshold session identifiers are generated as
+  `secureRandomId('tecdsa-keygen', 32, ...)`; they serve as the unique live
+  material-session identifier.
 - `chainTarget` is required in exact signing lane/session-record identity. The
-  HSS worker opens a role-local state blob by material handle and binding digest;
-  chain selection should be checked before the worker material is opened.
+  derivation client worker opens a role-local state blob by material handle and
+  binding digest; chain selection should be checked before the worker material
+  is opened.
 - `evmFamilySigningKeySlotId` currently behaves like a deterministic
   provisioning/key-allocation handle derived from wallet and signing-root scope.
   If it has no runtime semantics after ECDSA key material exists, keep it out of
@@ -1392,11 +1441,11 @@ Implementation inventory:
 - Shared TS protocol and ID helpers:
   - `packages/shared-ts/src/signing-lanes/evmFamilySigningKeySlotId.ts`
   - `packages/shared-ts/src/signing-lanes/index.ts`
-  - `packages/shared-ts/src/threshold/ecdsaHssRoleLocalBootstrap.ts`
-  - `packages/shared-ts/src/utils/routerAbEcdsaHss.ts`
+  - `packages/shared-ts/src/threshold/ecdsaDerivationRoleLocalBootstrap.ts`
+  - `packages/shared-ts/src/utils/routerAbEcdsaDerivation.ts`
   - `packages/shared-ts/src/utils/signingSessionSeal.ts`
 - Rust Router A/B protocol and local smoke code:
-  - `crates/router-ab-core/src/protocol/ecdsa_hss.rs`
+  - `crates/router-ab-core/src/protocol/router_ab_ecdsa_derivation.rs`
   - `crates/router-ab-cloudflare/src/lib.rs`
   - `crates/router-ab-dev/src/bin/router_ab_local_smoke.rs`
 - Server route, JWT, budget, and D1 ceremony surfaces:
@@ -1412,38 +1461,46 @@ Implementation inventory:
 - Web protocol clients and registration/bootstrap adapters:
   - `packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa.ts`
   - `packages/sdk-web/src/core/rpcClients/relayer/walletRegistration.ts`
-  - `packages/sdk-web/src/core/signingEngine/flows/registration/services/ecdsaRegistrationBootstrap.ts`
+  - `packages/sdk-web/src/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions.ts`
   - `packages/sdk-web/src/core/signingEngine/threshold/ecdsa/**`
 - Web runtime, persistence, worker, and lane authority surfaces:
+  - `packages/sdk-web/src/core/indexedDB/schemaNames.ts`
+  - `packages/sdk-web/src/core/indexedDB/seamsWalletDB/ecdsaPresignMaterialStore.ts`
   - `packages/sdk-web/src/core/platform/ecdsaRoleLocalRecords.ts`
   - `packages/sdk-web/src/core/platform/secretSources.ts`
   - `packages/sdk-web/src/core/platform/ports.ts`
+  - `packages/sdk-web/src/core/indexedDB/seamsWalletDB/ecdsaRoleLocalSessionMaterialStore.ts`
+  - `packages/sdk-web/src/core/signingEngine/session/material/ecdsaRoleLocalMaterialResolver.ts`
   - `packages/sdk-web/src/core/signingEngine/session/persistence/ecdsaRoleLocalRecords.ts`
   - `packages/sdk-web/src/core/signingEngine/session/persistence/records.ts`
   - `packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore.ts`
   - `packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession.ts`
-  - `packages/sdk-web/src/core/signingEngine/session/identity/ecdsaHssSigningMaterialHandle.ts`
+  - `packages/sdk-web/src/core/signingEngine/session/identity/ecdsaDerivationSigningMaterialHandle.ts`
   - `packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.ts`
   - `packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity.ts`
   - `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/**`
   - `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/**`
   - `packages/sdk-web/src/core/signingEngine/workerManager/**`
 - Tests and guards:
+  - `tests/scripts/check-key-material-branding-boundaries.mjs`
+  - `tests/scripts/check-exact-signing-lane-authority-boundaries.mjs`
+  - `tests/scripts/check-registration-capability-subjects.mjs`
+  - `tests/scripts/check-router-ab-ecdsa-derivation-boundaries.mjs`
+  - `tests/scripts/check-signing-engine-ecdsa-identity-boundaries.mjs`
   - `tests/unit/evmFamilyEcdsaIdentity.unit.test.ts`
   - `tests/unit/ecdsaRoleLocalRecords.unit.test.ts`
-  - `tests/unit/routerAbEcdsaHssNormalSigning.unit.test.ts`
-  - `tests/unit/routerAbEcdsaHssBudgetRouteCore.unit.test.ts`
+  - `tests/unit/indexedDBConsolidation.unit.test.ts`
+  - `tests/unit/readySecp256k1Material.rehydration.unit.test.ts`
+  - `tests/unit/postRegistrationSessionActivation.unit.test.ts`
+  - `tests/unit/loginEcdsaInventoryProfileRepair.unit.test.ts`
+  - `tests/unit/routerAbEcdsaDerivationNormalSigning.unit.test.ts`
+  - `tests/unit/routerAbEcdsaDerivationBudgetRouteCore.unit.test.ts`
   - `tests/unit/walletRegistrationEcdsaRouterAbBootstrap.unit.test.ts`
   - `tests/unit/thresholdEcdsa.*.unit.test.ts`
-  - `tests/unit/refactor76BrandedKeys.guard.unit.test.ts`
-  - `tests/unit/refactor79ExactSigningLane.guard.unit.test.ts`
-  - `tests/unit/registrationCapabilitySubjects.guard.unit.test.ts`
-  - `tests/relayer/router-ab-normal-signing-auth-boundary.test.ts`
-  - `tests/relayer/threshold-ecdsa.signature-harness.test.ts`
 
 Side effects to account for:
 
-- Removing `wallet_key_id` from Router A/B ECDSA-HSS normal-signing scope
+- Removing `wallet_key_id` from Router A/B ECDSA derivation normal-signing scope
   changes canonical scope bytes, budget request digests, admission lifecycle ids,
   Rust protocol structs, and TS route parsers together.
 - Removing or renaming `evmFamilySigningKeySlotId` changes Wallet Session JWT
@@ -1452,7 +1509,7 @@ Side effects to account for:
   local D1 and IndexedDB state after this lands rather than preserving
   compatibility readers.
 - If `ecdsaThresholdKeyId` derivation stops hashing
-  `evmFamilySigningKeySlotId`, existing ECDSA-HSS key identities change. Update
+  `evmFamilySigningKeySlotId`, existing ECDSA key identities change. Update
   registration bootstrap, add-signer, export/recovery, and test fixtures in the
   same commit.
 - A chain-agnostic role-local `materialHandle` must not be used as a per-chain
@@ -1548,12 +1605,12 @@ type EcdsaRoleLocalMaterialBinding = {
   scope, exact operation-lane selection, and signer-session validation. It does
   not belong in the role-local material binding or a replacement broad session
   record.
-- Keep the current `routerAbEcdsaHssNormalSigning` signed state in
-  wallet-session claims and persisted session records only until the coordinated
-  YAOS Phase 14B cut. Use its active-state session helper only at Router A/B
+- Preserve the current `routerAbEcdsaDerivationNormalSigning` signed state in
+  wallet-session claims and persisted session records. Use its active-state
+  session helper only at Router A/B
   request/admission boundaries that need the canonical normal-signing state
-  session key. The Phase 14B change destructively replaces every target type,
-  route, record, helper, domain, and test with Router A/B ECDSA derivation names.
+  session key. YAOS Phase 14B already replaced the old target types, routes,
+  records, helpers, domains, and tests with Router A/B ECDSA derivation names.
 - Move lane/session chain checks before worker-material access. A selected ECDSA
   lane must prove:
   - lane signer `walletId` matches the session record wallet;
@@ -1607,8 +1664,8 @@ Check:
 - [ ] Cross-chain signing still fails closed through exact lane/session-record
   validation before the worker material handle is opened.
 - [ ] Router A/B signing requests carry and validate the signed ECDSA derivation
-  normal-signing scope against Wallet Session claims; current HSS-named fields
-  survive only until the coordinated Phase 14B rename.
+  normal-signing scope against Wallet Session claims and retain no active
+  HSS-named fields.
 - [ ] `activeStateId` (the renamed `routerAbStateSessionId`) appears only in
   Router A/B state/admission helpers, request builders, and diagnostics that
   describe the signed Router A/B scope.
@@ -1684,10 +1741,10 @@ Do — call-site inventory:
   `ed25519_only | ecdsa_only | ed25519_and_ecdsa` binding mode, and the exact
   authority/curve/session/participant facts that become
   `MpcWalletSigningQuota` bindings.
-- Inventory current ECDSA-HSS-named source, routes, records, worker entrypoints,
-  WASM packages, generated bindings, tests, and docs as YAOS Phase 14B rename or
-  deletion inputs. Target-owner rows use Router A/B ECDSA threshold-PRF
-  derivation terminology.
+- Inventory the completed YAOS Phase 14B ECDSA derivation source, routes,
+  records, three responsibility-local worker entrypoints, WASM packages,
+  generated bindings, tests, and deleted-name guards. Target-owner rows use
+  Router A/B ECDSA threshold-PRF derivation terminology.
 - Inventory test helpers and tooling, including Playwright configs, setup
   scripts, source guards, helper flows, fake relayers, fixture imports, and
   generated test env files.
@@ -1697,7 +1754,7 @@ Do — call-site inventory:
 - Classify frontend call sites as auth UI, session exchange, grant-evidence
   confirmation, vault UI, IdP UI, wallet UI, MPC signing, worker/runtime, or demo
   glue.
-- Record imports that pull threshold, current ECDSA-HSS/Router A/B derivation,
+- Record imports that pull threshold, Router A/B ECDSA derivation,
   Yao runtime, signer WASM, chain, wallet UI, or recovery code into generic
   auth/router/frontend paths.
 - Mark tests to preserve, rewrite, or delete.
@@ -1744,11 +1801,13 @@ Check:
   `user_session`, and `threshold_session` surfaces outside generated build
   output.
 - Every YAOS row is classified as retained protocol owner, public locator,
-  Near material adapter, sealed recovery owner, non-secret commit-journal owner,
-  runtime-publication owner, volatile runtime owner, rename, or deletion. Every
-  Ed25519 sealed record has a capability-local Near material adapter owner. Only
-  a valid exact locator plus matching sealed
-  record can produce `sealed_recovery_available`; orphan, expired, exhausted,
+  sealed active-Client owner, Near root-material adapter, sealed recovery owner,
+  non-secret commit-journal owner, runtime-publication owner, volatile runtime
+  owner, rename, or deletion. Every Ed25519 sealed record has a
+  capability-local Near material adapter owner. A valid exact locator plus
+  matching sealed active-Client record can produce
+  `rehydrate_active_session`; a matching root-recovery record can produce
+  `sealed_recovery_available`. Orphan, expired, exhausted,
   exact-binding-mismatched, corrupt, conflicting, and unavailable records retain
   their typed failure. No HSS target owner exists.
 - The ledger proves each old curve-combination budget tag has a typed quota
@@ -2614,11 +2673,13 @@ Slice exit criteria:
   Each capability exposes `ready`, `recovery_required`,
   `authorization_required`, or `blocked`; no passkey/Email OTP lane or resolver
   cross-product remains in signing core.
-- Browser persistence separates the public Ed25519 Yao capability locator from
-  an optional sealed root-recovery record, a non-secret recovery commit journal,
-  and a separate non-secret revocation outbox owned by the Near material adapter.
-  A valid exact locator plus matching sealed
-  record yields recovery availability; typed lookup failures stay distinct.
+- Browser persistence separates six Ed25519 Yao domains: the public capability
+  locator, authenticated sealed activated-Client envelope, optional sealed
+  root-recovery record, non-secret recovery commit journal, separate non-secret
+  revocation outbox, and volatile runtime. The Near material adapter owns the
+  last five. A valid active-Client envelope yields local active-session
+  rehydration; a matching root-recovery record yields same-root recovery
+  availability. Typed lookup failures stay distinct.
   `normal_signing.ready` requires an exact active Client plus committed
   publication/durability proof, while `export.ready` requires a correlated
   one-use export session and forbids a runtime handle. Lock, logout, page hide,
@@ -2677,7 +2738,8 @@ Do:
   operation lanes, material, recovery, restore, and export records. Carry it
   through Ed25519 Yao
   registration/admission, active runtime binding, public capability locator,
-  sealed root-recovery and fresh-acquisition references, recovery commit journal, runtime-publication
+  sealed active-Client envelope, sealed root-recovery and fresh-acquisition
+  references, recovery commit journal, runtime-publication
   proof, revocation outbox, exact Yao lifecycle ref, one-use material handle,
   same-root candidate/promotion, add-signer, and export records. Each quota binding
   and its refresh request carry their own exact
@@ -2710,8 +2772,8 @@ Do:
   Phase 7. Matching credential/provider identity cannot substitute for an active
   factor enrollment or wallet-auth-method binding.
 - Add static fixtures rejecting selected/committed signing lanes, ECDSA sealed
-  records, Ed25519 public locators, sealed root-recovery and fresh-acquisition
-  references, one-use
+  records, Ed25519 public locators, sealed active-Client records, sealed
+  root-recovery and fresh-acquisition references, one-use
   material handles, recovery commit journals, revocation outboxes,
   runtime-publication proofs, live
   runtime bindings, quota bindings, and export/recovery authorization state
@@ -2794,17 +2856,22 @@ Do:
 - Keep ECDSA sealed material and typed recovery records capability-local.
   Transaction target projections may reference a shared ECDSA material owner
   without rewriting its identity.
-- Split Ed25519 persistence and runtime observation into five exact domains: a
+- Split Ed25519 persistence and runtime observation into six exact domains: a
   minimal public `NearEd25519YaoCapabilityLocator`, an optional capability-local
-  sealed root-recovery record, an optional non-secret
+  `NearEd25519YaoSealedActiveClientRecord`, an optional capability-local sealed
+  root-recovery record, an optional non-secret
   `NearEd25519YaoRecoveryCommitJournal`, an optional non-secret
   `NearEd25519YaoRevocationOutbox`, and a volatile Rust/WASM
   `NearEd25519YaoRuntimeHandle`. The Near material/runtime adapter owns the last
-  four domains. The locator and sealed record carry the exact authority and
-  public binding digests needed for same-root validation. The sealed record
-  carries ciphertext plus a typed recovery reference; it contains no live Client
-  scalar, raw factor root, role input, recipient plaintext, bearer credential, or
-  operation authorization.
+  five domains. The active-Client record carries authenticated ciphertext plus
+  stable wallet, account, signer, authority, lifecycle, threshold-session,
+  participant, SigningWorker, registered-public-key, epoch, transcript, and
+  material-session bindings. Operation grant, quota, session transport, and
+  refresh-request scope are impossible fields. The root-recovery record carries
+  ciphertext plus a typed recovery reference and the exact public binding
+  digests needed for same-root validation. Neither record contains a live Client
+  scalar, raw factor root, role input, recipient plaintext, bearer credential,
+  or operation authorization.
 - Define a branded `NearEd25519YaoLifecycleRef` at the server-response boundary.
   It requires the canonical Yao lifecycle ID, root-share epoch, account ID,
   threshold/wallet-session ID, signer-set ID, and SigningWorker ID. The public
@@ -2911,11 +2978,15 @@ Do:
   reconciliation may only take the protocol-defined monotonic minimum of local
   and server recovery limits. It cannot increase an allowance, renew a grant,
   replenish quota, or identify live material.
-- Parse persisted Ed25519 lookup as a closed union:
-  `locator_only | sealed_recovery_available | sealed_recovery_expired |
-  sealed_recovery_exhausted | exact_binding_mismatch | missing | corrupt |
-  exact_record_conflict | persistence_unavailable`. A sealed record without its
-  exact locator is `corrupt`; a well-formed record with the wrong exact
+- Parse the persisted Ed25519 locator, sealed active-Client record, and sealed
+  root-recovery record independently as closed unions. The locator lookup is
+  `available | missing | corrupt | exact_record_conflict |
+  persistence_unavailable`. The active-Client lookup is
+  `available | absent | exact_binding_mismatch | corrupt |
+  persistence_unavailable`. The root-recovery lookup is
+  `available | absent | expired | exhausted | exact_binding_mismatch | corrupt |
+  persistence_unavailable`. A sealed record without its exact locator is
+  `corrupt`; a well-formed record with the wrong exact
   authority/owner/signer/root/policy binding is `exact_binding_mismatch`. Parse
   volatile handle observation independently as `active | disposed | absent`.
   Compose it with the commit journal and retention result into a closed
@@ -3082,7 +3153,8 @@ Status: planning. Old Phase 9 (MPC part).
 Prerequisites: Foundations A and B plus Phases 5, 12, 14, 17, and 18 are
 complete, and
 the companion SPEC contains the auth-agnostic Near preparation domain, public
-locator, sealed and fresh recovery source union, exact Yao lifecycle ref, refresh-safe verified
+locator, sealed active-Client ref and local import lifecycle, sealed and fresh
+recovery source union, exact Yao lifecycle ref, refresh-safe verified
 export context, recovery journal, separate revocation outbox and local/server fences,
 and runtime-publication split, operation-versus-material authorization model,
 complete Near operation union, fixed effect order, exact resolver failures, and
@@ -3111,9 +3183,11 @@ Do:
 - Move Ed25519 and ECDSA operation lane and intent construction into their
   capability modules.
 - Use distinct names for the authorization resource, durable public Ed25519
-  identity, sealed root-recovery reference, and live cryptographic runtime:
+  identity, sealed active-Client reference, sealed root-recovery reference, and
+  live cryptographic runtime:
   `CapabilityInstance`,
   `NearEd25519YaoCapabilityLocator`,
+  `NearEd25519YaoSealedActiveClientRef`,
   `NearEd25519YaoSealedRootRecoveryRef`, and
   `NearEd25519YaoRuntimeHandle`. Add
   `NearEd25519YaoLifecycleRef`,
@@ -3124,6 +3198,25 @@ Do:
   `NearEd25519YaoRuntimePublicationState` for the non-secret partial-commit and
   signability lifecycle. The runtime handle has only `active | disposed`; it
   carries no grant, quota, persistence, or publication identity.
+- Add one exact local active-Client material adapter. The checkpoint's Passkey
+  envelope already authenticates wallet, account, signer, passkey credential,
+  lifecycle, signing-root, signer-set, participant, SigningWorker, public-key,
+  epoch, transcript, and activation bindings. The target adapter additionally
+  verifies canonical `WalletAuthAuthorityRef` and active material-session
+  continuity. A valid
+  `NearEd25519YaoSealedActiveClientRef` constructs Foundation A's
+  `rehydrate_active_session`; the effect imports the activated Client into the
+  Rust/WASM registry, verifies its public identity, publishes the runtime, and
+  then reruns exact resolution. It performs zero Deriver A/B calls. Envelope
+  absence, corruption, or binding mismatch remains distinct from root recovery.
+- Replace the tactical `PasskeyEd25519YaoLocalMaterialLocatorV1`. Its checkpoint
+  shape still embeds `signingGrantId` and server refresh scope and compares
+  rotating grant identity during import. The canonical sealed active-Client
+  record binds stable authority, lifecycle, and material-session identity while
+  operation grants, quota, refresh requests, and session transport remain
+  separate. Registration publishes the record through the canonical
+  journal/read-back transition; compensating delete around a pre-activation
+  write is insufficient durability proof.
 - Implement the SPEC's auth-agnostic Near Ed25519 Yao preparation domain as a
   union keyed by operation class. `normal_signing` carries one exact
   transaction/delegate/NEP-413/(Near-owned proof) envelope, stable signer/runtime
@@ -3302,8 +3395,10 @@ Do:
   does generic authority ambiguity exit before lane construction. Then missing
   operation authorization or replenishable quota produce
   `authorization_required` before fresh material access;
-  an absent/disposed runtime plus `acquisition_ready` or
-  `sealed_recovery_available` produces `recovery_required`; `unlock_required`
+  an absent/disposed runtime plus a valid sealed active-Client reference produces
+  Foundation A `rehydrate_active_session`; if that reference is absent, an
+  `acquisition_ready` or `sealed_recovery_available` root-material observation
+  produces `recovery_required`; `unlock_required`
   produces `authorization_required` with an exact material-unlock requirement;
   unavailable material, missing locator, schema corruption, exact conflict,
   binding mismatch, or terminal quota failure is terminal `blocked` with its
@@ -3790,9 +3885,14 @@ Check:
   no volatile runtime and resolves only to `rehydrate_active_session`,
   `reauthorize_public_anchor`, or a typed `blocked` branch. Table-driven tests
   cover both MPC capabilities and mixed-wallet branch combinations.
-- When live runtime/material recovery is required, both MPC capabilities follow
+- When exact active-session material exists, both MPC capabilities follow
+  `rehydrate_active_session -> rehydrate exact -> resolve exact -> ready`.
+  Genuine Near root recovery follows
   `recovery_required -> recover exact -> resolve exact -> ready`; direct EVM and
   shared Tempo material-owner cases have targeted coverage.
+- A valid `NearEd25519YaoSealedActiveClientRef` plus an absent/disposed runtime
+  rehydrates the activated Client locally, authenticates its full public
+  binding, publishes it, and reaches `ready` with zero Deriver A/B calls.
 - A valid exact locator plus sealed root-recovery ref and an absent/disposed
   runtime resolves to `recovery_required` when the Near material adapter reports
   `sealed_recovery_available`. Tests cover locator-only, successful refresh
@@ -3825,7 +3925,9 @@ Check:
 - A restored login/session or persisted Wallet Session never chooses a capability
   action. With no exact locator, capability discovery returns absent; a request
   that requires an already-provisioned capability returns
-  `blocked(missing_locator)`. An exact locator plus
+  `blocked(missing_locator)`. An exact locator plus a valid sealed active-Client
+  ref and no active Client yields `rehydrate_active_session`. After exact local
+  import and publication it may become `ready`. An exact locator plus
   `sealed_recovery_available` or `acquisition_ready` and no active Client yields
   `recovery_required`; an exact active Client plus continuity, grant, and quota
   readiness plus `committed_ready` publication yields `ready`. Unavailable or
@@ -4232,13 +4334,14 @@ Do:
   Point 14). Merge `eth-signer` and `tempo-signer` into one EVM-family online
   signing worker and WASM artifact because Phase 5 made role-local material
   chain-agnostic with chain enforcement in lanes/session records.
-- Apply YAOS Phase 14B's destructive ECDSA package/worker cut: one
+- Preserve the completed YAOS Phase 14B ECDSA package/worker cut: one
   chain-agnostic Router A/B derivation-client worker, one presign-client worker,
   and one online-signing worker. Each owns only its lifecycle's secret material,
-  sessions, loader, generated bindings, and package exports. Delete every active
-  ECDSA-HSS name, route, record, feature, vector domain, and worker discriminant
-  in the same change; retain no aliases.
-- Create the narrow Ed25519 Yao client-only protocol/WASM package. Its dependency
+  sessions, loader, generated bindings, and package exports. Source guards keep
+  every deleted ECDSA-HSS name, route, record, feature, vector domain, and worker
+  discriminant from returning.
+- Preserve the completed narrow Ed25519 Yao client-only protocol/WASM package.
+  Its dependency
   and symbol closure contains client request/envelope/receipt types, recipient
   opening, active Client/FROST state, and verification for registration,
   same-root recovery, server-share refresh, activation, add-signer, and export.
@@ -4596,9 +4699,9 @@ Static checks:
 - ECDSA material and Ed25519 live runtime identity contain no grant, quota,
   remaining-use, or expiry field.
 - Ed25519 persistence distinguishes a public capability locator, a
-  capability-local sealed root-recovery record, a non-secret recovery commit
-  journal, a separate non-secret revocation outbox, volatile runtime observation,
-  and closed runtime publication state.
+  capability-local sealed active-Client record, a separate sealed root-recovery
+  record, a non-secret recovery commit journal, a separate non-secret revocation
+  outbox, volatile runtime observation, and closed runtime publication state.
   Static fixtures prevent sealed-only, promotion-pending, durability-pending, or
   active-without-durability-finalization state from constructing
   `normal_signing.ready` or a claim. Separate export fixtures require a correlated
@@ -4609,7 +4712,8 @@ Static checks:
   execution code, transient bearer credentials, and recipient plaintext in
   persistence or generic bundles.
 - `NearEd25519YaoLifecycleRef` is a precise required-field value shared by the
-  locator, sealed recovery record, journal, server descriptor/receipt, export
+  locator, sealed active-Client record, sealed root-recovery record, journal,
+  server descriptor/receipt, export
   context, worker request, and admission. Static fixtures reject lifecycle ID,
   root-share epoch, account, threshold/wallet session, signer-set, participant,
   SigningWorker, runtime-policy, or public-key substitution at every boundary.
@@ -4668,7 +4772,7 @@ Static checks:
   guards route and grant-admission symbols.
 - Source guards reject `ed25519_only`, `ecdsa_only`,
   `ed25519_and_ecdsa`, factor-specific Yao resolvers/hooks in capability core,
-  and target ECDSA-HSS names after YAOS Phase 14B.
+  and every ECDSA-HSS name deleted by YAOS Phase 14B.
 - Parked workspaces such as `voiceId` cannot import auth core internals unless
   a future phase promotes them to `GrantEvidenceKind`.
 
@@ -4690,7 +4794,9 @@ Targeted tests (owning phase in parentheses):
   EVM-family ECDSA. Include post-registration -> refresh and post-unlock ->
   refresh transitions, mixed-wallet independent branches, operation-scoped
   public-anchor step-up/export, and absence of entry-point-specific recovery
-  implementations (Foundation A; Phases 4, 19, and 23).
+  implementations. Near sealed-active cases verify authenticated local Client
+  import, stable-binding substitution rejection, and zero Deriver A/B calls
+  (Foundation A; Phases 4, 19, and 23).
 - Canonical ECDSA capability-state transition matrix: registration and unlock
   activation commits, refresh/runtime destruction, durable rehydration,
   public-anchor reauthorization, retirement, exact conflict, corruption,
@@ -4886,12 +4992,13 @@ Security tests:
   root-handle purposes. Failed candidates never replace the active runtime.
 - ECDSA recovery references and Ed25519 sealed root-recovery references cannot
   enumerate, restore, or commit the other capability as a hidden side effect.
-- Browser persistence may contain authenticated ciphertext in a capability-local
-  Ed25519 sealed recovery record and non-secret correlation/receipt/revision facts
-  in its recovery commit journal. Persistence, logs, diagnostics, and route
-  bodies contain no live Yao Client scalar, secret handle, raw authority-bound
-  factor root, reconstructed seed, transient bearer credential, role input, or
-  recipient plaintext. Stale journals, stale tabs, and pending publication cannot
+- Browser persistence may contain authenticated ciphertext in separate
+  capability-local Ed25519 sealed active-Client and sealed root-recovery records,
+  plus non-secret correlation/receipt/revision facts in its recovery commit
+  journal. Persistence, logs, diagnostics, and route bodies contain no plaintext
+  Yao Client scalar, secret handle, raw authority-bound factor root,
+  reconstructed seed, transient bearer credential, role input, or recipient
+  plaintext. Stale journals, stale tabs, and pending publication cannot
   construct readiness or a claim.
 - Operation authorization evidence cannot substitute for exact Ed25519 root
   ownership. Root-material handles cannot cross authority, purpose, operation,
@@ -4953,12 +5060,13 @@ Resolved July 15, 2026 through YAOS alignment:
   Current state selects live-runtime use, active-session sealed rehydration,
   expired/exhausted public-anchor reauthorization, or a typed blocked result.**
 - What persists for Ed25519 in the browser? **A minimal public Yao capability
-  locator and, when the Near material adapter supports refresh recovery, an exact
-  capability-local sealed root-recovery record. An incomplete promotion,
-  activation, or reseal also persists a non-secret recovery commit journal. A
-  valid exact locator/seal pair yields sealed recovery availability; lookup
-  failures remain typed. The live Client remains volatile Rust/WASM state, and
-  signing requires a separate committed publication/durability proof.**
+  locator, an authenticated sealed activated-Client envelope for routine local
+  rehydration, and an exact capability-local sealed root-recovery record when
+  same-root recovery is retained. An incomplete promotion, activation, or reseal
+  also persists a non-secret recovery commit journal. The two sealed records
+  have distinct references, bindings, parsers, and effects. The live Client
+  remains volatile Rust/WASM state, and signing requires a separate committed
+  publication/durability proof.**
 - Does `CapabilityGrant` carry the wallet-wide signing limit? **No. Exact
   operation grants and `MpcWalletSigningQuota` are distinct; signing atomically
   claims both, while key export declares `quota_use: none` and claims only its

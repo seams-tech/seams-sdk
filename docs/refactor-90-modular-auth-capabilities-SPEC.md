@@ -2202,6 +2202,12 @@ type MpcMaterialOwnerRef = Brand<string, "MpcMaterialOwnerRef">;
 type MpcCapabilityRuntimeRef = Brand<string, "MpcCapabilityRuntimeRef">;
 type ActiveMpcMaterialSessionRef = Brand<string, "ActiveMpcMaterialSessionRef">;
 type RestorableMpcMaterialRef = Brand<string, "RestorableMpcMaterialRef">;
+type NearEd25519YaoSealedActiveClientRef =
+  Brand<string, "NearEd25519YaoSealedActiveClientRef">;
+type NearEd25519YaoSealedRootRecoveryRef =
+  Brand<string, "NearEd25519YaoSealedRootRecoveryRef">;
+type EcdsaRoleLocalDurableMaterialRef =
+  Brand<string, "EcdsaRoleLocalDurableMaterialRef">;
 type MpcKeyBindingRef = Brand<string, "MpcKeyBindingRef">;
 type MpcLifecycleBindingRef = Brand<string, "MpcLifecycleBindingRef">;
 type MpcReauthorizationPolicyRef =
@@ -2297,6 +2303,26 @@ type MpcCapabilityHydrationResolution = {
 };
 ```
 
+`RestorableMpcMaterialRef` is proof that the protocol adapter resolved exact
+durable material for the current active material session and an exact currently
+available material-unlock source. An adapter with an unavailable unlock source
+returns its typed material-unlock requirement and cannot construct
+`rehydrate_active_session`. The Near Ed25519
+adapter derives it from an authenticated
+`NearEd25519YaoSealedActiveClientRef`; the rehydration effect imports that
+activated Client locally and makes zero Deriver A/B calls. The ECDSA adapter
+derives it from an exact encrypted `EcdsaRoleLocalDurableMaterialRef`.
+`NearEd25519YaoSealedRootRecoveryRef` is a separate recovery input used for
+device linking and explicit same-root recovery. Export uses its separately
+authorized one-use material-acquisition lifecycle. The root-recovery ref cannot
+construct `rehydrate_active_session`.
+
+The shared leaf contract owns only the four decisions and branded proofs.
+Protocol adapters own persistence parsing, cryptographic envelope validation,
+and exact observation unions. Narrow proof constructors accept normalized
+evidence; they do not infer authority, lifecycle, or policy from optional
+legacy records, source labels, or diagnostics.
+
 The public anchor is stable reauthorization input. Its policy reference names
 the capability's reauthorization policy and is never an operation grant. Core
 material, signing, and export functions receive `plan`, while diagnostics and
@@ -2313,8 +2339,6 @@ type EcdsaCapabilityManifestId =
   Brand<string, "EcdsaCapabilityManifestId">;
 type EcdsaCapabilityManifestRevision =
   Brand<number, "EcdsaCapabilityManifestRevision">;
-type EcdsaRoleLocalDurableMaterialRef =
-  Brand<string, "EcdsaRoleLocalDurableMaterialRef">;
 type EcdsaRoleLocalBindingDigest =
   Brand<string, "EcdsaRoleLocalBindingDigest">;
 type EcdsaCiphertextDigest = Brand<string, "EcdsaCiphertextDigest">;
