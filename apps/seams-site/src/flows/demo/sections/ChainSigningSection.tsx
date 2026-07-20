@@ -109,17 +109,21 @@ export function ChainSigningSection(props: ChainSigningSectionProps) {
           />
         </div>
 
-        {/* reserved slot: late-arriving status/error text fills space that is
-            already there instead of pushing the buttons down */}
-        <div className="demo-status-slot" role="status" aria-live="polite">
-          {chain.statusText ? <div className="near-funding-status">{chain.statusText}</div> : null}
-          {chain.errorText ? <div className="error-message">{chain.errorText}</div> : null}
-        </div>
+        {/* only mount when there's something to show, so it adds no spacing
+            while empty (the fixed demo cell height absorbs the size change) */}
+        {chain.statusText || chain.errorText ? (
+          <div className="demo-status-slot" role="status" aria-live="polite">
+            {chain.statusText ? (
+              <div className="near-funding-status">{chain.statusText}</div>
+            ) : null}
+            {chain.errorText ? <div className="error-message">{chain.errorText}</div> : null}
+          </div>
+        ) : null}
 
-        {/* funding is the precondition, so it leads; hidden once the probe
-            confirms the AlphaUSD fee token is set and funded ('ready'), and
-            held disabled while the probe is in flight */}
-        {chain.id === 'tempo' && props.tempoFundingStatus !== 'ready' ? (
+        {/* funding is the precondition, so it leads; stays mounted (disabled)
+            once funded so the Tempo tab keeps a constant height instead of
+            collapsing the button away */}
+        {chain.id === 'tempo' ? (
           <>
             <LoadingButton
               onClick={props.onPrepareTempoFeeToken}
@@ -131,10 +135,11 @@ export function ChainSigningSection(props: ChainSigningSectionProps) {
               disabled={
                 props.tempoFeeTokenPrepareLoading ||
                 props.tempoFundingStatus === 'checking' ||
+                props.tempoFundingStatus === 'ready' ||
                 Boolean(props.tempoPreparationUnavailableReason)
               }
             >
-              Fund Tempo Account
+              {props.tempoFundingStatus === 'ready' ? 'Tempo Account Funded' : 'Fund Tempo Account'}
             </LoadingButton>
             {props.tempoPreparationUnavailableReason ? (
               <div className="demo-capability-note">
