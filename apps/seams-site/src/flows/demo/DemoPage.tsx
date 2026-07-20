@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 
 import { useSeams } from '@seams/sdk/react';
 
+import { AnimatedHeight } from '@/components/AnimatedHeight';
 import { useSetGreeting } from '@/shared/hooks/useSetGreeting';
 import {
   ChainSigningSection,
@@ -141,16 +142,17 @@ export const DemoPage: React.FC = () => {
     },
   ];
 
-  /* The card chrome is fully static, so it renders immediately and enters in
-     one motion; async values (greeting, funding status) fill their slots
-     afterwards. Height flows naturally — the fixed .h2-hero__demo cell absorbs
-     any size change without shifting the page. */
+  /* The header is constant across tabs; only the chain section changes height.
+     AnimatedHeight eases that resize between NEAR/Tempo/Arc. The fixed-height
+     .h2-hero__demo cell (card centered) absorbs the change, so the container
+     never shifts the page around it. */
   return (
     <div className="demo-card-reveal">
       <div className="demo-page-header">
         <h2 className="demo-title">Welcome</h2>
       </div>
 
+      <AnimatedHeight>
       <ChainSigningSection
         chains={chains}
         heading={signingHeading}
@@ -176,6 +178,7 @@ export const DemoPage: React.FC = () => {
         tempoPreparationUnavailableReason={thresholdSigners.tempoPreparationUnavailableReason}
         tempoFundingStatus={tempoFunding.status}
       />
+      </AnimatedHeight>
     </div>
   );
 };
