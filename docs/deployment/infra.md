@@ -32,6 +32,69 @@ Create `staging-gateway` and `production-gateway` for Gateway. Create
 role environments. Each role environment owns its Cloudflare credentials,
 private material, variables, and protected approver set.
 
+Gateway and the four Router A/B Workers use Cloudflare service bindings and
+must be deployed in the same Cloudflare account. Give each role a scoped deploy
+token while keeping `CLOUDFLARE_ACCOUNT_ID` identical across those five GitHub
+Environments.
+
+Generate the complete value manifest for one target at a time:
+
+```bash
+pnpm router:deploy:env-keygen -- --env staging
+pnpm router:deploy:env-keygen -- --env production
+```
+
+The command prints all six GitHub Environments for the selected target. It
+generates the Router A/B identities, matched root shares, shared internal
+service credential, Gateway random secrets, ceremony JWT key, and
+signing-session seal values. Supply provisioned Cloudflare, domain,
+funded-account, OAuth, and tenant values through the protected values file
+documented in [tooling.md](tooling.md#github-environment-bootstrap). The output
+contains private material and must not be committed.
+
+To create all six environments and upload every generated value automatically:
+
+```bash
+gh auth login
+pnpm router:deploy:env-keygen -- --env staging \
+  --values-file "$HOME/.seams/staging-deployment.env" --apply
+pnpm router:deploy:env-keygen -- --env production \
+  --values-file "$HOME/.seams/production-deployment.env" --apply
+```
+
+Apply mode resolves external values from the protected file and current shell,
+discovers existing Cloudflare account, D1, Pages, and R2 metadata when possible,
+and refuses to write a partial required configuration. It creates missing
+environments and preserves existing environments and their protection rules.
+Every invocation generates fresh cryptographic identities, so do not rerun
+`--apply` unless rotating the target's generated deployment values
+intentionally.
+
+Progress and per-environment upload counts are written to stderr. The exact
+variables and secrets uploaded are printed to stdout for backup. Capture that
+output in a restricted file:
+
+```bash
+umask 077
+pnpm --silent router:deploy:env-keygen -- --env staging --apply \
+  --values-file "$HOME/.seams/staging-deployment.env" \
+  > staging-github-environment-backup.txt
+```
+
+The backup contains private keys and secrets. Move it to the approved secrets
+vault, then remove the local copy.
+
+The current checkout determines the GitHub repository. To target another
+repository explicitly, pass its real name, for example
+`--repo seams-tech/seams-sdk`. Do not copy placeholder text such as
+`owner/repo`.
+
+For machine-readable output, suppress pnpm's command banner:
+
+```bash
+pnpm --silent router:deploy:env-keygen -- --env staging --json
+```
+
 Automatic entrypoints are intentionally separate:
 
 - `.github/workflows/deploy-staging.yml` accepts only successful `dev` CI.
@@ -43,80 +106,76 @@ entrypoint YAML instead of a caller-selected runtime flag.
 
 ### Secrets
 
-| Secret                                          | Used by                         | Notes                                                                                  |
-| ----------------------------------------------- | ------------------------------- | -------------------------------------------------------------------------------------- |
-| `CLOUDFLARE_API_TOKEN`                          | Pages, Router A/B deploy        | Needs Pages deploy, Worker deploy, and Worker secrets permissions.                    |
-| `CLOUDFLARE_ACCOUNT_ID`                         | Pages, Router A/B deploy        | Cloudflare account id.                                                                 |
-| `CF_PAGES_PROJECT_VITE`                         | Pages deploy                    | Cloudflare Pages project for the app/site surface.                                     |
-| `CF_PAGES_PROJECT_WALLET`                       | Pages deploy                    | Cloudflare Pages project for the wallet origin.                                        |
-| `R2_ENDPOINT`                                   | SDK R2 publish                  | S3-compatible R2 endpoint URL.                                                         |
-| `R2_BUCKET`                                     | SDK R2 publish                  | Bucket that stores `releases/*` and `releases-dev/*`.                                  |
-| `R2_ACCESS_KEY_ID`                              | SDK R2 publish                  | R2 access key with write access to the SDK bucket.                                     |
-| `R2_SECRET_ACCESS_KEY`                          | SDK R2 publish                  | R2 secret access key.                                                                  |
-| `DERIVER_A_ROOT_SHARE_WIRE_SECRET`               | Router A/B deploy               | Deriver A root-share wire secret. Written to the Deriver A Worker environment.         |
-| `DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY`            | Router A/B deploy               | Deriver A signer-envelope HPKE private key.                                            |
-| `DERIVER_A_PEER_SIGNING_KEY`                     | Router A/B deploy               | Deriver A private key for A/B peer messages.                                           |
-| `DERIVER_B_ROOT_SHARE_WIRE_SECRET`               | Router A/B deploy               | Deriver B root-share wire secret. Written to the Deriver B Worker environment.         |
-| `DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY`            | Router A/B deploy               | Deriver B signer-envelope HPKE private key.                                            |
-| `DERIVER_B_PEER_SIGNING_KEY`                     | Router A/B deploy               | Deriver B private key for A/B peer messages.                                           |
-| `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY` | Router A/B deploy               | SigningWorker server-output HPKE private key.                                          |
-| `RELAY_SESSION_HMAC_SECRET`                    | Gateway deploy                  | Environment-specific browser session signing secret.                                   |
-| `ACCOUNT_ID_DERIVATION_SECRET`                 | Gateway deploy                  | Environment-specific account identifier derivation secret.                             |
-| `ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET`       | Router A/B and Gateway          | Shared only by Workers inside one environment. Never share it across staging and production. |
-| `ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK`           | Gateway deploy                  | Private ceremony JWT signing key for this environment.                                  |
-| `RELAYER_PRIVATE_KEY`                          | Gateway deploy                  | Relayer key matching `RELAYER_PUBLIC_KEY`.                                              |
-| `SPONSORED_EVM_EXECUTORS_JSON`                 | Gateway deploy                  | Environment-specific sponsored EVM executor secrets.                                   |
+| Secret                                          | Used by                  | Notes                                                                                        |
+| ----------------------------------------------- | ------------------------ | -------------------------------------------------------------------------------------------- |
+| `CLOUDFLARE_API_TOKEN`                          | Pages, Router A/B deploy | Needs Pages deploy, Worker deploy, and Worker secrets permissions.                           |
+| `CLOUDFLARE_ACCOUNT_ID`                         | Pages, Router A/B deploy | Cloudflare account id.                                                                       |
+| `CF_PAGES_PROJECT_VITE`                         | Pages deploy             | Cloudflare Pages project for the app/site surface.                                           |
+| `CF_PAGES_PROJECT_WALLET`                       | Pages deploy             | Cloudflare Pages project for the wallet origin.                                              |
+| `R2_ENDPOINT`                                   | SDK R2 publish           | Optional S3-compatible R2 endpoint URL.                                                      |
+| `R2_BUCKET`                                     | SDK R2 publish           | Optional bucket that stores `releases/*` and `releases-dev/*`.                               |
+| `R2_ACCESS_KEY_ID`                              | SDK R2 publish           | Optional R2 access key with write access to the SDK bucket.                                  |
+| `R2_SECRET_ACCESS_KEY`                          | SDK R2 publish           | Optional R2 secret access key.                                                               |
+| `DERIVER_A_ROOT_SHARE_WIRE_SECRET`              | Router A/B deploy        | Deriver A root-share wire secret. Written to the Deriver A Worker environment.               |
+| `DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY`           | Router A/B deploy        | Deriver A signer-envelope HPKE private key.                                                  |
+| `DERIVER_A_PEER_SIGNING_KEY`                    | Router A/B deploy        | Deriver A private key for A/B peer messages.                                                 |
+| `DERIVER_B_ROOT_SHARE_WIRE_SECRET`              | Router A/B deploy        | Deriver B root-share wire secret. Written to the Deriver B Worker environment.               |
+| `DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY`           | Router A/B deploy        | Deriver B signer-envelope HPKE private key.                                                  |
+| `DERIVER_B_PEER_SIGNING_KEY`                    | Router A/B deploy        | Deriver B private key for A/B peer messages.                                                 |
+| `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY` | Router A/B deploy        | SigningWorker server-output HPKE private key.                                                |
+| `RELAY_SESSION_HMAC_SECRET`                     | Gateway deploy           | Environment-specific browser session signing secret.                                         |
+| `ACCOUNT_ID_DERIVATION_SECRET`                  | Gateway deploy           | Environment-specific account identifier derivation secret.                                   |
+| `ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET`        | Router A/B and Gateway   | Shared only by Workers inside one environment. Never share it across staging and production. |
+| `ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK`            | Gateway deploy           | Private ceremony JWT signing key for this environment.                                       |
+| `RELAYER_PRIVATE_KEY`                           | Gateway deploy           | Optional funded NEAR relayer key; its public key is derived during startup.                  |
+| `SPONSORED_EVM_EXECUTORS_JSON`                  | Gateway deploy           | Optional environment-specific sponsored EVM executor secrets.                                |
 
 ### Variables
 
-| Variable                                                 | Used by           | Notes                                                                        |
-| -------------------------------------------------------- | ----------------- | ---------------------------------------------------------------------------- |
-| `ROUTER_AB_JWT_ISSUER`                                   | Router A/B deploy | JWT issuer accepted by the Router admission boundary.                        |
-| `ROUTER_AB_JWT_AUDIENCE`                                 | Router A/B deploy | JWT audience accepted by the Router; defaults operationally to `router-ab`.  |
-| `ROUTER_AB_JWT_JWKS_URL`                                 | Router A/B deploy | JWKS URL used by Router JWT verification.                                    |
-| `ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY`            | Router A/B deploy | Public key matching `DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY`.                    |
-| `ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY`            | Router A/B deploy | Public key matching `DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY`.                    |
-| `ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY` | Router A/B deploy | Public key matching `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY`.         |
-| `ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX`              | Router A/B deploy | Public verifying key matching `DERIVER_A_PEER_SIGNING_KEY`.                   |
-| `ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX`              | Router A/B deploy | Public verifying key matching `DERIVER_B_PEER_SIGNING_KEY`.                   |
-| `VITE_RELAYER_URL`                                       | Pages build       | Public Gateway base URL; historical env var name.                            |
-| `VITE_CONSOLE_BASE_URL`                                  | Pages build       | Optional console API base URL; defaults in app code when unset.              |
-| `VITE_RELAYER_ACCOUNT_ID`                                | Pages build       | Parent NEAR account used for account creation.                               |
-| `VITE_SEAMS_PROJECT_ENVIRONMENT_ID`                      | Pages build       | Project-environment id for managed registration and sponsored actions.       |
-| `VITE_SEAMS_PUBLISHABLE_KEY`                             | Pages build       | Publishable key for browser-managed Gateway calls.                           |
-| `VITE_WALLET_ORIGIN`                                     | Pages build       | Wallet origin. Must match CORS and WebAuthn RP configuration.                |
-| `VITE_WALLET_SERVICE_PATH`                               | Pages build       | Wallet service path; defaults to `/wallet-service` when unset.               |
-| `VITE_SDK_BASE_PATH`                                     | Pages build       | SDK asset path; defaults to `/sdk` when unset.                               |
-| `VITE_RP_ID_BASE`                                        | Pages build       | WebAuthn RP id base.                                                         |
-| `VITE_DOCS_ORIGIN`                                       | Pages build       | Public docs origin used by site links and local header rules.                |
-| `VITE_NEAR_NETWORK`                                      | Pages build       | `testnet` or `mainnet`.                                                      |
-| `VITE_NEAR_RPC_URL`                                      | Pages build       | NEAR RPC URL.                                                                |
-| `VITE_NEAR_EXPLORER`                                     | Pages build       | Explorer base URL.                                                           |
-| `VITE_TEMPO_RPC_URL`                                     | Pages build       | Optional Tempo RPC URL.                                                      |
-| `VITE_TEMPO_EXPLORER`                                    | Pages build       | Optional Tempo explorer URL.                                                 |
-| `VITE_TEMPO_FEE_TOKEN`                                   | Pages build       | Optional Tempo fee token address.                                            |
-| `VITE_ARC_RPC_URL`                                       | Pages build       | Optional Arc RPC URL.                                                        |
-| `VITE_ARC_EXPLORER`                                      | Pages build       | Optional Arc explorer URL.                                                   |
-| `VITE_SIGNING_SESSION_PERSISTENCE_MODE`                  | Pages build       | Set when enabling sealed-refresh client flows.                               |
+| Variable                                                 | Used by           | Notes                                                                          |
+| -------------------------------------------------------- | ----------------- | ------------------------------------------------------------------------------ |
+| `ROUTER_AB_JWT_ISSUER`                                   | Router A/B deploy | JWT issuer accepted by the Router admission boundary.                          |
+| `ROUTER_AB_JWT_AUDIENCE`                                 | Router A/B deploy | JWT audience accepted by the Router; defaults operationally to `router-ab`.    |
+| `ROUTER_AB_JWT_JWKS_URL`                                 | Router A/B deploy | JWKS URL used by Router JWT verification.                                      |
+| `ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY`           | Router A/B deploy | Public key matching `DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY`.                     |
+| `ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY`           | Router A/B deploy | Public key matching `DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY`.                     |
+| `ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY` | Router A/B deploy | Public key matching `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY`.           |
+| `ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX`             | Router A/B deploy | Public verifying key matching `DERIVER_A_PEER_SIGNING_KEY`.                    |
+| `ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX`             | Router A/B deploy | Public verifying key matching `DERIVER_B_PEER_SIGNING_KEY`.                    |
+| `VITE_RELAYER_URL`                                       | Pages build       | Public Gateway base URL; historical env var name.                              |
+| `VITE_CONSOLE_BASE_URL`                                  | Pages build       | Optional console API base URL; defaults in app code when unset.                |
+| `VITE_RELAYER_ACCOUNT_ID`                                | Pages build       | Parent NEAR account used for account creation.                                 |
+| `VITE_SEAMS_PROJECT_ENVIRONMENT_ID`                      | Pages build       | Project-environment id for managed registration and sponsored actions.         |
+| `VITE_SEAMS_PUBLISHABLE_KEY`                             | Pages build       | Publishable key for browser-managed Gateway calls.                             |
+| `VITE_WALLET_ORIGIN`                                     | Pages build       | Wallet origin. Must match CORS and WebAuthn RP configuration.                  |
+| `VITE_WALLET_SERVICE_PATH`                               | Pages build       | Wallet service path; defaults to `/wallet-service` when unset.                 |
+| `VITE_SDK_BASE_PATH`                                     | Pages build       | SDK asset path; defaults to `/sdk` when unset.                                 |
+| `VITE_RP_ID_BASE`                                        | Pages build       | WebAuthn RP id base.                                                           |
+| `VITE_DOCS_ORIGIN`                                       | Pages build       | Public docs origin used by site links and local header rules.                  |
+| `VITE_NEAR_NETWORK`                                      | Pages build       | `testnet` or `mainnet`.                                                        |
+| `VITE_NEAR_RPC_URL`                                      | Pages build       | NEAR RPC URL.                                                                  |
+| `VITE_NEAR_EXPLORER`                                     | Pages build       | Explorer base URL.                                                             |
+| `VITE_TEMPO_RPC_URL`                                     | Pages build       | Optional Tempo RPC URL.                                                        |
+| `VITE_TEMPO_EXPLORER`                                    | Pages build       | Optional Tempo explorer URL.                                                   |
+| `VITE_TEMPO_FEE_TOKEN`                                   | Pages build       | Optional Tempo fee token address.                                              |
+| `VITE_ARC_RPC_URL`                                       | Pages build       | Optional Arc RPC URL.                                                          |
+| `VITE_ARC_EXPLORER`                                      | Pages build       | Optional Arc explorer URL.                                                     |
+| `VITE_SIGNING_SESSION_PERSISTENCE_MODE`                  | Pages build       | Set when enabling sealed-refresh client flows.                                 |
 | `VITE_SIGNING_SESSION_SEAL_KEY_VERSION`                  | Pages build       | Must match the active Gateway seal key version when sealed-refresh is enabled. |
-| `VITE_SIGNING_SESSION_SHAMIR_P_B64U`                     | Pages build       | Public Shamir prime value for sealed-refresh clients.                        |
-| `VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID`                | Pages build       | Exact SigningWorker id bound into Router A/B warm signing sessions.          |
-| `VITE_DASHBOARD_WALLETS_ROUTES_ENABLED`                  | Pages build       | Optional dashboard route gate.                                               |
+| `VITE_SIGNING_SESSION_SHAMIR_P_B64U`                     | Pages build       | Public Shamir prime value for sealed-refresh clients.                          |
+| `VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID`                | Pages build       | Exact SigningWorker id bound into Router A/B warm signing sessions.            |
+| `VITE_DASHBOARD_WALLETS_ROUTES_ENABLED`                  | Pages build       | Optional dashboard route gate.                                                 |
 
-The Gateway environments additionally require:
+The Gateway GitHub Environment has one non-secret deployment variable:
+`GATEWAY_DEPLOYMENT_CONFIG_JSON`. Its versioned document contains D1 and
+Secrets Store resource IDs, tenant identity, origins, Router A/B public
+identity, session settings, bootstrap metadata, and optional integration
+configuration. The deployment renderer validates this document once and emits
+the individual Worker bindings expected by the runtime.
 
-- distinct `GATEWAY_WORKER_NAME`,
-  `GATEWAY_CONSOLE_D1_DATABASE_NAME`,
-  `GATEWAY_CONSOLE_D1_DATABASE_ID`,
-  `GATEWAY_SIGNER_D1_DATABASE_NAME`, and
-  `GATEWAY_SIGNER_D1_DATABASE_ID`;
-- `GATEWAY_SECRETS_STORE_ID`, `SIGNING_ROOT_KEK_ID`,
-  `SIGNING_ROOT_KEK_SECRET_NAME`, and `SIGNING_ROOT_KEK_ENCODING`;
-- tenant identity (`SEAMS_TENANT_STORAGE_NAMESPACE`, `SEAMS_ORG_ID`,
-  `SEAMS_PROJECT_ID`, `SEAMS_ENV_ID`);
-- public Router A/B keyset, topology, HPKE keys, Gateway origin, relayer
-  identity, NEAR configuration, session issuer/audience, allowed origins,
-  cookie name, and Google OIDC client ID.
+Gateway cryptographic values and external credentials remain separate GitHub
+secrets. This preserves GitHub secret masking and allows credential rotation
+without rewriting public deployment configuration.
 
 Use names such as `seams-console-staging` and `seams-signer-staging` for
 staging. Production uses `seams-console` and `seams-signer` with different D1
@@ -124,7 +183,7 @@ IDs. The renderer rejects equal console/signer IDs within an environment.
 
 ## Cloudflare Pages
 
-Create two Pages projects:
+Apply mode creates two target-scoped Pages projects when they are absent:
 
 - app/site project: stored in `CF_PAGES_PROJECT_VITE`
 - wallet-origin project: stored in `CF_PAGES_PROJECT_WALLET`
@@ -142,7 +201,8 @@ for the commit being deployed.
 
 ## Cloudflare R2
 
-Create one R2 bucket for SDK runtime bundles. The publish workflow writes:
+R2 publication is optional. When all four R2 credentials are configured, the
+publish workflow writes:
 
 - `releases-dev/<commit-sha>` for staging/dev commits
 - `releases/<commit-sha>` for production/main commits
@@ -173,10 +233,10 @@ Router A/B Worker configuration lives in:
 
 Wrangler environments:
 
-| Target    | MPCRouter                  | Deriver A                    | Deriver B                    | SigningWorker                      |
-| --------- | -------------------------- | ---------------------------- | ---------------------------- | ---------------------------------- |
-| `staging` | `router-ab-mpc-router-staging` | `router-ab-deriver-a-staging` | `router-ab-deriver-b-staging` | `router-ab-signing-worker-staging` |
-| `production` | `router-ab-mpc-router` | `router-ab-deriver-a` | `router-ab-deriver-b` | `router-ab-signing-worker` |
+| Target       | MPCRouter                      | Deriver A                     | Deriver B                     | SigningWorker                      |
+| ------------ | ------------------------------ | ----------------------------- | ----------------------------- | ---------------------------------- |
+| `staging`    | `router-ab-mpc-router-staging` | `router-ab-deriver-a-staging` | `router-ab-deriver-b-staging` | `router-ab-signing-worker-staging` |
+| `production` | `router-ab-mpc-router`         | `router-ab-deriver-a`         | `router-ab-deriver-b`         | `router-ab-signing-worker`         |
 
 The checked-in Wrangler vars contain placeholder public keys so dry-run builds
 work without environment configuration. The `deploy-router-ab` workflow injects
@@ -194,12 +254,12 @@ Use these templates to fill each GitHub Environment:
 
 Role-specific configuration:
 
-| Role          | Wrangler config                                            | GitHub Environment vars                                                                                                                 | GitHub Environment secrets                                                                           |
-| ------------- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| Router        | `crates/router-ab-cloudflare/wrangler.router.toml`         | `ROUTER_AB_JWT_ISSUER`, `ROUTER_AB_JWT_AUDIENCE`, `ROUTER_AB_JWT_JWKS_URL`, all Router A/B public key vars                              | None beyond Cloudflare deploy credentials.                                                           |
-| Deriver A     | `crates/router-ab-cloudflare/wrangler.deriver-a.toml`       | `ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY`, `ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX`, `ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX` | `DERIVER_A_ROOT_SHARE_WIRE_SECRET`, `DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY`, `DERIVER_A_PEER_SIGNING_KEY` |
-| Deriver B     | `crates/router-ab-cloudflare/wrangler.deriver-b.toml`       | `ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY`, `ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX`, `ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX` | `DERIVER_B_ROOT_SHARE_WIRE_SECRET`, `DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY`, `DERIVER_B_PEER_SIGNING_KEY` |
-| SigningWorker | `crates/router-ab-cloudflare/wrangler.signing-worker.toml` | `ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY`                                                                                | `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY`                                                      |
+| Role          | Wrangler config                                            | GitHub Environment vars                                                                                                                               | GitHub Environment secrets                                                                              |
+| ------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Router        | `crates/router-ab-cloudflare/wrangler.router.toml`         | `ROUTER_AB_JWT_ISSUER`, `ROUTER_AB_JWT_AUDIENCE`, `ROUTER_AB_JWT_JWKS_URL`, `ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON`, all Router A/B public key vars | `ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET`                                                                |
+| Deriver A     | `crates/router-ab-cloudflare/wrangler.deriver-a.toml`      | `ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY`, `ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX`, `ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX`            | `DERIVER_A_ROOT_SHARE_WIRE_SECRET`, `DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY`, `DERIVER_A_PEER_SIGNING_KEY` |
+| Deriver B     | `crates/router-ab-cloudflare/wrangler.deriver-b.toml`      | `ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY`, `ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX`, `ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX`            | `DERIVER_B_ROOT_SHARE_WIRE_SECRET`, `DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY`, `DERIVER_B_PEER_SIGNING_KEY` |
+| SigningWorker | `crates/router-ab-cloudflare/wrangler.signing-worker.toml` | `ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY`                                                                                              | `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY`                                                         |
 
 `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are required for every
 `upload-version` and `deploy` operation. Deriver root-share secrets use the
@@ -327,7 +387,7 @@ target is D1/DO/R2, with no mixed Postgres runtime.
 
 | Domain                       | Cloudflare binding | Source of schema/state                                      |
 | ---------------------------- | ------------------ | ----------------------------------------------------------- |
-| console/control-plane        | `CONSOLE_DB`       | `packages/console-server-ts/migrations/d1-console`              |
+| console/control-plane        | `CONSOLE_DB`       | `packages/console-server-ts/migrations/d1-console`          |
 | signer/runtime metadata      | `SIGNER_DB`        | `packages/sdk-server-ts/migrations/d1-signer`               |
 | threshold/session/admission  | `THRESHOLD_STORE`  | `ThresholdStoreDurableObject` SQLite Durable Object storage |
 | dashboard and recovery files | R2                 | backup/export jobs and SDK publish workflows                |
