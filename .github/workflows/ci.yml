@@ -208,6 +208,15 @@ jobs:
       - name: Add wasm32 target
         run: rustup target add wasm32-unknown-unknown
 
+      - name: Install WASM C compiler
+        run: |
+          brew install llvm
+          llvm_prefix="$(brew --prefix llvm)"
+          echo "CC_wasm32_unknown_unknown=$llvm_prefix/bin/clang" >> "$GITHUB_ENV"
+          echo "AR_wasm32_unknown_unknown=$llvm_prefix/bin/llvm-ar" >> "$GITHUB_ENV"
+          echo "RANLIB_wasm32_unknown_unknown=$llvm_prefix/bin/llvm-ranlib" >> "$GITHUB_ENV"
+          "$llvm_prefix/bin/clang" --target=wasm32-unknown-unknown -c -x c /dev/null -o "$RUNNER_TEMP/wasm-toolchain-check.o"
+
       - name: Install wasm-pack
         run: |
           curl -sSf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
