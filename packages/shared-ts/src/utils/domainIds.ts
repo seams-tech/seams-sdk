@@ -141,14 +141,18 @@ function parseDomainId<T>(raw: unknown, fieldName: string): DomainIdParseResult<
   return { ok: true, value: value as T };
 }
 
-function domainIdHasEmbeddedWhitespaceOrControl(value: string): boolean {
-  return /[\s\x00-\x1F\x7F]/.test(value);
+export function hasWhitespaceOrControlCharacters(value: string): boolean {
+  for (const character of value) {
+    const code = character.charCodeAt(0);
+    if (/\s/.test(character) || code <= 31 || code === 127) return true;
+  }
+  return false;
 }
 
 export function parseWalletId(raw: unknown): DomainIdParseResult<WalletId> {
   const parsed = parseDomainId<WalletId>(raw, 'walletId');
   if (!parsed.ok) return parsed;
-  if (domainIdHasEmbeddedWhitespaceOrControl(parsed.value)) {
+  if (hasWhitespaceOrControlCharacters(parsed.value)) {
     return {
       ok: false,
       error: {
@@ -244,7 +248,7 @@ export function parseAppSessionVersion(raw: unknown): DomainIdParseResult<AppSes
 export function parseWebAuthnRpId(raw: unknown): DomainIdParseResult<WebAuthnRpId> {
   const parsed = parseDomainId<WebAuthnRpId>(raw, 'rpId');
   if (!parsed.ok) return parsed;
-  if (domainIdHasEmbeddedWhitespaceOrControl(parsed.value)) {
+  if (hasWhitespaceOrControlCharacters(parsed.value)) {
     return {
       ok: false,
       error: {

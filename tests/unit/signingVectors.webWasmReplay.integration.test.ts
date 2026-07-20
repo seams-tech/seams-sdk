@@ -27,7 +27,6 @@ test.describe('canonical vector replay via worker-facing wasm bindings', () => {
       async ({ paths, vectors }) => {
         const {
           deriveSecp256k1KeypairFromPrfSecondWasm,
-          mapAdditiveShareToThresholdSignaturesShare2pWasm,
           validateSecp256k1PublicKey33Wasm,
           addSecp256k1PublicKeys33Wasm,
           computeEip1559TxHashWasm,
@@ -115,12 +114,6 @@ test.describe('canonical vector replay via worker-facing wasm bindings', () => {
         });
         const deriveKeypairHex = `${deriveKeypair.privateKeyHex.replace(/^0x/i, '')}${deriveKeypair.publicKeyHex.replace(/^0x/i, '')}${deriveKeypair.ethereumAddress.replace(/^0x/i, '')}`;
 
-        const mappedShare = await mapAdditiveShareToThresholdSignaturesShare2pWasm({
-          additiveShare32: fromHex(secp.map_additive_share_2p.additive_share32_hex),
-          participantId: Number(secp.map_additive_share_2p.participant_id),
-          workerCtx: workerCtx as any,
-        });
-
         const validatedPk = await validateSecp256k1PublicKey33Wasm({
           publicKey33: fromHex(secp.validate_public_key_33.public_key33_hex),
           workerCtx: workerCtx as any,
@@ -176,7 +169,6 @@ test.describe('canonical vector replay via worker-facing wasm bindings', () => {
 
         return {
           deriveKeypairHex,
-          mappedShareHex: toHex(mappedShare),
           validatedPkHex: toHex(validatedPk),
           addedPkHex: toHex(addedPk),
           eipHashHex: toHex(eipHash),
@@ -193,9 +185,6 @@ test.describe('canonical vector replay via worker-facing wasm bindings', () => {
 
     expect(replay.deriveKeypairHex).toBe(
       CANONICAL_VECTORS.secp256k1.derive_keypair_from_prf_second.expected_hex,
-    );
-    expect(replay.mappedShareHex).toBe(
-      CANONICAL_VECTORS.secp256k1.map_additive_share_2p.expected_hex,
     );
     expect(replay.validatedPkHex).toBe(
       CANONICAL_VECTORS.secp256k1.validate_public_key_33.expected_hex,

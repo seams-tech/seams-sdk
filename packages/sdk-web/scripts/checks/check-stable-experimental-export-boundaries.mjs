@@ -12,7 +12,7 @@ function formatLocation(violation) {
 
 function main() {
   const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-  const repoRoot = path.resolve(scriptDir, '../../..');
+  const repoRoot = path.resolve(scriptDir, '../../../..');
 
   const result = findStableExperimentalExportBoundaryViolations(repoRoot);
   if (result.error) {

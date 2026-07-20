@@ -243,7 +243,9 @@ export function createCloudflareCron(opts: CloudflareCronOptions = {}): Schedule
   const billingFinalizationEnabled = Boolean(billingFinalization);
   const billingFinalizationOrgIds = Array.from(
     new Set(
-      (Array.isArray(billingFinalization?.orgIds) ? billingFinalization?.orgIds : [])
+      (billingFinalization && Array.isArray(billingFinalization.orgIds)
+        ? billingFinalization.orgIds
+        : [])
         .map((orgId) => String(orgId || '').trim())
         .filter(Boolean),
     ),
@@ -255,7 +257,9 @@ export function createCloudflareCron(opts: CloudflareCronOptions = {}): Schedule
   const runtimeSnapshotOutboxEnabled = Boolean(runtimeSnapshotOutbox);
   const runtimeSnapshotOutboxOrgIds = Array.from(
     new Set(
-      (Array.isArray(runtimeSnapshotOutbox?.orgIds) ? runtimeSnapshotOutbox?.orgIds : [])
+      (runtimeSnapshotOutbox && Array.isArray(runtimeSnapshotOutbox.orgIds)
+        ? runtimeSnapshotOutbox.orgIds
+        : [])
         .map((orgId) => String(orgId || '').trim())
         .filter(Boolean),
     ),
@@ -267,7 +271,9 @@ export function createCloudflareCron(opts: CloudflareCronOptions = {}): Schedule
   const webhookRetryDispatchEnabled = Boolean(webhookRetryDispatch);
   const webhookRetryDispatchOrgIds = Array.from(
     new Set(
-      (Array.isArray(webhookRetryDispatch?.orgIds) ? webhookRetryDispatch?.orgIds : [])
+      (webhookRetryDispatch && Array.isArray(webhookRetryDispatch.orgIds)
+        ? webhookRetryDispatch.orgIds
+        : [])
         .map((orgId) => String(orgId || '').trim())
         .filter(Boolean),
     ),

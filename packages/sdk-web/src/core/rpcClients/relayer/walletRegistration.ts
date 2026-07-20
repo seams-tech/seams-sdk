@@ -1638,7 +1638,7 @@ export function parseWalletAddSignerFinalizeResponse(args: {
   );
   const rpId = requireResponseRpId(record.rpId, responseName);
   switch (record.kind) {
-    case 'near_ed25519':
+    case 'near_ed25519': {
       if (record.ecdsa !== undefined) {
         throw new Error(`${responseName} response mixed signer branches`);
       }
@@ -1664,6 +1664,7 @@ export function parseWalletAddSignerFinalizeResponse(args: {
         }),
         ed25519,
       };
+    }
     case 'evm_family_ecdsa': {
       if (record.ed25519 !== undefined || record.credentialIdB64u !== undefined) {
         throw new Error(`${responseName} response mixed signer branches`);

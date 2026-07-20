@@ -1,3 +1,5 @@
+/* global IdentityTransformStream */
+
 class RpcIdentityBytePipe {
   constructor() {
     const pipe = new IdentityTransformStream();
@@ -15,7 +17,7 @@ class RpcIdentityBytePipe {
 
   write(chunk) {
     if (!(chunk instanceof Uint8Array)) {
-      throw new TypeError("Yao RPC pipe requires byte chunks");
+      throw new TypeError('Yao RPC pipe requires byte chunks');
     }
     return this.requireWriter().write(chunk.slice());
   }

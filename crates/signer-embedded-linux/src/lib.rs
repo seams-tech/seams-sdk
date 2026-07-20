@@ -1,5 +1,6 @@
 pub use signer_core::codec;
 pub use signer_core::error;
+#[cfg(feature = "webauthn-p256")]
 pub use signer_core::webauthn_p256;
 
 #[cfg(feature = "secp256k1")]

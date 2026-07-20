@@ -1322,7 +1322,7 @@ export interface RouterApiWebAuthnService {
   ): Promise<RouterApiMethodTypes['verifyWebAuthnSyncAccount']['result']>;
 }
 
-export interface RouterApiThresholdRuntimeService extends RouterAbSigningRuntimeService {}
+export type RouterApiThresholdRuntimeService = RouterAbSigningRuntimeService;
 
 export interface RouterApiNearFundingService {
   fundImplicitNearAccount(

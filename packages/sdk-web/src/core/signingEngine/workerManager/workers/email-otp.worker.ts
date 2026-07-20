@@ -3068,7 +3068,7 @@ async function completeEmailOtpUnlockFromSecret32(args: {
   });
   const unlockChallengeId = readString(challenge.challengeId, 'challengeId');
   const unlockChallengeB64u = readString(challenge.challengeB64u, 'challengeB64u');
-  let challengeDigest32: Uint8Array | null = base64UrlDecode(unlockChallengeB64u);
+  const challengeDigest32: Uint8Array | null = base64UrlDecode(unlockChallengeB64u);
   if (challengeDigest32.length !== 32) {
     zeroizeBytes(challengeDigest32);
     throw new Error('wallet/unlock/challenge challengeB64u must decode to 32 bytes');
@@ -3674,7 +3674,7 @@ async function buildEmailOtpEcdsaClientRootProof(args: {
   const digest32B64u = await computeEcdsaDerivationRoleLocalFirstBootstrapRootProofDigest32B64u(
     args.bootstrapIdentity,
   );
-  let digest32: Uint8Array | null = base64UrlDecode(digest32B64u);
+  const digest32: Uint8Array | null = base64UrlDecode(digest32B64u);
   let clientRootPublicKey33: Uint8Array | null = null;
   let signature65: Uint8Array | null = null;
   try {

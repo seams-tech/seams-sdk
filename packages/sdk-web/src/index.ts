@@ -45,9 +45,6 @@ export type {
 
 export { DEFAULT_WAIT_STATUS } from './core/types/rpc';
 
-export * from './core/signingEngine/threshold/ed25519/yaoClient';
-export * from './core/signingEngine/threshold/ed25519/yaoActiveClientRegistry';
-
 // === Device Linking Types ===
 export {
   AccountSyncEventPhase,

@@ -1,6 +1,6 @@
 import type { ConsoleEnvironment, ConsoleOrganization, ConsoleProject } from '../orgProjectEnv';
 
-export interface GetConsoleOnboardingStateRequest {}
+export type GetConsoleOnboardingStateRequest = Readonly<Record<string, never>>;
 
 export type ConsoleOnboardingStep = 'organization' | 'project' | 'complete';
 export type ConsoleOnboardingTelemetryOperation = 'state' | 'organization' | 'project';

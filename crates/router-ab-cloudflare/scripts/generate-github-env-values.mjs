@@ -1521,7 +1521,7 @@ function extractWorkflowJob(workflowSource, jobName) {
     throw new Error(`workflow does not define jobs: ${jobName}`);
   }
   const jobsSource = workflowSource.slice(jobsIndex);
-  const jobPattern = /^  ([A-Za-z0-9_-]+):\s*$/gm;
+  const jobPattern = /^ {2}([A-Za-z0-9_-]+):\s*$/gm;
   const matches = [...jobsSource.matchAll(jobPattern)];
   const matchIndex = matches.findIndex((match) => match[1] === jobName);
   if (matchIndex === -1) {

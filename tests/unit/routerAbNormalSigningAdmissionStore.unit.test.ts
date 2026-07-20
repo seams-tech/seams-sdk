@@ -155,7 +155,7 @@ function ecdsaAdmissionInput(
 
 test.describe('Router A/B normal-signing admission store', () => {
   test('Cloudflare Durable Object store preserves admission and quota semantics', async () => {
-    let nowMs = 1_000;
+    const nowMs = 1_000;
     const store = createCloudflareDurableObjectRouterAbNormalSigningAdmissionStore({
       namespace: createMemoryDurableObjectNamespace(),
       storageNamespace: 'test-namespace',
@@ -207,7 +207,7 @@ test.describe('Router A/B normal-signing admission store', () => {
   });
 
   test('accepts the first request and treats the same request id as existing work', async () => {
-    let nowMs = 1_000;
+    const nowMs = 1_000;
     const store = createInMemoryRouterAbNormalSigningAdmissionStore({ now: () => nowMs });
     const adapter = createRouterAbNormalSigningAdmissionAdapter(store, { now: () => nowMs });
     const input = ed25519AdmissionInput();
@@ -217,7 +217,7 @@ test.describe('Router A/B normal-signing admission store', () => {
   });
 
   test('accepts distinct active request ids for the same signing scope', async () => {
-    let nowMs = 1_000;
+    const nowMs = 1_000;
     const store = createInMemoryRouterAbNormalSigningAdmissionStore({ now: () => nowMs });
     const adapter = createRouterAbNormalSigningAdmissionAdapter(store, { now: () => nowMs });
     const input = ed25519AdmissionInput();
@@ -234,7 +234,7 @@ test.describe('Router A/B normal-signing admission store', () => {
   });
 
   test('expires quota reservations before accepting later work', async () => {
-    let nowMs = 1_000;
+    const nowMs = 1_000;
     const store = createInMemoryRouterAbNormalSigningAdmissionStore({ now: () => nowMs });
     const adapter = createRouterAbNormalSigningAdmissionAdapter(store, { now: () => nowMs });
 
@@ -250,7 +250,7 @@ test.describe('Router A/B normal-signing admission store', () => {
   });
 
   test('expires exact lifecycle reservations before the signing request expiry', async () => {
-    let nowMs = 1_000;
+    const nowMs = 1_000;
     const store = createInMemoryRouterAbNormalSigningAdmissionStore({ now: () => nowMs });
     const input = ecdsaAdmissionInput({ expiresAtMs: 60_000 });
 
@@ -274,7 +274,7 @@ test.describe('Router A/B normal-signing admission store', () => {
   });
 
   test('keeps Ed25519 and ECDSA quota scopes separate', async () => {
-    let nowMs = 1_000;
+    const nowMs = 1_000;
     const store = createInMemoryRouterAbNormalSigningAdmissionStore({ now: () => nowMs });
     const adapter = createRouterAbNormalSigningAdmissionAdapter(store, { now: () => nowMs });
 
@@ -283,7 +283,7 @@ test.describe('Router A/B normal-signing admission store', () => {
   });
 
   test('maps project policy rejection before quota reservation', async () => {
-    let nowMs = 1_000;
+    const nowMs = 1_000;
     const store = createInMemoryRouterAbNormalSigningAdmissionStore({ now: () => nowMs });
     const adapter = createRouterAbNormalSigningAdmissionAdapter(store, { now: () => nowMs });
     const input = ed25519AdmissionInput();
@@ -304,7 +304,7 @@ test.describe('Router A/B normal-signing admission store', () => {
   });
 
   test('maps abuse rate-limit and rejection decisions before quota reservation', async () => {
-    let nowMs = 1_000;
+    const nowMs = 1_000;
     const store = createInMemoryRouterAbNormalSigningAdmissionStore({ now: () => nowMs });
     const adapter = createRouterAbNormalSigningAdmissionAdapter(store, { now: () => nowMs });
     const input = ed25519AdmissionInput();
@@ -330,7 +330,7 @@ test.describe('Router A/B normal-signing admission store', () => {
   });
 
   test('rejects expired requests before store decisions run', async () => {
-    let nowMs = 5_000;
+    const nowMs = 5_000;
     const store = createInMemoryRouterAbNormalSigningAdmissionStore({ now: () => nowMs });
     const adapter = createRouterAbNormalSigningAdmissionAdapter(store, { now: () => nowMs });
 

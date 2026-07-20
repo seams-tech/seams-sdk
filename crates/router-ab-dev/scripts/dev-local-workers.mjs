@@ -12,6 +12,7 @@ import { prepareRouterAbD1LocalRuntimeConfig } from './d1-local-runtime-config.m
 import { prepareRouterAbStrictLocalRuntimeConfigs } from './strict-local-runtime-config.mjs';
 
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url));
+const ansiSequencePattern = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, 'g');
 dotenv.config({ path: join(repoRoot, '.env.intended.local') });
 const gatewayHost = '127.0.0.1';
 const gatewayPort = 9090;
@@ -1414,7 +1415,7 @@ function clip(value, width) {
 }
 
 function stripAnsi(value) {
-  return value.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
+  return value.replace(ansiSequencePattern, '');
 }
 
 function readEnvFile(path) {

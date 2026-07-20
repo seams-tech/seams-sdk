@@ -674,7 +674,7 @@ test.describe('console billing service prepaid model', () => {
   });
 
   test('in-memory service derives invoice projections from purchases and ledger entries', async () => {
-    let current = new Date('2026-03-20T00:00:00.000Z');
+    const current = new Date('2026-03-20T00:00:00.000Z');
     const service = createInMemoryConsoleBillingService({
       now: () => current,
     });

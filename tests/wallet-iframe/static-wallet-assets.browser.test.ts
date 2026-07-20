@@ -141,15 +141,17 @@ test('static wallet-service loads workers and worker WASM from dist/public', asy
         function workerLoadResult(route: string): Promise<WorkerLoadResult> {
           return new Promise((resolve) => {
             let settled = false;
-            let timeout: number | undefined;
             let worker: Worker | undefined;
             const finish = (result: WorkerLoadResult) => {
               if (settled) return;
               settled = true;
-              if (timeout !== undefined) clearTimeout(timeout);
+              clearTimeout(timeout);
               if (worker) worker.terminate();
               resolve(result);
             };
+            const timeout = window.setTimeout(() => {
+              finish({ route, ok: true, message: 'module worker loaded' });
+            }, 750);
             try {
               worker = new Worker(route, { type: 'module' });
             } catch (error) {
@@ -160,9 +162,6 @@ test('static wallet-service loads workers and worker WASM from dist/public', asy
               });
               return;
             }
-            timeout = window.setTimeout(() => {
-              finish({ route, ok: true, message: 'module worker loaded' });
-            }, 750);
             worker.addEventListener('message', () => {
               finish({ route, ok: true, message: 'worker posted ready message' });
             });

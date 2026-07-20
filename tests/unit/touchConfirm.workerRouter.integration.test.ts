@@ -587,7 +587,7 @@ test.describe('UserConfirm worker router', () => {
           }
         };
 
-        let restoreResolution: unknown = { state: 'pending' };
+        const restoreResolution: unknown = { state: 'pending' };
         const waitForPosted = async (index: number) => {
           for (let i = 0; i < 100; i += 1) {
             if (postedMessages[index]) return postedMessages[index];
@@ -720,7 +720,7 @@ test.describe('UserConfirm worker router', () => {
           }
         };
 
-        let restoreResolution: unknown = { state: 'pending' };
+        const restoreResolution: unknown = { state: 'pending' };
         const waitForPosted = async (index: number) => {
           for (let i = 0; i < 100; i += 1) {
             if (postedMessages[index]) return postedMessages[index];
