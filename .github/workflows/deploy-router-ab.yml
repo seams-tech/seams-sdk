@@ -343,8 +343,8 @@ jobs:
     env:
       WORKER_ENV: ${{ inputs.target == 'staging' && 'staging' || '' }}
       ROUTER_AB_USE_PREBUILT: '1'
-      ROUTER_AB_DEPLOY_TARGET: ${{ env.DEPLOY_TARGET }}
-      ROUTER_AB_DEPLOY_SHA: ${{ env.DEPLOY_SHA }}
+      ROUTER_AB_DEPLOY_TARGET: ${{ inputs.target }}
+      ROUTER_AB_DEPLOY_SHA: ${{ inputs.deploy_sha || github.sha }}
       ROUTER_AB_ARTIFACT_IDENTITY_JSON: '{"profile":"release","role":"signing-worker"}'
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -473,8 +473,8 @@ jobs:
     env:
       WORKER_ENV: ${{ inputs.target == 'staging' && 'staging' || '' }}
       ROUTER_AB_USE_PREBUILT: '1'
-      ROUTER_AB_DEPLOY_TARGET: ${{ env.DEPLOY_TARGET }}
-      ROUTER_AB_DEPLOY_SHA: ${{ env.DEPLOY_SHA }}
+      ROUTER_AB_DEPLOY_TARGET: ${{ inputs.target }}
+      ROUTER_AB_DEPLOY_SHA: ${{ inputs.deploy_sha || github.sha }}
       ROUTER_AB_ARTIFACT_IDENTITY_JSON: '{"profile":"release","role":"deriver-a"}'
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -617,8 +617,8 @@ jobs:
     env:
       WORKER_ENV: ${{ inputs.target == 'staging' && 'staging' || '' }}
       ROUTER_AB_USE_PREBUILT: '1'
-      ROUTER_AB_DEPLOY_TARGET: ${{ env.DEPLOY_TARGET }}
-      ROUTER_AB_DEPLOY_SHA: ${{ env.DEPLOY_SHA }}
+      ROUTER_AB_DEPLOY_TARGET: ${{ inputs.target }}
+      ROUTER_AB_DEPLOY_SHA: ${{ inputs.deploy_sha || github.sha }}
       ROUTER_AB_ARTIFACT_IDENTITY_JSON: '{"profile":"release","role":"deriver-b"}'
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -770,8 +770,8 @@ jobs:
     env:
       WORKER_ENV: ${{ inputs.target == 'staging' && 'staging' || '' }}
       ROUTER_AB_USE_PREBUILT: '1'
-      ROUTER_AB_DEPLOY_TARGET: ${{ env.DEPLOY_TARGET }}
-      ROUTER_AB_DEPLOY_SHA: ${{ env.DEPLOY_SHA }}
+      ROUTER_AB_DEPLOY_TARGET: ${{ inputs.target }}
+      ROUTER_AB_DEPLOY_SHA: ${{ inputs.deploy_sha || github.sha }}
       ROUTER_AB_ARTIFACT_IDENTITY_JSON: '{"profile":"release","role":"router"}'
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
