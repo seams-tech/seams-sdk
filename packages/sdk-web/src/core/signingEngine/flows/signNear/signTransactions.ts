@@ -106,8 +106,8 @@ async function resolveNearEd25519YaoCapabilitySource(
   switch (source.kind) {
     case 'active_capability':
       return source.capability;
-    case 'capability_recovery':
-      return await source.recover();
+    case 'capability_rehydration':
+      return await source.rehydrate();
     case 'email_otp_reconnect':
       throw new Error(
         '[SigningEngine][near] confirmed Email OTP reconnect did not activate an Ed25519 Yao capability',
@@ -123,7 +123,7 @@ function nearEd25519YaoResolutionRequiresBudgetReadmission(
   switch (source.kind) {
     case 'active_capability':
       return false;
-    case 'capability_recovery':
+    case 'capability_rehydration':
       return true;
     case 'email_otp_reconnect':
       return true;

@@ -11,10 +11,10 @@ import type {
   ProvisionWarmEd25519CapabilityArgs,
   ProvisionWarmEd25519CapabilityResult,
 } from '../warmCapabilities/types';
+import type { PasskeyEd25519SessionPolicyAuthority } from '../../threshold/sessionPolicy';
 import { nearProtocolProjectionFromExactLane } from '../identity/exactSigningLaneIdentity';
 
 type ConnectEd25519SessionInput = Parameters<typeof connectEd25519Session>[0];
-type Ed25519MintAuthorization = NonNullable<ConnectEd25519SessionInput['auth']>;
 
 type ResolvedEd25519ProvisionProtocol =
   | {
@@ -60,35 +60,14 @@ function sealTransportForProvisionedEd25519Session(args: {
   };
 }
 
-function passkeyCredentialIdB64uFromMintAuthorization(auth: Ed25519MintAuthorization): string {
-  switch (auth.kind) {
-    case 'app_session_jwt':
-    case 'app_session_cookie': {
-      const credentialIdB64u = String(
-        auth.localSecretSource.credential.rawId || auth.localSecretSource.credential.id || '',
-      ).trim();
-      if (!credentialIdB64u) {
-        throw new Error('[threshold-ed25519] passkey credential id is required');
-      }
-      return credentialIdB64u;
-    }
-    case 'threshold_session_policy_webauthn':
-    case 'router_ab_ed25519_yao_budget_refresh_v1': {
-      const credentialIdB64u = String(
-        auth.policySecretSource.credential.rawId || auth.policySecretSource.credential.id || '',
-      ).trim();
-      if (!credentialIdB64u) {
-        throw new Error('[threshold-ed25519] passkey credential id is required');
-      }
-      return credentialIdB64u;
-    }
-    case 'threshold_ecdsa_session_jwt':
-      throw new Error(
-        '[threshold-ed25519] threshold ECDSA authorization must provide passkey auth',
-      );
+function passkeyCredentialIdB64uFromAuthority(
+  authority: PasskeyEd25519SessionPolicyAuthority,
+): string {
+  const credentialIdB64u = String(authority.authority.factor.credentialIdB64u || '').trim();
+  if (!credentialIdB64u) {
+    throw new Error('[threshold-ed25519] passkey authority credential id is required');
   }
-  auth satisfies never;
-  throw new Error('[threshold-ed25519] unsupported mint authorization');
+  return credentialIdB64u;
 }
 
 function resolveEd25519ProvisionProtocol(
@@ -247,10 +226,6 @@ export async function provisionThresholdEd25519Session(
       source: 'email_otp',
     });
   } else {
-    const passkeyAuth = args.auth;
-    if (!passkeyAuth) {
-      throw new Error('[threshold-ed25519] passkey mint authorization is required');
-    }
     persist({
       kind: 'jwt_passkey',
       walletId: protocol.walletId,
@@ -268,7 +243,7 @@ export async function provisionThresholdEd25519Session(
       expiresAtMs,
       remainingUses,
       jwt,
-      passkeyCredentialIdB64u: passkeyCredentialIdB64uFromMintAuthorization(passkeyAuth),
+      passkeyCredentialIdB64u: passkeyCredentialIdB64uFromAuthority(args.authority),
       source: args.source,
     });
   }

@@ -85,17 +85,17 @@ export type NearEd25519YaoCapabilitySource =
   | {
       kind: 'active_capability';
       capability: NearEd25519YaoSigningCapability;
-      recover?: never;
+      rehydrate?: never;
     }
   | {
-      kind: 'capability_recovery';
-      recover: () => Promise<NearEd25519YaoSigningCapability>;
+      kind: 'capability_rehydration';
+      rehydrate: () => Promise<NearEd25519YaoSigningCapability>;
       capability?: never;
     }
   | {
       kind: 'email_otp_reconnect';
       capability?: never;
-      recover?: never;
+      rehydrate?: never;
     };
 
 export type NearPasskeyEd25519ReconnectHook = {

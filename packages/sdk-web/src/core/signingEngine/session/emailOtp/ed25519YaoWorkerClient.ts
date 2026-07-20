@@ -11,6 +11,7 @@ import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/
 import type {
   ProductEd25519YaoActivationReferenceV1,
   ProductEd25519YaoCapabilityActivationPortV1,
+  ProductEd25519YaoPendingLocalMaterialSourceV1,
   ProductEd25519YaoPendingRegistrationPortV1,
 } from '@/core/signingEngine/flows/registration/services/ed25519YaoRegistration';
 import type { Ed25519YaoActiveClientIdentityV1 } from '@/core/signingEngine/threshold/ed25519/yaoActiveClientRegistry';
@@ -443,6 +444,10 @@ class EmailOtpEd25519YaoWorkerPendingRegistrationV1 implements ProductEd25519Yao
       default:
         return assertNever(this.lifecycle);
     }
+  }
+
+  localMaterialSource(): ProductEd25519YaoPendingLocalMaterialSourceV1 {
+    return { kind: 'worker_owned' };
   }
 
   async commit(args: {

@@ -56,6 +56,7 @@ import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touch
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import type { WalletSessionActivationDeps } from '../../session/passkey/ecdsaBootstrap';
 import type { ThresholdEcdsaBootstrapStorePort } from '../../session/warmCapabilities/ecdsaBootstrapPersistence';
+import type { RehydratePasskeyEd25519YaoCapabilityAfterRefresh } from '../../session/passkey/ed25519BudgetRefresh';
 import type { Ed25519YaoActiveClientRegistryPort } from '../../threshold/ed25519/yaoActiveClientRegistry';
 import type {
   UiConfirmRuntimeBridgePort,
@@ -78,8 +79,8 @@ type RequestEmailOtpEd25519SigningChallengeArgs = Parameters<
 type RecoverEmailOtpEd25519CapabilityForSigningArgs = Parameters<
   NonNullable<NearSigningApiDeps['recoverEmailOtpEd25519CapabilityForSigning']>
 >[0];
-type RecoverPasskeyEd25519YaoCapabilityForSigning =
-  NearSigningApiDeps['recoverPasskeyEd25519YaoCapabilityForSigning'];
+type RehydratePasskeyEd25519YaoCapabilityForSigning =
+  NearSigningApiDeps['rehydratePasskeyEd25519YaoCapabilityForSigning'];
 type RecoverEmailOtpEd25519YaoCapabilitySilentlyForSigning =
   NearSigningApiDeps['recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning'];
 import type { SignerWorkerManager } from '../../workerManager/SignerWorkerManager';
@@ -180,7 +181,8 @@ export type CreateSigningEnginePortsArgs = {
   recoverEmailOtpEd25519CapabilityForSigning?: (
     args: RecoverEmailOtpEd25519CapabilityForSigningArgs,
   ) => ReturnType<NonNullable<NearSigningApiDeps['recoverEmailOtpEd25519CapabilityForSigning']>>;
-  recoverPasskeyEd25519YaoCapabilityForSigning: RecoverPasskeyEd25519YaoCapabilityForSigning;
+  rehydratePasskeyEd25519YaoCapabilityForSigning: RehydratePasskeyEd25519YaoCapabilityForSigning;
+  rehydratePasskeyEd25519YaoCapabilityAfterRefresh: RehydratePasskeyEd25519YaoCapabilityAfterRefresh;
   recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning: RecoverEmailOtpEd25519YaoCapabilitySilentlyForSigning;
   provisionThresholdEd25519Session: (
     args: ProvisionWarmEd25519CapabilityArgs,

@@ -197,9 +197,12 @@ export type BrowserSigningSurfaceEnginePortsArgs = {
   ensureSealedRefreshStartupParity: () => Promise<void>;
   getEnginePorts: () => SigningEnginePorts;
   getRegistrationPublicDeps: () => registrationPublic.RegistrationPublicDeps;
-  recoverPasskeyEd25519YaoCapabilityForSigning: Parameters<
+  rehydratePasskeyEd25519YaoCapabilityForSigning: Parameters<
     typeof createSigningEnginePorts
-  >[0]['recoverPasskeyEd25519YaoCapabilityForSigning'];
+  >[0]['rehydratePasskeyEd25519YaoCapabilityForSigning'];
+  rehydratePasskeyEd25519YaoCapabilityAfterRefresh: Parameters<
+    typeof createSigningEnginePorts
+  >[0]['rehydratePasskeyEd25519YaoCapabilityAfterRefresh'];
   recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning: Parameters<
     typeof createSigningEnginePorts
   >[0]['recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning'];
@@ -317,7 +320,10 @@ export function createBrowserSigningSurfaceEnginePorts(
       }),
     recoverEmailOtpEd25519CapabilityForSigning: (recoveryArgs) =>
       recoverEmailOtpEd25519CapabilityForSigning({ assembly: args, request: recoveryArgs }),
-    recoverPasskeyEd25519YaoCapabilityForSigning: args.recoverPasskeyEd25519YaoCapabilityForSigning,
+    rehydratePasskeyEd25519YaoCapabilityForSigning:
+      args.rehydratePasskeyEd25519YaoCapabilityForSigning,
+    rehydratePasskeyEd25519YaoCapabilityAfterRefresh:
+      args.rehydratePasskeyEd25519YaoCapabilityAfterRefresh,
     recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning:
       args.recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning,
     provisionThresholdEd25519Session: (provisionArgs) =>
