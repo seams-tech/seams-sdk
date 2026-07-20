@@ -140,16 +140,18 @@ jobs:
       - name: Apply remote console D1 migrations
         working-directory: packages/console-server-ts
         run: |
-          pnpm exec wrangler d1 migrations apply CONSOLE_DB \
-            --remote \
-            --config "$WRANGLER_CONFIG"
+          node scripts/apply-remote-d1-migrations.mjs \
+            --database CONSOLE_DB \
+            --config "$WRANGLER_CONFIG" \
+            --migrations-dir migrations/d1-console
 
       - name: Apply remote signer D1 migrations
         working-directory: packages/console-server-ts
         run: |
-          pnpm exec wrangler d1 migrations apply SIGNER_DB \
-            --remote \
-            --config "$WRANGLER_CONFIG"
+          node scripts/apply-remote-d1-migrations.mjs \
+            --database SIGNER_DB \
+            --config "$WRANGLER_CONFIG" \
+            --migrations-dir ../sdk-server-ts/migrations/d1-signer
 
       - name: Bootstrap Gateway tenant and publishable key
         working-directory: packages/console-server-ts
