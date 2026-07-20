@@ -97,10 +97,8 @@ export function createWalletIframe(opts: {
   trackIframeLoad(iframe);
 
   const src = opts.walletServiceUrl.toString();
-  console.debug('[IframeTransport] mount: external origin', src);
   iframe.src = src;
 
   document.body.appendChild(iframe);
-  console.debug('[IframeTransport] mount: iframe appended');
   return iframe;
 }

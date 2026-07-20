@@ -200,12 +200,12 @@ function summarizeThresholdEcdsaCommitRecord(
   };
 }
 
-function logThresholdEcdsaCommitDiagnostic(
+function logThresholdEcdsaCommitFailure(
   message: string,
   details: Record<string, unknown>,
 ): void {
   try {
-    console.info(`[SigningEngine][ecdsa][commit] ${message}`, details);
+    console.error(`[SigningEngine][ecdsa][commit] ${message}`, details);
   } catch {}
 }
 
@@ -314,14 +314,6 @@ export async function commitWorkerProvisionedThresholdEcdsaSession(
       bootstrap: canonicalBootstrap,
       record,
     });
-    if (args.source === 'email_otp') {
-      logThresholdEcdsaCommitDiagnostic('Email OTP ECDSA session record committed', {
-        walletId: args.walletId,
-        requestedChainTarget: thresholdEcdsaChainTargetKey(args.chainTarget),
-        bootstrap: summarizeThresholdEcdsaCommitBootstrap(canonicalBootstrap),
-        record: summarizeThresholdEcdsaCommitRecord(record),
-      });
-    }
     return { bootstrap: canonicalBootstrap, record };
   });
 }
@@ -360,7 +352,7 @@ export async function commitEvmFamilyThresholdEcdsaSessions(
       lane: toExactEcdsaSigningLaneIdentity(committed.record),
     });
   } catch (error) {
-    logThresholdEcdsaCommitDiagnostic('ECDSA warm capability assertion failed after commit', {
+    logThresholdEcdsaCommitFailure('ECDSA warm capability assertion failed after commit', {
       walletId: args.walletId,
       source: args.source,
       chainTarget: thresholdEcdsaChainTargetKey(args.chainTarget),
@@ -369,17 +361,6 @@ export async function commitEvmFamilyThresholdEcdsaSessions(
       error: error instanceof Error ? error.message : String(error),
     });
     throw error;
-  }
-  if (args.source === 'email_otp') {
-    logThresholdEcdsaCommitDiagnostic('Email OTP ECDSA warm capability ready', {
-      walletId: args.walletId,
-      chainTarget: thresholdEcdsaChainTargetKey(args.chainTarget),
-      bootstrap: summarizeThresholdEcdsaCommitBootstrap(bootstrap),
-      warmCapabilityState: warmCapability.state,
-      record: warmCapability.record
-        ? summarizeThresholdEcdsaCommitRecord(warmCapability.record)
-        : { present: false },
-    });
   }
   return {
     bootstrap,
