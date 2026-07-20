@@ -895,10 +895,6 @@ export class WalletIframeRouter {
         this.state.port.start?.();
         this.state.ready = true;
       }
-      console.debug(
-        '[WalletIframeRouter] init: %s',
-        this.state.ready ? 'connected' : 'deferred (autoMount=false)',
-      );
       const signingSessionPersistenceMode = this.opts.signingSessionPersistenceMode;
       const signingSessionSeal =
         signingSessionPersistenceMode === 'sealed_refresh_v1'

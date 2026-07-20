@@ -94,9 +94,6 @@ export function getOrCreateSeamsManager(
   const state = getSingletonState();
 
   if (!state.manager) {
-    if (isDevRuntime()) {
-      console.debug('[SeamsContextProvider] Creating manager with config:', finalConfig);
-    }
     state.manager = new SeamsWeb(config, nearClient);
     state.configKey = nextKey;
     return state.manager;

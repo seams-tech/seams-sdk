@@ -1742,46 +1742,6 @@ function rawThresholdSessionIdsFromSealedStoreRow(value: unknown): {
   return normalizeThresholdSessionIdsFromStoredRecord(obj);
 }
 
-function sealedSessionCurrentSummary(record: CurrentSealedSessionRecord): Record<string, unknown> {
-  return {
-    storeKey: record.storeKey,
-    walletId: record.walletId || null,
-    authMethod: record.authMethod,
-    curve: record.curve,
-    signingGrantId: record.signingGrantId,
-    thresholdSessionIds: record.thresholdSessionIds,
-    updatedAtMs: record.updatedAtMs,
-  };
-}
-
-function logSealedSessionCurrentRecord(args: {
-  operation: string;
-  record: CurrentSealedSessionRecord;
-}): void {
-  console.debug('[SigningSessionSealedStore] sealed record boundary outcome', {
-    operation: args.operation,
-    outcome: 'current',
-    ...sealedSessionCurrentSummary(args.record),
-  });
-}
-
-function logSealedSessionDeletedRecord(args: {
-  operation: string;
-  storeKey: string | null;
-  walletId: string | null;
-  reason: string;
-  safeSummary?: Record<string, unknown>;
-}): void {
-  console.info('[SigningSessionSealedStore] sealed record boundary outcome', {
-    operation: args.operation,
-    outcome: 'deleted',
-    storeKey: args.storeKey,
-    walletId: args.walletId,
-    reason: args.reason,
-    ...(args.safeSummary ? { safeSummary: args.safeSummary } : {}),
-  });
-}
-
 function logSealedSessionClassification(args: {
   operation: string;
   classification: Exclude<
@@ -1798,7 +1758,7 @@ function logSealedSessionClassification(args: {
     classificationKind: args.classification.kind,
     ...args.classification,
   };
-  console.warn('[SigningSessionSealedStore] sealed record boundary outcome', payload);
+  console.warn('[SigningSessionSealedStore] rejected sealed record', payload);
 }
 
 export function buildCurrentSealedSessionRecord(
@@ -2020,13 +1980,6 @@ async function readRecordByThresholdSessionId(
     logSealedSessionClassification({ operation, classification });
     if (classification.kind === 'delete_required' || classification.kind === 'malformed') {
       deletePrimaryKeys.push(entry.primaryKey);
-      logSealedSessionDeletedRecord({
-        operation,
-        storeKey: classification.storeKey,
-        walletId: classification.walletId,
-        reason: classification.reason,
-        safeSummary: classification.safeSummary,
-      });
     }
     if (classification.kind === 'user_action_required') {
       await signingSessionSealsRepository.deleteSealedRecords(deletePrimaryKeys);
@@ -2048,13 +2001,6 @@ async function deleteRecordByThresholdSessionId(
       const record = normalizeSigningSessionSealedStoreRecord(entry.value);
       if (record?.storeKey && recordMatchesFilter(record, thresholdSessionId, filter)) {
         deletePrimaryKeys.push(entry.primaryKey);
-        logSealedSessionDeletedRecord({
-          operation: 'delete',
-          storeKey: record.storeKey,
-          walletId: record.walletId || null,
-          reason: 'explicit_delete',
-          safeSummary: sealedSessionCurrentSummary(record),
-        });
       }
     }
     await signingSessionSealsRepository.deleteSealedRecords(deletePrimaryKeys);
@@ -2114,13 +2060,6 @@ export async function listExactSealedSessionsForWallet(args: {
         });
         if (classification.kind === 'delete_required' || classification.kind === 'malformed') {
           deletePrimaryKeys.push(value.primaryKey);
-          logSealedSessionDeletedRecord({
-            operation: 'list exact account records',
-            storeKey: classification.storeKey,
-            walletId: classification.walletId,
-            reason: classification.reason,
-            safeSummary: classification.safeSummary,
-          });
         }
         if (classification.kind === 'user_action_required') {
           await signingSessionSealsRepository.deleteSealedRecords(deletePrimaryKeys);
@@ -2185,13 +2124,6 @@ export async function listEcdsaSealedSessionsForWallet(args: {
         });
         if (classification.kind === 'delete_required' || classification.kind === 'malformed') {
           deletePrimaryKeys.push(value.primaryKey);
-          logSealedSessionDeletedRecord({
-            operation: 'list wallet ecdsa records',
-            storeKey: classification.storeKey,
-            walletId: classification.walletId,
-            reason: classification.reason,
-            safeSummary: classification.safeSummary,
-          });
         }
         if (classification.kind === 'user_action_required') {
           await signingSessionSealsRepository.deleteSealedRecords(deletePrimaryKeys);
@@ -2225,21 +2157,10 @@ export async function writeExactSealedSession(record: CurrentSealedSessionRecord
     return;
   }
   const currentRecord = classification.record;
-  logSealedSessionCurrentRecord({
-    operation: 'write exact sealed session',
-    record: currentRecord,
-  });
 
   const staleRecords = await listSameScopeRecords(currentRecord);
   for (const staleRecord of staleRecords) {
     deleteResolvedIdentityForSealedRecord(staleRecord, 'same_scope_replaced');
-    logSealedSessionDeletedRecord({
-      operation: 'write exact sealed session',
-      storeKey: staleRecord.storeKey,
-      walletId: staleRecord.walletId || null,
-      reason: 'same_scope_replaced',
-      safeSummary: sealedSessionCurrentSummary(staleRecord),
-    });
   }
   await signingSessionSealsRepository.replaceSealedRecord({
     row: sealedRecordStorageRow(currentRecord),

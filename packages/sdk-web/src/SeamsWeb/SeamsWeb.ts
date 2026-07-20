@@ -308,6 +308,10 @@ function recordEmailOtpUnlockElapsedTiming(
   timings[bucket] += Math.max(0, Math.round(durationMs));
 }
 
+function isEmailOtpUnlockDiagnosticsEnabled(): boolean {
+  return Reflect.get(globalThis, '__SEAMS_EMAIL_OTP_UNLOCK_DIAGNOSTICS') === true;
+}
+
 function logEmailOtpUnlockTimingSummary(input: {
   status: EmailOtpUnlockTimingSummary['status'];
   mode: EmailOtpUnlockTimingSummary['mode'];
@@ -318,6 +322,7 @@ function logEmailOtpUnlockTimingSummary(input: {
   chainTarget?: ThresholdEcdsaChainTarget;
   error?: unknown;
 }): void {
+  if (!isEmailOtpUnlockDiagnosticsEnabled()) return;
   const entries = Object.entries(input.timings) as [EmailOtpUnlockTimingBucket, number][];
   const topBuckets = entries
     .filter(([, durationMs]) => durationMs > 0)
@@ -339,7 +344,6 @@ function logEmailOtpUnlockTimingSummary(input: {
     ...(errorMessage ? { errorMessage } : {}),
   };
   console.info('[EmailOtpUnlock] timing summary', summary);
-  console.info(`[EmailOtpUnlock] timing summary ${JSON.stringify(summary)}`);
 }
 
 function emailOtpUnlockPrewarmScopeFromBinding(
@@ -492,6 +496,7 @@ function buildEmailOtpEcdsaUnlockActivationPlan(args: {
 }
 
 function logEmailOtpUnlockActivationPlan(plan: EmailOtpUnlockActivationPlan): void {
+  if (!isEmailOtpUnlockDiagnosticsEnabled()) return;
   console.info('[EmailOtpUnlock] activation plan constructed', {
     kind: plan.kind,
     mode: plan.mode,

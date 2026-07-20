@@ -103,7 +103,6 @@ export class SeamsWalletDBManager {
     if (!this.dbPromise) {
       const dbName = this.config.dbName;
       const dbVersion = this.config.dbVersion;
-      console.info('[SeamsWalletDBManager] Opening IndexedDB.', { dbName, dbVersion });
       let blockedTimer: ReturnType<typeof setTimeout> | null = null;
       let rejectBlockedOpen: ((error: Error) => void) | null = null;
       const blockedOpen = new Promise<IDBPDatabase>((_resolve, reject) => {
@@ -169,17 +168,7 @@ export class SeamsWalletDBManager {
         `[SeamsWalletDBManager] IndexedDB connection timed out for ${this.config.dbName}. Close other tabs using this app and retry.`,
       ),
     );
-    console.info('[SeamsWalletDBManager] IndexedDB transaction connection ready.', {
-      dbName: this.config.dbName,
-      mode,
-      stores,
-    });
     const tx = db.transaction([...stores], mode);
-    console.info('[SeamsWalletDBManager] IndexedDB transaction created.', {
-      dbName: this.config.dbName,
-      mode,
-      stores,
-    });
     const context: SeamsWalletTransactionContext = {
       db,
       tx,
