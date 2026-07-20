@@ -267,7 +267,7 @@ export function createInMemoryConsoleOrgProjectEnvService(
   }
 
   function ensureOrgStoreForWrite(ctx: ConsoleOrgProjectEnvContext): OrgStore {
-    let store = stores.get(ctx.orgId);
+    const store = stores.get(ctx.orgId);
     if (!store) return createOrgStore(ctx);
     return store;
   }

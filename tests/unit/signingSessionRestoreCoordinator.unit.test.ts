@@ -319,7 +319,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
   test('does not cache exact-purpose misses when only purpose-mismatched records exist', async () => {
     const cache = createSigningSessionRestoreCache();
     let listCalls = 0;
-    let restoreCalls = 0;
+    const restoreCalls = 0;
 
     const input = ecdsaRestoreInput();
     const ports = {
@@ -343,7 +343,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
 
   test('ignores expired and exhausted exact-purpose sealed records', async () => {
     const cache = createSigningSessionRestoreCache();
-    let restoreCalls = 0;
+    const restoreCalls = 0;
 
     const result = await restorePersistedSessionForSigningCommand(
       ecdsaRestoreInput(),
@@ -411,7 +411,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
   });
 
   test('restores exhausted passkey exact-purpose sealed records for step-up reconnect', async () => {
-    let restoreCalls = 0;
+    const restoreCalls = 0;
 
     const result = await restorePersistedSessionForSigningCommand(
       ecdsaRestoreInput({ authMethod: 'passkey' }),
@@ -435,7 +435,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
   });
 
   test('fails closed before restore when duplicate exact-purpose records exist', async () => {
-    let restoreCalls = 0;
+    const restoreCalls = 0;
 
     const result = await restorePersistedSessionForSigningCommand(
       ecdsaRestoreInput(),
@@ -520,7 +520,7 @@ test.describe('discoverPersistedSessionsForWalletCommand', () => {
         ecdsaRestore: undefined,
       },
     ];
-    let restoreCalls = 0;
+    const restoreCalls = 0;
 
     const result = await discoverPersistedSessionsForWalletCommand(
       {
@@ -552,7 +552,7 @@ test.describe('discoverPersistedSessionsForWalletCommand', () => {
   });
 
   test('does not perform broad account-wide restore during discovery polling', async () => {
-    let restoreCalls = 0;
+    const restoreCalls = 0;
 
     const input = {
       kind: 'discover_wallet_ecdsa_signing_sessions' as const,

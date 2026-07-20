@@ -1093,7 +1093,7 @@ test('Refactor 88 intended route is gated to dev and explicit CI opt-in', () => 
 test('Refactor 88 intended harness fails fast when a public action click is inert', () => {
   const source = fs.readFileSync(intendedHarnessPath, 'utf8');
   const startMethod = source.match(
-    /private async waitForIntendedPageActionStarted[\s\S]*?\n  private async closeExportViewerIfOpen/,
+    /private async waitForIntendedPageActionStarted[\s\S]*?\n {2}private async closeExportViewerIfOpen/,
   );
   expect(startMethod, 'waitForIntendedPageActionStarted method').not.toBeNull();
   expect(source).toContain('intendedPageActionStartedOrCompleted');

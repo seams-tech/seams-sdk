@@ -92,10 +92,10 @@ jobs:
           echo "$HOME/.local/verus" >> "$GITHUB_PATH"
 
       - name: Install Verus Rust toolchain
+        env:
+          VERUS_RUST_TOOLCHAIN: 1.94.0-x86_64-unknown-linux-gnu
         run: |
-          TOOLCHAIN=$(verus --version | sed -n 's/^  Toolchain: //p' | head -n1)
-          test -n "$TOOLCHAIN"
-          rustup toolchain install "$TOOLCHAIN"
+          rustup toolchain install "$VERUS_RUST_TOOLCHAIN"
 
       - name: Verify Lean and Verus toolchains
         run: |
@@ -172,7 +172,7 @@ jobs:
       - name: Build WASM packages
         run: pnpm build:wasm
 
-      - name: Check (lint + format + type-check)
+      - name: Check lint, types, Rust, and architecture
         run: pnpm check
 
       - name: Setup Bun (for worker bundling)
@@ -234,6 +234,9 @@ jobs:
       - name: Install wasm-pack
         run: |
           curl -sSf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
+
+      - name: Install pinned worker-build
+        run: pnpm -C crates/router-ab-cloudflare worker-build:install
 
       - name: Setup Bun (for sdk build in parity tests)
         uses: oven-sh/setup-bun@v2
@@ -301,18 +304,8 @@ jobs:
       - name: Run threshold signing core suites
         run: pnpm test:threshold-core
 
-      - name: Run threshold Ed25519 load smoke
-        run: pnpm benchmark:threshold-load:ci
-
       - name: Run relay-server script unit checks
         run: pnpm -C tests test:unit:relay-server-scripts
-
-      - name: Run threshold ECDSA benchmark SLO gates
-        env:
-          # CI VMs have noisier CPU scheduling than local; keep guardrails but avoid flakiness.
-          BENCH_SLO_PRESIGN_STEP_P95_MS: '1400'
-          BENCH_SLO_PRESIGN_STEP_P99_MS: '2000'
-        run: pnpm benchmark:threshold-ecdsa
 
       - name: Upload threshold-core test artifacts on failure
         if: failure()

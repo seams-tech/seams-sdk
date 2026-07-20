@@ -1,4 +1,8 @@
-import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
+import {
+  hasWhitespaceOrControlCharacters,
+  parseWalletId,
+  type WalletId,
+} from '@shared/utils/domainIds';
 
 export function isRecordValue(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -18,7 +22,7 @@ export function parseD1BoundaryWalletIdResult(raw: unknown): D1BoundaryWalletIdP
   const parsed = parseWalletId(raw);
   if (!parsed.ok) return { ok: false, code: parsed.error.code };
   const value = String(parsed.value);
-  if (/[\s\x00-\x1F\x7F]/.test(value)) return { ok: false, code: 'invalid' };
+  if (hasWhitespaceOrControlCharacters(value)) return { ok: false, code: 'invalid' };
   return { ok: true, value: parsed.value };
 }
 

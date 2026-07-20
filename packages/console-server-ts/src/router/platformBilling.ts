@@ -171,7 +171,7 @@ export async function resolvePlatformBillingLookup(input: {
   const requestedOrgId = String(input.request.orgId || '').trim();
   const requestedProjectId = String(input.request.projectId || '').trim();
 
-  let resolvedBy: PlatformBillingLookupResult['resolvedBy'] = requestedProjectId
+  const resolvedBy: PlatformBillingLookupResult['resolvedBy'] = requestedProjectId
     ? 'project_id'
     : 'org_id';
   let targetOrgId = requestedOrgId;

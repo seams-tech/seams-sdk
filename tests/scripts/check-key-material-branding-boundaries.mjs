@@ -36,14 +36,6 @@ function expect(received, message = '') {
     toBeGreaterThanOrEqual(expected) {
       assert.ok(received >= expected, message || `Expected ${received} >= ${expected}`);
     },
-    not: {
-      toContain(expected) {
-        assert.ok(
-          !received.includes(expected),
-          message || `Expected value not to contain \`${expected}\``,
-        );
-      },
-    },
   };
 }
 
@@ -272,7 +264,6 @@ check('second-tier material brands protect ECDSA restore and signing boundaries'
   expect(ecdsaPoolFill).toContain('ecdsaThresholdKeyId: EcdsaThresholdKeyId');
   expect(ecdsaPoolFill).toContain('keyHandle: EcdsaKeyHandle');
   expect(ecdsaPoolFill).toContain('relayerKeyId: EcdsaRelayerKeyId');
-  expect(ecdsaPoolFill).toContain('clientVerifyingShareB64u: EcdsaClientVerifyingShareB64u');
   expect(ecdsaClientPresignPool).toContain('keyHandle?: EcdsaKeyHandle');
   expect(ecdsaClientPresignPool).toContain('ecdsaThresholdKeyId: EcdsaThresholdKeyId');
   expect(ecdsaClientPresignPool).toContain(

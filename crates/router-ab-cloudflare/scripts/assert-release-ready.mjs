@@ -639,7 +639,7 @@ function workflowJobSource(workflowSource, jobId) {
   if (start < 0) {
     return '';
   }
-  const nextJob = workflowSource.slice(start + startMarker.length).search(/\n  [a-zA-Z0-9_]+:\n/);
+  const nextJob = workflowSource.slice(start + startMarker.length).search(/\n {2}[a-zA-Z0-9_]+:\n/);
   if (nextJob < 0) {
     return workflowSource.slice(start);
   }

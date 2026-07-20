@@ -425,7 +425,7 @@ async function runSealOperation(input: {
     }
 
     let remainingUses = budgetStatus.remainingUses;
-    let expiresAtMs = budgetStatus.expiresAtMs;
+    const expiresAtMs = budgetStatus.expiresAtMs;
     const consumePolicy = input.options.consumePolicy || 'never';
     if (shouldConsume(consumePolicy, input.operation)) {
       if (!input.options.sessionPolicy.consumeUseCount) {

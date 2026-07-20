@@ -15,9 +15,18 @@ export default [
       '**/.wrangler/**',
       '**/.turbo/**',
       '**/.vitepress/cache/**',
+      '**/.lake/**',
+      '**/.playwright-cli/**',
+      '**/.runtime/**',
       '**/coverage/**',
       '**/playwright-report/**',
       '**/test-results/**',
+      'crates/ed25519-yao-cloudflare-bench/build/**',
+      'crates/**/build/**',
+      'crates/**/bundled/**',
+      'crates/**/wasm-bench/pkg*/**',
+      'crates/**/_build/**',
+      'tools/**/target/**',
       'wasm/**/pkg/**',
       'wasm/**/target/**',
       'apps/seams-site/public/**',
@@ -100,6 +109,13 @@ export default [
     rules: {
       // Declaration files frequently need `any` to model external libs.
       '@typescript-eslint/no-explicit-any': 'off',
+    },
+  },
+
+  {
+    files: ['**/*.typecheck.ts', '**/tests/type-fixtures/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-unused-expressions': 'off',
     },
   },
 

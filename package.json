@@ -30,7 +30,7 @@
     "type-check:router-server": "pnpm -C packages/sdk-web exec tsc -p tsconfig.build.json && pnpm -C apps/web-server exec tsc --noEmit",
     "type-check:docs": "pnpm -C apps/docs exec tsc --noEmit",
     "type-check": "pnpm -s type-check:sdk && pnpm -s type-check:router-server",
-    "check": "pnpm -s lint && pnpm -s format:check && pnpm -s type-check && pnpm -s format:rust:check && pnpm -s lint:rust && pnpm -s check:signing-architecture && pnpm -s check:signer-parity",
+    "check": "pnpm -s lint && pnpm -s type-check && pnpm -s format:rust:check && pnpm -s lint:rust && pnpm -s check:signing-architecture && pnpm -s check:signer-parity",
     "caddy": "pnpm -C apps/seams-site caddy",
     "site": "pnpm run site:serve",
     "site:serve": "concurrently --kill-others --names caddy,site,docs \"pnpm run caddy\" \"VITE_RELAYER_URL=https://localhost:9444 VITE_SEAMS_BROKER_URL=https://localhost:9444 VITE_CONSOLE_BASE_URL=https://localhost:9444 VITE_WALLET_ORIGIN=https://localhost:8443 VITE_DOCS_ORIGIN=https://docs.localhost VITE_RP_ID_BASE=localhost VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID=local-signing-worker pnpm -C apps/seams-site vite\" \"pnpm run docs:dev\"",

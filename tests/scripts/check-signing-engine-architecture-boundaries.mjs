@@ -184,9 +184,9 @@ function checkSharedSigningStateMachineOwnsRunner() {
   ]) {
     assertNotContains(source, marker, 'signingStateMachine.ts');
   }
-  assertNotMatches(source, /from ['"][.\/]+api\//, 'signingStateMachine.ts');
-  assertNotMatches(source, /from ['"][.\/]+orchestration\//, 'signingStateMachine.ts');
-  assertNotMatches(source, /from ['"][.\/]+chains\//, 'signingStateMachine.ts');
+  assertNotMatches(source, /from ['"][./]+api\//, 'signingStateMachine.ts');
+  assertNotMatches(source, /from ['"][./]+orchestration\//, 'signingStateMachine.ts');
+  assertNotMatches(source, /from ['"][./]+chains\//, 'signingStateMachine.ts');
 }
 
 function checkEvmRuntimeCommandTracingUsesSharedMachinePort() {
@@ -208,8 +208,8 @@ function checkEvmRuntimeCommandTracingUsesSharedMachinePort() {
     'signingFlowRuntime.ts',
   );
   assertNotContains(uiConfirmFlow, 'for (const command of commands)', 'signingFlow.ts');
-  assertNotMatches(stateMachine, /from ['"][.\/]+api\//, 'signingStateMachine.ts');
-  assertNotMatches(stateMachine, /from ['"][.\/]+orchestration\//, 'signingStateMachine.ts');
+  assertNotMatches(stateMachine, /from ['"][./]+api\//, 'signingStateMachine.ts');
+  assertNotMatches(stateMachine, /from ['"][./]+orchestration\//, 'signingStateMachine.ts');
 }
 
 function checkNearSigningFlowsUseSharedMachineCommandSteps() {
@@ -232,8 +232,8 @@ function checkNearSigningFlowsUseSharedMachineCommandSteps() {
     ]) {
       assertNotContains(source, marker, relativePath);
     }
-    assertNotMatches(source, /from ['"][.\/]+api\//, relativePath);
-    assertNotMatches(source, /from ['"][.\/]+orchestration\//, relativePath);
+    assertNotMatches(source, /from ['"][./]+api\//, relativePath);
+    assertNotMatches(source, /from ['"][./]+orchestration\//, relativePath);
   }
 
   const transactionFlow = flowSources[0][1];
@@ -340,8 +340,8 @@ function checkEvmPostSignFinalizationCommandsLiveUnderFlows() {
   ]) {
     assertNotContains(transactionExecutor, marker, 'transactionExecutor.ts');
   }
-  assertNotMatches(postSignFinalization, /from ['"][.\/]+api\//, 'postSignFinalization.ts');
-  assertNotMatches(postSignFinalization, /from ['"][.\/]+orchestration\//, 'postSignFinalization.ts');
+  assertNotMatches(postSignFinalization, /from ['"][./]+api\//, 'postSignFinalization.ts');
+  assertNotMatches(postSignFinalization, /from ['"][./]+orchestration\//, 'postSignFinalization.ts');
 }
 
 function checkEvmThresholdAdmissionLivesUnderFlows() {
@@ -349,8 +349,8 @@ function checkEvmThresholdAdmissionLivesUnderFlows() {
     'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/thresholdAdmission.ts',
   );
 
-  assertNotMatches(admission, /from ['"][.\/]+api\//, 'thresholdAdmission.ts');
-  assertNotMatches(admission, /from ['"][.\/]+orchestration\//, 'thresholdAdmission.ts');
+  assertNotMatches(admission, /from ['"][./]+api\//, 'thresholdAdmission.ts');
+  assertNotMatches(admission, /from ['"][./]+orchestration\//, 'thresholdAdmission.ts');
 }
 
 function checkOperationModulesAvoidSigningEngineAssemblyConstruction() {

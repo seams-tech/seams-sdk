@@ -15,7 +15,7 @@ export interface CloudflareD1StagingSecretEnv extends Readonly<Record<string, un
   readonly SIGNING_ROOT_KEK_IDS?: string;
 }
 
-export interface CloudflareD1StagingSessionEnv extends Readonly<Record<string, unknown>> {}
+export type CloudflareD1StagingSessionEnv = Readonly<Record<string, unknown>>;
 
 export interface HmacSessionAdapterOptions {
   readonly secret: string;

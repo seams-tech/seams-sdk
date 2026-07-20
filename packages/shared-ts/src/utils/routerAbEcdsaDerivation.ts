@@ -1975,7 +1975,7 @@ function pushU64(out: number[], value: number): void {
   if (!Number.isSafeInteger(value) || value < 0) {
     throw new Error('canonical u64 must be a non-negative safe integer');
   }
-  let remaining = BigInt(value);
+  const remaining = BigInt(value);
   for (let shift = 56; shift >= 0; shift -= 8) {
     out.push(Number((remaining >> BigInt(shift)) & 0xffn));
   }

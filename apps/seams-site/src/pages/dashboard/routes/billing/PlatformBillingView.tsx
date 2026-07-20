@@ -294,8 +294,9 @@ export function PlatformBillingView(): React.JSX.Element {
         setSearchPerformed(true);
         setSearchError(error instanceof Error ? error.message : String(error));
       } finally {
-        if (searchRequestIdRef.current !== requestId) return;
-        setSearchLoading(false);
+        if (searchRequestIdRef.current === requestId) {
+          setSearchLoading(false);
+        }
       }
     },
     [fetchSearchResults],

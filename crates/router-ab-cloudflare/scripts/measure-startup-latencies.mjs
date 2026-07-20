@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const crateRoot = join(scriptDir, '..');
+const ansiColorSequencePattern = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
 
 const roles = [
   {
@@ -198,7 +199,7 @@ function parseUploadSize(output) {
 }
 
 function stripAnsi(value) {
-  return value.replace(/\x1b\[[0-9;]*m/g, '');
+  return value.replace(ansiColorSequencePattern, '');
 }
 
 function resolveReportPath(path) {

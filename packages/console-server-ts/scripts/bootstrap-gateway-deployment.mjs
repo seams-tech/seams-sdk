@@ -239,8 +239,16 @@ function sha256ApiKeySecret(secret) {
   return `sha256:${createHash('sha256').update(secret, 'utf8').digest('hex')}`;
 }
 
+function hasControlCharacter(value) {
+  for (const character of value) {
+    const code = character.charCodeAt(0);
+    if (code <= 31 || code === 127) return true;
+  }
+  return false;
+}
+
 function sqlText(value) {
-  if (/[\u0000-\u001f\u007f]/.test(value)) {
+  if (hasControlCharacter(value)) {
     throw new Error('SQL text values must not contain control characters');
   }
   return `'${value.replaceAll("'", "''")}'`;

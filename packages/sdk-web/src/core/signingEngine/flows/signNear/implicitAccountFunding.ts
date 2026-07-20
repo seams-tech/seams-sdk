@@ -15,7 +15,6 @@ import type {
   ThresholdEd25519SessionId,
 } from '../../session/operationState/types';
 import type { ResolvedRouterAbEd25519WalletSessionState } from '../../session/warmCapabilities/routerAbEd25519WalletSessionState';
-import type { NearTransactionSigningConfirmationResult } from '../../stepUpConfirmation/confirmOperation';
 
 const ACCESS_KEY_POLL_ATTEMPTS = 12;
 const ACCESS_KEY_POLL_DELAY_MS = 1_000;
@@ -194,7 +193,7 @@ async function fundAndReserveNearContext(args: {
 }
 
 export async function resolveConfirmedNearTransactionContext(args: {
-  confirmation: NearTransactionSigningConfirmationResult;
+  confirmation: Readonly<{ readiness: NearTransactionReadiness }>;
   ctx: NearSigningRuntimeDeps;
   nearPublicKeyStr: string;
   walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
