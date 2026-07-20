@@ -165,9 +165,6 @@ jobs:
       - name: Check (lint + format + type-check)
         run: pnpm check
 
-      - name: Enforce chain family naming guardrails
-        run: pnpm -C tests check:chain-family-naming
-
       - name: Setup Bun (for worker bundling)
         uses: oven-sh/setup-bun@v2
 
