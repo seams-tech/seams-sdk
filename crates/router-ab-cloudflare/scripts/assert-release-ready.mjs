@@ -18,6 +18,9 @@ const strictDeriverSource = readRepoFile(
 const strictSigningWorkerSource = readRepoFile(
   'crates/router-ab-cloudflare/src/strict_worker/signing_worker.rs',
 );
+const ecdsaNormalSigningTransportSource = readRepoFile(
+  'crates/router-ab-cloudflare/src/ecdsa_normal_signing_transport.rs',
+);
 const strictWorkerSource = [
   strictWorkerModuleSource,
   strictRouterSource,
@@ -269,6 +272,12 @@ requireDeployWorkflowBranchPromotionBoundary(
   deployStagingWorkflow,
   deployProductionWorkflow,
 );
+requireFunctionIncludes(
+  'P1: shared Cloudflare service dispatcher does not attach internal service auth',
+  cloudflareSource,
+  'post_service_json',
+  'set_cloudflare_internal_service_auth_header_v1',
+);
 for (const functionName of [
   'execute_cloudflare_router_ab_ecdsa_derivation_deriver_registration_service_call_v1',
   'execute_cloudflare_router_ab_ecdsa_derivation_deriver_export_service_call_v1',
@@ -276,17 +285,41 @@ for (const functionName of [
   'execute_cloudflare_router_ab_ecdsa_derivation_deriver_activation_refresh_service_call_v1',
   'execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_service_call_v1',
   'execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_refresh_service_call_v1',
+  'execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_export_share_service_call_v1',
   'execute_cloudflare_signing_worker_normal_signing_finalize_service_call_v2',
   'execute_cloudflare_signing_worker_normal_signing_prepare_service_call_v2',
-  'execute_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_prepare_service_call_v1',
-  'execute_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_finalize_service_call_v1',
+  'execute_cloudflare_deriver_peer_service_call_v1',
 ]) {
-  requireSourceRangeIncludes(
-    `P1: ${functionName} does not attach internal service auth`,
+  requireFunctionIncludes(
+    `P1: ${functionName} bypasses the authenticated service dispatcher`,
     cloudflareSource,
     functionName,
-    'let mut init = worker::RequestInit::new();',
-    'set_cloudflare_internal_service_auth_header_v1',
+    'post_service_json',
+  );
+}
+requireSourceRangeOccurrenceCount(
+  'P1: ECDSA normal-signing transport bypasses the authenticated service dispatcher',
+  ecdsaNormalSigningTransportSource,
+  'impl CloudflareRouterAbEcdsaNormalSigningServiceTransportV1',
+  'pub(crate) async fn execute_cloudflare_router_ab_ecdsa_normal_signing_prepare_with_transport_v1',
+  'post_service_json',
+  2,
+);
+for (const [functionName, transportFunctionName] of [
+  [
+    'execute_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_prepare_service_call_v1',
+    'execute_cloudflare_router_ab_ecdsa_normal_signing_prepare_with_transport_v1',
+  ],
+  [
+    'execute_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_finalize_service_call_v1',
+    'execute_cloudflare_router_ab_ecdsa_normal_signing_finalize_with_transport_v1',
+  ],
+]) {
+  requireFunctionIncludes(
+    `P1: ${functionName} bypasses the authenticated ECDSA service transport`,
+    cloudflareSource,
+    functionName,
+    transportFunctionName,
   );
 }
 for (const [label, source, needle] of [
@@ -617,6 +650,35 @@ function requireSourceRangeIncludes(label, source, startNeedle, endNeedle, requi
   const start = source.indexOf(startNeedle);
   const end = source.indexOf(endNeedle, start + startNeedle.length);
   if (start < 0 || end < 0 || !source.slice(start, end).includes(requiredNeedle)) {
+    blockers.push(label);
+  }
+}
+
+function requireFunctionIncludes(label, source, functionName, requiredNeedle) {
+  const startNeedle = `fn ${functionName}`;
+  const start = source.indexOf(startNeedle);
+  const end = source.indexOf('\n}\n', start + startNeedle.length);
+  if (start < 0 || end < 0 || !source.slice(start, end).includes(requiredNeedle)) {
+    blockers.push(label);
+  }
+}
+
+function requireSourceRangeOccurrenceCount(
+  label,
+  source,
+  startNeedle,
+  endNeedle,
+  requiredNeedle,
+  expectedCount,
+) {
+  const start = source.indexOf(startNeedle);
+  const end = source.indexOf(endNeedle, start + startNeedle.length);
+  if (start < 0 || end < 0) {
+    blockers.push(label);
+    return;
+  }
+  const occurrences = source.slice(start, end).split(requiredNeedle).length - 1;
+  if (occurrences !== expectedCount) {
     blockers.push(label);
   }
 }
