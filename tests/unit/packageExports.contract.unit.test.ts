@@ -36,6 +36,21 @@ function isLegacyAuthMenuExportKey(key: string): boolean {
   );
 }
 
+const retiredFacadeExportNames = [
+  'SeamsPasskey',
+  'PasskeyManagerContext',
+  'SeamsPasskeyProvider',
+  'SeamsPasskeyIframe',
+] as const;
+
+function findRetiredFacadeExports(source: string): string[] {
+  const found: string[] = [];
+  for (const name of retiredFacadeExportNames) {
+    if (source.includes(name)) found.push(name);
+  }
+  return found;
+}
+
 const browserSurfacePatterns = [
   /\bWalletIframe\b/,
   /SeamsWeb/,
@@ -106,6 +121,14 @@ test.describe('package export contracts', () => {
     );
   });
 
+  test('excludes retired facade names from public web entrypoints', () => {
+    const rootSource = readRepoFile('packages/sdk-web/src/index.ts');
+    const reactSource = readRepoFile('packages/sdk-web/src/react/index.ts');
+
+    expect(findRetiredFacadeExports(rootSource)).toEqual([]);
+    expect(findRetiredFacadeExports(reactSource)).toEqual([]);
+  });
+
   test('maps server roots to @seams/sdk-server entries', () => {
     const packageJson = readJson('packages/sdk-server-ts/package.json');
     const exportsMap = packageJson.exports;
@@ -167,9 +190,9 @@ test.describe('package export contracts', () => {
       "export * from './console/",
     );
     expect(fs.existsSync(path.join(repoRoot, 'packages/sdk-server-ts/src/console'))).toBe(false);
-    expect(
-      fs.existsSync(path.join(repoRoot, 'packages/sdk-server-ts/src/router/console.ts')),
-    ).toBe(false);
+    expect(fs.existsSync(path.join(repoRoot, 'packages/sdk-server-ts/src/router/console.ts'))).toBe(
+      false,
+    );
     expect(
       fs.existsSync(
         path.join(repoRoot, 'packages/sdk-server-ts/src/router/cloudflare/d1ConsoleServices.ts'),
@@ -221,7 +244,9 @@ test.describe('package export contracts', () => {
   test('react provider subpath exposes named and default provider exports', async () => {
     const packageJson = readJson('packages/sdk-web/package.json');
     const providerExport = packageJson.exports['./react/provider'];
-    const providerModule = await import(pathToFileURL(resolveSdkWebPath(providerExport.import)).href);
+    const providerModule = await import(
+      pathToFileURL(resolveSdkWebPath(providerExport.import)).href
+    );
 
     expect(typeof providerModule.SeamsWebProvider).toBe('function');
     expect(providerModule.default).toBe(providerModule.SeamsWebProvider);
