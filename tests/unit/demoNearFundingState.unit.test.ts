@@ -42,6 +42,16 @@ test('logged-in wallet with a missing NEAR public key has visible blocked readin
   expect(canStartDemoNearTransaction(resolution.status)).toBe(false);
 });
 
+test('transient checking status renders no text so the status slot never jolts the buttons', () => {
+  /* A "Checking..." line that mounts and unmounts a beat later shifts the
+     buttons below it on every card load — 'checking' must stay silent. */
+  expect(
+    demoNearFundingStatusText({ kind: 'checking', nearAccountId: NEAR_ACCOUNT_ID }),
+  ).toBeNull();
+  expect(demoNearFundingStatusText({ kind: 'ready', nearAccountId: NEAR_ACCOUNT_ID })).toBeNull();
+  expect(demoNearFundingStatusText({ kind: 'signed_out' })).toBeNull();
+});
+
 test('funding readiness controls NEAR transaction and delegate actions independently', () => {
   const funded = { kind: 'ready' as const, nearAccountId: NEAR_ACCOUNT_ID };
   const needsFunding = { kind: 'needs_funding' as const, nearAccountId: NEAR_ACCOUNT_ID };
