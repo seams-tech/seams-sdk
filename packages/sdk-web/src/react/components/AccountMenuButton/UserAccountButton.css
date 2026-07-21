@@ -168,10 +168,4 @@
     color 0.1s ease,
     opacity 0.1s ease,
     transform 0s ease;
-  cursor: pointer;
-}
-
-.w3a-user-account--account-id:hover {
-  color: var(--w3a-colors-textPrimary);
-  text-decoration: underline;
 }

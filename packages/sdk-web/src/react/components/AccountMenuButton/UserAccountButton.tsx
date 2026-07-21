@@ -2,12 +2,6 @@ import React from 'react';
 import TouchIcon from './icons/TouchIcon';
 import type { UserAccountButtonProps } from './types';
 
-function shortenAccountId(accountId: string): string {
-  const value = accountId.trim();
-  if (value.length <= 18) return value;
-  return `${value.slice(0, 10)}...${value.slice(-6)}`;
-}
-
 export const UserAccountButton: React.FC<UserAccountButtonProps> = ({
   username,
   hideUsername,
@@ -87,7 +81,7 @@ export const UserAccountId = ({
         title={displayAccountId || undefined}
         className={`w3a-user-account--account-id ${isOpen ? 'visible' : 'hidden'}`}
       >
-        {displayAccountId ? shortenAccountId(displayAccountId) : ''}
+        {displayAccountId}
       </span>
     </div>
   );
