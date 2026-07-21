@@ -193,7 +193,20 @@ export function useDemoNearAccountFundingStatus(args: UseDemoNearAccountFundingS
       setStatus(resolution.status);
       return;
     }
-    setStatus({ kind: 'checking', nearAccountId: resolution.nearAccountId });
+    /* Re-checks keep the current definitive status (ready / needs_funding /
+       unknown) for the same account instead of downgrading to 'checking':
+       flipping to 'checking' mid-poll flashes the status line away and
+       momentarily disables the signing buttons — visible jank every 5s while
+       an account awaits funding. A fresh account still resets to 'checking'. */
+    setStatus((prev) => {
+      const prevIsSameAccount =
+        'nearAccountId' in prev && prev.nearAccountId === resolution.nearAccountId;
+      const prevIsDefinitive =
+        prev.kind === 'ready' || prev.kind === 'needs_funding' || prev.kind === 'unknown';
+      return prevIsSameAccount && prevIsDefinitive
+        ? prev
+        : { kind: 'checking', nearAccountId: resolution.nearAccountId };
+    });
     try {
       const next = await checkNearAccessKey({
         nearRpcUrl: FRONTEND_CONFIG.nearRpcUrl,

@@ -1848,7 +1848,6 @@ body:has(.h2-page) {
 }
 
 .h2-page--wallet .passkey-demo {
-  width: min(432px, 100%);
   min-height: var(--h2-wallet-demo-shell-min-height);
 }
 
