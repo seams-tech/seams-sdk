@@ -47,7 +47,6 @@ import type { PreferencesChangedPayload } from '@/SeamsWeb/walletIframe/shared/m
 import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
 import { isUserCancellationError, toError } from '@shared/utils/errors';
 import { sha256HexUtf8 } from '@shared/utils/digests';
-import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
 import {
   walletAuthAuthoritiesMatch,
@@ -150,14 +149,6 @@ import {
 import { createServerAllocatedWalletId } from '@shared/utils/registrationIntent';
 import { isObject } from '@shared/utils/validation';
 import { DEV_DEFAULT_UNLOCK_REMAINING_USES } from '@/core/signingEngine/session/budget/policy';
-
-function requireSeamsWebRegistrationRpId(value: string): WebAuthnRpId {
-  const parsed = parseWebAuthnRpId(value);
-  if (!parsed.ok) {
-    throw new Error(parsed.error.message);
-  }
-  return parsed.value;
-}
 
 type EmailOtpEd25519YaoLoginDomainArgs = Omit<
   LoginWithEmailOtpEd25519YaoCapabilityInternalArgs,
@@ -1076,10 +1067,7 @@ export class SeamsWeb {
       );
     }
     const { wallet, nearAccountProvisioning, ...registrationOptions } = options || {};
-    const rpId = requireSeamsWebRegistrationRpId(this.signingEngine.getRpId());
-    if (!rpId) {
-      throw new Error('Missing rpId for Router API registration');
-    }
+    const rpId = this.walletIframe.resolveRegistrationRpId(this.signingEngine.getRpId());
     const provisioningPreference =
       nearAccountProvisioning ?? this.configs.registration.nearAccountProvisioning;
     const resolvedWallet =
