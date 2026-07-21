@@ -6,6 +6,8 @@ type CapturedFetch = {
   init?: RequestInit;
 };
 
+const UNSCOPED_SESSION_EXCHANGE = { kind: 'unscoped' } as const;
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -53,10 +55,16 @@ test.describe('exchangeSession', () => {
         });
       }) as typeof fetch;
 
-      const result = await exchangeSession('https://relay.example/', '/session/exchange', 'jwt', {
-        type: 'oidc_jwt',
-        token: 'oidc-token-1',
-      });
+      const result = await exchangeSession(
+        'https://relay.example/',
+        '/session/exchange',
+        'jwt',
+        {
+          type: 'oidc_jwt',
+          token: 'oidc-token-1',
+        },
+        UNSCOPED_SESSION_EXCHANGE,
+      );
 
       expect(result.success).toBe(true);
       expect(result.sessionUserId).toBe('alice.testnet');
@@ -85,10 +93,16 @@ test.describe('exchangeSession', () => {
         });
       }) as typeof fetch;
 
-      const result = await exchangeSession('https://relay.example', 'session/exchange', 'cookie', {
-        type: 'oidc_jwt',
-        token: 'oidc-token-2',
-      });
+      const result = await exchangeSession(
+        'https://relay.example',
+        'session/exchange',
+        'cookie',
+        {
+          type: 'oidc_jwt',
+          token: 'oidc-token-2',
+        },
+        UNSCOPED_SESSION_EXCHANGE,
+      );
 
       expect(result.success).toBe(true);
       expect(result.sessionUserId).toBe('bob.testnet');
@@ -111,10 +125,16 @@ test.describe('exchangeSession', () => {
           401,
         )) as typeof fetch;
 
-      const result = await exchangeSession('https://relay.example', '/session/exchange', 'jwt', {
-        type: 'oidc_jwt',
-        token: 'oidc-token-3',
-      });
+      const result = await exchangeSession(
+        'https://relay.example',
+        '/session/exchange',
+        'jwt',
+        {
+          type: 'oidc_jwt',
+          token: 'oidc-token-3',
+        },
+        UNSCOPED_SESSION_EXCHANGE,
+      );
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('issuer mismatch');
@@ -139,12 +159,22 @@ test.describe('exchangeSession', () => {
         });
       }) as typeof fetch;
 
-      const result = await exchangeSession('https://relay.example', '/session/exchange', 'cookie', {
-        type: 'passkey_assertion',
-        challengeId: 'challenge-passkey-1',
-        webauthn_authentication: sampleWebauthnCredential as any,
-        expected_origin: 'https://wallet.example',
-      });
+      const result = await exchangeSession(
+        'https://relay.example',
+        '/session/exchange',
+        'cookie',
+        {
+          type: 'passkey_assertion',
+          challengeId: 'challenge-passkey-1',
+          webauthn_authentication: sampleWebauthnCredential as any,
+          expected_origin: 'https://wallet.example',
+        },
+        {
+          kind: 'managed',
+          projectEnvironmentId: 'project-env-1',
+          publishableKey: 'pk_test_1',
+        },
+      );
 
       expect(result.success).toBe(true);
       expect(result.sessionUserId).toBe('carol.testnet');
@@ -154,6 +184,8 @@ test.describe('exchangeSession', () => {
       expect(exchange.type).toBe('passkey_assertion');
       expect(exchange.challengeId).toBe('challenge-passkey-1');
       expect(exchange.expected_origin).toBe('https://wallet.example');
+      expect(body.projectEnvironmentId).toBe('project-env-1');
+      expect(new Headers(captured[0]!.init?.headers).get('authorization')).toBe('Bearer pk_test_1');
       const credential = (exchange.webauthn_authentication || {}) as Record<string, unknown>;
       expect(credential.clientExtensionResults).toBeNull();
       expect(
@@ -174,10 +206,16 @@ test.describe('exchangeSession', () => {
         return jsonResponse({ ok: true });
       }) as typeof fetch;
 
-      const result = await exchangeSession('https://relay.example', '/session/exchange', 'jwt', {
-        type: 'oidc_jwt',
-        token: '  ',
-      });
+      const result = await exchangeSession(
+        'https://relay.example',
+        '/session/exchange',
+        'jwt',
+        {
+          type: 'oidc_jwt',
+          token: '  ',
+        },
+        UNSCOPED_SESSION_EXCHANGE,
+      );
 
       expect(result.success).toBe(false);
       expect(String(result.error || '')).toContain('Missing exchange token');
@@ -196,11 +234,17 @@ test.describe('exchangeSession', () => {
         return jsonResponse({ ok: true });
       }) as typeof fetch;
 
-      const result = await exchangeSession('https://relay.example', '/session/exchange', 'jwt', {
-        type: 'passkey_assertion',
-        challengeId: '   ',
-        webauthn_authentication: sampleWebauthnCredential as any,
-      });
+      const result = await exchangeSession(
+        'https://relay.example',
+        '/session/exchange',
+        'jwt',
+        {
+          type: 'passkey_assertion',
+          challengeId: '   ',
+          webauthn_authentication: sampleWebauthnCredential as any,
+        },
+        UNSCOPED_SESSION_EXCHANGE,
+      );
 
       expect(result.success).toBe(false);
       expect(String(result.error || '')).toContain('Missing passkey challengeId');

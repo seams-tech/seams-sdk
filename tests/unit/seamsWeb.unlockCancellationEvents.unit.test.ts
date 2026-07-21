@@ -106,6 +106,7 @@ test.describe('SeamsWeb unlock cancellation events', () => {
     const events: any[] = [];
     const afterCalls: any[] = [];
     const onErrors: string[] = [];
+    let promptedCredentialIds: string[] = [];
     const cancellation = new Error('The operation either timed out or was not allowed');
     cancellation.name = 'NotAllowedError';
 
@@ -121,8 +122,17 @@ test.describe('SeamsWeb unlock cancellation events', () => {
               operationalPublicKey: 'ed25519:alice',
               authMethod: 'passkey',
             }),
-            nearAuthenticatorsByAccount: async () => [{ credentialId: 'cred-1', signerSlot: 1 }],
-            getAuthenticationCredentialsSerialized: async () => {
+            nearAuthenticatorsByAccount: async () => [
+              { credentialId: 'cred-1', signerSlot: 1 },
+              { credentialId: 'cred-other-slot', signerSlot: 2 },
+            ],
+            getAuthenticationCredentialsSerialized: async (args: {
+              allowCredentials: Array<{ id: string }>;
+            }) => {
+              promptedCredentialIds = [];
+              for (const credential of args.allowCredentials) {
+                promptedCredentialIds.push(credential.id);
+              }
               throw cancellation;
             },
           },
@@ -174,6 +184,7 @@ test.describe('SeamsWeb unlock cancellation events', () => {
       });
       expect(afterCalls).toEqual([false]);
       expect(onErrors).toEqual(['The operation either timed out or was not allowed']);
+      expect(promptedCredentialIds).toEqual(['cred-1']);
     } finally {
       clearUnlockPasskeyWalletBinding();
     }

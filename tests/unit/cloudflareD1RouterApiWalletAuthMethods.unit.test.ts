@@ -450,7 +450,7 @@ test('passkey Ed25519 budget refresh accepts the current grant independently of 
           remainingUses: 1,
         },
         authorization: {
-          kind: 'verified_passkey_router_ab_ed25519_yao_budget_refresh_v1',
+          kind: 'verified_passkey_assertion_router_ab_ed25519_yao_budget_refresh_v1',
           authority,
         },
       }),

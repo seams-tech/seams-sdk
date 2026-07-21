@@ -27,6 +27,10 @@ import type {
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import {
+  resolveManagedRuntimeScopeBootstrap,
+  type ManagedRuntimeScopeBootstrap,
+} from '@/core/config/managedRuntimeScope';
+import {
   getUserFriendlyErrorMessage,
   isUserCancellationError,
   toError,
@@ -51,7 +55,11 @@ import type {
   ClientUserData,
   ThresholdEd25519KeyMaterial,
 } from '@/core/accountData/near/nearAccountData.types';
-import { exchangeSession, type SessionExchangeInput } from '@/core/rpcClients/near/rpcCalls';
+import {
+  exchangeSession,
+  type SessionExchangeInput,
+  type SessionExchangeRuntimeScope,
+} from '@/core/rpcClients/near/rpcCalls';
 import {
   fetchWalletEcdsaKeyFactsInventoryWithAppSession,
   fetchWalletEcdsaKeyFactsInventoryWithWebAuthn,
@@ -94,7 +102,6 @@ import {
   type ThresholdRuntimePolicyScope,
 } from '@/core/signingEngine/threshold/sessionPolicy';
 import {
-  buildThresholdEd25519ProvidedPrfSecretSource,
   buildThresholdEd25519WebAuthnPrfSecretSource,
   type Ed25519WalletSessionMintAuthorization,
 } from '@/core/signingEngine/threshold/ed25519/walletSession';
@@ -576,7 +583,7 @@ type LoginWarmupCredentialState =
 type LoginWarmupRuntimeScopeBootstrapState =
   | {
       kind: 'available';
-      runtimeScopeBootstrap: ManagedThresholdRuntimeScopeBootstrap;
+      runtimeScopeBootstrap: ManagedRuntimeScopeBootstrap;
     }
   | {
       kind: 'unavailable';
@@ -968,6 +975,63 @@ function authenticatorsForCredentialIds(args: {
   return authenticators;
 }
 
+function uniqueLoginCredentialIds(authenticators: readonly ClientAuthenticatorData[]): string[] {
+  const credentialIds: string[] = [];
+  const seen = new Set<string>();
+  for (const authenticator of authenticators) {
+    const credentialId = String(authenticator.credentialId || '').trim();
+    if (!credentialId || seen.has(credentialId)) continue;
+    seen.add(credentialId);
+    credentialIds.push(credentialId);
+  }
+  return credentialIds;
+}
+
+function parseLoginChallengeCredentialIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const credentialIds: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    const credentialId = typeof entry === 'string' ? entry.trim() : '';
+    if (!credentialId || seen.has(credentialId)) continue;
+    seen.add(credentialId);
+    credentialIds.push(credentialId);
+  }
+  return credentialIds;
+}
+
+function resolveLoginPasskeyPromptCredentialIds(args: {
+  authenticators: readonly ClientAuthenticatorData[];
+  signerSlot: number;
+  serverCredentialIds: readonly string[];
+}): readonly string[] {
+  const signerAuthenticators: ClientAuthenticatorData[] = [];
+  for (const authenticator of args.authenticators) {
+    if (authenticator.signerSlot === args.signerSlot) {
+      signerAuthenticators.push(authenticator);
+    }
+  }
+  const localCredentialIds = uniqueLoginCredentialIds(
+    signerAuthenticators.length > 0 ? signerAuthenticators : args.authenticators,
+  );
+  if (localCredentialIds.length === 0) {
+    throw new Error('[login] selected wallet has no local passkey credential ID');
+  }
+  if (args.serverCredentialIds.length === 0) return localCredentialIds;
+
+  const serverCredentialIds = new Set(args.serverCredentialIds);
+  const matchingCredentialIds: string[] = [];
+  for (const credentialId of localCredentialIds) {
+    if (serverCredentialIds.has(credentialId)) {
+      matchingCredentialIds.push(credentialId);
+    }
+  }
+  if (matchingCredentialIds.length === 0) {
+    throw new Error('[login] server passkey allow-list does not match local wallet credentials');
+  }
+  return matchingCredentialIds;
+}
+
 type ResolveThresholdLoginWarmupPhaseInputArgs = {
   context: LoginWebContext;
   signerSlot: number;
@@ -1354,7 +1418,11 @@ async function unlockInternal(
           await collectLocalPasskeyCredentialForChallenge({
             challengeB64u,
             saveAsLoginCredential: true,
-            credentialIds: null,
+            credentialIds: resolveLoginPasskeyPromptCredentialIds({
+              authenticators,
+              signerSlot: baseSignerSlot,
+              serverCredentialIds: [],
+            }),
           }),
       });
       if (credential) loginCredential = credential;
@@ -1434,7 +1502,7 @@ async function unlockInternal(
 
       const participantIds =
         thresholdKeyMaterial?.participants.map((participant) => participant.id) || [];
-      const managedRuntimeScopeBootstrap = resolveManagedThresholdRuntimeScopeBootstrap(context);
+      const managedRuntimeScopeBootstrap = resolveManagedRuntimeScopeBootstrap(context.configs);
       let volatileWarmMaterialCleared = false;
       const clearVolatileWarmMaterialForUnlock = async (): Promise<void> => {
         if (volatileWarmMaterialCleared) return;
@@ -1733,46 +1801,18 @@ async function unlockInternal(
             throw new Error('wallet/unlock/challenge returned invalid challenge');
           }
 
-          // Use relayer-provided credential IDs to narrow the browser passkey prompt.
-          const credentialIds = Array.isArray(
-            (unlockChallengeJson as { credentialIds?: unknown }).credentialIds,
-          )
-            ? (unlockChallengeJson as { credentialIds: unknown[] }).credentialIds
-                .map((id) => String(id || '').trim())
-                .filter((id) => id.length > 0)
-            : [];
-          const allowCredentials = credentialIds.map((id) => ({
-            id,
-            type: 'public-key' as const,
-            transports: [],
-          }));
-
           // This assertion both proves unlock and becomes reusable local credential material.
-          emitUnlockEvent(onEvent, nearAccountId, {
-            phase: UnlockEventPhase.STEP_03_PASSKEY_PROMPT_STARTED,
-            status: 'waiting_for_user',
-            authMethod: 'passkey',
-            interaction: {
-              kind: 'passkey_assert',
-              overlay: 'show',
-            },
+          const credentialIds = resolveLoginPasskeyPromptCredentialIds({
+            authenticators,
+            signerSlot: baseSignerSlot,
+            serverCredentialIds: parseLoginChallengeCredentialIds(
+              unlockChallengeJson.credentialIds,
+            ),
           });
-          const webauthnAuthentication = await signingEngine.getAuthenticationCredentialsSerialized(
-            {
-              subjectId: String(nearAccountId),
-              challengeB64u,
-              allowCredentials,
-              includeSecondPrfOutput: false,
-            },
-          );
-          emitUnlockEvent(onEvent, nearAccountId, {
-            phase: UnlockEventPhase.STEP_03_PASSKEY_PROMPT_SUCCEEDED,
-            status: 'succeeded',
-            authMethod: 'passkey',
-            interaction: {
-              kind: 'passkey_assert',
-              overlay: 'hide',
-            },
+          const webauthnAuthentication = await collectLocalPasskeyCredentialForChallenge({
+            challengeB64u,
+            saveAsLoginCredential: true,
+            credentialIds,
           });
           loginCredential = webauthnAuthentication;
 
@@ -1802,6 +1842,7 @@ async function unlockInternal(
           exchangePath,
           session.kind,
           exchangeInput,
+          resolveSessionExchangeRuntimeScope(context),
         );
         if (!exchanged.success) {
           throw new Error(exchanged.error || 'Session exchange failed');
@@ -2174,11 +2215,6 @@ function resolveLoginThresholdEcdsaBootstrapKey(args: {
   };
 }
 
-type ManagedThresholdRuntimeScopeBootstrap = {
-  projectEnvironmentId: string;
-  publishableKey: string;
-};
-
 type ThresholdLoginWarmSigner = 'ed25519' | 'ecdsa';
 
 type ThresholdLoginWarmupTask = {
@@ -2549,20 +2585,7 @@ function buildLoginEd25519WalletSessionMintAuthorization(args: {
   routeAuthorization: LoginWarmupRouteAuthorization;
   credentialState: LoginWarmupCredentialState;
   rpId: string;
-  thresholdEcdsaSessionJwt: string;
-  localPrfFirstB64u: string;
 }): Ed25519WalletSessionMintAuthorization | undefined {
-  const thresholdEcdsaSessionJwt = args.thresholdEcdsaSessionJwt.trim();
-  const localPrfFirstB64u = args.localPrfFirstB64u.trim();
-  if (thresholdEcdsaSessionJwt && localPrfFirstB64u) {
-    return {
-      kind: 'threshold_ecdsa_session_jwt',
-      thresholdEcdsaSessionJwt,
-      localSecretSource: buildThresholdEd25519ProvidedPrfSecretSource({
-        prfFirstB64u: localPrfFirstB64u,
-      }),
-    };
-  }
   switch (args.routeAuthorization.kind) {
     case 'app_session_jwt':
       if (args.credentialState.kind !== 'available') return undefined;
@@ -2655,8 +2678,6 @@ async function primeThresholdLoginWarmSigners(args: {
           routeAuthorization: args.routeAuthorization,
           credentialState: args.credentialState,
           rpId: args.signingEngine.getRpId(),
-          thresholdEcdsaSessionJwt: String(ecdsaMint?.thresholdEcdsaSessionJwt || ''),
-          localPrfFirstB64u: String(ecdsaMint?.passkeyPrfFirstB64u || ''),
         });
         const ed25519SessionAuthority = requireRequestedLoginEd25519SessionAuthority(
           args.ed25519SessionAuthority,
@@ -2758,8 +2779,9 @@ async function primeThresholdLoginWarmSigners(args: {
           }
           const record =
             getStoredThresholdEd25519SessionRecordByThresholdSessionId(connectedSessionId);
-          const walletSessionState =
-            resolveRouterAbEd25519WalletSessionStateFromRecord(record || undefined);
+          const walletSessionState = resolveRouterAbEd25519WalletSessionStateFromRecord(
+            record || undefined,
+          );
           if (!walletSessionState) {
             throw new Error('[login] local Ed25519 material requires a ready Wallet Session');
           }
@@ -4241,15 +4263,16 @@ async function resolveCanonicalThresholdEcdsaWarmSessionContext(
   return canonicalContext;
 }
 
-function resolveManagedThresholdRuntimeScopeBootstrap(
+function resolveSessionExchangeRuntimeScope(
   context: Pick<LoginWebContext, 'configs'>,
-): ManagedThresholdRuntimeScopeBootstrap | undefined {
-  const registration = context.configs?.registration;
-  if (!registration || registration.mode !== 'managed') return undefined;
-  const projectEnvironmentId = String(registration.projectEnvironmentId || '').trim();
-  const publishableKey = String(registration.publishableKey || '').trim();
-  if (!projectEnvironmentId || !publishableKey) return undefined;
-  return { projectEnvironmentId, publishableKey };
+): SessionExchangeRuntimeScope {
+  const bootstrap = resolveManagedRuntimeScopeBootstrap(context.configs);
+  if (!bootstrap) return { kind: 'unscoped' };
+  return {
+    kind: 'managed',
+    projectEnvironmentId: bootstrap.projectEnvironmentId,
+    publishableKey: bootstrap.publishableKey,
+  };
 }
 
 function resolveThresholdEcdsaPublicKeyB64u(

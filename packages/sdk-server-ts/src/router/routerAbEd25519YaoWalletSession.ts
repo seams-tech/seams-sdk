@@ -4,6 +4,7 @@ import type {
   EmailOtpWalletAuthAuthority,
   PasskeyWalletAuthAuthority,
   WalletAuthAuthority,
+  WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import type { WebAuthnAuthenticationCredential } from '../core/types';
 import type { RouterAbEd25519WalletSessionClaims } from '../core/ThresholdService/validation';
@@ -44,8 +45,21 @@ export type RouterAbEd25519YaoSessionRouteCommandV1 = {
 
 export type RouterAbEd25519YaoBudgetRefreshAuthorizationV1 =
   | {
-      readonly kind: 'verified_passkey_router_ab_ed25519_yao_budget_refresh_v1';
+      readonly kind: 'verified_passkey_assertion_router_ab_ed25519_yao_budget_refresh_v1';
       readonly authority: PasskeyWalletAuthAuthority;
+      readonly authorityRef?: never;
+      readonly runtimePolicyScope?: never;
+      readonly currentSession?: never;
+      readonly signerSlot?: never;
+      readonly verifiedChallengeId?: never;
+      readonly verifiedProviderUserId?: never;
+      readonly verifiedOrgId?: never;
+    }
+  | {
+      readonly kind: 'verified_passkey_app_session_router_ab_ed25519_yao_budget_refresh_v1';
+      readonly authority: PasskeyWalletAuthAuthority;
+      readonly authorityRef: WalletAuthAuthorityRef;
+      readonly runtimePolicyScope: RuntimePolicyScope;
       readonly currentSession?: never;
       readonly signerSlot?: never;
       readonly verifiedChallengeId?: never;

@@ -127,6 +127,7 @@ import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../../cor
 import {
   isEmailOtpWalletAuthAuthority,
   isPasskeyWalletAuthAuthority,
+  walletAuthAuthorityRef,
   walletAuthAuthoritiesMatch,
   type WalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
@@ -1016,7 +1017,7 @@ export class CloudflareD1WalletRegistrationService {
         };
       }
       switch (authorization.kind) {
-        case 'verified_passkey_router_ab_ed25519_yao_budget_refresh_v1':
+        case 'verified_passkey_assertion_router_ab_ed25519_yao_budget_refresh_v1':
           if (!isPasskeyWalletAuthAuthority(authority)) {
             return {
               ok: false,
@@ -1025,6 +1026,29 @@ export class CloudflareD1WalletRegistrationService {
             };
           }
           break;
+        case 'verified_passkey_app_session_router_ab_ed25519_yao_budget_refresh_v1': {
+          if (!isPasskeyWalletAuthAuthority(authority)) {
+            return {
+              ok: false,
+              code: 'invalid_body',
+              message: 'Ed25519 Yao passkey app-session refresh requires passkey authority',
+            };
+          }
+          const expectedAuthorityRef = await walletAuthAuthorityRef({ authority });
+          if (
+            authorization.authorityRef.walletId !== expectedAuthorityRef.walletId ||
+            authorization.authorityRef.authorityDigest !== expectedAuthorityRef.authorityDigest ||
+            alphabetizeStringify(authorization.runtimePolicyScope) !==
+              alphabetizeStringify(runtimePolicyScope)
+          ) {
+            return {
+              ok: false,
+              code: 'scope_mismatch',
+              message: 'Ed25519 Yao passkey app-session authorization is out of scope',
+            };
+          }
+          break;
+        }
         case 'verified_email_otp_router_ab_ed25519_yao_budget_refresh_v1':
           if (
             !isEmailOtpWalletAuthAuthority(authority) ||
@@ -1093,9 +1117,9 @@ export class CloudflareD1WalletRegistrationService {
         };
       }
       const activeAuthority =
-        authorization.kind === 'verified_passkey_router_ab_ed25519_yao_budget_refresh_v1'
-          ? await this.walletAuthMethods.verifyActivePasskeyAuthority(authorization.authority)
-          : await this.walletAuthMethods.verifyActiveEmailOtpAuthority(authorization.authority);
+        authorization.kind === 'verified_email_otp_router_ab_ed25519_yao_budget_refresh_v1'
+          ? await this.walletAuthMethods.verifyActiveEmailOtpAuthority(authorization.authority)
+          : await this.walletAuthMethods.verifyActivePasskeyAuthority(authorization.authority);
       if (!activeAuthority.ok) return activeAuthority;
       const signingRoot = signingRootScopeFromRuntimePolicyScope(runtimePolicyScope);
       const signingRootVersion = toOptionalTrimmedString(signingRoot.signingRootVersion);
