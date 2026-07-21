@@ -27,6 +27,7 @@ test('Email OTP unlock lifecycle', async ({ harness }) => {
   await harness.exportEd25519Key();
   await harness.exportEcdsaKey();
   await harness.signNearTransactionAfterRefresh('email_otp_yao_recovery');
+  await harness.signTempoAndArcEvmConcurrently('after_refresh_recovery');
   await harness.exhaustSigningBudget();
   await harness.refreshPagePreservingWalletStorage();
   await harness.signNearTransaction('after_step_up');

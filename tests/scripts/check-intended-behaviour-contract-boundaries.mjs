@@ -154,6 +154,7 @@ const expectedContractActionSequences = {
     'exportEd25519Key()',
     'exportEcdsaKey()',
     "signNearTransactionAfterRefresh('email_otp_yao_recovery')",
+    "signTempoAndArcEvmConcurrently('after_refresh_recovery')",
     'exhaustSigningBudget()',
     'refreshPagePreservingWalletStorage()',
     "signArcEvmTransaction('after_step_up')",
@@ -182,6 +183,7 @@ const expectedContractActionSequences = {
     'exportEd25519Key()',
     'exportEcdsaKey()',
     "signNearTransactionAfterRefresh('email_otp_yao_recovery')",
+    "signTempoAndArcEvmConcurrently('after_refresh_recovery')",
     'exhaustSigningBudget()',
     'refreshPagePreservingWalletStorage()',
     "signNearTransaction('after_step_up')",
@@ -813,9 +815,7 @@ test('Refactor 88 intended command is wired as a named pre-merge gate', () => {
   const rootPackage = readJsonRecord(rootPackageJsonPath);
   const testsPackage = readJsonRecord(testsPackageJsonPath);
   expect(readScript(rootPackage, 'test:intended')).toBe('pnpm -C tests test:intended');
-  expect(readScript(testsPackage, 'type-check:intended')).toBe(
-    'tsc --noEmit -p tsconfig.playwright.json',
-  );
+  expect(readScript(testsPackage, 'type-check:intended')).toBe('tsc -p tsconfig.intended.json');
   expect(readScript(testsPackage, 'test:intended')).toBe(
     'pnpm run type-check:intended && pnpm run ensure:intended-google-token && playwright test -c playwright.intended.config.ts --reporter=line',
   );
@@ -1159,7 +1159,9 @@ test('Refactor 88 signing contracts assert structured auth-path events', () => {
 });
 test('Refactor 88 post-exhaustion contracts require per-operation step-up', () => {
   const source = fs.readFileSync(intendedHarnessPath, 'utf8');
-  expect(source).toContain("return flow.startsWith('passkey') ? 'passkey_step_up' : 'email_otp_step_up'");
+  expect(source).toContain(
+    "return flow.startsWith('passkey') ? 'passkey_step_up' : 'email_otp_step_up'",
+  );
   expect(source).not.toContain('passkey_step_up_or_warm_session');
   expect(source).not.toContain('email_otp_step_up_or_warm_session');
   expect(source).not.toContain('postExhaustionStepUpSatisfied');

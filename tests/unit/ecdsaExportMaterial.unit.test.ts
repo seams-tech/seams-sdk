@@ -55,6 +55,17 @@ import { resolveEmailOtpEcdsaSigningSessionAuthorityFromRecord } from '../../pac
 import type { ThresholdEcdsaCanonicalExportArtifact } from '../../packages/sdk-web/src/core/signingEngine/interfaces/signing';
 import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
 import { markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated } from '../../packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession';
+import { fixtureRouterAbEcdsaDerivationPublicCapability } from './helpers/ecdsaBootstrap.fixtures';
+import {
+  parseEcdsaRoleLocalBindingDigest,
+  parseEcdsaRoleLocalDurableMaterialRef,
+  parseEcdsaRoleLocalMaterialHandle,
+  parseEcdsaRoleLocalWorkerHandle,
+} from '../../packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands';
+import {
+  bindLiveEcdsaRoleLocalMaterial,
+  buildPersistedEcdsaRoleLocalMaterial,
+} from '../../packages/sdk-web/src/core/signingEngine/session/material/ecdsaRoleLocalMaterialResolver';
 
 const WALLET_ID = toWalletId('alice.testnet');
 const RP_ID = 'localhost';
@@ -199,6 +210,7 @@ function makeReadyRecordForExport(record: {
   source: ThresholdEcdsaSessionStoreSource;
   emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
 }) {
+  const normalSigning = makeRouterAbEcdsaDerivationNormalSigningState(record);
   const authMethod =
     record.source === 'email_otp'
       ? buildEcdsaRoleLocalEmailOtpAuthMethod({
@@ -235,6 +247,11 @@ function makeReadyRecordForExport(record: {
       groupPublicKey33B64u: PUBLIC_KEY_B64U,
       ethereumAddress: OWNER_ADDRESS,
       contextBinding32B64u: CONTEXT_BINDING_32_B64U,
+      publicCapability: fixtureRouterAbEcdsaDerivationPublicCapability({
+        walletId: String(record.walletId),
+        sessionId: normalSigning.scope.activation_epoch,
+        normalSigning,
+      }),
     }),
     authMethod,
   });
@@ -298,10 +315,13 @@ function makeRecord(input: EmailOtpExportRecordFixtureInput = {}): EmailOtpEcdsa
     keyHandle,
     evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
   };
+  const ecdsaRoleLocalReadyRecord = makeReadyRecordForExport(record);
   return runtimeValidatedExportRecord({
     ...record,
     routerAbEcdsaDerivationNormalSigning: makeRouterAbEcdsaDerivationNormalSigningState(record),
-    ecdsaRoleLocalReadyRecord: makeReadyRecordForExport(record),
+    ecdsaRoleLocalAuthMethod: ecdsaRoleLocalReadyRecord.authMethod,
+    ecdsaRoleLocalPublicFacts: ecdsaRoleLocalReadyRecord.publicFacts,
+    ecdsaRoleLocalReadyRecord,
   });
 }
 
@@ -352,10 +372,33 @@ function makePasskeyRecord(input: PasskeyExportRecordFixtureInput = {}): Passkey
     keyHandle,
     evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
   };
+  const roleLocalRecord = makeReadyRecordForExport(record);
+  const roleLocalDurableMaterialRef = parseEcdsaRoleLocalDurableMaterialRef(
+    `role-local:ecdsa-export:${thresholdSessionId}`,
+  );
+  const persistedMaterial = buildPersistedEcdsaRoleLocalMaterial({
+    durableMaterialRef: roleLocalDurableMaterialRef,
+    publicFacts: roleLocalRecord.publicFacts,
+  });
+  bindLiveEcdsaRoleLocalMaterial({
+    persistedMaterial,
+    liveHandle: parseEcdsaRoleLocalWorkerHandle({
+      kind: 'ecdsa_role_local_worker_handle_v1',
+      materialHandle: parseEcdsaRoleLocalMaterialHandle(
+        `role-local-live:ecdsa-export:${thresholdSessionId}`,
+      ),
+      bindingDigest: parseEcdsaRoleLocalBindingDigest(
+        roleLocalRecord.publicFacts.contextBinding32B64u,
+      ),
+      durableMaterialRef: roleLocalDurableMaterialRef,
+    }),
+  });
   return runtimeValidatedExportRecord({
     ...record,
+    roleLocalDurableMaterialRef,
     routerAbEcdsaDerivationNormalSigning: makeRouterAbEcdsaDerivationNormalSigningState(record),
-    ecdsaRoleLocalReadyRecord: makeReadyRecordForExport(record),
+    ecdsaRoleLocalAuthMethod: roleLocalRecord.authMethod,
+    ecdsaRoleLocalPublicFacts: roleLocalRecord.publicFacts,
   });
 }
 
@@ -751,40 +794,31 @@ test.describe('ECDSA export material', () => {
     if (!runtimePolicyScope) throw new Error('expected runtime policy scope');
     const publicFacts = await toVerifiedEcdsaPublicFactsFromRecord({ record });
     let loginRequest: unknown = null;
-    const artifact = await exportEcdsaKeyWithDurableAuthorization(
-      {
-        requireRelayUrl: () => record.relayerUrl,
-        buildSigningSessionRoutePlan: buildEmailOtpSigningSessionRoutePlan,
-      },
-      {
-        walletSession: {
-          walletId: record.walletId,
-          walletSessionUserId: String(record.walletId),
+    await expect(
+      exportEcdsaKeyWithDurableAuthorization(
+        {
+          requireRelayUrl: () => record.relayerUrl,
+          buildSigningSessionRoutePlan: buildEmailOtpSigningSessionRoutePlan,
         },
-        chainTarget: record.chainTarget,
-        challengeId: 'durable-export-challenge',
-        otpCode: '123456',
-        publicFacts,
-        runtimePolicyScope,
-        signingSessionAuthority: authorityResolution.authority,
-        loginWithEcdsaCapabilityInternal: async (request) => {
-          loginRequest = request;
-          return {
-            bootstrap: {
-              thresholdEcdsaKeyRef: {
-                ecdsaDerivationExportArtifact: {
-                  publicKeyHex: '02',
-                  privateKeyHex: '01',
-                  ethereumAddress: OWNER_ADDRESS,
-                },
-              },
-            },
-          };
+        {
+          walletSession: {
+            walletId: record.walletId,
+            walletSessionUserId: String(record.walletId),
+          },
+          chainTarget: record.chainTarget,
+          challengeId: 'durable-export-challenge',
+          otpCode: '123456',
+          publicFacts,
+          runtimePolicyScope,
+          signingSessionAuthority: authorityResolution.authority,
+          prepareEcdsaExportCapability: async (request) => {
+            loginRequest = request;
+            throw new Error('stop after durable export preparation request');
+          },
         },
-      },
-    );
+      ),
+    ).rejects.toThrow('stop after durable export preparation request');
 
-    expect(artifact.ethereumAddress).toBe(OWNER_ADDRESS);
     expect(loginRequest).toMatchObject({
       challengeId: 'durable-export-challenge',
       otpCode: '123456',
@@ -797,7 +831,6 @@ test.describe('ECDSA export material', () => {
         kind: 'explicit_provider_user',
         providerUserId: 'google:alice',
       },
-      includeEcdsaExportArtifact: true,
     });
   });
 
@@ -841,38 +874,29 @@ test.describe('ECDSA export material', () => {
     const record = makeRecord();
     const publicReauthAuthority = emailOtpPublicReauthAuthority(record);
     let loginRequest: unknown = null;
-    const artifact = await exportEcdsaKeyWithPublicReauthAuthorization(
-      {
-        requireRelayUrl: () => record.relayerUrl,
-      },
-      {
-        walletSession: {
-          walletId: record.walletId,
-          walletSessionUserId: String(record.walletId),
+    await expect(
+      exportEcdsaKeyWithPublicReauthAuthorization(
+        {
+          requireRelayUrl: () => record.relayerUrl,
         },
-        chainTarget: record.chainTarget,
-        challengeId: 'public-reauth-export-challenge',
-        otpCode: '123456',
-        appSessionJwt: 'app-session-jwt',
-        publicReauthAuthority,
-        loginWithEcdsaCapabilityInternal: async (request) => {
-          loginRequest = request;
-          return {
-            bootstrap: {
-              thresholdEcdsaKeyRef: {
-                ecdsaDerivationExportArtifact: {
-                  publicKeyHex: '02',
-                  privateKeyHex: '01',
-                  ethereumAddress: OWNER_ADDRESS,
-                },
-              },
-            },
-          };
+        {
+          walletSession: {
+            walletId: record.walletId,
+            walletSessionUserId: String(record.walletId),
+          },
+          chainTarget: record.chainTarget,
+          challengeId: 'public-reauth-export-challenge',
+          otpCode: '123456',
+          appSessionJwt: 'app-session-jwt',
+          publicReauthAuthority,
+          prepareEcdsaExportCapability: async (request) => {
+            loginRequest = request;
+            throw new Error('stop after public reauth export preparation request');
+          },
         },
-      },
-    );
+      ),
+    ).rejects.toThrow('stop after public reauth export preparation request');
 
-    expect(artifact.ethereumAddress).toBe(OWNER_ADDRESS);
     expect(loginRequest).toMatchObject({
       challengeId: 'public-reauth-export-challenge',
       otpCode: '123456',
@@ -886,7 +910,6 @@ test.describe('ECDSA export material', () => {
         kind: 'explicit_provider_user',
         providerUserId: 'google:alice',
       },
-      includeEcdsaExportArtifact: true,
     });
   });
 

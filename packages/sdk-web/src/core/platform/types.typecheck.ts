@@ -21,6 +21,7 @@ import {
   buildSecureEnclaveWrappedSecretSource,
   buildThresholdPrfXClientBaseSecretSource,
   buildWebAuthnPrfFirstSecretSource,
+  parseEmailOtpEcdsaExportWorkerIssuedSessionHandle,
 } from './types';
 import type {
   AuthenticatorResult,
@@ -31,6 +32,7 @@ import type {
   EcdsaRoleLocalReadyRecord,
   EcdsaRoleLocalReadyStateBlob,
   EcdsaRoleLocalSessionRecordState,
+  EmailOtpEcdsaExportWorkerIssuedSessionHandle,
   EmailOtpWorkerIssuedSessionHandle,
   LoadEcdsaRoleLocalReadyRecordInput,
   PersistEcdsaRoleLocalReadyRecordInput,
@@ -87,6 +89,16 @@ const emailOtpWorkerIssuedSessionHandleFromBuilder = buildEmailOtpWorkerIssuedSe
   operation: 'sign',
   chainTarget: thresholdEcdsaChainTargetFromChainFamily({ chain: 'tempo', chainId: 42431 }),
 });
+
+declare const parsedEmailOtpEcdsaExportHandle: ReturnType<
+  typeof parseEmailOtpEcdsaExportWorkerIssuedSessionHandle
+>;
+parsedEmailOtpEcdsaExportHandle satisfies EmailOtpEcdsaExportWorkerIssuedSessionHandle;
+
+// @ts-expect-error A general/signing worker handle cannot enter the export-only lane.
+const invalidEmailOtpEcdsaExportHandle: EmailOtpEcdsaExportWorkerIssuedSessionHandle =
+  emailOtpWorkerIssuedSessionHandleFromBuilder;
+void invalidEmailOtpEcdsaExportHandle;
 
 const prepareInput = {
   kind: 'prepare_ecdsa_client_bootstrap_v1',

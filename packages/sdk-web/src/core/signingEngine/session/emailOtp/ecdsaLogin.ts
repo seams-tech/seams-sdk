@@ -12,7 +12,10 @@ import type {
   ThresholdEcdsaChainTarget,
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  thresholdEcdsaChainTargetsEqual,
+  toWalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import {
   generateSigningGrantId,
@@ -23,7 +26,6 @@ import type { WarmSessionEcdsaCapabilityState } from '@/core/signingEngine/sessi
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
   EmailOtpEd25519YaoRecoveryBootstrapV1,
-  EmailOtpEcdsaExportClientRootHandlePayload,
   EmailOtpEcdsaSessionBootstrapHandlePayload,
   EmailOtpWorkerProgressEvent,
   EmailOtpWorkerSessionHandleOperation,
@@ -96,7 +98,11 @@ import {
   resolveSigningBudgetPolicyRemainingUses,
   resolveWalletUnlockBudgetPolicyFromRequestedUses,
 } from '../budget/policy';
-import { parseEmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
+import {
+  parseEmailOtpEcdsaExportWorkerIssuedSessionHandle,
+  parseEmailOtpWorkerIssuedSessionHandle,
+  type EmailOtpEcdsaExportWorkerIssuedSessionHandle,
+} from '@/core/platform';
 import {
   buildEmailOtpExplicitExportEcdsaActivation,
   buildEmailOtpPerOperationReauthEcdsaActivation,
@@ -109,7 +115,7 @@ import { buildEcdsaSessionIdentity } from '../warmCapabilities/ecdsaProvisionPla
 import { generateSessionId } from '../passkey/prfCache';
 import {
   requestBindEmailOtpEcdsaWarmSessionFromWorkerHandle,
-  requestDisposeEmailOtpEcdsaExportClientRootHandle,
+  requestDisposeEmailOtpEcdsaClientRootHandle,
 } from './workerRequests';
 import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 
@@ -304,22 +310,31 @@ function assertEmailOtpOperationMatchesRoutePlan(args: {
   }
 }
 
-function requireEmailOtpEcdsaExportClientRootHandle(
-  handle: EmailOtpEcdsaSessionBootstrapHandlePayload,
-): EmailOtpEcdsaExportClientRootHandlePayload {
-  if (handle.action !== 'threshold_ecdsa_bootstrap' || handle.operation !== 'export') {
-    throw new Error('Email OTP ECDSA export requires an export worker handle');
+function assertEmailOtpEcdsaExportHandleMatchesLane(args: {
+  handle: EmailOtpEcdsaExportWorkerIssuedSessionHandle;
+  existingKey: ResolvedEmailOtpExistingEcdsaKey;
+  chainTarget: ThresholdEcdsaChainTarget;
+  emailOtpAuthContext: ThresholdEcdsaEmailOtpPendingSingleUseAuthContext;
+}): void {
+  const walletKey = args.existingKey.walletKey;
+  if (
+    String(args.handle.walletId) !== String(walletKey.walletId) ||
+    String(args.handle.evmFamilySigningKeySlotId) !== String(walletKey.evmFamilySigningKeySlotId) ||
+    args.handle.authSubjectId !== emailOtpAuthContextProviderUserId(args.emailOtpAuthContext) ||
+    !thresholdEcdsaChainTargetsEqual(args.handle.chainTarget, walletKey.chainTarget) ||
+    !thresholdEcdsaChainTargetsEqual(args.handle.chainTarget, args.chainTarget)
+  ) {
+    throw new Error('Email OTP ECDSA export worker handle does not match the resolved lane');
   }
-  return {
-    kind: handle.kind,
-    sessionId: handle.sessionId,
-    walletId: handle.walletId,
-    evmFamilySigningKeySlotId: handle.evmFamilySigningKeySlotId,
-    authSubjectId: handle.authSubjectId,
-    action: handle.action,
-    operation: 'export',
-    chainTarget: handle.chainTarget,
-  };
+}
+
+function requireEmailOtpEcdsaExportAuthContext(
+  context: ThresholdEcdsaEmailOtpAuthContext,
+): ThresholdEcdsaEmailOtpPendingSingleUseAuthContext {
+  if (!isEmailOtpPendingSingleUseAuthContext(context)) {
+    throw new Error('Email OTP ECDSA export requires single-use authorization');
+  }
+  return context;
 }
 
 function buildEmailOtpEcdsaOnlySigningBudget(args: {
@@ -562,16 +577,11 @@ async function provisionEmailOtpExplicitExportSession(args: {
   ttlMs: number;
   remainingUses: number;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpPendingSingleUseAuthContext;
-  clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
+  clientRootShareHandle: EmailOtpEcdsaExportWorkerIssuedSessionHandle;
   walletSessionRouteAuth: AppOrWalletSessionAuth;
   ports: EmailOtpEcdsaLoginPorts;
 }): Promise<ThresholdEcdsaSessionBootstrapResult> {
-  const emailOtpWorkerSessionHandle = parseEmailOtpWorkerIssuedSessionHandle(
-    args.clientRootShareHandle,
-  );
-  if (emailOtpWorkerSessionHandle.action !== 'threshold_ecdsa_bootstrap') {
-    throw new Error('Email OTP ECDSA export returned an invalid worker handle');
-  }
+  const emailOtpWorkerSessionHandle = args.clientRootShareHandle;
   const sessionIdentity = buildEcdsaSessionIdentity({
     thresholdSessionId: generateSessionId('threshold-ecdsa-export'),
     signingGrantId: args.signingGrantId,
@@ -958,11 +968,23 @@ async function runEmailOtpEcdsaCapability(
           signerSlot: args.ed25519YaoRecovery.signerSlot,
           remainingUses,
         });
-  const exportClientRootShareHandle =
-    operation === WALLET_EMAIL_OTP_EXPORT_OPERATION
-      ? requireEmailOtpEcdsaExportClientRootHandle(workerResult.clientRootShareHandle)
-      : null;
   try {
+    const exportEmailOtpAuthContext =
+      operation === WALLET_EMAIL_OTP_EXPORT_OPERATION
+        ? requireEmailOtpEcdsaExportAuthContext(emailOtpAuthContext)
+        : null;
+    const exportClientRootShareHandle =
+      operation === WALLET_EMAIL_OTP_EXPORT_OPERATION
+        ? parseEmailOtpEcdsaExportWorkerIssuedSessionHandle(workerResult.clientRootShareHandle)
+        : null;
+    if (exportClientRootShareHandle && exportEmailOtpAuthContext) {
+      assertEmailOtpEcdsaExportHandleMatchesLane({
+        handle: exportClientRootShareHandle,
+        existingKey,
+        chainTarget,
+        emailOtpAuthContext: exportEmailOtpAuthContext,
+      });
+    }
     addEmailOtpThresholdEcdsaLoginTiming(timings, 'emailOtpProofVerificationMs', timingStartedAtMs);
     if (!bootstrapTransportAuth) {
       throw new Error('Email OTP ECDSA bootstrap requires route auth');
@@ -977,11 +999,8 @@ async function runEmailOtpEcdsaCapability(
     const signingGrantId = signingBudget.signingGrantId;
     timingStartedAtMs = nowMs();
     if (operation === WALLET_EMAIL_OTP_EXPORT_OPERATION) {
-      if (!exportClientRootShareHandle) {
+      if (!exportClientRootShareHandle || !exportEmailOtpAuthContext) {
         throw new Error('Email OTP ECDSA export worker handle is unavailable');
-      }
-      if (!isEmailOtpPendingSingleUseAuthContext(emailOtpAuthContext)) {
-        throw new Error('Email OTP ECDSA export requires single-use authorization');
       }
       const bootstrap = await provisionEmailOtpExplicitExportSession({
         existingKey,
@@ -991,7 +1010,7 @@ async function runEmailOtpEcdsaCapability(
         signingGrantId,
         ttlMs: signingBudget.ttlMs,
         remainingUses: signingBudget.remainingUses,
-        emailOtpAuthContext,
+        emailOtpAuthContext: exportEmailOtpAuthContext,
         clientRootShareHandle: exportClientRootShareHandle,
         walletSessionRouteAuth: bootstrapTransportAuth,
         ports,
@@ -1072,10 +1091,10 @@ async function runEmailOtpEcdsaCapability(
     }
     throw error;
   } finally {
-    if (exportClientRootShareHandle) {
-      await requestDisposeEmailOtpEcdsaExportClientRootHandle({
+    if (operation === WALLET_EMAIL_OTP_EXPORT_OPERATION) {
+      await requestDisposeEmailOtpEcdsaClientRootHandle({
         workerCtx,
-        clientRootShareHandle: exportClientRootShareHandle,
+        clientRootShareHandle: workerResult.clientRootShareHandle,
       });
     }
   }
@@ -1085,7 +1104,8 @@ export async function loginWithEmailOtpEcdsaCapability(
   args: LoginEmailOtpEcdsaCapabilityArgs,
   ports: EmailOtpEcdsaLoginPorts,
 ): Promise<EmailOtpThresholdEcdsaLoginResult> {
-  if (args.operation === WALLET_EMAIL_OTP_EXPORT_OPERATION) {
+  const operation = args.operation ?? args.routePlan.operation;
+  if (operation === WALLET_EMAIL_OTP_EXPORT_OPERATION) {
     throw new Error('Email OTP ECDSA export must use transient export preparation');
   }
   const result = await runEmailOtpEcdsaCapability(args, ports);

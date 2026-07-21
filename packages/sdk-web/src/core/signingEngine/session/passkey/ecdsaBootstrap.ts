@@ -1,4 +1,7 @@
-import type { EmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
+import type {
+  EmailOtpEcdsaExportWorkerIssuedSessionHandle,
+  EmailOtpWorkerIssuedSessionHandle,
+} from '@/core/platform';
 import type { RouterAbNormalSigningConfig } from '@/core/types/seams';
 import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { SignerWorkerManagerContext } from '../../workerManager/SignerWorkerManager';
@@ -7,8 +10,10 @@ import type {
   ThresholdWarmSessionMaterialPort,
 } from '../../threshold/crypto/webauthn';
 import {
+  activateEmailOtpExplicitExportBootstrapSession,
   activateEcdsaSession,
   activateExplicitKeyExportEcdsaSession,
+  type ActivateEmailOtpExplicitExportBootstrapSessionRequest,
   type ActivateExplicitKeyExportEcdsaSessionRequest,
   type ActivateEcdsaSessionAuth,
   type ActivateEcdsaSessionRequest,
@@ -258,6 +263,14 @@ export type EmailOtpEcdsaExactBootstrapRequest = Extract<
   EmailOtpEcdsaBootstrapRequest,
   { key: EvmFamilyEcdsaKeyIdentity }
 >;
+
+export type EmailOtpEcdsaExplicitExportBootstrapRequest = Omit<
+  EmailOtpEcdsaExactBootstrapRequest,
+  'emailOtpWorkerSessionHandle'
+> & {
+  purpose: 'explicit_key_export';
+  emailOtpWorkerSessionHandle: EmailOtpEcdsaExportWorkerIssuedSessionHandle;
+};
 
 export type EmailOtpEcdsaExplicitExportBootstrapResult = {
   kind: 'email_otp_explicit_export_bootstrap_result';
@@ -600,6 +613,29 @@ function toActivateExplicitKeyExportEcdsaSessionRequest(
   };
 }
 
+function toActivateEmailOtpExplicitExportBootstrapSessionRequest(
+  request: EmailOtpEcdsaExplicitExportBootstrapRequest,
+  relayerUrl: string,
+): ActivateEmailOtpExplicitExportBootstrapSessionRequest {
+  return {
+    kind: 'session_bootstrap',
+    purpose: 'transaction_signing',
+    relayerUrl,
+    keyHandle: toEvmFamilyEcdsaKeyHandle(request.keyHandle),
+    key: request.key,
+    lanePolicy: request.lanePolicy,
+    publicCapability: request.publicCapability,
+    existingRoleLocalMaterial: request.existingRoleLocalMaterial,
+    authKind: 'email_otp',
+    emailOtpWorkerSessionHandle: request.emailOtpWorkerSessionHandle,
+    ...(request.requestId ? { requestId: request.requestId } : {}),
+    ...(request.routeAuth ? { walletSessionRouteAuth: request.routeAuth } : {}),
+    ...(request.runtimeScopeBootstrap
+      ? { runtimeScopeBootstrap: request.runtimeScopeBootstrap }
+      : {}),
+  };
+}
+
 async function normalizeRuntimeEcdsaBootstrapRequest(
   deps: WalletSessionActivationDeps,
   request: EcdsaBootstrapRequest,
@@ -764,12 +800,12 @@ export async function bootstrapExplicitKeyExportEcdsaSessionValue(
 
 export async function bootstrapEmailOtpExplicitExportEcdsaSessionValue(
   deps: WalletSessionActivationDeps,
-  request: EmailOtpEcdsaExactBootstrapRequest,
+  request: EmailOtpEcdsaExplicitExportBootstrapRequest,
 ): Promise<EmailOtpEcdsaExplicitExportBootstrapResult> {
   const walletId = toWalletId(ecdsaBootstrapWalletId(request));
   const chainTarget = ecdsaBootstrapChainTarget(request);
   const relayerUrl = resolveRelayerUrl(request.relayerUrl, deps.defaultRelayerUrl);
-  const activation = await activateEcdsaSession(
+  const activation = await activateEmailOtpExplicitExportBootstrapSession(
     {
       credentialStore: deps.credentialStore,
       touchIdPrompt: deps.touchIdPrompt,
@@ -777,7 +813,7 @@ export async function bootstrapEmailOtpExplicitExportEcdsaSessionValue(
       routerAbNormalSigning: deps.routerAbNormalSigning,
       getOrCreateActiveThresholdEcdsaSessionId: deps.getOrCreateActiveThresholdEcdsaSessionId,
     },
-    toActivateEcdsaSessionRequest(request, relayerUrl),
+    toActivateEmailOtpExplicitExportBootstrapSessionRequest(request, relayerUrl),
   );
   const thresholdEcdsaKeyRef = requireCanonicalThresholdEcdsaKeyRefIdentity(
     activation.thresholdEcdsaKeyRef,

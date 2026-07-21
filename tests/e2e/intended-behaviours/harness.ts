@@ -55,9 +55,7 @@ type IntendedWarmSessionOriginStage = Extract<
 
 type IntendedNearSigningStage = Exclude<IntendedSigningStage, 'after_refresh_recovery'>;
 
-type IntendedPostRefreshMaterialSource =
-  | 'email_otp_yao_recovery'
-  | 'passkey_local_envelope';
+type IntendedPostRefreshMaterialSource = 'email_otp_yao_recovery' | 'passkey_local_envelope';
 
 type IntendedNoYaoRecoveryAssertionScenario =
   | { kind: 'passkey_unlock' }
@@ -436,10 +434,7 @@ type TempoSignedTransactionParts = {
   senderSignatureHex: `0x${string}`;
 };
 
-type SigningAuthExpectation =
-  | 'warm_session'
-  | 'passkey_step_up'
-  | 'email_otp_step_up';
+type SigningAuthExpectation = 'warm_session' | 'passkey_step_up' | 'email_otp_step_up';
 
 type SigningAuthEventSummary = {
   phases: readonly string[];
@@ -625,9 +620,7 @@ function installIntendedConcurrentActionObserver(): void {
 
 function triggerConcurrentEvmFamilySigning(): void {
   const tempo = document.querySelector<HTMLButtonElement>('[data-testid="intended-sign-tempo"]');
-  const arcEvm = document.querySelector<HTMLButtonElement>(
-    '[data-testid="intended-sign-arc-evm"]',
-  );
+  const arcEvm = document.querySelector<HTMLButtonElement>('[data-testid="intended-sign-arc-evm"]');
   if (!tempo || !arcEvm) {
     throw new Error('Concurrent Tempo/Arc signing controls are unavailable');
   }
@@ -1102,14 +1095,8 @@ export class IntendedBehaviourHarness {
     }
 
     const snapshots = parseIntendedConcurrentActionSnapshots(rawSnapshots);
-    const tempoSnapshot = requireConcurrentSigningSuccess(
-      snapshots,
-      'signTempoTransaction',
-    );
-    const arcEvmSnapshot = requireConcurrentSigningSuccess(
-      snapshots,
-      'signArcEvmTransaction',
-    );
+    const tempoSnapshot = requireConcurrentSigningSuccess(snapshots, 'signTempoTransaction');
+    const arcEvmSnapshot = requireConcurrentSigningSuccess(snapshots, 'signArcEvmTransaction');
     const tempoResult = requireTempoSigningResult(tempoSnapshot, {
       walletId: this.walletId,
       chainId: INTENDED_TEMPO_CHAIN_ID,
@@ -1681,9 +1668,7 @@ export class IntendedBehaviourHarness {
   }
 }
 
-function noYaoRecoveryAssertionLabel(
-  scenario: IntendedNoYaoRecoveryAssertionScenario,
-): string {
+function noYaoRecoveryAssertionLabel(scenario: IntendedNoYaoRecoveryAssertionScenario): string {
   switch (scenario.kind) {
     case 'passkey_unlock':
       return 'Passkey unlock';
@@ -3088,7 +3073,9 @@ async function readIntendedPageSnapshot(page: Page): Promise<IntendedPageSnapsho
   return parseIntendedPageSnapshot(JSON.parse(text));
 }
 
-function parseIntendedConcurrentActionSnapshots(rawSnapshots: readonly unknown[]): IntendedPageSnapshot[] {
+function parseIntendedConcurrentActionSnapshots(
+  rawSnapshots: readonly unknown[],
+): IntendedPageSnapshot[] {
   const snapshots: IntendedPageSnapshot[] = [];
   for (const raw of rawSnapshots) {
     snapshots.push(parseIntendedPageSnapshot(raw));

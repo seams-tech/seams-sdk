@@ -6,7 +6,6 @@ import type {
   EmailOtpEd25519YaoActiveCapabilityDescriptorV1,
   EmailOtpEcdsaPublicationTargetPlan,
   EmailOtpEcdsaSessionBootstrapHandlePayload,
-  EmailOtpEcdsaExportClientRootHandlePayload,
   EmailOtpWalletRegistrationEcdsaPrepareHandlePayload,
   EmailOtpWorkerIssuedSessionHandlePayload,
   EmailOtpWorkerOperationRequestEnvelope,
@@ -45,23 +44,10 @@ const clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload = {
   chainTarget,
 };
 
-const exportClientRootShareHandle: EmailOtpEcdsaExportClientRootHandlePayload = {
-  kind: 'email_otp_worker_session_handle_v1',
-  sessionId: 'otp-export-root-session',
-  walletId: 'wallet-1',
-  evmFamilySigningKeySlotId: 'wallet-key:evm-family:wallet-1:root:version:default',
-  authSubjectId: 'google:user-1',
-  action: 'threshold_ecdsa_bootstrap',
-  operation: 'export',
-  chainTarget,
-};
-void exportClientRootShareHandle;
-
-const invalidExportDisposalPayload = {
-  // @ts-expect-error Export disposal rejects registration/signing worker handles.
+const ecdsaDisposalPayload = {
   clientRootShareHandle,
-} satisfies EmailOtpWorkerOperationMap['disposeEmailOtpEcdsaExportClientRootHandle']['payload'];
-void invalidExportDisposalPayload;
+} satisfies EmailOtpWorkerOperationMap['disposeEmailOtpEcdsaClientRootHandle']['payload'];
+void ecdsaDisposalPayload;
 
 const walletRegistrationEcdsaPrepareHandle: EmailOtpWalletRegistrationEcdsaPrepareHandlePayload = {
   kind: 'email_otp_worker_session_handle_v1',
@@ -75,6 +61,12 @@ const walletRegistrationEcdsaPrepareHandle: EmailOtpWalletRegistrationEcdsaPrepa
   chainTarget,
 };
 void walletRegistrationEcdsaPrepareHandle;
+
+const invalidEcdsaDisposalPayload = {
+  // @ts-expect-error Session-root disposal rejects wallet-registration prepare handles.
+  clientRootShareHandle: walletRegistrationEcdsaPrepareHandle,
+} satisfies EmailOtpWorkerOperationMap['disposeEmailOtpEcdsaClientRootHandle']['payload'];
+void invalidEcdsaDisposalPayload;
 
 // @ts-expect-error Registration-prep worker handles cannot be used for session bootstrap.
 const bootstrapHandleFromRegistrationPrepare: EmailOtpEcdsaSessionBootstrapHandlePayload =
