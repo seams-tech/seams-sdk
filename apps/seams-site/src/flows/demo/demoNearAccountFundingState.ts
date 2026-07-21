@@ -99,8 +99,6 @@ export function initialDemoNearFundingStatus(
 
 export function demoNearFundingStatusText(status: DemoNearAccountFundingStatus): string | null {
   switch (status.kind) {
-    case 'checking':
-      return 'Checking NEAR account funding...';
     case 'needs_funding':
       return 'NEAR account needs funding before signing.';
     case 'unknown':
@@ -109,6 +107,10 @@ export function demoNearFundingStatusText(status: DemoNearAccountFundingStatus):
       return status.missing === 'near_account_id'
         ? 'NEAR account identity is unavailable. Refresh the wallet session.'
         : 'NEAR public key is unavailable. Refresh the wallet session.';
+    /* 'checking' deliberately renders nothing: a transient "checking" line
+       mounts the status slot and then unmounts it a beat later, jolting the
+       buttons below it on every load (and on each needs_funding re-poll). */
+    case 'checking':
     case 'signed_out':
     case 'ready':
       return null;

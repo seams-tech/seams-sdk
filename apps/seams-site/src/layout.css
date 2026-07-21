@@ -223,8 +223,8 @@ body {
 
 .passkey-demo__profile-button-slot {
   position: absolute;
-  top: 0;
-  right: 0;
+  top: 2rem;
+  right: 2rem;
   z-index: 2;
 }
 
