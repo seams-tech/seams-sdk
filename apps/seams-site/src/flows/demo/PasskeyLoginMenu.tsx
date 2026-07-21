@@ -407,10 +407,11 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     }
 
     const result = await unlock(loginTarget, {
-      // Mint a JWT session via the Router API server if session.kind is provided
-      // session: {
-      //   kind: 'jwt',
-      // },
+      // The wallet and Gateway are cross-origin, so warm-up authorization must use a bearer JWT.
+      session: {
+        kind: 'jwt',
+        exchange: { type: 'passkey_assertion' },
+      },
       onEvent: (event: UnlockFlowEvent) => handleUnlockEvent(event, loginTarget),
     });
     if (result?.success) {
