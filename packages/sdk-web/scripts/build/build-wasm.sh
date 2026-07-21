@@ -45,12 +45,27 @@ case "$WASM_SDK_BUILD_MODE" in
     ;;
 esac
 
+WASM_SDK_BUILD_TARGET="${WASM_SDK_BUILD_TARGET:-all}"
+case "$WASM_SDK_BUILD_TARGET" in
+  all|gateway)
+    ;;
+  *)
+    print_error "Unknown WASM_SDK_BUILD_TARGET: $WASM_SDK_BUILD_TARGET"
+    echo "Use one of: all, gateway"
+    exit 1
+    ;;
+esac
+
 require_file() {
   local path="$1"
   local canonical_path
   local attempt
+  local attempt_limit=600
+  if [ "${WASM_SDK_USE_PREBUILT:-0}" = "1" ]; then
+    attempt_limit=1
+  fi
   canonical_path="$(node -e "console.log(require('path').resolve(process.argv[1]))" "$path")"
-  for attempt in {1..600}; do
+  for ((attempt = 1; attempt <= attempt_limit; attempt++)); do
     if [ -f "$path" ] || [ -f "$canonical_path" ]; then
       return
     fi
@@ -222,122 +237,106 @@ ensure_wasm_pack_cache
 print_success "wasm-pack cache ready: $WASM_PACK_CACHE"
 print_step "Using $WASM_SDK_BUILD_MODE WASM mode (default profile: $DEFAULT_WASM_PROFILE_LABEL)"
 
-print_step "Cleaning previous WASM package outputs..."
-rm -rf \
-  "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg" \
-  "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg" \
-  "$SDK_ROOT/$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT/pkg" \
-  "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg" \
-  "$SDK_ROOT/$SOURCE_WASM_ECDSA_PRESIGN_CLIENT/pkg" \
-  "$SDK_ROOT/$SOURCE_WASM_ECDSA_ONLINE_CLIENT/pkg" \
-  "$SDK_ROOT/$SOURCE_WASM_ECDSA_SIGNING_WORKER/pkg" \
-  "$SDK_ROOT/$SOURCE_WASM_EVM_CRYPTO/pkg" \
-  "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/pkg" \
-  "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/pkg" \
-  "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg" \
-  "$SDK_ROOT/$SOURCE_WASM_THRESHOLD_PRF/pkg"
-print_success "WASM package outputs cleaned"
+GATEWAY_WASM_SOURCES=(
+  "$SOURCE_WASM_SIGNER"
+  "$SOURCE_WASM_ECDSA_SIGNING_WORKER"
+  "$SOURCE_WASM_EVM_CRYPTO"
+  "$SOURCE_WASM_THRESHOLD_PRF"
+)
+FULL_SDK_WASM_SOURCES=(
+  "$SOURCE_ED25519_YAO_CLIENT"
+  "$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT"
+  "$SOURCE_WASM_ECDSA_DERIVATION_CLIENT"
+  "$SOURCE_WASM_ECDSA_PRESIGN_CLIENT"
+  "$SOURCE_WASM_ECDSA_ONLINE_CLIENT"
+  "$SOURCE_WASM_TEMPO_SIGNER"
+  "$SOURCE_WASM_SHAMIR3PASS_RUNTIME"
+  "$SOURCE_WASM_EMAIL_OTP_RUNTIME"
+)
 
-print_step "Building WASM packages in parallel..."
-JOB_LOG_DIR="$(mktemp -d)"
-start_job "NEAR signer WASM (release)" build_near_signer
-start_job "Ed25519 Yao Client WASM (release)" build_ed25519_yao_client
-start_job "ECDSA registration client WASM (release)" build_ecdsa_registration_client
-start_job "ECDSA client signer WASM (release)" build_router_ab_ecdsa_derivation_client
-start_job "ECDSA presign client WASM (release)" build_router_ab_ecdsa_presign_client
-start_job "ECDSA online client WASM (release)" build_router_ab_ecdsa_online_client
-start_job "ECDSA server signing worker WASM (release)" build_router_ab_ecdsa_signing_worker
-start_job "EVM crypto WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_EVM_CRYPTO" evm_crypto
-start_job "Tempo signer WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_TEMPO_SIGNER" tempo_signer
-start_job "Shamir3Pass runtime WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_SHAMIR3PASS_RUNTIME" shamir3pass_runtime
-start_job "Email OTP runtime WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_EMAIL_OTP_RUNTIME" email_otp_runtime
-start_job "threshold-prf WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_THRESHOLD_PRF" threshold_prf
-wait_for_jobs
+if [ "${WASM_SDK_USE_PREBUILT:-0}" = "1" ]; then
+  print_step "Using checksum-keyed prebuilt WASM packages..."
+else
+  print_step "Cleaning previous WASM package outputs for $WASM_SDK_BUILD_TARGET target..."
+  for source_dir in "${GATEWAY_WASM_SOURCES[@]}"; do
+    rm -rf "$SDK_ROOT/$source_dir/pkg"
+  done
+  if [ "$WASM_SDK_BUILD_TARGET" = "all" ]; then
+    for source_dir in "${FULL_SDK_WASM_SOURCES[@]}"; do
+      rm -rf "$SDK_ROOT/$source_dir/pkg"
+    done
+  fi
+  print_success "WASM package outputs cleaned"
 
-print_step "Optimizing wasm-pack metadata for tree-shaking..."
-if node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg"; then
+  print_step "Building WASM packages in parallel..."
+  JOB_LOG_DIR="$(mktemp -d)"
+  start_job "NEAR signer WASM (release)" build_near_signer
+  start_job "ECDSA server signing worker WASM (release)" build_router_ab_ecdsa_signing_worker
+  start_job "EVM crypto WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_EVM_CRYPTO" evm_crypto
+  start_job "threshold-prf WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_THRESHOLD_PRF" threshold_prf
+  if [ "$WASM_SDK_BUILD_TARGET" = "all" ]; then
+    start_job "Ed25519 Yao Client WASM (release)" build_ed25519_yao_client
+    start_job "ECDSA registration client WASM (release)" build_ecdsa_registration_client
+    start_job "ECDSA client signer WASM (release)" build_router_ab_ecdsa_derivation_client
+    start_job "ECDSA presign client WASM (release)" build_router_ab_ecdsa_presign_client
+    start_job "ECDSA online client WASM (release)" build_router_ab_ecdsa_online_client
+    start_job "Tempo signer WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_TEMPO_SIGNER" tempo_signer
+    start_job "Shamir3Pass runtime WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_SHAMIR3PASS_RUNTIME" shamir3pass_runtime
+    start_job "Email OTP runtime WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_EMAIL_OTP_RUNTIME" email_otp_runtime
+  fi
+  wait_for_jobs
+
+  print_step "Optimizing wasm-pack metadata for tree-shaking..."
+  for source_dir in "${GATEWAY_WASM_SOURCES[@]}"; do
+    node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$source_dir/pkg"
+  done
+  if [ "$WASM_SDK_BUILD_TARGET" = "all" ]; then
+    for source_dir in "${FULL_SDK_WASM_SOURCES[@]}"; do
+      node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$source_dir/pkg"
+    done
+  fi
   print_success "WASM package metadata optimized"
-else
-  print_warning "Failed to optimize WASM package metadata; bundler may deoptimize tree-shaking"
-fi
-if node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg" 2>/dev/null; then
-  print_success "Ed25519 Yao Client WASM package metadata optimized"
-else
-  print_warning "Failed to optimize Ed25519 Yao Client WASM package metadata"
-fi
-if node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT/pkg" 2>/dev/null; then
-  print_success "ECDSA registration client WASM package metadata optimized"
-else
-  print_warning "Failed to optimize ECDSA registration client WASM package metadata"
-fi
-if node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg" 2>/dev/null; then
-  print_success "ECDSA client WASM package metadata optimized"
-else
-  print_warning "Failed to optimize ECDSA client WASM package metadata"
-fi
-if node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$SOURCE_WASM_EVM_CRYPTO/pkg" 2>/dev/null; then
-  print_success "Eth WASM package metadata optimized"
-else
-  print_warning "Failed to optimize Eth WASM package metadata"
-fi
-if node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/pkg" 2>/dev/null; then
-  print_success "Tempo WASM package metadata optimized"
-else
-  print_warning "Failed to optimize Tempo WASM package metadata"
-fi
-if node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/pkg" 2>/dev/null; then
-  print_success "Shamir3Pass runtime WASM package metadata optimized"
-else
-  print_warning "Failed to optimize Shamir3Pass runtime WASM package metadata"
-fi
-if node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg" 2>/dev/null; then
-  print_success "Email OTP runtime WASM package metadata optimized"
-else
-  print_warning "Failed to optimize Email OTP runtime WASM package metadata"
-fi
-if node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$SOURCE_WASM_THRESHOLD_PRF/pkg" 2>/dev/null; then
-  print_success "threshold-prf WASM package metadata optimized"
-else
-  print_warning "Failed to optimize threshold-prf WASM package metadata"
 fi
 
 print_step "Checking expected WASM package outputs..."
 require_file "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg/wasm_signer_worker.js"
 require_file "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg/wasm_signer_worker.d.ts"
 require_file "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg/wasm_signer_worker_bg.wasm"
-require_file "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client.js"
-require_file "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client.d.ts"
-require_file "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client_bg.wasm"
-require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT/pkg/ecdsa_registration_client.js"
-require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT/pkg/ecdsa_registration_client.d.ts"
-require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT/pkg/ecdsa_registration_client_bg.wasm"
-require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg/router_ab_ecdsa_derivation_client.js"
-require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg/router_ab_ecdsa_derivation_client.d.ts"
-require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg/router_ab_ecdsa_derivation_client_bg.wasm"
-require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_PRESIGN_CLIENT/pkg/router_ab_ecdsa_presign_client.js"
-require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_PRESIGN_CLIENT/pkg/router_ab_ecdsa_presign_client.d.ts"
-require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_PRESIGN_CLIENT/pkg/router_ab_ecdsa_presign_client_bg.wasm"
-require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_ONLINE_CLIENT/pkg/router_ab_ecdsa_online_client.js"
-require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_ONLINE_CLIENT/pkg/router_ab_ecdsa_online_client.d.ts"
-require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_ONLINE_CLIENT/pkg/router_ab_ecdsa_online_client_bg.wasm"
 require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_SIGNING_WORKER/pkg/router_ab_ecdsa_signing_worker.js"
 require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_SIGNING_WORKER/pkg/router_ab_ecdsa_signing_worker.d.ts"
 require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_SIGNING_WORKER/pkg/router_ab_ecdsa_signing_worker_bg.wasm"
 require_file "$SDK_ROOT/$SOURCE_WASM_EVM_CRYPTO/pkg/evm_crypto.js"
 require_file "$SDK_ROOT/$SOURCE_WASM_EVM_CRYPTO/pkg/evm_crypto.d.ts"
 require_file "$SDK_ROOT/$SOURCE_WASM_EVM_CRYPTO/pkg/evm_crypto_bg.wasm"
-require_file "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/pkg/tempo_signer.js"
-require_file "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/pkg/tempo_signer.d.ts"
-require_file "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/pkg/tempo_signer_bg.wasm"
-require_file "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/pkg/shamir3pass_runtime.js"
-require_file "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/pkg/shamir3pass_runtime.d.ts"
-require_file "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/pkg/shamir3pass_runtime_bg.wasm"
-require_file "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg/email_otp_runtime.js"
-require_file "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg/email_otp_runtime.d.ts"
-require_file "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg/email_otp_runtime_bg.wasm"
 require_file "$SDK_ROOT/$SOURCE_WASM_THRESHOLD_PRF/pkg/threshold_prf.js"
 require_file "$SDK_ROOT/$SOURCE_WASM_THRESHOLD_PRF/pkg/threshold_prf.d.ts"
 require_file "$SDK_ROOT/$SOURCE_WASM_THRESHOLD_PRF/pkg/threshold_prf_bg.wasm"
+if [ "$WASM_SDK_BUILD_TARGET" = "all" ]; then
+  require_file "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client.js"
+  require_file "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client.d.ts"
+  require_file "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client_bg.wasm"
+  require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT/pkg/ecdsa_registration_client.js"
+  require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT/pkg/ecdsa_registration_client.d.ts"
+  require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT/pkg/ecdsa_registration_client_bg.wasm"
+  require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg/router_ab_ecdsa_derivation_client.js"
+  require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg/router_ab_ecdsa_derivation_client.d.ts"
+  require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg/router_ab_ecdsa_derivation_client_bg.wasm"
+  require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_PRESIGN_CLIENT/pkg/router_ab_ecdsa_presign_client.js"
+  require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_PRESIGN_CLIENT/pkg/router_ab_ecdsa_presign_client.d.ts"
+  require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_PRESIGN_CLIENT/pkg/router_ab_ecdsa_presign_client_bg.wasm"
+  require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_ONLINE_CLIENT/pkg/router_ab_ecdsa_online_client.js"
+  require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_ONLINE_CLIENT/pkg/router_ab_ecdsa_online_client.d.ts"
+  require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_ONLINE_CLIENT/pkg/router_ab_ecdsa_online_client_bg.wasm"
+  require_file "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/pkg/tempo_signer.js"
+  require_file "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/pkg/tempo_signer.d.ts"
+  require_file "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/pkg/tempo_signer_bg.wasm"
+  require_file "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/pkg/shamir3pass_runtime.js"
+  require_file "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/pkg/shamir3pass_runtime.d.ts"
+  require_file "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/pkg/shamir3pass_runtime_bg.wasm"
+  require_file "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg/email_otp_runtime.js"
+  require_file "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg/email_otp_runtime.d.ts"
+  require_file "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg/email_otp_runtime_bg.wasm"
+fi
 print_success "Expected WASM package outputs are present"
 
 print_success "WASM build completed successfully!"

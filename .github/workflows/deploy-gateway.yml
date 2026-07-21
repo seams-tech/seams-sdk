@@ -89,8 +89,36 @@ jobs:
           node-version: '24'
           cache: 'pnpm'
 
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.96.0'
+
+      - name: Add wasm target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: curl -sSf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Cache generated Gateway WASM
+        id: cache_gateway_wasm
+        uses: actions/cache@v4
+        with:
+          path: |
+            wasm/near_signer/pkg
+            wasm/threshold_prf/pkg
+            wasm/evm_crypto/pkg
+            wasm/router_ab_ecdsa_signing_worker/pkg
+          key: gateway-wasm-${{ runner.os }}-rust-1.96.0-${{ hashFiles('wasm/near_signer/**', 'wasm/threshold_prf/**', 'wasm/evm_crypto/**', 'wasm/router_ab_ecdsa_signing_worker/**', 'crates/**/src/**', 'crates/**/Cargo.toml', 'packages/sdk-web/scripts/build/**') }}
+
+      - name: Build Gateway WASM dependencies
+        env:
+          WASM_SDK_BUILD_TARGET: gateway
+          WASM_SDK_USE_PREBUILT: ${{ steps.cache_gateway_wasm.outputs.cache-hit == 'true' && '1' || '0' }}
+        run: pnpm -C packages/console-server-ts run d1:local:ensure-wasm
 
       - name: Validate deployment credentials and secrets
         run: |
