@@ -23,6 +23,8 @@ import type {
   writeExactSealedSession,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import type { ThresholdEcdsaActivationRequest } from '@/core/signingEngine/session/passkey/ecdsaSessionProvision';
+import type { ThresholdEcdsaEmailOtpExportActivationRequest } from '@/core/signingEngine/session/passkey/ecdsaSessionProvision';
+import type { EmailOtpEcdsaExplicitExportBootstrapResult } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
 
 export type EmailOtpCoordinatorRuntimePorts = {
   configs: SeamsConfigsReadonly;
@@ -36,6 +38,9 @@ export type EmailOtpEcdsaSessionPorts = {
   provisionThresholdEcdsaSession: (
     request: ThresholdEcdsaActivationRequest,
   ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
+  provisionEmailOtpEcdsaExplicitExportSession: (
+    request: ThresholdEcdsaEmailOtpExportActivationRequest,
+  ) => Promise<EmailOtpEcdsaExplicitExportBootstrapResult>;
   commitEvmFamilyThresholdEcdsaSessions: (args: {
     walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;

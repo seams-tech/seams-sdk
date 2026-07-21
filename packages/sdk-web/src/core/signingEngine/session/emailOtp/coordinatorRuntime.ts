@@ -102,6 +102,8 @@ export class EmailOtpWalletSessionRuntime {
       configs: deps.configs,
       getSignerWorkerContext: deps.getSignerWorkerContext,
       provisionThresholdEcdsaSession: deps.provisionThresholdEcdsaSession,
+      provisionEmailOtpEcdsaExplicitExportSession:
+        deps.provisionEmailOtpEcdsaExplicitExportSession,
       runtimeConfig: this.runtimeConfig,
       rememberAppSessionJwt: (request) => this.rememberAppSessionJwt(request),
       publicationPorts: () => this.sealedSessionRegistry.ecdsaPublicationPorts(),
@@ -110,8 +112,8 @@ export class EmailOtpWalletSessionRuntime {
       getSignerWorkerContext: deps.getSignerWorkerContext,
       requireRelayUrl: () => this.runtimeConfig.requireRelayUrl(),
       requireShamirPrimeB64u: () => this.runtimeConfig.requireShamirPrimeB64u(),
-      loginWithEcdsaCapabilityInternal: (request) =>
-        this.ecdsaLifecycleRuntime.loginWithEcdsaCapabilityInternal(request),
+      prepareEcdsaExportCapability: (request) =>
+        this.ecdsaLifecycleRuntime.prepareEcdsaExportCapability(request),
     });
     const restoreEcdsaSigningSessionMaterialFromSealedRecord =
       createEmailOtpEcdsaSigningSessionMaterialRestorer({

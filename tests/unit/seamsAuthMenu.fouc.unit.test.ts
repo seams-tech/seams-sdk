@@ -1787,7 +1787,7 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
       .toEqual([]);
   });
 
-  test('Google SSO headless registration shows registration prompt with reroll', async ({
+  test('Google SSO headless login can transition to registration with reroll', async ({
     page,
   }) => {
     await page.evaluate(
@@ -1811,7 +1811,7 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
             kind: 'google_email_otp_wallet_auth_flow_v1',
             state: 'registration_ready',
             flowId: `flow-${walletId}`,
-            requestedMode: 'register',
+            requestedMode: 'login',
             mode: 'register',
             walletId,
             emailHint: 'alice@example.com',
@@ -1860,7 +1860,7 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
           );
           const controller = useSeamsAuthMenuController(
             {
-              defaultMode: AuthMenuMode.Register,
+              defaultMode: AuthMenuMode.Login,
               socialLogin: {
                 google: async () => ({
                   kind: 'registration_flow',
@@ -1877,9 +1877,14 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
               'button',
               {
                 type: 'button',
-                onClick: () => controller.onSocialLogin('google', AuthMenuMode.Register),
+                onClick: () => controller.onSocialLogin('google', AuthMenuMode.Login),
               },
-              'Start registration',
+              'Start login',
+            ),
+            React.createElement(
+              'div',
+              { id: 'resolved-mode' },
+              controller.mode === AuthMenuMode.Register ? 'register' : 'login',
             ),
             controller.registrationPrompt
               ? React.createElement(
@@ -1922,7 +1927,8 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
     );
 
     const mount = page.locator('#seams-auth-menu-google-headless-registration-mount');
-    await mount.getByRole('button', { name: 'Start registration' }).click();
+    await mount.getByRole('button', { name: 'Start login' }).click();
+    await expect(mount.locator('#resolved-mode')).toHaveText('register');
     await expect(mount.locator('#registration-title')).toHaveText('Create your Email OTP wallet');
     await expect(mount.getByRole('button', { name: 'Create wallet' })).toBeVisible();
     await expect(mount.getByRole('button', { name: 'Generate another name' })).toBeVisible();

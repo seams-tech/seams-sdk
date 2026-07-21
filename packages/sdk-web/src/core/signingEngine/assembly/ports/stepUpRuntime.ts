@@ -32,6 +32,7 @@ export function createStepUpRuntime(args: {
   baseTouchConfirm: UiConfirmRuntimeBridgePort;
   getSignerWorkerContext: EmailOtpWalletSessionCoordinatorDeps['getSignerWorkerContext'];
   provisionThresholdEcdsaSession: EmailOtpWalletSessionCoordinatorDeps['provisionThresholdEcdsaSession'];
+  provisionEmailOtpEcdsaExplicitExportSession: EmailOtpWalletSessionCoordinatorDeps['provisionEmailOtpEcdsaExplicitExportSession'];
   thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>>;
   persistEcdsaRoleLocalReadyRecord: DurableRecordStore['persistEcdsaRoleLocalReadyRecord'];
   listActiveEcdsaSignersForWallet: (args: {
@@ -48,6 +49,8 @@ export function createStepUpRuntime(args: {
     getRpId: () => args.touchIdPrompt.getRpId(),
     getSignerWorkerContext: args.getSignerWorkerContext,
     provisionThresholdEcdsaSession: args.provisionThresholdEcdsaSession,
+    provisionEmailOtpEcdsaExplicitExportSession:
+      args.provisionEmailOtpEcdsaExplicitExportSession,
     commitEvmFamilyThresholdEcdsaSessions: (commitArgs) =>
       commitEvmFamilyThresholdEcdsaSessions(
         {

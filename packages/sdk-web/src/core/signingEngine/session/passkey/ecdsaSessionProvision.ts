@@ -5,8 +5,11 @@ import type {
 import type { DurableRecordStore, EmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
+  bootstrapEmailOtpExplicitExportEcdsaSessionValue,
   bootstrapEcdsaSessionValue,
   bootstrapExplicitKeyExportEcdsaSessionValue,
+  type EmailOtpEcdsaExplicitExportBootstrapResult,
+  type EmailOtpEcdsaExactBootstrapRequest,
   ecdsaBootstrapWalletId,
   type EcdsaBootstrapRequest,
   type PasskeyEcdsaExportBootstrapRequest,
@@ -143,6 +146,14 @@ export type ThresholdEcdsaEmailOtpActivationRequest = ThresholdEcdsaActivationRe
   webauthnAuthentication?: never;
 };
 
+export type ThresholdEcdsaEmailOtpExportActivationRequest = Omit<
+  ThresholdEcdsaEmailOtpActivationRequest,
+  'purpose' | 'emailOtpAuthContext'
+> & {
+  purpose: 'explicit_key_export';
+  emailOtpAuthContext: ThresholdEcdsaEmailOtpPendingSingleUseAuthContext;
+};
+
 export type ThresholdEcdsaWalletSessionReconnectRequest = ThresholdEcdsaActivationRequestCommon & {
   kind: 'wallet_session_reconnect';
   purpose: 'transaction_signing';
@@ -216,7 +227,8 @@ type BuildWalletSessionReconnectEcdsaActivationArgs = BuildThresholdEcdsaActivat
 
 type AnyThresholdEcdsaActivationRequest =
   | ThresholdEcdsaActivationRequest
-  | ThresholdEcdsaPasskeyExportActivationRequest;
+  | ThresholdEcdsaPasskeyExportActivationRequest
+  | ThresholdEcdsaEmailOtpExportActivationRequest;
 
 function applyOptionalActivationFields<T extends AnyThresholdEcdsaActivationRequest>(
   request: T,
@@ -326,6 +338,34 @@ export function buildEmailOtpPerOperationReauthEcdsaActivation(
     label: 'per-operation reauth',
   });
   return buildEmailOtpEcdsaActivationRequest(args);
+}
+
+export function buildEmailOtpExplicitExportEcdsaActivation(
+  args: BuildEmailOtpPerOperationReauthEcdsaActivationArgs,
+): ThresholdEcdsaEmailOtpExportActivationRequest {
+  assertEmailOtpActivationRetention({
+    context: args.emailOtpAuthContext,
+    expected: 'single_use',
+    label: 'explicit export',
+  });
+  const request: ThresholdEcdsaEmailOtpExportActivationRequest = {
+    kind: 'email_otp_ecdsa_activation',
+    purpose: 'explicit_key_export',
+    walletKey: args.walletKey,
+    lanePolicy: args.lanePolicy,
+    publicCapability: args.publicCapability,
+    existingRoleLocalMaterial: args.existingRoleLocalMaterial,
+    source: args.source,
+    relayerUrl: args.relayerUrl,
+    sessionIdentity: args.sessionIdentity,
+    sessionKind: args.sessionKind,
+    sessionBudgetUses: args.sessionBudgetUses,
+    runtimePolicy: args.runtimePolicy,
+    emailOtpWorkerSessionHandle: args.emailOtpWorkerSessionHandle,
+    emailOtpAuthContext: args.emailOtpAuthContext,
+    walletSessionRouteAuth: args.walletSessionRouteAuth,
+  };
+  return applyOptionalActivationFields(request, args);
 }
 
 export function buildWalletSessionReconnectEcdsaActivation(
@@ -719,5 +759,34 @@ export async function provisionPasskeyEcdsaExplicitExportSession(
   return await bootstrapExplicitKeyExportEcdsaSessionValue(
     deps.activationDeps,
     toExplicitKeyExportEcdsaBootstrapRequest(request),
+  );
+}
+
+export async function provisionEmailOtpEcdsaExplicitExportSession(
+  deps: ProvisionThresholdEcdsaSessionDeps,
+  request: ThresholdEcdsaEmailOtpExportActivationRequest,
+): Promise<EmailOtpEcdsaExplicitExportBootstrapResult> {
+  const bootstrapRequest: EmailOtpEcdsaExactBootstrapRequest = {
+    kind: 'email_otp_ecdsa_bootstrap',
+    keyHandle: request.walletKey.keyHandle,
+    key: evmFamilyEcdsaWalletKeyToIdentity(request.walletKey),
+    lanePolicy: request.lanePolicy,
+    publicCapability: request.publicCapability,
+    existingRoleLocalMaterial: request.existingRoleLocalMaterial,
+    source: 'email_otp',
+    relayerUrl: request.relayerUrl,
+    emailOtpWorkerSessionHandle: request.emailOtpWorkerSessionHandle,
+    emailOtpAuthContext: request.emailOtpAuthContext,
+    routeAuth: request.walletSessionRouteAuth,
+  };
+  if (request.runtimeScopeBootstrap) {
+    bootstrapRequest.runtimeScopeBootstrap = request.runtimeScopeBootstrap;
+  }
+  if (request.operationIntent) {
+    bootstrapRequest.operationIntent = request.operationIntent;
+  }
+  return await bootstrapEmailOtpExplicitExportEcdsaSessionValue(
+    deps.activationDeps,
+    bootstrapRequest,
   );
 }

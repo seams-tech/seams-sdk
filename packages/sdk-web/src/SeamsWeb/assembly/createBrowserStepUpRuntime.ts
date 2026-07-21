@@ -11,6 +11,7 @@ import {
 } from '@/core/signingEngine/assembly/ports/stepUpRuntime';
 import type { WarmSigningPorts } from '@/core/signingEngine/assembly/ports/warmSigning';
 import type { createSigningEnginePorts } from '@/core/signingEngine/assembly/createPorts';
+import { provisionEmailOtpEcdsaExplicitExportSession } from '@/core/signingEngine/session/passkey/ecdsaSessionProvision';
 
 type SigningEnginePorts = ReturnType<typeof createSigningEnginePorts>;
 
@@ -38,6 +39,21 @@ export function createBrowserStepUpRuntime(args: {
       args.getEnginePorts().walletSessionActivationDeps.getSignerWorkerContext(),
     provisionThresholdEcdsaSession: (request) =>
       args.getEnginePorts().tempoSigningDeps.provisionThresholdEcdsaSession(request),
+    provisionEmailOtpEcdsaExplicitExportSession: (request) =>
+      provisionEmailOtpEcdsaExplicitExportSession(
+        {
+          queueByWallet: args.thresholdEcdsaBootstrapQueueByWallet,
+          activationDeps: args.getEnginePorts().walletSessionActivationDeps,
+          touchConfirm: args.baseTouchConfirm,
+          persistEcdsaRoleLocalReadyRecord:
+            args.runtimePorts.storage.persistEcdsaRoleLocalReadyRecord,
+          resolveSealTransport: ({ lane }) =>
+            args.getWarmSigning().capabilityReader.resolveEcdsaSealTransportByThresholdSessionId({
+              lane,
+            }),
+        },
+        request,
+      ),
     thresholdEcdsaBootstrapQueueByWallet: args.thresholdEcdsaBootstrapQueueByWallet,
     persistEcdsaRoleLocalReadyRecord: args.runtimePorts.storage.persistEcdsaRoleLocalReadyRecord,
     listActiveEcdsaSignersForWallet: (signerArgs) =>

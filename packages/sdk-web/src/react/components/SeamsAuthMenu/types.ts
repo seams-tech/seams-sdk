@@ -148,6 +148,10 @@ export type SeamsAuthMenuSocialLoginResult =
       kind: 'registration_flow';
       flow: GoogleEmailOtpWalletAuthRegistrationFlow;
       onComplete?: SeamsAuthMenuSocialCompletion;
+    }
+  | {
+      kind: 'registration_required';
+      reason: 'google_account_not_registered';
     };
 
 export type SeamsAuthMenuSocialLoginArgs =

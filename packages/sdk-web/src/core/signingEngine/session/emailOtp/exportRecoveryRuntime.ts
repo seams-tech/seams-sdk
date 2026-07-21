@@ -25,8 +25,8 @@ import {
   type EmailOtpEcdsaExportArtifact,
 } from './exportRecovery';
 import type {
-  EmailOtpThresholdEcdsaLoginResult,
-  LoginEmailOtpEcdsaCapabilityArgs,
+  EmailOtpThresholdEcdsaExportPreparation,
+  PrepareEmailOtpEcdsaExportCapabilityArgs,
 } from './ecdsaLogin';
 export type { EmailOtpEcdsaExportArtifact } from './exportRecovery';
 
@@ -109,9 +109,9 @@ export class EmailOtpExportRecoveryRuntime {
       getSignerWorkerContext: () => WorkerOperationContext | null | undefined;
       requireRelayUrl: () => string;
       requireShamirPrimeB64u: () => string;
-      loginWithEcdsaCapabilityInternal: (
-        args: LoginEmailOtpEcdsaCapabilityArgs,
-      ) => Promise<EmailOtpThresholdEcdsaLoginResult>;
+      prepareEcdsaExportCapability: (
+        args: PrepareEmailOtpEcdsaExportCapabilityArgs,
+      ) => Promise<EmailOtpThresholdEcdsaExportPreparation>;
     },
   ) {}
 
@@ -135,7 +135,7 @@ export class EmailOtpExportRecoveryRuntime {
       challengeId: args.challengeId,
       otpCode: args.otpCode,
       committedLane: args.committedLane,
-      loginWithEcdsaCapabilityInternal: this.ports.loginWithEcdsaCapabilityInternal,
+      prepareEcdsaExportCapability: this.ports.prepareEcdsaExportCapability,
     });
   }
 
@@ -156,7 +156,7 @@ export class EmailOtpExportRecoveryRuntime {
         publicFacts: args.publicFacts,
         runtimePolicyScope: args.runtimePolicyScope,
         signingSessionAuthority: args.signingSessionAuthority,
-        loginWithEcdsaCapabilityInternal: this.ports.loginWithEcdsaCapabilityInternal,
+        prepareEcdsaExportCapability: this.ports.prepareEcdsaExportCapability,
       },
     );
   }
@@ -176,7 +176,7 @@ export class EmailOtpExportRecoveryRuntime {
         otpCode: args.otpCode,
         appSessionJwt: args.appSessionJwt,
         publicReauthAuthority: args.publicReauthAuthority,
-        loginWithEcdsaCapabilityInternal: this.ports.loginWithEcdsaCapabilityInternal,
+        prepareEcdsaExportCapability: this.ports.prepareEcdsaExportCapability,
       },
     );
   }

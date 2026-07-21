@@ -439,8 +439,7 @@ test.describe('AuthService OIDC exchange verification', () => {
       }),
     ).rejects.toMatchObject({
       code: 'stale_identity_mapping',
-      message:
-        'Google Email OTP identity mapping is stale. Clear the stale identity mapping with the dev cleanup route before registering this Google account.',
+      message: 'No wallet is linked to this Google account yet. Sign up to create one.',
     });
     await expect(identity.getUserIdBySubject('wallet:google:subject-stale-login')).resolves.toBe(
       'stale-login-c1d2e3f4g5.relayer.testnet',

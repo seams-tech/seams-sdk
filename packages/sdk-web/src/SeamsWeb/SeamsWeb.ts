@@ -124,6 +124,7 @@ import {
   requestEmailOtpEnrollmentChallenge,
 } from '@/SeamsWeb/operations/authMethods/emailOtp/challenge';
 import { beginGoogleEmailOtpWalletAuth } from '@/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow';
+import { EmailOtpDeviceRecoveryRequiredError } from '@/SeamsWeb/operations/authMethods/emailOtp/errors';
 import {
   getEmailOtpRecoveryCodeStatus,
   storeRotatedEmailOtpRecoveryCodes,
@@ -1842,13 +1843,11 @@ export class SeamsWeb {
       (record) => record.kind === 'email_otp' && record.status === 'active',
     );
     if (matches.length !== 1) {
-      throw new Error(
-        '[SeamsWeb][email-otp] expected one active Email OTP wallet auth-method binding',
-      );
+      throw new EmailOtpDeviceRecoveryRequiredError();
     }
     const emailHashHex = String(matches[0].emailHashHex || '').trim();
     if (!emailHashHex) {
-      throw new Error('[SeamsWeb][email-otp] Email OTP wallet auth-method binding is missing hash');
+      throw new EmailOtpDeviceRecoveryRequiredError();
     }
     return emailHashHex;
   }

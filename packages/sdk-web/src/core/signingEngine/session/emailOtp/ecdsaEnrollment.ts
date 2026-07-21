@@ -45,7 +45,10 @@ import {
 } from '../budget/policy';
 import { deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope } from '../identity/evmFamilyEcdsaIdentity';
 import type { ThresholdEcdsaActivationRequest } from '../passkey/ecdsaSessionProvision';
-import { provisionEmailOtpExistingKeySessions } from './ecdsaLogin';
+import {
+  provisionEmailOtpExistingKeySessions,
+  type EmailOtpEcdsaLoginPorts,
+} from './ecdsaLogin';
 import {
   DEFAULT_THRESHOLD_SESSION_POLICY,
   clampThresholdSessionPolicy,
@@ -120,6 +123,7 @@ export type EmailOtpEcdsaEnrollmentPorts = {
   provisionThresholdEcdsaSession: (
     request: ThresholdEcdsaActivationRequest,
   ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
+  provisionEmailOtpEcdsaExplicitExportSession: EmailOtpEcdsaLoginPorts['provisionEmailOtpEcdsaExplicitExportSession'];
   rememberAppSessionJwt: (args: {
     walletId: WalletSessionRef['walletId'];
     appSessionJwt: string;
@@ -321,6 +325,8 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
         configs: ports.configs,
         getSignerWorkerContext: ports.getSignerWorkerContext,
         provisionThresholdEcdsaSession: ports.provisionThresholdEcdsaSession,
+        provisionEmailOtpEcdsaExplicitExportSession:
+          ports.provisionEmailOtpEcdsaExplicitExportSession,
         requireRelayUrl: ports.requireRelayUrl,
         requireShamirPrimeB64u: ports.requireShamirPrimeB64u,
         rememberAppSessionJwt: ports.rememberAppSessionJwt,
