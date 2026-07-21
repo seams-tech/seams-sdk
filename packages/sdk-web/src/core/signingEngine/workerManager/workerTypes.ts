@@ -320,6 +320,13 @@ export type EmailOtpEcdsaSessionBootstrapHandlePayload = {
   chainTarget: ThresholdEcdsaChainTarget;
 };
 
+export type EmailOtpEcdsaExportClientRootHandlePayload = Omit<
+  EmailOtpEcdsaSessionBootstrapHandlePayload,
+  'operation'
+> & {
+  operation: 'export';
+};
+
 export type EmailOtpWalletRegistrationEcdsaPrepareHandlePayload = {
   kind: 'email_otp_worker_session_handle_v1';
   sessionId: string;
@@ -530,6 +537,10 @@ export interface EmailOtpWorkerOperationMap {
   };
   disposeEmailOtpEd25519YaoRoot: {
     payload: { rootHandle: EmailOtpEd25519YaoRootHandle };
+    result: { removed: boolean };
+  };
+  disposeEmailOtpEcdsaExportClientRootHandle: {
+    payload: { clientRootShareHandle: EmailOtpEcdsaExportClientRootHandlePayload };
     result: { removed: boolean };
   };
   startEmailOtpEd25519YaoRegistration: {
@@ -989,7 +1000,9 @@ export type EmailOtpWarmSessionOperationType =
   | 'rehydrateEmailOtpEcdsaWarmSessionMaterial'
   | 'rehydrateEmailOtpEd25519YaoFactor'
   | 'clearEmailOtpWarmSessionMaterial';
-export type EmailOtpExportOperationType = 'exportEmailOtpEd25519YaoSeedWithAuthorization';
+export type EmailOtpExportOperationType =
+  | 'disposeEmailOtpEcdsaExportClientRootHandle'
+  | 'exportEmailOtpEd25519YaoSeedWithAuthorization';
 export type EmailOtpDomainOperationType =
   | EmailOtpChallengeOperationType
   | EmailOtpEnrollmentOperationType

@@ -6,6 +6,7 @@ import type {
   EmailOtpEd25519YaoActiveCapabilityDescriptorV1,
   EmailOtpEcdsaPublicationTargetPlan,
   EmailOtpEcdsaSessionBootstrapHandlePayload,
+  EmailOtpEcdsaExportClientRootHandlePayload,
   EmailOtpWalletRegistrationEcdsaPrepareHandlePayload,
   EmailOtpWorkerIssuedSessionHandlePayload,
   EmailOtpWorkerOperationRequestEnvelope,
@@ -43,6 +44,24 @@ const clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload = {
   operation: 'registration',
   chainTarget,
 };
+
+const exportClientRootShareHandle: EmailOtpEcdsaExportClientRootHandlePayload = {
+  kind: 'email_otp_worker_session_handle_v1',
+  sessionId: 'otp-export-root-session',
+  walletId: 'wallet-1',
+  evmFamilySigningKeySlotId: 'wallet-key:evm-family:wallet-1:root:version:default',
+  authSubjectId: 'google:user-1',
+  action: 'threshold_ecdsa_bootstrap',
+  operation: 'export',
+  chainTarget,
+};
+void exportClientRootShareHandle;
+
+const invalidExportDisposalPayload = {
+  // @ts-expect-error Export disposal rejects registration/signing worker handles.
+  clientRootShareHandle,
+} satisfies EmailOtpWorkerOperationMap['disposeEmailOtpEcdsaExportClientRootHandle']['payload'];
+void invalidExportDisposalPayload;
 
 const walletRegistrationEcdsaPrepareHandle: EmailOtpWalletRegistrationEcdsaPrepareHandlePayload = {
   kind: 'email_otp_worker_session_handle_v1',
