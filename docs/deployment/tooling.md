@@ -188,6 +188,45 @@ for a coordinated identity rotation that intentionally invalidates the prior
 wallet custody configuration. Staging and production must be generated
 independently.
 
+For a complete staging rotation, capture the exact manifest produced by the
+same operation that replaces the GitHub values:
+
+```bash
+umask 077
+pnpm --silent router:deploy:env-keygen -- \
+  --env staging \
+  --apply \
+  --rotate \
+  --repo seams-tech/seams-sdk \
+  > staging-github-environment-backup.txt
+```
+
+The operation writes these non-secret audit variables to all six GitHub
+Environments after every normal variable and secret has uploaded:
+
+- `SEAMS_DEPLOYMENT_GENERATION_ID`
+- `SEAMS_DEPLOYMENT_GENERATED_AT`
+- `SEAMS_DEPLOYMENT_MANIFEST_SHA256`
+
+The SHA-256 identifies the complete manifest, including its secret values,
+without disclosing them. GitHub does not permit reading secret values back, so
+the generation metadata records which complete manifest the uploader committed.
+The generation ID is written last. An interrupted metadata commit produces a
+cross-environment mismatch instead of marking the rotation complete.
+
+Verify that every staging environment references one generation before
+deploying:
+
+```bash
+pnpm router:deploy:env-verify -- \
+  --env staging \
+  --repo seams-tech/seams-sdk
+```
+
+Compare its generation ID, timestamp, and manifest SHA-256 with the protected
+backup. The command fails when any environment is missing metadata or contains
+a different generation.
+
 To consolidate an already initialized Gateway without rotating any secret or
 wallet identity, run the config-only migration:
 
