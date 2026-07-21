@@ -7,6 +7,23 @@ import type { PreferencesChangedPayload } from '@/SeamsWeb/walletIframe/shared/m
 import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
 import { createWalletIframeRouter } from '@/SeamsWeb/assembly/createWalletIframeRouter';
 import type { WalletIframeWarmupSurface } from '@/SeamsWeb/signingSurface/types';
+import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
+
+function requireRegistrationRpId(value: string, source: string): WebAuthnRpId {
+  const parsed = parseWebAuthnRpId(value);
+  if (!parsed.ok) {
+    throw new Error(`${source}: ${parsed.error.message}`);
+  }
+  return parsed.value;
+}
+
+function walletOriginHostname(walletOrigin: string): string {
+  try {
+    return new URL(walletOrigin).hostname;
+  } catch {
+    throw new Error('[SeamsWeb] Wallet iframe origin is not a valid URL.');
+  }
+}
 
 export interface WalletIframeCoordinatorDeps {
   configs: SeamsConfigsReadonly;
@@ -45,6 +62,30 @@ export class WalletIframeCoordinator {
    */
   shouldUseWalletIframe(): boolean {
     return this.configs.wallet.mode === 'iframe' && !__isWalletIframeHostMode();
+  }
+
+  resolveRegistrationRpId(localRpId: string): WebAuthnRpId {
+    if (!this.shouldUseWalletIframe()) {
+      return requireRegistrationRpId(localRpId, '[SeamsWeb] Local registration RP ID is invalid');
+    }
+
+    const iframeConfig = this.configs.wallet.iframe;
+    const configuredRpId = String(iframeConfig.rpIdOverride || '').trim();
+    if (configuredRpId) {
+      return requireRegistrationRpId(
+        configuredRpId,
+        '[SeamsWeb] Wallet iframe registration RP ID is invalid',
+      );
+    }
+
+    const walletOrigin = iframeConfig.origin;
+    if (!walletOrigin) {
+      throw new Error('[SeamsWeb] Wallet iframe registration requires a wallet origin.');
+    }
+    return requireRegistrationRpId(
+      walletOriginHostname(walletOrigin),
+      '[SeamsWeb] Wallet iframe origin hostname is not a valid registration RP ID',
+    );
   }
 
   isReady(): boolean {
