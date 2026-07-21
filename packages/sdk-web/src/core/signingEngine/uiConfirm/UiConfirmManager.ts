@@ -1875,16 +1875,6 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         ? { walletId: args.transport?.walletId || inferredTransport?.walletId }
         : {}),
     });
-    console.info('[UiConfirm] signing-session seal metadata summary', {
-      thresholdSessionId,
-      curve,
-      signingGrantId,
-      hasEcdsaRestore: Boolean(recordMetadata.ecdsaRestore),
-      hasEd25519Restore: Boolean(recordMetadata.ed25519Restore),
-      ed25519RestoreMissingFields: recordMetadata.ed25519Restore
-        ? ed25519RestoreMetadataMissingFields(recordMetadata.ed25519Restore)
-        : [],
-    });
     if (curve === 'ed25519' && !recordMetadata.ed25519Restore) {
       return {
         ok: false,

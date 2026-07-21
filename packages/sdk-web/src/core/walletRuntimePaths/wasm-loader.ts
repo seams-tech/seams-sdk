@@ -149,19 +149,11 @@ export async function initializeWasm(options: WasmLoaderOptions): Promise<any> {
     timeoutMs = 20000,
   } = options;
 
-  console.debug(`[${workerName}]: Starting WASM initialization...`, {
-    wasmUrl: wasmUrl.href,
-    userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
-    currentUrl: typeof self !== 'undefined' ? (self as any).location?.href : '',
-  });
-
   const initWithTimeout = async (): Promise<any> => {
     try {
-      console.debug(`[${workerName}]: Using bundled WASM (SDK-optimized approach)`);
       await initFunction({ module_or_path: wasmUrl as any });
       if (validateFunction) await validateFunction();
       if (testFunction) await testFunction();
-      console.debug(`[${workerName}]: WASM initialized successfully`);
       return true;
     } catch (initError: any) {
       console.error(`[${workerName}]: WASM initialization failed`);

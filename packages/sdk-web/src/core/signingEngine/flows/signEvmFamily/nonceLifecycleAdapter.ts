@@ -13,12 +13,7 @@ import {
   isNonceLaneBlockedRetryableError,
   mapToRetryableNonceStateError,
 } from './errors';
-import {
-  emitEvmFamilyBroadcastEvent,
-  emitEvmFamilyNonceLifecycleMetric,
-  toNonceLifecycleMetricBase,
-  type EvmFamilyManagedNonceReservation,
-} from './events';
+import { emitEvmFamilyBroadcastEvent, type EvmFamilyManagedNonceReservation } from './events';
 import type {
   EvmFamilyBroadcastAcceptedArgs,
   EvmFamilyBroadcastRejectedArgs,
@@ -103,11 +98,6 @@ export async function reportEvmFamilyBroadcastAccepted(
     ...requireManagedNonceLeaseRef(reservation),
     txHash,
   });
-  emitEvmFamilyNonceLifecycleMetric({
-    metric: 'broadcast_accepted',
-    ...toNonceLifecycleMetricBase(reservation),
-    txHash,
-  });
   emitEvmFamilyBroadcastEvent(args.onEvent, {
     walletId: args.walletId,
     phase: SigningEventPhase.STEP_12_BROADCAST_ACCEPTED,
@@ -163,11 +153,6 @@ export async function reportEvmFamilyBroadcastRejected(
     networkKey: reservation.chainTarget.networkSlug,
     chainId: reservation.chainTarget.chainId,
   });
-  emitEvmFamilyNonceLifecycleMetric({
-    metric: 'broadcast_rejected',
-    ...toNonceLifecycleMetricBase(reservation),
-    errorCode: extractErrorCode(mappedError) || extractErrorCode(args.error),
-  });
   emitEvmFamilyBroadcastEvent(args.onEvent, {
     walletId: args.walletId,
     phase: SigningEventPhase.STEP_12_BROADCAST_REJECTED,
@@ -215,11 +200,6 @@ export async function reportEvmFamilyBroadcastRejected(
       ...(laneStatus ? { laneStatus: formatNonceLaneStatus(laneStatus) } : {}),
     },
   });
-  emitEvmFamilyNonceLifecycleMetric({
-    metric: 'reconciled',
-    ...toNonceLifecycleMetricBase(reservation),
-    errorCode: extractErrorCode(mappedError) || undefined,
-  });
   throw mappedError;
 }
 
@@ -239,11 +219,6 @@ export async function reportEvmFamilyFinalized(
       : undefined);
   await deps.nonceCoordinator.markFinalized({
     ...requireManagedNonceLeaseRef(reservation),
-    ...(txHash ? { txHash } : {}),
-  });
-  emitEvmFamilyNonceLifecycleMetric({
-    metric: 'finalized',
-    ...toNonceLifecycleMetricBase(reservation),
     ...(txHash ? { txHash } : {}),
   });
 }
@@ -279,11 +254,6 @@ export async function reportEvmFamilyDroppedOrReplaced(
   await deps.nonceCoordinator.markDroppedOrReplaced({
     ...requireManagedNonceLeaseRef(reservation),
     reason: args.reason,
-    ...(args.txHash ? { txHash: args.txHash } : {}),
-  });
-  emitEvmFamilyNonceLifecycleMetric({
-    metric: args.reason === 'replaced' ? 'replaced' : 'dropped',
-    ...toNonceLifecycleMetricBase(reservation),
     ...(args.txHash ? { txHash: args.txHash } : {}),
   });
   emitEvmFamilyBroadcastEvent(args.onEvent, {
@@ -331,11 +301,6 @@ export async function reconcileEvmFamilyNonceLane(
     lane: evmManagedReservationToLane(reservation),
   });
   const formatted = formatNonceLaneStatus(laneStatus);
-  emitEvmFamilyNonceLifecycleMetric({
-    metric: 'reconciled',
-    ...toNonceLifecycleMetricBase(reservation),
-    ...(formatted.blockedNonce ? { blockedNonce: formatted.blockedNonce } : {}),
-  });
   emitEvmFamilyBroadcastEvent(args.onEvent, {
     walletId: args.walletId,
     phase: SigningEventPhase.STEP_13_NONCE_RECONCILE_SUCCEEDED,
@@ -349,11 +314,6 @@ export async function reconcileEvmFamilyNonceLane(
     },
   });
   if (laneStatus.blocked) {
-    emitEvmFamilyNonceLifecycleMetric({
-      metric: 'lane_blocked',
-      ...toNonceLifecycleMetricBase(reservation),
-      blockedNonce: String(formatted.blockedNonce || 'unknown'),
-    });
     throw createEvmFamilySigningNonceLaneBlockedError({
       chain: reservation.chainTarget.kind,
       networkKey: reservation.chainTarget.networkSlug,

@@ -285,7 +285,6 @@ export async function runNearTransactionWithActionsSigning({
   const nearAccountId = toAccountId(nearAccount.accountId);
   const relayerUrl = ctx.relayerUrl;
   const warnings: string[] = [];
-  const signingStartedAt = performance.now();
   emitNearSigningEvent(onEvent, nearAccountId, {
     phase: SigningEventPhase.STEP_02_REQUEST_PREPARED,
     status: 'running',
@@ -299,15 +298,6 @@ export async function runNearTransactionWithActionsSigning({
     operationLabel: 'signing',
     warnings,
   });
-  console.debug('[SigningEngine][near][transaction] signing materials resolved', {
-    nearAccountId,
-    durationMs: Math.round(performance.now() - signingStartedAt),
-  });
-  console.debug('[signTransactionWithActions] threshold signing', {
-    nearAccountId,
-    warnings,
-  });
-
   const signingContext = validateAndPrepareSigningContext({
     nearAccountId,
     relayerUrl,
@@ -608,11 +598,6 @@ export async function runNearTransactionWithActionsSigning({
           sessionId: canonicalThresholdSessionId,
           clientBaseSource: 'yao_active_client',
         },
-      });
-      console.debug('[SigningEngine][near][transaction] threshold client base ready', {
-        nearAccountId,
-        thresholdSessionId: canonicalThresholdSessionId,
-        durationMs: Math.round(performance.now() - signingStartedAt),
       });
       return {
         canonicalThresholdSessionId,

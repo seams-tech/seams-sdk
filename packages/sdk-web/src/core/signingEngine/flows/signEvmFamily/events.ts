@@ -1,32 +1,9 @@
 import type { ManagedNonceReservation } from '@/core/rpcClients/evm/nonceBackend';
 import { createSigningFlowEvent } from '@/core/types/sdkSentEvents';
 import type { SigningOperationTransitionEvent } from '../shared/signingStateMachine';
-import { emitNonceLifecycleMetric } from './nonceMetrics';
 import type { EvmFamilyLifecycleEvent, EvmFamilyLifecycleEventCallback } from './types';
 
 export type EvmFamilyManagedNonceReservation = ManagedNonceReservation;
-
-export function toNonceLifecycleMetricBase(
-  reservation: EvmFamilyManagedNonceReservation,
-): Omit<Parameters<typeof emitNonceLifecycleMetric>[0], 'metric'> {
-  const base = {
-    chainTarget: reservation.chainTarget,
-    networkKey: reservation.chainTarget.networkSlug,
-    chainId: reservation.chainTarget.chainId,
-    sender: reservation.sender,
-    nonce: reservation.nonce.toString(),
-    walletId: reservation.subjectId,
-  };
-  return reservation.nonceKey != null
-    ? { ...base, nonceKey: reservation.nonceKey.toString() }
-    : base;
-}
-
-export function emitEvmFamilyNonceLifecycleMetric(
-  event: Parameters<typeof emitNonceLifecycleMetric>[0],
-): void {
-  emitNonceLifecycleMetric(event);
-}
 
 export function emitEvmFamilyBroadcastEvent(
   onEvent: EvmFamilyLifecycleEventCallback | undefined,
