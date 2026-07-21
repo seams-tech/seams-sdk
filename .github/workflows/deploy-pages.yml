@@ -47,26 +47,30 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
   DEPLOY_SHA: ${{ inputs.deploy_sha || github.sha }}
   DEPLOY_SOURCE_BRANCH: ${{ inputs.source_branch || github.ref_name }}
   DEPLOY_ENVIRONMENT: ${{ inputs.deploy_environment }}
   PAGES_BRANCH: ${{ inputs.deploy_environment == 'production' && 'main' || 'dev' }}
-  DEPLOY_APP: ${{ inputs.target == 'all' || inputs.target == 'app' }}
-  DEPLOY_WALLET: ${{ inputs.target == 'all' || inputs.target == 'wallet' }}
+  RUST_TOOLCHAIN: '1.96.0'
+  PAGES_ARTIFACT_NAME: pages-${{ inputs.deploy_environment }}-${{ inputs.deploy_sha || github.sha }}
+  PAGES_ARTIFACT_IDENTITY: '{"pagesBuild":"app-wallet-v1"}'
+
 jobs:
-  deploy-pages:
+  build_pages_artifact:
+    name: Build Pages artifact
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment:
       name: ${{ inputs.deploy_environment }}
     steps:
-      - name: Checkout
+      - name: Checkout selected revision
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
           ref: ${{ env.DEPLOY_SHA }}
+
+      - name: Record artifact build start
+        run: echo "ARTIFACT_BUILD_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
 
       - name: Validate branch and environment mapping
         run: |
@@ -82,8 +86,6 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
-        with:
-          version: 10.28.2
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -93,21 +95,60 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
 
       - name: Add wasm target
         run: rustup target add wasm32-unknown-unknown
 
-      - name: Install wasm-pack
-        run: |
-          curl -sSf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
+      - name: Cache Rust build inputs
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: pages-sdk-${{ runner.os }}-${{ env.DEPLOY_ENVIRONMENT }}
+          workspaces: |
+            crates/router-ab-ed25519-yao-client -> target
+            wasm/ecdsa_registration_client -> target
+            wasm/email_otp_runtime -> target
+            wasm/evm_crypto -> target
+            wasm/near_signer -> target
+            wasm/router_ab_ecdsa_derivation_client -> target
+            wasm/router_ab_ecdsa_online_client -> target
+            wasm/router_ab_ecdsa_presign_client -> target
+            wasm/router_ab_ecdsa_signing_worker -> target
+            wasm/shamir3pass_runtime -> target
+            wasm/tempo_signer -> target
+            wasm/threshold_prf -> target
 
-      - name: Setup Bun (for worker bundling step in build scripts)
+      - name: Cache pinned WASM tooling
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/wasm-pack
+            packages/sdk-web/.tooling/wasm-bindgen
+            packages/sdk-web/.tooling/wasm-pack-cache
+          key: wasm-tooling-${{ runner.os }}-${{ hashFiles('packages/sdk-web/scripts/build/install-ci-wasm-tooling.sh', 'wasm/**/Cargo.lock', 'crates/router-ab-ed25519-yao-client/Cargo.lock') }}
+
+      - name: Install pinned WASM tooling
+        run: bash packages/sdk-web/scripts/build/install-ci-wasm-tooling.sh
+
+      - name: Setup Bun
         uses: oven-sh/setup-bun@v2
 
-      - name: Install deps (workspace)
+      - name: Install deps
         run: pnpm install --frozen-lockfile
 
-      - name: Build SDK (production)
+      - name: Cache generated SDK WASM
+        id: cache_sdk_wasm
+        uses: actions/cache@v4
+        with:
+          path: |
+            wasm/*/pkg
+            crates/router-ab-ed25519-yao-client/pkg
+          key: sdk-wasm-${{ runner.os }}-rust-${{ env.RUST_TOOLCHAIN }}-prod-${{ hashFiles('wasm/**', 'crates/**/src/**', 'crates/**/Cargo.toml', 'packages/sdk-web/scripts/build/**') }}
+
+      - name: Build SDK
+        env:
+          WASM_SDK_USE_PREBUILT: ${{ steps.cache_sdk_wasm.outputs.cache-hit == 'true' && '1' || '0' }}
         run: pnpm build:sdk-prod
 
       - name: Build Pages output
@@ -143,30 +184,255 @@ jobs:
           test -d packages/sdk-web/dist/esm/sdk
           test -f packages/sdk-web/dist/public/wallet-service/index.html
           mkdir -p apps/seams-site/dist/sdk apps/seams-site/dist/sdk/workers apps/seams-site/dist/wallet-service
-          rsync -av --delete packages/sdk-web/dist/esm/sdk/ apps/seams-site/dist/sdk/
+          rsync -a --delete packages/sdk-web/dist/esm/sdk/ apps/seams-site/dist/sdk/
           if [ -d packages/sdk-web/dist/workers ]; then
-            rsync -av --delete packages/sdk-web/dist/workers/ apps/seams-site/dist/sdk/workers/
+            rsync -a --delete packages/sdk-web/dist/workers/ apps/seams-site/dist/sdk/workers/
           fi
-          rsync -av --delete packages/sdk-web/dist/public/wallet-service/ apps/seams-site/dist/wallet-service/
+          rsync -a --delete packages/sdk-web/dist/public/wallet-service/ apps/seams-site/dist/wallet-service/
 
-      - name: Deploy app to Cloudflare Pages
-        if: env.DEPLOY_APP == 'true'
+      - name: Create Pages artifact manifest
+        run: |
+          build_metadata="$(
+            node -e 'process.stdout.write(JSON.stringify({bun:process.argv[1],node:process.argv[2],rustc:process.argv[3],wasmPack:process.argv[4]}))' \
+              "$(bun --version)" \
+              "$(node --version)" \
+              "$(rustc --version)" \
+              "$(wasm-pack --version)"
+          )"
+          mkdir -p .release-artifacts/pages
+          node scripts/deployment-artifact.mjs create \
+            --kind pages \
+            --target "$DEPLOY_ENVIRONMENT" \
+            --sha "$DEPLOY_SHA" \
+            --root apps/seams-site/dist \
+            --manifest .release-artifacts/pages/manifest.json \
+            --identity-json "$PAGES_ARTIFACT_IDENTITY" \
+            --metadata-json "$build_metadata"
+
+      - name: Upload Pages artifact
+        id: upload_pages_artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PAGES_ARTIFACT_NAME }}
+          path: |
+            apps/seams-site/dist
+            .release-artifacts/pages/manifest.json
+          if-no-files-found: error
+          include-hidden-files: true
+          overwrite: true
+          retention-days: 30
+          compression-level: 0
+
+      - name: Summarize Pages artifact
         env:
-          CF_PAGES_PROJECT: ${{ secrets.CF_PAGES_PROJECT_VITE }}
+          ACTIONS_ARTIFACT_DIGEST: ${{ steps.upload_pages_artifact.outputs.artifact-digest }}
+        run: |
+          elapsed_seconds="$(($(date +%s) - ARTIFACT_BUILD_STARTED_AT))"
+          {
+            echo '## Pages release artifact'
+            echo
+            echo "- Source SHA: \`$DEPLOY_SHA\`"
+            echo "- Target: \`$DEPLOY_ENVIRONMENT\`"
+            echo "- Artifact: \`$PAGES_ARTIFACT_NAME\`"
+            echo "- Actions digest: \`$ACTIONS_ARTIFACT_DIGEST\`"
+            echo "- Build duration: ${elapsed_seconds}s"
+            echo "- Contents: app, wallet service, SDK workers, and WASM"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy_app:
+    name: Deploy app Pages
+    if: inputs.target == 'all' || inputs.target == 'app'
+    needs: build_pages_artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: ${{ inputs.deploy_environment }}
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_PAGES_PROJECT: ${{ secrets.CF_PAGES_PROJECT_VITE }}
+    steps:
+      - name: Checkout selected revision
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            .github
+            crates/router-ab-cloudflare
+            package.json
+            pnpm-lock.yaml
+            pnpm-workspace.yaml
+            scripts
+          ref: ${{ env.DEPLOY_SHA }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+
+      - name: Install deployment dependencies
+        run: pnpm install --frozen-lockfile --filter router-ab-cloudflare
+
+      - name: Download Pages artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.PAGES_ARTIFACT_NAME }}
+          path: .
+
+      - name: Verify Pages artifact
+        run: |
+          node scripts/deployment-artifact.mjs verify \
+            --kind pages \
+            --target "$DEPLOY_ENVIRONMENT" \
+            --sha "$DEPLOY_SHA" \
+            --root apps/seams-site/dist \
+            --manifest .release-artifacts/pages/manifest.json \
+            --identity-json "$PAGES_ARTIFACT_IDENTITY"
+
+      - name: Deploy app
+        id: deploy_app
+        env:
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-pages-app.ndjson
         run: |
           set -euo pipefail
-          test -n "${CF_PAGES_PROJECT:-}" || (echo "CF_PAGES_PROJECT_VITE is not set" >&2; exit 1)
-          pnpm -C crates/router-ab-cloudflare exec wrangler pages deploy apps/seams-site/dist \
+          test -n "${CF_PAGES_PROJECT:-}" || { echo "CF_PAGES_PROJECT_VITE is not set" >&2; exit 1; }
+          rm -f "$WRANGLER_OUTPUT_FILE_PATH"
+          pnpm -C crates/router-ab-cloudflare exec wrangler pages deploy ../../apps/seams-site/dist \
             --project-name "$CF_PAGES_PROJECT" \
-            --branch "$PAGES_BRANCH"
+            --branch "$PAGES_BRANCH" \
+            --commit-hash "$DEPLOY_SHA" \
+            --commit-dirty=false
+          pages_origin="$(
+            node scripts/wrangler-pages-deployment-url.mjs \
+              "$WRANGLER_OUTPUT_FILE_PATH" \
+              "$CF_PAGES_PROJECT"
+          )"
+          echo "pages_origin=$pages_origin" >> "$GITHUB_OUTPUT"
 
-      - name: Deploy wallet to Cloudflare Pages
-        if: env.DEPLOY_WALLET == 'true'
+      - name: Verify app readiness
         env:
-          CF_PAGES_PROJECT: ${{ secrets.CF_PAGES_PROJECT_WALLET }}
+          PAGES_ORIGIN: ${{ steps.deploy_app.outputs.pages_origin }}
+        run: |
+          curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 3 \
+            "$PAGES_ORIGIN/" > /dev/null
+          curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 3 \
+            "$PAGES_ORIGIN/sdk/workers/near-signer.worker.js" > /dev/null
+
+      - name: Summarize app deployment
+        env:
+          PAGES_ORIGIN: ${{ steps.deploy_app.outputs.pages_origin }}
+        run: |
+          manifest_digest="$(node -e "const value=require('./.release-artifacts/pages/manifest.json'); process.stdout.write(value.contentDigestSha256)")"
+          {
+            echo '## App Pages deployment'
+            echo
+            echo "- Source SHA: \`$DEPLOY_SHA\`"
+            echo "- Artifact content digest: \`$manifest_digest\`"
+            echo "- URL: $PAGES_ORIGIN"
+            echo "- Readiness: app and SDK worker passed"
+            echo "- Rollback artifact: \`$PAGES_ARTIFACT_NAME\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy_wallet:
+    name: Deploy wallet Pages
+    if: inputs.target == 'all' || inputs.target == 'wallet'
+    needs: build_pages_artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: ${{ inputs.deploy_environment }}
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_PAGES_PROJECT: ${{ secrets.CF_PAGES_PROJECT_WALLET }}
+    steps:
+      - name: Checkout selected revision
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            .github
+            crates/router-ab-cloudflare
+            package.json
+            pnpm-lock.yaml
+            pnpm-workspace.yaml
+            scripts
+          ref: ${{ env.DEPLOY_SHA }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+
+      - name: Install deployment dependencies
+        run: pnpm install --frozen-lockfile --filter router-ab-cloudflare
+
+      - name: Download Pages artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.PAGES_ARTIFACT_NAME }}
+          path: .
+
+      - name: Verify Pages artifact
+        run: |
+          node scripts/deployment-artifact.mjs verify \
+            --kind pages \
+            --target "$DEPLOY_ENVIRONMENT" \
+            --sha "$DEPLOY_SHA" \
+            --root apps/seams-site/dist \
+            --manifest .release-artifacts/pages/manifest.json \
+            --identity-json "$PAGES_ARTIFACT_IDENTITY"
+
+      - name: Deploy wallet
+        id: deploy_wallet
+        env:
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-pages-wallet.ndjson
         run: |
           set -euo pipefail
-          test -n "${CF_PAGES_PROJECT:-}" || (echo "CF_PAGES_PROJECT_WALLET is not set" >&2; exit 1)
-          pnpm -C crates/router-ab-cloudflare exec wrangler pages deploy apps/seams-site/dist \
+          test -n "${CF_PAGES_PROJECT:-}" || { echo "CF_PAGES_PROJECT_WALLET is not set" >&2; exit 1; }
+          rm -f "$WRANGLER_OUTPUT_FILE_PATH"
+          pnpm -C crates/router-ab-cloudflare exec wrangler pages deploy ../../apps/seams-site/dist \
             --project-name "$CF_PAGES_PROJECT" \
-            --branch "$PAGES_BRANCH"
+            --branch "$PAGES_BRANCH" \
+            --commit-hash "$DEPLOY_SHA" \
+            --commit-dirty=false
+          pages_origin="$(
+            node scripts/wrangler-pages-deployment-url.mjs \
+              "$WRANGLER_OUTPUT_FILE_PATH" \
+              "$CF_PAGES_PROJECT"
+          )"
+          echo "pages_origin=$pages_origin" >> "$GITHUB_OUTPUT"
+
+      - name: Verify wallet readiness
+        env:
+          PAGES_ORIGIN: ${{ steps.deploy_wallet.outputs.pages_origin }}
+        run: |
+          for path in \
+            /wallet-service/index.html \
+            /sdk/workers/near-signer.worker.js \
+            /sdk/workers/router_ab_ed25519_yao_client_bg.wasm
+          do
+            curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 3 \
+              "$PAGES_ORIGIN$path" > /dev/null
+          done
+
+      - name: Summarize wallet deployment
+        env:
+          PAGES_ORIGIN: ${{ steps.deploy_wallet.outputs.pages_origin }}
+        run: |
+          manifest_digest="$(node -e "const value=require('./.release-artifacts/pages/manifest.json'); process.stdout.write(value.contentDigestSha256)")"
+          {
+            echo '## Wallet Pages deployment'
+            echo
+            echo "- Source SHA: \`$DEPLOY_SHA\`"
+            echo "- Artifact content digest: \`$manifest_digest\`"
+            echo "- URL: $PAGES_ORIGIN"
+            echo "- Readiness: wallet service, SDK worker, and WASM passed"
+            echo "- Rollback artifact: \`$PAGES_ARTIFACT_NAME\`"
+          } >> "$GITHUB_STEP_SUMMARY"
