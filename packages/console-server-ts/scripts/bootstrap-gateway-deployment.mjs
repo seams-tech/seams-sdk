@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { parseGatewayDeploymentPlan } from './gateway-deployment-config.mjs';
 
 function main() {
@@ -158,7 +159,22 @@ VALUES
    '[]', '[]', ${sqlText(input.allowedOriginsJson)}, 'default', 'default', '{}', '{}',
    'ACTIVE', ${sqlText(input.secretHash)}, 1, ${sqlText(input.secretPreview)}, NULL, NULL,
    NULL, '{}', '[]', ${input.nowMs}, ${input.nowMs})
-ON CONFLICT DO NOTHING;`;
+ON CONFLICT(namespace, org_id, id) DO UPDATE SET
+  kind = excluded.kind,
+  name = excluded.name,
+  environment_id = excluded.environment_id,
+  key_prefix = excluded.key_prefix,
+  allowed_origins_json = excluded.allowed_origins_json,
+  status = excluded.status,
+  secret_hash = excluded.secret_hash,
+  secret_version = CASE
+    WHEN api_keys.secret_hash = excluded.secret_hash THEN api_keys.secret_version
+    ELSE api_keys.secret_version + 1
+  END,
+  secret_preview = excluded.secret_preview,
+  expires_at_ms = NULL,
+  revoked_reason = NULL,
+  updated_at_ms = excluded.updated_at_ms;`;
 }
 
 function buildVerificationQuery(plan) {
@@ -324,4 +340,12 @@ function titleCaseTarget(value) {
   return `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
 }
 
-main();
+function isDirectExecution() {
+  const entrypoint = process.argv[1];
+  if (!entrypoint) return false;
+  return import.meta.url === pathToFileURL(path.resolve(entrypoint)).href;
+}
+
+export { publishableKeyUpsertSql };
+
+if (isDirectExecution()) main();
