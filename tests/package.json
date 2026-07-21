@@ -44,7 +44,7 @@
     "check:type-filename-source": "node scripts/check-type-filename-source.mjs",
     "check:webauthn-origin-policy": "node scripts/check-webauthn-origin-policy.mjs",
     "check:workspace-package-boundaries": "node scripts/check-workspace-package-boundaries.mjs",
-    "type-check:intended": "tsc --noEmit -p tsconfig.playwright.json",
+    "type-check:intended": "tsc -p tsconfig.intended.json",
     "preflight:intended-mutation-self-check": "pnpm run ensure:intended-google-token && node scripts/check-intended-mutation-self-check.mjs --preflight",
     "preflight:intended-mutation-self-check:ci": "pnpm run ensure:intended-google-token && node scripts/check-intended-mutation-self-check.mjs --preflight --ci",
     "ensure:intended-google-token": "node scripts/ensure-intended-google-token.mjs",

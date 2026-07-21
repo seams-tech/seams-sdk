@@ -4,10 +4,19 @@ import type {
 } from '../../threshold/ecdsa/activation';
 import type {
   ThresholdEcdsaActivationRequest,
+  ThresholdEcdsaEmailOtpActivationRequest,
   ThresholdEcdsaEmailOtpExportActivationRequest,
   ThresholdEcdsaPasskeyExportActivationRequest,
 } from './ecdsaSessionProvision';
-import type { EmailOtpEcdsaExplicitExportBootstrapResult } from './ecdsaBootstrap';
+import type {
+  EmailOtpEcdsaExactBootstrapRequest,
+  EmailOtpEcdsaExplicitExportBootstrapRequest,
+  EmailOtpEcdsaExplicitExportBootstrapResult,
+} from './ecdsaBootstrap';
+import type {
+  ActivateEcdsaSessionRequest,
+  ActivateEmailOtpExplicitExportBootstrapSessionRequest,
+} from '../../threshold/ecdsa/activation';
 
 type ThresholdEcdsaTransactionActivationRequest = Exclude<
   ThresholdEcdsaActivationRequest,
@@ -18,6 +27,9 @@ declare const explicitExportResult: ThresholdEcdsaExplicitKeyExportActivationRes
 declare const explicitExportRequest: ThresholdEcdsaPasskeyExportActivationRequest;
 declare const emailOtpExplicitExportResult: EmailOtpEcdsaExplicitExportBootstrapResult;
 declare const emailOtpExplicitExportRequest: ThresholdEcdsaEmailOtpExportActivationRequest;
+declare const emailOtpTransactionRequest: ThresholdEcdsaEmailOtpActivationRequest;
+declare const emailOtpExactBootstrapRequest: EmailOtpEcdsaExactBootstrapRequest;
+declare const emailOtpActivationRequest: ActivateEcdsaSessionRequest;
 
 // @ts-expect-error Ephemeral export material cannot become a transaction bootstrap result.
 const invalidTransactionBootstrap: ThresholdEcdsaSessionBootstrapResult = explicitExportResult;
@@ -37,6 +49,21 @@ void invalidEmailOtpTransactionActivation;
 const invalidEmailOtpTransactionBootstrap: ThresholdEcdsaSessionBootstrapResult =
   emailOtpExplicitExportResult;
 void invalidEmailOtpTransactionBootstrap;
+
+// @ts-expect-error Transaction worker handles cannot enter Email OTP export activation.
+const invalidEmailOtpExportRequest: ThresholdEcdsaEmailOtpExportActivationRequest =
+  emailOtpTransactionRequest;
+void invalidEmailOtpExportRequest;
+
+// @ts-expect-error General Email OTP bootstrap requests do not prove an export handle.
+const invalidEmailOtpExportBootstrapRequest: EmailOtpEcdsaExplicitExportBootstrapRequest =
+  emailOtpExactBootstrapRequest;
+void invalidEmailOtpExportBootstrapRequest;
+
+// @ts-expect-error General activation requests do not prove an export handle.
+const invalidEmailOtpExportBootstrapActivation: ActivateEmailOtpExplicitExportBootstrapSessionRequest =
+  emailOtpActivationRequest;
+void invalidEmailOtpExportBootstrapActivation;
 
 const invalidTransactionSpread = {
   ...explicitExportResult,

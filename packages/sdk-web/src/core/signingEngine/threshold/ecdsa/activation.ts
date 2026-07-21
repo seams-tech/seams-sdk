@@ -4,7 +4,10 @@ import {
   buildEcdsaRoleLocalPublicFacts,
   type EcdsaRoleLocalAuthMethod,
   type EcdsaRoleLocalPublicFacts,
-  type EmailOtpWorkerIssuedSessionHandle,
+} from '@/core/platform';
+import type {
+  EmailOtpEcdsaExportWorkerIssuedSessionHandle,
+  EmailOtpWorkerIssuedSessionHandle,
 } from '@/core/platform';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
@@ -362,6 +365,13 @@ type ActivateEcdsaRegistrationRequest = ActivateEcdsaRegistrationRequestBase &
 
 type ActivateEcdsaExistingSessionRequest = ActivateEcdsaExistingSessionRequestBase &
   ActivateEcdsaSessionAuth & { purpose: 'transaction_signing' };
+
+export type ActivateEmailOtpExplicitExportBootstrapSessionRequest =
+  ActivateEcdsaExistingSessionRequestBase &
+    Omit<ActivateEcdsaEmailOtpAuth, 'emailOtpWorkerSessionHandle'> & {
+      purpose: 'transaction_signing';
+      emailOtpWorkerSessionHandle: EmailOtpEcdsaExportWorkerIssuedSessionHandle;
+    };
 
 export type ActivateExplicitKeyExportEcdsaSessionRequest = ActivateEcdsaExistingSessionRequestBase &
   ActivateEcdsaPasskeyWebAuthnPrfB64uAuth & {
@@ -937,6 +947,13 @@ export async function activateEcdsaSession(
     throw new Error('Transaction ECDSA activation returned explicit export material');
   }
   return result;
+}
+
+export async function activateEmailOtpExplicitExportBootstrapSession(
+  deps: ActivateEcdsaSessionDeps,
+  args: ActivateEmailOtpExplicitExportBootstrapSessionRequest,
+): Promise<ThresholdEcdsaSessionActivationResult> {
+  return await activateEcdsaSession(deps, args);
 }
 
 export async function activateExplicitKeyExportEcdsaSession(

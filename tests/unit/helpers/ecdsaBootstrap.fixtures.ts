@@ -74,7 +74,7 @@ function fixtureRouterAbEcdsaDerivationNormalSigning(args: {
   };
 }
 
-function fixtureRouterAbEcdsaDerivationPublicCapability(args: {
+export function fixtureRouterAbEcdsaDerivationPublicCapability(args: {
   walletId: string;
   sessionId: string;
   normalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;

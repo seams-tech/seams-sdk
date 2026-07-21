@@ -1,4 +1,3 @@
-
 import {
   thresholdEcdsaChainTargetFromRequest,
   toWalletId,
@@ -77,6 +76,18 @@ export type EmailOtpWorkerIssuedSessionHandle = {
     }
 );
 
+export type EmailOtpEcdsaWorkerIssuedSessionHandle = Extract<
+  EmailOtpWorkerIssuedSessionHandle,
+  { action: 'threshold_ecdsa_bootstrap' }
+>;
+
+export type EmailOtpEcdsaExportWorkerIssuedSessionHandle = Omit<
+  EmailOtpEcdsaWorkerIssuedSessionHandle,
+  'operation'
+> & {
+  operation: 'export';
+};
+
 export type EmailOtpWorkerSessionSecretSource =
   ClientSecretSourceBrand<'email_otp_worker_session'> & {
     kind: 'email_otp_worker_session';
@@ -121,11 +132,7 @@ function requirePlatformString(value: string, field: string): string {
   return normalized;
 }
 
-function requirePlatformBase64UrlFixed(
-  value: string,
-  field: string,
-  byteLength: number,
-): string {
+function requirePlatformBase64UrlFixed(value: string, field: string, byteLength: number): string {
   const normalized = requirePlatformString(value, field);
   let decoded: Uint8Array;
   try {
@@ -189,11 +196,7 @@ export function buildThresholdPrfXClientBaseSecretSource(input: {
 }): ThresholdPrfXClientBaseSecretSource {
   return {
     kind: 'threshold_prf_x_client_base',
-    xClientBaseB64u: requirePlatformBase64UrlFixed(
-      input.xClientBaseB64u,
-      'xClientBaseB64u',
-      32,
-    ),
+    xClientBaseB64u: requirePlatformBase64UrlFixed(input.xClientBaseB64u, 'xClientBaseB64u', 32),
     [clientSecretSourceBrand]: 'threshold_prf_x_client_base',
   };
 }
@@ -228,7 +231,9 @@ export function buildEmailOtpWorkerIssuedSessionHandle(
       };
     default: {
       const exhaustive: never = input;
-      throw new Error(`[platform] unsupported email OTP worker-issued handle action: ${String(exhaustive)}`);
+      throw new Error(
+        `[platform] unsupported email OTP worker-issued handle action: ${String(exhaustive)}`,
+      );
     }
   }
 }
@@ -274,9 +279,7 @@ export function parseEmailOtpWorkerIssuedSessionHandle(
   };
   if (action === 'threshold_ecdsa_bootstrap') {
     if ('rpId' in payload) {
-      throw new Error(
-        '[platform] email OTP ECDSA worker-issued handles cannot include rpId',
-      );
+      throw new Error('[platform] email OTP ECDSA worker-issued handles cannot include rpId');
     }
     return buildEmailOtpWorkerIssuedSessionHandle({
       ...base,
@@ -308,6 +311,22 @@ export function parseEmailOtpWorkerIssuedSessionHandle(
     });
   }
   throw new Error(`[platform] unsupported email OTP worker-issued handle action: ${action}`);
+}
+
+function isEmailOtpEcdsaExportWorkerIssuedSessionHandle(
+  handle: EmailOtpWorkerIssuedSessionHandle,
+): handle is EmailOtpEcdsaExportWorkerIssuedSessionHandle {
+  return handle.action === 'threshold_ecdsa_bootstrap' && handle.operation === 'export';
+}
+
+export function parseEmailOtpEcdsaExportWorkerIssuedSessionHandle(
+  input: unknown,
+): EmailOtpEcdsaExportWorkerIssuedSessionHandle {
+  const handle = parseEmailOtpWorkerIssuedSessionHandle(input);
+  if (!isEmailOtpEcdsaExportWorkerIssuedSessionHandle(handle)) {
+    throw new Error('[platform] Email OTP ECDSA export requires an export worker handle');
+  }
+  return handle;
 }
 
 export function buildEmailOtpWorkerSessionSecretSource(

@@ -2,14 +2,18 @@ import type {
   PersistedEcdsaRoleLocalMaterial,
   ThresholdSessionSealTransportAuthMaterial,
 } from '../persistence/records';
-import type { DurableRecordStore, EmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
+import type {
+  DurableRecordStore,
+  EmailOtpEcdsaExportWorkerIssuedSessionHandle,
+  EmailOtpWorkerIssuedSessionHandle,
+} from '@/core/platform';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   bootstrapEmailOtpExplicitExportEcdsaSessionValue,
   bootstrapEcdsaSessionValue,
   bootstrapExplicitKeyExportEcdsaSessionValue,
   type EmailOtpEcdsaExplicitExportBootstrapResult,
-  type EmailOtpEcdsaExactBootstrapRequest,
+  type EmailOtpEcdsaExplicitExportBootstrapRequest,
   ecdsaBootstrapWalletId,
   type EcdsaBootstrapRequest,
   type PasskeyEcdsaExportBootstrapRequest,
@@ -148,9 +152,10 @@ export type ThresholdEcdsaEmailOtpActivationRequest = ThresholdEcdsaActivationRe
 
 export type ThresholdEcdsaEmailOtpExportActivationRequest = Omit<
   ThresholdEcdsaEmailOtpActivationRequest,
-  'purpose' | 'emailOtpAuthContext'
+  'purpose' | 'emailOtpAuthContext' | 'emailOtpWorkerSessionHandle'
 > & {
   purpose: 'explicit_key_export';
+  emailOtpWorkerSessionHandle: EmailOtpEcdsaExportWorkerIssuedSessionHandle;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpPendingSingleUseAuthContext;
 };
 
@@ -214,6 +219,13 @@ type BuildEmailOtpPerOperationReauthEcdsaActivationArgs =
     passkeyPrfFirstB64u?: never;
     webauthnAuthentication?: never;
   };
+
+type BuildEmailOtpExplicitExportEcdsaActivationArgs = Omit<
+  BuildEmailOtpPerOperationReauthEcdsaActivationArgs,
+  'emailOtpWorkerSessionHandle'
+> & {
+  emailOtpWorkerSessionHandle: EmailOtpEcdsaExportWorkerIssuedSessionHandle;
+};
 
 type BuildWalletSessionReconnectEcdsaActivationArgs = BuildThresholdEcdsaActivationRequestCommon & {
   sessionIdentity: EcdsaSessionIdentity;
@@ -341,7 +353,7 @@ export function buildEmailOtpPerOperationReauthEcdsaActivation(
 }
 
 export function buildEmailOtpExplicitExportEcdsaActivation(
-  args: BuildEmailOtpPerOperationReauthEcdsaActivationArgs,
+  args: BuildEmailOtpExplicitExportEcdsaActivationArgs,
 ): ThresholdEcdsaEmailOtpExportActivationRequest {
   assertEmailOtpActivationRetention({
     context: args.emailOtpAuthContext,
@@ -766,8 +778,9 @@ export async function provisionEmailOtpEcdsaExplicitExportSession(
   deps: ProvisionThresholdEcdsaSessionDeps,
   request: ThresholdEcdsaEmailOtpExportActivationRequest,
 ): Promise<EmailOtpEcdsaExplicitExportBootstrapResult> {
-  const bootstrapRequest: EmailOtpEcdsaExactBootstrapRequest = {
+  const bootstrapRequest: EmailOtpEcdsaExplicitExportBootstrapRequest = {
     kind: 'email_otp_ecdsa_bootstrap',
+    purpose: 'explicit_key_export',
     keyHandle: request.walletKey.keyHandle,
     key: evmFamilyEcdsaWalletKeyToIdentity(request.walletKey),
     lanePolicy: request.lanePolicy,

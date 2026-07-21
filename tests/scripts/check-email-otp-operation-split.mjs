@@ -274,7 +274,9 @@ describeChecks('Email OTP operation split guard', () => {
     expect(exportMaterial).toContain("kind: 'record_backed'");
     expect(exportMaterial).toContain("kind: 'durable_authority_backed'");
     expect(exportMaterial).toContain("kind: 'public_reauth_authority_backed'");
-    expect(exportMaterial).toContain('signingSessionAuthority: EmailOtpEcdsaSigningSessionAuthority');
+    expect(exportMaterial).toContain(
+      'signingSessionAuthority: EmailOtpEcdsaSigningSessionAuthority',
+    );
     expect(exportMaterial).toContain('emailOtpEcdsaSigningSessionAuthorityFromSealedRecord');
     expect(exportMaterial).not.toContain('fresh_email_otp_needs_challenge');
     expect(exportFlow).toContain('emailOtpEcdsaExportChallengeAuthority');
@@ -284,12 +286,16 @@ describeChecks('Email OTP operation split guard', () => {
     expect(exportFlow).toContain('exportEcdsaKeyWithPublicReauthAuthorization');
     expect(exportRuntime).toContain('export type ExportEcdsaKeyWithDurableAuthorizationArgs');
     expect(exportRuntime).toContain('export type ExportEcdsaKeyWithPublicReauthAuthorizationArgs');
-    expect(exportRecovery).toContain('export async function exportEcdsaKeyWithDurableAuthorization');
+    expect(exportRecovery).toContain(
+      'export async function exportEcdsaKeyWithDurableAuthorization',
+    );
     expect(exportRecovery).toContain(
       'export async function exportEcdsaKeyWithPublicReauthAuthorization',
     );
     expect(exportRecovery).toContain('buildSigningSessionRoutePlan');
-    expect(exportRecovery).not.toContain('export async function exportEcdsaKeyWithFreshEmailOtpLane');
+    expect(exportRecovery).not.toContain(
+      'export async function exportEcdsaKeyWithFreshEmailOtpLane',
+    );
     expect(recoveryPortAdapter).toContain('exportEcdsaKeyWithDurableAuthorization');
     expect(recoveryPortAdapter).toContain('exportEcdsaKeyWithPublicReauthAuthorization');
   });
@@ -430,7 +436,8 @@ describeChecks('Email OTP operation split guard', () => {
     expect(committedLaneType).not.toContain('walletId:');
     expect(ecdsaSelection).not.toContain('function passkeyAuthorityFromCandidate');
     expect(ecdsaSelection).toContain('function passkeyAuthorityFromRecord');
-    expect(ecdsaSelection).toContain(
+    expect(ecdsaSelection).toContain("record.ecdsaRoleLocalAuthMethod.kind !== 'passkey'");
+    expect(ecdsaSelection).not.toContain(
       'parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record)',
     );
     expect(ecdsaSelection).toContain('function assertEcdsaCommittedLaneAuthorityMatchesWallet');
@@ -547,6 +554,22 @@ describeChecks('Email OTP operation split guard', () => {
     }
 
     expect(violations, violations.join('\n')).toEqual([]);
+  });
+
+  check('Email OTP ECDSA worker claims bind the issued operation', () => {
+    const worker = readRepoFile(
+      'packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
+    );
+    const claimStart = worker.indexOf('function claimEmailOtpEcdsaClientRootShare');
+    const claimEnd = worker.indexOf(
+      'function claimEmailOtpWalletRegistrationEcdsaClientRootShare',
+      claimStart,
+    );
+    const claimSource = worker.slice(claimStart, claimEnd);
+
+    expect(claimStart).toBeGreaterThanOrEqual(0);
+    expect(claimEnd).toBeGreaterThan(claimStart);
+    expect(claimSource).toContain('entry.handle.operation !== handle.operation');
   });
 });
 
