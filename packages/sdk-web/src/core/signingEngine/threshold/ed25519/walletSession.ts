@@ -20,17 +20,6 @@ export type ThresholdEd25519WebAuthnPrfSecretSource = {
   prfFirstB64u?: never;
 };
 
-export type ThresholdEd25519ProvidedPrfSecretSource = {
-  kind: 'provided_prf_first_v1';
-  prfFirstB64u: string;
-  credential?: never;
-  secretSource?: never;
-};
-
-export type ThresholdEd25519LocalSecretSource =
-  | ThresholdEd25519WebAuthnPrfSecretSource
-  | ThresholdEd25519ProvidedPrfSecretSource;
-
 export type Ed25519WalletSessionMintAuthorization =
   | {
       kind: 'app_session_jwt';
@@ -54,18 +43,6 @@ export type Ed25519WalletSessionMintAuthorization =
       useAppSessionCookie?: never;
       webauthnAuthentication?: never;
       localPrfCredential?: never;
-      localPrfFirstB64u?: never;
-    }
-  | {
-      kind: 'threshold_ecdsa_session_jwt';
-      thresholdEcdsaSessionJwt: string;
-      localSecretSource: ThresholdEd25519ProvidedPrfSecretSource;
-      appSessionJwt?: never;
-      priorWalletSessionJwt?: never;
-      localPrfCredential?: never;
-      useAppSessionCookie?: never;
-      webauthnAuthentication?: never;
-      policySecretSource?: never;
       localPrfFirstB64u?: never;
     }
   | {
@@ -138,42 +115,16 @@ export function buildThresholdEd25519WebAuthnPrfSecretSource(args: {
   };
 }
 
-export function buildThresholdEd25519ProvidedPrfSecretSource(args: {
-  prfFirstB64u: string;
-}): ThresholdEd25519ProvidedPrfSecretSource {
-  return {
-    kind: 'provided_prf_first_v1',
-    prfFirstB64u: requireNonEmptyEd25519SecretSourceString(args.prfFirstB64u, 'prfFirstB64u'),
-  };
-}
-
-function localPrfFirstForThresholdEd25519SecretSource(
-  source: ThresholdEd25519LocalSecretSource,
-): string {
-  switch (source.kind) {
-    case 'webauthn_prf_first_credential':
-      return source.secretSource.prfFirstB64u;
-    case 'provided_prf_first_v1':
-      return source.prfFirstB64u;
-    default: {
-      const exhaustive: never = source;
-      return exhaustive;
-    }
-  }
-}
-
 export function localPrfFirstForEd25519WalletSessionMintAuthorization(
   auth: Ed25519WalletSessionMintAuthorization,
 ): string {
   switch (auth.kind) {
     case 'app_session_jwt':
     case 'app_session_cookie':
-      return localPrfFirstForThresholdEd25519SecretSource(auth.localSecretSource);
-    case 'threshold_ecdsa_session_jwt':
-      return localPrfFirstForThresholdEd25519SecretSource(auth.localSecretSource);
+      return auth.localSecretSource.secretSource.prfFirstB64u;
     case 'threshold_session_policy_webauthn':
     case 'router_ab_ed25519_yao_budget_refresh_v1':
-      return localPrfFirstForThresholdEd25519SecretSource(auth.policySecretSource);
+      return auth.policySecretSource.secretSource.prfFirstB64u;
     default: {
       const exhaustive: never = auth;
       return exhaustive;
@@ -251,16 +202,10 @@ export async function mintEd25519WalletSession(args: {
       args.auth.kind === 'app_session_jwt'
         ? String(args.auth.appSessionJwt || '').trim() || undefined
         : undefined;
-    const thresholdEcdsaSessionJwt =
-      args.auth.kind === 'threshold_ecdsa_session_jwt'
-        ? String(args.auth.thresholdEcdsaSessionJwt || '').trim() || undefined
-        : undefined;
     const useAppSessionCookie = args.auth.kind === 'app_session_cookie';
     const publishableKey = String(args.publishableKey || '').trim() || undefined;
-    const bearerToken = appSessionJwt || thresholdEcdsaSessionJwt || publishableKey;
-    const usesPublishableKeyBearer = Boolean(
-      publishableKey && !appSessionJwt && !thresholdEcdsaSessionJwt,
-    );
+    const bearerToken = appSessionJwt || publishableKey;
+    const usesPublishableKeyBearer = Boolean(publishableKey && !appSessionJwt);
     const projectEnvironmentId = usesPublishableKeyBearer
       ? String(args.projectEnvironmentId || '').trim() || undefined
       : undefined;

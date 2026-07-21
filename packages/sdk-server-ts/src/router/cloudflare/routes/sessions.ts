@@ -54,6 +54,11 @@ import {
 } from '../../signingBudgetStatus';
 import { parseGoogleProviderSubject, parseVerifiedGoogleEmail } from '@shared/utils/domainIds';
 import { parseWalletUnlockEd25519YaoRequest } from '../../walletUnlockEd25519YaoRequestValidation';
+import {
+  buildPasskeyWalletAuthAuthority,
+  walletAuthAuthorityRef,
+  type WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 
 type VerifiedSigningBudgetStatus = Extract<
   ParseWalletSigningBudgetStatusResult,
@@ -427,6 +432,7 @@ export async function handleSessionExchange(
     let oidcAccountMode: 'register' | 'login' | undefined;
     let oidcRestartRegistrationOffer = false;
     let passkeyChallengeId: string | undefined;
+    let passkeyAuthorityRef: WalletAuthAuthorityRef | undefined;
     let walletId: string | undefined;
     let googleEmailOtpResolution:
       | {
@@ -781,6 +787,14 @@ export async function handleSessionExchange(
       userId = String(verified.userId || '').trim();
       provider = 'passkey';
       passkeyChallengeId = challengeId;
+      passkeyAuthorityRef = await walletAuthAuthorityRef({
+        authority: buildPasskeyWalletAuthAuthority({
+          walletId: userId,
+          rpId: verified.rpId,
+          credentialIdB64u:
+            command.webauthnAuthentication.rawId || command.webauthnAuthentication.id,
+        }),
+      });
     }
 
     if (!userId) {
@@ -822,7 +836,7 @@ export async function handleSessionExchange(
       appSessionVersion = appVersion.appSessionVersion;
     }
 
-    const sessionClaims = {
+    const sessionClaims: Record<string, unknown> = {
       kind: 'app_session_v1',
       appSessionVersion,
       provider,
@@ -844,6 +858,9 @@ export async function handleSessionExchange(
       ...(oidcGivenName ? { given_name: oidcGivenName } : {}),
       ...(oidcFamilyName ? { family_name: oidcFamilyName } : {}),
     };
+    if (passkeyAuthorityRef) {
+      sessionClaims.walletAuthAuthorityRef = passkeyAuthorityRef;
+    }
     const jwt = await session.signJwt(userId, sessionClaims);
     const sessionExpiresAt = deriveJwtExpiresAtIso(jwt);
     if (

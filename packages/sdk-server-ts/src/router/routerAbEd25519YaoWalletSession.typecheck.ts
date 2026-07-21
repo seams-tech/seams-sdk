@@ -1,13 +1,17 @@
 import type {
   EmailOtpWalletAuthAuthority,
   PasskeyWalletAuthAuthority,
+  WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
+import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { RouterAbEd25519WalletSessionClaims } from '../core/ThresholdService/validation';
 import type { RouterAbEd25519YaoBudgetRefreshAuthorizationV1 } from './routerAbEd25519YaoWalletSession';
 
 declare const passkeyAuthority: PasskeyWalletAuthAuthority;
 declare const emailOtpAuthority: EmailOtpWalletAuthAuthority;
 declare const currentSession: RouterAbEd25519WalletSessionClaims;
+declare const authorityRef: WalletAuthAuthorityRef;
+declare const runtimePolicyScope: RuntimePolicyScope;
 
 function acceptBudgetRefreshAuthorization(
   authorization: RouterAbEd25519YaoBudgetRefreshAuthorizationV1,
@@ -16,8 +20,15 @@ function acceptBudgetRefreshAuthorization(
 }
 
 acceptBudgetRefreshAuthorization({
-  kind: 'verified_passkey_router_ab_ed25519_yao_budget_refresh_v1',
+  kind: 'verified_passkey_assertion_router_ab_ed25519_yao_budget_refresh_v1',
   authority: passkeyAuthority,
+});
+
+acceptBudgetRefreshAuthorization({
+  kind: 'verified_passkey_app_session_router_ab_ed25519_yao_budget_refresh_v1',
+  authority: passkeyAuthority,
+  authorityRef,
+  runtimePolicyScope,
 });
 
 acceptBudgetRefreshAuthorization({
@@ -32,16 +43,22 @@ acceptBudgetRefreshAuthorization({
 
 // @ts-expect-error Passkey verification cannot carry Email OTP signer selection.
 acceptBudgetRefreshAuthorization({
-  kind: 'verified_passkey_router_ab_ed25519_yao_budget_refresh_v1',
+  kind: 'verified_passkey_assertion_router_ab_ed25519_yao_budget_refresh_v1',
   authority: passkeyAuthority,
   signerSlot: 1,
 });
 
 // @ts-expect-error Passkey refresh authorization is the fresh WebAuthn proof, not an old session.
 acceptBudgetRefreshAuthorization({
-  kind: 'verified_passkey_router_ab_ed25519_yao_budget_refresh_v1',
+  kind: 'verified_passkey_assertion_router_ab_ed25519_yao_budget_refresh_v1',
   authority: passkeyAuthority,
   currentSession,
+});
+
+// @ts-expect-error Signed passkey authorization requires the exact authority reference and scope.
+acceptBudgetRefreshAuthorization({
+  kind: 'verified_passkey_app_session_router_ab_ed25519_yao_budget_refresh_v1',
+  authority: passkeyAuthority,
 });
 
 // @ts-expect-error Email OTP verification requires exact signer and proof identity.

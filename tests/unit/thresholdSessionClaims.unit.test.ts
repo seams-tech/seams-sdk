@@ -41,7 +41,10 @@ import type {
   DerivationClientSharePublicKey33B64u,
   EcdsaRelayerDerivationPublicKey33B64u,
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
-import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import {
+  buildPasskeyWalletAuthAuthority,
+  walletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 
 const passkeyAuthority = buildPasskeyWalletAuthAuthority({
   walletId: 'alice.testnet',
@@ -263,6 +266,30 @@ test.describe('Router A/B Wallet Session token claims', () => {
       },
     });
     expect(parseAppSessionClaims({ ...claims, googleEmailOtpResolutionMode: '' })).toBeNull();
+  });
+
+  test('parses an exact wallet authority reference on passkey app sessions', async () => {
+    const authorityRef = await walletAuthAuthorityRef({ authority: passkeyAuthority });
+    const claims = {
+      kind: 'app_session_v1',
+      sub: String(passkeyAuthority.walletId),
+      appSessionVersion: 'app-v1',
+      walletAuthAuthorityRef: authorityRef,
+      runtimePolicyScope: {
+        orgId: 'org',
+        projectId: 'proj',
+        envId: 'dev',
+        signingRootVersion: 'default',
+      },
+    };
+
+    expect(parseAppSessionClaims(claims)?.walletAuthAuthorityRef).toEqual(authorityRef);
+    expect(
+      parseAppSessionClaims({
+        ...claims,
+        walletAuthAuthorityRef: { ...authorityRef, unexpected: true },
+      }),
+    ).toBeNull();
   });
 
   test('Router A/B Wallet Session parsers require complete curve-specific state', () => {

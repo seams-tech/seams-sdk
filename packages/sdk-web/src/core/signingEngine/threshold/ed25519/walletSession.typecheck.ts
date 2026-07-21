@@ -1,6 +1,5 @@
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type {
-  ThresholdEd25519ProvidedPrfSecretSource,
   Ed25519WalletSessionMintAuthorization,
   ThresholdEd25519WebAuthnPrfSecretSource,
 } from './walletSession';
@@ -8,7 +7,6 @@ import type { ProvisionWarmEd25519CapabilityArgs } from '../../session/warmCapab
 
 declare const credential: WebAuthnAuthenticationCredential;
 declare const webauthnPrfSource: ThresholdEd25519WebAuthnPrfSecretSource;
-declare const providedPrfSource: ThresholdEd25519ProvidedPrfSecretSource;
 
 const validAppSessionJwtAuth = {
   kind: 'app_session_jwt',
@@ -34,13 +32,6 @@ const validYaoBudgetRefreshAuth = {
   policySecretSource: webauthnPrfSource,
 } satisfies Ed25519WalletSessionMintAuthorization;
 void validYaoBudgetRefreshAuth;
-
-const validThresholdEcdsaSessionJwtAuth = {
-  kind: 'threshold_ecdsa_session_jwt',
-  thresholdEcdsaSessionJwt: 'threshold-ecdsa-session-jwt',
-  localSecretSource: providedPrfSource,
-} satisfies Ed25519WalletSessionMintAuthorization;
-void validThresholdEcdsaSessionJwtAuth;
 
 const invalidAppSessionJwtWithThresholdAssertion: Ed25519WalletSessionMintAuthorization = {
   kind: 'app_session_jwt',
@@ -82,15 +73,6 @@ const invalidYaoBudgetRefreshWithAppSession: Ed25519WalletSessionMintAuthorizati
   appSessionJwt: 'app-session-jwt',
 };
 void invalidYaoBudgetRefreshWithAppSession;
-
-const invalidThresholdEcdsaSessionWithWebAuthn: Ed25519WalletSessionMintAuthorization = {
-  kind: 'threshold_ecdsa_session_jwt',
-  thresholdEcdsaSessionJwt: 'threshold-ecdsa-session-jwt',
-  localSecretSource: providedPrfSource,
-  // @ts-expect-error ECDSA Wallet Session auth must not carry a WebAuthn assertion.
-  webauthnAuthentication: credential,
-};
-void invalidThresholdEcdsaSessionWithWebAuthn;
 
 const invalidProvisionWithLooseAppSessionJwt = {
   kind: 'fresh_ed25519_provisioning',

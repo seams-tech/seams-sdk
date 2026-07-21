@@ -122,6 +122,27 @@ export type WalletAuthAuthorityRef = {
   authorityDigest: WalletAuthorityBindingDigest;
 };
 
+export function parseWalletAuthAuthorityRef(raw: unknown): WalletAuthAuthorityRef | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const record = raw as Record<string, unknown>;
+  const fields = Object.keys(record);
+  if (
+    fields.length !== 3 ||
+    !fields.every((field) => ['kind', 'walletId', 'authorityDigest'].includes(field)) ||
+    record.kind !== 'wallet_auth_authority_ref'
+  ) {
+    return null;
+  }
+  const walletId = parseWalletId(record.walletId);
+  const authorityDigest = parseWalletAuthorityBindingDigest(record.authorityDigest);
+  if (!walletId.ok || !authorityDigest.ok) return null;
+  return {
+    kind: 'wallet_auth_authority_ref',
+    walletId: walletId.value,
+    authorityDigest: authorityDigest.value,
+  };
+}
+
 export type AuthOperationPurpose =
   | 'registration'
   | 'unlock'

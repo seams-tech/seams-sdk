@@ -11,6 +11,7 @@
 import type { NearClient } from './NearClient';
 import type { AccountId } from '../../types/accountIds';
 import type { WebAuthnAuthenticationCredential } from '../../types/webauthn';
+import type { ManagedRuntimeScopeBootstrap } from '../../config/managedRuntimeScope';
 
 import { TransactionContext } from '../../types/rpc';
 import { errorMessage } from '@shared/utils/errors';
@@ -19,7 +20,7 @@ import {
   normalizeJwtCookieSessionKind,
   stripTrailingSlashes,
 } from '@shared/utils/normalize';
-import { ensureEd25519Prefix, isObject } from '@shared/utils/validation';
+import { ensureEd25519Prefix, isObject, requireTrimmedString } from '@shared/utils/validation';
 import { redactCredentialExtensionOutputs } from '../../signingEngine/webauthnAuth/credentials/credentialExtensions';
 
 export async function fetchNonceBlockHashAndHeight({
@@ -223,11 +224,73 @@ export type SessionExchangeInput =
       expected_origin?: string;
     };
 
+export type SessionExchangeRuntimeScope =
+  | {
+      kind: 'unscoped';
+    }
+  | ({
+      kind: 'managed';
+    } & ManagedRuntimeScopeBootstrap);
+
+type SessionExchangeRequestBody =
+  | {
+      sessionKind: 'jwt' | 'cookie';
+      exchange: Record<string, unknown>;
+    }
+  | {
+      sessionKind: 'jwt' | 'cookie';
+      exchange: Record<string, unknown>;
+      projectEnvironmentId: string;
+    };
+
+type SessionExchangeRequestTransport = {
+  headers: Record<string, string>;
+  body: SessionExchangeRequestBody;
+};
+
+function buildSessionExchangeRequestTransport(
+  sessionKind: 'jwt' | 'cookie',
+  exchange: Record<string, unknown>,
+  runtimeScope: SessionExchangeRuntimeScope,
+): SessionExchangeRequestTransport {
+  switch (runtimeScope.kind) {
+    case 'unscoped':
+      return {
+        headers: { 'Content-Type': 'application/json' },
+        body: { sessionKind, exchange },
+      };
+    case 'managed': {
+      const projectEnvironmentId = requireTrimmedString(
+        runtimeScope.projectEnvironmentId,
+        'runtimeScope.projectEnvironmentId',
+      );
+      const publishableKey = requireTrimmedString(
+        runtimeScope.publishableKey,
+        'runtimeScope.publishableKey',
+      );
+      return {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${publishableKey}`,
+        },
+        body: { sessionKind, exchange, projectEnvironmentId },
+      };
+    }
+    default:
+      return assertNeverSessionExchangeRuntimeScope(runtimeScope);
+  }
+}
+
+function assertNeverSessionExchangeRuntimeScope(value: never): never {
+  throw new Error(`Unsupported session exchange runtime scope: ${JSON.stringify(value)}`);
+}
+
 export async function exchangeSession(
   relayServerUrl: string,
   routePath: string,
   sessionKind: 'jwt' | 'cookie',
   input: SessionExchangeInput,
+  runtimeScope: SessionExchangeRuntimeScope,
 ): Promise<{
   success: boolean;
   jwt?: string;
@@ -281,14 +344,16 @@ export async function exchangeSession(
         : `/${normalizedRoutePath}`
       : '/';
     const url = joinNormalizedUrl(relayServerUrl, path);
+    const requestTransport = buildSessionExchangeRequestTransport(
+      sessionKind,
+      exchangeBody,
+      runtimeScope,
+    );
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: requestTransport.headers,
       credentials: sessionKind === 'cookie' ? 'include' : 'omit',
-      body: JSON.stringify({
-        sessionKind,
-        exchange: exchangeBody,
-      }),
+      body: JSON.stringify(requestTransport.body),
     });
 
     const dataJson: unknown = await response.json().catch(() => ({}));

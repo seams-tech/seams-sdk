@@ -3,8 +3,10 @@ import { parseWebAuthnRpId } from '@shared/utils/domainIds';
 import {
   isEmailOtpWalletAuthAuthority,
   isPasskeyWalletAuthAuthority,
+  parseWalletAuthAuthorityRef,
   parseWalletAuthAuthority,
   type WalletAuthAuthority,
+  type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import { ensureEd25519Prefix, toOptionalString, toTrimmedString } from '@shared/utils/validation';
 import {
@@ -1732,6 +1734,7 @@ export type AppSessionClaims = {
   kind: 'app_session_v1';
   appSessionVersion: string;
   walletId?: string;
+  walletAuthAuthorityRef?: WalletAuthAuthorityRef;
   googleEmailOtpRegistrationAttemptId?: string;
   googleEmailOtpResolutionMode?: 'existing_wallet' | 'register_started';
   runtimePolicyScope?: RuntimePolicyScope;
@@ -1754,6 +1757,13 @@ export function parseAppSessionClaims(raw: unknown): AppSessionClaims | null {
   };
   const walletId = toOptionalString((raw as { walletId?: unknown }).walletId);
   if (walletId) out.walletId = walletId;
+  const walletAuthAuthorityRefRaw = (raw as { walletAuthAuthorityRef?: unknown })
+    .walletAuthAuthorityRef;
+  if (walletAuthAuthorityRefRaw !== undefined) {
+    const walletAuthAuthorityRef = parseWalletAuthAuthorityRef(walletAuthAuthorityRefRaw);
+    if (!walletAuthAuthorityRef) return null;
+    out.walletAuthAuthorityRef = walletAuthAuthorityRef;
+  }
   const googleEmailOtpRegistrationAttemptId = toOptionalString(
     (raw as { googleEmailOtpRegistrationAttemptId?: unknown }).googleEmailOtpRegistrationAttemptId,
   );
