@@ -71,13 +71,16 @@ function optionalStringField(record: Record<string, unknown>, field: string): st
   return optionalRouteTrimmedString(record, field);
 }
 
-function parseRequiredWebAuthnAuthentication(
+function parseOptionalWebAuthnAuthentication(
   record: Record<string, unknown>,
-): ThresholdEd25519RouteParseResult<WebAuthnAuthenticationCredential> {
+): ThresholdEd25519RouteParseResult<WebAuthnAuthenticationCredential | null> {
+  if (record.webauthn_authentication === undefined) {
+    return { ok: true, request: null };
+  }
   const credential = parseWebAuthnAuthenticationCredential(record.webauthn_authentication);
   return credential
     ? { ok: true, request: credential }
-    : invalidThresholdEd25519Body('webauthn_authentication is required');
+    : invalidThresholdEd25519Body('webauthn_authentication is invalid');
 }
 
 export function parseRouterAbEd25519YaoSessionPolicyV1(
@@ -127,11 +130,7 @@ export function parseRouterAbEd25519YaoSessionPolicyV1(
     return invalidThresholdEd25519Body('sessionPolicy.remainingUses is required');
   }
   const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds);
-  if (
-    !participantIds ||
-    participantIds.length !== 2 ||
-    participantIds[0] === participantIds[1]
-  ) {
+  if (!participantIds || participantIds.length !== 2 || participantIds[0] === participantIds[1]) {
     return invalidThresholdEd25519Body(
       'sessionPolicy.participantIds must contain exactly two distinct participants',
     );
@@ -142,9 +141,7 @@ export function parseRouterAbEd25519YaoSessionPolicyV1(
   } catch {
     return invalidThresholdEd25519Body('sessionPolicy.runtimePolicyScope is required');
   }
-  const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
-    raw.routerAbNormalSigning,
-  );
+  const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(raw.routerAbNormalSigning);
   if (!routerAbNormalSigning) {
     return invalidThresholdEd25519Body('sessionPolicy.routerAbNormalSigning is required');
   }
@@ -189,7 +186,7 @@ export function parseThresholdEd25519SessionRouteRequest(
   if (sessionPolicy.request.relayerKeyId !== relayerKeyId.request) {
     return invalidThresholdEd25519Body('relayerKeyId must match sessionPolicy.relayerKeyId');
   }
-  const webauthnAuthentication = parseRequiredWebAuthnAuthentication(raw);
+  const webauthnAuthentication = parseOptionalWebAuthnAuthentication(raw);
   if (!webauthnAuthentication.ok) return webauthnAuthentication;
   const projectEnvironmentId = optionalStringField(raw, 'projectEnvironmentId');
   return {
@@ -198,10 +195,12 @@ export function parseThresholdEd25519SessionRouteRequest(
       relayerKeyId: relayerKeyId.request,
       sessionPolicy: sessionPolicy.request,
       ...(projectEnvironmentId ? { projectEnvironmentId } : {}),
-      routeAuth: {
-        kind: 'passkey',
-        webauthnAuthentication: webauthnAuthentication.request,
-      },
+      routeAuth: webauthnAuthentication.request
+        ? {
+            kind: 'passkey',
+            webauthnAuthentication: webauthnAuthentication.request,
+          }
+        : { kind: 'signed_session' },
       sessionKind: 'jwt',
     },
   };

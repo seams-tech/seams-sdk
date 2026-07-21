@@ -56,16 +56,17 @@ function validThresholdEd25519SessionBody(): Record<string, unknown> {
   };
 }
 
-function expectInvalidBody(parsed: ReturnType<typeof parseThresholdEd25519SessionRouteRequest>, message: string): void {
+function expectInvalidBody(
+  parsed: ReturnType<typeof parseThresholdEd25519SessionRouteRequest>,
+  message: string,
+): void {
   expect(parsed.ok).toBe(false);
   if (parsed.ok) throw new Error('expected invalid threshold-ed25519 route body');
   expect(parsed.body.message).toContain(message);
 }
 
 function acceptsExactYaoBudgetRefreshBody(): void {
-  const parsed = parseThresholdEd25519SessionRouteRequest(
-    validThresholdEd25519SessionBody(),
-  );
+  const parsed = parseThresholdEd25519SessionRouteRequest(validThresholdEd25519SessionBody());
 
   expect(parsed.ok).toBe(true);
   if (!parsed.ok) throw new Error(parsed.body.message);
@@ -81,22 +82,28 @@ function acceptsExactYaoBudgetRefreshBody(): void {
   });
 }
 
-function rejectsMissingWebAuthnProof(): void {
+function acceptsSignedSessionAuthorizationWithoutBodyOwnedProof(): void {
   const body = validThresholdEd25519SessionBody();
   delete body.webauthn_authentication;
+  const parsed = parseThresholdEd25519SessionRouteRequest(body);
+  expect(parsed.ok).toBe(true);
+  if (!parsed.ok) throw new Error(parsed.body.message);
+  expect(parsed.request.routeAuth).toEqual({ kind: 'signed_session' });
+}
+
+function rejectsMalformedWebAuthnProof(): void {
+  const body = validThresholdEd25519SessionBody();
+  body.webauthn_authentication = { id: 'incomplete' };
   expectInvalidBody(
     parseThresholdEd25519SessionRouteRequest(body),
-    'webauthn_authentication is required',
+    'webauthn_authentication is invalid',
   );
 }
 
 function rejectsMissingJwtSessionKind(): void {
   const body = validThresholdEd25519SessionBody();
   delete body.sessionKind;
-  expectInvalidBody(
-    parseThresholdEd25519SessionRouteRequest(body),
-    'requires sessionKind=jwt',
-  );
+  expectInvalidBody(parseThresholdEd25519SessionRouteRequest(body), 'requires sessionKind=jwt');
 }
 
 function rejectsIncompleteYaoPolicy(): void {
@@ -137,19 +144,13 @@ function rejectsBodyOwnedAppSessionClaims(): void {
     sub: 'frost-vermillion-k7p9m2',
     appSessionVersion: '1',
   };
-  expectInvalidBody(
-    parseThresholdEd25519SessionRouteRequest(body),
-    'appSessionClaims',
-  );
+  expectInvalidBody(parseThresholdEd25519SessionRouteRequest(body), 'appSessionClaims');
 }
 
 function rejectsBodyOwnedExpectedOrigin(): void {
   const body = validThresholdEd25519SessionBody();
   body.expected_origin = 'http://localhost';
-  expectInvalidBody(
-    parseThresholdEd25519SessionRouteRequest(body),
-    'expected_origin',
-  );
+  expectInvalidBody(parseThresholdEd25519SessionRouteRequest(body), 'expected_origin');
 }
 
 function rejectsBodyOwnedEcdsaSessionClaims(): void {
@@ -158,18 +159,43 @@ function rejectsBodyOwnedEcdsaSessionClaims(): void {
     kind: 'router_ab_ecdsa_derivation_wallet_session_v1',
     walletId: 'frost-vermillion-k7p9m2',
   };
-  expectInvalidBody(
-    parseThresholdEd25519SessionRouteRequest(body),
-    'ecdsaSessionClaims',
-  );
+  expectInvalidBody(parseThresholdEd25519SessionRouteRequest(body), 'ecdsaSessionClaims');
 }
 
-test('threshold-ed25519 session route accepts the exact passkey Yao refresh body', acceptsExactYaoBudgetRefreshBody);
-test('threshold-ed25519 session route requires a WebAuthn proof', rejectsMissingWebAuthnProof);
+test(
+  'threshold-ed25519 session route accepts the exact passkey Yao refresh body',
+  acceptsExactYaoBudgetRefreshBody,
+);
+test(
+  'threshold-ed25519 session route accepts signed-session authorization without body-owned proof',
+  acceptsSignedSessionAuthorizationWithoutBodyOwnedProof,
+);
+test(
+  'threshold-ed25519 session route rejects a malformed WebAuthn proof',
+  rejectsMalformedWebAuthnProof,
+);
 test('threshold-ed25519 session route requires jwt session kind', rejectsMissingJwtSessionKind);
-test('threshold-ed25519 session route requires complete Yao policy identity', rejectsIncompleteYaoPolicy);
-test('threshold-ed25519 session route requires exactly two participants', rejectsInvalidParticipantTuple);
-test('threshold-ed25519 session route rejects relayer identity substitution', rejectsRelayerIdentityMismatch);
-test('threshold-ed25519 session route rejects body-owned app session claims', rejectsBodyOwnedAppSessionClaims);
-test('threshold-ed25519 session route rejects body-owned expected origin', rejectsBodyOwnedExpectedOrigin);
-test('threshold-ed25519 session route rejects body-owned ECDSA session claims', rejectsBodyOwnedEcdsaSessionClaims);
+test(
+  'threshold-ed25519 session route requires complete Yao policy identity',
+  rejectsIncompleteYaoPolicy,
+);
+test(
+  'threshold-ed25519 session route requires exactly two participants',
+  rejectsInvalidParticipantTuple,
+);
+test(
+  'threshold-ed25519 session route rejects relayer identity substitution',
+  rejectsRelayerIdentityMismatch,
+);
+test(
+  'threshold-ed25519 session route rejects body-owned app session claims',
+  rejectsBodyOwnedAppSessionClaims,
+);
+test(
+  'threshold-ed25519 session route rejects body-owned expected origin',
+  rejectsBodyOwnedExpectedOrigin,
+);
+test(
+  'threshold-ed25519 session route rejects body-owned ECDSA session claims',
+  rejectsBodyOwnedEcdsaSessionClaims,
+);

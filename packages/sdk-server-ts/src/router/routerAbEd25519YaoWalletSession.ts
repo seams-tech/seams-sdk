@@ -30,10 +30,15 @@ export type RouterAbEd25519YaoSessionRouteCommandV1 = {
   readonly relayerKeyId: string;
   readonly sessionPolicy: RouterAbEd25519YaoSessionPolicyV1;
   readonly projectEnvironmentId?: string;
-  readonly routeAuth: {
-    readonly kind: 'passkey';
-    readonly webauthnAuthentication: WebAuthnAuthenticationCredential;
-  };
+  readonly routeAuth:
+    | {
+        readonly kind: 'passkey';
+        readonly webauthnAuthentication: WebAuthnAuthenticationCredential;
+      }
+    | {
+        readonly kind: 'signed_session';
+        readonly webauthnAuthentication?: never;
+      };
   readonly sessionKind: 'jwt';
 };
 
