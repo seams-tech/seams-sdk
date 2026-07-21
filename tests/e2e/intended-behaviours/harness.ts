@@ -48,6 +48,29 @@ export type IntendedSigningStage =
 
 type IntendedWarmSigningStage = Exclude<IntendedSigningStage, 'after_step_up'>;
 
+type IntendedWarmSessionOriginStage = Extract<
+  IntendedSigningStage,
+  'post_registration' | 'post_unlock'
+>;
+
+type IntendedNearSigningStage = Exclude<IntendedSigningStage, 'after_refresh_recovery'>;
+
+type IntendedPostRefreshMaterialSource =
+  | 'email_otp_yao_recovery'
+  | 'passkey_local_envelope';
+
+type IntendedNearSigningScenario =
+  | {
+      kind: 'standard';
+      stage: IntendedNearSigningStage;
+      postRefreshMaterialSource?: never;
+    }
+  | {
+      kind: 'post_refresh';
+      stage: 'after_refresh_recovery';
+      postRefreshMaterialSource: IntendedPostRefreshMaterialSource;
+    };
+
 type IntendedHarnessAction =
   | 'registerPasskeyWallet'
   | 'registerPasskeyEd25519YaoWallet'
@@ -684,7 +707,7 @@ export class IntendedBehaviourHarness {
 
   private nearSignerSlot = 1;
 
-  private currentWarmSigningStage: IntendedSigningStage = 'post_registration';
+  private currentWarmSigningStage: IntendedWarmSessionOriginStage = 'post_registration';
 
   private latestSigningRemainingUses: number | null = null;
 
@@ -880,7 +903,24 @@ export class IntendedBehaviourHarness {
     );
   }
 
-  async signNearTransaction(stage: IntendedSigningStage): Promise<SigningAuthEventSummary> {
+  async signNearTransaction(stage: IntendedNearSigningStage): Promise<SigningAuthEventSummary> {
+    return await this.executeNearSigningScenario({ kind: 'standard', stage });
+  }
+
+  async signNearTransactionAfterRefresh(
+    postRefreshMaterialSource: IntendedPostRefreshMaterialSource,
+  ): Promise<SigningAuthEventSummary> {
+    return await this.executeNearSigningScenario({
+      kind: 'post_refresh',
+      stage: 'after_refresh_recovery',
+      postRefreshMaterialSource,
+    });
+  }
+
+  private async executeNearSigningScenario(
+    scenario: IntendedNearSigningScenario,
+  ): Promise<SigningAuthEventSummary> {
+    const { stage } = scenario;
     this.recordStage(`${stage}:near.sign`);
     const registration = this.requireRegisteredWalletForSigning();
     const traceStartIndex = this.trace.length;
@@ -896,8 +936,29 @@ export class IntendedBehaviourHarness {
       throw new Error('NEAR signing did not emit structured lifecycle events');
     }
     const summary = this.assertSigningAuthEvents(snapshot, stage, 'NEAR signing');
-    if (stage === 'after_refresh_recovery') {
-      this.assertNoRouterAbEd25519YaoRecoveryRoutes(traceStartIndex, 'Post-refresh NEAR signing');
+    switch (scenario.kind) {
+      case 'standard':
+        break;
+      case 'post_refresh':
+        switch (scenario.postRefreshMaterialSource) {
+          case 'email_otp_yao_recovery':
+            this.assertRouterAbEd25519YaoRecoveryRoutes(
+              traceStartIndex,
+              'Email OTP post-refresh recovery',
+            );
+            break;
+          case 'passkey_local_envelope':
+            this.assertNoRouterAbEd25519YaoRecoveryRoutes(
+              traceStartIndex,
+              'Passkey post-refresh local-envelope hydration',
+            );
+            break;
+          default:
+            assertNever(scenario.postRefreshMaterialSource);
+        }
+        break;
+      default:
+        assertNever(scenario);
     }
     this.assertRouterAbEd25519SigningRoutes(traceStartIndex);
     this.assertNoEd25519YaoRegistrationRoutes(traceStartIndex);
@@ -1500,7 +1561,7 @@ export class IntendedBehaviourHarness {
 
   private assertRouterAbEd25519YaoRecoveryRoutes(
     traceStartIndex: number,
-    flowLabel: 'Email OTP cold unlock',
+    flowLabel: 'Email OTP cold unlock' | 'Email OTP post-refresh recovery',
   ): void {
     const observedPaths = new Set<(typeof ROUTER_AB_ED25519_YAO_RECOVERY_PATHS)[number]>();
     for (const entry of this.trace.slice(traceStartIndex)) {

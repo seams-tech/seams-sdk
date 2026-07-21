@@ -32,8 +32,8 @@ import {
 } from '../identity/laneIdentity';
 import type { RequestEmailOtpChallengeArgs } from './exportRecoveryRuntime';
 import type {
-  EmailOtpThresholdEcdsaLoginResult,
-  LoginEmailOtpEcdsaCapabilityArgs,
+  EmailOtpThresholdEcdsaExportPreparation,
+  PrepareEmailOtpEcdsaExportCapabilityArgs,
 } from './ecdsaLogin';
 import type { EmailOtpEcdsaSigningSessionAuthority } from './ecdsaSigningSessionAuthority';
 import { exportEcdsaDerivationKeyWithEmailOtpSession } from '../../flows/recovery/ecdsaDerivationExport';
@@ -51,8 +51,8 @@ export type EmailOtpEcdsaExportArtifact = {
 };
 
 type EmailOtpEcdsaExportLogin = (
-  args: LoginEmailOtpEcdsaCapabilityArgs,
-) => Promise<EmailOtpThresholdEcdsaLoginResult>;
+  args: PrepareEmailOtpEcdsaExportCapabilityArgs,
+) => Promise<EmailOtpThresholdEcdsaExportPreparation>;
 
 type EmailOtpWorkerPorts = {
   getSignerWorkerContext: () => WorkerOperationContext | null | undefined;
@@ -317,7 +317,7 @@ export async function exportEcdsaKeyWithAuthorization(
     challengeId: string;
     otpCode: string;
     committedLane: EcdsaExportLane<EmailOtpWalletAuthAuthority>;
-    loginWithEcdsaCapabilityInternal: EmailOtpEcdsaExportLogin;
+    prepareEcdsaExportCapability: EmailOtpEcdsaExportLogin;
   },
 ): Promise<EmailOtpEcdsaExportArtifact> {
   assertEmailOtpEcdsaExportCommittedLaneMatchesRecord({
@@ -347,7 +347,7 @@ export async function exportEcdsaKeyWithAuthorization(
     runtimePolicyScope: record.runtimePolicyScope,
     relayUrl: String(record.relayerUrl || ports.requireRelayUrl()).trim(),
     getSignerWorkerContext: ports.getSignerWorkerContext,
-    loginWithEcdsaCapabilityInternal: args.loginWithEcdsaCapabilityInternal,
+    prepareEcdsaExportCapability: args.prepareEcdsaExportCapability,
   });
 }
 
@@ -364,7 +364,7 @@ export async function exportEcdsaKeyWithDurableAuthorization(
     publicFacts: VerifiedEcdsaPublicFacts;
     runtimePolicyScope: ThresholdRuntimePolicyScope;
     signingSessionAuthority: EmailOtpEcdsaSigningSessionAuthority;
-    loginWithEcdsaCapabilityInternal: EmailOtpEcdsaExportLogin;
+    prepareEcdsaExportCapability: EmailOtpEcdsaExportLogin;
   },
 ): Promise<EmailOtpEcdsaExportArtifact> {
   const routePlan = ports.buildSigningSessionRoutePlan({
@@ -384,7 +384,7 @@ export async function exportEcdsaKeyWithDurableAuthorization(
     runtimePolicyScope: args.runtimePolicyScope,
     relayUrl: ports.requireRelayUrl(),
     getSignerWorkerContext: ports.getSignerWorkerContext,
-    loginWithEcdsaCapabilityInternal: args.loginWithEcdsaCapabilityInternal,
+    prepareEcdsaExportCapability: args.prepareEcdsaExportCapability,
   });
 }
 
@@ -397,7 +397,7 @@ export async function exportEcdsaKeyWithPublicReauthAuthorization(
     otpCode: string;
     appSessionJwt: string;
     publicReauthAuthority: EmailOtpEcdsaPublicReauthExportAuthority;
-    loginWithEcdsaCapabilityInternal: EmailOtpEcdsaExportLogin;
+    prepareEcdsaExportCapability: EmailOtpEcdsaExportLogin;
   },
 ): Promise<EmailOtpEcdsaExportArtifact> {
   const authority = args.publicReauthAuthority;
@@ -419,7 +419,7 @@ export async function exportEcdsaKeyWithPublicReauthAuthorization(
     runtimePolicyScope: authority.runtimePolicyScope,
     relayUrl: ports.requireRelayUrl(),
     getSignerWorkerContext: ports.getSignerWorkerContext,
-    loginWithEcdsaCapabilityInternal: args.loginWithEcdsaCapabilityInternal,
+    prepareEcdsaExportCapability: args.prepareEcdsaExportCapability,
   });
 }
 
@@ -436,13 +436,13 @@ type ExportEcdsaKeyWithFreshLoginAuthorizationArgs = {
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   relayUrl: string;
   getSignerWorkerContext: EmailOtpWorkerPorts['getSignerWorkerContext'];
-  loginWithEcdsaCapabilityInternal: EmailOtpEcdsaExportLogin;
+  prepareEcdsaExportCapability: EmailOtpEcdsaExportLogin;
 };
 
 async function exportEcdsaKeyWithFreshLoginAuthorization(
   args: ExportEcdsaKeyWithFreshLoginAuthorizationArgs,
 ): Promise<EmailOtpEcdsaExportArtifact> {
-  const result = await args.loginWithEcdsaCapabilityInternal({
+  const result = await args.prepareEcdsaExportCapability({
     walletSession: args.walletSession,
     chainTarget: args.chainTarget,
     relayUrl: args.relayUrl,

@@ -17,6 +17,7 @@ import type {
 import type { IdentityStore } from '../IdentityStore';
 import { readActiveEmailOtpEnrollmentWithStore } from './emailOtpEnrollment';
 import { randomOpaqueId } from './bytes';
+import { GOOGLE_EMAIL_OTP_STALE_IDENTITY_MESSAGE } from './googleEmailOtpErrors';
 
 export type GoogleEmailOtpResolutionMode =
   | 'existing_wallet'
@@ -1016,8 +1017,7 @@ function googleEmailOtpStaleIdentityMapping(input: {
     walletId: input.linkedWalletId,
     providerSubject: input.providerSubject,
     ...(input.email ? { email: input.email } : {}),
-    message:
-      'Google Email OTP identity mapping is stale. Clear the stale identity mapping with the dev cleanup route before registering this Google account.',
+    message: GOOGLE_EMAIL_OTP_STALE_IDENTITY_MESSAGE,
   };
 }
 

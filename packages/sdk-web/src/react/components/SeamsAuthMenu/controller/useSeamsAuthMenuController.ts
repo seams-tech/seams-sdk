@@ -1122,11 +1122,21 @@ export function useSeamsAuthMenuController(
             flowResult && 'kind' in flowResult && flowResult.kind === 'otp_flow';
           const isHeadlessRegistrationFlow =
             flowResult && 'kind' in flowResult && flowResult.kind === 'registration_flow';
+          const isRegistrationRequired =
+            flowResult && 'kind' in flowResult && flowResult.kind === 'registration_required';
+          if (isRegistrationRequired) {
+            onIntentChange(AuthMenuMode.Register);
+            setOtpPromptState(null);
+            setRegistrationPromptState(null);
+            setRegistrationError('');
+            return;
+          }
           if (isHeadlessRegistrationFlow) {
             const mappedRegistrationFlowResult = registrationPromptFromGoogleEmailOtpFlow({
               flow: flowResult.flow,
               ...(flowResult.onComplete ? { onComplete: flowResult.onComplete } : {}),
             });
+            setMode(AuthMenuMode.Register);
             setCurrentValue(mappedRegistrationFlowResult.username);
             setRegistrationError('');
             setRegistrationSubmitting(false);
@@ -1217,6 +1227,7 @@ export function useSeamsAuthMenuController(
       emailOtpLoginWalletId,
       runtime,
       setCurrentValue,
+      onIntentChange,
     ],
   );
 

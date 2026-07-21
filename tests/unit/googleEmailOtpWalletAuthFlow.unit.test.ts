@@ -318,6 +318,79 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     ]);
   });
 
+  test('login without an Email OTP enrollment transitions to registration', async () => {
+    const { deps, calls } = makeDeps({
+      exchangeGoogleEmailOtpSession: async (args) => {
+        calls.push({ type: 'exchangeGoogleEmailOtpSession', args });
+        if (args.accountMode === 'login') {
+          throw Object.assign(new Error('Email OTP enrollment not found'), {
+            code: 'not_found' as const,
+          });
+        }
+        return {
+          session: {
+            userId: 'google-subject-1',
+            walletId: 'alice.testnet',
+            email: 'alice@example.com',
+            googleEmailOtpResolution: makeRegisterResolution(),
+          },
+          jwt: APP_SESSION_JWT,
+        } as Awaited<ReturnType<GoogleEmailOtpWalletAuthDeps['exchangeGoogleEmailOtpSession']>>;
+      },
+    });
+
+    const started = await beginGoogleEmailOtpWalletAuth(deps, {
+      idToken: 'google-id-token',
+      mode: 'login',
+      relayUrl: 'https://relay.example',
+      sessionKind: 'jwt',
+      ecdsaTargets: { kind: 'none' },
+    });
+
+    expect(started.ok).toBe(true);
+    if (!started.ok) throw new Error(started.error.message);
+    expect(started.value).toMatchObject({
+      requestedMode: 'login',
+      mode: 'register',
+      state: 'registration_ready',
+      walletId: 'alice.testnet',
+    });
+    expect(calls.map((call) => call.type)).toEqual([
+      'exchangeGoogleEmailOtpSession',
+      'exchangeGoogleEmailOtpSession',
+    ]);
+    expect(calls.map((call) => call.args)).toMatchObject([
+      { accountMode: 'login' },
+      { accountMode: 'register' },
+    ]);
+  });
+
+  test('stale Google identity requires registration at the public SDK boundary', async () => {
+    const { deps } = makeDeps({
+      exchangeGoogleEmailOtpSession: async () => {
+        throw Object.assign(new Error('No wallet is linked to this Google account yet.'), {
+          code: 'stale_identity_mapping' as const,
+        });
+      },
+    });
+
+    const started = await beginGoogleEmailOtpWalletAuth(deps, {
+      idToken: 'google-id-token',
+      mode: 'login',
+      relayUrl: 'https://relay.example',
+      sessionKind: 'jwt',
+      ecdsaTargets: { kind: 'none' },
+    });
+
+    expect(started).toEqual({
+      ok: false,
+      error: {
+        code: 'google_account_registration_required',
+        message: 'No wallet is linked to this Google account yet.',
+      },
+    });
+  });
+
   test('register path uses the selected offer candidate instead of a stale exchange wallet id', async () => {
     const { deps, calls } = makeDeps({
       exchangeGoogleEmailOtpSession: async (args) => {

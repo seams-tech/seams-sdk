@@ -254,6 +254,17 @@ export type EmailOtpEcdsaBootstrapRequest =
       routeAuth?: AppOrWalletSessionAuth;
     });
 
+export type EmailOtpEcdsaExactBootstrapRequest = Extract<
+  EmailOtpEcdsaBootstrapRequest,
+  { key: EvmFamilyEcdsaKeyIdentity }
+>;
+
+export type EmailOtpEcdsaExplicitExportBootstrapResult = {
+  kind: 'email_otp_explicit_export_bootstrap_result';
+  purpose: 'explicit_key_export';
+  bootstrap: ThresholdEcdsaSessionBootstrapResult;
+};
+
 export type EcdsaBootstrapRequest =
   | ReuseWarmEcdsaBootstrapRequest
   | PasskeyFreshEcdsaBootstrapRequest
@@ -749,4 +760,35 @@ export async function bootstrapExplicitKeyExportEcdsaSessionValue(
     toActivateExplicitKeyExportEcdsaSessionRequest(request, relayerUrl),
   );
   return activation;
+}
+
+export async function bootstrapEmailOtpExplicitExportEcdsaSessionValue(
+  deps: WalletSessionActivationDeps,
+  request: EmailOtpEcdsaExactBootstrapRequest,
+): Promise<EmailOtpEcdsaExplicitExportBootstrapResult> {
+  const walletId = toWalletId(ecdsaBootstrapWalletId(request));
+  const chainTarget = ecdsaBootstrapChainTarget(request);
+  const relayerUrl = resolveRelayerUrl(request.relayerUrl, deps.defaultRelayerUrl);
+  const activation = await activateEcdsaSession(
+    {
+      credentialStore: deps.credentialStore,
+      touchIdPrompt: deps.touchIdPrompt,
+      workerCtx: deps.getSignerWorkerContext(),
+      routerAbNormalSigning: deps.routerAbNormalSigning,
+      getOrCreateActiveThresholdEcdsaSessionId: deps.getOrCreateActiveThresholdEcdsaSessionId,
+    },
+    toActivateEcdsaSessionRequest(request, relayerUrl),
+  );
+  const thresholdEcdsaKeyRef = requireCanonicalThresholdEcdsaKeyRefIdentity(
+    activation.thresholdEcdsaKeyRef,
+  );
+  return {
+    kind: 'email_otp_explicit_export_bootstrap_result',
+    purpose: 'explicit_key_export',
+    bootstrap: {
+      thresholdEcdsaKeyRef,
+      keygen: activation.keygen,
+      session: activation.session,
+    },
+  };
 }

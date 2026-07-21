@@ -563,6 +563,7 @@ export type GoogleEmailOtpWalletAuthEcdsaTargets =
 
 export type GoogleEmailOtpWalletAuthFailureCode =
   | 'google_exchange_failed'
+  | 'google_account_registration_required'
   | 'email_otp_challenge_failed'
   | 'email_otp_invalid_code'
   | 'email_otp_expired'

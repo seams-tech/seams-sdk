@@ -1,5 +1,6 @@
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type { LinkIdentityResult } from '../../core/IdentityStore';
+import { GOOGLE_EMAIL_OTP_STALE_IDENTITY_MESSAGE } from '../../core/authService/googleEmailOtpErrors';
 import type {
   RouterApiIdentityService,
 } from '../authServicePort';
@@ -47,8 +48,7 @@ export function googleEmailOtpStaleIdentityMapping(input: {
     walletId: input.linkedWalletId,
     providerSubject: input.providerSubject,
     ...(email ? { email } : {}),
-    message:
-      'Google Email OTP identity mapping is stale. Clear the stale identity mapping with the dev cleanup route before registering this Google account.',
+    message: GOOGLE_EMAIL_OTP_STALE_IDENTITY_MESSAGE,
   };
 }
 

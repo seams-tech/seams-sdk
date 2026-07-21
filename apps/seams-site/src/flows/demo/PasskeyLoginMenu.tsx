@@ -149,6 +149,11 @@ function formatGoogleSsoEmailOtpError(error: unknown): string {
   return message ? message : 'Google SSO Email OTP failed. Please retry.';
 }
 
+function isGoogleAccountRegistrationRequired(error: unknown): boolean {
+  if (!error || typeof error !== 'object' || !('code' in error)) return false;
+  return (error as { code?: unknown }).code === 'google_account_registration_required';
+}
+
 function walletFlowErrorMessage(
   event: { error?: unknown; message?: string },
   fallback: string,
@@ -429,7 +434,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
   };
 
   const onGoogleSsoEmailOtp = async (args: SeamsAuthMenuSocialLoginArgs) => {
-    toast.loading('Opening Google SSO…', { id: 'google-sso' });
+    toast.loading('Opening Google SSO…', { id: GOOGLE_EMAIL_OTP_TOAST_ID });
     try {
       const googleClientId = requirePreparedGoogleSsoClientId(googleSsoReadiness);
       const idToken = await requestGoogleIdToken(googleClientId);
@@ -448,7 +453,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
         flow.value.mode === 'register'
           ? 'Choose a wallet name to finish registration'
           : 'Email code sent',
-        { id: 'google-sso' },
+        { id: GOOGLE_EMAIL_OTP_TOAST_ID },
       );
       const onComplete = async ({
         walletId,
@@ -492,7 +497,13 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     } catch (error: unknown) {
       const message = formatGoogleSsoEmailOtpError(error);
       console.warn('[seams-site] Google SSO Email OTP failed:', error);
-      toast.error(message, { id: 'google-sso' });
+      toast.error(message, { id: GOOGLE_EMAIL_OTP_TOAST_ID });
+      if (isGoogleAccountRegistrationRequired(error)) {
+        return {
+          kind: 'registration_required' as const,
+          reason: 'google_account_not_registered' as const,
+        };
+      }
       throw new Error(message);
     }
   };

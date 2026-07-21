@@ -29,7 +29,7 @@ async function verifyPasskeyPageRefreshHydration({
   await harness.refreshPagePreservingWalletStorage();
   await harness.exportEd25519Key();
   await harness.exportEcdsaKey();
-  await harness.signNearTransaction('after_refresh_recovery');
+  await harness.signNearTransactionAfterRefresh('passkey_local_envelope');
   await harness.signTempoTransaction('after_refresh_recovery');
   await harness.signArcEvmTransaction('after_refresh_recovery');
   await harness.exhaustSigningBudget();
