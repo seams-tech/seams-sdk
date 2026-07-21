@@ -43,7 +43,7 @@ Supporting entrypoints: `signingFlow.ts`, `signEvmWithUiConfirm.ts`,
    `warmSessionServices.ts`.
 6. Payload preparation: `preparedSigning.ts`, `transactionExecutor.ts`.
 7. Nonce: `nonceLifecycleAdapter.ts`, `evmNonceLifecycle.ts`,
-   `tempoNonceLifecycle.ts`, `nonceResolution.ts`, `nonceMetrics.ts`.
+   `tempoNonceLifecycle.ts`, `nonceResolution.ts`.
 8. Signing: `signingFlowRuntime.ts`, `transactionExecutor.ts`,
    `signerLoader.ts`, `signers/*`.
 9. Finalization: `postSignFinalization.ts`, `postSignPolicy.ts`,

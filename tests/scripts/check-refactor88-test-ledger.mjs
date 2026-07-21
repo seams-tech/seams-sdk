@@ -41,7 +41,6 @@ const retainedBoundaryAuditRows = [
     'tests/unit/emailOtpRecoveryCodeBackups.unit.test.ts',
     'tests/unit/evmClient.waitForReceipt.unit.test.ts',
     'tests/unit/evmNonceBackend.unit.test.ts',
-    'tests/unit/evmNonceLifecycleMetrics.unit.test.ts',
     'tests/unit/googleEmailOtpWalletIframeHandles.unit.test.ts',
     'tests/unit/handleSecureConfirmRequest.test.ts',
     'tests/unit/indexedDBConsolidation.unit.test.ts',
@@ -205,11 +204,6 @@ const retainedBoundaryAuditEvidenceTokens = {
         'fetchChainNonce reads the pending chain nonce through the configured RPC',
         'routes duplicate chain ids by requested chain family and network key',
         'managed nonce snapshots fail closed on unknown chain families',
-    ],
-    'tests/unit/evmNonceLifecycleMetrics.unit.test.ts': [
-        'evm nonce lifecycle metrics',
-        'emits broadcast_accepted metric with lane tags',
-        'emits lane_blocked metric when reconcile reports blocked lane',
     ],
     'tests/unit/googleEmailOtpWalletIframeHandles.unit.test.ts': [
         'Google Email OTP wallet iframe flow handles',

@@ -1276,12 +1276,7 @@ function classifyEcdsaDerivationWorkerFailure(error: unknown): {
 
 async function loadEcdsaDerivationClientWasm(): Promise<void> {
   try {
-    const startedAt = Date.now();
     await initEcdsaDerivationClient({ module_or_path: ecdsaDerivationClientWasmUrl });
-    console.info('[derivation-client-worker]: ECDSA client WASM initialized', {
-      durationMs: Date.now() - startedAt,
-      wasmUrl: String(ecdsaDerivationClientWasmUrl),
-    });
   } catch (error: unknown) {
     ecdsaDerivationClientInitPromise = null;
     console.error(
@@ -1301,12 +1296,7 @@ async function initializeEcdsaDerivationClientWasm(): Promise<void> {
 
 async function loadEcdsaRegistrationClientWasm(): Promise<void> {
   try {
-    const startedAt = Date.now();
     await initEcdsaRegistrationClient({ module_or_path: ecdsaRegistrationClientWasmUrl });
-    console.info('[derivation-client-worker]: ECDSA registration client WASM initialized', {
-      durationMs: Date.now() - startedAt,
-      wasmUrl: String(ecdsaRegistrationClientWasmUrl),
-    });
   } catch (error: unknown) {
     ecdsaRegistrationClientInitPromise = null;
     console.error(
@@ -1531,11 +1521,6 @@ async function processWorkerMessage(event: MessageEvent): Promise<void> {
           requestPayload: eventData.payload,
         }),
       },
-    });
-    console.info('[derivation-client-worker]: request complete', {
-      requestId,
-      requestType,
-      durationMs: roundMs(completedAt - startedAt),
     });
   } catch (error: unknown) {
     console.error('[derivation-client-worker]: Message processing failed:', errorLogSummary(error));

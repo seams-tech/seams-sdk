@@ -145,11 +145,6 @@ const BOUNDARY_EXEMPTIONS = [
     pattern: 'core-optional-identity-field',
     reason: 'boundary parser accepts raw wallet-session values before normalizing to WalletSessionRef',
   },
-  {
-    file: 'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/nonceMetrics.ts',
-    pattern: 'core-optional-identity-field',
-    reason: 'diagnostics metadata does not drive command identity or signing authorization',
-  },
 ];
 
 function currentRepoRoot() {

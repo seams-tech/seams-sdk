@@ -146,7 +146,6 @@ export async function runNearDelegateActionSigning({
     resolvedSigningSession: resolvedSigningSession,
   });
 
-  const signingStartedAt = performance.now();
   emitNearSigningEvent(onEvent, nearAccountId, {
     phase: SigningEventPhase.STEP_02_REQUEST_PREPARED,
     status: 'running',
@@ -159,10 +158,6 @@ export async function runNearDelegateActionSigning({
     signerSlot,
     operationLabel: 'delegate signing',
     warnings,
-  });
-  console.debug('[SigningEngine][near][delegate] signing materials resolved', {
-    nearAccountId,
-    durationMs: Math.round(performance.now() - signingStartedAt),
   });
   const signingContext = validateAndPrepareDelegateSigningContext({
     nearAccountId,
@@ -303,11 +298,6 @@ export async function runNearDelegateActionSigning({
           sessionId: canonicalThresholdSessionId,
           clientBaseSource: 'yao_active_client',
         },
-      });
-      console.debug('[SigningEngine][near][delegate] threshold client base ready', {
-        nearAccountId,
-        thresholdSessionId: canonicalThresholdSessionId,
-        durationMs: Math.round(performance.now() - signingStartedAt),
       });
       return {
         canonicalThresholdSessionId,
