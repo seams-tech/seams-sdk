@@ -56,6 +56,7 @@
     "router:deploy:keygen": "node ./crates/router-ab-cloudflare/scripts/generate-deployment-keys.mjs",
     "router:deploy:root-share-keygen": "node ./crates/router-ab-cloudflare/scripts/generate-root-share-keys.mjs",
     "router:deploy:env-keygen": "node ./crates/router-ab-cloudflare/scripts/generate-github-env-values.mjs",
+    "router:deploy:env-rotate": "bash ./scripts/rotate-github-deployment-environment.sh",
     "router:deploy:env-verify": "node ./crates/router-ab-cloudflare/scripts/generate-github-env-values.mjs --verify-generation",
     "router:deploy:env-apply": "node ./crates/router-ab-cloudflare/scripts/apply-github-external-values.mjs",
     "router:deploy:dry-run": "node ./crates/router-ab-cloudflare/scripts/measure-startup-latencies.mjs --dry-run",
