@@ -154,7 +154,6 @@ const expectedContractActionSequences = {
     'exportEd25519Key()',
     'exportEcdsaKey()',
     "signNearTransactionAfterRefresh('email_otp_yao_recovery')",
-    "signTempoAndArcEvmConcurrently('after_refresh_recovery')",
     'exhaustSigningBudget()',
     'refreshPagePreservingWalletStorage()',
     "signArcEvmTransaction('after_step_up')",
@@ -183,8 +182,6 @@ const expectedContractActionSequences = {
     'exportEd25519Key()',
     'exportEcdsaKey()',
     "signNearTransactionAfterRefresh('email_otp_yao_recovery')",
-    "signTempoTransaction('after_refresh_recovery')",
-    "signArcEvmTransaction('after_refresh_recovery')",
     'exhaustSigningBudget()',
     'refreshPagePreservingWalletStorage()',
     "signNearTransaction('after_step_up')",
@@ -816,12 +813,15 @@ test('Refactor 88 intended command is wired as a named pre-merge gate', () => {
   const rootPackage = readJsonRecord(rootPackageJsonPath);
   const testsPackage = readJsonRecord(testsPackageJsonPath);
   expect(readScript(rootPackage, 'test:intended')).toBe('pnpm -C tests test:intended');
+  expect(readScript(testsPackage, 'type-check:intended')).toBe(
+    'tsc --noEmit -p tsconfig.playwright.json',
+  );
   expect(readScript(testsPackage, 'test:intended')).toBe(
-    'pnpm run ensure:intended-google-token && playwright test -c playwright.intended.config.ts --reporter=line',
+    'pnpm run type-check:intended && pnpm run ensure:intended-google-token && playwright test -c playwright.intended.config.ts --reporter=line',
   );
   expect(readScript(rootPackage, 'test:intended:ci')).toBe('pnpm -C tests test:intended:ci');
   expect(readScript(testsPackage, 'test:intended:ci')).toBe(
-    'pnpm run ensure:intended-google-token && playwright test -c playwright.intended.ci.config.ts --reporter=line',
+    'pnpm run type-check:intended && pnpm run ensure:intended-google-token && playwright test -c playwright.intended.ci.config.ts --reporter=line',
   );
   expect(readScript(rootPackage, 'ensure:intended-google-token')).toBe(
     'pnpm -C tests ensure:intended-google-token',
