@@ -23,6 +23,7 @@ import type { WarmSessionEcdsaCapabilityState } from '@/core/signingEngine/sessi
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
   EmailOtpEd25519YaoRecoveryBootstrapV1,
+  EmailOtpEcdsaExportClientRootHandlePayload,
   EmailOtpEcdsaSessionBootstrapHandlePayload,
   EmailOtpWorkerProgressEvent,
   EmailOtpWorkerSessionHandleOperation,
@@ -106,7 +107,10 @@ import {
 import type { EmailOtpEcdsaExplicitExportBootstrapResult } from '../passkey/ecdsaBootstrap';
 import { buildEcdsaSessionIdentity } from '../warmCapabilities/ecdsaProvisionPlan';
 import { generateSessionId } from '../passkey/prfCache';
-import { requestBindEmailOtpEcdsaWarmSessionFromWorkerHandle } from './workerRequests';
+import {
+  requestBindEmailOtpEcdsaWarmSessionFromWorkerHandle,
+  requestDisposeEmailOtpEcdsaExportClientRootHandle,
+} from './workerRequests';
 import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 
 export type EmailOtpThresholdEcdsaLoginTimingBucket =
@@ -290,6 +294,33 @@ export type PrepareEmailOtpEcdsaExportCapabilityArgs = Omit<
   publicationChainTargets?: never;
   ed25519YaoRecovery: { kind: 'not_requested' };
 };
+
+function assertEmailOtpOperationMatchesRoutePlan(args: {
+  operation: WalletEmailOtpOperation;
+  routePlan: EmailOtpRoutePlan;
+}): void {
+  if (args.operation !== args.routePlan.operation) {
+    throw new Error('Email OTP operation does not match its route plan');
+  }
+}
+
+function requireEmailOtpEcdsaExportClientRootHandle(
+  handle: EmailOtpEcdsaSessionBootstrapHandlePayload,
+): EmailOtpEcdsaExportClientRootHandlePayload {
+  if (handle.action !== 'threshold_ecdsa_bootstrap' || handle.operation !== 'export') {
+    throw new Error('Email OTP ECDSA export requires an export worker handle');
+  }
+  return {
+    kind: handle.kind,
+    sessionId: handle.sessionId,
+    walletId: handle.walletId,
+    evmFamilySigningKeySlotId: handle.evmFamilySigningKeySlotId,
+    authSubjectId: handle.authSubjectId,
+    action: handle.action,
+    operation: 'export',
+    chainTarget: handle.chainTarget,
+  };
+}
 
 function buildEmailOtpEcdsaOnlySigningBudget(args: {
   signingGrantId: string;
@@ -776,6 +807,8 @@ async function runEmailOtpEcdsaCapability(
   args: LoginEmailOtpEcdsaCapabilityArgs,
   ports: EmailOtpEcdsaLoginPorts,
 ): Promise<EmailOtpEcdsaCapabilityRunResult> {
+  const operation = args.operation ?? args.routePlan.operation;
+  assertEmailOtpOperationMatchesRoutePlan({ operation, routePlan: args.routePlan });
   const timings = createEmailOtpThresholdEcdsaLoginTimings();
   const chainTarget = args.chainTarget;
   const emailOtpAuthPolicy: EmailOtpAuthPolicy =
@@ -816,9 +849,7 @@ async function runEmailOtpEcdsaCapability(
       throw new Error('[SigningEngine][email-otp] unlock budget policy is required');
     })();
   const postExhaustionStepUpBudgetPolicy = resolvePostExhaustionStepUpBudgetPolicy({
-    operationId: normalizeStepUpOperationId(
-      args.operation || WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
-    ),
+    operationId: normalizeStepUpOperationId(operation),
     requiredSignatureUses: requestedStepUpSignatureUses,
   });
   const remainingUses = isSigningStepUp
@@ -927,6 +958,10 @@ async function runEmailOtpEcdsaCapability(
           signerSlot: args.ed25519YaoRecovery.signerSlot,
           remainingUses,
         });
+  const exportClientRootShareHandle =
+    operation === WALLET_EMAIL_OTP_EXPORT_OPERATION
+      ? requireEmailOtpEcdsaExportClientRootHandle(workerResult.clientRootShareHandle)
+      : null;
   try {
     addEmailOtpThresholdEcdsaLoginTiming(timings, 'emailOtpProofVerificationMs', timingStartedAtMs);
     if (!bootstrapTransportAuth) {
@@ -941,7 +976,10 @@ async function runEmailOtpEcdsaCapability(
     });
     const signingGrantId = signingBudget.signingGrantId;
     timingStartedAtMs = nowMs();
-    if (args.operation === WALLET_EMAIL_OTP_EXPORT_OPERATION) {
+    if (operation === WALLET_EMAIL_OTP_EXPORT_OPERATION) {
+      if (!exportClientRootShareHandle) {
+        throw new Error('Email OTP ECDSA export worker handle is unavailable');
+      }
       if (!isEmailOtpPendingSingleUseAuthContext(emailOtpAuthContext)) {
         throw new Error('Email OTP ECDSA export requires single-use authorization');
       }
@@ -954,7 +992,7 @@ async function runEmailOtpEcdsaCapability(
         ttlMs: signingBudget.ttlMs,
         remainingUses: signingBudget.remainingUses,
         emailOtpAuthContext,
-        clientRootShareHandle: workerResult.clientRootShareHandle,
+        clientRootShareHandle: exportClientRootShareHandle,
         walletSessionRouteAuth: bootstrapTransportAuth,
         ports,
       });
@@ -1033,6 +1071,13 @@ async function runEmailOtpEcdsaCapability(
       );
     }
     throw error;
+  } finally {
+    if (exportClientRootShareHandle) {
+      await requestDisposeEmailOtpEcdsaExportClientRootHandle({
+        workerCtx,
+        clientRootShareHandle: exportClientRootShareHandle,
+      });
+    }
   }
 }
 

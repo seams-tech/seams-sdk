@@ -64,6 +64,7 @@ import {
 import type {
   EmailOtpEcdsaSessionBootstrapHandleBinding,
   EmailOtpEcdsaSessionBootstrapHandlePayload,
+  EmailOtpEcdsaExportClientRootHandlePayload,
   EmailOtpEcdsaClientRootHandleBinding,
   EmailOtpWalletRegistrationEcdsaPrepareHandleBinding,
   EmailOtpWalletRegistrationEcdsaPrepareHandlePayloads,
@@ -1319,6 +1320,41 @@ function deleteEmailOtpEcdsaClientRootHandle(sessionId: string): void {
   }
 }
 
+function expireEmailOtpEcdsaClientRootHandle(sessionId: string, expiresAtMs: number): void {
+  const entry = emailOtpEcdsaClientRootHandles.get(sessionId);
+  if (entry?.expiresAtMs === expiresAtMs && Date.now() >= entry.expiresAtMs) {
+    deleteEmailOtpEcdsaClientRootHandle(sessionId);
+  }
+}
+
+function scheduleEmailOtpEcdsaClientRootHandleExpiry(args: {
+  sessionId: string;
+  expiresAtMs: number;
+}): void {
+  const delayMs = Math.max(0, args.expiresAtMs - Date.now());
+  setTimeout(expireEmailOtpEcdsaClientRootHandle, delayMs, args.sessionId, args.expiresAtMs);
+}
+
+function disposeEmailOtpEcdsaExportClientRootHandle(
+  handle: EmailOtpEcdsaExportClientRootHandlePayload,
+): boolean {
+  const sessionId = readString(handle.sessionId, 'clientRootShareHandle.sessionId');
+  const entry = emailOtpEcdsaClientRootHandles.get(sessionId);
+  if (!entry) return false;
+  if (
+    entry.handle.action !== 'threshold_ecdsa_bootstrap' ||
+    entry.handle.operation !== 'export' ||
+    entry.handle.walletId !== handle.walletId ||
+    entry.handle.evmFamilySigningKeySlotId !== handle.evmFamilySigningKeySlotId ||
+    entry.handle.authSubjectId !== handle.authSubjectId ||
+    !thresholdEcdsaChainTargetsEqual(entry.handle.chainTarget, handle.chainTarget)
+  ) {
+    throw new Error('Email OTP ECDSA export client-root handle binding mismatch');
+  }
+  deleteEmailOtpEcdsaClientRootHandle(sessionId);
+  return true;
+}
+
 function emailOtpWorkerHandleOperationFromOtpOperation(
   operation: WalletEmailOtpOperation,
 ): EmailOtpWorkerSessionHandleOperation {
@@ -1386,11 +1422,13 @@ function issueEmailOtpEcdsaClientRootHandle(args: {
           operation: args.binding.operation,
           chainTarget: args.binding.chainTarget,
         };
+  const expiresAtMs = Date.now() + EMAIL_OTP_ECDSA_CLIENT_ROOT_HANDLE_TTL_MS;
   emailOtpEcdsaClientRootHandles.set(sessionId, {
     handle,
     clientRootShare32: Uint8Array.from(args.clientRootShare32),
-    expiresAtMs: Date.now() + EMAIL_OTP_ECDSA_CLIENT_ROOT_HANDLE_TTL_MS,
+    expiresAtMs,
   });
+  scheduleEmailOtpEcdsaClientRootHandleExpiry({ sessionId, expiresAtMs });
   return handle;
 }
 
@@ -5045,6 +5083,25 @@ function parseWorkerIssuedEcdsaSessionBootstrapClientRootHandle(
   };
 }
 
+function parseWorkerIssuedEcdsaExportClientRootHandle(
+  value: unknown,
+): EmailOtpEcdsaExportClientRootHandlePayload {
+  const handle = parseWorkerIssuedEcdsaSessionBootstrapClientRootHandle(value);
+  if (handle.operation !== 'export') {
+    throw new Error('Email OTP ECDSA export disposal requires an export worker handle');
+  }
+  return {
+    kind: handle.kind,
+    sessionId: handle.sessionId,
+    walletId: handle.walletId,
+    evmFamilySigningKeySlotId: handle.evmFamilySigningKeySlotId,
+    authSubjectId: handle.authSubjectId,
+    action: handle.action,
+    operation: 'export',
+    chainTarget: handle.chainTarget,
+  };
+}
+
 function parseWorkerIssuedWalletRegistrationEcdsaPrepareClientRootHandle(
   value: unknown,
 ): EmailOtpWalletRegistrationEcdsaPrepareHandlePayload {
@@ -5423,6 +5480,17 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         type,
         payload: {
           rootHandle: parseEmailOtpEd25519YaoRootHandle(payload.rootHandle),
+        },
+      };
+    case 'disposeEmailOtpEcdsaExportClientRootHandle':
+      rejectUnknownEmailOtpYaoFields(payload, ['clientRootShareHandle'], type);
+      return {
+        id,
+        type,
+        payload: {
+          clientRootShareHandle: parseWorkerIssuedEcdsaExportClientRootHandle(
+            payload.clientRootShareHandle,
+          ),
         },
       };
     case 'startEmailOtpEd25519YaoRegistration':
@@ -6116,6 +6184,13 @@ self.addEventListener('message', async (event: MessageEvent) => {
       }
       case 'disposeEmailOtpEd25519YaoRoot': {
         const removed = emailOtpEd25519YaoRootVault.remove(msg.payload.rootHandle);
+        postToMainThread({ id: msg.id, ok: true, result: { removed } });
+        return;
+      }
+      case 'disposeEmailOtpEcdsaExportClientRootHandle': {
+        const removed = disposeEmailOtpEcdsaExportClientRootHandle(
+          msg.payload.clientRootShareHandle,
+        );
         postToMainThread({ id: msg.id, ok: true, result: { removed } });
         return;
       }

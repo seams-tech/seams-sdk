@@ -2,12 +2,28 @@ import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
+  EmailOtpEcdsaExportClientRootHandlePayload,
   EmailOtpEcdsaSessionBootstrapHandlePayload,
   SignerWorkerOperationResult,
 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { SigningSessionSealKeyVersion } from '../keyMaterialBrands';
 
 type EmailOtpWorkerRequester = Pick<WorkerOperationContext, 'requestWorkerOperation'>;
+
+export async function requestDisposeEmailOtpEcdsaExportClientRootHandle(args: {
+  workerCtx: WorkerOperationContext;
+  clientRootShareHandle: EmailOtpEcdsaExportClientRootHandlePayload;
+}): Promise<boolean> {
+  const result = await args.workerCtx.requestWorkerOperation({
+    kind: 'emailOtp',
+    request: {
+      type: 'disposeEmailOtpEcdsaExportClientRootHandle',
+      timeoutMs: 5_000,
+      payload: { clientRootShareHandle: args.clientRootShareHandle },
+    },
+  });
+  return result.removed;
+}
 
 export type EmailOtpWarmSessionTransport = {
   relayerUrl: string;

@@ -59,6 +59,13 @@ type IntendedPostRefreshMaterialSource =
   | 'email_otp_yao_recovery'
   | 'passkey_local_envelope';
 
+type IntendedNoYaoRecoveryAssertionScenario =
+  | { kind: 'passkey_unlock' }
+  | {
+      kind: 'post_refresh_near_signing';
+      materialSource: 'passkey_local_envelope';
+    };
+
 type IntendedNearSigningScenario =
   | {
       kind: 'standard';
@@ -873,7 +880,9 @@ export class IntendedBehaviourHarness {
     if (snapshot.events.length === 0) {
       throw new Error('Passkey unlock did not emit structured lifecycle events');
     }
-    this.assertNoRouterAbEd25519YaoRecoveryRoutes(traceStartIndex, 'Passkey unlock');
+    this.assertNoRouterAbEd25519YaoRecoveryRoutes(traceStartIndex, {
+      kind: 'passkey_unlock',
+    });
     this.currentWarmSigningStage = 'post_unlock';
     this.passkeyPromptCount += 1;
     this.recordService(
@@ -950,7 +959,10 @@ export class IntendedBehaviourHarness {
           case 'passkey_local_envelope':
             this.assertNoRouterAbEd25519YaoRecoveryRoutes(
               traceStartIndex,
-              'Passkey post-refresh local-envelope hydration',
+              {
+                kind: 'post_refresh_near_signing',
+                materialSource: scenario.postRefreshMaterialSource,
+              },
             );
             break;
           default:
@@ -1578,8 +1590,9 @@ export class IntendedBehaviourHarness {
 
   private assertNoRouterAbEd25519YaoRecoveryRoutes(
     traceStartIndex: number,
-    flowLabel: 'Passkey unlock' | 'Post-refresh NEAR signing',
+    scenario: IntendedNoYaoRecoveryAssertionScenario,
   ): void {
+    const flowLabel = noYaoRecoveryAssertionLabel(scenario);
     const observedPaths = new Set<(typeof ROUTER_AB_ED25519_YAO_WARM_RECOVERY_PATHS)[number]>();
     for (const entry of this.trace.slice(traceStartIndex)) {
       const path = routerAbEd25519YaoWarmRecoveryPath(entry.url, this.config.routerUrl);
@@ -1666,6 +1679,19 @@ export class IntendedBehaviourHarness {
   private requireRegisteredWalletForSigning(): RegisteredWalletSnapshot {
     if (this.registeredWallet) return this.registeredWallet;
     throw new Error('Signing requires a registered wallet');
+  }
+}
+
+function noYaoRecoveryAssertionLabel(
+  scenario: IntendedNoYaoRecoveryAssertionScenario,
+): string {
+  switch (scenario.kind) {
+    case 'passkey_unlock':
+      return 'Passkey unlock';
+    case 'post_refresh_near_signing':
+      return 'Passkey post-refresh local-envelope hydration';
+    default:
+      return assertNever(scenario);
   }
 }
 

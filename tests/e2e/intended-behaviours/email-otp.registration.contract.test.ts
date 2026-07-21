@@ -6,8 +6,12 @@ test('Email OTP registration lifecycle', async ({ harness }) => {
   await harness.exportEd25519Key();
   await harness.exportEcdsaKey();
   await harness.signNearTransactionAfterRefresh('email_otp_yao_recovery');
+  await harness.signTempoAndArcEvmConcurrently('after_refresh_recovery');
+  await harness.exhaustSigningBudget();
+  await harness.refreshPagePreservingWalletStorage();
   await harness.signArcEvmTransaction('after_step_up');
   await harness.signTempoTransaction('after_step_up');
+  await harness.signNearTransaction('after_step_up');
 });
 
 test(
@@ -18,6 +22,7 @@ test(
     await harness.exportEcdsaKey();
     await harness.signNearTransaction('post_registration');
     await harness.signTempoAndArcEvmConcurrently('post_registration');
+    await harness.exhaustSigningBudget();
     await harness.signNearTransaction('after_step_up');
   },
 );

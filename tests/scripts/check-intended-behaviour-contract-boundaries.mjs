@@ -154,13 +154,18 @@ const expectedContractActionSequences = {
     'exportEd25519Key()',
     'exportEcdsaKey()',
     "signNearTransactionAfterRefresh('email_otp_yao_recovery')",
+    "signTempoAndArcEvmConcurrently('after_refresh_recovery')",
+    'exhaustSigningBudget()',
+    'refreshPagePreservingWalletStorage()',
     "signArcEvmTransaction('after_step_up')",
     "signTempoTransaction('after_step_up')",
+    "signNearTransaction('after_step_up')",
     'registerEmailOtpWallet()',
     'exportEd25519Key()',
     'exportEcdsaKey()',
     "signNearTransaction('post_registration')",
     "signTempoAndArcEvmConcurrently('post_registration')",
+    'exhaustSigningBudget()',
     "signNearTransaction('after_step_up')",
   ],
   'email-otp.unlock.contract.test.ts': [
@@ -170,6 +175,7 @@ const expectedContractActionSequences = {
     'exportEcdsaKey()',
     "signNearTransaction('post_unlock')",
     "signTempoAndArcEvmConcurrently('post_unlock')",
+    'exhaustSigningBudget()',
     "signNearTransaction('after_step_up')",
     'registerEmailOtpWallet()',
     'unlockEmailOtpWallet()',
@@ -178,6 +184,11 @@ const expectedContractActionSequences = {
     'exportEcdsaKey()',
     "signNearTransactionAfterRefresh('email_otp_yao_recovery')",
     "signTempoTransaction('after_refresh_recovery')",
+    "signArcEvmTransaction('after_refresh_recovery')",
+    'exhaustSigningBudget()',
+    'refreshPagePreservingWalletStorage()',
+    "signNearTransaction('after_step_up')",
+    "signTempoTransaction('after_step_up')",
     "signArcEvmTransaction('after_step_up')",
   ],
   'passkey.ed25519-yao-local.contract.test.ts': [
@@ -899,7 +910,7 @@ test('Refactor 88 intended Google OIDC helper uses service-account impersonation
   expect(seedSource).toContain('SEAMS_INTENDED_PROJECT_ENVIRONMENT_ID');
   expect(seedSource).toContain('dotenv.config({ path: envFilePath, override: true })');
   expect(intendedConfigSource).toContain(
-    "dotenv.config({ path: path.join(repoRoot, '.env.intended.local'), override: true })",
+    "dotenv.config({ path: path.join(repoRoot, '.env.intended.local'), override: false })",
   );
   expect(preflightSource).toContain(
     "dotenv.config({ path: path.join(repoRoot, '.env.intended.local'), override: true })",
@@ -1030,7 +1041,9 @@ test('Refactor 88 intended CI config owns service startup', () => {
   expect(configSource).toContain("gracefulShutdown: { signal: 'SIGTERM', timeout: 30_000 }");
   expect(configSource).toContain('timeout: 420_000');
   expect(startupSource).toContain("spawnSync('pnpm'");
-  expect(startupSource).toContain("runRequiredBuild('sdk', ['run', 'build:sdk-full'])");
+  expect(startupSource).toContain(
+    "runRequiredBuild('sdk and Router A/B Workers', ['run', 'build:sdk-full'], {",
+  );
   expect(startupSource).toContain('function assertSdkDistArtifacts()');
   expect(startupSource).toContain('requiredSdkDistArtifacts');
   expect(startupSource).toContain('function clearTransientViteCaches()');
@@ -1041,7 +1054,8 @@ test('Refactor 88 intended CI config owns service startup', () => {
   expect(startupSource).toContain("spawnManaged('site'");
   expect(startupSource).toContain("['-C', 'apps/seams-site', 'run', 'vite']");
   expect(startupSource).not.toContain("spawnManaged('site', ['run', 'site']");
-  expect(startupSource).toContain("spawnManaged('router'");
+  expect(startupSource).toContain('function startRouter()');
+  expect(startupSource).toContain("    'router',");
   expect(startupSource).toContain(
     "['run', 'router', '--', '--root', routerAbLocalRoot, '--no-init']",
   );
@@ -1050,7 +1064,6 @@ test('Refactor 88 intended CI config owns service startup', () => {
   expect(startupSource).toContain('function initializeRouterAbLocalEnv()');
   expect(startupSource).toContain("'--bin',");
   expect(startupSource).toContain("'router_ab_local_init',");
-  expect(startupSource).toContain("'--force',");
   expect(startupSource).toContain('removeAbsolutePath(routerAbLocalRoot)');
   expect(startupSource).toContain(
     "removePath('packages/console-server-ts/.wrangler/state/seams-d1')",
