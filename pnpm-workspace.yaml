@@ -9,6 +9,7 @@ packages:
   - apps/web-server
   - apps/seams-site
   - apps/docs
+  - crates/router-ab-cloudflare
   - examples/self-host-cloudflare-worker
 allowBuilds:
   bufferutil: true
