@@ -419,12 +419,6 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
       if (!accountId) {
         throw new Error('Login succeeded but nearAccountId is missing');
       }
-      // Surface the minted JWT via toast (truncate to 8 chars)
-      if (result.jwt) {
-        const short = String(result.jwt).slice(0, 16);
-        toast.success(`Session JWT minted: ${short}…`, { id: 'jwt' });
-        console.log('[seams-site] JWT returned:', result.jwt);
-      }
       props.onLoggedIn?.(accountId);
     }
     return result;
