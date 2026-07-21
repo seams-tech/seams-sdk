@@ -1,4 +1,4 @@
-import { generateKeyPairSync, randomBytes } from 'node:crypto';
+import { createHash, generateKeyPairSync, randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -33,6 +33,12 @@ const OPTIONAL_SECRET_NAMES = new Set([
   'R2_ACCESS_KEY_ID',
   'R2_SECRET_ACCESS_KEY',
 ]);
+const DEPLOYMENT_AUDIT_VARIABLE_UPLOAD_ORDER = Object.freeze([
+  'SEAMS_DEPLOYMENT_GENERATED_AT',
+  'SEAMS_DEPLOYMENT_MANIFEST_SHA256',
+  'SEAMS_DEPLOYMENT_GENERATION_ID',
+]);
+const DEPLOYMENT_AUDIT_VARIABLE_NAMES = new Set(DEPLOYMENT_AUDIT_VARIABLE_UPLOAD_ORDER);
 const OBSOLETE_GATEWAY_VARIABLE_NAMES = new Set([
   'GATEWAY_WORKER_NAME',
   'GATEWAY_CONSOLE_D1_DATABASE_NAME',
@@ -147,12 +153,30 @@ const target = requireTarget();
 const json = argv.includes('--json');
 const apply = argv.includes('--apply');
 const rotate = argv.includes('--rotate');
+const verifyGeneration = argv.includes('--verify-generation');
 const migrateGatewayConfig = argv.includes('--migrate-gateway-config');
 const allowIncomplete = argv.includes('--allow-incomplete');
 const requestedRepository = readOption('--repo');
 const valuesFile = readOption('--values-file') || findDefaultValuesFile(target);
-const progress = createProgressLogger(migrateGatewayConfig ? 2 : apply ? 13 : 5);
+const progress = createProgressLogger(
+  migrateGatewayConfig || verifyGeneration ? 2 : apply ? 14 : 5,
+);
 let repository = requestedRepository;
+if (verifyGeneration) {
+  if (apply || rotate || migrateGatewayConfig) {
+    throw new Error('--verify-generation cannot be combined with an apply or migration option');
+  }
+  progress.step('Validate GitHub authentication and repository access');
+  repository = resolveGitHubRepository(requestedRepository);
+  progress.step('Verify deployment generation metadata');
+  const verification = verifyAppliedGenerationMetadata(target, repository);
+  if (json) {
+    process.stdout.write(`${JSON.stringify(verification, null, 2)}\n`);
+  } else {
+    printGenerationVerification(verification);
+  }
+  process.exit(0);
+}
 if (migrateGatewayConfig) {
   if (!apply) {
     throw new Error('--migrate-gateway-config requires --apply');
@@ -242,6 +266,7 @@ const output = buildOutput({
 });
 
 resolveSuppliedEnvironmentValues(output.environments, target, suppliedValues);
+attachDeploymentAuditMetadata(output);
 output.manualInputs = collectManualInputs(output.environments);
 output.requiredManualInputs = collectRequiredManualInputs(output.environments);
 validateOutput(output);
@@ -286,6 +311,7 @@ Options:
                                Defaults to ~/.seams/<target>-deployment.env.
   --apply                      Create environments and upload non-manual values.
   --rotate                     Permit replacement of existing wallet-critical identities.
+  --verify-generation          Verify audit metadata across all target environments.
   --migrate-gateway-config     Consolidate an initialized Gateway without rotating identities.
   --allow-incomplete           Permit a partial apply with unresolved required values.
   --repo <owner/repo>          GitHub repository; defaults to the current repo.
@@ -471,6 +497,31 @@ function buildOutput(input) {
       'This document contains private keys and secrets. Store it securely and never commit it.',
     environments,
     manualInputs: collectManualInputs(environments),
+  };
+}
+
+function attachDeploymentAuditMetadata(output) {
+  const manifestSha256 = createHash('sha256')
+    .update(JSON.stringify(buildDeploymentDigestPayload(output)), 'utf8')
+    .digest('hex');
+  output.manifestSha256 = manifestSha256;
+  for (const environment of Object.values(output.environments)) {
+    environment.variables = {
+      SEAMS_DEPLOYMENT_GENERATION_ID: output.generationId,
+      SEAMS_DEPLOYMENT_GENERATED_AT: output.generatedAt,
+      SEAMS_DEPLOYMENT_MANIFEST_SHA256: manifestSha256,
+      ...environment.variables,
+    };
+  }
+}
+
+function buildDeploymentDigestPayload(output) {
+  return {
+    schemaVersion: output.schemaVersion,
+    target: output.target,
+    generationId: output.generationId,
+    generatedAt: output.generatedAt,
+    environments: output.environments,
   };
 }
 
@@ -1823,7 +1874,7 @@ function applyGeneratedValues(data, repositoryName, progressLogger, backupPath) 
       ...environment.optionalVariables,
     };
     for (const [name, value] of Object.entries(variables)) {
-      if (isManualValue(value)) {
+      if (isManualValue(value) || DEPLOYMENT_AUDIT_VARIABLE_NAMES.has(name)) {
         continue;
       }
       runGh(
@@ -1854,6 +1905,20 @@ function applyGeneratedValues(data, repositoryName, progressLogger, backupPath) 
       `Uploaded ${appliedVariables.length - appliedVariableCountBefore} variables and ` +
         `${appliedSecrets.length - appliedSecretCountBefore} secrets`,
     );
+  }
+
+  progressLogger.step('Commit deployment generation metadata');
+  for (const [environmentName, environment] of Object.entries(data.environments)) {
+    for (const name of DEPLOYMENT_AUDIT_VARIABLE_UPLOAD_ORDER) {
+      const value = environment.variables[name];
+      runGh(
+        ['variable', 'set', name, '--env', environmentName, ...githubRepoArgs(repositoryName)],
+        value,
+        repositoryName,
+      );
+      appliedVariables.push(`${environmentName}.variables.${name}`);
+    }
+    progressLogger.detail(`Committed generation ${data.generationId} to ${environmentName}`);
   }
 
   return {
@@ -1983,6 +2048,77 @@ function migrateExistingGatewayVariables(targetName, repositoryName) {
     removedVariables,
     rotatedSecrets: false,
   };
+}
+
+function verifyAppliedGenerationMetadata(targetName, repositoryName) {
+  const environments = deploymentEnvironmentNames(targetName).map((environmentName) => {
+    const variables = readGitHubEnvironmentVariables(environmentName, repositoryName);
+    return {
+      environment: environmentName,
+      generationId: requireAuditVariable(
+        variables,
+        environmentName,
+        'SEAMS_DEPLOYMENT_GENERATION_ID',
+      ),
+      generatedAt: requireAuditVariable(
+        variables,
+        environmentName,
+        'SEAMS_DEPLOYMENT_GENERATED_AT',
+      ),
+      manifestSha256: requireAuditVariable(
+        variables,
+        environmentName,
+        'SEAMS_DEPLOYMENT_MANIFEST_SHA256',
+      ),
+    };
+  });
+  const expected = environments[0];
+  for (const environment of environments.slice(1)) {
+    assertEqual(environment.generationId, expected.generationId, 'deployment generation id');
+    assertEqual(environment.generatedAt, expected.generatedAt, 'deployment generation timestamp');
+    assertEqual(
+      environment.manifestSha256,
+      expected.manifestSha256,
+      'deployment manifest SHA-256',
+    );
+  }
+  return {
+    target: targetName,
+    repository: repositoryName,
+    generationId: expected.generationId,
+    generatedAt: expected.generatedAt,
+    manifestSha256: expected.manifestSha256,
+    environments: environments.map((environment) => environment.environment),
+  };
+}
+
+function deploymentEnvironmentNames(targetName) {
+  return [
+    targetName,
+    `${targetName}-gateway`,
+    `${targetName}-mpc-router`,
+    `${targetName}-deriver-a`,
+    `${targetName}-deriver-b`,
+    `${targetName}-signing-worker`,
+  ];
+}
+
+function requireAuditVariable(variables, environmentName, variableName) {
+  const value = variables.get(variableName);
+  if (!value) {
+    throw new Error(`${environmentName} is missing ${variableName}`);
+  }
+  return value;
+}
+
+function printGenerationVerification(verification) {
+  console.log('GitHub deployment generation verified');
+  console.log(`Target: ${verification.target}`);
+  console.log(`Repository: ${verification.repository}`);
+  console.log(`Generation id: ${verification.generationId}`);
+  console.log(`Generated at: ${verification.generatedAt}`);
+  console.log(`Manifest SHA-256: ${verification.manifestSha256}`);
+  console.log(`Matching environments: ${verification.environments.join(', ')}`);
 }
 
 function readGitHubEnvironmentVariables(environmentName, repositoryName) {
@@ -2364,6 +2500,7 @@ function printHumanOutput(data, application) {
   console.log(`Target: ${data.target}`);
   console.log(`Generation id: ${data.generationId}`);
   console.log(`Generated at: ${data.generatedAt}`);
+  console.log(`Manifest SHA-256: ${data.manifestSha256}`);
   console.log(`WARNING: ${data.warning}`);
 
   if (application) {
