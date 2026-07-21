@@ -15,9 +15,146 @@ import {
   type RouterAbEd25519PrivateSigningPath,
 } from '../../routerAbPrivateSigningWorker';
 import { parseThresholdEd25519SessionRouteRequest } from '../../thresholdEd25519RequestValidation';
-import { isPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import {
+  isPasskeyWalletAuthAuthority,
+  type PasskeyWalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
+import { isPlainObject } from '@shared/utils/validation';
+import {
+  parseAppSessionClaims,
+  parseRouterAbEcdsaDerivationWalletSessionClaims,
+  resolveAppSessionWalletIdForWalletScope,
+} from '../../../core/ThresholdService/validation';
+import type { RouterAbEd25519YaoSessionRouteCommandV1 } from '../../routerAbEd25519YaoWalletSession';
+
+async function validatePasskeyEd25519SessionAuthorization(input: {
+  ctx: CloudflareRouterApiContext;
+  request: RouterAbEd25519YaoSessionRouteCommandV1;
+  authority: PasskeyWalletAuthAuthority;
+}): Promise<Response | null> {
+  const credential = input.request.routeAuth;
+  if (credential.kind !== 'passkey') {
+    throw new Error('validatePasskeyEd25519SessionAuthorization requires passkey route auth');
+  }
+  const credentialIdB64u = String(
+    credential.webauthnAuthentication.rawId || credential.webauthnAuthentication.id || '',
+  ).trim();
+  if (!credentialIdB64u || credentialIdB64u !== input.authority.factor.credentialIdB64u) {
+    return json(
+      {
+        ok: false,
+        code: 'unauthorized',
+        message: 'WebAuthn proof does not match the active Ed25519 Wallet Session authority',
+      },
+      { status: 401 },
+    );
+  }
+  const expectedOrigin = normalizeCorsOrigin(input.ctx.request.headers.get('origin') || undefined);
+  if (!expectedOrigin) {
+    return json(
+      {
+        ok: false,
+        code: 'invalid_body',
+        message: 'expected_origin is required for WebAuthn authentication verification',
+      },
+      { status: 400 },
+    );
+  }
+  const expectedChallenge = base64UrlEncode(
+    await sha256BytesUtf8(alphabetizeStringify(input.request.sessionPolicy)),
+  );
+  const verified = await input.ctx.service.webAuthn.verifyWebAuthnAuthenticationLite({
+    userId: input.authority.walletId,
+    rpId: input.authority.verifier.rpId,
+    expectedChallenge,
+    expected_origin: expectedOrigin,
+    webauthn_authentication: credential.webauthnAuthentication,
+  });
+  if (verified.success && verified.verified) return null;
+  return json(
+    {
+      ok: false,
+      code: verified.code || 'not_verified',
+      message: verified.message || 'WebAuthn authentication verification failed',
+    },
+    { status: 401 },
+  );
+}
+
+async function validateSignedEd25519SessionAuthorization(input: {
+  ctx: CloudflareRouterApiContext;
+  request: RouterAbEd25519YaoSessionRouteCommandV1;
+  authority: PasskeyWalletAuthAuthority;
+}): Promise<Response | null> {
+  if (input.request.routeAuth.kind !== 'signed_session') {
+    throw new Error('validateSignedEd25519SessionAuthorization requires signed-session route auth');
+  }
+  const session = input.ctx.opts.session;
+  if (!session) {
+    return json(
+      { ok: false, code: 'unauthorized', message: 'Signed session authorization is unavailable' },
+      { status: 401 },
+    );
+  }
+  const parsedSession = await session.parse(
+    Object.fromEntries(input.ctx.request.headers.entries()),
+  );
+  if (!parsedSession.ok) {
+    return json(
+      { ok: false, code: 'unauthorized', message: 'Signed session authorization is required' },
+      { status: 401 },
+    );
+  }
+  let appSessionClaims = parseAppSessionClaims(parsedSession.claims);
+  if (
+    appSessionClaims &&
+    (!isPlainObject(parsedSession.claims) || parsedSession.claims.provider !== 'passkey')
+  ) {
+    appSessionClaims = null;
+  }
+  if (appSessionClaims) {
+    const version = await input.ctx.service.sessionVersions.validateAppSessionVersion({
+      userId: appSessionClaims.sub,
+      appSessionVersion: appSessionClaims.appSessionVersion,
+    });
+    if (!version.ok) appSessionClaims = null;
+  }
+  const ecdsaSessionClaims = parseRouterAbEcdsaDerivationWalletSessionClaims(parsedSession.claims);
+  const appSessionWalletId = resolveAppSessionWalletIdForWalletScope(
+    appSessionClaims,
+    input.authority.walletId,
+  );
+  const signedWalletId = appSessionWalletId || ecdsaSessionClaims?.walletId;
+  if (signedWalletId !== input.authority.walletId) {
+    return json(
+      {
+        ok: false,
+        code: 'unauthorized',
+        message: 'Signed session does not authorize the active Ed25519 wallet',
+      },
+      { status: 401 },
+    );
+  }
+  const signedRuntimePolicyScope =
+    appSessionClaims?.runtimePolicyScope || ecdsaSessionClaims?.runtimePolicyScope;
+  if (
+    signedRuntimePolicyScope &&
+    alphabetizeStringify(signedRuntimePolicyScope) !==
+      alphabetizeStringify(input.request.sessionPolicy.runtimePolicyScope)
+  ) {
+    return json(
+      {
+        ok: false,
+        code: 'scope_mismatch',
+        message: 'Signed session runtime scope does not match the Ed25519 session policy',
+      },
+      { status: 403 },
+    );
+  }
+  return null;
+}
 
 async function handleRouterAbEd25519NormalSigningRoute(input: {
   ctx: CloudflareRouterApiContext;
@@ -131,19 +268,6 @@ export async function handleThresholdEd25519(
           { status: 400 },
         );
       }
-      const credentialIdB64u = String(
-        b.routeAuth.webauthnAuthentication.rawId || b.routeAuth.webauthnAuthentication.id || '',
-      ).trim();
-      if (!credentialIdB64u || credentialIdB64u !== authority.factor.credentialIdB64u) {
-        return json(
-          {
-            ok: false,
-            code: 'unauthorized',
-            message: 'WebAuthn proof does not match the active Ed25519 Wallet Session authority',
-          },
-          { status: 401 },
-        );
-      }
       if (b.relayerKeyId !== b.sessionPolicy.relayerKeyId) {
         return json(
           {
@@ -174,7 +298,6 @@ export async function handleThresholdEd25519(
         );
       }
       const runtimePolicyScope = runtimePolicyScopeResolution.scope;
-      const expectedOrigin = normalizeCorsOrigin(ctx.request.headers.get('origin') || undefined);
       if (
         !runtimePolicyScope ||
         alphabetizeStringify(runtimePolicyScope) !==
@@ -189,36 +312,19 @@ export async function handleThresholdEd25519(
           { status: 403 },
         );
       }
-      if (!expectedOrigin) {
-        return json(
-          {
-            ok: false,
-            code: 'invalid_body',
-            message: 'expected_origin is required for WebAuthn authentication verification',
-          },
-          { status: 400 },
-        );
-      }
-      const expectedChallenge = base64UrlEncode(
-        await sha256BytesUtf8(alphabetizeStringify(b.sessionPolicy)),
-      );
-      const verified = await ctx.service.webAuthn.verifyWebAuthnAuthenticationLite({
-        userId: authority.walletId,
-        rpId: authority.verifier.rpId,
-        expectedChallenge,
-        expected_origin: expectedOrigin,
-        webauthn_authentication: b.routeAuth.webauthnAuthentication,
-      });
-      if (!verified.success || !verified.verified) {
-        return json(
-          {
-            ok: false,
-            code: verified.code || 'not_verified',
-            message: verified.message || 'WebAuthn authentication verification failed',
-          },
-          { status: 401 },
-        );
-      }
+      const authorizationError =
+        b.routeAuth.kind === 'passkey'
+          ? await validatePasskeyEd25519SessionAuthorization({
+              ctx,
+              request: b,
+              authority,
+            })
+          : await validateSignedEd25519SessionAuthorization({
+              ctx,
+              request: b,
+              authority,
+            });
+      if (authorizationError) return authorizationError;
 
       const result = await ctx.service.walletRegistration.refreshEd25519YaoWalletSession({
         kind: 'router_ab_ed25519_yao_budget_refresh_v1',
