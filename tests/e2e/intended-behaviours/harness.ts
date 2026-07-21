@@ -948,8 +948,9 @@ export class IntendedBehaviourHarness {
     switch (scenario.kind) {
       case 'standard':
         break;
-      case 'post_refresh':
-        switch (scenario.postRefreshMaterialSource) {
+      case 'post_refresh': {
+        const { postRefreshMaterialSource } = scenario;
+        switch (postRefreshMaterialSource) {
           case 'email_otp_yao_recovery':
             this.assertRouterAbEd25519YaoRecoveryRoutes(
               traceStartIndex,
@@ -957,18 +958,16 @@ export class IntendedBehaviourHarness {
             );
             break;
           case 'passkey_local_envelope':
-            this.assertNoRouterAbEd25519YaoRecoveryRoutes(
-              traceStartIndex,
-              {
-                kind: 'post_refresh_near_signing',
-                materialSource: scenario.postRefreshMaterialSource,
-              },
-            );
+            this.assertNoRouterAbEd25519YaoRecoveryRoutes(traceStartIndex, {
+              kind: 'post_refresh_near_signing',
+              materialSource: postRefreshMaterialSource,
+            });
             break;
           default:
-            assertNever(scenario.postRefreshMaterialSource);
+            assertNever(postRefreshMaterialSource);
         }
         break;
+      }
       default:
         assertNever(scenario);
     }
