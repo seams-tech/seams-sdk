@@ -929,7 +929,7 @@ jobs:
     secrets: inherit
 
   deploy_pages:
-    name: Deploy seams.sh and wallet.seams.sh
+    name: Deploy seams.sh and sign.seams.sh
     if: ${{ always() && needs.deploy_gateway.result == 'success' }}
     needs: deploy_gateway
     uses: ./.github/workflows/deploy-pages.yml

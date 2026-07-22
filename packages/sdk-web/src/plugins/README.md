@@ -26,7 +26,7 @@ For SDK config during the stabilization milestone:
 const config = {
   relayer: { url: 'https://router.example.com' },
   iframeWallet: {
-    walletOrigin: 'https://wallet.seams.sh',
+    walletOrigin: 'https://sign.seams.sh',
     walletServicePath: '/wallet-service',
     sdkBasePath: '/sdk',
   },
@@ -51,8 +51,8 @@ The SDK package build emits the wallet-origin artifact at
 Seams wallet hosting publishes that tree from the wallet origin:
 
 ```txt
-GET https://wallet.seams.sh/sdk/*          -> dist/public/sdk/*
-GET https://wallet.seams.sh/wallet-service -> dist/public/wallet-service/index.html
+GET https://sign.seams.sh/sdk/*          -> dist/public/sdk/*
+GET https://sign.seams.sh/wallet-service -> dist/public/wallet-service/index.html
 ```
 
 App origins should return 404 for `/sdk/*` and `/wallet-service`. Wallet workers,
