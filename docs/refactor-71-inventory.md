@@ -470,8 +470,8 @@ Update active docs that describe current behavior:
 - `docs/refactor-71-rename-id.md`
 - `apps/docs/src/concepts/secureconfirm-sessions.md`
 - `docs/refactor-68-wallet-session-v2.md`
-- `docs/router-a-b-SPEC.md`
-- `docs/router-a-b-SPEC.md`
+- `docs/router-ab/protocol.md`
+- `docs/router-ab/protocol.md`
 - `docs/signing-session-architecture/README.md`
 - `docs/otp/email-otp.md`
 - `docs/intended-behaviours.md`
@@ -491,7 +491,7 @@ being promoted as active source of truth:
 - `docs/refactor-36a-reduce-near-account-id-usage.md`
 - `docs/refactor-37.md`
 - `docs/refactor-39.md`
-- `docs/router-a-b-SPEC.md`
+- `docs/router-ab/protocol.md`
 - `docs/refactor-41.md`
 - `docs/refactor-42-stricter-union-types.md`
 - `docs/refactor-45-consolidate-indexeddb-tables.md`
@@ -813,7 +813,7 @@ files below:
 - `docs/refactor-36a-reduce-near-account-id-usage.md`
 - `docs/refactor-37.md`
 - `docs/refactor-39.md`
-- `docs/router-a-b-SPEC.md`
+- `docs/router-ab/protocol.md`
 - `docs/refactor-41.md`
 - `docs/refactor-42-stricter-union-types.md`
 - `docs/refactor-45-consolidate-indexeddb-tables.md`
@@ -823,7 +823,7 @@ files below:
 - `docs/refactor-50-cross-platform-1.md`
 - `docs/refactor-51-cross-platform-2.md`
 - `docs/refactor-71-rename-id.md`
-- `docs/router-a-b-SPEC.md`
+- `docs/router-ab/protocol.md`
 - `docs/signing-session-architecture/README.md`
 - `docs/signing-session-architecture/sealed-refresh.md`
 - `docs/threshold-ecdsa/ecdsa-hss-v2-integration.md`

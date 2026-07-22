@@ -80,16 +80,16 @@ Computing.
 
 ## Documentation Created Or Updated
 
-- `docs/router-a-b-SPEC.md`
+- `docs/router-ab/protocol.md`
   - Main architecture and implementation plan.
   - Operational roadmap.
   - Future N-of-N and t-of-N notes.
   - Cloudflare-only prototype path and future multi-provider/TEE path.
-- `docs/router-a-b-SPEC.md`
+- `docs/router-ab/protocol.md`
   - Protocol gates, threat matrix, state machine, transcript binding, output
     correctness levels, observability/redaction, release gates, vectors, API
     shapes, examples, folder structure, and formal-verification notes.
-- `docs/router-a-b-local-dev.md`
+- `docs/router-ab/local-development.md`
   - Local deployment parity plan.
   - Four-worker local topology.
   - Local env templates, local SQLite storage, local HTTP service-binding
@@ -532,7 +532,7 @@ Router A/B work, keep commits scoped to:
 - `crates/router-ab-cloudflare`
 - `crates/router-ab-dev`
 - `docs/router-A-B-signer*.md`
-- `docs/router-a-b-local-dev.md`
+- `docs/router-ab/local-development.md`
 - `packages/shared-ts`
 - `packages/sdk-server-ts`
 - `packages/sdk-web`
@@ -547,8 +547,8 @@ work:
 
 - Handoff and local-dev docs:
   - `chats/chat-5-router-a-b.md`
-  - `docs/router-a-b-local-dev.md`
-  - `docs/router-a-b-SPEC.md`
+  - `docs/router-ab/local-development.md`
+  - `docs/router-ab/protocol.md`
 - Local dev harness:
   - `crates/router-ab-dev/Cargo.toml`
   - `crates/router-ab-dev/Cargo.lock`

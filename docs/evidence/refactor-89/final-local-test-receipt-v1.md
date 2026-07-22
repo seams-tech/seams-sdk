@@ -135,13 +135,13 @@ These cases remain outside this local receipt:
 
 - independently administered Cloudflare account and CI separation evidence;
 - deployed ECDSA cold/warm latency, CPU, memory, cost, failure, and rollback
-  measurements owned by `docs/router-a-b-deployment.md`;
+  measurements owned by `docs/router-ab/deployment.md`;
 - credential-dependent Redis/Upstash persistence cases; and
 - deployed-browser route evidence requiring the configured external Router A/B
   endpoints.
 
 The Ed25519 Yao Phase 13A decision and independent-operator resource import
-remain owned by `docs/yaos-ab-deployment.md` and do not close an ECDSA local
+remain owned by `docs/router-ab/ed25519-yao/deployment.md` and do not close an ECDSA local
 checkbox.
 
 ## Checklist disposition

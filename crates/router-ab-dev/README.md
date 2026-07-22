@@ -105,4 +105,4 @@ pnpm router:measure
 ```
 
 The local deployment parity plan lives at
-[`../../docs/router-a-b-local-dev.md`](../../docs/router-a-b-local-dev.md).
+[`../../docs/router-ab/local-development.md`](../../docs/router-ab/local-development.md).

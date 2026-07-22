@@ -11,18 +11,18 @@ independent administration, and the profile-specific security gates.
 
 Companion documents:
 
-- [Router A/B specification](./router-a-b-SPEC.md)
-- [Router A/B deployment reference](./router-a-b-deployment.md)
-- [Router A/B local development](./router-a-b-local-dev.md)
-- [Router A/B specification](./router-a-b-SPEC.md)
-- [Streaming Yao for Deriver A and Deriver B](./yaos-ab.md)
+- [Router A/B specification](./router-ab/protocol.md)
+- [Router A/B deployment reference](./router-ab/deployment.md)
+- [Router A/B local development](./router-ab/local-development.md)
+- [Router A/B specification](./router-ab/protocol.md)
+- [Streaming Yao for Deriver A and Deriver B](./router-ab/ed25519-yao/implementation-plan.md)
 
-`yaos-ab.md` owns current latency and protocol evidence. This plan owns strict
+`router-ab/ed25519-yao/implementation-plan.md` owns current latency and protocol evidence. This plan owns strict
 Router A/B integration, product migration, operational segregation, and
 deletion of obsolete implementations.
 
 The critical risk register, bounded construction shortlist, kill criteria, and
-Ed25519 platform fallback ladder in `yaos-ab.md` are authoritative here. Phase
+Ed25519 platform fallback ladder in `router-ab/ed25519-yao/implementation-plan.md` are authoritative here. Phase
 3A converts that evidence into the product-level construction and platform
 decision. Downstream phases cannot bypass it.
 
@@ -195,13 +195,13 @@ responsibility.
 
 | Requirement                                                                      | Intended source                          | Current implementation evidence                                                                                                                 | Classification                  | Confidence | Owning phase |
 | -------------------------------------------------------------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- | ---------: | ------------ |
-| Ed25519 derivation uses strict A/B role processes                                | `router-a-b-SPEC.md` Sections 2-5        | Local Router, separate Deriver A/B processes, and SigningWorker complete the fixed Yao lifecycle; remaining deployment and release gates are tracked separately | Local match; deployment pending | `0.99` | 9C, 14 |
-| Ed25519 identity derives from canonical `d`                                      | `yaos-ab.md` Phase 9C                    | Local export runs `d -> SHA-512(d) -> clamp -> a`, reproduces the registered public key, and creates a standard Ed25519 signature | Local match; deployment pending | `0.99` | 9D, 11 |
-| Neither peer obtains both share sides                                            | `router-a-b-SPEC.md` Section 3           | Role-specific encrypted inputs and recipient packages keep Deriver and Client/SigningWorker views disjoint in the local process suite | Local match; deployment pending | `0.99` | 9D, 11 |
-| A coherent Phase 3A-selected Streaming Yao profile is implemented                | `yaos-ab.md`                             | The complete P0 fixed-circuit implementation passes locally; deployed evidence and final P0-P3 selection remain open | High partial match | `0.99` | 9D, 13A |
+| Ed25519 derivation uses strict A/B role processes                                | `router-ab/protocol.md` Sections 2-5        | Local Router, separate Deriver A/B processes, and SigningWorker complete the fixed Yao lifecycle; remaining deployment and release gates are tracked separately | Local match; deployment pending | `0.99` | 9C, 14 |
+| Ed25519 identity derives from canonical `d`                                      | `router-ab/ed25519-yao/implementation-plan.md` Phase 9C                    | Local export runs `d -> SHA-512(d) -> clamp -> a`, reproduces the registered public key, and creates a standard Ed25519 signature | Local match; deployment pending | `0.99` | 9D, 11 |
+| Neither peer obtains both share sides                                            | `router-ab/protocol.md` Section 3           | Role-specific encrypted inputs and recipient packages keep Deriver and Client/SigningWorker views disjoint in the local process suite | Local match; deployment pending | `0.99` | 9D, 11 |
+| A coherent Phase 3A-selected Streaming Yao profile is implemented                | `router-ab/ed25519-yao/implementation-plan.md`                             | The complete P0 fixed-circuit implementation passes locally; deployed evidence and final P0-P3 selection remain open | High partial match | `0.99` | 9D, 13A |
 | Production uses independent operators                                            | Deployment intent                        | Active deployment documentation and bindings still prioritize same-account Service Bindings                                                     | High missing implementation     |     `0.97` | 6, 11        |
 | ECDSA threshold-PRF/additive shares use strict Router A/B only                   | Router A/B spec                          | Strict ECDSA components exist, while generic service getters and threshold route handlers remain reachable                                      | High partial match              |     `0.96` | 5, 8, 10     |
-| The capability claim exactly matches the selected profile                        | `yaos-ab.md` Phase 6A                    | No signed P0-P3 selection record, implementation, or profile-specific security evidence exists                                                 | Critical missing implementation |     `0.95` | 3A, 3B, 4, 9 |
+| The capability claim exactly matches the selected profile                        | `router-ab/ed25519-yao/implementation-plan.md` Phase 6A                    | No signed P0-P3 selection record, implementation, or profile-specific security evidence exists                                                 | Critical missing implementation |     `0.95` | 3A, 3B, 4, 9 |
 
 This matrix is the initial implementation baseline. Each phase updates the
 corresponding row with code, tests, and evidence. A partial match does not count
@@ -506,7 +506,7 @@ after the selected active composition and audit pass.
 
 ### Cross-Plan Phase Crosswalk And Status Rules
 
-`yaos-ab.md` owns the fine-grained Ed25519 Yao phase gates. This plan owns the
+`router-ab/ed25519-yao/implementation-plan.md` owns the fine-grained Ed25519 Yao phase gates. This plan owns the
 wider Ed25519/ECDSA product migration and cleanup gates. The formal-verification
 plan owns proof readiness and evidence. A checked task means only that exact
 foundation exists; it cannot bypass a blocked dependency or phase exit gate.
@@ -530,7 +530,7 @@ foundation exists; it cannot bypass a blocked dependency or phase exit gate.
 Current status is aligned across plans: the local P0 Streaming Yao construction,
 complete local lifecycle, strict Router/A/B integration, opaque Rust/WASM Client
 state, and standard FROST signing over the activated shares are implemented.
-`yaos-ab.md` Phase 9C is the active gate. The deprecated Ed25519 backend and its
+`router-ab/ed25519-yao/implementation-plan.md` Phase 9C is the active gate. The deprecated Ed25519 backend and its
 Rust consumers are deleted, and the current SDK/server derivation boundaries are
 in place. Cloudflare deployment, profile promotion, and production security
 claims remain deferred until their release evidence is complete.
@@ -549,9 +549,9 @@ cryptographic or routing code is written.
       scheduled for deletion.
 - [x] Remove the current prime-order implementation from production-security
       consideration.
-- [x] Update `router-a-b-SPEC.md` so Ed25519 targets
+- [x] Update `router-ab/protocol.md` so Ed25519 targets
       `router_ab_ed25519_yao_v1` and never uses `mpc_threshold_prf_v1`.
-- [x] Update `router-a-b-deployment.md` so the initial strict profile is
+- [x] Update `router-ab/deployment.md` so the initial strict profile is
       `router_ab_cloudflare_separate_accounts_v1`; classify same-account Service
       Bindings as local/staging-only. Phase 3A owns any new fallback profile and
       corresponding normative deployment update.
@@ -569,7 +569,7 @@ cryptographic or routing code is written.
       select P0, coherent P1, P2, or P3 under the performance-first policy.
 - [x] Assign generic-service inventory and source-guard work to the integration
       and deletion phases; the first slice does not edit overlapping SDK code.
-- [x] Add this plan and `yaos-ab.md` to the active architecture set.
+- [x] Add this plan and `router-ab/ed25519-yao/implementation-plan.md` to the active architecture set.
 
 ### Exit Gate
 
@@ -968,7 +968,7 @@ Goal: select the strongest coherent reviewed P0-P3 composition that meets the
 signed p95/p99 latency SLO on the real independent-domain topology, then freeze
 its exact claim and platform before product integration.
 
-`yaos-ab.md` Phase 6A owns the detailed candidate analysis and evidence. This
+`router-ab/ed25519-yao/implementation-plan.md` Phase 6A owns the detailed candidate analysis and evidence. This
 phase is the product-level approval gate.
 
 ### TODO
@@ -1229,7 +1229,7 @@ without importing secret-processing code into Router.
       broad object construction.
 - [ ] Ensure normal Ed25519 and ECDSA signing remain Router-to-SigningWorker
       paths with zero Deriver calls after activation.
-- [ ] Update `router-a-b-SPEC.md`, core README/specs, and route documentation to
+- [ ] Update `router-ab/protocol.md`, core README/specs, and route documentation to
       match the exact implemented branches.
 
 ### Exit Gate

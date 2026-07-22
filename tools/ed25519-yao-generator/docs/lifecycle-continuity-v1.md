@@ -26,15 +26,15 @@ The keywords **MUST**, **MUST NOT**, **REQUIRED**, and **BLOCKED** are normative
 The controlling requirements are:
 
 - Activation consumes committed activation-family packages and performs no
-  second Yao evaluation (`docs/yaos-ab.md`, **Fixed Circuit Families**, and
-  `docs/router-a-b-SPEC.md:902-925`).
+  second Yao evaluation (`docs/router-ab/ed25519-yao/implementation-plan.md`, **Fixed Circuit Families**, and
+  `docs/router-ab/protocol.md:902-925`).
 - Recovery rewraps the exact same logical 32-byte client root and preserves every
-  KDF contribution and identity value (`docs/yaos-ab.md`, **Fixed Circuit
+  KDF contribution and identity value (`docs/router-ab/ed25519-yao/implementation-plan.md`, **Fixed Circuit
   Families**, and `tools/ed25519-yao-generator/docs/ideal-functionalities-v1.md`,
   **F_ed25519_recovery_v1**).
 - Refresh applies `+delta` to A and `-delta` to B, preserves the joined seed and
   scalar, advances role-input-state epochs, and uses forward-only cutover
-  (`docs/yaos-ab.md`, **Fixed Circuit Families**, and
+  (`docs/router-ab/ed25519-yao/implementation-plan.md`, **Fixed Circuit Families**, and
   `tools/ed25519-yao-generator/docs/ideal-functionalities-v1.md`,
   **F_ed25519_refresh_v1**).
 - Host-only recovery and refresh vectors may land before the production custody,

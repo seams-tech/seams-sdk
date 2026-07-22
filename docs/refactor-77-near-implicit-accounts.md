@@ -8,8 +8,8 @@ claiming.
 
 Related plans:
 
-- [router-a-b-SPEC.md](./router-a-b-SPEC.md)
-- [router-a-b-SPEC.md](./router-a-b-SPEC.md)
+- [router-ab/protocol.md](./router-ab/protocol.md)
+- [router-ab/protocol.md](./router-ab/protocol.md)
 - [refactor-75-simplify-ed25519.md](./refactor-75-simplify-ed25519.md)
 - [refactor-80-switch-case.md](./refactor-80-switch-case.md)
 

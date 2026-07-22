@@ -750,7 +750,7 @@ The exact covered paths are:
 .cargo/**
 .github/workflows/phase2b-change-control.yml
 crates/ed25519-yao/**
-docs/yaos-ab.md
+docs/router-ab/ed25519-yao/implementation-plan.md
 justfile
 tools/ed25519-yao-generator/**
 tools/ed25519-yao-verifier/**

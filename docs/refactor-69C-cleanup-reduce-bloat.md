@@ -21,15 +21,15 @@ Follow-up ownership:
 - Ed25519 worker-material simplification:
   [refactor-75-simplify-ed25519.md](./refactor-75-simplify-ed25519.md).
 - Broad Router A/B cleanup, strict signable state, and deployment evidence:
-  [router-a-b-SPEC.md](./router-a-b-SPEC.md).
+  [router-ab/protocol.md](./router-ab/protocol.md).
 
 Primary source of truth:
 
 - [refactor-68-wallet-session-v2.md](./refactor-68-wallet-session-v2.md)
 - [refactor-70-server-budget.md](./refactor-70-server-budget.md)
-- [router-a-b-SPEC.md](./router-a-b-SPEC.md)
-- [router-a-b-SPEC.md](./router-a-b-SPEC.md)
-- [router-a-b-local-dev.md](./router-a-b-local-dev.md)
+- [router-ab/protocol.md](./router-ab/protocol.md)
+- [router-ab/protocol.md](./router-ab/protocol.md)
+- [router-ab/local-development.md](./router-ab/local-development.md)
 
 ## Goal
 
@@ -389,7 +389,7 @@ Status: complete on June 20, 2026.
 Completion note: no generated startup-latency JSON files are tracked, and
 `.gitignore` excludes `crates/router-ab-cloudflare/reports/startup-latencies/*.json`.
 The remaining startup-time evidence item in
-`docs/router-a-b-deployment.md` is deployment evidence, not generated-report
+`docs/router-ab/deployment.md` is deployment evidence, not generated-report
 cleanup.
 
 Delete committed generated startup-latency JSON files from
@@ -403,11 +403,11 @@ Keep:
 
 Update docs that link to deleted report files:
 
-- `docs/router-a-b-SPEC.md`
-- `docs/router-a-b-SPEC.md`
-- `docs/router-a-b-SPEC.md`
-- `docs/router-a-b-local-dev.md`
-- `docs/router-a-b-SPEC.md`
+- `docs/router-ab/protocol.md`
+- `docs/router-ab/protocol.md`
+- `docs/router-ab/protocol.md`
+- `docs/router-ab/local-development.md`
+- `docs/router-ab/protocol.md`
 - deployment docs and audits that reference exact report paths
 
 Add or confirm an ignore rule so new report output is generated outside the
@@ -441,7 +441,7 @@ Keep:
 
 Validation:
 
-- `rtk rg "dev_router_ab_signer|router:dev:signer|dev-signer" package.json crates docs/router-a-b-SPEC.md docs/audits --glob '!**/target/**'`
+- `rtk rg "dev_router_ab_signer|router:dev:signer|dev-signer" package.json crates docs/router-ab/protocol.md docs/audits --glob '!**/target/**'`
 - `rtk cargo check --manifest-path crates/router-ab-core/Cargo.toml`
 - `rtk cargo check --manifest-path crates/router-ab-dev/Cargo.toml`
 
@@ -549,13 +549,13 @@ Possible target shape:
 
 - `crates/router-ab-core/benches/derivation_candidates.rs` remains executable
   evidence.
-- `docs/router-a-b-SPEC.md` or an audit doc summarizes the selected
+- `docs/router-ab/protocol.md` or an audit doc summarizes the selected
   candidate evidence.
 - Compiled library API exposes protocol behavior, not release evidence reports.
 
 Validation:
 
-- `rtk rg "candidate_measurement_gate_report_v1|candidate_round_trip_profiles_v1|selected_candidate_protocol_wire_profiles_v1|CANDIDATE_MEASUREMENT_GATES_VERSION_V1" crates/router-ab-core/src crates/router-ab-core/tests docs/audits docs/router-a-b-SPEC.md`
+- `rtk rg "candidate_measurement_gate_report_v1|candidate_round_trip_profiles_v1|selected_candidate_protocol_wire_profiles_v1|CANDIDATE_MEASUREMENT_GATES_VERSION_V1" crates/router-ab-core/src crates/router-ab-core/tests docs/audits docs/router-ab/protocol.md`
 - `rtk cargo test --manifest-path crates/router-ab-core/Cargo.toml`
 - Run Criterion only if the bench code itself changes.
 
@@ -1398,10 +1398,10 @@ Active-flow coverage:
 Closure note:
 
 - Raw-material and strict signable-state work moved to
-  `docs/refactor-75-simplify-ed25519.md`, and `docs/router-a-b-SPEC.md`.
+  `docs/refactor-75-simplify-ed25519.md`, and `docs/router-ab/protocol.md`.
 - Route/auth extraction and SDK route-client helper consolidation landed in
   Phase 6. Remaining route metadata cleanup belongs to
-  `docs/router-a-b-SPEC.md`.
+  `docs/router-ab/protocol.md`.
 - Deleted threshold-era tests must stay deleted. Replacement coverage should
   target Router A/B routes, Wallet Session JWT boundaries, worker-owned
   material handles, or explicit persistence/request compatibility parsers.

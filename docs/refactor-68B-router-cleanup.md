@@ -89,7 +89,7 @@ upstreams behind one HTTPS origin.
 - [x] Rename log labels from `frontend relay` to `router server`.
 - [x] Update `package.json` script comments/docs so `pnpm server` and
       `pnpm router` do not imply two public API servers.
-- [x] Update `docs/router-a-b-local-dev.md` diagrams to show Caddy forwarding
+- [x] Update `docs/router-ab/local-development.md` diagrams to show Caddy forwarding
       the whole origin to the Router server.
 - [x] Keep "relay" only where it names a NEAR relayer account, historical
       persisted field, or explicit compatibility boundary.

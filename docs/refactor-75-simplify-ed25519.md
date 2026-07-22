@@ -8,7 +8,7 @@ Primary source of truth:
 
 - [signing-session-architecture](./signing-session-architecture/README.md)
 - [refactor-70-server-budget.md](./refactor-70-server-budget.md)
-- [router-a-b-SPEC.md](./router-a-b-SPEC.md)
+- [router-ab/protocol.md](./router-ab/protocol.md)
 
 ## Goal
 

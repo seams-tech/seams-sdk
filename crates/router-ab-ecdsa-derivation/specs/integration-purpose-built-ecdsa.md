@@ -75,5 +75,5 @@ Production code must not contain:
 
 The coordinated Cloudflare release, one-account development topology, and
 independent-account production topology are governed by
-`docs/yaos-ab-deployment.md`. Those deployment choices do not change this
+`docs/router-ab/ed25519-yao/deployment.md`. Those deployment choices do not change this
 cryptographic interface.

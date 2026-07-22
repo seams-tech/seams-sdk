@@ -13,7 +13,7 @@ provisioning belongs to the Streaming Yao lifecycle.
 
 This plan consumes:
 
-- [yaos-ab.md](./yaos-ab.md) for Ed25519 stable context, registered `A_pub`,
+- [router-ab/ed25519-yao/implementation-plan.md](./router-ab/ed25519-yao/implementation-plan.md) for Ed25519 stable context, registered `A_pub`,
   Client and SigningWorker recipients, recovery, correlated refresh,
   forward-only output commitment, and production security gates;
 - `crates/router-ab-ecdsa-derivation` for secp256k1 role-local additive shares,
@@ -135,7 +135,7 @@ provisioning needs a new disjoint operation before implementation:
 product operation:  lane_provisioning
 request kind:       lane_provisioning
 ideal functionality: F_ed25519_lane_provisioning_v1
-circuit family:     selected and frozen in yaos-ab.md
+circuit family:     selected and frozen in router-ab/ed25519-yao/implementation-plan.md
 ```
 
 The Yao plan must accept this operation and freeze its circuit/output semantics
@@ -199,7 +199,7 @@ lane-recipient branch of the provisioning functionality. It keeps the lane ID,
 creates the next share epoch, preserves `A_pub`, activates replacement Client
 and SigningWorker packages, and retires the prior lane epoch.
 
-The existing wallet-key-level correlated refresh in `yaos-ab.md` has different
+The existing wallet-key-level correlated refresh in `router-ab/ed25519-yao/implementation-plan.md` has different
 scope. It remains valid for Yao role-root and registered-key lifecycle. It
 cannot be treated as a lane-scoped refresh until the Yao specification defines
 parallel recipient behavior explicitly.

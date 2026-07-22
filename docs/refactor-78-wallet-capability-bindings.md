@@ -6,7 +6,7 @@ Status: implemented and audited; doc reconciled June 25, 2026.
 
 Related plans:
 
-- [router-a-b-SPEC.md](./router-a-b-SPEC.md)
+- [router-ab/protocol.md](./router-ab/protocol.md)
 - [refactor-77-near-implicit-accounts.md](./refactor-77-near-implicit-accounts.md)
 - [refactor-79-exact-signing-lane.md](./refactor-79-exact-signing-lane.md)
 - [refactor-80-switch-case.md](./refactor-80-switch-case.md)

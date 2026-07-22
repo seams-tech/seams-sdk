@@ -6,8 +6,8 @@ Status: internal positioning notes for future user-facing sales copy.
 
 Related docs:
 
-- [router-a-b-SPEC.md](./router-a-b-SPEC.md)
-- [router-a-b-deployment.md](./router-a-b-deployment.md)
+- [router-ab/protocol.md](./router-ab/protocol.md)
+- [router-ab/deployment.md](./router-ab/deployment.md)
 
 ## Core Positioning
 

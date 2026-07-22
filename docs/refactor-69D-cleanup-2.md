@@ -11,7 +11,7 @@ optional-peer `@seams/sdk/server` subpaths are deleted.
 Primary source of truth:
 
 - [refactor-69C-cleanup-reduce-bloat.md](./refactor-69C-cleanup-reduce-bloat.md)
-- [router-a-b-SPEC.md](./router-a-b-SPEC.md)
+- [router-ab/protocol.md](./router-ab/protocol.md)
 - [audit/router-a-b-diff-review-inventory.md](./audit/router-a-b-diff-review-inventory.md)
 
 ## Goal

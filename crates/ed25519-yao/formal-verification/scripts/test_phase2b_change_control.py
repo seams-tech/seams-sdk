@@ -138,7 +138,7 @@ class Phase2bChangeControlTests(unittest.TestCase):
         self.assertFalse(uncovered["covered_change"])
         self.assertFalse(uncovered["external_verification_required"])
 
-        self.repository.write("docs/yaos-ab.md", b"covered\n")
+        self.repository.write("docs/router-ab/ed25519-yao/implementation-plan.md", b"covered\n")
         self.repository.commit("covered")
         covered = self.require_success(base)
         self.assertTrue(covered["covered_change"])

@@ -31,7 +31,7 @@ The Yao deployment plan now records a claimed cross-account WebSocket run. No ra
 
 ## Yao WebSocket evidence integrity
 
-`docs/yaos-ab-deployment.md` checks four Gate 1 items and names an A version, a B source commit, a deployment identity, timing summaries, and A trace summaries. The evidence needed to independently reproduce those facts is absent.
+`docs/router-ab/ed25519-yao/deployment.md` checks four Gate 1 items and names an A version, a B source commit, a deployment identity, timing summaries, and A trace summaries. The evidence needed to independently reproduce those facts is absent.
 
 The current WebSocket fixtures and the receipt/evaluator path also disagree:
 

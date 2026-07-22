@@ -111,6 +111,6 @@
   "localTimingEvidence": "docs/evidence/refactor-89/phase-e-local-timings-v1.json",
   "open": [
     "bounded independent cryptographic review",
-    "ECDSA Cloudflare rollout and measurements owned by docs/router-a-b-deployment.md; docs/yaos-ab-deployment.md owns the separate Ed25519 Yao gate"
+    "ECDSA Cloudflare rollout and measurements owned by docs/router-ab/deployment.md; docs/router-ab/ed25519-yao/deployment.md owns the separate Ed25519 Yao gate"
   ]
 }

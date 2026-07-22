@@ -20,7 +20,7 @@ circuits, passive OT path, bounded duplex stream, recipient-specific encrypted
 outputs, separate-process Router/A/B/SigningWorker graph, and the registration,
 activation, recovery, refresh, export, and ordinary-signing lifecycle now pass
 locally. These artifacts are the non-promotable P0 viability implementation
-owned by `yaos-ab.md` Phase 9C.
+owned by `router-ab/ed25519-yao/implementation-plan.md` Phase 9C.
 
 Independent reproduction, reviewer approval, public SDK cutover, profile
 selection, deployed evidence, and production-promotion evidence remain open.
@@ -120,7 +120,7 @@ generated artifacts are historical inputs only.
 The Yao corpus uses this precedence:
 
 1. the approved security claim, corruption model, and topology in
-   `docs/yaos-ab.md`;
+   `docs/router-ab/ed25519-yao/implementation-plan.md`;
 2. the lifecycle and value-custody boundary in
    `tools/ed25519-yao-generator/docs/ideal-functionalities-v1.md`, together with
    the frozen bit- and byte-level functionality produced by Yao Phase 1;
@@ -636,7 +636,7 @@ same-account profile.
 
 ### Cross-plan phase crosswalk and status rules
 
-`docs/yaos-ab.md` owns Ed25519 implementation gates.
+`docs/router-ab/ed25519-yao/implementation-plan.md` owns Ed25519 implementation gates.
 `docs/router-a-b-sol-refactor.md` owns the wider product migration and cleanup
 gates. This document owns formal-evidence gates. A formal phase may prepare
 mechanical scaffolding in parallel, but it cannot prove or open an implementation
