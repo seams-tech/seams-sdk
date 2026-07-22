@@ -7,20 +7,17 @@ on:
         description: 'R2 prefix override (auto | releases | releases-dev | custom)'
         required: false
         default: 'auto'
-  workflow_run:
-    workflows: ['ci']
-    types: [completed]
 
 concurrency:
-  group: publish-sdk-r2-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+  group: publish-sdk-r2-${{ github.sha }}
   cancel-in-progress: false
 
 env:
-  PUBLISH_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
-  PUBLISH_REF_NAME: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name }}
-  PUBLISH_TARGET: ${{ ((github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'dev') || (github.event_name != 'workflow_run' && github.ref_name == 'dev')) && 'staging' || 'production' }}
+  PUBLISH_SHA: ${{ github.sha }}
+  PUBLISH_REF_NAME: ${{ github.ref_name }}
+  PUBLISH_TARGET: ${{ github.ref_name == 'dev' && 'staging' || 'production' }}
   RUST_TOOLCHAIN: '1.96.0'
-  SDK_ARTIFACT_NAME: sdk-r2-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+  SDK_ARTIFACT_NAME: sdk-r2-${{ github.sha }}
   SDK_ARTIFACT_IDENTITY: '{"distribution":"r2","profile":"production"}'
   SDK_DIST_DIR: packages/sdk-web/dist
 
@@ -28,22 +25,8 @@ jobs:
   check-r2-credentials:
     name: Check R2 publication configuration
     runs-on: ubuntu-latest
-    if: >-
-      ${{
-        github.event_name == 'workflow_dispatch' ||
-        (
-          github.event_name == 'workflow_run' &&
-          github.event.workflow_run.conclusion == 'success' &&
-          github.event.workflow_run.event == 'push' &&
-          (
-            github.event.workflow_run.head_branch == 'main' ||
-            github.event.workflow_run.head_branch == 'dev' ||
-            startsWith(github.event.workflow_run.head_branch, 'v')
-          )
-        )
-      }}
     environment:
-      name: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'dev') && 'staging' || (github.ref_name == 'dev') && 'staging' || 'production' }}
+      name: ${{ github.ref_name == 'dev' && 'staging' || 'production' }}
     outputs:
       enabled: ${{ steps.check.outputs.enabled }}
     env:
@@ -213,7 +196,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment:
-      name: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'dev') && 'staging' || (github.ref_name == 'dev') && 'staging' || 'production' }}
+      name: ${{ github.ref_name == 'dev' && 'staging' || 'production' }}
     permissions:
       contents: read
       id-token: write
@@ -290,7 +273,7 @@ jobs:
       - name: Publish by commit SHA
         run: |
           set -euo pipefail
-          input_prefix="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.prefix || 'auto' }}"
+          input_prefix="${{ inputs.prefix || 'auto' }}"
           if [ "$input_prefix" != "auto" ]; then
             base_prefix="$input_prefix"
           elif [ "$PUBLISH_REF_NAME" = "dev" ]; then

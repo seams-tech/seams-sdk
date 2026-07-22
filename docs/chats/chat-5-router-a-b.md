@@ -380,7 +380,7 @@ Completed since the first handoff draft:
       smoke command for the no-segregation local profile.
 - [x] Added staging and production Wrangler environments for Router, Deriver A,
       Deriver B, and SigningWorker.
-- [x] Added `.github/workflows/router-ab.yml` for Router A/B tests, strict
+- [x] Added `.github/workflows/validate-router-ab.yml` for Router A/B tests, strict
       Worker checks, local four-worker smoke, and Wrangler startup dry-run evidence.
 - [x] Added `.github/workflows/deploy-router-ab.yml` for manual validation,
       Cloudflare Worker version upload, and target deploy.

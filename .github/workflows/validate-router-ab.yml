@@ -1,9 +1,9 @@
-name: router-ab
+name: validate-router-ab
 
 on:
   push:
     paths:
-      - '.github/workflows/router-ab.yml'
+      - '.github/workflows/validate-router-ab.yml'
       - 'crates/router-ab-core/**'
       - 'crates/router-ab-cloudflare/**'
       - 'crates/router-ab-dev/**'
@@ -13,7 +13,7 @@ on:
       - 'pnpm-lock.yaml'
   pull_request:
     paths:
-      - '.github/workflows/router-ab.yml'
+      - '.github/workflows/validate-router-ab.yml'
       - 'crates/router-ab-core/**'
       - 'crates/router-ab-cloudflare/**'
       - 'crates/router-ab-dev/**'
