@@ -1,6 +1,6 @@
 import { createHash, generateKeyPairSync, randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,6 +8,7 @@ import { parseEnv } from 'node:util';
 import { parseGatewayDeploymentConfig as parseStrictGatewayDeploymentConfig } from '../../../packages/console-server-ts/scripts/gateway-deployment-config.mjs';
 
 const VALID_TARGETS = new Set(['staging', 'production']);
+const VALID_DEPLOYMENT_COMPONENTS = new Set(['wallet-core', 'product']);
 const CEREMONY_JWKS_PATH = '/.well-known/router-ab-ceremony-jwks.json';
 const githubCli = process.env.GITHUB_CLI_BIN || 'gh';
 const argv = process.argv.slice(2).filter((argument) => argument !== '--');
@@ -152,15 +153,16 @@ if (argv.includes('--help')) {
 const target = requireTarget();
 const json = argv.includes('--json');
 const apply = argv.includes('--apply');
+const prepare = argv.includes('--prepare');
 const rotate = argv.includes('--rotate');
 const verifyGeneration = argv.includes('--verify-generation');
 const migrateGatewayConfig = argv.includes('--migrate-gateway-config');
 const allowIncomplete = argv.includes('--allow-incomplete');
 const requestedRepository = readOption('--repo');
+const deploymentComponent = readDeploymentComponent();
+const manifestFile = readOption('--manifest-file');
 const valuesFile = readOption('--values-file') || findDefaultValuesFile(target);
-const progress = createProgressLogger(
-  migrateGatewayConfig || verifyGeneration ? 2 : apply ? 14 : 5,
-);
+const progress = createProgressLogger(resolveProgressStepCount());
 let repository = requestedRepository;
 if (verifyGeneration) {
   if (apply || rotate || migrateGatewayConfig) {
@@ -188,7 +190,53 @@ if (migrateGatewayConfig) {
   process.stdout.write(`${JSON.stringify(migration, null, 2)}\n`);
   process.exit(0);
 }
+if (manifestFile) {
+  if (!apply || prepare || migrateGatewayConfig || verifyGeneration) {
+    throw new Error('--manifest-file requires --apply and cannot be combined with another mode');
+  }
+  if (!deploymentComponent) {
+    throw new Error('--manifest-file requires --component wallet-core or --component product');
+  }
+  progress.step('Load and verify prepared component manifest');
+  const preparedManifest = loadPreparedComponentManifest(manifestFile, target, deploymentComponent);
+  progress.step('Validate GitHub authentication and repository access');
+  repository = resolveGitHubRepository(requestedRepository);
+  if (deploymentComponent === 'wallet-core') {
+    assertTargetCanInitialize(target, repository, rotate);
+  } else {
+    assertWalletCoreGenerationMatches(preparedManifest, repository);
+  }
+  assertCompleteApplyInput(preparedManifest, true, allowIncomplete, manifestFile);
+  const application = applyGeneratedValues(
+    preparedManifest,
+    repository,
+    progress,
+    resolve(repoRoot, manifestFile),
+  );
+  let verification;
+  if (deploymentComponent === 'product') {
+    verification = verifyAppliedGenerationMetadata(target, repository);
+  }
+  if (json) {
+    process.stdout.write(
+      `${JSON.stringify({ ...preparedManifest, application, verification }, null, 2)}\n`,
+    );
+  } else {
+    printHumanOutput(preparedManifest, application);
+    if (verification) printGenerationVerification(verification);
+  }
+  process.exit(0);
+}
+if (deploymentComponent) {
+  throw new Error('--component is valid only with --manifest-file');
+}
+if (prepare && apply) {
+  throw new Error('--prepare and --apply are separate operations');
+}
 if (apply) {
+  throw new Error('--apply requires --manifest-file and --component');
+}
+if (prepare) {
   progress.step('Validate GitHub authentication and repository access');
   repository = resolveGitHubRepository(requestedRepository);
   assertTargetCanInitialize(target, repository, rotate);
@@ -196,7 +244,7 @@ if (apply) {
 progress.step('Load supplied deployment values');
 const suppliedValues = loadSuppliedValues(valuesFile);
 validateOptionalIntegrationInputs(target, suppliedValues);
-if (apply) {
+if (prepare) {
   requireCloudflareApiTokenForApply(target, suppliedValues, valuesFile);
   configureWranglerEnvironment(target, suppliedValues);
   await discoverCloudflareValues(target, suppliedValues, progress);
@@ -271,32 +319,30 @@ output.manualInputs = collectManualInputs(output.environments);
 output.requiredManualInputs = collectRequiredManualInputs(output.environments);
 validateOutput(output);
 validateWorkflowCoverage(output);
-assertCompleteApplyInput(output, apply, allowIncomplete, valuesFile);
-const preApplyBackupPath = apply ? writePreApplyBackup(output) : undefined;
-if (preApplyBackupPath) {
-  progress.detail(`Saved pre-apply backup to ${preApplyBackupPath}`);
+assertCompleteApplyInput(output, prepare, allowIncomplete, valuesFile);
+const preparation = prepare ? writePreparedComponentManifests(output) : undefined;
+if (preparation) {
+  progress.detail(`Saved wallet-core manifest to ${preparation.walletCoreManifestPath}`);
+  progress.detail(`Saved product manifest to ${preparation.productManifestPath}`);
 }
-const application = apply
-  ? applyGeneratedValues(output, repository, progress, preApplyBackupPath)
-  : undefined;
 
 if (json) {
-  process.stdout.write(
-    `${JSON.stringify({ ...output, ...(application ? { application } : {}) }, null, 2)}\n`,
-  );
+  process.stdout.write(`${JSON.stringify({ ...output, preparation }, null, 2)}\n`);
 } else {
-  printHumanOutput(output, application);
+  printHumanOutput(output, undefined);
+  if (preparation) printPreparationOutput(preparation);
 }
 
 function printUsage() {
   console.log(`Generate the complete GitHub Environment manifest for one deployment target.
 
 Usage:
-  pnpm router:deploy:env-keygen -- --env staging
-  pnpm router:deploy:env-keygen -- --env production
-  pnpm router:deploy:env-keygen -- --env staging --apply
-  pnpm router:deploy:env-keygen -- --env staging --apply --repo seams-tech/seams-sdk
-  pnpm --silent router:deploy:env-keygen -- --env staging --json
+  pnpm wallet-core:deploy:env-prepare -- --env staging
+  pnpm wallet-core:deploy:env-prepare -- --env production
+  pnpm wallet-core:deploy:env-prepare -- --env staging --rotate
+  pnpm wallet-core:deploy:env-apply -- --env staging --manifest-file <path> --rotate
+  pnpm product:deploy:env-apply -- --env staging --manifest-file <path>
+  pnpm --silent wallet-core:deploy:env-prepare -- --env staging --json
 
 Options:
   --env <target>               Required. staging or production.
@@ -309,7 +355,10 @@ Options:
   --tenant-namespace <name>    Tenant storage namespace.
   --values-file <path>         Protected .env file containing external values.
                                Defaults to ~/.seams/<target>-deployment.env.
-  --apply                      Create environments and upload non-manual values.
+  --prepare                    Provision infrastructure and write separate protected manifests.
+  --manifest-file <path>       Prepared wallet-core or product component manifest.
+  --component <name>           wallet-core or product; required with --manifest-file.
+  --apply                      Upload one prepared component manifest.
   --rotate                     Permit replacement of existing wallet-critical identities.
   --verify-generation          Verify audit metadata across all target environments.
   --migrate-gateway-config     Consolidate an initialized Gateway without rotating identities.
@@ -322,17 +371,19 @@ The command generates fresh Router A/B identities, matched root shares, internal
 service authentication, ceremony JWT signing material, Gateway random secrets,
 and signing-session seal material. Values from --values-file and the current
 shell resolve matching external infrastructure, funded-account, domain, OAuth,
-and Cloudflare placeholders. Apply mode also discovers the Cloudflare account
+and Cloudflare placeholders. Prepare mode also discovers the Cloudflare account
 and existing D1 database IDs through Wrangler when possible.
 
 The output contains sensitive private keys and secrets. Redirect it only to an
 encrypted secret-management location and do not commit it.
 
-Apply mode writes progress to stderr and prints an exact backup of uploaded
-variables and secrets to stdout.
+Prepare mode writes one protected wallet-core manifest and one protected
+product manifest under ~/.seams/backups. Apply wallet-core first. Product apply
+verifies the matching wallet-core generation before uploading the base target
+environment.
 
-WARNING: Every invocation generates fresh identities. Using --apply again
-requires --rotate and replaces previously generated values.`);
+WARNING: Every prepare invocation generates fresh identities. Preparing or
+applying wallet-core for an initialized target requires --rotate.`);
 }
 
 function requireTarget() {
@@ -534,6 +585,62 @@ function buildEnvironments(input) {
     buildDeriverBEnvironment(input),
     buildSigningWorkerEnvironment(input),
   ]);
+}
+
+function deploymentComponentEnvironmentNames(targetName, component) {
+  switch (component) {
+    case 'wallet-core':
+      return [
+        `${targetName}-gateway`,
+        `${targetName}-mpc-router`,
+        `${targetName}-deriver-a`,
+        `${targetName}-deriver-b`,
+        `${targetName}-signing-worker`,
+      ];
+    case 'product':
+      return [targetName];
+    default:
+      throw new Error(`unsupported deployment component: ${component}`);
+  }
+}
+
+function buildPreparedComponentManifest(output, component) {
+  const environmentNames = deploymentComponentEnvironmentNames(output.target, component);
+  const environments = {};
+  for (const environmentName of environmentNames) {
+    environments[environmentName] = output.environments[environmentName];
+  }
+  const manifest = {
+    schemaVersion: output.schemaVersion,
+    target: output.target,
+    deploymentComponent: component,
+    generationId: output.generationId,
+    generatedAt: output.generatedAt,
+    manifestSha256: output.manifestSha256,
+    warning: output.warning,
+    environments,
+    manualInputs: collectManualInputs(environments),
+    requiredManualInputs: collectRequiredManualInputs(environments),
+  };
+  manifest.componentManifestSha256 = computeComponentManifestSha256(manifest);
+  return manifest;
+}
+
+function computeComponentManifestSha256(manifest) {
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        schemaVersion: manifest.schemaVersion,
+        target: manifest.target,
+        deploymentComponent: manifest.deploymentComponent,
+        generationId: manifest.generationId,
+        generatedAt: manifest.generatedAt,
+        manifestSha256: manifest.manifestSha256,
+        environments: manifest.environments,
+      }),
+      'utf8',
+    )
+    .digest('hex');
 }
 
 function buildGeneralEnvironment(input) {
@@ -1474,11 +1581,19 @@ function assertCompleteApplyInput(outputDocument, shouldApply, incompleteAllowed
   if (!shouldApply || incompleteAllowed || outputDocument.requiredManualInputs.length === 0) {
     return;
   }
-  const valuesFileInstruction = valuesFilePath
-    ? `Complete ${resolve(repoRoot, valuesFilePath)} and rerun the command.`
-    : 'Create ~/.seams/' +
+  let valuesFileInstruction;
+  if (outputDocument.deploymentComponent) {
+    valuesFileInstruction =
+      'Update the protected deployment values and prepare a new generation. ' +
+      'Prepared manifests are immutable.';
+  } else if (valuesFilePath) {
+    valuesFileInstruction = `Complete ${resolve(repoRoot, valuesFilePath)} and rerun the command.`;
+  } else {
+    valuesFileInstruction =
+      'Create ~/.seams/' +
       `${outputDocument.target}-deployment.env from ` +
       'crates/router-ab-cloudflare/env/deployment-values.example.env, fill it, and rerun.';
+  }
   throw new Error(
     `Required deployment values are unresolved. ${valuesFileInstruction}\n\n` +
       `Missing:\n- ${outputDocument.requiredManualInputs.join('\n- ')}\n\n` +
@@ -1826,18 +1941,104 @@ function runJsonScript(scriptPath, args) {
   }
 }
 
-function writePreApplyBackup(data) {
+function writePreparedComponentManifests(output) {
   const backupDirectory = join(homedir(), '.seams', 'backups');
   mkdirSync(backupDirectory, { recursive: true, mode: 0o700 });
-  const backupPath = join(
+  chmodSync(backupDirectory, 0o700);
+  const walletCoreManifest = buildPreparedComponentManifest(output, 'wallet-core');
+  const productManifest = buildPreparedComponentManifest(output, 'product');
+  const walletCoreManifestPath = writePreparedComponentManifest(
     backupDirectory,
-    `${data.target}-${data.generationId}-github-environments.json`,
+    walletCoreManifest,
   );
-  writeFileSync(backupPath, `${JSON.stringify(data, null, 2)}\n`, {
+  const productManifestPath = writePreparedComponentManifest(backupDirectory, productManifest);
+  return {
+    generationId: output.generationId,
+    manifestSha256: output.manifestSha256,
+    walletCoreManifestPath,
+    productManifestPath,
+  };
+}
+
+function writePreparedComponentManifest(backupDirectory, manifest) {
+  const manifestPath = join(
+    backupDirectory,
+    `${manifest.target}-${manifest.generationId}-${manifest.deploymentComponent}-github-environments.json`,
+  );
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, {
     encoding: 'utf8',
     mode: 0o600,
   });
-  return backupPath;
+  return manifestPath;
+}
+
+function loadPreparedComponentManifest(manifestFilePath, targetName, component) {
+  const absolutePath = resolve(repoRoot, manifestFilePath);
+  if (!existsSync(absolutePath)) {
+    throw new Error(`prepared deployment manifest does not exist: ${absolutePath}`);
+  }
+  const mode = statSync(absolutePath).mode & 0o777;
+  if ((mode & 0o077) !== 0) {
+    throw new Error(`prepared deployment manifest must be owner-only (chmod 600): ${absolutePath}`);
+  }
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync(absolutePath, 'utf8'));
+  } catch (error) {
+    throw new Error(
+      `failed to load prepared deployment manifest ${absolutePath}: ${error.message}`,
+    );
+  }
+  validatePreparedComponentManifest(manifest, targetName, component);
+  return manifest;
+}
+
+function validatePreparedComponentManifest(manifest, targetName, component) {
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
+    throw new Error('prepared deployment manifest must be a JSON object');
+  }
+  assertEqual(manifest.schemaVersion, 1, 'prepared deployment manifest schema version');
+  assertEqual(manifest.target, targetName, 'prepared deployment target');
+  assertEqual(manifest.deploymentComponent, component, 'prepared deployment component');
+  const expectedEnvironmentNames = deploymentComponentEnvironmentNames(targetName, component);
+  assertEqual(
+    Object.keys(manifest.environments || {}),
+    expectedEnvironmentNames,
+    'prepared deployment environment names',
+  );
+  if (!/^[a-f0-9]{64}$/.test(manifest.manifestSha256 || '')) {
+    throw new Error('prepared deployment manifest SHA-256 is invalid');
+  }
+  if (!/^[a-f0-9]{64}$/.test(manifest.componentManifestSha256 || '')) {
+    throw new Error('prepared component manifest SHA-256 is invalid');
+  }
+  assertEqual(
+    computeComponentManifestSha256(manifest),
+    manifest.componentManifestSha256,
+    'prepared component manifest SHA-256',
+  );
+  for (const [environmentName, environment] of Object.entries(manifest.environments)) {
+    if (!environment || typeof environment !== 'object' || Array.isArray(environment)) {
+      throw new Error(`prepared environment ${environmentName} must be an object`);
+    }
+    assertEqual(
+      environment.variables?.SEAMS_DEPLOYMENT_GENERATION_ID,
+      manifest.generationId,
+      `${environmentName} deployment generation id`,
+    );
+    assertEqual(
+      environment.variables?.SEAMS_DEPLOYMENT_GENERATED_AT,
+      manifest.generatedAt,
+      `${environmentName} deployment generation timestamp`,
+    );
+    assertEqual(
+      environment.variables?.SEAMS_DEPLOYMENT_MANIFEST_SHA256,
+      manifest.manifestSha256,
+      `${environmentName} deployment manifest SHA-256`,
+    );
+  }
+  manifest.manualInputs = collectManualInputs(manifest.environments);
+  manifest.requiredManualInputs = collectRequiredManualInputs(manifest.environments);
 }
 
 function applyGeneratedValues(data, repositoryName, progressLogger, backupPath) {
@@ -2076,11 +2277,7 @@ function verifyAppliedGenerationMetadata(targetName, repositoryName) {
   for (const environment of environments.slice(1)) {
     assertEqual(environment.generationId, expected.generationId, 'deployment generation id');
     assertEqual(environment.generatedAt, expected.generatedAt, 'deployment generation timestamp');
-    assertEqual(
-      environment.manifestSha256,
-      expected.manifestSha256,
-      'deployment manifest SHA-256',
-    );
+    assertEqual(environment.manifestSha256, expected.manifestSha256, 'deployment manifest SHA-256');
   }
   return {
     target: targetName,
@@ -2090,6 +2287,30 @@ function verifyAppliedGenerationMetadata(targetName, repositoryName) {
     manifestSha256: expected.manifestSha256,
     environments: environments.map((environment) => environment.environment),
   };
+}
+
+function assertWalletCoreGenerationMatches(productManifest, repositoryName) {
+  for (const environmentName of deploymentComponentEnvironmentNames(
+    productManifest.target,
+    'wallet-core',
+  )) {
+    const variables = readGitHubEnvironmentVariables(environmentName, repositoryName);
+    assertEqual(
+      requireAuditVariable(variables, environmentName, 'SEAMS_DEPLOYMENT_GENERATION_ID'),
+      productManifest.generationId,
+      `${environmentName} wallet-core generation id`,
+    );
+    assertEqual(
+      requireAuditVariable(variables, environmentName, 'SEAMS_DEPLOYMENT_GENERATED_AT'),
+      productManifest.generatedAt,
+      `${environmentName} wallet-core generation timestamp`,
+    );
+    assertEqual(
+      requireAuditVariable(variables, environmentName, 'SEAMS_DEPLOYMENT_MANIFEST_SHA256'),
+      productManifest.manifestSha256,
+      `${environmentName} wallet-core manifest SHA-256`,
+    );
+  }
 }
 
 function deploymentEnvironmentNames(targetName) {
@@ -2469,6 +2690,19 @@ function createProgressLogger(totalSteps) {
   return new TerminalProgressLogger(totalSteps, shouldUseTerminalColor());
 }
 
+function resolveProgressStepCount() {
+  if (migrateGatewayConfig || verifyGeneration) return 2;
+  if (manifestFile) {
+    const environmentCount = deploymentComponent
+      ? deploymentComponentEnvironmentNames(target, deploymentComponent).length
+      : 0;
+    return environmentCount + 4;
+  }
+  if (apply) return 14;
+  if (prepare) return 6;
+  return 5;
+}
+
 function shouldUseTerminalColor() {
   if (process.env.NO_COLOR !== undefined || process.env.FORCE_COLOR === '0') {
     return false;
@@ -2528,7 +2762,16 @@ function printApplicationOutput(application) {
   console.log(`Secrets uploaded: ${application.appliedSecretCount}`);
   console.log(`Obsolete Gateway variables removed: ${application.removedVariables.length}`);
   console.log(`Disabled optional Gateway secrets removed: ${application.removedSecrets.length}`);
-  console.log(`Pre-apply backup: ${application.backupPath}`);
+  console.log(`Applied component manifest: ${application.backupPath}`);
+}
+
+function printPreparationOutput(preparation) {
+  console.log('\nPrepared deployment component manifests');
+  console.log(`Generation id: ${preparation.generationId}`);
+  console.log(`Manifest SHA-256: ${preparation.manifestSha256}`);
+  console.log(`Wallet core: ${preparation.walletCoreManifestPath}`);
+  console.log(`Product: ${preparation.productManifestPath}`);
+  console.log('Apply wallet-core first, then apply product from these exact files.');
 }
 
 function printAppliedValueBackup(data) {
@@ -2611,4 +2854,13 @@ function readOption(name) {
     throw new Error(`${name} requires a value`);
   }
   return value;
+}
+
+function readDeploymentComponent() {
+  const component = readOption('--component');
+  if (!component) return undefined;
+  if (!VALID_DEPLOYMENT_COMPONENTS.has(component)) {
+    throw new Error('--component must be wallet-core or product');
+  }
+  return component;
 }

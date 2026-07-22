@@ -41,12 +41,15 @@ old `testnet` environment into `staging`.
    `crates/router-ab-cloudflare/env/deployment-values.example.env`.
 2. Add the scoped Cloudflare API token. Add funded relayer, OAuth, EVM sponsor,
    or R2 credentials only for features that target will use.
-3. Run `pnpm router:deploy:env-keygen -- --env staging --values-file
-"$HOME/.seams/staging-deployment.env" --apply`, then repeat with an
-   independent production values file. Store each command's stdout backup
-   securely. See [tooling.md](tooling.md#github-environment-bootstrap).
-4. Use `pnpm router:deploy:env-apply -- --env staging --apply` for later
-   operator-owned configuration changes. This preserves generated identities.
+3. Run `pnpm deploy:env-rotate -- staging`, then repeat for `production` with
+   its independent protected values file. The wrapper prepares one generation,
+   stores separate wallet-core and product manifests, and uploads them in that
+   order. See [tooling.md](tooling.md#github-environment-bootstrap).
+4. Use `pnpm wallet-core:deploy:env-update -- --env staging --apply` or
+   `pnpm product:deploy:env-update -- --env staging --apply` for later
+   operator-owned configuration changes. These preserve generated identities
+   and keep ownership boundaries explicit. Add `--variables-only`,
+   `--secrets-only`, or `--only NAME_A,NAME_B` to scope the upload further.
 5. Push `dev` for staging or `main` for production. Successful CI applies D1
    migrations, bootstraps the generated tenant and publishable key, provisions
    the signing-root secret, and deploys the target Workers and Pages projects.
@@ -73,7 +76,7 @@ Manual deploys:
 
 ```bash
 gh workflow run deploy-pages.yml --ref dev -f target=all -f deploy_environment=staging
-pnpm router:deploy:env-keygen -- --env staging
+pnpm deploy:env-verify -- --env staging --repo seams-tech/seams-sdk
 gh workflow run deploy-router-ab.yml --ref dev -f target=staging -f operation=upload-version -f role=all
 gh workflow run deploy-router-ab.yml --ref dev -f target=staging -f operation=deploy -f role=all
 gh workflow run publish-sdk-r2.yml --ref dev -f prefix=auto
