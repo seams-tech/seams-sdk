@@ -507,7 +507,7 @@ function buildTargetConfiguration(targetName, suppliedValues) {
     manual(`${targetName}-wallet-origin`);
   const rpId =
     readSuppliedValue(suppliedValues, targetName, targetName, 'VITE_RP_ID_BASE') ||
-    (targetName === 'production' ? 'seams.sh' : undefined) ||
+    (targetName === 'production' ? 'sign.seams.sh' : undefined) ||
     hostnameFromOrigin(walletOrigin) ||
     manual(`${targetName}-webauthn-rp-id`);
   const nearRpcUrl =
