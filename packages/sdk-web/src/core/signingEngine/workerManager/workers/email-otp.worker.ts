@@ -1433,6 +1433,18 @@ function putEmailOtpEd25519YaoWarmFactor(args: {
   });
 }
 
+function bindEmailOtpEd25519YaoLocalSessionWarmFactor(args: {
+  bootstrap: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
+  factorSecret32: Uint8Array;
+}): void {
+  putEmailOtpEd25519YaoWarmFactor({
+    sessionId: args.bootstrap.session.thresholdSessionId,
+    factorSecret32: args.factorSecret32,
+    expiresAtMs: args.bootstrap.session.expiresAtMs,
+    remainingUses: args.bootstrap.session.remainingUses,
+  });
+}
+
 function deleteEmailOtpEcdsaClientRootHandle(sessionId: string): void {
   const entry = emailOtpEcdsaClientRootHandles.get(sessionId);
   if (entry) {
@@ -3469,6 +3481,10 @@ async function completeEmailOtpUnlockFromSecret32(args: {
             if (!importedEd25519Client) {
               throw new Error('Email OTP Ed25519 local client was not imported');
             }
+            bindEmailOtpEd25519YaoLocalSessionWarmFactor({
+              bootstrap: ed25519YaoSession,
+              factorSecret32: args.clientSecret32,
+            });
             const imported = importedEd25519Client;
             importedEd25519Client = null;
             clientRootShare32 = null;
@@ -3507,6 +3523,10 @@ async function completeEmailOtpUnlockFromSecret32(args: {
           if (!importedEd25519Client) {
             throw new Error('Email OTP Ed25519 local client was not imported');
           }
+          bindEmailOtpEd25519YaoLocalSessionWarmFactor({
+            bootstrap: ed25519YaoSession,
+            factorSecret32: args.clientSecret32,
+          });
           const imported = importedEd25519Client;
           importedEd25519Client = null;
           return {
@@ -7109,6 +7129,9 @@ self.addEventListener('message', async (event: MessageEvent) => {
               });
             } catch (error) {
               removeEmailOtpEd25519YaoActiveClient(result.activeClientHandle);
+              deleteEmailOtpEd25519YaoWarmFactor(
+                result.ed25519YaoSession.session.thresholdSessionId,
+              );
               throw error;
             }
             return;
@@ -7142,6 +7165,9 @@ self.addEventListener('message', async (event: MessageEvent) => {
                 deleteEmailOtpEcdsaClientRootHandle(clientRootShareHandle.sessionId);
               }
               removeEmailOtpEd25519YaoActiveClient(result.activeClientHandle);
+              deleteEmailOtpEd25519YaoWarmFactor(
+                result.ed25519YaoSession.session.thresholdSessionId,
+              );
               throw error;
             } finally {
               zeroizeBytes(result.clientRootShare32);
