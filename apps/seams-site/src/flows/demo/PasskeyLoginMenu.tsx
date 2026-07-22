@@ -251,6 +251,7 @@ const GOOGLE_EMAIL_OTP_TOAST_ID = 'google-email-otp';
 export function showDemoEmailOtpToast(response: DemoEmailOtpCodeResponse): void {
   toast.success(`Demo email code: ${response.otpCode}`, {
     id: GOOGLE_EMAIL_OTP_TOAST_ID,
+    description: 'Email delivery is not configured for this live demo.',
   });
 }
 

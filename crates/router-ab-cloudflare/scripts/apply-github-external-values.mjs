@@ -42,6 +42,16 @@ const WALLET_CORE_CLOUDFLARE_ENVIRONMENT_SUFFIXES = Object.freeze([
 const GATEWAY_SECRET_INPUTS = Object.freeze([
   ['SPONSORED_EVM_EXECUTORS_JSON', 'SPONSORED_EVM_EXECUTORS_JSON'],
 ]);
+const NEAR_PUBLIC_CONFIG_BY_NETWORK = Object.freeze({
+  testnet: Object.freeze({
+    rpcUrl: 'https://rpc.testnet.near.org',
+    explorerUrl: 'https://testnet.nearblocks.io',
+  }),
+  mainnet: Object.freeze({
+    rpcUrl: 'https://rpc.mainnet.near.org',
+    explorerUrl: 'https://nearblocks.io',
+  }),
+});
 
 const argv = process.argv.slice(2).filter((argument) => argument !== '--');
 
@@ -59,9 +69,10 @@ async function main(options) {
   const plan = buildBasePlan(options, repository, values);
   if (options.component === 'product') {
     addProductNearRelayerUpdate(plan, values);
+    addProductNearNetworkUpdates(plan, values, repository);
   } else {
-    addWalletCoreNearRelayerUpdates(plan, values, repository);
     addGatewayRuntimeProfileUpdate(plan, values, repository);
+    addWalletCoreNearRelayerUpdates(plan, values, repository);
     addGatewayOptionalConfigUpdates(plan, values, repository);
   }
   validatePlan(plan);
@@ -210,6 +221,34 @@ function addProductNearRelayerUpdate(plan, values) {
   });
 }
 
+function addProductNearNetworkUpdates(plan, values, repository) {
+  const config = readCurrentGatewayConfig(plan.target, repository);
+  const runtimeProfile = config.runtimeProfile;
+  const network = gatewayRuntimeProfileNearNetwork(runtimeProfile);
+  const publicConfig = NEAR_PUBLIC_CONFIG_BY_NETWORK[network];
+  if (!publicConfig) {
+    throw new Error(`Unsupported Gateway NEAR network: ${String(network)}`);
+  }
+  const nearRpcUrl = config.optional.nearRelayer?.rpcUrl || publicConfig.rpcUrl;
+  plan.variables.push(
+    {
+      environment: plan.target,
+      name: 'VITE_NEAR_NETWORK',
+      value: network,
+    },
+    {
+      environment: plan.target,
+      name: 'VITE_NEAR_RPC_URL',
+      value: nearRpcUrl,
+    },
+    {
+      environment: plan.target,
+      name: 'VITE_NEAR_EXPLORER',
+      value: publicConfig.explorerUrl,
+    },
+  );
+}
+
 function addWalletCoreNearRelayerUpdates(plan, values, repository) {
   const accountId = readValue(values, 'RELAYER_ACCOUNT_ID');
   const privateKey = readValue(values, 'RELAYER_PRIVATE_KEY');
@@ -304,6 +343,16 @@ function requireGatewayConfig(plan, repository) {
   const raw = parseJsonObject(source, 'GATEWAY_DEPLOYMENT_CONFIG_JSON');
   plan.gatewayConfig = raw;
   return raw;
+}
+
+function readCurrentGatewayConfig(target, repository) {
+  const environment = `${target}-gateway`;
+  const source = readGitHubVariable(
+    environment,
+    'GATEWAY_DEPLOYMENT_CONFIG_JSON',
+    repository,
+  );
+  return parseGatewayDeploymentConfig(source, target);
 }
 
 function validatePlan(plan) {
