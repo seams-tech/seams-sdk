@@ -20,7 +20,7 @@ browser static-wallet worker/WASM smoke against `dist/public`.
 
 Status: stabilization implementation complete for the checked Phase 1-5a and
 Phase 7 items. Phase 5b and 6b park on Refactor 90; Safari/Firefox WebAuthn
-policy and hosted `wallet.seams.sh` per-tenant embedding authorization remain
+policy and hosted `sign.seams.sh` per-tenant embedding authorization remain
 external gates.
 
 Sequencing gates:
@@ -54,7 +54,7 @@ wallet origin, so host applications do not need any Seams SDK Vite plugin or
 SDK asset routing in their app `vite.config.ts`.
 
 The SDK should publish a self-contained wallet asset tree for Seams-operated
-wallet hosts such as `https://wallet.seams.sh`. App developers configure the
+wallet hosts such as `https://sign.seams.sh`. App developers configure the
 hosted wallet iframe through SDK config — the existing `iframeWallet` surface
 during stabilization (Phase 5a), the Refactor 90 Phase 0E
 `walletRuntime: hostedWalletIframe(...)` surface once 0E lands (Phase 5b) —
@@ -222,7 +222,7 @@ Remaining decisions:
 - [ ] Browser WebAuthn policy: run Chrome, Safari, and Firefox smokes with
       iframe `allow` and no app-origin `Permissions-Policy`. If a supported
       browser fails, document the smallest required app platform header:
-      `Permissions-Policy: publickey-credentials-get=(self "https://wallet.seams.sh"), publickey-credentials-create=(self "https://wallet.seams.sh")`.
+      `Permissions-Policy: publickey-credentials-get=(self "https://sign.seams.sh"), publickey-credentials-create=(self "https://sign.seams.sh")`.
 - [x] Export viewer shape decision: use the current wallet-origin `srcdoc`
       path. It passes app-origin `/sdk/* = 404`, so the hosted `/export-viewer`
       page is deleted.
@@ -244,7 +244,7 @@ Remaining decisions:
         postMessage origin checks and the wallet-service embedding-control
         response. The server-side resolution is Router/API-owned work — named
         here so it does not fall between plans — and it gates the actual
-        `wallet.seams.sh` deployment, not local dogfood.
+        `sign.seams.sh` deployment, not local dogfood.
       Resolve the model shape during Phase 1.
 
 ## Implementation Preconditions
@@ -306,8 +306,8 @@ EVM-family worker) update the artifact without editing this plan.
 Seams hosted wallet-origin responsibility:
 
 ```txt
-GET https://wallet.seams.sh/sdk/*          -> dist/public/sdk/*
-GET https://wallet.seams.sh/wallet-service -> dist/public/wallet-service/index.html
+GET https://sign.seams.sh/sdk/*          -> dist/public/sdk/*
+GET https://sign.seams.sh/wallet-service -> dist/public/wallet-service/index.html
 ```
 
 App developer responsibility (0E target shape; during stabilization the same
@@ -318,7 +318,7 @@ createSeamsConfig({
   environmentId: 'proj_...',
   publishableKey: 'pk_...',
   walletRuntime: hostedWalletIframe({
-    origin: 'https://wallet.seams.sh',
+    origin: 'https://sign.seams.sh',
   }),
   authMethods: [
     passkeyAuth(),
@@ -386,7 +386,7 @@ Tasks:
 - [ ] Define the embedding-authorization model in two stages (see Remaining
       decisions): a static `frame-ancestors` local-dev default now, and the
       Router/API-owned per-tenant allowed-origin resolution that gates the
-      hosted `wallet.seams.sh` deployment.
+      hosted `sign.seams.sh` deployment.
 - [ ] Document the browser storage-partitioning model: wallet-origin
       IndexedDB and sealed material are partitioned by top-level site in
       current Chrome/Firefox/Safari, so local material cached under one app
@@ -661,7 +661,7 @@ Tasks:
 - [x] Update `docs/saas/self-hosted-migration.md` to remove app-owned wallet
       asset hosting from the normal integration path.
 - [x] Document the Seams wallet-origin deployment contract for
-      `https://wallet.seams.sh`.
+      `https://sign.seams.sh`.
 - [x] Document hosted wallet iframe embedding requirements, including any iframe
       `allow` attributes.
 - [ ] Document app-origin WebAuthn `Permissions-Policy` only if browser smokes

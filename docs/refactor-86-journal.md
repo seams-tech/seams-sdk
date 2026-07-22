@@ -66,4 +66,4 @@ Remaining parked or external gates:
 
 - Refactor 90 Phase 0E owns replacing the current `iframeWallet` examples with `createSeamsConfig(...)` / `walletRuntime: hostedWalletIframe(...)` and moving the current named missing-origin error into the 0E config-error taxonomy.
 - A full browser matrix for WebAuthn iframe `allow` behavior still needs Safari and Firefox coverage before documenting any app-origin `Permissions-Policy` requirement.
-- Hosted `wallet.seams.sh` deployment still needs the Router/API-owned per-tenant embedding-authorization model; local static hosting uses the manifest's localhost `frame-ancestors` default.
+- Hosted `sign.seams.sh` deployment still needs the Router/API-owned per-tenant embedding-authorization model; local static hosting uses the manifest's localhost `frame-ancestors` default.

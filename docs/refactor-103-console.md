@@ -2,7 +2,7 @@
 
 Date created: July 20, 2026
 
-Last reconciled: July 21, 2026
+Last reconciled: July 22, 2026
 
 Status: Planned
 
@@ -81,6 +81,8 @@ The required SDK source changes are limited to:
 2. Move the combined console-and-signer tenant composition into the private repository, leaving the public SDK storage model signer-only.
 3. Add one supported `@seams/sdk-server/cloud-host` entrypoint that exports the existing signer composition primitives required by `seams-cloud`.
 4. Replace private `@seams/sdk-server/internal/*` imports with that supported entrypoint, then remove the wildcard internal package export.
+5. Ship signer migrations and existing built Wasm assets with `@seams/sdk-server` so private hosted scripts consume the installed package instead of SDK source paths.
+6. Remove the private repository's dependency on unpublished `packages/shared-ts` source by moving console-only helpers private and exposing only the few genuinely shared host contracts through supported SDK exports.
 
 The `cloud-host` entrypoint is a curated export surface over existing SDK primitives. This phase does not redesign those primitives or change their runtime behavior.
 
@@ -507,6 +509,21 @@ No runtime dual reads or dual writes.
 
 Record a D1 Time Travel bookmark before shared-environment migration.
 
+## Lean Delivery Sequence
+
+Keep this as six bounded phases. Product-model work and repository-extraction work use separate pull requests so a repo move never hides a behavior change.
+
+| Phase | Deliverable                                                                        | Public SDK impact                                                            |
+| ----- | ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| 1     | Organization ownership, invitations, administrator permissions, and project access | None                                                                         |
+| 2     | Console route policy and dashboard cutover                                         | Move console-owned route/auth code out of the SDK; no signer behavior change |
+| 3     | Prepaid pay-as-you-go billing and refunds                                          | None                                                                         |
+| 4     | Essential transactional email                                                      | None                                                                         |
+| 5     | Prove the open/private package boundary inside the monorepo                        | One curated hosted-composition export; remove private `internal/*` use       |
+| 6     | Extract, publish, stage, verify, and cut over the two repositories                 | Packaging and repository movement only                                       |
+
+Phases 1-4 finish the lean console product. Phase 5 is the mandatory split gate. Phase 6 starts only after the public SDK tarballs, the self-host example, and the private cloud build pass without workspace links. Do not combine Phase 6 with SDK runtime, schema, or public API redesign.
+
 ## Implementation Phases
 
 ### Phase 1: Organization Ownership And Invitations
@@ -537,8 +554,6 @@ Exit:
 
 - [ ] Move console authentication, principals, route definitions, and route policies from `packages/sdk-server-ts` to `packages/console-server-ts`.
 - [ ] Make the public SDK route definition and tenant-storage models signer-only.
-- [ ] Add the `@seams/sdk-server/cloud-host` entrypoint with only the existing primitives required by the hosted gateway.
-- [ ] Replace console imports of `@seams/sdk-server/internal/*` with supported public exports.
 - [ ] Replace route roles with the lean policy matrix.
 - [ ] Add one shared policy evaluator for Express and Cloudflare.
 - [ ] Add authorization-version refresh.
@@ -604,16 +619,23 @@ Exit:
 - Invitations and required financial notifications survive process failure.
 - Failed email is visible and retryable.
 
-### Phase 5: Delete Legacy Paths And Validate
+### Phase 5: Establish The Repository Boundary In Place
 
 - [ ] Delete `team_members`, role JSON, and legacy role aliases.
 - [ ] Delete old ownership-transfer code and tests.
 - [ ] Delete incomplete refund state paths.
 - [ ] Delete direct balance mutation and non-posting writers.
 - [ ] Delete tests and fixtures that preserve obsolete behavior.
+- [ ] Inventory the private cloud's actual `@seams/sdk-server/internal/*` imports; do not turn the wildcard surface into a public API.
+- [ ] Add the `@seams/sdk-server/cloud-host` entrypoint with only the existing signer composition primitives required by the hosted gateway.
+- [ ] Replace private `@seams/sdk-server/internal/*` imports with supported public exports.
 - [ ] Remove the public SDK `internal/*` wildcard export after all private consumers use supported exports.
+- [ ] Eliminate private imports of unpublished `packages/shared-ts` source; do not create a third public shared package.
+- [ ] Include signer migrations and existing built Wasm assets in `@seams/sdk-server` and make private migration/deployment scripts resolve them from the installed package.
+- [ ] Define public and private path allowlists, including required root configuration, shared utilities, Rust/Wasm crates, migrations, tests, and assets.
 - [ ] Strengthen the boundary guard to reject console concepts anywhere in public SDK source and package artifacts.
 - [ ] Add a standalone build that installs the packed public SDK into the self-host example.
+- [ ] Build the private packages and applications against the packed public SDK with workspace links and source-path aliases disabled.
 - [ ] Update affected `docs/saas/` documents.
 - [ ] Update the D1 local smoke table list.
 
@@ -623,16 +645,16 @@ Exit:
 - Public package tarballs contain no console, billing, organization-membership, or dashboard implementation.
 - The private packages build without workspace links, source imports, or `@seams/sdk-server/internal/*`.
 - The self-host example builds from packed public packages alone.
+- The private hosted migration and deployment checks run from installed SDK assets without a sibling SDK checkout.
+- Wallet SDK runtime behavior, public API behavior, signer schemas, and self-host deployment behavior are unchanged.
 - Targeted tests and package builds pass.
 
 ### Phase 6: Split The Repositories
 
 #### 6.1 Prepare Independent Builds
 
-- [ ] Define an explicit path allowlist for each repository, including required root configuration and shared Rust/Wasm code.
-- [ ] Build and pack `@seams/sdk` and `@seams/sdk-server` from the public path set.
-- [ ] Build the private path set against those packed packages with workspace links disabled.
-- [ ] Fix only missing package exports, configuration, and asset ownership exposed by this test.
+- [ ] Freeze the Phase 5 path allowlists and passing package versions used for extraction.
+- [ ] Fix only extraction-specific configuration, workflow, or asset ownership issues; return any API or runtime redesign to Phase 5.
 
 #### 6.2 Extract The Repositories
 
