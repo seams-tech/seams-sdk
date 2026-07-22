@@ -522,10 +522,7 @@ export async function commitEmailOtpEcdsaPublicationBootstraps(
     throw new Error('Email OTP ECDSA publication returned an unexpected lane count');
   }
   const timings = createEmailOtpEcdsaPublicationTimings();
-  const committedResults: {
-    bootstrap: ThresholdEcdsaSessionBootstrapResult;
-    warmCapability: WarmSessionEcdsaCapabilityState;
-  }[] = [];
+  const lanes: EmailOtpEcdsaPublicationLane[] = [];
   for (const [index, rawBootstrap] of args.bootstraps.entries()) {
     const expectedTarget = args.publicationChainTargets[index];
     const actualTarget = rawBootstrap.thresholdEcdsaKeyRef.chainTarget;
@@ -534,33 +531,15 @@ export async function commitEmailOtpEcdsaPublicationBootstraps(
         `Email OTP ECDSA publication returned ${thresholdEcdsaChainTargetKey(actualTarget)} for ${thresholdEcdsaChainTargetKey(expectedTarget)}`,
       );
     }
-    const workerBootstrap = ecdsaBootstrapWithSigningGrantId({
-      bootstrap: rawBootstrap,
-      signingGrantId: args.signingGrantId,
-    });
-    const commitStartedAtMs = nowMs();
-    const result = await ports.commitEvmFamilyThresholdEcdsaSessions({
-      walletId: args.walletId,
-      chainTarget: expectedTarget,
-      bootstrap: workerBootstrap,
-      source: 'email_otp',
-      emailOtpAuthContext: args.emailOtpAuthContext,
-    });
-    addEmailOtpEcdsaPublicationTiming(timings, 'warmCapabilityPersistenceMs', commitStartedAtMs);
-    const sealTimings = await persistEmailOtpEcdsaSigningSessionForRefresh(
-      {
-        walletId: args.walletId,
-        chainTarget: expectedTarget,
-        bootstrap: result.bootstrap,
-        runtimePolicyScope: args.runtimePolicyScope,
-        emailOtpAuthContext: args.emailOtpAuthContext,
-        relayerUrl: args.relayerUrl,
-        shamirPrimeB64u: args.shamirPrimeB64u,
-      },
-      ports,
-    );
-    mergeEmailOtpEcdsaPublicationTimings(timings, sealTimings);
-    committedResults.push(result);
+    lanes.push({ chainTarget: expectedTarget, bootstrap: rawBootstrap });
+  }
+  const commitContext: CommitEmailOtpEcdsaPublicationLaneContext = { args, ports };
+  const committedLanes = await Promise.all(
+    lanes.map(commitEmailOtpEcdsaPublicationLane.bind(null, commitContext)),
+  );
+  const committedResults = committedLanes.map(readCommittedEmailOtpEcdsaPublicationResult);
+  for (const lane of committedLanes) {
+    mergeEmailOtpEcdsaPublicationTimings(timings, lane.timings);
   }
   const [primaryResult, ...remainingResults] = committedResults;
   if (!primaryResult) {
@@ -575,6 +554,64 @@ export async function commitEmailOtpEcdsaPublicationBootstraps(
     ],
     timings,
   };
+}
+
+type EmailOtpEcdsaPublicationLane = {
+  chainTarget: ThresholdEcdsaChainTarget;
+  bootstrap: ThresholdEcdsaSessionBootstrapResult;
+};
+
+type CommitEmailOtpEcdsaPublicationLaneContext = {
+  args: Parameters<typeof commitEmailOtpEcdsaPublicationBootstraps>[0];
+  ports: EmailOtpEcdsaPublicationPorts;
+};
+
+type CommittedEmailOtpEcdsaPublicationLane = {
+  result: {
+    bootstrap: ThresholdEcdsaSessionBootstrapResult;
+    warmCapability: WarmSessionEcdsaCapabilityState;
+  };
+  timings: EmailOtpEcdsaPublicationTimings;
+};
+
+function readCommittedEmailOtpEcdsaPublicationResult(
+  lane: CommittedEmailOtpEcdsaPublicationLane,
+): CommittedEmailOtpEcdsaPublicationLane['result'] {
+  return lane.result;
+}
+
+async function commitEmailOtpEcdsaPublicationLane(
+  context: CommitEmailOtpEcdsaPublicationLaneContext,
+  lane: EmailOtpEcdsaPublicationLane,
+): Promise<CommittedEmailOtpEcdsaPublicationLane> {
+  const timings = createEmailOtpEcdsaPublicationTimings();
+  const workerBootstrap = ecdsaBootstrapWithSigningGrantId({
+    bootstrap: lane.bootstrap,
+    signingGrantId: context.args.signingGrantId,
+  });
+  const commitStartedAtMs = nowMs();
+  const result = await context.ports.commitEvmFamilyThresholdEcdsaSessions({
+    walletId: context.args.walletId,
+    chainTarget: lane.chainTarget,
+    bootstrap: workerBootstrap,
+    source: 'email_otp',
+    emailOtpAuthContext: context.args.emailOtpAuthContext,
+  });
+  addEmailOtpEcdsaPublicationTiming(timings, 'warmCapabilityPersistenceMs', commitStartedAtMs);
+  const sealTimings = await persistEmailOtpEcdsaSigningSessionForRefresh(
+    {
+      walletId: context.args.walletId,
+      chainTarget: lane.chainTarget,
+      bootstrap: result.bootstrap,
+      runtimePolicyScope: context.args.runtimePolicyScope,
+      emailOtpAuthContext: context.args.emailOtpAuthContext,
+      relayerUrl: context.args.relayerUrl,
+      shamirPrimeB64u: context.args.shamirPrimeB64u,
+    },
+    context.ports,
+  );
+  mergeEmailOtpEcdsaPublicationTimings(timings, sealTimings);
+  return { result, timings };
 }
 
 export async function persistEmailOtpEcdsaSigningSessionForRefresh(

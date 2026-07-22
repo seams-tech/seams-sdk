@@ -289,7 +289,7 @@ function recordEmailOtpUnlockTiming(
   bucket: EmailOtpUnlockTimingBucket,
   startedAtMs: number,
 ): void {
-  timings[bucket] += Math.max(0, Math.round(nowMs() - startedAtMs));
+  addEmailOtpUnlockTiming(timings, bucket, nowMs() - startedAtMs);
 }
 
 function recordEmailOtpUnlockElapsedTiming(
@@ -297,7 +297,22 @@ function recordEmailOtpUnlockElapsedTiming(
   bucket: EmailOtpUnlockTimingBucket,
   durationMs: number,
 ): void {
-  timings[bucket] += Math.max(0, Math.round(durationMs));
+  addEmailOtpUnlockTiming(timings, bucket, durationMs);
+}
+
+function addEmailOtpUnlockTiming(
+  timings: Record<EmailOtpUnlockTimingBucket, number>,
+  bucket: EmailOtpUnlockTimingBucket,
+  durationMs: number,
+): void {
+  const deltaMs = Math.max(0, Math.round(durationMs));
+  timings[bucket] += deltaMs;
+  if (!isEmailOtpUnlockDiagnosticsEnabled()) return;
+  console.info('[EmailOtpUnlock] timing', {
+    bucket,
+    deltaMs,
+    accumulatedMs: timings[bucket],
+  });
 }
 
 function isEmailOtpUnlockDiagnosticsEnabled(): boolean {
