@@ -26,6 +26,8 @@
     "fixtures:report": "python3 verifier-spike/compare_models.py --manifest fixtures/voiceid-fixture-manifest.json --report-template",
     "fixtures:evaluate:spectral": "python3 verifier-spike/evaluate_spectral_baseline.py --manifest fixtures/voiceid-fixture-manifest.json --check-media",
     "fixtures:evaluate:ecapa": "python3 verifier-spike/evaluate_speechbrain_ecapa.py --manifest fixtures/voiceid-fixture-manifest.json --check-media",
+    "benchmark:run": "python3 verifier-spike/benchmark.py --manifest fixtures/voiceid-benchmark-manifest.json --json-out verifier-spike/reports/benchmark-inventory.json --report-out verifier-spike/reports/benchmark-inventory.md",
+    "benchmark:test": "python3 verifier-spike/test_benchmark.py",
     "pad:evaluate": "python3 verifier-spike/evaluate_pad.py --manifest fixtures/voiceid-pad-evaluation.json",
     "pad:test": "python3 verifier-spike/test_evaluate_pad.py",
     "verifier:test": "python3 -m unittest discover verifier -p \"*test*.py\""

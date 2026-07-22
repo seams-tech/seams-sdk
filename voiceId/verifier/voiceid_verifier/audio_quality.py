@@ -50,6 +50,13 @@ class FrameActivity:
     hop_size: int
 
 
+@dataclass(frozen=True)
+class CanonicalSpeechAnalysis:
+    quality: AudioQuality
+    voice_activity: VoiceActivity
+    speech_windows: tuple[SpeechWindow, ...]
+
+
 def evaluate_audio_quality(audio_bytes: bytes, duration_ms: int) -> AudioQuality:
     if len(audio_bytes) == 0:
         return AudioQuality(kind="rejected", duration_ms=duration_ms, reason="empty_audio")
@@ -64,6 +71,52 @@ def evaluate_decoded_audio_quality(
     *,
     samples: Sequence[float],
     sample_rate_hz: int,
+) -> AudioQuality:
+    voice_activity = detect_voice_activity(samples=samples, sample_rate_hz=sample_rate_hz)
+    return evaluate_decoded_audio_quality_with_activity(
+        audio_bytes,
+        duration_ms,
+        samples=samples,
+        voice_activity=voice_activity,
+    )
+
+
+def analyze_decoded_audio(
+    audio_bytes: bytes,
+    duration_ms: int,
+    *,
+    samples: Sequence[float],
+    sample_rate_hz: int,
+) -> CanonicalSpeechAnalysis:
+    frame_activity = calculate_frame_activity(samples=samples, sample_rate_hz=sample_rate_hz)
+    voice_activity = voice_activity_from_frames(
+        activity=frame_activity,
+        sample_rate_hz=sample_rate_hz,
+    )
+    quality = evaluate_decoded_audio_quality_with_activity(
+        audio_bytes,
+        duration_ms,
+        samples=samples,
+        voice_activity=voice_activity,
+    )
+    speech_windows = extract_speech_windows_from_activity(
+        samples=samples,
+        sample_rate_hz=sample_rate_hz,
+        activity=frame_activity,
+    )
+    return CanonicalSpeechAnalysis(
+        quality=quality,
+        voice_activity=voice_activity,
+        speech_windows=speech_windows,
+    )
+
+
+def evaluate_decoded_audio_quality_with_activity(
+    audio_bytes: bytes,
+    duration_ms: int,
+    *,
+    samples: Sequence[float],
+    voice_activity: VoiceActivity,
 ) -> AudioQuality:
     if len(audio_bytes) == 0:
         return AudioQuality(kind="rejected", duration_ms=duration_ms, reason="empty_audio")
@@ -94,10 +147,6 @@ def evaluate_decoded_audio_quality(
     if speech_ratio < 0.08:
         return AudioQuality(kind="uncertain", duration_ms=duration_ms, reason="low_speech")
 
-    voice_activity = detect_voice_activity(
-        samples=samples,
-        sample_rate_hz=sample_rate_hz,
-    )
     if (
         voice_activity.speech_ms < MIN_SPEECH_MS
         or voice_activity.speech_ratio < MIN_SPEECH_RATIO
@@ -110,6 +159,14 @@ def evaluate_decoded_audio_quality(
 
 def detect_voice_activity(*, samples: Sequence[float], sample_rate_hz: int) -> VoiceActivity:
     activity = calculate_frame_activity(samples=samples, sample_rate_hz=sample_rate_hz)
+    return voice_activity_from_frames(activity=activity, sample_rate_hz=sample_rate_hz)
+
+
+def voice_activity_from_frames(
+    *,
+    activity: FrameActivity,
+    sample_rate_hz: int,
+) -> VoiceActivity:
     if len(activity.active_frames) == 0:
         return VoiceActivity(
             speech_ms=0,
@@ -138,6 +195,19 @@ def extract_speech_windows(
     sample_rate_hz: int,
 ) -> tuple[SpeechWindow, ...]:
     activity = calculate_frame_activity(samples=samples, sample_rate_hz=sample_rate_hz)
+    return extract_speech_windows_from_activity(
+        samples=samples,
+        sample_rate_hz=sample_rate_hz,
+        activity=activity,
+    )
+
+
+def extract_speech_windows_from_activity(
+    *,
+    samples: Sequence[float],
+    sample_rate_hz: int,
+    activity: FrameActivity,
+) -> tuple[SpeechWindow, ...]:
     active_regions = collect_active_regions(activity=activity, sample_rate_hz=sample_rate_hz)
     windows: list[SpeechWindow] = []
     for region_start, region_end in active_regions:

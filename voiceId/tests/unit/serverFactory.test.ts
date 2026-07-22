@@ -22,9 +22,6 @@ test('verifier and transcript modes require explicit configuration', () => {
 });
 
 test('verifier transport mode accepts supported deployment modes', () => {
-  withEnv({ VOICEID_VERIFIER_TRANSPORT: 'python-subprocess' }, () => {
-    assert.equal(verifierTransportModeFromEnv(), 'python-subprocess');
-  });
   withEnv({ VOICEID_VERIFIER_TRANSPORT: 'python-http' }, () => {
     assert.equal(verifierTransportModeFromEnv(), 'python-http');
   });
@@ -41,7 +38,6 @@ test('verifier transport mode rejects invalid values', () => {
 
 test('factory builds fake and Python verifier modes', () => {
   assert.ok(createVoiceIdVerifierFromEnv('fake') instanceof FakeVoiceIdVerifier);
-  assert.ok(createVoiceIdVerifierFromEnv('python-subprocess') instanceof PythonVoiceIdVerifier);
   withEnv({ VOICEID_PYTHON_VERIFIER_URL: 'http://127.0.0.1:5051/voice-id/verifier/' }, () => {
     assert.ok(createVoiceIdVerifierFromEnv('python-http') instanceof PythonVoiceIdVerifier);
   });

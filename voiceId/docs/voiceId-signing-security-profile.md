@@ -6,7 +6,7 @@ Related implementation documents:
 
 - [VoiceID MVP 1](voiceId-mvp-1.md)
 - [VoiceID MVP 1 tasks](voiceId-mvp-1-tasks.md)
-- [Router A/B signer architecture](../../docs/router-a-b-SPEC.md)
+- [Router A/B signer architecture](../../docs/router-ab/protocol.md)
 
 This document is the authority for deciding whether VoiceID evidence may reach
 transaction signing. VoiceID research, UI, verifier, auth-method, Router, and
@@ -554,6 +554,22 @@ PAD evaluation MUST include bona-fide captures and, at minimum:
 - attacks tuned against both the speaker verifier and PAD;
 - unseen attack tools and held-out attack conditions.
 
+The reproducible synthesis corpus MUST include pinned
+[Dia2](https://github.com/nari-labs/dia2) 1B and 2B checkpoints producing both
+generic-voice and audio-conditioned attacks from consented reference
+recordings. Each Dia2 fixture records the repository revision, weight hashes,
+architecture, reference-audio consent handle and duration, script, challenge
+tokens, seed, sampling configuration, output duration, generation latency, and
+every injection, replay, codec, noise, or room-response transformation. Dia2
+and other attack generators remain offline fixture tools outside production
+VoiceID packages, verifier images, and runtime dependencies.
+
+Dia2 coverage does not satisfy the unseen-tool requirement. The held-out set
+MUST include unrelated text-to-speech and voice-conversion families. The
+evaluation MUST also determine whether prompt-targeted synthesis containing the
+fresh challenge tokens can complete inside the deployed challenge validity
+window.
+
 Reports MUST show attack-presentation acceptance and bona-fide rejection by
 attack class and capture profile, plus the combined end-to-end unauthorized
 acceptance rate. The 95% upper confidence bound of the combined result MUST fit
@@ -657,7 +673,8 @@ pass on every supported channel. Signing remains disabled.
 - Build an approved device capture agent with protected device keys and the
   signed capture statement.
 - Add PAD behind the verifier boundary and collect the attack corpus required
-  by this profile.
+  by this profile, including pinned Dia2 prompt-targeted fixtures and unrelated
+  held-out synthesis and voice-conversion families.
 - Produce channel-specific speaker, phrase, quality, and PAD calibration
   reports.
 - Exercise device revocation, injected audio, challenge mutation, and model

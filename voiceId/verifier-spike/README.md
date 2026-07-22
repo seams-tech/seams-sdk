@@ -48,7 +48,7 @@ Compare x-vector, pyannote, or NeMo only if ECAPA calibration, licensing, or
 deployment constraints need another option.
 
 The production-shaped verifier runtime now supports the same ECAPA model behind
-the Python verifier app boundary. Start that process with
+the persistent Python HTTP sidecar boundary. Start that service with
 `VOICEID_VERIFIER_BACKEND=ecapa`; browser and mobile clients remain capture-only
 clients.
 
@@ -71,6 +71,23 @@ Fixture manifest fields:
 The loader rejects malformed manifests, duplicate fixture ids, duplicate audio
 file names, path-like audio file names, missing audio files, and byte-length
 mismatches.
+
+## Reproducible Benchmark Boundary
+
+The browser fixture bundle is an input-collection aid. Gate C experiments use
+the stricter `voice_id_benchmark_manifest_v1` boundary from `benchmark.py`. It
+requires immutable media hashes, consent references, subject and session ids,
+subject-disjoint partitions, case-specific metadata, expected intent,
+challenge tokens, and complete capture profiles.
+
+```sh
+pnpm -C voiceId benchmark:test
+pnpm -C voiceId benchmark:run
+```
+
+`benchmark:run` writes paired JSON and Markdown inventory reports. It fails
+measurement readiness until development, calibration, and evaluation data cover
+every required case and presentation-attack class.
 
 ## Model Comparison
 

@@ -234,7 +234,7 @@ at the fetch boundary; unexpected fields fail closed.
 Provider selection is explicit:
 
 ```text
-VOICEID_VERIFIER_TRANSPORT = fake | python-subprocess | python-http
+VOICEID_VERIFIER_TRANSPORT = fake | python-http
 VOICEID_TRANSCRIPT_PROVIDER = fake | cloudflare-workers-ai
 ```
 
@@ -263,7 +263,10 @@ POST /voice-id/verifier/verify-speaker
 
 Enrollment audio and internal embeddings remain inside one atomic sidecar
 operation. The transport has no embedding export or separate template-build
-operation.
+operation. The production-shaped model transport is the persistent HTTP
+sidecar; request-scoped Python process startup is absent. The sidecar loads the
+configured runtime before serving, publishes model readiness, and rejects
+bounded-queue saturation deterministically.
 
 ## Persistence And Privacy
 
@@ -280,6 +283,13 @@ Ordinary audit events contain lifecycle result kinds and coarse score bands.
 They exclude raw audio, embeddings, complete transcripts, and raw model output.
 Diagnostic audio retention is disabled unless a bounded research configuration
 enables it explicitly.
+
+The approved solo MVP benchmark corpus is separate from production diagnostic
+capture. D1 stores its relational manifest, provenance, consent, and deletion
+records. Encrypted audio lives in private R2 object storage because D1 rows are
+the wrong boundary for media objects. Research fixtures have project-lifetime
+retention with explicit deletion and key-revocation support. This research
+retention decision does not relax the production diagnostic-media TTL.
 
 ## Acceptance Criteria
 
@@ -301,18 +311,24 @@ enables it explicitly.
 
 ## Active Engine Milestones
 
-1. Produce one subject-disjoint benchmark for accuracy, stage latency, memory,
-   resource use, uncertainty, and failure rate.
+1. Produce one subject-disjoint synthetic-first benchmark for pipeline
+   accuracy, stage latency, memory, resource use, uncertainty, and failure
+   rate. Label generated identities and owner-conditioned attacks precisely;
+   defer human population FAR, FRR, and EER claims until real subjects exist.
 2. Feed phrase, intent, speaker, PAD, and template processing from one canonical
    decode and shared VAD result in persistent workers.
 3. Test Moonshine Tiny Streaming and Small Streaming first for flexible
    challenge-token coverage and semantic-intent verification, then select and
    calibrate the phrase, intent, speaker, and PAD models on held-out subjects
-   and attacks.
+   and attacks. Exercise the selected pipeline against pinned Dia2 1B and 2B
+   prompt-targeted synthesis fixtures, ElevenLabs generated and owner-cloned
+   voices, plus unrelated held-out text-to-speech and voice-conversion
+   generators.
 4. Improve continuous-enrollment aggregation and cross-session template
    stability.
-5. Qualify optimized server, embedded, and iOS research builds with decision
-   regressions, crash tests, overload tests, fuzzing, and soak tests.
+5. Qualify Apple Silicon macOS first and iPhone 16 second with decision
+   regressions, crash tests, overload tests, fuzzing, and soak tests. Server and
+   embedded profiles follow the reproducible Apple baseline.
 
 The implementation checklist and exit gates are maintained in
 [VoiceID MVP 1 Tasks](voiceId-mvp-1-tasks.md). Cross-origin iframe,
