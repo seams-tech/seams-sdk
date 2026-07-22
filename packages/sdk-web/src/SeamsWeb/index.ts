@@ -1,5 +1,7 @@
 export { SeamsWeb } from './SeamsWeb';
 
+export type { DemoEmailOtpCodeResponse } from '@/core/signingEngine/session/emailOtp/publicTypes';
+
 export type {
   AuthCapability,
   BootstrapThresholdEcdsaSessionArgs,

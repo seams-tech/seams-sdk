@@ -11,16 +11,16 @@ import type {
   EmailOtpLoginChallengeOperation,
   EmailOtpWalletEnrollmentRecord,
 } from '../../core/EmailOtpStores';
+import { EMAIL_OTP_CODE_LENGTH } from '../../core/authService/emailOtpConfig';
 import type { CloudflareD1EmailOtpChallengeStore } from './d1EmailOtpChallengeStore';
 import type { CloudflareD1EmailOtpDeliveryRuntime } from './d1EmailOtpDeliveryRuntime';
 import type { CloudflareD1EmailOtpEnrollmentStore } from './d1EmailOtpEnrollmentStore';
 import type { CloudflareD1EmailOtpRateLimitStore } from './d1EmailOtpRateLimitStore';
-import type { EmailOtpDeliveryMode } from './d1RouterApiAuthConfig';
+import type { EmailOtpChallengeDelivery } from '../authServicePort';
 import {
   emailOtpChallengePurposeIsValid,
   emailOtpChallengeRecord,
   generateNumericOtp,
-  maskEmail,
   type EmailOtpChallengeIssueAction,
 } from './d1EmailOtpRecords';
 
@@ -34,6 +34,7 @@ type EmailOtpChallengeIssueBaseInput = {
   readonly appSessionVersion?: unknown;
   readonly clientIp?: unknown;
   readonly reuseActiveChallenge?: unknown;
+  readonly requestOrigin?: unknown;
 };
 
 export type EmailOtpChallengeIssueInput =
@@ -66,11 +67,7 @@ export type EmailOtpChallengeIssueResult =
         readonly action: EmailOtpChallengeIssueAction;
         readonly operation: EmailOtpChallengeOperation;
       };
-      delivery: {
-        readonly status: 'sent' | 'reused';
-        readonly mode: EmailOtpDeliveryMode;
-        readonly emailHint: string;
-      };
+      delivery: EmailOtpChallengeDelivery;
     }
   | {
       ok: false;
@@ -87,8 +84,7 @@ type ActiveEmailOtpEnrollmentResult =
 
 type EmailOtpChallengeIssuerConfig = {
   readonly challengeTtlMs: number;
-  readonly codeLength: number;
-  readonly deliveryMode: EmailOtpDeliveryMode;
+  readonly codeLength: typeof EMAIL_OTP_CODE_LENGTH;
   readonly maxActiveChallengesPerContext: number;
   readonly maxAttempts: number;
 };
@@ -208,7 +204,11 @@ export class CloudflareD1EmailOtpChallengeIssuer {
           nowMs,
         });
         if (existing) {
-          this.emailOtpDelivery.reportReusedDevelopmentOtpCode(existing);
+          const delivery = this.emailOtpDelivery.resolveReusedEmailOtpDelivery(
+            existing,
+            input.requestOrigin,
+          );
+          if (!delivery.ok) return delivery;
           return {
             ok: true,
             challenge: {
@@ -224,11 +224,7 @@ export class CloudflareD1EmailOtpChallengeIssuer {
               action,
               operation,
             },
-            delivery: {
-              status: 'reused',
-              mode: this.config.deliveryMode,
-              emailHint: maskEmail(existing.email),
-            },
+            delivery: delivery.delivery,
           };
         }
       }
@@ -274,7 +270,10 @@ export class CloudflareD1EmailOtpChallengeIssuer {
         maxAttempts: this.config.maxAttempts,
       });
       await this.emailOtpChallenges.put(record);
-      const delivery = await this.emailOtpDelivery.deliverEmailOtpCode(record);
+      const delivery = await this.emailOtpDelivery.deliverEmailOtpCode(
+        record,
+        input.requestOrigin,
+      );
       if (!delivery.ok) {
         await this.emailOtpChallenges.delete(challengeId);
         return delivery;
@@ -295,11 +294,7 @@ export class CloudflareD1EmailOtpChallengeIssuer {
           action,
           operation,
         },
-        delivery: {
-          status: 'sent',
-          mode: delivery.deliveryMode,
-          emailHint: delivery.emailHint,
-        },
+        delivery: delivery.delivery,
       };
     } catch (error: unknown) {
       return {

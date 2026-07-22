@@ -87,6 +87,43 @@ test('registration ceremony store scopes server-allocated wallet reservations by
   await expect(store.releaseServerAllocatedWalletId({ walletId })).resolves.toBe(false);
 });
 
+test('registration reservations and ceremonies have single-winner concurrency and deadline invariants', async () => {
+  const store = createRegistrationCeremonyStore({
+    config: { kind: 'memory' },
+    logger: undefined,
+    isNode: true,
+  });
+  const walletId = requireServerAllocatedWalletId('frost-canyon-m4r8v2');
+  const reservationClaims = await Promise.all(
+    Array.from({ length: 16 }, () =>
+      store.reserveServerAllocatedWalletId({
+        walletId,
+        expiresAtMs: Date.now() + 60_000,
+      }),
+    ),
+  );
+
+  expect(reservationClaims.filter(Boolean)).toHaveLength(1);
+  await expect(
+    store.reserveServerAllocatedWalletId({
+      walletId: requireServerAllocatedWalletId('frost-canyon-m4r8v3'),
+      expiresAtMs: Date.now() - 1,
+    }),
+  ).resolves.toBe(false);
+  await expect(store.releaseServerAllocatedWalletId({ walletId })).resolves.toBe(true);
+
+  const ceremony = makeEcdsaAddSignerCeremony();
+  await store.putAddSignerCeremony(ceremony);
+  const ceremonyClaims = await Promise.all(
+    Array.from({ length: 16 }, () => store.takeAddSignerCeremony(ceremony.addSignerCeremonyId)),
+  );
+
+  expect(
+    ceremonyClaims.filter((claim): claim is StoredWalletAddSignerCeremony => claim !== null),
+  ).toHaveLength(1);
+  expect(ceremonyClaims.filter((claim) => claim === null)).toHaveLength(15);
+});
+
 test('registration ceremony store consumes ECDSA add-signer ceremonies once', async () => {
   const store = createRegistrationCeremonyStore({
     config: { kind: 'memory' },

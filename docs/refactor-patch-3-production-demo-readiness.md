@@ -2,7 +2,7 @@
 
 Date created: July 22, 2026
 
-Status: proposed
+Status: implementation complete for configuration and delivery wiring; measurement and deployment validation pending
 
 ## Scope
 
@@ -47,22 +47,25 @@ sealing, and Worker startup. These summaries are currently emitted only when
 ### NEAR testnet funding
 
 The Gateway has all required funding inputs when `optional.nearRelayer` and
-`RELAYER_PRIVATE_KEY` are configured. However,
-`packages/console-server-ts/scripts/render-d1-gateway-config.mjs` currently
-renders `ENABLE_IMPLICIT_NEAR_ACCOUNT_TEST_FUNDING=false` for every deployment.
-The deployed server is therefore behaving as configured.
+`RELAYER_PRIVATE_KEY` are configured. The renderer now derives
+`ENABLE_IMPLICIT_NEAR_ACCOUNT_TEST_FUNDING` from the validated runtime profile:
+it is enabled only for `testnet_live_demo` and disabled for service and
+mainnet profiles.
 
 ### Email OTP delivery
 
-The generated Gateway configuration selects:
+Fresh public staging and production target generation now selects the
+`testnet_live_demo` profile, which requires the NEAR testnet relayer and uses
+`demo_code_response` by default. Operators can explicitly select
+`testnet_service` or `mainnet_service` when they are deploying a service-only
+environment. The server-side `provider_and_demo_code` branch is available to
+embeddings that supply a real email-provider adapter. Repository deployment
+tooling rejects that mode until the deployed Gateway wires a provider.
 
-- `dev_d1_outbox` for staging;
-- `email_provider` for production.
-
-`CloudflareD1EmailOtpDeliveryRuntime` rejects production use of development
-delivery modes, and the email-provider adapter is absent. The public demo needs
-an explicit demo delivery mode. Reusing `log` or `dev_d1_outbox` would either
-hide the code from the browser or weaken the production guard implicitly.
+`CloudflareD1EmailOtpDeliveryRuntime` rejects development delivery modes in
+the deployed profiles. The public demo uses an explicit, origin-gated demo
+branch instead of reusing `log` or `dev_d1_outbox`, which would either hide the
+code from the browser or weaken the production guard.
 
 ## Configuration Model
 
@@ -108,16 +111,15 @@ No optional booleans should control these core branches after parsing.
 
 ## Phase 0: Measure Registration Critical Path
 
-1. Add an explicit privacy-safe registration performance sink to the live demo.
-   Emit the existing `registration_timing_summary_v1` payload without wallet
-   IDs, credential IDs, key material, JWTs, or OTP data.
-2. Enable the sink through the `testnet_live_demo` profile. Do not rely on a
-   mutable browser global.
-3. Correlate client buckets with Gateway, MPCRouter, Deriver A/B, and
-   SigningWorker request durations using an opaque registration trace ID.
-4. Record cold and warm runs separately. Capture at least passkey and Email OTP
+1. Use the existing privacy-safe `registration_timing_summary_v1` diagnostic
+   payload without wallet IDs, credential IDs, key material, JWTs, or OTP data.
+   It remains opt-in during measurement and is not emitted as production
+   telemetry by default.
+2. Correlate the opt-in client summary with the `testnet_live_demo` deployment
+   profile and an opaque registration trace ID during the measurement window.
+3. Record cold and warm runs separately. Capture at least passkey and Email OTP
    samples for each condition.
-5. Establish budgets for:
+4. Establish budgets for:
    - browser/Worker warmup;
    - registration start;
    - Ed25519 Yao;
@@ -189,7 +191,10 @@ Acceptance:
 
 1. Add `demo_code_response` as a distinct server delivery mode available only
    in the `testnet_live_demo` profile.
-2. Model challenge delivery as a discriminated union:
+2. Support `provider_and_demo_code` as the combined branch. It dispatches the
+   configured provider and returns `otpCode` to the exact demo origin from the
+   same challenge result.
+3. Model challenge delivery as a discriminated union:
 
 ```ts
 type EmailOtpChallengeDelivery =
@@ -203,19 +208,25 @@ type EmailOtpChallengeDelivery =
       status: 'sent' | 'reused';
       emailHint: string;
       otpCode: string;
+    }
+  | {
+      kind: 'provider_and_demo_code';
+      status: 'sent' | 'reused';
+      emailHint: string;
+      otpCode: string;
     };
 ```
 
-3. Return `otpCode` only from the explicit demo branch and only when the request
+4. Return `otpCode` only from the explicit demo branch and only when the request
    origin exactly matches the configured demo-origin allowlist.
-4. Parse that branch once at the SDK RPC boundary. Emit a dedicated demo OTP
+5. Parse that branch once at the SDK RPC boundary. Emit a dedicated demo OTP
    event rather than placing the code in generic errors, diagnostics, or logs.
-5. In `apps/seams-site`, show one toast such as `Demo email code: 123456` and
+6. In `apps/seams-site`, show one toast such as `Demo email code: 123456` and
    replace it when the same challenge is reused. Do not persist the code in
    localStorage, URLs, analytics, or durable wallet records.
-6. Preserve challenge expiry, attempt limits, resend throttling, wallet/user
+7. Preserve challenge expiry, attempt limits, resend throttling, wallet/user
    binding, and one-time verification semantics.
-7. Keep `email_provider` as the only accepted delivery branch for
+8. Keep `email_provider` as the only accepted delivery branch for
    `mainnet_service`.
 
 Acceptance:

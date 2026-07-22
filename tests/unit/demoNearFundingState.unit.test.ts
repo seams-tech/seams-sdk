@@ -3,6 +3,7 @@ import {
   canSignDemoNearDelegate,
   canStartDemoNearTransaction,
   demoNearFundingStatusText,
+  initialDemoNearFundingStatus,
   resolveDemoNearFundingCheck,
 } from '../../apps/seams-site/src/flows/demo/demoNearAccountFundingState';
 
@@ -20,6 +21,42 @@ test('mixed logged-in wallet keeps a complete NEAR funding-check identity', () =
     kind: 'check',
     nearAccountId: NEAR_ACCOUNT_ID,
     nearPublicKey: NEAR_PUBLIC_KEY,
+  });
+});
+
+test('NEAR funding profile validation trims identity fields before readiness checks', () => {
+  expect(
+    resolveDemoNearFundingCheck({
+      isLoggedIn: true,
+      nearAccountId: `  ${NEAR_ACCOUNT_ID}  `,
+      nearPublicKey: `\t${NEAR_PUBLIC_KEY}\n`,
+    }),
+  ).toEqual({
+    kind: 'check',
+    nearAccountId: NEAR_ACCOUNT_ID,
+    nearPublicKey: NEAR_PUBLIC_KEY,
+  });
+
+  expect(
+    initialDemoNearFundingStatus({
+      isLoggedIn: true,
+      nearAccountId: '  ',
+      nearPublicKey: NEAR_PUBLIC_KEY,
+    }),
+  ).toEqual({
+    kind: 'identity_unavailable',
+    missing: 'near_account_id',
+  });
+  expect(
+    initialDemoNearFundingStatus({
+      isLoggedIn: true,
+      nearAccountId: ` ${NEAR_ACCOUNT_ID} `,
+      nearPublicKey: '\t',
+    }),
+  ).toEqual({
+    kind: 'identity_unavailable',
+    missing: 'near_public_key',
+    nearAccountId: NEAR_ACCOUNT_ID,
   });
 });
 

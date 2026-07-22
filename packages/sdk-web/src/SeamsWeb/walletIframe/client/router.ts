@@ -102,6 +102,7 @@ import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter
 import type { TempoSignedResult } from '@/core/signingEngine/chains/tempo/tempoAdapter';
 import type { NonceLeaseRef } from '@/core/signingEngine/nonce/NonceCoordinator';
 import type { RouterAbEcdsaDerivationLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
+import type { DemoEmailOtpCodeResponse } from '@/core/signingEngine/session/emailOtp/publicTypes';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import {
   thresholdEcdsaChainTargetsEqual,
@@ -589,6 +590,21 @@ function resolveCanonicalSignerBoundaryMessage(rawCode: unknown, fallbackMessage
   }
   const fallback = String(fallbackMessage || '').trim();
   return fallback || 'Wallet error';
+}
+
+function emitDemoEmailOtpCodeFromWire(args: {
+  wire: PMGoogleEmailOtpWalletAuthWireFlow;
+  onDemoOtp: ((response: DemoEmailOtpCodeResponse) => void) | undefined;
+}): void {
+  if (args.wire.mode !== 'login') return;
+  switch (args.wire.delivery.kind) {
+    case 'provider':
+      return;
+    case 'demo_code_response':
+    case 'provider_and_demo_code':
+      args.onDemoOtp?.(args.wire.delivery);
+      return;
+  }
 }
 
 export class WalletIframeRouter {
@@ -1282,7 +1298,9 @@ export class WalletIframeRouter {
 
   private googleEmailOtpWalletAuthFlowFromWire(
     wire: PMGoogleEmailOtpWalletAuthWireFlow,
+    onDemoOtp: ((response: DemoEmailOtpCodeResponse) => void) | undefined,
   ): GoogleEmailOtpWalletAuthFlow {
+    emitDemoEmailOtpCodeFromWire({ wire, onDemoOtp });
     const cancel = async (): Promise<void> => {
       await this.post<void>({
         type: 'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_CANCEL',
@@ -1342,7 +1360,7 @@ export class WalletIframeRouter {
             },
           });
           if (!res.result.ok) return res.result;
-          const flow = this.googleEmailOtpWalletAuthFlowFromWire(res.result.value);
+          const flow = this.googleEmailOtpWalletAuthFlowFromWire(res.result.value, onDemoOtp);
           if (flow.mode !== 'register') {
             throw new Error('Google Email OTP registration reroll returned a login flow');
           }
@@ -1375,7 +1393,10 @@ export class WalletIframeRouter {
           },
         });
         return res.result.ok
-          ? { ok: true, value: this.googleEmailOtpWalletAuthFlowFromWire(res.result.value) }
+          ? {
+              ok: true,
+              value: this.googleEmailOtpWalletAuthFlowFromWire(res.result.value, onDemoOtp),
+            }
           : res.result;
       },
       submit: async (input: {
@@ -1410,7 +1431,7 @@ export class WalletIframeRouter {
   async beginGoogleEmailOtpWalletAuth(
     payload: GoogleEmailOtpWalletAuthStartInput,
   ): Promise<GoogleEmailOtpWalletAuthResult<GoogleEmailOtpWalletAuthFlow>> {
-    const { onEvent, ...wirePayload } = payload;
+    const { onDemoOtp, onEvent, ...wirePayload } = payload;
     const res = await this.post<
       PMGoogleEmailOtpWalletAuthWireResult<PMGoogleEmailOtpWalletAuthWireFlow>
     >(
@@ -1430,7 +1451,10 @@ export class WalletIframeRouter {
       },
     );
     return res.result.ok
-      ? { ok: true, value: this.googleEmailOtpWalletAuthFlowFromWire(res.result.value) }
+      ? {
+          ok: true,
+          value: this.googleEmailOtpWalletAuthFlowFromWire(res.result.value, onDemoOtp),
+        }
       : res.result;
   }
 

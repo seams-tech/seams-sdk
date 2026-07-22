@@ -74,21 +74,33 @@ import type {
   RouterAbEcdsaStrictForwardedRegistrationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 
-type CloudflareEmailOtpDeliveryMode = 'email_provider' | 'log' | 'memory' | 'dev_d1_outbox';
-
-type CloudflareEmailOtpDelivery<T> = T extends { mode: unknown }
-  ? Omit<T, 'mode'> & { readonly mode: CloudflareEmailOtpDeliveryMode }
-  : T;
-
-type CloudflareEmailOtpDeliveryResult<T> = T extends { delivery: infer Delivery }
-  ? Omit<T, 'delivery'> & { readonly delivery: CloudflareEmailOtpDelivery<Delivery> }
-  : T;
-
-type EmailOtpChallengeDelivery = {
-  readonly status: 'sent' | 'reused';
-  readonly mode: CloudflareEmailOtpDeliveryMode;
-  readonly emailHint: string;
-};
+export type EmailOtpChallengeDelivery =
+  | {
+      readonly kind: 'provider';
+      readonly status: 'sent' | 'reused';
+      readonly mode: 'email_provider';
+      readonly emailHint: string;
+    }
+  | {
+      readonly kind: 'development';
+      readonly status: 'sent' | 'reused';
+      readonly mode: 'log' | 'memory' | 'dev_d1_outbox';
+      readonly emailHint: string;
+    }
+  | {
+      readonly kind: 'demo_code_response';
+      readonly status: 'sent' | 'reused';
+      readonly mode: 'demo_code_response';
+      readonly emailHint: string;
+      readonly otpCode: string;
+    }
+  | {
+      readonly kind: 'provider_and_demo_code';
+      readonly status: 'sent' | 'reused';
+      readonly mode: 'provider_and_demo_code';
+      readonly emailHint: string;
+      readonly otpCode: string;
+    };
 
 type EmailOtpChallengeResponse = {
   readonly challengeId: string;
@@ -115,6 +127,7 @@ type EmailOtpChallengeCreateInput = {
   readonly clientIp?: unknown;
   readonly reuseActiveChallenge?: unknown;
   readonly operation?: unknown;
+  readonly requestOrigin?: unknown;
 };
 
 type EmailOtpChallengeCreateResult =
@@ -1029,23 +1042,13 @@ export interface RouterAbSigningRuntimeService extends RouterAbWalletSigningRunt
 export interface RouterApiEmailOtpChallengeService {
   createEmailOtpChallenge(
     input: RouterApiMethodTypes['createEmailOtpChallenge']['input'],
-  ): Promise<
-    CloudflareEmailOtpDeliveryResult<RouterApiMethodTypes['createEmailOtpChallenge']['result']>
-  >;
+  ): Promise<RouterApiMethodTypes['createEmailOtpChallenge']['result']>;
   createEmailOtpDeviceRecoveryChallenge(
     input: RouterApiMethodTypes['createEmailOtpDeviceRecoveryChallenge']['input'],
-  ): Promise<
-    CloudflareEmailOtpDeliveryResult<
-      RouterApiMethodTypes['createEmailOtpDeviceRecoveryChallenge']['result']
-    >
-  >;
+  ): Promise<RouterApiMethodTypes['createEmailOtpDeviceRecoveryChallenge']['result']>;
   createEmailOtpEnrollmentChallenge(
     input: RouterApiMethodTypes['createEmailOtpEnrollmentChallenge']['input'],
-  ): Promise<
-    CloudflareEmailOtpDeliveryResult<
-      RouterApiMethodTypes['createEmailOtpEnrollmentChallenge']['result']
-    >
-  >;
+  ): Promise<RouterApiMethodTypes['createEmailOtpEnrollmentChallenge']['result']>;
 }
 
 export interface RouterApiWalletRegistrationService {

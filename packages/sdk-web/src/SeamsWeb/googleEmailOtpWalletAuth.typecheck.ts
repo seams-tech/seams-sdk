@@ -1,5 +1,6 @@
 import type {
   GoogleEmailOtpWalletAuthEcdsaTargets,
+  GoogleEmailOtpWalletAuthDelivery,
   GoogleEmailOtpWalletAuthFlow,
   GoogleEmailOtpWalletAuthLoginFlow,
   GoogleEmailOtpWalletAuthRegistrationFlow,
@@ -32,6 +33,31 @@ registrationFlow.submit({ otpCode: '123456' });
 // @ts-expect-error registration flows do not satisfy login-flow delivery contract
 const invalidRegistrationDelivery: { delivery: 'sent' } = registrationFlow;
 void invalidRegistrationDelivery;
+
+const demoDelivery = {
+  kind: 'demo_code_response',
+  status: 'sent',
+  emailHint: 'a***@example.test',
+  otpCode: '123456',
+} satisfies GoogleEmailOtpWalletAuthDelivery;
+void demoDelivery;
+
+const providerAndDemoDelivery = {
+  kind: 'provider_and_demo_code',
+  status: 'sent',
+  emailHint: 'a***@example.test',
+  otpCode: '654321',
+} satisfies GoogleEmailOtpWalletAuthDelivery;
+void providerAndDemoDelivery;
+
+// @ts-expect-error provider delivery cannot expose an OTP code
+const invalidProviderDelivery: GoogleEmailOtpWalletAuthDelivery = {
+  kind: 'provider',
+  status: 'sent',
+  emailHint: 'a***@example.test',
+  otpCode: '123456',
+};
+void invalidProviderDelivery;
 
 void registrationFlow.completeRegistration();
 void registrationFlow.rerollWalletId();

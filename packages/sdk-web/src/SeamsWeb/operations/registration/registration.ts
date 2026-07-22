@@ -276,6 +276,7 @@ type RegistrationCriticalPathSummary = {
   kind: 'registration_critical_path_summary_v1';
   totalElapsedMs: number;
   measuredWorkMs: number;
+  unattributedElapsedMs: number;
   overlappedOrBackgroundMs: number;
   topBuckets: readonly RegistrationCriticalPathBucket[];
 };
@@ -985,6 +986,7 @@ function buildRegistrationCriticalPathSummary(input: {
     kind: 'registration_critical_path_summary_v1',
     totalElapsedMs: input.totalElapsedMs,
     measuredWorkMs,
+    unattributedElapsedMs: Math.max(0, input.totalElapsedMs - measuredWorkMs),
     overlappedOrBackgroundMs: Math.max(0, measuredWorkMs - input.totalElapsedMs),
     topBuckets,
   };

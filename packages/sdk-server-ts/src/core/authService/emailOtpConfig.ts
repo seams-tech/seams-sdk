@@ -3,13 +3,15 @@ import { readAuthServiceConfigValue } from './configValues';
 
 export type EmailOtpDeliveryMode = 'email_provider' | 'log' | 'memory';
 
+export const EMAIL_OTP_CODE_LENGTH = 6 as const;
+
 export type EmailOtpConfig = {
   deliveryMode: EmailOtpDeliveryMode;
   challengeTtlMs: number;
   grantTtlMs: number;
   maxAttempts: number;
   lockoutTtlMs: number;
-  codeLength: number;
+  codeLength: typeof EMAIL_OTP_CODE_LENGTH;
   devOutboxEnabled: boolean;
   maxActiveChallengesPerContext: number;
 };
@@ -258,13 +260,9 @@ export function resolveEmailOtpConfig(input: EmailOtpConfigInput): EmailOtpConfi
       min: 60_000,
       max: 24 * 60 * 60_000,
     }),
-    codeLength: parseConfiguredInteger({
-      name: 'EMAIL_OTP_CODE_LENGTH',
-      raw: readEmailOtpConfigValue(input, 'EMAIL_OTP_CODE_LENGTH'),
-      defaultValue: 6,
-      min: 6,
-      max: 8,
-    }),
+    codeLength: parseEmailOtpCodeLength(
+      readEmailOtpConfigValue(input, 'EMAIL_OTP_CODE_LENGTH'),
+    ),
     devOutboxEnabled,
     maxActiveChallengesPerContext: parseConfiguredInteger({
       name: 'EMAIL_OTP_MAX_ACTIVE_CHALLENGES_PER_CONTEXT',
@@ -274,6 +272,20 @@ export function resolveEmailOtpConfig(input: EmailOtpConfigInput): EmailOtpConfi
       max: 20,
     }),
   };
+}
+
+function parseEmailOtpCodeLength(raw: string): typeof EMAIL_OTP_CODE_LENGTH {
+  const codeLength = parseConfiguredInteger({
+    name: 'EMAIL_OTP_CODE_LENGTH',
+    raw,
+    defaultValue: EMAIL_OTP_CODE_LENGTH,
+    min: EMAIL_OTP_CODE_LENGTH,
+    max: 8,
+  });
+  if (codeLength !== EMAIL_OTP_CODE_LENGTH) {
+    throw new Error(`EMAIL_OTP_CODE_LENGTH must be ${EMAIL_OTP_CODE_LENGTH}`);
+  }
+  return EMAIL_OTP_CODE_LENGTH;
 }
 
 export function maskEmailAddress(email: string): string {
