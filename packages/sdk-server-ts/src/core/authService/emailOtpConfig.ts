@@ -120,13 +120,13 @@ export function resolveEmailOtpRateLimitPolicies(
   input: EmailOtpConfigInput,
 ): EmailOtpRateLimitPolicies {
   const challengeDefault = input.production
-    ? { limit: 5, windowMs: 5 * 60_000 }
+    ? { limit: 30, windowMs: 60_000 }
     : { limit: 100, windowMs: 60_000 };
   const verifyDefault = input.production
-    ? { limit: 10, windowMs: 5 * 60_000 }
+    ? { limit: 30, windowMs: 60_000 }
     : { limit: 100, windowMs: 60_000 };
   const grantDefault = input.production
-    ? { limit: 8, windowMs: 5 * 60_000 }
+    ? { limit: 30, windowMs: 60_000 }
     : { limit: 100, windowMs: 60_000 };
   const recoveryKeyAttemptDefault = input.production
     ? { limit: 10, windowMs: 5 * 60_000 }
@@ -256,7 +256,7 @@ export function resolveEmailOtpConfig(input: EmailOtpConfigInput): EmailOtpConfi
     lockoutTtlMs: parseConfiguredInteger({
       name: 'EMAIL_OTP_LOCKOUT_TTL_MS',
       raw: readEmailOtpConfigValue(input, 'EMAIL_OTP_LOCKOUT_TTL_MS'),
-      defaultValue: 15 * 60_000,
+      defaultValue: 5 * 60_000,
       min: 60_000,
       max: 24 * 60 * 60_000,
     }),
