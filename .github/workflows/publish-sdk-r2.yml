@@ -111,7 +111,7 @@ jobs:
             wasm/threshold_prf -> target
 
       - name: Cache pinned WASM tooling
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/bin/wasm-pack
@@ -127,7 +127,7 @@ jobs:
 
       - name: Cache generated SDK WASM
         id: cache_sdk_wasm
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             wasm/*/pkg
@@ -160,7 +160,7 @@ jobs:
 
       - name: Upload SDK artifact
         id: upload_sdk_artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ env.SDK_ARTIFACT_NAME }}
           path: |
@@ -218,7 +218,7 @@ jobs:
           node-version: '24'
 
       - name: Download SDK artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ${{ env.SDK_ARTIFACT_NAME }}
           path: .
