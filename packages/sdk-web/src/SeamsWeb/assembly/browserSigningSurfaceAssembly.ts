@@ -58,6 +58,7 @@ import type {
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
+import type { EmailOtpTransactionSigningChallenge } from '@/core/signingEngine/session/emailOtp/publicTypes';
 
 type SigningEnginePorts = ReturnType<typeof createSigningEnginePorts>;
 type EmailOtpEd25519RecoveryRequest = Omit<
@@ -74,7 +75,7 @@ async function requestEmailOtpEcdsaStepUpChallenge(args: {
   walletSession: WalletSessionRef;
   chain: ThresholdEcdsaChainTarget['kind'];
   authority: EmailOtpEcdsaChallengeAuthority;
-}): Promise<{ challengeId: string; emailHint?: string }> {
+}): Promise<EmailOtpTransactionSigningChallenge> {
   switch (args.authority.kind) {
     case 'live_session':
       return await args.coordinator.requestTransactionSigningChallenge({

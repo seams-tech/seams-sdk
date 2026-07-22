@@ -24,6 +24,7 @@ import {
   type EmailOtpAppSessionBinding,
 } from './appSessionJwtCache';
 import type { EmailOtpWalletSessionCoordinatorDeps } from './ports';
+import type { EmailOtpTransactionSigningChallenge } from './publicTypes';
 import { readEmailOtpPersistedSessionSnapshot } from './persistedSnapshot';
 import {
   type EmailOtpThresholdEcdsaLoginResult,
@@ -102,8 +103,7 @@ export class EmailOtpWalletSessionRuntime {
       configs: deps.configs,
       getSignerWorkerContext: deps.getSignerWorkerContext,
       provisionThresholdEcdsaSession: deps.provisionThresholdEcdsaSession,
-      provisionEmailOtpEcdsaExplicitExportSession:
-        deps.provisionEmailOtpEcdsaExplicitExportSession,
+      provisionEmailOtpEcdsaExplicitExportSession: deps.provisionEmailOtpEcdsaExplicitExportSession,
       runtimeConfig: this.runtimeConfig,
       rememberAppSessionJwt: (request) => this.rememberAppSessionJwt(request),
       publicationPorts: () => this.sealedSessionRegistry.ecdsaPublicationPorts(),
@@ -247,14 +247,14 @@ export class EmailOtpWalletSessionRuntime {
 
   async requestTransactionSigningChallenge(
     args: RequestEmailOtpChallengeArgs,
-  ): Promise<{ challengeId: string; emailHint?: string }> {
+  ): Promise<EmailOtpTransactionSigningChallenge> {
     return await this.exportRecoveryRuntime.requestTransactionSigningChallenge(args);
   }
 
   async requestPublicReauthTransactionSigningChallenge(args: {
     walletSession: WalletSessionRef;
     chain: ThresholdEcdsaChainTarget['kind'];
-  }): Promise<{ challengeId: string; emailHint?: string }> {
+  }): Promise<EmailOtpTransactionSigningChallenge> {
     const appSessionJwt = await this.resolveAppSessionJwt({
       walletSession: args.walletSession,
       relayUrl: this.runtimeConfig.requireRelayUrl(),

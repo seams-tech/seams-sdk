@@ -438,7 +438,16 @@ test('Email OTP ECDSA bridge uses source authority while refreshing the selected
     requestEmailOtpTransactionSigningChallenge: async ({ authLane: receivedAuthLane }) => {
       if (!receivedAuthLane) throw new Error('missing auth lane');
       challengeCalls.push(receivedAuthLane);
-      return { challengeId: 'challenge-1', emailHint: 'o***@example.test' };
+      return {
+        challengeId: 'challenge-1',
+        emailHint: 'o***@example.test',
+        delivery: {
+          kind: 'demo_code_response',
+          status: 'sent',
+          emailHint: 'o***@example.test',
+          otpCode: '123456',
+        },
+      };
     },
     loginWithEmailOtpEcdsaCapabilityForSigning: async ({
       committedLane: receivedCommittedLane,
@@ -506,7 +515,16 @@ test('Email OTP ECDSA bridge uses selected reauth authority lane directly', asyn
     },
     requestEmailOtpTransactionSigningChallenge: async ({ authLane: receivedAuthLane }) => {
       expect(receivedAuthLane).toBe(authLane);
-      return { challengeId: 'challenge-1', emailHint: 'o***@example.test' };
+      return {
+        challengeId: 'challenge-1',
+        emailHint: 'o***@example.test',
+        delivery: {
+          kind: 'demo_code_response',
+          status: 'sent',
+          emailHint: 'o***@example.test',
+          otpCode: '123456',
+        },
+      };
     },
   });
 

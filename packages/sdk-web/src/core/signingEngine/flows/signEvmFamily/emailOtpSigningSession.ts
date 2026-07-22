@@ -46,10 +46,9 @@ import {
   type EmailOtpEcdsaSigningSessionAuthority,
 } from '../../session/emailOtp/ecdsaSigningSessionAuthority';
 import { emailOtpAuthContextEmailHashHex } from '../../session/identity/laneIdentity';
-import type {
-  EmailOtpEcdsaCommittedLane,
-  EmailOtpEcdsaPublicReauthLane,
-} from './ecdsaSelection';
+import type { EmailOtpEcdsaCommittedLane, EmailOtpEcdsaPublicReauthLane } from './ecdsaSelection';
+import type { EmailOtpTransactionSigningChallenge } from '../../session/emailOtp/publicTypes';
+import { demoEmailOtpCodeFromDelivery } from '../../session/emailOtp/challengeDelivery';
 
 type WalletSessionEmailOtpChallengeArgs = Extract<
   RequestEmailOtpChallengeArgs,
@@ -61,7 +60,7 @@ export type EmailOtpEcdsaSigningSessionDeps = {
   emailOtpSessions: {
     requestTransactionSigningChallenge: (
       args: WalletSessionEmailOtpChallengeArgs,
-    ) => Promise<{ challengeId: string; emailHint?: string }>;
+    ) => Promise<EmailOtpTransactionSigningChallenge>;
     loginWithEcdsaCapabilityInternal: (args: {
       walletSession: WalletSessionRef;
       subjectId?: never;
@@ -96,7 +95,10 @@ export type EmailOtpEcdsaSigningSessionDeps = {
 };
 
 export type EvmFamilyEmailOtpTransactionSigningBridge = {
-  challenge: () => Promise<{ challengeId: string; email: string }>;
+  challenge: () => Promise<{
+    challengeId: string;
+    email: string;
+  }>;
   complete: (input: {
     challengeId: string;
     code: string;
@@ -157,7 +159,7 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
     walletSession: WalletSessionRef;
     chain: EvmFamilyChain;
     authority: EmailOtpEcdsaChallengeAuthority;
-  }) => Promise<{ challengeId: string; emailHint?: string }>;
+  }) => Promise<EmailOtpTransactionSigningChallenge>;
   loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
     walletSession: WalletSessionRef;
     subjectId?: never;
@@ -202,7 +204,10 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
         status: 'waiting_for_user',
         walletId: args.walletId,
         interaction: { kind: 'otp_input', overlay: 'show' },
-        ...(challenge.emailHint ? { data: { emailHint: challenge.emailHint } } : {}),
+        data: {
+          emailHint: challenge.emailHint,
+          demoOtpCode: demoEmailOtpCodeFromDelivery(challenge.delivery),
+        },
       });
       return {
         challengeId,
@@ -264,7 +269,7 @@ export async function requestEmailOtpSigningSessionChallenge(
     walletSession: WalletSessionRef;
     chainTarget: ThresholdEcdsaChainTarget;
   },
-): Promise<{ challengeId: string; emailHint?: string }> {
+): Promise<EmailOtpTransactionSigningChallenge> {
   const { authority } = resolveEmailOtpEcdsaSigningSessionAuth(deps, {
     walletId: args.walletSession.walletId,
     chainTarget: args.chainTarget,

@@ -14,6 +14,7 @@ import type {
 import type { SeamsConfigsReadonly, ThemeMode, WalletAuthMethod } from '@/core/types/seams';
 import type { EmailOtpSigningSessionAuthLane } from '../stepUpConfirmation/otpPrompt/authLane';
 import type { EmailOtpEcdsaSigningSessionAuthority } from '../session/emailOtp/ecdsaSigningSessionAuthority';
+import type { EmailOtpTransactionSigningChallenge } from '../session/emailOtp/publicTypes';
 import type { TouchIdPrompt } from '../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { NonceCoordinator } from '../nonce/NonceCoordinator';
 import type {
@@ -118,7 +119,7 @@ export type NearSigningApiDeps = {
     walletSession: WalletSessionRef;
     nearAccountId: AccountId;
     authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ed25519' }>;
-  }) => Promise<{ challengeId: string; emailHint?: string }>;
+  }) => Promise<EmailOtpTransactionSigningChallenge>;
   recoverEmailOtpEd25519CapabilityForSigning?: (args: {
     nearAccountId: AccountId;
     record: ThresholdEd25519SessionRecord;
@@ -209,7 +210,7 @@ export type EvmFamilySigningDeps = EvmFamilyEcdsaSessionReaderDeps &
       walletSession: WalletSessionRef;
       chain: EvmFamilyChain;
       authority: EmailOtpEcdsaChallengeAuthority;
-    }) => Promise<{ challengeId: string; emailHint?: string }>;
+    }) => Promise<EmailOtpTransactionSigningChallenge>;
     loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
       walletSession: WalletSessionRef;
       subjectId?: never;

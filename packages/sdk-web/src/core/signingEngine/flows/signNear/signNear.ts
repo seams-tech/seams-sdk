@@ -54,6 +54,8 @@ import type {
   AvailableSigningLanes,
   AvailableEd25519SigningLane,
 } from '../../session/availability/availableSigningLanes';
+import type { EmailOtpTransactionSigningChallenge } from '../../session/emailOtp/publicTypes';
+import { demoEmailOtpCodeFromDelivery } from '../../session/emailOtp/challengeDelivery';
 import { publishResolvedIdentity } from '../../session/persistence/sealedSessionStore';
 import {
   buildPasskeyEd25519SessionPolicy,
@@ -298,8 +300,8 @@ type NearEd25519PasskeyReconnect = {
 };
 
 type NearEd25519EmailOtpReconnect = {
-  prepare: () => Promise<{ challengeId: string; emailHint?: string }>;
-  resend: () => Promise<{ challengeId: string; emailHint?: string }>;
+  prepare: () => Promise<EmailOtpTransactionSigningChallenge>;
+  resend: () => Promise<EmailOtpTransactionSigningChallenge>;
   reconnect: (args: {
     authorization: NearEd25519EmailOtpStepUpAuthorization;
     requiredSignatureUses: number;
@@ -1120,6 +1122,7 @@ function buildNearEmailOtpEd25519Reconnect(args: {
   committedLane: Ed25519SigningLane | null;
   thresholdSessionRecord: ThresholdEd25519SessionRecord | null;
   operationId: SigningOperationId;
+  onEvent: SignTransactionWithActionsInput['onEvent'];
 }): NearEd25519EmailOtpReconnect | undefined {
   if (
     !args.committedLane ||
@@ -1131,12 +1134,23 @@ function buildNearEmailOtpEd25519Reconnect(args: {
   }
   const committedLane = args.committedLane;
   const thresholdSessionRecord = args.thresholdSessionRecord;
-  const requestChallenge = async (): Promise<{ challengeId: string; emailHint?: string }> =>
-    await args.deps.requestEmailOtpEd25519SigningChallenge!({
+  const requestChallenge = async (): Promise<EmailOtpTransactionSigningChallenge> => {
+    const challenge = await args.deps.requestEmailOtpEd25519SigningChallenge!({
       walletSession: args.commandSubject.walletSession,
       nearAccountId: args.commandSubject.nearAccount.accountId,
       authLane: committedLane.authLane,
     });
+    emitNearSigningEvent(args.onEvent, args.commandSubject.nearAccount.accountId, {
+      phase: SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_INPUT_REQUIRED,
+      status: 'waiting_for_user',
+      interaction: { kind: 'otp_input', overlay: 'show' },
+      data: {
+        emailHint: challenge.emailHint,
+        demoOtpCode: demoEmailOtpCodeFromDelivery(challenge.delivery),
+      },
+    });
+    return challenge;
+  };
   return {
     prepare: requestChallenge,
     resend: requestChallenge,
@@ -1693,6 +1707,7 @@ export async function signTransactionWithActions(
           committedLane: preparedSigningSession.emailOtpCommittedLane || null,
           thresholdSessionRecord,
           operationId: confirmationOperationId,
+          onEvent: publicOptions.onEvent,
         });
         const executionState = buildPreparedNearTransactionExecutionState({
           preparedSigningSession,

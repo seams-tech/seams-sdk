@@ -15,6 +15,33 @@ type SigningToastOptions = {
   successMessage: string;
 };
 
+function readDemoEmailOtpCode(event: SigningFlowEvent): string | null {
+  if (event.phase !== SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_INPUT_REQUIRED) return null;
+  const value = event.data?.demoOtpCode;
+  if (typeof value !== 'string' || !/^\d{6}$/.test(value)) return null;
+  return value;
+}
+
+function formatDemoEmailOtpCode(otpCode: string): string {
+  return `${otpCode.slice(0, 3)}-${otpCode.slice(3)}`;
+}
+
+async function copyDemoEmailOtpCode(args: { otpCode: string; toastId: string }): Promise<void> {
+  const formattedCode = formatDemoEmailOtpCode(args.otpCode);
+  try {
+    await navigator.clipboard.writeText(args.otpCode);
+    toast.success(`${formattedCode} copied to clipboard!`, {
+      id: args.toastId,
+      description: null,
+    });
+  } catch {
+    toast.info(`Email code: ${formattedCode}`, {
+      id: args.toastId,
+      description: 'Clipboard access was unavailable. Enter this code to continue.',
+    });
+  }
+}
+
 /* Maps known relayer/sponsor failures to human copy. An underfunded gas
    sponsor surfaces as "Send Transaction failed (InvalidTxError:
    NotEnoughBalance)" (relayer code: funding_failed) — shown raw it reads
@@ -119,6 +146,15 @@ export function handleSigningToastEvent(
   options: SigningToastOptions,
 ): SigningToastResult {
   if (event.flow !== 'signing') return { status: 'ignored' };
+
+  const demoOtpCode = readDemoEmailOtpCode(event);
+  if (demoOtpCode) {
+    void copyDemoEmailOtpCode({
+      otpCode: demoOtpCode,
+      toastId: options.toastId,
+    });
+    return { status: 'shown' };
+  }
 
   if (event.status === 'cancelled' || event.phase === SigningEventPhase.CANCELLED) {
     const message = signingEventErrorMessage(event, `${options.chainLabel} transaction cancelled`);
