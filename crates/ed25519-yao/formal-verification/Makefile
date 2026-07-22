@@ -1,7 +1,7 @@
 CARGO ?= cargo
 TASKS := run --locked --quiet --manifest-path tasks/Cargo.toml --
 
-.PHONY: check reference-spec-check vectors-check cross-language-check parity anti-drift lean-check aeneas-check verus-check constant-time-qualification phase2b-reconciliation-check phase2b-exit-evidence-readiness-check phase2b-change-control-readiness-check phase2b-review-subject-check phase2b-protected-inputs-check phase2b-independent-host-prepare phase2b-independent-host-finalize phase2b-independent-host-record-check phase2b-review-approval-check benchmark-manifest-reproducibility
+.PHONY: check reference-spec-check vectors-check cross-language-check parity anti-drift lean-check aeneas-check verus-check constant-time-qualification phase2b-reconciliation-check phase2b-exit-evidence-readiness-check phase2b-review-subject-check phase2b-protected-inputs-check phase2b-independent-host-prepare phase2b-independent-host-finalize phase2b-independent-host-record-check phase2b-review-approval-check benchmark-manifest-reproducibility
 
 check:
 	@$(CARGO) $(TASKS) all
@@ -38,9 +38,6 @@ phase2b-reconciliation-check:
 
 phase2b-exit-evidence-readiness-check:
 	@$(CARGO) $(TASKS) phase2b-exit-evidence-readiness-check
-
-phase2b-change-control-readiness-check:
-	@$(CARGO) $(TASKS) phase2b-change-control-readiness-check
 
 phase2b-review-subject-check:
 	@$(CARGO) $(TASKS) phase2b-review-subject-check
