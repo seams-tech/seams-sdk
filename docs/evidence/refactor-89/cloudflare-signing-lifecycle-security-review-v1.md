@@ -159,8 +159,8 @@ cross-account tests. The deployment record separately reports a successful
 | `crates/router-ab-ecdsa-online/specs/online-lifecycle-v1.md:20-42,60-70,94-108` | One-use kernel, public coin, durable terminal consumption, substitution rejection |
 | `crates/router-ab-ecdsa-presign/specs/assurance-ledger-v1.md:143-153,181-208` | One-use composition and assumption boundary |
 | `docs/refactor-89-slimmer-near-ecdsa.md:698-776,876-895` | Product security invariants, secret hygiene, rollback, and footguns |
-| `docs/yaos-ab.md:1013-1092,1501-1592` | Fixed authenticated framing, role-bound sessions, topology-independent protocol, and cross-account authentication |
-| `docs/yaos-ab-deployment.md:159-224,252-265,296-310` | Same-account selection, implemented cross-account WebSocket deployment, measured campaign, and remaining promotion evidence |
+| `docs/router-ab/ed25519-yao/implementation-plan.md:1013-1092,1501-1592` | Fixed authenticated framing, role-bound sessions, topology-independent protocol, and cross-account authentication |
+| `docs/router-ab/ed25519-yao/deployment.md:159-224,252-265,296-310` | Same-account selection, implemented cross-account WebSocket deployment, measured campaign, and remaining promotion evidence |
 | Cloudflare Durable Objects documentation | Strong consistency, serializable private storage, input gates, output gates, and restore/PITR platform assumptions |
 
 Cloudflare platform assumptions used by this review:
@@ -276,14 +276,14 @@ spec_ir:
   - id: CF-SPEC-015
     spec_excerpt: "session authentication derived from a signed ephemeral peer handshake; a session MAC over the canonical frame header, previous-frame digest, and payload"
     source_section: "Streaming transport, lines 1070-1092"
-    source_document: "docs/yaos-ab.md"
+    source_document: "docs/router-ab/ed25519-yao/implementation-plan.md"
     semantic_type: "transport_authentication"
     normalized_form: "A Yao transport session MUST authenticate both peer role and Router-admitted session, bind transcript order, and reject replay."
     confidence: 0.99
   - id: CF-SPEC-016
     spec_excerpt: "Service Bindings cannot cross Cloudflare accounts. Production uses direct authenticated HTTPS on pinned Custom Domains."
     source_section: "Cross-account Cloudflare, lines 1568-1592"
-    source_document: "docs/yaos-ab.md"
+    source_document: "docs/router-ab/ed25519-yao/implementation-plan.md"
     semantic_type: "deployment_topology"
     normalized_form: "Same-account Service Binding is a distinct weaker topology; separate-account deployment requires a different authenticated connector without changing protocol identity."
     confidence: 1.0
@@ -297,14 +297,14 @@ spec_ir:
   - id: CF-SPEC-018
     spec_excerpt: "Implement the minimum durable lifecycle required for one-use execution, rollback safety, crash recovery, and exact ciphertext redelivery without reevaluation."
     source_section: "Phase 11: production hardening"
-    source_document: "docs/yaos-ab-deployment.md"
+    source_document: "docs/router-ab/ed25519-yao/deployment.md"
     semantic_type: "yao_one_use_lifecycle"
     normalized_form: "A staged Yao role MUST be atomically consumed before evaluation, duplicate or restored sessions MUST NOT reevaluate, terminal ciphertext MAY be redelivered exactly, and failures MUST become durable terminal states."
     confidence: 1.0
   - id: CF-SPEC-019
     spec_excerpt: "The SigningWorker rejects activation-package replay after activation ... recovery accepts only the same stable key identity, promotion tombstones the retired credential, and ordinary signing succeeds under the replacement lifecycle."
     source_section: "Phase 9 implementation evidence, lines 4133-4146"
-    source_document: "docs/yaos-ab.md"
+    source_document: "docs/router-ab/ed25519-yao/implementation-plan.md"
     semantic_type: "signing_worker_activation_lifecycle"
     normalized_form: "SigningWorker activation MUST combine one exact A/B package pair, preserve stable identity and public-key continuity, expose material only after activation, reject replay, and terminally retire superseded or failed material."
     confidence: 1.0
@@ -1551,7 +1551,7 @@ alignment_ir:
     evidence:
       spec_quote: "session authentication derived from a signed ephemeral peer handshake"
       code_quote: "Sec-WebSocket-Protocol"
-      locations: ["yaos-ab.md:1070-1092", "ed25519_yao_websocket.rs:132-169"]
+      locations: ["router-ab/ed25519-yao/implementation-plan.md:1070-1092", "ed25519_yao_websocket.rs:132-169"]
   - id: CF-ALIGN-016
     spec_ref: CF-SPEC-016
     code_ref: [CF-CODE-042]
@@ -1563,7 +1563,7 @@ alignment_ir:
     evidence:
       spec_quote: "Service Bindings cannot cross Cloudflare accounts"
       code_quote: "const DERIVER_B_BINDING: &str = \"DERIVER_B\""
-      locations: ["yaos-ab.md:1568-1592", "ed25519_yao_websocket.rs:14-18,132-169", "yaos-ab-deployment.md:196-224,252-265,296-310"]
+      locations: ["router-ab/ed25519-yao/implementation-plan.md:1568-1592", "ed25519_yao_websocket.rs:14-18,132-169", "router-ab/ed25519-yao/deployment.md:196-224,252-265,296-310"]
   - id: CF-ALIGN-017
     spec_ref: CF-SPEC-017
     code_ref: [CF-CODE-035]
@@ -1587,7 +1587,7 @@ alignment_ir:
     evidence:
       spec_quote: "one-use execution, rollback safety, crash recovery, and exact ciphertext redelivery without reevaluation"
       code_quote: "if status != Some(YaoSessionStatusV1::Staged) { return ... cannot be evaluated more than once }"
-      locations: ["yaos-ab-deployment.md:336-339", "ed25519_yao_lifecycle.rs:210-386,537-647"]
+      locations: ["router-ab/ed25519-yao/deployment.md:336-339", "ed25519_yao_lifecycle.rs:210-386,537-647"]
   - id: CF-ALIGN-019
     spec_ref: CF-SPEC-019
     code_ref: [CF-CODE-060, CF-CODE-061, CF-CODE-062, CF-CODE-063, CF-CODE-064, CF-CODE-065, CF-CODE-066, CF-CODE-067, CF-CODE-068, CF-CODE-069]
@@ -1599,7 +1599,7 @@ alignment_ir:
     evidence:
       spec_quote: "promotion tombstones the retired credential"
       code_quote: "SigningWorkerYaoDurableStateV1::{RegistrationPending, RegistrationStaged, Active, RecoveryPending, RecoveryStaged}"
-      locations: ["yaos-ab.md:4133-4146", "ed25519_yao_signing_worker.rs:146-254,329-614", "durable_object/worker_storage.rs:121-191"]
+      locations: ["router-ab/ed25519-yao/implementation-plan.md:4133-4146", "ed25519_yao_signing_worker.rs:146-254,329-614", "durable_object/worker_storage.rs:121-191"]
 ```
 
 ---
@@ -1710,7 +1710,7 @@ divergence_findings:
         - "wrangler.signing-worker.toml:9-16"
         - "durable_object/mod.rs:267-293"
         - "durable_object/worker_storage.rs:716-732"
-      deployment_gap: "docs/router-a-b-deployment.md:200-201 leaves restore and fail-closed rollback drills open."
+      deployment_gap: "docs/router-ab/deployment.md:200-201 leaves restore and fail-closed rollback drills open."
     exploitability:
       prerequisites: "An operator or platform restore of the SigningWorker Durable Object to a point before a record's terminal transition, without a separately advanced epoch."
       sequence:
@@ -1741,8 +1741,8 @@ divergence_findings:
     reasoning: "The normal concurrent-claim gap found in the earlier snapshot is closed. Production approval still requires a complete terminal state machine: current failures strand sessions and restores can defeat the local one-use marker because every authority is restored together."
     evidence:
       spec:
-        - "docs/yaos-ab.md:1183-1254"
-        - "docs/yaos-ab-deployment.md:333-338"
+        - "docs/router-ab/ed25519-yao/implementation-plan.md:1183-1254"
+        - "docs/router-ab/ed25519-yao/deployment.md:333-338"
       code:
         - "ed25519_yao_lifecycle.rs:63-69"
         - "ed25519_yao_lifecycle.rs:210-386"
@@ -1814,8 +1814,8 @@ divergence_findings:
     reasoning: "Normal signing resolves the active server-output index and no route returning stale material was demonstrated. The duplication and absence of terminal cleanup expand the durable secret footprint, preserve failed candidates, and leave superseded shares recoverable from storage or backups."
     evidence:
       spec:
-        - "docs/yaos-ab.md:31"
-        - "docs/yaos-ab.md:4133-4146"
+        - "docs/router-ab/ed25519-yao/implementation-plan.md:31"
+        - "docs/router-ab/ed25519-yao/implementation-plan.md:4133-4146"
       code:
         - "ed25519_yao_signing_worker.rs:146-254"
         - "ed25519_yao_signing_worker.rs:446-614"

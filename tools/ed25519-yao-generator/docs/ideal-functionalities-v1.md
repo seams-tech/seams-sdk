@@ -20,9 +20,9 @@ exact P0-P3 protocol require separate reviewed decisions.
 
 The source precedence for this boundary is:
 
-1. `docs/router-a-b-SPEC.md` owns product lifecycle, routing, transcript, and
+1. `docs/router-ab/protocol.md` owns product lifecycle, routing, transcript, and
    recipient behavior. See lines 5-11 and 902-925.
-2. `docs/yaos-ab.md` owns the Ed25519 secure-computation backend, arithmetic,
+2. `docs/router-ab/ed25519-yao/implementation-plan.md` owns the Ed25519 secure-computation backend, arithmetic,
    output custody, and P0-P3 security target. See **Document Authority and
    Resolved Conflicts**, **Goal**, and **Scope**.
 3. `docs/router-a-b-sol-refactor.md` owns the wider cutover constraints and
@@ -134,7 +134,7 @@ x_server_base = a + 2 * tau mod l
 
 The canonical byte and scalar rules and the four-`y` and four-`tau`
 decomposition appear in the **Field and Byte Conventions** and **Stable Key
-Context and Ceremony Context** sections of `docs/yaos-ab.md`. The public
+Context and Ceremony Context** sections of `docs/router-ab/ed25519-yao/implementation-plan.md`. The public
 relation is:
 
 ```text
@@ -145,7 +145,7 @@ A_pub    = a * B
 ```
 
 Evidence: the **Protocol-Generated Output Sharing** section of
-`docs/yaos-ab.md`. Export recomputes the registered identity from `d` as
+`docs/router-ab/ed25519-yao/implementation-plan.md`. Export recomputes the registered identity from `d` as
 required by that section.
 
 ## 4. Frozen lifecycle dispatch
@@ -160,14 +160,14 @@ Exactly five lifecycle request kinds exist:
 | `refresh`      | `F_ed25519_refresh_v1`      | one activation-family evaluation                 |
 | `export`       | `F_ed25519_export_v1`       | one export-family evaluation                     |
 
-This mapping is fixed by `docs/router-a-b-SPEC.md:902-920` and the **Fixed
-Circuit Families** section of `docs/yaos-ab.md`. A caller never supplies a
+This mapping is fixed by `docs/router-ab/protocol.md:902-920` and the **Fixed
+Circuit Families** section of `docs/router-ab/ed25519-yao/implementation-plan.md`. A caller never supplies a
 circuit or ideal-function identifier. Router derives both from the admitted
 request kind.
 
 Activation is an internal continuation. It consumes and verifies packages
 created by registration, recovery, or refresh and never triggers another Yao
-evaluation (`docs/router-a-b-SPEC.md:916-920`; `docs/yaos-ab.md`, **Fixed
+evaluation (`docs/router-ab/protocol.md:916-920`; `docs/router-ab/ed25519-yao/implementation-plan.md`, **Fixed
 Circuit Families**).
 
 ## 5. Common public context and leakage
@@ -190,7 +190,7 @@ Every lifecycle request MUST bind the following public semantic fields:
 - request expiry;
 - public request-context digest.
 
-Evidence: `docs/router-a-b-SPEC.md:377-395,409-433`. The exact canonical encoding
+Evidence: `docs/router-ab/protocol.md:377-395,409-433`. The exact canonical encoding
 of `CeremonyTranscriptContext` remains Phase 1 work. Implementations may define
 the semantic type now; serialization and digest constructors MUST stay private
 until that encoding is frozen.
@@ -207,7 +207,7 @@ metadata with the origin context.
 
 The stable key context stays separate. Lifecycle, authorization, transport,
 deployment, ticket, epoch, and circuit metadata MUST NOT enter
-`StableKeyDerivationContextV1` (`docs/yaos-ab.md`, **Stable Key Context and
+`StableKeyDerivationContextV1` (`docs/router-ab/ed25519-yao/implementation-plan.md`, **Stable Key Context and
 Ceremony Context**).
 
 ### 5.2 Common public leakage
@@ -224,9 +224,9 @@ The ideal model may expose:
 - a redacted public failure code through the uniform abort envelope.
 
 Evidence: the **Protocol-Generated Output Sharing** and **Payload Boundaries**
-sections of `docs/yaos-ab.md`, Router-held values at
-`docs/router-a-b-SPEC.md:72-92`, and observability rules at
-`docs/router-a-b-SPEC.md:2849-2857`.
+sections of `docs/router-ab/ed25519-yao/implementation-plan.md`, Router-held values at
+`docs/router-ab/protocol.md:72-92`, and observability rules at
+`docs/router-ab/protocol.md:2849-2857`.
 
 The public receipt schema MUST be lifecycle-discriminated. Activation-family
 receipts may carry `X_client`, `X_server`, and `A_pub`. Export public leakage may
@@ -248,8 +248,8 @@ contain:
 - labels, masks, OT state, garbling seeds, or recipient-encryption keys;
 - protocol payload plaintext or secret-bearing material handles.
 
-Evidence: `docs/router-a-b-SPEC.md:150-184,230-247,2849-2857` and the **Payload
-Boundaries** section of `docs/yaos-ab.md`.
+Evidence: `docs/router-ab/protocol.md:150-184,230-247,2849-2857` and the **Payload
+Boundaries** section of `docs/router-ab/ed25519-yao/implementation-plan.md`.
 
 ## 6. Value-custody matrix
 
@@ -265,15 +265,15 @@ The following matrix is frozen for the ideal party views.
 | Public observer  | common public leakage                                                                                            | every private input, random share, plaintext output, label, mask, OT state, seed, scalar, or decryption key    |
 | Logs/diagnostics | public ids, digests, safe state transitions, sizes, timings, redacted failure code                               | protocol payload plaintext and every secret listed for the public observer                                     |
 
-The custody rule is stated directly in the **Goal** section of `docs/yaos-ab.md`
-and at `docs/router-a-b-SPEC.md:150-184`. Recipient opening is fixed at
-`docs/router-a-b-SPEC.md:463-488,702-715`. Source-boundary prohibitions also
+The custody rule is stated directly in the **Goal** section of `docs/router-ab/ed25519-yao/implementation-plan.md`
+and at `docs/router-ab/protocol.md:150-184`. Recipient opening is fixed at
+`docs/router-ab/protocol.md:463-488,702-715`. Source-boundary prohibitions also
 appear in the **Source And Bundle Guards** section of
 `docs/router-a-b-sol-refactor.md`.
 
 Client plus SigningWorker may reconstruct `a = 2*x_client_base -
 x_server_base mod l`. That collusion is an explicit security exclusion
-(`docs/yaos-ab.md`, **Explicit Exclusions**).
+(`docs/router-ab/ed25519-yao/implementation-plan.md`, **Explicit Exclusions**).
 
 ## 7. Frozen state families
 
@@ -293,8 +293,8 @@ The normative pre-state and identity table is:
 | Export       | registered identity plus explicit export authorization   | consume/audit export authorization after output release; retain registered identity   | exported `d` derives the registered `A_pub`               |
 
 The source table appears in the **Fixed Circuit Families** section of
-`docs/yaos-ab.md`. Fresh recovery and refresh recipient ciphertext requirements
-come from `docs/router-a-b-SPEC.md:908-925`. Export authorization consumption
+`docs/router-ab/ed25519-yao/implementation-plan.md`. Fresh recovery and refresh recipient ciphertext requirements
+come from `docs/router-ab/protocol.md:908-925`. Export authorization consumption
 after release is fixed by the **Ed25519 Export** section of
 `docs/router-a-b-sol-refactor.md`.
 
@@ -640,7 +640,7 @@ d_B = d - U mod 2^256
 ```
 
 Evidence: the **Protocol-Generated Output Sharing** section of
-`docs/yaos-ab.md`. The coins belong to the ideal functionality. Neither Deriver
+`docs/router-ab/ed25519-yao/implementation-plan.md`. The coins belong to the ideal functionality. Neither Deriver
 supplies them as a freely chosen linear mask.
 Synthetic fixtures may record deterministic reference coins under an explicit
 `host_only_reference_randomness` field. Party views contain only the coins or
@@ -690,8 +690,8 @@ Success outputs:
 
 Identity invariant: success establishes exactly one new `A_pub`. Registration
 has no pre-existing public-key equality precondition. Evidence: the **Fixed
-Circuit Families** section of `docs/yaos-ab.md` and
-`docs/router-a-b-SPEC.md:908-920`.
+Circuit Families** section of `docs/router-ab/ed25519-yao/implementation-plan.md` and
+`docs/router-ab/protocol.md:908-920`.
 
 The complete Phase 1 construction-independent host evaluator uses the sealed
 admission and terminal-selection relation in
@@ -728,12 +728,12 @@ Reference computation:
 
 The function performs zero Deriver invocations, zero contribution derivations,
 zero output-share sampling, and zero Yao evaluations. It emits no new client
-secret. Evidence: `docs/router-a-b-SPEC.md:916-920` and the **Fixed Circuit
-Families** section of `docs/yaos-ab.md`.
+secret. Evidence: `docs/router-ab/protocol.md:916-920` and the **Fixed Circuit
+Families** section of `docs/router-ab/ed25519-yao/implementation-plan.md`.
 
 Identity invariant: the registered `A_pub` is unchanged. SigningWorker accepts
 only its current recipient identity and activation epoch
-(`docs/router-a-b-SPEC.md:116-127`).
+(`docs/router-ab/protocol.md:116-127`).
 
 ### 9.3 `F_ed25519_recovery_v1`
 
@@ -798,11 +798,11 @@ Crash and retry semantics:
   receipt and completes the credential/epoch promotion. It never restores the
   old credential or activation epoch.
 
-Evidence: `docs/router-a-b-SPEC.md:908-925`; the **Root And Key-Continuity
+Evidence: `docs/router-ab/protocol.md:908-925`; the **Root And Key-Continuity
 Policy** and **Flow Completion Matrix** sections of
 `docs/router-a-b-sol-refactor.md`; and the **Stable Key Context and Ceremony
 Context**, **Fixed Circuit Families**, **Frame Format**, and **Incremental
-Evaluation** sections of `docs/yaos-ab.md`. The host-only arithmetic equality
+Evaluation** sections of `docs/router-ab/ed25519-yao/implementation-plan.md`. The host-only arithmetic equality
 witness is frozen. Its production proof and custody realization remain Section
 12.1 and 12.3 gates.
 
@@ -886,7 +886,7 @@ Crash and retry semantics:
 
 Preservation of `x_client_base` and `x_server_base` follows algebraically from
 the frozen preservation of `d` and `tau`. The normative identity requirements
-are in the **Fixed Circuit Families** section of `docs/yaos-ab.md` and the
+are in the **Fixed Circuit Families** section of `docs/router-ab/ed25519-yao/implementation-plan.md` and the
 **Canonical Ed25519 Identity** and **Root And Key-Continuity Policy** sections of
 `docs/router-a-b-sol-refactor.md`. The latter also fixes old-epoch rejection.
 
@@ -896,7 +896,7 @@ delta from their own signed update, so any sequential-compromise claim requires 
 separately reviewed corruption schedule and verified-erasure model. The current
 security target explicitly excludes that stronger claim in the **Security
 Target** section of `docs/router-a-b-sol-refactor.md` and the **Explicit
-Exclusions** section of `docs/yaos-ab.md`.
+Exclusions** section of `docs/router-ab/ed25519-yao/implementation-plan.md`.
 
 Production delta generation, active proof of old/new input provenance, private
 output integration, and distributed persistence realization remain Section 12.2
@@ -928,9 +928,9 @@ metadata. SigningWorker receives no export output. Each Deriver receives only
 its randomized seed share and never the joined seed.
 
 Evidence: the **Ed25519 Export** section of
-`docs/router-a-b-sol-refactor.md`, `docs/router-a-b-SPEC.md:638-658,681-715`,
+`docs/router-a-b-sol-refactor.md`, `docs/router-ab/protocol.md:638-658,681-715`,
 and the **Fixed Circuit Families** and **Protocol-Generated Output Sharing**
-sections of `docs/yaos-ab.md`.
+sections of `docs/router-ab/ed25519-yao/implementation-plan.md`.
 
 The host-only export composition now starts from authenticated registered state,
 binds the canonical ceremony and role provenance, evaluates and packages one
@@ -969,14 +969,14 @@ digest. A redacted failure-code registry may distinguish public boundary classes
 such as expiry or replay only after review. Its encoding is not frozen here.
 
 Router faults such as denial, stale routing, replay, or incomplete delivery must
-be detectable (`docs/router-a-b-SPEC.md:746-759`). The Phase 6A-selected profile
+be detectable (`docs/router-ab/protocol.md:746-759`). The Phase 6A-selected profile
 defines the Deriver-deviation claim. P0 covers approved honest execution and
 records active Deriver behavior as an exclusion; P1 covers only its coherent
 reviewed subset; P2/P3 require a valid authenticated output or a uniform
 detectable abort for the selected malicious-Deriver model
-(`docs/router-a-b-SPEC.md:761-772`). Timeout, crash, cancellation, peer
+(`docs/router-ab/protocol.md:761-772`). Timeout, crash, cancellation, peer
 uncertainty, malformed input, partial send, and rollback destroy the selected
-per-ceremony session or preprocessing-ticket material (`docs/yaos-ab.md`,
+per-ceremony session or preprocessing-ticket material (`docs/router-ab/ed25519-yao/implementation-plan.md`,
 **Frame Format** and **Incremental Evaluation**).
 
 The ideal model freezes the envelope and its forbidden contents. Exact timing,
@@ -1277,8 +1277,8 @@ review verifies the corresponding realization:
   deployments.
 
 Evidence for the current ambiguity spans the root-share flow at
-`docs/router-a-b-SPEC.md:533-553`, activation-family refresh in the **Fixed
-Circuit Families** section of `docs/yaos-ab.md`, and the **Root And
+`docs/router-ab/protocol.md:533-553`, activation-family refresh in the **Fixed
+Circuit Families** section of `docs/router-ab/ed25519-yao/implementation-plan.md`, and the **Root And
 Key-Continuity Policy** of `docs/router-a-b-sol-refactor.md`.
 
 The production corruption claim follows the Phase 6A-selected P0-P3 profile;
@@ -1291,7 +1291,7 @@ this reference functionality.
 ### 12.3 Role-input provenance, root custody, and registration input selection
 
 The application binding, stable context, and contribution-KDF bytes are frozen
-in the host reference under `docs/yaos-ab.md` **Stable Key Context and Ceremony
+in the host reference under `docs/router-ab/ed25519-yao/implementation-plan.md` **Stable Key Context and Ceremony
 Context**. `docs/input-provenance-v1.md` freezes a proof-system-neutral outer
 statement, A/B pair invariants, root/input-state epoch meanings, lifecycle
 evidence slots, and profile-indexed registration input-selection requirements.
@@ -1337,10 +1337,10 @@ garbling, input derivation, and output-sharing algorithms as an explicit
 assumption. It retains the mandatory independent administration, artifact
 pinning, authenticated transport, replay controls, recipient encryption,
 constant-time review, and signed/public output checks defined in
-`docs/yaos-ab.md`. Partial active mechanisms do not widen its claim.
+`docs/router-ab/ed25519-yao/implementation-plan.md`. Partial active mechanisms do not widen its claim.
 
 These are production capabilities in the **Production Capabilities** section of
-`docs/yaos-ab.md`. This reference boundary supplies no evidence for them.
+`docs/router-ab/ed25519-yao/implementation-plan.md`. This reference boundary supplies no evidence for them.
 
 ## 13. Alignment and readiness
 

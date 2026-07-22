@@ -11,12 +11,12 @@ Independent-account WebSocket remains a deferred stronger-operator profile.
 
 Related active documents:
 
-- [Router A/B specification](./router-a-b-SPEC.md)
-- [Router A/B solution refactor](./router-a-b-sol-refactor.md)
-- [Streaming Yao A/B plan](./yaos-ab.md)
-- [Router A/B local development](./router-a-b-local-dev.md)
-- [Deployment runbook](./deployment/README.md)
-- [Deployment infrastructure](./deployment/infra.md)
+- [Router A/B specification](./protocol.md)
+- [Router A/B solution refactor](../router-a-b-sol-refactor.md)
+- [Streaming Yao A/B plan](./ed25519-yao/implementation-plan.md)
+- [Router A/B local development](./local-development.md)
+- [Deployment runbook](../deployment/README.md)
+- [Deployment infrastructure](../deployment/infra.md)
 
 ## Approved Protocol Placement
 
@@ -129,7 +129,7 @@ shared by design; the role, secret, storage, deployment, and audit boundaries
 remain explicit and fixed.
 
 The implemented deployment artifact phase is defined in
-[deployment/README.md](deployment/README.md#follow-up-phase-build-once-deploy-many).
+[deployment/README.md](../deployment/README.md#follow-up-phase-build-once-deploy-many).
 Its shared release manifest may identify all four public role bundles, but each
 role artifact must remain independently downloadable and deployable. Artifacts
 contain no role secret, generated environment secret, or Cloudflare credential.
@@ -184,12 +184,12 @@ isolated in the benchmark crate.
 
 ## Production Release Evidence
 
-The [independent separation review](evidence/router-a-b-deployment/independent-separation-review-2026-07-17.md)
+The [independent separation review](../evidence/router-a-b-deployment/independent-separation-review-2026-07-17.md)
 found that the current repository proves role-local same-account staging
 boundaries. It does not prove account-administrator independence, which is
 outside the selected P0 claim. Its
 two local Yao evidence-integrity failures were subsequently repaired through
-the canonical gates and recorded in the [local tooling remediation receipt](evidence/router-a-b-deployment/yao-local-tooling-remediation-2026-07-17.md).
+the canonical gates and recorded in the [local tooling remediation receipt](../evidence/router-a-b-deployment/yao-local-tooling-remediation-2026-07-17.md).
 That remediation supplies no external control-plane evidence, so every
 production item below remains open.
 

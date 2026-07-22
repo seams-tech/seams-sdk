@@ -430,7 +430,7 @@ Release gates before Cloudflare deployment:
 ### Phase 0: Document And Pin Local Shape
 
 - [x] Write this local deployment parity plan.
-- [x] Link this plan from `docs/router-a-b-SPEC.md`.
+- [x] Link this plan from `docs/router-ab/protocol.md`.
 - [x] Add a short `crates/router-ab-dev/README.md` that points here.
 
 ### Phase 1: Role Config And Env Templates

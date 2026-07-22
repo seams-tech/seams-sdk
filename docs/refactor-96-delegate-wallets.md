@@ -13,7 +13,7 @@ delegated behavior remains disabled.
 
 This plan consumes:
 
-- [yaos-ab.md](./yaos-ab.md) for Ed25519 key identity, key-creation signer
+- [router-ab/ed25519-yao/implementation-plan.md](./router-ab/ed25519-yao/implementation-plan.md) for Ed25519 key identity, key-creation signer
   slots, Yao Client and SigningWorker lifecycle, recovery, refresh, and export;
 - `crates/router-ab-ecdsa-derivation` for the EVM-family secp256k1 key,
   role-local additive shares, threshold sessions, signing, and export;

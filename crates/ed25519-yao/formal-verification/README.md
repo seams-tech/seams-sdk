@@ -570,7 +570,7 @@ verifier must run the protected-input, record, and approval checks against exact
 - [Assumption ledger](docs/assumption-ledger.md)
 - [Compliance baseline](docs/compliance-baseline.md)
 - [Full phased plan](../docs/formal-verification-plan.md)
-- [Protocol implementation plan](../../../docs/yaos-ab.md)
+- [Protocol implementation plan](../../../docs/router-ab/ed25519-yao/implementation-plan.md)
 
 Generated Lean files are committed. Charon LLBC remains a transient intermediate
 because its internal identifier ordering is nondeterministic even when the

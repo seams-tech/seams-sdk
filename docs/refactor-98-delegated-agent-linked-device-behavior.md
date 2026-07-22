@@ -9,7 +9,7 @@ lane provisioning, signing admission, and revocation remain fail closed.
 
 ## Dependencies
 
-- [yaos-ab.md](./yaos-ab.md) supplies the Ed25519 Client, Deriver A/B,
+- [router-ab/ed25519-yao/implementation-plan.md](./router-ab/ed25519-yao/implementation-plan.md) supplies the Ed25519 Client, Deriver A/B,
   SigningWorker, lifecycle, and production-security architecture.
 - [refactor-95-passkey-account-refactor.md](./refactor-95-passkey-account-refactor.md)
   supplies wrapped roots, holder-share envelopes, and wallet-scoped recovery.

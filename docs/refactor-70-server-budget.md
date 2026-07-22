@@ -9,7 +9,7 @@ Primary source of truth:
 - [refactor-41.md](./refactor-41.md)
 - [refactor-49-stepup-budget.md](./refactor-49-stepup-budget.md)
 - [refactor-68-wallet-session-v2.md](./refactor-68-wallet-session-v2.md)
-- [router-a-b-SPEC.md](./router-a-b-SPEC.md)
+- [router-ab/protocol.md](./router-ab/protocol.md)
 
 ## Current Task Board
 

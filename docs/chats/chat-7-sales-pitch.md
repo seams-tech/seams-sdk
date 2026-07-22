@@ -18,8 +18,8 @@ Easy to host and migrate.
 Related docs:
 
 - [docs/route-a-b-sales-pitch.md](../route-a-b-sales-pitch.md)
-- [docs/router-a-b-deployment.md](../router-a-b-deployment.md)
-- [docs/router-a-b-SPEC.md](../router-a-b-SPEC.md)
+- [docs/router-ab/deployment.md](../router-ab/deployment.md)
+- [docs/router-ab/protocol.md](../router-ab/protocol.md)
 - [docs/TEEs-vs-serverless-MPC.md](../TEEs-vs-serverless-MPC.md)
 
 ## Core Conclusions
@@ -372,7 +372,7 @@ and policy protects the boundary.
 
 ## Docs Created Or Updated During This Chat
 
-- [docs/router-a-b-deployment.md](../router-a-b-deployment.md)
+- [docs/router-ab/deployment.md](../router-ab/deployment.md)
   - Deployment profile plan for same-account Cloudflare, separate-account
     Cloudflare, provider-diverse signers, HSS mode, and TEE-accelerated mode.
 - [docs/route-a-b-sales-pitch.md](../route-a-b-sales-pitch.md)
@@ -406,7 +406,7 @@ and policy protects the boundary.
 
 ### Near Term
 
-1. Turn [docs/router-a-b-deployment.md](../router-a-b-deployment.md) into an implementation checklist for generated Cloudflare same-account IaC.
+1. Turn [docs/router-ab/deployment.md](../router-ab/deployment.md) into an implementation checklist for generated Cloudflare same-account IaC.
 2. Define the deployment manifest and capability document fields for:
    - deployment profile
    - signer engine mode

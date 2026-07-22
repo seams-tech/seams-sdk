@@ -31,7 +31,7 @@ EVIDENCE_PATHS: Final = (
 EXACT_COVERED_PATHS: Final = frozenset(
     {
         ".github/workflows/phase2b-change-control.yml",
-        "docs/yaos-ab.md",
+        "docs/router-ab/ed25519-yao/implementation-plan.md",
         "justfile",
     }
 )

@@ -10,8 +10,8 @@ Router A/B signing state, and the Router A/B Ed25519 presign-pool route family.
 
 Current plans and evidence live in:
 
-- [router-a-b-SPEC.md](./router-a-b-SPEC.md)
-- [router-a-b-SPEC.md](./router-a-b-SPEC.md)
+- [router-ab/protocol.md](./router-ab/protocol.md)
+- [router-ab/protocol.md](./router-ab/protocol.md)
 - [refactor-68-wallet-session-v2.md](./refactor-68-wallet-session-v2.md)
 
 Keep this file only as a tombstone for old references.

@@ -7,8 +7,8 @@ Status: draft product vision; use as positioning and product-direction context.
 Related docs:
 
 - [Router A/B sales pitch](router-a-b-sales-pitch.md)
-- [Router A/B spec](router-a-b-SPEC.md)
-- [Router A/B deployment](router-a-b-deployment.md)
+- [Router A/B spec](./router-ab/protocol.md)
+- [Router A/B deployment](./router-ab/deployment.md)
 - [Delegate wallets](refactor-96-delegate-wallets.md)
 - [Delegated agent linked-device behavior](refactor-98-delegated-agent-linked-device-behavior.md)
 - [Voice agent GTM](../voiceId/docs/voice-agent-gtm.md)

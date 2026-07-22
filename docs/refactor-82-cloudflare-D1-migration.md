@@ -1,8 +1,8 @@
 # Cloudflare D1 Migration Plan
 
 Historical execution ledger: active Router A/B route and derivation names are
-defined by [router-a-b-SPEC.md](./router-a-b-SPEC.md),
-[router-a-b-deployment.md](./router-a-b-deployment.md), and the current
+defined by [router-ab/protocol.md](./router-ab/protocol.md),
+[router-ab/deployment.md](./router-ab/deployment.md), and the current
 deployment runbook. Older ceremony/type names remain below only where they
 record completed migration work.
 

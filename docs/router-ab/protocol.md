@@ -6,8 +6,8 @@ Status: canonical Router A/B architecture and protocol reference, updated for
 the July 10, 2026 Phase 0 decision. Ed25519 targets actively secure Streaming
 Yao. ECDSA targets strict threshold-PRF derivation and additive scalar shares.
 Deployment profile and rollout details live in
-[router-a-b-deployment.md](./router-a-b-deployment.md). Local commands and smoke
-coverage live in [router-a-b-local-dev.md](./router-a-b-local-dev.md). Completed
+[router-ab/deployment.md](./deployment.md). Local commands and smoke
+coverage live in [router-ab/local-development.md](./local-development.md). Completed
 cleanup outcomes are reflected directly in this specification.
 
 ## 1. Overview
@@ -30,12 +30,12 @@ Approved target status:
 - Old public threshold signing routes are deleted from active product signing.
 - Wallet Session bearer JWT auth is the public signing authorization boundary.
 - Server-authoritative signing budget and step-up behavior are owned by
-  [refactor-70-server-budget.md](./refactor-70-server-budget.md).
+  [refactor-70-server-budget.md](../refactor-70-server-budget.md).
 - Normal unlock, material restore, and worker-owned signing material remain
   separate from derivation and are governed by the current signing-session
   architecture.
 - Deployed Cloudflare evidence belongs in
-  [router-a-b-deployment.md](./router-a-b-deployment.md).
+  [router-ab/deployment.md](./deployment.md).
 
 Product signing topology:
 
@@ -2874,7 +2874,7 @@ Runbooks should cover:
 - deployment manifest drift
 
 Deployment-specific runbooks live in
-[router-a-b-deployment.md](./router-a-b-deployment.md).
+[router-ab/deployment.md](./deployment.md).
 
 ## 12. Future Work
 

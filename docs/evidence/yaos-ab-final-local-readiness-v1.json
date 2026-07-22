@@ -70,5 +70,5 @@
       "cross_account": true
     }
   },
-  "deferred_plan": "docs/yaos-ab-deployment.md"
+  "deferred_plan": "docs/router-ab/ed25519-yao/deployment.md"
 }

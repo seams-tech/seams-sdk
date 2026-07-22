@@ -50,7 +50,7 @@ Companion plans:
 - [Refactor 82B: Auth Authority Typing Cleanup](./refactor-82B.md)
 - [Refactor 85: IndexedDB Minimization](./refactor-85-indexedDB.md)
 - [Refactor 86: Static Wallet Assets And Vite Plugin Removal](./refactor-86-static-wallet-assets.md)
-- [Streaming Yao for Deriver A and Deriver B](./yaos-ab.md)
+- [Streaming Yao for Deriver A and Deriver B](./router-ab/ed25519-yao/implementation-plan.md)
 
 This document is the implementation checklist. Requirements, architecture
 decisions, domain sketches, persistence defaults, and security model live in the
@@ -63,7 +63,7 @@ auth authority from one-time registration proof data so the modular auth-factor
 and capability surfaces here can be implemented without carrying Passkey-specific
 session assumptions into Email OTP and future auth factors.
 
-`yaos-ab.md` is authoritative for the Ed25519 cryptographic construction,
+`router-ab/ed25519-yao/implementation-plan.md` is authoritative for the Ed25519 cryptographic construction,
 Deriver A/B and SigningWorker ownership, client lifecycle, recovery/refresh/export
 protocols, deployment topology, security profile, and production-readiness gates.
 Refactor 90 owns session, authorization, capability composition, policy, and the
@@ -3165,7 +3165,7 @@ state. Phase 19 defines the client/capability preparation domain, and Phase 20
 completes server admission and
 route cutover. Treat Phases 19 and 20 as one no-release migration tranche; no
 supported build may expose both the old signing authorization flow and the new
-capability-grant flow. YAOS production readiness remains gated by `yaos-ab.md`.
+capability-grant flow. YAOS production readiness remains gated by `router-ab/ed25519-yao/implementation-plan.md`.
 
 Resolve before starting: which MPC capability produces `mpc_signer_proof` by
 default? (See Open Questions.)
@@ -5051,7 +5051,7 @@ Resolved July 3, 2026 (see Decided Architecture Points for rationale):
 Resolved July 15, 2026 through YAOS alignment:
 
 - Which document owns the Ed25519 cryptographic lifecycle and production gates?
-  **`yaos-ab.md`; Refactor 90 owns session, authorization, and capability
+  **`router-ab/ed25519-yao/implementation-plan.md`; Refactor 90 owns session, authorization, and capability
   integration.**
 - Does login/session restoration imply MPC readiness? **No. Session/public
   identity and each capability's preparation state are independent domains.**
@@ -5098,7 +5098,7 @@ question gating it is open.
 - [Refactor 90 Progress Journal](./refactor-90-journal.md)
 - [Centaur Secrets Vault Architecture Plan](./centaur-secrets-vault.md)
 - [Slack OTP Step-Up Spec](./otp-slack.md)
-- [Streaming Yao for Deriver A and Deriver B](./yaos-ab.md)
+- [Streaming Yao for Deriver A and Deriver B](./router-ab/ed25519-yao/implementation-plan.md)
 - [Router A/B Solution Refactor](./router-a-b-sol-refactor.md)
-- [Router A/B Specification](./router-a-b-SPEC.md)
+- [Router A/B Specification](./router-ab/protocol.md)
 - [Step-Up Adaptor Refactor Plan](./refactor-34b-stepup-adaptor.md)

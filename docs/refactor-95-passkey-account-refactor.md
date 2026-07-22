@@ -6,7 +6,7 @@ Last reconciled: July 15, 2026
 
 Status: active design plan. Type scaffolding exists. End-to-end wrapped custody
 is pending. Ed25519 lifecycle behavior must preserve the architecture and
-production gates in [yaos-ab.md](./yaos-ab.md).
+production gates in [router-ab/ed25519-yao/implementation-plan.md](./router-ab/ed25519-yao/implementation-plan.md).
 
 ## Dependencies And Authority
 
@@ -25,7 +25,7 @@ and worker APIs consumed by:
 
 The cryptographic authorities are:
 
-- [yaos-ab.md](./yaos-ab.md) for Ed25519 registration, recovery, refresh,
+- [router-ab/ed25519-yao/implementation-plan.md](./router-ab/ed25519-yao/implementation-plan.md) for Ed25519 registration, recovery, refresh,
   recipient provisioning, activation, signing, and export;
 - `crates/router-ab-ecdsa-derivation` for secp256k1 role-local derivation,
   additive shares, threshold signing, and export;
@@ -292,7 +292,7 @@ Use ten single-use codes, matching the existing Email OTP recovery UX. A code
 is reserved during recovery and becomes consumed only after the complete new
 credential activation commits. Failed pre-commit recovery releases the
 reservation. Failed post-commit Yao recovery follows the forward-only recovery
-rules in `yaos-ab.md`.
+rules in `router-ab/ed25519-yao/implementation-plan.md`.
 
 ## KEK And AAD Binding
 

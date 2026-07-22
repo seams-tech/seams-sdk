@@ -4,8 +4,8 @@ Status: **production lifecycle validation pending**
 
 This file owns only the high-impact path from the completed local Yao A/B
 implementation to a production release decision. Local implementation evidence
-stays in [yaos-ab.md](./yaos-ab.md). General Router A/B and ECDSA deployment
-work stays in [router-a-b-deployment.md](./router-a-b-deployment.md).
+stays in [router-ab/ed25519-yao/implementation-plan.md](./implementation-plan.md). General Router A/B and ECDSA deployment
+work stays in [router-ab/deployment.md](../deployment.md).
 
 The canonical Cloudflare benchmark deployment uses the same-account Service
 Binding WebSocket artifact. This plan retains the 16 completed deployment
@@ -440,6 +440,6 @@ construction that requires them or Gate 3 measurements prove they are needed.
 Any such work receives a new measured, construction-specific plan.
 
 ECDSA independent-account deployment and lifecycle migration remain owned by
-[router-a-b-deployment.md](./router-a-b-deployment.md). Browser asset-waterfall
+[router-ab/deployment.md](../deployment.md). Browser asset-waterfall
 work remains part of the general deployment/release runbook and does not block
 the Yao viability decision.
