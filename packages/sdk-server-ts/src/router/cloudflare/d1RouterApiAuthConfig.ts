@@ -426,13 +426,13 @@ function normalizeEmailOtpConfig(
     throw new Error('provider_and_demo_code requires an Email OTP delivery provider');
   }
   const challengeDefault = production
-    ? { limit: 5, windowMs: 5 * 60_000 }
+    ? { limit: 30, windowMs: 60_000 }
     : { limit: 100, windowMs: 60_000 };
   const verifyDefault = production
-    ? { limit: 10, windowMs: 5 * 60_000 }
+    ? { limit: 30, windowMs: 60_000 }
     : { limit: 100, windowMs: 60_000 };
   const grantDefault = production
-    ? { limit: 8, windowMs: 5 * 60_000 }
+    ? { limit: 30, windowMs: 60_000 }
     : { limit: 100, windowMs: 60_000 };
   const recoveryKeyAttemptDefault = production
     ? { limit: 10, windowMs: 5 * 60_000 }
@@ -474,7 +474,7 @@ function normalizeEmailOtpConfig(
     lockoutTtlMs: configuredInteger({
       field: 'emailOtpLockoutTtlMs',
       raw: input.emailOtpLockoutTtlMs,
-      fallback: 15 * 60_000,
+      fallback: 5 * 60_000,
       min: 60_000,
       max: 24 * 60 * 60_000,
     }),

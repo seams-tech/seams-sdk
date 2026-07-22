@@ -146,6 +146,14 @@ interface LocalD1DevEnv extends RouterAbServiceBindingEnv {
   readonly EMAIL_OTP_RUNTIME_PROFILE?: string;
   readonly EMAIL_OTP_DEMO_ALLOWED_ORIGINS?: string;
   readonly EMAIL_OTP_DEV_OUTBOX_ENABLED?: string;
+  readonly EMAIL_OTP_CHALLENGE_RATE_LIMIT_MAX?: string;
+  readonly EMAIL_OTP_CHALLENGE_RATE_LIMIT_WINDOW_MS?: string;
+  readonly EMAIL_OTP_VERIFY_RATE_LIMIT_MAX?: string;
+  readonly EMAIL_OTP_VERIFY_RATE_LIMIT_WINDOW_MS?: string;
+  readonly EMAIL_OTP_GRANT_RATE_LIMIT_MAX?: string;
+  readonly EMAIL_OTP_GRANT_RATE_LIMIT_WINDOW_MS?: string;
+  readonly EMAIL_OTP_MAX_ATTEMPTS?: string;
+  readonly EMAIL_OTP_LOCKOUT_TTL_MS?: string;
   readonly EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_MAX?: string;
   readonly EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_WINDOW_MS?: string;
   readonly EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_MAX?: string;
@@ -993,6 +1001,14 @@ function localD1RouterApiAuthServiceOptions(
     emailOtpRuntimeProfile: env.EMAIL_OTP_RUNTIME_PROFILE,
     emailOtpDemoAllowedOrigins: env.EMAIL_OTP_DEMO_ALLOWED_ORIGINS,
     emailOtpDevOutboxEnabled: env.EMAIL_OTP_DEV_OUTBOX_ENABLED ?? true,
+    emailOtpChallengeRateLimitMax: env.EMAIL_OTP_CHALLENGE_RATE_LIMIT_MAX,
+    emailOtpChallengeRateLimitWindowMs: env.EMAIL_OTP_CHALLENGE_RATE_LIMIT_WINDOW_MS,
+    emailOtpVerifyRateLimitMax: env.EMAIL_OTP_VERIFY_RATE_LIMIT_MAX,
+    emailOtpVerifyRateLimitWindowMs: env.EMAIL_OTP_VERIFY_RATE_LIMIT_WINDOW_MS,
+    emailOtpGrantRateLimitMax: env.EMAIL_OTP_GRANT_RATE_LIMIT_MAX,
+    emailOtpGrantRateLimitWindowMs: env.EMAIL_OTP_GRANT_RATE_LIMIT_WINDOW_MS,
+    emailOtpMaxAttempts: env.EMAIL_OTP_MAX_ATTEMPTS,
+    emailOtpLockoutTtlMs: env.EMAIL_OTP_LOCKOUT_TTL_MS,
     emailOtpRecoveryKeyAttemptRateLimitMax: env.EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_MAX,
     emailOtpRecoveryKeyAttemptRateLimitWindowMs:
       env.EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_WINDOW_MS,
