@@ -150,6 +150,7 @@ import type {
 import type {
   PMGoogleEmailOtpWalletAuthCompleteRegistrationWireResult,
   PMGoogleEmailOtpWalletAuthRegistrationWireResult,
+  PMGoogleEmailOtpWalletAuthStartPayload,
   PMGoogleEmailOtpWalletAuthSubmitWireResult,
   PMGoogleEmailOtpWalletAuthWireFlow,
   PMGoogleEmailOtpWalletAuthWireResult,
@@ -724,7 +725,6 @@ export class WalletIframeRouter {
           }
         : undefined,
     );
-
   }
 
   private getCurrentAppearance(): AppearanceConfigInput | undefined {
@@ -1419,8 +1419,7 @@ export class WalletIframeRouter {
           },
         );
         if (res.result.ok) {
-          const { login: st } = await this.getWalletSession(res.result.value.walletId);
-          this.emitLoginStatusFromState(st);
+          this.emitLoginStatusFromState(res.result.value.session.login);
         }
         return res.result;
       },
@@ -1432,12 +1431,20 @@ export class WalletIframeRouter {
     payload: GoogleEmailOtpWalletAuthStartInput,
   ): Promise<GoogleEmailOtpWalletAuthResult<GoogleEmailOtpWalletAuthFlow>> {
     const { onDemoOtp, onEvent, ...wirePayload } = payload;
+    const diagnosticsEnabled =
+      Reflect.get(globalThis, '__SEAMS_EMAIL_OTP_UNLOCK_DIAGNOSTICS') === true;
+    const requestPayload: PMGoogleEmailOtpWalletAuthStartPayload = {
+      ...wirePayload,
+      diagnostics: {
+        emailOtpUnlockTimings: diagnosticsEnabled,
+      },
+    };
     const res = await this.post<
       PMGoogleEmailOtpWalletAuthWireResult<PMGoogleEmailOtpWalletAuthWireFlow>
     >(
       {
         type: 'PM_BEGIN_GOOGLE_EMAIL_OTP_WALLET_AUTH',
-        payload: wirePayload,
+        payload: requestPayload,
         options: {
           onProgress:
             payload.mode === 'register'

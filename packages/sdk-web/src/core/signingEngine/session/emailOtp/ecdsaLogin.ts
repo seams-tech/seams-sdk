@@ -585,30 +585,16 @@ export async function provisionEmailOtpExistingKeySessions(args: {
     throw new Error('Email OTP wallet unlock returned an invalid ECDSA worker handle');
   }
   const thresholdSessionId = generateSessionId('threshold-ecdsa-login');
-  const bootstraps: ThresholdEcdsaSessionBootstrapResult[] = [];
-  for (const chainTarget of args.publicationChainTargets) {
-    const existingKey = projectEmailOtpExistingEcdsaKeyToChainTarget({
-      existingKey: args.primaryExistingKey,
-      chainTarget,
-    });
-    bootstraps.push(
-      await args.ports.provisionThresholdEcdsaSession(
-        buildEmailOtpExistingKeyActivation({
-          existingKey,
-          chainTarget,
-          thresholdSessionId,
-          signingGrantId: args.signingGrantId,
-          ttlMs: args.ttlMs,
-          remainingUses: args.remainingUses,
-          runtimePolicyScope: args.runtimePolicyScope,
-          relayerUrl: args.relayerUrl,
-          emailOtpAuthContext: args.emailOtpAuthContext,
-          emailOtpWorkerSessionHandle,
-          walletSessionRouteAuth: args.walletSessionRouteAuth,
-        }),
-      ),
-    );
-  }
+  const provisionContext: ProvisionEmailOtpExistingKeySessionContext = {
+    args,
+    thresholdSessionId,
+    emailOtpWorkerSessionHandle,
+  };
+  const bootstraps = await Promise.all(
+    args.publicationChainTargets.map(
+      provisionEmailOtpExistingKeySessionForTarget.bind(null, provisionContext),
+    ),
+  );
   const primaryBootstrap = bootstraps[0];
   const workerCtx = args.ports.getSignerWorkerContext();
   if (!primaryBootstrap || !workerCtx) {
@@ -625,6 +611,37 @@ export async function provisionEmailOtpExistingKeySessions(args: {
     throw new Error(bound.message || bound.code || 'Email OTP warm-session binding failed');
   }
   return bootstraps;
+}
+
+type ProvisionEmailOtpExistingKeySessionContext = {
+  args: Parameters<typeof provisionEmailOtpExistingKeySessions>[0];
+  thresholdSessionId: string;
+  emailOtpWorkerSessionHandle: ReturnType<typeof parseEmailOtpWorkerIssuedSessionHandle>;
+};
+
+async function provisionEmailOtpExistingKeySessionForTarget(
+  context: ProvisionEmailOtpExistingKeySessionContext,
+  chainTarget: ThresholdEcdsaChainTarget,
+): Promise<ThresholdEcdsaSessionBootstrapResult> {
+  const existingKey = projectEmailOtpExistingEcdsaKeyToChainTarget({
+    existingKey: context.args.primaryExistingKey,
+    chainTarget,
+  });
+  return await context.args.ports.provisionThresholdEcdsaSession(
+    buildEmailOtpExistingKeyActivation({
+      existingKey,
+      chainTarget,
+      thresholdSessionId: context.thresholdSessionId,
+      signingGrantId: context.args.signingGrantId,
+      ttlMs: context.args.ttlMs,
+      remainingUses: context.args.remainingUses,
+      runtimePolicyScope: context.args.runtimePolicyScope,
+      relayerUrl: context.args.relayerUrl,
+      emailOtpAuthContext: context.args.emailOtpAuthContext,
+      emailOtpWorkerSessionHandle: context.emailOtpWorkerSessionHandle,
+      walletSessionRouteAuth: context.args.walletSessionRouteAuth,
+    }),
+  );
 }
 
 export type EmailOtpEcdsaLoginPorts = {

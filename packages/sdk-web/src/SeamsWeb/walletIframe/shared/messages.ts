@@ -171,6 +171,9 @@ export type PMGoogleEmailOtpWalletAuthStartPayload = {
   sessionKind?: 'jwt' | 'cookie';
   ecdsaTargets?: GoogleEmailOtpWalletAuthEcdsaTargets;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
+  diagnostics: {
+    emailOtpUnlockTimings: boolean;
+  };
 };
 
 export type PMGoogleEmailOtpWalletAuthHandlePayload = {
