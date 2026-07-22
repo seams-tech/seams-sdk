@@ -25,6 +25,9 @@ test('demo OTP delivery replaces the existing toast without logging the code', a
   const demoToasts = page.locator('[data-sonner-toast]').filter({ hasText: 'Demo email code:' });
   await expect(demoToasts).toHaveCount(1);
   await expect(demoToasts).toContainText('Demo email code: 654321');
+  await expect(demoToasts).toContainText(
+    'Email delivery is not configured for this live demo.',
+  );
   await expect(demoToasts).not.toContainText('123456');
   expect(consoleMessages.join('\n')).not.toContain('123456');
   expect(consoleMessages.join('\n')).not.toContain('654321');
