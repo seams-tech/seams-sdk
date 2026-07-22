@@ -95,6 +95,22 @@ class VerifierSchemaTest(unittest.TestCase):
         self.assertEqual(verification_response["quality"]["kind"], "accepted")
         self.assertEqual(verification_response["speaker"]["kind"], "accepted")
 
+    def test_canonical_pipeline_is_stable_across_repeated_runs(self) -> None:
+        enrollment_payload = enrollment_request(audio_bytes=enrollment_audio_bytes())
+        first_template = build_enrollment_template_from_json(enrollment_payload)
+        second_template = build_enrollment_template_from_json(enrollment_payload)
+        self.assertEqual(first_template, second_template)
+
+        verification_bytes = wav_audio_bytes([(240, 1800)])
+        verification_payload = verification_request(
+            audio_bytes=verification_bytes,
+            duration_ms=1800,
+            template_response=first_template,
+        )
+        first_verification = verify_speaker_from_json(verification_payload)
+        second_verification = verify_speaker_from_json(verification_payload)
+        self.assertEqual(first_verification, second_verification)
+
     def test_returns_decoder_failure_for_undecodable_capture(self) -> None:
         response = build_enrollment_template_from_json(
             enrollment_request(audio_bytes=b"invalid audio", duration_ms=12000)
@@ -215,6 +231,24 @@ class VerifierSchemaTest(unittest.TestCase):
                 self.assertIsNone(response.headers.get("Access-Control-Allow-Origin"))
         finally:
             stop_http_server(server, thread)
+
+    def test_http_sidecar_reports_warm_runtime_readiness_and_bounded_admission(self) -> None:
+        server = VoiceIdVerifierHttpServer(
+            ("127.0.0.1", 0),
+            maximum_concurrent_inferences=1,
+            queue_wait_ms=0,
+        )
+        try:
+            health = server.health_response()
+            self.assertEqual(health["readiness"], "ready")
+            self.assertEqual(health["runtime"]["maximumConcurrentInferences"], 1)
+            self.assertTrue(server.acquire_inference_slot())
+            self.assertFalse(server.acquire_inference_slot())
+            server.release_inference_slot()
+            self.assertTrue(server.acquire_inference_slot())
+            server.release_inference_slot()
+        finally:
+            server.server_close()
 
 
 def enrollment_request(

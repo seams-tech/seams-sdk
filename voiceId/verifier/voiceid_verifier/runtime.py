@@ -5,7 +5,13 @@ from dataclasses import dataclass
 from typing import Literal, Sequence
 
 from voiceid_verifier.audio_decode import AudioDecodeError, DecodedAudio, decode_audio_bytes
-from voiceid_verifier.audio_quality import AudioQuality, evaluate_audio_quality, evaluate_decoded_audio_quality
+from voiceid_verifier.audio_quality import (
+    AudioQuality,
+    SpeechWindow,
+    VoiceActivity,
+    analyze_decoded_audio,
+    evaluate_audio_quality,
+)
 from voiceid_verifier.embeddings import (
     ECAPA_ADAPTER_ID,
     ECAPA_MODEL_ID,
@@ -47,6 +53,8 @@ class VerifierRuntimeMetadata:
 class EvaluatedAudio:
     quality: AudioQuality
     decoded_audio: DecodedAudio | None
+    voice_activity: VoiceActivity
+    speech_windows: tuple[SpeechWindow, ...]
 
 
 class PlaceholderVerifierRuntime:
@@ -106,6 +114,8 @@ def evaluate_decoded_input(*, audio_bytes: bytes, claims: AudioClaims) -> Evalua
         return EvaluatedAudio(
             quality=evaluate_audio_quality(audio_bytes, claims.duration_ms),
             decoded_audio=None,
+            voice_activity=empty_voice_activity(),
+            speech_windows=(),
         )
     try:
         decoded_audio = decode_audio_bytes(audio_bytes)
@@ -117,6 +127,8 @@ def evaluate_decoded_input(*, audio_bytes: bytes, claims: AudioClaims) -> Evalua
                 reason="undecodable_audio",
             ),
             decoded_audio=None,
+            voice_activity=empty_voice_activity(),
+            speech_windows=(),
         )
     if audio_claims_mismatch(claims=claims, decoded_audio=decoded_audio):
         return EvaluatedAudio(
@@ -126,15 +138,30 @@ def evaluate_decoded_input(*, audio_bytes: bytes, claims: AudioClaims) -> Evalua
                 reason="metadata_mismatch",
             ),
             decoded_audio=decoded_audio,
+            voice_activity=empty_voice_activity(),
+            speech_windows=(),
         )
+    analysis = analyze_decoded_audio(
+        audio_bytes,
+        decoded_audio.decoded_duration_ms,
+        samples=decoded_audio.samples,
+        sample_rate_hz=decoded_audio.sample_rate_hz,
+    )
     return EvaluatedAudio(
-        quality=evaluate_decoded_audio_quality(
-            audio_bytes,
-            decoded_audio.decoded_duration_ms,
-            samples=decoded_audio.samples,
-            sample_rate_hz=decoded_audio.sample_rate_hz,
-        ),
+        quality=analysis.quality,
         decoded_audio=decoded_audio,
+        voice_activity=analysis.voice_activity,
+        speech_windows=analysis.speech_windows,
+    )
+
+
+def empty_voice_activity() -> VoiceActivity:
+    return VoiceActivity(
+        speech_ms=0,
+        speech_ratio=0.0,
+        longest_speech_ms=0,
+        active_frame_count=0,
+        frame_count=0,
     )
 
 

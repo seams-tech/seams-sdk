@@ -12,6 +12,65 @@ Long-term security target:
 Wallet signing, browser containment, and authenticator hardware are deferred
 during this plan. The active tasks improve the standalone VoiceID engine.
 
+## Approved Solo MVP Research Profile
+
+- The MVP corpus starts with stable generated identities from Dia2 and
+  ElevenLabs. Human population claims remain unavailable until a real
+  multi-subject corpus replaces or supplements these fixtures.
+- Synthetic fixtures may measure pipeline correctness, phrase and intent
+  accuracy, synthetic-impostor rejection, presentation-attack response,
+  latency, memory, resilience, and retry behavior. Reports MUST label these
+  cohorts as synthetic and MUST NOT publish their results as human speaker FAR,
+  FRR, or EER.
+- Audio-conditioned synthesis may use owner-consented reference recordings.
+  The manifest records the consent handle and separates the conditioning media
+  from generated output.
+- D1 stores relational manifest, provenance, consent, lifecycle, deletion, and
+  report metadata. Encrypted audio objects live in a private R2 bucket or an
+  equivalent encrypted object store. Raw audio does not live in D1 rows.
+- Research-corpus retention is project-lifetime with no automatic expiry.
+  Explicit deletion, key revocation, and deletion receipts remain required.
+  Production diagnostic-media TTL rules remain unchanged.
+- The first runtime profile is Apple Silicon macOS. iPhone 16 is the first
+  capture profile and the second on-device inference target.
+- Dia2 generation uses an ephemeral rented CUDA worker. The cloud account,
+  checkpoint cache, and generator runtime remain outside production VoiceID.
+  Generic synthetic generation may use a cost-optimized provider; conditioned
+  owner audio requires private storage, restricted access, and worker teardown.
+- Each Dia2 corpus-generation campaign has a $50 compute ceiling, automatic
+  shutdown after completion or idle timeout, verified R2 upload before
+  teardown, and no retained VM or checkpoint volume.
+- The first calibration boundary is English. Japanese follows after the
+  English model and challenge policy are frozen.
+
+Initial performance budgets:
+
+- warm post-utterance decision p95 target: 500 ms; hard MVP ceiling: 1 second;
+- complete spoken ceremony: report separately because capture duration
+  dominates inference latency;
+- bona-fide first-attempt completion target: at least 95%; quality-driven retry
+  target: at most 5%; allow one retry before another authentication method;
+- Mac research runtime: at most 1.5 GB of production model assets and 3 GB peak
+  resident memory, excluding offline fixture generators;
+- iPhone downloadable model pack: at most 350 MB with at most 750 MB peak
+  resident memory.
+
+Download approval inventory, reviewed 2026-07-22:
+
+| Artifact | Published download | MVP use |
+| --- | ---: | --- |
+| Moonshine Tiny Streaming F32 | 178 MB | First phrase and intent candidate |
+| Moonshine Small Streaming F32 | 562 MB | Accuracy comparison on Mac |
+| SpeechBrain ECAPA bundle | 89.1 MB | Current speaker baseline |
+| Dia2 1B | 4.31 GB | First offline synthetic generator on CUDA |
+| Dia2 2B | 7.68 GB | Optional attack-generator comparison |
+| ElevenLabs | Remote API | Immediately usable generated and cloned voices |
+
+Dependency caches and runtime libraries add to these checkpoint sizes. The
+listed artifacts are approved for download when their implementation phase
+begins. Any newly introduced artifact above 1 GB requires size disclosure and
+approval before transfer.
+
 ## Completed: Domain Cutover
 
 - [x] Add branded enrollment, verification, challenge, model, threshold,
@@ -104,21 +163,38 @@ one atomic template decision.
       losers do no duplicate work.
 - [x] Define recovery for a worker crash after claim and before terminal commit.
 - [x] Add concurrent verification and duplicate enrollment transition tests.
-- [ ] Add timeout, worker-crash, and response-loss tests.
+- [x] Add timeout, worker-crash, and response-loss tests.
 
 Exit gate: one enrollment id and one verification id each produce at most one
 terminal computation across multiple workers.
 
 ## Gate C: Reproducible Performance And Accuracy Baseline
 
-- [ ] Define one versioned fixture manifest for enrollment, genuine
+- [x] Define one versioned fixture manifest for enrollment, genuine
       verification, zero-effort impostors, phrase errors, and presentation
       attacks.
+- [x] Require immutable audio hashes, consent references, complete capture
+      profiles, and subject-disjoint development, calibration, and evaluation
+      partitions at the benchmark-manifest boundary.
+- [x] Add one dependency-free inventory command that emits machine-readable
+      JSON and a human report from the same validated manifest run and fails
+      readiness when required cases or attack classes are absent.
+- [ ] Extend the benchmark provenance boundary with exact
+      `consented_human_capture` and `synthetic_generation` branches. Require
+      generator, model, revision, voice identity, seed, terms snapshot, and
+      optional conditioning-consent metadata for synthetic entries.
+- [ ] Generate the solo MVP corpus with subject-disjoint stable synthetic
+      identities, challenge errors, generic attacks, and owner-conditioned
+      cloning attacks split across Dia2 and ElevenLabs families.
+- [ ] Make every benchmark report distinguish synthetic-identity,
+      owner-conditioned, and bona-fide-human cohorts and suppress human
+      population FAR, FRR, and EER when the required human cohort is absent.
 - [ ] Collect consented, subject-disjoint recordings across days, microphones,
       rooms, distances, codecs, sample rates, accents, and noise conditions.
 - [ ] Freeze subject-disjoint development, calibration, and evaluation splits.
-- [ ] Add one benchmark command that emits machine-readable results and a human
-      report from the same run.
+- [ ] Extend the inventory command to run the selected model adapters and emit
+      machine-readable measurement results and a human report from the same
+      run.
 - [ ] Measure speaker FAR, FRR, EER, uncertainty, and retry rate with confidence
       intervals.
 - [ ] Measure phrase substitution, omission, insertion, reordering, and
@@ -137,21 +213,35 @@ reproducible accuracy, latency, and resource baseline.
 
 ## Gate D: Single-Decode Shared Inference Runtime
 
-- [ ] Decode and resample each capture exactly once into bounded mono 16 kHz
+- [x] Decode and resample each capture exactly once into bounded mono 16 kHz
       PCM inside the verifier boundary.
+- [x] Compute canonical VAD once and reuse its exact activity and speech windows
+      for audio quality and enrollment-template construction.
 - [ ] Reuse the same authoritative PCM, VAD result, and accepted speech windows
       for phrase, intent, speaker, PAD, and template processing.
 - [ ] Preserve independent typed phrase, intent, speaker, quality, and PAD
       decisions.
 - [ ] Run phrase, intent, speaker, and PAD inference concurrently after common
       quality gates accept.
-- [ ] Replace request-scoped model startup with persistent workers that load
-      each model once and report readiness.
+- [x] Replace request-scoped model startup with a persistent HTTP sidecar that
+      loads each model once and reports exact runtime readiness. Delete the
+      request-scoped Python subprocess transport.
+- [x] Add bounded sidecar inference admission, configurable queue wait, and a
+      deterministic overload response.
+- [x] Start independent phrase and speaker verification concurrently after the
+      lifecycle claim.
+- [ ] Add persistent workers for the selected phrase, intent, and PAD models
+      that load each model once and report readiness.
 - [ ] Add bounded queues, backpressure, per-stage deadlines, cancellation, and
       deterministic overload results.
-- [ ] Zero shared PCM, feature, window, and embedding buffers after the terminal
-      decision.
-- [ ] Prove shared preprocessing produces stable scores across repeated runs.
+- [x] Zero current sidecar PCM, speech-window, template, and speaker-embedding
+      buffers after the terminal decision.
+- [ ] Extend terminal buffer zeroing to the selected phrase, intent, and PAD
+      feature buffers.
+- [x] Prove the canonical baseline pipeline produces stable templates, quality
+      evidence, and speaker scores across repeated runs.
+- [ ] Extend the repeated-run regression to each selected phrase, intent,
+      speaker, and PAD model adapter.
 
 Exit gate: one bounded preprocessing pass feeds warm concurrent inference with
 no duplicate decode, resample, VAD, or model initialization.
@@ -188,7 +278,8 @@ no duplicate decode, resample, VAD, or model initialization.
       acceptance for exact and hybrid policies.
 - [ ] Measure model download size, cold initialization, warm p50/p95/p99
       end-of-utterance latency, complete capture latency, peak memory, and CPU
-      use on Linux x86, robot-class CPU, and iOS/Core ML.
+      use first on Apple Silicon macOS, then iPhone 16/Core ML. Linux x86 and
+      robot-class CPU follow after the Apple profiles are reproducible.
 - [ ] Pin the Moonshine release, model hashes, architecture, quantization, ONNX
       Runtime providers, preprocessing, and transcript normalization in the
       experiment manifest.
@@ -222,10 +313,36 @@ frozen accuracy and runtime budgets on held-out subjects.
 - [ ] Feed PAD from the shared canonical PCM and speech windows.
 - [ ] Build separate replay, synthesis, voice conversion, splice, relay, and
       digital-injection evaluation sets.
-- [ ] Include attacks generated by current voice-cloning systems and attacks
-      tuned against the selected speaker model.
+- [ ] Use pinned
+      [Dia2](https://github.com/nari-labs/dia2) 1B and 2B checkpoints as
+      reproducible English prompt-targeted synthesis generators. Produce both
+      generic-voice and audio-conditioned attacks from consented reference
+      recordings.
+- [ ] Use ElevenLabs Voice Design identities for the first immediately
+      available synthetic cohort and an owner-authorized clone for a separate
+      prompt-targeted attack cohort. Pin API model ids, voice ids, settings,
+      request hashes, output hashes, plan/license evidence, and generation
+      timestamps.
+- [ ] Run Dia2 1B first on a CUDA host. Download Dia2 2B only when the 1B and
+      ElevenLabs results leave a measured attack-coverage gap.
+- [ ] Generate correct-intent attacks containing fresh challenge tokens in
+      varied order, then exercise direct digital injection, acoustic replay,
+      codec conversion, noise, and room-response transformations.
+- [ ] Record the Dia2 repository revision, weight hashes, architecture,
+      reference-audio consent handle and duration, script, challenge tokens,
+      seed, sampling configuration, output duration, generation latency, and
+      transformation chain in the attack manifest.
+- [ ] Include multiple unrelated current text-to-speech and voice-conversion
+      systems, attacks tuned against the selected speaker model and PAD, and
+      held-out generators unavailable during calibration.
+- [ ] Keep Dia2 and every attack-generation tool in the offline fixture
+      pipeline and outside production VoiceID packages, verifier images, and
+      runtime dependencies.
 - [ ] Report APCER, BPCER, uncertainty, and latency by attack class and capture
       profile.
+- [ ] Report whether prompt-targeted generation completes within the challenge
+      validity window and include that timing in combined unauthorized-
+      acceptance analysis.
 - [ ] Calibrate accepted, uncertain, and rejected regions without folding PAD
       into the speaker score.
 - [ ] Run PAD concurrently with phrase and speaker inference.
@@ -296,6 +413,7 @@ pnpm -C voiceId test
 pnpm -C voiceId signing-architecture:guard
 pnpm -C voiceId verifier:test
 pnpm -C voiceId pad:test
+pnpm -C voiceId benchmark:test
 ```
 
 Deployment and model checks remain separate:

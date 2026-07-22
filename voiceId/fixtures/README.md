@@ -74,6 +74,45 @@ APCER by attack class, APCER by capture profile, and missing attack species. A
 manifest cannot report `releaseReady: true` until every required attack class
 appears in the evaluation partition.
 
+## Reproducible Benchmark Manifest
+
+Gate C uses `voiceid-benchmark-manifest.json` as the frozen dataset boundary.
+Each entry records an immutable audio SHA-256 digest, consent reference,
+subject, session, development/calibration/evaluation partition, case type,
+expected intent, challenge tokens, and the complete capture profile. The parser
+rejects a subject or zero-effort-impostor target that crosses partitions.
+Every verification target must also have an enrollment entry in the same
+partition, and presentation attacks identify their intended target explicitly.
+
+Run the dependency-free contract tests with:
+
+```sh
+pnpm -C voiceId benchmark:test
+```
+
+Once the consented corpus is present, validate it and emit the machine-readable
+inventory and human report from the same run:
+
+```sh
+pnpm -C voiceId benchmark:run
+```
+
+The report stays measurement-ineligible until all three partitions, all case
+kinds, and every required presentation-attack class are represented. Raw audio
+remains local or in the separately approved encrypted research store.
+
+The solo MVP uses generated identities first. The next manifest revision adds
+an exact provenance union for consented human captures and synthetic
+generations. Synthetic entries carry their generator, model revision, stable
+voice identity or seed, terms snapshot, and optional conditioning consent.
+Generated cohorts support engineering and attack measurements; reports suppress
+human population FAR, FRR, and EER until a qualifying real-subject cohort is
+present.
+
+For Cloudflare deployments, D1 stores the searchable manifest and report
+metadata. Encrypted audio lives in a private R2 bucket. Research fixtures use
+project-lifetime retention with explicit deletion and key revocation.
+
 ## Retention
 
 Keep fixture bundles local unless everyone recorded in the fixture set has

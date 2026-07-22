@@ -46,6 +46,8 @@ Use the placeholder backend for quick container smoke tests:
 docker run --rm \
   -p 8797:8797 \
   -e VOICEID_VERIFIER_BACKEND=placeholder \
+  -e VOICEID_VERIFIER_MAX_CONCURRENT_INFERENCES=1 \
+  -e VOICEID_VERIFIER_QUEUE_WAIT_MS=250 \
   voiceid-verifier:local
 ```
 
@@ -55,6 +57,8 @@ Use ECAPA for E0 speaker-verification research:
 docker run --rm \
   -p 8797:8797 \
   -e VOICEID_VERIFIER_BACKEND=ecapa \
+  -e VOICEID_VERIFIER_MAX_CONCURRENT_INFERENCES=1 \
+  -e VOICEID_VERIFIER_QUEUE_WAIT_MS=250 \
   voiceid-verifier:ecapa
 ```
 

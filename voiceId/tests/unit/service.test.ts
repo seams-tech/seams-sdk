@@ -152,6 +152,54 @@ test('verification challenge commits exactly one concurrent capture', async () =
   assert.equal(conflictCount, 1);
 });
 
+test('a lost enrollment response cannot repeat terminal model work', async () => {
+  const fixture = createFixture();
+  const started = await fixture.service.startEnrollment({ userId });
+  assert.equal(started.kind, 'ok');
+  const recording = {
+    userId,
+    enrollmentId: started.value.record.enrollmentId,
+    audio: makeDemoAudioInput({ durationMs: 18_000 }),
+  };
+
+  const discardedResponse = await fixture.service.submitEnrollmentRecording(recording);
+  assert.equal(discardedResponse.kind, 'ok');
+
+  const retry = await fixture.service.submitEnrollmentRecording(recording);
+  assert.equal(retry.kind, 'error');
+  assert.equal(retry.error.kind, 'invalid_state');
+  assert.equal(
+    (await fixture.enrollmentStore.getByEnrollmentId(recording.enrollmentId))?.state,
+    'enrolled',
+  );
+  assert.equal(fixture.auditEvents.filter(isEnrollmentCompletedAudit).length, 1);
+});
+
+test('a lost verification response cannot repeat terminal model work', async () => {
+  const fixture = createFixture();
+  const enrollmentId = await enroll(fixture.service);
+  const started = await fixture.service.startVerification({ userId, enrollmentId });
+  assert.equal(started.kind, 'ok');
+  const recording = {
+    userId,
+    enrollmentId,
+    verificationId: started.value.record.verificationId,
+    audio: makeDemoAudioInput({ durationMs: 4_000 }),
+  };
+
+  const discardedResponse = await fixture.service.submitVerificationRecording(recording);
+  assert.equal(discardedResponse.kind, 'ok');
+
+  const retry = await fixture.service.submitVerificationRecording(recording);
+  assert.equal(retry.kind, 'error');
+  assert.equal(retry.error.kind, 'invalid_state');
+  assert.equal(
+    (await fixture.verificationStore.getByVerificationId(recording.verificationId))?.state,
+    'evidence_observed',
+  );
+  assert.equal(fixture.auditEvents.filter(isVerificationCompletedAudit).length, 1);
+});
+
 test('enrollment analysis is claimed before transcript work begins', async () => {
   const transcriptProvider = new BlockingTranscriptProvider();
   const fixture = createFixture({ transcriptProvider });
@@ -196,6 +244,62 @@ test('an in-flight enrollment analysis fails when its lease expires', async () =
   const result = await submission;
   assert.equal(result.kind, 'ok');
   assert.equal(result.kind === 'ok' && result.value.kind === 'rejected' ? result.value.reason : '', 'analysis_timeout');
+});
+
+test('an in-flight verification analysis fails when its lease expires', async () => {
+  const transcriptProvider = new BlockingTranscriptProvider(4_000);
+  const clock = new MutableClock(fixedNow());
+  const fixture = createFixture({
+    transcriptProvider,
+    now: clock.now.bind(clock),
+    config: { ...defaultVoiceIdServiceConfig(), verificationAnalysisTtlMs: 1_000 },
+  });
+  const enrollmentId = await enroll(fixture.service);
+  const started = await fixture.service.startVerification({ userId, enrollmentId });
+  assert.equal(started.kind, 'ok');
+
+  const submission = fixture.service.submitVerificationRecording({
+    userId,
+    enrollmentId,
+    verificationId: started.value.record.verificationId,
+    audio: makeDemoAudioInput({ durationMs: 4_000 }),
+  });
+  await transcriptProvider.waitUntilStarted();
+  clock.advanceMs(2_000);
+  transcriptProvider.release();
+
+  const result = await submission;
+  assert.equal(result.kind, 'error');
+  assert.equal(result.error.kind, 'expired');
+  assert.equal(
+    (await fixture.verificationStore.getByVerificationId(started.value.record.verificationId))
+      ?.state,
+    'analysis_failed',
+  );
+});
+
+test('verification phrase and speaker inference start concurrently', async () => {
+  const probe = new VerificationInferenceProbe();
+  const fixture = createFixture({
+    transcriptProvider: new ProbedTranscriptProvider(probe),
+    verifier: new ProbedVoiceIdVerifier(probe),
+  });
+  const enrollmentId = await enroll(fixture.service);
+  const started = await fixture.service.startVerification({ userId, enrollmentId });
+  assert.equal(started.kind, 'ok');
+
+  const submission = fixture.service.submitVerificationRecording({
+    userId,
+    enrollmentId,
+    verificationId: started.value.record.verificationId,
+    audio: makeDemoAudioInput({ durationMs: 4_000 }),
+  });
+  await probe.waitUntilBothStarted();
+  probe.release();
+
+  const result = await submission;
+  assert.equal(result.kind, 'ok');
+  assert.equal(result.value.kind, 'evidence_observed');
 });
 
 test('stale enrollment analysis becomes a precise terminal failure', async () => {
@@ -362,6 +466,14 @@ function readAuditKind(event: VoiceIdAuditEvent): string {
   return event.kind;
 }
 
+function isEnrollmentCompletedAudit(event: VoiceIdAuditEvent): boolean {
+  return event.kind === 'enrollment_completed';
+}
+
+function isVerificationCompletedAudit(event: VoiceIdAuditEvent): boolean {
+  return event.kind === 'verification_completed';
+}
+
 class ThrowingTemplateVerifier extends FakeVoiceIdVerifier {
   override async buildEnrollmentTemplate(
     _input: Parameters<VoiceIdVerifier['buildEnrollmentTemplate']>[0],
@@ -385,9 +497,16 @@ class BlockingTranscriptProvider extends FakeTranscriptProvider {
   private readonly events = new EventEmitter();
   private hasStarted = false;
 
+  constructor(private readonly blockedDurationMs = 18_000) {
+    super();
+  }
+
   override async matchPhrase(
     input: Parameters<VoiceIdTranscriptProvider['matchPhrase']>[0],
   ): ReturnType<VoiceIdTranscriptProvider['matchPhrase']> {
+    if (input.audio.metadata.durationMs !== this.blockedDurationMs) {
+      return await super.matchPhrase(input);
+    }
     this.hasStarted = true;
     this.events.emit('started');
     await once(this.events, 'released');
@@ -401,6 +520,71 @@ class BlockingTranscriptProvider extends FakeTranscriptProvider {
 
   release(): void {
     this.events.emit('released');
+  }
+}
+
+class VerificationInferenceProbe {
+  private readonly events = new EventEmitter();
+  private transcriptStarted = false;
+  private speakerStarted = false;
+
+  markTranscriptStarted(): void {
+    this.transcriptStarted = true;
+    this.emitBothStarted();
+  }
+
+  markSpeakerStarted(): void {
+    this.speakerStarted = true;
+    this.emitBothStarted();
+  }
+
+  async waitUntilBothStarted(): Promise<void> {
+    if (this.transcriptStarted && this.speakerStarted) return;
+    await once(this.events, 'both-started');
+  }
+
+  async waitUntilReleased(): Promise<void> {
+    await once(this.events, 'released');
+  }
+
+  release(): void {
+    this.events.emit('released');
+  }
+
+  private emitBothStarted(): void {
+    if (this.transcriptStarted && this.speakerStarted) {
+      this.events.emit('both-started');
+    }
+  }
+}
+
+class ProbedTranscriptProvider extends FakeTranscriptProvider {
+  constructor(private readonly probe: VerificationInferenceProbe) {
+    super();
+  }
+
+  override async matchPhrase(
+    input: Parameters<VoiceIdTranscriptProvider['matchPhrase']>[0],
+  ): ReturnType<VoiceIdTranscriptProvider['matchPhrase']> {
+    if (input.audio.metadata.durationMs === 4_000) {
+      this.probe.markTranscriptStarted();
+      await this.probe.waitUntilReleased();
+    }
+    return await super.matchPhrase(input);
+  }
+}
+
+class ProbedVoiceIdVerifier extends FakeVoiceIdVerifier {
+  constructor(private readonly probe: VerificationInferenceProbe) {
+    super();
+  }
+
+  override async verifySpeaker(
+    input: Parameters<VoiceIdVerifier['verifySpeaker']>[0],
+  ): Promise<VoiceIdSpeakerVerification> {
+    this.probe.markSpeakerStarted();
+    await this.probe.waitUntilReleased();
+    return await super.verifySpeaker(input);
   }
 }
 
