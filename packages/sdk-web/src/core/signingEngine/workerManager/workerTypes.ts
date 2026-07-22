@@ -32,6 +32,7 @@ import type { EcdsaClientPresignPoolIdentity } from './ecdsaPresignPoolIdentity'
 import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import type { WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
 import type { EmailOtpRecoveryCodeSet } from '@shared/utils/emailOtpRecoveryKey';
+import type { EmailOtpChallengeDelivery } from '../session/emailOtp/publicTypes';
 import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import type { EmailOtpRoutePlan } from '../stepUpConfirmation/otpPrompt/authLane';
 import type {
@@ -438,6 +439,7 @@ export interface EmailOtpWorkerOperationMap {
     result: {
       challengeId: string;
       otpChannel: WalletEmailOtpChannel;
+      delivery: EmailOtpChallengeDelivery;
       emailHint?: string;
       expiresAtMs?: number;
       appSessionVersion?: string;
@@ -453,6 +455,7 @@ export interface EmailOtpWorkerOperationMap {
     result: {
       challengeId: string;
       otpChannel: WalletEmailOtpChannel;
+      delivery: EmailOtpChallengeDelivery;
       emailHint?: string;
       expiresAtMs?: number;
       appSessionVersion?: string;

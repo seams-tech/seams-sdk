@@ -16,11 +16,13 @@ import type {
 import type {
   EmailOtpDeviceEnrollmentRemoveResult,
   EmailOtpDeviceEnrollmentRestoreResult,
+  EmailOtpChallengeDelivery,
   EmailOtpEnrollmentResult,
   EmailOtpRecoveryCodeBackupStatus,
   EmailOtpRecoveryCodeLifecycleStatus,
   EmailOtpRecoveryCodeStatus,
   GoogleEmailOtpSessionExchangeResult,
+  DemoEmailOtpCodeResponse,
 } from '@/core/signingEngine/session/emailOtp/publicTypes';
 import type {
   ProvisionWarmEd25519CapabilityResult,
@@ -405,6 +407,7 @@ export type BootstrapThresholdEcdsaSessionArgs = {
 export type EmailOtpChallengeResult = {
   challengeId: string;
   otpChannel: WalletEmailOtpChannel;
+  delivery: EmailOtpChallengeDelivery;
   emailHint?: string;
   expiresAtMs?: number;
   appSessionVersion?: string;
@@ -469,7 +472,7 @@ export type EmailOtpEcdsaEnrollmentCapabilityResult = {
 
 export type GoogleEmailOtpWalletAuthRequestedMode = 'register' | 'login';
 export type GoogleEmailOtpWalletAuthResolvedMode = 'register' | 'login';
-export type GoogleEmailOtpWalletAuthDelivery = 'sent' | 'reused';
+export type GoogleEmailOtpWalletAuthDelivery = EmailOtpChallengeDelivery;
 
 export type GoogleEmailOtpRegistrationOfferId = string & {
   readonly __googleEmailOtpRegistrationOfferId: unique symbol;
@@ -656,6 +659,7 @@ export type GoogleEmailOtpWalletAuthStartInput = {
   sessionKind?: 'jwt' | 'cookie';
   ecdsaTargets?: GoogleEmailOtpWalletAuthEcdsaTargets;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
+  onDemoOtp?: (response: DemoEmailOtpCodeResponse) => void;
   onEvent?: (event: RegistrationFlowEvent | UnlockFlowEvent) => void;
 };
 

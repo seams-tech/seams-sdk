@@ -5,6 +5,7 @@ import type {
   EmailOtpChallengeOperation,
 } from '../../core/EmailOtpStores';
 import type { ThresholdStoreConfigInput } from '../../core/types';
+import { EMAIL_OTP_CODE_LENGTH } from '../../core/authService/emailOtpConfig';
 import type { RouterAbSigningRuntimeBundle } from '../../core/routerAbSigning/createRouterAbSigningRuntimes';
 import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../routerAbEd25519YaoProductRegistration';
 import type { RouterAbEcdsaStrictRegistrationPort } from '../routerAbEcdsaStrictRegistration';
@@ -69,6 +70,8 @@ export interface CloudflareD1RouterApiAuthServiceOptions {
   readonly accountIdDerivationSecret?: string;
   readonly emailOtpServerSeal?: CloudflareD1EmailOtpServerSealConfig;
   readonly emailOtpDeliveryMode?: string;
+  readonly emailOtpRuntimeProfile?: string;
+  readonly emailOtpDemoAllowedOrigins?: string | readonly string[];
   readonly emailOtpDeliveryProvider?: CloudflareD1EmailOtpDeliveryProvider;
   readonly emailOtpDevOutboxEnabled?: boolean | string;
   readonly emailOtpProduction?: boolean | string;
@@ -94,10 +97,23 @@ export interface CloudflareD1RouterApiAuthServiceOptions {
   readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
 }
 
-export type EmailOtpDeliveryMode = 'email_provider' | 'log' | 'dev_d1_outbox';
+export type EmailOtpDeliveryMode =
+  | 'email_provider'
+  | 'provider_and_demo_code'
+  | 'log'
+  | 'dev_d1_outbox'
+  | 'demo_code_response';
+
+export type EmailOtpRuntimeProfile =
+  | 'development'
+  | 'testnet_live_demo'
+  | 'testnet_service'
+  | 'mainnet_service';
 
 export type EmailOtpRuntimeConfig = {
   readonly deliveryMode: EmailOtpDeliveryMode;
+  readonly runtimeProfile: EmailOtpRuntimeProfile;
+  readonly demoAllowedOrigins: readonly string[];
   readonly deliveryProvider?: CloudflareD1EmailOtpDeliveryProvider;
   readonly devOutboxEnabled: boolean;
   readonly production: boolean;
@@ -105,7 +121,7 @@ export type EmailOtpRuntimeConfig = {
   readonly grantTtlMs: number;
   readonly maxAttempts: number;
   readonly lockoutTtlMs: number;
-  readonly codeLength: number;
+  readonly codeLength: typeof EMAIL_OTP_CODE_LENGTH;
   readonly maxActiveChallengesPerContext: number;
   readonly rateLimits: {
     readonly challenge: EmailOtpRateLimitPolicy;
@@ -147,6 +163,8 @@ export type NormalizedCloudflareD1RouterApiAuthServiceOptions = Omit<
   | 'accountIdDerivationSecret'
   | 'emailOtpServerSeal'
   | 'emailOtpDeliveryMode'
+  | 'emailOtpRuntimeProfile'
+  | 'emailOtpDemoAllowedOrigins'
   | 'emailOtpDeliveryProvider'
   | 'emailOtpDevOutboxEnabled'
   | 'emailOtpProduction'
@@ -257,15 +275,112 @@ function configuredInteger(input: {
   return Math.floor(value);
 }
 
-function normalizeEmailOtpDeliveryMode(input: unknown): EmailOtpDeliveryMode {
-  const value = toOptionalTrimmedString(input)?.toLowerCase() || 'email_provider';
+function normalizeEmailOtpDeliveryMode(
+  input: unknown,
+  fallback: EmailOtpDeliveryMode,
+): EmailOtpDeliveryMode {
+  const value = toOptionalTrimmedString(input)?.toLowerCase() || fallback;
   switch (value) {
     case 'email_provider':
+    case 'provider_and_demo_code':
     case 'log':
     case 'dev_d1_outbox':
+    case 'demo_code_response':
       return value;
     default:
-      throw new Error('emailOtpDeliveryMode must be one of email_provider, log, or dev_d1_outbox');
+      throw new Error(
+        'emailOtpDeliveryMode must be one of email_provider, provider_and_demo_code, log, dev_d1_outbox, or demo_code_response',
+      );
+  }
+}
+
+function normalizeEmailOtpRuntimeProfile(
+  input: unknown,
+  production: boolean,
+): EmailOtpRuntimeProfile {
+  const configured = toOptionalTrimmedString(input)?.toLowerCase();
+  if (!configured) {
+    if (production) {
+      throw new Error('emailOtpRuntimeProfile is required when emailOtpProduction is enabled');
+    }
+    return 'development';
+  }
+  const value = configured;
+  switch (value) {
+    case 'development':
+    case 'testnet_live_demo':
+    case 'testnet_service':
+    case 'mainnet_service':
+      return value;
+    default:
+      throw new Error(
+        'emailOtpRuntimeProfile must be one of development, testnet_live_demo, testnet_service, or mainnet_service',
+      );
+  }
+}
+
+function normalizeEmailOtpCodeLength(input: unknown): typeof EMAIL_OTP_CODE_LENGTH {
+  const codeLength = configuredInteger({
+    field: 'emailOtpCodeLength',
+    raw: input,
+    fallback: EMAIL_OTP_CODE_LENGTH,
+    min: EMAIL_OTP_CODE_LENGTH,
+    max: 8,
+  });
+  if (codeLength !== EMAIL_OTP_CODE_LENGTH) {
+    throw new Error(`emailOtpCodeLength must be ${EMAIL_OTP_CODE_LENGTH}`);
+  }
+  return EMAIL_OTP_CODE_LENGTH;
+}
+
+function normalizeDemoOrigin(input: unknown): string {
+  const value = toOptionalTrimmedString(input);
+  if (!value) throw new Error('emailOtpDemoAllowedOrigins contains an empty origin');
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`emailOtpDemoAllowedOrigins contains an invalid origin: ${value}`);
+  }
+  if (parsed.protocol !== 'https:' || parsed.origin !== value) {
+    throw new Error(
+      `emailOtpDemoAllowedOrigins must contain exact HTTPS origins without paths: ${value}`,
+    );
+  }
+  return parsed.origin;
+}
+
+function emailOtpDemoAllowedOriginInputs(input: unknown): readonly unknown[] {
+  if (Array.isArray(input)) return input;
+  const value = toOptionalTrimmedString(input);
+  if (!value) return [];
+  return value.split(',');
+}
+
+function normalizeEmailOtpDemoAllowedOrigins(input: unknown): readonly string[] {
+  const values = emailOtpDemoAllowedOriginInputs(input);
+  return [...new Set(values.map(normalizeDemoOrigin))];
+}
+
+function assertEmailOtpDeliveryProfile(input: {
+  readonly deliveryMode: EmailOtpDeliveryMode;
+  readonly runtimeProfile: EmailOtpRuntimeProfile;
+  readonly demoAllowedOrigins: readonly string[];
+}): void {
+  if (input.runtimeProfile === 'mainnet_service' && input.deliveryMode !== 'email_provider') {
+    throw new Error('mainnet_service requires emailOtpDeliveryMode=email_provider');
+  }
+  if (
+    input.deliveryMode !== 'demo_code_response' &&
+    input.deliveryMode !== 'provider_and_demo_code'
+  ) {
+    return;
+  }
+  if (input.runtimeProfile !== 'testnet_live_demo') {
+    throw new Error(`${input.deliveryMode} requires emailOtpRuntimeProfile=testnet_live_demo`);
+  }
+  if (input.demoAllowedOrigins.length === 0) {
+    throw new Error(`${input.deliveryMode} requires at least one emailOtpDemoAllowedOrigins entry`);
   }
 }
 
@@ -300,7 +415,16 @@ function normalizeEmailOtpConfig(
   input: CloudflareD1RouterApiAuthServiceOptions,
 ): EmailOtpRuntimeConfig {
   const production = parseBooleanFlag(input.emailOtpProduction, false, 'emailOtpProduction');
-  const deliveryMode = normalizeEmailOtpDeliveryMode(input.emailOtpDeliveryMode);
+  const runtimeProfile = normalizeEmailOtpRuntimeProfile(input.emailOtpRuntimeProfile, production);
+  const deliveryMode = normalizeEmailOtpDeliveryMode(
+    input.emailOtpDeliveryMode,
+    runtimeProfile === 'testnet_live_demo' ? 'demo_code_response' : 'email_provider',
+  );
+  const demoAllowedOrigins = normalizeEmailOtpDemoAllowedOrigins(input.emailOtpDemoAllowedOrigins);
+  assertEmailOtpDeliveryProfile({ deliveryMode, runtimeProfile, demoAllowedOrigins });
+  if (deliveryMode === 'provider_and_demo_code' && !input.emailOtpDeliveryProvider) {
+    throw new Error('provider_and_demo_code requires an Email OTP delivery provider');
+  }
   const challengeDefault = production
     ? { limit: 5, windowMs: 5 * 60_000 }
     : { limit: 100, windowMs: 60_000 };
@@ -318,6 +442,8 @@ function normalizeEmailOtpConfig(
     : { limit: 200, windowMs: 60_000 };
   return {
     deliveryMode,
+    runtimeProfile,
+    demoAllowedOrigins,
     ...(input.emailOtpDeliveryProvider ? { deliveryProvider: input.emailOtpDeliveryProvider } : {}),
     production,
     devOutboxEnabled:
@@ -352,13 +478,7 @@ function normalizeEmailOtpConfig(
       min: 60_000,
       max: 24 * 60 * 60_000,
     }),
-    codeLength: configuredInteger({
-      field: 'emailOtpCodeLength',
-      raw: input.emailOtpCodeLength,
-      fallback: 6,
-      min: 6,
-      max: 8,
-    }),
+    codeLength: normalizeEmailOtpCodeLength(input.emailOtpCodeLength),
     maxActiveChallengesPerContext: configuredInteger({
       field: 'emailOtpMaxActiveChallengesPerContext',
       raw: input.emailOtpMaxActiveChallengesPerContext,

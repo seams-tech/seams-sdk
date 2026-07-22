@@ -128,6 +128,10 @@ function buildConfig(deployment, packageRoot) {
 
 function buildWorkerVars(deployment) {
   const production = deployment.target === 'production';
+  const implicitNearTestFunding =
+    deployment.runtimeProfile.nearFunding.kind === 'implicit_account_relayer';
+  const demoEmailOtpDelivery =
+    deployment.runtimeProfile.emailOtpDelivery.kind === 'demo_code_response';
   const vars = {
     SEAMS_TENANT_STORAGE_NAMESPACE: deployment.tenant.namespace,
     SEAMS_STAGING_ORG_ID: deployment.tenant.orgId,
@@ -145,14 +149,16 @@ function buildWorkerVars(deployment) {
     DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY: deployment.routerAb.deriverAInputPublicKey,
     DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY: deployment.routerAb.deriverBInputPublicKey,
     SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: deployment.routerAb.signingWorkerOutputPublicKey,
-    ENABLE_IMPLICIT_NEAR_ACCOUNT_TEST_FUNDING: 'false',
+    ENABLE_IMPLICIT_NEAR_ACCOUNT_TEST_FUNDING: String(implicitNearTestFunding),
     RELAY_SESSION_ISSUER: deployment.session.issuer,
     RELAY_SESSION_AUDIENCE: DEFAULT_RELAY_SESSION_AUDIENCE,
     RELAY_CORS_ORIGINS: deployment.origins.allowedCors.join(','),
     SESSION_COOKIE_NAME: DEFAULT_SESSION_COOKIE_NAME,
-    EMAIL_OTP_DELIVERY_MODE: production ? 'email_provider' : 'dev_d1_outbox',
+    EMAIL_OTP_RUNTIME_PROFILE: deployment.runtimeProfile.kind,
+    EMAIL_OTP_DELIVERY_MODE:
+      deployment.runtimeProfile.emailOtpDelivery.kind,
     EMAIL_OTP_PRODUCTION: String(production),
-    EMAIL_OTP_DEV_OUTBOX_ENABLED: String(!production),
+    EMAIL_OTP_DEV_OUTBOX_ENABLED: 'false',
     EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_MAX: DEFAULT_EMAIL_OTP_RATE_LIMIT_MAX,
     EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_WINDOW_MS: DEFAULT_EMAIL_OTP_RATE_LIMIT_WINDOW_MS,
     EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_MAX: DEFAULT_EMAIL_OTP_RATE_LIMIT_MAX,
@@ -162,6 +168,9 @@ function buildWorkerVars(deployment) {
     SIGNING_ROOT_KEK_ENCODING: deployment.signingRoot.encoding,
     SIGNING_ROOT_KEK_IDS: deployment.signingRoot.id,
   };
+  if (demoEmailOtpDelivery) {
+    vars.EMAIL_OTP_DEMO_ALLOWED_ORIGINS = deployment.origins.allowedCors.join(',');
+  }
   addNearRelayerVars(vars, deployment.optional.nearRelayer);
   addOptionalStringVar(vars, 'GOOGLE_OIDC_CLIENT_ID', deployment.optional.googleOidcClientId);
   addOptionalObjectVar(vars, 'SEAMS_OIDC_EXCHANGE_JSON', deployment.optional.oidcExchange);

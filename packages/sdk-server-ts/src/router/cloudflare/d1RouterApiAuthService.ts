@@ -501,7 +501,6 @@ function createCloudflareD1RouterApiAuthAssembly(
     config: {
       challengeTtlMs: options.emailOtp.challengeTtlMs,
       codeLength: options.emailOtp.codeLength,
-      deliveryMode: options.emailOtp.deliveryMode,
       maxActiveChallengesPerContext: options.emailOtp.maxActiveChallengesPerContext,
       maxAttempts: options.emailOtp.maxAttempts,
     },

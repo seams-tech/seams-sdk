@@ -162,6 +162,7 @@ export {
 } from './components/theme';
 
 export type { ActionResult } from '../core/types/seams';
+export type { DemoEmailOtpCodeResponse } from '../core/signingEngine/session/emailOtp/publicTypes';
 export type {
   GoogleEmailOtpWalletAuthDelivery,
   GoogleEmailOtpWalletAuthEcdsaTargets,

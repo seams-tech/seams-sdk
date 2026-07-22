@@ -94,6 +94,7 @@ export class CloudflareD1EmailOtpChallengeService {
       appSessionVersion: input.appSessionVersion,
       clientIp: input.clientIp,
       reuseActiveChallenge: input.reuseActiveChallenge,
+      requestOrigin: input.requestOrigin,
       action: WALLET_EMAIL_OTP_ACTIONS.login,
       operation,
     });
@@ -129,6 +130,7 @@ export class CloudflareD1EmailOtpChallengeService {
       sessionHash: input.sessionHash,
       appSessionVersion: input.appSessionVersion,
       clientIp: input.clientIp,
+      requestOrigin: input.requestOrigin,
       action: WALLET_EMAIL_OTP_ACTIONS.registration,
       operation: WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
     });
@@ -148,11 +150,7 @@ export class CloudflareD1EmailOtpChallengeService {
         action: WALLET_EMAIL_OTP_ACTIONS.registration,
         operation: WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
       },
-      delivery: {
-        status: result.delivery.status,
-        mode: result.delivery.mode,
-        emailHint: result.delivery.emailHint,
-      },
+      delivery: result.delivery,
     };
   }
 
@@ -168,6 +166,7 @@ export class CloudflareD1EmailOtpChallengeService {
       sessionHash: input.sessionHash,
       appSessionVersion: input.appSessionVersion,
       clientIp: input.clientIp,
+      requestOrigin: input.requestOrigin,
       action: WALLET_EMAIL_OTP_ACTIONS.deviceRecovery,
       operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
     });

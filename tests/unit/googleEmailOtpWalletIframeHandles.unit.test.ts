@@ -21,6 +21,7 @@ import {
   type WalletAuthMethodBinding,
 } from '@shared/utils/walletCapabilityBindings';
 import type { WalletSession } from '@/core/types/seams';
+import { parseEmailOtpChallengeDelivery } from '@/core/signingEngine/session/emailOtp/challengeDelivery';
 
 function walletId(value: string) {
   return walletIdFromString(value);
@@ -89,7 +90,11 @@ function makeLoginFlow(overrides?: Partial<GoogleEmailOtpWalletAuthLoginFlow>): 
       submitLabel: 'Unlock wallet',
       helperText: 'Use the code from your email.',
     },
-    delivery: 'sent',
+    delivery: {
+      kind: 'provider',
+      status: 'sent',
+      emailHint: 'a***@example.test',
+    },
     expiresAtMs: Date.now() + 60_000,
     resend: async () => ({ ok: true, value: makeLoginFlow({ flowId: 'flow-resend' }) }),
     submit: async () => ({
@@ -193,9 +198,10 @@ function parseWireFlow(value: unknown): PMGoogleEmailOtpWalletAuthWireFlow {
     throw new Error('wire flow shape is invalid');
   }
   if (mode === 'login') {
-    if (flow.state !== 'challenge_sent' || flow.delivery !== 'sent') {
+    if (flow.state !== 'challenge_sent') {
       throw new Error('login wire flow shape is invalid');
     }
+    parseEmailOtpChallengeDelivery(flow.delivery, 'login wire flow delivery');
   } else if (flow.state !== 'registration_ready' || 'delivery' in flow) {
     throw new Error('registration wire flow shape is invalid');
   }
@@ -226,7 +232,11 @@ test.describe('Google Email OTP wallet iframe flow handles', () => {
     expect(login.wireFlow).toMatchObject({
       state: 'challenge_sent',
       mode: 'login',
-      delivery: 'sent',
+      delivery: {
+        kind: 'provider',
+        status: 'sent',
+        emailHint: 'a***@example.test',
+      },
     });
 
     const registration = await beginFlow({ flow: makeRegistrationFlow() });
@@ -236,6 +246,29 @@ test.describe('Google Email OTP wallet iframe flow handles', () => {
       walletId: 'alice.testnet',
     });
     expect(registration.wireFlow).not.toHaveProperty('delivery');
+  });
+
+  test('preserves provider and demo delivery metadata across the iframe wire', async () => {
+    const login = await beginFlow({
+      flow: makeLoginFlow({
+        delivery: {
+          kind: 'provider_and_demo_code',
+          status: 'sent',
+          emailHint: 'a***@example.test',
+          otpCode: '123456',
+        },
+      }),
+    });
+
+    expect(login.wireFlow).toMatchObject({
+      mode: 'login',
+      delivery: {
+        kind: 'provider_and_demo_code',
+        status: 'sent',
+        emailHint: 'a***@example.test',
+        otpCode: '123456',
+      },
+    });
   });
 
   test('registration begin wire result exposes only display metadata', async () => {

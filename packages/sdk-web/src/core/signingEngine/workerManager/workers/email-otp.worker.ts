@@ -57,6 +57,8 @@ import {
 } from '@/core/rpcClients/relayer/thresholdEcdsa';
 import { decodeJwtPayloadRecord, type AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
+import { parseEmailOtpChallengeDelivery } from '@/core/signingEngine/session/emailOtp/challengeDelivery';
+import type { EmailOtpChallengeDelivery } from '@/core/signingEngine/session/emailOtp/publicTypes';
 import {
   buildEmailOtpWorkerIssuedSessionHandle,
   buildEmailOtpWorkerSessionSecretSource,
@@ -5898,23 +5900,25 @@ self.addEventListener('message', async (event: MessageEvent) => {
           label: 'Email OTP login challenge',
         });
         const challenge = response.challenge as Record<string, unknown>;
-        const delivery = response.delivery as Record<string, unknown> | undefined;
+        const delivery = parseEmailOtpChallengeDelivery(
+          response.delivery,
+          'Email OTP login challenge delivery',
+        );
         const expiresAtMs = Number(challenge?.expiresAtMs);
-        const emailHint = String(delivery?.emailHint || '').trim();
         const appSessionVersion = String(challenge?.appSessionVersion || '').trim();
         const result: {
           challengeId: string;
           otpChannel: typeof EMAIL_OTP_CHANNEL;
+          delivery: EmailOtpChallengeDelivery;
           emailHint?: string;
           expiresAtMs?: number;
           appSessionVersion?: string;
         } = {
           challengeId: readString(challenge?.challengeId, 'challengeId'),
           otpChannel: EMAIL_OTP_CHANNEL,
+          delivery,
+          emailHint: delivery.emailHint,
         };
-        if (emailHint) {
-          result.emailHint = emailHint;
-        }
         if (Number.isFinite(expiresAtMs)) {
           result.expiresAtMs = expiresAtMs;
         }
@@ -5949,23 +5953,25 @@ self.addEventListener('message', async (event: MessageEvent) => {
           label: 'Email OTP registration challenge',
         });
         const challenge = response.challenge as Record<string, unknown>;
-        const delivery = response.delivery as Record<string, unknown> | undefined;
+        const delivery = parseEmailOtpChallengeDelivery(
+          response.delivery,
+          'Email OTP registration challenge delivery',
+        );
         const expiresAtMs = Number(challenge?.expiresAtMs);
-        const emailHint = String(delivery?.emailHint || '').trim();
         const appSessionVersion = String(challenge?.appSessionVersion || '').trim();
         const result: {
           challengeId: string;
           otpChannel: typeof EMAIL_OTP_CHANNEL;
+          delivery: EmailOtpChallengeDelivery;
           emailHint?: string;
           expiresAtMs?: number;
           appSessionVersion?: string;
         } = {
           challengeId: readString(challenge?.challengeId, 'challengeId'),
           otpChannel: EMAIL_OTP_CHANNEL,
+          delivery,
+          emailHint: delivery.emailHint,
         };
-        if (emailHint) {
-          result.emailHint = emailHint;
-        }
         if (Number.isFinite(expiresAtMs)) {
           result.expiresAtMs = expiresAtMs;
         }

@@ -176,6 +176,7 @@ export async function handleEmailOtpRegistrationChallengeRoute(input: {
   userId: string;
   appSessionVersion: string;
   clientIp?: string;
+  requestOrigin: string | null;
   service: RouterApiEmailOtpRouteService;
 }): Promise<EmailOtpRouteResponse> {
   const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
@@ -228,6 +229,7 @@ export async function handleEmailOtpRegistrationChallengeRoute(input: {
     sessionHash,
     appSessionVersion: input.appSessionVersion,
     clientIp: input.clientIp,
+    requestOrigin: input.requestOrigin,
   });
   return {
     status: emailOtpResultStatus(result),
@@ -412,6 +414,7 @@ export async function handleEmailOtpLoginChallengeRoute(input: {
   userId: string;
   appSessionVersion: string;
   clientIp?: string;
+  requestOrigin: string | null;
   service: RouterApiEmailOtpRouteService;
   opts: RouterApiOptions;
   emitWebhook: EmitEmailOtpRouteWebhook;
@@ -498,6 +501,7 @@ export async function handleEmailOtpLoginChallengeRoute(input: {
     sessionHash,
     appSessionVersion: input.appSessionVersion,
     clientIp: input.clientIp,
+    requestOrigin: input.requestOrigin,
     operation: parsedOperation.operation,
   });
 
@@ -549,6 +553,7 @@ export async function handleEmailOtpDeviceRecoveryChallengeRoute(input: {
   userId: string;
   appSessionVersion: string;
   clientIp?: string;
+  requestOrigin: string | null;
   service: RouterApiEmailOtpRouteService;
 }): Promise<EmailOtpRouteResponse> {
   const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
@@ -590,6 +595,7 @@ export async function handleEmailOtpDeviceRecoveryChallengeRoute(input: {
     sessionHash,
     appSessionVersion: input.appSessionVersion,
     clientIp: input.clientIp,
+    requestOrigin: input.requestOrigin,
   });
 
   return {
@@ -979,6 +985,7 @@ export async function handleEmailOtpSigningSessionChallengeRoute(input: {
   appSessionVersion: string;
   sessionHash: string;
   clientIp?: string;
+  requestOrigin: string | null;
   service: RouterApiEmailOtpRouteService;
   opts: RouterApiOptions;
   emitWebhook: EmitEmailOtpRouteWebhook;
@@ -1054,6 +1061,7 @@ export async function handleEmailOtpSigningSessionChallengeRoute(input: {
     sessionHash: input.sessionHash,
     appSessionVersion: input.appSessionVersion,
     clientIp: input.clientIp,
+    requestOrigin: input.requestOrigin,
     operation: parsedOperation.operation,
   });
 

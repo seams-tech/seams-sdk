@@ -16,6 +16,7 @@ import {
   type ThresholdRuntimePolicyScope,
 } from '@/core/signingEngine/threshold/sessionPolicy';
 import type {
+  EmailOtpChallengeDelivery,
   EmailOtpDeviceEnrollmentRemoveResult,
   EmailOtpDeviceEnrollmentRestoreResult,
   EmailOtpEnrollmentResult,
@@ -24,6 +25,10 @@ import type {
   EmailOtpRecoveryCodeStatus,
   GoogleEmailOtpSessionExchangeResult,
 } from '@/core/signingEngine/session/emailOtp/publicTypes';
+import {
+  parseEmailOtpChallengeDelivery,
+  parseEmailOtpProviderDelivery,
+} from '@/core/signingEngine/session/emailOtp/challengeDelivery';
 import {
   buildEmailOtpRoutePlan,
   requireEmailOtpAuthLane,
@@ -311,6 +316,7 @@ export async function requestEmailOtpChallenge(args: {
 }): Promise<{
   challengeId: string;
   otpChannel: WalletEmailOtpChannel;
+  delivery: EmailOtpChallengeDelivery;
   emailHint?: string;
   expiresAtMs?: number;
   appSessionVersion?: string;
@@ -350,26 +356,25 @@ export async function requestEmailOtpChallenge(args: {
     expectedAction: WALLET_EMAIL_OTP_ACTIONS.login,
     context: 'wallet/email-otp/login/challenge',
   });
-  const delivery =
-    response.delivery == null
-      ? {}
-      : requireObjectJson(response.delivery, 'wallet/email-otp/login/challenge delivery');
+  const delivery = parseEmailOtpChallengeDelivery(
+    response.delivery,
+    'wallet/email-otp/login/challenge delivery',
+  );
   const expiresAtMs = Number(challenge.expiresAtMs);
-  const emailHint = readOptionalString(delivery.emailHint);
   const appSessionVersion = readOptionalString(challenge.appSessionVersion);
   const result: {
     challengeId: string;
     otpChannel: typeof EMAIL_OTP_CHANNEL;
+    delivery: EmailOtpChallengeDelivery;
     emailHint?: string;
     expiresAtMs?: number;
     appSessionVersion?: string;
   } = {
     challengeId: readString(challenge.challengeId, 'wallet/email-otp/login/challenge challengeId'),
     otpChannel: EMAIL_OTP_CHANNEL,
+    delivery,
+    emailHint: delivery.emailHint,
   };
-  if (emailHint) {
-    result.emailHint = emailHint;
-  }
   if (Number.isFinite(expiresAtMs)) {
     result.expiresAtMs = expiresAtMs;
   }
@@ -389,6 +394,7 @@ export async function requestEmailOtpEnrollmentChallenge(args: {
 }): Promise<{
   challengeId: string;
   otpChannel: WalletEmailOtpChannel;
+  delivery: EmailOtpChallengeDelivery;
   emailHint?: string;
   expiresAtMs?: number;
   appSessionVersion?: string;
@@ -428,16 +434,16 @@ export async function requestEmailOtpEnrollmentChallenge(args: {
     expectedAction: WALLET_EMAIL_OTP_ACTIONS.registration,
     context: 'wallet/email-otp/registration/challenge',
   });
-  const delivery =
-    response.delivery == null
-      ? {}
-      : requireObjectJson(response.delivery, 'wallet/email-otp/registration/challenge delivery');
+  const delivery = parseEmailOtpChallengeDelivery(
+    response.delivery,
+    'wallet/email-otp/registration/challenge delivery',
+  );
   const expiresAtMs = Number(challenge.expiresAtMs);
-  const emailHint = readOptionalString(delivery.emailHint);
   const appSessionVersion = readOptionalString(challenge.appSessionVersion);
   const result: {
     challengeId: string;
     otpChannel: typeof EMAIL_OTP_CHANNEL;
+    delivery: EmailOtpChallengeDelivery;
     emailHint?: string;
     expiresAtMs?: number;
     appSessionVersion?: string;
@@ -447,10 +453,9 @@ export async function requestEmailOtpEnrollmentChallenge(args: {
       'wallet/email-otp/registration/challenge challengeId',
     ),
     otpChannel: EMAIL_OTP_CHANNEL,
+    delivery,
+    emailHint: delivery.emailHint,
   };
-  if (emailHint) {
-    result.emailHint = emailHint;
-  }
   if (Number.isFinite(expiresAtMs)) {
     result.expiresAtMs = expiresAtMs;
   }
@@ -653,13 +658,20 @@ export async function exchangeGoogleEmailOtpSession(args: {
     !Array.isArray(googleEmailOtpResolutionRaw.loginChallenge)
       ? (googleEmailOtpResolutionRaw.loginChallenge as JsonObject)
       : null;
-  const loginChallengeDelivery = readOptionalString(loginChallengeRaw?.delivery);
-  const activeLoginChallengeDelivery: 'sent' | 'reused' | null =
-    loginChallengeDelivery === 'sent'
-      ? 'sent'
-      : loginChallengeDelivery === 'reused'
-        ? 'reused'
-        : null;
+  const loginChallengeStatus = readOptionalString(loginChallengeRaw?.delivery);
+  const activeLoginChallengeDelivery =
+    loginChallengeStatus === 'sent' || loginChallengeStatus === 'reused'
+      ? loginChallengeRaw?.deliveryDetails === undefined
+        ? parseEmailOtpProviderDelivery({
+            status: loginChallengeStatus,
+            emailHint: loginChallengeRaw?.emailHint,
+            label: 'session/exchange loginChallenge.delivery',
+          })
+        : parseEmailOtpChallengeDelivery(
+            loginChallengeRaw.deliveryDetails,
+            'session/exchange loginChallenge.deliveryDetails',
+          )
+      : null;
   const loginChallenge =
     activeLoginChallengeDelivery
       ? {
@@ -668,9 +680,7 @@ export async function exchangeGoogleEmailOtpSession(args: {
             loginChallengeRaw?.challengeId,
             'session/exchange loginChallenge.challengeId',
           ),
-          ...(readOptionalString(loginChallengeRaw?.emailHint)
-            ? { emailHint: readOptionalString(loginChallengeRaw?.emailHint) }
-            : {}),
+          emailHint: activeLoginChallengeDelivery.emailHint,
           ...(readOptionalString(loginChallengeRaw?.expiresAt)
             ? { expiresAt: readOptionalString(loginChallengeRaw?.expiresAt) }
             : {}),
@@ -678,7 +688,7 @@ export async function exchangeGoogleEmailOtpSession(args: {
             ? { expiresAtMs: Math.floor(Number(loginChallengeRaw?.expiresAtMs)) }
             : {}),
         }
-      : loginChallengeDelivery === 'rate_limited'
+      : loginChallengeStatus === 'rate_limited'
         ? {
             delivery: 'rate_limited' as const,
             ...(Number.isFinite(Number(loginChallengeRaw?.retryAfterMs))

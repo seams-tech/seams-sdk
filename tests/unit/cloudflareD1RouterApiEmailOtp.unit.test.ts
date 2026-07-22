@@ -6,25 +6,24 @@ import type {
   CloudflareDurableObjectNamespaceLike,
   CloudflareDurableObjectStubLike,
   EcdsaDerivationClientBootstrapRequest,
-  EcdsaDerivationServerBootstrapResponse
+  EcdsaDerivationServerBootstrapResponse,
 } from '../../packages/sdk-server-ts/src/core/types';
 import type {
   WalletRegistrationEcdsaClientBootstrap,
-  WalletRegistrationEcdsaPreparePayload
+  WalletRegistrationEcdsaPreparePayload,
 } from '../../packages/sdk-server-ts/src/core/registrationContracts';
 import type {
   CloudflareD1EmailOtpDeliveryProviderInput,
   CloudflareD1EmailOtpDeliveryProviderResult,
 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
 import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
+import { emailOtpChallengeResponseBody } from '../../packages/sdk-server-ts/src/router/emailOtpSessionRouteHelpers';
 import { parseGoogleEmailOtpRegistrationAttemptRecord } from '../../packages/sdk-server-ts/src/router/cloudflare/d1GoogleEmailOtpRegistrationRecords';
 import { parseD1RegistrationIntent } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyRecords';
 import { base64UrlDecode, base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import { normalizeRuntimePolicyScope } from '../../packages/shared-ts/src/threshold/signingRootScope';
-import {
-  parseServerAllocatedWalletId,
-} from '../../packages/shared-ts/src/utils/registrationIntent';
+import { parseServerAllocatedWalletId } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 import {
   EMAIL_OTP_RECOVERY_KEY_COUNT,
@@ -927,6 +926,7 @@ test('Cloudflare D1 Router API auth service issues registration Email OTP challe
       operation: 'registration',
     });
     expect(challenge.delivery).toEqual({
+      kind: 'development',
       status: 'sent',
       mode: 'dev_d1_outbox',
       emailHint: 'r***r@e***e.test',
@@ -1128,6 +1128,318 @@ test('Cloudflare D1 Router API auth service verifies registration Email OTP enro
   }
 });
 
+test('Cloudflare D1 Router API auth service returns demo OTP codes only to an allowed live-demo origin', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-live-demo-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    await insertEmailOtpEnrollment({ database, ...scope });
+    const service = createCloudflareD1RouterApiAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      emailOtpDeliveryMode: 'demo_code_response',
+      emailOtpRuntimeProfile: 'testnet_live_demo',
+      emailOtpDemoAllowedOrigins: ['https://demo.example'],
+      emailOtpProduction: true,
+    });
+    const challengeInput = {
+      userId: 'google:email-user',
+      walletId: 'email-wallet.testnet',
+      orgId: scope.orgId,
+      otpChannel: 'email_otp',
+      sessionHash: 'session-hash-demo',
+      appSessionVersion: 'session-v1',
+      operation: 'wallet_unlock',
+      requestOrigin: 'https://demo.example',
+    } as const;
+
+    const challenge = await service.emailOtp.createEmailOtpChallenge(challengeInput);
+    expect(challenge.ok).toBe(true);
+    if (!challenge.ok) throw new Error(challenge.message);
+    expect(challenge.delivery).toMatchObject({
+      kind: 'demo_code_response',
+      status: 'sent',
+      mode: 'demo_code_response',
+      emailHint: 'a***e@e***e.test',
+    });
+    if (challenge.delivery.kind !== 'demo_code_response') {
+      throw new Error('Expected demo_code_response delivery');
+    }
+    expect(challenge.delivery.otpCode).toMatch(/^[0-9]{6}$/);
+    expect(emailOtpChallengeResponseBody(challenge)).toMatchObject({
+      delivery: {
+        kind: 'demo_code_response',
+        otpCode: challenge.delivery.otpCode,
+      },
+    });
+
+    const reused = await service.emailOtp.createEmailOtpChallenge({
+      ...challengeInput,
+      reuseActiveChallenge: true,
+    });
+    expect(reused.ok).toBe(true);
+    if (!reused.ok) throw new Error(reused.message);
+    expect(reused.challenge.challengeId).toBe(challenge.challenge.challengeId);
+    expect(reused.delivery).toEqual({
+      ...challenge.delivery,
+      status: 'reused',
+    });
+
+    const rejected = await service.emailOtp.createEmailOtpChallenge({
+      ...challengeInput,
+      requestOrigin: 'https://other.example',
+      reuseActiveChallenge: true,
+    });
+    expect(rejected).toMatchObject({
+      ok: false,
+      code: 'email_otp_demo_origin_not_allowed',
+    });
+    expect(JSON.stringify(rejected)).not.toContain(challenge.delivery.otpCode);
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 Router API auth service sends provider Email OTP and returns the same code to an allowed live-demo origin', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-provider-live-demo-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    await insertEmailOtpEnrollment({ database, ...scope });
+    const provider = new RecordingEmailOtpDeliveryProvider();
+    const service = createCloudflareD1RouterApiAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      emailOtpDeliveryMode: 'provider_and_demo_code',
+      emailOtpRuntimeProfile: 'testnet_live_demo',
+      emailOtpDemoAllowedOrigins: ['https://demo.example'],
+      emailOtpDeliveryProvider: provider,
+      emailOtpProduction: true,
+    });
+    const challengeInput = {
+      userId: 'google:email-user',
+      walletId: 'email-wallet.testnet',
+      orgId: scope.orgId,
+      otpChannel: 'email_otp',
+      sessionHash: 'session-hash-provider-demo',
+      appSessionVersion: 'session-v1',
+      operation: 'wallet_unlock',
+      requestOrigin: 'https://demo.example',
+    } as const;
+
+    const challenge = await service.emailOtp.createEmailOtpChallenge(challengeInput);
+    expect(challenge.ok).toBe(true);
+    if (!challenge.ok) throw new Error(challenge.message);
+    expect(challenge.delivery).toMatchObject({
+      kind: 'provider_and_demo_code',
+      status: 'sent',
+      mode: 'provider_and_demo_code',
+      emailHint: 'a***e@e***e.test',
+    });
+    if (challenge.delivery.kind !== 'provider_and_demo_code') {
+      throw new Error('Expected provider_and_demo_code delivery');
+    }
+    expect(challenge.delivery.otpCode).toMatch(/^[0-9]{6}$/);
+    expect(provider.calls).toHaveLength(1);
+    expect(provider.calls[0]).toMatchObject({
+      challengeId: challenge.challenge.challengeId,
+      walletId: 'email-wallet.testnet',
+      userId: 'google:email-user',
+      otpCode: challenge.delivery.otpCode,
+      operation: 'wallet_unlock',
+    });
+    expect(emailOtpChallengeResponseBody(challenge)).toMatchObject({
+      delivery: {
+        kind: 'provider_and_demo_code',
+        mode: 'provider_and_demo_code',
+        otpCode: challenge.delivery.otpCode,
+      },
+    });
+
+    const reused = await service.emailOtp.createEmailOtpChallenge({
+      ...challengeInput,
+      reuseActiveChallenge: true,
+    });
+    expect(reused.ok).toBe(true);
+    if (!reused.ok) throw new Error(reused.message);
+    expect(reused.challenge.challengeId).toBe(challenge.challenge.challengeId);
+    expect(reused.delivery).toEqual({
+      ...challenge.delivery,
+      status: 'reused',
+    });
+    expect(provider.calls).toHaveLength(1);
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 Router API auth service fails closed before combined provider-and-demo disclosure', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-provider-live-demo-failure-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    await insertEmailOtpEnrollment({ database, ...scope });
+    const provider = new RecordingEmailOtpDeliveryProvider();
+    const service = createCloudflareD1RouterApiAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      emailOtpDeliveryMode: 'provider_and_demo_code',
+      emailOtpRuntimeProfile: 'testnet_live_demo',
+      emailOtpDemoAllowedOrigins: ['https://demo.example'],
+      emailOtpDeliveryProvider: provider,
+      emailOtpProduction: true,
+    });
+    const challengeInput = {
+      userId: 'google:email-user',
+      walletId: 'email-wallet.testnet',
+      orgId: scope.orgId,
+      otpChannel: 'email_otp',
+      sessionHash: 'session-hash-provider-demo-failure',
+      appSessionVersion: 'session-v1',
+      operation: 'wallet_unlock',
+    } as const;
+
+    const rejectedOrigin = await service.emailOtp.createEmailOtpChallenge({
+      ...challengeInput,
+      requestOrigin: 'https://other.example',
+    });
+    expect(rejectedOrigin).toMatchObject({
+      ok: false,
+      code: 'email_otp_demo_origin_not_allowed',
+    });
+    expect(provider.calls).toHaveLength(0);
+
+    const failingProvider = new RecordingEmailOtpDeliveryProvider({
+      ok: false,
+      code: 'email_provider_failed',
+      message: 'provider unavailable',
+    });
+    const failingService = createCloudflareD1RouterApiAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      emailOtpDeliveryMode: 'provider_and_demo_code',
+      emailOtpRuntimeProfile: 'testnet_live_demo',
+      emailOtpDemoAllowedOrigins: ['https://demo.example'],
+      emailOtpDeliveryProvider: failingProvider,
+      emailOtpProduction: true,
+    });
+    const providerFailure = await failingService.emailOtp.createEmailOtpChallenge({
+      ...challengeInput,
+      requestOrigin: 'https://demo.example',
+    });
+    expect(providerFailure).toEqual({
+      ok: false,
+      code: 'email_provider_failed',
+      message: 'provider unavailable',
+    });
+    expect(failingProvider.calls).toHaveLength(1);
+    const failedProviderCall = failingProvider.calls[0];
+    if (!failedProviderCall) throw new Error('Expected one failed provider delivery call');
+    expect(JSON.stringify(providerFailure)).not.toContain(failedProviderCall.otpCode);
+
+    const challengeRows = await database
+      .prepare(
+        `SELECT challenge_id
+           FROM email_otp_challenges
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?`,
+      )
+      .bind(scope.namespace, scope.orgId, scope.projectId, scope.envId)
+      .all<SqliteJsonRow>();
+    expect(challengeRows.results || []).toEqual([]);
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 Router API auth service rejects unsafe Email OTP profile combinations', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    const common = {
+      database,
+      namespace: 'seams-profile-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    expect(() =>
+      createCloudflareD1RouterApiAuthService({
+        ...common,
+        emailOtpProduction: true,
+      }),
+    ).toThrow('emailOtpRuntimeProfile is required when emailOtpProduction is enabled');
+    expect(() =>
+      createCloudflareD1RouterApiAuthService({
+        ...common,
+        emailOtpRuntimeProfile: 'testnet_service',
+        emailOtpCodeLength: 8,
+      }),
+    ).toThrow('emailOtpCodeLength must be 6');
+    expect(() =>
+      createCloudflareD1RouterApiAuthService({
+        ...common,
+        emailOtpDeliveryMode: 'demo_code_response',
+        emailOtpRuntimeProfile: 'testnet_service',
+        emailOtpDemoAllowedOrigins: ['https://demo.example'],
+      }),
+    ).toThrow('demo_code_response requires emailOtpRuntimeProfile=testnet_live_demo');
+    expect(() =>
+      createCloudflareD1RouterApiAuthService({
+        ...common,
+        emailOtpDeliveryMode: 'provider_and_demo_code',
+        emailOtpRuntimeProfile: 'testnet_service',
+        emailOtpDemoAllowedOrigins: ['https://demo.example'],
+      }),
+    ).toThrow('provider_and_demo_code requires emailOtpRuntimeProfile=testnet_live_demo');
+    expect(() =>
+      createCloudflareD1RouterApiAuthService({
+        ...common,
+        emailOtpDeliveryMode: 'log',
+        emailOtpRuntimeProfile: 'mainnet_service',
+      }),
+    ).toThrow('mainnet_service requires emailOtpDeliveryMode=email_provider');
+    expect(() =>
+      createCloudflareD1RouterApiAuthService({
+        ...common,
+        emailOtpDeliveryMode: 'demo_code_response',
+        emailOtpRuntimeProfile: 'testnet_live_demo',
+        emailOtpDemoAllowedOrigins: ['http://demo.example'],
+      }),
+    ).toThrow('emailOtpDemoAllowedOrigins must contain exact HTTPS origins without paths');
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
 test('Cloudflare D1 Router API auth service delivers Email OTP through configured provider', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
@@ -1150,6 +1462,7 @@ test('Cloudflare D1 Router API auth service delivers Email OTP through configure
       emailOtpDeliveryMode: 'email_provider',
       emailOtpDeliveryProvider: provider,
       emailOtpProduction: true,
+      emailOtpRuntimeProfile: 'mainnet_service',
     });
 
     const challenge = await service.emailOtp.createEmailOtpChallenge({
@@ -1164,6 +1477,7 @@ test('Cloudflare D1 Router API auth service delivers Email OTP through configure
     expect(challenge.ok).toBe(true);
     if (!challenge.ok) throw new Error(challenge.message);
     expect(challenge.delivery).toMatchObject({
+      kind: 'provider',
       status: 'sent',
       mode: 'email_provider',
       emailHint: 'a***e@e***e.test',
@@ -1215,6 +1529,7 @@ test('Cloudflare D1 Router API auth service fails closed when Email OTP provider
       envId: scope.envId,
       emailOtpDeliveryMode: 'email_provider',
       emailOtpProduction: true,
+      emailOtpRuntimeProfile: 'mainnet_service',
     });
 
     await expect(

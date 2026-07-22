@@ -72,6 +72,7 @@ import {
 import {
   resolveEmailOtpConfig as resolveEmailOtpConfigFromSource,
   resolveEmailOtpRateLimitPolicies as resolveEmailOtpRateLimitPoliciesFromSource,
+  type EmailOtpConfig,
 } from './emailOtpConfig';
 import {
   deliverEmailOtpCode as deliverEmailOtpCodeWithDeps,
@@ -657,16 +658,7 @@ export class AuthService {
     });
   }
 
-  private resolveEmailOtpConfig(): {
-    deliveryMode: 'email_provider' | 'log' | 'memory';
-    challengeTtlMs: number;
-    grantTtlMs: number;
-    maxAttempts: number;
-    lockoutTtlMs: number;
-    codeLength: number;
-    devOutboxEnabled: boolean;
-    maxActiveChallengesPerContext: number;
-  } {
+  private resolveEmailOtpConfig(): EmailOtpConfig {
     return resolveEmailOtpConfigFromSource({
       thresholdStore: this.config.thresholdStore as AuthServiceConfigSource,
       production: this.isProductionEnvironment(),
