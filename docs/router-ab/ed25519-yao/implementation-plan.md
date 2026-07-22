@@ -3292,7 +3292,7 @@ protocol is viable.
       commitments, and ten nonclaims. A fresh process-owned emitted bundle is
       checked byte for byte and its six `EYAOBA01` entries are independently
       decoded into the private observation capability. Eleven focused builder
-      tests pass; normal CI runs the clean-checkout subject command.
+      tests pass; the local `all` gate runs the clean-checkout subject command.
 - [x] Make subject material causally derive from an isolated checkout of the
       single captured candidate commit. Build and run the generator inside that
       snapshot with locked dependencies, derive all specifications/corpora and
@@ -3359,8 +3359,8 @@ protocol is viable.
 The following work is intentionally paused until Phase 13A returns `go`. It is
 not a prerequisite for benchmark-kernel implementation. After viability, the
 candidate `C` must include the selected benchmark implementation and every
-covered change, so the external ceremony reviews the code that may actually be
-promoted.
+source bound by the review subject, so the external ceremony reviews the code
+that may actually be promoted.
 
 Phase 6B owns independent clean-host reproduction of the selected candidate and
 separate cryptographic-reviewer approval. Both records must bind the exact
@@ -3370,18 +3370,7 @@ artifacts, metrics, reconciliation result, toolchain, and retained nonclaims.
 - [x] Regenerate the candidate manifest through two isolated clean Cargo target
       directories and require exact equality of its bytes/digest plus the
       wrapped bundle-index bytes/digest in the counted
-      `benchmark-manifest-reproducibility` CI track.
-- [x] Land and machine-check the Phase 2B evidence-staging workflow. Its public
-      state check accepts the zero-evidence development state, rejects every
-      partial bundle, preserves a complete checkpoint across unrelated
-      descendants, and requires an exact fresh `C → E` pair for the first
-      evidence or any later covered change. The hardened stdlib-Python checker
-      passes 13 tests covering evidence counts zero through four, exact first
-      evidence, partial/wrong-mode/extra-path rejection, unrelated descendants,
-      missing replacement evidence, and the required two-commit re-review
-      transition. The thirteenth test freezes a public, non-authoritative
-      workflow with no secrets, protected environment, self-hosted runner, or
-      release-verification command.
+      `benchmark-manifest-reproducibility` track.
 - [x] Select the GitHub Free plus external signed-release-authority governance
       design and revise the Phase 2 claim. The July 12, 2026 live audit found
       that the private GitHub Free repository cannot configure the originally

@@ -169,7 +169,6 @@ cargo yao-fv reference-spec-check
 cargo yao-fv vectors-check
 cargo yao-fv phase2b-reconciliation-check
 cargo yao-fv phase2b-exit-evidence-readiness-check
-cargo yao-fv phase2b-change-control-readiness-check
 cargo yao-fv phase2b-review-subject-check
 cargo yao-fv phase2b-protected-inputs-check
 cargo yao-fv phase2b-independent-host-prepare
@@ -520,10 +519,10 @@ make -C crates/ed25519-yao/formal-verification check
 just ed25519-yao-fv
 ```
 
-The full command runs thirteen nonempty tracks, including Phase 2B
-reconciliation, external-evidence readiness, change-control staging readiness,
-clean-checkout review-subject construction, isolated clean-build benchmark-
-manifest reproduction, and Rust parity.
+The full command runs twelve nonempty tracks, including Phase 2B
+reconciliation, external-evidence readiness, clean-checkout review-subject
+construction, isolated clean-build benchmark-manifest reproduction, and Rust
+parity.
 
 The full gate requires the exact source and verifier pins recorded in
 [`toolchain.toml`](toolchain.toml). Missing or mismatched tools are failures.
@@ -537,15 +536,8 @@ The bootstrap currently resolves its OCaml packages through the ambient opam
 repository. Locking that package environment and reproducing the entire gate
 from empty caches remain the final FV1 reproducibility tasks.
 
-The repository-wide `check:formal-verification` command still owns the HSS
-gate. Yao joins that CI aggregate after the clean-checkout Aeneas installation
-path is added; HSS remains until hard cutover.
-CI separately runs the construction-independent `reference-spec-check`,
-`vectors-check`, `cross-language-check`, `phase2b-reconciliation-check`,
-`phase2b-exit-evidence-readiness-check`,
-`phase2b-change-control-readiness-check`,
-`phase2b-review-subject-check`,
-`benchmark-manifest-reproducibility`, and `parity` Yao tracks now. The separate
+The repository-wide `check:formal-verification` command remains available for
+explicit local and release verification. The separate
 `ed25519-yao-constant-time-codegen` job installs the WASM target and LLVM tools,
 then inspects the optimized benchmark kernel and exact cross-account Deriver
 A/B Worker-WASM artifacts. Remote job success remains required evidence before
@@ -553,15 +545,9 @@ the clean Linux qualification item closes.
 
 `phase2b-protected-inputs-check` is available outside `all`; it requires the
 three externally administered values and an out-of-repository policy pin.
-
-The dedicated `phase2b-change-control.yml` workflow checks only public evidence
-staging shape. Before genuine evidence it accepts the zero-file development
-state. The first four-file checkpoint and every later covered change require an
-exact PR-head `C → E` shape. Unrelated descendants retain the historical
-checkpoint for unchanged covered bytes. GitHub runs no release verification and
-holds no policy, challenge, key, or release-authority state. The independent
-verifier must run the protected-input, record, and approval checks against exact
-`E` with the externally pinned policy before Phase 2 can close.
+The independent verifier must run the protected-input, record, and approval
+checks against exact `E` with the externally pinned policy before Phase 2 can
+close.
 
 ## Evidence and scope
 

@@ -146,7 +146,7 @@ Proof work stops at the affected boundary until the authoritative source and
 implementation agree. A formal model must never silently redefine behavior to
 match a convenient implementation.
 
-CI regenerates prose golden bytes and digests from
+The explicit formal-verification gate regenerates prose golden bytes and digests from
 `tools/ed25519-yao-generator` and diffs them against every versioned normative
 specification. Formal anti-drift evidence consumes those exact generated
 artifacts rather than manually copied constants.
@@ -167,7 +167,7 @@ Retain these structural choices:
 
 Strengthen these areas in the Yao track:
 
-- require Verus in the gated CI job and fail when it is unavailable;
+- require Verus in the gated release-verification command and fail when it is unavailable;
 - run Rust anti-drift tests independently of Verus tool discovery;
 - declare every Lean library and Aeneas dependency explicitly;
 - build named Lean targets from a clean checkout and reject a zero-job build;
@@ -271,7 +271,7 @@ reverse dependency on the generator, Lean, Aeneas, or Verus mirrors.
 ## Toolchain Baseline
 
 The first scaffold should reuse the known repository pins so all formal tracks
-share one installed CI toolchain:
+share one installed verification toolchain:
 
 - Verus release `0.2026.04.03.21dfcd2`;
 - `vstd = "=0.0.0-2026-03-29-0113"`;
@@ -949,7 +949,8 @@ Depends on: Yao Phase 0; runs alongside Yao Phase 1
       subject/source/observation/challenge/report binding, sequence floors,
       fixed review scope, and nonclaims. Acceptance consumes private trusted
       capabilities. The fixed-path subject and independently decoded fresh-
-      observation builders add eleven passing tests and join clean-checkout CI.
+      observation builders add eleven passing tests and join the clean-checkout
+      local gate.
       The isolated captured-commit rebuild passes a disposable clean-checkout
       integration run, producing one canonical 15757-byte subject and six exact
       observations. Protected policy/challenge loading adds eight passing tests
@@ -966,16 +967,6 @@ Depends on: Yao Phase 0; runs alongside Yao Phase 1
       passes with synthetic test-only authorities and an exact clean `C → E`
       evidence commit. Genuine externally governed evidence and the Phase 2
       exit remain open.
-- [x] Precommit the non-authoritative Phase 2B evidence-staging workflow, freeze
-      its exact covered paths and historical-checkpoint rule in `YAO-SPEC-027`,
-      and add a hardened stdlib-Python Git-object state checker with thirteen
-      tests. It accepts zero evidence before activation, rejects partial
-      evidence, preserves a complete checkpoint across unrelated descendants,
-      and requires an exact fresh `C → E` pair for the first evidence or any
-      covered descendant. The external reviewer signature is the Phase 2
-      release decision; the separate reproducer signature and independently
-      pinned out-of-repository policy are also mandatory. GitHub status,
-      branch, tag, workflow, and administrator state carry no release authority.
 - [ ] Add later normative specifications and the Phase 6A decision-record schema
       to the spec corpus as they freeze; regenerate their golden bytes in the
       anti-drift gate.
@@ -1001,8 +992,6 @@ Depends on: plan approval; may run alongside the end of FV0
       add `cargo yao-fv constant-time-qualification` with safe and intentionally
       vulnerable native assembly fixtures at `O0` and `O3`. This qualifies the
       tool path without making a production-kernel claim.
-- [x] Add a pinned sparse-checkout of the upstream analyzer and native
-      qualification command to CI.
 - [x] Add a lightweight benchmark-kernel codegen gate over optimized host and
       exact Deriver A/B Worker WASM, plus a dedicated Linux CI job with the
       WASM target and `llvm-objdump`. It caught and prevents the secret IKNP
@@ -1329,7 +1318,7 @@ Depends on: Yao Phase 14 and FV8
       same hard-cutover change.
 - [ ] Delete HSS-only verification aliases, compatibility paths, generated
       artifacts, and proof jobs after their current owners move or are deleted.
-- [ ] Require clean-checkout reproducibility in CI.
+- [ ] Require clean-checkout reproducibility in release verification.
 - [ ] Run the full proof, extraction, anti-drift, source-guard, native, and WASM
       artifact suite against the cutover tree.
 - [ ] Prove repository verification commands cannot silently skip a Yao track or
@@ -1375,7 +1364,6 @@ cargo yao-fv reference-spec-check
 cargo yao-fv vectors-check
 cargo yao-fv phase2b-reconciliation-check
 cargo yao-fv phase2b-exit-evidence-readiness-check
-cargo yao-fv phase2b-change-control-readiness-check
 cargo yao-fv phase2b-review-subject-check
 cargo yao-fv phase2b-protected-inputs-check
 cargo yao-fv phase2b-independent-host-prepare
@@ -1394,7 +1382,7 @@ make -C crates/ed25519-yao/formal-verification check
 just ed25519-yao-fv
 ```
 
-The post-subject-builder `all` target runs thirteen nonempty tracks, in order:
+The post-subject-builder `all` target runs twelve nonempty tracks, in order:
 
 1. fixed-reference normative-spec regeneration and generated-region comparison;
 2. vector regeneration and byte comparison;
@@ -1403,17 +1391,15 @@ The post-subject-builder `all` target runs thirteen nonempty tracks, in order:
 4. strict Phase 2B cross-corpus reconciliation against a fresh provisional
    artifact bundle;
 5. host-only Phase 2B exit-evidence contract and rejection-suite readiness;
-6. Phase 2B public change-control staging-state and non-authoritative workflow
-   readiness;
-7. clean-checkout fixed review-subject and fresh-artifact-observation
+6. clean-checkout fixed review-subject and fresh-artifact-observation
    construction with eleven counted builder tests;
-8. two isolated clean-build reproductions of the benchmark-only manifest;
-9. Rust oracle/manifest parity, including compile-fail doctests;
-10. production/mirror anti-drift tests;
-11. Aeneas extraction, stable generated-Lean comparison, and explicit boundary
+7. two isolated clean-build reproductions of the benchmark-only manifest;
+8. Rust oracle/manifest parity, including compile-fail doctests;
+9. production/mirror anti-drift tests;
+10. Aeneas extraction, stable generated-Lean comparison, and explicit boundary
    builds;
-12. the explicit Lean model build;
-13. Verus verification through a driver in the same pinned release bundle.
+11. the explicit Lean model build;
+12. Verus verification through a driver in the same pinned release bundle.
 
 Track 4's counted six-test Rust, four-test Python, and direct-verification slices
 pass.
@@ -1424,9 +1410,9 @@ from `formal-verification/toolchain.toml`.
 After the FV1 empty-cache bootstrap gate closes, the aggregate repository
 formal-verification command adds Yao while the implementation remains isolated.
 At the Ed25519 hard cutover it removes the obsolete HSS gate in the same change.
-Until that bootstrap gate closes, CI runs the construction-independent
-`reference-spec-check`, `vectors-check`, and benchmark-manifest reproducibility
-Yao tracks alongside the existing default formal gate.
+The construction-independent `reference-spec-check`, `vectors-check`, and
+benchmark-manifest reproducibility tracks remain available through explicit
+local and release verification.
 
 ## Anti-Drift Policy
 
@@ -1512,6 +1498,6 @@ Formal verification is comprehensive enough for production review when:
 - selected session or ticket/output state is consuming and at most once;
 - same-account and selected independent-domain claims remain explicitly
   different;
-- CI fails on missing tools, skipped tracks, drift, or proof failure;
+- release verification fails on missing tools, skipped tracks, drift, or proof failure;
 - independent reviewers approve the formal model, implementation bridge,
   assumption ledger, and release wording.
