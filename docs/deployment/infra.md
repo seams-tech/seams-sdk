@@ -201,8 +201,8 @@ for the commit being deployed.
 
 ## Cloudflare R2
 
-R2 publication is optional. When all four R2 credentials are configured, the
-publish workflow writes:
+R2 publication is optional and manual-only. When all four R2 credentials are
+configured and an operator dispatches `publish-sdk-r2.yml`, the workflow writes:
 
 - `releases-dev/<commit-sha>` for staging/dev commits
 - `releases/<commit-sha>` for production/main commits
