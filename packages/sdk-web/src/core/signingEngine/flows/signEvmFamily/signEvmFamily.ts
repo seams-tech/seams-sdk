@@ -59,7 +59,10 @@ import {
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import { ensureSealedRefreshStartupParityForTransactionSigning } from '../../session/warmCapabilities/sealedRefreshParity';
-import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
+import {
+  SIGNER_AUTH_METHODS,
+  type SignerAuthMethod,
+} from '@shared/utils/signerDomain';
 import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import {
   evmFamilySigningTargetFromExplicitTarget,
@@ -475,6 +478,22 @@ function assertNeverSigningBudgetFinalization(result: never): never {
   throw new Error(`[SigningSessionBudget] unhandled finalization result: ${String(result)}`);
 }
 
+function signerAuthMethodForThresholdEcdsaSource(
+  source: ThresholdEcdsaSessionStoreSource,
+): SignerAuthMethod {
+  switch (source) {
+    case SIGNER_AUTH_METHODS.emailOtp:
+      return SIGNER_AUTH_METHODS.emailOtp;
+    case 'login':
+    case 'registration':
+    case 'manual-bootstrap':
+      return SIGNER_AUTH_METHODS.passkey;
+    default:
+      source satisfies never;
+      throw new Error(`[SigningEngine][ecdsa] unsupported session source: ${String(source)}`);
+  }
+}
+
 export async function signEvmFamily(
   deps: EvmFamilySigningDeps,
   args: SignEvmFamilyArgs,
@@ -704,7 +723,13 @@ async function signEvmFamilyAttempt(
       walletId,
       senderSignatureAlgorithm: args.request.senderSignatureAlgorithm,
       chainTarget: requestChainTarget,
-      ...(thresholdEcdsaRecord ? { sessionSource: thresholdEcdsaRecord.source } : {}),
+      ...(thresholdEcdsaRecord
+        ? {
+            sessionAuthMethod: signerAuthMethodForThresholdEcdsaSource(
+              thresholdEcdsaRecord.source,
+            ),
+          }
+        : {}),
       isEmailOtpThresholdContext,
     }));
   const resolvedAccountAuth = accountAuth;

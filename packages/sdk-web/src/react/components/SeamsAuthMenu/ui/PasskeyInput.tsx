@@ -1,5 +1,6 @@
 import React from 'react';
 import type { StoredAccountOption } from '@/react/types';
+import { WALLET_AUTH_METHODS } from '@shared/utils/signerDomain';
 import { AuthMenuMode } from '../authMenuTypes';
 import { AccountExistsBadge } from './AccountExistsBadge';
 import { usePostfixPosition } from './usePostfixPosition';
@@ -67,20 +68,23 @@ function groupAccountOptions(accountOptions?: StoredAccountOption[]): AccountOpt
     const walletId = String(option.walletId || '').trim();
     if (!walletId) continue;
     const displayName = String(option.displayName || walletId).trim() || walletId;
-    const authMethodKey = option.authMethod || 'passkey';
-    uniqueAccounts.set(`${walletId}:${authMethodKey}:${displayName}`, {
+    uniqueAccounts.set(`${walletId}:${option.authMethod}:${displayName}`, {
       walletId,
       displayName,
+      authMethod: option.authMethod,
       ...(typeof option.signerSlot === 'number' ? { signerSlot: option.signerSlot } : {}),
-      ...(option.authMethod ? { authMethod: option.authMethod } : {}),
     });
   }
 
   const sortedAccounts = [...uniqueAccounts.values()].sort((a, b) =>
     a.displayName.localeCompare(b.displayName),
   );
-  const passkeyAccounts = sortedAccounts.filter((option) => option.authMethod !== 'email_otp');
-  const emailOtpAccounts = sortedAccounts.filter((option) => option.authMethod === 'email_otp');
+  const passkeyAccounts = sortedAccounts.filter(
+    (option) => option.authMethod === WALLET_AUTH_METHODS.passkey,
+  );
+  const emailOtpAccounts = sortedAccounts.filter(
+    (option) => option.authMethod === WALLET_AUTH_METHODS.emailOtp,
+  );
   const groups: AccountOptionGroup[] = [
     { label: 'Passkey', accounts: passkeyAccounts },
     { label: 'Email OTP', accounts: emailOtpAccounts },
@@ -133,7 +137,9 @@ function accountOptionTitle(account: StoredAccountOption): string {
 }
 
 function shouldShowAccountWalletId(account: StoredAccountOption): boolean {
-  return account.authMethod === 'email_otp' && account.walletId !== account.displayName;
+  return (
+    account.authMethod === WALLET_AUTH_METHODS.emailOtp && account.walletId !== account.displayName
+  );
 }
 
 function isEmailAddressLike(value: string): boolean {
@@ -324,7 +330,7 @@ export const PasskeyInput: React.FC<PasskeyInputProps> = ({
                       const selected = accountOptionSelected(account, value);
                       return (
                         <button
-                          key={`${account.walletId}:${account.authMethod || 'passkey'}:${account.displayName}`}
+                          key={`${account.walletId}:${account.authMethod}:${account.displayName}`}
                           type="button"
                           role="option"
                           aria-selected={selected}

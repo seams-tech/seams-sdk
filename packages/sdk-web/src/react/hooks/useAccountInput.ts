@@ -4,6 +4,11 @@ import { checkNearAccountExistsBestEffort } from '@/core/rpcClients/near/rpcCall
 import { awaitWalletIframeReady } from '../utils/walletIframe';
 import { isObject } from '@shared/utils/validation';
 import { compactImplicitNearAccountId } from '@shared/utils/near';
+import {
+  isWalletAuthMethod,
+  type WalletAuthMethod,
+  WALLET_AUTH_METHODS,
+} from '@shared/utils/signerDomain';
 import type { StoredAccountOption } from '../types';
 
 async function discoverRelayerAccountFromHealthz(relayUrl: string): Promise<string | null> {
@@ -82,7 +87,7 @@ function normalizeStoredAccountOptions(input: {
     displayName?: string | null;
     signerSlot?: number;
     lastLogin?: number | null;
-    authMethod?: StoredAccountOption['authMethod'];
+    authMethod?: unknown;
   }> | null;
 }): StoredAccountOption[] {
   const accounts: Array<{
@@ -91,7 +96,7 @@ function normalizeStoredAccountOptions(input: {
     displayName?: string | null;
     signerSlot?: number;
     lastLogin?: number | null;
-    authMethod?: StoredAccountOption['authMethod'];
+    authMethod?: unknown;
   }> =
     input.accounts && input.accounts.length > 0 ? input.accounts : [];
 
@@ -101,21 +106,26 @@ function normalizeStoredAccountOptions(input: {
     if (!walletId) continue;
     const displayName = String(account.displayName || walletId).trim() || walletId;
     const nearAccountId = String(account.nearAccountId || '').trim();
-    const authMethodKey = account.authMethod || 'passkey';
-    byWalletAuth.set(`${walletId}:${authMethodKey}:${displayName}`, {
+    const authMethod = parseStoredAccountOptionAuthMethod(account.authMethod);
+    if (authMethod === null) continue;
+    byWalletAuth.set(`${walletId}:${authMethod}:${displayName}`, {
       walletId,
       displayName,
+      authMethod,
       ...(nearAccountId ? { nearAccountId } : {}),
       ...(typeof account.signerSlot === 'number' ? { signerSlot: account.signerSlot } : {}),
       ...(typeof account.lastLogin === 'number' ? { lastLogin: account.lastLogin } : {}),
-      ...(account.authMethod ? { authMethod: account.authMethod } : {}),
     });
   }
   return [...byWalletAuth.values()];
 }
 
+function parseStoredAccountOptionAuthMethod(value: unknown): WalletAuthMethod | null {
+  return isWalletAuthMethod(value) ? value : null;
+}
+
 function isPasskeyStoredAccountOption(option: StoredAccountOption): boolean {
-  return option.authMethod !== 'email_otp';
+  return option.authMethod === WALLET_AUTH_METHODS.passkey;
 }
 
 export function useAccountInput({

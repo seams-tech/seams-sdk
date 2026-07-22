@@ -1,5 +1,6 @@
 import type { AccountId } from '@/core/types/accountIds';
-import type { SigningSessionRetention, WalletAuthMethod } from '@/core/types/seams';
+import type { SigningSessionRetention } from '@/core/types/seams';
+import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 import type { NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 import type {
   ThresholdEcdsaSessionStoreSource,
@@ -55,7 +56,7 @@ export type SigningOperationFingerprint = Brand<string, 'SigningOperationFingerp
 
 export type SigningCurve = 'ed25519' | 'ecdsa';
 export type SigningChainFamily = 'near' | ThresholdEcdsaChainTarget['kind'];
-export type SigningAuthMethod = Extract<WalletAuthMethod, 'email_otp' | 'passkey'>;
+export type SigningAuthMethod = SignerAuthMethod;
 export type SigningKeyKind = 'threshold_ed25519' | 'threshold_ecdsa_secp256k1' | 'webauthn_p256';
 export type SigningSessionOrigin =
   | 'login'

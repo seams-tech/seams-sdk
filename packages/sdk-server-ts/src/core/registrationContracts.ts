@@ -2,6 +2,7 @@ import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { DerivationClientSharePublicKey33B64u } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import type { WebAuthnRpId } from '@shared/utils/domainIds';
 import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import type { WALLET_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type {
   RouterAbEd25519YaoBytes32V1,
   RouterAbEd25519YaoRegistrationAdmissionRequestV1,
@@ -33,6 +34,7 @@ import type {
   ResolvedRegistrationNearAccount,
   ThresholdEcdsaAddSignerSpec,
   ThresholdEd25519AddSignerSpec,
+  WalletAuthMethodRecord,
   WalletAuthMethodTarget,
   WalletId,
 } from '@shared/utils/registrationIntent';
@@ -168,17 +170,27 @@ export type AddAuthMethodExistingAuth =
       policy: AddAuthMethodAppSessionPolicy;
     };
 
-export type AddAuthMethodAuthority =
+export type WalletRegistrationAuthorityInput =
   | {
-      kind: 'passkey';
+      kind: typeof WALLET_AUTH_METHODS.passkey;
       webauthnRegistration: unknown;
       emailOtpRegistrationProof?: never;
     }
   | {
-      kind: 'email_otp';
+      kind: typeof WALLET_AUTH_METHODS.emailOtp;
       emailOtpRegistrationProof: EmailOtpRegistrationProof;
       webauthnRegistration?: never;
     };
+
+export type PasskeyWalletRegistrationAuthorityInput = Extract<
+  WalletRegistrationAuthorityInput,
+  { kind: typeof WALLET_AUTH_METHODS.passkey }
+>;
+
+export type EmailOtpWalletRegistrationAuthorityInput = Extract<
+  WalletRegistrationAuthorityInput,
+  { kind: typeof WALLET_AUTH_METHODS.emailOtp }
+>;
 
 export type WalletAddAuthMethodStartRequest = {
   walletId: WalletId;
@@ -186,7 +198,7 @@ export type WalletAddAuthMethodStartRequest = {
   addAuthMethodIntentDigestB64u: string;
   intent: AddAuthMethodIntentV1;
   auth: AddAuthMethodExistingAuth;
-  authority: AddAuthMethodAuthority;
+  authority: WalletRegistrationAuthorityInput;
 };
 
 export type WalletAddAuthMethodStartResponse =
@@ -205,16 +217,18 @@ export type WalletAddAuthMethodFinalizeRequest = {
   addAuthMethodCeremonyId: string;
 };
 
+export type WalletAuthMethodStatusAnnotation<Status extends WalletAuthMethodRecord['status']> = {
+  kind: WalletAuthMethodRecord['kind'];
+  status: Status;
+};
+
 export type WalletAddAuthMethodFinalizeResponse =
   | {
       ok: true;
       walletId: WalletId;
       authority: WalletAuthAuthority;
       rpId?: string;
-      authMethod: {
-        kind: 'passkey' | 'email_otp';
-        status: 'active' | 'revoked';
-      };
+      authMethod: WalletAuthMethodStatusAnnotation<'active'>;
     }
   | {
       ok: false;
@@ -252,18 +266,16 @@ export type WalletRevokeAuthMethodResponse =
   | {
       ok: true;
       walletId: WalletId;
-      authMethod: {
-        kind: 'passkey';
-        status: 'revoked';
+      authMethod: WalletAuthMethodStatusAnnotation<'revoked'> & {
+        kind: typeof WALLET_AUTH_METHODS.passkey;
       };
       rpId: string;
     }
   | {
       ok: true;
       walletId: WalletId;
-      authMethod: {
-        kind: 'email_otp';
-        status: 'revoked';
+      authMethod: WalletAuthMethodStatusAnnotation<'revoked'> & {
+        kind: typeof WALLET_AUTH_METHODS.emailOtp;
       };
       rpId?: never;
     }
@@ -306,19 +318,18 @@ export type WalletAddSignerStartResponse =
       ok: true;
       addSignerCeremonyId: string;
       intent: AddSignerIntentV1;
-    } &
-      (
-        | {
-            kind: 'near_ed25519';
-            ed25519: WalletRegistrationEd25519YaoStart;
-            ecdsa?: never;
-          }
-        | {
-            kind: 'evm_family_ecdsa';
-            ecdsa: WalletAddSignerEcdsaPreparePayload;
-            ed25519?: never;
-          }
-      ))
+    } & (
+      | {
+          kind: 'near_ed25519';
+          ed25519: WalletRegistrationEd25519YaoStart;
+          ecdsa?: never;
+        }
+      | {
+          kind: 'evm_family_ecdsa';
+          ecdsa: WalletAddSignerEcdsaPreparePayload;
+          ed25519?: never;
+        }
+    ))
   | {
       ok: false;
       code: string;
@@ -375,44 +386,42 @@ export type WalletAddSignerEcdsaActivationResponse =
 export type WalletAddSignerFinalizeRequest = {
   addSignerCeremonyId: string;
   idempotencyKey: string;
-} &
-  (
-    | {
-        kind: 'near_ed25519';
-        ed25519: WalletRegistrationEd25519YaoFinalize;
-        ecdsa?: never;
-      }
-    | {
-        kind: 'evm_family_ecdsa';
-        ecdsa: {
-          expectedKeyHandles: readonly [string];
-        };
-        ed25519?: never;
-      }
-  );
+} & (
+  | {
+      kind: 'near_ed25519';
+      ed25519: WalletRegistrationEd25519YaoFinalize;
+      ecdsa?: never;
+    }
+  | {
+      kind: 'evm_family_ecdsa';
+      ecdsa: {
+        expectedKeyHandles: readonly [string];
+      };
+      ed25519?: never;
+    }
+);
 
 export type WalletAddSignerFinalizeResponse =
   | ({
       ok: true;
       walletId: WalletId;
-    } &
-      (
-        | {
-            kind: 'near_ed25519';
-            rpId: string;
-            credentialIdB64u: string;
-            ed25519: WalletRegistrationEd25519YaoPublicResult;
-            ecdsa?: never;
-          }
-        | {
-            kind: 'evm_family_ecdsa';
-            rpId?: string;
-            ecdsa: {
-              walletKeys: WalletRegistrationEcdsaWalletKey[];
-            };
-            ed25519?: never;
-          }
-      ))
+    } & (
+      | {
+          kind: 'near_ed25519';
+          rpId: string;
+          credentialIdB64u: string;
+          ed25519: WalletRegistrationEd25519YaoPublicResult;
+          ecdsa?: never;
+        }
+      | {
+          kind: 'evm_family_ecdsa';
+          rpId?: string;
+          ecdsa: {
+            walletKeys: WalletRegistrationEcdsaWalletKey[];
+          };
+          ed25519?: never;
+        }
+    ))
   | {
       ok: false;
       code: string;
@@ -425,18 +434,6 @@ type WalletRegistrationStartRequestBase = {
   intent: RegistrationIntentV1;
 };
 
-export type WalletRegistrationStartAuthority =
-  | {
-      kind: 'passkey';
-      webauthnRegistration: unknown;
-      emailOtpRegistrationProof?: never;
-    }
-  | {
-      kind: 'email_otp';
-      emailOtpRegistrationProof: EmailOtpRegistrationProof;
-      webauthnRegistration?: never;
-    };
-
 export type WalletRegistrationStartRequest = WalletRegistrationStartRequestBase &
   (
     | {
@@ -445,7 +442,7 @@ export type WalletRegistrationStartRequest = WalletRegistrationStartRequestBase 
       }
     | {
         registrationPreparationId?: never;
-        authority: WalletRegistrationStartAuthority;
+        authority: WalletRegistrationAuthorityInput;
       }
   );
 
@@ -470,10 +467,7 @@ export type WalletRegistrationEcdsaPrepareContext = {
 
 export type WalletRegistrationEcdsaPreparePayload = {
   kind: 'evm_family_ecdsa_keygen';
-  chainTargets: readonly [
-    ThresholdEcdsaChainTarget,
-    ...ThresholdEcdsaChainTarget[],
-  ];
+  chainTargets: readonly [ThresholdEcdsaChainTarget, ...ThresholdEcdsaChainTarget[]];
   prepare: WalletRegistrationEcdsaPrepareContext;
   strictRegistration: RouterAbEcdsaRegistrationRequestFactsV1;
 };
@@ -606,7 +600,10 @@ export type WalletRegistrationRouteTimingName =
 
 export type WalletRegistrationRouteDiagnostics = {
   kind: 'wallet_registration_route_diagnostics_v1';
-  route: 'wallets_register_start' | 'wallets_register_ecdsa_derivation_respond' | 'wallets_register_finalize';
+  route:
+    | 'wallets_register_start'
+    | 'wallets_register_ecdsa_derivation_respond'
+    | 'wallets_register_finalize';
   entries: {
     name: WalletRegistrationRouteTimingName;
     durationMs: number;
@@ -650,8 +647,7 @@ export type WalletRegistrationEcdsaDerivationRespondResponse =
       message: string;
     };
 
-export type WalletRegistrationEcdsaActivationRequest =
-  RouterAbEcdsaRegistrationActivationRequestV1;
+export type WalletRegistrationEcdsaActivationRequest = RouterAbEcdsaRegistrationActivationRequestV1;
 
 export type WalletRegistrationEcdsaActivationResponse =
   | {
@@ -695,14 +691,24 @@ export type WalletRegistrationFinalizeRequest = WalletRegistrationFinalizeReques
 
 export type WalletRegistrationFinalizeAuthMethod =
   | {
-      kind: 'passkey';
+      kind: typeof WALLET_AUTH_METHODS.passkey;
       credentialIdB64u: string;
       credentialPublicKeyB64u: string;
     }
   | {
-      kind: 'email_otp';
+      kind: typeof WALLET_AUTH_METHODS.emailOtp;
       registrationAuthorityId: string;
     };
+
+export type PasskeyWalletRegistrationFinalizeAuthMethod = Extract<
+  WalletRegistrationFinalizeAuthMethod,
+  { kind: typeof WALLET_AUTH_METHODS.passkey }
+>;
+
+export type EmailOtpWalletRegistrationFinalizeAuthMethod = Extract<
+  WalletRegistrationFinalizeAuthMethod,
+  { kind: typeof WALLET_AUTH_METHODS.emailOtp }
+>;
 
 export type WalletRegistrationEd25519YaoBootstrapSession = {
   sessionKind: 'jwt';
@@ -744,10 +750,10 @@ type WalletRegistrationFinalizeResponseBase = {
 type WalletRegistrationFinalizeResponseAuthMethod =
   | {
       rpId: string;
-      authMethod: Extract<WalletRegistrationFinalizeAuthMethod, { kind: 'passkey' }>;
+      authMethod: PasskeyWalletRegistrationFinalizeAuthMethod;
     }
   | {
-      authMethod: Extract<WalletRegistrationFinalizeAuthMethod, { kind: 'email_otp' }>;
+      authMethod: EmailOtpWalletRegistrationFinalizeAuthMethod;
       rpId?: never;
     };
 
@@ -782,16 +788,16 @@ type WalletRegistrationFinalizeSignerSuccess =
     };
 
 type WalletRegistrationFinalizeSuccessForAuth<
-  AuthMethod extends WalletRegistrationFinalizeResponseAuthMethod,
+  AuthMethodBranch extends WalletRegistrationFinalizeResponseAuthMethod,
   SignerSuccess = WalletRegistrationFinalizeSignerSuccess,
 > = SignerSuccess extends WalletRegistrationFinalizeSignerSuccess
-  ? WalletRegistrationFinalizeResponseBase & AuthMethod & SignerSuccess
+  ? WalletRegistrationFinalizeResponseBase & AuthMethodBranch & SignerSuccess
   : never;
 
 export type WalletRegistrationFinalizeSuccess =
-  WalletRegistrationFinalizeResponseAuthMethod extends infer AuthMethod
-    ? AuthMethod extends WalletRegistrationFinalizeResponseAuthMethod
-      ? WalletRegistrationFinalizeSuccessForAuth<AuthMethod>
+  WalletRegistrationFinalizeResponseAuthMethod extends infer AuthMethodBranch
+    ? AuthMethodBranch extends WalletRegistrationFinalizeResponseAuthMethod
+      ? WalletRegistrationFinalizeSuccessForAuth<AuthMethodBranch>
       : never
     : never;
 
@@ -806,12 +812,12 @@ export type WalletRegistrationFinalizeResponse =
 
 type PasskeyWalletRegistrationFinalizeRouteAuth = Extract<
   WalletRegistrationFinalizeResponseAuthMethod,
-  { authMethod: { kind: 'passkey' } }
+  { authMethod: PasskeyWalletRegistrationFinalizeAuthMethod }
 > & { appSessionJwt?: never };
 
 type EmailOtpWalletRegistrationFinalizeRouteAuth = Extract<
   WalletRegistrationFinalizeResponseAuthMethod,
-  { authMethod: { kind: 'email_otp' } }
+  { authMethod: EmailOtpWalletRegistrationFinalizeAuthMethod }
 > & { appSessionJwt: string };
 
 export type WalletRegistrationFinalizeRouteSuccess =

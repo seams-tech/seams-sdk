@@ -11,7 +11,7 @@ import type {
   ExportPrivateKeysWithUiWorkerPayload,
   ExportPrivateKeysWithUiWorkerResult,
 } from '@/core/types/secure-confirm-worker';
-import type { SeamsConfigsReadonly, ThemeMode } from '@/core/types/seams';
+import type { SeamsConfigsReadonly, ThemeMode, WalletAuthMethod } from '@/core/types/seams';
 import type { EmailOtpSigningSessionAuthLane } from '../stepUpConfirmation/otpPrompt/authLane';
 import type { EmailOtpEcdsaSigningSessionAuthority } from '../session/emailOtp/ecdsaSigningSessionAuthority';
 import type { TouchIdPrompt } from '../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
@@ -134,7 +134,7 @@ export type NearSigningApiDeps = {
     nearAccountId: AccountId;
     curve: 'ed25519';
     chain: 'near';
-  }) => Promise<'email_otp' | 'passkey' | null>;
+  }) => Promise<WalletAuthMethod | null>;
   signingSessionCoordinator: SigningSessionCoordinator;
   readAvailableSigningLanesForSigning: (
     args: Extract<ReadAvailableSigningLanesForSigningInput, { curve: 'ed25519' }>,

@@ -6,6 +6,8 @@ import {
 } from '@shared/utils/normalize';
 import { base64UrlDecode } from '@shared/utils/base64';
 import { parseEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
+import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import { toAccountId, type AccountId, type StrictAccountId } from '@/core/types/accountIds';
 import type {
   EcdsaLaneCandidate,
@@ -587,8 +589,21 @@ export function thresholdEcdsaRecordRpId(record: ThresholdEcdsaSessionRecord): s
 
 function thresholdEcdsaAuthMethodForRecord(
   record: ThresholdEcdsaSessionRecord,
-): 'email_otp' | 'passkey' {
-  return record.source === 'email_otp' ? 'email_otp' : 'passkey';
+): SigningSessionSealAuthMethod {
+  const source = record.source;
+  switch (source) {
+    case SIGNER_AUTH_METHODS.emailOtp:
+      return SIGNER_AUTH_METHODS.emailOtp;
+    case 'login':
+    case 'registration':
+    case 'manual-bootstrap':
+      return SIGNER_AUTH_METHODS.passkey;
+    default:
+      source satisfies never;
+      throw new Error(
+        `[SigningEngine] unsupported threshold ECDSA session source: ${String(source)}`,
+      );
+  }
 }
 
 function thresholdEcdsaAuthBindingForRecord(
@@ -2413,7 +2428,7 @@ function forgetInMemoryThresholdEd25519Record(record: ThresholdEd25519SessionRec
   }
 }
 
-type ThresholdEd25519SessionAuthMethod = 'email_otp' | 'passkey';
+type ThresholdEd25519SessionAuthMethod = SigningSessionSealAuthMethod;
 
 export type ThresholdEd25519SessionRecordKey = {
   walletId: WalletId;
@@ -2438,7 +2453,22 @@ export type ThresholdEd25519SessionRecordKeyInput = {
 function thresholdEd25519AuthMethodForRecord(
   record: ThresholdEd25519SessionRecord,
 ): ThresholdEd25519SessionAuthMethod {
-  return record.source === 'email_otp' ? 'email_otp' : 'passkey';
+  const source = record.source;
+  switch (source) {
+    case SIGNER_AUTH_METHODS.emailOtp:
+      return SIGNER_AUTH_METHODS.emailOtp;
+    case 'login':
+    case 'registration':
+    case 'add-signer':
+    case 'manual-connect':
+    case 'bootstrap':
+      return SIGNER_AUTH_METHODS.passkey;
+    default:
+      source satisfies never;
+      throw new Error(
+        `[SigningEngine] unsupported threshold Ed25519 session source: ${String(source)}`,
+      );
+  }
 }
 
 function thresholdEd25519AuthBindingForRecord(

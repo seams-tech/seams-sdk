@@ -15,9 +15,10 @@ import {
 import { laneCandidateAuthMethod } from '../identity/laneIdentity';
 import type { NearEd25519TransactionReadyLane } from '../identity/selectLane';
 import { listNearEd25519TransactionReadyLanes } from '../identity/selectLane';
+import type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
 
 export type RuntimePostconditionSource = 'registration_finalize' | 'wallet_unlock';
-export type RuntimePostconditionAuthMethod = 'email_otp' | 'passkey';
+export type RuntimePostconditionAuthMethod = SigningSessionSealAuthMethod;
 
 export type RuntimePostconditionTarget =
   | { curve: 'ed25519'; chainTarget?: never }
