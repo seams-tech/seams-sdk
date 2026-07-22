@@ -129,7 +129,7 @@ export type NearSigningApiDeps = {
   }) => Promise<
     { sessionId: string; record: ThresholdEd25519SessionRecord } & NearEd25519YaoSigningCapability
   >;
-  resolveAccountAuthMethodForSigning?: (args: {
+  resolveAccountAuthMethodForSigning: (args: {
     walletId: WalletId;
     nearAccountId: AccountId;
     curve: 'ed25519';

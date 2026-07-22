@@ -208,6 +208,10 @@ type NearEd25519CapabilityRehydrationSubject =
       readonly laneIdentity: ExactEd25519SigningLaneIdentity;
     };
 
+function assertNeverNearWalletAuthMethod(value: never): never {
+  throw new Error(`[SigningEngine][near] unsupported wallet auth method: ${String(value)}`);
+}
+
 function fetchWithGlobalThis(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   return globalThis.fetch(input, init);
 }
@@ -581,11 +585,33 @@ export class BrowserSigningSurface {
     request: TRequest,
   ): Promise<NearSignIntentResult<TRequest>> {
     if (request.kind !== 'transactionWithActions') {
-      await this.ensureNearEd25519YaoCapabilityForSigning(
-        nearEd25519CapabilityRehydrationSubjectFromRequest(request),
-      );
+      await this.prepareNearEd25519YaoCapabilityForSigning(request);
     }
     return await signNearOperation(this.enginePorts.nearSigningDeps, request);
+  }
+
+  private async prepareNearEd25519YaoCapabilityForSigning(
+    request: Exclude<NearSignIntentRequest, { kind: 'transactionWithActions' }>,
+  ): Promise<void> {
+    const resolveAuthMethod = this.enginePorts.nearSigningDeps.resolveAccountAuthMethodForSigning;
+    const subject = nearEd25519CapabilityRehydrationSubjectFromRequest(request);
+    const authMethod = await resolveAuthMethod({
+      walletId: subject.walletId,
+      nearAccountId: subject.nearAccountId,
+      curve: 'ed25519',
+      chain: 'near',
+    });
+    switch (authMethod) {
+      case 'email_otp':
+        return;
+      case 'passkey':
+        await this.ensureNearEd25519YaoCapabilityForSigning(subject);
+        return;
+      case null:
+        throw new Error('[SigningEngine][near] wallet auth method is unavailable');
+      default:
+        assertNeverNearWalletAuthMethod(authMethod);
+    }
   }
 
   private async ensureNearEd25519YaoCapabilityForSigning(
