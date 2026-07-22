@@ -10,6 +10,131 @@ Status: planning.
 
 Companion doc: [Implementation plan](./refactor-90-modular-auth-capabilities-plan.md).
 
+Scope amendment: July 22, 2026 — the implementation plan was reduced to the
+minimal authorization proving slice and the two current MPC capabilities.
+Service accounts, Better Auth, IdP functionality, Slack OTP evidence, full vault
+product workflows, general route-module registries, and speculative package
+splits are follow-on work. Sections that describe those future product shapes
+are design context rather than Refactor 90 acceptance criteria.
+
+## Normative Invariant Index
+
+The implementation plan cites these IDs instead of restating their full rules.
+Code, boundary parsers, and tests remain the executable expression of each
+invariant.
+
+- **R90-INV-001 — Boundary normalization.** Raw request, persistence, token,
+  worker, and UI data is validated once at its owning boundary. Core functions
+  accept only precise internal states.
+- **R90-INV-002 — Canonical material ownership.** Each MPC protocol has one
+  durable material owner and one volatile runtime owner. Registration, unlock,
+  refresh, recovery, signing, and export cannot publish parallel active records.
+- **R90-INV-003 — Entry-point-neutral hydration.** Registration, wallet unlock,
+  and page refresh are provenance only. Canonical state selects
+  `use_live_runtime`, `rehydrate_active_session`,
+  `reauthorize_public_anchor`, or `blocked`.
+- **R90-INV-004 — Recovery server idempotency.** Every consuming recovery call
+  is independently idempotent and queryable by exact `recoveryId`. A reload from
+  a prepared journal queries server state before retrying or finalizing an
+  effect.
+- **R90-INV-005 — Atomic local finalization.** The final IndexedDB transaction
+  writes replacement material and lifecycle facts, retires or removes the old
+  source, and deletes the recovery or activation journal atomically. Journal
+  absence is terminal only after that transaction commits.
+- **R90-INV-006 — Durable facts only.** Journals contain server uncertainty and
+  receipts required for local durable convergence. Runtime publication, handle
+  disposal, candidate disposal, and zeroization are process-local worker facts
+  and are never journal states.
+- **R90-INV-007 — Cancellation does not resurrect work.** A prepared recovery
+  records `continue | cancel_requested`. Reload reconciles a cancellation and
+  never silently resumes the abandoned parent operation.
+- **R90-INV-008 — Exact material serialization.** One queue serializes material
+  use per exact owner and checks the current generation/fence. There is no
+  public affine lease-token lifecycle.
+- **R90-INV-009 — Exact operation claim.** The stable operation fingerprint
+  excludes rotating authorization, quota, session, and runtime identities. One
+  absent-claim transaction consumes the exact grant and applicable quota and
+  creates the claim and audit linkage. Operation descriptors declare quota
+  applicability: normal signing consumes one wallet-quota use beside its grant;
+  key export declares no quota use and consumes only its exact grant. Quota
+  exhaustion never blocks export, and export never spends signing quota.
+- **R90-INV-010 — Supersession invalidates preparation.** Authority or lifecycle
+  replacement returns `superseded`; callers discard the prepared lane and
+  resolve current canonical state again.
+- **R90-INV-011 — Readback is verification, not lifecycle.** A high-value local
+  commit may be read immediately through the canonical parser after transaction
+  completion. Readback never creates a durable pending state.
+- **R90-INV-012 — Enforcement matches failure mode.** Types reject invalid core
+  construction, boundary tests reject hostile raw data, guards enforce
+  dependency/artifact boundaries, integration tests prove cross-store effects,
+  and E2E tests prove selected user-visible transitions.
+
+## Phased Invariant Verification Checklist
+
+This checklist tracks conformance evidence for the normative invariants. The
+implementation plan owns task status. Check an item here only when the invariant
+is expressed in code and its cheapest effective verification passes; link the
+evidence from the progress journal.
+
+### Foundations A-B
+
+- [ ] `R90-INV-001` — hydration and ECDSA persistence boundaries parse raw
+  records once and expose only precise internal branches.
+- [ ] `R90-INV-002` — Near and ECDSA each have one durable material owner and one
+  volatile runtime owner.
+- [ ] `R90-INV-003` — registration, unlock, and refresh equivalence tests select
+  the same hydration outcome from equivalent canonical observations.
+- [ ] `R90-INV-005` — ECDSA activation finalization atomically writes material,
+  manifest, replacement retirement, and journal deletion.
+- [ ] `R90-INV-006` — ECDSA journal types contain no runtime-publication,
+  disposal, zeroization, or other volatile facts.
+- [ ] `R90-INV-011` — ECDSA post-commit verification creates no durable
+  readback/publication state.
+- [ ] `R90-INV-012` — Foundation type fixtures, parser tests, persistence tests,
+  and generic-module guards each cover their assigned failure mode once.
+
+### Slice A — authorization proving vertical
+
+- [ ] `R90-INV-001` — session, evidence, grant, claim, vault, and audit requests
+  and rows normalize at their owning boundaries.
+- [ ] `R90-INV-009` — the minimal vault operation uses a stable fingerprint and
+  one atomic absent-claim grant-use transaction.
+- [ ] `R90-INV-012` — the real minimal vault vertical proves session → Passkey
+  evidence → grant → operation → audit without future-provider scaffolding.
+
+### Slice B — MPC migration
+
+- [ ] `R90-INV-002` — registration, unlock, refresh, recovery, signing, and
+  export cannot publish or select a parallel active material record.
+- [ ] `R90-INV-003` — both MPC modules use the canonical hydration outcomes and
+  contain no entry-point-selected material branch.
+- [ ] `R90-INV-004` — Near admission, acquisition, and promotion are independently
+  idempotent and queryable by exact recovery ID, including injected crash cases.
+- [ ] `R90-INV-005` — Near finalization atomically swaps or retires material,
+  persists lifecycle facts, and deletes the journal.
+- [ ] `R90-INV-006` — Near durable journals contain only server uncertainty and
+  the promotion receipt required for local convergence.
+- [ ] `R90-INV-007` — cancel/crash/reload tests prove `cancel_requested` never
+  resumes the abandoned parent operation.
+- [ ] `R90-INV-008` — concurrent recovery, signing, refresh, and export serialize
+  by exact owner and reject stale generations/fences.
+- [ ] `R90-INV-009` — MPC absent-claim transactions consume the exact grant and
+  applicable quota once; existing claims consume neither again.
+- [ ] `R90-INV-010` — authority/lifecycle replacement returns `superseded` and
+  every SDK/UI adapter discards and re-resolves the stale lane.
+- [ ] `R90-INV-011` — Near post-commit verification creates no durable readback
+  stage.
+- [ ] `R90-INV-012` — type, parser, guard, integration, concurrency, and E2E
+  checks follow the one-enforcement-per-failure-mode rule.
+
+### Final conformance
+
+- [ ] Every invariant has implementation and validation evidence in the journal.
+- [ ] No unchecked invariant is represented as complete in the implementation
+  plan.
+- [ ] Follow-on capability/provider designs extend the closed unions only when
+  they enter implementation scope.
+
 ## Goal
 
 Split the current signing-session architecture into a small shared auth/session
@@ -573,6 +698,9 @@ scopes.
 
 ### Grant Evidence For Automation
 
+> Follow-on context (July 22 scope amendment): service-account evidence is not a
+> Refactor 90 acceptance surface.
+
 Management API keys can configure capabilities and policies. They cannot perform
 runtime use by themselves. Service accounts, CI jobs, rotations, vault proxy
 use, and signing bots must present grant evidence, satisfy policy, and receive a
@@ -680,6 +808,10 @@ changes, and IdP high-risk scope issuance use the same route policy plane with
 different capability and operation kinds.
 
 ## Auth Provider Decision
+
+> Partially follow-on (July 22 scope amendment): the provider-neutral session
+> port is a Refactor 90 surface; Better Auth integration itself is follow-on
+> work.
 
 Better Auth is useful for:
 
@@ -808,6 +940,9 @@ Better Auth session
 ```
 
 ### Seams Passkey Grant Evidence Plugin
+
+> Follow-on context (July 22 scope amendment): the Better Auth mounting bridge
+> is not a Refactor 90 acceptance surface.
 
 Standard passkey login proves account control. Seams passkey grant evidence must
 prove presence for one exact capability operation.
@@ -1088,6 +1223,9 @@ client-selected device ID or fingerprint a device directly.
 
 ### Enterprise SSO
 
+> Follow-on context (July 22 scope amendment): not a Refactor 90 acceptance
+> surface.
+
 Enterprise customers must be able to use their existing identity providers to
 log into Seams. Initial provider support is OIDC.
 
@@ -1116,6 +1254,9 @@ Deferred SAML support should be added as a separate provider adapter once the
 OIDC path is stable.
 
 ### Seams IdP Mode
+
+> Follow-on context (July 22 scope amendment): not a Refactor 90 acceptance
+> surface.
 
 Seams should also act as an identity provider for other applications. This is
 the inverse direction from enterprise SSO:
@@ -1569,16 +1710,12 @@ The embedded defaults should be conservative:
 
 | Capability operation | Default capability grant policy |
 | --- | --- |
-| Vault proxy use | active session plus RBAC, or service-account API-key evidence plus an explicit proxy-use policy |
-| Vault reveal | passkey assertion, Email OTP, or Slack OTP evidence |
-| Vault export | passkey assertion evidence |
-| Vault rotation | passkey assertion evidence, or service-account API-key evidence plus an explicit rotation policy |
-| Vault permission change | passkey assertion evidence |
-| Vault break-glass reveal | approval plus passkey assertion evidence |
-| MPC transaction signing (`near.sign_transaction`, `evm.sign_transaction`) | passkey assertion or Email OTP evidence |
-| MPC signer-proof production (`mpc.produce_signer_proof`) | inherited signer capability grant policy |
-| Vault export with high-assurance policy | passkey assertion plus MPC signer proof evidence |
-| IdP high-risk scope issuance (`idp.high_risk_scope.issue`) | active session plus the relying party's explicit grant-evidence policy |
+| Vault proxy use | active session plus RBAC and an exact one-use grant |
+| Vault reveal | operation-bound passkey assertion evidence |
+| NEAR signing (`near.sign_transaction`, `near.sign_delegate_action`, `near.sign_nep413_message`) | passkey assertion or Email OTP evidence |
+| NEAR export (`near.export_key`) | passkey assertion evidence |
+| EVM transaction signing (`evm.sign_transaction`) | passkey assertion or Email OTP evidence |
+| EVM export (`evm.export_key`) | passkey assertion evidence |
 
 Tenant policy can make defaults stricter. It should not silently weaken the
 compiled capability defaults.
@@ -1597,40 +1734,31 @@ becomes real, reopen via module augmentation or a generic parameter then.
 type CapabilityKind =
   | "vault_access"
   | "near_ed25519_mpc_signing"
-  | "evm_ecdsa_mpc_signing"
-  | "idp_access";
+  | "evm_ecdsa_mpc_signing";
 
 type VaultOperationKind =
   | "vault.proxy_use"
-  | "vault.reveal"
-  | "vault.export"
-  | "vault.rotate"
-  | "vault.permission_change"
-  | "vault.break_glass_reveal";
+  | "vault.reveal";
 
 type NearEd25519MpcOperationKind =
   | "near.sign_transaction"
-  | "near.export_key"
-  | "mpc.produce_signer_proof";
+  | "near.sign_delegate_action"
+  | "near.sign_nep413_message"
+  | "near.export_key";
 
 type EvmEcdsaMpcOperationKind =
   | "evm.sign_transaction"
-  | "evm.export_key"
-  | "mpc.produce_signer_proof";
-
-type IdpOperationKind = "idp.high_risk_scope.issue";
+  | "evm.export_key";
 
 type CapabilityOperationKind =
   | VaultOperationKind
   | NearEd25519MpcOperationKind
-  | EvmEcdsaMpcOperationKind
-  | IdpOperationKind;
+  | EvmEcdsaMpcOperationKind;
 
 type CapabilityOperationKindByCapability = {
   vault_access: VaultOperationKind;
   near_ed25519_mpc_signing: NearEd25519MpcOperationKind;
   evm_ecdsa_mpc_signing: EvmEcdsaMpcOperationKind;
-  idp_access: IdpOperationKind;
 };
 
 type CapabilityOperationRef = {
@@ -1686,11 +1814,6 @@ type AuthFactorIdentity =
       kind: "email_otp";
       provider: EmailOtpProvider;
       providerUserId: EmailOtpProviderUserId;
-    }
-  | {
-      kind: "slack_otp";
-      slackTeamId: SlackTeamId;
-      slackUserId: SlackUserId;
     }
   | { kind: "wallet_login"; walletAccountId: EmbeddedWalletAccountId }
   | { kind: "recovery_code"; recoverySetId: RecoverySetId };
@@ -1751,31 +1874,20 @@ type SessionEvidenceKind =
 
 type InteractiveGrantEvidenceKind =
   | "passkey_assertion"
-  | "email_otp"
-  | "slack_otp"
-  | "wallet_login";
+  | "email_otp";
 
 type SessionGrantEvidenceKind = "seams_session";
-type ServiceAccountGrantEvidenceKind = "service_account_api_key";
-type ApprovalGrantEvidenceKind = "approval_decision";
-type MpcGrantEvidenceKind = "mpc_signer_proof";
 
 type GrantEvidenceKind =
   | SessionGrantEvidenceKind
-  | InteractiveGrantEvidenceKind
-  | ProviderAssuranceEvidenceKind
-  | ServiceAccountGrantEvidenceKind
-  | ApprovalGrantEvidenceKind
-  | MpcGrantEvidenceKind;
+  | InteractiveGrantEvidenceKind;
 
 type AssuranceProperty =
   | "authenticated_session"
   | "recent_interaction"
   | "multi_factor"
   | "phishing_resistant"
-  | "device_bound"
-  | "mpc_participation"
-  | "service_credential";
+  | "device_bound";
 
 type AssuranceProfile = {
   properties: NonEmptyArray<AssuranceProperty>;
@@ -2058,50 +2170,13 @@ type GrantEvidenceRef =
       challengeId: GrantChallengeId;
       operationDigests: OperationDigestSet;
       deviceId: DeviceId;
-    })
-  | (GrantEvidenceBase & {
-      kind: "provider_assurance_grant_evidence";
-      evidenceKind: ProviderAssuranceEvidenceKind;
-      sessionId: SeamsSessionId;
-      providerId: AuthProviderId;
-      deviceId: DeviceId;
-    })
-  | (GrantEvidenceBase & {
-      kind: "mpc_signer_grant_evidence";
-      evidenceKind: MpcGrantEvidenceKind;
-      sessionId: SeamsSessionId;
-      signerKind: MpcCapabilityKind;
-      signerCapabilityId: CapabilityId;
-      inheritedPolicyId: PolicyId;
-      challengeDigest: DigestB64u;
-      targetCapabilityId: CapabilityId;
-      targetOperation: CapabilityOperationRef;
-      operationDigests: OperationDigestSet;
-      proofDigest: DigestB64u;
-      deviceId: DeviceId;
-    })
-  | (GrantEvidenceBase & {
-      kind: "service_account_api_key_grant_evidence";
-      evidenceKind: ServiceAccountGrantEvidenceKind;
-      apiCredentialId: ApiCredentialId;
-      apiScopeDigest: DigestB64u;
-    })
-  | (GrantEvidenceBase & {
-      kind: "approval_decision_grant_evidence";
-      evidenceKind: ApprovalGrantEvidenceKind;
-      approvalId: ApprovalId;
-      operationDigests: OperationDigestSet;
     });
 
-type GrantEvidenceContext =
-  | {
-      kind: "interactive_session";
-      sessionId: SeamsSessionId;
-      deviceId: DeviceId;
-    }
-  | {
-      kind: "non_interactive";
-    };
+type GrantEvidenceContext = {
+  kind: "interactive_session";
+  sessionId: SeamsSessionId;
+  deviceId: DeviceId;
+};
 
 declare const verifiedGrantEvidenceSetBrand: unique symbol;
 
@@ -2130,19 +2205,10 @@ type CapabilityGrantRequest = {
   evidenceSet: VerifiedGrantEvidenceSet;
 };
 
-type GrantEvidenceExpression =
-  | {
-      kind: "evidence";
-      evidenceKind: GrantEvidenceKind;
-    }
-  | {
-      kind: "any_of";
-      requirements: NonEmptyArray<GrantEvidenceExpression>;
-    }
-  | {
-      kind: "all_of";
-      requirements: NonEmptyArray<GrantEvidenceExpression>;
-    };
+type GrantEvidenceRequirement = {
+  mode: "all" | "any";
+  evidenceKinds: NonEmptyArray<GrantEvidenceKind>;
+};
 
 type CapabilityGrantPolicy = {
   tenantId: TenantId;
@@ -2150,7 +2216,7 @@ type CapabilityGrantPolicy = {
   operation: CapabilityOperationRef;
   allowedPrincipalKinds: NonEmptyArray<PrincipalKind>;
   allowedBindingKinds: NonEmptyArray<CapabilityBindingKind>;
-  requiredEvidence: GrantEvidenceExpression;
+  requiredEvidence: GrantEvidenceRequirement;
   requiredAssurance: AssuranceRequirement;
   maxTtlSeconds: PositiveInt;
   maxUses: PositiveInt;
@@ -2328,6 +2394,67 @@ the capability's reauthorization policy and is never an operation grant. Core
 material, signing, and export functions receive `plan`, while diagnostics and
 tests may also receive `provenance`.
 
+Near same-root recovery persists only cross-boundary facts:
+
+```ts
+type NearEd25519YaoRecoveryId = Brand<string, "NearEd25519YaoRecoveryId">;
+type NearEd25519YaoRecoveryCorrelation =
+  Brand<string, "NearEd25519YaoRecoveryCorrelation">;
+type NearEd25519YaoMaterialRecoverySourceRef =
+  Brand<string, "NearEd25519YaoMaterialRecoverySourceRef">;
+type NearEd25519YaoPromotionReceipt =
+  Brand<string, "NearEd25519YaoPromotionReceipt">;
+type NearEd25519YaoLocalFinalizationCommand =
+  Brand<string, "NearEd25519YaoLocalFinalizationCommand">;
+
+type NearEd25519YaoRecoveryCommitJournal =
+  | {
+      kind: "prepared";
+      recoveryId: NearEd25519YaoRecoveryId;
+      authority: WalletAuthAuthorityRef;
+      materialOwner: MpcMaterialOwnerRef;
+      source: NearEd25519YaoMaterialRecoverySourceRef;
+      correlation: NearEd25519YaoRecoveryCorrelation;
+      disposition: "continue" | "cancel_requested";
+    }
+  | {
+      kind: "promotion_committed";
+      recoveryId: NearEd25519YaoRecoveryId;
+      authority: WalletAuthAuthorityRef;
+      materialOwner: MpcMaterialOwnerRef;
+      promotionReceipt: NearEd25519YaoPromotionReceipt;
+      finalization: NearEd25519YaoLocalFinalizationCommand;
+    };
+
+type CapabilityPreparationResult<
+  Ready,
+  Resume,
+  Requirement,
+  Replacement,
+  Failure,
+> =
+  | { kind: "ready"; value: Ready }
+  | { kind: "pending"; resume: Resume }
+  | { kind: "authorization_required"; requirement: Requirement }
+  | { kind: "superseded"; replacement: Replacement }
+  | { kind: "failed"; failure: Failure };
+```
+
+`prepared` is written before the first consuming server call and therefore
+already represents uncertainty after reload. Admission, acquisition, and
+promotion are independently idempotent and queryable by `recoveryId`
+(R90-INV-004). A cancellation changes `disposition` with compare-and-swap;
+reload reconciles it and cannot silently execute the abandoned parent operation
+(R90-INV-007).
+
+After promotion, one IndexedDB transaction persists the replacement seal or
+volatile-retention record, retires or removes the prior source, persists the
+current lifecycle receipt, and deletes the journal (R90-INV-005). Runtime
+publication and secret cleanup remain process-local (R90-INV-006). An optional
+post-commit read through the canonical parser does not create another journal
+branch (R90-INV-011). `superseded` invalidates the prepared lane and forces exact
+current-state resolution (R90-INV-010).
+
 ECDSA persists one capability manifest. It replaces the current
 `ThresholdEcdsaSessionRecordCore` family of records.
 
@@ -2348,8 +2475,6 @@ type EcdsaServerActivationReceipt =
   Brand<string, "EcdsaServerActivationReceipt">;
 type EcdsaRuntimeValidationProof =
   Brand<string, "EcdsaRuntimeValidationProof">;
-type EcdsaManifestReadbackProof =
-  Brand<string, "EcdsaManifestReadbackProof">;
 type CorrelationId = Brand<string, "CorrelationId">;
 type SpendableMpcWalletSigningQuotaRef =
   Brand<string, "SpendableMpcWalletSigningQuotaRef">;
@@ -2598,41 +2723,26 @@ type EcdsaCapabilityActivationCommitJournal =
           kind: "activation_prepared";
           serverGeneration?: never;
           serverActivationReceipt?: never;
-          manifestRevision?: never;
-          readbackProof?: never;
         }
       | {
           kind: "server_activation_committed";
           serverGeneration: EcdsaServerGeneration;
           serverActivationReceipt: EcdsaServerActivationReceipt;
-          manifestRevision?: never;
-          readbackProof?: never;
-        }
-      | {
-          kind: "local_commit_readback_pending";
-          serverGeneration: EcdsaServerGeneration;
-          serverActivationReceipt: EcdsaServerActivationReceipt;
-          manifestRevision: EcdsaCapabilityManifestRevision;
-          readbackProof?: never;
-        }
-      | {
-          kind: "runtime_publication_pending";
-          serverGeneration: EcdsaServerGeneration;
-          serverActivationReceipt: EcdsaServerActivationReceipt;
-          manifestRevision: EcdsaCapabilityManifestRevision;
-          readbackProof: EcdsaManifestReadbackProof;
         }
     );
 ```
 
 The journal is persisted before the first consuming server effect. Server
-activation is idempotent by `journalId`. Encrypted material plus the active
-manifest commit in one IndexedDB transaction, followed by exact authenticated
-read-back. Runtime publication follows read-back and is validated against the
-manifest revision, durable material ref, and binding digest. Reload reconciles
-the exact pending journal before ordinary capability discovery. A partial commit
-cannot construct `use_live_runtime`, `rehydrate_active_session`, or an operation
-lane.
+activation is idempotent and queryable by `journalId`. After server activation,
+one IndexedDB transaction writes encrypted material, writes the active manifest,
+retires the replaced manifest when applicable, and deletes the journal. This is
+the local commit boundary required by R90-INV-005. Runtime publication follows
+from canonical durable state and is validated against the manifest revision,
+durable material ref, and binding digest. A high-value commit may be read through
+the canonical parser after transaction completion; no readback or runtime-
+publication journal state exists. Reload reconciles a pending journal before
+ordinary capability discovery. A partial commit cannot construct
+`use_live_runtime`, `rehydrate_active_session`, or an operation lane.
 
 Exact operation selection begins from the active capability ref and keeps
 operation authorization and quota independent from material identity:
@@ -3029,60 +3139,25 @@ capability as a hidden side effect. Generic EVM ECDSA selection, preparation,
 restore coordination, and committed-lane construction contain no factor-kind
 control flow.
 
-`GrantEvidenceExpression` has recursive semantics: an `evidence` leaf requires
-one verified evidence kind, `any_of` requires at least one child, and `all_of`
-requires every child. Assurance is property-based; there is no implicit numeric
-ordering between provider MFA, passkeys, service credentials, and MPC
-participation. Policy evaluation checks every property in
-`requiredAssurance.properties` against the verified evidence-set profile.
-Assurance properties are canonicalized as a sorted unique set, and the profile
-expiry cannot exceed the earliest evidence/session expiry that supports it.
-The policy boundary canonicalizes expressions, rejects duplicate equivalent
-children, and enforces fixed depth and node-count limits before persistence or
-evaluation.
+`GrantEvidenceRequirement` is deliberately flat. `all` requires every named
+evidence kind and `any` requires at least one. Evidence kinds are canonicalized
+as a sorted unique nonempty set before persistence or evaluation. A real policy
+that cannot be expressed by this model is the trigger for a separate policy-
+language design; Refactor 90 does not add a recursive Boolean expression tree.
+Assurance remains property-based, and the profile expiry cannot exceed the
+earliest evidence/session expiry that supports it.
 
 ### MPC Signer Proof As Grant Evidence
 
-`mpc_signer_proof` is derived grant evidence backed by an enabled MPC capability.
-It is stronger than ordinary app-session auth because the proof can bind user
-presence, registered device state, threshold participation, and a typed Seams
-lane/intent/display digest set.
+> Follow-on context (July 22 scope amendment): the producer is undecided.
+> Refactor 90 keeps `mpc_signer_proof` policy evaluation failing closed and
+> implements no producer.
 
-The proof inherits the capability grant policy of the signer capability operation that
-produces it:
-
-```text
-MPC capability mpc.produce_signer_proof policy
-  -> passkey assertion, Email OTP, or tenant-defined native digest-bound evidence
-  -> MPC signer signs typed Seams auth challenge
-  -> MpcSignerProof
-  -> mpc_signer_proof grant evidence
-```
-
-This is a Seams-specific high-assurance primitive. Better Auth can provide the
-provider session that normalizes into `seams_session` evidence and separately
-verified provider-assurance evidence. Digest-bound passkey/OTP evidence remains
-Seams-native. Seams authorization owns the MPC proof challenge, digest binding,
-capability lookup, threshold signing path, and capability grant.
-
-Evaluation rules:
-
-- capability grant policies that require `mpc_signer_proof` evidence must name or
-  resolve an MPC signer capability;
-- the signer capability must exist, be active, and have a valid
-  `CapabilityBinding` for the requesting principal;
-- the signer capability must support `mpc.produce_signer_proof`;
-- the `mpc.produce_signer_proof` operation runs the signer capability's inherited
-  capability grant policy;
-- the proof challenge must bind tenant, principal, session, signer capability,
-  target operation, lane digest, intent digest, display digest, device ID,
-  nonce, and expiry;
-- missing or inactive MPC capability returns `capability_not_enabled` or
-  `capability_not_active`;
-- no fallback to passkey, OTP, or session auth occurs unless the policy defines
-  an explicit alternative branch;
-- `mpc_signer_proof` cannot authorize producing another proof for the same
-  signer by default.
+`mpc_signer_proof` is follow-on work. Refactor 90 does not add it to the closed
+capability-operation or evidence unions and does not implement a producer.
+Raw policies or requests that name it fail closed as unsupported. Its owning
+capability, challenge binding, recursion policy, and evidence semantics require a
+separate design before the leaf unions are intentionally extended.
 
 Capabilities are resource-scoped. Principals gain access through explicit
 bindings:
@@ -3222,32 +3297,6 @@ type CapabilityGrantUse =
       completedAt: IsoTimestamp;
     });
 
-type MpcSignerProofFailure =
-  | {
-      kind: "capability_not_enabled";
-      tenantId: TenantId;
-      principalId: PrincipalId;
-      capabilityKind: MpcCapabilityKind;
-    }
-  | {
-      kind: "capability_not_active";
-      tenantId: TenantId;
-      principalId: PrincipalId;
-      signerCapabilityId: CapabilityId;
-    }
-  | {
-      kind: "capability_binding_missing";
-      tenantId: TenantId;
-      principalId: PrincipalId;
-      signerCapabilityId: CapabilityId;
-    }
-  | {
-      kind: "operation_not_supported";
-      tenantId: TenantId;
-      principalId: PrincipalId;
-      signerCapabilityId: CapabilityId;
-      operationKind: "mpc.produce_signer_proof";
-    };
 ```
 
 Grant-use consumption is one-way. Handlers must complete cheap boundary parsing,
@@ -3316,6 +3365,10 @@ Does not own:
 - chain-specific transaction display.
 
 ### `capability-vault`
+
+> Refactor 90 implements only the minimal proxy/reveal vertical from this
+> section; the remaining vault product surface is follow-on context (July 22
+> scope amendment).
 
 Owns:
 
@@ -3387,6 +3440,9 @@ Uses `seams-authorization` for session, grant evidence, grant-use limits, grants
 audit.
 
 ### `capability-idp-access`
+
+> Follow-on context (July 22 scope amendment): not a Refactor 90 acceptance
+> surface.
 
 Owns the `idp_access` capability descriptor,
 `idp.high_risk_scope.issue` operation envelope/display semantics, and default
@@ -4261,19 +4317,21 @@ ecdsa_material_sealing_keys
   value: non_extractable CryptoKey
 ```
 
-The encrypted material row and active manifest row commit in one IndexedDB
-transaction. The manifest's `durableMaterialRef`, binding digest, lifecycle ID,
-ciphertext digest, activation digest, and expiry must equal the authenticated
-material header read through the same adapter. A missing row is `missing`; a
-different exact binding is `exact_binding_mismatch`; duplicate current manifests
-are `exact_record_conflict`; invalid authenticated data is `corrupt`; I/O failure
-is `persistence_unavailable`.
+The encrypted material row, active manifest row, retirement of a replaced
+manifest, and activation-journal deletion commit in one IndexedDB transaction.
+The manifest's `durableMaterialRef`, binding digest, lifecycle ID, ciphertext
+digest, activation digest, and expiry must equal the authenticated material
+header parsed through the same adapter. A missing row is `missing`; a different
+exact binding is `exact_binding_mismatch`; duplicate current manifests are
+`exact_record_conflict`; invalid authenticated data is `corrupt`; I/O failure is
+`persistence_unavailable`.
 
 The activation journal is written before the first consuming server effect and
 is reconciled before ordinary manifest discovery after reload. Its server receipt
-and local manifest revision advance monotonically. Runtime publication follows
-authenticated manifest/material read-back and never participates in the
-IndexedDB transaction. Browser/worker memory cannot make a partially committed
+advances monotonically. Runtime publication follows canonical durable state and
+never participates in the IndexedDB transaction. An immediate post-commit read
+may verify the high-value write through the same parser, but it is not durable
+lifecycle state. Browser/worker memory cannot make a partially committed
 manifest ready.
 
 These records exclude operation grants, wallet quotas, nonce state, bearer

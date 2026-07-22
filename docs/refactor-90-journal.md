@@ -6,6 +6,63 @@ This file holds dated progress entries so the plan stays a readable checklist.
 The plan records only a one-line status per phase; the narrative history lives
 here.
 
+## July 22, 2026: Invariant Wiring And Deletion-Ledger Restoration
+
+- Wired the `R90-INV` IDs into the plan: each Settled Architecture section,
+  Foundation exit-check list, migration phase, and validation subsection now
+  cites the SPEC invariants it instantiates, with the SPEC text normative on
+  divergence.
+- Reconstituted the symbol-level deletion targets lost in the July 22 slimming
+  as [refactor-90-deletion-ledger.md](./refactor-90-deletion-ledger.md),
+  extracted from the pre-slim plan at `f5eb4ace9`. Phases 6, 18, and 19 and
+  Foundation B link to it; scoped inventories seed from it.
+- Restored granular open-item checklists for the in-flight work: Foundations A
+  and B and Phases 4-5 record done-so-far groundwork and their remaining items
+  at sub-phase grain, updated to the slimmed architecture (two-state journals,
+  no synthetic third factor).
+- Restored three decided rules the slimming dropped: operation descriptors
+  declare quota applicability and key export never reads or spends wallet
+  signing quota (appended to `R90-INV-009` and plan §6); the Refactor 82B
+  `WalletAuthAuthority` restructure lands as one coordinated cut with Phase 7;
+  and the Ed25519 Yao implementation plan remains authoritative for the Yao
+  construction and production gates, which Refactor 90 cannot advance.
+- Escaped the unescaped pipe in the reduction-ledger `all \| any` row and
+  marked the SPEC's follow-on sections (service-account evidence, Better Auth
+  bridge, Enterprise SSO, IdP mode, `mpc_signer_proof`, `capability-idp-access`,
+  and the non-minimal vault surface) as design context rather than Refactor 90
+  acceptance surfaces.
+
+## July 22, 2026: Plan Simplification And Recovery-State Reduction
+
+- Replaced the 5,383-line multi-purpose plan with a 725-line implementation
+  checklist. The companion SPEC now owns twelve numbered normative invariants;
+  phases cite them instead of repeating state machines, effect order, and test
+  rules.
+- Reduced Near recovery persistence to `prepared | promotion_committed`.
+  `prepared` carries `continue | cancel_requested`; every consuming server call
+  is independently idempotent and queryable by recovery ID. The final IndexedDB
+  transaction writes replacement/retirement/lifecycle facts and deletes the
+  journal atomically.
+- Reduced ECDSA activation persistence to
+  `activation_prepared | server_activation_committed`. Material, manifest,
+  replaced-manifest retirement, and journal deletion commit atomically. Optional
+  canonical readback is verification after commit and no longer a durable
+  lifecycle stage.
+- Removed the public affine material-lease protocol in favor of one exact-owner
+  queue plus generation/fence checks. Volatile runtime publication, disposal,
+  and zeroization remain worker lifecycle responsibilities rather than journal
+  facts.
+- Preserved a minimal production-shaped vault vertical to prove native session,
+  operation-bound Passkey evidence, exact one-use grant enforcement, one vault
+  operation, and audit. Full vault workflows, service accounts, Better Auth,
+  IdP, Slack OTP evidence, speculative route registries, and unmeasured package
+  splits moved out of the Refactor 90 critical path.
+- Replaced the repository-wide Phase 6 gate with scoped phase-local inventories,
+  removed synthetic-third-factor conformance, flattened current evidence policy,
+  retained an architectural literal/import guard for factor-neutral generic
+  coordination, and added a reduction ledger mapping every removed mechanism to
+  its replacement security property and check.
+
 ## July 22, 2026: Canonical Auth-Method Domain Reconciliation
 
 - [Refactor 91](./refactor-91.md) implemented canonical and distinct wallet,
