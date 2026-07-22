@@ -110,6 +110,14 @@ interface CloudflareD1RouterApiStagingEnv
   readonly EMAIL_OTP_DEMO_ALLOWED_ORIGINS?: string;
   readonly EMAIL_OTP_PRODUCTION?: string;
   readonly EMAIL_OTP_DEV_OUTBOX_ENABLED?: string;
+  readonly EMAIL_OTP_CHALLENGE_RATE_LIMIT_MAX?: string;
+  readonly EMAIL_OTP_CHALLENGE_RATE_LIMIT_WINDOW_MS?: string;
+  readonly EMAIL_OTP_VERIFY_RATE_LIMIT_MAX?: string;
+  readonly EMAIL_OTP_VERIFY_RATE_LIMIT_WINDOW_MS?: string;
+  readonly EMAIL_OTP_GRANT_RATE_LIMIT_MAX?: string;
+  readonly EMAIL_OTP_GRANT_RATE_LIMIT_WINDOW_MS?: string;
+  readonly EMAIL_OTP_MAX_ATTEMPTS?: string;
+  readonly EMAIL_OTP_LOCKOUT_TTL_MS?: string;
   readonly EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_MAX?: string;
   readonly EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_WINDOW_MS?: string;
   readonly EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_MAX?: string;
@@ -324,6 +332,26 @@ async function createRouterApiHandler(
     emailOtpDemoAllowedOrigins: readEnvString(env, 'EMAIL_OTP_DEMO_ALLOWED_ORIGINS'),
     emailOtpProduction: readEnvString(env, 'EMAIL_OTP_PRODUCTION'),
     emailOtpDevOutboxEnabled: readEnvString(env, 'EMAIL_OTP_DEV_OUTBOX_ENABLED'),
+    emailOtpChallengeRateLimitMax: readEnvString(
+      env,
+      'EMAIL_OTP_CHALLENGE_RATE_LIMIT_MAX',
+    ),
+    emailOtpChallengeRateLimitWindowMs: readEnvString(
+      env,
+      'EMAIL_OTP_CHALLENGE_RATE_LIMIT_WINDOW_MS',
+    ),
+    emailOtpVerifyRateLimitMax: readEnvString(env, 'EMAIL_OTP_VERIFY_RATE_LIMIT_MAX'),
+    emailOtpVerifyRateLimitWindowMs: readEnvString(
+      env,
+      'EMAIL_OTP_VERIFY_RATE_LIMIT_WINDOW_MS',
+    ),
+    emailOtpGrantRateLimitMax: readEnvString(env, 'EMAIL_OTP_GRANT_RATE_LIMIT_MAX'),
+    emailOtpGrantRateLimitWindowMs: readEnvString(
+      env,
+      'EMAIL_OTP_GRANT_RATE_LIMIT_WINDOW_MS',
+    ),
+    emailOtpMaxAttempts: readEnvString(env, 'EMAIL_OTP_MAX_ATTEMPTS'),
+    emailOtpLockoutTtlMs: readEnvString(env, 'EMAIL_OTP_LOCKOUT_TTL_MS'),
     emailOtpRecoveryKeyAttemptRateLimitMax: readEnvString(
       env,
       'EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_MAX',
