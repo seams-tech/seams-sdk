@@ -428,7 +428,9 @@ function parseWarmBootstrap(args: {
     signingWorkerId !== restore.relayerKeyId ||
     signingWorkerId !== restore.routerAbNormalSigning.signingWorkerId ||
     routerAbNormalSigning.signingWorkerId !== signingWorkerId ||
-    thresholdExpiresAtMs !== record.expiresAtMs ||
+    // The server seal is bounded by both the threshold session and wallet budget.
+    // A shorter budget expiry preserves the same lane; exceeding the JWT expiry does not.
+    record.expiresAtMs > thresholdExpiresAtMs ||
     args.expiresAtMs !== record.expiresAtMs ||
     participantIds[0] !== restore.participantIds[0] ||
     participantIds[1] !== restore.participantIds[1] ||
