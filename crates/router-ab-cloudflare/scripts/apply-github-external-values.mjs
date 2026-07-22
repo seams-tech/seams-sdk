@@ -16,6 +16,8 @@ const TARGETS = new Set(['staging', 'production']);
 const COMPONENTS = new Set(['wallet-core', 'product']);
 const githubCli = process.env.GITHUB_CLI_BIN || 'gh';
 const GENERAL_VARIABLE_INPUTS = Object.freeze([
+  ['VITE_WALLET_ORIGIN', 'VITE_WALLET_ORIGIN'],
+  ['VITE_RP_ID_BASE', 'VITE_RP_ID_BASE'],
   ['VITE_TEMPO_RPC_URL', 'VITE_TEMPO_RPC_URL'],
   ['VITE_TEMPO_EXPLORER', 'VITE_TEMPO_EXPLORER'],
   ['VITE_TEMPO_FEE_TOKEN', 'VITE_TEMPO_FEE_TOKEN'],
@@ -189,9 +191,43 @@ function buildBasePlan(options, repository, values) {
     appendMappedUpdates(plan.secrets, options.target, values, CLOUDFLARE_SECRET_INPUTS);
   } else {
     appendWalletCoreCloudflareDeploymentUpdates(plan, options.target, values);
+    addGatewayWalletOriginUpdate(plan, values, repository);
     appendMappedUpdates(plan.secrets, `${options.target}-gateway`, values, GATEWAY_SECRET_INPUTS);
   }
   return plan;
+}
+
+function addGatewayWalletOriginUpdate(plan, values, repository) {
+  const walletOrigin = readValue(values, 'VITE_WALLET_ORIGIN');
+  if (!walletOrigin) {
+    return;
+  }
+  const previousWalletOrigin = readGitHubVariable(
+    plan.target,
+    'VITE_WALLET_ORIGIN',
+    repository,
+  );
+  const config = requireGatewayConfig(plan, repository);
+  config.origins.allowedCors = replaceExactOrigin(
+    config.origins.allowedCors,
+    previousWalletOrigin,
+    walletOrigin,
+    'Gateway CORS origins',
+  );
+  config.bootstrap.allowedOrigins = replaceExactOrigin(
+    config.bootstrap.allowedOrigins,
+    previousWalletOrigin,
+    walletOrigin,
+    'Gateway publishable-key origins',
+  );
+}
+
+function replaceExactOrigin(origins, previousOrigin, nextOrigin, label) {
+  const matchCount = origins.filter((origin) => origin === previousOrigin).length;
+  if (matchCount !== 1) {
+    throw new Error(`${label} must contain the current wallet origin exactly once`);
+  }
+  return origins.map((origin) => (origin === previousOrigin ? nextOrigin : origin));
 }
 
 function appendWalletCoreCloudflareDeploymentUpdates(plan, target, values) {

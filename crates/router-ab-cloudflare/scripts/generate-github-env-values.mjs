@@ -507,6 +507,7 @@ function buildTargetConfiguration(targetName, suppliedValues) {
     manual(`${targetName}-wallet-origin`);
   const rpId =
     readSuppliedValue(suppliedValues, targetName, targetName, 'VITE_RP_ID_BASE') ||
+    (targetName === 'production' ? 'seams.sh' : undefined) ||
     hostnameFromOrigin(walletOrigin) ||
     manual(`${targetName}-webauthn-rp-id`);
   const nearRpcUrl =
@@ -1341,10 +1342,10 @@ function ensurePagesProjects(targetName, suppliedValues, progressLogger) {
     );
   }
   if (!readSuppliedValue(suppliedValues, targetName, targetName, 'VITE_WALLET_ORIGIN')) {
-    suppliedValues.VITE_WALLET_ORIGIN = pagesProjectOrigin(
-      resolvedWalletProject,
-      projectsByName.get(resolvedWalletProject),
-    );
+    suppliedValues.VITE_WALLET_ORIGIN =
+      targetName === 'production'
+        ? 'https://sign.seams.sh'
+        : pagesProjectOrigin(resolvedWalletProject, projectsByName.get(resolvedWalletProject));
   }
   progressLogger.detail(
     `Resolved Pages projects ${resolvedAppProject} and ${resolvedWalletProject}`,
