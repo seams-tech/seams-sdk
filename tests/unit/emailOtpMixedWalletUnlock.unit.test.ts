@@ -523,6 +523,9 @@ function mixedUnlockArgs(workerCtx: WorkerOperationContext) {
     providerSubject: 'google:mixed-subject',
     signerSlot: 1,
     remainingUses: REMAINING_USES,
+    nearAccountId: NEAR_ACCOUNT_ID,
+    expectedOperationalPublicKey: 'ed25519:fixture-public-key',
+    expectedThresholdSessionId: THRESHOLD_SESSION_ID,
   } as const;
 }
 
@@ -607,6 +610,9 @@ test('mixed Email OTP unlock sends one coherent worker operation and returns bot
         ecdsaClientRootHandleBinding: ECDSA_HANDLE_BINDING,
         runtimePolicyScope: RUNTIME_POLICY_SCOPE,
         providerSubject: 'google:mixed-subject',
+        nearAccountId: NEAR_ACCOUNT_ID,
+        expectedOperationalPublicKey: 'ed25519:fixture-public-key',
+        expectedThresholdSessionId: THRESHOLD_SESSION_ID,
         ed25519YaoRecovery: {
           kind: 'router_ab_ed25519_yao_email_otp_recovery_v1',
           signerSlot: 1,
@@ -688,6 +694,9 @@ test('mixed Email OTP login disposes the pending Ed25519 factor when ECDSA boots
           kind: 'requested',
           providerSubject: 'google:mixed-subject',
           signerSlot: 1,
+          nearAccountId: NEAR_ACCOUNT_ID,
+          expectedOperationalPublicKey: 'ed25519:fixture-public-key',
+          expectedThresholdSessionId: THRESHOLD_SESSION_ID,
         },
       },
       ports,

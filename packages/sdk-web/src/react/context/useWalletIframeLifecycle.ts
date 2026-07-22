@@ -78,20 +78,6 @@ export function useWalletIframeLifecycle(args: {
           }
           setLoginState(buildReactLoggedOutLoginState());
         });
-
-        const selectedWalletId = String(seams.preferences.getCurrentWalletId() || '').trim();
-        if (selectedWalletId) {
-          const session = await seams.auth.getWalletSession(selectedWalletId);
-          if (isWalletSessionReadyForUi({ session })) {
-            setLoginState(
-              buildReactLoggedInLoginStateFromSession(session) ?? buildReactLoggedOutLoginState(),
-            );
-          } else {
-            setLoginState(buildReactLoggedOutLoginState());
-          }
-        } else {
-          setLoginState(buildReactLoggedOutLoginState());
-        }
       } catch (err) {
         console.warn('[SeamsContextProvider] WalletIframe init failed:', err);
       }

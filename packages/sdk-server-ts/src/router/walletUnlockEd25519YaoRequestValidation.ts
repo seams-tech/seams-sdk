@@ -1,16 +1,29 @@
 import { isPlainObject } from '@shared/utils/validation';
 import { findUnexpectedRouteKey } from './routeRequestValidation';
 
-export const ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_KIND =
-  'router_ab_ed25519_yao_email_otp_recovery_v1' as const;
+export const EMAIL_OTP_EXACT_LOCAL_MATERIAL_SESSION_KIND =
+  'exact_local_material_session_v1' as const;
+export const EMAIL_OTP_MISSING_ED25519_MATERIAL_RECOVERY_KIND =
+  'missing_ed25519_material_recovery_v1' as const;
 
-export type WalletUnlockEd25519YaoEmailOtpRecoveryRequestV1 = {
-  readonly kind: typeof ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_KIND;
+type WalletUnlockEmailOtpSessionIntentBase = {
+  readonly signerSlot: number;
+  readonly remainingUses: number;
+};
+
+export type WalletUnlockEmailOtpSessionIntentV1 =
+  | (WalletUnlockEmailOtpSessionIntentBase & {
+      readonly kind: typeof EMAIL_OTP_EXACT_LOCAL_MATERIAL_SESSION_KIND;
+    })
+  | (WalletUnlockEmailOtpSessionIntentBase & {
+      readonly kind: typeof EMAIL_OTP_MISSING_ED25519_MATERIAL_RECOVERY_KIND;
+    });
+
+export type WalletUnlockEmailOtpSessionRequestV1 = {
   readonly walletId: string;
   readonly orgId: string;
   readonly challengeId: string;
-  readonly signerSlot: number;
-  readonly remainingUses: number;
+  readonly sessionIntent: WalletUnlockEmailOtpSessionIntentV1;
 };
 
 type WalletUnlockEd25519YaoParseFailure = {
@@ -25,13 +38,10 @@ type WalletUnlockEd25519YaoParseFailure = {
 
 export type WalletUnlockEd25519YaoParseResult =
   | { readonly ok: true; readonly request: null }
-  | {
-      readonly ok: true;
-      readonly request: WalletUnlockEd25519YaoEmailOtpRecoveryRequestV1;
-    }
+  | { readonly ok: true; readonly request: WalletUnlockEmailOtpSessionRequestV1 }
   | WalletUnlockEd25519YaoParseFailure;
 
-const RECOVERY_KEYS = ['kind', 'signerSlot', 'remainingUses'] as const;
+const SESSION_INTENT_KEYS = ['kind', 'signerSlot', 'remainingUses'] as const;
 
 function invalidWalletUnlockEd25519YaoRequest(message: string): WalletUnlockEd25519YaoParseFailure {
   return {
@@ -46,19 +56,59 @@ function requiredTrimmedString(body: Record<string, unknown>, field: string): st
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
+function parsePositiveInteger(
+  value: unknown,
+  field: string,
+): number | WalletUnlockEd25519YaoParseFailure {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) {
+    return invalidWalletUnlockEd25519YaoRequest(`${field} must be a positive integer`);
+  }
+  return value;
+}
+
+function parseWalletUnlockEmailOtpSessionIntent(
+  raw: unknown,
+): WalletUnlockEmailOtpSessionIntentV1 | WalletUnlockEd25519YaoParseFailure {
+  if (!isPlainObject(raw)) {
+    return invalidWalletUnlockEd25519YaoRequest('sessionIntent is required for Email OTP unlock');
+  }
+  const unsupported = findUnexpectedRouteKey(raw, SESSION_INTENT_KEYS);
+  if (unsupported) {
+    return invalidWalletUnlockEd25519YaoRequest(
+      `Unsupported sessionIntent field: ${unsupported}`,
+    );
+  }
+  const signerSlot = parsePositiveInteger(raw.signerSlot, 'sessionIntent.signerSlot');
+  if (typeof signerSlot !== 'number') return signerSlot;
+  const remainingUses = parsePositiveInteger(raw.remainingUses, 'sessionIntent.remainingUses');
+  if (typeof remainingUses !== 'number') return remainingUses;
+
+  switch (raw.kind) {
+    case EMAIL_OTP_EXACT_LOCAL_MATERIAL_SESSION_KIND:
+      return {
+        kind: EMAIL_OTP_EXACT_LOCAL_MATERIAL_SESSION_KIND,
+        signerSlot,
+        remainingUses,
+      };
+    case EMAIL_OTP_MISSING_ED25519_MATERIAL_RECOVERY_KIND:
+      return {
+        kind: EMAIL_OTP_MISSING_ED25519_MATERIAL_RECOVERY_KIND,
+        signerSlot,
+        remainingUses,
+      };
+    default:
+      return invalidWalletUnlockEd25519YaoRequest('sessionIntent.kind is invalid');
+  }
+}
+
 export function parseWalletUnlockEd25519YaoRequest(
   raw: unknown,
 ): WalletUnlockEd25519YaoParseResult {
   if (!isPlainObject(raw)) {
     return invalidWalletUnlockEd25519YaoRequest('Expected JSON object body');
   }
-  if (!Object.prototype.hasOwnProperty.call(raw, 'ed25519YaoRecovery')) {
-    return { ok: true, request: null };
-  }
   if (raw.unlockBackend !== 'email_otp') {
-    return invalidWalletUnlockEd25519YaoRequest(
-      'ed25519YaoRecovery requires unlockBackend=email_otp',
-    );
+    return { ok: true, request: null };
   }
   const walletId = requiredTrimmedString(raw, 'walletId');
   const orgId = requiredTrimmedString(raw, 'orgId');
@@ -66,47 +116,17 @@ export function parseWalletUnlockEd25519YaoRequest(
   if (!walletId) return invalidWalletUnlockEd25519YaoRequest('walletId is required');
   if (!orgId) return invalidWalletUnlockEd25519YaoRequest('orgId is required');
   if (!challengeId) return invalidWalletUnlockEd25519YaoRequest('challengeId is required');
+  if (raw.sessionIntent === undefined) return { ok: true, request: null };
 
-  const recovery = raw.ed25519YaoRecovery;
-  if (!isPlainObject(recovery)) {
-    return invalidWalletUnlockEd25519YaoRequest('ed25519YaoRecovery is required');
-  }
-  const unsupported = findUnexpectedRouteKey(recovery, RECOVERY_KEYS);
-  if (unsupported) {
-    return invalidWalletUnlockEd25519YaoRequest(
-      `Unsupported ed25519YaoRecovery field: ${unsupported}`,
-    );
-  }
-  if (recovery.kind !== ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_KIND) {
-    return invalidWalletUnlockEd25519YaoRequest('ed25519YaoRecovery.kind is invalid');
-  }
-  if (
-    typeof recovery.signerSlot !== 'number' ||
-    !Number.isSafeInteger(recovery.signerSlot) ||
-    recovery.signerSlot < 1
-  ) {
-    return invalidWalletUnlockEd25519YaoRequest(
-      'ed25519YaoRecovery.signerSlot must be a positive integer',
-    );
-  }
-  if (
-    typeof recovery.remainingUses !== 'number' ||
-    !Number.isSafeInteger(recovery.remainingUses) ||
-    recovery.remainingUses < 1
-  ) {
-    return invalidWalletUnlockEd25519YaoRequest(
-      'ed25519YaoRecovery.remainingUses must be a positive integer',
-    );
-  }
+  const sessionIntent = parseWalletUnlockEmailOtpSessionIntent(raw.sessionIntent);
+  if ('ok' in sessionIntent) return sessionIntent;
   return {
     ok: true,
     request: {
-      kind: ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_KIND,
       walletId,
       orgId,
       challengeId,
-      signerSlot: recovery.signerSlot,
-      remainingUses: recovery.remainingUses,
+      sessionIntent,
     },
   };
 }

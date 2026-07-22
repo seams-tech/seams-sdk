@@ -450,7 +450,7 @@ export const WALLET_FLOW_EVENT_MESSAGES: Record<WalletFlowEventPhase, string> = 
   [SigningEventPhase.STEP_08_SIGNER_PREPARE_STARTED]: 'Preparing secure signer',
   [SigningEventPhase.STEP_08_SIGNER_PREPARE_SUCCEEDED]: 'Secure signer ready',
   [SigningEventPhase.STEP_08_PRESIGN_REFILL_SCHEDULED]: 'Preparing future signatures',
-  [SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_STARTED]: 'Loading secure signer',
+  [SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_STARTED]: 'Preparing signing session',
   [SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_SUCCEEDED]: 'Secure signer loaded',
   [SigningEventPhase.STEP_10_COMMIT_QUEUED]: 'Waiting to sign',
   [SigningEventPhase.STEP_10_COMMIT_STARTED]: 'Signing transaction',

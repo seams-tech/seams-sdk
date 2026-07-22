@@ -2,14 +2,17 @@ import type { WalletSessionRef } from '@/core/signingEngine/interfaces/ecdsaChai
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
   EmailOtpEd25519YaoRecoveryBootstrapV1,
+  EmailOtpEd25519YaoExactLocalSessionBootstrapV1,
   EmailOtpEcdsaSessionBootstrapHandleBinding,
   EmailOtpEcdsaSessionBootstrapHandlePayload,
   EmailOtpWorkerProgressEvent,
   EmailOtpWalletUnlockMaterialRequest,
 } from '@/core/signingEngine/workerManager/workerTypes';
+import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '../../threshold/ed25519/yaoClient';
 import type { EmailOtpRoutePlan } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
+import { ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1 } from '@shared/utils/routerAbEd25519Yao';
 
 export type EmailOtpWalletUnlockRecovery = {
   challengeId: string;
@@ -26,20 +29,37 @@ export type EmailOtpWalletUnlockResult = {
   clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
 };
 
-export type EmailOtpEd25519YaoRecoveryUnlockResult = {
-  kind: 'ed25519_yao_recovery';
-  recovery: EmailOtpWalletUnlockRecovery;
-  pendingFactorHandle: import('./ed25519YaoRootVault').EmailOtpEd25519YaoPendingFactorHandle;
-  ed25519YaoRecovery: EmailOtpEd25519YaoRecoveryBootstrapV1;
-};
+export type EmailOtpEd25519YaoUnlockResult =
+  | {
+      kind: 'ed25519_yao_recovery';
+      recovery: EmailOtpWalletUnlockRecovery;
+      pendingFactorHandle: import('./ed25519YaoRootVault').EmailOtpEd25519YaoPendingFactorHandle;
+      ed25519YaoRecovery: EmailOtpEd25519YaoRecoveryBootstrapV1;
+    }
+  | {
+      kind: 'ed25519_yao_local_session';
+      recovery: EmailOtpWalletUnlockRecovery;
+      activeClientHandle: string;
+      metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+      ed25519YaoSession: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
+    };
 
-export type EmailOtpMixedWalletUnlockResult = {
-  kind: 'ecdsa_and_ed25519_yao_recovery';
-  recovery: EmailOtpWalletUnlockRecovery;
-  clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
-  pendingFactorHandle: import('./ed25519YaoRootVault').EmailOtpEd25519YaoPendingFactorHandle;
-  ed25519YaoRecovery: EmailOtpEd25519YaoRecoveryBootstrapV1;
-};
+export type EmailOtpMixedWalletUnlockResult =
+  | {
+      kind: 'ecdsa_and_ed25519_yao_recovery';
+      recovery: EmailOtpWalletUnlockRecovery;
+      clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
+      pendingFactorHandle: import('./ed25519YaoRootVault').EmailOtpEd25519YaoPendingFactorHandle;
+      ed25519YaoRecovery: EmailOtpEd25519YaoRecoveryBootstrapV1;
+    }
+  | {
+      kind: 'ecdsa_and_ed25519_yao_local_session';
+      recovery: EmailOtpWalletUnlockRecovery;
+      clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
+      activeClientHandle: string;
+      metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+      ed25519YaoSession: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
+    };
 
 type EmailOtpWalletUnlockBaseArgs = {
   walletSession: WalletSessionRef;
@@ -101,29 +121,44 @@ export async function unlockEmailOtpWallet(
   };
 }
 
-export async function unlockEmailOtpEd25519YaoRecovery(
+export async function unlockEmailOtpEd25519YaoSession(
   args: EmailOtpWalletUnlockBaseArgs & {
     providerSubject: string;
     signerSlot: number;
     remainingUses: number;
     orgId: string;
+    nearAccountId: string;
+    expectedOperationalPublicKey: string;
+    expectedThresholdSessionId: string;
   },
-): Promise<EmailOtpEd25519YaoRecoveryUnlockResult> {
+): Promise<EmailOtpEd25519YaoUnlockResult> {
   const result = await requestEmailOtpWalletUnlock({
     base: args,
     material: {
       kind: 'ed25519_yao_recovery',
       providerSubject: args.providerSubject,
+      nearAccountId: args.nearAccountId,
+      expectedOperationalPublicKey: args.expectedOperationalPublicKey,
+      expectedThresholdSessionId: args.expectedThresholdSessionId,
       ed25519YaoRecovery: {
-        kind: 'router_ab_ed25519_yao_email_otp_recovery_v1',
+        kind: ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1,
         signerSlot: args.signerSlot,
         remainingUses: args.remainingUses,
         orgId: args.orgId,
       },
     },
   });
+  if (result.kind === 'ed25519_yao_local_session') {
+    return {
+      kind: result.kind,
+      recovery: result.recovery,
+      activeClientHandle: result.activeClientHandle,
+      metadata: result.metadata,
+      ed25519YaoSession: result.ed25519YaoSession,
+    };
+  }
   if (result.kind !== 'ed25519_yao_recovery') {
-    throw new Error('Email OTP Ed25519 Yao recovery returned the wrong material branch');
+    throw new Error('Email OTP Ed25519 Yao unlock returned the wrong material branch');
   }
   return {
     kind: 'ed25519_yao_recovery',
@@ -140,6 +175,9 @@ export async function unlockEmailOtpMixedWallet(
     providerSubject: string;
     signerSlot: number;
     remainingUses: number;
+    nearAccountId: string;
+    expectedOperationalPublicKey: string;
+    expectedThresholdSessionId: string;
   },
 ): Promise<EmailOtpMixedWalletUnlockResult> {
   const result = await requestEmailOtpWalletUnlock({
@@ -149,14 +187,27 @@ export async function unlockEmailOtpMixedWallet(
       ecdsaClientRootHandleBinding: args.ecdsaClientRootHandleBinding,
       runtimePolicyScope: args.runtimePolicyScope,
       providerSubject: args.providerSubject,
+      nearAccountId: args.nearAccountId,
+      expectedOperationalPublicKey: args.expectedOperationalPublicKey,
+      expectedThresholdSessionId: args.expectedThresholdSessionId,
       ed25519YaoRecovery: {
-        kind: 'router_ab_ed25519_yao_email_otp_recovery_v1',
+        kind: ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1,
         signerSlot: args.signerSlot,
         remainingUses: args.remainingUses,
         orgId: args.runtimePolicyScope.orgId,
       },
     },
   });
+  if (result.kind === 'ecdsa_and_ed25519_yao_local_session') {
+    return {
+      kind: result.kind,
+      recovery: result.recovery,
+      clientRootShareHandle: result.clientRootShareHandle,
+      activeClientHandle: result.activeClientHandle,
+      metadata: result.metadata,
+      ed25519YaoSession: result.ed25519YaoSession,
+    };
+  }
   if (result.kind !== 'ecdsa_and_ed25519_yao_recovery') {
     throw new Error('Mixed Email OTP unlock returned the wrong material branch');
   }

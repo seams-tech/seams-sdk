@@ -2,13 +2,18 @@
 
 Date created: June 15, 2026
 
-Last reconciled: July 15, 2026
+Last reconciled: July 22, 2026
 
-Status: active product plan. QR v4 parsing and UI shells exist. Device linking,
-lane provisioning, signing admission, and revocation remain fail closed.
+Status: active product plan. A dormant QR v4 parser and public API, React, and
+wallet-iframe UI shells exist. The exported link flow still uses a separate
+legacy QR shape and fails closed. Device linking, lane provisioning, signing
+admission, and revocation remain disabled.
 
 ## Dependencies
 
+- [refactor-90-modular-auth-capabilities-plan.md](./refactor-90-modular-auth-capabilities-plan.md)
+  supplies canonical capability hydration, active ECDSA manifests, activation
+  commits, exact operation lanes, and Wallet Session admission.
 - [router-ab/ed25519-yao/implementation-plan.md](./router-ab/ed25519-yao/implementation-plan.md) supplies the Ed25519 Client, Deriver A/B,
   SigningWorker, lifecycle, and production-security architecture.
 - [refactor-95-passkey-account-refactor.md](./refactor-95-passkey-account-refactor.md)
@@ -51,8 +56,9 @@ budget, expiry, replay admission, and matching server participation.
 
 The order is intentional:
 
-1. Complete Email OTP/recovery-code UX and wrapped passkey custody in Refactor
-   95.
+1. Preserve the restored Email OTP registration, unlock, recovery, budget, and
+   export lifecycle; complete recovery-code mixed-custody semantics and wrapped
+   passkey custody in Refactor 95.
 2. Complete wallet-key, lane, enrollment, and curve-protocol foundations in
    Refactors 96 and 97.
 3. Ship one owner-equivalent, signing-only QR-linked device lane.
@@ -63,12 +69,31 @@ The order is intentional:
 
 The first linked-device release does not wait for the complete mandate product.
 
+## Current SDK Surface Mismatch
+
+The v4 parser in `qrLinkSession.ts` describes the intended unclaimed session:
+it carries `linkSessionId`, link and device public keys, requested permission,
+and issue/expiry times, and excludes wallet identity.
+
+The currently exported `DeviceLinkingQRData`, `linkDevice.ts`, and
+`scanDevice.ts` use a separate legacy-shaped payload with `sessionId`, optional
+`accountId`, `timestamp`, and an unconstrained version string. Both operations
+terminate with an unsupported error that still names Refactor 84. The React and
+wallet-iframe views route into those stubs.
+
+Phase 1 replaces this surface directly with the v4 state machine. It does not
+add a compatibility adapter: the legacy QR type, parser, stale diagnostic, and
+fixtures are deleted together.
+
 ## Roles And Trust Boundaries
 
 ### Device 1
 
 - owns an active owner lane;
 - authenticates the linking operation with fresh user verification;
+- obtains authorization through the wallet iframe and server-verified Wallet
+  Session boundary. QR payloads, public results, callbacks, and progress events
+  never carry a Wallet Session JWT;
 - displays Device 2 identity, key coverage, permissions, expiry, and revocation
   path;
 - authorizes the exact enrollment transcript;
@@ -432,7 +457,10 @@ suspension, expiry, refresh, and revocation.
 
 ### Phase 0: Readiness Gate
 
-- [ ] Refactor 95 wrapped custody registration, unlock, and recovery pass.
+- [x] Current Email OTP registration, unlock, recovery, budget refresh, and
+      export lifecycle is restored for the mixed wallet.
+- [ ] Refactor 95 random-root registration, portable wrapped custody unlock, and
+      wallet-scoped recovery-code recovery pass.
 - [ ] Refactor 96 curve-specific wallet keys, lanes, and enrollment records pass.
 - [ ] Refactor 97 Ed25519 and ECDSA target-lane protocols pass locally.
 - [ ] Aggregate activation, receipt, crash recovery, and revocation stores exist.
@@ -440,8 +468,8 @@ suspension, expiry, refresh, and revocation.
 
 ### Phase 1: Owner-Equivalent Device Enrollment
 
-- [ ] Replace the fail-closed QR display and scan stubs with the v4 session state
-      machine.
+- [ ] Replace the legacy public QR type and fail-closed display/scan stubs with
+      the v4 session state machine; delete the Refactor 84 diagnostic.
 - [ ] Implement unclaimed relay sessions, owner claim, and expiry.
 - [ ] Implement Device 2 passkey creation after claim.
 - [ ] Provision exact Ed25519 and ECDSA child lanes.

@@ -52,7 +52,7 @@ function checkNormalLoginRequiresDeviceLocalEscrow() {
   );
   const loginSlice = sliceBetween(
     workerSource,
-    'async function loginWithEmailOtpAndRecoverClientRootShare',
+    'async function loginWithEmailOtpAndUnlockWallet',
     'type ThresholdEcdsaEmailOtpBootstrapFromClientRootShareArgs',
   );
 
@@ -108,6 +108,34 @@ function checkServerEnrollmentApisDoNotExposeDirectEscrowStorage() {
   assertContains(loginVerifyResponse, 'enrollmentSealKeyVersion', 'login verify response');
 }
 
+function checkExactLocalEd25519ImportPrecedesFreshSessionAuthority() {
+  const workerSource = readRepoFile(
+    'packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
+  );
+  const unlockSlice = sliceBetween(
+    workerSource,
+    'async function completeEmailOtpUnlockFromSecret32',
+    'async function completeEmailOtpEnrollmentFromSecret32',
+  );
+
+  assertBefore(
+    unlockSlice,
+    'importedEd25519Client = await importEmailOtpEd25519YaoLocalMaterial({',
+    "route: '/wallet/unlock/verify'",
+    'Email OTP exact-local unlock',
+  );
+  assertContains(
+    unlockSlice,
+    'expectedThresholdSessionId: args.material.expectedThresholdSessionId',
+    'Email OTP exact-local unlock',
+  );
+  assertContains(
+    unlockSlice,
+    'removeEmailOtpEd25519YaoActiveClient(importedEd25519Client.activeClientHandle)',
+    'Email OTP exact-local unlock',
+  );
+}
+
 function checkEnrollmentPersistsDeviceLocalEscrowBeforeServerFinalization() {
   const workerSource = readRepoFile(
     'packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
@@ -115,7 +143,7 @@ function checkEnrollmentPersistsDeviceLocalEscrowBeforeServerFinalization() {
   const enrollSlice = sliceBetween(
     workerSource,
     'async function completeEmailOtpEnrollmentFromSecret32',
-    'async function loginWithEmailOtpAndRecoverClientRootShare',
+    'async function loginWithEmailOtpAndUnlockWallet',
   );
 
   assertBefore(
@@ -199,7 +227,7 @@ function checkUnwrappedEscrowBuffersAreZeroized() {
   const wrapSlice = sliceBetween(
     workerSource,
     'async function createEmailOtpRecoveryWrappedEnrollmentEscrows',
-    'function parseEmailOtpRecoveryWrappedEnrollmentEscrowPayload',
+    'async function parseEmailOtpRecoveryWrappedEnrollmentEscrowPayload',
   );
   const restoreSlice = sliceBetween(
     workerSource,
@@ -229,6 +257,7 @@ function checkLogoutLockKeepsDeviceLocalRecoveryMaterial() {
 }
 
 checkNormalLoginRequiresDeviceLocalEscrow();
+checkExactLocalEd25519ImportPrecedesFreshSessionAuthority();
 checkServerEnrollmentApisDoNotExposeDirectEscrowStorage();
 checkEnrollmentPersistsDeviceLocalEscrowBeforeServerFinalization();
 checkRecoveryRestorePersistsDeviceLocalEscrow();

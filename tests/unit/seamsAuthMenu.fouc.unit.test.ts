@@ -2755,6 +2755,142 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
       .toBeGreaterThan(0);
   });
 
+  test('iframe readiness restores the exact Email OTP wallet mirrored by iframe init', async ({
+    page,
+  }) => {
+    await page.evaluate(
+      async ({ paths }) => {
+        const mount = document.createElement('div');
+        mount.id = 'email-otp-refresh-login-state-mount';
+        document.body.appendChild(mount);
+
+        const React = await import('react');
+        const ReactDOMClient = await import('react-dom/client');
+        const ReactDOM = await import('react-dom');
+        const refresherMod: any = await import(paths.loginStateRefresher);
+        const useLoginStateRefresher = refresherMod.useLoginStateRefresher;
+
+        const walletId = 'email-otp-wallet';
+        let mirroredWalletId: string | null = null;
+        (window as any).__emailOtpRecentUnlockReads = 0;
+        const readySession = {
+          authMethod: 'email_otp',
+          authMethods: [],
+          currentAuthMethod: { kind: 'none' },
+          login: {
+            isLoggedIn: true,
+            walletId,
+            nearAccountId: `${walletId}.w3a-relayer.testnet`,
+            publicKey: 'ed25519:email-otp-public-key',
+            thresholdEcdsaEthereumAddress: null,
+            thresholdEcdsaPublicKeyB64u: null,
+          },
+          signingSession: {
+            status: 'active_restorable',
+            sessionId: 'email-otp-session',
+          },
+        };
+        const loggedOutSession = {
+          authMethod: null,
+          authMethods: [],
+          currentAuthMethod: { kind: 'none' },
+          login: {
+            isLoggedIn: false,
+            walletId: null,
+            nearAccountId: null,
+            publicKey: null,
+            thresholdEcdsaEthereumAddress: null,
+            thresholdEcdsaPublicKeyB64u: null,
+          },
+          signingSession: null,
+        };
+
+        function Harness() {
+          const [walletIframeConnected, setWalletIframeConnected] = React.useState(false);
+          const [loginState, setLoginState] = React.useState({
+            isLoggedIn: false,
+            walletId: null,
+            nearAccountId: null,
+            nearPublicKey: null,
+            currentAuthMethod: { kind: 'none' },
+            authMethods: [],
+            thresholdEcdsaEthereumAddress: null,
+            thresholdEcdsaPublicKeyB64u: null,
+          });
+          const [inputUsername, setInputUsername] = React.useState('');
+          const seams = React.useMemo(
+            () => ({
+              configs: { wallet: { mode: 'iframe' } },
+              auth: {
+                getWalletSession: async (requestedWalletId?: string) =>
+                  requestedWalletId === walletId ? readySession : loggedOutSession,
+                getRecentUnlocks: async () => {
+                  (window as any).__emailOtpRecentUnlockReads += 1;
+                  throw new Error('React login restoration must not discover recent unlocks');
+                },
+              },
+              preferences: {
+                getCurrentWalletId: () => mirroredWalletId,
+                setCurrentWallet: (nextWalletId: string) => {
+                  (window as any).__emailOtpRestoredWalletId = nextWalletId;
+                },
+              },
+            }),
+            [],
+          );
+
+          useLoginStateRefresher({
+            seams,
+            walletIframeConnected,
+            setLoginState,
+            setInputUsername,
+          });
+
+          return React.createElement(
+            'div',
+            {
+              'data-testid': 'email-otp-refresh-login-state',
+              'data-connected': String(walletIframeConnected),
+              'data-logged-in': String(loginState.isLoggedIn),
+              'data-wallet-id': loginState.walletId || '',
+              'data-input-username': inputUsername,
+            },
+            React.createElement(
+              'button',
+              {
+                type: 'button',
+                onClick: () => {
+                  mirroredWalletId = walletId;
+                  setWalletIframeConnected(true);
+                },
+              },
+              'Connect wallet iframe',
+            ),
+          );
+        }
+
+        const root = ReactDOMClient.createRoot(mount);
+        ReactDOM.flushSync(() => {
+          root.render(React.createElement(Harness));
+        });
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    const state = page.getByTestId('email-otp-refresh-login-state');
+    await expect(state).toHaveAttribute('data-logged-in', 'false');
+    await page.getByRole('button', { name: 'Connect wallet iframe' }).click();
+    await expect(state).toHaveAttribute('data-logged-in', 'true');
+    await expect(state).toHaveAttribute('data-wallet-id', 'email-otp-wallet');
+    await expect(state).toHaveAttribute('data-input-username', 'email-otp-wallet');
+    await expect
+      .poll(async () => await page.evaluate(() => (window as any).__emailOtpRestoredWalletId))
+      .toBe('email-otp-wallet');
+    await expect
+      .poll(async () => await page.evaluate(() => (window as any).__emailOtpRecentUnlockReads))
+      .toBe(0);
+  });
+
   test('Google SSO errors warn without inline alert or unhandled promise rejection', async ({
     page,
   }) => {

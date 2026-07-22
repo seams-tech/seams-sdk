@@ -338,6 +338,20 @@ function sendActiveClientDisposal(args: {
     .catch(() => undefined);
 }
 
+export async function disposeEmailOtpEd25519YaoActiveClientV1(args: {
+  workerContext: WorkerOperationContext;
+  activeClientHandle: string;
+}): Promise<boolean> {
+  const result = await args.workerContext.requestWorkerOperation({
+    kind: 'emailOtp',
+    request: {
+      type: 'disposeEmailOtpEd25519YaoActiveClient',
+      payload: { activeClientHandle: requireNonEmpty(args.activeClientHandle, 'activeClientHandle') },
+    },
+  });
+  return result.removed;
+}
+
 export class EmailOtpEd25519YaoWorkerActiveClientV1 implements RouterAbEd25519YaoActiveClientV1 {
   private lifecycle: WorkerActiveClientLifecycle;
   private readonly activeMetadata: RouterAbEd25519YaoActiveClientMetadataV1;
@@ -704,6 +718,8 @@ export async function recoverEmailOtpEd25519YaoWorkerClientV1(
           rootHandle: bound.rootHandle,
           admissionRequest: request,
           walletId,
+          nearAccountId: input.bootstrap.session.nearAccountId,
+          signingRootVersion: input.bootstrap.session.signingRootVersion,
           providerSubject: input.providerSubject,
           registrationAuthorityId: input.registrationAuthorityId,
           bearerToken,

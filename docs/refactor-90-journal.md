@@ -6,6 +6,46 @@ This file holds dated progress entries so the plan stays a readable checklist.
 The plan records only a one-line status per phase; the narrative history lives
 here.
 
+## July 22, 2026: Email OTP Exact-Material Unlock Reconciliation
+
+- Implementation landed for
+  [the Email OTP exact-material unlock patch](./refactor-patch-2-email-otp-local-rehydration.md)
+  against the current wallet-first stack. The current implementation adds a
+  worker-owned Email OTP Ed25519 active-Client envelope and reuses the canonical
+  ECDSA role-local material owner. Same-device unlock follows fresh OTP
+  verification; explicit Yao recovery remains available only for genuine
+  Ed25519 envelope absence.
+- Refactor 90 now treats `exact_material_ready | material_absent |
+  material_invalid` as a capability-material-adapter custody observation that
+  precedes fresh session binding. It is not a fifth Foundation A hydration
+  branch. Imported material remains pending and non-signable until authority
+  binding, durable commit, read-back, and exact canonical re-resolution.
+- The patch may land before Foundations A and B. It does not complete either
+  foundation: Foundation A still owns the four canonical hydration outcomes,
+  and Foundation B still owns the sole active ECDSA manifest, activation
+  journal, and manifest-plus-material commit.
+- Phase 19 must preserve the worker-owned KDF/envelope boundary, exact identity
+  verification, absent-versus-invalid semantics, and zero-Yao routine unlock
+  behavior while replacing the tactical combined two-curve coordinator with
+  capability-specific material adapters. It must preserve the new exact-local
+  session versus missing-material recovery intent split and the pinned Yao
+  lifecycle identity while rotating wallet authority. Phase 23 replaces the
+  wallet-first Ed25519-envelope-plus-canonical-ECDSA registration commit with
+  canonical per-capability provisioning.
+- Phase 6 inventory, Phase 17 authority migration, and Phase 21 worker split now
+  explicitly include the patch's new Ed25519 record, worker commands, stable
+  custody binding, imported active-Client handle, route intents, combined unlock
+  result types, and deletion targets.
+- The companion patch reports implementation complete with manual latency and
+  intended-behaviour acceptance pending. SDK and server type checks plus the
+  focused worker regression tests pass at this checkpoint. Refactor 90 continues
+  to treat the patch as in progress until the exact-local and missing-material
+  server paths, persistence-failure activation rollback, distinct path audit and
+  timing labels, intended-behaviour matrix, and performance gates pass. The
+  current request boundary also accepts an omitted Ed25519 session intent
+  without an explicit requested-capability set; Phase 19 must remove that
+  implicit branch.
+
 ## July 20, 2026: Stable Wallet Lifecycle Checkpoint Reconciliation
 
 - Reconciled stabilization commits after `06c923053` through checkpoint

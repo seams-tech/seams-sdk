@@ -33,11 +33,24 @@ OTP lifecycle continuity, and authenticated local rehydration of the activated
 Passkey Ed25519 Yao Client. These are implementation groundwork for Foundations
 A and B. The canonical hydration decision contract, ECDSA manifest, activation
 journal, required-field record replacement, and full flow cutover remain open.
+Email OTP exact-material unlock reconciliation: July 22, 2026 —
+[the local-rehydration patch](./refactor-patch-2-email-otp-local-rehydration.md)
+is in progress against the current wallet-first stack. It adds Email OTP-owned
+Ed25519 local custody resolution before fresh session binding and reuses the
+existing canonical ECDSA role-local material owner. Its Ed25519 envelope and
+resolution types are capability-material-adapter inputs, not a fifth Foundation
+A hydration branch or a replacement for Foundation B's manifest and activation
+commit. Phase 19 must absorb its behavior into factor-neutral capability
+preparation, and Phase 23 must replace its tactical registration commit with the
+canonical per-capability provisioning commit.
 
 Status: Phases 1, 2, and 3 are complete. The lifecycle pre-phase is in progress,
-and the ECDSA state/persistence pre-phase is in progress. Both gate Phase 4 and
-Phase 5 closure plus Phases 19 and 23. Phases 4 and 5 are in progress. Phase 6
-onward is planning.
+the ECDSA state/persistence pre-phase is in progress, and the Email OTP
+exact-material unlock patch is in progress. Foundations A and B gate Phase 4
+and Phase 5 closure plus Phases 19 and 23. The Email OTP patch can land before
+those foundations, but its tactical types and orchestration must be reconciled
+before Phases 19 and 23 close. Phases 4 and 5 are in progress. Phase 6 onward is
+planning.
 
 Companion spec: [Modular Auth And Capability Refactor SPEC](./refactor-90-modular-auth-capabilities-SPEC.md).
 
@@ -47,6 +60,7 @@ one-line status.
 
 Companion plans:
 
+- [Email OTP Exact-Material Unlock Patch](./refactor-patch-2-email-otp-local-rehydration.md)
 - [Refactor 82B: Auth Authority Typing Cleanup](./refactor-82B.md)
 - [Refactor 85: IndexedDB Minimization](./refactor-85-indexedDB.md)
 - [Refactor 86: Static Wallet Assets And Vite Plugin Removal](./refactor-86-static-wallet-assets.md)
@@ -116,11 +130,22 @@ hydration, recovery, signing, and export cannot accept the old optional aggregat
 raw persistence rows, source-priority candidates, or entry-point-specific
 reconstructions.
 
+The July 22 Email OTP exact-material patch adds a third SPEC reconciliation
+gate. The SPEC must distinguish factor-specific local custody resolution from
+canonical capability hydration and operation preparation. It must model exact
+local imports as pending and non-signable until fresh authority binding and
+commit, preserve `absent` versus `invalid` failure semantics, and keep Email OTP
+enrollment-secret wrapping authority inside the factor/secure-worker boundary.
+The stable custody digest links to `WalletAuthAuthorityRef`; raw provider,
+enrollment, OTP, enrollment-secret, KEK, ciphertext, and worker-handle fields do
+not enter generic capability state. This amendment must land before Foundations
+A or B close and before Phase 19 replaces the tactical unlock coordinator.
+
 ## Decided Architecture Points
 
-Decisions made July 3, July 10, July 15, and July 16, 2026 during plan review. These are
-settled; do not re-litigate them in later phases without a written reversal note
-here.
+Decisions made July 3, July 10, July 15, July 16, July 18, and July 22, 2026
+during plan review. These are settled; do not re-litigate them in later phases
+without a written reversal note here.
 
 1. **Execute vertically, not horizontally.** The old Phases 1-14 landed
    vocabulary, schema, ports, and modules layer-by-layer, so nothing worked
@@ -404,6 +429,31 @@ here.
     consume boundary-parsed manifest state and fail closed on missing, ambiguous,
     corrupt, mismatched, or unavailable persistence. Cross-store publication uses
     one explicit commit journal and never treats a partial write as ready.
+28. **Local custody resolution precedes canonical hydration.** A factor-specific
+    material adapter may resolve exact local material as `ready`, `absent`, or
+    `invalid` before a fresh material session exists. That result is not an
+    `MpcCapabilityHydrationPlan` branch. Exact material imports into a pending,
+    non-signable handle; only fresh authority binding, durable commit, read-back,
+    and exact re-resolution can yield `use_live_runtime`. Absence may authorize
+    an explicit capability-local recovery plan after fresh factor evidence.
+    Invalid or mismatched material maps to a fail-closed hydration/preparation
+    result and never falls through to recovery. One Email OTP interaction may
+    satisfy the exact requirements of both MPC capabilities, while each
+    capability adapter resolves, imports, recovers, commits, and disposes only
+    its own material.
+29. **Exact-local session renewal and missing-material recovery are separate
+    intents.** Email OTP unlock selects a closed
+    `exact_local_material_session | missing_ed25519_material_recovery` request
+    after the Ed25519 custody lookup. The exact-local branch imports the sealed
+    activated Client and asks the server only for fresh wallet authority and
+    normal-signing binding; it performs no Yao recovery admission, root
+    acquisition, candidate construction, or promotion. The missing-material
+    branch alone may enter explicit Yao recovery. The registered Ed25519 Yao
+    lifecycle identity, including its threshold/wallet-session continuity ID,
+    remains pinned to the active capability while bearer JWT, signing grant,
+    wallet quota, remaining uses, and expiry rotate. Omitting the Ed25519 intent
+    is valid only when the requested capability set excludes Near Ed25519; core
+    code cannot interpret a missing intent as routine unlock or recovery.
 
 ## Implementation Rules
 
@@ -526,6 +576,7 @@ these internal module boundaries are stable.
 
 | Phase | Contents | Status |
 | -------------- | --------------------------------------------------- | ----------- |
+| Tactical Patch 2 | Email OTP exact-material local rehydration       | In progress |
 | Foundation A | Canonical MPC hydration decision contract          | In progress |
 | Foundation B | Canonical ECDSA capability state and persistence   | In progress |
 | Phase 1 | Signer-set registration cut | Complete |
@@ -566,6 +617,21 @@ and Phase 5. Both must close before either tactical phase closes or Phase 19/23
 begins. Foundation A defines the shared hydration outcome. Foundation B
 defines the exact ECDSA inputs, persistence owner, and transitions that construct
 that outcome.
+The Email OTP exact-material patch is a current-stack lifecycle correction and
+may land before the broader capability cutover. It does not add another
+foundation. Foundation A consumes its parsed custody outcomes only through the
+Near and ECDSA material adapters, while Foundation B remains the sole target
+owner for active ECDSA capability persistence. Phases 19 and 23 cannot close
+until the patch's behavior is preserved and its tactical combined unlock and
+registration orchestration have been replaced by capability-specific ports and
+canonical commit state machines.
+The patch remains in progress until SDK and server type checks pass after the
+request/result discriminant cutover, focused tests execute both exact-local and
+missing-material server/worker paths, intended-behaviour tests prove routine
+zero-Yao unlock plus absence-only recovery, persistence-failure tests prove
+activation rollback, distinct local-versus-recovery audit/timing labels land,
+and the latency gates in the companion patch pass. Source guards alone do not
+constitute acceptance.
 
 ## Phase Mapping
 
@@ -576,6 +642,7 @@ documents:
 | ---------------------------------------------- | ------------------------------------------------------------------ |
 | July 16 lifecycle convergence review           | Foundation A + Phases 4, 19, and 23                             |
 | July 18 ECDSA state convergence review         | Foundation B + Phases 5, 17, 18, 19, and 23                     |
+| July 22 Email OTP exact-material unlock patch  | Foundations A/B + Phases 6, 17, 19, 21, and 23                  |
 | Legacy 0A, 0B, 0D, 0F, 0E | Phases 1, 2, 4, 5, 8 |
 | 0 (Inventory) | Phase 6 |
 | 0C (Public surface and deployment inventory) | Phase 6 |
@@ -615,6 +682,13 @@ authority from optional legacy fields. The checkpoint's tactical ECDSA material
 resolver and Ed25519 local active-Client rehydration provide protocol evidence;
 canonical inventory publication and flow migration remain. This bounded
 type-and-contract foundation gates Phase 4 closure and Phases 19 and 23.
+
+The in-progress Email OTP exact-material patch adds a lower-level custody
+resolution contract for the Near Ed25519 side of same-device unlock and reuses
+the ECDSA adapter's existing canonical role-local observation. Foundation A
+consumes those results only after their capability adapters parse them. The
+shared hydration union must not embed `EmailOtpUnlockMaterialPlan`, enrollment-
+secret state, provider identity, or a combined two-curve envelope.
 
 Goal: make post-registration, post-wallet-unlock, and post-page-refresh callers
 resolve the same MPC capability-material lifecycle. Entry-point provenance remains
@@ -725,6 +799,13 @@ Do:
   available. If it is unavailable, the protocol adapter returns an explicit
   typed material-unlock requirement and cannot construct this branch. Execution
   consumes that source during local import.
+- Keep pre-session custody resolution separate from hydration resolution. For
+  the Email OTP patch, `exact_material_ready` imports a pending client and then
+  proceeds through fresh wallet/material-session binding and canonical commit;
+  exact post-effect re-resolution must yield `use_live_runtime` before unlock
+  succeeds. `material_absent` enters only the explicit missing-material recovery
+  action for that capability. `material_invalid` maps to `blocked(corrupt)` or
+  `blocked(binding_mismatch)` and cannot be reclassified as absence.
 - Require `reauthorize_public_anchor` to prove `expired | exhausted` and one
   exact public anchor. The resulting effect may provision a normal multi-use
   wallet-unlock session or an operation-scoped one-use session. Key export can
@@ -739,10 +820,12 @@ Do:
 - Make registration and unlock publish the same canonical capability inventory
   that refresh reads. Remove entry-point-only shadow state and avoid separate
   post-registration or post-unlock shortcut resolvers.
-- Preserve the checkpoint's routine Passkey Ed25519 rule: wallet unlock, page
-  refresh, signing, and budget refresh import the exact locally sealed activated
-  Client and make zero Deriver A/B calls. Phase 19 generalizes the adapter
-  without assuming that every auth factor already persists this envelope.
+- Preserve the routine local Ed25519 rule for every factor that owns an eligible
+  activated-Client envelope. Passkey already imports it during wallet unlock,
+  page refresh, signing, and budget refresh with zero Deriver A/B calls. The
+  Email OTP exact-material patch must establish the same rule for same-device
+  unlock after fresh OTP verification and enrollment-secret unsealing. Phase 19
+  generalizes the adapter without exposing either factor's wrapping authority.
   Device linking and explicit same-root recovery retain the root-recovery
   lifecycle; export retains its separate one-use material-acquisition ceremony.
 - Require exact canonical re-resolution after rehydration, reauthorization,
@@ -772,6 +855,13 @@ Entry-point contract:
 | Post-wallet-unlock | A locally durable active session may first resolve to `rehydrate_active_session`; after its effect and exact re-resolution it resolves to `use_live_runtime`. Unrequested capabilities keep their independently resolved state. | Capability-local failure leaves session/public wallet identity active and returns the exact non-ready branch.                                                     |
 | Post-page-refresh  | Volatile runtime handles are absent. A current exact material session with a valid seal resolves to `rehydrate_active_session`.                      | Expired/exhausted material authority resolves to `reauthorize_public_anchor`; missing, corrupt, conflicting, revoked, or unavailable state resolves to `blocked`. |
 
+An Email OTP unlock that begins with exact local custody but no current material
+session is still pre-hydration adapter work. It imports the pending Near Client,
+resolves ECDSA through its canonical role-local adapter, binds and commits fresh
+material-session authority, then publishes the canonical post-wallet-unlock
+observation. The first successful Foundation A result for that path is
+`use_live_runtime`; the custody plan itself never occupies the table.
+
 Check:
 
 - [ ] The leaf lifecycle module owns the final union and this plan states that entry-point
@@ -795,6 +885,11 @@ Check:
 - [ ] Near Ed25519 routine unlock, page-refresh restoration, signing, and budget
       refresh rehydrate the sealed activated Client locally and make zero
       Deriver A/B calls.
+- [ ] Email OTP routine same-device unlock resolves exact local Ed25519 and
+      canonical ECDSA role-local material independently, performs zero Yao
+      recovery calls, binds both live material owners to one fresh wallet
+      authority/budget, and resolves both canonical capabilities to
+      `use_live_runtime` before reporting success.
 - [ ] Public-anchor key export provisions one exact one-use export session after
       fresh authorization and requires no preceding transaction or full wallet
       unlock.
@@ -818,6 +913,15 @@ may proceed while Phase 5 finalizes `EcdsaRoleLocalMaterialBinding`, then both
 close together against the same SPEC-owned shape. Pull the existing exact
 `WalletAuthAuthorityRef` leaf scaffold and its boundary builder forward; this
 does not depend on the broader Phase 17/18 wallet vocabulary migration.
+
+The Email OTP exact-material patch deliberately reuses the current encrypted
+role-local material adapter for tactical same-device unlock. It adds no Email
+OTP-specific ECDSA envelope, KEK domain, material record, writer, or
+source-priority resolver. During the Foundation B cutover, the existing
+role-local binding becomes `DurableEcdsaMaterialBinding`; fresh Email OTP
+session binding completes through the canonical activation journal and
+manifest-plus-material commit. Any tactical activation/publication path is
+deleted in that cutover instead of becoming a second ECDSA persistence owner.
 
 Goal: replace the optional, multi-lifecycle ECDSA session record with one
 SPEC-owned set of linked required-field aggregates and one durable capability
@@ -930,6 +1034,9 @@ Flow cutover:
 - Registration and wallet unlock call one
   `commitEcdsaCapabilityActivation(...)` boundary after their factor-specific
   protocols produce normalized activation input.
+- Email OTP local rehydration yields only verified pending role-local material
+  plus normalized stable custody facts. It cannot publish an active ECDSA
+  record directly or copy provider/enrollment fields into the generic manifest.
 - Page refresh calls `readEcdsaCapabilityManifest(...)`, observes worker runtime
   independently, and passes those exact facts to the Foundation A hydration
   resolver.
@@ -991,6 +1098,9 @@ Check:
       corruption, and unavailable storage. Every switch is exhaustive.
 - [ ] Registration and unlock use the same activation commit port and resolve the
       committed capability from the same read port used by refresh.
+- [ ] Email OTP exact-material unlock reuses the canonical ECDSA material owner,
+      completes through the activation journal, and leaves no tactical second
+      writer or active-record branch after the Foundation B cutover.
 - [ ] Refresh after worker destruction preserves the exact manifest and material
       binding, observes runtime `absent`, and resolves
       `rehydrate_active_session`.
@@ -1712,6 +1822,16 @@ Do — call-site inventory:
   Ed25519 Yao factor-root recovery records, signing-session seal records, wallet
   session IndexedDB stores, combined cross-curve worker envelopes, and any HKDF
   salt/info labels that currently bind to wallet or threshold identities.
+- Inventory the Email OTP exact-material patch surfaces separately: enrollment-
+  secret-owned Ed25519 envelope and stable custody binding, IndexedDB parser/
+  writer, imported active-Client handle, worker/WASM seal/import/dispose
+  commands, exact-local versus missing-material session intents, canonical
+  ECDSA role-local resolver integration, combined unlock result types,
+  registration commit state, React unlock publication, timing fields, guards,
+  and intended-behaviour tests. Assign each surface to the Near material
+  adapter, Foundation B ECDSA adapter/persistence, auth-factor adapter, Phase 19
+  deletion ledger, or Phase 23 provisioning commit. No row may remain owned by
+  a generic combined unlock coordinator.
 - Inventory the complete landed YAOS surface: `crates/ed25519-yao*`,
   `crates/router-ab-ed25519-yao*`, the client WASM package, `yaoClient.ts`,
   `yaoActiveClientRegistry.ts`, `yaoPublicCapabilityReferences.ts`,
@@ -2744,6 +2864,13 @@ Do:
   same-root candidate/promotion, add-signer, and export records. Each quota binding
   and its refresh request carry their own exact
   authority ref; the aggregate wallet quota has no single authority ref.
+- Schema-cut the Email OTP Ed25519 stable custody binding onto the exact
+  `WalletAuthAuthorityRef`. Provider, provider-subject, enrollment, and seal-key
+  facts remain inside the Email OTP adapter's boundary-parsed wrapping-authority
+  record; the generic Near capability record carries the authority ref and
+  authenticated custody digest instead of reconstructing authority from those
+  factor-specific strings. ECDSA continues through Foundation B's canonical
+  authority-bearing manifest rather than copying the Ed25519 binding.
 - Separate durable authority identity from transient session transport
   credentials. New Ed25519 locator, recovery, material, and runtime paths carry
   `WalletAuthAuthorityRef`; they acquire the current bearer credential through a
@@ -3734,6 +3861,48 @@ Do:
   own assertion/challenge protocols and verified evidence; Near and ECDSA material
   adapters own inspection, restore/acquisition, constructor invocation, and
   immediate secret consumption.
+- Migrate the Email OTP exact-material patch without preserving its tactical
+  coordinator as capability core. Keep the worker-owned enrollment-secret KDF,
+  exact Ed25519 local envelope, stable custody verification, worker-owned
+  imported active-Client handle, absent-versus-invalid failure semantics, and
+  zero-Yao routine unlock behavior inside the Email OTP and Near material
+  adapters. ECDSA continues through its canonical role-local material adapter.
+  Replace `EmailOtpUnlockMaterialPlan` and any combined Ed25519/ECDSA request,
+  result, or commit object with two capability-local resolution/commit results
+  joined only by the outer requested-capabilities transaction. Exact local
+  readiness is adapter evidence; it never becomes a factor-labelled hydration
+  or signing lane.
+- Preserve the exact-local versus missing-material server distinction while
+  replacing its tactical names. The exact-local request may mint/refresh wallet
+  authority and provision normal SigningWorker state for the already registered
+  Yao lifecycle; it cannot call recovery admission or change the lifecycle's
+  threshold continuity identity. Only the missing-material request can obtain
+  recovery admission. Replace optional `sessionIntent` omission with an explicit
+  requested-capability set: no Ed25519 intent is valid only when Near Ed25519 was
+  not requested. Delete `recoverEd25519YaoEmailOtpWalletSession` as the shared
+  name for both paths once separate session-provisioning and recovery ports land.
+- Close the tactical publication-order gap before treating the patch as
+  accepted. If refresh-session persistence fails after an exact-local or
+  recovered Client is published to the active registry, roll back that exact
+  activation and dispose its worker-owned Client. Foundation A later replaces
+  this tactical rollback with its journaled commit, read-back, and canonical
+  re-resolution sequence. Add a persistence-failure regression for both paths.
+- Add the patch's tactical names to the Phase 19 deletion ledger:
+  `EmailOtpEd25519YaoSessionMaterialRequestV1`,
+  `EmailOtpEd25519YaoExactLocalSessionBootstrapV1`,
+  `WalletUnlockEmailOtpSessionIntentV1`,
+  `RouterAbEd25519YaoEmailOtpSessionRequestV1`,
+  `RouterAbEd25519YaoEmailOtpLocalSessionRequestV1`,
+  `RouterAbEd25519YaoEmailOtpRecoverySessionRequestV1`,
+  `activateColdEmailOtpEd25519YaoLocalSessionV1`,
+  `email_otp_exact_local_material`,
+  `email_otp_no_ed25519_session`,
+  `router_ab_ed25519_yao_email_otp_local_session_v1`,
+  `router_ab_ed25519_yao_email_otp_recovery_session_v1`,
+  `shared_email_otp_recovery_wallet_session_v1`, and
+  `ecdsa_and_ed25519_yao_local_session`. Their behavior moves to the generic
+  Near material/session ports; no alias, implicit omission branch, or
+  factor-labelled capability result survives.
 - Delete stale cross-curve companion envelopes at persistence boundaries. ECDSA
   recovery references and Ed25519 sealed root-recovery references remain
   disjoint; one capability recovery cannot enumerate, restore, or commit its
@@ -3893,6 +4062,18 @@ Check:
 - A valid `NearEd25519YaoSealedActiveClientRef` plus an absent/disposed runtime
   rehydrates the activated Client locally, authenticates its full public
   binding, publishes it, and reaches `ready` with zero Deriver A/B calls.
+- Routine same-device Email OTP unlock performs one fresh factor interaction,
+  imports the exact Near active-Client envelope, resolves ECDSA through the
+  canonical role-local adapter, and makes zero Yao recovery calls. Deleting the
+  Ed25519 envelope enters exactly one missing-material recovery and recommits
+  only Near; a corrupt Ed25519 envelope fails closed without a recovery request.
+  Missing or invalid ECDSA material follows Foundation B's independent typed
+  policy and never selects Ed25519 recovery.
+- Server/request tests prove exact-local and missing-material intents cannot be
+  substituted, exact-local provisioning performs no Yao recovery effect, a
+  missing intent cannot silently skip a requested Near capability, and fresh
+  authority rotation preserves the registered Ed25519 lifecycle/threshold
+  continuity identity.
 - A valid exact locator plus sealed root-recovery ref and an absent/disposed
   runtime resolves to `recovery_required` when the Near material adapter reports
   `sealed_recovery_available`. Tests cover locator-only, successful refresh
@@ -4359,6 +4540,13 @@ Do:
   and their immediate Rust/WASM consumption. Route ECDSA material
   unlock/restore/consumption through the ECDSA material adapter. MPC preparation
   consumes only boundary-validated admission, authorization, and recovery results.
+- Preserve the Email OTP patch's secret boundary during the split: enrollment
+  secret `S`, curve-specific KEKs, plaintext imported clients, and temporary
+  seal/open buffers remain in the dedicated Email OTP worker or its
+  responsibility-local WASM constructors. Generic worker messages receive only
+  exact custody refs, ciphertext records, public verification facts, and opaque
+  pending-handle results. Split any tactical two-curve worker request into Near
+  and ECDSA commands without duplicating OTP verification or exporting `S`.
 - Keep the sealed and fresh material-recovery handle lifecycle inside the
   capability-specific secure
   worker. Public/generic worker messages carry only exact data refs, admission,
@@ -4493,6 +4681,16 @@ Do:
   shared hydration planner and require `use_live_runtime` before reporting that
   capability as registered. Roll back or return a typed partial-commit recovery
   state; never publish a ready registration backed only by page memory.
+- Replace the Email OTP patch's wallet-first registration commit—which writes
+  the new Ed25519 envelope beside canonical ECDSA durable material—with this
+  per-requested-capability commit protocol. Auth-account registration and MPC
+  capability provisioning have distinct results. A request for both MPC
+  capabilities may share one verified Email OTP enrollment interaction, while
+  Near seals/persists its envelope and ECDSA commits its existing role-local
+  material independently through their canonical owners. The aggregate
+  provisioning result reports an exact partial-commit state if either requested
+  capability fails; no combined secret-bearing record or compatibility writer
+  survives.
 
 Check:
 
@@ -4505,6 +4703,9 @@ Check:
 - A successfully provisioned MPC capability resolves to `use_live_runtime`
   immediately and to the correct sealed-active or public-anchor branch after a
   simulated page refresh. Registration-only readiness state is absent.
+- Email OTP provisioning persists the requested exact local custody records
+  before each capability reports success, while auth-only registration can
+  complete without creating the Ed25519 envelope or ECDSA durable material.
 - Vault-only, IdP-only, and auth-only registration paths do not load
   MPC protocol/signer/WASM code.
 
@@ -5096,6 +5297,7 @@ question gating it is open.
 
 - [Modular Auth And Capability Refactor SPEC](./refactor-90-modular-auth-capabilities-SPEC.md)
 - [Refactor 90 Progress Journal](./refactor-90-journal.md)
+- [Email OTP Exact-Material Unlock Patch](./refactor-patch-2-email-otp-local-rehydration.md)
 - [Centaur Secrets Vault Architecture Plan](./centaur-secrets-vault.md)
 - [Slack OTP Step-Up Spec](./otp-slack.md)
 - [Streaming Yao for Deriver A and Deriver B](./router-ab/ed25519-yao/implementation-plan.md)

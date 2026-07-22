@@ -10,6 +10,8 @@ export const ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1 =
   '/router-ab/ed25519/yao/recovery/activate' as const;
 export const ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1 =
   '/router-ab/ed25519/yao/recovery/bootstrap' as const;
+export const ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1 =
+  'router_ab_ed25519_yao_email_otp_recovery_v1' as const;
 export const ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1 =
   '/router-ab/ed25519/yao/export/admit' as const;
 export const ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1 =
