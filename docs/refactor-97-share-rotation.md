@@ -25,10 +25,15 @@ This plan consumes:
   public identity, threshold sessions, and explicit export;
 - [refactor-95-passkey-account-refactor.md](./refactor-95-passkey-account-refactor.md)
   for sealed roots and holder material;
-- [refactor-96-delegate-wallets.md](./refactor-96-delegate-wallets.md) for
-  wallet keys, lanes, enrollments, policies, and admission identity.
+- [refactor-96-wallet-execution-lanes.md](./refactor-96-wallet-execution-lanes.md)
+  for wallet keys, share-bearing lanes, lifecycle, and execution identity;
+- [refactor-99-agent-id-spending.md](./refactor-99-agent-id-spending.md) for
+  agent identity, owner authorization, custody binding, and delegated execution
+  admission.
 
-Refactor 98 consumes the protocols and lifecycle defined here.
+Refactor 98 consumes linked-device protocols and lifecycle defined here.
+Refactor 99 may consume an authorization-bound delegated-execution lane when
+the selected wallet adapter requires agent-held MPC participation.
 
 ## Goal
 
@@ -56,8 +61,9 @@ same custody secret
 new credential, KEK, custody key, or envelope version
 ```
 
-Refactor 95 owns passkey and recovery rewrap. Agent custody-key replacement uses
-the same category when the plaintext holder share is unchanged.
+Refactor 95 owns passkey and recovery rewrap. Refactor 99 owns agent
+identity-key and custody replacement. When an optional delegated-execution
+holder share changes custody, this plan supplies the admitted lane refresh.
 
 ### Credential Recovery
 
@@ -68,7 +74,7 @@ Recovery replaces a credential while preserving the wallet key and lane.
   credential to the existing EVM-family key and exact threshold sessions.
 - The prior credential binding is tombstoned only after replacement activation.
 
-Recovery does not create a linked-device or delegated lane.
+Recovery does not create a linked-device or delegated-execution lane.
 
 ### Lane Creation
 
@@ -140,8 +146,9 @@ Ed25519 lane creation runs a Streaming Yao lifecycle ceremony. It does not use
 the secp256k1 additive-delta protocol.
 
 The authoritative Yao request mapping currently defines registration,
-activation, recovery, refresh, and export. Linked-device and delegated-lane
-provisioning needs a new disjoint operation before implementation:
+activation, recovery, refresh, and export. Linked-device and optional
+delegated-execution provisioning need a new disjoint operation before
+implementation:
 
 ```text
 product operation:  lane_provisioning
@@ -185,8 +192,8 @@ before routes are registered. Reusing `registration`, `recovery`, or
    outside the stable key KDF.
 4. Existing active recipient lanes remain active during target creation.
 5. The Router sees ciphertext, public commitments, and receipts only.
-6. The target holder package is encrypted directly to Device 2 or the named
-   agent custody key.
+6. The target holder package is encrypted directly to Device 2 or, for an
+   already-authorized Refactor 99 execution adapter, its named custody binding.
 7. The target SigningWorker package activates under the exact target lane and
    epoch.
 8. Ordinary signing uses the activated Client and SigningWorker and performs
@@ -312,8 +319,9 @@ type EcdsaAdditiveLaneProvisioningJob = {
 };
 ```
 
-Agent and linked-device jobs use separate outer branches so `mandateDigestB64u`
-and `linkedDevicePermissionDigestB64u` cannot be confused.
+Delegated-execution and linked-device jobs use separate outer branches.
+Delegated jobs bind `authorizationBindingDigestB64u`; device jobs bind
+`linkedDevicePermissionDigestB64u`. The two cannot be confused.
 
 ## Protocol Lifecycle
 
@@ -389,8 +397,8 @@ Only pre-commit states can abort. Committed states either reach
 
 ## Multi-Key Enrollment Activation
 
-A device or agent enrollment has one key-manifest digest and one child job per
-target wallet key.
+A linked-device or optional delegated-execution enrollment has one key-manifest
+digest and one child job per target wallet key.
 
 ```text
 Enrollment(preparing)
@@ -461,15 +469,22 @@ The UI must distinguish credential replacement, lane refresh, and wallet rekey.
 
 The source owner lanes remain active throughout.
 
-## Delegated-Agent Lane Creation
+## Authorization-Bound Delegated Execution Lane
 
-The flow matches linked-device creation with these substitutions:
+This optional flow exists only for the Refactor 99 direct threshold-wallet
+adapter. Agent identity registration and owner authorization complete first.
+Lane creation then uses these substitutions:
 
-- target custody is a named agent custody key;
-- the key manifest can be an intentional subset;
-- a mandate digest replaces the linked-device permission digest;
-- activation requires agent custody and attestation receipts;
-- normal signing is always subject to mandate admission.
+- target custody is the exact authorization-bound agent custody binding;
+- the key manifest is equal to or an explicitly authorized subset of the signed
+  wallet-key manifest;
+- an authorization-binding digest replaces the linked-device permission
+  digest;
+- activation requires custody and participant receipts;
+- every signing operation still requires a verified agent request, active
+  owner authorization, atomic budget claim, and Refactor 99 admission.
+
+The lane share never acts as the agent identity or delegated authorization.
 
 ## Revocation
 
@@ -552,7 +567,7 @@ protocol fallback.
 
 ### Phase 5: Refresh And Revocation
 
-- [ ] Add owner, linked-device, and delegated lane refresh.
+- [ ] Add owner, linked-device, and delegated-execution lane refresh.
 - [ ] Add immediate lane and aggregate enrollment revocation.
 - [ ] Invalidate warm capabilities and reject stale epochs.
 - [ ] Add wallet-key root refresh integration after authoritative protocol
@@ -566,7 +581,8 @@ Static checks:
 - ECDSA job with Yao circuit fields fails;
 - lane creation cannot carry a prior target epoch to retire;
 - lane refresh requires the same lane ID and strictly advancing epoch;
-- delegated and linked-device policy digests cannot be interchanged;
+- delegated authorization-binding and linked-device permission digests cannot
+  be interchanged;
 - committed lifecycle cannot transition to pre-commit abort;
 - active enrollment requires a nonempty exact child manifest;
 - persisted records cannot contain ECDSA delta, plaintext holder material, Yao

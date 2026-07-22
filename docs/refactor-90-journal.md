@@ -6,6 +6,28 @@ This file holds dated progress entries so the plan stays a readable checklist.
 The plan records only a one-line status per phase; the narrative history lives
 here.
 
+## July 22, 2026: Canonical Auth-Method Domain Reconciliation
+
+- [Refactor 91](./refactor-91.md) implemented canonical and distinct wallet,
+  signer, and proof auth-method domains across shared types, SDK signing/session
+  policy, persistence boundaries, UI routing, registration events, and server
+  authority parsing. Implicit passkey fallbacks and the broad `AuthMethod` alias
+  were removed; wallet-to-signer and signer-to-protocol conversion now fail
+  closed and compile exhaustively.
+- Refactor 90 treats this as completed current-stack groundwork for Phases 6, 7,
+  17, 18, 22, and 23. It does not complete the SPEC-owned auth-factor/evidence
+  vocabulary, `WalletAuthAuthorityRef` lane migration, capability-local type
+  relocation, or wallet persistence migration.
+- Shared, SDK, server, and intended-test type checks, the auth-domain and
+  account/signer lifecycle guards, focused EVM auth tests, and `git diff --check`
+  pass. Full intended-behaviour acceptance remains blocked because the local
+  site returned HTTP 502 before any auth-flow assertion ran.
+- Phase 6 must absorb Refactor 91's occurrence inventory and temporary guard
+  allowlists into the owner/action ledger. Phases 18, 19, and 22 must retire each
+  allowlist row as method decisions move to their final adapters or become
+  structurally exhaustive; no compatibility alias or implicit passkey branch may
+  return during relocation.
+
 ## July 22, 2026: Email OTP Exact-Material Unlock Reconciliation
 
 - Implementation landed for

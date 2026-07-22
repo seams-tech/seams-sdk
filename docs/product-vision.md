@@ -9,8 +9,9 @@ Related docs:
 - [Router A/B sales pitch](router-a-b-sales-pitch.md)
 - [Router A/B spec](./router-ab/protocol.md)
 - [Router A/B deployment](./router-ab/deployment.md)
-- [Delegate wallets](refactor-96-delegate-wallets.md)
-- [Delegated agent linked-device behavior](refactor-98-delegated-agent-linked-device-behavior.md)
+- [Wallet key and execution lanes](refactor-96-wallet-execution-lanes.md)
+- [Physical device linking](refactor-98-device-linking.md)
+- [Agent identity and delegated spending](refactor-99-agent-id-spending.md)
 - [Voice agent GTM](../voiceId/docs/voice-agent-gtm.md)
 - [VoiceID engine specification](../voiceId/docs/voiceId-mvp-1.md)
 
