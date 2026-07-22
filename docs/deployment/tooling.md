@@ -201,6 +201,11 @@ pnpm product:deploy:env-update -- \
   --apply
 ```
 
+When changing `GATEWAY_RUNTIME_PROFILE` or the NEAR relayer, apply the
+wallet-core update first. The product update then reads the validated Gateway
+profile and synchronizes `VITE_NEAR_NETWORK`, `VITE_NEAR_RPC_URL`, and
+`VITE_NEAR_EXPLORER` so the browser and Gateway target the same NEAR network.
+
 The command reads
 `$HOME/.seams/<target>-deployment.env` and updates only whitelisted
 external values:
