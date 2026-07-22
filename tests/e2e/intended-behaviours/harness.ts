@@ -1,4 +1,5 @@
 import {
+  expect,
   test as base,
   type APIRequestContext,
   type BrowserContext,
@@ -981,6 +982,16 @@ export class IntendedBehaviourHarness {
       state: 'visible',
       timeout: 15_000,
     });
+    await expect(this.page.getByTestId('intended-e2e-page')).toHaveAttribute(
+      'data-login-state',
+      'logged_in',
+      { timeout: 15_000 },
+    );
+    await expect(this.page.getByTestId('intended-e2e-page')).toHaveAttribute(
+      'data-login-wallet-id',
+      this.walletId,
+      { timeout: 15_000 },
+    );
     this.intendedPageReady = true;
     this.reloadIntendedPageBeforeNextAction = false;
     this.recordService('page refreshed preserving wallet storage');

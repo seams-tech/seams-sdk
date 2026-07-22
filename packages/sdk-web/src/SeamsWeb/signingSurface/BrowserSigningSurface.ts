@@ -125,11 +125,16 @@ import {
 } from '@/core/signingEngine/session/emailOtp/ed25519YaoLogin';
 import {
   activateColdEmailOtpEd25519YaoUnlockedRecoveryV1,
+  activateColdEmailOtpEd25519YaoLocalSessionV1,
   prepareColdEmailOtpEd25519YaoRecoveryV1,
   recoverColdEmailOtpEd25519CapabilityForLoginV1,
   type PreparedColdEmailOtpEd25519YaoRecoveryV1,
 } from '@/core/signingEngine/session/emailOtp/ed25519YaoBudgetRecovery';
-import type { EmailOtpEd25519YaoRecoveryBootstrapV1 } from '@/core/signingEngine/workerManager/workerTypes';
+import type {
+  EmailOtpEd25519YaoExactLocalSessionBootstrapV1,
+  EmailOtpEd25519YaoRecoveryBootstrapV1,
+} from '@/core/signingEngine/workerManager/workerTypes';
+import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
 import type { EmailOtpEd25519YaoPendingFactorHandle } from '@/core/signingEngine/session/emailOtp/ed25519YaoRootVault';
 import {
   persistActivePasskeyEcdsaReauthAnchor,
@@ -1339,6 +1344,26 @@ export class BrowserSigningSurface {
     });
     await this.persistEmailOtpEd25519YaoSessionForRefreshInternal(recovered.record);
     return recovered.record;
+  }
+
+  async activateEmailOtpEd25519YaoLocalSessionInternal(args: {
+    prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
+    bootstrap: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
+    activeClientHandle: string;
+    metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+  }): Promise<ThresholdEd25519SessionRecord> {
+    const activated = await activateColdEmailOtpEd25519YaoLocalSessionV1({
+      prepared: args.prepared,
+      bootstrap: args.bootstrap,
+      activeClientHandle: args.activeClientHandle,
+      metadata: args.metadata,
+      workerContext: this.signerWorkerManager.getContext(),
+      activateCapability: this.enginePorts.ed25519YaoActiveClients.activate.bind(
+        this.enginePorts.ed25519YaoActiveClients,
+      ),
+    });
+    await this.persistEmailOtpEd25519YaoSessionForRefreshInternal(activated.record);
+    return activated.record;
   }
 
   async loginWithEmailOtpEd25519YaoCapabilityInternal(

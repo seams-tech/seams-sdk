@@ -12,7 +12,7 @@ import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
   handleWalletUnlockChallengeRoute,
   handleWalletUnlockVerifyRoute,
-  type WalletUnlockEd25519YaoRecoveryContext,
+  type WalletUnlockEd25519YaoSessionContext,
 } from '../../walletUnlockRouteHandlers';
 import {
   routerApiEmailOtpRouteService,
@@ -59,11 +59,21 @@ import {
   walletAuthAuthorityRef,
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
+import { isPlainObject } from '@shared/utils/validation';
 
 type VerifiedSigningBudgetStatus = Extract<
   ParseWalletSigningBudgetStatusResult,
   { ok: true }
 >['walletBudgetStatus'];
+
+function walletUnlockContextWithoutEd25519Intent(
+  body: unknown,
+): WalletUnlockEd25519YaoSessionContext {
+  if (isPlainObject(body) && body.unlockBackend === EMAIL_OTP_CHANNEL) {
+    return { kind: 'email_otp_no_ed25519_session' };
+  }
+  return { kind: 'passkey_unlock' };
+}
 
 async function emitSessionExchangeFailed(
   ctx: CloudflareRouterApiContext,
@@ -1241,14 +1251,12 @@ export async function handleWalletUnlockVerify(
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/unlock/verify') return null;
   const body = await readJson(ctx.request);
-  const parsedYaoRecovery = parseWalletUnlockEd25519YaoRequest(body);
-  if (!parsedYaoRecovery.ok) {
-    return json(parsedYaoRecovery.body, { status: parsedYaoRecovery.status });
+  const parsedSessionIntent = parseWalletUnlockEd25519YaoRequest(body);
+  if (!parsedSessionIntent.ok) {
+    return json(parsedSessionIntent.body, { status: parsedSessionIntent.status });
   }
-  let ed25519YaoRecovery: WalletUnlockEd25519YaoRecoveryContext = {
-    kind: 'not_requested',
-  };
-  if (parsedYaoRecovery.request) {
+  let ed25519YaoSession = walletUnlockContextWithoutEd25519Intent(body);
+  if (parsedSessionIntent.request) {
     const yaoRuntime = ctx.opts.routerAbEd25519YaoProduct;
     if (!yaoRuntime) {
       return json(
@@ -1260,20 +1268,44 @@ export async function handleWalletUnlockVerify(
         { status: 500 },
       );
     }
-    ed25519YaoRecovery = {
-      kind: 'requested',
-      request: parsedYaoRecovery.request,
-      recoverWalletSession:
-        ctx.service.walletRegistration.recoverEd25519YaoEmailOtpWalletSession.bind(
-          ctx.service.walletRegistration,
-        ),
-    };
+    switch (parsedSessionIntent.request.sessionIntent.kind) {
+      case 'exact_local_material_session_v1':
+        ed25519YaoSession = {
+          kind: 'email_otp_exact_local_material',
+          request: {
+            walletId: parsedSessionIntent.request.walletId,
+            orgId: parsedSessionIntent.request.orgId,
+            challengeId: parsedSessionIntent.request.challengeId,
+            sessionIntent: parsedSessionIntent.request.sessionIntent,
+          },
+          provisionWalletSession:
+            ctx.service.walletRegistration.recoverEd25519YaoEmailOtpWalletSession.bind(
+              ctx.service.walletRegistration,
+            ),
+        };
+        break;
+      case 'missing_ed25519_material_recovery_v1':
+        ed25519YaoSession = {
+          kind: 'email_otp_missing_material_recovery',
+          request: {
+            walletId: parsedSessionIntent.request.walletId,
+            orgId: parsedSessionIntent.request.orgId,
+            challengeId: parsedSessionIntent.request.challengeId,
+            sessionIntent: parsedSessionIntent.request.sessionIntent,
+          },
+          recoverWalletSession:
+            ctx.service.walletRegistration.recoverEd25519YaoEmailOtpWalletSession.bind(
+              ctx.service.walletRegistration,
+            ),
+        };
+        break;
+    }
   }
   const response = await handleWalletUnlockVerifyRoute({
     body,
     origin: String(ctx.request.headers.get('origin') || '').trim() || undefined,
     service: routerApiWalletUnlockRouteService(ctx.service),
-    ed25519YaoRecovery,
+    ed25519YaoSession,
     emitRouterApiWebhook: async (event) => {
       await emitRouterApiWebhookEvent({
         logger: ctx.logger,

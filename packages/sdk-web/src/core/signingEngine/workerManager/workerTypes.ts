@@ -79,12 +79,13 @@ import type {
   RouterAbEd25519YaoClientSigningInputV1,
   RouterAbEd25519YaoClientSigningShareV1,
 } from '../threshold/ed25519/yaoClient';
-import type {
-  RouterAbEd25519YaoApplicationBindingFactsV1,
-  RouterAbEd25519YaoBytes32V1,
-  RouterAbEd25519YaoRecoveryAdmissionRequestV1,
-  RouterAbEd25519YaoRecoveryActivationReceiptV1,
-  RouterAbEd25519YaoRegistrationAdmissionRequestV1,
+import {
+  ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1,
+  type RouterAbEd25519YaoApplicationBindingFactsV1,
+  type RouterAbEd25519YaoBytes32V1,
+  type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
+  type RouterAbEd25519YaoRecoveryActivationReceiptV1,
+  type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import type { NearResolvedEd25519SigningSessionState } from '../interfaces/near';
 import type { WalletRegistrationEd25519YaoBootstrapSession } from '@/core/rpcClients/relayer/walletRegistration';
@@ -111,7 +112,7 @@ export type EmailOtpMixedWalletSigningBudgetV1 = {
 };
 
 export type EmailOtpEd25519YaoRecoveryAugmentationV1 = {
-  readonly kind: 'router_ab_ed25519_yao_email_otp_recovery_v1';
+  readonly kind: typeof ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1;
   readonly signerSlot: number;
   readonly remainingUses: number;
   readonly orgId: string;
@@ -137,7 +138,13 @@ export type EmailOtpEd25519YaoActiveCapabilityDescriptorV1 = {
 };
 
 export type EmailOtpEd25519YaoRecoveryBootstrapV1 = {
-  readonly kind: 'router_ab_ed25519_yao_email_otp_recovery_v1';
+  readonly kind: typeof ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1;
+  readonly session: WalletRegistrationEd25519YaoBootstrapSession;
+  readonly capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
+};
+
+export type EmailOtpEd25519YaoExactLocalSessionBootstrapV1 = {
+  readonly kind: 'exact_local_material_session_v1';
   readonly session: WalletRegistrationEd25519YaoBootstrapSession;
   readonly capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
 };
@@ -155,6 +162,9 @@ export type EmailOtpWalletUnlockMaterialRequest =
       readonly kind: 'ed25519_yao_recovery';
       readonly ed25519YaoRecovery: EmailOtpEd25519YaoRecoveryAugmentationV1;
       readonly providerSubject: string;
+      readonly nearAccountId: string;
+      readonly expectedOperationalPublicKey: string;
+      readonly expectedThresholdSessionId: string;
       readonly walletSessionAuth?: never;
       readonly ecdsaClientRootHandleBinding?: never;
       readonly runtimePolicyScope?: never;
@@ -165,6 +175,9 @@ export type EmailOtpWalletUnlockMaterialRequest =
       readonly runtimePolicyScope: ThresholdRuntimePolicyScope;
       readonly ed25519YaoRecovery: EmailOtpEd25519YaoRecoveryAugmentationV1;
       readonly providerSubject: string;
+      readonly nearAccountId: string;
+      readonly expectedOperationalPublicKey: string;
+      readonly expectedThresholdSessionId: string;
       readonly walletSessionAuth?: never;
     };
 
@@ -182,10 +195,28 @@ export type EmailOtpWalletUnlockMaterialResult =
       readonly clientRootShareHandle?: never;
     }
   | {
+      readonly kind: 'ed25519_yao_local_session';
+      readonly activeClientHandle: string;
+      readonly metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+      readonly ed25519YaoSession: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
+      readonly clientRootShareHandle?: never;
+      readonly pendingFactorHandle?: never;
+      readonly ed25519YaoRecovery?: never;
+    }
+  | {
       readonly kind: 'ecdsa_and_ed25519_yao_recovery';
       readonly clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
       readonly pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle;
       readonly ed25519YaoRecovery: EmailOtpEd25519YaoRecoveryBootstrapV1;
+    }
+  | {
+      readonly kind: 'ecdsa_and_ed25519_yao_local_session';
+      readonly clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
+      readonly activeClientHandle: string;
+      readonly metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+      readonly ed25519YaoSession: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
+      readonly pendingFactorHandle?: never;
+      readonly ed25519YaoRecovery?: never;
     };
 
 /**
@@ -575,6 +606,8 @@ export interface EmailOtpWorkerOperationMap {
       rootHandle: EmailOtpEd25519YaoRootHandle;
       admissionRequest: RouterAbEd25519YaoRecoveryAdmissionRequestV1;
       walletId: string;
+      nearAccountId: string;
+      signingRootVersion: string;
       providerSubject: string;
       registrationAuthorityId: string;
       bearerToken: string;

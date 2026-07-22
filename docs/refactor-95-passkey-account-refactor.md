@@ -2,10 +2,13 @@
 
 Date created: June 15, 2026
 
-Last reconciled: July 15, 2026
+Last reconciled: July 22, 2026
 
-Status: active design plan. Type scaffolding exists. End-to-end wrapped custody
-is pending. Ed25519 lifecycle behavior must preserve the architecture and
+Status: active design plan. Same-device passkey Ed25519 sealing and rehydration,
+durable ECDSA material identity, and the current Email OTP wallet lifecycle have
+landed as groundwork. Portable server-held wrapped custody, random-root
+registration, mixed-wallet recovery envelopes, and recovery-code unwrap remain
+pending. Ed25519 lifecycle behavior must preserve the architecture and
 production gates in [router-ab/ed25519-yao/implementation-plan.md](./router-ab/ed25519-yao/implementation-plan.md).
 
 ## Dependencies And Authority
@@ -86,6 +89,10 @@ lane holder share after this refactor.
     threshold session and server generation; an old grant, quota, bearer
     credential, nonce, or threshold-session ID is never copied as durable key
     identity.
+13. The current passkey-PRF-wrapped Ed25519 local-material record is a
+    same-device continuity cache. It is never treated as the portable custody
+    envelope, server source of truth, or random Client root defined by this
+    plan.
 
 ## Current Seams SDK State
 
@@ -93,20 +100,37 @@ The local SDK already has the following lifecycle foundations:
 
 - passkey Ed25519 registration, same-root recovery, refresh, signing, and export
   run through Streaming Yao A/B;
-- the live Ed25519 Client is owned by Rust/WASM while IndexedDB retains only a
-  public capability projection;
+- the live Ed25519 Client is owned by Rust/WASM. IndexedDB now retains its public
+  capability projection plus an authenticated encrypted activated-Client record
+  for same-device rehydration. Rust/WASM derives that record's wrapping key from
+  `PRF.first`, binds it to the exact wallet, key, credential, RP, lifecycle,
+  worker, participant set, public key, and state epoch, and re-verifies the
+  threshold public-key relation when opening it;
 - passkey PRF input currently derives the stable Ed25519 Yao Client root inside
   Rust/WASM;
 - Router A/B ECDSA derivation currently derives the client root share from
   passkey PRF input and activates exact threshold sessions for one EVM-family
-  key slot;
-- Email OTP registration, cold unlock, recovery, and budget refresh already use
-  factor-root handles and the same Wallet Session admission boundary;
+  key slot. Registration persists the exact role-local durable material
+  reference and public identity needed by later unlock and export flows;
+- Email OTP registration, cold unlock, recovery, budget refresh, and ECDSA
+  export use factor-owned worker material, durable ECDSA identity, and the same
+  Wallet Session admission boundary;
+- Ed25519 warm-up is authorized by a server-verified signed Wallet Session, and
+  registration derives the effective RP ID from the wallet iframe boundary;
 - one Wallet Session grant can bind an Ed25519 key and the exact ECDSA sessions
   for Tempo and Arc/EVM under one shared budget;
-- envelope record types, recovery-code types, and type fixtures exist, though
-  they are not wired into registration, unlock, or recovery;
+- Email OTP recovery-code backup, status, and rotation UX exists for the current
+  enrollment-escrow model. Those codes do not yet open the wallet-scoped mixed
+  custody envelope set defined here;
+- target custody-envelope record types and type fixtures exist, though they are
+  not wired into random-root registration, portable cold unlock, or
+  wallet-scoped recovery;
 - linked-device operations remain fail closed.
+
+The current local Ed25519 envelope closes routine same-device continuity. It
+does not close any portable-custody phase below: it contains the activated
+Client scalar share derived from the current deterministic Client root, lives
+only in browser storage, and requires the same credential's PRF output.
 
 The refactor changes both passkey root sources:
 
@@ -474,6 +498,21 @@ and product behavior.
 
 ## Implementation Phases
 
+### Landed Lifecycle Groundwork
+
+- [x] Seal activated passkey Ed25519 Client material inside Rust/WASM under an
+      authenticated, identity-bound same-device envelope.
+- [x] Rehydrate that material for routine unlock, signing, and budget refresh;
+      reserve explicit Yao recovery for device-linking and export operations.
+- [x] Persist durable ECDSA role-local material identity during registration and
+      resolve it through current passkey and Email OTP lifecycle paths.
+- [x] Restore current Email OTP registration, unlock, recovery, budget refresh,
+      and export behavior for the mixed wallet.
+
+These checkpoints preserve today's deterministic root sources. They are inputs
+to the replacement work below and do not authorize retaining deterministic
+root derivation after random-root registration lands.
+
 ### Phase 0: Freeze Custody Boundaries
 
 - [ ] Replace the generic holder-share envelope model with the explicit custody
@@ -520,7 +559,9 @@ and product behavior.
 
 ### Phase 4: Wallet-Scoped Recovery
 
-- [ ] Restore the recovery-code UX with ten single-use codes.
+- [x] Preserve the existing ten-code backup, status, and rotation UX for Email
+      OTP enrollment escrow.
+- [ ] Bind ten single-use codes to the wallet-scoped mixed-custody envelope set.
 - [ ] Reuse the Email OTP authorization and Wallet Session admission boundary.
 - [ ] Recover every key in the exact manifest before credential promotion.
 - [ ] Consume a recovery code only with the activation commit.

@@ -95,7 +95,11 @@ import type { HydrateWarmSigningSessionInput } from '@/core/signingEngine/sessio
 import type { EmailOtpBootstrapRecovery } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/bootstrapRecovery';
 import type { LoginWithEmailOtpEd25519YaoCapabilityInternalArgs } from '@/core/signingEngine/session/emailOtp/ed25519YaoLogin';
 import type { PreparedColdEmailOtpEd25519YaoRecoveryV1 } from '@/core/signingEngine/session/emailOtp/ed25519YaoBudgetRecovery';
-import type { EmailOtpEd25519YaoRecoveryBootstrapV1 } from '@/core/signingEngine/workerManager/workerTypes';
+import type {
+  EmailOtpEd25519YaoExactLocalSessionBootstrapV1,
+  EmailOtpEd25519YaoRecoveryBootstrapV1,
+} from '@/core/signingEngine/workerManager/workerTypes';
+import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
 import type { EmailOtpEd25519YaoPendingFactorHandle } from '@/core/signingEngine/session/emailOtp/ed25519YaoRootVault';
 import type { EmailOtpAppSessionBinding } from '@/core/signingEngine/session/emailOtp/appSessionJwtCache';
 import type {
@@ -420,6 +424,12 @@ export interface EmailOtpSigningSessionSurface {
     prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
     bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
     pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle;
+  }): Promise<ThresholdEd25519SessionRecord>;
+  activateEmailOtpEd25519YaoLocalSessionInternal(args: {
+    prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
+    bootstrap: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
+    activeClientHandle: string;
+    metadata: RouterAbEd25519YaoActiveClientMetadataV1;
   }): Promise<ThresholdEd25519SessionRecord>;
   loginWithEmailOtpEd25519YaoCapabilityInternal(
     args: LoginWithEmailOtpEd25519YaoCapabilityInternalArgs,

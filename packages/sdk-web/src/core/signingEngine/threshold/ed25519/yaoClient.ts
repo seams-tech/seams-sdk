@@ -218,6 +218,25 @@ export type RouterAbEd25519YaoImportLocalMaterialInputV1 = {
   metadata: RouterAbEd25519YaoActiveClientMetadataV1;
 };
 
+export type RouterAbEd25519YaoEmailOtpSealedLocalMaterialV1 = {
+  kind: 'router_ab_ed25519_yao_email_otp_sealed_local_material_v1';
+  nonce: Uint8Array;
+  ciphertext: Uint8Array;
+};
+
+export type RouterAbEd25519YaoSealEmailOtpLocalMaterialInputV1 = {
+  ownedEnrollmentSecret32: Uint8Array;
+  binding: Uint8Array;
+  nonce: Uint8Array;
+};
+
+export type RouterAbEd25519YaoImportEmailOtpLocalMaterialInputV1 = {
+  ownedEnrollmentSecret32: Uint8Array;
+  binding: Uint8Array;
+  sealed: RouterAbEd25519YaoEmailOtpSealedLocalMaterialV1;
+  metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+};
+
 export type RouterAbEd25519YaoClientSigningInputV1 = {
   admittedDigest: Uint8Array;
   signingWorkerCommitments: Readonly<{ hiding: string; binding: string }>;
@@ -269,11 +288,13 @@ export interface RouterAbEd25519YaoActiveClientV1 {
   dispose(): void;
 }
 
-export interface RouterAbEd25519YaoSealableActiveClientV1
-  extends RouterAbEd25519YaoActiveClientV1 {
+export interface RouterAbEd25519YaoSealableActiveClientV1 extends RouterAbEd25519YaoActiveClientV1 {
   sealLocalMaterial(
     input: RouterAbEd25519YaoSealLocalMaterialInputV1,
   ): RouterAbEd25519YaoSealedLocalMaterialV1;
+  sealEmailOtpLocalMaterial(
+    input: RouterAbEd25519YaoSealEmailOtpLocalMaterialInputV1,
+  ): RouterAbEd25519YaoEmailOtpSealedLocalMaterialV1;
 }
 
 const ACTIVE_CLIENT_CONSTRUCTION = Symbol('router-ab-ed25519-yao-active-client-construction');
@@ -287,6 +308,13 @@ type RouterAbEd25519YaoActiveClientConstructionV1 = {
 function requireBytes32(value: Uint8Array, label: string): Uint8Array {
   if (!(value instanceof Uint8Array) || value.length !== 32) {
     throw new Error(`${label} must contain 32 bytes`);
+  }
+  return value;
+}
+
+function requireBytes12(value: Uint8Array, label: string): Uint8Array {
+  if (!(value instanceof Uint8Array) || value.length !== 12) {
+    throw new Error(`${label} must contain 12 bytes`);
   }
   return value;
 }
@@ -494,6 +522,51 @@ function requireActiveRegistration(
   }
 }
 
+function sealWasmEmailOtpLocalMaterial(input: {
+  activated: WasmActivatedClientV1;
+  ownedEnrollmentSecret32: Uint8Array;
+  binding: Uint8Array;
+  nonce: Uint8Array;
+}): Uint8Array {
+  const method: unknown = Reflect.get(input.activated, 'seal_email_otp_local_material');
+  if (typeof method !== 'function') {
+    throw new Error('Bundled Ed25519 Yao WASM does not support Email OTP local material sealing');
+  }
+  const output: unknown = Reflect.apply(method, input.activated, [
+    input.ownedEnrollmentSecret32,
+    input.binding,
+    input.nonce,
+  ]);
+  if (!(output instanceof Uint8Array)) {
+    throw new Error('Ed25519 Yao WASM returned invalid Email OTP sealed material');
+  }
+  return output;
+}
+
+function importWasmEmailOtpLocalMaterial(
+  input: RouterAbEd25519YaoImportEmailOtpLocalMaterialInputV1,
+): WasmActivatedClientV1 {
+  const method: unknown = Reflect.get(WasmActivatedClientV1, 'import_email_otp_local_material');
+  if (typeof method !== 'function') {
+    throw new Error('Bundled Ed25519 Yao WASM does not support Email OTP local material import');
+  }
+  const output: unknown = Reflect.apply(method, WasmActivatedClientV1, [
+    requireBytes32(input.ownedEnrollmentSecret32, 'Email OTP enrollment secret'),
+    input.binding,
+    requireBytes12(input.sealed.nonce, 'Email OTP local material nonce'),
+    input.sealed.ciphertext,
+    input.metadata.registeredPublicKey,
+    input.metadata.stateEpoch,
+    input.metadata.participantIds[0],
+    input.metadata.participantIds[1],
+    input.metadata.signingWorkerVerifyingShare,
+  ]);
+  if (!(output instanceof WasmActivatedClientV1)) {
+    throw new Error('Ed25519 Yao WASM returned invalid Email OTP active Client material');
+  }
+  return output;
+}
+
 function randomNonzeroBytes32(): Uint8Array {
   const output = new Uint8Array(32);
   do {
@@ -699,9 +772,7 @@ export class RouterAbEd25519YaoHttpActivationTransportV1
   }
 }
 
-export class WasmRouterAbEd25519YaoActiveClientV1
-  implements RouterAbEd25519YaoSealableActiveClientV1
-{
+export class WasmRouterAbEd25519YaoActiveClientV1 implements RouterAbEd25519YaoSealableActiveClientV1 {
   private readonly activeMetadata: RouterAbEd25519YaoActiveClientMetadataV1;
   private lifecycle: RouterAbEd25519YaoActiveClientLifecycleV1;
 
@@ -754,6 +825,30 @@ export class WasmRouterAbEd25519YaoActiveClientV1
       };
     } finally {
       input.ownedPasskeyPrfFirst.fill(0);
+    }
+  }
+
+  sealEmailOtpLocalMaterial(
+    input: RouterAbEd25519YaoSealEmailOtpLocalMaterialInputV1,
+  ): RouterAbEd25519YaoEmailOtpSealedLocalMaterialV1 {
+    const activated = requireActiveRegistration(this.lifecycle);
+    try {
+      const nonce = requireBytes12(input.nonce, 'Email OTP local material nonce');
+      return {
+        kind: 'router_ab_ed25519_yao_email_otp_sealed_local_material_v1',
+        nonce: nonce.slice(),
+        ciphertext: sealWasmEmailOtpLocalMaterial({
+          activated,
+          ownedEnrollmentSecret32: requireBytes32(
+            input.ownedEnrollmentSecret32,
+            'Email OTP enrollment secret',
+          ),
+          binding: input.binding,
+          nonce,
+        }),
+      };
+    } finally {
+      input.ownedEnrollmentSecret32.fill(0);
     }
   }
 
@@ -899,6 +994,25 @@ function importVerifiedActiveClient(
   }
 }
 
+function importVerifiedEmailOtpActiveClient(
+  input: RouterAbEd25519YaoImportEmailOtpLocalMaterialInputV1,
+): WasmRouterAbEd25519YaoActiveClientV1 {
+  let activated: WasmActivatedClientV1 | null = null;
+  try {
+    activated = importWasmEmailOtpLocalMaterial(input);
+    return new WasmRouterAbEd25519YaoActiveClientV1({
+      [ACTIVE_CLIENT_CONSTRUCTION]: true,
+      metadata: input.metadata,
+      activated,
+    });
+  } catch (error) {
+    activated?.free();
+    throw error;
+  } finally {
+    input.ownedEnrollmentSecret32.fill(0);
+  }
+}
+
 export class RouterAbEd25519YaoClientV1 {
   private constructor() {}
 
@@ -918,6 +1032,12 @@ export class RouterAbEd25519YaoClientV1 {
     input: RouterAbEd25519YaoImportLocalMaterialInputV1,
   ): RouterAbEd25519YaoActiveClientV1 {
     return importVerifiedActiveClient(input);
+  }
+
+  importEmailOtpLocalMaterial(
+    input: RouterAbEd25519YaoImportEmailOtpLocalMaterialInputV1,
+  ): RouterAbEd25519YaoActiveClientV1 {
+    return importVerifiedEmailOtpActiveClient(input);
   }
 
   async register(args: {

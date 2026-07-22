@@ -2,17 +2,22 @@
 
 Date created: June 15, 2026
 
-Last reconciled: July 15, 2026
+Last reconciled: July 22, 2026
 
 Status: active cryptographic plan. Shared rotation types and server store
-interfaces exist. No lane-provisioning protocol is registered. The previous
-plan's universal additive-reshare design has been removed because Ed25519 lane
-provisioning belongs to the Streaming Yao lifecycle.
+interfaces exist. Current owner flows now preserve local Ed25519 material and
+durable ECDSA material identity, while no lane-provisioning protocol is
+registered. The previous plan's universal additive-reshare design has been
+removed because Ed25519 lane provisioning belongs to the Streaming Yao
+lifecycle.
 
 ## Dependencies And Authority
 
 This plan consumes:
 
+- [refactor-90-modular-auth-capabilities-plan.md](./refactor-90-modular-auth-capabilities-plan.md)
+  for canonical capability hydration, active ECDSA material manifests,
+  activation commits, and exact operation-lane resolution;
 - [router-ab/ed25519-yao/implementation-plan.md](./router-ab/ed25519-yao/implementation-plan.md) for Ed25519 stable context, registered `A_pub`,
   Client and SigningWorker recipients, recovery, correlated refresh,
   forward-only output commitment, and production security gates;
@@ -78,6 +83,13 @@ new target lane share epoch
 new holder material
 new matching server/SigningWorker material
 ```
+
+ECDSA client finalization now verifies proof-contained root-share commitments
+and DLEQ proofs. The removed signed ECDSA commitment-policy registry is outside
+this lane protocol. Target-lane resharing uses operation-scoped transcript
+commitments bound to the exact source lane, target lane, epochs, public
+identity, and activation receipt; it must not recreate a long-lived commitment
+authority or registry.
 
 Ed25519 and ECDSA use different protocols described below.
 
@@ -478,13 +490,17 @@ evaluate wallet rekey. A replacement lane always requires fresh owner approval.
 ## Current Implementation Gaps
 
 - `ShareRotationJob` treats Ed25519 and ECDSA as one protocol family.
-- the current additive commitment type lacks a key-family discriminator;
+- the dormant `AdditiveDeltaReshareCommitment` type lacks a key-family,
+  operation, lane, and epoch binding;
 - job lifecycle omits committed delivery and forward-only recovery states;
 - source-lane creation and same-lane refresh share overly broad types;
 - parent enrollment activation and aggregate receipts do not exist;
 - no Yao `lane_provisioning` request kind exists;
 - no lane-scoped Yao refresh exists;
 - ECDSA additive target-lane resharing is unimplemented;
+- current owner ECDSA flows persist role-local durable material references and
+  public identity, though the canonical Refactor 90 manifest and a lane-aware
+  source-material resolver remain open;
 - server store interfaces have no durable implementations;
 - signing admission does not resolve active enrollment and lane records.
 
@@ -497,7 +513,9 @@ protocol fallback.
 
 - [ ] Add `lane_provisioning` and lane-scoped refresh to the Yao specification,
       ideal functionality map, request union, and lifecycle proofs.
-- [ ] Freeze ECDSA additive target-lane resharing and transcript encoding.
+- [ ] Freeze ECDSA additive target-lane resharing and transcript encoding using
+      operation-scoped proof commitments, without a signed commitment-policy
+      registry.
 - [ ] Freeze aggregate enrollment activation and recovery semantics.
 
 ### Phase 1: Correct Domain Types
@@ -510,6 +528,8 @@ protocol fallback.
 
 ### Phase 2: ECDSA Lane Protocol
 
+- [ ] Resolve the exact active source material through Refactor 90's canonical
+      ECDSA manifest and capability lifecycle.
 - [ ] Implement holder-sampled target share and transient delta handling.
 - [ ] Verify public-key and address continuity.
 - [ ] Seal target relayer shares and bind target threshold sessions.

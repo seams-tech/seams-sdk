@@ -1,7 +1,10 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { NearEd25519YaoSigningCapability } from '@/core/signingEngine/interfaces/near';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import type { EmailOtpEd25519YaoRecoveryBootstrapV1 } from '@/core/signingEngine/workerManager/workerTypes';
+import type {
+  EmailOtpEd25519YaoExactLocalSessionBootstrapV1,
+  EmailOtpEd25519YaoRecoveryBootstrapV1,
+} from '@/core/signingEngine/workerManager/workerTypes';
 import {
   WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
   WALLET_EMAIL_OTP_UNLOCK_OPERATION,
@@ -17,12 +20,14 @@ import { buildEmailOtpSigningSessionRoutePlan, buildFreshEmailOtpRoutePlan } fro
 import { resolveEmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { Ed25519SigningLane } from './ed25519SigningLane';
 import type { EmailOtpEd25519YaoPendingFactorHandle } from './ed25519YaoRootVault';
-import { unlockEmailOtpEd25519YaoRecovery } from './walletUnlock';
+import { unlockEmailOtpEd25519YaoSession } from './walletUnlock';
 import {
   buildEmailOtpEd25519YaoRecoveryContinuityMetadataV1,
   disposeEmailOtpEd25519YaoPendingFactorV1,
   recoverEmailOtpEd25519YaoWorkerClientV1,
+  EmailOtpEd25519YaoWorkerActiveClientV1,
 } from './ed25519YaoWorkerClient';
+import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '../../threshold/ed25519/yaoClient';
 import type { EmailOtpAuthPolicy } from '@/core/types/seams';
 import {
   buildEmailOtpAuthContextForWalletAuthMethod,
@@ -60,6 +65,10 @@ export type PreparedColdEmailOtpEd25519YaoRecoveryV1 = {
   remainingUses: number;
   previous: NearEd25519YaoSigningCapability | null;
 };
+
+type EmailOtpEd25519YaoUnlockBootstrapV1 =
+  | EmailOtpEd25519YaoRecoveryBootstrapV1
+  | EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
 
 function requirePositiveInteger(value: unknown, label: string): number {
   const parsed = Number(value);
@@ -410,7 +419,7 @@ export function prepareColdEmailOtpEd25519YaoRecoveryV1(args: {
 
 function assertColdBootstrapContinuity(args: {
   prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
-  bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
+  bootstrap: EmailOtpEd25519YaoUnlockBootstrapV1;
 }): void {
   const prepared = args.prepared;
   const session = args.bootstrap.session;
@@ -473,7 +482,7 @@ async function assertColdBootstrapContinuityOrDisposePending(args: {
 
 function persistColdRecoveredSession(args: {
   prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
-  bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
+  bootstrap: EmailOtpEd25519YaoUnlockBootstrapV1;
 }): ThresholdEd25519SessionRecord {
   const session = args.bootstrap.session;
   const signerSlot = requirePositiveInteger(
@@ -512,6 +521,48 @@ function persistColdRecoveredSession(args: {
     source: 'email_otp',
     emailOtpAuthContext,
   });
+}
+
+export async function activateColdEmailOtpEd25519YaoLocalSessionV1(args: {
+  prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
+  bootstrap: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
+  activeClientHandle: string;
+  metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+  workerContext: WorkerOperationContext;
+  activateCapability: (
+    capability: NearEd25519YaoSigningCapability,
+  ) => Promise<Ed25519YaoActiveClientIdentityV1>;
+}): Promise<EmailOtpEd25519YaoBudgetRecoveryResult> {
+  assertColdBootstrapContinuity(args);
+  let activeClient: NearEd25519YaoSigningCapability['activeClient'] | null =
+    new EmailOtpEd25519YaoWorkerActiveClientV1(
+      args.workerContext,
+      args.activeClientHandle,
+      args.metadata,
+    );
+  try {
+    const record = persistColdRecoveredSession({
+      prepared: args.prepared,
+      bootstrap: args.bootstrap,
+    });
+    const walletSessionState = resolveRouterAbEd25519WalletSessionStateFromRecord(record);
+    if (!walletSessionState) {
+      throw new Error('Email OTP Ed25519 local custody returned unusable Wallet Session state');
+    }
+    const capability: NearEd25519YaoSigningCapability = { activeClient, walletSessionState };
+    const identity = await args.activateCapability(capability);
+    if (
+      String(identity.walletId) !== String(args.prepared.identity.walletId) ||
+      String(identity.nearAccountId) !== String(args.prepared.identity.nearAccountId) ||
+      identity.thresholdSessionId !== args.prepared.identity.thresholdSessionId
+    ) {
+      throw new Error('Email OTP Ed25519 local custody activated a different identity');
+    }
+    activeClient = null;
+    return { sessionId: walletSessionState.thresholdSessionId, record, ...capability };
+  } finally {
+    activeClient?.dispose();
+  }
 }
 
 export async function activateColdEmailOtpEd25519YaoUnlockedRecoveryV1(args: {
@@ -591,7 +642,7 @@ export async function recoverColdEmailOtpEd25519CapabilityForLoginV1(args: {
   if (!runtimePolicyScope) {
     throw new Error('Email OTP Ed25519 Yao cold recovery requires runtime policy scope');
   }
-  const unlocked = await unlockEmailOtpEd25519YaoRecovery({
+  const unlocked = await unlockEmailOtpEd25519YaoSession({
     walletSession: {
       walletId: args.prepared.identity.walletId,
       walletSessionUserId: args.prepared.providerSubject,
@@ -606,7 +657,20 @@ export async function recoverColdEmailOtpEd25519CapabilityForLoginV1(args: {
     signerSlot: args.prepared.signerSlot,
     remainingUses: args.prepared.remainingUses,
     orgId: runtimePolicyScope.orgId,
+    nearAccountId: String(args.prepared.identity.nearAccountId),
+    expectedOperationalPublicKey: args.prepared.expectedOperationalPublicKey,
+    expectedThresholdSessionId: args.prepared.identity.thresholdSessionId,
   });
+  if (unlocked.kind === 'ed25519_yao_local_session') {
+    return await activateColdEmailOtpEd25519YaoLocalSessionV1({
+      prepared: args.prepared,
+      bootstrap: unlocked.ed25519YaoSession,
+      activeClientHandle: unlocked.activeClientHandle,
+      metadata: unlocked.metadata,
+      workerContext: args.workerContext,
+      activateCapability: args.activateCapability,
+    });
+  }
   return await activateColdEmailOtpEd25519YaoUnlockedRecoveryV1({
     prepared: args.prepared,
     bootstrap: unlocked.ed25519YaoRecovery,
@@ -703,31 +767,23 @@ export async function recoverEmailOtpEd25519CapabilityForSigningV1(args: {
     nearAccountId: args.nearAccountId,
     thresholdSessionId,
   };
-  const activeCapability = args.resolveActiveCapability(identity);
   const emailOtpAuthContext = args.record.emailOtpAuthContext;
   if (args.record.source !== 'email_otp' || !emailOtpAuthContext) {
     throw new Error('Email OTP Ed25519 Yao recovery requires Email OTP session authority');
   }
-  const prepared = activeCapability
-    ? await prepareEmailOtpEd25519YaoRecoveryV1({
-        nearAccountId: args.nearAccountId,
-        record: args.record,
-        committedLane: args.committedLane,
-        resolveActiveCapability: args.resolveActiveCapability,
-      })
-    : prepareColdEmailOtpEd25519YaoRecoveryV1({
-        identity,
-        signerSlot: args.record.signerSlot,
-        expectedOperationalPublicKey: args.expectedOperationalPublicKey,
-        providerSubject: emailOtpAuthContextProviderUserId(emailOtpAuthContext),
-        emailHashHex: emailOtpAuthContextEmailHashHex(emailOtpAuthContext),
-        rpId: args.record.rpId,
-        relayerUrl: args.record.relayerUrl,
-        authPolicy: emailOtpAuthContext.policy,
-        remainingUses: args.remainingUses,
-        resolveActiveCapability: args.resolveActiveCapability,
-      });
-  const unlocked = await unlockEmailOtpEd25519YaoRecovery({
+  const prepared = prepareColdEmailOtpEd25519YaoRecoveryV1({
+    identity,
+    signerSlot: args.record.signerSlot,
+    expectedOperationalPublicKey: args.expectedOperationalPublicKey,
+    providerSubject: emailOtpAuthContextProviderUserId(emailOtpAuthContext),
+    emailHashHex: emailOtpAuthContextEmailHashHex(emailOtpAuthContext),
+    rpId: args.record.rpId,
+    relayerUrl: args.record.relayerUrl,
+    authPolicy: emailOtpAuthContext.policy,
+    remainingUses: args.remainingUses,
+    resolveActiveCapability: args.resolveActiveCapability,
+  });
+  const unlocked = await unlockEmailOtpEd25519YaoSession({
     walletSession: {
       walletId: args.record.walletId,
       walletSessionUserId: prepared.providerSubject,
@@ -745,9 +801,21 @@ export async function recoverEmailOtpEd25519CapabilityForSigningV1(args: {
     signerSlot: prepared.signerSlot,
     remainingUses: requirePositiveInteger(args.remainingUses, 'remainingUses'),
     orgId: requireNonEmpty(args.record.runtimePolicyScope?.orgId, 'orgId'),
+    nearAccountId: String(args.nearAccountId),
+    expectedOperationalPublicKey: args.expectedOperationalPublicKey,
+    expectedThresholdSessionId: prepared.identity.thresholdSessionId,
   });
-  switch (prepared.kind) {
-    case 'prepared_cold_email_otp_ed25519_yao_recovery_v1':
+  switch (unlocked.kind) {
+    case 'ed25519_yao_local_session':
+      return await activateColdEmailOtpEd25519YaoLocalSessionV1({
+        prepared,
+        bootstrap: unlocked.ed25519YaoSession,
+        activeClientHandle: unlocked.activeClientHandle,
+        metadata: unlocked.metadata,
+        workerContext: args.workerContext,
+        activateCapability: args.activateCapability,
+      });
+    case 'ed25519_yao_recovery':
       return await activateColdEmailOtpEd25519YaoUnlockedRecoveryV1({
         prepared,
         bootstrap: unlocked.ed25519YaoRecovery,
@@ -755,15 +823,7 @@ export async function recoverEmailOtpEd25519CapabilityForSigningV1(args: {
         pendingFactorHandle: unlocked.pendingFactorHandle,
         activateCapability: args.activateCapability,
       });
-    case 'prepared_active_email_otp_ed25519_yao_recovery_v1':
-      return await activateEmailOtpEd25519YaoUnlockedRecoveryV1({
-        prepared,
-        bootstrap: unlocked.ed25519YaoRecovery,
-        workerContext: args.workerContext,
-        pendingFactorHandle: unlocked.pendingFactorHandle,
-        activateCapability: args.activateCapability,
-      });
   }
-  prepared satisfies never;
-  throw new Error('Unsupported Email OTP Ed25519 Yao recovery state');
+  unlocked satisfies never;
+  throw new Error('Unsupported Email OTP Ed25519 Yao unlock state');
 }

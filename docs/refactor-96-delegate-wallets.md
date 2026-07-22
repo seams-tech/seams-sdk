@@ -2,17 +2,22 @@
 
 Date created: June 15, 2026
 
-Last reconciled: July 15, 2026
+Last reconciled: July 22, 2026
 
 Status: active foundation plan. Branded IDs, parsers, record types, policy
 types, type fixtures, server store interfaces, and a QR v4 parser exist. The
-runtime still signs through the current owner capability model, and linked or
-delegated behavior remains disabled.
+runtime still signs through the current owner capability model with locally
+durable Ed25519 and ECDSA material and server-verified Wallet Sessions. First-
+class wallet-key, lane, enrollment, linked-device, and delegated behavior
+remains disabled.
 
 ## Dependencies And Authority
 
 This plan consumes:
 
+- [refactor-90-modular-auth-capabilities-plan.md](./refactor-90-modular-auth-capabilities-plan.md)
+  for canonical capability hydration, the active ECDSA capability manifest,
+  activation commits, and exact operation-lane selection;
 - [router-ab/ed25519-yao/implementation-plan.md](./router-ab/ed25519-yao/implementation-plan.md) for Ed25519 key identity, key-creation signer
   slots, Yao Client and SigningWorker lifecycle, recovery, refresh, and export;
 - `crates/router-ab-ecdsa-derivation` for the EVM-family secp256k1 key,
@@ -41,6 +46,12 @@ Wallet
 
 A wallet can contain several `WalletKey` records. A physical device or agent can
 hold one lane for each key included in its enrollment.
+
+Refactor 90's exact operation lane selects one active capability execution.
+This plan's `SigningLane` is the durable, independently revocable holder/server
+participant pair from which those operation lanes are resolved. Runtime
+integration consumes Refactor 90's canonical manifest and activation result;
+it does not create a second active ECDSA material manifest or hydration path.
 
 ## Architecture Decisions
 
@@ -539,14 +550,21 @@ return raw holder/server records or accept caller-constructed lane records.
 - `WalletKeyRecord` still has one generic `{ address }` public identity.
 - `SigningLaneRecord` and rotation scaffolding exist without registered runtime
   behavior.
+- current owner flows persist authenticated Ed25519 local material and ECDSA
+  durable material identity directly through the existing capability lifecycle;
+  they do not resolve `WalletKeyRecord` or `SigningLaneRecord` from the lane
+  stores;
 - rotation job branches use one broad permission digest for both linked devices
   and agents.
 - linked-device receipts are key-specific and have no parent enrollment receipt.
-- QR v4 parsing exists and correctly excludes `walletId`.
-- `linkDevice.ts` and `scanDevice.ts` fail closed.
+- the dormant QR v4 parser correctly excludes `walletId`, while the exported
+  `DeviceLinkingQRData` and scan stub still use a separate legacy-shaped
+  `{ sessionId, accountId?, timestamp, version }` payload;
+- `linkDevice.ts` and `scanDevice.ts` fail closed with a stale Refactor 84
+  diagnostic;
 - server stores are interfaces only.
-- the old public link-device surface remains visible for UI integration while
-  runtime behavior is disabled.
+- public API, React, and wallet-iframe link-device shells remain visible for UI
+  integration while runtime behavior is disabled.
 
 These shapes may be replaced directly. No compatibility aliases or duplicate
 record versions are required during development.
@@ -561,6 +579,11 @@ record versions are required during development.
 - [ ] Make EVM-family key-slot identity distinct from threshold sessions.
 - [ ] Merge lane lifecycle and revocation into one exhaustive union.
 - [ ] Add enrollment, manifest, and aggregate receipt IDs.
+- [ ] Make the v4 unclaimed-session payload the sole link-device QR domain type
+      and delete the legacy account-bearing QR type and parser.
+- [ ] Define the exact adapter from active lane identity to Refactor 90's
+      capability manifest and operation-lane selection without duplicating
+      durable ECDSA material state.
 
 ### Phase 1: Enrollments And Policies
 
@@ -574,6 +597,8 @@ record versions are required during development.
 - [ ] Implement wallet-key, lane, enrollment, lock, and receipt stores.
 - [ ] Add active enrollment and lane checks to signing admission.
 - [ ] Bind the mixed Wallet Session grant to exact lane/key/session identities.
+- [ ] Resolve current ECDSA material through Refactor 90's canonical active
+      manifest and activation journal.
 - [ ] Keep route shells unregistered until Refactor 98 activates behavior.
 
 ### Phase 3: Curve Protocol Handoff

@@ -26,6 +26,7 @@ import type { WarmSessionEcdsaCapabilityState } from '@/core/signingEngine/sessi
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
   EmailOtpEd25519YaoRecoveryBootstrapV1,
+  EmailOtpEd25519YaoExactLocalSessionBootstrapV1,
   EmailOtpEcdsaSessionBootstrapHandlePayload,
   EmailOtpWorkerProgressEvent,
   EmailOtpWorkerSessionHandleOperation,
@@ -75,7 +76,10 @@ import {
 } from './walletUnlock';
 import type { EmailOtpEd25519YaoPendingFactorHandle } from './ed25519YaoRootVault';
 import type { EmailOtpMixedWalletSigningBudgetV1 } from '../../workerManager/workerTypes';
-import { disposeEmailOtpEd25519YaoPendingFactorV1 } from './ed25519YaoWorkerClient';
+import {
+  disposeEmailOtpEd25519YaoActiveClientV1,
+  disposeEmailOtpEd25519YaoPendingFactorV1,
+} from './ed25519YaoWorkerClient';
 import {
   DEFAULT_THRESHOLD_SESSION_POLICY,
   clampThresholdSessionPolicy,
@@ -118,6 +122,7 @@ import {
   requestDisposeEmailOtpEcdsaClientRootHandle,
 } from './workerRequests';
 import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
+import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '../../threshold/ed25519/yaoClient';
 
 export type EmailOtpThresholdEcdsaLoginTimingBucket =
   | 'emailOtpProofVerificationMs'
@@ -130,6 +135,20 @@ export type EmailOtpThresholdEcdsaLoginTimings = Record<
   number
 >;
 
+type EmailOtpEd25519YaoLoginMaterial =
+  | { kind: 'not_requested' }
+  | {
+      kind: 'unlocked';
+      pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle;
+      bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
+    }
+  | {
+      kind: 'local_session';
+      activeClientHandle: string;
+      metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+      bootstrap: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
+    };
+
 export type EmailOtpThresholdEcdsaLoginResult = {
   recovery: EmailOtpBootstrapRecovery;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
@@ -139,15 +158,64 @@ export type EmailOtpThresholdEcdsaLoginResult = {
     ...WarmSessionEcdsaCapabilityState[],
   ];
   clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
-  ed25519YaoRecovery:
-    | { kind: 'not_requested' }
-    | {
-        kind: 'unlocked';
-        pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle;
-        bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
-      };
+  ed25519YaoRecovery: EmailOtpEd25519YaoLoginMaterial;
   timings: EmailOtpThresholdEcdsaLoginTimings;
 };
+
+function emailOtpEd25519YaoLoginMaterialFromWorkerResult(
+  workerResult: EmailOtpWalletUnlockResult | EmailOtpMixedWalletUnlockResult,
+): EmailOtpEd25519YaoLoginMaterial {
+  switch (workerResult.kind) {
+    case 'ecdsa':
+      return { kind: 'not_requested' };
+    case 'ecdsa_and_ed25519_yao_recovery':
+      return {
+        kind: 'unlocked',
+        pendingFactorHandle: workerResult.pendingFactorHandle,
+        bootstrap: workerResult.ed25519YaoRecovery,
+      };
+    case 'ecdsa_and_ed25519_yao_local_session':
+      return {
+        kind: 'local_session',
+        activeClientHandle: workerResult.activeClientHandle,
+        metadata: workerResult.metadata,
+        bootstrap: workerResult.ed25519YaoSession,
+      };
+  }
+  workerResult satisfies never;
+  throw new Error('Unsupported Email OTP Ed25519 unlock material');
+}
+
+async function disposeEmailOtpEd25519YaoWorkerResultAfterFailure(args: {
+  workerResult: EmailOtpWalletUnlockResult | EmailOtpMixedWalletUnlockResult;
+  workerContext: WorkerOperationContext;
+}): Promise<void> {
+  switch (args.workerResult.kind) {
+    case 'ecdsa':
+      return;
+    case 'ecdsa_and_ed25519_yao_recovery': {
+      const removed = await disposeEmailOtpEd25519YaoPendingFactorV1({
+        workerContext: args.workerContext,
+        pendingFactorHandle: args.workerResult.pendingFactorHandle,
+      });
+      if (!removed) {
+        throw new Error('Mixed Email OTP unlock pending Ed25519 factor was unavailable');
+      }
+      return;
+    }
+    case 'ecdsa_and_ed25519_yao_local_session': {
+      const removed = await disposeEmailOtpEd25519YaoActiveClientV1({
+        workerContext: args.workerContext,
+        activeClientHandle: args.workerResult.activeClientHandle,
+      });
+      if (!removed) {
+        throw new Error('Mixed Email OTP unlock local Ed25519 client was unavailable');
+      }
+      return;
+    }
+  }
+  args.workerResult satisfies never;
+}
 
 export type EmailOtpThresholdEcdsaExportPreparation = {
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
@@ -281,6 +349,9 @@ export type LoginEmailOtpEcdsaCapabilityArgs = {
         kind: 'requested';
         providerSubject: string;
         signerSlot: number;
+        nearAccountId: string;
+        expectedOperationalPublicKey: string;
+        expectedThresholdSessionId: string;
       };
 };
 
@@ -355,7 +426,9 @@ function buildEmailOtpEcdsaOnlySigningBudget(args: {
 }
 
 function buildAuthoritativeEmailOtpMixedWalletSigningBudget(args: {
-  bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
+  bootstrap:
+    | EmailOtpEd25519YaoRecoveryBootstrapV1
+    | EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
   expectedRemainingUses: number;
 }): EmailOtpMixedWalletSigningBudgetV1 {
   const session = args.bootstrap.session;
@@ -396,8 +469,12 @@ function resolveEmailOtpLoginSigningBudget(args: {
         remainingUses: args.requestedRemainingUses,
       });
     case 'ecdsa_and_ed25519_yao_recovery':
+    case 'ecdsa_and_ed25519_yao_local_session':
       return buildAuthoritativeEmailOtpMixedWalletSigningBudget({
-        bootstrap: args.workerResult.ed25519YaoRecovery,
+        bootstrap:
+          args.workerResult.kind === 'ecdsa_and_ed25519_yao_recovery'
+            ? args.workerResult.ed25519YaoRecovery
+            : args.workerResult.ed25519YaoSession,
         expectedRemainingUses: args.requestedRemainingUses,
       });
   }
@@ -966,6 +1043,10 @@ async function runEmailOtpEcdsaCapability(
           ...unlockArgs,
           providerSubject: args.ed25519YaoRecovery.providerSubject,
           signerSlot: args.ed25519YaoRecovery.signerSlot,
+          nearAccountId: args.ed25519YaoRecovery.nearAccountId,
+          expectedOperationalPublicKey:
+            args.ed25519YaoRecovery.expectedOperationalPublicKey,
+          expectedThresholdSessionId: args.ed25519YaoRecovery.expectedThresholdSessionId,
           remainingUses,
         });
   try {
@@ -1062,31 +1143,20 @@ async function runEmailOtpEcdsaCapability(
         warmCapability,
         warmCapabilities,
         clientRootShareHandle: workerResult.clientRootShareHandle,
-        ed25519YaoRecovery:
-          workerResult.kind === 'ecdsa_and_ed25519_yao_recovery'
-            ? {
-                kind: 'unlocked',
-                pendingFactorHandle: workerResult.pendingFactorHandle,
-                bootstrap: workerResult.ed25519YaoRecovery,
-              }
-            : { kind: 'not_requested' },
+        ed25519YaoRecovery: emailOtpEd25519YaoLoginMaterialFromWorkerResult(workerResult),
         timings,
       },
     };
   } catch (error) {
-    if (workerResult.kind !== 'ecdsa_and_ed25519_yao_recovery') throw error;
     try {
-      const removed = await disposeEmailOtpEd25519YaoPendingFactorV1({
+      await disposeEmailOtpEd25519YaoWorkerResultAfterFailure({
+        workerResult,
         workerContext: workerCtx,
-        pendingFactorHandle: workerResult.pendingFactorHandle,
       });
-      if (!removed) {
-        throw new Error('Mixed Email OTP unlock pending Ed25519 factor was unavailable');
-      }
     } catch (disposalError) {
       throw new AggregateError(
         [error, disposalError],
-        'Mixed Email OTP unlock failed and pending Ed25519 factor disposal failed',
+        'Email OTP unlock failed and Ed25519 material disposal failed',
       );
     }
     throw error;
