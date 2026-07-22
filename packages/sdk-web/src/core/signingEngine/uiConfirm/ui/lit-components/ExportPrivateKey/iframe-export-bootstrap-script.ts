@@ -243,7 +243,7 @@ function onMessage(e: MessageEvent<{ type?: unknown; payload?: unknown }>) {
       // Auto-fit to content: let Drawer compute visible height from content above the fold.
       drawer.height = undefined;
       drawer.showCloseButton = true;
-      drawer.dragToClose = false;
+      drawer.dragToClose = true;
       drawer.closeOnOverlayClick = false;
       drawer.overpullPx = 160;
       // Defer open by two frames so slot content renders before initial measurement
