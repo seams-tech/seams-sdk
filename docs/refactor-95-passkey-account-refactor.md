@@ -19,12 +19,12 @@ and worker APIs consumed by:
 - [refactor-90-modular-auth-capabilities-plan.md](./refactor-90-modular-auth-capabilities-plan.md)
   for canonical active ECDSA capability manifests, browser persistence,
   activation commits, hydration, and exact operation-lane selection;
-- [refactor-96-delegate-wallets.md](./refactor-96-delegate-wallets.md) for
-  `WalletKey`, `SigningLane`, and enrollment identity;
+- [refactor-96-wallet-execution-lanes.md](./refactor-96-wallet-execution-lanes.md)
+  for `WalletKey`, share-bearing execution lanes, and lane identity;
 - [refactor-97-share-rotation.md](./refactor-97-share-rotation.md) for
   curve-specific lane provisioning and refresh;
-- [refactor-98-delegated-agent-linked-device-behavior.md](./refactor-98-delegated-agent-linked-device-behavior.md)
-  for linked-device and delegated-agent product flows.
+- [refactor-98-device-linking.md](./refactor-98-device-linking.md) for physical
+  linked-device product flows.
 
 The cryptographic authorities are:
 
@@ -206,10 +206,12 @@ type PasskeyCustodySecretBinding =
     };
 ```
 
-Owner registration and same-root recovery use the root branches. A linked or
-delegated lane may receive a lane-specific holder-share branch produced by the
-protocol in Refactor 97. Builders must be branch-specific. Core code never
-constructs this union with a broad spread or an `as` cast.
+Owner registration and same-root recovery use the root branches. A physical
+linked-device lane may receive a lane-specific holder-share branch produced by
+the protocol in Refactor 97. Refactor 99 owns agent-key custody and any optional
+delegated-execution holder package; it cannot reuse passkey custody implicitly.
+Builders must be branch-specific. Core code never constructs this union with a
+broad spread or an `as` cast.
 
 ## Passkey Envelope Records
 

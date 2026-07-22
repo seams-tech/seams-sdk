@@ -1,645 +1,476 @@
-# Refactor 90: P-256 Threshold Signatures For AP2
+# P-256 Agent Keys And AP2 Mandate Signing
 
-Status: draft plan
+Date created: June 25, 2026
 
-Last updated: June 25, 2026
+Rewritten: July 22, 2026
+
+Status: draft cryptographic and protocol plan. P-256 threshold key generation,
+signing, JOSE encoding, AP2 wire adapters, and credential-release integration
+are unimplemented.
 
 ## Goal
 
-Add AP2-compatible P-256 threshold ECDSA signing to the NEAR MPC stack so Seams
-agents can create standard ES256 mandates for merchant-controlled SaaS actions.
-
-The target product flow is:
-
-- merchant grants constrained authority to an agent;
-- agent can initiate a threshold signing session;
-- Seams policy engine contributes the backend MPC share only after policy checks;
-- the output is a normal P-256 / ES256 signature that AP2 verifiers can validate;
-- Seams credential layer verifies the signed mandate and releases a scoped JWT,
-  virtual card authorization, wallet authorization, or payment-token release.
-
-This preserves the dual-control property:
+Give an agent an independent P-256/ES256 identity key that can sign AP2 closed
+Checkout and Payment Mandates after a user-signed open mandate authorizes that
+exact agent public key and scope.
 
 ```text
-Agent alone cannot complete a purchase.
-Seams backend alone cannot complete a purchase.
-Credential layer can release spend capability only after mandate verification.
+User authorization key
+  -> signs open Checkout and Payment Mandates
+       -> binds independent Agent P-256 public key and constraints
+
+Agent P-256 key
+  -> signs concrete closed Checkout and Payment Mandates
+       -> Seams policy participant co-signs only after deterministic checks
+
+Credential Provider
+  -> verifies open + closed mandate chain
+       -> releases one scoped payment credential
 ```
 
-## Why P-256 Is Needed
+The agent key is separate from the user's wallet, passkey, authorization, and
+payment keys. The AP2 signature proves agent authorship. It does not itself
+become the user's blockchain wallet signature.
 
-Google AP2 uses Checkout Mandates and Payment Mandates as signed authorization
-objects for agentic commerce. The AP2 examples use JOSE `ES256`, which is ECDSA
-over NIST P-256 with SHA-256, and AP2 examples bind delegated agent authority
-with `cnf.jwk.crv: "P-256"`.
+## Protocol Basis
 
-Implication for Seams:
+AP2 v0.2 defines autonomous operation as:
 
-- AP2 verifiers expect a standard P-256 public key and standard ES256 signature;
-- the signature must verify with normal JOSE / SD-JWT tooling;
-- threshold signing is an internal authority-control mechanism;
-- the final signature must look like a normal P-256 ECDSA signature.
-
-Relevant AP2 objects:
-
-- Checkout Mandate: authorizes completion of a specific checkout.
-- Payment Mandate: authorizes payment for the checkout.
-- Open Mandates: user-approved constraints for autonomous agent use.
-- Closed Mandates: exact checkout/payment authorization produced after the agent
-  finds the concrete purchase.
+- a user-signed open mandate containing the agent public key as a `cnf` claim;
+- an agent-signed closed mandate for the concrete checkout or payment;
+- verification that the closed mandate satisfies every disclosed open-mandate
+  constraint;
+- credential release only after successful mandate verification.
 
 References:
 
 - AP2 specification: https://ap2-protocol.org/ap2/specification/
-- AP2 checkout mandate: https://ap2-protocol.org/ap2/checkout_mandate/
-- AP2 payment mandate: https://ap2-protocol.org/ap2/payment_mandate/
+- Agent Authorization Framework: https://ap2-protocol.org/ap2/agent_authorization/
+- Checkout Mandate: https://ap2-protocol.org/ap2/checkout_mandate/
+- Payment Mandate: https://ap2-protocol.org/ap2/payment_mandate/
 - AP2 flows: https://ap2-protocol.org/ap2/flows/
 
-## What Seams Uses AP2 For
+The implementation pins an exact AP2 schema and `vct` version. Raw claims from
+a future version fail until a new parser and verification branch exist.
 
-Initial use case:
+## Dependencies And Authority
 
-```text
-Merchant agents buying, managing, downgrading, and canceling SaaS services.
+This plan consumes:
+
+- [refactor-99-agent-id-spending.md](./refactor-99-agent-id-spending.md) for
+  agent identity, custody, owner authorization, typed spending policy, budget,
+  replay, revocation, and audit;
+- [refactor-90-modular-auth-capabilities-plan.md](./refactor-90-modular-auth-capabilities-plan.md)
+  for authorization resources, exact operation claims, server participation,
+  quotas, effect ordering, and recovery;
+- upstream or composed MPC primitives selected during the Phase 0 spike for
+  P-256 threshold ECDSA;
+- standard RustCrypto and JOSE implementations for independent output
+  verification.
+
+This plan owns:
+
+- P-256 agent-key public identity and threshold participant material;
+- AP2 ES256 signing sessions for agent-authored closed mandates;
+- P-256 JWK, signature, and JOSE encoding;
+- AP2 open/closed mandate parsing and signature-chain verification;
+- Credential Provider handoff after deterministic verification.
+
+It does not own the user's wallet signing key, direct blockchain payment
+execution, merchant checkout signature, or payment-network credential format.
+
+## Required Invariants
+
+1. User and agent keys are independent. No user secret or wallet share is
+   delivered to the agent P-256 key ceremony.
+2. Every autonomous AP2 flow presents a verified user-signed open mandate that
+   binds the exact agent P-256 public key.
+3. Every closed Checkout and Payment Mandate is signed under that agent key.
+4. A threshold deployment splits the agent key between the agent custody
+   runtime and a Seams policy participant. Neither participant signs alone.
+5. The Seams participant contributes only after exact open-mandate,
+   closed-mandate, checkout, budget, expiry, replay, and revocation admission.
+6. AP2 mandate signing and payment execution remain separate operations with
+   separate keys, claims, receipts, and failure states.
+7. The signature verifies as ordinary JOSE ES256 using the agent public JWK.
+8. Hashing occurs exactly once according to the selected JOSE signing input.
+9. Raw SD-JWT, disclosure, checkout JWT, and credential-provider payloads are
+   parsed once at their boundaries.
+10. Revocation rejects signing and credential release before presignature or
+    payment work.
+11. Existing ambiguous `delegated share` language is deleted. Every share is
+    identified as agent-key material or wallet-execution material.
+
+## Key Roles
+
+Keep cryptographic roles explicit:
+
+```ts
+type Ap2KeyRole =
+  | 'user_open_mandate_authorization'
+  | 'agent_closed_mandate_authorship'
+  | 'merchant_checkout_issuer'
+  | 'credential_provider_issuer'
+  | 'wallet_payment_execution';
 ```
 
-Examples:
+This plan implements only `agent_closed_mandate_authorship`. Other roles enter
+as verified external evidence or through their owning adapters.
 
-- buy or upgrade a Shopify subscription;
-- buy an analytics, helpdesk, ad, translation, returns, or logistics SaaS tool;
-- cancel unused SaaS subscriptions;
-- downgrade a plan that exceeds policy;
-- renew a domain or operational tool;
-- authorize one-time setup fees within a merchant-approved budget.
+## Agent P-256 Key
 
-AP2 is valuable here because SaaS purchases are authority-sensitive:
+```ts
+type AgentP256KeyRecord = {
+  kind: 'agent_p256_key_v1';
+  agentId: AgentId;
+  agentIdentityKeyId: AgentIdentityKeyId;
+  algorithm: 'p256_ecdsa_es256';
+  publicJwk: P256PublicJwk;
+  signingBinding: AgentP256SigningBinding;
+  keyEpoch: AgentP256KeyEpoch;
+  lifecycle: AgentP256KeyLifecycle;
+};
 
-- recurring charges;
-- add-ons and plan upgrades;
-- employee or agent access to merchant tools;
-- cancellation and refund evidence;
-- budget controls;
-- dispute records.
-
-The AP2 mandate gives Seams a signed, replay-resistant authority record. The
-credential layer turns that record into a short-lived spend capability.
-
-## Current NEAR MPC Context
-
-Based on the public `near/mpc` documentation:
-
-- `near/mpc` is the NEAR MPC node for chain signatures.
-- It supports multiple threshold-signature schemes organized into domains.
-- Domains have their own IDs, schemes, and purposes.
-- Schemes share curve-independent DKG.
-- Signing workflows are scheme-specific.
-- Supported schemes include threshold ECDSA over Secp256k1, threshold EdDSA over
-  Ed25519, and confidential key derivation over BLS12-381.
-- The older `near/threshold-signatures` repository is archived; development has
-  moved into `near/mpc` under `crates/threshold-signatures`.
-
-References:
-
-- NEAR MPC: https://github.com/near/mpc
-- Historical threshold signatures repo: https://github.com/near/threshold-signatures
-
-This architecture suggests P-256 should be added as a new scheme or domain if
-the relevant traits and crate boundaries are accessible.
-
-## Preferred Architecture
-
-Prefer composition around upstream `near/mpc`.
-
-Target shape:
-
-```text
-seams-ap2-p256
-  -> depends on upstream near/mpc crates where possible
-  -> adds AP2-specific P-256 scheme/domain glue
-  -> exposes Seams AP2 signing envelopes
-  -> verifies output with standard JOSE P-256 tooling
+type AgentP256SigningBinding =
+  | {
+      kind: 'agent_p256_2_of_2_v1';
+      agentCustodyBindingId: AgentCustodyBindingId;
+      agentParticipantId: AgentP256ParticipantId;
+      policyParticipantId: AgentP256ParticipantId;
+      bindingDigestB64u: string;
+      hsmAttestation?: never;
+    }
+  | {
+      kind: 'agent_p256_hsm_v1';
+      agentCustodyBindingId: AgentCustodyBindingId;
+      hsmAttestation: AgentP256HsmAttestation;
+      bindingDigestB64u: string;
+      agentParticipantId?: never;
+      policyParticipantId?: never;
+    };
 ```
 
-Preferred dependency structure:
+The initial threshold profile is 2-of-2. The HSM branch is a separate
+single-signer deployment profile. A future 2-of-3 profile requires a new
+signing-binding branch, availability model, DKG/resharing proof, and failure
+policy.
 
-```text
-near/mpc upstream
-  crates/threshold-signatures
-  crates/mpc-node
-  protocol/runtime/network code
+Agent key rotation creates a new key record and invalidates its use for new
+authorizations. Existing open mandates remain bound to the prior key and are
+revoked or allowed to expire under their explicit lifecycle.
 
-seams-ap2-p256
-  P-256 curve suite adapter
-  AP2 mandate signing envelope parser
-  AP2-specific signing policy checks
-  JOSE/SD-JWT output encoding
-  Seams credential release integration
+## P-256 And JOSE Encoding
+
+Use these external encodings:
+
+- curve: NIST P-256 / secp256r1;
+- signature algorithm: ECDSA with SHA-256 (`ES256`);
+- public key: JOSE EC JWK with `kty: "EC"`, `crv: "P-256"`, and exact
+  32-byte base64url `x` and `y` coordinates;
+- JOSE signature: 64 raw bytes `R || S`, with each scalar left-padded to
+  32 bytes;
+- compact and SD-JWT signing input: exact ASCII protected-header and payload
+  encodings required by the selected JOSE library and AP2 version.
+
+Internal threshold output may use a scalar tuple or DER. One boundary encoder
+converts it to raw JOSE bytes. DER never crosses the AP2 wire boundary.
+
+The low-S policy must be frozen before implementation. Verification accepts
+only the chosen canonical form so independent libraries and test vectors agree.
+
+## Threshold Scheme Boundary
+
+The implementation should compose with audited upstream MPC components where
+their public traits and security model fit. Phase 0 resolves whether P-256 is:
+
+- a new scheme/domain in the selected MPC stack;
+- a Seams-owned protocol package using shared curve-independent transport and
+  DKG components;
+- an HSM-backed agent key profile used before threshold software is ready.
+
+No private upstream fork becomes the implicit source of truth. Any required
+upstream changes are isolated, reviewed, and tested against standard P-256
+verification.
+
+The protocol boundary exposes only typed operations:
+
+```ts
+type AgentP256Operation =
+  | AgentP256KeyCreationOperation
+  | AgentP256ClosedMandateSigningOperation
+  | AgentP256KeyRefreshOperation
+  | AgentP256KeyRevocationOperation;
 ```
 
-Reason:
+It does not accept arbitrary hashes from the agent runtime. Signing accepts a
+verified canonical closed-mandate signing input and its Refactor 99 admission.
 
-- upstream updates remain easy to consume;
-- Seams-specific AP2 policy stays outside upstream cryptography code;
-- P-256 support can be proposed upstream as a general threshold ECDSA feature;
-- Seams avoids carrying a large permanent fork.
+## Key Creation
 
-## Fallback Architecture
+1. Register the independent agent identity and custody binding through
+   Refactor 99.
+2. Create a P-256 key operation with exact agent and policy participants.
+3. Run admitted DKG or import an HSM-generated public identity through its
+   explicit branch.
+4. Verify public point validity and participant commitments.
+5. Encode and independently verify the public JWK.
+6. Return agent and policy custody receipts bound to key epoch and transcript.
+7. Activate the key only after all receipts and attestation requirements pass.
+8. Publish no owner authorization automatically. The user separately approves
+   an open mandate for this public key.
 
-If `near/mpc` does not expose enough public extension points, create a small fork
-with the P-256 changes isolated to the threshold-signature and domain registry
-boundary.
+## User-Signed Open Mandates
 
-Fork rules:
+The Trusted Surface:
 
-- keep upstream `near/mpc` as `upstream`;
-- keep the Seams fork branch small and rebased frequently;
-- isolate P-256 code under a new module or crate;
-- avoid modifying existing Secp256k1 or Ed25519 behavior;
-- upstream general extension points as PRs;
-- keep AP2 business policy outside the fork.
+1. receives proposed open Checkout and Payment Mandate content;
+2. parses the pinned AP2 schemas and constraint disclosures;
+3. displays agent key fingerprint, merchants, items or categories, amount,
+   recurrence, expiry, and payment instrument scope;
+4. requires fresh user verification;
+5. obtains the user signature through the configured authorization-key
+   adapter;
+6. verifies the completed open mandates independently;
+7. records their hashes and normalized constraints in a Refactor 99
+   authorization;
+8. activates no payment credential during open-mandate creation.
 
-Fallback structure:
+The open mandate must bind the exact `AgentP256KeyRecord.publicJwk` in `cnf`.
+Key mismatch, missing key confirmation, unsupported constraint, or incomplete
+selective disclosure fails closed.
 
-```text
-near-mpc-seams fork
-  crates/threshold-signatures/src/ecdsa/p256
-  crates/threshold-signatures/src/ecdsa/curve_suite.rs
-  crates/mpc-node domain registration for p256_ap2
+## Agent-Signed Closed Mandates
 
-seams-ap2-p256
-  AP2 envelopes
-  policy checks
-  credential authorization
-  tests against the forked domain
+After the agent obtains a merchant-signed checkout:
+
+1. Parse and verify the merchant checkout JWT.
+2. Construct closed Checkout and Payment Mandate content.
+3. Bind the exact checkout hash, amount, merchant, instrument reference,
+   transaction identity, issue time, expiry, and request nonce.
+4. Create a Refactor 99 agent-signed spend request over the normalized intent
+   and mandate signing-input digests.
+5. Verify the user-signed open mandates and their constraints.
+6. Atomically reserve delegated budget and replay identity.
+7. Create an `AgentP256ClosedMandateSigningOperation` for the exact JOSE signing
+   input.
+8. Agent custody and Seams policy participants produce the ES256 signature.
+9. Independently verify the output using RustCrypto and a separate JOSE path.
+10. Attach the signature to the closed mandate and persist the complete proof
+    chain.
+
+Checkout and Payment Mandates are distinct signed objects and operations. One
+signature, nonce, budget claim, or idempotency key cannot satisfy both.
+
+## Credential Provider Verification And Release
+
+Before releasing a payment credential, the Credential Provider verifies:
+
+- pinned AP2 `vct` and schema branches;
+- user signatures on open mandates;
+- open-mandate `cnf` binding to the exact agent public JWK;
+- agent signatures on closed mandates;
+- selective-disclosure integrity;
+- merchant checkout signature and checkout hash;
+- every disclosed constraint against the closed content;
+- amount, merchant, recurrence, payment instrument, expiry, and nonce;
+- Refactor 99 authorization lifecycle, revocation epoch, replay, and budget;
+- absence of a prior successful or unresolved execution for the same claim.
+
+Success releases one scoped, short-lived credential for the exact checkout.
+The credential layer records release identity and expiry. It cannot widen the
+authorization or release a reusable unrestricted payment credential.
+
+If the payment rail pushes funds from a Seams wallet, Refactor 99 separately
+admits and executes the wallet transaction. The AP2 agent signature remains
+authorship evidence and never substitutes for the wallet signature.
+
+## Signing Operation State
+
+```ts
+type AgentP256SigningLifecycle =
+  | {
+      state: 'prepared';
+      operationId: AgentP256OperationId;
+      signingInputDigestB64u: string;
+    }
+  | {
+      state: 'presign_claimed';
+      operationId: AgentP256OperationId;
+      presignatureId: AgentP256PresignatureId;
+    }
+  | {
+      state: 'signing';
+      operationId: AgentP256OperationId;
+      transcriptDigestB64u: string;
+    }
+  | {
+      state: 'completed';
+      operationId: AgentP256OperationId;
+      signatureDigestB64u: string;
+      completedAtMs: number;
+    }
+  | {
+      state: 'failed_before_effect';
+      operationId: AgentP256OperationId;
+      failureCode: AgentP256PreEffectFailureCode;
+    }
+  | {
+      state: 'outcome_unknown';
+      operationId: AgentP256OperationId;
+      reconciliationReference: string;
+    };
 ```
 
-Decision rule:
+Presignatures are one-use. A claimed presignature is never returned to the pool
+after ambiguous participation. Budget follows Refactor 99 outcome-unknown
+semantics.
 
-```text
-Use composition if P-256 can be implemented through public crates or upstreamable
-extension points.
+## Revocation And Recovery
 
-Use a fork only when private APIs or binary-level domain registration block a
-composed implementation.
-```
+Agent authorization revocation and P-256 key revocation are separate:
 
-## Technical Design
+- revoking one open authorization blocks only its scope;
+- revoking an agent P-256 key blocks every active authorization naming it;
+- suspending custody blocks threshold participation without rewriting signed
+  mandate bytes;
+- key rotation creates a new P-256 key and requires new user-signed open
+  mandates;
+- active signing sessions are fenced by key and authorization revocation
+  epochs;
+- ambiguous completed signatures are reconciled before budget release.
 
-### P-256 Domain
-
-Add a new signing domain for AP2:
-
-```text
-domain_id: p256_ap2
-scheme: threshold_ecdsa_p256
-purpose: AP2 mandate signing
-curve: NIST P-256
-signature: ECDSA
-encoding: JOSE ES256 raw R || S
-hash: SHA-256 over the JOSE signing input
-```
-
-Domain constraints:
-
-- sign only typed AP2 mandate payloads;
-- reject arbitrary byte signing at the Seams API boundary;
-- require an open mandate reference for autonomous signing;
-- require an agent threshold-share participation proof;
-- require a Seams policy co-signing decision;
-- bind signature to checkout hash, mandate hash, nonce, and expiry.
-
-### Curve Suite Abstraction
-
-Spike whether existing ECDSA code can be generalized behind a curve suite trait.
-
-Candidate interface:
-
-```rust
-trait EcdsaCurveSuite {
-    type Scalar;
-    type ProjectivePoint;
-    type AffinePoint;
-    type Signature;
-    type VerifyingKey;
-
-    const CURVE_ID: &'static str;
-    const JOSE_ALG: &'static str;
-
-    fn generator() -> Self::ProjectivePoint;
-    fn order_bytes() -> &'static [u8];
-    fn scalar_from_bytes(bytes: &[u8]) -> Result<Self::Scalar, CurveError>;
-    fn point_from_sec1(bytes: &[u8]) -> Result<Self::AffinePoint, CurveError>;
-    fn point_to_sec1(point: &Self::AffinePoint) -> Vec<u8>;
-    fn point_to_jwk(point: &Self::AffinePoint) -> P256Jwk;
-    fn verify_es256(
-        key: &Self::VerifyingKey,
-        signing_input: &[u8],
-        signature: &Self::Signature,
-    ) -> Result<(), VerifyError>;
-}
-```
-
-Implementation detail:
-
-- use RustCrypto `p256` / `ecdsa` crates for local verification, public key
-  encoding, and test vectors;
-- keep threshold math in the NEAR threshold-signatures protocol;
-- produce signatures that verify in at least two independent JOSE libraries.
-
-### Hashing Boundary
-
-AP2/JOSE `ES256` signs:
-
-```text
-ASCII(BASE64URL(protected_header) + "." + BASE64URL(payload))
-```
-
-with SHA-256 inside the ECDSA signing operation.
-
-NEAR threshold ECDSA code may expect a prehashed message. The Seams API must
-make the hashing boundary explicit:
-
-```text
-AP2 signing input
-  -> SHA-256 exactly once
-  -> threshold ECDSA sign over digest
-  -> JOSE raw R || S output
-```
-
-Required guardrails:
-
-- reject prehashed raw input at the AP2 API boundary;
-- store the exact JOSE signing input in audit evidence;
-- store the SHA-256 digest used by the MPC protocol;
-- test that double-hashing fails expected verification.
-
-### Signature Encoding
-
-AP2/JWS expects ES256 signatures as raw fixed-width concatenation:
-
-```text
-R: 32 bytes
-S: 32 bytes
-signature = R || S
-```
-
-Internal protocol output may be DER or scalar tuple. Add an explicit encoder:
-
-```text
-ThresholdEcdsaSignature
-  -> P256SignatureParts { r, s }
-  -> jose_es256_signature_bytes
-  -> base64url(signature)
-```
-
-Validation:
-
-- reject non-32-byte `r` or `s`;
-- left-pad valid scalars to 32 bytes;
-- decide whether to enforce low-S normalization and document the choice;
-- verify with RustCrypto and a JOSE library.
-
-## Seams AP2 Signing Flow
-
-```text
-1. Merchant/user approves open Checkout Mandate and open Payment Mandate in the
-   Seams Trusted Surface.
-2. Open mandates bind agent public key, merchant/payee, allowed SaaS actions,
-   amount ceiling, recurrence, expiry, and payment instrument.
-3. Agent finds the exact SaaS action: buy, upgrade, downgrade, cancel, or renew.
-4. Agent constructs closed mandate content and starts threshold signing with its
-   delegated share.
-5. Seams policy co-signer validates:
-   - open mandate reference;
-   - closed mandate content;
-   - SaaS vendor identity;
-   - product or plan;
-   - amount and recurrence;
-   - cancellation or downgrade semantics;
-   - policy version;
-   - budget reservation;
-   - expiry;
-   - nonce and replay state;
-   - credential availability.
-6. Seams contributes the backend MPC share.
-7. The completed P-256 signature becomes the AP2 closed mandate signature.
-8. Seams Credential Provider verifies the completed mandate.
-9. Credential layer issues a scoped JWT, virtual card authorization, wallet
-   authorization, or payment-token release.
-10. Checkout/cancellation executor completes the SaaS action.
-11. Audit stores mandates, signing transcript references, credential release,
-   SaaS receipt, screenshots/API evidence, and final result.
-```
+No recovery path changes the agent public key silently. Custody recovery that
+preserves the key requires a reviewed threshold resharing protocol and a new
+key epoch. Otherwise create a new key and obtain fresh authorization.
 
 ## API Surface
 
-Public Seams API should expose typed operations:
-
 ```text
-createOpenAp2Mandate
-startAp2P256ThresholdSession
-cosignAp2ClosedMandate
-verifyAp2MandateSignature
-authorizePaymentCredential
-recordSaasPurchaseReceipt
-recordSaasCancellationReceipt
-revokeOpenAp2Mandate
+createAgentP256Key()
+getAgentP256Key()
+refreshAgentP256Key()
+revokeAgentP256Key()
+createAp2OpenMandates()
+signAp2ClosedCheckoutMandate()
+signAp2ClosedPaymentMandate()
+verifyAp2MandateChain()
+releaseAp2PaymentCredential()
 ```
 
-Core request type:
-
-```text
-AP2P256SigningRequest
-  - orgId
-  - userOrMerchantPrincipalId
-  - agentPrincipalId
-  - agentP256PublicKey
-  - openCheckoutMandateId
-  - openPaymentMandateId
-  - closedMandateKind
-  - joseProtectedHeader
-  - mandatePayload
-  - joseSigningInput
-  - checkoutHash
-  - merchantPayee
-  - amount
-  - recurrence
-  - paymentInstrumentRef
-  - policyVersion
-  - nonce
-  - expiresAt
-```
-
-Core result type:
-
-```text
-AP2P256SigningResult
-  - signingSessionId
-  - completedSignature
-  - publicKeyJwk
-  - closedMandateJwtOrSdJwt
-  - policyDecisionId
-  - auditEventId
-```
-
-Credential result:
-
-```text
-PaymentCredentialAuthorization
-  - authorizationId
-  - signedMandateRef
-  - credentialKind
-  - scopedJwtOrTokenRef
-  - allowedMerchant
-  - maxAmount
-  - checkoutHash
-  - expiresAt
-  - revocationState
-```
-
-## Refactor Phases
-
-### Phase 0: Feasibility Spike
-
-Questions:
-
-- Can P-256 be added as an external crate using public `near/mpc` APIs?
-- Is DKG truly generic enough for P-256 in the current crate boundaries?
-- Are Secp256k1 assumptions embedded in ECDSA protocol code?
-- Can a new signing domain be registered without modifying `mpc-node`?
-- Can Seams run only the threshold-signatures crate without the whole node?
-
-Tasks:
-
-- clone `near/mpc`;
-- map `crates/threshold-signatures` public APIs;
-- map domain registration in `mpc-node`;
-- identify private modules that block composition;
-- build a toy P-256 local ECDSA signing and JOSE verification harness;
-- write a 1-page decision note: composition, upstream extension PR, or fork.
-
-Exit criteria:
-
-- decision on composition vs fork;
-- list of required upstream extension points;
-- first failing test that expresses P-256 signing goal.
-
-### Phase 1: Domain And Type Boundaries
-
-Tasks:
-
-- define `P256Ap2Domain`;
-- define typed AP2 signing requests;
-- define exact hashing and encoding boundary;
-- add public key JWK encoding for P-256;
-- add signature encoding for ES256 raw `R || S`;
-- add verification helpers with RustCrypto `p256`.
-
-Exit criteria:
-
-- local P-256 signature fixtures verify with standard ES256 verification;
-- AP2 signing input is hashed exactly once;
-- arbitrary raw signing path is unavailable through Seams AP2 API.
-
-### Phase 2: Threshold P-256 Implementation
-
-Tasks:
-
-- instantiate threshold ECDSA over P-256;
-- wire DKG for P-256;
-- wire presign/offline material for P-256;
-- wire online signing for AP2 digests;
-- support 2-of-2 and 2-of-3 dev networks;
-- add timeout and abort behavior at the caller boundary.
-
-Exit criteria:
-
-- threshold-produced signatures verify as ES256;
-- insufficient threshold fails;
-- corrupted share fails;
-- wrong message digest fails;
-- wrong public key fails;
-- replayed signing session fails.
-
-### Phase 3: Seams Policy Co-Signer
-
-Tasks:
-
-- add `AP2MandateSigningEnvelope`;
-- bind open mandates to agent public key;
-- verify checkout hash and mandate hash;
-- verify merchant/payee, SaaS action, amount, recurrence, and expiry;
-- reserve budget before co-signing;
-- attach policy decision and approval evidence;
-- make revocation checks immediate before backend share contribution.
-
-Exit criteria:
-
-- agent share alone cannot produce a valid AP2 mandate signature;
-- Seams backend share alone cannot produce a valid AP2 mandate signature;
-- valid policy plus agent share plus backend share produces a valid signature;
-- policy denial prevents backend share contribution.
-
-### Phase 4: Credential Layer
-
-Tasks:
-
-- verify completed AP2 P-256 mandate signatures;
-- verify open/closed mandate linkage;
-- issue scoped JWT/payment credential authorization;
-- bind credential to merchant, checkout hash, amount, expiry, and nonce;
-- record credential release in audit;
-- add revocation endpoint.
-
-Exit criteria:
-
-- credential release fails without a completed mandate signature;
-- credential release fails after budget exhaustion;
-- credential release fails after mandate or policy revocation;
-- credential JWT cannot be replayed outside scope.
-
-### Phase 5: SaaS Purchase And Cancellation Pilot
-
-Tasks:
-
-- implement Shopify subscription purchase simulation;
-- implement SaaS cancellation simulation;
-- capture receipts and screenshots/API evidence;
-- model recurring subscription policy;
-- model cancellation authority separately from payment authority.
-
-Exit criteria:
+Raw scalar shares, presignatures, arbitrary hashes, unsigned owner approvals,
+and caller-asserted policy decisions are absent from public APIs.
 
-- agent can buy an allowed SaaS plan under budget;
-- agent cannot buy a disallowed add-on;
-- agent can cancel an allowed SaaS subscription;
-- user can inspect AP2 mandates, credential release, and execution evidence.
+## Implementation Phases
 
-## Testing Plan
-
-Cryptographic tests:
-
-- P-256 public key JWK encoding;
-- ES256 raw `R || S` encoding;
-- RustCrypto `p256` verification;
-- independent JOSE library verification;
-- wrong hash rejection;
-- double-hash rejection;
-- insufficient-threshold rejection;
-- corrupted-share rejection;
-- replayed signing-session rejection.
-
-Protocol tests:
-
-- 2-of-2 DKG and sign;
-- 2-of-3 DKG and sign;
-- resharing if needed for production;
-- presign material exhaustion;
-- timeout behavior;
-- participant mismatch;
-- malicious or malformed transcript message.
-
-AP2 tests:
-
-- open Checkout Mandate creation;
-- open Payment Mandate creation;
-- closed Checkout Mandate signing;
-- closed Payment Mandate signing;
-- agent key binding;
-- checkout hash binding;
-- merchant/payee mismatch rejection;
-- recurrence/budget rejection;
-- expired mandate rejection.
-
-Product tests:
-
-- allowed Shopify plan purchase;
-- disallowed Shopify add-on;
-- allowed SaaS cancellation;
-- cancellation without payment credential;
-- downgrade with approval;
-- audit export for dispute or finance review.
-
-## Security Review Checklist
-
-- The AP2 API accepts typed mandate signing requests only.
-- The agent share cannot be reused outside the delegated scope.
-- The Seams backend share is unreachable from the LLM runtime.
-- The backend share is contributed only after deterministic policy checks.
-- Open mandates bind the agent public key and expire quickly.
-- Closed mandates bind checkout hash, amount, merchant, nonce, and expiry.
-- Credential release verifies the completed threshold signature.
-- Budget reservation is atomic with credential release.
-- Revocation blocks signing and credential release.
-- Signing transcripts are logged without leaking secret shares.
-- RNG quality is reviewed for P-256 ECDSA nonce/pre-signature generation.
-- Side-channel risks are reviewed for scalar operations and serialization.
-- Dependencies are pinned and audited.
-
-## Risks
-
-Implementation risk:
-
-- NEAR ECDSA code may contain Secp256k1-specific assumptions.
-- P-256 support may require private `near/mpc` module changes.
-- ECDSA threshold signing is harder to audit than EdDSA/FROST paths.
-
-Interop risk:
-
-- AP2 validators expect standard JOSE ES256 output.
-- SD-JWT/KB-SD-JWT serialization must match verifier expectations.
-- Hashing and signature encoding mistakes can create hard-to-debug failures.
-
-Operational risk:
-
-- presign material management can become a bottleneck;
-- timeouts and abort behavior need explicit caller handling;
-- fork drift can become expensive if upstream changes rapidly.
-
-Product risk:
-
-- SaaS vendors may lack AP2-native flows for a while;
-- early execution may require browser/API automation plus normal payment rails;
-- cancellation semantics vary by SaaS provider.
-
-## Decision Gates
-
-Gate 1: Composition feasibility.
-
-- Pass: P-256 can be implemented through public or upstreamable extension points.
-- Fail: private APIs require a Seams fork.
-
-Gate 2: Cryptographic correctness.
-
-- Pass: threshold P-256 signatures verify with independent ES256 tooling.
-- Fail: protocol output cannot be made AP2-compatible without unsafe changes.
-
-Gate 3: Dual-control guarantee.
-
-- Pass: neither agent nor Seams backend can complete a signature alone.
-- Fail: one side can unilaterally create purchase-authorizing mandates.
-
-Gate 4: AP2 product flow.
-
-- Pass: signed mandates can authorize a scoped credential for SaaS purchase or
-  cancellation.
-- Fail: credential layer requires authority outside the signed mandate model.
-
-## Recommended First Step
-
-Run the feasibility spike against current `near/mpc`.
-
-Preferred outcome:
-
-```text
-Add a general P-256 ECDSA domain through upstreamable extension points, keep AP2
-policy and credential release in Seams-specific crates, and avoid a permanent
-fork.
-```
-
-Expected fallback:
-
-```text
-Maintain a narrow Seams fork of near/mpc focused on P-256 domain support while
-upstreaming the extension points needed to return to normal upstream tracking.
-```
+### Phase 0: Standards And Cryptographic Spike
+
+- [ ] Pin the AP2 version, exact `vct` values, schemas, disclosures, and
+      verification algorithms.
+- [ ] Inventory candidate P-256 threshold implementations and upstream MPC
+      extension points.
+- [ ] Freeze 2-of-2 protocol, DKG, presignature, low-S, and recovery choices.
+- [ ] Produce ordinary single-key ES256 reference vectors first.
+- [ ] Decide whether an HSM-backed agent-key branch ships before threshold
+      P-256.
+
+### Phase 1: P-256 Domain And Encoding
+
+- [ ] Add P-256 scalar, point, key, participant, epoch, and operation types.
+- [ ] Implement strict JWK and raw `R || S` encoding.
+- [ ] Add JOSE signing-input construction with exactly-once hashing.
+- [ ] Verify every vector with RustCrypto and an independent JOSE library.
+
+### Phase 2: Agent Key Lifecycle
+
+- [ ] Implement admitted 2-of-2 DKG and activation receipts.
+- [ ] Seal agent and policy shares to their exact custody boundaries.
+- [ ] Implement key suspension, revocation, and rotation.
+- [ ] Add transcript, participant-substitution, and corrupted-share tests.
+
+### Phase 3: AP2 Open Mandates
+
+- [ ] Implement pinned open Checkout and Payment Mandate parsers.
+- [ ] Add Trusted Surface approval and user-signature adapters.
+- [ ] Verify `cnf` binding to the agent P-256 key.
+- [ ] Normalize verified constraints into Refactor 99 authorization claims.
+
+### Phase 4: AP2 Closed Mandates
+
+- [ ] Implement closed Checkout and Payment Mandate builders separately.
+- [ ] Bind merchant checkout JWT and checkout hash.
+- [ ] Require agent-signed Refactor 99 spend requests.
+- [ ] Add policy-gated threshold ES256 signing.
+
+### Phase 5: Credential Release
+
+- [ ] Verify complete open/closed mandate chains.
+- [ ] Atomically coordinate budget, replay, signing, and credential release.
+- [ ] Issue exact-checkout credentials and durable receipts.
+- [ ] Reconcile ambiguous signing and payment outcomes.
+
+### Phase 6: Production Security
+
+- [ ] Audit nonce generation, presignature isolation, scalar handling, and
+      constant-time behavior.
+- [ ] Add dependency pinning, transcript limits, abuse controls, and HSM/TEE
+      deployment profiles.
+- [ ] Complete an independent cryptographic and AP2 protocol review.
+
+## Validation
+
+Static fixtures prove:
+
+- user and agent key records cannot share role branches;
+- agent P-256 operations cannot carry wallet-execution material;
+- open and closed mandates cannot share result types;
+- Checkout and Payment signing operations cannot be interchanged;
+- raw hashes and unverified mandates cannot construct prepared signing state.
+
+Cryptographic tests prove:
+
+- 2-of-2 key generation and signing;
+- standard P-256 JWK verification;
+- exact raw ES256 `R || S` encoding;
+- wrong hash, double hash, wrong curve, high-S policy, malformed point, and
+  corrupted-share rejection;
+- one-use presignature and participant-binding enforcement;
+- independent vectors reproduce the same signatures or verify the same
+  protocol outputs as applicable.
+
+AP2 tests prove:
+
+- open mandates require user signatures and exact agent `cnf` binding;
+- closed mandates require the authorized agent signature;
+- wrong agent key, checkout hash, merchant, amount, recurrence, instrument,
+  nonce, disclosure, expiry, or `vct` fails;
+- a valid closed mandate outside open constraints fails;
+- revocation blocks signing and credential release;
+- mandate and receipt evidence reconstructs a dispute chain.
+
+Concurrency tests prove:
+
+- duplicate closed-mandate requests claim one operation;
+- concurrent purchases cannot exceed authorization budget;
+- signing timeout after possible participation retains budget and
+  presignature claims;
+- key or authorization revocation fences queued and in-flight operations.
+
+## Non-Goals
+
+- giving the agent a user wallet share as its identity key;
+- using the agent P-256 signature as a blockchain wallet signature;
+- transferring funds into an agent account;
+- accepting arbitrary SD-JWT or future AP2 schemas without pinned parsers;
+- issuing unrestricted reusable payment credentials;
+- using one threshold key for user, agent, merchant, and Credential Provider
+  roles;
+- claiming upstream MPC compatibility before the Phase 0 spike verifies it.
+
+## Decisions Required Before Implementation
+
+- Freeze the AP2 version and supported autonomous constraint subset.
+- Select the P-256 threshold implementation and participant deployment.
+- Freeze low-S, deterministic encoding, and JOSE library behavior.
+- Select user-signature adapters for open mandates.
+- Select the initial payment credential and wallet-execution adapter.
+- Define retention, selective disclosure, and dispute-evidence privacy policy.

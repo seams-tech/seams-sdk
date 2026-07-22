@@ -43,14 +43,24 @@ A hydration branch or a replacement for Foundation B's manifest and activation
 commit. Phase 19 must absorb its behavior into factor-neutral capability
 preparation, and Phase 23 must replace its tactical registration commit with the
 canonical per-capability provisioning commit.
+Canonical auth-method domain reconciliation: July 22, 2026 —
+[Refactor 91](./refactor-91.md) implemented distinct `WalletAuthMethod`,
+`SignerAuthMethod`, and `WalletAuthProofMethod` domains, exhaustive conversions,
+required registration-event auth methods, boundary normalization, type fixtures,
+and static fallback guards across the current wallet-first SDK and server. This
+is groundwork for Phases 6, 7, 17, 18, 22, and 23. It does not create the
+SPEC-owned auth-factor/evidence vocabulary, move wallet and signer vocabulary to
+capability-local owners, or replace factor-bearing signing-lane identity with
+`WalletAuthAuthorityRef`.
 
 Status: Phases 1, 2, and 3 are complete. The lifecycle pre-phase is in progress,
 the ECDSA state/persistence pre-phase is in progress, and the Email OTP
 exact-material unlock patch is in progress. Foundations A and B gate Phase 4
 and Phase 5 closure plus Phases 19 and 23. The Email OTP patch can land before
 those foundations, but its tactical types and orchestration must be reconciled
-before Phases 19 and 23 close. Phases 4 and 5 are in progress. Phase 6 onward is
-planning.
+before Phases 19 and 23 close. Refactor 91 implementation is complete; its
+intended-behaviour acceptance remains pending because the local site prerequisite
+returned HTTP 502. Phases 4 and 5 are in progress. Phase 6 onward is planning.
 
 Companion spec: [Modular Auth And Capability Refactor SPEC](./refactor-90-modular-auth-capabilities-SPEC.md).
 
@@ -61,6 +71,7 @@ one-line status.
 Companion plans:
 
 - [Email OTP Exact-Material Unlock Patch](./refactor-patch-2-email-otp-local-rehydration.md)
+- [Refactor 91: Canonical Auth Method Domains](./refactor-91.md)
 - [Refactor 82B: Auth Authority Typing Cleanup](./refactor-82B.md)
 - [Refactor 85: IndexedDB Minimization](./refactor-85-indexedDB.md)
 - [Refactor 86: Static Wallet Assets And Vite Plugin Removal](./refactor-86-static-wallet-assets.md)
@@ -140,6 +151,15 @@ The stable custody digest links to `WalletAuthAuthorityRef`; raw provider,
 enrollment, OTP, enrollment-secret, KEK, ciphertext, and worker-handle fields do
 not enter generic capability state. This amendment must land before Foundations
 A or B close and before Phase 19 replaces the tactical unlock coordinator.
+
+Refactor 91 implements the current-stack portion of the SPEC's signer-first auth
+vocabulary move. Its shared canonical constants and exhaustive conversions are
+the only accepted interim source for wallet, signer, proof, and named protocol
+auth methods. Phase 7 still introduces `AuthFactorKind`, `SessionEvidenceKind`,
+and `GrantEvidenceKind`; Phase 18 still relocates wallet/signer capability
+vocabulary out of generic shared ownership. No later phase may recreate the
+deleted `AuthMethod` alias, implicit passkey fallback, or ad hoc broad string
+union during that relocation.
 
 ## Decided Architecture Points
 
@@ -454,6 +474,14 @@ without a written reversal note here.
     wallet quota, remaining uses, and expiry rotate. Omitting the Ed25519 intent
     is valid only when the requested capability set excludes Near Ed25519; core
     code cannot interpret a missing intent as routine unlock or recovery.
+30. **Wallet, signer, proof, and protocol auth domains are distinct.** Refactor
+    91's canonical domains and exhaustive conversion boundaries are the
+    current-stack baseline. Wallet enrollment never implies signer authority;
+    signer authority never implies support by a narrower protocol; `session`
+    and `warm_session` remain evidence/lifecycle states. Unsupported conversions
+    fail closed. Phase 18 may relocate these types to their final owners without
+    aliases or compatibility paths, and capability core ultimately carries
+    exact authority/evidence references instead of an auth-method discriminator.
 
 ## Implementation Rules
 
@@ -577,6 +605,7 @@ these internal module boundaries are stable.
 | Phase | Contents | Status |
 | -------------- | --------------------------------------------------- | ----------- |
 | Tactical Patch 2 | Email OTP exact-material local rehydration       | In progress |
+| Refactor 91 | Canonical auth-method domains                         | Implemented; E2E pending |
 | Foundation A | Canonical MPC hydration decision contract          | In progress |
 | Foundation B | Canonical ECDSA capability state and persistence   | In progress |
 | Phase 1 | Signer-set registration cut | Complete |
@@ -632,6 +661,13 @@ zero-Yao unlock plus absence-only recovery, persistence-failure tests prove
 activation rollback, distinct local-versus-recovery audit/timing labels land,
 and the latency gates in the companion patch pass. Source guards alone do not
 constitute acceptance.
+Refactor 91 may land before the broader vocabulary and authority cutovers. Its
+domain constants, boundary parsers, explicit conversions, and required event
+fields become migration inputs. They do not complete Phases 7, 17, or 18:
+generic auth-factor/evidence kinds, exact authority refs, capability-local type
+ownership, and persistence migration remain. Re-run its intended-behaviour suite
+after the local site stops returning HTTP 502 before using it as a stable Slice B
+checkpoint.
 
 ## Phase Mapping
 
@@ -643,6 +679,7 @@ documents:
 | July 16 lifecycle convergence review           | Foundation A + Phases 4, 19, and 23                             |
 | July 18 ECDSA state convergence review         | Foundation B + Phases 5, 17, 18, 19, and 23                     |
 | July 22 Email OTP exact-material unlock patch  | Foundations A/B + Phases 6, 17, 19, 21, and 23                  |
+| July 22 Refactor 91 auth-method domain cut      | Phases 6, 7, 17, 18, 22, and 23                                |
 | Legacy 0A, 0B, 0D, 0F, 0E | Phases 1, 2, 4, 5, 8 |
 | 0 (Inventory) | Phase 6 |
 | 0C (Public surface and deployment inventory) | Phase 6 |
@@ -1786,7 +1823,9 @@ Check:
 ## Phase 6: Inventory And Public-Surface Ledger
 
 Status: planning. Merges the old Phase 0 (call-site inventory) and Phase 0C
-(public surface and deployment inventory).
+(public surface and deployment inventory). Refactor 91 supplies a completed
+auth-method occurrence inventory and temporary guard allowlists; the broader
+owner/action ledger remains.
 
 Goal: map current wallet-first coupling and make the repo-wide blast radius
 concrete before any shared vocabulary changes land. Phase 7 must not start until the
@@ -1797,6 +1836,10 @@ Do — call-site inventory:
 - Inventory `signing-session`, `signingGrantId`, `thresholdSessionId`,
   `SigningAuthPlan`, `WalletAuthIntent`, `WalletAuthCurve`, `AuthMethod`,
   `user_session`, and `threshold_session` call sites.
+- Import Refactor 91's auth-method classification and guard allowlists into the
+  ledger. Give every surviving approved binary comparison and literal protocol
+  subset a final owner and Phase 18/19/22 deletion or retention action. Do not
+  create a second auth-method inventory.
 - Classify each `signingGrantId` occurrence as exact operation authorization,
   aggregate wallet signing quota, threshold-session authorization, or obsolete
   data. The ledger must assign a distinct target type or deletion action; a
@@ -2822,8 +2865,9 @@ Slice exit criteria:
 
 ## Phase 17: Wallet Auth Authority Refs On Signing Lanes
 
-Status: planning. The shared authority/ref scaffold exists; exact factor and
-wallet-auth-method binding IDs, final persistence shape, and lane/runtime
+Status: planning. The shared authority/ref scaffold exists, and Refactor 91 has
+made current auth-method discriminants canonical and exhaustive. Exact factor
+and wallet-auth-method binding IDs, final persistence shape, and lane/runtime
 migration remain. Start after Phase 7 lands the Refactor 82B vocabulary mapping.
 This is the narrow bridge from Refactor 82B's stable `WalletAuthAuthority`
 model into Slice B's auth/capability migration. Foundation B pulls the leaf
@@ -2944,7 +2988,9 @@ Check:
 
 ## Phase 18: Wallet Vocabulary And Persistence Migration
 
-Status: planning. The wallet-touching remainders of old Phases 1 and 2.
+Status: planning. Refactor 91 completed the current-stack canonical-domain,
+fallback-removal, and boundary-normalization cut. Capability-local ownership,
+authority-ref migration, wallet vocabulary, and persistence changes remain.
 
 Do:
 
@@ -2952,8 +2998,11 @@ Do:
 - Remove tests/fixtures that only assert obsolete wallet-first behavior.
 - Adapt tests that still protect valid behavior so they use auth/capability
   terminology before changing shared types.
-- Move `SignerAuthMethod` and `WalletAuthMethod` into capability-local code.
-- Delete `AuthMethod = SignerAuthMethod`.
+- Move Refactor 91's `SignerAuthMethod` and `WalletAuthMethod` definitions into
+  capability-local code while preserving their distinct semantics and exhaustive
+  conversions. Delete the interim shared exports in the same cut.
+- Preserve the completed deletion of `AuthMethod = SignerAuthMethod`; no alias or
+  compatibility re-export may return during the move.
 - Classify every `signingGrantId` field by semantics. Delete it where
   operation-bound `CapabilityGrant` admission replaces it; map current
   wallet-level shared-use identity to `MpcWalletSigningQuotaId`; assign any
@@ -3861,6 +3910,12 @@ Do:
   own assertion/challenge protocols and verified evidence; Near and ECDSA material
   adapters own inspection, restore/acquisition, constructor invocation, and
   immediate secret consumption.
+- Consume Refactor 91 wallet-to-signer and signer-to-protocol conversions only at
+  auth-factor or protocol adapter boundaries. Generic capability preparation
+  accepts exact authority/evidence requirements and cannot branch on
+  `WalletAuthMethod` or `SignerAuthMethod`. Retire Refactor 91 guard allowlist rows
+  as Phase 19 makes each method-specific decision adapter-local or structurally
+  exhaustive.
 - Migrate the Email OTP exact-material patch without preserving its tactical
   coordinator as capability core. Keep the worker-owned enrollment-secret KDF,
   exact Ed25519 local envelope, stable custody verification, worker-owned
@@ -4621,11 +4676,17 @@ Check:
 
 ## Phase 22: Wallet UI Adapter Migration
 
-Status: planning. Old Phase 8 remainder.
+Status: planning. Old Phase 8 remainder. Refactor 91 completed canonical auth
+method parsing and exhaustive current UI routing; principal/account vocabulary
+and adapter/runtime migration remain.
 
 Do:
 
 - Keep `SeamsAuthMenu`, Lit transaction confirmation, theme scope, and layout.
+- Preserve Refactor 91's required parsed auth method on stored account options,
+  exhaustive method rendering/routing, and fail-closed unsupported-method branch.
+  Move those decisions behind the final auth-factor UI adapter without restoring
+  optional auth methods or implicit passkey defaults.
 - Replace runtime ports so the shell can use Better Auth or current `SeamsWeb`
   flows.
 - Rename wallet/account UI fields to auth-account/principal fields at the UI
@@ -4660,6 +4721,11 @@ Do:
 
 - Create only auth account, principal, factor, device, and session records by
   default.
+- Preserve Refactor 91's required explicit auth method on registration lifecycle
+  events and its strict method-specific registration authority inputs. Phase 23
+  may replace wallet-first event vocabulary, but every replacement event and
+  provisioning request must retain an explicit canonical factor/method identity
+  at its boundary.
 - Create one exact `AuthFactorRecord` per enrollment. Passkey-only human
   registration does not require an email field on `AuthPrincipal`.
 - Add explicit capability provisioning.
@@ -4971,6 +5037,11 @@ Static checks:
   `AuthMethod`, and wallet-only API credential scopes. Phase 17 guards migrated
   exact-identity inputs; Phase 19 guards client preparation symbols; Phase 20
   guards route and grant-admission symbols.
+- Refactor 91 auth-domain fixtures and
+  `check-auth-method-domain-boundaries.mjs` keep rejecting new implicit passkey
+  fallbacks, ad hoc broad method unions, and cross-domain substitutions until the
+  owning Phase 18/19/22 types make those states unrepresentable. The guard
+  retirement sweep must account for every temporary allowlist row.
 - Source guards reject `ed25519_only`, `ecdsa_only`,
   `ed25519_and_ecdsa`, factor-specific Yao resolvers/hooks in capability core,
   and every ECDSA-HSS name deleted by YAOS Phase 14B.
@@ -4983,6 +5054,11 @@ Targeted tests (owning phase in parentheses):
   slice that touches auth, session exchange, signing, export, wallet iframe
   routing, warm sessions, D1/DO state, or grant-spend replacement paths. Until
   CI owns startup, Email OTP rows require `SEAMS_INTENDED_GOOGLE_ID_TOKEN`.
+- Refactor 91 checkpoint gate: shared, SDK, server, and intended-test type checks;
+  auth-domain and account/signer lifecycle guards; focused account-selection,
+  registration, unlock, signing, step-up, export, and persistence tests; then the
+  Passkey/Email OTP intended suite after its site prerequisite is healthy. A
+  harness HTTP 502 is blocked validation, not behavioral acceptance.
 - Exact capability subject and session-read boundary tests: ECDSA-only unlock,
   combined unlock subject sets, cold page-refresh session reads from
   `WalletUnlockSubjectSet`, missing-profile denial, ambiguous-profile denial,
@@ -5298,6 +5374,7 @@ question gating it is open.
 - [Modular Auth And Capability Refactor SPEC](./refactor-90-modular-auth-capabilities-SPEC.md)
 - [Refactor 90 Progress Journal](./refactor-90-journal.md)
 - [Email OTP Exact-Material Unlock Patch](./refactor-patch-2-email-otp-local-rehydration.md)
+- [Refactor 91: Canonical Auth Method Domains](./refactor-91.md)
 - [Centaur Secrets Vault Architecture Plan](./centaur-secrets-vault.md)
 - [Slack OTP Step-Up Spec](./otp-slack.md)
 - [Streaming Yao for Deriver A and Deriver B](./router-ab/ed25519-yao/implementation-plan.md)

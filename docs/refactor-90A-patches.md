@@ -17,8 +17,8 @@ Rust/WASM proof generation and activation integration remain pending.
   role-local custody and exact-material recovery.
 - [Refactor 97](./refactor-97-share-rotation.md) owns ECDSA additive lane
   resharing and activation.
-- [Refactor 98](./refactor-98-delegated-agent-linked-device-behavior.md) owns
-  linked-device product behavior and admission.
+- [Refactor 98](./refactor-98-device-linking.md) owns linked-device product
+  behavior and admission.
 
 Device linking currently fails closed. This patch may land in development with
 `device_link_required`; cross-device release remains gated on Refactors 97 and 98.
