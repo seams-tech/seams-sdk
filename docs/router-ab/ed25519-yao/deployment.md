@@ -338,7 +338,7 @@ Deployment checkpoint (2026-07-17):
   `ab2b06f7-ee89-46f2-ac2a-4bc548c0b4d0`;
 - production frontend artifact: `https://c56ccf96.seams-site.pages.dev`;
 - production wallet artifact: `https://a56f128d.seams-wallet.pages.dev`;
-- Cloudflare Pages accepted the `seams.sh` and `wallet.seams.sh` custom-domain
+- Cloudflare Pages accepted the `seams.sh` and `sign.seams.sh` custom-domain
   bindings. The proxied CNAME records now resolve both production origins and
   Cloudflare serves valid TLS certificates;
 - the product API and Router expose the same `router_ab_keyset_v2`, and both

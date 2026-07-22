@@ -192,6 +192,12 @@ Use `--variables-only` to leave every GitHub secret untouched, or
 combined with either option and fails when a requested name is absent, which
 prevents misspelled names from producing a partial update.
 
+Signer-domain changes do not require identity rotation. Set
+`VITE_WALLET_ORIGIN` and `VITE_RP_ID_BASE` in the protected deployment values
+file, then apply both components. The wallet-core update replaces the signer
+origin in the Gateway CORS and publishable-key allowlists; the product update
+updates the browser build variables.
+
 Update product-owned Pages, browser network, and R2 values independently:
 
 ```bash

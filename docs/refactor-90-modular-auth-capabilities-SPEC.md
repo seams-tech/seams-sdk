@@ -1572,7 +1572,7 @@ const config = createSeamsConfig({
   environmentId: "env_...",
   publishableKey: "pk_...",
   walletRuntime: hostedWalletIframe({
-    origin: "https://wallet.seams.sh",
+    origin: "https://sign.seams.sh",
     rpId: "example.com",
   }),
   authMethods: [

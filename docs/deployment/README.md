@@ -29,7 +29,7 @@ variables and checked-in Cloudflare config.
 | `.github/workflows/deploy-production.yml`  | Successful `ci` push on `main`                   | Clearly labelled production entrypoint. Deploys only production resources.                                                                                       |
 | `.github/workflows/deploy-router-ab.yml`   | Called by a labelled release, or manual dispatch | Shared ordered implementation: Router A/B Workers, Gateway/D1, then Pages. Manual dispatch can still target an individual Router A/B role.                       |
 | `.github/workflows/deploy-gateway.yml`     | Called by the release chain, or manual dispatch  | Generates an environment-specific Wrangler config, applies that environment's two D1 migrations, deploys Gateway and its Durable Objects, then checks readiness. |
-| `.github/workflows/deploy-pages.yml`       | Called by the release chain, or manual dispatch  | Builds the exact release SHA and deploys `seams.sh` plus `wallet.seams.sh` with environment-specific frontend values.                                            |
+| `.github/workflows/deploy-pages.yml`       | Called by the release chain, or manual dispatch  | Builds the exact release SHA and deploys `seams.sh` plus `sign.seams.sh` with environment-specific frontend values.                                              |
 
 Removed testnet-only workflows are replaced by the staging target in the
 workflows above. Move any required GitHub Environment secrets and vars from an
@@ -95,7 +95,7 @@ The automatic branch release runs in this order:
 2. SigningWorker, Deriver A, Deriver B, and Router.
 3. Gateway D1 migrations, Durable Object migrations, Worker secrets, deploy,
    and readiness check.
-4. `seams.sh` and `wallet.seams.sh` from the same SHA.
+4. `seams.sh` and `sign.seams.sh` from the same SHA.
 
 An older CI run is rejected after a newer commit becomes the branch tip.
 
