@@ -37,6 +37,7 @@ import type {
 } from './ecdsaLogin';
 import type { EmailOtpEcdsaSigningSessionAuthority } from './ecdsaSigningSessionAuthority';
 import { exportEcdsaDerivationKeyWithEmailOtpSession } from '../../flows/recovery/ecdsaDerivationExport';
+import type { EmailOtpChallengeDelivery, EmailOtpTransactionSigningChallenge } from './publicTypes';
 
 type EmailOtpEcdsaRouteChain = ThresholdEcdsaChainTarget['kind'];
 type EmailOtpRouteChain = 'near' | EmailOtpEcdsaRouteChain;
@@ -119,7 +120,7 @@ async function requestEmailOtpChallengeWithRoutePlan(
         nearAccountId: AccountId;
         routePlan: EmailOtpRoutePlan;
       },
-): Promise<{ challengeId: string; emailHint?: string }> {
+): Promise<EmailOtpTransactionSigningChallenge> {
   const walletId = args.kind === 'wallet_session' ? args.walletId : args.walletSession.walletId;
   const relayUrl = ports.requireRelayUrl();
   const workerCtx = ports.getSignerWorkerContext();
@@ -143,18 +144,18 @@ async function requestEmailOtpChallengeWithRoutePlan(
   if (!challengeId) {
     throw new Error('Email OTP signing challenge response did not include challengeId');
   }
+  const delivery: EmailOtpChallengeDelivery = response.delivery;
   return {
     challengeId,
-    ...(String(response.emailHint || '').trim()
-      ? { emailHint: String(response.emailHint || '').trim() }
-      : {}),
+    emailHint: delivery.emailHint,
+    delivery,
   };
 }
 
 export async function requestTransactionSigningChallenge(
   ports: EmailOtpWorkerPorts,
   args: RequestEmailOtpChallengeArgs,
-): Promise<{ challengeId: string; emailHint?: string }> {
+): Promise<EmailOtpTransactionSigningChallenge> {
   const routePlan = buildTransactionSigningChallengeRoutePlan(ports, args);
   const challenge =
     args.kind === 'near_account_challenge'
@@ -169,10 +170,7 @@ export async function requestTransactionSigningChallenge(
           walletId: args.walletSession.walletId,
           routePlan,
         });
-  return {
-    challengeId: challenge.challengeId,
-    ...(challenge.emailHint ? { emailHint: challenge.emailHint } : {}),
-  };
+  return challenge;
 }
 
 function buildTransactionSigningChallengeRoutePlan(

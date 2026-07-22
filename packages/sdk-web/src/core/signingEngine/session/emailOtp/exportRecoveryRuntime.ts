@@ -28,6 +28,7 @@ import type {
   EmailOtpThresholdEcdsaExportPreparation,
   PrepareEmailOtpEcdsaExportCapabilityArgs,
 } from './ecdsaLogin';
+import type { EmailOtpTransactionSigningChallenge } from './publicTypes';
 export type { EmailOtpEcdsaExportArtifact } from './exportRecovery';
 
 type EmailOtpEcdsaRouteChain = ThresholdEcdsaChainTarget['kind'];
@@ -117,7 +118,7 @@ export class EmailOtpExportRecoveryRuntime {
 
   async requestTransactionSigningChallenge(
     args: RequestEmailOtpChallengeArgs,
-  ): Promise<{ challengeId: string; emailHint?: string }> {
+  ): Promise<EmailOtpTransactionSigningChallenge> {
     return await requestTransactionSigningChallenge(this.workerPorts(), args);
   }
 

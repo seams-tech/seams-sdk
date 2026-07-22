@@ -1,8 +1,5 @@
 import { requireTrimmedString } from '@shared/utils/validation';
-import type {
-  EmailOtpChallengeDelivery,
-  EmailOtpChallengeDeliveryStatus,
-} from './publicTypes';
+import type { EmailOtpChallengeDelivery, EmailOtpChallengeDeliveryStatus } from './publicTypes';
 
 type JsonObject = Record<string, unknown>;
 
@@ -69,5 +66,15 @@ export function parseEmailOtpChallengeDelivery(
     }
     default:
       throw new Error(`${label}.kind is invalid`);
+  }
+}
+
+export function demoEmailOtpCodeFromDelivery(delivery: EmailOtpChallengeDelivery): string | null {
+  switch (delivery.kind) {
+    case 'provider':
+      return null;
+    case 'demo_code_response':
+    case 'provider_and_demo_code':
+      return delivery.otpCode;
   }
 }

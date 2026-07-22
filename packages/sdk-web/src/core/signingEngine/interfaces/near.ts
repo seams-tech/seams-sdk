@@ -30,6 +30,7 @@ import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import type { RouterAbEd25519NormalSigningState } from '../threshold/ed25519/routerAbNormalSigningState';
 import type { RouterAbEd25519SigningWalletSession } from '../session/routerAbSigningWalletSession';
 import type { RouterAbEd25519YaoActiveClientV1 } from '../threshold/ed25519/yaoClient';
+import type { EmailOtpTransactionSigningChallenge } from '../session/emailOtp/publicTypes';
 export type NearResolvedEd25519WalletSessionAuth = {
   kind: 'wallet_session_jwt';
   walletSessionJwt: string;
@@ -115,8 +116,8 @@ export type NearPasskeyEd25519ReconnectHook = {
 };
 
 export type NearEmailOtpEd25519ReconnectHook = {
-  prepare: () => Promise<{ challengeId: string; emailHint?: string }>;
-  resend?: () => Promise<{ challengeId: string; emailHint?: string }>;
+  prepare: () => Promise<EmailOtpTransactionSigningChallenge>;
+  resend?: () => Promise<EmailOtpTransactionSigningChallenge>;
   reconnect: (args: {
     authorization: NearEd25519EmailOtpStepUpAuthorization;
     requiredSignatureUses: number;
