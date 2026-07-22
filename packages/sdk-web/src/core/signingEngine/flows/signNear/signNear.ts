@@ -25,7 +25,9 @@ import type { SignTransactionResult } from '@/core/types/seams';
 import type { TransactionInputWasm } from '@/core/types/actions';
 import {
   SENSITIVE_OPERATION_POLICIES,
+  SIGNER_AUTH_METHODS,
   type SensitiveOperationPolicy,
+  type SignerAuthMethod,
 } from '@shared/utils/signerDomain';
 import {
   SigningAuthPlanKind,
@@ -545,8 +547,24 @@ function requireResolvedNearEd25519SigningLane(
 
 function resolveEd25519PasskeyStorageSource(
   source: ThresholdEd25519SessionStoreSource | undefined,
-): Exclude<ThresholdEd25519SessionStoreSource, 'email_otp'> {
-  return source && source !== 'email_otp' ? source : 'login';
+): Exclude<ThresholdEd25519SessionStoreSource, typeof SIGNER_AUTH_METHODS.emailOtp> {
+  switch (source) {
+    case undefined:
+    case SIGNER_AUTH_METHODS.emailOtp:
+    case 'login':
+      return 'login';
+    case 'registration':
+    case 'add-signer':
+    case 'manual-connect':
+    case 'bootstrap':
+      return source;
+    default:
+      return assertNeverThresholdEd25519SessionStoreSource(source);
+  }
+}
+
+function assertNeverThresholdEd25519SessionStoreSource(value: never): never {
+  throw new Error(`Unsupported threshold Ed25519 session source: ${String(value)}`);
 }
 
 function trustedBudgetStatusAuthFromEd25519WalletSessionState(
@@ -1177,8 +1195,20 @@ async function withThresholdEd25519CommitQueue<T>(args: {
 
 function authMethodForThresholdEd25519Record(
   record: ThresholdEd25519SessionRecord,
-): 'email_otp' | 'passkey' {
-  return record.source === 'email_otp' ? 'email_otp' : 'passkey';
+): SignerAuthMethod {
+  const source = record.source;
+  switch (source) {
+    case SIGNER_AUTH_METHODS.emailOtp:
+      return SIGNER_AUTH_METHODS.emailOtp;
+    case 'login':
+    case 'registration':
+    case 'add-signer':
+    case 'manual-connect':
+    case 'bootstrap':
+      return SIGNER_AUTH_METHODS.passkey;
+    default:
+      return assertNeverThresholdEd25519SessionStoreSource(source);
+  }
 }
 
 function thresholdEd25519RecordMatchesSelectedLane(args: {
@@ -1349,7 +1379,7 @@ function publishNearEd25519RuntimeIdentityForRecord(
   if (!record || !thresholdSessionId || !signingGrantId) return;
   publishResolvedIdentity({
     walletId: String(record.walletId),
-    authMethod: record.source === 'email_otp' ? 'email_otp' : 'passkey',
+    authMethod: authMethodForThresholdEd25519Record(record),
     curve: 'ed25519',
     chain: 'near',
     signingGrantId,
@@ -1361,7 +1391,7 @@ function publishNearEd25519RuntimeIdentityForRecord(
 async function readNearEd25519AvailableSigningLanes(args: {
   deps: NearSigningApiDeps;
   commandSubject: NearCommandSubject;
-  authMethod: 'email_otp' | 'passkey' | null;
+  authMethod: SignerAuthMethod | null;
 }): Promise<AvailableSigningLanes | null> {
   const nearAccountId = args.commandSubject.nearAccount.accountId;
   const walletId = args.commandSubject.walletSession.walletId;

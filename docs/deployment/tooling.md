@@ -29,26 +29,29 @@ update deployment environments, Actions variables, and Actions secrets.
 
 ## GitHub Environment Bootstrap
 
-The recommended first-deployment command is the complete environment
-generator:
+Prepare one audited deployment generation before the first deployment or an
+intentional identity rotation:
 
 ```bash
-pnpm router:deploy:env-keygen -- --env staging
-pnpm router:deploy:env-keygen -- --env production
+pnpm wallet-core:deploy:env-prepare -- --env staging --repo seams-tech/seams-sdk
+pnpm wallet-core:deploy:env-prepare -- --env production --repo seams-tech/seams-sdk
 ```
 
-Each invocation generates a complete manifest for one target containing six
-GitHub Environments:
+Each invocation validates the complete target and writes two owner-only
+manifests under `~/.seams/backups`:
 
-- The general Pages and SDK environment: `staging` or `production`.
-- The Gateway environment: `<target>-gateway`.
-- The MPCRouter environment: `<target>-mpc-router`.
-- Deriver A, Deriver B, and SigningWorker environments.
+- `wallet-core`: Gateway, MPCRouter, Deriver A, Deriver B, and SigningWorker.
+- `product`: the base `staging` or `production` environment used by Pages and
+  SDK publication.
+
+Both files carry the same generation ID, timestamp, and complete-manifest
+SHA-256. The product manifest contains the public wallet-core handoff values it
+needs. It does not contain Deriver, SigningWorker, or Gateway private material.
 
 The generator creates fresh Router A/B identities, matched root shares,
 ceremony JWT signing material, internal service authentication, Gateway
 secrets, signing-session seal material, tenant identifiers, and a publishable
-key. Apply mode also provisions the target's D1 databases, Pages projects, and
+key. Prepare mode also provisions the target's D1 databases, Pages projects, and
 Secrets Store when they do not exist.
 
 The output contains private material. Do not commit it or paste it into chat or
@@ -83,24 +86,34 @@ supplies a real email-provider adapter. The repository's deployed Gateway does
 not expose that mode until its provider integration is wired. Use
 `GATEWAY_RUNTIME_PROFILE=mainnet_service` for a future mainnet deployment. That
 profile rejects demo-code delivery and requires `email_provider` delivery.
-
 The generated profile is explicit in `GATEWAY_DEPLOYMENT_CONFIG_JSON`; later
 profile or delivery-mode changes can be uploaded with the update-only command
 without rotating Router A/B identities.
 
-Use `--apply` to create missing environments and upload every resolved value:
+Prepare the manifests, then upload each ownership group explicitly:
 
 ```bash
-pnpm router:deploy:env-keygen -- \
+pnpm wallet-core:deploy:env-prepare -- \
   --env staging \
-  --apply
+  --repo seams-tech/seams-sdk
+
+pnpm wallet-core:deploy:env-apply -- \
+  --env staging \
+  --manifest-file "$HOME/.seams/backups/<wallet-core-manifest>.json" \
+  --repo seams-tech/seams-sdk
+
+pnpm product:deploy:env-apply -- \
+  --env staging \
+  --manifest-file "$HOME/.seams/backups/<product-manifest>.json" \
+  --repo seams-tech/seams-sdk
 ```
 
 The generator automatically loads
 `$HOME/.seams/<target>-deployment.env`. Use `--values-file` only to
 select a different protected file.
 
-Apply mode:
+Prepare mode provisions or discovers shared Cloudflare resources and validates
+the complete six-environment topology. Component apply mode:
 
 - Creates missing GitHub Environments.
 - Preserves existing environments and their protection rules.
@@ -117,6 +130,9 @@ Apply mode:
   uploaded. Unrelated variables and all secrets are preserved.
 - Refuses a partial apply while required values remain unresolved.
 - Writes a step progress bar and per-environment upload counts to stderr.
+- Verifies the component manifest's own SHA-256 before uploading it.
+- Requires wallet-core to be uploaded before product.
+- Refuses product upload when the wallet-core generation metadata differs.
 - Prints the exact uploaded variables and secrets to stdout for backup.
 
 `--allow-incomplete` permits an intentional partial bootstrap. Avoid it for a
@@ -126,15 +142,14 @@ identity material.
 CLI options can override the most common public identity values:
 
 ```bash
-pnpm router:deploy:env-keygen -- \
+pnpm wallet-core:deploy:env-prepare -- \
   --env staging \
   --gateway-origin https://gateway.staging.example.com \
   --org-id org-id \
   --project-id project-id \
   --environment-id staging \
   --project-environment-id project-environment-id \
-  --tenant-namespace staging \
-  --apply
+  --tenant-namespace staging
 ```
 
 Cloudflare R2 access keys, funded NEAR relayer keys, funded EVM executor keys,
@@ -147,7 +162,7 @@ deployment credentials.
 After the initial bootstrap, preview operator-owned configuration changes:
 
 ```bash
-pnpm router:deploy:env-apply -- \
+pnpm wallet-core:deploy:env-update -- \
   --env staging \
   --repo seams-tech/seams-sdk
 ```
@@ -155,7 +170,37 @@ pnpm router:deploy:env-apply -- \
 Apply the displayed plan:
 
 ```bash
-pnpm router:deploy:env-apply -- \
+pnpm wallet-core:deploy:env-update -- \
+  --env staging \
+  --repo seams-tech/seams-sdk \
+  --apply
+```
+
+Limit an update to named values when changing one integration:
+
+```bash
+pnpm wallet-core:deploy:env-update -- \
+  --env staging \
+  --repo seams-tech/seams-sdk \
+  --only RELAYER_PRIVATE_KEY,SPONSORED_EVM_EXECUTORS_JSON,GATEWAY_DEPLOYMENT_CONFIG_JSON \
+  --apply
+```
+
+Use `--variables-only` to leave every GitHub secret untouched, or
+`--secrets-only` to leave every GitHub variable untouched. `--only` can be
+combined with either option and fails when a requested name is absent, which
+prevents misspelled names from producing a partial update.
+
+Signer-domain changes do not require identity rotation. Set
+`VITE_WALLET_ORIGIN` and `VITE_RP_ID_BASE` in the protected deployment values
+file, then apply both components. The wallet-core update replaces the signer
+origin in the Gateway CORS and publishable-key allowlists; the product update
+updates the browser build variables.
+
+Update product-owned Pages, browser network, and R2 values independently:
+
+```bash
+pnpm product:deploy:env-update -- \
   --env staging \
   --repo seams-tech/seams-sdk \
   --apply
@@ -182,9 +227,9 @@ optional Gateway integrations. Router A/B keys, root shares, signing-session
 material, Gateway signing keys, tenant identifiers, and publishable keys remain
 unchanged. Dry run is the default.
 
-Cloudflare credentials are copied to the target's Pages, Gateway, MPCRouter,
-Deriver A, Deriver B, and SigningWorker GitHub Environments. Token rotation
-therefore does not rotate any generated deployment identity.
+The wallet-core updater can reach only Gateway and MPC service environments.
+The product updater can reach only the base Pages/SDK environment. Run both
+commands when rotating a Cloudflare token shared by both ownership groups.
 
 Frontend variable changes take effect on the next Pages deployment. Gateway
 integration changes take effect on the next Gateway deployment. R2 credentials
@@ -195,23 +240,18 @@ repository, pass its actual name, for example
 `--repo seams-tech/seams-sdk`. The script rejects documentation placeholders
 such as `owner/repo` before generating identities.
 
-Every invocation generates new cryptographic identities. Apply mode refuses to
-replace an initialized target unless `--rotate` is present. Use that flag only
+Every prepare invocation generates new cryptographic identities. Prepare and
+wallet-core apply refuse an initialized target unless `--rotate` is present. Use that flag only
 for a coordinated identity rotation that intentionally invalidates the prior
 wallet custody configuration. Staging and production must be generated
 independently.
 
-For a complete staging rotation, capture the exact manifest produced by the
-same operation that replaces the GitHub values:
+For a complete staging rotation, use the guarded wrapper. It prepares one
+generation, saves the complete backup, applies wallet-core, then applies the
+paired product manifest:
 
 ```bash
-umask 077
-pnpm --silent router:deploy:env-keygen -- \
-  --env staging \
-  --apply \
-  --rotate \
-  --repo seams-tech/seams-sdk \
-  > staging-github-environment-backup.txt
+pnpm deploy:env-rotate -- staging
 ```
 
 The operation writes these non-secret audit variables to all six GitHub
@@ -227,11 +267,21 @@ the generation metadata records which complete manifest the uploader committed.
 The generation ID is written last. An interrupted metadata commit produces a
 cross-environment mismatch instead of marking the rotation complete.
 
+If wallet-core upload succeeds and product upload fails, reuse the saved
+product manifest. Do not prepare another generation:
+
+```bash
+pnpm product:deploy:env-apply -- \
+  --env staging \
+  --manifest-file "$HOME/.seams/backups/<same-generation-product-manifest>.json" \
+  --repo seams-tech/seams-sdk
+```
+
 Verify that every staging environment references one generation before
 deploying:
 
 ```bash
-pnpm router:deploy:env-verify -- \
+pnpm deploy:env-verify -- \
   --env staging \
   --repo seams-tech/seams-sdk
 ```
@@ -244,10 +294,8 @@ To consolidate an already initialized Gateway without rotating any secret or
 wallet identity, run the config-only migration:
 
 ```bash
-pnpm router:deploy:env-keygen -- \
+pnpm wallet-core:deploy:env-migrate-gateway -- \
   --env staging \
-  --migrate-gateway-config \
-  --apply \
   --repo seams-tech/seams-sdk
 ```
 
@@ -256,32 +304,22 @@ publishable key, validates the replacement document, uploads
 `GATEWAY_DEPLOYMENT_CONFIG_JSON`, and removes only the replaced Gateway
 variables.
 
-Capture the output from the same apply operation rather than running the
-generator a second time:
+Preparation automatically writes mode-`600` component manifests. To retain an
+additional complete machine-readable backup while preparing, capture stdout
+from that same invocation:
 
 ```bash
 umask 077
-pnpm --silent router:deploy:env-keygen -- --env staging --apply \
+pnpm --silent wallet-core:deploy:env-prepare -- --env staging --json \
   --values-file "$HOME/.seams/staging-deployment.env" \
-  > staging-github-environment-backup.txt
+  --repo seams-tech/seams-sdk \
+  > staging-complete-generation.json
 ```
 
 Progress remains visible in the terminal because it is written to stderr. The
-backup file contains the exact generated secrets from that invocation. Move it
-to the approved secrets vault, then remove the local copy.
-
-Before the first GitHub write, apply mode also saves a mode-`600` recovery copy
-under `$HOME/.seams/backups`. This preserves generated values if a later
-GitHub upload fails partway through.
-
-For machine-readable output, suppress pnpm's banner:
-
-```bash
-pnpm --silent router:deploy:env-keygen -- --env staging --json > staging-manifest.json
-```
-
-Treat that file as secret material and delete it after securely transferring
-the values.
+complete backup contains both ownership groups. The two prepared component
+files under `$HOME/.seams/backups` are the files used for upload. Move backups
+to the approved secrets vault when local retention is not permitted.
 
 ## Individual Generators
 

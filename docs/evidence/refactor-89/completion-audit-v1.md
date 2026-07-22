@@ -62,7 +62,7 @@ security.
 | `E3` | Deleted owners have permanent symbol and dependency guards. | Current source tree and shipping artifacts. | Reintroduction fails the guard suite. |
 | `E4` | Clean builds and focused crypto, persistence, bundle, and intended-behavior suites pass. | Current local source and generated artifacts. | All named local gates pass; credential-dependent external store cases are reported separately. |
 | `E5` | Final digests, compressed sizes, timings, and zero-old-caller report are recorded. | Reproducible release artifacts. | Evidence identifies exact files, hashes, sizes, timings, and allowed historical/oracle references. |
-| `E6` | Local completion is reconciled and deployment work transfers to the deployment plans. | Local gates complete. | ECDSA deployment is owned by `router-a-b-deployment.md`; Ed25519 Yao remains separate. |
+| `E6` | Local completion is reconciled and deployment work transfers to the deployment plans. | Local gates complete. | ECDSA deployment is owned by `router-ab/deployment.md`; Ed25519 Yao remains separate. |
 
 ## Code IR
 
@@ -79,7 +79,7 @@ security.
 | `C-LOADER` | `packages/sdk-web/src/core/signingEngine/workerManager/workerTransport.ts:122-128,555-599`; `packages/sdk-web/src/core/signingEngine/workerManager/workers/ecdsa-online-client.worker.ts:1-126` | Default prewarm excludes presign/online. Separate URLs create separate workers. The online worker imports only online Wasm and the encrypted material store. |
 | `C-ASSURE` | `crates/router-ab-ecdsa-presign/specs/assurance-ledger-v1.md:46-208`; `docs/evidence/refactor-89/phase-d-bounded-assurance-v1.json` | Normative equations, adversary model, party views, alignment, deliberate divergence, assumption ledger, exact oracle, test counts, and static-analysis results form the bounded security record. |
 | `C-DELETE` | `crates/router-ab-ecdsa-near-oracle-tests/tests/production_boundaries.rs:283-321`; `tests/scripts/check-ecdsa-client-worker-split.mjs:24-370` | Current guards assert deleted paths are absent, production manifests exclude generic dependencies, Wasm exports remain role-specific, obsolete stores/operations cannot return, and all 16 review-corpus digests match. |
-| `C-DEPLOY` | `docs/router-a-b-deployment.md:21-47,67-78,195-199`; `docs/yaos-ab-deployment.md:6-12,248-251` | Strict ECDSA stays off Yao, production uses independently administered A/B accounts, same-account remains development-only, and Yao’s release gate delegates ECDSA deployment. |
+| `C-DEPLOY` | `docs/router-ab/deployment.md:21-47,67-78,195-199`; `docs/router-ab/ed25519-yao/deployment.md:6-12,248-251` | Strict ECDSA stays off Yao, production uses independently administered A/B accounts, same-account remains development-only, and Yao’s release gate delegates ECDSA deployment. |
 
 Cryptographic function-level alignment is intentionally centralized in
 `assurance-ledger-v1.md:119-141`. That ledger maps every fixed layer to concrete
@@ -191,13 +191,13 @@ The local refactor is topology-neutral and supports both deployment profiles.
 Production promotion uses `router_ab_cloudflare_separate_accounts_v1` with
 independently administered Deriver A and B accounts. Same-account deployment is
 limited to development, staging, and benchmarks by
-`docs/router-a-b-deployment.md:35-47`. ECDSA uses strict Router A/B threshold-PRF
+`docs/router-ab/deployment.md:35-47`. ECDSA uses strict Router A/B threshold-PRF
 derivation plus additive secp256k1 shares and has no Yao dependency
-(`router-a-b-deployment.md:21-33`). The separate Ed25519 Yao release gate
-explicitly delegates ECDSA rollout at `docs/yaos-ab-deployment.md:6-12`.
+(`router-ab/deployment.md:21-33`). The separate Ed25519 Yao release gate
+explicitly delegates ECDSA rollout at `docs/router-ab/ed25519-yao/deployment.md:6-12`.
 
 The ECDSA deployment requirements still open in
-`docs/router-a-b-deployment.md:195-199` are `excluded_deployment` for this local
+`docs/router-ab/deployment.md:195-199` are `excluded_deployment` for this local
 audit. They remain mandatory before the system is called production-ready.
 
 ## Decision
@@ -208,6 +208,6 @@ and D7. The lifecycle review has been performed and rejected, so restoration
 of an old manifest is no longer a valid closure route. The registration package
 split itself is sound and all 16 cryptographic corpus digests still match. The
 current lifecycle receipt controls the newer Cloudflare adapter status.
-Deployment promotion remains owned by `docs/router-a-b-deployment.md`. No claim
+Deployment promotion remains owned by `docs/router-ab/deployment.md`. No claim
 in this audit upgrades oracle parity into a security proof or treats
 same-account development as independent-account security.

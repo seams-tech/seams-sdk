@@ -8,12 +8,12 @@ handoff.
 
 Primary source of truth:
 
-- [router-a-b-SPEC.md](./router-a-b-SPEC.md)
-- [router-a-b-local-dev.md](./router-a-b-local-dev.md)
+- [router-ab/protocol.md](./router-ab/protocol.md)
+- [router-ab/local-development.md](./router-ab/local-development.md)
 
 This file preserves the historical refactor plan for agents working on the SDK.
 The Router A/B implementation plans were consolidated into
-`docs/router-a-b-SPEC.md` after the cutover. This refactor note records the
+`docs/router-ab/protocol.md` after the cutover. This refactor note records the
 finished shape, major decisions, completed phases, and validation evidence.
 
 ## Goal
@@ -34,7 +34,7 @@ The public client boundary no longer exposes a Router normal-signing grant.
 
 Follow-up cleanup for making Router A/B the only Ed25519 and ECDSA signing
 architecture is tracked in
-[router-a-b-SPEC.md](./router-a-b-SPEC.md). That current reference records the
+[router-ab/protocol.md](./router-ab/protocol.md). That current reference records the
 separate non-Router threshold-session signing stack after Router A/B replacement
 coverage is complete.
 
@@ -886,7 +886,7 @@ ECDSA-HSS Router A/B was promoted to a local release requirement.
       A/B ECDSA-HSS and cleanup plans.
 - [x] Run the final local Router A/B legacy and naming cleanup after Wallet
       Session V2 and ECDSA-HSS support. The canonical cleanup record is
-      [router-a-b-SPEC.md](./router-a-b-SPEC.md); local Router A/B-only
+      [router-ab/protocol.md](./router-ab/protocol.md); local Router A/B-only
       cleanup is tracked there.
 - [x] Harden the unlock-to-sign readiness boundary for Router A/B-only signing.
       Wallet unlock now requests and persists Ed25519 Router A/B
@@ -933,5 +933,5 @@ rtk pnpm router:deploy:check
   requirements have tests.
 - Keep public wire-schema suffixes only where they describe current serialized
   contracts.
-- Treat `docs/router-a-b-SPEC.md` as the canonical Router A/B architecture and
+- Treat `docs/router-ab/protocol.md` as the canonical Router A/B architecture and
   this file as the historical Wallet Session V2 handoff.

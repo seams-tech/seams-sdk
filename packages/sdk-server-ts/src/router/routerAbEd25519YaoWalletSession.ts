@@ -103,8 +103,7 @@ export type RouterAbEd25519YaoBudgetRefreshResponseV1 =
     }
   | { readonly ok: false; readonly code: string; readonly message: string };
 
-export type RouterAbEd25519YaoEmailOtpRecoverySessionRequestV1 = {
-  readonly kind: 'router_ab_ed25519_yao_email_otp_recovery_session_v1';
+type RouterAbEd25519YaoEmailOtpSessionRequestBaseV1 = {
   readonly walletId: string;
   readonly orgId: string;
   readonly signerSlot: number;
@@ -113,10 +112,30 @@ export type RouterAbEd25519YaoEmailOtpRecoverySessionRequestV1 = {
   readonly verifiedProviderUserId: string;
 };
 
-export type RouterAbEd25519YaoEmailOtpRecoverySessionResponseV1 =
+export type RouterAbEd25519YaoEmailOtpLocalSessionRequestV1 =
+  RouterAbEd25519YaoEmailOtpSessionRequestBaseV1 & {
+    readonly kind: 'router_ab_ed25519_yao_email_otp_local_session_v1';
+  };
+
+export type RouterAbEd25519YaoEmailOtpRecoverySessionRequestV1 =
+  RouterAbEd25519YaoEmailOtpSessionRequestBaseV1 & {
+    readonly kind: 'router_ab_ed25519_yao_email_otp_recovery_session_v1';
+  };
+
+export type RouterAbEd25519YaoEmailOtpSessionRequestV1 =
+  | RouterAbEd25519YaoEmailOtpLocalSessionRequestV1
+  | RouterAbEd25519YaoEmailOtpRecoverySessionRequestV1;
+
+export type RouterAbEd25519YaoEmailOtpSessionResponseV1 =
   | {
       readonly ok: true;
       readonly session: WalletRegistrationEd25519YaoBootstrapSession;
       readonly capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1;
     }
   | { readonly ok: false; readonly code: string; readonly message: string };
+
+export type RouterAbEd25519YaoEmailOtpLocalSessionResponseV1 =
+  RouterAbEd25519YaoEmailOtpSessionResponseV1;
+
+export type RouterAbEd25519YaoEmailOtpRecoverySessionResponseV1 =
+  RouterAbEd25519YaoEmailOtpSessionResponseV1;

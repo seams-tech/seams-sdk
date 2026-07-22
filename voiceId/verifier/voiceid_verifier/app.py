@@ -4,6 +4,7 @@ import base64
 import json
 import os
 import sys
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import urlparse
@@ -38,6 +39,7 @@ from voiceid_verifier.scoring import cosine_score
 
 
 DEFAULT_RUNTIME: VerifierRuntime | None = None
+DEFAULT_RUNTIME_LOCK = threading.Lock()
 
 JSON_HEADERS = {
     "Content-Type": "application/json",
@@ -136,14 +138,19 @@ def verify_speaker_from_json(
     finally:
         if evaluated.decoded_audio is not None:
             zero_float_sequence(evaluated.decoded_audio.samples)
+        for window in evaluated.speech_windows:
+            zero_float_sequence(window.samples)
         zero_float_sequence(runtime_embedding)
         zero_float_sequence(template_embedding)
 
 
 def get_default_runtime() -> VerifierRuntime:
     global DEFAULT_RUNTIME
-    if DEFAULT_RUNTIME is None:
-        DEFAULT_RUNTIME = create_verifier_runtime_from_env()
+    if DEFAULT_RUNTIME is not None:
+        return DEFAULT_RUNTIME
+    with DEFAULT_RUNTIME_LOCK:
+        if DEFAULT_RUNTIME is None:
+            DEFAULT_RUNTIME = create_verifier_runtime_from_env()
     return DEFAULT_RUNTIME
 
 
@@ -296,22 +303,9 @@ def _is_positive_int(value: object) -> bool:
 
 
 def main() -> None:
-    if len(sys.argv) == 2:
-        if sys.argv[1] == "serve_http":
-            run_http_server_from_env()
-            return
-        request = json.load(sys.stdin)
-        print(json.dumps(handle_cli_operation(sys.argv[1], request), separators=(",", ":")))
-        return
-    print("VoiceID verifier service. Use an operation name for CLI mode or serve_http for HTTP mode.")
-
-
-def handle_cli_operation(operation: str, request: dict[str, Any]) -> dict[str, Any]:
-    if operation == "build_enrollment_template":
-        return build_enrollment_template_from_json(request)
-    if operation == "verify_speaker":
-        return verify_speaker_from_json(request)
-    raise ValueError("unknown verifier operation")
+    if len(sys.argv) != 2 or sys.argv[1] != "serve_http":
+        raise SystemExit("VoiceID verifier requires the serve_http operation")
+    run_http_server_from_env()
 
 
 def handle_http_operation(
@@ -333,38 +327,73 @@ class VoiceIdVerifierHttpServer(ThreadingHTTPServer):
         self,
         server_address: tuple[str, int],
         runtime: VerifierRuntime | None = None,
+        *,
+        maximum_concurrent_inferences: int = 1,
+        queue_wait_ms: int = 250,
     ) -> None:
-        self.verifier_runtime = runtime
+        if maximum_concurrent_inferences <= 0:
+            raise ValueError("maximum_concurrent_inferences must be positive")
+        if queue_wait_ms < 0:
+            raise ValueError("queue_wait_ms must be non-negative")
+        self.verifier_runtime = runtime or get_default_runtime()
+        self.maximum_concurrent_inferences = maximum_concurrent_inferences
+        self.queue_wait_ms = queue_wait_ms
+        self._inference_slots = threading.BoundedSemaphore(maximum_concurrent_inferences)
         super().__init__(server_address, VoiceIdVerifierHttpHandler)
+
+    def acquire_inference_slot(self) -> bool:
+        return self._inference_slots.acquire(timeout=self.queue_wait_ms / 1000)
+
+    def release_inference_slot(self) -> None:
+        self._inference_slots.release()
+
+    def health_response(self) -> dict[str, Any]:
+        metadata = self.verifier_runtime.metadata
+        return {
+            "kind": "ok",
+            "service": "voice-id-verifier",
+            "readiness": "ready",
+            "runtime": {
+                "backend": metadata.backend,
+                "adapterId": metadata.adapter_id,
+                "modelId": metadata.model_id,
+                "modelVersion": metadata.model_version,
+                "thresholdVersion": metadata.threshold_version,
+                "templateVersion": metadata.template_version,
+                "embeddingDimensions": metadata.embedding_dimensions,
+                "maximumConcurrentInferences": self.maximum_concurrent_inferences,
+                "queueWaitMs": self.queue_wait_ms,
+            },
+            "routes": [
+                "POST /voice-id/verifier/build-enrollment-template",
+                "POST /voice-id/verifier/verify-speaker",
+            ],
+        }
 
 
 class VoiceIdVerifierHttpHandler(BaseHTTPRequestHandler):
-    server_version = "VoiceIdVerifierHTTP/0.2"
+    server_version = "VoiceIdVerifierHTTP/0.3"
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path.rstrip("/")
         if path in ("", "/health"):
-            self._write_json(
-                200,
-                {
-                    "kind": "ok",
-                    "service": "voice-id-verifier",
-                    "routes": [
-                        "POST /voice-id/verifier/build-enrollment-template",
-                        "POST /voice-id/verifier/verify-speaker",
-                    ],
-                },
-            )
+            self._write_json(200, self._verifier_server().health_response())
             return
         self._write_json(404, {"kind": "error", "error": {"kind": "not_found"}})
 
     def do_POST(self) -> None:
+        server = self._verifier_server()
+        admitted = False
         try:
             request = self._read_json_request()
+            admitted = server.acquire_inference_slot()
+            if not admitted:
+                self._write_json(503, verifier_overloaded(server.queue_wait_ms))
+                return
             response = handle_http_operation(
                 self.path,
                 request,
-                runtime=self._verifier_server().verifier_runtime,
+                runtime=server.verifier_runtime,
             )
         except VerifierSchemaError as error:
             self._write_json(400, malformed_request(error))
@@ -375,6 +404,9 @@ class VoiceIdVerifierHttpHandler(BaseHTTPRequestHandler):
         except Exception as error:
             self._write_json(500, verifier_error(error))
             return
+        finally:
+            if admitted:
+                server.release_inference_slot()
         self._write_json(200, response)
 
     def log_message(self, format: str, *args: Any) -> None:
@@ -406,11 +438,31 @@ class VoiceIdVerifierHttpHandler(BaseHTTPRequestHandler):
 def run_http_server_from_env() -> None:
     host = os.environ.get("VOICEID_VERIFIER_HOST", "127.0.0.1")
     port = int(os.environ.get("VOICEID_VERIFIER_PORT", "5051"))
-    run_http_server(host=host, port=port)
+    maximum_concurrent_inferences = positive_int_from_env(
+        "VOICEID_VERIFIER_MAX_CONCURRENT_INFERENCES",
+        1,
+    )
+    queue_wait_ms = non_negative_int_from_env("VOICEID_VERIFIER_QUEUE_WAIT_MS", 250)
+    run_http_server(
+        host=host,
+        port=port,
+        maximum_concurrent_inferences=maximum_concurrent_inferences,
+        queue_wait_ms=queue_wait_ms,
+    )
 
 
-def run_http_server(*, host: str, port: int) -> None:
-    server = VoiceIdVerifierHttpServer((host, port))
+def run_http_server(
+    *,
+    host: str,
+    port: int,
+    maximum_concurrent_inferences: int,
+    queue_wait_ms: int,
+) -> None:
+    server = VoiceIdVerifierHttpServer(
+        (host, port),
+        maximum_concurrent_inferences=maximum_concurrent_inferences,
+        queue_wait_ms=queue_wait_ms,
+    )
     print(f"VoiceID verifier sidecar listening on http://{host}:{port}", flush=True)
     server.serve_forever()
 
@@ -427,6 +479,30 @@ def verifier_error(error: Exception) -> dict[str, Any]:
         "kind": "error",
         "error": {"kind": "verifier_unavailable", "message": str(error)},
     }
+
+
+def verifier_overloaded(queue_wait_ms: int) -> dict[str, Any]:
+    return {
+        "kind": "error",
+        "error": {
+            "kind": "overloaded",
+            "message": f"verifier queue did not admit the request within {queue_wait_ms}ms",
+        },
+    }
+
+
+def positive_int_from_env(name: str, default: int) -> int:
+    value = int(os.environ.get(name, str(default)))
+    if value <= 0:
+        raise ValueError(f"{name} must be positive")
+    return value
+
+
+def non_negative_int_from_env(name: str, default: int) -> int:
+    value = int(os.environ.get(name, str(default)))
+    if value < 0:
+        raise ValueError(f"{name} must be non-negative")
+    return value
 
 
 def _operation_for_path(path: str) -> str:

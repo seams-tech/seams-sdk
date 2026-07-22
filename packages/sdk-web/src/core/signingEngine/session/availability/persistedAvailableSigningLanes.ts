@@ -1,7 +1,7 @@
 import type { SigningSessionStatus } from '@/core/types/seams';
 import { toAccountId } from '@/core/types/accountIds';
 import { classifyThresholdEcdsaSessionRecordRoleLocalState } from '../persistence/ecdsaRoleLocalRecords';
-import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
+import { SIGNER_AUTH_METHODS, type SignerAuthMethod } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   thresholdEcdsaChainTargetKey,
@@ -42,6 +42,7 @@ import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signin
 import {
   buildEmailOtpAuthContextForWalletAuthMethod,
   type ThresholdEcdsaEmailOtpAuthContext,
+  type ThresholdEd25519SessionStoreSource,
 } from '../identity/laneIdentity';
 import type { ExactEd25519SigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
 import type { SigningLaneAuthBinding } from '../identity/signingLaneAuthBinding';
@@ -117,6 +118,27 @@ type NormalizedPersistedEd25519Fields = {
 
 function assertNeverPersistedEd25519AuthMethod(value: never): never {
   throw new Error(`Unsupported persisted Ed25519 auth method: ${String(value)}`);
+}
+
+function authMethodForEd25519SessionSource(
+  source: ThresholdEd25519SessionStoreSource,
+): SignerAuthMethod {
+  switch (source) {
+    case SIGNER_AUTH_METHODS.emailOtp:
+      return SIGNER_AUTH_METHODS.emailOtp;
+    case 'login':
+    case 'registration':
+    case 'add-signer':
+    case 'manual-connect':
+    case 'bootstrap':
+      return SIGNER_AUTH_METHODS.passkey;
+    default:
+      return assertNeverThresholdEd25519SessionSource(source);
+  }
+}
+
+function assertNeverThresholdEd25519SessionSource(value: never): never {
+  throw new Error(`Unsupported threshold Ed25519 session source: ${String(value)}`);
 }
 
 function buildPersistedPasskeyEd25519SessionRecord(args: {
@@ -225,7 +247,7 @@ function ed25519SessionRecordFromSealedRecord(
       participantIds,
     };
     switch (record.authMethod) {
-      case 'passkey': {
+      case SIGNER_AUTH_METHODS.passkey: {
         const credentialIdB64u = String(restore.credentialIdB64u || '').trim();
         if (!credentialIdB64u) return null;
         return buildPersistedPasskeyEd25519SessionRecord({
@@ -234,7 +256,7 @@ function ed25519SessionRecordFromSealedRecord(
           credentialIdB64u,
         });
       }
-      case 'email_otp': {
+      case SIGNER_AUTH_METHODS.emailOtp: {
         if (!('provider' in restore)) return null;
         const providerSubjectId = String(restore.providerSubjectId || '').trim();
         const emailHashHex = String(restore.emailHashHex || '').trim();
@@ -653,7 +675,7 @@ export async function readPersistedAvailableSigningLanesForTargets(
     {
       listSealedRecordsForWallet: async ({ walletId: recordWalletId, filter }) => {
         const listByAuthMethod = async (
-          authMethod: 'email_otp' | 'passkey',
+          authMethod: SignerAuthMethod,
         ): Promise<Array<SigningSessionSealedStoreRecord | EcdsaReauthAnchorRecord>> => {
           if (filter.curve === 'ecdsa') {
             return await listExactSealedSessionsForWallet({
@@ -669,25 +691,32 @@ export async function readPersistedAvailableSigningLanesForTargets(
             walletId: recordWalletId,
             filter: { authMethod, curve: 'ed25519' },
           });
-          if (authMethod !== 'email_otp') return ed25519Records;
-          const companionEcdsaRecords = filterEmailOtpCompanionEcdsaRecords(
-            await listEcdsaSealedSessionsForWallet({
-              walletId: recordWalletId,
-              filter: {
-                authMethod: 'email_otp',
-                curve: 'ecdsa',
-              },
-            }),
-            args.ecdsaChainTargets,
-          );
-          return [...ed25519Records, ...companionEcdsaRecords];
+          switch (authMethod) {
+            case SIGNER_AUTH_METHODS.passkey:
+              return ed25519Records;
+            case SIGNER_AUTH_METHODS.emailOtp: {
+              const companionEcdsaRecords = filterEmailOtpCompanionEcdsaRecords(
+                await listEcdsaSealedSessionsForWallet({
+                  walletId: recordWalletId,
+                  filter: {
+                    authMethod: SIGNER_AUTH_METHODS.emailOtp,
+                    curve: 'ecdsa',
+                  },
+                }),
+                args.ecdsaChainTargets,
+              );
+              return [...ed25519Records, ...companionEcdsaRecords];
+            }
+            default:
+              return assertNeverPersistedEd25519AuthMethod(authMethod);
+          }
         };
         if (filter.authMethod) {
           return await listByAuthMethod(filter.authMethod);
         }
         const [emailOtpRecords, passkeyRecords] = await Promise.all([
-          listByAuthMethod('email_otp'),
-          listByAuthMethod('passkey'),
+          listByAuthMethod(SIGNER_AUTH_METHODS.emailOtp),
+          listByAuthMethod(SIGNER_AUTH_METHODS.passkey),
         ]);
         return [...emailOtpRecords, ...passkeyRecords];
       },
@@ -701,11 +730,11 @@ export async function readPersistedAvailableSigningLanesForTargets(
         const [emailOtpRecords, passkeyRecords] = await Promise.all([
           listEcdsaSealedSessionsForWallet({
             walletId: recordWalletId,
-            filter: { authMethod: 'email_otp', curve: 'ecdsa' },
+            filter: { authMethod: SIGNER_AUTH_METHODS.emailOtp, curve: 'ecdsa' },
           }),
           listEcdsaSealedSessionsForWallet({
             walletId: recordWalletId,
-            filter: { authMethod: 'passkey', curve: 'ecdsa' },
+            filter: { authMethod: SIGNER_AUTH_METHODS.passkey, curve: 'ecdsa' },
           }),
         ]);
         return [...emailOtpRecords, ...passkeyRecords];
@@ -768,8 +797,7 @@ export async function readPersistedAvailableSigningLanesForTargets(
         for (const runtimeRecord of listStoredThresholdEd25519SessionLaneRecordsForWallet(
           recordWalletId,
         )) {
-          const authMethod =
-            runtimeRecord.source === SIGNER_AUTH_METHODS.emailOtp ? 'email_otp' : 'passkey';
+          const authMethod = authMethodForEd25519SessionSource(runtimeRecord.source);
           if (args.authMethod && args.authMethod !== authMethod) continue;
           const candidate = thresholdEd25519LaneCandidateFromSessionRecord({
             record: runtimeRecord,
@@ -801,11 +829,11 @@ export async function readPersistedAvailableSigningLanesForTargets(
               await Promise.all([
                 listExactSealedSessionsForWallet({
                   walletId: recordWalletId,
-                  filter: { authMethod: 'email_otp', curve: 'ed25519' },
+                  filter: { authMethod: SIGNER_AUTH_METHODS.emailOtp, curve: 'ed25519' },
                 }),
                 listExactSealedSessionsForWallet({
                   walletId: recordWalletId,
-                  filter: { authMethod: 'passkey', curve: 'ed25519' },
+                  filter: { authMethod: SIGNER_AUTH_METHODS.passkey, curve: 'ed25519' },
                 }),
               ])
             ).flat();
@@ -907,7 +935,8 @@ export async function readPersistedAvailableSigningLanesForTargets(
                 localAdvisory = null;
               }
             } else {
-              const materialState = classifyRouterAbEcdsaDerivationPersistedSigningRecord(ecdsaRecord);
+              const materialState =
+                classifyRouterAbEcdsaDerivationPersistedSigningRecord(ecdsaRecord);
               if (materialState.kind === 'runtime_validated') {
                 localAdvisory = runtimeMaterialAdvisory({
                   record: ecdsaRecord,

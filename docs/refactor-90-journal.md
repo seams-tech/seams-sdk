@@ -6,6 +6,125 @@ This file holds dated progress entries so the plan stays a readable checklist.
 The plan records only a one-line status per phase; the narrative history lives
 here.
 
+## July 22, 2026: Invariant Wiring And Deletion-Ledger Restoration
+
+- Wired the `R90-INV` IDs into the plan: each Settled Architecture section,
+  Foundation exit-check list, migration phase, and validation subsection now
+  cites the SPEC invariants it instantiates, with the SPEC text normative on
+  divergence.
+- Reconstituted the symbol-level deletion targets lost in the July 22 slimming
+  as [refactor-90-deletion-ledger.md](./refactor-90-deletion-ledger.md),
+  extracted from the pre-slim plan at `f5eb4ace9`. Phases 6, 18, and 19 and
+  Foundation B link to it; scoped inventories seed from it.
+- Restored granular open-item checklists for the in-flight work: Foundations A
+  and B and Phases 4-5 record done-so-far groundwork and their remaining items
+  at sub-phase grain, updated to the slimmed architecture (two-state journals,
+  no synthetic third factor).
+- Restored three decided rules the slimming dropped: operation descriptors
+  declare quota applicability and key export never reads or spends wallet
+  signing quota (appended to `R90-INV-009` and plan §6); the Refactor 82B
+  `WalletAuthAuthority` restructure lands as one coordinated cut with Phase 7;
+  and the Ed25519 Yao implementation plan remains authoritative for the Yao
+  construction and production gates, which Refactor 90 cannot advance.
+- Escaped the unescaped pipe in the reduction-ledger `all \| any` row and
+  marked the SPEC's follow-on sections (service-account evidence, Better Auth
+  bridge, Enterprise SSO, IdP mode, `mpc_signer_proof`, `capability-idp-access`,
+  and the non-minimal vault surface) as design context rather than Refactor 90
+  acceptance surfaces.
+
+## July 22, 2026: Plan Simplification And Recovery-State Reduction
+
+- Replaced the 5,383-line multi-purpose plan with a 725-line implementation
+  checklist. The companion SPEC now owns twelve numbered normative invariants;
+  phases cite them instead of repeating state machines, effect order, and test
+  rules.
+- Reduced Near recovery persistence to `prepared | promotion_committed`.
+  `prepared` carries `continue | cancel_requested`; every consuming server call
+  is independently idempotent and queryable by recovery ID. The final IndexedDB
+  transaction writes replacement/retirement/lifecycle facts and deletes the
+  journal atomically.
+- Reduced ECDSA activation persistence to
+  `activation_prepared | server_activation_committed`. Material, manifest,
+  replaced-manifest retirement, and journal deletion commit atomically. Optional
+  canonical readback is verification after commit and no longer a durable
+  lifecycle stage.
+- Removed the public affine material-lease protocol in favor of one exact-owner
+  queue plus generation/fence checks. Volatile runtime publication, disposal,
+  and zeroization remain worker lifecycle responsibilities rather than journal
+  facts.
+- Preserved a minimal production-shaped vault vertical to prove native session,
+  operation-bound Passkey evidence, exact one-use grant enforcement, one vault
+  operation, and audit. Full vault workflows, service accounts, Better Auth,
+  IdP, Slack OTP evidence, speculative route registries, and unmeasured package
+  splits moved out of the Refactor 90 critical path.
+- Replaced the repository-wide Phase 6 gate with scoped phase-local inventories,
+  removed synthetic-third-factor conformance, flattened current evidence policy,
+  retained an architectural literal/import guard for factor-neutral generic
+  coordination, and added a reduction ledger mapping every removed mechanism to
+  its replacement security property and check.
+
+## July 22, 2026: Canonical Auth-Method Domain Reconciliation
+
+- [Refactor 91](./refactor-91.md) implemented canonical and distinct wallet,
+  signer, and proof auth-method domains across shared types, SDK signing/session
+  policy, persistence boundaries, UI routing, registration events, and server
+  authority parsing. Implicit passkey fallbacks and the broad `AuthMethod` alias
+  were removed; wallet-to-signer and signer-to-protocol conversion now fail
+  closed and compile exhaustively.
+- Refactor 90 treats this as completed current-stack groundwork for Phases 6, 7,
+  17, 18, 22, and 23. It does not complete the SPEC-owned auth-factor/evidence
+  vocabulary, `WalletAuthAuthorityRef` lane migration, capability-local type
+  relocation, or wallet persistence migration.
+- Shared, SDK, server, and intended-test type checks, the auth-domain and
+  account/signer lifecycle guards, focused EVM auth tests, and `git diff --check`
+  pass. Full intended-behaviour acceptance remains blocked because the local
+  site returned HTTP 502 before any auth-flow assertion ran.
+- Phase 6 must absorb Refactor 91's occurrence inventory and temporary guard
+  allowlists into the owner/action ledger. Phases 18, 19, and 22 must retire each
+  allowlist row as method decisions move to their final adapters or become
+  structurally exhaustive; no compatibility alias or implicit passkey branch may
+  return during relocation.
+
+## July 22, 2026: Email OTP Exact-Material Unlock Reconciliation
+
+- Implementation landed for
+  [the Email OTP exact-material unlock patch](./refactor-patch-2-email-otp-local-rehydration.md)
+  against the current wallet-first stack. The current implementation adds a
+  worker-owned Email OTP Ed25519 active-Client envelope and reuses the canonical
+  ECDSA role-local material owner. Same-device unlock follows fresh OTP
+  verification; explicit Yao recovery remains available only for genuine
+  Ed25519 envelope absence.
+- Refactor 90 now treats `exact_material_ready | material_absent |
+  material_invalid` as a capability-material-adapter custody observation that
+  precedes fresh session binding. It is not a fifth Foundation A hydration
+  branch. Imported material remains pending and non-signable until authority
+  binding, durable commit, read-back, and exact canonical re-resolution.
+- The patch may land before Foundations A and B. It does not complete either
+  foundation: Foundation A still owns the four canonical hydration outcomes,
+  and Foundation B still owns the sole active ECDSA manifest, activation
+  journal, and manifest-plus-material commit.
+- Phase 19 must preserve the worker-owned KDF/envelope boundary, exact identity
+  verification, absent-versus-invalid semantics, and zero-Yao routine unlock
+  behavior while replacing the tactical combined two-curve coordinator with
+  capability-specific material adapters. It must preserve the new exact-local
+  session versus missing-material recovery intent split and the pinned Yao
+  lifecycle identity while rotating wallet authority. Phase 23 replaces the
+  wallet-first Ed25519-envelope-plus-canonical-ECDSA registration commit with
+  canonical per-capability provisioning.
+- Phase 6 inventory, Phase 17 authority migration, and Phase 21 worker split now
+  explicitly include the patch's new Ed25519 record, worker commands, stable
+  custody binding, imported active-Client handle, route intents, combined unlock
+  result types, and deletion targets.
+- The companion patch reports implementation complete with manual latency and
+  intended-behaviour acceptance pending. SDK and server type checks plus the
+  focused worker regression tests pass at this checkpoint. Refactor 90 continues
+  to treat the patch as in progress until the exact-local and missing-material
+  server paths, persistence-failure activation rollback, distinct path audit and
+  timing labels, intended-behaviour matrix, and performance gates pass. The
+  current request boundary also accepts an omitted Ed25519 session intent
+  without an explicit requested-capability set; Phase 19 must remove that
+  implicit branch.
+
 ## July 20, 2026: Stable Wallet Lifecycle Checkpoint Reconciliation
 
 - Reconciled stabilization commits after `06c923053` through checkpoint

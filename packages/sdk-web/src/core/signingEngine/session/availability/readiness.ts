@@ -1,6 +1,10 @@
 import type { SigningSessionStatus } from '@/core/types/seams';
+import { SIGNER_AUTH_METHODS, type SignerAuthMethod } from '@shared/utils/signerDomain';
 import { classifyThresholdEcdsaSessionRecordRoleLocalState } from '../persistence/ecdsaRoleLocalRecords';
-import type { VolatileWarmMaterialPort, WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
+import type {
+  VolatileWarmMaterialPort,
+  WarmSessionStatusResult,
+} from '../../uiConfirm/uiConfirm.types';
 import {
   clearStoredThresholdEd25519SessionRecordForLaneKey,
   listStoredThresholdEd25519SessionLaneRecordsForWallet,
@@ -63,7 +67,7 @@ export type SigningSessionLane = {
   curve: 'ed25519' | 'ecdsa';
   chain?: 'near' | 'tempo' | 'evm';
   chainTarget?: ThresholdEcdsaChainTarget;
-  source: 'passkey' | 'email_otp';
+  source: SignerAuthMethod;
   thresholdSessionId: string;
   signingGrantId: string;
   backingMaterialSessionId: string;
@@ -236,8 +240,46 @@ function resolveSigningGrantId(
 
 function toLaneSource(
   record: ThresholdEd25519SessionRecord | ThresholdEcdsaSessionRecord,
-): 'passkey' | 'email_otp' {
-  return record.source === 'email_otp' ? 'email_otp' : 'passkey';
+): SignerAuthMethod {
+  const source = record.source;
+  switch (source) {
+    case SIGNER_AUTH_METHODS.emailOtp:
+      return SIGNER_AUTH_METHODS.emailOtp;
+    case 'login':
+    case 'registration':
+    case 'manual-bootstrap':
+    case 'add-signer':
+    case 'manual-connect':
+    case 'bootstrap':
+      return SIGNER_AUTH_METHODS.passkey;
+    default:
+      return assertNeverSigningSessionStoreSource(source);
+  }
+}
+
+function assertNeverSigningSessionStoreSource(value: never): never {
+  throw new Error(`Unsupported signing session store source: ${String(value)}`);
+}
+
+function authMethodForSigningSessionLanes(
+  lanes: readonly DiscoveredSigningSessionLane[],
+): SignerAuthMethod | null {
+  for (const lane of lanes) {
+    const source = lane.source;
+    switch (source) {
+      case SIGNER_AUTH_METHODS.emailOtp:
+        return SIGNER_AUTH_METHODS.emailOtp;
+      case SIGNER_AUTH_METHODS.passkey:
+        break;
+      default:
+        return assertNeverSigningSessionLaneAuthMethod(source);
+    }
+  }
+  return null;
+}
+
+function assertNeverSigningSessionLaneAuthMethod(value: never): never {
+  throw new Error(`Unsupported signing session lane auth method: ${String(value)}`);
 }
 
 function resolveRecordWalletOwnerId(
@@ -378,7 +420,9 @@ export function buildDiscoveredLaneForRecord(
         signingGrantId,
       });
     }
-    if (classifyRouterAbEcdsaDerivationPersistedSigningRecord(record).kind !== 'runtime_validated') {
+    if (
+      classifyRouterAbEcdsaDerivationPersistedSigningRecord(record).kind !== 'runtime_validated'
+    ) {
       return null;
     }
     return {
@@ -669,19 +713,16 @@ export function rememberSigningGrantStatusOverride(args: {
     owner: args.owner,
     lanes: args.lanes,
   })) {
-    args.overrides.set(
-      walletOwnerSigningSessionStatusOverrideKey(owner, signingGrantId),
-      {
-        owner,
-        signingGrantId,
-        status: {
-          ...args.status,
-          sessionId: signingGrantId,
-        },
-        thresholdSessionIds,
-        updatedAtMs: now,
+    args.overrides.set(walletOwnerSigningSessionStatusOverrideKey(owner, signingGrantId), {
+      owner,
+      signingGrantId,
+      status: {
+        ...args.status,
+        sessionId: signingGrantId,
       },
-    );
+      thresholdSessionIds,
+      updatedAtMs: now,
+    });
   }
 }
 
@@ -894,17 +935,18 @@ export function statusFromClaim(args: {
   lanes: DiscoveredSigningSessionLane[];
   claim: WarmSessionPrfClaim | null;
 }): SigningSessionStatus {
-  const emailOtpLane = args.lanes.find((lane) => lane.source === 'email_otp');
+  const emailOtpLane = args.lanes.find((lane) => lane.source === SIGNER_AUTH_METHODS.emailOtp);
   const emailOtpAuthContext =
-    emailOtpLane?.record.source === 'email_otp'
+    emailOtpLane?.record.source === SIGNER_AUTH_METHODS.emailOtp
       ? emailOtpLane.record.emailOtpAuthContext
       : null;
-  const emailOtpRetention =
-    emailOtpAuthContext ? emailOtpAuthContextRetention(emailOtpAuthContext) : null;
+  const emailOtpRetention = emailOtpAuthContext
+    ? emailOtpAuthContextRetention(emailOtpAuthContext)
+    : null;
   return toSigningSessionStatus({
     sessionId: args.signingGrantId,
     claim: args.claim,
-    authMethod: emailOtpLane ? 'email_otp' : 'passkey',
+    authMethod: authMethodForSigningSessionLanes(args.lanes),
     retention: emailOtpRetention,
   });
 }
@@ -913,18 +955,19 @@ export function statusFromConsumedLanes(args: {
   signingGrantId: string;
   lanes: DiscoveredSigningSessionLane[];
 }): SigningSessionStatus {
-  const emailOtpLane = args.lanes.find((lane) => lane.source === 'email_otp');
+  const emailOtpLane = args.lanes.find((lane) => lane.source === SIGNER_AUTH_METHODS.emailOtp);
   const emailOtpAuthContext =
-    emailOtpLane?.record.source === 'email_otp'
+    emailOtpLane?.record.source === SIGNER_AUTH_METHODS.emailOtp
       ? emailOtpLane.record.emailOtpAuthContext
       : null;
-  const emailOtpRetention =
-    emailOtpAuthContext ? emailOtpAuthContextRetention(emailOtpAuthContext) : null;
+  const emailOtpRetention = emailOtpAuthContext
+    ? emailOtpAuthContextRetention(emailOtpAuthContext)
+    : null;
   return {
     sessionId: args.signingGrantId,
     status: 'exhausted',
     remainingUses: 0,
-    ...(emailOtpLane ? { authMethod: 'email_otp' as const } : { authMethod: 'passkey' as const }),
+    authMethod: authMethodForSigningSessionLanes(args.lanes),
     ...(emailOtpRetention ? { retention: emailOtpRetention } : {}),
   };
 }
@@ -1047,24 +1090,18 @@ function admitActiveRecordPolicyLaneFromTrustedStatus(args: {
 }): WarmSessionStatusResult {
   const expiresAtMs = parseRecordPolicyBudgetInteger(args.status.expiresAtMs);
   if (expiresAtMs === null || expiresAtMs <= 0) {
-    return invalidRecordPolicyBudgetStatus(
-      'active server budget status is missing expiresAtMs',
-    );
+    return invalidRecordPolicyBudgetStatus('active server budget status is missing expiresAtMs');
   }
   const remainingUses = parseRecordPolicyBudgetInteger(args.status.remainingUses);
   if (remainingUses === null || remainingUses < 0) {
-    return invalidRecordPolicyBudgetStatus(
-      'active server budget status is missing remainingUses',
-    );
+    return invalidRecordPolicyBudgetStatus('active server budget status is missing remainingUses');
   }
   const availableUsesValue =
     args.status.availableUses === undefined
       ? undefined
       : parseRecordPolicyBudgetInteger(args.status.availableUses);
   if (availableUsesValue !== undefined && (availableUsesValue === null || availableUsesValue < 0)) {
-    return invalidRecordPolicyBudgetStatus(
-      'active server budget status has invalid availableUses',
-    );
+    return invalidRecordPolicyBudgetStatus('active server budget status has invalid availableUses');
   }
   const activeStatus: SigningSessionStatus & { status: 'active' } = {
     sessionId: args.status.sessionId,

@@ -1,7 +1,4 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import test from 'node:test';
 import {
   buildAudioInput,
@@ -24,10 +21,6 @@ import {
   PythonHttpVoiceIdVerifierError,
   PythonHttpVoiceIdVerifierTransport,
 } from '../../server/src/verifier/PythonHttpVoiceIdVerifierTransport.ts';
-import {
-  PythonSubprocessVoiceIdVerifierError,
-  PythonSubprocessVoiceIdVerifierTransport,
-} from '../../server/src/verifier/PythonSubprocessVoiceIdVerifierTransport.ts';
 
 test('PythonVoiceIdVerifier submits one continuous recording for atomic enrollment', async () => {
   const capturedRequests: PythonBuildEnrollmentTemplateRequest[] = [];
@@ -127,46 +120,6 @@ test('Python speaker parser rejects malformed scores', () => {
   );
 });
 
-test('Python subprocess transport builds a template without exporting embeddings', async () => {
-  const verifier = new PythonVoiceIdVerifier({
-    createRequestId: () => 'subprocess_request_1',
-    transport: new PythonSubprocessVoiceIdVerifierTransport({
-      env: { VOICEID_VERIFIER_BACKEND: 'placeholder' },
-    }),
-  });
-
-  const result = await verifier.buildEnrollmentTemplate({
-    audio: makeEnrollmentAudio(),
-    expectedPromptCount: 4,
-  });
-
-  assert.equal(result.kind, 'built');
-  assert.equal(result.kind === 'built' ? result.analysis.windows.length : 0, 4);
-});
-
-test('Python subprocess transport reports timeouts', async () => {
-  const tempDir = await mkdtemp(join(tmpdir(), 'voiceid-verifier-'));
-  const scriptPath = join(tempDir, 'sleeping_verifier.py');
-  await writeFile(scriptPath, 'import time\ntime.sleep(2)\n', 'utf8');
-  const verifier = new PythonVoiceIdVerifier({
-    transport: new PythonSubprocessVoiceIdVerifierTransport({
-      appScriptPath: scriptPath,
-      verifierPackagePath: tempDir,
-      timeoutMs: 25,
-    }),
-  });
-
-  await assert.rejects(
-    () =>
-      verifier.buildEnrollmentTemplate({
-        audio: makeTransportOnlyAudio(),
-        expectedPromptCount: 4,
-      }),
-    (error) =>
-      error instanceof PythonSubprocessVoiceIdVerifierError && /timed out/.test(error.message),
-  );
-});
-
 test('Python HTTP transport posts to the atomic enrollment endpoint', async () => {
   const capturedRequests: Array<{ url: string; body: unknown }> = [];
   const verifier = new PythonVoiceIdVerifier({
@@ -254,10 +207,6 @@ function makeEnrollmentAudio(): VoiceIdAudioInput {
 
 function makeVerificationAudio(): VoiceIdAudioInput {
   return makeAudio(makeWav([{ frequencyHz: 240, durationMs: 1800 }]), 1800);
-}
-
-function makeTransportOnlyAudio(): VoiceIdAudioInput {
-  return makeAudio(new Uint8Array([1, 2, 3, 4]), 6000);
 }
 
 function makeAudio(bytes: Uint8Array, durationMs: number): VoiceIdAudioInput {

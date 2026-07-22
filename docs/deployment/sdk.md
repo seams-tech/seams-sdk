@@ -72,7 +72,9 @@ artifact, verifies its manifest, and uploads it without invoking Cargo,
 
 ## R2 Runtime Publish
 
-`publish-sdk-r2.yml` publishes signed `packages/sdk-web/dist` bundles to R2.
+`publish-sdk-r2.yml` optionally publishes signed `packages/sdk-web/dist`
+bundles to R2. It is manual-only and is separate from Pages deployment; Pages
+already serves the runtime bundles required by the hosted wallet.
 
 Default prefixes:
 
@@ -92,7 +94,7 @@ It installs cosign through `sigstore/cosign-installer` and signs
 `manifest.json` with GitHub OIDC keyless signing. The workflow needs
 `id-token: write`.
 
-Manual R2 publish:
+Run the optional R2 publish manually after CI succeeds for the selected ref:
 
 ```bash
 gh workflow run publish-sdk-r2.yml --ref dev -f prefix=auto

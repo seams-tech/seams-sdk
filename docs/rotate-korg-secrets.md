@@ -3,7 +3,7 @@
 Date updated: June 11, 2026
 
 Status: design plan aligned with
-[docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/router-a-b-SPEC.md).
+[docs/router-ab/protocol.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/router-ab/protocol.md).
 
 ## Objective
 
@@ -68,7 +68,7 @@ shares plus the customer backup package. There is no platform-only
 
 ## Relationship To Router A/B
 
-`docs/router-a-b-SPEC.md` owns the online service architecture:
+`docs/router-ab/protocol.md` owns the online service architecture:
 
 ```text
 Client -> Router -> Signer A

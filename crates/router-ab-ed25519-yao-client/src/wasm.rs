@@ -29,10 +29,14 @@ use signer_core::near_threshold_ed25519::CommitmentsWire;
 const ACTIVATED_CLIENT_SEAL_VERSION_V1: u8 = 1;
 const ACTIVATED_CLIENT_PLAINTEXT_LEN_V1: usize = 1 + 32 + 32 + 8;
 const ACTIVATED_CLIENT_NONCE_LEN_V1: usize = 12;
-const ACTIVATED_CLIENT_SEAL_INFO_V1: &[u8] =
+const PASSKEY_ACTIVATED_CLIENT_SEAL_INFO_V1: &[u8] =
     b"seams/router-ab/ed25519-yao/activated-client-seal/v1";
-const ACTIVATED_CLIENT_SEAL_SALT_V1: &[u8] =
+const PASSKEY_ACTIVATED_CLIENT_SEAL_SALT_V1: &[u8] =
     b"seams/router-ab/ed25519-yao/activated-client-seal/salt/v1";
+const EMAIL_OTP_ACTIVATED_CLIENT_SEAL_INFO_V1: &[u8] =
+    b"seams/router-ab/ed25519-yao/activated-client-seal/email-otp/v1";
+const EMAIL_OTP_ACTIVATED_CLIENT_SEAL_SALT_V1: &[u8] =
+    b"seams/router-ab/ed25519-yao/activated-client-seal/email-otp/salt/v1";
 const MAX_ACTIVATED_CLIENT_BINDING_LEN_V1: usize = 4096;
 
 /// One-use browser registration session containing only Client-owned secret state.
@@ -566,24 +570,35 @@ impl WasmActivatedClientV1 {
         nonce: &[u8],
     ) -> Result<Vec<u8>, JsValue> {
         let wrapping_secret = Zeroizing::new(parse_32(passkey_prf_first, "passkey PRF.first")?);
-        let nonce = parse_12(nonce, "activated Client seal nonce")?;
-        validate_activated_client_binding(binding)?;
-        let key = derive_activated_client_seal_key(&wrapping_secret, binding)?;
-        let mut plaintext = Zeroizing::new([0u8; ACTIVATED_CLIENT_PLAINTEXT_LEN_V1]);
-        plaintext[0] = ACTIVATED_CLIENT_SEAL_VERSION_V1;
-        plaintext[1..33].copy_from_slice(&self.client_scalar_share[..]);
-        plaintext[33..65].copy_from_slice(&self.registered_public_key);
-        plaintext[65..73].copy_from_slice(&self.state_epoch.to_be_bytes());
-        ChaCha20Poly1305::new_from_slice(&key[..])
-            .map_err(js_error)?
-            .encrypt(
-                Nonce::from_slice(&nonce),
-                Payload {
-                    msg: plaintext.as_slice(),
-                    aad: binding,
-                },
-            )
-            .map_err(|_| JsValue::from_str("Ed25519 Yao activated Client seal failed"))
+        seal_activated_client_local_material(
+            self,
+            &wrapping_secret,
+            binding,
+            nonce,
+            PASSKEY_ACTIVATED_CLIENT_SEAL_SALT_V1,
+            PASSKEY_ACTIVATED_CLIENT_SEAL_INFO_V1,
+        )
+    }
+
+    /// Authenticates and encrypts active Client material under Email OTP enrollment custody.
+    pub fn seal_email_otp_local_material(
+        &self,
+        owned_enrollment_secret32: &[u8],
+        binding: &[u8],
+        nonce: &[u8],
+    ) -> Result<Vec<u8>, JsValue> {
+        let wrapping_secret = Zeroizing::new(parse_32(
+            owned_enrollment_secret32,
+            "Email OTP enrollment secret",
+        )?);
+        seal_activated_client_local_material(
+            self,
+            &wrapping_secret,
+            binding,
+            nonce,
+            EMAIL_OTP_ACTIVATED_CLIENT_SEAL_SALT_V1,
+            EMAIL_OTP_ACTIVATED_CLIENT_SEAL_INFO_V1,
+        )
     }
 
     /// Opens a same-device envelope and re-verifies its public threshold relation.
@@ -600,61 +615,49 @@ impl WasmActivatedClientV1 {
         signing_worker_verifying_share: &[u8],
     ) -> Result<WasmActivatedClientV1, JsValue> {
         let wrapping_secret = Zeroizing::new(parse_32(passkey_prf_first, "passkey PRF.first")?);
-        let nonce = parse_12(nonce, "activated Client seal nonce")?;
-        validate_activated_client_binding(binding)?;
-        let expected_registered_public_key = parse_32(
+        import_activated_client_local_material(
+            &wrapping_secret,
+            binding,
+            nonce,
+            ciphertext,
             expected_registered_public_key,
-            "expected registered Ed25519 public key",
-        )?;
-        let signing_worker_verifying_share = parse_32(
-            signing_worker_verifying_share,
-            "SigningWorker verifying share",
-        )?;
-        let key = derive_activated_client_seal_key(&wrapping_secret, binding)?;
-        let plaintext = ChaCha20Poly1305::new_from_slice(&key[..])
-            .map_err(js_error)?
-            .decrypt(
-                Nonce::from_slice(&nonce),
-                Payload {
-                    msg: ciphertext,
-                    aad: binding,
-                },
-            )
-            .map(Zeroizing::new)
-            .map_err(|_| JsValue::from_str("Ed25519 Yao activated Client envelope is invalid"))?;
-        if plaintext.len() != ACTIVATED_CLIENT_PLAINTEXT_LEN_V1
-            || plaintext[0] != ACTIVATED_CLIENT_SEAL_VERSION_V1
-        {
-            return Err(JsValue::from_str(
-                "Ed25519 Yao activated Client envelope version is invalid",
-            ));
-        }
-        let client_scalar_share = parse_32(&plaintext[1..33], "sealed Client scalar share")?;
-        let registered_public_key =
-            parse_32(&plaintext[33..65], "sealed registered Ed25519 public key")?;
-        let state_epoch = u64::from_be_bytes(
-            plaintext[65..73]
-                .try_into()
-                .map_err(|_| JsValue::from_str("sealed state epoch is invalid"))?,
-        );
-        if !bool::from(registered_public_key.ct_eq(&expected_registered_public_key))
-            || state_epoch != expected_state_epoch
-        {
-            return Err(JsValue::from_str(
-                "Ed25519 Yao activated Client envelope identity mismatch",
-            ));
-        }
-        verify_imported_public_relation(
-            &client_scalar_share,
+            expected_state_epoch,
             [client_participant_id, signing_worker_participant_id],
-            &signing_worker_verifying_share,
-            &registered_public_key,
-        )?;
-        Ok(WasmActivatedClientV1 {
-            client_scalar_share: Zeroizing::new(client_scalar_share),
-            registered_public_key,
-            state_epoch,
-        })
+            signing_worker_verifying_share,
+            PASSKEY_ACTIVATED_CLIENT_SEAL_SALT_V1,
+            PASSKEY_ACTIVATED_CLIENT_SEAL_INFO_V1,
+        )
+    }
+
+    /// Opens an Email OTP custody envelope and re-verifies its public threshold relation.
+    #[allow(clippy::too_many_arguments)]
+    pub fn import_email_otp_local_material(
+        owned_enrollment_secret32: &[u8],
+        binding: &[u8],
+        nonce: &[u8],
+        ciphertext: &[u8],
+        expected_registered_public_key: &[u8],
+        expected_state_epoch: u64,
+        client_participant_id: u16,
+        signing_worker_participant_id: u16,
+        signing_worker_verifying_share: &[u8],
+    ) -> Result<WasmActivatedClientV1, JsValue> {
+        let wrapping_secret = Zeroizing::new(parse_32(
+            owned_enrollment_secret32,
+            "Email OTP enrollment secret",
+        )?);
+        import_activated_client_local_material(
+            &wrapping_secret,
+            binding,
+            nonce,
+            ciphertext,
+            expected_registered_public_key,
+            expected_state_epoch,
+            [client_participant_id, signing_worker_participant_id],
+            signing_worker_verifying_share,
+            EMAIL_OTP_ACTIVATED_CLIENT_SEAL_SALT_V1,
+            EMAIL_OTP_ACTIVATED_CLIENT_SEAL_INFO_V1,
+        )
     }
 
     /// Creates a signature share while retaining the Client scalar inside WASM.
@@ -688,13 +691,114 @@ fn validate_activated_client_binding(binding: &[u8]) -> Result<(), JsValue> {
     Ok(())
 }
 
+fn seal_activated_client_local_material(
+    activated_client: &WasmActivatedClientV1,
+    wrapping_secret: &[u8; 32],
+    binding: &[u8],
+    nonce: &[u8],
+    salt: &[u8],
+    info: &[u8],
+) -> Result<Vec<u8>, JsValue> {
+    let nonce = parse_12(nonce, "activated Client seal nonce")?;
+    validate_activated_client_binding(binding)?;
+    let key = derive_activated_client_seal_key(wrapping_secret, binding, salt, info)?;
+    let mut plaintext = Zeroizing::new([0u8; ACTIVATED_CLIENT_PLAINTEXT_LEN_V1]);
+    plaintext[0] = ACTIVATED_CLIENT_SEAL_VERSION_V1;
+    plaintext[1..33].copy_from_slice(&activated_client.client_scalar_share[..]);
+    plaintext[33..65].copy_from_slice(&activated_client.registered_public_key);
+    plaintext[65..73].copy_from_slice(&activated_client.state_epoch.to_be_bytes());
+    ChaCha20Poly1305::new_from_slice(&key[..])
+        .map_err(js_error)?
+        .encrypt(
+            Nonce::from_slice(&nonce),
+            Payload {
+                msg: plaintext.as_slice(),
+                aad: binding,
+            },
+        )
+        .map_err(|_| JsValue::from_str("Ed25519 Yao activated Client seal failed"))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn import_activated_client_local_material(
+    wrapping_secret: &[u8; 32],
+    binding: &[u8],
+    nonce: &[u8],
+    ciphertext: &[u8],
+    expected_registered_public_key: &[u8],
+    expected_state_epoch: u64,
+    participant_ids: [u16; 2],
+    signing_worker_verifying_share: &[u8],
+    salt: &[u8],
+    info: &[u8],
+) -> Result<WasmActivatedClientV1, JsValue> {
+    let nonce = parse_12(nonce, "activated Client seal nonce")?;
+    validate_activated_client_binding(binding)?;
+    let expected_registered_public_key = parse_32(
+        expected_registered_public_key,
+        "expected registered Ed25519 public key",
+    )?;
+    let signing_worker_verifying_share = parse_32(
+        signing_worker_verifying_share,
+        "SigningWorker verifying share",
+    )?;
+    let key = derive_activated_client_seal_key(wrapping_secret, binding, salt, info)?;
+    let plaintext = ChaCha20Poly1305::new_from_slice(&key[..])
+        .map_err(js_error)?
+        .decrypt(
+            Nonce::from_slice(&nonce),
+            Payload {
+                msg: ciphertext,
+                aad: binding,
+            },
+        )
+        .map(Zeroizing::new)
+        .map_err(|_| JsValue::from_str("Ed25519 Yao activated Client envelope is invalid"))?;
+    if plaintext.len() != ACTIVATED_CLIENT_PLAINTEXT_LEN_V1
+        || plaintext[0] != ACTIVATED_CLIENT_SEAL_VERSION_V1
+    {
+        return Err(JsValue::from_str(
+            "Ed25519 Yao activated Client envelope version is invalid",
+        ));
+    }
+    let client_scalar_share =
+        Zeroizing::new(parse_32(&plaintext[1..33], "sealed Client scalar share")?);
+    let registered_public_key =
+        parse_32(&plaintext[33..65], "sealed registered Ed25519 public key")?;
+    let state_epoch = u64::from_be_bytes(
+        plaintext[65..73]
+            .try_into()
+            .map_err(|_| JsValue::from_str("sealed state epoch is invalid"))?,
+    );
+    if !bool::from(registered_public_key.ct_eq(&expected_registered_public_key))
+        || state_epoch != expected_state_epoch
+    {
+        return Err(JsValue::from_str(
+            "Ed25519 Yao activated Client envelope identity mismatch",
+        ));
+    }
+    verify_imported_public_relation(
+        &client_scalar_share,
+        participant_ids,
+        &signing_worker_verifying_share,
+        &registered_public_key,
+    )?;
+    Ok(WasmActivatedClientV1 {
+        client_scalar_share,
+        registered_public_key,
+        state_epoch,
+    })
+}
+
 fn derive_activated_client_seal_key(
     wrapping_secret: &[u8; 32],
     binding: &[u8],
+    salt: &[u8],
+    info: &[u8],
 ) -> Result<Zeroizing<[u8; 32]>, JsValue> {
-    let hkdf = Hkdf::<Sha256>::new(Some(ACTIVATED_CLIENT_SEAL_SALT_V1), wrapping_secret);
+    let hkdf = Hkdf::<Sha256>::new(Some(salt), wrapping_secret);
     let mut key = Zeroizing::new([0u8; 32]);
-    hkdf.expand_multi_info(&[ACTIVATED_CLIENT_SEAL_INFO_V1, binding], &mut key[..])
+    hkdf.expand_multi_info(&[info, binding], &mut key[..])
         .map_err(|_| JsValue::from_str("Ed25519 Yao activated Client key derivation failed"))?;
     Ok(key)
 }

@@ -69,6 +69,8 @@ It returns component results and has no wallet authority.
 VOICEID_VERIFIER_TRANSPORT=python-http
 VOICEID_PYTHON_VERIFIER_URL=http://127.0.0.1:5051/voice-id/verifier/
 VOICEID_VERIFIER_BACKEND=ecapa
+VOICEID_VERIFIER_MAX_CONCURRENT_INFERENCES=1
+VOICEID_VERIFIER_QUEUE_WAIT_MS=250
 ```
 
 The current development threshold is E0-only. E2 requires an immutable approved

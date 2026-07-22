@@ -6,7 +6,7 @@ Status: **local implementation closed July 16, 2026**. The viability-first
 implementation, hard cutover, Phase 14B artifact split, bounded local security
 assurance, and final readiness checkpoint are complete. Cloudflare deployment,
 deployed benchmarking, profile selection, and production release evidence remain
-deferred to [yaos-ab-deployment.md](./yaos-ab-deployment.md).
+deferred to [router-ab/ed25519-yao/deployment.md](./deployment.md).
 Streaming Yao is the sole Ed25519 split-derivation target. The benchmark-only
 passive kernel and complete local circuits now pass. Phase 9C local lifecycle
 usability is complete. The role-separated ceremony, bounded
@@ -49,11 +49,11 @@ Selection, and Production Suite Freeze gates pass.
 
 Companion documents:
 
-- [Router A/B solution refactor](./router-a-b-sol-refactor.md)
-- [Router A/B specification](./router-a-b-SPEC.md)
-- [Router A/B deployment](./router-a-b-deployment.md)
-- [Yao A/B deployment and production release](./yaos-ab-deployment.md)
-- [Final local readiness receipt](./evidence/yaos-ab-final-local-readiness-v1.json)
+- [Router A/B solution refactor](../../router-a-b-sol-refactor.md)
+- [Router A/B specification](../protocol.md)
+- [Router A/B deployment](../deployment.md)
+- [Yao A/B deployment and production release](./deployment.md)
+- [Final local readiness receipt](../../evidence/yaos-ab-final-local-readiness-v1.json)
 
 Primary external references:
 
@@ -257,7 +257,7 @@ The July 10, 2026 Phase 0 decision resolved these prior conflicts:
 
 - `router-a-b-sol-refactor.md` classified Yao as a benchmark-only oracle and
   required genuine succinct HSS as the production implementation.
-- `router-a-b-deployment.md` described same-account Cloudflare as a production
+- `router-ab/deployment.md` described same-account Cloudflare as a production
   profile.
 - protocol identifiers and routes used HSS and `SignerA` / `SignerB`
   terminology for derivation roles.
@@ -268,9 +268,9 @@ checkpointed together when Phase 0 closed. From that checkpoint:
 - this document is authoritative for the Ed25519 secure-computation backend;
 - `router-a-b-sol-refactor.md` remains authoritative for the wider strict
   Router A/B and ECDSA migration;
-- `router-a-b-SPEC.md` remains authoritative for product lifecycle and public
+- `router-ab/protocol.md` remains authoritative for product lifecycle and public
   route behavior;
-- `router-a-b-deployment.md` remains authoritative for deployment mechanics,
+- `router-ab/deployment.md` remains authoritative for deployment mechanics,
   with separate accounts promoted to the strict production profile.
 
 The July 10, 2026 performance-priority amendment supersedes the prior rule that
@@ -2094,7 +2094,7 @@ proceeds in this order:
 Phase 9D, the deployed part of Phase 13A, Phase 6A profile selection, Phases
 6B-8 and 10, independent-account provisioning, deployed Phase 13B evidence,
 and Phase 15 are tracked in
-[yaos-ab-deployment.md](./yaos-ab-deployment.md) and remain outside this queue
+[router-ab/ed25519-yao/deployment.md](./deployment.md) and remain outside this queue
 until deployment resumes.
 
 ### Work-In-Progress Rule
@@ -2144,7 +2144,7 @@ Lightweight executable formal safeguards travel with the active viability
 priority. Deep proof work resumes only after a Phase 13A `go`. The full phased
 scaffold, claim-to-evidence matrix, topology assumptions, and production
 readiness gates are defined in
-[`crates/ed25519-yao/docs/formal-verification-plan.md`](../crates/ed25519-yao/docs/formal-verification-plan.md).
+[`crates/ed25519-yao/docs/formal-verification-plan.md`](../../../crates/ed25519-yao/docs/formal-verification-plan.md).
 
 | Priority | Phase | Name                                                     | Depends on                        | Exit result                                         |
 | -------: | ----: | -------------------------------------------------------- | --------------------------------- | --------------------------------------------------- |
@@ -2315,7 +2315,7 @@ production-promotion evidence for the implementation selected after Phase 13A.
 
 Phase 9D deployed-isolate measurements, separate-account HTTPS benchmarking,
 production hardening, release review, and deep formal proof are tracked in
-[yaos-ab-deployment.md](./yaos-ab-deployment.md). No deployed result is inferred
+[router-ab/ed25519-yao/deployment.md](./deployment.md). No deployed result is inferred
 from local evidence.
 
 ## Phase 0: Approve Replacement and Freeze the Claim
@@ -2345,9 +2345,9 @@ Goal: remove conflicting architectural authority before implementation.
       genuine-HSS production decisions.
 - [x] Supersede that document's source-ownership section, genuine-HSS Phases
       2-3, Gate 1, and HSS-specific completion criteria explicitly.
-- [x] Update `router-a-b-deployment.md` to remove same-account strict-production
+- [x] Update `router-ab/deployment.md` to remove same-account strict-production
       claims.
-- [x] Update `router-a-b-SPEC.md` with the original active-security requirement
+- [x] Update `router-ab/protocol.md` with the original active-security requirement
       and role names; Phase 6A must align it with the 80/20 amendment before
       production promotion.
 - [x] Record unconditional reprovisioning for existing development wallets.
@@ -3292,7 +3292,7 @@ protocol is viable.
       commitments, and ten nonclaims. A fresh process-owned emitted bundle is
       checked byte for byte and its six `EYAOBA01` entries are independently
       decoded into the private observation capability. Eleven focused builder
-      tests pass; normal CI runs the clean-checkout subject command.
+      tests pass; the local `all` gate runs the clean-checkout subject command.
 - [x] Make subject material causally derive from an isolated checkout of the
       single captured candidate commit. Build and run the generator inside that
       snapshot with locked dependencies, derive all specifications/corpora and
@@ -3359,8 +3359,8 @@ protocol is viable.
 The following work is intentionally paused until Phase 13A returns `go`. It is
 not a prerequisite for benchmark-kernel implementation. After viability, the
 candidate `C` must include the selected benchmark implementation and every
-covered change, so the external ceremony reviews the code that may actually be
-promoted.
+source bound by the review subject, so the external ceremony reviews the code
+that may actually be promoted.
 
 Phase 6B owns independent clean-host reproduction of the selected candidate and
 separate cryptographic-reviewer approval. Both records must bind the exact
@@ -3370,18 +3370,7 @@ artifacts, metrics, reconciliation result, toolchain, and retained nonclaims.
 - [x] Regenerate the candidate manifest through two isolated clean Cargo target
       directories and require exact equality of its bytes/digest plus the
       wrapped bundle-index bytes/digest in the counted
-      `benchmark-manifest-reproducibility` CI track.
-- [x] Land and machine-check the Phase 2B evidence-staging workflow. Its public
-      state check accepts the zero-evidence development state, rejects every
-      partial bundle, preserves a complete checkpoint across unrelated
-      descendants, and requires an exact fresh `C → E` pair for the first
-      evidence or any later covered change. The hardened stdlib-Python checker
-      passes 13 tests covering evidence counts zero through four, exact first
-      evidence, partial/wrong-mode/extra-path rejection, unrelated descendants,
-      missing replacement evidence, and the required two-commit re-review
-      transition. The thirteenth test freezes a public, non-authoritative
-      workflow with no secrets, protected environment, self-hosted runner, or
-      release-verification command.
+      `benchmark-manifest-reproducibility` track.
 - [x] Select the GitHub Free plus external signed-release-authority governance
       design and revise the Phase 2 claim. The July 12, 2026 live audit found
       that the private GitHub Free repository cannot configure the originally
@@ -3990,7 +3979,7 @@ supplied SigningWorker secret material is forbidden.
   - [x] Cut the existing public Ed25519 prepare/finalize routes over to the
         active Yao share and remove caller-supplied `server_material`.
 
-- [x] Align `router-a-b-sol-refactor.md`, `router-a-b-local-dev.md`, and the
+- [x] Align `router-a-b-sol-refactor.md`, `router-ab/local-development.md`, and the
       formal-verification crosswalk with Phase 9C. Preserve the distinction
       between this nonproduction local precursor and the post-Phase-13A
       production promotion gates.
@@ -4617,49 +4606,49 @@ ceremony, and make the canonical local gate exercise these public surfaces.
 ### Phase 9D: Run the Cloudflare Topology Campaign
 
 Status: **deferred; task ownership moved to
-[yaos-ab-deployment.md](./yaos-ab-deployment.md#gate-1-prove-separate-account-viability)**
+[router-ab/ed25519-yao/deployment.md](./deployment.md#gate-1-prove-separate-account-viability)**
 
 
 ## Deferred Production Phases
 
 Phases 13A, 6A, 6B, 7, 8, 10, and 11 are tracked in
-[yaos-ab-deployment.md](./yaos-ab-deployment.md). They do not block local
+[router-ab/ed25519-yao/deployment.md](./deployment.md). They do not block local
 implementation, cleanup, or intended-behaviour validation.
 
 ### Phase 13A: Viability Go/No-Go
 
 Moved to
-[yaos-ab-deployment.md](./yaos-ab-deployment.md#gate-1-prove-separate-account-viability).
+[router-ab/ed25519-yao/deployment.md](./deployment.md#gate-1-prove-separate-account-viability).
 
 ### Phase 6A: Select the Security Profile and Reissue Feasibility Gates
 
 Moved to
-[yaos-ab-deployment.md](./yaos-ab-deployment.md#gate-2-select-one-production-design).
+[router-ab/ed25519-yao/deployment.md](./deployment.md#gate-2-select-one-production-design).
 
 ### Phase 6B: Implement the Selected Suite and Freeze Production Circuits
 
 Moved to
-[yaos-ab-deployment.md](./yaos-ab-deployment.md#gate-3-build-and-deploy-the-selected-design).
+[router-ab/ed25519-yao/deployment.md](./deployment.md#gate-3-build-and-deploy-the-selected-design).
 
 ### Phase 7: Add the Selected One-Use Lifecycle and Optional Prepositioning
 
 Moved to
-[yaos-ab-deployment.md](./yaos-ab-deployment.md#gate-3-build-and-deploy-the-selected-design).
+[router-ab/ed25519-yao/deployment.md](./deployment.md#gate-3-build-and-deploy-the-selected-design).
 
 ### Phase 8: Promote Local Router Contracts and the Composition Adapter
 
 Moved to
-[yaos-ab-deployment.md](./yaos-ab-deployment.md#gate-3-build-and-deploy-the-selected-design).
+[router-ab/ed25519-yao/deployment.md](./deployment.md#gate-3-build-and-deploy-the-selected-design).
 
 ### Phase 10: Deploy the Selected Strict Production Profile
 
 Moved to
-[yaos-ab-deployment.md](./yaos-ab-deployment.md#gate-3-build-and-deploy-the-selected-design).
+[router-ab/ed25519-yao/deployment.md](./deployment.md#gate-3-build-and-deploy-the-selected-design).
 
 ### Phase 11: Promote Client and SigningWorker Lifecycles
 
 Moved to
-[yaos-ab-deployment.md](./yaos-ab-deployment.md#gate-3-build-and-deploy-the-selected-design).
+[router-ab/ed25519-yao/deployment.md](./deployment.md#gate-3-build-and-deploy-the-selected-design).
 
 #### July 17, 2026 Cloudflare lifecycle checkpoint
 
@@ -4708,7 +4697,7 @@ Goal: remove the final reason for the generic threshold service to exist.
       The unused Ed25519 seed-export FFI and `near-ed25519-recovery` feature
       dependency are deleted. A source guard rejects every retired owner name.
 Independent-account ECDSA deployment and signed-HTTPS requirements are tracked
-in [router-a-b-deployment.md](./router-a-b-deployment.md).
+in [router-ab/deployment.md](../deployment.md).
 
 ### Exit Gate
 
@@ -4718,14 +4707,14 @@ in [router-a-b-deployment.md](./router-a-b-deployment.md).
 ## Phase 13B: Full Release Validation
 
 Status: **deferred; task ownership moved to
-[yaos-ab-deployment.md](./yaos-ab-deployment.md#gate-4-review-burn-in-and-release)**
+[router-ab/ed25519-yao/deployment.md](./deployment.md#gate-4-review-burn-in-and-release)**
 
 
 ## Phase 14: Hard Cutover and Legacy Deletion
 
 Status: **complete for local implementation — closed July 16, 2026**. The
 remaining selected-profile and deployment cleanup belongs to
-[yaos-ab-deployment.md](./yaos-ab-deployment.md).
+[router-ab/ed25519-yao/deployment.md](./deployment.md).
 
 Goal: leave one production implementation and no compatibility path.
 
@@ -4848,7 +4837,7 @@ Goal: leave one production implementation and no compatibility path.
       historical records.
 Selected-profile deletion, guards, capability responses, and diagrams are
 tracked in
-[router-a-b-deployment.md](./router-a-b-deployment.md).
+[router-ab/deployment.md](../deployment.md).
 
 ### Exit Gate
 
@@ -4863,7 +4852,7 @@ tracked in
 
 Status: **complete for local implementation — closed July 16, 2026**.
 Deployment-dependent browser waterfalls and selected-profile release evidence
-remain deferred to [yaos-ab-deployment.md](./yaos-ab-deployment.md).
+remain deferred to [router-ab/ed25519-yao/deployment.md](./deployment.md).
 
 Goal: make the implemented constructions and dependency boundaries explicit.
 ECDSA remains strict Router A/B threshold-PRF derivation with DLEQ-verified
@@ -5083,7 +5072,7 @@ July 16 locked build freezes the first complete local baseline:
 ## Phase 15: Independent Review and Production Burn-In
 
 Status: **deferred; task ownership moved to
-[yaos-ab-deployment.md](./yaos-ab-deployment.md#gate-4-review-burn-in-and-release)**
+[router-ab/ed25519-yao/deployment.md](./deployment.md#gate-4-review-burn-in-and-release)**
 
 
 ## Constant-Time and Side-Channel Checklist

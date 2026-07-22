@@ -78,7 +78,7 @@ not already running. Run `pnpm build:sdk` after SDK or Router A/B Rust changes.
 Run `pnpm build:sdk-full` after browser WASM changes. `pnpm router` validates
 the existing strict Worker artifacts and starts services without rebuilding.
 
-See `docs/router-a-b-local-dev.md` for the full local-development flow.
+See `docs/router-ab/local-development.md` for the full local-development flow.
 
 ### Router A/B Deployment Prep
 

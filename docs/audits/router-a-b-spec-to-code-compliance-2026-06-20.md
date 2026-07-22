@@ -24,19 +24,19 @@ test-suite run.
 spec_requirements:
   - id: router_ab_only_signing
     text: "Router A/B is the only SDK/server signing architecture for Ed25519 and ECDSA."
-    evidence: "docs/router-a-b-SPEC.md:15-37"
+    evidence: "docs/router-ab/protocol.md:15-37"
     priority: critical
   - id: local_scope_closed
     text: "The local cleanup scope is closed and deployment setup is removed."
-    evidence: "docs/router-a-b-SPEC.md:5-12"
+    evidence: "docs/router-ab/protocol.md:5-12"
     priority: high
   - id: supersession_ledger
     text: "No-HSS/material work, server budget work, hygiene, and deployment are owned by separate plans."
-    evidence: "docs/router-a-b-SPEC.md:20-37"
+    evidence: "docs/router-ab/protocol.md:20-37"
     priority: high
   - id: no_old_public_signing_routes
     text: "Old public threshold signing routes are confined to cleanup/guard contexts."
-    evidence: "docs/router-a-b-SPEC.md:789-798"
+    evidence: "docs/router-ab/protocol.md:789-798"
     priority: critical
   - id: worker_owned_material_boundary
     text: "TypeScript may route handles/public facts; signer-core/WASM owns crypto-secret material."
@@ -44,15 +44,15 @@ spec_requirements:
     priority: critical
   - id: phase_15_9_closed
     text: "Active signing paths moved to worker-handle-backed material for local cleanup."
-    evidence: "docs/router-a-b-SPEC.md:1772-1782"
+    evidence: "docs/router-ab/protocol.md:1772-1782"
     priority: high
   - id: phase_15_10_closed
     text: "Stale-record gating required by this cleanup landed for active Router A/B signing."
-    evidence: "docs/router-a-b-SPEC.md:1772-1782"
+    evidence: "docs/router-ab/protocol.md:1772-1782"
     priority: high
   - id: phase_15_11_closed
     text: "Strict signable-state work blocks legacy-shaped Router A/B signing state."
-    evidence: "docs/router-a-b-SPEC.md:1772-1782"
+    evidence: "docs/router-ab/protocol.md:1772-1782"
     priority: high
   - id: phase_15_12_superseded
     text: "Broad raw-material deletion moved to Refactor 74/75."
@@ -138,13 +138,13 @@ code_observations:
 
 | Area | Spec Evidence | Code Evidence | Status |
 | --- | --- | --- | --- |
-| Router A/B-only product signing | `docs/router-a-b-SPEC.md:15-37` | Source guards and current route families are documented in `docs/router-a-b-SPEC.md:789-802` | Aligned |
+| Router A/B-only product signing | `docs/router-ab/protocol.md:15-37` | Source guards and current route families are documented in `docs/router-ab/protocol.md:789-802` | Aligned |
 | Worker-owned client material | `docs/refactor-68-wallet-session-v2.md:105-118` | `routerAbSigningWalletSession.ts:20-52`, `150-187`, `340-399` | Aligned |
 | Server budget authority | `docs/refactor-70-server-budget.md:136-146` | `routerAbPrivateSigningWorker.ts:114-130`, `577-606` | Aligned |
 | Reserve/commit/release lifecycle | `docs/refactor-70-server-budget.md:177-193` | `routerAbPrivateSigningWorker.ts:885-908`, `989-1015`, `1427-1450`, `1500-1528` | Aligned |
 | Budget status failures | `docs/refactor-70-server-budget.md:251-263` | `signingBudgetStatus.ts:246-292` | Aligned |
 | Shared budget evidence | `docs/refactor-70-server-budget.md:37-40` | `routerAb.serverBudgetEvidence.walletIframe.test.ts:211-246` | Aligned |
-| Deployment work | `docs/router-a-b-SPEC.md:8-12` | Deployment evidence is tracked in the deployment reference | Excluded by request |
+| Deployment work | `docs/router-ab/protocol.md:8-12` | Deployment evidence is tracked in the deployment reference | Excluded by request |
 
 ## Divergence Findings
 

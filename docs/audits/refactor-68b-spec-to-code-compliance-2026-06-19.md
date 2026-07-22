@@ -30,9 +30,9 @@ this audit scope and is already tracked in the Router A/B deployment phases.
 Spec corpus normalized from:
 
 - `docs/refactor-68B-router-cleanup.md`
-- `docs/router-a-b-local-dev.md`
-- `docs/router-a-b-SPEC.md`
-- `docs/router-a-b-deployment.md`
+- `docs/router-ab/local-development.md`
+- `docs/router-ab/protocol.md`
+- `docs/router-ab/deployment.md`
 
 The minimum corpus named in `docs/refactor-68B-router-cleanup.md` lines 317-323
 also includes broader cleanup/signing docs. This audit used the excerpts that
@@ -93,35 +93,35 @@ spec_ir:
     normalized_form: Main Router route layer must reject replay/expiry/quota/abuse before unsafe forwarding.
     confidence: 0.95
   - id: S8
-    source_document: docs/router-a-b-local-dev.md
+    source_document: docs/router-ab/local-development.md
     source_section: Target local shape, lines 5-17
     semantic_type: actor_boundary
     spec_excerpt: "one SDK Router/API server plus three independently started private workers: SDK Router/API server; Deriver A; Deriver B; SigningWorker."
     normalized_form: Local dev topology has one public server and three private workers.
     confidence: 0.98
   - id: S9
-    source_document: docs/router-a-b-local-dev.md
+    source_document: docs/router-ab/local-development.md
     source_section: Normal Signing Flow, lines 252-259
     semantic_type: workflow
     spec_excerpt: "Router reserves replay and checks local admission policy... forwards the active-signing request to SigningWorker... Deriver A and Deriver B receive zero requests."
     normalized_form: Normal signing hot path is Client to Router to SigningWorker only; Derivers stay idle.
     confidence: 0.94
   - id: S10
-    source_document: docs/router-a-b-SPEC.md
+    source_document: docs/router-ab/protocol.md
     source_section: Target Model and Wallet Session Credential, lines 41-59 and 141-166
     semantic_type: auth_requirement
     spec_excerpt: "The SDK should send only the Wallet Session credential... verifies Wallet Session... validates account, session, policy, quota, replay, and SigningWorker scope... Wallet Session credential should not carry a per-signature intentDigest."
     normalized_form: Public normal-signing auth is Wallet Session bearer credential plus typed request validation.
     confidence: 0.95
   - id: S11
-    source_document: docs/router-a-b-SPEC.md
+    source_document: docs/router-ab/protocol.md
     source_section: Request shape, lines 126-137
     semantic_type: request_binding_requirement
     spec_excerpt: "Router computes intent_digest... signing_payload_digest... admitted_signing_digest... validates that the typed intent, payload, account, session, prepare/finalize binding, and SigningWorker scope all agree."
     normalized_form: Router computes request authority from typed request data and Wallet Session claims.
     confidence: 0.93
   - id: S12
-    source_document: docs/router-a-b-deployment.md
+    source_document: docs/router-ab/deployment.md
     source_section: Common invariants, lines 100-105 and 665-672
     semantic_type: deployment_invariant
     spec_excerpt: "Router is the only public wallet backend endpoint. Router handles auth, policy, rate limits, replay, and public lifecycle state... Router can reserve replay state and persist public lifecycle state."
@@ -482,7 +482,7 @@ alignment_ir:
     reasoning: "The worker roles and rejection guard directly implement the target local shape."
     evidence:
       spec_quote: "one SDK Router/API server plus three independently started private workers"
-      spec_location: docs/router-a-b-local-dev.md lines 5-13
+      spec_location: docs/router-ab/local-development.md lines 5-13
       code_quote: "workerRoles = [deriver-a, deriver-b, signing-worker]"
       code_location: crates/router-ab-dev/scripts/dev-local-workers.mjs lines 34-82; tests/unit/routerAbNormalSigningSdk.guard.unit.test.ts lines 132-178
   - id: A9
@@ -495,7 +495,7 @@ alignment_ir:
     reasoning: "The audited code has no Deriver call in normal-signing route handlers; tests focus on private SigningWorker forward counts."
     evidence:
       spec_quote: "Router forwards the active-signing request to SigningWorker... Deriver A and Deriver B receive zero requests."
-      spec_location: docs/router-a-b-local-dev.md lines 252-259
+      spec_location: docs/router-ab/local-development.md lines 252-259
       code_quote: "postRouterAbSigningWorkerJson"
       code_location: packages/sdk-server-ts/src/router/express/routes/thresholdEd25519.ts lines 340-347; packages/sdk-server-ts/src/router/express/routes/thresholdEcdsa.ts lines 657-661
   - id: A10
@@ -508,7 +508,7 @@ alignment_ir:
     reasoning: "The route validator and tests enforce bearer Wallet Session-only public auth in the audited server routes."
     evidence:
       spec_quote: "The SDK should send only the Wallet Session credential... validates account, session, policy, quota, replay, and SigningWorker scope"
-      spec_location: docs/router-a-b-SPEC.md lines 30-32 and 41-56
+      spec_location: docs/router-ab/protocol.md lines 30-32 and 41-56
       code_quote: "rejects legacy threshold-session bearer claims before private SigningWorker forwarding"
       code_location: tests/relayer/router-ab-normal-signing-auth-boundary.test.ts lines 376-397
   - id: A11
@@ -521,7 +521,7 @@ alignment_ir:
     reasoning: "The audited route validators use typed body parsing and claim/scope comparison, then derive admission fields for downstream forwarding."
     evidence:
       spec_quote: "Router computes... validates that the typed intent, payload, account, session, prepare/finalize binding, and SigningWorker scope all agree."
-      spec_location: docs/router-a-b-SPEC.md lines 126-137
+      spec_location: docs/router-ab/protocol.md lines 126-137
       code_quote: "accountId !== input.claims.walletId || sessionId !== input.claims.sessionId"
       code_location: packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker.ts lines 336-413 and 477-535
   - id: A12
@@ -534,7 +534,7 @@ alignment_ir:
     reasoning: "The local public edge and route-layer control flow match the deployment invariant."
     evidence:
       spec_quote: "Router is the only public wallet backend endpoint. Router handles auth, policy, rate limits, replay, and public lifecycle state."
-      spec_location: docs/router-a-b-deployment.md lines 100-103
+      spec_location: docs/router-ab/deployment.md lines 100-103
       code_quote: "evaluateRouterAbNormalSigningAdmission... reserveRouterAbNormalSigningPrepareReplay"
       code_location: packages/sdk-server-ts/src/router/express/routes/thresholdEcdsa.ts lines 592-655
 ```

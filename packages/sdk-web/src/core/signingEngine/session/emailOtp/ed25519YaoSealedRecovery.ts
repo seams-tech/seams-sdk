@@ -8,6 +8,7 @@ import type {
 import type { EmailOtpAuthPolicy } from '@/core/types/seams';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import {
+  ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1,
   ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1,
   parseRouterAbEd25519YaoWarmRecoveryBootstrapRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
@@ -473,7 +474,7 @@ function recoveryBootstrapFromVerifiedWarmBootstrap(args: {
 }): EmailOtpEd25519YaoRecoveryBootstrapV1 {
   const session = args.verified.session;
   return {
-    kind: 'router_ab_ed25519_yao_email_otp_recovery_v1',
+    kind: ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1,
     session: {
       sessionKind: session.sessionKind,
       walletSessionJwt: session.walletSessionJwt,

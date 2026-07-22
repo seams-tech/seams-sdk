@@ -1,28 +1,38 @@
-import type { WalletAuthMethod } from '@/core/types/seams';
-import { WALLET_AUTH_METHODS } from '@shared/utils';
+import {
+  type SignerAuthMethod,
+  SIGNER_AUTH_METHODS,
+} from '@shared/utils/signerDomain';
 
 export type AccountAuthMetadata = {
-  primaryAuthMethod: WalletAuthMethod;
-  linkedAuthMethods: WalletAuthMethod[];
+  primaryAuthMethod: SignerAuthMethod;
+  linkedAuthMethods: SignerAuthMethod[];
   email?: string;
   passkeyCredentialIds?: string[];
 };
 
-export function resolveAccountAuthMetadataForSignerSource(args?: {
-  source?: unknown;
+export function resolveAccountAuthMetadataForSignerAuthMethod(args: {
+  authMethod: SignerAuthMethod;
   email?: string;
   passkeyCredentialIds?: string[];
 }): AccountAuthMetadata {
-  const primaryAuthMethod =
-    args?.source === WALLET_AUTH_METHODS.emailOtp
-      ? WALLET_AUTH_METHODS.emailOtp
-      : WALLET_AUTH_METHODS.passkey;
+  const primaryAuthMethod = args.authMethod;
   return {
     primaryAuthMethod,
     linkedAuthMethods: [primaryAuthMethod],
-    ...(args?.email ? { email: args.email } : {}),
-    ...(args?.passkeyCredentialIds?.length
+    ...(args.email ? { email: args.email } : {}),
+    ...(args.passkeyCredentialIds?.length
       ? { passkeyCredentialIds: args.passkeyCredentialIds }
       : {}),
   };
+}
+
+export function signerAuthMethodFromUnknown(value: unknown): SignerAuthMethod | null {
+  switch (value) {
+    case SIGNER_AUTH_METHODS.passkey:
+      return SIGNER_AUTH_METHODS.passkey;
+    case SIGNER_AUTH_METHODS.emailOtp:
+      return SIGNER_AUTH_METHODS.emailOtp;
+    default:
+      return null;
+  }
 }

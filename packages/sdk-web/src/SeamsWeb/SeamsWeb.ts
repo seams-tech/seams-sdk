@@ -2016,6 +2016,11 @@ export class SeamsWeb {
                 kind: 'requested' as const,
                 providerSubject: preparedEd25519YaoRecovery.providerSubject,
                 signerSlot: preparedEd25519YaoRecovery.signerSlot,
+                nearAccountId: String(preparedEd25519YaoRecovery.identity.nearAccountId),
+                expectedOperationalPublicKey:
+                  preparedEd25519YaoRecovery.expectedOperationalPublicKey,
+                expectedThresholdSessionId:
+                  preparedEd25519YaoRecovery.identity.thresholdSessionId,
               },
             }
           : {}),
@@ -2023,15 +2028,30 @@ export class SeamsWeb {
       });
       let walletActivation: EmailOtpWalletPostUnlockActivation;
       if (preparedEd25519YaoRecovery) {
-        if (result.ed25519YaoRecovery.kind !== 'unlocked') {
-          throw new Error('Mixed Email OTP unlock omitted Ed25519 Yao recovery material');
+        let recoveredEd25519Record: ThresholdEd25519SessionRecord;
+        switch (result.ed25519YaoRecovery.kind) {
+          case 'unlocked':
+            recoveredEd25519Record =
+              await this.signingEngine.activateEmailOtpEd25519YaoUnlockedRecoveryInternal({
+                prepared: preparedEd25519YaoRecovery,
+                bootstrap: result.ed25519YaoRecovery.bootstrap,
+                pendingFactorHandle: result.ed25519YaoRecovery.pendingFactorHandle,
+              });
+            break;
+          case 'local_session':
+            recoveredEd25519Record =
+              await this.signingEngine.activateEmailOtpEd25519YaoLocalSessionInternal({
+                prepared: preparedEd25519YaoRecovery,
+                bootstrap: result.ed25519YaoRecovery.bootstrap,
+                activeClientHandle: result.ed25519YaoRecovery.activeClientHandle,
+                metadata: result.ed25519YaoRecovery.metadata,
+              });
+            break;
+          case 'not_requested':
+            throw new Error('Mixed Email OTP unlock omitted Ed25519 Yao session material');
+          default:
+            throw new Error('Mixed Email OTP unlock returned an invalid Ed25519 Yao state');
         }
-        const recoveredEd25519Record =
-          await this.signingEngine.activateEmailOtpEd25519YaoUnlockedRecoveryInternal({
-            prepared: preparedEd25519YaoRecovery,
-            bootstrap: result.ed25519YaoRecovery.bootstrap,
-            pendingFactorHandle: result.ed25519YaoRecovery.pendingFactorHandle,
-          });
         walletActivation = {
           kind: 'near_ed25519_wallet',
           signer: emailOtpEd25519SignerFromRecoveredRecord(recoveredEd25519Record),

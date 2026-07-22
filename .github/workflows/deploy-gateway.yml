@@ -99,7 +99,7 @@ jobs:
         uses: oven-sh/setup-bun@v2
 
       - name: Cache pinned WASM tooling
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/bin/wasm-pack
@@ -115,7 +115,7 @@ jobs:
 
       - name: Cache generated Gateway WASM
         id: cache_gateway_wasm
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             wasm/near_signer/pkg
@@ -162,7 +162,7 @@ jobs:
 
       - name: Upload Gateway artifact
         id: upload_gateway_artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ env.GATEWAY_ARTIFACT_NAME }}
           path: .release-artifacts/gateway
@@ -233,7 +233,7 @@ jobs:
         run: pnpm install --frozen-lockfile --filter @seams-internal/console-server...
 
       - name: Download Gateway artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ${{ env.GATEWAY_ARTIFACT_NAME }}
           path: .release-artifacts/gateway

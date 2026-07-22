@@ -39,8 +39,9 @@ import {
   type EmitWalletUnlockRouterApiWebhook,
 } from '../../packages/sdk-server-ts/src/router/walletUnlockRouteHandlers';
 import {
+  EMAIL_OTP_EXACT_LOCAL_MATERIAL_SESSION_KIND,
+  EMAIL_OTP_MISSING_ED25519_MATERIAL_RECOVERY_KIND,
   parseWalletUnlockEd25519YaoRequest,
-  ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_KIND,
 } from '../../packages/sdk-server-ts/src/router/walletUnlockEd25519YaoRequestValidation';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import {
@@ -189,7 +190,12 @@ function activeCapabilityFixture(
   };
 }
 
-function unlockBodyFixture(): Record<string, unknown> {
+function unlockBodyFixture(
+  kind:
+    | typeof EMAIL_OTP_EXACT_LOCAL_MATERIAL_SESSION_KIND
+    | typeof EMAIL_OTP_MISSING_ED25519_MATERIAL_RECOVERY_KIND =
+    EMAIL_OTP_MISSING_ED25519_MATERIAL_RECOVERY_KIND,
+): Record<string, unknown> {
   return {
     unlockBackend: 'email_otp',
     walletId: WALLET_ID,
@@ -199,8 +205,8 @@ function unlockBodyFixture(): Record<string, unknown> {
       publicKey: 'unlock-public-key',
       signature: 'unlock-signature',
     },
-    ed25519YaoRecovery: {
-      kind: ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_KIND,
+    sessionIntent: {
+      kind,
       signerSlot: SIGNER_SLOT,
       remainingUses: REQUESTED_REMAINING_USES,
     },
@@ -454,22 +460,46 @@ function createRecoveryService(input: {
   };
 }
 
-test('parses only the fresh Email OTP Ed25519 Yao recovery augmentation', () => {
+test('parses exact-local and missing-material Email OTP Ed25519 session intents', () => {
   expect(parseWalletUnlockEd25519YaoRequest(unlockBodyFixture())).toEqual({
     ok: true,
     request: {
-      kind: ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_KIND,
       walletId: WALLET_ID,
       orgId: ORG_ID,
       challengeId: CHALLENGE_ID,
-      signerSlot: SIGNER_SLOT,
-      remainingUses: REQUESTED_REMAINING_USES,
+      sessionIntent: {
+        kind: EMAIL_OTP_MISSING_ED25519_MATERIAL_RECOVERY_KIND,
+        signerSlot: SIGNER_SLOT,
+        remainingUses: REQUESTED_REMAINING_USES,
+      },
     },
   });
 
+  expect(
+    parseWalletUnlockEd25519YaoRequest(
+      unlockBodyFixture(EMAIL_OTP_EXACT_LOCAL_MATERIAL_SESSION_KIND),
+    ),
+  ).toEqual({
+    ok: true,
+    request: {
+      walletId: WALLET_ID,
+      orgId: ORG_ID,
+      challengeId: CHALLENGE_ID,
+      sessionIntent: {
+        kind: EMAIL_OTP_EXACT_LOCAL_MATERIAL_SESSION_KIND,
+        signerSlot: SIGNER_SLOT,
+        remainingUses: REQUESTED_REMAINING_USES,
+      },
+    },
+  });
+
+  const noIntent = unlockBodyFixture();
+  delete noIntent.sessionIntent;
+  expect(parseWalletUnlockEd25519YaoRequest(noIntent)).toEqual({ ok: true, request: null });
+
   const obsolete = unlockBodyFixture();
-  obsolete.ed25519YaoRecovery = {
-    kind: ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_KIND,
+  obsolete.sessionIntent = {
+    kind: EMAIL_OTP_MISSING_ED25519_MATERIAL_RECOVERY_KIND,
     signerSlot: SIGNER_SLOT,
     remainingUses: REQUESTED_REMAINING_USES,
     walletSessionAuth: { walletSessionJwt: 'expired-wallet-session' },
@@ -480,12 +510,12 @@ test('parses only the fresh Email OTP Ed25519 Yao recovery augmentation', () => 
     body: {
       ok: false,
       code: 'invalid_body',
-      message: 'Unsupported ed25519YaoRecovery field: walletSessionAuth',
+      message: 'Unsupported sessionIntent field: walletSessionAuth',
     },
   });
 
   const substitutedBudget = unlockBodyFixture();
-  const substitutedRecovery = substitutedBudget.ed25519YaoRecovery as Record<string, unknown>;
+  const substitutedRecovery = substitutedBudget.sessionIntent as Record<string, unknown>;
   substitutedRecovery.signingBudget = {
     signingGrantId: 'attacker-selected-grant',
     ttlMs: 86_400_000,
@@ -497,20 +527,20 @@ test('parses only the fresh Email OTP Ed25519 Yao recovery augmentation', () => 
     body: {
       ok: false,
       code: 'invalid_body',
-      message: 'Unsupported ed25519YaoRecovery field: signingBudget',
+      message: 'Unsupported sessionIntent field: signingBudget',
     },
   });
 });
 
-test('verified Email OTP recovery forwards the fresh subject without bearer session state', async () => {
+test('verified missing-material recovery forwards the fresh subject without bearer session state', async () => {
   const parsed = parseWalletUnlockEd25519YaoRequest(unlockBodyFixture());
   if (!parsed.ok || !parsed.request) throw new Error('expected parsed recovery request');
   const recovery = new RecordingRouteRecoveryService();
   const response = await handleWalletUnlockVerifyRoute({
     body: unlockBodyFixture(),
     service: new VerifiedEmailOtpUnlockService(),
-    ed25519YaoRecovery: {
-      kind: 'requested',
+    ed25519YaoSession: {
+      kind: 'email_otp_missing_material_recovery',
       request: parsed.request,
       recoverWalletSession: recovery.recoverEd25519YaoEmailOtpWalletSession.bind(recovery),
     },
@@ -524,8 +554,8 @@ test('verified Email OTP recovery forwards the fresh subject without bearer sess
     body: {
       ok: true,
       unlocked: true,
-      ed25519YaoRecovery: {
-        kind: ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_KIND,
+      ed25519YaoSession: {
+        kind: 'router_ab_ed25519_yao_email_otp_recovery_v1',
         session: {
           walletSessionJwt: 'fresh-wallet-session-jwt',
           signingGrantId: 'fresh-signing-grant-route',

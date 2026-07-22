@@ -7,7 +7,7 @@ const forbiddenPatterns = [
   { name: 'Node builtin import', pattern: /from\s+['"]node:|import\s+['"]node:/ },
   { name: 'Node process global', pattern: /\bprocess\./ },
   { name: 'Node Buffer global', pattern: /\bBuffer\b/ },
-  { name: 'child process runtime', pattern: /child_process|PythonSubprocessVoiceIdVerifierTransport/ },
+  { name: 'child process runtime', pattern: /child_process/ },
   { name: 'filesystem runtime', pattern: /node:fs|from\s+['"]fs/ },
   { name: 'Node path runtime', pattern: /node:path|from\s+['"]path/ },
   { name: 'Node URL runtime', pattern: /node:url|from\s+['"]url/ },

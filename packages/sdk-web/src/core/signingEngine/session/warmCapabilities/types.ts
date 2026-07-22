@@ -1,7 +1,11 @@
 import type { AccountId } from '@/core/types/accountIds';
 import type { ThresholdEcdsaDerivationRouteAuth } from '@/core/rpcClients/relayer/thresholdEcdsa';
 import type { SigningSessionStatus } from '@/core/types/seams';
-import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
+import {
+  SIGNER_AUTH_METHODS,
+  type SensitiveOperationPolicy,
+  type SignerAuthMethod,
+} from '@shared/utils/signerDomain';
 import type { EcdsaSessionProvisionPlan } from './ecdsaProvisionPlan';
 import type {
   ThresholdEcdsaSessionRecord,
@@ -43,10 +47,30 @@ import type {
   ExactEcdsaSigningLaneIdentity,
   ExactEd25519SigningLaneIdentity,
 } from '../identity/exactSigningLaneIdentity';
+
 import {
   classifyRouterAbEcdsaDerivationPersistedSigningRecord,
   classifyRouterAbEd25519PersistedSigningRecord,
 } from '../routerAbSigningWalletSession';
+
+function authMethodForThresholdEcdsaSessionSource(
+  source: ThresholdEcdsaSessionStoreSource,
+): SignerAuthMethod {
+  switch (source) {
+    case SIGNER_AUTH_METHODS.emailOtp:
+      return SIGNER_AUTH_METHODS.emailOtp;
+    case 'login':
+    case 'registration':
+    case 'manual-bootstrap':
+      return SIGNER_AUTH_METHODS.passkey;
+    default:
+      return assertNeverThresholdEcdsaSessionSource(source);
+  }
+}
+
+function assertNeverThresholdEcdsaSessionSource(value: never): never {
+  throw new Error(`Unsupported threshold ECDSA session source: ${String(value)}`);
+}
 
 export type WarmSessionCapability = 'ed25519' | 'ecdsa';
 export type WarmSessionPrfClaimState = 'missing' | 'warm' | 'expired' | 'exhausted' | 'unavailable';
@@ -419,7 +443,7 @@ function assertCapabilityStateInvariant(args: {
         `[WarmSessionStore] invalid ${args.label} capability: lane signingGrantId does not match record`,
       );
     }
-    const expectedAuthMethod = capability.record.source === 'email_otp' ? 'email_otp' : 'passkey';
+    const expectedAuthMethod = authMethodForThresholdEcdsaSessionSource(capability.record.source);
     if (signingLaneAuthMethod(capability.lane.auth) !== expectedAuthMethod) {
       throw new Error(
         `[WarmSessionStore] invalid ${args.label} capability: lane authMethod does not match record source`,
@@ -688,7 +712,7 @@ export type ThresholdOnlyWarmSessionPrfClaimArgs = ClaimWarmSessionPrfArgsBase &
 export type WalletScopedEd25519WarmSessionPrfClaimArgs = ClaimWarmSessionPrfArgsBase & {
   kind: 'wallet_scoped_ed25519_claim';
   walletId: string;
-  authMethod: 'passkey' | 'email_otp';
+  authMethod: SignerAuthMethod;
   signingGrantId: string;
   curve: 'ed25519';
   chain: 'near';
@@ -698,7 +722,7 @@ export type WalletScopedEd25519WarmSessionPrfClaimArgs = ClaimWarmSessionPrfArgs
 export type WalletScopedEcdsaWarmSessionPrfClaimArgs = ClaimWarmSessionPrfArgsBase & {
   kind: 'wallet_scoped_ecdsa_claim';
   walletId: string;
-  authMethod: 'passkey';
+  authMethod: typeof SIGNER_AUTH_METHODS.passkey;
   signingGrantId: string;
   curve: 'ecdsa';
   chain: 'near';

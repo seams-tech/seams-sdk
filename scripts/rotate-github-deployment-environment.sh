@@ -13,7 +13,7 @@ case "$target" in
     ;;
 esac
 
-for command_name in gh pnpm tee; do
+for command_name in gh node pnpm tee; do
   if ! command -v "$command_name" >/dev/null 2>&1; then
     printf 'Required command is unavailable: %s\n' "$command_name" >&2
     exit 1
@@ -24,7 +24,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
 values_file="$HOME/.seams/${target}-deployment.env"
 backup_dir="$HOME/.seams/backups"
-backup_file="$backup_dir/${target}-$(date +%Y%m%d-%H%M%S).txt"
+backup_file="$backup_dir/${target}-$(date +%Y%m%d-%H%M%S)-complete-generation.json"
 
 if [[ ! -f "$values_file" ]]; then
   printf 'Deployment values file is missing: %s\n' "$values_file" >&2
@@ -61,15 +61,38 @@ case "$confirmation" in
     ;;
 esac
 
-printf '\nRotation confirmed. Uploading the new %s generation.\n\n' "$target" >&2
+printf '\nRotation confirmed. Preparing the new %s generation.\n\n' "$target" >&2
 
-pnpm --silent router:deploy:env-keygen -- \
+pnpm --silent wallet-core:deploy:env-prepare -- \
   --env "$target" \
   --values-file "$values_file" \
-  --apply \
   --rotate \
   --repo "$repository" \
+  --json \
   | tee "$backup_file"
 
 chmod 600 "$backup_file"
-printf '\nDeployment manifest backup: %s\n' "$backup_file" >&2
+
+wallet_core_manifest="$(node -e \
+  "const d=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')); process.stdout.write(d.preparation.walletCoreManifestPath)" \
+  "$backup_file")"
+product_manifest="$(node -e \
+  "const d=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')); process.stdout.write(d.preparation.productManifestPath)" \
+  "$backup_file")"
+
+printf '\nUploading wallet-core environments from:\n%s\n\n' "$wallet_core_manifest" >&2
+pnpm --silent wallet-core:deploy:env-apply -- \
+  --env "$target" \
+  --manifest-file "$wallet_core_manifest" \
+  --rotate \
+  --repo "$repository"
+
+printf '\nUploading product environment from:\n%s\n\n' "$product_manifest" >&2
+pnpm --silent product:deploy:env-apply -- \
+  --env "$target" \
+  --manifest-file "$product_manifest" \
+  --repo "$repository"
+
+printf '\nComplete generation backup: %s\n' "$backup_file" >&2
+printf 'Wallet-core manifest: %s\n' "$wallet_core_manifest" >&2
+printf 'Product manifest: %s\n' "$product_manifest" >&2

@@ -4,8 +4,8 @@ Status: **production lifecycle validation pending**
 
 This file owns only the high-impact path from the completed local Yao A/B
 implementation to a production release decision. Local implementation evidence
-stays in [yaos-ab.md](./yaos-ab.md). General Router A/B and ECDSA deployment
-work stays in [router-a-b-deployment.md](./router-a-b-deployment.md).
+stays in [router-ab/ed25519-yao/implementation-plan.md](./implementation-plan.md). General Router A/B and ECDSA deployment
+work stays in [router-ab/deployment.md](../deployment.md).
 
 The canonical Cloudflare benchmark deployment uses the same-account Service
 Binding WebSocket artifact. This plan retains the 16 completed deployment
@@ -338,7 +338,7 @@ Deployment checkpoint (2026-07-17):
   `ab2b06f7-ee89-46f2-ac2a-4bc548c0b4d0`;
 - production frontend artifact: `https://c56ccf96.seams-site.pages.dev`;
 - production wallet artifact: `https://a56f128d.seams-wallet.pages.dev`;
-- Cloudflare Pages accepted the `seams.sh` and `wallet.seams.sh` custom-domain
+- Cloudflare Pages accepted the `seams.sh` and `sign.seams.sh` custom-domain
   bindings. The proxied CNAME records now resolve both production origins and
   Cloudflare serves valid TLS certificates;
 - the product API and Router expose the same `router_ab_keyset_v2`, and both
@@ -440,6 +440,6 @@ construction that requires them or Gate 3 measurements prove they are needed.
 Any such work receives a new measured, construction-specific plan.
 
 ECDSA independent-account deployment and lifecycle migration remain owned by
-[router-a-b-deployment.md](./router-a-b-deployment.md). Browser asset-waterfall
+[router-ab/deployment.md](../deployment.md). Browser asset-waterfall
 work remains part of the general deployment/release runbook and does not block
 the Yao viability decision.

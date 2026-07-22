@@ -37,48 +37,45 @@ must be deployed in the same Cloudflare account. Give each role a scoped deploy
 token while keeping `CLOUDFLARE_ACCOUNT_ID` identical across those five GitHub
 Environments.
 
-Generate the complete value manifest for one target at a time:
+Prepare one complete generation for a target at a time:
 
 ```bash
-pnpm router:deploy:env-keygen -- --env staging
-pnpm router:deploy:env-keygen -- --env production
+pnpm wallet-core:deploy:env-prepare -- --env staging --repo seams-tech/seams-sdk
+pnpm wallet-core:deploy:env-prepare -- --env production --repo seams-tech/seams-sdk
 ```
 
-The command prints all six GitHub Environments for the selected target. It
+The command validates all six GitHub Environments for the selected target. It
 generates the Router A/B identities, matched root shares, shared internal
 service credential, Gateway random secrets, ceremony JWT key, and
-signing-session seal values. Supply provisioned Cloudflare, domain,
+signing-session seal values. It writes separate protected `wallet-core` and
+`product` manifests with matching generation metadata. Supply provisioned Cloudflare, domain,
 funded-account, OAuth, and tenant values through the protected values file
 documented in [tooling.md](tooling.md#github-environment-bootstrap). The output
 contains private material and must not be committed.
 
-To create all six environments and upload every generated value automatically:
+To create all six environments, apply wallet-core and product separately from
+the paired manifests printed by preparation:
 
 ```bash
 gh auth login
-pnpm router:deploy:env-keygen -- --env staging \
-  --values-file "$HOME/.seams/staging-deployment.env" --apply
-pnpm router:deploy:env-keygen -- --env production \
-  --values-file "$HOME/.seams/production-deployment.env" --apply
+pnpm deploy:env-rotate -- staging
+pnpm deploy:env-rotate -- production
 ```
 
-Apply mode resolves external values from the protected file and current shell,
+Prepare mode resolves external values from the protected file and current shell,
 discovers existing Cloudflare account, D1, Pages, and R2 metadata when possible,
-and refuses to write a partial required configuration. It creates missing
-environments and preserves existing environments and their protection rules.
-Every invocation generates fresh cryptographic identities, so do not rerun
-`--apply` unless rotating the target's generated deployment values
-intentionally.
+and refuses to write a partial required configuration. Component apply creates
+missing environments and preserves existing environments and protection rules.
+Product apply verifies the wallet-core generation first. Every preparation
+generates fresh cryptographic identities, so use the guarded rotation wrapper
+for an initialized target.
 
-Progress and per-environment upload counts are written to stderr. The exact
-variables and secrets uploaded are printed to stdout for backup. Capture that
-output in a restricted file:
+Progress and per-environment upload counts are written to stderr. The guarded
+wrapper stores a complete restricted backup plus separate component manifests
+under `$HOME/.seams/backups`.
 
 ```bash
-umask 077
-pnpm --silent router:deploy:env-keygen -- --env staging --apply \
-  --values-file "$HOME/.seams/staging-deployment.env" \
-  > staging-github-environment-backup.txt
+pnpm deploy:env-verify -- --env staging --repo seams-tech/seams-sdk
 ```
 
 The backup contains private keys and secrets. Move it to the approved secrets
@@ -89,10 +86,13 @@ repository explicitly, pass its real name, for example
 `--repo seams-tech/seams-sdk`. Do not copy placeholder text such as
 `owner/repo`.
 
-For machine-readable output, suppress pnpm's command banner:
+For a manual split apply, use the component commands:
 
 ```bash
-pnpm --silent router:deploy:env-keygen -- --env staging --json
+pnpm wallet-core:deploy:env-apply -- \
+  --env staging --manifest-file <wallet-core-manifest> --rotate
+pnpm product:deploy:env-apply -- \
+  --env staging --manifest-file <product-manifest>
 ```
 
 Automatic entrypoints are intentionally separate:
@@ -201,8 +201,8 @@ for the commit being deployed.
 
 ## Cloudflare R2
 
-R2 publication is optional. When all four R2 credentials are configured, the
-publish workflow writes:
+R2 publication is optional and manual-only. When all four R2 credentials are
+configured and an operator dispatches `publish-sdk-r2.yml`, the workflow writes:
 
 - `releases-dev/<commit-sha>` for staging/dev commits
 - `releases/<commit-sha>` for production/main commits

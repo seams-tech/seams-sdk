@@ -150,7 +150,7 @@ async function recoverEmailOtpEd25519CapabilityForSigning(args: {
   if (
     !user ||
     String(user.walletId) !== String(args.request.record.walletId) ||
-    user.authMethod !== 'email_otp'
+    user.authMethod !== SIGNER_AUTH_METHODS.emailOtp
   ) {
     throw new Error('Email OTP Ed25519 recovery requires one exact persisted signer projection');
   }

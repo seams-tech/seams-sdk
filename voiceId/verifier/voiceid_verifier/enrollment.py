@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from voiceid_verifier.audio_decode import DecodedAudio, zero_float_sequence
-from voiceid_verifier.audio_quality import AudioQuality, SpeechWindow, extract_speech_windows
+from voiceid_verifier.audio_quality import AudioQuality, SpeechWindow
 from voiceid_verifier.embeddings import EmbeddingExtractionError, ExtractedSpeakerEmbedding
 from voiceid_verifier.runtime import AudioClaims, VerifierRuntime
 from voiceid_verifier.scoring import cosine_score
@@ -92,10 +92,7 @@ def build_continuous_enrollment(
         if decoded_audio.decoded_duration_ms < expected_prompt_count * MINIMUM_PROMPT_DURATION_MS:
             return RejectedEnrollment(kind="rejected", reason="interrupted_capture")
 
-        windows = extract_speech_windows(
-            samples=decoded_audio.samples,
-            sample_rate_hz=decoded_audio.sample_rate_hz,
-        )
+        windows = evaluated.speech_windows
         usable_speech_ms = sum(window.speech_ms for window in windows)
         if len(windows) < expected_prompt_count:
             return RejectedEnrollment(kind="rejected", reason="insufficient_windows")

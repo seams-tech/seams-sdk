@@ -125,6 +125,7 @@ import type {
   ThresholdEd25519SessionStoreSource,
 } from '../session/identity/laneIdentity';
 import type { SealedSigningSessionWalletSessionAuth } from '@shared/utils/signingSessionSeal';
+import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type {
   WarmSessionMaterialWriteDiagnosticBucket,
   WarmSessionMaterialWriteDiagnostics,
@@ -241,8 +242,6 @@ type PasskeyEd25519ExpiryObservation =
       expiresAtMs?: never;
       remainingUses?: never;
     };
-
-type SigningSessionSealedAuthMethod = SigningSessionSealAuthMethod;
 
 function positiveInteger(value: unknown): number {
   const parsed = Math.floor(Number(value));
@@ -391,13 +390,13 @@ type WarmSessionSealAuthMethodInput =
   | {
       thresholdSessionId: string;
       curve: 'ed25519';
-      authMethod?: SigningSessionSealedAuthMethod;
+      authMethod?: SigningSessionSealAuthMethod;
       chainTarget?: never;
     }
   | {
       thresholdSessionId: string;
       curve: 'ecdsa';
-      authMethod?: SigningSessionSealedAuthMethod;
+      authMethod?: SigningSessionSealAuthMethod;
       chainTarget: ThresholdEcdsaChainTarget;
     };
 
@@ -407,16 +406,16 @@ function assertNever(value: never): never {
 
 function sealedAuthMethodForThresholdEd25519Source(
   source: ThresholdEd25519SessionStoreSource,
-): SigningSessionSealedAuthMethod {
+): SigningSessionSealAuthMethod {
   switch (source) {
     case 'email_otp':
-      return 'email_otp';
+      return SIGNER_AUTH_METHODS.emailOtp;
     case 'login':
     case 'registration':
     case 'add-signer':
     case 'manual-connect':
     case 'bootstrap':
-      return 'passkey';
+      return SIGNER_AUTH_METHODS.passkey;
     default:
       return assertNever(source);
   }
@@ -424,14 +423,14 @@ function sealedAuthMethodForThresholdEd25519Source(
 
 function sealedAuthMethodForThresholdEcdsaSource(
   source: ThresholdEcdsaSessionStoreSource,
-): SigningSessionSealedAuthMethod {
+): SigningSessionSealAuthMethod {
   switch (source) {
     case 'email_otp':
-      return 'email_otp';
+      return SIGNER_AUTH_METHODS.emailOtp;
     case 'login':
     case 'registration':
     case 'manual-bootstrap':
-      return 'passkey';
+      return SIGNER_AUTH_METHODS.passkey;
     default:
       return assertNever(source);
   }
@@ -635,7 +634,7 @@ const signingSessionSealDeleteSingleFlight = new Map<string, Promise<void>>();
 function makeWarmSessionSingleFlightKey(args: {
   operation: 'rehydrate' | 'persist' | 'delete';
   thresholdSessionId: string;
-  authMethod?: 'passkey' | 'email_otp';
+  authMethod?: SigningSessionSealAuthMethod;
   curve?: 'ed25519' | 'ecdsa';
   walletId?: string;
   chainTarget?: ThresholdEcdsaChainTarget;
@@ -778,7 +777,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
 
   private resolveWarmSessionSealAuthMethod(
     args: WarmSessionSealAuthMethodInput,
-  ): SigningSessionSealedAuthMethod {
+  ): SigningSessionSealAuthMethod {
     if (args.curve === 'ed25519') {
       const ed25519Record = getStoredThresholdEd25519SessionRecordByThresholdSessionId(
         args.thresholdSessionId,
@@ -1895,7 +1894,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       };
     }
     let purpose: SigningSessionSealedRecordFilter;
-    let authMethod: SigningSessionSealedAuthMethod;
+    let authMethod: SigningSessionSealAuthMethod;
     if (curve === 'ecdsa') {
       if (!chainTarget) {
         return {

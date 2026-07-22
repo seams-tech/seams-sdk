@@ -1,5 +1,6 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
+import { SIGNER_AUTH_METHODS, type SignerAuthMethod } from '@shared/utils/signerDomain';
 import { classifyThresholdEcdsaSessionRecordRoleLocalState } from '../persistence/ecdsaRoleLocalRecords';
 import type { WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
 import {
@@ -73,6 +74,31 @@ function thresholdSessionIdFromEcdsaRecord(
 
 export const THRESHOLD_SESSION_MISSING_ERROR =
   '[chains] Missing threshold signingSessionId; reconnect threshold session before signing';
+
+function authMethodForSessionRecord(
+  record: ThresholdEd25519SessionRecord | ThresholdEcdsaSessionRecord | null | undefined,
+): SignerAuthMethod | null {
+  const source = record?.source;
+  switch (source) {
+    case SIGNER_AUTH_METHODS.emailOtp:
+      return SIGNER_AUTH_METHODS.emailOtp;
+    case undefined:
+      return null;
+    case 'login':
+    case 'registration':
+    case 'manual-bootstrap':
+    case 'add-signer':
+    case 'manual-connect':
+    case 'bootstrap':
+      return SIGNER_AUTH_METHODS.passkey;
+    default:
+      return assertNeverSigningSessionStoreSource(source);
+  }
+}
+
+function assertNeverSigningSessionStoreSource(value: never): never {
+  throw new Error(`Unsupported signing session store source: ${String(value)}`);
+}
 export const THRESHOLD_SESSION_EXHAUSTED_ERROR =
   '[chains] threshold signingSession is exhausted; reconnect threshold session before signing';
 export const SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR =
@@ -156,7 +182,9 @@ export function createWarmSessionStatusReader(
     if (record.source === 'email_otp') return null;
     const identity = tryBuildEcdsaSessionIdentity(record);
     if (!identity) return null;
-    if (classifyRouterAbEcdsaDerivationPersistedSigningRecord(record).kind !== 'runtime_validated') {
+    if (
+      classifyRouterAbEcdsaDerivationPersistedSigningRecord(record).kind !== 'runtime_validated'
+    ) {
       return null;
     }
     return warmClaimFromRecordPolicy({
@@ -390,7 +418,7 @@ export function createWarmSessionStatusReader(
     return {
       sessionId: thresholdSessionId,
       status,
-      authMethod: record.source === 'email_otp' ? 'email_otp' : 'passkey',
+      authMethod: authMethodForSessionRecord(record),
       ...(record.emailOtpAuthContext
         ? { retention: emailOtpAuthContextRetention(record.emailOtpAuthContext) }
         : {}),
@@ -449,7 +477,7 @@ export function createWarmSessionStatusReader(
         sessionId: normalizedThresholdSessionId,
         status: 'unavailable',
         statusCode: 'auth_missing',
-        authMethod: record?.source === 'email_otp' ? 'email_otp' : 'passkey',
+        authMethod: authMethodForSessionRecord(record),
         ...(record?.emailOtpAuthContext
           ? { retention: emailOtpAuthContextRetention(record.emailOtpAuthContext) }
           : {}),
@@ -463,7 +491,7 @@ export function createWarmSessionStatusReader(
     const status = toSigningSessionStatus({
       sessionId: normalizedThresholdSessionId,
       claim: ed25519Claim,
-      authMethod: record?.source === 'email_otp' ? 'email_otp' : 'passkey',
+      authMethod: authMethodForSessionRecord(record),
       retention: record?.emailOtpAuthContext
         ? emailOtpAuthContextRetention(record.emailOtpAuthContext)
         : null,
@@ -516,7 +544,7 @@ export function createWarmSessionStatusReader(
       ...toSigningSessionStatus({
         sessionId: identity.thresholdSessionId,
         claim: args.claim,
-        authMethod: args.record.source === 'email_otp' ? 'email_otp' : 'passkey',
+        authMethod: authMethodForSessionRecord(args.record),
         retention:
           args.record.source === 'email_otp'
             ? emailOtpAuthContextRetention(args.record.emailOtpAuthContext)

@@ -8,6 +8,7 @@ import type {
   SigningSessionStatus,
   SeamsConfigsReadonly,
 } from '@/core/types/seams';
+import { WALLET_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import { type WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
@@ -125,11 +126,16 @@ import {
 } from '@/core/signingEngine/session/emailOtp/ed25519YaoLogin';
 import {
   activateColdEmailOtpEd25519YaoUnlockedRecoveryV1,
+  activateColdEmailOtpEd25519YaoLocalSessionV1,
   prepareColdEmailOtpEd25519YaoRecoveryV1,
   recoverColdEmailOtpEd25519CapabilityForLoginV1,
   type PreparedColdEmailOtpEd25519YaoRecoveryV1,
 } from '@/core/signingEngine/session/emailOtp/ed25519YaoBudgetRecovery';
-import type { EmailOtpEd25519YaoRecoveryBootstrapV1 } from '@/core/signingEngine/workerManager/workerTypes';
+import type {
+  EmailOtpEd25519YaoExactLocalSessionBootstrapV1,
+  EmailOtpEd25519YaoRecoveryBootstrapV1,
+} from '@/core/signingEngine/workerManager/workerTypes';
+import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
 import type { EmailOtpEd25519YaoPendingFactorHandle } from '@/core/signingEngine/session/emailOtp/ed25519YaoRootVault';
 import {
   persistActivePasskeyEcdsaReauthAnchor,
@@ -202,6 +208,10 @@ type NearEd25519CapabilityRehydrationSubject =
       readonly thresholdSessionId: string;
       readonly laneIdentity: ExactEd25519SigningLaneIdentity;
     };
+
+function assertNeverNearWalletAuthMethod(value: never): never {
+  throw new Error(`[SigningEngine][near] unsupported wallet auth method: ${String(value)}`);
+}
 
 function fetchWithGlobalThis(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   return globalThis.fetch(input, init);
@@ -576,11 +586,33 @@ export class BrowserSigningSurface {
     request: TRequest,
   ): Promise<NearSignIntentResult<TRequest>> {
     if (request.kind !== 'transactionWithActions') {
-      await this.ensureNearEd25519YaoCapabilityForSigning(
-        nearEd25519CapabilityRehydrationSubjectFromRequest(request),
-      );
+      await this.prepareNearEd25519YaoCapabilityForSigning(request);
     }
     return await signNearOperation(this.enginePorts.nearSigningDeps, request);
+  }
+
+  private async prepareNearEd25519YaoCapabilityForSigning(
+    request: Exclude<NearSignIntentRequest, { kind: 'transactionWithActions' }>,
+  ): Promise<void> {
+    const resolveAuthMethod = this.enginePorts.nearSigningDeps.resolveAccountAuthMethodForSigning;
+    const subject = nearEd25519CapabilityRehydrationSubjectFromRequest(request);
+    const authMethod = await resolveAuthMethod({
+      walletId: subject.walletId,
+      nearAccountId: subject.nearAccountId,
+      curve: 'ed25519',
+      chain: 'near',
+    });
+    switch (authMethod) {
+      case WALLET_AUTH_METHODS.emailOtp:
+        return;
+      case WALLET_AUTH_METHODS.passkey:
+        await this.ensureNearEd25519YaoCapabilityForSigning(subject);
+        return;
+      case null:
+        throw new Error('[SigningEngine][near] wallet auth method is unavailable');
+      default:
+        assertNeverNearWalletAuthMethod(authMethod);
+    }
   }
 
   private async ensureNearEd25519YaoCapabilityForSigning(
@@ -1339,6 +1371,26 @@ export class BrowserSigningSurface {
     });
     await this.persistEmailOtpEd25519YaoSessionForRefreshInternal(recovered.record);
     return recovered.record;
+  }
+
+  async activateEmailOtpEd25519YaoLocalSessionInternal(args: {
+    prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
+    bootstrap: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
+    activeClientHandle: string;
+    metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+  }): Promise<ThresholdEd25519SessionRecord> {
+    const activated = await activateColdEmailOtpEd25519YaoLocalSessionV1({
+      prepared: args.prepared,
+      bootstrap: args.bootstrap,
+      activeClientHandle: args.activeClientHandle,
+      metadata: args.metadata,
+      workerContext: this.signerWorkerManager.getContext(),
+      activateCapability: this.enginePorts.ed25519YaoActiveClients.activate.bind(
+        this.enginePorts.ed25519YaoActiveClients,
+      ),
+    });
+    await this.persistEmailOtpEd25519YaoSessionForRefreshInternal(activated.record);
+    return activated.record;
   }
 
   async loginWithEmailOtpEd25519YaoCapabilityInternal(

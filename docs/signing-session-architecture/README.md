@@ -629,6 +629,6 @@ Guard tests should reject:
 4. ECDSA model:
    [../threshold-ecdsa/ecdsa-threshold-signing.md](../threshold-ecdsa/ecdsa-threshold-signing.md).
 5. Ed25519 model:
-   [../yaos-ab.md](../yaos-ab.md).
+   [../router-ab/ed25519-yao/implementation-plan.md](../router-ab/ed25519-yao/implementation-plan.md).
 6. Nonce coordinator:
    [../refactor-27-nonce-coordinator.md](../refactor-27-nonce-coordinator.md).

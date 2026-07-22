@@ -19,7 +19,7 @@ const activeDocPaths = [
   'docs/intended-behaviours.md',
   'docs/otp/email-otp.md',
   'docs/refactor-68-wallet-session-v2.md',
-  'docs/router-a-b-SPEC.md',
+  'docs/router-ab/protocol.md',
   'docs/signing-session-architecture/README.md',
   'docs/signing-session-architecture/sealed-refresh.md',
   'docs/threshold-ecdsa/ecdsa-threshold-signing.md',

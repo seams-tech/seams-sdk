@@ -23,18 +23,18 @@ builds, zero-caller audit, and local timing evidence are closed.**
 
 Companion documents:
 
-- [Streaming Yao and ECDSA client-boundary cleanup](./yaos-ab.md)
+- [Streaming Yao and ECDSA client-boundary cleanup](./router-ab/ed25519-yao/implementation-plan.md)
 - [Router A/B solution refactor](./router-a-b-sol-refactor.md)
-- [Router A/B specification](./router-a-b-SPEC.md)
-- [Router A/B deployment](./router-a-b-deployment.md)
-- [Yao A/B deployment](./yaos-ab-deployment.md)
+- [Router A/B specification](./router-ab/protocol.md)
+- [Router A/B deployment](./router-ab/deployment.md)
+- [Yao A/B deployment](./router-ab/ed25519-yao/deployment.md)
 - [Local completion audit](./evidence/refactor-89/completion-audit-v1.md)
 - [Final local test receipt](./evidence/refactor-89/final-local-test-receipt-v1.md)
 - [Bounded independent cryptographic review receipt](./security/router-ab-ecdsa-phase4-review.md)
 - [Independent registration-package delta review](./evidence/refactor-89/registration-package-delta-review-v1.md)
 - [Cloudflare signing lifecycle security review](./evidence/refactor-89/cloudflare-signing-lifecycle-security-review-v1.md)
 
-`yaos-ab.md` Phase 14B completed the retirement of active HSS terminology, the narrow role-local
+`router-ab/ed25519-yao/implementation-plan.md` Phase 14B completed the retirement of active HSS terminology, the narrow role-local
 derivation client, the browser/server dependency boundaries, and local bundle
 evidence. `router-a-b-sol-refactor.md` completed strict Router A/B lifecycle
 migration and deletion of `ThresholdSigningService`. This plan now records the
@@ -43,7 +43,7 @@ lifecycle review is rejected pending remediation. The public-utility decision,
 generic production backend deletion, persistent one-use pool, compact wire,
 pool-hit lazy loading, registration-only client package, and local readiness
 gates are closed. ECDSA rollout remains in
-`router-a-b-deployment.md`; `yaos-ab-deployment.md` remains the separate
+`router-ab/deployment.md`; `router-ab/ed25519-yao/deployment.md` remains the separate
 Ed25519 Yao release gate and explicitly delegates general Router A/B/ECDSA
 deployment there.
 

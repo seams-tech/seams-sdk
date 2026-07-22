@@ -178,7 +178,6 @@ struct EvidenceCounts {
     phase2b_exit_evidence_rust_tests: usize,
     phase2b_review_subject_rust_tests: usize,
     phase2b_protected_inputs_rust_tests: usize,
-    phase2b_change_control_python_tests: usize,
     phase2b_exit_evidence_spec_sha256: String,
     benchmark_manifest_rust_tests: usize,
     benchmark_manifest_bytes: usize,
@@ -278,9 +277,6 @@ fn run() -> Result<(), DynError> {
         "phase2b-exit-evidence-readiness-check" => {
             run_phase2b_exit_evidence_readiness_check()
         }
-        "phase2b-change-control-readiness-check" => {
-            run_phase2b_change_control_readiness_check()
-        }
         "phase2b-review-subject-check" => run_phase2b_review_subject_check(),
         "phase2b-protected-inputs-check" => {
             println!("{}", phase2b_protected_inputs::run_protected_inputs_check()?);
@@ -299,7 +295,7 @@ fn run() -> Result<(), DynError> {
             Ok(())
         }
         unknown => Err(format!(
-            "unknown task `{unknown}`; expected all, check, reference-spec-check, vectors-check, cross-language-check, parity, anti-drift, lean-check, aeneas-check, verus-check, constant-time-qualification, benchmark-manifest-reproducibility, phase2b-reconciliation-check, phase2b-exit-evidence-readiness-check, phase2b-change-control-readiness-check, phase2b-review-subject-check, phase2b-protected-inputs-check, phase2b-independent-host-prepare, phase2b-independent-host-finalize, phase2b-independent-host-record-check, or phase2b-review-approval-check"
+            "unknown task `{unknown}`; expected all, check, reference-spec-check, vectors-check, cross-language-check, parity, anti-drift, lean-check, aeneas-check, verus-check, constant-time-qualification, benchmark-manifest-reproducibility, phase2b-reconciliation-check, phase2b-exit-evidence-readiness-check, phase2b-review-subject-check, phase2b-protected-inputs-check, phase2b-independent-host-prepare, phase2b-independent-host-finalize, phase2b-independent-host-record-check, or phase2b-review-approval-check"
         )
         .into()),
     }
@@ -311,7 +307,6 @@ fn run_all() -> Result<(), DynError> {
     run_cross_language_check()?;
     run_phase2b_reconciliation_check()?;
     run_phase2b_exit_evidence_readiness_check()?;
-    run_phase2b_change_control_readiness_check()?;
     run_phase2b_review_subject_check()?;
     run_benchmark_manifest_reproducibility()?;
     run_parity()?;
@@ -319,13 +314,13 @@ fn run_all() -> Result<(), DynError> {
     run_aeneas_check()?;
     run_lean_check()?;
     run_verus_check()?;
-    println!("all ok: 13 nonempty Ed25519 Yao verification tracks executed");
+    println!("all ok: 12 nonempty Ed25519 Yao verification tracks executed");
     Ok(())
 }
 
 fn print_help() {
     println!(
-        "usage: cargo yao-fv [all|check|reference-spec-check|vectors-check|cross-language-check|parity|anti-drift|lean-check|aeneas-check|verus-check|constant-time-qualification|benchmark-manifest-reproducibility|phase2b-reconciliation-check|phase2b-exit-evidence-readiness-check|phase2b-change-control-readiness-check|phase2b-review-subject-check|phase2b-protected-inputs-check|phase2b-independent-host-prepare|phase2b-independent-host-finalize|phase2b-independent-host-record-check|phase2b-review-approval-check]"
+        "usage: cargo yao-fv [all|check|reference-spec-check|vectors-check|cross-language-check|parity|anti-drift|lean-check|aeneas-check|verus-check|constant-time-qualification|benchmark-manifest-reproducibility|phase2b-reconciliation-check|phase2b-exit-evidence-readiness-check|phase2b-review-subject-check|phase2b-protected-inputs-check|phase2b-independent-host-prepare|phase2b-independent-host-finalize|phase2b-independent-host-record-check|phase2b-review-approval-check]"
     );
 }
 
@@ -2846,40 +2841,6 @@ fn run_phase2b_exit_evidence_readiness_check() -> Result<(), DynError> {
     Ok(())
 }
 
-fn run_phase2b_change_control_readiness_check() -> Result<(), DynError> {
-    let baseline = load_baseline()?;
-    let python = resolve_program("python3", "install the pinned minimum Python version")?;
-    verify_python_version(&python, &baseline.python)?;
-    let scripts = formal_verification_dir().join("scripts");
-    let checker = scripts.join("phase2b_change_control.py");
-    let tests = scripts.join("test_phase2b_change_control.py");
-    let workflow = repository_root().join(".github/workflows/phase2b-change-control.yml");
-    require_file(&checker, "Phase 2B change-control state checker")?;
-    require_file(&tests, "Phase 2B change-control state tests")?;
-    require_file(&workflow, "Phase 2B non-authoritative staging workflow")?;
-
-    let mut command = Command::new(&python);
-    command
-        .args(["-m", "unittest", "discover", "-s"])
-        .arg(&scripts)
-        .args(["-p", "test_phase2b_change_control.py"]);
-    let output = capture_command(
-        &mut command,
-        "Phase 2B change-control readiness suite",
-        true,
-    )?;
-    let test_count = parse_python_test_count(&output)?;
-    require_exact_count(
-        "Phase 2B change-control Python test",
-        test_count,
-        baseline.evidence.phase2b_change_control_python_tests,
-    )?;
-    println!(
-        "phase2b-change-control-readiness-check ok: {test_count} staging-state tests and non-authoritative workflow present"
-    );
-    Ok(())
-}
-
 fn run_phase2b_review_subject_check() -> Result<(), DynError> {
     let baseline = load_baseline()?;
     let tasks_manifest = formal_verification_dir().join("tasks/Cargo.toml");
@@ -3626,7 +3587,6 @@ fn validate_baseline(baseline: &VerificationBaseline) -> Result<(), DynError> {
         baseline.evidence.phase2b_exit_evidence_rust_tests,
         baseline.evidence.phase2b_review_subject_rust_tests,
         baseline.evidence.phase2b_protected_inputs_rust_tests,
-        baseline.evidence.phase2b_change_control_python_tests,
         baseline.evidence.benchmark_manifest_rust_tests,
         baseline.evidence.benchmark_manifest_bytes,
         baseline.evidence.benchmark_bundle_index_bytes,

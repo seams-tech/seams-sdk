@@ -9,6 +9,21 @@ import type { SigningSessionSealKeyVersion } from '../keyMaterialBrands';
 
 type EmailOtpWorkerRequester = Pick<WorkerOperationContext, 'requestWorkerOperation'>;
 
+export async function requestDisposeEmailOtpEcdsaClientRootHandle(args: {
+  workerCtx: WorkerOperationContext;
+  clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
+}): Promise<boolean> {
+  const result = await args.workerCtx.requestWorkerOperation({
+    kind: 'emailOtp',
+    request: {
+      type: 'disposeEmailOtpEcdsaClientRootHandle',
+      timeoutMs: 5_000,
+      payload: { clientRootShareHandle: args.clientRootShareHandle },
+    },
+  });
+  return result.removed;
+}
+
 export type EmailOtpWarmSessionTransport = {
   relayerUrl: string;
   walletSessionJwt?: string;

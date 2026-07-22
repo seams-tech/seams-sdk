@@ -6,7 +6,7 @@ runtime/profile realization remain open**
 
 ## Source precedence
 
-1. [`docs/yaos-ab.md`](../../../../docs/yaos-ab.md) owns the approved
+1. [`docs/router-ab/ed25519-yao/implementation-plan.md`](../../../../docs/router-ab/ed25519-yao/implementation-plan.md) owns the approved
    architecture, corruption model, and phased protocol plan.
 2. [`tools/ed25519-yao-generator/docs/fixed-reference-v1.md`](../../../../tools/ed25519-yao-generator/docs/fixed-reference-v1.md)
    owns the extracted fixed reference encodings, domains, identifiers,
@@ -164,11 +164,8 @@ runtime/profile realization remain open**
    boundary, and exact nonclaims. Its twenty readiness tests include the
    unsigned clean-host prepare and bounded signature-only finalize boundaries
    plus the fixed Git-object `C → E` record and reviewer-approval acceptance
-   boundaries. It also freezes the exact covered change-control surface,
-   historical-checkpoint rule, and non-authoritative public staging workflow
-   through thirteen stdlib-Python staging/workflow tests. These artifacts do not provide genuine
-   externally governed evidence, reviewer approval, or Phase 2 exit. Eleven
-   additional tests cover
+   boundaries. These artifacts do not provide genuine externally governed
+   evidence, reviewer approval, or Phase 2 exit. Eleven additional tests cover
    its fixed-path subject, internally closed tracked symlinks, environment
    sanitization, and independently decoded fresh-observation builders, while
    eight cover the protected policy/challenge capabilities.

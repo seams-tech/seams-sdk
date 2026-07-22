@@ -44,6 +44,11 @@ const clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload = {
   chainTarget,
 };
 
+const ecdsaDisposalPayload = {
+  clientRootShareHandle,
+} satisfies EmailOtpWorkerOperationMap['disposeEmailOtpEcdsaClientRootHandle']['payload'];
+void ecdsaDisposalPayload;
+
 const walletRegistrationEcdsaPrepareHandle: EmailOtpWalletRegistrationEcdsaPrepareHandlePayload = {
   kind: 'email_otp_worker_session_handle_v1',
   sessionId: 'otp-registration-root-session',
@@ -56,6 +61,12 @@ const walletRegistrationEcdsaPrepareHandle: EmailOtpWalletRegistrationEcdsaPrepa
   chainTarget,
 };
 void walletRegistrationEcdsaPrepareHandle;
+
+const invalidEcdsaDisposalPayload = {
+  // @ts-expect-error Session-root disposal rejects wallet-registration prepare handles.
+  clientRootShareHandle: walletRegistrationEcdsaPrepareHandle,
+} satisfies EmailOtpWorkerOperationMap['disposeEmailOtpEcdsaClientRootHandle']['payload'];
+void invalidEcdsaDisposalPayload;
 
 // @ts-expect-error Registration-prep worker handles cannot be used for session bootstrap.
 const bootstrapHandleFromRegistrationPrepare: EmailOtpEcdsaSessionBootstrapHandlePayload =
@@ -208,6 +219,9 @@ void emailOtpEd25519YaoFactorRehydrateWithoutWalletSession;
 const emailOtpEd25519YaoWalletUnlockMaterial: EmailOtpEd25519YaoWalletUnlockMaterial = {
   kind: 'ed25519_yao_recovery',
   providerSubject: 'google:subject',
+  nearAccountId: 'wallet.testnet',
+  expectedOperationalPublicKey: 'ed25519:11111111111111111111111111111111',
+  expectedThresholdSessionId: 'threshold-session',
   ed25519YaoRecovery: {
     kind: 'router_ab_ed25519_yao_email_otp_recovery_v1',
     signerSlot: 1,
@@ -216,6 +230,21 @@ const emailOtpEd25519YaoWalletUnlockMaterial: EmailOtpEd25519YaoWalletUnlockMate
   },
 };
 void emailOtpEd25519YaoWalletUnlockMaterial;
+
+const emailOtpEd25519YaoWalletUnlockWithoutThresholdIdentity = {
+  kind: 'ed25519_yao_recovery',
+  providerSubject: 'google:subject',
+  nearAccountId: 'wallet.testnet',
+  expectedOperationalPublicKey: 'ed25519:11111111111111111111111111111111',
+  ed25519YaoRecovery: {
+    kind: 'router_ab_ed25519_yao_email_otp_recovery_v1',
+    signerSlot: 1,
+    remainingUses: 3,
+    orgId: 'org-test',
+  },
+  // @ts-expect-error Exact local import requires its registered threshold lifecycle identity.
+} satisfies EmailOtpEd25519YaoWalletUnlockMaterial;
+void emailOtpEd25519YaoWalletUnlockWithoutThresholdIdentity;
 
 const emailOtpEd25519YaoWalletUnlockWithPriorSession = {
   ...emailOtpEd25519YaoWalletUnlockMaterial,
@@ -428,6 +457,8 @@ const emailOtpYaoRecoveryPayload: EmailOtpYaoRecoveryPayload = {
   rootHandle: emailOtpYaoRootHandle,
   admissionRequest: emailOtpYaoRecoveryAdmission,
   walletId: 'wallet.testnet',
+  nearAccountId: 'wallet.testnet',
+  signingRootVersion: 'root-v1',
   providerSubject: 'google:subject',
   registrationAuthorityId: 'registration-authority',
   bearerToken: 'wallet-session-jwt',
@@ -445,6 +476,8 @@ const emailOtpYaoRecoveryWithoutSessionPolicy: EmailOtpYaoRecoveryPayload = {
   rootHandle: emailOtpYaoRootHandle,
   admissionRequest: emailOtpYaoRecoveryAdmission,
   walletId: 'wallet.testnet',
+  nearAccountId: 'wallet.testnet',
+  signingRootVersion: 'root-v1',
   providerSubject: 'google:subject',
   registrationAuthorityId: 'registration-authority',
   bearerToken: 'wallet-session-jwt',

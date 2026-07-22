@@ -157,11 +157,11 @@
       "sha256": "6906809de59cc693c63f71e4334c65cd8f29dbc23b9ca65e390a3d7b46c52eeb"
     },
     {
-      "path": "docs/yaos-ab.md",
+      "path": "docs/router-ab/ed25519-yao/implementation-plan.md",
       "sha256": "b4c55d81ed6a7e62a584f6436dbdd29d9a586fff29f2b94aa4f9964baf6517d1"
     },
     {
-      "path": "docs/yaos-ab-deployment.md",
+      "path": "docs/router-ab/ed25519-yao/deployment.md",
       "sha256": "57c0cb03cf68998c9bd8895061fd62ae406156f6bce6bd5e874dda869717c9b0"
     }
   ],

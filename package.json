@@ -55,10 +55,14 @@
     "router:deploy:browser-evidence": "pnpm -C tests exec playwright test -c playwright.router-ab-deployed-evidence.config.ts --reporter=line",
     "router:deploy:keygen": "node ./crates/router-ab-cloudflare/scripts/generate-deployment-keys.mjs",
     "router:deploy:root-share-keygen": "node ./crates/router-ab-cloudflare/scripts/generate-root-share-keys.mjs",
-    "router:deploy:env-keygen": "node ./crates/router-ab-cloudflare/scripts/generate-github-env-values.mjs",
-    "router:deploy:env-rotate": "bash ./scripts/rotate-github-deployment-environment.sh",
-    "router:deploy:env-verify": "node ./crates/router-ab-cloudflare/scripts/generate-github-env-values.mjs --verify-generation",
-    "router:deploy:env-apply": "node ./crates/router-ab-cloudflare/scripts/apply-github-external-values.mjs",
+    "wallet-core:deploy:env-prepare": "node ./crates/router-ab-cloudflare/scripts/generate-github-env-values.mjs --prepare",
+    "wallet-core:deploy:env-apply": "node ./crates/router-ab-cloudflare/scripts/generate-github-env-values.mjs --apply --component wallet-core",
+    "product:deploy:env-apply": "node ./crates/router-ab-cloudflare/scripts/generate-github-env-values.mjs --apply --component product",
+    "deploy:env-rotate": "bash ./scripts/rotate-github-deployment-environment.sh",
+    "deploy:env-verify": "node ./crates/router-ab-cloudflare/scripts/generate-github-env-values.mjs --verify-generation",
+    "wallet-core:deploy:env-update": "node ./crates/router-ab-cloudflare/scripts/apply-github-external-values.mjs --component wallet-core",
+    "product:deploy:env-update": "node ./crates/router-ab-cloudflare/scripts/apply-github-external-values.mjs --component product",
+    "wallet-core:deploy:env-migrate-gateway": "node ./crates/router-ab-cloudflare/scripts/generate-github-env-values.mjs --migrate-gateway-config --apply",
     "router:deploy:dry-run": "node ./crates/router-ab-cloudflare/scripts/measure-startup-latencies.mjs --dry-run",
     "router:deploy:upload": "node ./crates/router-ab-cloudflare/scripts/measure-startup-latencies.mjs --upload",
     "router:evidence": "node ./crates/router-ab-dev/scripts/local-command.mjs release-evidence",
@@ -104,5 +108,5 @@
     "typescript-eslint": "^8.0.0",
     "vitepress": "^1.5.0"
   },
-  "packageManager": "pnpm@10.28.2+sha512.41872f037ad22f7348e3b1debbaf7e867cfd448f2726d9cf74c08f19507c31d2c8e7a11525b983febc2df640b5438dee6023ebb1f84ed43cc2d654d2bc326264"
+  "packageManager": "pnpm@11.11.0+sha512.4463f65fd80ed80d69bc1d4bf163ee94f605c7380fc318bb5b2ebe15f8cd12d49c51a4d59e951b401e764d3b6ca751cbf51bc50ed7001a6bcb4935e684c34882"
 }

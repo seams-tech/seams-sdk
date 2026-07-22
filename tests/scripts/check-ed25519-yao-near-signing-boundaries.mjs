@@ -309,8 +309,8 @@ const retiredSplitDerivationActiveFiles = [
   'crates/router-ab-cloudflare/wrangler.router.toml',
   'crates/router-ab-cloudflare/wrangler.deriver-a.toml',
   'crates/router-ab-cloudflare/wrangler.deriver-b.toml',
-  'docs/router-a-b-local-dev.md',
-  'docs/router-a-b-SPEC.md',
+  'docs/router-ab/local-development.md',
+  'docs/router-ab/protocol.md',
 ];
 for (const relativePath of retiredSplitDerivationActiveFiles) {
   const source = readRepoSource(relativePath);

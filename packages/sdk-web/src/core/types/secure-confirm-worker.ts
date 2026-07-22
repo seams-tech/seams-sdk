@@ -14,8 +14,9 @@ import type {
   RouterAbEd25519YaoBytes32V1,
   RouterAbEd25519YaoLifecycleScopeV1,
 } from '@shared/utils/routerAbEd25519Yao';
+import type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
 
-export type SigningSessionSealAuthMethod = 'passkey' | 'email_otp';
+export type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
 
 type WarmSessionSealTransportCommon = {
   walletId?: string;

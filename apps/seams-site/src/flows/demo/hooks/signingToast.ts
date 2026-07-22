@@ -106,8 +106,7 @@ function signingToastMessage(
       return { title: 'Secure signer ready' };
     case SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_STARTED:
       return {
-        title: 'Loading secure signer',
-        description: 'Preparing the threshold signer.',
+        title: `Preparing ${chainLabel} signing session`,
       };
     case SigningEventPhase.STEP_10_COMMIT_QUEUED:
       return { title: 'Waiting to sign' };

@@ -586,7 +586,6 @@ The completed formal tooling MUST expose:
 ```text
 cargo yao-fv phase2b-review-subject-check
 cargo yao-fv phase2b-exit-evidence-readiness-check
-cargo yao-fv phase2b-change-control-readiness-check
 cargo yao-fv phase2b-protected-inputs-check
 cargo yao-fv phase2b-independent-host-prepare
 cargo yao-fv phase2b-independent-host-finalize
@@ -654,10 +653,10 @@ artifact observation to equal the regenerated subject capability. A private,
 nonserializable verified capability is returned only after every check passes.
 
 Before genuine external evidence exists, the readiness and fixed-subject checks
-join normal CI. The protected-input check stays outside `all` because its trust
-anchors must be supplied by the independent release verifier. Record and
-approval checks stay outside `all` and fail closed when their external files or
-externally pinned policy digest are absent. A normal GitHub CI success has no
+join the local `all` gate. The protected-input check stays outside `all` because
+its trust anchors must be supplied by the independent release verifier. Record
+and approval checks stay outside `all` and fail closed when their external files
+or externally pinned policy digest are absent. A GitHub CI success has no
 release-authority meaning.
 
 ## 8. Required rejection evidence
@@ -683,9 +682,9 @@ Tests MUST reject:
 15. approval/reviewer/signature/promotion surfaces in generator or production
     crates.
 
-## 9. Change control and staging
+## 9. Evidence commit
 
-Any covered compiler, schema, ordering, artifact, metric, count, corpus,
+Any compiler, schema, ordering, artifact, metric, count, corpus,
 certificate, authoritative-specification, report, authority, or policy change
 changes a signed digest and invalidates the old evidence.
 
@@ -736,57 +735,9 @@ subject. It hashes the
 raw `git archive --format=tar C` output and obtains all non-review files from a
 tree proven unchanged between `C` and `E`. This prevents the review files from
 changing the subject they attest and avoids a source/evidence commit cycle.
-The external release verifier treats this accepted pair as a historical
-checkpoint for the exact reviewed surface. An unrelated descendant cannot claim
-that its whole-repository subject equals `C`, but it may retain the checkpoint
-for unchanged reviewed components. Any later covered change requires a new
-candidate and a new evidence commit.
-
-### 9.1 Covered change-control surface
-
-The exact covered paths are:
-
-```text
-.cargo/**
-.github/workflows/phase2b-change-control.yml
-crates/ed25519-yao/**
-docs/yaos-ab.md
-justfile
-tools/ed25519-yao-generator/**
-tools/ed25519-yao-verifier/**
-```
-
-This set contains the compiler contract, schemas and ordering, artifacts,
-schedules, metrics and counts, corpora, certificate, formal acceptance code,
-normative specifications, task locks, command aliases, and the public staging
-checker. A change outside this set does not acquire a Phase 2 claim and does not
-require re-review while every covered byte remains unchanged.
-
-The state checker compares an inspected commit with a supplied base and
-implements these exact states:
-
-1. zero fixed evidence paths at both base and head is the pre-evidence
-   development state; covered changes may continue without an approval claim;
-2. one, two, or three fixed evidence paths at either base or head fail;
-3. the first complete four-file head requires external verification;
-4. a complete base plus an unrelated descendant retains the historical
-   checkpoint without rerunning the external verifier;
-5. a complete base plus any covered change requires a fresh complete head;
-6. a complete base followed by an absent or partial head fails.
-
-Whenever external verification is required, `HEAD` MUST be exact `E`, its sole
-parent MUST be the new candidate `C`, the event base MUST be an ancestor of
-`C`, and the raw `C..E` diff MUST satisfy the four-addition rule above. A future
-covered pull request may therefore contain a candidate commit that removes old
-evidence and changes covered bytes followed by the new four-file evidence
-commit. The public checker accepts no merge, squash, fifth file, modification,
-or partial staging substitute.
-
-The GitHub workflow `.github/workflows/phase2b-change-control.yml` runs only this
-public evidence-shape checker. It carries no policy, challenge, signing key,
-independent identity, release decision, or protected verification job. Its
-result is advisory staging evidence and MUST NOT be treated as a required
-release-authority status.
+The external release verifier treats this accepted pair as the checkpoint for
+the exact reviewed source tree. Descendants do not inherit that claim. Every
+later reviewed release requires a new candidate and evidence commit.
 
 The independent release verifier obtains these exact values through a channel
 administered outside the repository and outside the GitHub account:

@@ -10,7 +10,7 @@ Related plans:
 - [refactor-78-wallet-capability-bindings.md](./refactor-78-wallet-capability-bindings.md)
 - [refactor-79-exact-signing-lane.md](./refactor-79-exact-signing-lane.md)
 - [refactor-80-switch-case.md](./refactor-80-switch-case.md)
-- [router-a-b-SPEC.md](./router-a-b-SPEC.md)
+- [router-ab/protocol.md](./router-ab/protocol.md)
 
 ## Goal
 
@@ -287,9 +287,9 @@ Acceptance:
 ## Phase 6: Docs And Operator Surface
 
 - [x] Update active docs:
-  - [x] [router-a-b-SPEC.md](./router-a-b-SPEC.md)
-  - [x] [router-a-b-local-dev.md](./router-a-b-local-dev.md)
-  - [x] [router-a-b-SPEC.md](./router-a-b-SPEC.md)
+  - [x] [router-ab/protocol.md](./router-ab/protocol.md)
+  - [x] [router-ab/local-development.md](./router-ab/local-development.md)
+  - [x] [router-ab/protocol.md](./router-ab/protocol.md)
   - [x] [refactor-70-server-budget.md](./refactor-70-server-budget.md)
   - [x] threshold ECDSA integration/signing docs
 - [x] Update release/deploy scripts that probe routes.

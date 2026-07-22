@@ -1,6 +1,7 @@
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { base64UrlDecode } from '@shared/utils/base64';
 import { alphabetizeStringify } from '@shared/utils/digests';
+import { SIGNER_AUTH_METHODS, type SignerAuthMethod } from '@shared/utils/signerDomain';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
   deriveThresholdEcdsaKeyHandle,
@@ -107,7 +108,10 @@ export type EvmFamilyKeyFingerprint = string & {
   readonly __brand: 'EvmFamilyKeyFingerprint';
 };
 
-export type EvmFamilyEcdsaAuthMethod = 'passkey' | 'email_otp';
+export type EvmFamilyEcdsaAuthMethod = Extract<
+  SignerAuthMethod,
+  typeof SIGNER_AUTH_METHODS.passkey | typeof SIGNER_AUTH_METHODS.emailOtp
+>;
 
 export type VerifiedEcdsaPublicFacts = {
   kind: 'verified_ecdsa_public_facts';
@@ -163,7 +167,7 @@ export type EvmFamilyEcdsaWalletKey = {
 
 export type PasskeyEcdsaAuthBinding = {
   kind: 'passkey_ecdsa_auth_binding';
-  authMethod: 'passkey';
+  authMethod: typeof SIGNER_AUTH_METHODS.passkey;
   rpId: RpId;
   credentialIdB64u: string;
   authSubjectId?: never;
@@ -176,7 +180,7 @@ export type PasskeyEcdsaAuthBinding = {
 
 export type EmailOtpEcdsaAuthBinding = {
   kind: 'email_otp_ecdsa_auth_binding';
-  authMethod: 'email_otp';
+  authMethod: typeof SIGNER_AUTH_METHODS.emailOtp;
   authSubjectId: EmailOtpAuthSubjectId;
   providerId: EmailOtpProviderId;
   rpId?: never;
@@ -748,7 +752,21 @@ function participantIdKey(participantIds: readonly ParticipantId[]): string {
 }
 
 function authMethodForRecord(record: ThresholdEcdsaSessionRecord): EvmFamilyEcdsaAuthMethod {
-  return record.source === 'email_otp' ? 'email_otp' : 'passkey';
+  const source = record.source;
+  switch (source) {
+    case SIGNER_AUTH_METHODS.emailOtp:
+      return SIGNER_AUTH_METHODS.emailOtp;
+    case 'login':
+    case 'registration':
+    case 'manual-bootstrap':
+      return SIGNER_AUTH_METHODS.passkey;
+    default:
+      return assertNeverThresholdEcdsaSessionStoreSource(source);
+  }
+}
+
+function assertNeverThresholdEcdsaSessionStoreSource(value: never): never {
+  throw new Error(`Unsupported threshold ECDSA session source: ${String(value)}`);
 }
 
 function mismatch<TKind extends EvmFamilyEcdsaIdentityMismatch['kind']>(
@@ -1021,7 +1039,7 @@ export function buildPasskeyEcdsaAuthBinding(args: {
 }): PasskeyEcdsaAuthBinding {
   return {
     kind: 'passkey_ecdsa_auth_binding',
-    authMethod: 'passkey',
+    authMethod: SIGNER_AUTH_METHODS.passkey,
     rpId: normalizeRpId(args.rpId),
     credentialIdB64u: requiredString(args.credentialIdB64u, 'credentialIdB64u'),
   };
@@ -1032,7 +1050,7 @@ export function buildEmailOtpEcdsaAuthBinding(
 ): EmailOtpEcdsaAuthBinding {
   return {
     kind: 'email_otp_ecdsa_auth_binding',
-    authMethod: 'email_otp',
+    authMethod: SIGNER_AUTH_METHODS.emailOtp,
     authSubjectId: normalizeEmailOtpAuthSubjectId(args.authSubjectId),
     providerId: normalizeEmailOtpProviderId(args.providerId),
   };

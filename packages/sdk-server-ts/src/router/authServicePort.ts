@@ -62,8 +62,8 @@ import type {
 import type {
   RouterAbEd25519YaoBudgetRefreshRequestV1,
   RouterAbEd25519YaoBudgetRefreshResponseV1,
-  RouterAbEd25519YaoEmailOtpRecoverySessionRequestV1,
-  RouterAbEd25519YaoEmailOtpRecoverySessionResponseV1,
+  RouterAbEd25519YaoEmailOtpSessionRequestV1,
+  RouterAbEd25519YaoEmailOtpSessionResponseV1,
 } from './routerAbEd25519YaoWalletSession';
 import type {
   RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1,
@@ -1086,8 +1086,8 @@ export interface RouterApiWalletRegistrationService {
     input: RouterAbEd25519YaoBudgetRefreshRequestV1,
   ): Promise<RouterAbEd25519YaoBudgetRefreshResponseV1>;
   recoverEd25519YaoEmailOtpWalletSession(
-    input: RouterAbEd25519YaoEmailOtpRecoverySessionRequestV1,
-  ): Promise<RouterAbEd25519YaoEmailOtpRecoverySessionResponseV1>;
+    input: RouterAbEd25519YaoEmailOtpSessionRequestV1,
+  ): Promise<RouterAbEd25519YaoEmailOtpSessionResponseV1>;
   recordEcdsaPostRegistrationProof(
     input:
       | {

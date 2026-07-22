@@ -86,6 +86,7 @@ import {
   type CanonicalTieBreakOrder,
   type ServerIssuedGeneration,
 } from './canonicalLaneInventory';
+import { SIGNER_AUTH_METHODS, type SignerAuthMethod } from '@shared/utils/signerDomain';
 
 export type AvailableSigningLaneState =
   | 'ready'
@@ -1154,11 +1155,12 @@ function sourceStateFromAvailableLane(
   freshness: FreshStepUpRequired,
 ): ReauthAnchorSourceState {
   const authMethod = signingLaneAuthMethod(lane.auth);
+  const authState = reauthAnchorSourceStateForSignerAuthMethod(authMethod);
   return {
     kind: 'reauth_anchor_source_state',
     availabilitySource: 'source' in lane && lane.source ? lane.source : 'runtime_session_record',
-    storeSource: authMethod === 'email_otp' ? 'email_otp' : 'login',
-    retention: authMethod === 'email_otp' ? 'single_use' : 'session',
+    storeSource: authState.storeSource,
+    retention: authState.retention,
     remainingUses: nullableNonNegativeInteger(lane.remainingUses),
     expiry: freshness.expiry,
     projection: freshness.projection,
@@ -1170,18 +1172,32 @@ function sourceStateFromEcdsaLaneCandidate(
   freshness: FreshStepUpRequired,
 ): ReauthAnchorSourceState {
   const authMethod = signingLaneAuthMethod(candidate.auth);
+  const authState = reauthAnchorSourceStateForSignerAuthMethod(authMethod);
   const remainingUses =
     candidate.state === 'exhausted' ? 0 : nullableNonNegativeInteger(candidate.remainingUses);
   return {
     kind: 'reauth_anchor_source_state',
     availabilitySource:
       candidate.source === 'unknown' ? 'runtime_session_record' : candidate.source,
-    storeSource: authMethod === 'email_otp' ? 'email_otp' : 'login',
-    retention: authMethod === 'email_otp' ? 'single_use' : 'session',
+    storeSource: authState.storeSource,
+    retention: authState.retention,
     remainingUses,
     expiry: freshness.expiry,
     projection: freshness.projection,
   };
+}
+
+function reauthAnchorSourceStateForSignerAuthMethod(
+  authMethod: SignerAuthMethod,
+): Pick<ReauthAnchorSourceState, 'storeSource' | 'retention'> {
+  switch (authMethod) {
+    case SIGNER_AUTH_METHODS.emailOtp:
+      return { storeSource: 'email_otp', retention: 'single_use' };
+    case SIGNER_AUTH_METHODS.passkey:
+      return { storeSource: 'login', retention: 'session' };
+  }
+  authMethod satisfies never;
+  throw new Error('[SigningSession] unsupported signer auth method');
 }
 
 function durablePolicyHint(record: {

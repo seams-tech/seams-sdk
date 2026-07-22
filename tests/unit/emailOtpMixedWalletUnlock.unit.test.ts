@@ -3,6 +3,7 @@ import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '../../packages/sdk-web/src/core
 import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   loginWithEmailOtpEcdsaCapability,
+  prepareEmailOtpEcdsaExportCapability,
   type EmailOtpEcdsaLoginPorts,
 } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaLogin';
 import type { EmailOtpEcdsaPublicationPorts } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaPublication';
@@ -19,7 +20,24 @@ import type {
   SignerWorkerOperationResult,
   SignerWorkerOperationType,
 } from '../../packages/sdk-web/src/core/signingEngine/workerManager/workerTypes';
-import { WALLET_EMAIL_OTP_UNLOCK_OPERATION } from '../../packages/shared-ts/src/utils/emailOtpDomain';
+import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
+import {
+  upsertThresholdEcdsaSessionFromBootstrap,
+  type ThresholdEcdsaSessionRecord,
+} from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
+import { buildEmailOtpAuthContextForWalletAuthMethod } from '../../packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity';
+import { computeEcdsaDerivationRoleLocalThresholdKeyId } from '../../packages/shared-ts/src/threshold/ecdsaDerivationRoleLocalBootstrap';
+import type { ThresholdEcdsaSessionBootstrapResult } from '../../packages/sdk-web/src/core/signingEngine/threshold/ecdsa/activation';
+import {
+  parseEcdsaRoleLocalBindingDigest,
+  parseEcdsaRoleLocalDurableMaterialRef,
+  parseEcdsaRoleLocalMaterialHandle,
+} from '../../packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands';
+import {
+  WALLET_EMAIL_OTP_EXPORT_OPERATION,
+  WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
+  WALLET_EMAIL_OTP_UNLOCK_OPERATION,
+} from '../../packages/shared-ts/src/utils/emailOtpDomain';
 
 type UnlockResult = EmailOtpWorkerOperationMap['loginWithEmailOtpWallet']['result'];
 
@@ -44,8 +62,8 @@ const WALLET_ID = toWalletId('mixed-email-otp-wallet.testnet');
 const CHAIN_TARGET = {
   kind: 'evm',
   namespace: 'eip155',
-  chainId: 1,
-  networkSlug: 'ethereum-mainnet',
+  chainId: 11155111,
+  networkSlug: 'evm-11155111',
 } as const;
 const TEMPO_TARGET = {
   kind: 'tempo',
@@ -195,7 +213,11 @@ class MixedUnlockWorkerFixture implements WorkerOperationContext {
 class MixedLoginFailureWorkerFixture implements WorkerOperationContext {
   readonly operations: string[] = [];
   disposedPendingFactorHandle: unknown = null;
-  ecdsaBootstrapPayload: Record<string, unknown> | null = null;
+  private readonly clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
+
+  constructor(clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload) {
+    this.clientRootShareHandle = clientRootShareHandle;
+  }
 
   async requestWorkerOperation<
     K extends SignerWorkerKind,
@@ -213,15 +235,48 @@ class MixedLoginFailureWorkerFixture implements WorkerOperationContext {
         return {
           kind: 'ecdsa_and_ed25519_yao_recovery',
           recovery: RECOVERY,
-          clientRootShareHandle: ECDSA_ROOT_HANDLE,
+          clientRootShareHandle: this.clientRootShareHandle,
           pendingFactorHandle: PENDING_FACTOR_HANDLE,
           ed25519YaoRecovery: ED25519_RECOVERY_BOOTSTRAP,
         };
-      case 'bootstrapEmailOtpEcdsaSessionsFromWorkerHandle':
-        this.ecdsaBootstrapPayload = request.payload;
-        throw new Error('injected ECDSA bootstrap failure');
       case 'disposeEmailOtpEd25519YaoPendingFactor':
         this.disposedPendingFactorHandle = request.payload.pendingFactorHandle;
+        return { removed: true };
+      default:
+        throw new Error(`unexpected worker operation ${request.type}`);
+    }
+  }
+}
+
+class ExportHandleWorkerFixture implements WorkerOperationContext {
+  readonly operations: string[] = [];
+  readonly disposalPayloads: Record<string, unknown>[] = [];
+  private readonly clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
+
+  constructor(clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload) {
+    this.clientRootShareHandle = clientRootShareHandle;
+  }
+
+  async requestWorkerOperation<
+    K extends SignerWorkerKind,
+    T extends SignerWorkerOperationType<K>,
+  >(args: {
+    kind: K;
+    request: SignerWorkerOperationRequest<K, T>;
+  }): Promise<SignerWorkerOperationResult<K, T>>;
+  async requestWorkerOperation(args: RecordedWorkerOperationArgs): Promise<unknown> {
+    if (args.kind !== 'emailOtp') throw new Error('expected emailOtp worker');
+    const request = recordWorkerRequest(args.request);
+    this.operations.push(request.type);
+    switch (request.type) {
+      case 'loginWithEmailOtpWallet':
+        return {
+          kind: 'ecdsa',
+          recovery: RECOVERY,
+          clientRootShareHandle: this.clientRootShareHandle,
+        };
+      case 'disposeEmailOtpEcdsaClientRootHandle':
+        this.disposalPayloads.push(request.payload);
         return { removed: true };
       default:
         throw new Error(`unexpected worker operation ${request.type}`);
@@ -233,8 +288,11 @@ class UnreachablePublicationPorts implements EmailOtpEcdsaPublicationPorts {
   readonly configs = PASSKEY_MANAGER_DEFAULT_CONFIGS;
   private readonly workerCtx: WorkerOperationContext;
 
-  constructor(workerCtx: WorkerOperationContext) {
+  private readonly existingRecord: ThresholdEcdsaSessionRecord;
+
+  constructor(workerCtx: WorkerOperationContext, existingRecord: ThresholdEcdsaSessionRecord) {
     this.workerCtx = workerCtx;
+    this.existingRecord = existingRecord;
   }
 
   getSignerWorkerContext(): WorkerOperationContext {
@@ -258,6 +316,13 @@ class UnreachablePublicationPorts implements EmailOtpEcdsaPublicationPorts {
   ): Promise<never> {
     throw new Error('sealed session reads must not run after ECDSA bootstrap failure');
   }
+
+  readonly listThresholdEcdsaSessionRecordsForWallet: EmailOtpEcdsaPublicationPorts['listThresholdEcdsaSessionRecordsForWallet'] =
+    () => [this.existingRecord];
+
+  async listActiveEcdsaSignersForWallet(): Promise<[]> {
+    return [];
+  }
 }
 
 class MixedLoginPortsFixture implements EmailOtpEcdsaLoginPorts {
@@ -265,9 +330,11 @@ class MixedLoginPortsFixture implements EmailOtpEcdsaLoginPorts {
   readonly publicationPorts: EmailOtpEcdsaPublicationPorts;
   private readonly workerCtx: WorkerOperationContext;
 
-  constructor(workerCtx: WorkerOperationContext) {
+  ecdsaBootstrapRequest: unknown = null;
+
+  constructor(workerCtx: WorkerOperationContext, existingRecord: ThresholdEcdsaSessionRecord) {
     this.workerCtx = workerCtx;
-    this.publicationPorts = new UnreachablePublicationPorts(workerCtx);
+    this.publicationPorts = new UnreachablePublicationPorts(workerCtx, existingRecord);
   }
 
   getSignerWorkerContext(): WorkerOperationContext {
@@ -283,6 +350,150 @@ class MixedLoginPortsFixture implements EmailOtpEcdsaLoginPorts {
   }
 
   rememberAppSessionJwt(): void {}
+
+  async provisionThresholdEcdsaSession(request: unknown): Promise<never> {
+    this.ecdsaBootstrapRequest = request;
+    throw new Error('injected ECDSA bootstrap failure');
+  }
+
+  async provisionEmailOtpEcdsaExplicitExportSession(): Promise<never> {
+    throw new Error('explicit export provisioning is unreachable');
+  }
+}
+
+class ExportLoginPortsFixture implements EmailOtpEcdsaLoginPorts {
+  readonly configs = PASSKEY_MANAGER_DEFAULT_CONFIGS;
+  readonly publicationPorts: EmailOtpEcdsaPublicationPorts;
+  explicitExportProvisionCalls = 0;
+  private readonly workerCtx: WorkerOperationContext;
+  private readonly bootstrap: ThresholdEcdsaSessionBootstrapResult;
+  private readonly failProvisioning: boolean;
+
+  constructor(args: {
+    workerCtx: WorkerOperationContext;
+    existingRecord: ThresholdEcdsaSessionRecord;
+    bootstrap: ThresholdEcdsaSessionBootstrapResult;
+    failProvisioning: boolean;
+  }) {
+    this.workerCtx = args.workerCtx;
+    this.bootstrap = args.bootstrap;
+    this.failProvisioning = args.failProvisioning;
+    this.publicationPorts = new UnreachablePublicationPorts(args.workerCtx, args.existingRecord);
+  }
+
+  getSignerWorkerContext(): WorkerOperationContext {
+    return this.workerCtx;
+  }
+
+  requireRelayUrl(): string {
+    return 'https://relay.example.test';
+  }
+
+  requireShamirPrimeB64u(): string {
+    return 'shamir-prime';
+  }
+
+  rememberAppSessionJwt(): void {}
+
+  async provisionThresholdEcdsaSession(): Promise<never> {
+    throw new Error('transaction provisioning is unreachable during explicit export');
+  }
+
+  async provisionEmailOtpEcdsaExplicitExportSession(): Promise<{
+    kind: 'email_otp_explicit_export_bootstrap_result';
+    purpose: 'explicit_key_export';
+    bootstrap: ThresholdEcdsaSessionBootstrapResult;
+  }> {
+    this.explicitExportProvisionCalls += 1;
+    if (this.failProvisioning) throw new Error('injected explicit export provisioning failure');
+    return {
+      kind: 'email_otp_explicit_export_bootstrap_result',
+      purpose: 'explicit_key_export',
+      bootstrap: this.bootstrap,
+    };
+  }
+}
+
+type ExistingEmailOtpFixture = {
+  readonly record: ThresholdEcdsaSessionRecord;
+  readonly bootstrap: ThresholdEcdsaSessionBootstrapResult;
+};
+
+async function makeExistingEmailOtpFixture(): Promise<ExistingEmailOtpFixture> {
+  const signingRootId = `${RUNTIME_POLICY_SCOPE.projectId}:${RUNTIME_POLICY_SCOPE.envId}`;
+  const initial = createThresholdEcdsaBootstrapFixture({
+    nearAccountId: String(WALLET_ID),
+    chain: 'evm',
+    signingRootId,
+    signingRootVersion: RUNTIME_POLICY_SCOPE.signingRootVersion,
+    ecdsaThresholdKeyId: 'placeholder',
+    roleLocalAuthMethod: 'email_otp',
+    emailOtpAuthSubjectId: 'google:mixed-subject',
+    runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+  });
+  const ecdsaThresholdKeyId = await computeEcdsaDerivationRoleLocalThresholdKeyId({
+    walletId: String(WALLET_ID),
+    evmFamilySigningKeySlotId: initial.thresholdEcdsaKeyRef.evmFamilySigningKeySlotId,
+    signingRootId,
+    signingRootVersion: RUNTIME_POLICY_SCOPE.signingRootVersion,
+  });
+  const fixtureBootstrap = createThresholdEcdsaBootstrapFixture({
+    nearAccountId: String(WALLET_ID),
+    chain: 'evm',
+    signingRootId,
+    signingRootVersion: RUNTIME_POLICY_SCOPE.signingRootVersion,
+    ecdsaThresholdKeyId,
+    roleLocalAuthMethod: 'email_otp',
+    emailOtpAuthSubjectId: 'google:mixed-subject',
+    runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+  });
+  const fixtureBinding = fixtureBootstrap.thresholdEcdsaKeyRef.backendBinding;
+  if (!fixtureBinding || fixtureBinding.materialKind !== 'role_local_ready_state_blob') {
+    throw new Error('mixed Email OTP fixture requires role-local ready material');
+  }
+  const durableMaterialRef = parseEcdsaRoleLocalDurableMaterialRef(
+    'role-local:mixed-email-otp-fixture',
+  );
+  const bootstrap = {
+    ...fixtureBootstrap,
+    thresholdEcdsaKeyRef: {
+      ...fixtureBootstrap.thresholdEcdsaKeyRef,
+      backendBinding: {
+        materialKind: 'role_local_worker_handle' as const,
+        relayerKeyId: fixtureBinding.relayerKeyId,
+        clientVerifyingShareB64u: fixtureBinding.clientVerifyingShareB64u,
+        roleLocalMaterialHandle: {
+          kind: 'ecdsa_role_local_worker_handle_v1' as const,
+          materialHandle: parseEcdsaRoleLocalMaterialHandle(
+            'role-local-live:mixed-email-otp-fixture',
+          ),
+          bindingDigest: parseEcdsaRoleLocalBindingDigest(
+            fixtureBinding.ecdsaRoleLocalReadyRecord.publicFacts.contextBinding32B64u,
+          ),
+          durableMaterialRef,
+        },
+        publicFacts: fixtureBinding.ecdsaRoleLocalReadyRecord.publicFacts,
+        authMethod: fixtureBinding.ecdsaRoleLocalReadyRecord.authMethod,
+      },
+    },
+  };
+  const record = upsertThresholdEcdsaSessionFromBootstrap(
+    { recordsByLane: new Map() },
+    {
+      walletId: WALLET_ID,
+      chainTarget: CHAIN_TARGET,
+      bootstrap,
+      source: 'email_otp',
+      emailOtpAuthContext: buildEmailOtpAuthContextForWalletAuthMethod({
+        policy: 'session',
+        walletId: WALLET_ID,
+        emailHashHex: '11'.repeat(32),
+        provider: 'google',
+        providerUserId: 'google:mixed-subject',
+      }),
+    },
+  );
+  return { record, bootstrap };
 }
 
 function mixedUnlockArgs(workerCtx: WorkerOperationContext) {
@@ -312,7 +523,62 @@ function mixedUnlockArgs(workerCtx: WorkerOperationContext) {
     providerSubject: 'google:mixed-subject',
     signerSlot: 1,
     remainingUses: REMAINING_USES,
+    nearAccountId: NEAR_ACCOUNT_ID,
+    expectedOperationalPublicKey: 'ed25519:fixture-public-key',
+    expectedThresholdSessionId: THRESHOLD_SESSION_ID,
   } as const;
+}
+
+function exportRoutePlan() {
+  return {
+    routeFamily: 'login',
+    authLane: { kind: 'app_session', jwt: 'app.session.jwt' },
+    operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
+  } as const;
+}
+
+function exportCapabilityArgs(record: ThresholdEcdsaSessionRecord) {
+  return {
+    walletSession: {
+      walletId: WALLET_ID,
+      walletSessionUserId: 'google:mixed-subject',
+    },
+    chainTarget: CHAIN_TARGET,
+    relayUrl: 'https://relay.example.test',
+    challengeId: 'challenge-1',
+    otpCode: '123456',
+    operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
+    shamirPrimeB64u: 'shamir-prime',
+    ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
+    routePlan: exportRoutePlan(),
+    keyHandle: record.keyHandle,
+    remainingUses: 1,
+    runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+    emailOtpAuthPolicy: 'per_operation',
+    emailOtpAuthReason: 'sign',
+    emailHashHex: '11'.repeat(32),
+    providerIdentity: {
+      kind: 'explicit_provider_user',
+      providerUserId: 'google:mixed-subject',
+    },
+    ed25519YaoRecovery: { kind: 'not_requested' },
+  } as const;
+}
+
+function exportHandleForRecord(
+  record: ThresholdEcdsaSessionRecord,
+  operation: EmailOtpEcdsaSessionBootstrapHandlePayload['operation'] = 'export',
+): EmailOtpEcdsaSessionBootstrapHandlePayload {
+  return {
+    kind: 'email_otp_worker_session_handle_v1',
+    sessionId: `export-root-session-${operation}`,
+    walletId: String(WALLET_ID),
+    evmFamilySigningKeySlotId: record.evmFamilySigningKeySlotId,
+    authSubjectId: 'google:mixed-subject',
+    action: 'threshold_ecdsa_bootstrap',
+    operation,
+    chainTarget: CHAIN_TARGET,
+  };
 }
 
 test('mixed Email OTP unlock sends one coherent worker operation and returns both materials', async () => {
@@ -344,6 +610,9 @@ test('mixed Email OTP unlock sends one coherent worker operation and returns bot
         ecdsaClientRootHandleBinding: ECDSA_HANDLE_BINDING,
         runtimePolicyScope: RUNTIME_POLICY_SCOPE,
         providerSubject: 'google:mixed-subject',
+        nearAccountId: NEAR_ACCOUNT_ID,
+        expectedOperationalPublicKey: 'ed25519:fixture-public-key',
+        expectedThresholdSessionId: THRESHOLD_SESSION_ID,
         ed25519YaoRecovery: {
           kind: 'router_ab_ed25519_yao_email_otp_recovery_v1',
           signerSlot: 1,
@@ -385,8 +654,12 @@ test('mixed Email OTP unlock rejects a worker result from another material branc
 });
 
 test('mixed Email OTP login disposes the pending Ed25519 factor when ECDSA bootstrap fails', async () => {
-  const worker = new MixedLoginFailureWorkerFixture();
-  const ports = new MixedLoginPortsFixture(worker);
+  const fixture = await makeExistingEmailOtpFixture();
+  const worker = new MixedLoginFailureWorkerFixture({
+    ...ECDSA_ROOT_HANDLE,
+    evmFamilySigningKeySlotId: fixture.record.evmFamilySigningKeySlotId,
+  });
+  const ports = new MixedLoginPortsFixture(worker, fixture.record);
 
   await expect(
     loginWithEmailOtpEcdsaCapability(
@@ -421,6 +694,9 @@ test('mixed Email OTP login disposes the pending Ed25519 factor when ECDSA boots
           kind: 'requested',
           providerSubject: 'google:mixed-subject',
           signerSlot: 1,
+          nearAccountId: NEAR_ACCOUNT_ID,
+          expectedOperationalPublicKey: 'ed25519:fixture-public-key',
+          expectedThresholdSessionId: THRESHOLD_SESSION_ID,
         },
       },
       ports,
@@ -429,16 +705,154 @@ test('mixed Email OTP login disposes the pending Ed25519 factor when ECDSA boots
 
   expect(worker.operations).toEqual([
     'loginWithEmailOtpWallet',
-    'bootstrapEmailOtpEcdsaSessionsFromWorkerHandle',
     'disposeEmailOtpEd25519YaoPendingFactor',
   ]);
-  expect(worker.ecdsaBootstrapPayload).toMatchObject({
-    signingGrantId: SIGNING_GRANT_ID,
-    remainingUses: REMAINING_USES,
-    publicationTargetPlans: [
-      { chainTarget: CHAIN_TARGET },
-      { chainTarget: TEMPO_TARGET },
-    ],
+  expect(ports.ecdsaBootstrapRequest).toMatchObject({
+    sessionIdentity: expect.objectContaining({ signingGrantId: SIGNING_GRANT_ID }),
+    lanePolicy: expect.objectContaining({ remainingUses: REMAINING_USES }),
   });
   expect(worker.disposedPendingFactorHandle).toEqual(PENDING_FACTOR_HANDLE);
+});
+
+test('Email OTP login rejects an explicit operation mismatch before worker effects', async () => {
+  const fixture = await makeExistingEmailOtpFixture();
+  const worker = new ExportHandleWorkerFixture(exportHandleForRecord(fixture.record));
+  const ports = new ExportLoginPortsFixture({
+    workerCtx: worker,
+    existingRecord: fixture.record,
+    bootstrap: fixture.bootstrap,
+    failProvisioning: false,
+  });
+
+  await expect(
+    loginWithEmailOtpEcdsaCapability(
+      {
+        ...exportCapabilityArgs(fixture.record),
+        operation: WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
+      },
+      ports,
+    ),
+  ).rejects.toThrow('Email OTP operation does not match its route plan');
+
+  expect(worker.operations).toEqual([]);
+  expect(ports.explicitExportProvisionCalls).toBe(0);
+});
+
+test('Email OTP login rejects an omitted operation with an export route before worker effects', async () => {
+  const fixture = await makeExistingEmailOtpFixture();
+  const worker = new ExportHandleWorkerFixture(exportHandleForRecord(fixture.record));
+  const ports = new ExportLoginPortsFixture({
+    workerCtx: worker,
+    existingRecord: fixture.record,
+    bootstrap: fixture.bootstrap,
+    failProvisioning: false,
+  });
+  const argsWithoutOperation = {
+    ...exportCapabilityArgs(fixture.record),
+    operation: undefined,
+  };
+
+  await expect(loginWithEmailOtpEcdsaCapability(argsWithoutOperation, ports)).rejects.toThrow(
+    'Email OTP ECDSA export must use transient export preparation',
+  );
+
+  expect(worker.operations).toEqual([]);
+  expect(ports.explicitExportProvisionCalls).toBe(0);
+});
+
+test('Email OTP ECDSA export disposes its exact worker handle after successful provisioning', async () => {
+  const fixture = await makeExistingEmailOtpFixture();
+  const handle = exportHandleForRecord(fixture.record);
+  const worker = new ExportHandleWorkerFixture(handle);
+  const ports = new ExportLoginPortsFixture({
+    workerCtx: worker,
+    existingRecord: fixture.record,
+    bootstrap: fixture.bootstrap,
+    failProvisioning: false,
+  });
+
+  const result = await prepareEmailOtpEcdsaExportCapability(
+    exportCapabilityArgs(fixture.record),
+    ports,
+  );
+
+  expect(result.bootstrap).toBe(fixture.bootstrap);
+  expect(ports.explicitExportProvisionCalls).toBe(1);
+  expect(worker.operations).toEqual([
+    'loginWithEmailOtpWallet',
+    'disposeEmailOtpEcdsaClientRootHandle',
+  ]);
+  expect(worker.disposalPayloads).toEqual([{ clientRootShareHandle: handle }]);
+});
+
+test('Email OTP ECDSA export disposes its exact worker handle after provisioning fails', async () => {
+  const fixture = await makeExistingEmailOtpFixture();
+  const handle = exportHandleForRecord(fixture.record);
+  const worker = new ExportHandleWorkerFixture(handle);
+  const ports = new ExportLoginPortsFixture({
+    workerCtx: worker,
+    existingRecord: fixture.record,
+    bootstrap: fixture.bootstrap,
+    failProvisioning: true,
+  });
+
+  await expect(
+    prepareEmailOtpEcdsaExportCapability(exportCapabilityArgs(fixture.record), ports),
+  ).rejects.toThrow('injected explicit export provisioning failure');
+
+  expect(ports.explicitExportProvisionCalls).toBe(1);
+  expect(worker.operations).toEqual([
+    'loginWithEmailOtpWallet',
+    'disposeEmailOtpEcdsaClientRootHandle',
+  ]);
+  expect(worker.disposalPayloads).toEqual([{ clientRootShareHandle: handle }]);
+});
+
+test('Email OTP ECDSA export disposes a wrong-operation worker handle after rejecting it', async () => {
+  const fixture = await makeExistingEmailOtpFixture();
+  const handle = exportHandleForRecord(fixture.record, 'wallet_unlock');
+  const worker = new ExportHandleWorkerFixture(handle);
+  const ports = new ExportLoginPortsFixture({
+    workerCtx: worker,
+    existingRecord: fixture.record,
+    bootstrap: fixture.bootstrap,
+    failProvisioning: false,
+  });
+
+  await expect(
+    prepareEmailOtpEcdsaExportCapability(exportCapabilityArgs(fixture.record), ports),
+  ).rejects.toThrow('Email OTP ECDSA export requires an export worker handle');
+
+  expect(ports.explicitExportProvisionCalls).toBe(0);
+  expect(worker.operations).toEqual([
+    'loginWithEmailOtpWallet',
+    'disposeEmailOtpEcdsaClientRootHandle',
+  ]);
+  expect(worker.disposalPayloads).toEqual([{ clientRootShareHandle: handle }]);
+});
+
+test('Email OTP ECDSA export rejects a forged slot binding and still disposes the handle', async () => {
+  const fixture = await makeExistingEmailOtpFixture();
+  const handle = {
+    ...exportHandleForRecord(fixture.record),
+    evmFamilySigningKeySlotId: `${fixture.record.evmFamilySigningKeySlotId}-forged`,
+  };
+  const worker = new ExportHandleWorkerFixture(handle);
+  const ports = new ExportLoginPortsFixture({
+    workerCtx: worker,
+    existingRecord: fixture.record,
+    bootstrap: fixture.bootstrap,
+    failProvisioning: false,
+  });
+
+  await expect(
+    prepareEmailOtpEcdsaExportCapability(exportCapabilityArgs(fixture.record), ports),
+  ).rejects.toThrow('Email OTP ECDSA export worker handle does not match the resolved lane');
+
+  expect(ports.explicitExportProvisionCalls).toBe(0);
+  expect(worker.operations).toEqual([
+    'loginWithEmailOtpWallet',
+    'disposeEmailOtpEcdsaClientRootHandle',
+  ]);
+  expect(worker.disposalPayloads).toEqual([{ clientRootShareHandle: handle }]);
 });

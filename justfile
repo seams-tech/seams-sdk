@@ -65,10 +65,6 @@ ed25519-yao-fv-phase2b-reconciliation:
 ed25519-yao-fv-phase2b-exit-evidence-readiness:
   cargo yao-fv phase2b-exit-evidence-readiness-check
 
-# Check the dormant Phase 2B CI staging state machine and workflow.
-ed25519-yao-fv-phase2b-change-control-readiness:
-  cargo yao-fv phase2b-change-control-readiness-check
-
 # Regenerate the fixed Phase 2B review subject from a clean checkout.
 ed25519-yao-fv-phase2b-review-subject:
   cargo yao-fv phase2b-review-subject-check

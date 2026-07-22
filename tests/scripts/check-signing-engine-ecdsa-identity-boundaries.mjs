@@ -336,29 +336,13 @@ function checkEcdsaDerivationExportConfirmationDigestBindsSlot() {
   const passkeyExportSource = readRepoFile(
     'packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaDerivationExport.ts',
   );
-  const emailOtpWorkerSource = readRepoFile(
-    'packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
-  );
   const passkeyDigest = findObjectBlockAfter(
     passkeyExportSource,
     'const confirmationDigest32B64u = await digestB64u(',
   );
-  const emailOtpDigest = findObjectBlockAfter(
-    emailOtpWorkerSource,
-    'const confirmationDigest32B64u = await digestB64u(',
-  );
-  const offenders = [];
-
-  for (const [block, context] of [
-    [passkeyDigest, 'passkey export digest'],
-    [emailOtpDigest, 'Email OTP export digest'],
-  ]) {
-    if (!block.includes('evmFamilySigningKeySlotId')) {
-      offenders.push(`${context} does not bind evmFamilySigningKeySlotId`);
-    }
+  if (!passkeyDigest.includes('evmFamilySigningKeySlotId')) {
+    throw new Error('ECDSA derivation export confirmation digest does not bind the signing slot');
   }
-
-  assertNoOffenders(offenders, 'Router A/B ECDSA derivation export confirmation digest');
 }
 
 function checkBudgetStatusLookupAvoidsSubjectWideEcdsaScanFallback() {

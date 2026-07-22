@@ -94,7 +94,6 @@ Provider selection is required. There are no implicit fake-provider defaults:
 
 ```sh
 VOICEID_VERIFIER_TRANSPORT=fake
-VOICEID_VERIFIER_TRANSPORT=python-subprocess
 VOICEID_VERIFIER_TRANSPORT=python-http
 
 VOICEID_TRANSCRIPT_PROVIDER=fake
@@ -113,6 +112,17 @@ The API reflects an allowed origin exactly and never emits wildcard CORS.
 `http://127.0.0.1:5051/voice-id/verifier/`. Cloudflare Workers AI ASR requires
 the `AI` binding in Workers or `CLOUDFLARE_ACCOUNT_ID` and
 `CLOUDFLARE_API_TOKEN` for the local REST adapter.
+
+The Python sidecar loads its configured model before serving and publishes the
+exact runtime metadata on `/health`. Inference admission is bounded:
+
+```sh
+VOICEID_VERIFIER_MAX_CONCURRENT_INFERENCES=1
+VOICEID_VERIFIER_QUEUE_WAIT_MS=250
+```
+
+An exhausted queue returns a deterministic `overloaded` response. The SDK HTTP
+deadline remains the outer request deadline.
 
 The local ECAPA research threshold is `0.6352` under
 `ecapa-local-dev-v1`. It is fixture-derived E0 configuration. Set

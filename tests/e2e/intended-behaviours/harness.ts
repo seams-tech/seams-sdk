@@ -1,4 +1,5 @@
 import {
+  expect,
   test as base,
   type APIRequestContext,
   type BrowserContext,
@@ -55,9 +56,14 @@ type IntendedWarmSessionOriginStage = Extract<
 
 type IntendedNearSigningStage = Exclude<IntendedSigningStage, 'after_refresh_recovery'>;
 
-type IntendedPostRefreshMaterialSource =
-  | 'email_otp_yao_recovery'
-  | 'passkey_local_envelope';
+type IntendedPostRefreshMaterialSource = 'email_otp_yao_recovery' | 'passkey_local_envelope';
+
+type IntendedNoYaoRecoveryAssertionScenario =
+  | { kind: 'passkey_unlock' }
+  | {
+      kind: 'post_refresh_near_signing';
+      materialSource: 'passkey_local_envelope';
+    };
 
 type IntendedNearSigningScenario =
   | {
@@ -429,10 +435,7 @@ type TempoSignedTransactionParts = {
   senderSignatureHex: `0x${string}`;
 };
 
-type SigningAuthExpectation =
-  | 'warm_session'
-  | 'passkey_step_up'
-  | 'email_otp_step_up';
+type SigningAuthExpectation = 'warm_session' | 'passkey_step_up' | 'email_otp_step_up';
 
 type SigningAuthEventSummary = {
   phases: readonly string[];
@@ -618,9 +621,7 @@ function installIntendedConcurrentActionObserver(): void {
 
 function triggerConcurrentEvmFamilySigning(): void {
   const tempo = document.querySelector<HTMLButtonElement>('[data-testid="intended-sign-tempo"]');
-  const arcEvm = document.querySelector<HTMLButtonElement>(
-    '[data-testid="intended-sign-arc-evm"]',
-  );
+  const arcEvm = document.querySelector<HTMLButtonElement>('[data-testid="intended-sign-arc-evm"]');
   if (!tempo || !arcEvm) {
     throw new Error('Concurrent Tempo/Arc signing controls are unavailable');
   }
@@ -873,7 +874,9 @@ export class IntendedBehaviourHarness {
     if (snapshot.events.length === 0) {
       throw new Error('Passkey unlock did not emit structured lifecycle events');
     }
-    this.assertNoRouterAbEd25519YaoRecoveryRoutes(traceStartIndex, 'Passkey unlock');
+    this.assertNoRouterAbEd25519YaoRecoveryRoutes(traceStartIndex, {
+      kind: 'passkey_unlock',
+    });
     this.currentWarmSigningStage = 'post_unlock';
     this.passkeyPromptCount += 1;
     this.recordService(
@@ -939,8 +942,9 @@ export class IntendedBehaviourHarness {
     switch (scenario.kind) {
       case 'standard':
         break;
-      case 'post_refresh':
-        switch (scenario.postRefreshMaterialSource) {
+      case 'post_refresh': {
+        const { postRefreshMaterialSource } = scenario;
+        switch (postRefreshMaterialSource) {
           case 'email_otp_yao_recovery':
             this.assertRouterAbEd25519YaoRecoveryRoutes(
               traceStartIndex,
@@ -948,15 +952,16 @@ export class IntendedBehaviourHarness {
             );
             break;
           case 'passkey_local_envelope':
-            this.assertNoRouterAbEd25519YaoRecoveryRoutes(
-              traceStartIndex,
-              'Passkey post-refresh local-envelope hydration',
-            );
+            this.assertNoRouterAbEd25519YaoRecoveryRoutes(traceStartIndex, {
+              kind: 'post_refresh_near_signing',
+              materialSource: postRefreshMaterialSource,
+            });
             break;
           default:
-            assertNever(scenario.postRefreshMaterialSource);
+            assertNever(postRefreshMaterialSource);
         }
         break;
+      }
       default:
         assertNever(scenario);
     }
@@ -977,6 +982,16 @@ export class IntendedBehaviourHarness {
       state: 'visible',
       timeout: 15_000,
     });
+    await expect(this.page.getByTestId('intended-e2e-page')).toHaveAttribute(
+      'data-login-state',
+      'logged_in',
+      { timeout: 15_000 },
+    );
+    await expect(this.page.getByTestId('intended-e2e-page')).toHaveAttribute(
+      'data-login-wallet-id',
+      this.walletId,
+      { timeout: 15_000 },
+    );
     this.intendedPageReady = true;
     this.reloadIntendedPageBeforeNextAction = false;
     this.recordService('page refreshed preserving wallet storage');
@@ -1091,14 +1106,8 @@ export class IntendedBehaviourHarness {
     }
 
     const snapshots = parseIntendedConcurrentActionSnapshots(rawSnapshots);
-    const tempoSnapshot = requireConcurrentSigningSuccess(
-      snapshots,
-      'signTempoTransaction',
-    );
-    const arcEvmSnapshot = requireConcurrentSigningSuccess(
-      snapshots,
-      'signArcEvmTransaction',
-    );
+    const tempoSnapshot = requireConcurrentSigningSuccess(snapshots, 'signTempoTransaction');
+    const arcEvmSnapshot = requireConcurrentSigningSuccess(snapshots, 'signArcEvmTransaction');
     const tempoResult = requireTempoSigningResult(tempoSnapshot, {
       walletId: this.walletId,
       chainId: INTENDED_TEMPO_CHAIN_ID,
@@ -1578,8 +1587,9 @@ export class IntendedBehaviourHarness {
 
   private assertNoRouterAbEd25519YaoRecoveryRoutes(
     traceStartIndex: number,
-    flowLabel: 'Passkey unlock' | 'Post-refresh NEAR signing',
+    scenario: IntendedNoYaoRecoveryAssertionScenario,
   ): void {
+    const flowLabel = noYaoRecoveryAssertionLabel(scenario);
     const observedPaths = new Set<(typeof ROUTER_AB_ED25519_YAO_WARM_RECOVERY_PATHS)[number]>();
     for (const entry of this.trace.slice(traceStartIndex)) {
       const path = routerAbEd25519YaoWarmRecoveryPath(entry.url, this.config.routerUrl);
@@ -1666,6 +1676,17 @@ export class IntendedBehaviourHarness {
   private requireRegisteredWalletForSigning(): RegisteredWalletSnapshot {
     if (this.registeredWallet) return this.registeredWallet;
     throw new Error('Signing requires a registered wallet');
+  }
+}
+
+function noYaoRecoveryAssertionLabel(scenario: IntendedNoYaoRecoveryAssertionScenario): string {
+  switch (scenario.kind) {
+    case 'passkey_unlock':
+      return 'Passkey unlock';
+    case 'post_refresh_near_signing':
+      return 'Passkey post-refresh local-envelope hydration';
+    default:
+      return assertNever(scenario);
   }
 }
 
@@ -3063,7 +3084,9 @@ async function readIntendedPageSnapshot(page: Page): Promise<IntendedPageSnapsho
   return parseIntendedPageSnapshot(JSON.parse(text));
 }
 
-function parseIntendedConcurrentActionSnapshots(rawSnapshots: readonly unknown[]): IntendedPageSnapshot[] {
+function parseIntendedConcurrentActionSnapshots(
+  rawSnapshots: readonly unknown[],
+): IntendedPageSnapshot[] {
   const snapshots: IntendedPageSnapshot[] = [];
   for (const raw of rawSnapshots) {
     snapshots.push(parseIntendedPageSnapshot(raw));

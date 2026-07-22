@@ -33,4 +33,4 @@ Complete local usability now passes through the frozen signer-core KDF,
 standard Ed25519 signing/export vectors, separate local service routes,
 recovery, refresh, and the one-command lifecycle smoke. The deprecated local
 derivation path is deleted. Deployment evidence and promoted public SDK transport are
-tracked in the production phases of `docs/yaos-ab.md`.
+tracked in the production phases of `docs/router-ab/ed25519-yao/implementation-plan.md`.

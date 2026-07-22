@@ -36,8 +36,9 @@ import type {
   WalletAddAuthMethodStartRequest,
   WalletAddAuthMethodStartResponse,
   WalletAddSignerStartRequest,
-  WalletRegistrationStartAuthority,
-  WalletRegistrationStartRequest,
+  EmailOtpWalletRegistrationAuthorityInput,
+  PasskeyWalletRegistrationAuthorityInput,
+  WalletRegistrationAuthorityInput,
   WalletRevokeAuthMethodRequest,
   WalletRevokeAuthMethodResponse,
 } from '../../core/registrationContracts';
@@ -73,7 +74,6 @@ import {
 } from './d1WalletAuthMethodBoundary';
 import type { CloudflareD1WebAuthnStore } from './d1WebAuthnStore';
 
-type StartWalletRegistrationInput = WalletRegistrationStartRequest;
 type StartWalletAddAuthMethodInput = WalletAddAuthMethodStartRequest;
 type StartWalletAddAuthMethodResult = WalletAddAuthMethodStartResponse;
 type FinalizeWalletAddAuthMethodInput = WalletAddAuthMethodFinalizeRequest;
@@ -344,7 +344,7 @@ export class CloudflareD1WalletAuthMethodService {
 
   async verifyRegistrationAuthorityForIntent(input: {
     readonly orgId: string;
-    readonly authority: WalletRegistrationStartAuthority;
+    readonly authority: WalletRegistrationAuthorityInput;
     readonly expectedDigestB64u: string;
     readonly expectedOrigin: string;
     readonly intent: RegistrationIntentV1;
@@ -749,7 +749,7 @@ export class CloudflareD1WalletAuthMethodService {
   }
 
   private async verifyRegistrationPasskeyAuthority(input: {
-    readonly authority: Extract<StartWalletRegistrationInput['authority'], { kind: 'passkey' }>;
+    readonly authority: PasskeyWalletRegistrationAuthorityInput;
     readonly expectedDigestB64u: string;
     readonly expectedOrigin: string;
     readonly intent: RegistrationIntentV1;
@@ -798,7 +798,7 @@ export class CloudflareD1WalletAuthMethodService {
 
   private async verifyRegistrationEmailOtpAuthority(input: {
     readonly orgId: string;
-    readonly authority: Extract<StartWalletRegistrationInput['authority'], { kind: 'email_otp' }>;
+    readonly authority: EmailOtpWalletRegistrationAuthorityInput;
     readonly expectedDigestB64u: string;
     readonly intent: RegistrationIntentV1;
   }): Promise<WalletAuthMethodAuthorityResult> {
@@ -1084,7 +1084,7 @@ export class CloudflareD1WalletAuthMethodService {
   }
 
   private async verifyAddAuthMethodPasskeyAuthority(input: {
-    readonly authority: Extract<StartWalletAddAuthMethodInput['authority'], { kind: 'passkey' }>;
+    readonly authority: PasskeyWalletRegistrationAuthorityInput;
     readonly expectedDigestB64u: string;
     readonly expectedOrigin: string;
     readonly intent: AddAuthMethodIntentV1;
@@ -1133,7 +1133,7 @@ export class CloudflareD1WalletAuthMethodService {
 
   private async verifyAddAuthMethodEmailOtpAuthority(input: {
     readonly orgId: string;
-    readonly authority: Extract<StartWalletAddAuthMethodInput['authority'], { kind: 'email_otp' }>;
+    readonly authority: EmailOtpWalletRegistrationAuthorityInput;
     readonly expectedDigestB64u: string;
     readonly intent: AddAuthMethodIntentV1;
   }): Promise<WalletAuthMethodAuthorityResult> {

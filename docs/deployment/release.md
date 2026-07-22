@@ -43,8 +43,8 @@ git push origin vX.Y.Z
 
 ## Publish SDK Runtime Bundles
 
-`publish-sdk-r2.yml` publishes automatically after successful `ci` runs for
-deploy refs. To publish manually:
+R2 publication is optional and manual-only. After CI succeeds for the release
+commit, dispatch `publish-sdk-r2.yml` on `main`:
 
 ```bash
 gh workflow run publish-sdk-r2.yml --ref main -f prefix=auto
@@ -91,7 +91,7 @@ For staging validation, use `--ref dev` and `staging`.
 Check:
 
 - `ci` passed on the release commit.
-- R2 prefix exists for the release SHA.
+- R2 prefix exists for the release SHA when the optional R2 publication was run.
 - npm shows the intended version.
 - App Pages and wallet Pages are on the same commit.
 - `/sdk/wallet-iframe-host-runtime.js` and `/sdk/workers/near-signer.worker.js`

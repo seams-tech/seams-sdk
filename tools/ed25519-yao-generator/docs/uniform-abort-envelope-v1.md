@@ -11,7 +11,7 @@ or selective-failure claim.
 
 `ideal-functionalities-v1.md` Section 10 owns the uniform abort requirement.
 This companion freezes the exact host model, canonical synthetic corpus, and
-its ceremony linkage. `yaos-ab.md` Phase 6A selects the P0-P3 claim and Phase
+its ceremony linkage. `router-ab/ed25519-yao/implementation-plan.md` Phase 6A selects the P0-P3 claim and Phase
 6B freezes the production failure points, frame graph, encoding, and any timing
 equivalence required by that claim.
 

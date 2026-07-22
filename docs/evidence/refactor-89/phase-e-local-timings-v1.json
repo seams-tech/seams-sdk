@@ -59,6 +59,6 @@
   "interpretation": {
     "poolHit": "The online Client artifact has the smallest compile/instantiate medians and the local online equations complete below one millisecond.",
     "poolFill": "Triple generation dominates local presigning; it is intentionally moved off the pool-hit path.",
-    "deploymentOwner": "docs/router-a-b-deployment.md owns ECDSA independent-account network and lifecycle measurements. docs/yaos-ab-deployment.md owns Ed25519 Yao deployment evidence."
+    "deploymentOwner": "docs/router-ab/deployment.md owns ECDSA independent-account network and lifecycle measurements. docs/router-ab/ed25519-yao/deployment.md owns Ed25519 Yao deployment evidence."
   }
 }

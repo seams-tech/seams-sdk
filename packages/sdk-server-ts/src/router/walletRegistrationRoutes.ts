@@ -40,7 +40,8 @@ import type {
   WalletRegistrationFinalizeRouteResponse,
   WalletRegistrationFinalizeRouteSuccess,
   WalletRegistrationFinalizeSuccess,
-  WalletRegistrationFinalizeAuthMethod,
+  PasskeyWalletRegistrationFinalizeAuthMethod,
+  EmailOtpWalletRegistrationFinalizeAuthMethod,
   WalletRegistrationEcdsaDerivationRespondRequest,
   WalletRegistrationEcdsaDerivationRespondResponse,
   WalletRegistrationStartRequest,
@@ -159,12 +160,12 @@ function registrationUserAgentFromHeaders(headers: HeaderRecord): string | undef
 
 type PasskeyWalletRegistrationFinalizeSuccess = Extract<
   WalletRegistrationFinalizeSuccess,
-  { authMethod: { kind: 'passkey' } }
+  { authMethod: PasskeyWalletRegistrationFinalizeAuthMethod }
 >;
 
 type EmailOtpWalletRegistrationFinalizeSuccess = Extract<
   WalletRegistrationFinalizeSuccess,
-  { authMethod: { kind: 'email_otp' } }
+  { authMethod: EmailOtpWalletRegistrationFinalizeAuthMethod }
 >;
 
 function assertNeverWalletRegistrationFinalizeKind(value: never): never {
@@ -554,12 +555,13 @@ async function attachEcdsaWalletSessionJwt(
     return routeError(500, 'internal', 'Router A/B normal signing is not configured');
   }
   const signingWorkerId = normalSigningRuntime.getSigningWorkerId();
-  const routerAbEcdsaDerivationNormalSigning = buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap({
-    bootstrap,
-    activationEpoch,
-    routerAbPublicKeyset: input.services.routerAbPublicKeyset,
-    signingWorkerId,
-  });
+  const routerAbEcdsaDerivationNormalSigning =
+    buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap({
+      bootstrap,
+      activationEpoch,
+      routerAbPublicKeyset: input.services.routerAbPublicKeyset,
+      signingWorkerId,
+    });
   if (!routerAbEcdsaDerivationNormalSigning.ok) {
     return routeError(500, 'internal', routerAbEcdsaDerivationNormalSigning.message);
   }
@@ -593,7 +595,8 @@ async function attachEcdsaWalletSessionJwt(
     },
     fallbackParticipantIds: bootstrap.participantIds,
     requireJwtErrorMessage: 'Router A/B ECDSA derivation Wallet Session must use jwt sessionKind',
-    invalidPayloadErrorMessage: 'invalid Router A/B ECDSA derivation Wallet Session payload for jwt signing',
+    invalidPayloadErrorMessage:
+      'invalid Router A/B ECDSA derivation Wallet Session payload for jwt signing',
   });
   if (!signed.ok) {
     const code = signed.code === 'sessions_disabled' ? 'internal' : signed.code;
@@ -1754,9 +1757,7 @@ function parseWalletRegistrationEcdsaFinalize(
     };
   }
   const expectedKeyHandle =
-    typeof ecdsa.expectedKeyHandles[0] === 'string'
-      ? ecdsa.expectedKeyHandles[0].trim()
-      : '';
+    typeof ecdsa.expectedKeyHandles[0] === 'string' ? ecdsa.expectedKeyHandles[0].trim() : '';
   if (!expectedKeyHandle) {
     return {
       ok: false,
@@ -2065,9 +2066,7 @@ function parseWalletAddSignerEcdsaActivationRequest(
         addSignerCeremonyId: addSignerCeremonyId.value,
         ecdsa: {
           kind: 'router_ab_ecdsa_registration_activation_v1',
-          publicFacts: parseRouterAbEcdsaVerifiedClientActivationFactsV1(
-            ecdsa.publicFacts,
-          ),
+          publicFacts: parseRouterAbEcdsaVerifiedClientActivationFactsV1(ecdsa.publicFacts),
         },
       },
     };
@@ -2602,7 +2601,9 @@ export async function handleRouterApiWalletAddSignerEcdsaDerivationRespond(
   }
   const request = parseWalletAddSignerEcdsaDerivationRespondRequest(input.body);
   if (!request.ok) return routeError(400, request.code, request.message);
-  const result = await input.services.walletRegistration.respondWalletAddSignerEcdsaDerivation(request.value);
+  const result = await input.services.walletRegistration.respondWalletAddSignerEcdsaDerivation(
+    request.value,
+  );
   return routeJson(result.ok ? 200 : 400, result);
 }
 

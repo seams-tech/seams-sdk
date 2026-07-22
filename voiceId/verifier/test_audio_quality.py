@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import math
 import unittest
+from unittest.mock import patch
 
 from voiceid_verifier.audio_quality import (
+    analyze_decoded_audio,
+    calculate_frame_activity,
     detect_voice_activity,
     evaluate_decoded_audio_quality,
 )
@@ -48,6 +51,25 @@ class AudioQualityTest(unittest.TestCase):
 
         self.assertEqual(quality.kind, "uncertain")
         self.assertEqual(quality.reason, "low_speech")
+
+    def test_canonical_analysis_computes_vad_once_for_quality_and_windows(self) -> None:
+        samples = sine_samples(duration_ms=1400, speech_start_ms=100, speech_duration_ms=1000)
+
+        with patch(
+            "voiceid_verifier.audio_quality.calculate_frame_activity",
+            wraps=calculate_frame_activity,
+        ) as calculate:
+            analysis = analyze_decoded_audio(
+                b"audio",
+                1400,
+                samples=samples,
+                sample_rate_hz=16000,
+            )
+
+        self.assertEqual(calculate.call_count, 1)
+        self.assertEqual(analysis.quality.kind, "accepted")
+        self.assertGreaterEqual(analysis.voice_activity.speech_ms, 900)
+        self.assertEqual(len(analysis.speech_windows), 1)
 
 
 def sine_samples(

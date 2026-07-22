@@ -448,6 +448,8 @@ export const IntendedBehaviourE2EPage: React.FC = () => {
       data-testid="intended-e2e-page"
       data-flow={query.flow}
       data-wallet-id={state.walletId}
+      data-login-state={seamsContext.loginState.isLoggedIn ? 'logged_in' : 'logged_out'}
+      data-login-wallet-id={seamsContext.loginState.walletId || ''}
       style={pageStyle}
     >
       <section style={panelStyle}>

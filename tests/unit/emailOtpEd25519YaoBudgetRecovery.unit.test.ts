@@ -917,7 +917,7 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
         resolveActiveCapability: activation.resolve.bind(activation),
         activateCapability: activation.activate.bind(activation),
       }),
-    ).rejects.toThrow('recovery changed the active wallet identity');
+    ).rejects.toThrow('cold recovery changed the registered wallet identity');
 
     expect(worker.operations).toEqual([
       'loginWithEmailOtpWallet',

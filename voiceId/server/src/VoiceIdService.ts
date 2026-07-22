@@ -472,11 +472,10 @@ export class VoiceIdService {
       return lifecycleConflict('verification challenge was claimed concurrently');
     }
 
-    const phrase = await this.matchPhrase(recording.audio, analysis.expectedPhrase);
-    if (this.isExpired(analysis.analysisExpiresAt)) {
-      return await this.expireVerificationAnalysis(analysis);
-    }
-    const speakerVerification = await this.verifySpeaker(recording.audio, enrollment);
+    const [phrase, speakerVerification] = await Promise.all([
+      this.matchPhrase(recording.audio, analysis.expectedPhrase),
+      this.verifySpeaker(recording.audio, enrollment),
+    ]);
     if (this.isExpired(analysis.analysisExpiresAt)) {
       return await this.expireVerificationAnalysis(analysis);
     }

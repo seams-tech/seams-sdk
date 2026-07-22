@@ -3,6 +3,7 @@ import type {
   RouterAbEcdsaDerivationPublicCapabilityV1,
 } from './routerAbEcdsaDerivation';
 import type { EmailOtpProvider } from './walletAuthAuthority';
+import { SIGNER_AUTH_METHODS, type SignerAuthMethod } from './signerDomain';
 
 export const SIGNING_SESSION_SEALED_RECORD_VERSION = 1 as const;
 export const SIGNING_SESSION_SEAL_ALG = 'shamir3pass-v1' as const;
@@ -34,7 +35,10 @@ export const EMAIL_OTP_HKDF_SALTS = {
   thresholdEd25519RestoreSeed: 'seams/signing-session/threshold-ed25519-restore-seed/v1',
 } as const;
 
-export type SigningSessionSealAuthMethod = 'passkey' | 'email_otp';
+export type SigningSessionSealAuthMethod = Extract<
+  SignerAuthMethod,
+  typeof SIGNER_AUTH_METHODS.passkey | typeof SIGNER_AUTH_METHODS.emailOtp
+>;
 export type SigningSessionSealCurve = 'ed25519' | 'ecdsa';
 export type SealedSigningSessionEcdsaRestoreSource =
   | 'login'
