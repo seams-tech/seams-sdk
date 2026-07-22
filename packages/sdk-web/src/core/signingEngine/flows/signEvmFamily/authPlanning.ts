@@ -40,6 +40,7 @@ import {
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
 import type { EvmFamilyEcdsaSessionReaderDeps } from '../../interfaces/operationDeps';
+import type { EmailOtpTransactionSigningChallenge } from '../../session/emailOtp/publicTypes';
 import {
   createEmailOtpEcdsaTransactionSigningBridge,
   type EmailOtpEcdsaStepUpAuthority,
@@ -85,7 +86,7 @@ export type EvmFamilyConfirmedEmailOtpDeps = {
           reauthLane: EmailOtpEcdsaPublicReauthLane;
           authLane?: never;
         };
-  }) => Promise<{ challengeId: string; emailHint?: string }>;
+  }) => Promise<EmailOtpTransactionSigningChallenge>;
   loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
     walletSession: WalletSessionRef;
     subjectId?: never;
@@ -217,7 +218,8 @@ function trustedBudgetStatusAuthFromReadyEcdsaMaterial(
   material: ReadyEcdsaMaterial,
 ): SigningSessionBudgetStatusAuth {
   const signerSession = material.signerSession;
-  const walletSessionJwt = signerSession.routerAbEcdsaDerivationNormalSigning.credential.walletSessionJwt;
+  const walletSessionJwt =
+    signerSession.routerAbEcdsaDerivationNormalSigning.credential.walletSessionJwt;
   return {
     relayerUrl: signerSession.transport.relayerUrl,
     thresholdSessionId: String(signerSession.session.thresholdSessionId),
@@ -321,7 +323,7 @@ async function resolvePasskeyEcdsaTrustedBudgetReadiness(args: {
     kind: 'trusted_budget_status_auth';
     auth: SigningSessionBudgetStatusAuth;
   };
-  } | null> {
+} | null> {
   const record = getEcdsaMaterialRecord(args.material);
   if (
     !record ||
@@ -331,7 +333,8 @@ async function resolvePasskeyEcdsaTrustedBudgetReadiness(args: {
     return null;
   }
   const signerSession = args.material.signerSession;
-  const walletSessionJwt = signerSession.routerAbEcdsaDerivationNormalSigning.credential.walletSessionJwt;
+  const walletSessionJwt =
+    signerSession.routerAbEcdsaDerivationNormalSigning.credential.walletSessionJwt;
   const trustedStatusAuth: SigningSessionBudgetStatusAuth = {
     relayerUrl: signerSession.transport.relayerUrl,
     thresholdSessionId: String(signerSession.session.thresholdSessionId),

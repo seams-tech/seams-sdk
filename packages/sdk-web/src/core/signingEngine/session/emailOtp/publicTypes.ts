@@ -24,10 +24,13 @@ export type EmailOtpChallengeDelivery =
       otpCode: string;
     };
 
-export type DemoEmailOtpCodeResponse = Extract<
-  EmailOtpChallengeDelivery,
-  { otpCode: string }
->;
+export type DemoEmailOtpCodeResponse = Extract<EmailOtpChallengeDelivery, { otpCode: string }>;
+
+export type EmailOtpTransactionSigningChallenge = {
+  challengeId: string;
+  emailHint: string;
+  delivery: EmailOtpChallengeDelivery;
+};
 
 export type EmailOtpEnrollmentResult = {
   thresholdEcdsaClientVerifyingShareB64u: string;

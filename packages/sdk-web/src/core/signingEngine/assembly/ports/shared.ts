@@ -38,6 +38,7 @@ import type {
 } from '../../session/persistence/records';
 import type { ExactEcdsaSigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
 import type { RestorePersistedSessionForSigningInput } from '../../session/sealedRecovery/sealedRecovery.types';
+import type { EmailOtpTransactionSigningChallenge } from '../../session/emailOtp/publicTypes';
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import type { SigningSessionBudgetStatusCheck } from '../../session/budget/budget';
 import {
@@ -174,10 +175,10 @@ export type CreateSigningEnginePortsArgs = {
   }) => ThresholdEcdsaSessionRecord;
   requestEmailOtpTransactionSigningChallenge?: (
     args: RequestEmailOtpTransactionSigningChallengeArgs,
-  ) => Promise<{ challengeId: string; emailHint?: string }>;
+  ) => Promise<EmailOtpTransactionSigningChallenge>;
   requestEmailOtpEd25519SigningChallenge?: (
     args: RequestEmailOtpEd25519SigningChallengeArgs,
-  ) => Promise<{ challengeId: string; emailHint?: string }>;
+  ) => Promise<EmailOtpTransactionSigningChallenge>;
   recoverEmailOtpEd25519CapabilityForSigning?: (
     args: RecoverEmailOtpEd25519CapabilityForSigningArgs,
   ) => ReturnType<NonNullable<NearSigningApiDeps['recoverEmailOtpEd25519CapabilityForSigning']>>;
