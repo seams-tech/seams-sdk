@@ -106,6 +106,8 @@ interface CloudflareD1RouterApiStagingEnv
   readonly SIGNING_SESSION_SEAL_E_S_B64U?: string;
   readonly SIGNING_SESSION_SEAL_D_S_B64U?: string;
   readonly EMAIL_OTP_DELIVERY_MODE?: string;
+  readonly EMAIL_OTP_RUNTIME_PROFILE?: string;
+  readonly EMAIL_OTP_DEMO_ALLOWED_ORIGINS?: string;
   readonly EMAIL_OTP_PRODUCTION?: string;
   readonly EMAIL_OTP_DEV_OUTBOX_ENABLED?: string;
   readonly EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_MAX?: string;
@@ -318,6 +320,8 @@ async function createRouterApiHandler(
     accountIdDerivationSecret: requireEnvString(env, 'ACCOUNT_ID_DERIVATION_SECRET'),
     emailOtpServerSeal: stagingEmailOtpServerSealConfig(env),
     emailOtpDeliveryMode: readEnvString(env, 'EMAIL_OTP_DELIVERY_MODE'),
+    emailOtpRuntimeProfile: readEnvString(env, 'EMAIL_OTP_RUNTIME_PROFILE'),
+    emailOtpDemoAllowedOrigins: readEnvString(env, 'EMAIL_OTP_DEMO_ALLOWED_ORIGINS'),
     emailOtpProduction: readEnvString(env, 'EMAIL_OTP_PRODUCTION'),
     emailOtpDevOutboxEnabled: readEnvString(env, 'EMAIL_OTP_DEV_OUTBOX_ENABLED'),
     emailOtpRecoveryKeyAttemptRateLimitMax: readEnvString(

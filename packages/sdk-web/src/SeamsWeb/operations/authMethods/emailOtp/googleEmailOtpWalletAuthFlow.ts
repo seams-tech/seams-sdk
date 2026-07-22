@@ -36,6 +36,10 @@ import type {
   GoogleEmailOtpWalletAuthSubmitSuccess,
   RegistrationCapability,
 } from '@/SeamsWeb/publicApi/types';
+import type {
+  DemoEmailOtpCodeResponse,
+  EmailOtpChallengeDelivery,
+} from '@/core/signingEngine/session/emailOtp/publicTypes';
 import { walletIdFromString, type WalletId } from '@shared/utils/registrationIntent';
 import { parseGoogleEmailOtpRegistrationOffer } from './registrationOffer';
 import {
@@ -50,6 +54,7 @@ type GoogleEmailOtpWalletRegistrationArgs = Parameters<RegistrationCapability['r
 type ActiveChallenge = {
   challengeId: string;
   emailHint: string;
+  delivery: EmailOtpChallengeDelivery;
 };
 
 type GoogleLoginEmailOtpEcdsaCapabilityArgs = EmailOtpEcdsaCapabilityArgs & {
@@ -353,10 +358,11 @@ function resolveSessionState(input: {
     : walletId;
   const loginChallengeRaw = mode === 'login' ? resolution?.loginChallenge : undefined;
   const loginChallenge =
-    loginChallengeRaw?.delivery === 'sent' || loginChallengeRaw?.delivery === 'reused'
+    loginChallengeRaw && loginChallengeRaw.delivery !== 'rate_limited'
       ? {
           challengeId: loginChallengeRaw.challengeId,
-          emailHint: loginChallengeRaw.emailHint || emailHint,
+          emailHint: loginChallengeRaw.delivery.emailHint,
+          delivery: loginChallengeRaw.delivery,
         }
       : undefined;
   const loginChallengeRateLimit =
@@ -428,8 +434,23 @@ async function requestLoginChallenge(args: {
   });
   return {
     challengeId: result.challengeId,
-    emailHint: result.emailHint || args.state.emailHint,
+    emailHint: result.delivery.emailHint,
+    delivery: result.delivery,
   };
+}
+
+function emitDemoEmailOtpCode(args: {
+  delivery: EmailOtpChallengeDelivery;
+  onDemoOtp: ((response: DemoEmailOtpCodeResponse) => void) | undefined;
+}): void {
+  switch (args.delivery.kind) {
+    case 'provider':
+      return;
+    case 'demo_code_response':
+    case 'provider_and_demo_code':
+      args.onDemoOtp?.(args.delivery);
+      return;
+  }
 }
 
 function resolveRegistrationEcdsaTargets(args: {
@@ -750,6 +771,10 @@ function createGoogleEmailOtpWalletLoginFlow(
 ): GoogleEmailOtpWalletAuthFlow {
   const liveness = createFlowLiveness({ state: args.state });
   const flowId = `google-email-otp-login:${args.state.walletId}:${args.challenge.challengeId}`;
+  emitDemoEmailOtpCode({
+    delivery: args.challenge.delivery,
+    onDemoOtp: args.input.onDemoOtp,
+  });
   return {
     kind: 'google_email_otp_wallet_auth_flow_v1',
     state: 'challenge_sent',
@@ -759,7 +784,7 @@ function createGoogleEmailOtpWalletLoginFlow(
     walletId: args.state.walletId,
     emailHint: args.challenge.emailHint,
     prompt: buildPrompt({ mode: 'login', emailHint: args.challenge.emailHint }),
-    delivery: 'sent',
+    delivery: args.challenge.delivery,
     expiresAtMs: args.state.expiresAtMs,
     resend: async (): Promise<GoogleEmailOtpWalletAuthResult<GoogleEmailOtpWalletAuthFlow>> => {
       try {

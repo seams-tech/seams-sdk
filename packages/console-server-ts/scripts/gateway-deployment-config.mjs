@@ -10,37 +10,83 @@ const ED25519_PUBLIC_KEY_PATTERN = /^ed25519:[1-9A-HJ-NP-Za-km-z]+$/;
 const ED25519_VERIFYING_KEY_PATTERN = /^[0-9a-f]{64}$/;
 const PUBLISHABLE_KEY_PATTERN = /^pk_[A-Za-z0-9]{32}$/;
 const UNSIGNED_INTEGER_PATTERN = /^(?:0|[1-9][0-9]*)$/;
+const LEGACY_GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION = 1;
 
-export const GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION = 1;
+export const GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION = 2;
 export const GATEWAY_DEPLOYMENT_PLAN_SCHEMA_VERSION = 1;
 export const DEFAULT_NEAR_INITIAL_BALANCE_YOCTO = '30000000000000000000000';
 export const DEFAULT_RELAY_SESSION_AUDIENCE = 'seams-wallet-session';
 export const DEFAULT_SESSION_COOKIE_NAME = 'seams-jwt';
 export const DEFAULT_EMAIL_OTP_RATE_LIMIT_MAX = '5';
 export const DEFAULT_EMAIL_OTP_RATE_LIMIT_WINDOW_MS = '60000';
+export const GATEWAY_RUNTIME_PROFILE_KINDS = {
+  testnetLiveDemo: 'testnet_live_demo',
+  testnetService: 'testnet_service',
+  mainnetService: 'mainnet_service',
+};
+export const GATEWAY_EMAIL_OTP_DELIVERY_KINDS = {
+  emailProvider: 'email_provider',
+  demoCodeResponse: 'demo_code_response',
+};
+
+export function buildGatewayRuntimeProfile(kind, emailOtpDeliveryKind) {
+  switch (kind) {
+    case GATEWAY_RUNTIME_PROFILE_KINDS.testnetLiveDemo: {
+      const deliveryKind =
+        emailOtpDeliveryKind || GATEWAY_EMAIL_OTP_DELIVERY_KINDS.demoCodeResponse;
+      if (deliveryKind !== GATEWAY_EMAIL_OTP_DELIVERY_KINDS.demoCodeResponse) {
+        throw new Error('testnet_live_demo requires demo_code_response Email OTP delivery');
+      }
+      return {
+        kind,
+        nearFunding: {
+          kind: 'implicit_account_relayer',
+          network: 'near_testnet',
+        },
+        emailOtpDelivery: {
+          kind: deliveryKind,
+        },
+      };
+    }
+    case GATEWAY_RUNTIME_PROFILE_KINDS.testnetService:
+    case GATEWAY_RUNTIME_PROFILE_KINDS.mainnetService:
+      if (
+        emailOtpDeliveryKind &&
+        emailOtpDeliveryKind !== GATEWAY_EMAIL_OTP_DELIVERY_KINDS.emailProvider
+      ) {
+        throw new Error(`${kind} requires email_provider Email OTP delivery`);
+      }
+      return {
+        kind,
+        nearFunding: { kind: 'disabled' },
+        emailOtpDelivery: { kind: 'email_provider' },
+      };
+    default:
+      throw new Error(
+        `runtime profile must be ${Object.values(GATEWAY_RUNTIME_PROFILE_KINDS).join(', ')}`,
+      );
+  }
+}
+
+export function gatewayRuntimeProfileNearNetwork(runtimeProfile) {
+  switch (runtimeProfile.kind) {
+    case GATEWAY_RUNTIME_PROFILE_KINDS.testnetLiveDemo:
+    case GATEWAY_RUNTIME_PROFILE_KINDS.testnetService:
+      return 'testnet';
+    case GATEWAY_RUNTIME_PROFILE_KINDS.mainnetService:
+      return 'mainnet';
+    default:
+      throw new Error(`Unsupported Gateway runtime profile: ${String(runtimeProfile.kind)}`);
+  }
+}
 
 export function parseGatewayDeploymentConfig(source, expectedTarget) {
   const root = parseJsonObject(source, 'GATEWAY_DEPLOYMENT_CONFIG_JSON');
+  const sourceSchemaVersion = parseGatewayDeploymentConfigSchemaVersion(root.schemaVersion);
   requireExactKeys(
     root,
-    [
-      'schemaVersion',
-      'target',
-      'resources',
-      'tenant',
-      'origins',
-      'signingRoot',
-      'session',
-      'routerAb',
-      'bootstrap',
-      'optional',
-    ],
+    gatewayDeploymentConfigKeys(sourceSchemaVersion),
     'GATEWAY_DEPLOYMENT_CONFIG_JSON',
-  );
-  requireExactInteger(
-    root.schemaVersion,
-    GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION,
-    'schemaVersion',
   );
   const target = requireTarget(root.target, 'target');
   if (target !== expectedTarget) {
@@ -48,6 +94,10 @@ export function parseGatewayDeploymentConfig(source, expectedTarget) {
   }
 
   const serviceNames = serviceNamesForTarget(target);
+  const runtimeProfile =
+    sourceSchemaVersion === GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION
+      ? parseRuntimeProfile(root.runtimeProfile)
+      : legacyRuntimeProfileForTarget(target);
   const resources = parseResources(root.resources);
   const tenant = parseTenant(root.tenant);
   const origins = parseOrigins(root.origins);
@@ -58,9 +108,11 @@ export function parseGatewayDeploymentConfig(source, expectedTarget) {
   const optional = parseOptionalConfig(root.optional);
 
   requireSameOrigins(origins.allowedCors, bootstrap.allowedOrigins);
+  requireNearFundingConfiguration(runtimeProfile, optional.nearRelayer);
   return {
     schemaVersion: GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION,
     target,
+    runtimeProfile,
     resources,
     tenant,
     origins,
@@ -71,6 +123,114 @@ export function parseGatewayDeploymentConfig(source, expectedTarget) {
     optional,
     serviceNames,
   };
+}
+
+function gatewayDeploymentConfigKeys(schemaVersion) {
+  const keys = [
+    'schemaVersion',
+    'target',
+    'resources',
+    'tenant',
+    'origins',
+    'signingRoot',
+    'session',
+    'routerAb',
+    'bootstrap',
+    'optional',
+  ];
+  if (schemaVersion === GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION) {
+    keys.splice(2, 0, 'runtimeProfile');
+  }
+  return keys;
+}
+
+function parseGatewayDeploymentConfigSchemaVersion(value) {
+  if (
+    value !== LEGACY_GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION &&
+    value !== GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION
+  ) {
+    throw new Error(
+      `schemaVersion must be ${LEGACY_GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION} or ` +
+        `${GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION}`,
+    );
+  }
+  return value;
+}
+
+function legacyRuntimeProfileForTarget(target) {
+  return buildGatewayRuntimeProfile(
+    target === 'production'
+      ? GATEWAY_RUNTIME_PROFILE_KINDS.mainnetService
+      : GATEWAY_RUNTIME_PROFILE_KINDS.testnetService,
+  );
+}
+
+function parseRuntimeProfile(value) {
+  const runtimeProfile = requireObject(value, 'runtimeProfile');
+  requireExactKeys(runtimeProfile, ['kind', 'nearFunding', 'emailOtpDelivery'], 'runtimeProfile');
+  const kind = requireString(runtimeProfile.kind, 'runtimeProfile.kind');
+  const emailOtpDelivery = requireObject(
+    runtimeProfile.emailOtpDelivery,
+    'runtimeProfile.emailOtpDelivery',
+  );
+  requireExactKeys(emailOtpDelivery, ['kind'], 'runtimeProfile.emailOtpDelivery');
+  const canonical = buildGatewayRuntimeProfile(
+    kind,
+    requireString(emailOtpDelivery.kind, 'runtimeProfile.emailOtpDelivery.kind'),
+  );
+  const nearFunding = requireObject(runtimeProfile.nearFunding, 'runtimeProfile.nearFunding');
+  if (canonical.nearFunding.kind === 'implicit_account_relayer') {
+    requireExactKeys(nearFunding, ['kind', 'network'], 'runtimeProfile.nearFunding');
+    requireExactString(
+      nearFunding.kind,
+      canonical.nearFunding.kind,
+      'runtimeProfile.nearFunding.kind',
+    );
+    requireExactString(
+      nearFunding.network,
+      canonical.nearFunding.network,
+      'runtimeProfile.nearFunding.network',
+    );
+    return canonical;
+  }
+  requireExactKeys(nearFunding, ['kind'], 'runtimeProfile.nearFunding');
+  requireExactString(
+    nearFunding.kind,
+    canonical.nearFunding.kind,
+    'runtimeProfile.nearFunding.kind',
+  );
+  return canonical;
+}
+
+function requireNearFundingConfiguration(runtimeProfile, nearRelayer) {
+  if (runtimeProfile.nearFunding.kind === 'implicit_account_relayer' && !nearRelayer) {
+    throw new Error('testnet_live_demo requires optional.nearRelayer');
+  }
+  if (!nearRelayer) return;
+
+  const expectedNetwork = gatewayRuntimeProfileNearNetwork(runtimeProfile);
+  const configuredNetwork = knownNearNetworkForRpcUrl(nearRelayer.rpcUrl);
+  if (configuredNetwork && configuredNetwork !== expectedNetwork) {
+    throw new Error(
+      `optional.nearRelayer.rpcUrl targets NEAR ${configuredNetwork}, ` +
+        `but runtimeProfile targets NEAR ${expectedNetwork}`,
+    );
+  }
+  if (
+    runtimeProfile.nearFunding.kind === 'implicit_account_relayer' &&
+    nearRelayer.initialBalanceYocto === '0'
+  ) {
+    throw new Error(
+      'testnet_live_demo requires a positive optional.nearRelayer.initialBalanceYocto',
+    );
+  }
+}
+
+function knownNearNetworkForRpcUrl(rpcUrl) {
+  const hostname = new URL(rpcUrl).hostname.toLowerCase();
+  if (hostname === 'rpc.testnet.near.org') return 'testnet';
+  if (hostname === 'rpc.mainnet.near.org') return 'mainnet';
+  return null;
 }
 
 export function buildGatewayDeploymentPlan(config) {

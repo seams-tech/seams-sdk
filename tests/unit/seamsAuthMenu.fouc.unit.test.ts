@@ -1689,7 +1689,11 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
                       submitLabel: 'Unlock wallet',
                       helperText: 'Use the code from your email.',
                     },
-                    delivery: 'sent',
+                    delivery: {
+                      kind: 'provider',
+                      status: 'sent',
+                      emailHint: 'alice@example.com',
+                    },
                     expiresAtMs: Date.now() + 60_000,
                     resend: async () => ({
                       ok: false,
@@ -1997,7 +2001,11 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
                       helperText:
                         'Google keeps you signed in. The email code unlocks wallet signing for this session.',
                     },
-                    delivery: 'sent',
+                    delivery: {
+                      kind: 'provider',
+                      status: 'sent',
+                      emailHint: 'alice@example.com',
+                    },
                     expiresAtMs: Date.now() + 60_000,
                     resend: async () => ({
                       ok: false,

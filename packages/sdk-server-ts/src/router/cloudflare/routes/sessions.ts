@@ -17,6 +17,7 @@ import {
 import {
   routerApiEmailOtpRouteService,
   routerApiWalletUnlockRouteService,
+  type EmailOtpChallengeDelivery,
 } from '../../authServicePort';
 import {
   handleEmailOtpDevCleanupGoogleRegistrationRoute,
@@ -457,6 +458,7 @@ export async function handleSessionExchange(
           loginChallenge?:
             | {
                 delivery: 'sent' | 'reused';
+                deliveryDetails: EmailOtpChallengeDelivery;
                 challengeId: string;
                 emailHint?: string;
                 expiresAtMs: number;
@@ -896,10 +898,12 @@ export async function handleSessionExchange(
         appSessionVersion,
         reuseActiveChallenge: true,
         clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
+        requestOrigin: ctx.request.headers.get('origin'),
       });
       if (challengeResult.ok) {
         googleEmailOtpResolution.loginChallenge = {
           delivery: challengeResult.delivery.status,
+          deliveryDetails: challengeResult.delivery,
           challengeId: challengeResult.challenge.challengeId,
           ...(challengeResult.delivery.emailHint
             ? { emailHint: challengeResult.delivery.emailHint }
@@ -950,6 +954,8 @@ export async function handleSessionExchange(
                         googleEmailOtpResolution.loginChallenge.delivery === 'reused'
                           ? {
                               delivery: googleEmailOtpResolution.loginChallenge.delivery,
+                              deliveryDetails:
+                                googleEmailOtpResolution.loginChallenge.deliveryDetails,
                               challengeId: googleEmailOtpResolution.loginChallenge.challengeId,
                               ...(googleEmailOtpResolution.loginChallenge.emailHint
                                 ? { emailHint: googleEmailOtpResolution.loginChallenge.emailHint }
@@ -1348,6 +1354,7 @@ export async function handleWalletEmailOtpRegistrationChallenge(
     userId: validated.userId,
     appSessionVersion: validated.appSessionVersion,
     clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
+    requestOrigin: ctx.request.headers.get('origin'),
     service: routerApiEmailOtpRouteService(ctx.service),
   });
   return json(response.body, { status: response.status });
@@ -1430,6 +1437,7 @@ export async function handleWalletEmailOtpLoginChallenge(
     userId: validated.userId,
     appSessionVersion: validated.appSessionVersion,
     clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
+    requestOrigin: ctx.request.headers.get('origin'),
     service: routerApiEmailOtpRouteService(ctx.service),
     opts: ctx.opts,
     emitWebhook: async (event) => {
@@ -1460,6 +1468,7 @@ export async function handleWalletEmailOtpSigningSessionChallenge(
     appSessionVersion: validated.appSessionVersion,
     sessionHash: validated.sessionHash,
     clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
+    requestOrigin: ctx.request.headers.get('origin'),
     service: routerApiEmailOtpRouteService(ctx.service),
     opts: ctx.opts,
     emitWebhook: async (event) => {
@@ -1496,6 +1505,7 @@ export async function handleWalletEmailOtpDeviceRecoveryChallenge(
     userId: validated.userId,
     appSessionVersion: validated.appSessionVersion,
     clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
+    requestOrigin: ctx.request.headers.get('origin'),
     service: routerApiEmailOtpRouteService(ctx.service),
   });
   return json(response.body, { status: response.status });

@@ -2,6 +2,33 @@ import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold
 import type { EmailOtpRecoveryCodeSet } from '@shared/utils/emailOtpRecoveryKey';
 import type { WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
 
+export type EmailOtpChallengeDeliveryStatus = 'sent' | 'reused';
+
+export type EmailOtpChallengeDelivery =
+  | {
+      kind: 'provider';
+      status: EmailOtpChallengeDeliveryStatus;
+      emailHint: string;
+      otpCode?: never;
+    }
+  | {
+      kind: 'demo_code_response';
+      status: EmailOtpChallengeDeliveryStatus;
+      emailHint: string;
+      otpCode: string;
+    }
+  | {
+      kind: 'provider_and_demo_code';
+      status: EmailOtpChallengeDeliveryStatus;
+      emailHint: string;
+      otpCode: string;
+    };
+
+export type DemoEmailOtpCodeResponse = Extract<
+  EmailOtpChallengeDelivery,
+  { otpCode: string }
+>;
+
 export type EmailOtpEnrollmentResult = {
   thresholdEcdsaClientVerifyingShareB64u: string;
   recoveryKeys: EmailOtpRecoveryCodeSet;
@@ -85,7 +112,7 @@ export type GoogleEmailOtpSessionExchangeResult = {
       expiresAtMs?: number;
       loginChallenge?:
         | {
-            delivery: 'sent' | 'reused';
+            delivery: EmailOtpChallengeDelivery;
             challengeId: string;
             emailHint?: string;
             expiresAt?: string;

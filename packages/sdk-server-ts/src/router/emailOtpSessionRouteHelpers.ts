@@ -2,6 +2,7 @@ import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { toOptionalRecordString, toOptionalTrimmedString } from '@shared/utils/validation';
 import { EMAIL_OTP_CHANNEL, type WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
+import type { EmailOtpChallengeDelivery } from './authServicePort';
 
 export type OidcAccountMode = 'register' | 'login';
 const EMAIL_OTP_RESEND_RETRY_AFTER_MS = 10_000;
@@ -321,7 +322,7 @@ export function emailOtpChallengeResponseBody(result: {
     action: string;
     operation: string;
   };
-  delivery?: unknown;
+  delivery?: EmailOtpChallengeDelivery;
   retryAfterMs?: number;
 }): Record<string, unknown> {
   if (!result.ok || !result.challenge) return result as unknown as Record<string, unknown>;

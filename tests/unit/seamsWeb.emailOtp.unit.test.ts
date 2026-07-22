@@ -7,6 +7,7 @@ import {
   requestEmailOtpEnrollmentChallenge,
   verifyEmailOtpCode,
 } from '@/SeamsWeb/operations/authMethods/emailOtp/challenge';
+import { parseEmailOtpChallengeDelivery } from '@/core/signingEngine/session/emailOtp/challengeDelivery';
 import {
   removeEmailOtpDeviceEnrollmentEscrowFromDevice,
   restoreEmailOtpDeviceEnrollmentEscrow,
@@ -26,10 +27,26 @@ test.describe('SeamsWeb Email OTP runtime', () => {
       requestWorkerOperation: async ({ kind, request }: any) => {
         workerCalls.push({ kind, type: request.type, payload: request.payload });
         if (request.type === 'requestEmailOtpChallenge') {
-          return { challengeId: 'challenge-1', otpChannel: 'email_otp' };
+          return {
+            challengeId: 'challenge-1',
+            otpChannel: 'email_otp',
+            delivery: {
+              kind: 'provider',
+              status: 'sent',
+              emailHint: 'a***@example.test',
+            },
+          };
         }
         if (request.type === 'requestEmailOtpEnrollmentChallenge') {
-          return { challengeId: 'enroll-challenge-1', otpChannel: 'email_otp' };
+          return {
+            challengeId: 'enroll-challenge-1',
+            otpChannel: 'email_otp',
+            delivery: {
+              kind: 'provider',
+              status: 'sent',
+              emailHint: 'a***@example.test',
+            },
+          };
         }
         if (request.type === 'verifyEmailOtpCode') {
           return {
@@ -52,6 +69,11 @@ test.describe('SeamsWeb Email OTP runtime', () => {
     ).resolves.toEqual({
       challengeId: 'challenge-1',
       otpChannel: 'email_otp',
+      delivery: {
+        kind: 'provider',
+        status: 'sent',
+        emailHint: 'a***@example.test',
+      },
     });
 
     await expect(
@@ -64,6 +86,11 @@ test.describe('SeamsWeb Email OTP runtime', () => {
     ).resolves.toEqual({
       challengeId: 'enroll-challenge-1',
       otpChannel: 'email_otp',
+      delivery: {
+        kind: 'provider',
+        status: 'sent',
+        emailHint: 'a***@example.test',
+      },
     });
 
     await expect(
@@ -137,7 +164,15 @@ test.describe('SeamsWeb Email OTP runtime', () => {
       fetchCalls.push({ url, body });
       if (url.endsWith('/wallet/email-otp/login/challenge')) {
         return new Response(
-          JSON.stringify({ ok: true, challenge: { challengeId: 'challenge-1' } }),
+          JSON.stringify({
+            ok: true,
+            challenge: { challengeId: 'challenge-1' },
+            delivery: {
+              kind: 'provider',
+              status: 'sent',
+              emailHint: 'a***@example.test',
+            },
+          }),
           {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
@@ -145,10 +180,21 @@ test.describe('SeamsWeb Email OTP runtime', () => {
         );
       }
       if (url.endsWith('/wallet/email-otp/registration/challenge')) {
-        return new Response(JSON.stringify({ ok: true, challenge: { challengeId: 'enroll-1' } }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        });
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            challenge: { challengeId: 'enroll-1' },
+            delivery: {
+              kind: 'provider',
+              status: 'sent',
+              emailHint: 'a***@example.test',
+            },
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
       }
       if (url.endsWith('/wallet/email-otp/recovery-challenge')) {
         return new Response(
@@ -197,14 +243,32 @@ test.describe('SeamsWeb Email OTP runtime', () => {
         walletId: 'alice.testnet',
         fetchImpl,
       }),
-    ).resolves.toEqual({ challengeId: 'challenge-1', otpChannel: 'email_otp' });
+    ).resolves.toEqual({
+      challengeId: 'challenge-1',
+      otpChannel: 'email_otp',
+      delivery: {
+        kind: 'provider',
+        status: 'sent',
+        emailHint: 'a***@example.test',
+      },
+      emailHint: 'a***@example.test',
+    });
     await expect(
       requestEmailOtpEnrollmentChallenge({
         relayUrl: 'https://relay.example',
         walletId: 'alice.testnet',
         fetchImpl,
       }),
-    ).resolves.toEqual({ challengeId: 'enroll-1', otpChannel: 'email_otp' });
+    ).resolves.toEqual({
+      challengeId: 'enroll-1',
+      otpChannel: 'email_otp',
+      delivery: {
+        kind: 'provider',
+        status: 'sent',
+        emailHint: 'a***@example.test',
+      },
+      emailHint: 'a***@example.test',
+    });
     await expect(
       requestEmailOtpDeviceRecoveryChallenge({
         relayUrl: 'https://relay.example',
@@ -345,6 +409,61 @@ test.describe('SeamsWeb Email OTP runtime', () => {
     });
   });
 
+  test('Google Email OTP session exchange preserves explicit demo delivery details', async () => {
+    const fetchImpl: typeof fetch = async () =>
+      new Response(
+        JSON.stringify({
+          ok: true,
+          jwt: 'app-session-jwt-1',
+          session: {
+            userId: 'google:subject-1',
+            walletId: 'alice.testnet',
+            email: 'alice@example.com',
+            googleEmailOtpResolution: {
+              mode: 'existing_wallet',
+              loginChallenge: {
+                delivery: 'sent',
+                deliveryDetails: {
+                  kind: 'demo_code_response',
+                  status: 'sent',
+                  emailHint: 'a***@example.test',
+                  otpCode: '123456',
+                },
+                challengeId: 'login-challenge-1',
+              },
+            },
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+
+    await expect(
+      exchangeGoogleEmailOtpSession({
+        relayUrl: 'https://relay.example',
+        idToken: 'google-id-token-1',
+        accountMode: 'login',
+        sessionKind: 'jwt',
+        projectEnvironmentId: 'env_test',
+        fetchImpl,
+      }),
+    ).resolves.toMatchObject({
+      session: {
+        googleEmailOtpResolution: {
+          mode: 'existing_wallet',
+          loginChallenge: {
+            delivery: {
+              kind: 'demo_code_response',
+              status: 'sent',
+              emailHint: 'a***@example.test',
+              otpCode: '123456',
+            },
+            challengeId: 'login-challenge-1',
+          },
+        },
+      },
+    });
+  });
+
   test('Email OTP registration authority adapter builds a digest-bound proof', async () => {
     const fetchCalls: Array<{ url: string; body: Record<string, unknown>; authorization: string }> =
       [];
@@ -366,6 +485,8 @@ test.describe('SeamsWeb Email OTP runtime', () => {
             expiresAtMs: 1_900_000_000_000,
           },
           delivery: {
+            kind: 'provider',
+            status: 'sent',
             emailHint: 'a***@example.test',
           },
         }),
@@ -455,6 +576,66 @@ test.describe('SeamsWeb Email OTP runtime', () => {
     expect((caught as EmailOtpRouteError).code).toBe('rate_limited');
     expect((caught as EmailOtpRouteError).retryAfterMs).toBe(123_000);
     expect((caught as EmailOtpRouteError).resetAtMs).toBe(1_712_345_678_901);
+  });
+
+  test('Email OTP delivery parser exposes codes only for explicit demo responses', () => {
+    expect(
+      parseEmailOtpChallengeDelivery(
+        {
+          kind: 'demo_code_response',
+          status: 'sent',
+          emailHint: 'a***@example.test',
+          otpCode: '123456',
+        },
+        'delivery',
+      ),
+    ).toEqual({
+      kind: 'demo_code_response',
+      status: 'sent',
+      emailHint: 'a***@example.test',
+      otpCode: '123456',
+    });
+
+    expect(
+      parseEmailOtpChallengeDelivery(
+        {
+          kind: 'provider_and_demo_code',
+          status: 'reused',
+          emailHint: 'a***@example.test',
+          otpCode: '654321',
+        },
+        'delivery',
+      ),
+    ).toEqual({
+      kind: 'provider_and_demo_code',
+      status: 'reused',
+      emailHint: 'a***@example.test',
+      otpCode: '654321',
+    });
+
+    expect(() =>
+      parseEmailOtpChallengeDelivery(
+        {
+          kind: 'provider',
+          status: 'sent',
+          emailHint: 'a***@example.test',
+          otpCode: '123456',
+        },
+        'delivery',
+      ),
+    ).toThrow('delivery.otpCode is only valid for code-bearing delivery');
+
+    expect(() =>
+      parseEmailOtpChallengeDelivery(
+        {
+          kind: 'demo_code_response',
+          status: 'sent',
+          emailHint: 'a***@example.test',
+          otpCode: '12345',
+        },
+        'delivery',
+      ),
+    ).toThrow('delivery.otpCode must be a 6-digit code');
   });
 
   test('Email OTP enrollment dispatches secret-bearing enrollment through the dedicated worker', async () => {

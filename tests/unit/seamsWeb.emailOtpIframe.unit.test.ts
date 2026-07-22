@@ -198,10 +198,26 @@ const WALLET_STUB_EMAIL_OTP_SCRIPT = String.raw`
         respond({ walletIds: [], accountIds: [], accounts: [], lastUsedAccount: null });
       }
       if (data.type === 'PM_REQUEST_EMAIL_OTP_CHALLENGE') {
-        respond({ challengeId: 'challenge-1', otpChannel: 'email_otp' });
+        respond({
+          challengeId: 'challenge-1',
+          otpChannel: 'email_otp',
+          delivery: {
+            kind: 'provider',
+            status: 'sent',
+            emailHint: 'a***@example.test',
+          },
+        });
       }
       if (data.type === 'PM_REQUEST_EMAIL_OTP_ENROLLMENT_CHALLENGE') {
-        respond({ challengeId: 'enrollment-challenge-1', otpChannel: 'email_otp' });
+        respond({
+          challengeId: 'enrollment-challenge-1',
+          otpChannel: 'email_otp',
+          delivery: {
+            kind: 'provider',
+            status: 'sent',
+            emailHint: 'a***@example.test',
+          },
+        });
       }
       if (data.type === 'PM_EXCHANGE_GOOGLE_EMAIL_OTP_SESSION') {
         respond({
@@ -636,8 +652,24 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
     );
 
     expect(result).toEqual({
-      challenge: { challengeId: 'challenge-1', otpChannel: 'email_otp' },
-      enrollmentChallenge: { challengeId: 'enrollment-challenge-1', otpChannel: 'email_otp' },
+      challenge: {
+        challengeId: 'challenge-1',
+        otpChannel: 'email_otp',
+        delivery: {
+          kind: 'provider',
+          status: 'sent',
+          emailHint: 'a***@example.test',
+        },
+      },
+      enrollmentChallenge: {
+        challengeId: 'enrollment-challenge-1',
+        otpChannel: 'email_otp',
+        delivery: {
+          kind: 'provider',
+          status: 'sent',
+          emailHint: 'a***@example.test',
+        },
+      },
       exchangedWalletId: 'alice.testnet',
       googleRegistrationStartOk: true,
       googleRegistrationStartMode: 'register',

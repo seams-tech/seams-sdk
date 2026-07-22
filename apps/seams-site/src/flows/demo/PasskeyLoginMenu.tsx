@@ -6,6 +6,7 @@ import {
   RegistrationEventPhase,
   UnlockEventPhase,
   type AccountSyncFlowEvent,
+  type DemoEmailOtpCodeResponse,
   type SeamsAuthMenuPasskeyLoginRequest,
   type SeamsAuthMenuRegistrationRequest,
   type SeamsAuthMenuSocialLoginArgs,
@@ -247,6 +248,12 @@ function handleUnlockEvent(event: UnlockFlowEvent, loginTarget: string): void {
 
 const GOOGLE_EMAIL_OTP_TOAST_ID = 'google-email-otp';
 
+export function showDemoEmailOtpToast(response: DemoEmailOtpCodeResponse): void {
+  toast.success(`Demo email code: ${response.otpCode}`, {
+    id: GOOGLE_EMAIL_OTP_TOAST_ID,
+  });
+}
+
 function handleGoogleEmailOtpRegistrationEvent(event: RegistrationFlowEvent): void {
   if (event.flow !== 'registration') return;
   if (event.phase === RegistrationEventPhase.CANCELLED || event.status === 'cancelled') {
@@ -444,17 +451,19 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
         relayUrl: relayerBaseUrl,
         sessionKind: 'jwt',
         emailOtpAuthPolicy: args.emailOtpAuthPolicy,
+        onDemoOtp: showDemoEmailOtpToast,
         onEvent: handleGoogleEmailOtpEvent,
       });
       if (!flow.ok) {
         throw flow.error;
       }
-      toast.success(
-        flow.value.mode === 'register'
-          ? 'Choose a wallet name to finish registration'
-          : 'Email code sent',
-        { id: GOOGLE_EMAIL_OTP_TOAST_ID },
-      );
+      if (flow.value.mode === 'register') {
+        toast.success('Choose a wallet name to finish registration', {
+          id: GOOGLE_EMAIL_OTP_TOAST_ID,
+        });
+      } else if (flow.value.delivery.kind === 'provider') {
+        toast.success('Email code sent', { id: GOOGLE_EMAIL_OTP_TOAST_ID });
+      }
       const onComplete = async ({
         walletId,
         mode,
@@ -496,7 +505,6 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
       };
     } catch (error: unknown) {
       const message = formatGoogleSsoEmailOtpError(error);
-      console.warn('[seams-site] Google SSO Email OTP failed:', error);
       toast.error(message, { id: GOOGLE_EMAIL_OTP_TOAST_ID });
       if (isGoogleAccountRegistrationRequired(error)) {
         return {

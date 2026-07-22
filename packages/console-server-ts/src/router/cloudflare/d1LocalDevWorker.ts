@@ -143,6 +143,8 @@ interface LocalD1DevEnv extends RouterAbServiceBindingEnv {
   readonly SIGNING_SESSION_SEAL_E_S_B64U?: string;
   readonly SIGNING_SESSION_SEAL_D_S_B64U?: string;
   readonly EMAIL_OTP_DELIVERY_MODE?: string;
+  readonly EMAIL_OTP_RUNTIME_PROFILE?: string;
+  readonly EMAIL_OTP_DEMO_ALLOWED_ORIGINS?: string;
   readonly EMAIL_OTP_DEV_OUTBOX_ENABLED?: string;
   readonly EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_MAX?: string;
   readonly EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_WINDOW_MS?: string;
@@ -988,6 +990,8 @@ function localD1RouterApiAuthServiceOptions(
     accountIdDerivationSecret: env.ACCOUNT_ID_DERIVATION_SECRET,
     emailOtpServerSeal: localEmailOtpServerSealConfig(env),
     emailOtpDeliveryMode: env.EMAIL_OTP_DELIVERY_MODE || 'dev_d1_outbox',
+    emailOtpRuntimeProfile: env.EMAIL_OTP_RUNTIME_PROFILE,
+    emailOtpDemoAllowedOrigins: env.EMAIL_OTP_DEMO_ALLOWED_ORIGINS,
     emailOtpDevOutboxEnabled: env.EMAIL_OTP_DEV_OUTBOX_ENABLED ?? true,
     emailOtpRecoveryKeyAttemptRateLimitMax: env.EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_MAX,
     emailOtpRecoveryKeyAttemptRateLimitWindowMs:

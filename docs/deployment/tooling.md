@@ -79,9 +79,17 @@ this order:
 2. Target-specific names such as `STAGING__CLOUDFLARE_API_TOKEN`.
 3. Shared names such as `CLOUDFLARE_API_TOKEN`.
 
-Production Email OTP requires an email delivery provider. The current Gateway
-runtime does not implement that provider, so production targets should omit
-Google OIDC until delivery is configured.
+The public `staging` and `production` demo profiles target NEAR testnet and use
+`demo_code_response`, which returns the six-digit code to the exact configured
+demo origin. The server supports `provider_and_demo_code` when an embedding
+supplies a real email-provider adapter. The repository's deployed Gateway does
+not expose that mode until its provider integration is wired. Use
+`GATEWAY_RUNTIME_PROFILE=mainnet_service` for a future mainnet deployment. That
+profile rejects demo-code delivery and requires `email_provider` delivery.
+
+The generated profile is explicit in `GATEWAY_DEPLOYMENT_CONFIG_JSON`; later
+profile or delivery-mode changes can be uploaded with the update-only command
+without rotating Router A/B identities.
 
 Prepare the manifests, then upload each ownership group explicitly:
 

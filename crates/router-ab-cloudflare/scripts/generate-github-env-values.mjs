@@ -5,7 +5,14 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseEnv } from 'node:util';
-import { parseGatewayDeploymentConfig as parseStrictGatewayDeploymentConfig } from '../../../packages/console-server-ts/scripts/gateway-deployment-config.mjs';
+import {
+  buildGatewayRuntimeProfile,
+  DEFAULT_NEAR_INITIAL_BALANCE_YOCTO,
+  GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION,
+  GATEWAY_RUNTIME_PROFILE_KINDS,
+  gatewayRuntimeProfileNearNetwork,
+  parseGatewayDeploymentConfig as parseStrictGatewayDeploymentConfig,
+} from '../../../packages/console-server-ts/scripts/gateway-deployment-config.mjs';
 
 const VALID_TARGETS = new Set(['staging', 'production']);
 const VALID_DEPLOYMENT_COMPONENTS = new Set(['wallet-core', 'product']);
@@ -23,6 +30,7 @@ const SUPPLIED_VALUE_ALIASES = Object.freeze({
   VITE_RELAYER_ACCOUNT_ID: ['RELAYER_ACCOUNT_ID'],
   NEAR_RPC_URL: ['VITE_NEAR_RPC_URL'],
   VITE_NEAR_RPC_URL: ['NEAR_RPC_URL'],
+  RELAYER_INITIAL_BALANCE_YOCTO: ['ACCOUNT_INITIAL_BALANCE'],
   VITE_CONSOLE_BASE_URL: ['GATEWAY_ORIGIN', 'VITE_RELAYER_URL'],
   VITE_RELAYER_URL: ['GATEWAY_ORIGIN'],
 });
@@ -67,11 +75,15 @@ const OBSOLETE_GATEWAY_VARIABLE_NAMES = new Set([
   'RELAYER_ACCOUNT_ID',
   'RELAYER_PUBLIC_KEY',
   'NEAR_RPC_URL',
+  'GATEWAY_RUNTIME_PROFILE',
+  'RELAYER_INITIAL_BALANCE_YOCTO',
   'ACCOUNT_INITIAL_BALANCE',
   'RELAY_SESSION_ISSUER',
   'RELAY_SESSION_AUDIENCE',
   'RELAY_CORS_ORIGINS',
   'SESSION_COOKIE_NAME',
+  'EMAIL_OTP_RUNTIME_PROFILE',
+  'EMAIL_OTP_DEMO_ALLOWED_ORIGINS',
   'GOOGLE_OIDC_CLIENT_ID',
   'SEAMS_OIDC_EXCHANGE_JSON',
   'EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_MAX',
@@ -252,6 +264,22 @@ if (prepare) {
 
 function validateOptionalIntegrationInputs(targetName, suppliedValues) {
   const gatewayEnvironment = `${targetName}-gateway`;
+  const runtimeProfileKind = readSuppliedValue(
+    suppliedValues,
+    targetName,
+    gatewayEnvironment,
+    'GATEWAY_RUNTIME_PROFILE',
+  );
+  const emailOtpDeliveryKind = readSuppliedValue(
+    suppliedValues,
+    targetName,
+    gatewayEnvironment,
+    'EMAIL_OTP_DELIVERY_MODE',
+  );
+  const runtimeProfile = buildGatewayRuntimeProfile(
+    runtimeProfileKind || GATEWAY_RUNTIME_PROFILE_KINDS.testnetLiveDemo,
+    emailOtpDeliveryKind,
+  );
   const relayerAccountId = readSuppliedValue(
     suppliedValues,
     targetName,
@@ -278,6 +306,18 @@ function validateOptionalIntegrationInputs(targetName, suppliedValues) {
   if (relayerPublicKey && !relayerAccountId) {
     throw new Error('RELAYER_PUBLIC_KEY requires RELAYER_ACCOUNT_ID');
   }
+  if (runtimeProfile.nearFunding.kind === 'implicit_account_relayer' && !relayerAccountId) {
+    throw new Error('GATEWAY_RUNTIME_PROFILE=testnet_live_demo requires a NEAR relayer');
+  }
+  const initialBalanceYocto = readSuppliedValue(
+    suppliedValues,
+    targetName,
+    gatewayEnvironment,
+    'RELAYER_INITIAL_BALANCE_YOCTO',
+  );
+  if (initialBalanceYocto) {
+    requirePositiveUnsignedInteger(initialBalanceYocto, 'RELAYER_INITIAL_BALANCE_YOCTO');
+  }
   const sponsoredEvmExecutors = readSuppliedValue(
     suppliedValues,
     targetName,
@@ -287,6 +327,13 @@ function validateOptionalIntegrationInputs(targetName, suppliedValues) {
   if (sponsoredEvmExecutors) {
     parseSuppliedJsonObject('SPONSORED_EVM_EXECUTORS_JSON', sponsoredEvmExecutors);
   }
+}
+
+function requirePositiveUnsignedInteger(value, name) {
+  if (!/^[1-9][0-9]*$/.test(value)) {
+    throw new Error(`${name} must be a positive unsigned integer`);
+  }
+  return value;
 }
 progress.step('Generate Router A/B deployment identities');
 const deployment = runJsonScript(join(scriptDir, 'generate-deployment-keys.mjs'), [
@@ -399,6 +446,22 @@ function requireTarget() {
 
 function buildTargetConfiguration(targetName, suppliedValues) {
   const production = targetName === 'production';
+  const runtimeProfileKind =
+    readSuppliedValue(
+      suppliedValues,
+      targetName,
+      `${targetName}-gateway`,
+      'GATEWAY_RUNTIME_PROFILE',
+    ) ||
+    GATEWAY_RUNTIME_PROFILE_KINDS.testnetLiveDemo;
+  const emailOtpDeliveryKind = readSuppliedValue(
+    suppliedValues,
+    targetName,
+    `${targetName}-gateway`,
+    'EMAIL_OTP_DELIVERY_MODE',
+  );
+  const runtimeProfile = buildGatewayRuntimeProfile(runtimeProfileKind, emailOtpDeliveryKind);
+  const nearNetwork = gatewayRuntimeProfileNearNetwork(runtimeProfile);
   const generatedOrgId = `org_${targetName}`;
   const generatedProjectId = `project_${targetName}`;
   const generatedEnvironmentId = targetName;
@@ -448,10 +511,10 @@ function buildTargetConfiguration(targetName, suppliedValues) {
     manual(`${targetName}-webauthn-rp-id`);
   const nearRpcUrl =
     readSuppliedValue(suppliedValues, targetName, targetName, 'NEAR_RPC_URL') ||
-    (production ? 'https://rpc.mainnet.near.org' : 'https://rpc.testnet.near.org');
+    (nearNetwork === 'mainnet' ? 'https://rpc.mainnet.near.org' : 'https://rpc.testnet.near.org');
   const nearExplorerUrl =
     readSuppliedValue(suppliedValues, targetName, targetName, 'VITE_NEAR_EXPLORER') ||
-    (production ? 'https://nearblocks.io' : 'https://testnet.nearblocks.io');
+    (nearNetwork === 'mainnet' ? 'https://nearblocks.io' : 'https://testnet.nearblocks.io');
   const consoleDatabaseId =
     readSuppliedValue(
       suppliedValues,
@@ -476,6 +539,7 @@ function buildTargetConfiguration(targetName, suppliedValues) {
 
   return {
     suppliedValues,
+    runtimeProfile,
     gatewayOrigin,
     appOrigin,
     walletOrigin,
@@ -502,7 +566,7 @@ function buildTargetConfiguration(targetName, suppliedValues) {
     signerSetId: `router-ab-${targetName}-signers-r1`,
     relaySessionIssuer: `seams-gateway-${targetName}`,
     routerJwtAudience: 'router-ab',
-    nearNetwork: production ? 'mainnet' : 'testnet',
+    nearNetwork,
   };
 }
 
@@ -727,8 +791,9 @@ function buildGatewayDeploymentConfig(input) {
   const configuration = input.configuration;
   const deploymentVariables = input.deployment.variables;
   return {
-    schemaVersion: 1,
+    schemaVersion: GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION,
     target: input.target,
+    runtimeProfile: configuration.runtimeProfile,
     resources: {
       workerName: configuration.gatewayWorkerName,
       consoleD1: {
@@ -791,6 +856,13 @@ function buildGatewayOptionalDeploymentConfig(input) {
     `${input.target}-gateway`,
     'RELAYER_PUBLIC_KEY',
   );
+  const initialBalanceYocto =
+    readSuppliedValue(
+      suppliedValues,
+      input.target,
+      `${input.target}-gateway`,
+      'RELAYER_INITIAL_BALANCE_YOCTO',
+    ) || DEFAULT_NEAR_INITIAL_BALANCE_YOCTO;
   const googleOidcClientId = readSuppliedValue(
     suppliedValues,
     input.target,
@@ -809,7 +881,7 @@ function buildGatewayOptionalDeploymentConfig(input) {
           accountId: relayerAccountId,
           publicKey: relayerPublicKey || null,
           rpcUrl: input.configuration.nearRpcUrl,
-          initialBalanceYocto: '30000000000000000000000',
+          initialBalanceYocto,
         }
       : null,
     googleOidcClientId: googleOidcClientId || null,
@@ -1874,7 +1946,11 @@ function validateGatewayRegistrationDocuments(outputDocument) {
 function parseGatewayDeploymentConfig(gatewayEnvironment) {
   const raw = gatewayEnvironment.variables.GATEWAY_DEPLOYMENT_CONFIG_JSON;
   const config = parseSuppliedJsonObject('GATEWAY_DEPLOYMENT_CONFIG_JSON', raw);
-  assertEqual(config.schemaVersion, 1, 'Gateway deployment config schema version');
+  assertEqual(
+    config.schemaVersion,
+    GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION,
+    'Gateway deployment config schema version',
+  );
   if (!config.routerAb || typeof config.routerAb !== 'object') {
     throw new Error('Gateway deployment config routerAb object is missing');
   }
@@ -2398,8 +2474,13 @@ function buildGatewayConfigFromScalarVariables(targetName, gateway, general) {
   const relayerPublicKey = gateway.get('RELAYER_PUBLIC_KEY') || null;
   const oidcExchange = readNullableJsonObjectVariable(gateway, 'SEAMS_OIDC_EXCHANGE_JSON');
   return {
-    schemaVersion: 1,
+    schemaVersion: GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION,
     target: targetName,
+    runtimeProfile: buildGatewayRuntimeProfile(
+      gateway.get('GATEWAY_RUNTIME_PROFILE') ||
+        GATEWAY_RUNTIME_PROFILE_KINDS.testnetLiveDemo,
+      gateway.get('EMAIL_OTP_DELIVERY_MODE') || undefined,
+    ),
     resources: {
       workerName: requireScalarVariable(gateway, 'GATEWAY_WORKER_NAME'),
       consoleD1: {
@@ -2477,6 +2558,7 @@ function stripDerivedGatewayConfigFields(config) {
   return {
     schemaVersion: config.schemaVersion,
     target: config.target,
+    runtimeProfile: config.runtimeProfile,
     resources: config.resources,
     tenant: config.tenant,
     origins: config.origins,
