@@ -172,7 +172,7 @@ existing `iframeWallet` surface:
 const config = {
   relayer: { url: 'https://router.example.com' },
   iframeWallet: {
-    walletOrigin: 'https://wallet.seams.sh',
+    walletOrigin: 'https://sign.seams.sh',
     walletServicePath: '/wallet-service',
     sdkBasePath: '/sdk',
   },

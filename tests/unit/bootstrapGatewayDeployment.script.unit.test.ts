@@ -82,7 +82,7 @@ test('Gateway bootstrap rotates its deterministic publishable key idempotently',
       publishableKeyUpsertSql({
         ...BASE_INPUT,
         keyPrefix: 'pk_rotated',
-        allowedOriginsJson: '["https://seams.sh","https://wallet.seams.sh"]',
+        allowedOriginsJson: '["https://seams.sh","https://sign.seams.sh"]',
         secretHash: 'sha256:rotated',
         secretPreview: 'pk_rotated...',
         nowMs: 1_300,
@@ -91,7 +91,7 @@ test('Gateway bootstrap rotates its deterministic publishable key idempotently',
 
     expect(readDeploymentKey(database)).toEqual({
       key_prefix: 'pk_rotated',
-      allowed_origins_json: '["https://seams.sh","https://wallet.seams.sh"]',
+      allowed_origins_json: '["https://seams.sh","https://sign.seams.sh"]',
       secret_hash: 'sha256:rotated',
       secret_version: 2,
       secret_preview: 'pk_rotated...',
