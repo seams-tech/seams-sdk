@@ -1,7 +1,11 @@
 import type { AccountSignerRecord } from '@/core/indexedDB/passkeyClientDB.types';
-import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import {
-  resolveAccountAuthMetadataForSignerSource,
+  SIGNER_AUTH_METHODS,
+  type SignerAuthMethod,
+} from '@shared/utils/signerDomain';
+import {
+  resolveAccountAuthMetadataForSignerAuthMethod,
+  signerAuthMethodFromUnknown,
   type AccountAuthMetadata,
 } from '../../interfaces/accountAuthMetadata';
 import {
@@ -24,22 +28,18 @@ export type EvmFamilyWalletSignerStorePort = {
   }) => Promise<AccountSignerRecord[]>;
 };
 
-function signerSourceFromAuthMethod(value: unknown): string {
-  if (value === SIGNER_AUTH_METHODS.emailOtp) return SIGNER_AUTH_METHODS.emailOtp;
-  if (value === SIGNER_AUTH_METHODS.passkey) return SIGNER_AUTH_METHODS.passkey;
-  return '';
-}
-
 export async function resolveEvmFamilyTransactionWalletAuth(args: {
   deps: EvmFamilyAccountMetadataDeps;
   walletId: string;
   senderSignatureAlgorithm: 'secp256k1' | 'webauthnP256';
   chainTarget?: ThresholdEcdsaChainTarget;
-  sessionSource?: string;
+  sessionAuthMethod?: SignerAuthMethod;
   isEmailOtpThresholdContext?: boolean;
 }): Promise<AccountAuthMetadata> {
   if (args.senderSignatureAlgorithm === 'webauthnP256') {
-    return resolveAccountAuthMetadataForSignerSource();
+    return resolveAccountAuthMetadataForSignerAuthMethod({
+      authMethod: SIGNER_AUTH_METHODS.passkey,
+    });
   }
 
   const walletId = toWalletId(args.walletId);
@@ -50,10 +50,10 @@ export async function resolveEvmFamilyTransactionWalletAuth(args: {
           chainTarget: args.chainTarget,
         })
     : null;
-  const exactSignerAuthMethod = signerSourceFromAuthMethod(exactSigner?.signerAuthMethod);
-  if (exactSignerAuthMethod) {
-    return resolveAccountAuthMetadataForSignerSource({
-      source: exactSignerAuthMethod,
+  const exactSignerAuthMethod = signerAuthMethodFromUnknown(exactSigner?.signerAuthMethod);
+  if (exactSignerAuthMethod !== null) {
+    return resolveAccountAuthMetadataForSignerAuthMethod({
+      authMethod: exactSignerAuthMethod,
     });
   }
 
@@ -61,25 +61,29 @@ export async function resolveEvmFamilyTransactionWalletAuth(args: {
     const activeSigners = await args.deps.walletSignerStore
       .listActiveWalletSigners({ walletId, signerFamily: 'ecdsa' })
       .catch(() => []);
-    const sources = new Set(
+    const authMethods = new Set<SignerAuthMethod>(
       activeSigners
-        .map((signer) => signerSourceFromAuthMethod(signer.signerAuthMethod))
-        .filter(Boolean),
+        .map((signer) => signerAuthMethodFromUnknown(signer.signerAuthMethod))
+        .filter((authMethod): authMethod is SignerAuthMethod => authMethod !== null),
     );
-    if (sources.size === 1) {
-      return resolveAccountAuthMetadataForSignerSource({
-        source: [...sources][0],
+    if (authMethods.size === 1) {
+      return resolveAccountAuthMetadataForSignerAuthMethod({
+        authMethod: [...authMethods][0],
       });
     }
   }
 
   if (args.isEmailOtpThresholdContext === true) {
-    return resolveAccountAuthMetadataForSignerSource({
-      source: SIGNER_AUTH_METHODS.emailOtp,
+    return resolveAccountAuthMetadataForSignerAuthMethod({
+      authMethod: SIGNER_AUTH_METHODS.emailOtp,
     });
   }
 
-  return resolveAccountAuthMetadataForSignerSource({
-    source: args.sessionSource,
-  });
+  if (args.sessionAuthMethod !== undefined) {
+    return resolveAccountAuthMetadataForSignerAuthMethod({
+      authMethod: args.sessionAuthMethod,
+    });
+  }
+
+  throw new Error('[SigningEngine][ecdsa] signer auth method is unavailable');
 }

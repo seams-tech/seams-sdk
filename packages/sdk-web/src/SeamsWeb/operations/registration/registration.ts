@@ -4,6 +4,7 @@ import type {
   CreateRegistrationFlowEventInput,
   RegistrationFlowEvent,
   RegistrationHooksOptions,
+  WalletFlowAuthMethod,
 } from '@/core/types/sdkSentEvents';
 import type { RegistrationResult, SeamsConfigsReadonly } from '@/core/types/seams';
 import type { AuthenticatorOptions } from '@/core/types/authenticatorOptions';
@@ -186,7 +187,12 @@ export function isRegistrationBenchmarkDiagnosticsEnabled(): boolean {
   return globalFlag === true;
 }
 
-type EmitRegistrationEventInput = Omit<CreateRegistrationFlowEventInput, 'accountId' | 'flowId'>;
+type EmitRegistrationEventInput = Omit<
+  CreateRegistrationFlowEventInput,
+  'accountId' | 'flowId' | 'authMethod'
+> & {
+  authMethod: WalletFlowAuthMethod;
+};
 
 type RegistrationTimingAuthMethod = RegistrationAuthMethodInput['kind'];
 type RegistrationTimingSignerBranch = 'near_ed25519' | 'evm_family_ecdsa';
@@ -1765,7 +1771,7 @@ export function createRegistrationLifecycleEvent(input: {
   accountId: string;
   event: EmitRegistrationEventInput;
 }): RegistrationFlowEvent {
-  const authMethod = input.event.authMethod || 'passkey';
+  const authMethod = input.event.authMethod;
   const accountId = registrationEventAccountId(input.accountId);
   return createRegistrationFlowEvent({
     ...input.event,
@@ -4382,6 +4388,7 @@ async function addPasskeyEd25519YaoWalletSigner(
     });
 
     emitAddSignerEventSafely(input.onEvent, input.eventAccountId, {
+      authMethod: 'passkey',
       phase: RegistrationEventPhase.STEP_08_STORAGE_PERSIST_STARTED,
       status: 'running',
     });
@@ -4442,6 +4449,7 @@ async function addPasskeyEd25519YaoWalletSigner(
     persistedSession = null;
     persistedSignerRollbackReceipt = null;
     emitAddSignerEventSafely(input.onEvent, input.eventAccountId, {
+      authMethod: 'passkey',
       phase: RegistrationEventPhase.STEP_08_STORAGE_PERSIST_SUCCEEDED,
       status: 'succeeded',
     });
@@ -4524,6 +4532,7 @@ async function addPasskeyEcdsaWalletSigner(
     throw new Error('Wallet add-signer finalize did not return ECDSA wallet keys');
   }
   emitAddSignerEventSafely(input.onEvent, input.eventAccountId, {
+    authMethod: 'passkey',
     phase: RegistrationEventPhase.STEP_08_STORAGE_PERSIST_STARTED,
     status: 'running',
   });
@@ -4545,6 +4554,7 @@ async function addPasskeyEcdsaWalletSigner(
     walletKeys: localEcdsaWalletKeys,
   });
   emitAddSignerEventSafely(input.onEvent, input.eventAccountId, {
+    authMethod: 'passkey',
     phase: RegistrationEventPhase.STEP_08_STORAGE_PERSIST_SUCCEEDED,
     status: 'succeeded',
   });
@@ -4611,6 +4621,7 @@ export async function addWalletSigner(
   const eventAccountId = registrationEventAccountId(String(walletId));
   const rpId = requireWebAuthnRpId(String(args.rpId || '').trim());
   emitAddSignerEventSafely(options.onEvent, eventAccountId, {
+    authMethod: 'passkey',
     phase: RegistrationEventPhase.STEP_01_STARTED,
     status: 'started',
   });
@@ -4635,6 +4646,7 @@ export async function addWalletSigner(
     }
 
     emitAddSignerEventSafely(options.onEvent, eventAccountId, {
+      authMethod: 'passkey',
       phase: RegistrationEventPhase.STEP_04_PASSKEY_CREATE_STARTED,
       status: 'waiting_for_user',
       interaction: { kind: 'passkey_assert', overlay: 'show' },
@@ -4653,6 +4665,7 @@ export async function addWalletSigner(
       'Wallet add-signer authorization',
     );
     emitAddSignerEventSafely(options.onEvent, eventAccountId, {
+      authMethod: 'passkey',
       phase: RegistrationEventPhase.STEP_04_PASSKEY_CREATE_SUCCEEDED,
       status: 'succeeded',
       interaction: { kind: 'passkey_assert', overlay: 'hide' },
@@ -4692,6 +4705,7 @@ export async function addWalletSigner(
       started,
     });
     emitAddSignerEventSafely(options.onEvent, eventAccountId, {
+      authMethod: 'passkey',
       phase: RegistrationEventPhase.STEP_11_COMPLETED,
       status: 'succeeded',
     });
@@ -4702,6 +4716,7 @@ export async function addWalletSigner(
     const errorMessage = getUserFriendlyErrorMessage(error, 'registration', eventAccountId);
     notifyAddSignerErrorSafely(options.onError, registrationErrorWithCode(errorMessage, errorCode));
     emitAddSignerEventSafely(options.onEvent, eventAccountId, {
+      authMethod: 'passkey',
       phase: RegistrationEventPhase.FAILED,
       status: 'failed',
       message: errorMessage,

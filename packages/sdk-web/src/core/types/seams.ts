@@ -12,8 +12,8 @@ import type { WasmSignedDelegate } from './signer-worker';
 import type { EcdsaSignerProvisioningDefaults } from './ecdsaSignerProvisioningDefaults';
 import type { SigningSessionSealKeyVersion } from '../signingEngine/session/keyMaterialBrands';
 import type {
-  AuthMethod,
   SensitiveOperationPolicy,
+  SignerAuthMethod,
   SigningSessionPolicy,
   SigningSessionRetention,
   WalletAuthMethod,
@@ -30,8 +30,8 @@ import type {
 } from '@shared/utils/walletCapabilityBindings';
 
 export type {
-  AuthMethod,
   SensitiveOperationPolicy,
+  SignerAuthMethod,
   SigningSessionPolicy,
   SigningSessionRetention,
   WalletAuthMethod,

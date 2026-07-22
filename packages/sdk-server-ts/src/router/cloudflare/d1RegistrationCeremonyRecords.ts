@@ -1,5 +1,6 @@
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { derivationClientSharePublicKey33B64uFromString } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
+import type { WALLET_AUTH_METHODS } from '@shared/utils/signerDomain';
 import {
   addAuthMethodIntentGrantFromString,
   addSignerIntentGrantFromString,
@@ -131,6 +132,18 @@ import { toRecordValue } from './d1RouterApiAuthBoundary';
 type D1EcdsaPublicIdentity = EcdsaDerivationServerBootstrapResponse['publicIdentity'];
 type D1EcdsaClientSharePublicKey = D1EcdsaPublicIdentity['derivationClientSharePublicKey33B64u'];
 type D1EcdsaRelayerPublicKey = D1EcdsaPublicIdentity['relayerPublicKey33B64u'];
+type PasskeyRegistrationAuthority = Extract<
+  RegistrationAuthority,
+  { kind: typeof WALLET_AUTH_METHODS.passkey }
+>;
+type EmailOtpRegistrationAuthority = Extract<
+  RegistrationAuthority,
+  { kind: typeof WALLET_AUTH_METHODS.emailOtp }
+>;
+type GoogleSsoEmailOtpRegistrationAuthority = Extract<
+  EmailOtpRegistrationAuthority,
+  { proofKind: 'google_sso_registration' }
+>;
 type D1WalletRegistrationFinalizeSuccess = Extract<
   WalletRegistrationFinalizeResponse,
   { ok: true }
@@ -858,9 +871,7 @@ function parseD1WalletRegistrationEcdsaWalletKey(
   const participantIds = parseD1PositiveIntegerArray(record.participantIds);
   let publicCapability;
   try {
-    publicCapability = parseRouterAbEcdsaDerivationPublicCapabilityV1(
-      record.publicCapability,
-    );
+    publicCapability = parseRouterAbEcdsaDerivationPublicCapabilityV1(record.publicCapability);
   } catch {
     return null;
   }
@@ -891,10 +902,9 @@ function parseD1WalletRegistrationEcdsaWalletKey(
   }
   let derivationClientSharePublicKey33B64u;
   try {
-    derivationClientSharePublicKey33B64u =
-      derivationClientSharePublicKey33B64uFromString(
-        rawDerivationClientSharePublicKey33B64u,
-      );
+    derivationClientSharePublicKey33B64u = derivationClientSharePublicKey33B64uFromString(
+      rawDerivationClientSharePublicKey33B64u,
+    );
   } catch {
     return null;
   }
@@ -1040,9 +1050,7 @@ function parseD1StoredEvmFamilyEcdsaActivatedBranch(
       registrationRequest: parseRouterAbEcdsaRegistrationRequestV1(record.registrationRequest),
       publicFacts: parseRouterAbEcdsaVerifiedClientActivationFactsV1(record.publicFacts),
       activation: parseRouterAbEcdsaRegistrationActivationReceiptV1(record.activation),
-      publicCapability: parseRouterAbEcdsaDerivationPublicCapabilityV1(
-        record.publicCapability,
-      ),
+      publicCapability: parseRouterAbEcdsaDerivationPublicCapabilityV1(record.publicCapability),
       bootstrap,
     };
   } catch {
@@ -1062,10 +1070,7 @@ function parseD1RegistrationSignerBranchKey(raw: unknown): RegistrationSignerBra
 
 function parseD1StoredEcdsaRegistrationBase(record: Record<string, unknown>): {
   readonly derivationKind: 'evm_family_ecdsa_keygen';
-  readonly chainTargets: readonly [
-    ThresholdEcdsaChainTarget,
-    ...ThresholdEcdsaChainTarget[],
-  ];
+  readonly chainTargets: readonly [ThresholdEcdsaChainTarget, ...ThresholdEcdsaChainTarget[]];
   readonly prepare: WalletRegistrationEcdsaPrepareContext;
   readonly strictRegistration: WalletRegistrationEcdsaPreparePayload['strictRegistration'];
 } | null {
@@ -1078,9 +1083,7 @@ function parseD1StoredEcdsaRegistrationBase(record: Record<string, unknown>): {
       derivationKind,
       chainTargets,
       prepare,
-      strictRegistration: parseRouterAbEcdsaRegistrationRequestFactsV1(
-        record.strictRegistration,
-      ),
+      strictRegistration: parseRouterAbEcdsaRegistrationRequestFactsV1(record.strictRegistration),
     };
   } catch {
     return null;
@@ -1415,9 +1418,7 @@ function parseD1StoredEcdsaAddSignerActivated(
       registrationRequest: parseRouterAbEcdsaRegistrationRequestV1(record.registrationRequest),
       publicFacts: parseRouterAbEcdsaVerifiedClientActivationFactsV1(record.publicFacts),
       activation: parseRouterAbEcdsaRegistrationActivationReceiptV1(record.activation),
-      publicCapability: parseRouterAbEcdsaDerivationPublicCapabilityV1(
-        record.publicCapability,
-      ),
+      publicCapability: parseRouterAbEcdsaDerivationPublicCapabilityV1(record.publicCapability),
       bootstrap,
     };
   } catch {
@@ -1444,12 +1445,7 @@ function parseD1ThresholdEcdsaChainTargets(
 }
 
 function parseD1EcdsaParticipantPair(raw: unknown): readonly [1, 2] | null {
-  if (
-    !Array.isArray(raw) ||
-    raw.length !== 2 ||
-    raw[0] !== 1 ||
-    raw[1] !== 2
-  ) {
+  if (!Array.isArray(raw) || raw.length !== 2 || raw[0] !== 1 || raw[1] !== 2) {
     return null;
   }
   return [1, 2];
@@ -1618,7 +1614,8 @@ function parseD1EcdsaDerivationPublicIdentity(raw: unknown): D1EcdsaPublicIdenti
     return null;
   }
   return {
-    derivationClientSharePublicKey33B64u: derivationClientSharePublicKey33B64u as D1EcdsaClientSharePublicKey,
+    derivationClientSharePublicKey33B64u:
+      derivationClientSharePublicKey33B64u as D1EcdsaClientSharePublicKey,
     relayerPublicKey33B64u: relayerPublicKey33B64u as D1EcdsaRelayerPublicKey,
     groupPublicKey33B64u,
     ethereumAddress,
@@ -1764,8 +1761,7 @@ type CompleteD1EcdsaWalletKeyBootstrapFields = {
   readonly relayerKeyId: string;
   readonly relayerVerifyingShareB64u: string;
   readonly contextBinding32B64u: string;
-  readonly derivationClientSharePublicKey33B64u:
-    WalletRegistrationEcdsaWalletKey['derivationClientSharePublicKey33B64u'];
+  readonly derivationClientSharePublicKey33B64u: WalletRegistrationEcdsaWalletKey['derivationClientSharePublicKey33B64u'];
   readonly clientShareRetryCounter: number;
   readonly relayerShareRetryCounter: number;
 };
@@ -1880,10 +1876,7 @@ function firstD1EvmFamilyWalletKeyMaterialMismatch(
   if (left.contextBinding32B64u !== right.contextBinding32B64u) {
     return 'contextBinding32B64u';
   }
-  if (
-    left.derivationClientSharePublicKey33B64u !==
-    right.derivationClientSharePublicKey33B64u
-  ) {
+  if (left.derivationClientSharePublicKey33B64u !== right.derivationClientSharePublicKey33B64u) {
     return 'derivationClientSharePublicKey33B64u';
   }
   if (left.clientShareRetryCounter !== right.clientShareRetryCounter) {
@@ -1892,7 +1885,10 @@ function firstD1EvmFamilyWalletKeyMaterialMismatch(
   if (left.relayerShareRetryCounter !== right.relayerShareRetryCounter) {
     return 'relayerShareRetryCounter';
   }
-  if (d1EvmFamilyParticipantKey(left.participantIds) !== d1EvmFamilyParticipantKey(right.participantIds)) {
+  if (
+    d1EvmFamilyParticipantKey(left.participantIds) !==
+    d1EvmFamilyParticipantKey(right.participantIds)
+  ) {
     return 'participantIds';
   }
   return null;
@@ -2008,10 +2004,9 @@ function requireD1EcdsaWalletKeyBootstrapFields(
   }
   let derivationClientSharePublicKey33B64u;
   try {
-    derivationClientSharePublicKey33B64u =
-      derivationClientSharePublicKey33B64uFromString(
-        fields.derivationClientSharePublicKey33B64u,
-      );
+    derivationClientSharePublicKey33B64u = derivationClientSharePublicKey33B64uFromString(
+      fields.derivationClientSharePublicKey33B64u,
+    );
   } catch {
     return { ok: false, missingField: 'derivationClientSharePublicKey33B64u' };
   }
@@ -2056,8 +2051,7 @@ function d1EcdsaWalletKeyForChainTarget(input: {
     relayerKeyId: input.required.relayerKeyId,
     relayerVerifyingShareB64u: input.required.relayerVerifyingShareB64u,
     contextBinding32B64u: input.required.contextBinding32B64u,
-    derivationClientSharePublicKey33B64u:
-      input.required.derivationClientSharePublicKey33B64u,
+    derivationClientSharePublicKey33B64u: input.required.derivationClientSharePublicKey33B64u,
     clientShareRetryCounter: input.required.clientShareRetryCounter,
     relayerShareRetryCounter: input.required.relayerShareRetryCounter,
     participantIds: [1, 2],
@@ -2234,7 +2228,7 @@ function parseD1RegistrationAuthority(raw: unknown): RegistrationAuthority | nul
 
 function parseD1PasskeyRegistrationAuthority(
   record: Record<string, unknown>,
-): Extract<RegistrationAuthority, { kind: 'passkey' }> | null {
+): PasskeyRegistrationAuthority | null {
   const walletId = parseWalletIdForIntent(record.walletId);
   const rpId = parseWebAuthnRpId(record.rpId);
   const credentialIdB64u = toOptionalTrimmedString(record.credentialIdB64u);
@@ -2269,7 +2263,7 @@ function parseD1PasskeyRegistrationAuthority(
 
 function parseD1EmailOtpRegistrationAuthority(
   record: Record<string, unknown>,
-): Extract<RegistrationAuthority, { kind: 'email_otp' }> | null {
+): EmailOtpRegistrationAuthority | null {
   if (record.proofKind === 'google_sso_registration') {
     return parseD1GoogleSsoEmailOtpRegistrationAuthority(record);
   }
@@ -2325,10 +2319,7 @@ function parseD1EmailOtpRegistrationAuthority(
 
 function parseD1GoogleSsoEmailOtpRegistrationAuthority(
   record: Record<string, unknown>,
-): Extract<
-  RegistrationAuthority,
-  { kind: 'email_otp'; proofKind: 'google_sso_registration' }
-> | null {
+): GoogleSsoEmailOtpRegistrationAuthority | null {
   const walletId = parseWalletIdForIntent(record.walletId);
   const providerSubject = parseProviderSubject(record.providerSubject);
   const email = toOptionalTrimmedString(record.email);

@@ -8,6 +8,7 @@ import type {
   SigningSessionStatus,
   SeamsConfigsReadonly,
 } from '@/core/types/seams';
+import { WALLET_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import { type WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
@@ -602,9 +603,9 @@ export class BrowserSigningSurface {
       chain: 'near',
     });
     switch (authMethod) {
-      case 'email_otp':
+      case WALLET_AUTH_METHODS.emailOtp:
         return;
-      case 'passkey':
+      case WALLET_AUTH_METHODS.passkey:
         await this.ensureNearEd25519YaoCapabilityForSigning(subject);
         return;
       case null:

@@ -52,7 +52,7 @@ export function createNearSigningDeps(args: {
         walletId: String(walletId),
         senderSignatureAlgorithm: 'secp256k1',
       });
-      return accountAuth.primaryAuthMethod === 'email_otp' ? 'email_otp' : 'passkey';
+      return accountAuth.primaryAuthMethod;
     },
     refreshPasskeyEd25519CapabilityForSigning: async ({
       record,

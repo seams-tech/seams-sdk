@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { checkAuthMethodDomainBoundaries } from './check-auth-method-domain-boundaries.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const clientSrcRoot = path.join(repoRoot, 'packages/sdk-web/src');
@@ -133,5 +134,6 @@ function checkProductionSignerAndWalletDomainCodeUsesSharedConstants() {
 
 checkProductionSignerLifecycleWritesCarryRequiredDomainFields();
 checkProductionSignerAndWalletDomainCodeUsesSharedConstants();
+checkAuthMethodDomainBoundaries();
 
 console.log('[check-account-signer-lifecycle-boundaries] passed');

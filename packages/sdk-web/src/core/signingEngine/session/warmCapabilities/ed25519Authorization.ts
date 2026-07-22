@@ -1,4 +1,5 @@
 import type { SigningSessionStatus, WalletAuthMethod } from '@/core/types/seams';
+import { WALLET_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { AccountId } from '@/core/types/accountIds';
 import type { ThresholdEd25519SessionRecord } from '../persistence/records';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
@@ -83,7 +84,23 @@ function positiveInteger(value: unknown): number {
 }
 
 function authMethodForEd25519Record(record: ThresholdEd25519SessionRecord): WalletAuthMethod {
-  return record.source === 'email_otp' ? 'email_otp' : 'passkey';
+  const source = record.source;
+  switch (source) {
+    case WALLET_AUTH_METHODS.emailOtp:
+      return WALLET_AUTH_METHODS.emailOtp;
+    case 'login':
+    case 'registration':
+    case 'add-signer':
+    case 'manual-connect':
+    case 'bootstrap':
+      return WALLET_AUTH_METHODS.passkey;
+    default:
+      return assertNeverThresholdEd25519SessionSource(source);
+  }
+}
+
+function assertNeverThresholdEd25519SessionSource(value: never): never {
+  throw new Error(`Unsupported threshold Ed25519 session source: ${String(value)}`);
 }
 
 function warmAuthorizationSigningRootFailureReason(

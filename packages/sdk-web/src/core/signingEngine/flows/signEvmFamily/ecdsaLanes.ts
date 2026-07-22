@@ -43,11 +43,9 @@ import {
   type EvmFamilyEcdsaKeyIdentity,
   type ReadyEvmFamilyEcdsaMaterial,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
+import type { EvmFamilyEcdsaAuthMethod } from '../../session/identity/evmFamilyEcdsaIdentity';
+export type { EvmFamilyEcdsaAuthMethod } from '../../session/identity/evmFamilyEcdsaIdentity';
 import { requireEvmFamilyEcdsaSigner } from '../../session/identity/exactSigningLaneIdentity';
-
-export type EvmFamilyEcdsaAuthMethod =
-  | typeof SIGNER_AUTH_METHODS.emailOtp
-  | typeof SIGNER_AUTH_METHODS.passkey;
 
 export type ResolvedEvmFamilyEcdsaSigningLane = EcdsaTransactionSigningLane & {
   curve: 'ecdsa';

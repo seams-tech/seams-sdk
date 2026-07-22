@@ -7,6 +7,7 @@ import {
   type PasskeyWalletAuthAuthority,
   type WalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
+import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 import type {
   EcdsaLaneCandidate,
   ThresholdEcdsaSessionStoreSource,
@@ -1092,23 +1093,22 @@ function selectPasskeyMaterialForCandidate(args: {
   };
 }
 
-function selectSessionSourceForWalletAuth(args: {
+function selectAuthMethodForWalletAuth(args: {
   emailOtpCommittedLane?: EmailOtpEcdsaCommittedLane;
   passkeySelection: PasskeyMaterialDiagnosticsSelection;
-}): { sessionSource?: string; isEmailOtpThresholdContext?: boolean } {
+}): { authMethod?: SignerAuthMethod; isEmailOtpThresholdContext?: boolean } {
   const hasEmailOtpVisible = Boolean(args.emailOtpCommittedLane);
   const hasPasskeyVisible = args.passkeySelection.kind === 'selected';
   if (hasEmailOtpVisible === hasPasskeyVisible) return {};
   if (hasEmailOtpVisible) {
     return {
-      sessionSource: SIGNER_AUTH_METHODS.emailOtp,
+      authMethod: SIGNER_AUTH_METHODS.emailOtp,
       isEmailOtpThresholdContext: true,
     };
   }
   if (args.passkeySelection.kind !== 'selected') return {};
   return {
-    sessionSource:
-      args.passkeySelection.selected.record.source || args.passkeySelection.selected.source,
+    authMethod: SIGNER_AUTH_METHODS.passkey,
     isEmailOtpThresholdContext: false,
   };
 }
@@ -1521,7 +1521,7 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
           material: exactCandidateMaterial,
         })
       : null;
-  const walletAuthInputs = selectSessionSourceForWalletAuth({
+  const walletAuthInputs = selectAuthMethodForWalletAuth({
     ...(committedEmailOtpLane ? { emailOtpCommittedLane: committedEmailOtpLane } : {}),
     passkeySelection: selectedPasskeyMaterial,
   });
@@ -1530,7 +1530,7 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
     walletId: args.walletId,
     senderSignatureAlgorithm: args.senderSignatureAlgorithm,
     chainTarget: args.chainTarget,
-    ...(walletAuthInputs.sessionSource ? { sessionSource: walletAuthInputs.sessionSource } : {}),
+    ...(walletAuthInputs.authMethod ? { sessionAuthMethod: walletAuthInputs.authMethod } : {}),
     ...(typeof walletAuthInputs.isEmailOtpThresholdContext === 'boolean'
       ? { isEmailOtpThresholdContext: walletAuthInputs.isEmailOtpThresholdContext }
       : {}),

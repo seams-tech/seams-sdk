@@ -32,6 +32,7 @@ import { useAuthMenuMode } from './mode';
 import { getProceedEligibility } from './proceedEligibility';
 import { extractUsernameFromAccountId } from '@/react/hooks/useAccountInput';
 import { isUserCancellationError } from '@shared/utils/errors';
+import { WALLET_AUTH_METHODS, type WalletAuthMethod } from '@shared/utils/signerDomain';
 import {
   createReadableWalletId,
   type RegisterWalletInput,
@@ -529,18 +530,27 @@ function normalizeStoredAccountId(value: unknown): string {
 }
 
 function isLocalPasskeyAccountOption(option: StoredAccountOption): boolean {
-  return option.authMethod !== 'email_otp';
+  return storedAccountOptionAuthMethod(option) === WALLET_AUTH_METHODS.passkey;
 }
 
-type LoginAuthMethod = 'passkey' | 'email_otp';
+function assertNeverStoredAccountAuthMethod(value: never): never {
+  throw new Error(`Unsupported stored account auth method: ${String(value)}`);
+}
 
-function storedAccountOptionAuthMethod(option: StoredAccountOption): LoginAuthMethod {
-  return option.authMethod === 'email_otp' ? 'email_otp' : 'passkey';
+function storedAccountOptionAuthMethod(option: StoredAccountOption): WalletAuthMethod {
+  switch (option.authMethod) {
+    case WALLET_AUTH_METHODS.passkey:
+      return WALLET_AUTH_METHODS.passkey;
+    case WALLET_AUTH_METHODS.emailOtp:
+      return WALLET_AUTH_METHODS.emailOtp;
+    default:
+      return assertNeverStoredAccountAuthMethod(option.authMethod);
+  }
 }
 
 function storedAccountOptionMatchesAuthMethod(
   option: StoredAccountOption,
-  authMethod: LoginAuthMethod,
+  authMethod: WalletAuthMethod,
 ): boolean {
   return storedAccountOptionAuthMethod(option) === authMethod;
 }
@@ -574,7 +584,7 @@ function compareStoredAccountOptionsByRecency(
 function selectLoginAccountForAuthMethod(input: {
   accountOptions?: StoredAccountOption[];
   currentValue: string;
-  authMethod: LoginAuthMethod;
+  authMethod: WalletAuthMethod;
 }): StoredAccountOption | null {
   const candidates = (input.accountOptions ?? []).filter((option) =>
     storedAccountOptionMatchesAuthMethod(option, input.authMethod),
@@ -780,7 +790,7 @@ export function useSeamsAuthMenuController(
       selectLoginAccountForAuthMethod({
         accountOptions: runtime.accountOptions,
         currentValue,
-        authMethod: 'passkey',
+        authMethod: WALLET_AUTH_METHODS.passkey,
       }),
     [runtime.accountOptions, currentValue],
   );
@@ -789,7 +799,7 @@ export function useSeamsAuthMenuController(
       selectLoginAccountForAuthMethod({
         accountOptions: runtime.accountOptions,
         currentValue,
-        authMethod: 'email_otp',
+        authMethod: WALLET_AUTH_METHODS.emailOtp,
       }),
     [runtime.accountOptions, currentValue],
   );
@@ -844,13 +854,13 @@ export function useSeamsAuthMenuController(
       const walletId = String(option.walletId || '').trim();
       if (!walletId) continue;
       const displayName = String(option.displayName || walletId).trim() || walletId;
-      const authMethodKey = option.authMethod || 'passkey';
-      byWalletAuth.set(`${walletId}:${authMethodKey}:${displayName}`, {
+      const authMethod = storedAccountOptionAuthMethod(option);
+      byWalletAuth.set(`${walletId}:${authMethod}:${displayName}`, {
         walletId,
         displayName,
+        authMethod,
         ...(typeof option.signerSlot === 'number' ? { signerSlot: option.signerSlot } : {}),
         ...(typeof option.lastLogin === 'number' ? { lastLogin: option.lastLogin } : {}),
-        ...(option.authMethod ? { authMethod: option.authMethod } : {}),
       });
     }
     return [...byWalletAuth.values()].sort((a, b) => a.displayName.localeCompare(b.displayName));

@@ -38,6 +38,7 @@ import type {
 import type { ExactEcdsaSigningLaneIdentity } from './identity/exactSigningLaneIdentity';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
 import { markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated } from './routerAbSigningWalletSession';
+import { SIGNER_AUTH_METHODS, type SignerAuthMethod } from '@shared/utils/signerDomain';
 
 const EMPTY_DISCOVER_PERSISTED_SESSIONS_FOR_WALLET_RESULT: DiscoverPersistedSessionsForWalletResult =
   {
@@ -58,13 +59,13 @@ export type SessionPublicDeps = {
     emailOtp: (
       args: DiscoverPersistedSessionsForWalletInput & {
         walletId: string;
-        authMethod: 'email_otp';
+        authMethod: typeof SIGNER_AUTH_METHODS.emailOtp;
       },
     ) => Promise<DiscoverPersistedSessionsForWalletResult>;
     passkey?: (
       args: DiscoverPersistedSessionsForWalletInput & {
         walletId: string;
-        authMethod: 'passkey';
+        authMethod: typeof SIGNER_AUTH_METHODS.passkey;
       },
     ) => Promise<DiscoverPersistedSessionsForWalletResult>;
   };
@@ -127,27 +128,56 @@ export async function discoverPersistedSessionsForWallet(
 ): Promise<DiscoverPersistedSessionsForWalletResult> {
   const walletId = toWalletId(args.walletId);
 
-  const authMethods = args.authMethod ? [args.authMethod] : (['email_otp', 'passkey'] as const);
+  const authMethods: readonly SignerAuthMethod[] = args.authMethod
+    ? [args.authMethod]
+    : [SIGNER_AUTH_METHODS.emailOtp, SIGNER_AUTH_METHODS.passkey];
   const results = await Promise.all(
     authMethods.map(async (authMethod) => {
-      if (authMethod === 'email_otp') {
-        return await deps.discovery.emailOtp({
-          ...args,
-          walletId,
-          authMethod,
-        });
+      switch (authMethod) {
+        case SIGNER_AUTH_METHODS.emailOtp:
+          return await deps.discovery.emailOtp({
+            ...args,
+            walletId,
+            authMethod,
+          });
+        case SIGNER_AUTH_METHODS.passkey:
+          return (
+            (await deps.discovery.passkey?.({
+              ...args,
+              walletId,
+              authMethod,
+            })) ?? EMPTY_DISCOVER_PERSISTED_SESSIONS_FOR_WALLET_RESULT
+          );
+        default:
+          return assertNeverSignerAuthMethod(authMethod);
       }
-      return (
-        (await deps.discovery.passkey?.({
-          ...args,
-          walletId,
-          authMethod,
-        })) ?? EMPTY_DISCOVER_PERSISTED_SESSIONS_FOR_WALLET_RESULT
-      );
     }),
   );
 
   return mergeDiscoverPersistedSessionsForWalletResults(results);
+}
+
+function assertNeverSignerAuthMethod(value: never): never {
+  throw new Error(`Unsupported signer auth method: ${String(value)}`);
+}
+
+function assertNeverThresholdEcdsaSessionStoreSource(value: never): never {
+  throw new Error(`Unsupported threshold ECDSA session source: ${String(value)}`);
+}
+
+function ecdsaAuthMethodForSessionSource(
+  source: ThresholdEcdsaSessionStoreSource,
+): SignerAuthMethod {
+  switch (source) {
+    case SIGNER_AUTH_METHODS.emailOtp:
+      return SIGNER_AUTH_METHODS.emailOtp;
+    case 'login':
+    case 'registration':
+    case 'manual-bootstrap':
+      return SIGNER_AUTH_METHODS.passkey;
+    default:
+      return assertNeverThresholdEcdsaSessionStoreSource(source);
+  }
 }
 
 export async function readPersistedAvailableSigningLanes(
@@ -165,13 +195,13 @@ export function upsertThresholdEcdsaSessionFromBootstrap(
   deps: SessionPublicDeps,
   args: UpsertThresholdEcdsaSessionFromBootstrapInput,
 ): void {
-  if (args.source === 'email_otp') {
+  if (args.source === SIGNER_AUTH_METHODS.emailOtp) {
     const record = upsertThresholdEcdsaSessionFromBootstrapValue(deps.ecdsaSessions, {
       purpose: 'transaction_signing',
       walletId: args.walletId,
       chainTarget: args.chainTarget,
       bootstrap: args.bootstrap,
-      source: 'email_otp',
+      source: SIGNER_AUTH_METHODS.emailOtp,
       emailOtpAuthContext: args.emailOtpAuthContext,
       ...(deps.signingSessionSeal ? { signingSessionSeal: deps.signingSessionSeal } : {}),
     });
@@ -217,7 +247,7 @@ export function getThresholdEcdsaKeyRefForWalletTarget(
   const selected = getThresholdEcdsaKeyRefByKeyValue(deps.ecdsaSessions, {
     walletId: record.walletId,
     keyHandle: record.keyHandle,
-    authMethod: record.source === 'email_otp' ? 'email_otp' : 'passkey',
+    authMethod: ecdsaAuthMethodForSessionSource(record.source),
     curve: 'ecdsa',
     chainTarget: record.chainTarget,
     signingGrantId: record.signingGrantId,

@@ -75,7 +75,7 @@ export interface StoredAccountOption {
   nearAccountId?: string | null;
   signerSlot?: number;
   lastLogin?: number;
-  authMethod?: WalletAuthMethod | null;
+  authMethod: WalletAuthMethod;
 }
 
 // UI input state - tracks user input and form state

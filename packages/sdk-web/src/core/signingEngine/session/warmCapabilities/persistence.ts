@@ -2,6 +2,7 @@ import type { AccountId } from '@/core/types/accountIds';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { normalizePositiveInteger } from '@shared/utils/normalize';
+import { SIGNER_AUTH_METHODS, type SignerAuthMethod } from '@shared/utils/signerDomain';
 import type { RouterAbEd25519NormalSigningState } from '../../threshold/ed25519/routerAbNormalSigningState';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import type {
@@ -51,6 +52,23 @@ export type PersistWarmSessionEd25519JwtPasskeyCapabilityArgs =
 export type PersistWarmSessionEd25519CapabilityArgs =
   | PersistWarmSessionEd25519JwtEmailOtpCapabilityArgs
   | PersistWarmSessionEd25519JwtPasskeyCapabilityArgs;
+
+function authMethodForPersistWarmSessionKind(
+  kind: PersistWarmSessionEd25519CapabilityArgs['kind'],
+): SignerAuthMethod {
+  switch (kind) {
+    case 'jwt_email_otp':
+      return SIGNER_AUTH_METHODS.emailOtp;
+    case 'jwt_passkey':
+      return SIGNER_AUTH_METHODS.passkey;
+    default:
+      return assertNeverPersistWarmSessionKind(kind);
+  }
+}
+
+function assertNeverPersistWarmSessionKind(value: never): never {
+  throw new Error(`Unsupported warm-session persistence kind: ${String(value)}`);
+}
 
 function requireNonEmpty(value: unknown, label: string): string {
   const parsed = String(value ?? '').trim();
@@ -125,7 +143,7 @@ export function persistWarmSessionEd25519Capability(
   }
   publishResolvedIdentity({
     walletId: record.walletId,
-    authMethod: args.kind === 'jwt_email_otp' ? 'email_otp' : 'passkey',
+    authMethod: authMethodForPersistWarmSessionKind(args.kind),
     curve: 'ed25519',
     chain: 'near',
     signingGrantId,

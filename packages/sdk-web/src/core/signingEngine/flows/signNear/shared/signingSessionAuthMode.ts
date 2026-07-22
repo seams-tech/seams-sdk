@@ -27,7 +27,9 @@ import type {
 import {
   emailOtpAuthContextReason,
   emailOtpAuthContextRetention,
+  type ThresholdEd25519SessionStoreSource,
 } from '@/core/signingEngine/session/identity/laneIdentity';
+import { SIGNER_AUTH_METHODS, type SignerAuthMethod } from '@shared/utils/signerDomain';
 import {
   createSigningBoundaryTraceEvent,
   emitSigningBoundaryTrace,
@@ -67,7 +69,10 @@ type NearWarmSessionReader = WarmSessionCapabilityReader & ThresholdWarmSessionS
 type NearEd25519Capability = Awaited<
   ReturnType<WarmSessionCapabilityReader['getWarmSession']>
 >['capabilities']['ed25519'];
-type Ed25519PlannerAuthMethod = 'passkey' | 'email_otp';
+type Ed25519PlannerAuthMethod = Extract<
+  SignerAuthMethod,
+  typeof SIGNER_AUTH_METHODS.passkey | typeof SIGNER_AUTH_METHODS.emailOtp
+>;
 type ResolveEd25519PlannerReadinessArgs = {
   warmSessionReader: NearWarmSessionReader;
   nearAccountId: string;
@@ -166,37 +171,52 @@ export async function resolveNearSigningSessionAuthContext(args: {
   if (!recordCandidate) {
     throw new Error('[SigningEngine][near] selected Ed25519 record has no lane candidate');
   }
-  const emailOtpAuthContext = record.source === 'email_otp' ? record.emailOtpAuthContext : null;
-  const lane =
-    record.source === 'email_otp'
-      ? recordCandidate.auth.kind === 'email_otp' && emailOtpAuthContext
-        ? buildNearTransactionSigningLane({
-            walletId: record.walletId,
-            nearAccountId: record.nearAccountId,
-            nearEd25519SigningKeyId: record.nearEd25519SigningKeyId,
-            signerSlot: recordCandidate.signerSlot,
-            auth: recordCandidate.auth,
-            signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
-            thresholdSessionId: SigningSessionIds.thresholdEd25519Session(sessionId),
-            retention: emailOtpAuthContextRetention(emailOtpAuthContext),
-            sessionOrigin:
-              emailOtpAuthContextReason(emailOtpAuthContext) === 'login'
-                ? 'login'
-                : 'per_operation',
-          })
-        : null
-      : recordCandidate.auth.kind === 'passkey'
-        ? buildNearTransactionSigningLane({
-            walletId: record.walletId,
-            nearAccountId: record.nearAccountId,
-            nearEd25519SigningKeyId: record.nearEd25519SigningKeyId,
-            signerSlot: recordCandidate.signerSlot,
-            auth: recordCandidate.auth,
-            signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
-            thresholdSessionId: SigningSessionIds.thresholdEd25519Session(sessionId),
-            storageSource: record.source,
-          })
-        : null;
+  const source = record.source;
+  let lane: NearTransactionSigningLane | null;
+  switch (source) {
+    case SIGNER_AUTH_METHODS.emailOtp: {
+      const emailOtpAuthContext = record.emailOtpAuthContext;
+      lane =
+        recordCandidate.auth.kind === SIGNER_AUTH_METHODS.emailOtp && emailOtpAuthContext
+          ? buildNearTransactionSigningLane({
+              walletId: record.walletId,
+              nearAccountId: record.nearAccountId,
+              nearEd25519SigningKeyId: record.nearEd25519SigningKeyId,
+              signerSlot: recordCandidate.signerSlot,
+              auth: recordCandidate.auth,
+              signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
+              thresholdSessionId: SigningSessionIds.thresholdEd25519Session(sessionId),
+              retention: emailOtpAuthContextRetention(emailOtpAuthContext),
+              sessionOrigin:
+                emailOtpAuthContextReason(emailOtpAuthContext) === 'login'
+                  ? 'login'
+                  : 'per_operation',
+            })
+          : null;
+      break;
+    }
+    case 'login':
+    case 'registration':
+    case 'add-signer':
+    case 'manual-connect':
+    case 'bootstrap':
+      lane =
+        recordCandidate.auth.kind === SIGNER_AUTH_METHODS.passkey
+          ? buildNearTransactionSigningLane({
+              walletId: record.walletId,
+              nearAccountId: record.nearAccountId,
+              nearEd25519SigningKeyId: record.nearEd25519SigningKeyId,
+              signerSlot: recordCandidate.signerSlot,
+              auth: recordCandidate.auth,
+              signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
+              thresholdSessionId: SigningSessionIds.thresholdEd25519Session(sessionId),
+              storageSource: source,
+            })
+          : null;
+      break;
+    default:
+      return assertNeverThresholdEd25519SessionSource(source);
+  }
   if (!lane) {
     throw new Error('[SigningEngine][near] selected Ed25519 record auth branch is invalid');
   }
@@ -275,7 +295,7 @@ async function resolvePlannerReadinessForEd25519(
     case 'invalid':
       throw new Error('[SigningEngine] Ed25519 signing session record is invalid');
     case 'prf_unavailable':
-      if (authMethod === 'passkey') {
+      if (authMethod === SIGNER_AUTH_METHODS.passkey) {
         throw new Error(
           formatThresholdSigningSessionAvailabilityError(args.capability.prfClaim?.code),
         );
@@ -296,7 +316,7 @@ async function resolvePlannerReadinessForEd25519(
 async function resolveStatusBackedEd25519PlannerReadiness(args: {
   plannerInput: ResolveEd25519PlannerReadinessArgs;
   capability: NearEd25519Capability;
-  authMethod: Ed25519PlannerAuthMethod;
+  authMethod: Ed25519PlannerAuthMethod | null;
 }): Promise<Ed25519PlannerReadinessResult> {
   const trustedStatus = toTrustedEd25519SigningSessionStatus(
     await args.plannerInput.warmSessionReader.getEd25519SigningSessionStatusForSession({
@@ -316,7 +336,7 @@ async function resolveStatusBackedEd25519PlannerReadiness(args: {
 function admitTrustedEd25519SigningSessionStatus(args: {
   trustedStatus: TrustedEd25519SigningSessionStatus;
   capability: NearEd25519Capability;
-  authMethod: Ed25519PlannerAuthMethod;
+  authMethod: Ed25519PlannerAuthMethod | null;
   usesNeeded: number;
   thresholdSessionId: ReturnType<typeof SigningSessionIds.thresholdEd25519Session>;
 }): Ed25519PlannerReadinessResult {
@@ -346,7 +366,7 @@ function admitTrustedEd25519SigningSessionStatus(args: {
         remainingUses: 0,
       });
     case 'unavailable':
-      if (args.authMethod === 'passkey') {
+      if (args.authMethod === SIGNER_AUTH_METHODS.passkey) {
         throw new Error(
           formatThresholdSigningSessionAvailabilityError(args.trustedStatus.statusCode),
         );
@@ -505,8 +525,33 @@ function parsePositiveIntegerStatusField(value: unknown): number | null {
   return parsed !== null && parsed > 0 ? parsed : null;
 }
 
-function ed25519PlannerAuthMethod(capability: NearEd25519Capability): Ed25519PlannerAuthMethod {
-  return capability.record?.source === 'email_otp' ? 'email_otp' : 'passkey';
+function ed25519PlannerAuthMethod(
+  capability: NearEd25519Capability,
+): Ed25519PlannerAuthMethod | null {
+  return ed25519PlannerAuthMethodForSource(capability.record?.source);
+}
+
+function ed25519PlannerAuthMethodForSource(
+  source: ThresholdEd25519SessionStoreSource | undefined,
+): Ed25519PlannerAuthMethod | null {
+  switch (source) {
+    case SIGNER_AUTH_METHODS.emailOtp:
+      return SIGNER_AUTH_METHODS.emailOtp;
+    case undefined:
+      return null;
+    case 'login':
+    case 'registration':
+    case 'add-signer':
+    case 'manual-connect':
+    case 'bootstrap':
+      return SIGNER_AUTH_METHODS.passkey;
+    default:
+      return assertNeverThresholdEd25519SessionSource(source);
+  }
+}
+
+function assertNeverThresholdEd25519SessionSource(value: never): never {
+  throw new Error(`Unsupported threshold Ed25519 session source: ${String(value)}`);
 }
 
 function ed25519CapabilityRemainingUses(capability: NearEd25519Capability): number {
