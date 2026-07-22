@@ -11,6 +11,8 @@ packages:
   - apps/docs
   - crates/router-ab-cloudflare
   - examples/self-host-cloudflare-worker
+nodeLinker: hoisted
+verifyDepsBeforeRun: false
 allowBuilds:
   bufferutil: true
   esbuild: true

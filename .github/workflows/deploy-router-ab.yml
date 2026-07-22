@@ -168,7 +168,7 @@ jobs:
 
       - name: Upload Router A/B validation report
         if: always() && env.DEPLOY_OPERATION != 'deploy'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: router-ab-${{ env.DEPLOY_TARGET }}-validation-${{ github.run_id }}
           path: crates/router-ab-cloudflare/reports/startup-latencies/*.json
@@ -255,7 +255,7 @@ jobs:
 
       - name: Upload SigningWorker artifact
         id: upload_signing_worker
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_SHA }}-signing-worker
           path: |
@@ -269,7 +269,7 @@ jobs:
 
       - name: Upload Deriver A artifact
         id: upload_deriver_a
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_SHA }}-deriver-a
           path: |
@@ -283,7 +283,7 @@ jobs:
 
       - name: Upload Deriver B artifact
         id: upload_deriver_b
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_SHA }}-deriver-b
           path: |
@@ -297,7 +297,7 @@ jobs:
 
       - name: Upload MPCRouter artifact
         id: upload_router
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_SHA }}-router
           path: |
@@ -371,7 +371,7 @@ jobs:
         run: pnpm install --frozen-lockfile --filter router-ab-cloudflare
 
       - name: Download SigningWorker artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_SHA }}-signing-worker
           path: crates/router-ab-cloudflare
@@ -435,7 +435,7 @@ jobs:
 
       - name: Upload SigningWorker report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_OPERATION }}-signing-worker-${{ github.run_id }}
           path: crates/router-ab-cloudflare/reports/startup-latencies/*.json
@@ -505,7 +505,7 @@ jobs:
         run: pnpm install --frozen-lockfile --filter router-ab-cloudflare
 
       - name: Download Deriver A artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_SHA }}-deriver-a
           path: crates/router-ab-cloudflare
@@ -579,7 +579,7 @@ jobs:
 
       - name: Upload Deriver A report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_OPERATION }}-deriver-a-${{ github.run_id }}
           path: crates/router-ab-cloudflare/reports/startup-latencies/*.json
@@ -649,7 +649,7 @@ jobs:
         run: pnpm install --frozen-lockfile --filter router-ab-cloudflare
 
       - name: Download Deriver B artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_SHA }}-deriver-b
           path: crates/router-ab-cloudflare
@@ -723,7 +723,7 @@ jobs:
 
       - name: Upload Deriver B report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_OPERATION }}-deriver-b-${{ github.run_id }}
           path: crates/router-ab-cloudflare/reports/startup-latencies/*.json
@@ -805,7 +805,7 @@ jobs:
         run: pnpm install --frozen-lockfile --filter router-ab-cloudflare
 
       - name: Download MPCRouter artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_SHA }}-router
           path: crates/router-ab-cloudflare
@@ -887,7 +887,7 @@ jobs:
 
       - name: Upload MPCRouter report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_OPERATION }}-router-${{ github.run_id }}
           path: crates/router-ab-cloudflare/reports/startup-latencies/*.json
