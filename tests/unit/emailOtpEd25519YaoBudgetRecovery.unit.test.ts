@@ -536,6 +536,7 @@ function buildEmailOtpSealedRecord(args: {
 
 function warmRecoveryBootstrapResponse(args: {
   expiresAtMs: number;
+  thresholdExpiresAtMs: number;
   prior: RouterAbEd25519YaoActiveClientMetadataV1;
 }): Record<string, unknown> {
   const bootstrap = recoveryBootstrap({
@@ -554,7 +555,7 @@ function warmRecoveryBootstrapResponse(args: {
     thresholdSessionId: THRESHOLD_SESSION_ID,
     signingGrantId: SIGNING_GRANT_ID,
     signingWorkerId: SIGNING_WORKER_ID,
-    thresholdExpiresAtMs: args.expiresAtMs,
+    thresholdExpiresAtMs: args.thresholdExpiresAtMs,
     participantIds: [...PARTICIPANT_IDS],
     authority: buildEmailOtpWalletAuthAuthority({
       walletId: WALLET_ID,
@@ -668,10 +669,19 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
       ports: {
         readExactSealedSession: async () => sealedRecord,
         fetch: async () =>
-          new Response(JSON.stringify(warmRecoveryBootstrapResponse({ expiresAtMs, prior })), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          }),
+          new Response(
+            JSON.stringify(
+              warmRecoveryBootstrapResponse({
+                expiresAtMs,
+                thresholdExpiresAtMs: expiresAtMs,
+                prior,
+              }),
+            ),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          ),
         workerContext: worker.context(),
         resolveActiveCapability: activation.resolve.bind(activation),
         activateCapability: activation.activate.bind(activation),
@@ -737,6 +747,7 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
 
   test('resolves an exact export context after refresh from an exhausted signing grant', async () => {
     const expiresAtMs = Date.now() + 60_000;
+    const thresholdExpiresAtMs = expiresAtMs + 60_000;
     const sealedRecord = buildEmailOtpSealedRecord({ expiresAtMs, remainingUses: 0 });
     const prior = activeMetadata();
     let bootstrapRequests = 0;
@@ -759,7 +770,9 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
         fetch: async () => {
           bootstrapRequests += 1;
           return new Response(
-            JSON.stringify(warmRecoveryBootstrapResponse({ expiresAtMs, prior })),
+            JSON.stringify(
+              warmRecoveryBootstrapResponse({ expiresAtMs, thresholdExpiresAtMs, prior }),
+            ),
             {
               status: 200,
               headers: { 'Content-Type': 'application/json' },
