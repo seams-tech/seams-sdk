@@ -1,6 +1,10 @@
 import { SigningEventPhase } from '@seams/sdk/react';
 import type { SigningFlowEvent } from '@seams/sdk/react';
 import { toast } from 'sonner';
+import {
+  dismissDemoEmailOtpToast as dismissDemoEmailOtpToastById,
+  showCopiedDemoEmailOtpToast,
+} from '../demoEmailOtpToast';
 
 type SigningToastChainLabel = 'EVM' | 'Tempo' | 'NEAR';
 
@@ -22,24 +26,13 @@ function readDemoEmailOtpCode(event: SigningFlowEvent): string | null {
   return value;
 }
 
-function formatDemoEmailOtpCode(otpCode: string): string {
-  return `${otpCode.slice(0, 3)}-${otpCode.slice(3)}`;
+function demoEmailOtpToastId(signingToastId: string): string {
+  return `${signingToastId}:demo-email-otp`;
 }
 
-async function copyDemoEmailOtpCode(args: { otpCode: string; toastId: string }): Promise<void> {
-  const formattedCode = formatDemoEmailOtpCode(args.otpCode);
-  try {
-    await navigator.clipboard.writeText(args.otpCode);
-    toast.success(`${formattedCode} copied to clipboard!`, {
-      id: args.toastId,
-      description: null,
-    });
-  } catch {
-    toast.info(`Email code: ${formattedCode}`, {
-      id: args.toastId,
-      description: 'Clipboard access was unavailable. Enter this code to continue.',
-    });
-  }
+function dismissDemoEmailOtpToast(signingToastId: string): void {
+  const otpToastId = demoEmailOtpToastId(signingToastId);
+  dismissDemoEmailOtpToastById(otpToastId);
 }
 
 /* Maps known relayer/sponsor failures to human copy. An underfunded gas
@@ -149,26 +142,34 @@ export function handleSigningToastEvent(
 
   const demoOtpCode = readDemoEmailOtpCode(event);
   if (demoOtpCode) {
-    void copyDemoEmailOtpCode({
+    void showCopiedDemoEmailOtpToast({
       otpCode: demoOtpCode,
-      toastId: options.toastId,
+      toastId: demoEmailOtpToastId(options.toastId),
+      unavailableDescription: 'Email delivery is not configured for this live demo.',
     });
     return { status: 'shown' };
   }
 
+  if (event.phase === SigningEventPhase.STEP_07_AUTHENTICATION_COMPLETE) {
+    dismissDemoEmailOtpToast(options.toastId);
+  }
+
   if (event.status === 'cancelled' || event.phase === SigningEventPhase.CANCELLED) {
+    dismissDemoEmailOtpToast(options.toastId);
     const message = signingEventErrorMessage(event, `${options.chainLabel} transaction cancelled`);
     toast.info(message, { id: options.toastId, description: null });
     return { status: 'cancelled', message };
   }
 
   if (event.status === 'failed' || event.phase === SigningEventPhase.FAILED) {
+    dismissDemoEmailOtpToast(options.toastId);
     const message = signingEventErrorMessage(event, `${options.chainLabel} transaction failed`);
     toast.error(message, { id: options.toastId, description: null });
     return { status: 'failed', message };
   }
 
   if (event.phase === SigningEventPhase.STEP_15_COMPLETED && event.status === 'succeeded') {
+    dismissDemoEmailOtpToast(options.toastId);
     toast.success(options.successMessage, { id: options.toastId, description: null });
     return { status: 'succeeded', message: options.successMessage };
   }

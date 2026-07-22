@@ -1,5 +1,10 @@
 /* Shadow DOM-scoped toast styles used with Sonner's classNames API */
 
+/* Demo OTP codes remain visible above the secure wallet confirmer. */
+[data-sonner-toaster] {
+  z-index: 2147483647 !important;
+}
+
 /* Bridge Sonner internals to SDK theme tokens. */
 [data-sonner-toaster][data-theme] {
   --w3a-toast-bg: var(--site-toast-background, var(--w3a-colors-surface));
