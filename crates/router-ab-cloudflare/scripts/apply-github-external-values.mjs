@@ -9,6 +9,7 @@ import {
 } from '../../../packages/console-server-ts/scripts/gateway-deployment-config.mjs';
 
 const TARGETS = new Set(['staging', 'production']);
+const COMPONENTS = new Set(['wallet-core', 'product']);
 const githubCli = process.env.GITHUB_CLI_BIN || 'gh';
 const GENERAL_VARIABLE_INPUTS = Object.freeze([
   ['VITE_TEMPO_RPC_URL', 'VITE_TEMPO_RPC_URL'],
@@ -27,8 +28,7 @@ const CLOUDFLARE_SECRET_INPUTS = Object.freeze([
   ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_API_TOKEN'],
   ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_ACCOUNT_ID'],
 ]);
-const CLOUDFLARE_ENVIRONMENT_SUFFIXES = Object.freeze([
-  '',
+const WALLET_CORE_CLOUDFLARE_ENVIRONMENT_SUFFIXES = Object.freeze([
   '-gateway',
   '-mpc-router',
   '-deriver-a',
@@ -50,15 +50,20 @@ await main(parseOptions());
 
 async function main(options) {
   const values = loadProtectedValues(options.valuesFile);
-  validateExternalValues(values);
+  validateExternalValues(values, options.component);
   const repository = resolveGitHubRepository(options.repository);
   const plan = buildBasePlan(options, repository, values);
-  addNearRelayerUpdates(plan, values, repository);
-  addGatewayOptionalConfigUpdates(plan, values, repository);
+  if (options.component === 'product') {
+    addProductNearRelayerUpdate(plan, values);
+  } else {
+    addWalletCoreNearRelayerUpdates(plan, values, repository);
+    addGatewayOptionalConfigUpdates(plan, values, repository);
+  }
   validatePlan(plan);
-  printPlan(plan, options.apply);
+  const selectedPlan = selectPlan(plan, options.selection);
+  printPlan(selectedPlan, options.apply);
   if (options.apply) {
-    applyPlan(plan);
+    applyPlan(selectedPlan);
   }
 }
 
@@ -69,12 +74,40 @@ function parseOptions() {
   }
   const valuesFile =
     readOption('--values-file') || resolve(homedir(), '.seams', `${target}-deployment.env`);
+  const component = requireOption('--component');
+  if (!COMPONENTS.has(component)) {
+    throw new Error('--component must be wallet-core or product');
+  }
+  const selection = parseUpdateSelection();
   return {
     target,
+    component,
     valuesFile,
     repository: readOption('--repo'),
     apply: argv.includes('--apply'),
+    selection,
   };
+}
+
+function parseUpdateSelection() {
+  const variablesOnly = argv.includes('--variables-only');
+  const secretsOnly = argv.includes('--secrets-only');
+  if (variablesOnly && secretsOnly) {
+    throw new Error('--variables-only and --secrets-only are mutually exclusive');
+  }
+  const only = readOption('--only');
+  const names = only ? new Set(only.split(',').map(normalizeSelectedName).filter(Boolean)) : null;
+  if (only && names?.size === 0) {
+    throw new Error('--only requires at least one variable or secret name');
+  }
+  return {
+    kind: variablesOnly ? 'variables' : secretsOnly ? 'secrets' : 'all',
+    names,
+  };
+}
+
+function normalizeSelectedName(value) {
+  return value.trim();
 }
 
 function loadProtectedValues(valuesFile) {
@@ -88,10 +121,13 @@ function loadProtectedValues(valuesFile) {
   return parseEnv(readFileSync(valuesFile, 'utf8'));
 }
 
-function validateExternalValues(values) {
+function validateExternalValues(values, component) {
   validatePair(values, 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID', 'Cloudflare deployment');
+  if (component === 'product') {
+    validatePair(values, 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2 publication');
+    return;
+  }
   validatePair(values, 'RELAYER_ACCOUNT_ID', 'RELAYER_PRIVATE_KEY', 'NEAR sponsorship');
-  validatePair(values, 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2 publication');
   parseOptionalJsonObject(values, 'SPONSORED_EVM_EXECUTORS_JSON');
   parseOptionalJsonObject(values, 'SEAMS_OIDC_EXCHANGE_JSON');
 }
@@ -107,21 +143,26 @@ function validatePair(values, leftName, rightName, label) {
 function buildBasePlan(options, repository, values) {
   const plan = {
     target: options.target,
+    component: options.component,
     repository,
     valuesFile: options.valuesFile,
     variables: [],
     secrets: [],
     gatewayConfig: null,
   };
-  appendMappedUpdates(plan.variables, options.target, values, GENERAL_VARIABLE_INPUTS);
-  appendMappedUpdates(plan.secrets, options.target, values, GENERAL_SECRET_INPUTS);
-  appendCloudflareDeploymentUpdates(plan, options.target, values);
-  appendMappedUpdates(plan.secrets, `${options.target}-gateway`, values, GATEWAY_SECRET_INPUTS);
+  if (options.component === 'product') {
+    appendMappedUpdates(plan.variables, options.target, values, GENERAL_VARIABLE_INPUTS);
+    appendMappedUpdates(plan.secrets, options.target, values, GENERAL_SECRET_INPUTS);
+    appendMappedUpdates(plan.secrets, options.target, values, CLOUDFLARE_SECRET_INPUTS);
+  } else {
+    appendWalletCoreCloudflareDeploymentUpdates(plan, options.target, values);
+    appendMappedUpdates(plan.secrets, `${options.target}-gateway`, values, GATEWAY_SECRET_INPUTS);
+  }
   return plan;
 }
 
-function appendCloudflareDeploymentUpdates(plan, target, values) {
-  for (const suffix of CLOUDFLARE_ENVIRONMENT_SUFFIXES) {
+function appendWalletCoreCloudflareDeploymentUpdates(plan, target, values) {
+  for (const suffix of WALLET_CORE_CLOUDFLARE_ENVIRONMENT_SUFFIXES) {
     appendMappedUpdates(plan.secrets, `${target}${suffix}`, values, CLOUDFLARE_SECRET_INPUTS);
   }
 }
@@ -135,7 +176,19 @@ function appendMappedUpdates(updates, environment, values, mappings) {
   }
 }
 
-function addNearRelayerUpdates(plan, values, repository) {
+function addProductNearRelayerUpdate(plan, values) {
+  const accountId = readValue(values, 'RELAYER_ACCOUNT_ID');
+  if (!accountId) {
+    return;
+  }
+  plan.variables.push({
+    environment: plan.target,
+    name: 'VITE_RELAYER_ACCOUNT_ID',
+    value: accountId,
+  });
+}
+
+function addWalletCoreNearRelayerUpdates(plan, values, repository) {
   const accountId = readValue(values, 'RELAYER_ACCOUNT_ID');
   if (!accountId) {
     return;
@@ -147,11 +200,6 @@ function addNearRelayerUpdates(plan, values, repository) {
     readGitHubVariable(plan.target, 'VITE_NEAR_RPC_URL', repository);
   const initialBalanceYocto =
     readValue(values, 'RELAYER_INITIAL_BALANCE_YOCTO') || DEFAULT_NEAR_INITIAL_BALANCE_YOCTO;
-  plan.variables.push({
-    environment: plan.target,
-    name: 'VITE_RELAYER_ACCOUNT_ID',
-    value: accountId,
-  });
   plan.secrets.push({
     environment: `${plan.target}-gateway`,
     name: 'RELAYER_PRIVATE_KEY',
@@ -208,6 +256,49 @@ function validatePlan(plan) {
   }
 }
 
+function selectPlan(plan, selection) {
+  const variables =
+    selection.kind === 'secrets' ? [] : selectUpdatesByName(plan.variables, selection.names);
+  const secrets =
+    selection.kind === 'variables' ? [] : selectUpdatesByName(plan.secrets, selection.names);
+  if (selection.names) {
+    assertAllSelectedNamesResolved(selection.names, variables, secrets);
+  }
+  if (variables.length === 0 && secrets.length === 0) {
+    throw new Error('the selected deployment update contains no values');
+  }
+  return {
+    target: plan.target,
+    component: plan.component,
+    repository: plan.repository,
+    valuesFile: plan.valuesFile,
+    variables,
+    secrets,
+    gatewayConfig: plan.gatewayConfig,
+  };
+}
+
+function selectUpdatesByName(updates, names) {
+  if (!names) {
+    return updates;
+  }
+  return updates.filter((update) => names.has(update.name));
+}
+
+function assertAllSelectedNamesResolved(names, variables, secrets) {
+  const resolvedNames = new Set();
+  for (const update of variables) {
+    resolvedNames.add(update.name);
+  }
+  for (const update of secrets) {
+    resolvedNames.add(update.name);
+  }
+  const unresolvedNames = [...names].filter((name) => !resolvedNames.has(name));
+  if (unresolvedNames.length > 0) {
+    throw new Error(`selected values are missing or unavailable: ${unresolvedNames.join(', ')}`);
+  }
+}
+
 function validateUniqueUpdates(updates, kind) {
   const seen = new Set();
   for (const update of updates) {
@@ -244,6 +335,7 @@ function printPlan(plan, applying) {
   );
   process.stdout.write(`Repository: ${plan.repository}\n`);
   process.stdout.write(`Target: ${plan.target}\n\n`);
+  process.stdout.write(`Component: ${plan.component}\n\n`);
   printUpdates('Variables', plan.variables, false);
   printUpdates('Secrets', plan.secrets, true);
   if (!applying) {
@@ -379,13 +471,17 @@ function printUsage() {
     .write(`Apply operator-owned deployment values without rotating generated identities.
 
 Usage:
-  pnpm router:deploy:env-apply -- --env staging --repo seams-tech/seams-sdk
-  pnpm router:deploy:env-apply -- --env staging --repo seams-tech/seams-sdk --apply
+  pnpm wallet-core:deploy:env-update -- --env staging --repo seams-tech/seams-sdk
+  pnpm product:deploy:env-update -- --env staging --repo seams-tech/seams-sdk
 
 Options:
   --env <target>        Required. staging or production.
+  --component <name>    Required. wallet-core or product.
   --values-file <path>  Defaults to ~/.seams/<target>-deployment.env.
   --repo <owner/repo>   Defaults to the repository for the current checkout.
+  --only <names>        Update only the comma-separated GitHub value names.
+  --variables-only      Update variables and leave every secret unchanged.
+  --secrets-only        Update secrets and leave every variable unchanged.
   --apply               Upload the planned variables and secrets.
   --help                Show this help.
 
