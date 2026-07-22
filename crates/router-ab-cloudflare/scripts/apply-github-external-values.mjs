@@ -44,7 +44,7 @@ const GATEWAY_SECRET_INPUTS = Object.freeze([
 ]);
 const NEAR_PUBLIC_CONFIG_BY_NETWORK = Object.freeze({
   testnet: Object.freeze({
-    rpcUrl: 'https://rpc.testnet.near.org',
+    rpcUrl: 'https://test.rpc.fastnear.com',
     explorerUrl: 'https://testnet.nearblocks.io',
   }),
   mainnet: Object.freeze({
