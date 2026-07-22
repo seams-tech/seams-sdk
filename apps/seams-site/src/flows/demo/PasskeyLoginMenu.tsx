@@ -21,6 +21,7 @@ import './PasskeyLoginMenu.css';
 import { FRONTEND_CONFIG } from '@/config';
 import { useAuthMenuControl } from '@/context/AuthMenuControl';
 import { demoPasskeyEcdsaSignerOptions } from './demoPasskeyEcdsaSignerOptions';
+import { showCopiedDemoEmailOtpToast } from './demoEmailOtpToast';
 import {
   ensureGoogleIdentityScriptLoaded,
   fetchGoogleAuthOptions,
@@ -249,9 +250,10 @@ function handleUnlockEvent(event: UnlockFlowEvent, loginTarget: string): void {
 const GOOGLE_EMAIL_OTP_TOAST_ID = 'google-email-otp';
 
 export function showDemoEmailOtpToast(response: DemoEmailOtpCodeResponse): void {
-  toast.success(`Demo email code: ${response.otpCode}`, {
-    id: GOOGLE_EMAIL_OTP_TOAST_ID,
-    description: 'Email delivery is not configured for this live demo.',
+  void showCopiedDemoEmailOtpToast({
+    otpCode: response.otpCode,
+    toastId: GOOGLE_EMAIL_OTP_TOAST_ID,
+    unavailableDescription: 'Email delivery is not configured for this live demo.',
   });
 }
 
