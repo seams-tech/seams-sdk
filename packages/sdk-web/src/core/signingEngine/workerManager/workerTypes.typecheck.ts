@@ -24,6 +24,7 @@ import {
   EcdsaPresignClientRequestType,
 } from './workerTypes';
 import { parseSigningSessionSealKeyVersion } from '../session/keyMaterialBrands';
+import type { WalletRegistrationEd25519YaoBootstrapSession } from '@/core/rpcClients/relayer/walletRegistration';
 
 declare const rootShareEpoch: RootShareEpoch;
 declare const chainTarget: ThresholdEcdsaChainTarget;
@@ -32,6 +33,7 @@ declare const runtimePolicyScope: ThresholdRuntimePolicyScope;
 declare const emailOtpEd25519YaoActiveCapability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
 declare const routeAuth: AppOrWalletSessionAuth;
 declare const incomingMessage: ArrayBuffer;
+declare const emailOtpEd25519YaoSession: WalletRegistrationEd25519YaoBootstrapSession;
 
 const clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload = {
   kind: 'email_otp_worker_session_handle_v1',
@@ -164,6 +166,10 @@ type EmailOtpEd25519YaoWalletUnlockMaterial = Extract<
   EmailOtpWalletUnlockPayload['material'],
   { kind: 'ed25519_yao_recovery' }
 >;
+type EmailOtpEd25519YaoExactLocalWalletUnlockMaterial = Extract<
+  EmailOtpWalletUnlockPayload['material'],
+  { kind: 'ed25519_yao_exact_local_session' }
+>;
 type EmailOtpYaoBindPayload = EmailOtpWorkerOperationMap['bindEmailOtpEd25519YaoRoot']['payload'];
 type EmailOtpYaoRootDisposalPayload =
   EmailOtpWorkerOperationMap['disposeEmailOtpEd25519YaoRoot']['payload'];
@@ -177,10 +183,10 @@ type EmailOtpDeviceEnrollmentRestoreResult =
   EmailOtpWorkerOperationMap['restoreEmailOtpDeviceEnrollmentEscrow']['result'];
 type EmailOtpRecoveryCodeRotationResult =
   EmailOtpWorkerOperationMap['rotateEmailOtpRecoveryCodes']['result'];
-type EmailOtpEd25519YaoFactorRehydratePayload =
-  EmailOtpWorkerOperationMap['rehydrateEmailOtpEd25519YaoFactor']['payload'];
+type EmailOtpEd25519YaoLocalMaterialRehydratePayload =
+  EmailOtpWorkerOperationMap['rehydrateEmailOtpEd25519YaoLocalMaterial']['payload'];
 
-const emailOtpEd25519YaoFactorRehydrate: EmailOtpEd25519YaoFactorRehydratePayload = {
+const emailOtpEd25519YaoLocalMaterialRehydrate: EmailOtpEd25519YaoLocalMaterialRehydratePayload = {
   sealedSecretB64u: 'sealed-ed25519-yao-factor',
   remainingUses: 3,
   expiresAtMs: Date.now() + 60_000,
@@ -191,30 +197,31 @@ const emailOtpEd25519YaoFactorRehydrate: EmailOtpEd25519YaoFactorRehydratePayloa
     shamirPrimeB64u: 'shamir-prime',
   },
   restore: {
-    sessionId: 'threshold-session',
-    walletId: 'wallet.testnet',
+    session: emailOtpEd25519YaoSession,
     providerSubject: 'google:subject',
+    signerSlot: 1,
+    expectedOperationalPublicKey: 'ed25519:11111111111111111111111111111111',
   },
 };
-void emailOtpEd25519YaoFactorRehydrate;
+void emailOtpEd25519YaoLocalMaterialRehydrate;
 
-const emailOtpEd25519YaoFactorRehydrateWithOtp = {
-  ...emailOtpEd25519YaoFactorRehydrate,
+const emailOtpEd25519YaoLocalMaterialRehydrateWithOtp = {
+  ...emailOtpEd25519YaoLocalMaterialRehydrate,
   // @ts-expect-error Silent durable recovery never accepts a fresh OTP challenge.
   otpCode: '123456',
-} satisfies EmailOtpEd25519YaoFactorRehydratePayload;
-void emailOtpEd25519YaoFactorRehydrateWithOtp;
+} satisfies EmailOtpEd25519YaoLocalMaterialRehydratePayload;
+void emailOtpEd25519YaoLocalMaterialRehydrateWithOtp;
 
-const emailOtpEd25519YaoFactorRehydrateWithoutWalletSession = {
-  ...emailOtpEd25519YaoFactorRehydrate,
+const emailOtpEd25519YaoLocalMaterialRehydrateWithoutWalletSession = {
+  ...emailOtpEd25519YaoLocalMaterialRehydrate,
   // @ts-expect-error Silent durable recovery requires its exact Wallet Session credential.
   transport: {
     relayerUrl: 'https://relay.example.test',
     signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion('seal-v1'),
     shamirPrimeB64u: 'shamir-prime',
   },
-} satisfies EmailOtpEd25519YaoFactorRehydratePayload;
-void emailOtpEd25519YaoFactorRehydrateWithoutWalletSession;
+} satisfies EmailOtpEd25519YaoLocalMaterialRehydratePayload;
+void emailOtpEd25519YaoLocalMaterialRehydrateWithoutWalletSession;
 
 const emailOtpEd25519YaoWalletUnlockMaterial: EmailOtpEd25519YaoWalletUnlockMaterial = {
   kind: 'ed25519_yao_recovery',
@@ -230,6 +237,34 @@ const emailOtpEd25519YaoWalletUnlockMaterial: EmailOtpEd25519YaoWalletUnlockMate
   },
 };
 void emailOtpEd25519YaoWalletUnlockMaterial;
+
+const emailOtpEd25519YaoExactLocalWalletUnlockMaterial: EmailOtpEd25519YaoExactLocalWalletUnlockMaterial =
+  {
+    kind: 'ed25519_yao_exact_local_session',
+    providerSubject: 'google:subject',
+    nearAccountId: 'wallet.testnet',
+    expectedOperationalPublicKey: 'ed25519:11111111111111111111111111111111',
+    expectedThresholdSessionId: 'threshold-session',
+    ed25519YaoSession: {
+      kind: 'exact_local_material_session_v1',
+      signerSlot: 1,
+      remainingUses: 3,
+      orgId: 'org-test',
+    },
+  };
+void emailOtpEd25519YaoExactLocalWalletUnlockMaterial;
+
+const emailOtpEd25519YaoExactLocalWalletUnlockWithRecovery = {
+  ...emailOtpEd25519YaoExactLocalWalletUnlockMaterial,
+  // @ts-expect-error Exact-local requests cannot carry recovery augmentation.
+  ed25519YaoRecovery: {
+    kind: 'router_ab_ed25519_yao_email_otp_recovery_v1',
+    signerSlot: 1,
+    remainingUses: 3,
+    orgId: 'org-test',
+  },
+} satisfies EmailOtpEd25519YaoExactLocalWalletUnlockMaterial;
+void emailOtpEd25519YaoExactLocalWalletUnlockWithRecovery;
 
 const emailOtpEd25519YaoWalletUnlockWithoutThresholdIdentity = {
   kind: 'ed25519_yao_recovery',

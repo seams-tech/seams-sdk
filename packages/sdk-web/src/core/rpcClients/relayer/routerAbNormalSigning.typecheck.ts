@@ -15,6 +15,7 @@ const scope = {
   request_id: 'router-ab-normal-signing/request-1',
   account_id: 'alice.testnet',
   session_id: 'wallet-session-1',
+  active_state_session_id: 'activation-session-1',
   signing_worker_id: 'signing-worker-a',
 };
 
@@ -108,6 +109,7 @@ const missingSigningWorkerScope = {
   request_id: 'router-ab-normal-signing/request-1',
   account_id: 'alice.testnet',
   session_id: 'wallet-session-1',
+  active_state_session_id: 'activation-session-1',
 };
 
 const prepareWithoutSigningWorker = {
