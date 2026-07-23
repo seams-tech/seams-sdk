@@ -1302,6 +1302,8 @@ jobs:
       - auto_create_release_set
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    environment:
+      name: ${{ 'staging' }}
     steps:
       - name: Checkout selected revision
         uses: actions/checkout@v6
@@ -1326,8 +1328,8 @@ jobs:
       - name: Verify final release smoke
         env:
           DEPLOYED_GATEWAY_ORIGIN: ${{ needs.auto_deploy_gateway.outputs.gateway_origin }}
-          SITE_ORIGIN: ${{ needs.auto_deploy_pages.outputs.app_origin }}
-          WALLET_ORIGIN: ${{ needs.auto_deploy_pages.outputs.wallet_origin }}
+          SITE_ORIGIN: ${{ vars.VITE_DOCS_ORIGIN }}
+          WALLET_ORIGIN: ${{ vars.VITE_WALLET_ORIGIN }}
           SELECTED_COMPONENTS: ${{ needs.auto_preflight_release.outputs.selected_components }}
         run: |
           set -euo pipefail
@@ -1595,8 +1597,6 @@ jobs:
       needs.auto_deploy_gateway.result == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 8
-    outputs:
-      pages_origin: ${{ steps.auto_deploy_app.outputs.pages_origin }}
     environment:
       name: ${{ 'staging' }}
     env:
@@ -1618,6 +1618,7 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CF_PAGES_PROJECT: ${{ secrets.CF_PAGES_PROJECT_VITE }}
+      PAGES_ORIGIN: ${{ vars.VITE_DOCS_ORIGIN }}
     steps:
       - name: Checkout selected revision
         uses: actions/checkout@v6
@@ -1674,33 +1675,21 @@ jobs:
             --identity-json "$PAGES_ARTIFACT_IDENTITY"
       - name: Deploy app
         id: auto_deploy_app
-        env:
-          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-pages-app.ndjson
         run: |
           set -euo pipefail
           test -n "${CF_PAGES_PROJECT:-}" || { echo "CF_PAGES_PROJECT_VITE is not set" >&2; exit 1; }
-          rm -f "$WRANGLER_OUTPUT_FILE_PATH"
           pnpm -C crates/router-ab-cloudflare exec wrangler pages deploy ../../apps/seams-site/dist \
             --project-name "$CF_PAGES_PROJECT" \
             --branch "$PAGES_BRANCH" \
             --commit-hash "$DEPLOY_SHA" \
             --commit-dirty=false
-          pages_origin="$(
-            node scripts/wrangler-pages-deployment-url.mjs \
-              "$WRANGLER_OUTPUT_FILE_PATH" \
-              "$CF_PAGES_PROJECT"
-          )"
-          echo "pages_origin=$pages_origin" >> "$GITHUB_OUTPUT"
+          test -n "${PAGES_ORIGIN:-}" || { echo "VITE_DOCS_ORIGIN is not set" >&2; exit 1; }
       - name: Verify app readiness
-        env:
-          PAGES_ORIGIN: ${{ steps.auto_deploy_app.outputs.pages_origin }}
         run: |
           set -euo pipefail
           curl --fail --silent --show-error --max-time 5 "$PAGES_ORIGIN/" > /dev/null
           curl --fail --silent --show-error --max-time 5 "$PAGES_ORIGIN/sdk/workers/near-signer.worker.js" > /dev/null
       - name: Summarize app deployment
-        env:
-          PAGES_ORIGIN: ${{ steps.auto_deploy_app.outputs.pages_origin }}
         run: |
           manifest_digest="$(node -e "const value=require('./.release-artifacts/pages/manifest.json'); process.stdout.write(value.contentDigestSha256)")"
           {
@@ -1727,8 +1716,6 @@ jobs:
       needs.auto_deploy_gateway.result == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 8
-    outputs:
-      pages_origin: ${{ steps.auto_deploy_wallet.outputs.pages_origin }}
     environment:
       name: ${{ 'staging' }}
     env:
@@ -1750,6 +1737,7 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CF_PAGES_PROJECT: ${{ secrets.CF_PAGES_PROJECT_WALLET }}
+      PAGES_ORIGIN: ${{ vars.VITE_WALLET_ORIGIN }}
     steps:
       - name: Checkout selected revision
         uses: actions/checkout@v6
@@ -1806,26 +1794,16 @@ jobs:
             --identity-json "$PAGES_ARTIFACT_IDENTITY"
       - name: Deploy wallet
         id: auto_deploy_wallet
-        env:
-          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-pages-wallet.ndjson
         run: |
           set -euo pipefail
           test -n "${CF_PAGES_PROJECT:-}" || { echo "CF_PAGES_PROJECT_WALLET is not set" >&2; exit 1; }
-          rm -f "$WRANGLER_OUTPUT_FILE_PATH"
           pnpm -C crates/router-ab-cloudflare exec wrangler pages deploy ../../apps/seams-site/dist \
             --project-name "$CF_PAGES_PROJECT" \
             --branch "$PAGES_BRANCH" \
             --commit-hash "$DEPLOY_SHA" \
             --commit-dirty=false
-          pages_origin="$(
-            node scripts/wrangler-pages-deployment-url.mjs \
-              "$WRANGLER_OUTPUT_FILE_PATH" \
-              "$CF_PAGES_PROJECT"
-          )"
-          echo "pages_origin=$pages_origin" >> "$GITHUB_OUTPUT"
+          test -n "${PAGES_ORIGIN:-}" || { echo "VITE_WALLET_ORIGIN is not set" >&2; exit 1; }
       - name: Verify wallet readiness
-        env:
-          PAGES_ORIGIN: ${{ steps.auto_deploy_wallet.outputs.pages_origin }}
         run: |
           set -euo pipefail
           for path in \
@@ -1836,8 +1814,6 @@ jobs:
             curl --fail --silent --show-error --max-time 5 "$PAGES_ORIGIN$path" > /dev/null
           done
       - name: Summarize wallet deployment
-        env:
-          PAGES_ORIGIN: ${{ steps.auto_deploy_wallet.outputs.pages_origin }}
         run: |
           manifest_digest="$(node -e "const value=require('./.release-artifacts/pages/manifest.json'); process.stdout.write(value.contentDigestSha256)")"
           {
@@ -1869,9 +1845,6 @@ jobs:
       - auto_deploy_wallet
     runs-on: ubuntu-latest
     timeout-minutes: 2
-    outputs:
-      app_origin: ${{ needs.auto_deploy_app.outputs.pages_origin }}
-      wallet_origin: ${{ needs.auto_deploy_wallet.outputs.pages_origin }}
     steps:
       - name: Require Pages deployments to succeed
         env:
@@ -2559,6 +2532,8 @@ jobs:
       - manual_deploy_pages
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    environment:
+      name: ${{ 'staging' }}
     steps:
       - name: Checkout selected revision
         uses: actions/checkout@v6
@@ -2583,8 +2558,8 @@ jobs:
       - name: Verify final release smoke
         env:
           DEPLOYED_GATEWAY_ORIGIN: ${{ needs.manual_deploy_gateway.outputs.gateway_origin }}
-          SITE_ORIGIN: ${{ needs.manual_deploy_pages.outputs.app_origin }}
-          WALLET_ORIGIN: ${{ needs.manual_deploy_pages.outputs.wallet_origin }}
+          SITE_ORIGIN: ${{ vars.VITE_DOCS_ORIGIN }}
+          WALLET_ORIGIN: ${{ vars.VITE_WALLET_ORIGIN }}
           SELECTED_COMPONENTS: ${{ needs.manual_preflight_release.outputs.selected_components }}
         run: |
           set -euo pipefail
@@ -2852,8 +2827,6 @@ jobs:
       needs.manual_deploy_gateway.result == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 8
-    outputs:
-      pages_origin: ${{ steps.manual_deploy_app.outputs.pages_origin }}
     environment:
       name: ${{ 'staging' }}
     env:
@@ -2875,6 +2848,7 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CF_PAGES_PROJECT: ${{ secrets.CF_PAGES_PROJECT_VITE }}
+      PAGES_ORIGIN: ${{ vars.VITE_DOCS_ORIGIN }}
     steps:
       - name: Checkout selected revision
         uses: actions/checkout@v6
@@ -2931,33 +2905,21 @@ jobs:
             --identity-json "$PAGES_ARTIFACT_IDENTITY"
       - name: Deploy app
         id: manual_deploy_app
-        env:
-          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-pages-app.ndjson
         run: |
           set -euo pipefail
           test -n "${CF_PAGES_PROJECT:-}" || { echo "CF_PAGES_PROJECT_VITE is not set" >&2; exit 1; }
-          rm -f "$WRANGLER_OUTPUT_FILE_PATH"
           pnpm -C crates/router-ab-cloudflare exec wrangler pages deploy ../../apps/seams-site/dist \
             --project-name "$CF_PAGES_PROJECT" \
             --branch "$PAGES_BRANCH" \
             --commit-hash "$DEPLOY_SHA" \
             --commit-dirty=false
-          pages_origin="$(
-            node scripts/wrangler-pages-deployment-url.mjs \
-              "$WRANGLER_OUTPUT_FILE_PATH" \
-              "$CF_PAGES_PROJECT"
-          )"
-          echo "pages_origin=$pages_origin" >> "$GITHUB_OUTPUT"
+          test -n "${PAGES_ORIGIN:-}" || { echo "VITE_DOCS_ORIGIN is not set" >&2; exit 1; }
       - name: Verify app readiness
-        env:
-          PAGES_ORIGIN: ${{ steps.manual_deploy_app.outputs.pages_origin }}
         run: |
           set -euo pipefail
           curl --fail --silent --show-error --max-time 5 "$PAGES_ORIGIN/" > /dev/null
           curl --fail --silent --show-error --max-time 5 "$PAGES_ORIGIN/sdk/workers/near-signer.worker.js" > /dev/null
       - name: Summarize app deployment
-        env:
-          PAGES_ORIGIN: ${{ steps.manual_deploy_app.outputs.pages_origin }}
         run: |
           manifest_digest="$(node -e "const value=require('./.release-artifacts/pages/manifest.json'); process.stdout.write(value.contentDigestSha256)")"
           {
@@ -2983,8 +2945,6 @@ jobs:
       needs.manual_deploy_gateway.result == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 8
-    outputs:
-      pages_origin: ${{ steps.manual_deploy_wallet.outputs.pages_origin }}
     environment:
       name: ${{ 'staging' }}
     env:
@@ -3006,6 +2966,7 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CF_PAGES_PROJECT: ${{ secrets.CF_PAGES_PROJECT_WALLET }}
+      PAGES_ORIGIN: ${{ vars.VITE_WALLET_ORIGIN }}
     steps:
       - name: Checkout selected revision
         uses: actions/checkout@v6
@@ -3062,26 +3023,16 @@ jobs:
             --identity-json "$PAGES_ARTIFACT_IDENTITY"
       - name: Deploy wallet
         id: manual_deploy_wallet
-        env:
-          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-pages-wallet.ndjson
         run: |
           set -euo pipefail
           test -n "${CF_PAGES_PROJECT:-}" || { echo "CF_PAGES_PROJECT_WALLET is not set" >&2; exit 1; }
-          rm -f "$WRANGLER_OUTPUT_FILE_PATH"
           pnpm -C crates/router-ab-cloudflare exec wrangler pages deploy ../../apps/seams-site/dist \
             --project-name "$CF_PAGES_PROJECT" \
             --branch "$PAGES_BRANCH" \
             --commit-hash "$DEPLOY_SHA" \
             --commit-dirty=false
-          pages_origin="$(
-            node scripts/wrangler-pages-deployment-url.mjs \
-              "$WRANGLER_OUTPUT_FILE_PATH" \
-              "$CF_PAGES_PROJECT"
-          )"
-          echo "pages_origin=$pages_origin" >> "$GITHUB_OUTPUT"
+          test -n "${PAGES_ORIGIN:-}" || { echo "VITE_WALLET_ORIGIN is not set" >&2; exit 1; }
       - name: Verify wallet readiness
-        env:
-          PAGES_ORIGIN: ${{ steps.manual_deploy_wallet.outputs.pages_origin }}
         run: |
           set -euo pipefail
           for path in \
@@ -3092,8 +3043,6 @@ jobs:
             curl --fail --silent --show-error --max-time 5 "$PAGES_ORIGIN$path" > /dev/null
           done
       - name: Summarize wallet deployment
-        env:
-          PAGES_ORIGIN: ${{ steps.manual_deploy_wallet.outputs.pages_origin }}
         run: |
           manifest_digest="$(node -e "const value=require('./.release-artifacts/pages/manifest.json'); process.stdout.write(value.contentDigestSha256)")"
           {
@@ -3124,9 +3073,6 @@ jobs:
       - manual_deploy_wallet
     runs-on: ubuntu-latest
     timeout-minutes: 2
-    outputs:
-      app_origin: ${{ needs.manual_deploy_app.outputs.pages_origin }}
-      wallet_origin: ${{ needs.manual_deploy_wallet.outputs.pages_origin }}
     steps:
       - name: Require Pages deployments to succeed
         env:

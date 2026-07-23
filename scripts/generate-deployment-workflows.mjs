@@ -356,10 +356,6 @@ function makePagesBarrier(target, mode) {
       ],
       'runs-on': 'ubuntu-latest',
       'timeout-minutes': 2,
-      outputs: {
-        app_origin: expression(`needs.${prefix}deploy_app.outputs.pages_origin`),
-        wallet_origin: expression(`needs.${prefix}deploy_wallet.outputs.pages_origin`),
-      },
       steps: [
         {
           name: 'Require Pages deployments to succeed',
