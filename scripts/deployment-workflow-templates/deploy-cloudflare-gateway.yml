@@ -162,6 +162,7 @@ jobs:
             --deployment-plan-output "$GATEWAY_DEPLOYMENT_PLAN"
 
       - name: Check prebuilt Gateway bundle
+        working-directory: packages/console-server-ts
         run: test -s "$GATEWAY_WORKER_BUNDLE"
 
       - name: Apply remote console D1 migrations
