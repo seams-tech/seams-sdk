@@ -622,10 +622,10 @@ jobs:
     outputs:
       selected_components: ${{ steps.release_selection.outputs.selected_components }}
     environment:
-      name: ${{ format('{0}-mpc-router', env.DEPLOY_TARGET) }}
+      name: ${{ format('{0}-mpc-router', 'production') }}
     env:
       DEPLOY_TARGET: production
-      DEPLOY_SHA: ${{ env.SOURCE_SHA }}
+      DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
       ARTIFACT_RUN_ID: ${{ github.run_id }}
       RELEASE_SET_ID: ${{ needs.auto_create_release_set.outputs.release_set_id }}
       DEPLOY_SOURCE_BRANCH: main
@@ -768,10 +768,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
-      name: ${{ format('{0}-signing-worker', env.DEPLOY_TARGET) }}
+      name: ${{ format('{0}-signing-worker', 'production') }}
     env:
       DEPLOY_TARGET: production
-      DEPLOY_SHA: ${{ env.SOURCE_SHA }}
+      DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
       ARTIFACT_RUN_ID: ${{ github.run_id }}
       RELEASE_SET_ID: ${{ needs.auto_create_release_set.outputs.release_set_id }}
       DEPLOY_SOURCE_BRANCH: main
@@ -779,10 +779,10 @@ jobs:
       STAGING_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway-staging.n6378056.workers.dev
       PRODUCTION_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway.n6378056.workers.dev
       RUST_TOOLCHAIN: 1.96.0
-      WORKER_ENV: ${{ env.DEPLOY_TARGET == 'staging' && 'staging' || '' }}
+      WORKER_ENV: ${{ 'production' == 'staging' && 'staging' || '' }}
       ROUTER_AB_USE_PREBUILT: '1'
-      ROUTER_AB_DEPLOY_TARGET: ${{ env.DEPLOY_TARGET }}
-      ROUTER_AB_DEPLOY_SHA: ${{ env.SOURCE_SHA }}
+      ROUTER_AB_DEPLOY_TARGET: ${{ 'production' }}
+      ROUTER_AB_DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
       ROUTER_AB_ARTIFACT_IDENTITY_JSON: '{"profile":"release","role":"signing-worker"}'
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -882,10 +882,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
-      name: ${{ format('{0}-deriver-a', env.DEPLOY_TARGET) }}
+      name: ${{ format('{0}-deriver-a', 'production') }}
     env:
       DEPLOY_TARGET: production
-      DEPLOY_SHA: ${{ env.SOURCE_SHA }}
+      DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
       ARTIFACT_RUN_ID: ${{ github.run_id }}
       RELEASE_SET_ID: ${{ needs.auto_create_release_set.outputs.release_set_id }}
       DEPLOY_SOURCE_BRANCH: main
@@ -893,10 +893,10 @@ jobs:
       STAGING_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway-staging.n6378056.workers.dev
       PRODUCTION_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway.n6378056.workers.dev
       RUST_TOOLCHAIN: 1.96.0
-      WORKER_ENV: ${{ env.DEPLOY_TARGET == 'staging' && 'staging' || '' }}
+      WORKER_ENV: ${{ 'production' == 'staging' && 'staging' || '' }}
       ROUTER_AB_USE_PREBUILT: '1'
-      ROUTER_AB_DEPLOY_TARGET: ${{ env.DEPLOY_TARGET }}
-      ROUTER_AB_DEPLOY_SHA: ${{ env.SOURCE_SHA }}
+      ROUTER_AB_DEPLOY_TARGET: ${{ 'production' }}
+      ROUTER_AB_DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
       ROUTER_AB_ARTIFACT_IDENTITY_JSON: '{"profile":"release","role":"deriver-a"}'
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -1010,10 +1010,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
-      name: ${{ format('{0}-deriver-b', env.DEPLOY_TARGET) }}
+      name: ${{ format('{0}-deriver-b', 'production') }}
     env:
       DEPLOY_TARGET: production
-      DEPLOY_SHA: ${{ env.SOURCE_SHA }}
+      DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
       ARTIFACT_RUN_ID: ${{ github.run_id }}
       RELEASE_SET_ID: ${{ needs.auto_create_release_set.outputs.release_set_id }}
       DEPLOY_SOURCE_BRANCH: main
@@ -1021,10 +1021,10 @@ jobs:
       STAGING_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway-staging.n6378056.workers.dev
       PRODUCTION_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway.n6378056.workers.dev
       RUST_TOOLCHAIN: 1.96.0
-      WORKER_ENV: ${{ env.DEPLOY_TARGET == 'staging' && 'staging' || '' }}
+      WORKER_ENV: ${{ 'production' == 'staging' && 'staging' || '' }}
       ROUTER_AB_USE_PREBUILT: '1'
-      ROUTER_AB_DEPLOY_TARGET: ${{ env.DEPLOY_TARGET }}
-      ROUTER_AB_DEPLOY_SHA: ${{ env.SOURCE_SHA }}
+      ROUTER_AB_DEPLOY_TARGET: ${{ 'production' }}
+      ROUTER_AB_DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
       ROUTER_AB_ARTIFACT_IDENTITY_JSON: '{"profile":"release","role":"deriver-b"}'
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -1145,10 +1145,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
-      name: ${{ format('{0}-mpc-router', env.DEPLOY_TARGET) }}
+      name: ${{ format('{0}-mpc-router', 'production') }}
     env:
       DEPLOY_TARGET: production
-      DEPLOY_SHA: ${{ env.SOURCE_SHA }}
+      DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
       ARTIFACT_RUN_ID: ${{ github.run_id }}
       RELEASE_SET_ID: ${{ needs.auto_create_release_set.outputs.release_set_id }}
       DEPLOY_SOURCE_BRANCH: main
@@ -1156,10 +1156,10 @@ jobs:
       STAGING_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway-staging.n6378056.workers.dev
       PRODUCTION_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway.n6378056.workers.dev
       RUST_TOOLCHAIN: 1.96.0
-      WORKER_ENV: ${{ env.DEPLOY_TARGET == 'staging' && 'staging' || '' }}
+      WORKER_ENV: ${{ 'production' == 'staging' && 'staging' || '' }}
       ROUTER_AB_USE_PREBUILT: '1'
-      ROUTER_AB_DEPLOY_TARGET: ${{ env.DEPLOY_TARGET }}
-      ROUTER_AB_DEPLOY_SHA: ${{ env.SOURCE_SHA }}
+      ROUTER_AB_DEPLOY_TARGET: ${{ 'production' }}
+      ROUTER_AB_DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
       ROUTER_AB_ARTIFACT_IDENTITY_JSON: '{"profile":"release","role":"router"}'
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -1307,7 +1307,7 @@ jobs:
       - name: Checkout selected revision
         uses: actions/checkout@v6
         with:
-          ref: ${{ env.SOURCE_SHA }}
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
@@ -1335,14 +1335,14 @@ jobs:
           gateway_origin="$DEPLOYED_GATEWAY_ORIGIN"
           if [[ -z "$gateway_origin" ]]; then
             gateway_origin="$STAGING_GATEWAY_ORIGIN"
-            if [[ "${{ env.DEPLOY_TARGET }}" == 'production' ]]; then
+            if [[ "${{ 'production' }}" == 'production' ]]; then
               gateway_origin="$PRODUCTION_GATEWAY_ORIGIN"
             fi
           fi
           node scripts/deployment-release.mjs verify \
             --manifest .release-artifacts/release-set/manifest.json \
-            --target "${{ env.DEPLOY_TARGET }}" \
-            --source-sha "${{ env.SOURCE_SHA }}" \
+            --target "${{ 'production' }}" \
+            --source-sha "${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}" \
             --artifact-run-id "${{ github.run_id }}" \
             --release-set-id "${{ needs.auto_create_release_set.outputs.release_set_id }}"
           node scripts/deployment-final-smoke.mjs \
@@ -1361,7 +1361,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
     env:
       DEPLOY_TARGET: production
-      DEPLOY_SHA: ${{ env.SOURCE_SHA }}
+      DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
       ARTIFACT_RUN_ID: ${{ github.run_id }}
       RELEASE_SET_ID: ${{ needs.auto_create_release_set.outputs.release_set_id }}
       DEPLOY_SOURCE_BRANCH: main
@@ -1376,10 +1376,10 @@ jobs:
     outputs:
       gateway_origin: ${{ steps.gateway_readiness.outputs.gateway_origin }}
     environment:
-      name: ${{ env.DEPLOY_TARGET == 'production' && 'production-gateway' || 'staging-gateway' }}
+      name: ${{ 'production' == 'production' && 'production-gateway' || 'staging-gateway' }}
     env:
       DEPLOY_TARGET: production
-      DEPLOY_SHA: ${{ env.SOURCE_SHA }}
+      DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
       ARTIFACT_RUN_ID: ${{ github.run_id }}
       RELEASE_SET_ID: ${{ needs.auto_create_release_set.outputs.release_set_id }}
       DEPLOY_SOURCE_BRANCH: main
@@ -1387,7 +1387,9 @@ jobs:
       STAGING_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway-staging.n6378056.workers.dev
       PRODUCTION_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway.n6378056.workers.dev
       RUST_TOOLCHAIN: 1.96.0
-      GATEWAY_ARTIFACT_NAME: release-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_SHA }}-gateway
+      GATEWAY_ARTIFACT_NAME:
+        release-production-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha
+        || inputs.source_sha }}-gateway
       GATEWAY_ARTIFACT_IDENTITY: '{"wasmPackageSet":"gateway-v1"}'
       WRANGLER_CONFIG: .wrangler/generated/gateway.jsonc
       GATEWAY_DEPLOYMENT_PLAN: .wrangler/generated/gateway-deployment-plan.json
@@ -1596,10 +1598,10 @@ jobs:
     outputs:
       pages_origin: ${{ steps.deploy_app.outputs.pages_origin }}
     environment:
-      name: ${{ env.DEPLOY_TARGET }}
+      name: ${{ 'production' }}
     env:
       DEPLOY_TARGET: production
-      DEPLOY_SHA: ${{ env.SOURCE_SHA }}
+      DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
       ARTIFACT_RUN_ID: ${{ github.run_id }}
       RELEASE_SET_ID: ${{ needs.auto_create_release_set.outputs.release_set_id }}
       DEPLOY_SOURCE_BRANCH: main
@@ -1609,7 +1611,9 @@ jobs:
       RUST_TOOLCHAIN: 1.96.0
       DEPLOY_ENVIRONMENT: production
       PAGES_BRANCH: main
-      PAGES_ARTIFACT_NAME: release-${{ env.DEPLOY_ENVIRONMENT }}-${{ env.DEPLOY_SHA }}-pages
+      PAGES_ARTIFACT_NAME:
+        release-production-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha ||
+        inputs.source_sha }}-pages
       PAGES_ARTIFACT_IDENTITY: '{"pagesBuild":"app-wallet-v1"}'
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -1726,10 +1730,10 @@ jobs:
     outputs:
       pages_origin: ${{ steps.deploy_wallet.outputs.pages_origin }}
     environment:
-      name: ${{ env.DEPLOY_TARGET }}
+      name: ${{ 'production' }}
     env:
       DEPLOY_TARGET: production
-      DEPLOY_SHA: ${{ env.SOURCE_SHA }}
+      DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
       ARTIFACT_RUN_ID: ${{ github.run_id }}
       RELEASE_SET_ID: ${{ needs.auto_create_release_set.outputs.release_set_id }}
       DEPLOY_SOURCE_BRANCH: main
@@ -1739,7 +1743,9 @@ jobs:
       RUST_TOOLCHAIN: 1.96.0
       DEPLOY_ENVIRONMENT: production
       PAGES_BRANCH: main
-      PAGES_ARTIFACT_NAME: release-${{ env.DEPLOY_ENVIRONMENT }}-${{ env.DEPLOY_SHA }}-pages
+      PAGES_ARTIFACT_NAME:
+        release-production-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha ||
+        inputs.source_sha }}-pages
       PAGES_ARTIFACT_IDENTITY: '{"pagesBuild":"app-wallet-v1"}'
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -1879,12 +1885,12 @@ jobs:
     outputs:
       selected_components: ${{ steps.release_selection.outputs.selected_components }}
     environment:
-      name: ${{ format('{0}-mpc-router', env.DEPLOY_TARGET) }}
+      name: ${{ format('{0}-mpc-router', 'production') }}
     env:
       DEPLOY_TARGET: production
-      DEPLOY_SHA: ${{ env.SOURCE_SHA }}
-      ARTIFACT_RUN_ID: ${{ env.MANUAL_ARTIFACT_RUN_ID }}
-      RELEASE_SET_ID: ${{ env.MANUAL_RELEASE_SET_ID }}
+      DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
+      ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
+      RELEASE_SET_ID: ${{ inputs.release_set_id }}
       DEPLOY_SOURCE_BRANCH: main
       ENFORCE_CURRENT_BRANCH: 'false'
       STAGING_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway-staging.n6378056.workers.dev
@@ -2022,21 +2028,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
-      name: ${{ format('{0}-signing-worker', env.DEPLOY_TARGET) }}
+      name: ${{ format('{0}-signing-worker', 'production') }}
     env:
       DEPLOY_TARGET: production
-      DEPLOY_SHA: ${{ env.SOURCE_SHA }}
-      ARTIFACT_RUN_ID: ${{ env.MANUAL_ARTIFACT_RUN_ID }}
-      RELEASE_SET_ID: ${{ env.MANUAL_RELEASE_SET_ID }}
+      DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
+      ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
+      RELEASE_SET_ID: ${{ inputs.release_set_id }}
       DEPLOY_SOURCE_BRANCH: main
       ENFORCE_CURRENT_BRANCH: 'false'
       STAGING_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway-staging.n6378056.workers.dev
       PRODUCTION_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway.n6378056.workers.dev
       RUST_TOOLCHAIN: 1.96.0
-      WORKER_ENV: ${{ env.DEPLOY_TARGET == 'staging' && 'staging' || '' }}
+      WORKER_ENV: ${{ 'production' == 'staging' && 'staging' || '' }}
       ROUTER_AB_USE_PREBUILT: '1'
-      ROUTER_AB_DEPLOY_TARGET: ${{ env.DEPLOY_TARGET }}
-      ROUTER_AB_DEPLOY_SHA: ${{ env.SOURCE_SHA }}
+      ROUTER_AB_DEPLOY_TARGET: ${{ 'production' }}
+      ROUTER_AB_DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
       ROUTER_AB_ARTIFACT_IDENTITY_JSON: '{"profile":"release","role":"signing-worker"}'
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -2135,21 +2141,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
-      name: ${{ format('{0}-deriver-a', env.DEPLOY_TARGET) }}
+      name: ${{ format('{0}-deriver-a', 'production') }}
     env:
       DEPLOY_TARGET: production
-      DEPLOY_SHA: ${{ env.SOURCE_SHA }}
-      ARTIFACT_RUN_ID: ${{ env.MANUAL_ARTIFACT_RUN_ID }}
-      RELEASE_SET_ID: ${{ env.MANUAL_RELEASE_SET_ID }}
+      DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
+      ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
+      RELEASE_SET_ID: ${{ inputs.release_set_id }}
       DEPLOY_SOURCE_BRANCH: main
       ENFORCE_CURRENT_BRANCH: 'false'
       STAGING_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway-staging.n6378056.workers.dev
       PRODUCTION_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway.n6378056.workers.dev
       RUST_TOOLCHAIN: 1.96.0
-      WORKER_ENV: ${{ env.DEPLOY_TARGET == 'staging' && 'staging' || '' }}
+      WORKER_ENV: ${{ 'production' == 'staging' && 'staging' || '' }}
       ROUTER_AB_USE_PREBUILT: '1'
-      ROUTER_AB_DEPLOY_TARGET: ${{ env.DEPLOY_TARGET }}
-      ROUTER_AB_DEPLOY_SHA: ${{ env.SOURCE_SHA }}
+      ROUTER_AB_DEPLOY_TARGET: ${{ 'production' }}
+      ROUTER_AB_DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
       ROUTER_AB_ARTIFACT_IDENTITY_JSON: '{"profile":"release","role":"deriver-a"}'
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -2262,21 +2268,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
-      name: ${{ format('{0}-deriver-b', env.DEPLOY_TARGET) }}
+      name: ${{ format('{0}-deriver-b', 'production') }}
     env:
       DEPLOY_TARGET: production
-      DEPLOY_SHA: ${{ env.SOURCE_SHA }}
-      ARTIFACT_RUN_ID: ${{ env.MANUAL_ARTIFACT_RUN_ID }}
-      RELEASE_SET_ID: ${{ env.MANUAL_RELEASE_SET_ID }}
+      DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
+      ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
+      RELEASE_SET_ID: ${{ inputs.release_set_id }}
       DEPLOY_SOURCE_BRANCH: main
       ENFORCE_CURRENT_BRANCH: 'false'
       STAGING_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway-staging.n6378056.workers.dev
       PRODUCTION_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway.n6378056.workers.dev
       RUST_TOOLCHAIN: 1.96.0
-      WORKER_ENV: ${{ env.DEPLOY_TARGET == 'staging' && 'staging' || '' }}
+      WORKER_ENV: ${{ 'production' == 'staging' && 'staging' || '' }}
       ROUTER_AB_USE_PREBUILT: '1'
-      ROUTER_AB_DEPLOY_TARGET: ${{ env.DEPLOY_TARGET }}
-      ROUTER_AB_DEPLOY_SHA: ${{ env.SOURCE_SHA }}
+      ROUTER_AB_DEPLOY_TARGET: ${{ 'production' }}
+      ROUTER_AB_DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
       ROUTER_AB_ARTIFACT_IDENTITY_JSON: '{"profile":"release","role":"deriver-b"}'
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -2396,21 +2402,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
-      name: ${{ format('{0}-mpc-router', env.DEPLOY_TARGET) }}
+      name: ${{ format('{0}-mpc-router', 'production') }}
     env:
       DEPLOY_TARGET: production
-      DEPLOY_SHA: ${{ env.SOURCE_SHA }}
-      ARTIFACT_RUN_ID: ${{ env.MANUAL_ARTIFACT_RUN_ID }}
-      RELEASE_SET_ID: ${{ env.MANUAL_RELEASE_SET_ID }}
+      DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
+      ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
+      RELEASE_SET_ID: ${{ inputs.release_set_id }}
       DEPLOY_SOURCE_BRANCH: main
       ENFORCE_CURRENT_BRANCH: 'false'
       STAGING_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway-staging.n6378056.workers.dev
       PRODUCTION_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway.n6378056.workers.dev
       RUST_TOOLCHAIN: 1.96.0
-      WORKER_ENV: ${{ env.DEPLOY_TARGET == 'staging' && 'staging' || '' }}
+      WORKER_ENV: ${{ 'production' == 'staging' && 'staging' || '' }}
       ROUTER_AB_USE_PREBUILT: '1'
-      ROUTER_AB_DEPLOY_TARGET: ${{ env.DEPLOY_TARGET }}
-      ROUTER_AB_DEPLOY_SHA: ${{ env.SOURCE_SHA }}
+      ROUTER_AB_DEPLOY_TARGET: ${{ 'production' }}
+      ROUTER_AB_DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
       ROUTER_AB_ARTIFACT_IDENTITY_JSON: '{"profile":"release","role":"router"}'
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -2557,7 +2563,7 @@ jobs:
       - name: Checkout selected revision
         uses: actions/checkout@v6
         with:
-          ref: ${{ env.SOURCE_SHA }}
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
@@ -2569,11 +2575,11 @@ jobs:
       - name: Download release-set manifest
         uses: actions/download-artifact@v8
         with:
-          name: release-set-${{ env.MANUAL_RELEASE_SET_ID }}
+          name: release-set-${{ inputs.release_set_id }}
           path: .release-artifacts/release-set
           github-token: ${{ secrets.GITHUB_TOKEN }}
           repository: ${{ github.repository }}
-          run-id: ${{ env.MANUAL_ARTIFACT_RUN_ID }}
+          run-id: ${{ inputs.artifact_run_id }}
       - name: Verify final release smoke
         env:
           DEPLOYED_GATEWAY_ORIGIN: ${{ needs.manual_deploy_gateway.outputs.gateway_origin }}
@@ -2585,19 +2591,19 @@ jobs:
           gateway_origin="$DEPLOYED_GATEWAY_ORIGIN"
           if [[ -z "$gateway_origin" ]]; then
             gateway_origin="$STAGING_GATEWAY_ORIGIN"
-            if [[ "${{ env.DEPLOY_TARGET }}" == 'production' ]]; then
+            if [[ "${{ 'production' }}" == 'production' ]]; then
               gateway_origin="$PRODUCTION_GATEWAY_ORIGIN"
             fi
           fi
           node scripts/deployment-release.mjs verify \
             --manifest .release-artifacts/release-set/manifest.json \
-            --target "${{ env.DEPLOY_TARGET }}" \
-            --source-sha "${{ env.SOURCE_SHA }}" \
-            --artifact-run-id "${{ env.MANUAL_ARTIFACT_RUN_ID }}" \
-            --release-set-id "${{ env.MANUAL_RELEASE_SET_ID }}"
+            --target "${{ 'production' }}" \
+            --source-sha "${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}" \
+            --artifact-run-id "${{ inputs.artifact_run_id }}" \
+            --release-set-id "${{ inputs.release_set_id }}"
           node scripts/deployment-final-smoke.mjs \
             --manifest .release-artifacts/release-set/manifest.json \
-            --release-set-id "${{ env.MANUAL_RELEASE_SET_ID }}" \
+            --release-set-id "${{ inputs.release_set_id }}" \
             --selected-components "$SELECTED_COMPONENTS" \
             --gateway-origin "$gateway_origin" \
             --site-origin "$SITE_ORIGIN" \
@@ -2605,15 +2611,15 @@ jobs:
           {
             echo '## Final release smoke'
             echo
-            echo "- Release set: \`${{ env.MANUAL_RELEASE_SET_ID }}\`"
+            echo "- Release set: \`${{ inputs.release_set_id }}\`"
             echo "- Selected components: \`$SELECTED_COMPONENTS\`"
             echo '- Selected component readiness, representative routes, and release identity passed.'
           } >> "$GITHUB_STEP_SUMMARY"
     env:
       DEPLOY_TARGET: production
-      DEPLOY_SHA: ${{ env.SOURCE_SHA }}
-      ARTIFACT_RUN_ID: ${{ env.MANUAL_ARTIFACT_RUN_ID }}
-      RELEASE_SET_ID: ${{ env.MANUAL_RELEASE_SET_ID }}
+      DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
+      ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
+      RELEASE_SET_ID: ${{ inputs.release_set_id }}
       DEPLOY_SOURCE_BRANCH: main
       ENFORCE_CURRENT_BRANCH: 'false'
       STAGING_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway-staging.n6378056.workers.dev
@@ -2626,18 +2632,20 @@ jobs:
     outputs:
       gateway_origin: ${{ steps.gateway_readiness.outputs.gateway_origin }}
     environment:
-      name: ${{ env.DEPLOY_TARGET == 'production' && 'production-gateway' || 'staging-gateway' }}
+      name: ${{ 'production' == 'production' && 'production-gateway' || 'staging-gateway' }}
     env:
       DEPLOY_TARGET: production
-      DEPLOY_SHA: ${{ env.SOURCE_SHA }}
-      ARTIFACT_RUN_ID: ${{ env.MANUAL_ARTIFACT_RUN_ID }}
-      RELEASE_SET_ID: ${{ env.MANUAL_RELEASE_SET_ID }}
+      DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
+      ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
+      RELEASE_SET_ID: ${{ inputs.release_set_id }}
       DEPLOY_SOURCE_BRANCH: main
       ENFORCE_CURRENT_BRANCH: 'false'
       STAGING_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway-staging.n6378056.workers.dev
       PRODUCTION_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway.n6378056.workers.dev
       RUST_TOOLCHAIN: 1.96.0
-      GATEWAY_ARTIFACT_NAME: release-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_SHA }}-gateway
+      GATEWAY_ARTIFACT_NAME:
+        release-production-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha
+        || inputs.source_sha }}-gateway
       GATEWAY_ARTIFACT_IDENTITY: '{"wasmPackageSet":"gateway-v1"}'
       WRANGLER_CONFIG: .wrangler/generated/gateway.jsonc
       GATEWAY_DEPLOYMENT_PLAN: .wrangler/generated/gateway-deployment-plan.json
@@ -2846,12 +2854,12 @@ jobs:
     outputs:
       pages_origin: ${{ steps.deploy_app.outputs.pages_origin }}
     environment:
-      name: ${{ env.DEPLOY_TARGET }}
+      name: ${{ 'production' }}
     env:
       DEPLOY_TARGET: production
-      DEPLOY_SHA: ${{ env.SOURCE_SHA }}
-      ARTIFACT_RUN_ID: ${{ env.MANUAL_ARTIFACT_RUN_ID }}
-      RELEASE_SET_ID: ${{ env.MANUAL_RELEASE_SET_ID }}
+      DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
+      ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
+      RELEASE_SET_ID: ${{ inputs.release_set_id }}
       DEPLOY_SOURCE_BRANCH: main
       ENFORCE_CURRENT_BRANCH: 'false'
       STAGING_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway-staging.n6378056.workers.dev
@@ -2859,7 +2867,9 @@ jobs:
       RUST_TOOLCHAIN: 1.96.0
       DEPLOY_ENVIRONMENT: production
       PAGES_BRANCH: main
-      PAGES_ARTIFACT_NAME: release-${{ env.DEPLOY_ENVIRONMENT }}-${{ env.DEPLOY_SHA }}-pages
+      PAGES_ARTIFACT_NAME:
+        release-production-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha ||
+        inputs.source_sha }}-pages
       PAGES_ARTIFACT_IDENTITY: '{"pagesBuild":"app-wallet-v1"}'
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -2975,12 +2985,12 @@ jobs:
     outputs:
       pages_origin: ${{ steps.deploy_wallet.outputs.pages_origin }}
     environment:
-      name: ${{ env.DEPLOY_TARGET }}
+      name: ${{ 'production' }}
     env:
       DEPLOY_TARGET: production
-      DEPLOY_SHA: ${{ env.SOURCE_SHA }}
-      ARTIFACT_RUN_ID: ${{ env.MANUAL_ARTIFACT_RUN_ID }}
-      RELEASE_SET_ID: ${{ env.MANUAL_RELEASE_SET_ID }}
+      DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
+      ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
+      RELEASE_SET_ID: ${{ inputs.release_set_id }}
       DEPLOY_SOURCE_BRANCH: main
       ENFORCE_CURRENT_BRANCH: 'false'
       STAGING_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway-staging.n6378056.workers.dev
@@ -2988,7 +2998,9 @@ jobs:
       RUST_TOOLCHAIN: 1.96.0
       DEPLOY_ENVIRONMENT: production
       PAGES_BRANCH: main
-      PAGES_ARTIFACT_NAME: release-${{ env.DEPLOY_ENVIRONMENT }}-${{ env.DEPLOY_SHA }}-pages
+      PAGES_ARTIFACT_NAME:
+        release-production-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha ||
+        inputs.source_sha }}-pages
       PAGES_ARTIFACT_IDENTITY: '{"pagesBuild":"app-wallet-v1"}'
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
