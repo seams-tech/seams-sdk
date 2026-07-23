@@ -64,7 +64,7 @@ function validComponents(): ComponentDto[] {
     createComponent('signing-worker', 'signing-worker', 4),
     createComponent('gateway', 'gateway-wasm', 5),
     createComponent('site', 'pages', 6),
-    createComponent('signer-iframe', 'sdk-r2', 7),
+    createComponent('signer-iframe', 'signer-iframe', 7),
   ];
 }
 
@@ -100,16 +100,24 @@ function createFixture(options: FixtureOptions = {}) {
 }
 
 function componentNameForKind(kind: string): string {
-  const componentNamesByKind: Record<string, string> = {
-    router: 'router',
-    'deriver-a': 'deriver-a',
-    'deriver-b': 'deriver-b',
-    'signing-worker': 'signing-worker',
-    'gateway-wasm': 'gateway',
-    pages: 'site',
-    'sdk-r2': 'signer-iframe',
-  };
-  return componentNamesByKind[kind] ?? kind;
+  switch (kind) {
+    case 'router':
+      return 'router';
+    case 'deriver-a':
+      return 'deriver-a';
+    case 'deriver-b':
+      return 'deriver-b';
+    case 'signing-worker':
+      return 'signing-worker';
+    case 'gateway-wasm':
+      return 'gateway';
+    case 'pages':
+      return 'site';
+    case 'signer-iframe':
+      return 'signer-iframe';
+    default:
+      return kind;
+  }
 }
 
 function createArgs(
@@ -221,7 +229,7 @@ test('release-set create and verify cover the full immutable manifest contract',
     'signing-worker',
     'gateway-wasm',
     'pages',
-    'sdk-r2',
+    'signer-iframe',
   ]);
 
   const verified = runRelease(verifyArgs(fixture));
@@ -339,7 +347,11 @@ test('release-set boundaries reject unsupported targets and component kinds', ()
 });
 
 test('release-set boundaries reject missing fields, mapping drift, and duplicate components', () => {
-  const missingFieldComponent: Record<string, unknown> = { ...validComponents()[0] };
+  const missingFieldComponent: Record<string, unknown> = createComponent(
+    'mpc-router',
+    'router',
+    1,
+  );
   delete missingFieldComponent.releaseId;
   const missingFieldFixture = createFixture({ components: [missingFieldComponent] });
   expectFailure(

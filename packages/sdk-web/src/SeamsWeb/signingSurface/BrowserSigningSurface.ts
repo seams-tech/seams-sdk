@@ -34,6 +34,8 @@ import type {
   SignerWorkerOperationRequest,
   SignerWorkerOperationResult,
   SignerWorkerOperationType,
+  EmailOtpYaoPrewarmRequest,
+  EmailOtpYaoPrewarmOutcome,
 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { UiConfirmRuntimeBridgePort } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
@@ -587,6 +589,12 @@ export class BrowserSigningSurface {
     return await this.enginePorts
       .getManagerConveniencePorts()
       .warmCriticalResources(accountContext);
+  }
+
+  async prewarmEmailOtpYao(
+    request?: EmailOtpYaoPrewarmRequest,
+  ): Promise<EmailOtpYaoPrewarmOutcome> {
+    return await this.signerWorkerManager.prewarmEmailOtpYao(request);
   }
 
   getRpId(): string {

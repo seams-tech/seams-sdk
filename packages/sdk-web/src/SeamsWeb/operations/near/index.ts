@@ -71,5 +71,6 @@ export function buildNearWalletRegistrationArgs(
 }
 
 export { signDelegateAction } from './delegateAction';
-export { sendDelegateActionViaRelayer } from './delegateAction';
+export { sendDelegateActionViaRelayer, delegateRelayerAuthFromConfigs } from './delegateAction';
+export type { DelegateRelayerAuth } from './delegateAction';
 export type { SignNEP413MessageParams, SignNEP413MessageResult } from './signNEP413';

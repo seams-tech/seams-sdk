@@ -61,7 +61,6 @@ const PLATFORM_BILLING_ROUTE: DashboardRoute = '/platform/billing';
 const DASHBOARD_LOGIN_ROUTE = '/dashboard/login';
 const DASHBOARD_ONBOARDING_STATE_UPDATED_EVENT = 'dashboard:onboarding-state-updated';
 const LOCKED_PRODUCTION_OPTION_PREFIX = '__production_locked__:';
-const SIDEBAR_COLLAPSE_SETTLE_MS = 280;
 
 function isSelectableOption(option: TopbarOption): boolean {
   return option.disabled !== true;
@@ -1013,33 +1012,8 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
   const onboardingRouteActive = activeRoute === DASHBOARD_ONBOARDING_ROUTE;
   const focusedOnboardingMode = onboardingRouteActive;
   const isSidebarCollapsed = !focusedOnboardingMode && !isSidebarExpanded;
-  const [isSidebarCollapsedSettled, setIsSidebarCollapsedSettled] = React.useState<boolean>(
-    isSidebarCollapsed,
-  );
-  const wasSidebarCollapsedRef = React.useRef<boolean>(isSidebarCollapsed);
-
-  React.useEffect(() => {
-    const wasSidebarCollapsed = wasSidebarCollapsedRef.current;
-    wasSidebarCollapsedRef.current = isSidebarCollapsed;
-
-    if (!isSidebarCollapsed) {
-      setIsSidebarCollapsedSettled(false);
-      return;
-    }
-    if (wasSidebarCollapsed) {
-      setIsSidebarCollapsedSettled(true);
-      return;
-    }
-
-    setIsSidebarCollapsedSettled(false);
-    const timeoutId = window.setTimeout(() => {
-      setIsSidebarCollapsedSettled(true);
-    }, SIDEBAR_COLLAPSE_SETTLE_MS);
-    return () => window.clearTimeout(timeoutId);
-  }, [isSidebarCollapsed]);
-
   const sidebarExpanded = focusedOnboardingMode ? true : isSidebarExpanded;
-  const shellClassName = `dashboard-shell dashboard-shell--route-${activeView.key}${focusedOnboardingMode ? ' dashboard-shell--onboarding-focus' : ''}${isSidebarCollapsed ? ' dashboard-shell--sidebar-collapsed' : ''}${isSidebarCollapsedSettled ? ' dashboard-shell--sidebar-collapsed-settled' : ''}`;
+  const shellClassName = `dashboard-shell dashboard-shell--route-${activeView.key}${focusedOnboardingMode ? ' dashboard-shell--onboarding-focus' : ''}${isSidebarCollapsed ? ' dashboard-shell--sidebar-collapsed' : ''}`;
   const navigationLockExemptPaths = React.useMemo<ReadonlySet<DashboardRoute>>(
     () =>
       new Set<DashboardRoute>(

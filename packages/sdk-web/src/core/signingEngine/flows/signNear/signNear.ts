@@ -40,6 +40,7 @@ import { signNearWithUiConfirm } from './nearSigningFlow';
 import { resolveThresholdEd25519CommitQueueKey } from '../../threshold/ed25519/commitQueue';
 import {
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
+  rememberPersistedThresholdEd25519RuntimeRecord,
   type ThresholdEd25519SessionRecord,
 } from '../../session/persistence/records';
 import {
@@ -1451,10 +1452,22 @@ async function readNearEd25519RuntimeRecordForSelectedLane(args: {
   ) {
     return record;
   }
-  return await args.deps.readPersistedEd25519SessionRecordForSigning({
+  const persisted = await args.deps.readPersistedEd25519SessionRecordForSigning({
     walletId: args.selectedLane.identity.signer.account.wallet.walletId,
     laneIdentity: args.selectedLane.identity,
   });
+  if (persisted) {
+    // A page/iframe refresh wipes the in-memory runtime cache. Ad-hoc signing
+    // (delegate / NEP-413) resolves auth by NEAR account against that cache, so
+    // without re-seeding it here the read-through persisted record never lands
+    // in the account index and resolveNearSigningSessionAuthContext hard-fails
+    // with SIGNING_SESSION_AUTH_UNAVAILABLE. Ephemeral auth material is still
+    // absent, so the rehydrated record derives as auth_missing and routes
+    // through step-up re-auth (matching the transaction path) rather than
+    // signing with stale material.
+    rememberPersistedThresholdEd25519RuntimeRecord(persisted);
+  }
+  return persisted;
 }
 
 function publishNearEd25519RuntimeIdentityForRecord(

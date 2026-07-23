@@ -22,6 +22,7 @@ import {
 import {
   matchResolvedSponsoredNearDelegatePolicy,
   parseResolvedSponsoredNearDelegatePolicies,
+  summarizeSignedDelegateForSponsorship,
 } from '../sponsorship/near';
 import {
   isSponsorshipPrepaidBalanceEnforcementError,
@@ -639,7 +640,9 @@ export async function handleRouterApiSignedDelegate(
     request: { body: input.body, headers: input.headers },
     route: input.route,
     services: {
-      authService: input.services.signedDelegateAuth,
+      // Key must match the route's requiredServices entry ('signedDelegateAuth');
+      // enforceRoutePolicy looks up services by that exact name.
+      signedDelegateAuth: input.services.signedDelegateAuth,
       ...(input.services.billing ? { billing: input.services.billing } : {}),
       ...(publishableKeyAuth
         ? { publishableKeyAuth }
@@ -705,13 +708,35 @@ export async function handleRouterApiSignedDelegate(
       idempotencyKey,
       buildReplayResponse: (existing) => buildSignedDelegateReplayResponse(existing),
       resolveMatch: () => {
+        const resolvedPolicies = parseResolvedSponsoredNearDelegatePolicies(
+          sponsorshipRuntime.latestSnapshot.payload,
+        );
         const matched = matchResolvedSponsoredNearDelegatePolicy({
-          policies: parseResolvedSponsoredNearDelegatePolicies(
-            sponsorshipRuntime.latestSnapshot.payload,
-          ),
+          policies: resolvedPolicies,
           signedDelegate: parsedBody.signedDelegate,
         });
         if (!matched) {
+          let debugSummary: unknown = null;
+          try {
+            const summary = summarizeSignedDelegateForSponsorship(parsedBody.signedDelegate);
+            debugSummary = {
+              receiverId: summary.receiverId,
+              methods: summary.methods,
+              totalDepositYocto: summary.totalDepositYocto.toString(),
+              hasTransfer: summary.hasTransfer,
+              unsupportedActionKinds: summary.unsupportedActionKinds,
+            };
+          } catch (error: unknown) {
+            debugSummary = { error: error instanceof Error ? error.message : String(error) };
+          }
+          input.logger.warn('[router-api][signed-delegate] no sponsorship policy matched', {
+            environmentId: extractRouterApiEnvironmentId(input.headers) || '',
+            resolvedPolicyCount: resolvedPolicies.length,
+            allowedReceivers: resolvedPolicies.flatMap((policy) =>
+              policy.allowedDelegateActions.map((allowed) => allowed.receiverId),
+            ),
+            requestSummary: debugSummary,
+          });
           return {
             ok: false,
             response: routeJson(403, {

@@ -800,7 +800,7 @@ async function exportEmailOtpEd25519YaoSeed(args: {
     if (!request.ok) {
       throw new Error(`Invalid Email OTP Ed25519 Yao export admission: ${request.message}`);
     }
-    const client = await RouterAbEd25519YaoClientV1.initializeBundled();
+    const client = await getEmailOtpYaoClient();
     const result = await client.exportSeed({
       request: request.value,
       authorizationIdentity: {
@@ -2675,6 +2675,21 @@ let ecdsaDerivationClientInitPromise: Promise<void> | null = null;
 let ecdsaRegistrationClientInitPromise: Promise<void> | null = null;
 let emailOtpRuntimeInitPromise: Promise<void> | null = null;
 let nearSignerRecoveryInitPromise: Promise<void> | null = null;
+let emailOtpYaoClientInitPromise: Promise<RouterAbEd25519YaoClientV1> | null = null;
+
+function resetEmailOtpYaoClientInitOnFailure(error: unknown): never {
+  emailOtpYaoClientInitPromise = null;
+  throw error;
+}
+
+function getEmailOtpYaoClient(): Promise<RouterAbEd25519YaoClientV1> {
+  if (!emailOtpYaoClientInitPromise) {
+    emailOtpYaoClientInitPromise = RouterAbEd25519YaoClientV1.initializeBundled().catch(
+      resetEmailOtpYaoClientInitOnFailure,
+    );
+  }
+  return emailOtpYaoClientInitPromise;
+}
 
 async function ensureEvmCryptoWasm(): Promise<void> {
   if (evmCryptoInitPromise) return evmCryptoInitPromise;
@@ -3533,7 +3548,7 @@ async function importEmailOtpEd25519YaoLocalMaterial(args: {
   enrollmentSecret32: Uint8Array;
 }): Promise<EmailOtpEd25519YaoWorkerActivationResult> {
   const metadata = metadataFromEmailOtpEd25519YaoLocalMaterial(args);
-  const client = await RouterAbEd25519YaoClientV1.initializeBundled();
+  const client = await getEmailOtpYaoClient();
   const activeClient = client.importEmailOtpLocalMaterial({
     ownedEnrollmentSecret32: args.enrollmentSecret32.slice(),
     binding: encodeEmailOtpEd25519YaoStableCustodyBindingV1(args.material.binding),
@@ -6059,6 +6074,9 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
   if (!id || !type || !payload) return null;
 
   switch (type) {
+    case 'prewarmEmailOtpRegistrationCrypto':
+      rejectUnknownEmailOtpYaoFields(payload, [], type);
+      return { id, type, payload: {} };
     case 'requestEmailOtpChallenge':
       return {
         id,
@@ -6652,6 +6670,31 @@ self.addEventListener('message', async (event: MessageEvent) => {
 
   try {
     switch (msg.type) {
+      case 'prewarmEmailOtpRegistrationCrypto': {
+        const startedAt = performance.now();
+        try {
+          await getEmailOtpYaoClient();
+          postToMainThread({
+            id: msg.id,
+            ok: true,
+            result: {
+              kind: 'succeeded',
+              elapsedMs: Math.max(0, Math.round(performance.now() - startedAt)),
+            },
+          });
+        } catch {
+          postToMainThread({
+            id: msg.id,
+            ok: true,
+            result: {
+              kind: 'failed',
+              elapsedMs: Math.max(0, Math.round(performance.now() - startedAt)),
+              failureStage: 'yao_wasm_init',
+            },
+          });
+        }
+        return;
+      }
       case 'requestEmailOtpChallenge': {
         const routePlan = readRoutePlan(msg.payload.routePlan, 'requestEmailOtpChallenge');
         const sessionAuth = routePlanSessionAuth(routePlan);

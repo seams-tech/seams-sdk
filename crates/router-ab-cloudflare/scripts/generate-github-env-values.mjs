@@ -34,14 +34,7 @@ const SUPPLIED_VALUE_ALIASES = Object.freeze({
   VITE_CONSOLE_BASE_URL: ['GATEWAY_ORIGIN', 'VITE_RELAYER_URL'],
   VITE_RELAYER_URL: ['GATEWAY_ORIGIN'],
 });
-const OPTIONAL_SECRET_NAMES = new Set([
-  'RELAYER_PRIVATE_KEY',
-  'SPONSORED_EVM_EXECUTORS_JSON',
-  'R2_ENDPOINT',
-  'R2_BUCKET',
-  'R2_ACCESS_KEY_ID',
-  'R2_SECRET_ACCESS_KEY',
-]);
+const OPTIONAL_SECRET_NAMES = new Set(['RELAYER_PRIVATE_KEY', 'SPONSORED_EVM_EXECUTORS_JSON']);
 const DEPLOYMENT_AUDIT_VARIABLE_UPLOAD_ORDER = Object.freeze([
   'SEAMS_DEPLOYMENT_GENERATED_AT',
   'SEAMS_DEPLOYMENT_MANIFEST_SHA256',
@@ -452,8 +445,7 @@ function buildTargetConfiguration(targetName, suppliedValues) {
       targetName,
       `${targetName}-gateway`,
       'GATEWAY_RUNTIME_PROFILE',
-    ) ||
-    GATEWAY_RUNTIME_PROFILE_KINDS.testnetLiveDemo;
+    ) || GATEWAY_RUNTIME_PROFILE_KINDS.testnetLiveDemo;
   const emailOtpDeliveryKind = readSuppliedValue(
     suppliedValues,
     targetName,
@@ -715,7 +707,7 @@ function buildGeneralEnvironment(input) {
   return [
     environmentName,
     {
-      purpose: 'Pages builds and SDK R2 publication',
+      purpose: 'Pages builds',
       variables: {
         VITE_RELAYER_URL: configuration.gatewayOrigin,
         VITE_SEAMS_PROJECT_ENVIRONMENT_ID: configuration.projectEnvironmentId,
@@ -748,10 +740,6 @@ function buildGeneralEnvironment(input) {
         CLOUDFLARE_ACCOUNT_ID: manual(`${input.target}-cloudflare-account-id`),
         CF_PAGES_PROJECT_VITE: manual(`${environmentName}-cloudflare-pages-app-project`),
         CF_PAGES_PROJECT_WALLET: manual(`${environmentName}-cloudflare-pages-wallet-project`),
-        R2_ENDPOINT: manual(`${environmentName}-r2-endpoint`),
-        R2_BUCKET: manual(`${environmentName}-r2-sdk-bucket`),
-        R2_ACCESS_KEY_ID: manual(`${environmentName}-r2-access-key-id`),
-        R2_SECRET_ACCESS_KEY: manual(`${environmentName}-r2-secret-access-key`),
       },
     },
   ];
@@ -1194,7 +1182,6 @@ async function discoverCloudflareValues(targetName, suppliedValues, progressLogg
   ensurePagesProjects(targetName, suppliedValues, progressLogger);
   ensureSecretsStore(targetName, suppliedValues, progressLogger);
   await discoverWorkersDevOrigin(targetName, suppliedValues, accountId, progressLogger);
-  discoverR2Configuration(targetName, suppliedValues, accountId, progressLogger);
 }
 
 function requireCloudflareApiTokenForApply(targetName, suppliedValues, valuesFilePath) {
@@ -1480,42 +1467,6 @@ async function discoverWorkersDevOrigin(targetName, suppliedValues, accountId, p
   progressLogger.detail('Derived GATEWAY_ORIGIN from the Cloudflare Workers subdomain');
 }
 
-function discoverR2Configuration(targetName, suppliedValues, accountId, progressLogger) {
-  let bucket = readSuppliedValue(suppliedValues, targetName, targetName, 'R2_BUCKET');
-  if (!bucket) {
-    const listed = runWrangler(['r2', 'bucket', 'list']);
-    if (listed.status === 0) {
-      const bucketNames = readR2BucketNames(listed.stdout);
-      if (bucketNames.includes('w3a-sdk')) {
-        suppliedValues.R2_BUCKET = 'w3a-sdk';
-        bucket = 'w3a-sdk';
-        progressLogger.detail('Discovered R2_BUCKET=w3a-sdk');
-      }
-    }
-  }
-  const endpoint = readSuppliedValue(suppliedValues, targetName, targetName, 'R2_ENDPOINT');
-  if (bucket && !endpoint && accountId) {
-    suppliedValues.R2_ENDPOINT = `https://${accountId}.r2.cloudflarestorage.com`;
-    progressLogger.detail('Derived R2_ENDPOINT from CLOUDFLARE_ACCOUNT_ID');
-  }
-}
-
-function readR2BucketNames(output) {
-  const names = [];
-  for (const line of String(output).split(/\r?\n/)) {
-    const bucketName = readR2BucketName(line);
-    if (bucketName) {
-      names.push(bucketName);
-    }
-  }
-  return names;
-}
-
-function readR2BucketName(line) {
-  const match = /^\s*name:\s*(\S+)\s*$/.exec(line);
-  return match ? match[1] : undefined;
-}
-
 function runWranglerJson(args) {
   const child = runWrangler(args);
   if (child.status !== 0) {
@@ -1699,38 +1650,33 @@ function validateOutput(outputDocument) {
 
 function validateWorkflowCoverage(outputDocument) {
   const targetName = outputDocument.target;
-  const routerWorkflow = readWorkflow('deploy-router-ab.yml');
+  const routerWorkflow = readWorkflow('deploy-cloudflare-stack.yml');
   const requirements = new Map([
     [
       targetName,
       mergeWorkflowRequirements(
-        collectWorkflowRequirements(readWorkflow('deploy-pages.yml')),
-        collectWorkflowRequirements(readWorkflow('publish-sdk-r2.yml')),
+        collectWorkflowRequirements(readWorkflow('deploy-cloudflare-pages.yml')),
       ),
     ],
-    [`${targetName}-gateway`, collectWorkflowRequirements(readWorkflow('deploy-gateway.yml'))],
+    [
+      `${targetName}-gateway`,
+      collectWorkflowRequirements(readWorkflow('deploy-cloudflare-gateway.yml')),
+    ],
     [
       `${targetName}-mpc-router`,
-      mergeWorkflowRequirements(
-        collectWorkflowRequirements(extractWorkflowJob(routerWorkflow, 'validate_router_ab')),
-        collectWorkflowRequirements(
-          extractWorkflowJob(routerWorkflow, 'upload_or_deploy_mpc_router'),
-        ),
-      ),
+      collectWorkflowRequirements(extractWorkflowJob(routerWorkflow, 'deploy_mpc_router')),
     ],
     [
       `${targetName}-deriver-a`,
-      collectWorkflowRequirements(extractWorkflowJob(routerWorkflow, 'upload_or_deploy_deriver_a')),
+      collectWorkflowRequirements(extractWorkflowJob(routerWorkflow, 'deploy_deriver_a')),
     ],
     [
       `${targetName}-deriver-b`,
-      collectWorkflowRequirements(extractWorkflowJob(routerWorkflow, 'upload_or_deploy_deriver_b')),
+      collectWorkflowRequirements(extractWorkflowJob(routerWorkflow, 'deploy_deriver_b')),
     ],
     [
       `${targetName}-signing-worker`,
-      collectWorkflowRequirements(
-        extractWorkflowJob(routerWorkflow, 'upload_or_deploy_signing_worker'),
-      ),
+      collectWorkflowRequirements(extractWorkflowJob(routerWorkflow, 'deploy_signing_worker')),
     ],
   ]);
 
@@ -1751,7 +1697,7 @@ function validateWorkflowCoverage(outputDocument) {
 }
 
 function readWorkflow(fileName) {
-  return readFileSync(join(repoRoot, '.github/workflows', fileName), 'utf8');
+  return readFileSync(join(repoRoot, 'scripts/deployment-workflow-templates', fileName), 'utf8');
 }
 
 function extractWorkflowJob(workflowSource, jobName) {
@@ -2478,8 +2424,7 @@ function buildGatewayConfigFromScalarVariables(targetName, gateway, general) {
     schemaVersion: GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION,
     target: targetName,
     runtimeProfile: buildGatewayRuntimeProfile(
-      gateway.get('GATEWAY_RUNTIME_PROFILE') ||
-        GATEWAY_RUNTIME_PROFILE_KINDS.testnetLiveDemo,
+      gateway.get('GATEWAY_RUNTIME_PROFILE') || GATEWAY_RUNTIME_PROFILE_KINDS.testnetLiveDemo,
       gateway.get('EMAIL_OTP_DELIVERY_MODE') || undefined,
     ),
     resources: {

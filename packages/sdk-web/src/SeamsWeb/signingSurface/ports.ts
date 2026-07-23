@@ -130,6 +130,7 @@ import type {
   WorkerResourceWarmupAccountContext,
   WorkerResourceWarmupDiagnostics,
 } from '@/core/signingEngine/assembly/warmup';
+import type { EmailOtpYaoPrewarmOutcome } from '@/core/signingEngine/workerManager/workerTypes';
 
 export interface RpIdSurface {
   getRpId(): string;
@@ -182,6 +183,10 @@ export interface WalletIframeWarmupSurface {
   warmCriticalResources(
     accountContext?: WorkerResourceWarmupAccountContext,
   ): Promise<WorkerResourceWarmupDiagnostics>;
+}
+
+export interface RegistrationResourceWarmupSurface {
+  prewarmEmailOtpYao(): Promise<EmailOtpYaoPrewarmOutcome>;
 }
 
 export interface RuntimeStartupSurface {
@@ -491,6 +496,7 @@ export interface EmailOtpRegistrationEnrollmentSurface {
 export type RegistrationSigningSurface = RpIdSurface &
   Ed25519YaoRegistrationActivationSurface &
   Pick<WalletIframeWarmupSurface, 'warmCriticalResources'> &
+  RegistrationResourceWarmupSurface &
   Pick<
     SigningSessionSurface,
     'hydrateSigningSession' | 'persistSigningSessionSealForThresholdSession'

@@ -3,25 +3,22 @@ import { expect, test } from '@playwright/test';
 import { parseWorkflowYaml } from '../../crates/router-ab-cloudflare/scripts/assert-release-ready.mjs';
 
 const workflowSource = readFileSync(
-  new URL('../../.github/workflows/deploy-router-ab.yml', import.meta.url),
+  new URL(
+    '../../scripts/deployment-workflow-templates/deploy-cloudflare-stack.yml',
+    import.meta.url,
+  ),
   'utf8',
 );
 
 test('Router A/B release guard parses accepted-artifact topology from YAML', () => {
-  const workflow = parseWorkflowYaml(workflowSource, 'deploy-router-ab.yml');
+  const workflow = parseWorkflowYaml(workflowSource, 'deploy-cloudflare-stack-template.yml');
 
   expect(workflow.on.workflow_call.inputs.artifact_run_id).toMatchObject({
     required: true,
     type: 'string',
   });
   expect(workflow.env.DEPLOY_SHA).toBe('${{ inputs.deploy_sha }}');
-  expect(workflow.on.workflow_dispatch.inputs.operation).toBeUndefined();
-  expect(workflow.on.workflow_dispatch.inputs.role).toBeUndefined();
-  expect(workflow.on.workflow_dispatch.inputs.source_branch).toMatchObject({
-    required: true,
-    type: 'choice',
-    options: ['dev', 'main'],
-  });
+  expect(workflow.on.workflow_dispatch).toBeUndefined();
   expect(workflow.jobs.deploy_signing_worker.needs).toEqual(['preflight_release']);
   expect(workflow.jobs.deploy_deriver_a.needs).toEqual(['preflight_release']);
   expect(workflow.jobs.deploy_deriver_b.needs).toEqual(['preflight_release']);

@@ -15,7 +15,7 @@ const COMPONENT_KINDS = new Set([
   'signing-worker',
   'gateway-wasm',
   'pages',
-  'sdk-r2',
+  'signer-iframe',
 ]);
 const COMPONENT_NAMES = new Set([
   'router',
@@ -33,7 +33,7 @@ const COMPONENT_NAME_BY_KIND = new Map([
   ['signing-worker', 'signing-worker'],
   ['gateway-wasm', 'gateway'],
   ['pages', 'site'],
-  ['sdk-r2', 'signer-iframe'],
+  ['signer-iframe', 'signer-iframe'],
 ]);
 const COMPONENT_KIND_ORDER = Object.freeze([
   'router',
@@ -42,7 +42,7 @@ const COMPONENT_KIND_ORDER = Object.freeze([
   'signing-worker',
   'gateway-wasm',
   'pages',
-  'sdk-r2',
+  'signer-iframe',
 ]);
 const COMPONENT_KIND_INDEX = buildComponentKindIndex();
 const COMPONENT_FIELDS = Object.freeze([

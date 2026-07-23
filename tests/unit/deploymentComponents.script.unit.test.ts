@@ -199,15 +199,16 @@ test('CLI requires the select subcommand at the process boundary', () => {
 
 test('release workflow invokes the selector through its required CLI command', () => {
   const workflowSource = readFileSync(
-    path.join(repoRoot(), '.github/workflows/build-release.yml'),
+    path.join(repoRoot(), 'scripts/deployment-workflow-templates/release-cloudflare-stack.yml'),
     'utf8',
   );
 
   expect(workflowSource).toContain(
     'node scripts/deployment-components.mjs select --files-file "$RUNNER_TEMP/changed-files.txt"',
   );
-  expect(workflowSource).toContain('git diff --name-only "$CHANGE_BASE_SHA" "$SOURCE_SHA"');
-  expect(workflowSource).toContain("github.event.workflow_run.event == 'push'");
+  expect(workflowSource).toContain('name: template / release / cloudflare-stack');
+  expect(workflowSource).toContain('name: release-change-set');
+  expect(workflowSource).not.toContain('workflow_run:');
 });
 
 test('CLI unions component selection across files accumulated from multiple commits', () => {

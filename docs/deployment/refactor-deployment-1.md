@@ -4,14 +4,18 @@ Status: in progress
 
 ## Objective
 
-Keep routine staging and production deployments below 10 minutes at p90.
-Deployment must reuse exact-SHA artifacts, run independent uploads concurrently,
-and perform only the checks required to prevent a partial or incorrectly
-targeted release.
+Keep the accepted-artifact staging and production mutation path below 10
+minutes at p90. Track push-to-live latency separately as validation-gate,
+artifact-build, and mutation time. Deployment must reuse exact-SHA artifacts,
+run independent uploads concurrently, and perform only the checks required to
+prevent a partial or incorrectly targeted release.
 
-Full CI, comprehensive tests, formal evidence, and compilation do not belong in
-the deployment critical path. They run before an artifact is accepted or in
-separate manual and scheduled workflows.
+Full CI and comprehensive tests do not belong in the automatic push-to-deploy
+gate. Push runs of `Validate / repository` record the exact change range and
+check workflow policy; pull requests, merge groups, and manual runs execute the
+full validation suite. The stack workflow still builds selected artifacts in
+parallel before mutation, so build latency is tracked separately from the
+Cloudflare mutation budget.
 
 ## Fast Path
 
@@ -50,13 +54,14 @@ The repository now has:
 
 - Path-filtered deployment triggers.
 - PR/manual Router A/B validation split into parallel jobs.
-- Manual-only SDK publication to R2.
+- SDK runtime assets deployed with the environment-bound Pages artifact.
 - Exact source SHAs passed into deployment workflows.
 - Per-component artifacts and digest verification within a deployment run.
 - Initial pnpm, Cargo, Rust target, and generated artifact caching.
 - Router A/B role uploads run concurrently before MPCRouter activation.
 - Mutating deployment workflows use non-canceling concurrency.
-- A CI-gated `build-release.yml` workflow that builds the accepted SHA once.
+- A fast push validation gate that records the accepted SHA and change range.
+- Full repository validation on pull requests, merge groups, and manual runs.
 - A content-addressed release-set manifest with cross-run artifact verification.
 - A single target lock and bounded final smoke in the deployment orchestrator.
 - Selector-driven artifact jobs and deployment jobs for Router A/B, Gateway, and Pages.
@@ -67,14 +72,16 @@ The reusable release path is now wired for Router A/B, Gateway, and Pages. The
 remaining work is runtime identity, migration skip reporting, provider version
 receipts, and measured rollback:
 
-- `build-release.yml` owns the Router A/B, Gateway, and Pages builds.
-- Mutating component workflows consume artifacts from an explicit artifact run.
-- `deploy-production.yml` and `deploy-staging.yml` are explicit accepted-release
+- The environment-bound stack workflows own the selected Router A/B, Gateway,
+  and Pages builds and mutations.
+- Manual promotions and rollbacks consume artifacts from an explicit accepted
+  artifact run.
+- `deploy-production-cloudflare-stack.yml` and `deploy-staging-cloudflare-stack.yml` are explicit accepted-release
   promotion entrypoints.
 - Gateway D1 migration steps run on every Gateway deployment, although the
   migration applier is idempotent.
-- Gateway and Pages are reusable workflows without direct mutation entrypoints;
-  the Router A/B orchestrator owns the target lock.
+- Source-only workflow templates are kept outside `.github/workflows`; the
+  environment-bound stack workflows own the target lock.
 - Readiness checks are component-local, followed by one selected-release smoke
   that verifies the manifest identity and representative deployed routes.
 
@@ -91,14 +98,14 @@ selection, deployment ordering, and release reporting.
 It does not change signing protocols, runtime APIs, deployment identities,
 secrets, D1 schemas, or application behavior.
 
-Eliminating duplicate semantic SDK builds inside `ci.yml` is a separate CI
-optimization. This plan only requires one accepted release build and prohibits
-deployment workflows from compiling again.
+Eliminating duplicate semantic SDK builds inside `Validate / repository` is a
+separate validation optimization. This plan only requires one selected release
+build and prohibits mutating deployment jobs from compiling again.
 
 ## Phase 1: Establish the Release Artifact Set
 
-- [x] Add one trusted release-build workflow that builds all selected
-      deployment artifacts once.
+- [x] Add one trusted release-build job set inside the environment-bound stack
+      workflow that builds all selected deployment artifacts once.
 - [x] Upload the artifacts to a cross-run store. Start with GitHub Actions
       artifacts and explicit `run-id` downloads; use R2 only if retention
       requirements exceed the GitHub artifact window.
@@ -177,7 +184,7 @@ Acceptance:
       selected service bindings, Router A/B health, Pages routes,
       representative SDK assets, and release-set identity consistency.
 - [ ] Preserve the previous Cloudflare Worker versions until the smoke check
-      succeeds.
+      succeeds; the current `wrangler deploy` path activates immediately.
 
 Target graph:
 
@@ -197,10 +204,14 @@ Acceptance:
 - Independent uploads execute concurrently.
 - A mixed Router A/B release is never activated.
 - A failed component can be retried without rebuilding successful components.
-- The complete staging or production path stays below 10 minutes at p90.
+- The accepted-artifact staging or production mutation path stays below 10
+  minutes at p90; artifact-build latency is reported separately.
 
 ## Phase 4: Keep Validation Out of Deployment
 
+- [x] Keep the automatic push path limited to deployment policy and exact
+      change-range recording; run the long repository suites on pull requests,
+      merge groups, and manual validation.
 - [x] Run Router A/B validation for relevant pull requests and manual dispatch.
 - [x] Split Router A/B validation into focused parallel jobs.
 - [x] Use filtered installs and initial pnpm/Cargo caches.
@@ -234,19 +245,23 @@ Acceptance:
 - [x] Serialize every mutation for the same target with one shared
       `deployment-${target}` lock. Component workflows must not own independent
       target mutation locks.
-- [ ] Record the previous and new Worker version IDs, Pages deployment ID, and
-      release-set ID before activation.
-- [ ] Roll back by reactivating a retained Worker version or redeploying a
-      previously accepted manifest.
-- [ ] Document that an applied D1 migration remains in place during binary
-      rollback.
+- [x] Record the source SHA, accepted artifact run, release-set ID, and
+      component digests before mutation.
+- [x] Roll back application code and Pages assets by redeploying a previously
+      accepted release set from retained artifacts.
+- [x] Document that binary rollback does not revert secrets, D1 migrations,
+      Durable Object state, or other environment state.
+- [ ] Add Worker-version receipts and preactivation activation only if a
+      future `wrangler versions upload`/`versions deploy` flow is adopted.
 
 Acceptance:
 
-- Cancellation cannot leave secrets, migrations, and Worker roles split across
-  releases.
-- Rollback requires no compilation while retained artifacts or Worker versions
-  remain available.
+- A newer deployment cannot supersede an active deployment through the shared
+  target lock.
+- Cancellation after the first mutation can still leave partial state; the
+  operator repairs it by redeploying the accepted release set and handling
+  secrets or migrations separately.
+- Rollback requires no compilation while retained artifacts remain available.
 
 ## Phase 6: Measure the Critical Path
 
@@ -266,12 +281,10 @@ Performance targets:
 
 | Workflow             | p90 target |
 | -------------------- | ---------- |
-| `deploy-gateway`     | Under 5m   |
-| `deploy-pages`       | Under 5m   |
-| `validate-router-ab` | Under 8m   |
-| `deploy-router-ab`   | Under 8m   |
-| `deploy-staging`     | Under 10m  |
-| `deploy-production`  | Under 10m  |
+| Push mode of `Validate / repository` | Under 2m   |
+| `Validate / cloudflare-router-ab`        | Under 8m   |
+| Accepted-artifact staging mutation      | Under 10m  |
+| Accepted-artifact production mutation   | Under 10m  |
 
 ## Verification
 
@@ -282,7 +295,8 @@ Performance targets:
 - [ ] Run one warm-cache staging deployment.
 - [ ] Retry one failed component without rebuilding.
 - [ ] Confirm the summary reports source SHA, target, selected components,
-      artifact digests, Worker versions, and duration.
+      artifact digests, and duration. Worker and Pages provider-version
+      receipts remain future work.
 - [ ] Promote the accepted production-target artifact set.
 - [ ] Confirm one production smoke check succeeds.
 

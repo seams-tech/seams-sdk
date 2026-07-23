@@ -194,87 +194,18 @@ function checkRegistrationIntentDigestVerificationStaysAtResponseBoundary() {
   assertContains(registration, 'verifyWalletRegistrationIntentResponse({', 'registration');
 }
 
-function checkRegistrationTimingKeepsTailBucketsObservational() {
+function checkRegistrationTimingUsesSpanCoverage() {
   const registration = readRepoSource(
     'packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts',
   );
-  const zeroBuckets = extractSourceBlock(
-    registration,
-    'function createZeroRegistrationTimingBucketValues(): RegistrationTimingBucketValues {',
-    '\n}\n\nfunction copyRegistrationTimingBucketValues',
-    'zero registration timing buckets',
-  );
-  const criticalPathBuckets = extractSourceBlock(
-    registration,
-    'const REGISTRATION_CRITICAL_PATH_BUCKETS: readonly RegistrationTimingBucketName[] = [',
-    '\n];',
-    'registration critical path bucket list',
-  );
-  const zeroInitializedBuckets = [
-    'ecdsaRegistrationPersistenceMs',
-    'ecdsaRegistrationSessionFinalizeMs',
-    'ecdsaRegistrationLocalRecordPersistenceMs',
-    'ecdsaRegistrationTargetCount',
-    'ecdsaRegistrationClientFinalizeMs',
-    'ecdsaRegistrationClientMaterialStoreMs',
-    'ecdsaRegistrationServerBootstrapMs',
-    'ecdsaRegistrationPasskeyBootstrapStoreMs',
-    'ecdsaRegistrationRoleLocalRecordPersistenceMs',
-    'ecdsaRegistrationWarmSessionHydrationMs',
-    'ecdsaRegistrationWarmSessionWorkerReadyMs',
-    'ecdsaRegistrationWarmSessionWorkerPutMs',
-    'ecdsaRegistrationWarmSessionSealedRecordPersistMs',
-    'ecdsaRegistrationWarmSessionSealResolveTransportMs',
-    'ecdsaRegistrationWarmSessionSealExistingRecordReadMs',
-    'ecdsaRegistrationWarmSessionSealPolicyReadMs',
-    'ecdsaRegistrationWarmSessionSealApplyServerSealMs',
-    'ecdsaRegistrationWarmSessionSealApplyRuntimeSetupMs',
-    'ecdsaRegistrationWarmSessionSealApplyClientSealMs',
-    'ecdsaRegistrationWarmSessionSealApplyServerRouteMs',
-    'ecdsaRegistrationWarmSessionSealApplyClientUnsealMs',
-    'ecdsaRegistrationWarmSessionSealApplyPolicyUpdateMs',
-    'ecdsaRegistrationWarmSessionSealRegisterMs',
-    'ecdsaRegistrationWarmSessionSealVerifyReadMs',
-    'ecdsaRegistrationEmailOtpSessionCommitMs',
-  ];
-  const observationalBuckets = [
-    'ecdsaRegistrationSessionFinalizeMs',
-    'ecdsaRegistrationLocalRecordPersistenceMs',
-    'ecdsaRegistrationTargetCount',
-    'ecdsaRegistrationClientFinalizeMs',
-    'ecdsaRegistrationClientMaterialStoreMs',
-    'ecdsaRegistrationServerBootstrapMs',
-    'ecdsaRegistrationPasskeyBootstrapStoreMs',
-    'ecdsaRegistrationRoleLocalRecordPersistenceMs',
-    'ecdsaRegistrationWarmSessionHydrationMs',
-    'ecdsaRegistrationWarmSessionWorkerReadyMs',
-    'ecdsaRegistrationWarmSessionWorkerPutMs',
-    'ecdsaRegistrationWarmSessionSealedRecordPersistMs',
-    'ecdsaRegistrationWarmSessionSealResolveTransportMs',
-    'ecdsaRegistrationWarmSessionSealExistingRecordReadMs',
-    'ecdsaRegistrationWarmSessionSealPolicyReadMs',
-    'ecdsaRegistrationWarmSessionSealApplyServerSealMs',
-    'ecdsaRegistrationWarmSessionSealApplyRuntimeSetupMs',
-    'ecdsaRegistrationWarmSessionSealApplyClientSealMs',
-    'ecdsaRegistrationWarmSessionSealApplyServerRouteMs',
-    'ecdsaRegistrationWarmSessionSealApplyClientUnsealMs',
-    'ecdsaRegistrationWarmSessionSealApplyPolicyUpdateMs',
-    'ecdsaRegistrationWarmSessionSealRegisterMs',
-    'ecdsaRegistrationWarmSessionSealVerifyReadMs',
-    'ecdsaRegistrationEmailOtpSessionCommitMs',
-  ];
-
-  for (const bucket of zeroInitializedBuckets) {
-    assertContains(zeroBuckets, `${bucket}: 0`, 'zero registration timing buckets');
-  }
-  for (const bucket of zeroInitializedBuckets) {
-    if (observationalBuckets.includes(bucket)) continue;
-    assertContains(criticalPathBuckets, `'${bucket}'`, 'registration critical path bucket list');
-  }
-  for (const bucket of observationalBuckets) {
-    assertNotContains(criticalPathBuckets, `'${bucket}'`, 'registration critical path bucket list');
-  }
-  assertContains(registration, 'registration_critical_path_summary_v1', 'registration');
+  assertNotContains(registration, 'registration_timing_summary_v1', 'registration timing schema');
+  assertContains(registration, 'registration_timing_summary_v2', 'registration timing schema');
+  assertContains(registration, 'startOffsetMs', 'registration timing spans');
+  assertContains(registration, 'endOffsetMs', 'registration timing spans');
+  assertContains(registration, 'registrationTimingSpanUnionMs', 'registration span union');
+  assertContains(registration, 'spanCoverageRatio', 'registration span coverage');
+  assertContains(registration, 'emailOtpYaoTotalMs', 'Yao timing span');
+  assertContains(registration, 'walletRegisterDerivationRespondMs', 'ECDSA timing span');
   assertContains(registration, 'JSON.stringify(summary)', 'registration');
 }
 
@@ -345,7 +276,7 @@ function main() {
   checkVisibleIframePasskeyRegistrationUsesProvidedWalletId();
   checkPostStartRegistrationRoutesUseStoredPreparedState();
   checkRegistrationIntentDigestVerificationStaysAtResponseBoundary();
-  checkRegistrationTimingKeepsTailBucketsObservational();
+  checkRegistrationTimingUsesSpanCoverage();
   checkEmailOtpUnlockCurrentSessionsUseCommitCommands();
   console.log('[registration-capability-subjects] ok');
 }

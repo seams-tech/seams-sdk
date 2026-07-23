@@ -892,6 +892,11 @@ async function createLocalConsoleHandler(env: LocalD1DevEnv): Promise<FetchHandl
     readyz: true,
     auth: new LocalD1DevConsoleAuthAdapter(env),
     readyCheck: createLocalReadyCheck(env),
+    // Local dev runs as a single auto-authenticated admin, so the 4-eyes
+    // approval gate can't be satisfied and only blocks policy publishing
+    // (POLICY_PUBLISH -> "approvalId is required"). Disable it so the console
+    // can publish policies (and thus runtime snapshots) directly.
+    approvals: null,
   });
 }
 

@@ -22,7 +22,7 @@ const componentInputMap = {
       ],
       prefixes: ['crates/router-ab-cloudflare/src/router/'],
     }),
-    inputRule({ prefixes: ['.github/workflows/validate-router-ab.yml'] }),
+    inputRule({ prefixes: ['.github/workflows/validate-cloudflare-router-ab.yml'] }),
   ],
   'deriver-a': [
     inputRule({
@@ -59,7 +59,8 @@ const componentInputMap = {
     }),
     inputRule({
       exact: [
-        '.github/workflows/deploy-gateway.yml',
+        '.github/workflows/deploy-staging-cloudflare-stack.yml',
+        '.github/workflows/deploy-production-cloudflare-stack.yml',
         'packages/console-server-ts/wrangler.d1-local.toml',
         'packages/console-server-ts/wrangler.d1-staging-gateway.toml',
         'packages/console-server-ts/wrangler.d1-staging-gateway.toml.example',
@@ -69,7 +70,10 @@ const componentInputMap = {
   site: [
     inputRule({ prefixes: ['apps/seams-site/'] }),
     inputRule({
-      exact: ['.github/workflows/deploy-pages.yml'],
+      exact: [
+        '.github/workflows/deploy-staging-cloudflare-stack.yml',
+        '.github/workflows/deploy-production-cloudflare-stack.yml',
+      ],
       prefixes: [
         'packages/sdk-web/src/SeamsWeb/operations/',
         'packages/sdk-web/src/SeamsWeb/publicApi/',
@@ -84,7 +88,10 @@ const componentInputMap = {
   ],
   'signer-iframe': [
     inputRule({
-      exact: ['.github/workflows/deploy-pages.yml'],
+      exact: [
+        '.github/workflows/deploy-staging-cloudflare-stack.yml',
+        '.github/workflows/deploy-production-cloudflare-stack.yml',
+      ],
       prefixes: [
         'packages/sdk-web/src/SeamsWeb/walletIframe/',
         'packages/sdk-web/src/core/signingEngine/uiConfirm/ui/',
@@ -102,10 +109,9 @@ const sharedInputRules = [
   sharedInputRule(ALL_COMPONENTS, {
     exact: [
       '.cargo/config.toml',
-      '.github/workflows/ci.yml',
-      '.github/workflows/deploy-production.yml',
-      '.github/workflows/deploy-router-ab.yml',
-      '.github/workflows/deploy-staging.yml',
+      '.github/workflows/validate-repository.yml',
+      '.github/workflows/deploy-production-cloudflare-stack.yml',
+      '.github/workflows/deploy-staging-cloudflare-stack.yml',
       '.github/dependabot.yml',
       '.npmrc',
       'package.json',
@@ -188,10 +194,13 @@ const sharedInputRules = [
     prefixes: ['packages/shared-ts/'],
   }),
   sharedInputRule(ROUTER_COMPONENTS, {
-    exact: ['.github/workflows/validate-router-ab.yml'],
+    exact: ['.github/workflows/validate-cloudflare-router-ab.yml'],
   }),
   sharedInputRule(PAGES_COMPONENTS, {
-    exact: ['.github/workflows/deploy-pages.yml'],
+    exact: [
+      '.github/workflows/deploy-staging-cloudflare-stack.yml',
+      '.github/workflows/deploy-production-cloudflare-stack.yml',
+    ],
   }),
 ];
 

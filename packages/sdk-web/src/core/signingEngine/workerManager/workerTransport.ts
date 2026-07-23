@@ -24,6 +24,8 @@ import type {
   EcdsaDerivationWorkerOperationRequest,
   EcdsaDerivationWorkerOperationResult,
   EcdsaDerivationWorkerOperationType,
+  EmailOtpYaoPrewarmRequest,
+  EmailOtpYaoPrewarmOutcome,
   MultichainOperationType,
   MultichainWorkerOperationRequest,
   MultichainWorkerOperationResult,
@@ -46,6 +48,18 @@ import { clearEcdsaRoleLocalWorkerRuntimeState } from '../session/material/ecdsa
 type RpcOk<T = unknown> = { id: string; ok: true; result: T };
 type RpcErr = { id: string; ok: false; error: string; code?: string; coreCode?: string };
 type RpcProgressFrame = { id: string; progress: true; payload: unknown };
+
+function roundWorkerDurationMs(startedAt: number): number {
+  return Math.max(0, Math.round(performance.now() - startedAt));
+}
+
+function assertNeverWorkerPrewarmResult(value: never): never {
+  throw new Error(`Unsupported Email OTP Yao prewarm result: ${String(value)}`);
+}
+
+function assertNeverWorkerPrewarmRequest(value: never): never {
+  throw new Error(`Unsupported Email OTP Yao prewarm request: ${String(value)}`);
+}
 
 type NearRpcProgressFrame = {
   id: string;
@@ -207,10 +221,12 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
   private readonly errorHandlers = new Map<SignerWorkerKind, (event: ErrorEvent) => void>();
   private derivationPresignConnected = false;
   private emailOtpPresignConnected = false;
+  private emailOtpYaoPrewarmPromise: Promise<EmailOtpYaoPrewarmOutcome> | null = null;
 
   setWorkerBaseOrigin(origin: string | undefined): void {
     if (this.workerBaseOrigin === origin) return;
     this.workerBaseOrigin = origin;
+    this.emailOtpYaoPrewarmPromise = null;
     for (const kind of Array.from(this.workers.keys())) {
       this.resetWorker(kind);
     }
@@ -219,6 +235,77 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
   async prewarmWorkers(): Promise<void> {
     for (const kind of SIGNER_WORKER_KINDS) {
       this.getOrCreateWorker(kind);
+    }
+  }
+
+  async prewarmEmailOtpYao(
+    request: EmailOtpYaoPrewarmRequest = { kind: 'requested' },
+  ): Promise<EmailOtpYaoPrewarmOutcome> {
+    switch (request.kind) {
+      case 'not_requested':
+        return {
+          kind: 'not_requested',
+          elapsedMs: 0,
+          workerPrewarmMs: 0,
+          yaoWasmInitMs: 0,
+        };
+      case 'requested':
+        break;
+      default:
+        return assertNeverWorkerPrewarmRequest(request);
+    }
+
+    const existing = this.emailOtpYaoPrewarmPromise;
+    if (existing) return await existing;
+
+    const prewarmPromise = this.requestEmailOtpYaoPrewarm();
+    this.emailOtpYaoPrewarmPromise = prewarmPromise;
+    const outcome = await prewarmPromise;
+    if (outcome.kind === 'failed' && this.emailOtpYaoPrewarmPromise === prewarmPromise) {
+      this.emailOtpYaoPrewarmPromise = null;
+    }
+    return outcome;
+  }
+
+  private async requestEmailOtpYaoPrewarm(): Promise<EmailOtpYaoPrewarmOutcome> {
+    const startedAt = performance.now();
+    try {
+      const result = await this.requestOperation({
+        kind: 'emailOtp',
+        request: {
+          type: 'prewarmEmailOtpRegistrationCrypto',
+          payload: {},
+        },
+      });
+      const workerPrewarmMs = roundWorkerDurationMs(startedAt);
+      switch (result.kind) {
+        case 'succeeded':
+          return {
+            kind: 'succeeded',
+            elapsedMs: workerPrewarmMs,
+            workerPrewarmMs,
+            yaoWasmInitMs: result.elapsedMs,
+          };
+        case 'failed':
+          return {
+            kind: 'failed',
+            elapsedMs: workerPrewarmMs,
+            workerPrewarmMs,
+            yaoWasmInitMs: result.elapsedMs,
+            failureStage: result.failureStage,
+          };
+        default:
+          return assertNeverWorkerPrewarmResult(result);
+      }
+    } catch {
+      const workerPrewarmMs = roundWorkerDurationMs(startedAt);
+      return {
+        kind: 'failed',
+        elapsedMs: workerPrewarmMs,
+        workerPrewarmMs,
+        yaoWasmInitMs: 0,
+        failureStage: 'worker_ready',
+      };
     }
   }
 

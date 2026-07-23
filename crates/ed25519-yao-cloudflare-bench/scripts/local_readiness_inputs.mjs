@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const INPUT_ROOTS = Object.freeze([
   '.cargo/config.toml',
-  '.github/workflows/ci.yml',
+  '.github/workflows/validate-repository.yml',
   'justfile',
   'pnpm-lock.yaml',
   'rustfmt.toml',

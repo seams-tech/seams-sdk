@@ -1,4 +1,4 @@
-name: deploy-router-ab
+name: template / deploy / cloudflare-stack
 
 on:
   workflow_call:
@@ -27,41 +27,6 @@ on:
         description: Reject an automatic release once its branch has advanced
         required: true
         type: boolean
-  workflow_dispatch:
-    inputs:
-      target:
-        description: Deployment target
-        required: true
-        type: choice
-        default: staging
-        options:
-          - staging
-          - production
-      deploy_sha:
-        description: Exact source revision to deploy
-        required: true
-        type: string
-      artifact_run_id:
-        description: Accepted release artifact workflow run ID
-        required: true
-        type: string
-      release_set_id:
-        description: Content-addressed release-set ID
-        required: true
-        type: string
-      source_branch:
-        description: Protected branch associated with the revision
-        required: true
-        type: choice
-        options:
-          - dev
-          - main
-      enforce_current_branch:
-        description: Reject an automatic release once its branch has advanced
-        required: true
-        default: false
-        type: boolean
-
 permissions:
   actions: read
   contents: read
@@ -73,6 +38,8 @@ env:
   RELEASE_SET_ID: ${{ inputs.release_set_id }}
   DEPLOY_SOURCE_BRANCH: ${{ inputs.source_branch }}
   ENFORCE_CURRENT_BRANCH: ${{ inputs.enforce_current_branch }}
+  STAGING_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway-staging.n6378056.workers.dev
+  PRODUCTION_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway.n6378056.workers.dev
   RUST_TOOLCHAIN: '1.96.0'
 
 concurrency:
@@ -81,7 +48,7 @@ concurrency:
 
 jobs:
   preflight_release:
-    name: Verify accepted release set
+    name: Verify / ${{ inputs.target }} / cloudflare-stack
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -102,12 +69,21 @@ jobs:
           set -euo pipefail
           expected_branch='dev'
           if [[ "$DEPLOY_TARGET" == 'production' ]]; then expected_branch='main'; fi
+          if [[ "$DEPLOY_TARGET" == 'production' && "$GITHUB_REF" != 'refs/heads/main' ]]; then
+            echo "::error title=Untrusted production workflow authority::Production deployment workflows must execute from refs/heads/main"
+            exit 1
+          fi
           if [[ "${DEPLOY_SOURCE_BRANCH:-}" != "$expected_branch" ]]; then
             echo "::error title=Invalid release mapping::$DEPLOY_TARGET requires $expected_branch"
             exit 1
           fi
+          git fetch origin "refs/heads/$DEPLOY_SOURCE_BRANCH:refs/remotes/origin/$DEPLOY_SOURCE_BRANCH"
+          branch_ref="refs/remotes/origin/$DEPLOY_SOURCE_BRANCH"
+          if ! git merge-base --is-ancestor "$DEPLOY_SHA" "$branch_ref"; then
+            echo "::error title=Release SHA is not on the protected branch::$DEPLOY_SHA is not an ancestor of $DEPLOY_SOURCE_BRANCH"
+            exit 1
+          fi
           if [[ "$ENFORCE_CURRENT_BRANCH" == 'true' ]]; then
-            git fetch origin "refs/heads/$DEPLOY_SOURCE_BRANCH:refs/remotes/origin/$DEPLOY_SOURCE_BRANCH"
             branch_tip="$(git rev-parse "refs/remotes/origin/$DEPLOY_SOURCE_BRANCH")"
             if [[ "$branch_tip" != "$DEPLOY_SHA" ]]; then
               echo "::error title=Stale release skipped::$DEPLOY_SHA is no longer the tip of $DEPLOY_SOURCE_BRANCH"
@@ -155,18 +131,18 @@ jobs:
             --source-sha "$DEPLOY_SHA" \
             --artifact-run-id "$ARTIFACT_RUN_ID" \
             --release-set-id "$RELEASE_SET_ID"
-          for component in $(node -e "const value=require('$RELEASE_MANIFEST'); process.stdout.write(value.components.map((component) => component.name).join('\\n'))"); do
+          for component in $(node -e "const value=require('./$RELEASE_MANIFEST'); process.stdout.write(value.components.map((component) => component.name).join('\\n'))"); do
             case "$component" in
               router|deriver-a|deriver-b|signing-worker)
                 kind="$component"
-                artifact_manifest=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-$component/crates/router-ab-cloudflare/.release-artifacts/$component.json"
-                artifact_root=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-$component/crates/router-ab-cloudflare/build/$component"
+                artifact_manifest=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-$component/.release-artifacts/$component.json"
+                artifact_root=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-$component/build/$component"
                 identity="{\"profile\":\"release\",\"role\":\"$component\"}"
                 ;;
               gateway)
                 kind='gateway-wasm'
-                artifact_manifest=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-gateway/.release-artifacts/gateway/manifest.json"
-                artifact_root=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-gateway/.release-artifacts/gateway/payload"
+                artifact_manifest=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-gateway/manifest.json"
+                artifact_root=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-gateway/payload"
                 identity='{"wasmPackageSet":"gateway-v1"}'
                 ;;
               site)
@@ -176,7 +152,7 @@ jobs:
                 identity='{"pagesBuild":"app-wallet-v1"}'
                 ;;
               signer-iframe)
-                kind='sdk-r2'
+                kind='signer-iframe'
                 artifact_manifest=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-signer-iframe/.release-artifacts/signer-iframe/manifest.json"
                 artifact_root=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-signer-iframe/packages/sdk-web/dist/public/wallet-service"
                 identity='{"pagesBuild":"app-wallet-v1"}'
@@ -199,7 +175,7 @@ jobs:
         id: release_selection
         run: |
           set -euo pipefail
-          selected_components="$(node -e "const value=require('$RELEASE_MANIFEST'); const selected=value.buildIdentity?.selectedComponents; if (!Array.isArray(selected) || selected.some((component) => typeof component !== 'string')) throw new Error('release-set selected components are invalid'); process.stdout.write(JSON.stringify(selected))")"
+          selected_components="$(node -e "const value=require('./$RELEASE_MANIFEST'); const selected=value.buildIdentity?.selectedComponents; if (!Array.isArray(selected) || selected.some((component) => typeof component !== 'string')) throw new Error('release-set selected components are invalid'); process.stdout.write(JSON.stringify(selected))")"
           if [[ "$selected_components" == *'"router"'* ]]; then
             for role in router deriver-a deriver-b signing-worker; do
               [[ "$selected_components" == *"\"$role\""* ]] || {
@@ -211,7 +187,7 @@ jobs:
           echo "selected_components=$selected_components" >> "$GITHUB_OUTPUT"
 
   deploy_signing_worker:
-    name: Deploy SigningWorker
+    name: Deploy / ${{ inputs.target }} / cloudflare-router-ab / signing-worker
     if: >-
       ${{
         needs.preflight_release.result == 'success' &&
@@ -328,7 +304,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   deploy_deriver_a:
-    name: Deploy Deriver A
+    name: Deploy / ${{ inputs.target }} / cloudflare-router-ab / deriver-a
     if: >-
       ${{
         needs.preflight_release.result == 'success' &&
@@ -459,7 +435,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   deploy_deriver_b:
-    name: Deploy Deriver B
+    name: Deploy / ${{ inputs.target }} / cloudflare-router-ab / deriver-b
     if: >-
       ${{
         needs.preflight_release.result == 'success' &&
@@ -590,7 +566,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   deploy_mpc_router:
-    name: Deploy MPCRouter
+    name: Deploy / ${{ inputs.target }} / cloudflare-router-ab / router
     if: |
       always() &&
       needs.preflight_release.result == 'success' &&
@@ -734,27 +710,26 @@ jobs:
             echo "- Release set: \`$RELEASE_SET_ID\`"
             echo "- Artifact run: \`$ARTIFACT_RUN_ID\`"
             echo "- Artifact content digest: \`$manifest_digest\`"
-            echo "- Rollback: rerun this failed job with the accepted artifact"
+            echo "- Recovery: rerun this job for the same release; use manual stack dispatch with a prior accepted release set for rollback"
           } >> "$GITHUB_STEP_SUMMARY"
 
   deploy_gateway:
-    name: Deploy Gateway and D1
+    name: Deploy / ${{ inputs.target }} / cloudflare-gateway
     if: >-
       ${{
         needs.preflight_release.result == 'success' &&
         contains(fromJSON(needs.preflight_release.outputs.selected_components), 'gateway')
       }}
     needs: preflight_release
-    uses: ./.github/workflows/deploy-gateway.yml
+    uses: ./scripts/deployment-workflow-templates/deploy-cloudflare-gateway.yml
     with:
       target: ${{ inputs.target }}
       source_sha: ${{ inputs.deploy_sha }}
       artifact_run_id: ${{ inputs.artifact_run_id }}
       release_set_id: ${{ inputs.release_set_id }}
-    secrets: inherit
 
   deploy_pages:
-    name: Deploy seams.sh and sign.seams.sh
+    name: Deploy / ${{ inputs.target }} / cloudflare-pages
     if: >-
       ${{
         always() &&
@@ -767,17 +742,16 @@ jobs:
     needs:
       - preflight_release
       - deploy_gateway
-    uses: ./.github/workflows/deploy-pages.yml
+    uses: ./scripts/deployment-workflow-templates/deploy-cloudflare-pages.yml
     with:
       target: all
       deploy_environment: ${{ inputs.target }}
       source_sha: ${{ inputs.deploy_sha }}
       artifact_run_id: ${{ inputs.artifact_run_id }}
       release_set_id: ${{ inputs.release_set_id }}
-    secrets: inherit
 
   final_smoke:
-    name: Final release smoke
+    name: Verify / ${{ inputs.target }} / cloudflare-stack / final-smoke
     if: >-
       ${{
         always() &&
@@ -806,6 +780,8 @@ jobs:
       - deploy_pages
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    environment:
+      name: ${{ inputs.target }}
     steps:
       - name: Checkout selected revision
         uses: actions/checkout@v6
@@ -834,12 +810,19 @@ jobs:
 
       - name: Verify final release smoke
         env:
-          GATEWAY_ORIGIN: ${{ needs.deploy_gateway.outputs.gateway_origin }}
-          SITE_ORIGIN: ${{ needs.deploy_pages.outputs.app_origin }}
-          WALLET_ORIGIN: ${{ needs.deploy_pages.outputs.wallet_origin }}
+          DEPLOYED_GATEWAY_ORIGIN: ${{ needs.deploy_gateway.outputs.gateway_origin }}
+          SITE_ORIGIN: ${{ vars.VITE_DOCS_ORIGIN }}
+          WALLET_ORIGIN: ${{ vars.VITE_WALLET_ORIGIN }}
           SELECTED_COMPONENTS: ${{ needs.preflight_release.outputs.selected_components }}
         run: |
           set -euo pipefail
+          gateway_origin="$DEPLOYED_GATEWAY_ORIGIN"
+          if [[ -z "$gateway_origin" ]]; then
+            gateway_origin="$STAGING_GATEWAY_ORIGIN"
+            if [[ "${{ inputs.target }}" == 'production' ]]; then
+              gateway_origin="$PRODUCTION_GATEWAY_ORIGIN"
+            fi
+          fi
           node scripts/deployment-release.mjs verify \
             --manifest .release-artifacts/release-set/manifest.json \
             --target "${{ inputs.target }}" \
@@ -850,7 +833,7 @@ jobs:
             --manifest .release-artifacts/release-set/manifest.json \
             --release-set-id "${{ inputs.release_set_id }}" \
             --selected-components "$SELECTED_COMPONENTS" \
-            --gateway-origin "$GATEWAY_ORIGIN" \
+            --gateway-origin "$gateway_origin" \
             --site-origin "$SITE_ORIGIN" \
             --wallet-origin "$WALLET_ORIGIN"
           {
