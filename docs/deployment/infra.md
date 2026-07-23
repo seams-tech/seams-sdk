@@ -97,7 +97,7 @@ pnpm product:deploy:env-apply -- \
 
 Automatic entrypoints are intentionally separate:
 
-- `.github/workflows/deploy-staging.yml` accepts only successful `dev` CI.
+- `.github/workflows/deploy-staging.yml` accepts relevant pushes to `dev`; documentation-only and test-only pushes are ignored.
 - `.github/workflows/deploy-production.yml` accepts only successful `main` CI.
 
 Both call `.github/workflows/deploy-router-ab.yml`, which is the shared release

@@ -6,6 +6,7 @@ MPC preparation generalization: July 10, 2026
 MPC lifecycle convergence: July 16, 2026
 ECDSA state and persistence convergence: July 18, 2026
 Authorization and material identity separation: July 23, 2026
+Refactor 92 lifecycle reconciliation: July 23, 2026
 
 Status: planning.
 
@@ -17,6 +18,11 @@ Service accounts, Better Auth, IdP functionality, Slack OTP evidence, full vault
 product workflows, general route-module registries, and speculative package
 splits are follow-on work. Sections that describe those future product shapes
 are design context rather than Refactor 90 acceptance criteria.
+
+Lifecycle dependency: [Refactor 92](./refactor-92-session-expiry-handling.md)
+owns the implemented reusable Wallet Session behavior. Refactor 90 may replace
+the underlying authorization and material representations only while preserving
+that behavior under `R90-INV-014`.
 
 ## Normative Invariant Index
 
@@ -70,11 +76,28 @@ invariant.
   dependency/artifact boundaries, integration tests prove cross-store effects,
   and E2E tests prove selected user-visible transitions.
 - **R90-INV-013 — Authorization/material identity separation.** A
-  `SeamsSessionId` identifies current authorization. An opaque
+  `SeamsSessionId` identifies app identity and general authorization, a
+  `WalletSessionId` identifies reusable wallet-signing authorization, an
+  `MpcWalletSigningQuotaId` identifies its remaining-use allowance, a
+  `CapabilityGrantId` identifies authority for one operation, and an opaque
   `MpcMaterialActivationId` identifies one exact activated MPC material
-  instance. No authorization session ID locates, owns, or aliases activated
-  material, and a fresh authorization session may reference an unchanged exact
-  material activation only through a validated `MpcMaterialActivationRef`.
+  instance. None of these IDs locates, owns, or aliases another domain. Unlock
+  or refresh may replace the Wallet Session while preserving an unchanged exact
+  material activation through a validated `MpcMaterialActivationRef`;
+  registration or explicit material reactivation creates a new activation ID.
+- **R90-INV-014 — Refactor 92 wallet-session lifecycle preservation.**
+  Refactor 92 is the normative behavior for reusable Wallet Sessions during
+  this migration. Ordinary unlock creates a 24-hour session with three
+  remaining uses, subject to the server maximum. Active, expired, exhausted,
+  missing, unavailable, and invalid remain distinct typed outcomes. Expired or
+  absent sessions request same-method authority for one operation; step-up does
+  not mint a reusable Wallet Session, and only explicit wallet unlock does.
+  Expiry invalidates the exact JWT, live worker bindings, readiness caches, and
+  active session projections while preserving sealed material, public
+  capabilities, auth bindings, wallet metadata, and app identity. Expiry never
+  starts Yao recovery or device linking. Exhaustion requests step-up without
+  locking the wallet, and refresh preserves the remaining warm allowance for a
+  still-valid Wallet Session.
 
 ## Phased Invariant Verification Checklist
 
@@ -136,6 +159,9 @@ evidence from the progress journal.
 - [ ] `R90-INV-013` — activation, hydration, normal signing, step-up, refresh,
   and export use an exact material-activation reference independently from the
   current authorization session.
+- [ ] `R90-INV-014` — all MPC and UI surfaces preserve Refactor 92 expiry,
+  exhaustion, refresh, step-up, invalidation, and demo-lock behavior for both
+  Passkey and Email OTP.
 
 ### Final conformance
 
@@ -200,7 +226,9 @@ Split auth into four ownership layers:
 `seams-auth` is the built-in auth provider. Better Auth is a supported upstream
 provider through `betterAuthSessionProvider(auth)`.
 
-Rename the parent concept from `signing-session` to `SeamsSession`.
+Use `SeamsSession` for app identity and general authorization. Keep Refactor
+92's `Wallet Session` term for reusable wallet-signing authorization and warm
+allowance. MPC runtime material uses `MpcMaterialActivationRef`.
 
 `identity/` owns principals and auth accounts, `authFactor/` owns enrollments,
 and `session/` owns session state. Seams authorization owns grant evidence,
@@ -342,23 +370,28 @@ Page refresh and iframe startup currently need to rebuild wallet-session UI from
 durable local records after volatile runtime signing records disappear. The
 resolver for that flow must compose the same branch-specific
 `WalletUnlockSubject` model used by unlock. It must not create a parallel
-NEAR-only session subject.
+NEAR-only session subject. Refactor 92's reusable Wallet Session classifier and
+secure-origin ownership remain authoritative throughout this migration.
 
 Refactor move:
 
 - parse raw `walletId`, last-used account hints, and profile rows once at the
   session-read boundary;
 - resolve durable wallet identity into `WalletUnlockSubjectSet`;
-- compute wallet-session display state from the `SeamsSession` lifecycle and
-  public wallet identity;
+- receive the exact reusable Wallet Session lifecycle projection from the
+  secure wallet origin after iframe initialization;
+- keep `SeamsSession`, reusable Wallet Session, operation-grant, wallet-quota,
+  and material-activation identities separate;
+- derive wallet-session display state from the exact Wallet Session lifecycle:
+  active and exhausted remain unlocked, while missing and expired are locked;
 - surface missing, corrupt, or ambiguous durable identity as typed
   `unresolvable` results;
 - keep provenance (`runtime_session_record`, `profile_projection`,
   `host_last_used_profile`) as diagnostics only;
 - resolve every MPC capability independently through
-  `MpcCapabilityHydrationPlan`. Sealed-active material, public reauthorization,
-  expiry, exhaustion, and missing live runtime are capability states and never
-  session/login display states.
+  `MpcCapabilityHydrationPlan`. Material readiness never substitutes for the
+  Wallet Session lifecycle, and Wallet Session expiry or exhaustion never
+  changes material identity.
 
 Target shape:
 
@@ -394,12 +427,61 @@ type WalletIdentityResolveFailure =
   | "missing_requested_capability_subject"
   | "invalid_wallet_profile";
 
+type WalletSessionId = Brand<string, "WalletSessionId">;
+type MpcWalletSigningQuotaId =
+  Brand<string, "MpcWalletSigningQuotaId">;
+
+type ReusableWalletSessionState =
+  | {
+      kind: "active";
+      walletId: WalletId;
+      walletSessionId: WalletSessionId;
+      authority: WalletAuthAuthorityRef;
+      quotaId: MpcWalletSigningQuotaId;
+      expiresAtMs: number;
+      remainingUses: PositiveInt;
+    }
+  | {
+      kind: "exhausted";
+      walletId: WalletId;
+      walletSessionId: WalletSessionId;
+      authority: WalletAuthAuthorityRef;
+      quotaId: MpcWalletSigningQuotaId;
+      expiresAtMs: number;
+      remainingUses: 0;
+    }
+  | {
+      kind: "expired";
+      walletId: WalletId;
+      walletSessionId: WalletSessionId;
+      authority: WalletAuthAuthorityRef;
+      quotaId: MpcWalletSigningQuotaId;
+      expiresAtMs: number;
+      detectedAtMs: number;
+    }
+  | { kind: "missing"; walletId: WalletId }
+  | {
+      kind: "unavailable";
+      walletId: WalletId;
+      reason: "network" | "server_unavailable";
+    }
+  | {
+      kind: "invalid";
+      walletId: WalletId;
+      reason:
+        | "malformed"
+        | "signature_invalid"
+        | "scope_mismatch"
+        | "authority_mismatch";
+    };
+
 type WalletSessionReadResolution =
   | { kind: "no_session_request" }
   | {
       kind: "resolved";
       walletId: WalletId;
       subjectSet: WalletUnlockSubjectSet;
+      walletSession: ReusableWalletSessionState;
       source: WalletIdentitySource;
     }
   | {
@@ -415,12 +497,33 @@ type WalletSessionReadResolution =
     };
 
 type WalletSessionDisplayState =
-  | { kind: "locked" }
-  | { kind: "active"; subjectSet: WalletUnlockSubjectSet }
+  | {
+      kind: "locked";
+      cause:
+        | { kind: "missing"; walletId: WalletId }
+        | {
+            kind: "expired";
+            walletId: WalletId;
+            walletSessionId: WalletSessionId;
+          };
+    }
+  | {
+      kind: "active";
+      walletId: WalletId;
+      walletSessionId: WalletSessionId;
+      subjectSet: WalletUnlockSubjectSet;
+      warmAllowance:
+        | { kind: "available"; remainingUses: PositiveInt }
+        | { kind: "exhausted" };
+    }
   | {
       kind: "unavailable";
       walletId: WalletId;
-      reason: WalletIdentityResolveFailure;
+      reason:
+        | WalletIdentityResolveFailure
+        | "network"
+        | "server_unavailable"
+        | "invalid_wallet_session";
     };
 ```
 
@@ -430,8 +533,11 @@ below the session-read boundary. NEAR account identity exists only on the
 account validators or fabricate a NEAR account subject. Auth-method display
 must come from wallet-auth-method bindings or session evidence, never from
 `publicKey` heuristics. `WalletSessionDisplayState` cannot authorize signing,
-material recovery, or export. Those decisions consume the capability-local
-hydration plan defined below.
+material recovery, or export. Generic operations consume the exact reusable
+Wallet Session state, operation grant, quota claim, and capability-local
+hydration plan. The live demo alone uses the display projection as lock policy:
+authoritative expiry locks once, exhaustion requests step-up while remaining
+unlocked, and app identity remains active.
 
 ### Signing-Centered Grant-Evidence UI
 
@@ -1321,16 +1427,18 @@ Type-sketch amendments applied July 3, 2026:
 
 | Current term | Target term |
 | --- | --- |
-| signing session | `SeamsSession` |
-| signing grant | `CapabilityGrant` |
-| signing budget | capability grant use limits (`CapabilityGrantPolicy.maxUses` plus active grant `remainingUses`) |
+| app or general authorization session | `SeamsSession` |
+| reusable signing session | `WalletSessionId` plus its typed reusable Wallet Session lifecycle |
+| per-operation signing authority | `CapabilityGrant` |
+| reusable signing budget | `MpcWalletSigningQuota` bound to the exact reusable Wallet Session |
 | capability-specific signing scope | capability-local lane |
 | signing auth method | `AuthFactorIdentity` plus durable `AuthFactorRecord` |
 | signer material | capability-owned runtime material |
 | wallet registration | auth account registration plus optional capability provisioning |
 
-Use `MpcSigningSession` only inside the MPC capability modules, where threshold
-runtime state is actually present.
+Use `MpcMaterialActivationRef` for exact activated MPC material. Do not
+reintroduce `MpcSigningSession` as an aggregate of authorization, quota,
+operation grant, and runtime state.
 
 `CapabilityLane` means a capability-local authorization path such as
 `vault.proxy_use`, `vault.reveal`, `near.sign_transaction`, or
@@ -2303,7 +2411,7 @@ type MpcMaterialActivationRef = {
 };
 
 type MpcOperationExecutionScope = {
-  authorizationSessionId: SeamsSessionId;
+  authorizationSessionId: WalletSessionId;
   materialActivation: MpcMaterialActivationRef;
   operation: CapabilityOperationRef;
 };
@@ -2396,6 +2504,12 @@ type MpcCapabilityHydrationResolution = {
 };
 ```
 
+The `reauthorize_public_anchor.retirement` discriminant describes a retired
+capability/material lifecycle. It never represents reusable Wallet Session
+expiry or warm-allowance exhaustion. Those Refactor 92 states compose with an
+otherwise unchanged material hydration result and cannot remove its activation
+reference.
+
 `RestorableMpcMaterialRef` is proof that the protocol adapter resolved exact
 durable material for the current material activation and an exact currently
 available material-unlock source. An adapter with an unavailable unlock source
@@ -2421,18 +2535,32 @@ the capability's reauthorization policy and is never an operation grant. Core
 material, signing, and export functions receive `plan`, while diagnostics and
 tests may also receive `provenance`.
 
-Authorization and material activation are independent protocol identities.
-Creating or refreshing a `SeamsSession` never renames, rekeys, or relocates
-activated MPC material. Activation creates a fresh opaque
+App identity, reusable wallet authorization, operation authorization, wallet
+quota, and material activation are independent protocol identities. Creating or
+refreshing a `SeamsSession` or reusable Wallet Session never renames, rekeys, or
+relocates activated MPC material. Activation creates a fresh opaque
 `MpcMaterialActivationId`; the durable material record, registered capability,
 SigningWorker state, and signed operation context bind the corresponding
 `MpcMaterialActivationRef`. Normal signing validates the active authorization
-session and exact material activation independently. The wire scope therefore
-uses `authorization_session_id` and `material_activation`; the tactical
-`session_id` plus `active_state_session_id` pair is deleted rather than retained
-as aliases. Re-activation creates a new activation ID. Session renewal preserves
-the activation reference only when all capability, owner, key, lifecycle, and
+Wallet Session and exact material activation independently. The operation grant
+remains bound to the active `SeamsSession`, while the reusable warm allowance
+remains bound to the exact Wallet Session. The wire scope therefore uses
+`authorization_session_id: WalletSessionId` and `material_activation`; the
+tactical `session_id` plus `active_state_session_id` pair is deleted rather than
+retained as aliases. Explicit unlock or Wallet Session refresh may replace the
+authorization session ID while preserving the exact activation. Ordinary page
+refresh reuses the same valid Wallet Session and remaining allowance.
+Re-activation creates a new activation ID. Session renewal preserves the
+activation reference only when all capability, owner, key, lifecycle, and
 SigningWorker bindings still match.
+
+Reusable Wallet Session expiry is an authorization transition. It cannot
+retire a capability manifest, replace a material activation, or select
+`reauthorize_public_anchor` or `recovery_required` by itself. The Refactor 92
+classifier invalidates the exact session projections and worker bindings,
+then same-method step-up may authorize one operation against the unchanged
+sealed material and public capability. Expiry never invokes Deriver A, Deriver
+B, Yao recovery, or device linking.
 
 Near same-root recovery persists only cross-boundary facts:
 
@@ -2520,6 +2648,30 @@ type SpendableMpcWalletSigningQuotaRef =
   Brand<string, "SpendableMpcWalletSigningQuotaRef">;
 type VerifiedCapabilityOperationAuthorizationRef =
   Brand<string, "VerifiedCapabilityOperationAuthorizationRef">;
+
+type MpcWalletSigningQuotaRecord =
+  | {
+      kind: "active";
+      quotaId: MpcWalletSigningQuotaId;
+      walletId: WalletId;
+      walletSessionId: WalletSessionId;
+      remainingUses: PositiveInt;
+      expiresAt: IsoTimestamp;
+    }
+  | {
+      kind: "exhausted";
+      quotaId: MpcWalletSigningQuotaId;
+      walletId: WalletId;
+      walletSessionId: WalletSessionId;
+      exhaustedAt: IsoTimestamp;
+    }
+  | {
+      kind: "expired";
+      quotaId: MpcWalletSigningQuotaId;
+      walletId: WalletId;
+      walletSessionId: WalletSessionId;
+      expiredAt: IsoTimestamp;
+    };
 
 type EcdsaCapabilityScope =
   | {
