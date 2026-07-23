@@ -1,7 +1,10 @@
 name: Deploy / staging / cloudflare-stack
-run-name: deploy / staging / cloudflare-stack / ${{ github.event_name == 'workflow_run' &&
-  github.event.workflow_run.head_sha || inputs.source_sha }} / ${{ github.event_name == 'workflow_run' && 'automatic' ||
-  'manual-promotion' }}
+run-name: >-
+  deploy / staging / cloudflare-stack /
+
+  ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }} /
+
+  ${{ github.event_name == 'workflow_run' && 'automatic' || 'manual-promotion' }}
 on:
   workflow_run:
     workflows:

@@ -132,6 +132,7 @@ function makeSharedEnvironment(target, mode, releasePrefix) {
 }
 
 function normalizeObject(value) {
+  if (value instanceof Scalar) return value;
   if (typeof value === 'string') return value;
   if (Array.isArray(value)) return value.map(normalizeObject);
   if (!value || typeof value !== 'object') return value;
@@ -142,6 +143,7 @@ function normalizeObject(value) {
 }
 
 function literalizeMultilineStrings(value) {
+  if (value instanceof Scalar) return value;
   if (typeof value === 'string') {
     if (!value.includes('\n')) return value;
     const scalar = new Scalar(value);
@@ -365,12 +367,15 @@ function rewriteFinalSmoke(jobMap, target, mode) {
 }
 
 function makeWorkflowRoot(target, jobs) {
+  const runName = new Scalar(
+    `deploy / ${target.environment} / cloudflare-stack /\n` +
+      "${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }} /\n" +
+      "${{ github.event_name == 'workflow_run' && 'automatic' || 'manual-promotion' }}",
+  );
+  runName.type = 'BLOCK_FOLDED';
   const workflow = {
     name: `Deploy / ${target.environment} / cloudflare-stack`,
-    'run-name':
-      `deploy / ${target.environment} / cloudflare-stack / ` +
-      "${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }} / " +
-      "${{ github.event_name == 'workflow_run' && 'automatic' || 'manual-promotion' }}",
+    'run-name': runName,
     on: {
       workflow_run: {
         workflows: ['Validate / repository'],
