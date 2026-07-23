@@ -46,9 +46,19 @@ import {
 } from '@shared/threshold/signingRootScope';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import {
+  walletSessionFailure,
+  walletSessionFailureMessage,
+  walletSessionParseFailure,
+  type WalletSessionFailureCode,
+} from './walletSessionFailure';
 
 type PlainObject = Record<string, unknown>;
-type AuthorizeErr = { ok: false; code: 'sessions_disabled' | 'unauthorized'; message: string };
+type AuthorizeErr = {
+  ok: false;
+  code: 'sessions_disabled' | WalletSessionFailureCode;
+  message: string;
+};
 
 function isPlainObject(input: unknown): input is PlainObject {
   return !!input && typeof input === 'object' && !Array.isArray(input);
@@ -67,6 +77,7 @@ export async function validateRouterAbEd25519WalletSessionTokenInputs(input: {
   body: unknown;
   headers: Record<string, string | string[] | undefined>;
   session: SessionAdapter | null | undefined;
+  nowMs?: () => number;
 }): Promise<ThresholdEd25519SessionTokenInputs> {
   const session = input.session;
   if (!session) {
@@ -77,18 +88,31 @@ export async function validateRouterAbEd25519WalletSessionTokenInputs(input: {
     };
   }
 
-  const parsed = await session.parse(input.headers);
+  let parsed: Awaited<ReturnType<SessionAdapter['parse']>>;
+  try {
+    parsed = await session.parse(input.headers);
+  } catch {
+    return walletSessionFailure('wallet_session_unavailable');
+  }
   if (!parsed.ok) {
-    return {
-      ok: false,
-      code: 'unauthorized',
-      message: 'Missing or invalid Wallet Session JWT',
-    };
+    return walletSessionParseFailure(parsed.reason);
   }
 
   const claims = parseRouterAbEd25519WalletSessionClaims(parsed.claims);
   if (!claims) {
-    return { ok: false, code: 'unauthorized', message: 'Invalid Router A/B Wallet Session claims' };
+    return {
+      ok: false,
+      code: 'wallet_session_claims_invalid',
+      message: walletSessionFailureMessage('wallet_session_claims_invalid'),
+    };
+  }
+  const nowMs = input.nowMs || Date.now;
+  if (claims.thresholdExpiresAtMs <= nowMs()) {
+    return {
+      ok: false,
+      code: 'wallet_session_expired',
+      message: walletSessionFailureMessage('wallet_session_expired'),
+    };
   }
 
   const body = isPlainObject(input.body) ? input.body : {};
@@ -113,6 +137,7 @@ export async function validateRouterAbEcdsaDerivationWalletSessionInputs(input: 
   body: unknown;
   headers: Record<string, string | string[] | undefined>;
   session: SessionAdapter | null | undefined;
+  nowMs?: () => number;
 }): Promise<ThresholdEcdsaSessionInputs> {
   const session = input.session;
   if (!session) {
@@ -123,18 +148,31 @@ export async function validateRouterAbEcdsaDerivationWalletSessionInputs(input: 
     };
   }
 
-  const parsed = await session.parse(input.headers);
+  let parsed: Awaited<ReturnType<SessionAdapter['parse']>>;
+  try {
+    parsed = await session.parse(input.headers);
+  } catch {
+    return walletSessionFailure('wallet_session_unavailable');
+  }
   if (!parsed.ok) {
-    return {
-      ok: false,
-      code: 'unauthorized',
-      message: 'Missing or invalid Wallet Session token',
-    };
+    return walletSessionParseFailure(parsed.reason);
   }
 
   const claims = parseRouterAbEcdsaDerivationWalletSessionClaims(parsed.claims);
   if (!claims) {
-    return { ok: false, code: 'unauthorized', message: 'Invalid Wallet Session token claims' };
+    return {
+      ok: false,
+      code: 'wallet_session_claims_invalid',
+      message: walletSessionFailureMessage('wallet_session_claims_invalid'),
+    };
+  }
+  const nowMs = input.nowMs || Date.now;
+  if (claims.thresholdExpiresAtMs <= nowMs()) {
+    return {
+      ok: false,
+      code: 'wallet_session_expired',
+      message: walletSessionFailureMessage('wallet_session_expired'),
+    };
   }
 
   const body = isPlainObject(input.body) ? input.body : {};

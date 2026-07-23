@@ -7,6 +7,10 @@ import {
   type NearEd25519SigningKeyId,
 } from '@shared/utils/registrationIntent';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
+import {
+  MAX_WALLET_SESSION_REMAINING_USES,
+  MAX_WALLET_SESSION_TTL_MS,
+} from '@shared/threshold/sessionPolicy';
 import type { ThresholdEd25519AuthorityScope } from '../types';
 import {
   parseRouterAbNormalSigningServerPolicy,
@@ -30,6 +34,11 @@ import {
   parseThresholdEd25519AuthorityScope,
   thresholdEd25519AuthorityScopesMatch,
 } from '../ThresholdService/validation';
+import {
+  walletSessionFailureMessage,
+  walletSessionFailureStatus,
+  type WalletSessionFailureCode,
+} from '../../router/walletSessionFailure';
 
 export type RouterAbSigningWorkerPrivateTransport =
   | {
@@ -606,11 +615,19 @@ function routerAbBudgetStoreFailure(input: { readonly code: string; readonly mes
   const code = toOptionalTrimmedString(input.code) || 'wallet_budget_internal';
   const message = toOptionalTrimmedString(input.message) || 'Wallet Session budget rejected';
   switch (code) {
-    case 'unauthorized':
-      return { ok: false, status: 401, code, message };
-    case 'wallet_budget_forbidden':
-      return { ok: false, status: 403, code, message };
+    case 'wallet_session_missing':
+    case 'wallet_session_signature_invalid':
+    case 'wallet_session_claims_invalid':
+    case 'wallet_session_expired':
+    case 'wallet_session_scope_mismatch':
+    case 'wallet_session_unavailable':
     case 'wallet_budget_exhausted':
+      return {
+        ok: false,
+        status: walletSessionFailureStatus(code),
+        code,
+        message: walletSessionFailureMessage(code),
+      };
     case 'wallet_budget_in_flight':
     case 'wallet_budget_reservation_mismatch':
       return { ok: false, status: 409, code, message };
@@ -622,6 +639,12 @@ function routerAbBudgetStoreFailure(input: { readonly code: string; readonly mes
     default:
       return { ok: false, status: 500, code: 'wallet_budget_internal', message };
   }
+}
+
+function resolvedSigningGrantBudgetFailure(
+  code: WalletSessionFailureCode,
+): Extract<ResolvedSigningGrantBudget, { readonly ok: false }> {
+  return { ok: false, code, message: walletSessionFailureMessage(code) };
 }
 
 function parseSigningWorkerTransport(
@@ -698,7 +721,8 @@ export class RouterAbNormalSigningRuntime {
     signingGrantId: string,
   ): Promise<WalletSigningBudgetSessionStatus | null> {
     const budgetSessionId = this.requireBudgetSessionId(signingGrantId);
-    return await this.walletBudgetSessionStore.getSessionStatus(budgetSessionId);
+    const lookup = await this.walletBudgetSessionStore.getSessionStatus(budgetSessionId);
+    return lookup.ok ? lookup.status : null;
   }
 
   validateSessionPolicy(
@@ -716,11 +740,9 @@ export class RouterAbNormalSigningRuntime {
   }): RouterAbClampedSessionPolicy {
     const ttlMs = Math.max(0, Math.floor(Number(input.ttlMs) || 0));
     const remainingUses = Math.max(0, Math.floor(Number(input.remainingUses) || 0));
-    const maxTtlMs = 30 * 24 * 60 * 60_000;
-    const maxUses = 1_000_000;
     return {
-      ttlMs: Math.min(ttlMs, maxTtlMs),
-      remainingUses: Math.min(remainingUses, maxUses),
+      ttlMs: Math.min(ttlMs, MAX_WALLET_SESSION_TTL_MS),
+      remainingUses: Math.min(remainingUses, MAX_WALLET_SESSION_REMAINING_USES),
     };
   }
 
@@ -1288,7 +1310,8 @@ export class RouterAbNormalSigningRuntime {
       existingSession,
       normalizedInput,
     );
-    const existingStatus = await this.walletBudgetSessionStore.getSessionStatus(sessionId);
+    const existingStatusLookup = await this.walletBudgetSessionStore.getSessionStatus(sessionId);
+    const existingStatus = existingStatusLookup.ok ? existingStatusLookup.status : null;
     if (!matchesCurveBinding) {
       if (
         input.operation === 'refresh_exhausted_binding' ||
@@ -1500,20 +1523,36 @@ export class RouterAbNormalSigningRuntime {
     if (!budgetSessionId) {
       return { ok: false, code: 'invalid_budget_request', message: 'signingGrantId is required' };
     }
-    const budgetSession = await this.walletBudgetSessionStore.getSession(budgetSessionId);
-    if (!budgetSession) {
-      return {
-        ok: false,
-        code: 'wallet_budget_forbidden',
-        message: 'signing grant budget does not match this threshold session',
-      };
+    let budgetLookup: Awaited<
+      ReturnType<WalletSigningBudgetSessionStore['getSessionStatus']>
+    >;
+    try {
+      budgetLookup = await this.walletBudgetSessionStore.getSessionStatus(budgetSessionId);
+    } catch {
+      return resolvedSigningGrantBudgetFailure('wallet_session_unavailable');
+    }
+    if (!budgetLookup.ok) return resolvedSigningGrantBudgetFailure(budgetLookup.code);
+    const budgetStatus = budgetLookup.status;
+    const budgetSession = budgetStatus.record;
+    const checkedAtMs = Date.now();
+    if (budgetStatus.expiresAtMs <= checkedAtMs) {
+      return resolvedSigningGrantBudgetFailure('wallet_session_expired');
     }
     switch (input.curve) {
       case 'ed25519': {
-        const curveSession = await this.walletSessionStore.getSession(input.curveSessionId);
+        let curveLookup: Awaited<ReturnType<Ed25519WalletSessionStore['getSessionStatus']>>;
+        try {
+          curveLookup = await this.walletSessionStore.getSessionStatus(input.curveSessionId);
+        } catch {
+          return resolvedSigningGrantBudgetFailure('wallet_session_unavailable');
+        }
+        if (!curveLookup.ok) return resolvedSigningGrantBudgetFailure(curveLookup.code);
+        if (curveLookup.status.expiresAtMs <= checkedAtMs) {
+          return resolvedSigningGrantBudgetFailure('wallet_session_expired');
+        }
+        const curveSession = curveLookup.status.record;
         const binding = signingGrantBudgetEd25519Binding(budgetSession);
         if (
-          !curveSession ||
           !binding ||
           binding.thresholdSessionId !== input.curveSessionId ||
           budgetSession.walletId !== curveSession.userId ||
@@ -1523,16 +1562,22 @@ export class RouterAbNormalSigningRuntime {
           ) ||
           !participantIdsEqual(binding.participantIds, curveSession.participantIds)
         ) {
-          return {
-            ok: false,
-            code: 'wallet_budget_forbidden',
-            message: 'signing grant budget does not match this threshold session',
-          };
+          return resolvedSigningGrantBudgetFailure('wallet_session_scope_mismatch');
         }
         break;
       }
       case 'ecdsa': {
-        const curveSession = await this.ecdsaWalletSessionStore.getSession(input.curveSessionId);
+        let curveLookup: Awaited<ReturnType<EcdsaWalletSessionStore['getSessionStatus']>>;
+        try {
+          curveLookup = await this.ecdsaWalletSessionStore.getSessionStatus(input.curveSessionId);
+        } catch {
+          return resolvedSigningGrantBudgetFailure('wallet_session_unavailable');
+        }
+        if (!curveLookup.ok) return resolvedSigningGrantBudgetFailure(curveLookup.code);
+        if (curveLookup.status.expiresAtMs <= checkedAtMs) {
+          return resolvedSigningGrantBudgetFailure('wallet_session_expired');
+        }
+        const curveSession = curveLookup.status.record;
         let binding: WalletSigningBudgetEcdsaBinding | null = null;
         for (const candidate of signingGrantBudgetEcdsaBindings(budgetSession)) {
           if (candidate.thresholdSessionId === input.curveSessionId) {
@@ -1541,17 +1586,12 @@ export class RouterAbNormalSigningRuntime {
           }
         }
         if (
-          !curveSession ||
           !binding ||
           budgetSession.walletId !== curveSession.walletId ||
           binding.evmFamilySigningKeySlotId !== curveSession.evmFamilySigningKeySlotId ||
           !participantIdsEqual(binding.participantIds, curveSession.participantIds)
         ) {
-          return {
-            ok: false,
-            code: 'wallet_budget_forbidden',
-            message: 'signing grant budget does not match this threshold session',
-          };
+          return resolvedSigningGrantBudgetFailure('wallet_session_scope_mismatch');
         }
         break;
       }

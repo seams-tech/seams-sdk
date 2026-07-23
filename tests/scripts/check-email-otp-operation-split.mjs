@@ -314,7 +314,7 @@ describeChecks('Email OTP operation split guard', () => {
     expect(signNear).toContain('function buildNearEmailOtpEd25519Reconnect');
     expect(signNear).toContain('const committedLane = args.committedLane;');
     expect(signNear).toContain('committedLane,');
-    expect(operationDeps).toContain('recoverEmailOtpEd25519CapabilityForSigning?: (args: {');
+    expect(operationDeps).toContain('rehydrateEmailOtpEd25519CapabilityForSigning?: (args: {');
     expect(operationDeps).toContain('committedLane: Ed25519SigningLane;');
     expect(budgetRecovery).toContain('committedLane: Ed25519SigningLane;');
     expect(budgetRecovery).toContain('walletAuthAuthoritiesMatch(');

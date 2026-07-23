@@ -11,7 +11,7 @@ async function verifyPasskeyUnlockImmediateLifecycle({
   await harness.exportEcdsaKey();
   await harness.signNearTransaction('post_unlock');
   await harness.signTempoAndArcEvmConcurrently('post_unlock');
-  await harness.signNearTransaction('after_step_up');
+  await harness.signNearTransaction('step_up_required');
 }
 
 test(
@@ -29,13 +29,13 @@ async function verifyPasskeyPageRefreshHydration({
   await harness.refreshPagePreservingWalletStorage();
   await harness.exportEd25519Key();
   await harness.exportEcdsaKey();
-  await harness.signNearTransactionAfterRefresh('passkey_local_envelope');
+  await harness.signNearTransactionAfterRefresh();
   await harness.signTempoTransaction('after_refresh_recovery');
   await harness.signArcEvmTransaction('after_refresh_recovery');
   await harness.exhaustSigningBudget();
-  await harness.signNearTransaction('after_step_up');
-  await harness.signTempoTransaction('after_step_up');
-  await harness.signArcEvmTransaction('after_step_up');
+  await harness.signNearTransaction('step_up_required');
+  await harness.signTempoTransaction('step_up_required');
+  await harness.signArcEvmTransaction('step_up_required');
 }
 
 test(

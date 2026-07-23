@@ -1,3 +1,5 @@
+import type { SessionParseFailureReason, SessionParseResult } from './sessionValidation';
+
 export interface SessionConfig {
   jwt?: {
     /** Required: JWT signing hook; return a complete token */
@@ -109,15 +111,21 @@ export class SessionService<TClaims extends Record<string, unknown> = Record<str
   }
 
   /** Verify signature and enforce standard time claims (`exp`/`nbf`) when present. */
-  async verifyJwt(token: string): Promise<{ valid: boolean; payload?: any }> {
+  async verifyJwt(token: string): Promise<
+    | { readonly valid: true; readonly payload: Record<string, unknown> }
+    | {
+        readonly valid: false;
+        readonly reason: Exclude<SessionParseFailureReason, 'missing'>;
+      }
+  > {
     const verify = this.cfg?.jwt?.verifyToken;
-    if (typeof verify !== 'function') return { valid: false };
+    if (typeof verify !== 'function') return { valid: false, reason: 'signature_invalid' };
     const out = await Promise.resolve(verify(token));
-    if (!out?.valid) return { valid: false };
+    if (!out?.valid) return { valid: false, reason: 'signature_invalid' };
 
     const payload = out.payload;
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-      return { valid: false };
+      return { valid: false, reason: 'claims_invalid' };
     }
 
     // Do not rely on host verifyToken() implementations to enforce time-based claims consistently.
@@ -126,23 +134,23 @@ export class SessionService<TClaims extends Record<string, unknown> = Record<str
     const expRaw = (payload as Record<string, unknown>).exp;
     if (expRaw !== undefined) {
       const exp = Number(expRaw);
-      if (!Number.isFinite(exp)) return { valid: false };
-      if (now >= exp) return { valid: false };
+      if (!Number.isFinite(exp)) return { valid: false, reason: 'claims_invalid' };
+      if (now >= exp) return { valid: false, reason: 'expired' };
     }
 
     const nbfRaw = (payload as Record<string, unknown>).nbf;
     if (nbfRaw !== undefined) {
       const nbf = Number(nbfRaw);
-      if (!Number.isFinite(nbf)) return { valid: false };
-      if (now < nbf) return { valid: false };
+      if (!Number.isFinite(nbf)) return { valid: false, reason: 'claims_invalid' };
+      if (now < nbf) return { valid: false, reason: 'not_active' };
     }
 
-    return out;
+    return { valid: true, payload };
   }
 
-  parse(
+  async parse(
     headers: Record<string, string | string[] | undefined>,
-  ): Promise<{ ok: true; claims: TClaims } | { ok: false }> {
+  ): Promise<SessionParseResult<TClaims>> {
     const authHeader = (headers['authorization'] || headers['Authorization']) as string | undefined;
     let token: string | null = null;
     if (authHeader && /^Bearer\s+/.test(authHeader))
@@ -158,10 +166,10 @@ export class SessionService<TClaims extends Record<string, unknown> = Record<str
         }
       }
     }
-    if (!token) return Promise.resolve({ ok: false });
-    return this.verifyJwt(token).then((v) =>
-      v.valid ? { ok: true, claims: v.payload as TClaims } : { ok: false },
-    );
+    if (!token) return { ok: false, reason: 'missing' };
+    const verified = await this.verifyJwt(token);
+    if (!verified.valid) return { ok: false, reason: verified.reason };
+    return { ok: true, claims: verified.payload as TClaims };
   }
 
   // === token helpers ===
@@ -189,7 +197,16 @@ export class SessionService<TClaims extends Record<string, unknown> = Record<str
       const token = this.extractTokenFromHeaders(headers);
       if (!token) return { ok: false, code: 'unauthorized', message: 'No session token' };
       const v = await this.verifyJwt(token);
-      if (!v.valid) return { ok: false, code: 'unauthorized', message: 'Invalid token' };
+      if (!v.valid) {
+        if (v.reason === 'expired') {
+          return {
+            ok: false,
+            code: 'wallet_session_expired',
+            message: 'Wallet Session expired',
+          };
+        }
+        return { ok: false, code: 'unauthorized', message: 'Invalid token' };
+      }
       const payload: any = v.payload || {};
       if (!this.isWithinRefreshWindow(payload))
         return { ok: false, code: 'not_eligible', message: 'Not within refresh window' };

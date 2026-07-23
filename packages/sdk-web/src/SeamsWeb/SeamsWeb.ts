@@ -31,6 +31,7 @@ import type {
   LoginHooksOptions,
   RegistrationHooksOptions,
   RegistrationFlowEvent,
+  SdkLifecycleEventListener,
   UnlockFlowEvent,
 } from '@/core/types/sdkSentEvents';
 import {
@@ -56,6 +57,15 @@ import { buildConfigsFromEnv } from '@/core/config/defaultConfigs';
 import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
 import { resolveAppearanceTheme, resolveThemePalette } from '@/core/config/configHelpers';
 import { WalletIframeCoordinator } from '@/SeamsWeb/walletIframe/coordinator';
+import {
+  parseWalletIframeExactSessionIdentity,
+  parseWalletIframeMissingSessionIdentity,
+  type WalletIframeExactSessionIdentity,
+  type WalletIframeExactSessionLockResult,
+  type WalletIframeExactSessionState,
+  type WalletIframeMissingSessionIdentity,
+  type WalletIframeMissingSessionLockResult,
+} from '@/SeamsWeb/walletIframe/shared/exactSessionState';
 import { resolveBrowserWorkerWarmupPolicy } from './assembly/browserWorkerWarmupPolicy';
 import { configureBrowserIndexedDB } from './assembly/configureBrowserIndexedDB';
 import { createBrowserSigningRuntime } from './assembly/createBrowserSigningRuntime';
@@ -702,6 +712,49 @@ function resolveRuntimeAppearance(
   };
 }
 
+type SeamsWebRuntimeMode = 'application' | 'wallet_host';
+
+type SeamsWebLifecycleEventSource =
+  | {
+      readonly kind: 'signing_engine';
+      readonly source: Pick<SeamsWebSigningSurface, 'onSdkLifecycleEvent'>;
+    }
+  | {
+      readonly kind: 'wallet_iframe';
+      readonly source: WalletIframeCoordinator;
+    };
+
+function resolveSeamsWebRuntimeMode(
+  internalOptions: { allowDirectWalletMode?: 'wallet_host' } | undefined,
+): SeamsWebRuntimeMode {
+  if (internalOptions?.allowDirectWalletMode === 'wallet_host') return 'wallet_host';
+  return 'application';
+}
+
+function resolveSeamsWebLifecycleEventSource(args: {
+  readonly mode: SeamsWebRuntimeMode;
+  readonly signingEngine: SeamsWebSigningSurface;
+  readonly walletIframe: WalletIframeCoordinator;
+}): SeamsWebLifecycleEventSource {
+  switch (args.mode) {
+    case 'wallet_host':
+      return { kind: 'signing_engine', source: args.signingEngine };
+    case 'application':
+      return { kind: 'wallet_iframe', source: args.walletIframe };
+  }
+}
+
+function subscribeToSeamsWebLifecycleEvents(
+  eventSource: SeamsWebLifecycleEventSource,
+  listener: SdkLifecycleEventListener,
+): () => void {
+  switch (eventSource.kind) {
+    case 'signing_engine':
+    case 'wallet_iframe':
+      return eventSource.source.onSdkLifecycleEvent(listener);
+  }
+}
+
 /**
  * Main SeamsWeb class that provides framework-agnostic passkey operations
  * with flexible event-based callbacks for custom UX implementation
@@ -713,6 +766,7 @@ export class SeamsWeb {
   private appearance: AppearanceConfig;
   theme: ThemeMode;
   private readonly walletIframe: WalletIframeCoordinator;
+  private readonly lifecycleEventSource: SeamsWebLifecycleEventSource;
   readonly recovery: RecoveryCapability;
   readonly devices: DevicesCapability;
   readonly keys: KeyExportCapability;
@@ -763,9 +817,11 @@ export class SeamsWeb {
       signingEngine: this.signingEngine,
       userPreferences: userPreferences,
       getAppearance: () => this.appearance,
-      refreshWalletSession: async (walletId?: string) => {
-        await getWalletSessionDomain(this.getWalletAuthDeps(), walletId);
-      },
+    });
+    this.lifecycleEventSource = resolveSeamsWebLifecycleEventSource({
+      mode: resolveSeamsWebRuntimeMode(internalOptions),
+      signingEngine: this.signingEngine,
+      walletIframe: this.walletIframe,
     });
     const publicApi = createPublicApi({
       signingEngine: this.signingEngine,
@@ -833,8 +889,34 @@ export class SeamsWeb {
    * Always warms local resources; initializes iframe when wallet mode is `iframe`.
    * Idempotent and safe to call multiple times.
    */
-  async initWalletIframe(walletId?: string): Promise<void> {
-    await this.walletIframeControls.initWalletIframe(walletId);
+  async initWalletIframe(walletId?: string): Promise<WalletIframeExactSessionState> {
+    return await this.walletIframe.init(walletId);
+  }
+
+  async getWalletIframeExactSessionState(): Promise<WalletIframeExactSessionState> {
+    return await this.walletIframe.getExactSessionState();
+  }
+
+  async lockWalletIframeExactSession(
+    identity: {
+      readonly walletId: string;
+      readonly walletSessionId: string;
+      readonly authMethod: 'passkey' | 'email_otp';
+      readonly expiresAtMs: number;
+    },
+  ): Promise<WalletIframeExactSessionLockResult> {
+    const parsedIdentity: WalletIframeExactSessionIdentity =
+      parseWalletIframeExactSessionIdentity(identity);
+    return await this.walletIframe.lockExactSession(parsedIdentity);
+  }
+
+  async lockWalletIframeMissingSession(identity: {
+    readonly walletId: string;
+    readonly reason: 'not_found';
+  }): Promise<WalletIframeMissingSessionLockResult> {
+    const parsedIdentity: WalletIframeMissingSessionIdentity =
+      parseWalletIframeMissingSessionIdentity(identity);
+    return await this.walletIframe.lockMissingSession(parsedIdentity);
   }
 
   /** True when the wallet iframe client is connected and ready. */
@@ -852,6 +934,11 @@ export class SeamsWeb {
     listener: (status: { isLoggedIn: boolean; walletId: string | null }) => void,
   ): () => void {
     return this.walletIframeControls.onWalletIframeLoginStatusChanged(listener);
+  }
+
+  /** Subscribe to typed lifecycle events emitted by the wallet boundary. */
+  onSdkLifecycleEvent(listener: SdkLifecycleEventListener): () => void {
+    return subscribeToSeamsWebLifecycleEvents(this.lifecycleEventSource, listener);
   }
 
   /** Subscribe to wallet-host preference updates. */
@@ -881,7 +968,7 @@ export class SeamsWeb {
       signingEngine: this.signingEngine,
       nearClient: this.nearClient,
       initWalletIframe: async (walletId?: string) => {
-        await this.initWalletIframe(walletId);
+        return await this.initWalletIframe(walletId);
       },
     };
   }

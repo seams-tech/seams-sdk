@@ -270,8 +270,14 @@ fn lifecycle_scope() -> LifecycleScopeV1 {
 }
 
 fn normal_signing_scope() -> NormalSigningScopeV1 {
-    NormalSigningScopeV1::new("sign-request-1", "alice.testnet", "session-1", "server-a")
-        .expect("normal signing scope")
+    NormalSigningScopeV1::new(
+        "sign-request-1",
+        "alice.testnet",
+        "session-1",
+        "session-1",
+        "server-a",
+    )
+    .expect("normal signing scope")
 }
 
 fn signer_set() -> SignerSetV1 {

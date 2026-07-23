@@ -21,7 +21,13 @@ import { parseClearVolatileWarmMaterialCommand } from '@/core/signingEngine/sess
 import { bytesToHex } from '../../chains/evm/bytes';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
-import { parseWalletId } from '@shared/utils/domainIds';
+import {
+  parseSigningGrantId,
+  parseThresholdEd25519SessionId,
+  parseWalletId,
+  type SigningGrantId,
+  type ThresholdEd25519SessionId,
+} from '@shared/utils/domainIds';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { base58Encode } from '@shared/utils/base58';
 import { WALLET_SESSION_SEAL_BASE_PATH } from '@shared/utils/signingSessionSeal';
@@ -441,6 +447,7 @@ function parseEd25519YaoExportWorkerPayload(
   const credentialIdB64u = normalizeOptionalNonEmptyString(exactLane.credentialIdB64u);
   const signingGrantId = normalizeOptionalNonEmptyString(exactLane.signingGrantId);
   const thresholdSessionId = normalizeOptionalNonEmptyString(exactLane.thresholdSessionId);
+  const activeStateSessionId = normalizeOptionalNonEmptyString(exactLane.activeStateSessionId);
   const signerSlot = normalizePositiveInteger(exactLane.signerSlot);
   const registeredPublicKey = parseWorkerBytes32(capability.registeredPublicKey);
   const activeCapabilityBinding = parseWorkerBytes32(capability.activeCapabilityBinding);
@@ -456,6 +463,7 @@ function parseEd25519YaoExportWorkerPayload(
     !credentialIdB64u ||
     !signingGrantId ||
     !thresholdSessionId ||
+    !activeStateSessionId ||
     signerSlot == null ||
     !registeredPublicKey ||
     !activeCapabilityBinding ||
@@ -479,6 +487,7 @@ function parseEd25519YaoExportWorkerPayload(
       credentialIdB64u,
       signingGrantId,
       thresholdSessionId,
+      activeStateSessionId,
     },
     capability: {
       scope: activationIdentity.value.scope,
@@ -568,6 +577,22 @@ function requireExportWalletId(raw: string): string {
     throw new Error('ECDSA export requires wallet identity');
   }
   return String(parsed.value);
+}
+
+function requireExportThresholdSessionId(raw: string): ThresholdEd25519SessionId {
+  const parsed = parseThresholdEd25519SessionId(raw);
+  if (!parsed.ok) {
+    throw new Error('Ed25519 export requires a threshold session identity');
+  }
+  return parsed.value;
+}
+
+function requireExportSigningGrantId(raw: string): SigningGrantId {
+  const parsed = parseSigningGrantId(raw);
+  if (!parsed.ok) {
+    throw new Error('Ed25519 export requires a signing grant identity');
+  }
+  return parsed.value;
 }
 
 function localOnlyExportSubjectForTarget(args: {
@@ -854,7 +879,7 @@ function assertExactEd25519ExportWorkerBinding(
     application.near_ed25519_signing_key_id !== payload.exactLane.nearEd25519SigningKeyId ||
     application.key_creation_signer_slot !== payload.exactLane.signerSlot ||
     scope.account_id !== payload.walletId ||
-    scope.wallet_session_id !== payload.exactLane.thresholdSessionId
+    scope.wallet_session_id !== payload.exactLane.activeStateSessionId
   ) {
     throw new Error('Ed25519 Yao export capability does not match the exact requested lane');
   }
@@ -1005,6 +1030,12 @@ async function runEd25519YaoExportWithUi(
     const client = await RouterAbEd25519YaoClientV1.initializeBundled();
     const result = await client.exportSeed({
       request: request.value,
+      authorizationIdentity: {
+        thresholdSessionId: requireExportThresholdSessionId(
+          payload.exactLane.thresholdSessionId,
+        ),
+        signingGrantId: requireExportSigningGrantId(payload.exactLane.signingGrantId),
+      },
       factor: { kind: 'passkey_prf_first', ownedSecret32: prfFirst },
       authorization: { kind: 'passkey', webauthnAuthentication: credential },
       transport: new RouterAbEd25519YaoHttpActivationTransportV1({

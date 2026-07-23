@@ -13,6 +13,7 @@ export type RecoveryPublicDeps = {
   laneSelection: ExportKeypairWithUIDeps['laneSelection'];
   ecdsa: Omit<ExportKeypairWithUIDeps['ecdsa'], 'theme'>;
   ed25519Yao: Omit<ExportKeypairWithUIDeps['ed25519Yao'], 'theme'>;
+  sessionLifecycle: ExportKeypairWithUIDeps['sessionLifecycle'];
   getTheme: () => ThemeMode;
 };
 
@@ -21,6 +22,7 @@ export type RecoveryPublicEcdsaSessionStoreDeps = RecoveryPublicDeps['ecdsa']['s
 function exportKeypairDeps(deps: RecoveryPublicDeps): ExportKeypairWithUIDeps {
   return {
     laneSelection: deps.laneSelection,
+    sessionLifecycle: deps.sessionLifecycle,
     ecdsa: {
       ...deps.ecdsa,
       theme: deps.getTheme(),

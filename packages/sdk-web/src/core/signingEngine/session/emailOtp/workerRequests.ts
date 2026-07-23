@@ -6,6 +6,7 @@ import type {
   SignerWorkerOperationResult,
 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { SigningSessionSealKeyVersion } from '../keyMaterialBrands';
+import type { WalletRegistrationEd25519YaoBootstrapSession } from '@/core/rpcClients/relayer/walletRegistration';
 
 type EmailOtpWorkerRequester = Pick<WorkerOperationContext, 'requestWorkerOperation'>;
 
@@ -39,10 +40,11 @@ export type EmailOtpEcdsaWarmSessionRestore = {
   authSubjectId: string;
 };
 
-export type EmailOtpEd25519YaoFactorRestore = {
-  sessionId: string;
-  walletId: string;
+export type EmailOtpEd25519YaoLocalMaterialRestore = {
+  session: WalletRegistrationEd25519YaoBootstrapSession;
   providerSubject: string;
+  signerSlot: number;
+  expectedOperationalPublicKey: string;
 };
 
 export async function requestSealEmailOtpWarmSessionMaterial(args: {
@@ -177,18 +179,20 @@ export async function requestRehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
   });
 }
 
-export async function requestRehydrateEmailOtpEd25519YaoFactor(args: {
+export async function requestRehydrateEmailOtpEd25519YaoLocalMaterial(args: {
   workerCtx: WorkerOperationContext;
   sealedSecretB64u: string;
   remainingUses: number;
   expiresAtMs: number;
   transport: Required<EmailOtpWarmSessionTransport>;
-  restore: EmailOtpEd25519YaoFactorRestore;
-}): Promise<SignerWorkerOperationResult<'emailOtp', 'rehydrateEmailOtpEd25519YaoFactor'>> {
+  restore: EmailOtpEd25519YaoLocalMaterialRestore;
+}): Promise<
+  SignerWorkerOperationResult<'emailOtp', 'rehydrateEmailOtpEd25519YaoLocalMaterial'>
+> {
   return await args.workerCtx.requestWorkerOperation({
     kind: 'emailOtp',
     request: {
-      type: 'rehydrateEmailOtpEd25519YaoFactor',
+      type: 'rehydrateEmailOtpEd25519YaoLocalMaterial',
       timeoutMs: 60_000,
       payload: {
         sealedSecretB64u: args.sealedSecretB64u,

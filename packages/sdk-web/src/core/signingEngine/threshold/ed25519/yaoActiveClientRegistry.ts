@@ -94,8 +94,7 @@ function capabilityIdentity(
   );
   if (
     String(signingLane.thresholdSessionId) !== thresholdSessionId ||
-    String(signingLane.identity.thresholdSessionId) !== thresholdSessionId ||
-    metadata.scope.wallet_session_id !== thresholdSessionId
+    String(signingLane.identity.thresholdSessionId) !== thresholdSessionId
   ) {
     throw new Error('Ed25519 Yao active Client registry session identity mismatch');
   }

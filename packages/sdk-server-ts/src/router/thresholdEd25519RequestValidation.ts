@@ -1,4 +1,8 @@
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
+import {
+  MAX_WALLET_SESSION_REMAINING_USES,
+  MAX_WALLET_SESSION_TTL_MS,
+} from '@shared/threshold/sessionPolicy';
 import { isPlainObject } from '@shared/utils/validation';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
@@ -25,9 +29,6 @@ type ThresholdEd25519RouteParseError = { ok: false; body: ThresholdEd25519RouteE
 export type ThresholdEd25519RouteParseResult<T> =
   | { ok: true; request: T }
   | ThresholdEd25519RouteParseError;
-
-const THRESHOLD_ED25519_SESSION_MAX_TTL_MS = 30 * 24 * 60 * 60_000;
-const THRESHOLD_ED25519_SESSION_MAX_USES = 1_000_000;
 
 const SESSION_KEYS = [
   'relayerKeyId',
@@ -117,7 +118,7 @@ export function parseRouterAbEd25519YaoSessionPolicyV1(
     typeof raw.ttlMs !== 'number' ||
     !Number.isSafeInteger(raw.ttlMs) ||
     raw.ttlMs <= 0 ||
-    raw.ttlMs > THRESHOLD_ED25519_SESSION_MAX_TTL_MS
+    raw.ttlMs > MAX_WALLET_SESSION_TTL_MS
   ) {
     return invalidThresholdEd25519Body('sessionPolicy.ttlMs is required');
   }
@@ -125,7 +126,7 @@ export function parseRouterAbEd25519YaoSessionPolicyV1(
     typeof raw.remainingUses !== 'number' ||
     !Number.isSafeInteger(raw.remainingUses) ||
     raw.remainingUses <= 0 ||
-    raw.remainingUses > THRESHOLD_ED25519_SESSION_MAX_USES
+    raw.remainingUses > MAX_WALLET_SESSION_REMAINING_USES
   ) {
     return invalidThresholdEd25519Body('sessionPolicy.remainingUses is required');
   }

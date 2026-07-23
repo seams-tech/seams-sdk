@@ -14,6 +14,7 @@ import {
   buildEcdsaRoleLocalReadyRecord,
 } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
+import { parseRootShareEpoch, type RootShareEpoch } from '@shared/utils/domainIds';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import {
@@ -30,6 +31,15 @@ const VALID_ECDSA_SHARE32_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
 function hexAddressToBase64Url(address: string): string {
   return Buffer.from(address.replace(/^0x/i, ''), 'hex').toString('base64url');
+}
+
+/** Brands a fixture session id as the activation epoch via the production parser. */
+function fixtureRootShareEpoch(value: string): RootShareEpoch {
+  const parsed = parseRootShareEpoch(value);
+  if (!parsed.ok) {
+    throw new Error(`invalid fixture activation epoch: ${value}`);
+  }
+  return parsed.value;
 }
 
 function fixtureRouterAbEcdsaDerivationNormalSigning(args: {
@@ -69,7 +79,7 @@ function fixtureRouterAbEcdsaDerivationNormalSigning(args: {
         recipient_encryption_key:
           'x25519:1111111111111111111111111111111111111111111111111111111111111111',
       },
-      activation_epoch: args.sessionId,
+      activation_epoch: fixtureRootShareEpoch(args.sessionId),
     },
   };
 }
@@ -282,7 +292,6 @@ export function createThresholdEcdsaBootstrapFixture(args: {
     passkeyCredentialIdB64u,
     keygen: {
       ok: true,
-      walletKeyId: evmFamilySigningKeySlotId,
       evmFamilySigningKeySlotId,
       ecdsaThresholdKeyId,
       clientVerifyingShareB64u,

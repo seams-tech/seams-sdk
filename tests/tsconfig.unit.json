@@ -1,0 +1,30 @@
+{
+  "extends": "./tsconfig.playwright.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": [
+    "unit/helpers/**/*.ts",
+    "types/**/*.d.ts",
+    "unit/activateSigningSessionUseCase.unit.test.ts",
+    "unit/d1EvmFamilyEcdsaRegistrationBranch.unit.test.ts",
+    "unit/d1WalletRegistrationCommitStore.unit.test.ts",
+    "unit/ecdsaExportMaterial.unit.test.ts",
+    "unit/emailOtpMixedWalletUnlock.unit.test.ts",
+    "unit/emailOtpRecoveryWrappedEnrollmentEscrowStore.unit.test.ts",
+    "unit/emailOtpWalletSessionCoordinator.unit.test.ts",
+    "unit/evmFamilyEcdsaIdentity.unit.test.ts",
+    "unit/evmFamilyStepUpProvisionPlan.unit.test.ts",
+    "unit/loginEcdsaInventoryProfileRepair.unit.test.ts",
+    "unit/refactor92.invalidationIdempotency.unit.test.ts",
+    "unit/sealedSessionStore.unit.test.ts",
+    "unit/signingRootRecords.script.unit.test.ts",
+    "unit/signingSessionSeal.shared.unit.test.ts",
+    "unit/thresholdEcdsa.bootstrapPersistence.unit.test.ts",
+    "unit/thresholdEcdsa.emailOtpBootstrapCommit.unit.test.ts",
+    "unit/thresholdEcdsa.persistedRecords.unit.test.ts",
+    "unit/warmSessionEcdsaProvisioning.unit.test.ts",
+    "unit/warmSessionTransitions.unit.test.ts"
+  ],
+  "exclude": ["node_modules", "playwright-report", "test-results"]
+}

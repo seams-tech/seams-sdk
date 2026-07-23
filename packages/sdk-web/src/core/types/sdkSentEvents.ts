@@ -12,6 +12,128 @@ import type {
   SignTransactionResult,
 } from './seams';
 import type { SyncAccountResult, SignNEP413MessageResult } from '@/core/types/sdkPublicResults';
+import {
+  parseSigningGrantId,
+  parseWalletId,
+  type SigningGrantId,
+  type WalletId,
+} from '@shared/utils/domainIds';
+import { isWalletAuthMethod, type WalletAuthMethod } from '@shared/utils/signerDomain';
+
+/////////////////////////////////////
+// Signing Session Lifecycle Events
+/////////////////////////////////////
+
+export const SDK_LIFECYCLE_EVENT_VERSION = 1 as const;
+
+export const SIGNING_SESSION_EXPIRY_DETECTION_SOURCES = {
+  restore: 'restore',
+  visibility: 'visibility',
+  focus: 'focus',
+  operationPreflight: 'operation_preflight',
+  serverRejection: 'server_rejection',
+} as const;
+
+export type SigningSessionExpiryDetectionSource =
+  (typeof SIGNING_SESSION_EXPIRY_DETECTION_SOURCES)[keyof typeof SIGNING_SESSION_EXPIRY_DETECTION_SOURCES];
+
+/** Public wallet-session identity. A Wallet Session is grouped by its signing grant. */
+export type WalletSessionId = SigningGrantId;
+
+export type SigningSessionExpiredEvent = {
+  readonly version: typeof SDK_LIFECYCLE_EVENT_VERSION;
+  readonly event: 'signing_session.expired';
+  readonly walletId: WalletId;
+  readonly walletSessionId: WalletSessionId;
+  readonly authMethod: WalletAuthMethod;
+  readonly expiresAtMs: number;
+  readonly detectedAtMs: number;
+  readonly source: SigningSessionExpiryDetectionSource;
+};
+
+export type SdkLifecycleEvent = SigningSessionExpiredEvent;
+
+export type SigningSessionExpiredEventInput = Omit<
+  SigningSessionExpiredEvent,
+  'version' | 'event'
+>;
+
+export type SdkLifecycleEventListener = (event: SdkLifecycleEvent) => void;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isPositiveSafeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+}
+
+function parseSigningSessionExpiryDetectionSource(
+  value: unknown,
+): SigningSessionExpiryDetectionSource | null {
+  switch (value) {
+    case SIGNING_SESSION_EXPIRY_DETECTION_SOURCES.restore:
+    case SIGNING_SESSION_EXPIRY_DETECTION_SOURCES.visibility:
+    case SIGNING_SESSION_EXPIRY_DETECTION_SOURCES.focus:
+    case SIGNING_SESSION_EXPIRY_DETECTION_SOURCES.operationPreflight:
+    case SIGNING_SESSION_EXPIRY_DETECTION_SOURCES.serverRejection:
+      return value;
+    default:
+      return null;
+  }
+}
+
+export function createSigningSessionExpiredEvent(
+  input: SigningSessionExpiredEventInput,
+): SigningSessionExpiredEvent {
+  if (!isPositiveSafeInteger(input.expiresAtMs)) {
+    throw new Error('signing_session.expired expiresAtMs must be a positive safe integer');
+  }
+  if (!isPositiveSafeInteger(input.detectedAtMs)) {
+    throw new Error('signing_session.expired detectedAtMs must be a positive safe integer');
+  }
+  if (input.expiresAtMs > input.detectedAtMs) {
+    throw new Error('signing_session.expired timeline is invalid');
+  }
+  return {
+    version: SDK_LIFECYCLE_EVENT_VERSION,
+    event: 'signing_session.expired',
+    walletId: input.walletId,
+    walletSessionId: input.walletSessionId,
+    authMethod: input.authMethod,
+    expiresAtMs: input.expiresAtMs,
+    detectedAtMs: input.detectedAtMs,
+    source: input.source,
+  };
+}
+
+export function parseSdkLifecycleEvent(value: unknown): SdkLifecycleEvent | null {
+  if (!isRecord(value)) return null;
+  if (value.version !== SDK_LIFECYCLE_EVENT_VERSION) return null;
+  if (value.event !== 'signing_session.expired') return null;
+
+  const walletId = parseWalletId(value.walletId);
+  if (!walletId.ok) return null;
+  const walletSessionId = parseSigningGrantId(value.walletSessionId);
+  if (!walletSessionId.ok) return null;
+  if (!isWalletAuthMethod(value.authMethod)) return null;
+  if (!isPositiveSafeInteger(value.expiresAtMs)) return null;
+  if (!isPositiveSafeInteger(value.detectedAtMs)) return null;
+  if (value.expiresAtMs > value.detectedAtMs) return null;
+  const source = parseSigningSessionExpiryDetectionSource(value.source);
+  if (!source) return null;
+
+  return {
+    version: SDK_LIFECYCLE_EVENT_VERSION,
+    event: 'signing_session.expired',
+    walletId: walletId.value,
+    walletSessionId: walletSessionId.value,
+    authMethod: value.authMethod,
+    expiresAtMs: value.expiresAtMs,
+    detectedAtMs: value.detectedAtMs,
+    source,
+  };
+}
 
 ////////////////////////////
 // Wallet Flow Event Model

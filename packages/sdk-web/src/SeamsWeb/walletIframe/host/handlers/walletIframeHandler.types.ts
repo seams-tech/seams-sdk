@@ -20,4 +20,3 @@ export interface HandlerDeps {
   isCancelled(requestId: string | undefined): boolean;
   respondIfCancelled(requestId: string | undefined): boolean;
 }
-

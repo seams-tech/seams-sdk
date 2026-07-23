@@ -164,6 +164,7 @@ function routerAbNormalSigningExpiresAtMs(args: {
 
 function buildRouterAbNormalSigningScope(args: {
   thresholdSessionId: string;
+  activeClient: RouterAbEd25519YaoActiveClientV1;
   walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
   walletId: WalletId;
   operationId: SigningOperationId;
@@ -174,10 +175,19 @@ function buildRouterAbNormalSigningScope(args: {
   if (!walletId) {
     throw new Error('[SigningEngine][near] Router A/B Ed25519 signing scope is missing wallet id');
   }
+  const activeStateSessionId = String(
+    args.activeClient.metadata().scope.wallet_session_id,
+  ).trim();
+  if (!activeStateSessionId) {
+    throw new Error(
+      '[SigningEngine][near] Router A/B Ed25519 signing scope is missing active material session id',
+    );
+  }
   return {
     request_id: createRouterAbNormalSigningRequestId(args.operationId),
     account_id: walletId,
     session_id: args.thresholdSessionId,
+    active_state_session_id: activeStateSessionId,
     signing_worker_id: routerAbState.signingWorkerId,
   };
 }
@@ -350,13 +360,13 @@ function requireActiveClientMatchesNormalSigningOperation(args: {
   requireMatchingRouterAbEd25519Identity(metadata.scope.account_id, args.walletId, 'scope wallet');
   requireMatchingRouterAbEd25519Identity(
     metadata.scope.wallet_session_id,
-    args.prepare.request.scope.session_id,
-    'scope Wallet Session',
+    args.prepare.request.scope.active_state_session_id,
+    'active material session',
   );
   requireMatchingRouterAbEd25519Identity(
-    metadata.scope.wallet_session_id,
+    args.prepare.request.scope.session_id,
     args.thresholdSessionId,
-    'threshold session',
+    'authorization session',
   );
   requireMatchingRouterAbEd25519Identity(
     metadata.scope.signing_worker_id,
@@ -524,6 +534,7 @@ export async function tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning(args:
 }): Promise<RouterAbEd25519SignatureOnlyNormalSigningResult | null> {
   const scope = buildRouterAbNormalSigningScope({
     thresholdSessionId: args.thresholdSessionId,
+    activeClient: args.activeClient,
     walletSessionState: args.walletSessionState,
     walletId: args.walletId,
     operationId: args.operationId,
@@ -795,6 +806,7 @@ export async function tryFinalizeRouterAbEd25519NearTransactionNormalSigning(arg
   );
   const scope = buildRouterAbNormalSigningScope({
     thresholdSessionId: args.thresholdSessionId,
+    activeClient: args.activeClient,
     walletSessionState: args.walletSessionState,
     walletId: args.walletId,
     operationId: args.operationId,

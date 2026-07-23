@@ -1,21 +1,18 @@
 import { expect, test } from '@playwright/test';
-import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { SIGNER_AUTH_METHODS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
 import type { ActivateAccountSignerInput } from '@/core/indexedDB/accountSignerLifecycle';
-import type { AccountSignerRecord } from '@/core/indexedDB/passkeyClientDB.types';
-import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
+import type {
+  ThresholdEcdsaActivationChain,
+  ThresholdEcdsaSessionBootstrapResult,
+} from '@/core/signingEngine/threshold/ecdsa/activation';
 import {
   persistThresholdEcdsaBootstrapForWalletTarget,
   type ThresholdEcdsaBootstrapStorePort,
   type ThresholdEcdsaBootstrapSignerAuth,
 } from '@/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import {
-  buildEcdsaRoleLocalPasskeyAuthMethod,
-  buildEcdsaRoleLocalPublicFacts,
-  buildEcdsaRoleLocalReadyRecord,
-} from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
-import { parseEcdsaThresholdKeyId } from '@/core/signingEngine/session/keyMaterialBrands';
+import { accountSignerRecordFromActivateInput } from './helpers/accountSignerRecord.fixtures';
+import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
 
 type UpsertProfileCall = Parameters<ThresholdEcdsaBootstrapStorePort['upsertProfile']>[0];
 
@@ -41,96 +38,21 @@ const TEMPO_TARGET = {
   chainId: 42431,
   networkSlug: 'tempo-testnet',
 } as const;
-const VALID_PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
-const VALID_RELAYER_PUBLIC_KEY_B64U = 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
-const VALID_SHARE_32_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
-const EVM_FAMILY_SIGNING_KEY_SLOT_ID = deriveEvmFamilySigningKeySlotId({
-  walletId: 'alice.testnet',
-  signingRootId: 'signing-root-1',
-  signingRootVersion: 'signing-root-v1',
-});
 
 function bootstrap(args: {
-  chainId: number | string;
+  chain: ThresholdEcdsaActivationChain;
+  walletId: string;
   ownerAddress: `0x${string}`;
-  keyHandle?: string;
-  ecdsaThresholdKeyId?: string;
+  roleLocalAuthMethod?: 'passkey' | 'email_otp';
 }): ThresholdEcdsaSessionBootstrapResult {
-  const keyHandle = args.keyHandle || 'key-handle-1';
-  const ecdsaThresholdKeyId = parseEcdsaThresholdKeyId(
-    args.ecdsaThresholdKeyId || 'threshold-key-1',
-  );
-  const ecdsaRoleLocalReadyRecord = buildEcdsaRoleLocalReadyRecord({
-    stateBlob: {
-      kind: 'ecdsa_role_local_state_blob_v1',
-      curve: 'secp256k1',
-      encoding: 'base64url',
-      producer: 'signer_core',
-      stateBlobB64u: VALID_SHARE_32_B64U,
-    },
-    publicFacts: buildEcdsaRoleLocalPublicFacts({
-      walletId: toWalletId('alice.testnet'),
-      evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
-      chainTarget: EVM_TARGET,
-      keyHandle,
-      ecdsaThresholdKeyId,
-      signingRootId: 'signing-root-1',
-      signingRootVersion: 'signing-root-v1',
-      applicationBindingDigestB64u: VALID_SHARE_32_B64U,
-      clientParticipantId: 1,
-      relayerParticipantId: 2,
-      participantIds: [1, 2],
-      contextBinding32B64u: VALID_SHARE_32_B64U,
-      derivationClientSharePublicKey33B64u: VALID_PUBLIC_KEY_B64U,
-      relayerPublicKey33B64u: VALID_RELAYER_PUBLIC_KEY_B64U,
-      groupPublicKey33B64u: VALID_PUBLIC_KEY_B64U,
-      ethereumAddress: args.ownerAddress,
-    }),
-    authMethod: buildEcdsaRoleLocalPasskeyAuthMethod({
-      credentialIdB64u: 'credential-1',
-      rpId: 'localhost',
-    }),
+  return createThresholdEcdsaBootstrapFixture({
+    nearAccountId: args.walletId,
+    chain: args.chain,
+    keyHandle: 'key-handle-1',
+    ecdsaThresholdKeyId: 'threshold-key-1',
+    ethereumAddress: args.ownerAddress,
+    ...(args.roleLocalAuthMethod ? { roleLocalAuthMethod: args.roleLocalAuthMethod } : {}),
   });
-  return {
-    thresholdEcdsaKeyRef: {
-      type: 'threshold-ecdsa-secp256k1',
-      userId: 'alice.testnet',
-      chainTarget: EVM_TARGET,
-      relayerUrl: 'https://relay.example',
-      keyHandle,
-      ecdsaThresholdKeyId,
-      thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
-      participantIds: [1, 2],
-      backendBinding: {
-        materialKind: 'role_local_ready_state_blob',
-        relayerKeyId: 'relayer-key-1',
-        clientVerifyingShareB64u: VALID_PUBLIC_KEY_B64U,
-        stateBlob: ecdsaRoleLocalReadyRecord.stateBlob,
-        ecdsaRoleLocalReadyRecord,
-      },
-      thresholdSessionId: 'tederivation_1',
-      signingGrantId: 'wss_1',
-    },
-    keygen: {
-      ok: true,
-      chainId: args.chainId,
-      ethereumAddress: args.ownerAddress,
-      keyHandle,
-      ecdsaThresholdKeyId,
-      evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
-      relayerKeyId: 'relayer-key-1',
-      relayerVerifyingShareB64u: VALID_RELAYER_PUBLIC_KEY_B64U,
-      thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
-      participantIds: [1, 2],
-    } as ThresholdEcdsaSessionBootstrapResult['keygen'],
-    session: {
-      ok: true,
-      thresholdSessionId: 'tederivation_1',
-      signingGrantId: 'wss_1',
-      expiresAtMs: Date.now() + 60_000,
-      remainingUses: 3,
-    } as ThresholdEcdsaSessionBootstrapResult['session'],
-  };
 }
 
 function createBootstrapStore(calls: {
@@ -144,23 +66,10 @@ function createBootstrapStore(calls: {
     },
     activateAccountSigner: async (input) => {
       calls.signers.push(input);
+      const signer = accountSignerRecordFromActivateInput(input);
       return {
-        signerSlot: input.preferredSlot || 1,
-        signer: {
-          profileId: input.account.profileId,
-          chainIdKey: input.account.chainIdKey,
-          accountAddress: input.account.accountAddress,
-          signerId: input.signer.signerId,
-          signerType: input.signer.signerType,
-          signerKind: input.signer.signerKind,
-          signerAuthMethod: input.signer.signerAuthMethod,
-          signerSource: input.signer.signerSource,
-          signerSlot: input.preferredSlot || 1,
-          status: 'active',
-          metadata: input.signer.metadata,
-          addedAt: Date.now(),
-          updatedAt: Date.now(),
-        } satisfies AccountSignerRecord,
+        signerSlot: signer.signerSlot,
+        signer,
       };
     },
   };
@@ -175,7 +84,8 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
       walletId: toWalletId('alice.testnet'),
       chainTarget: EVM_TARGET,
       bootstrap: bootstrap({
-        chainId: 11155111,
+        chain: 'evm',
+        walletId: 'alice.testnet',
         ownerAddress: `0x${'ab'.repeat(20)}`,
       }),
       signerAuth: PASSKEY_SIGNER_AUTH,
@@ -215,15 +125,24 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
 
   test('uses requested chain target when bootstrap chain id is invalid', async () => {
     const calls = { profiles: [] as UpsertProfileCall[], signers: [] as ActivateAccountSignerInput[] };
+    const validBootstrap = bootstrap({
+      chain: 'evm',
+      walletId: 'alice.testnet',
+      ownerAddress: `0x${'ab'.repeat(20)}`,
+    });
 
     await persistThresholdEcdsaBootstrapForWalletTarget({
       bootstrapStore: createBootstrapStore(calls),
       walletId: toWalletId('alice.testnet'),
       chainTarget: EVM_TARGET,
-      bootstrap: bootstrap({
-        chainId: 'invalid',
-        ownerAddress: `0x${'ab'.repeat(20)}`,
-      }),
+      bootstrap: {
+        ...validBootstrap,
+        // Deliberately invalid: keygen reports a non-numeric chain id.
+        keygen: {
+          ...validBootstrap.keygen,
+          chainId: 'invalid',
+        } as unknown as ThresholdEcdsaSessionBootstrapResult['keygen'],
+      },
       signerAuth: PASSKEY_SIGNER_AUTH,
     });
 
@@ -238,8 +157,10 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
       walletId: toWalletId('google-user.testnet'),
       chainTarget: TEMPO_TARGET,
       bootstrap: bootstrap({
-        chainId: 42431,
+        chain: 'tempo',
+        walletId: 'google-user.testnet',
         ownerAddress: `0x${'34'.repeat(20)}`,
+        roleLocalAuthMethod: 'email_otp',
       }),
       signerAuth: EMAIL_OTP_SIGNER_AUTH,
     });

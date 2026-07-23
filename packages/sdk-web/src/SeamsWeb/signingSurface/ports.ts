@@ -122,7 +122,10 @@ import type {
   WarmSessionSealAndPersistResult,
   WarmSessionSealTransportInput,
 } from '@/core/types/secure-confirm-worker';
-import type { SigningFlowEvent } from '@/core/types/sdkSentEvents';
+import type {
+  SdkLifecycleEventListener,
+  SigningFlowEvent,
+} from '@/core/types/sdkSentEvents';
 import type {
   WorkerResourceWarmupAccountContext,
   WorkerResourceWarmupDiagnostics,
@@ -183,6 +186,10 @@ export interface WalletIframeWarmupSurface {
 
 export interface RuntimeStartupSurface {
   assertSealedRefreshStartupParity(): Promise<void>;
+}
+
+export interface SigningEngineLifecycleEventSurface {
+  onSdkLifecycleEvent(listener: SdkLifecycleEventListener): () => void;
 }
 
 export interface UserProfileStoreSurface {

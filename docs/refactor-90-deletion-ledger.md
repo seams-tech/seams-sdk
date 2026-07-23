@@ -112,6 +112,23 @@ exact parser, and two-state activation journal.
   capability-local move ships both halves in one cut (Refactor 91's stable leaf
   module stays until then)
 
+## Phases 18-20 — session-shaped material identity
+
+Replacement: branded `MpcMaterialActivationId`, exact
+`MpcMaterialActivationRef`, and an operation scope that carries an independent
+`authorizationSessionId`.
+
+- `ActiveMpcMaterialSessionRef`
+- `ActiveEcdsaMaterialSession`
+- `rehydrate_active_session`
+- `active_state_session_id`
+- ambiguous normal-signing `session_id` fields that represent authorization;
+  the replacement wire field is `authorization_session_id`
+- every `thresholdSessionId` or Wallet Session ID used as a material activation
+  locator, persistence key, worker-state key, or hydration identity
+- compatibility aliases between authorization session IDs and material
+  activation IDs
+
 ## Phase 19 — Email OTP patch tactical surface
 
 Replacement: capability-local Near/ECDSA material adapters, generic session

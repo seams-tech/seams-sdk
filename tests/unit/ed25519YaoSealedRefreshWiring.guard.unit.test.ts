@@ -9,32 +9,32 @@ function readSource(relativePath: string): string {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
-function occurrenceIndexes(source: string, pattern: RegExp): number[] {
-  const indexes: number[] = [];
-  for (const match of source.matchAll(pattern)) {
-    if (match.index !== undefined) indexes.push(match.index);
-  }
-  return indexes;
-}
-
-test('all passkey Yao registration branches persist refresh state before activation', () => {
+test('passkey Yao registration owners persist local material before activation', () => {
   const source = readSource(
     'packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts',
   );
+  const ownerNames = [
+    'async commitPasskey(',
+    'async function commitPendingPasskeyEd25519YaoRegistration(',
+  ];
 
-  const persistenceIndexes = occurrenceIndexes(
-    source,
-    /await persistPasskeyEd25519YaoSessionForRefresh\(\{/g,
-  );
-  const activationIndexes = occurrenceIndexes(
-    source,
-    /await (?:args\.yaoWork|pending)\.commit\(\{ activation:/g,
-  );
+  for (const ownerName of ownerNames) {
+    const ownerIndex = source.indexOf(ownerName);
+    const persistenceIndex = source.indexOf(
+      'await persistPasskeyEd25519YaoLocalMaterialV1({',
+      ownerIndex,
+    );
+    const activationIndex = source.indexOf('await pending.commit({', ownerIndex);
+    const alternateActivationIndex = source.indexOf('await args.pending.commit({', ownerIndex);
+    const resolvedActivationIndex =
+      activationIndex >= 0 &&
+      (alternateActivationIndex < 0 || activationIndex < alternateActivationIndex)
+        ? activationIndex
+        : alternateActivationIndex;
 
-  expect(persistenceIndexes).toHaveLength(3);
-  expect(activationIndexes).toHaveLength(3);
-  for (let index = 0; index < persistenceIndexes.length; index += 1) {
-    expect(persistenceIndexes[index]).toBeLessThan(activationIndexes[index]);
+    expect(ownerIndex).toBeGreaterThanOrEqual(0);
+    expect(persistenceIndex).toBeGreaterThan(ownerIndex);
+    expect(resolvedActivationIndex).toBeGreaterThan(persistenceIndex);
   }
 });
 
@@ -51,11 +51,10 @@ test('Email OTP registration seals the worker-owned Yao factor after activation'
   const source = readSource(
     'packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts',
   );
-  const activationIndex = source.indexOf(
-    'await args.yaoWork.commit({ activation: args.context.signingEngine, walletSessionState });',
-  );
+  const activationIndex = source.indexOf('await args.yaoWork.commit({');
   const persistenceIndex = source.indexOf(
     'await args.context.signingEngine.persistEmailOtpEd25519YaoSessionForRefreshInternal(record);',
+    activationIndex,
   );
 
   expect(activationIndex).toBeGreaterThanOrEqual(0);
@@ -87,19 +86,31 @@ test('Email OTP page refresh rehydrates the exact sealed Yao factor without an O
   const source = readSource(
     'packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoSealedRecovery.ts',
   );
-  const recordIndex = source.indexOf('const sealedRecord = await resolveSealedRecord({');
-  const bootstrapIndex = source.indexOf('const bootstrapResponse = await fetchWarmBootstrap({');
-  const rehydrateIndex = source.indexOf(
-    'const rehydrated = await requestRehydrateEmailOtpEd25519YaoFactor({',
+  const methodIndex = source.indexOf(
+    'export async function recoverEmailOtpEd25519YaoFromSealedSessionV1(',
   );
-  const activationIndex = source.indexOf(
-    'const recovery = await activateColdEmailOtpEd25519YaoUnlockedRecoveryV1({',
+  const methodEndIndex = source.indexOf(
+    'export async function resolveEmailOtpEd25519YaoExportContextV1(',
+    methodIndex,
+  );
+  const methodSource = source.slice(methodIndex, methodEndIndex);
+  const recordIndex = methodSource.indexOf('const sealedRecord = await resolveSealedRecord({');
+  const sessionIndex = methodSource.indexOf('const session = exactLocalSessionFromSealedRecord({');
+  const rehydrateIndex = methodSource.indexOf(
+    'const rehydrated = await requestRehydrateEmailOtpEd25519YaoLocalMaterial({',
+  );
+  const activationIndex = methodSource.indexOf(
+    'const recovery = await activateColdEmailOtpEd25519YaoLocalSessionV1({',
   );
 
+  expect(methodIndex).toBeGreaterThanOrEqual(0);
+  expect(methodEndIndex).toBeGreaterThan(methodIndex);
   expect(recordIndex).toBeGreaterThanOrEqual(0);
-  expect(bootstrapIndex).toBeGreaterThan(recordIndex);
-  expect(rehydrateIndex).toBeGreaterThan(bootstrapIndex);
+  expect(sessionIndex).toBeGreaterThan(recordIndex);
+  expect(rehydrateIndex).toBeGreaterThan(sessionIndex);
   expect(activationIndex).toBeGreaterThan(rehydrateIndex);
-  expect(source).not.toContain('challengeId');
-  expect(source).not.toContain('otpCode');
+  expect(methodSource).not.toContain('fetchWarmBootstrap');
+  expect(methodSource).not.toContain('activateColdEmailOtpEd25519YaoUnlockedRecoveryV1');
+  expect(methodSource).not.toContain('challengeId');
+  expect(methodSource).not.toContain('otpCode');
 });

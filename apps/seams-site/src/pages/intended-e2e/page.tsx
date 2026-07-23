@@ -5,7 +5,6 @@ import {
   type GoogleEmailOtpWalletAuthEcdsaTargets,
   type RegistrationResult,
   type RegistrationSignerSetSelection,
-  type WalletIframeRegistrationActivationSurface,
 } from '@seams/sdk/react';
 import {
   encodeSignedTransactionBase64,
@@ -19,7 +18,6 @@ import {
 type IntendedActionName =
   | 'registerPasskeyWallet'
   | 'registerPasskeyEd25519YaoWallet'
-  | 'registerPreparedIframePasskeyEd25519YaoWallet'
   | 'addPasskeyEd25519YaoWalletSigner'
   | 'registerEmailOtpWallet'
   | 'unlockPasskeyWallet'
@@ -366,40 +364,6 @@ function intendedEd25519YaoSignerSelection(): RegistrationSignerSetSelection {
   };
 }
 
-function resolveIntendedActivationPoll(resolve: () => void): void {
-  window.setTimeout(resolve, 25);
-}
-
-function waitForIntendedActivationPoll(): Promise<void> {
-  return new Promise(resolveIntendedActivationPoll);
-}
-
-async function waitForIntendedRegistrationActivation(
-  surface: WalletIframeRegistrationActivationSurface,
-): Promise<RegistrationResult> {
-  const deadline = Date.now() + 120_000;
-  while (Date.now() < deadline) {
-    const state = surface.state();
-    switch (state.kind) {
-      case 'completed':
-        return state.result;
-      case 'cancelled':
-        throw new Error(`Prepared iframe registration was cancelled: ${state.reason}`);
-      case 'failed':
-        throw new Error(state.error);
-      case 'idle':
-      case 'mounting':
-      case 'ready':
-      case 'starting':
-        await waitForIntendedActivationPoll();
-        break;
-      default:
-        assertNever(state);
-    }
-  }
-  throw new Error('Prepared iframe registration timed out');
-}
-
 function intendedEcdsaChainTarget(
   chain: IntendedEcdsaTargetKeySummary['chain'],
 ): ThresholdEcdsaChainTarget {
@@ -481,19 +445,6 @@ export const IntendedBehaviourE2EPage: React.FC = () => {
           >
             Register Passkey Ed25519 Yao
           </button>
-          <button
-            type="button"
-            data-testid="intended-register-prepared-iframe-passkey-ed25519-yao"
-            disabled={state.action.status === 'running'}
-            onClick={controller.runRegisterPreparedIframePasskeyEd25519YaoWallet}
-            style={buttonStyle}
-          >
-            Prepare Iframe Passkey Ed25519 Yao
-          </button>
-          <div
-            data-testid="intended-prepared-iframe-registration-target"
-            style={registrationActivationTargetStyle}
-          />
           <button
             type="button"
             data-testid="intended-add-passkey-ed25519-yao-signer"
@@ -634,10 +585,6 @@ class IntendedPageController {
     void this.registerPasskeyEd25519YaoWallet();
   };
 
-  runRegisterPreparedIframePasskeyEd25519YaoWallet = (): void => {
-    void this.registerPreparedIframePasskeyEd25519YaoWallet();
-  };
-
   runAddPasskeyEd25519YaoWalletSigner = (): void => {
     void this.addPasskeyEd25519YaoWalletSigner();
   };
@@ -750,62 +697,6 @@ class IntendedPageController {
       this.dispatch({ kind: 'action_succeeded', action, result: summary });
     } catch (error) {
       this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
-    }
-  }
-
-  private async registerPreparedIframePasskeyEd25519YaoWallet(): Promise<void> {
-    const action: IntendedActionName = 'registerPreparedIframePasskeyEd25519YaoWallet';
-    this.dispatch({ kind: 'action_started', action });
-    const target = document.querySelector<HTMLElement>(
-      '[data-testid="intended-prepared-iframe-registration-target"]',
-    );
-    if (!target) {
-      this.dispatch({
-        kind: 'action_failed',
-        action,
-        error: 'Prepared iframe registration target is unavailable',
-      });
-      return;
-    }
-    const surface = this.seams.registration.createPasskeyRegistrationActivationSurface({
-      wallet: {
-        kind: 'provided',
-        walletId: toWalletId(this.walletId),
-      },
-      signerSelection: intendedEd25519YaoSignerSelection(),
-      options: {
-        onEvent: this.recordLifecycleEvent,
-      },
-      presentation: {
-        kind: 'outline_overlay',
-        label: 'Create Ed25519 wallet',
-        busyLabel: 'Creating Ed25519 wallet...',
-        accessibleLabel: 'Create Ed25519 wallet with passkey',
-      },
-    });
-    try {
-      surface.mount(target);
-      const result = await waitForIntendedRegistrationActivation(surface);
-      const registration = assertPasskeyRegistrationSucceeded({
-        result,
-        expectedWalletId: this.walletId,
-        ecdsaTargetProfile: { kind: 'none' },
-      });
-      await this.refreshLoginState(registration.walletId);
-      const summary: PasskeyRegistrationResultSummary = {
-        kind: registration.kind,
-        walletId: registration.walletId,
-        nearAccountId: registration.nearAccountId,
-        nearEd25519SigningKeyId: registration.nearEd25519SigningKeyId,
-        operationalPublicKey: registration.operationalPublicKey,
-        ecdsaTargetProfile: 'none',
-        ecdsaTargetKeys: { kind: 'none' },
-      };
-      this.dispatch({ kind: 'action_succeeded', action, result: summary });
-    } catch (error) {
-      this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
-    } finally {
-      surface.dispose();
     }
   }
 
@@ -2181,13 +2072,6 @@ const buttonStyle: React.CSSProperties = {
   background: '#1f2937',
   color: '#ffffff',
   fontWeight: 600,
-};
-
-const registrationActivationTargetStyle: React.CSSProperties = {
-  position: 'relative',
-  width: '280px',
-  minHeight: '44px',
-  borderRadius: '6px',
 };
 
 const statusStyle: React.CSSProperties = {

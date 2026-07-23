@@ -7,13 +7,7 @@ import {
   normalizeParticipantIds,
   toOptionalNonEmptyString,
 } from '@/core/signingEngine/useCases/provisionEcdsaSession';
-import { selectedEcdsaLane } from '@/core/signingEngine/session/identity/laneIdentity';
-import type {
-  WarmSessionEcdsaCapabilityState,
-  WarmSessionEnvelope,
-} from '@/core/signingEngine/session/warmCapabilities/types';
-import type { EcdsaRoleLocalReadyRecord } from '@/core/platform';
-import { buildEvmFamilyEcdsaKeyIdentityFromRecord } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import type { WarmSessionEnvelope } from '@/core/signingEngine/session/warmCapabilities/types';
 import { testEcdsaChainTarget } from './helpers/ecdsaChainTarget.fixtures';
 
 import {
@@ -21,38 +15,35 @@ import {
   createThresholdEcdsaStoreFixture,
 } from './helpers/signingSessionRecord.fixtures';
 import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
+import {
+  createReadyPasskeyWarmSessionEcdsaCapability,
+  createWarmSessionEnvelopeFixture,
+  toWorkerOwnedPasskeyEcdsaBootstrapFixture,
+} from './helpers/warmSessionTestServices.fixtures';
 
 const EVM_CHAIN_TARGET = testEcdsaChainTarget('evm');
 const TEMPO_CHAIN_TARGET = testEcdsaChainTarget('tempo');
 
-function passkeyAuthFromRecord(record: { ecdsaRoleLocalReadyRecord: EcdsaRoleLocalReadyRecord }) {
-  const authMethod = record.ecdsaRoleLocalReadyRecord.authMethod;
-  if (authMethod.kind !== 'passkey') {
-    throw new Error('expected passkey ECDSA fixture record');
-  }
-  return {
-    kind: 'passkey' as const,
-    rpId: authMethod.rpId,
-    credentialIdB64u: authMethod.credentialIdB64u,
-  };
-}
-
 function createEnvelope(): WarmSessionEnvelope {
   const ecdsaSessions = createThresholdEcdsaStoreFixture();
-  const evmBootstrap = createThresholdEcdsaBootstrapFixture({
-    nearAccountId: 'provisioning.testnet',
-    chain: 'evm',
-    ecdsaThresholdKeyId: 'ek-evm',
-    sessionId: 'evm-session',
-    walletSessionJwt: 'jwt.evm.session',
-  });
-  const tempoBootstrap = createThresholdEcdsaBootstrapFixture({
-    nearAccountId: 'provisioning.testnet',
-    chain: 'tempo',
-    ecdsaThresholdKeyId: 'ek-evm',
-    sessionId: 'tempo-session',
-    walletSessionJwt: 'jwt.tempo.session',
-  });
+  const evmBootstrap = toWorkerOwnedPasskeyEcdsaBootstrapFixture(
+    createThresholdEcdsaBootstrapFixture({
+      nearAccountId: 'provisioning.testnet',
+      chain: 'evm',
+      ecdsaThresholdKeyId: 'ek-evm',
+      sessionId: 'evm-session',
+      walletSessionJwt: 'jwt.evm.session',
+    }),
+  );
+  const tempoBootstrap = toWorkerOwnedPasskeyEcdsaBootstrapFixture(
+    createThresholdEcdsaBootstrapFixture({
+      nearAccountId: 'provisioning.testnet',
+      chain: 'tempo',
+      ecdsaThresholdKeyId: 'ek-evm',
+      sessionId: 'tempo-session',
+      walletSessionJwt: 'jwt.tempo.session',
+    }),
+  );
   const evmRecord = seedEcdsaWarmSessionRecord(ecdsaSessions, {
     nearAccountId: 'provisioning.testnet',
     chain: 'evm',
@@ -65,86 +56,19 @@ function createEnvelope(): WarmSessionEnvelope {
     source: 'login',
     bootstrap: tempoBootstrap,
   });
-  const evmKey = buildEvmFamilyEcdsaKeyIdentityFromRecord({
-    record: evmRecord,
-  });
-  const tempoKey = buildEvmFamilyEcdsaKeyIdentityFromRecord({
-    record: tempoRecord,
-  });
-  const evmAuth = passkeyAuthFromRecord(evmRecord);
-  const tempoAuth = passkeyAuthFromRecord(tempoRecord);
-  const envelope: WarmSessionEnvelope = {
+  return createWarmSessionEnvelopeFixture({
     walletId: evmRecord.walletId,
-    capabilities: {
-      ed25519: {
-        capability: 'ed25519',
-        record: null,
-        auth: null,
-        prfClaim: null,
-        state: 'missing',
-      },
-      ecdsa: {
-        evm: {
-          capability: 'ecdsa',
-          record: evmRecord,
-          key: evmKey,
-          lane: selectedEcdsaLane({
-            key: evmKey,
-            keyHandle: evmRecord.keyHandle,
-            walletId: evmRecord.walletId,
-            auth: evmAuth,
-            signingGrantId: evmRecord.signingGrantId,
-            thresholdSessionId: evmRecord.thresholdSessionId,
-            chainTarget: evmRecord.chainTarget,
-          }),
-          auth: {
-            capability: 'ecdsa',
-            state: 'ready',
-            record: evmRecord,
-            walletSessionJwt: evmRecord.walletSessionJwt || 'jwt.evm.session',
-            walletSessionJwtSource: 'ecdsa_record',
-          },
-          prfClaim: {
-            state: 'warm',
-            sessionId: 'evm-session',
-            remainingUses: 3,
-            expiresAtMs: Date.now() + 120_000,
-          },
-          state: 'ready',
-        },
-        tempo: {
-          capability: 'ecdsa',
-          record: tempoRecord,
-          key: tempoKey,
-          lane: selectedEcdsaLane({
-            key: tempoKey,
-            keyHandle: tempoRecord.keyHandle,
-            walletId: tempoRecord.walletId,
-            auth: tempoAuth,
-            signingGrantId: tempoRecord.signingGrantId,
-            thresholdSessionId: tempoRecord.thresholdSessionId,
-            chainTarget: tempoRecord.chainTarget,
-          }),
-          auth: {
-            capability: 'ecdsa',
-            state: 'ready',
-            record: tempoRecord,
-            walletSessionJwt: tempoRecord.walletSessionJwt || 'jwt.tempo.session',
-            walletSessionJwtSource: 'ecdsa_record',
-          },
-          prfClaim: {
-            state: 'warm',
-            sessionId: 'tempo-session',
-            remainingUses: 1,
-            expiresAtMs: Date.now() + 120_000,
-          },
-          state: 'ready',
-        },
-      },
+    ecdsa: {
+      evm: createReadyPasskeyWarmSessionEcdsaCapability({
+        record: evmRecord,
+        prfClaim: { remainingUses: 3 },
+      }),
+      tempo: createReadyPasskeyWarmSessionEcdsaCapability({
+        record: tempoRecord,
+        prfClaim: { remainingUses: 1 },
+      }),
     },
-    updatedAtMs: Date.now(),
-  };
-  return envelope;
+  });
 }
 
 test.describe('warmSessionEcdsaProvisioning', () => {
@@ -201,12 +125,18 @@ test.describe('warmSessionEcdsaProvisioning', () => {
 
   test('does not reuse persisted record JWT when warm capability auth is missing', () => {
     const envelope = createEnvelope();
-    const record = envelope.capabilities.ecdsa.evm.record!;
+    const evmCapability = envelope.capabilities.ecdsa.evm;
+    if (evmCapability.state === 'missing') {
+      throw new Error('expected a present evm ECDSA capability');
+    }
+    const record = evmCapability.record;
+    // Factory-built capability with a visible corrupting override; conformance is
+    // checked where it is passed as WarmSessionEcdsaCapabilityState below.
     const authMissingCapability = {
-      ...envelope.capabilities.ecdsa.evm,
+      ...evmCapability,
       auth: null,
-      state: 'auth_missing',
-    } satisfies WarmSessionEcdsaCapabilityState;
+      state: 'auth_missing' as const,
+    };
 
     expect(
       buildReusableEcdsaBootstrapResult({

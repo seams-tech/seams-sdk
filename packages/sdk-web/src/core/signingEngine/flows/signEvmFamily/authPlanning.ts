@@ -15,6 +15,7 @@ import type {
   SigningSessionReadiness,
 } from '../../session/SigningSessionCoordinator';
 import type { SigningSessionBudgetStatusAuth } from '../../session/budget/budget';
+import { applyWalletBudgetStatusToSigningSessionReadiness } from '../../session/availability/readiness';
 import {
   decideSigningGrantAdmissionError,
   waitForSigningGrantAdmissionRetry,
@@ -171,16 +172,18 @@ function buildReadyEcdsaBackingReadiness(input: {
 }): EvmFamilyPlannerReadiness {
   const expiresAtMs = Math.floor(Number(input.expiresAtMs) || 0);
   const remainingUses = Math.floor(Number(input.remainingUses) || 0);
+  const classified = applyWalletBudgetStatusToSigningSessionReadiness({
+    status: 'ready',
+    thresholdSessionId: input.thresholdSessionId,
+    expiresAtMs,
+    remainingUses,
+    missingWhenExpiresAtMissing: true,
+  });
   if (input.trustedStatusAuth) {
     return {
-      readiness: {
-        status: 'ready',
-        thresholdSessionId: input.thresholdSessionId,
-        expiresAtMs,
-        remainingUses,
-      },
-      expiresAtMs,
-      remainingUses,
+      readiness: classified.readiness,
+      expiresAtMs: classified.expiresAtMs,
+      remainingUses: classified.remainingUses,
       trustedBudgetStatusAuth: {
         kind: 'trusted_budget_status_auth',
         auth: input.trustedStatusAuth,
@@ -188,30 +191,39 @@ function buildReadyEcdsaBackingReadiness(input: {
     };
   }
   return {
-    readiness: {
-      status: 'ready',
-      thresholdSessionId: input.thresholdSessionId,
-      expiresAtMs,
-      remainingUses,
-    },
-    expiresAtMs,
-    remainingUses,
+    readiness: classified.readiness,
+    expiresAtMs: classified.expiresAtMs,
+    remainingUses: classified.remainingUses,
     trustedBudgetStatusAuth: {
       kind: 'no_trusted_budget_status_auth',
     },
   };
 }
 
-function resolveEvmFamilyEmailOtpStepUpRemainingUses(
+export type EvmFamilyEmailOtpSingleOperationStepUpBudget = {
+  kind: 'single_operation_email_otp_step_up';
+  remainingUses: 1;
+};
+
+export function buildEvmFamilyEmailOtpSingleOperationStepUpBudget(
   operation: PreparedThresholdSigningOperation['operation'],
-): number {
+): EvmFamilyEmailOtpSingleOperationStepUpBudget {
   const policy = resolvePostExhaustionStepUpBudgetPolicy({
     operationId: normalizeStepUpOperationId(
       operation?.operationId || 'evm-family-email-otp-post-exhaustion-step-up',
     ),
     requiredSignatureUses: 1,
   });
-  return resolveSigningBudgetPolicyRemainingUses(policy);
+  const remainingUses = resolveSigningBudgetPolicyRemainingUses(policy);
+  if (remainingUses !== 1) {
+    throw new Error(
+      `[SigningEngine][ecdsa] Email OTP single-operation step-up resolved ${remainingUses} uses`,
+    );
+  }
+  return {
+    kind: 'single_operation_email_otp_step_up',
+    remainingUses,
+  };
 }
 
 function trustedBudgetStatusAuthFromReadyEcdsaMaterial(
@@ -369,30 +381,18 @@ export async function resolvePasskeyEcdsaTrustedBudgetReadinessFromAuth(args: {
     });
     const expiresAtMs = Math.floor(Number(budgetIdentity.status.expiresAtMs) || 0);
     const remainingUses = Math.floor(Number(budgetIdentity.status.remainingUses) || 0);
-    const readiness: SigningSessionReadiness =
-      remainingUses <= 0
-        ? {
-            status: 'exhausted',
-            thresholdSessionId: args.lane.thresholdSessionId,
-            expiresAtMs,
-            remainingUses: 0,
-          }
-        : expiresAtMs <= Date.now()
-          ? {
-              status: 'expired',
-              thresholdSessionId: args.lane.thresholdSessionId,
-              expiresAtMs,
-            }
-          : {
-              status: 'ready',
-              thresholdSessionId: args.lane.thresholdSessionId,
-              expiresAtMs,
-              remainingUses,
-            };
-    return {
-      readiness,
+    const classified = applyWalletBudgetStatusToSigningSessionReadiness({
+      status: 'ready',
+      thresholdSessionId: args.lane.thresholdSessionId,
       expiresAtMs,
       remainingUses,
+      walletBudgetStatus: budgetIdentity.status,
+      missingWhenExpiresAtMissing: true,
+    });
+    return {
+      readiness: classified.readiness,
+      expiresAtMs: classified.expiresAtMs,
+      remainingUses: classified.remainingUses,
       trustedBudgetStatusAuth: {
         kind: 'trusted_budget_status_auth',
         auth: args.trustedStatusAuth,
@@ -504,9 +504,9 @@ export async function resolveEvmFamilyTransactionStepUp(
             confirmedEmailOtpDeps.requestEmailOtpTransactionSigningChallenge,
           loginWithEmailOtpEcdsaCapabilityForSigning:
             confirmedEmailOtpDeps.loginWithEmailOtpEcdsaCapabilityForSigning,
-          remainingUses: resolveEvmFamilyEmailOtpStepUpRemainingUses(
+          remainingUses: buildEvmFamilyEmailOtpSingleOperationStepUpBudget(
             args.preparedOperation.operation,
-          ),
+          ).remainingUses,
         })
       : null;
   const signingIntent = SigningOperationIntent.TransactionSign;

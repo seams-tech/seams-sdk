@@ -34,6 +34,7 @@ import {
 } from './ecdsaSessionProvision';
 import type { WarmSessionCapabilityReader, WarmSessionEnvelope } from '../warmCapabilities/types';
 import { buildEvmFamilyEcdsaSessionLanePolicy } from '../identity/evmFamilyEcdsaIdentity';
+import { walletSessionFailureFromError } from '../lifecycle/walletSessionFailure';
 
 type SharedEd25519WalletSessionGrant = {
   kind: 'shared_ed25519_wallet_session_grant_v1';
@@ -305,18 +306,41 @@ function sealedRestoreFailureFromError(args: {
 }): ReuseWarmEcdsaBootstrapResult {
   const errorMessage =
     args.error instanceof Error ? args.error.message : String(args.error || 'unknown error');
-  const normalized = errorMessage.toLowerCase();
-  const code = normalized.includes('exhausted')
-    ? 'sealed_record_exhausted'
-    : normalized.includes('expired')
-      ? 'sealed_record_expired'
-      : 'sealed_restore_failed';
+  const code = sealedRestoreFailureCodeFromError(args.error);
   return {
     ok: false,
     code,
     chainTargetKey: args.chainTargetKey,
     errorMessage,
   };
+}
+
+function sealedRestoreFailureCodeFromError(
+  error: unknown,
+): ReuseWarmEcdsaBootstrapFailure['code'] {
+  const walletSessionFailure = walletSessionFailureFromError(error);
+  if (walletSessionFailure) {
+    switch (walletSessionFailure.kind) {
+      case 'expired':
+        return 'sealed_record_expired';
+      case 'exhausted':
+        return 'sealed_record_exhausted';
+      case 'missing':
+      case 'invalid':
+      case 'unavailable':
+        return 'sealed_restore_failed';
+    }
+  }
+
+  const code = error && typeof error === 'object' ? Reflect.get(error, 'code') : undefined;
+  switch (code) {
+    case 'expired':
+      return 'sealed_record_expired';
+    case 'exhausted':
+      return 'sealed_record_exhausted';
+    default:
+      return 'sealed_restore_failed';
+  }
 }
 
 async function tryNoPromptWalletSessionReconnect(args: {

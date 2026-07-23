@@ -26,6 +26,7 @@ import type {
 } from './apiCredentialPorts';
 import type { PrepareEmailRecoveryRequest } from './emailRecoveryRequestValidation';
 import type { EmailRecoveryResolvedWalletBinding } from '../core/EmailRecoveryPreparationStore';
+import type { SessionParseResult } from '../core/sessionValidation';
 
 export type {
   RouterApiAuthenticatedPublishableCredential,
@@ -114,7 +115,7 @@ export interface SessionAdapter {
   signJwt(sub: string, extra?: Record<string, unknown>): Promise<string>;
   parse(
     headers: Record<string, string | string[] | undefined>,
-  ): Promise<{ ok: true; claims: SessionClaims } | { ok: false }>;
+  ): Promise<SessionParseResult<SessionClaims>>;
   buildSetCookie(token: string): string;
   buildClearCookie(): string;
   refresh(

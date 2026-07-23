@@ -2,10 +2,9 @@ import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
 import { testEcdsaChainTarget } from './helpers/ecdsaChainTarget.fixtures';
-import {
-  upsertThresholdEcdsaSessionFromBootstrap,
-  type ThresholdEcdsaSessionStoreDeps,
-} from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
+import { makeThresholdEcdsaSessionStoreDeps } from './helpers/thresholdEcdsaSessionStoreDeps.fixtures';
+import { seedEmailOtpEcdsaSealedRestorePayload } from './helpers/sealedSigningSession.fixtures';
+import { upsertThresholdEcdsaSessionFromBootstrap } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
 import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   parseEcdsaRoleLocalBindingDigest,
@@ -64,27 +63,7 @@ const ECDSA_RESTORE = {
 
 const EMAIL_OTP_EMAIL_HASH_HEX = 'email-otp-email-hash';
 
-const EMAIL_OTP_ECDSA_RESTORE = {
-  chainTarget: ECDSA_RESTORE.chainTarget,
-  source: 'email_otp',
-  evmFamilySigningKeySlotId: 'wallet-key:evm-family:email-otp-fixture',
-  provider: 'google',
-  providerSubjectId: 'email-otp-subject',
-  emailHashHex: EMAIL_OTP_EMAIL_HASH_HEX,
-  sessionKind: 'cookie',
-  signingRootId: ECDSA_RESTORE.signingRootId,
-  signingRootVersion: ECDSA_RESTORE.signingRootVersion,
-  keyHandle: ECDSA_RESTORE.keyHandle,
-  ecdsaThresholdKeyId: ECDSA_RESTORE.ecdsaThresholdKeyId,
-  ethereumAddress: ECDSA_RESTORE.ethereumAddress,
-  relayerKeyId: ECDSA_RESTORE.relayerKeyId,
-  clientVerifyingShareB64u: ECDSA_RESTORE.clientVerifyingShareB64u,
-  thresholdEcdsaPublicKeyB64u: ECDSA_RESTORE.thresholdEcdsaPublicKeyB64u,
-  participantIds: ECDSA_RESTORE.participantIds,
-  runtimePolicyScope: ECDSA_RESTORE.runtimePolicyScope,
-  routerAbEcdsaDerivationNormalSigning: ECDSA_RESTORE.routerAbEcdsaDerivationNormalSigning,
-  publicCapability: ECDSA_RESTORE.publicCapability,
-} as const;
+const EMAIL_OTP_ECDSA_RESTORE = seedEmailOtpEcdsaSealedRestorePayload();
 
 const ED25519_RESTORE_BASE = {
   nearAccountId: 'sealed-ed25519.testnet',
@@ -161,10 +140,7 @@ test.describe('signing session sealed store', () => {
   test('preserves an expired active ECDSA anchor for the next unlock', async ({ page }) => {
     const walletId = toWalletId('expired-anchor.testnet');
     const chainTarget = testEcdsaChainTarget('tempo');
-    const store: ThresholdEcdsaSessionStoreDeps = {
-      recordsByLane: new Map(),
-      exportArtifactsByLane: new Map(),
-    };
+    const store = makeThresholdEcdsaSessionStoreDeps({ exportArtifactsByLane: new Map() });
     const fixtureBootstrap = createThresholdEcdsaBootstrapFixture({
       nearAccountId: walletId,
       chain: 'tempo',
@@ -198,6 +174,7 @@ test.describe('signing session sealed store', () => {
       },
     };
     const runtimeRecord = upsertThresholdEcdsaSessionFromBootstrap(store, {
+      purpose: 'transaction_signing',
       walletId,
       chainTarget,
       bootstrap,
@@ -1025,7 +1002,7 @@ test.describe('signing session sealed store', () => {
 
   test('lists durable sealed records for an account by auth method and curve', async ({ page }) => {
     const result = await page.evaluate(
-      async ({ paths }) => {
+      async ({ paths, bobEmailOtpEcdsaRestore }) => {
         const mod = await import(paths.sealedSessionStore);
         await mod.clearAllSealedSessions();
 
@@ -1088,7 +1065,7 @@ test.describe('signing session sealed store', () => {
             thresholdSessionIds: { ecdsa: 'bob-email-otp-ecdsa-session' },
             curve: 'ecdsa',
             authMethod: 'email_otp',
-            ecdsaRestore: EMAIL_OTP_ECDSA_RESTORE,
+            ecdsaRestore: bobEmailOtpEcdsaRestore,
             walletId: 'bob.testnet',
             relayerUrl: 'https://relay.example',
             shamirPrimeB64u: 'prime-b64u',
@@ -1115,7 +1092,12 @@ test.describe('signing session sealed store', () => {
           signingGrantIds: records.map((record: any) => record.signingGrantId),
         };
       },
-      { paths: IMPORT_PATHS },
+      {
+        paths: IMPORT_PATHS,
+        bobEmailOtpEcdsaRestore: seedEmailOtpEcdsaSealedRestorePayload({
+          walletId: 'bob.testnet',
+        }),
+      },
     );
 
     expect(result.records).toHaveLength(1);
@@ -1218,7 +1200,6 @@ test.describe('signing session sealed store', () => {
           filter: {
             authMethod: 'email_otp',
             curve: 'ecdsa',
-            chain: ECDSA_RESTORE.chain,
             chainTarget: ECDSA_RESTORE.chainTarget,
           },
         });
@@ -1758,7 +1739,7 @@ test.describe('signing session sealed store', () => {
 
   test('owns durable sealed identity by exact signing purpose', async ({ page }) => {
     const result = await page.evaluate(
-      async ({ paths }) => {
+      async ({ paths, identityEmailOtpEcdsaRestore }) => {
         const mod = await import(paths.sealedSessionStore);
         await mod.clearAllSealedSessions();
 
@@ -1772,7 +1753,7 @@ test.describe('signing session sealed store', () => {
               ecdsa: 'identity-ecdsa-session',
             },
             authMethod: 'email_otp',
-            ecdsaRestore: EMAIL_OTP_ECDSA_RESTORE,
+            ecdsaRestore: identityEmailOtpEcdsaRestore,
             walletId: 'identity.testnet',
             relayerUrl: 'https://relay.example',
             sealedSecretB64u: 'sealed-identity-k',
@@ -1832,7 +1813,12 @@ test.describe('signing session sealed store', () => {
           ecdsaAfterClear,
         };
       },
-      { paths: IMPORT_PATHS },
+      {
+        paths: IMPORT_PATHS,
+        identityEmailOtpEcdsaRestore: seedEmailOtpEcdsaSealedRestorePayload({
+          walletId: 'identity.testnet',
+        }),
+      },
     );
 
     expect(result.ecdsaAfterWrite?.signingGrantId).toBe('identity-wallet-session');

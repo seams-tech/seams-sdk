@@ -1,33 +1,15 @@
 import { expect, test } from '@playwright/test';
-import { base64UrlEncode } from '@shared/utils/base64';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
-import {
-  parseThresholdEcdsaSessionId,
-  parseThresholdEd25519SessionId,
-  parseSigningGrantId,
-} from '@shared/utils/domainIds';
-import {
-  buildEmailOtpWorkerIssuedSessionHandle,
-  buildRelayerKeyId,
-  type EcdsaRoleLocalAuthMethod,
-  type EcdsaRoleLocalReadyRecord,
-  type EmailOtpWorkerIssuedSessionHandle,
-} from '@/core/platform';
-import {
-  buildEcdsaRoleLocalEmailOtpAuthMethod,
-  buildEcdsaRoleLocalPasskeyAuthMethod,
-  buildEcdsaRoleLocalPublicFacts,
-  buildEcdsaRoleLocalReadyRecord,
-} from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
+import type { EcdsaRoleLocalReadyRecord } from '@/core/platform';
 import {
   thresholdEcdsaChainTargetFromChainFamily,
+  toWalletId,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
   toEcdsaDerivationSigningRootId,
   toEcdsaDerivationSigningRootVersion,
-  toEcdsaDerivationThresholdKeyId,
   toEmailOtpAuthSubjectId,
 } from '@/core/signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
 import {
@@ -40,51 +22,19 @@ import {
   useCaseFailure,
   type ActivateSigningSessionInput,
   type ActivateSigningSessionLifecycleState,
-  type Ed25519RelayerKeyId,
   type SigningSessionActivationEmailOtpEcdsaAuth,
-  type SigningSessionActivationEmailOtpEd25519Auth,
-  type SigningSessionActivationMaterial,
-  type SigningSessionActivationPasskeyAuth,
   type SigningSessionSealWriteInput,
   type UnixTimeMs,
   type WarmSessionRemainingUses,
 } from '@/core/signingEngine/useCases/lifecycle';
-import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-
-function b64u(length: number, fill: number): string {
-  return base64UrlEncode(new Uint8Array(length).fill(fill));
-}
-
-function compressedSecp256k1PublicKeyB64u(fill: number): string {
-  const bytes = new Uint8Array(33).fill(fill);
-  bytes[0] = fill % 2 === 0 ? 2 : 3;
-  return base64UrlEncode(bytes);
-}
-
-function parsedDomain<T>(
-  result: { ok: true; value: T } | { ok: false; error: { message: string } },
-): T {
-  if (!result.ok) throw new Error(result.error.message);
-  return result.value;
-}
-
-function ed25519Handle(
-  handle: EmailOtpWorkerIssuedSessionHandle,
-): Extract<EmailOtpWorkerIssuedSessionHandle, { action: 'threshold_ed25519_session' }> {
-  if (handle.action !== 'threshold_ed25519_session') {
-    throw new Error('expected Ed25519 worker handle');
-  }
-  return handle;
-}
-
-function ecdsaHandle(
-  handle: EmailOtpWorkerIssuedSessionHandle,
-): Extract<EmailOtpWorkerIssuedSessionHandle, { action: 'threshold_ecdsa_bootstrap' }> {
-  if (handle.action !== 'threshold_ecdsa_bootstrap') {
-    throw new Error('expected ECDSA worker handle');
-  }
-  return handle;
-}
+import {
+  seedActivationEcdsaRoleLocalReadyRecord,
+  seedEcdsaSigningSessionActivationMaterial,
+  seedEd25519SigningSessionActivationMaterial,
+  seedSigningSessionActivationEmailOtpEcdsaAuth,
+  seedSigningSessionActivationEmailOtpEd25519Auth,
+  seedSigningSessionActivationPasskeyAuth,
+} from './helpers/signingSessionActivation.fixtures';
 
 const walletId = toWalletId('wallet_alice');
 const rpId = toRpId('wallet.example');
@@ -97,131 +47,56 @@ const otherChainTarget = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'tempo',
   chainId: 42432,
 });
-const ecdsaThresholdKeyId = toEcdsaDerivationThresholdKeyId('ecdsa-threshold-key');
 const signingRootId = toEcdsaDerivationSigningRootId('root');
 const signingRootVersion = toEcdsaDerivationSigningRootVersion('v1');
-const walletKeyId = deriveEvmFamilySigningKeySlotId({
+const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
   walletId,
   signingRootId,
   signingRootVersion,
 });
-const signingGrantId = parsedDomain(parseSigningGrantId('signing-grant'));
-const ed25519ThresholdSessionId = parsedDomain(
-  parseThresholdEd25519SessionId('threshold-ed25519-session'),
-);
-const ecdsaThresholdSessionId = parsedDomain(
-  parseThresholdEcdsaSessionId('threshold-ecdsa-session'),
-);
-const ed25519RelayerKeyId = buildRelayerKeyId('ed25519-relayer') as Ed25519RelayerKeyId;
+const passkeyCredentialIdB64u = 'credential-passkey';
 const expiresAtMs = 1_900_000_000_000 as UnixTimeMs;
 const remainingUses = 8 as WarmSessionRemainingUses;
 
-const passkeyAuthMethod = buildEcdsaRoleLocalPasskeyAuthMethod({
-  credentialIdB64u: 'credential-passkey',
-  rpId,
-});
-const emailOtpAuthMethod = buildEcdsaRoleLocalEmailOtpAuthMethod({
-  authSubjectId,
-});
-
-const passkeyAuth = {
-  kind: 'passkey',
+const passkeyAuth = seedSigningSessionActivationPasskeyAuth({
   walletId,
   rpId,
-  credentialIdB64u: passkeyAuthMethod.credentialIdB64u,
-} satisfies SigningSessionActivationPasskeyAuth;
+  credentialIdB64u: passkeyCredentialIdB64u,
+});
 
-const emailOtpEd25519Auth = {
-  kind: 'email_otp',
+const emailOtpEd25519Auth = seedSigningSessionActivationEmailOtpEd25519Auth({
   walletId,
   rpId,
   authSubjectId,
-  workerHandle: ed25519Handle(
-    buildEmailOtpWorkerIssuedSessionHandle({
-      sessionId: 'email-ed25519-session',
-      walletId,
-      rpId,
-      authSubjectId,
-      action: 'threshold_ed25519_session',
-      operation: 'wallet_unlock',
-    }),
-  ),
-} satisfies SigningSessionActivationEmailOtpEd25519Auth;
+});
 
 function emailOtpEcdsaAuthFor(
   target: ThresholdEcdsaChainTarget,
 ): SigningSessionActivationEmailOtpEcdsaAuth {
-  return {
-    kind: 'email_otp',
+  return seedSigningSessionActivationEmailOtpEcdsaAuth({
     walletId,
-    walletKeyId,
+    evmFamilySigningKeySlotId,
     authSubjectId,
-    workerHandle: ecdsaHandle(
-      buildEmailOtpWorkerIssuedSessionHandle({
-        sessionId: 'email-ecdsa-session',
-        walletId,
-        walletKeyId,
-        authSubjectId,
-        action: 'threshold_ecdsa_bootstrap',
-        operation: 'wallet_unlock',
-        chainTarget: target,
-      }),
-    ),
-  };
+    chainTarget: target,
+  });
 }
 
-function publicFacts(target: ThresholdEcdsaChainTarget) {
-  return buildEcdsaRoleLocalPublicFacts({
+function readyRecord(args: { authMethod: 'passkey' | 'email_otp' }): EcdsaRoleLocalReadyRecord {
+  return seedActivationEcdsaRoleLocalReadyRecord({
     walletId,
-    walletKeyId,
-    chainTarget: target,
-    keyHandle: 'ecdsa-key-handle',
-    ecdsaThresholdKeyId,
     signingRootId,
     signingRootVersion,
-    clientParticipantId: 1,
-    relayerParticipantId: 2,
-    participantIds: [1, 2],
-    derivationClientSharePublicKey33B64u: compressedSecp256k1PublicKeyB64u(8),
-    relayerPublicKey33B64u: compressedSecp256k1PublicKeyB64u(10),
-    groupPublicKey33B64u: compressedSecp256k1PublicKeyB64u(11),
-    ethereumAddress: '0x1111111111111111111111111111111111111111',
-    contextBinding32B64u: b64u(32, 7),
-    applicationBindingDigestB64u: b64u(32, 9),
-  });
-}
-
-function readyRecord(args: {
-  authMethod: EcdsaRoleLocalAuthMethod;
-  target?: ThresholdEcdsaChainTarget;
-}): EcdsaRoleLocalReadyRecord {
-  return buildEcdsaRoleLocalReadyRecord({
-    stateBlob: {
-      kind: 'ecdsa_role_local_state_blob_v1',
-      curve: 'secp256k1',
-      encoding: 'base64url',
-      producer: 'signer_core',
-      stateBlobB64u: b64u(64, 12),
-    },
-    publicFacts: publicFacts(args.target || chainTarget),
     authMethod: args.authMethod,
+    credentialIdB64u: passkeyCredentialIdB64u,
+    rpId,
+    authSubjectId,
   });
 }
 
-const ed25519Material = {
-  kind: 'ed25519_session',
-  thresholdSessionId: ed25519ThresholdSessionId,
-  signingGrantId,
-  relayerKeyId: ed25519RelayerKeyId,
-} satisfies SigningSessionActivationMaterial;
+const ed25519Material = seedEd25519SigningSessionActivationMaterial();
 
-function ecdsaMaterial(record: EcdsaRoleLocalReadyRecord): SigningSessionActivationMaterial {
-  return {
-    kind: 'ecdsa_session',
-    thresholdSessionId: ecdsaThresholdSessionId,
-    signingGrantId,
-    record,
-  };
+function ecdsaMaterial(record: EcdsaRoleLocalReadyRecord) {
+  return seedEcdsaSigningSessionActivationMaterial({ record });
 }
 
 type Captures = {
@@ -287,10 +162,10 @@ test.describe('ActivateSigningSessionUseCase', () => {
   test('writes branch-specific passkey seals for Ed25519 and ECDSA materials', async () => {
     const { result, captures } = await activate({
       walletId,
-      walletKeyId,
+      evmFamilySigningKeySlotId,
       rpId,
       auth: passkeyAuth,
-      material: [ed25519Material, ecdsaMaterial(readyRecord({ authMethod: passkeyAuthMethod }))],
+      material: [ed25519Material, ecdsaMaterial(readyRecord({ authMethod: 'passkey' }))],
     });
 
     expect(result.ok).toBe(true);
@@ -311,7 +186,7 @@ test.describe('ActivateSigningSessionUseCase', () => {
   test('writes Email OTP Ed25519 seals only from Ed25519 worker handles', async () => {
     const { result, captures } = await activate({
       walletId,
-      walletKeyId,
+      evmFamilySigningKeySlotId,
       rpId,
       auth: emailOtpEd25519Auth,
       material: [ed25519Material],
@@ -330,11 +205,11 @@ test.describe('ActivateSigningSessionUseCase', () => {
 
   test('writes Email OTP ECDSA seals only from matching ECDSA worker handles and ready records', async () => {
     const emailOtpEcdsaAuth = emailOtpEcdsaAuthFor(chainTarget);
-    const material = ecdsaMaterial(readyRecord({ authMethod: emailOtpAuthMethod }));
+    const material = ecdsaMaterial(readyRecord({ authMethod: 'email_otp' }));
 
     const { result, captures } = await activate({
       walletId,
-      walletKeyId,
+      evmFamilySigningKeySlotId,
       rpId,
       auth: emailOtpEcdsaAuth,
       material: [material],
@@ -354,7 +229,7 @@ test.describe('ActivateSigningSessionUseCase', () => {
   test('rejects Email OTP Ed25519 activation carrying an ECDSA worker handle', async () => {
     const { result, captures } = await activate({
       walletId,
-      walletKeyId,
+      evmFamilySigningKeySlotId,
       rpId,
       auth: emailOtpEcdsaAuthFor(chainTarget),
       material: [ed25519Material],
@@ -371,10 +246,10 @@ test.describe('ActivateSigningSessionUseCase', () => {
   test('rejects Email OTP ECDSA activation carrying an Ed25519 worker handle', async () => {
     const { result, captures } = await activate({
       walletId,
-      walletKeyId,
+      evmFamilySigningKeySlotId,
       rpId,
       auth: emailOtpEd25519Auth,
-      material: [ecdsaMaterial(readyRecord({ authMethod: emailOtpAuthMethod }))],
+      material: [ecdsaMaterial(readyRecord({ authMethod: 'email_otp' }))],
     });
 
     expect(result).toMatchObject({
@@ -388,10 +263,10 @@ test.describe('ActivateSigningSessionUseCase', () => {
   test('rejects Email OTP ECDSA handles whose chain target differs from the ready record', async () => {
     const { result, captures } = await activate({
       walletId,
-      walletKeyId,
+      evmFamilySigningKeySlotId,
       rpId,
       auth: emailOtpEcdsaAuthFor(otherChainTarget),
-      material: [ecdsaMaterial(readyRecord({ authMethod: emailOtpAuthMethod }))],
+      material: [ecdsaMaterial(readyRecord({ authMethod: 'email_otp' }))],
     });
 
     expect(result).toMatchObject({
@@ -406,7 +281,7 @@ test.describe('ActivateSigningSessionUseCase', () => {
     const { result, captures } = await activate(
       {
         walletId,
-      walletKeyId,
+        evmFamilySigningKeySlotId,
         rpId,
         auth: passkeyAuth,
         material: [ed25519Material],
@@ -431,7 +306,7 @@ test.describe('ActivateSigningSessionUseCase', () => {
     const { result, captures } = await activate(
       {
         walletId,
-      walletKeyId,
+        evmFamilySigningKeySlotId,
         rpId,
         auth: passkeyAuth,
         material: [ed25519Material],

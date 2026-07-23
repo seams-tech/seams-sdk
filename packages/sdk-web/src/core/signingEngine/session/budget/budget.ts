@@ -627,8 +627,11 @@ export async function assertSigningSessionBudgetReservationAvailable(args: {
     projectionVersion,
   });
   const availableUses = committedUses - reservedUses;
-  if (availableUses < spend.uses) {
+  if (committedUses < spend.uses) {
     throw new Error(SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR);
+  }
+  if (availableUses < spend.uses) {
+    throw new Error(SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR);
   }
   const expectedProjectionVersion = String(args.input.expectedBudgetProjectionVersion || '').trim();
   if (!expectedProjectionVersion) {
@@ -665,8 +668,11 @@ export function assertPreparedSigningSessionBudgetReservationAvailable(args: {
     projectionVersion,
   });
   const availableUses = committedUses - reservedUses;
-  if (availableUses < spend.uses) {
+  if (committedUses < spend.uses) {
     throw new Error(SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR);
+  }
+  if (availableUses < spend.uses) {
+    throw new Error(SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR);
   }
   return status;
 }

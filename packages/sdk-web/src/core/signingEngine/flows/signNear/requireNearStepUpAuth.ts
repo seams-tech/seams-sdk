@@ -53,8 +53,8 @@ export async function requireNearStepUpAuth(args: {
   signingAuthPlan: SigningAuthPlan;
   signingLane: NearTransactionSigningLane;
   requiredSignatureUses: number;
-  passkeyEd25519Reconnect?: NearPasskeyEd25519ReconnectHook;
-  emailOtpEd25519Reconnect?: NearEmailOtpEd25519ReconnectHook;
+  passkeyEd25519Reconnect?: NearPasskeyEd25519ReconnectHook | null;
+  emailOtpEd25519Reconnect?: NearEmailOtpEd25519ReconnectHook | null;
 }): Promise<NearPreparedStepUpAuth> {
   if (isEmailOtpSigningAuthPlan(args.signingAuthPlan) && !args.emailOtpEd25519Reconnect) {
     throw new Error('[SigningEngine][near] Email OTP reconnect runner is unavailable');

@@ -581,6 +581,7 @@ async function signWithActivatedYaoShares(input: {
       request_id: 'sdk-local-signing-1',
       account_id: input.admissionRequest.scope.account_id,
       session_id: input.admissionRequest.scope.wallet_session_id,
+      active_state_session_id: input.admissionRequest.scope.wallet_session_id,
       signing_worker_id: signingWorkerId,
     },
     expiresAtMs: Date.now() + 60_000,

@@ -101,7 +101,7 @@ export type SigningGrantReadinessDeps = {
     sessionId: string;
     uses?: number;
   }) => Promise<WarmSessionStatusResult>;
-  clearEmailOtpWarmSessionMaterial?: (args: { sessionId: string }) => Promise<void>;
+  clearEmailOtpWarmSessionMaterial?: (sessionId: string) => Promise<void>;
   clearThresholdEcdsaSessionRecordForExactIdentity?: (
     identity: ExactEcdsaSigningLaneIdentity,
   ) => void;
@@ -156,8 +156,8 @@ export function warmClaimFromRecordPolicy(args: {
   const sessionId = normalizeNonEmpty(args.sessionId);
   const remainingUses = Math.max(0, Math.floor(Number(args.remainingUses) || 0));
   const expiresAtMs = Math.floor(Number(args.expiresAtMs) || 0);
-  if (remainingUses <= 0) return { state: 'exhausted', sessionId };
   if (expiresAtMs <= Date.now()) return { state: 'expired', sessionId };
+  if (remainingUses <= 0) return { state: 'exhausted', sessionId };
   return {
     state: 'warm',
     sessionId,
@@ -214,11 +214,11 @@ export function applyWalletBudgetStatusToSigningSessionReadiness(args: {
     }
   }
   const usesNeeded = Math.max(1, Math.floor(Number(args.usesNeeded) || 1));
-  if (status === 'ready' && remainingUses < usesNeeded) status = 'exhausted';
   if (status === 'ready' && args.missingWhenExpiresAtMissing && expiresAtMs <= 0) {
     status = 'missing_session';
   }
   if (status === 'ready' && expiresAtMs <= (args.nowMs ?? Date.now())) status = 'expired';
+  if (status === 'ready' && remainingUses < usesNeeded) status = 'exhausted';
   const readiness: SigningSessionReadiness =
     status === 'ready' || status === 'exhausted'
       ? { status, thresholdSessionId: args.thresholdSessionId, remainingUses, expiresAtMs }
@@ -762,11 +762,11 @@ function claimFromSigningGrantStatusOverride(
   if (status.status === 'active') {
     const remainingUses = Math.max(0, Math.floor(Number(status.remainingUses) || 0));
     const expiresAtMs = Math.floor(Number(status.expiresAtMs) || 0);
-    if (remainingUses <= 0 || expiresAtMs <= Date.now()) {
-      return {
-        state: remainingUses <= 0 ? 'exhausted' : 'expired',
-        sessionId: override.signingGrantId,
-      };
+    if (expiresAtMs <= Date.now()) {
+      return { state: 'expired', sessionId: override.signingGrantId };
+    }
+    if (remainingUses <= 0) {
+      return { state: 'exhausted', sessionId: override.signingGrantId };
     }
     return {
       state: 'warm',
@@ -1395,12 +1395,26 @@ export async function consumeSigningGrantUse(args: {
   return resolvedStatus;
 }
 
+export type SigningGrantClearFailure =
+  | 'touch_confirm_material'
+  | 'email_otp_material'
+  | 'ecdsa_projection';
+
+export type SigningGrantClearResult =
+  | {
+      readonly kind: 'cleared';
+    }
+  | {
+      readonly kind: 'unavailable';
+      readonly failures: readonly SigningGrantClearFailure[];
+    };
+
 export async function clearSigningGrant(args: {
   deps: SigningGrantReadinessDeps;
   statusOverrides: Map<string, SigningGrantStatusOverride>;
   walletId: WalletId;
   signingGrantId: string;
-}): Promise<void> {
+}): Promise<SigningGrantClearResult> {
   const lanes = getLanesForWalletSession({
     deps: args.deps,
     walletId: args.walletId,
@@ -1419,45 +1433,59 @@ export async function clearSigningGrant(args: {
     ),
   );
   const cleared = new Set<string>();
+  const failures = new Set<SigningGrantClearFailure>();
   const ed25519LaneKeysToClear = new Map<string, ThresholdEd25519SessionRecordKey>();
   const ecdsaLanesToClear = new Map<string, ExactEcdsaSigningLaneIdentity>();
-  await Promise.all(
-    lanes.map(async (lane) => {
-      const ed25519LaneKey = ed25519LaneKeyFromDiscoveredLane(lane);
-      if (ed25519LaneKey) {
-        ed25519LaneKeysToClear.set(
-          serializeThresholdEd25519SessionLaneKey(ed25519LaneKey),
-          ed25519LaneKey,
-        );
+  for (const lane of lanes) {
+    const ed25519LaneKey = ed25519LaneKeyFromDiscoveredLane(lane);
+    if (ed25519LaneKey) {
+      ed25519LaneKeysToClear.set(
+        serializeThresholdEd25519SessionLaneKey(ed25519LaneKey),
+        ed25519LaneKey,
+      );
+    }
+    const ecdsaIdentity = ecdsaExactIdentityFromDiscoveredLane(lane);
+    if (ecdsaIdentity) {
+      ecdsaLanesToClear.set(exactSigningLaneIdentityKey(ecdsaIdentity), ecdsaIdentity);
+    }
+    if (cleared.has(lane.backingMaterialSessionId)) continue;
+    cleared.add(lane.backingMaterialSessionId);
+    if (lane.backing === 'record_policy') continue;
+    if (lane.backing === 'email_otp_worker') {
+      try {
+        await args.deps.clearEmailOtpWarmSessionMaterial?.(lane.backingMaterialSessionId);
+      } catch {
+        failures.add('email_otp_material');
       }
-      const ecdsaIdentity = ecdsaExactIdentityFromDiscoveredLane(lane);
-      if (ecdsaIdentity) {
-        ecdsaLanesToClear.set(exactSigningLaneIdentityKey(ecdsaIdentity), ecdsaIdentity);
-      }
-      if (cleared.has(lane.backingMaterialSessionId)) return;
-      cleared.add(lane.backingMaterialSessionId);
-      if (lane.backing === 'record_policy') return;
-      if (lane.backing === 'email_otp_worker') {
-        await args.deps
-          .clearEmailOtpWarmSessionMaterial?.({ sessionId: lane.backingMaterialSessionId })
-          .catch(() => undefined);
-        return;
-      }
-      const volatileSessionId = parseVolatileWarmSessionId(lane.backingMaterialSessionId);
-      if (!volatileSessionId) return;
-      await args.deps.touchConfirm
-        ?.clearVolatileWarmSessionMaterial?.(
-          createClearVolatileWarmSessionMaterialCommand(volatileSessionId),
-        )
-        .catch(() => undefined);
-    }),
-  );
+      continue;
+    }
+    const volatileSessionId = parseVolatileWarmSessionId(lane.backingMaterialSessionId);
+    if (!volatileSessionId) continue;
+    try {
+      await args.deps.touchConfirm?.clearVolatileWarmSessionMaterial?.(
+        createClearVolatileWarmSessionMaterialCommand(volatileSessionId),
+      );
+    } catch {
+      failures.add('touch_confirm_material');
+    }
+  }
   for (const laneKey of ed25519LaneKeysToClear.values()) {
     clearStoredThresholdEd25519SessionRecordForLaneKey(laneKey);
   }
   for (const identity of ecdsaLanesToClear.values()) {
-    args.deps.clearThresholdEcdsaSessionRecordForExactIdentity?.(identity);
+    try {
+      args.deps.clearThresholdEcdsaSessionRecordForExactIdentity?.(identity);
+    } catch {
+      failures.add('ecdsa_projection');
+    }
   }
+  if (failures.size > 0) {
+    return {
+      kind: 'unavailable',
+      failures: [...failures],
+    };
+  }
+  return { kind: 'cleared' };
 }
 
 function expiredEd25519SealedPolicyExpiresAtMs(args: {

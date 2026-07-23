@@ -2,9 +2,7 @@ import { expect, test } from '@playwright/test';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
 import {
-  SIGNING_ROOT_MIGRATION_BUNDLE_VERSION_V1,
   SIGNING_ROOT_MIGRATION_EXPORT_ARTIFACT_VERSION_V1,
-  SIGNING_ROOT_RECORD_VERSION_V1,
   computeSigningRootContextHashB64u,
   computeSigningRootMigrationBundleChecksumB64u,
   createSigningRootMigrationExportArtifact,
@@ -15,6 +13,10 @@ import {
   type SigningRootMigrationBundleV1,
   type SigningRootRecord,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootRecords';
+import {
+  seedSigningRootMigrationBundle,
+  seedSigningRootRecord,
+} from './helpers/signingRootRecords.fixtures';
 
 function webAuthnRpId(value: string): WebAuthnRpId {
   const parsed = parseWebAuthnRpId(value);
@@ -26,35 +28,8 @@ function passkeyAuthorityScope(rpId = 'wallet.example.test') {
   return { kind: 'passkey_rp', rpId: webAuthnRpId(rpId) } as const;
 }
 
-function sealedShareBytes(shareId: 1 | 2 | 3): Uint8Array {
-  return new Uint8Array([shareId, 0xaa, 0xbb, 0xcc]);
-}
-
 function recordFixture(): SigningRootRecord {
-  return {
-    version: SIGNING_ROOT_RECORD_VERSION_V1,
-    projectId: 'project-alpha',
-    envId: 'dev',
-    signingRootId: 'project-alpha:dev',
-    walletOrigin: 'https://wallet.example.test',
-    authorityScope: passkeyAuthorityScope(),
-    signingRootVersion: 'root-v1',
-    rootShareEpoch: 1,
-    shareThreshold: 2,
-    shareCount: 3,
-    sealedSigningRootSecretShares: [1, 2, 3].map((shareId) => ({
-      signingRootId: 'project-alpha:dev',
-      signingRootVersion: 'root-v1',
-      shareId: shareId as 1 | 2 | 3,
-      sealedShare: sealedShareBytes(shareId as 1 | 2 | 3),
-      storageId: `storage-${shareId}`,
-      kekId: `kek-${shareId}`,
-    })),
-    derivationVersion: 1,
-    createdAtMs: 10,
-    updatedAtMs: 20,
-    source: 'hosted-export',
-  };
+  return seedSigningRootRecord();
 }
 
 test('parseSigningRootRecord validates the self-host signing-root record shape', () => {
@@ -98,24 +73,7 @@ test('parseSigningRootRecord rejects malformed signing-root records', () => {
 });
 
 test('signing-root migration bundle converts to runtime record and back', () => {
-  const bundle = {
-    version: SIGNING_ROOT_MIGRATION_BUNDLE_VERSION_V1,
-    projectId: 'project-alpha',
-    envId: 'dev',
-    signingRootId: 'project-alpha:dev',
-    walletOrigin: 'https://wallet.example.test',
-    authorityScope: passkeyAuthorityScope(),
-    signingRootVersion: 'root-v1',
-    rootShareEpoch: 1,
-    shareThreshold: 2,
-    shareCount: 3,
-    derivationVersion: 1,
-    sealedSigningRootSecretShares: ([1, 2, 3] as const).map((shareId) => ({
-      shareId,
-      sealedShareB64u: base64UrlEncode(sealedShareBytes(shareId as 1 | 2 | 3)),
-      storageId: `storage-${shareId}`,
-      kekId: `kek-${shareId}`,
-    })),
+  const bundle = seedSigningRootMigrationBundle({
     exportedAtMs: 30,
     exportActor: 'admin@example.test',
     walletInventory: [
@@ -128,7 +86,7 @@ test('signing-root migration bundle converts to runtime record and back', () => 
         status: 'active',
       },
     ],
-  } satisfies SigningRootMigrationBundleV1;
+  });
 
   const record = signingRootRecordFromMigrationBundle(bundle);
   expect(record.ok).toBe(true);

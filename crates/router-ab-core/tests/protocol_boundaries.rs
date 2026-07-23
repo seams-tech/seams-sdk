@@ -572,8 +572,14 @@ fn gate_defer_reason_maps_to_authority_verified_fallback_reason() {
 
 #[test]
 fn normal_signing_scope_stays_outside_derivation_lifecycle() {
-    let scope =
-        NormalSigningScopeV1::new("sign-1", "wallet-1", "session-1", "server-a").expect("scope");
+    let scope = NormalSigningScopeV1::new(
+        "sign-1",
+        "wallet-1",
+        "session-1",
+        "session-1",
+        "server-a",
+    )
+    .expect("scope");
 
     assert_eq!(scope.request_id, "sign-1");
     assert_eq!(scope.signing_worker_id, "server-a");
@@ -581,7 +587,7 @@ fn normal_signing_scope_stays_outside_derivation_lifecycle() {
 
 #[test]
 fn normal_signing_scope_rejects_empty_identity_fields() {
-    let err = NormalSigningScopeV1::new("", "wallet-1", "session-1", "server-a")
+    let err = NormalSigningScopeV1::new("", "wallet-1", "session-1", "session-1", "server-a")
         .expect_err("empty request id must fail");
 
     assert_eq!(err.code(), RouterAbProtocolErrorCode::EmptyField);

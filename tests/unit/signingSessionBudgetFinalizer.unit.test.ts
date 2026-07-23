@@ -547,7 +547,7 @@ test.describe('budget coordinator reserved success handling', () => {
     ).toHaveLength(1);
   });
 
-  test('exhausts local wallet-session availability after two in-flight reservations', async () => {
+  test('classifies locally reserved wallet-session availability as in-flight contention', async () => {
     const coordinator = new BudgetCoordinator({
       async readStatus() {
         return {
@@ -598,7 +598,9 @@ test.describe('budget coordinator reserved success handling', () => {
         spend: thirdSpend,
         expectedBudgetProjectionVersion: 'projection-1',
       }),
-    ).rejects.toThrow('[SigningSessionBudget] signing grant budget is exhausted');
+    ).rejects.toThrow(
+      '[SigningSessionBudget] signing grant budget is reserved by in-flight operations',
+    );
   });
 
   test('keeps concurrent EVM-family reservations distinct by operation fingerprint', async () => {

@@ -1233,11 +1233,11 @@ export class ThresholdStoreDurableObject {
       const res: DoResp<unknown> = await withTxn(this.state, async (store) => {
         const raw = await store.get(key);
         const entry = parseAuthEntry(raw);
-        if (!entry) return err('unauthorized', 'threshold session expired or invalid');
+        if (!entry) return err('wallet_session_missing', 'Wallet Session is missing');
 
-        if (Date.now() > entry.expiresAtMs) {
+        if (entry.expiresAtMs <= Date.now()) {
           await store.delete(key);
-          return err('unauthorized', 'threshold session expired');
+          return err('wallet_session_expired', 'Wallet Session expired');
         }
         const projection = authBudgetProjection(entry, Date.now());
         if (projection.availableUses <= 0) {
@@ -1273,11 +1273,11 @@ export class ThresholdStoreDurableObject {
       const res: DoResp<unknown> = await withTxn(this.state, async (store) => {
         const raw = await store.get(key);
         const entry = parseAuthEntry(raw);
-        if (!entry) return err('unauthorized', 'threshold session expired or invalid');
+        if (!entry) return err('wallet_session_missing', 'Wallet Session is missing');
 
-        if (Date.now() > entry.expiresAtMs) {
+        if (entry.expiresAtMs <= Date.now()) {
           await store.delete(key);
-          return err('unauthorized', 'threshold session expired');
+          return err('wallet_session_expired', 'Wallet Session expired');
         }
 
         const consumedIdempotencyKeys = entry.consumedIdempotencyKeys || {};
@@ -1323,11 +1323,11 @@ export class ThresholdStoreDurableObject {
       const res: DoResp<unknown> = await withTxn(this.state, async (store) => {
         const raw = await store.get(key);
         const entry = parseAuthEntry(raw);
-        if (!entry) return err('unauthorized', 'threshold session expired or invalid');
+        if (!entry) return err('wallet_session_missing', 'Wallet Session is missing');
 
-        if (Date.now() > entry.expiresAtMs) {
+        if (entry.expiresAtMs <= Date.now()) {
           await store.delete(key);
-          return err('unauthorized', 'threshold session expired');
+          return err('wallet_session_expired', 'Wallet Session expired');
         }
 
         const consumedIdempotencyKeys = entry.consumedIdempotencyKeys || {};
@@ -1344,12 +1344,12 @@ export class ThresholdStoreDurableObject {
       const res: DoResp<unknown | null> = await withTxn(this.state, async (store) => {
         const raw = await store.get(key);
         const entry = parseAuthEntry(raw);
-        if (!entry) return ok(null);
+        if (!entry) return err('wallet_session_missing', 'Wallet Session is missing');
 
         const nowMs = Date.now();
-        if (nowMs > entry.expiresAtMs) {
+        if (entry.expiresAtMs <= nowMs) {
           await store.delete(key);
-          return ok(null);
+          return err('wallet_session_expired', 'Wallet Session expired');
         }
         const projection = authBudgetProjection(entry, nowMs);
         const ttlSeconds = Math.max(1, Math.ceil((entry.expiresAtMs - nowMs) / 1000));
@@ -1374,12 +1374,12 @@ export class ThresholdStoreDurableObject {
       const res: DoResp<unknown> = await withTxn(this.state, async (store) => {
         const raw = await store.get(key);
         const entry = parseAuthEntry(raw);
-        if (!entry) return err('unauthorized', 'threshold session expired or invalid');
+        if (!entry) return err('wallet_session_missing', 'Wallet Session is missing');
 
         const nowMs = Date.now();
-        if (nowMs > entry.expiresAtMs) {
+        if (entry.expiresAtMs <= nowMs) {
           await store.delete(key);
-          return err('unauthorized', 'threshold session expired');
+          return err('wallet_session_expired', 'Wallet Session expired');
         }
         const parsed = parseAuthBudgetReserveInput(input, entry.expiresAtMs, nowMs);
         if (!parsed.ok) return parsed;
@@ -1443,12 +1443,12 @@ export class ThresholdStoreDurableObject {
       const res: DoResp<unknown> = await withTxn(this.state, async (store) => {
         const raw = await store.get(key);
         const entry = parseAuthEntry(raw);
-        if (!entry) return err('unauthorized', 'threshold session expired or invalid');
+        if (!entry) return err('wallet_session_missing', 'Wallet Session is missing');
 
         const nowMs = Date.now();
-        if (nowMs > entry.expiresAtMs) {
+        if (entry.expiresAtMs <= nowMs) {
           await store.delete(key);
-          return err('unauthorized', 'threshold session expired');
+          return err('wallet_session_expired', 'Wallet Session expired');
         }
         const parsed = parseAuthBudgetCommitInput(input);
         if (!parsed.ok) return parsed;
@@ -1511,12 +1511,12 @@ export class ThresholdStoreDurableObject {
       const res: DoResp<unknown> = await withTxn(this.state, async (store) => {
         const raw = await store.get(key);
         const entry = parseAuthEntry(raw);
-        if (!entry) return err('unauthorized', 'threshold session expired or invalid');
+        if (!entry) return err('wallet_session_missing', 'Wallet Session is missing');
 
         const nowMs = Date.now();
-        if (nowMs > entry.expiresAtMs) {
+        if (entry.expiresAtMs <= nowMs) {
           await store.delete(key);
-          return err('unauthorized', 'threshold session expired');
+          return err('wallet_session_expired', 'Wallet Session expired');
         }
         const parsed = parseAuthBudgetCommitInput(input);
         if (!parsed.ok) return parsed;
@@ -1560,12 +1560,12 @@ export class ThresholdStoreDurableObject {
       const res: DoResp<unknown> = await withTxn(this.state, async (store) => {
         const raw = await store.get(key);
         const entry = parseAuthEntry(raw);
-        if (!entry) return err('unauthorized', 'threshold session expired or invalid');
+        if (!entry) return err('wallet_session_missing', 'Wallet Session is missing');
 
         const nowMs = Date.now();
-        if (nowMs > entry.expiresAtMs) {
+        if (entry.expiresAtMs <= nowMs) {
           await store.delete(key);
-          return err('unauthorized', 'threshold session expired');
+          return err('wallet_session_expired', 'Wallet Session expired');
         }
         const parsed = parseAuthBudgetReleaseInput(input);
         if (!parsed.ok) return parsed;
@@ -1588,12 +1588,12 @@ export class ThresholdStoreDurableObject {
       const res: DoResp<unknown> = await withTxn(this.state, async (store) => {
         const raw = await store.get(key);
         const entry = parseAuthEntry(raw);
-        if (!entry) return err('unauthorized', 'threshold session expired or invalid');
+        if (!entry) return err('wallet_session_missing', 'Wallet Session is missing');
 
         const nowMs = Date.now();
-        if (nowMs > entry.expiresAtMs) {
+        if (entry.expiresAtMs <= nowMs) {
           await store.delete(key);
-          return err('unauthorized', 'threshold session expired');
+          return err('wallet_session_expired', 'Wallet Session expired');
         }
         const parsed = parseAuthBudgetCommitInput(input);
         if (!parsed.ok) return parsed;

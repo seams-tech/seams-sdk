@@ -156,6 +156,7 @@ export type RouterAbEd25519YaoExportWorkerPayloadV1 = ExportPrivateKeysWithUiWor
     credentialIdB64u: string;
     signingGrantId: string;
     thresholdSessionId: string;
+    activeStateSessionId: string;
   };
   capability: {
     scope: RouterAbEd25519YaoLifecycleScopeV1;

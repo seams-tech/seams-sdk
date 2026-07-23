@@ -122,24 +122,6 @@ const registrationFlowBenchmarkReportPath = path.join(
   repoRoot,
   'docs/benchmarks/registration-flow.md',
 );
-const siblingLifecycleGateDocs = [
-  {
-    relativePath: 'docs/refactor-82B.md',
-    requiredTokens: [
-      'Deferred Refactor 88 intended lifecycle gate:',
-      'pnpm test:intended',
-      'Run the Refactor 88 pre-merge lifecycle gate',
-    ],
-  },
-  {
-    relativePath: 'docs/refactor-90-modular-auth-capabilities-plan.md',
-    requiredTokens: [
-      'Refactor 88 lifecycle contract gate:',
-      'pnpm test:intended',
-      'auth, session exchange, signing, export, wallet iframe',
-    ],
-  },
-];
 const expectedContractFiles = [
   'email-otp.registration.contract.test.ts',
   'email-otp.unlock.contract.test.ts',
@@ -153,20 +135,18 @@ const expectedContractActionSequences = {
     'refreshPagePreservingWalletStorage()',
     'exportEd25519Key()',
     'exportEcdsaKey()',
-    "signNearTransactionAfterRefresh('email_otp_yao_recovery')",
+    'signNearTransactionAfterRefresh()',
     "signTempoAndArcEvmConcurrently('after_refresh_recovery')",
-    'exhaustSigningBudget()',
     'refreshPagePreservingWalletStorage()',
-    "signArcEvmTransaction('after_step_up')",
-    "signTempoTransaction('after_step_up')",
-    "signNearTransaction('after_step_up')",
+    "signArcEvmTransaction('step_up_required')",
+    "signTempoTransaction('step_up_required')",
+    "signNearTransaction('step_up_required')",
     'registerEmailOtpWallet()',
     'exportEd25519Key()',
     'exportEcdsaKey()',
     "signNearTransaction('post_registration')",
     "signTempoAndArcEvmConcurrently('post_registration')",
-    'exhaustSigningBudget()',
-    "signNearTransaction('after_step_up')",
+    "signNearTransaction('step_up_required')",
   ],
   'email-otp.unlock.contract.test.ts': [
     'registerEmailOtpWallet()',
@@ -175,25 +155,21 @@ const expectedContractActionSequences = {
     'exportEcdsaKey()',
     "signNearTransaction('post_unlock')",
     "signTempoAndArcEvmConcurrently('post_unlock')",
-    'exhaustSigningBudget()',
-    "signNearTransaction('after_step_up')",
+    "signNearTransaction('step_up_required')",
     'registerEmailOtpWallet()',
     'unlockEmailOtpWallet()',
     'refreshPagePreservingWalletStorage()',
     'exportEd25519Key()',
     'exportEcdsaKey()',
-    "signNearTransactionAfterRefresh('email_otp_yao_recovery')",
+    'signNearTransactionAfterRefresh()',
     "signTempoAndArcEvmConcurrently('after_refresh_recovery')",
-    'exhaustSigningBudget()',
     'refreshPagePreservingWalletStorage()',
-    "signNearTransaction('after_step_up')",
-    "signTempoTransaction('after_step_up')",
-    "signArcEvmTransaction('after_step_up')",
+    "signNearTransaction('step_up_required')",
+    "signTempoTransaction('step_up_required')",
+    "signArcEvmTransaction('step_up_required')",
   ],
   'passkey.ed25519-yao-local.contract.test.ts': [
     'registerPasskeyEd25519YaoWallet()',
-    "signNearTransaction('post_registration')",
-    'registerPreparedIframePasskeyEd25519YaoWallet()',
     "signNearTransaction('post_registration')",
   ],
   'passkey.registration.contract.test.ts': [
@@ -207,19 +183,19 @@ const expectedContractActionSequences = {
     'exportEcdsaKey()',
     "signNearTransaction('post_unlock')",
     "signTempoAndArcEvmConcurrently('post_unlock')",
-    "signNearTransaction('after_step_up')",
+    "signNearTransaction('step_up_required')",
     'registerPasskeyWallet()',
     'unlockPasskeyWallet()',
     'refreshPagePreservingWalletStorage()',
     'exportEd25519Key()',
     'exportEcdsaKey()',
-    "signNearTransactionAfterRefresh('passkey_local_envelope')",
+    'signNearTransactionAfterRefresh()',
     "signTempoTransaction('after_refresh_recovery')",
     "signArcEvmTransaction('after_refresh_recovery')",
     'exhaustSigningBudget()',
-    "signNearTransaction('after_step_up')",
-    "signTempoTransaction('after_step_up')",
-    "signArcEvmTransaction('after_step_up')",
+    "signNearTransaction('step_up_required')",
+    "signTempoTransaction('step_up_required')",
+    "signArcEvmTransaction('step_up_required')",
   ],
 };
 const expectedIntendedActionResultKinds = [
@@ -1007,17 +983,6 @@ test('Refactor 88 wallet-service e2e header smoke stays off SDK plugin headers',
   expect(source).not.toContain('DEFAULT_LOCAL_WALLET_ORIGIN');
   expect(source).not.toContain("'https://wallet.example.localhost'");
 });
-test('Refactor 88 sibling plans name the intended lifecycle pre-merge gate', () => {
-  const violations = [];
-  for (const doc of siblingLifecycleGateDocs) {
-    const source = fs.readFileSync(path.join(repoRoot, doc.relativePath), 'utf8');
-    for (const token of doc.requiredTokens) {
-      if (source.includes(token)) continue;
-      violations.push(`${doc.relativePath}: missing ${token}`);
-    }
-  }
-  expect(violations, violations.join('\n')).toEqual([]);
-});
 test('Refactor 88 intended config is serial Chromium with zero retries and a suite budget', () => {
   const source = fs.readFileSync(intendedConfigPath, 'utf8');
   expect(source).toContain('fullyParallel: false');
@@ -1116,22 +1081,6 @@ test('Refactor 88 intended harness fails fast when a public action click is iner
   expect(source).toContain('Page snapshot:');
   expect(startMethod?.[0]).not.toContain('.catch(() => undefined)');
 });
-test('Refactor 88 failure string tripwires are versioned harness matchers', () => {
-  const source = fs.readFileSync(intendedHarnessPath, 'utf8');
-  expect(source).toContain('LIFECYCLE_FAILURE_MATCHER_TABLE_VERSION');
-  expect(source).toContain('LIFECYCLE_FAILURE_MATCHERS');
-  expect(source).not.toContain('LIFECYCLE_FAILURE_PATTERNS');
-  expect(source).toContain('remaining_spend_indeterminate_budget_unknown');
-  expect(source).toContain('/budget_unknown/i');
-  expect(source).toContain('exact_lane_selection_failure');
-  expect(source).toContain('canonical_ecdsa_lane_ambiguous_material');
-  expect(source).toContain('/ambiguous_material/i');
-  expect(source).not.toContain('duplicate_exact_lane');
-  expect(source).not.toContain('/duplicate exact lane/i');
-  expect(source).toContain('wallet_runtime_postcondition');
-  expect(source).toContain('captureFailedResponseBody');
-  expect(source).toContain('recordViolationIfNeeded(bodySnippet)');
-});
 test('Refactor 88 NEAR signing contract verifies Ed25519 signatures cryptographically', () => {
   const source = fs.readFileSync(intendedHarnessPath, 'utf8');
   expect(source).toContain('verifyNearEd25519Signature');
@@ -1165,12 +1114,6 @@ test('Refactor 88 post-exhaustion contracts require per-operation step-up', () =
   expect(source).not.toContain('passkey_step_up_or_warm_session');
   expect(source).not.toContain('email_otp_step_up_or_warm_session');
   expect(source).not.toContain('postExhaustionStepUpSatisfied');
-});
-test('Refactor 88 contracts cover shared-budget concurrent EVM-family signing', () => {
-  const source = fs.readFileSync(intendedHarnessPath, 'utf8');
-  expect(source).toContain('signTempoAndArcEvmConcurrently');
-  expect(source).toContain('triggerConcurrentEvmFamilySigning');
-  expect(source).toContain('assertConcurrentSharedBudgetExhaustion');
 });
 test('Refactor 88 intended harness only stubs external identity and chain RPC hosts', () => {
   const source = fs.readFileSync(intendedHarnessPath, 'utf8');

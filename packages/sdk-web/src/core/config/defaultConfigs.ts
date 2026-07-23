@@ -1,5 +1,6 @@
 import { UserVerificationPolicy, type AuthenticatorOptions } from '../types/authenticatorOptions';
 import type { EcdsaSignerProvisioningDefaults } from '../types/ecdsaSignerProvisioningDefaults';
+import { DEFAULT_THRESHOLD_SESSION_TTL_MS } from '../signingEngine/threshold/sessionPolicy';
 import type {
   SeamsChainConfig,
   SeamsConfigsInput,
@@ -36,7 +37,7 @@ export const DEFAULT_THRESHOLD_ECDSA_PROVISIONING_DEFAULTS: EcdsaSignerProvision
     enabled: true,
     signingSession: {
       kind: 'jwt',
-      ttlMs: 24 * 60 * 60 * 1000,
+      ttlMs: DEFAULT_THRESHOLD_SESSION_TTL_MS,
       remainingUses: 3,
     },
   },
@@ -44,7 +45,7 @@ export const DEFAULT_THRESHOLD_ECDSA_PROVISIONING_DEFAULTS: EcdsaSignerProvision
     enabled: true,
     signingSession: {
       kind: 'jwt',
-      ttlMs: 24 * 60 * 60 * 1000,
+      ttlMs: DEFAULT_THRESHOLD_SESSION_TTL_MS,
       remainingUses: 3,
     },
   },
@@ -130,7 +131,7 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: SeamsConfigsReadonly = {
     // Warm signing session defaults used by login/unlock flows.
     // Enforcement (TTL/uses) is owned by the UserConfirm worker (wallet origin); signer workers remain one-shot.
     sessionDefaults: {
-      ttlMs: 24 * 60 * 60 * 1000, // 1 day
+      ttlMs: DEFAULT_THRESHOLD_SESSION_TTL_MS,
       remainingUses: 3,
     },
     emailOtp: {
