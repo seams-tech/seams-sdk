@@ -4325,6 +4325,24 @@ export function upsertThresholdEd25519SessionFact(
   });
 }
 
+/**
+ * Re-seeds the in-memory runtime cache from a persisted Ed25519 session record
+ * (e.g. after a page/iframe refresh wipes runtime state) so account-, wallet-,
+ * and session-keyed readers resolve it again. Uses the generation-monotonic
+ * 'prefer_current_generation' policy so it never downgrades a fresher in-flight
+ * record. Only identity/metadata is seeded — ephemeral auth material (wallet
+ * session JWT / PRF claim) is not persisted, so a rehydrated record still
+ * derives as auth_missing and forces step-up re-auth before any signing.
+ */
+export function rememberPersistedThresholdEd25519RuntimeRecord(
+  record: ThresholdEd25519SessionRecord,
+): ThresholdEd25519SessionRecord {
+  return storeThresholdEd25519SessionFact({
+    record,
+    defaultPolicy: 'prefer_current_generation',
+  });
+}
+
 // Broad Ed25519 wallet/account readers expose default/discovery records only.
 // Authority-bearing mutations must use exact lane-key helpers.
 export function getStoredThresholdEd25519SessionRecordForAccount(
