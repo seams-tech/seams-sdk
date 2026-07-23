@@ -50,6 +50,15 @@ const expiredReadiness: SigningSessionReadiness = {
 };
 void expiredReadiness;
 
+type ActiveSigningSessionReadiness = Extract<SigningSessionReadiness, { status: 'ready' }>;
+
+function requireActiveSigningSession(_readiness: ActiveSigningSessionReadiness): void {}
+
+requireActiveSigningSession(readyReadiness);
+
+// @ts-expect-error expired readiness cannot cross an active-session boundary.
+requireActiveSigningSession(expiredReadiness);
+
 // @ts-expect-error expired readiness does not carry remaining uses.
 const expiredReadinessWithRemainingUses: SigningSessionReadiness = {
   status: 'expired',

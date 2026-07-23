@@ -38,6 +38,7 @@ void forgedActiveClient;
 
 declare const exportRequest: RouterAbEd25519YaoExportSeedInputV1['request'];
 declare const exportTransport: RouterAbEd25519YaoExportSeedInputV1['transport'];
+declare const authorizationIdentity: RouterAbEd25519YaoExportSeedInputV1['authorizationIdentity'];
 declare const passkeyFactor: Extract<
   RouterAbEd25519YaoExportSeedInputV1,
   { factor: { kind: 'passkey_prf_first' } }
@@ -58,6 +59,7 @@ declare const emailOtpAuthorization: Extract<
 const validPasskeyExport = {
   request: exportRequest,
   transport: exportTransport,
+  authorizationIdentity,
   factor: passkeyFactor,
   authorization: passkeyAuthorization,
 } satisfies RouterAbEd25519YaoExportSeedInputV1;
@@ -65,6 +67,7 @@ const validPasskeyExport = {
 const validEmailOtpExport = {
   request: exportRequest,
   transport: exportTransport,
+  authorizationIdentity,
   factor: emailOtpFactor,
   authorization: emailOtpAuthorization,
 } satisfies RouterAbEd25519YaoExportSeedInputV1;
@@ -76,6 +79,7 @@ void validEmailOtpExport;
 const mismatchedPasskeyExport: RouterAbEd25519YaoExportSeedInputV1 = {
   request: exportRequest,
   transport: exportTransport,
+  authorizationIdentity,
   factor: passkeyFactor,
   authorization: emailOtpAuthorization,
 };
@@ -84,6 +88,7 @@ const mismatchedPasskeyExport: RouterAbEd25519YaoExportSeedInputV1 = {
 const mismatchedEmailOtpExport: RouterAbEd25519YaoExportSeedInputV1 = {
   request: exportRequest,
   transport: exportTransport,
+  authorizationIdentity,
   factor: emailOtpFactor,
   authorization: passkeyAuthorization,
 };
