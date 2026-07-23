@@ -74,6 +74,10 @@ for (const [filename, environment, branch] of deploymentWorkflows) {
   if (!workflow.on?.workflow_run?.workflows?.includes('Validate / repository')) {
     failures.push(`${filename}: automatic deployment is not gated by Validate / repository`);
   }
+  const workflowSource = readFileSync(join(workflowRoot, filename), 'utf8');
+  if (!workflowSource.includes("github.event.workflow_run.event == 'push'")) {
+    failures.push(`${filename}: automatic deployment must accept push validation runs only`);
+  }
   if (!workflow.on?.workflow_run?.branches?.includes(branch)) {
     failures.push(`${filename}: automatic deployment has the wrong protected branch`);
   }
@@ -116,7 +120,6 @@ for (const [filename, environment, branch] of deploymentWorkflows) {
   }
 
   const productionGuard = `"$GITHUB_REF" != 'refs/heads/main'`;
-  const workflowSource = readFileSync(join(workflowRoot, filename), 'utf8');
   if (!workflowSource.includes(productionGuard)) {
     failures.push(`${filename}: production authority guard is missing`);
   }
