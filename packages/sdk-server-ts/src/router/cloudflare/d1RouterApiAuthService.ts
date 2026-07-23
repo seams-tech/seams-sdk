@@ -8,6 +8,20 @@ import { D1EmailRecoveryPreparationStore } from '../../core/EmailRecoveryPrepara
 import { D1WebAuthnCredentialBindingStore } from '../../core/WebAuthnCredentialBindingStore';
 import type { IdentityStore, LinkIdentityResult } from '../../core/IdentityStore';
 import type { D1PreparedStatementLike } from '../../storage/tenantRoute';
+import { normalizeLogger } from '../../core/logger';
+import { toPublicKeyStringFromSecretKey } from '../../core/nearKeys';
+import { signGasRelayerNearTransactionWithDeps } from '../../core/authService/nearTransactions';
+import {
+  ensureSignerWasmRuntime,
+  type SignerWasmRuntimeState,
+} from '../../core/authService/wasm';
+import { MinimalNearClient } from '../../core/rpcClients/near/NearClient';
+import {
+  executeSignedDelegateWithRelayer,
+  type ExecuteSignedDelegateRequest,
+  type ExecuteSignedDelegateResult,
+} from '../../delegateAction';
+import type { ActionArgsWasm } from '@shared/near/actions';
 import type {
   AccountCreationResult,
   FundImplicitNearAccountRequest,
@@ -67,6 +81,9 @@ export type {
 export type CloudflareD1RouterApiAuthService = Omit<RouterApiServiceBag, 'thresholdRuntime'> & {
   readonly thresholdRuntime: RouterApiServiceBag['thresholdRuntime'] &
     Pick<CloudflareD1RouterAbSigningRuntime, 'getRouterAbLocalSigningSeedRuntime'>;
+  readonly executeSignedDelegate: (
+    input: ExecuteSignedDelegateRequest,
+  ) => Promise<ExecuteSignedDelegateResult>;
 };
 
 type ScopedD1Prepare = (sql: string, values: readonly unknown[]) => D1PreparedStatementLike;
@@ -105,6 +122,7 @@ type CloudflareD1RouterApiAuthAssembly = {
   readonly walletAddSigners: CloudflareD1WalletAddSignerService;
   readonly registrationIntents: CloudflareD1RegistrationIntentService;
   readonly routerAbSigning: CloudflareD1RouterAbSigningRuntime;
+  readonly signedDelegateExecutor: CloudflareD1SignedDelegateExecutor;
 };
 
 type D1WalletRegistrationRouteServiceAssembly = Pick<
@@ -167,6 +185,74 @@ type D1RouterAccountRouteServiceAssembly = Pick<
   CloudflareD1RouterApiAuthAssembly,
   'routerAbSigning'
 >;
+
+class CloudflareD1SignedDelegateExecutor {
+  private signerWasmState: SignerWasmRuntimeState = { signerWasmReady: false };
+  private readonly logger = normalizeLogger();
+
+  constructor(private readonly options: NormalizedCloudflareD1RouterApiAuthServiceOptions) {}
+
+  async execute(input: ExecuteSignedDelegateRequest): Promise<ExecuteSignedDelegateResult> {
+    const relayerAccount = this.options.relayerAccount;
+    const relayerPrivateKey = this.options.relayerPrivateKey;
+    const nearRpcUrl = this.options.nearRpcUrl;
+    if (!relayerAccount || !relayerPrivateKey || !nearRpcUrl) {
+      return {
+        ok: false,
+        code: 'not_configured',
+        error: 'Signed delegate execution is not configured on this server',
+      };
+    }
+
+    try {
+      const relayerPublicKey =
+        this.options.relayerPublicKey || toPublicKeyStringFromSecretKey(relayerPrivateKey);
+      return await executeSignedDelegateWithRelayer({
+        nearClient: new MinimalNearClient(nearRpcUrl),
+        relayerAccount,
+        relayerPublicKey,
+        hash: input.hash,
+        signedDelegate: input.signedDelegate,
+        policy: input.policy,
+        signGasRelayerNearTransaction: this.signGasRelayerNearTransaction.bind(this),
+      });
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'delegate_execution_failed',
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  private async ensureSignerWasm(): Promise<void> {
+    this.signerWasmState = await ensureSignerWasmRuntime({
+      state: this.signerWasmState,
+      logger: this.logger,
+    });
+  }
+
+  private async signGasRelayerNearTransaction(
+    input: {
+      readonly receiverId: string;
+      readonly nonce: string;
+      readonly blockHash: string;
+      readonly actions: ActionArgsWasm[];
+    },
+  ): ReturnType<typeof signGasRelayerNearTransactionWithDeps> {
+    const relayerAccount = this.options.relayerAccount;
+    const relayerPrivateKey = this.options.relayerPrivateKey;
+    if (!relayerAccount || !relayerPrivateKey) {
+      throw new Error('Signed delegate relayer credentials are not configured');
+    }
+    return await signGasRelayerNearTransactionWithDeps({
+      ...input,
+      ensureSignerWasm: this.ensureSignerWasm.bind(this),
+      relayerAccount,
+      relayerPrivateKey,
+    });
+  }
+}
 
 function d1RouterApiErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error || '');
@@ -472,6 +558,7 @@ function createCloudflareD1RouterApiAuthAssembly(
         webAuthnAuthService.verifyWebAuthnAuthenticationLite.bind(webAuthnAuthService),
     },
   });
+  const signedDelegateExecutor = new CloudflareD1SignedDelegateExecutor(options);
   const walletRegistrations = new CloudflareD1WalletRegistrationService({
     createSponsoredNamedNearAccount,
     emailOtpRegistrationEnrollmentFinalizer,
@@ -546,6 +633,7 @@ function createCloudflareD1RouterApiAuthAssembly(
     walletAddSigners,
     registrationIntents,
     routerAbSigning,
+    signedDelegateExecutor,
   };
 }
 
@@ -882,6 +970,9 @@ export function createCloudflareD1RouterApiAuthService(
     nearFunding: createD1NearFundingRouteService(assembly),
     recovery: createD1RecoveryRouteService(assembly),
     router: createD1RouterAccountRouteService(assembly),
+    executeSignedDelegate: assembly.signedDelegateExecutor.execute.bind(
+      assembly.signedDelegateExecutor,
+    ),
   };
 }
 

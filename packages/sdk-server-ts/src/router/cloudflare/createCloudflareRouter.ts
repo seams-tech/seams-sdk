@@ -215,7 +215,9 @@ export function createCloudflareRouter(
         }
       }
 
-      return notFound();
+      const res = notFound();
+      withCors(res.headers, effectiveOpts, request);
+      return res;
     } catch (e: unknown) {
       const res = json(
         { code: 'internal', message: e instanceof Error ? e.message : String(e) },

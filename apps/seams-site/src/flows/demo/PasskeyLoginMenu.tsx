@@ -21,7 +21,10 @@ import './PasskeyLoginMenu.css';
 import { FRONTEND_CONFIG } from '@/config';
 import { useAuthMenuControl } from '@/context/AuthMenuControl';
 import { demoPasskeyEcdsaSignerOptions } from './demoPasskeyEcdsaSignerOptions';
-import { showCopiedDemoEmailOtpToast } from './demoEmailOtpToast';
+import {
+  dismissDemoEmailOtpToast,
+  showCopiedDemoEmailOtpToast,
+} from './demoEmailOtpToast';
 import {
   ensureGoogleIdentityScriptLoaded,
   fetchGoogleAuthOptions,
@@ -248,11 +251,12 @@ function handleUnlockEvent(event: UnlockFlowEvent, loginTarget: string): void {
 }
 
 const GOOGLE_EMAIL_OTP_TOAST_ID = 'google-email-otp';
+const GOOGLE_EMAIL_OTP_CODE_TOAST_ID = 'google-email-otp-code';
 
 export function showDemoEmailOtpToast(response: DemoEmailOtpCodeResponse): void {
   void showCopiedDemoEmailOtpToast({
     otpCode: response.otpCode,
-    toastId: GOOGLE_EMAIL_OTP_TOAST_ID,
+    toastId: GOOGLE_EMAIL_OTP_CODE_TOAST_ID,
     unavailableDescription: 'Email delivery is not configured for this live demo.',
   });
 }
@@ -444,6 +448,8 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
   };
 
   const onGoogleSsoEmailOtp = async (args: SeamsAuthMenuSocialLoginArgs) => {
+    dismissDemoEmailOtpToast(GOOGLE_EMAIL_OTP_TOAST_ID);
+    dismissDemoEmailOtpToast(GOOGLE_EMAIL_OTP_CODE_TOAST_ID);
     toast.loading('Opening Google SSO…', { id: GOOGLE_EMAIL_OTP_TOAST_ID });
     try {
       const googleClientId = requirePreparedGoogleSsoClientId(googleSsoReadiness);

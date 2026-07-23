@@ -36,7 +36,7 @@ import {
 const API_WALLET_DETAIL_PREFIX = '/v1/wallets/';
 const ROUTER_API_SIGNED_DELEGATE_ROUTE_ID = 'signed_delegate';
 const ROUTER_API_SPONSORED_EVM_CALL_ROUTE_ID = 'sponsored_evm_call';
-const DEFAULT_SIGNED_DELEGATE_ROUTE = '/signed-delegate';
+export const DEFAULT_SIGNED_DELEGATE_ROUTE = '/signed-delegate';
 const SPONSORED_EVM_MVP_DISABLED_MESSAGE =
   'EVM gas sponsorship pricing is not configured on this server.';
 const ROUTER_API_SIGNED_DELEGATE_SERVICES = [
