@@ -1,6 +1,5 @@
 import { expect, test } from '@playwright/test';
 import { SIGNER_KINDS } from '@shared/utils/signerDomain';
-import type { AccountSignerRecord } from '@/core/indexedDB/passkeyClientDB.types';
 import type { ActivateAccountSignerInput } from '@/core/indexedDB/accountSignerLifecycle';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import {
@@ -12,6 +11,7 @@ import { buildEmailOtpAuthContextForWalletAuthMethod } from '@/core/signingEngin
 import { ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap } from '@/core/signingEngine/session/warmCapabilities/sealedRefreshParity';
 import { readPersistedAvailableSigningLanesForTargets } from '@/core/signingEngine/session/availability/persistedAvailableSigningLanes';
 import { listStoredThresholdEcdsaSessionRecordsForWallet } from '@/core/signingEngine/session/persistence/records';
+import { accountSignerRecordFromActivateInput } from './helpers/accountSignerRecord.fixtures';
 import { createWarmSessionTestServices } from './helpers/warmSessionTestServices.fixtures';
 import {
   resetWarmSessionFixtureState,
@@ -52,22 +52,9 @@ function createBootstrapStore() {
   return {
     upsertProfile: async () => ({}),
     activateAccountSigner: async (input: ActivateAccountSignerInput) => {
-      const nowMs = Date.now();
-      const signer: AccountSignerRecord = {
-        profileId: input.account.profileId,
-        chainIdKey: input.account.chainIdKey,
-        accountAddress: input.account.accountAddress,
-        signerId: input.signer.signerId,
-        signerType: input.signer.signerType,
+      const signer = accountSignerRecordFromActivateInput(input, {
         signerKind: SIGNER_KINDS.thresholdEcdsa,
-        signerAuthMethod: input.signer.signerAuthMethod,
-        signerSource: input.signer.signerSource,
-        signerSlot: input.preferredSlot || 1,
-        status: 'active',
-        metadata: input.signer.metadata,
-        addedAt: nowMs,
-        updatedAt: nowMs,
-      };
+      });
       return {
         signer,
         signerSlot: signer.signerSlot,

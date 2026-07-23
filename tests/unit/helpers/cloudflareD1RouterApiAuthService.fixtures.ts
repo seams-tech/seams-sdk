@@ -20,7 +20,10 @@ import { createCloudflareD1RouterApiAuthService } from '../../../packages/sdk-se
 import { parseGoogleEmailOtpRegistrationAttemptRecord } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1GoogleEmailOtpRegistrationRecords';
 import { parseD1RegistrationIntent } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyRecords';
 import { base64UrlDecode, base64UrlEncode } from '../../../packages/shared-ts/src/utils/encoders';
-import { parseWebAuthnRpId } from '../../../packages/shared-ts/src/utils/domainIds';
+import {
+  parseRootShareEpoch,
+  parseWebAuthnRpId,
+} from '../../../packages/shared-ts/src/utils/domainIds';
 import { normalizeRuntimePolicyScope } from '../../../packages/shared-ts/src/threshold/signingRootScope';
 import {
   implicitNearAccountProvisioning,
@@ -486,7 +489,7 @@ export function requireNestedRecordingDurableObjectRecord(input: {
 }
 
 export function testEcdsaClientBootstrap(
-  prepare: WalletRegistrationEcdsaPreparePayload['targets'][number]['prepare'],
+  prepare: WalletRegistrationEcdsaPreparePayload['prepare'],
 ): WalletRegistrationEcdsaClientBootstrap {
   return {
     formatVersion: prepare.formatVersion,
@@ -497,9 +500,7 @@ export function testEcdsaClientBootstrap(
     signingRootVersion: prepare.signingRootVersion,
     keyScope: prepare.keyScope,
     relayerKeyId: prepare.relayerKeyId,
-    ...(prepare.registrationPreparationId
-      ? { registrationPreparationId: prepare.registrationPreparationId }
-      : {}),
+    registrationPreparationId: prepare.registrationPreparationId,
     derivationClientSharePublicKey33B64u: 'test-client-share-public-key' as TestEcdsaClientSharePublicKey,
     clientShareRetryCounter: 0,
     contextBinding32B64u: 'test-context-binding-32',
@@ -509,24 +510,24 @@ export function testEcdsaClientBootstrap(
     ttlMs: prepare.ttlMs,
     remainingUses: prepare.remainingUses,
     participantIds: prepare.participantIds,
-    ...(prepare.runtimePolicyScope ? { runtimePolicyScope: prepare.runtimePolicyScope } : {}),
+    runtimePolicyScope: prepare.runtimePolicyScope,
   };
 }
 
 export function requireSingleEcdsaPrepare(
   ecdsa: WalletRegistrationEcdsaPreparePayload,
-): WalletRegistrationEcdsaPreparePayload['targets'][number]['prepare'] {
-  expect(ecdsa.targets).toHaveLength(1);
-  return ecdsa.targets[0].prepare;
+): WalletRegistrationEcdsaPreparePayload['prepare'] {
+  expect(ecdsa.chainTargets).toHaveLength(1);
+  return ecdsa.prepare;
 }
 
 export function testEcdsaClientBootstrapTargets(ecdsa: WalletRegistrationEcdsaPreparePayload): {
-  chainTarget: WalletRegistrationEcdsaPreparePayload['targets'][number]['chainTarget'];
+  chainTarget: WalletRegistrationEcdsaPreparePayload['chainTargets'][number];
   clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
 }[] {
-  return ecdsa.targets.map((target) => ({
-    chainTarget: target.chainTarget,
-    clientBootstrap: testEcdsaClientBootstrap(target.prepare),
+  return ecdsa.chainTargets.map((chainTarget) => ({
+    chainTarget,
+    clientBootstrap: testEcdsaClientBootstrap(ecdsa.prepare),
   }));
 }
 
@@ -559,6 +560,7 @@ export function testEcdsaServerBootstrapResponse(
     relayerVerifyingShareB64u: 'test-relayer-public-key',
     participantIds: request.participantIds,
     thresholdSessionId: request.sessionId,
+    activationEpoch: requireParsedDomainId(parseRootShareEpoch('test-activation-epoch')),
     signingGrantId: request.signingGrantId,
     expiresAtMs,
     expiresAt: new Date(expiresAtMs).toISOString(),

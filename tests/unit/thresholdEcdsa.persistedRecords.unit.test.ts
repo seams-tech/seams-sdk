@@ -14,9 +14,9 @@ import { normalizeLogger } from '../../packages/sdk-server-ts/src/core/logger';
 import type {
   CloudflareDurableObjectNamespaceLike,
   CloudflareDurableObjectStubLike,
-  EcdsaDerivationRoleLocalKeyRecord,
 } from '../../packages/sdk-server-ts/src/core/types';
 import { ThresholdStoreDurableObject } from '../../packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore';
+import { makeEcdsaDerivationRoleLocalKeyRecord } from './helpers/signingSessionRecord.fixtures';
 
 const ed25519AuthorityScope = { kind: 'passkey_rp' as const, rpId: 'example.localhost' };
 
@@ -32,54 +32,6 @@ function b64uBytes(length: number, lastByte: number, firstByte = 0): string {
   bytes[0] = firstByte;
   bytes[length - 1] = lastByte;
   return bytes.toString('base64url');
-}
-
-function publicKey33B64u(lastByte: number, prefix: 0x02 | 0x03 = 0x02): string {
-  return b64uBytes(33, lastByte, prefix);
-}
-
-async function makeRoleLocalKeyRecord(
-  overrides: Partial<EcdsaDerivationRoleLocalKeyRecord> = {},
-): Promise<EcdsaDerivationRoleLocalKeyRecord> {
-  const walletId = 'alice.testnet';
-  const signingRootId = 'signing-root';
-  const signingRootVersion = 'default';
-  const base = {
-    version: 'threshold_ecdsa_derivation_role_local_v2',
-    ecdsaThresholdKeyId: 'threshold-key',
-    walletId,
-    evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
-      walletId,
-      signingRootId,
-      signingRootVersion,
-    }),
-    signingRootId,
-    signingRootVersion,
-    keyScope: 'evm-family',
-    relayerKeyId: 'relayer-key',
-    contextBinding32B64u: b64uBytes(32, 1),
-    relayerShare32B64u: b64uBytes(32, 2),
-    relayerPublicKey33B64u: publicKey33B64u(3),
-    clientPublicKey33B64u: publicKey33B64u(4, 0x03),
-    groupPublicKey33B64u: publicKey33B64u(5),
-    ethereumAddress: '0x1111111111111111111111111111111111111111',
-    publicTranscriptDigest32B64u: b64uBytes(32, 8),
-    createdAtMs: 100,
-    updatedAtMs: 200,
-    ...overrides,
-  } satisfies Omit<EcdsaDerivationRoleLocalKeyRecord, 'keyHandle'> & { keyHandle?: string };
-  const keyHandle =
-    overrides.keyHandle ??
-    String(
-      await deriveThresholdEcdsaKeyHandle({
-        ecdsaThresholdKeyId: base.ecdsaThresholdKeyId,
-        signingRootId: base.signingRootId,
-        signingRootVersion: base.signingRootVersion,
-      }),
-    );
-  const parsed = parseEcdsaDerivationRoleLocalKeyRecord({ ...base, keyHandle });
-  if (!parsed) throw new Error('test fixture must be a role-local threshold ECDSA key record');
-  return parsed;
 }
 
 function createMemoryDurableObjectNamespace(): CloudflareDurableObjectNamespaceLike {
@@ -159,7 +111,7 @@ test.describe('threshold ecdsa persisted records', () => {
       }),
     ).toBeNull();
 
-    const roleLocalRecord = await makeRoleLocalKeyRecord();
+    const roleLocalRecord = await makeEcdsaDerivationRoleLocalKeyRecord();
     expect(parseEcdsaDerivationRoleLocalKeyRecord(roleLocalRecord)).toEqual(roleLocalRecord);
     expect(
       parseEcdsaDerivationRoleLocalKeyRecord({
@@ -239,12 +191,12 @@ test.describe('threshold ecdsa persisted records', () => {
       logger: normalizeLogger(null),
       isNode: true,
     });
-    const first = await makeRoleLocalKeyRecord({
+    const first = await makeEcdsaDerivationRoleLocalKeyRecord({
       signingRootId: 'server-shared-root',
     });
     await store.putRoleLocalByKeyHandle(first);
 
-    const conflicting = await makeRoleLocalKeyRecord({
+    const conflicting = await makeEcdsaDerivationRoleLocalKeyRecord({
       ecdsaThresholdKeyId: 'threshold-key-conflict',
       relayerKeyId: 'relayer-key-conflict',
       signingRootId: 'server-shared-root',
@@ -261,7 +213,7 @@ test.describe('threshold ecdsa persisted records', () => {
       logger: normalizeLogger(null),
       isNode: true,
     });
-    const first = await makeRoleLocalKeyRecord({
+    const first = await makeEcdsaDerivationRoleLocalKeyRecord({
       signingRootId: 'server-handle-root',
     });
     await store.putRoleLocalByKeyHandle(first);
@@ -294,7 +246,7 @@ test.describe('threshold ecdsa persisted records', () => {
       logger: normalizeLogger(null),
       isNode: true,
     });
-    const record = await makeRoleLocalKeyRecord({
+    const record = await makeEcdsaDerivationRoleLocalKeyRecord({
       keyHandle: 'ederivation-key-wrong',
     });
 
@@ -313,7 +265,7 @@ test.describe('threshold ecdsa persisted records', () => {
       logger: normalizeLogger(null),
       isNode: true,
     });
-    const first = await makeRoleLocalKeyRecord({
+    const first = await makeEcdsaDerivationRoleLocalKeyRecord({
       ecdsaThresholdKeyId: 'cloudflare-threshold-key',
       relayerKeyId: 'cloudflare-relayer-key',
       signingRootId: 'cloudflare-server-handle-root',

@@ -1,8 +1,5 @@
 import { expect, test } from '@playwright/test';
-import {
-  buildWalletEcdsaSignerRecord,
-  D1WalletStore,
-} from '../../packages/sdk-server-ts/src/core/d1WalletStore';
+import { D1WalletStore } from '../../packages/sdk-server-ts/src/core/d1WalletStore';
 import type {
   WalletEd25519SignerRecord,
   WalletEcdsaSignerRecord,
@@ -17,9 +14,11 @@ import {
   type RegistrationAuthority,
   type WalletId,
 } from '../../packages/shared-ts/src/utils/registrationIntent';
+import { unknownWebAuthnAuthenticatorDeviceInfo } from '../../packages/shared-ts/src/utils/webauthnDeviceInfo';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import { buildEd25519YaoCapabilityFixture } from '../helpers/ed25519YaoCapabilityFixtures';
 import { applySignerMigrations } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
+import { createWalletEcdsaSignerRecord } from './helpers/walletRegistrationSigner.fixtures';
 
 const TEST_SCOPE = {
   namespace: 'registration-commit-test',
@@ -85,26 +84,7 @@ function testEd25519Signer(walletId: WalletId, now: number): WalletEd25519Signer
 }
 
 function testEcdsaSigner(walletId: WalletId, now: number): WalletEcdsaSignerRecord {
-  return buildWalletEcdsaSignerRecord({
-    walletId,
-    walletKey: {
-      keyScope: 'evm-family',
-      chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 8453 },
-      walletId,
-      evmFamilySigningKeySlotId: 'ecdsa-slot-1',
-      keyHandle: 'ecdsa-key-handle-1',
-      ecdsaThresholdKeyId: 'ecdsa-threshold-key-1',
-      signingRootId: 'project-a:env-a',
-      signingRootVersion: 'root-v1',
-      thresholdEcdsaPublicKeyB64u: 'threshold-public-key',
-      thresholdOwnerAddress: '0x0000000000000000000000000000000000000001',
-      relayerKeyId: 'ecdsa-relayer-a',
-      relayerVerifyingShareB64u: 'relayer-verifying-share',
-      participantIds: [1, 2, 3],
-    },
-    createdAtMs: now,
-    updatedAtMs: now,
-  });
+  return createWalletEcdsaSignerRecord({ walletId, now });
 }
 
 function testPasskeyAuthority(walletId: WalletId): RegistrationAuthority {
@@ -115,6 +95,7 @@ function testPasskeyAuthority(walletId: WalletId): RegistrationAuthority {
     credentialIdB64u: 'credential-a',
     credentialPublicKeyB64u: 'credential-public-key-a',
     counter: 0,
+    device: unknownWebAuthnAuthenticatorDeviceInfo(),
     registrationIntentDigestB64u: 'registration-intent-digest-a',
   };
 }
@@ -204,9 +185,10 @@ test('D1 registration commit rolls back every mixed-wallet record when one signe
     await applySignerMigrations(database);
     const walletId = walletIdFromString('brisk-bloom-abcdef');
     const now = 1_900_000_000_000;
-    const validEcdsaSigner = testEcdsaSigner(walletId, now);
-    const invalidEcdsaSigner: WalletEcdsaSignerRecord = {
-      ...validEcdsaSigner,
+    // Deliberately corrupt valid factory output: updatedAtMs earlier than
+    // createdAtMs violates the wallet_signers CHECK (updated_at_ms >= created_at_ms).
+    const invalidEcdsaSigner = {
+      ...createWalletEcdsaSignerRecord({ walletId, now }),
       updatedAtMs: now - 1,
     };
     const store = new CloudflareD1WalletRegistrationCommitStore({
