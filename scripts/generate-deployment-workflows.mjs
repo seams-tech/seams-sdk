@@ -114,15 +114,31 @@ function expression(body) {
   return '${{ ' + body + ' }}';
 }
 
+function sourceShaExpressionBody() {
+  return "github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha";
+}
+
+function sourceShaExpression() {
+  return expression(sourceShaExpressionBody());
+}
+
+function targetExpression(target) {
+  return `'${target.environment}'`;
+}
+
+function branchExpression(target) {
+  return `'${target.branch}'`;
+}
+
 function makeSharedEnvironment(target, mode, releasePrefix) {
   const automatic = mode === 'automatic';
   return {
     DEPLOY_TARGET: target.environment,
-    DEPLOY_SHA: expression('env.SOURCE_SHA'),
-    ARTIFACT_RUN_ID: automatic ? '${{ github.run_id }}' : '${{ env.MANUAL_ARTIFACT_RUN_ID }}',
+    DEPLOY_SHA: sourceShaExpression(),
+    ARTIFACT_RUN_ID: automatic ? expression('github.run_id') : expression('inputs.artifact_run_id'),
     RELEASE_SET_ID: automatic
       ? expression(`needs.${releasePrefix}create_release_set.outputs.release_set_id`)
-      : '${{ env.MANUAL_RELEASE_SET_ID }}',
+      : expression('inputs.release_set_id'),
     DEPLOY_SOURCE_BRANCH: target.branch,
     ENFORCE_CURRENT_BRANCH: automatic ? 'true' : 'false',
     STAGING_GATEWAY_ORIGIN: 'https://seams-sdk-d1-gateway-staging.n6378056.workers.dev',
@@ -186,18 +202,18 @@ function transformStackJobs(template, target, mode) {
   const releasePrefix = 'auto_';
   const replacements = automatic
     ? {
-        target: 'env.DEPLOY_TARGET',
-        deploy_sha: 'env.SOURCE_SHA',
+        target: targetExpression(target),
+        deploy_sha: sourceShaExpressionBody(),
         artifact_run_id: 'github.run_id',
         release_set_id: `needs.${releasePrefix}create_release_set.outputs.release_set_id`,
-        source_branch: `needs.${releasePrefix}prepare.outputs.source_branch`,
+        source_branch: branchExpression(target),
       }
     : {
-        target: 'env.DEPLOY_TARGET',
-        deploy_sha: 'env.SOURCE_SHA',
-        artifact_run_id: 'env.MANUAL_ARTIFACT_RUN_ID',
-        release_set_id: 'env.MANUAL_RELEASE_SET_ID',
-        source_branch: 'env.DEPLOY_SOURCE_BRANCH',
+        target: targetExpression(target),
+        deploy_sha: sourceShaExpressionBody(),
+        artifact_run_id: 'inputs.artifact_run_id',
+        release_set_id: 'inputs.release_set_id',
+        source_branch: branchExpression(target),
       };
   const sharedEnv = makeSharedEnvironment(target, mode, releasePrefix);
   const jobs = transformJobMap(template.jobs, {
@@ -211,7 +227,9 @@ function transformStackJobs(template, target, mode) {
   });
   for (const job of Object.values(jobs)) {
     if (typeof job.name === 'string') {
-      job.name = job.name.replace('${{ env.DEPLOY_TARGET }}', target.environment);
+      job.name = job.name
+        .replace('${{ env.DEPLOY_TARGET }}', target.environment)
+        .replace(expression(targetExpression(target)), target.environment);
     }
   }
 
@@ -235,21 +253,21 @@ function transformGatewayJobs(template, target, mode) {
   const prefix = automatic ? 'auto_' : 'manual_';
   const sharedEnv = {
     ...makeSharedEnvironment(target, mode, 'auto_'),
-    GATEWAY_ARTIFACT_NAME: 'release-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_SHA }}-gateway',
+    GATEWAY_ARTIFACT_NAME: `release-${target.environment}-${sourceShaExpression()}-gateway`,
     GATEWAY_ARTIFACT_IDENTITY: '{"wasmPackageSet":"gateway-v1"}',
   };
   const replacements = automatic
     ? {
-        target: 'env.DEPLOY_TARGET',
-        source_sha: 'env.SOURCE_SHA',
+        target: targetExpression(target),
+        source_sha: sourceShaExpressionBody(),
         artifact_run_id: 'github.run_id',
         release_set_id: 'needs.auto_create_release_set.outputs.release_set_id',
       }
     : {
-        target: 'env.DEPLOY_TARGET',
-        source_sha: 'env.SOURCE_SHA',
-        artifact_run_id: 'env.MANUAL_ARTIFACT_RUN_ID',
-        release_set_id: 'env.MANUAL_RELEASE_SET_ID',
+        target: targetExpression(target),
+        source_sha: sourceShaExpressionBody(),
+        artifact_run_id: 'inputs.artifact_run_id',
+        release_set_id: 'inputs.release_set_id',
       };
   const jobs = transformJobMap(template.jobs, {
     prefix,
@@ -278,23 +296,23 @@ function transformPagesJobs(template, target, mode) {
     ...makeSharedEnvironment(target, mode, 'auto_'),
     DEPLOY_ENVIRONMENT: target.environment,
     PAGES_BRANCH: target.branch,
-    PAGES_ARTIFACT_NAME: 'release-${{ env.DEPLOY_ENVIRONMENT }}-${{ env.DEPLOY_SHA }}-pages',
+    PAGES_ARTIFACT_NAME: `release-${target.environment}-${sourceShaExpression()}-pages`,
     PAGES_ARTIFACT_IDENTITY: '{"pagesBuild":"app-wallet-v1"}',
   };
   const replacements = automatic
     ? {
         target: "'all'",
-        deploy_environment: 'env.DEPLOY_TARGET',
-        source_sha: 'env.SOURCE_SHA',
+        deploy_environment: targetExpression(target),
+        source_sha: sourceShaExpressionBody(),
         artifact_run_id: 'github.run_id',
         release_set_id: 'needs.auto_create_release_set.outputs.release_set_id',
       }
     : {
         target: "'all'",
-        deploy_environment: 'env.DEPLOY_TARGET',
-        source_sha: 'env.SOURCE_SHA',
-        artifact_run_id: 'env.MANUAL_ARTIFACT_RUN_ID',
-        release_set_id: 'env.MANUAL_RELEASE_SET_ID',
+        deploy_environment: targetExpression(target),
+        source_sha: sourceShaExpressionBody(),
+        artifact_run_id: 'inputs.artifact_run_id',
+        release_set_id: 'inputs.release_set_id',
       };
   const jobs = transformJobMap(template.jobs, {
     prefix,
@@ -369,7 +387,7 @@ function rewriteFinalSmoke(jobMap, target, mode) {
 function makeWorkflowRoot(target, jobs) {
   const runName = new Scalar(
     `deploy / ${target.environment} / cloudflare-stack /\n` +
-      "${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }} /\n" +
+      `${sourceShaExpression()} /\n` +
       "${{ github.event_name == 'workflow_run' && 'automatic' || 'manual-promotion' }}",
   );
   runName.type = 'BLOCK_FOLDED';
@@ -406,8 +424,7 @@ function makeWorkflowRoot(target, jobs) {
     env: {
       DEPLOY_TARGET: target.environment,
       DEPLOY_SOURCE_BRANCH: target.branch,
-      SOURCE_SHA:
-        "${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}",
+      SOURCE_SHA: sourceShaExpression(),
       VALIDATION_RUN_ID:
         "${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || '' }}",
       MANUAL_ARTIFACT_RUN_ID: '${{ inputs.artifact_run_id }}',
