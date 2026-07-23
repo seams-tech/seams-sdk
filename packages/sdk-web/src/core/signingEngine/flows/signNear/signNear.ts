@@ -6,6 +6,7 @@ import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthori
 import type { DelegateActionInput } from '@/core/types/delegate';
 import {
   createSigningFlowEvent,
+  SIGNING_SESSION_EXPIRY_DETECTION_SOURCES,
   SigningEventPhase,
   type CreateSigningFlowEventInput,
   type SigningFlowEvent,
@@ -16,9 +17,10 @@ import type {
   WasmSignedDelegate,
 } from '@/core/types/signer-worker';
 import type {
-  NearEd25519EmailOtpStepUpAuthorization,
   NearEd25519YaoCapabilitySource,
   NearEd25519YaoSigningCapability,
+  NearEmailOtpEd25519ReconnectHook,
+  NearPasskeyEd25519ReconnectHook,
   NearTransactionWithActionsPayload,
 } from '../../interfaces/near';
 import type { SignTransactionResult } from '@/core/types/seams';
@@ -48,7 +50,10 @@ import {
   type ThresholdEd25519SessionStoreSource,
 } from '../../session/identity/laneIdentity';
 import { signingLaneAuthMethod } from '../../session/identity/signingLaneAuthBinding';
-import { exactSigningLaneIdentityKey } from '../../session/identity/exactSigningLaneIdentity';
+import {
+  exactEd25519SigningLaneIdentityFromSelectedLane,
+  exactSigningLaneIdentityKey,
+} from '../../session/identity/exactSigningLaneIdentity';
 import { buildExactPasskeyEd25519RefreshLaneIdentity } from '../../session/passkey/ed25519BudgetRefresh';
 import type {
   AvailableSigningLanes,
@@ -59,8 +64,12 @@ import { demoEmailOtpCodeFromDelivery } from '../../session/emailOtp/challengeDe
 import { publishResolvedIdentity } from '../../session/persistence/sealedSessionStore';
 import {
   buildPasskeyEd25519SessionPolicy,
-  isSigningSessionAuthUnavailableError,
 } from '../../threshold/sessionPolicy';
+import {
+  walletSessionFailureFromError,
+  type WalletSessionFailure,
+} from '../../session/lifecycle/walletSessionFailure';
+import { requireAuthoritativeExpiredWalletSessionAuthorizationBoundary } from '../../session/identity/clientSessionPersistenceState';
 import { buildThresholdEd25519WebAuthnPrfSecretSource } from '../../threshold/ed25519/walletSession';
 import {
   SigningOperationIntent,
@@ -118,6 +127,7 @@ import {
   classifyRouterAbEd25519PersistedSigningRecord,
   parseRouterAbEd25519WalletSessionAuthorityFromRecord,
 } from '../../session/routerAbSigningWalletSession';
+
 import { resolveEmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import {
   receiveTransactionIntent,
@@ -141,8 +151,28 @@ import {
   type TransactionReadiness,
   type TransactionReadinessClassifiedState,
 } from '../../session/operationState/transactionState';
-import type { NearEd25519PasskeyStepUpAuthorization } from './stepUpAuthorization';
 import { requiredNearTransactionSignatureUses } from './signatureUses';
+
+async function invalidateAuthoritativeNearWalletSessionExpiry(args: {
+  readonly failure: WalletSessionFailure | null;
+  readonly coordinator: SigningSessionCoordinator;
+  readonly lane: SelectedEd25519Lane;
+  readonly expiresAtMs: unknown;
+}): Promise<void> {
+  if (args.failure?.kind !== 'expired') return;
+  const state = requireAuthoritativeExpiredWalletSessionAuthorizationBoundary({
+    identity: exactEd25519SigningLaneIdentityFromSelectedLane(args.lane),
+    expiresAtMs: args.expiresAtMs,
+    detectedAtMs: Date.now(),
+  });
+  const result = await args.coordinator.invalidateExpiredWalletSession({
+    state,
+    source: SIGNING_SESSION_EXPIRY_DETECTION_SOURCES.serverRejection,
+  });
+  if (result.kind === 'unavailable') {
+    throw new Error('[SigningEngine][near] expired Wallet Session cleanup failed');
+  }
+}
 
 function requirePasskeyEd25519ReauthRpId(value: unknown): WebAuthnRpId {
   const parsed = parseWebAuthnRpId(value);
@@ -283,35 +313,6 @@ type NearTransactionPreConfirmSigningDeps = {
   hasUiConfirm: () => boolean;
 };
 
-type NearEd25519PasskeyReconnect = {
-  prepare: (args: { requiredSignatureUses: number }) => Promise<{
-    sessionId: string;
-    signingGrantId: string;
-    sessionPolicyDigest32: string;
-  }>;
-  reconnect: (args: {
-    authorization: NearEd25519PasskeyStepUpAuthorization;
-    requiredSignatureUses: number;
-  }) => Promise<{
-    sessionId: string;
-    activeClient: NearEd25519YaoSigningCapability['activeClient'];
-    sessionState: NearEd25519YaoSigningCapability['walletSessionState'];
-  }>;
-};
-
-type NearEd25519EmailOtpReconnect = {
-  prepare: () => Promise<EmailOtpTransactionSigningChallenge>;
-  resend: () => Promise<EmailOtpTransactionSigningChallenge>;
-  reconnect: (args: {
-    authorization: NearEd25519EmailOtpStepUpAuthorization;
-    requiredSignatureUses: number;
-  }) => Promise<{
-    sessionId: string;
-    activeClient: NearEd25519YaoSigningCapability['activeClient'];
-    sessionState: NearEd25519YaoSigningCapability['walletSessionState'];
-  }>;
-};
-
 type NearEd25519SelectedTransactionLane = TransactionLaneSelectedState<
   SelectedEd25519Lane,
   NearEd25519TransactionSelectableAvailableLane,
@@ -343,8 +344,8 @@ type PreparedNearTransactionExecutionState = {
   signingSessionCoordinator: SigningSessionCoordinator;
   transactionOperation: PreparedTransactionOperation<SelectedEd25519Lane>;
   emailOtpCommittedLane: Ed25519SigningLane | null;
-  passkeyEd25519Reconnect: NearEd25519PasskeyReconnect | null;
-  emailOtpEd25519Reconnect: NearEd25519EmailOtpReconnect | null;
+  passkeyEd25519Reconnect: NearPasskeyEd25519ReconnectHook | null;
+  emailOtpEd25519Reconnect: NearEmailOtpEd25519ReconnectHook | null;
 };
 
 type NearEd25519LifecycleMetadata = {
@@ -808,22 +809,6 @@ function resolvePreparedSigningRequestSessionId(args: {
   return prepared;
 }
 
-function resolveAdHocThresholdSessionId(args: {
-  deps: NearSigningApiDeps;
-  commandSubject: NearCommandSubject;
-}): string {
-  const nearAccountId = args.commandSubject.nearAccount.accountId;
-  const thresholdSessionId = String(
-    args.deps.resolveThresholdEd25519SessionIdForNearAccount(nearAccountId) || '',
-  ).trim();
-  if (!thresholdSessionId) {
-    throw new Error(
-      `[SigningEngine][near] no Ed25519 signing session exists for ${String(nearAccountId)}`,
-    );
-  }
-  return thresholdSessionId;
-}
-
 function validateNearEd25519YaoSigningCapability(args: {
   capability: NearEd25519YaoSigningCapability;
   walletId: WalletId;
@@ -833,8 +818,7 @@ function validateNearEd25519YaoSigningCapability(args: {
   const metadata = args.capability.activeClient.metadata();
   if (
     String(sessionState.thresholdSessionId) !== args.thresholdSessionId ||
-    String(sessionState.signingLane.thresholdSessionId) !== args.thresholdSessionId ||
-    metadata.scope.wallet_session_id !== args.thresholdSessionId
+    String(sessionState.signingLane.thresholdSessionId) !== args.thresholdSessionId
   ) {
     throw new Error('[SigningEngine][near] active Ed25519 Yao capability session mismatch');
   }
@@ -985,12 +969,31 @@ function createAdHocNearSigningOperationId(
   return SigningSessionIds.signingOperation(deps.createSigningSessionId(`near-${kind}-operation`));
 }
 
+type NearAdHocSigningAttempt =
+  | {
+      kind: 'initial';
+      forceFreshAuth: false;
+    }
+  | {
+      kind: 'fresh_auth_retry';
+      forceFreshAuth: true;
+    };
+
+type PreparedNearAdHocSigningSession = {
+  selectedLane: SelectedEd25519Lane;
+  thresholdSessionRecord: ThresholdEd25519SessionRecord;
+  forceFreshAuth: boolean;
+  passkeyEd25519Reconnect: NearPasskeyEd25519ReconnectHook | null;
+  emailOtpEd25519Reconnect: NearEmailOtpEd25519ReconnectHook | null;
+  yaoCapabilitySource: NearEd25519YaoCapabilitySource;
+};
+
 function buildPreparedNearTransactionExecutionState(args: {
   preparedSigningSession: PreparedNearEd25519TransactionSigningSession;
   resolvedSessionId: string;
   signingSessionCoordinator: SigningSessionCoordinator;
-  passkeyEd25519Reconnect: NearEd25519PasskeyReconnect | null;
-  emailOtpEd25519Reconnect: NearEd25519EmailOtpReconnect | null;
+  passkeyEd25519Reconnect: NearPasskeyEd25519ReconnectHook | null;
+  emailOtpEd25519Reconnect: NearEmailOtpEd25519ReconnectHook | null;
 }): PreparedNearTransactionExecutionState {
   const budget = args.preparedSigningSession.budget;
   return {
@@ -1033,7 +1036,7 @@ function buildNearPasskeyEd25519Reconnect(args: {
   ctx: ReturnType<NearSigningApiDeps['getSignerWorkerContext']>;
   thresholdSessionRecord: ThresholdEd25519SessionRecord | null;
   operationId: SigningOperationId;
-}): NearEd25519PasskeyReconnect | undefined {
+}): NearPasskeyEd25519ReconnectHook | undefined {
   if (
     !args.thresholdSessionRecord ||
     typeof args.deps.refreshPasskeyEd25519CapabilityForSigning !== 'function'
@@ -1123,12 +1126,12 @@ function buildNearEmailOtpEd25519Reconnect(args: {
   thresholdSessionRecord: ThresholdEd25519SessionRecord | null;
   operationId: SigningOperationId;
   onEvent: SignTransactionWithActionsInput['onEvent'];
-}): NearEd25519EmailOtpReconnect | undefined {
+}): NearEmailOtpEd25519ReconnectHook | undefined {
   if (
     !args.committedLane ||
     !args.thresholdSessionRecord ||
     typeof args.deps.requestEmailOtpEd25519SigningChallenge !== 'function' ||
-    typeof args.deps.recoverEmailOtpEd25519CapabilityForSigning !== 'function'
+    typeof args.deps.rehydrateEmailOtpEd25519CapabilityForSigning !== 'function'
   ) {
     return undefined;
   }
@@ -1159,7 +1162,7 @@ function buildNearEmailOtpEd25519Reconnect(args: {
         operationId: args.operationId,
         requiredSignatureUses,
       });
-      const refreshed = await args.deps.recoverEmailOtpEd25519CapabilityForSigning!({
+      const refreshed = await args.deps.rehydrateEmailOtpEd25519CapabilityForSigning!({
         nearAccountId: args.commandSubject.nearAccount.accountId,
         record: thresholdSessionRecord,
         committedLane,
@@ -1173,6 +1176,89 @@ function buildNearEmailOtpEd25519Reconnect(args: {
         sessionState: refreshed.walletSessionState,
       };
     },
+  };
+}
+
+async function prepareNearAdHocSigningSession(args: {
+  deps: NearSigningApiDeps;
+  commandSubject: NearCommandSubject;
+  signerSlot: number | undefined;
+  operationId: SigningOperationId;
+  onEvent: SignTransactionWithActionsInput['onEvent'];
+  attempt: NearAdHocSigningAttempt;
+}): Promise<PreparedNearAdHocSigningSession> {
+  const availableLanes = await readNearEd25519AvailableSigningLanes({
+    deps: args.deps,
+    commandSubject: args.commandSubject,
+    authMethod: null,
+  });
+  const selected = selectSelectedEd25519LaneFromAvailableLanes({
+    commandSubject: args.commandSubject,
+    availableLanes,
+    signerSlot: args.signerSlot,
+    operationUsesNeeded: 1,
+  });
+  if (!selected) {
+    throw new Error('[SigningEngine][near] signature-only signing requires an exact selected lane');
+  }
+  const selectedLane = selected.lane;
+  const thresholdSessionRecord = await readNearEd25519RuntimeRecordForSelectedLane({
+    deps: args.deps,
+    selectedLane,
+  });
+  publishNearEd25519RuntimeIdentityForRecord(thresholdSessionRecord);
+  assertNearEd25519SelectedLaneMatchesRecord({
+    selectedLane,
+    record: thresholdSessionRecord,
+    walletId: args.commandSubject.walletSession.walletId,
+    nearAccountId: args.commandSubject.nearAccount.accountId,
+  });
+  if (!thresholdSessionRecord) {
+    throw new Error('[SigningEngine][near] signature-only signing session is missing');
+  }
+  const emailOtpCommittedLane =
+    thresholdSessionRecord.source === SIGNER_AUTH_METHODS.emailOtp
+      ? resolveEd25519SigningLane({
+          lane: selectedLane,
+          record: thresholdSessionRecord,
+        })
+      : null;
+  const forceFreshAuth = args.attempt.forceFreshAuth
+    ? true
+    : await emailOtpNearEd25519LaneRequiresFreshAuth({
+        deps: args.deps,
+        commandSubject: args.commandSubject,
+        selectedLane,
+      });
+  const ctx = args.deps.getSignerWorkerContext();
+  const passkeyEd25519Reconnect =
+    buildNearPasskeyEd25519Reconnect({
+      deps: args.deps,
+      commandSubject: args.commandSubject,
+      ctx,
+      thresholdSessionRecord,
+      operationId: args.operationId,
+    }) || null;
+  const emailOtpEd25519Reconnect =
+    buildNearEmailOtpEd25519Reconnect({
+      deps: args.deps,
+      commandSubject: args.commandSubject,
+      committedLane: emailOtpCommittedLane,
+      thresholdSessionRecord,
+      operationId: args.operationId,
+      onEvent: args.onEvent,
+    }) || null;
+  return {
+    selectedLane,
+    thresholdSessionRecord,
+    forceFreshAuth,
+    passkeyEd25519Reconnect,
+    emailOtpEd25519Reconnect,
+    yaoCapabilitySource: nearEd25519YaoCapabilitySource({
+      deps: args.deps,
+      commandSubject: args.commandSubject,
+      selectedLane,
+    }),
   };
 }
 
@@ -1774,11 +1860,14 @@ export async function signTransactionWithActions(
       signingAuthPlan.kind === SigningAuthPlanKind.PasskeyReauth ||
       signingAuthPlan.kind === SigningAuthPlanKind.EmailOtpReauth;
     const admissionDecision = decideSigningGrantAdmissionError(error);
+    const walletSessionFailure = walletSessionFailureFromError(error);
+    const walletSessionRequiresStepUp =
+      walletSessionFailure?.kind === 'expired' || walletSessionFailure?.kind === 'missing';
     if (
       !attempt.retryingFreshAuth &&
       !alreadyAttemptedFreshAuth &&
       thresholdSessionRecord &&
-      (isSigningSessionAuthUnavailableError(error) || admissionDecision)
+      (walletSessionRequiresStepUp || admissionDecision)
     ) {
       const nextOperationId = operationId || createNearTransactionSigningOperationId();
       if (admissionDecision?.kind === 'wait_and_retry_admission') {
@@ -1790,12 +1879,20 @@ export async function signTransactionWithActions(
           signingSessionCoordinator,
         });
       }
+      await invalidateAuthoritativeNearWalletSessionExpiry({
+        failure: walletSessionFailure,
+        coordinator: signingSessionCoordinator,
+        lane: preparedSigningSession.transactionLane,
+        expiresAtMs: thresholdSessionRecord.expiresAtMs,
+      });
       const isEmailOtpSession = thresholdSessionRecord.source === 'email_otp';
       const reason = admissionDecision
         ? admissionDecision.reason === 'stale_projection'
           ? 'wallet_signing_budget_stale_projection'
           : 'wallet_signing_budget_exhausted'
-        : 'threshold_session_expired';
+        : walletSessionFailure?.kind === 'missing'
+          ? 'threshold_session_missing'
+          : 'threshold_session_expired';
       emitNearSigningEvent(publicOptions.onEvent, nearAccountId, {
         phase: isEmailOtpSession
           ? SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_CHALLENGE_STARTED
@@ -1845,58 +1942,201 @@ export async function signTransactionWithActions(
   }
 }
 
+type NearDelegateSigningAttemptArgs = {
+  deps: NearSigningApiDeps;
+  input: SignDelegateActionInput;
+  operationId: SigningOperationId;
+  attempt: NearAdHocSigningAttempt;
+};
+
+async function runPreparedNearDelegateSigning(args: {
+  deps: NearSigningApiDeps;
+  input: SignDelegateActionInput;
+  operationId: SigningOperationId;
+  prepared: PreparedNearAdHocSigningSession;
+  normalizedRpcCall: RpcCallPayload;
+}): Promise<SignDelegateActionResult> {
+  return (await signNearWithUiConfirm({
+    chain: 'near',
+    kind: 'delegateAction',
+    payload: {
+      ctx: args.deps.getSignerWorkerContext(),
+      commandSubject: args.input.commandSubject,
+      nearAccount: args.input.commandSubject.nearAccount,
+      delegate: args.input.delegate,
+      rpcCall: args.normalizedRpcCall,
+      signingSessionCoordinator: args.deps.signingSessionCoordinator,
+      signerSlot: args.input.signerSlot,
+      confirmationConfigOverride: args.input.confirmationConfigOverride,
+      title: args.input.title,
+      body: args.input.body,
+      onEvent: args.input.onEvent,
+      operationId: args.operationId,
+      forceFreshAuth: args.prepared.forceFreshAuth,
+      passkeyEd25519Reconnect: args.prepared.passkeyEd25519Reconnect,
+      emailOtpEd25519Reconnect: args.prepared.emailOtpEd25519Reconnect,
+      yaoCapabilitySource: args.prepared.yaoCapabilitySource,
+    },
+  })) as unknown as SignDelegateActionResult;
+}
+
+async function executeNearDelegateSigningAttempt(
+  args: NearDelegateSigningAttemptArgs,
+): Promise<SignDelegateActionResult> {
+  const nearAccountId = toAccountId(args.input.commandSubject.nearAccount.accountId);
+  const prepared = await prepareNearAdHocSigningSession({
+    deps: args.deps,
+    commandSubject: args.input.commandSubject,
+    signerSlot: args.input.signerSlot,
+    operationId: args.operationId,
+    onEvent: args.input.onEvent,
+    attempt: args.attempt,
+  });
+  const normalizedRpcCall: RpcCallPayload = {
+    nearRpcUrl: args.input.rpcCall.nearRpcUrl || args.deps.nearRpcUrl,
+    nearAccountId,
+  };
+  try {
+    return await withThresholdEd25519CommitQueue({
+      deps: args.deps,
+      nearAccountId,
+      thresholdSessionId: prepared.selectedLane.thresholdSessionId,
+      task: runPreparedNearDelegateSigning.bind(undefined, {
+        deps: args.deps,
+        input: args.input,
+        operationId: args.operationId,
+        prepared,
+        normalizedRpcCall,
+      }),
+    });
+  } catch (error: unknown) {
+    const failure = walletSessionFailureFromError(error);
+    if (
+      args.attempt.kind === 'initial' &&
+      !prepared.forceFreshAuth &&
+      (failure?.kind === 'expired' || failure?.kind === 'missing')
+    ) {
+      await invalidateAuthoritativeNearWalletSessionExpiry({
+        failure,
+        coordinator: args.deps.signingSessionCoordinator,
+        lane: prepared.selectedLane,
+        expiresAtMs: prepared.thresholdSessionRecord.expiresAtMs,
+      });
+      return await executeNearDelegateSigningAttempt({
+        deps: args.deps,
+        input: args.input,
+        operationId: args.operationId,
+        attempt: { kind: 'fresh_auth_retry', forceFreshAuth: true },
+      });
+    }
+    throw error;
+  }
+}
+
 export async function signDelegateAction(
   deps: NearSigningApiDeps,
   args: SignDelegateActionInput,
 ): Promise<SignDelegateActionResult> {
-  const nearAccount = args.commandSubject.nearAccount;
-  const nearAccountId = toAccountId(nearAccount.accountId);
-  const normalizedRpcCall: RpcCallPayload = {
-    nearRpcUrl: args.rpcCall.nearRpcUrl || deps.nearRpcUrl,
-    nearAccountId,
-  };
-
   try {
-    const thresholdSessionId = resolveAdHocThresholdSessionId({
+    return await executeNearDelegateSigningAttempt({
       deps,
-      commandSubject: args.commandSubject,
+      input: args,
+      operationId: createAdHocNearSigningOperationId(deps, 'delegate'),
+      attempt: { kind: 'initial', forceFreshAuth: false },
     });
-    const operationId = createAdHocNearSigningOperationId(deps, 'delegate');
-    return await withThresholdEd25519CommitQueue({
-      deps,
-      nearAccountId,
-      thresholdSessionId,
-      task: async () => {
-        const ctx = deps.getSignerWorkerContext();
-        const yaoCapability = requireActiveNearEd25519YaoSigningCapability({
-          deps,
-          commandSubject: args.commandSubject,
-          thresholdSessionId,
-        });
-        return (await signNearWithUiConfirm({
-          chain: 'near',
-          kind: 'delegateAction',
-          payload: {
-            ctx,
-            commandSubject: args.commandSubject,
-            nearAccount,
-            delegate: args.delegate,
-            rpcCall: normalizedRpcCall,
-            signingSessionCoordinator: deps.signingSessionCoordinator,
-            signerSlot: args.signerSlot,
-            confirmationConfigOverride: args.confirmationConfigOverride,
-            title: args.title,
-            body: args.body,
-            onEvent: args.onEvent,
-            operationId,
-            ...yaoCapability,
-          },
-        })) as unknown as SignDelegateActionResult;
+  } catch (error: unknown) {
+    console.error('[SigningEngine][delegate] failed', error);
+    throw error;
+  }
+}
+
+type NearNep413SigningAttemptArgs = {
+  deps: NearSigningApiDeps;
+  input: SignNep413MessagePayload;
+  operationId: SigningOperationId;
+  attempt: NearAdHocSigningAttempt;
+};
+
+async function runPreparedNearNep413Signing(args: {
+  deps: NearSigningApiDeps;
+  input: SignNep413MessagePayload;
+  operationId: SigningOperationId;
+  prepared: PreparedNearAdHocSigningSession;
+}): Promise<SignNep413MessageResult> {
+  const nearAccount = args.input.commandSubject.nearAccount;
+  return (await signNearWithUiConfirm({
+    chain: 'near',
+    kind: 'nep413',
+    payload: {
+      ctx: args.deps.getSignerWorkerContext(),
+      commandSubject: args.input.commandSubject,
+      nearAccount,
+      signingSessionCoordinator: args.deps.signingSessionCoordinator,
+      forceFreshAuth: args.prepared.forceFreshAuth,
+      passkeyEd25519Reconnect: args.prepared.passkeyEd25519Reconnect,
+      emailOtpEd25519Reconnect: args.prepared.emailOtpEd25519Reconnect,
+      yaoCapabilitySource: args.prepared.yaoCapabilitySource,
+      payload: {
+        message: args.input.message,
+        recipient: args.input.recipient,
+        nonce: args.input.nonce,
+        state: args.input.state,
+        accountId: nearAccount.accountId,
+        signerSlot: args.input.signerSlot,
+        title: args.input.title,
+        body: args.input.body,
+        confirmationConfigOverride: args.input.confirmationConfigOverride,
+        operationId: args.operationId,
       },
+    },
+  })) as unknown as SignNep413MessageResult;
+}
+
+async function executeNearNep413SigningAttempt(
+  args: NearNep413SigningAttemptArgs,
+): Promise<SignNep413MessageResult> {
+  const nearAccountId = toAccountId(args.input.commandSubject.nearAccount.accountId);
+  const prepared = await prepareNearAdHocSigningSession({
+    deps: args.deps,
+    commandSubject: args.input.commandSubject,
+    signerSlot: args.input.signerSlot,
+    operationId: args.operationId,
+    onEvent: undefined,
+    attempt: args.attempt,
+  });
+  try {
+    return await withThresholdEd25519CommitQueue({
+      deps: args.deps,
+      nearAccountId,
+      thresholdSessionId: prepared.selectedLane.thresholdSessionId,
+      task: runPreparedNearNep413Signing.bind(undefined, {
+        deps: args.deps,
+        input: args.input,
+        operationId: args.operationId,
+        prepared,
+      }),
     });
-  } catch (err) {
-    console.error('[SigningEngine][delegate] failed', err);
-    throw err;
+  } catch (error: unknown) {
+    const failure = walletSessionFailureFromError(error);
+    if (
+      args.attempt.kind === 'initial' &&
+      !prepared.forceFreshAuth &&
+      (failure?.kind === 'expired' || failure?.kind === 'missing')
+    ) {
+      await invalidateAuthoritativeNearWalletSessionExpiry({
+        failure,
+        coordinator: args.deps.signingSessionCoordinator,
+        lane: prepared.selectedLane,
+        expiresAtMs: prepared.thresholdSessionRecord.expiresAtMs,
+      });
+      return await executeNearNep413SigningAttempt({
+        deps: args.deps,
+        input: args.input,
+        operationId: args.operationId,
+        attempt: { kind: 'fresh_auth_retry', forceFreshAuth: true },
+      });
+    }
+    throw error;
   }
 }
 
@@ -1905,59 +2145,17 @@ export async function signNEP413Message(
   payload: SignNep413MessagePayload,
 ): Promise<SignNep413MessageResult> {
   try {
-    const nearAccount = payload.commandSubject.nearAccount;
-    const nearAccountId = toAccountId(nearAccount.accountId);
-    const thresholdSessionId = resolveAdHocThresholdSessionId({
+    return await executeNearNep413SigningAttempt({
       deps,
-      commandSubject: payload.commandSubject,
+      input: payload,
+      operationId: createAdHocNearSigningOperationId(deps, 'nep413'),
+      attempt: { kind: 'initial', forceFreshAuth: false },
     });
-    const operationId = createAdHocNearSigningOperationId(deps, 'nep413');
-    const result = await withThresholdEd25519CommitQueue({
-      deps,
-      nearAccountId,
-      thresholdSessionId,
-      task: async () => {
-        const ctx = deps.getSignerWorkerContext();
-        const yaoCapability = requireActiveNearEd25519YaoSigningCapability({
-          deps,
-          commandSubject: payload.commandSubject,
-          thresholdSessionId,
-        });
-        return (await signNearWithUiConfirm({
-          chain: 'near',
-          kind: 'nep413',
-          payload: {
-            ctx,
-            commandSubject: payload.commandSubject,
-            nearAccount,
-            signingSessionCoordinator: deps.signingSessionCoordinator,
-            ...yaoCapability,
-            payload: {
-              message: payload.message,
-              recipient: payload.recipient,
-              nonce: payload.nonce,
-              state: payload.state,
-              accountId: nearAccountId,
-              signerSlot: payload.signerSlot,
-              title: payload.title,
-              body: payload.body,
-              confirmationConfigOverride: payload.confirmationConfigOverride,
-              operationId,
-            },
-          },
-        })) as unknown as SignNep413MessageResult;
-      },
-    });
-    if (result.success) {
-      return result;
-    }
-    throw new Error(`NEP-413 signing failed: ${result.error || 'Unknown error'}`);
   } catch (error: unknown) {
     console.error('SigningEngine: NEP-413 signing error:', error);
-    const message = error instanceof Error ? error.message : String(error || 'Unknown error');
     return {
       success: false,
-      error: message,
+      error: error instanceof Error ? error.message : String(error || 'Unknown error'),
     };
   }
 }

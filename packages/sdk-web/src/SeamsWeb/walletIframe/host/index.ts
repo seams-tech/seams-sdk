@@ -180,10 +180,6 @@ export function initWalletIFrame(options: WalletHostEntryOptions = {}): void {
         err && typeof err === 'object' && 'code' in err
           ? (err as { code?: unknown }).code
           : undefined;
-      const detailsRaw =
-        err && typeof err === 'object' && 'details' in err
-          ? (err as { details?: unknown }).details
-          : undefined;
       const message = errorMessage(err);
       const code = canonicalSignerErrors.resolveWalletBoundaryErrorCode({
         requestType: req.type,
@@ -197,14 +193,7 @@ export function initWalletIFrame(options: WalletHostEntryOptions = {}): void {
         code,
         message,
       });
-      const details =
-        detailsRaw && typeof detailsRaw === 'object'
-          ? (detailsRaw as Record<string, unknown>)
-          : undefined;
-      const signerKind = canonicalSignerErrors.resolveWalletBoundarySignerKind({
-        requestType: req.type,
-        details,
-      });
+      const signerKind = canonicalSignerErrors.resolveWalletBoundarySignerKind(req.type);
       post({
         type: 'ERROR',
         requestId,

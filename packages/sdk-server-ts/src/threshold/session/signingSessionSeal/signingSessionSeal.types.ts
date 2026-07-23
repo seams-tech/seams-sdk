@@ -1,6 +1,7 @@
 import type { NormalizedLogger } from '../../../core/logger';
 import type { ThresholdEd25519AuthorityScope } from '../../../core/types';
 import type { WalletSigningBudgetBindings } from '../../../core/ThresholdService/stores/WalletSessionStore';
+import type { SessionParseResult } from '../../../core/sessionValidation';
 
 export type SigningSessionSealRouteHeaders = Record<string, string | string[] | undefined>;
 
@@ -9,7 +10,7 @@ export type SigningSessionSealSessionClaims = Record<string, unknown>;
 export interface SigningSessionSealSessionAdapter {
   parse(
     headers: SigningSessionSealRouteHeaders,
-  ): Promise<{ ok: true; claims: SigningSessionSealSessionClaims } | { ok: false }>;
+  ): Promise<SessionParseResult<SigningSessionSealSessionClaims>>;
 }
 
 export interface SigningSessionSealAuthContext {

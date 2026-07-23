@@ -3,6 +3,9 @@ import { SeamsWeb } from '@/SeamsWeb';
 import { __setWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
 import type { AppearanceConfigInput, SeamsConfigsInput, ThemeMode } from '@/core/types/seams';
 import type { PMSetConfigPayload } from '../shared/messages';
+import type { SdkLifecycleEvent, SdkLifecycleEventListener } from '@/core/types/sdkSentEvents';
+import type { WalletSessionId } from '@/core/types/sdkSentEvents';
+import type { WalletId } from '@shared/utils/domainIds';
 import { isString } from '@shared/utils/validation';
 import { setEmbeddedBase } from '@/core/walletRuntimePaths';
 import { cloneChainConfig, resolvePrimaryNearRpcUrl } from '@/core/config/chains';
@@ -235,6 +238,10 @@ export interface HostContext {
   nearClient: MinimalNearClient | null;
   seamsWeb: SeamsWeb | null;
   prefsUnsubscribe?: (() => void) | null;
+  lifecycleSource: SeamsWeb | null;
+  lifecycleUnsubscribe: (() => void) | null;
+  lifecycleListener: SdkLifecycleEventListener | null;
+  expiredSessionsByWallet: Map<WalletId, Set<WalletSessionId>>;
   onWindowMessage?: (e: MessageEvent) => void;
 }
 
@@ -246,6 +253,10 @@ export function createHostContext(): HostContext {
     nearClient: null,
     seamsWeb: null,
     prefsUnsubscribe: null,
+    lifecycleSource: null,
+    lifecycleUnsubscribe: null,
+    lifecycleListener: null,
+    expiredSessionsByWallet: new Map(),
     onWindowMessage: undefined,
   };
 }
@@ -384,7 +395,10 @@ export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload)
   if (nextRuntimeResetFingerprint !== prevRuntimeResetFingerprint) {
     ctx.seamsWeb?.dispose();
     ctx.prefsUnsubscribe?.();
+    ctx.lifecycleUnsubscribe?.();
     ctx.prefsUnsubscribe = null;
+    ctx.lifecycleSource = null;
+    ctx.lifecycleUnsubscribe = null;
     ctx.nearClient = null;
     ctx.seamsWeb = null;
   }
@@ -396,4 +410,27 @@ export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload)
       window.postMessage({ type: 'WALLET_UI_REGISTER_TYPES', payload: uiRegistry }, '*');
     }
   } catch {}
+}
+
+export function ensureWalletHostLifecycleSubscription(ctx: HostContext, pm: SeamsWeb): void {
+  if (ctx.lifecycleSource === pm) return;
+  ctx.lifecycleUnsubscribe?.();
+  ctx.lifecycleSource = pm;
+  ctx.lifecycleUnsubscribe = pm.onSdkLifecycleEvent(handleWalletHostLifecycleEvent.bind(null, ctx));
+}
+
+export function setWalletHostLifecycleListener(
+  ctx: HostContext,
+  listener: SdkLifecycleEventListener,
+): void {
+  ctx.lifecycleListener = listener;
+  if (ctx.seamsWeb) ensureWalletHostLifecycleSubscription(ctx, ctx.seamsWeb);
+}
+
+function handleWalletHostLifecycleEvent(ctx: HostContext, event: SdkLifecycleEvent): void {
+  const sessions = ctx.expiredSessionsByWallet.get(event.walletId);
+  if (sessions?.has(event.walletSessionId)) return;
+  if (sessions) sessions.add(event.walletSessionId);
+  else ctx.expiredSessionsByWallet.set(event.walletId, new Set([event.walletSessionId]));
+  ctx.lifecycleListener?.(event);
 }

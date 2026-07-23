@@ -33,6 +33,7 @@ import {
   type RouterAbEd25519YaoActivationPublicReceiptV1,
   type RouterAbEd25519YaoActivationResultV1,
   type RouterAbEd25519YaoBytes32V1,
+  type RouterAbEd25519YaoExportFreshAuthorizationIdentityV1,
   type RouterAbEd25519YaoRecoveryActivationRequestV1,
   type RouterAbEd25519YaoRecoveryActivationReceiptV1,
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
@@ -114,12 +115,16 @@ export type RouterAbEd25519YaoExportTransportRequestV1 =
       body: {
         protocol: RouterAbEd25519YaoExportAdmissionRequestV1;
         authorization: RouterAbEd25519YaoExportFreshAuthorizationV1;
+        authorizationIdentity: RouterAbEd25519YaoExportFreshAuthorizationIdentityV1;
       };
     }
   | {
       kind: 'export_execute';
       path: typeof ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1;
-      body: RouterAbEd25519YaoExportExecuteRequestV1;
+      body: {
+        protocol: RouterAbEd25519YaoExportExecuteRequestV1;
+        authorizationIdentity: RouterAbEd25519YaoExportFreshAuthorizationIdentityV1;
+      };
     };
 
 export interface RouterAbEd25519YaoExportTransportV1 {
@@ -149,11 +154,13 @@ export type RouterAbEd25519YaoExportArtifactV1 = {
 export function buildRouterAbEd25519YaoExportAdmissionBodyV1(args: {
   protocol: RouterAbEd25519YaoExportAdmissionRequestV1;
   authorization: RouterAbEd25519YaoExportFreshAuthorizationV1;
+  authorizationIdentity: RouterAbEd25519YaoExportFreshAuthorizationIdentityV1;
 }): Extract<RouterAbEd25519YaoExportTransportRequestV1, { kind: 'export_admit' }>['body'] {
   switch (args.authorization.kind) {
     case 'passkey':
       return {
         protocol: args.protocol,
+        authorizationIdentity: args.authorizationIdentity,
         authorization: {
           kind: 'passkey',
           webauthnAuthentication:
@@ -165,6 +172,7 @@ export function buildRouterAbEd25519YaoExportAdmissionBodyV1(args: {
     case 'email_otp_factor':
       return {
         protocol: args.protocol,
+        authorizationIdentity: args.authorizationIdentity,
         authorization: {
           kind: 'email_otp_factor',
           providerSubjectId: args.authorization.providerSubjectId,
@@ -342,6 +350,7 @@ type EmailOtpClientRootFactorV1 = Extract<
 export type RouterAbEd25519YaoExportSeedInputV1 = {
   request: RouterAbEd25519YaoExportAdmissionRequestV1;
   transport: RouterAbEd25519YaoExportTransportV1;
+  authorizationIdentity: RouterAbEd25519YaoExportFreshAuthorizationIdentityV1;
 } & (
   | {
       factor: PasskeyClientRootFactorV1;
@@ -1301,6 +1310,7 @@ export class RouterAbEd25519YaoClientV1 {
       body: buildRouterAbEd25519YaoExportAdmissionBodyV1({
         protocol: args.request,
         authorization: args.authorization,
+        authorizationIdentity: args.authorizationIdentity,
       }),
     });
     if (!admissionResponse.ok) {
@@ -1360,7 +1370,10 @@ export class RouterAbEd25519YaoClientV1 {
       const executeResponse = await args.transport.send({
         kind: 'export_execute',
         path: ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
-        body: executeRequest.value,
+        body: {
+          protocol: executeRequest.value,
+          authorizationIdentity: args.authorizationIdentity,
+        },
       });
       if (!executeResponse.ok) return executeResponse;
       const result = parseRouterAbEd25519YaoExportResultV1(executeResponse.value);

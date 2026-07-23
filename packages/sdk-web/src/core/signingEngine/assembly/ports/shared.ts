@@ -77,8 +77,8 @@ type RequestEmailOtpTransactionSigningChallengeArgs = Parameters<
 type RequestEmailOtpEd25519SigningChallengeArgs = Parameters<
   NonNullable<NearSigningApiDeps['requestEmailOtpEd25519SigningChallenge']>
 >[0];
-type RecoverEmailOtpEd25519CapabilityForSigningArgs = Parameters<
-  NonNullable<NearSigningApiDeps['recoverEmailOtpEd25519CapabilityForSigning']>
+type RehydrateEmailOtpEd25519CapabilityForSigningArgs = Parameters<
+  NonNullable<NearSigningApiDeps['rehydrateEmailOtpEd25519CapabilityForSigning']>
 >[0];
 type RehydratePasskeyEd25519YaoCapabilityForSigning =
   NearSigningApiDeps['rehydratePasskeyEd25519YaoCapabilityForSigning'];
@@ -144,6 +144,7 @@ export type CreateSigningEnginePortsArgs = {
     sessionId: string;
     uses?: number;
   }) => Promise<WarmSessionStatusResult>;
+  clearEmailOtpWarmSessionMaterial: (sessionId: string) => Promise<void>;
   getWalletSigningBudgetStatus: (
     args: SigningSessionBudgetStatusCheck,
   ) => Promise<SigningSessionStatus | null>;
@@ -179,9 +180,9 @@ export type CreateSigningEnginePortsArgs = {
   requestEmailOtpEd25519SigningChallenge?: (
     args: RequestEmailOtpEd25519SigningChallengeArgs,
   ) => Promise<EmailOtpTransactionSigningChallenge>;
-  recoverEmailOtpEd25519CapabilityForSigning?: (
-    args: RecoverEmailOtpEd25519CapabilityForSigningArgs,
-  ) => ReturnType<NonNullable<NearSigningApiDeps['recoverEmailOtpEd25519CapabilityForSigning']>>;
+  rehydrateEmailOtpEd25519CapabilityForSigning?: (
+    args: RehydrateEmailOtpEd25519CapabilityForSigningArgs,
+  ) => ReturnType<NonNullable<NearSigningApiDeps['rehydrateEmailOtpEd25519CapabilityForSigning']>>;
   rehydratePasskeyEd25519YaoCapabilityForSigning: RehydratePasskeyEd25519YaoCapabilityForSigning;
   rehydratePasskeyEd25519YaoCapabilityAfterRefresh: RehydratePasskeyEd25519YaoCapabilityAfterRefresh;
   recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning: RecoverEmailOtpEd25519YaoCapabilitySilentlyForSigning;

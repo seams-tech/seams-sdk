@@ -71,6 +71,7 @@ export function createRecoveryPublicDeps(args: {
   recoverPasskeyEd25519YaoCapability: RecoveryPublicDeps['ed25519Yao']['recoverPasskeyCapability'];
   resolvePasskeyEd25519YaoExportContext: RecoveryPublicDeps['ed25519Yao']['resolvePasskeyExportContext'];
   resolveEmailOtpEd25519YaoExportContext: RecoveryPublicDeps['ed25519Yao']['emailOtp']['resolveExportContext'];
+  sessionLifecycle: RecoveryPublicDeps['sessionLifecycle'];
 }): RecoveryPublicDeps {
   const getEmailOtpWarmSessionStatus = (sessionId: string) =>
     args.emailOtpSessions.readWarmSessionStatusOnly(sessionId);
@@ -95,6 +96,7 @@ export function createRecoveryPublicDeps(args: {
     };
   };
   return {
+    sessionLifecycle: args.sessionLifecycle,
     laneSelection: {
       readPersistedAvailableSigningLanesForTargets: (availableLanesArgs) =>
         readPersistedAvailableSigningLanesForTargets(

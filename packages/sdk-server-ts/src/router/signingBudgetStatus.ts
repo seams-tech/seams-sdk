@@ -21,6 +21,12 @@ import type {
   SigningSessionSealThresholdSessionStatus,
   SigningSessionSealWalletBudgetStatus,
 } from '../threshold/session/signingSessionSeal/signingSessionSeal.types';
+import {
+  walletSessionFailureCodeFromParseReason,
+  walletSessionFailureMessage,
+  walletSessionFailureStatus,
+  type WalletSessionFailureCode,
+} from './walletSessionFailure';
 
 export type EcdsaWalletSigningBudgetStatusRequest = {
   kind: 'ecdsa_wallet_budget_status';
@@ -80,12 +86,17 @@ export type WalletSigningBudgetStatusExpectations = {
 };
 
 const BUDGET_STATUS_FAILURE_STATUS = {
-  unauthorized: 401,
-  wallet_budget_forbidden: 403,
   sessions_disabled: 501,
+  wallet_session_missing: walletSessionFailureStatus('wallet_session_missing'),
+  wallet_session_signature_invalid: walletSessionFailureStatus('wallet_session_signature_invalid'),
+  wallet_session_claims_invalid: walletSessionFailureStatus('wallet_session_claims_invalid'),
+  wallet_session_expired: walletSessionFailureStatus('wallet_session_expired'),
+  wallet_session_scope_mismatch: walletSessionFailureStatus('wallet_session_scope_mismatch'),
+  wallet_session_unavailable: walletSessionFailureStatus('wallet_session_unavailable'),
+  wallet_budget_exhausted: walletSessionFailureStatus('wallet_budget_exhausted'),
 } as const;
 
-type WalletSigningBudgetStatusFailureCode = keyof typeof BUDGET_STATUS_FAILURE_STATUS;
+type WalletSigningBudgetStatusFailureCode = 'sessions_disabled' | WalletSessionFailureCode;
 
 export function parseWalletSigningBudgetStatusExpectations(
   body: unknown,
@@ -255,9 +266,18 @@ export async function parseWalletSigningBudgetStatusRequest(args: {
   if (!args.session) {
     return budgetStatusFailure('sessions_disabled', 'Sessions are not configured');
   }
-  const parsed = await args.session.parse(args.headers);
+  let parsed: Awaited<ReturnType<SigningSessionSealSessionAdapter['parse']>>;
+  try {
+    parsed = await args.session.parse(args.headers);
+  } catch {
+    return budgetStatusFailure(
+      'wallet_session_unavailable',
+      walletSessionFailureMessage('wallet_session_unavailable'),
+    );
+  }
   if (!parsed.ok) {
-    return budgetStatusFailure('unauthorized', 'Missing or invalid Wallet Session JWT');
+    const code = walletSessionFailureCodeFromParseReason(parsed.reason);
+    return budgetStatusFailure(code, walletSessionFailureMessage(code));
   }
   const rawClaims = ((parsed as { claims?: Record<string, unknown> }).claims || {}) as Record<
     string,
@@ -281,7 +301,10 @@ export async function parseWalletSigningBudgetStatusRequest(args: {
       nowMs: args.nowMs,
     });
   }
-  return budgetStatusFailure('unauthorized', 'Invalid Wallet Session claims');
+  return budgetStatusFailure(
+    'wallet_session_claims_invalid',
+    walletSessionFailureMessage('wallet_session_claims_invalid'),
+  );
 }
 
 function hasCompleteCurveSpecificAuth(auth: VerifiedWalletSessionAuth): boolean {
@@ -306,10 +329,19 @@ async function parseCurveBoundWalletSigningBudgetStatus(args: {
     !args.auth.userId ||
     !args.auth.thresholdSessionId ||
     !args.auth.signingGrantId ||
-    !hasCompleteCurveSpecificAuth(args.auth) ||
-    args.auth.expiresAtMs <= nowMs()
+    !hasCompleteCurveSpecificAuth(args.auth)
   ) {
-    return budgetStatusFailure('unauthorized', 'Expired or incomplete Wallet Session claims');
+    return budgetStatusFailure(
+      'wallet_session_claims_invalid',
+      walletSessionFailureMessage('wallet_session_claims_invalid'),
+    );
+  }
+  const checkedAtMs = nowMs();
+  if (args.auth.expiresAtMs <= checkedAtMs) {
+    return budgetStatusFailure(
+      'wallet_session_expired',
+      walletSessionFailureMessage('wallet_session_expired'),
+    );
   }
   const sessionPolicy = args.sessionPolicy;
   if (!sessionPolicy?.getWalletBudgetStatus) {
@@ -318,24 +350,57 @@ async function parseCurveBoundWalletSigningBudgetStatus(args: {
       'Wallet Session status reads are not configured',
     );
   }
-  const curveStatuses = await sessionPolicy.getThresholdSessionStatuses({
-    curve: args.auth.curve,
-    thresholdSessionId: args.auth.thresholdSessionId,
-  });
-  const curveStatus = selectMatchingCurveStatus(curveStatuses, args.auth);
-  const walletBudgetStatus = await sessionPolicy.getWalletBudgetStatus({
-    signingGrantId: args.auth.signingGrantId,
-  });
-  if (
-    !curveStatus ||
-    Math.floor(Number(curveStatus.expiresAtMs) || 0) <= nowMs() ||
-    !walletBudgetStatus ||
-    !walletBudgetMatches(args.auth, walletBudgetStatus) ||
-    Math.floor(Number(walletBudgetStatus.expiresAtMs) || 0) <= nowMs()
-  ) {
+  let curveStatuses: SigningSessionSealThresholdSessionStatus[];
+  let walletBudgetStatus: SigningSessionSealWalletBudgetStatus | null;
+  try {
+    curveStatuses = await sessionPolicy.getThresholdSessionStatuses({
+      curve: args.auth.curve,
+      thresholdSessionId: args.auth.thresholdSessionId,
+    });
+    walletBudgetStatus = await sessionPolicy.getWalletBudgetStatus({
+      signingGrantId: args.auth.signingGrantId,
+    });
+  } catch {
     return budgetStatusFailure(
-      'wallet_budget_forbidden',
-      'Wallet Session budget is no longer active',
+      'wallet_session_unavailable',
+      walletSessionFailureMessage('wallet_session_unavailable'),
+    );
+  }
+  if (curveStatuses.length === 0) {
+    return budgetStatusFailure(
+      'wallet_session_missing',
+      walletSessionFailureMessage('wallet_session_missing'),
+    );
+  }
+  const curveStatus = selectMatchingCurveStatus(curveStatuses, args.auth);
+  if (!curveStatus) {
+    return budgetStatusFailure(
+      'wallet_session_scope_mismatch',
+      walletSessionFailureMessage('wallet_session_scope_mismatch'),
+    );
+  }
+  if (Math.floor(Number(curveStatus.expiresAtMs) || 0) <= checkedAtMs) {
+    return budgetStatusFailure(
+      'wallet_session_expired',
+      walletSessionFailureMessage('wallet_session_expired'),
+    );
+  }
+  if (!walletBudgetStatus) {
+    return budgetStatusFailure(
+      'wallet_session_missing',
+      walletSessionFailureMessage('wallet_session_missing'),
+    );
+  }
+  if (!walletBudgetMatches(args.auth, walletBudgetStatus)) {
+    return budgetStatusFailure(
+      'wallet_session_scope_mismatch',
+      walletSessionFailureMessage('wallet_session_scope_mismatch'),
+    );
+  }
+  if (Math.floor(Number(walletBudgetStatus.expiresAtMs) || 0) <= checkedAtMs) {
+    return budgetStatusFailure(
+      'wallet_session_expired',
+      walletSessionFailureMessage('wallet_session_expired'),
     );
   }
   return {

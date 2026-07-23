@@ -31,6 +31,7 @@ export function createSigningSessionCoordinatorPort(args: {
     touchConfirm: createArgs.touchConfirm,
     getEmailOtpWarmSessionStatus,
     consumeEmailOtpWarmSessionUses: createArgs.consumeEmailOtpWarmSessionUses,
+    clearEmailOtpWarmSessionMaterial: createArgs.clearEmailOtpWarmSessionMaterial,
     clearThresholdEcdsaSessionRecordForExactIdentity:
       createArgs.clearThresholdEcdsaSessionRecordForExactIdentity,
     markThresholdEd25519EmailOtpSessionConsumedForWallet:

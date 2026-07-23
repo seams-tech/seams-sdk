@@ -1,4 +1,10 @@
 import type { SeamsConfigsInput } from '@seams/sdk/react';
+import {
+  DEFAULT_WALLET_SESSION_REMAINING_USES,
+  DEFAULT_WALLET_SESSION_TTL_MS,
+  MAX_WALLET_SESSION_REMAINING_USES,
+  MAX_WALLET_SESSION_TTL_MS,
+} from '@seams-internal/shared-ts/threshold/sessionPolicy';
 
 const DEFAULT_NEAR_RPC_URL = 'https://test.rpc.fastnear.com';
 const DEFAULT_NEAR_EXPLORER_URL = 'https://testnet.nearblocks.io';
@@ -9,8 +15,6 @@ const DEFAULT_TEMPO_FEE_TOKEN = '0x20c0000000000000000000000000000000000001';
 // Arc-specific EVM demo defaults. Generic EVM behavior is still `chain: 'evm'`.
 const DEFAULT_ARC_RPC_URL = 'https://rpc.testnet.arc.network';
 const DEFAULT_ARC_EXPLORER_URL = 'https://testnet.arcscan.app';
-const DEFAULT_SIGNING_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
-const DEFAULT_SIGNING_SESSION_REMAINING_USES = 3;
 const DEFAULT_DEMO_CONTRACT_ID = 'w3a-v1.testnet';
 
 function toTrimmedString(value: unknown): string {
@@ -26,6 +30,21 @@ function parseNonNegativeInt(value: unknown, fallback: number): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(0, Math.floor(parsed));
+}
+
+function parseSigningSessionPolicyValue(args: {
+  value: unknown;
+  fallback: number;
+  maximum: number;
+  field: string;
+}): number {
+  const raw = toTrimmedString(args.value);
+  if (!raw) return args.fallback;
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0 || parsed > args.maximum) {
+    throw new Error(`${args.field} must be a positive safe integer no greater than ${args.maximum}`);
+  }
+  return parsed;
 }
 
 function parseBooleanFlag(value: unknown, fallback: boolean): boolean {
@@ -184,11 +203,18 @@ export const FRONTEND_CONFIG = Object.freeze({
   baseUrl,
   demoContractId: toTrimmedString(env.VITE_DEMO_CONTRACT_ID) || DEFAULT_DEMO_CONTRACT_ID,
   signingSessionDefaults: {
-    ttlMs: parseNonNegativeInt(env.VITE_SIGNING_SESSION_TTL_MS, DEFAULT_SIGNING_SESSION_TTL_MS),
-    remainingUses: parseNonNegativeInt(
-      env.VITE_SIGNING_SESSION_REMAINING_USES,
-      DEFAULT_SIGNING_SESSION_REMAINING_USES,
-    ),
+    ttlMs: parseSigningSessionPolicyValue({
+      value: env.VITE_SIGNING_SESSION_TTL_MS,
+      fallback: DEFAULT_WALLET_SESSION_TTL_MS,
+      maximum: MAX_WALLET_SESSION_TTL_MS,
+      field: 'VITE_SIGNING_SESSION_TTL_MS',
+    }),
+    remainingUses: parseSigningSessionPolicyValue({
+      value: env.VITE_SIGNING_SESSION_REMAINING_USES,
+      fallback: DEFAULT_WALLET_SESSION_REMAINING_USES,
+      maximum: MAX_WALLET_SESSION_REMAINING_USES,
+      field: 'VITE_SIGNING_SESSION_REMAINING_USES',
+    }),
   },
   signingSessionPersistenceMode,
   signingSessionSealKeyVersion,

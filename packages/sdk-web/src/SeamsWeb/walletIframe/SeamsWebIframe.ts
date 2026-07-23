@@ -32,6 +32,13 @@ import {
 import type { SignedTransaction, AccessKeyList } from '@/core/rpcClients/near/NearClient';
 import type { PreferencesChangedPayload } from './shared/messages';
 import type {
+  WalletIframeExactSessionIdentity,
+  WalletIframeExactSessionLockResult,
+  WalletIframeExactSessionState,
+  WalletIframeMissingSessionIdentity,
+  WalletIframeMissingSessionLockResult,
+} from './shared/exactSessionState';
+import type {
   ActionResult,
   DelegateRouterApiResult,
   GetRecentUnlocksResult,
@@ -59,6 +66,7 @@ import type {
   SignAndSendTransactionHooksOptions,
   SignNEP413HooksOptions,
   SignTransactionHooksOptions,
+  SdkLifecycleEventListener,
 } from '@/core/types/sdkSentEvents';
 
 import type { ActionArgs, TransactionInput, TxExecutionStatus } from '@/core/types';
@@ -481,7 +489,7 @@ export class SeamsWebIframe {
     throw new Error(`[SeamsWeb][iframe] ${operation} requires rpId`);
   }
 
-  async initWalletIframe(): Promise<void> {
+  async initWalletIframe(): Promise<WalletIframeExactSessionState> {
     if (!this.prefsUnsubscribe) {
       this.prefsUnsubscribe =
         this.router.onPreferencesChanged?.((payload: PreferencesChangedPayload) => {
@@ -490,6 +498,26 @@ export class SeamsWebIframe {
     }
     await this.router.init();
     await this.refreshConfirmationConfig();
+    return this.router.getMirroredExactSessionState();
+  }
+
+  async getWalletIframeExactSessionState(): Promise<WalletIframeExactSessionState> {
+    await this.requireRouterReady();
+    return await this.router.getExactSessionState();
+  }
+
+  async lockWalletIframeExactSession(
+    identity: WalletIframeExactSessionIdentity,
+  ): Promise<WalletIframeExactSessionLockResult> {
+    await this.requireRouterReady();
+    return await this.router.lockExactSession(identity);
+  }
+
+  async lockWalletIframeMissingSession(
+    identity: WalletIframeMissingSessionIdentity,
+  ): Promise<WalletIframeMissingSessionLockResult> {
+    await this.requireRouterReady();
+    return await this.router.lockMissingSession(identity);
   }
 
   private async requireRouterReady(): Promise<WalletIframeRouter> {
@@ -525,6 +553,10 @@ export class SeamsWebIframe {
     cb: (status: { isLoggedIn: boolean; walletId: string | null }) => void,
   ): () => void {
     return this.router.onLoginStatusChanged(cb);
+  }
+
+  onSdkLifecycleEvent(listener: SdkLifecycleEventListener): () => void {
+    return this.router.onSdkLifecycleEvent(listener);
   }
 
   // === Generic Wallet UI registration/mounting ===

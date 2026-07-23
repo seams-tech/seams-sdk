@@ -2,6 +2,7 @@ import type { NormalizedLogger } from '../../logger';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { parseEvmFamilySigningKeySlotIdOrNull } from '@shared/signing-lanes';
+import { WALLET_SESSION_FAILURE_CODES } from '@shared/utils/walletSessionFailure';
 import {
   parseRouterAbEcdsaDerivationNormalSigningScopeV1,
   type RouterAbEcdsaDerivationNormalSigningScopeV1,
@@ -369,7 +370,7 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
     if (alphabetizeStringify(scope) !== alphabetizeStringify(trustedScope)) {
       return {
         ok: false,
-        code: 'unauthorized',
+        code: WALLET_SESSION_FAILURE_CODES.scopeMismatch,
         message: 'poolFill.scope does not match Wallet Session normal-signing scope',
       };
     }
@@ -382,7 +383,7 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
     ) {
       return {
         ok: false,
-        code: 'unauthorized',
+        code: WALLET_SESSION_FAILURE_CODES.scopeMismatch,
         message: 'poolFill scope does not match Wallet Session claims',
       };
     }
@@ -393,7 +394,11 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
       nowMs + 5 * 60_000,
     );
     if (expiresAtMs <= nowMs) {
-      return { ok: false, code: 'unauthorized', message: 'Wallet Session expired' };
+      return {
+        ok: false,
+        code: WALLET_SESSION_FAILURE_CODES.expired,
+        message: 'Wallet Session expired',
+      };
     }
     const signingRootMetadata: ThresholdEcdsaSigningRootMetadata = {
       ...input.signingRoot,
@@ -413,7 +418,7 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
     if (!participantIds || !sameParticipantIds(participantIds, this.participantIds2p)) {
       return {
         ok: false,
-        code: 'unauthorized',
+        code: WALLET_SESSION_FAILURE_CODES.scopeMismatch,
         message: 'Wallet Session participantIds do not match the ECDSA signer set',
       };
     }
@@ -486,7 +491,7 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
       await this.poolFillSessionStore.deleteSession(input.presignSessionId);
       return {
         ok: false,
-        code: 'unauthorized',
+        code: WALLET_SESSION_FAILURE_CODES.scopeMismatch,
         message: 'presignSessionId does not match Wallet Session normal-signing scope',
       };
     }
@@ -601,19 +606,23 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
     if (!walletId)
       return {
         ok: false,
-        code: 'unauthorized',
+        code: WALLET_SESSION_FAILURE_CODES.claimsInvalid,
         message: 'Missing walletId in Wallet Session token',
       };
     const tokenRelayerKeyId = toOptionalTrimmedString(claims?.relayerKeyId);
     const tokenWalletKeyId = parseEvmFamilySigningKeySlotString(claims?.evmFamilySigningKeySlotId);
     if (!tokenRelayerKeyId || !tokenWalletKeyId) {
-      return { ok: false, code: 'unauthorized', message: 'Invalid Wallet Session token claims' };
+      return {
+        ok: false,
+        code: WALLET_SESSION_FAILURE_CODES.claimsInvalid,
+        message: 'Invalid Wallet Session token claims',
+      };
     }
     const tokenSigningRoot = signingRootMetadataFromRuntimePolicyScope(claims.runtimePolicyScope);
     if (!tokenSigningRoot) {
       return {
         ok: false,
-        code: 'unauthorized',
+        code: WALLET_SESSION_FAILURE_CODES.claimsInvalid,
         message: 'Wallet Session token is missing signing-root scope',
       };
     }
@@ -683,13 +692,13 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
           event: 'presign_scope_mismatch',
           presignSessionId,
           record,
-          code: 'unauthorized',
+          code: WALLET_SESSION_FAILURE_CODES.claimsInvalid,
           message: 'Invalid Wallet Session token claims',
         });
-        perf.resultCode = 'unauthorized';
+        perf.resultCode = WALLET_SESSION_FAILURE_CODES.claimsInvalid;
         return {
           ok: false,
-          code: 'unauthorized',
+          code: WALLET_SESSION_FAILURE_CODES.claimsInvalid,
           message: 'Invalid Wallet Session token claims',
         };
       }
@@ -703,13 +712,13 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
           event: 'presign_scope_mismatch',
           presignSessionId,
           record,
-          code: 'unauthorized',
+          code: WALLET_SESSION_FAILURE_CODES.scopeMismatch,
           message: 'presignSessionId does not match Wallet Session scope',
         });
-        perf.resultCode = 'unauthorized';
+        perf.resultCode = WALLET_SESSION_FAILURE_CODES.scopeMismatch;
         return {
           ok: false,
-          code: 'unauthorized',
+          code: WALLET_SESSION_FAILURE_CODES.scopeMismatch,
           message: 'presignSessionId does not match Wallet Session scope',
         };
       }
@@ -719,20 +728,24 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
           event: 'presign_scope_mismatch',
           presignSessionId,
           record,
-          code: 'unauthorized',
+          code: WALLET_SESSION_FAILURE_CODES.scopeMismatch,
           message: 'presignSessionId does not match Wallet Session scope',
         });
-        perf.resultCode = 'unauthorized';
+        perf.resultCode = WALLET_SESSION_FAILURE_CODES.scopeMismatch;
         return {
           ok: false,
-          code: 'unauthorized',
+          code: WALLET_SESSION_FAILURE_CODES.scopeMismatch,
           message: 'presignSessionId does not match Wallet Session scope',
         };
       }
       if (Date.now() > claims.thresholdExpiresAtMs) {
         await this.poolFillSessionStore.deleteSession(presignSessionId);
-        perf.resultCode = 'unauthorized';
-        return { ok: false, code: 'unauthorized', message: 'Wallet Session expired' };
+        perf.resultCode = WALLET_SESSION_FAILURE_CODES.expired;
+        return {
+          ok: false,
+          code: WALLET_SESSION_FAILURE_CODES.expired,
+          message: 'Wallet Session expired',
+        };
       }
       const strictResponse = await this.stepStrictPresignSession({
         claims,

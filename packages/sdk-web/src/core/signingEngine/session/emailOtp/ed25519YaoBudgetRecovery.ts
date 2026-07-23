@@ -20,7 +20,10 @@ import { buildEmailOtpSigningSessionRoutePlan, buildFreshEmailOtpRoutePlan } fro
 import { resolveEmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { Ed25519SigningLane } from './ed25519SigningLane';
 import type { EmailOtpEd25519YaoPendingFactorHandle } from './ed25519YaoRootVault';
-import { unlockEmailOtpEd25519YaoSession } from './walletUnlock';
+import {
+  unlockEmailOtpEd25519YaoExactLocalSession,
+  unlockEmailOtpEd25519YaoSession,
+} from './walletUnlock';
 import {
   buildEmailOtpEd25519YaoRecoveryContinuityMetadataV1,
   disposeEmailOtpEd25519YaoPendingFactorV1,
@@ -744,7 +747,7 @@ export async function activateEmailOtpEd25519YaoUnlockedRecoveryV1(args: {
   }
 }
 
-export async function recoverEmailOtpEd25519CapabilityForSigningV1(args: {
+export async function rehydrateEmailOtpEd25519CapabilityForSigningV1(args: {
   nearAccountId: AccountId;
   record: ThresholdEd25519SessionRecord;
   committedLane: Ed25519SigningLane;
@@ -783,7 +786,7 @@ export async function recoverEmailOtpEd25519CapabilityForSigningV1(args: {
     remainingUses: args.remainingUses,
     resolveActiveCapability: args.resolveActiveCapability,
   });
-  const unlocked = await unlockEmailOtpEd25519YaoSession({
+  const unlocked = await unlockEmailOtpEd25519YaoExactLocalSession({
     walletSession: {
       walletId: args.record.walletId,
       walletSessionUserId: prepared.providerSubject,
@@ -805,25 +808,12 @@ export async function recoverEmailOtpEd25519CapabilityForSigningV1(args: {
     expectedOperationalPublicKey: args.expectedOperationalPublicKey,
     expectedThresholdSessionId: prepared.identity.thresholdSessionId,
   });
-  switch (unlocked.kind) {
-    case 'ed25519_yao_local_session':
-      return await activateColdEmailOtpEd25519YaoLocalSessionV1({
-        prepared,
-        bootstrap: unlocked.ed25519YaoSession,
-        activeClientHandle: unlocked.activeClientHandle,
-        metadata: unlocked.metadata,
-        workerContext: args.workerContext,
-        activateCapability: args.activateCapability,
-      });
-    case 'ed25519_yao_recovery':
-      return await activateColdEmailOtpEd25519YaoUnlockedRecoveryV1({
-        prepared,
-        bootstrap: unlocked.ed25519YaoRecovery,
-        workerContext: args.workerContext,
-        pendingFactorHandle: unlocked.pendingFactorHandle,
-        activateCapability: args.activateCapability,
-      });
-  }
-  unlocked satisfies never;
-  throw new Error('Unsupported Email OTP Ed25519 Yao unlock state');
+  return await activateColdEmailOtpEd25519YaoLocalSessionV1({
+    prepared,
+    bootstrap: unlocked.ed25519YaoSession,
+    activeClientHandle: unlocked.activeClientHandle,
+    metadata: unlocked.metadata,
+    workerContext: args.workerContext,
+    activateCapability: args.activateCapability,
+  });
 }

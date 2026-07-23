@@ -2785,7 +2785,7 @@ impl CloudflareActiveSigningWorkerStateLookupV1 {
         scope.validate()?;
         Self::new(
             scope.account_id.clone(),
-            scope.session_id.clone(),
+            scope.active_state_session_id.clone(),
             scope.signing_worker_id.clone(),
         )
     }

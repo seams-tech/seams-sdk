@@ -16,8 +16,6 @@ import { AccountId, toAccountId } from '@/core/types/accountIds';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import type { NearSigningRuntimeDeps } from '../../interfaces/runtime';
 import type {
-  NearEd25519EmailOtpStepUpAuthorization,
-  NearEd25519PasskeyStepUpAuthorization,
   NearEd25519YaoCapabilitySource,
   NearEd25519YaoSigningCapability,
   NearEmailOtpEd25519ReconnectHook,
@@ -32,7 +30,6 @@ import {
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '@/core/config/defaultConfigs';
 import { resolveNearNetwork, resolvePrimaryNearRpcUrl } from '@/core/config/chains';
 import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/nearAccountData.types';
-import { isSigningSessionAuthUnavailableError } from '@/core/signingEngine/threshold/sessionPolicy';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { resolveNearSigningMaterials } from './shared/signingMaterials';
 import type { ResolvedRouterAbEd25519WalletSessionState } from '../../session/warmCapabilities/routerAbEd25519WalletSessionState';
@@ -92,76 +89,12 @@ import type { NearAccountRef, NearCommandSubject } from '../../interfaces/ecdsaC
 import { requiredNearTransactionSignatureUses } from './signatureUses';
 import { tryFinalizeRouterAbEd25519NearTransactionNormalSigning } from './shared/ed25519YaoNormalSigning';
 import { resolveConfirmedNearTransactionContext } from './implicitAccountFunding';
-import type { RouterAbEd25519YaoActiveClientV1 } from '../../threshold/ed25519/yaoClient';
-
-type NearEd25519ReconnectResult = {
-  sessionId: string;
-  activeClient: RouterAbEd25519YaoActiveClientV1;
-  sessionState: ResolvedRouterAbEd25519WalletSessionState;
-};
-
-async function resolveNearEd25519YaoCapabilitySource(
-  source: NearEd25519YaoCapabilitySource,
-): Promise<NearEd25519YaoSigningCapability> {
-  switch (source.kind) {
-    case 'active_capability':
-      return source.capability;
-    case 'capability_rehydration':
-      return await source.rehydrate();
-    case 'email_otp_reconnect':
-      throw new Error(
-        '[SigningEngine][near] confirmed Email OTP reconnect did not activate an Ed25519 Yao capability',
-      );
-  }
-  source satisfies never;
-  throw new Error('[SigningEngine][near] unsupported Ed25519 Yao capability source');
-}
-
-function nearEd25519YaoResolutionRequiresBudgetReadmission(
-  source: NearEd25519YaoCapabilitySource,
-): boolean {
-  switch (source.kind) {
-    case 'active_capability':
-      return false;
-    case 'capability_rehydration':
-      return true;
-    case 'email_otp_reconnect':
-      return true;
-  }
-  source satisfies never;
-  throw new Error('[SigningEngine][near] unsupported Ed25519 Yao capability source');
-}
-
-async function reconnectNearPasskeyEd25519(args: {
-  authorization: NearEd25519PasskeyStepUpAuthorization;
-  hook: NearPasskeyEd25519ReconnectHook | undefined;
-  requiredSignatureUses: number;
-}): Promise<NearEd25519ReconnectResult> {
-  if (!args.hook) {
-    throw new Error('[SigningEngine] passkey reconnect runner is unavailable');
-  }
-  if (!args.authorization.credential) {
-    throw new Error('[SigningEngine] missing WebAuthn credential for passkey session reconnect');
-  }
-  return await args.hook.reconnect({
-    authorization: args.authorization,
-    requiredSignatureUses: args.requiredSignatureUses,
-  });
-}
-
-async function reconnectNearEmailOtpEd25519(args: {
-  authorization: NearEd25519EmailOtpStepUpAuthorization;
-  hook: NearEmailOtpEd25519ReconnectHook | undefined;
-  requiredSignatureUses: number;
-}): Promise<NearEd25519ReconnectResult> {
-  if (!args.hook) {
-    throw new Error('[SigningEngine] Email OTP reconnect runner is unavailable');
-  }
-  return await args.hook.reconnect({
-    authorization: args.authorization,
-    requiredSignatureUses: args.requiredSignatureUses,
-  });
-}
+import {
+  nearEd25519YaoResolutionRequiresBudgetReadmission,
+  reconnectNearEmailOtpEd25519,
+  reconnectNearPasskeyEd25519,
+  resolveNearEd25519YaoCapabilitySource,
+} from './shared/ed25519YaoCapabilityResolution';
 
 function emitNearSigningEvent(
   onEvent: ((event: SigningFlowEvent) => void) | undefined,
@@ -546,10 +479,7 @@ export async function runNearTransactionWithActionsSigning({
           );
         }
         canonicalThresholdSessionId = refreshedSessionId;
-        activeCapability = {
-          activeClient: refreshed.activeClient,
-          walletSessionState: refreshed.sessionState,
-        };
+        activeCapability = refreshed.capability;
         refreshedBudgetIdentityRequired = true;
         emitNearSigningEvent(onEvent, nearAccountId, {
           phase: SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_SUCCEEDED,
@@ -805,7 +735,7 @@ export async function runNearTransactionWithActionsSigning({
 
   const executeSignRequest = async (
     admittedOperation: BudgetAdmittedOperation<SelectedEd25519Lane>,
-    yaoClient: RouterAbEd25519YaoActiveClientV1,
+    yaoClient: NearEd25519YaoSigningCapability['activeClient'],
   ) => {
     if (String(admittedOperation.lane.thresholdSessionId) !== canonicalThresholdSessionId) {
       throw new Error(
@@ -875,20 +805,6 @@ export async function runNearTransactionWithActionsSigning({
         return signedResult;
       } catch (e: unknown) {
         const err = e instanceof Error ? e : new Error(String(e));
-
-        if (isSigningSessionAuthUnavailableError(err)) {
-          console.warn('[SigningEngine][near][transaction] Wallet Session auth unavailable', {
-            nearAccountId,
-            message: err.message,
-            requiredSignatureUses,
-            thresholdSessionId: signingSessionAuthPlan.sessionId,
-            authMethod: signingLaneAuthMethod(signingSessionAuthPlan.lane.auth),
-            warmSessionReady: signingSessionAuthPlan.warmSessionReady,
-          });
-          const finalError = new Error(SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR);
-          await finalizeFailedSigningAttempt(finalError);
-          throw finalError;
-        }
 
         await finalizeFailedSigningAttempt(err);
         throw err;

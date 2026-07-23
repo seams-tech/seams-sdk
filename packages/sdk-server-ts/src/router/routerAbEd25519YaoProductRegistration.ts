@@ -69,9 +69,12 @@ import {
 } from './routerAbEd25519YaoExport';
 import type { RouterApiWebAuthnService } from './authServicePort';
 import { isPlainObject } from '@shared/utils/validation';
-
-const PRODUCT_WALLET_SESSION_TTL_MS = 10 * 60_000;
-const PRODUCT_WALLET_SESSION_REMAINING_USES = 3;
+import {
+  DEFAULT_WALLET_SESSION_REMAINING_USES,
+  DEFAULT_WALLET_SESSION_TTL_MS,
+  MAX_WALLET_SESSION_REMAINING_USES,
+  MAX_WALLET_SESSION_TTL_MS,
+} from '@shared/threshold/sessionPolicy';
 
 export type RouterAbEd25519YaoWalletSessionMintResultV1 =
   | { readonly ok: true; readonly session: WalletRegistrationEd25519YaoBootstrapSession }
@@ -150,11 +153,9 @@ export type RouterAbEd25519YaoProductRegistrationCompositionV1 = {
 };
 
 export interface RouterAbEd25519YaoProductRegistrationServicePortV1
-  extends RouterAbEd25519YaoRegistrationService,
-    RouterAbEd25519YaoActivationConsumerV1 {}
+  extends RouterAbEd25519YaoRegistrationService, RouterAbEd25519YaoActivationConsumerV1 {}
 
-export interface RouterAbEd25519YaoProductRegistrationAuthorizationPortV1
-  extends RouterAbEd25519YaoRegistrationAuthorizationAdapter {
+export interface RouterAbEd25519YaoProductRegistrationAuthorizationPortV1 extends RouterAbEd25519YaoRegistrationAuthorizationAdapter {
   bindVerifiedIntent(
     input: RouterAbEd25519YaoVerifiedActivationIntentV1,
   ): Promise<RouterAbEd25519YaoRegistrationIntentBindingResult>;
@@ -196,12 +197,7 @@ export function createRouterAbEd25519YaoProductRegistrationStateV1(): RouterAbEd
   };
 }
 
-const REGISTRATION_STATE_KINDS = new Set([
-  'admitted',
-  'executing',
-  'activated',
-  'failed',
-]);
+const REGISTRATION_STATE_KINDS = new Set(['admitted', 'executing', 'activated', 'failed']);
 const INTENT_AUTHORITY_KINDS = new Set(['available', 'admitted']);
 const CAPABILITY_STATE_KINDS = new Set(['active', 'suspended', 'retired']);
 const RECOVERY_STATE_KINDS = new Set([
@@ -243,7 +239,9 @@ function isStringSet(input: unknown): input is Set<string> {
   return true;
 }
 
-function hasProductStateCollections(input: unknown): input is RouterAbEd25519YaoProductRegistrationStateV1 {
+function hasProductStateCollections(
+  input: unknown,
+): input is RouterAbEd25519YaoProductRegistrationStateV1 {
   if (!isPlainObject(input)) return false;
   if (input.kind !== 'router_ab_ed25519_yao_product_registration_state_v1') return false;
   const registration = input.registration;
@@ -263,8 +261,7 @@ function hasProductStateCollections(input: unknown): input is RouterAbEd25519Yao
     isStringMap(registration.lifecycleSessions) &&
     Array.isArray(authorization.authorities) &&
     authorization.authorities.every(
-      (authority) =>
-        isPlainObject(authority) && INTENT_AUTHORITY_KINDS.has(String(authority.kind)),
+      (authority) => isPlainObject(authority) && INTENT_AUTHORITY_KINDS.has(String(authority.kind)),
     ) &&
     isStringMapWithStateKinds(recovery.capabilities, CAPABILITY_STATE_KINDS) &&
     isStringMap(recovery.identityCapabilities) &&
@@ -390,33 +387,63 @@ function assertNeverWalletSessionMintInput(value: never): never {
   throw new Error(`Unexpected Ed25519 Yao Wallet Session mint kind: ${String(value)}`);
 }
 
+function requireInheritedWalletSessionTerms(args: {
+  readonly signingGrantId: string;
+  readonly expiresAtMs: number;
+  readonly remainingUses: number;
+  readonly nowMs: number;
+}): RouterAbEd25519YaoWalletSessionTermsV1 {
+  const signingGrantId = args.signingGrantId.trim();
+  if (!signingGrantId) throw new Error('Inherited Wallet Session signingGrantId is required');
+  if (!Number.isSafeInteger(args.expiresAtMs) || args.expiresAtMs <= args.nowMs) {
+    throw new Error('Inherited Wallet Session expiresAtMs must be a future safe integer');
+  }
+  if (args.expiresAtMs - args.nowMs > MAX_WALLET_SESSION_TTL_MS) {
+    throw new Error('Inherited Wallet Session exceeds the maximum TTL');
+  }
+  if (
+    !Number.isSafeInteger(args.remainingUses) ||
+    args.remainingUses <= 0 ||
+    args.remainingUses > MAX_WALLET_SESSION_REMAINING_USES
+  ) {
+    throw new Error('Inherited Wallet Session remainingUses is outside the allowed range');
+  }
+  return {
+    signingGrantId,
+    expiresAtMs: args.expiresAtMs,
+    remainingUses: args.remainingUses,
+  };
+}
+
 function resolveRouterAbEd25519YaoWalletSessionTermsV1(
   input: RouterAbEd25519YaoWalletSessionMintInputV1,
 ): RouterAbEd25519YaoWalletSessionTermsV1 {
+  const nowMs = Date.now();
   switch (input.kind) {
     case 'registration_wallet_session_v1':
     case 'add_signer_wallet_session_v1':
       return {
         signingGrantId: `wss_${secureRandomBase64Url(24)}`,
-        expiresAtMs: Date.now() + PRODUCT_WALLET_SESSION_TTL_MS,
-        remainingUses: PRODUCT_WALLET_SESSION_REMAINING_USES,
+        expiresAtMs: nowMs + DEFAULT_WALLET_SESSION_TTL_MS,
+        remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
       };
     case 'shared_email_otp_recovery_wallet_session_v1':
       return {
         signingGrantId: `wss_${secureRandomBase64Url(24)}`,
-        expiresAtMs: Date.now() + PRODUCT_WALLET_SESSION_TTL_MS,
+        expiresAtMs: nowMs + DEFAULT_WALLET_SESSION_TTL_MS,
         remainingUses: Math.min(
-          PRODUCT_WALLET_SESSION_REMAINING_USES,
+          DEFAULT_WALLET_SESSION_REMAINING_USES,
           Math.max(1, Math.floor(input.remainingUses)),
         ),
       };
     case 'shared_registration_wallet_session_v1':
     case 'same_identity_budget_refresh_v1':
-      return {
+      return requireInheritedWalletSessionTerms({
         signingGrantId: input.signingGrantId,
         expiresAtMs: input.expiresAtMs,
         remainingUses: input.remainingUses,
-      };
+        nowMs,
+      });
     default:
       return assertNeverWalletSessionMintInput(input);
   }

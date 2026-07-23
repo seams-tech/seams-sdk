@@ -16,7 +16,7 @@ import type {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EmailOtpAuthPolicy, SeamsConfigsInput } from '@/core/types/seams';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
-import type { WalletFlowEvent } from '@/core/types/sdkSentEvents';
+import type { SdkLifecycleEvent, WalletFlowEvent } from '@/core/types/sdkSentEvents';
 import type {
   GoogleEmailOtpWalletAuthDelivery,
   GoogleEmailOtpWalletAuthEcdsaTargets,
@@ -36,6 +36,10 @@ import type {
   WalletId,
 } from '@shared/utils/registrationIntent';
 import type { PMUnlockPayload } from '@/core/types/login.types';
+import type {
+  WalletIframeExactSessionIdentity,
+  WalletIframeMissingSessionIdentity,
+} from './exactSessionState';
 export type {
   LoginUnlockRequest,
   PMUnlockOptions,
@@ -56,7 +60,10 @@ export type ParentToChildType =
   | 'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION'
   | 'PM_UNLOCK'
   | 'PM_LOCK'
+  | 'PM_LOCK_EXACT_WALLET_SESSION'
+  | 'PM_LOCK_MISSING_WALLET_SESSION'
   | 'PM_GET_WALLET_SESSION'
+  | 'PM_GET_EXACT_WALLET_SESSION_STATE'
   | 'PM_REQUEST_EMAIL_OTP_CHALLENGE'
   | 'PM_REQUEST_EMAIL_OTP_ENROLLMENT_CHALLENGE'
   | 'PM_REQUEST_EMAIL_OTP_SIGNING_SESSION_CHALLENGE'
@@ -109,6 +116,7 @@ export type ChildToParentType =
   | 'READY'
   | 'PONG'
   | 'PROGRESS'
+  | 'SDK_LIFECYCLE_EVENT'
   | 'PREFERENCES_CHANGED'
   | 'PM_RESULT'
   | 'ERROR';
@@ -391,6 +399,10 @@ export interface PMGetWalletSessionPayload {
   walletId?: string;
 }
 
+export type PMLockExactWalletSessionPayload = WalletIframeExactSessionIdentity;
+
+export type PMLockMissingWalletSessionPayload = WalletIframeMissingSessionIdentity;
+
 export interface PMEmailOtpChallengePayload {
   walletId: string;
   relayUrl?: string;
@@ -528,7 +540,10 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION', PMBootstrapThresholdEcdsaSessionPayload>
   | RpcEnvelope<'PM_UNLOCK', PMUnlockPayload>
   | RpcEnvelope<'PM_LOCK'>
+  | RpcEnvelope<'PM_LOCK_EXACT_WALLET_SESSION', PMLockExactWalletSessionPayload>
+  | RpcEnvelope<'PM_LOCK_MISSING_WALLET_SESSION', PMLockMissingWalletSessionPayload>
   | RpcEnvelope<'PM_GET_WALLET_SESSION', PMGetWalletSessionPayload>
+  | RpcEnvelope<'PM_GET_EXACT_WALLET_SESSION_STATE'>
   | RpcEnvelope<'PM_REQUEST_EMAIL_OTP_CHALLENGE', PMEmailOtpChallengePayload>
   | RpcEnvelope<'PM_REQUEST_EMAIL_OTP_ENROLLMENT_CHALLENGE', PMEmailOtpChallengePayload>
   | RpcEnvelope<
@@ -620,6 +635,7 @@ export type ChildToParentEnvelope =
   | RpcEnvelope<'READY', ReadyPayload>
   | RpcEnvelope<'PONG'>
   | RpcEnvelope<'PROGRESS', ProgressPayload>
+  | RpcEnvelope<'SDK_LIFECYCLE_EVENT', SdkLifecycleEvent>
   | RpcEnvelope<'PREFERENCES_CHANGED', PreferencesChangedPayload>
   | RpcEnvelope<'PM_RESULT', PMResultPayload>
   | RpcEnvelope<'ERROR', ErrorPayload>;

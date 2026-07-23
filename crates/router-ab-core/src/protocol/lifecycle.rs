@@ -82,6 +82,8 @@ pub struct NormalSigningScopeV1 {
     pub account_id: String,
     /// Canonical session id.
     pub session_id: String,
+    /// Session id that owns the activated SigningWorker material.
+    pub active_state_session_id: String,
     /// Active SigningWorker identity.
     pub signing_worker_id: String,
 }
@@ -92,12 +94,14 @@ impl NormalSigningScopeV1 {
         request_id: impl Into<String>,
         account_id: impl Into<String>,
         session_id: impl Into<String>,
+        active_state_session_id: impl Into<String>,
         signing_worker_id: impl Into<String>,
     ) -> RouterAbProtocolResult<Self> {
         let scope = Self {
             request_id: request_id.into(),
             account_id: account_id.into(),
             session_id: session_id.into(),
+            active_state_session_id: active_state_session_id.into(),
             signing_worker_id: signing_worker_id.into(),
         };
         scope.validate()?;
@@ -109,6 +113,7 @@ impl NormalSigningScopeV1 {
         require_non_empty("request_id", &self.request_id)?;
         require_non_empty("account_id", &self.account_id)?;
         require_non_empty("session_id", &self.session_id)?;
+        require_non_empty("active_state_session_id", &self.active_state_session_id)?;
         require_non_empty("signing_worker_id", &self.signing_worker_id)
     }
 }

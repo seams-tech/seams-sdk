@@ -65,6 +65,10 @@ import type {
   SignAndSendTransactionHooksOptions,
   SigningFlowEvent,
   AccountSyncFlowEvent,
+  SdkLifecycleEvent,
+  SdkLifecycleEventListener,
+  SigningSessionExpiredEvent,
+  WalletSessionId,
 } from '@/core/types/sdkSentEvents';
 import type { WalletIframeTransportDiagnostics } from './transport/IframeTransport';
 import {
@@ -79,6 +83,7 @@ import {
   isWalletFlowEvent,
   LinkDeviceEventPhase,
   RegistrationEventPhase,
+  parseSdkLifecycleEvent,
   SigningEventPhase,
   UnlockEventPhase,
 } from '@/core/types/sdkSentEvents';
@@ -87,7 +92,6 @@ import type {
   AppearanceConfigInput,
   GetRecentUnlocksResult,
   LoginAndCreateSessionResult,
-  LoginState,
   WalletSession,
   RegistrationResult,
   SignDelegateActionResult,
@@ -197,6 +201,19 @@ import { cloneResolvedChainConfig } from '@/core/config/chains';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
 import type { LoginUnlockRequest } from '@/core/types/login.types';
 import { buildPMUnlockPayload } from '../shared/unlockOptions';
+import type { WalletId } from '@shared/utils/domainIds';
+import {
+  parseWalletIframeExactSessionLockResult,
+  parseWalletIframeExactSessionState,
+  parseWalletIframeMissingSessionLockResult,
+  WalletIframeSessionExpiredRequestError,
+  type WalletIframeExactSessionIdentity,
+  type WalletIframeExactSessionLockResult,
+  type WalletIframeExactSessionState,
+  type WalletIframeMissingSessionIdentity,
+  type WalletIframeMissingSessionLockResult,
+  type WalletIframePendingSessionBinding,
+} from '../shared/exactSessionState';
 
 // Simple, framework-agnostic service iframe client.
 // Responsibilities split:
@@ -271,7 +288,18 @@ type Pending = {
   onProgress?: (payload: ProgressPayload) => void;
   requestType: ParentToChildEnvelope['type'];
   onTimeout: () => Error;
+  sessionBinding: WalletIframePendingSessionBinding;
 };
+
+type WalletIframeRequestAdmission =
+  | {
+      readonly kind: 'admitted';
+      readonly binding: WalletIframePendingSessionBinding;
+    }
+  | {
+      readonly kind: 'expired';
+      readonly identity: WalletIframeExactSessionIdentity;
+    };
 
 function requestSurfaceKindForMessage(
   type: ParentToChildEnvelope['type'],
@@ -608,6 +636,24 @@ function emitDemoEmailOtpCodeFromWire(args: {
   }
 }
 
+type ParsedSdkLifecycleEnvelope =
+  | { readonly kind: 'not_lifecycle_event' }
+  | { readonly kind: 'invalid_lifecycle_event' }
+  | { readonly kind: 'lifecycle_event'; readonly event: SdkLifecycleEvent };
+
+function parseSdkLifecycleEnvelope(value: unknown): ParsedSdkLifecycleEnvelope {
+  if (!isObject(value) || value.type !== 'SDK_LIFECYCLE_EVENT') {
+    return { kind: 'not_lifecycle_event' };
+  }
+  const event = parseSdkLifecycleEvent(value.payload);
+  if (!event) return { kind: 'invalid_lifecycle_event' };
+  return { kind: 'lifecycle_event', event };
+}
+
+function assertNeverSdkLifecycleEventName(value: never): never {
+  throw new Error(`Unsupported SDK lifecycle event: ${String(value)}`);
+}
+
 export class WalletIframeRouter {
   private opts: Required<WalletIframeRouterOptions>;
   // Low-level transport handling iframe mount + handshake
@@ -625,7 +671,10 @@ export class WalletIframeRouter {
     ready: new Set<() => void>(),
     loginStatus: new Set<(status: { isLoggedIn: boolean; walletId: string | null }) => void>(),
     preferencesChanged: new Set<(payload: PreferencesChangedPayload) => void>(),
+    sdkLifecycleEvent: new Set<SdkLifecycleEventListener>(),
   };
+  private readonly expiredSigningSessionsByWallet = new Map<WalletId, Set<WalletSessionId>>();
+  private exactSessionState: WalletIframeExactSessionState = { kind: 'wallet_locked' };
   private lastPreferencesChangedPayload: PreferencesChangedPayload | null = null;
   private progressBus: OnEventsProgressBus;
   private debug = false;
@@ -947,6 +996,7 @@ export class WalletIframeRouter {
           })(),
         },
       });
+      await this.refreshExactSessionState();
       this.emitReady();
     })();
 
@@ -1026,6 +1076,28 @@ export class WalletIframeRouter {
     };
   }
 
+  onSdkLifecycleEvent(listener: SdkLifecycleEventListener): () => void {
+    this.listeners.sdkLifecycleEvent.add(listener);
+    return () => {
+      this.listeners.sdkLifecycleEvent.delete(listener);
+    };
+  }
+
+  getMirroredExactSessionState(): WalletIframeExactSessionState {
+    return this.exactSessionState;
+  }
+
+  async getExactSessionState(): Promise<WalletIframeExactSessionState> {
+    return await this.refreshExactSessionState();
+  }
+
+  private async refreshExactSessionState(): Promise<WalletIframeExactSessionState> {
+    const response = await this.post<unknown>({ type: 'PM_GET_EXACT_WALLET_SESSION_STATE' });
+    const state = parseWalletIframeExactSessionState(response.result);
+    this.exactSessionState = state;
+    return state;
+  }
+
   private emitLoginStatusChanged(status: { isLoggedIn: boolean; walletId: string | null }): void {
     for (const cb of Array.from(this.listeners.loginStatus)) {
       try {
@@ -1034,11 +1106,14 @@ export class WalletIframeRouter {
     }
   }
 
-  private emitLoginStatusFromState(login: LoginState): void {
-    this.emitLoginStatusChanged({
-      isLoggedIn: !!login.isLoggedIn,
-      walletId: login.walletId ? String(login.walletId) : null,
-    });
+  private async refreshExactSessionAndEmitLoginStatus(): Promise<WalletIframeExactSessionState> {
+    const state = await this.refreshExactSessionState();
+    this.emitLoginStatusChanged(
+      state.kind === 'wallet_locked'
+        ? { isLoggedIn: false, walletId: null }
+        : { isLoggedIn: true, walletId: state.walletId },
+    );
+    return state;
   }
 
   private emitPreferencesChanged(payload: PreferencesChangedPayload): void {
@@ -1055,6 +1130,69 @@ export class WalletIframeRouter {
     try {
       listener(payload);
     } catch {}
+  }
+
+  private emitSdkLifecycleEvent(event: SdkLifecycleEvent): void {
+    const eventName = event.event;
+    switch (eventName) {
+      case 'signing_session.expired':
+        this.failPendingRequestsForExpiredSession(event);
+        this.mirrorExpiredSession(event);
+        if (!this.markSigningSessionExpiryAsNew(event)) return;
+        for (const listener of Array.from(this.listeners.sdkLifecycleEvent)) {
+          listener(event);
+        }
+        return;
+      default:
+        assertNeverSdkLifecycleEventName(eventName);
+    }
+  }
+
+  private mirrorExpiredSession(event: SigningSessionExpiredEvent): void {
+    const state = this.exactSessionState;
+    if (state.kind !== 'active_session') return;
+    if (state.walletId !== event.walletId || state.walletSessionId !== event.walletSessionId) return;
+    this.exactSessionState = {
+      kind: 'expired_session',
+      walletId: event.walletId,
+      walletSessionId: event.walletSessionId,
+      authMethod: event.authMethod,
+      expiresAtMs: event.expiresAtMs,
+    };
+  }
+
+  private failPendingRequestsForExpiredSession(event: SigningSessionExpiredEvent): void {
+    for (const [requestId, pending] of this.state.pending) {
+      const binding = pending.sessionBinding;
+      if (binding.kind !== 'exact_session') continue;
+      if (binding.walletId !== event.walletId || binding.walletSessionId !== event.walletSessionId) {
+        continue;
+      }
+      this.state.pending.delete(requestId);
+      if (pending.timer !== undefined) window.clearTimeout(pending.timer);
+      this.progressBus.unregister(requestId);
+      this.finishRequestSurface(requestId as WalletIframeRequestId, true);
+      this.sendBestEffortCancel(requestId);
+      pending.reject(
+        new WalletIframeSessionExpiredRequestError({
+          kind: 'wallet_iframe_request_failure',
+          code: 'wallet_session_expired',
+          walletId: event.walletId,
+          walletSessionId: event.walletSessionId,
+        }),
+      );
+    }
+  }
+
+  private markSigningSessionExpiryAsNew(event: SigningSessionExpiredEvent): boolean {
+    const expiredSessionIds = this.expiredSigningSessionsByWallet.get(event.walletId);
+    if (expiredSessionIds?.has(event.walletSessionId)) return false;
+    if (expiredSessionIds) {
+      expiredSessionIds.add(event.walletSessionId);
+      return true;
+    }
+    this.expiredSigningSessionsByWallet.set(event.walletId, new Set([event.walletSessionId]));
+    return true;
   }
 
   // ===== SeamsWeb RPCs =====
@@ -1158,8 +1296,7 @@ export class WalletIframeRouter {
     );
     const walletId = res.result?.success ? String(res.result.walletId || '') : '';
     if (walletId) {
-      const { login: st } = await this.getWalletSession(walletId);
-      this.emitLoginStatusFromState(st);
+      await this.refreshExactSessionAndEmitLoginStatus();
     }
     return res.result;
   }
@@ -1216,8 +1353,7 @@ export class WalletIframeRouter {
     });
     const result = res.result;
     if (result.success) {
-      const { login: st } = await this.getWalletSession(unlockPayload.walletId);
-      this.emitLoginStatusFromState(st);
+      await this.refreshExactSessionAndEmitLoginStatus();
     }
     return result;
   }
@@ -1342,8 +1478,7 @@ export class WalletIframeRouter {
             },
           );
           if (res.result.ok) {
-            const { login: st } = await this.getWalletSession(res.result.value.walletId);
-            this.emitLoginStatusFromState(st);
+            await this.refreshExactSessionAndEmitLoginStatus();
           }
           return res.result;
         },
@@ -1419,7 +1554,7 @@ export class WalletIframeRouter {
           },
         );
         if (res.result.ok) {
-          this.emitLoginStatusFromState(res.result.value.session.login);
+          await this.refreshExactSessionAndEmitLoginStatus();
         }
         return res.result;
       },
@@ -1506,8 +1641,7 @@ export class WalletIframeRouter {
         progressTimeoutExtensionFactor: 1,
       },
     );
-    const { login: st } = await this.getWalletSession(payload.walletSession.walletId);
-    this.emitLoginStatusFromState(st);
+    await this.refreshExactSessionAndEmitLoginStatus();
     return sanitizeEmailOtpIframeResult(res.result);
   }
 
@@ -1532,8 +1666,7 @@ export class WalletIframeRouter {
         progressTimeoutExtensionFactor: 1,
       },
     );
-    const { login: st } = await this.getWalletSession(payload.walletSession.walletId);
-    this.emitLoginStatusFromState(st);
+    await this.refreshExactSessionAndEmitLoginStatus();
     return sanitizeEmailOtpIframeResult(res.result);
   }
 
@@ -1612,42 +1745,57 @@ export class WalletIframeRouter {
         progressTimeoutExtensionFactor: 1,
       },
     );
-    const { login: st } = await this.getWalletSession(payload.walletSession.walletId);
-    this.emitLoginStatusFromState(st);
+    await this.refreshExactSessionAndEmitLoginStatus();
     return sanitizeEmailOtpIframeResult(res.result);
   }
 
   async checkLoginStatus(): Promise<PostResult<WalletIframeLoginStatusSnapshot>> {
-    const directSession = await this.getWalletSession();
-    const directStatus = walletIframeLoginStatusFromSession(directSession);
-    if (directStatus.isLoggedIn) {
-      return { ok: true, result: directStatus };
+    const state = await this.getExactSessionState();
+    if (state.kind === 'wallet_locked') {
+      return { ok: true, result: { isLoggedIn: false, walletId: null } };
     }
-
-    const recentUnlocks = await this.getRecentUnlocks().catch(() => null);
-    const fallbackWalletId = walletIdFromRecentUnlocks(recentUnlocks);
-    if (!fallbackWalletId) {
-      return { ok: true, result: directStatus };
-    }
-
-    const fallbackSession = await this.getWalletSession(fallbackWalletId).catch(() => null);
-    if (!fallbackSession) {
-      return { ok: true, result: directStatus };
-    }
-    const fallbackStatus = walletIframeLoginStatusFromSession(fallbackSession);
-    if (!fallbackStatus.isLoggedIn) {
-      return { ok: true, result: directStatus };
-    }
-    return {
-      ok: true,
-      result: fallbackStatus,
-    };
+    return { ok: true, result: { isLoggedIn: true, walletId: state.walletId } };
   }
 
   async lock(): Promise<PostResult<void>> {
     await this.post<void>({ type: 'PM_LOCK' });
+    this.exactSessionState = { kind: 'wallet_locked' };
     this.emitLoginStatusChanged({ isLoggedIn: false, walletId: null });
     return { ok: true, result: undefined };
+  }
+
+  async lockExactSession(
+    expected: WalletIframeExactSessionIdentity,
+  ): Promise<WalletIframeExactSessionLockResult> {
+    const response = await this.post<unknown>({
+      type: 'PM_LOCK_EXACT_WALLET_SESSION',
+      payload: expected,
+    });
+    const result = parseWalletIframeExactSessionLockResult(response.result);
+    if (result.kind === 'locked') {
+      this.exactSessionState = { kind: 'wallet_locked' };
+      this.emitLoginStatusChanged({ isLoggedIn: false, walletId: null });
+    } else {
+      this.exactSessionState = result.current;
+    }
+    return result;
+  }
+
+  async lockMissingSession(
+    expected: WalletIframeMissingSessionIdentity,
+  ): Promise<WalletIframeMissingSessionLockResult> {
+    const response = await this.post<unknown>({
+      type: 'PM_LOCK_MISSING_WALLET_SESSION',
+      payload: expected,
+    });
+    const result = parseWalletIframeMissingSessionLockResult(response.result);
+    if (result.kind === 'locked') {
+      this.exactSessionState = { kind: 'wallet_locked' };
+      this.emitLoginStatusChanged({ isLoggedIn: false, walletId: null });
+    } else {
+      this.exactSessionState = result.current;
+    }
+    return result;
   }
 
   async signNep413Message(payload: {
@@ -2206,6 +2354,19 @@ export class WalletIframeRouter {
     connectionId: WalletIframeConnectionId,
   ): void {
     if (this.state.connectionId !== connectionId) return;
+    const lifecycleEnvelope = parseSdkLifecycleEnvelope(e.data);
+    switch (lifecycleEnvelope.kind) {
+      case 'lifecycle_event':
+        this.emitSdkLifecycleEvent(lifecycleEnvelope.event);
+        return;
+      case 'invalid_lifecycle_event':
+        if (this.debug) {
+          console.warn('[WalletIframeRouter] Ignored invalid SDK lifecycle event');
+        }
+        return;
+      case 'not_lifecycle_event':
+        break;
+    }
     const msg = e.data as ChildToParentEnvelope;
     // Some wallet-host messages are push-style and are not correlated to a requestId.
     if (msg.type === 'PREFERENCES_CHANGED') {
@@ -2322,6 +2483,7 @@ export class WalletIframeRouter {
     // Step 2: Generate unique request ID for correlation
     const requestId = postOpts?.requestId ?? this.allocateRequestId();
     const full: ParentToChildEnvelope = { ...(envelope as ParentToChildEnvelope), requestId };
+    const sessionBinding = this.sessionBindingForRequest(full);
     const { options } = full;
     const timeoutMs = postOpts?.timeoutMs ?? this.opts.requestTimeoutMs;
     const parsedProgressTimeoutExtensionFactor = Number(postOpts?.progressTimeoutExtensionFactor);
@@ -2343,6 +2505,15 @@ export class WalletIframeRouter {
     }
 
     try {
+      const admission = this.requestAdmission(sessionBinding);
+      if (admission.kind === 'expired') {
+        throw new WalletIframeSessionExpiredRequestError({
+          kind: 'wallet_iframe_request_failure',
+          code: 'wallet_session_expired',
+          walletId: admission.identity.walletId,
+          walletSessionId: admission.identity.walletSessionId,
+        });
+      }
       if (surfaceKind) {
         this.beginRequestSurface({ kind: surfaceKind, requestId, deadlineAtMs });
       }
@@ -2376,6 +2547,7 @@ export class WalletIframeRouter {
           onProgress: options?.onProgress,
           requestType: envelope.type,
           onTimeout,
+          sessionBinding: admission.binding,
         });
 
         // Step 5: Register progress handler for real-time updates
@@ -2412,6 +2584,45 @@ export class WalletIframeRouter {
     } finally {
       transactionSurfaceLease?.release();
     }
+  }
+
+  private sessionBindingForRequest(
+    envelope: ParentToChildEnvelope,
+  ): WalletIframePendingSessionBinding {
+    const requestWalletId = exactSessionRequestWalletId(envelope);
+    if (requestWalletId === null) return { kind: 'unbound' };
+    const state = this.exactSessionState;
+    if (state.kind !== 'active_session' || state.walletId !== requestWalletId) {
+      return { kind: 'unbound' };
+    }
+    return {
+      kind: 'exact_session',
+      walletId: state.walletId,
+      walletSessionId: state.walletSessionId,
+      authMethod: state.authMethod,
+      expiresAtMs: state.expiresAtMs,
+    };
+  }
+
+  private requestAdmission(
+    binding: WalletIframePendingSessionBinding,
+  ): WalletIframeRequestAdmission {
+    if (binding.kind === 'unbound') {
+      return { kind: 'admitted', binding };
+    }
+    const expiredSessionIds = this.expiredSigningSessionsByWallet.get(binding.walletId);
+    if (!expiredSessionIds?.has(binding.walletSessionId)) {
+      return { kind: 'admitted', binding };
+    }
+    return {
+      kind: 'expired',
+      identity: {
+        walletId: binding.walletId,
+        walletSessionId: binding.walletSessionId,
+        authMethod: binding.authMethod,
+        expiresAtMs: binding.expiresAtMs,
+      },
+    };
   }
 
   private allocateRequestId(): WalletIframeRequestId {
@@ -2451,6 +2662,24 @@ export class WalletIframeRouter {
         console.error('[WalletIframeRouter] window.postMessage failed', { error: err, data });
       }
     }
+  }
+}
+
+function exactSessionRequestWalletId(envelope: ParentToChildEnvelope): string | null {
+  if (envelope.payload === undefined) return null;
+  switch (envelope.type) {
+    case 'PM_SIGN_TX_WITH_ACTIONS':
+    case 'PM_SIGN_AND_SEND_TX':
+    case 'PM_EXECUTE_ACTION':
+    case 'PM_SIGN_DELEGATE_ACTION':
+    case 'PM_SIGN_NEP413':
+      return envelope.payload.walletId;
+    case 'PM_SIGN_TEMPO':
+    case 'PM_RESOLVE_EXACT_KEY_EXPORT_LANE':
+    case 'PM_EXPORT_KEYPAIR_UI':
+      return envelope.payload.walletSession.walletId;
+    default:
+      return null;
   }
 }
 

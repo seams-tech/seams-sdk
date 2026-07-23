@@ -503,7 +503,7 @@ function exactRuntimePolicyScope(
   );
 }
 
-function warmBootstrapCapabilityMatchesClaims(input: {
+function warmBootstrapCapabilityMatchesStableIdentity(input: {
   readonly request: RouterAbEd25519YaoWarmRecoveryBootstrapRequestV1;
   readonly claims: RouterAbEd25519WalletSessionClaims;
   readonly capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1;
@@ -518,7 +518,6 @@ function warmBootstrapCapabilityMatchesClaims(input: {
       request.nearEd25519SigningKeyId &&
     capability.applicationBinding.key_creation_signer_slot === request.signerSlot &&
     capability.lifecycle.accountId === request.walletId &&
-    capability.lifecycle.walletSessionId === request.thresholdSessionId &&
     capability.lifecycle.signingWorkerId === request.signingWorkerId &&
     capability.lifecycle.rootShareEpoch === claims.runtimePolicyScope.signingRootVersion &&
     capability.participantIds[0] === request.participantIds[0] &&
@@ -835,7 +834,7 @@ export function buildRouterAbEd25519YaoRegistrationCapabilityRecordV1(
   return { ok: true, record: built.identity.persisted };
 }
 
-function recoveryRequestMatchesCapability(
+function recoveryRequestMatchesActiveCapabilityIdentity(
   request: RouterAbEd25519YaoRecoveryAdmissionRequestV1,
   identity: CapabilityIdentity,
 ): boolean {
@@ -848,7 +847,6 @@ function recoveryRequestMatchesCapability(
     equalWire(request.participant_ids, identity.participantIds) &&
     scope.root_share_epoch === activeLifecycle.root_share_epoch &&
     scope.account_id === activeLifecycle.account_id &&
-    scope.wallet_session_id === activeLifecycle.session_id &&
     scope.signer_set_id === activeLifecycle.signer_set_id &&
     scope.signing_worker_id === activeLifecycle.selected_server_id
   );
@@ -1356,7 +1354,7 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
       default:
         return assertNever(activeCapability);
     }
-    if (!recoveryRequestMatchesCapability(admittedRequest, activeCapability.identity)) {
+    if (!recoveryRequestMatchesActiveCapabilityIdentity(admittedRequest, activeCapability.identity)) {
       return recoveryFailure({
         status: 409,
         code: 'continuity_mismatch',
@@ -1907,7 +1905,7 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
       );
     }
     if (
-      !warmBootstrapCapabilityMatchesClaims({
+      !warmBootstrapCapabilityMatchesStableIdentity({
         request: parsed.value,
         claims: authorization.claims,
         capability: activeCapability.capability,
@@ -1929,7 +1927,7 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
       return json(
         {
           ok: false,
-          code: 'recovery_wallet_session_invalid',
+          code: 'wallet_session_claims_invalid',
           message: 'Ed25519 Yao recovery requires exactly two Wallet Session participants',
         },
         { status: 401 },

@@ -48,7 +48,7 @@ import type { SeamsConfigsReadonly, ThemeMode } from '@/core/types/seams';
 import type { AccountId } from '@/core/types/accountIds';
 import * as registrationPublic from '@/core/signingEngine/flows/registration/public';
 import type { Ed25519YaoPublicCapabilityReferenceStorePort } from '@/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
-import { recoverEmailOtpEd25519CapabilityForSigningV1 } from '@/core/signingEngine/session/emailOtp/ed25519YaoBudgetRecovery';
+import { rehydrateEmailOtpEd25519CapabilityForSigningV1 } from '@/core/signingEngine/session/emailOtp/ed25519YaoBudgetRecovery';
 import type {
   EmailOtpEcdsaChallengeAuthority,
   EmailOtpEcdsaStepUpAuthority,
@@ -62,7 +62,7 @@ import type { EmailOtpTransactionSigningChallenge } from '@/core/signingEngine/s
 
 type SigningEnginePorts = ReturnType<typeof createSigningEnginePorts>;
 type EmailOtpEd25519RecoveryRequest = Omit<
-  Parameters<typeof recoverEmailOtpEd25519CapabilityForSigningV1>[0],
+  Parameters<typeof rehydrateEmailOtpEd25519CapabilityForSigningV1>[0],
   | 'workerContext'
   | 'shamirPrimeB64u'
   | 'resolveActiveCapability'
@@ -138,7 +138,7 @@ function markEcdsaBootstrapWorkerMaterialRuntimeValidated(args: {
   );
 }
 
-async function recoverEmailOtpEd25519CapabilityForSigning(args: {
+async function rehydrateEmailOtpEd25519CapabilityForSigning(args: {
   assembly: BrowserSigningSurfaceEnginePortsArgs;
   request: EmailOtpEd25519RecoveryRequest;
 }) {
@@ -154,7 +154,7 @@ async function recoverEmailOtpEd25519CapabilityForSigning(args: {
   ) {
     throw new Error('Email OTP Ed25519 recovery requires one exact persisted signer projection');
   }
-  const recovered = await recoverEmailOtpEd25519CapabilityForSigningV1({
+  const recovered = await rehydrateEmailOtpEd25519CapabilityForSigningV1({
     nearAccountId: args.request.nearAccountId,
     record: args.request.record,
     committedLane: args.request.committedLane,
@@ -228,6 +228,8 @@ export function createBrowserSigningSurfaceEnginePorts(
       args.emailOtpSessions.readWarmSessionStatusOnly(sessionId),
     consumeEmailOtpWarmSessionUses: (consumeArgs) =>
       args.emailOtpSessions.consumeWarmSessionUses(consumeArgs),
+    clearEmailOtpWarmSessionMaterial:
+      args.emailOtpSessions.clearVolatileWarmSessionMaterial.bind(args.emailOtpSessions),
     getWalletSigningBudgetStatus: (statusArgs) =>
       readTrustedWalletSigningBudgetStatusOperation(
         {
@@ -320,8 +322,8 @@ export function createBrowserSigningSurfaceEnginePorts(
         chain: 'near',
         authLane: challengeArgs.authLane,
       }),
-    recoverEmailOtpEd25519CapabilityForSigning: (recoveryArgs) =>
-      recoverEmailOtpEd25519CapabilityForSigning({ assembly: args, request: recoveryArgs }),
+    rehydrateEmailOtpEd25519CapabilityForSigning: (recoveryArgs) =>
+      rehydrateEmailOtpEd25519CapabilityForSigning({ assembly: args, request: recoveryArgs }),
     rehydratePasskeyEd25519YaoCapabilityForSigning:
       args.rehydratePasskeyEd25519YaoCapabilityForSigning,
     rehydratePasskeyEd25519YaoCapabilityAfterRefresh:

@@ -239,7 +239,6 @@ export function assertEd25519YaoRecoveryDescriptorContinuity(
     capability.applicationBinding.key_creation_signer_slot !== parsed.signerSlot ||
     capability.nearAccountId !== parsed.nearAccountId ||
     capability.lifecycle.accountId !== String(parsed.walletId) ||
-    capability.lifecycle.walletSessionId !== session.thresholdSessionId ||
     capability.lifecycle.signingWorkerId !== parsed.relayerKeyId ||
     session.routerAbNormalSigning?.signingWorkerId !== parsed.relayerKeyId ||
     session.participantIds[0] !== capability.participantIds[0] ||

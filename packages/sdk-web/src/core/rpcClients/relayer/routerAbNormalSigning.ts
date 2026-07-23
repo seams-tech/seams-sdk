@@ -17,6 +17,7 @@ import {
   normalizeRelayerBaseUrl,
 } from './relayerHttp';
 import { routerAbNormalSigningAdmissionErrorFromPayload } from '@/core/signingEngine/session/budget/admission';
+import { walletSessionFailureErrorFromPayload } from '@/core/signingEngine/session/lifecycle/walletSessionFailure';
 
 const INTENT_VERSION_V2 = 'router-ab-protocol/ed25519-normal-signing/intent/v2';
 const PAYLOAD_VERSION_V2 = 'router-ab-protocol/ed25519-normal-signing/payload/v2';
@@ -44,6 +45,7 @@ export type RouterAbNormalSigningScopeV1Wire = {
   request_id: string;
   account_id: string;
   session_id: string;
+  active_state_session_id: string;
   signing_worker_id: string;
 };
 
@@ -561,6 +563,10 @@ function parseScope(value: unknown, label: string): RouterAbNormalSigningScopeV1
     request_id: requireNonEmptyString(record.request_id, `${label}.request_id`),
     account_id: requireNonEmptyString(record.account_id, `${label}.account_id`),
     session_id: requireNonEmptyString(record.session_id, `${label}.session_id`),
+    active_state_session_id: requireNonEmptyString(
+      record.active_state_session_id,
+      `${label}.active_state_session_id`,
+    ),
     signing_worker_id: requireNonEmptyString(
       record.signing_worker_id,
       `${label}.signing_worker_id`,
@@ -706,6 +712,11 @@ function routerAbSigningHttpError(args: { path: string; status: number; bodyText
       status: args.status,
     });
     if (admissionError) return admissionError;
+    const walletSessionError = walletSessionFailureErrorFromPayload({
+      code: payload.code,
+      message: `Router A/B signing ${args.path} returned HTTP ${args.status}: ${payload.message}`,
+    });
+    if (walletSessionError) return walletSessionError;
   }
   return new Error(
     `Router A/B signing ${args.path} returned HTTP ${args.status}${

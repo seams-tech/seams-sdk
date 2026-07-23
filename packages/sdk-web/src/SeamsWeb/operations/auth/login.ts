@@ -611,9 +611,9 @@ type LoginWarmupEd25519MintPlan =
     }
   | {
       kind: 'local_material';
-      sessionId: string;
-      signingGrantId: string;
-      serverRefreshScope: PasskeyEd25519YaoLocalMaterialLocatorV1['serverRefreshScope'];
+      stableServerScope: PasskeyEd25519YaoLocalMaterialLocatorV1['stableServerScope'];
+      sessionId?: never;
+      signingGrantId?: never;
       authorization?: never;
     };
 
@@ -868,16 +868,7 @@ function resolveLoginWarmEd25519ProvisioningIdentity(args: {
     case 'not_requested':
       throw new Error('[login] threshold Ed25519 mint plan is missing');
     case 'local_material':
-      return {
-        kind: 'exact_ed25519_provisioning' as const,
-        laneIdentity: loginEd25519ExactProvisionLaneIdentity({
-          walletBinding: args.walletBinding,
-          signerSlot: args.signerSlot,
-          sessionId: args.mintPlan.sessionId,
-          signingGrantId: args.mintPlan.signingGrantId,
-          authority: args.authority,
-        }),
-      };
+      return { kind: 'fresh_ed25519_provisioning' as const };
     case 'fresh':
       return { kind: 'fresh_ed25519_provisioning' as const };
     case 'ecdsa_authorized':
@@ -904,7 +895,7 @@ type LoginEd25519ProvisionScope = {
   relayerKeyId: string;
   participantIds: readonly number[];
   runtimePolicyScope: ThresholdRuntimePolicyScope | null;
-  routerAbNormalSigning: PasskeyEd25519YaoLocalMaterialLocatorV1['serverRefreshScope']['routerAbNormalSigning'];
+  routerAbNormalSigning: PasskeyEd25519YaoLocalMaterialLocatorV1['stableServerScope']['routerAbNormalSigning'];
 };
 
 function resolveLoginEd25519ProvisionScope(args: {
@@ -913,10 +904,10 @@ function resolveLoginEd25519ProvisionScope(args: {
 }): LoginEd25519ProvisionScope {
   if (args.mintPlan.kind !== 'local_material') return args.fallback;
   return {
-    relayerKeyId: args.mintPlan.serverRefreshScope.relayerKeyId,
-    participantIds: args.mintPlan.serverRefreshScope.participantIds,
-    runtimePolicyScope: args.mintPlan.serverRefreshScope.runtimePolicyScope,
-    routerAbNormalSigning: args.mintPlan.serverRefreshScope.routerAbNormalSigning,
+    relayerKeyId: args.mintPlan.stableServerScope.relayerKeyId,
+    participantIds: args.mintPlan.stableServerScope.participantIds,
+    runtimePolicyScope: args.mintPlan.stableServerScope.runtimePolicyScope,
+    routerAbNormalSigning: args.mintPlan.stableServerScope.routerAbNormalSigning,
   };
 }
 
@@ -1594,9 +1585,7 @@ async function unlockInternal(
           }
           ed25519MintPlan = {
             kind: 'local_material',
-            sessionId: localMaterial.locator.thresholdSessionId,
-            signingGrantId: localMaterial.locator.signingGrantId,
-            serverRefreshScope: localMaterial.locator.serverRefreshScope,
+            stableServerScope: localMaterial.locator.stableServerScope,
           };
           break;
         }
@@ -4408,10 +4397,6 @@ function snapshotLaneToDisplaySigningSessionStatus(
   }
   const remainingUses = Math.floor(Number(lane.remainingUses ?? lane.policyHint?.remainingUses));
   const expiresAtMs = Math.floor(Number(lane.expiresAtMs ?? lane.policyHint?.expiresAtMs));
-  if (lane.state === 'restorable') {
-    if (Number.isFinite(remainingUses) && remainingUses <= 0) return null;
-    if (Number.isFinite(expiresAtMs) && expiresAtMs > 0 && Date.now() >= expiresAtMs) return null;
-  }
   const status: SigningSessionStatus = {
     sessionId,
     status:

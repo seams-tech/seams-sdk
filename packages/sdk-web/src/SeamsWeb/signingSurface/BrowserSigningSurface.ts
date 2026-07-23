@@ -2,7 +2,11 @@ import type { DurableRecordStore, RuntimePorts } from '@/core/platform';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { NonceCoordinator } from '@/core/signingEngine/nonce/NonceCoordinator';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
-import type { SigningFlowEvent } from '@/core/types/sdkSentEvents';
+import type {
+  SdkLifecycleEvent,
+  SdkLifecycleEventListener,
+  SigningFlowEvent,
+} from '@/core/types/sdkSentEvents';
 import type {
   AppearanceConfig,
   SigningSessionStatus,
@@ -181,6 +185,7 @@ import {
   type BrowserSigningSurfaceEnginePorts,
 } from '../assembly/browserSigningSurfaceAssembly';
 import type { BrowserSigningSurfaceConstructorDeps } from '../assembly/browserSigningSurfacePorts';
+import type { SigningSessionLifecycleSubscription } from '@/core/signingEngine/session/SigningSessionCoordinator';
 import { finalizeWalletRegistrationEcdsaSessions as finalizeWalletRegistrationEcdsaSessionsOperation } from '@/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions';
 import type {
   WorkerResourceWarmupAccountContext,
@@ -301,6 +306,20 @@ async function loadEcdsaRoleLocalReadyRecordFromRuntimePorts(
   return await runtimePortsRef.current.storage.loadEcdsaRoleLocalReadyRecord(input);
 }
 
+function sdkLifecycleEventDeliveryKey(event: SdkLifecycleEvent): string {
+  const eventName = event.event;
+  switch (eventName) {
+    case 'signing_session.expired':
+      return `${String(event.walletId)}:${String(event.walletSessionId)}`;
+    default:
+      return assertNeverSdkLifecycleEventName(eventName);
+  }
+}
+
+function assertNeverSdkLifecycleEventName(value: never): never {
+  throw new Error(`Unsupported SDK lifecycle event: ${String(value)}`);
+}
+
 /**
  * BrowserSigningSurface owns browser signing assembly state and exposes the SeamsWeb signing surface.
  */
@@ -343,6 +362,9 @@ export class BrowserSigningSurface {
   private readonly ecdsaBootstrapStore: ThresholdEcdsaBootstrapStorePort;
   private readonly ed25519YaoPageLifecycleOwner: Ed25519YaoPageLifecycleOwner;
   private readonly ed25519YaoPublicCapabilityReferences: BrowserSigningSurfaceConstructorDeps['ed25519YaoPublicCapabilityReferences'];
+  private readonly sdkLifecycleEventListeners = new Set<SdkLifecycleEventListener>();
+  private readonly deliveredSdkLifecycleEventKeys = new Set<string>();
+  private readonly signingSessionLifecycleSubscription: SigningSessionLifecycleSubscription;
 
   readonly seamsWebConfigs: SeamsConfigsReadonly;
 
@@ -455,6 +477,7 @@ export class BrowserSigningSurface {
         this.resolveExactPasskeyEd25519YaoExportContext.bind(this),
       resolveEmailOtpEd25519YaoExportContext:
         this.resolveEmailOtpEd25519YaoExportContext.bind(this),
+      getSigningSessionCoordinator: () => this.enginePorts.signingSessionCoordinator,
       getTheme: () => this.appearance.theme.mode,
     });
 
@@ -488,6 +511,10 @@ export class BrowserSigningSurface {
       recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning:
         this.recoverExactEmailOtpEd25519YaoCapabilitySilentlyForSigning.bind(this),
     });
+    this.signingSessionLifecycleSubscription =
+      this.enginePorts.signingSessionCoordinator.subscribeLifecycle(
+        this.publishSdkLifecycleEvent.bind(this),
+      );
     this.ed25519YaoPageLifecycleOwner = new Ed25519YaoPageLifecycleOwner(
       typeof window === 'undefined' ? null : window,
       this.enginePorts.ed25519YaoActiveClients,
@@ -720,7 +747,6 @@ export class BrowserSigningSurface {
       authPolicy: this.seamsWebConfigs.signing.emailOtp.authPolicy,
       ports: {
         readExactSealedSession,
-        fetch: fetchWithGlobalThis,
         workerContext: this.signerWorkerManager.getContext(),
         resolveActiveCapability: this.enginePorts.ed25519YaoActiveClients.resolve.bind(
           this.enginePorts.ed25519YaoActiveClients,
@@ -1567,7 +1593,28 @@ export class BrowserSigningSurface {
     }
   }
 
+  onSdkLifecycleEvent(listener: SdkLifecycleEventListener): () => void {
+    this.sdkLifecycleEventListeners.add(listener);
+    return this.removeSdkLifecycleEventListener.bind(this, listener);
+  }
+
+  publishSdkLifecycleEvent(event: SdkLifecycleEvent): void {
+    const deliveryKey = sdkLifecycleEventDeliveryKey(event);
+    if (this.deliveredSdkLifecycleEventKeys.has(deliveryKey)) return;
+    this.deliveredSdkLifecycleEventKeys.add(deliveryKey);
+    for (const listener of Array.from(this.sdkLifecycleEventListeners)) {
+      listener(event);
+    }
+  }
+
+  private removeSdkLifecycleEventListener(listener: SdkLifecycleEventListener): void {
+    this.sdkLifecycleEventListeners.delete(listener);
+  }
+
   dispose(): void {
+    this.signingSessionLifecycleSubscription.unsubscribe();
+    this.sdkLifecycleEventListeners.clear();
+    this.deliveredSdkLifecycleEventKeys.clear();
     this.ed25519YaoPageLifecycleOwner.dispose();
   }
 

@@ -16,6 +16,8 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import { resolvePasskeyEd25519WalletSessionRouteAuthV1 } from '@/core/signingEngine/session/passkey/ed25519YaoWarmRecovery';
+import { readClientWalletSessionAuthorization } from '@/core/signingEngine/session/persistence/clientSessionPersistence';
+import type { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
 
 type BrowserWarmSession = Awaited<ReturnType<WarmSessionCapabilityReader['getWarmSession']>>;
 type BrowserWarmSessionAuth =
@@ -66,6 +68,7 @@ export function createBrowserRecoveryPublicDeps(args: {
   recoverPasskeyEd25519YaoCapability: RecoveryPublicDeps['ed25519Yao']['recoverPasskeyCapability'];
   resolvePasskeyEd25519YaoExportContext: RecoveryPublicDeps['ed25519Yao']['resolvePasskeyExportContext'];
   resolveEmailOtpEd25519YaoExportContext: RecoveryPublicDeps['ed25519Yao']['emailOtp']['resolveExportContext'];
+  getSigningSessionCoordinator: () => SigningSessionCoordinator;
   getTheme: () => ThemeMode;
 }): RecoveryPublicDeps {
   return createRecoveryPublicDeps({
@@ -110,5 +113,22 @@ export function createBrowserRecoveryPublicDeps(args: {
     recoverPasskeyEd25519YaoCapability: args.recoverPasskeyEd25519YaoCapability,
     resolvePasskeyEd25519YaoExportContext: args.resolvePasskeyEd25519YaoExportContext,
     resolveEmailOtpEd25519YaoExportContext: args.resolveEmailOtpEd25519YaoExportContext,
+    sessionLifecycle: {
+      readAuthorization: (request) =>
+        readClientWalletSessionAuthorization({
+          identity: request.identity,
+          ecdsaStore: args.warmSigning.ecdsaSessions,
+          nowMs: request.nowMs,
+        }),
+      invalidateExpiredAuthorization: async (request) => {
+        const result = await args.getSigningSessionCoordinator().invalidateExpiredWalletSession({
+          state: request.state,
+          source: request.source,
+        });
+        if (result.kind === 'unavailable') {
+          throw new Error('[SigningEngine][key-export] expired Wallet Session cleanup failed');
+        }
+      },
+    },
   });
 }
