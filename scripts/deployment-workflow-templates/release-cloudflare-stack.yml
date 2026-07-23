@@ -86,8 +86,8 @@ jobs:
             echo "::error title=Validation branch mismatch::Run $validation_run_id belongs to $validation_branch, expected $source_branch"
             exit 1
           }
-          if [[ "$target" == 'production' && "$GITHUB_REF" != 'refs/heads/main' ]]; then
-            echo "::error title=Untrusted production workflow authority::Production release workflows must execute from refs/heads/main"
+          if [[ "$target" == 'production' && "$EVENT_BRANCH" != 'main' ]]; then
+            echo "::error title=Untrusted production workflow authority::Production release workflows must be triggered from main"
             exit 1
           fi
           [[ "$validation_conclusion" == 'success' ]] || {

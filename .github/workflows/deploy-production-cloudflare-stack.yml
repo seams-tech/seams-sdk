@@ -33,6 +33,7 @@ permissions:
 env:
   DEPLOY_TARGET: production
   DEPLOY_SOURCE_BRANCH: main
+  EVENT_BRANCH: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name }}
   SOURCE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
   VALIDATION_RUN_ID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || '' }}
   MANUAL_ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
@@ -101,8 +102,8 @@ jobs:
             echo "::error title=Validation branch mismatch::Run $validation_run_id belongs to $validation_branch, expected $source_branch"
             exit 1
           }
-          if [[ "$target" == 'production' && "$GITHUB_REF" != 'refs/heads/main' ]]; then
-            echo "::error title=Untrusted production workflow authority::Production release workflows must execute from refs/heads/main"
+          if [[ "$target" == 'production' && "$EVENT_BRANCH" != 'main' ]]; then
+            echo "::error title=Untrusted production workflow authority::Production release workflows must be triggered from main"
             exit 1
           fi
           [[ "$validation_conclusion" == 'success' ]] || {
@@ -122,7 +123,7 @@ jobs:
             echo "validation_run_id=$validation_run_id"
             echo 'change_base_sha='
           } >> "$GITHUB_OUTPUT"
-    if: github.event_name == 'workflow_run'
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push'
     env: {}
   auto_build_router:
     name: Build / ${{ needs.auto_prepare.outputs.target }} / cloudflare-router-ab
@@ -130,7 +131,7 @@ jobs:
       - auto_prepare
       - auto_select_components
     if: |-
-      github.event_name == 'workflow_run' && (contains(fromJSON(needs.auto_select_components.outputs.components), 'router') ||
+      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && (contains(fromJSON(needs.auto_select_components.outputs.components), 'router') ||
         contains(fromJSON(needs.auto_select_components.outputs.components), 'deriver-a') ||
         contains(fromJSON(needs.auto_select_components.outputs.components), 'deriver-b') ||
         contains(fromJSON(needs.auto_select_components.outputs.components), 'signing-worker'))
@@ -269,16 +270,15 @@ jobs:
             echo "- Source SHA: \`$SOURCE_SHA\`"
             echo "- Components: \`$components\`"
           } >> "$GITHUB_STEP_SUMMARY"
-    if: github.event_name == 'workflow_run'
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push'
     env: {}
   auto_build_gateway:
     name: Build / ${{ needs.auto_prepare.outputs.target }} / cloudflare-gateway
     needs:
       - auto_prepare
       - auto_select_components
-    if:
-      github.event_name == 'workflow_run' && (contains(fromJSON(needs.auto_select_components.outputs.components),
-      'gateway'))
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' &&
+      (contains(fromJSON(needs.auto_select_components.outputs.components), 'gateway'))
     runs-on: ubuntu-latest
     timeout-minutes: 25
     environment:
@@ -361,7 +361,7 @@ jobs:
       - auto_prepare
       - auto_select_components
     if: |-
-      github.event_name == 'workflow_run' && (contains(fromJSON(needs.auto_select_components.outputs.components), 'site') ||
+      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && (contains(fromJSON(needs.auto_select_components.outputs.components), 'site') ||
         contains(fromJSON(needs.auto_select_components.outputs.components), 'signer-iframe'))
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -476,7 +476,7 @@ jobs:
   auto_create_release_set:
     name: Create release-set manifest
     if: |-
-      github.event_name == 'workflow_run' && (always() &&
+      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && (always() &&
         needs.auto_prepare.result == 'success' &&
         needs.auto_select_components.result == 'success' &&
         needs.auto_select_components.outputs.components != '[]' &&
@@ -644,8 +644,8 @@ jobs:
           set -euo pipefail
           expected_branch='dev'
           if [[ "$DEPLOY_TARGET" == 'production' ]]; then expected_branch='main'; fi
-          if [[ "$DEPLOY_TARGET" == 'production' && "$GITHUB_REF" != 'refs/heads/main' ]]; then
-            echo "::error title=Untrusted production workflow authority::Production deployment workflows must execute from refs/heads/main"
+          if [[ "$DEPLOY_TARGET" == 'production' && "$EVENT_BRANCH" != 'main' ]]; then
+            echo "::error title=Untrusted production workflow authority::Production deployment workflows must be triggered from main"
             exit 1
           fi
           if [[ "${DEPLOY_SOURCE_BRANCH:-}" != "$expected_branch" ]]; then
@@ -759,7 +759,7 @@ jobs:
   auto_deploy_signing_worker:
     name: Deploy / production / cloudflare-router-ab / signing-worker
     if: |-
-      github.event_name == 'workflow_run' && (needs.auto_preflight_release.result == 'success' &&
+      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && (needs.auto_preflight_release.result == 'success' &&
         contains(fromJSON(needs.auto_preflight_release.outputs.selected_components), 'signing-worker'))
     needs:
       - auto_preflight_release
@@ -873,7 +873,7 @@ jobs:
   auto_deploy_deriver_a:
     name: Deploy / production / cloudflare-router-ab / deriver-a
     if: |-
-      github.event_name == 'workflow_run' && (needs.auto_preflight_release.result == 'success' &&
+      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && (needs.auto_preflight_release.result == 'success' &&
         contains(fromJSON(needs.auto_preflight_release.outputs.selected_components), 'deriver-a'))
     needs:
       - auto_preflight_release
@@ -1001,7 +1001,7 @@ jobs:
   auto_deploy_deriver_b:
     name: Deploy / production / cloudflare-router-ab / deriver-b
     if: |-
-      github.event_name == 'workflow_run' && (needs.auto_preflight_release.result == 'success' &&
+      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && (needs.auto_preflight_release.result == 'success' &&
         contains(fromJSON(needs.auto_preflight_release.outputs.selected_components), 'deriver-b'))
     needs:
       - auto_preflight_release
@@ -1129,7 +1129,7 @@ jobs:
   auto_deploy_mpc_router:
     name: Deploy / production / cloudflare-router-ab / router
     if: |-
-      github.event_name == 'workflow_run' && (always() &&
+      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && (always() &&
       needs.auto_preflight_release.result == 'success' &&
       contains(fromJSON(needs.auto_preflight_release.outputs.selected_components), 'router') &&
       needs.auto_deploy_signing_worker.result == 'success' &&
@@ -1276,7 +1276,7 @@ jobs:
   auto_final_smoke:
     name: Verify / production / cloudflare-stack
     if: |-
-      github.event_name == 'workflow_run' && (always() &&
+      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && (always() &&
         needs.auto_preflight_release.result == 'success' &&
         (contains(fromJSON(needs.auto_preflight_release.outputs.selected_components), 'router') ||
         contains(fromJSON(needs.auto_preflight_release.outputs.selected_components), 'deriver-a') ||
@@ -1825,7 +1825,8 @@ jobs:
   auto_deploy_pages:
     name: Verify / production / cloudflare-pages
     if:
-      always() && github.event_name == 'workflow_run' && needs.auto_preflight_release.result == 'success' &&
+      always() && github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' &&
+      needs.auto_preflight_release.result == 'success' &&
       (contains(fromJSON(needs.auto_preflight_release.outputs.selected_components), 'site') ||
       contains(fromJSON(needs.auto_preflight_release.outputs.selected_components), 'signer-iframe')) &&
       (!contains(fromJSON(needs.auto_preflight_release.outputs.selected_components), 'gateway') ||
@@ -1873,8 +1874,8 @@ jobs:
           set -euo pipefail
           expected_branch='dev'
           if [[ "$DEPLOY_TARGET" == 'production' ]]; then expected_branch='main'; fi
-          if [[ "$DEPLOY_TARGET" == 'production' && "$GITHUB_REF" != 'refs/heads/main' ]]; then
-            echo "::error title=Untrusted production workflow authority::Production deployment workflows must execute from refs/heads/main"
+          if [[ "$DEPLOY_TARGET" == 'production' && "$EVENT_BRANCH" != 'main' ]]; then
+            echo "::error title=Untrusted production workflow authority::Production deployment workflows must be triggered from main"
             exit 1
           fi
           if [[ "${DEPLOY_SOURCE_BRANCH:-}" != "$expected_branch" ]]; then

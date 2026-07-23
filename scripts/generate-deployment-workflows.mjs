@@ -119,6 +119,10 @@ function sourceShaExpressionBody() {
   return "github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha";
 }
 
+function automaticEventExpression() {
+  return "github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push'";
+}
+
 function sourceShaExpression() {
   return expression(sourceShaExpressionBody());
 }
@@ -185,7 +189,7 @@ async function readWorkflowTemplate(filename) {
 function transformReleaseJobs(template, target) {
   return transformJobMap(template.jobs, {
     prefix: 'auto_',
-    eventName: "github.event_name == 'workflow_run'",
+    eventName: automaticEventExpression(),
     skip: ['deploy'],
     sharedEnv: {},
     mapValue: (value) =>
@@ -220,7 +224,7 @@ function transformStackJobs(template, target, mode) {
   const jobs = transformJobMap(template.jobs, {
     prefix,
     eventName: automatic
-      ? "github.event_name == 'workflow_run'"
+      ? automaticEventExpression()
       : "github.event_name == 'workflow_dispatch'",
     skip: ['deploy_gateway', 'deploy_pages'],
     sharedEnv,
@@ -273,7 +277,7 @@ function transformGatewayJobs(template, target, mode) {
   const jobs = transformJobMap(template.jobs, {
     prefix,
     eventName: automatic
-      ? "github.event_name == 'workflow_run'"
+      ? automaticEventExpression()
       : "github.event_name == 'workflow_dispatch'",
     sharedEnv,
     mapValue: (value) => replaceInputs(value, replacements),
@@ -341,7 +345,7 @@ function makePagesBarrier(target, mode) {
   const prefix = automatic ? 'auto_' : 'manual_';
   const pageBarrierId = `${prefix}deploy_pages`;
   const eventName = automatic
-    ? "github.event_name == 'workflow_run'"
+    ? automaticEventExpression()
     : "github.event_name == 'workflow_dispatch'";
   const pageSelection = `contains(fromJSON(needs.${prefix}preflight_release.outputs.selected_components), 'site') || contains(fromJSON(needs.${prefix}preflight_release.outputs.selected_components), 'signer-iframe')`;
   return {
@@ -421,6 +425,9 @@ function makeWorkflowRoot(target, jobs) {
     env: {
       DEPLOY_TARGET: target.environment,
       DEPLOY_SOURCE_BRANCH: target.branch,
+      EVENT_BRANCH: expression(
+        "github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name",
+      ),
       SOURCE_SHA: sourceShaExpression(),
       VALIDATION_RUN_ID:
         "${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || '' }}",
