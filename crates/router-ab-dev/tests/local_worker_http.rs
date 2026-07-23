@@ -1,22 +1,8 @@
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
-use router_ab_cloudflare::{
-    CloudflareRouterAuthContextV1, CloudflareRouterNormalSigningPrepareAdmissionCandidateV2,
-    CloudflareRouterNormalSigningTrustedAdmissionV1,
-    CloudflareRouterNormalSigningTrustedMetadataV1,
-    CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2,
-    CloudflareSigningWorkerAdmittedNormalSigningPrepareRequestV2,
-};
+use ed25519_dalek::{Signer, SigningKey, Verifier};
 use router_ab_core::{
-    router_ab_ed25519_nep413_canonical_message_b64u_v2, Ed25519YaoEpochTransitionV1,
-    Ed25519YaoRefreshBindingV1, Ed25519YaoRefreshEpochsV1, Ed25519YaoSessionIdV1,
-    Ed25519YaoStateEpochV1, ExpensiveWorkGateDecisionV1, LocalHttpPathV1, LocalServiceRoleV1,
-    NormalSigningEd25519TwoPartyFrostCommitmentsV1, NormalSigningResponseV1,
-    NormalSigningRound1PrepareResponseV1, NormalSigningScopeV1, PublicDigest32, RootShareEpoch,
-    RouterAbEd25519NormalSigningFinalizeProtocolV2, RouterAbEd25519NormalSigningFinalizeRequestV2,
-    RouterAbEd25519NormalSigningIntentV2, RouterAbEd25519NormalSigningPrepareBindingV2,
-    RouterAbEd25519NormalSigningPrepareRequestV2, RouterAbEd25519SigningPayloadV2,
-    RouterAbEd25519TwoPartyFrostFinalizeProtocolV2, RouterAbNearNetworkIdV2,
+    Ed25519YaoEpochTransitionV1, Ed25519YaoRefreshBindingV1, Ed25519YaoRefreshEpochsV1,
+    Ed25519YaoSessionIdV1, Ed25519YaoStateEpochV1, LocalHttpPathV1, LocalServiceRoleV1,
+    RootShareEpoch,
 };
 use router_ab_dev::{
     admit_local_ed25519_yao_export_v1, admit_local_ed25519_yao_registration_v1,
@@ -68,7 +54,6 @@ use router_ab_dev::{
     LOCAL_SIGNING_WORKER_ED25519_YAO_RECOVERY_PROMOTE_PATH,
     LOCAL_SIGNING_WORKER_ED25519_YAO_REFRESH_DERIVER_A_PATH,
     LOCAL_SIGNING_WORKER_ED25519_YAO_REFRESH_DERIVER_B_PATH,
-    LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH, LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH,
 };
 use router_ab_ed25519_yao::recipient::client::{
     combine_client_activation_packages, combine_export_packages,
@@ -91,14 +76,10 @@ use signer_core::ed25519_yao_derivation::{
     Ed25519YaoStableKeyDerivationContextV1,
 };
 use signer_core::near_ed25519_recovery::expand_ed25519_seed;
-use signer_core::near_threshold_ed25519::{
-    build_signing_package, client_round1_commit, client_round2_signature_share,
-    commitments_from_wire, key_package_from_signing_share_bytes, signature_share_to_b64u,
-    verifying_share_bytes_from_signing_share_bytes, CommitmentsWire,
-};
+use signer_core::near_threshold_ed25519::verifying_share_bytes_from_signing_share_bytes;
 use signer_core::near_threshold_frost::compute_threshold_ed25519_group_public_key_2p_from_verifying_shares;
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeSet,
     fs,
     io::{Read, Write},
     net::{TcpListener, TcpStream},
@@ -113,91 +94,6 @@ use zeroize::{Zeroize, Zeroizing};
 fn router_ab_dev_source() -> String {
     fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
         .expect("router-ab-dev source should be readable")
-}
-
-fn signer_commitments_wire(
-    commitments: &NormalSigningEd25519TwoPartyFrostCommitmentsV1,
-) -> CommitmentsWire {
-    CommitmentsWire {
-        hiding: commitments.hiding.clone(),
-        binding: commitments.binding.clone(),
-    }
-}
-
-fn local_normal_signing_trusted_admission(
-    scope: &NormalSigningScopeV1,
-    intent_digest: PublicDigest32,
-    trusted_source_digest: PublicDigest32,
-) -> Result<CloudflareRouterNormalSigningTrustedAdmissionV1, Box<dyn std::error::Error>> {
-    let metadata = CloudflareRouterNormalSigningTrustedMetadataV1::new(
-        "local-org",
-        "local-project",
-        "local",
-        scope.account_id.clone(),
-        CloudflareRouterAuthContextV1::authenticated_session(
-            scope.account_id.clone(),
-            scope.session_id.clone(),
-        )?,
-        trusted_source_digest,
-        intent_digest,
-    )?;
-    Ok(CloudflareRouterNormalSigningTrustedAdmissionV1::new(
-        metadata,
-        ExpensiveWorkGateDecisionV1::accepted(scope.request_id.clone())?,
-    )?)
-}
-
-fn local_admitted_normal_signing_prepare(
-    request: &RouterAbEd25519NormalSigningPrepareRequestV2,
-) -> Result<CloudflareSigningWorkerAdmittedNormalSigningPrepareRequestV2, Box<dyn std::error::Error>>
-{
-    let material = request.admission_material()?;
-    let trusted_source_digest = PublicDigest32::new([0x41; 32]);
-    let candidate = CloudflareRouterNormalSigningPrepareAdmissionCandidateV2::new(
-        "local-org",
-        "local-project",
-        "local",
-        request.scope.account_id.clone(),
-        request.scope.account_id.clone(),
-        request.scope.session_id.clone(),
-        request.scope.signing_worker_id.clone(),
-        request.scope.request_id.clone(),
-        material.intent_digest,
-        material.signing_payload_digest,
-        material.admitted_signing_digest,
-        Some(request.round1_binding_digest()?),
-        trusted_source_digest,
-        request.expires_at_ms,
-    )?;
-    let trusted_admission = CloudflareRouterNormalSigningTrustedAdmissionV1::new(
-        candidate.to_v1_trusted_metadata()?,
-        ExpensiveWorkGateDecisionV1::accepted(request.scope.request_id.clone())?,
-    )?;
-    Ok(
-        CloudflareSigningWorkerAdmittedNormalSigningPrepareRequestV2::new(
-            request.scope.clone(),
-            request.expires_at_ms,
-            candidate,
-            trusted_admission,
-        )?,
-    )
-}
-
-fn local_admitted_normal_signing_finalize(
-    request: &RouterAbEd25519NormalSigningFinalizeRequestV2,
-) -> Result<CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2, Box<dyn std::error::Error>>
-{
-    let trusted_admission = local_normal_signing_trusted_admission(
-        &request.scope,
-        request.intent_digest(),
-        PublicDigest32::new([0x41; 32]),
-    )?;
-    Ok(
-        CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2::new(
-            request.clone(),
-            trusted_admission,
-        )?,
-    )
 }
 
 fn router_ab_dev_local_service_http_source() -> String {
@@ -520,14 +416,12 @@ struct LocalEd25519YaoLifecycleLatencySampleV1<'a> {
     recovery_microseconds: u64,
     refresh_microseconds: u64,
     export_microseconds: u64,
-    ordinary_signing_microseconds: u64,
     activation_deriver_a_to_b_bytes: u64,
     activation_deriver_b_to_a_bytes: u64,
     activation_total_ab_bytes: u64,
     export_deriver_a_to_b_bytes: u64,
     export_deriver_b_to_a_bytes: u64,
     export_total_ab_bytes: u64,
-    ordinary_signing_total_ab_bytes: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -535,19 +429,13 @@ struct LocalEd25519YaoLifecycleLatencySampleV1<'a> {
 struct Phase9CLocalLifecycleEvidenceV1<'a> {
     schema: &'static str,
     profile: &'a str,
-    lifecycle_vectors: [&'static str; 6],
+    lifecycle_vectors: [&'static str; 5],
     registered_public_key_sha256: String,
     exported_public_key_sha256: String,
     export_public_key_matches_registered: bool,
     export_standard_signature_verified: bool,
     recovery_preserved_identity: bool,
     refresh_preserved_identity: bool,
-    deriver_processes_terminated_before_signing: bool,
-    ordinary_signing_standard_signature_verified: bool,
-    ordinary_signing_deriver_a_requests: u64,
-    ordinary_signing_deriver_b_requests: u64,
-    ordinary_signing_deriver_a_to_b_bytes: u64,
-    ordinary_signing_deriver_b_to_a_bytes: u64,
 }
 
 fn write_phase9c_local_lifecycle_evidence(
@@ -567,7 +455,6 @@ fn write_phase9c_local_lifecycle_evidence(
             "recovery",
             "refresh",
             "exact_export",
-            "post_refresh_ordinary_signing",
         ],
         registered_public_key_sha256: hex::encode(Sha256::digest(registered_public_key)),
         exported_public_key_sha256: hex::encode(Sha256::digest(exported_public_key)),
@@ -575,12 +462,6 @@ fn write_phase9c_local_lifecycle_evidence(
         export_standard_signature_verified: true,
         recovery_preserved_identity: true,
         refresh_preserved_identity: true,
-        deriver_processes_terminated_before_signing: true,
-        ordinary_signing_standard_signature_verified: true,
-        ordinary_signing_deriver_a_requests: 0,
-        ordinary_signing_deriver_b_requests: 0,
-        ordinary_signing_deriver_a_to_b_bytes: 0,
-        ordinary_signing_deriver_b_to_a_bytes: 0,
     };
     let evidence_path = PathBuf::from(evidence_dir).join(format!("{profile}.json"));
     let mut file = fs::OpenOptions::new()
@@ -2246,147 +2127,6 @@ fn run_local_ed25519_yao_lifecycle(
 
     drop(deriver_a);
     drop(deriver_b);
-
-    let ordinary_signing_started = Instant::now();
-    let signing_scope = NormalSigningScopeV1::new(
-        "local-yao-sign-1",
-        "account-1",
-        "wallet-session-refresh-1",
-        "local-signing-worker",
-    )?;
-    let signing_message = "seams Phase 9C local process normal signing";
-    let signing_recipient = "wallet.local.test.near";
-    let signing_nonce_b64u = URL_SAFE_NO_PAD.encode([0x88; 32]);
-    let canonical_message_b64u = router_ab_ed25519_nep413_canonical_message_b64u_v2(
-        signing_message,
-        signing_recipient,
-        &signing_nonce_b64u,
-        None,
-    )?;
-    let canonical_message = URL_SAFE_NO_PAD.decode(&canonical_message_b64u)?;
-    let admitted_digest: [u8; 32] = Sha256::digest(&canonical_message).into();
-    let expected_signing_digest_b64u = URL_SAFE_NO_PAD.encode(admitted_digest);
-    let prepare_request = RouterAbEd25519NormalSigningPrepareRequestV2::new(
-        signing_scope,
-        2_000_000_000_000,
-        RouterAbEd25519NormalSigningIntentV2::Nep413V1 {
-            operation_id: "local-yao-sign-operation-1".to_owned(),
-            operation_fingerprint: "local-yao-sign-fingerprint-1".to_owned(),
-            near_account_id: "alice.testnet".to_owned(),
-            near_network_id: RouterAbNearNetworkIdV2::Testnet,
-            recipient: signing_recipient.to_owned(),
-            message: signing_message.to_owned(),
-            nonce_b64u: signing_nonce_b64u,
-            callback_url: None,
-        },
-        RouterAbEd25519SigningPayloadV2::Nep413MessageV1 {
-            canonical_message_b64u,
-            expected_signing_digest_b64u,
-        },
-    )?;
-    if mode.exercises_faults() {
-        let mut stale_prepare_request = prepare_request.clone();
-        stale_prepare_request.scope.session_id = "wallet-session-before-refresh".to_owned();
-        let stale_private_request = local_admitted_normal_signing_prepare(&stale_prepare_request)?;
-        let (stale_status, stale_body) = post_json_to_path_with_headers(
-            &signing_worker_url,
-            LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH,
-            &stale_private_request,
-            &auth_headers,
-        )?;
-        assert_eq!(stale_status, 400);
-        assert!(stale_body.contains("normal-signing scope does not match active Yao lifecycle"));
-    }
-    let private_prepare_request = local_admitted_normal_signing_prepare(&prepare_request)?;
-    let (prepare_status, prepare_body) = post_json_to_path_with_headers(
-        &signing_worker_url,
-        LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH,
-        &private_prepare_request,
-        &auth_headers,
-    )?;
-    assert_eq!(prepare_status, 200, "{prepare_body}");
-    let prepare_response: NormalSigningRound1PrepareResponseV1 =
-        serde_json::from_str(&prepare_body)?;
-    prepare_response.validate_for_v2_prepare_request(&prepare_request)?;
-
-    let client_identifier = frost_ed25519::Identifier::try_from(1_u16)?;
-    let signing_worker_identifier = frost_ed25519::Identifier::try_from(2_u16)?;
-    let mut client_key_package = key_package_from_signing_share_bytes(
-        &client_scalar,
-        registration_receipt.registered_public_key(),
-        client_identifier,
-    )?;
-    let mut client_round1 = client_round1_commit(&client_key_package)?;
-    let signing_worker_commitments = commitments_from_wire(&signer_commitments_wire(
-        &prepare_response.server_commitments,
-    ))?;
-    let signing_package = build_signing_package(
-        &admitted_digest,
-        BTreeMap::from([
-            (client_identifier, client_round1.commitments),
-            (signing_worker_identifier, signing_worker_commitments),
-        ]),
-    );
-    let client_signature_share = client_round2_signature_share(
-        &signing_package,
-        &client_round1.nonces,
-        &client_key_package,
-    )?;
-    let admission = prepare_request.admission_material()?;
-    let finalize_request = RouterAbEd25519NormalSigningFinalizeRequestV2::new(
-        prepare_request.scope.clone(),
-        prepare_request.expires_at_ms,
-        RouterAbEd25519NormalSigningPrepareBindingV2::new(
-            prepare_response.server_round1_handle.clone(),
-            prepare_response.round1_binding_digest,
-            admission.intent_digest,
-            admission.signing_payload_digest,
-        )?,
-        RouterAbEd25519NormalSigningFinalizeProtocolV2::Ed25519TwoPartyFrostFinalizeV1(
-            RouterAbEd25519TwoPartyFrostFinalizeProtocolV2::new(
-                NormalSigningEd25519TwoPartyFrostCommitmentsV1::new(
-                    client_round1.commitments_wire.hiding.clone(),
-                    client_round1.commitments_wire.binding.clone(),
-                )?,
-                prepare_response.server_commitments.clone(),
-                URL_SAFE_NO_PAD.encode(verifying_share_bytes_from_signing_share_bytes(
-                    &client_scalar,
-                )),
-                prepare_response.server_verifying_share_b64u.clone(),
-                signature_share_to_b64u(&client_signature_share)?,
-            )?,
-        ),
-    )?;
-    let private_finalize_request = local_admitted_normal_signing_finalize(&finalize_request)?;
-    let (sign_status, sign_body) = post_json_to_path_with_headers(
-        &signing_worker_url,
-        LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH,
-        &private_finalize_request,
-        &auth_headers,
-    )?;
-    assert_eq!(sign_status, 200, "{sign_body}");
-    let signing_response: NormalSigningResponseV1 = serde_json::from_str(&sign_body)?;
-    signing_response.validate_for_v2_finalize_request(&finalize_request)?;
-    if mode.exercises_faults() {
-        let (replay_status, replay_body) = post_json_to_path_with_headers(
-            &signing_worker_url,
-            LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH,
-            &private_finalize_request,
-            &auth_headers,
-        )?;
-        assert_eq!(replay_status, 400);
-        assert!(replay_body.contains("round-one state is unavailable"));
-    }
-    let signature: [u8; 64] = signing_response
-        .signature
-        .as_bytes()
-        .try_into()
-        .map_err(|_| "SigningWorker returned a non-Ed25519 signature length")?;
-    let verifying_key = VerifyingKey::from_bytes(registration_receipt.registered_public_key())?;
-    verifying_key.verify(&admitted_digest, &Signature::from_bytes(&signature))?;
-    let ordinary_signing_microseconds = elapsed_microseconds(ordinary_signing_started);
-    client_round1.nonces.zeroize();
-    client_key_package.zeroize();
     client_scalar.zeroize();
 
     write_phase9c_local_lifecycle_evidence(
@@ -2403,14 +2143,12 @@ fn run_local_ed25519_yao_lifecycle(
             recovery_microseconds,
             refresh_microseconds,
             export_microseconds,
-            ordinary_signing_microseconds,
             activation_deriver_a_to_b_bytes: 2_185_420,
             activation_deriver_b_to_a_bytes: 37_164,
             activation_total_ab_bytes: 2_222_584,
             export_deriver_a_to_b_bytes: 82_636,
             export_deriver_b_to_a_bytes: 20_780,
             export_total_ab_bytes: 103_416,
-            ordinary_signing_total_ab_bytes: 0,
         };
         println!("YAOS_AB_LOCAL_SAMPLE {}", serde_json::to_string(&sample)?);
     }
