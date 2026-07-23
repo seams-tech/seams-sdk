@@ -12,6 +12,7 @@
         "operationId": "operation-near-transaction-v2",
         "scope": {
           "account_id": "alice.testnet",
+          "active_state_session_id": "threshold-session-v2",
           "request_id": "router-ab-normal-signing/request-v2",
           "session_id": "threshold-session-v2",
           "signing_worker_id": "signing-worker-v2"
@@ -42,6 +43,7 @@
         },
         "scope": {
           "account_id": "alice.testnet",
+          "active_state_session_id": "threshold-session-v2",
           "request_id": "router-ab-normal-signing/request-v2",
           "session_id": "threshold-session-v2",
           "signing_worker_id": "signing-worker-v2"
@@ -55,7 +57,7 @@
       "intent_digest_b64u": "wG1HA83w_kucYdPlO1IxE8_dGrwKCgY5x5K-YsiWLuo",
       "signing_payload_digest_b64u": "UMkwa3cBLeo1egROtMEO2U2FHWp88fVglw47WykXIbc",
       "admitted_signing_digest_b64u": "Nre4iYnG098CZQXfaTx4IjuENB9twMeqEV45RB2DD8M",
-      "round1_binding_digest_b64u": "w4tGic_Y4PJfVvhAa7suBF-DqzFPGtjcLE_GOjaR4cE"
+      "round1_binding_digest_b64u": "fApq-c-eyVTHtqQ5MP2dGfPAM67S8OfWZzBV3YXmS3Q"
     },
     {
       "case_id": "nep413_v1",
@@ -72,6 +74,7 @@
         "recipient": "wallet.example.near",
         "scope": {
           "account_id": "alice.testnet",
+          "active_state_session_id": "threshold-session-v2",
           "request_id": "router-ab-normal-signing/request-v2",
           "session_id": "threshold-session-v2",
           "signing_worker_id": "signing-worker-v2"
@@ -92,6 +95,7 @@
         },
         "scope": {
           "account_id": "alice.testnet",
+          "active_state_session_id": "threshold-session-v2",
           "request_id": "router-ab-normal-signing/request-v2",
           "session_id": "threshold-session-v2",
           "signing_worker_id": "signing-worker-v2"
@@ -105,7 +109,7 @@
       "intent_digest_b64u": "DpsbOLTw8ZAe0gHAjA8tBcXIztFiNU20NAgLmuxEUig",
       "signing_payload_digest_b64u": "StWUSR49LhWUFyQGTXMsQy9U2Q2qeuw4F5aMgsdUKzE",
       "admitted_signing_digest_b64u": "JZuedIKlTa9uFN6iEy_oaKKD-QYl7Yh3EeinIINM8FA",
-      "round1_binding_digest_b64u": "zdQprG-rp-2H1H4I3C4xxDnZuivshryxrKtkcMxySBU"
+      "round1_binding_digest_b64u": "Tezq8DWRKbOESv1z7UPLDA-tIuNEgunquJbl5vJ6KhM"
     },
     {
       "case_id": "near_delegate_action_v1",
@@ -127,6 +131,7 @@
         "operationId": "operation-delegate-v2",
         "scope": {
           "account_id": "alice.testnet",
+          "active_state_session_id": "threshold-session-v2",
           "request_id": "router-ab-normal-signing/request-v2",
           "session_id": "threshold-session-v2",
           "signing_worker_id": "signing-worker-v2"
@@ -152,6 +157,7 @@
         },
         "scope": {
           "account_id": "alice.testnet",
+          "active_state_session_id": "threshold-session-v2",
           "request_id": "router-ab-normal-signing/request-v2",
           "session_id": "threshold-session-v2",
           "signing_worker_id": "signing-worker-v2"
@@ -165,7 +171,7 @@
       "intent_digest_b64u": "6bymIEzHEuTJdmmnStPOCyWbvFRa6eubBpJ35RUVOec",
       "signing_payload_digest_b64u": "Ex48kVDiecMR1sKTWb3zYGUSwc2ofuDystl1NPWy4aY",
       "admitted_signing_digest_b64u": "aWzqg_Yi38tZZWNvIaj5qh0NywcuejkJMKTU3-ICpqI",
-      "round1_binding_digest_b64u": "DJSuCsFoR4bA5ltoLHyQFKOWzueaJOxuSI4H9Cbot1E"
+      "round1_binding_digest_b64u": "AGOh7z867HyZNA77Mte_H9iQZwn-HUdXPCYXUhkSVoY"
     }
   ]
 }
