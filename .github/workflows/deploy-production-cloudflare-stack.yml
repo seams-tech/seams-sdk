@@ -1375,7 +1375,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
-      gateway_origin: ${{ steps.gateway_readiness.outputs.gateway_origin }}
+      gateway_origin: ${{ steps.gateway_origin.outputs.gateway_origin }}
     environment:
       name: ${{ 'production' == 'production' && 'production-gateway' || 'staging-gateway' }}
     env:
@@ -1546,8 +1546,8 @@ jobs:
             --secrets-file "$GATEWAY_SECRETS_FILE" \
             --message "$RELEASE_SET_ID:$DEPLOY_SHA" \
             --var "SEAMS_RELEASE_SET_ID:$RELEASE_SET_ID"
-      - name: Verify Gateway readiness and MPC routes
-        id: gateway_readiness
+      - name: Resolve deployed Gateway origin
+        id: gateway_origin
         working-directory: packages/console-server-ts
         run: |
           set -euo pipefail
@@ -1556,15 +1556,7 @@ jobs:
               --plan "$GATEWAY_DEPLOYMENT_PLAN" \
               --field gateway-origin
           )"
-          for path in \
-            /readyz \
-            /.well-known/router-ab-ceremony-jwks.json \
-            /router-ab/ed25519/healthz \
-            /router-ab/ecdsa-derivation/healthz
-          do
-            curl --fail --silent --show-error --max-time 5 \
-              "$gateway_origin$path" > /dev/null
-          done
+          test -n "$gateway_origin"
           echo "gateway_origin=$gateway_origin" >> "$GITHUB_OUTPUT"
       - name: Summarize Gateway deployment
         env:
@@ -1580,7 +1572,7 @@ jobs:
             echo "- Artifact run: \`$ARTIFACT_RUN_ID\`"
             echo "- Artifact content digest: \`$manifest_digest\`"
             echo "- Origin: $GATEWAY_ORIGIN"
-            echo "- Readiness: Gateway, ceremony JWKS, Ed25519, and ECDSA routes passed"
+            echo '- Deployment upload completed; final stack smoke verifies readiness after all components deploy.'
           } >> "$GITHUB_STEP_SUMMARY"
     if: github.event_name == 'workflow_run' && (needs.auto_preflight_release.result == 'success' &&
       contains(fromJSON(needs.auto_preflight_release.outputs.selected_components), 'gateway'))
@@ -2605,7 +2597,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
-      gateway_origin: ${{ steps.gateway_readiness.outputs.gateway_origin }}
+      gateway_origin: ${{ steps.gateway_origin.outputs.gateway_origin }}
     environment:
       name: ${{ 'production' == 'production' && 'production-gateway' || 'staging-gateway' }}
     env:
@@ -2776,8 +2768,8 @@ jobs:
             --secrets-file "$GATEWAY_SECRETS_FILE" \
             --message "$RELEASE_SET_ID:$DEPLOY_SHA" \
             --var "SEAMS_RELEASE_SET_ID:$RELEASE_SET_ID"
-      - name: Verify Gateway readiness and MPC routes
-        id: gateway_readiness
+      - name: Resolve deployed Gateway origin
+        id: gateway_origin
         working-directory: packages/console-server-ts
         run: |
           set -euo pipefail
@@ -2786,15 +2778,7 @@ jobs:
               --plan "$GATEWAY_DEPLOYMENT_PLAN" \
               --field gateway-origin
           )"
-          for path in \
-            /readyz \
-            /.well-known/router-ab-ceremony-jwks.json \
-            /router-ab/ed25519/healthz \
-            /router-ab/ecdsa-derivation/healthz
-          do
-            curl --fail --silent --show-error --max-time 5 \
-              "$gateway_origin$path" > /dev/null
-          done
+          test -n "$gateway_origin"
           echo "gateway_origin=$gateway_origin" >> "$GITHUB_OUTPUT"
       - name: Summarize Gateway deployment
         env:
@@ -2810,7 +2794,7 @@ jobs:
             echo "- Artifact run: \`$ARTIFACT_RUN_ID\`"
             echo "- Artifact content digest: \`$manifest_digest\`"
             echo "- Origin: $GATEWAY_ORIGIN"
-            echo "- Readiness: Gateway, ceremony JWKS, Ed25519, and ECDSA routes passed"
+            echo '- Deployment upload completed; final stack smoke verifies readiness after all components deploy.'
           } >> "$GITHUB_STEP_SUMMARY"
     if:
       github.event_name == 'workflow_dispatch' && (needs.manual_preflight_release.result == 'success' &&
