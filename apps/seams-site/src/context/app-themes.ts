@@ -375,8 +375,9 @@ const PASTEL_LIGHT_COLORS: Record<string, string> = {
   // subtle near-white cream menu card with lightly warmer controls and chrome
   colorBackground: '#fffefd',
   surface: '#fffdf9',
-  // light-grey chip behind the passkey halo icon (surface ≈ modal bg here)
-  passkeyHaloBackground: '#e6e1d5',
+  // light-grey chip behind the passkey halo icon (surface ≈ modal bg here);
+  // kept a touch warmer/darker than the modal bg so the chip stays visible
+  passkeyHaloBackground: '#efeadf',
   surface2: '#fffaf3',
   surface3: '#F2C6DE',
   surface4: '#DBCDF0',
