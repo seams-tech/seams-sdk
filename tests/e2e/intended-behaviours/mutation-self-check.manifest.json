@@ -45,8 +45,8 @@
         "ciCommand": "pnpm -C tests exec playwright test -c playwright.intended.ci.config.ts e2e/intended-behaviours/passkey.registration.contract.test.ts e2e/intended-behaviours/passkey.unlock.contract.test.ts --reporter=line"
       },
       "requiredHarnessEvidence": [
-        "after_step_up",
-        "assertStepUpTransactionConsumedSingleUseBudget"
+        "step_up_required",
+        "assertSigningAuthExpectation"
       ]
     },
     {

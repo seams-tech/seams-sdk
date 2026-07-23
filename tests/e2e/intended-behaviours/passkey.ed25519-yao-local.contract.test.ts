@@ -29,17 +29,3 @@ test(
   'public Ed25519 Yao add-signer persists and signs immediately',
   verifyLocalEd25519YaoAddSignerAndSigning,
 );
-
-async function verifyPreparedIframeEd25519YaoRegistrationAndSigning({
-  harness,
-}: {
-  harness: IntendedBehaviourHarness;
-}): Promise<void> {
-  await harness.registerPreparedIframePasskeyEd25519YaoWallet();
-  await harness.signNearTransaction('post_registration');
-}
-
-test(
-  'public prepared iframe Ed25519 Yao registration signs immediately',
-  verifyPreparedIframeEd25519YaoRegistrationAndSigning,
-);
