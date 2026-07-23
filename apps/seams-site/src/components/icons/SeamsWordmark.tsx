@@ -57,7 +57,7 @@ const SeamsWordmark: React.FC<SeamsWordmarkProps> = ({
         ...style,
       }}
     >
-      seams
+      <span className="seams-wordmark__text">seams</span>
       <svg
         width={markSize}
         height={markSize}
