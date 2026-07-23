@@ -56,9 +56,20 @@ export function summarizeSignedDelegateForSponsorship(
   let totalDepositYocto = 0n;
   let hasTransfer = false;
 
-  for (const action of parseActions(rawDelegateAction)) {
-    if (!isObject(action)) continue;
-    const kind = String(action.type || '').trim();
+  for (const rawAction of parseActions(rawDelegateAction)) {
+    if (!isObject(rawAction)) continue;
+    // Support both the discriminated `{ type, ... }` shape and the NEAR
+    // enum-tagged wire shape (`{ functionCall: {...} }` / `{ transfer: {...} }`)
+    // that the SDK relayer client actually sends. Reading only `action.type`
+    // left methods/deposit empty, which silently bypassed method allowlists.
+    const functionCall = isObject(rawAction.functionCall) ? rawAction.functionCall : null;
+    const transfer = isObject(rawAction.transfer) ? rawAction.transfer : null;
+    const kind = functionCall
+      ? ActionType.FunctionCall
+      : transfer
+        ? ActionType.Transfer
+        : String(rawAction.type || '').trim();
+    const action = functionCall || transfer || rawAction;
     if (kind === ActionType.FunctionCall) {
       const methodName = String(action.methodName || '').trim();
       if (methodName && !seenMethods.has(methodName)) {
@@ -73,7 +84,7 @@ export function summarizeSignedDelegateForSponsorship(
     if (kind === ActionType.Transfer) {
       hasTransfer = true;
       try {
-        totalDepositYocto += BigInt(String(action.amount || '0').trim() || '0');
+        totalDepositYocto += BigInt(String(action.deposit || action.amount || '0').trim() || '0');
       } catch {}
       continue;
     }
