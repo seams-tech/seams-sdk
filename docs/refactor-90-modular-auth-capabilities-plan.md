@@ -115,7 +115,7 @@ Invariants: `R90-INV-001`, `R90-INV-002`, `R90-INV-003`.
 Foundation A owns four outcomes:
 
 - `use_live_runtime`;
-- `rehydrate_active_session`;
+- `rehydrate_material_activation`;
 - `reauthorize_public_anchor`;
 - `blocked`.
 
@@ -434,14 +434,21 @@ Phase 4/5 sections; symbol-level deletion targets live in the
 - [ ] Phase 18 — ECDSA and Near persistence, two-state recovery, simple
   revocation commands, grants, and wallet quota have canonical owners and strict
   parsers.
+- [ ] Phase 18 — persisted capability and material records use opaque material
+  activation IDs independently from authorization session IDs.
 - [ ] Phase 19 — registration, unlock, refresh, signing, step-up, and export use
   the same capability modules and minimal recovery lifecycle.
+- [ ] Phase 19 — activation, hydration, and runtime publication resolve one exact
+  `MpcMaterialActivationRef`; `active_state_session_id` and session-shaped
+  material locators are deleted.
 - [ ] Phase 19 — cancellation, crash recovery, atomic finalization, secret
   disposal, and `superseded` re-resolution tests pass.
 - [ ] Phase 19 — the tactical symbols in the deletion ledger owned by this phase
   are deleted in the same changes that replace them.
 - [ ] Phase 20 — MPC routes use exact operation grants and atomic absent-claim
   grant/quota consumption; old threshold-session authorization is deleted.
+- [ ] Phase 20 — signed MPC operation scopes validate
+  `authorizationSessionId` and `materialActivation` independently.
 - [ ] Phase 20 — durable execution leases exist only for operations with a
   demonstrated cross-request or cross-worker need.
 - [ ] Phase 21 — worker/WASM secret boundaries and required import/export guards
@@ -461,6 +468,9 @@ Phase 4/5 sections; symbol-level deletion targets live in the
 
 - [ ] Registration, wallet unlock, and page refresh resolve equivalent canonical
   state through the same hydration and exact-lane foundations.
+- [ ] A fresh authorization session can use the same exact material activation,
+  reactivation creates a new activation ID, and no authorization session ID is
+  used as a material locator.
 - [ ] No supported build exposes both old and new MPC authorization flows.
 - [ ] All open reduction-ledger replacements have implementation evidence.
 - [ ] The intended-behaviour E2E matrix and `git diff --check` pass.
@@ -493,7 +503,7 @@ only):
       constructors that reject direct literals, broad spreads, and mixed
       live/sealed/anchor fields;
 - [ ] type fixtures rejecting cross-branch combinations (expired state without a
-      public anchor, sealed branch without an active material session, live
+      public anchor, sealed branch without a material activation, live
       branch without runtime proof);
 - [ ] Near and ECDSA observation unions parsed from canonical persistence, never
       from entry-point state;
@@ -512,7 +522,7 @@ exact lane resolver, and two-state activation journal. Registration, unlock,
 reauthorization, recovery, and refresh converge on this one adapter.
 
 Exit checks (`R90-INV-001`, `R90-INV-002`, `R90-INV-005`, `R90-INV-006`,
-`R90-INV-011`, `R90-INV-012`):
+`R90-INV-011`, `R90-INV-012`, `R90-INV-013`):
 
 - core identity, authority, session, material, persistence, recovery, export,
   and lifecycle fields are required in their valid branch;
@@ -542,7 +552,9 @@ Open items:
 - [ ] one activation commit port shared by registration and unlock; Email OTP
       unlock commits through it with no second writer;
 - [ ] refresh after worker destruction observes runtime `absent` and resolves
-      `rehydrate_active_session`;
+      `rehydrate_material_activation`;
+- [ ] persisted activation identity uses a branded `MpcMaterialActivationId`
+      independently from every authorization or Wallet Session ID;
 - [ ] legacy `ThresholdEcdsaSessionRecordCore` family deleted (see the
       [deletion ledger](./refactor-90-deletion-ledger.md));
 - [ ] end-to-end: real write, destroy runtime, reopen persistence, hydrate,
@@ -757,14 +769,23 @@ Implement:
 - one simple revocation command outbox when offline server reconciliation is
   required;
 - independent operation grants and `MpcWalletSigningQuota`;
+- a branded `MpcMaterialActivationId` and exact activation reference persisted
+  with each active capability/material manifest, separate from
+  `SeamsSessionId`;
 - strict boundary parsers with no dual-schema core reader.
 
 `signingGrantId` is classified and deleted, mapped to operation grant, or mapped
 to wallet quota according to semantics. It is never mechanically renamed or used
 as material identity.
 
-Invariants: `R90-INV-001`, `R90-INV-002`, `R90-INV-005`, `R90-INV-006`. The
-record and symbol deletion targets are enumerated in the
+The persisted/request cutover replaces `active_state_session_id` and any
+threshold-session-derived material locator with the exact activation reference.
+There is no compatibility alias in core types. Activation records created before
+the cutover may be rejected at the persistence boundary; development accounts
+can be recreated after the schema and protocol version advance.
+
+Invariants: `R90-INV-001`, `R90-INV-002`, `R90-INV-005`, `R90-INV-006`,
+`R90-INV-013`. The record and symbol deletion targets are enumerated in the
 [deletion ledger](./refactor-90-deletion-ledger.md).
 
 ### Phase 19: MPC capability modules
@@ -798,8 +819,17 @@ Disposal and zeroization cover success, failure, cancellation, expiry,
 supersession, and abandoned-handle TTL cleanup. They do not appear in the
 durable journal.
 
+The capability module owns activation identity. Registration or explicit
+re-activation creates a new opaque activation ID and binds it to the capability,
+material owner, key, lifecycle, and SigningWorker. Unlock, refresh, and step-up
+may mint fresh authorization sessions while preserving that exact activation
+reference. They never derive material identity from the fresh session ID.
+Hydration returns the same activation reference for live and sealed copies of
+the same exact material.
+
 Invariants: `R90-INV-002`, `R90-INV-003`, `R90-INV-004`, `R90-INV-005`,
-`R90-INV-006`, `R90-INV-007`, `R90-INV-008`, `R90-INV-010`, `R90-INV-011`.
+`R90-INV-006`, `R90-INV-007`, `R90-INV-008`, `R90-INV-010`, `R90-INV-011`,
+`R90-INV-013`.
 The tactical resolver, lane, reconnect, recovery, and export symbols this phase
 deletes are enumerated in the
 [deletion ledger](./refactor-90-deletion-ledger.md).
@@ -817,7 +847,21 @@ operations whose real execution can outlive the request or transfer between
 workers. Client material-owner queues and server operation claims remain separate
 domains.
 
-Invariants: `R90-INV-008`, `R90-INV-009`.
+Every signed MPC operation scope carries two independent proofs:
+
+- `authorizationSessionId` identifies the current active `SeamsSession` and is
+  checked for expiry, audience, device, and evidence policy;
+- `materialActivation` identifies the exact activated material instance and is
+  checked against the capability, owner, key, lifecycle, generation, and
+  SigningWorker state.
+
+The wire protocol replaces generic `session_id` and
+`active_state_session_id` fields with these explicit domains and advances its
+version and transcript vectors. A session refresh changes only authorization.
+Material re-activation changes only the activation reference. Neither value is
+accepted as a substitute for the other.
+
+Invariants: `R90-INV-008`, `R90-INV-009`, `R90-INV-013`.
 
 ### Phase 21: Worker and bundle boundaries
 

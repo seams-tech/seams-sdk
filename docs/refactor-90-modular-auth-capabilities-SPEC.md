@@ -5,6 +5,7 @@ Architecture hardening: July 10, 2026
 MPC preparation generalization: July 10, 2026
 MPC lifecycle convergence: July 16, 2026
 ECDSA state and persistence convergence: July 18, 2026
+Authorization and material identity separation: July 23, 2026
 
 Status: planning.
 
@@ -31,7 +32,7 @@ invariant.
   refresh, recovery, signing, and export cannot publish parallel active records.
 - **R90-INV-003 — Entry-point-neutral hydration.** Registration, wallet unlock,
   and page refresh are provenance only. Canonical state selects
-  `use_live_runtime`, `rehydrate_active_session`,
+  `use_live_runtime`, `rehydrate_material_activation`,
   `reauthorize_public_anchor`, or `blocked`.
 - **R90-INV-004 — Recovery server idempotency.** Every consuming recovery call
   is independently idempotent and queryable by exact `recoveryId`. A reload from
@@ -68,6 +69,12 @@ invariant.
   construction, boundary tests reject hostile raw data, guards enforce
   dependency/artifact boundaries, integration tests prove cross-store effects,
   and E2E tests prove selected user-visible transitions.
+- **R90-INV-013 — Authorization/material identity separation.** A
+  `SeamsSessionId` identifies current authorization. An opaque
+  `MpcMaterialActivationId` identifies one exact activated MPC material
+  instance. No authorization session ID locates, owns, or aliases activated
+  material, and a fresh authorization session may reference an unchanged exact
+  material activation only through a validated `MpcMaterialActivationRef`.
 
 ## Phased Invariant Verification Checklist
 
@@ -126,6 +133,9 @@ evidence from the progress journal.
   stage.
 - [ ] `R90-INV-012` — type, parser, guard, integration, concurrency, and E2E
   checks follow the one-enforcement-per-failure-mode rule.
+- [ ] `R90-INV-013` — activation, hydration, normal signing, step-up, refresh,
+  and export use an exact material-activation reference independently from the
+  current authorization session.
 
 ### Final conformance
 
@@ -434,8 +444,8 @@ Refactor move:
 
 - rename shared client confirmation concepts to `CapabilityGrantPlan` and
   `CapabilityGrantChallenge`;
-- keep `thresholdSessionId` only inside MPC capability operation lanes and MPC UI
-  adapters;
+- replace threshold-session material locators inside MPC operation lanes with
+  exact `MpcMaterialActivationRef` values;
 - replace `signingGrantId` in shared UI payloads with
   `capabilityGrantId`;
 - move wallet-specific display data behind a capability display adapter;
@@ -2266,7 +2276,8 @@ closed hydration plan:
 type CapabilityInstanceRef = Brand<string, "CapabilityInstanceRef">;
 type MpcMaterialOwnerRef = Brand<string, "MpcMaterialOwnerRef">;
 type MpcCapabilityRuntimeRef = Brand<string, "MpcCapabilityRuntimeRef">;
-type ActiveMpcMaterialSessionRef = Brand<string, "ActiveMpcMaterialSessionRef">;
+type MpcMaterialActivationId = Brand<string, "MpcMaterialActivationId">;
+type MpcSigningWorkerRef = Brand<string, "MpcSigningWorkerRef">;
 type RestorableMpcMaterialRef = Brand<string, "RestorableMpcMaterialRef">;
 type NearEd25519YaoSealedActiveClientRef =
   Brand<string, "NearEd25519YaoSealedActiveClientRef">;
@@ -2280,6 +2291,22 @@ type MpcReauthorizationPolicyRef =
   Brand<string, "MpcReauthorizationPolicyRef">;
 type MpcRegisteredPublicKeyBindingRef =
   Brand<string, "MpcRegisteredPublicKeyBindingRef">;
+
+type MpcMaterialActivationRef = {
+  kind: "mpc_material_activation_ref";
+  activationId: MpcMaterialActivationId;
+  capability: CapabilityInstanceRef;
+  materialOwner: MpcMaterialOwnerRef;
+  keyBinding: MpcKeyBindingRef;
+  lifecycleBinding: MpcLifecycleBindingRef;
+  signingWorker: MpcSigningWorkerRef;
+};
+
+type MpcOperationExecutionScope = {
+  authorizationSessionId: SeamsSessionId;
+  materialActivation: MpcMaterialActivationRef;
+  operation: CapabilityOperationRef;
+};
 
 type MpcCapabilityHydrationEntryPoint =
   | "post_registration"
@@ -2299,7 +2326,7 @@ type MpcCapabilityPublicReauthAnchor = {
   sealedMaterial?: never;
   bearerSessionCredential?: never;
   runtime?: never;
-  activeMaterialSession?: never;
+  materialActivation?: never;
   operationGrant?: never;
   quotaState?: never;
   nonceState?: never;
@@ -2312,17 +2339,17 @@ type MpcCapabilityHydrationPlan =
       materialOwner: MpcMaterialOwnerRef;
       authority: WalletAuthAuthorityRef;
       runtime: MpcCapabilityRuntimeRef;
-      activeMaterialSession: ActiveMpcMaterialSessionRef;
+      materialActivation: MpcMaterialActivationRef;
       sealedMaterial?: never;
       retirement?: never;
       publicReauthAnchor?: never;
     }
   | {
-      kind: "rehydrate_active_session";
+      kind: "rehydrate_material_activation";
       capability: CapabilityInstanceRef;
       materialOwner: MpcMaterialOwnerRef;
       authority: WalletAuthAuthorityRef;
-      activeMaterialSession: ActiveMpcMaterialSessionRef;
+      materialActivation: MpcMaterialActivationRef;
       sealedMaterial: RestorableMpcMaterialRef;
       runtime?: never;
       retirement?: never;
@@ -2336,7 +2363,7 @@ type MpcCapabilityHydrationPlan =
       retirement: "expired" | "exhausted";
       publicReauthAnchor: MpcCapabilityPublicReauthAnchor;
       runtime?: never;
-      activeMaterialSession?: never;
+      materialActivation?: never;
       sealedMaterial?: never;
     }
   | {
@@ -2355,7 +2382,7 @@ type MpcCapabilityHydrationPlan =
       materialOwner?: never;
       authority?: never;
       runtime?: never;
-      activeMaterialSession?: never;
+      materialActivation?: never;
       sealedMaterial?: never;
       retirement?: never;
       publicReauthAnchor?: never;
@@ -2370,10 +2397,10 @@ type MpcCapabilityHydrationResolution = {
 ```
 
 `RestorableMpcMaterialRef` is proof that the protocol adapter resolved exact
-durable material for the current active material session and an exact currently
+durable material for the current material activation and an exact currently
 available material-unlock source. An adapter with an unavailable unlock source
 returns its typed material-unlock requirement and cannot construct
-`rehydrate_active_session`. The Near Ed25519
+`rehydrate_material_activation`. The Near Ed25519
 adapter derives it from an authenticated
 `NearEd25519YaoSealedActiveClientRef`; the rehydration effect imports that
 activated Client locally and makes zero Deriver A/B calls. The ECDSA adapter
@@ -2381,7 +2408,7 @@ derives it from an exact encrypted `EcdsaRoleLocalDurableMaterialRef`.
 `NearEd25519YaoSealedRootRecoveryRef` is a separate recovery input used for
 device linking and explicit same-root recovery. Export uses its separately
 authorized one-use material-acquisition lifecycle. The root-recovery ref cannot
-construct `rehydrate_active_session`.
+construct `rehydrate_material_activation`.
 
 The shared leaf contract owns only the four decisions and branded proofs.
 Protocol adapters own persistence parsing, cryptographic envelope validation,
@@ -2393,6 +2420,19 @@ The public anchor is stable reauthorization input. Its policy reference names
 the capability's reauthorization policy and is never an operation grant. Core
 material, signing, and export functions receive `plan`, while diagnostics and
 tests may also receive `provenance`.
+
+Authorization and material activation are independent protocol identities.
+Creating or refreshing a `SeamsSession` never renames, rekeys, or relocates
+activated MPC material. Activation creates a fresh opaque
+`MpcMaterialActivationId`; the durable material record, registered capability,
+SigningWorker state, and signed operation context bind the corresponding
+`MpcMaterialActivationRef`. Normal signing validates the active authorization
+session and exact material activation independently. The wire scope therefore
+uses `authorization_session_id` and `material_activation`; the tactical
+`session_id` plus `active_state_session_id` pair is deleted rather than retained
+as aliases. Re-activation creates a new activation ID. Session renewal preserves
+the activation reference only when all capability, owner, key, lifecycle, and
+SigningWorker bindings still match.
 
 Near same-root recovery persists only cross-boundary facts:
 
@@ -2512,7 +2552,7 @@ type RegisteredEvmFamilySigner = {
   signingRootId: SigningRootId;
   signingRootVersion: SigningRootVersion;
   registeredPublicFacts: VerifiedEcdsaPublicFacts;
-  activeSession?: never;
+  materialActivation?: never;
   durableMaterial?: never;
   runtime?: never;
   operationGrant?: never;
@@ -2521,13 +2561,12 @@ type RegisteredEvmFamilySigner = {
   bearerSessionCredential?: never;
 };
 
-type ActiveEcdsaMaterialSession = {
-  kind: "active_ecdsa_material_session";
-  thresholdSessionId: ThresholdEcdsaSessionId;
+type ActiveEcdsaMaterialActivation = {
+  kind: "active_ecdsa_material_activation";
+  materialActivation: MpcMaterialActivationRef;
   serverGeneration: EcdsaServerGeneration;
-  lifecycleBinding: MpcLifecycleBindingRef;
-  retention: "session_retained";
-  thresholdSessionExpiresAt: IsoTimestamp;
+  retention: "retained";
+  activationExpiresAt: IsoTimestamp;
   recoveryPolicy: {
     kind: "recoverable";
     remainingRecoveryUses: PositiveInt;
@@ -2558,7 +2597,7 @@ type ActiveEcdsaCapabilityManifest = {
   manifestId: EcdsaCapabilityManifestId;
   manifestRevision: EcdsaCapabilityManifestRevision;
   signer: RegisteredEvmFamilySigner;
-  activeSession: ActiveEcdsaMaterialSession;
+  materialActivation: ActiveEcdsaMaterialActivation;
   durableMaterial: DurableEcdsaMaterialBinding;
   serverActivationReceipt: EcdsaServerActivationReceipt;
   committedAt: IsoTimestamp;
@@ -2578,7 +2617,7 @@ type RetiredEcdsaCapabilityManifestCommon = {
   manifestRevision: EcdsaCapabilityManifestRevision;
   signer: RegisteredEvmFamilySigner;
   retiredAt: IsoTimestamp;
-  activeSession?: never;
+  materialActivation?: never;
   durableMaterial?: never;
   serverActivationReceipt?: never;
   runtime?: never;
@@ -2615,7 +2654,7 @@ type ActiveEcdsaCapabilityRef = {
   signerId: EvmFamilyEcdsaSignerId;
   authority: WalletAuthAuthorityRef;
   materialOwner: MpcMaterialOwnerRef;
-  thresholdSessionId: ThresholdEcdsaSessionId;
+  materialActivation: MpcMaterialActivationRef;
   serverGeneration: EcdsaServerGeneration;
 };
 
@@ -2742,7 +2781,7 @@ durable material ref, and binding digest. A high-value commit may be read throug
 the canonical parser after transaction completion; no readback or runtime-
 publication journal state exists. Reload reconciles a pending journal before
 ordinary capability discovery. A partial commit cannot construct
-`use_live_runtime`, `rehydrate_active_session`, or an operation lane.
+`use_live_runtime`, `rehydrate_material_activation`, or an operation lane.
 
 Exact operation selection begins from the active capability ref and keeps
 operation authorization and quota independent from material identity:
