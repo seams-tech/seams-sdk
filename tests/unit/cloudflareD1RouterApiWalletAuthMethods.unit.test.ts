@@ -327,7 +327,7 @@ class TestEd25519YaoAddSignerRuntime implements RouterAbEd25519YaoProductRegistr
   }
 }
 
-test('passkey Ed25519 budget refresh accepts the current grant independently of the durable signer snapshot', async () => {
+test('passkey Ed25519 budget refresh accepts current session identity independently of registration provenance', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
@@ -340,7 +340,8 @@ test('passkey Ed25519 budget refresh accepts the current grant independently of 
     const walletId = walletIdFromString('passkey-budget-refresh.testnet');
     const nearAccountId = 'passkey-budget-refresh.testnet';
     const nearEd25519SigningKeyId = 'near-ed25519-key-refresh';
-    const thresholdSessionId = 'threshold-session-stable';
+    const registrationThresholdSessionId = 'threshold-session-registration';
+    const currentThresholdSessionId = 'threshold-session-current';
     const currentSigningGrantId = 'signing-grant-current';
     const rpId = 'example.com';
     const credentialIdB64u = 'passkey-budget-refresh-credential';
@@ -360,7 +361,7 @@ test('passkey Ed25519 budget refresh accepts the current grant independently of 
       walletId,
       nearAccountId,
       nearEd25519SigningKeyId,
-      thresholdSessionId,
+      thresholdSessionId: registrationThresholdSessionId,
       signerSlot: 1,
       signingWorkerId: TEST_YAO_SIGNING_WORKER_ID,
       participantIds,
@@ -373,7 +374,7 @@ test('passkey Ed25519 budget refresh accepts the current grant independently of 
       signerId: `ed25519:${nearAccountId}:1`,
       nearAccountId,
       nearEd25519SigningKeyId,
-      thresholdSessionId,
+      thresholdSessionId: registrationThresholdSessionId,
       signingGrantId: 'obsolete-registration-grant',
       signerSlot: 1,
       publicKey: activeYao.publicKey,
@@ -438,7 +439,7 @@ test('passkey Ed25519 budget refresh accepts the current grant independently of 
           nearEd25519SigningKeyId,
           authority,
           relayerKeyId: TEST_YAO_SIGNING_WORKER_ID,
-          thresholdSessionId,
+          thresholdSessionId: currentThresholdSessionId,
           signingGrantId: currentSigningGrantId,
           runtimePolicyScope,
           routerAbNormalSigning: {
@@ -457,7 +458,7 @@ test('passkey Ed25519 budget refresh accepts the current grant independently of 
     ).resolves.toMatchObject({
       ok: true,
       walletId,
-      thresholdSessionId,
+      thresholdSessionId: currentThresholdSessionId,
       signingGrantId: currentSigningGrantId,
       remainingUses: 1,
     });

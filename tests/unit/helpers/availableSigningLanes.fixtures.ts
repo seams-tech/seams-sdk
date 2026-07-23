@@ -12,6 +12,7 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toAccountId } from '@/core/types/accountIds';
+import { parseRootShareEpoch, type RootShareEpoch } from '@shared/utils/domainIds';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
@@ -47,6 +48,9 @@ export const AVAILABLE_LANES_EXPIRES_AT_MS = 2_000_000_000_000;
 export const AVAILABLE_LANES_ECDSA_PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 export const AVAILABLE_LANES_ECDSA_KEY_HANDLE =
   'ederivation-key-available-lane-test' as EvmFamilyEcdsaKeyHandle;
+export const AVAILABLE_LANES_ROOT_SHARE_EPOCH = fixtureRootShareEpoch(
+  'available-lanes-root-epoch-1',
+);
 export const AVAILABLE_LANES_ECDSA_TARGET = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'evm',
   chainId: 5042002,
@@ -101,9 +105,18 @@ export function runtimeEcdsaRouterAbNormalSigningState(args: {
         recipient_encryption_key:
           'x25519:1111111111111111111111111111111111111111111111111111111111111111',
       },
-      activation_epoch: args.thresholdSessionId,
+      activation_epoch: AVAILABLE_LANES_ROOT_SHARE_EPOCH,
     },
   };
+}
+
+/** Brands a fixture root-share epoch via the production parser. */
+function fixtureRootShareEpoch(value: string): RootShareEpoch {
+  const parsed = parseRootShareEpoch(value);
+  if (!parsed.ok) {
+    throw new Error(`invalid fixture activation epoch: ${value}`);
+  }
+  return parsed.value;
 }
 
 export function runtimeEcdsaAvailableLaneRecord(args: {

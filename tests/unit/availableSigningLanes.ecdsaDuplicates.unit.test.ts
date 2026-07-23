@@ -34,11 +34,13 @@ import {
   AVAILABLE_LANES_ECDSA_TARGET as ECDSA_TARGET,
   AVAILABLE_LANES_EXPIRES_AT_MS as EXPIRES_AT_MS,
   AVAILABLE_LANES_PASSKEY_CREDENTIAL_ID as PASSKEY_CREDENTIAL_ID,
+  AVAILABLE_LANES_ROOT_SHARE_EPOCH,
   AVAILABLE_LANES_TEMPO_TARGET as TEMPO_TARGET,
   AVAILABLE_LANES_WALLET_ID as WALLET_ID,
   readAvailableLanesFixture as readAvailableLanes,
   runtimeEcdsaAvailableLaneRecord as runtimeEcdsaRecord,
 } from './helpers/availableSigningLanes.fixtures';
+import { fixtureRouterAbEcdsaDerivationPublicCapability } from './helpers/ecdsaBootstrap.fixtures';
 
 function unsignedEcdsaWalletSessionJwt(args: {
   walletId: string;
@@ -76,6 +78,43 @@ function sealedEmailOtpEcdsaRecord(args: {
     remainingUses: 3,
     updatedAtMs: args.updatedAtMs,
   });
+  const routerAbEcdsaDerivationNormalSigning = {
+    kind: 'router_ab_ecdsa_derivation_normal_signing_v1' as const,
+    scope: {
+      wallet_key_id: runtimeRecord.key.evmFamilySigningKeySlotId,
+      wallet_id: runtimeRecord.key.walletId,
+      ecdsa_threshold_key_id: runtimeRecord.key.ecdsaThresholdKeyId,
+      signing_root_id: runtimeRecord.key.signingRootId,
+      signing_root_version: runtimeRecord.key.signingRootVersion,
+      context: {
+        application_binding_digest_b64u: Buffer.from(new Uint8Array(32).fill(6)).toString(
+          'base64url',
+        ),
+      },
+      public_identity: {
+        context_binding_b64u: Buffer.from(new Uint8Array(32).fill(5)).toString('base64url'),
+        derivation_client_share_public_key33_b64u: Buffer.from(
+          new Uint8Array([2, ...Array(32).fill(3)]),
+        ).toString('base64url'),
+        server_public_key33_b64u: Buffer.from(
+          new Uint8Array([2, ...Array(32).fill(2)]),
+        ).toString('base64url'),
+        threshold_public_key33_b64u: VALID_ECDSA_PUBLIC_KEY_B64U,
+        ethereum_address20_b64u: Buffer.from(new Uint8Array(20).fill(0xef)).toString(
+          'base64url',
+        ),
+        client_share_retry_counter: 0,
+        server_share_retry_counter: 0,
+      },
+      signing_worker: {
+        server_id: 'signing-worker-test',
+        key_epoch: 'worker-epoch-test',
+        recipient_encryption_key:
+          'x25519:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      },
+      activation_epoch: AVAILABLE_LANES_ROOT_SHARE_EPOCH,
+    },
+  };
   const record = buildCurrentSealedSessionRecord({
     curve: 'ecdsa',
     authMethod: 'email_otp',
@@ -96,6 +135,7 @@ function sealedEmailOtpEcdsaRecord(args: {
       provider: 'google',
       providerSubjectId: 'google:available-lanes',
       emailHashHex: '11'.repeat(32),
+      roleLocalDurableMaterialRef: 'role-local-material-available-lanes',
       walletSessionJwt: unsignedEcdsaWalletSessionJwt({
         walletId: String(runtimeRecord.key.walletId),
         keyHandle: String(runtimeRecord.keyHandle),
@@ -112,43 +152,12 @@ function sealedEmailOtpEcdsaRecord(args: {
       ),
       thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
       participantIds: [...runtimeRecord.key.participantIds],
-      routerAbEcdsaDerivationNormalSigning: {
-        kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
-        scope: {
-          wallet_key_id: runtimeRecord.key.evmFamilySigningKeySlotId,
-          wallet_id: runtimeRecord.key.walletId,
-          ecdsa_threshold_key_id: runtimeRecord.key.ecdsaThresholdKeyId,
-          signing_root_id: runtimeRecord.key.signingRootId,
-          signing_root_version: runtimeRecord.key.signingRootVersion,
-          context: {
-            application_binding_digest_b64u: Buffer.from(new Uint8Array(32).fill(6)).toString(
-              'base64url',
-            ),
-          },
-          public_identity: {
-            context_binding_b64u: Buffer.from(new Uint8Array(32).fill(5)).toString('base64url'),
-            derivation_client_share_public_key33_b64u: Buffer.from(
-              new Uint8Array([2, ...Array(32).fill(3)]),
-            ).toString('base64url'),
-            server_public_key33_b64u: Buffer.from(
-              new Uint8Array([2, ...Array(32).fill(2)]),
-            ).toString('base64url'),
-            threshold_public_key33_b64u: VALID_ECDSA_PUBLIC_KEY_B64U,
-            ethereum_address20_b64u: Buffer.from(new Uint8Array(20).fill(0xef)).toString(
-              'base64url',
-            ),
-            client_share_retry_counter: 0,
-            server_share_retry_counter: 0,
-          },
-          signing_worker: {
-            server_id: 'signing-worker-test',
-            key_epoch: 'worker-epoch-test',
-            recipient_encryption_key:
-              'x25519:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-          },
-          activation_epoch: args.thresholdSessionId,
-        },
-      },
+      routerAbEcdsaDerivationNormalSigning,
+      publicCapability: fixtureRouterAbEcdsaDerivationPublicCapability({
+        walletId: String(runtimeRecord.key.walletId),
+        sessionId: AVAILABLE_LANES_ROOT_SHARE_EPOCH,
+        normalSigning: routerAbEcdsaDerivationNormalSigning,
+      }),
       runtimePolicyScope: {
         orgId: 'org-test',
         projectId: 'sr-test',

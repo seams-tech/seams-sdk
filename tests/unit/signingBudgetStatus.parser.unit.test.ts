@@ -8,7 +8,10 @@ import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signi
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { parseWebAuthnRpId } from '@shared/utils/domainIds';
 import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import { WALLET_SESSION_FAILURE_CODES } from '@shared/utils/walletSessionFailure';
+import type { SessionParseFailureReason } from '@server/core/sessionValidation';
 import type {
+  SigningSessionSealSessionAdapter,
   SigningSessionSealThresholdSessionPolicy,
   SigningSessionSealThresholdSessionStatus,
   SigningSessionSealWalletBudgetStatus,
@@ -27,6 +30,28 @@ function makeSession(claims: Record<string, unknown>) {
     parse: async () => ({ ok: true as const, claims }),
   };
 }
+
+async function parseSignatureInvalidSession(): Promise<{
+  readonly ok: false;
+  readonly reason: SessionParseFailureReason;
+}> {
+  return {
+    ok: false,
+    reason: 'signature_invalid',
+  };
+}
+
+async function parseUnavailableSession(): Promise<never> {
+  throw new Error('session backend unavailable');
+}
+
+const SIGNATURE_INVALID_SESSION: SigningSessionSealSessionAdapter = {
+  parse: parseSignatureInvalidSession,
+};
+
+const UNAVAILABLE_SESSION: SigningSessionSealSessionAdapter = {
+  parse: parseUnavailableSession,
+};
 
 function b64u(bytes: number[]): string {
   return base64UrlEncode(Uint8Array.from(bytes));
@@ -412,9 +437,9 @@ test.describe('signing budget status parser', () => {
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.status).toBe(403);
-    expect(result.body.code).toBe('wallet_budget_forbidden');
-    expect(result.body.message).toBe('Wallet Session budget is no longer active');
+    expect(result.status).toBe(401);
+    expect(result.body.code).toBe(WALLET_SESSION_FAILURE_CODES.expired);
+    expect(result.body.message).toBe('Wallet Session expired');
   });
 
   test('rejects claims when backend curve status is expired', async () => {
@@ -448,8 +473,9 @@ test.describe('signing budget status parser', () => {
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.status).toBe(403);
-    expect(result.body.code).toBe('wallet_budget_forbidden');
+    expect(result.status).toBe(401);
+    expect(result.body.code).toBe(WALLET_SESSION_FAILURE_CODES.expired);
+    expect(result.body.message).toBe('Wallet Session expired');
   });
 
   test('rejects ECDSA claims when curve-bound auth identity is incomplete', async () => {
@@ -466,7 +492,8 @@ test.describe('signing budget status parser', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.status).toBe(401);
-    expect(result.body.code).toBe('unauthorized');
+    expect(result.body.code).toBe(WALLET_SESSION_FAILURE_CODES.claimsInvalid);
+    expect(result.body.message).toBe('Wallet Session claims are invalid');
   });
 
   test('rejects Ed25519 claims when curve-bound auth material is incomplete', async () => {
@@ -483,7 +510,8 @@ test.describe('signing budget status parser', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.status).toBe(401);
-    expect(result.body.code).toBe('unauthorized');
+    expect(result.body.code).toBe(WALLET_SESSION_FAILURE_CODES.claimsInvalid);
+    expect(result.body.message).toBe('Wallet Session claims are invalid');
   });
 
   test('rejects claims when thresholdSessionId is missing', async () => {
@@ -500,7 +528,8 @@ test.describe('signing budget status parser', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.status).toBe(401);
-    expect(result.body.code).toBe('unauthorized');
+    expect(result.body.code).toBe(WALLET_SESSION_FAILURE_CODES.claimsInvalid);
+    expect(result.body.message).toBe('Wallet Session claims are invalid');
   });
 
   test('rejects claims when the curve discriminant is missing', async () => {
@@ -515,7 +544,8 @@ test.describe('signing budget status parser', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.status).toBe(401);
-    expect(result.body.code).toBe('unauthorized');
+    expect(result.body.code).toBe(WALLET_SESSION_FAILURE_CODES.claimsInvalid);
+    expect(result.body.message).toBe('Wallet Session claims are invalid');
   });
 
   test('rejects claims when thresholdSessionId no longer resolves on the requested curve', async () => {
@@ -536,8 +566,9 @@ test.describe('signing budget status parser', () => {
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.status).toBe(403);
-    expect(result.body.code).toBe('wallet_budget_forbidden');
+    expect(result.status).toBe(401);
+    expect(result.body.code).toBe(WALLET_SESSION_FAILURE_CODES.missing);
+    expect(result.body.message).toBe('Wallet Session is missing');
   });
 
   test('rejects claims when signingGrantId no longer resolves on the requested curve', async () => {
@@ -563,8 +594,9 @@ test.describe('signing budget status parser', () => {
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.status).toBe(403);
-    expect(result.body.code).toBe('wallet_budget_forbidden');
+    expect(result.status).toBe(401);
+    expect(result.body.code).toBe(WALLET_SESSION_FAILURE_CODES.missing);
+    expect(result.body.message).toBe('Wallet Session is missing');
   });
 
   test('rejects claims when participant ids do not match the curve-bound status record', async () => {
@@ -597,7 +629,8 @@ test.describe('signing budget status parser', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.status).toBe(403);
-    expect(result.body.code).toBe('wallet_budget_forbidden');
+    expect(result.body.code).toBe(WALLET_SESSION_FAILURE_CODES.scopeMismatch);
+    expect(result.body.message).toBe('Wallet Session scope does not match the request');
   });
 
   test('rejects claims when relayer key ids do not match the curve-bound status record', async () => {
@@ -630,6 +663,69 @@ test.describe('signing budget status parser', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.status).toBe(403);
-    expect(result.body.code).toBe('wallet_budget_forbidden');
+    expect(result.body.code).toBe(WALLET_SESSION_FAILURE_CODES.scopeMismatch);
+    expect(result.body.message).toBe('Wallet Session scope does not match the request');
+  });
+
+  test('returns a structured signature failure for an invalid Wallet Session JWT', async () => {
+    const result = await parseWalletSigningBudgetStatusRequest({
+      headers: { Authorization: 'Bearer invalid-signature' },
+      session: SIGNATURE_INVALID_SESSION,
+      sessionPolicy: null,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.status).toBe(401);
+    expect(result.body.code).toBe(WALLET_SESSION_FAILURE_CODES.signatureInvalid);
+    expect(result.body.message).toBe('Wallet Session signature is invalid');
+  });
+
+  test('returns a structured unavailable failure when Wallet Session validation fails', async () => {
+    const result = await parseWalletSigningBudgetStatusRequest({
+      headers: { Authorization: 'Bearer unavailable-session' },
+      session: UNAVAILABLE_SESSION,
+      sessionPolicy: null,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.status).toBe(503);
+    expect(result.body.code).toBe(WALLET_SESSION_FAILURE_CODES.unavailable);
+    expect(result.body.message).toBe('Wallet Session status is unavailable');
+  });
+
+  test('returns a structured exhausted failure when no signing uses remain', async () => {
+    const result = await parseWalletSigningBudgetStatusRequest({
+      headers: { Authorization: 'Bearer exhausted-budget' },
+      session: makeSession(makeEd25519Claims()),
+      sessionPolicy: makePolicy({
+        thresholdStatuses: [
+          makeThresholdStatus({
+            curve: 'ed25519',
+            thresholdSessionId: 'threshold-session-ed25519',
+            userId: 'wallet-ed25519',
+            rpId: 'example.localhost',
+            relayerKeyId: 'ed25519-relayer-1',
+            participantIds: [1, 2],
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: 4,
+          }),
+        ],
+        walletBudgetStatus: makeEd25519WalletBudgetStatus({
+          signingGrantId: 'signing-grant-ed25519',
+          userId: 'wallet-ed25519',
+          participantIds: [1, 2],
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 0,
+        }),
+      }),
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.status).toBe(409);
+    expect(result.body.code).toBe(WALLET_SESSION_FAILURE_CODES.budgetExhausted);
+    expect(result.body.message).toBe('Wallet Session signing budget is exhausted');
   });
 });

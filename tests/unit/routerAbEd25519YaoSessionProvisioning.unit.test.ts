@@ -425,6 +425,102 @@ async function mixedCurveRegistrationSharesOneThreeUseBudget(): Promise<void> {
   ).resolves.toMatchObject({ ok: false, code: 'wallet_budget_exhausted' });
 }
 
+async function concurrentFinalBudgetReservationsCanCommit(): Promise<void> {
+  const { routerAbNormalSigningRuntime, ecdsaWalletSessionStore, walletBudgetSessionStore } =
+    createRouterAbSigningRuntimesForUnitTests({});
+  const thresholdSessionId = 'threshold-session-ecdsa-concurrent-final';
+  const signingGrantId = 'signing-grant-concurrent-final';
+  const walletId = 'wallet-concurrent-final';
+  const evmFamilySigningKeySlotId = 'wallet-key:evm-family:wallet-concurrent-final:root-1:v1';
+  await ecdsaWalletSessionStore.putSession(
+    thresholdSessionId,
+    {
+      expiresAtMs: Date.now() + 60_000,
+      relayerKeyId: 'signing-worker.local',
+      walletId,
+      evmFamilySigningKeySlotId,
+      participantIds: [1, 2, 3],
+    },
+    { ttlMs: 60_000, remainingUses: 2 },
+  );
+  const budget = await routerAbNormalSigningRuntime.ensureSigningGrantBudget({
+    signingGrantId,
+    curve: 'ecdsa',
+    thresholdSessionId,
+    userId: walletId,
+    evmFamilySigningKeySlotId,
+    participantIds: [1, 2, 3],
+    ttlMs: 60_000,
+    remainingUses: 2,
+    operation: 'provision_curve_binding',
+  });
+  if (!budget.ok) throw new Error(budget.message);
+
+  const tempoReservation = await routerAbNormalSigningRuntime.reserveBudget({
+    curve: 'ecdsa',
+    thresholdSessionId,
+    signingGrantId,
+    signingWorkerId: 'signing-worker.local',
+    operationId: 'tempo-concurrent-final',
+    requestDigest: 'tempo-concurrent-final-digest',
+    signatureUses: 1,
+    expiresAtMs: Date.now() + 30_000,
+  });
+  const arcReservation = await routerAbNormalSigningRuntime.reserveBudget({
+    curve: 'ecdsa',
+    thresholdSessionId,
+    signingGrantId,
+    signingWorkerId: 'signing-worker.local',
+    operationId: 'arc-concurrent-final',
+    requestDigest: 'arc-concurrent-final-digest',
+    signatureUses: 1,
+    expiresAtMs: Date.now() + 30_000,
+  });
+  expect(tempoReservation).toMatchObject({ ok: true, remainingUses: 2, reservedUses: 1 });
+  expect(arcReservation).toMatchObject({ ok: true, remainingUses: 2, reservedUses: 2 });
+  if (!tempoReservation.ok) throw new Error(tempoReservation.message);
+  if (!arcReservation.ok) throw new Error(arcReservation.message);
+
+  const budgetSessionId = walletSigningBudgetSessionId({ signingGrantId });
+  await expect(walletBudgetSessionStore.getSessionStatus(budgetSessionId)).resolves.toMatchObject({
+    ok: true,
+    status: {
+      committedRemainingUses: 2,
+      reservedUses: 2,
+      availableUses: 0,
+    },
+  });
+
+  const tempoCommit = await routerAbNormalSigningRuntime.commitBudget({
+    curve: 'ecdsa',
+    thresholdSessionId,
+    signingGrantId,
+    reservationId: tempoReservation.reservationId,
+    signingWorkerId: 'signing-worker.local',
+    operationId: 'tempo-concurrent-final',
+    requestDigest: 'tempo-concurrent-final-digest',
+  });
+  const arcCommit = await routerAbNormalSigningRuntime.commitBudget({
+    curve: 'ecdsa',
+    thresholdSessionId,
+    signingGrantId,
+    reservationId: arcReservation.reservationId,
+    signingWorkerId: 'signing-worker.local',
+    operationId: 'arc-concurrent-final',
+    requestDigest: 'arc-concurrent-final-digest',
+  });
+  expect(tempoCommit).toMatchObject({ ok: true, remainingUses: 1 });
+  expect(arcCommit).toMatchObject({ ok: true, remainingUses: 0 });
+  await expect(walletBudgetSessionStore.getSessionStatus(budgetSessionId)).resolves.toMatchObject({
+    ok: true,
+    status: {
+      committedRemainingUses: 0,
+      reservedUses: 0,
+      availableUses: 0,
+    },
+  });
+}
+
 test(
   'Yao session provisioning stores public authority state and preserves consumed budget on retry',
   publicStateProvisioningPreservesConsumedBudget,
@@ -453,4 +549,9 @@ test(
 test(
   'mixed Ed25519 and ECDSA registration consumes one shared three-use budget',
   mixedCurveRegistrationSharesOneThreeUseBudget,
+);
+
+test(
+  'concurrent final ECDSA budget reservations both commit after availability reaches zero',
+  concurrentFinalBudgetReservationsCanCommit,
 );
