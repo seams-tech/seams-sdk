@@ -11,6 +11,12 @@ acceptance pending a working local site. The
 [Email OTP local-rehydration patch](./refactor-patch-2-email-otp-local-rehydration.md)
 remains current-stack groundwork that Refactor 90 must absorb without creating a
 second persistence owner or factor-specific signing lane.
+[Refactor 92](./refactor-92-session-expiry-handling.md) is implemented and its
+reusable Wallet Session behavior is frozen input to this plan. Refactor 90
+replaces the underlying material and authorization identities while preserving
+its expiry, exhaustion, refresh, step-up, invalidation, secure-origin, event,
+and demo-lock semantics. Staging and production confirmation of the effective
+24-hour default remain Refactor 92 deployment acceptance.
 
 The progress log lives in [refactor-90-journal.md](./refactor-90-journal.md).
 Implementation details and normative invariants live in the
@@ -71,6 +77,8 @@ The refactor is complete when:
 - Static route composition through narrow service ports.
 - Current Cloudflare, Node, SDK, worker, UI, and provisioning migrations needed
   by the two MPC capabilities.
+- Preservation of Refactor 92's reusable Wallet Session classifier and public
+  lifecycle behavior while the underlying signing model changes.
 - Same-change deletion of replaced behavior.
 
 ### Follow-on work
@@ -140,7 +148,7 @@ Foundation B replaces `ThresholdEcdsaSessionRecordCore` with one boundary-parsed
 
 - registered signer and exact capability scope;
 - exact wallet authority;
-- active material-session and server generation;
+- exact material activation and server generation;
 - durable role-local material ref and authenticated binding digests;
 - lifecycle, revision, expiry, and activation receipt.
 
@@ -388,6 +396,10 @@ Phase 4/5 sections; symbol-level deletion targets live in the
   implemented.
 - [ ] Refactor 91 intended-behaviour E2E acceptance passes against a working
   local site.
+- [x] Refactor 92 reusable Wallet Session lifecycle behavior is implemented and
+  frozen for Refactor 90 migration.
+- [ ] Refactor 92's effective 24-hour default is confirmed in staging and
+  production; this deployment check does not block local Refactor 90 phases.
 - [ ] Foundation A canonical hydration types, protocol resolvers, type fixtures,
   and entry-point-equivalence tests are complete.
 - [ ] Foundation B canonical ECDSA record, parser, two-state activation journal,
@@ -436,6 +448,10 @@ Phase 4/5 sections; symbol-level deletion targets live in the
   parsers.
 - [ ] Phase 18 — persisted capability and material records use opaque material
   activation IDs independently from authorization session IDs.
+- [ ] Phase 18 — `WalletSessionId`, `MpcWalletSigningQuotaId`,
+  `CapabilityGrantId`, `SeamsSessionId`, and `MpcMaterialActivationId` remain
+  independent branded identities; the `WalletSessionId = SigningGrantId` alias
+  is deleted.
 - [ ] Phase 19 — registration, unlock, refresh, signing, step-up, and export use
   the same capability modules and minimal recovery lifecycle.
 - [ ] Phase 19 — activation, hydration, and runtime publication resolve one exact
@@ -449,14 +465,21 @@ Phase 4/5 sections; symbol-level deletion targets live in the
   grant/quota consumption; old threshold-session authorization is deleted.
 - [ ] Phase 20 — signed MPC operation scopes validate
   `authorizationSessionId` and `materialActivation` independently.
+- [ ] Phase 20 — structured Wallet Session expiry races retry at most once
+  through same-method operation step-up; expiry never selects recovery.
 - [ ] Phase 20 — durable execution leases exist only for operations with a
   demonstrated cross-request or cross-worker need.
 - [ ] Phase 21 — worker/WASM secret boundaries and required import/export guards
   pass without speculative artifact restructuring.
 - [ ] Phase 22 — React, Lit, iframe, and direct SDK adapters exhaustively handle
   the five preparation outcomes.
+- [ ] Phase 22 — secure-origin Wallet Session initialization and events preserve
+  Refactor 92 demo locking: expiry locks once, exhaustion remains unlocked, and
+  app identity survives either transition.
 - [ ] Phase 23 — auth-first per-capability provisioning replaces tactical
   combined cross-curve registration/unlock orchestration.
+- [ ] Phase 23 — only explicit wallet unlock creates a reusable Wallet Session;
+  transaction/export step-up grants exactly one operation.
 - [ ] Phase 24 — current Cloudflare, Node, local-test, and self-hosted assembly
   paths use the final static composition and thin adapters.
 - [x] Phases 25-26 — Better Auth and IdP are removed from Refactor 90 and
@@ -471,6 +494,10 @@ Phase 4/5 sections; symbol-level deletion targets live in the
 - [ ] A fresh authorization session can use the same exact material activation,
   reactivation creates a new activation ID, and no authorization session ID is
   used as a material locator.
+- [ ] Page refresh preserves the valid Wallet Session's remaining allowance and
+  rehydrates the same exact material activation for Passkey and Email OTP.
+- [ ] Expiry, exhaustion, and missing-session tests preserve Refactor 92
+  behavior across NEAR, Tempo, EVM, delegate signing, and key export.
 - [ ] No supported build exposes both old and new MPC authorization flows.
 - [ ] All open reduction-ledger replacements have implementation evidence.
 - [ ] The intended-behaviour E2E matrix and `git diff --check` pass.
@@ -491,8 +518,10 @@ Exit checks (`R90-INV-001`, `R90-INV-002`, `R90-INV-003`, `R90-INV-012`):
 - missing, mismatched, corrupt, conflicting, and unavailable records fail
   closed;
 - exact active material can become live without a new recovery ceremony;
-- expired or exhausted public state can request reauthorization without carrying
-  secret or bearer data;
+- retired capability material state can request public-anchor reauthorization
+  without carrying secret or bearer data;
+- reusable Wallet Session expiry or exhaustion is handled by Refactor 92 before
+  material hydration and cannot select recovery or material reactivation;
 - generic modules contain no `passkey` or `email_otp` lane-selection branches.
 
 Open items (nothing from this list is landed at the July 20 checkpoint; the
@@ -502,13 +531,13 @@ only):
 - [ ] leaf hydration module with the four-outcome union and narrow proof
       constructors that reject direct literals, broad spreads, and mixed
       live/sealed/anchor fields;
-- [ ] type fixtures rejecting cross-branch combinations (expired state without a
-      public anchor, sealed branch without a material activation, live
-      branch without runtime proof);
+- [ ] type fixtures rejecting cross-branch combinations (reauthorizable retired
+      state without a public anchor, sealed branch without a material
+      activation, live branch without runtime proof);
 - [ ] Near and ECDSA observation unions parsed from canonical persistence, never
       from entry-point state;
 - [ ] table-driven entry-point equivalence tests (registration/unlock/refresh
-      against live, sealed-active, expired, exhausted, missing, corrupt,
+      against live, sealed-active, capability-retired, missing, corrupt,
       conflicting, unavailable) for both capabilities;
 - [ ] post-registration -> refresh and post-unlock -> refresh transition tests
       proving only volatile runtime state disappears;
@@ -586,8 +615,11 @@ Open items:
       `WalletUnlockSubjectSet`; no flattened wallet/NEAR/ECDSA identity object;
 - [ ] page-refresh session restoration resolves subjects through the same
       resolver for NEAR-only, ECDSA-only, and combined wallets;
-- [ ] session/login display split from per-capability readiness; an active
-      restored login coexists with capability `recovery_required`;
+- [ ] app identity, reusable Wallet Session lifecycle, and per-capability
+      readiness remain separate; expiry locks only the demo wallet, exhaustion
+      leaves it unlocked, and either state can coexist with active app identity;
+- [ ] iframe initialization supplies the exact secure-origin Wallet Session
+      projection before React chooses locked or unlocked display state;
 - [ ] registered NEAR identity survives absent lane, grant, quota, and live
       Client state;
 - [ ] delete `nearAccountId`-inference fallbacks, the
@@ -754,6 +786,12 @@ boundary-constructed `WalletAuthAuthorityRef`. Put the authority on the canonica
 capability/material owner and pass narrow prepared contexts downward. Avoid
 threading a duplicate identity bag through every internal helper.
 
+Reusable Wallet Session parsing must bind that exact authority while keeping
+`WalletSessionId` independent from auth-method display data, app identity,
+operation grants, wallet quota IDs, and material activation IDs.
+
+Invariants: `R90-INV-001`, `R90-INV-013`, `R90-INV-014`.
+
 ### Phase 18: Wallet vocabulary and persistence migration
 
 Run a scoped inventory for wallet, session, grant, quota, recovery, and material
@@ -769,9 +807,12 @@ Implement:
 - one simple revocation command outbox when offline server reconciliation is
   required;
 - independent operation grants and `MpcWalletSigningQuota`;
+- an opaque `WalletSessionId` for reusable wallet authorization and the exact
+  remaining-use quota attached to that session, independent from
+  `CapabilityGrantId` and `SeamsSessionId`;
 - a branded `MpcMaterialActivationId` and exact activation reference persisted
   with each active capability/material manifest, separate from
-  `SeamsSessionId`;
+  `WalletSessionId` and `SeamsSessionId`;
 - strict boundary parsers with no dual-schema core reader.
 
 `signingGrantId` is classified and deleted, mapped to operation grant, or mapped
@@ -784,8 +825,15 @@ There is no compatibility alias in core types. Activation records created before
 the cutover may be rejected at the persistence boundary; development accounts
 can be recreated after the schema and protocol version advance.
 
+The current `WalletSessionId = SigningGrantId` alias is deleted in the same cut.
+Wallet Session, app session, operation grant, wallet quota, and material
+activation each receive a distinct branded identifier and boundary parser.
+Refactor 92's exact Wallet Session state remains owned by the secure wallet
+origin and is never reconstructed from an operation grant, JWT presence,
+optional persisted IDs, or a material record.
+
 Invariants: `R90-INV-001`, `R90-INV-002`, `R90-INV-005`, `R90-INV-006`,
-`R90-INV-013`. The record and symbol deletion targets are enumerated in the
+`R90-INV-013`, `R90-INV-014`. The record and symbol deletion targets are enumerated in the
 [deletion ledger](./refactor-90-deletion-ledger.md).
 
 ### Phase 19: MPC capability modules
@@ -821,15 +869,27 @@ durable journal.
 
 The capability module owns activation identity. Registration or explicit
 re-activation creates a new opaque activation ID and binds it to the capability,
-material owner, key, lifecycle, and SigningWorker. Unlock, refresh, and step-up
-may mint fresh authorization sessions while preserving that exact activation
-reference. They never derive material identity from the fresh session ID.
-Hydration returns the same activation reference for live and sealed copies of
-the same exact material.
+material owner, key, lifecycle, and SigningWorker. Explicit wallet unlock or a
+Wallet Session refresh may mint a fresh authorization session while preserving
+that exact activation reference. Ordinary page refresh reuses the same valid
+Wallet Session and remaining allowance. Operation step-up mints only the
+single-operation grant. No path derives material identity from a fresh session
+or grant ID. Hydration returns the same activation reference for live and sealed
+copies of the same exact material.
+
+Refactor 92 remains the wallet-authorization front end to both modules. A valid
+Wallet Session retains its remaining warm allowance across page refresh while
+the module rehydrates and rebinds the same exact material activation. Expired
+or missing authorization requests same-method step-up for the current
+operation. Exhaustion follows the same operation-step-up path while the demo
+stays unlocked. Neither transition mints a reusable Wallet Session, changes the
+material activation, or enters Yao recovery/device linking. Passkey and Email
+OTP use the same classifier, invalidator, and transition table for signing,
+delegate signing, and export.
 
 Invariants: `R90-INV-002`, `R90-INV-003`, `R90-INV-004`, `R90-INV-005`,
 `R90-INV-006`, `R90-INV-007`, `R90-INV-008`, `R90-INV-010`, `R90-INV-011`,
-`R90-INV-013`.
+`R90-INV-013`, `R90-INV-014`.
 The tactical resolver, lane, reconnect, recovery, and export symbols this phase
 deletes are enumerated in the
 [deletion ledger](./refactor-90-deletion-ledger.md).
@@ -849,19 +909,25 @@ domains.
 
 Every signed MPC operation scope carries two independent proofs:
 
-- `authorizationSessionId` identifies the current active `SeamsSession` and is
-  checked for expiry, audience, device, and evidence policy;
+- `authorizationSessionId` identifies the current reusable Wallet Session and
+  is checked for expiry, wallet, exact auth authority, and warm allowance;
 - `materialActivation` identifies the exact activated material instance and is
   checked against the capability, owner, key, lifecycle, generation, and
   SigningWorker state.
 
+The operation grant remains bound to the active `SeamsSession` and exact
+operation. Server admission distinguishes expired, exhausted, missing,
+unavailable, and invalid Wallet Session results. An authoritative expiry race
+may trigger one same-method operation-step-up retry. A second expiry is
+terminal. Expiry never selects recovery, and key export declares no quota use.
+
 The wire protocol replaces generic `session_id` and
 `active_state_session_id` fields with these explicit domains and advances its
-version and transcript vectors. A session refresh changes only authorization.
-Material re-activation changes only the activation reference. Neither value is
-accepted as a substitute for the other.
+version and transcript vectors. Wallet Session replacement changes only
+authorization. Material re-activation changes only the activation reference.
+Neither value is accepted as a substitute for the other.
 
-Invariants: `R90-INV-008`, `R90-INV-009`, `R90-INV-013`.
+Invariants: `R90-INV-008`, `R90-INV-009`, `R90-INV-013`, `R90-INV-014`.
 
 ### Phase 21: Worker and bundle boundaries
 
@@ -884,7 +950,16 @@ outcomes. UI may render provenance and diagnostics but cannot choose material,
 recovery, authorization, or lane branches. `superseded` discards stale prepared
 state and initiates exact re-resolution.
 
-Invariants: `R90-INV-010`.
+The secure wallet origin remains the canonical Wallet Session owner. Iframe
+initialization returns the exact active or restorable wallet/session projection,
+and React waits for initialization before choosing display state. Typed
+Refactor 92 events drive the live demo: authoritative expiry locks the matching
+wallet once, exhaustion keeps the wallet unlocked and requests step-up, and
+either transition preserves the broader app/Google identity session. UI
+confirmation requests for the expired session terminate immediately with the
+typed expiry result.
+
+Invariants: `R90-INV-010`, `R90-INV-014`.
 
 ### Phase 23: Auth-first provisioning
 
@@ -893,9 +968,15 @@ each requested capability independently. Each capability commits through its
 canonical persistence owner. Partial provisioning returns exact per-capability
 results and does not create a combined cross-curve active record.
 
+Only explicit wallet unlock creates a reusable Wallet Session. Same-method
+step-up for signing or export creates one operation grant and leaves reusable
+Wallet Session state unchanged.
+
 The tactical Email OTP registration/unlock coordination from Patch 2 is deleted
 after its exact-local and missing-material behavior is preserved by the two
 capability modules.
+
+Invariants: `R90-INV-013`, `R90-INV-014`.
 
 ### Phase 24: Current-host assembly reconciliation
 
@@ -931,7 +1012,8 @@ tests, intended-behaviour E2E tests, and `git diff --check`.
 
 ### Static and unit checks
 
-Covers `R90-INV-001`, `R90-INV-009`, `R90-INV-010`, `R90-INV-012`.
+Covers `R90-INV-001`, `R90-INV-009`, `R90-INV-010`, `R90-INV-012`,
+`R90-INV-013`, `R90-INV-014`.
 
 - Invalid lifecycle combinations fail type checking.
 - Core identity, authority, material, session, signing, recovery, export, and
@@ -942,6 +1024,11 @@ Covers `R90-INV-001`, `R90-INV-009`, `R90-INV-010`, `R90-INV-012`.
 - Generic preparation/coordination modules contain no factor-kind lane branches.
 - Operation fingerprints exclude rotating grant/quota/session/runtime IDs.
 - `superseded` cannot be treated as ready, pending, or generic retry.
+- `SeamsSessionId`, `WalletSessionId`, `CapabilityGrantId`,
+  `MpcWalletSigningQuotaId`, and `MpcMaterialActivationId` cannot substitute
+  for one another.
+- Expired, exhausted, missing, unavailable, and invalid Wallet Session branches
+  remain exhaustive and cannot construct ready lanes directly.
 
 ### Persistence and crash tests
 
@@ -963,17 +1050,20 @@ Covers `R90-INV-004`, `R90-INV-005`, `R90-INV-006`, `R90-INV-007`,
 
 ### Concurrency tests
 
-Covers `R90-INV-008`, `R90-INV-009`.
+Covers `R90-INV-008`, `R90-INV-009`, `R90-INV-014`.
 
 - Recovery, signing, refresh, and export serialize per exact material owner.
 - A stale generation/fence cannot commit after replacement or revocation.
 - Different material owners progress independently.
 - User interaction occurs outside the material-owner queue.
 - Existing operation claims do not consume renewed grants or quotas.
+- Concurrent expiry observations invalidate and emit once for the exact Wallet
+  Session, and a server-side expiry race performs at most one step-up retry.
 
 ### Intended-behaviour E2E
 
-Covers `R90-INV-003`, `R90-INV-010`, `R90-INV-012`.
+Covers `R90-INV-003`, `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
+`R90-INV-014`.
 
 Keep a small matrix:
 
@@ -984,10 +1074,17 @@ Keep a small matrix:
 - missing-material recovery followed by signing;
 - corrupt or mismatched material failing closed;
 - stale lane returning `superseded` and resolving the replacement;
+- remaining warm allowance surviving page refresh;
+- authoritative expiry locking the demo while preserving app identity;
+- exhaustion requesting step-up without locking;
+- expiry and missing-session step-up granting one operation without minting a
+  reusable Wallet Session;
+- expiry never invoking Yao recovery or device linking;
+- one structured server-expiry retry followed by typed terminal failure;
 - one minimal vault session/evidence/grant/operation/audit vertical.
 
-Passkey and Email OTP cover the real factor paths. No synthetic third-factor E2E
-suite is required.
+Passkey and Email OTP cover the real factor paths across signing and export. No
+synthetic third-factor E2E suite is required.
 
 ## Implementation Checkpoint Order
 
@@ -1018,6 +1115,7 @@ IdP, service-account, full-vault, route-framework, or bundle-optimization work.
 - [Refactor 90A patches](./refactor-90A-patches.md)
 - [Email OTP local rehydration](./refactor-patch-2-email-otp-local-rehydration.md)
 - [Refactor 91 auth-method domains](./refactor-91.md)
+- [Refactor 92 signing-session expiry handling](./refactor-92-session-expiry-handling.md)
 - [Refactor 82B authority typing](./refactor-82B.md)
 - [Refactor 85 IndexedDB minimization](./refactor-85-indexedDB.md)
 - [Ed25519 Yao implementation plan](./router-ab/ed25519-yao/implementation-plan.md)
