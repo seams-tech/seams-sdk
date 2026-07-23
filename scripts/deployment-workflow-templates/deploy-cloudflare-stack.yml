@@ -69,8 +69,8 @@ jobs:
           set -euo pipefail
           expected_branch='dev'
           if [[ "$DEPLOY_TARGET" == 'production' ]]; then expected_branch='main'; fi
-          if [[ "$DEPLOY_TARGET" == 'production' && "$GITHUB_REF" != 'refs/heads/main' ]]; then
-            echo "::error title=Untrusted production workflow authority::Production deployment workflows must execute from refs/heads/main"
+          if [[ "$DEPLOY_TARGET" == 'production' && "$EVENT_BRANCH" != 'main' ]]; then
+            echo "::error title=Untrusted production workflow authority::Production deployment workflows must be triggered from main"
             exit 1
           fi
           if [[ "${DEPLOY_SOURCE_BRANCH:-}" != "$expected_branch" ]]; then
