@@ -284,8 +284,14 @@ fn normal_signing_scope() -> NormalSigningScopeV1 {
 }
 
 fn normal_signing_scope_for_request_id(request_id: &str) -> NormalSigningScopeV1 {
-    NormalSigningScopeV1::new(request_id, "account.near", "session-1", "server-a")
-        .expect("normal signing scope")
+    NormalSigningScopeV1::new(
+        request_id,
+        "account.near",
+        "session-1",
+        "session-1",
+        "server-a",
+    )
+    .expect("normal signing scope")
 }
 
 fn normal_signing_v2_wallet_session(expires_at_ms: u64) -> CloudflareRouterVerifiedWalletSessionV1 {
