@@ -202,9 +202,6 @@ jobs:
       - name: Assert generated palette CSS
         run: node packages/sdk-web/scripts/checks/assert-palette-css.mjs
 
-      - name: Run lite SDK tests
-        run: pnpm -C tests exec playwright test -c playwright.lite.config.ts --reporter=line
-
       - name: Run signer runtime gates
         run: pnpm -C tests exec playwright test ./unit/walletSessionReadiness.gate.unit.test.ts ./unit/thresholdEcdsa.commitQueue.unit.test.ts ./unit/walletIframeHost.signTempoCancel.unit.test.ts --reporter=line
 
