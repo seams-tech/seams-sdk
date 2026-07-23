@@ -69,6 +69,7 @@ function prefixNeeds(value, prefix, knownJobIds) {
     let result = value;
     for (const jobId of knownJobIds) {
       result = result.replaceAll(`needs.${jobId}`, `needs.${prefix}${jobId}`);
+      result = result.replaceAll(`steps.${jobId}`, `steps.${prefix}${jobId}`);
     }
     if (knownJobIds.includes(value)) return `${prefix}${value}`;
     return result;
