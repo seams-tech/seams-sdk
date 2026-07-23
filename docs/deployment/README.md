@@ -20,16 +20,17 @@ variables and checked-in Cloudflare config.
 
 ## Workflows
 
-| Workflow                                   | Trigger                                          | Purpose                                                                                                                                                          |
-| ------------------------------------------ | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `.github/workflows/ci.yml`                 | `push`, `pull_request`, `merge_group`            | Builds, lints, type-checks, runs formal verification, D1/DO smoke tests, and threshold signing suites.                                                           |
-| `.github/workflows/validate-router-ab.yml` | Router A/B path changes, or manual dispatch      | Runs Router A/B core/dev/Cloudflare tests, strict Worker checks, local four-worker smoke, and Wrangler startup dry-run evidence.                                 |
-| `.github/workflows/publish-sdk-r2.yml`     | Manual dispatch                                  | Optionally builds `packages/sdk-web/dist`, writes signed manifests, and publishes immutable SDK runtime bundles to Cloudflare R2.                                |
-| `.github/workflows/deploy-staging.yml`     | Successful `ci` push on `dev`                    | Clearly labelled staging entrypoint. Deploys only staging resources.                                                                                             |
-| `.github/workflows/deploy-production.yml`  | Successful `ci` push on `main`                   | Clearly labelled production entrypoint. Deploys only production resources.                                                                                       |
-| `.github/workflows/deploy-router-ab.yml`   | Called by a labelled release, or manual dispatch | Shared ordered implementation: Router A/B Workers, Gateway/D1, then Pages. Manual dispatch can still target an individual Router A/B role.                       |
-| `.github/workflows/deploy-gateway.yml`     | Called by the release chain, or manual dispatch  | Generates an environment-specific Wrangler config, applies that environment's two D1 migrations, deploys Gateway and its Durable Objects, then checks readiness. |
-| `.github/workflows/deploy-pages.yml`       | Called by the release chain, or manual dispatch  | Builds the exact release SHA and deploys `seams.sh` plus `sign.seams.sh` with environment-specific frontend values.                                              |
+| Workflow                                   | Trigger                                                    | Purpose                                                                                                                                                                                                              |
+| ------------------------------------------ | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.github/workflows/ci.yml`                 | `push`, `pull_request`, `merge_group`                      | Builds, lints, type-checks, records the exact pushed `before..after` change set, and runs Router A/B deployment validation on protected-branch pushes.                                                               |
+| `.github/workflows/build-release.yml`      | Successful `ci` run on `dev` or `main`, or manual dispatch | Builds the accepted source SHA once, verifies the release-set manifest, retains cross-run artifacts for 30 days, and invokes the deployment orchestrator.                                                            |
+| `.github/workflows/validate-router-ab.yml` | Relevant Router A/B pull requests, or manual dispatch      | Runs parallel Router A/B core/Cloudflare tests, strict Worker checks, and Wrangler startup dry-run evidence. It does not run on ordinary branch pushes because deployment performs its own exact-SHA release checks. |
+| `.github/workflows/publish-sdk-r2.yml`     | Manual dispatch                                            | Optionally builds `packages/sdk-web/dist`, writes signed manifests, and publishes immutable SDK runtime bundles to Cloudflare R2.                                                                                    |
+| `.github/workflows/deploy-staging.yml`     | Manual dispatch with an accepted release set               | Thin staging promotion entrypoint. It accepts only an exact SHA, artifact run ID, and release-set ID.                                                                                                                |
+| `.github/workflows/deploy-production.yml`  | Manual dispatch with an accepted release set               | Thin production promotion entrypoint. It accepts only an exact SHA, artifact run ID, and release-set ID.                                                                                                             |
+| `.github/workflows/deploy-router-ab.yml`   | Called by an accepted release build or promotion           | Shared target-locked orchestrator: preflight, concurrent role/Gateway deployment, compatibility-ordered Pages deployment, activation, and final smoke.                                                               |
+| `.github/workflows/deploy-gateway.yml`     | Called only by the release orchestrator                    | Downloads and verifies the accepted Gateway artifact, applies checked D1 migrations, deploys Gateway and its Durable Objects, then checks readiness.                                                                 |
+| `.github/workflows/deploy-pages.yml`       | Called only by the release orchestrator                    | Downloads and verifies the accepted Pages artifact and deploys `seams.sh` plus `sign.seams.sh` without compiling.                                                                                                    |
 
 Removed testnet-only workflows are replaced by the staging target in the
 workflows above. Move any required GitHub Environment secrets and vars from an
@@ -50,9 +51,8 @@ old `testnet` environment into `staging`.
    operator-owned configuration changes. These preserve generated identities
    and keep ownership boundaries explicit. Add `--variables-only`,
    `--secrets-only`, or `--only NAME_A,NAME_B` to scope the upload further.
-5. Push `dev` for staging or `main` for production. Successful CI applies D1
-   migrations, bootstraps the generated tenant and publishable key, provisions
-   the signing-root secret, and deploys the target Workers and Pages projects.
+5. Push `dev` for staging or `main` for production. Successful CI starts
+   `build-release`, which creates the immutable release set before deployment.
 6. Configure R2 credentials when the optional SDK release mirror is required,
    then dispatch `publish-sdk-r2.yml` manually. Pages deployments already serve
    the required runtime assets from `/sdk/*`.
@@ -73,36 +73,37 @@ Production:
 git push origin main
 ```
 
-Manual deploys:
+Manual accepted-release promotion:
 
 ```bash
-gh workflow run deploy-pages.yml --ref dev -f target=all -f deploy_environment=staging
-pnpm deploy:env-verify -- --env staging --repo seams-tech/seams-sdk
-gh workflow run deploy-router-ab.yml --ref dev -f target=staging -f operation=upload-version -f role=all
-gh workflow run deploy-router-ab.yml --ref dev -f target=staging -f operation=deploy -f role=all
+gh workflow run deploy-staging.yml --ref dev \
+  -f source_sha=<40-char-sha> \
+  -f artifact_run_id=<accepted-artifact-run-id> \
+  -f release_set_id=<release-set-id>
 gh workflow run publish-sdk-r2.yml --ref dev -f prefix=auto
 ```
 
-Run `operation=deploy` only after `pnpm router:deploy:check` passes on the
-target commit. Router A/B role config lives in
+Router A/B role config lives in
 [router-ab-cloudflare-env.example.yml](router-ab-cloudflare-env.example.yml).
 
 ## Deploy Order
 
-The automatic branch release runs in this order:
+The accepted branch release runs in this order:
 
-1. Successful `ci` for the current branch tip.
-2. SigningWorker, Deriver A, Deriver B, and Router.
-3. Gateway D1 migrations, Durable Object migrations, Worker secrets, deploy,
-   and readiness check.
-4. `seams.sh` and `sign.seams.sh` from the same SHA.
+1. Successful `ci` for the current protected-branch tip.
+2. The selector chooses the affected components and only their artifact jobs run.
+3. The release-set manifest and selected artifact digests verify before mutation.
+4. Selected Router roles and Gateway deploy concurrently; Pages waits for Gateway when both are selected so the frontend cannot lead its backend.
+5. MPCRouter activates only after a Router topology release has all three role deployments succeed.
+6. One selected-release smoke check completes the deployment.
 
 An older CI run is rejected after a newer commit becomes the branch tip.
 
 ## Follow-Up Phase: Build Once, Deploy Many
 
 Status: implemented for Gateway, Router A/B, Pages, and optional manual R2
-publication.
+publication. Cross-run release-set provenance is now the required deployment
+path.
 
 Previously, cold deployment runners compiled cryptographic WASM and the complete
 Pages SDK before each upload. A failed upload could repeat an otherwise
@@ -112,9 +113,8 @@ Cloudflare mutation so retries remain short and deterministic.
 ### Artifact production
 
 - [x] Add artifact-production jobs for an exact commit SHA and target.
-- [x] Produce a Gateway artifact containing only its four required WASM
-      packages. Wrangler performs only its fast TypeScript bundle in the
-      deployment job.
+- [x] Produce a Gateway artifact containing its prebundled Worker and four
+      required WASM packages. Deployment uploads the bundle without rebuilding.
 - [x] Produce one target-specific Pages artifact containing the production SDK,
       app output, wallet output, workers, WASM, and static wallet-service
       assets. The app and wallet deployments must consume the same artifact.
@@ -182,7 +182,7 @@ Cloudflare mutation so retries remain short and deterministic.
 - A role-specific retry cannot access another role's private environment or
   artifact.
 - The workflow summary is sufficient to identify the deployed release and its
-  retained same-run artifacts without reading raw job logs.
+  retained cross-run artifacts without reading raw job logs.
 
 Use GitHub's **Re-run failed jobs** action after an upload or readiness failure.
 Successful artifact-production jobs are retained, so the retry enters only the
