@@ -5,6 +5,7 @@ import {
   type BrowserContext,
   type FrameLocator,
   type Page,
+  type Request,
   type Response,
   type Route,
   type TestInfo,
@@ -45,9 +46,7 @@ export type IntendedSigningStage =
   | 'post_registration'
   | 'post_unlock'
   | 'after_refresh_recovery'
-  | 'after_step_up';
-
-type IntendedWarmSigningStage = Exclude<IntendedSigningStage, 'after_step_up'>;
+  | 'step_up_required';
 
 type IntendedWarmSessionOriginStage = Extract<
   IntendedSigningStage,
@@ -56,14 +55,10 @@ type IntendedWarmSessionOriginStage = Extract<
 
 type IntendedNearSigningStage = Exclude<IntendedSigningStage, 'after_refresh_recovery'>;
 
-type IntendedPostRefreshMaterialSource = 'email_otp_yao_recovery' | 'passkey_local_envelope';
-
 type IntendedNoYaoRecoveryAssertionScenario =
   | { kind: 'passkey_unlock' }
-  | {
-      kind: 'post_refresh_near_signing';
-      materialSource: 'passkey_local_envelope';
-    };
+  | { kind: 'email_otp_unlock' }
+  | { kind: 'post_refresh_near_signing' };
 
 type IntendedNearSigningScenario =
   | {
@@ -74,13 +69,12 @@ type IntendedNearSigningScenario =
   | {
       kind: 'post_refresh';
       stage: 'after_refresh_recovery';
-      postRefreshMaterialSource: IntendedPostRefreshMaterialSource;
+      postRefreshMaterialSource?: never;
     };
 
 type IntendedHarnessAction =
   | 'registerPasskeyWallet'
   | 'registerPasskeyEd25519YaoWallet'
-  | 'registerPreparedIframePasskeyEd25519YaoWallet'
   | 'addPasskeyEd25519YaoWalletSigner'
   | 'registerEmailOtpWallet'
   | 'unlockPasskeyWallet'
@@ -124,6 +118,8 @@ const ROUTER_AB_ED25519_YAO_EXPORT_PATHS = [
   ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
 ] as const;
+
+const ROUTER_AB_WALLET_BUDGET_STATUS_PATH = '/router-ab/wallet-budget/status';
 
 type IntendedHarnessConfig = {
   appUrl: string;
@@ -455,6 +451,23 @@ type SigningAuthEventSummary = {
   thresholdReconnectSucceeded: boolean;
 };
 
+type CapturedWalletBudgetStatusRequest = {
+  url: string;
+  authorization: string;
+  contentType: string;
+  body: string;
+  signingGrantId: string;
+  thresholdSessionId: string;
+};
+
+type AuthoritativeWalletBudgetReplay =
+  | { kind: 'active' }
+  | {
+      kind: 'exhausted';
+      signingGrantId: string;
+      thresholdSessionId: string;
+    };
+
 type KeyExportAuthEventSummary = {
   phases: readonly string[];
   passkeyPromptStarted: boolean;
@@ -492,7 +505,7 @@ const LIFECYCLE_FAILURE_MATCHER_TABLE_VERSION = 'refactor-88-2026-07-04';
 const LIFECYCLE_FAILURE_MATCHERS: readonly LifecycleFailureMatcher[] = [
   {
     id: 'remaining_spend_indeterminate_budget_unknown',
-    pattern: /budget_unknown/i,
+    pattern: /\[SigningSessionBudget\] signing grant budget is budget_unknown/i,
     reason: 'remaining spend state was indeterminate in a signing path',
   },
   {
@@ -642,8 +655,8 @@ function intendedConcurrentEvmFamilySigningFinished(): boolean {
     const action = Reflect.get(raw, 'action');
     if (!action || typeof action !== 'object' || Array.isArray(action)) continue;
     const status = Reflect.get(action, 'status');
-    const actionName = Reflect.get(action, 'action');
     if (status !== 'success' && status !== 'error') continue;
+    const actionName = Reflect.get(action, 'action');
     if (actionName === 'signTempoTransaction') tempoComplete = true;
     if (actionName === 'signArcEvmTransaction') arcEvmComplete = true;
   }
@@ -712,6 +725,8 @@ export class IntendedBehaviourHarness {
 
   private latestSigningRemainingUses: number | null = null;
 
+  private latestWalletBudgetStatusRequest: CapturedWalletBudgetStatusRequest | null = null;
+
   constructor(args: {
     context: BrowserContext;
     flow: IntendedLifecycleFlow;
@@ -775,28 +790,6 @@ export class IntendedBehaviourHarness {
     this.passkeyPromptCount += 1;
     this.recordService(
       `Ed25519 Yao passkey registration succeeded wallet=${result.walletId} near=${result.nearAccountId}`,
-    );
-  }
-
-  async registerPreparedIframePasskeyEd25519YaoWallet(): Promise<void> {
-    this.recordStage('register_prepared_iframe_passkey_ed25519_yao_wallet');
-    const snapshot = await this.runIntendedPageAction(
-      'registerPreparedIframePasskeyEd25519YaoWallet',
-      'intended-register-prepared-iframe-passkey-ed25519-yao',
-    );
-    const result = requirePasskeyRegistrationResult(snapshot, this.walletId);
-    if (result.ecdsaTargetProfile !== 'none' || result.ecdsaTargetKeys.kind !== 'none') {
-      throw new Error('Prepared iframe Ed25519 Yao registration provisioned an ECDSA signer');
-    }
-    if (snapshot.events.length === 0) {
-      throw new Error('Prepared iframe Ed25519 Yao registration did not emit lifecycle events');
-    }
-    this.registeredWallet = result;
-    this.nearSignerSlot = 1;
-    this.currentWarmSigningStage = 'post_registration';
-    this.passkeyPromptCount += 1;
-    this.recordService(
-      `prepared iframe Ed25519 Yao registration succeeded wallet=${result.walletId} near=${result.nearAccountId}`,
     );
   }
 
@@ -898,7 +891,9 @@ export class IntendedBehaviourHarness {
     if (snapshot.events.length === 0) {
       throw new Error('Email OTP unlock did not emit structured lifecycle events');
     }
-    this.assertRouterAbEd25519YaoRecoveryRoutes(traceStartIndex, 'Email OTP cold unlock');
+    this.assertNoRouterAbEd25519YaoRecoveryRoutes(traceStartIndex, {
+      kind: 'email_otp_unlock',
+    });
     this.currentWarmSigningStage = 'post_unlock';
     this.emailOtpVerificationCount += 1;
     this.recordService(
@@ -910,13 +905,10 @@ export class IntendedBehaviourHarness {
     return await this.executeNearSigningScenario({ kind: 'standard', stage });
   }
 
-  async signNearTransactionAfterRefresh(
-    postRefreshMaterialSource: IntendedPostRefreshMaterialSource,
-  ): Promise<SigningAuthEventSummary> {
+  async signNearTransactionAfterRefresh(): Promise<SigningAuthEventSummary> {
     return await this.executeNearSigningScenario({
       kind: 'post_refresh',
       stage: 'after_refresh_recovery',
-      postRefreshMaterialSource,
     });
   }
 
@@ -942,26 +934,11 @@ export class IntendedBehaviourHarness {
     switch (scenario.kind) {
       case 'standard':
         break;
-      case 'post_refresh': {
-        const { postRefreshMaterialSource } = scenario;
-        switch (postRefreshMaterialSource) {
-          case 'email_otp_yao_recovery':
-            this.assertRouterAbEd25519YaoRecoveryRoutes(
-              traceStartIndex,
-              'Email OTP post-refresh recovery',
-            );
-            break;
-          case 'passkey_local_envelope':
-            this.assertNoRouterAbEd25519YaoRecoveryRoutes(traceStartIndex, {
-              kind: 'post_refresh_near_signing',
-              materialSource: postRefreshMaterialSource,
-            });
-            break;
-          default:
-            assertNever(postRefreshMaterialSource);
-        }
+      case 'post_refresh':
+        this.assertNoRouterAbEd25519YaoRecoveryRoutes(traceStartIndex, {
+          kind: 'post_refresh_near_signing',
+        });
         break;
-      }
       default:
         assertNever(scenario);
     }
@@ -1071,10 +1048,11 @@ export class IntendedBehaviourHarness {
     return summary;
   }
 
-  async signTempoAndArcEvmConcurrently(stage: IntendedWarmSigningStage): Promise<void> {
+  async signTempoAndArcEvmConcurrently(stage: IntendedSigningStage): Promise<void> {
     this.recordStage(`${stage}:tempo_arc.concurrent_sign`);
     const registration = this.requireRegisteredWalletForSigning();
     await this.ensureIntendedPageOpen();
+    this.latestWalletBudgetStatusRequest = null;
     await this.page.evaluate(installIntendedConcurrentActionObserver);
     const diagnostics: WalletIframeAutoConfirmDiagnostics = { attempts: 0, clicked: false };
     let rawSnapshots: unknown[];
@@ -1118,16 +1096,11 @@ export class IntendedBehaviourHarness {
     });
     await verifyTempoEcdsaSignature({ registration, result: tempoResult });
     await verifyArcEvmSignature({ registration, result: arcEvmResult });
-
-    const lifecycleSnapshot = snapshotWithMostLifecycleEvents(tempoSnapshot, arcEvmSnapshot);
-    const summary = this.assertSigningAuthEvents(
-      lifecycleSnapshot,
-      stage,
-      'Concurrent Tempo/Arc signing',
-    );
-    assertConcurrentSharedBudgetExhaustion(summary);
-    this.recordSigningRemainingUses(summary);
-    this.latestPageSnapshot = lifecycleSnapshot;
+    await this.assertConcurrentWalletBudgetExhausted();
+    const concurrentSnapshot = snapshotWithMostLifecycleEvents(tempoSnapshot, arcEvmSnapshot);
+    this.assertSigningAuthEvents(concurrentSnapshot, stage, 'Concurrent Tempo/Arc signing');
+    this.latestSigningRemainingUses = 0;
+    this.latestPageSnapshot = concurrentSnapshot;
     this.recordService(
       `concurrent Tempo/Arc signatures verified wallet=${this.walletId} remainingUses=0`,
     );
@@ -1138,6 +1111,16 @@ export class IntendedBehaviourHarness {
     if (this.latestSigningRemainingUses === 0) {
       this.recordService('signing remaining spend already exhausted');
       return;
+    }
+    if (this.latestWalletBudgetStatusRequest) {
+      const replay = await this.replayLatestWalletBudgetStatus();
+      if (replay.kind === 'exhausted') {
+        this.latestSigningRemainingUses = 0;
+        this.recordService(
+          `signing remaining spend authoritatively exhausted signingGrantId=${replay.signingGrantId} thresholdSessionId=${replay.thresholdSessionId}`,
+        );
+        return;
+      }
     }
     for (let attempt = 1; attempt <= MAX_BUDGET_EXHAUSTION_SIGNS; attempt += 1) {
       const summary = await this.signNearTransaction(this.currentWarmSigningStage);
@@ -1233,6 +1216,7 @@ export class IntendedBehaviourHarness {
   private async installFailureCollectors(): Promise<void> {
     this.page.on('console', this.handleConsoleMessage.bind(this));
     this.page.on('pageerror', this.handlePageError.bind(this));
+    this.context.on('request', this.handleRequest.bind(this));
     this.context.on('requestfailed', this.handleRequestFailed.bind(this));
     this.context.on('response', this.handleResponse.bind(this));
   }
@@ -1487,6 +1471,46 @@ export class IntendedBehaviourHarness {
     this.recordViolationIfNeeded(message);
   }
 
+  private handleRequest(request: Request): void {
+    const captured = captureWalletBudgetStatusRequest(request, this.config.routerUrl);
+    if (captured) this.latestWalletBudgetStatusRequest = captured;
+  }
+
+  private async assertConcurrentWalletBudgetExhausted(): Promise<void> {
+    const replay = await this.replayLatestWalletBudgetStatus();
+    if (replay.kind !== 'exhausted') {
+      throw new Error('Concurrent Tempo/Arc authoritative wallet budget remained active');
+    }
+    this.recordService(
+      `authoritative wallet budget exhausted signingGrantId=${replay.signingGrantId} thresholdSessionId=${replay.thresholdSessionId}`,
+    );
+  }
+
+  private async replayLatestWalletBudgetStatus(): Promise<AuthoritativeWalletBudgetReplay> {
+    const captured = this.latestWalletBudgetStatusRequest;
+    if (!captured) {
+      throw new Error('Signing did not issue an authenticated wallet budget status request');
+    }
+    const response = await this.request.post(captured.url, {
+      headers: {
+        Authorization: captured.authorization,
+        'Content-Type': captured.contentType,
+      },
+      data: captured.body,
+    });
+    const responseText = await response.text();
+    if (!response.ok()) {
+      throw new Error(
+        `Authoritative wallet budget status returned HTTP ${response.status()}: ${responseText}`,
+      );
+    }
+    return parseAuthoritativeWalletBudgetStatus({
+      responseText,
+      expectedSigningGrantId: captured.signingGrantId,
+      expectedThresholdSessionId: captured.thresholdSessionId,
+    });
+  }
+
   private handleResponse(response: Response): void {
     const status = response.status();
     const signingPath = routerAbEd25519SigningPath(response.url(), this.config.routerUrl);
@@ -1568,23 +1592,6 @@ export class IntendedBehaviourHarness {
     this.recordService('ordinary NEAR signing made zero Ed25519 Yao activation route calls');
   }
 
-  private assertRouterAbEd25519YaoRecoveryRoutes(
-    traceStartIndex: number,
-    flowLabel: 'Email OTP cold unlock' | 'Email OTP post-refresh recovery',
-  ): void {
-    const observedPaths = new Set<(typeof ROUTER_AB_ED25519_YAO_RECOVERY_PATHS)[number]>();
-    for (const entry of this.trace.slice(traceStartIndex)) {
-      const path = routerAbEd25519YaoRecoveryPath(entry.url, this.config.routerUrl);
-      if (path) observedPaths.add(path);
-    }
-    for (const expectedPath of ROUTER_AB_ED25519_YAO_RECOVERY_PATHS) {
-      if (!observedPaths.has(expectedPath)) {
-        throw new Error(`${flowLabel} did not traverse ${expectedPath}`);
-      }
-    }
-    this.recordService(`${flowLabel} traversed all Router A/B Yao recovery routes`);
-  }
-
   private assertNoRouterAbEd25519YaoRecoveryRoutes(
     traceStartIndex: number,
     scenario: IntendedNoYaoRecoveryAssertionScenario,
@@ -1640,9 +1647,6 @@ export class IntendedBehaviourHarness {
       expectation,
       summary,
     });
-    if (stage === 'after_step_up') {
-      assertStepUpTransactionConsumedSingleUseBudget({ label, summary });
-    }
     this.passkeyPromptCount += signingPasskeyPromptCount(summary);
     this.emailOtpVerificationCount += signingEmailOtpVerificationCount(summary);
     return summary;
@@ -1683,8 +1687,10 @@ function noYaoRecoveryAssertionLabel(scenario: IntendedNoYaoRecoveryAssertionSce
   switch (scenario.kind) {
     case 'passkey_unlock':
       return 'Passkey unlock';
+    case 'email_otp_unlock':
+      return 'Email OTP unlock';
     case 'post_refresh_near_signing':
-      return 'Passkey post-refresh local-envelope hydration';
+      return 'Post-refresh local-envelope hydration';
     default:
       return assertNever(scenario);
   }
@@ -1992,7 +1998,7 @@ function signingAuthExpectationForStage(
     case 'post_unlock':
     case 'after_refresh_recovery':
       return 'warm_session';
-    case 'after_step_up':
+    case 'step_up_required':
       return flow.startsWith('passkey') ? 'passkey_step_up' : 'email_otp_step_up';
     default:
       return assertNever(stage);
@@ -2021,7 +2027,9 @@ function summarizeSigningAuthEvents(snapshot: IntendedPageSnapshot): SigningAuth
     if (!phase) continue;
     phases.push(phase);
     const maybeRemainingUses = signingEventRemainingUses(event.payload);
-    if (maybeRemainingUses !== null) remainingUses.push(maybeRemainingUses);
+    if (maybeRemainingUses !== null) {
+      remainingUses.push(maybeRemainingUses);
+    }
     const completedAuthMethod = signingAuthenticationCompleteAuthMethod(event.payload, phase);
     if (completedAuthMethod) {
       authenticationMethods.push(completedAuthMethod);
@@ -2301,27 +2309,6 @@ function signingEmailOtpVerificationCount(summary: SigningAuthEventSummary): num
 function minimumRemainingUse(summary: SigningAuthEventSummary): number | null {
   if (summary.remainingUses.length === 0) return null;
   return Math.min(...summary.remainingUses);
-}
-
-function assertConcurrentSharedBudgetExhaustion(summary: SigningAuthEventSummary): void {
-  const observed = new Set(summary.remainingUses);
-  if (!observed.has(1) || !observed.has(0)) {
-    throw new Error(
-      `Concurrent Tempo/Arc signing did not consume the final two shared budget uses: ${JSON.stringify(summary.remainingUses)}`,
-    );
-  }
-}
-
-function assertStepUpTransactionConsumedSingleUseBudget(input: {
-  label: string;
-  summary: SigningAuthEventSummary;
-}): void {
-  const remainingUses = minimumRemainingUse(input.summary);
-  if (remainingUses !== 0) {
-    throw new Error(
-      `${input.label} did not consume its single-use step-up budget: ${JSON.stringify(input.summary.remainingUses)}`,
-    );
-  }
 }
 
 function signingEventPhase(payload: unknown): string | null {
@@ -3407,7 +3394,6 @@ function parseIntendedHarnessAction(raw: unknown): IntendedHarnessAction {
   switch (action) {
     case 'registerPasskeyWallet':
     case 'registerPasskeyEd25519YaoWallet':
-    case 'registerPreparedIframePasskeyEd25519YaoWallet':
     case 'addPasskeyEd25519YaoWalletSigner':
     case 'registerEmailOtpWallet':
     case 'unlockPasskeyWallet':
@@ -3459,24 +3445,6 @@ function routerAbEd25519YaoRegistrationPath(
   return null;
 }
 
-function routerAbEd25519YaoRecoveryPath(
-  rawUrl: string | undefined,
-  routerUrl: string,
-): (typeof ROUTER_AB_ED25519_YAO_RECOVERY_PATHS)[number] | null {
-  if (!rawUrl) return null;
-  let url: URL;
-  try {
-    url = new URL(rawUrl);
-  } catch {
-    return null;
-  }
-  if (url.origin !== new URL(routerUrl).origin) return null;
-  for (const path of ROUTER_AB_ED25519_YAO_RECOVERY_PATHS) {
-    if (url.pathname === path) return path;
-  }
-  return null;
-}
-
 function routerAbEd25519YaoWarmRecoveryPath(
   rawUrl: string | undefined,
   routerUrl: string,
@@ -3511,6 +3479,116 @@ function routerAbEd25519YaoExportPath(
     if (url.pathname === path) return path;
   }
   return null;
+}
+
+function captureWalletBudgetStatusRequest(
+  request: Request,
+  routerUrl: string,
+): CapturedWalletBudgetStatusRequest | null {
+  if (request.method() !== 'POST') return null;
+  let requestUrl: URL;
+  let routerOrigin: string;
+  try {
+    requestUrl = new URL(request.url());
+    routerOrigin = new URL(routerUrl).origin;
+  } catch {
+    return null;
+  }
+  if (
+    requestUrl.origin !== routerOrigin ||
+    requestUrl.pathname !== ROUTER_AB_WALLET_BUDGET_STATUS_PATH
+  ) {
+    return null;
+  }
+
+  const headers = request.headers();
+  const authorization = headers.authorization?.trim() ?? '';
+  const contentType = headers['content-type']?.trim() ?? 'application/json';
+  const body = request.postData();
+  if (!authorization.startsWith('Bearer ') || !body) return null;
+
+  let signingGrantId: string;
+  let thresholdSessionId: string;
+  try {
+    const parsed: unknown = JSON.parse(body);
+    const requestBody = requireRecord(parsed, 'wallet budget status request body');
+    signingGrantId = requireString(
+      requestBody.signingGrantId,
+      'wallet budget status request signingGrantId',
+    );
+    thresholdSessionId = requireString(
+      requestBody.thresholdSessionId,
+      'wallet budget status request thresholdSessionId',
+    );
+  } catch {
+    return null;
+  }
+
+  return {
+    url: request.url(),
+    authorization,
+    contentType,
+    body,
+    signingGrantId,
+    thresholdSessionId,
+  };
+}
+
+function parseAuthoritativeWalletBudgetStatus(args: {
+  responseText: string;
+  expectedSigningGrantId: string;
+  expectedThresholdSessionId: string;
+}): AuthoritativeWalletBudgetReplay {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(args.responseText);
+  } catch {
+    throw new Error('Authoritative wallet budget status response must be valid JSON');
+  }
+  const response = requireRecord(raw, 'authoritative wallet budget status response');
+  if (response.ok !== true) {
+    throw new Error('Authoritative wallet budget status response must report ok=true');
+  }
+  const signingGrantId = requireString(
+    response.signingGrantId,
+    'authoritative wallet budget status signingGrantId',
+  );
+  const thresholdSessionId = requireString(
+    response.thresholdSessionId,
+    'authoritative wallet budget status thresholdSessionId',
+  );
+  if (signingGrantId !== args.expectedSigningGrantId) {
+    throw new Error(
+      'Authoritative wallet budget status signingGrantId does not match the request',
+    );
+  }
+  if (thresholdSessionId !== args.expectedThresholdSessionId) {
+    throw new Error(
+      'Authoritative wallet budget status thresholdSessionId does not match the request',
+    );
+  }
+  if (response.status === 'active') return { kind: 'active' };
+  if (response.status !== 'exhausted') {
+    throw new Error(
+      `Authoritative wallet budget status has unexpected status ${String(response.status)}`,
+    );
+  }
+  const remainingUses = requireNonNegativeInteger(
+    response.remainingUses,
+    'authoritative exhausted wallet budget remainingUses',
+  );
+  const availableUses = requireNonNegativeInteger(
+    response.availableUses,
+    'authoritative exhausted wallet budget availableUses',
+  );
+  if (remainingUses !== 0 || availableUses !== 0) {
+    throw new Error('Authoritative exhausted wallet budget must have zero available uses');
+  }
+  return {
+    kind: 'exhausted',
+    signingGrantId,
+    thresholdSessionId,
+  };
 }
 
 function requireRecord(raw: unknown, label: string): Record<string, unknown> {
@@ -3557,6 +3635,13 @@ function requirePositiveInteger(raw: unknown, label: string): number {
     throw new Error(`${label} must be a positive integer`);
   }
   return value;
+}
+
+function requireNonNegativeInteger(raw: unknown, label: string): number {
+  if (typeof raw !== 'number' || !Number.isSafeInteger(raw) || raw < 0) {
+    throw new Error(`${label} must be a non-negative safe integer`);
+  }
+  return raw;
 }
 
 function assertNever(value: never): never {

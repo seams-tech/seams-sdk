@@ -6,6 +6,7 @@ export interface WalletServiceHtmlOptions {
   respondReady?: boolean;
   handshakeDelayMs?: number;
   protocolVersion?: string;
+  exactSessionState?: Record<string, unknown>;
   extraScript?: string;
 }
 
@@ -35,15 +36,46 @@ export const buildWalletServiceHtml = (options: WalletServiceHtmlOptions = {}): 
     respondReady = true,
     handshakeDelayMs = 0,
     protocolVersion = '1.0.0',
+    exactSessionState = { kind: 'wallet_locked' },
     extraScript = '',
   } = options;
-  const config = JSON.stringify({ respondReady, handshakeDelayMs, protocolVersion });
+  const config = JSON.stringify({
+    respondReady,
+    handshakeDelayMs,
+    protocolVersion,
+    exactSessionState,
+  });
 
   const script = `
     const CONFIG = ${config};
     console.log('[wallet-stub] script booted with config', CONFIG);
     let adoptedPort = null;
+    let exactSessionState = CONFIG.exactSessionState;
     const pendingRequests = new Map();
+
+    function postResult(requestId, result) {
+      adoptedPort.postMessage({
+        type: 'PM_RESULT',
+        requestId,
+        payload: { ok: true, result },
+      });
+    }
+
+    function isExactSession(state, expected) {
+      return (
+        (state.kind === 'active_session' || state.kind === 'expired_session') &&
+        state.walletId === expected.walletId &&
+        state.walletSessionId === expected.walletSessionId
+      );
+    }
+
+    function isMissingSession(state, expected) {
+      return (
+        state.kind === 'wallet_unlocked_without_signing_session' &&
+        state.walletId === expected.walletId &&
+        state.reason === expected.reason
+      );
+    }
 
     function adoptPort(port) {
       if (adoptedPort) return;
@@ -66,6 +98,53 @@ export const buildWalletServiceHtml = (options: WalletServiceHtmlOptions = {}): 
               });
             } catch (err) {
               console.error('Failed to respond to PM_SET_CONFIG', err);
+            }
+            return;
+          }
+
+          if (type === 'PM_GET_EXACT_WALLET_SESSION_STATE') {
+            try {
+              postResult(requestId, exactSessionState);
+            } catch (err) {
+              console.error('Failed to respond to PM_GET_EXACT_WALLET_SESSION_STATE', err);
+            }
+            return;
+          }
+
+          if (type === 'PM_LOCK_EXACT_WALLET_SESSION') {
+            try {
+              const expected = message.payload;
+              if (!isExactSession(exactSessionState, expected)) {
+                postResult(requestId, {
+                  kind: 'stale_session',
+                  expected,
+                  current: exactSessionState,
+                });
+                return;
+              }
+              exactSessionState = { kind: 'wallet_locked' };
+              postResult(requestId, { kind: 'locked', identity: expected });
+            } catch (err) {
+              console.error('Failed to respond to PM_LOCK_EXACT_WALLET_SESSION', err);
+            }
+            return;
+          }
+
+          if (type === 'PM_LOCK_MISSING_WALLET_SESSION') {
+            try {
+              const expected = message.payload;
+              if (!isMissingSession(exactSessionState, expected)) {
+                postResult(requestId, {
+                  kind: 'stale_session',
+                  expected,
+                  current: exactSessionState,
+                });
+                return;
+              }
+              exactSessionState = { kind: 'wallet_locked' };
+              postResult(requestId, { kind: 'locked', identity: expected });
+            } catch (err) {
+              console.error('Failed to respond to PM_LOCK_MISSING_WALLET_SESSION', err);
             }
             return;
           }

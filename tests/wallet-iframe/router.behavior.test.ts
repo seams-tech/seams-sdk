@@ -6,9 +6,22 @@ import {
   waitFor,
   captureOverlay,
 } from './harness';
+import {
+  thresholdEcdsaChainTargetFromChainFamily,
+  toWalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 const WALLET_ORIGIN = 'https://wallet.example.localhost';
 const WALLET_SERVICE_ROUTE = '**://wallet.example.localhost/wallet-service*';
+const ALICE_EVM_CHAIN_TARGET = thresholdEcdsaChainTargetFromChainFamily({
+  chain: 'evm',
+  chainId: 11155111,
+  networkSlug: 'sepolia',
+});
+const ALICE_WALLET_SESSION = {
+  walletId: toWalletId('alice.testnet'),
+  walletSessionUserId: 'alice.testnet',
+};
 const WAIT_FOR_SOURCE = `(${waitFor.toString()})`;
 const CAPTURE_OVERLAY_SOURCE = `(${captureOverlay.toString()})`;
 const HIDE_SIGNING_SURFACE_SCRIPT = String.raw`
@@ -75,14 +88,6 @@ const SIGN_TEMPO_SESSION_LOSS_SCRIPT = String.raw`
 `;
 const FAILED_UNLOCK_WITH_ACTIVE_EMAIL_OTP_SESSION_SCRIPT = String.raw`
       const accountId = 'crisp-plain-29ph888gzw.w3a-relayer.testnet';
-      const postResult = (requestId, result) => {
-        pendingRequests.delete(requestId);
-        adoptedPort.postMessage({
-          type: 'PM_RESULT',
-          requestId,
-          payload: { ok: true, result },
-        });
-      };
       const activeEmailOtpSession = {
         login: {
           isLoggedIn: true,
@@ -111,6 +116,7 @@ const FAILED_UNLOCK_WITH_ACTIVE_EMAIL_OTP_SESSION_SCRIPT = String.raw`
           if (!data || typeof data !== 'object' || typeof data.requestId !== 'string') return;
           const requestId = data.requestId;
           if (data.type === 'PM_GET_WALLET_SESSION') {
+            pendingRequests.delete(requestId);
             postResult(requestId, activeEmailOtpSession);
             return;
           }
@@ -134,6 +140,7 @@ const FAILED_UNLOCK_WITH_ACTIVE_EMAIL_OTP_SESSION_SCRIPT = String.raw`
                 },
               },
             });
+            pendingRequests.delete(requestId);
             postResult(requestId, {
               success: false,
               error: 'No authenticators found for account ' + accountId + '. Please register an account.',
@@ -250,7 +257,7 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
 
     if (!result.success) {
       if (handleInfrastructureErrors(result)) return;
-      expect(result.success).toBe(true);
+      expect(result.success, result.error).toBe(true);
       return;
     }
 
@@ -430,7 +437,7 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
 
     const routerPath = SDK_ESM_PATHS.walletIframeRouter;
     const result = await page.evaluate(
-      async ({ walletOrigin, routerPath }) => {
+      async ({ walletOrigin, routerPath, chainTarget, walletSession }) => {
         try {
           const mod = await import(routerPath);
           const { WalletIframeRouter } =
@@ -446,9 +453,10 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
           });
           await router.init();
 
-          const outcome = await (router as any)
+          const outcome = await router
             .signTempo({
-              nearAccountId: 'alice.testnet',
+              walletSession,
+              chainTarget,
               request: {
                 chain: 'evm',
                 kind: 'eip1559',
@@ -470,12 +478,17 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
           return { success: false as const, error: error?.message || String(error) };
         }
       },
-      { walletOrigin: WALLET_ORIGIN, routerPath },
+      {
+        walletOrigin: WALLET_ORIGIN,
+        routerPath,
+        chainTarget: ALICE_EVM_CHAIN_TARGET,
+        walletSession: ALICE_WALLET_SESSION,
+      },
     );
 
     if (!result.success) {
       if (handleInfrastructureErrors(result)) return;
-      expect(result.success).toBe(true);
+      expect(result.success, result.error).toBe(true);
       return;
     }
 
@@ -541,7 +554,7 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
 
     if (!result.success) {
       if (handleInfrastructureErrors(result)) return;
-      expect(result.success).toBe(true);
+      expect(result.success, result.error).toBe(true);
       return;
     }
 
