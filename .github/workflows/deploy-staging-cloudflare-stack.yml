@@ -704,14 +704,14 @@ jobs:
             case "$component" in
               router|deriver-a|deriver-b|signing-worker)
                 kind="$component"
-                artifact_manifest=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-$component/crates/router-ab-cloudflare/.release-artifacts/$component.json"
-                artifact_root=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-$component/crates/router-ab-cloudflare/build/$component"
+                artifact_manifest=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-$component/.release-artifacts/$component.json"
+                artifact_root=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-$component/build/$component"
                 identity="{\"profile\":\"release\",\"role\":\"$component\"}"
                 ;;
               gateway)
                 kind='gateway-wasm'
-                artifact_manifest=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-gateway/.release-artifacts/gateway/manifest.json"
-                artifact_root=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-gateway/.release-artifacts/gateway/payload"
+                artifact_manifest=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-gateway/manifest.json"
+                artifact_root=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-gateway/payload"
                 identity='{"wasmPackageSet":"gateway-v1"}'
                 ;;
               site)
@@ -1967,14 +1967,14 @@ jobs:
             case "$component" in
               router|deriver-a|deriver-b|signing-worker)
                 kind="$component"
-                artifact_manifest=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-$component/crates/router-ab-cloudflare/.release-artifacts/$component.json"
-                artifact_root=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-$component/crates/router-ab-cloudflare/build/$component"
+                artifact_manifest=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-$component/.release-artifacts/$component.json"
+                artifact_root=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-$component/build/$component"
                 identity="{\"profile\":\"release\",\"role\":\"$component\"}"
                 ;;
               gateway)
                 kind='gateway-wasm'
-                artifact_manifest=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-gateway/.release-artifacts/gateway/manifest.json"
-                artifact_root=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-gateway/.release-artifacts/gateway/payload"
+                artifact_manifest=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-gateway/manifest.json"
+                artifact_root=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-gateway/payload"
                 identity='{"wasmPackageSet":"gateway-v1"}'
                 ;;
               site)
