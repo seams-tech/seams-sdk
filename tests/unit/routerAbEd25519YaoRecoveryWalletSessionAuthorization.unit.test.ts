@@ -14,6 +14,10 @@ import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signi
 import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
 import type {
+  SessionParseFailureReason,
+  SessionParseResult,
+} from '../../packages/sdk-server-ts/src/core/sessionValidation';
+import type {
   SessionAdapter,
   SessionClaims,
 } from '../../packages/sdk-server-ts/src/router/routerApi';
@@ -42,14 +46,20 @@ type ClaimsFixtureInput = {
   thresholdExpiresAtMs: number;
 };
 
+type SessionFixtureOutcome =
+  | {
+      readonly kind: 'parsed';
+      readonly result: SessionParseResult<SessionClaims>;
+    }
+  | {
+      readonly kind: 'unavailable';
+      readonly error: Error;
+    };
+
 class SessionFixture implements SessionAdapter {
   parsedAuthorization: string | string[] | undefined;
 
-  constructor(
-    private readonly parseResult:
-      | { readonly ok: true; readonly claims: SessionClaims }
-      | { readonly ok: false },
-  ) {}
+  constructor(private readonly outcome: SessionFixtureOutcome) {}
 
   async signJwt(): Promise<string> {
     throw new Error('signJwt is outside the recovery authorization test boundary');
@@ -57,9 +67,14 @@ class SessionFixture implements SessionAdapter {
 
   async parse(
     headers: Record<string, string | string[] | undefined>,
-  ): Promise<{ ok: true; claims: SessionClaims } | { ok: false }> {
+  ): Promise<SessionParseResult<SessionClaims>> {
     this.parsedAuthorization = headers.authorization ?? headers.Authorization;
-    return this.parseResult;
+    switch (this.outcome.kind) {
+      case 'parsed':
+        return this.outcome.result;
+      case 'unavailable':
+        throw this.outcome.error;
+    }
   }
 
   buildSetCookie(): string {
@@ -84,14 +99,19 @@ function requireParsed<T>(parsed: { ok: true; value: T } | { ok: false; message:
   return parsed.value;
 }
 
-function base64UrlJson(value: Record<string, unknown>): string {
-  return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
+function parsedSessionFixture(result: SessionParseResult<SessionClaims>): SessionFixture {
+  return new SessionFixture({ kind: 'parsed', result });
 }
 
-function expiredUnverifiedWalletSessionJwt(): string {
-  return `${base64UrlJson({ alg: 'HS256', typ: 'JWT' })}.${base64UrlJson({
-    exp: Math.floor(Date.now() / 1000) - 1,
-  })}.invalid-signature`;
+function failedSessionFixture(reason: SessionParseFailureReason): SessionFixture {
+  return parsedSessionFixture({ ok: false, reason });
+}
+
+function unavailableSessionFixture(): SessionFixture {
+  return new SessionFixture({
+    kind: 'unavailable',
+    error: new Error('session verifier unavailable'),
+  });
 }
 
 function admissionRequestFixture(): RouterAbEd25519YaoRecoveryAdmissionRequestV1 {
@@ -268,7 +288,7 @@ async function authorizeWithClaims(
   input: RouterAbEd25519YaoRecoveryAuthorizationInput,
   claims: SessionClaims,
 ) {
-  const session = new SessionFixture({ ok: true, claims });
+  const session = parsedSessionFixture({ ok: true, claims });
   const authorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(session);
   const result = await authorization.authorize(input);
   return { result, session };
@@ -290,15 +310,15 @@ test.describe('Router A/B Ed25519 Yao recovery Wallet Session authorization', ()
   });
 
   test('rejects a missing Wallet Session bearer credential', async () => {
-    const session = new SessionFixture({ ok: false });
+    const session = failedSessionFixture('missing');
     const authorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(session);
 
     await expect(authorization.authorize(authorizationInputFixture('admit', false))).resolves.toEqual(
       {
         ok: false,
         status: 401,
-        code: 'recovery_wallet_session_missing',
-        message: 'Ed25519 Yao recovery requires a valid Wallet Session JWT',
+        code: 'wallet_session_missing',
+        message: 'Wallet Session is missing',
       },
     );
     expect(session.parsedAuthorization).toBeUndefined();
@@ -313,8 +333,38 @@ test.describe('Router A/B Ed25519 Yao recovery Wallet Session authorization', ()
     expect(authorized.result).toEqual({
       ok: false,
       status: 401,
-      code: 'recovery_wallet_session_invalid',
-      message: 'Ed25519 Yao recovery requires Router A/B Ed25519 Wallet Session claims',
+      code: 'wallet_session_claims_invalid',
+      message: 'Wallet Session claims are invalid',
+    });
+  });
+
+  test('rejects a Wallet Session with an invalid signature', async () => {
+    const authorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
+      failedSessionFixture('signature_invalid'),
+    );
+
+    await expect(
+      authorization.authorize(authorizationInputFixture('admit', true)),
+    ).resolves.toEqual({
+      ok: false,
+      status: 401,
+      code: 'wallet_session_signature_invalid',
+      message: 'Wallet Session signature is invalid',
+    });
+  });
+
+  test('rejects Wallet Session claims rejected by the session parser', async () => {
+    const authorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
+      failedSessionFixture('claims_invalid'),
+    );
+
+    await expect(
+      authorization.authorize(authorizationInputFixture('admit', true)),
+    ).resolves.toEqual({
+      ok: false,
+      status: 401,
+      code: 'wallet_session_claims_invalid',
+      message: 'Wallet Session claims are invalid',
     });
   });
 
@@ -347,7 +397,8 @@ test.describe('Router A/B Ed25519 Yao recovery Wallet Session authorization', ()
         expect(authorized.result, `${phase}: ${substitution.label}`).toMatchObject({
           ok: false,
           status: 403,
-          code: 'recovery_wallet_session_scope_mismatch',
+          code: 'wallet_session_scope_mismatch',
+          message: 'Wallet Session scope does not match the request',
         });
       }
     }
@@ -380,7 +431,8 @@ test.describe('Router A/B Ed25519 Yao recovery Wallet Session authorization', ()
       expect(authorized.result, substitution.label).toMatchObject({
         ok: false,
         status: 403,
-        code: 'recovery_wallet_session_scope_mismatch',
+        code: 'wallet_session_scope_mismatch',
+        message: 'Wallet Session scope does not match the request',
       });
     }
   });
@@ -394,29 +446,37 @@ test.describe('Router A/B Ed25519 Yao recovery Wallet Session authorization', ()
       ok: false,
       status: 401,
       code: 'wallet_session_expired',
-      message: 'Ed25519 Yao recovery Wallet Session expired',
+      message: 'Wallet Session expired',
     });
   });
 
-  test('classifies an expired bearer rejected by JWT verification for WebAuthn fallback', async () => {
-    const input = authorizationInputFixture('bootstrap', true);
-    if (input.kind !== 'bootstrap') throw new Error('bootstrap authorization input is required');
+  test('classifies an expired bearer rejected by session verification', async () => {
     const authorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
-      new SessionFixture({ ok: false }),
+      failedSessionFixture('expired'),
     );
-    const result = await authorization.authorize({
-      kind: 'bootstrap',
-      request: new Request('https://router.example.test/recovery/bootstrap', {
-        method: 'POST',
-        headers: { authorization: `Bearer ${expiredUnverifiedWalletSessionJwt()}` },
-      }),
-      body: input.body,
-    });
-    expect(result).toEqual({
+
+    await expect(
+      authorization.authorize(authorizationInputFixture('bootstrap', true)),
+    ).resolves.toEqual({
       ok: false,
       status: 401,
       code: 'wallet_session_expired',
-      message: 'Ed25519 Yao recovery Wallet Session expired',
+      message: 'Wallet Session expired',
+    });
+  });
+
+  test('reports Wallet Session verification as unavailable', async () => {
+    const authorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
+      unavailableSessionFixture(),
+    );
+
+    await expect(
+      authorization.authorize(authorizationInputFixture('admit', true)),
+    ).resolves.toEqual({
+      ok: false,
+      status: 503,
+      code: 'wallet_session_unavailable',
+      message: 'Wallet Session status is unavailable',
     });
   });
 
@@ -440,7 +500,8 @@ test.describe('Router A/B Ed25519 Yao recovery Wallet Session authorization', ()
       expect(authorized.result, substitution.label).toMatchObject({
         ok: false,
         status: 403,
-        code: 'recovery_wallet_session_scope_mismatch',
+        code: 'wallet_session_scope_mismatch',
+        message: 'Wallet Session scope does not match the request',
       });
     }
   });

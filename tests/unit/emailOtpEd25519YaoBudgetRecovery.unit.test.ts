@@ -6,7 +6,7 @@ import { buildEmailOtpAuthContextForWalletAuthMethod } from '../../packages/sdk-
 import {
   activateColdEmailOtpEd25519YaoUnlockedRecoveryV1,
   prepareColdEmailOtpEd25519YaoRecoveryV1,
-  recoverEmailOtpEd25519CapabilityForSigningV1,
+  rehydrateEmailOtpEd25519CapabilityForSigningV1,
 } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoBudgetRecovery';
 import { resolveEmailOtpEd25519YaoColdRecoveryV1 } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoLogin';
 import { recoverEmailOtpEd25519YaoWorkerClientV1 } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoWorkerClient';
@@ -308,6 +308,25 @@ class RecoveryWorkerFixture {
     const request = args.request as { type: string; payload: Record<string, any> };
     this.operations.push(request.type);
     switch (request.type) {
+      case 'rehydrateEmailOtpEd25519YaoLocalMaterial': {
+        const exactCapability = recoveryBootstrap({
+          remainingUses: request.payload.remainingUses,
+          prior: this.prior,
+          substitutePublicKey: this.substitutePublicKey,
+          substituteParticipantIds: this.substituteParticipantIds,
+          substituteSignerSetId: this.substituteSignerSetId,
+        }).capability;
+        return {
+          ok: true,
+          activeClientHandle: 'rehydrated-active-client-1',
+          metadata: this.prior,
+          ed25519YaoSession: {
+            kind: 'exact_local_material_session_v1',
+            session: request.payload.restore.session,
+            capability: exactCapability,
+          },
+        };
+      }
       case 'rehydrateEmailOtpEd25519YaoFactor':
         return {
           ok: true,
@@ -317,6 +336,11 @@ class RecoveryWorkerFixture {
         };
       case 'loginWithEmailOtpWallet': {
         this.loginPayload = request.payload;
+        if (request.payload.material.kind === 'ed25519_yao_exact_local_session') {
+          throw new Error(
+            '[SigningEngine][near] Email OTP local Ed25519 material is unavailable; explicit recovery or device linking is required',
+          );
+        }
         const remainingUses = Number(request.payload.material.ed25519YaoRecovery.remainingUses);
         return {
           kind: 'ed25519_yao_recovery',
@@ -583,7 +607,7 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
     clearAllStoredThresholdEd25519SessionRecords();
   });
 
-  test('recovers the same active identity and replaces only Wallet Session budget state', async () => {
+  test('rejects routine signing when exact local material is unavailable', async () => {
     const activeRecord = writeEmailOtpRecord({
       remainingUses: 1,
       updatedAtMs: 1,
@@ -603,48 +627,42 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
     });
     const activation = new RecoveryActivationHarness(priorCapability);
 
-    const result = await recoverEmailOtpEd25519CapabilityForSigningV1({
-      nearAccountId: NEAR_ACCOUNT_ID,
-      record: exhaustedRecord,
-      committedLane: committedLane(exhaustedRecord),
-      challengeId: 'challenge-1',
-      otpCode: '123456',
-      remainingUses: 3,
-      expectedOperationalPublicKey: emailOtpUser().operationalPublicKey,
-      workerContext: worker.context(),
-      shamirPrimeB64u: 'shamir-prime-b64u',
-      resolveActiveCapability: activation.resolve.bind(activation),
-      activateCapability: activation.activate.bind(activation),
-    });
+    await expect(
+      rehydrateEmailOtpEd25519CapabilityForSigningV1({
+        nearAccountId: NEAR_ACCOUNT_ID,
+        record: exhaustedRecord,
+        committedLane: committedLane(exhaustedRecord),
+        challengeId: 'challenge-1',
+        otpCode: '123456',
+        remainingUses: 3,
+        expectedOperationalPublicKey: emailOtpUser().operationalPublicKey,
+        workerContext: worker.context(),
+        shamirPrimeB64u: 'shamir-prime-b64u',
+        resolveActiveCapability: activation.resolve.bind(activation),
+        activateCapability: activation.activate.bind(activation),
+      }),
+    ).rejects.toThrow(
+      'Email OTP local Ed25519 material is unavailable; explicit recovery or device linking is required',
+    );
 
-    expect(worker.operations).toEqual([
-      'loginWithEmailOtpWallet',
-      'bindEmailOtpEd25519YaoRoot',
-      'recoverEmailOtpEd25519Yao',
-    ]);
+    expect(worker.operations).toEqual(['loginWithEmailOtpWallet']);
     expect(worker.loginPayload).toMatchObject({
       challengeId: 'challenge-1',
       otpCode: '123456',
       material: {
-        kind: 'ed25519_yao_recovery',
+        kind: 'ed25519_yao_exact_local_session',
         providerSubject: PROVIDER_SUBJECT,
-        ed25519YaoRecovery: {
-          kind: 'router_ab_ed25519_yao_email_otp_recovery_v1',
+        ed25519YaoSession: {
+          kind: 'exact_local_material_session_v1',
           signerSlot: 1,
           remainingUses: 3,
           orgId: RUNTIME_POLICY_SCOPE.orgId,
         },
       },
     });
-    expect(activation.activateCalls).toBe(1);
-    expect(activation.activated?.activeClient).toBe(result.activeClient);
-    expect(result.sessionId).toBe(THRESHOLD_SESSION_ID);
-    expect(result.record.thresholdSessionId).toBe(THRESHOLD_SESSION_ID);
-    expect(result.record.signingGrantId).toBe(RECOVERED_SIGNING_GRANT_ID);
-    expect(result.record.signingGrantId).not.toBe(exhaustedRecord.signingGrantId);
-    expect(result.record.remainingUses).toBe(3);
-    expect(result.walletSessionState.remainingUses).toBe(3);
-    expect(result.activeClient.status()).toEqual({ kind: 'active' });
+    expect(worker.disposedPendingFactor).toBeNull();
+    expect(activation.activateCalls).toBe(0);
+    expect(activation.activated).toBeNull();
     expect(priorClient.status()).toEqual({ kind: 'active' });
   });
 
@@ -668,20 +686,6 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
       authPolicy: 'session',
       ports: {
         readExactSealedSession: async () => sealedRecord,
-        fetch: async () =>
-          new Response(
-            JSON.stringify(
-              warmRecoveryBootstrapResponse({
-                expiresAtMs,
-                thresholdExpiresAtMs: expiresAtMs,
-                prior,
-              }),
-            ),
-            {
-              status: 200,
-              headers: { 'Content-Type': 'application/json' },
-            },
-          ),
         workerContext: worker.context(),
         resolveActiveCapability: activation.resolve.bind(activation),
         activateCapability: activation.activate.bind(activation),
@@ -690,11 +694,7 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
     });
 
     expect(result.kind).toBe('recovered');
-    expect(worker.operations).toEqual([
-      'rehydrateEmailOtpEd25519YaoFactor',
-      'bindEmailOtpEd25519YaoRoot',
-      'recoverEmailOtpEd25519Yao',
-    ]);
+    expect(worker.operations).toEqual(['rehydrateEmailOtpEd25519YaoLocalMaterial']);
     expect(worker.operations).not.toContain('loginWithEmailOtpWallet');
     expect(activation.activateCalls).toBe(1);
     if (result.kind === 'recovered') {
@@ -727,9 +727,6 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
       authPolicy: 'session',
       ports: {
         readExactSealedSession: async () => sealedRecord,
-        fetch: async () => {
-          throw new Error('exhausted durable grants must not call the recovery bootstrap');
-        },
         workerContext: worker.context(),
         resolveActiveCapability: activation.resolve.bind(activation),
         activateCapability: activation.activate.bind(activation),
@@ -740,6 +737,46 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
     expect(result).toEqual({
       kind: 'reauth_required',
       reason: 'sealed_session_exhausted',
+    });
+    expect(worker.operations).toEqual([]);
+    expect(activation.activateCalls).toBe(0);
+  });
+
+  test('routes an expired sealed Email OTP grant to step-up without attempting Yao recovery', async () => {
+    const nowMs = Date.now();
+    const sealedRecord = buildEmailOtpSealedRecord({
+      expiresAtMs: nowMs,
+      remainingUses: 3,
+    });
+    const worker = new RecoveryWorkerFixture({
+      prior: activeMetadata(),
+      substitutePublicKey: false,
+    });
+    const activation = new RecoveryActivationHarness(null);
+
+    const result = await recoverEmailOtpEd25519YaoFromSealedSessionV1({
+      subject: {
+        walletId: WALLET_ID,
+        nearAccountId: NEAR_ACCOUNT_ID,
+        signerSlot: 1,
+        thresholdSessionId: THRESHOLD_SESSION_ID,
+      },
+      expectedOperationalPublicKey: emailOtpUser().operationalPublicKey,
+      rpId: 'localhost',
+      relayerUrl: RELAYER_URL,
+      authPolicy: 'session',
+      ports: {
+        readExactSealedSession: async () => sealedRecord,
+        workerContext: worker.context(),
+        resolveActiveCapability: activation.resolve.bind(activation),
+        activateCapability: activation.activate.bind(activation),
+        nowMs: () => nowMs,
+      },
+    });
+
+    expect(result).toEqual({
+      kind: 'reauth_required',
+      reason: 'sealed_session_expired',
     });
     expect(worker.operations).toEqual([]);
     expect(activation.activateCalls).toBe(0);
@@ -881,56 +918,6 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
     );
     expect(result.record.source).toBe('email_otp');
     expect(result.activeClient.metadata().registeredPublicKey).toEqual(REGISTERED_PUBLIC_KEY);
-  });
-
-  test('rejects a substituted server capability public key before activation', async () => {
-    const activeRecord = writeEmailOtpRecord({
-      remainingUses: 1,
-      updatedAtMs: 1,
-      version: 'active',
-    });
-    const priorMetadata = activeMetadata();
-    const priorClient = new ActiveClientFixture(priorMetadata);
-    const priorCapability = capabilityFixture(activeRecord, priorClient);
-    const exhaustedRecord = writeEmailOtpRecord({
-      remainingUses: 0,
-      updatedAtMs: 2,
-      version: 'exhausted',
-    });
-    const worker = new RecoveryWorkerFixture({
-      prior: priorMetadata,
-      substitutePublicKey: true,
-    });
-    const activation = new RecoveryActivationHarness(priorCapability);
-
-    await expect(
-      recoverEmailOtpEd25519CapabilityForSigningV1({
-        nearAccountId: NEAR_ACCOUNT_ID,
-        record: exhaustedRecord,
-        committedLane: committedLane(exhaustedRecord),
-        challengeId: 'challenge-1',
-        otpCode: '123456',
-        remainingUses: 3,
-        expectedOperationalPublicKey: emailOtpUser().operationalPublicKey,
-        workerContext: worker.context(),
-        shamirPrimeB64u: 'shamir-prime-b64u',
-        resolveActiveCapability: activation.resolve.bind(activation),
-        activateCapability: activation.activate.bind(activation),
-      }),
-    ).rejects.toThrow('cold recovery changed the registered wallet identity');
-
-    expect(worker.operations).toEqual([
-      'loginWithEmailOtpWallet',
-      'disposeEmailOtpEd25519YaoPendingFactor',
-    ]);
-    expect(worker.disposedPendingFactor).toMatchObject({
-      kind: 'email_otp_ed25519_yao_pending_factor_handle_v1',
-      handleId: 'pending-factor-1',
-      purpose: 'recovery',
-    });
-    expect(activation.activateCalls).toBe(0);
-    expect(activation.activated).toBeNull();
-    expect(priorClient.status()).toEqual({ kind: 'active' });
   });
 
   test('cold activation disposes its pending factor when the public key is substituted', async () => {

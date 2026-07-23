@@ -50,6 +50,7 @@ const request: RouterAbNormalSigningPrepareRequestV2Wire = {
     request_id: 'router-ab-normal-signing/request-1',
     account_id: 'alice.testnet',
     session_id: 'wallet-session-1',
+    active_state_session_id: 'activation-session-1',
     signing_worker_id: 'signing-worker-a',
   },
   expires_at_ms: 1_900_000_000_000,

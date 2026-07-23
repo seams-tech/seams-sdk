@@ -152,38 +152,21 @@ test.describe('wallet iframe host canonical signer error mapping', () => {
     expect(code).toBe('nonce_conflict_retryable');
   });
 
-  test('maps threshold session auth errors to threshold_ecdsa_session_not_ready', async () => {
-    const code = resolveWalletBoundaryErrorCode({
-      requestType: 'PM_SIGN_TEMPO',
-      message: 'relayer threshold session expired',
-    });
-    expect(code).toBe('threshold_ecdsa_session_not_ready');
-  });
-
-  test('maps missing canonical session wording to threshold_ecdsa_session_not_ready', async () => {
-    const code = resolveWalletBoundaryErrorCode({
-      requestType: 'PM_SIGN_TEMPO',
-      message:
-        '[SigningEngine] missing canonical threshold ECDSA session for alice.testnet; reconnect threshold session via bootstrapEcdsaSession',
-    });
-    expect(code).toBe('threshold_ecdsa_session_not_ready');
-  });
-
-  test('maps threshold signingSession not_found wording to threshold_ecdsa_session_not_ready', async () => {
-    const code = resolveWalletBoundaryErrorCode({
-      requestType: 'PM_SIGN_TEMPO',
-      message:
-        '[chains] threshold signingSession is not_found; reconnect threshold session before signing',
-    });
-    expect(code).toBe('threshold_ecdsa_session_not_ready');
-  });
-
-  test('maps near threshold session failures to threshold_ed25519_session_not_ready', async () => {
-    const code = resolveWalletBoundaryErrorCode({
-      requestType: 'PM_SIGN_AND_SEND_TX',
-      message: 'Missing threshold wrapKeySalt for account: alice.testnet',
-    });
-    expect(code).toBe('threshold_ed25519_session_not_ready');
+  test('does not derive Wallet Session lifecycle state from error prose', async () => {
+    const messages = [
+      'relayer threshold session expired',
+      '[SigningEngine] missing canonical threshold ECDSA session for alice.testnet',
+      '[chains] threshold signingSession is not_found',
+      'Missing threshold wrapKeySalt for account: alice.testnet',
+      '[multichain] threshold-ecdsa session kind mismatch',
+    ];
+    for (const message of messages) {
+      const code = resolveWalletBoundaryErrorCode({
+        requestType: 'PM_SIGN_TEMPO',
+        message,
+      });
+      expect(code, message).toBe('HOST_ERROR');
+    }
   });
 
   test('maps NEAR RPC timeouts to rpc_request_failed', async () => {
@@ -192,14 +175,6 @@ test.describe('wallet iframe host canonical signer error mapping', () => {
       message: 'RPC request failed: 408 Request Timeout',
     });
     expect(code).toBe('rpc_request_failed');
-  });
-
-  test('maps session kind mismatch wording to threshold_session_kind_mismatch', async () => {
-    const code = resolveWalletBoundaryErrorCode({
-      requestType: 'PM_SIGN_TEMPO',
-      message: '[multichain] threshold-ecdsa session kind mismatch; reconnect threshold session',
-    });
-    expect(code).toBe('threshold_session_kind_mismatch');
   });
 
   test('maps user-rejected signing wording to cancelled', async () => {
@@ -400,22 +375,4 @@ test.describe('wallet iframe host canonical signer error mapping', () => {
     }
   });
 
-  test('still maps true NEAR threshold session failures to threshold_ed25519_session_not_ready', async () => {
-    const messages = [
-      '[chains] signingSession auth is unavailable; reconnect signing session before signing',
-      '[evm-family-ecdsa] Wallet Session auth is unavailable; reconnect signing session before signing',
-      '[SigningEngine][near] signing session is not ready: missing_session',
-      '[SigningEngine][near] signing session is not ready: exhausted',
-      'Missing threshold wrapKeySalt for account: alice.testnet',
-    ];
-    for (const message of messages) {
-      expect(
-        resolveWalletBoundaryErrorCode({
-          requestType: 'PM_SIGN_TX_WITH_ACTIONS',
-          message,
-        }),
-        message,
-      ).toBe('threshold_ed25519_session_not_ready');
-    }
-  });
 });
