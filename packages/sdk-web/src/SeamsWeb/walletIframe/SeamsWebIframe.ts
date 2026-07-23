@@ -846,13 +846,16 @@ export class SeamsWebIframe {
       this.configs.network.relayer?.routes?.delegateAction || '/signed-delegate'
     ).replace(/^\/?/, '/');
     const endpoint = `${base}${route}`;
-    const { sendDelegateActionViaRelayer } = await import('@/SeamsWeb/operations/near');
+    const { sendDelegateActionViaRelayer, delegateRelayerAuthFromConfigs } = await import(
+      '@/SeamsWeb/operations/near'
+    );
     return sendDelegateActionViaRelayer({
       url: endpoint,
       payload: {
         hash: args.hash,
         signedDelegate: args.signedDelegate,
       },
+      auth: delegateRelayerAuthFromConfigs(this.configs),
       signal: args.signal,
       options: args.options,
     });

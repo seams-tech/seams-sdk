@@ -31,6 +31,50 @@ export interface RouterApiDelegateRequest {
   signedDelegate: SignedDelegate | WasmSignedDelegate;
 }
 
+/**
+ * Credentials the Router API `/signed-delegate` route requires. Its auth plane
+ * is `api_credentials` with `publishable_key`, plus environment + origin
+ * binding. The publishable key travels as a Bearer token, the environment id
+ * as `X-Seams-Environment-Id`; the Origin header is added by the browser.
+ */
+export interface DelegateRelayerAuth {
+  publishableKey?: string;
+  environmentId?: string;
+}
+
+/** HTTP header carrying the managed environment id for Router API auth. */
+const ROUTER_API_ENVIRONMENT_ID_HEADER = 'X-Seams-Environment-Id';
+
+function buildDelegateRelayerHeaders(auth?: DelegateRelayerAuth): Record<string, string> {
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  const publishableKey = String(auth?.publishableKey ?? '').trim();
+  if (publishableKey) headers.Authorization = `Bearer ${publishableKey}`;
+  const environmentId = String(auth?.environmentId ?? '').trim();
+  if (environmentId) headers[ROUTER_API_ENVIRONMENT_ID_HEADER] = environmentId;
+  return headers;
+}
+
+/**
+ * Extracts the delegate relayer credentials from resolved SDK configs. Managed
+ * registration carries the publishable key + project environment id the Router
+ * API needs; other modes have no credentials to send (returns `{}`).
+ */
+export function delegateRelayerAuthFromConfigs(configs: unknown): DelegateRelayerAuth {
+  const registration = (configs as { registration?: unknown } | null | undefined)?.registration;
+  if (!registration || typeof registration !== 'object') return {};
+  if ((registration as { mode?: unknown }).mode !== 'managed') return {};
+  const publishableKey = String(
+    (registration as { publishableKey?: unknown }).publishableKey ?? '',
+  ).trim();
+  const environmentId = String(
+    (registration as { projectEnvironmentId?: unknown }).projectEnvironmentId ?? '',
+  ).trim();
+  return {
+    ...(publishableKey ? { publishableKey } : {}),
+    ...(environmentId ? { environmentId } : {}),
+  };
+}
+
 export async function signDelegateAction(args: {
   context: NearSigningWebContext;
   nearAccountId: AccountId;
@@ -144,10 +188,11 @@ const normalizeSignedDelegateForRelay = (
 export async function sendDelegateActionViaRelayer(args: {
   url: string;
   payload: RouterApiDelegateRequest;
+  auth?: DelegateRelayerAuth;
   signal?: AbortSignal;
   options?: DelegateRelayHooksOptions;
 }): Promise<DelegateRouterApiResult> {
-  const { url, payload, signal, options } = args;
+  const { url, payload, auth, signal, options } = args;
   const normalizedPayload: RouterApiDelegateRequest = {
     ...payload,
     signedDelegate: normalizeSignedDelegateForRelay(payload.signedDelegate),
@@ -174,7 +219,7 @@ export async function sendDelegateActionViaRelayer(args: {
   try {
     res = await fetch(url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: buildDelegateRelayerHeaders(auth),
       body: JSON.stringify(normalizedPayload),
       signal,
     });
