@@ -1555,6 +1555,18 @@ export function GasSponsorshipPage(): React.JSX.Element {
     [form, modalInitialForm],
   );
 
+  // Reuse the exact submit-time builder so the inline hint matches what a submit
+  // would reject. Returns the first missing/invalid-field message, or null when
+  // the form is complete.
+  const formValidationError = React.useMemo<string | null>(() => {
+    try {
+      buildGasSponsorshipRequest(form, selectedEnvironmentNetworkClass);
+      return null;
+    } catch (error: unknown) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  }, [form, selectedEnvironmentNetworkClass]);
+
   const onDiscardDraft = React.useCallback(() => {
     if (formDiffersFromInitial && typeof window !== 'undefined') {
       const confirmed = window.confirm('Discard this unsaved draft?');
@@ -2618,6 +2630,12 @@ export function GasSponsorshipPage(): React.JSX.Element {
 
                 <div className="dashboard-modal-divider" aria-hidden="true" />
 
+                {formValidationError ? (
+                  <p className="dashboard-form-error" role="alert">
+                    {formValidationError}
+                  </p>
+                ) : null}
+
                 <div className="dashboard-form-actions">
                   <button
                     type="button"
@@ -2630,7 +2648,8 @@ export function GasSponsorshipPage(): React.JSX.Element {
                   <button
                     type="submit"
                     className="dashboard-pagination-button"
-                    disabled={!canMutatePolicy || mutating}
+                    disabled={!canMutatePolicy || mutating || formValidationError !== null}
+                    title={formValidationError || undefined}
                   >
                     {mutating
                       ? 'Saving...'
