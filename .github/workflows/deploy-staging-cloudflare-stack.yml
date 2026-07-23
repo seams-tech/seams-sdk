@@ -538,7 +538,7 @@ jobs:
           ].filter(([name]) => selectedComponents.has(name));
           async function findManifest(directory, name) {
             const candidates = [
-              join(root, directory, 'crates/router-ab-cloudflare/.release-artifacts', name),
+              join(root, directory, '.release-artifacts', name),
               join(root, directory, '.release-artifacts/gateway', name),
               join(root, directory, '.release-artifacts/pages', name),
               join(root, directory, '.release-artifacts/signer-iframe', name),
