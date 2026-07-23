@@ -175,6 +175,11 @@ jobs:
       - name: Build production WASM for type checking
         run: WASM_SDK_BUILD_MODE=prod pnpm build:wasm
 
+      - name: Build server packages for type checking
+        run: |
+          pnpm -C packages/sdk-server-ts build
+          pnpm -C packages/console-server-ts build
+
       - name: Check lint, types, Rust, and architecture
         run: |
           pnpm lint
