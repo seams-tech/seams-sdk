@@ -481,7 +481,29 @@ type EmailOtpEcdsaBootstrapJwtPayload = {
 export type EmailOtpEcdsaBootstrapStrictPayload = EmailOtpEcdsaBootstrapBasePayload &
   EmailOtpEcdsaBootstrapJwtPayload;
 
+export type EmailOtpYaoPrewarmFailureStage = 'worker_ready' | 'yao_wasm_init';
+
+export type EmailOtpYaoPrewarmRequest =
+  | { kind: 'not_requested' }
+  | { kind: 'requested' };
+
+export type EmailOtpYaoPrewarmWorkerResult =
+  | {
+      kind: 'succeeded';
+      elapsedMs: number;
+      failureStage?: never;
+    }
+  | {
+      kind: 'failed';
+      elapsedMs: number;
+      failureStage: 'yao_wasm_init';
+    };
+
 export interface EmailOtpWorkerOperationMap {
+  prewarmEmailOtpRegistrationCrypto: {
+    payload: Record<string, never>;
+    result: EmailOtpYaoPrewarmWorkerResult;
+  };
   requestEmailOtpChallenge: {
     payload: {
       relayUrl: string;
@@ -1658,9 +1680,32 @@ export type SignerWorkerOperationResult<
   T extends SignerWorkerOperationType<K>,
 > = SignerWorkerOperationEntry<K, T>['result'];
 
+export type EmailOtpYaoPrewarmDiagnostics = {
+  workerPrewarmMs: number;
+  yaoWasmInitMs: number;
+};
+
+export type EmailOtpYaoPrewarmOutcome =
+  | (EmailOtpYaoPrewarmDiagnostics & {
+      kind: 'not_requested';
+      elapsedMs: 0;
+      failureStage?: never;
+    })
+  | (EmailOtpYaoPrewarmDiagnostics & {
+      kind: 'succeeded';
+      elapsedMs: number;
+      failureStage?: never;
+    })
+  | (EmailOtpYaoPrewarmDiagnostics & {
+      kind: 'failed';
+      elapsedMs: number;
+      failureStage: EmailOtpYaoPrewarmFailureStage;
+    });
+
 export interface SignerWorkerTransportProtocol {
   setWorkerBaseOrigin(origin: string | undefined): void;
   prewarmWorkers(): Promise<void>;
+  prewarmEmailOtpYao(request?: EmailOtpYaoPrewarmRequest): Promise<EmailOtpYaoPrewarmOutcome>;
   requestOperation<K extends SignerWorkerKind, T extends SignerWorkerOperationType<K>>(args: {
     kind: K;
     request: SignerWorkerOperationRequest<K, T>;

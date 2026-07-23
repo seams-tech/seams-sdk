@@ -15,6 +15,7 @@ import type {
   RegistrationWebContext,
 } from '@/SeamsWeb/signingSurface/types';
 import type { WorkerResourceWarmupDiagnostics } from '@/core/signingEngine/assembly/warmup';
+import type { EmailOtpYaoPrewarmOutcome } from '@/core/signingEngine/workerManager/workerTypes';
 import type {
   FinalizeWalletRegistrationEcdsaSessionsDiagnosticBucket,
   FinalizeWalletRegistrationEcdsaSessionsDiagnostics,
@@ -127,7 +128,10 @@ import {
 } from '@shared/utils/walletAuthAuthority';
 import { registerVerifiedPasskeyEd25519YaoV1 } from '@/core/signingEngine/flows/registration/services/passkeyEd25519YaoRegistration';
 import { registerVerifiedPasskeyEd25519YaoAddSignerV1 } from '@/core/signingEngine/flows/registration/services/passkeyEd25519YaoAddSigner';
-import type { ProductEd25519YaoPendingRegistrationPortV1 } from '@/core/signingEngine/flows/registration/services/ed25519YaoRegistration';
+import type {
+  ProductEd25519YaoPendingRegistrationPortV1,
+  ProductEd25519YaoRegistrationResultV1,
+} from '@/core/signingEngine/flows/registration/services/ed25519YaoRegistration';
 import {
   deletePasskeyEd25519YaoLocalMaterialV1,
   persistPasskeyEd25519YaoLocalMaterialV1,
@@ -209,6 +213,8 @@ type RegistrationTimingBucketValues = {
   registrationWarmupKeyMaterialReadMs: number;
   registrationWarmupUiConfirmPrewarmMs: number;
   registrationWarmupSignerWorkerPrewarmMs: number;
+  registrationWarmupEmailOtpWorkerPrewarmMs: number;
+  registrationWarmupEmailOtpYaoWasmInitMs: number;
   managedRegistrationGrantMs: number;
   registrationIntentMs: number;
   registrationIntentDigestMs: number;
@@ -233,6 +239,9 @@ type RegistrationTimingBucketValues = {
   passkeyAuthDuplicateRetryCount: number;
   passkeyAuthMainThreadTotalMs: number;
   emailOtpEnrollmentMaterialMs: number;
+  emailOtpYaoEnrollmentMaterialWaitMs: number;
+  emailOtpYaoWorkerRegistrationMs: number;
+  emailOtpYaoTotalMs: number;
   walletRegisterStartMs: number;
   ecdsaClientBootstrapMs: number;
   walletRegisterDerivationRespondMs: number;
@@ -267,18 +276,30 @@ type RegistrationTimingBucketValues = {
 
 type RegistrationTimingBucketName = keyof RegistrationTimingBucketValues;
 
+type RegistrationTimingSpanKind = 'warmup' | 'auth' | 'ed25519_yao' | 'ecdsa' | 'registration';
+
+type RegistrationTimingSpan = {
+  name: RegistrationTimingBucketName;
+  kind: RegistrationTimingSpanKind;
+  startOffsetMs: number;
+  endOffsetMs: number;
+};
+
 type RegistrationCriticalPathBucket = {
   name: RegistrationTimingBucketName;
   durationMs: number;
 };
 
 type RegistrationCriticalPathSummary = {
-  kind: 'registration_critical_path_summary_v1';
+  kind: 'registration_critical_path_summary_v2';
   totalElapsedMs: number;
   measuredWorkMs: number;
+  spanUnionMs: number;
+  spanCoverageRatio: number;
   unattributedElapsedMs: number;
   overlappedOrBackgroundMs: number;
   topBuckets: readonly RegistrationCriticalPathBucket[];
+  spans: readonly RegistrationTimingSpan[];
 };
 
 type EmailOtpRegistrationAuthMethod = Extract<RegistrationAuthMethodInput, { kind: 'email_otp' }>;
@@ -382,7 +403,19 @@ type EmailOtpRegistrationAuthTiming = {
 
 type RegistrationAuthTiming = PasskeyRegistrationAuthTiming | EmailOtpRegistrationAuthTiming;
 
-type RegistrationEd25519Timing = { kind: 'ed25519_yao_enabled' } | { kind: 'ed25519_disabled' };
+type RegistrationEd25519Timing =
+  | {
+      kind: 'ed25519_yao_enabled';
+      emailOtpYaoEnrollmentMaterialWaitMs: number;
+      emailOtpYaoWorkerRegistrationMs: number;
+      emailOtpYaoTotalMs: number;
+    }
+  | {
+      kind: 'ed25519_disabled';
+      emailOtpYaoEnrollmentMaterialWaitMs: 0;
+      emailOtpYaoWorkerRegistrationMs: 0;
+      emailOtpYaoTotalMs: 0;
+    };
 
 type EcdsaEnabledRegistrationTiming = {
   kind: 'ecdsa_enabled';
@@ -450,10 +483,11 @@ type RegistrationTimingBuckets = RegistrationTimingBucketValues & {
   auth: RegistrationAuthTiming;
   ed25519: RegistrationEd25519Timing;
   ecdsa: RegistrationEcdsaTiming;
+  emailOtpYaoPrewarm: EmailOtpYaoPrewarmOutcome;
 };
 
 type SucceededRegistrationTimingSummary = {
-  kind: 'registration_timing_summary_v1';
+  kind: 'registration_timing_summary_v2';
   status: 'succeeded';
   authMethod: RegistrationTimingAuthMethod;
   signerSet: RegistrationTimingSignerSet;
@@ -465,7 +499,7 @@ type SucceededRegistrationTimingSummary = {
 };
 
 type FailedRegistrationTimingSummary = {
-  kind: 'registration_timing_summary_v1';
+  kind: 'registration_timing_summary_v2';
   status: 'failed';
   authMethod: RegistrationTimingAuthMethod;
   signerSet: RegistrationTimingSignerSet;
@@ -654,6 +688,8 @@ function createZeroRegistrationTimingBucketValues(): RegistrationTimingBucketVal
     registrationWarmupKeyMaterialReadMs: 0,
     registrationWarmupUiConfirmPrewarmMs: 0,
     registrationWarmupSignerWorkerPrewarmMs: 0,
+    registrationWarmupEmailOtpWorkerPrewarmMs: 0,
+    registrationWarmupEmailOtpYaoWasmInitMs: 0,
     managedRegistrationGrantMs: 0,
     registrationIntentMs: 0,
     registrationIntentDigestMs: 0,
@@ -678,6 +714,9 @@ function createZeroRegistrationTimingBucketValues(): RegistrationTimingBucketVal
     passkeyAuthDuplicateRetryCount: 0,
     passkeyAuthMainThreadTotalMs: 0,
     emailOtpEnrollmentMaterialMs: 0,
+    emailOtpYaoEnrollmentMaterialWaitMs: 0,
+    emailOtpYaoWorkerRegistrationMs: 0,
+    emailOtpYaoTotalMs: 0,
     walletRegisterStartMs: 0,
     ecdsaClientBootstrapMs: 0,
     walletRegisterDerivationRespondMs: 0,
@@ -723,6 +762,8 @@ function copyRegistrationTimingBucketValues(
     registrationWarmupKeyMaterialReadMs: buckets.registrationWarmupKeyMaterialReadMs,
     registrationWarmupUiConfirmPrewarmMs: buckets.registrationWarmupUiConfirmPrewarmMs,
     registrationWarmupSignerWorkerPrewarmMs: buckets.registrationWarmupSignerWorkerPrewarmMs,
+    registrationWarmupEmailOtpWorkerPrewarmMs: buckets.registrationWarmupEmailOtpWorkerPrewarmMs,
+    registrationWarmupEmailOtpYaoWasmInitMs: buckets.registrationWarmupEmailOtpYaoWasmInitMs,
     managedRegistrationGrantMs: buckets.managedRegistrationGrantMs,
     registrationIntentMs: buckets.registrationIntentMs,
     registrationIntentDigestMs: buckets.registrationIntentDigestMs,
@@ -747,6 +788,9 @@ function copyRegistrationTimingBucketValues(
     passkeyAuthDuplicateRetryCount: buckets.passkeyAuthDuplicateRetryCount,
     passkeyAuthMainThreadTotalMs: buckets.passkeyAuthMainThreadTotalMs,
     emailOtpEnrollmentMaterialMs: buckets.emailOtpEnrollmentMaterialMs,
+    emailOtpYaoEnrollmentMaterialWaitMs: buckets.emailOtpYaoEnrollmentMaterialWaitMs,
+    emailOtpYaoWorkerRegistrationMs: buckets.emailOtpYaoWorkerRegistrationMs,
+    emailOtpYaoTotalMs: buckets.emailOtpYaoTotalMs,
     walletRegisterStartMs: buckets.walletRegisterStartMs,
     ecdsaClientBootstrapMs: buckets.ecdsaClientBootstrapMs,
     walletRegisterDerivationRespondMs: buckets.walletRegisterDerivationRespondMs,
@@ -854,12 +898,23 @@ function buildRegistrationAuthTiming(input: {
   }
 }
 
-function buildRegistrationEd25519Timing(
-  signerSet: RegistrationTimingSignerSet,
-): RegistrationEd25519Timing {
-  return registrationTimingSignerSetHasBranch(signerSet, 'near_ed25519')
-    ? { kind: 'ed25519_yao_enabled' }
-    : { kind: 'ed25519_disabled' };
+function buildRegistrationEd25519Timing(input: {
+  signerSet: RegistrationTimingSignerSet;
+  buckets: RegistrationTimingBucketValues;
+}): RegistrationEd25519Timing {
+  return registrationTimingSignerSetHasBranch(input.signerSet, 'near_ed25519')
+    ? {
+        kind: 'ed25519_yao_enabled',
+        emailOtpYaoEnrollmentMaterialWaitMs: input.buckets.emailOtpYaoEnrollmentMaterialWaitMs,
+        emailOtpYaoWorkerRegistrationMs: input.buckets.emailOtpYaoWorkerRegistrationMs,
+        emailOtpYaoTotalMs: input.buckets.emailOtpYaoTotalMs,
+      }
+    : {
+        kind: 'ed25519_disabled',
+        emailOtpYaoEnrollmentMaterialWaitMs: 0,
+        emailOtpYaoWorkerRegistrationMs: 0,
+        emailOtpYaoTotalMs: 0,
+      };
 }
 
 function buildRegistrationEcdsaTiming(input: {
@@ -954,6 +1009,9 @@ const REGISTRATION_CRITICAL_PATH_BUCKETS: readonly RegistrationTimingBucketName[
   'registrationIntentDigestMs',
   'authProofMs',
   'emailOtpEnrollmentMaterialMs',
+  'emailOtpYaoEnrollmentMaterialWaitMs',
+  'emailOtpYaoWorkerRegistrationMs',
+  'emailOtpYaoTotalMs',
   'walletRegisterStartMs',
   'ecdsaClientBootstrapMs',
   'walletRegisterDerivationRespondMs',
@@ -962,9 +1020,60 @@ const REGISTRATION_CRITICAL_PATH_BUCKETS: readonly RegistrationTimingBucketName[
   'ecdsaRegistrationPersistenceMs',
 ];
 
+function registrationTimingSpanKindFromBucket(
+  bucket: RegistrationTimingBucketName,
+): RegistrationTimingSpanKind {
+  if (bucket.startsWith('registrationWarmup')) return 'warmup';
+  if (bucket.startsWith('passkeyAuth') || bucket === 'authProofMs') return 'auth';
+  if (bucket.includes('Yao') || bucket.includes('yao')) return 'ed25519_yao';
+  if (bucket.includes('ecdsa') || bucket === 'walletRegisterDerivationRespondMs') return 'ecdsa';
+  return 'registration';
+}
+
+function copyRegistrationTimingSpan(span: RegistrationTimingSpan): RegistrationTimingSpan {
+  return {
+    name: span.name,
+    kind: span.kind,
+    startOffsetMs: span.startOffsetMs,
+    endOffsetMs: span.endOffsetMs,
+  };
+}
+
+function registrationTimingSpanUnionMs(
+  totalElapsedMs: number,
+  spans: readonly RegistrationTimingSpan[],
+): number {
+  const sortedSpans = spans
+    .map((span) => ({
+      start: Math.max(0, Math.min(totalElapsedMs, span.startOffsetMs)),
+      end: Math.max(0, Math.min(totalElapsedMs, span.endOffsetMs)),
+    }))
+    .filter((span) => span.end > span.start)
+    .sort((left, right) => left.start - right.start || left.end - right.end);
+  let unionMs = 0;
+  let currentStart = 0;
+  let currentEnd = 0;
+  for (const span of sortedSpans) {
+    if (currentEnd <= currentStart) {
+      currentStart = span.start;
+      currentEnd = span.end;
+      continue;
+    }
+    if (span.start > currentEnd) {
+      unionMs += currentEnd - currentStart;
+      currentStart = span.start;
+      currentEnd = span.end;
+      continue;
+    }
+    currentEnd = Math.max(currentEnd, span.end);
+  }
+  return currentEnd > currentStart ? unionMs + currentEnd - currentStart : unionMs;
+}
+
 function buildRegistrationCriticalPathSummary(input: {
   totalElapsedMs: number;
   buckets: RegistrationTimingBucketValues;
+  spans: readonly RegistrationTimingSpan[];
 }): RegistrationCriticalPathSummary {
   const measuredBuckets = REGISTRATION_CRITICAL_PATH_BUCKETS.map((name) => ({
     name,
@@ -982,13 +1091,18 @@ function buildRegistrationCriticalPathSummary(input: {
         : right.durationMs - left.durationMs,
     )
     .slice(0, 5);
+  const spanUnionMs = registrationTimingSpanUnionMs(input.totalElapsedMs, input.spans);
   return {
-    kind: 'registration_critical_path_summary_v1',
+    kind: 'registration_critical_path_summary_v2',
     totalElapsedMs: input.totalElapsedMs,
     measuredWorkMs,
-    unattributedElapsedMs: Math.max(0, input.totalElapsedMs - measuredWorkMs),
+    spanUnionMs,
+    spanCoverageRatio:
+      input.totalElapsedMs > 0 ? Math.min(1, spanUnionMs / input.totalElapsedMs) : 1,
+    unattributedElapsedMs: Math.max(0, input.totalElapsedMs - spanUnionMs),
     overlappedOrBackgroundMs: Math.max(0, measuredWorkMs - input.totalElapsedMs),
     topBuckets,
+    spans: input.spans.map(copyRegistrationTimingSpan),
   };
 }
 
@@ -996,6 +1110,7 @@ function buildRegistrationTimingBuckets(input: {
   authMethod: RegistrationTimingAuthMethod;
   signerSet: RegistrationTimingSignerSet;
   buckets: RegistrationTimingBucketValues;
+  emailOtpYaoPrewarm: EmailOtpYaoPrewarmOutcome;
 }): RegistrationTimingBuckets {
   const buckets = copyRegistrationTimingBucketValues(input.buckets);
   return {
@@ -1007,6 +1122,8 @@ function buildRegistrationTimingBuckets(input: {
     registrationWarmupKeyMaterialReadMs: buckets.registrationWarmupKeyMaterialReadMs,
     registrationWarmupUiConfirmPrewarmMs: buckets.registrationWarmupUiConfirmPrewarmMs,
     registrationWarmupSignerWorkerPrewarmMs: buckets.registrationWarmupSignerWorkerPrewarmMs,
+    registrationWarmupEmailOtpWorkerPrewarmMs: buckets.registrationWarmupEmailOtpWorkerPrewarmMs,
+    registrationWarmupEmailOtpYaoWasmInitMs: buckets.registrationWarmupEmailOtpYaoWasmInitMs,
     managedRegistrationGrantMs: buckets.managedRegistrationGrantMs,
     registrationIntentMs: buckets.registrationIntentMs,
     registrationIntentDigestMs: buckets.registrationIntentDigestMs,
@@ -1031,6 +1148,9 @@ function buildRegistrationTimingBuckets(input: {
     passkeyAuthDuplicateRetryCount: buckets.passkeyAuthDuplicateRetryCount,
     passkeyAuthMainThreadTotalMs: buckets.passkeyAuthMainThreadTotalMs,
     emailOtpEnrollmentMaterialMs: buckets.emailOtpEnrollmentMaterialMs,
+    emailOtpYaoEnrollmentMaterialWaitMs: buckets.emailOtpYaoEnrollmentMaterialWaitMs,
+    emailOtpYaoWorkerRegistrationMs: buckets.emailOtpYaoWorkerRegistrationMs,
+    emailOtpYaoTotalMs: buckets.emailOtpYaoTotalMs,
     walletRegisterStartMs: buckets.walletRegisterStartMs,
     ecdsaClientBootstrapMs: buckets.ecdsaClientBootstrapMs,
     walletRegisterDerivationRespondMs: buckets.walletRegisterDerivationRespondMs,
@@ -1077,11 +1197,15 @@ function buildRegistrationTimingBuckets(input: {
       authMethod: input.authMethod,
       buckets,
     }),
-    ed25519: buildRegistrationEd25519Timing(input.signerSet),
+    ed25519: buildRegistrationEd25519Timing({
+      signerSet: input.signerSet,
+      buckets,
+    }),
     ecdsa: buildRegistrationEcdsaTiming({
       signerSet: input.signerSet,
       buckets,
     }),
+    emailOtpYaoPrewarm: { ...input.emailOtpYaoPrewarm },
   };
 }
 
@@ -1089,11 +1213,15 @@ class RegistrationTimingRecorder {
   private readonly startedAt: number;
   private readonly buckets: RegistrationTimingBucketValues;
   private readonly relayDiagnostics: WalletRegistrationRouteDiagnostics[];
+  private readonly spans: RegistrationTimingSpan[];
+  private emailOtpYaoPrewarm: EmailOtpYaoPrewarmOutcome;
 
   constructor(startedAt: number) {
     this.startedAt = startedAt;
     this.buckets = createZeroRegistrationTimingBucketValues();
     this.relayDiagnostics = [];
+    this.spans = [];
+    this.emailOtpYaoPrewarm = zeroEmailOtpYaoPrewarmDiagnostics();
   }
 
   async measure<K extends RegistrationTimingBucketName, T>(
@@ -1105,6 +1233,7 @@ class RegistrationTimingRecorder {
       return await operation();
     } finally {
       this.buckets[bucket] = roundDurationMs(startedAt);
+      this.recordSpan(bucket, startedAt, performance.now());
     }
   }
 
@@ -1114,6 +1243,7 @@ class RegistrationTimingRecorder {
       return operation();
     } finally {
       this.buckets[bucket] = roundDurationMs(startedAt);
+      this.recordSpan(bucket, startedAt, performance.now());
     }
   }
 
@@ -1124,6 +1254,23 @@ class RegistrationTimingRecorder {
 
   snapshot(): RegistrationTimingBucketValues {
     return copyRegistrationTimingBucketValues(this.buckets);
+  }
+
+  spansSnapshot(): readonly RegistrationTimingSpan[] {
+    return this.spans.map(copyRegistrationTimingSpan);
+  }
+
+  private recordSpan(
+    bucket: RegistrationTimingBucketName,
+    startedAt: number,
+    endedAt: number,
+  ): void {
+    this.spans.push({
+      name: bucket,
+      kind: registrationTimingSpanKindFromBucket(bucket),
+      startOffsetMs: Math.max(0, Math.round(startedAt - this.startedAt)),
+      endOffsetMs: Math.max(0, Math.round(endedAt - this.startedAt)),
+    });
   }
 
   mergeSnapshot(snapshot: RegistrationTimingBucketValues): void {
@@ -1146,13 +1293,20 @@ class RegistrationTimingRecorder {
     }
   }
 
-  captureWarmupDiagnostics(diagnostics: WorkerResourceWarmupDiagnostics): void {
+  captureWarmupDiagnostics(diagnostics: RegistrationWarmupDiagnostics): void {
     this.buckets.registrationWarmupAuthenticatedWalletStateMs =
       diagnostics.authenticatedWalletStateMs;
     this.buckets.registrationWarmupNoncePrefetchMs = diagnostics.noncePrefetchMs;
     this.buckets.registrationWarmupKeyMaterialReadMs = diagnostics.keyMaterialReadMs;
     this.buckets.registrationWarmupUiConfirmPrewarmMs = diagnostics.uiConfirmPrewarmMs;
     this.buckets.registrationWarmupSignerWorkerPrewarmMs = diagnostics.signerWorkerPrewarmMs;
+    this.buckets.registrationWarmupEmailOtpWorkerPrewarmMs = diagnostics.emailOtpWorkerPrewarmMs;
+    this.buckets.registrationWarmupEmailOtpYaoWasmInitMs = diagnostics.emailOtpYaoWasmInitMs;
+    this.emailOtpYaoPrewarm = { ...diagnostics.emailOtpYaoPrewarm };
+  }
+
+  emailOtpYaoPrewarmSnapshot(): EmailOtpYaoPrewarmOutcome {
+    return { ...this.emailOtpYaoPrewarm };
   }
 
   capturePasskeyAuthDiagnostics(diagnostics: PasskeyRegistrationAuthorityDiagnostics): void {
@@ -1286,10 +1440,16 @@ class RegistrationEcdsaSessionFinalizeDiagnostics implements FinalizeWalletRegis
   }
 }
 
+type RegistrationWarmupDiagnostics = WorkerResourceWarmupDiagnostics & {
+  emailOtpWorkerPrewarmMs: number;
+  emailOtpYaoWasmInitMs: number;
+  emailOtpYaoPrewarm: EmailOtpYaoPrewarmOutcome;
+};
+
 type RegistrationWarmupOutcome =
   | {
       kind: 'completed';
-      diagnostics: WorkerResourceWarmupDiagnostics;
+      diagnostics: RegistrationWarmupDiagnostics;
       error?: never;
     }
   | {
@@ -1303,10 +1463,83 @@ function registrationWarmupWork(
   return context.signingEngine.warmCriticalResources.bind(context.signingEngine, { kind: 'none' });
 }
 
+function registrationPlanBranchIncludesNearEd25519(branch: RegistrationSignerPlanBranch): boolean {
+  return branch.kind === 'near_ed25519';
+}
+
+function registrationSelectionRequiresEmailOtpYaoWarmup(
+  signerSelection: RegistrationSignerSetSelection,
+): boolean {
+  return registrationSignerPlanFromSignerSet(signerSelection).branches.some(
+    registrationPlanBranchIncludesNearEd25519,
+  );
+}
+
+function zeroEmailOtpYaoPrewarmDiagnostics(): EmailOtpYaoPrewarmOutcome {
+  return {
+    kind: 'not_requested',
+    elapsedMs: 0,
+    workerPrewarmMs: 0,
+    yaoWasmInitMs: 0,
+  };
+}
+
+function noEmailOtpYaoPrewarm(): Promise<EmailOtpYaoPrewarmOutcome> {
+  return Promise.resolve(zeroEmailOtpYaoPrewarmDiagnostics());
+}
+
+function registrationEmailOtpYaoPrewarmWork(input: {
+  context: RegistrationWebContext;
+  authMethod: RegistrationAuthMethodInput;
+  signerSelection: RegistrationSignerSetSelection;
+}): () => Promise<EmailOtpYaoPrewarmOutcome> {
+  if (
+    input.authMethod.kind !== 'email_otp' ||
+    !registrationSelectionRequiresEmailOtpYaoWarmup(input.signerSelection)
+  ) {
+    return noEmailOtpYaoPrewarm;
+  }
+  return executeRegistrationEmailOtpYaoPrewarm.bind(undefined, {
+    prewarm: input.context.signingEngine.prewarmEmailOtpYao.bind(input.context.signingEngine),
+  });
+}
+
+function recoverEmailOtpYaoPrewarmFailure(
+  _error: unknown,
+  startedAt: number,
+): EmailOtpYaoPrewarmOutcome {
+  const elapsedMs = roundDurationMs(startedAt);
+  return {
+    kind: 'failed',
+    elapsedMs,
+    workerPrewarmMs: elapsedMs,
+    yaoWasmInitMs: 0,
+    failureStage: 'worker_ready',
+  };
+}
+
+function executeRegistrationEmailOtpYaoPrewarm(input: {
+  prewarm: () => Promise<EmailOtpYaoPrewarmOutcome>;
+}): Promise<EmailOtpYaoPrewarmOutcome> {
+  const startedAt = performance.now();
+  return input.prewarm().catch((error: unknown) =>
+    recoverEmailOtpYaoPrewarmFailure(error, startedAt),
+  );
+}
+
 function completedRegistrationWarmup(
-  diagnostics: WorkerResourceWarmupDiagnostics,
+  results: [WorkerResourceWarmupDiagnostics, EmailOtpYaoPrewarmOutcome],
 ): RegistrationWarmupOutcome {
-  return { kind: 'completed', diagnostics };
+  const [diagnostics, emailOtpYao] = results;
+  return {
+    kind: 'completed',
+    diagnostics: {
+      ...diagnostics,
+      emailOtpWorkerPrewarmMs: emailOtpYao.workerPrewarmMs,
+      emailOtpYaoWasmInitMs: emailOtpYao.yaoWasmInitMs,
+      emailOtpYaoPrewarm: emailOtpYao,
+    },
+  };
 }
 
 function failedRegistrationWarmup(error: unknown): RegistrationWarmupOutcome {
@@ -1316,20 +1549,34 @@ function failedRegistrationWarmup(error: unknown): RegistrationWarmupOutcome {
 function startRegistrationWarmup(input: {
   recorder: RegistrationTimingRecorder;
   context: RegistrationWebContext;
+  authMethod: RegistrationAuthMethodInput;
+  signerSelection: RegistrationSignerSetSelection;
 }): Promise<RegistrationWarmupOutcome> {
-  return input.recorder
-    .measure('registrationWarmupMs', registrationWarmupWork(input.context))
-    .then(completedRegistrationWarmup, failedRegistrationWarmup);
+  const genericWarmup = input.recorder.measure(
+    'registrationWarmupMs',
+    registrationWarmupWork(input.context),
+  );
+  const emailOtpYaoWarmup = input.recorder.measure(
+    'registrationWarmupEmailOtpYaoWasmInitMs',
+    registrationEmailOtpYaoPrewarmWork({
+      context: input.context,
+      authMethod: input.authMethod,
+      signerSelection: input.signerSelection,
+    }),
+  );
+  return Promise.all([genericWarmup, emailOtpYaoWarmup]).then(
+    completedRegistrationWarmup,
+    failedRegistrationWarmup,
+  );
 }
 
-async function waitForRegistrationWarmup(input: {
+function observeRegistrationWarmup(input: {
   recorder: RegistrationTimingRecorder;
   warmup: Promise<RegistrationWarmupOutcome>;
-}): Promise<void> {
-  const outcome = await input.recorder.measure('registrationWarmupWaitMs', () => input.warmup);
-  if (outcome.kind === 'completed') {
-    input.recorder.captureWarmupDiagnostics(outcome.diagnostics);
-  }
+}): void {
+  void input.warmup.then((outcome) => {
+    if (outcome.kind === 'completed') input.recorder.captureWarmupDiagnostics(outcome.diagnostics);
+  });
 }
 
 async function verifyWalletRegistrationIntentResponse(input: {
@@ -1373,6 +1620,8 @@ async function startWalletRegistrationPrecomputeReady(args: {
   const registrationWarmup = startRegistrationWarmup({
     recorder: args.recorder,
     context: args.context,
+    authMethod: args.authMethod,
+    signerSelection: args.signerSelection,
   });
   let activeIntent: ActiveWalletRegistrationIntent | null = null;
   try {
@@ -1506,7 +1755,7 @@ function createSucceededRegistrationTimingSummary(input: {
   const totalMs = input.recorder.totalMs();
   const buckets = input.recorder.snapshot();
   return {
-    kind: 'registration_timing_summary_v1',
+    kind: 'registration_timing_summary_v2',
     status: 'succeeded',
     authMethod: input.authMethod,
     signerSet: input.signerSet,
@@ -1514,12 +1763,14 @@ function createSucceededRegistrationTimingSummary(input: {
     criticalPath: buildRegistrationCriticalPathSummary({
       totalElapsedMs: totalMs,
       buckets,
+      spans: input.recorder.spansSnapshot(),
     }),
     relayDiagnostics: input.recorder.routeDiagnosticsSnapshot(),
     timings: buildRegistrationTimingBuckets({
       authMethod: input.authMethod,
       signerSet: input.signerSet,
       buckets,
+      emailOtpYaoPrewarm: input.recorder.emailOtpYaoPrewarmSnapshot(),
     }),
   };
 }
@@ -1533,7 +1784,7 @@ function createFailedRegistrationTimingSummary(input: {
   const totalMs = input.recorder.totalMs();
   const buckets = input.recorder.snapshot();
   return {
-    kind: 'registration_timing_summary_v1',
+    kind: 'registration_timing_summary_v2',
     status: 'failed',
     authMethod: input.authMethod,
     signerSet: input.signerSet,
@@ -1541,6 +1792,7 @@ function createFailedRegistrationTimingSummary(input: {
     criticalPath: buildRegistrationCriticalPathSummary({
       totalElapsedMs: totalMs,
       buckets,
+      spans: input.recorder.spansSnapshot(),
     }),
     errorCode: input.errorCode,
     relayDiagnostics: input.recorder.routeDiagnosticsSnapshot(),
@@ -1548,6 +1800,7 @@ function createFailedRegistrationTimingSummary(input: {
       authMethod: input.authMethod,
       signerSet: input.signerSet,
       buckets,
+      emailOtpYaoPrewarm: input.recorder.emailOtpYaoPrewarmSnapshot(),
     }),
   };
 }
@@ -2486,17 +2739,61 @@ type EcdsaEnabledRegistrationStart = Extract<
   { kind: 'evm_family_ecdsa' | 'near_ed25519_and_evm_family_ecdsa' }
 >;
 
+type RegistrationYaoWorkCompletion =
+  | {
+      kind: 'pending';
+      pending: ProductEd25519YaoPendingRegistrationPortV1;
+    }
+  | {
+      kind: 'failed';
+      error: Error;
+    };
+
+function registrationYaoWorkError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
+}
+
+function completeRegistrationYaoWork(
+  result: ProductEd25519YaoRegistrationResultV1,
+): RegistrationYaoWorkCompletion {
+  return result.ok
+    ? { kind: 'pending', pending: result.registration }
+    : { kind: 'failed', error: new Error(result.message) };
+}
+
+function failRegistrationYaoWork(error: unknown): RegistrationYaoWorkCompletion {
+  return { kind: 'failed', error: registrationYaoWorkError(error) };
+}
+
+function completeRegistrationYaoPending(
+  pending: ProductEd25519YaoPendingRegistrationPortV1,
+): RegistrationYaoWorkCompletion {
+  return { kind: 'pending', pending };
+}
+
+function settleRegistrationYaoResult(
+  result: Promise<ProductEd25519YaoRegistrationResultV1>,
+): Promise<RegistrationYaoWorkCompletion> {
+  return result.then(completeRegistrationYaoWork, failRegistrationYaoWork);
+}
+
+function settleRegistrationYaoPending(
+  pending: Promise<ProductEd25519YaoPendingRegistrationPortV1>,
+): Promise<RegistrationYaoWorkCompletion> {
+  return pending.then(completeRegistrationYaoPending, failRegistrationYaoWork);
+}
+
 type RegistrationYaoWorkState =
   | { kind: 'disabled' }
   | {
       kind: 'running';
-      result: ReturnType<typeof registerVerifiedPasskeyEd25519YaoV1>;
+      completion: Promise<RegistrationYaoWorkCompletion>;
     }
   | {
       kind: 'pending';
       pending: ProductEd25519YaoPendingRegistrationPortV1;
     }
-  | { kind: 'failed' }
+  | { kind: 'failed'; error: Error }
   | { kind: 'committed' }
   | { kind: 'disposed' };
 
@@ -2524,31 +2821,36 @@ class RegistrationYaoWork {
   ): RegistrationYaoWork {
     return new RegistrationYaoWork({
       kind: 'running',
-      result: registerVerifiedPasskeyEd25519YaoV1(input),
+      completion: settleRegistrationYaoResult(registerVerifiedPasskeyEd25519YaoV1(input)),
     });
   }
 
-  static fromPending(pending: ProductEd25519YaoPendingRegistrationPortV1): RegistrationYaoWork {
-    return new RegistrationYaoWork({ kind: 'pending', pending });
+  static startPending(
+    pending: Promise<ProductEd25519YaoPendingRegistrationPortV1>,
+  ): RegistrationYaoWork {
+    return new RegistrationYaoWork({
+      kind: 'running',
+      completion: settleRegistrationYaoPending(pending),
+    });
   }
 
   async requirePending(): Promise<ProductEd25519YaoPendingRegistrationPortV1> {
     switch (this.state.kind) {
       case 'running': {
-        const result = await this.state.result;
-        if (!result.ok) {
-          this.state = { kind: 'failed' };
-          throw new Error(result.message);
+        const completion = await this.state.completion;
+        if (completion.kind === 'failed') {
+          this.state = completion;
+          throw completion.error;
         }
-        this.state = { kind: 'pending', pending: result.registration };
-        return result.registration;
+        this.state = completion;
+        return completion.pending;
       }
       case 'pending':
         return this.state.pending;
       case 'disabled':
         throw new Error('Ed25519 Yao work was not requested');
       case 'failed':
-        throw new Error('Ed25519 Yao registration failed');
+        throw this.state.error;
       case 'committed':
         throw new Error('Ed25519 Yao registration is already committed');
       case 'disposed':
@@ -2613,10 +2915,8 @@ class RegistrationYaoWork {
   async dispose(): Promise<void> {
     switch (this.state.kind) {
       case 'running': {
-        try {
-          const result = await this.state.result;
-          if (result.ok) await result.registration.dispose();
-        } catch {}
+        const completion = await this.state.completion;
+        if (completion.kind === 'pending') await completion.pending.dispose();
         this.state = { kind: 'disposed' };
         return;
       }
@@ -2739,7 +3039,8 @@ function requireEmailOtpEd25519YaoPendingFactorHandle(
   return material.ed25519YaoFactor.pendingFactorHandle;
 }
 
-async function startEmailOtpRegistrationYaoWork(args: {
+function startEmailOtpRegistrationYaoWork(args: {
+  recorder: RegistrationTimingRecorder;
   context: RegistrationWebContext;
   enrollmentMaterial: Promise<EmailOtpRegistrationEnrollmentMaterial> | null;
   started: Extract<
@@ -2751,23 +3052,50 @@ async function startEmailOtpRegistrationYaoWork(args: {
   registrationAuthorityId: string;
   registrationIntentGrant: string;
   relayerUrl: string;
-}): Promise<RegistrationYaoWork> {
-  const material = await requireEmailOtpRegistrationEnrollmentMaterial({
-    material: args.enrollmentMaterial,
-    operation: 'Ed25519 Yao activation',
-  });
-  const pending = await startEmailOtpEd25519YaoWorkerRegistrationV1({
-    kind: 'verified_email_otp_ed25519_yao_registration_worker_input_v1',
-    workerContext: args.context.signingEngine.getSignerWorkerContext(),
-    pendingFactorHandle: requireEmailOtpEd25519YaoPendingFactorHandle(material),
-    admissionRequest: args.started.ed25519.admissionRequest,
-    walletId: args.walletId,
-    providerSubject: args.providerSubject,
-    registrationAuthorityId: args.registrationAuthorityId,
-    registrationIntentGrant: args.registrationIntentGrant,
-    routerOrigin: args.relayerUrl,
-  });
-  return RegistrationYaoWork.fromPending(pending);
+}): RegistrationYaoWork {
+  return RegistrationYaoWork.startPending(
+    args.recorder.measure(
+      'emailOtpYaoTotalMs',
+      createEmailOtpRegistrationYaoPending.bind(undefined, args),
+    ),
+  );
+}
+
+async function createEmailOtpRegistrationYaoPending(args: {
+  recorder: RegistrationTimingRecorder;
+  context: RegistrationWebContext;
+  enrollmentMaterial: Promise<EmailOtpRegistrationEnrollmentMaterial> | null;
+  started: Extract<
+    WalletRegistrationStartResponse,
+    { kind: 'near_ed25519' | 'near_ed25519_and_evm_family_ecdsa' }
+  >;
+  walletId: string;
+  providerSubject: string;
+  registrationAuthorityId: string;
+  registrationIntentGrant: string;
+  relayerUrl: string;
+}): Promise<ProductEd25519YaoPendingRegistrationPortV1> {
+  const material = await args.recorder.measure(
+    'emailOtpYaoEnrollmentMaterialWaitMs',
+    requireEmailOtpRegistrationEnrollmentMaterial.bind(undefined, {
+      material: args.enrollmentMaterial,
+      operation: 'Ed25519 Yao activation',
+    }),
+  );
+  return args.recorder.measure(
+    'emailOtpYaoWorkerRegistrationMs',
+    startEmailOtpEd25519YaoWorkerRegistrationV1.bind(undefined, {
+      kind: 'verified_email_otp_ed25519_yao_registration_worker_input_v1',
+      workerContext: args.context.signingEngine.getSignerWorkerContext(),
+      pendingFactorHandle: requireEmailOtpEd25519YaoPendingFactorHandle(material),
+      admissionRequest: args.started.ed25519.admissionRequest,
+      walletId: args.walletId,
+      providerSubject: args.providerSubject,
+      registrationAuthorityId: args.registrationAuthorityId,
+      registrationIntentGrant: args.registrationIntentGrant,
+      routerOrigin: args.relayerUrl,
+    }),
+  );
 }
 
 async function claimRegistrationYao(
@@ -3063,7 +3391,7 @@ async function registerEcdsaOrMixedWallet(
             recorder: registrationTiming,
           });
     if (args.authMethod.kind === 'email_otp') {
-      await waitForRegistrationWarmup({
+      observeRegistrationWarmup({
         recorder: registrationTiming,
         warmup: prepared.registrationWarmup,
       });
@@ -3208,7 +3536,8 @@ async function registerEcdsaOrMixedWallet(
           relayerUrl,
         });
       } else {
-        yaoWork = await startEmailOtpRegistrationYaoWork({
+        yaoWork = startEmailOtpRegistrationYaoWork({
+          recorder: registrationTiming,
           context,
           enrollmentMaterial: emailOtpEnrollmentMaterial,
           started,
@@ -3534,7 +3863,7 @@ async function registerEmailOtpEd25519YaoWalletOnly(
       signerSelection: args.signerSelection,
       recorder: registrationTiming,
     });
-    await waitForRegistrationWarmup({
+    observeRegistrationWarmup({
       recorder: registrationTiming,
       warmup: prepared.registrationWarmup,
     });
@@ -3595,7 +3924,8 @@ async function registerEmailOtpEd25519YaoWalletOnly(
     if (started.kind !== 'near_ed25519') {
       throw new Error('Wallet registration start returned a different signer branch');
     }
-    yaoWork = await startEmailOtpRegistrationYaoWork({
+    yaoWork = startEmailOtpRegistrationYaoWork({
+      recorder: registrationTiming,
       context,
       enrollmentMaterial,
       started,

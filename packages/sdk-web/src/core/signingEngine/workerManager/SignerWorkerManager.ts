@@ -7,6 +7,8 @@ import type {
   SignerWorkerOperationRequest,
   SignerWorkerOperationResult,
   SignerWorkerOperationType,
+  EmailOtpYaoPrewarmRequest,
+  EmailOtpYaoPrewarmOutcome,
 } from './workerTypes';
 import type { UserPreferencesManager } from '../session/userPreferences';
 import type { NonceCoordinator } from '../nonce/NonceCoordinator';
@@ -108,6 +110,12 @@ export class SignerWorkerManager {
 
   async prewarmWorkers(): Promise<void> {
     await this.workerTransport.prewarmWorkers();
+  }
+
+  async prewarmEmailOtpYao(
+    request?: EmailOtpYaoPrewarmRequest,
+  ): Promise<EmailOtpYaoPrewarmOutcome> {
+    return await this.workerTransport.prewarmEmailOtpYao(request);
   }
 
   requestWorkerOperation<K extends SignerWorkerKind, T extends SignerWorkerOperationType<K>>(args: {

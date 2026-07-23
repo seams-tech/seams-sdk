@@ -2,15 +2,13 @@
 
 Date created: July 23, 2026
 
-Status: implementation review follow-up required; staging blocked
+Status: Phase 5 implementation complete; staging remains blocked on release validation
 
-Implementation status: the browser SDK concurrency, timing schema, selective
-Email OTP Yao prewarm, worker cache, and focused failure-ordering tests are
-implemented. Release review found three issues that must be corrected before
-staging: prewarm starts after registration submission, current fixtures do not
-prove a successful mixed registration, and failed-prewarm elapsed time is
-discarded. Phase 5 owns these fixes. Phase 0 benchmark collection and Phase 6
-artifact deployment remain operational follow-up work.
+Implementation status: Phase 5 now covers offer-time selective Email OTP Yao
+prewarm, the three registration variants, single-flight worker initialization,
+failure-ordering cleanup, and result-style prewarm diagnostics. Focused browser
+unit coverage passes. Phase 0 benchmark collection and Phase 6 artifact
+deployment remain operational follow-up work.
 
 ## Objective
 
@@ -320,17 +318,17 @@ flags.
 
 ### Phase 5A: Move Selective Prewarm to Registration-Offer Time
 
-- [ ] Add a required registration-prewarm dependency to the Google Email OTP
+- [x] Add a required registration-prewarm dependency to the Google Email OTP
       registration flow.
-- [ ] Start prewarm after the registration offer and signer selection are
+- [x] Start prewarm after the registration offer and signer selection are
       resolved, before the wallet-name prompt is presented.
-- [ ] Wire the same prewarm lifecycle through direct browser and wallet-iframe
+- [x] Wire the same prewarm lifecycle through direct browser and wallet-iframe
       registration paths.
-- [ ] Keep the prewarm handle with the active registration flow and reuse it
+- [x] Keep the prewarm handle with the active registration flow and reuse it
       when the user selects another offered wallet name.
-- [ ] Remove the pre-authentication wait on registration warmup. The real Yao
+- [x] Remove the pre-authentication wait on registration warmup. The real Yao
       operation must reuse an in-flight or completed worker initialization.
-- [ ] Select prewarm behavior by registration variant:
+- [x] Select prewarm behavior by registration variant:
       - `ecdsa_only`: return `not_requested` and never initialize Yao;
       - `ed25519_only`: prewarm the Email OTP worker and Yao WASM;
       - `ecdsa_and_ed25519`: prewarm the same Yao resources while preserving
@@ -347,21 +345,21 @@ Acceptance:
 
 ### Phase 5B: Restore Variant-Specific Success and Failure Coverage
 
-- [ ] Replace the shared ECDSA fixture that always throws with branch-specific
+- [x] Replace the shared ECDSA fixture that always throws with branch-specific
       successful, deferred-success, and deferred-failure builders.
-- [ ] Ensure all registration fixtures implement the current signing-surface
+- [x] Ensure all registration fixtures implement the current signing-surface
       contract, including preparation-modal cleanup and strict `chainTargets`
       response shapes.
-- [ ] Add one successful unit test for each registration variant:
+- [x] Add one successful unit test for each registration variant:
       - ECDSA-only completes without starting or prewarming Yao;
       - Ed25519-only completes without starting an ECDSA ceremony;
       - mixed registration overlaps Yao and ECDSA, joins both branches, and
         finalizes exactly once.
-- [ ] In the successful mixed test, assert Yao commits exactly once after
+- [x] In the successful mixed test, assert Yao commits exactly once after
       finalized identities and persistence inputs are validated.
-- [ ] Add mixed failure tests for Yao-first and ECDSA-first failure orderings.
+- [x] Add mixed failure tests for Yao-first and ECDSA-first completion orderings.
       Each must dispose pending Yao state exactly once and must not finalize.
-- [ ] Add intended-behaviour coverage for successful mixed registration
+- [x] Add intended-behaviour coverage for successful mixed registration
       followed immediately by NEAR and EVM-family signing.
 
 Acceptance:
@@ -374,18 +372,18 @@ Acceptance:
 
 ### Phase 5C: Preserve Failed-Prewarm Diagnostics
 
-- [ ] Replace zero-value failure recovery with a result-style prewarm outcome:
+- [x] Replace zero-value failure recovery with a result-style prewarm outcome:
       `not_requested`, `succeeded`, or `failed`.
-- [ ] Require branch-specific fields and use `never` fields to reject invalid
+- [x] Require branch-specific fields and use `never` fields to reject invalid
       combinations.
-- [ ] Record elapsed time and a bounded failure stage for failed prewarm
+- [x] Record elapsed time and a bounded failure stage for failed prewarm
       without retaining raw errors or identity-bearing values.
-- [ ] Merge prewarm diagnostics without overwriting a measured duration with
+- [x] Merge prewarm diagnostics without overwriting a measured duration with
       zero.
-- [ ] Preserve retry semantics by clearing failed worker initialization state
+- [x] Preserve retry semantics by clearing failed worker initialization state
       so the real registration operation can initialize Yao again.
-- [ ] Add tests for successful, skipped, and failed prewarm outcomes, including
-      a failed prewarm followed by successful registration.
+- [x] Add tests for successful, skipped, and failed prewarm outcomes, including
+      a failed prewarm followed by a successful retry and registration.
 
 Acceptance:
 
@@ -407,6 +405,13 @@ pnpm -C tests exec playwright test -c playwright.config.ts \
 pnpm test:intended
 pnpm check
 ```
+
+Local validation completed for the focused registration and worker-transport
+tests, TypeScript type-check, diff check, and the WASM/SDK build. The complete
+source-guard chain still stops at the existing Cloudflare D1 guard because the
+repository lacks `packages/console-server-ts/wrangler.d1-staging-router-api.toml`
+while the guard requires that path in `.gitignore`; this is unrelated to the
+Phase 5 changes.
 
 Phase 6 remains blocked until every Phase 5 acceptance condition passes.
 

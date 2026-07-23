@@ -61,6 +61,7 @@ import {
   parseWalletIframeExactSessionIdentity,
   parseWalletIframeMissingSessionIdentity,
   type WalletIframeExactSessionIdentity,
+  type WalletIframeExactSessionIdentityInput,
   type WalletIframeExactSessionLockResult,
   type WalletIframeExactSessionState,
   type WalletIframeMissingSessionIdentity,
@@ -898,12 +899,7 @@ export class SeamsWeb {
   }
 
   async lockWalletIframeExactSession(
-    identity: {
-      readonly walletId: string;
-      readonly walletSessionId: string;
-      readonly authMethod: 'passkey' | 'email_otp';
-      readonly expiresAtMs: number;
-    },
+    identity: WalletIframeExactSessionIdentityInput,
   ): Promise<WalletIframeExactSessionLockResult> {
     const parsedIdentity: WalletIframeExactSessionIdentity =
       parseWalletIframeExactSessionIdentity(identity);
@@ -1695,6 +1691,9 @@ export class SeamsWeb {
           await this.exchangeGoogleEmailOtpSessionDomain(exchangeArgs),
         requestEmailOtpChallenge: async (challengeArgs) =>
           await this.requestEmailOtpChallengeDomain(challengeArgs),
+        prewarmEmailOtpYao: async () => {
+          await this.signingEngine.prewarmEmailOtpYao();
+        },
         registerWallet: async (registerArgs) => await this.registerWalletDomain(registerArgs),
         loginWithEmailOtpEcdsaCapability: async (loginArgs) =>
           await this.loginWithEmailOtpEcdsaCapabilityDomain(loginArgs),
