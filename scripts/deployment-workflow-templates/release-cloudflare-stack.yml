@@ -568,11 +568,10 @@ jobs:
           ].filter(([name]) => selectedComponents.has(name));
           async function findManifest(directory, name) {
             const candidates = [
+              join(root, directory, name),
               join(root, directory, '.release-artifacts', name),
-              join(root, directory, '.release-artifacts/gateway', name),
               join(root, directory, '.release-artifacts/pages', name),
               join(root, directory, '.release-artifacts/signer-iframe', name),
-              join(root, directory, 'packages/sdk-web/dist/public/wallet-service/.release-artifacts', name),
             ];
             for (const candidate of candidates) {
               try { return JSON.parse(await readFile(candidate, 'utf8')); } catch {}
