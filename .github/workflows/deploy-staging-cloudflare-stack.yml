@@ -122,7 +122,7 @@ jobs:
             echo "validation_run_id=$validation_run_id"
             echo 'change_base_sha='
           } >> "$GITHUB_OUTPUT"
-    if: github.event_name == 'workflow_run'
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push'
     env: {}
   auto_build_router:
     name: Build / ${{ needs.auto_prepare.outputs.target }} / cloudflare-router-ab
@@ -130,7 +130,7 @@ jobs:
       - auto_prepare
       - auto_select_components
     if: |-
-      github.event_name == 'workflow_run' && (contains(fromJSON(needs.auto_select_components.outputs.components), 'router') ||
+      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && (contains(fromJSON(needs.auto_select_components.outputs.components), 'router') ||
         contains(fromJSON(needs.auto_select_components.outputs.components), 'deriver-a') ||
         contains(fromJSON(needs.auto_select_components.outputs.components), 'deriver-b') ||
         contains(fromJSON(needs.auto_select_components.outputs.components), 'signing-worker'))
@@ -269,16 +269,15 @@ jobs:
             echo "- Source SHA: \`$SOURCE_SHA\`"
             echo "- Components: \`$components\`"
           } >> "$GITHUB_STEP_SUMMARY"
-    if: github.event_name == 'workflow_run'
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push'
     env: {}
   auto_build_gateway:
     name: Build / ${{ needs.auto_prepare.outputs.target }} / cloudflare-gateway
     needs:
       - auto_prepare
       - auto_select_components
-    if:
-      github.event_name == 'workflow_run' && (contains(fromJSON(needs.auto_select_components.outputs.components),
-      'gateway'))
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' &&
+      (contains(fromJSON(needs.auto_select_components.outputs.components), 'gateway'))
     runs-on: ubuntu-latest
     timeout-minutes: 25
     environment:
@@ -361,7 +360,7 @@ jobs:
       - auto_prepare
       - auto_select_components
     if: |-
-      github.event_name == 'workflow_run' && (contains(fromJSON(needs.auto_select_components.outputs.components), 'site') ||
+      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && (contains(fromJSON(needs.auto_select_components.outputs.components), 'site') ||
         contains(fromJSON(needs.auto_select_components.outputs.components), 'signer-iframe'))
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -476,7 +475,7 @@ jobs:
   auto_create_release_set:
     name: Create release-set manifest
     if: |-
-      github.event_name == 'workflow_run' && (always() &&
+      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && (always() &&
         needs.auto_prepare.result == 'success' &&
         needs.auto_select_components.result == 'success' &&
         needs.auto_select_components.outputs.components != '[]' &&
@@ -759,7 +758,7 @@ jobs:
   auto_deploy_signing_worker:
     name: Deploy / staging / cloudflare-router-ab / signing-worker
     if: |-
-      github.event_name == 'workflow_run' && (needs.auto_preflight_release.result == 'success' &&
+      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && (needs.auto_preflight_release.result == 'success' &&
         contains(fromJSON(needs.auto_preflight_release.outputs.selected_components), 'signing-worker'))
     needs:
       - auto_preflight_release
@@ -873,7 +872,7 @@ jobs:
   auto_deploy_deriver_a:
     name: Deploy / staging / cloudflare-router-ab / deriver-a
     if: |-
-      github.event_name == 'workflow_run' && (needs.auto_preflight_release.result == 'success' &&
+      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && (needs.auto_preflight_release.result == 'success' &&
         contains(fromJSON(needs.auto_preflight_release.outputs.selected_components), 'deriver-a'))
     needs:
       - auto_preflight_release
@@ -1001,7 +1000,7 @@ jobs:
   auto_deploy_deriver_b:
     name: Deploy / staging / cloudflare-router-ab / deriver-b
     if: |-
-      github.event_name == 'workflow_run' && (needs.auto_preflight_release.result == 'success' &&
+      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && (needs.auto_preflight_release.result == 'success' &&
         contains(fromJSON(needs.auto_preflight_release.outputs.selected_components), 'deriver-b'))
     needs:
       - auto_preflight_release
@@ -1129,7 +1128,7 @@ jobs:
   auto_deploy_mpc_router:
     name: Deploy / staging / cloudflare-router-ab / router
     if: |-
-      github.event_name == 'workflow_run' && (always() &&
+      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && (always() &&
       needs.auto_preflight_release.result == 'success' &&
       contains(fromJSON(needs.auto_preflight_release.outputs.selected_components), 'router') &&
       needs.auto_deploy_signing_worker.result == 'success' &&
@@ -1276,7 +1275,7 @@ jobs:
   auto_final_smoke:
     name: Verify / staging / cloudflare-stack
     if: |-
-      github.event_name == 'workflow_run' && (always() &&
+      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && (always() &&
         needs.auto_preflight_release.result == 'success' &&
         (contains(fromJSON(needs.auto_preflight_release.outputs.selected_components), 'router') ||
         contains(fromJSON(needs.auto_preflight_release.outputs.selected_components), 'deriver-a') ||
@@ -1825,7 +1824,8 @@ jobs:
   auto_deploy_pages:
     name: Verify / staging / cloudflare-pages
     if:
-      always() && github.event_name == 'workflow_run' && needs.auto_preflight_release.result == 'success' &&
+      always() && github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' &&
+      needs.auto_preflight_release.result == 'success' &&
       (contains(fromJSON(needs.auto_preflight_release.outputs.selected_components), 'site') ||
       contains(fromJSON(needs.auto_preflight_release.outputs.selected_components), 'signer-iframe')) &&
       (!contains(fromJSON(needs.auto_preflight_release.outputs.selected_components), 'gateway') ||
