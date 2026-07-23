@@ -199,7 +199,7 @@ export class PasskeyHaloLoadingElement extends LitElementWithProps {
   }
 
   private renderMailIcon({ height, width }: { height: number; width: number }) {
-    const strokeWidth = 'var(--w3a-modal__passkey-halo-loading-touch-icon__stroke-width, 2.5)';
+    const strokeWidth = 'var(--w3a-modal__passkey-halo-loading-touch-icon__stroke-width, 3)';
 
     return html`
       <svg
