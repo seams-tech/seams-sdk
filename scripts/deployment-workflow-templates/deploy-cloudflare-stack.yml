@@ -780,6 +780,8 @@ jobs:
       - deploy_pages
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    environment:
+      name: ${{ inputs.target }}
     steps:
       - name: Checkout selected revision
         uses: actions/checkout@v6
@@ -809,8 +811,8 @@ jobs:
       - name: Verify final release smoke
         env:
           DEPLOYED_GATEWAY_ORIGIN: ${{ needs.deploy_gateway.outputs.gateway_origin }}
-          SITE_ORIGIN: ${{ needs.deploy_pages.outputs.app_origin }}
-          WALLET_ORIGIN: ${{ needs.deploy_pages.outputs.wallet_origin }}
+          SITE_ORIGIN: ${{ vars.VITE_DOCS_ORIGIN }}
+          WALLET_ORIGIN: ${{ vars.VITE_WALLET_ORIGIN }}
           SELECTED_COMPONENTS: ${{ needs.preflight_release.outputs.selected_components }}
         run: |
           set -euo pipefail
