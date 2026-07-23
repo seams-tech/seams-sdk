@@ -171,6 +171,9 @@ function makeDeps(overrides?: Partial<GoogleEmailOtpWalletAuthDeps>): {
         emailHint: 'alice@example.com',
       };
     },
+    prewarmEmailOtpYao: async () => {
+      calls.push({ type: 'prewarmEmailOtpYao' });
+    },
     registerWallet: registerWalletImpl,
     loginWithEmailOtpEcdsaCapability: async (args) => {
       calls.push({ type: 'loginWithEmailOtpEcdsaCapability', args });
@@ -206,7 +209,10 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     expect(started.value.mode).toBe('register');
     if (started.value.mode !== 'register') throw new Error('expected register flow');
     expect(started.value.state).toBe('registration_ready');
-    expect(calls.map((call) => call.type)).toEqual(['exchangeGoogleEmailOtpSession']);
+    expect(calls.map((call) => call.type)).toEqual([
+      'exchangeGoogleEmailOtpSession',
+      'prewarmEmailOtpYao',
+    ]);
 
     const completed = await started.value.completeRegistration();
 
@@ -246,6 +252,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     expect(JSON.stringify(registerCall?.args)).not.toContain('recoveryKeys');
     expect(calls.map((call) => call.type)).toEqual([
       'exchangeGoogleEmailOtpSession',
+      'prewarmEmailOtpYao',
       'registerWallet',
       'getWalletSession',
     ]);
@@ -291,6 +298,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     expect(calls.map((call) => call.type)).toEqual([
       'exchangeGoogleEmailOtpSession',
       'exchangeGoogleEmailOtpSession',
+      'prewarmEmailOtpYao',
     ]);
     expect(calls.map((call) => call.args)).toMatchObject([
       { accountMode: 'login' },
@@ -467,6 +475,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     expect(completed.error.code).toBe('registration_restore_required');
     expect(calls.map((call) => call.type)).toEqual([
       'exchangeGoogleEmailOtpSession',
+      'prewarmEmailOtpYao',
       'registerWallet',
     ]);
   });
@@ -892,7 +901,10 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     if (!rerolled.ok) throw new Error(rerolled.error.message);
     expect(rerolled.value.mode).toBe('register');
     expect(rerolled.value.walletId).toBe('alice-2.testnet');
-    expect(calls.map((call) => call.type)).toEqual(['exchangeGoogleEmailOtpSession']);
+    expect(calls.map((call) => call.type)).toEqual([
+      'exchangeGoogleEmailOtpSession',
+      'prewarmEmailOtpYao',
+    ]);
     const staleCompletion = await started.value.completeRegistration();
     expect(staleCompletion.ok).toBe(false);
   });
@@ -923,7 +935,10 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     const rerolled = await started.value.rerollWalletId();
 
     expect(rerolled.ok).toBe(true);
-    expect(calls.map((call) => call.type)).toEqual(['exchangeGoogleEmailOtpSession']);
+    expect(calls.map((call) => call.type)).toEqual([
+      'exchangeGoogleEmailOtpSession',
+      'prewarmEmailOtpYao',
+    ]);
 
     const completed = await started.value.completeRegistration();
     expect(completed.ok).toBe(false);

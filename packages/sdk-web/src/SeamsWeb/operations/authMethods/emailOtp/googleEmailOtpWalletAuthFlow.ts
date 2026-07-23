@@ -108,6 +108,7 @@ export type GoogleEmailOtpWalletAuthDeps = {
     appSessionJwt?: string;
     onEvent?: (event: UnlockFlowEvent) => void;
   }): Promise<EmailOtpChallengeResult>;
+  prewarmEmailOtpYao(): Promise<void>;
   registerWallet(args: GoogleEmailOtpWalletRegistrationArgs): Promise<RegistrationResult>;
   loginWithEmailOtpEcdsaCapability(
     args: GoogleLoginEmailOtpEcdsaCapabilityArgs,
@@ -557,6 +558,17 @@ async function assertLoggedIn(
   return session;
 }
 
+type GoogleEmailOtpRegistrationPrewarm =
+  | { kind: 'not_started' }
+  | { kind: 'started'; completion: Promise<void> };
+
+function startGoogleEmailOtpRegistrationPrewarm(
+  deps: GoogleEmailOtpWalletAuthDeps,
+): GoogleEmailOtpRegistrationPrewarm {
+  const completion = deps.prewarmEmailOtpYao().catch(() => undefined);
+  return { kind: 'started', completion };
+}
+
 export async function beginGoogleEmailOtpWalletAuth(
   deps: GoogleEmailOtpWalletAuthDeps,
   input: GoogleEmailOtpWalletAuthStartInput,
@@ -577,7 +589,13 @@ export async function beginGoogleEmailOtpWalletAuth(
   }
 
   if (sessionState.mode === 'register') {
-    return ok(createGoogleEmailOtpWalletRegistrationFlow(deps, { state: sessionState, input }));
+    return ok(
+      createGoogleEmailOtpWalletRegistrationFlow(deps, {
+        state: sessionState,
+        input,
+        prewarm: { kind: 'not_started' },
+      }),
+    );
   }
 
   try {
@@ -646,6 +664,7 @@ function createGoogleEmailOtpWalletRegistrationFlow(
   args: {
     state: GoogleSessionState;
     input: GoogleEmailOtpWalletAuthStartInput;
+    prewarm: GoogleEmailOtpRegistrationPrewarm;
   },
 ): GoogleEmailOtpWalletAuthRegistrationFlow {
   const registrationAttemptId = String(args.state.registrationAttemptId || '').trim();
@@ -685,6 +704,10 @@ function createGoogleEmailOtpWalletRegistrationFlow(
     }),
     options: registrationOptions,
   };
+  const prewarm =
+    args.prewarm.kind === 'not_started'
+      ? startGoogleEmailOtpRegistrationPrewarm(deps)
+      : args.prewarm;
   const liveness = createFlowLiveness({ state: args.state });
   const flowId = `google-email-otp-registration:${selectedWalletId}:${registrationAttemptId}`;
   return {
@@ -749,6 +772,7 @@ function createGoogleEmailOtpWalletRegistrationFlow(
               },
             },
             input: args.input,
+            prewarm,
           }),
         );
       } catch (error: unknown) {

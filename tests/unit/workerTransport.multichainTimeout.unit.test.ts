@@ -112,7 +112,85 @@ class ProgressWorker {
   }
 }
 
+class PrewarmWorker {
+  static instances: PrewarmWorker[] = [];
+  static responses: Array<'succeeded' | 'failed'> = [];
+  static requestCount = 0;
+
+  readonly listeners = new Map<string, Set<WorkerListener>>();
+
+  constructor(_url: string | URL, _opts?: WorkerOptions) {
+    PrewarmWorker.instances.push(this);
+  }
+
+  addEventListener(type: string, listener: WorkerListener): void {
+    const set = this.listeners.get(type) || new Set<WorkerListener>();
+    set.add(listener);
+    this.listeners.set(type, set);
+  }
+
+  removeEventListener(type: string, listener: WorkerListener): void {
+    this.listeners.get(type)?.delete(listener);
+  }
+
+  postMessage(message: unknown, _transfer?: Transferable[]): void {
+    const id = String((message as { id?: unknown })?.id || '');
+    const requestType = String((message as { type?: unknown })?.type || '');
+    if (requestType !== 'prewarmEmailOtpRegistrationCrypto') return;
+    PrewarmWorker.requestCount += 1;
+    const response = PrewarmWorker.responses.shift() || 'succeeded';
+    setTimeout(() => {
+      const result =
+        response === 'succeeded'
+          ? { kind: 'succeeded', elapsedMs: 4 }
+          : { kind: 'failed', elapsedMs: 4, failureStage: 'yao_wasm_init' };
+      this.emitMessage({ id, ok: true, result });
+    }, 0);
+  }
+
+  terminate(): void {}
+
+  private emitMessage(data: unknown): void {
+    for (const listener of this.listeners.get('message') || []) {
+      listener(new MessageEvent('message', { data }));
+    }
+  }
+}
+
 test.describe('WorkerTransport multichain timeout guard', () => {
+  test('email OTP Yao prewarm skips, coalesces, and retries after failure', async () => {
+    const originalWorker = globalThis.Worker;
+    PrewarmWorker.instances.length = 0;
+    PrewarmWorker.requestCount = 0;
+    PrewarmWorker.responses = ['failed', 'succeeded'];
+    (globalThis as unknown as { Worker: typeof Worker }).Worker =
+      PrewarmWorker as unknown as typeof Worker;
+
+    try {
+      const transport = new WorkerTransport();
+      const skipped = await transport.prewarmEmailOtpYao({ kind: 'not_requested' });
+      expect(skipped).toMatchObject({ kind: 'not_requested', elapsedMs: 0 });
+      expect(PrewarmWorker.instances).toHaveLength(0);
+
+      const first = transport.prewarmEmailOtpYao();
+      const coalesced = transport.prewarmEmailOtpYao();
+      const [failed, sameFailure] = await Promise.all([first, coalesced]);
+      expect(failed).toMatchObject({
+        kind: 'failed',
+        failureStage: 'yao_wasm_init',
+        yaoWasmInitMs: 4,
+      });
+      expect(sameFailure).toEqual(failed);
+      expect(PrewarmWorker.requestCount).toBe(1);
+
+      const retried = await transport.prewarmEmailOtpYao();
+      expect(retried).toMatchObject({ kind: 'succeeded', yaoWasmInitMs: 4 });
+      expect(PrewarmWorker.requestCount).toBe(2);
+    } finally {
+      (globalThis as unknown as { Worker: typeof Worker }).Worker = originalWorker;
+    }
+  });
+
   test('tempo signer request fails with TIMEOUT when worker does not respond', async () => {
     const originalWorker = globalThis.Worker;
     NonResponsiveWorker.instances.length = 0;

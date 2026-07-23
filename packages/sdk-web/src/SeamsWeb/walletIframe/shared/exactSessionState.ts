@@ -10,6 +10,13 @@ export type WalletIframeExactSessionIdentity = {
   readonly expiresAtMs: number;
 };
 
+export type WalletIframeExactSessionIdentityInput = {
+  readonly walletId: string;
+  readonly walletSessionId: string;
+  readonly authMethod: WalletAuthMethod;
+  readonly expiresAtMs: number;
+};
+
 export type WalletIframeSessionUnavailableReason =
   | 'exhausted'
   | 'not_found'
