@@ -131,7 +131,7 @@ jobs:
             --source-sha "$DEPLOY_SHA" \
             --artifact-run-id "$ARTIFACT_RUN_ID" \
             --release-set-id "$RELEASE_SET_ID"
-          for component in $(node -e "const value=require('$RELEASE_MANIFEST'); process.stdout.write(value.components.map((component) => component.name).join('\\n'))"); do
+          for component in $(node -e "const value=require('./$RELEASE_MANIFEST'); process.stdout.write(value.components.map((component) => component.name).join('\\n'))"); do
             case "$component" in
               router|deriver-a|deriver-b|signing-worker)
                 kind="$component"
@@ -175,7 +175,7 @@ jobs:
         id: release_selection
         run: |
           set -euo pipefail
-          selected_components="$(node -e "const value=require('$RELEASE_MANIFEST'); const selected=value.buildIdentity?.selectedComponents; if (!Array.isArray(selected) || selected.some((component) => typeof component !== 'string')) throw new Error('release-set selected components are invalid'); process.stdout.write(JSON.stringify(selected))")"
+          selected_components="$(node -e "const value=require('./$RELEASE_MANIFEST'); const selected=value.buildIdentity?.selectedComponents; if (!Array.isArray(selected) || selected.some((component) => typeof component !== 'string')) throw new Error('release-set selected components are invalid'); process.stdout.write(JSON.stringify(selected))")"
           if [[ "$selected_components" == *'"router"'* ]]; then
             for role in router deriver-a deriver-b signing-worker; do
               [[ "$selected_components" == *"\"$role\""* ]] || {
