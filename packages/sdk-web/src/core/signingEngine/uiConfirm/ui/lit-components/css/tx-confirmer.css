@@ -34,7 +34,12 @@ w3a-tx-confirm-content,
     --w3a-colors-passkeyHaloBackground,
     var(--w3a-colors-surface)
   );
-  --w3a-modal__passkey-halo-loading-touch-icon__color: var(--w3a-colors-textSecondary);
+  /* Muted token keeps the icon lower-contrast against the chip: lighter in
+     light themes, darker in dark themes. Falls back to textSecondary. */
+  --w3a-modal__passkey-halo-loading-touch-icon__color: var(
+    --w3a-colors-textMuted,
+    var(--w3a-colors-textSecondary)
+  );
   --w3a-modal__passkey-halo-loading-touch-icon__margin: 0.75rem;
   --w3a-modal__passkey-halo-loading-touch-icon__stroke-width: 3.5;
   /* Provide explicit radius token so consumers avoid "undefined" */
