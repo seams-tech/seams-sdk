@@ -344,7 +344,7 @@ jobs:
             pnpm exec wrangler deploy \
               --dry-run \
               --config .wrangler/generated/gateway.jsonc \
-              --outfile "$GITHUB_WORKSPACE/$artifact_root/worker.js" \
+              --outdir "$GITHUB_WORKSPACE/$artifact_root" \
               --metafile "$GITHUB_WORKSPACE/$artifact_root/worker-meta.json"
           )
           node scripts/deployment-artifact.mjs create \
