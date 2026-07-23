@@ -234,7 +234,6 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
         <button
           type="button"
           class="btn btn-cancel"
-          ?disabled=${this.loading}
           @click=${this.onContentCancel}
         >
           ${this.cancelText || 'Cancel'}
@@ -615,7 +614,8 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
   }
 
   private onContentCancel = () => {
-    if (this.loading) return;
+    // Cancel must stay live during loading so a stuck passkey/registration
+    // ceremony can always be aborted (mirrors the modal's _handleCancel).
     this._drawerEl?.handleClose();
     this._open = false;
     this.requestUpdate();
