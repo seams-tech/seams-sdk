@@ -172,6 +172,9 @@ jobs:
         run: |
           curl -sSf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
 
+      - name: Build production WASM for type checking
+        run: WASM_SDK_BUILD_MODE=prod pnpm build:wasm
+
       - name: Check lint, types, Rust, and architecture
         run: |
           pnpm lint
@@ -187,6 +190,8 @@ jobs:
         run: pnpm -C tests exec playwright install --with-deps chromium
 
       - name: Build SDK (production)
+        env:
+          WASM_SDK_USE_PREBUILT: '1'
         run: pnpm build:sdk-prod
 
       - name: Assert generated palette CSS
