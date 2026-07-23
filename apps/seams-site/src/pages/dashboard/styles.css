@@ -95,7 +95,9 @@
 }
 
 .dashboard-shell--sidebar-collapsed {
-  --dashboard-sidebar-width: 78px;
+  /* 44px button column + 2×8px rail padding: buttons are width:100%, so the
+     rail width is what makes collapsed buttons hug their icons. */
+  --dashboard-sidebar-width: 60px;
 }
 
 .dashboard-topbar {
@@ -313,6 +315,20 @@
      wordmark wants more air above the switcher stack. */
   padding: 6px 12px 8px;
   text-decoration: none;
+  transition: padding var(--dashboard-motion-sidebar) var(--dashboard-ease-layout);
+}
+
+/* The wordmark's live text collapses away in the icon rail (the stitch mark
+   stays as the brand tile), so the row keeps its height and nothing below it
+   shifts when the sidebar closes. */
+.dashboard-sidebar__brand .seams-wordmark__text {
+  display: inline-block;
+  max-width: 120px;
+  overflow: hidden;
+  opacity: 1;
+  transition:
+    max-width var(--dashboard-motion-sidebar) var(--dashboard-ease-layout),
+    opacity var(--dashboard-motion-fast) ease;
 }
 
 .dashboard-topbar--focused {
@@ -755,7 +771,9 @@
   cursor: pointer;
   transition:
     background-color 150ms ease,
-    border-color 150ms ease;
+    border-color 150ms ease,
+    padding var(--dashboard-motion-sidebar) var(--dashboard-ease-layout),
+    gap var(--dashboard-motion-sidebar) var(--dashboard-ease-layout);
 }
 
 .dashboard-workspace-switcher__trigger:hover {
@@ -784,11 +802,16 @@
   white-space: nowrap;
   font-size: 0.95rem;
   font-weight: 600;
+  transition: opacity var(--dashboard-motion-fast) ease;
 }
 
 .dashboard-workspace-switcher__caret {
   flex: none;
+  max-width: 14px;
   color: var(--rail-icon, var(--dashboard-ink-soft));
+  transition:
+    max-width var(--dashboard-motion-sidebar) var(--dashboard-ease-layout),
+    opacity var(--dashboard-motion-fast) ease;
 }
 
 /* Product-line switcher: gradient-avatar card at the sidebar top, reference-
@@ -812,7 +835,9 @@
   cursor: pointer;
   transition:
     background-color 150ms ease,
-    border-color 150ms ease;
+    border-color 150ms ease,
+    padding var(--dashboard-motion-sidebar) var(--dashboard-ease-layout),
+    gap var(--dashboard-motion-sidebar) var(--dashboard-ease-layout);
 }
 
 .dashboard-product-switcher__trigger:hover {
@@ -839,11 +864,16 @@
   white-space: nowrap;
   font-size: 0.95rem;
   font-weight: 600;
+  transition: opacity var(--dashboard-motion-fast) ease;
 }
 
 .dashboard-product-switcher__caret {
   flex: none;
+  max-width: 14px;
   color: var(--rail-icon, var(--dashboard-ink-soft));
+  transition:
+    max-width var(--dashboard-motion-sidebar) var(--dashboard-ease-layout),
+    opacity var(--dashboard-motion-fast) ease;
 }
 
 /* Shared switcher popover (product + workspace menus): white sheet of avatar
@@ -1035,6 +1065,11 @@
   position: relative;
   display: grid;
   gap: 6px;
+  /* Collapsed-rail compaction (gap 6→0, divider padding 0→8) rides the same
+     motion as the rail shrink instead of snapping. */
+  transition:
+    gap var(--dashboard-motion-item) var(--dashboard-ease-layout),
+    padding var(--dashboard-motion-sidebar) var(--dashboard-ease-layout);
 }
 
 .dashboard-sidebar-group + .dashboard-sidebar-group::before {
@@ -1103,6 +1138,14 @@
   margin: 0 0 4px;
   padding: 0 12px;
   display: block;
+  /* The group is a grid column sized by its widest item. Without min-width: 0
+     the title's text width becomes the column floor, so in the collapsed rail
+     the (invisible) title stretches every nav item past the rail edge. Nowrap
+     + hidden keep the clipped title one line high with no scrollable
+     overflow. */
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
   font-size: 0.9rem;
   font-weight: 400;
   color: var(--rail-muted, var(--dashboard-ash));
@@ -5433,24 +5476,41 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
   display: none;
 }
 
-.dashboard-shell--sidebar-collapsed .dashboard-home-link {
-  display: none;
+/* Collapsed rail keeps the brand row: the wordmark text closes via max-width
+   (no display toggle, no jump) and the stitch mark stays left-anchored — the
+   default 12px padding leaves it optically centered in the 44px column, so
+   the head keeps its height and nothing shifts or zips when closing. */
+.dashboard-shell--sidebar-collapsed .dashboard-sidebar__brand .seams-wordmark__text {
+  max-width: 0;
+  opacity: 0;
 }
 
-/* Collapsed rail: workspace + product cards shrink to their avatar; context
-   card hides */
-.dashboard-shell--sidebar-collapsed .dashboard-workspace-switcher__label,
-.dashboard-shell--sidebar-collapsed .dashboard-workspace-switcher__caret,
-.dashboard-shell--sidebar-collapsed .dashboard-product-switcher__label,
-.dashboard-shell--sidebar-collapsed .dashboard-product-switcher__caret,
 .dashboard-shell--sidebar-collapsed .dashboard-sidebar-context-card {
   display: none;
 }
 
+/* Collapsed rail: the switcher cards shrink around their left-anchored
+   avatar — never `justify-content: center`, which would snap the avatar to
+   the middle of the still-wide card at animation start and make it zip right,
+   then ride back left as the rail narrows. Labels fade and flex-shrink with
+   the card; carets close via max-width. Everything here interpolates. */
+.dashboard-shell--sidebar-collapsed .dashboard-workspace-switcher__label,
+.dashboard-shell--sidebar-collapsed .dashboard-product-switcher__label {
+  opacity: 0;
+}
+
+.dashboard-shell--sidebar-collapsed .dashboard-workspace-switcher__caret,
+.dashboard-shell--sidebar-collapsed .dashboard-product-switcher__caret {
+  opacity: 0;
+  max-width: 0;
+}
+
 .dashboard-shell--sidebar-collapsed .dashboard-workspace-switcher__trigger,
 .dashboard-shell--sidebar-collapsed .dashboard-product-switcher__trigger {
-  justify-content: center;
-  padding: 8px 6px;
+  gap: 0;
+  /* 28px avatar + 7px padding + 1px border = 44px: square tile, avatar
+     centered at the final width purely by padding. */
+  padding: 7px;
 }
 
 .dashboard-shell--sidebar-collapsed .dashboard-sidebar {
@@ -5464,30 +5524,29 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
   padding: 10px 6px;
 }
 
-.dashboard-shell--sidebar-collapsed .dashboard-sidebar-group {
-  gap: 6px;
-}
-
+/* Icon-rail compaction (desktop rail mode only — below 1161px the collapsed
+   sidebar stacks full-width with labels). These animate together with the
+   width shrink as one motion. */
 @media (min-width: 1161px) {
-  .dashboard-shell--sidebar-collapsed-settled .dashboard-sidebar {
+  .dashboard-shell--sidebar-collapsed .dashboard-sidebar {
     gap: 8px;
   }
 
-  .dashboard-shell--sidebar-collapsed-settled .dashboard-group-toggle {
+  .dashboard-shell--sidebar-collapsed .dashboard-group-toggle {
     max-height: 0;
     padding-top: 0;
     padding-bottom: 0;
   }
 
-  .dashboard-shell--sidebar-collapsed-settled .dashboard-sidebar-group {
+  .dashboard-shell--sidebar-collapsed .dashboard-sidebar-group {
     gap: 0;
   }
 
-  .dashboard-shell--sidebar-collapsed-settled .dashboard-sidebar-group + .dashboard-sidebar-group {
+  .dashboard-shell--sidebar-collapsed .dashboard-sidebar-group + .dashboard-sidebar-group {
     padding-top: 8px;
   }
 
-  .dashboard-shell--sidebar-collapsed-settled
+  .dashboard-shell--sidebar-collapsed
     .dashboard-sidebar-group
     + .dashboard-sidebar-group::before {
     opacity: 1;
@@ -5607,6 +5666,34 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
     grid-template-columns: 22px minmax(0, 1fr);
     gap: 10px;
     padding: 9px 10px;
+  }
+
+  /* Stacked layout shows full labels, so the brand wordmark and switcher
+     cards keep their expanded form too. */
+  .dashboard-shell--sidebar-collapsed .dashboard-sidebar__brand .seams-wordmark__text {
+    max-width: 120px;
+    opacity: 1;
+  }
+
+  .dashboard-shell--sidebar-collapsed .dashboard-workspace-switcher__label,
+  .dashboard-shell--sidebar-collapsed .dashboard-product-switcher__label {
+    opacity: 1;
+  }
+
+  .dashboard-shell--sidebar-collapsed .dashboard-workspace-switcher__caret,
+  .dashboard-shell--sidebar-collapsed .dashboard-product-switcher__caret {
+    opacity: 1;
+    max-width: 14px;
+  }
+
+  .dashboard-shell--sidebar-collapsed .dashboard-workspace-switcher__trigger {
+    gap: 10px;
+    padding: 9px 12px;
+  }
+
+  .dashboard-shell--sidebar-collapsed .dashboard-product-switcher__trigger {
+    gap: 11px;
+    padding: 9px 12px;
   }
 }
 
@@ -5867,6 +5954,15 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
   .dashboard-shell,
   .dashboard-topbar,
   .dashboard-sidebar,
+  .dashboard-sidebar-group,
+  .dashboard-sidebar__brand,
+  .dashboard-sidebar__brand .seams-wordmark__text,
+  .dashboard-workspace-switcher__trigger,
+  .dashboard-workspace-switcher__label,
+  .dashboard-workspace-switcher__caret,
+  .dashboard-product-switcher__trigger,
+  .dashboard-product-switcher__label,
+  .dashboard-product-switcher__caret,
   .dashboard-group-toggle,
   .dashboard-sidebar-group__title,
   .dashboard-sidebar-toggle,
