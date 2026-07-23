@@ -119,7 +119,7 @@ for (const [filename, environment, branch] of deploymentWorkflows) {
     }
   }
 
-  const productionGuard = `"$GITHUB_REF" != 'refs/heads/main'`;
+  const productionGuard = `"$EVENT_BRANCH" != 'main'`;
   if (!workflowSource.includes(productionGuard)) {
     failures.push(`${filename}: production authority guard is missing`);
   }

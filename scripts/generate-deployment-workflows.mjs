@@ -425,6 +425,9 @@ function makeWorkflowRoot(target, jobs) {
     env: {
       DEPLOY_TARGET: target.environment,
       DEPLOY_SOURCE_BRANCH: target.branch,
+      EVENT_BRANCH: expression(
+        "github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name",
+      ),
       SOURCE_SHA: sourceShaExpression(),
       VALIDATION_RUN_ID:
         "${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || '' }}",
