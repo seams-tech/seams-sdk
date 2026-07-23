@@ -1596,7 +1596,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     outputs:
-      pages_origin: ${{ steps.deploy_app.outputs.pages_origin }}
+      pages_origin: ${{ steps.auto_deploy_app.outputs.pages_origin }}
     environment:
       name: ${{ 'staging' }}
     env:
@@ -1693,14 +1693,14 @@ jobs:
           echo "pages_origin=$pages_origin" >> "$GITHUB_OUTPUT"
       - name: Verify app readiness
         env:
-          PAGES_ORIGIN: ${{ steps.deploy_app.outputs.pages_origin }}
+          PAGES_ORIGIN: ${{ steps.auto_deploy_app.outputs.pages_origin }}
         run: |
           set -euo pipefail
           curl --fail --silent --show-error --max-time 5 "$PAGES_ORIGIN/" > /dev/null
           curl --fail --silent --show-error --max-time 5 "$PAGES_ORIGIN/sdk/workers/near-signer.worker.js" > /dev/null
       - name: Summarize app deployment
         env:
-          PAGES_ORIGIN: ${{ steps.deploy_app.outputs.pages_origin }}
+          PAGES_ORIGIN: ${{ steps.auto_deploy_app.outputs.pages_origin }}
         run: |
           manifest_digest="$(node -e "const value=require('./.release-artifacts/pages/manifest.json'); process.stdout.write(value.contentDigestSha256)")"
           {
@@ -1728,7 +1728,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     outputs:
-      pages_origin: ${{ steps.deploy_wallet.outputs.pages_origin }}
+      pages_origin: ${{ steps.auto_deploy_wallet.outputs.pages_origin }}
     environment:
       name: ${{ 'staging' }}
     env:
@@ -1825,7 +1825,7 @@ jobs:
           echo "pages_origin=$pages_origin" >> "$GITHUB_OUTPUT"
       - name: Verify wallet readiness
         env:
-          PAGES_ORIGIN: ${{ steps.deploy_wallet.outputs.pages_origin }}
+          PAGES_ORIGIN: ${{ steps.auto_deploy_wallet.outputs.pages_origin }}
         run: |
           set -euo pipefail
           for path in \
@@ -1837,7 +1837,7 @@ jobs:
           done
       - name: Summarize wallet deployment
         env:
-          PAGES_ORIGIN: ${{ steps.deploy_wallet.outputs.pages_origin }}
+          PAGES_ORIGIN: ${{ steps.auto_deploy_wallet.outputs.pages_origin }}
         run: |
           manifest_digest="$(node -e "const value=require('./.release-artifacts/pages/manifest.json'); process.stdout.write(value.contentDigestSha256)")"
           {
@@ -2853,7 +2853,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     outputs:
-      pages_origin: ${{ steps.deploy_app.outputs.pages_origin }}
+      pages_origin: ${{ steps.manual_deploy_app.outputs.pages_origin }}
     environment:
       name: ${{ 'staging' }}
     env:
@@ -2950,14 +2950,14 @@ jobs:
           echo "pages_origin=$pages_origin" >> "$GITHUB_OUTPUT"
       - name: Verify app readiness
         env:
-          PAGES_ORIGIN: ${{ steps.deploy_app.outputs.pages_origin }}
+          PAGES_ORIGIN: ${{ steps.manual_deploy_app.outputs.pages_origin }}
         run: |
           set -euo pipefail
           curl --fail --silent --show-error --max-time 5 "$PAGES_ORIGIN/" > /dev/null
           curl --fail --silent --show-error --max-time 5 "$PAGES_ORIGIN/sdk/workers/near-signer.worker.js" > /dev/null
       - name: Summarize app deployment
         env:
-          PAGES_ORIGIN: ${{ steps.deploy_app.outputs.pages_origin }}
+          PAGES_ORIGIN: ${{ steps.manual_deploy_app.outputs.pages_origin }}
         run: |
           manifest_digest="$(node -e "const value=require('./.release-artifacts/pages/manifest.json'); process.stdout.write(value.contentDigestSha256)")"
           {
@@ -2984,7 +2984,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     outputs:
-      pages_origin: ${{ steps.deploy_wallet.outputs.pages_origin }}
+      pages_origin: ${{ steps.manual_deploy_wallet.outputs.pages_origin }}
     environment:
       name: ${{ 'staging' }}
     env:
@@ -3081,7 +3081,7 @@ jobs:
           echo "pages_origin=$pages_origin" >> "$GITHUB_OUTPUT"
       - name: Verify wallet readiness
         env:
-          PAGES_ORIGIN: ${{ steps.deploy_wallet.outputs.pages_origin }}
+          PAGES_ORIGIN: ${{ steps.manual_deploy_wallet.outputs.pages_origin }}
         run: |
           set -euo pipefail
           for path in \
@@ -3093,7 +3093,7 @@ jobs:
           done
       - name: Summarize wallet deployment
         env:
-          PAGES_ORIGIN: ${{ steps.deploy_wallet.outputs.pages_origin }}
+          PAGES_ORIGIN: ${{ steps.manual_deploy_wallet.outputs.pages_origin }}
         run: |
           manifest_digest="$(node -e "const value=require('./.release-artifacts/pages/manifest.json'); process.stdout.write(value.contentDigestSha256)")"
           {
