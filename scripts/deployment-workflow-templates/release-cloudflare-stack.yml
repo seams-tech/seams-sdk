@@ -1,4 +1,4 @@
-name: INTERNAL / release / cloudflare-stack
+name: template / release / cloudflare-stack
 
 on:
   workflow_call:
@@ -601,7 +601,7 @@ jobs:
           }, null, 2)}\n`);
           await writeFile('.release-build-identity.json', `${JSON.stringify({
             node: process.version,
-            workflow: 'internal-release-cloudflare-stack',
+            workflow: 'deploy-cloudflare-stack',
             sourceSha,
             target,
             selectedComponents: JSON.parse(process.env.SELECTED_COMPONENTS),
@@ -652,7 +652,7 @@ jobs:
     needs:
       - prepare
       - create_release_set
-    uses: ./.github/workflows/internal-deploy-cloudflare-stack.yml
+    uses: ./scripts/deployment-workflow-templates/deploy-cloudflare-stack.yml
     with:
       target: ${{ needs.prepare.outputs.target }}
       deploy_sha: ${{ needs.prepare.outputs.source_sha }}

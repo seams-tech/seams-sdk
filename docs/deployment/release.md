@@ -62,9 +62,11 @@ npm view @seams/sdk version
 
 ## Deploy Hosted Surfaces
 
-Pushing the release commit to `main` runs the full production backend and Pages
-release after validation succeeds. Pages is a component of the
-environment-bound Cloudflare stack workflow.
+Pushing the release commit to `main` runs the fast push mode of
+`Validate / repository`; successful validation starts
+`Deploy / production / cloudflare-stack`. That workflow
+contains the Router A/B, Gateway, and Pages jobs, so Pages is deployed as part
+of the same environment-bound Cloudflare stack release.
 
 ## Release Verification
 
@@ -81,9 +83,11 @@ Check:
 
 SDK runtime:
 
-1. Promote the previous Cloudflare Pages deployment for the app and wallet
-   projects.
-2. Keep both projects on the same known-good commit.
+1. Run `Deploy / production / cloudflare-stack` with the previous accepted
+   `source_sha`, `artifact_run_id`, and `release_set_id`.
+2. Keep app and wallet Pages assets on the same known-good release set.
+3. Treat secrets, D1 migrations, Durable Object state, and other environment
+   state as separate recovery work.
 
 npm:
 
@@ -96,6 +100,8 @@ deprecation is insufficient.
 
 Relay and Pages:
 
-1. Promote the previous successful Cloudflare deployment.
-2. Re-run smoke checks.
-3. Run forward fixes through `Validate / repository` before redeploying.
+1. Use the accepted-release stack rollback above as the canonical path.
+2. Use the Cloudflare dashboard only as an emergency provider-specific
+   fallback.
+3. Re-run smoke checks and route forward fixes through `Validate / repository`
+   before redeploying.

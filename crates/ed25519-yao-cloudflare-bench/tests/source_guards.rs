@@ -363,8 +363,8 @@ fn copy_accounting_is_pinned_to_the_workers_rs_boundary() {
 }
 
 #[test]
-fn ci_has_a_dedicated_native_and_worker_wasm_constant_time_lane() {
-    let workflow = crate_file("../../.github/workflows/ci.yml");
+fn repository_validation_has_a_dedicated_native_and_worker_wasm_constant_time_lane() {
+    let workflow = crate_file("../../.github/workflows/validate-repository.yml");
     let job = workflow
         .find("  ed25519-yao-constant-time-codegen:")
         .expect("dedicated constant-time codegen job");

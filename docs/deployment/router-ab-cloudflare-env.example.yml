@@ -7,9 +7,12 @@
 version: 1
 
 github_actions:
+  repository_validation_workflow: .github/workflows/validate-repository.yml
+  router_validation_workflow: .github/workflows/validate-cloudflare-router-ab.yml
   staging_workflow: .github/workflows/deploy-staging-cloudflare-stack.yml
   production_workflow: .github/workflows/deploy-production-cloudflare-stack.yml
-  shared_workflow: .github/workflows/internal-deploy-cloudflare-stack.yml
+  # Service build and deployment jobs live in the two stack workflows above.
+  # No workflow_call files remain under .github/workflows.
   deploy_order:
     - signing-worker
     - deriver-a

@@ -34,10 +34,7 @@ const SUPPLIED_VALUE_ALIASES = Object.freeze({
   VITE_CONSOLE_BASE_URL: ['GATEWAY_ORIGIN', 'VITE_RELAYER_URL'],
   VITE_RELAYER_URL: ['GATEWAY_ORIGIN'],
 });
-const OPTIONAL_SECRET_NAMES = new Set([
-  'RELAYER_PRIVATE_KEY',
-  'SPONSORED_EVM_EXECUTORS_JSON',
-]);
+const OPTIONAL_SECRET_NAMES = new Set(['RELAYER_PRIVATE_KEY', 'SPONSORED_EVM_EXECUTORS_JSON']);
 const DEPLOYMENT_AUDIT_VARIABLE_UPLOAD_ORDER = Object.freeze([
   'SEAMS_DEPLOYMENT_GENERATED_AT',
   'SEAMS_DEPLOYMENT_MANIFEST_SHA256',
@@ -448,8 +445,7 @@ function buildTargetConfiguration(targetName, suppliedValues) {
       targetName,
       `${targetName}-gateway`,
       'GATEWAY_RUNTIME_PROFILE',
-    ) ||
-    GATEWAY_RUNTIME_PROFILE_KINDS.testnetLiveDemo;
+    ) || GATEWAY_RUNTIME_PROFILE_KINDS.testnetLiveDemo;
   const emailOtpDeliveryKind = readSuppliedValue(
     suppliedValues,
     targetName,
@@ -1654,17 +1650,17 @@ function validateOutput(outputDocument) {
 
 function validateWorkflowCoverage(outputDocument) {
   const targetName = outputDocument.target;
-  const routerWorkflow = readWorkflow('internal-deploy-cloudflare-stack.yml');
+  const routerWorkflow = readWorkflow('deploy-cloudflare-stack.yml');
   const requirements = new Map([
     [
       targetName,
       mergeWorkflowRequirements(
-        collectWorkflowRequirements(readWorkflow('internal-deploy-cloudflare-pages.yml')),
+        collectWorkflowRequirements(readWorkflow('deploy-cloudflare-pages.yml')),
       ),
     ],
     [
       `${targetName}-gateway`,
-      collectWorkflowRequirements(readWorkflow('internal-deploy-cloudflare-gateway.yml')),
+      collectWorkflowRequirements(readWorkflow('deploy-cloudflare-gateway.yml')),
     ],
     [
       `${targetName}-mpc-router`,
@@ -1701,7 +1697,7 @@ function validateWorkflowCoverage(outputDocument) {
 }
 
 function readWorkflow(fileName) {
-  return readFileSync(join(repoRoot, '.github/workflows', fileName), 'utf8');
+  return readFileSync(join(repoRoot, 'scripts/deployment-workflow-templates', fileName), 'utf8');
 }
 
 function extractWorkflowJob(workflowSource, jobName) {
@@ -2428,8 +2424,7 @@ function buildGatewayConfigFromScalarVariables(targetName, gateway, general) {
     schemaVersion: GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION,
     target: targetName,
     runtimeProfile: buildGatewayRuntimeProfile(
-      gateway.get('GATEWAY_RUNTIME_PROFILE') ||
-        GATEWAY_RUNTIME_PROFILE_KINDS.testnetLiveDemo,
+      gateway.get('GATEWAY_RUNTIME_PROFILE') || GATEWAY_RUNTIME_PROFILE_KINDS.testnetLiveDemo,
       gateway.get('EMAIL_OTP_DELIVERY_MODE') || undefined,
     ),
     resources: {

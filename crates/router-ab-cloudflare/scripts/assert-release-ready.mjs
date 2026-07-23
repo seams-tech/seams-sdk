@@ -45,10 +45,10 @@ function runReleaseReadinessChecks() {
     'crates/router-ab-cloudflare/wrangler.signing-worker.toml',
   );
   const deployStackWorkflow = readRepoFile(
-    '.github/workflows/internal-deploy-cloudflare-stack.yml',
+    'scripts/deployment-workflow-templates/deploy-cloudflare-stack.yml',
   );
   const deployStackDocument = readRepoWorkflow(
-    '.github/workflows/internal-deploy-cloudflare-stack.yml',
+    'scripts/deployment-workflow-templates/deploy-cloudflare-stack.yml',
   );
   const deployStagingDocument = readRepoWorkflow(
     '.github/workflows/deploy-staging-cloudflare-stack.yml',
@@ -582,71 +582,72 @@ function requireDeployWorkflowBranchPromotionBoundary(
       branch,
     );
 
-    const automaticJob = requireWorkflowJob(
+    const automaticPrepare = requireWorkflowJob(
       entrypoint,
-      'automatic_release',
-      `P1: ${environment} deployment entrypoint is missing automatic_release`,
+      'auto_prepare',
+      `P1: ${environment} deployment entrypoint is missing automatic release preparation`,
     );
-    requireExactValue(
-      `P1: ${environment} automatic release must call the internal release workflow`,
-      automaticJob?.uses,
-      './.github/workflows/internal-release-cloudflare-stack.yml',
-    );
-    requireExactValue(
-      `P1: ${environment} automatic release has the wrong target`,
-      automaticJob?.with?.target,
-      environment,
-    );
-    requireExactValue(
-      `P1: ${environment} automatic release does not pass the workflow-run SHA`,
-      automaticJob?.with?.source_sha,
-      '${{ github.event.workflow_run.head_sha }}',
-    );
-    requireExactValue(
-      `P1: ${environment} automatic release does not pass the validation run ID`,
-      automaticJob?.with?.validation_run_id,
-      '${{ github.event.workflow_run.id }}',
-    );
-
-    const manualJob = requireWorkflowJob(
+    const automaticPreflight = requireWorkflowJob(
       entrypoint,
-      'manual_promotion',
-      `P1: ${environment} deployment entrypoint is missing manual_promotion`,
+      'auto_preflight_release',
+      `P1: ${environment} deployment entrypoint is missing automatic deployment preflight`,
+    );
+    const manualPreflight = requireWorkflowJob(
+      entrypoint,
+      'manual_preflight_release',
+      `P1: ${environment} deployment entrypoint is missing manual deployment preflight`,
+    );
+    requireJobRunFragment(
+      `P1: ${environment} automatic release does not verify the accepted validation workflow`,
+      automaticPrepare,
+      `"$validation_name" == 'Validate / repository'`,
     );
     requireExactValue(
-      `P1: ${environment} manual promotion must call the internal deploy workflow`,
-      manualJob?.uses,
-      './.github/workflows/internal-deploy-cloudflare-stack.yml',
+      `P1: ${environment} automatic release does not pass the workflow-run source SHA`,
+      entrypoint?.env?.SOURCE_SHA,
+      "${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}",
+    );
+    requireJobNeeds(
+      `P1: ${environment} automatic deployment preflight is not gated by release creation`,
+      automaticPreflight,
+      ['auto_create_release_set'],
     );
     requireExactValue(
-      `P1: ${environment} manual promotion has the wrong target`,
-      manualJob?.with?.target,
-      environment,
+      `P1: ${environment} manual promotion does not use the exact source SHA input`,
+      manualPreflight?.env?.DEPLOY_SHA,
+      '${{ env.SOURCE_SHA }}',
     );
     requireExactValue(
-      `P1: ${environment} manual promotion does not pass the exact source SHA`,
-      manualJob?.with?.deploy_sha,
-      '${{ inputs.source_sha }}',
+      `P1: ${environment} manual promotion does not use the accepted release-set input`,
+      manualPreflight?.env?.RELEASE_SET_ID,
+      '${{ env.MANUAL_RELEASE_SET_ID }}',
     );
-    requireExactValue(
-      `P1: ${environment} manual promotion does not pass the artifact run ID`,
-      manualJob?.with?.artifact_run_id,
-      '${{ inputs.artifact_run_id }}',
-    );
-    requireExactValue(
-      `P1: ${environment} manual promotion does not pass the release-set ID`,
-      manualJob?.with?.release_set_id,
-      '${{ inputs.release_set_id }}',
-    );
-    requireExactValue(
-      `P1: ${environment} manual promotion has the wrong source branch`,
-      manualJob?.with?.source_branch,
-      branch,
-    );
-    requireExactValue(
-      `P1: ${environment} manual promotion must disable automatic branch-tip enforcement`,
-      manualJob?.with?.enforce_current_branch,
-      false,
+    for (const jobId of [
+      'auto_deploy_mpc_router',
+      'auto_deploy_deriver_a',
+      'auto_deploy_deriver_b',
+      'auto_deploy_signing_worker',
+      'auto_deploy_gateway',
+      'auto_deploy_app',
+      'auto_deploy_wallet',
+      'manual_deploy_mpc_router',
+      'manual_deploy_deriver_a',
+      'manual_deploy_deriver_b',
+      'manual_deploy_signing_worker',
+      'manual_deploy_gateway',
+      'manual_deploy_app',
+      'manual_deploy_wallet',
+    ]) {
+      requireWorkflowJob(
+        entrypoint,
+        jobId,
+        `P1: ${environment} deployment entrypoint is missing ${jobId}`,
+      );
+    }
+    requireJobRunFragment(
+      `P1: ${environment} production authority is not rooted in main`,
+      automaticPrepare,
+      `"$GITHUB_REF" != 'refs/heads/main'`,
     );
   }
 
