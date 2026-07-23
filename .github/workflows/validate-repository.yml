@@ -28,6 +28,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install workflow policy tooling
+        run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Check deployment workflow policy
         run: node scripts/check-deployment-workflows.mjs
 
