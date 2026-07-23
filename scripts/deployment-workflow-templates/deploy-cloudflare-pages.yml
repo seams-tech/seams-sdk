@@ -1,4 +1,4 @@
-name: INTERNAL / deploy / cloudflare-pages
+name: template / deploy / cloudflare-pages
 
 on:
   workflow_call:

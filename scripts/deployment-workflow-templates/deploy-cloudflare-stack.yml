@@ -1,4 +1,4 @@
-name: INTERNAL / deploy / cloudflare-stack
+name: template / deploy / cloudflare-stack
 
 on:
   workflow_call:
@@ -710,7 +710,7 @@ jobs:
             echo "- Release set: \`$RELEASE_SET_ID\`"
             echo "- Artifact run: \`$ARTIFACT_RUN_ID\`"
             echo "- Artifact content digest: \`$manifest_digest\`"
-            echo "- Rollback: rerun this failed job with the accepted artifact"
+            echo "- Recovery: rerun this job for the same release; use manual stack dispatch with a prior accepted release set for rollback"
           } >> "$GITHUB_STEP_SUMMARY"
 
   deploy_gateway:
@@ -721,7 +721,7 @@ jobs:
         contains(fromJSON(needs.preflight_release.outputs.selected_components), 'gateway')
       }}
     needs: preflight_release
-    uses: ./.github/workflows/internal-deploy-cloudflare-gateway.yml
+    uses: ./scripts/deployment-workflow-templates/deploy-cloudflare-gateway.yml
     with:
       target: ${{ inputs.target }}
       source_sha: ${{ inputs.deploy_sha }}
@@ -742,7 +742,7 @@ jobs:
     needs:
       - preflight_release
       - deploy_gateway
-    uses: ./.github/workflows/internal-deploy-cloudflare-pages.yml
+    uses: ./scripts/deployment-workflow-templates/deploy-cloudflare-pages.yml
     with:
       target: all
       deploy_environment: ${{ inputs.target }}

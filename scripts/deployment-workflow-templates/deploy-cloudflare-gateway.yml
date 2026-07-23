@@ -1,4 +1,4 @@
-name: INTERNAL / deploy / cloudflare-gateway
+name: template / deploy / cloudflare-gateway
 
 on:
   workflow_call:

@@ -199,14 +199,14 @@ test('CLI requires the select subcommand at the process boundary', () => {
 
 test('release workflow invokes the selector through its required CLI command', () => {
   const workflowSource = readFileSync(
-    path.join(repoRoot(), '.github/workflows/internal-release-cloudflare-stack.yml'),
+    path.join(repoRoot(), 'scripts/deployment-workflow-templates/release-cloudflare-stack.yml'),
     'utf8',
   );
 
   expect(workflowSource).toContain(
     'node scripts/deployment-components.mjs select --files-file "$RUNNER_TEMP/changed-files.txt"',
   );
-  expect(workflowSource).toContain('name: INTERNAL / release / cloudflare-stack');
+  expect(workflowSource).toContain('name: template / release / cloudflare-stack');
   expect(workflowSource).toContain('name: release-change-set');
   expect(workflowSource).not.toContain('workflow_run:');
 });

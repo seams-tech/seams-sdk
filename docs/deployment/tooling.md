@@ -22,7 +22,7 @@ For Worker build and deployment checks, also install:
 
 - Rust and the `wasm32-unknown-unknown` target.
 - Wrangler authentication with a token that can deploy the target account.
-- `wasm-pack` when running SDK production builds or the full Pages workflow.
+- `wasm-pack` when running SDK production builds or the Pages job locally.
 
 GitHub apply mode requires repository administration permission to create or
 update deployment environments, Actions variables, and Actions secrets.
@@ -369,7 +369,10 @@ pnpm router:deploy:upload -- --env staging --role router
 ```
 
 The upload command requires the target Worker variables and Cloudflare
-credentials. It is used by the release workflow for startup evidence.
+credentials. The same checks are used by `Validate / cloudflare-router-ab` and
+the Router A/B jobs in the environment-specific stack workflow.
+This diagnostic upload creates a non-serving Worker version; it is not the
+production deployment or rollback path.
 
 ## Deployment
 
@@ -380,19 +383,21 @@ git push origin dev  # staging
 ```
 
 Production starts when an accepted pull request is merged into protected
-`main`. The successful CI workflow invokes the matching deployment workflow.
-For a manual deployment, use the workflow dispatch commands documented in
-[README.md](README.md#normal-promotion).
+`main`. A successful `Validate / repository` run starts
+`Deploy / production / cloudflare-stack`. Staging follows the same path from
+`dev` to `Deploy / staging / cloudflare-stack`. For a manual deployment, use
+the workflow dispatch commands documented in [README.md](README.md#normal-promotion).
 
 The deployment order is:
 
-1. Validate and upload or deploy SigningWorker, Deriver A, Deriver B, and
-   MPCRouter.
-2. Apply Gateway D1 migrations and deploy the Gateway Worker.
-3. Deploy the Pages app and wallet surfaces.
+1. The stack workflow validates and uploads or deploys SigningWorker, Deriver A,
+   Deriver B, and MPCRouter in its Router A/B jobs.
+2. Its Gateway job applies D1 migrations and deploys the Gateway Worker.
+3. Its Pages job deploys the app and wallet surfaces.
 
 Do not deploy a Gateway that references a different Router A/B identity set.
-Generate and apply the target manifest before starting the release workflow.
+Generate and apply the target manifest before starting the matching environment
+stack workflow.
 
 ## D1 and Staging Operations
 

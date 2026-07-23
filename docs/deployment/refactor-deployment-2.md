@@ -2,12 +2,15 @@
 
 Date created: July 23, 2026
 
-Status: implementation complete; staging measurement pending
+Status: implementation review follow-up required; staging blocked
 
-Implementation status: the browser SDK concurrency, timing-schema, selective
+Implementation status: the browser SDK concurrency, timing schema, selective
 Email OTP Yao prewarm, worker cache, and focused failure-ordering tests are
-implemented. Phase 0 benchmark collection and Phase 5 artifact deployment
-remain operational follow-up work.
+implemented. Release review found three issues that must be corrected before
+staging: prewarm starts after registration submission, current fixtures do not
+prove a successful mixed registration, and failed-prewarm elapsed time is
+discarded. Phase 5 owns these fixes. Phase 0 benchmark collection and Phase 6
+artifact deployment remain operational follow-up work.
 
 ## Objective
 
@@ -238,16 +241,16 @@ method and signer set. An Email OTP request that includes Ed25519 should:
 
 Implementation requirements:
 
-- [x] Start this prewarm as soon as the Google registration offer and selected
+- [ ] Start this prewarm as soon as the Google registration offer and selected
       signer set are known, while the wallet-name UI is visible.
 - [x] Run generic signer, confirmation-UI, Email OTP worker, and Yao module
       prewarming concurrently.
-- [x] Keep prewarm idempotent and best effort. A prewarm failure must be
+- [ ] Keep prewarm idempotent and best effort. A prewarm failure must be
       measured and retried by the real operation.
 - [x] Do not create factor roots, pending registrations, Router admissions, or
       durable records during prewarm.
-- [x] Include Email OTP worker and Yao WASM prewarm durations in registration
-      diagnostics.
+- [ ] Include successful and failed Email OTP worker and Yao WASM prewarm
+      durations in registration diagnostics.
 - [x] Avoid prewarming Yao for ECDSA-only registration.
 
 Acceptance:
@@ -268,12 +271,12 @@ coverage.
 
 Add or update:
 
-- [x] `tests/unit/addWalletSigner.orchestration.unit.test.ts`
-      - Email OTP mixed Yao/ECDSA overlap;
-      - finalize join ordering;
-      - both branch-failure orderings;
-      - exact-once Yao disposal;
-      - Ed25519-only atomicity remains unchanged.
+- [ ] `tests/unit/addWalletSigner.orchestration.unit.test.ts`
+      - current coverage proves Email OTP mixed Yao/ECDSA overlap and
+        exact-once Yao disposal for deferred ECDSA failure;
+      - add successful finalize join ordering;
+      - add both branch-failure orderings with branch-specific fixtures;
+      - preserve Ed25519-only atomicity and ECDSA-only isolation.
 - [ ] `tests/unit/walletRegistrationYaoClientContracts.unit.test.ts`
       - worker timing boundary validation;
       - pending, failed, committed, and disposed transitions.
@@ -303,7 +306,111 @@ pnpm test:intended
 Run `pnpm check` because this change touches shared lifecycle types, worker
 protocols, auth-sensitive registration, and public registration behavior.
 
-## Phase 5: Stage, Measure, and Deploy
+## Phase 5: Resolve Implementation-Review Release Blockers
+
+The implementation must model three registration variants explicitly:
+
+1. `ecdsa_only`;
+2. `ed25519_only`;
+3. `ecdsa_and_ed25519`.
+
+Use discriminated unions and branch-specific builders throughout this phase.
+Do not represent the variants with independent optional fields or boolean
+flags.
+
+### Phase 5A: Move Selective Prewarm to Registration-Offer Time
+
+- [ ] Add a required registration-prewarm dependency to the Google Email OTP
+      registration flow.
+- [ ] Start prewarm after the registration offer and signer selection are
+      resolved, before the wallet-name prompt is presented.
+- [ ] Wire the same prewarm lifecycle through direct browser and wallet-iframe
+      registration paths.
+- [ ] Keep the prewarm handle with the active registration flow and reuse it
+      when the user selects another offered wallet name.
+- [ ] Remove the pre-authentication wait on registration warmup. The real Yao
+      operation must reuse an in-flight or completed worker initialization.
+- [ ] Select prewarm behavior by registration variant:
+      - `ecdsa_only`: return `not_requested` and never initialize Yao;
+      - `ed25519_only`: prewarm the Email OTP worker and Yao WASM;
+      - `ecdsa_and_ed25519`: prewarm the same Yao resources while preserving
+        concurrent ECDSA registration.
+
+Acceptance:
+
+- The worker/Yao prewarm request begins while the wallet-name UI is visible.
+- Clicking Create does not wait for a separate pre-authentication warmup gate.
+- ECDSA-only registration performs no Yao worker request or Yao WASM
+  initialization.
+- Wallet-name reroll does not create duplicate prewarm work.
+- Prewarm remains unauthenticated and writes no wallet or factor state.
+
+### Phase 5B: Restore Variant-Specific Success and Failure Coverage
+
+- [ ] Replace the shared ECDSA fixture that always throws with branch-specific
+      successful, deferred-success, and deferred-failure builders.
+- [ ] Ensure all registration fixtures implement the current signing-surface
+      contract, including preparation-modal cleanup and strict `chainTargets`
+      response shapes.
+- [ ] Add one successful unit test for each registration variant:
+      - ECDSA-only completes without starting or prewarming Yao;
+      - Ed25519-only completes without starting an ECDSA ceremony;
+      - mixed registration overlaps Yao and ECDSA, joins both branches, and
+        finalizes exactly once.
+- [ ] In the successful mixed test, assert Yao commits exactly once after
+      finalized identities and persistence inputs are validated.
+- [ ] Add mixed failure tests for Yao-first and ECDSA-first failure orderings.
+      Each must dispose pending Yao state exactly once and must not finalize.
+- [ ] Add intended-behaviour coverage for successful mixed registration
+      followed immediately by NEAR and EVM-family signing.
+
+Acceptance:
+
+- Existing ECDSA-only and Email OTP registration success tests pass.
+- The new mixed success test returns `success: true`; failure tests cannot
+  satisfy the success contract.
+- The three variants cannot invoke work owned by a disabled signer branch.
+- Finalization occurs exactly once only after every enabled branch succeeds.
+
+### Phase 5C: Preserve Failed-Prewarm Diagnostics
+
+- [ ] Replace zero-value failure recovery with a result-style prewarm outcome:
+      `not_requested`, `succeeded`, or `failed`.
+- [ ] Require branch-specific fields and use `never` fields to reject invalid
+      combinations.
+- [ ] Record elapsed time and a bounded failure stage for failed prewarm
+      without retaining raw errors or identity-bearing values.
+- [ ] Merge prewarm diagnostics without overwriting a measured duration with
+      zero.
+- [ ] Preserve retry semantics by clearing failed worker initialization state
+      so the real registration operation can initialize Yao again.
+- [ ] Add tests for successful, skipped, and failed prewarm outcomes, including
+      a failed prewarm followed by successful registration.
+
+Acceptance:
+
+- Every attempted prewarm reports a non-negative elapsed duration.
+- Failed prewarm is visible in diagnostics and cannot change the registration
+  result.
+- A real Ed25519 registration retries after prewarm failure.
+- Diagnostic payloads contain no email, wallet identifier, JWT, OTP,
+  credential, or key material.
+
+Phase 5 validation:
+
+```text
+pnpm -C tests exec playwright test -c playwright.config.ts \
+  ./unit/addWalletSigner.orchestration.unit.test.ts \
+  ./unit/walletRegistrationYaoClientContracts.unit.test.ts \
+  --reporter=line
+
+pnpm test:intended
+pnpm check
+```
+
+Phase 6 remains blocked until every Phase 5 acceptance condition passes.
+
+## Phase 6: Stage, Measure, and Deploy
 
 The concurrency and prewarm changes live in browser SDK, wallet iframe, worker,
 and static WASM artifacts. They require the selected SDK/site artifact surfaces
@@ -341,17 +448,22 @@ Production acceptance:
 
 This refactor requires no D1 migration and no durable schema change.
 
-Rollback reactivates the previous accepted SDK/site artifact set. Preserve the
-new benchmark evidence and classify any rollback-triggering failure before
-further changes. If only prewarming causes a production problem, ship a new
-accepted release that removes the faulty prewarm implementation while keeping
-the structured-concurrency fix and timing coverage.
+Rollback redeploys the previous accepted SDK/site artifact set through the
+environment-specific Cloudflare stack workflow. This restores code and Pages
+assets without reverting D1, Durable Object, secret, or other environment
+state. Preserve the new benchmark evidence and classify any rollback-triggering
+failure before further changes. If only prewarming causes a production problem,
+ship a new accepted release that removes the faulty prewarm implementation
+while keeping the structured-concurrency fix and timing coverage.
 
 ## Expected File Scope
 
 Primary implementation:
 
 - `packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts`
+- `packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow.ts`
+- `packages/sdk-web/src/SeamsWeb/SeamsWeb.ts`
+- `packages/sdk-web/src/SeamsWeb/walletIframe/host/handlers/emailOtp.ts`
 - `packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoWorkerClient.ts`
 - `packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts`
 - `packages/sdk-web/src/core/signingEngine/threshold/ed25519/yaoClient.ts`
@@ -375,7 +487,9 @@ Keep the implementation reviewable:
 1. timing schema, span coverage, and focused tests;
 2. structured Yao/ECDSA concurrency and failure-ordering tests;
 3. targeted Email OTP/Yao prewarm and cold-path tests;
-4. staging measurements, corrected production-readiness documentation, and
+4. offer-time prewarm lifecycle and three-variant success fixtures;
+5. failed-prewarm diagnostics and retry coverage;
+6. staging measurements, corrected production-readiness documentation, and
    release evidence.
 
 Do not reintroduce retired terminology or implementation paths. Do not combine

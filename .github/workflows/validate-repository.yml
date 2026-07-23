@@ -67,7 +67,9 @@ jobs:
 
   router-ab-deployment-validation:
     name: Router A/B deployment validation
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: >-
+      github.event_name == 'pull_request' || github.event_name == 'merge_group' ||
+      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -99,6 +101,7 @@ jobs:
           done
 
   ed25519-yao-constant-time-codegen:
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -126,6 +129,7 @@ jobs:
         run: node crates/ed25519-yao/scripts/check_constant_time_codegen.mjs
 
   build-and-test:
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -192,6 +196,7 @@ jobs:
         run: pnpm -C packages/sdk-web test:relayer
 
   signer-parity-swift:
+    if: github.event_name != 'push'
     runs-on: macos-latest
     timeout-minutes: 35
     steps:
@@ -244,6 +249,7 @@ jobs:
         run: pnpm -C tests test:signer-parity:swift
 
   threshold-signing-core:
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     services:
