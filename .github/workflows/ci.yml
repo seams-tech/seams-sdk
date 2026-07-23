@@ -16,6 +16,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   release-change-set:
     name: Record release change set
@@ -86,6 +90,7 @@ jobs:
 
   ed25519-yao-constant-time-codegen:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -112,6 +117,7 @@ jobs:
 
   build-and-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -143,11 +149,13 @@ jobs:
         run: |
           curl -sSf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
 
-      - name: Build WASM packages
-        run: pnpm build:wasm
-
       - name: Check lint, types, Rust, and architecture
-        run: pnpm check
+        run: |
+          pnpm lint
+          pnpm type-check
+          pnpm format:rust:check
+          pnpm lint:rust
+          pnpm check:signing-architecture
 
       - name: Setup Bun (for worker bundling)
         uses: oven-sh/setup-bun@v2
@@ -162,16 +170,20 @@ jobs:
         run: node packages/sdk-web/scripts/checks/assert-palette-css.mjs
 
       - name: Run lite SDK tests
-        run: pnpm test:lite
+        run: pnpm -C tests exec playwright test -c playwright.lite.config.ts --reporter=line
 
       - name: Run signer runtime gates
-        run: pnpm test:signers:gates
+        run: pnpm -C tests exec playwright test ./unit/walletSessionReadiness.gate.unit.test.ts ./unit/thresholdEcdsa.commitQueue.unit.test.ts ./unit/walletIframeHost.signTempoCancel.unit.test.ts --reporter=line
+
+      - name: Run signer parity tests
+        run: pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/signerParity.rustPlatforms.unit.test.ts ./unit/signingVectors.webWasmReplay.integration.test.ts --workers=1 --reporter=line
 
       - name: Run relayer (server) tests
         run: pnpm -C packages/sdk-web test:relayer
 
   signer-parity-swift:
     runs-on: macos-latest
+    timeout-minutes: 35
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -223,6 +235,7 @@ jobs:
 
   threshold-signing-core:
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     services:
       redis:
         image: redis:7-alpine

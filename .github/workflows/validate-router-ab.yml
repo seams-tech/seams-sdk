@@ -1,16 +1,6 @@
 name: validate-router-ab
 
 on:
-  push:
-    paths:
-      - '.github/workflows/validate-router-ab.yml'
-      - 'crates/router-ab-core/**'
-      - 'crates/router-ab-cloudflare/**'
-      - 'crates/router-ab-dev/**'
-      - 'docs/router-A-B-signer*.md'
-      - 'docs/router-a-b-local-dev.md'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
   pull_request:
     paths:
       - '.github/workflows/validate-router-ab.yml'
@@ -26,46 +16,70 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: validate-router-ab-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUST_TOOLCHAIN: stable
+
 jobs:
-  router-ab-validate:
+  router_ab_core_tests:
+    name: Router A/B core tests
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v5
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: '24'
-          cache: 'pnpm'
-
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-
-      - name: Add wasm target
-        run: rustup target add wasm32-unknown-unknown
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Install deps (workspace)
-        run: pnpm install --frozen-lockfile
-
+      - name: Cache Router A/B Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: router-ab-validation-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
+          workspaces: |
+            crates/router-ab-core -> target
+            crates/router-ab-dev -> target
       - name: Run Router A/B core tests
         run: cargo test --manifest-path crates/router-ab-core/Cargo.toml
-
       - name: Run Router A/B dev tests
         run: cargo test --manifest-path crates/router-ab-dev/Cargo.toml
 
+  router_ab_cloudflare_tests:
+    name: Router A/B Cloudflare adapter tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Add wasm target
+        run: rustup target add wasm32-unknown-unknown
+      - name: Cache Router A/B Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: router-ab-validation-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
+          workspaces: crates/router-ab-cloudflare -> target
       - name: Run Router A/B Cloudflare tests
         run: cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml
 
+  router_ab_entrypoints:
+    name: Router A/B entrypoint checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Add wasm target
+        run: rustup target add wasm32-unknown-unknown
+      - name: Cache Router A/B Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: router-ab-validation-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
+          workspaces: crates/router-ab-cloudflare -> target
       - name: Check strict Worker entrypoints
         run: |
           set -euo pipefail
@@ -78,11 +92,38 @@ jobs:
             cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --features "$feature"
           done
 
+  router_ab_startup_dry_run:
+    name: Router A/B startup dry-run
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Add wasm target
+        run: rustup target add wasm32-unknown-unknown
+      - name: Cache Router A/B startup build
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: router-ab-startup-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
+          workspaces: |
+            crates/router-ab-cloudflare -> target
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Install filtered dependencies
+        run: pnpm install --frozen-lockfile --filter router-ab-cloudflare
       - name: Run Cloudflare startup dry-run
         run: |
           pnpm router:deploy:dry-run -- \
             --out reports/startup-latencies/router-ab-github-dry-run-${{ github.run_id }}.json
-
       - name: Upload Router A/B startup dry-run report
         if: always()
         uses: actions/upload-artifact@v7
@@ -90,3 +131,30 @@ jobs:
           name: router-ab-startup-dry-run-${{ github.run_id }}
           path: crates/router-ab-cloudflare/reports/startup-latencies/*.json
           if-no-files-found: ignore
+
+  router_ab_validate:
+    name: Validate Router A/B
+    if: always()
+    needs:
+      - router_ab_core_tests
+      - router_ab_cloudflare_tests
+      - router_ab_entrypoints
+      - router_ab_startup_dry_run
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fail if a Router A/B validation job failed
+        env:
+          CORE_RESULT: ${{ needs.router_ab_core_tests.result }}
+          CLOUDFLARE_RESULT: ${{ needs.router_ab_cloudflare_tests.result }}
+          ENTRYPOINT_RESULT: ${{ needs.router_ab_entrypoints.result }}
+          DRY_RUN_RESULT: ${{ needs.router_ab_startup_dry_run.result }}
+        run: |
+          set -euo pipefail
+          for result in "$CORE_RESULT" "$CLOUDFLARE_RESULT" "$ENTRYPOINT_RESULT" "$DRY_RUN_RESULT"; do
+            if [[ "$result" != success ]]; then
+              echo "::error::Router A/B validation failed with result: $result"
+              exit 1
+            fi
+          done
+          echo "Router A/B validation passed."
