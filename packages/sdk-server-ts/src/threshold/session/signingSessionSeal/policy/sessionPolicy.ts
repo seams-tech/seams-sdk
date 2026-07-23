@@ -6,6 +6,8 @@ import type {
   Ed25519WalletSessionStatus,
   Ed25519WalletSessionStore,
   WalletSessionConsumeUsesResult,
+  WalletSessionStatusLookupResult,
+  WalletSessionStatus,
   WalletSigningBudgetSessionRecord,
   WalletSigningBudgetSessionStatus,
   WalletSigningBudgetSessionStore,
@@ -31,11 +33,13 @@ function toNonNegativeInt(value: unknown): number | undefined {
 
 type SigningSessionSealWalletSessionRecord = Ed25519WalletSessionRecord | EcdsaWalletSessionRecord;
 
-type SigningSessionSealWalletSessionStatus = Ed25519WalletSessionStatus | EcdsaWalletSessionStatus;
+type SigningSessionSealWalletSessionStatus = WalletSessionStatus<SigningSessionSealWalletSessionRecord>;
 
 type SigningSessionSealWalletSessionStore = {
   getSession(id: string): Promise<SigningSessionSealWalletSessionRecord | null>;
-  getSessionStatus(id: string): Promise<SigningSessionSealWalletSessionStatus | null>;
+  getSessionStatus(
+    id: string,
+  ): Promise<WalletSessionStatusLookupResult<SigningSessionSealWalletSessionRecord>>;
   consumeUseCount(id: string): Promise<WalletSessionConsumeUsesResult>;
 };
 
@@ -198,9 +202,16 @@ function normalizeStatusesAcrossStores(
   return (async () => {
     const statuses: SigningSessionSealThresholdSessionStatus[] = [];
     for (const store of stores) {
+      const lookup = await store.getSessionStatus(input.thresholdSessionId);
+      if (!lookup.ok) {
+        if (lookup.code === 'wallet_session_unavailable') {
+          throw new Error('Wallet Session status is unavailable');
+        }
+        continue;
+      }
       const normalized = normalizeThresholdSessionStatus(
         input,
-        await store.getSessionStatus(input.thresholdSessionId),
+        lookup.status,
       );
       if (normalized) statuses.push(normalized);
     }
@@ -217,9 +228,16 @@ function normalizeWalletBudgetStatusAcrossStores(
       signingGrantId: input.signingGrantId,
     });
     for (const store of stores) {
+      const lookup = await store.getSessionStatus(thresholdSessionId);
+      if (!lookup.ok) {
+        if (lookup.code === 'wallet_session_unavailable') {
+          throw new Error('Wallet Session status is unavailable');
+        }
+        continue;
+      }
       const normalized = normalizeWalletBudgetStatus(
         input,
-        await store.getSessionStatus(thresholdSessionId),
+        lookup.status,
       );
       if (normalized) return normalized;
     }

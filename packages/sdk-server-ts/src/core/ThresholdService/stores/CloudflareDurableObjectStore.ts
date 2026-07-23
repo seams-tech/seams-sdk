@@ -47,6 +47,7 @@ import type {
   WalletSessionRecord,
   WalletSessionRecordParser,
   WalletSessionStore,
+  WalletSessionStatusLookupResult,
 } from './WalletSessionStore';
 import type {
   ThresholdEcdsaIntegratedKeyStore,
@@ -465,11 +466,11 @@ export class CloudflareDurableObjectWalletSessionStore<
     const record = entry ? this.parseRecord((entry as { record?: unknown }).record) : null;
     const expiresAtMs = entry ? (entry as { expiresAtMs?: unknown }).expiresAtMs : null;
     if (!record || typeof expiresAtMs !== 'number' || !Number.isFinite(expiresAtMs)) return null;
-    if (Date.now() > expiresAtMs) return null;
+    if (expiresAtMs <= Date.now()) return null;
     return record;
   }
 
-  async getSessionStatus(id: string) {
+  async getSessionStatus(id: string): Promise<WalletSessionStatusLookupResult<TRecord>> {
     const resp = await callDo<{
       record: TRecord;
       expiresAtMs: number;
@@ -477,23 +478,34 @@ export class CloudflareDurableObjectWalletSessionStore<
       reservedUses: number;
       availableUses: number;
     } | null>(this.stub, { op: 'authGetBudgetStatus', key: this.key(id) });
-    if (!resp.ok) return null;
-    if (!resp.value) return null;
+    if (!resp.ok) {
+      switch (resp.code) {
+        case 'wallet_session_missing':
+        case 'wallet_session_expired':
+          return { ok: false, code: resp.code };
+        default:
+          return { ok: false, code: 'wallet_session_unavailable' };
+      }
+    }
+    if (!resp.value) return { ok: false, code: 'wallet_session_unavailable' };
     const record = this.parseRecord(resp.value.record);
-    if (!record) return null;
+    if (!record) return { ok: false, code: 'wallet_session_unavailable' };
     const expiresAtMs = Number(resp.value.expiresAtMs);
     const committedRemainingUses = Math.max(0, Math.floor(Number(resp.value.remainingUses) || 0));
     const activeReservedUses = Math.max(0, Math.floor(Number(resp.value.reservedUses) || 0));
     const activeAvailableUses = Math.max(0, Math.floor(Number(resp.value.availableUses) || 0));
-    if (!Number.isFinite(expiresAtMs) || Date.now() > expiresAtMs) return null;
-    return {
+    if (!Number.isFinite(expiresAtMs)) {
+      return { ok: false, code: 'wallet_session_unavailable' };
+    }
+    if (expiresAtMs <= Date.now()) return { ok: false, code: 'wallet_session_expired' };
+    return { ok: true, status: {
       record,
       expiresAtMs,
       committedRemainingUses,
       reservedUses: activeReservedUses,
       availableUses: activeAvailableUses,
       remainingUses: activeAvailableUses,
-    };
+    } };
   }
 
   async consumeUseCount(id: string): Promise<WalletSessionConsumeUsesResult> {

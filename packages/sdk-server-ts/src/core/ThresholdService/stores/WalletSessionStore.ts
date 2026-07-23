@@ -7,6 +7,10 @@ import type {
 import { RedisTcpClient, UpstashRedisRestClient, redisGetJson, redisSetJson } from '../kv';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import {
+  WALLET_SESSION_FAILURE_CODES,
+  type WalletSessionFailureCode,
+} from '@shared/utils/walletSessionFailure';
+import {
   isObject,
   toThresholdEcdsaWalletSessionPrefix,
   toThresholdEcdsaPrefixFromBase,
@@ -186,6 +190,18 @@ export type WalletSessionStatus<TRecord extends WalletSessionRecord> = {
   remainingUses: number;
 };
 
+export type WalletSessionStatusLookupResult<TRecord extends WalletSessionRecord> =
+  | { ok: true; status: WalletSessionStatus<TRecord> }
+  | {
+      ok: false;
+      code: Extract<
+        WalletSessionFailureCode,
+        | typeof WALLET_SESSION_FAILURE_CODES.missing
+        | typeof WALLET_SESSION_FAILURE_CODES.expired
+        | typeof WALLET_SESSION_FAILURE_CODES.unavailable
+      >;
+    };
+
 export type Ed25519WalletSessionStatus = WalletSessionStatus<Ed25519WalletSessionRecord>;
 export type EcdsaWalletSessionStatus = WalletSessionStatus<EcdsaWalletSessionRecord>;
 export type WalletSigningBudgetSessionStatus =
@@ -205,7 +221,7 @@ export interface WalletSessionStore<TRecord extends WalletSessionRecord> {
     opts: { ttlMs: number; remainingUses: number },
   ): Promise<void>;
   getSession(id: string): Promise<TRecord | null>;
-  getSessionStatus(id: string): Promise<WalletSessionStatus<TRecord> | null>;
+  getSessionStatus(id: string): Promise<WalletSessionStatusLookupResult<TRecord>>;
   /**
    * Consume one use from the session counter without fetching the session record.
    *
@@ -311,40 +327,40 @@ class InMemoryWalletSessionStore<
     const key = this.key(id);
     const entry = this.map.get(key);
     if (!entry) return null;
-    if (Date.now() > entry.expiresAtMs) {
+    if (entry.expiresAtMs <= Date.now()) {
       this.map.delete(key);
       return null;
     }
     return entry.record;
   }
 
-  async getSessionStatus(id: string): Promise<WalletSessionStatus<TRecord> | null> {
+  async getSessionStatus(id: string): Promise<WalletSessionStatusLookupResult<TRecord>> {
     const key = this.key(id);
     const entry = this.map.get(key);
-    if (!entry) return null;
-    if (Date.now() > entry.expiresAtMs) {
+    if (!entry) return { ok: false, code: 'wallet_session_missing' };
+    if (entry.expiresAtMs <= Date.now()) {
       this.map.delete(key);
-      return null;
+      return { ok: false, code: 'wallet_session_expired' };
     }
     const budget = inMemoryBudgetProjection(entry);
-    return {
+    return { ok: true, status: {
       record: entry.record,
       expiresAtMs: entry.expiresAtMs,
       committedRemainingUses: budget.committedRemainingUses,
       reservedUses: budget.reservedUses,
       availableUses: budget.availableUses,
       remainingUses: budget.availableUses,
-    };
+    } };
   }
 
   async consumeUseCount(id: string): Promise<WalletSessionConsumeUsesResult> {
     const key = this.key(id);
     const entry = this.map.get(key);
     if (!entry)
-      return { ok: false, code: 'unauthorized', message: 'threshold session expired or invalid' };
-    if (Date.now() > entry.expiresAtMs) {
+      return { ok: false, code: 'wallet_session_missing', message: 'Wallet Session is missing' };
+    if (entry.expiresAtMs <= Date.now()) {
       this.map.delete(key);
-      return { ok: false, code: 'unauthorized', message: 'threshold session expired' };
+      return { ok: false, code: 'wallet_session_expired', message: 'Wallet Session expired' };
     }
     const budget = inMemoryBudgetProjection(entry);
     if (budget.availableUses <= 0) {
@@ -361,10 +377,10 @@ class InMemoryWalletSessionStore<
     const key = this.key(id);
     const entry = this.map.get(key);
     if (!entry)
-      return { ok: false, code: 'unauthorized', message: 'threshold session expired or invalid' };
-    if (Date.now() > entry.expiresAtMs) {
+      return { ok: false, code: 'wallet_session_missing', message: 'Wallet Session is missing' };
+    if (entry.expiresAtMs <= Date.now()) {
       this.map.delete(key);
-      return { ok: false, code: 'unauthorized', message: 'threshold session expired' };
+      return { ok: false, code: 'wallet_session_expired', message: 'Wallet Session expired' };
     }
     const consumeKey = String(idempotencyKey || '').trim();
     if (consumeKey && entry.consumedIdempotencyKeys.has(consumeKey)) {
@@ -386,10 +402,10 @@ class InMemoryWalletSessionStore<
     const entry = this.map.get(key);
     const nowMs = Date.now();
     if (!entry)
-      return { ok: false, code: 'unauthorized', message: 'threshold session expired or invalid' };
-    if (nowMs > entry.expiresAtMs) {
+      return { ok: false, code: 'wallet_session_missing', message: 'Wallet Session is missing' };
+    if (entry.expiresAtMs <= nowMs) {
       this.map.delete(key);
-      return { ok: false, code: 'unauthorized', message: 'threshold session expired' };
+      return { ok: false, code: 'wallet_session_expired', message: 'Wallet Session expired' };
     }
     const parsed = parseBudgetReservationInput(input, entry.expiresAtMs, nowMs);
     if (!parsed.ok) return parsed;
@@ -452,10 +468,10 @@ class InMemoryWalletSessionStore<
     const entry = this.map.get(key);
     const nowMs = Date.now();
     if (!entry)
-      return { ok: false, code: 'unauthorized', message: 'threshold session expired or invalid' };
-    if (nowMs > entry.expiresAtMs) {
+      return { ok: false, code: 'wallet_session_missing', message: 'Wallet Session is missing' };
+    if (entry.expiresAtMs <= nowMs) {
       this.map.delete(key);
-      return { ok: false, code: 'unauthorized', message: 'threshold session expired' };
+      return { ok: false, code: 'wallet_session_expired', message: 'Wallet Session expired' };
     }
     const parsed = parseBudgetCommitInput(input);
     if (!parsed.ok) return parsed;
@@ -510,10 +526,10 @@ class InMemoryWalletSessionStore<
     const entry = this.map.get(key);
     const nowMs = Date.now();
     if (!entry)
-      return { ok: false, code: 'unauthorized', message: 'threshold session expired or invalid' };
-    if (nowMs > entry.expiresAtMs) {
+      return { ok: false, code: 'wallet_session_missing', message: 'Wallet Session is missing' };
+    if (entry.expiresAtMs <= nowMs) {
       this.map.delete(key);
-      return { ok: false, code: 'unauthorized', message: 'threshold session expired' };
+      return { ok: false, code: 'wallet_session_expired', message: 'Wallet Session expired' };
     }
     const parsed = parseBudgetCommitInput(input);
     if (!parsed.ok) return parsed;
@@ -555,10 +571,10 @@ class InMemoryWalletSessionStore<
     const entry = this.map.get(key);
     const nowMs = Date.now();
     if (!entry)
-      return { ok: false, code: 'unauthorized', message: 'threshold session expired or invalid' };
-    if (nowMs > entry.expiresAtMs) {
+      return { ok: false, code: 'wallet_session_missing', message: 'Wallet Session is missing' };
+    if (entry.expiresAtMs <= nowMs) {
       this.map.delete(key);
-      return { ok: false, code: 'unauthorized', message: 'threshold session expired' };
+      return { ok: false, code: 'wallet_session_expired', message: 'Wallet Session expired' };
     }
     const reservationId = normalizeBudgetField(input.reservationId);
     if (!reservationId) {
@@ -593,10 +609,10 @@ class InMemoryWalletSessionStore<
     const entry = this.map.get(key);
     const nowMs = Date.now();
     if (!entry)
-      return { ok: false, code: 'unauthorized', message: 'threshold session expired or invalid' };
-    if (nowMs > entry.expiresAtMs) {
+      return { ok: false, code: 'wallet_session_missing', message: 'Wallet Session is missing' };
+    if (entry.expiresAtMs <= nowMs) {
       this.map.delete(key);
-      return { ok: false, code: 'unauthorized', message: 'threshold session expired' };
+      return { ok: false, code: 'wallet_session_expired', message: 'Wallet Session expired' };
     }
     const existing = entry.budgetReservations.get(parsed.value.reservationId);
     const released =
@@ -625,11 +641,11 @@ class InMemoryWalletSessionStore<
     const key = this.key(id);
     const entry = this.map.get(key);
     if (!entry) {
-      return { ok: false, code: 'unauthorized', message: 'threshold session expired or invalid' };
+      return { ok: false, code: 'wallet_session_missing', message: 'Wallet Session is missing' };
     }
-    if (Date.now() > entry.expiresAtMs) {
+    if (entry.expiresAtMs <= Date.now()) {
       this.map.delete(key);
-      return { ok: false, code: 'unauthorized', message: 'threshold session expired' };
+      return { ok: false, code: 'wallet_session_expired', message: 'Wallet Session expired' };
     }
     const consumeKey = String(idempotencyKey || '').trim();
     return { ok: true, consumed: !!consumeKey && entry.consumedIdempotencyKeys.has(consumeKey) };
@@ -940,9 +956,15 @@ function parseRedisConsumeOnceResult(raw: unknown): WalletSessionConsumeUsesResu
     }
     return { ok: true, remainingUses };
   }
-  if (text.startsWith('err:')) {
-    const message = text.slice(4) || 'threshold session authorization failed';
-    return { ok: false, code: 'unauthorized', message };
+  if (text === 'wallet_session_missing') {
+    return { ok: false, code: 'wallet_session_missing', message: 'Wallet Session is missing' };
+  }
+  if (text === 'wallet_budget_exhausted') {
+    return {
+      ok: false,
+      code: 'wallet_budget_exhausted',
+      message: 'Wallet Session signing budget is exhausted',
+    };
   }
   return { ok: false, code: 'internal', message: 'Redis consume-once returned invalid response' };
 }
@@ -1140,22 +1162,34 @@ local marker_key = KEYS[1]
 return redis.call('EXISTS', marker_key)
 `;
 
+const CONSUME_USE_COUNT_LUA = `
+local uses_key = KEYS[1]
+local current = tonumber(redis.call('GET', uses_key) or '')
+if current == nil then
+  return 'wallet_session_missing'
+end
+if current <= 0 then
+  return 'wallet_budget_exhausted'
+end
+return 'ok:' .. tostring(redis.call('INCRBY', uses_key, -1))
+`;
+
 const CONSUME_ONCE_LUA = `
 local uses_key = KEYS[1]
 local marker_key = KEYS[2]
 if redis.call('EXISTS', marker_key) == 1 then
   local current = redis.call('GET', uses_key)
   if not current then
-    return 'err:threshold session expired or invalid'
+    return 'wallet_session_missing'
   end
   return 'ok:' .. tostring(current)
 end
 local current = tonumber(redis.call('GET', uses_key) or '')
 if current == nil then
-  return 'err:threshold session expired or invalid'
+  return 'wallet_session_missing'
 end
 if current <= 0 then
-  return 'err:threshold session exhausted'
+  return 'wallet_budget_exhausted'
 end
 local remaining = redis.call('INCRBY', uses_key, -1)
 local ttl = redis.call('TTL', uses_key)
@@ -1186,7 +1220,7 @@ local index_key = KEYS[2]
 local now_ms = tonumber(ARGV[1] or '')
 local current = tonumber(redis.call('GET', uses_key) or '')
 if current == nil or now_ms == nil then
-  return cjson.encode({ ok = false, code = 'unauthorized', message = 'threshold session expired or invalid' })
+  return cjson.encode({ ok = false, code = 'wallet_session_missing', message = 'Wallet Session is missing' })
 end
 local reserved = 0
 local keys = redis.call('SMEMBERS', index_key)
@@ -1218,7 +1252,7 @@ local reservation_key = KEYS[4]
 local current = tonumber(redis.call('GET', uses_key) or '')
 	local now_ms = tonumber(ARGV[10] or '')
 if current == nil then
-  return cjson.encode({ ok = false, code = 'unauthorized', message = 'threshold session expired or invalid' })
+  return cjson.encode({ ok = false, code = 'wallet_session_missing', message = 'Wallet Session is missing' })
 end
 if now_ms == nil then
   return cjson.encode({ ok = false, code = 'invalid_budget_request', message = 'invalid budget clock' })
@@ -1339,7 +1373,7 @@ if now_ms == nil or tonumber(reservation.expiresAtMs or 0) <= now_ms then
 end
 local current = tonumber(redis.call('GET', uses_key) or '')
 if current == nil then
-  return cjson.encode({ ok = false, code = 'unauthorized', message = 'threshold session expired or invalid' })
+  return cjson.encode({ ok = false, code = 'wallet_session_missing', message = 'Wallet Session is missing' })
 end
 local signature_uses = tonumber(reservation.signatureUses or 0)
 if current < signature_uses then
@@ -1390,7 +1424,7 @@ if now_ms == nil or tonumber(reservation.expiresAtMs or 0) <= now_ms then
 end
 local current = tonumber(redis.call('GET', uses_key) or '')
 if current == nil then
-  return cjson.encode({ ok = false, code = 'unauthorized', message = 'threshold session expired or invalid' })
+  return cjson.encode({ ok = false, code = 'wallet_session_missing', message = 'Wallet Session is missing' })
 end
 local signature_uses = tonumber(reservation.signatureUses or 0)
 if current < signature_uses then
@@ -1415,7 +1449,7 @@ if reservation_raw then
 end
 local current = tonumber(redis.call('GET', uses_key) or '')
 if current == nil or now_ms == nil then
-  return cjson.encode({ ok = false, code = 'unauthorized', message = 'threshold session expired or invalid' })
+  return cjson.encode({ ok = false, code = 'wallet_session_missing', message = 'Wallet Session is missing' })
 end
 local reserved = 0
 local keys = redis.call('SMEMBERS', index_key)
@@ -1460,7 +1494,7 @@ if reservation_raw then
 end
 local current = tonumber(redis.call('GET', uses_key) or '')
 if current == nil or now_ms == nil then
-  return cjson.encode({ ok = false, code = 'unauthorized', message = 'threshold session expired or invalid' })
+  return cjson.encode({ ok = false, code = 'wallet_session_missing', message = 'Wallet Session is missing' })
 end
 local reserved = 0
 local keys = redis.call('SMEMBERS', index_key)
@@ -1567,34 +1601,38 @@ class UpstashRedisRestWalletSessionStore<
     return this.parseRecord(raw);
   }
 
-  async getSessionStatus(id: string): Promise<WalletSessionStatus<TRecord> | null> {
-    const record = this.parseRecord(await this.client.getJson(this.metaKey(id)));
-    if (!record) return null;
-    const budget = parseRedisBudgetProjection(
-      await this.client.eval(
-        BUDGET_STATUS_LUA,
-        [this.usesKey(id), this.budgetReservationIndexKey(id)],
-        [String(Date.now())],
-      ),
-    );
-    if (!budget) return null;
-    return {
-      record,
-      expiresAtMs: record.expiresAtMs,
-      committedRemainingUses: budget.committedRemainingUses,
-      reservedUses: budget.reservedUses,
-      availableUses: budget.availableUses,
-      remainingUses: budget.availableUses,
-    };
+  async getSessionStatus(id: string): Promise<WalletSessionStatusLookupResult<TRecord>> {
+    try {
+      const record = this.parseRecord(await this.client.getJson(this.metaKey(id)));
+      if (!record) return { ok: false, code: 'wallet_session_missing' };
+      if (record.expiresAtMs <= Date.now()) {
+        return { ok: false, code: 'wallet_session_expired' };
+      }
+      const budget = parseRedisBudgetProjection(
+        await this.client.eval(
+          BUDGET_STATUS_LUA,
+          [this.usesKey(id), this.budgetReservationIndexKey(id)],
+          [String(Date.now())],
+        ),
+      );
+      if (!budget) return { ok: false, code: 'wallet_session_unavailable' };
+      return { ok: true, status: {
+        record,
+        expiresAtMs: record.expiresAtMs,
+        committedRemainingUses: budget.committedRemainingUses,
+        reservedUses: budget.reservedUses,
+        availableUses: budget.availableUses,
+        remainingUses: budget.availableUses,
+      } };
+    } catch {
+      return { ok: false, code: 'wallet_session_unavailable' };
+    }
   }
 
   async consumeUseCount(id: string): Promise<WalletSessionConsumeUsesResult> {
     try {
-      const remainingUses = await this.client.incrby(this.usesKey(id), -1);
-      if (remainingUses < 0) {
-        return { ok: false, code: 'unauthorized', message: 'threshold session exhausted' };
-      }
-      return { ok: true, remainingUses };
+      const raw = await this.client.eval(CONSUME_USE_COUNT_LUA, [this.usesKey(id)], []);
+      return parseRedisConsumeOnceResult(raw);
     } catch (e: unknown) {
       const msg = String(
         e && typeof e === 'object' && 'message' in e
@@ -1906,46 +1944,48 @@ class RedisTcpWalletSessionStore<
     return this.parseRecord(raw);
   }
 
-  async getSessionStatus(id: string): Promise<WalletSessionStatus<TRecord> | null> {
-    const record = this.parseRecord(await redisGetJson(this.client, this.metaKey(id)));
-    if (!record) return null;
-    const resp = await this.client.send(['GET', this.usesKey(id)]);
-    if (resp.type === 'error') throw new Error(`Redis GET error: ${resp.value}`);
-    if (resp.type !== 'bulk' || resp.value == null) return null;
-    const budgetResp = await this.client.send([
-      'EVAL',
-      BUDGET_STATUS_LUA,
-      '2',
-      this.usesKey(id),
-      this.budgetReservationIndexKey(id),
-      String(Date.now()),
-    ]);
-    if (budgetResp.type === 'error') throw new Error(`Redis EVAL error: ${budgetResp.value}`);
-    const budget = parseRedisBudgetProjection(redisRawValue(budgetResp));
-    if (!budget) return null;
-    return {
-      record,
-      expiresAtMs: record.expiresAtMs,
-      committedRemainingUses: budget.committedRemainingUses,
-      reservedUses: budget.reservedUses,
-      availableUses: budget.availableUses,
-      remainingUses: budget.availableUses,
-    };
+  async getSessionStatus(id: string): Promise<WalletSessionStatusLookupResult<TRecord>> {
+    try {
+      const record = this.parseRecord(await redisGetJson(this.client, this.metaKey(id)));
+      if (!record) return { ok: false, code: 'wallet_session_missing' };
+      if (record.expiresAtMs <= Date.now()) {
+        return { ok: false, code: 'wallet_session_expired' };
+      }
+      const budgetResp = await this.client.send([
+        'EVAL',
+        BUDGET_STATUS_LUA,
+        '2',
+        this.usesKey(id),
+        this.budgetReservationIndexKey(id),
+        String(Date.now()),
+      ]);
+      if (budgetResp.type === 'error') return { ok: false, code: 'wallet_session_unavailable' };
+      const budget = parseRedisBudgetProjection(redisRawValue(budgetResp));
+      if (!budget) return { ok: false, code: 'wallet_session_unavailable' };
+      return { ok: true, status: {
+        record,
+        expiresAtMs: record.expiresAtMs,
+        committedRemainingUses: budget.committedRemainingUses,
+        reservedUses: budget.reservedUses,
+        availableUses: budget.availableUses,
+        remainingUses: budget.availableUses,
+      } };
+    } catch {
+      return { ok: false, code: 'wallet_session_unavailable' };
+    }
   }
 
   async consumeUseCount(id: string): Promise<WalletSessionConsumeUsesResult> {
     try {
-      const resp = await this.client.send(['INCRBY', this.usesKey(id), '-1']);
+      const resp = await this.client.send([
+        'EVAL',
+        CONSUME_USE_COUNT_LUA,
+        '1',
+        this.usesKey(id),
+      ]);
       if (resp.type === 'error')
-        return { ok: false, code: 'internal', message: `Redis INCRBY error: ${resp.value}` };
-      const remainingUses = resp.type === 'integer' ? resp.value : Number(resp.value ?? 0);
-      if (!Number.isFinite(remainingUses)) {
-        return { ok: false, code: 'internal', message: 'Redis INCRBY returned non-integer value' };
-      }
-      if (remainingUses < 0) {
-        return { ok: false, code: 'unauthorized', message: 'threshold session exhausted' };
-      }
-      return { ok: true, remainingUses };
+        return { ok: false, code: 'internal', message: `Redis EVAL error: ${resp.value}` };
+      return parseRedisConsumeOnceResult(redisRawValue(resp));
     } catch (e: unknown) {
       const msg = String(
         e && typeof e === 'object' && 'message' in e

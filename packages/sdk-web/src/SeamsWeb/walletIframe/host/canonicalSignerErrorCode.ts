@@ -149,15 +149,6 @@ export function resolveWalletBoundarySignerKind(requestType: unknown): WalletSig
   return null;
 }
 
-function defaultSessionNotReadyCanonicalCodeForRequestType(
-  requestType: unknown,
-): CanonicalWalletSignerErrorCode {
-  const signerKind = resolveWalletBoundarySignerKind(requestType);
-  if (signerKind === 'threshold-ecdsa') return 'threshold_ecdsa_session_not_ready';
-  if (signerKind === 'threshold-ed25519') return 'threshold_ed25519_session_not_ready';
-  return 'session_not_ready';
-}
-
 export function isCanonicalSignerSessionBoundaryCode(code: unknown): boolean {
   const normalized = normalizeCodeToken(code);
   return (
@@ -228,22 +219,6 @@ function inferCanonicalCodeFromRawCode(args: {
       (rawCode.includes('identity') || rawCode.includes('key')))
   ) {
     return 'stale_ecdsa_key_identity';
-  }
-
-  if (
-    rawCode === 'threshold_session_kind_mismatch' ||
-    (rawCode.includes('session') && rawCode.includes('kind') && rawCode.includes('mismatch'))
-  ) {
-    return 'threshold_session_kind_mismatch';
-  }
-
-  if (
-    rawCode === 'session_not_ready' ||
-    (rawCode.includes('session') && rawCode.includes('not_ready')) ||
-    (rawCode.includes('session') && rawCode.includes('expired')) ||
-    (rawCode.includes('session') && rawCode.includes('invalid'))
-  ) {
-    return defaultSessionNotReadyCanonicalCodeForRequestType(requestType);
   }
 
   if (
@@ -370,43 +345,6 @@ function inferCanonicalCodeFromMessage(args: {
       (message.includes('identity') || message.includes('key')))
   ) {
     return 'stale_ecdsa_key_identity';
-  }
-
-  if (
-    message.includes('session kind mismatch') ||
-    (message.includes('session') && message.includes('kind') && message.includes('mismatch'))
-  ) {
-    return 'threshold_session_kind_mismatch';
-  }
-
-  if (
-    message.includes('signing session is not ready') ||
-    message.includes('missing threshold wrapkeysalt') ||
-    message.includes('missing threshold wrap key salt') ||
-    message.includes('threshold-ecdsa session record not available') ||
-    message.includes('missing canonical threshold ecdsa session') ||
-    message.includes('relayer threshold session expired') ||
-    message.includes('signingsession auth is unavailable') ||
-    message.includes('wallet session auth is unavailable') ||
-    message.includes('threshold session exhausted') ||
-    message.includes('threshold session expired') ||
-    message.includes('invalid session token kind') ||
-    message.includes('/authorize http 401') ||
-    message.includes('/authorize http 403')
-  ) {
-    return defaultSessionNotReadyCanonicalCodeForRequestType(requestType);
-  }
-
-  if (
-    (message.includes('threshold session') || message.includes('threshold signingsession')) &&
-    (message.includes('not ready') ||
-      message.includes('not_found') ||
-      message.includes('expired') ||
-      message.includes('missing') ||
-      message.includes('invalid') ||
-      message.includes('exhausted'))
-  ) {
-    return defaultSessionNotReadyCanonicalCodeForRequestType(requestType);
   }
 
   return null;

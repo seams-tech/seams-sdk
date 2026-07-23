@@ -71,12 +71,11 @@ function mapConsumeFailure(input: SigningSessionSealConsumeUseResult & { ok: fal
 } {
   const code = toCode(input.code, 'unauthorized');
   const message = toMessage(input.message, 'Threshold session rejected');
-  const lowered = message.toLowerCase();
 
-  if (code === 'expired' || lowered.includes('expired')) {
+  if (code === 'expired') {
     return { code: 'expired', message };
   }
-  if (code === 'exhausted' || lowered.includes('exhaust')) {
+  if (code === 'exhausted') {
     return { code: 'exhausted', message };
   }
   return { code, message };

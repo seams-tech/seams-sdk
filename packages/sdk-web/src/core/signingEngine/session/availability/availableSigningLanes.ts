@@ -344,15 +344,6 @@ export function durableRecordPolicyAdvisory(args: {
   if (!Number.isFinite(remainingUses) || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0) {
     return null;
   }
-  if (remainingUses <= 0) {
-    return {
-      kind: 'durable_policy',
-      thresholdSessionId: args.thresholdSessionId,
-      remainingUses: 0,
-      expiresAtMs,
-      state: 'exhausted',
-    };
-  }
   if (expiresAtMs <= Date.now()) {
     return {
       kind: 'durable_policy',
@@ -360,6 +351,15 @@ export function durableRecordPolicyAdvisory(args: {
       remainingUses,
       expiresAtMs,
       state: 'expired',
+    };
+  }
+  if (remainingUses <= 0) {
+    return {
+      kind: 'durable_policy',
+      thresholdSessionId: args.thresholdSessionId,
+      remainingUses: 0,
+      expiresAtMs,
+      state: 'exhausted',
     };
   }
   return {
@@ -1683,8 +1683,8 @@ function runtimeRecordPolicyState(args: {
   remainingUses: number | null;
   expiresAtMs: number | null;
 }): 'expired' | 'exhausted' | null {
-  if (args.remainingUses === 0) return 'exhausted';
   if (args.expiresAtMs !== null && args.expiresAtMs <= Date.now()) return 'expired';
+  if (args.remainingUses === 0) return 'exhausted';
   return null;
 }
 

@@ -686,6 +686,7 @@ fn normal_signing_scope_v2() -> NormalSigningScopeV1 {
         "router-ab-normal-signing/request-v2",
         "alice.testnet",
         "threshold-session-v2",
+        "threshold-session-v2",
         "signing-worker-v2",
     )
     .expect("normal-signing scope")

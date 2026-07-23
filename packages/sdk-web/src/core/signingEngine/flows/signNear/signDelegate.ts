@@ -17,7 +17,6 @@ import {
   WasmSignedDelegate,
 } from '@/core/types/signer-worker';
 import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/nearAccountData.types';
-import { isSigningSessionAuthUnavailableError } from '@/core/signingEngine/threshold/sessionPolicy';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import type { NearSigningRuntimeDeps } from '../../interfaces/runtime';
 import {
@@ -27,7 +26,6 @@ import {
 import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
 import { computeThresholdEd25519DelegateSigningDigestWasm } from '../../chains/near/nearSignerWasm';
 import { resolveNearSigningMaterials } from './shared/signingMaterials';
-import type { ResolvedRouterAbEd25519WalletSessionState } from '../../session/warmCapabilities/routerAbEd25519WalletSessionState';
 import { buildNearDelegateSigningPayloads } from '../../chains/near/payloads';
 import {
   buildNearSigningSessionAuthPlan,
@@ -63,12 +61,9 @@ import {
   finalizeThresholdEd25519DelegateSignatureResult,
   tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning,
 } from './shared/ed25519YaoNormalSigning';
-import type { RouterAbEd25519YaoActiveClientV1 } from '../../threshold/ed25519/yaoClient';
-
-type NearDelegateActionYaoPayload = NearDelegateActionPayload & {
-  activeClient: RouterAbEd25519YaoActiveClientV1;
-  walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
-};
+import { buildNearEd25519StepUpAuthorization } from './stepUpAuthorization';
+import { resolveConfirmedNearEd25519YaoCapability } from './shared/ed25519YaoCapabilityResolution';
+import type { NearPreparedStepUpAuth } from './requireNearStepUpAuth';
 
 function emitNearSigningEvent(
   onEvent: ((event: SigningFlowEvent) => void) | undefined,
@@ -86,6 +81,25 @@ function emitNearSigningEvent(
   } catch {}
 }
 
+function nearPreparedStepUpEventAuthMethod(
+  preparedStepUp: NearPreparedStepUpAuth,
+): 'warm_session' | 'passkey' | 'email_otp' {
+  switch (preparedStepUp.kind) {
+    case 'warm_session':
+      return 'warm_session';
+    case 'passkey':
+      return 'passkey';
+    case 'email_otp':
+      return 'email_otp';
+    default:
+      return assertNeverNearPreparedStepUp(preparedStepUp);
+  }
+}
+
+function assertNeverNearPreparedStepUp(value: never): never {
+  throw new Error(`[SigningEngine][near] unsupported prepared step-up: ${String(value)}`);
+}
+
 export async function runNearDelegateActionSigning({
   ctx,
   commandSubject,
@@ -99,9 +113,11 @@ export async function runNearDelegateActionSigning({
   operationId,
   signerSlot,
   signingSessionCoordinator,
-  activeClient,
-  walletSessionState,
-}: NearDelegateActionYaoPayload): Promise<{
+  forceFreshAuth,
+  passkeyEd25519Reconnect,
+  emailOtpEd25519Reconnect,
+  yaoCapabilitySource,
+}: NearDelegateActionPayload): Promise<{
   signedDelegate: WasmSignedDelegate;
   hash: string;
   nearAccountId: AccountId;
@@ -130,6 +146,7 @@ export async function runNearDelegateActionSigning({
     requiredSignatureUses,
     commandSubject,
     operationLabel: 'delegate signing',
+    forceFreshAuth,
   });
   const resolvedSigningSession = {
     signingSessionPlan: planSigningSession({
@@ -207,6 +224,8 @@ export async function runNearDelegateActionSigning({
     signingAuthPlan: signingSessionAuthPlan.signingAuthPlan,
     signingLane: signingSessionAuthPlan.lane,
     requiredSignatureUses,
+    passkeyEd25519Reconnect,
+    emailOtpEd25519Reconnect,
   });
   const confirmationAuthPayload = preparedStepUp.confirmationAuthPayload;
   if (isWarmSessionSigningAuthPlan(confirmationAuthPayload.signingAuthPlan)) {
@@ -227,7 +246,7 @@ export async function runNearDelegateActionSigning({
     message: 'Opening confirmation prompt',
     interaction: { kind: 'transaction_confirmation', overlay: 'show' },
   });
-  await runSigningConfirmationCommand({
+  const confirmation = await runSigningConfirmationCommand({
     signingSessionPlan: resolvedSigningSession.signingSessionPlan,
     signingOperation,
     runtime: touchConfirm,
@@ -265,6 +284,10 @@ export async function runNearDelegateActionSigning({
     status: 'succeeded',
     interaction: { kind: 'transaction_confirmation', overlay: 'hide' },
   });
+  const stepUpAuthorization = buildNearEd25519StepUpAuthorization({
+    prepared: preparedStepUp,
+    confirmation,
+  });
   const preparedPayload = await runSharedNearDelegateCommand({
     commandKind: SigningOperationCommandKind.PreparePayload,
     execute: async () => {
@@ -275,19 +298,23 @@ export async function runNearDelegateActionSigning({
         interaction: { kind: 'none', overlay: 'none' },
       });
 
+      const resolvedCapability = await resolveConfirmedNearEd25519YaoCapability({
+        authorization: stepUpAuthorization,
+        source: yaoCapabilitySource,
+        passkeyReconnect: passkeyEd25519Reconnect,
+        emailOtpReconnect: emailOtpEd25519Reconnect,
+        requiredSignatureUses,
+      });
       emitNearSigningEvent(onEvent, nearAccountId, {
         phase: SigningEventPhase.STEP_07_AUTHENTICATION_COMPLETE,
         status: 'succeeded',
         interaction: { kind: 'none', overlay: 'none' },
-        authMethod: preparedStepUp.kind === 'warm_session' ? 'warm_session' : 'passkey',
+        authMethod: nearPreparedStepUpEventAuthMethod(preparedStepUp),
       });
 
       const delegatePayload = delegateSigningPayloads.workerDelegate;
 
-      const canonicalThresholdSessionId = signingSessionAuthPlan.sessionId;
-      if (walletSessionState.thresholdSessionId !== canonicalThresholdSessionId) {
-        throw new Error('[SigningEngine][near] delegate Yao session state mismatch');
-      }
+      const canonicalThresholdSessionId = resolvedCapability.sessionId;
       emitNearSigningEvent(onEvent, nearAccountId, {
         phase: SigningEventPhase.STEP_08_SIGNER_PREPARE_SUCCEEDED,
         status: 'succeeded',
@@ -302,10 +329,11 @@ export async function runNearDelegateActionSigning({
       return {
         canonicalThresholdSessionId,
         delegatePayload,
+        capability: resolvedCapability.capability,
       };
     },
   });
-  const { canonicalThresholdSessionId, delegatePayload } = preparedPayload;
+  const { canonicalThresholdSessionId, delegatePayload, capability } = preparedPayload;
 
   const executeDelegateRequest = async () => {
     emitNearSigningEvent(onEvent, nearAccountId, {
@@ -326,8 +354,8 @@ export async function runNearDelegateActionSigning({
       ctx,
       thresholdSessionId: canonicalThresholdSessionId,
       signingSessionCoordinator,
-      activeClient,
-      walletSessionState,
+      activeClient: capability.activeClient,
+      walletSessionState: capability.walletSessionState,
       walletId: commandSubject.walletSession.walletId,
       thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
       nearAccountId,
@@ -365,10 +393,6 @@ export async function runNearDelegateActionSigning({
         return await executeDelegateRequest();
       } catch (e: unknown) {
         const err = e instanceof Error ? e : new Error(String(e));
-
-        if (isSigningSessionAuthUnavailableError(err)) {
-          throw new Error(SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR);
-        }
 
         throw err;
       }

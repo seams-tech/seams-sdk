@@ -4,7 +4,12 @@ import {
   type RouterAbEd25519WalletSessionClaims,
 } from '../core/ThresholdService/validation';
 import { headersToRecord } from './cloudflare/http';
-import { deriveJwtExpiresAtIso, type SessionAdapter } from './routerApi';
+import type { SessionAdapter } from './routerApi';
+import {
+  walletSessionFailureCodeFromParseReason,
+  walletSessionFailureMessage,
+  walletSessionFailureStatus,
+} from './walletSessionFailure';
 import type {
   RouterAbEd25519YaoRecoveryAuthorizationAdapter,
   RouterAbEd25519YaoRecoveryAuthorizationInput,
@@ -12,7 +17,7 @@ import type {
 } from './routerAbEd25519YaoRecovery';
 
 function authorizationFailure(input: {
-  status: 401 | 403;
+  status: 401 | 403 | 409 | 429 | 503;
   code: string;
   message: string;
 }): RouterAbEd25519YaoRecoveryAuthorizationResult {
@@ -82,17 +87,6 @@ function claimsMatchBootstrap(
   );
 }
 
-function requestAdvertisesExpiredBearer(request: Request): boolean {
-  const authorization = String(request.headers.get('authorization') || '').trim();
-  const match = /^Bearer\s+(.+)$/i.exec(authorization);
-  const token = match?.[1]?.trim();
-  if (!token) return false;
-  const expiresAtIso = deriveJwtExpiresAtIso(token);
-  if (!expiresAtIso) return false;
-  const expiresAtMs = Date.parse(expiresAtIso);
-  return Number.isFinite(expiresAtMs) && expiresAtMs <= Date.now();
-}
-
 function claimsAuthorizeRecovery(
   claims: RouterAbEd25519WalletSessionClaims,
   input: RouterAbEd25519YaoRecoveryAuthorizationInput,
@@ -116,41 +110,44 @@ export class RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter
   async authorize(
     input: RouterAbEd25519YaoRecoveryAuthorizationInput,
   ): Promise<RouterAbEd25519YaoRecoveryAuthorizationResult> {
-    const parsed = await this.session.parse(headersToRecord(input.request.headers));
-    if (!parsed.ok) {
-      if (requestAdvertisesExpiredBearer(input.request)) {
-        return authorizationFailure({
-          status: 401,
-          code: 'wallet_session_expired',
-          message: 'Ed25519 Yao recovery Wallet Session expired',
-        });
-      }
+    let parsed: Awaited<ReturnType<SessionAdapter['parse']>>;
+    try {
+      parsed = await this.session.parse(headersToRecord(input.request.headers));
+    } catch {
       return authorizationFailure({
-        status: 401,
-        code: 'recovery_wallet_session_missing',
-        message: 'Ed25519 Yao recovery requires a valid Wallet Session JWT',
+        status: 503,
+        code: 'wallet_session_unavailable',
+        message: walletSessionFailureMessage('wallet_session_unavailable'),
+      });
+    }
+    if (!parsed.ok) {
+      const code = walletSessionFailureCodeFromParseReason(parsed.reason);
+      return authorizationFailure({
+        status: walletSessionFailureStatus(code),
+        code,
+        message: walletSessionFailureMessage(code),
       });
     }
     const claims = parseRouterAbEd25519WalletSessionClaims(parsed.claims);
     if (!claims) {
       return authorizationFailure({
         status: 401,
-        code: 'recovery_wallet_session_invalid',
-        message: 'Ed25519 Yao recovery requires Router A/B Ed25519 Wallet Session claims',
+        code: 'wallet_session_claims_invalid',
+        message: walletSessionFailureMessage('wallet_session_claims_invalid'),
       });
     }
     if (claims.thresholdExpiresAtMs <= Date.now()) {
       return authorizationFailure({
         status: 401,
         code: 'wallet_session_expired',
-        message: 'Ed25519 Yao recovery Wallet Session expired',
+        message: walletSessionFailureMessage('wallet_session_expired'),
       });
     }
     if (!claimsAuthorizeRecovery(claims, input)) {
       return authorizationFailure({
         status: 403,
-        code: 'recovery_wallet_session_scope_mismatch',
-        message: 'Wallet Session claims do not match the Ed25519 Yao recovery lifecycle',
+        code: 'wallet_session_scope_mismatch',
+        message: walletSessionFailureMessage('wallet_session_scope_mismatch'),
       });
     }
     return { ok: true, claims };

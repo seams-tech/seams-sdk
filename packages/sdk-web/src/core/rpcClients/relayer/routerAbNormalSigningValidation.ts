@@ -14,6 +14,7 @@ function sameRouterAbScope(
     left.request_id === right.request_id &&
     left.account_id === right.account_id &&
     left.session_id === right.session_id &&
+    left.active_state_session_id === right.active_state_session_id &&
     left.signing_worker_id === right.signing_worker_id
   );
 }

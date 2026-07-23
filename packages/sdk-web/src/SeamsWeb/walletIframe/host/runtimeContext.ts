@@ -12,9 +12,12 @@ import {
   applyWalletConfig,
   createHostContext,
   ensureSeamsWeb,
+  ensureWalletHostLifecycleSubscription,
+  setWalletHostLifecycleListener,
   type HostContext,
 } from './context';
 import type { HandlerDeps, HandlerMap } from './handlers/walletIframeHandler.types';
+import type { SdkLifecycleEvent } from '@/core/types/sdkSentEvents';
 
 export type WalletHostRuntimeState = {
   parentOrigin: string | null;
@@ -43,6 +46,7 @@ function syncRuntimeContext(state: WalletHostRuntimeState): HostContext {
   }
   runtimeContext.parentOrigin = state.parentOrigin;
   runtimeContext.port = state.port;
+  setWalletHostLifecycleListener(runtimeContext, postLifecycleEvent.bind(null, runtimeContext));
   if (state.walletConfigs) {
     applyWalletConfig(runtimeContext, state.walletConfigs);
     state.walletConfigs = runtimeContext.walletConfigs;
@@ -57,6 +61,7 @@ function installLitMounterOnce(ctx: HostContext, input: WalletHostRuntimeRequest
   const ensureHostSeamsWeb = (): SeamsWeb => {
     const prev = ctx.seamsWeb;
     const pm = ensureSeamsWeb(ctx) as SeamsWeb;
+    ensureWalletHostLifecycleSubscription(ctx, pm);
     if (prev !== pm) {
       const up = pm.preferences;
       ctx.prefsUnsubscribe?.();
@@ -108,7 +113,11 @@ function buildHandlerDeps(ctx: HostContext, input: WalletHostRuntimeRequest): Ha
     input.post({ type: 'PROGRESS', requestId, payload });
   };
 
-  const ensureHostSeamsWeb = (): SeamsWeb => ensureSeamsWeb(ctx) as SeamsWeb;
+  const ensureHostSeamsWeb = (): SeamsWeb => {
+    const pm = ensureSeamsWeb(ctx) as SeamsWeb;
+    ensureWalletHostLifecycleSubscription(ctx, pm);
+    return pm;
+  };
 
   return {
     getSeamsWeb: ensureHostSeamsWeb,
@@ -118,6 +127,10 @@ function buildHandlerDeps(ctx: HostContext, input: WalletHostRuntimeRequest): Ha
     isCancelled: input.isCancelled,
     respondIfCancelled: input.respondIfCancelled,
   };
+}
+
+function postLifecycleEvent(ctx: HostContext, event: SdkLifecycleEvent): void {
+  ctx.port?.postMessage({ type: 'SDK_LIFECYCLE_EVENT', payload: event });
 }
 
 export async function handleWalletHostRuntimeRequestWithHandlers(

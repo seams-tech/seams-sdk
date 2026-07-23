@@ -186,8 +186,10 @@ export type NearDelegateActionPayload = {
   body?: string;
   operationId: SigningOperationId;
   signerSlot?: number;
-  activeClient: RouterAbEd25519YaoActiveClientV1;
-  walletSessionState: NearResolvedEd25519SigningSessionState;
+  forceFreshAuth: boolean;
+  passkeyEd25519Reconnect: NearPasskeyEd25519ReconnectHook | null;
+  emailOtpEd25519Reconnect: NearEmailOtpEd25519ReconnectHook | null;
+  yaoCapabilitySource: NearEd25519YaoCapabilitySource;
 };
 
 export type NearNep413Payload = {
@@ -195,8 +197,10 @@ export type NearNep413Payload = {
   commandSubject: NearCommandSubject;
   nearAccount: NearAccountRef;
   signingSessionCoordinator: SigningSessionCoordinator;
-  activeClient: RouterAbEd25519YaoActiveClientV1;
-  walletSessionState: NearResolvedEd25519SigningSessionState;
+  forceFreshAuth: boolean;
+  passkeyEd25519Reconnect: NearPasskeyEd25519ReconnectHook | null;
+  emailOtpEd25519Reconnect: NearEmailOtpEd25519ReconnectHook | null;
+  yaoCapabilitySource: NearEd25519YaoCapabilitySource;
   payload: {
     message: string;
     recipient: string;

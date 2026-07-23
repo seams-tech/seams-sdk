@@ -8,6 +8,15 @@ import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode'
 import { createWalletIframeRouter } from '@/SeamsWeb/assembly/createWalletIframeRouter';
 import type { WalletIframeWarmupSurface } from '@/SeamsWeb/signingSurface/types';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
+import type { SdkLifecycleEventListener } from '@/core/types/sdkSentEvents';
+import type { SdkLifecycleEvent } from '@/core/types/sdkSentEvents';
+import type {
+  WalletIframeExactSessionIdentity,
+  WalletIframeExactSessionLockResult,
+  WalletIframeExactSessionState,
+  WalletIframeMissingSessionIdentity,
+  WalletIframeMissingSessionLockResult,
+} from './shared/exactSessionState';
 
 function requireRegistrationRpId(value: string, source: string): WebAuthnRpId {
   const parsed = parseWebAuthnRpId(value);
@@ -30,7 +39,6 @@ export interface WalletIframeCoordinatorDeps {
   signingEngine: WalletIframeWarmupSurface;
   userPreferences: UserPreferencesManager;
   getAppearance: () => AppearanceConfig;
-  refreshWalletSession: (walletId?: string) => Promise<void>;
 }
 
 /**
@@ -42,18 +50,20 @@ export class WalletIframeCoordinator {
   private readonly signingEngine: WalletIframeWarmupSurface;
   private readonly userPreferences: UserPreferencesManager;
   private readonly getAppearance: () => AppearanceConfig;
-  private readonly refreshWalletSession: (walletId?: string) => Promise<void>;
 
   private iframeRouter: WalletIframeRouter | null = null;
   private walletIframeInitInFlight: Promise<void> | null = null;
   private walletIframePrefsUnsubscribe: (() => void) | null = null;
+  private walletIframeLifecycleUnsubscribe: (() => void) | null = null;
+  private readonly sdkLifecycleEventListeners = new Set<SdkLifecycleEventListener>();
+  private readonly forwardSdkLifecycleEventListener: SdkLifecycleEventListener;
 
   constructor(deps: WalletIframeCoordinatorDeps) {
     this.configs = deps.configs;
     this.signingEngine = deps.signingEngine;
     this.userPreferences = deps.userPreferences;
     this.getAppearance = deps.getAppearance;
-    this.refreshWalletSession = deps.refreshWalletSession;
+    this.forwardSdkLifecycleEventListener = this.forwardSdkLifecycleEvent.bind(this);
   }
 
   /**
@@ -110,31 +120,37 @@ export class WalletIframeCoordinator {
     return router.onLoginStatusChanged(listener);
   }
 
+  onSdkLifecycleEvent(listener: SdkLifecycleEventListener): () => void {
+    this.sdkLifecycleEventListeners.add(listener);
+    if (this.iframeRouter) {
+      this.ensureWalletIframeLifecycleMirror(this.iframeRouter);
+    }
+    return this.removeSdkLifecycleEventListener.bind(this, listener);
+  }
+
   onPreferencesChanged(listener: (payload: PreferencesChangedPayload) => void): () => void {
     const router = this.iframeRouter;
     if (!router) return () => {};
     return router.onPreferencesChanged(listener);
   }
 
-  async init(walletId?: string): Promise<void> {
+  async init(_walletId?: string): Promise<WalletIframeExactSessionState> {
     if (!this.shouldUseWalletIframe()) {
       await this.signingEngine.warmCriticalResources({ kind: 'none' });
+      return { kind: 'wallet_locked' };
     }
 
     // Guardrail: when running inside the wallet service iframe host, never attempt to
     // initialize a nested wallet iframe client, even if configs accidentally set wallet.mode='iframe'.
     // The host runs the real SeamsWeb instance and must remain self-contained.
     if (__isWalletIframeHostMode()) {
-      return;
+      return { kind: 'wallet_locked' };
     }
 
     const walletIframeConfig = this.configs.wallet.iframe;
     const walletOrigin = walletIframeConfig?.origin;
     if (!walletOrigin) {
-      if (walletId) {
-        await this.refreshWalletSession(walletId);
-      }
-      return;
+      return { kind: 'wallet_locked' };
     }
 
     // Initialize iframe router once (and prevent concurrent calls from mounting multiple iframes).
@@ -148,6 +164,7 @@ export class WalletIframeCoordinator {
           });
 
           this.ensureWalletIframePreferencesMirror(this.iframeRouter);
+          this.ensureWalletIframeLifecycleMirror(this.iframeRouter);
           await this.iframeRouter.init();
           // Opportunistically warm remote nonce context.
           try {
@@ -163,6 +180,7 @@ export class WalletIframeCoordinator {
       }
     } else {
       this.ensureWalletIframePreferencesMirror(this.iframeRouter);
+      this.ensureWalletIframeLifecycleMirror(this.iframeRouter);
       await this.iframeRouter.init();
       // Opportunistically warm remote nonce context.
       try {
@@ -171,29 +189,41 @@ export class WalletIframeCoordinator {
     }
 
     if (this.iframeRouter) {
-      const loginStatus = await this.iframeRouter.checkLoginStatus().catch(() => null);
-      const loginWalletId = String(loginStatus?.result?.walletId || '').trim();
-      if (loginStatus?.result?.isLoggedIn && loginWalletId) {
-        this.userPreferences.setCurrentWallet(toWalletId(loginWalletId));
+      const exactState = this.iframeRouter.getMirroredExactSessionState();
+      if (exactState.kind !== 'wallet_locked') {
+        this.userPreferences.setCurrentWallet(exactState.walletId);
       }
       // Best-effort pull snapshot to cover missed events / older hosts.
       const cfg = await this.iframeRouter.getConfirmationConfig().catch(() => null);
       if (cfg) {
-        const confirmationWalletId = walletId
-          ? toWalletId(walletId)
-          : loginWalletId
-            ? toWalletId(loginWalletId)
-            : null;
+        const confirmationWalletId = exactState.kind === 'wallet_locked' ? null : exactState.walletId;
         this.userPreferences.applyWalletHostConfirmationConfig({
           walletId: confirmationWalletId,
           confirmationConfig: cfg,
         });
       }
+      return exactState;
     }
+    return { kind: 'wallet_locked' };
+  }
 
-    if (walletId) {
-      await this.refreshWalletSession(walletId);
-    }
+  async getExactSessionState(): Promise<WalletIframeExactSessionState> {
+    const router = await this.requireRouter();
+    return await router.getExactSessionState();
+  }
+
+  async lockExactSession(
+    identity: WalletIframeExactSessionIdentity,
+  ): Promise<WalletIframeExactSessionLockResult> {
+    const router = await this.requireRouter(String(identity.walletId));
+    return await router.lockExactSession(identity);
+  }
+
+  async lockMissingSession(
+    identity: WalletIframeMissingSessionIdentity,
+  ): Promise<WalletIframeMissingSessionLockResult> {
+    const router = await this.requireRouter(String(identity.walletId));
+    return await router.lockMissingSession(identity);
   }
 
   async requireRouter(walletId?: string): Promise<WalletIframeRouter> {
@@ -222,5 +252,22 @@ export class WalletIframeCoordinator {
       });
     });
     this.walletIframePrefsUnsubscribe = unsubscribe ?? null;
+  }
+
+  private ensureWalletIframeLifecycleMirror(router: WalletIframeRouter): void {
+    if (this.walletIframeLifecycleUnsubscribe) return;
+    this.walletIframeLifecycleUnsubscribe = router.onSdkLifecycleEvent(
+      this.forwardSdkLifecycleEventListener,
+    );
+  }
+
+  private forwardSdkLifecycleEvent(event: SdkLifecycleEvent): void {
+    for (const listener of Array.from(this.sdkLifecycleEventListeners)) {
+      listener(event);
+    }
+  }
+
+  private removeSdkLifecycleEventListener(listener: SdkLifecycleEventListener): void {
+    this.sdkLifecycleEventListeners.delete(listener);
   }
 }

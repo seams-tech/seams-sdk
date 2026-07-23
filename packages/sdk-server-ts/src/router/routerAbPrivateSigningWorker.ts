@@ -5,7 +5,6 @@ import type {
 import type { RouterAbNormalSigningRuntime } from '../core/routerAbSigning/RouterAbNormalSigningRuntime';
 import type { ThresholdEd25519AuthorityScope } from '../core/types';
 import { postRouterAbInternalServiceJson } from '../core/ThresholdService/routerAb/internalServiceHttp';
-import { thresholdEcdsaStatusCode } from '../threshold/statusCodes';
 import type {
   RouterAbEcdsaDerivationWalletSessionClaims,
   RouterAbEd25519WalletSessionClaims,
@@ -37,6 +36,11 @@ import {
 } from '@shared/utils/routerAbEcdsaDerivation';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import {
+  WALLET_SESSION_FAILURE_CODES,
+  type WalletSessionFailureCode,
+} from '@shared/utils/walletSessionFailure';
+import { walletSessionFailure, walletSessionFailureStatus } from './walletSessionFailure';
 
 const ED25519_SIGNING_INTENT_VERSION_V2 = 'router-ab-protocol/ed25519-normal-signing/intent/v2';
 const ED25519_SIGNING_PAYLOAD_VERSION_V2 = 'router-ab-protocol/ed25519-normal-signing/payload/v2';
@@ -252,6 +256,7 @@ type RouterAbEd25519NormalSigningScopeV1 = {
   readonly request_id: string;
   readonly account_id: string;
   readonly session_id: string;
+  readonly active_state_session_id: string;
   readonly signing_worker_id: string;
 };
 
@@ -660,6 +665,20 @@ function routerAbSigningError(
   return { ok: false, status, body: { ok: false, code, message } };
 }
 
+function routerAbWalletSessionError(
+  code: WalletSessionFailureCode,
+): RouterAbSigningWorkerJsonError {
+  const failure = walletSessionFailure(code);
+  return routerAbSigningError(walletSessionFailureStatus(code), failure.code, failure.message);
+}
+
+function routerAbWalletSessionValidationStatus(
+  code: 'sessions_disabled' | WalletSessionFailureCode,
+): number {
+  if (code === 'sessions_disabled') return 501;
+  return walletSessionFailureStatus(code);
+}
+
 function rejectRouterAbCookieSessionKind(
   rawBody: unknown,
   message: string,
@@ -721,6 +740,10 @@ function requirePrivateSigningScope(value: unknown): RouterAbEd25519NormalSignin
     request_id: requirePrivateSigningString(scope.request_id, 'scope.request_id'),
     account_id: requirePrivateSigningString(scope.account_id, 'scope.account_id'),
     session_id: requirePrivateSigningString(scope.session_id, 'scope.session_id'),
+    active_state_session_id: requirePrivateSigningString(
+      scope.active_state_session_id,
+      'scope.active_state_session_id',
+    ),
     signing_worker_id: requirePrivateSigningString(
       scope.signing_worker_id,
       'scope.signing_worker_id',
@@ -1164,7 +1187,7 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
   });
   if (!validated.ok) {
     return {
-      status: validated.code === 'sessions_disabled' ? 501 : 401,
+      status: routerAbWalletSessionValidationStatus(validated.code),
       body: { ok: false, code: validated.code, message: validated.message },
     };
   }
@@ -1424,21 +1447,13 @@ export function validateRouterAbEd25519NormalSigningRequestScope(input: {
   ) {
     return {
       ok: false,
-      error: routerAbSigningError(
-        403,
-        'forbidden',
-        'Router A/B Ed25519 normal-signing scope does not match Wallet Session claims',
-      ),
+      error: routerAbWalletSessionError(WALLET_SESSION_FAILURE_CODES.scopeMismatch),
     };
   }
   if (signingWorkerId !== input.claims.routerAbNormalSigning.signingWorkerId) {
     return {
       ok: false,
-      error: routerAbSigningError(
-        403,
-        'forbidden',
-        'Router A/B Ed25519 normal-signing worker does not match Wallet Session claims',
-      ),
+      error: routerAbWalletSessionError(WALLET_SESSION_FAILURE_CODES.scopeMismatch),
     };
   }
 
@@ -1466,11 +1481,7 @@ export function validateRouterAbEd25519NormalSigningRequestScope(input: {
   if (expiresAtMs > input.walletSessionAuth.expiresAtMs) {
     return {
       ok: false,
-      error: routerAbSigningError(
-        403,
-        'forbidden',
-        'Router A/B Ed25519 normal-signing expiry exceeds Wallet Session expiry',
-      ),
+      error: routerAbWalletSessionError(WALLET_SESSION_FAILURE_CODES.scopeMismatch),
     };
   }
   return {
@@ -1490,11 +1501,7 @@ export function validateRouterAbEcdsaDerivationNormalSigningPrepareRequest(input
   if (!normalSigning) {
     return {
       ok: false,
-      error: routerAbSigningError(
-        403,
-        'forbidden',
-        'Router A/B ECDSA derivation normal-signing state is required',
-      ),
+      error: routerAbWalletSessionError(WALLET_SESSION_FAILURE_CODES.claimsInvalid),
     };
   }
   let request: ReturnType<typeof parseRouterAbEcdsaDerivationEvmDigestSigningRequestV1>;
@@ -1509,11 +1516,7 @@ export function validateRouterAbEcdsaDerivationNormalSigningPrepareRequest(input
   if (!sameRouterAbEcdsaDerivationNormalSigningScopeV1(request.scope, normalSigning.scope)) {
     return {
       ok: false,
-      error: routerAbSigningError(
-        403,
-        'forbidden',
-        'Router A/B ECDSA derivation normal-signing scope does not match Wallet Session claims',
-      ),
+      error: routerAbWalletSessionError(WALLET_SESSION_FAILURE_CODES.scopeMismatch),
     };
   }
   if (request.expires_at_ms <= Date.now()) {
@@ -1529,11 +1532,7 @@ export function validateRouterAbEcdsaDerivationNormalSigningPrepareRequest(input
   if (request.expires_at_ms > input.walletSessionAuth.expiresAtMs) {
     return {
       ok: false,
-      error: routerAbSigningError(
-        403,
-        'forbidden',
-        'Router A/B ECDSA derivation normal-signing expiry exceeds Wallet Session expiry',
-      ),
+      error: routerAbWalletSessionError(WALLET_SESSION_FAILURE_CODES.scopeMismatch),
     };
   }
   return {
@@ -1553,11 +1552,7 @@ export function validateRouterAbEcdsaDerivationNormalSigningFinalizeRequest(inpu
   if (!normalSigning) {
     return {
       ok: false,
-      error: routerAbSigningError(
-        403,
-        'forbidden',
-        'Router A/B ECDSA derivation normal-signing state is required',
-      ),
+      error: routerAbWalletSessionError(WALLET_SESSION_FAILURE_CODES.claimsInvalid),
     };
   }
   let request: ReturnType<
@@ -1574,11 +1569,7 @@ export function validateRouterAbEcdsaDerivationNormalSigningFinalizeRequest(inpu
   if (!sameRouterAbEcdsaDerivationNormalSigningScopeV1(request.scope, normalSigning.scope)) {
     return {
       ok: false,
-      error: routerAbSigningError(
-        403,
-        'forbidden',
-        'Router A/B ECDSA derivation normal-signing scope does not match Wallet Session claims',
-      ),
+      error: routerAbWalletSessionError(WALLET_SESSION_FAILURE_CODES.scopeMismatch),
     };
   }
   if (request.expires_at_ms <= Date.now()) {
@@ -1594,11 +1585,7 @@ export function validateRouterAbEcdsaDerivationNormalSigningFinalizeRequest(inpu
   if (request.expires_at_ms > input.walletSessionAuth.expiresAtMs) {
     return {
       ok: false,
-      error: routerAbSigningError(
-        403,
-        'forbidden',
-        'Router A/B ECDSA derivation normal-signing expiry exceeds Wallet Session expiry',
-      ),
+      error: routerAbWalletSessionError(WALLET_SESSION_FAILURE_CODES.scopeMismatch),
     };
   }
   return {
@@ -1631,7 +1618,10 @@ export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input:
     session: input.session,
   });
   if (!validated.ok) {
-    return { status: thresholdEcdsaStatusCode(validated), body: validated };
+    return {
+      status: routerAbWalletSessionValidationStatus(validated.code),
+      body: validated,
+    };
   }
 
   const admission =

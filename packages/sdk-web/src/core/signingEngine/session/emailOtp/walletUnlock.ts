@@ -44,6 +44,14 @@ export type EmailOtpEd25519YaoUnlockResult =
       ed25519YaoSession: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
     };
 
+export type EmailOtpEd25519YaoExactLocalUnlockResult = {
+  kind: 'ed25519_yao_local_session';
+  recovery: EmailOtpWalletUnlockRecovery;
+  activeClientHandle: string;
+  metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+  ed25519YaoSession: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
+};
+
 export type EmailOtpMixedWalletUnlockResult =
   | {
       kind: 'ecdsa_and_ed25519_yao_recovery';
@@ -165,6 +173,45 @@ export async function unlockEmailOtpEd25519YaoSession(
     recovery: result.recovery,
     pendingFactorHandle: result.pendingFactorHandle,
     ed25519YaoRecovery: result.ed25519YaoRecovery,
+  };
+}
+
+export async function unlockEmailOtpEd25519YaoExactLocalSession(
+  args: EmailOtpWalletUnlockBaseArgs & {
+    providerSubject: string;
+    signerSlot: number;
+    remainingUses: number;
+    orgId: string;
+    nearAccountId: string;
+    expectedOperationalPublicKey: string;
+    expectedThresholdSessionId: string;
+  },
+): Promise<EmailOtpEd25519YaoExactLocalUnlockResult> {
+  const result = await requestEmailOtpWalletUnlock({
+    base: args,
+    material: {
+      kind: 'ed25519_yao_exact_local_session',
+      providerSubject: args.providerSubject,
+      nearAccountId: args.nearAccountId,
+      expectedOperationalPublicKey: args.expectedOperationalPublicKey,
+      expectedThresholdSessionId: args.expectedThresholdSessionId,
+      ed25519YaoSession: {
+        kind: 'exact_local_material_session_v1',
+        signerSlot: args.signerSlot,
+        remainingUses: args.remainingUses,
+        orgId: args.orgId,
+      },
+    },
+  });
+  if (result.kind !== 'ed25519_yao_local_session') {
+    throw new Error('Email OTP exact-local Ed25519 unlock returned the wrong material branch');
+  }
+  return {
+    kind: 'ed25519_yao_local_session',
+    recovery: result.recovery,
+    activeClientHandle: result.activeClientHandle,
+    metadata: result.metadata,
+    ed25519YaoSession: result.ed25519YaoSession,
   };
 }
 

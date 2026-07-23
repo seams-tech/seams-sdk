@@ -11,9 +11,14 @@ import {
   type RouterAbEd25519YaoExportAdmissionReceiptV1,
   type RouterAbEd25519YaoExportAdmissionRequestV1,
   type RouterAbEd25519YaoExportAuthorizationIdentityV1,
+  type RouterAbEd25519YaoExportFreshAuthorizationIdentityV1,
   type RouterAbEd25519YaoExportExecuteRequestV1,
   type RouterAbEd25519YaoExportResultV1,
 } from '@shared/utils/routerAbEd25519Yao';
+import {
+  parseSigningGrantId,
+  parseThresholdEd25519SessionId,
+} from '@shared/utils/domainIds';
 import type { AuthFactorIdentity, WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { isPlainObject } from '@shared/utils/validation';
@@ -32,6 +37,11 @@ import { headersToRecord, json, readJson } from './cloudflare/http';
 import { createRouterApiModule, type RouterApiModule } from './modules';
 import { defineRoute } from './routeDefinitions';
 import type { SessionAdapter } from './routerApi';
+import {
+  walletSessionFailureCodeFromParseReason,
+  walletSessionFailureMessage,
+  walletSessionFailureStatus,
+} from './walletSessionFailure';
 import type {
   RouterApiCloudflareRouteExtensionInput,
   RouterApiRouteExtension,
@@ -106,6 +116,7 @@ export type RouterAbEd25519YaoExportAuthorizationInput =
       readonly kind: 'admit';
       readonly request: Request;
       readonly body: RouterAbEd25519YaoExportAdmissionRequestV1;
+      readonly authorizationIdentity: RouterAbEd25519YaoExportFreshAuthorizationIdentityV1;
       readonly authorization: RouterAbEd25519YaoExportAdmissionAuthorization;
       readonly expectedOrigin: string;
     }
@@ -113,6 +124,7 @@ export type RouterAbEd25519YaoExportAuthorizationInput =
       readonly kind: 'execute';
       readonly request: Request;
       readonly body: RouterAbEd25519YaoExportExecuteRequestV1;
+      readonly authorizationIdentity: RouterAbEd25519YaoExportFreshAuthorizationIdentityV1;
     };
 
 export type RouterAbEd25519YaoExportAuthorizationResult =
@@ -188,7 +200,7 @@ function exactApplicationBinding(
   );
 }
 
-function exactActiveLifecycleScope(
+function activeCapabilityIdentityMatchesExportScope(
   request: RouterAbEd25519YaoExportAdmissionRequestV1,
   capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1,
 ): boolean {
@@ -284,7 +296,7 @@ export class InMemoryRouterAbEd25519YaoExportService implements RouterAbEd25519Y
       active.capability.runtimePolicyScope,
     );
     if (
-      !exactActiveLifecycleScope(request, active.capability) ||
+      !activeCapabilityIdentityMatchesExportScope(request, active.capability) ||
       !exactApplicationBinding(request.application_binding, active.capability.applicationBinding) ||
       !exactParticipants(request.participant_ids, active.capability.participantIds) ||
       !equalBytes(request.registered_public_key, active.capability.registeredPublicKey) ||
@@ -396,24 +408,29 @@ export class InMemoryRouterAbEd25519YaoExportService implements RouterAbEd25519Y
   }
 }
 
-function authorizationFailure(input: {
-  status: 401 | 403;
-  code: string;
-  message: string;
-}): RouterAbEd25519YaoExportAuthorizationResult {
+type RouterAbEd25519YaoExportAuthorizationFailure = Extract<
+  RouterAbEd25519YaoExportAuthorizationResult,
+  { readonly ok: false }
+>;
+
+function authorizationFailure(
+  input: Omit<RouterAbEd25519YaoExportAuthorizationFailure, 'ok'>,
+): RouterAbEd25519YaoExportAuthorizationFailure {
   return { ok: false, ...input };
 }
 
 function claimsMatchExportAdmission(
   claims: RouterAbEd25519WalletSessionClaims,
-  request: RouterAbEd25519YaoExportAdmissionRequestV1,
+  input: ExportAdmissionAuthorizationInput,
 ): boolean {
+  const request = input.body;
   return (
     claims.walletId === request.application_binding.wallet_id &&
     claims.walletId === request.scope.account_id &&
     claims.nearAccountId === bytesToHex(request.registered_public_key) &&
     claims.nearEd25519SigningKeyId === request.application_binding.near_ed25519_signing_key_id &&
-    claims.thresholdSessionId === request.scope.wallet_session_id &&
+    claims.thresholdSessionId === input.authorizationIdentity.thresholdSessionId &&
+    claims.signingGrantId === input.authorizationIdentity.signingGrantId &&
     claims.relayerKeyId === request.scope.signing_worker_id &&
     claims.routerAbNormalSigning.signingWorkerId === request.scope.signing_worker_id &&
     claims.runtimePolicyScope.signingRootVersion === request.scope.root_share_epoch &&
@@ -494,13 +511,14 @@ function authorizeExportExecution(
   const lifecycle = input.body.binding.ceremony.lifecycle;
   if (
     claims.walletId !== lifecycle.account_id ||
-    claims.thresholdSessionId !== lifecycle.session_id ||
+    claims.thresholdSessionId !== input.authorizationIdentity.thresholdSessionId ||
+    claims.signingGrantId !== input.authorizationIdentity.signingGrantId ||
     claims.relayerKeyId !== lifecycle.selected_server_id
   ) {
     return authorizationFailure({
       status: 403,
-      code: 'export_wallet_session_scope_mismatch',
-      message: 'Wallet Session claims do not match the export execution',
+      code: 'wallet_session_scope_mismatch',
+      message: walletSessionFailureMessage('wallet_session_scope_mismatch'),
     });
   }
   return { ok: true };
@@ -633,11 +651,11 @@ async function authorizeExportAdmission(args: {
   readonly input: ExportAdmissionAuthorizationInput;
   readonly webAuthn: Pick<RouterApiWebAuthnService, 'verifyWebAuthnAuthenticationLite'>;
 }): Promise<RouterAbEd25519YaoExportAuthorizationResult> {
-  if (!claimsMatchExportAdmission(args.claims, args.input.body)) {
+  if (!claimsMatchExportAdmission(args.claims, args.input)) {
     return authorizationFailure({
       status: 403,
-      code: 'export_wallet_session_scope_mismatch',
-      message: 'Wallet Session claims do not match the export admission',
+      code: 'wallet_session_scope_mismatch',
+      message: walletSessionFailureMessage('wallet_session_scope_mismatch'),
     });
   }
   const nowMs = Date.now();
@@ -666,8 +684,8 @@ async function authorizeExportAdmission(args: {
     nonce: authorization.nonce,
     issuedAtMs: authorization.issued_at_ms,
     expiresAtMs: authorization.expires_at_ms,
-    thresholdSessionId: args.claims.thresholdSessionId,
-    signingGrantId: args.claims.signingGrantId,
+    thresholdSessionId: args.input.authorizationIdentity.thresholdSessionId,
+    signingGrantId: args.input.authorizationIdentity.signingGrantId,
     authority: exportAuthorizationDigestAuthority(args.claims.authority),
   });
   if (
@@ -697,20 +715,37 @@ export class RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter implement
   async authorize(
     input: RouterAbEd25519YaoExportAuthorizationInput,
   ): Promise<RouterAbEd25519YaoExportAuthorizationResult> {
-    const parsedSession = await this.session.parse(headersToRecord(input.request.headers));
-    if (!parsedSession.ok) {
+    let parsedSession: Awaited<ReturnType<SessionAdapter['parse']>>;
+    try {
+      parsedSession = await this.session.parse(headersToRecord(input.request.headers));
+    } catch {
       return authorizationFailure({
-        status: 401,
-        code: 'export_wallet_session_missing',
-        message: 'Ed25519 Yao export requires a valid Wallet Session JWT',
+        status: walletSessionFailureStatus('wallet_session_unavailable'),
+        code: 'wallet_session_unavailable',
+        message: walletSessionFailureMessage('wallet_session_unavailable'),
+      });
+    }
+    if (!parsedSession.ok) {
+      const code = walletSessionFailureCodeFromParseReason(parsedSession.reason);
+      return authorizationFailure({
+        status: walletSessionFailureStatus(code),
+        code,
+        message: walletSessionFailureMessage(code),
       });
     }
     const claims = parseRouterAbEd25519WalletSessionClaims(parsedSession.claims);
     if (!claims) {
       return authorizationFailure({
-        status: 403,
-        code: 'export_wallet_authority_invalid',
-        message: 'Ed25519 Yao export requires a valid Wallet Session authority',
+        status: walletSessionFailureStatus('wallet_session_claims_invalid'),
+        code: 'wallet_session_claims_invalid',
+        message: walletSessionFailureMessage('wallet_session_claims_invalid'),
+      });
+    }
+    if (claims.thresholdExpiresAtMs <= Date.now()) {
+      return authorizationFailure({
+        status: walletSessionFailureStatus('wallet_session_expired'),
+        code: 'wallet_session_expired',
+        message: walletSessionFailureMessage('wallet_session_expired'),
       });
     }
     switch (input.kind) {
@@ -767,7 +802,16 @@ type ExportAdmissionEnvelopeParseResult =
   | {
       readonly ok: true;
       readonly protocol: RouterAbEd25519YaoExportAdmissionRequestV1;
+      readonly authorizationIdentity: RouterAbEd25519YaoExportFreshAuthorizationIdentityV1;
       readonly authorization: RouterAbEd25519YaoExportAdmissionAuthorization;
+    }
+  | { readonly ok: false; readonly message: string };
+
+type ExportExecuteEnvelopeParseResult =
+  | {
+      readonly ok: true;
+      readonly protocol: RouterAbEd25519YaoExportExecuteRequestV1;
+      readonly authorizationIdentity: RouterAbEd25519YaoExportFreshAuthorizationIdentityV1;
     }
   | { readonly ok: false; readonly message: string };
 
@@ -849,15 +893,19 @@ function parseExportAdmissionEnvelope(value: unknown): ExportAdmissionEnvelopePa
   const record = value;
   const keys = Object.keys(record);
   if (
-    keys.length !== 2 ||
+    keys.length !== 3 ||
     !Object.hasOwn(record, 'protocol') ||
+    !Object.hasOwn(record, 'authorizationIdentity') ||
     !Object.hasOwn(record, 'authorization')
   ) {
     return {
       ok: false,
-      message: 'export admission envelope requires protocol and authorization',
+      message:
+        'export admission envelope requires protocol, authorizationIdentity, and authorization',
     };
   }
+  const authorizationIdentity = parseExportAuthorizationIdentity(record.authorizationIdentity);
+  if (!authorizationIdentity.ok) return authorizationIdentity;
   const protocol = parseRouterAbEd25519YaoExportAdmissionRequestV1(record.protocol);
   if (!protocol.ok) return protocol;
   const authorization = parseExportAdmissionAuthorization(record.authorization);
@@ -865,7 +913,66 @@ function parseExportAdmissionEnvelope(value: unknown): ExportAdmissionEnvelopePa
   return {
     ok: true,
     protocol: protocol.value,
+    authorizationIdentity: authorizationIdentity.value,
     authorization: authorization.value,
+  };
+}
+
+function parseExportAuthorizationIdentity(
+  value: unknown,
+):
+  | { readonly ok: true; readonly value: RouterAbEd25519YaoExportFreshAuthorizationIdentityV1 }
+  | { readonly ok: false; readonly message: string } {
+  if (!isPlainObject(value)) {
+    return { ok: false, message: 'authorizationIdentity must be an object' };
+  }
+  const unexpectedField = firstUnexpectedField(value, [
+    'thresholdSessionId',
+    'signingGrantId',
+  ]);
+  if (unexpectedField || Object.keys(value).length !== 2) {
+    return { ok: false, message: 'authorizationIdentity fields are invalid' };
+  }
+  const thresholdSessionId = parseThresholdEd25519SessionId(value.thresholdSessionId);
+  if (!thresholdSessionId.ok) {
+    return { ok: false, message: 'authorizationIdentity.thresholdSessionId is invalid' };
+  }
+  const signingGrantId = parseSigningGrantId(value.signingGrantId);
+  if (!signingGrantId.ok) {
+    return { ok: false, message: 'authorizationIdentity.signingGrantId is invalid' };
+  }
+  return {
+    ok: true,
+    value: {
+      thresholdSessionId: thresholdSessionId.value,
+      signingGrantId: signingGrantId.value,
+    },
+  };
+}
+
+function parseExportExecuteEnvelope(value: unknown): ExportExecuteEnvelopeParseResult {
+  if (!isPlainObject(value)) {
+    return { ok: false, message: 'export execute envelope must be an object' };
+  }
+  const keys = Object.keys(value);
+  if (
+    keys.length !== 2 ||
+    !Object.hasOwn(value, 'protocol') ||
+    !Object.hasOwn(value, 'authorizationIdentity')
+  ) {
+    return {
+      ok: false,
+      message: 'export execute envelope requires protocol and authorizationIdentity',
+    };
+  }
+  const authorizationIdentity = parseExportAuthorizationIdentity(value.authorizationIdentity);
+  if (!authorizationIdentity.ok) return authorizationIdentity;
+  const protocol = parseRouterAbEd25519YaoExportExecuteRequestV1(value.protocol);
+  if (!protocol.ok) return protocol;
+  return {
+    ok: true,
+    protocol: protocol.value,
+    authorizationIdentity: authorizationIdentity.value,
   };
 }
 
@@ -906,6 +1013,7 @@ class RouterAbEd25519YaoExportRouteExtension implements RouterApiRouteExtension 
         kind: 'admit',
         request: input.request,
         body: parsed.protocol,
+        authorizationIdentity: parsed.authorizationIdentity,
         authorization: parsed.authorization,
         expectedOrigin,
       });
@@ -923,20 +1031,21 @@ class RouterAbEd25519YaoExportRouteExtension implements RouterApiRouteExtension 
           );
     }
     if (input.pathname === ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1) {
-      const parsed = parseRouterAbEd25519YaoExportExecuteRequestV1(raw);
+      const parsed = parseExportExecuteEnvelope(raw);
       if (!parsed.ok)
-        return json({ ok: false, code: parsed.code, message: parsed.message }, { status: 400 });
+        return json({ ok: false, code: 'invalid_body', message: parsed.message }, { status: 400 });
       const authorized = await this.authorization.authorize({
         kind: 'execute',
         request: input.request,
-        body: parsed.value,
+        body: parsed.protocol,
+        authorizationIdentity: parsed.authorizationIdentity,
       });
       if (!authorized.ok)
         return json(
           { ok: false, code: authorized.code, message: authorized.message },
           { status: authorized.status },
         );
-      const result = await this.service.executeExport(parsed.value);
+      const result = await this.service.executeExport(parsed.protocol);
       return result.ok
         ? json(result.value, { status: result.status })
         : json(

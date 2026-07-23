@@ -22,7 +22,10 @@ import {
   type ThresholdEcdsaSessionStoreSource,
 } from '../../session/identity/laneIdentity';
 import { signingLaneAuthMethod } from '../../session/identity/signingLaneAuthBinding';
-import { requireEvmFamilyEcdsaSigner } from '../../session/identity/exactSigningLaneIdentity';
+import {
+  exactEcdsaSigningLaneIdentityFromSelectedLane,
+  requireEvmFamilyEcdsaSigner,
+} from '../../session/identity/exactSigningLaneIdentity';
 import type {
   UiConfirmContextPort,
   UiConfirmSigningPort,
@@ -54,7 +57,7 @@ import {
   buildSigningGrantAdmissionQueueKey,
   SigningGrantAdmissionError,
   signingGrantAdmissionAuthorityKeyFromAuth,
-  waitForSigningGrantAdmissionRetry,
+  type SigningGrantAdmissionQueueKey,
 } from '../../session/budget/admission';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
@@ -152,11 +155,17 @@ import {
 import { completeEvmFamilyEmailOtpSigningRefresh } from './emailOtpRefresh';
 import type { EvmFamilyEcdsaEmailOtpStepUpAuthorization } from './stepUpAuthorization';
 import { createEvmFamilySigningFlowRuntime } from './signingFlowRuntime';
-import { retryEvmFamilyWithFreshEmailOtpAuthWhenRequired } from './freshEmailOtpRetry';
+import {
+  resolveEvmFamilyWalletSessionExpiryContext,
+  retryEvmFamilyWithFreshWalletSessionAuthWhenRequired,
+  type EvmFamilyWalletSessionExpiryCandidate,
+} from './freshWalletSessionRetry';
 import { buildEvmFamilyThresholdEcdsaReauthResult } from './thresholdAdmission';
 import {
   classifyEvmFamilyFreshAuthRetry,
   nextEvmFamilyFreshAuthRetrySideEffectState,
+  runEvmFamilyFreshAuthRetry,
+  type EvmFamilyAdmissionRetryState,
   type EvmFamilyFreshAuthRetryDecision,
   type EvmFamilyFreshAuthRetrySideEffectState,
   type EvmFamilySigningAuthSideEffect,
@@ -188,6 +197,18 @@ import {
   reportEvmFamilyFinalized,
 } from './nonceLifecycleAdapter';
 import { resolveThresholdEcdsaSigningQueueKey } from '../../threshold/ecdsa/signingQueue';
+
+function evmFamilyWalletSessionExpiryCandidate(args: {
+  readonly prepared: PreparedEvmFamilyEcdsaSigningSession | undefined;
+  readonly record: ThresholdEcdsaSessionRecord | undefined;
+}): EvmFamilyWalletSessionExpiryCandidate {
+  if (!args.prepared || !args.record) return { kind: 'unavailable' };
+  return {
+    kind: 'exact_ecdsa_lane',
+    identity: exactEcdsaSigningLaneIdentityFromSelectedLane(args.prepared.signingLane),
+    expiresAtMs: args.record.expiresAtMs,
+  };
+}
 
 export type {
   EvmFamilyBroadcastAcceptedArgs,
@@ -429,11 +450,44 @@ type SignEvmFamilyArgs = {
 };
 
 type SignEvmFamilyAttemptOptions = {
+  admissionRetryState: EvmFamilyAdmissionRetryState;
   forceFreshAuth?: boolean;
   operationIds?: EvmFamilySigningOperationIds;
   retryingFreshAuth?: boolean;
   signingSessionCoordinator?: SigningSessionCoordinator;
 };
+
+async function executeEvmFamilyFreshAuthRetry(args: {
+  deps: EvmFamilySigningDeps;
+  signingArgs: SignEvmFamilyArgs;
+  decision: Extract<EvmFamilyFreshAuthRetryDecision, { kind: 'retry' }>;
+  queueKey: SigningGrantAdmissionQueueKey;
+  operationIds: EvmFamilySigningOperationIds;
+  retryingFreshAuth: boolean;
+  signingSessionCoordinator: SigningSessionCoordinator;
+}): Promise<TempoSignedResult | EvmSignedResult> {
+  const rereadAuthoritativeReadiness = signEvmFamilyAttempt.bind(null, args.deps, args.signingArgs, {
+    admissionRetryState: { kind: 'authoritative_readiness_reread' },
+    forceFreshAuth: false,
+    operationIds: args.operationIds,
+    retryingFreshAuth: args.retryingFreshAuth,
+    signingSessionCoordinator: args.signingSessionCoordinator,
+  });
+  const performFreshAuth = signEvmFamilyAttempt.bind(null, args.deps, args.signingArgs, {
+    admissionRetryState: { kind: 'initial_admission' },
+    forceFreshAuth: true,
+    operationIds: args.operationIds,
+    retryingFreshAuth: true,
+    signingSessionCoordinator: args.signingSessionCoordinator,
+  });
+  return await runEvmFamilyFreshAuthRetry({
+    decision: args.decision,
+    queueKey: args.queueKey,
+    signingSessionCoordinator: args.signingSessionCoordinator,
+    rereadAuthoritativeReadiness,
+    performFreshAuth,
+  });
+}
 
 function emitEvmFamilyFreshAuthRetryEvent(args: {
   walletId: string;
@@ -499,6 +553,7 @@ export async function signEvmFamily(
   args: SignEvmFamilyArgs,
 ): Promise<TempoSignedResult | EvmSignedResult> {
   const attempt: SignEvmFamilyAttemptOptions = {
+    admissionRetryState: { kind: 'initial_admission' },
     operationIds: createEvmFamilySigningOperationIds(args.signingOperationId),
   };
   if (args.request.senderSignatureAlgorithm !== 'secp256k1') {
@@ -1306,19 +1361,41 @@ async function signEvmFamilyAttempt(
       });
       if (
         preparedEcdsaSigningSession.authMethod === SIGNER_AUTH_METHODS.emailOtp &&
-        resolvedAccountAuth.primaryAuthMethod === SIGNER_AUTH_METHODS.emailOtp &&
-        !attempt.retryingFreshAuth
+        resolvedAccountAuth.primaryAuthMethod === SIGNER_AUTH_METHODS.emailOtp
       ) {
-        emitEvmFamilyFreshAuthRetryEvent({
-          walletId,
-          chain: args.request.chain,
+        const decision = classifyEvmFamilyFreshAuthRetry({
+          trigger: 'wallet_signing_budget_exhausted',
+          error,
+          senderSignatureAlgorithm: args.request.senderSignatureAlgorithm,
           accountAuth: resolvedAccountAuth,
-          onEvent: args.onEvent,
+          activeSigningAuthMethod: preparedEcdsaSigningSession.authMethod,
+          admissionRetryState: attempt.admissionRetryState,
+          alreadyRetryingFreshAuth: attempt.retryingFreshAuth,
+          hasStepUpAuthPlan:
+            isEmailOtpSigningAuthPlan(signingAuthPlan) ||
+            isPasskeySigningAuthPlan(signingAuthPlan),
+          sideEffectState: freshAuthRetrySideEffectState,
         });
-        return await signEvmFamilyAttempt(deps, args, {
-          forceFreshAuth: true,
+        recordFreshAuthRetryDecision(decision, error);
+        if (decision.kind !== 'retry') throw error;
+        if (decision.retryMode !== 'await_admission_owner_completion') {
+          emitEvmFamilyFreshAuthRetryEvent({
+            walletId,
+            chain: args.request.chain,
+            accountAuth: resolvedAccountAuth,
+            onEvent: args.onEvent,
+          });
+        }
+        return await executeEvmFamilyFreshAuthRetry({
+          deps,
+          signingArgs: args,
+          decision,
+          queueKey: ecdsaSigningGrantAdmissionQueueKey({
+            walletId,
+            prepared: preparedEcdsaSigningSession,
+          }),
           operationIds,
-          retryingFreshAuth: true,
+          retryingFreshAuth: attempt.retryingFreshAuth === true,
           signingSessionCoordinator,
         });
       }
@@ -1515,10 +1592,10 @@ async function signEvmFamilyAttempt(
   });
 
   let freshAuthRetryHandledFinalization = false;
-  const retryWithFreshEmailOtpAuth = async (
+  const retryWithFreshWalletSessionAuth = async (
     error: unknown,
   ): Promise<TempoSignedResult | EvmSignedResult | null> => {
-    return await retryEvmFamilyWithFreshEmailOtpAuthWhenRequired({
+    return await retryEvmFamilyWithFreshWalletSessionAuthWhenRequired({
       error,
       walletId,
       chain: args.request.chain,
@@ -1527,10 +1604,20 @@ async function signEvmFamilyAttempt(
       alreadyRetryingFreshEmailOtpAuth: attempt.retryingFreshAuth,
       hasEmailOtpSigningPlan: !!emailOtpSigning,
       sideEffectState: freshAuthRetrySideEffectState,
+      signingSessionCoordinator,
+      expiryContext: resolveEvmFamilyWalletSessionExpiryContext({
+        error,
+        candidate: evmFamilyWalletSessionExpiryCandidate({
+          prepared: preparedEcdsaSigningSession,
+          record: thresholdEcdsaRecord,
+        }),
+        detectedAtMs: Date.now(),
+      }),
       onDecision: (decision) => recordFreshAuthRetryDecision(decision, error),
       onEvent: args.onEvent,
       retry: async () => {
         const result = await signEvmFamilyAttempt(deps, args, {
+          admissionRetryState: { kind: 'initial_admission' },
           forceFreshAuth: true,
           operationIds,
           retryingFreshAuth: true,
@@ -1544,13 +1631,15 @@ async function signEvmFamilyAttempt(
   const retryWithFreshAuth = async (
     error: unknown,
   ): Promise<TempoSignedResult | EvmSignedResult | null> => {
-    const emailOtpRetry = await retryWithFreshEmailOtpAuth(error);
-    if (emailOtpRetry) return emailOtpRetry;
+    const walletSessionRetry = await retryWithFreshWalletSessionAuth(error);
+    if (walletSessionRetry) return walletSessionRetry;
     const decision = classifyEvmFamilyFreshAuthRetry({
       trigger: 'wallet_signing_budget_exhausted',
       error,
       senderSignatureAlgorithm: args.request.senderSignatureAlgorithm,
       accountAuth: resolvedAccountAuth,
+      activeSigningAuthMethod: getPreparedEcdsaSigningSession().authMethod,
+      admissionRetryState: attempt.admissionRetryState,
       alreadyRetryingFreshAuth: attempt.retryingFreshAuth,
       hasStepUpAuthPlan:
         isEmailOtpSigningAuthPlan(signingAuthPlan) || isPasskeySigningAuthPlan(signingAuthPlan),
@@ -1558,43 +1647,26 @@ async function signEvmFamilyAttempt(
     });
     recordFreshAuthRetryDecision(decision, error);
     if (decision.kind !== 'retry') return null;
-    if (decision.retryMode === 'wait_and_retry_admission') {
-      await waitForSigningGrantAdmissionRetry(decision.retryAfterMs);
-      const result = await signEvmFamilyAttempt(deps, args, {
-        forceFreshAuth: false,
-        operationIds,
-        retryingFreshAuth: attempt.retryingFreshAuth,
-        signingSessionCoordinator,
+    if (decision.retryMode !== 'await_admission_owner_completion') {
+      emitEvmFamilyFreshAuthRetryEvent({
+        walletId,
+        chain: args.request.chain,
+        accountAuth: resolvedAccountAuth,
+        onEvent: args.onEvent,
       });
-      freshAuthRetryHandledFinalization = true;
-      return result;
     }
-    emitEvmFamilyFreshAuthRetryEvent({
-      walletId,
-      chain: args.request.chain,
-      accountAuth: resolvedAccountAuth,
-      onEvent: args.onEvent,
-    });
     const queueKey = ecdsaSigningGrantAdmissionQueueKey({
       walletId,
       prepared: getPreparedEcdsaSigningSession(),
     });
-    const result = await signingSessionCoordinator.runSigningGrantAdmissionRetry({
+    const result = await executeEvmFamilyFreshAuthRetry({
+      deps,
+      signingArgs: args,
+      decision,
       queueKey,
-      refresh: async () =>
-        await signEvmFamilyAttempt(deps, args, {
-          forceFreshAuth: true,
-          operationIds,
-          retryingFreshAuth: true,
-          signingSessionCoordinator,
-        }),
-      retryAfterRefresh: async () =>
-        await signEvmFamilyAttempt(deps, args, {
-          forceFreshAuth: false,
-          operationIds,
-          retryingFreshAuth: attempt.retryingFreshAuth,
-          signingSessionCoordinator,
-        }),
+      operationIds,
+      retryingFreshAuth: attempt.retryingFreshAuth === true,
+      signingSessionCoordinator,
     });
     freshAuthRetryHandledFinalization = true;
     return result;

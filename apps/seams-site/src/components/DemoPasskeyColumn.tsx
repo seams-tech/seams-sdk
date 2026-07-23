@@ -18,6 +18,7 @@ const SyncAccount = React.lazy(() =>
 );
 import { AuthMenuControlProvider } from '@/context/AuthMenuControl';
 import { ProfileMenuControlProvider } from '@/context/ProfileMenuControl';
+import { useDemoWalletSessionLifecycle } from '@/flows/demo/hooks/useDemoWalletSessionLifecycle';
 
 type DemoToastThemeVar = (typeof DEMO_TOAST_THEME_VARS)[number];
 type DemoThemeTokens = ReturnType<typeof useTheme>['tokens'];
@@ -105,6 +106,9 @@ export function DemoPasskeyColumn({
   defaultModeWhenNoDetectedAccount,
 }: DemoPasskeyColumnProps = {}) {
   const { loginState } = useSeams();
+  const walletSessionLifecycle = useDemoWalletSessionLifecycle();
+  const isDemoUnlocked =
+    walletSessionLifecycle.kind === 'ready' && loginState?.isLoggedIn === true;
   const [internalPage, setInternalPage] = React.useState(0);
   const currentPage = controlledPage ?? internalPage;
   const setCurrentPage = React.useCallback(
@@ -120,8 +124,8 @@ export function DemoPasskeyColumn({
 
   // After unlock, jump to Demo Tx page (index 1). On lock, go back to login page (index 0).
   React.useEffect(() => {
-    setCurrentPage(loginState?.isLoggedIn ? 1 : 0);
-  }, [loginState?.isLoggedIn, setCurrentPage]);
+    setCurrentPage(isDemoUnlocked ? 1 : 0);
+  }, [isDemoUnlocked, setCurrentPage]);
 
   // Warm the post-login page chunks while the visitor is still on the login
   // page (idle time), so the unlock-time page switch never suspends into the
@@ -161,7 +165,7 @@ export function DemoPasskeyColumn({
       {
         key: 'transactions',
         title: 'Transactions',
-        disabled: !loginState?.isLoggedIn,
+        disabled: !isDemoUnlocked,
         element: () => (
           <>
             <GlassBorder
@@ -180,7 +184,7 @@ export function DemoPasskeyColumn({
       {
         key: 'sync-account',
         title: 'Account Recovery',
-        disabled: !loginState?.isLoggedIn,
+        disabled: !isDemoUnlocked,
         element: () => (
           <>
             <React.Suspense fallback={<SuspenseFallback />}>
@@ -190,16 +194,16 @@ export function DemoPasskeyColumn({
         ),
       },
     ],
-    [defaultModeWhenNoDetectedAccount, loginState?.isLoggedIn, prefetchPasskeyMenu],
+    [defaultModeWhenNoDetectedAccount, isDemoUnlocked, prefetchPasskeyMenu],
   );
 
   return (
     <ProfileMenuControlProvider>
       <DemoToastThemeBridge />
       <div
-        className={`passkey-demo${loginState?.isLoggedIn ? ' passkey-demo--with-profile' : ''}`}
+        className={`passkey-demo${isDemoUnlocked ? ' passkey-demo--with-profile' : ''}`}
       >
-        {loginState?.isLoggedIn ? <NavbarProfileOverlay /> : null}
+        {isDemoUnlocked ? <NavbarProfileOverlay /> : null}
         <AuthMenuControlProvider>
           {/* Fixed-width so switching pages never resizes/re-centers the card;
               the external pager drives `index` (fully controlled). */}

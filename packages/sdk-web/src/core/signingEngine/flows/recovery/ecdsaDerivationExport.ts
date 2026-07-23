@@ -35,6 +35,11 @@ import type { EcdsaRoleLocalWorkerHandle } from '../../session/keyMaterialBrands
 import type { ReadyEcdsaExportLane } from './ecdsaExportMaterial';
 import type { EcdsaRoleLocalPublicFacts } from '@/core/platform';
 import type { FinalizeRouterAbEcdsaExplicitExportRequestV1 } from '../../workerManager/ecdsaClientWorkerChannels';
+import { WALLET_SESSION_FAILURE_CODES } from '@shared/utils/walletSessionFailure';
+import {
+  WalletSessionFailureError,
+  walletSessionFailureFromCode,
+} from '../../session/lifecycle/walletSessionFailure';
 
 const ECDSA_DERIVATION_EXPORT_CONFIRMATION_DIGEST_VERSION =
   'ecdsa-derivation:role-local:product-export-confirmation:v2';
@@ -109,6 +114,23 @@ function randomB64u32(): string {
     throw new Error('crypto.getRandomValues is required for threshold ECDSA export');
   }
   return base64UrlEncode(cryptoApi.getRandomValues(new Uint8Array(32)));
+}
+
+function requireActiveEcdsaExportAuthorizationWindow(args: {
+  readonly issuedAtUnixMs: number;
+  readonly thresholdExpiresAtMs: number;
+}): number {
+  const expiresAtUnixMs = Math.min(
+    args.issuedAtUnixMs + ECDSA_DERIVATION_EXPORT_AUTH_TTL_MS,
+    args.thresholdExpiresAtMs,
+  );
+  if (Number.isFinite(expiresAtUnixMs) && expiresAtUnixMs > args.issuedAtUnixMs) {
+    return expiresAtUnixMs;
+  }
+  throw new WalletSessionFailureError({
+    failure: walletSessionFailureFromCode(WALLET_SESSION_FAILURE_CODES.expired),
+    message: 'Wallet Session expired before ECDSA export authorization',
+  });
 }
 
 function participantIdsKey(participantIds: readonly number[]): string {
@@ -272,13 +294,10 @@ async function executeEcdsaDerivationExport(
     }
   }
   const issuedAtUnixMs = Date.now();
-  const expiresAtUnixMs = Math.min(
-    issuedAtUnixMs + ECDSA_DERIVATION_EXPORT_AUTH_TTL_MS,
-    material.walletSessionAuthority.thresholdExpiresAtMs,
-  );
-  if (!Number.isFinite(expiresAtUnixMs) || expiresAtUnixMs <= issuedAtUnixMs) {
-    throw new Error('Threshold ECDSA export session is expired');
-  }
+  const expiresAtUnixMs = requireActiveEcdsaExportAuthorizationWindow({
+    issuedAtUnixMs,
+    thresholdExpiresAtMs: material.walletSessionAuthority.thresholdExpiresAtMs,
+  });
 
   const publicIdentity = {
     derivationClientSharePublicKey33B64u: material.publicFacts.derivationClientSharePublicKey33B64u,

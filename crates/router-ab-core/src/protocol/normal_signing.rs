@@ -1866,7 +1866,7 @@ impl ActiveSigningWorkerStateV1 {
         self.validate()?;
         scope.validate()?;
         if self.account_id != scope.account_id
-            || self.session_id != scope.session_id
+            || self.session_id != scope.active_state_session_id
             || self.signing_worker.server_id != scope.signing_worker_id
         {
             return Err(RouterAbProtocolError::new(
@@ -1967,6 +1967,7 @@ fn push_normal_signing_scope(out: &mut Vec<u8>, scope: &NormalSigningScopeV1) {
     push_len32(out, scope.request_id.as_bytes());
     push_len32(out, scope.account_id.as_bytes());
     push_len32(out, scope.session_id.as_bytes());
+    push_len32(out, scope.active_state_session_id.as_bytes());
     push_len32(out, scope.signing_worker_id.as_bytes());
 }
 

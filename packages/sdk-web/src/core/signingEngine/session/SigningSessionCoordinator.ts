@@ -1,4 +1,11 @@
 import type { SigningSessionStatus } from '@/core/types/seams';
+import {
+  createSigningSessionExpiredEvent,
+  type SdkLifecycleEvent,
+  type SdkLifecycleEventListener,
+  type SigningSessionExpiredEvent,
+  type SigningSessionExpiryDetectionSource,
+} from '@/core/types/sdkSentEvents';
 import { deleteExactSealedSession, updateExactSealedSessionPolicy } from './persistence/sealedSessionStore';
 import {
   createSigningPlannerDecisionTraceEvent,
@@ -71,6 +78,13 @@ import {
   type SigningGrantStatusOverride,
   type DiscoveredSigningSessionLane,
 } from './availability/readiness';
+import {
+  ClientWalletSessionExpiryInvalidator,
+  type ClientWalletSessionExpiryInvalidationResult,
+  type ClientWalletSessionInvalidationReadinessDeps,
+  type WalletSessionExpiredEvent,
+} from './availability/clientSessionExpiryInvalidator';
+import type { ExpiredWalletSessionAuthorizationState } from './identity/clientSessionPersistenceState';
 import {
   buildEvmFamilyEcdsaSignerBinding,
   exactEcdsaSigningLaneIdentity,
@@ -196,10 +210,61 @@ function discoveredLaneMatchesExactEcdsaBudgetLane(args: {
 }
 
 export type SigningSessionCoordinatorDeps = SigningSessionStatusDeps &
-  SigningSessionBudgetDeps & {
+  SigningSessionBudgetDeps &
+  ClientWalletSessionInvalidationReadinessDeps & {
     onPlannerTrace?: (event: SigningPlannerDecisionTraceEvent) => void;
     onWalletBudgetTrace?: SigningSessionBudgetDeps['onTrace'];
   };
+
+export interface SigningSessionLifecycleSubscription {
+  unsubscribe(): void;
+}
+
+export type SigningSessionExpiryInvalidationResult =
+  | {
+      readonly kind: 'invalidated';
+      readonly event: SigningSessionExpiredEvent;
+    }
+  | Extract<
+      ClientWalletSessionExpiryInvalidationResult,
+      { readonly kind: 'already_invalidated' | 'unavailable' }
+    >;
+
+class SigningSessionLifecycleSubscriptionHandle
+  implements SigningSessionLifecycleSubscription
+{
+  readonly #listeners: Set<SdkLifecycleEventListener>;
+  readonly #listener: SdkLifecycleEventListener;
+  #active = true;
+
+  constructor(args: {
+    readonly listeners: Set<SdkLifecycleEventListener>;
+    readonly listener: SdkLifecycleEventListener;
+  }) {
+    this.#listeners = args.listeners;
+    this.#listener = args.listener;
+  }
+
+  unsubscribe(): void {
+    if (!this.#active) return;
+    this.#active = false;
+    this.#listeners.delete(this.#listener);
+  }
+}
+
+function mapWalletSessionExpiredEvent(args: {
+  readonly event: WalletSessionExpiredEvent;
+  readonly source: SigningSessionExpiryDetectionSource;
+}): SigningSessionExpiredEvent {
+  return createSigningSessionExpiredEvent({
+    walletId: args.event.walletId,
+    walletSessionId: args.event.walletSessionId,
+    authMethod: args.event.authMethod,
+    expiresAtMs: args.event.expiresAtMs,
+    detectedAtMs: args.event.detectedAtMs,
+    source: args.source,
+  });
+}
 
 export class SigningSessionCoordinator implements SigningSessionStatusPort, SigningSessionBudget {
   private readonly onPlannerTrace?: (event: SigningPlannerDecisionTraceEvent) => void;
@@ -209,9 +274,11 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
   private readonly walletSessionState: SigningSessionStatusState;
   private readonly walletBudget: BudgetCoordinator;
   private readonly operationIdBindings: SigningOperationIdBindingRegistry;
+  private readonly walletSessionExpiryInvalidator: ClientWalletSessionExpiryInvalidator;
+  private readonly lifecycleListeners = new Set<SdkLifecycleEventListener>();
   private readonly signingGrantAdmissionRefreshQueues = new Map<string, Promise<unknown>>();
 
-  constructor(deps: SigningSessionCoordinatorDeps = {}) {
+  constructor(deps: SigningSessionCoordinatorDeps) {
     this.onPlannerTrace = deps.onPlannerTrace;
     this.onWalletBudgetTrace = deps.onWalletBudgetTrace || deps.onTrace;
     this.walletSessionDeps = {
@@ -223,6 +290,15 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
     this.walletSessionState = {
       statusOverrides: new Map(),
     };
+    this.walletSessionExpiryInvalidator = new ClientWalletSessionExpiryInvalidator({
+      readiness: {
+        touchConfirm: deps.touchConfirm,
+        clearEmailOtpWarmSessionMaterial: deps.clearEmailOtpWarmSessionMaterial,
+        clearThresholdEcdsaSessionRecordForExactIdentity:
+          deps.clearThresholdEcdsaSessionRecordForExactIdentity,
+      },
+      statusOverrides: this.walletSessionState.statusOverrides,
+    });
     this.operationIdBindings = new SigningOperationIdBindingRegistry();
     this.walletBudgetStatusReader = deps.getStatus;
     this.walletBudget = new BudgetCoordinator({
@@ -230,6 +306,38 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
       syncSuccessfulSpendStatus: deps.consumeUse || this.syncServerConsumedSpendStatus,
       onTrace: this.onWalletBudgetTrace,
     });
+  }
+
+  subscribeLifecycle(listener: SdkLifecycleEventListener): SigningSessionLifecycleSubscription {
+    this.lifecycleListeners.add(listener);
+    return new SigningSessionLifecycleSubscriptionHandle({
+      listeners: this.lifecycleListeners,
+      listener,
+    });
+  }
+
+  async invalidateExpiredWalletSession(args: {
+    readonly state: ExpiredWalletSessionAuthorizationState;
+    readonly source: SigningSessionExpiryDetectionSource;
+  }): Promise<SigningSessionExpiryInvalidationResult> {
+    const invalidation = await this.walletSessionExpiryInvalidator.invalidate(args.state);
+    if (invalidation.kind !== 'invalidated') return invalidation;
+    const event = mapWalletSessionExpiredEvent({
+      event: invalidation.event,
+      source: args.source,
+    });
+    this.emitLifecycleEvent(event);
+    return { kind: 'invalidated', event };
+  }
+
+  private emitLifecycleEvent(event: SdkLifecycleEvent): void {
+    for (const listener of this.lifecycleListeners) {
+      try {
+        listener(event);
+      } catch (error: unknown) {
+        console.error('[SigningSessionCoordinator] lifecycle listener failed', error);
+      }
+    }
   }
 
   resolveAuthPlan(
@@ -451,7 +559,6 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
       status: {
         ...status,
         remainingUses: committedUses,
-        availableUses: committedUses,
       } as SigningSessionPreparedBudgetIdentity['status'],
     };
   }
@@ -547,12 +654,6 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
       input.lane.curve === 'ed25519' &&
       (walletBudgetStatus?.status === 'budget_unknown' ||
         walletBudgetStatus?.status === 'unavailable');
-    const passkeyEd25519PreflightUnavailable =
-      signingLaneAuthMethod(input.lane.auth) === 'passkey' &&
-      input.lane.curve === 'ed25519' &&
-      input.readiness.status === 'ready' &&
-      (walletBudgetStatus?.status === 'budget_unknown' ||
-        walletBudgetStatus?.status === 'unavailable');
     const ecdsaStepUpPreflightUnavailable =
       input.lane.curve === 'ecdsa' &&
       input.readiness.status === 'ready' &&
@@ -561,15 +662,12 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
     // Email OTP can mint a fresh Ed25519 session at step-up. Treat an
     // unreadable preflight as reauthable so server-side authorize remains
     // the budget enforcement point instead of failing before the prompt.
-    // Passkey Ed25519 has a reconnect boundary where fresh auth is useful.
     // ECDSA keeps record-backed warm readiness here; later admission and
     // reservation remain the budget enforcement points.
-    const reauthableEd25519PreflightUnavailable =
-      emailOtpEd25519PreflightUnavailable || passkeyEd25519PreflightUnavailable;
     let budgetStatusForPlanning = walletBudgetStatus;
     if (ecdsaStepUpPreflightUnavailable) {
       budgetStatusForPlanning = null;
-    } else if (reauthableEd25519PreflightUnavailable && walletBudgetStatus) {
+    } else if (emailOtpEd25519PreflightUnavailable && walletBudgetStatus) {
       budgetStatusForPlanning = {
         sessionId: signingGrantId,
         status: 'not_found',
@@ -578,16 +676,6 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
     }
     if (emailOtpEd25519PreflightUnavailable && walletBudgetStatus) {
       console.warn('[SigningSessionCoordinator][email-otp-ed25519] budget preflight unavailable', {
-        signingGrantId,
-        thresholdSessionId: input.lane.thresholdSessionId,
-        budgetStatus: walletBudgetStatus.status,
-        readiness: input.readiness.status,
-        remainingUses: input.remainingUses,
-        usesNeeded: input.usesNeeded,
-      });
-    }
-    if (passkeyEd25519PreflightUnavailable && walletBudgetStatus) {
-      console.warn('[SigningSessionCoordinator][passkey-ed25519] budget preflight unavailable', {
         signingGrantId,
         thresholdSessionId: input.lane.thresholdSessionId,
         budgetStatus: walletBudgetStatus.status,

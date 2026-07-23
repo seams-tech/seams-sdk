@@ -92,10 +92,10 @@ export function createNearSigningDeps(args: {
             createArgs.requestEmailOtpEd25519SigningChallenge!(challengeArgs),
         }
       : {}),
-    ...(createArgs.recoverEmailOtpEd25519CapabilityForSigning
+    ...(createArgs.rehydrateEmailOtpEd25519CapabilityForSigning
       ? {
-          recoverEmailOtpEd25519CapabilityForSigning: (recoveryArgs) =>
-            createArgs.recoverEmailOtpEd25519CapabilityForSigning!(recoveryArgs),
+          rehydrateEmailOtpEd25519CapabilityForSigning: (rehydrationArgs) =>
+            createArgs.rehydrateEmailOtpEd25519CapabilityForSigning!(rehydrationArgs),
         }
       : {}),
     signingSessionCoordinator,

@@ -4,6 +4,12 @@ import { secureRandomId } from '@shared/utils/secureRandomId';
 import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import {
+  DEFAULT_WALLET_SESSION_REMAINING_USES,
+  DEFAULT_WALLET_SESSION_TTL_MS,
+  MAX_WALLET_SESSION_REMAINING_USES,
+  MAX_WALLET_SESSION_TTL_MS,
+} from '@shared/threshold/sessionPolicy';
+import {
   requireEvmFamilySigningKeySlotId,
   type EvmFamilySigningKeySlotId,
 } from '@shared/signing-lanes';
@@ -221,17 +227,18 @@ export type EcdsaSessionPolicy = EcdsaDerivationSessionPolicy & {
 
 // Upper bounds to avoid unbounded TTL/use values while still supporting practical
 // "login once, sign many times" sessions.
-export const THRESHOLD_SESSION_POLICY_MAX_TTL_MS = 30 * 24 * 60 * 60_000; // 30 days
-export const THRESHOLD_SESSION_POLICY_MAX_USES = 1_000_000;
+export const THRESHOLD_SESSION_POLICY_MAX_TTL_MS = MAX_WALLET_SESSION_TTL_MS;
+export const THRESHOLD_SESSION_POLICY_MAX_USES = MAX_WALLET_SESSION_REMAINING_USES;
+export const DEFAULT_THRESHOLD_SESSION_TTL_MS = DEFAULT_WALLET_SESSION_TTL_MS;
 
 // Default policy used when callers do not specify a policy explicitly.
-// These defaults are kept conservative to limit the blast radius of a stolen token.
+// The use budget still limits authority during the longer wallet-unlock window.
 export const DEFAULT_THRESHOLD_SESSION_POLICY: Pick<
   Ed25519SessionPolicy,
   'ttlMs' | 'remainingUses'
 > = {
-  ttlMs: 5 * 60_000,
-  remainingUses: 3,
+  ttlMs: DEFAULT_THRESHOLD_SESSION_TTL_MS,
+  remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
 };
 
 export function clampThresholdSessionPolicy(input: { ttlMs: number; remainingUses: number }): {
@@ -445,25 +452,6 @@ export function buildEcdsaDerivationSessionPolicy(params: {
     ttlMs,
     remainingUses,
   };
-}
-
-export function isSigningSessionAuthUnavailableError(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err);
-  return (
-    msg.includes('threshold-ecdsa session record not available') ||
-    msg.includes('relayer threshold session expired') ||
-    msg.includes('threshold signingSession is not_found') ||
-    msg.includes('threshold signingSession is expired') ||
-    msg.includes('threshold signingSession is exhausted') ||
-    msg.includes('signingSession auth is unavailable') ||
-    msg.includes('signing-session consume returned not_found') ||
-    msg.includes('Wallet Session auth is unavailable') ||
-    msg.includes('threshold session exhausted') ||
-    msg.includes('threshold session expired') ||
-    msg.includes('Invalid session token kind') ||
-    msg.includes('/authorize HTTP 401') ||
-    msg.includes('/authorize HTTP 403')
-  );
 }
 
 export function isThresholdSignerMissingKeyError(err: unknown): boolean {

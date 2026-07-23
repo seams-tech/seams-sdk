@@ -1,8 +1,5 @@
 import { buildNearAccountRefs } from '@/core/accountData/near/accountRefs';
-import {
-  buildEnvelopeAAD,
-  KEY_PAYLOAD_ENC_VERSION,
-} from '@/core/indexedDB/keyMaterialEnvelope';
+import { buildEnvelopeAAD, KEY_PAYLOAD_ENC_VERSION } from '@/core/indexedDB/keyMaterialEnvelope';
 import type { KeyMaterialRecord } from '@/core/indexedDB/keyMaterial.types';
 import {
   resolveAccountKeyMaterialTarget,
@@ -30,8 +27,7 @@ import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 export const ED25519_YAO_LOCAL_MATERIAL_KEY_KIND =
   'router_ab_ed25519_yao_active_client_v1' as const;
 const ED25519_YAO_LOCAL_MATERIAL_SCHEMA_VERSION = 1;
-const ED25519_YAO_LOCAL_MATERIAL_ALGORITHM =
-  'chacha20poly1305-hkdf-sha256-prf-first-v1';
+const ED25519_YAO_LOCAL_MATERIAL_ALGORITHM = 'chacha20poly1305-hkdf-sha256-prf-first-v1';
 const ED25519_YAO_LOCAL_MATERIAL_NONCE_BYTES = 12;
 const MAX_U64 = (1n << 64n) - 1n;
 
@@ -55,7 +51,6 @@ type Ed25519YaoLocalMaterialIdentity = {
   signingRootId: string;
   signingRootVersion: string;
   signingWorkerId: string;
-  thresholdSessionId: string;
 };
 
 type Ed25519YaoLocalMaterialBindingV1 = {
@@ -67,6 +62,7 @@ type Ed25519YaoLocalMaterialBindingV1 = {
   rpId: string;
   credentialIdB64u: string;
   lifecycleId: string;
+  activeStateSessionId: string;
   signingRootId: string;
   signingRootVersion: string;
   signerSetId: string;
@@ -79,16 +75,18 @@ type Ed25519YaoLocalMaterialBindingV1 = {
   activationCapabilityBindingB64u: string;
 };
 
+export type PasskeyEd25519YaoStableServerScopeV1 = {
+  relayerKeyId: string;
+  participantIds: readonly [number, number];
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  routerAbNormalSigning: RouterAbEd25519NormalSigningState;
+};
+
 export type PasskeyEd25519YaoLocalMaterialLocatorV1 = {
   kind: 'passkey_ed25519_yao_local_material_locator_v1';
-  thresholdSessionId: string;
-  signingGrantId: string;
-  serverRefreshScope: {
-    relayerKeyId: string;
-    participantIds: readonly [number, number];
-    runtimePolicyScope: ThresholdRuntimePolicyScope;
-    routerAbNormalSigning: RouterAbEd25519NormalSigningState;
-  };
+  stableServerScope: PasskeyEd25519YaoStableServerScopeV1;
+  thresholdSessionId?: never;
+  signingGrantId?: never;
 };
 
 export type ReadPasskeyEd25519YaoLocalMaterialLocatorInputV1 = {
@@ -227,10 +225,6 @@ function walletSessionIdentity(
       walletSessionState.routerAbNormalSigning.signingWorkerId,
       'signingWorkerId',
     ),
-    thresholdSessionId: requireNonEmpty(
-      walletSessionState.thresholdSessionId,
-      'thresholdSessionId',
-    ),
   };
 }
 
@@ -260,15 +254,14 @@ function bindingFromActiveClient(args: {
     rpId: args.identity.rpId,
     credentialIdB64u: args.identity.credentialIdB64u,
     lifecycleId: requireNonEmpty(metadata.scope.lifecycle_id, 'lifecycleId'),
+    activeStateSessionId: requireNonEmpty(metadata.scope.wallet_session_id, 'activeStateSessionId'),
     signingRootId: args.identity.signingRootId,
     signingRootVersion: args.identity.signingRootVersion,
     signerSetId: requireNonEmpty(metadata.scope.signer_set_id, 'signerSetId'),
     signingWorkerId: args.identity.signingWorkerId,
     participantIds: [metadata.participantIds[0], metadata.participantIds[1]],
     registeredPublicKeyB64u: base64UrlEncode(metadata.registeredPublicKey),
-    signingWorkerVerifyingShareB64u: base64UrlEncode(
-      metadata.signingWorkerVerifyingShare,
-    ),
+    signingWorkerVerifyingShareB64u: base64UrlEncode(metadata.signingWorkerVerifyingShare),
     stateEpoch: metadata.stateEpoch.toString(10),
     activationTranscriptB64u: base64UrlEncode(metadata.transcript),
     activationCapabilityBindingB64u: base64UrlEncode(
@@ -288,6 +281,7 @@ function bindingBytes(binding: Ed25519YaoLocalMaterialBindingV1): Uint8Array {
       binding.rpId,
       binding.credentialIdB64u,
       binding.lifecycleId,
+      binding.activeStateSessionId,
       binding.signingRootId,
       binding.signingRootVersion,
       binding.signerSetId,
@@ -301,6 +295,25 @@ function bindingBytes(binding: Ed25519YaoLocalMaterialBindingV1): Uint8Array {
       binding.activationCapabilityBindingB64u,
     ]),
   );
+}
+
+function assertBindingIdentity(
+  binding: Ed25519YaoLocalMaterialBindingV1,
+  identity: Ed25519YaoLocalMaterialIdentity,
+): void {
+  if (
+    binding.walletId !== identity.walletId ||
+    binding.nearAccountId !== identity.nearAccountId ||
+    binding.nearEd25519SigningKeyId !== identity.nearEd25519SigningKeyId ||
+    binding.signerSlot !== identity.signerSlot ||
+    binding.rpId !== identity.rpId ||
+    binding.credentialIdB64u !== identity.credentialIdB64u ||
+    binding.signingRootId !== identity.signingRootId ||
+    binding.signingRootVersion !== identity.signingRootVersion ||
+    binding.signingWorkerId !== identity.signingWorkerId
+  ) {
+    throw new Error('Stored Ed25519 Client material does not match the wallet signing lane');
+  }
 }
 
 function parseStoredBinding(
@@ -321,16 +334,14 @@ function parseStoredBinding(
     ),
     signerSlot: requirePositiveSafeInteger(record.signerSlot, 'binding.signerSlot'),
     rpId: requireNonEmpty(record.rpId, 'binding.rpId'),
-    credentialIdB64u: requireNonEmpty(
-      record.credentialIdB64u,
-      'binding.credentialIdB64u',
-    ),
+    credentialIdB64u: requireNonEmpty(record.credentialIdB64u, 'binding.credentialIdB64u'),
     lifecycleId: requireNonEmpty(record.lifecycleId, 'binding.lifecycleId'),
-    signingRootId: requireNonEmpty(record.signingRootId, 'binding.signingRootId'),
-    signingRootVersion: requireNonEmpty(
-      record.signingRootVersion,
-      'binding.signingRootVersion',
+    activeStateSessionId: requireNonEmpty(
+      record.activeStateSessionId,
+      'binding.activeStateSessionId',
     ),
+    signingRootId: requireNonEmpty(record.signingRootId, 'binding.signingRootId'),
+    signingRootVersion: requireNonEmpty(record.signingRootVersion, 'binding.signingRootVersion'),
     signerSetId: requireNonEmpty(record.signerSetId, 'binding.signerSetId'),
     signingWorkerId: requireNonEmpty(record.signingWorkerId, 'binding.signingWorkerId'),
     participantIds: requireParticipantIds(record.participantIds),
@@ -352,60 +363,35 @@ function parseStoredBinding(
       'binding.activationCapabilityBindingB64u',
     ),
   };
-  if (
-    binding.walletId !== identity.walletId ||
-    binding.nearAccountId !== identity.nearAccountId ||
-    binding.nearEd25519SigningKeyId !== identity.nearEd25519SigningKeyId ||
-    binding.signerSlot !== identity.signerSlot ||
-    binding.rpId !== identity.rpId ||
-    binding.credentialIdB64u !== identity.credentialIdB64u ||
-    binding.signingRootId !== identity.signingRootId ||
-    binding.signingRootVersion !== identity.signingRootVersion ||
-    binding.signingWorkerId !== identity.signingWorkerId
-  ) {
-    throw new Error('Stored Ed25519 Client material does not match the wallet signing lane');
-  }
+  assertBindingIdentity(binding, identity);
   return binding;
 }
 
-function parseStoredServerActiveState(
-  value: unknown,
-): PasskeyEd25519YaoLocalMaterialLocatorV1 {
+function parseStableServerScope(value: unknown): PasskeyEd25519YaoStableServerScopeV1 {
   const record = asRecord(value);
   if (!record) {
-    throw new Error('Stored Ed25519 Client server active-state locator is invalid');
+    throw new Error('Stored Ed25519 Client stable server scope is invalid');
   }
-  const serverRefreshScope = asRecord(record.serverRefreshScope);
-  if (!serverRefreshScope) {
-    throw new Error('Stored Ed25519 Client server refresh scope is invalid');
-  }
-  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(
-    serverRefreshScope.runtimePolicyScope,
-  );
+  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(record.runtimePolicyScope);
   if (!runtimePolicyScope) {
     throw new Error('Stored Ed25519 Client server runtime policy scope is invalid');
   }
   return {
+    relayerKeyId: requireNonEmpty(record.relayerKeyId, 'stableServerScope.relayerKeyId'),
+    participantIds: requireParticipantIds(record.participantIds),
+    runtimePolicyScope,
+    routerAbNormalSigning: requireRouterAbEd25519NormalSigningState(record.routerAbNormalSigning),
+  };
+}
+
+function parseStoredLocalMaterialLocator(value: unknown): PasskeyEd25519YaoLocalMaterialLocatorV1 {
+  const record = asRecord(value);
+  if (!record) {
+    throw new Error('Stored Ed25519 Client local material locator is invalid');
+  }
+  return {
     kind: 'passkey_ed25519_yao_local_material_locator_v1',
-    thresholdSessionId: requireNonEmpty(
-      record.thresholdSessionId,
-      'serverActiveState.thresholdSessionId',
-    ),
-    signingGrantId: requireNonEmpty(
-      record.signingGrantId,
-      'serverActiveState.signingGrantId',
-    ),
-    serverRefreshScope: {
-      relayerKeyId: requireNonEmpty(
-        serverRefreshScope.relayerKeyId,
-        'serverActiveState.serverRefreshScope.relayerKeyId',
-      ),
-      participantIds: requireParticipantIds(serverRefreshScope.participantIds),
-      runtimePolicyScope,
-      routerAbNormalSigning: requireRouterAbEd25519NormalSigningState(
-        serverRefreshScope.routerAbNormalSigning,
-      ),
-    },
+    stableServerScope: parseStableServerScope(record.stableServerScope),
   };
 }
 
@@ -440,7 +426,6 @@ function assertStoredIdentitySubset(args: {
 
 function metadataFromBinding(
   binding: Ed25519YaoLocalMaterialBindingV1,
-  thresholdSessionId: string,
 ): RouterAbEd25519YaoActiveClientMetadataV1 {
   return {
     kind: ROUTER_AB_ED25519_YAO_ACTIVE_CLIENT_KIND_V1,
@@ -448,7 +433,7 @@ function metadataFromBinding(
       lifecycle_id: binding.lifecycleId,
       root_share_epoch: binding.signingRootVersion,
       account_id: binding.walletId,
-      wallet_session_id: thresholdSessionId,
+      wallet_session_id: binding.activeStateSessionId,
       signer_set_id: binding.signerSetId,
       signing_worker_id: binding.signingWorkerId,
     },
@@ -460,14 +445,10 @@ function metadataFromBinding(
     },
     participantIds: binding.participantIds,
     registeredPublicKey: base64UrlDecode(binding.registeredPublicKeyB64u),
-    signingWorkerVerifyingShare: base64UrlDecode(
-      binding.signingWorkerVerifyingShareB64u,
-    ),
+    signingWorkerVerifyingShare: base64UrlDecode(binding.signingWorkerVerifyingShareB64u),
     stateEpoch: BigInt(binding.stateEpoch),
     transcript: base64UrlDecode(binding.activationTranscriptB64u),
-    activeCapabilityBinding: Array.from(
-      base64UrlDecode(binding.activationCapabilityBindingB64u),
-    ),
+    activeCapabilityBinding: Array.from(base64UrlDecode(binding.activationCapabilityBindingB64u)),
   };
 }
 
@@ -510,15 +491,11 @@ export async function persistPasskeyEd25519YaoLocalMaterialV1(
     signerId: identity.nearEd25519SigningKeyId,
     payload: {
       binding,
-      serverActiveState: {
-        thresholdSessionId: identity.thresholdSessionId,
-        signingGrantId: input.walletSessionState.signingGrantId,
-        serverRefreshScope: {
-          relayerKeyId: binding.signingWorkerId,
-          participantIds: binding.participantIds,
-          runtimePolicyScope: input.walletSessionState.runtimePolicyScope,
-          routerAbNormalSigning: input.walletSessionState.routerAbNormalSigning,
-        },
+      stableServerScope: {
+        relayerKeyId: binding.signingWorkerId,
+        participantIds: binding.participantIds,
+        runtimePolicyScope: input.walletSessionState.runtimePolicyScope,
+        routerAbNormalSigning: input.walletSessionState.routerAbNormalSigning,
       },
     },
     payloadEnvelope: {
@@ -560,7 +537,7 @@ export async function readPasskeyEd25519YaoLocalMaterialLocatorV1(
   assertStoredIdentitySubset({ stored, target, input });
   return {
     kind: 'available',
-    locator: parseStoredServerActiveState(stored.payload?.serverActiveState),
+    locator: parseStoredLocalMaterialLocator(stored.payload),
   };
 }
 
@@ -616,14 +593,7 @@ export async function rehydratePasskeyEd25519YaoLocalMaterialV1(
     throw new Error('Stored Ed25519 Client material record is invalid');
   }
   const binding = parseStoredBinding(stored.payload?.binding, identity);
-  const locator = parseStoredServerActiveState(stored.payload?.serverActiveState);
-  if (
-    locator.thresholdSessionId !== input.walletSessionState.thresholdSessionId ||
-    locator.signingGrantId !== input.walletSessionState.signingGrantId
-  ) {
-    throw new Error('Fresh Ed25519 Wallet Session changed the local material server identity');
-  }
-  const metadata = metadataFromBinding(binding, identity.thresholdSessionId);
+  const metadata = metadataFromBinding(binding);
   const expectedPublicKey = `ed25519:${base58Encode(metadata.registeredPublicKey)}`;
   if (stored.publicKey !== expectedPublicKey) {
     throw new Error('Stored Ed25519 Client public key does not match its sealed binding');

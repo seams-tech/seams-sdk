@@ -32,6 +32,7 @@ import type {
   RegistrationAccountSurface,
 } from '@/SeamsWeb/signingSurface/types';
 import type { WalletIframeCoordinator } from '@/SeamsWeb/walletIframe/coordinator';
+import type { WalletIframeExactSessionState } from '@/SeamsWeb/walletIframe/shared/exactSessionState';
 import { walletIframeUnlockRequestFromLoginHooks } from '@/SeamsWeb/walletIframe/shared/unlockOptions';
 import {
   resolveNearEd25519WalletUnlockSubject,
@@ -55,7 +56,7 @@ export type WalletAuthDomainDeps = {
   walletIframe: Pick<WalletIframeCoordinator, 'shouldUseWalletIframe' | 'requireRouter'>;
   signingEngine: WalletAuthSigningSurface;
   nearClient: NearClient;
-  initWalletIframe: (walletId?: string) => Promise<void>;
+  initWalletIframe: (walletId?: string) => Promise<WalletIframeExactSessionState>;
 };
 
 export type WalletLockDomainDeps = {
@@ -116,12 +117,7 @@ export async function unlockDomain(
         await options?.afterCall?.(false, undefined, unlockError);
         return result;
       }
-      // Best-effort warm-up after successful unlock (non-blocking).
-      void (async () => {
-        try {
-          await deps.initWalletIframe(resolvedWalletId);
-        } catch {}
-      })();
+      await deps.initWalletIframe(resolvedWalletId);
       await options?.afterCall?.(true, result);
       return result;
     } catch (error: unknown) {
@@ -155,10 +151,7 @@ export async function unlockDomain(
       nearClient: deps.nearClient,
     });
   }
-  // Best-effort warm-up after successful unlock (non-blocking).
-  try {
-    void deps.initWalletIframe(activatedWalletId || undefined);
-  } catch {}
+  await deps.initWalletIframe(activatedWalletId || undefined);
 
   return result;
 }

@@ -59,7 +59,9 @@ export type NearSigningSessionAuthContext = {
   walletId: string;
   nearAccountId: string;
   lane: NearTransactionSigningLane;
-  coordinatorInput: ResolveSigningSessionAuthPlanFromReadinessInput;
+  coordinatorInput: ResolveSigningSessionAuthPlanFromReadinessInput & {
+    forceFreshAuth: boolean;
+  };
 };
 
 export { SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR };
@@ -143,6 +145,7 @@ export async function resolveNearSigningSessionAuthContext(args: {
   warmSessionReader: NearWarmSessionReader;
   commandSubject: NearCommandSubject;
   operationLabel: string;
+  forceFreshAuth: boolean;
   requiredSignatureUses?: number;
 }): Promise<NearSigningSessionAuthContext> {
   const walletId = toWalletId(args.commandSubject.walletSession.walletId);
@@ -248,6 +251,7 @@ export async function resolveNearSigningSessionAuthContext(args: {
       expiresAtMs: readiness.expiresAtMs,
       remainingUses: readiness.remainingUses,
       usesNeeded: args.requiredSignatureUses,
+      forceFreshAuth: args.forceFreshAuth,
     },
   };
 }

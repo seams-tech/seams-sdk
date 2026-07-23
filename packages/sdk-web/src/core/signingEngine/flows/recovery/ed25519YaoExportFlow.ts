@@ -364,6 +364,7 @@ function buildWorkerPayload(args: {
       credentialIdB64u: args.resolved.laneIdentity.auth.credentialIdB64u,
       signingGrantId: String(args.resolved.laneIdentity.signingGrantId),
       thresholdSessionId: String(args.resolved.laneIdentity.thresholdSessionId),
+      activeStateSessionId: args.resolved.capability.scope.wallet_session_id,
     },
     capability: args.resolved.capability,
     variant: args.input.options.variant,

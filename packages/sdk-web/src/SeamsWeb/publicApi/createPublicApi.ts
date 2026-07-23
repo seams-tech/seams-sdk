@@ -16,6 +16,7 @@ import {
 } from '@/SeamsWeb/publicApi/recovery';
 import { createTempoSignerCapability } from '@/SeamsWeb/publicApi/tempo';
 import type { PreferencesChangedPayload } from '@/SeamsWeb/walletIframe/shared/messages';
+import type { WalletIframeExactSessionState } from '@/SeamsWeb/walletIframe/shared/exactSessionState';
 import type {
   AuthCapability,
   DevicesCapability,
@@ -43,7 +44,7 @@ type WalletIframeRoutingSurface = Pick<
 >;
 
 export interface WalletIframeControlCapability {
-  initWalletIframe(walletId?: string): Promise<void>;
+  initWalletIframe(walletId?: string): Promise<WalletIframeExactSessionState>;
   isWalletIframeReady(): boolean;
   onWalletIframeReady(listener: () => void): () => void;
   onWalletIframeLoginStatusChanged(
@@ -128,9 +129,8 @@ export function createPublicApi(deps: {
   const walletIframeRoutingSurface = createWalletIframeRoutingSurface(deps.getWalletIframe);
   return {
     walletIframeControls: {
-      initWalletIframe: async (walletId?: string): Promise<void> => {
-        await deps.getWalletIframe().init(walletId);
-      },
+      initWalletIframe: async (walletId?: string): Promise<WalletIframeExactSessionState> =>
+        await deps.getWalletIframe().init(walletId),
       isWalletIframeReady: (): boolean => deps.getWalletIframe().isReady(),
       onWalletIframeReady: (listener): (() => void) => deps.getWalletIframe().onReady(listener),
       onWalletIframeLoginStatusChanged: (listener): (() => void) =>

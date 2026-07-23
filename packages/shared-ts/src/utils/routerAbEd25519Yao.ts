@@ -89,6 +89,11 @@ export type RouterAbEd25519YaoExportAuthorizationV1 = {
   expires_at_ms: number;
 };
 
+export type RouterAbEd25519YaoExportFreshAuthorizationIdentityV1 = {
+  readonly thresholdSessionId: ThresholdEd25519SessionId;
+  readonly signingGrantId: SigningGrantId;
+};
+
 export type RouterAbEd25519YaoExportAdmissionRequestV1 = {
   scope: RouterAbEd25519YaoLifecycleScopeV1;
   application_binding: RouterAbEd25519YaoApplicationBindingFactsV1;
@@ -1784,3 +1789,4 @@ export function parseRouterAbEd25519YaoEncryptedPackageV1(
 function parseEncryptedPackageValue(value: unknown): RouterAbEd25519YaoEncryptedPackageV1 {
   return parseEncryptedPackage(value, 'encrypted_package');
 }
+import type { SigningGrantId, ThresholdEd25519SessionId } from './domainIds';

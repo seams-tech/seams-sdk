@@ -778,9 +778,9 @@ function laneCandidateStateFromRuntimePolicy(args: {
   expiresAtMs: number;
   nowMs?: number;
 }): LaneCandidateState {
-  if (args.remainingUses <= 0) return 'exhausted';
   const nowMs = Math.floor(Number(args.nowMs) || Date.now());
   if (args.expiresAtMs <= nowMs) return 'expired';
+  if (args.remainingUses <= 0) return 'exhausted';
   return 'ready';
 }
 

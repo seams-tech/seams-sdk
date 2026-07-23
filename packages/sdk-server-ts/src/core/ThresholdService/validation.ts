@@ -20,6 +20,10 @@ import {
   THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
   normalizeThresholdEd25519ParticipantIds,
 } from '@shared/threshold/participants';
+import {
+  MAX_WALLET_SESSION_REMAINING_USES,
+  MAX_WALLET_SESSION_TTL_MS,
+} from '@shared/threshold/sessionPolicy';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
@@ -68,6 +72,10 @@ function isNonNegativeInteger(v: unknown): v is number {
   return typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
 }
 
+function isPositiveIntegerAtMost(value: unknown, maximum: number): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 && value <= maximum;
+}
+
 function decodeFixedB64u(value: string, expectedLength: number): Uint8Array | null {
   try {
     const decoded = base64UrlDecode(value);
@@ -98,7 +106,10 @@ function parseEcdsaDerivationClientRootProof(
   value: unknown,
 ): EcdsaDerivationRoleLocalFirstBootstrapRootProof | null {
   if (!isObject(value)) return null;
-  if (toOptionalString(value.version) !== ECDSA_DERIVATION_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION) {
+  if (
+    toOptionalString(value.version) !==
+    ECDSA_DERIVATION_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION
+  ) {
     return null;
   }
   const clientRootPublicKey33B64u = parseSec1CompressedPublicKey33B64u(
@@ -528,7 +539,9 @@ export function parseEcdsaDerivationClientBootstrapRequest(
   const runtimePolicyScope =
     runtimePolicyScopeRaw === undefined ? null : parseRuntimePolicyScope(runtimePolicyScopeRaw);
   const clientRootProof =
-    raw.clientRootProof === undefined ? null : parseEcdsaDerivationClientRootProof(raw.clientRootProof);
+    raw.clientRootProof === undefined
+      ? null
+      : parseEcdsaDerivationClientRootProof(raw.clientRootProof);
   const passkeyBootstrapAuthorization =
     raw.passkeyBootstrapAuthorization === undefined
       ? null
@@ -547,8 +560,8 @@ export function parseEcdsaDerivationClientBootstrapRequest(
     !sessionId ||
     !signingGrantId ||
     !isNonNegativeInteger(clientShareRetryCounter) ||
-    !isNonNegativeInteger(ttlMs) ||
-    !isNonNegativeInteger(remainingUses) ||
+    !isPositiveIntegerAtMost(ttlMs, MAX_WALLET_SESSION_TTL_MS) ||
+    !isPositiveIntegerAtMost(remainingUses, MAX_WALLET_SESSION_REMAINING_USES) ||
     !participantIds ||
     (runtimePolicyScopeRaw !== undefined && !runtimePolicyScope) ||
     (raw.clientRootProof !== undefined && !clientRootProof) ||
@@ -661,7 +674,9 @@ export function parseWalletRegistrationEcdsaClientBootstrap(
   };
 }
 
-export function parseEcdsaDerivationExportShareRequest(raw: unknown): EcdsaDerivationExportShareRequest | null {
+export function parseEcdsaDerivationExportShareRequest(
+  raw: unknown,
+): EcdsaDerivationExportShareRequest | null {
   if (!isObject(raw)) return null;
   if (hasForbiddenFields(raw, ECDSA_DERIVATION_EXPORT_REQUEST_FORBIDDEN_FIELDS)) return null;
   if (toOptionalString(raw.formatVersion) !== 'ecdsa-derivation-role-local-export') return null;
@@ -716,7 +731,9 @@ export function parseEcdsaDerivationExportShareRequest(raw: unknown): EcdsaDeriv
   };
 }
 
-export function parseEcdsaDerivationRoleLocalKeyRecord(raw: unknown): EcdsaDerivationRoleLocalKeyRecord | null {
+export function parseEcdsaDerivationRoleLocalKeyRecord(
+  raw: unknown,
+): EcdsaDerivationRoleLocalKeyRecord | null {
   if (!isObject(raw)) return null;
   if (!hasExactFields(raw, ECDSA_DERIVATION_ROLE_LOCAL_KEY_RECORD_FIELDS)) return null;
   if (toOptionalString(raw.version) !== 'threshold_ecdsa_derivation_role_local_v2') return null;
@@ -1528,7 +1545,10 @@ export function parseRouterAbEcdsaDerivationPoolFillSessionRecord(
   if (!isValidNumber(expiresAtMs) || !isValidNumber(createdAtMs) || !isValidNumber(updatedAtMs)) {
     return null;
   }
-  const poolFill = parseRouterAbEcdsaDerivationPoolFillSessionDestination(raw.poolFill, expiresAtMs);
+  const poolFill = parseRouterAbEcdsaDerivationPoolFillSessionDestination(
+    raw.poolFill,
+    expiresAtMs,
+  );
   if (
     !walletId ||
     !evmFamilySigningKeySlotId ||
@@ -1965,7 +1985,9 @@ export function parseRouterAbEcdsaDerivationWalletSessionClaims(
 
   let normalSigning: RouterAbEcdsaDerivationNormalSigningStateV1 | null = null;
   try {
-    normalSigning = parseRouterAbEcdsaDerivationNormalSigningStateV1(raw.routerAbEcdsaDerivationNormalSigning);
+    normalSigning = parseRouterAbEcdsaDerivationNormalSigningStateV1(
+      raw.routerAbEcdsaDerivationNormalSigning,
+    );
   } catch {
     return null;
   }

@@ -120,7 +120,7 @@ export type NearSigningApiDeps = {
     nearAccountId: AccountId;
     authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ed25519' }>;
   }) => Promise<EmailOtpTransactionSigningChallenge>;
-  recoverEmailOtpEd25519CapabilityForSigning?: (args: {
+  rehydrateEmailOtpEd25519CapabilityForSigning?: (args: {
     nearAccountId: AccountId;
     record: ThresholdEd25519SessionRecord;
     committedLane: Ed25519SigningLane;

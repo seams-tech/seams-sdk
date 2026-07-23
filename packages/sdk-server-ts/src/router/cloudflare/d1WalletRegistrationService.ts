@@ -1140,7 +1140,6 @@ export class CloudflareD1WalletRegistrationService {
         (authorization.kind === 'verified_email_otp_router_ab_ed25519_yao_budget_refresh_v1' &&
           signer.signerSlot !== authorization.signerSlot) ||
         signer.signingWorkerId !== yaoRuntime.signingWorkerId ||
-        signer.thresholdSessionId !== policy.thresholdSessionId ||
         alphabetizeStringify(signer.participantIds) !== alphabetizeStringify(exactParticipantIds) ||
         signer.signingRootId !== signingRoot.signingRootId ||
         signer.signingRootVersion !== signingRootVersion ||
