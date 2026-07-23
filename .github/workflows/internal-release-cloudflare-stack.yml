@@ -1,19 +1,12 @@
-name: build-release
+name: INTERNAL / release / cloudflare-stack
 
 on:
-  workflow_run:
-    workflows: ['ci']
-    types: [completed]
-    branches: [dev, main]
-  workflow_dispatch:
+  workflow_call:
     inputs:
       target:
         description: Release target
         required: true
-        type: choice
-        options:
-          - staging
-          - production
+        type: string
       source_sha:
         description: Exact protected-branch source SHA
         required: true
@@ -22,17 +15,13 @@ on:
         description: Accepted validation workflow run ID
         required: true
         type: string
-      change_base_sha:
-        description: Base SHA for a manually accepted multi-commit change range
-        required: true
-        type: string
 
 permissions:
   actions: read
   contents: read
 
 concurrency:
-  group: release-build-${{ inputs.target || (github.event.workflow_run.head_branch == 'main' && 'production' || 'staging') }}-${{ inputs.source_sha || github.event.workflow_run.head_sha }}
+  group: release-${{ inputs.target }}-${{ inputs.source_sha }}
   cancel-in-progress: false
 
 env:
@@ -41,12 +30,6 @@ env:
 jobs:
   prepare:
     name: Select accepted release
-    if: >-
-      ${{
-        github.event_name == 'workflow_dispatch' ||
-        (github.event.workflow_run.conclusion == 'success' &&
-        github.event.workflow_run.event == 'push')
-      }}
     runs-on: ubuntu-latest
     outputs:
       target: ${{ steps.release.outputs.target }}
@@ -59,7 +42,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: ${{ inputs.source_sha || github.event.workflow_run.head_sha }}
+          ref: ${{ inputs.source_sha }}
 
       - name: Resolve release identity
         id: release
@@ -67,29 +50,16 @@ jobs:
           INPUT_TARGET: ${{ inputs.target }}
           INPUT_SOURCE_SHA: ${{ inputs.source_sha }}
           INPUT_VALIDATION_RUN_ID: ${{ inputs.validation_run_id }}
-          INPUT_CHANGE_BASE_SHA: ${{ inputs.change_base_sha }}
-          WORKFLOW_BRANCH: ${{ github.event.workflow_run.head_branch }}
-          WORKFLOW_SHA: ${{ github.event.workflow_run.head_sha }}
-          WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
+          EXPECTED_BRANCH: ${{ inputs.target == 'production' && 'main' || 'dev' }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           target="$INPUT_TARGET"
           source_sha="$INPUT_SOURCE_SHA"
-          source_branch="$WORKFLOW_BRANCH"
+          source_branch="$EXPECTED_BRANCH"
           validation_run_id="$INPUT_VALIDATION_RUN_ID"
-          if [[ -z "$target" ]]; then
-            [[ "$source_branch" == 'dev' || "$source_branch" == 'main' ]] || {
-              echo '::error title=Unsupported release branch::Only dev and main can produce releases'
-              exit 1
-            }
-            target="$([[ "$source_branch" == 'main' ]] && echo production || echo staging)"
-          fi
-          if [[ -z "$source_sha" ]]; then source_sha="$WORKFLOW_SHA"; fi
-          if [[ -z "$validation_run_id" ]]; then validation_run_id="$WORKFLOW_RUN_ID"; fi
-          expected_branch="$([[ "$target" == 'production' ]] && echo main || echo dev)"
-          [[ "$source_branch" == "$expected_branch" || -z "$source_branch" ]] || {
-            echo "::error title=Invalid release mapping::$target requires $expected_branch"
+          [[ "$target" == 'staging' || "$target" == 'production' ]] || {
+            echo '::error title=Unsupported release target::Only staging and production are supported'
             exit 1
           }
           [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]] || {
@@ -104,48 +74,42 @@ jobs:
           validation_sha="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$validation_run_id" --jq '.head_sha')"
           validation_branch="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$validation_run_id" --jq '.head_branch')"
           validation_conclusion="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$validation_run_id" --jq '.conclusion')"
-          [[ "$validation_name" == 'ci' ]] || {
-            echo "::error title=Invalid validation workflow::Run $validation_run_id is not a ci run"
+          [[ "$validation_name" == 'Validate / repository' ]] || {
+            echo "::error title=Invalid validation workflow::Run $validation_run_id is not a Validate / repository run"
             exit 1
           }
           [[ "$validation_sha" == "$source_sha" ]] || {
             echo "::error title=Validation SHA mismatch::Run $validation_run_id tested $validation_sha, expected $source_sha"
             exit 1
           }
-          [[ "$validation_branch" == "$expected_branch" ]] || {
-            echo "::error title=Validation branch mismatch::Run $validation_run_id belongs to $validation_branch, expected $expected_branch"
+          [[ "$validation_branch" == "$source_branch" ]] || {
+            echo "::error title=Validation branch mismatch::Run $validation_run_id belongs to $validation_branch, expected $source_branch"
             exit 1
           }
+          if [[ "$target" == 'production' && "$GITHUB_REF" != 'refs/heads/main' ]]; then
+            echo "::error title=Untrusted production workflow authority::Production release workflows must execute from refs/heads/main"
+            exit 1
+          fi
           [[ "$validation_conclusion" == 'success' ]] || {
             echo "::error title=Validation run did not succeed::Run $validation_run_id concluded $validation_conclusion"
             exit 1
           }
-          if [[ "${{ github.event_name }}" == 'workflow_dispatch' ]]; then
-            [[ "$INPUT_CHANGE_BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || {
-              echo '::error title=Invalid change baseline::Manual releases require a full lowercase Git base SHA'
-              exit 1
-            }
-            git merge-base --is-ancestor "$INPUT_CHANGE_BASE_SHA" "$source_sha" || {
-              echo '::error title=Invalid change baseline::The manual change base must be an ancestor of the source SHA'
-              exit 1
-            }
-            git fetch origin "refs/heads/$expected_branch:refs/remotes/origin/$expected_branch"
-            branch_tip="$(git rev-parse "refs/remotes/origin/$expected_branch")"
-            [[ "$source_sha" == "$branch_tip" ]] || {
-              echo "::error title=Manual release SHA is not the branch tip::$source_sha is not the current $expected_branch tip"
-              exit 1
-            }
-          fi
+          git fetch origin "refs/heads/$source_branch:refs/remotes/origin/$source_branch"
+          branch_tip="$(git rev-parse "refs/remotes/origin/$source_branch")"
+          [[ "$source_sha" == "$branch_tip" ]] || {
+            echo "::error title=Release SHA is not the branch tip::$source_sha is not the current $source_branch tip"
+            exit 1
+          }
           {
             echo "target=$target"
             echo "source_sha=$source_sha"
-            echo "source_branch=$expected_branch"
+            echo "source_branch=$source_branch"
             echo "validation_run_id=$validation_run_id"
-            echo "change_base_sha=$INPUT_CHANGE_BASE_SHA"
+            echo 'change_base_sha='
           } >> "$GITHUB_OUTPUT"
 
   build_router:
-    name: Build Router A/B artifacts
+    name: Build / ${{ needs.prepare.outputs.target }} / cloudflare-router-ab
     needs:
       - prepare
       - select_components
@@ -282,7 +246,6 @@ jobs:
           ref: ${{ needs.prepare.outputs.source_sha }}
 
       - name: Download pushed change range
-        if: github.event_name != 'workflow_dispatch'
         uses: actions/download-artifact@v8
         with:
           name: release-change-set
@@ -295,16 +258,11 @@ jobs:
         id: select
         env:
           SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
-          CHANGE_BASE_SHA: ${{ needs.prepare.outputs.change_base_sha }}
         run: |
           set -euo pipefail
-          if [[ "${{ github.event_name }}" == 'workflow_dispatch' ]]; then
-            git diff --name-only "$CHANGE_BASE_SHA" "$SOURCE_SHA" > "$RUNNER_TEMP/changed-files.txt"
-          else
-            test "$(<.release-change-set/source-sha.txt)" = "$SOURCE_SHA"
-            test -s .release-change-set/changed-files.txt
-            cp .release-change-set/changed-files.txt "$RUNNER_TEMP/changed-files.txt"
-          fi
+          test "$(<.release-change-set/source-sha.txt)" = "$SOURCE_SHA"
+          test -s .release-change-set/changed-files.txt
+          cp .release-change-set/changed-files.txt "$RUNNER_TEMP/changed-files.txt"
           components="$(node scripts/deployment-components.mjs select --files-file "$RUNNER_TEMP/changed-files.txt")"
           echo "components=$components" >> "$GITHUB_OUTPUT"
           {
@@ -315,7 +273,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   build_gateway:
-    name: Build Gateway artifact
+    name: Build / ${{ needs.prepare.outputs.target }} / cloudflare-gateway
     needs:
       - prepare
       - select_components
@@ -323,7 +281,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     environment:
-      name: ${{ needs.prepare.outputs.target }}
+      name: ${{ format('{0}-gateway', needs.prepare.outputs.target) }}
     env:
       GATEWAY_DEPLOYMENT_CONFIG_JSON: ${{ vars.GATEWAY_DEPLOYMENT_CONFIG_JSON }}
       RELAYER_PRIVATE_KEY: ${{ secrets.RELAYER_PRIVATE_KEY }}
@@ -408,7 +366,7 @@ jobs:
           compression-level: 0
 
   build_pages:
-    name: Build Pages artifact
+    name: Build / ${{ needs.prepare.outputs.target }} / cloudflare-pages
     needs:
       - prepare
       - select_components
@@ -510,7 +468,7 @@ jobs:
             --metadata-json "$build_metadata"
           mkdir -p .release-artifacts/signer-iframe
           node scripts/deployment-artifact.mjs create \
-            --kind sdk-r2 \
+            --kind signer-iframe \
             --target "$DEPLOY_TARGET" \
             --sha "$DEPLOY_SHA" \
             --root packages/sdk-web/dist/public/wallet-service \
@@ -606,7 +564,7 @@ jobs:
             ['signing-worker', 'signing-worker', 'signing-worker.json'],
             ['gateway', 'gateway-wasm', 'manifest.json'],
             ['site', 'pages', 'manifest.json'],
-            ['signer-iframe', 'sdk-r2', 'manifest.json'],
+            ['signer-iframe', 'signer-iframe', 'manifest.json'],
           ].filter(([name]) => selectedComponents.has(name));
           async function findManifest(directory, name) {
             const candidates = [
@@ -643,7 +601,7 @@ jobs:
           }, null, 2)}\n`);
           await writeFile('.release-build-identity.json', `${JSON.stringify({
             node: process.version,
-            workflow: 'build-release',
+            workflow: 'internal-release-cloudflare-stack',
             sourceSha,
             target,
             selectedComponents: JSON.parse(process.env.SELECTED_COMPONENTS),
@@ -694,7 +652,7 @@ jobs:
     needs:
       - prepare
       - create_release_set
-    uses: ./.github/workflows/deploy-router-ab.yml
+    uses: ./.github/workflows/internal-deploy-cloudflare-stack.yml
     with:
       target: ${{ needs.prepare.outputs.target }}
       deploy_sha: ${{ needs.prepare.outputs.source_sha }}
@@ -702,4 +660,3 @@ jobs:
       release_set_id: ${{ needs.create_release_set.outputs.release_set_id }}
       source_branch: ${{ needs.prepare.outputs.source_branch }}
       enforce_current_branch: true
-    secrets: inherit

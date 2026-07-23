@@ -1,9 +1,9 @@
-name: validate-router-ab
+name: Validate / cloudflare-router-ab
 
 on:
   pull_request:
     paths:
-      - '.github/workflows/validate-router-ab.yml'
+      - '.github/workflows/validate-cloudflare-router-ab.yml'
       - 'crates/router-ab-core/**'
       - 'crates/router-ab-cloudflare/**'
       - 'crates/router-ab-dev/**'
@@ -17,7 +17,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: validate-router-ab-${{ github.workflow }}-${{ github.ref }}
+  group: validate-cloudflare-router-ab-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:

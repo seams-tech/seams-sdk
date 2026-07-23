@@ -39,7 +39,7 @@ const cloudflareRuntimeRoots = [
     ...listTypeScriptFiles('packages/sdk-server-ts/src/router/cloudflare'),
 ].filter(isRuntimeSourceFile);
 const routerAbLocalDevScriptRoot = 'crates/router-ab-dev/scripts';
-const ciWorkflowPath = '.github/workflows/ci.yml';
+const ciWorkflowPath = '.github/workflows/validate-repository.yml';
 const gitignorePath = '.gitignore';
 const refactor82PlanPath = 'docs/refactor-82-cloudflare-D1-migration.md';
 const sdkServerReadmePath = 'packages/console-server-ts/README.md';

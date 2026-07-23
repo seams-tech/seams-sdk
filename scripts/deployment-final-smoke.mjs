@@ -3,6 +3,7 @@
 import { readFile } from 'node:fs/promises';
 
 const options = parseOptions(process.argv.slice(2));
+const ROUTER_COMPONENTS = ['router', 'deriver-a', 'deriver-b', 'signing-worker'];
 
 await main().catch((error) => {
   process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
@@ -36,10 +37,20 @@ async function main() {
         '/router-ab/ecdsa-derivation/healthz',
       ]),
     );
+  } else if (selectedComponents.some((component) => ROUTER_COMPONENTS.includes(component))) {
+    checks.push(
+      ...buildChecks(requireOption('gateway-origin'), [
+        '/router-ab/ed25519/healthz',
+        '/router-ab/ecdsa-derivation/healthz',
+      ]),
+    );
   }
   if (selectedComponents.includes('site') || selectedComponents.includes('signer-iframe')) {
     checks.push(...buildChecks(requireOption('site-origin'), ['/', '/sdk/']));
     checks.push(...buildChecks(requireOption('wallet-origin'), ['/', '/wallet-service/']));
+  }
+  if (checks.length === 0) {
+    throw new Error('final smoke has no runtime checks for the selected components');
   }
   const results = await Promise.all(checks.map(runCheck));
   const failed = results.filter((result) => !result.ok);

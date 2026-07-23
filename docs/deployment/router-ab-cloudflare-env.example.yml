@@ -7,15 +7,9 @@
 version: 1
 
 github_actions:
-  staging_workflow: .github/workflows/deploy-staging.yml
-  production_workflow: .github/workflows/deploy-production.yml
-  shared_workflow: .github/workflows/deploy-router-ab.yml
-  dispatch_roles:
-    - all
-    - router
-    - deriver-a
-    - deriver-b
-    - signing-worker
+  staging_workflow: .github/workflows/deploy-staging-cloudflare-stack.yml
+  production_workflow: .github/workflows/deploy-production-cloudflare-stack.yml
+  shared_workflow: .github/workflows/internal-deploy-cloudflare-stack.yml
   deploy_order:
     - signing-worker
     - deriver-a
@@ -168,7 +162,13 @@ cloudflare_workers:
 workflow_commands:
   keygen_staging: 'pnpm router:deploy:keygen -- --env staging'
   keygen_apply_staging: 'pnpm router:deploy:keygen -- --env staging --apply'
-  validate_staging: 'gh workflow run deploy-router-ab.yml --ref dev -f target=staging -f operation=validate -f role=all'
-  upload_staging: 'gh workflow run deploy-router-ab.yml --ref dev -f target=staging -f operation=upload-version -f role=all'
-  deploy_staging: 'gh workflow run deploy-router-ab.yml --ref dev -f target=staging -f operation=deploy -f role=all'
-  deploy_production: 'gh workflow run deploy-router-ab.yml --ref main -f target=production -f operation=deploy -f role=all'
+  deploy_staging: >-
+    gh workflow run 'Deploy / staging / cloudflare-stack' --ref dev
+    -f source_sha=<accepted-dev-sha>
+    -f artifact_run_id=<accepted-artifact-run-id>
+    -f release_set_id=<accepted-release-set-id>
+  deploy_production: >-
+    gh workflow run 'Deploy / production / cloudflare-stack' --ref main
+    -f source_sha=<accepted-main-sha>
+    -f artifact_run_id=<accepted-artifact-run-id>
+    -f release_set_id=<accepted-release-set-id>

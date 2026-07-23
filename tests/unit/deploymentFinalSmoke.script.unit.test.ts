@@ -20,7 +20,7 @@ type SmokeOptions = {
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const smokeScript = path.join(repoRoot, 'scripts/deployment-final-smoke.mjs');
 
-test('final smoke accepts a manifest-only check for a role-only release', () => {
+test('final smoke requires a live Router origin for a role-only release', () => {
   const root = mkdtempSync(path.join(os.tmpdir(), 'seams-deployment-smoke-'));
   try {
     const manifestPath = path.join(root, 'manifest.json');
@@ -30,13 +30,12 @@ test('final smoke accepts a manifest-only check for a role-only release', () => 
     };
     writeFileSync(manifestPath, `${JSON.stringify(manifest)}\n`, 'utf8');
 
-    const output = runSmoke(manifestPath, {
-      selectedComponents: '["deriver-a"]',
-      releaseSetId: manifest.releaseSetId,
-    });
-
-    expect(output).toContain(`"releaseSetId":"${manifest.releaseSetId}"`);
-    expect(output).toContain('"results":[]');
+    expect(() =>
+      runSmoke(manifestPath, {
+        selectedComponents: '["deriver-a"]',
+        releaseSetId: manifest.releaseSetId,
+      }),
+    ).toThrow();
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

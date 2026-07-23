@@ -1,4 +1,4 @@
-name: deploy-pages
+name: INTERNAL / deploy / cloudflare-pages
 
 on:
   workflow_call:
@@ -45,7 +45,7 @@ env:
 
 jobs:
   deploy_app:
-    name: Deploy app Pages
+    name: Deploy / ${{ inputs.deploy_environment }} / cloudflare-pages / app
     if: inputs.target == 'all' || inputs.target == 'app'
     runs-on: ubuntu-latest
     timeout-minutes: 8
@@ -163,7 +163,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   deploy_wallet:
-    name: Deploy wallet Pages
+    name: Deploy / ${{ inputs.deploy_environment }} / cloudflare-pages / wallet
     if: inputs.target == 'all' || inputs.target == 'wallet'
     runs-on: ubuntu-latest
     timeout-minutes: 8

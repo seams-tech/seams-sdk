@@ -2,7 +2,12 @@
 
 Date created: July 23, 2026
 
-Status: planned
+Status: implementation complete; staging measurement pending
+
+Implementation status: the browser SDK concurrency, timing-schema, selective
+Email OTP Yao prewarm, worker cache, and focused failure-ordering tests are
+implemented. Phase 0 benchmark collection and Phase 5 artifact deployment
+remain operational follow-up work.
 
 ## Objective
 
@@ -145,17 +150,17 @@ overlap from serialization.
 
 Implementation requirements:
 
-- [ ] Return validated timing details through the worker response boundary.
+- [x] Return validated timing details through the worker response boundary.
       Worker internals must not mutate the registration recorder directly.
-- [ ] Model Ed25519 diagnostics as a discriminated union with required fields
+- [x] Model Ed25519 diagnostics as a discriminated union with required fields
       for the enabled branch and `never` fields for the disabled branch.
-- [ ] Replace `registration_timing_summary_v1` if the wire shape changes and
+- [x] Replace `registration_timing_summary_v1` if the wire shape changes and
       remove the old producer and parser in the same change. Do not retain dual
       diagnostic schemas.
-- [ ] Calculate measured coverage from the union of recorded time spans.
+- [x] Calculate measured coverage from the union of recorded time spans.
       Summing overlapping task durations must not hide unattributed gaps.
-- [ ] Keep diagnostics opt-in and privacy-safe.
-- [ ] Remove or replace literal source-guard assertions that merely duplicate
+- [x] Keep diagnostics opt-in and privacy-safe.
+- [x] Remove or replace literal source-guard assertions that merely duplicate
       the timing field list. Behavioral and type-level assertions own the new
       schema.
 
@@ -187,24 +192,24 @@ concurrent branch cannot produce an unhandled rejection.
 
 Implementation steps:
 
-- [ ] Make the Email OTP Yao starter return a running
+- [x] Make the Email OTP Yao starter return a running
       `RegistrationYaoWork` immediately after registration start.
-- [ ] Keep enrollment material and recovery-code backup work starting as early
+- [x] Keep enrollment material and recovery-code backup work starting as early
       as they do today.
-- [ ] Start the strict Router A/B ECDSA threshold-PRF derivation ceremony
+- [x] Start the strict Router A/B ECDSA threshold-PRF derivation ceremony
       (`runStrictEcdsaFamilyCeremony(...)`) immediately after the Email OTP Yao
       task is created.
-- [ ] Join Yao and ECDSA before building the finalize request.
-- [ ] Keep Yao activation references and ECDSA expected key handles in the same
+- [x] Join Yao and ECDSA before building the finalize request.
+- [x] Keep Yao activation references and ECDSA expected key handles in the same
       finalize request.
-- [ ] Generalize `dispose()` across passkey and Email OTP running states. It
+- [x] Generalize `dispose()` across passkey and Email OTP running states. It
       must settle or cancel owned work and dispose a produced pending
       capability exactly once.
-- [ ] Preserve fail-closed behavior when either branch fails. Finalization must
+- [x] Preserve fail-closed behavior when either branch fails. Finalization must
       remain unreachable.
-- [ ] Use the same task lifecycle in Ed25519-only Email OTP registration even
+- [x] Use the same task lifecycle in Ed25519-only Email OTP registration even
       though that path has no ECDSA overlap.
-- [ ] Remove the obsolete synchronous Email OTP Yao construction path after the
+- [x] Remove the obsolete synchronous Email OTP Yao construction path after the
       new lifecycle is in place.
 
 Acceptance:
@@ -233,17 +238,17 @@ method and signer set. An Email OTP request that includes Ed25519 should:
 
 Implementation requirements:
 
-- [ ] Start this prewarm as soon as the Google registration offer and selected
+- [x] Start this prewarm as soon as the Google registration offer and selected
       signer set are known, while the wallet-name UI is visible.
-- [ ] Run generic signer, confirmation-UI, Email OTP worker, and Yao module
+- [x] Run generic signer, confirmation-UI, Email OTP worker, and Yao module
       prewarming concurrently.
-- [ ] Keep prewarm idempotent and best effort. A prewarm failure must be
+- [x] Keep prewarm idempotent and best effort. A prewarm failure must be
       measured and retried by the real operation.
-- [ ] Do not create factor roots, pending registrations, Router admissions, or
+- [x] Do not create factor roots, pending registrations, Router admissions, or
       durable records during prewarm.
-- [ ] Include Email OTP worker and Yao WASM prewarm durations in registration
+- [x] Include Email OTP worker and Yao WASM prewarm durations in registration
       diagnostics.
-- [ ] Avoid prewarming Yao for ECDSA-only registration.
+- [x] Avoid prewarming Yao for ECDSA-only registration.
 
 Acceptance:
 
@@ -263,7 +268,7 @@ coverage.
 
 Add or update:
 
-- [ ] `tests/unit/addWalletSigner.orchestration.unit.test.ts`
+- [x] `tests/unit/addWalletSigner.orchestration.unit.test.ts`
       - Email OTP mixed Yao/ECDSA overlap;
       - finalize join ordering;
       - both branch-failure orderings;

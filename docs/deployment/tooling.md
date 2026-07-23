@@ -42,7 +42,7 @@ manifests under `~/.seams/backups`:
 
 - `wallet-core`: Gateway, MPCRouter, Deriver A, Deriver B, and SigningWorker.
 - `product`: the base `staging` or `production` environment used by Pages and
-  SDK publication.
+  SDK runtime deployment.
 
 Both files carry the same generation ID, timestamp, and complete-manifest
 SHA-256. The product manifest contains the public wallet-core handoff values it
@@ -71,7 +71,7 @@ install -m 600 \
 
 Set `CLOUDFLARE_API_TOKEN`. Add a funded NEAR account and private key only when
 NEAR gas sponsorship is required. EVM sponsorship, Google OIDC, custom domains,
-and R2 publication are also optional. The generator resolves supplied values in
+and R2 backup configuration are also optional. The generator resolves supplied values in
 this order:
 
 1. GitHub Environment-specific names such as
@@ -153,7 +153,7 @@ pnpm wallet-core:deploy:env-prepare -- \
   --tenant-namespace staging
 ```
 
-Cloudflare R2 access keys, funded NEAR relayer keys, funded EVM executor keys,
+funded NEAR relayer keys, funded EVM executor keys,
 and OAuth credentials are externally owned and cannot be generated safely by
 this repository. Keep them in the same protected target file as the Cloudflare
 deployment credentials.
@@ -198,7 +198,7 @@ file, then apply both components. The wallet-core update replaces the signer
 origin in the Gateway CORS and publishable-key allowlists; the product update
 updates the browser build variables.
 
-Update product-owned Pages, browser network, and R2 values independently:
+Update product-owned Pages and browser network values independently:
 
 ```bash
 pnpm product:deploy:env-update -- \
@@ -220,7 +220,6 @@ external values:
 - NEAR relayer identity and private key.
 - Optional Google OIDC configuration.
 - Tempo and Arc browser endpoint overrides.
-- R2 publication credentials.
 - Sponsored EVM executor configuration.
 
 It validates the deployed `GATEWAY_DEPLOYMENT_CONFIG_JSON` before patching
@@ -233,8 +232,7 @@ The product updater can reach only the base Pages/SDK environment. Run both
 commands when rotating a Cloudflare token shared by both ownership groups.
 
 Frontend variable changes take effect on the next Pages deployment. Gateway
-integration changes take effect on the next Gateway deployment. R2 credentials
-are consumed by the next SDK publication workflow.
+integration changes take effect on the next Gateway deployment.
 
 The current checkout determines the GitHub repository. When targeting another
 repository, pass its actual name, for example
@@ -378,12 +376,12 @@ credentials. It is used by the release workflow for startup evidence.
 The normal deployment path is branch-driven:
 
 ```bash
-git push origin dev   # staging
-git push origin main  # production
+git push origin dev  # staging
 ```
 
-The successful CI workflow invokes the matching deployment workflow. For a
-manual deployment, use the workflow dispatch commands documented in
+Production starts when an accepted pull request is merged into protected
+`main`. The successful CI workflow invokes the matching deployment workflow.
+For a manual deployment, use the workflow dispatch commands documented in
 [README.md](README.md#normal-promotion).
 
 The deployment order is:
@@ -392,7 +390,6 @@ The deployment order is:
    MPCRouter.
 2. Apply Gateway D1 migrations and deploy the Gateway Worker.
 3. Deploy the Pages app and wallet surfaces.
-4. Publish the SDK runtime bundle to R2.
 
 Do not deploy a Gateway that references a different Router A/B identity set.
 Generate and apply the target manifest before starting the release workflow.

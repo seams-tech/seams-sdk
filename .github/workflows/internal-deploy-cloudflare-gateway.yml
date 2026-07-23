@@ -1,4 +1,4 @@
-name: deploy-gateway
+name: INTERNAL / deploy / cloudflare-gateway
 
 on:
   workflow_call:
@@ -37,7 +37,7 @@ env:
 
 jobs:
   deploy:
-    name: Deploy Gateway and D1
+    name: Deploy / ${{ inputs.target }} / cloudflare-gateway
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
