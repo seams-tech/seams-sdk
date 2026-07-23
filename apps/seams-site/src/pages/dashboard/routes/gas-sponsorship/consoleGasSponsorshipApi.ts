@@ -1,5 +1,6 @@
 import {
   createDashboardPolicy,
+  deleteDashboardPolicy,
   listDashboardPolicies,
   publishCurrentDashboardRuntimeSnapshot,
   publishDashboardPolicy,
@@ -343,4 +344,41 @@ export async function updateDashboardGasSponsorshipPolicy(
   const published = await publishDashboardPolicy({ policyId: updated.id });
   await republishRuntimeSnapshotForScope(input);
   return await getDashboardGasSponsorshipPolicyById(published.id);
+}
+
+/**
+ * Enables/disables a policy by flipping only the `enabled` flag while preserving
+ * every other rule. A naive `updateDashboardGasSponsorshipPolicy(id, { enabled })`
+ * would replace the whole rules object with `{ enabled }`, wiping the policy's
+ * kind/scope/allowed actions so it decodes as invalid and vanishes from the list.
+ */
+export async function setDashboardGasSponsorshipPolicyEnabled(
+  policyIdRaw: string,
+  enabled: boolean,
+): Promise<DashboardGasSponsorshipPolicy> {
+  const policyId = normalizeString(policyIdRaw);
+  if (!policyId) throw new Error('Gas sponsorship policy id is required');
+  const existing = (await listDashboardPolicies()).find((entry) => entry.id === policyId);
+  if (!existing) throw new Error(`Gas sponsorship policy ${policyId} was not found`);
+  const rules = { ...readObject(existing.rules), enabled };
+  const updated = await updateDashboardPolicy({ policyId, rules });
+  const published = await publishDashboardPolicy({ policyId: updated.id });
+  await republishRuntimeSnapshotForScope(rules);
+  return await getDashboardGasSponsorshipPolicyById(published.id);
+}
+
+/**
+ * Deletes a gas-sponsorship policy and republishes the environment runtime
+ * snapshot so the relayer stops honoring it immediately.
+ */
+export async function deleteDashboardGasSponsorshipPolicy(policyIdRaw: string): Promise<void> {
+  const policyId = normalizeString(policyIdRaw);
+  if (!policyId) throw new Error('Gas sponsorship policy id is required');
+  const existing = (await listDashboardPolicies()).find((entry) => entry.id === policyId);
+  await deleteDashboardPolicy({ policyId });
+  if (existing) {
+    // Snapshot is resolved from the remaining policies, so this drops the
+    // deleted policy from what the relayer sees.
+    await republishRuntimeSnapshotForScope(readObject(existing.rules));
+  }
 }

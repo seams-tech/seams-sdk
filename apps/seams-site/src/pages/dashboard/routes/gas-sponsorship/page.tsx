@@ -36,7 +36,9 @@ import {
 } from '../billing/consoleBillingApi';
 import {
   createDashboardGasSponsorshipPolicy,
+  deleteDashboardGasSponsorshipPolicy,
   listDashboardGasSponsorshipPolicies,
+  setDashboardGasSponsorshipPolicyEnabled,
   updateDashboardGasSponsorshipPolicy,
   type DashboardGasSponsorshipAllowedCall,
   type DashboardGasSponsorshipAllowedDelegateAction,
@@ -1209,37 +1211,36 @@ export function GasSponsorshipPage(): React.JSX.Element {
     };
   }, [session.claims, session.errorMessage]);
 
-  const loadGasPolicies = React.useCallback(() => {
+  // Awaitable so mutation handlers can `await loadGasPolicies()` and have the
+  // list reflect the change before they finish; a monotonic request id ensures
+  // only the newest refresh applies (rapid env switches / back-to-back saves).
+  const loadRequestRef = React.useRef(0);
+  const loadGasPolicies = React.useCallback(async (): Promise<void> => {
     if (!session.claims) {
       setLoading(false);
       setErrorMessage(session.errorMessage || 'Console session is unavailable');
       setGasPolicies([]);
       return;
     }
+    const requestId = loadRequestRef.current + 1;
+    loadRequestRef.current = requestId;
     const query = {
       ...(selectedProjectId ? { projectId: selectedProjectId } : {}),
       ...(selectedEnvironmentId ? { environmentId: selectedEnvironmentId } : {}),
     };
-    let cancelled = false;
     setLoading(true);
     setErrorMessage('');
-    listDashboardGasSponsorshipPolicies(query)
-      .then((rows) => {
-        if (cancelled) return;
-        setGasPolicies([...rows].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        setGasPolicies([]);
-        setErrorMessage(error instanceof Error ? error.message : String(error));
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+    try {
+      const rows = await listDashboardGasSponsorshipPolicies(query);
+      if (loadRequestRef.current !== requestId) return;
+      setGasPolicies([...rows].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
+    } catch (error: unknown) {
+      if (loadRequestRef.current !== requestId) return;
+      setGasPolicies([]);
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      if (loadRequestRef.current === requestId) setLoading(false);
+    }
   }, [selectedEnvironmentId, selectedProjectId, session.claims, session.errorMessage]);
 
   React.useEffect(() => {
@@ -1247,8 +1248,7 @@ export function GasSponsorshipPage(): React.JSX.Element {
       setLoading(true);
       return;
     }
-    const cleanup = loadGasPolicies();
-    return cleanup;
+    void loadGasPolicies();
   }, [loadGasPolicies, session.loading]);
 
   React.useEffect(() => {
@@ -1578,13 +1578,43 @@ export function GasSponsorshipPage(): React.JSX.Element {
       setMutationError('');
       setMutationNotice('');
       try {
-        await updateDashboardGasSponsorshipPolicy(policy.id, {
-          enabled: !policy.enabled,
-        });
+        await setDashboardGasSponsorshipPolicyEnabled(policy.id, !policy.enabled);
         await loadGasPolicies();
         setMutationNotice(
           `${policy.name || policy.id} ${policy.enabled ? 'disabled' : 'enabled'}.`,
         );
+      } catch (error: unknown) {
+        setMutationError(error instanceof Error ? error.message : String(error));
+      } finally {
+        setMutating(false);
+      }
+    },
+    [canMutatePolicy, loadGasPolicies, session.claims, session.errorMessage],
+  );
+
+  const onDeletePolicy = React.useCallback(
+    async (policy: DashboardGasSponsorshipPolicy) => {
+      if (!session.claims) {
+        setMutationError(session.errorMessage || 'Console session is unavailable');
+        return;
+      }
+      if (!canMutatePolicy) {
+        setMutationError('Only owner/admin/security_admin can mutate gas sponsorship settings.');
+        return;
+      }
+      if (typeof window !== 'undefined') {
+        const confirmed = window.confirm(
+          `Delete gas sponsorship policy "${policy.name || policy.id}"? This cannot be undone.`,
+        );
+        if (!confirmed) return;
+      }
+      setMutating(true);
+      setMutationError('');
+      setMutationNotice('');
+      try {
+        await deleteDashboardGasSponsorshipPolicy(policy.id);
+        await loadGasPolicies();
+        setMutationNotice(`${policy.name || policy.id} deleted.`);
       } catch (error: unknown) {
         setMutationError(error instanceof Error ? error.message : String(error));
       } finally {
@@ -1799,6 +1829,12 @@ export function GasSponsorshipPage(): React.JSX.Element {
                           disabled={!canMutatePolicy || mutating}
                         >
                           {policy.enabled ? 'Disable' : 'Enable'}
+                        </DashboardTableActionButton>
+                        <DashboardTableActionButton
+                          onClick={() => onDeletePolicy(policy)}
+                          disabled={!canMutatePolicy || mutating}
+                        >
+                          Delete
                         </DashboardTableActionButton>
                       </DashboardTableActionGroup>
                     </DashboardTableCell>
