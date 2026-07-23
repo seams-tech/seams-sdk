@@ -481,6 +481,46 @@ export async function publishDashboardPolicy(input: {
   return policy;
 }
 
+/**
+ * Republishes the environment's runtime snapshot from its current policies.
+ * Publishing a policy version does not refresh the runtime snapshot that the
+ * relayer / router API reads, so callers that mutate sponsorship policy must
+ * republish the snapshot for the change to take effect.
+ */
+export async function publishCurrentDashboardRuntimeSnapshot(input: {
+  environmentId: string;
+  projectId?: string;
+}): Promise<void> {
+  const environmentId = String(input.environmentId || '').trim();
+  if (!environmentId) {
+    throw new Error('Environment id is required to publish a runtime snapshot');
+  }
+  const projectId = String(input.projectId || '').trim();
+  const base = requireConsoleBaseUrl();
+  const path = '/console/runtime-snapshots/publish-current';
+  const response = await fetchConsoleEndpoint(
+    `${base}${path}`,
+    {
+      method: 'POST',
+      headers: buildConsoleJsonHeaders(),
+      credentials: 'include',
+      cache: 'no-store',
+      body: JSON.stringify({ environmentId, ...(projectId ? { projectId } : {}) }),
+    },
+    {
+      baseUrl: base,
+      path,
+      operation: 'Publish current runtime snapshot request',
+    },
+  );
+  const body = (await parseConsoleJson(response)) as { ok?: boolean } | null;
+  if (!response.ok || body?.ok !== true) {
+    throw new Error(
+      consoleErrorMessage(response, body, 'Publish current runtime snapshot request failed'),
+    );
+  }
+}
+
 export async function simulateDashboardPolicy(input: {
   policyId: string;
   action: string;
