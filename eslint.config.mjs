@@ -130,6 +130,47 @@ export default [
     },
   },
 
+  {
+    // Complex domain-state records in tests must come from the shared factories
+    // (tests/AGENTS.md "Fixture rules"); inline literals drift when domain types change.
+    files: ['tests/unit/**/*.test.ts', 'tests/relayer/**/*.test.ts'],
+    ignores: [
+      'tests/unit/helpers/**',
+      'tests/helpers/**',
+      // Grandfathered pre-existing offenders (2026-07-23): migrate onto the shared
+      // factories and delete the entry. Do not add new entries.
+      'tests/unit/touchConfirm.workerRouter.integration.test.ts',
+      'tests/unit/evmClient.waitForReceipt.unit.test.ts',
+      'tests/unit/addWalletSigner.orchestration.unit.test.ts',
+      'tests/unit/seamsWeb.chainSigners.integration.test.ts',
+      'tests/unit/nonceCoordinator.unit.test.ts',
+      'tests/unit/d1StagingEvidenceVerify.script.unit.test.ts',
+      'tests/unit/cloudflareD1RouterApiServiceSurface.unit.test.ts',
+      'tests/unit/warmSessionStore.concurrency.unit.test.ts',
+      'tests/unit/warmEd25519SigningSessionAuthorization.unit.test.ts',
+      'tests/unit/walletRegistrationEcdsaRouterAbBootstrap.unit.test.ts',
+      'tests/unit/vite-wallet-corp.unit.test.ts',
+      'tests/unit/pluginRorOrigins.unit.test.ts',
+    ],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            'TSSatisfiesExpression > TSTypeReference[typeName.name=/(Record|CapabilityState|AuthorizationState|SessionStatus)$/]',
+          message:
+            'Inline domain-state record literal. Build it with a shared factory from tests/unit/helpers/ or tests/helpers/ (see tests/AGENTS.md, "Fixture rules").',
+        },
+        {
+          selector:
+            'VariableDeclarator[id.typeAnnotation.typeAnnotation.typeName.name=/(Record|CapabilityState|AuthorizationState|SessionStatus)$/] > ObjectExpression',
+          message:
+            'Inline domain-state record literal. Build it with a shared factory from tests/unit/helpers/ or tests/helpers/ (see tests/AGENTS.md, "Fixture rules").',
+        },
+      ],
+    },
+  },
+
   // Keep ESLint from fighting Prettier.
   prettier,
 ];
