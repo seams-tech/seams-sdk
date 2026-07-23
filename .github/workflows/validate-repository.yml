@@ -1,4 +1,4 @@
-name: ci
+name: Validate / repository
 
 on:
   push:
@@ -17,10 +17,20 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: validate-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  deployment-workflow-policy:
+    name: Deployment workflow policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Check deployment workflow policy
+        run: node scripts/check-deployment-workflows.mjs
+
   release-change-set:
     name: Record release change set
     if: github.event_name == 'push'

@@ -34,28 +34,13 @@ git commit -m "release: vX.Y.Z"
 git tag vX.Y.Z -m "release: vX.Y.Z"
 ```
 
-Push the release commit and tag:
+Push the release commit, merge it into protected `main` through a pull request,
+then push the tag:
 
 ```bash
-git push origin main
+git push origin HEAD
 git push origin vX.Y.Z
 ```
-
-## Publish SDK Runtime Bundles
-
-R2 publication is optional and manual-only. After CI succeeds for the release
-commit, dispatch `publish-sdk-r2.yml` on `main`:
-
-```bash
-gh workflow run publish-sdk-r2.yml --ref main -f prefix=auto
-```
-
-Expected R2 outputs:
-
-- `releases/<commit-sha>`
-- `releases/<tag>` when `vX.Y.Z` points at the published commit
-- `manifest.sha256`, `manifest.json`, and `manifest.sig` in each published
-  prefix
 
 ## Publish npm
 
@@ -78,20 +63,14 @@ npm view @seams/sdk version
 ## Deploy Hosted Surfaces
 
 Pushing the release commit to `main` runs the full production backend and Pages
-release after CI succeeds. A manual Pages-only deploy remains available:
-
-```bash
-gh workflow run deploy-pages.yml --ref main -f target=all -f deploy_environment=production
-```
-
-For staging validation, use `--ref dev` and `staging`.
+release after validation succeeds. Pages is a component of the
+environment-bound Cloudflare stack workflow.
 
 ## Release Verification
 
 Check:
 
-- `ci` passed on the release commit.
-- R2 prefix exists for the release SHA when the optional R2 publication was run.
+- `Validate / repository` passed on the release commit.
 - npm shows the intended version.
 - App Pages and wallet Pages are on the same commit.
 - `/sdk/wallet-iframe-host-runtime.js` and `/sdk/workers/near-signer.worker.js`
@@ -102,9 +81,9 @@ Check:
 
 SDK runtime:
 
-1. Repoint consumers to a known-good immutable R2 SHA prefix, or promote the
-   previous Cloudflare Pages deployment.
-2. Keep the bad prefix available until clients stop requesting it.
+1. Promote the previous Cloudflare Pages deployment for the app and wallet
+   projects.
+2. Keep both projects on the same known-good commit.
 
 npm:
 
@@ -119,4 +98,4 @@ Relay and Pages:
 
 1. Promote the previous successful Cloudflare deployment.
 2. Re-run smoke checks.
-3. Run forward fixes through `ci` before redeploying.
+3. Run forward fixes through `Validate / repository` before redeploying.

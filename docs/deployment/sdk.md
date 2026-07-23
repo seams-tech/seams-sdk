@@ -3,12 +3,10 @@
 The SDK has two deployment outputs:
 
 - npm package `@seams/sdk`
-- runtime bundles from `packages/sdk-web/dist` served by Pages at `/sdk/*` and optionally
-  published to Cloudflare R2
+- runtime bundles from `packages/sdk-web/dist` served by Pages at `/sdk/*`
 
-The runtime bundles are commit-built artifacts. Keep the Pages deploy and R2
-publish on the same commit when changing wallet iframe, workers, WASM, or SDK
-asset loading.
+The runtime bundles are commit-built artifacts. Keep the Pages deployment on the
+same commit when changing wallet iframe, workers, WASM, or SDK asset loading.
 
 ## Build
 
@@ -28,7 +26,7 @@ Main outputs:
 
 ## Pages Runtime Assets
 
-`deploy-pages.yml` runs:
+The internal Pages deployment workflow consumes the accepted Pages artifact:
 
 ```bash
 pnpm build:sdk-prod
@@ -47,19 +45,8 @@ different path. The wallet service route and app config must agree with that
 base path.
 
 Pages deploy automatically at the end of the successful branch release chain.
-Manual Pages deploy remains available:
-
-```bash
-gh workflow run deploy-pages.yml --ref dev -f target=all -f deploy_environment=staging
-gh workflow run deploy-pages.yml --ref main -f target=all -f deploy_environment=production
-```
-
-Deploy only one Pages project:
-
-```bash
-gh workflow run deploy-pages.yml --ref dev -f target=app -f deploy_environment=staging
-gh workflow run deploy-pages.yml --ref dev -f target=wallet -f deploy_environment=staging
-```
+Pages deployment is selected by the environment-bound Cloudflare stack
+workflow. There is no direct Pages deployment button.
 
 The implemented
 [build-once deployment phase](README.md#follow-up-phase-build-once-deploy-many)
@@ -69,45 +56,6 @@ One artifact must contain both app and wallet outputs so the two Pages projects
 cannot drift to different SDK builds. A Pages-only retry downloads that
 artifact, verifies its manifest, and uploads it without invoking Cargo,
 `wasm-pack`, `pnpm build:sdk-prod`, or Vite.
-
-## R2 Runtime Publish
-
-`publish-sdk-r2.yml` optionally publishes signed `packages/sdk-web/dist`
-bundles to R2. It is manual-only and is separate from Pages deployment; Pages
-already serves the runtime bundles required by the hosted wallet.
-
-Default prefixes:
-
-| Ref                              | Prefix                      |
-| -------------------------------- | --------------------------- |
-| `dev`                            | `releases-dev/<commit-sha>` |
-| `main`                           | `releases/<commit-sha>`     |
-| `v*` tag on the published commit | `releases/<tag>`            |
-
-The workflow creates:
-
-- `manifest.sha256`
-- `manifest.json`
-- `manifest.sig`
-
-It installs cosign through `sigstore/cosign-installer` and signs
-`manifest.json` with GitHub OIDC keyless signing. The workflow needs
-`id-token: write`.
-
-Run the optional R2 publish manually after CI succeeds for the selected ref:
-
-```bash
-gh workflow run publish-sdk-r2.yml --ref dev -f prefix=auto
-gh workflow run publish-sdk-r2.yml --ref main -f prefix=auto
-```
-
-Use a custom prefix only for a deliberate one-off:
-
-```bash
-gh workflow run publish-sdk-r2.yml --ref dev -f prefix=scratch/my-test
-```
-
-Do not point production apps at scratch prefixes.
 
 ## npm Package
 
@@ -136,15 +84,6 @@ curl -fsSI "$VITE_WALLET_ORIGIN/sdk/workers/near-signer.worker.js"
 Both checks should return successful responses for environments using wallet
 iframe workers.
 
-After R2 publish:
-
-```bash
-aws s3 ls "s3://$R2_BUCKET/releases-dev/$COMMIT_SHA/" --endpoint-url "$R2_ENDPOINT"
-aws s3 ls "s3://$R2_BUCKET/releases/$COMMIT_SHA/" --endpoint-url "$R2_ENDPOINT"
-```
-
-Check whichever prefix matches the environment.
-
 ## Rollback
 
 Pages rollback:
@@ -152,11 +91,6 @@ Pages rollback:
 1. In Cloudflare Pages, promote the previous successful deployment for the app
    and wallet projects.
 2. Confirm both projects point at SDK assets from the same commit.
-
-R2 rollback:
-
-1. Point consumers back to a known-good immutable SHA prefix.
-2. Avoid deleting bad prefixes until clients are no longer requesting them.
 
 npm rollback:
 

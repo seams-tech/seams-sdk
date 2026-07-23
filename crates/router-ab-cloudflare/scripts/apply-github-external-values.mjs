@@ -24,12 +24,6 @@ const GENERAL_VARIABLE_INPUTS = Object.freeze([
   ['VITE_ARC_RPC_URL', 'VITE_ARC_RPC_URL'],
   ['VITE_ARC_EXPLORER', 'VITE_ARC_EXPLORER'],
 ]);
-const GENERAL_SECRET_INPUTS = Object.freeze([
-  ['R2_ENDPOINT', 'R2_ENDPOINT'],
-  ['R2_BUCKET', 'R2_BUCKET'],
-  ['R2_ACCESS_KEY_ID', 'R2_ACCESS_KEY_ID'],
-  ['R2_SECRET_ACCESS_KEY', 'R2_SECRET_ACCESS_KEY'],
-]);
 const CLOUDFLARE_SECRET_INPUTS = Object.freeze([
   ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_API_TOKEN'],
   ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_ACCOUNT_ID'],
@@ -142,7 +136,6 @@ function loadProtectedValues(valuesFile) {
 function validateExternalValues(values, component) {
   validatePair(values, 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID', 'Cloudflare deployment');
   if (component === 'product') {
-    validatePair(values, 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2 publication');
     return;
   }
   validatePair(values, 'RELAYER_ACCOUNT_ID', 'RELAYER_PRIVATE_KEY', 'NEAR sponsorship');
@@ -187,7 +180,6 @@ function buildBasePlan(options, repository, values) {
   };
   if (options.component === 'product') {
     appendMappedUpdates(plan.variables, options.target, values, GENERAL_VARIABLE_INPUTS);
-    appendMappedUpdates(plan.secrets, options.target, values, GENERAL_SECRET_INPUTS);
     appendMappedUpdates(plan.secrets, options.target, values, CLOUDFLARE_SECRET_INPUTS);
   } else {
     appendWalletCoreCloudflareDeploymentUpdates(plan, options.target, values);

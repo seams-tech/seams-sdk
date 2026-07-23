@@ -5,7 +5,7 @@ import { dirname, relative, resolve, sep } from 'node:path';
 const artifactKinds = new Set([
   'gateway-wasm',
   'pages',
-  'sdk-r2',
+  'signer-iframe',
   'router',
   'deriver-a',
   'deriver-b',

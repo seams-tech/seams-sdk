@@ -2,7 +2,7 @@
 
 This repo deploys these hosted surfaces:
 
-- SDK runtime bundles in Cloudflare R2.
+- SDK runtime bundles served by Cloudflare Pages.
 - App and wallet Pages projects from `apps/seams-site`.
 - Router A/B Workers from `crates/router-ab-cloudflare`.
 - Gateway Workers from `packages/console-server-ts`.
@@ -14,7 +14,7 @@ The web server persists state in Cloudflare data services:
   and recovery state.
 - `THRESHOLD_STORE` Durable Object storage for threshold/session coordination
   and normal-signing admission state.
-- R2 for SDK runtime bundles and scheduled D1 backup exports.
+- R2 for scheduled D1 backup exports.
 
 ## GitHub Environments
 
@@ -97,12 +97,13 @@ pnpm product:deploy:env-apply -- \
 
 Automatic entrypoints are intentionally separate:
 
-- `.github/workflows/deploy-staging.yml` accepts relevant pushes to `dev`; documentation-only and test-only pushes are ignored.
-- `.github/workflows/deploy-production.yml` accepts only successful `main` CI.
+- `.github/workflows/deploy-staging-cloudflare-stack.yml` accepts successful validation of `dev` pushes and accepted-release promotion inputs.
+- `.github/workflows/deploy-production-cloudflare-stack.yml` accepts successful validation of `main` pushes and accepted-release promotion inputs.
 
-Both call `.github/workflows/deploy-router-ab.yml`, which is the shared release
-implementation. Environment labels and branch restrictions remain in the
-entrypoint YAML instead of a caller-selected runtime flag.
+Both call the call-only `.github/workflows/internal-release-cloudflare-stack.yml`
+for automatic releases or `.github/workflows/internal-deploy-cloudflare-stack.yml`
+for accepted-release promotion. Environment labels and branch restrictions remain
+in the entrypoint YAML instead of a caller-selected runtime flag.
 
 ### Secrets
 
@@ -112,10 +113,6 @@ entrypoint YAML instead of a caller-selected runtime flag.
 | `CLOUDFLARE_ACCOUNT_ID`                         | Pages, Router A/B deploy | Cloudflare account id.                                                                       |
 | `CF_PAGES_PROJECT_VITE`                         | Pages deploy             | Cloudflare Pages project for the app/site surface.                                           |
 | `CF_PAGES_PROJECT_WALLET`                       | Pages deploy             | Cloudflare Pages project for the wallet origin.                                              |
-| `R2_ENDPOINT`                                   | SDK R2 publish           | Optional S3-compatible R2 endpoint URL.                                                      |
-| `R2_BUCKET`                                     | SDK R2 publish           | Optional bucket that stores `releases/*` and `releases-dev/*`.                               |
-| `R2_ACCESS_KEY_ID`                              | SDK R2 publish           | Optional R2 access key with write access to the SDK bucket.                                  |
-| `R2_SECRET_ACCESS_KEY`                          | SDK R2 publish           | Optional R2 secret access key.                                                               |
 | `DERIVER_A_ROOT_SHARE_WIRE_SECRET`              | Router A/B deploy        | Deriver A root-share wire secret. Written to the Deriver A Worker environment.               |
 | `DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY`           | Router A/B deploy        | Deriver A signer-envelope HPKE private key.                                                  |
 | `DERIVER_A_PEER_SIGNING_KEY`                    | Router A/B deploy        | Deriver A private key for A/B peer messages.                                                 |
@@ -188,7 +185,7 @@ Apply mode creates two target-scoped Pages projects when they are absent:
 - app/site project: stored in `CF_PAGES_PROJECT_VITE`
 - wallet-origin project: stored in `CF_PAGES_PROJECT_WALLET`
 
-The `deploy-pages` workflow builds once and can deploy app, wallet, or both.
+The call-only Pages workflow builds once and can deploy app, wallet, or both.
 It deploys branch alias `dev` for staging and `main` for production.
 
 The workflow copies SDK runtime assets into the Pages output:
@@ -199,21 +196,10 @@ The workflow copies SDK runtime assets into the Pages output:
 That means Pages serves the same runtime assets at `/sdk/*` that were built
 for the commit being deployed.
 
-## Cloudflare R2
+## Cloudflare R2 Backups
 
-R2 publication is optional and manual-only. When all four R2 credentials are
-configured and an operator dispatches `publish-sdk-r2.yml`, the workflow writes:
-
-- `releases-dev/<commit-sha>` for staging/dev commits
-- `releases/<commit-sha>` for production/main commits
-- `releases/<tag>` for `v*` tags pointing at the published commit
-
-The workflow rewrites `.wasm` objects with `content-type: application/wasm`.
-If the bucket is public or proxied, configure cache rules outside this repo.
-Keep immutable SHA prefixes cacheable; keep mutable aliases such as tag prefixes
-easy to invalidate.
-
-Create a separate R2 bucket or locked prefix for D1 backup exports. Store weekly
+R2 is reserved for D1 backup and export storage. Create a separate R2 bucket or
+locked prefix for D1 backup exports. Store weekly
 exports for both `CONSOLE_DB` and `SIGNER_DB`, retain the Cloudflare D1 Time
 Travel window for short rollback, and run the local restore drill after changing
 D1 schemas:
@@ -239,9 +225,9 @@ Wrangler environments:
 | `production` | `router-ab-mpc-router`         | `router-ab-deriver-a`         | `router-ab-deriver-b`         | `router-ab-signing-worker`         |
 
 The checked-in Wrangler vars contain placeholder public keys so dry-run builds
-work without environment configuration. The `deploy-router-ab` workflow injects
-the real public keys and MPCRouter JWT values from GitHub Environment variables
-during `upload-version` and `deploy`, then writes the private values to the
+work without environment configuration. The `INTERNAL / deploy / cloudflare-stack`
+workflow injects the real public keys and MPCRouter JWT values from GitHub
+Environment variables during deployment, then writes the private values to the
 corresponding Cloudflare Worker secrets before uploading or deploying Workers.
 
 Use these templates to fill each GitHub Environment:
@@ -350,16 +336,18 @@ Self-hosted Gateway deployments may serve the same public keyset routes when
 prefetches `/router-ab/keyset` during registration precompute whenever
 Router A/B normal signing is enabled.
 
-Manual validation and deployment:
+Manual accepted-release promotion:
 
 ```bash
-gh workflow run deploy-router-ab.yml --ref dev -f target=staging -f operation=validate -f role=all
-gh workflow run deploy-router-ab.yml --ref dev -f target=staging -f operation=upload-version -f role=all
-gh workflow run deploy-router-ab.yml --ref dev -f target=staging -f operation=deploy -f role=all
+gh workflow run 'Deploy / staging / cloudflare-stack' --ref dev \
+  -f source_sha=<accepted-dev-sha> \
+  -f artifact_run_id=<accepted-artifact-run-id> \
+  -f release_set_id=<accepted-release-set-id>
 ```
 
-Production manual dispatch uses `--ref main -f target=production`. Normal
-production releases start automatically after `ci` succeeds on `main`.
+Production promotion uses the matching production entrypoint and an accepted
+`main` release set. Automatic releases start after `Validate / repository`
+succeeds on `main`.
 
 Local Cloudflare-shape checks:
 
@@ -376,9 +364,9 @@ Latest local dry-run evidence:
 - gzip upload sizes: Router `573.83 KiB`, Deriver A `598.97 KiB`, Deriver B
   `599.92 KiB`, SigningWorker `567.14 KiB`
 
-`operation=deploy` runs `pnpm router:deploy:check` before any Worker deployment.
-Keep that gate green on the target commit, then deploy all four Workers in the
-workflow order: SigningWorker, Deriver A, Deriver B, Router.
+The deployment workflow runs `pnpm router:deploy:check` before any Worker
+deployment, then deploys all four Workers in the workflow order: SigningWorker,
+Deriver A, Deriver B, Router.
 
 ## Cloudflare Data
 
@@ -390,7 +378,7 @@ target is D1/DO/R2, with no mixed Postgres runtime.
 | console/control-plane        | `CONSOLE_DB`       | `packages/console-server-ts/migrations/d1-console`          |
 | signer/runtime metadata      | `SIGNER_DB`        | `packages/sdk-server-ts/migrations/d1-signer`               |
 | threshold/session/admission  | `THRESHOLD_STORE`  | `ThresholdStoreDurableObject` SQLite Durable Object storage |
-| dashboard and recovery files | R2                 | backup/export jobs and SDK publish workflows                |
+| dashboard and recovery files | R2                 | backup/export jobs                                          |
 
 Local development uses Wrangler/Miniflare with the same binding names:
 

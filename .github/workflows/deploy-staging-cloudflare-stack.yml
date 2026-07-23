@@ -1,0 +1,57 @@
+name: Deploy / staging / cloudflare-stack
+
+run-name: >-
+  deploy / staging / cloudflare-stack /
+  ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }} /
+  ${{ github.event_name == 'workflow_run' && 'automatic' || 'manual-promotion' }}
+
+on:
+  workflow_run:
+    workflows: ['Validate / repository']
+    types: [completed]
+    branches: [dev]
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact accepted source SHA
+        required: true
+        type: string
+      artifact_run_id:
+        description: Accepted release artifact workflow run ID
+        required: true
+        type: string
+      release_set_id:
+        description: Content-addressed release-set ID
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  automatic_release:
+    name: Release / staging / cloudflare-stack
+    if: >-
+      ${{
+        github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push'
+      }}
+    uses: ./.github/workflows/internal-release-cloudflare-stack.yml
+    with:
+      target: staging
+      source_sha: ${{ github.event.workflow_run.head_sha }}
+      validation_run_id: ${{ github.event.workflow_run.id }}
+
+  manual_promotion:
+    name: Deploy / staging / cloudflare-stack / manual-promotion
+    if: github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/internal-deploy-cloudflare-stack.yml
+    with:
+      target: staging
+      deploy_sha: ${{ inputs.source_sha }}
+      artifact_run_id: ${{ inputs.artifact_run_id }}
+      release_set_id: ${{ inputs.release_set_id }}
+      source_branch: dev
+      enforce_current_branch: false

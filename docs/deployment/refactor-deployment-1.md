@@ -50,13 +50,13 @@ The repository now has:
 
 - Path-filtered deployment triggers.
 - PR/manual Router A/B validation split into parallel jobs.
-- Manual-only SDK publication to R2.
+- SDK runtime assets deployed with the environment-bound Pages artifact.
 - Exact source SHAs passed into deployment workflows.
 - Per-component artifacts and digest verification within a deployment run.
 - Initial pnpm, Cargo, Rust target, and generated artifact caching.
 - Router A/B role uploads run concurrently before MPCRouter activation.
 - Mutating deployment workflows use non-canceling concurrency.
-- A CI-gated `build-release.yml` workflow that builds the accepted SHA once.
+- A validation-gated release workflow that builds the accepted SHA once.
 - A content-addressed release-set manifest with cross-run artifact verification.
 - A single target lock and bounded final smoke in the deployment orchestrator.
 - Selector-driven artifact jobs and deployment jobs for Router A/B, Gateway, and Pages.
@@ -67,14 +67,14 @@ The reusable release path is now wired for Router A/B, Gateway, and Pages. The
 remaining work is runtime identity, migration skip reporting, provider version
 receipts, and measured rollback:
 
-- `build-release.yml` owns the Router A/B, Gateway, and Pages builds.
+- `internal-release-cloudflare-stack.yml` owns the Router A/B, Gateway, and Pages builds.
 - Mutating component workflows consume artifacts from an explicit artifact run.
-- `deploy-production.yml` and `deploy-staging.yml` are explicit accepted-release
+- `deploy-production-cloudflare-stack.yml` and `deploy-staging-cloudflare-stack.yml` are explicit accepted-release
   promotion entrypoints.
 - Gateway D1 migration steps run on every Gateway deployment, although the
   migration applier is idempotent.
 - Gateway and Pages are reusable workflows without direct mutation entrypoints;
-  the Router A/B orchestrator owns the target lock.
+  the internal Cloudflare stack deployer owns the target lock.
 - Readiness checks are component-local, followed by one selected-release smoke
   that verifies the manifest identity and representative deployed routes.
 
@@ -91,7 +91,7 @@ selection, deployment ordering, and release reporting.
 It does not change signing protocols, runtime APIs, deployment identities,
 secrets, D1 schemas, or application behavior.
 
-Eliminating duplicate semantic SDK builds inside `ci.yml` is a separate CI
+Eliminating duplicate semantic SDK builds inside `Validate / repository` is a separate validation
 optimization. This plan only requires one accepted release build and prohibits
 deployment workflows from compiling again.
 
@@ -266,12 +266,12 @@ Performance targets:
 
 | Workflow             | p90 target |
 | -------------------- | ---------- |
-| `deploy-gateway`     | Under 5m   |
-| `deploy-pages`       | Under 5m   |
-| `validate-router-ab` | Under 8m   |
-| `deploy-router-ab`   | Under 8m   |
-| `deploy-staging`     | Under 10m  |
-| `deploy-production`  | Under 10m  |
+| `INTERNAL / deploy / cloudflare-gateway` | Under 5m   |
+| `INTERNAL / deploy / cloudflare-pages`   | Under 5m   |
+| `Validate / cloudflare-router-ab`        | Under 8m   |
+| `INTERNAL / deploy / cloudflare-stack`   | Under 8m   |
+| `Deploy / staging / cloudflare-stack`    | Under 10m  |
+| `Deploy / production / cloudflare-stack` | Under 10m  |
 
 ## Verification
 

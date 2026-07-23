@@ -64,7 +64,7 @@ function validComponents(): ComponentDto[] {
     createComponent('signing-worker', 'signing-worker', 4),
     createComponent('gateway', 'gateway-wasm', 5),
     createComponent('site', 'pages', 6),
-    createComponent('signer-iframe', 'sdk-r2', 7),
+    createComponent('signer-iframe', 'signer-iframe', 7),
   ];
 }
 
@@ -107,7 +107,7 @@ function componentNameForKind(kind: string): string {
     'signing-worker': 'signing-worker',
     'gateway-wasm': 'gateway',
     pages: 'site',
-    'sdk-r2': 'signer-iframe',
+    'signer-iframe': 'signer-iframe',
   };
   return componentNamesByKind[kind] ?? kind;
 }
@@ -221,7 +221,7 @@ test('release-set create and verify cover the full immutable manifest contract',
     'signing-worker',
     'gateway-wasm',
     'pages',
-    'sdk-r2',
+    'signer-iframe',
   ]);
 
   const verified = runRelease(verifyArgs(fixture));
