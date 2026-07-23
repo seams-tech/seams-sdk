@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 import { persistAuthenticatedEcdsaInventoryProfileRepairs } from '@/SeamsWeb/operations/auth/login';
-import type { AccountSignerRecord } from '@/core/indexedDB/passkeyClientDB.types';
 import { buildEvmFamilyEcdsaWalletKey } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { seedAccountSignerRecord } from './helpers/accountSignerRecord.fixtures';
 import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
 import { testEcdsaChainTarget } from './helpers/ecdsaChainTarget.fixtures';
 
@@ -29,27 +29,17 @@ function inventoryRepairFixture() {
     keyHandle: KEY_HANDLE,
     chainTarget: CHAIN_TARGET,
     ecdsaThresholdKeyId: bootstrap.thresholdEcdsaKeyRef.ecdsaThresholdKeyId,
-    signingRootId:
-      bootstrap.thresholdEcdsaKeyRef.backendBinding.ecdsaRoleLocalReadyRecord.publicFacts
-        .signingRootId,
-    signingRootVersion:
-      bootstrap.thresholdEcdsaKeyRef.backendBinding.ecdsaRoleLocalReadyRecord.publicFacts
-        .signingRootVersion,
+    signingRootId: backendBinding.ecdsaRoleLocalReadyRecord.publicFacts.signingRootId,
+    signingRootVersion: backendBinding.ecdsaRoleLocalReadyRecord.publicFacts.signingRootVersion,
     participantIds: bootstrap.thresholdEcdsaKeyRef.participantIds,
     thresholdOwnerAddress: OWNER_ADDRESS,
     thresholdEcdsaPublicKeyB64u: bootstrap.keygen.thresholdEcdsaPublicKeyB64u,
   });
-  const signer: AccountSignerRecord = {
+  const signer = seedAccountSignerRecord({
     profileId: WALLET_ID,
     chainIdKey: 'tempo:42431',
     accountAddress: OWNER_ADDRESS,
     signerId: OWNER_ADDRESS,
-    signerSlot: 1,
-    signerType: 'threshold',
-    signerKind: 'threshold-ecdsa',
-    signerAuthMethod: 'passkey',
-    signerSource: 'passkey_registration',
-    status: 'active',
     addedAt: 1,
     updatedAt: 1,
     metadata: {
@@ -57,7 +47,7 @@ function inventoryRepairFixture() {
       keyHandle: KEY_HANDLE,
       displayLabel: 'preserved',
     },
-  };
+  });
   return {
     publicCapability,
     signer,

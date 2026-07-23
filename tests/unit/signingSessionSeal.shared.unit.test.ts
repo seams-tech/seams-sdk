@@ -3,16 +3,12 @@ import {
   EMAIL_OTP_HKDF_SALTS,
   PASSKEY_PRF_FIRST_SALT_V1,
   PASSKEY_PRF_SECOND_SALT_V1,
-  SIGNING_SESSION_SEALED_RECORD_VERSION,
-  SIGNING_SESSION_SEAL_ALG,
-  SIGNING_SESSION_SEAL_STORAGE_SCOPE,
-  SIGNING_SESSION_SECRET_KIND,
   emailOtpEcdsaRestoreInfoFields,
   emailOtpSigningSessionRestoreRootInfoFields,
   emailOtpSigningSessionSecretInfoFields,
   encodeSigningSessionHkdfTuple,
-  type SealedSigningSessionRecord,
 } from '@shared/utils/signingSessionSeal';
+import { seedEmailOtpEcdsaSealedSigningSessionRecord } from './helpers/sealedSigningSession.fixtures';
 
 function utf8(value: string): number[] {
   return Array.from(new TextEncoder().encode(value));
@@ -20,46 +16,7 @@ function utf8(value: string): number[] {
 
 test.describe('shared signing-session seal specs', () => {
   test('freezes sealed record schema constants and TypeScript shape', () => {
-    const record = {
-      v: SIGNING_SESSION_SEALED_RECORD_VERSION,
-      alg: SIGNING_SESSION_SEAL_ALG,
-      storageScope: SIGNING_SESSION_SEAL_STORAGE_SCOPE,
-      authMethod: 'email_otp',
-      secretKind: SIGNING_SESSION_SECRET_KIND,
-      storeKey: 'wallet-session-1:email_otp:ecdsa',
-      signingGrantId: 'wallet-session-1',
-      thresholdSessionIds: {
-        ecdsa: 'ec-session',
-      },
-      sealedSecretB64u: 'sealed-k',
-      curve: 'ecdsa',
-      walletId: 'alice.testnet',
-      relayerUrl: 'https://relay.example',
-      ecdsaRestore: {
-        chainTarget: {
-          kind: 'tempo',
-          chainId: 42431,
-          networkSlug: 'tempo-testnet',
-        },
-        source: 'email_otp',
-        evmFamilySigningKeySlotId: 'wallet-key:evm-family:alice.testnet:root:v1',
-        providerSubjectId: 'google:alice',
-        emailHashHex: 'email-hash',
-        sessionKind: 'jwt',
-        walletSessionJwt: 'wallet-session-jwt',
-        keyHandle: 'key-handle',
-        ecdsaThresholdKeyId: 'ecdsa-key',
-        ethereumAddress: `0x${'11'.repeat(20)}`,
-        relayerKeyId: 'relayer-key',
-        participantIds: [1, 2],
-      },
-      keyVersion: 'signing-session-seal-kek-test-r1',
-      shamirPrimeB64u: 'prime',
-      issuedAtMs: 1,
-      expiresAtMs: 2,
-      remainingUses: 3,
-      updatedAtMs: 4,
-    } satisfies SealedSigningSessionRecord;
+    const record = seedEmailOtpEcdsaSealedSigningSessionRecord();
 
     expect(record).toMatchObject({
       v: 1,

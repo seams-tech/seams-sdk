@@ -480,6 +480,7 @@ async function makeExistingEmailOtpFixture(): Promise<ExistingEmailOtpFixture> {
   const record = upsertThresholdEcdsaSessionFromBootstrap(
     { recordsByLane: new Map() },
     {
+      purpose: 'transaction_signing',
       walletId: WALLET_ID,
       chainTarget: CHAIN_TARGET,
       bootstrap,
@@ -490,6 +491,9 @@ async function makeExistingEmailOtpFixture(): Promise<ExistingEmailOtpFixture> {
         emailHashHex: '11'.repeat(32),
         provider: 'google',
         providerUserId: 'google:mixed-subject',
+        // 'retention' became required; omitting it built a pending single-use
+        // context at runtime, so pin that same variant explicitly.
+        retention: 'single_use',
       }),
     },
   );

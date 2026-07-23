@@ -13,8 +13,14 @@ import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey
 import type { ThresholdEcdsaActivationRequest } from '@/core/signingEngine/session/passkey/ecdsaSessionProvision';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
-import { parseSigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
 import {
+  parseEcdsaRoleLocalBindingDigest,
+  parseEcdsaRoleLocalDurableMaterialRef,
+  parseEcdsaRoleLocalMaterialHandle,
+  parseSigningSessionSealKeyVersion,
+} from '@/core/signingEngine/session/keyMaterialBrands';
+import {
+  requirePersistedEcdsaRoleLocalMaterial,
   toExactEcdsaSigningLaneIdentity,
   thresholdEcdsaSessionRecordReadModel,
   thresholdEcdsaRecordRpId,
@@ -22,7 +28,10 @@ import {
   type ConsumeSingleUseEmailOtpEcdsaLaneResult,
   type ThresholdEcdsaSessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
-import type { ThresholdEcdsaSessionStoreSource } from '@/core/signingEngine/session/identity/laneIdentity';
+import {
+  selectedEcdsaLane,
+  type ThresholdEcdsaSessionStoreSource,
+} from '@/core/signingEngine/session/identity/laneIdentity';
 import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import { createWarmSessionCapabilityReader } from '@/core/signingEngine/session/warmCapabilities/capabilityReader';
 import { createClearVolatileWarmSessionMaterialCommand } from '@/core/signingEngine/session/warmCapabilities/volatileWarmMaterialCommands';
@@ -60,6 +69,10 @@ import type {
   EnsureWarmEcdsaCapabilityReadyResult,
   ProvisionWarmEd25519CapabilityArgs,
   ProvisionWarmEd25519CapabilityResult,
+  WarmSessionEcdsaCapabilityState,
+  WarmSessionEd25519CapabilityState,
+  WarmSessionEnvelope,
+  WarmSessionWarmPrfClaim,
 } from '@/core/signingEngine/session/warmCapabilities/types';
 import type { SensitiveOperationPolicy } from '@shared/utils';
 import { ROUTER_AB_ECDSA_DERIVATION_KEY_SCOPE_V1 } from '@shared/utils/routerAbEcdsaDerivation';
@@ -72,7 +85,7 @@ import { testEcdsaChainTarget } from './ecdsaChainTarget.fixtures';
 import type { WarmSessionTransitionEvent } from '@/core/signingEngine/session/warmCapabilities/transitions';
 
 function requirePasskeyCredentialIdForFixture(record: ThresholdEcdsaSessionRecord): string {
-  const authMethod = record.ecdsaRoleLocalReadyRecord.authMethod;
+  const authMethod = record.ecdsaRoleLocalAuthMethod;
   switch (authMethod.kind) {
     case 'passkey':
       return authMethod.credentialIdB64u;
@@ -81,6 +94,147 @@ function requirePasskeyCredentialIdForFixture(record: ThresholdEcdsaSessionRecor
     default:
       return assertNever(authMethod);
   }
+}
+
+/** Rewrites a shared bootstrap fixture's inline passkey ready-state blob into the
+ * current worker-owned role-local material binding: canonical passkey ECDSA
+ * session records may only reference durable worker-owned material, never carry
+ * the ready-state blob inline. Belongs in ecdsaBootstrap.fixtures.ts once its
+ * owner migrates the shared fixture; kept here (duplicating the Email OTP
+ * conversion pattern in emailOtpMixedWalletUnlock.unit.test.ts) to avoid
+ * editing helpers owned by other branches. */
+export function toWorkerOwnedPasskeyEcdsaBootstrapFixture(
+  bootstrap: ThresholdEcdsaSessionBootstrapResult,
+): ThresholdEcdsaSessionBootstrapResult {
+  const binding = bootstrap.thresholdEcdsaKeyRef.backendBinding;
+  if (!binding || binding.materialKind !== 'role_local_ready_state_blob') {
+    return bootstrap;
+  }
+  const sessionId =
+    String(bootstrap.thresholdEcdsaKeyRef.thresholdSessionId || '').trim() || 'fixture-session';
+  return {
+    ...bootstrap,
+    thresholdEcdsaKeyRef: {
+      ...bootstrap.thresholdEcdsaKeyRef,
+      backendBinding: {
+        materialKind: 'role_local_worker_handle' as const,
+        relayerKeyId: binding.relayerKeyId,
+        clientVerifyingShareB64u: binding.clientVerifyingShareB64u,
+        roleLocalMaterialHandle: {
+          kind: 'ecdsa_role_local_worker_handle_v1' as const,
+          materialHandle: parseEcdsaRoleLocalMaterialHandle(`role-local-live:${sessionId}`),
+          bindingDigest: parseEcdsaRoleLocalBindingDigest(
+            binding.ecdsaRoleLocalReadyRecord.publicFacts.contextBinding32B64u,
+          ),
+          durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef(`role-local:${sessionId}`),
+        },
+        publicFacts: binding.ecdsaRoleLocalReadyRecord.publicFacts,
+        authMethod: binding.ecdsaRoleLocalReadyRecord.authMethod,
+      },
+    },
+  };
+}
+
+/** Warm-session read-model state for a persisted passkey ECDSA record: key,
+ * lane, and auth are derived from the record through the production identity
+ * builders, so they cannot drift from the record they wrap. */
+export function createReadyPasskeyWarmSessionEcdsaCapability(args: {
+  record: ThresholdEcdsaSessionRecord;
+  prfClaim?: Partial<Pick<WarmSessionWarmPrfClaim, 'remainingUses' | 'expiresAtMs'>>;
+}): WarmSessionEcdsaCapabilityState {
+  const record = args.record;
+  const authMethod = record.ecdsaRoleLocalAuthMethod;
+  if (authMethod.kind !== 'passkey') {
+    throw new Error('createReadyPasskeyWarmSessionEcdsaCapability requires a passkey ECDSA record');
+  }
+  const walletSessionJwt = String(record.walletSessionJwt || '').trim();
+  if (!walletSessionJwt) {
+    throw new Error(
+      'createReadyPasskeyWarmSessionEcdsaCapability requires a record with a wallet-session JWT',
+    );
+  }
+  const key = buildEvmFamilyEcdsaKeyIdentityFromRecord({ record });
+  const lane = selectedEcdsaLane({
+    key,
+    keyHandle: record.keyHandle,
+    walletId: record.walletId,
+    auth: {
+      kind: 'passkey',
+      rpId: authMethod.rpId,
+      credentialIdB64u: authMethod.credentialIdB64u,
+    },
+    signingGrantId: record.signingGrantId,
+    thresholdSessionId: record.thresholdSessionId,
+    chainTarget: record.chainTarget,
+  });
+  return {
+    capability: 'ecdsa',
+    record,
+    key,
+    lane,
+    auth: {
+      capability: 'ecdsa',
+      state: 'ready',
+      record,
+      walletSessionJwt,
+      walletSessionJwtSource: 'ecdsa_record',
+    },
+    prfClaim: {
+      state: 'warm',
+      sessionId: String(record.thresholdSessionId || '').trim(),
+      remainingUses: args.prfClaim?.remainingUses ?? 3,
+      expiresAtMs: args.prfClaim?.expiresAtMs ?? Date.now() + 120_000,
+    },
+    state: 'ready',
+  };
+}
+
+export function createMissingWarmSessionEd25519Capability(): WarmSessionEd25519CapabilityState {
+  return {
+    capability: 'ed25519',
+    record: null,
+    auth: null,
+    prfClaim: null,
+    state: 'missing',
+  };
+}
+
+export function createMissingWarmSessionEcdsaCapability(): WarmSessionEcdsaCapabilityState {
+  return {
+    capability: 'ecdsa',
+    record: null,
+    key: null,
+    lane: null,
+    auth: null,
+    prfClaim: null,
+    state: 'missing',
+  };
+}
+
+export function createWarmSessionEnvelopeFixture(args: {
+  walletId: WalletId | string;
+  ed25519?: WarmSessionEd25519CapabilityState;
+  ecdsa?: {
+    evm?: WarmSessionEcdsaCapabilityState;
+    tempo?: WarmSessionEcdsaCapabilityState;
+  };
+  updatedAtMs?: number;
+}): WarmSessionEnvelope {
+  // Not routed through assertWarmSessionEnvelopeInvariant: capability `state`
+  // is caller-declared read-model state, and the production invariant derives
+  // `ready` only from runtime-validated worker material, which these pure
+  // selector tests do not (and should not) establish.
+  return {
+    walletId: toWalletId(args.walletId),
+    capabilities: {
+      ed25519: args.ed25519 || createMissingWarmSessionEd25519Capability(),
+      ecdsa: {
+        evm: args.ecdsa?.evm || createMissingWarmSessionEcdsaCapability(),
+        tempo: args.ecdsa?.tempo || createMissingWarmSessionEcdsaCapability(),
+      },
+    },
+    updatedAtMs: args.updatedAtMs ?? Date.now(),
+  };
 }
 
 function assertNever(value: never): never {
@@ -266,6 +420,10 @@ function resolveTestEcdsaBootstrapArgs(args: {
       relayerUrl: targetBaseArgs.relayerUrl,
       keyHandle: reusableWarmCapability.record.keyHandle,
       key: readModel.key,
+      publicCapability: reusableWarmCapability.record.ecdsaRoleLocalPublicFacts.publicCapability,
+      existingRoleLocalMaterial: requirePersistedEcdsaRoleLocalMaterial(
+        reusableWarmCapability.record,
+      ),
       lanePolicy: buildEvmFamilyEcdsaSessionLanePolicy({
         chainTarget,
         thresholdSessionId: sessionId,
@@ -515,6 +673,10 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
                   },
                 }),
                 activationMaterial: { kind: 'session_record' },
+                walletSessionRouteAuth: {
+                  kind: 'wallet_session',
+                  jwt: String(record.walletSessionJwt || ''),
+                },
                 ...(record.runtimePolicyScope
                   ? { runtimePolicyScope: record.runtimePolicyScope }
                   : {}),

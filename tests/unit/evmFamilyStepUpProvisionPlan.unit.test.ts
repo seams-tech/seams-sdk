@@ -10,7 +10,6 @@ import {
 } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
 import {
   resolveReadyEvmFamilyEcdsaMaterial,
-  toEvmFamilyEcdsaKeyHandle,
   toRpId,
   type ReadyEvmFamilyEcdsaMaterial,
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
@@ -22,29 +21,17 @@ import { ensureWarmEcdsaCapabilityReady } from '../../packages/sdk-web/src/core/
 import { SigningAuthPlanKind } from '../../packages/sdk-web/src/core/signingEngine/stepUpConfirmation/types';
 import type { WebAuthnAuthenticationCredential } from '../../packages/sdk-web/src/core/types/webauthn';
 import {
-  buildEcdsaRoleLocalPasskeyAuthMethod,
-  buildEcdsaRoleLocalPublicFacts,
-  buildEcdsaRoleLocalReadyRecord,
-} from '../../packages/sdk-web/src/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
-import {
   classifyRouterAbEcdsaDerivationPersistedSigningRecord,
   markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated,
 } from '../../packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession';
 import type { WarmSessionEcdsaCapabilityState } from '../../packages/sdk-web/src/core/signingEngine/session/warmCapabilities/types';
 import { selectedEcdsaLane } from '../../packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity';
 import { buildThresholdEcdsaSecp256k1KeyRefFromRecord } from '../../packages/sdk-web/src/core/signingEngine/session/identity/thresholdEcdsaSignerAdapter';
+import { buildPasskeyEcdsaSessionRecordFixture } from './helpers/signingSessionRecord.fixtures';
+import { testEcdsaChainTarget } from './helpers/ecdsaChainTarget.fixtures';
 
-const CHAIN_TARGET: ThresholdEcdsaChainTarget = {
-  kind: 'evm',
-  namespace: 'eip155',
-  chainId: 1,
-  networkSlug: 'ethereum',
-};
+const CHAIN_TARGET: ThresholdEcdsaChainTarget = testEcdsaChainTarget('evm');
 const TEST_PRF_FIRST_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
-const VALID_ECDSA_SHARE32_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
-const VALID_ECDSA_CLIENT_PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
-const VALID_ECDSA_GROUP_PUBLIC_KEY_B64U = 'AgEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB';
-const VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U = 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
 const TEST_WEBAUTHN_CREDENTIAL = {
   id: 'credential-id',
@@ -80,150 +67,40 @@ const PASSKEY_AUTH = {
   credentialIdB64u: TEST_PASSKEY_CREDENTIAL_ID_B64U,
 } as const;
 
-function makeWalletSessionJwt(args: {
-  thresholdSessionId: string;
-  signingGrantId: string;
-}): string {
-  const encode = (value: object): string =>
-    Buffer.from(JSON.stringify(value)).toString('base64url');
-  return `${encode({ alg: 'none', typ: 'JWT' })}.${encode({
-    kind: 'router_ab_ecdsa_derivation_wallet_session_v1',
-    thresholdSessionId: args.thresholdSessionId,
-    signingGrantId: args.signingGrantId,
-    exp: 1_900_000_000,
-  })}.signature`;
-}
-
-function ethereumAddress20B64u(address: string): string {
-  return Buffer.from(address.replace(/^0x/i, ''), 'hex').toString('base64url');
-}
-
-function makeRouterAbEcdsaDerivationNormalSigningState(args: {
-  record: Pick<
-    ThresholdEcdsaSessionRecord,
-    | 'walletId'
-    | 'evmFamilySigningKeySlotId'
-    | 'ecdsaThresholdKeyId'
-    | 'signingRootId'
-    | 'signingRootVersion'
-    | 'clientVerifyingShareB64u'
-    | 'thresholdEcdsaPublicKeyB64u'
-    | 'ethereumAddress'
-    | 'thresholdSessionId'
-  >;
-}) {
-  return {
-    kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
-    scope: {
-      wallet_key_id: String(args.record.evmFamilySigningKeySlotId),
-      wallet_id: String(args.record.walletId),
-      ecdsa_threshold_key_id: String(args.record.ecdsaThresholdKeyId),
-      signing_root_id: String(args.record.signingRootId),
-      signing_root_version: String(args.record.signingRootVersion),
-      context: {
-        application_binding_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
-      },
-      public_identity: {
-        context_binding_b64u: VALID_ECDSA_SHARE32_B64U,
-        derivation_client_share_public_key33_b64u: String(args.record.clientVerifyingShareB64u),
-        server_public_key33_b64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
-        threshold_public_key33_b64u: String(args.record.thresholdEcdsaPublicKeyB64u),
-        ethereum_address20_b64u: ethereumAddress20B64u(String(args.record.ethereumAddress)),
-        client_share_retry_counter: 0,
-        server_share_retry_counter: 0,
-      },
-      signing_worker: {
-        server_id: 'signing-worker-step-up-fixture',
-        key_epoch: 'worker-epoch-step-up-fixture',
-        recipient_encryption_key:
-          'x25519:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-      },
-      activation_epoch: args.record.thresholdSessionId,
-    },
-  } as const;
-}
-
 function makeRecord(): ThresholdEcdsaSessionRecord {
-  const keyHandle = toEvmFamilyEcdsaKeyHandle('key-handle-step-up');
-  const record: ThresholdEcdsaSessionRecord = {
-    walletId: WALLET_ID,
-    evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
-    chainTarget: CHAIN_TARGET,
-    relayerUrl: 'https://relayer.test',
-    keyHandle,
-    ecdsaThresholdKeyId: 'ecdsa-key-1',
-    signingRootId: 'project:env',
-    signingRootVersion: 'default',
-    relayerKeyId: 'relayer-key-1',
-    clientVerifyingShareB64u: VALID_ECDSA_CLIENT_PUBLIC_KEY_B64U,
-    ecdsaRoleLocalReadyRecord: buildEcdsaRoleLocalReadyRecord({
-      stateBlob: {
-        kind: 'ecdsa_role_local_state_blob_v1',
-        curve: 'secp256k1',
-        encoding: 'base64url',
-        producer: 'signer_core',
-        stateBlobB64u: VALID_ECDSA_SHARE32_B64U,
-      },
-      publicFacts: buildEcdsaRoleLocalPublicFacts({
-        walletId: WALLET_ID,
-        evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
-        chainTarget: CHAIN_TARGET,
-        keyHandle,
-        ecdsaThresholdKeyId: 'ecdsa-key-1',
-        signingRootId: 'project:env',
-        signingRootVersion: 'default',
-        clientParticipantId: 1,
-        relayerParticipantId: 2,
-        participantIds: [1, 2],
-        applicationBindingDigestB64u: VALID_ECDSA_SHARE32_B64U,
-        contextBinding32B64u: VALID_ECDSA_SHARE32_B64U,
-        derivationClientSharePublicKey33B64u: VALID_ECDSA_CLIENT_PUBLIC_KEY_B64U,
-        relayerPublicKey33B64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
-        groupPublicKey33B64u: VALID_ECDSA_GROUP_PUBLIC_KEY_B64U,
-        ethereumAddress: THRESHOLD_OWNER_ADDRESS,
-      }),
-      authMethod: buildEcdsaRoleLocalPasskeyAuthMethod({
-        credentialIdB64u: TEST_PASSKEY_CREDENTIAL_ID_B64U,
-        rpId: 'example.localhost',
-      }),
-    }),
-    participantIds: [1, 2],
-    ethereumAddress: THRESHOLD_OWNER_ADDRESS,
-    thresholdEcdsaPublicKeyB64u: VALID_ECDSA_GROUP_PUBLIC_KEY_B64U,
-    thresholdSessionKind: 'jwt',
+  return makeRecordWithIdentity({
     thresholdSessionId: 'threshold-session-1',
     signingGrantId: 'wallet-session-1',
-    runtimePolicyScope: {
-      orgId: 'org-test',
-      projectId: 'project',
-      envId: 'env',
-      signingRootVersion: 'default',
-    },
-    walletSessionJwt: makeWalletSessionJwt({
-      thresholdSessionId: 'threshold-session-1',
-      signingGrantId: 'wallet-session-1',
-    }),
-    expiresAtMs: 1_900_000_000_000,
-    remainingUses: 2,
-    updatedAtMs: 1_800_000_000_000,
-    source: 'login',
-  };
-  record.routerAbEcdsaDerivationNormalSigning = makeRouterAbEcdsaDerivationNormalSigningState({ record });
-  markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record);
-  return record;
+  });
 }
 
 function makeRecordWithIdentity(args: {
   thresholdSessionId: string;
   signingGrantId: string;
 }): ThresholdEcdsaSessionRecord {
-  const record: ThresholdEcdsaSessionRecord = {
-    ...makeRecord(),
+  const record = buildPasskeyEcdsaSessionRecordFixture({
+    walletId: WALLET_ID,
+    chainTarget: CHAIN_TARGET,
+    rpId: 'example.localhost',
+    passkeyCredentialIdB64u: TEST_PASSKEY_CREDENTIAL_ID_B64U,
+    keyHandle: 'key-handle-step-up',
+    ecdsaThresholdKeyId: 'ecdsa-key-1',
     thresholdSessionId: args.thresholdSessionId,
     signingGrantId: args.signingGrantId,
-    walletSessionJwt: makeWalletSessionJwt(args),
-  };
-  record.routerAbEcdsaDerivationNormalSigning = makeRouterAbEcdsaDerivationNormalSigningState({ record });
+    relayerUrl: 'https://relayer.test',
+    relayerKeyId: 'relayer-key-1',
+    runtimePolicyScope: {
+      orgId: 'org-test',
+      projectId: 'project',
+      envId: 'env',
+      signingRootVersion: 'default',
+    },
+    ethereumAddress: THRESHOLD_OWNER_ADDRESS,
+    expiresAtMs: 1_900_000_000_000,
+    remainingUses: 2,
+    updatedAtMs: 1_800_000_000_000,
+    source: 'login',
+  });
   markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(record);
   return record;
 }

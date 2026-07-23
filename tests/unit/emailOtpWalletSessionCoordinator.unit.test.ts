@@ -11,6 +11,7 @@ import {
 } from '@shared/utils/emailOtpDomain';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
+import { parseRootShareEpoch, type RootShareEpoch } from '@shared/utils/domainIds';
 import {
   thresholdEcdsaLaneCandidateFromSessionRecord,
   type ThresholdEcdsaSessionRecord,
@@ -30,7 +31,6 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildEvmFamilyEcdsaKeyIdentity,
-  buildVerifiedEcdsaPublicFacts,
   deriveEvmFamilyEcdsaKeyHandle,
   toEvmFamilyEcdsaKeyHandle,
   toThresholdOwnerAddress,
@@ -55,6 +55,8 @@ import {
 } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import type { RestorePersistedSessionForSigningInput } from '@/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
 import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import { fixtureRouterAbEcdsaDerivationPublicCapability } from './helpers/ecdsaBootstrap.fixtures';
+import { buildEmailOtpEcdsaSessionRecordFixture } from './helpers/signingSessionRecord.fixtures';
 
 const TEST_SUBJECT_ID = toWalletId('alice.testnet');
 const TEST_SIGNING_SESSION_SEAL_KEY_VERSION = parseSigningSessionSealKeyVersion(
@@ -95,7 +97,6 @@ function ecdsaRestoreInput(args: {
       walletId: wallet,
       signingRootId: 'signing-root:dev',
       signingRootVersion: 'root-v1',
-      chainTargetKey: thresholdEcdsaChainTargetKey(args.chainTarget),
     }),
     ecdsaThresholdKeyId: 'ecdsa-key',
     signingRootId: 'signing-root:dev',
@@ -197,6 +198,9 @@ function emailOtpAuthContextFixture(
   if (retention === 'single_use') {
     return buildEmailOtpAuthContextForWalletAuthMethod({
       policy: args.policy || 'per_operation',
+      // 'retention' became required; omitting it built the same pending
+      // single-use context this branch selects.
+      retention: 'single_use',
       walletId,
       provider: 'google',
       providerUserId: args.providerUserId || 'google:subject',
@@ -232,7 +236,15 @@ function makeEmailOtpRoleLocalReadyRecord(args: {
   signingRootId: string;
   signingRootVersion: string;
   ethereumAddress: `0x${string}`;
+  thresholdSessionId: string;
 }) {
+  const evmFamilySigningKeySlotId =
+    args.evmFamilySigningKeySlotId ||
+    deriveEvmFamilySigningKeySlotId({
+      walletId: args.walletId,
+      signingRootId: args.signingRootId,
+      signingRootVersion: args.signingRootVersion,
+    });
   return buildEcdsaRoleLocalReadyRecord({
     stateBlob: {
       kind: 'ecdsa_role_local_state_blob_v1',
@@ -243,14 +255,7 @@ function makeEmailOtpRoleLocalReadyRecord(args: {
     },
     publicFacts: buildEcdsaRoleLocalPublicFacts({
       walletId: toWalletId(args.walletId),
-      evmFamilySigningKeySlotId:
-        args.evmFamilySigningKeySlotId ||
-        deriveEvmFamilySigningKeySlotId({
-          walletId: args.walletId,
-          signingRootId: args.signingRootId,
-          signingRootVersion: args.signingRootVersion,
-          chainTargetKey: thresholdEcdsaChainTargetKey(args.chainTarget),
-        }),
+      evmFamilySigningKeySlotId,
       chainTarget: args.chainTarget,
       keyHandle: args.keyHandle,
       ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
@@ -265,6 +270,19 @@ function makeEmailOtpRoleLocalReadyRecord(args: {
       relayerPublicKey33B64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
       groupPublicKey33B64u: VALID_ECDSA_PUBLIC_KEY_B64U,
       ethereumAddress: args.ethereumAddress,
+      publicCapability: fixtureRouterAbEcdsaDerivationPublicCapability({
+        walletId: args.walletId,
+        sessionId: args.thresholdSessionId,
+        normalSigning: routerAbEcdsaDerivationNormalSigningFixture({
+          walletId: args.walletId,
+          evmFamilySigningKeySlotId,
+          ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
+          signingRootId: args.signingRootId,
+          signingRootVersion: args.signingRootVersion,
+          ethereumAddress: args.ethereumAddress,
+          thresholdSessionId: args.thresholdSessionId,
+        }),
+      }),
     }),
     authMethod: buildEcdsaRoleLocalEmailOtpAuthMethod({
       authSubjectId: args.walletId,
@@ -313,11 +331,18 @@ function signingRootFromRuntimePolicyScope(
 
 function emailOtpEcdsaClientRootHandleFromWorkerCall(call: any) {
   const binding = call.request?.payload?.ecdsaClientRootHandleBinding;
+  const walletId = call.request?.payload?.walletId || 'alice.testnet';
   return {
     kind: 'email_otp_worker_session_handle_v1',
     sessionId: 'email-otp-ecdsa-root-test',
-    walletId: call.request?.payload?.walletId || 'alice.testnet',
-    rpId: binding?.rpId || 'localhost',
+    walletId,
+    evmFamilySigningKeySlotId:
+      binding?.evmFamilySigningKeySlotId ||
+      deriveEvmFamilySigningKeySlotId({
+        walletId,
+        signingRootId: 'signing-root',
+        signingRootVersion: 'root-v1',
+      }),
     authSubjectId: binding?.authSubjectId || call.request?.payload?.userId || 'alice.testnet',
     action: 'threshold_ecdsa_bootstrap',
     operation: binding?.operation || 'wallet_unlock',
@@ -381,6 +406,15 @@ function hexAddress20B64u(address: `0x${string}`): string {
   return Buffer.from(bytes).toString('base64url');
 }
 
+/** Brands a fixture activation epoch via the production parser. */
+function fixtureRootShareEpoch(value: string): RootShareEpoch {
+  const parsed = parseRootShareEpoch(value);
+  if (!parsed.ok) {
+    throw new Error(`invalid fixture activation epoch: ${value}`);
+  }
+  return parsed.value;
+}
+
 function routerAbEcdsaDerivationNormalSigningFixture(args: {
   walletId: string;
   evmFamilySigningKeySlotId: string;
@@ -420,7 +454,7 @@ function routerAbEcdsaDerivationNormalSigningFixture(args: {
         recipient_encryption_key:
           'x25519:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       },
-      activation_epoch: args.thresholdSessionId,
+      activation_epoch: fixtureRootShareEpoch(args.thresholdSessionId),
     },
   };
 }
@@ -436,25 +470,31 @@ function emailOtpWorkerBackendBindingFixture(args: {
   ethereumAddress: `0x${string}`;
   thresholdSessionId: string;
 }) {
+  const readyRecord = makeEmailOtpRoleLocalReadyRecord({
+    walletId: args.walletId,
+    rpId: 'localhost',
+    chainTarget: args.chainTarget,
+    keyHandle: args.keyHandle,
+    evmFamilySigningKeySlotId: args.evmFamilySigningKeySlotId,
+    ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
+    signingRootId: args.signingRootId,
+    signingRootVersion: args.signingRootVersion,
+    ethereumAddress: args.ethereumAddress,
+    thresholdSessionId: args.thresholdSessionId,
+  });
+  const durableMaterialRef = `role-local-durable-${args.thresholdSessionId}`;
   return {
-    materialKind: 'email_otp_worker_handle' as const,
+    materialKind: 'role_local_worker_handle' as const,
     relayerKeyId: 'relayer-key',
     clientVerifyingShareB64u: VALID_ECDSA_CLIENT_PUBLIC_KEY_B64U,
-    clientAdditiveShareHandle: {
-      kind: 'email_otp_worker_session' as const,
-      sessionId: `email-otp-worker-${args.thresholdSessionId}`,
+    roleLocalMaterialHandle: {
+      kind: 'ecdsa_role_local_worker_handle_v1' as const,
+      materialHandle: `${durableMaterialRef}:live`,
+      bindingDigest: readyRecord.publicFacts.contextBinding32B64u,
+      durableMaterialRef,
     },
-    ecdsaRoleLocalReadyRecord: makeEmailOtpRoleLocalReadyRecord({
-      walletId: args.walletId,
-      rpId: 'localhost',
-      chainTarget: args.chainTarget,
-      keyHandle: args.keyHandle,
-      evmFamilySigningKeySlotId: args.evmFamilySigningKeySlotId,
-      ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
-      signingRootId: args.signingRootId,
-      signingRootVersion: args.signingRootVersion,
-      ethereumAddress: args.ethereumAddress,
-    }),
+    publicFacts: readyRecord.publicFacts,
+    authMethod: readyRecord.authMethod,
   };
 }
 
@@ -501,7 +541,6 @@ function emailOtpWorkerEcdsaBootstrapFixture(args: {
       walletId: toWalletId(walletId),
       signingRootId,
       signingRootVersion,
-      chainTargetKey: thresholdEcdsaChainTargetKey(args.chainTarget),
     });
   const routerAbEcdsaDerivationNormalSigning = routerAbEcdsaDerivationNormalSigningFixture({
     walletId,
@@ -581,12 +620,17 @@ async function roleLocalEcdsaKeyHandle(args: {
 }): Promise<string> {
   const signingRootId = `${args.projectId}:${args.envId}`;
   const walletKeyId = `wallet-key-${args.walletId}-${args.projectId}-${args.envId}`;
-  const ecdsaThresholdKeyId = await computeEcdsaDerivationRoleLocalThresholdKeyId({
-    walletId: args.walletId,
-    walletKeyId,
-    signingRootId,
-    signingRootVersion: args.signingRootVersion,
-  });
+  const ecdsaThresholdKeyId = await computeEcdsaDerivationRoleLocalThresholdKeyId(
+    // Cast: this fixture predates the walletKeyId -> evmFamilySigningKeySlotId
+    // rename. Renaming the fact would change the derived digest these
+    // WIP-classified tests exercise at runtime, so the stale shape is kept as-is.
+    {
+      walletId: args.walletId,
+      walletKeyId,
+      signingRootId,
+      signingRootVersion: args.signingRootVersion,
+    } as unknown as Parameters<typeof computeEcdsaDerivationRoleLocalThresholdKeyId>[0],
+  );
   return String(
     await deriveEvmFamilyEcdsaKeyHandle({
       ecdsaThresholdKeyId,
@@ -595,6 +639,13 @@ async function roleLocalEcdsaKeyHandle(args: {
     }),
   );
 }
+
+/** The jwt-session Email OTP arm of the sealed ECDSA restore union — the only
+ * variant this file's sealed-record fixture builds. */
+type EmailOtpJwtEcdsaSealedRestore = Extract<
+  BuildCurrentEcdsaSealedSessionRecordInput['ecdsaRestore'],
+  { source: 'email_otp'; sessionKind: 'jwt' }
+>;
 
 type EcdsaSealedRecordFixtureArgs = {
   expiresAtMs: number;
@@ -609,7 +660,7 @@ type EcdsaSealedRecordFixtureArgs = {
   shamirPrimeB64u?: string;
   sealedSecretB64u?: string;
   chainTarget?: BuildCurrentEcdsaSealedSessionRecordInput['ecdsaRestore']['chainTarget'];
-  ecdsaRestore?: Partial<BuildCurrentEcdsaSealedSessionRecordInput['ecdsaRestore']>;
+  ecdsaRestore?: Partial<EmailOtpJwtEcdsaSealedRestore>;
   issuedAtMs?: number;
   remainingUses?: number;
   updatedAtMs?: number;
@@ -617,7 +668,7 @@ type EcdsaSealedRecordFixtureArgs = {
 
 function buildEcdsaSealedRecordFixture(
   args: EcdsaSealedRecordFixtureArgs,
-): CurrentSealedSessionRecord {
+): Extract<CurrentSealedSessionRecord, { curve: 'ecdsa' }> {
   const chainTarget = args.ecdsaRestore?.chainTarget || args.chainTarget || TEMPO_CHAIN_TARGET;
   const thresholdSessionId =
     args.thresholdSessionId || args.thresholdSessionIds?.ecdsa || 'ecdsa-session';
@@ -634,7 +685,12 @@ function buildEcdsaSealedRecordFixture(
     envId: signingRootParts[1] || 'dev',
     signingRootVersion: args.signingRootVersion || 'root-v1',
   };
-  const ecdsaRestore: BuildCurrentEcdsaSealedSessionRecordInput['ecdsaRestore'] = {
+  // Cast: this WIP-stale sealed-restore fixture predates the shape that added
+  // signingRootId/signingRootVersion/publicCapability/roleLocalDurableMaterialRef.
+  // Backfilling those fields would change the runtime payload the
+  // classified-failing email-OTP session tests exercise, so the stale shape is
+  // preserved as-is.
+  const ecdsaRestore = {
     chainTarget,
     source: 'email_otp',
     provider: args.ecdsaRestore?.provider || 'google',
@@ -644,7 +700,6 @@ function buildEcdsaSealedRecordFixture(
         walletId: toWalletId(walletId),
         signingRootId,
         signingRootVersion: args.signingRootVersion || 'root-v1',
-        chainTargetKey: thresholdEcdsaChainTargetKey(chainTarget),
       }),
     providerSubjectId: args.ecdsaRestore?.providerSubjectId || 'google:subject',
     emailHashHex: args.ecdsaRestore?.emailHashHex || 'email-hash',
@@ -678,7 +733,6 @@ function buildEcdsaSealedRecordFixture(
             walletId: toWalletId(walletId),
             signingRootId,
             signingRootVersion: args.signingRootVersion || 'root-v1',
-            chainTargetKey: thresholdEcdsaChainTargetKey(chainTarget),
           }),
         ecdsaThresholdKeyId: args.ecdsaRestore?.ecdsaThresholdKeyId || 'ecdsa-key',
         signingRootId,
@@ -688,7 +742,7 @@ function buildEcdsaSealedRecordFixture(
         thresholdSessionId,
       }),
     runtimePolicyScope: args.ecdsaRestore?.runtimePolicyScope || runtimePolicyScope,
-  };
+  } as EmailOtpJwtEcdsaSealedRestore;
   const record = buildCurrentSealedSessionRecord({
     curve: 'ecdsa',
     authMethod: 'email_otp',
@@ -706,7 +760,7 @@ function buildEcdsaSealedRecordFixture(
     remainingUses: args.remainingUses ?? 2,
     updatedAtMs: args.updatedAtMs || Date.now(),
   });
-  if (!record) {
+  if (!record || record.curve !== 'ecdsa') {
     throw new Error('invalid ECDSA sealed session fixture');
   }
   return record;
@@ -721,6 +775,9 @@ function createCoordinator(overrides?: {
   readExactSealedSession?: (thresholdSessionId: string, purpose?: any) => Promise<any>;
   listExactSealedSessionsForWallet?: typeof listExactSealedSessionsForWallet;
   listThresholdEcdsaSessionRecordsForWallet?: (walletId: string) => any[];
+  listActiveEcdsaSignersForWallet?: (args: { walletId: string }) => Promise<any[]>;
+  provisionThresholdEcdsaSession?: (request: any) => Promise<any>;
+  provisionEmailOtpEcdsaExplicitExportSession?: (request: any) => Promise<any>;
   getThresholdEcdsaSessionRecordByThresholdSessionId?: (thresholdSessionId: string) => any;
   acquireSigningSessionRestoreLease?: (args: any) => Promise<any>;
   releaseSigningSessionRestoreLease?: (lease: any) => Promise<void>;
@@ -860,7 +917,9 @@ function createCoordinator(overrides?: {
   }) =>
     sealedRecordWrites
       .filter((write) => {
-        if (write.walletId !== walletId && write.userId !== walletId) {
+        // Cast: stale-shape compatibility read; current sealed records no longer
+        // carry userId, so this clause is a no-op kept for byte-identical runtime.
+        if (write.walletId !== walletId && (write as { userId?: string }).userId !== walletId) {
           return false;
         }
         return recordMatchesSealedPurpose(write, undefined, filter);
@@ -977,6 +1036,51 @@ function createCoordinator(overrides?: {
     listThresholdEcdsaSessionRecordsForWallet:
       overrides?.listThresholdEcdsaSessionRecordsForWallet ||
       ((walletId) => [{ ...defaultEcdsaRecord, walletId }]),
+    listActiveEcdsaSignersForWallet:
+      overrides?.listActiveEcdsaSignersForWallet || (async () => []),
+    // Mirrors production wiring: existing-key session provisioning bootstraps through
+    // the dedicated emailOtp worker.
+    provisionThresholdEcdsaSession:
+      overrides?.provisionThresholdEcdsaSession ||
+      (async (request: any) => {
+        const lanePolicy = request?.lanePolicy || {};
+        const walletKey = request?.walletKey || {};
+        const runtimePolicyScope =
+          request?.runtimePolicy?.scope || lanePolicy.runtimePolicyScope || undefined;
+        const response = await worker.requestWorkerOperation({
+          kind: 'emailOtp',
+          request: {
+            type: 'bootstrapEmailOtpEcdsaSessionsFromWorkerHandle',
+            payload: {
+              walletId: String(walletKey.walletId || 'alice.testnet'),
+              sessionId: String(lanePolicy.thresholdSessionId || 'ecdsa-session'),
+              signingGrantId: String(
+                lanePolicy.signingGrantId || lanePolicy.thresholdSessionId || 'ecdsa-session',
+              ),
+              ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+              publicationTargetPlans: [
+                {
+                  chainTarget: lanePolicy.chainTarget,
+                  keyHandle: walletKey.keyHandle,
+                  evmFamilySigningKeySlotId: walletKey.evmFamilySigningKeySlotId,
+                },
+              ],
+            },
+          },
+        });
+        const bootstrap = response?.bootstraps?.[0];
+        if (!bootstrap) {
+          throw new Error('test provisionThresholdEcdsaSession expected worker bootstraps');
+        }
+        return bootstrap;
+      }),
+    provisionEmailOtpEcdsaExplicitExportSession:
+      overrides?.provisionEmailOtpEcdsaExplicitExportSession ||
+      (async () => {
+        throw new Error(
+          'test provisionEmailOtpEcdsaExplicitExportSession is not wired for this scenario',
+        );
+      }),
     getThresholdEcdsaSessionRecordByThresholdSessionId:
       overrides?.getThresholdEcdsaSessionRecordByThresholdSessionId ||
       ((thresholdSessionId) =>
@@ -1314,7 +1418,6 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         walletId: 'alice.testnet',
         signingRootId: 'proj:dev',
         signingRootVersion: 'v1',
-        chainTargetKey: thresholdEcdsaChainTargetKey(TEMPO_CHAIN_TARGET),
       }),
     );
     expect(workerCalls.at(-2)).toMatchObject({
@@ -1721,6 +1824,65 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
   });
 
   test('Email OTP ECDSA signing step-up mints a budgeted signing grant id', async () => {
+    const authorizingSigningGrantId = 'exhausted-signing-grant';
+    const runtimePolicyScope = {
+      orgId: 'org',
+      projectId: 'proj',
+      envId: 'dev',
+      signingRootVersion: 'v1',
+    };
+    const signingRootId = `${runtimePolicyScope.projectId}:${runtimePolicyScope.envId}`;
+    const keyHandle = await roleLocalEcdsaKeyHandle({
+      walletId: 'alice.testnet',
+      rpId: 'localhost',
+      projectId: runtimePolicyScope.projectId,
+      envId: runtimePolicyScope.envId,
+      signingRootVersion: runtimePolicyScope.signingRootVersion,
+    });
+    const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
+      walletId: 'alice.testnet',
+      signingRootId,
+      signingRootVersion: runtimePolicyScope.signingRootVersion,
+    });
+    const ecdsaThresholdKeyId = await computeEcdsaDerivationRoleLocalThresholdKeyId({
+      walletId: 'alice.testnet',
+      evmFamilySigningKeySlotId,
+      signingRootId,
+      signingRootVersion: runtimePolicyScope.signingRootVersion,
+    });
+    const walletSessionJwt = thresholdEcdsaSessionJwt({
+      walletId: 'alice.testnet',
+      keyHandle,
+      thresholdSessionId: 'exhausted-threshold-session',
+      signingGrantId: authorizingSigningGrantId,
+      evmFamilySigningKeySlotId,
+      relayerKeyId: 'relayer-key',
+      thresholdExpiresAtMs: Date.now() + 60_000,
+      participantIds: [1, 2],
+      chainTarget: TEMPO_CHAIN_TARGET,
+      runtimePolicyScope,
+    });
+
+    const record = buildEmailOtpEcdsaSessionRecordFixture({
+      walletId: 'alice.testnet',
+      chainTarget: TEMPO_CHAIN_TARGET,
+      keyHandle,
+      ecdsaThresholdKeyId,
+      thresholdSessionId: 'exhausted-threshold-session',
+      signingGrantId: authorizingSigningGrantId,
+      walletSessionJwt,
+      relayerKeyId: 'relayer-key',
+      runtimePolicyScope,
+      ethereumAddress: '0x'.padEnd(42, 'a'),
+      material: 'worker_owned',
+      // Deliberately stale lane: exhausted budget on an already-expired session.
+      expiresAtMs: Date.now() - 1_000,
+      remainingUses: 0,
+      emailOtpAuthContext: emailOtpAuthContextFixture({
+        policy: 'per_operation',
+        retention: 'single_use',
+      }),
+    });
     const { coordinator, workerCalls } = createCoordinator({
       configs: {
         signing: {
@@ -1732,89 +1894,8 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
           },
         },
       },
+      listThresholdEcdsaSessionRecordsForWallet: () => [record],
     });
-    const authorizingSigningGrantId = 'exhausted-signing-grant';
-    const runtimePolicyScope = {
-      orgId: 'org',
-      projectId: 'proj',
-      envId: 'dev',
-      signingRootVersion: 'v1',
-    };
-    const keyHandle = await roleLocalEcdsaKeyHandle({
-      walletId: 'alice.testnet',
-      rpId: 'localhost',
-      projectId: runtimePolicyScope.projectId,
-      envId: runtimePolicyScope.envId,
-      signingRootVersion: runtimePolicyScope.signingRootVersion,
-    });
-    const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
-      walletId: 'alice.testnet',
-      signingRootId: 'signing-root',
-      signingRootVersion: 'root-v1',
-      chainTargetKey: thresholdEcdsaChainTargetKey(TEMPO_CHAIN_TARGET),
-    });
-    const walletSessionJwt = thresholdEcdsaSessionJwt({
-      walletId: 'alice.testnet',
-      keyHandle,
-      thresholdSessionId: 'exhausted-threshold-session',
-      signingGrantId: authorizingSigningGrantId,
-      evmFamilySigningKeySlotId,
-      relayerKeyId: 'relayer-key',
-      thresholdExpiresAtMs: Date.now() + 60_000,
-      participantIds: [1, 3],
-      chainTarget: TEMPO_CHAIN_TARGET,
-      runtimePolicyScope,
-    });
-
-    const record = {
-      purpose: 'transaction_signing',
-      walletId: toWalletId('alice.testnet'),
-      evmFamilySigningKeySlotId,
-      chainTarget: TEMPO_CHAIN_TARGET,
-      relayerUrl: 'https://relay.example',
-      keyHandle: toEvmFamilyEcdsaKeyHandle(keyHandle),
-      ecdsaThresholdKeyId: 'ecdsa-key',
-      signingRootId: 'signing-root',
-      signingRootVersion: 'root-v1',
-      relayerKeyId: 'relayer-key',
-      clientVerifyingShareB64u: 'client-verifying-share',
-      ecdsaRoleLocalReadyRecord: makeEmailOtpRoleLocalReadyRecord({
-        walletId: 'alice.testnet',
-        rpId: 'localhost',
-        chainTarget: TEMPO_CHAIN_TARGET,
-        keyHandle: toEvmFamilyEcdsaKeyHandle(keyHandle),
-        ecdsaThresholdKeyId: 'ecdsa-key',
-        signingRootId: 'signing-root',
-        signingRootVersion: 'root-v1',
-        ethereumAddress: '0x'.padEnd(42, 'a') as `0x${string}`,
-      }),
-      clientAdditiveShareHandle: {
-        kind: 'email_otp_worker_session',
-        sessionId: 'exhausted-threshold-session',
-      },
-      participantIds: [1, 3],
-      thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
-      verifiedPublicFacts: buildVerifiedEcdsaPublicFacts({
-        keyHandle: toEvmFamilyEcdsaKeyHandle(keyHandle),
-        publicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
-        participantIds: [1, 3],
-        thresholdOwnerAddress: '0x'.padEnd(42, 'a'),
-      }),
-      ethereumAddress: '0x'.padEnd(42, 'a'),
-      thresholdSessionKind: 'jwt',
-      thresholdSessionId: 'exhausted-threshold-session',
-      signingGrantId: authorizingSigningGrantId,
-      walletSessionJwt,
-      runtimePolicyScope,
-      expiresAtMs: Date.now() - 1_000,
-      remainingUses: 0,
-      emailOtpAuthContext: emailOtpAuthContextFixture({
-        policy: 'per_operation',
-        retention: 'single_use',
-      }),
-      updatedAtMs: Date.now(),
-      source: 'email_otp',
-    } satisfies ThresholdEcdsaSessionRecord;
 
     const result = await coordinator.loginWithEcdsaCapabilityForSigning({
       walletSession: TEST_WALLET_SESSION,
@@ -1848,18 +1929,6 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
   });
 
   test('export ECDSA reauth uses operation-scoped auth without replacing transaction sealed refresh', async () => {
-    const { coordinator, workerCalls, sealedRecordWrites, ecdsaCommitCalls } = createCoordinator({
-      configs: {
-        signing: {
-          emailOtp: { authPolicy: 'session' },
-          sessionPersistenceMode: 'sealed_refresh_v1',
-          sessionSeal: {
-            signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
-            shamirPrimeB64u: 'prime-b64u',
-          },
-        },
-      },
-    });
     const tempoChainTarget = thresholdEcdsaChainTargetFromChainFamily({
       chain: 'tempo',
       chainId: 42431,
@@ -1878,7 +1947,12 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       walletId: 'alice.testnet',
       signingRootId,
       signingRootVersion: runtimePolicyScope.signingRootVersion,
-      chainTargetKey: thresholdEcdsaChainTargetKey(tempoChainTarget),
+    });
+    const ecdsaThresholdKeyId = await computeEcdsaDerivationRoleLocalThresholdKeyId({
+      walletId: 'alice.testnet',
+      evmFamilySigningKeySlotId,
+      signingRootId,
+      signingRootVersion: runtimePolicyScope.signingRootVersion,
     });
     const thresholdExpiresAtMs = Date.now() + 60_000;
     const walletSessionJwt = thresholdEcdsaSessionJwt({
@@ -1894,52 +1968,35 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       runtimePolicyScope,
     });
 
-    const record = {
-      purpose: 'transaction_signing',
-      walletId: toWalletId('alice.testnet'),
-      evmFamilySigningKeySlotId,
+    const record = buildEmailOtpEcdsaSessionRecordFixture({
+      walletId: 'alice.testnet',
       chainTarget: tempoChainTarget,
-      relayerUrl: 'https://relay.example',
       keyHandle,
-      ecdsaThresholdKeyId: 'ecdsa-key',
-      signingRootId,
-      signingRootVersion: runtimePolicyScope.signingRootVersion,
-      relayerKeyId: 'relayer-key',
-      clientVerifyingShareB64u: 'client-verifying-share',
-      ecdsaRoleLocalReadyRecord: makeEmailOtpRoleLocalReadyRecord({
-        walletId: 'alice.testnet',
-        rpId: 'localhost',
-        chainTarget: tempoChainTarget,
-        keyHandle,
-        ecdsaThresholdKeyId: 'ecdsa-key',
-        signingRootId,
-        signingRootVersion: runtimePolicyScope.signingRootVersion,
-        ethereumAddress: thresholdOwnerAddress,
-      }),
-      clientAdditiveShareHandle: {
-        kind: 'email_otp_worker_session',
-        sessionId: 'transaction-ecdsa-session',
-      },
-      participantIds: [1, 2],
-      thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
-      verifiedPublicFacts: buildVerifiedEcdsaPublicFacts({
-        keyHandle,
-        publicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
-        participantIds: [1, 2],
-        thresholdOwnerAddress,
-      }),
-      ethereumAddress: thresholdOwnerAddress,
-      thresholdSessionKind: 'jwt',
+      ecdsaThresholdKeyId,
       thresholdSessionId: 'transaction-ecdsa-session',
       signingGrantId: 'transaction-signing-grant',
       walletSessionJwt,
+      relayerKeyId: 'relayer-key',
+      runtimePolicyScope,
+      ethereumAddress: thresholdOwnerAddress,
+      material: 'worker_owned',
       expiresAtMs: thresholdExpiresAtMs,
       remainingUses: 7,
-      runtimePolicyScope,
       emailOtpAuthContext: emailOtpAuthContextFixture(),
-      updatedAtMs: Date.now(),
-      source: 'email_otp',
-    } satisfies ThresholdEcdsaSessionRecord;
+    });
+    const { coordinator, workerCalls, sealedRecordWrites, ecdsaCommitCalls } = createCoordinator({
+      configs: {
+        signing: {
+          emailOtp: { authPolicy: 'session' },
+          sessionPersistenceMode: 'sealed_refresh_v1',
+          sessionSeal: {
+            signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
+            shamirPrimeB64u: 'prime-b64u',
+          },
+        },
+      },
+      listThresholdEcdsaSessionRecordsForWallet: () => [record],
+    });
 
     const artifact = await coordinator.exportEcdsaKeyWithAuthorization({
       walletSession: {
@@ -1948,7 +2005,12 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       },
       challengeId: 'export-challenge-1',
       otpCode: '123456',
-      committedLane: emailOtpEcdsaCommittedLaneFromRecord(record),
+      // Cast: the WIP-stale committed-lane fixture predates the record-backed
+      // export-lane shape; rebuilding the lane would change the runtime payload
+      // this classified test exercises, so the stale shape is preserved as-is.
+      committedLane: emailOtpEcdsaCommittedLaneFromRecord(record) as Parameters<
+        typeof coordinator.exportEcdsaKeyWithAuthorization
+      >[0]['committedLane'],
     });
 
     expect(artifact).toMatchObject({
@@ -2436,7 +2498,6 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
                   walletId: toWalletId('alice.testnet'),
                   signingRootId: 'signing-root',
                   signingRootVersion: 'root-v1',
-                  chainTargetKey: thresholdEcdsaChainTargetKey(TEMPO_CHAIN_TARGET),
                 }),
               },
               session: {

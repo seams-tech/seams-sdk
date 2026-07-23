@@ -5,33 +5,13 @@ import {
   type EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
 } from '@server/core/EmailOtpStores';
 import {
-  EMAIL_OTP_RECOVERY_WRAP_ALG,
-  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
-  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
-} from '@shared/utils/emailOtpRecoveryKey';
+  seedActiveEmailOtpRecoveryEscrowRecord,
+  seedConsumedEmailOtpRecoveryEscrowRecord,
+  seedRevokedEmailOtpRecoveryEscrowRecord,
+} from './helpers/emailOtpRecoveryEscrow.fixtures';
 
-const baseRecord: EmailOtpRecoveryWrappedEnrollmentEscrowRecord = {
-  version: 'email_otp_recovery_wrapped_enrollment_escrow_v1',
-  alg: EMAIL_OTP_RECOVERY_WRAP_ALG,
-  secretKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
-  escrowKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
-  walletId: 'alice.testnet',
-  authSubjectId: 'google-sub-1',
-  userId: 'google-sub-1',
-  authMethod: 'google_sso_email_otp',
-  enrollmentId: 'enrollment-1',
-  enrollmentVersion: '1',
-  enrollmentSealKeyVersion: 'seal-v1',
-  signingRootId: 'root-1',
-  signingRootVersion: 'root-v1',
-  recoveryKeyId: 'recovery-key-1',
-  recoveryKeyStatus: 'active',
-  nonceB64u: 'AQIDBAUGBwgJCgsM',
-  wrappedDeviceEnrollmentEscrowB64u: 'AQIDBAUGBwg',
-  aadHashB64u: 'CQoLDA0ODxA',
-  issuedAtMs: 1000,
-  updatedAtMs: 2000,
-};
+const baseRecord: EmailOtpRecoveryWrappedEnrollmentEscrowRecord =
+  seedActiveEmailOtpRecoveryEscrowRecord();
 
 function parseRecoveryWrappedEscrowRecord(
   raw: unknown,
@@ -189,22 +169,18 @@ test.describe('Email OTP recovery-wrapped enrollment escrow store specs', () => 
 
   test('stores active, consumed, and revoked recovery-wrapped escrows without mutating callers', async () => {
     const store = createEmailOtpRecoveryWrappedEnrollmentEscrowStore();
-    const activeRecord: EmailOtpRecoveryWrappedEnrollmentEscrowRecord = {
-      ...baseRecord,
-      recoveryKeyStatus: 'active',
-    };
-    const consumedRecord: EmailOtpRecoveryWrappedEnrollmentEscrowRecord = {
-      ...baseRecord,
-      recoveryKeyId: 'recovery-key-2',
-      recoveryKeyStatus: 'consumed',
-      consumedAtMs: 3000,
-    };
-    const revokedRecord: EmailOtpRecoveryWrappedEnrollmentEscrowRecord = {
-      ...baseRecord,
-      recoveryKeyId: 'recovery-key-3',
-      recoveryKeyStatus: 'revoked',
-      revokedAtMs: 3500,
-    };
+    const activeRecord: EmailOtpRecoveryWrappedEnrollmentEscrowRecord =
+      seedActiveEmailOtpRecoveryEscrowRecord();
+    const consumedRecord: EmailOtpRecoveryWrappedEnrollmentEscrowRecord =
+      seedConsumedEmailOtpRecoveryEscrowRecord({
+        recoveryKeyId: 'recovery-key-2',
+        consumedAtMs: 3000,
+      });
+    const revokedRecord: EmailOtpRecoveryWrappedEnrollmentEscrowRecord =
+      seedRevokedEmailOtpRecoveryEscrowRecord({
+        recoveryKeyId: 'recovery-key-3',
+        revokedAtMs: 3500,
+      });
     await store.put(activeRecord);
     await store.put(consumedRecord);
     await store.put(revokedRecord);
