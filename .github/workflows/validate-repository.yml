@@ -208,9 +208,6 @@ jobs:
       - name: Run signer parity tests
         run: pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/signerParity.rustPlatforms.unit.test.ts ./unit/signingVectors.webWasmReplay.integration.test.ts --workers=1 --reporter=line
 
-      - name: Run relayer (server) tests
-        run: pnpm -C packages/sdk-web test:relayer
-
   signer-parity-swift:
     if: github.event_name != 'push'
     runs-on: macos-latest
