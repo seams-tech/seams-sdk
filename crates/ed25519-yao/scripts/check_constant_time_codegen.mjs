@@ -1,6 +1,7 @@
 import {
   accessSync,
   closeSync,
+  copyFileSync,
   constants,
   mkdtempSync,
   openSync,
@@ -461,10 +462,13 @@ function main() {
   const temporary = mkdtempSync(join(tmpdir(), 'ed25519-yao-ct-codegen-'));
   try {
     assertSecretBitWrappersCannotUseDebug();
-    buildAndInspectHost(join(temporary, 'host'));
-    const deriverA = buildWorker(join(temporary, 'wasm-a'), 'deriver-a-cross-account');
-    const deriverB = buildWorker(join(temporary, 'wasm-b'), 'deriver-b-cross-account');
-    inspectWorkerArtifacts(deriverA, deriverB);
+    const cargoTarget = join(temporary, 'cargo-target');
+    buildAndInspectHost(cargoTarget);
+    const deriverA = buildWorker(cargoTarget, 'deriver-a-cross-account');
+    const deriverACopy = join(temporary, 'deriver-a.wasm');
+    copyFileSync(deriverA, deriverACopy);
+    const deriverB = buildWorker(cargoTarget, 'deriver-b-cross-account');
+    inspectWorkerArtifacts(deriverACopy, deriverB);
   } finally {
     rmSync(temporary, { recursive: true, force: true });
   }
