@@ -104,6 +104,7 @@ fn normal_scope() -> NormalSigningScopeV1 {
         "router-ab-normal-signing/request-1",
         "alice.testnet",
         "session-1",
+        "session-1",
         "signing-worker-1",
     )
     .expect("scope")
@@ -503,6 +504,7 @@ fn presign_pool_prepare_response_binds_accepted_entries_to_offers() {
         "router-ab-normal-signing/request-1",
         "alice.testnet",
         "session-2",
+        "session-1",
         "signing-worker-1",
     )
     .expect("wrong response scope");
