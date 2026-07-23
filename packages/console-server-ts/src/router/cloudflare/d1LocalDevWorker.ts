@@ -844,6 +844,11 @@ function isRouterApiPath(pathname: string): boolean {
     pathname.startsWith('/recover-email') ||
     pathname.startsWith('/router-ab/') ||
     pathname.startsWith('/session/') ||
+    // The SDK relayer client POSTs signed delegates to `/signed-delegate`
+    // (DEFAULT_SIGNED_DELEGATE_ROUTE). Without this, the request fell through
+    // to the catch-all `{ ok: true }` responder and never reached the router
+    // API handler that actually broadcasts the delegate to NEAR.
+    pathname === '/signed-delegate' ||
     pathname.startsWith('/sponsorships/') ||
     pathname.startsWith('/sync-account/') ||
     pathname.startsWith('/v1/') ||

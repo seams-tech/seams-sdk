@@ -188,7 +188,6 @@ export class IframeExportHost extends LitElementWithProps {
           <meta charset="utf-8" />
           <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
           ${isAbsoluteBase ? `<link rel="preload" href="${base}export-viewer.css" as="style" />` : ''}
-          ${isAbsoluteBase ? `<link rel="preload" href="${base}export-iframe.css" as="style" />` : ''}
           <link rel="stylesheet" href="${base}wallet-service.css" />
           <!-- Component palette/tokens for host elements (e.g., <w3a-drawer>) -->
           ${isAbsoluteBase ? `<link rel="stylesheet" href="${base}w3a-components.css" />` : ''}

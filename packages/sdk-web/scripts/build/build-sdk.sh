@@ -125,13 +125,14 @@ if [ -z "$BUN_BIN" ]; then print_error "Bun not found. Install Bun or ensure it 
 mkdir -p "$BUILD_ESM/sdk"
 
 # These bundles are loaded directly by browsers from /sdk/* (no bundler/import maps),
-# so they must not contain bare module specifiers like `import "idb"`.
-if "$BUN_BIN" build "$SDK_ROOT/src/core/signingEngine/uiConfirm/ui/confirm-ui.ts" --outfile "$BUILD_ESM/sdk/tx-confirm-ui.js" --format esm --target browser --root "$REPO_ROOT" \
-  && "$BUN_BIN" build "$SDK_ROOT/src/core/signingEngine/uiConfirm/ui/lit-components/IframeTxConfirmer/tx-confirmer-wrapper.ts" --outfile "$BUILD_ESM/sdk/w3a-tx-confirmer.js" --format esm --target browser --root "$REPO_ROOT" \
-  && "$BUN_BIN" build "$SDK_ROOT/src/core/signingEngine/uiConfirm/ui/lit-components/ExportPrivateKey/iframe-export-bootstrap-script.ts" --outfile "$BUILD_ESM/sdk/iframe-export-bootstrap.js" --format esm --target browser --root "$REPO_ROOT" \
-  && "$BUN_BIN" build "$SDK_ROOT/src/core/signingEngine/uiConfirm/ui/lit-components/ExportPrivateKey/viewer.ts" --outfile "$BUILD_ESM/sdk/export-private-key-viewer.js" --format esm --target browser --root "$REPO_ROOT" \
-  && "$BUN_BIN" build "$SDK_ROOT/src/core/signingEngine/uiConfirm/ui/lit-components/HaloBorder/index.ts" --outfile "$BUILD_ESM/sdk/halo-border.js" --format esm --target browser --root "$REPO_ROOT" \
-  && "$BUN_BIN" build "$SDK_ROOT/src/core/signingEngine/uiConfirm/ui/lit-components/PasskeyHaloLoading/index.ts" --outfile "$BUILD_ESM/sdk/passkey-halo-loading.js" --format esm --target browser --root "$REPO_ROOT"; then
+# so they must not contain bare module specifiers like `import "idb"`. Keep the
+# dev build readable while selecting Lit's production condition for browser assets.
+if NODE_ENV=production "$BUN_BIN" build "$SDK_ROOT/src/core/signingEngine/uiConfirm/ui/confirm-ui.ts" --outfile "$BUILD_ESM/sdk/tx-confirm-ui.js" --format esm --target browser --root "$REPO_ROOT" \
+  && NODE_ENV=production "$BUN_BIN" build "$SDK_ROOT/src/core/signingEngine/uiConfirm/ui/lit-components/IframeTxConfirmer/tx-confirmer-wrapper.ts" --outfile "$BUILD_ESM/sdk/w3a-tx-confirmer.js" --format esm --target browser --root "$REPO_ROOT" \
+  && NODE_ENV=production "$BUN_BIN" build "$SDK_ROOT/src/core/signingEngine/uiConfirm/ui/lit-components/ExportPrivateKey/iframe-export-bootstrap-script.ts" --outfile "$BUILD_ESM/sdk/iframe-export-bootstrap.js" --format esm --target browser --root "$REPO_ROOT" \
+  && NODE_ENV=production "$BUN_BIN" build "$SDK_ROOT/src/core/signingEngine/uiConfirm/ui/lit-components/ExportPrivateKey/viewer.ts" --outfile "$BUILD_ESM/sdk/export-private-key-viewer.js" --format esm --target browser --root "$REPO_ROOT" \
+  && NODE_ENV=production "$BUN_BIN" build "$SDK_ROOT/src/core/signingEngine/uiConfirm/ui/lit-components/HaloBorder/index.ts" --outfile "$BUILD_ESM/sdk/halo-border.js" --format esm --target browser --root "$REPO_ROOT" \
+  && NODE_ENV=production "$BUN_BIN" build "$SDK_ROOT/src/core/signingEngine/uiConfirm/ui/lit-components/PasskeyHaloLoading/index.ts" --outfile "$BUILD_ESM/sdk/passkey-halo-loading.js" --format esm --target browser --root "$REPO_ROOT"; then
   print_success "Bun embedded-asset bundling completed"
 else
   print_error "Bun embedded-asset bundling failed"; exit 1
