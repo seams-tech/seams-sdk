@@ -37,6 +37,7 @@ import { createCloudflareRouter } from '@seams/sdk-server/internal/router/cloudf
 import { createCloudflareConsoleRouter } from './createCloudflareConsoleRouter';
 import {
   createCloudflareD1ConsoleServiceBundle,
+  createCloudflareD1RouterApiRouteExtensions,
   createCloudflareD1SigningRootShareDecryptAdapter,
 } from './d1ConsoleServices';
 import {
@@ -925,6 +926,7 @@ async function createLocalRouterApiHandler(env: LocalD1DevEnv): Promise<FetchHan
   const emailRecoveryAuthService = createLocalD1EmailRecoveryAuthService(env);
   return createCloudflareRouter(routerApiService, {
     ...bundle.routerApiRouterOptions,
+    routeExtensions: createCloudflareD1RouterApiRouteExtensions(bundle, routerApiService),
     healthz: true,
     readyz: true,
     corsOrigins: [...LOCAL_ROUTER_API_CORS_ORIGINS],
