@@ -108,6 +108,8 @@ exact parser, and two-state activation journal.
 - every `signingGrantId` occurrence (classify: delete, map to operation grant,
   or map to `MpcWalletSigningQuotaId`; never a mechanical rename, never
   material identity)
+- `WalletSessionId = SigningGrantId`; replace it atomically with a distinct
+  branded `WalletSessionId` and boundary parser
 - interim shared exports of `SignerAuthMethod` / `WalletAuthMethod` only if a
   capability-local move ships both halves in one cut (Refactor 91's stable leaf
   module stays until then)
@@ -124,10 +126,31 @@ Replacement: branded `MpcMaterialActivationId`, exact
 - `active_state_session_id`
 - ambiguous normal-signing `session_id` fields that represent authorization;
   the replacement wire field is `authorization_session_id`
+- `authorizationSessionId: SeamsSessionId` on MPC operation scopes; reusable
+  wallet authorization uses `WalletSessionId`, while operation grants retain
+  their independent `SeamsSessionId` binding
 - every `thresholdSessionId` or Wallet Session ID used as a material activation
   locator, persistence key, worker-state key, or hydration identity
 - compatibility aliases between authorization session IDs and material
   activation IDs
+
+## Phases 18-23 — Refactor 92 lifecycle migration residue
+
+Replacement: the frozen Refactor 92 classifier, canonical invalidator,
+structured server result, secure-origin state/event transport, and
+single-operation same-method step-up, composed with the new branded identities.
+
+- any recreated expiry inference from JWT presence, optional session IDs,
+  optional timestamps, diagnostics, or message text
+- any capability-specific expiry/exhaustion classifier added beside the
+  Refactor 92 classifier for NEAR, Tempo, EVM, delegate signing, or key export
+- any step-up path that creates a reusable Wallet Session
+- any expiry path that enters Yao recovery, device linking, or material
+  reactivation
+- any React/Lit host path that declares the wallet unlocked before exact iframe
+  initialization or independently parses Wallet Session lifecycle
+- fixtures that equate Wallet Session, signing grant, quota, threshold session,
+  or material activation IDs solely to preserve pre-cutover behavior
 
 ## Phase 19 — Email OTP patch tactical surface
 

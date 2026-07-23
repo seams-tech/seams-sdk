@@ -258,7 +258,6 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
         <button
           type="button"
           class="btn btn-cancel"
-          ?disabled=${this.loading}
           @click=${this._handleCancel}
         >
           ${this.cancelText || 'Cancel'}

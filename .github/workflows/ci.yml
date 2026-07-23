@@ -3,7 +3,12 @@ name: ci
 on:
   push:
     branches:
+      - dev
       - main
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'tests/**'
   pull_request:
   merge_group:
   workflow_dispatch:
@@ -11,9 +16,81 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  release-change-set:
+    name: Record release change set
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout pushed revision
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Compute pushed change range
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-change-set
+          if [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
+            git diff-tree --root --no-commit-id --name-only -r "$SOURCE_SHA" > release-change-set/changed-files.txt
+          else
+            git diff --name-only "$BEFORE_SHA" "$SOURCE_SHA" > release-change-set/changed-files.txt
+          fi
+          printf '%s\n' "$BEFORE_SHA" > release-change-set/base-sha.txt
+          printf '%s\n' "$SOURCE_SHA" > release-change-set/source-sha.txt
+
+      - name: Upload pushed change range
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-change-set
+          path: release-change-set
+          retention-days: 30
+
+  router-ab-deployment-validation:
+    name: Router A/B deployment validation
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Add wasm target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Run Router A/B core and adapter tests
+        run: |
+          cargo test --manifest-path crates/router-ab-core/Cargo.toml
+          cargo test --manifest-path crates/router-ab-dev/Cargo.toml
+          cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml
+
+      - name: Check strict Worker entrypoints
+        run: |
+          set -euo pipefail
+          for feature in \
+            strict-worker-router-entrypoint \
+            strict-worker-deriver-a-entrypoint \
+            strict-worker-deriver-b-entrypoint \
+            strict-worker-signing-worker-entrypoint
+          do
+            cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --features "$feature"
+          done
+
   ed25519-yao-constant-time-codegen:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -40,6 +117,7 @@ jobs:
 
   build-and-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -71,11 +149,13 @@ jobs:
         run: |
           curl -sSf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
 
-      - name: Build WASM packages
-        run: pnpm build:wasm
-
       - name: Check lint, types, Rust, and architecture
-        run: pnpm check
+        run: |
+          pnpm lint
+          pnpm type-check
+          pnpm format:rust:check
+          pnpm lint:rust
+          pnpm check:signing-architecture
 
       - name: Setup Bun (for worker bundling)
         uses: oven-sh/setup-bun@v2
@@ -90,16 +170,20 @@ jobs:
         run: node packages/sdk-web/scripts/checks/assert-palette-css.mjs
 
       - name: Run lite SDK tests
-        run: pnpm test:lite
+        run: pnpm -C tests exec playwright test -c playwright.lite.config.ts --reporter=line
 
       - name: Run signer runtime gates
-        run: pnpm test:signers:gates
+        run: pnpm -C tests exec playwright test ./unit/walletSessionReadiness.gate.unit.test.ts ./unit/thresholdEcdsa.commitQueue.unit.test.ts ./unit/walletIframeHost.signTempoCancel.unit.test.ts --reporter=line
+
+      - name: Run signer parity tests
+        run: pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/signerParity.rustPlatforms.unit.test.ts ./unit/signingVectors.webWasmReplay.integration.test.ts --workers=1 --reporter=line
 
       - name: Run relayer (server) tests
         run: pnpm -C packages/sdk-web test:relayer
 
   signer-parity-swift:
     runs-on: macos-latest
+    timeout-minutes: 35
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -151,6 +235,7 @@ jobs:
 
   threshold-signing-core:
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     services:
       redis:
         image: redis:7-alpine

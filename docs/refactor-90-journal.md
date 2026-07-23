@@ -6,6 +6,32 @@ This file holds dated progress entries so the plan stays a readable checklist.
 The plan records only a one-line status per phase; the narrative history lives
 here.
 
+## July 23, 2026: Refactor 92 Frozen-Lifecycle Reconciliation
+
+- Added `R90-INV-014` so Refactor 90 preserves Refactor 92's implemented
+  reusable Wallet Session behavior across the identity and material cutover:
+  24-hour/three-use defaults, distinct expiry and exhaustion, one-operation
+  same-method step-up, explicit-unlock session creation, canonical invalidation,
+  secure-origin ownership, and demo locking.
+- Tightened `R90-INV-013` around five independent identities:
+  `SeamsSessionId`, `WalletSessionId`, `CapabilityGrantId`,
+  `MpcWalletSigningQuotaId`, and `MpcMaterialActivationId`.
+- Corrected the target MPC operation scope so
+  `authorizationSessionId: WalletSessionId` names reusable wallet
+  authorization. Operation grants retain their independent
+  `SeamsSessionId` binding, and `materialActivation` names only exact activated
+  material.
+- Extended Phases 17-23 and their tracker/validation checks to preserve
+  post-refresh allowance, exact material rehydration, canonical expiry events,
+  one server-race retry, immediate confirmation termination, no expiry-driven
+  recovery/linking, and Passkey/Email OTP parity across all signing/export
+  surfaces.
+- Added deletion-ledger targets for the live
+  `WalletSessionId = SigningGrantId` alias, authorization/material session
+  aliases, recreated lifecycle inference, and pre-cutover fixtures.
+- Kept Refactor 92 itself frozen. Its staging and production 24-hour default
+  checks remain deployment acceptance owned by that plan.
+
 ## July 22, 2026: Invariant Wiring And Deletion-Ledger Restoration
 
 - Wired the `R90-INV` IDs into the plan: each Settled Architecture section,

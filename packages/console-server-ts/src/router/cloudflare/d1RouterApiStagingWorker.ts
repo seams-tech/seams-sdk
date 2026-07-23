@@ -5,7 +5,10 @@ import {
   resolveSponsoredEvmWorkerExecutionAdapter,
 } from '@seams-internal/console-server/sponsorship/evmWorkerExecutionAdapter';
 import { createCloudflareRouter } from '@seams/sdk-server/internal/router/cloudflare/createCloudflareRouter';
-import { createCloudflareD1ConsoleServiceBundle } from './d1ConsoleServices';
+import {
+  createCloudflareD1ConsoleServiceBundle,
+  createCloudflareD1RouterApiRouteExtensions,
+} from './d1ConsoleServices';
 import type { CloudflareD1EmailOtpServerSealConfig } from '@seams/sdk-server/internal/router/cloudflare/d1RouterApiAuthConfig';
 import { createCloudflareD1RouterApiAuthService } from '@seams/sdk-server/internal/router/cloudflare/d1RouterApiAuthService';
 import type { ThresholdStoreConfigInput } from '@seams/sdk-server/internal/core/types';
@@ -374,6 +377,7 @@ async function createRouterApiHandler(
   });
   return createCloudflareRouter(service, {
     ...bundle.routerApiRouterOptions,
+    routeExtensions: createCloudflareD1RouterApiRouteExtensions(bundle, service),
     healthz: true,
     readyz: true,
     corsOrigins: readCsvList(env.RELAY_CORS_ORIGINS),

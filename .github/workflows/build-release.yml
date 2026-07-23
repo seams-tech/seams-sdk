@@ -1,0 +1,705 @@
+name: build-release
+
+on:
+  workflow_run:
+    workflows: ['ci']
+    types: [completed]
+    branches: [dev, main]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Release target
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      source_sha:
+        description: Exact protected-branch source SHA
+        required: true
+        type: string
+      validation_run_id:
+        description: Accepted validation workflow run ID
+        required: true
+        type: string
+      change_base_sha:
+        description: Base SHA for a manually accepted multi-commit change range
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: release-build-${{ inputs.target || (github.event.workflow_run.head_branch == 'main' && 'production' || 'staging') }}-${{ inputs.source_sha || github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+env:
+  RUST_TOOLCHAIN: '1.96.0'
+
+jobs:
+  prepare:
+    name: Select accepted release
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch' ||
+        (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push')
+      }}
+    runs-on: ubuntu-latest
+    outputs:
+      target: ${{ steps.release.outputs.target }}
+      source_sha: ${{ steps.release.outputs.source_sha }}
+      source_branch: ${{ steps.release.outputs.source_branch }}
+      validation_run_id: ${{ steps.release.outputs.validation_run_id }}
+      change_base_sha: ${{ steps.release.outputs.change_base_sha }}
+    steps:
+      - name: Checkout release ref
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.source_sha || github.event.workflow_run.head_sha }}
+
+      - name: Resolve release identity
+        id: release
+        env:
+          INPUT_TARGET: ${{ inputs.target }}
+          INPUT_SOURCE_SHA: ${{ inputs.source_sha }}
+          INPUT_VALIDATION_RUN_ID: ${{ inputs.validation_run_id }}
+          INPUT_CHANGE_BASE_SHA: ${{ inputs.change_base_sha }}
+          WORKFLOW_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          WORKFLOW_SHA: ${{ github.event.workflow_run.head_sha }}
+          WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          target="$INPUT_TARGET"
+          source_sha="$INPUT_SOURCE_SHA"
+          source_branch="$WORKFLOW_BRANCH"
+          validation_run_id="$INPUT_VALIDATION_RUN_ID"
+          if [[ -z "$target" ]]; then
+            [[ "$source_branch" == 'dev' || "$source_branch" == 'main' ]] || {
+              echo '::error title=Unsupported release branch::Only dev and main can produce releases'
+              exit 1
+            }
+            target="$([[ "$source_branch" == 'main' ]] && echo production || echo staging)"
+          fi
+          if [[ -z "$source_sha" ]]; then source_sha="$WORKFLOW_SHA"; fi
+          if [[ -z "$validation_run_id" ]]; then validation_run_id="$WORKFLOW_RUN_ID"; fi
+          expected_branch="$([[ "$target" == 'production' ]] && echo main || echo dev)"
+          [[ "$source_branch" == "$expected_branch" || -z "$source_branch" ]] || {
+            echo "::error title=Invalid release mapping::$target requires $expected_branch"
+            exit 1
+          }
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]] || {
+            echo '::error title=Invalid source SHA::Release source SHA must be a full lowercase Git SHA'
+            exit 1
+          }
+          [[ "$validation_run_id" =~ ^[1-9][0-9]*$ ]] || {
+            echo '::error title=Invalid validation run ID::Validation run ID must be numeric'
+            exit 1
+          }
+          validation_name="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$validation_run_id" --jq '.name')"
+          validation_sha="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$validation_run_id" --jq '.head_sha')"
+          validation_branch="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$validation_run_id" --jq '.head_branch')"
+          validation_conclusion="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$validation_run_id" --jq '.conclusion')"
+          [[ "$validation_name" == 'ci' ]] || {
+            echo "::error title=Invalid validation workflow::Run $validation_run_id is not a ci run"
+            exit 1
+          }
+          [[ "$validation_sha" == "$source_sha" ]] || {
+            echo "::error title=Validation SHA mismatch::Run $validation_run_id tested $validation_sha, expected $source_sha"
+            exit 1
+          }
+          [[ "$validation_branch" == "$expected_branch" ]] || {
+            echo "::error title=Validation branch mismatch::Run $validation_run_id belongs to $validation_branch, expected $expected_branch"
+            exit 1
+          }
+          [[ "$validation_conclusion" == 'success' ]] || {
+            echo "::error title=Validation run did not succeed::Run $validation_run_id concluded $validation_conclusion"
+            exit 1
+          }
+          if [[ "${{ github.event_name }}" == 'workflow_dispatch' ]]; then
+            [[ "$INPUT_CHANGE_BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+              echo '::error title=Invalid change baseline::Manual releases require a full lowercase Git base SHA'
+              exit 1
+            }
+            git merge-base --is-ancestor "$INPUT_CHANGE_BASE_SHA" "$source_sha" || {
+              echo '::error title=Invalid change baseline::The manual change base must be an ancestor of the source SHA'
+              exit 1
+            }
+            git fetch origin "refs/heads/$expected_branch:refs/remotes/origin/$expected_branch"
+            branch_tip="$(git rev-parse "refs/remotes/origin/$expected_branch")"
+            [[ "$source_sha" == "$branch_tip" ]] || {
+              echo "::error title=Manual release SHA is not the branch tip::$source_sha is not the current $expected_branch tip"
+              exit 1
+            }
+          fi
+          {
+            echo "target=$target"
+            echo "source_sha=$source_sha"
+            echo "source_branch=$expected_branch"
+            echo "validation_run_id=$validation_run_id"
+            echo "change_base_sha=$INPUT_CHANGE_BASE_SHA"
+          } >> "$GITHUB_OUTPUT"
+
+  build_router:
+    name: Build Router A/B artifacts
+    needs:
+      - prepare
+      - select_components
+    if: >-
+      ${{
+        contains(fromJSON(needs.select_components.outputs.components), 'router') ||
+        contains(fromJSON(needs.select_components.outputs.components), 'deriver-a') ||
+        contains(fromJSON(needs.select_components.outputs.components), 'deriver-b') ||
+        contains(fromJSON(needs.select_components.outputs.components), 'signing-worker')
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout selected revision
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - name: Add wasm target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Cache Router A/B Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: router-ab-release-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}-release
+          workspaces: crates/router-ab-cloudflare -> target
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install pinned Worker builder
+        run: pnpm -C crates/router-ab-cloudflare run worker-build:install
+
+      - name: Build all role bundles once
+        env:
+          ROUTER_AB_WORKER_BUILD_PROFILE: release
+        run: |
+          set -euo pipefail
+          for role in signing-worker deriver-a deriver-b router; do
+            pnpm -C crates/router-ab-cloudflare run "build:$role"
+          done
+
+      - name: Create role manifests
+        env:
+          DEPLOY_TARGET: ${{ needs.prepare.outputs.target }}
+          DEPLOY_SHA: ${{ needs.prepare.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          build_metadata="$(node -e 'process.stdout.write(JSON.stringify({bun:process.argv[1],node:process.argv[2],rustc:process.argv[3],workerBuild:process.argv[4]}))' "$(bun --version)" "$(node --version)" "$(rustc --version)" "$(worker-build --version)")"
+          mkdir -p crates/router-ab-cloudflare/.release-artifacts
+          for role in signing-worker deriver-a deriver-b router; do
+            node scripts/deployment-artifact.mjs create \
+              --kind "$role" \
+              --target "$DEPLOY_TARGET" \
+              --sha "$DEPLOY_SHA" \
+              --root "crates/router-ab-cloudflare/build/$role" \
+              --manifest "crates/router-ab-cloudflare/.release-artifacts/$role.json" \
+              --identity-json "{\"profile\":\"release\",\"role\":\"$role\"}" \
+              --metadata-json "$build_metadata"
+          done
+
+      - name: Upload Router A/B artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ needs.prepare.outputs.target }}-${{ needs.prepare.outputs.source_sha }}-router
+          path: |
+            crates/router-ab-cloudflare/build/router
+            crates/router-ab-cloudflare/.release-artifacts/router.json
+          include-hidden-files: true
+          retention-days: 30
+          compression-level: 0
+
+      - name: Upload Deriver A artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ needs.prepare.outputs.target }}-${{ needs.prepare.outputs.source_sha }}-deriver-a
+          path: |
+            crates/router-ab-cloudflare/build/deriver-a
+            crates/router-ab-cloudflare/.release-artifacts/deriver-a.json
+          include-hidden-files: true
+          retention-days: 30
+          compression-level: 0
+
+      - name: Upload Deriver B artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ needs.prepare.outputs.target }}-${{ needs.prepare.outputs.source_sha }}-deriver-b
+          path: |
+            crates/router-ab-cloudflare/build/deriver-b
+            crates/router-ab-cloudflare/.release-artifacts/deriver-b.json
+          include-hidden-files: true
+          retention-days: 30
+          compression-level: 0
+
+      - name: Upload SigningWorker artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ needs.prepare.outputs.target }}-${{ needs.prepare.outputs.source_sha }}-signing-worker
+          path: |
+            crates/router-ab-cloudflare/build/signing-worker
+            crates/router-ab-cloudflare/.release-artifacts/signing-worker.json
+          include-hidden-files: true
+          retention-days: 30
+          compression-level: 0
+
+  select_components:
+    name: Select affected components
+    needs: prepare
+    runs-on: ubuntu-latest
+    outputs:
+      components: ${{ steps.select.outputs.components }}
+    steps:
+      - name: Checkout selected revision
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.source_sha }}
+
+      - name: Download pushed change range
+        if: github.event_name != 'workflow_dispatch'
+        uses: actions/download-artifact@v8
+        with:
+          name: release-change-set
+          path: .release-change-set
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.prepare.outputs.validation_run_id }}
+
+      - name: Select components from accepted change range
+        id: select
+        env:
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          CHANGE_BASE_SHA: ${{ needs.prepare.outputs.change_base_sha }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == 'workflow_dispatch' ]]; then
+            git diff --name-only "$CHANGE_BASE_SHA" "$SOURCE_SHA" > "$RUNNER_TEMP/changed-files.txt"
+          else
+            test "$(<.release-change-set/source-sha.txt)" = "$SOURCE_SHA"
+            test -s .release-change-set/changed-files.txt
+            cp .release-change-set/changed-files.txt "$RUNNER_TEMP/changed-files.txt"
+          fi
+          components="$(node scripts/deployment-components.mjs select --files-file "$RUNNER_TEMP/changed-files.txt")"
+          echo "components=$components" >> "$GITHUB_OUTPUT"
+          {
+            echo '## Selected deployment components'
+            echo
+            echo "- Source SHA: \`$SOURCE_SHA\`"
+            echo "- Components: \`$components\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build_gateway:
+    name: Build Gateway artifact
+    needs:
+      - prepare
+      - select_components
+    if: contains(fromJSON(needs.select_components.outputs.components), 'gateway')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment:
+      name: ${{ needs.prepare.outputs.target }}
+    env:
+      GATEWAY_DEPLOYMENT_CONFIG_JSON: ${{ vars.GATEWAY_DEPLOYMENT_CONFIG_JSON }}
+      RELAYER_PRIVATE_KEY: ${{ secrets.RELAYER_PRIVATE_KEY }}
+    steps:
+      - name: Checkout selected revision
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - name: Add wasm target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install pinned WASM tooling
+        run: bash packages/sdk-web/scripts/build/install-ci-wasm-tooling.sh
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Gateway WASM dependencies
+        env:
+          WASM_SDK_BUILD_TARGET: gateway
+        run: pnpm -C packages/console-server-ts run d1:local:ensure-wasm
+
+      - name: Assemble Gateway artifact
+        env:
+          DEPLOY_TARGET: ${{ needs.prepare.outputs.target }}
+          DEPLOY_SHA: ${{ needs.prepare.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          build_metadata="$(node -e 'process.stdout.write(JSON.stringify({bun:process.argv[1],node:process.argv[2],rustc:process.argv[3],wasmPack:process.argv[4]}))' "$(bun --version)" "$(node --version)" "$(rustc --version)" "$(wasm-pack --version)")"
+          artifact_root='.release-artifacts/gateway/payload'
+          mkdir -p "$artifact_root/wasm"
+          for package in near_signer threshold_prf evm_crypto router_ab_ecdsa_signing_worker; do
+            mkdir -p "$artifact_root/wasm/$package"
+            rsync -a "wasm/$package/pkg/" "$artifact_root/wasm/$package/pkg/"
+          done
+          (
+            cd packages/console-server-ts
+            node scripts/render-d1-gateway-config.mjs \
+              --target "$DEPLOY_TARGET" \
+              --output .wrangler/generated/gateway.jsonc \
+              --deployment-plan-output .wrangler/generated/gateway-deployment-plan.json
+            pnpm exec wrangler deploy \
+              --dry-run \
+              --config .wrangler/generated/gateway.jsonc \
+              --outfile "$GITHUB_WORKSPACE/$artifact_root/worker.js" \
+              --metafile "$GITHUB_WORKSPACE/$artifact_root/worker-meta.json"
+          )
+          node scripts/deployment-artifact.mjs create \
+            --kind gateway-wasm \
+            --target "$DEPLOY_TARGET" \
+            --sha "$DEPLOY_SHA" \
+            --root "$artifact_root" \
+            --manifest .release-artifacts/gateway/manifest.json \
+            --identity-json '{"wasmPackageSet":"gateway-v1"}' \
+            --metadata-json "$build_metadata"
+
+      - name: Upload Gateway artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ needs.prepare.outputs.target }}-${{ needs.prepare.outputs.source_sha }}-gateway
+          path: .release-artifacts/gateway
+          include-hidden-files: true
+          retention-days: 30
+          compression-level: 0
+
+  build_pages:
+    name: Build Pages artifact
+    needs:
+      - prepare
+      - select_components
+    if: >-
+      ${{
+        contains(fromJSON(needs.select_components.outputs.components), 'site') ||
+        contains(fromJSON(needs.select_components.outputs.components), 'signer-iframe')
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: ${{ needs.prepare.outputs.target }}
+    steps:
+      - name: Checkout selected revision
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - name: Add wasm target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install pinned WASM tooling
+        run: bash packages/sdk-web/scripts/build/install-ci-wasm-tooling.sh
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build production SDK
+        run: pnpm build:sdk-prod
+
+      - name: Build Pages output
+        env:
+          VITE_RELAYER_URL: ${{ vars.VITE_RELAYER_URL }}
+          VITE_CONSOLE_BASE_URL: ${{ vars.VITE_CONSOLE_BASE_URL }}
+          VITE_RELAYER_ACCOUNT_ID: ${{ vars.VITE_RELAYER_ACCOUNT_ID }}
+          VITE_SEAMS_PROJECT_ENVIRONMENT_ID: ${{ vars.VITE_SEAMS_PROJECT_ENVIRONMENT_ID }}
+          VITE_SEAMS_PUBLISHABLE_KEY: ${{ vars.VITE_SEAMS_PUBLISHABLE_KEY }}
+          VITE_NEAR_NETWORK: ${{ vars.VITE_NEAR_NETWORK }}
+          VITE_NEAR_RPC_URL: ${{ vars.VITE_NEAR_RPC_URL }}
+          VITE_NEAR_EXPLORER: ${{ vars.VITE_NEAR_EXPLORER }}
+          VITE_TEMPO_RPC_URL: ${{ vars.VITE_TEMPO_RPC_URL }}
+          VITE_TEMPO_EXPLORER: ${{ vars.VITE_TEMPO_EXPLORER }}
+          VITE_TEMPO_FEE_TOKEN: ${{ vars.VITE_TEMPO_FEE_TOKEN }}
+          VITE_ARC_RPC_URL: ${{ vars.VITE_ARC_RPC_URL }}
+          VITE_ARC_EXPLORER: ${{ vars.VITE_ARC_EXPLORER }}
+          VITE_WALLET_ORIGIN: ${{ vars.VITE_WALLET_ORIGIN }}
+          VITE_WALLET_SERVICE_PATH: ${{ vars.VITE_WALLET_SERVICE_PATH }}
+          VITE_RP_ID_BASE: ${{ vars.VITE_RP_ID_BASE }}
+          VITE_SDK_BASE_PATH: ${{ vars.VITE_SDK_BASE_PATH }}
+          VITE_DOCS_ORIGIN: ${{ vars.VITE_DOCS_ORIGIN }}
+          VITE_SIGNING_SESSION_PERSISTENCE_MODE: ${{ vars.VITE_SIGNING_SESSION_PERSISTENCE_MODE }}
+          VITE_SIGNING_SESSION_SEAL_KEY_VERSION: ${{ vars.VITE_SIGNING_SESSION_SEAL_KEY_VERSION }}
+          VITE_SIGNING_SESSION_SHAMIR_P_B64U: ${{ vars.VITE_SIGNING_SESSION_SHAMIR_P_B64U }}
+          VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID: ${{ vars.VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID }}
+          VITE_DASHBOARD_WALLETS_ROUTES_ENABLED: ${{ vars.VITE_DASHBOARD_WALLETS_ROUTES_ENABLED }}
+        run: pnpm -C apps/seams-site exec vite build
+
+      - name: Copy SDK runtime assets into Pages output
+        run: |
+          set -euo pipefail
+          test -d packages/sdk-web/dist/esm/sdk
+          test -f packages/sdk-web/dist/public/wallet-service/index.html
+          mkdir -p apps/seams-site/dist/sdk apps/seams-site/dist/sdk/workers apps/seams-site/dist/wallet-service
+          rsync -a --delete packages/sdk-web/dist/esm/sdk/ apps/seams-site/dist/sdk/
+          if [ -d packages/sdk-web/dist/workers ]; then rsync -a --delete packages/sdk-web/dist/workers/ apps/seams-site/dist/sdk/workers/; fi
+          rsync -a --delete packages/sdk-web/dist/public/wallet-service/ apps/seams-site/dist/wallet-service/
+
+      - name: Create Pages artifact manifest
+        env:
+          DEPLOY_TARGET: ${{ needs.prepare.outputs.target }}
+          DEPLOY_SHA: ${{ needs.prepare.outputs.source_sha }}
+        run: |
+          build_metadata="$(node -e 'process.stdout.write(JSON.stringify({bun:process.argv[1],node:process.argv[2],rustc:process.argv[3],wasmPack:process.argv[4]}))' "$(bun --version)" "$(node --version)" "$(rustc --version)" "$(wasm-pack --version)")"
+          mkdir -p .release-artifacts/pages
+          node scripts/deployment-artifact.mjs create \
+            --kind pages \
+            --target "$DEPLOY_TARGET" \
+            --sha "$DEPLOY_SHA" \
+            --root apps/seams-site/dist \
+            --manifest .release-artifacts/pages/manifest.json \
+            --identity-json '{"pagesBuild":"app-wallet-v1"}' \
+            --metadata-json "$build_metadata"
+          mkdir -p .release-artifacts/signer-iframe
+          node scripts/deployment-artifact.mjs create \
+            --kind sdk-r2 \
+            --target "$DEPLOY_TARGET" \
+            --sha "$DEPLOY_SHA" \
+            --root packages/sdk-web/dist/public/wallet-service \
+            --manifest .release-artifacts/signer-iframe/manifest.json \
+            --identity-json '{"pagesBuild":"app-wallet-v1"}' \
+            --metadata-json "$build_metadata"
+
+      - name: Upload Pages artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ needs.prepare.outputs.target }}-${{ needs.prepare.outputs.source_sha }}-pages
+          path: |
+            apps/seams-site/dist
+            .release-artifacts/pages/manifest.json
+          include-hidden-files: true
+          retention-days: 30
+          compression-level: 0
+
+      - name: Upload signer iframe artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ needs.prepare.outputs.target }}-${{ needs.prepare.outputs.source_sha }}-signer-iframe
+          path: |
+            packages/sdk-web/dist/public/wallet-service
+            .release-artifacts/signer-iframe/manifest.json
+          include-hidden-files: true
+          retention-days: 30
+          compression-level: 0
+
+  create_release_set:
+    name: Create release-set manifest
+    if: >-
+      ${{
+        always() &&
+        needs.prepare.result == 'success' &&
+        needs.select_components.result == 'success' &&
+        needs.select_components.outputs.components != '[]' &&
+        needs.build_router.result != 'failure' &&
+        needs.build_router.result != 'cancelled' &&
+        needs.build_gateway.result != 'failure' &&
+        needs.build_gateway.result != 'cancelled' &&
+        needs.build_pages.result != 'failure' &&
+        needs.build_pages.result != 'cancelled'
+      }}
+    needs:
+      - prepare
+      - select_components
+      - build_router
+      - build_gateway
+      - build_pages
+    runs-on: ubuntu-latest
+    outputs:
+      release_set_id: ${{ steps.manifest.outputs.release_set_id }}
+    steps:
+      - name: Checkout selected revision
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Download component artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: release-${{ needs.prepare.outputs.target }}-${{ needs.prepare.outputs.source_sha }}-*
+          path: .release-inputs
+          merge-multiple: false
+
+      - name: Assemble manifest inputs
+        env:
+          DEPLOY_TARGET: ${{ needs.prepare.outputs.target }}
+          DEPLOY_SHA: ${{ needs.prepare.outputs.source_sha }}
+          VALIDATION_RUN_ID: ${{ needs.prepare.outputs.validation_run_id }}
+          SELECTED_COMPONENTS: ${{ needs.select_components.outputs.components }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { readFile, writeFile } from 'node:fs/promises';
+          import { join } from 'node:path';
+          import { readMigrationSet } from './scripts/migration-fingerprint.mjs';
+
+          const target = process.env.DEPLOY_TARGET;
+          const sourceSha = process.env.DEPLOY_SHA;
+          const root = '.release-inputs';
+          const selectedComponents = new Set(JSON.parse(process.env.SELECTED_COMPONENTS));
+          const specs = [
+            ['router', 'router', 'router.json'],
+            ['deriver-a', 'deriver-a', 'deriver-a.json'],
+            ['deriver-b', 'deriver-b', 'deriver-b.json'],
+            ['signing-worker', 'signing-worker', 'signing-worker.json'],
+            ['gateway', 'gateway-wasm', 'manifest.json'],
+            ['site', 'pages', 'manifest.json'],
+            ['signer-iframe', 'sdk-r2', 'manifest.json'],
+          ].filter(([name]) => selectedComponents.has(name));
+          async function findManifest(directory, name) {
+            const candidates = [
+              join(root, directory, 'crates/router-ab-cloudflare/.release-artifacts', name),
+              join(root, directory, '.release-artifacts/gateway', name),
+              join(root, directory, '.release-artifacts/pages', name),
+              join(root, directory, '.release-artifacts/signer-iframe', name),
+              join(root, directory, 'packages/sdk-web/dist/public/wallet-service/.release-artifacts', name),
+            ];
+            for (const candidate of candidates) {
+              try { return JSON.parse(await readFile(candidate, 'utf8')); } catch {}
+            }
+            throw new Error(`missing artifact manifest for ${directory}`);
+          }
+          const components = [];
+          for (const [name, kind, manifestName] of specs) {
+            const artifactSuffix = name === 'gateway' ? 'gateway' : name === 'site' ? 'pages' : name;
+            const artifactDirectory = `release-${target}-${sourceSha}-${artifactSuffix}`;
+            const manifest = await findManifest(artifactDirectory, manifestName);
+            components.push({
+              name,
+              kind,
+              artifactName: artifactDirectory,
+              contentDigestSha256: manifest.contentDigestSha256,
+              sourceSha,
+              target,
+              releaseId: `artifact-${kind}-${manifest.contentDigestSha256}`,
+            });
+          }
+          await writeFile('.release-artifacts-components.json', `${JSON.stringify(components, null, 2)}\n`);
+          await writeFile('.release-artifacts-migrations.json', `${JSON.stringify({
+            consoleD1: readMigrationSet('packages/console-server-ts/migrations/d1-console'),
+            signerD1: readMigrationSet('packages/sdk-server-ts/migrations/d1-signer'),
+          }, null, 2)}\n`);
+          await writeFile('.release-build-identity.json', `${JSON.stringify({
+            node: process.version,
+            workflow: 'build-release',
+            sourceSha,
+            target,
+            selectedComponents: JSON.parse(process.env.SELECTED_COMPONENTS),
+          }, null, 2)}\n`);
+          NODE
+
+      - name: Create immutable release-set manifest
+        id: manifest
+        env:
+          DEPLOY_TARGET: ${{ needs.prepare.outputs.target }}
+          DEPLOY_SHA: ${{ needs.prepare.outputs.source_sha }}
+          VALIDATION_RUN_ID: ${{ needs.prepare.outputs.validation_run_id }}
+          SELECTED_COMPONENTS: ${{ needs.select_components.outputs.components }}
+        run: |
+          set -euo pipefail
+          mkdir -p .release-artifacts/release-set
+          node scripts/deployment-release.mjs create \
+            --target "$DEPLOY_TARGET" \
+            --source-sha "$DEPLOY_SHA" \
+            --accepted-validation-run-id "$VALIDATION_RUN_ID" \
+            --artifact-run-id "$GITHUB_RUN_ID" \
+            --components-file .release-artifacts-components.json \
+            --migrations-file .release-artifacts-migrations.json \
+            --build-identity-file .release-build-identity.json \
+            --output .release-artifacts/release-set/manifest.json
+          release_set_id="$(node -e "const value=require('./.release-artifacts/release-set/manifest.json'); process.stdout.write(value.releaseSetId)")"
+          echo "release_set_id=$release_set_id" >> "$GITHUB_OUTPUT"
+          {
+            echo '## Accepted release set'
+            echo
+            echo "- Source SHA: \`$DEPLOY_SHA\`"
+            echo "- Target: \`$DEPLOY_TARGET\`"
+            echo "- Validation run: \`$VALIDATION_RUN_ID\`"
+            echo "- Artifact run: \`$GITHUB_RUN_ID\`"
+            echo "- Release set: \`$release_set_id\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload release-set manifest
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-set-${{ steps.manifest.outputs.release_set_id }}
+          path: .release-artifacts/release-set/manifest.json
+          include-hidden-files: true
+          retention-days: 30
+
+  deploy:
+    name: Deploy accepted release
+    needs:
+      - prepare
+      - create_release_set
+    uses: ./.github/workflows/deploy-router-ab.yml
+    with:
+      target: ${{ needs.prepare.outputs.target }}
+      deploy_sha: ${{ needs.prepare.outputs.source_sha }}
+      artifact_run_id: ${{ github.run_id }}
+      release_set_id: ${{ needs.create_release_set.outputs.release_set_id }}
+      source_branch: ${{ needs.prepare.outputs.source_branch }}
+      enforce_current_branch: true
+    secrets: inherit

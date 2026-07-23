@@ -11,10 +11,61 @@ import {
 import { nearAccountRefFromAccountId, walletSessionRefFromSession } from '@seams/sdk/advanced';
 import type { ActionArgs, FunctionCallAction } from '@seams/sdk/react';
 
+import { FRONTEND_CONFIG } from '@/config';
 import { DEMO_CONTRACT_ID, NEAR_EXPLORER_BASE_URL } from '@/shared/types';
 import { friendlySigningErrorMessage, handleSigningToastEvent } from './signingToast';
 
 const SET_GREETING_GAS = '10000000000000';
+
+/* Blocks of validity granted to a signed delegate. A SignedDelegate is signed
+   client-side, so its nonce and maxBlockHeight are covered by the signature and
+   cannot be filled in later by the relayer — they must be correct at sign time.
+   ~1s/block on NEAR, so ~1000 blocks ≈ 16 minutes of relay window. */
+const DELEGATE_MAX_BLOCK_HEIGHT_BUFFER = 1000;
+
+interface NearAccessKeyState {
+  /** Next usable nonce for the sender's access key (current nonce + 1). */
+  nextNonce: bigint;
+  /** Current final block height, used to bound the delegate's maxBlockHeight. */
+  blockHeight: number;
+}
+
+/* A single view_access_key query returns both the access key's current nonce
+   and the block height it was resolved against — everything a delegate needs. */
+async function fetchNearAccessKeyState(params: {
+  nearRpcUrl: string;
+  accountId: string;
+  publicKey: string;
+}): Promise<NearAccessKeyState> {
+  const response = await fetch(params.nearRpcUrl, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 'seams-demo-delegate-access-key',
+      method: 'query',
+      params: {
+        request_type: 'view_access_key',
+        finality: 'final',
+        account_id: params.accountId,
+        public_key: params.publicKey,
+      },
+    }),
+  });
+  const json = (await response.json()) as {
+    error?: { message?: string; data?: string };
+    result?: { nonce?: number | string; block_height?: number };
+  };
+  if (json.error || !json.result || typeof json.result.block_height !== 'number') {
+    const message =
+      json.error?.data || json.error?.message || `NEAR RPC returned HTTP ${response.status}`;
+    throw new Error(message);
+  }
+  return {
+    nextNonce: BigInt(json.result.nonce ?? 0) + 1n,
+    blockHeight: json.result.block_height,
+  };
+}
 
 type UseDemoNearActionsArgs = {
   isLoggedIn: boolean;
@@ -190,6 +241,25 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
         return;
       }
 
+      const delegatePublicKey = loginState.publicKey || nearPublicKey || '';
+      if (!delegatePublicKey) {
+        toast.error('No NEAR public key available to sign the delegate action', {
+          id: 'delegate-greeting',
+        });
+        return;
+      }
+
+      // The delegate's nonce and maxBlockHeight are covered by the client-side
+      // signature, so they must reflect real chain state at sign time. A stale
+      // nonce or an already-passed maxBlockHeight signs cleanly and relays, but
+      // the on-chain meta-transaction then fails (InvalidNonce / expired), so
+      // the greeting silently never updates.
+      const accessKeyState = await fetchNearAccessKeyState({
+        nearRpcUrl: FRONTEND_CONFIG.nearRpcUrl,
+        accountId: nearAccountId!,
+        publicKey: delegatePublicKey,
+      });
+
       const delegateAction = createGreetingAction(greetingInput, { postfix: 'Delegate' });
       const result = await seams.near.signDelegateAction({
         walletSession: walletSessionRefFromSession({
@@ -201,9 +271,9 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
           senderId: nearAccountId!,
           receiverId: DEMO_CONTRACT_ID,
           actions: [delegateAction],
-          nonce: Date.now(),
-          maxBlockHeight: 0,
-          publicKey: loginState.publicKey || nearPublicKey || '',
+          nonce: accessKeyState.nextNonce.toString(),
+          maxBlockHeight: accessKeyState.blockHeight + DELEGATE_MAX_BLOCK_HEIGHT_BUFFER,
+          publicKey: delegatePublicKey,
         },
         options: {
           onEvent: (event: SigningFlowEvent) => {

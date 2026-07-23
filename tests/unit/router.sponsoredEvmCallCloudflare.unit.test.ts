@@ -125,6 +125,7 @@ test.describe('cloudflare sponsored evm call route', () => {
     });
 
     expect(response.status).toBe(404);
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://example.localhost');
   });
 
   test('warns and fails closed when sponsored route is mounted without pricing', async () => {

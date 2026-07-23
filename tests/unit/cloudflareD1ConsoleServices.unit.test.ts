@@ -737,6 +737,7 @@ test('Cloudflare D1 service bundle wires DO-backed normal-signing admission into
 
   await expect(admission.evaluate(input)).resolves.toEqual({ ok: true });
   await expect(admission.evaluate(input)).resolves.toEqual({ ok: true });
+  expect(bundle.sponsorshipPricing).toBe(sponsorshipPricing);
   expect(bundle.routerApiRouterOptions).not.toHaveProperty('signedDelegate');
   expect(bundle.routerApiRouterOptions).not.toHaveProperty('sponsorship');
   expect(bundle.routerApiRouterOptions).not.toHaveProperty('sponsoredEvmCall');
@@ -916,6 +917,24 @@ test('local D1 Worker routes smoke requests through the Router API handler', asy
     ctx,
   );
   expect(sponsored.status).toBe(404);
+  expect(sponsored.headers.get('Access-Control-Allow-Origin')).toBe('http://127.0.0.1:8787');
+
+  const signedDelegate = await localD1DevWorker.fetch(
+    new Request('http://127.0.0.1:8787/relay/signed-delegate', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        origin: 'http://127.0.0.1:8787',
+      },
+      body: '{}',
+    }),
+    env,
+    ctx,
+  );
+  expect(signedDelegate.status).not.toBe(404);
+  expect(signedDelegate.headers.get('Access-Control-Allow-Origin')).toBe(
+    'http://127.0.0.1:8787',
+  );
 
   const bootstrapGrant = await localD1DevWorker.fetch(
     new Request('http://127.0.0.1:8787/v1/registration/bootstrap-grants', {

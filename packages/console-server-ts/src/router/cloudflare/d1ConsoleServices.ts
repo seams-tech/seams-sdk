@@ -81,6 +81,7 @@ import { createD1ConsoleWalletService } from '@seams-internal/console-server/wal
 import type { ConsoleWalletService } from '@seams-internal/console-server/wallets/service';
 import { createD1ConsoleRuntimeSnapshotService } from '@seams-internal/console-server/runtimeSnapshots/d1';
 import type { ConsoleRuntimeSnapshotService } from '@seams-internal/console-server/runtimeSnapshots/service';
+import type { CloudflareD1RouterApiAuthService } from '@seams/sdk-server/internal/router/cloudflare/d1RouterApiAuthService';
 import {
   DEFAULT_TEMPO_ONBOARDING_CONTRACT,
   TEMPO_TESTNET_CHAIN_ID,
@@ -102,7 +103,10 @@ import {
 } from '@seams-internal/console-server/router/routerApiKeyAuth';
 import { createRouterApiBootstrapGrantBroker } from '@seams-internal/console-server/router/bootstrapGrantBroker';
 import { createRouterApiBootstrapTokenVerifier } from '@seams-internal/console-server/router/bootstrapTokenVerifier';
-import { createConsoleRouterApiRouteExtensions } from '@seams-internal/console-server/router/routeExtensions';
+import {
+  createConsoleRouterApiRouteExtensions,
+  DEFAULT_SIGNED_DELEGATE_ROUTE,
+} from '@seams-internal/console-server/router/routeExtensions';
 import type { RouterAbNormalSigningAdmissionAdapter } from '@seams/sdk-server/internal/router/routerAbPrivateSigningWorker';
 import {
   createCloudflareDurableObjectRouterAbNormalSigningAdmissionStore,
@@ -254,6 +258,7 @@ export interface CloudflareD1ConsoleServiceBundle {
   readonly billing: ConsoleBillingService;
   readonly prepaidReservations: ConsoleBillingPrepaidReservationService;
   readonly spendCaps: ConsoleSponsorshipSpendCapService;
+  readonly sponsorshipPricing: SponsorshipSpendPricingService | null;
   readonly sponsoredCalls: ConsoleSponsoredCallService;
   readonly runtimeSnapshots: ConsoleRuntimeSnapshotService;
   readonly consoleRouterOptions: CloudflareD1ConsoleRouterStorageOptions;
@@ -265,6 +270,7 @@ export type CloudflareD1ConsoleOnlyServiceBundle = Omit<
   | 'tenantStorageRouteResolver'
   | 'bootstrapTokens'
   | 'spendCaps'
+  | 'sponsorshipPricing'
   | 'routerApiRouterOptions'
   | 'consoleRouterOptions'
 > & {
@@ -280,6 +286,33 @@ export interface CloudflareD1SigningRootSecretAdapterOptions {
   readonly policy: ThresholdPrfPolicy;
   readonly ensureSchema?: boolean;
   readonly now?: () => Date;
+}
+
+export function createCloudflareD1RouterApiRouteExtensions(
+  bundle: CloudflareD1ConsoleServiceBundle,
+  authService: CloudflareD1RouterApiAuthService,
+): NonNullable<CloudflareD1RouterApiStorageOptions['routeExtensions']> {
+  return [
+    ...bundle.routerApiRouterOptions.routeExtensions,
+    ...createConsoleRouterApiRouteExtensions({
+      signedDelegate: {
+        route: DEFAULT_SIGNED_DELEGATE_ROUTE,
+        authService: {
+          executeSignedDelegate: authService.executeSignedDelegate.bind(authService),
+          getRelayerAccount: authService.router.getRelayerAccount.bind(authService.router),
+        },
+        billing: bundle.billing,
+        ledger: bundle.sponsoredCalls,
+        runtimeSnapshots: bundle.runtimeSnapshots,
+        publishableKeyAuth: bundle.routerApiRouterOptions.publishableKeyAuth,
+        observabilityIngestion: bundle.observabilityIngestion,
+        prepaidReservations: bundle.prepaidReservations,
+        pricing: bundle.sponsorshipPricing,
+        spendCaps: bundle.spendCaps,
+        webhooks: bundle.webhooks,
+      },
+    }),
+  ];
 }
 
 export interface CloudflareD1SigningRootSecretAdapters {
@@ -1237,6 +1270,7 @@ export async function createCloudflareD1ConsoleServiceBundle(
     ...servicesWithApiKeys,
     bootstrapTokens,
     spendCaps,
+    sponsorshipPricing,
     consoleRouterOptions,
     routerApiRouterOptions,
   };
