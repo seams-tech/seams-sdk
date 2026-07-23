@@ -9,6 +9,17 @@ const SECURITY_CONTEXT = {
   blockHash: 'h',
 };
 
+const PASSKEY_REGISTRATION_SECURITY_CONTEXT = {
+  rpId: 'example.com',
+  passkeyRegistration: {
+    kind: 'passkey_registration_confirm_display_v1',
+    intendedUserName: 'alice.testnet',
+    accountId: 'alice.testnet',
+    rpId: 'example.com',
+    signerSlot: 1,
+  },
+};
+
 const SUMMARY = { intentDigest: 'intent-xyz' } as any;
 const WAIT_FOR_SOURCE = `(${harnessWaitFor.toString()})`;
 const IMPORT_PATHS = {
@@ -278,6 +289,65 @@ test.describe('confirm-ui inline confirmer', () => {
       },
       {
         securityContext: SECURITY_CONTEXT,
+        summary: SUMMARY,
+        waitForSource: WAIT_FOR_SOURCE,
+        paths: IMPORT_PATHS,
+      },
+    );
+
+    expect(result.cancelDisabled).toBe(false);
+    expect(result.confirmed).toBe(false);
+  });
+
+  test('passkey registration modal allows cancel during loading', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ securityContext, summary, waitForSource, paths }) => {
+        const waitFor = eval(waitForSource) as typeof harnessWaitFor;
+        const mod = await import(paths.confirmUi);
+        const { awaitConfirmUIDecision } =
+          mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
+        const buildCtxStub = (overrides: Record<string, unknown> = {}) => ({
+          userPreferencesManager: {
+            getCurrentWalletId: () => 'alice.testnet',
+            getConfirmationConfig: () => ({
+              uiMode: 'modal',
+              behavior: 'requireClick',
+              autoProceedDelay: 0,
+              theme: 'dark',
+            }),
+          },
+          ...overrides,
+        });
+        const ctx = (window as any).ctxStub || ((window as any).ctxStub = buildCtxStub());
+
+        const decisionPromise = awaitConfirmUIDecision({
+          ctx: ctx as any,
+          surface: { kind: 'mount_new' },
+          summary,
+          txSigningRequests: [],
+          securityContext: securityContext as any,
+          loading: true,
+          theme: 'dark',
+          uiMode: 'modal',
+          nearAccountIdOverride: 'alice.testnet',
+        });
+
+        await waitFor(
+          () => !!document.querySelector('.passkey-registration-confirm .btn-cancel'),
+        );
+        const cancelButton = document.querySelector(
+          '.passkey-registration-confirm .btn-cancel',
+        ) as HTMLButtonElement | null;
+        const cancelDisabled = cancelButton?.disabled ?? null;
+
+        cancelButton?.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }));
+
+        const { confirmed, handle } = await decisionPromise;
+        handle?.close?.(confirmed);
+        return { confirmed, cancelDisabled };
+      },
+      {
+        securityContext: PASSKEY_REGISTRATION_SECURITY_CONTEXT,
         summary: SUMMARY,
         waitForSource: WAIT_FOR_SOURCE,
         paths: IMPORT_PATHS,
