@@ -639,7 +639,9 @@ export async function handleRouterApiSignedDelegate(
     request: { body: input.body, headers: input.headers },
     route: input.route,
     services: {
-      authService: input.services.signedDelegateAuth,
+      // Key must match the route's requiredServices entry ('signedDelegateAuth');
+      // enforceRoutePolicy looks up services by that exact name.
+      signedDelegateAuth: input.services.signedDelegateAuth,
       ...(input.services.billing ? { billing: input.services.billing } : {}),
       ...(publishableKeyAuth
         ? { publishableKeyAuth }
