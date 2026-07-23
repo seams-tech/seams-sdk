@@ -19,6 +19,7 @@ import {
   signTransactionWithActions,
 } from '@/SeamsWeb/operations/near/actions';
 import {
+  delegateRelayerAuthFromConfigs,
   sendDelegateActionViaRelayer as sendDelegateActionViaRelayerCore,
   signDelegateAction as signDelegateActionCore,
 } from '@/SeamsWeb/operations/near/delegateAction';
@@ -351,6 +352,7 @@ export function createNearSignerCapability(deps: {
           hash: args.hash,
           signedDelegate: args.signedDelegate,
         },
+        auth: delegateRelayerAuthFromConfigs(deps.configs),
         signal: args.signal,
         options: args.options,
       });
