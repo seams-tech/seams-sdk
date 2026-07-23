@@ -48,7 +48,7 @@ jobs:
       WRANGLER_CONFIG: .wrangler/generated/gateway.jsonc
       GATEWAY_DEPLOYMENT_PLAN: .wrangler/generated/gateway-deployment-plan.json
       GATEWAY_SECRETS_FILE: .wrangler/generated/gateway-secrets.json
-      GATEWAY_WORKER_BUNDLE: ../../.release-artifacts/gateway/payload/worker.js
+      GATEWAY_WORKER_BUNDLE: ../../.release-artifacts/gateway/payload/d1RouterApiWorker.js
       GATEWAY_DEPLOYMENT_CONFIG_JSON: ${{ vars.GATEWAY_DEPLOYMENT_CONFIG_JSON }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
