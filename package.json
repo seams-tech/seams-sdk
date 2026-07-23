@@ -29,6 +29,7 @@
     "type-check:sdk": "pnpm -C packages/sdk-web type-check",
     "type-check:router-server": "pnpm -C packages/sdk-web exec tsc -p tsconfig.build.json && pnpm -C apps/web-server exec tsc --noEmit",
     "type-check:docs": "pnpm -C apps/docs exec tsc --noEmit",
+    "type-check:unit": "pnpm -C tests type-check:unit",
     "type-check": "pnpm -s type-check:sdk && pnpm -s type-check:router-server",
     "check": "pnpm -s lint && pnpm -s type-check && pnpm -s format:rust:check && pnpm -s lint:rust && pnpm -s check:signing-architecture && pnpm -s check:signer-parity",
     "caddy": "pnpm -C apps/seams-site caddy",
