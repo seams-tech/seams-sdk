@@ -4,247 +4,53 @@ on:
   workflow_call:
     inputs:
       target:
-        description: Pages target to deploy
+        description: Pages components to deploy
         required: true
         type: string
       deploy_environment:
         description: Deployment target
         required: true
         type: string
-      deploy_sha:
+      source_sha:
         description: Exact source revision to deploy
         required: true
         type: string
-      source_branch:
-        description: Source branch associated with the revision
+      artifact_run_id:
+        description: Accepted release artifact workflow run ID
         required: true
         type: string
-  workflow_dispatch:
-    inputs:
-      target:
-        description: Pages target to deploy
+      release_set_id:
+        description: Content-addressed release-set ID
         required: true
-        type: choice
-        default: all
-        options:
-          - all
-          - app
-          - wallet
-      deploy_environment:
-        description: Deployment target
-        required: true
-        type: choice
-        default: staging
-        options:
-          - staging
-          - production
-
+        type: string
+    outputs:
+      app_origin:
+        description: Deployed app Pages origin
+        value: ${{ jobs.deploy_app.outputs.pages_origin }}
+      wallet_origin:
+        description: Deployed wallet Pages origin
+        value: ${{ jobs.deploy_wallet.outputs.pages_origin }}
 permissions:
+  actions: read
   contents: read
 
-concurrency:
-  group: deploy-pages-${{ inputs.deploy_environment }}-${{ inputs.target }}
-  cancel-in-progress: true
-
 env:
-  DEPLOY_SHA: ${{ inputs.deploy_sha || github.sha }}
-  DEPLOY_SOURCE_BRANCH: ${{ inputs.source_branch || github.ref_name }}
+  DEPLOY_SHA: ${{ inputs.source_sha }}
   DEPLOY_ENVIRONMENT: ${{ inputs.deploy_environment }}
+  ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
+  RELEASE_SET_ID: ${{ inputs.release_set_id }}
   PAGES_BRANCH: ${{ inputs.deploy_environment == 'production' && 'main' || 'dev' }}
-  RUST_TOOLCHAIN: '1.96.0'
-  PAGES_ARTIFACT_NAME: pages-${{ inputs.deploy_environment }}-${{ inputs.deploy_sha || github.sha }}
+  PAGES_ARTIFACT_NAME: release-${{ inputs.deploy_environment }}-${{ inputs.source_sha }}-pages
   PAGES_ARTIFACT_IDENTITY: '{"pagesBuild":"app-wallet-v1"}'
 
 jobs:
-  build_pages_artifact:
-    name: Build Pages artifact
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    environment:
-      name: ${{ inputs.deploy_environment }}
-    steps:
-      - name: Checkout selected revision
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          ref: ${{ env.DEPLOY_SHA }}
-
-      - name: Record artifact build start
-        run: echo "ARTIFACT_BUILD_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
-
-      - name: Validate branch and environment mapping
-        run: |
-          set -euo pipefail
-          expected_branch='dev'
-          if [[ "$DEPLOY_ENVIRONMENT" == 'production' ]]; then
-            expected_branch='main'
-          fi
-          if [[ "$DEPLOY_SOURCE_BRANCH" != "$expected_branch" ]]; then
-            echo "::error title=Invalid release mapping::$DEPLOY_ENVIRONMENT deployments require the $expected_branch branch"
-            exit 1
-          fi
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v5
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: '24'
-          cache: 'pnpm'
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_TOOLCHAIN }}
-
-      - name: Add wasm target
-        run: rustup target add wasm32-unknown-unknown
-
-      - name: Cache Rust build inputs
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: pages-sdk-${{ runner.os }}-${{ env.DEPLOY_ENVIRONMENT }}
-          workspaces: |
-            crates/router-ab-ed25519-yao-client -> target
-            wasm/ecdsa_registration_client -> target
-            wasm/email_otp_runtime -> target
-            wasm/evm_crypto -> target
-            wasm/near_signer -> target
-            wasm/router_ab_ecdsa_derivation_client -> target
-            wasm/router_ab_ecdsa_online_client -> target
-            wasm/router_ab_ecdsa_presign_client -> target
-            wasm/router_ab_ecdsa_signing_worker -> target
-            wasm/shamir3pass_runtime -> target
-            wasm/tempo_signer -> target
-            wasm/threshold_prf -> target
-
-      - name: Cache pinned WASM tooling
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/bin/wasm-pack
-            packages/sdk-web/.tooling/wasm-bindgen
-            packages/sdk-web/.tooling/wasm-pack-cache
-          key: wasm-tooling-${{ runner.os }}-${{ hashFiles('packages/sdk-web/scripts/build/install-ci-wasm-tooling.sh', 'wasm/**/Cargo.lock', 'crates/router-ab-ed25519-yao-client/Cargo.lock') }}
-
-      - name: Install pinned WASM tooling
-        run: bash packages/sdk-web/scripts/build/install-ci-wasm-tooling.sh
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Install deps
-        run: pnpm install --frozen-lockfile
-
-      - name: Cache generated SDK WASM
-        id: cache_sdk_wasm
-        uses: actions/cache@v6
-        with:
-          path: |
-            wasm/*/pkg
-            crates/router-ab-ed25519-yao-client/pkg
-          key: sdk-wasm-${{ runner.os }}-rust-${{ env.RUST_TOOLCHAIN }}-prod-${{ hashFiles('wasm/**', 'crates/**/src/**', 'crates/**/Cargo.toml', 'packages/sdk-web/scripts/build/**') }}
-
-      - name: Build SDK
-        env:
-          WASM_SDK_USE_PREBUILT: ${{ steps.cache_sdk_wasm.outputs.cache-hit == 'true' && '1' || '0' }}
-        run: pnpm build:sdk-prod
-
-      - name: Build Pages output
-        env:
-          VITE_RELAYER_URL: ${{ vars.VITE_RELAYER_URL }}
-          VITE_CONSOLE_BASE_URL: ${{ vars.VITE_CONSOLE_BASE_URL }}
-          VITE_RELAYER_ACCOUNT_ID: ${{ vars.VITE_RELAYER_ACCOUNT_ID }}
-          VITE_SEAMS_PROJECT_ENVIRONMENT_ID: ${{ vars.VITE_SEAMS_PROJECT_ENVIRONMENT_ID }}
-          VITE_SEAMS_PUBLISHABLE_KEY: ${{ vars.VITE_SEAMS_PUBLISHABLE_KEY }}
-          VITE_NEAR_NETWORK: ${{ vars.VITE_NEAR_NETWORK }}
-          VITE_NEAR_RPC_URL: ${{ vars.VITE_NEAR_RPC_URL }}
-          VITE_NEAR_EXPLORER: ${{ vars.VITE_NEAR_EXPLORER }}
-          VITE_TEMPO_RPC_URL: ${{ vars.VITE_TEMPO_RPC_URL }}
-          VITE_TEMPO_EXPLORER: ${{ vars.VITE_TEMPO_EXPLORER }}
-          VITE_TEMPO_FEE_TOKEN: ${{ vars.VITE_TEMPO_FEE_TOKEN }}
-          VITE_ARC_RPC_URL: ${{ vars.VITE_ARC_RPC_URL }}
-          VITE_ARC_EXPLORER: ${{ vars.VITE_ARC_EXPLORER }}
-          VITE_WALLET_ORIGIN: ${{ vars.VITE_WALLET_ORIGIN }}
-          VITE_WALLET_SERVICE_PATH: ${{ vars.VITE_WALLET_SERVICE_PATH }}
-          VITE_RP_ID_BASE: ${{ vars.VITE_RP_ID_BASE }}
-          VITE_SDK_BASE_PATH: ${{ vars.VITE_SDK_BASE_PATH }}
-          VITE_DOCS_ORIGIN: ${{ vars.VITE_DOCS_ORIGIN }}
-          VITE_SIGNING_SESSION_PERSISTENCE_MODE: ${{ vars.VITE_SIGNING_SESSION_PERSISTENCE_MODE }}
-          VITE_SIGNING_SESSION_SEAL_KEY_VERSION: ${{ vars.VITE_SIGNING_SESSION_SEAL_KEY_VERSION }}
-          VITE_SIGNING_SESSION_SHAMIR_P_B64U: ${{ vars.VITE_SIGNING_SESSION_SHAMIR_P_B64U }}
-          VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID: ${{ vars.VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID }}
-          VITE_DASHBOARD_WALLETS_ROUTES_ENABLED: ${{ vars.VITE_DASHBOARD_WALLETS_ROUTES_ENABLED }}
-        run: pnpm -C apps/seams-site exec vite build
-
-      - name: Copy SDK runtime assets into Pages output
-        run: |
-          set -euo pipefail
-          test -d packages/sdk-web/dist/esm/sdk
-          test -f packages/sdk-web/dist/public/wallet-service/index.html
-          mkdir -p apps/seams-site/dist/sdk apps/seams-site/dist/sdk/workers apps/seams-site/dist/wallet-service
-          rsync -a --delete packages/sdk-web/dist/esm/sdk/ apps/seams-site/dist/sdk/
-          if [ -d packages/sdk-web/dist/workers ]; then
-            rsync -a --delete packages/sdk-web/dist/workers/ apps/seams-site/dist/sdk/workers/
-          fi
-          rsync -a --delete packages/sdk-web/dist/public/wallet-service/ apps/seams-site/dist/wallet-service/
-
-      - name: Create Pages artifact manifest
-        run: |
-          build_metadata="$(
-            node -e 'process.stdout.write(JSON.stringify({bun:process.argv[1],node:process.argv[2],rustc:process.argv[3],wasmPack:process.argv[4]}))' \
-              "$(bun --version)" \
-              "$(node --version)" \
-              "$(rustc --version)" \
-              "$(wasm-pack --version)"
-          )"
-          mkdir -p .release-artifacts/pages
-          node scripts/deployment-artifact.mjs create \
-            --kind pages \
-            --target "$DEPLOY_ENVIRONMENT" \
-            --sha "$DEPLOY_SHA" \
-            --root apps/seams-site/dist \
-            --manifest .release-artifacts/pages/manifest.json \
-            --identity-json "$PAGES_ARTIFACT_IDENTITY" \
-            --metadata-json "$build_metadata"
-
-      - name: Upload Pages artifact
-        id: upload_pages_artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ env.PAGES_ARTIFACT_NAME }}
-          path: |
-            apps/seams-site/dist
-            .release-artifacts/pages/manifest.json
-          if-no-files-found: error
-          include-hidden-files: true
-          overwrite: true
-          retention-days: 30
-          compression-level: 0
-
-      - name: Summarize Pages artifact
-        env:
-          ACTIONS_ARTIFACT_DIGEST: ${{ steps.upload_pages_artifact.outputs.artifact-digest }}
-        run: |
-          elapsed_seconds="$(($(date +%s) - ARTIFACT_BUILD_STARTED_AT))"
-          {
-            echo '## Pages release artifact'
-            echo
-            echo "- Source SHA: \`$DEPLOY_SHA\`"
-            echo "- Target: \`$DEPLOY_ENVIRONMENT\`"
-            echo "- Artifact: \`$PAGES_ARTIFACT_NAME\`"
-            echo "- Actions digest: \`$ACTIONS_ARTIFACT_DIGEST\`"
-            echo "- Build duration: ${elapsed_seconds}s"
-            echo "- Contents: app, wallet service, SDK workers, and WASM"
-          } >> "$GITHUB_STEP_SUMMARY"
-
   deploy_app:
     name: Deploy app Pages
     if: inputs.target == 'all' || inputs.target == 'app'
-    needs: build_pages_artifact
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 8
+    outputs:
+      pages_origin: ${{ steps.deploy_app.outputs.pages_origin }}
     environment:
       name: ${{ inputs.deploy_environment }}
     env:
@@ -271,19 +77,39 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: '24'
-          cache: 'pnpm'
+          cache: pnpm
 
       - name: Install deployment dependencies
         run: pnpm install --frozen-lockfile --filter router-ab-cloudflare
+
+      - name: Download release-set manifest
+        uses: actions/download-artifact@v8
+        with:
+          name: release-set-${{ env.RELEASE_SET_ID }}
+          path: .release-artifacts/release-set
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.ARTIFACT_RUN_ID }}
 
       - name: Download Pages artifact
         uses: actions/download-artifact@v8
         with:
           name: ${{ env.PAGES_ARTIFACT_NAME }}
           path: .
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.ARTIFACT_RUN_ID }}
 
       - name: Verify Pages artifact
         run: |
+          set -euo pipefail
+          node scripts/deployment-release.mjs verify \
+            --manifest .release-artifacts/release-set/manifest.json \
+            --target "$DEPLOY_ENVIRONMENT" \
+            --source-sha "$DEPLOY_SHA" \
+            --artifact-run-id "$ARTIFACT_RUN_ID" \
+            --release-set-id "$RELEASE_SET_ID"
+          node -e "const value=require('./.release-artifacts/release-set/manifest.json'); if (!value.components.some((component) => component.name === 'site')) throw new Error('Pages deployment requires the site release component')"
           node scripts/deployment-artifact.mjs verify \
             --kind pages \
             --target "$DEPLOY_ENVIRONMENT" \
@@ -316,10 +142,9 @@ jobs:
         env:
           PAGES_ORIGIN: ${{ steps.deploy_app.outputs.pages_origin }}
         run: |
-          curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 3 \
-            "$PAGES_ORIGIN/" > /dev/null
-          curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 3 \
-            "$PAGES_ORIGIN/sdk/workers/near-signer.worker.js" > /dev/null
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 5 "$PAGES_ORIGIN/" > /dev/null
+          curl --fail --silent --show-error --max-time 5 "$PAGES_ORIGIN/sdk/workers/near-signer.worker.js" > /dev/null
 
       - name: Summarize app deployment
         env:
@@ -330,18 +155,20 @@ jobs:
             echo '## App Pages deployment'
             echo
             echo "- Source SHA: \`$DEPLOY_SHA\`"
+            echo "- Release set: \`$RELEASE_SET_ID\`"
+            echo "- Artifact run: \`$ARTIFACT_RUN_ID\`"
             echo "- Artifact content digest: \`$manifest_digest\`"
             echo "- URL: $PAGES_ORIGIN"
             echo "- Readiness: app and SDK worker passed"
-            echo "- Rollback artifact: \`$PAGES_ARTIFACT_NAME\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
   deploy_wallet:
     name: Deploy wallet Pages
     if: inputs.target == 'all' || inputs.target == 'wallet'
-    needs: build_pages_artifact
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 8
+    outputs:
+      pages_origin: ${{ steps.deploy_wallet.outputs.pages_origin }}
     environment:
       name: ${{ inputs.deploy_environment }}
     env:
@@ -368,19 +195,39 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: '24'
-          cache: 'pnpm'
+          cache: pnpm
 
       - name: Install deployment dependencies
         run: pnpm install --frozen-lockfile --filter router-ab-cloudflare
+
+      - name: Download release-set manifest
+        uses: actions/download-artifact@v8
+        with:
+          name: release-set-${{ env.RELEASE_SET_ID }}
+          path: .release-artifacts/release-set
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.ARTIFACT_RUN_ID }}
 
       - name: Download Pages artifact
         uses: actions/download-artifact@v8
         with:
           name: ${{ env.PAGES_ARTIFACT_NAME }}
           path: .
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.ARTIFACT_RUN_ID }}
 
       - name: Verify Pages artifact
         run: |
+          set -euo pipefail
+          node scripts/deployment-release.mjs verify \
+            --manifest .release-artifacts/release-set/manifest.json \
+            --target "$DEPLOY_ENVIRONMENT" \
+            --source-sha "$DEPLOY_SHA" \
+            --artifact-run-id "$ARTIFACT_RUN_ID" \
+            --release-set-id "$RELEASE_SET_ID"
+          node -e "const value=require('./.release-artifacts/release-set/manifest.json'); if (!value.components.some((component) => component.name === 'site')) throw new Error('Pages deployment requires the site release component')"
           node scripts/deployment-artifact.mjs verify \
             --kind pages \
             --target "$DEPLOY_ENVIRONMENT" \
@@ -413,13 +260,13 @@ jobs:
         env:
           PAGES_ORIGIN: ${{ steps.deploy_wallet.outputs.pages_origin }}
         run: |
+          set -euo pipefail
           for path in \
             /wallet-service/index.html \
             /sdk/workers/near-signer.worker.js \
             /sdk/workers/router_ab_ed25519_yao_client_bg.wasm
           do
-            curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 3 \
-              "$PAGES_ORIGIN$path" > /dev/null
+            curl --fail --silent --show-error --max-time 5 "$PAGES_ORIGIN$path" > /dev/null
           done
 
       - name: Summarize wallet deployment
@@ -431,8 +278,9 @@ jobs:
             echo '## Wallet Pages deployment'
             echo
             echo "- Source SHA: \`$DEPLOY_SHA\`"
+            echo "- Release set: \`$RELEASE_SET_ID\`"
+            echo "- Artifact run: \`$ARTIFACT_RUN_ID\`"
             echo "- Artifact content digest: \`$manifest_digest\`"
             echo "- URL: $PAGES_ORIGIN"
             echo "- Readiness: wallet service, SDK worker, and WASM passed"
-            echo "- Rollback artifact: \`$PAGES_ARTIFACT_NAME\`"
           } >> "$GITHUB_STEP_SUMMARY"

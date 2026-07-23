@@ -11,10 +11,22 @@ on:
         description: Exact source revision to deploy
         required: true
         type: string
+      artifact_run_id:
+        description: Accepted release artifact workflow run ID
+        required: true
+        type: string
+      release_set_id:
+        description: Content-addressed release-set ID
+        required: true
+        type: string
       source_branch:
         description: Source branch associated with the revision
         required: true
         type: string
+      enforce_current_branch:
+        description: Reject an automatic release once its branch has advanced
+        required: true
+        type: boolean
   workflow_dispatch:
     inputs:
       target:
@@ -25,161 +37,59 @@ on:
         options:
           - staging
           - production
-      operation:
-        description: Router A/B operation
+      deploy_sha:
+        description: Exact source revision to deploy
+        required: true
+        type: string
+      artifact_run_id:
+        description: Accepted release artifact workflow run ID
+        required: true
+        type: string
+      release_set_id:
+        description: Content-addressed release-set ID
+        required: true
+        type: string
+      source_branch:
+        description: Protected branch associated with the revision
         required: true
         type: choice
-        default: validate
         options:
-          - validate
-          - upload-version
-          - deploy
-      role:
-        description: Worker role
+          - dev
+          - main
+      enforce_current_branch:
+        description: Reject an automatic release once its branch has advanced
         required: true
-        type: choice
-        default: all
-        options:
-          - all
-          - router
-          - deriver-a
-          - deriver-b
-          - signing-worker
+        default: false
+        type: boolean
 
 permissions:
+  actions: read
   contents: read
 
 env:
   DEPLOY_TARGET: ${{ inputs.target }}
-  DEPLOY_OPERATION: ${{ inputs.deploy_sha != '' && 'deploy' || inputs.operation }}
-  DEPLOY_ROLE: ${{ inputs.deploy_sha != '' && 'all' || inputs.role }}
-  DEPLOY_SHA: ${{ inputs.deploy_sha || github.sha }}
-  DEPLOY_SOURCE_BRANCH: ${{ inputs.source_branch || github.ref_name }}
+  DEPLOY_SHA: ${{ inputs.deploy_sha }}
+  ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
+  RELEASE_SET_ID: ${{ inputs.release_set_id }}
+  DEPLOY_SOURCE_BRANCH: ${{ inputs.source_branch }}
+  ENFORCE_CURRENT_BRANCH: ${{ inputs.enforce_current_branch }}
   RUST_TOOLCHAIN: '1.96.0'
 
 concurrency:
-  group: deploy-router-ab-${{ inputs.target }}
-  cancel-in-progress: true
+  group: deployment-${{ inputs.target }}
+  cancel-in-progress: false
 
 jobs:
-  validate_router_ab:
-    name: Validate Router A/B
+  preflight_release:
+    name: Verify accepted release set
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: 5
+    outputs:
+      selected_components: ${{ steps.release_selection.outputs.selected_components }}
     environment:
       name: ${{ format('{0}-mpc-router', inputs.target) }}
     env:
-      ROUTER_JWT_ISSUER: ${{ vars.ROUTER_AB_JWT_ISSUER }}
-      ROUTER_JWT_AUDIENCE: ${{ vars.ROUTER_AB_JWT_AUDIENCE }}
-      ROUTER_JWT_JWKS_URL: ${{ vars.ROUTER_AB_JWT_JWKS_URL }}
-      DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY }}
-      DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY }}
-      SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY }}
-      DERIVER_A_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX }}
-      DERIVER_B_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          ref: ${{ env.DEPLOY_SHA }}
-
-      - name: Reject stale or mismatched automatic releases
-        if: inputs.deploy_sha != ''
-        run: |
-          set -euo pipefail
-          expected_target='staging'
-          if [[ "$DEPLOY_SOURCE_BRANCH" == 'main' ]]; then
-            expected_target='production'
-          fi
-          if [[ "$DEPLOY_TARGET" != "$expected_target" ]]; then
-            echo "::error title=Invalid release mapping::$DEPLOY_SOURCE_BRANCH must deploy to $expected_target"
-            exit 1
-          fi
-          git fetch origin "refs/heads/$DEPLOY_SOURCE_BRANCH:refs/remotes/origin/$DEPLOY_SOURCE_BRANCH"
-          branch_tip="$(git rev-parse "refs/remotes/origin/$DEPLOY_SOURCE_BRANCH")"
-          if [[ "$branch_tip" != "$DEPLOY_SHA" ]]; then
-            echo "::error title=Stale release skipped::$DEPLOY_SHA is no longer the tip of $DEPLOY_SOURCE_BRANCH"
-            exit 1
-          fi
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v5
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: '24'
-          cache: 'pnpm'
-
-      - name: Install Rust toolchain
-        if: env.DEPLOY_OPERATION != 'deploy'
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_TOOLCHAIN }}
-
-      - name: Add wasm target
-        if: env.DEPLOY_OPERATION != 'deploy'
-        run: rustup target add wasm32-unknown-unknown
-
-      - name: Setup Bun
-        if: env.DEPLOY_OPERATION != 'deploy'
-        uses: oven-sh/setup-bun@v2
-
-      - name: Install deps (workspace)
-        run: pnpm install --frozen-lockfile --filter router-ab-cloudflare
-
-      - name: Run Router A/B tests
-        if: env.DEPLOY_OPERATION != 'deploy'
-        run: |
-          set -euo pipefail
-          cargo test --manifest-path crates/router-ab-core/Cargo.toml
-          cargo test --manifest-path crates/router-ab-dev/Cargo.toml
-          cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml
-
-      - name: Check strict Worker entrypoints
-        if: env.DEPLOY_OPERATION != 'deploy'
-        run: |
-          set -euo pipefail
-          for feature in \
-            strict-worker-router-entrypoint \
-            strict-worker-deriver-a-entrypoint \
-            strict-worker-deriver-b-entrypoint \
-            strict-worker-signing-worker-entrypoint
-          do
-            cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --features "$feature"
-          done
-
-      - name: Check Router A/B release blockers
-        if: env.DEPLOY_OPERATION == 'deploy'
-        run: pnpm router:deploy:check
-
-      - name: Run target Cloudflare startup dry-run
-        if: env.DEPLOY_OPERATION != 'deploy'
-        run: |
-          set -euo pipefail
-          args=(
-            --out "reports/startup-latencies/router-ab-${DEPLOY_TARGET}-dry-run-${GITHUB_RUN_ID}.json"
-          )
-          if [[ "$DEPLOY_TARGET" == 'staging' ]]; then
-            args+=(--env staging)
-          fi
-          pnpm router:deploy:dry-run -- "${args[@]}"
-
-      - name: Upload Router A/B validation report
-        if: always() && env.DEPLOY_OPERATION != 'deploy'
-        uses: actions/upload-artifact@v7
-        with:
-          name: router-ab-${{ env.DEPLOY_TARGET }}-validation-${{ github.run_id }}
-          path: crates/router-ab-cloudflare/reports/startup-latencies/*.json
-          if-no-files-found: ignore
-
-  build_router_ab_artifacts:
-    name: Build Router A/B artifacts
-    if: inputs.deploy_sha != '' || inputs.operation != 'validate'
-    needs: validate_router_ab
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
+      RELEASE_MANIFEST: .release-artifacts/release-set/manifest.json
     steps:
       - name: Checkout selected revision
         uses: actions/checkout@v6
@@ -187,8 +97,23 @@ jobs:
           fetch-depth: 0
           ref: ${{ env.DEPLOY_SHA }}
 
-      - name: Record artifact build start
-        run: echo "ARTIFACT_BUILD_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+      - name: Validate source branch and target
+        run: |
+          set -euo pipefail
+          expected_branch='dev'
+          if [[ "$DEPLOY_TARGET" == 'production' ]]; then expected_branch='main'; fi
+          if [[ "${DEPLOY_SOURCE_BRANCH:-}" != "$expected_branch" ]]; then
+            echo "::error title=Invalid release mapping::$DEPLOY_TARGET requires $expected_branch"
+            exit 1
+          fi
+          if [[ "$ENFORCE_CURRENT_BRANCH" == 'true' ]]; then
+            git fetch origin "refs/heads/$DEPLOY_SOURCE_BRANCH:refs/remotes/origin/$DEPLOY_SOURCE_BRANCH"
+            branch_tip="$(git rev-parse "refs/remotes/origin/$DEPLOY_SOURCE_BRANCH")"
+            if [[ "$branch_tip" != "$DEPLOY_SHA" ]]; then
+              echo "::error title=Stale release skipped::$DEPLOY_SHA is no longer the tip of $DEPLOY_SOURCE_BRANCH"
+              exit 1
+            fi
+          fi
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
@@ -197,145 +122,103 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: '24'
-          cache: 'pnpm'
+          cache: pnpm
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install release tooling
+        run: pnpm install --frozen-lockfile --filter router-ab-cloudflare
+
+      - name: Download release-set manifest
+        uses: actions/download-artifact@v8
         with:
-          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          name: release-set-${{ env.RELEASE_SET_ID }}
+          path: .release-artifacts/release-set
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.ARTIFACT_RUN_ID }}
 
-      - name: Add wasm target
-        run: rustup target add wasm32-unknown-unknown
-
-      - name: Cache Router A/B Rust build
-        uses: Swatinem/rust-cache@v2
+      - name: Download all release component artifacts
+        uses: actions/download-artifact@v8
         with:
-          shared-key: router-ab-workers-${{ runner.os }}-rust-${{ env.RUST_TOOLCHAIN }}-release
-          workspaces: crates/router-ab-cloudflare -> target
+          pattern: release-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_SHA }}-*
+          path: .release-artifacts/components
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.ARTIFACT_RUN_ID }}
+          merge-multiple: false
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Install deps
-        run: pnpm install --frozen-lockfile
-
-      - name: Install pinned Worker builder
-        run: pnpm -C crates/router-ab-cloudflare run worker-build:install
-
-      - name: Build all role bundles once
-        env:
-          ROUTER_AB_WORKER_BUILD_PROFILE: release
+      - name: Verify release-set manifest
         run: |
           set -euo pipefail
-          for role in signing-worker deriver-a deriver-b router; do
-            pnpm -C crates/router-ab-cloudflare run "build:$role"
-          done
-
-      - name: Create role manifests
-        run: |
-          set -euo pipefail
-          build_metadata="$(
-            node -e 'process.stdout.write(JSON.stringify({bun:process.argv[1],node:process.argv[2],rustc:process.argv[3],workerBuild:process.argv[4]}))' \
-              "$(bun --version)" \
-              "$(node --version)" \
-              "$(rustc --version)" \
-              "$(worker-build --version)"
-          )"
-          mkdir -p crates/router-ab-cloudflare/.release-artifacts
-          for role in signing-worker deriver-a deriver-b router; do
-            node scripts/deployment-artifact.mjs create \
-              --kind "$role" \
+          node scripts/deployment-release.mjs verify \
+            --manifest "$RELEASE_MANIFEST" \
+            --target "$DEPLOY_TARGET" \
+            --source-sha "$DEPLOY_SHA" \
+            --artifact-run-id "$ARTIFACT_RUN_ID" \
+            --release-set-id "$RELEASE_SET_ID"
+          for component in $(node -e "const value=require('$RELEASE_MANIFEST'); process.stdout.write(value.components.map((component) => component.name).join('\\n'))"); do
+            case "$component" in
+              router|deriver-a|deriver-b|signing-worker)
+                kind="$component"
+                artifact_manifest=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-$component/crates/router-ab-cloudflare/.release-artifacts/$component.json"
+                artifact_root=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-$component/crates/router-ab-cloudflare/build/$component"
+                identity="{\"profile\":\"release\",\"role\":\"$component\"}"
+                ;;
+              gateway)
+                kind='gateway-wasm'
+                artifact_manifest=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-gateway/.release-artifacts/gateway/manifest.json"
+                artifact_root=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-gateway/.release-artifacts/gateway/payload"
+                identity='{"wasmPackageSet":"gateway-v1"}'
+                ;;
+              site)
+                kind='pages'
+                artifact_manifest=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-pages/.release-artifacts/pages/manifest.json"
+                artifact_root=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-pages/apps/seams-site/dist"
+                identity='{"pagesBuild":"app-wallet-v1"}'
+                ;;
+              signer-iframe)
+                kind='sdk-r2'
+                artifact_manifest=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-signer-iframe/.release-artifacts/signer-iframe/manifest.json"
+                artifact_root=".release-artifacts/components/release-$DEPLOY_TARGET-$DEPLOY_SHA-signer-iframe/packages/sdk-web/dist/public/wallet-service"
+                identity='{"pagesBuild":"app-wallet-v1"}'
+                ;;
+            esac
+            node scripts/deployment-release.mjs verify-component \
+              --manifest "$RELEASE_MANIFEST" \
+              --component-name "$component" \
+              --artifact-manifest "$artifact_manifest"
+            node scripts/deployment-artifact.mjs verify \
+              --kind "$kind" \
               --target "$DEPLOY_TARGET" \
               --sha "$DEPLOY_SHA" \
-              --root "crates/router-ab-cloudflare/build/$role" \
-              --manifest "crates/router-ab-cloudflare/.release-artifacts/$role.json" \
-              --identity-json "{\"profile\":\"release\",\"role\":\"$role\"}" \
-              --metadata-json "$build_metadata"
+              --root "$artifact_root" \
+              --manifest "$artifact_manifest" \
+              --identity-json "$identity"
           done
 
-      - name: Upload SigningWorker artifact
-        id: upload_signing_worker
-        uses: actions/upload-artifact@v7
-        with:
-          name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_SHA }}-signing-worker
-          path: |
-            crates/router-ab-cloudflare/build/signing-worker
-            crates/router-ab-cloudflare/.release-artifacts/signing-worker.json
-          if-no-files-found: error
-          include-hidden-files: true
-          overwrite: true
-          retention-days: 30
-          compression-level: 0
-
-      - name: Upload Deriver A artifact
-        id: upload_deriver_a
-        uses: actions/upload-artifact@v7
-        with:
-          name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_SHA }}-deriver-a
-          path: |
-            crates/router-ab-cloudflare/build/deriver-a
-            crates/router-ab-cloudflare/.release-artifacts/deriver-a.json
-          if-no-files-found: error
-          include-hidden-files: true
-          overwrite: true
-          retention-days: 30
-          compression-level: 0
-
-      - name: Upload Deriver B artifact
-        id: upload_deriver_b
-        uses: actions/upload-artifact@v7
-        with:
-          name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_SHA }}-deriver-b
-          path: |
-            crates/router-ab-cloudflare/build/deriver-b
-            crates/router-ab-cloudflare/.release-artifacts/deriver-b.json
-          if-no-files-found: error
-          include-hidden-files: true
-          overwrite: true
-          retention-days: 30
-          compression-level: 0
-
-      - name: Upload MPCRouter artifact
-        id: upload_router
-        uses: actions/upload-artifact@v7
-        with:
-          name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_SHA }}-router
-          path: |
-            crates/router-ab-cloudflare/build/router
-            crates/router-ab-cloudflare/.release-artifacts/router.json
-          if-no-files-found: error
-          include-hidden-files: true
-          overwrite: true
-          retention-days: 30
-          compression-level: 0
-
-      - name: Summarize role artifacts
-        env:
-          SIGNING_WORKER_DIGEST: ${{ steps.upload_signing_worker.outputs.artifact-digest }}
-          DERIVER_A_DIGEST: ${{ steps.upload_deriver_a.outputs.artifact-digest }}
-          DERIVER_B_DIGEST: ${{ steps.upload_deriver_b.outputs.artifact-digest }}
-          ROUTER_DIGEST: ${{ steps.upload_router.outputs.artifact-digest }}
+      - name: Resolve selected components
+        id: release_selection
         run: |
-          elapsed_seconds="$(($(date +%s) - ARTIFACT_BUILD_STARTED_AT))"
-          {
-            echo '## Router A/B release artifacts'
-            echo
-            echo "- Source SHA: \`$DEPLOY_SHA\`"
-            echo "- Target: \`$DEPLOY_TARGET\`"
-            echo "- Build profile: \`release\`"
-            echo "- Build duration: ${elapsed_seconds}s"
-            echo "- SigningWorker: \`$SIGNING_WORKER_DIGEST\`"
-            echo "- Deriver A: \`$DERIVER_A_DIGEST\`"
-            echo "- Deriver B: \`$DERIVER_B_DIGEST\`"
-            echo "- MPCRouter: \`$ROUTER_DIGEST\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+          set -euo pipefail
+          selected_components="$(node -e "const value=require('$RELEASE_MANIFEST'); const selected=value.buildIdentity?.selectedComponents; if (!Array.isArray(selected) || selected.some((component) => typeof component !== 'string')) throw new Error('release-set selected components are invalid'); process.stdout.write(JSON.stringify(selected))")"
+          if [[ "$selected_components" == *'"router"'* ]]; then
+            for role in router deriver-a deriver-b signing-worker; do
+              [[ "$selected_components" == *"\"$role\""* ]] || {
+                echo "::error title=Incomplete Router release::Router selection is missing $role"
+                exit 1
+              }
+            done
+          fi
+          echo "selected_components=$selected_components" >> "$GITHUB_OUTPUT"
 
-  upload_or_deploy_signing_worker:
-    name: Upload or Deploy SigningWorker
-    if: (inputs.deploy_sha != '' || inputs.operation != 'validate') && (inputs.deploy_sha != '' || inputs.role == 'all' || inputs.role == 'signing-worker')
+  deploy_signing_worker:
+    name: Deploy SigningWorker
+    if: >-
+      ${{
+        needs.preflight_release.result == 'success' &&
+        contains(fromJSON(needs.preflight_release.outputs.selected_components), 'signing-worker')
+      }}
     needs:
-      - validate_router_ab
-      - build_router_ab_artifacts
+      - preflight_release
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
@@ -344,7 +227,7 @@ jobs:
       WORKER_ENV: ${{ inputs.target == 'staging' && 'staging' || '' }}
       ROUTER_AB_USE_PREBUILT: '1'
       ROUTER_AB_DEPLOY_TARGET: ${{ inputs.target }}
-      ROUTER_AB_DEPLOY_SHA: ${{ inputs.deploy_sha || github.sha }}
+      ROUTER_AB_DEPLOY_SHA: ${{ inputs.deploy_sha }}
       ROUTER_AB_ARTIFACT_IDENTITY_JSON: '{"profile":"release","role":"signing-worker"}'
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -373,8 +256,11 @@ jobs:
       - name: Download SigningWorker artifact
         uses: actions/download-artifact@v8
         with:
-          name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_SHA }}-signing-worker
+          name: release-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_SHA }}-signing-worker
           path: crates/router-ab-cloudflare
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.ARTIFACT_RUN_ID }}
 
       - name: Verify SigningWorker artifact
         run: |
@@ -407,21 +293,7 @@ jobs:
           printf '%s' "$SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY" \
             | pnpm -C crates/router-ab-cloudflare exec wrangler secret put SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY --config wrangler.signing-worker.toml "${wrangler_env_args[@]}"
 
-      - name: Upload SigningWorker version
-        if: env.DEPLOY_OPERATION == 'upload-version'
-        run: |
-          set -euo pipefail
-          args=(
-            --role signing-worker
-            --out "reports/startup-latencies/router-ab-${DEPLOY_TARGET}-signing-worker-upload-${GITHUB_RUN_ID}.json"
-          )
-          if [[ -n "$WORKER_ENV" ]]; then
-            args+=(--env "$WORKER_ENV")
-          fi
-          pnpm router:deploy:upload -- "${args[@]}"
-
       - name: Deploy SigningWorker
-        if: env.DEPLOY_OPERATION == 'deploy'
         run: |
           set -euo pipefail
           wrangler_env_args=()
@@ -431,18 +303,18 @@ jobs:
           pnpm -C crates/router-ab-cloudflare exec wrangler deploy \
             --config wrangler.signing-worker.toml \
             "${wrangler_env_args[@]}" \
-            --var "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY:${SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY}"
+            --var "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY:${SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY}" \
+            --var "SEAMS_RELEASE_SET_ID:${RELEASE_SET_ID}"
 
       - name: Upload SigningWorker report
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_OPERATION }}-signing-worker-${{ github.run_id }}
+          name: router-ab-${{ env.DEPLOY_TARGET }}-signing-worker-${{ github.run_id }}
           path: crates/router-ab-cloudflare/reports/startup-latencies/*.json
           if-no-files-found: ignore
 
       - name: Summarize SigningWorker deployment
-        if: env.DEPLOY_OPERATION == 'deploy'
         run: |
           manifest_digest="$(node -e "const value=require('./crates/router-ab-cloudflare/.release-artifacts/signing-worker.json'); process.stdout.write(value.contentDigestSha256)")"
           {
@@ -450,22 +322,20 @@ jobs:
             echo
             echo "- Source SHA: \`$DEPLOY_SHA\`"
             echo "- Target: \`$DEPLOY_TARGET\`"
+            echo "- Release set: \`$RELEASE_SET_ID\`"
+            echo "- Artifact run: \`$ARTIFACT_RUN_ID\`"
             echo "- Artifact content digest: \`$manifest_digest\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  upload_or_deploy_deriver_a:
-    name: Upload or Deploy Deriver A
-    if: |
-      always() &&
-      (inputs.deploy_sha != '' || inputs.operation != 'validate') &&
-      (inputs.deploy_sha != '' || inputs.role == 'all' || inputs.role == 'deriver-a') &&
-      needs.validate_router_ab.result == 'success' &&
-      needs.build_router_ab_artifacts.result == 'success' &&
-      (inputs.deploy_sha == '' && inputs.role != 'all' || needs.upload_or_deploy_signing_worker.result == 'success')
+  deploy_deriver_a:
+    name: Deploy Deriver A
+    if: >-
+      ${{
+        needs.preflight_release.result == 'success' &&
+        contains(fromJSON(needs.preflight_release.outputs.selected_components), 'deriver-a')
+      }}
     needs:
-      - validate_router_ab
-      - build_router_ab_artifacts
-      - upload_or_deploy_signing_worker
+      - preflight_release
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
@@ -474,7 +344,7 @@ jobs:
       WORKER_ENV: ${{ inputs.target == 'staging' && 'staging' || '' }}
       ROUTER_AB_USE_PREBUILT: '1'
       ROUTER_AB_DEPLOY_TARGET: ${{ inputs.target }}
-      ROUTER_AB_DEPLOY_SHA: ${{ inputs.deploy_sha || github.sha }}
+      ROUTER_AB_DEPLOY_SHA: ${{ inputs.deploy_sha }}
       ROUTER_AB_ARTIFACT_IDENTITY_JSON: '{"profile":"release","role":"deriver-a"}'
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -507,8 +377,11 @@ jobs:
       - name: Download Deriver A artifact
         uses: actions/download-artifact@v8
         with:
-          name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_SHA }}-deriver-a
+          name: release-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_SHA }}-deriver-a
           path: crates/router-ab-cloudflare
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.ARTIFACT_RUN_ID }}
 
       - name: Verify Deriver A artifact
         run: |
@@ -549,21 +422,7 @@ jobs:
           printf '%s' "$DERIVER_A_PEER_SIGNING_KEY" \
             | pnpm -C crates/router-ab-cloudflare exec wrangler secret put DERIVER_A_PEER_SIGNING_KEY --config wrangler.deriver-a.toml "${wrangler_env_args[@]}"
 
-      - name: Upload Deriver A version
-        if: env.DEPLOY_OPERATION == 'upload-version'
-        run: |
-          set -euo pipefail
-          args=(
-            --role deriver-a
-            --out "reports/startup-latencies/router-ab-${DEPLOY_TARGET}-deriver-a-upload-${GITHUB_RUN_ID}.json"
-          )
-          if [[ -n "$WORKER_ENV" ]]; then
-            args+=(--env "$WORKER_ENV")
-          fi
-          pnpm router:deploy:upload -- "${args[@]}"
-
       - name: Deploy Deriver A
-        if: env.DEPLOY_OPERATION == 'deploy'
         run: |
           set -euo pipefail
           wrangler_env_args=()
@@ -575,18 +434,18 @@ jobs:
             "${wrangler_env_args[@]}" \
             --var "DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY:${DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY}" \
             --var "DERIVER_A_PEER_VERIFYING_KEY_HEX:${DERIVER_A_PEER_VERIFYING_KEY_HEX}" \
-            --var "DERIVER_B_PEER_VERIFYING_KEY_HEX:${DERIVER_B_PEER_VERIFYING_KEY_HEX}"
+            --var "DERIVER_B_PEER_VERIFYING_KEY_HEX:${DERIVER_B_PEER_VERIFYING_KEY_HEX}" \
+            --var "SEAMS_RELEASE_SET_ID:${RELEASE_SET_ID}"
 
       - name: Upload Deriver A report
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_OPERATION }}-deriver-a-${{ github.run_id }}
+          name: router-ab-${{ env.DEPLOY_TARGET }}-deriver-a-${{ github.run_id }}
           path: crates/router-ab-cloudflare/reports/startup-latencies/*.json
           if-no-files-found: ignore
 
       - name: Summarize Deriver A deployment
-        if: env.DEPLOY_OPERATION == 'deploy'
         run: |
           manifest_digest="$(node -e "const value=require('./crates/router-ab-cloudflare/.release-artifacts/deriver-a.json'); process.stdout.write(value.contentDigestSha256)")"
           {
@@ -594,22 +453,20 @@ jobs:
             echo
             echo "- Source SHA: \`$DEPLOY_SHA\`"
             echo "- Target: \`$DEPLOY_TARGET\`"
+            echo "- Release set: \`$RELEASE_SET_ID\`"
+            echo "- Artifact run: \`$ARTIFACT_RUN_ID\`"
             echo "- Artifact content digest: \`$manifest_digest\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  upload_or_deploy_deriver_b:
-    name: Upload or Deploy Deriver B
-    if: |
-      always() &&
-      (inputs.deploy_sha != '' || inputs.operation != 'validate') &&
-      (inputs.deploy_sha != '' || inputs.role == 'all' || inputs.role == 'deriver-b') &&
-      needs.validate_router_ab.result == 'success' &&
-      needs.build_router_ab_artifacts.result == 'success' &&
-      (inputs.deploy_sha == '' && inputs.role != 'all' || needs.upload_or_deploy_signing_worker.result == 'success')
+  deploy_deriver_b:
+    name: Deploy Deriver B
+    if: >-
+      ${{
+        needs.preflight_release.result == 'success' &&
+        contains(fromJSON(needs.preflight_release.outputs.selected_components), 'deriver-b')
+      }}
     needs:
-      - validate_router_ab
-      - build_router_ab_artifacts
-      - upload_or_deploy_signing_worker
+      - preflight_release
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
@@ -618,7 +475,7 @@ jobs:
       WORKER_ENV: ${{ inputs.target == 'staging' && 'staging' || '' }}
       ROUTER_AB_USE_PREBUILT: '1'
       ROUTER_AB_DEPLOY_TARGET: ${{ inputs.target }}
-      ROUTER_AB_DEPLOY_SHA: ${{ inputs.deploy_sha || github.sha }}
+      ROUTER_AB_DEPLOY_SHA: ${{ inputs.deploy_sha }}
       ROUTER_AB_ARTIFACT_IDENTITY_JSON: '{"profile":"release","role":"deriver-b"}'
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -651,8 +508,11 @@ jobs:
       - name: Download Deriver B artifact
         uses: actions/download-artifact@v8
         with:
-          name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_SHA }}-deriver-b
+          name: release-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_SHA }}-deriver-b
           path: crates/router-ab-cloudflare
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.ARTIFACT_RUN_ID }}
 
       - name: Verify Deriver B artifact
         run: |
@@ -693,21 +553,7 @@ jobs:
           printf '%s' "$DERIVER_B_PEER_SIGNING_KEY" \
             | pnpm -C crates/router-ab-cloudflare exec wrangler secret put DERIVER_B_PEER_SIGNING_KEY --config wrangler.deriver-b.toml "${wrangler_env_args[@]}"
 
-      - name: Upload Deriver B version
-        if: env.DEPLOY_OPERATION == 'upload-version'
-        run: |
-          set -euo pipefail
-          args=(
-            --role deriver-b
-            --out "reports/startup-latencies/router-ab-${DEPLOY_TARGET}-deriver-b-upload-${GITHUB_RUN_ID}.json"
-          )
-          if [[ -n "$WORKER_ENV" ]]; then
-            args+=(--env "$WORKER_ENV")
-          fi
-          pnpm router:deploy:upload -- "${args[@]}"
-
       - name: Deploy Deriver B
-        if: env.DEPLOY_OPERATION == 'deploy'
         run: |
           set -euo pipefail
           wrangler_env_args=()
@@ -719,18 +565,18 @@ jobs:
             "${wrangler_env_args[@]}" \
             --var "DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY:${DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY}" \
             --var "DERIVER_A_PEER_VERIFYING_KEY_HEX:${DERIVER_A_PEER_VERIFYING_KEY_HEX}" \
-            --var "DERIVER_B_PEER_VERIFYING_KEY_HEX:${DERIVER_B_PEER_VERIFYING_KEY_HEX}"
+            --var "DERIVER_B_PEER_VERIFYING_KEY_HEX:${DERIVER_B_PEER_VERIFYING_KEY_HEX}" \
+            --var "SEAMS_RELEASE_SET_ID:${RELEASE_SET_ID}"
 
       - name: Upload Deriver B report
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_OPERATION }}-deriver-b-${{ github.run_id }}
+          name: router-ab-${{ env.DEPLOY_TARGET }}-deriver-b-${{ github.run_id }}
           path: crates/router-ab-cloudflare/reports/startup-latencies/*.json
           if-no-files-found: ignore
 
       - name: Summarize Deriver B deployment
-        if: env.DEPLOY_OPERATION == 'deploy'
         run: |
           manifest_digest="$(node -e "const value=require('./crates/router-ab-cloudflare/.release-artifacts/deriver-b.json'); process.stdout.write(value.contentDigestSha256)")"
           {
@@ -738,31 +584,25 @@ jobs:
             echo
             echo "- Source SHA: \`$DEPLOY_SHA\`"
             echo "- Target: \`$DEPLOY_TARGET\`"
+            echo "- Release set: \`$RELEASE_SET_ID\`"
+            echo "- Artifact run: \`$ARTIFACT_RUN_ID\`"
             echo "- Artifact content digest: \`$manifest_digest\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  upload_or_deploy_mpc_router:
-    name: Upload or Deploy MPCRouter
+  deploy_mpc_router:
+    name: Deploy MPCRouter
     if: |
       always() &&
-      (inputs.deploy_sha != '' || inputs.operation != 'validate') &&
-      (inputs.deploy_sha != '' || inputs.role == 'all' || inputs.role == 'router') &&
-      needs.validate_router_ab.result == 'success' &&
-      needs.build_router_ab_artifacts.result == 'success' &&
-      (
-        inputs.deploy_sha == '' && inputs.role != 'all' ||
-        (
-          needs.upload_or_deploy_signing_worker.result == 'success' &&
-          needs.upload_or_deploy_deriver_a.result == 'success' &&
-          needs.upload_or_deploy_deriver_b.result == 'success'
-        )
-      )
+      needs.preflight_release.result == 'success' &&
+      contains(fromJSON(needs.preflight_release.outputs.selected_components), 'router') &&
+      needs.deploy_signing_worker.result == 'success' &&
+      needs.deploy_deriver_a.result == 'success' &&
+      needs.deploy_deriver_b.result == 'success'
     needs:
-      - validate_router_ab
-      - build_router_ab_artifacts
-      - upload_or_deploy_signing_worker
-      - upload_or_deploy_deriver_a
-      - upload_or_deploy_deriver_b
+      - preflight_release
+      - deploy_signing_worker
+      - deploy_deriver_a
+      - deploy_deriver_b
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
@@ -771,7 +611,7 @@ jobs:
       WORKER_ENV: ${{ inputs.target == 'staging' && 'staging' || '' }}
       ROUTER_AB_USE_PREBUILT: '1'
       ROUTER_AB_DEPLOY_TARGET: ${{ inputs.target }}
-      ROUTER_AB_DEPLOY_SHA: ${{ inputs.deploy_sha || github.sha }}
+      ROUTER_AB_DEPLOY_SHA: ${{ inputs.deploy_sha }}
       ROUTER_AB_ARTIFACT_IDENTITY_JSON: '{"profile":"release","role":"router"}'
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -807,8 +647,11 @@ jobs:
       - name: Download MPCRouter artifact
         uses: actions/download-artifact@v8
         with:
-          name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_SHA }}-router
+          name: release-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_SHA }}-router
           path: crates/router-ab-cloudflare
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.ARTIFACT_RUN_ID }}
 
       - name: Verify MPCRouter artifact
         run: |
@@ -848,21 +691,7 @@ jobs:
           printf '%s' "$ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET" \
             | pnpm -C crates/router-ab-cloudflare exec wrangler secret put ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET --config wrangler.router.toml "${wrangler_env_args[@]}"
 
-      - name: Upload MPCRouter version
-        if: env.DEPLOY_OPERATION == 'upload-version'
-        run: |
-          set -euo pipefail
-          args=(
-            --role router
-            --out "reports/startup-latencies/router-ab-${DEPLOY_TARGET}-router-upload-${GITHUB_RUN_ID}.json"
-          )
-          if [[ -n "$WORKER_ENV" ]]; then
-            args+=(--env "$WORKER_ENV")
-          fi
-          pnpm router:deploy:upload -- "${args[@]}"
-
       - name: Deploy MPCRouter
-        if: env.DEPLOY_OPERATION == 'deploy'
         run: |
           set -euo pipefail
           wrangler_env_args=()
@@ -883,18 +712,18 @@ jobs:
             --var "DERIVER_A_PEER_VERIFYING_KEY_HEX:${DERIVER_A_PEER_VERIFYING_KEY_HEX}" \
             --var "DERIVER_B_PEER_VERIFYING_KEY_HEX:${DERIVER_B_PEER_VERIFYING_KEY_HEX}" \
             --var "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY:${SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY}" \
+            --var "SEAMS_RELEASE_SET_ID:${RELEASE_SET_ID}" \
             "${project_policy_args[@]}"
 
       - name: Upload MPCRouter report
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: router-ab-${{ env.DEPLOY_TARGET }}-${{ env.DEPLOY_OPERATION }}-router-${{ github.run_id }}
+          name: router-ab-${{ env.DEPLOY_TARGET }}-router-${{ github.run_id }}
           path: crates/router-ab-cloudflare/reports/startup-latencies/*.json
           if-no-files-found: ignore
 
       - name: Summarize MPCRouter deployment
-        if: env.DEPLOY_OPERATION == 'deploy'
         run: |
           manifest_digest="$(node -e "const value=require('./crates/router-ab-cloudflare/.release-artifacts/router.json'); process.stdout.write(value.contentDigestSha256)")"
           {
@@ -902,6 +731,8 @@ jobs:
             echo
             echo "- Source SHA: \`$DEPLOY_SHA\`"
             echo "- Target: \`$DEPLOY_TARGET\`"
+            echo "- Release set: \`$RELEASE_SET_ID\`"
+            echo "- Artifact run: \`$ARTIFACT_RUN_ID\`"
             echo "- Artifact content digest: \`$manifest_digest\`"
             echo "- Rollback: rerun this failed job with the accepted artifact"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -910,32 +741,122 @@ jobs:
     name: Deploy Gateway and D1
     if: >-
       ${{
-        always() &&
-        needs.upload_or_deploy_mpc_router.result == 'success' &&
-        (
-          inputs.deploy_sha != '' ||
-          (
-            inputs.operation == 'deploy' &&
-            inputs.role == 'all'
-          )
-        )
+        needs.preflight_release.result == 'success' &&
+        contains(fromJSON(needs.preflight_release.outputs.selected_components), 'gateway')
       }}
-    needs: upload_or_deploy_mpc_router
+    needs: preflight_release
     uses: ./.github/workflows/deploy-gateway.yml
     with:
       target: ${{ inputs.target }}
-      deploy_sha: ${{ inputs.deploy_sha || github.sha }}
-      source_branch: ${{ inputs.source_branch || github.ref_name }}
+      source_sha: ${{ inputs.deploy_sha }}
+      artifact_run_id: ${{ inputs.artifact_run_id }}
+      release_set_id: ${{ inputs.release_set_id }}
     secrets: inherit
 
   deploy_pages:
     name: Deploy seams.sh and sign.seams.sh
-    if: ${{ always() && needs.deploy_gateway.result == 'success' }}
-    needs: deploy_gateway
+    if: >-
+      ${{
+        always() &&
+        needs.preflight_release.result == 'success' &&
+        (contains(fromJSON(needs.preflight_release.outputs.selected_components), 'site') ||
+        contains(fromJSON(needs.preflight_release.outputs.selected_components), 'signer-iframe')) &&
+        (!contains(fromJSON(needs.preflight_release.outputs.selected_components), 'gateway') ||
+        needs.deploy_gateway.result == 'success')
+      }}
+    needs:
+      - preflight_release
+      - deploy_gateway
     uses: ./.github/workflows/deploy-pages.yml
     with:
       target: all
       deploy_environment: ${{ inputs.target }}
-      deploy_sha: ${{ inputs.deploy_sha || github.sha }}
-      source_branch: ${{ inputs.source_branch || github.ref_name }}
+      source_sha: ${{ inputs.deploy_sha }}
+      artifact_run_id: ${{ inputs.artifact_run_id }}
+      release_set_id: ${{ inputs.release_set_id }}
     secrets: inherit
+
+  final_smoke:
+    name: Final release smoke
+    if: >-
+      ${{
+        always() &&
+        needs.preflight_release.result == 'success' &&
+        (contains(fromJSON(needs.preflight_release.outputs.selected_components), 'router') ||
+        contains(fromJSON(needs.preflight_release.outputs.selected_components), 'deriver-a') ||
+        contains(fromJSON(needs.preflight_release.outputs.selected_components), 'deriver-b') ||
+        contains(fromJSON(needs.preflight_release.outputs.selected_components), 'signing-worker') ||
+        contains(fromJSON(needs.preflight_release.outputs.selected_components), 'gateway') ||
+        contains(fromJSON(needs.preflight_release.outputs.selected_components), 'site') ||
+        contains(fromJSON(needs.preflight_release.outputs.selected_components), 'signer-iframe')) &&
+        needs.deploy_mpc_router.result != 'failure' &&
+        needs.deploy_mpc_router.result != 'cancelled' &&
+        (!contains(fromJSON(needs.preflight_release.outputs.selected_components), 'router') ||
+        needs.deploy_mpc_router.result == 'success') &&
+        (!contains(fromJSON(needs.preflight_release.outputs.selected_components), 'gateway') ||
+        needs.deploy_gateway.result == 'success') &&
+        ((!contains(fromJSON(needs.preflight_release.outputs.selected_components), 'site') &&
+        !contains(fromJSON(needs.preflight_release.outputs.selected_components), 'signer-iframe')) ||
+        needs.deploy_pages.result == 'success')
+      }}
+    needs:
+      - preflight_release
+      - deploy_mpc_router
+      - deploy_gateway
+      - deploy_pages
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout selected revision
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.deploy_sha }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Install release tooling
+        run: pnpm install --frozen-lockfile --filter router-ab-cloudflare
+
+      - name: Download release-set manifest
+        uses: actions/download-artifact@v8
+        with:
+          name: release-set-${{ inputs.release_set_id }}
+          path: .release-artifacts/release-set
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.artifact_run_id }}
+
+      - name: Verify final release smoke
+        env:
+          GATEWAY_ORIGIN: ${{ needs.deploy_gateway.outputs.gateway_origin }}
+          SITE_ORIGIN: ${{ needs.deploy_pages.outputs.app_origin }}
+          WALLET_ORIGIN: ${{ needs.deploy_pages.outputs.wallet_origin }}
+          SELECTED_COMPONENTS: ${{ needs.preflight_release.outputs.selected_components }}
+        run: |
+          set -euo pipefail
+          node scripts/deployment-release.mjs verify \
+            --manifest .release-artifacts/release-set/manifest.json \
+            --target "${{ inputs.target }}" \
+            --source-sha "${{ inputs.deploy_sha }}" \
+            --artifact-run-id "${{ inputs.artifact_run_id }}" \
+            --release-set-id "${{ inputs.release_set_id }}"
+          node scripts/deployment-final-smoke.mjs \
+            --manifest .release-artifacts/release-set/manifest.json \
+            --release-set-id "${{ inputs.release_set_id }}" \
+            --selected-components "$SELECTED_COMPONENTS" \
+            --gateway-origin "$GATEWAY_ORIGIN" \
+            --site-origin "$SITE_ORIGIN" \
+            --wallet-origin "$WALLET_ORIGIN"
+          {
+            echo '## Final release smoke'
+            echo
+            echo "- Release set: \`${{ inputs.release_set_id }}\`"
+            echo "- Selected components: \`$SELECTED_COMPONENTS\`"
+            echo '- Selected component readiness, representative routes, and release identity passed.'
+          } >> "$GITHUB_STEP_SUMMARY"

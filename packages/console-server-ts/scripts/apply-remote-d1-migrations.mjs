@@ -1,16 +1,28 @@
 #!/usr/bin/env node
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-
-const migrationNamePattern = /^[0-9]{4}_[a-z0-9_]+\.sql$/;
+import { digestMigrations, readMigrationFiles } from '../../../scripts/migration-fingerprint.mjs';
 
 function main() {
   const options = parseArgs(process.argv.slice(2));
+  const migrations = readMigrationFiles(options.migrationsDir);
+  const fingerprint = digestMigrations(migrations);
+  if (options.expectedFingerprint !== undefined && options.expectedFingerprint !== fingerprint) {
+    throw new Error(
+      `D1 migration fingerprint mismatch: expected ${options.expectedFingerprint}, received ${fingerprint}`,
+    );
+  }
   ensureMigrationTable(options);
   const applied = readAppliedMigrationNames(options);
-  const migrations = readMigrationFiles(options.migrationsDir);
+  const previousFingerprint = readMigrationFingerprint(options);
+  const missing = findMissingMigrationNames(applied, migrations);
+  if (previousFingerprint === fingerprint && missing.length === 0) {
+    process.stdout.write(`D1 migrations unchanged (${fingerprint})\n`);
+    return;
+  }
 
   for (const migration of migrations) {
     if (applied.has(migration.name)) continue;
@@ -18,22 +30,44 @@ function main() {
   }
 
   verifyAppliedMigrations(options, migrations);
+  writeMigrationFingerprint(options, fingerprint);
 }
 
 function parseArgs(args) {
   const database = readOption(args, '--database');
   const config = readOption(args, '--config');
   const migrationsDir = readOption(args, '--migrations-dir');
+  const expectedFingerprint = readOption(args, '--expected-fingerprint');
   if (!database || !config || !migrationsDir) {
     throw new Error(
-      'Usage: apply-remote-d1-migrations.mjs --database <binding> --config <path> --migrations-dir <path>',
+      'Usage: apply-remote-d1-migrations.mjs --database <binding> --config <path> --migrations-dir <path> [--expected-fingerprint <sha256>]',
     );
   }
   return {
     database,
     config: resolve(config),
     migrationsDir: resolve(migrationsDir),
+    expectedFingerprint,
   };
+}
+
+function readMigrationFingerprint(options) {
+  const output = runWranglerJson(options, [
+    '--command',
+    "SELECT value FROM d1_migration_metadata WHERE key = 'schema_fingerprint';",
+  ]);
+  const rows = readSingleResultRows(output, 'migration fingerprint');
+  if (rows.length === 0) return undefined;
+  const value = rows[0]?.value;
+  return typeof value === 'string' ? value : undefined;
+}
+
+function writeMigrationFingerprint(options, fingerprint) {
+  runWrangler(options, [
+    '--command',
+    `INSERT INTO d1_migration_metadata (key, value) VALUES ('schema_fingerprint', ${sqlText(fingerprint)})
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value;`,
+  ]);
 }
 
 function readOption(args, name) {
@@ -53,6 +87,10 @@ function ensureMigrationTable(options) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT UNIQUE NOT NULL,
       applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS d1_migration_metadata (
+      key TEXT PRIMARY KEY NOT NULL,
+      value TEXT NOT NULL
     );`,
   ]);
 }
@@ -71,26 +109,6 @@ function readAppliedMigrationNames(options) {
     names.add(row.name);
   }
   return names;
-}
-
-function readMigrationFiles(migrationsDir) {
-  const files = [];
-  const names = readdirSync(migrationsDir).filter(isMigrationFile).sort();
-  for (const name of names) {
-    files.push(readMigrationFile(migrationsDir, name));
-  }
-  return files;
-}
-
-function isMigrationFile(name) {
-  return migrationNamePattern.test(name);
-}
-
-function readMigrationFile(migrationsDir, name) {
-  return {
-    name,
-    source: readFileSync(join(migrationsDir, name), 'utf8'),
-  };
 }
 
 function applyMigration(options, migration) {
@@ -136,10 +154,12 @@ function runWrangler(options, commandArgs) {
 }
 
 function runWranglerJson(options, commandArgs) {
-  const child = spawnWrangler(options, [...commandArgs, '--json'], ['ignore', 'pipe', 'inherit']);
+  const child = spawnWrangler(options, [...commandArgs, '--json'], ['ignore', 'pipe', 'pipe']);
   if (child.error) throw child.error;
   if (child.status !== 0) {
-    throw new Error(`Wrangler D1 JSON command failed with status ${String(child.status)}`);
+    throw new Error(
+      `Wrangler D1 JSON command failed with status ${String(child.status)}: ${String(child.stderr ?? '').trim()}`,
+    );
   }
   try {
     return JSON.parse(child.stdout);
