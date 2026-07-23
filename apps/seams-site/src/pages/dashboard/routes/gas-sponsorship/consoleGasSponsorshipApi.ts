@@ -1,6 +1,7 @@
 import {
   createDashboardPolicy,
   listDashboardPolicies,
+  publishCurrentDashboardRuntimeSnapshot,
   publishDashboardPolicy,
   updateDashboardPolicy,
   type DashboardConsolePolicy,
@@ -307,7 +308,24 @@ export async function createDashboardGasSponsorshipPolicy(
     rules,
   });
   const published = await publishDashboardPolicy({ policyId: created.id });
+  await republishRuntimeSnapshotForScope(input);
   return await getDashboardGasSponsorshipPolicyById(published.id);
+}
+
+/**
+ * A published gas-sponsorship policy only reaches the relayer via the
+ * environment's runtime snapshot, which policy publication does not refresh.
+ * Republish it so the new/updated policy takes effect immediately. The snapshot
+ * is per-environment, so this only runs for environment-scoped mutations.
+ */
+async function republishRuntimeSnapshotForScope(input: Record<string, unknown>): Promise<void> {
+  const environmentId = normalizeString((input as { environmentId?: unknown }).environmentId);
+  if (!environmentId) return;
+  const projectId = normalizeString((input as { projectId?: unknown }).projectId);
+  await publishCurrentDashboardRuntimeSnapshot({
+    environmentId,
+    ...(projectId ? { projectId } : {}),
+  });
 }
 
 export async function updateDashboardGasSponsorshipPolicy(
@@ -323,5 +341,6 @@ export async function updateDashboardGasSponsorshipPolicy(
     rules,
   });
   const published = await publishDashboardPolicy({ policyId: updated.id });
+  await republishRuntimeSnapshotForScope(input);
   return await getDashboardGasSponsorshipPolicyById(published.id);
 }
