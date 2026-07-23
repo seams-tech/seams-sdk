@@ -166,7 +166,7 @@ export function ChainSigningSection(props: ChainSigningSectionProps) {
             onClick={props.onSignDelegate}
             loading={props.delegateLoading}
             loadingText="Signing delegate..."
-            variant="secondary"
+            variant="primary"
             size="medium"
             style={{ width: '100%' }}
             disabled={!props.canSignDelegate || props.delegateLoading}
