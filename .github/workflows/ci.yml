@@ -3,7 +3,12 @@ name: ci
 on:
   push:
     branches:
+      - dev
       - main
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'tests/**'
   pull_request:
   merge_group:
   workflow_dispatch:
@@ -12,6 +17,73 @@ permissions:
   contents: read
 
 jobs:
+  release-change-set:
+    name: Record release change set
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout pushed revision
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Compute pushed change range
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-change-set
+          if [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
+            git diff-tree --root --no-commit-id --name-only -r "$SOURCE_SHA" > release-change-set/changed-files.txt
+          else
+            git diff --name-only "$BEFORE_SHA" "$SOURCE_SHA" > release-change-set/changed-files.txt
+          fi
+          printf '%s\n' "$BEFORE_SHA" > release-change-set/base-sha.txt
+          printf '%s\n' "$SOURCE_SHA" > release-change-set/source-sha.txt
+
+      - name: Upload pushed change range
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-change-set
+          path: release-change-set
+          retention-days: 30
+
+  router-ab-deployment-validation:
+    name: Router A/B deployment validation
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Add wasm target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Run Router A/B core and adapter tests
+        run: |
+          cargo test --manifest-path crates/router-ab-core/Cargo.toml
+          cargo test --manifest-path crates/router-ab-dev/Cargo.toml
+          cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml
+
+      - name: Check strict Worker entrypoints
+        run: |
+          set -euo pipefail
+          for feature in \
+            strict-worker-router-entrypoint \
+            strict-worker-deriver-a-entrypoint \
+            strict-worker-deriver-b-entrypoint \
+            strict-worker-signing-worker-entrypoint
+          do
+            cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --features "$feature"
+          done
+
   ed25519-yao-constant-time-codegen:
     runs-on: ubuntu-latest
     steps:
