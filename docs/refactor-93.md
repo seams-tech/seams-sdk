@@ -706,6 +706,12 @@ second Gateway orchestration owners.
 
 ### Phase 6: Deployment And Production Acceptance
 
+The code branch already contains the Gateway cutover, so the historical
+"validate Router while Gateway still uses the old request boundary" step cannot
+be replayed here. Contract tests and optimized four-Worker dry-runs are green;
+the first external validation must be a coherent staging rollout before any
+route-deletion cleanup.
+
 - [ ] Deploy the new Router private route.
 - [ ] Validate it while the Gateway still uses the old request boundary.
 - [ ] Deploy the Gateway cutover without a runtime feature flag.
