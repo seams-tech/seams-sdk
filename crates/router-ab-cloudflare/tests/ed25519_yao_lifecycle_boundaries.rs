@@ -40,7 +40,9 @@ fn pair_lifecycle_is_pair_bound_and_has_signed_readiness_states() {
         "Ed25519YaoRoleReadinessReceiptV1",
         "PreparePair",
         "ClaimPair",
+        "StartPair",
         "BeginPair",
+        "Ed25519YaoRoleStartAcceptanceV1",
         "CompletePair",
         "ReadCompletedPair",
     ] {
@@ -89,8 +91,12 @@ fn pair_websocket_requires_the_exact_pair_digest_and_peer_receipt() {
     for required in [
         "binding.pair_digest",
         "x-seams-yao-readiness-receipt",
+        "EXECUTION_ID_HEADER",
         "verify_role_readiness_receipt_v1",
         "BeginPair",
+        "PairStarted",
+        "sign_role_start_acceptance_v1",
+        "START_ACCEPTANCE_HEADER",
     ] {
         assert!(
             body.contains(required),
