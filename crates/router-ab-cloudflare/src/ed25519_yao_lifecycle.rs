@@ -29,10 +29,11 @@ use zeroize::Zeroize;
 use crate::{
     decode_cloudflare_signer_envelope_hpke_private_key_secret_v1,
     execute_cloudflare_durable_object_call_v1, load_cloudflare_root_share_wire_secret_v1,
+    parse_cloudflare_trace_id_from_request_v1, set_cloudflare_trace_id_header_v1,
     CloudflareDeriverAWorkerRuntimeV1, CloudflareDeriverBWorkerRuntimeV1,
     CloudflareDurableObjectResponseV1, CloudflareEd25519YaoCircuitV1,
     CloudflareEd25519YaoWebSocketBindingV1, CloudflareEd25519YaoWebSocketTransportV1,
-    CloudflareHpkeGetrandomRngV1, CloudflareWorkerRoleV1,
+    CloudflareHpkeGetrandomRngV1, CloudflareTraceIdV1, CloudflareWorkerRoleV1,
 };
 
 pub const CLOUDFLARE_DERIVER_A_ED25519_YAO_ACTIVATION_START_PATH: &str =
@@ -60,6 +61,48 @@ const YAO_STAGED_INPUT_LIFETIME_MS: u64 = 60_000;
 const YAO_RUNNING_LIFETIME_MS: u64 = 20_000;
 const YAO_RESULT_WAIT_INTERVAL: Duration = Duration::from_millis(5);
 const YAO_RESULT_WAIT_ATTEMPTS: usize = 100;
+const ROLE_SPAN_EVENT_V1: &str = "router_ab_yao_role_span_v1";
+
+type RoleTraceContextV1 = Option<CloudflareTraceIdV1>;
+
+#[derive(Serialize)]
+struct RoleSpanEventV1 {
+    event: &'static str,
+    span: &'static str,
+    role: &'static str,
+    operation: &'static str,
+    outcome: &'static str,
+    duration_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    trace_id: Option<String>,
+}
+
+fn emit_role_span_v1(
+    trace_id: RoleTraceContextV1,
+    span: &'static str,
+    role: &'static str,
+    operation: &'static str,
+    started_at_ms: u64,
+    outcome: &'static str,
+) {
+    let ended_at_ms = cloudflare_yao_now_unix_ms().unwrap_or(started_at_ms);
+    let event = RoleSpanEventV1 {
+        event: ROLE_SPAN_EVENT_V1,
+        span,
+        role,
+        operation,
+        outcome,
+        duration_ms: ended_at_ms.saturating_sub(started_at_ms),
+        trace_id: trace_id.map(CloudflareTraceIdV1::as_hex),
+    };
+    if let Ok(serialized) = serde_json::to_string(&event) {
+        worker::console_log!("{serialized}");
+    }
+}
+
+fn role_span_started_at_ms() -> u64 {
+    cloudflare_yao_now_unix_ms().unwrap_or_default()
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
@@ -178,6 +221,17 @@ enum DeriverBYaoSessionCommandV1 {
 }
 
 impl DeriverBYaoSessionCommandV1 {
+    fn operation(&self) -> &'static str {
+        match self {
+            Self::Stage { .. } => "stage",
+            Self::ReadStaged { .. } => "read_staged",
+            Self::Begin { .. } => "begin",
+            Self::Complete { .. } => "complete",
+            Self::Fail { .. } => "fail",
+            Self::ReadResult { .. } => "read_result",
+        }
+    }
+
     fn session(&self) -> [u8; 32] {
         match self {
             Self::Stage { input } => input.session(),
@@ -264,6 +318,7 @@ impl worker::DurableObject for RouterAbDeriverAYaoSessionDurableObject {
         if request.method() != Method::Post {
             return Response::error("method not allowed", 405);
         }
+        let trace_id = parse_role_trace_context(&request)?;
         let command = request.json::<DeriverAYaoSessionCommandV1>().await?;
         if let Err(error) = command.validate() {
             return Response::error(error.message(), 400);
@@ -334,9 +389,18 @@ impl worker::DurableObject for RouterAbDeriverAYaoSessionDurableObject {
                 return Response::error(error.message(), 500);
             }
         };
-        let execution = match execute_deriver_a_role(&self.env, &runtime, input).await {
+        let role_started_at_ms = role_span_started_at_ms();
+        let execution = match execute_deriver_a_role(&self.env, &runtime, input, trace_id).await {
             Ok(execution) => execution,
             Err(error) => {
+                emit_role_span_v1(
+                    trace_id,
+                    "deriver_a.role_execution",
+                    "deriver_a",
+                    "yao",
+                    role_started_at_ms,
+                    "failure",
+                );
                 let current = storage
                     .get::<YaoSessionRecordV1>(SESSION_RECORD_STORAGE_KEY)
                     .await?;
@@ -357,6 +421,14 @@ impl worker::DurableObject for RouterAbDeriverAYaoSessionDurableObject {
                 return Response::error(error.message(), 500);
             }
         };
+        emit_role_span_v1(
+            trace_id,
+            "deriver_a.role_execution",
+            "deriver_a",
+            "yao",
+            role_started_at_ms,
+            "success",
+        );
         let now_unix_ms = cloudflare_yao_now_unix_ms()?;
         let current = storage
             .get::<YaoSessionRecordV1>(SESSION_RECORD_STORAGE_KEY)
@@ -419,6 +491,7 @@ impl worker::DurableObject for RouterAbDeriverBYaoSessionDurableObject {
         if request.method() != Method::Post {
             return Response::error("method not allowed", 405);
         }
+        let _trace_id = parse_role_trace_context(&request)?;
         let command = request.json::<DeriverBYaoSessionCommandV1>().await?;
         if let Err(error) = command.validate() {
             return Response::error(error.message(), 400);
@@ -710,9 +783,10 @@ pub async fn handle_cloudflare_ed25519_yao_deriver_a_start_v1(
     env: &Env,
     expected_kind: Ed25519YaoInputKindV1,
 ) -> RouterAbProtocolResult<Response> {
+    let trace_id = parse_cloudflare_trace_id_from_request_v1(&request)?;
     let input = parse_request::<Ed25519YaoEncryptedInputV1>(&mut request).await?;
     validate_deriver_input(&input, Ed25519YaoDeriverRoleV1::DeriverA, expected_kind)?;
-    let execution = execute_deriver_a_session(env, input).await?;
+    let execution = execute_deriver_a_session(env, input, trace_id).await?;
     json_response(&execution)
 }
 
@@ -720,6 +794,7 @@ async fn execute_deriver_a_role(
     env: &Env,
     runtime: &CloudflareDeriverAWorkerRuntimeV1,
     input: Ed25519YaoEncryptedInputV1,
+    trace_id: RoleTraceContextV1,
 ) -> RouterAbProtocolResult<Ed25519YaoRoleExecutionV1> {
     let circuit = circuit_for_input(&input);
     let private_key =
@@ -732,16 +807,30 @@ async fn execute_deriver_a_role(
             let role_request =
                 open_ed25519_yao_activation_deriver_a_input_v1(&input, &private_key)?;
             let (root, socket) = futures::try_join!(
-                load_deriver_a_yao_root(env, runtime, &role_request.binding.lifecycle),
-                connect_deriver_b(env, websocket_binding),
+                load_deriver_a_yao_root(env, runtime, &role_request.binding.lifecycle, trace_id),
+                connect_deriver_b(env, websocket_binding, trace_id),
             )?;
             let transport = CloudflareEd25519YaoWebSocketTransportV1::deriver_a(&socket, session)
                 .map_err(map_websocket_error)?;
             let recipients = role_request.recipients;
             let (binding, role) =
                 build_product_activation_deriver_a_v1(root, role_request).map_err(map_adapter)?;
-            let completion =
-                with_yao_ceremony_timeout(run_activation_deriver_a(role, transport)).await?;
+            let protocol_started_at_ms = role_span_started_at_ms();
+            let completion_result =
+                with_yao_ceremony_timeout(run_activation_deriver_a(role, transport)).await;
+            emit_role_span_v1(
+                trace_id,
+                "deriver_a.yao_protocol",
+                "deriver_a",
+                "activation",
+                protocol_started_at_ms,
+                if completion_result.is_ok() {
+                    "success"
+                } else {
+                    "failure"
+                },
+            );
+            let completion = completion_result?;
             seal_ed25519_yao_activation_deriver_a_execution_v1(
                 &mut CloudflareHpkeGetrandomRngV1,
                 binding,
@@ -752,16 +841,30 @@ async fn execute_deriver_a_role(
         Ed25519YaoInputKindV1::Export => {
             let role_request = open_ed25519_yao_export_deriver_a_input_v1(&input, &private_key)?;
             let (root, socket) = futures::try_join!(
-                load_deriver_a_yao_root(env, runtime, &role_request.binding.lifecycle),
-                connect_deriver_b(env, websocket_binding),
+                load_deriver_a_yao_root(env, runtime, &role_request.binding.lifecycle, trace_id),
+                connect_deriver_b(env, websocket_binding, trace_id),
             )?;
             let transport = CloudflareEd25519YaoWebSocketTransportV1::deriver_a(&socket, session)
                 .map_err(map_websocket_error)?;
             let recipient = role_request.recipients;
             let (binding, role) =
                 build_product_export_deriver_a_v1(root, role_request).map_err(map_adapter)?;
-            let completion =
-                with_yao_ceremony_timeout(run_export_deriver_a(role, transport)).await?;
+            let protocol_started_at_ms = role_span_started_at_ms();
+            let completion_result =
+                with_yao_ceremony_timeout(run_export_deriver_a(role, transport)).await;
+            emit_role_span_v1(
+                trace_id,
+                "deriver_a.yao_protocol",
+                "deriver_a",
+                "export",
+                protocol_started_at_ms,
+                if completion_result.is_ok() {
+                    "success"
+                } else {
+                    "failure"
+                },
+            );
+            let completion = completion_result?;
             seal_ed25519_yao_export_deriver_a_execution_v1(
                 &mut CloudflareHpkeGetrandomRngV1,
                 binding,
@@ -776,10 +879,21 @@ async fn execute_deriver_a_role(
 async fn connect_deriver_b(
     env: &Env,
     binding: CloudflareEd25519YaoWebSocketBindingV1,
+    trace_id: RoleTraceContextV1,
 ) -> RouterAbProtocolResult<worker::WebSocket> {
-    crate::connect_cloudflare_ed25519_yao_deriver_b_v1(env, binding)
+    let started_at_ms = role_span_started_at_ms();
+    let result = crate::connect_cloudflare_ed25519_yao_deriver_b_v1(env, binding, trace_id)
         .await
-        .map_err(map_websocket_error)
+        .map_err(map_websocket_error);
+    emit_role_span_v1(
+        trace_id,
+        "deriver_a.websocket_connect",
+        "deriver_a",
+        "websocket",
+        started_at_ms,
+        if result.is_ok() { "success" } else { "failure" },
+    );
+    result
 }
 
 pub async fn handle_cloudflare_ed25519_yao_deriver_b_stage_v1(
@@ -787,6 +901,7 @@ pub async fn handle_cloudflare_ed25519_yao_deriver_b_stage_v1(
     env: &Env,
     expected_kind: Ed25519YaoInputKindV1,
 ) -> RouterAbProtocolResult<Response> {
+    let trace_id = parse_cloudflare_trace_id_from_request_v1(&request)?;
     let input = parse_request::<Ed25519YaoEncryptedInputV1>(&mut request).await?;
     validate_deriver_input(&input, Ed25519YaoDeriverRoleV1::DeriverB, expected_kind)?;
     let response = execute_deriver_b_session_command(
@@ -794,6 +909,7 @@ pub async fn handle_cloudflare_ed25519_yao_deriver_b_stage_v1(
         DeriverBYaoSessionCommandV1::Stage {
             input: Box::new(input),
         },
+        trace_id,
     )
     .await?;
     json_response(&response)
@@ -804,6 +920,7 @@ pub async fn handle_cloudflare_ed25519_yao_deriver_b_result_v1(
     env: &Env,
     expected_kind: Ed25519YaoInputKindV1,
 ) -> RouterAbProtocolResult<Response> {
+    let trace_id = parse_cloudflare_trace_id_from_request_v1(&request)?;
     let request = parse_request::<CloudflareEd25519YaoResultRequestV1>(&mut request).await?;
     request.validate()?;
     if request.input_kind() != expected_kind {
@@ -812,16 +929,40 @@ pub async fn handle_cloudflare_ed25519_yao_deriver_b_result_v1(
         ));
     }
     let session_id = request.session_id();
+    let wait_started_at_ms = role_span_started_at_ms();
     for attempt in 0..YAO_RESULT_WAIT_ATTEMPTS {
-        let response = execute_deriver_b_session_command(
+        let response = match execute_deriver_b_session_command(
             env,
             DeriverBYaoSessionCommandV1::ReadResult {
                 session: session_id,
             },
+            trace_id,
         )
-        .await?;
+        .await
+        {
+            Ok(response) => response,
+            Err(error) => {
+                emit_role_span_v1(
+                    trace_id,
+                    "deriver_b.result_wait",
+                    "deriver_b",
+                    "result",
+                    wait_started_at_ms,
+                    "failure",
+                );
+                return Err(error);
+            }
+        };
         match response {
             DeriverBYaoSessionResponseV1::RoleExecution { execution } => {
+                emit_role_span_v1(
+                    trace_id,
+                    "deriver_b.result_wait",
+                    "deriver_b",
+                    "result",
+                    wait_started_at_ms,
+                    "success",
+                );
                 return json_response(&execution);
             }
             DeriverBYaoSessionResponseV1::Pending { .. }
@@ -830,26 +971,66 @@ pub async fn handle_cloudflare_ed25519_yao_deriver_b_result_v1(
                 Delay::from(YAO_RESULT_WAIT_INTERVAL).await;
             }
             DeriverBYaoSessionResponseV1::Pending { .. } => {
+                emit_role_span_v1(
+                    trace_id,
+                    "deriver_b.result_wait",
+                    "deriver_b",
+                    "result",
+                    wait_started_at_ms,
+                    "failure",
+                );
                 return Err(invalid_lifecycle(
                     "Deriver B role execution did not complete before result timeout",
                 ));
             }
             DeriverBYaoSessionResponseV1::Failed { .. } => {
+                emit_role_span_v1(
+                    trace_id,
+                    "deriver_b.result_wait",
+                    "deriver_b",
+                    "result",
+                    wait_started_at_ms,
+                    "failure",
+                );
                 return Err(invalid_lifecycle("Deriver B role execution failed"));
             }
             DeriverBYaoSessionResponseV1::Expired { .. } => {
+                emit_role_span_v1(
+                    trace_id,
+                    "deriver_b.result_wait",
+                    "deriver_b",
+                    "result",
+                    wait_started_at_ms,
+                    "failure",
+                );
                 return Err(invalid_lifecycle("Deriver B role execution expired"));
             }
             DeriverBYaoSessionResponseV1::Staged { .. }
             | DeriverBYaoSessionResponseV1::StagedInput { .. }
             | DeriverBYaoSessionResponseV1::Running { .. }
             | DeriverBYaoSessionResponseV1::Completed { .. } => {
+                emit_role_span_v1(
+                    trace_id,
+                    "deriver_b.result_wait",
+                    "deriver_b",
+                    "result",
+                    wait_started_at_ms,
+                    "failure",
+                );
                 return Err(invalid_lifecycle(
                     "Deriver B result lookup returned the wrong response",
                 ));
             }
         }
     }
+    emit_role_span_v1(
+        trace_id,
+        "deriver_b.result_wait",
+        "deriver_b",
+        "result",
+        wait_started_at_ms,
+        "failure",
+    );
     Err(invalid_lifecycle(
         "Deriver B role execution did not complete before result timeout",
     ))
@@ -880,6 +1061,7 @@ pub async fn handle_cloudflare_ed25519_yao_deriver_b_websocket_v1(
     runtime: CloudflareDeriverBWorkerRuntimeV1,
     context: Context,
 ) -> RouterAbProtocolResult<Response> {
+    let trace_id = parse_cloudflare_trace_id_from_request_v1(&request)?;
     let protocol = request
         .headers()
         .get("Sec-WebSocket-Protocol")
@@ -892,6 +1074,7 @@ pub async fn handle_cloudflare_ed25519_yao_deriver_b_websocket_v1(
         DeriverBYaoSessionCommandV1::ReadStaged {
             session: binding.session,
         },
+        trace_id,
     )
     .await?;
     let DeriverBYaoSessionResponseV1::StagedInput { input } = staged else {
@@ -918,6 +1101,7 @@ pub async fn handle_cloudflare_ed25519_yao_deriver_b_websocket_v1(
         DeriverBYaoSessionCommandV1::Begin {
             session: binding.session,
         },
+        trace_id,
     )
     .await?;
     if running
@@ -933,16 +1117,27 @@ pub async fn handle_cloudflare_ed25519_yao_deriver_b_websocket_v1(
     let server_for_error = server.clone();
     let session = binding.session;
     context.wait_until(async move {
-        let result = execute_deriver_b_role(&env, &runtime, *input, server).await;
-        if let Err(error) = result {
+        let role_started_at_ms = role_span_started_at_ms();
+        let result = execute_deriver_b_role(&env, &runtime, *input, server, trace_id).await;
+        emit_role_span_v1(
+            trace_id,
+            "deriver_b.role_execution",
+            "deriver_b",
+            "yao",
+            role_started_at_ms,
+            if result.is_ok() { "success" } else { "failure" },
+        );
+        if result.is_err() {
             worker::console_error!(
-                "Deriver B Ed25519 Yao role execution failed for session {}: {}",
-                encode_hex(session),
-                error
+                "Deriver B Ed25519 Yao role execution failed for trace {}",
+                trace_id
+                    .map(CloudflareTraceIdV1::as_hex)
+                    .unwrap_or_else(|| "unavailable".to_owned())
             );
             let _ignored = execute_deriver_b_session_command(
                 &env,
                 DeriverBYaoSessionCommandV1::Fail { session },
+                trace_id,
             )
             .await;
             let _ignored = server_for_error.close(Some(1011), Some("yao-lifecycle-failed"));
@@ -956,6 +1151,7 @@ async fn execute_deriver_b_role(
     runtime: &CloudflareDeriverBWorkerRuntimeV1,
     input: Ed25519YaoEncryptedInputV1,
     socket: worker::WebSocket,
+    trace_id: RoleTraceContextV1,
 ) -> RouterAbProtocolResult<()> {
     let private_key =
         load_deriver_input_private_key(env, &runtime.envelope_decrypt_key().current.binding_name)?;
@@ -967,12 +1163,27 @@ async fn execute_deriver_b_role(
             let role_request =
                 open_ed25519_yao_activation_deriver_b_input_v1(&input, &private_key)?;
             let root =
-                load_deriver_b_yao_root(env, runtime, &role_request.binding.lifecycle).await?;
+                load_deriver_b_yao_root(env, runtime, &role_request.binding.lifecycle, trace_id)
+                    .await?;
             let recipients = role_request.recipients;
             let (binding, role) =
                 build_product_activation_deriver_b_v1(root, role_request).map_err(map_adapter)?;
-            let completion =
-                with_yao_ceremony_timeout(run_activation_deriver_b(role, transport)).await?;
+            let protocol_started_at_ms = role_span_started_at_ms();
+            let completion_result =
+                with_yao_ceremony_timeout(run_activation_deriver_b(role, transport)).await;
+            emit_role_span_v1(
+                trace_id,
+                "deriver_b.yao_protocol",
+                "deriver_b",
+                "activation",
+                protocol_started_at_ms,
+                if completion_result.is_ok() {
+                    "success"
+                } else {
+                    "failure"
+                },
+            );
+            let completion = completion_result?;
             seal_ed25519_yao_activation_deriver_b_execution_v1(
                 &mut CloudflareHpkeGetrandomRngV1,
                 binding,
@@ -983,12 +1194,27 @@ async fn execute_deriver_b_role(
         Ed25519YaoInputKindV1::Export => {
             let role_request = open_ed25519_yao_export_deriver_b_input_v1(&input, &private_key)?;
             let root =
-                load_deriver_b_yao_root(env, runtime, &role_request.binding.lifecycle).await?;
+                load_deriver_b_yao_root(env, runtime, &role_request.binding.lifecycle, trace_id)
+                    .await?;
             let recipient = role_request.recipients;
             let (binding, role) =
                 build_product_export_deriver_b_v1(root, role_request).map_err(map_adapter)?;
-            let completion =
-                with_yao_ceremony_timeout(run_export_deriver_b(role, transport)).await?;
+            let protocol_started_at_ms = role_span_started_at_ms();
+            let completion_result =
+                with_yao_ceremony_timeout(run_export_deriver_b(role, transport)).await;
+            emit_role_span_v1(
+                trace_id,
+                "deriver_b.yao_protocol",
+                "deriver_b",
+                "export",
+                protocol_started_at_ms,
+                if completion_result.is_ok() {
+                    "success"
+                } else {
+                    "failure"
+                },
+            );
+            let completion = completion_result?;
             seal_ed25519_yao_export_deriver_b_execution_v1(
                 &mut CloudflareHpkeGetrandomRngV1,
                 binding,
@@ -1002,6 +1228,7 @@ async fn execute_deriver_b_role(
         DeriverBYaoSessionCommandV1::Complete {
             execution: Box::new(execution),
         },
+        trace_id,
     )
     .await?;
     Ok(())
@@ -1010,8 +1237,10 @@ async fn execute_deriver_b_role(
 async fn execute_deriver_b_session_command(
     env: &Env,
     command: DeriverBYaoSessionCommandV1,
+    trace_id: RoleTraceContextV1,
 ) -> RouterAbProtocolResult<DeriverBYaoSessionResponseV1> {
     command.validate()?;
+    let operation = command.operation();
     let namespace = env
         .durable_object(DERIVER_B_YAO_SESSION_DO_BINDING)
         .map_err(|_| {
@@ -1027,24 +1256,60 @@ async fn execute_deriver_b_session_command(
         .with_body(Some(worker::wasm_bindgen::JsValue::from_str(&body)));
     let request = Request::new_with_init(DERIVER_B_YAO_SESSION_DO_URL, &init)
         .map_err(|_| invalid_lifecycle("Deriver B Yao session request construction failed"))?;
-    let mut response = stub
+    if let Some(trace_id) = trace_id {
+        set_cloudflare_trace_id_header_v1(request.headers(), trace_id)?;
+    }
+    let started_at_ms = role_span_started_at_ms();
+    let response_result = stub
         .fetch_with_request(request)
         .await
-        .map_err(|_| invalid_lifecycle("Deriver B Yao session Durable Object request failed"))?;
+        .map_err(|_| invalid_lifecycle("Deriver B Yao session Durable Object request failed"));
+    let mut response = match response_result {
+        Ok(response) => response,
+        Err(error) => {
+            emit_role_span_v1(
+                trace_id,
+                "deriver_b.session_do",
+                "deriver_b",
+                operation,
+                started_at_ms,
+                "failure",
+            );
+            return Err(error);
+        }
+    };
     if !(200..=299).contains(&response.status_code()) {
+        emit_role_span_v1(
+            trace_id,
+            "deriver_b.session_do",
+            "deriver_b",
+            operation,
+            started_at_ms,
+            "failure",
+        );
         return Err(invalid_lifecycle(
             "Deriver B Yao session Durable Object rejected the command",
         ));
     }
-    response
+    let result = response
         .json::<DeriverBYaoSessionResponseV1>()
         .await
-        .map_err(|_| invalid_lifecycle("Deriver B Yao session response is malformed"))
+        .map_err(|_| invalid_lifecycle("Deriver B Yao session response is malformed"));
+    emit_role_span_v1(
+        trace_id,
+        "deriver_b.session_do",
+        "deriver_b",
+        operation,
+        started_at_ms,
+        if result.is_ok() { "success" } else { "failure" },
+    );
+    result
 }
 
 async fn execute_deriver_a_session(
     env: &Env,
     input: Ed25519YaoEncryptedInputV1,
+    trace_id: RoleTraceContextV1,
 ) -> RouterAbProtocolResult<Ed25519YaoRoleExecutionV1> {
     let session = input.session();
     let command = DeriverAYaoSessionCommandV1::Execute { input };
@@ -1064,12 +1329,38 @@ async fn execute_deriver_a_session(
         .with_body(Some(worker::wasm_bindgen::JsValue::from_str(&body)));
     let request = Request::new_with_init(DERIVER_A_YAO_SESSION_DO_URL, &init)
         .map_err(|_| invalid_lifecycle("Deriver A Yao session request construction failed"))?;
-    let mut response = stub
+    if let Some(trace_id) = trace_id {
+        set_cloudflare_trace_id_header_v1(request.headers(), trace_id)?;
+    }
+    let started_at_ms = role_span_started_at_ms();
+    let response_result = stub
         .fetch_with_request(request)
         .await
-        .map_err(|_| invalid_lifecycle("Deriver A Yao session Durable Object request failed"))?;
+        .map_err(|_| invalid_lifecycle("Deriver A Yao session Durable Object request failed"));
+    let mut response = match response_result {
+        Ok(response) => response,
+        Err(error) => {
+            emit_role_span_v1(
+                trace_id,
+                "deriver_a.session_do",
+                "deriver_a",
+                "durable_object",
+                started_at_ms,
+                "failure",
+            );
+            return Err(error);
+        }
+    };
     let status = response.status_code();
     if !(200..=299).contains(&status) {
+        emit_role_span_v1(
+            trace_id,
+            "deriver_a.session_do",
+            "deriver_a",
+            "durable_object",
+            started_at_ms,
+            "failure",
+        );
         let message = response
             .text()
             .await
@@ -1078,10 +1369,19 @@ async fn execute_deriver_a_session(
             "Deriver A Yao session Durable Object rejected the command with HTTP {status}: {message}"
         )));
     }
-    let execution = response
+    let result = response
         .json::<Ed25519YaoRoleExecutionV1>()
         .await
-        .map_err(|_| invalid_lifecycle("Deriver A Yao session response is malformed"))?;
+        .map_err(|_| invalid_lifecycle("Deriver A Yao session response is malformed"));
+    emit_role_span_v1(
+        trace_id,
+        "deriver_a.session_do",
+        "deriver_a",
+        "durable_object",
+        started_at_ms,
+        if result.is_ok() { "success" } else { "failure" },
+    );
+    let execution = result?;
     execution.validate()?;
     if execution.deriver() != Ed25519YaoDeriverRoleV1::DeriverA || execution.session() != session {
         return Err(invalid_lifecycle(
@@ -1095,40 +1395,62 @@ async fn load_deriver_a_yao_root(
     env: &Env,
     runtime: &CloudflareDeriverAWorkerRuntimeV1,
     lifecycle: &LifecycleScopeV1,
+    trace_id: RoleTraceContextV1,
 ) -> RouterAbProtocolResult<[u8; 32]> {
     lifecycle.validate()?;
     let metadata_call = runtime.root_share_startup_metadata_call(
         lifecycle.signer_set_id.clone(),
         lifecycle.root_share_epoch.clone(),
     )?;
-    load_yao_root(
+    let started_at_ms = role_span_started_at_ms();
+    let result = load_yao_root(
         env,
         CloudflareWorkerRoleV1::DeriverA,
         runtime.root_share_wire_secret(),
         metadata_call,
         b"deriver-a",
     )
-    .await
+    .await;
+    emit_role_span_v1(
+        trace_id,
+        "deriver_a.root_share",
+        "deriver_a",
+        "durable_object",
+        started_at_ms,
+        if result.is_ok() { "success" } else { "failure" },
+    );
+    result
 }
 
 async fn load_deriver_b_yao_root(
     env: &Env,
     runtime: &CloudflareDeriverBWorkerRuntimeV1,
     lifecycle: &LifecycleScopeV1,
+    trace_id: RoleTraceContextV1,
 ) -> RouterAbProtocolResult<[u8; 32]> {
     lifecycle.validate()?;
     let metadata_call = runtime.root_share_startup_metadata_call(
         lifecycle.signer_set_id.clone(),
         lifecycle.root_share_epoch.clone(),
     )?;
-    load_yao_root(
+    let started_at_ms = role_span_started_at_ms();
+    let result = load_yao_root(
         env,
         CloudflareWorkerRoleV1::DeriverB,
         runtime.root_share_wire_secret(),
         metadata_call,
         b"deriver-b",
     )
-    .await
+    .await;
+    emit_role_span_v1(
+        trace_id,
+        "deriver_b.root_share",
+        "deriver_b",
+        "durable_object",
+        started_at_ms,
+        if result.is_ok() { "success" } else { "failure" },
+    );
+    result
 }
 
 async fn load_yao_root(
@@ -1183,6 +1505,11 @@ where
         .json::<T>()
         .await
         .map_err(|_| invalid_lifecycle("Ed25519 Yao request JSON is malformed"))
+}
+
+fn parse_role_trace_context(request: &Request) -> worker::Result<RoleTraceContextV1> {
+    parse_cloudflare_trace_id_from_request_v1(request)
+        .map_err(|error| worker::Error::RustError(error.message().to_owned()))
 }
 
 fn json_response<T>(value: &T) -> RouterAbProtocolResult<Response>
