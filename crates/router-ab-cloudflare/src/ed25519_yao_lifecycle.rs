@@ -688,7 +688,7 @@ impl worker::DurableObject for RouterAbDeriverAYaoSessionDurableObject {
                 return self.handle_prepare_pair(command).await;
             }
             DeriverAYaoSessionCommandV1::ExecutePair { .. } => {
-                return self.handle_execute_pair(command).await;
+                return self.handle_execute_pair(command, trace_id).await;
             }
             DeriverAYaoSessionCommandV1::Execute { .. } => {}
         }
@@ -969,6 +969,7 @@ impl RouterAbDeriverAYaoSessionDurableObject {
     async fn handle_execute_pair(
         &self,
         command: DeriverAYaoSessionCommandV1,
+        trace_id: RoleTraceContextV1,
     ) -> worker::Result<Response> {
         let DeriverAYaoSessionCommandV1::ExecutePair {
             pair_binding,
@@ -1084,6 +1085,15 @@ impl RouterAbDeriverAYaoSessionDurableObject {
                         },
                     )
                     .await?;
+                let _ = execute_deriver_b_session_command(
+                    &self.env,
+                    DeriverBYaoSessionCommandV1::FailPair {
+                        session: request.pair_binding.session(),
+                        pair_digest,
+                    },
+                    trace_id,
+                )
+                .await;
                 return Response::error(error.message(), 500);
             }
         };
