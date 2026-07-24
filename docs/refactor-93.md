@@ -680,6 +680,9 @@ the plan does not claim cryptographic D1 admission attestation.
 - [x] Burn uncertainty after either role enters `Running`.
 - [x] Preserve exact completed-output redelivery.
 - [x] Update registration, recovery, and export role adapters.
+- [x] Verify strict local Wrangler serving uses the production Router and role
+      Worker shims, including all pair-bound role paths. The executable script
+      test covers generated shim targets and the strict Deriver dispatch table.
 - [ ] Mirror the production lifecycle in `router-ab-dev` through the serving
       path with a pair-bound state model, role-specific receipt signing,
       readiness/peer claims, uncertainty burning, and exact completed-output
