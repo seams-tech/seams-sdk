@@ -390,6 +390,13 @@ is durable. The Router requires one unexpired receipt from each role with the
 same session and pair digest. The final names must reuse existing role,
 signature, and session types.
 
+Deriver B also returns a signed `Ed25519YaoRoleStartAcceptanceV1` only after
+its exact pair record durably transitions from `Prepared` to `Running`. The
+acceptance binds B's role, session, pair digest, execution identity, root
+metadata digest, and bounded lifetime. Deriver A verifies that acceptance and
+atomically transitions its own record to `Running`; neither role starts Yao
+before this two-phase start completes.
+
 ### Role-Local State
 
 The A and B session records gain an exact prepared state. The full pair
@@ -551,9 +558,9 @@ The current critical path adds B Stage, A Start, and B Result sequentially.
 7. B refuses a missing or mismatched prepared record.
 8. B verifies A's signed readiness receipt and atomically transitions its exact
    record from `Prepared` to `Running` before returning the WebSocket upgrade.
-9. A claims its exact `Prepared` record before initiating the single peer
-   connection. The peer channel is authenticated and carries the signed A
-   readiness receipt; there is no separate signed acceptance artifact.
+9. B returns a signed start acceptance over the upgraded peer channel. A
+   verifies the acceptance and atomically transitions its exact record from
+   `Prepared` to `Running` before sending Yao messages.
 10. Any uncertainty after either transition burns the execution identity.
 11. A and B execute the existing Yao protocol unchanged.
 
@@ -683,9 +690,9 @@ the plan does not claim cryptographic D1 admission attestation.
 - [x] Require both exact readiness receipts before A execution.
 - [x] Bind and revalidate role-local root metadata digests across preparation
       and execution.
-- [x] Transition both role records through the pair-bound readiness and peer
-      receipt handshake. The v1 boundary has no separate signed acceptance
-      artifact.
+- [x] Transition both role records through the pair-bound readiness and signed
+      two-phase start handshake. B's acceptance is verified before A enters
+      `Running`.
 - [x] Burn uncertainty after either role enters `Running`.
 - [x] Preserve exact completed-output redelivery.
 - [x] Update registration, recovery, and export role adapters.
@@ -813,10 +820,10 @@ an explicit scope decision:
   either key alone.
 - The unused contract-only coordinator was removed. `refactor93_router.rs` is
   the sole production Router orchestration owner.
-- The current v1 handshake is signed readiness plus pair-bound, internally
-  authenticated peer transport. It does not include a separate signed
-  acceptance or signed terminal-result artifact; the plan uses that narrower
-  wording consistently.
+- The current v1 handshake uses signed readiness plus a signed, pair-bound
+  two-phase start acceptance over internally authenticated peer transport.
+  Signed terminal-result artifacts and acceptance redelivery remain separate
+  follow-up protocol work.
 - The authority field is channel-authenticated and digest/time bound in v1,
   rather than a signed D1 admission attestation. A signed admission artifact
   remains a future trust-boundary requirement.
