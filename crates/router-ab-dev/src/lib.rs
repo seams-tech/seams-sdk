@@ -286,9 +286,33 @@ pub const LOCAL_DERIVER_B_ED25519_YAO_PEER_PATH: &str = "/router-ab/deriver-b/ed
 /// Deriver A local Ed25519 Yao activation start path.
 pub const LOCAL_DERIVER_A_ED25519_YAO_ACTIVATION_START_PATH: &str =
     "/router-ab/deriver-a/ed25519-yao/activation/start";
+/// Deriver A pair-bound preparation path mirrored from the strict Cloudflare worker.
+pub const LOCAL_DERIVER_A_ED25519_YAO_PREPARE_PAIR_PATH: &str =
+    "/router-ab/deriver-a/ed25519-yao/prepare-pair";
+/// Deriver A pair-bound claim path mirrored from the strict Cloudflare worker.
+pub const LOCAL_DERIVER_A_ED25519_YAO_EXECUTE_PAIR_PATH: &str =
+    "/router-ab/deriver-a/ed25519-yao/execute-pair";
+/// Deriver A pair-bound status path mirrored from the strict Cloudflare worker.
+pub const LOCAL_DERIVER_A_ED25519_YAO_READ_PAIR_STATUS_PATH: &str =
+    "/router-ab/deriver-a/ed25519-yao/read-pair-status";
+/// Deriver A pair-bound burn path mirrored from the strict Cloudflare worker.
+pub const LOCAL_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH: &str =
+    "/router-ab/deriver-a/ed25519-yao/burn-pair";
 /// Deriver B local Ed25519 Yao activation staging path.
 pub const LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_STAGE_PATH: &str =
     "/router-ab/deriver-b/ed25519-yao/activation/stage";
+/// Deriver B pair-bound preparation path mirrored from the strict Cloudflare worker.
+pub const LOCAL_DERIVER_B_ED25519_YAO_PREPARE_PAIR_PATH: &str =
+    "/router-ab/deriver-b/ed25519-yao/prepare-pair";
+/// Deriver B pair-bound completed-result path mirrored from the strict Cloudflare worker.
+pub const LOCAL_DERIVER_B_ED25519_YAO_READ_COMPLETED_PAIR_PATH: &str =
+    "/router-ab/deriver-b/ed25519-yao/read-completed-pair";
+/// Deriver B pair-bound status path mirrored from the strict Cloudflare worker.
+pub const LOCAL_DERIVER_B_ED25519_YAO_READ_PAIR_STATUS_PATH: &str =
+    "/router-ab/deriver-b/ed25519-yao/read-pair-status";
+/// Deriver B pair-bound burn path mirrored from the strict Cloudflare worker.
+pub const LOCAL_DERIVER_B_ED25519_YAO_BURN_PAIR_PATH: &str =
+    "/router-ab/deriver-b/ed25519-yao/burn-pair";
 /// Deriver A local Ed25519 Yao refresh start path.
 pub const LOCAL_DERIVER_A_ED25519_YAO_REFRESH_START_PATH: &str =
     "/router-ab/deriver-a/ed25519-yao/refresh/start";
