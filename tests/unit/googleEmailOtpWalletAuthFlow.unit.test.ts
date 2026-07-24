@@ -306,6 +306,34 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     ]);
   });
 
+  test('generic session exchange 404 stays a login failure instead of starting registration', async () => {
+    const { deps, calls } = makeDeps({
+      exchangeGoogleEmailOtpSession: async (args) => {
+        calls.push({ type: 'exchangeGoogleEmailOtpSession', args });
+        throw Object.assign(new Error('Route not found'), {
+          code: 'not_found' as const,
+        });
+      },
+    });
+
+    const started = await beginGoogleEmailOtpWalletAuth(deps, {
+      idToken: 'google-id-token',
+      mode: 'login',
+      relayUrl: 'https://relay.example',
+      sessionKind: 'jwt',
+      ecdsaTargets: { kind: 'none' },
+    });
+
+    expect(started).toEqual({
+      ok: false,
+      error: {
+        code: 'google_exchange_failed',
+        message: 'Route not found',
+      },
+    });
+    expect(calls.map((call) => call.args)).toMatchObject([{ accountMode: 'login' }]);
+  });
+
   test('stale Google identity requires registration at the public SDK boundary', async () => {
     const { deps } = makeDeps({
       exchangeGoogleEmailOtpSession: async () => {
@@ -328,6 +356,88 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
       error: {
         code: 'google_account_registration_required',
         message: 'No wallet is linked to this Google account yet.',
+      },
+    });
+  });
+
+  test('missing enrollment discovered while issuing the login challenge requires registration', async () => {
+    const { deps } = makeDeps({
+      exchangeGoogleEmailOtpSession: async () =>
+        ({
+          session: {
+            userId: 'google-subject-1',
+            walletId: 'missing-wallet.testnet',
+            email: 'alice@example.com',
+            googleEmailOtpResolution: {
+              mode: 'existing_wallet',
+              expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            },
+          },
+          jwt: APP_SESSION_JWT,
+        }) as Awaited<
+          ReturnType<GoogleEmailOtpWalletAuthDeps['exchangeGoogleEmailOtpSession']>
+        >,
+      requestEmailOtpChallenge: async () => {
+        throw Object.assign(new Error('Email OTP enrollment not found'), {
+          code: 'not_found' as const,
+        });
+      },
+    });
+
+    const started = await beginGoogleEmailOtpWalletAuth(deps, {
+      idToken: 'google-id-token',
+      mode: 'login',
+      relayUrl: 'https://relay.example',
+      sessionKind: 'jwt',
+      ecdsaTargets: { kind: 'none' },
+    });
+
+    expect(started).toEqual({
+      ok: false,
+      error: {
+        code: 'google_account_registration_required',
+        message: "Account doesn't exist. Create your account to continue.",
+      },
+    });
+  });
+
+  test('generic challenge 404 stays a login failure instead of requiring registration', async () => {
+    const { deps } = makeDeps({
+      exchangeGoogleEmailOtpSession: async () =>
+        ({
+          session: {
+            userId: 'google-subject-1',
+            walletId: 'existing-wallet.testnet',
+            email: 'alice@example.com',
+            googleEmailOtpResolution: {
+              mode: 'existing_wallet',
+              expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            },
+          },
+          jwt: APP_SESSION_JWT,
+        }) as Awaited<
+          ReturnType<GoogleEmailOtpWalletAuthDeps['exchangeGoogleEmailOtpSession']>
+        >,
+      requestEmailOtpChallenge: async () => {
+        throw Object.assign(new Error('Route not found'), {
+          code: 'not_found' as const,
+        });
+      },
+    });
+
+    const started = await beginGoogleEmailOtpWalletAuth(deps, {
+      idToken: 'google-id-token',
+      mode: 'login',
+      relayUrl: 'https://relay.example',
+      sessionKind: 'jwt',
+      ecdsaTargets: { kind: 'none' },
+    });
+
+    expect(started).toEqual({
+      ok: false,
+      error: {
+        code: 'email_otp_challenge_failed',
+        message: 'Route not found',
       },
     });
   });
