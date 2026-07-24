@@ -3,6 +3,7 @@ import type {
   RouterAbEd25519YaoActivationClientPackageV1,
   RouterAbEd25519YaoActivationEncryptedInputV1,
   RouterAbEd25519YaoActivationExecuteRequestV1,
+  RouterAbEd25519YaoRouterExecuteRequestV1,
 } from './routerAbEd25519Yao';
 
 const bytes32 = new Array<number>(32).fill(1);
@@ -97,6 +98,48 @@ const validRecoveryExecuteRequest: RouterAbEd25519YaoActivationExecuteRequestV1<
   deriver_b_input: recoveryInputB,
 };
 
+const validRouterExecuteRequest: RouterAbEd25519YaoRouterExecuteRequestV1 = {
+  operation: 'registration',
+  authority: {
+    authority_digest: { bytes: bytes32 },
+    issued_at_ms: 1,
+    expires_at_ms: 2,
+  },
+  binding: registrationBinding,
+  pair_binding: {
+    ceremony: {
+      binding: registrationBinding,
+      circuit: 'activation_v1',
+      protocol: 'v1',
+    },
+    deriver_a_input_digest: { bytes: bytes32 },
+    deriver_b_input_digest: { bytes: bytes32 },
+    recipient_set_digest: { bytes: bytes32 },
+    authorization_digest: { bytes: bytes32 },
+    pair_digest: { bytes: bytes32 },
+  },
+  deriver_a_input: registrationInputA,
+  deriver_b_input: registrationInputB,
+};
+
+const missingRouterPair = {
+  operation: 'registration' as const,
+  authority: validRouterExecuteRequest.authority,
+  binding: registrationBinding,
+  deriver_a_input: registrationInputA,
+  deriver_b_input: registrationInputB,
+};
+// @ts-expect-error Router execution requires a canonical pair binding.
+const invalidRouterExecuteRequest: RouterAbEd25519YaoRouterExecuteRequestV1 = missingRouterPair;
+
+const wrongRouterOperationBinding = {
+  ...validRouterExecuteRequest,
+  operation: 'recovery' as const,
+};
+// @ts-expect-error Operation branches cannot be relabeled independently of their binding.
+const invalidRouterOperationBinding: RouterAbEd25519YaoRouterExecuteRequestV1 =
+  wrongRouterOperationBinding;
+
 const deriverAClientPackage: RouterAbEd25519YaoActivationClientPackageV1<'deriver_a'> = {
   kind: 'activation_client',
   deriver: 'deriver_a',
@@ -166,6 +209,9 @@ const invalidSpreadRecoveryBinding: RouterAbEd25519YaoActivationBindingV1<'recov
 
 void validRegistrationExecuteRequest;
 void validRecoveryExecuteRequest;
+void validRouterExecuteRequest;
+void invalidRouterExecuteRequest;
+void invalidRouterOperationBinding;
 void deriverAClientPackage;
 void wrongRoleInput;
 void wrongOperationInput;

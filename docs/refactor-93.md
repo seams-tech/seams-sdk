@@ -2,7 +2,7 @@
 
 Date created: July 24, 2026
 
-Status: planned
+Status: in progress
 
 ## Objective
 
@@ -603,9 +603,11 @@ digests and therefore requires a new ceremony identity.
 - [x] Add the operation-specific Router execute request and result unions.
 - [x] Add canonical digest encoding and Rust vectors.
 - [ ] Generate or update TypeScript bindings through the existing generator.
-- [ ] Add type fixtures rejecting missing identities, cross-operation fields,
+      No router-ab-core TypeScript generator exists in this repository; the
+      shared wire types are aligned manually until one is added.
+- [x] Add type fixtures rejecting missing identities, cross-operation fields,
       optional pair digests, and broad object-spread construction.
-- [ ] Add exhaustive switches for operation-specific request and terminal
+- [x] Add exhaustive switches for operation-specific request and terminal
       payload unions.
 
 ### Phase 2: Pair-Bound Role Lifecycle
@@ -630,35 +632,42 @@ digests and therefore requires a new ceremony identity.
 
 ### Phase 3: MPC Router Execution Coordinator
 
-- [ ] Add the private Router execute route and boundary parser.
-- [ ] Reuse internal service authentication and verify the admitted execution
+- [x] Add the private Router execute route and boundary parser.
+- [x] Reuse internal service authentication and verify the admitted execution
       authority.
-- [ ] Compute the canonical pair digest in Rust.
-- [ ] Start A and B preparation concurrently.
-- [ ] Await and validate both signed readiness receipts.
-- [ ] Dispatch A execution exactly once after both receipts.
-- [ ] Await and validate both role results.
-- [ ] Deliver the exact package pair to SigningWorker atomically.
+- [x] Compute and validate the canonical pair digest in Rust.
+- [x] Start A and B preparation concurrently.
+- [x] Await and validate both signed readiness receipts.
+- [x] Dispatch A execution exactly once after both receipts.
+- [x] Await and validate both role results.
+- [x] Deliver the exact package pair to SigningWorker atomically.
 - [ ] Implement exact retry reconciliation without cryptographic
       reevaluation.
 - [ ] Accept byte-exact internal replay and reject conflicting ciphertext
       digests under the same ceremony identity.
-- [ ] Add structured span timings for every boundary.
+- [x] Add structured span timings for preparation, receipt validation, A
+      execution, B completed-result read, SigningWorker delivery, and the
+      connected Router execution.
 
 ### Phase 4: Gateway Cutover
 
-- [ ] Replace `RouterAbEd25519YaoHttpRegistrationBackend` with an MPC
+- [x] Replace `RouterAbEd25519YaoHttpRegistrationBackend` with an MPC
       Router-backed implementation.
-- [ ] Configure it with the existing `MPC_ROUTER` Service Binding and canonical
+- [x] Configure it with the existing `MPC_ROUTER` Service Binding and canonical
       internal Router origin.
-- [ ] Remove Deriver A, Deriver B, and SigningWorker URLs from the Yao backend
+- [x] Remove Deriver A, Deriver B, and SigningWorker URLs from the Yao backend
       configuration.
-- [ ] Make registration, recovery, and export each perform one Router fetch.
-- [ ] Keep product admission and D1 commit outside the MPC Router.
-- [ ] Make direct Yao role and SigningWorker addressing unrepresentable in the
+- [x] Make registration, recovery, and export each perform one Router fetch.
+- [x] Keep product admission and D1 commit outside the MPC Router.
+- [x] Make direct Yao role and SigningWorker addressing unrepresentable in the
       backend configuration type.
 - [ ] Retain the byte-exact admitted request body for an internal uncertain
       Router retry.
+
+The Cloudflare Gateway cutover is implemented. The existing `router-ab-dev`
+process harness still exposes role workers without a Router coordinator HTTP
+endpoint, so the local end-to-end product test remains an explicit follow-up
+before Phase 6 acceptance.
 
 ### Phase 5: Hard Cutover And Deletion
 

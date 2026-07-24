@@ -145,36 +145,15 @@ class ScriptedLocalYaoFetch {
   private response(path: string, binding: RouterAbEd25519YaoActivationBindingV1): Response {
     const session = binding.session_id;
     switch (path) {
-      case '/router-ab/deriver-b/ed25519-yao/activation/stage':
-        return this.json({ status: 'staged' });
-      case '/router-ab/deriver-a/ed25519-yao/activation/start':
-        return this.json(activationRoleExecution(binding, 'deriver_a', 21, 23, 31, 33));
-      case '/router-ab/deriver-b/ed25519-yao/activation/result':
-        return this.json(activationRoleExecution(binding, 'deriver_b', 22, 15, 32, 34));
-      case '/router-ab/signing-worker/ed25519-yao/activation/packages':
-        if (binding.operation === 'recovery') {
-          return this.json({
-            status: 'staged',
-            session,
-            transcript: bytes(11),
-            registered_public_key: bytes(12),
-            joined_client_commitment: bytes(13),
-            joined_signing_worker_commitment: bytes(15),
-            signing_worker_verifying_share: bytes(15),
-            state_epoch: 2,
-          });
-        }
+      case '/router-ab/router/ed25519-yao/execute':
         return this.json({
-          status: 'active',
-          session,
-          transcript: bytes(11),
-          registered_public_key: bytes(12),
-          joined_client_commitment: bytes(13),
-          joined_signing_worker_commitment: bytes(15),
-          signing_worker_verifying_share: bytes(15),
-          state_epoch: 1,
+          status: 'succeeded',
+          result: {
+            operation: binding.operation,
+            result: activationResultForBinding(binding),
+          },
         });
-      case '/router-ab/signing-worker/ed25519-yao/recovery/promote':
+      case '/router-ab/router/ed25519-yao/recovery/promote':
         return this.json({
           status: 'active',
           session,
@@ -214,9 +193,7 @@ function x25519(seed: number): string {
 
 function localHttpBackendEnv(): Readonly<Record<string, unknown>> {
   return {
-    DERIVER_A_URL: 'http://a.local',
-    DERIVER_B_URL: 'http://b.local',
-    SIGNING_WORKER_URL: 'http://worker.local',
+    MPC_ROUTER_URL: 'http://router.local',
     SIGNING_WORKER_ID: 'signing-worker-1',
     ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: 'local-service-auth',
     DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY: x25519(1),
@@ -313,52 +290,6 @@ function encryptedInputForBinding(
   };
 }
 
-function activationRoleExecution(
-  binding: RouterAbEd25519YaoActivationBindingV1,
-  deriver: 'deriver_a' | 'deriver_b',
-  clientCommitmentSeed: number,
-  signingWorkerCommitmentSeed: number,
-  clientCiphertextSeed: number,
-  signingWorkerCiphertextSeed: number,
-): Record<string, unknown> {
-  return {
-    family: 'activation',
-    binding,
-    deriver,
-    transcript: bytes(11),
-    client_commitment: bytes(clientCommitmentSeed),
-    signing_worker_commitment: bytes(signingWorkerCommitmentSeed),
-    client_package: encryptedPackage(
-      binding.session_id,
-      'activation_client',
-      deriver,
-      clientCiphertextSeed,
-    ),
-    signing_worker_package: encryptedPackage(
-      binding.session_id,
-      'activation_signing_worker',
-      deriver,
-      signingWorkerCiphertextSeed,
-    ),
-  };
-}
-
-function encryptedPackage(
-  session: readonly number[],
-  kind: 'activation_client' | 'activation_signing_worker',
-  deriver: 'deriver_a' | 'deriver_b',
-  ciphertextSeed: number,
-): Record<string, unknown> {
-  return {
-    kind,
-    deriver,
-    session,
-    transcript: bytes(11),
-    encapsulated_key: bytes(ciphertextSeed + 1),
-    ciphertext: bytes(ciphertextSeed, 32),
-  };
-}
-
 function registrationExecuteRequest(): Record<string, unknown> {
   return {
     binding: registrationBinding(),
@@ -375,6 +306,31 @@ function encryptedClientPackage(deriver: 'deriver_a' | 'deriver_b'): Record<stri
     transcript: bytes(11),
     encapsulated_key: bytes(16),
     ciphertext: bytes(17, 32),
+  };
+}
+
+function activationResultForBinding(
+  binding: RouterAbEd25519YaoActivationBindingV1,
+): Record<string, unknown> {
+  const session = binding.session_id;
+  return {
+    binding,
+    deriver_a_client_package: {
+      ...encryptedClientPackage('deriver_a'),
+      session,
+    },
+    deriver_b_client_package: {
+      ...encryptedClientPackage('deriver_b'),
+      session,
+    },
+    public_receipt: {
+      transcript: bytes(11),
+      registered_public_key: bytes(12),
+      joined_client_commitment: bytes(13),
+      joined_signing_worker_commitment: bytes(15),
+      signing_worker_verifying_share: bytes(15),
+      state_epoch: binding.operation === 'recovery' ? 2 : 1,
+    },
   };
 }
 
@@ -448,9 +404,7 @@ function jsonRequest(path: string, body: unknown): Request {
 function createMalformedLocalRegistrationBackend(): void {
   createRouterAbEd25519YaoHttpRegistrationBackendFromEnv({
     env: {
-      DERIVER_A_URL: 'http://a.local',
-      DERIVER_B_URL: 'http://b.local',
-      SIGNING_WORKER_URL: 'http://worker.local',
+      MPC_ROUTER_URL: 'http://router.local',
       SIGNING_WORKER_ID: 'signing-worker-1',
       ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: 'local-service-auth',
       DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY: x25519(1),
@@ -779,13 +733,11 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     expect(backend.admitCalls).toBe(0);
   });
 
-  test('drives the exact local Deriver and SigningWorker registration sequence', async () => {
+  test('drives one local MPC Router request for registration', async () => {
     const scriptedFetch = new ScriptedLocalYaoFetch();
     const backend = createRouterAbEd25519YaoHttpRegistrationBackendFromEnv({
       env: {
-        DERIVER_A_URL: 'http://a.local',
-        DERIVER_B_URL: 'http://b.local',
-        SIGNING_WORKER_URL: 'http://worker.local',
+        MPC_ROUTER_URL: 'http://router.local',
         SIGNING_WORKER_ID: 'signing-worker-1',
         ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: 'local-service-auth',
         DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY: x25519(1),
@@ -812,12 +764,7 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     const executed = await backend.execute(parsedExecution.value);
     if (!executed.ok) throw new Error(executed.message);
     expect(parseRouterAbEd25519YaoRegistrationResultV1(executed.body).ok).toBe(true);
-    expect(scriptedFetch.calls).toEqual([
-      'POST /router-ab/deriver-b/ed25519-yao/activation/stage',
-      'POST /router-ab/deriver-a/ed25519-yao/activation/start',
-      'POST /router-ab/deriver-b/ed25519-yao/activation/result',
-      'POST /router-ab/signing-worker/ed25519-yao/activation/packages',
-    ]);
+    expect(scriptedFetch.calls).toEqual(['POST /router-ab/router/ed25519-yao/execute']);
   });
 
   test('promotes a SigningWorker-owned staged recovery across request-scoped HTTP backends', async () => {
@@ -873,7 +820,7 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     });
     expect(
       scriptedFetch.calls.filter(
-        (call) => call === 'POST /router-ab/signing-worker/ed25519-yao/recovery/promote',
+        (call) => call === 'POST /router-ab/router/ed25519-yao/recovery/promote',
       ),
     ).toHaveLength(2);
 

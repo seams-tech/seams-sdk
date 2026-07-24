@@ -326,6 +326,101 @@ export type RouterAbEd25519YaoRecoveryActivationReceiptV1 = {
   retired_capability_binding: RouterAbEd25519YaoBytes32V1;
 };
 
+export type RouterAbEd25519YaoPublicDigestV1 = {
+  bytes: RouterAbEd25519YaoBytes32V1;
+};
+
+export type RouterAbEd25519YaoExecutionAuthorityV1 = {
+  authority_digest: RouterAbEd25519YaoPublicDigestV1;
+  issued_at_ms: number;
+  expires_at_ms: number;
+};
+
+export type RouterAbEd25519YaoCeremonyIdentityV1 = {
+  binding: RouterAbEd25519YaoCeremonyBindingV1;
+  circuit: 'activation_v1' | 'export_v1';
+  protocol: 'v1';
+};
+
+export type RouterAbEd25519YaoInputPairBindingV1 = {
+  ceremony: RouterAbEd25519YaoCeremonyIdentityV1;
+  deriver_a_input_digest: RouterAbEd25519YaoPublicDigestV1;
+  deriver_b_input_digest: RouterAbEd25519YaoPublicDigestV1;
+  recipient_set_digest: RouterAbEd25519YaoPublicDigestV1;
+  authorization_digest: RouterAbEd25519YaoPublicDigestV1;
+  pair_digest: RouterAbEd25519YaoPublicDigestV1;
+};
+
+type RouterAbEd25519YaoRouterExecuteCommonV1 = {
+  authority: RouterAbEd25519YaoExecutionAuthorityV1;
+  pair_binding: RouterAbEd25519YaoInputPairBindingV1;
+};
+
+export type RouterAbEd25519YaoRouterExecuteRequestV1 =
+  | (RouterAbEd25519YaoRouterExecuteCommonV1 & {
+      operation: 'registration';
+      binding: RouterAbEd25519YaoActivationBindingV1<'registration'>;
+      deriver_a_input: RouterAbEd25519YaoActivationEncryptedInputV1<'deriver_a', 'registration'>;
+      deriver_b_input: RouterAbEd25519YaoActivationEncryptedInputV1<'deriver_b', 'registration'>;
+    })
+  | (RouterAbEd25519YaoRouterExecuteCommonV1 & {
+      operation: 'recovery';
+      binding: RouterAbEd25519YaoActivationBindingV1<'recovery'>;
+      deriver_a_input: RouterAbEd25519YaoActivationEncryptedInputV1<'deriver_a', 'recovery'>;
+      deriver_b_input: RouterAbEd25519YaoActivationEncryptedInputV1<'deriver_b', 'recovery'>;
+    })
+  | (RouterAbEd25519YaoRouterExecuteCommonV1 & {
+      operation: 'export';
+      binding: RouterAbEd25519YaoExportBindingV1;
+      deriver_a_input: RouterAbEd25519YaoExportEncryptedInputV1<'deriver_a'>;
+      deriver_b_input: RouterAbEd25519YaoExportEncryptedInputV1<'deriver_b'>;
+    });
+
+export type RouterAbEd25519YaoRouterExecuteSuccessV1 =
+  | {
+      operation: 'registration';
+      result: RouterAbEd25519YaoActivationResultV1<'registration'>;
+    }
+  | {
+      operation: 'recovery';
+      result: RouterAbEd25519YaoActivationResultV1<'recovery'>;
+    }
+  | {
+      operation: 'export';
+      result: RouterAbEd25519YaoExportResultV1;
+    };
+
+export type RouterAbEd25519YaoRouterExecuteResultV1 =
+  | { status: 'succeeded'; result: RouterAbEd25519YaoRouterExecuteSuccessV1 }
+  | {
+      status: 'recoverable_failure';
+      code:
+        | 'service_unavailable'
+        | 'conflicting_pair'
+        | 'missing_preparation'
+        | 'ceremony_expired'
+        | 'signing_worker_uncertain'
+        | 'terminal_role_failure'
+        | 'authorization_rejected';
+      retry_after_ms: number;
+    }
+  | {
+      status: 'rejected';
+      code:
+        | 'service_unavailable'
+        | 'conflicting_pair'
+        | 'missing_preparation'
+        | 'ceremony_expired'
+        | 'signing_worker_uncertain'
+        | 'terminal_role_failure'
+        | 'authorization_rejected';
+    }
+  | {
+      status: 'burned';
+      execution_id: RouterAbEd25519YaoBytes32V1;
+      reason: 'caller_disconnected' | 'peer_uncertain' | 'protocol_failure';
+    };
+
 export type RouterAbEd25519YaoParseResult<T> =
   | { ok: true; value: T }
   | { ok: false; code: 'invalid_body'; message: string };
