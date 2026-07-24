@@ -188,14 +188,19 @@ pub use self::router_ab_ecdsa_derivation::{
 };
 pub use self::signer_input::build_mpc_prf_threshold_signer_batch_input_v1;
 pub use self::vectors::{
+    generated_ed25519_yao_pair_digest_vector_fixture_json_v1,
+    generated_ed25519_yao_pair_digest_vector_fixture_v1,
     generated_normal_signing_vector_fixture_json_v2, generated_normal_signing_vector_fixture_v2,
     generated_payload_vector_fixture_json_v1, generated_payload_vector_fixture_v1,
     generated_wire_vector_fixture_json_v1, generated_wire_vector_fixture_v1,
-    parse_normal_signing_vector_fixture_v2, parse_payload_vector_fixture_v1,
-    parse_wire_vector_fixture_v1, validate_normal_signing_vector_fixture_v2,
-    validate_payload_vector_fixture_v1, validate_wire_vector_fixture_v1, NormalSigningVectorCaseV2,
-    NormalSigningVectorFixtureV2, PayloadVectorCaseV1, PayloadVectorFixtureV1,
-    WireMessageVectorCaseV1, WireVectorFixtureV1, NORMAL_SIGNING_VECTOR_FIXTURE_VERSION_V2,
+    parse_ed25519_yao_pair_digest_vector_fixture_v1, parse_normal_signing_vector_fixture_v2,
+    parse_payload_vector_fixture_v1, parse_wire_vector_fixture_v1,
+    validate_ed25519_yao_pair_digest_vector_fixture_v1, validate_normal_signing_vector_fixture_v2,
+    validate_payload_vector_fixture_v1, validate_wire_vector_fixture_v1,
+    Ed25519YaoPairDigestVectorCaseV1, Ed25519YaoPairDigestVectorFixtureV1,
+    NormalSigningVectorCaseV2, NormalSigningVectorFixtureV2, PayloadVectorCaseV1,
+    PayloadVectorFixtureV1, WireMessageVectorCaseV1, WireVectorFixtureV1,
+    ED25519_YAO_PAIR_DIGEST_VECTOR_FIXTURE_VERSION_V1, NORMAL_SIGNING_VECTOR_FIXTURE_VERSION_V2,
     PAYLOAD_VECTOR_FIXTURE_VERSION_V1, WIRE_VECTOR_FIXTURE_VERSION_V1,
 };
 pub use self::wire::{

@@ -383,6 +383,21 @@ function pushString(value: string): Uint8Array {
   return concatBytes([u32(encoded.length), encoded]);
 }
 
+function requireDigest32(value: unknown, label: string): number[] {
+  if (!Array.isArray(value) || value.length !== 32) {
+    throw new Error(`${label} must contain exactly 32 bytes`);
+  }
+  for (const [index, byte] of value.entries()) {
+    if (!Number.isInteger(byte) || byte < 0 || byte > 255) {
+      throw new Error(`${label}[${index}] must be a byte`);
+    }
+  }
+  if (value.every((byte) => byte === 0)) {
+    throw new Error(`${label} must be nonzero`);
+  }
+  return value;
+}
+
 function operationTag(operation: RouterAbEd25519YaoOperationV1): number {
   switch (operation) {
     case 'registration':
@@ -394,6 +409,38 @@ function operationTag(operation: RouterAbEd25519YaoOperationV1): number {
     case 'export':
       return 4;
   }
+}
+
+export type RouterAbEd25519YaoPairDigestInputV1 = {
+  ceremony: RouterAbEd25519YaoCeremonyBindingV1;
+  deriverAInputDigest: readonly number[];
+  deriverBInputDigest: readonly number[];
+  recipientSetDigest: readonly number[];
+  authorizationDigest: readonly number[];
+};
+
+/** Derives the canonical pair digest shared with router-ab-core. */
+export async function deriveRouterAbEd25519YaoPairDigestV1(
+  input: RouterAbEd25519YaoPairDigestInputV1,
+): Promise<number[]> {
+  const deriverAInputDigest = requireDigest32(input.deriverAInputDigest, 'deriverAInputDigest');
+  const deriverBInputDigest = requireDigest32(input.deriverBInputDigest, 'deriverBInputDigest');
+  const recipientSetDigest = requireDigest32(input.recipientSetDigest, 'recipientSetDigest');
+  const authorizationDigest = requireDigest32(input.authorizationDigest, 'authorizationDigest');
+  const ceremony = input.ceremony;
+  if (!ceremony || typeof ceremony !== 'object') {
+    throw new Error('ceremony is required');
+  }
+  return await sha256Bytes(
+    concatBytes([
+      TEXT_ENCODER.encode('router-ab-ed25519-yao/input-pair/v1'),
+      ceremonyIdentityBytes(ceremony),
+      Uint8Array.from(deriverAInputDigest),
+      Uint8Array.from(deriverBInputDigest),
+      Uint8Array.from(recipientSetDigest),
+      Uint8Array.from(authorizationDigest),
+    ]),
+  );
 }
 
 function inputTag(input: RouterAbEd25519YaoEncryptedInputV1): number {
@@ -472,16 +519,13 @@ async function routerExecuteRequest(
   const deriverBInput = request.deriver_b_input;
   const deriverAInputDigest = await encryptedInputDigest(deriverAInput);
   const deriverBInputDigest = await encryptedInputDigest(deriverBInput);
-  const pairDigest = await sha256Bytes(
-    concatBytes([
-      TEXT_ENCODER.encode('router-ab-ed25519-yao/input-pair/v1'),
-      ceremonyIdentityBytes(ceremony),
-      Uint8Array.from(deriverAInputDigest),
-      Uint8Array.from(deriverBInputDigest),
-      Uint8Array.from(recipientSetDigest),
-      Uint8Array.from(authorizationDigest),
-    ]),
-  );
+  const pairDigest = await deriveRouterAbEd25519YaoPairDigestV1({
+    ceremony,
+    deriverAInputDigest,
+    deriverBInputDigest,
+    recipientSetDigest,
+    authorizationDigest,
+  });
   const issuedAt = Date.now();
   const authorityDigest = authorizationDigest;
   const pair_binding = {
