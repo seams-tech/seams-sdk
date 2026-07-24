@@ -596,6 +596,13 @@ digests and therefore requires a new ceremony identity.
       baseline. Keep the Touch-ID-to-wallet-ready target as a separate
       product-level budget.
 
+Phase 0 evidence remains open. The available deployment logs do not contain
+20 complete correlated production traces, and the current Wrangler access does
+not expose the Workers Observability telemetry needed to reconstruct them.
+Cold/warm cohorts, Durable Object instantiation/reuse, and the frozen p50/p95
+budget must be captured after a coherent Router, role-worker, and Gateway
+rollout.
+
 ### Phase 1: Canonical Pair And Router Contracts
 
 - [x] Add the canonical ceremony identity and input-pair binding to
