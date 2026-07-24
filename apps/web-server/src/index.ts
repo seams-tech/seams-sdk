@@ -59,6 +59,9 @@ import {
   type ConsoleWebhookService,
   type BillingProviderAdapters,
   type InviteConsoleTeamMemberRequest,
+  createStripeBillingProviderAdapter,
+  normalizeOptionalStripePublishableKey,
+  normalizeStripeSecretKey,
 } from '@seams-internal/console-server/router/express-adaptor';
 
 import dotenv from 'dotenv';
@@ -66,12 +69,6 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createJwtSession } from './jwtSession.js';
 import { resolveWebServerConsoleConfig, toOptionalSecret } from './consoleConfig.js';
-import {
-  createStripeBillingProviderAdapter,
-  normalizeOptionalStripePublishableKey,
-  normalizeStripeSecretKey,
-} from './stripeBillingProvider.js';
-
 const webServerDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const webServerDotenvPath = resolve(webServerDir, '.env');
 dotenv.config({ path: webServerDotenvPath });

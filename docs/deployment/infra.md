@@ -128,6 +128,7 @@ a caller-selected runtime flag.
 | `ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK`            | Gateway deploy           | Private ceremony JWT signing key for this environment.                                       |
 | `RELAYER_PRIVATE_KEY`                           | Gateway deploy           | Optional funded NEAR relayer key; its public key is derived during startup.                  |
 | `SPONSORED_EVM_EXECUTORS_JSON`                  | Gateway deploy           | Optional environment-specific sponsored EVM executor secrets.                                |
+| `STRIPE_API_SK`                                 | Gateway deploy           | Required Stripe secret or restricted key for hosted Checkout sessions.                       |
 
 ### Variables
 

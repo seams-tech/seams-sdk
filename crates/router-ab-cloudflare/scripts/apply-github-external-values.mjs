@@ -37,6 +37,7 @@ const WALLET_CORE_CLOUDFLARE_ENVIRONMENT_SUFFIXES = Object.freeze([
 ]);
 const GATEWAY_SECRET_INPUTS = Object.freeze([
   ['SPONSORED_EVM_EXECUTORS_JSON', 'SPONSORED_EVM_EXECUTORS_JSON'],
+  ['STRIPE_API_SK', 'STRIPE_API_SK'],
 ]);
 const NEAR_PUBLIC_CONFIG_BY_NETWORK = Object.freeze({
   testnet: Object.freeze({
@@ -158,6 +159,10 @@ function validateExternalValues(values, component) {
   }
   parseOptionalJsonObject(values, 'SPONSORED_EVM_EXECUTORS_JSON');
   parseOptionalJsonObject(values, 'SEAMS_OIDC_EXCHANGE_JSON');
+  const stripeSecretKey = readValue(values, 'STRIPE_API_SK');
+  if (stripeSecretKey) {
+    requireStripeSecretKey(stripeSecretKey);
+  }
 }
 
 function validatePair(values, leftName, rightName, label) {
@@ -166,6 +171,13 @@ function validatePair(values, leftName, rightName, label) {
   if (Boolean(left) !== Boolean(right)) {
     throw new Error(`${label} requires both ${leftName} and ${rightName}`);
   }
+}
+
+function requireStripeSecretKey(value) {
+  if (!/^(?:sk|rk)_/.test(value)) {
+    throw new Error('STRIPE_API_SK must be a Stripe secret key (sk_...) or restricted key (rk_...)');
+  }
+  return value;
 }
 
 function buildBasePlan(options, repository, values) {

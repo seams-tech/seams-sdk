@@ -320,11 +320,27 @@ function validateOptionalIntegrationInputs(targetName, suppliedValues) {
   if (sponsoredEvmExecutors) {
     parseSuppliedJsonObject('SPONSORED_EVM_EXECUTORS_JSON', sponsoredEvmExecutors);
   }
+  const stripeSecretKey = readSuppliedValue(
+    suppliedValues,
+    targetName,
+    gatewayEnvironment,
+    'STRIPE_API_SK',
+  );
+  if (stripeSecretKey) {
+    requireStripeSecretKey(stripeSecretKey);
+  }
 }
 
 function requirePositiveUnsignedInteger(value, name) {
   if (!/^[1-9][0-9]*$/.test(value)) {
     throw new Error(`${name} must be a positive unsigned integer`);
+  }
+  return value;
+}
+
+function requireStripeSecretKey(value) {
+  if (!/^(?:sk|rk)_/.test(value)) {
+    throw new Error('STRIPE_API_SK must be a Stripe secret key (sk_...) or restricted key (rk_...)');
   }
   return value;
 }
@@ -766,6 +782,7 @@ function buildGatewayEnvironment(input) {
         ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK: input.generatedSecrets.ceremonyPrivateJwk,
         RELAYER_PRIVATE_KEY: manual(`${input.target}-near-relayer-private-key`),
         SPONSORED_EVM_EXECUTORS_JSON: manual(`${input.target}-sponsored-evm-executors-json`),
+        STRIPE_API_SK: manual(`${input.target}-stripe-api-secret-key`),
         SIGNING_ROOT_KEK_VALUE: input.generatedSecrets.signingRootKek,
         SIGNING_SESSION_SEAL_KEY_VERSION: signingSession.keyVersion,
         SIGNING_SESSION_SHAMIR_P_B64U: signingSession.shamirPrimeB64u,

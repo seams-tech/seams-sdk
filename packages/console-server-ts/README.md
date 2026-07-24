@@ -25,6 +25,10 @@ minimal local Worker from `wrangler.d1-local.toml` with persistent state under
 `.wrangler/state/seams-d1`. It loads local Wrangler secrets from
 `../sdk-server-ts/.dev.vars` and then `.dev.vars` when those files exist. Use
 `dev.vars` in this package as the checked-in template for either secret file.
+Set `STRIPE_API_SK` in `packages/console-server-ts/.dev.vars` to make Billing
+create real Stripe Checkout Sessions. Without that server-side key, the local
+billing provider remains an in-process test double and must not be used to
+exercise the hosted Stripe Checkout page.
 Use `GET /readyz` on the local Worker to verify the D1 table set and the
 Durable Object normal-signing admission path:
 

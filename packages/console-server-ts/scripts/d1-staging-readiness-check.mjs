@@ -49,12 +49,13 @@ const expectedMainByProfile = Object.freeze({
   gateway: 'src/router/cloudflare/d1RouterApiStagingWorker.ts',
 });
 const requiredSecretVarsByProfile = Object.freeze({
-  console: Object.freeze(['CONSOLE_SESSION_HMAC_SECRET']),
+  console: Object.freeze(['CONSOLE_SESSION_HMAC_SECRET', 'STRIPE_API_SK']),
   gateway: Object.freeze([
     'RELAY_SESSION_HMAC_SECRET',
     'ACCOUNT_ID_DERIVATION_SECRET',
     'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
     'SPONSORED_EVM_EXECUTORS_JSON',
+    'STRIPE_API_SK',
   ]),
 });
 const requiredVarsByProfile = Object.freeze({
@@ -94,6 +95,7 @@ const forbiddenPlaintextVars = Object.freeze([
   'SEAMS_LOCAL_RELAYER_ACCOUNT',
   'SEAMS_LOCAL_RELAYER_PUBLIC_KEY',
   'SPONSORED_EVM_EXECUTORS_JSON',
+  'STRIPE_API_SK',
   'ACCOUNT_ID_DERIVATION_SECRET',
 ]);
 const forbiddenConsoleProfileTokens = Object.freeze([

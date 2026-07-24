@@ -4,6 +4,7 @@ import {
   resolveSponsoredEvmCallConfigFromWorkerEnv,
   resolveSponsoredEvmWorkerExecutionAdapter,
 } from '@seams-internal/console-server/sponsorship/evmWorkerExecutionAdapter';
+import { requireStripeBillingProviderAdaptersFromEnv } from '@seams-internal/console-server/billing/stripeProvider';
 import { createCloudflareRouter } from '@seams/sdk-server/internal/router/cloudflare/createCloudflareRouter';
 import {
   createCloudflareD1ConsoleServiceBundle,
@@ -126,6 +127,10 @@ interface CloudflareD1RouterApiStagingEnv
   readonly EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_MAX?: string;
   readonly EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS?: string;
   readonly SPONSORED_EVM_EXECUTORS_JSON?: string;
+  readonly STRIPE_API_SK?: string;
+  readonly STRIPE_CHECKOUT_PRICE_ID?: string;
+  readonly STRIPE_API_BASE_URL?: string;
+  readonly STRIPE_API_TIMEOUT_MS?: string;
 }
 
 type RouterApiReadyRow = {
@@ -282,6 +287,7 @@ async function createRouterApiHandler(
     },
     adapters: {
       ensureSchema: false,
+      billingProviders: requireStripeBillingProviderAdaptersFromEnv(env),
       sponsoredEvmCallConfig,
       resolveSponsoredEvmExecutionAdapter: resolveSponsoredEvmWorkerExecutionAdapter,
     },

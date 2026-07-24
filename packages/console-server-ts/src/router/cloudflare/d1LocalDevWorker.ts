@@ -55,6 +55,7 @@ import {
   resolveSponsoredEvmCallConfigFromWorkerEnv,
   resolveSponsoredEvmWorkerExecutionAdapter,
 } from '@seams-internal/console-server/sponsorship/evmWorkerExecutionAdapter';
+import { createStripeBillingProviderAdaptersFromEnv } from '@seams-internal/console-server/billing/stripeProvider';
 import {
   parseRouterAbPublicKeysetV2,
   ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
@@ -162,6 +163,10 @@ interface LocalD1DevEnv extends RouterAbServiceBindingEnv {
   readonly SEAMS_LOCAL_SIGNING_ROOT_KEK_ID?: string;
   readonly SEAMS_LOCAL_SIGNING_ROOT_KEK_B64U?: string;
   readonly SPONSORED_EVM_EXECUTORS_JSON?: string;
+  readonly STRIPE_API_SK?: string;
+  readonly STRIPE_CHECKOUT_PRICE_ID?: string;
+  readonly STRIPE_API_BASE_URL?: string;
+  readonly STRIPE_API_TIMEOUT_MS?: string;
 }
 
 type TableCountRow = {
@@ -884,6 +889,7 @@ async function createLocalConsoleHandler(env: LocalD1DevEnv): Promise<FetchHandl
     adapters: {
       ensureSchema: false,
       sponsoredEvmCallConfig,
+      billingProviders: createStripeBillingProviderAdaptersFromEnv(env),
     },
   });
   return createCloudflareConsoleRouter({
@@ -921,6 +927,7 @@ async function createLocalRouterApiHandler(env: LocalD1DevEnv): Promise<FetchHan
       ensureSchema: false,
       sponsoredEvmCallConfig,
       resolveSponsoredEvmExecutionAdapter: resolveSponsoredEvmWorkerExecutionAdapter,
+      billingProviders: createStripeBillingProviderAdaptersFromEnv(env),
     },
   });
   const sessionCookieName = localRouterApiSessionCookieName(env);
