@@ -796,6 +796,16 @@ an explicit scope decision:
   preparation paths re-read after root metadata loading, and normal legacy and
   pair-bound requests reject the other lifecycle's existing record. The
   cross-key exclusion remains a drain gate until the final boundary cleanup.
+  The two record keys cannot coordinate requests served by different Worker
+  versions: an in-flight legacy binary can still perform its plain
+  `SESSION_RECORD_STORAGE_KEY` write after a newer pair binary has checked that
+  key. Before deleting the legacy routes, deploy a version whose first legacy
+  admission writes and pair preparation write are both transactions that
+  re-read `SESSION_RECORD_STORAGE_KEY` and `PAIR_SESSION_RECORD_STORAGE_KEY`
+  together (or use an equivalent persistent lifecycle-claim marker), then wait
+  the maximum in-flight lifetime. Any Durable Object that contains both keys
+  must fail closed and be investigated; it is not safe to infer ownership from
+  either key alone.
 - The unused contract-only coordinator was removed. `refactor93_router.rs` is
   the sole production Router orchestration owner.
 - The current v1 handshake is signed readiness plus pair-bound, internally
