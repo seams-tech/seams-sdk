@@ -841,6 +841,11 @@ an explicit scope decision:
   acknowledgment envelope. The envelope revalidates the session, pair digest,
   role, and execution before transcript validation; a pending B state remains a
   typed failure rather than a coordination retry loop.
+- Deriver B revalidates live root metadata when its role execution begins,
+  after the signed `BeginPair` transition. A root change in that interval
+  burns the pair rather than reopening preparation or retrying under the same
+  identity; the post-`Running` check is intentional one-use fail-closed
+  behavior.
 - The Gateway preserves `ceremony_expired` as a terminal 409 failure instead of
   treating it as an exact retry. Callers must allocate a new ceremony identity
   after the nonterminal lifetime has elapsed.
