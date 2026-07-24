@@ -33,6 +33,9 @@ pub use ed25519_yao_signing_worker::{
 };
 mod router;
 pub use router::*;
+
+mod refactor93_coordinator;
+pub use refactor93_coordinator::*;
 mod signing_worker;
 pub use signing_worker::*;
 mod env;
