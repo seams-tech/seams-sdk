@@ -1591,14 +1591,34 @@ impl RouterAbDeriverAYaoSessionDurableObject {
                     }
                     Err(error) => return Err(error),
                 };
-                if current.is_none() {
-                    transaction
-                        .put(PAIR_SESSION_RECORD_STORAGE_KEY, record_for_transaction)
-                        .await?;
+                let legacy = match transaction
+                    .get::<YaoSessionRecordV1>(SESSION_RECORD_STORAGE_KEY)
+                    .await
+                {
+                    Ok(record) => Some(record),
+                    Err(worker::Error::JsError(message))
+                        if message == "No such value in storage." =>
+                    {
+                        None
+                    }
+                    Err(error) => return Err(error),
+                };
+                if current.is_some() || legacy.is_some() {
+                    return Ok(());
                 }
+                transaction
+                    .put(PAIR_SESSION_RECORD_STORAGE_KEY, record_for_transaction)
+                    .await?;
                 Ok(())
             })
             .await?;
+        if storage
+            .get::<YaoSessionRecordV1>(SESSION_RECORD_STORAGE_KEY)
+            .await?
+            .is_some()
+        {
+            return Response::error("Deriver A pair changed while preparing", 409);
+        }
         if !matches!(
             storage
                 .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
@@ -2380,14 +2400,34 @@ impl RouterAbDeriverBYaoSessionDurableObject {
                     }
                     Err(error) => return Err(error),
                 };
-                if current.is_none() {
-                    transaction
-                        .put(PAIR_SESSION_RECORD_STORAGE_KEY, record_for_transaction)
-                        .await?;
+                let legacy = match transaction
+                    .get::<YaoSessionRecordV1>(SESSION_RECORD_STORAGE_KEY)
+                    .await
+                {
+                    Ok(record) => Some(record),
+                    Err(worker::Error::JsError(message))
+                        if message == "No such value in storage." =>
+                    {
+                        None
+                    }
+                    Err(error) => return Err(error),
+                };
+                if current.is_some() || legacy.is_some() {
+                    return Ok(());
                 }
+                transaction
+                    .put(PAIR_SESSION_RECORD_STORAGE_KEY, record_for_transaction)
+                    .await?;
                 Ok(())
             })
             .await?;
+        if storage
+            .get::<YaoSessionRecordV1>(SESSION_RECORD_STORAGE_KEY)
+            .await?
+            .is_some()
+        {
+            return Response::error("Deriver B pair changed while preparing", 409);
+        }
         if !matches!(
             storage
                 .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
