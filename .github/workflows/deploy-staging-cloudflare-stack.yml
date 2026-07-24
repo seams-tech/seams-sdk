@@ -102,8 +102,8 @@ jobs:
             echo "::error title=Validation branch mismatch::Run $validation_run_id belongs to $validation_branch, expected $source_branch"
             exit 1
           }
-          if [[ "$target" == 'production' && "$EVENT_BRANCH" != 'main' ]]; then
-            echo "::error title=Untrusted production workflow authority::Production release workflows must be triggered from main"
+          if [[ "$EVENT_BRANCH" != "$source_branch" ]]; then
+            echo "::error title=Invalid workflow ref::The backend workflow must run from $source_branch"
             exit 1
           fi
           [[ "$validation_conclusion" == 'success' ]] || {
@@ -112,7 +112,7 @@ jobs:
           }
           git fetch origin "refs/heads/$source_branch:refs/remotes/origin/$source_branch"
           branch_ref="refs/remotes/origin/$source_branch"
-          git diff --name-only "$source_sha..$branch_ref" > "$RUNNER_TEMP/intervening-changed-files.txt"
+          git log --format= --name-only --no-renames "$source_sha..$branch_ref" > "$RUNNER_TEMP/intervening-changed-files.txt"
           intervening_backend_components="$(node scripts/deployment-components.mjs select --files-file "$RUNNER_TEMP/intervening-changed-files.txt" --lane backend)"
           if [[ "$intervening_backend_components" != '[]' ]]; then
             echo "::error title=Stale backend release skipped::A newer accepted change selects backend components: $intervening_backend_components"
@@ -125,7 +125,8 @@ jobs:
             echo "validation_run_id=$validation_run_id"
             echo 'change_base_sha='
           } >> "$GITHUB_OUTPUT"
-    if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push'
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.conclusion == 'success'
     env: {}
   auto_build_router:
     name: Build / ${{ needs.auto_prepare.outputs.target }} / cloudflare-mpc-router-ab
@@ -133,7 +134,7 @@ jobs:
       - auto_prepare
       - auto_select_components
     if: |-
-      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && (contains(fromJSON(needs.auto_select_components.outputs.components), 'router') ||
+      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success' && (contains(fromJSON(needs.auto_select_components.outputs.components), 'router') ||
         contains(fromJSON(needs.auto_select_components.outputs.components), 'deriver-a') ||
         contains(fromJSON(needs.auto_select_components.outputs.components), 'deriver-b') ||
         contains(fromJSON(needs.auto_select_components.outputs.components), 'signing-worker'))
@@ -264,7 +265,7 @@ jobs:
           test "$(<.release-change-set/source-sha.txt)" = "$SOURCE_SHA"
           test -s .release-change-set/changed-files.txt
           cp .release-change-set/changed-files.txt "$RUNNER_TEMP/changed-files.txt"
-          components="$(node scripts/deployment-components.mjs select --files-file "$RUNNER_TEMP/changed-files.txt")"
+          components="$(node scripts/deployment-components.mjs select --files-file "$RUNNER_TEMP/changed-files.txt" --lane backend)"
           echo "components=$components" >> "$GITHUB_OUTPUT"
           {
             echo '## Selected deployment components'
@@ -272,7 +273,8 @@ jobs:
             echo "- Source SHA: \`$SOURCE_SHA\`"
             echo "- Components: \`$components\`"
           } >> "$GITHUB_STEP_SUMMARY"
-    if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push'
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.conclusion == 'success'
     env: {}
   auto_build_gateway:
     name: Build / ${{ needs.auto_prepare.outputs.target }} / cloudflare-api-gateway
@@ -280,11 +282,12 @@ jobs:
       - auto_prepare
       - auto_select_components
     if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.conclusion == 'success' &&
       (contains(fromJSON(needs.auto_select_components.outputs.components), 'gateway'))
     runs-on: ubuntu-latest
     timeout-minutes: 25
     environment:
-      name: ${{ format('{0}-gateway', needs.auto_prepare.outputs.target) }}
+      name: staging-gateway
     env:
       GATEWAY_DEPLOYMENT_CONFIG_JSON: ${{ vars.GATEWAY_DEPLOYMENT_CONFIG_JSON }}
       RELAYER_PRIVATE_KEY: ${{ secrets.RELAYER_PRIVATE_KEY }}
@@ -360,7 +363,7 @@ jobs:
   auto_create_release_set:
     name: Create release-set manifest
     if: |-
-      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && (always() &&
+      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success' && (always() &&
         needs.auto_prepare.result == 'success' &&
         needs.auto_select_components.result == 'success' &&
         needs.auto_select_components.outputs.components != '[]' &&
@@ -382,7 +385,7 @@ jobs:
       - auto_build_gateway
     runs-on: ubuntu-latest
     environment:
-      name: ${{ format('{0}-gateway', needs.auto_prepare.outputs.target) }}
+      name: staging-gateway
     outputs:
       release_set_id: ${{ steps.manifest.outputs.release_set_id }}
     steps:
@@ -407,6 +410,7 @@ jobs:
           VALIDATION_RUN_ID: ${{ needs.auto_prepare.outputs.validation_run_id }}
           SELECTED_COMPONENTS: ${{ needs.auto_select_components.outputs.components }}
           GATEWAY_API_CONTRACT_VERSION: ${{ vars.GATEWAY_API_CONTRACT_VERSION }}
+          SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON: ${{ vars.SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON }}
         run: |
           set -euo pipefail
           node --input-type=module <<'NODE'
@@ -472,6 +476,7 @@ jobs:
           VALIDATION_RUN_ID: ${{ needs.auto_prepare.outputs.validation_run_id }}
           SELECTED_COMPONENTS: ${{ needs.auto_select_components.outputs.components }}
           GATEWAY_API_CONTRACT_VERSION: ${{ vars.GATEWAY_API_CONTRACT_VERSION }}
+          SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON: ${{ vars.SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON }}
         run: |
           set -euo pipefail
           test -n "${GATEWAY_API_CONTRACT_VERSION:-}" || {
@@ -486,6 +491,7 @@ jobs:
             --accepted-validation-run-id "$VALIDATION_RUN_ID" \
             --artifact-run-id "$GITHUB_RUN_ID" \
             --gateway-api-contract-version "$GATEWAY_API_CONTRACT_VERSION" \
+            --supported-frontend-api-contract-range-json "$SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON" \
             --components-file .release-artifacts-components.json \
             --migrations-file .release-artifacts-migrations.json \
             --build-identity-file .release-build-identity.json \
@@ -516,7 +522,7 @@ jobs:
     outputs:
       selected_components: ${{ steps.release_selection.outputs.selected_components }}
     environment:
-      name: ${{ format('{0}-mpc-router', 'staging') }}
+      name: staging-mpc-router
     env:
       DEPLOY_TARGET: staging
       DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
@@ -547,6 +553,10 @@ jobs:
             echo "::error title=Invalid release mapping::$DEPLOY_TARGET requires $expected_branch"
             exit 1
           fi
+          if [[ "$EVENT_BRANCH" != "$DEPLOY_SOURCE_BRANCH" ]]; then
+            echo "::error title=Invalid workflow ref::The deployment workflow must run from $DEPLOY_SOURCE_BRANCH"
+            exit 1
+          fi
           git fetch origin "refs/heads/$DEPLOY_SOURCE_BRANCH:refs/remotes/origin/$DEPLOY_SOURCE_BRANCH"
           branch_ref="refs/remotes/origin/$DEPLOY_SOURCE_BRANCH"
           if ! git merge-base --is-ancestor "$DEPLOY_SHA" "$branch_ref"; then
@@ -554,7 +564,7 @@ jobs:
             exit 1
           fi
           if [[ "$ENFORCE_CURRENT_BRANCH" == 'true' ]]; then
-            git diff --name-only "$DEPLOY_SHA..$branch_ref" > "$RUNNER_TEMP/intervening-changed-files.txt"
+            git log --format= --name-only --no-renames "$DEPLOY_SHA..$branch_ref" > "$RUNNER_TEMP/intervening-changed-files.txt"
             intervening_backend_components="$(node scripts/deployment-components.mjs select --files-file "$RUNNER_TEMP/intervening-changed-files.txt" --lane backend)"
             if [[ "$intervening_backend_components" != '[]' ]]; then
               echo "::error title=Stale backend release skipped::A newer accepted change selects backend components: $intervening_backend_components"
@@ -624,6 +634,22 @@ jobs:
               --manifest "$artifact_manifest" \
               --identity-json "$identity"
           done
+      - name: Verify accepted push validation identity
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          validation_run_id="$(node -e "const value=require('./$RELEASE_MANIFEST'); process.stdout.write(value.acceptedValidationRunId)")"
+          validation_name="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$validation_run_id" --jq '.name')"
+          validation_event="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$validation_run_id" --jq '.event')"
+          validation_branch="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$validation_run_id" --jq '.head_branch')"
+          validation_sha="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$validation_run_id" --jq '.head_sha')"
+          validation_conclusion="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$validation_run_id" --jq '.conclusion')"
+          [[ "$validation_name" == 'Validate / repository' ]] || { echo '::error title=Invalid validation workflow::The release set was not produced from repository validation'; exit 1; }
+          [[ "$validation_event" == 'push' ]] || { echo '::error title=Invalid validation event::Deployment requires push validation'; exit 1; }
+          [[ "$validation_branch" == "$DEPLOY_SOURCE_BRANCH" ]] || { echo '::error title=Validation branch mismatch::The accepted validation branch does not match the deployment branch'; exit 1; }
+          [[ "$validation_sha" == "$DEPLOY_SHA" ]] || { echo '::error title=Validation SHA mismatch::The accepted validation SHA does not match the deployment SHA'; exit 1; }
+          [[ "$validation_conclusion" == 'success' ]] || { echo '::error title=Validation run did not succeed::The accepted validation run did not pass'; exit 1; }
       - name: Resolve selected components
         id: release_selection
         run: |
@@ -638,13 +664,14 @@ jobs:
             done
           fi
           echo "selected_components=$selected_components" >> "$GITHUB_OUTPUT"
-    if: github.event_name == 'workflow_run' && (needs.auto_create_release_set.result == 'success')
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.conclusion == 'success' && (needs.auto_create_release_set.result == 'success')
     needs:
       - auto_create_release_set
   auto_deploy_signing_worker:
     name: Deploy / staging / cloudflare-mpc-router-ab / signing-worker
     if: |-
-      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && (needs.auto_preflight_release.result == 'success' &&
+      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success' && (needs.auto_preflight_release.result == 'success' &&
         contains(fromJSON(needs.auto_preflight_release.outputs.selected_components), 'signing-worker'))
     needs:
       - auto_preflight_release
@@ -652,7 +679,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
-      name: ${{ format('{0}-signing-worker', 'staging') }}
+      name: staging-signing-worker
     env:
       DEPLOY_TARGET: staging
       DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
@@ -758,7 +785,7 @@ jobs:
   auto_deploy_deriver_a:
     name: Deploy / staging / cloudflare-mpc-router-ab / deriver-a
     if: |-
-      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && (needs.auto_preflight_release.result == 'success' &&
+      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success' && (needs.auto_preflight_release.result == 'success' &&
         contains(fromJSON(needs.auto_preflight_release.outputs.selected_components), 'deriver-a'))
     needs:
       - auto_preflight_release
@@ -766,7 +793,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
-      name: ${{ format('{0}-deriver-a', 'staging') }}
+      name: staging-deriver-a
     env:
       DEPLOY_TARGET: staging
       DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
@@ -886,7 +913,7 @@ jobs:
   auto_deploy_deriver_b:
     name: Deploy / staging / cloudflare-mpc-router-ab / deriver-b
     if: |-
-      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && (needs.auto_preflight_release.result == 'success' &&
+      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success' && (needs.auto_preflight_release.result == 'success' &&
         contains(fromJSON(needs.auto_preflight_release.outputs.selected_components), 'deriver-b'))
     needs:
       - auto_preflight_release
@@ -894,7 +921,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
-      name: ${{ format('{0}-deriver-b', 'staging') }}
+      name: staging-deriver-b
     env:
       DEPLOY_TARGET: staging
       DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
@@ -1014,7 +1041,7 @@ jobs:
   auto_deploy_mpc_router:
     name: Deploy / staging / cloudflare-mpc-router-ab / router
     if: |-
-      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && (always() &&
+      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success' && (always() &&
       needs.auto_preflight_release.result == 'success' &&
       contains(fromJSON(needs.auto_preflight_release.outputs.selected_components), 'router') &&
       needs.auto_deploy_signing_worker.result == 'success' &&
@@ -1029,7 +1056,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
-      name: ${{ format('{0}-mpc-router', 'staging') }}
+      name: staging-mpc-router
     env:
       DEPLOY_TARGET: staging
       DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
@@ -1161,7 +1188,7 @@ jobs:
   auto_final_smoke:
     name: Verify / staging / cloudflare-stack
     if: |-
-      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && (always() &&
+      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success' && (always() &&
         needs.auto_preflight_release.result == 'success' &&
         (contains(fromJSON(needs.auto_preflight_release.outputs.selected_components), 'router') ||
         contains(fromJSON(needs.auto_preflight_release.outputs.selected_components), 'deriver-a') ||
@@ -1182,7 +1209,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment:
-      name: ${{ 'staging' }}
+      name: staging-observability
     steps:
       - name: Checkout selected revision
         uses: actions/checkout@v6
@@ -1236,7 +1263,14 @@ jobs:
             echo '## Final release smoke'
             echo
             echo "- Release set: \`${{ needs.auto_create_release_set.outputs.release_set_id }}\`"
+            echo "- Environment: \`${{ 'staging' }}\`"
+            echo "- Source SHA: \`${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}\`"
+            echo "- Validation run: \`$(node -e "const value=require('./.release-artifacts/release-set/manifest.json'); process.stdout.write(value.acceptedValidationRunId)")\`"
+            echo "- Artifact run: \`$(node -e "const value=require('./.release-artifacts/release-set/manifest.json'); process.stdout.write(value.artifactRunId)")\`"
             echo "- Selected components: \`$SELECTED_COMPONENTS\`"
+            echo '- Deployed components: selected backend components'
+            echo '- Skipped components: frontend components (owned by the frontend lane)'
+            echo '- Smoke result: passed'
             echo '- Selected component readiness, representative routes, and release identity passed.'
           } >> "$GITHUB_STEP_SUMMARY"
     env:
@@ -1256,7 +1290,7 @@ jobs:
     outputs:
       gateway_origin: ${{ steps.gateway_origin.outputs.gateway_origin }}
     environment:
-      name: ${{ 'staging' == 'production' && 'production-gateway' || 'staging-gateway' }}
+      name: staging-gateway
     env:
       DEPLOY_TARGET: staging
       DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
@@ -1455,7 +1489,8 @@ jobs:
             echo "- Origin: $GATEWAY_ORIGIN"
             echo '- Deployment upload completed; final stack smoke verifies readiness after all components deploy.'
           } >> "$GITHUB_STEP_SUMMARY"
-    if: github.event_name == 'workflow_run' && (needs.auto_preflight_release.result == 'success' &&
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.conclusion == 'success' && (needs.auto_preflight_release.result == 'success' &&
       contains(fromJSON(needs.auto_preflight_release.outputs.selected_components), 'gateway'))
     needs:
       - auto_preflight_release
@@ -1464,7 +1499,8 @@ jobs:
     name: Emit / staging / backend coordination receipt
     if:
       always() && github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' &&
-      needs.auto_preflight_release.result == 'success' && needs.auto_final_smoke.result == 'success' &&
+      github.event.workflow_run.conclusion == 'success' && needs.auto_preflight_release.result == 'success' &&
+      needs.auto_final_smoke.result == 'success' &&
       (contains(fromJSON(needs.auto_preflight_release.outputs.selected_components), 'gateway') ||
       contains(fromJSON(needs.auto_preflight_release.outputs.selected_components), 'router') ||
       contains(fromJSON(needs.auto_preflight_release.outputs.selected_components), 'deriver-a') ||
@@ -1483,9 +1519,7 @@ jobs:
       DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
       ARTIFACT_RUN_ID: ${{ github.run_id }}
       RELEASE_SET_ID: ${{ needs.auto_create_release_set.outputs.release_set_id }}
-      VALIDATION_RUN_ID: ${{ github.event.workflow_run.id }}
       SELECTED_BACKEND_COMPONENTS: ${{ needs.auto_preflight_release.outputs.selected_components }}
-      SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON: ${{ vars.SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON }}
     steps:
       - name: Checkout selected revision
         uses: actions/checkout@v6
@@ -1519,7 +1553,6 @@ jobs:
           RECEIPT_INPUT_FILE: .release-artifacts/backend-coordination-receipt/input.json
         run: |-
           set -euo pipefail
-          test -n "${SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON:-}" || { echo "::error title=Missing backend compatibility range::SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON is required"; exit 1; }
           mkdir -p "$(dirname "$RECEIPT_INPUT_FILE")"
           node --input-type=module <<'NODE'
           import { readFile, writeFile } from 'node:fs/promises';
@@ -1527,7 +1560,7 @@ jobs:
           const backendNames = new Set(['gateway', 'router', 'deriver-a', 'deriver-b', 'signing-worker']);
           const selected = JSON.parse(process.env.SELECTED_BACKEND_COMPONENTS).filter((name) => backendNames.has(name)).sort();
           const digests = manifest.components.filter((component) => selected.includes(component.name)).map((component) => ({ component: component.name, digestSha256: component.contentDigestSha256 }));
-          const input = { mode: 'backend-deployment', target: process.env.DEPLOY_TARGET, receiptRunId: process.env.GITHUB_RUN_ID, acceptedSourceSha: process.env.DEPLOY_SHA, acceptedValidationRunId: manifest.acceptedValidationRunId, selectedBackendComponents: selected, backendReleaseSetId: process.env.RELEASE_SET_ID, deployedComponentDigests: digests, supportedFrontendApiContractRange: JSON.parse(process.env.SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON), smokeResult: { status: 'passed', completedAt: new Date().toISOString(), checks: [{ name: 'backend-final-smoke', status: 200 }] }, createdAt: new Date().toISOString() };
+          const input = { mode: 'backend-deployment', target: process.env.DEPLOY_TARGET, receiptRunId: process.env.GITHUB_RUN_ID, acceptedSourceSha: process.env.DEPLOY_SHA, acceptedValidationRunId: manifest.acceptedValidationRunId, backendArtifactRunId: process.env.ARTIFACT_RUN_ID, backendReleaseSetId: process.env.RELEASE_SET_ID, backendReleaseSetManifest: manifest, selectedBackendComponents: selected, deployedComponentDigests: digests, smokeResult: { status: 'passed', completedAt: new Date().toISOString(), checks: [{ name: 'backend-final-smoke', status: 200 }] }, createdAt: new Date().toISOString() };
           await writeFile(process.env.RECEIPT_INPUT_FILE, `${JSON.stringify(input, null, 2)}\n`);
           NODE
       - name: Create backend coordination receipt
@@ -1545,7 +1578,7 @@ jobs:
     name: Emit / staging / backend coordination receipt / frontend-only no-op
     if:
       always() && github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' &&
-      needs.auto_select_components.result == 'success' &&
+      github.event.workflow_run.conclusion == 'success' && needs.auto_select_components.result == 'success' &&
       !(contains(fromJSON(needs.auto_select_components.outputs.components), 'gateway') ||
       contains(fromJSON(needs.auto_select_components.outputs.components), 'router') ||
       contains(fromJSON(needs.auto_select_components.outputs.components), 'deriver-a') ||
@@ -1568,6 +1601,7 @@ jobs:
       - name: Resolve active backend receipt
         id: resolve_active
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RECEIPT_ARTIFACT_NAME: backend-coordination-receipt-staging
         run: |-
           set -euo pipefail
@@ -1612,7 +1646,7 @@ jobs:
     outputs:
       selected_components: ${{ steps.release_selection.outputs.selected_components }}
     environment:
-      name: ${{ format('{0}-mpc-router', 'staging') }}
+      name: staging-mpc-router
     env:
       DEPLOY_TARGET: staging
       DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
@@ -1643,6 +1677,10 @@ jobs:
             echo "::error title=Invalid release mapping::$DEPLOY_TARGET requires $expected_branch"
             exit 1
           fi
+          if [[ "$EVENT_BRANCH" != "$DEPLOY_SOURCE_BRANCH" ]]; then
+            echo "::error title=Invalid workflow ref::The deployment workflow must run from $DEPLOY_SOURCE_BRANCH"
+            exit 1
+          fi
           git fetch origin "refs/heads/$DEPLOY_SOURCE_BRANCH:refs/remotes/origin/$DEPLOY_SOURCE_BRANCH"
           branch_ref="refs/remotes/origin/$DEPLOY_SOURCE_BRANCH"
           if ! git merge-base --is-ancestor "$DEPLOY_SHA" "$branch_ref"; then
@@ -1650,7 +1688,7 @@ jobs:
             exit 1
           fi
           if [[ "$ENFORCE_CURRENT_BRANCH" == 'true' ]]; then
-            git diff --name-only "$DEPLOY_SHA..$branch_ref" > "$RUNNER_TEMP/intervening-changed-files.txt"
+            git log --format= --name-only --no-renames "$DEPLOY_SHA..$branch_ref" > "$RUNNER_TEMP/intervening-changed-files.txt"
             intervening_backend_components="$(node scripts/deployment-components.mjs select --files-file "$RUNNER_TEMP/intervening-changed-files.txt" --lane backend)"
             if [[ "$intervening_backend_components" != '[]' ]]; then
               echo "::error title=Stale backend release skipped::A newer accepted change selects backend components: $intervening_backend_components"
@@ -1720,6 +1758,22 @@ jobs:
               --manifest "$artifact_manifest" \
               --identity-json "$identity"
           done
+      - name: Verify accepted push validation identity
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          validation_run_id="$(node -e "const value=require('./$RELEASE_MANIFEST'); process.stdout.write(value.acceptedValidationRunId)")"
+          validation_name="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$validation_run_id" --jq '.name')"
+          validation_event="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$validation_run_id" --jq '.event')"
+          validation_branch="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$validation_run_id" --jq '.head_branch')"
+          validation_sha="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$validation_run_id" --jq '.head_sha')"
+          validation_conclusion="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$validation_run_id" --jq '.conclusion')"
+          [[ "$validation_name" == 'Validate / repository' ]] || { echo '::error title=Invalid validation workflow::The release set was not produced from repository validation'; exit 1; }
+          [[ "$validation_event" == 'push' ]] || { echo '::error title=Invalid validation event::Deployment requires push validation'; exit 1; }
+          [[ "$validation_branch" == "$DEPLOY_SOURCE_BRANCH" ]] || { echo '::error title=Validation branch mismatch::The accepted validation branch does not match the deployment branch'; exit 1; }
+          [[ "$validation_sha" == "$DEPLOY_SHA" ]] || { echo '::error title=Validation SHA mismatch::The accepted validation SHA does not match the deployment SHA'; exit 1; }
+          [[ "$validation_conclusion" == 'success' ]] || { echo '::error title=Validation run did not succeed::The accepted validation run did not pass'; exit 1; }
       - name: Resolve selected components
         id: release_selection
         run: |
@@ -1745,7 +1799,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
-      name: ${{ format('{0}-signing-worker', 'staging') }}
+      name: staging-signing-worker
     env:
       DEPLOY_TARGET: staging
       DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
@@ -1858,7 +1912,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
-      name: ${{ format('{0}-deriver-a', 'staging') }}
+      name: staging-deriver-a
     env:
       DEPLOY_TARGET: staging
       DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
@@ -1985,7 +2039,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
-      name: ${{ format('{0}-deriver-b', 'staging') }}
+      name: staging-deriver-b
     env:
       DEPLOY_TARGET: staging
       DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
@@ -2119,7 +2173,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
-      name: ${{ format('{0}-mpc-router', 'staging') }}
+      name: staging-mpc-router
     env:
       DEPLOY_TARGET: staging
       DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
@@ -2271,7 +2325,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment:
-      name: ${{ 'staging' }}
+      name: staging-observability
     steps:
       - name: Checkout selected revision
         uses: actions/checkout@v6
@@ -2325,7 +2379,14 @@ jobs:
             echo '## Final release smoke'
             echo
             echo "- Release set: \`${{ inputs.release_set_id }}\`"
+            echo "- Environment: \`${{ 'staging' }}\`"
+            echo "- Source SHA: \`${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}\`"
+            echo "- Validation run: \`$(node -e "const value=require('./.release-artifacts/release-set/manifest.json'); process.stdout.write(value.acceptedValidationRunId)")\`"
+            echo "- Artifact run: \`$(node -e "const value=require('./.release-artifacts/release-set/manifest.json'); process.stdout.write(value.artifactRunId)")\`"
             echo "- Selected components: \`$SELECTED_COMPONENTS\`"
+            echo '- Deployed components: selected backend components'
+            echo '- Skipped components: frontend components (owned by the frontend lane)'
+            echo '- Smoke result: passed'
             echo '- Selected component readiness, representative routes, and release identity passed.'
           } >> "$GITHUB_STEP_SUMMARY"
     env:
@@ -2345,7 +2406,7 @@ jobs:
     outputs:
       gateway_origin: ${{ steps.gateway_origin.outputs.gateway_origin }}
     environment:
-      name: ${{ 'staging' == 'production' && 'production-gateway' || 'staging-gateway' }}
+      name: staging-gateway
     env:
       DEPLOY_TARGET: staging
       DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
@@ -2571,9 +2632,7 @@ jobs:
       DEPLOY_SHA: ${{ inputs.source_sha }}
       ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
       RELEASE_SET_ID: ${{ inputs.release_set_id }}
-      VALIDATION_RUN_ID: ${{ needs.manual_preflight_release.outputs.accepted_validation_run_id }}
       SELECTED_BACKEND_COMPONENTS: ${{ needs.manual_preflight_release.outputs.selected_components }}
-      SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON: ${{ vars.SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON }}
     steps:
       - name: Checkout selected revision
         uses: actions/checkout@v6
@@ -2607,7 +2666,6 @@ jobs:
           RECEIPT_INPUT_FILE: .release-artifacts/backend-coordination-receipt/input.json
         run: |-
           set -euo pipefail
-          test -n "${SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON:-}" || { echo "::error title=Missing backend compatibility range::SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON is required"; exit 1; }
           mkdir -p "$(dirname "$RECEIPT_INPUT_FILE")"
           node --input-type=module <<'NODE'
           import { readFile, writeFile } from 'node:fs/promises';
@@ -2615,7 +2673,7 @@ jobs:
           const backendNames = new Set(['gateway', 'router', 'deriver-a', 'deriver-b', 'signing-worker']);
           const selected = JSON.parse(process.env.SELECTED_BACKEND_COMPONENTS).filter((name) => backendNames.has(name)).sort();
           const digests = manifest.components.filter((component) => selected.includes(component.name)).map((component) => ({ component: component.name, digestSha256: component.contentDigestSha256 }));
-          const input = { mode: 'backend-deployment', target: process.env.DEPLOY_TARGET, receiptRunId: process.env.GITHUB_RUN_ID, acceptedSourceSha: process.env.DEPLOY_SHA, acceptedValidationRunId: manifest.acceptedValidationRunId, selectedBackendComponents: selected, backendReleaseSetId: process.env.RELEASE_SET_ID, deployedComponentDigests: digests, supportedFrontendApiContractRange: JSON.parse(process.env.SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON), smokeResult: { status: 'passed', completedAt: new Date().toISOString(), checks: [{ name: 'backend-final-smoke', status: 200 }] }, createdAt: new Date().toISOString() };
+          const input = { mode: 'backend-deployment', target: process.env.DEPLOY_TARGET, receiptRunId: process.env.GITHUB_RUN_ID, acceptedSourceSha: process.env.DEPLOY_SHA, acceptedValidationRunId: manifest.acceptedValidationRunId, backendArtifactRunId: process.env.ARTIFACT_RUN_ID, backendReleaseSetId: process.env.RELEASE_SET_ID, backendReleaseSetManifest: manifest, selectedBackendComponents: selected, deployedComponentDigests: digests, smokeResult: { status: 'passed', completedAt: new Date().toISOString(), checks: [{ name: 'backend-final-smoke', status: 200 }] }, createdAt: new Date().toISOString() };
           await writeFile(process.env.RECEIPT_INPUT_FILE, `${JSON.stringify(input, null, 2)}\n`);
           NODE
       - name: Create backend coordination receipt

@@ -7,6 +7,7 @@ import {
   assertFrontendApiCompatible,
   parseSupportedFrontendApiContractRange,
 } from './deployment-api-compatibility.mjs';
+import { parseAndVerifyReleaseSetManifest } from './deployment-release.mjs';
 
 const TARGETS = new Set(['staging', 'production']);
 const RECEIPT_MODES = new Set(['backend-deployment', 'frontend-only-no-op']);
@@ -43,10 +44,11 @@ const INPUT_COMMON_FIELDS = Object.freeze([
 ]);
 const DEPLOYMENT_INPUT_FIELDS = Object.freeze([
   ...INPUT_COMMON_FIELDS,
+  'backendArtifactRunId',
   'backendReleaseSetId',
+  'backendReleaseSetManifest',
   'deployedComponentDigests',
   'smokeResult',
-  'supportedFrontendApiContractRange',
 ]);
 const NO_OP_INPUT_FIELDS = Object.freeze([...INPUT_COMMON_FIELDS, 'previousActiveReceipt']);
 const SMOKE_FIELDS = Object.freeze(['checks', 'completedAt', 'status']);
@@ -193,6 +195,19 @@ function createBackendDeploymentReceipt(input) {
   }
   const deployedComponentDigests = parseComponentDigests(input.deployedComponentDigests);
   assertDigestCoverage(selectedBackendComponents, deployedComponentDigests);
+  const backendReleaseSetManifest = parseAndVerifyReleaseSetManifest(
+    input.backendReleaseSetManifest,
+  );
+  assertBackendReleaseSetBinding({
+    manifest: backendReleaseSetManifest,
+    target: common.target,
+    acceptedSourceSha: common.acceptedSourceSha,
+    acceptedValidationRunId: common.acceptedValidationRunId,
+    backendArtifactRunId: input.backendArtifactRunId,
+    backendReleaseSetId: input.backendReleaseSetId,
+    selectedBackendComponents,
+    deployedComponentDigests,
+  });
   const receipt = buildReceipt({
     target: common.target,
     receiptRunId: common.receiptRunId,
@@ -205,9 +220,7 @@ function createBackendDeploymentReceipt(input) {
     activeBackendReceiptRunId: common.receiptRunId,
     backendReleaseSetId: parseReleaseSetId(input.backendReleaseSetId),
     deployedComponentDigests,
-    supportedFrontendApiContractRange: parseSupportedFrontendApiContractRange(
-      input.supportedFrontendApiContractRange,
-    ),
+    supportedFrontendApiContractRange: backendReleaseSetManifest.supportedFrontendApiContractRange,
     smokeResult: parseSmokeResult(input.smokeResult),
   });
   return parseBackendCoordinationReceipt(receipt);
@@ -391,6 +404,38 @@ function assertDigestCoverage(selectedComponents, deployedComponentDigests) {
     selectedComponents.some((component) => !digestNames.has(component))
   ) {
     throw new Error('deployed component digests must exactly cover selected backend components');
+  }
+}
+
+function assertBackendReleaseSetBinding(input) {
+  const manifest = input.manifest;
+  if (
+    manifest.lane !== 'backend' ||
+    manifest.target !== input.target ||
+    manifest.sourceSha !== input.acceptedSourceSha ||
+    manifest.acceptedValidationRunId !== input.acceptedValidationRunId ||
+    manifest.artifactRunId !== parseRunId(input.backendArtifactRunId, 'backend artifact run ID') ||
+    manifest.releaseSetId !== parseReleaseSetId(input.backendReleaseSetId)
+  ) {
+    throw new Error(
+      'backend coordination receipt is not bound to the verified backend release set',
+    );
+  }
+  if (
+    stableJson(manifest.buildIdentity.selectedComponents) !==
+    stableJson(input.selectedBackendComponents)
+  ) {
+    throw new Error('backend coordination receipt components do not match the backend release set');
+  }
+  const digestByComponent = new Map(
+    manifest.components.map((component) => [component.name, component.contentDigestSha256]),
+  );
+  for (const digest of input.deployedComponentDigests) {
+    if (digestByComponent.get(digest.component) !== digest.digestSha256) {
+      throw new Error(
+        `backend coordination receipt digest does not match release set: ${digest.component}`,
+      );
+    }
   }
 }
 

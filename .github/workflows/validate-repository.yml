@@ -38,7 +38,7 @@ jobs:
       - name: Install workflow policy tooling
         run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Check deployment workflow policy
-        run: node scripts/check-deployment-workflows.mjs
+        run: pnpm check:deployment-workflows
 
   release-change-set:
     name: Record release change set
@@ -62,7 +62,7 @@ jobs:
           if [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
             git diff-tree --root --no-commit-id --name-only -r "$SOURCE_SHA" > release-change-set/changed-files.txt
           else
-            git diff --name-only "$BEFORE_SHA" "$SOURCE_SHA" > release-change-set/changed-files.txt
+            git log --format= --name-only --no-renames "$BEFORE_SHA..$SOURCE_SHA" > release-change-set/changed-files.txt
           fi
           printf '%s\n' "$BEFORE_SHA" > release-change-set/base-sha.txt
           printf '%s\n' "$SOURCE_SHA" > release-change-set/source-sha.txt

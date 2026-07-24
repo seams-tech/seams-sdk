@@ -1,51 +1,4 @@
-name: template / deploy / cloudflare-stack
-
-on:
-  workflow_call:
-    inputs:
-      target:
-        description: Deployment target
-        required: true
-        type: string
-      deploy_sha:
-        description: Exact source revision to deploy
-        required: true
-        type: string
-      artifact_run_id:
-        description: Accepted release artifact workflow run ID
-        required: true
-        type: string
-      release_set_id:
-        description: Content-addressed release-set ID
-        required: true
-        type: string
-      source_branch:
-        description: Source branch associated with the revision
-        required: true
-        type: string
-      enforce_current_branch:
-        description: Reject an automatic release once its branch has advanced
-        required: true
-        type: boolean
-permissions:
-  actions: read
-  contents: read
-
-env:
-  DEPLOY_TARGET: ${{ inputs.target }}
-  DEPLOY_SHA: ${{ inputs.deploy_sha }}
-  ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
-  RELEASE_SET_ID: ${{ inputs.release_set_id }}
-  DEPLOY_SOURCE_BRANCH: ${{ inputs.source_branch }}
-  ENFORCE_CURRENT_BRANCH: ${{ inputs.enforce_current_branch }}
-  STAGING_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway-staging.n6378056.workers.dev
-  PRODUCTION_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway.n6378056.workers.dev
-  RUST_TOOLCHAIN: '1.96.0'
-
-concurrency:
-  group: deployment-${{ inputs.target }}
-  cancel-in-progress: false
-
+# Job template consumed by scripts/generate-deployment-workflows.mjs.
 jobs:
   preflight_release:
     name: Verify / ${{ inputs.target }} / cloudflare-stack
@@ -77,6 +30,10 @@ jobs:
             echo "::error title=Invalid release mapping::$DEPLOY_TARGET requires $expected_branch"
             exit 1
           fi
+          if [[ "$EVENT_BRANCH" != "$DEPLOY_SOURCE_BRANCH" ]]; then
+            echo "::error title=Invalid workflow ref::The deployment workflow must run from $DEPLOY_SOURCE_BRANCH"
+            exit 1
+          fi
           git fetch origin "refs/heads/$DEPLOY_SOURCE_BRANCH:refs/remotes/origin/$DEPLOY_SOURCE_BRANCH"
           branch_ref="refs/remotes/origin/$DEPLOY_SOURCE_BRANCH"
           if ! git merge-base --is-ancestor "$DEPLOY_SHA" "$branch_ref"; then
@@ -84,7 +41,7 @@ jobs:
             exit 1
           fi
           if [[ "$ENFORCE_CURRENT_BRANCH" == 'true' ]]; then
-            git diff --name-only "$DEPLOY_SHA..$branch_ref" > "$RUNNER_TEMP/intervening-changed-files.txt"
+            git log --format= --name-only --no-renames "$DEPLOY_SHA..$branch_ref" > "$RUNNER_TEMP/intervening-changed-files.txt"
             intervening_backend_components="$(node scripts/deployment-components.mjs select --files-file "$RUNNER_TEMP/intervening-changed-files.txt" --lane backend)"
             if [[ "$intervening_backend_components" != '[]' ]]; then
               echo "::error title=Stale backend release skipped::A newer accepted change selects backend components: $intervening_backend_components"
@@ -160,6 +117,23 @@ jobs:
               --manifest "$artifact_manifest" \
               --identity-json "$identity"
           done
+
+      - name: Verify accepted push validation identity
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          validation_run_id="$(node -e "const value=require('./$RELEASE_MANIFEST'); process.stdout.write(value.acceptedValidationRunId)")"
+          validation_name="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$validation_run_id" --jq '.name')"
+          validation_event="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$validation_run_id" --jq '.event')"
+          validation_branch="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$validation_run_id" --jq '.head_branch')"
+          validation_sha="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$validation_run_id" --jq '.head_sha')"
+          validation_conclusion="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$validation_run_id" --jq '.conclusion')"
+          [[ "$validation_name" == 'Validate / repository' ]] || { echo '::error title=Invalid validation workflow::The release set was not produced from repository validation'; exit 1; }
+          [[ "$validation_event" == 'push' ]] || { echo '::error title=Invalid validation event::Deployment requires push validation'; exit 1; }
+          [[ "$validation_branch" == "$DEPLOY_SOURCE_BRANCH" ]] || { echo '::error title=Validation branch mismatch::The accepted validation branch does not match the deployment branch'; exit 1; }
+          [[ "$validation_sha" == "$DEPLOY_SHA" ]] || { echo '::error title=Validation SHA mismatch::The accepted validation SHA does not match the deployment SHA'; exit 1; }
+          [[ "$validation_conclusion" == 'success' ]] || { echo '::error title=Validation run did not succeed::The accepted validation run did not pass'; exit 1; }
 
       - name: Resolve selected components
         id: release_selection
@@ -743,7 +717,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment:
-      name: ${{ inputs.target }}
+      name: ${{ format('{0}-observability', inputs.target) }}
     steps:
       - name: Checkout selected revision
         uses: actions/checkout@v6
@@ -802,6 +776,13 @@ jobs:
             echo '## Final release smoke'
             echo
             echo "- Release set: \`${{ inputs.release_set_id }}\`"
+            echo "- Environment: \`${{ inputs.target }}\`"
+            echo "- Source SHA: \`${{ inputs.deploy_sha }}\`"
+            echo "- Validation run: \`$(node -e "const value=require('./.release-artifacts/release-set/manifest.json'); process.stdout.write(value.acceptedValidationRunId)")\`"
+            echo "- Artifact run: \`$(node -e "const value=require('./.release-artifacts/release-set/manifest.json'); process.stdout.write(value.artifactRunId)")\`"
             echo "- Selected components: \`$SELECTED_COMPONENTS\`"
+            echo '- Deployed components: selected backend components'
+            echo '- Skipped components: frontend components (owned by the frontend lane)'
+            echo '- Smoke result: passed'
             echo '- Selected component readiness, representative routes, and release identity passed.'
           } >> "$GITHUB_STEP_SUMMARY"

@@ -283,9 +283,11 @@ test('release workflow invokes the selector through its required CLI command', (
   expect(workflowSource).toContain(
     'node scripts/deployment-components.mjs select --files-file "$RUNNER_TEMP/changed-files.txt"',
   );
-  expect(workflowSource).toContain('name: template / release / cloudflare-stack');
+  expect(workflowSource).toContain(
+    '# Job template consumed by scripts/generate-deployment-workflows.mjs.',
+  );
   expect(workflowSource).toContain('name: release-change-set');
-  expect(workflowSource).not.toContain('workflow_run:');
+  expect(workflowSource).not.toContain('workflow_call:');
 });
 
 test('CLI unions component selection across files accumulated from multiple commits', () => {

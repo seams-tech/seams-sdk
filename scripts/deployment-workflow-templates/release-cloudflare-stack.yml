@@ -1,32 +1,4 @@
-name: template / release / cloudflare-stack
-
-on:
-  workflow_call:
-    inputs:
-      target:
-        description: Release target
-        required: true
-        type: string
-      source_sha:
-        description: Exact protected-branch source SHA
-        required: true
-        type: string
-      validation_run_id:
-        description: Accepted validation workflow run ID
-        required: true
-        type: string
-
-permissions:
-  actions: read
-  contents: read
-
-concurrency:
-  group: release-${{ inputs.target }}-${{ inputs.source_sha }}
-  cancel-in-progress: false
-
-env:
-  RUST_TOOLCHAIN: '1.96.0'
-
+# Job template consumed by scripts/generate-deployment-workflows.mjs.
 jobs:
   prepare:
     name: Select accepted release
@@ -86,8 +58,8 @@ jobs:
             echo "::error title=Validation branch mismatch::Run $validation_run_id belongs to $validation_branch, expected $source_branch"
             exit 1
           }
-          if [[ "$target" == 'production' && "$EVENT_BRANCH" != 'main' ]]; then
-            echo "::error title=Untrusted production workflow authority::Production release workflows must be triggered from main"
+          if [[ "$EVENT_BRANCH" != "$source_branch" ]]; then
+            echo "::error title=Invalid workflow ref::The backend workflow must run from $source_branch"
             exit 1
           fi
           [[ "$validation_conclusion" == 'success' ]] || {
@@ -96,7 +68,7 @@ jobs:
           }
           git fetch origin "refs/heads/$source_branch:refs/remotes/origin/$source_branch"
           branch_ref="refs/remotes/origin/$source_branch"
-          git diff --name-only "$source_sha..$branch_ref" > "$RUNNER_TEMP/intervening-changed-files.txt"
+          git log --format= --name-only --no-renames "$source_sha..$branch_ref" > "$RUNNER_TEMP/intervening-changed-files.txt"
           intervening_backend_components="$(node scripts/deployment-components.mjs select --files-file "$RUNNER_TEMP/intervening-changed-files.txt" --lane backend)"
           if [[ "$intervening_backend_components" != '[]' ]]; then
             echo "::error title=Stale backend release skipped::A newer accepted change selects backend components: $intervening_backend_components"
@@ -265,7 +237,7 @@ jobs:
           test "$(<.release-change-set/source-sha.txt)" = "$SOURCE_SHA"
           test -s .release-change-set/changed-files.txt
           cp .release-change-set/changed-files.txt "$RUNNER_TEMP/changed-files.txt"
-          components="$(node scripts/deployment-components.mjs select --files-file "$RUNNER_TEMP/changed-files.txt")"
+          components="$(node scripts/deployment-components.mjs select --files-file "$RUNNER_TEMP/changed-files.txt" --lane backend)"
           echo "components=$components" >> "$GITHUB_OUTPUT"
           {
             echo '## Selected deployment components'
@@ -422,6 +394,7 @@ jobs:
           VALIDATION_RUN_ID: ${{ needs.prepare.outputs.validation_run_id }}
           SELECTED_COMPONENTS: ${{ needs.select_components.outputs.components }}
           GATEWAY_API_CONTRACT_VERSION: ${{ vars.GATEWAY_API_CONTRACT_VERSION }}
+          SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON: ${{ vars.SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON }}
         run: |
           set -euo pipefail
           node --input-type=module <<'NODE'
@@ -488,6 +461,7 @@ jobs:
           VALIDATION_RUN_ID: ${{ needs.prepare.outputs.validation_run_id }}
           SELECTED_COMPONENTS: ${{ needs.select_components.outputs.components }}
           GATEWAY_API_CONTRACT_VERSION: ${{ vars.GATEWAY_API_CONTRACT_VERSION }}
+          SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON: ${{ vars.SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON }}
         run: |
           set -euo pipefail
           test -n "${GATEWAY_API_CONTRACT_VERSION:-}" || {
@@ -502,6 +476,7 @@ jobs:
             --accepted-validation-run-id "$VALIDATION_RUN_ID" \
             --artifact-run-id "$GITHUB_RUN_ID" \
             --gateway-api-contract-version "$GATEWAY_API_CONTRACT_VERSION" \
+            --supported-frontend-api-contract-range-json "$SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON" \
             --components-file .release-artifacts-components.json \
             --migrations-file .release-artifacts-migrations.json \
             --build-identity-file .release-build-identity.json \

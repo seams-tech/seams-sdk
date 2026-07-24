@@ -41,8 +41,9 @@ Each invocation validates the complete target and writes two owner-only
 manifests under `~/.seams/backups`:
 
 - `wallet-core`: Gateway, MPCRouter, Deriver A, Deriver B, and SigningWorker.
-- `product`: the base `staging` or `production` environment used by Pages and
-  SDK runtime deployment.
+- `product`: the target's `*-frontend` and `*-observability` environments.
+  Frontend environments hold Pages variables and credentials; observability
+  environments hold public origins for read-only smoke checks.
 
 Both files carry the same generation ID, timestamp, and complete-manifest
 SHA-256. The product manifest contains the public wallet-core handoff values it
@@ -228,8 +229,9 @@ material, Gateway signing keys, tenant identifiers, and publishable keys remain
 unchanged. Dry run is the default.
 
 The wallet-core updater can reach only Gateway and MPC service environments.
-The product updater can reach only the base Pages/SDK environment. Run both
-commands when rotating a Cloudflare token shared by both ownership groups.
+The product updater can reach only the frontend and observability environments.
+Run both component commands when rotating a Cloudflare token shared by both
+ownership groups.
 
 Frontend variable changes take effect on the next Pages deployment. Gateway
 integration changes take effect on the next Gateway deployment.
@@ -393,7 +395,8 @@ The deployment order is:
 1. The stack workflow validates and uploads or deploys SigningWorker, Deriver A,
    Deriver B, and MPCRouter in its Router A/B jobs.
 2. Its Gateway job applies D1 migrations and deploys the Gateway Worker.
-3. Its Pages job deploys the app and wallet surfaces.
+3. The matching frontend workflow deploys the app and wallet surfaces after it
+   verifies the backend coordination receipt.
 
 Do not deploy a Gateway that references a different Router A/B identity set.
 Generate and apply the target manifest before starting the matching environment

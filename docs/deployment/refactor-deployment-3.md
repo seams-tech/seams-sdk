@@ -213,6 +213,10 @@ Shared command sequences may move into local scripts or composite actions under
 `.github/actions`. Those actions do not create additional workflow files or
 deployment authorities.
 
+The generator inputs under `scripts/deployment-workflow-templates/` are job
+fragments without workflow triggers. They are not reusable workflows and do not
+create additional deployment authorities.
+
 ## Pre-refactor-to-Target Mapping
 
 | Current visible name                    | Current meaning                                                     | Target                                                                 |
@@ -448,7 +452,7 @@ frontend workflows while retaining those artifact guarantees.
       independent role environments and approval boundaries.
 - [x] Keep Gateway migration and deployment jobs inside the matching stack
       workflow.
-- [x] Keep Pages build and deployment jobs inside the matching stack workflow.
+- [x] Move Pages build and deployment jobs into the matching frontend workflow.
 - [x] Preserve component selection and conditional job execution.
 - [x] Preserve Gateway-before-Pages ordering when both components are selected.
 - [x] Preserve Router A/B activation ordering and final smoke checks.
@@ -491,9 +495,10 @@ frontend workflows while retaining those artifact guarantees.
 
 - [x] Replace broad inherited secrets with environment-scoped service secret
       declarations.
-- [ ] Confirm the Gateway jobs cannot read Pages-only or Router-only secrets.
-- [ ] Confirm Pages jobs cannot read backend deployment credentials beyond the
-      scoped Cloudflare token they require.
+- [x] Enforce that Gateway jobs cannot read Pages-only or Router-only secrets
+      through the parsed workflow policy.
+- [x] Enforce that Pages jobs cannot read backend deployment credentials beyond
+      the scoped Cloudflare token they require.
 - [ ] Confirm staging jobs cannot read production secrets or variables.
 - [ ] Confirm production jobs cannot read staging secrets or variables.
 - [x] Require one production environment approval before the first mutating
@@ -502,7 +507,7 @@ frontend workflows while retaining those artifact guarantees.
       consolidated stack layout.
 - [x] Add a preflight summary before mutation.
 - [x] Add a final deployment receipt after smoke checks.
-- [ ] Add CODEOWNERS coverage for `.github/workflows/**`,
+- [x] Add CODEOWNERS coverage for `.github/workflows/**`,
       `.github/actions/**`, deployment scripts, and deployment documentation.
 - [x] Add the workflow policy check to repository validation; branch protection
       must require the resulting validation check after merge.

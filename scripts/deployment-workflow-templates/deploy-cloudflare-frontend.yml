@@ -1,65 +1,11 @@
-name: template / deploy / cloudflare-frontend
-
-on:
-  workflow_call:
-    inputs:
-      deploy_environment:
-        description: Deployment target
-        required: true
-        type: string
-      deploy_sha:
-        description: Exact source revision to deploy
-        required: true
-        type: string
-      artifact_run_id:
-        description: Accepted frontend release artifact workflow run ID
-        required: true
-        type: string
-      release_set_id:
-        description: Content-addressed frontend release-set ID
-        required: true
-        type: string
-      backend_receipt_run_id:
-        description: Accepted backend coordination receipt workflow run ID
-        required: true
-        type: string
-      source_branch:
-        description: Source branch associated with the revision
-        required: true
-        type: string
-      enforce_current_branch:
-        description: Reject an automatic release after a newer frontend change
-        required: true
-        type: boolean
-
-permissions:
-  actions: read
-  contents: read
-
-env:
-  DEPLOY_ENVIRONMENT: ${{ inputs.deploy_environment }}
-  DEPLOY_SHA: ${{ inputs.deploy_sha }}
-  ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
-  RELEASE_SET_ID: ${{ inputs.release_set_id }}
-  BACKEND_RECEIPT_RUN_ID: ${{ inputs.backend_receipt_run_id }}
-  DEPLOY_SOURCE_BRANCH: ${{ inputs.source_branch }}
-  ENFORCE_CURRENT_BRANCH: ${{ inputs.enforce_current_branch }}
-  PAGES_BRANCH: ${{ inputs.deploy_environment == 'production' && 'main' || 'dev' }}
-  PAGES_ARTIFACT_IDENTITY: '{"pagesBuild":"app-wallet-v1"}'
-  SIGNER_IFRAME_ARTIFACT_IDENTITY: '{"pagesBuild":"app-wallet-v1"}'
-  RELEASE_MANIFEST: .release-artifacts/release-set/manifest.json
-  STAGING_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway-staging.n6378056.workers.dev
-  PRODUCTION_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway.n6378056.workers.dev
-
-concurrency:
-  group: deployment-${{ inputs.deploy_environment }}-frontend
-  cancel-in-progress: false
-
+# Job template consumed by scripts/generate-deployment-workflows.mjs.
 jobs:
   preflight_release:
     name: Verify / ${{ inputs.deploy_environment }} / frontend
     runs-on: ubuntu-latest
     timeout-minutes: 8
+    environment:
+      name: ${{ format('{0}-frontend', inputs.deploy_environment) }}
     outputs:
       selected_components: ${{ steps.release_identity.outputs.selected_components }}
       validation_run_id: ${{ steps.release_identity.outputs.validation_run_id }}
@@ -85,6 +31,10 @@ jobs:
             echo "::error title=Invalid frontend release mapping::$DEPLOY_ENVIRONMENT requires $expected_branch"
             exit 1
           fi
+          if [[ "$EVENT_BRANCH" != "$DEPLOY_SOURCE_BRANCH" ]]; then
+            echo "::error title=Invalid workflow ref::The frontend workflow must run from $DEPLOY_SOURCE_BRANCH"
+            exit 1
+          fi
           [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]] || {
             echo '::error title=Invalid source SHA::Frontend deployment SHA must be a full lowercase Git SHA'
             exit 1
@@ -96,7 +46,7 @@ jobs:
             exit 1
           fi
           if [[ "$ENFORCE_CURRENT_BRANCH" == 'true' ]]; then
-            git diff --name-only "$DEPLOY_SHA..$branch_ref" > "$RUNNER_TEMP/intervening-changed-files.txt"
+            git log --format= --name-only --no-renames "$DEPLOY_SHA..$branch_ref" > "$RUNNER_TEMP/intervening-changed-files.txt"
             intervening_frontend_components="$(node scripts/deployment-components.mjs select --files-file "$RUNNER_TEMP/intervening-changed-files.txt" --lane frontend)"
             if [[ "$intervening_frontend_components" != '[]' ]]; then
               echo "::error title=Stale frontend release skipped::A newer accepted change selects frontend components: $intervening_frontend_components"
@@ -228,8 +178,20 @@ jobs:
           done
 
       - name: Verify backend coordination receipt
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          receipt_workflow_name="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BACKEND_RECEIPT_RUN_ID" --jq '.name')"
+          receipt_conclusion="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BACKEND_RECEIPT_RUN_ID" --jq '.conclusion')"
+          [[ "$receipt_workflow_name" == "Deploy / $DEPLOY_ENVIRONMENT / cloudflare-stack" ]] || { echo '::error title=Invalid backend receipt workflow::The receipt must come from the matching backend workflow'; exit 1; }
+          [[ "$receipt_conclusion" == 'success' ]] || { echo '::error title=Backend receipt run did not succeed::The receipt workflow run did not pass'; exit 1; }
+          validation_name="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$VALIDATION_RUN_ID" --jq '.name')"
+          validation_event="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$VALIDATION_RUN_ID" --jq '.event')"
+          validation_branch="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$VALIDATION_RUN_ID" --jq '.head_branch')"
+          validation_sha="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$VALIDATION_RUN_ID" --jq '.head_sha')"
+          validation_conclusion="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$VALIDATION_RUN_ID" --jq '.conclusion')"
+          [[ "$validation_name" == 'Validate / repository' && "$validation_event" == 'push' && "$validation_branch" == "$DEPLOY_SOURCE_BRANCH" && "$validation_sha" == "$DEPLOY_SHA" && "$validation_conclusion" == 'success' ]] || { echo '::error title=Invalid accepted validation::Frontend deployment requires a successful matching push validation'; exit 1; }
           node scripts/deployment-coordination-receipt.mjs verify \
             --receipt-file .release-artifacts/backend-coordination-receipt/manifest.json
           node --input-type=module <<'NODE'
@@ -238,6 +200,7 @@ jobs:
           const receipt = JSON.parse(await readFile('.release-artifacts/backend-coordination-receipt/manifest.json', 'utf8'));
           const frontend = JSON.parse(await readFile(process.env.RELEASE_MANIFEST, 'utf8'));
           if (receipt.target !== process.env.DEPLOY_ENVIRONMENT || receipt.receiptRunId !== process.env.BACKEND_RECEIPT_RUN_ID || receipt.acceptedSourceSha !== process.env.DEPLOY_SHA || receipt.acceptedValidationRunId !== process.env.VALIDATION_RUN_ID) throw new Error('backend coordination receipt does not match frontend release identity');
+          if (frontend.gatewayApiContractVersion !== process.env.GATEWAY_API_CONTRACT_VERSION) throw new Error('frontend release contract version does not match the target frontend environment');
           assertFrontendApiCompatible({ gatewayApiContractVersion: frontend.gatewayApiContractVersion }, receipt.supportedFrontendApiContractRange);
           NODE
 
@@ -494,6 +457,8 @@ jobs:
       - deploy_wallet
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    environment:
+      name: ${{ format('{0}-frontend', inputs.deploy_environment) }}
     steps:
       - name: Checkout selected revision
         uses: actions/checkout@v6
@@ -521,6 +486,8 @@ jobs:
           SELECTED_COMPONENTS: ${{ needs.preflight_release.outputs.selected_components }}
         run: |
           set -euo pipefail
+          validation_run_id="$(node -e "const value=require('./$RELEASE_MANIFEST'); process.stdout.write(value.acceptedValidationRunId)")"
+          artifact_run_id="$(node -e "const value=require('./$RELEASE_MANIFEST'); process.stdout.write(value.artifactRunId)")"
           node scripts/deployment-final-smoke.mjs \
             --manifest "$RELEASE_MANIFEST" \
             --release-set-id "$RELEASE_SET_ID" \
@@ -533,7 +500,12 @@ jobs:
             echo "- Environment: \`$DEPLOY_ENVIRONMENT\`"
             echo "- Source SHA: \`$DEPLOY_SHA\`"
             echo "- Frontend release set: \`$RELEASE_SET_ID\`"
+            echo "- Validation run: \`$validation_run_id\`"
+            echo "- Artifact run: \`$artifact_run_id\`"
             echo "- Backend receipt run: \`$BACKEND_RECEIPT_RUN_ID\`"
-            echo "- Components: \`$SELECTED_COMPONENTS\`"
+            echo "- Selected components: \`$SELECTED_COMPONENTS\`"
+            echo "- Deployed components: \`$SELECTED_COMPONENTS\`"
+            echo '- Skipped components: backend components (owned by the backend lane)'
+            echo '- Smoke result: passed'
             echo '- App Pages, wallet Pages, SDK runtime assets, and release identity passed.'
           } >> "$GITHUB_STEP_SUMMARY"

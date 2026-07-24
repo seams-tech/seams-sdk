@@ -1,40 +1,4 @@
-name: template / deploy / cloudflare-api-gateway
-
-on:
-  workflow_call:
-    inputs:
-      target:
-        description: Gateway deployment target
-        required: true
-        type: string
-      source_sha:
-        description: Exact source revision to deploy
-        required: true
-        type: string
-      artifact_run_id:
-        description: Accepted release artifact workflow run ID
-        required: true
-        type: string
-      release_set_id:
-        description: Content-addressed release-set ID
-        required: true
-        type: string
-    outputs:
-      gateway_origin:
-        description: Deployed Gateway origin
-        value: ${{ jobs.deploy.outputs.gateway_origin }}
-permissions:
-  actions: read
-  contents: read
-
-env:
-  DEPLOY_SHA: ${{ inputs.source_sha }}
-  DEPLOY_TARGET: ${{ inputs.target }}
-  ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
-  RELEASE_SET_ID: ${{ inputs.release_set_id }}
-  GATEWAY_ARTIFACT_NAME: release-${{ inputs.target }}-${{ inputs.source_sha }}-gateway
-  GATEWAY_ARTIFACT_IDENTITY: '{"wasmPackageSet":"gateway-v1"}'
-
+# Job template consumed by scripts/generate-deployment-workflows.mjs.
 jobs:
   deploy:
     name: Deploy / ${{ inputs.target }} / cloudflare-api-gateway

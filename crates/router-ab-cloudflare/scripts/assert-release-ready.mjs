@@ -44,11 +44,13 @@ function runReleaseReadinessChecks() {
   const signingWorkerWrangler = readRepoFile(
     'crates/router-ab-cloudflare/wrangler.signing-worker.toml',
   );
-  const deployStackWorkflow = readRepoFile(
-    'scripts/deployment-workflow-templates/deploy-cloudflare-stack.yml',
+  const deployStagingSource = readRepoFile('.github/workflows/deploy-staging-cloudflare-stack.yml');
+  const deployProductionSource = readRepoFile(
+    '.github/workflows/deploy-production-cloudflare-stack.yml',
   );
-  const deployStackDocument = readRepoWorkflow(
-    'scripts/deployment-workflow-templates/deploy-cloudflare-stack.yml',
+  const deployStagingFrontendSource = readRepoFile('.github/workflows/deploy-staging-frontend.yml');
+  const deployProductionFrontendSource = readRepoFile(
+    '.github/workflows/deploy-production-frontend.yml',
   );
   const deployStagingDocument = readRepoWorkflow(
     '.github/workflows/deploy-staging-cloudflare-stack.yml',
@@ -56,12 +58,21 @@ function runReleaseReadinessChecks() {
   const deployProductionDocument = readRepoWorkflow(
     '.github/workflows/deploy-production-cloudflare-stack.yml',
   );
+  const deployStagingFrontendDocument = readRepoWorkflow(
+    '.github/workflows/deploy-staging-frontend.yml',
+  );
+  const deployProductionFrontendDocument = readRepoWorkflow(
+    '.github/workflows/deploy-production-frontend.yml',
+  );
   const deploymentSources = [
     routerWrangler,
     deriverAWrangler,
     deriverBWrangler,
     signingWorkerWrangler,
-    deployStackWorkflow,
+    deployStagingSource,
+    deployProductionSource,
+    deployStagingFrontendSource,
+    deployProductionFrontendSource,
   ].join('\n');
   for (const forbidden of [
     'strict-worker-signer-a-entrypoint',
@@ -282,12 +293,22 @@ function runReleaseReadinessChecks() {
       'require_cloudflare_internal_service_auth_request_v1',
     );
   }
-  requireDeployWorkflowSplitEnvironmentBoundary(deployStackWorkflow, deployStackDocument);
-  requireDeployWorkflowBranchPromotionBoundary(
-    deployStackDocument,
-    deployStagingDocument,
-    deployProductionDocument,
-  );
+  requireDeploymentWorkflowBoundaries([
+    {
+      environment: 'staging',
+      backend: deployStagingDocument,
+      backendSource: deployStagingSource,
+      frontend: deployStagingFrontendDocument,
+      frontendSource: deployStagingFrontendSource,
+    },
+    {
+      environment: 'production',
+      backend: deployProductionDocument,
+      backendSource: deployProductionSource,
+      frontend: deployProductionFrontendDocument,
+      frontendSource: deployProductionFrontendSource,
+    },
+  ]);
   requireFunctionIncludes(
     'P1: shared Cloudflare service dispatcher does not attach internal service auth',
     cloudflareSource,
@@ -460,537 +481,248 @@ function readRepoFile(path) {
   return readFileSync(join(repoRoot, path), 'utf8');
 }
 
-function requireDeployWorkflowSplitEnvironmentBoundary(workflowSource, workflow) {
-  const preflightJob = requireWorkflowJob(
-    workflow,
-    'preflight_release',
-    'P1: internal Cloudflare stack deployment is missing preflight_release',
-  );
-  requireExactValue(
-    'P1: internal Cloudflare stack preflight_release does not derive its protected environment from the fixed release target',
-    preflightJob?.environment?.name,
-    "${{ format('{0}-mpc-router', inputs.target) }}",
-  );
+function requireDeploymentWorkflowBoundaries(targets) {
+  for (const target of targets) {
+    const branch = target.environment === 'production' ? 'main' : 'dev';
+    const backend = target.backend;
+    const frontend = target.frontend;
+    const backendSource = target.backendSource;
+    const frontendSource = target.frontendSource;
 
-  for (const [jobId, requiredEnvironmentExpression] of [
-    ['deploy_mpc_router', "${{ format('{0}-mpc-router', inputs.target) }}"],
-    ['deploy_deriver_a', "${{ format('{0}-deriver-a', inputs.target) }}"],
-    ['deploy_deriver_b', "${{ format('{0}-deriver-b', inputs.target) }}"],
-    ['deploy_signing_worker', "${{ format('{0}-signing-worker', inputs.target) }}"],
-  ]) {
-    const job = requireWorkflowJob(
-      workflow,
-      jobId,
-      `P1: internal Cloudflare stack deployment is missing ${jobId}`,
-    );
-    if (!job) continue;
-    const environment = isRecord(job.environment) ? job.environment.name : undefined;
     requireExactValue(
-      `P1: internal Cloudflare stack ${jobId} does not derive its protected environment from the fixed release target`,
-      environment,
-      requiredEnvironmentExpression,
+      `P1: ${target.environment} backend deployment entrypoint has the wrong workflow name`,
+      backend?.name,
+      `Deploy / ${target.environment} / cloudflare-stack`,
     );
-  }
-
-  for (const [jobId, forbiddenNeedles] of [
-    [
-      'deploy_mpc_router',
-      [
-        'DERIVER_A_ROOT_SHARE_WIRE_SECRET',
-        'DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY',
-        'DERIVER_A_PEER_SIGNING_KEY',
-        'DERIVER_B_ROOT_SHARE_WIRE_SECRET',
-        'DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY',
-        'DERIVER_B_PEER_SIGNING_KEY',
-        'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY',
-      ],
-    ],
-    [
-      'deploy_signing_worker',
-      [
-        'DERIVER_A_ROOT_SHARE_WIRE_SECRET',
-        'DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY',
-        'DERIVER_A_PEER_SIGNING_KEY',
-        'DERIVER_B_ROOT_SHARE_WIRE_SECRET',
-        'DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY',
-        'DERIVER_B_PEER_SIGNING_KEY',
-      ],
-    ],
-    [
-      'deploy_deriver_a',
-      [
-        'DERIVER_B_ROOT_SHARE_WIRE_SECRET',
-        'DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY',
-        'DERIVER_B_PEER_SIGNING_KEY',
-        'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY',
-      ],
-    ],
-    [
-      'deploy_deriver_b',
-      [
-        'DERIVER_A_ROOT_SHARE_WIRE_SECRET',
-        'DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY',
-        'DERIVER_A_PEER_SIGNING_KEY',
-        'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY',
-      ],
-    ],
-  ]) {
-    const jobSource = workflowJobSource(workflowSource, jobId);
-    if (!jobSource) continue;
-    for (const forbiddenNeedle of forbiddenNeedles) {
-      if (jobSource.includes(forbiddenNeedle)) {
-        blockers.push(
-          `P1: internal Cloudflare stack ${jobId} references forbidden secret ${forbiddenNeedle}`,
-        );
-      }
-    }
-  }
-}
-
-function requireDeployWorkflowBranchPromotionBoundary(
-  workflow,
-  stagingWorkflow,
-  productionWorkflow,
-) {
-  for (const [environment, branch, entrypoint] of [
-    ['staging', 'dev', stagingWorkflow],
-    ['production', 'main', productionWorkflow],
-  ]) {
     requireExactValue(
-      `P1: ${environment} deployment entrypoint has the wrong workflow name`,
-      entrypoint?.name,
-      `Deploy / ${environment} / cloudflare-stack`,
+      `P1: ${target.environment} frontend deployment entrypoint has the wrong workflow name`,
+      frontend?.name,
+      `Deploy / ${target.environment} / frontend`,
     );
     requireTriggerPresent(
-      `P1: ${environment} deployment entrypoint is missing workflow_dispatch`,
-      entrypoint,
+      `P1: ${target.environment} backend deployment entrypoint is missing workflow_dispatch`,
+      backend,
       'workflow_dispatch',
     );
     requireTriggerPresent(
-      `P1: ${environment} deployment entrypoint is missing workflow_run`,
-      entrypoint,
+      `P1: ${target.environment} backend deployment entrypoint is missing workflow_run`,
+      backend,
+      'workflow_run',
+    );
+    requireTriggerPresent(
+      `P1: ${target.environment} frontend deployment entrypoint is missing workflow_dispatch`,
+      frontend,
+      'workflow_dispatch',
+    );
+    requireTriggerPresent(
+      `P1: ${target.environment} frontend deployment entrypoint is missing workflow_run`,
+      frontend,
       'workflow_run',
     );
     requireArrayIncludes(
-      `P1: ${environment} deployment entrypoint does not wait for repository validation`,
-      entrypoint?.on?.workflow_run?.workflows,
+      `P1: ${target.environment} backend deployment does not wait for repository validation`,
+      backend?.on?.workflow_run?.workflows,
       'Validate / repository',
     );
     requireArrayIncludes(
-      `P1: ${environment} deployment entrypoint has the wrong validation branch`,
-      entrypoint?.on?.workflow_run?.branches,
+      `P1: ${target.environment} frontend deployment does not wait for its backend workflow`,
+      frontend?.on?.workflow_run?.workflows,
+      `Deploy / ${target.environment} / cloudflare-stack`,
+    );
+    requireArrayIncludes(
+      `P1: ${target.environment} backend deployment has the wrong validation branch`,
+      backend?.on?.workflow_run?.branches,
+      branch,
+    );
+    requireArrayIncludes(
+      `P1: ${target.environment} frontend deployment has the wrong backend branch`,
+      frontend?.on?.workflow_run?.branches,
       branch,
     );
 
-    const automaticPrepare = requireWorkflowJob(
-      entrypoint,
-      'auto_prepare',
-      `P1: ${environment} deployment entrypoint is missing automatic release preparation`,
-    );
-    const automaticPreflight = requireWorkflowJob(
-      entrypoint,
-      'auto_preflight_release',
-      `P1: ${environment} deployment entrypoint is missing automatic deployment preflight`,
-    );
-    const manualPreflight = requireWorkflowJob(
-      entrypoint,
-      'manual_preflight_release',
-      `P1: ${environment} deployment entrypoint is missing manual deployment preflight`,
-    );
-    requireJobRunFragment(
-      `P1: ${environment} automatic release does not verify the accepted validation workflow`,
-      automaticPrepare,
-      `"$validation_name" == 'Validate / repository'`,
-    );
-    requireExactValue(
-      `P1: ${environment} automatic release does not pass the workflow-run source SHA`,
-      entrypoint?.env?.SOURCE_SHA,
-      "${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}",
-    );
-    requireJobNeeds(
-      `P1: ${environment} automatic deployment preflight is not gated by release creation`,
-      automaticPreflight,
-      ['auto_create_release_set'],
-    );
-    requireExactValue(
-      `P1: ${environment} manual promotion does not use the exact source SHA input`,
-      manualPreflight?.env?.DEPLOY_SHA,
-      '${{ env.SOURCE_SHA }}',
-    );
-    requireExactValue(
-      `P1: ${environment} manual promotion does not use the accepted release-set input`,
-      manualPreflight?.env?.RELEASE_SET_ID,
-      '${{ env.MANUAL_RELEASE_SET_ID }}',
-    );
-    for (const jobId of [
-      'auto_deploy_mpc_router',
-      'auto_deploy_deriver_a',
-      'auto_deploy_deriver_b',
-      'auto_deploy_signing_worker',
-      'auto_deploy_gateway',
-      'auto_deploy_app',
-      'auto_deploy_wallet',
-      'manual_deploy_mpc_router',
-      'manual_deploy_deriver_a',
-      'manual_deploy_deriver_b',
-      'manual_deploy_signing_worker',
-      'manual_deploy_gateway',
-      'manual_deploy_app',
-      'manual_deploy_wallet',
+    for (const [label, source, event] of [
+      ['backend', backendSource, "github.event.workflow_run.event == 'push'"],
+      ['frontend', frontendSource, "github.event.workflow_run.event == 'workflow_run'"],
     ]) {
-      requireWorkflowJob(
-        entrypoint,
-        jobId,
-        `P1: ${environment} deployment entrypoint is missing ${jobId}`,
-      );
+      if (!source.includes(event)) {
+        blockers.push(
+          `P1: ${target.environment} ${label} automatic deployment has the wrong upstream event`,
+        );
+      }
+      if (!source.includes("github.event.workflow_run.conclusion == 'success'")) {
+        blockers.push(
+          `P1: ${target.environment} ${label} automatic deployment does not require upstream success`,
+        );
+      }
+      if (source.includes('workflow_call')) {
+        blockers.push(`P1: ${target.environment} ${label} deployment declares workflow_call`);
+      }
     }
-    requireJobRunFragment(
-      `P1: ${environment} production authority is not rooted in main`,
-      automaticPrepare,
-      `"$GITHUB_REF" != 'refs/heads/main'`,
-    );
-  }
 
-  requireTriggerPresent(
-    'P1: internal Cloudflare stack deployment is missing workflow_call',
-    workflow,
-    'workflow_call',
-  );
-  if (isRecord(workflow?.on) && Object.hasOwn(workflow.on, 'workflow_dispatch')) {
-    blockers.push('P1: internal Cloudflare stack deployment exposes workflow_dispatch');
-  }
-  if (isRecord(workflow?.on) && Object.hasOwn(workflow.on, 'workflow_run')) {
-    blockers.push('P1: internal Cloudflare stack deployment exposes workflow_run');
-  }
-  for (const inputName of [
-    'target',
-    'deploy_sha',
-    'artifact_run_id',
-    'release_set_id',
-    'source_branch',
-  ]) {
-    requireWorkflowInput(
-      `P1: internal Cloudflare stack workflow_call input ${inputName} is not required string data`,
-      workflow,
-      inputName,
-      'string',
-    );
-  }
-  requireExactValue(
-    'P1: internal Cloudflare stack does not resolve the selected exact SHA',
-    workflow?.env?.DEPLOY_SHA,
-    '${{ inputs.deploy_sha }}',
-  );
-  requireExactValue(
-    'P1: internal Cloudflare stack does not pass the accepted artifact run ID',
-    workflow?.env?.ARTIFACT_RUN_ID,
-    '${{ inputs.artifact_run_id }}',
-  );
-  requireExactValue(
-    'P1: internal Cloudflare stack does not pass the accepted release-set ID',
-    workflow?.env?.RELEASE_SET_ID,
-    '${{ inputs.release_set_id }}',
-  );
-  requireExactValue(
-    'P1: internal Cloudflare stack does not pass the source branch',
-    workflow?.env?.DEPLOY_SOURCE_BRANCH,
-    '${{ inputs.source_branch }}',
-  );
-  for (const jobId of ROUTER_AB_DEPLOY_JOB_IDS) {
-    const job = requireWorkflowJob(
-      workflow,
-      jobId,
-      `P1: internal Cloudflare stack deployment is missing ${jobId}`,
-    );
-    if (!job) continue;
-    requireExactValue(
-      `P1: internal Cloudflare stack ${jobId} does not map staging to Wrangler --env and production to the top-level Worker`,
-      job.env?.WORKER_ENV,
-      "${{ inputs.target == 'staging' && 'staging' || '' }}",
-    );
-    for (const fragment of [
-      'wrangler_env_args=()',
-      'wrangler_env_args=(--env "$WORKER_ENV")',
-      '"${wrangler_env_args[@]}"',
-    ]) {
-      requireJobRunFragment(
-        `P1: internal Cloudflare stack ${jobId} does not safely map staging to Wrangler --env and production to the top-level Worker`,
-        job,
-        fragment,
-      );
+    const backendJobs = backend?.jobs ?? {};
+    const frontendJobs = frontend?.jobs ?? {};
+    for (const [jobId, job] of Object.entries(backendJobs)) {
+      if (!isRecord(job?.environment)) continue;
+      const environmentName = job.environment.name;
+      if (
+        typeof environmentName !== 'string' ||
+        !environmentName.startsWith(`${target.environment}-`)
+      ) {
+        blockers.push(
+          `P1: ${target.environment} backend job ${jobId} is not bound to a target-specific GitHub Environment`,
+        );
+      }
     }
-  }
+    for (const [jobId, job] of Object.entries(frontendJobs)) {
+      if (!isRecord(job?.environment)) continue;
+      const environmentName = job.environment.name;
+      if (
+        typeof environmentName !== 'string' ||
+        environmentName !== `${target.environment}-frontend`
+      ) {
+        blockers.push(
+          `P1: ${target.environment} frontend job ${jobId} is not bound to ${target.environment}-frontend`,
+        );
+      }
+    }
 
-  const mpcRouterJob = requireWorkflowJob(
-    workflow,
-    'deploy_mpc_router',
-    'P1: internal Cloudflare stack deployment is missing deploy_mpc_router',
-  );
-  requireExactValue(
-    'P1: internal Cloudflare stack production MPCRouter does not expose the project policy bootstrap variable',
-    mpcRouterJob?.env?.ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON,
-    '${{ vars.ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON }}',
-  );
-  requireJobRunFragment(
-    'P1: internal Cloudflare stack production MPCRouter does not require the project policy bootstrap',
-    mpcRouterJob,
-    'ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON is required for production',
-  );
-  requireJobRunFragment(
-    'P1: internal Cloudflare stack production MPCRouter does not override the project policy bootstrap',
-    mpcRouterJob,
-    'ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON:${ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON}',
-  );
-
-  requireRouterArtifactBoundaries(workflow);
-  requireRouterDependencyOrdering(workflow);
-}
-
-const ROUTER_AB_DEPLOY_JOB_IDS = [
-  'deploy_mpc_router',
-  'deploy_deriver_a',
-  'deploy_deriver_b',
-  'deploy_signing_worker',
-];
-
-const ROUTER_AB_ARTIFACT_ROLES = [
-  ['signing-worker', 'deploy_signing_worker'],
-  ['deriver-a', 'deploy_deriver_a'],
-  ['deriver-b', 'deploy_deriver_b'],
-  ['router', 'deploy_mpc_router'],
-];
-
-function requireRouterArtifactBoundaries(workflow) {
-  const preflightJob = requireWorkflowJob(
-    workflow,
-    'preflight_release',
-    'P1: Router A/B deployment is missing the accepted release preflight',
-  );
-  requireExactValue(
-    'P1: Router A/B release preflight does not pass the accepted artifact run ID',
-    workflow?.env?.ARTIFACT_RUN_ID,
-    '${{ inputs.artifact_run_id }}',
-  );
-  requireExactValue(
-    'P1: Router A/B release preflight does not pass the release-set ID',
-    workflow?.env?.RELEASE_SET_ID,
-    '${{ inputs.release_set_id }}',
-  );
-  requireCheckoutRef(
-    'P1: Router A/B release preflight does not check out the selected exact SHA',
-    preflightJob,
-  );
-  const releaseSetDownloadStep = requireWorkflowStep(
-    'P1: Router A/B release preflight is missing the release-set artifact download',
-    preflightJob,
-    isDownloadArtifactStep,
-  );
-  requireExactStepValue(
-    'P1: Router A/B release preflight downloads the wrong release-set artifact',
-    releaseSetDownloadStep,
-    'name',
-    'release-set-${{ env.RELEASE_SET_ID }}',
-  );
-  requireExactStepValue(
-    'P1: Router A/B release preflight downloads the release set into the wrong path',
-    releaseSetDownloadStep,
-    'path',
-    '.release-artifacts/release-set',
-  );
-  requireExactStepValue(
-    'P1: Router A/B release preflight does not use the GitHub token for cross-run artifacts',
-    releaseSetDownloadStep,
-    'github-token',
-    '${{ secrets.GITHUB_TOKEN }}',
-  );
-  requireExactStepValue(
-    'P1: Router A/B release preflight does not constrain the artifact repository',
-    releaseSetDownloadStep,
-    'repository',
-    '${{ github.repository }}',
-  );
-  requireExactStepValue(
-    'P1: Router A/B release preflight does not select the accepted artifact run',
-    releaseSetDownloadStep,
-    'run-id',
-    '${{ env.ARTIFACT_RUN_ID }}',
-  );
-  const releaseSetVerificationStep = requireWorkflowStep(
-    'P1: Router A/B release preflight is missing release-set verification',
-    preflightJob,
-    isReleaseSetVerificationStep,
-  );
-  for (const fragment of [
-    'node scripts/deployment-release.mjs verify',
-    '--manifest "$RELEASE_MANIFEST"',
-    '--target "$DEPLOY_TARGET"',
-    '--source-sha "$DEPLOY_SHA"',
-    '--artifact-run-id "$ARTIFACT_RUN_ID"',
-    '--release-set-id "$RELEASE_SET_ID"',
-  ]) {
-    requireStepRunFragment(
-      'P1: Router A/B release preflight verification is incomplete',
-      releaseSetVerificationStep,
-      fragment,
-    );
-  }
-
-  for (const [role, jobId] of ROUTER_AB_ARTIFACT_ROLES) {
-    const job = requireWorkflowJob(
-      workflow,
-      jobId,
-      `P1: internal Cloudflare stack deployment is missing ${jobId}`,
-    );
-    if (!job) continue;
-    requireExactValue(
-      `P1: ${role} deployment does not pass the selected target to artifact verification`,
-      job.env?.ROUTER_AB_DEPLOY_TARGET,
-      '${{ inputs.target }}',
-    );
-    requireExactValue(
-      `P1: ${role} deployment does not pass the selected exact SHA to artifact verification`,
-      job.env?.ROUTER_AB_DEPLOY_SHA,
-      '${{ inputs.deploy_sha }}',
-    );
-    requireExactValue(
-      `P1: ${role} deployment has the wrong artifact identity`,
-      job.env?.ROUTER_AB_ARTIFACT_IDENTITY_JSON,
-      JSON.stringify({ profile: 'release', role }),
-    );
-    requireCheckoutRef(`P1: ${role} deployment does not check out the selected exact SHA`, job);
-
-    const downloadStep = requireWorkflowStep(
-      `P1: ${role} deployment is missing its artifact download`,
-      job,
-      isDownloadArtifactStep,
-    );
-    requireExactStepValue(
-      `P1: ${role} deployment downloads an artifact with the wrong target or SHA`,
-      downloadStep,
-      'name',
-      `release-\${{ env.DEPLOY_TARGET }}-\${{ env.DEPLOY_SHA }}-${role}`,
-    );
-    requireExactStepValue(
-      `P1: ${role} deployment downloads its artifact into the wrong path`,
-      downloadStep,
-      'path',
-      'crates/router-ab-cloudflare',
-    );
-    requireExactStepValue(
-      `P1: ${role} deployment does not use the GitHub token for cross-run artifacts`,
-      downloadStep,
-      'github-token',
-      '${{ secrets.GITHUB_TOKEN }}',
-    );
-    requireExactStepValue(
-      `P1: ${role} deployment does not constrain the artifact repository`,
-      downloadStep,
-      'repository',
-      '${{ github.repository }}',
-    );
-    requireExactStepValue(
-      `P1: ${role} deployment does not select the accepted artifact run`,
-      downloadStep,
-      'run-id',
-      '${{ env.ARTIFACT_RUN_ID }}',
-    );
-    const verificationStep = requireWorkflowStep(
-      `P1: ${role} deployment is missing artifact verification`,
-      job,
-      isArtifactVerificationStep,
-    );
-    for (const fragment of [
-      `--kind ${role}`,
-      '--target "$DEPLOY_TARGET"',
-      '--sha "$DEPLOY_SHA"',
-      `--root crates/router-ab-cloudflare/build/${role}`,
-      `--manifest crates/router-ab-cloudflare/.release-artifacts/${role}.json`,
-      '--identity-json "$ROUTER_AB_ARTIFACT_IDENTITY_JSON"',
-    ]) {
-      requireStepRunFragment(
-        `P1: ${role} deployment artifact verification is incomplete`,
-        verificationStep,
-        fragment,
+    for (const prefix of ['auto_', 'manual_']) {
+      const preflight = requireWorkflowJob(
+        backend,
+        `${prefix}preflight_release`,
+        `P1: ${target.environment} backend deployment is missing ${prefix}preflight_release`,
       );
+      const signingWorker = requireWorkflowJob(
+        backend,
+        `${prefix}deploy_signing_worker`,
+        `P1: ${target.environment} backend deployment is missing ${prefix}deploy_signing_worker`,
+      );
+      const deriverA = requireWorkflowJob(
+        backend,
+        `${prefix}deploy_deriver_a`,
+        `P1: ${target.environment} backend deployment is missing ${prefix}deploy_deriver_a`,
+      );
+      const deriverB = requireWorkflowJob(
+        backend,
+        `${prefix}deploy_deriver_b`,
+        `P1: ${target.environment} backend deployment is missing ${prefix}deploy_deriver_b`,
+      );
+      const router = requireWorkflowJob(
+        backend,
+        `${prefix}deploy_mpc_router`,
+        `P1: ${target.environment} backend deployment is missing ${prefix}deploy_mpc_router`,
+      );
+      const gateway = requireWorkflowJob(
+        backend,
+        `${prefix}deploy_gateway`,
+        `P1: ${target.environment} backend deployment is missing ${prefix}deploy_gateway`,
+      );
+      if (prefix === 'auto_') {
+        requireJobNeeds(
+          `P1: ${target.environment} automatic Router role deployment is not gated by release preflight`,
+          signingWorker,
+          ['auto_preflight_release', 'auto_create_release_set'],
+        );
+        requireJobNeeds(
+          `P1: ${target.environment} automatic Router activation does not wait for every role`,
+          router,
+          [
+            'auto_preflight_release',
+            'auto_deploy_signing_worker',
+            'auto_deploy_deriver_a',
+            'auto_deploy_deriver_b',
+            'auto_create_release_set',
+          ],
+        );
+      } else {
+        requireJobNeeds(
+          `P1: ${target.environment} manual Router role deployment is not gated by release preflight`,
+          signingWorker,
+          ['manual_preflight_release'],
+        );
+        requireJobNeeds(
+          `P1: ${target.environment} manual Router activation does not wait for every role`,
+          router,
+          [
+            'manual_preflight_release',
+            'manual_deploy_signing_worker',
+            'manual_deploy_deriver_a',
+            'manual_deploy_deriver_b',
+          ],
+        );
+      }
+      requireJobNeeds(
+        `P1: ${target.environment} ${prefix} Gateway deployment is missing release preflight`,
+        gateway,
+        prefix === 'auto_'
+          ? ['auto_preflight_release', 'auto_create_release_set']
+          : ['manual_preflight_release'],
+      );
+      if (!preflight?.env || preflight.env.DEPLOY_TARGET !== target.environment) {
+        blockers.push(
+          `P1: ${target.environment} ${prefix}preflight_release has an unfixed deployment target`,
+        );
+      }
+    }
+
+    for (const [jobId, job] of Object.entries(backendJobs)) {
+      const jobName = typeof job?.name === 'string' ? job.name : '';
+      if (jobName.includes('cloudflare-pages')) {
+        blockers.push(
+          `P1: ${target.environment} backend workflow contains frontend deployment authority in ${jobId}`,
+        );
+      }
+    }
+    for (const [jobId, job] of Object.entries(frontendJobs)) {
+      const jobName = typeof job?.name === 'string' ? job.name : '';
+      if (
+        jobName.includes('cloudflare-api-gateway') ||
+        jobName.includes('cloudflare-mpc-router-ab')
+      ) {
+        blockers.push(
+          `P1: ${target.environment} frontend workflow contains backend deployment authority in ${jobId}`,
+        );
+      }
+    }
+    for (const forbidden of [
+      'RELAY_SESSION_HMAC_SECRET',
+      'ACCOUNT_ID_DERIVATION_SECRET',
+      'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
+      'DERIVER_A_ROOT_SHARE_WIRE_SECRET',
+      'DERIVER_B_ROOT_SHARE_WIRE_SECRET',
+      'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY',
+      'wrangler deploy',
+    ]) {
+      if (frontendSource.includes(forbidden)) {
+        blockers.push(
+          `P1: ${target.environment} frontend workflow references backend deployment material ${forbidden}`,
+        );
+      }
+    }
+    for (const forbidden of [
+      'CF_PAGES_PROJECT_VITE',
+      'CF_PAGES_PROJECT_WALLET',
+      'wrangler pages deploy',
+    ]) {
+      if (backendSource.includes(forbidden)) {
+        blockers.push(
+          `P1: ${target.environment} backend workflow references frontend deployment material ${forbidden}`,
+        );
+      }
+    }
+
+    const frontendInputNames = Object.keys(frontend?.on?.workflow_dispatch?.inputs ?? {});
+    for (const inputName of [
+      'source_sha',
+      'artifact_run_id',
+      'release_set_id',
+      'backend_receipt_run_id',
+    ]) {
+      if (!frontendInputNames.includes(inputName)) {
+        blockers.push(`P1: ${target.environment} frontend promotion is missing ${inputName}`);
+      }
     }
   }
-}
-
-function requireRouterDependencyOrdering(workflow) {
-  const expectedRoleNeeds = ['preflight_release'];
-  for (const jobId of ['deploy_signing_worker', 'deploy_deriver_a', 'deploy_deriver_b']) {
-    const job = requireWorkflowJob(
-      workflow,
-      jobId,
-      `P1: Router A/B workflow is missing ${jobId} for independent role deployment`,
-    );
-    requireJobNeeds(
-      `P1: ${jobId} must run independently after release preflight`,
-      job,
-      expectedRoleNeeds,
-    );
-  }
-  const routerJob = requireWorkflowJob(
-    workflow,
-    'deploy_mpc_router',
-    'P1: Router A/B workflow is missing deploy_mpc_router for activation ordering',
-  );
-  requireJobNeeds(
-    'P1: MPCRouter activation must wait for every selected Router A/B role',
-    routerJob,
-    ['preflight_release', 'deploy_signing_worker', 'deploy_deriver_a', 'deploy_deriver_b'],
-  );
-  requireExpressionFragments(
-    'P1: MPCRouter activation does not require every selected Router A/B role to succeed',
-    routerJob?.if,
-    [
-      'always()',
-      "needs.preflight_release.result == 'success'",
-      "contains(fromJSON(needs.preflight_release.outputs.selected_components), 'router')",
-      "needs.deploy_signing_worker.result == 'success'",
-      "needs.deploy_deriver_a.result == 'success'",
-      "needs.deploy_deriver_b.result == 'success'",
-    ],
-  );
-
-  const gatewayJob = requireWorkflowJob(
-    workflow,
-    'deploy_gateway',
-    'P1: Router A/B workflow is missing deploy_gateway after release preflight',
-  );
-  requireJobNeeds('P1: deploy_gateway must run after release preflight', gatewayJob, [
-    'preflight_release',
-  ]);
-  const pagesJob = requireWorkflowJob(
-    workflow,
-    'deploy_pages',
-    'P1: Router A/B workflow is missing deploy_pages after release preflight',
-  );
-  requireJobNeeds('P1: deploy_pages must wait for release preflight and Gateway', pagesJob, [
-    'preflight_release',
-    'deploy_gateway',
-  ]);
-  const finalSmokeJob = requireWorkflowJob(
-    workflow,
-    'final_smoke',
-    'P1: Router A/B workflow is missing final_smoke release validation',
-  );
-  requireJobNeeds(
-    'P1: final smoke must wait for Router A/B, gateway, and Pages deployment',
-    finalSmokeJob,
-    ['preflight_release', 'deploy_mpc_router', 'deploy_gateway', 'deploy_pages'],
-  );
-  requireExpressionFragments(
-    'P1: final smoke does not wait for every selected deployment without failure',
-    finalSmokeJob?.if,
-    [
-      'always()',
-      "needs.preflight_release.result == 'success'",
-      "needs.deploy_mpc_router.result == 'success'",
-      "needs.deploy_gateway.result == 'success'",
-      "needs.deploy_pages.result == 'success'",
-    ],
-  );
 }
 
 export function parseWorkflowYaml(source, label = 'workflow') {
@@ -1036,28 +768,8 @@ function requireArrayIncludes(label, actual, expected) {
   }
 }
 
-function requireExpressionFragments(label, actual, fragments) {
-  if (typeof actual !== 'string' || !includesAllFragments(actual, fragments)) {
-    blockers.push(label);
-  }
-}
-
 function requireTriggerPresent(label, workflow, triggerName) {
   if (!isRecord(workflow?.on) || !Object.hasOwn(workflow.on, triggerName)) {
-    blockers.push(label);
-  }
-}
-
-function requireWorkflowInput(label, workflow, inputName, expectedType) {
-  const input = workflow?.on?.workflow_call?.inputs?.[inputName];
-  if (!isRecord(input) || input.required !== true || input.type !== expectedType) {
-    blockers.push(label);
-  }
-}
-
-function requireWorkflowDispatchInput(label, workflow, inputName, expectedType) {
-  const input = workflow?.on?.workflow_dispatch?.inputs?.[inputName];
-  if (!isRecord(input) || input.required !== true || input.type !== expectedType) {
     blockers.push(label);
   }
 }
@@ -1102,99 +814,6 @@ function allStrings(values) {
     if (typeof value !== 'string') return false;
   }
   return true;
-}
-
-function requireCheckoutRef(label, job) {
-  const checkoutStep = requireWorkflowStep(label, job, isCheckoutStep);
-  requireExactStepValue(
-    `${label}: checkout ref is not the selected exact SHA`,
-    checkoutStep,
-    'ref',
-    '${{ env.DEPLOY_SHA }}',
-  );
-}
-
-function requireWorkflowStep(label, job, predicate) {
-  const steps = job?.steps;
-  const step = Array.isArray(steps) ? steps.find(predicate) : undefined;
-  if (!isRecord(step)) {
-    blockers.push(label);
-    return null;
-  }
-  return step;
-}
-
-function requireExactStepValue(label, step, key, expected) {
-  requireExactValue(label, step?.with?.[key], expected);
-}
-
-function requireJobRunFragment(label, job, fragment) {
-  if (!jobContainsRunFragment(job, fragment)) {
-    blockers.push(label);
-  }
-}
-
-function requireStepRunFragment(label, step, fragment) {
-  if (typeof step?.run !== 'string' || !step.run.includes(fragment)) {
-    blockers.push(label);
-  }
-}
-
-function stepHasRunFragment(step, fragment) {
-  return isRecord(step) && typeof step.run === 'string' && step.run.includes(fragment);
-}
-
-function jobContainsRunFragment(job, fragment) {
-  const steps = job?.steps;
-  if (!Array.isArray(steps)) return false;
-  for (const step of steps) {
-    if (stepHasRunFragment(step, fragment)) return true;
-  }
-  return false;
-}
-
-function includesAllFragments(source, fragments) {
-  for (const fragment of fragments) {
-    if (!source.includes(fragment)) return false;
-  }
-  return true;
-}
-
-function isCheckoutStep(step) {
-  return isRecord(step) && step.uses === 'actions/checkout@v6';
-}
-
-function isDownloadArtifactStep(step) {
-  return isRecord(step) && step.uses === 'actions/download-artifact@v8';
-}
-
-function isArtifactVerificationStep(step) {
-  return (
-    isRecord(step) &&
-    typeof step.run === 'string' &&
-    step.run.includes('node scripts/deployment-artifact.mjs verify')
-  );
-}
-
-function isReleaseSetVerificationStep(step) {
-  return (
-    isRecord(step) &&
-    typeof step.run === 'string' &&
-    step.run.includes('node scripts/deployment-release.mjs verify')
-  );
-}
-
-function workflowJobSource(workflowSource, jobId) {
-  const startMarker = `  ${jobId}:\n`;
-  const start = workflowSource.indexOf(startMarker);
-  if (start < 0) {
-    return '';
-  }
-  const nextJob = workflowSource.slice(start + startMarker.length).search(/\n {2}[a-zA-Z0-9_]+:\n/);
-  if (nextJob < 0) {
-    return workflowSource.slice(start);
-  }
-  return workflowSource.slice(start, start + startMarker.length + nextJob);
 }
 
 function requireSourceRangeIncludes(label, source, startNeedle, endNeedle, requiredNeedle) {

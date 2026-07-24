@@ -60,7 +60,7 @@ function createComponent(
 
 function validComponents(lane: 'backend' | 'frontend' = 'backend'): ComponentDto[] {
   const backendComponents = [
-    createComponent('mpc-router', 'router', 1),
+    createComponent('router', 'router', 1),
     createComponent('deriver-a', 'deriver-a', 2),
     createComponent('deriver-b', 'deriver-b', 3),
     createComponent('signing-worker', 'signing-worker', 4),
@@ -155,6 +155,8 @@ function createArgs(
     fixture.createdAt,
     '--gateway-api-contract-version',
     fixture.gatewayApiContractVersion,
+    '--supported-frontend-api-contract-range-json',
+    JSON.stringify({ minInclusive: '1.0.0', maxInclusive: '2.0.0' }),
     '--build-identity-file',
     fixture.buildIdentityFile,
     '--migrations-file',
@@ -379,7 +381,7 @@ test('release-set boundaries reject unsupported targets and component kinds', ()
 });
 
 test('release-set boundaries reject missing fields, mapping drift, and duplicate components', () => {
-  const missingFieldComponent: Record<string, unknown> = createComponent('mpc-router', 'router', 1);
+  const missingFieldComponent: Record<string, unknown> = createComponent('router', 'router', 1);
   delete missingFieldComponent.releaseId;
   const missingFieldFixture = createFixture({ components: [missingFieldComponent] });
   expectFailure(
@@ -388,21 +390,21 @@ test('release-set boundaries reject missing fields, mapping drift, and duplicate
   );
 
   const mappingDriftComponents = validComponents();
-  mappingDriftComponents[0] = createComponent('mpc-router', 'router', 1, {
+  mappingDriftComponents[0] = createComponent('router', 'router', 1, {
     sourceSha: 'f'.repeat(40),
   });
   const mappingDriftFixture = createFixture({ components: mappingDriftComponents });
   expectFailure(
     runRelease(createArgs(mappingDriftFixture)),
-    /component mapping is invalid: mpc-router/u,
+    /component mapping is invalid: router/u,
   );
 
   const duplicateComponents = validComponents();
-  duplicateComponents[1] = { ...duplicateComponents[1], name: duplicateComponents[0].name };
+  duplicateComponents[1] = { ...duplicateComponents[0] };
   const duplicateFixture = createFixture({ components: duplicateComponents });
   expectFailure(
     runRelease(createArgs(duplicateFixture)),
-    /duplicate release-set component name: mpc-router/u,
+    /duplicate release-set component name: router/u,
   );
 });
 

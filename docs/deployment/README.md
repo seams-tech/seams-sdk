@@ -5,10 +5,15 @@ sites, Router A/B Workers, and backing infra.
 
 ## Deployment Model
 
-GitHub deployments use two isolated environments:
+GitHub deployments use isolated backend, frontend, and observability
+environments for each target:
 
-- `staging`: automatic from `dev`; manual target for pre-production deploys.
-- `production`: automatic from `main`; manual target for production deploys.
+- `staging-*`: automatic from `dev`; manual target for pre-production deploys.
+- `production-*`: automatic from `main`; manual target for production deploys.
+
+The suffix identifies the authority boundary: `frontend` owns Pages credentials
+and mutation, backend role environments own Worker mutation, and
+`observability` has only public origins for read-only smoke checks.
 
 Production has its own Router A/B Workers, Gateway, D1 databases,
 Durable Object namespaces, secrets, and Pages configuration. It does not reuse
@@ -20,18 +25,24 @@ variables and checked-in Cloudflare config.
 
 ## Workflows
 
-| Workflow                                                   | Trigger                                                      | Purpose                                                                           |
-| ---------------------------------------------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| Workflow                                                   | Trigger                                                              | Purpose                                                                       |
+| ---------------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | `.github/workflows/validate-repository.yml`                | Push fast gate; pull request, merge group, or manual full validation | Push policy/change-set recording; full repository validation on review paths. |
-| `.github/workflows/validate-cloudflare-mpc-router-ab.yml`  | Relevant MPC Router A/B pull requests, or manual dispatch    | MPC Router A/B core, Cloudflare, strict Worker, and startup validation.           |
-| `.github/workflows/deploy-staging-cloudflare-stack.yml`    | Successful `dev` validation run, or manual accepted release  | Builds and deploys the selected staging Cloudflare stack.                         |
-| `.github/workflows/deploy-production-cloudflare-stack.yml` | Successful `main` validation run, or manual accepted release | Builds and deploys the selected production Cloudflare stack.                      |
+| `.github/workflows/validate-cloudflare-mpc-router-ab.yml`  | Relevant MPC Router A/B pull requests, or manual dispatch            | MPC Router A/B core, Cloudflare, strict Worker, and startup validation.       |
+| `.github/workflows/deploy-staging-cloudflare-stack.yml`    | Successful `dev` validation run, or manual accepted release          | Builds and deploys the selected staging Cloudflare stack.                     |
+| `.github/workflows/deploy-production-cloudflare-stack.yml` | Successful `main` validation run, or manual accepted release         | Builds and deploys the selected production Cloudflare stack.                  |
+| `.github/workflows/deploy-staging-frontend.yml`            | Successful staging stack receipt, or manual accepted release         | Builds and deploys staging Pages and SDK runtime assets.                      |
+| `.github/workflows/deploy-production-frontend.yml`         | Successful production stack receipt, or manual accepted release      | Builds and deploys production Pages and SDK runtime assets.                   |
 
-These are the only four repository workflows. The staging and production stack
-workflows contain the service-level build, deploy, migration, activation, Pages,
-and smoke-test jobs for `cloudflare-mpc-router-ab`, `cloudflare-api-gateway`,
-`cloudflare-pages`, and the overall `cloudflare-stack`. No file under
+These are the six repository workflows. The stack workflows contain backend
+build, deploy, migration, activation, and backend smoke-test jobs. The frontend
+workflows contain Pages builds, Pages mutation, SDK runtime asset verification,
+and frontend smoke checks. No file under
 `.github/workflows` uses `workflow_call`.
+
+The generator inputs under `scripts/deployment-workflow-templates/` are job
+fragments, not registered or reusable workflows. They contain no workflow
+triggers or deployment authority of their own.
 
 Removed testnet-only workflows are replaced by the staging target in the
 workflows above. Move any required GitHub Environment secrets and vars from an
@@ -54,7 +65,9 @@ old `testnet` environment into `staging`.
    `--secrets-only`, or `--only NAME_A,NAME_B` to scope the upload further.
 5. Push `dev` for staging. Merge a pull request into protected `main` for
    production. The push fast gate starts the matching stack workflow, which
-   creates the immutable release set before running its service-level jobs.
+   creates the immutable backend release set before running its service-level
+   jobs; a successful backend coordination receipt starts the matching frontend
+   workflow.
    Protected `dev` and `main` branches must require the full repository checks
    before accepting changes.
 6. Verify D1 backups and restore procedures from
@@ -68,7 +81,7 @@ Staging:
 git push origin dev
 ```
 
-Production:
+Production backend:
 
 Merge the accepted `dev` revision into protected `main` through a pull request.
 Direct pushes to `main` are disabled.
@@ -80,6 +93,16 @@ gh workflow run deploy-staging-cloudflare-stack.yml --ref dev \
   -f source_sha=<40-char-sha> \
   -f artifact_run_id=<accepted-artifact-run-id> \
   -f release_set_id=<release-set-id>
+```
+
+Manual accepted frontend promotion:
+
+```bash
+gh workflow run deploy-staging-frontend.yml --ref dev \
+  -f source_sha=<40-char-sha> \
+  -f artifact_run_id=<accepted-frontend-artifact-run-id> \
+  -f release_set_id=<frontend-release-set-id> \
+  -f backend_receipt_run_id=<backend-receipt-run-id>
 ```
 
 Router A/B role config lives in
@@ -94,8 +117,8 @@ The accepted branch release runs in this order:
 2. The selector chooses the affected components and only their artifact jobs run.
 3. The release-set manifest and selected artifact digests verify before mutation.
 4. Selected SigningWorker and Deriver jobs run concurrently with Gateway;
-   MPCRouter waits for the Router roles, and Pages waits for Gateway when both
-   are selected.
+   MPCRouter waits for the Router roles. The frontend workflow waits for the
+   verified backend coordination receipt before Pages mutation.
 5. MPCRouter activates only after a Router topology release has all three role deployments succeed.
 6. One selected-release smoke check completes the deployment.
 
@@ -103,7 +126,8 @@ An older CI run is rejected after a newer commit becomes the branch tip.
 
 ## Follow-Up Phase: Build Once, Deploy Many
 
-Status: implemented for Gateway, Router A/B, and Pages. Cross-run release-set
+Status: implemented for Gateway, Router A/B, and Pages in separate backend and
+frontend workflows. Cross-run release-set
 provenance is now the required deployment path; SDK runtime assets are deployed
 as part of Pages.
 

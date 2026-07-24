@@ -36,6 +36,16 @@ const templateFiles = Object.freeze({
   gateway: 'deploy-cloudflare-gateway.yml',
 });
 
+const DEPLOYMENT_ENVIRONMENT_SUFFIXES = Object.freeze([
+  'frontend',
+  'observability',
+  'gateway',
+  'mpc-router',
+  'deriver-a',
+  'deriver-b',
+  'signing-worker',
+]);
+
 function clone(value) {
   return structuredClone(value);
 }
@@ -81,6 +91,24 @@ function prefixNeeds(value, prefix, knownJobIds) {
   return value;
 }
 
+function bindJobEnvironment(job, target) {
+  const environment = job.environment;
+  const environmentName =
+    typeof environment === 'string'
+      ? environment
+      : environment && typeof environment === 'object' && typeof environment.name === 'string'
+        ? environment.name
+        : undefined;
+  if (environmentName === undefined) return job;
+
+  const suffix = DEPLOYMENT_ENVIRONMENT_SUFFIXES.find((value) => environmentName.includes(value));
+  if (suffix === undefined) return job;
+  const boundName = `${target.environment}-${suffix}`;
+  job.environment =
+    typeof environment === 'string' ? boundName : { ...environment, name: boundName };
+  return job;
+}
+
 function transformJobMap(sourceJobs, options) {
   const sourceJobIds = Object.keys(sourceJobs ?? {});
   const transformed = {};
@@ -91,6 +119,7 @@ function transformJobMap(sourceJobs, options) {
     let job = clone(sourceJob);
     job = mapStrings(job, (value) => options.mapValue(value));
     job = mapStrings(job, (value) => prefixNeeds(value, options.prefix, sourceJobIds));
+    job = bindJobEnvironment(job, options.target);
 
     if (job.needs) job.needs = prefixNeeds(job.needs, options.prefix, sourceJobIds);
     job.if = addEventGuard(job.if, options.eventName);
@@ -108,6 +137,7 @@ function mapJobMap(sourceJobs, options) {
     let job = clone(sourceJob);
     job = mapStrings(job, (value) => options.mapValue(value));
     if (job.needs) job.needs = mapStrings(job.needs, (value) => options.mapValue(value));
+    job = bindJobEnvironment(job, options.target);
     job.env = { ...options.sharedEnv, ...(job.env ?? {}) };
     transformed[jobId] = job;
   }
@@ -136,7 +166,7 @@ function sourceShaExpressionBody() {
 }
 
 function automaticEventExpression() {
-  return "github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push'";
+  return "github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success'";
 }
 
 function sourceShaExpression() {
@@ -208,6 +238,7 @@ function transformReleaseJobs(template, target) {
     eventName: automaticEventExpression(),
     skip: ['deploy'],
     sharedEnv: {},
+    target,
     mapValue: (value) =>
       replaceInputs(value, {
         target: 'env.DEPLOY_TARGET',
@@ -242,6 +273,7 @@ function transformStackJobs(template, target, mode) {
     eventName: automatic ? automaticEventExpression() : "github.event_name == 'workflow_dispatch'",
     skip: ['deploy_gateway', 'deploy_pages'],
     sharedEnv,
+    target,
     mapValue: (value) => replaceInputs(value, replacements),
   });
   for (const job of Object.values(jobs)) {
@@ -257,7 +289,7 @@ function transformStackJobs(template, target, mode) {
     mergeNeeds(preflight, ['auto_create_release_set']);
     preflight.if = addEventGuard(
       "needs.auto_create_release_set.result == 'success'",
-      "github.event_name == 'workflow_run'",
+      automaticEventExpression(),
     );
     for (const job of Object.values(jobs)) {
       mergeNeeds(job, ['auto_create_release_set']);
@@ -292,6 +324,7 @@ function transformGatewayJobs(template, target, mode) {
     prefix,
     eventName: automatic ? automaticEventExpression() : "github.event_name == 'workflow_dispatch'",
     sharedEnv,
+    target,
     mapValue: (value) => replaceInputs(value, replacements),
   });
   const gateway = jobs[`${prefix}deploy`];
@@ -301,7 +334,7 @@ function transformGatewayJobs(template, target, mode) {
   gateway.if = addEventGuard(
     'needs.' +
       `${prefix}preflight_release.result == 'success' && contains(fromJSON(needs.${prefix}preflight_release.outputs.selected_components), 'gateway')`,
-    automatic ? "github.event_name == 'workflow_run'" : "github.event_name == 'workflow_dispatch'",
+    automatic ? automaticEventExpression() : "github.event_name == 'workflow_dispatch'",
   );
   return { [`${prefix}deploy_gateway`]: gateway };
 }
@@ -357,21 +390,23 @@ function transformFrontendJobs(templates, target) {
     ...mapJobMap(templates.frontendRelease.jobs, {
       skip: ['deploy'],
       sharedEnv,
+      target,
       mapValue: (value) => replaceInputs(value, replacements),
     }),
     ...mapJobMap(templates.frontend.jobs, {
       sharedEnv,
+      target,
       mapValue: (value) => replaceInputs(value, replacements),
     }),
   };
 
   const automaticOnly =
-    "github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'";
+    "github.event_name == 'workflow_run' && github.event.workflow_run.event == 'workflow_run' && github.event.workflow_run.conclusion == 'success'";
   jobs.prepare.if = "github.event_name == 'workflow_dispatch' || (" + automaticOnly + ')';
-  for (const jobId of ['select_components', 'build_pages', 'create_release_set']) {
-    jobs[jobId].if = automaticOnly;
-  }
-  jobs.preflight_release.if = `always() && ((github.event_name == 'workflow_dispatch') || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && needs.select_components.result == 'success' && needs.select_components.outputs.frontend_components != '[]' && needs.create_release_set.result == 'success'))`;
+  jobs.select_components.if = automaticOnly;
+  jobs.build_pages.if = `${automaticOnly} && needs.select_components.result == 'success' && needs.select_components.outputs.frontend_components != '[]'`;
+  jobs.create_release_set.if = `always() && ${automaticOnly} && needs.prepare.result == 'success' && needs.select_components.result == 'success' && needs.select_components.outputs.frontend_components != '[]' && needs.build_pages.result == 'success'`;
+  jobs.preflight_release.if = `always() && ((github.event_name == 'workflow_dispatch') || (${automaticOnly} && needs.select_components.result == 'success' && needs.select_components.outputs.frontend_components != '[]' && needs.create_release_set.result == 'success'))`;
   mergeNeeds(jobs.preflight_release, ['select_components', 'create_release_set']);
   for (const jobId of ['deploy_app', 'deploy_wallet', 'frontend_smoke']) {
     jobs[jobId].name = jobs[jobId].name.replace(
@@ -393,7 +428,7 @@ function backendSelectionExpression(prefix) {
 function makeBackendReceiptJob(target, prefix, mode) {
   const automatic = mode === 'automatic';
   const eventName = automatic
-    ? "github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push'"
+    ? automaticEventExpression()
     : "github.event_name == 'workflow_dispatch'";
   const artifactRunId = automatic ? 'github.run_id' : 'inputs.artifact_run_id';
   const releaseSetId = automatic
@@ -420,13 +455,7 @@ function makeBackendReceiptJob(target, prefix, mode) {
         DEPLOY_SHA: automatic ? sourceShaExpression() : expression('inputs.source_sha'),
         ARTIFACT_RUN_ID: expression(artifactRunId),
         RELEASE_SET_ID: expression(releaseSetId),
-        VALIDATION_RUN_ID: automatic
-          ? expression('github.event.workflow_run.id')
-          : expression('needs.' + `${prefix}preflight_release.outputs.accepted_validation_run_id`),
         SELECTED_BACKEND_COMPONENTS: expression(selectedComponents),
-        SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON: expression(
-          'vars.SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON',
-        ),
       },
       steps: [
         {
@@ -468,7 +497,6 @@ function makeBackendReceiptJob(target, prefix, mode) {
           env: { RECEIPT_INPUT_FILE: receiptInputFile },
           run: [
             'set -euo pipefail',
-            'test -n "${SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON:-}" || { echo "::error title=Missing backend compatibility range::SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON is required"; exit 1; }',
             'mkdir -p "$(dirname "$RECEIPT_INPUT_FILE")"',
             "node --input-type=module <<'NODE'",
             "import { readFile, writeFile } from 'node:fs/promises';",
@@ -476,7 +504,7 @@ function makeBackendReceiptJob(target, prefix, mode) {
             "const backendNames = new Set(['gateway', 'router', 'deriver-a', 'deriver-b', 'signing-worker']);",
             'const selected = JSON.parse(process.env.SELECTED_BACKEND_COMPONENTS).filter((name) => backendNames.has(name)).sort();',
             'const digests = manifest.components.filter((component) => selected.includes(component.name)).map((component) => ({ component: component.name, digestSha256: component.contentDigestSha256 }));',
-            "const input = { mode: 'backend-deployment', target: process.env.DEPLOY_TARGET, receiptRunId: process.env.GITHUB_RUN_ID, acceptedSourceSha: process.env.DEPLOY_SHA, acceptedValidationRunId: manifest.acceptedValidationRunId, selectedBackendComponents: selected, backendReleaseSetId: process.env.RELEASE_SET_ID, deployedComponentDigests: digests, supportedFrontendApiContractRange: JSON.parse(process.env.SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON), smokeResult: { status: 'passed', completedAt: new Date().toISOString(), checks: [{ name: 'backend-final-smoke', status: 200 }] }, createdAt: new Date().toISOString() };",
+            "const input = { mode: 'backend-deployment', target: process.env.DEPLOY_TARGET, receiptRunId: process.env.GITHUB_RUN_ID, acceptedSourceSha: process.env.DEPLOY_SHA, acceptedValidationRunId: manifest.acceptedValidationRunId, backendArtifactRunId: process.env.ARTIFACT_RUN_ID, backendReleaseSetId: process.env.RELEASE_SET_ID, backendReleaseSetManifest: manifest, selectedBackendComponents: selected, deployedComponentDigests: digests, smokeResult: { status: 'passed', completedAt: new Date().toISOString(), checks: [{ name: 'backend-final-smoke', status: 200 }] }, createdAt: new Date().toISOString() };",
             'await writeFile(process.env.RECEIPT_INPUT_FILE, `${JSON.stringify(input, null, 2)}\\n`);',
             'NODE',
           ].join('\n'),
@@ -510,7 +538,7 @@ function makeNoOpCoordinationReceiptJob(target) {
   return {
     auto_emit_frontend_only_noop_receipt: {
       name: `Emit / ${target.environment} / backend coordination receipt / frontend-only no-op`,
-      if: `always() && github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && needs.auto_select_components.result == 'success' && !(${backendSelection})`,
+      if: `always() && ${automaticEventExpression()} && needs.auto_select_components.result == 'success' && !(${backendSelection})`,
       needs: ['auto_select_components'],
       'runs-on': 'ubuntu-latest',
       'timeout-minutes': 1,
@@ -529,7 +557,10 @@ function makeNoOpCoordinationReceiptJob(target) {
         {
           name: 'Resolve active backend receipt',
           id: 'resolve_active',
-          env: { RECEIPT_ARTIFACT_NAME: `backend-coordination-receipt-${target.environment}` },
+          env: {
+            GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}',
+            RECEIPT_ARTIFACT_NAME: `backend-coordination-receipt-${target.environment}`,
+          },
           run: [
             'set -euo pipefail',
             'workflow_file="deploy-${DEPLOY_TARGET}-cloudflare-stack.yml"',
@@ -701,6 +732,10 @@ function makeFrontendWorkflowRoot(target, jobs) {
       BACKEND_RECEIPT_RUN_ID: expression(
         "github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.backend_receipt_run_id",
       ),
+      PAGES_BRANCH: target.environment === 'production' ? 'main' : 'dev',
+      PAGES_ARTIFACT_IDENTITY: '{"pagesBuild":"app-wallet-v1"}',
+      SIGNER_IFRAME_ARTIFACT_IDENTITY: '{"pagesBuild":"app-wallet-v1"}',
+      RELEASE_MANIFEST: '.release-artifacts/release-set/manifest.json',
       STAGING_GATEWAY_ORIGIN: 'https://seams-sdk-d1-gateway-staging.n6378056.workers.dev',
       PRODUCTION_GATEWAY_ORIGIN: 'https://seams-sdk-d1-gateway.n6378056.workers.dev',
       RUST_TOOLCHAIN: '1.96.0',

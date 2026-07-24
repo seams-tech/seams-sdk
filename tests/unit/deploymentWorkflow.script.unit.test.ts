@@ -16,6 +16,7 @@ type FrontendTarget = {
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const workflowRoot = path.join(repoRoot, '.github/workflows');
+const templateRoot = path.join(repoRoot, 'scripts/deployment-workflow-templates');
 const frontendTargets: readonly FrontendTarget[] = [
   {
     environment: 'staging',
@@ -95,6 +96,20 @@ function collectWorkflowFiles(): readonly string[] {
     .map((filename) => path.join(workflowRoot, filename));
 }
 
+test('deployment templates are job fragments rather than reusable workflows', () => {
+  const templateFiles = readdirSync(templateRoot)
+    .filter((filename) => filename.endsWith('.yml'))
+    .sort();
+
+  expect(templateFiles.length).toBeGreaterThan(0);
+  for (const filename of templateFiles) {
+    const source = readFileSync(path.join(templateRoot, filename), 'utf8');
+    expect(source).not.toContain('workflow_call');
+    const template = requireRecord(parseYaml(source, { version: '1.2' }), filename);
+    expect(template.jobs).toBeTruthy();
+  }
+});
+
 function findNoOpReceiptJob(workflow: RecordValue): [string, RecordValue] {
   const candidate = Object.entries(readWorkflowJobs(workflow)).find(([jobId, job]) => {
     if (!isRecord(job)) return false;
@@ -146,6 +161,16 @@ test('frontend workflows use one trigger-agnostic graph for automatic and manual
   }
 });
 
+test('frontend preflight resolves target-scoped variables and approval', () => {
+  for (const target of frontendTargets) {
+    const workflow = readWorkflow(target.filename);
+    const jobs = readWorkflowJobs(workflow);
+    const preflight = requireRecord(jobs.preflight_release, `${target.filename} preflight_release`);
+    expect(preflight.environment).toEqual({ name: `${target.environment}-frontend` });
+    expect(JSON.stringify(preflight)).toContain('vars.GATEWAY_API_CONTRACT_VERSION');
+  }
+});
+
 test('frontend workflows download only scoped frontend artifacts and their coordination receipt', () => {
   for (const target of frontendTargets) {
     const workflow = readWorkflow(target.filename);
@@ -169,6 +194,25 @@ test('frontend workflows download only scoped frontend artifacts and their coord
 
     const source = readWorkflowSource(target.filename);
     expect(source).not.toContain('Download all release component artifacts');
+  }
+});
+
+test('backend release-set creation exports the frontend compatibility range', () => {
+  for (const filename of [
+    'deploy-staging-cloudflare-stack.yml',
+    'deploy-production-cloudflare-stack.yml',
+  ]) {
+    const source = readWorkflowSource(filename);
+    const createManifestStep = source.match(
+      /- name: Create immutable release-set manifest[\s\S]*?(?=\n {6}- name:|\n {2}[A-Za-z0-9_]+:|$)/u,
+    )?.[0];
+    expect(createManifestStep).toBeTruthy();
+    expect(createManifestStep).toContain(
+      'SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON: ${{ vars.SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON }}',
+    );
+    expect(createManifestStep).toContain(
+      '--supported-frontend-api-contract-range-json "$SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON"',
+    );
   }
 });
 
@@ -224,7 +268,22 @@ test('no-op backend receipt creation is bounded and has no mutation or build pat
     expect(text).not.toMatch(
       /wrangler\s+deploy|actions\/setup-node|pnpm\/action-setup|dtolnay\/rust-toolchain/iu,
     );
+    expect(text).toContain('GH_TOKEN');
     expect(text).toContain('"retention-days":30');
     expect(text).toContain('actions/upload-artifact@v7');
   }
+});
+
+test('frontend preflight binds the release contract to the target environment', () => {
+  for (const target of frontendTargets) {
+    const source = readWorkflowSource(target.filename);
+    expect(source).toContain(
+      'frontend release contract version does not match the target frontend environment',
+    );
+  }
+});
+
+test('repository validation checks generated workflow freshness and policy together', () => {
+  const source = readWorkflowSource('validate-repository.yml');
+  expect(source).toContain('run: pnpm check:deployment-workflows');
 });

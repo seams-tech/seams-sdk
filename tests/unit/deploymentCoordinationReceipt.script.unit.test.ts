@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { createHash } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 
@@ -57,8 +58,50 @@ const modulePath = pathToFileURL(
 );
 const receiptModule = import(modulePath.href) as Promise<ReceiptModule>;
 const sourceSha = 'a'.repeat(40);
-const releaseSetId = `rs_${'c'.repeat(64)}`;
 const timestamp = '2026-07-24T00:00:00.000Z';
+
+function sortJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortJson);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, child]) => [key, sortJson(child)]),
+    );
+  }
+  return value;
+}
+
+function backendReleaseSetManifest(): Record<string, unknown> {
+  const base = {
+    schemaVersion: 2,
+    lane: 'backend',
+    target: 'staging',
+    sourceSha,
+    acceptedValidationRunId: '1002',
+    artifactRunId: '2002',
+    createdAt: timestamp,
+    gatewayApiContractVersion: '1.0.0',
+    supportedFrontendApiContractRange: { minInclusive: '1.0.0', maxInclusive: '2.0.0' },
+    buildIdentity: { selectedComponents: ['gateway'] },
+    migrationSets: {},
+    components: [
+      {
+        name: 'gateway',
+        kind: 'gateway-wasm',
+        artifactName: 'release-artifact-1',
+        contentDigestSha256: 'd'.repeat(64),
+        sourceSha,
+        target: 'staging',
+        releaseId: 'worker-release-1',
+      },
+    ],
+  };
+  const digest = createHash('sha256')
+    .update(JSON.stringify(sortJson(base)))
+    .digest('hex');
+  return { ...base, manifestDigestSha256: digest, releaseSetId: `rs_${digest}` };
+}
 
 function backendDeploymentInput(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -67,13 +110,11 @@ function backendDeploymentInput(overrides: Record<string, unknown> = {}): Record
     receiptRunId: '1001',
     acceptedSourceSha: sourceSha,
     acceptedValidationRunId: '1002',
-    selectedBackendComponents: ['gateway', 'router'],
-    backendReleaseSetId: releaseSetId,
-    deployedComponentDigests: [
-      { component: 'gateway', digestSha256: 'd'.repeat(64) },
-      { component: 'router', digestSha256: 'e'.repeat(64) },
-    ],
-    supportedFrontendApiContractRange: { minInclusive: '1.0.0', maxInclusive: '2.0.0' },
+    selectedBackendComponents: ['gateway'],
+    backendArtifactRunId: '2002',
+    backendReleaseSetId: backendReleaseSetManifest().releaseSetId,
+    backendReleaseSetManifest: backendReleaseSetManifest(),
+    deployedComponentDigests: [{ component: 'gateway', digestSha256: 'd'.repeat(64) }],
     smokeResult: {
       status: 'passed',
       completedAt: timestamp,
@@ -97,7 +138,7 @@ test('backend deployment receipt is content-addressed, immutable, and self-verif
     acceptedSourceSha: sourceSha,
     activeBackendSourceSha: sourceSha,
     activeBackendReceiptRunId: '1001',
-    backendReleaseSetId: releaseSetId,
+    backendReleaseSetId: backendReleaseSetManifest().releaseSetId,
   });
   expect(receipt.receiptId).toBe(`bcr_${receipt.receiptDigestSha256}`);
   expect(Object.isFrozen(receipt)).toBe(true);

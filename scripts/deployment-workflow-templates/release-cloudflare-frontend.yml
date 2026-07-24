@@ -1,37 +1,4 @@
-name: template / release / cloudflare-frontend
-
-on:
-  workflow_call:
-    inputs:
-      target:
-        description: Frontend release target
-        required: true
-        type: string
-      source_sha:
-        description: Exact protected-branch source SHA
-        required: true
-        type: string
-      validation_run_id:
-        description: Accepted validation workflow run ID
-        required: false
-        type: string
-        default: ''
-      backend_receipt_run_id:
-        description: Accepted backend coordination receipt workflow run ID
-        required: true
-        type: string
-
-permissions:
-  actions: read
-  contents: read
-
-concurrency:
-  group: release-frontend-${{ inputs.target }}-${{ inputs.source_sha }}
-  cancel-in-progress: false
-
-env:
-  RUST_TOOLCHAIN: '1.96.0'
-
+# Job template consumed by scripts/generate-deployment-workflows.mjs.
 jobs:
   prepare:
     name: Select accepted frontend release
@@ -114,13 +81,13 @@ jobs:
             echo "::error title=Validation run did not succeed::Run $validation_run_id concluded $validation_conclusion"
             exit 1
           }
-          if [[ "$target" == 'production' && "$EVENT_BRANCH" != 'main' ]]; then
-            echo '::error title=Untrusted production workflow authority::Production frontend releases must be triggered from main'
+          if [[ "$EVENT_BRANCH" != "$source_branch" ]]; then
+            echo "::error title=Invalid workflow ref::The frontend workflow must run from $source_branch"
             exit 1
           fi
           git fetch origin "refs/heads/$source_branch:refs/remotes/origin/$source_branch"
           branch_ref="refs/remotes/origin/$source_branch"
-          git diff --name-only "$source_sha..$branch_ref" > "$RUNNER_TEMP/intervening-changed-files.txt"
+          git log --format= --name-only --no-renames "$source_sha..$branch_ref" > "$RUNNER_TEMP/intervening-changed-files.txt"
           intervening_frontend_components="$(node scripts/deployment-components.mjs select --files-file "$RUNNER_TEMP/intervening-changed-files.txt" --lane frontend)"
           if [[ "$intervening_frontend_components" != '[]' ]]; then
             echo "::error title=Stale frontend release skipped::A newer accepted change selects frontend components: $intervening_frontend_components"
@@ -420,6 +387,7 @@ jobs:
           DEPLOY_SHA: ${{ needs.prepare.outputs.source_sha }}
           VALIDATION_RUN_ID: ${{ needs.prepare.outputs.validation_run_id }}
           GATEWAY_API_CONTRACT_VERSION: ${{ vars.GATEWAY_API_CONTRACT_VERSION }}
+          SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON: ${{ vars.SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON }}
         run: |
           set -euo pipefail
           mkdir -p .release-artifacts/release-set
@@ -430,6 +398,7 @@ jobs:
             --accepted-validation-run-id "$VALIDATION_RUN_ID" \
             --artifact-run-id "$GITHUB_RUN_ID" \
             --gateway-api-contract-version "$GATEWAY_API_CONTRACT_VERSION" \
+            --supported-frontend-api-contract-range-json "$SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON" \
             --components-file .release-artifacts-components.json \
             --migrations-file .release-artifacts-migrations.json \
             --build-identity-file .release-build-identity.json \
