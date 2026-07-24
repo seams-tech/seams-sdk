@@ -36,6 +36,13 @@ pub use router::*;
 
 mod refactor93_coordinator;
 pub use refactor93_coordinator::*;
+#[cfg(feature = "workers-rs")]
+mod refactor93_router;
+#[cfg(feature = "workers-rs")]
+pub use refactor93_router::{
+    handle_cloudflare_router_ed25519_yao_execute_private_fetch_v1,
+    handle_cloudflare_router_ed25519_yao_recovery_promote_private_fetch_v1,
+};
 mod signing_worker;
 pub use signing_worker::*;
 mod env;

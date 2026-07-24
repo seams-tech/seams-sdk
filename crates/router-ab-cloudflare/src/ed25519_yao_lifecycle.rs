@@ -646,7 +646,7 @@ fn sign_role_readiness_receipt_v1(
     )
 }
 
-fn verify_role_readiness_receipt_v1(
+pub(crate) fn verify_role_readiness_receipt_v1(
     receipt: &Ed25519YaoRoleReadinessReceiptV1,
     verifying_keys: &CloudflareSignerPeerVerifyingKeySetV1,
 ) -> RouterAbProtocolResult<()> {
