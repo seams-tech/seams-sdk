@@ -60,6 +60,19 @@ function isCurrentAsyncRequestGeneration(
   return ref.current === generation;
 }
 
+function googleRegistrationRequiredMessage(reason: 'google_account_not_registered'): string {
+  switch (reason) {
+    case 'google_account_not_registered':
+      return "Account doesn't exist. Create your account to continue.";
+  }
+  const exhaustive: never = reason;
+  throw new Error(`Unknown Google registration requirement: ${exhaustive}`);
+}
+
+function existingGoogleOtpAccountResolutionFailedMessage(): string {
+  return "Google SSO couldn't verify the selected Email OTP account. Check that you're using the same Google account and environment, then retry.";
+}
+
 function createPasskeyRegistrationDraft(): PasskeyRegistrationDraft {
   return {
     kind: 'passkey_registration_draft',
@@ -1135,13 +1148,26 @@ export function useSeamsAuthMenuController(
           const isRegistrationRequired =
             flowResult && 'kind' in flowResult && flowResult.kind === 'registration_required';
           if (isRegistrationRequired) {
+            if (socialMode === AuthMenuMode.Login && socialLoginWalletId) {
+              setMethodError(existingGoogleOtpAccountResolutionFailedMessage());
+              return;
+            }
+            const registrationRequiredMessage = googleRegistrationRequiredMessage(
+              flowResult.reason,
+            );
             onIntentChange(AuthMenuMode.Register);
             setOtpPromptState(null);
             setRegistrationPromptState(null);
             setRegistrationError('');
+            setMethodError(registrationRequiredMessage);
             return;
           }
           if (isHeadlessRegistrationFlow) {
+            if (socialMode === AuthMenuMode.Login && socialLoginWalletId) {
+              await flowResult.flow.cancel().catch(() => {});
+              setMethodError(existingGoogleOtpAccountResolutionFailedMessage());
+              return;
+            }
             const mappedRegistrationFlowResult = registrationPromptFromGoogleEmailOtpFlow({
               flow: flowResult.flow,
               ...(flowResult.onComplete ? { onComplete: flowResult.onComplete } : {}),
