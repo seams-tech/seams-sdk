@@ -528,7 +528,7 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
       });
   });
 
-  test('Google login uses the most recent Email OTP account when the selected account is passkey', async ({
+  test('Google login uses the most recent Email OTP account and rejects registration fallback', async ({
     page,
   }) => {
     await page.evaluate(
@@ -550,6 +550,7 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
         (window as any).__methodEmailOtpSelection = {
           inputUsername: 'passkey-wallet',
           socialRequests: [] as unknown[],
+          cancelCalls: 0,
         };
 
         function Harness() {
@@ -612,6 +613,34 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
                     mode: AuthMenuModeMap[request.mode],
                     walletId: request.walletId,
                   });
+                  return {
+                    kind: 'registration_flow',
+                    flow: {
+                      kind: 'google_email_otp_wallet_auth_flow_v1',
+                      state: 'registration_ready',
+                      flowId: 'unexpected-registration-flow',
+                      requestedMode: 'login',
+                      mode: 'register',
+                      walletId: 'unexpected-new-wallet',
+                      emailHint: 'new@example.com',
+                      prompt: {
+                        title: 'Create your Email OTP wallet',
+                        description: 'Google verified new@example.com.',
+                        submitLabel: 'Create wallet',
+                        helperText: '',
+                      },
+                      expiresAtMs: Date.now() + 60_000,
+                      rerollWalletId: async () => {
+                        throw new Error('registration fallback must not be used');
+                      },
+                      completeRegistration: async () => {
+                        throw new Error('registration fallback must not be used');
+                      },
+                      cancel: async () => {
+                        (window as any).__methodEmailOtpSelection.cancelCalls += 1;
+                      },
+                    },
+                  };
                 },
               },
             },
@@ -619,12 +648,22 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
           );
 
           return React.createElement(
-            'button',
-            {
-              type: 'button',
-              onClick: () => controller.onSocialLogin('google', AuthMenuMode.Login),
-            },
-            'Sign in with Google',
+            'div',
+            null,
+            React.createElement(
+              'button',
+              {
+                type: 'button',
+                onClick: () => controller.onSocialLogin('google', AuthMenuMode.Login),
+              },
+              'Sign in with Google',
+            ),
+            React.createElement(
+              'div',
+              { id: 'existing-email-otp-mode' },
+              controller.mode === AuthMenuMode.Register ? 'register' : 'login',
+            ),
+            React.createElement('div', { role: 'alert' }, controller.methodError || ''),
           );
         }
 
@@ -643,7 +682,12 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
       .toMatchObject({
         inputUsername: 'newer-otp-wallet',
         socialRequests: [{ mode: 'login', walletId: 'newer-otp-wallet' }],
+        cancelCalls: 1,
       });
+    await expect(mount.locator('#existing-email-otp-mode')).toHaveText('login');
+    await expect(mount.getByRole('alert')).toHaveText(
+      "Google SSO couldn't verify the selected Email OTP account. Check that you're using the same Google account and environment, then retry.",
+    );
   });
 
   test('synced passkey restore timeout warns without rendering inline method error', async ({
@@ -1939,6 +1983,89 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
     await expect(mount.getByText('Check your email to unlock your wallet')).toHaveCount(0);
     await mount.getByRole('button', { name: 'Generate another name' }).click();
     await expect(mount.locator('#registration-account')).toHaveText('ember-river.testnet');
+  });
+
+  test('Google SSO missing account transitions to the registration menu with explicit copy', async ({
+    page,
+  }) => {
+    await page.evaluate(
+      async ({ paths }) => {
+        const mount = document.createElement('div');
+        mount.id = 'seams-auth-menu-google-registration-required-mount';
+        document.body.appendChild(mount);
+
+        const React = await import('react');
+        const ReactDOMClient = await import('react-dom/client');
+        const ReactDOM = await import('react-dom');
+        const controllerMod: any = await import(paths.seamsAuthMenuController);
+        const typesMod: any = await import(paths.authMenuTypes);
+
+        const useSeamsAuthMenuController =
+          controllerMod.useSeamsAuthMenuController || controllerMod.default;
+        const { AuthMenuMode } = typesMod;
+
+        function Harness() {
+          const [inputUsername, setInputUsername] = React.useState('missing-wallet.testnet');
+          const runtime = React.useMemo(
+            () => ({
+              seamsWeb: { auth: { getRecentUnlocks: async () => ({ lastUsedAccount: null }) } },
+              accountExists: false,
+              inputUsername,
+              targetAccountId: inputUsername,
+              setInputUsername,
+              refreshLoginState: async () => undefined,
+              sdkFlow: {
+                eventsText: '',
+                seq: 0,
+                awaitNextCompletion: async () => undefined,
+              },
+              displayPostfix: '.testnet',
+              isUsingExistingAccount: false,
+            }),
+            [inputUsername],
+          );
+          const controller = useSeamsAuthMenuController(
+            {
+              defaultMode: AuthMenuMode.Login,
+              socialLogin: {
+                google: async () => ({
+                  kind: 'registration_required',
+                  reason: 'google_account_not_registered',
+                }),
+              },
+            },
+            runtime,
+          );
+          return React.createElement(
+            'div',
+            null,
+            React.createElement(
+              'button',
+              {
+                type: 'button',
+                onClick: () => controller.onSocialLogin('google', AuthMenuMode.Login),
+              },
+              'Start login',
+            ),
+            React.createElement('div', { id: 'resolved-title' }, controller.title.title),
+            React.createElement('div', { role: 'alert' }, controller.methodError || ''),
+          );
+        }
+
+        const root = ReactDOMClient.createRoot(mount);
+        ReactDOM.flushSync(() => {
+          root.render(React.createElement(Harness));
+        });
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    const mount = page.locator('#seams-auth-menu-google-registration-required-mount');
+    await mount.getByRole('button', { name: 'Start login' }).click();
+    await expect(mount.locator('#resolved-title')).toHaveText('Create your account');
+    await expect(mount.getByRole('alert')).toHaveText(
+      "Account doesn't exist. Create your account to continue.",
+    );
   });
 
   test('Google SSO headless register request for existing wallet shows unlock prompt', async ({

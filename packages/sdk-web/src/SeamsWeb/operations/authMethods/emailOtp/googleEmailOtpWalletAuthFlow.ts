@@ -282,7 +282,16 @@ function resolveGoogleEmailOtpAuthMode(input: {
 
 function isMissingGoogleEmailOtpEnrollment(error: unknown): boolean {
   if (!error || typeof error !== 'object' || !('code' in error)) return false;
-  return (error as { code?: unknown }).code === 'not_found';
+  const code = String((error as { code?: unknown }).code || '').trim();
+  const message =
+    error instanceof Error
+      ? error.message
+      : String((error as { message?: unknown }).message || '').trim();
+  return code === 'not_found' && /Email OTP enrollment not found/i.test(message);
+}
+
+function googleAccountRegistrationRequiredMessage(): string {
+  return "Account doesn't exist. Create your account to continue.";
 }
 
 function classifyGoogleEmailOtpExchangeError(
@@ -618,6 +627,13 @@ export async function beginGoogleEmailOtpWalletAuth(
       }));
     return ok(createGoogleEmailOtpWalletLoginFlow(deps, { state: sessionState, challenge, input }));
   } catch (error: unknown) {
+    if (isMissingGoogleEmailOtpEnrollment(error)) {
+      return failWithMessage(
+        'google_account_registration_required',
+        googleAccountRegistrationRequiredMessage(),
+        error,
+      );
+    }
     return fail('email_otp_challenge_failed', error);
   }
 }
