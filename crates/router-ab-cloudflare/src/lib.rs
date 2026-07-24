@@ -35,9 +35,9 @@ mod router;
 pub use router::*;
 
 #[cfg(feature = "workers-rs")]
-mod refactor93_router;
+mod router_coordinator;
 #[cfg(feature = "workers-rs")]
-pub use refactor93_router::{
+pub use router_coordinator::{
     handle_cloudflare_router_ed25519_yao_execute_private_fetch_v1,
     handle_cloudflare_router_ed25519_yao_recovery_promote_private_fetch_v1,
 };

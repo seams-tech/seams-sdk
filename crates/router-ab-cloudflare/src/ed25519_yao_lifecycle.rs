@@ -1,7 +1,7 @@
 use core::{fmt, future::Future};
 use std::time::Duration;
 
-use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use futures::future::{select, Either};
 use router_ab_core::{
     ed25519_yao_encrypted_input_digest_v1, Ed25519YaoCircuitFamilyV1, Ed25519YaoDeriverRoleV1,
@@ -1176,7 +1176,7 @@ pub(crate) fn verify_role_readiness_receipt_v1(
     let signature = Signature::from_slice(receipt.signature().bytes())
         .map_err(|_| invalid_lifecycle("readiness receipt signature is malformed"))?;
     verifying_key
-        .verify(receipt.signed_message_digest().as_bytes(), &signature)
+        .verify_strict(receipt.signed_message_digest().as_bytes(), &signature)
         .map_err(|_| invalid_lifecycle("readiness receipt signature is invalid"))
 }
 
@@ -1244,7 +1244,7 @@ pub(crate) fn verify_role_start_acceptance_v1(
     let signature = Signature::from_slice(acceptance.signature().bytes())
         .map_err(|_| invalid_lifecycle("start acceptance signature is malformed"))?;
     verifying_key
-        .verify(acceptance.signed_message_digest().as_bytes(), &signature)
+        .verify_strict(acceptance.signed_message_digest().as_bytes(), &signature)
         .map_err(|_| invalid_lifecycle("start acceptance signature is invalid"))
 }
 

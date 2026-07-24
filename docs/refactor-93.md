@@ -817,7 +817,7 @@ an explicit scope decision:
   the maximum in-flight lifetime. Any Durable Object that contains both keys
   must fail closed and be investigated; it is not safe to infer ownership from
   either key alone.
-- The unused contract-only coordinator was removed. `refactor93_router.rs` is
+- The unused contract-only coordinator was removed. `router_coordinator.rs` is
   the sole production Router orchestration owner.
 - The current v1 handshake uses signed readiness plus a signed, pair-bound
   two-phase start acceptance over internally authenticated peer transport.
@@ -1030,15 +1030,18 @@ span sink; the Cloudflare Gateway worker writes that event as a structured JSON
 log. Ceremony digests,
 CPU time, call/invocation counts, and cold/warm cohort labels remain
 deployment-evidence fields; they are acceptance requirements rather than claims
-about the local event payload today. `gateway.d1_commit` still requires a
-deployment-provided D1 commit sink before the production evidence gate can
-close.
+about the local event payload today. The Gateway registration-finalize route now
+emits a sanitized `gateway.d1_commit` event when a validated trace header is
+present; deployment evidence still has to confirm that the event covers the
+intended D1 write and is collected with the rest of the span tree.
 
-The Gateway Yao backend creates one fresh 128-bit lowercase-hex trace value at
-each Router execution or recovery-promotion HTTP boundary. The Router forwards
-that validated value to every role and SigningWorker request in the same
-operation. It is correlation metadata only and is never derived from product
-identity, session secrets, ciphertext, or recipient output.
+The SDK creates one fresh 128-bit lowercase-hex trace value per registration
+ceremony and sends it through the public Gateway routes. Each server boundary
+validates and reuses the supplied value; server-side execution or recovery
+promotion creates a value only when an upstream caller did not provide one. The
+Router forwards the validated value to every role and SigningWorker request in
+the same operation. It is correlation metadata only and is never derived from
+product identity, session secrets, ciphertext, or recipient output.
 
 ## Latency Budgets And Ownership
 
