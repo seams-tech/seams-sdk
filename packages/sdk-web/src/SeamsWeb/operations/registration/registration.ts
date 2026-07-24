@@ -4,6 +4,7 @@ import type {
   CreateRegistrationFlowEventInput,
   RegistrationFlowEvent,
   RegistrationHooksOptions,
+  RegistrationTimingSpanV1,
   WalletFlowAuthMethod,
 } from '@/core/types/sdkSentEvents';
 import type { RegistrationResult, SeamsConfigsReadonly } from '@/core/types/seams';
@@ -152,6 +153,10 @@ import {
   emailOtpAppSessionBindingFromJwt,
   type EmailOtpAppSessionBinding,
 } from '@/core/signingEngine/session/emailOtp/appSessionJwtCache';
+import {
+  createRouterAbTraceContextV1,
+  type RouterAbTraceContextV1,
+} from '@shared/utils/routerAbTraceContext';
 
 // Registration forces a visible, clickable confirmation for cross-origin safety.
 
@@ -1811,6 +1816,28 @@ function emitRegistrationTimingSummary(summary: RegistrationTimingSummary): void
   console.info(`${REGISTRATION_TIMING_LABEL} ${JSON.stringify(summary)}`);
 }
 
+export function emitRegistrationTimingSpan(input: {
+  callback: RegistrationHooksOptions['onTimingSpan'];
+  span: RegistrationTimingSpanV1['span'];
+  outcome: RegistrationTimingSpanV1['outcome'];
+  durationMs: number;
+  traceContext: RouterAbTraceContextV1;
+}): void {
+  const event: RegistrationTimingSpanV1 = {
+    event: 'seams_registration_timing_span_v1',
+    span: input.span,
+    operation: 'registration',
+    outcome: input.outcome,
+    duration_ms: Math.max(0, Math.round(input.durationMs)),
+    trace_id: input.traceContext.value,
+  };
+  try {
+    input.callback?.(event);
+  } catch {
+    // Telemetry must never change registration behavior.
+  }
+}
+
 function logRegistrationProgress(stage: string, details?: Record<string, unknown>): void {
   console.info('[Registration] progress', {
     stage,
@@ -3002,6 +3029,7 @@ function startMixedRegistrationYaoWork(args: {
   passkeyAuthority: Awaited<ReturnType<typeof collectPasskeyRegistrationAuthority>>;
   started: Extract<WalletRegistrationStartResponse, { kind: 'near_ed25519_and_evm_family_ecdsa' }>;
   relayerUrl: string;
+  traceContext: RouterAbTraceContextV1;
 }): RegistrationYaoWork {
   return RegistrationYaoWork.start({
     kind: 'verified_passkey_ed25519_yao_registration_input_v1',
@@ -3026,6 +3054,7 @@ function startMixedRegistrationYaoWork(args: {
       kind: 'passkey_ed25519_yao_http_transport_v1',
       routerOrigin: new URL(args.relayerUrl).origin,
       fetch: globalThis.fetch,
+      traceContext: args.traceContext,
     },
   });
 }
@@ -3358,6 +3387,8 @@ async function registerEcdsaOrMixedWallet(
   const { onEvent, onError, afterCall } = options;
   const startedAt = performance.now();
   const registrationTiming = new RegistrationTimingRecorder(startedAt);
+  const traceContext = createRouterAbTraceContextV1();
+  let postTouchIdCompletedAt: number | null = null;
   const initialEventAccountId = registrationEventAccountId(
     wallet.kind === 'provided' ? String(wallet.walletId) : 'wallet-registration',
   );
@@ -3446,6 +3477,14 @@ async function registerEcdsaOrMixedWallet(
         }),
       );
       registrationTiming.capturePasskeyAuthDiagnostics(passkeyAuthority.diagnostics);
+      postTouchIdCompletedAt = performance.now();
+      emitRegistrationTimingSpan({
+        callback: options.onTimingSpan,
+        span: 'registration.post_touch_id',
+        outcome: 'success',
+        durationMs: registrationTiming.snapshot().authProofMs,
+        traceContext,
+      });
       startAuthority = {
         kind: 'passkey',
         webauthnRegistration: passkeyAuthority.webauthnRegistration,
@@ -3534,6 +3573,7 @@ async function registerEcdsaOrMixedWallet(
           passkeyAuthority,
           started,
           relayerUrl,
+          traceContext,
         });
       } else {
         yaoWork = startEmailOtpRegistrationYaoWork({
@@ -3700,6 +3740,15 @@ async function registerEcdsaOrMixedWallet(
       phase: RegistrationEventPhase.STEP_11_COMPLETED,
       status: 'succeeded',
     });
+    if (postTouchIdCompletedAt !== null) {
+      emitRegistrationTimingSpan({
+        callback: options.onTimingSpan,
+        span: 'frontend.wallet_ready',
+        outcome: 'success',
+        durationMs: performance.now() - postTouchIdCompletedAt,
+        traceContext,
+      });
+    }
     emitRegistrationTimingSummary(
       createSucceededRegistrationTimingSummary({
         recorder: registrationTiming,
@@ -4148,6 +4197,8 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
       'wallet-registration-finalize',
     );
     const registrationTiming = new RegistrationTimingRecorder(performance.now());
+    const traceContext = createRouterAbTraceContextV1();
+    let postTouchIdCompletedAt: number | null = null;
     const prepared = await resolvePasskeyRegistrationReady({
       context,
       authMethod: args.authMethod,
@@ -4176,6 +4227,14 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
         behavior: 'requireClick',
         ...(args.confirmationConfigOverride ?? options.confirmationConfig ?? {}),
       },
+    });
+    postTouchIdCompletedAt = performance.now();
+    emitRegistrationTimingSpan({
+      callback: options.onTimingSpan,
+      span: 'registration.post_touch_id',
+      outcome: 'success',
+      durationMs: registrationTiming.snapshot().authProofMs,
+      traceContext,
     });
     emitRegistrationEvent(options.onEvent, eventAccountId, {
       authMethod: 'passkey',
@@ -4218,6 +4277,7 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
         kind: 'passkey_ed25519_yao_http_transport_v1',
         routerOrigin: new URL(relayerUrl).origin,
         fetch: globalThis.fetch,
+        traceContext,
       },
     });
     if (!yao.ok) throw new Error(yao.message);
@@ -4308,6 +4368,15 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
         phase: RegistrationEventPhase.STEP_11_COMPLETED,
         status: 'succeeded',
       });
+      if (postTouchIdCompletedAt !== null) {
+        emitRegistrationTimingSpan({
+          callback: options.onTimingSpan,
+          span: 'frontend.wallet_ready',
+          outcome: 'success',
+          durationMs: performance.now() - postTouchIdCompletedAt,
+          traceContext,
+        });
+      }
       const result: RegistrationResult = {
         success: true,
         kind: 'near_wallet_registered',

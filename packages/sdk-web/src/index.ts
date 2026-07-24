@@ -41,6 +41,7 @@ export type {
   SignNEP413HooksOptions,
   AfterCall,
   EventCallback,
+  RegistrationTimingSpanV1,
 } from './core/types/sdkSentEvents';
 
 export { DEFAULT_WAIT_STATUS } from './core/types/rpc';
