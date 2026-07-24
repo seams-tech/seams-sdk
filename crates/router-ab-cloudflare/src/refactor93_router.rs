@@ -83,6 +83,7 @@ pub async fn handle_cloudflare_router_ed25519_yao_execute_private_fetch_v1(
     if let Err(error) = require_cloudflare_internal_service_auth_request_v1(&request, env) {
         return crate::cloudflare_private_service_auth_error_response_v1(error);
     }
+    let parse_started_at_ms = cloudflare_now_unix_ms_v1().unwrap_or_default();
     let trace_id = match parse_cloudflare_trace_id_from_request_v1(&request) {
         Ok(trace_id) => trace_id,
         Err(error) => return protocol_error_response(error),
@@ -109,6 +110,13 @@ pub async fn handle_cloudflare_router_ed25519_yao_execute_private_fetch_v1(
         Err(error) => return protocol_error_response(error),
     };
     let operation = execute_request.operation();
+    emit_span(
+        trace_id,
+        "router.parse_and_authorize",
+        operation_label(operation),
+        parse_started_at_ms,
+        "success",
+    );
     let started_at_ms = now_ms;
     let result =
         execute_router_ceremony_v1(env, &runtime, execute_request, now_ms, trace_id, replay).await;
@@ -227,7 +235,19 @@ async fn execute_router_ceremony_v1(
         &prepare_request_b,
         trace_id,
     );
-    let (receipt_a, receipt_b) = futures::try_join!(prepare_a, prepare_b)?;
+    let (receipt_a, receipt_b) = match futures::try_join!(prepare_a, prepare_b) {
+        Ok(receipts) => receipts,
+        Err(error) => {
+            emit_span(
+                trace_id,
+                "router.prepare_pair",
+                operation_label(operation),
+                prepare_started_at_ms,
+                "failure",
+            );
+            return Err(error);
+        }
+    };
     emit_span(
         trace_id,
         "router.prepare_pair",
@@ -265,7 +285,7 @@ async fn execute_router_ceremony_v1(
     );
     readiness_result?;
     let execute_started_at_ms = cloudflare_now_unix_ms_v1()?;
-    let execution = post_role_json::<_, Ed25519YaoRoleExecutionV1>(
+    let execution = match post_role_json::<_, Ed25519YaoRoleExecutionV1>(
         env,
         runtime.deriver_a_peer().binding_name.as_str(),
         DERIVER_A_SERVICE_URL,
@@ -277,21 +297,41 @@ async fn execute_router_ceremony_v1(
         },
         trace_id,
     )
-    .await?;
-    execution.validate()?;
-    validate_execution(
-        &execution,
-        Ed25519YaoDeriverRoleV1::DeriverA,
-        &binding,
-        None,
-    )?;
+    .await
+    {
+        Ok(execution) => execution,
+        Err(error) => {
+            emit_span(
+                trace_id,
+                "router.deriver_a_execute",
+                operation_label(operation),
+                execute_started_at_ms,
+                "failure",
+            );
+            return Err(error);
+        }
+    };
+    let execution_validation = match execution.validate() {
+        Ok(()) => validate_execution(
+            &execution,
+            Ed25519YaoDeriverRoleV1::DeriverA,
+            &binding,
+            None,
+        ),
+        Err(error) => Err(error),
+    };
     emit_span(
         trace_id,
         "router.deriver_a_execute",
         operation_label(operation),
         execute_started_at_ms,
-        "success",
+        if execution_validation.is_ok() {
+            "success"
+        } else {
+            "failure"
+        },
     );
+    execution_validation?;
 
     let transcript = execution_transcript(&execution);
     let completed_read_started_at_ms = cloudflare_now_unix_ms_v1()?;
