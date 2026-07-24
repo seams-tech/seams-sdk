@@ -756,6 +756,9 @@ Router HTTP route; its product test remains an explicit follow-up before Phase
       orchestration.
 - [ ] Delete obsolete Yao direct-origin environment keys where no other
       protocol owns them.
+- [ ] Replace the tenant-scoped Gateway runtime Durable Object with a
+      request-safe per-ceremony persistence/CAS boundary, then remove its
+      binding and SQLite migration so no tenant-wide object coordinates Yao.
 - [ ] Delete obsolete Deriver Stage and Result route contracts after the
       maximum in-flight ceremony lifetime has elapsed.
 - [ ] Delete lower-authority tests, fixtures, mocks, and source guards that
@@ -772,7 +775,9 @@ The Gateway backend no longer contains the serial Stage/Start/Result or direct
 Yao package-delivery flow. The remaining Deriver Stage/Result handlers and
 direct-origin bindings are retained until the deployed cutover has survived the
 maximum in-flight ceremony lifetime; they are role-boundary drain targets, not
-second Gateway orchestration owners.
+second Gateway orchestration owners. The tenant-scoped `ROUTER_API_RUNTIME`
+state holder is a separate persistence boundary: it must be replaced with
+request-safe lifecycle storage before acceptance criterion 3 can be closed.
 
 ### Phase 6: Deployment And Production Acceptance
 
@@ -860,6 +865,19 @@ Observability scope. The `router-ab-dev` pair lifecycle now has route and
 ownership parity checks, while the Rust-only harness remains a pure helper
 model for the cryptographic ceremony; full local HTTP lifecycle execution
 remains a Phase 2 gate.
+
+The current staging Gateway still has one tenant-scoped runtime Durable Object
+(`ROUTER_API_RUNTIME`). It serializes only runtime initialization with
+`blockConcurrencyWhile`, then permits request overlap, so it does not wrap the
+Yao network stream. It does, however, hold the mutable product admission,
+recovery, export, and authorization maps and writes the complete snapshot back
+after each request. Removing this object or routing Yao requests around it
+without a replacement persistence/CAS boundary would lose replay state and
+allow concurrent snapshots to overwrite one another. Acceptance criterion 3
+therefore remains an explicit Gateway persistence refactor gate: replace this
+tenant snapshot with per-ceremony durable lifecycle records or an equivalent
+D1/CAS adapter before deleting the binding and its migration. This is separate
+from the role-local Router coordination already implemented here.
 
 The local serving gate is a concrete wiring gap rather than an untested claim.
 `router_ab_local_worker` gives each Deriver its own process and SQLite-backed
