@@ -1,6 +1,6 @@
 # Dashboard Google SSO Auth Reference
 
-Date updated: March 6, 2026
+Date updated: July 24, 2026
 
 ## Canonical Reference
 
@@ -47,6 +47,9 @@ Server:
 
 - `GOOGLE_OIDC_CLIENT_ID` or `GOOGLE_OIDC_CLIENT_IDS`
 - optional `GOOGLE_OIDC_HOSTED_DOMAINS`
+- Cross-site deployments must issue the app-session cookie with `HttpOnly`,
+  `Secure`, and `SameSite=None`. The Cloudflare gateway adapter applies this
+  policy because the dashboard and gateway use different sites in production.
 
 ## Definition of Done
 
