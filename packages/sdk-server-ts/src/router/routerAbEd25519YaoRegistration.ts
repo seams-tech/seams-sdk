@@ -11,6 +11,12 @@ import {
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
   type RouterAbEd25519YaoBytes32V1,
 } from '@shared/utils/routerAbEd25519Yao';
+import {
+  createRouterAbTraceContextV1,
+  parseRouterAbTraceContextV1,
+  ROUTER_AB_TRACE_ID_HEADER_V1,
+  type RouterAbTraceContextV1,
+} from '@shared/utils/routerAbTraceContext';
 import { json, readJson } from './cloudflare/http';
 import { createRouterApiModule, type RouterApiModule } from './modules';
 import { defineRoute, type RouteDefinition } from './routeDefinitions';
@@ -23,8 +29,7 @@ type RouterAbEd25519YaoRegistrationAdmissionReceiptV1 =
   RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
 type RouterAbEd25519YaoRegistrationExecuteRequestV1 =
   RouterAbEd25519YaoActivationExecuteRequestV1<'registration'>;
-type RouterAbEd25519YaoRegistrationResultV1 =
-  RouterAbEd25519YaoActivationResultV1<'registration'>;
+type RouterAbEd25519YaoRegistrationResultV1 = RouterAbEd25519YaoActivationResultV1<'registration'>;
 
 export type RouterAbEd25519YaoRegistrationFailureCode =
   | 'invalid_backend_response'
@@ -60,11 +65,13 @@ export type RouterAbEd25519YaoRegistrationBackendResult =
 export interface RouterAbEd25519YaoRegistrationBackend {
   admit(
     request: RouterAbEd25519YaoRegistrationAdmissionRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ):
     | Promise<RouterAbEd25519YaoRegistrationBackendResult>
     | RouterAbEd25519YaoRegistrationBackendResult;
   execute(
     request: RouterAbEd25519YaoRegistrationExecuteRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ):
     | Promise<RouterAbEd25519YaoRegistrationBackendResult>
     | RouterAbEd25519YaoRegistrationBackendResult;
@@ -73,12 +80,27 @@ export interface RouterAbEd25519YaoRegistrationBackend {
 export interface RouterAbEd25519YaoRegistrationService {
   admit(
     request: RouterAbEd25519YaoRegistrationAdmissionRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<
     RouterAbEd25519YaoRegistrationServiceResult<RouterAbEd25519YaoRegistrationAdmissionReceiptV1>
   >;
   execute(
     request: RouterAbEd25519YaoRegistrationExecuteRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRegistrationServiceResult<RouterAbEd25519YaoRegistrationResultV1>>;
+}
+
+type RouterAbEd25519YaoTraceContextResolutionV1 =
+  | { readonly ok: true; readonly value: RouterAbTraceContextV1 }
+  | { readonly ok: false; readonly message: string };
+
+function resolveTraceContext(request: Request): RouterAbEd25519YaoTraceContextResolutionV1 {
+  const parsed = parseRouterAbTraceContextV1(request.headers.get(ROUTER_AB_TRACE_ID_HEADER_V1));
+  if (parsed.ok) return parsed;
+  if (parsed.reason === 'missing') {
+    return { ok: true, value: createRouterAbTraceContextV1() };
+  }
+  return { ok: false, message: parsed.message };
 }
 
 export type RouterAbEd25519YaoRegistrationAuthorizationInput =
@@ -347,6 +369,13 @@ class RouterAbEd25519YaoRegistrationRouteExtension implements RouterApiRouteExte
   }
 
   private async handleAdmission(request: Request, rawBody: unknown): Promise<Response> {
+    const traceContext = resolveTraceContext(request);
+    if (!traceContext.ok) {
+      return json(
+        { ok: false, code: 'invalid_trace_id', message: traceContext.message },
+        { status: 400 },
+      );
+    }
     const parsed = parseRouterAbEd25519YaoRegistrationAdmissionRequestV1(rawBody);
     if (!parsed.ok) {
       return json({ ok: false, code: parsed.code, message: parsed.message }, { status: 400 });
@@ -357,12 +386,19 @@ class RouterAbEd25519YaoRegistrationRouteExtension implements RouterApiRouteExte
       body: parsed.value,
     });
     if (!authorization.ok) return routeFailureResponse(authorization);
-    const result = await this.service.admit(parsed.value);
+    const result = await this.service.admit(parsed.value, traceContext.value);
     if (!result.ok) return routeFailureResponse(result);
     return json(result.value, { status: result.status });
   }
 
   private async handleExecution(request: Request, rawBody: unknown): Promise<Response> {
+    const traceContext = resolveTraceContext(request);
+    if (!traceContext.ok) {
+      return json(
+        { ok: false, code: 'invalid_trace_id', message: traceContext.message },
+        { status: 400 },
+      );
+    }
     const parsed = parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1(rawBody);
     if (!parsed.ok) {
       return json({ ok: false, code: parsed.code, message: parsed.message }, { status: 400 });
@@ -373,7 +409,7 @@ class RouterAbEd25519YaoRegistrationRouteExtension implements RouterApiRouteExte
       body: parsed.value,
     });
     if (!authorization.ok) return routeFailureResponse(authorization);
-    const result = await this.service.execute(parsed.value);
+    const result = await this.service.execute(parsed.value, traceContext.value);
     if (!result.ok) return routeFailureResponse(result);
     return json(result.value, { status: result.status });
   }
@@ -399,8 +435,7 @@ export class InMemoryRouterAbEd25519YaoRegistrationService
 
   constructor(
     private readonly backend: RouterAbEd25519YaoRegistrationBackend,
-    state: InMemoryRouterAbEd25519YaoRegistrationStateV1 =
-      new InMemoryRouterAbEd25519YaoRegistrationStateV1(),
+    state: InMemoryRouterAbEd25519YaoRegistrationStateV1 = new InMemoryRouterAbEd25519YaoRegistrationStateV1(),
   ) {
     this.states = state.states;
     this.lifecycleSessions = state.lifecycleSessions;
@@ -408,6 +443,7 @@ export class InMemoryRouterAbEd25519YaoRegistrationService
 
   async admit(
     request: RouterAbEd25519YaoRegistrationAdmissionRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<
     RouterAbEd25519YaoRegistrationServiceResult<RouterAbEd25519YaoRegistrationAdmissionReceiptV1>
   > {
@@ -422,7 +458,7 @@ export class InMemoryRouterAbEd25519YaoRegistrationService
     }
     let backendResult: RouterAbEd25519YaoRegistrationBackendResult;
     try {
-      backendResult = await this.backend.admit(request);
+      backendResult = await this.backend.admit(request, traceContext);
     } catch (error: unknown) {
       return {
         ok: false,
@@ -461,6 +497,7 @@ export class InMemoryRouterAbEd25519YaoRegistrationService
 
   async execute(
     request: RouterAbEd25519YaoRegistrationExecuteRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRegistrationServiceResult<RouterAbEd25519YaoRegistrationResultV1>> {
     const key = executeSessionKey(request);
     const state = this.states.get(key);
@@ -503,7 +540,7 @@ export class InMemoryRouterAbEd25519YaoRegistrationService
       case 'failed':
         return state.failure;
       case 'admitted':
-        return await this.executeAdmitted(state, request, executeFingerprint, key);
+        return await this.executeAdmitted(state, request, executeFingerprint, key, traceContext);
       default:
         return assertNever(state);
     }
@@ -514,6 +551,7 @@ export class InMemoryRouterAbEd25519YaoRegistrationService
     request: RouterAbEd25519YaoRegistrationExecuteRequestV1,
     executeFingerprint: string,
     key: string,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRegistrationServiceResult<RouterAbEd25519YaoRegistrationResultV1>> {
     const executing: RegistrationExecutingState = {
       kind: 'executing',
@@ -525,7 +563,7 @@ export class InMemoryRouterAbEd25519YaoRegistrationService
 
     let backendResult: RouterAbEd25519YaoRegistrationBackendResult;
     try {
-      backendResult = await this.backend.execute(request);
+      backendResult = await this.backend.execute(request, traceContext);
     } catch (error: unknown) {
       const failure = uncertainExecutionFailure(error);
       this.storeFailure(executing, key, failure);

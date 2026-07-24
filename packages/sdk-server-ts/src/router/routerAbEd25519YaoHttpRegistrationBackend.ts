@@ -16,6 +16,10 @@ import type {
   RouterAbEd25519YaoRegistrationBackendResult,
 } from './routerAbEd25519YaoRegistration';
 import type { RouterAbEd25519YaoExportBackend } from './routerAbEd25519YaoExport';
+import {
+  createRouterAbTraceContextV1,
+  type RouterAbTraceContextV1,
+} from '@shared/utils/routerAbTraceContext';
 
 type RouterAbEd25519YaoRegistrationExecuteRequestV1 =
   RouterAbEd25519YaoActivationExecuteRequestV1<'registration'>;
@@ -185,14 +189,6 @@ function randomSession(): number[] {
     globalThis.crypto.getRandomValues(bytes);
   } while (isZero(bytes));
   return Array.from(bytes);
-}
-
-function randomTraceId(): string {
-  const bytes = new Uint8Array(16);
-  globalThis.crypto.getRandomValues(bytes);
-  let traceId = '';
-  for (const byte of bytes) traceId += byte.toString(16).padStart(2, '0');
-  return traceId;
 }
 
 function isZero(bytes: Uint8Array): boolean {
@@ -410,12 +406,12 @@ function isRecoveryExecuteRequest(
 }
 
 function executeOperation(request: RouterExecuteInput): 'registration' | 'recovery' | 'export' {
-  return isExportExecuteRequest(request) ? request.binding.ceremony.operation : request.binding.operation;
+  return isExportExecuteRequest(request)
+    ? request.binding.ceremony.operation
+    : request.binding.operation;
 }
 
-async function routerExecuteRequest(
-  request: RouterExecuteInput,
-): Promise<RouterExecuteBoundary> {
+async function routerExecuteRequest(request: RouterExecuteInput): Promise<RouterExecuteBoundary> {
   if (isExportExecuteRequest(request)) {
     return {
       operation: 'export',
@@ -489,7 +485,11 @@ function parseRouterExecuteResult(
           'reason',
         ]);
         requireBytes32(envelope.execution_id, 'Router Yao burned execution_id');
-        if (!['caller_disconnected', 'peer_uncertain', 'protocol_failure'].includes(String(envelope.reason))) {
+        if (
+          !['caller_disconnected', 'peer_uncertain', 'protocol_failure'].includes(
+            String(envelope.reason),
+          )
+        ) {
           throw new Error('Router Yao burned reason is invalid');
         }
         return internalFailure('router_execution_burned', 'Router Yao execution was burned');
@@ -504,7 +504,10 @@ function parseRouterExecuteResult(
     requireExactKeys(result, 'Router Yao success', ['operation', 'result']);
     const operation = executeOperation(request);
     if (result.operation !== operation) {
-      return internalFailure('operation_mismatch', 'Router Yao result operation differs from request');
+      return internalFailure(
+        'operation_mismatch',
+        'Router Yao result operation differs from request',
+      );
     }
     switch (operation) {
       case 'registration': {
@@ -554,18 +557,21 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
 
   async admit(
     request: RouterAbEd25519YaoRegistrationAdmissionRequestV1,
+    _traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRegistrationBackendResult> {
     return await this.admitActivation(request, 'registration');
   }
 
   async admitRecovery(
     request: RouterAbEd25519YaoRecoveryAdmissionRequestV1,
+    _traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRegistrationBackendResult> {
     return await this.admitActivation(request, 'recovery');
   }
 
   async admitExport(
     request: RouterAbEd25519YaoExportAdmissionRequestV1,
+    _traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRegistrationBackendResult> {
     if (request.scope.signing_worker_id !== this.config.signingWorkerId) {
       return {
@@ -614,8 +620,9 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
 
   async executeExport(
     request: RouterAbEd25519YaoExportExecuteRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRegistrationBackendResult> {
-    return await this.executeRouterRequest(request, 'export');
+    return await this.executeRouterRequest(request, 'export', traceContext);
   }
 
   private keyset() {
@@ -696,21 +703,24 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
 
   async execute(
     request: RouterAbEd25519YaoRegistrationExecuteRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRegistrationBackendResult> {
-    return await this.executeRouterRequest(request, 'registration');
+    return await this.executeRouterRequest(request, 'registration', traceContext);
   }
 
   async executeRecovery(
     request: RouterAbEd25519YaoRecoveryExecuteRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRegistrationBackendResult> {
-    return await this.executeRouterRequest(request, 'recovery');
+    return await this.executeRouterRequest(request, 'recovery', traceContext);
   }
 
   private async executeRouterRequest(
     request: RouterExecuteInput,
     operation: RouterAbEd25519YaoGatewaySpanV1['operation'],
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRegistrationBackendResult> {
-    const traceId = randomTraceId();
+    const traceId = (traceContext ?? createRouterAbTraceContextV1()).value;
     const preYaoStartedAt = performance.now();
     let routerRequest: RouterExecuteBoundary;
     try {
@@ -763,8 +773,13 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
 
   async activateRecovery(
     request: RouterAbEd25519YaoRecoveryActivationRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRegistrationBackendResult> {
-    const promoted = await this.post(ROUTER_RECOVERY_PROMOTE_PATH, request, randomTraceId());
+    const promoted = await this.post(
+      ROUTER_RECOVERY_PROMOTE_PATH,
+      request,
+      (traceContext ?? createRouterAbTraceContextV1()).value,
+    );
     if (!promoted.ok) return promoted;
     const activeReceipt = parseActiveSigningWorkerReceipt(
       promoted.body,
@@ -786,11 +801,16 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
     traceId: string,
     replayOnTransportFailure = false,
   ): Promise<HttpResult> {
-    return await this.request(this.config.routerUrl, path, {
-      method: 'POST',
-      headers: this.headers(traceId),
-      body: JSON.stringify(body),
-    }, replayOnTransportFailure);
+    return await this.request(
+      this.config.routerUrl,
+      path,
+      {
+        method: 'POST',
+        headers: this.headers(traceId),
+        body: JSON.stringify(body),
+      },
+      replayOnTransportFailure,
+    );
   }
 
   private headers(traceId: string): Record<string, string> {
@@ -820,10 +840,7 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
     }
     const text = await response.text();
     if (!response.ok) {
-      return internalFailure(
-        'worker_rejected',
-        `worker ${path} returned HTTP ${response.status}`,
-      );
+      return internalFailure('worker_rejected', `worker ${path} returned HTTP ${response.status}`);
     }
     let body: unknown;
     try {
@@ -845,7 +862,10 @@ export function createRouterAbEd25519YaoHttpRegistrationBackendFromEnv(input: {
 }): RouterAbEd25519YaoHttpRegistrationBackend {
   const env = input.env;
   return new RouterAbEd25519YaoHttpRegistrationBackend({
-    routerUrl: requireNonEmpty(envValue(env, ROUTER_AB_ENV_KEYS.routerUrl), ROUTER_AB_ENV_KEYS.routerUrl),
+    routerUrl: requireNonEmpty(
+      envValue(env, ROUTER_AB_ENV_KEYS.routerUrl),
+      ROUTER_AB_ENV_KEYS.routerUrl,
+    ),
     signingWorkerId: requireNonEmpty(
       envValue(env, ROUTER_AB_ENV_KEYS.signingWorkerId),
       ROUTER_AB_ENV_KEYS.signingWorkerId,

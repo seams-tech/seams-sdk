@@ -16,9 +16,12 @@ import {
   type RouterAbEd25519YaoExportResultV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import {
-  parseSigningGrantId,
-  parseThresholdEd25519SessionId,
-} from '@shared/utils/domainIds';
+  createRouterAbTraceContextV1,
+  parseRouterAbTraceContextV1,
+  ROUTER_AB_TRACE_ID_HEADER_V1,
+  type RouterAbTraceContextV1,
+} from '@shared/utils/routerAbTraceContext';
+import { parseSigningGrantId, parseThresholdEd25519SessionId } from '@shared/utils/domainIds';
 import type { AuthFactorIdentity, WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { isPlainObject } from '@shared/utils/validation';
@@ -97,19 +100,36 @@ function exportBackendFailure(
 export interface RouterAbEd25519YaoExportBackend {
   admitExport(
     request: RouterAbEd25519YaoExportAdmissionRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoExportBackendResult> | RouterAbEd25519YaoExportBackendResult;
   executeExport(
     request: RouterAbEd25519YaoExportExecuteRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoExportBackendResult> | RouterAbEd25519YaoExportBackendResult;
 }
 
 export interface RouterAbEd25519YaoExportService {
   admitExport(
     request: RouterAbEd25519YaoExportAdmissionRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoExportServiceResult<RouterAbEd25519YaoExportAdmissionReceiptV1>>;
   executeExport(
     request: RouterAbEd25519YaoExportExecuteRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoExportServiceResult<RouterAbEd25519YaoExportResultV1>>;
+}
+
+type RouterAbEd25519YaoTraceContextResolutionV1 =
+  | { readonly ok: true; readonly value: RouterAbTraceContextV1 }
+  | { readonly ok: false; readonly message: string };
+
+function resolveTraceContext(request: Request): RouterAbEd25519YaoTraceContextResolutionV1 {
+  const parsed = parseRouterAbTraceContextV1(request.headers.get(ROUTER_AB_TRACE_ID_HEADER_V1));
+  if (parsed.ok) return parsed;
+  if (parsed.reason === 'missing') {
+    return { ok: true, value: createRouterAbTraceContextV1() };
+  }
+  return { ok: false, message: parsed.message };
 }
 
 export type RouterAbEd25519YaoExportAdmissionAuthorization =
@@ -279,6 +299,7 @@ export class InMemoryRouterAbEd25519YaoExportService implements RouterAbEd25519Y
 
   async admitExport(
     request: RouterAbEd25519YaoExportAdmissionRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoExportServiceResult<RouterAbEd25519YaoExportAdmissionReceiptV1>> {
     const nonce = bytesToHex(request.authorization.nonce);
     if (this.state.authorizationNonces.has(nonce)) {
@@ -324,7 +345,7 @@ export class InMemoryRouterAbEd25519YaoExportService implements RouterAbEd25519Y
     }
     let backendResult: RouterAbEd25519YaoExportBackendResult;
     try {
-      backendResult = await this.backend.admitExport(request);
+      backendResult = await this.backend.admitExport(request, traceContext);
     } catch (error: unknown) {
       return failure({
         status: 503,
@@ -362,6 +383,7 @@ export class InMemoryRouterAbEd25519YaoExportService implements RouterAbEd25519Y
 
   async executeExport(
     request: RouterAbEd25519YaoExportExecuteRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoExportServiceResult<RouterAbEd25519YaoExportResultV1>> {
     const session = bytesToHex(request.binding.ceremony.session_id);
     const current = this.state.exports.get(session);
@@ -386,7 +408,7 @@ export class InMemoryRouterAbEd25519YaoExportService implements RouterAbEd25519Y
     this.state.exports.set(session, { ...current, kind: 'executing' });
     let backendResult: RouterAbEd25519YaoExportBackendResult;
     try {
-      backendResult = await this.backend.executeExport(request);
+      backendResult = await this.backend.executeExport(request, traceContext);
     } catch (error: unknown) {
       this.state.exports.set(session, { ...current, kind: 'burned' });
       return failure({
@@ -931,10 +953,7 @@ function parseExportAuthorizationIdentity(
   if (!isPlainObject(value)) {
     return { ok: false, message: 'authorizationIdentity must be an object' };
   }
-  const unexpectedField = firstUnexpectedField(value, [
-    'thresholdSessionId',
-    'signingGrantId',
-  ]);
+  const unexpectedField = firstUnexpectedField(value, ['thresholdSessionId', 'signingGrantId']);
   if (unexpectedField || Object.keys(value).length !== 2) {
     return { ok: false, message: 'authorizationIdentity fields are invalid' };
   }
@@ -1000,6 +1019,12 @@ class RouterAbEd25519YaoExportRouteExtension implements RouterApiRouteExtension 
     }
     const raw = await readJson(input.request);
     if (input.pathname === ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1) {
+      const traceContext = resolveTraceContext(input.request);
+      if (!traceContext.ok)
+        return json(
+          { ok: false, code: 'invalid_trace_id', message: traceContext.message },
+          { status: 400 },
+        );
       const parsed = parseExportAdmissionEnvelope(raw);
       if (!parsed.ok)
         return json({ ok: false, code: 'invalid_body', message: parsed.message }, { status: 400 });
@@ -1027,7 +1052,7 @@ class RouterAbEd25519YaoExportRouteExtension implements RouterApiRouteExtension 
           { ok: false, code: authorized.code, message: authorized.message },
           { status: authorized.status },
         );
-      const result = await this.service.admitExport(parsed.protocol);
+      const result = await this.service.admitExport(parsed.protocol, traceContext.value);
       return result.ok
         ? json(result.value, { status: result.status })
         : json(
@@ -1036,6 +1061,12 @@ class RouterAbEd25519YaoExportRouteExtension implements RouterApiRouteExtension 
           );
     }
     if (input.pathname === ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1) {
+      const traceContext = resolveTraceContext(input.request);
+      if (!traceContext.ok)
+        return json(
+          { ok: false, code: 'invalid_trace_id', message: traceContext.message },
+          { status: 400 },
+        );
       const parsed = parseExportExecuteEnvelope(raw);
       if (!parsed.ok)
         return json({ ok: false, code: 'invalid_body', message: parsed.message }, { status: 400 });
@@ -1050,7 +1081,7 @@ class RouterAbEd25519YaoExportRouteExtension implements RouterApiRouteExtension 
           { ok: false, code: authorized.code, message: authorized.message },
           { status: authorized.status },
         );
-      const result = await this.service.executeExport(parsed.protocol);
+      const result = await this.service.executeExport(parsed.protocol, traceContext.value);
       return result.ok
         ? json(result.value, { status: result.status })
         : json(
