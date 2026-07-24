@@ -620,10 +620,11 @@ Cold/warm cohorts, Durable Object instantiation/reuse, and the frozen p50/p95
 budget must be captured after a coherent Router, role-worker, and Gateway
 rollout.
 The lower-level Router contract tests cover exact replay and terminal failure;
-the HTTP backend contract test now also asserts that a burned execution is
-surfaced as a terminal failure without retry. The intended-behaviour harness
-still lacks a controlled transport-failure injection point, so its end-to-end
-retry assertion remains open.
+the HTTP backend contract tests assert that a response lost after Router
+execution is retried with the exact admitted body, trace ID, and replay marker,
+and that a burned execution is surfaced as a terminal failure without retry.
+The intended-behaviour harness still lacks a controlled transport-failure
+injection point, so its end-to-end retry assertion remains open.
 
 The successful response shapes are frozen at the existing strict TypeScript
 parsers and product service boundaries. Registration and recovery are covered
