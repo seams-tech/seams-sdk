@@ -602,6 +602,9 @@ not expose the Workers Observability telemetry needed to reconstruct them.
 Cold/warm cohorts, Durable Object instantiation/reuse, and the frozen p50/p95
 budget must be captured after a coherent Router, role-worker, and Gateway
 rollout.
+The lower-level Router contract tests cover exact replay and terminal failure;
+the intended-behaviour harness still lacks a controlled transport-failure
+injection point, so its end-to-end retry assertion remains open.
 
 ### Phase 1: Canonical Pair And Router Contracts
 
@@ -673,10 +676,12 @@ rollout.
       body and trace ID plus the Router replay marker; HTTP responses are not
       retried.
 
-The Cloudflare Gateway cutover is implemented. The existing `router-ab-dev`
-process harness still exposes role workers without a Router coordinator HTTP
-endpoint, so the local end-to-end product test remains an explicit follow-up
-before Phase 6 acceptance.
+The Cloudflare Gateway cutover is implemented. The strict local Wrangler
+runtime (`crates/router-ab-dev/scripts/dev-local-workers.mjs`) includes the
+Router coordinator on port 9100. The older `router_ab_local_up` Rust-only
+process harness still starts only the role workers and cannot exercise the
+Router HTTP route; its product test remains an explicit follow-up before Phase
+6 acceptance. The two harnesses must not be treated as equivalent evidence.
 
 ### Phase 5: Hard Cutover And Deletion
 
@@ -816,12 +821,14 @@ registration.post_touch_id
   gateway.yao_execute
     router.parse_and_authorize
     router.role_status_reconciliation
-    router.deriver_a_prepare
-    router.deriver_b_prepare
+    router.prepare_pair
     router.verify_readiness_receipts
-    router.signed_start_handshake
-    router.yao_protocol
-    router.deriver_a_commit
+    router.deriver_a_execute
+      deriver_a.root_share
+      deriver_a.websocket_connect
+      deriver_a.yao_protocol
+      deriver_b.session_do
+      deriver_b.yao_protocol
     router.deriver_b_completed_read
     router.signing_worker_delivery
   gateway.d1_commit

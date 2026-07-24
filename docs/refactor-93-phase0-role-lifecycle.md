@@ -1,15 +1,18 @@
 # Refactor 93 Phase 0: current role-lifecycle map
 
 This note records the Phase 0 observation-only work on
-`codex/refactor-93-role-lifecycle`. It describes the deployed request shape in
-the branch and does not claim that a production trace cohort has been captured.
-No deployment is part of this lane.
+`codex/refactor-93-role-lifecycle`. It distinguishes the legacy request shape
+that is still present in the last measured deployment from the Router-owned
+request shape implemented by the branch. It does not claim that a production
+trace cohort has been captured. No deployment is part of this lane.
 
 ## Current production registration path
 
-The current registration ceremony still uses the legacy Stage → Start → Result
-shape. The trace value is carried in an HTTP header and is absent when the
-caller does not opt into correlation.
+The last measured production deployment still uses the legacy Stage → Start →
+Result shape. The trace value is carried in an HTTP header and may be absent for
+legacy callers that do not opt into correlation. The branch's Gateway backend
+creates the trace value at the Router boundary and carries it through the
+coordinator and role requests.
 
 | Segment | Current transition | Durable Object/storage boundary | Observation span |
 | --- | --- | --- | --- |
@@ -25,6 +28,26 @@ SigningWorker delivery, D1 commit, Gateway finalization, and frontend
 finalization are outside this role-local lane. They remain named Phase 0
 follow-up owners until the required production trace cohort assigns their
 durations.
+
+## Branch Router-owned ceremony path
+
+The branch replaces the serial Gateway → Stage → Start → Result sequence with
+one Gateway → Router request. This is implemented code, not production timing
+evidence:
+
+| Segment | Current branch transition | Durable Object/storage boundary | Observation span |
+| --- | --- | --- | --- |
+| Router admission | Gateway sends one authenticated execute request containing both encrypted inputs and the canonical pair binding. | Router validates authority and pair binding; replay reconciliation reads role-local status only for an internal replay. | `router.parse_and_authorize`, `router.role_status_reconciliation` |
+| Pair preparation | Router sends A and B `prepare-pair` requests concurrently through their Service Bindings. | Each role-local session object atomically stores its prepared pair and signed readiness material. | `router.prepare_pair`, `deriver_a.session_do(operation=pair)`, `deriver_b.session_do(operation=pair)` |
+| Readiness gate | Router validates both signed receipts and their pair/session/operation bindings before dispatching A. | No ceremony-wide Durable Object is introduced. | `router.verify_readiness_receipts` |
+| Two-party execution | Router sends one `execute-pair` request to A. A opens its role-local state and connects to B over the existing WebSocket protocol. | A and B retain independent role-local session objects and secret bindings. | `router.deriver_a_execute`, `deriver_a.websocket_connect`, `deriver_a.yao_protocol`, `deriver_b.yao_protocol` |
+| B completed read | Router reads B's exact completed execution after A returns, then validates transcript and role bindings. | B session object returns the persisted completed result; no polling loop is used by the coordinator. | `router.deriver_b_completed_read` |
+| Atomic delivery | Router sends the exact A/B package pair to SigningWorker once. | SigningWorker owns its existing activation state and idempotent delivery boundary. | `router.signing_worker_delivery` |
+
+An internal transport failure may replay the exact serialized request once. A
+completed pair is redelivered without cryptographic reevaluation; a running or
+conflicting pair is burned. This branch behavior still needs deployed cold and
+warm cohorts before the Phase 0 budget can be closed.
 
 ## Correlation and privacy contract
 
@@ -51,10 +74,9 @@ trace_id    = validated opaque value, when supplied
 These are structured Workers log events. They do not alter response bodies,
 request bodies, lifecycle records, retry behavior, or execution order.
 
-There is no active Agent 3 in this worktree to reconcile a shared trace-header
-definition with. The header name and validation contract therefore remain a
-Phase 0 integration item before the coordinator lane adopts them; this branch
-does not add a second header to any shared protocol type.
+The shared trace-header contract is `x-seams-trace-id`, validated as exactly 32
+lowercase hexadecimal characters (128 bits). The Router and role adapters use
+the same boundary parser; no second header format is introduced.
 
 ## Durable Object lifecycle signal
 
