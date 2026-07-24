@@ -221,6 +221,52 @@ impl PairYaoSessionRecordV1 {
     }
 }
 
+/// Computes the only valid completion transition for a pair-bound role.
+///
+/// The caller supplies the identity observed before entering the storage
+/// transaction. A's claim/complete path adds its execution id; B's completion
+/// path adds the input digest from its initial running-state read.
+fn completed_pair_record_if_running(
+    current: &PairYaoSessionRecordV1,
+    pair_digest: [u8; 32],
+    expected_input_digest: Option<[u8; 32]>,
+    expected_execution_id: Option<[u8; 32]>,
+    execution: &Ed25519YaoRoleExecutionV1,
+    now_ms: u64,
+) -> Option<PairYaoSessionRecordV1> {
+    let PairYaoSessionRecordV1::Running {
+        pair_digest: stored_pair,
+        input_digest,
+        root_metadata_digest,
+        execution_id,
+        started_at_ms,
+        input,
+    } = current
+    else {
+        return None;
+    };
+    if *stored_pair != pair_digest
+        || expected_input_digest.is_some_and(|expected| expected != *input_digest)
+        || expected_execution_id.is_some_and(|expected| expected != *execution_id)
+        || execution.session() != input.session()
+    {
+        return None;
+    }
+    if now_ms.saturating_sub(*started_at_ms) >= YAO_RUNNING_LIFETIME_MS {
+        return Some(PairYaoSessionRecordV1::Burned {
+            pair_digest,
+            input_digest: *input_digest,
+            execution_id: *execution_id,
+        });
+    }
+    Some(PairYaoSessionRecordV1::Completed {
+        pair_digest: *stored_pair,
+        input_digest: *input_digest,
+        root_metadata_digest: *root_metadata_digest,
+        execution: Box::new(execution.clone()),
+    })
+}
+
 fn yao_execution_id() -> worker::Result<[u8; 32]> {
     let bytes = crate::cloudflare_random_bytes_v1(32)
         .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
@@ -1745,39 +1791,17 @@ impl RouterAbDeriverAYaoSessionDurableObject {
                     Err(error) => return Err(error),
                 };
                 let now_unix_ms = cloudflare_yao_now_unix_ms()?;
-                if let PairYaoSessionRecordV1::Running {
-                    pair_digest: stored_pair,
-                    input_digest: stored_input,
-                    root_metadata_digest,
-                    execution_id: stored_execution_id,
-                    started_at_ms,
-                    input,
-                } = current
-                {
-                    if stored_pair == pair_digest
-                        && stored_execution_id == execution_id
-                        && input.session() == session
-                    {
-                        let next = if now_unix_ms.saturating_sub(started_at_ms)
-                            >= YAO_RUNNING_LIFETIME_MS
-                        {
-                            PairYaoSessionRecordV1::Burned {
-                                pair_digest,
-                                input_digest: stored_input,
-                                execution_id: stored_execution_id,
-                            }
-                        } else {
-                            PairYaoSessionRecordV1::Completed {
-                                pair_digest: stored_pair,
-                                input_digest: stored_input,
-                                root_metadata_digest,
-                                execution,
-                            }
-                        };
-                        transaction
-                            .put(PAIR_SESSION_RECORD_STORAGE_KEY, next)
-                            .await?;
-                    }
+                if let Some(next) = completed_pair_record_if_running(
+                    &current,
+                    pair_digest,
+                    None,
+                    Some(execution_id),
+                    &execution,
+                    now_unix_ms,
+                ) {
+                    transaction
+                        .put(PAIR_SESSION_RECORD_STORAGE_KEY, next)
+                        .await?;
                 }
                 Ok(())
             })
@@ -2573,20 +2597,14 @@ impl RouterAbDeriverBYaoSessionDurableObject {
             .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
             .await?
             .ok_or_else(|| worker::Error::RustError("Deriver B pair is missing".into()))?;
+        let expected_execution = execution.clone();
         match record {
             PairYaoSessionRecordV1::Running {
                 pair_digest: stored_pair,
                 input_digest,
-                root_metadata_digest,
                 input,
                 ..
             } if stored_pair == pair_digest && input.session() == session => {
-                let completed_record = PairYaoSessionRecordV1::Completed {
-                    pair_digest,
-                    input_digest,
-                    root_metadata_digest,
-                    execution: Box::new(execution.clone()),
-                };
                 storage
                     .transaction(move |transaction| async move {
                         let current = match transaction
@@ -2602,38 +2620,17 @@ impl RouterAbDeriverBYaoSessionDurableObject {
                             Err(error) => return Err(error),
                         };
                         let now_unix_ms = cloudflare_yao_now_unix_ms()?;
-                        match current {
-                            PairYaoSessionRecordV1::Running {
-                                pair_digest: stored_pair,
-                                input_digest: stored_input,
-                                started_at_ms,
-                                input: stored_input_record,
-                                execution_id,
-                                ..
-                            } if stored_pair == pair_digest
-                                && stored_input == input_digest
-                                && stored_input_record.session() == session =>
-                            {
-                                if now_unix_ms.saturating_sub(started_at_ms)
-                                    >= YAO_RUNNING_LIFETIME_MS
-                                {
-                                    transaction
-                                        .put(
-                                            PAIR_SESSION_RECORD_STORAGE_KEY,
-                                            PairYaoSessionRecordV1::Burned {
-                                                pair_digest,
-                                                input_digest,
-                                                execution_id,
-                                            },
-                                        )
-                                        .await?;
-                                } else {
-                                    transaction
-                                        .put(PAIR_SESSION_RECORD_STORAGE_KEY, completed_record)
-                                        .await?;
-                                }
-                            }
-                            _ => {}
+                        if let Some(next) = completed_pair_record_if_running(
+                            &current,
+                            pair_digest,
+                            Some(input_digest),
+                            None,
+                            &execution,
+                            now_unix_ms,
+                        ) {
+                            transaction
+                                .put(PAIR_SESSION_RECORD_STORAGE_KEY, next)
+                                .await?;
                         }
                         Ok(())
                     })
@@ -2648,7 +2645,7 @@ impl RouterAbDeriverBYaoSessionDurableObject {
                         ..
                     }) if stored_pair == pair_digest
                         && existing.session() == session
-                        && *existing == execution =>
+                        && *existing == expected_execution =>
                     {
                         Response::from_json(&DeriverBYaoSessionResponseV1::PairCompleted {
                             session,
@@ -2674,7 +2671,7 @@ impl RouterAbDeriverBYaoSessionDurableObject {
                 pair_digest: stored_pair,
                 execution: existing,
                 ..
-            } if stored_pair == pair_digest && *existing == execution => {
+            } if stored_pair == pair_digest && *existing == expected_execution => {
                 Response::from_json(&DeriverBYaoSessionResponseV1::PairCompleted {
                     session,
                     pair_digest,
@@ -4644,6 +4641,12 @@ fn encode_hex(bytes: [u8; 32]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use router_ab_core::{
+        Ed25519YaoCeremonyBindingV1, Ed25519YaoEncryptedPackageV1, Ed25519YaoInputPairBindingV1,
+        Ed25519YaoPackageKindV1, Ed25519YaoSessionIdV1, Ed25519YaoStableKeyContextBindingV1,
+        ExpensiveWorkKindV1, LifecycleScopeV1, PublicDigest32, RootShareEpoch,
+    };
+    use router_ab_ed25519_yao::Ed25519YaoActivationRoleExecutionV1;
 
     fn encrypted_input(ciphertext_byte: u8) -> Ed25519YaoEncryptedInputV1 {
         Ed25519YaoEncryptedInputV1::new(
@@ -4656,6 +4659,77 @@ mod tests {
             vec![ciphertext_byte; 16],
         )
         .expect("test input is valid")
+    }
+
+    fn pair_for_completion() -> (Ed25519YaoInputPairBindingV1, Ed25519YaoEncryptedInputV1) {
+        let input_b = encrypted_input(4);
+        let input_a = Ed25519YaoEncryptedInputV1::new(
+            Ed25519YaoInputKindV1::Activation,
+            Ed25519YaoDeriverRoleV1::DeriverA,
+            Ed25519YaoOperationV1::Registration,
+            [1; 32],
+            [2; 32],
+            [3; 32],
+            vec![5; 16],
+        )
+        .expect("Deriver A input");
+        let lifecycle = LifecycleScopeV1::new(
+            "completion-test",
+            ExpensiveWorkKindV1::RegistrationPrepare,
+            RootShareEpoch::new("epoch").expect("epoch"),
+            "account",
+            "session",
+            "signer-set",
+            "server",
+        )
+        .expect("lifecycle");
+        let binding = Ed25519YaoCeremonyBindingV1::new(
+            lifecycle,
+            Ed25519YaoOperationV1::Registration,
+            Ed25519YaoSessionIdV1::new([1; 32]).expect("session"),
+            Ed25519YaoStableKeyContextBindingV1::new([2; 32]),
+        )
+        .expect("binding");
+        let pair = Ed25519YaoInputPairBindingV1::from_ceremony_binding(
+            binding,
+            &input_a,
+            &input_b,
+            PublicDigest32::new([13; 32]),
+            PublicDigest32::new([14; 32]),
+        )
+        .expect("pair");
+        (pair, input_a)
+    }
+
+    fn role_execution_for_pair(pair: &Ed25519YaoInputPairBindingV1) -> Ed25519YaoRoleExecutionV1 {
+        let session = pair.session();
+        let client_package = Ed25519YaoEncryptedPackageV1::new(
+            Ed25519YaoPackageKindV1::ActivationClient,
+            Ed25519YaoDeriverRoleV1::DeriverA,
+            session,
+            [4; 32],
+            [5; 32],
+            vec![6; 16],
+        )
+        .expect("client package");
+        let signing_worker_package = Ed25519YaoEncryptedPackageV1::new(
+            Ed25519YaoPackageKindV1::ActivationSigningWorker,
+            Ed25519YaoDeriverRoleV1::DeriverA,
+            session,
+            [4; 32],
+            [7; 32],
+            vec![8; 16],
+        )
+        .expect("SigningWorker package");
+        Ed25519YaoRoleExecutionV1::Activation(Ed25519YaoActivationRoleExecutionV1 {
+            binding: pair.binding().clone(),
+            deriver: Ed25519YaoDeriverRoleV1::DeriverA,
+            transcript: [4; 32],
+            client_commitment: [5; 32],
+            signing_worker_commitment: [6; 32],
+            client_package,
+            signing_worker_package,
+        })
     }
 
     #[test]
@@ -4706,5 +4780,76 @@ mod tests {
     fn session_expiry_uses_checked_arithmetic() {
         assert_eq!(yao_expiry_from_now(10, 20).expect("expiry fits"), 30);
         assert!(yao_expiry_from_now(u64::MAX, 1).is_err());
+    }
+
+    #[test]
+    fn pair_completion_transition_is_forward_only() {
+        let (pair, input) = pair_for_completion();
+        let input_digest = yao_input_digest(&input);
+        let pair_digest = [9; 32];
+        let execution_id = [10; 32];
+        let execution = role_execution_for_pair(&pair);
+        let running = PairYaoSessionRecordV1::Running {
+            pair_digest,
+            input_digest,
+            root_metadata_digest: [15; 32],
+            execution_id,
+            started_at_ms: 100,
+            input: Box::new(input),
+        };
+        assert!(matches!(
+            completed_pair_record_if_running(
+                &running,
+                pair_digest,
+                Some(input_digest),
+                Some(execution_id),
+                &execution,
+                101,
+            ),
+            Some(PairYaoSessionRecordV1::Completed { .. })
+        ));
+        assert!(matches!(
+            completed_pair_record_if_running(
+                &running,
+                pair_digest,
+                Some(input_digest),
+                Some(execution_id),
+                &execution,
+                100 + YAO_RUNNING_LIFETIME_MS,
+            ),
+            Some(PairYaoSessionRecordV1::Burned { .. })
+        ));
+        let burned = PairYaoSessionRecordV1::Burned {
+            pair_digest,
+            input_digest,
+            execution_id,
+        };
+        assert!(completed_pair_record_if_running(
+            &burned,
+            pair_digest,
+            Some(input_digest),
+            Some(execution_id),
+            &execution,
+            101,
+        )
+        .is_none());
+        assert!(completed_pair_record_if_running(
+            &running,
+            pair_digest,
+            Some(input_digest),
+            Some([16; 32]),
+            &execution,
+            101,
+        )
+        .is_none());
+        assert!(completed_pair_record_if_running(
+            &running,
+            pair_digest,
+            Some([17; 32]),
+            None,
+            &execution,
+            101,
+        )
+        .is_none());
     }
 }
