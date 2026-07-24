@@ -25,7 +25,7 @@ use router_ab_ed25519_yao::{
     seal_ed25519_yao_export_deriver_a_execution_v1, seal_ed25519_yao_export_deriver_b_execution_v1,
     Ed25519YaoRecipientPrivateKeyV1, Ed25519YaoRoleExecutionV1,
 };
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use worker::{Context, Delay, Env, Method, Request, Response, State, WebSocketPair};
 use zeroize::Zeroize;
@@ -160,6 +160,52 @@ impl YaoSessionRecordV1 {
             | Self::Expired { input_digest } => *input_digest,
         }
     }
+}
+
+async fn transaction_get_optional_v1<T>(
+    transaction: &worker::durable::Transaction,
+    key: &str,
+) -> worker::Result<Option<T>>
+where
+    T: DeserializeOwned,
+{
+    match transaction.get::<T>(key).await {
+        Ok(record) => Ok(Some(record)),
+        Err(worker::Error::JsError(message)) if message == "No such value in storage." => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+/// Claims the legacy lifecycle only when both lifecycle records are absent.
+/// Pair preparation uses the same dual-key transaction, so requests served by
+/// this version cannot admit both flows during an await gap.
+async fn claim_legacy_session_record_v1(
+    storage: &worker::Storage,
+    record: YaoSessionRecordV1,
+) -> worker::Result<()> {
+    storage
+        .transaction(move |transaction| async move {
+            if transaction_get_optional_v1::<PairYaoSessionRecordV1>(
+                &transaction,
+                PAIR_SESSION_RECORD_STORAGE_KEY,
+            )
+            .await?
+            .is_some()
+            {
+                return Ok(());
+            }
+            if transaction_get_optional_v1::<YaoSessionRecordV1>(
+                &transaction,
+                SESSION_RECORD_STORAGE_KEY,
+            )
+            .await?
+            .is_some()
+            {
+                return Ok(());
+            }
+            transaction.put(SESSION_RECORD_STORAGE_KEY, record).await
+        })
+        .await
 }
 
 /// Pair-bound role state used by the Router-owned lifecycle. Existing request
@@ -1193,56 +1239,82 @@ impl worker::DurableObject for RouterAbDeriverAYaoSessionDurableObject {
         }
         let now_unix_ms = cloudflare_yao_now_unix_ms()?;
         let input_digest = yao_input_digest(&input);
-        let existing = storage
+        let mut existing = storage
             .get::<YaoSessionRecordV1>(SESSION_RECORD_STORAGE_KEY)
             .await?;
-        match existing {
-            Some(YaoSessionRecordV1::Completed {
-                input_digest: existing_digest,
-                execution,
-            }) if existing_digest == input_digest => return Response::from_json(&execution),
-            Some(record) if record.input_digest() != input_digest => {
-                return Response::error("conflicting Deriver A session input", 409);
-            }
-            Some(YaoSessionRecordV1::Running { expires_at_ms, .. })
-                if now_unix_ms >= expires_at_ms =>
-            {
-                storage
-                    .put(
-                        SESSION_RECORD_STORAGE_KEY,
-                        YaoSessionRecordV1::Expired { input_digest },
-                    )
-                    .await?;
-                return Response::error("Deriver A session expired", 409);
-            }
-            Some(YaoSessionRecordV1::Running { .. }) => {
-                return Response::error(
-                    "Deriver A session is already running and cannot be re-evaluated",
-                    409,
-                );
-            }
-            Some(YaoSessionRecordV1::Failed { .. }) => {
-                return Response::error("Deriver A session failed", 409);
-            }
-            Some(YaoSessionRecordV1::Expired { .. }) => {
-                return Response::error("Deriver A session expired", 409);
-            }
-            Some(YaoSessionRecordV1::Staged { .. })
-            | Some(YaoSessionRecordV1::Completed { .. }) => {
-                return Response::error("Deriver A session state is invalid", 409);
-            }
-            None => {}
-        }
-        let expires_at_ms = yao_expiry_from_now(now_unix_ms, YAO_RUNNING_LIFETIME_MS)?;
-        storage
-            .put(
-                SESSION_RECORD_STORAGE_KEY,
+        let mut legacy_admitted = false;
+        if existing.is_none() {
+            let expires_at_ms = yao_expiry_from_now(now_unix_ms, YAO_RUNNING_LIFETIME_MS)?;
+            claim_legacy_session_record_v1(
+                &storage,
                 YaoSessionRecordV1::Running {
                     input_digest,
                     expires_at_ms,
                 },
             )
             .await?;
+            if storage
+                .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
+                .await?
+                .is_some()
+            {
+                return Response::error(
+                    "Deriver A pair lifecycle owns this session; legacy execution is closed",
+                    409,
+                );
+            }
+            existing = storage
+                .get::<YaoSessionRecordV1>(SESSION_RECORD_STORAGE_KEY)
+                .await?;
+            legacy_admitted = matches!(
+                existing,
+                Some(YaoSessionRecordV1::Running {
+                    input_digest: stored_input,
+                    expires_at_ms: stored_expiry,
+                }) if stored_input == input_digest && stored_expiry == expires_at_ms
+            );
+        }
+        if !legacy_admitted {
+            match existing {
+                Some(YaoSessionRecordV1::Completed {
+                    input_digest: existing_digest,
+                    execution,
+                }) if existing_digest == input_digest => return Response::from_json(&execution),
+                Some(record) if record.input_digest() != input_digest => {
+                    return Response::error("conflicting Deriver A session input", 409);
+                }
+                Some(YaoSessionRecordV1::Running { expires_at_ms, .. })
+                    if now_unix_ms >= expires_at_ms =>
+                {
+                    storage
+                        .put(
+                            SESSION_RECORD_STORAGE_KEY,
+                            YaoSessionRecordV1::Expired { input_digest },
+                        )
+                        .await?;
+                    return Response::error("Deriver A session expired", 409);
+                }
+                Some(YaoSessionRecordV1::Running { .. }) => {
+                    return Response::error(
+                        "Deriver A session is already running and cannot be re-evaluated",
+                        409,
+                    );
+                }
+                Some(YaoSessionRecordV1::Failed { .. }) => {
+                    return Response::error("Deriver A session failed", 409);
+                }
+                Some(YaoSessionRecordV1::Expired { .. }) => {
+                    return Response::error("Deriver A session expired", 409);
+                }
+                Some(YaoSessionRecordV1::Staged { .. })
+                | Some(YaoSessionRecordV1::Completed { .. }) => {
+                    return Response::error("Deriver A session state is invalid", 409);
+                }
+                None => {
+                    return Response::error("Deriver A legacy admission state is missing", 409);
+                }
+            }
+        }
         let runtime = match CloudflareDeriverAWorkerRuntimeV1::from_worker_env(&self.env) {
             Ok(runtime) => runtime,
             Err(error) => {
@@ -2110,57 +2182,86 @@ impl worker::DurableObject for RouterAbDeriverBYaoSessionDurableObject {
         let response = match command {
             DeriverBYaoSessionCommandV1::Stage { input } => {
                 let input_digest = yao_input_digest(&input);
-                let existing = storage
+                let mut existing = storage
                     .get::<YaoSessionRecordV1>(SESSION_RECORD_STORAGE_KEY)
                     .await?;
-                match existing {
-                    Some(YaoSessionRecordV1::Staged {
-                        input_digest: existing_digest,
-                        expires_at_ms,
-                        ..
-                    }) if now_unix_ms >= expires_at_ms => {
-                        storage
-                            .put(
-                                SESSION_RECORD_STORAGE_KEY,
-                                YaoSessionRecordV1::Expired {
-                                    input_digest: existing_digest,
-                                },
-                            )
-                            .await?;
-                        return Response::error("Deriver B staged session expired", 409);
-                    }
-                    Some(YaoSessionRecordV1::Staged {
-                        input_digest: existing_digest,
-                        ..
-                    }) if existing_digest == input_digest => {}
-                    Some(record) if record.input_digest() != input_digest => {
-                        return Response::error("conflicting staged Deriver B input", 409);
-                    }
-                    Some(YaoSessionRecordV1::Running { .. })
-                    | Some(YaoSessionRecordV1::Completed { .. })
-                    | Some(YaoSessionRecordV1::Failed { .. })
-                    | Some(YaoSessionRecordV1::Expired { .. }) => {
+                let mut legacy_admitted = false;
+                if existing.is_none() {
+                    let expires_at_ms =
+                        yao_expiry_from_now(now_unix_ms, YAO_STAGED_INPUT_LIFETIME_MS)?;
+                    claim_legacy_session_record_v1(
+                        &storage,
+                        YaoSessionRecordV1::Staged {
+                            input_digest,
+                            expires_at_ms,
+                            input: input.clone(),
+                        },
+                    )
+                    .await?;
+                    if storage
+                        .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
+                        .await?
+                        .is_some()
+                    {
                         return Response::error(
-                            "Deriver B session is terminal or already running",
+                            "Deriver B pair lifecycle owns this session; legacy execution is closed",
                             409,
                         );
                     }
-                    Some(YaoSessionRecordV1::Staged { .. }) => {
-                        return Response::error("conflicting staged Deriver B input", 409);
-                    }
-                    None => {
-                        let expires_at_ms =
-                            yao_expiry_from_now(now_unix_ms, YAO_STAGED_INPUT_LIFETIME_MS)?;
-                        storage
-                            .put(
-                                SESSION_RECORD_STORAGE_KEY,
-                                YaoSessionRecordV1::Staged {
-                                    input_digest,
-                                    expires_at_ms,
-                                    input: input.clone(),
-                                },
-                            )
-                            .await?;
+                    existing = storage
+                        .get::<YaoSessionRecordV1>(SESSION_RECORD_STORAGE_KEY)
+                        .await?;
+                    legacy_admitted = matches!(
+                        existing,
+                        Some(YaoSessionRecordV1::Staged {
+                            input_digest: stored_input,
+                            expires_at_ms: stored_expiry,
+                            ..
+                        }) if stored_input == input_digest && stored_expiry == expires_at_ms
+                    );
+                }
+                if !legacy_admitted {
+                    match existing {
+                        Some(YaoSessionRecordV1::Staged {
+                            input_digest: existing_digest,
+                            expires_at_ms,
+                            ..
+                        }) if now_unix_ms >= expires_at_ms => {
+                            storage
+                                .put(
+                                    SESSION_RECORD_STORAGE_KEY,
+                                    YaoSessionRecordV1::Expired {
+                                        input_digest: existing_digest,
+                                    },
+                                )
+                                .await?;
+                            return Response::error("Deriver B staged session expired", 409);
+                        }
+                        Some(YaoSessionRecordV1::Staged {
+                            input_digest: existing_digest,
+                            ..
+                        }) if existing_digest == input_digest => {}
+                        Some(record) if record.input_digest() != input_digest => {
+                            return Response::error("conflicting staged Deriver B input", 409);
+                        }
+                        Some(YaoSessionRecordV1::Running { .. })
+                        | Some(YaoSessionRecordV1::Completed { .. })
+                        | Some(YaoSessionRecordV1::Failed { .. })
+                        | Some(YaoSessionRecordV1::Expired { .. }) => {
+                            return Response::error(
+                                "Deriver B session is terminal or already running",
+                                409,
+                            );
+                        }
+                        Some(YaoSessionRecordV1::Staged { .. }) => {
+                            return Response::error("conflicting staged Deriver B input", 409);
+                        }
+                        None => {
+                            return Response::error(
+                                "Deriver B legacy admission state is missing",
+                                409,
+                            );
+                        }
                     }
                 }
                 DeriverBYaoSessionResponseV1::Staged {

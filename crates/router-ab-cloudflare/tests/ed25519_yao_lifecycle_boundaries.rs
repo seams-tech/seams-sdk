@@ -54,6 +54,27 @@ fn pair_lifecycle_is_pair_bound_and_has_signed_readiness_states() {
 }
 
 #[test]
+fn legacy_admission_rechecks_pair_and_legacy_keys_atomically() {
+    let source = read_src_file("ed25519_yao_lifecycle.rs");
+    let helper = extract_function_body(&source, "claim_legacy_session_record_v1");
+    for required in [
+        "transaction_get_optional_v1::<PairYaoSessionRecordV1>",
+        "transaction_get_optional_v1::<YaoSessionRecordV1>",
+        "transaction.put(SESSION_RECORD_STORAGE_KEY, record)",
+    ] {
+        assert!(
+            helper.contains(required),
+            "legacy admission transaction must include `{required}`"
+        );
+    }
+    assert_eq!(
+        source.matches("claim_legacy_session_record_v1(").count(),
+        3,
+        "the helper definition and both legacy role admission paths must be present"
+    );
+}
+
+#[test]
 fn deriver_a_claim_does_not_hold_the_durable_object_across_yao_execution() {
     let source = read_src_file("ed25519_yao_lifecycle.rs");
     let body = extract_function_body(&source, "handle_claim_pair");
