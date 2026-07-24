@@ -4689,7 +4689,8 @@ mod tests {
     use super::*;
     use router_ab_core::{
         Ed25519YaoCeremonyBindingV1, Ed25519YaoEncryptedPackageV1, Ed25519YaoInputPairBindingV1,
-        Ed25519YaoPackageKindV1, Ed25519YaoSessionIdV1, Ed25519YaoStableKeyContextBindingV1,
+        Ed25519YaoPackageKindV1, Ed25519YaoRoleReadinessReceiptV1, Ed25519YaoRoleSignatureSchemeV1,
+        Ed25519YaoRoleSignatureV1, Ed25519YaoSessionIdV1, Ed25519YaoStableKeyContextBindingV1,
         ExpensiveWorkKindV1, LifecycleScopeV1, PublicDigest32, RootShareEpoch,
     };
     use router_ab_ed25519_yao::Ed25519YaoActivationRoleExecutionV1;
@@ -4843,16 +4844,29 @@ mod tests {
             started_at_ms: 100,
             input: Box::new(input),
         };
+        let completed = completed_pair_record_if_running(
+            &running,
+            pair_digest,
+            PairCompletionExpectation::DeriverA { execution_id },
+            &execution,
+            101,
+        )
+        .expect("running pair completes before its deadline");
         assert!(matches!(
+            completed,
+            PairYaoSessionRecordV1::Completed { .. }
+        ));
+        assert!(
             completed_pair_record_if_running(
-                &running,
+                &completed,
                 pair_digest,
                 PairCompletionExpectation::DeriverA { execution_id },
                 &execution,
-                101,
-            ),
-            Some(PairYaoSessionRecordV1::Completed { .. })
-        ));
+                102,
+            )
+            .is_none(),
+            "an exact completion replay cannot rewrite a terminal record"
+        );
         assert!(matches!(
             completed_pair_record_if_running(
                 &running,
@@ -4896,5 +4910,41 @@ mod tests {
             101,
         )
         .is_none());
+    }
+
+    #[test]
+    fn readiness_receipts_enforce_pair_identity_and_lifetime() {
+        let (pair, _) = pair_for_completion();
+        let receipt = Ed25519YaoRoleReadinessReceiptV1::new(
+            Ed25519YaoDeriverRoleV1::DeriverA,
+            Ed25519YaoSessionIdV1::new(pair.session()).expect("session"),
+            pair.pair_digest(),
+            pair.deriver_a_input_digest(),
+            PublicDigest32::new([15; 32]),
+            100,
+            200,
+            Ed25519YaoRoleSignatureV1::new(Ed25519YaoRoleSignatureSchemeV1::Ed25519V1, [1; 64])
+                .expect("signature"),
+        )
+        .expect("receipt");
+
+        receipt
+            .validate_for_pair(&pair)
+            .expect("receipt belongs to the exact pair");
+        receipt
+            .validate_at(100)
+            .expect("receipt starts at issuance");
+        assert!(receipt.validate_at(99).is_err());
+        assert!(receipt.validate_at(200).is_err());
+
+        let wrong_pair = Ed25519YaoInputPairBindingV1::new(
+            pair.ceremony().clone(),
+            pair.deriver_a_input_digest(),
+            pair.deriver_b_input_digest(),
+            PublicDigest32::new([16; 32]),
+            pair.authorization_digest(),
+        )
+        .expect("alternate pair");
+        assert!(receipt.validate_for_pair(&wrong_pair).is_err());
     }
 }
