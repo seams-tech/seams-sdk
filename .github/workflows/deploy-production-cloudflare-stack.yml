@@ -753,7 +753,7 @@ jobs:
             done
           fi
           echo "selected_components=$selected_components" >> "$GITHUB_OUTPUT"
-    if: github.event_name == 'workflow_run' && (needs.auto_create_release_set.result == 'success')
+    if: always() && github.event_name == 'workflow_run' && (needs.auto_create_release_set.result == 'success')
     needs:
       - auto_create_release_set
   auto_deploy_signing_worker:
