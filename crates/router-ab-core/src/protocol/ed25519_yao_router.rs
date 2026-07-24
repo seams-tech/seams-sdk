@@ -20,6 +20,7 @@ pub const ED25519_YAO_EXPORT_CIRCUIT_ID_V1: &str = "ed25519_yao_export_v1";
 const INPUT_DIGEST_DOMAIN_V1: &[u8] = b"router-ab-ed25519-yao/input/v1";
 const PAIR_DIGEST_DOMAIN_V1: &[u8] = b"router-ab-ed25519-yao/input-pair/v1";
 const READINESS_DIGEST_DOMAIN_V1: &[u8] = b"router-ab-ed25519-yao/readiness/v1";
+const START_ACCEPTANCE_DIGEST_DOMAIN_V1: &[u8] = b"router-ab-ed25519-yao/start-acceptance/v1";
 
 /// Protocol artifact identity for one Yao circuit family.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1191,6 +1192,171 @@ impl<'de> Deserialize<'de> for Ed25519YaoRoleReadinessReceiptV1 {
     }
 }
 
+/// Signed proof that one role durably entered the one-use running state for an
+/// exact pair and execution identity.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Ed25519YaoRoleStartAcceptanceV1 {
+    role: Ed25519YaoDeriverRoleV1,
+    session: Ed25519YaoSessionIdV1,
+    pair_digest: PublicDigest32,
+    execution_id: Ed25519YaoExecutionIdV1,
+    root_metadata_digest: PublicDigest32,
+    accepted_at_ms: u64,
+    expires_at_ms: u64,
+    signature: Ed25519YaoRoleSignatureV1,
+}
+
+impl Ed25519YaoRoleStartAcceptanceV1 {
+    /// Creates an acceptance after the role's running record is durable.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        role: Ed25519YaoDeriverRoleV1,
+        session: Ed25519YaoSessionIdV1,
+        pair_digest: PublicDigest32,
+        execution_id: Ed25519YaoExecutionIdV1,
+        root_metadata_digest: PublicDigest32,
+        accepted_at_ms: u64,
+        expires_at_ms: u64,
+        signature: Ed25519YaoRoleSignatureV1,
+    ) -> RouterAbProtocolResult<Self> {
+        if accepted_at_ms == 0 || expires_at_ms <= accepted_at_ms {
+            return Err(invalid_router_yao(
+                "Ed25519 Yao start acceptance lifetime is invalid",
+            ));
+        }
+        validate_digest("pair_digest", pair_digest)?;
+        validate_digest("root_metadata_digest", root_metadata_digest)?;
+        Ok(Self {
+            role,
+            session,
+            pair_digest,
+            execution_id,
+            root_metadata_digest,
+            accepted_at_ms,
+            expires_at_ms,
+            signature,
+        })
+    }
+
+    /// Validates that this acceptance belongs to the exact pair.
+    pub fn validate_for_pair(
+        &self,
+        pair: &Ed25519YaoInputPairBindingV1,
+    ) -> RouterAbProtocolResult<()> {
+        self.validate_at(self.accepted_at_ms)?;
+        if self.session != pair.ceremony.binding().session_id
+            || self.pair_digest != pair.pair_digest()
+        {
+            return Err(invalid_router_yao(
+                "Ed25519 Yao start acceptance does not match the input pair",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Validates the lifetime at a supplied wall-clock time.
+    pub fn validate_at(&self, now_ms: u64) -> RouterAbProtocolResult<()> {
+        if now_ms < self.accepted_at_ms || now_ms >= self.expires_at_ms {
+            return Err(invalid_router_yao(
+                "Ed25519 Yao start acceptance is expired or issued in the future",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Returns the canonical digest of the unsigned acceptance fields.
+    pub fn signed_message_digest(&self) -> PublicDigest32 {
+        derive_start_acceptance_message_digest_v1(
+            self.role,
+            self.session,
+            self.pair_digest,
+            self.execution_id,
+            self.root_metadata_digest,
+            self.accepted_at_ms,
+            self.expires_at_ms,
+        )
+    }
+
+    /// Returns the accepting role.
+    pub const fn role(&self) -> Ed25519YaoDeriverRoleV1 {
+        self.role
+    }
+
+    /// Returns the session identity.
+    pub const fn session(&self) -> Ed25519YaoSessionIdV1 {
+        self.session
+    }
+
+    /// Returns the exact session bytes.
+    pub const fn session_bytes(&self) -> [u8; 32] {
+        self.session.into_bytes()
+    }
+
+    /// Returns the exact pair digest.
+    pub const fn pair_digest(&self) -> PublicDigest32 {
+        self.pair_digest
+    }
+
+    /// Returns the allocated execution identity.
+    pub const fn execution_id(&self) -> Ed25519YaoExecutionIdV1 {
+        self.execution_id
+    }
+
+    /// Returns the role-local root metadata digest.
+    pub const fn root_metadata_digest(&self) -> PublicDigest32 {
+        self.root_metadata_digest
+    }
+
+    /// Returns the acceptance timestamp.
+    pub const fn accepted_at_ms(&self) -> u64 {
+        self.accepted_at_ms
+    }
+
+    /// Returns the expiry timestamp.
+    pub const fn expires_at_ms(&self) -> u64 {
+        self.expires_at_ms
+    }
+
+    /// Returns the signed role proof.
+    pub const fn signature(&self) -> &Ed25519YaoRoleSignatureV1 {
+        &self.signature
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawEd25519YaoRoleStartAcceptanceV1 {
+    role: Ed25519YaoDeriverRoleV1,
+    session: Ed25519YaoSessionIdV1,
+    pair_digest: PublicDigest32,
+    execution_id: Ed25519YaoExecutionIdV1,
+    root_metadata_digest: PublicDigest32,
+    accepted_at_ms: u64,
+    expires_at_ms: u64,
+    signature: Ed25519YaoRoleSignatureV1,
+}
+
+impl<'de> Deserialize<'de> for Ed25519YaoRoleStartAcceptanceV1 {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = RawEd25519YaoRoleStartAcceptanceV1::deserialize(deserializer)?;
+        Self::new(
+            raw.role,
+            raw.session,
+            raw.pair_digest,
+            raw.execution_id,
+            raw.root_metadata_digest,
+            raw.accepted_at_ms,
+            raw.expires_at_ms,
+            raw.signature,
+        )
+        .map_err(D::Error::custom)
+    }
+}
+
 /// Computes the digest of one exact opaque role envelope.
 pub fn ed25519_yao_encrypted_input_digest_v1(
     input: &Ed25519YaoEncryptedInputV1,
@@ -1289,6 +1455,27 @@ fn derive_readiness_message_digest_v1(
     push_digest(&mut bytes, local_input_digest);
     push_digest(&mut bytes, root_metadata_digest);
     bytes.extend_from_slice(&prepared_at_ms.to_be_bytes());
+    bytes.extend_from_slice(&expires_at_ms.to_be_bytes());
+    digest_bytes(&bytes)
+}
+
+fn derive_start_acceptance_message_digest_v1(
+    role: Ed25519YaoDeriverRoleV1,
+    session: Ed25519YaoSessionIdV1,
+    pair_digest: PublicDigest32,
+    execution_id: Ed25519YaoExecutionIdV1,
+    root_metadata_digest: PublicDigest32,
+    accepted_at_ms: u64,
+    expires_at_ms: u64,
+) -> PublicDigest32 {
+    let mut bytes = Vec::with_capacity(256);
+    bytes.extend_from_slice(START_ACCEPTANCE_DIGEST_DOMAIN_V1);
+    bytes.push(role.wire_tag());
+    bytes.extend_from_slice(&session.into_bytes());
+    push_digest(&mut bytes, pair_digest);
+    bytes.extend_from_slice(&execution_id.into_bytes());
+    push_digest(&mut bytes, root_metadata_digest);
+    bytes.extend_from_slice(&accepted_at_ms.to_be_bytes());
     bytes.extend_from_slice(&expires_at_ms.to_be_bytes());
     digest_bytes(&bytes)
 }
@@ -1477,6 +1664,57 @@ mod tests {
         assert_eq!(
             decoded.signed_message_digest(),
             receipt.signed_message_digest()
+        );
+    }
+
+    #[test]
+    fn start_acceptance_binds_execution_identity_and_pair() {
+        let ceremony = Ed25519YaoCeremonyIdentityV1::from_binding(binding()).expect("identity");
+        let a = input(Ed25519YaoDeriverRoleV1::DeriverA, 4);
+        let b = input(Ed25519YaoDeriverRoleV1::DeriverB, 5);
+        let pair = Ed25519YaoInputPairBindingV1::from_inputs(
+            ceremony,
+            &a,
+            &b,
+            PublicDigest32::new([6; 32]),
+            PublicDigest32::new([7; 32]),
+        )
+        .expect("pair");
+        let acceptance = Ed25519YaoRoleStartAcceptanceV1::new(
+            Ed25519YaoDeriverRoleV1::DeriverB,
+            pair.ceremony().binding().session_id,
+            pair.pair_digest(),
+            Ed25519YaoExecutionIdV1::new([8; 32]).expect("execution"),
+            PublicDigest32::new([9; 32]),
+            10,
+            100,
+            Ed25519YaoRoleSignatureV1::new(Ed25519YaoRoleSignatureSchemeV1::Ed25519V1, [10; 64])
+                .expect("signature"),
+        )
+        .expect("acceptance");
+        assert!(acceptance.validate_for_pair(&pair).is_ok());
+        assert!(acceptance.validate_at(100).is_err());
+        let wire = serde_json::to_value(&acceptance).expect("acceptance JSON");
+        let decoded = serde_json::from_value::<Ed25519YaoRoleStartAcceptanceV1>(wire)
+            .expect("acceptance roundtrip");
+        assert_eq!(
+            decoded.signed_message_digest(),
+            acceptance.signed_message_digest()
+        );
+        assert_ne!(
+            acceptance.signed_message_digest(),
+            Ed25519YaoRoleStartAcceptanceV1::new(
+                Ed25519YaoDeriverRoleV1::DeriverB,
+                acceptance.session(),
+                acceptance.pair_digest(),
+                Ed25519YaoExecutionIdV1::new([11; 32]).expect("execution"),
+                acceptance.root_metadata_digest(),
+                acceptance.accepted_at_ms(),
+                acceptance.expires_at_ms(),
+                acceptance.signature().clone(),
+            )
+            .expect("changed acceptance")
+            .signed_message_digest()
         );
     }
 

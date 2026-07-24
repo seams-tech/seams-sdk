@@ -5,10 +5,11 @@ use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use futures::future::{select, Either};
 use router_ab_core::{
     ed25519_yao_encrypted_input_digest_v1, Ed25519YaoCircuitFamilyV1, Ed25519YaoDeriverRoleV1,
-    Ed25519YaoEncryptedInputV1, Ed25519YaoInputKindV1, Ed25519YaoInputPairBindingV1,
-    Ed25519YaoOperationV1, Ed25519YaoRoleReadinessReceiptV1, Ed25519YaoRoleSignatureSchemeV1,
-    Ed25519YaoSessionIdV1, LifecycleScopeV1, PublicDigest32, RouterAbProtocolError,
-    RouterAbProtocolErrorCode, RouterAbProtocolResult,
+    Ed25519YaoEncryptedInputV1, Ed25519YaoExecutionIdV1, Ed25519YaoInputKindV1,
+    Ed25519YaoInputPairBindingV1, Ed25519YaoOperationV1, Ed25519YaoRoleReadinessReceiptV1,
+    Ed25519YaoRoleSignatureSchemeV1, Ed25519YaoRoleStartAcceptanceV1, Ed25519YaoSessionIdV1,
+    LifecycleScopeV1, PublicDigest32, RouterAbProtocolError, RouterAbProtocolErrorCode,
+    RouterAbProtocolResult,
 };
 use router_ab_ed25519_yao::{
     build_product_activation_deriver_a_v1, build_product_activation_deriver_b_v1,
@@ -37,7 +38,7 @@ use crate::{
     CloudflareDurableObjectResponseV1, CloudflareEd25519YaoCircuitV1,
     CloudflareEd25519YaoWebSocketBindingV1, CloudflareEd25519YaoWebSocketTransportV1,
     CloudflareHpkeGetrandomRngV1, CloudflareSignerPeerVerifyingKeySetV1, CloudflareTraceIdV1,
-    CloudflareWorkerRoleV1,
+    CloudflareWorkerRoleV1, EXECUTION_ID_HEADER, START_ACCEPTANCE_HEADER,
 };
 
 pub const CLOUDFLARE_DERIVER_A_ED25519_YAO_ACTIVATION_START_PATH: &str =
@@ -421,6 +422,15 @@ pub struct CloudflareEd25519YaoPairExecuteRequestV1 {
     pub peer_receipt: Ed25519YaoRoleReadinessReceiptV1,
 }
 
+/// Pair start confirmation sent after Deriver B accepted the exact execution.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudflareEd25519YaoPairStartRequestV1 {
+    pub pair_binding: Ed25519YaoInputPairBindingV1,
+    pub execution_id: Ed25519YaoExecutionIdV1,
+    pub acceptance: Ed25519YaoRoleStartAcceptanceV1,
+}
+
 /// Exact pair lookup sent to the B completed-result route.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -537,6 +547,21 @@ impl CloudflareEd25519YaoPairExecuteRequestV1 {
     }
 }
 
+impl CloudflareEd25519YaoPairStartRequestV1 {
+    fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.pair_binding.validate()?;
+        self.acceptance.validate_for_pair(&self.pair_binding)?;
+        if self.acceptance.role() != Ed25519YaoDeriverRoleV1::DeriverB
+            || self.acceptance.execution_id() != self.execution_id
+        {
+            return Err(invalid_lifecycle(
+                "Deriver B start acceptance does not match the requested execution",
+            ));
+        }
+        Ok(())
+    }
+}
+
 impl CloudflareEd25519YaoReadCompletedPairRequestV1 {
     fn validate(&self) -> RouterAbProtocolResult<()> {
         if self.session.iter().all(|byte| *byte == 0)
@@ -563,6 +588,12 @@ enum DeriverAYaoSessionCommandV1 {
     ClaimPair {
         pair_binding: Ed25519YaoInputPairBindingV1,
         peer_receipt: Ed25519YaoRoleReadinessReceiptV1,
+        execution_id: Ed25519YaoExecutionIdV1,
+    },
+    StartPair {
+        pair_binding: Ed25519YaoInputPairBindingV1,
+        execution_id: Ed25519YaoExecutionIdV1,
+        acceptance: Ed25519YaoRoleStartAcceptanceV1,
     },
     CompletePair {
         pair_digest: [u8; 32],
@@ -604,10 +635,28 @@ impl DeriverAYaoSessionCommandV1 {
             Self::ClaimPair {
                 pair_binding,
                 peer_receipt,
+                execution_id,
             } => {
                 CloudflareEd25519YaoPairExecuteRequestV1 {
                     pair_binding: pair_binding.clone(),
                     peer_receipt: peer_receipt.clone(),
+                }
+                .validate()?;
+                if execution_id.into_bytes().iter().all(|byte| *byte == 0) {
+                    return Err(invalid_lifecycle(
+                        "Deriver A pair claim requires a nonzero execution id",
+                    ));
+                }
+            }
+            Self::StartPair {
+                pair_binding,
+                execution_id,
+                acceptance,
+            } => {
+                CloudflareEd25519YaoPairStartRequestV1 {
+                    pair_binding: pair_binding.clone(),
+                    execution_id: *execution_id,
+                    acceptance: acceptance.clone(),
                 }
                 .validate()?;
             }
@@ -650,6 +699,11 @@ enum DeriverAYaoSessionResponseV1 {
         root_metadata_digest: [u8; 32],
         input: Box<Ed25519YaoEncryptedInputV1>,
         receipt: Box<Ed25519YaoRoleReadinessReceiptV1>,
+    },
+    PairStarted {
+        session: [u8; 32],
+        pair_digest: [u8; 32],
+        execution_id: Ed25519YaoExecutionIdV1,
     },
     PairCompleted {
         execution: Box<Ed25519YaoRoleExecutionV1>,
@@ -724,6 +778,7 @@ enum DeriverBYaoSessionCommandV1 {
     BeginPair {
         session: [u8; 32],
         pair_digest: [u8; 32],
+        execution_id: Ed25519YaoExecutionIdV1,
         peer_receipt: Box<Ed25519YaoRoleReadinessReceiptV1>,
     },
     CompletePair {
@@ -836,6 +891,11 @@ impl DeriverBYaoSessionCommandV1 {
                 if pair_digest.iter().all(|byte| *byte == 0) {
                     return Err(invalid_lifecycle("pair digest must be nonzero"));
                 }
+                if let Self::BeginPair { execution_id, .. } = self {
+                    if execution_id.into_bytes().iter().all(|byte| *byte == 0) {
+                        return Err(invalid_lifecycle("pair execution id must be nonzero"));
+                    }
+                }
             }
             Self::ReadStaged { .. }
             | Self::Begin { .. }
@@ -887,6 +947,11 @@ enum DeriverBYaoSessionResponseV1 {
     PairRunning {
         session: [u8; 32],
         pair_digest: [u8; 32],
+    },
+    PairStarted {
+        session: [u8; 32],
+        pair_digest: [u8; 32],
+        execution_id: Ed25519YaoExecutionIdV1,
     },
     PairCompleted {
         session: [u8; 32],
@@ -997,6 +1062,74 @@ pub(crate) fn verify_role_readiness_receipt_v1(
         .map_err(|_| invalid_lifecycle("readiness receipt signature is invalid"))
 }
 
+fn sign_role_start_acceptance_v1(
+    env: &Env,
+    worker_role: CloudflareWorkerRoleV1,
+    runtime_signing_key: &crate::CloudflareSignerPeerSigningKeyBindingV1,
+    session: [u8; 32],
+    pair_digest: [u8; 32],
+    execution_id: Ed25519YaoExecutionIdV1,
+    root_metadata_digest: [u8; 32],
+    accepted_at_ms: u64,
+    expires_at_ms: u64,
+) -> RouterAbProtocolResult<Ed25519YaoRoleStartAcceptanceV1> {
+    let session = Ed25519YaoSessionIdV1::new(session)?;
+    let placeholder_signature = router_ab_core::Ed25519YaoRoleSignatureV1::new(
+        Ed25519YaoRoleSignatureSchemeV1::Ed25519V1,
+        [1_u8; 64],
+    )?;
+    let unsigned = Ed25519YaoRoleStartAcceptanceV1::new(
+        Ed25519YaoDeriverRoleV1::DeriverB,
+        session,
+        pair_digest_as_public(pair_digest),
+        execution_id,
+        pair_digest_as_public(root_metadata_digest),
+        accepted_at_ms,
+        expires_at_ms,
+        placeholder_signature,
+    )?;
+    runtime_signing_key.validate_visible_to(worker_role)?;
+    let mut signing_key_bytes =
+        crate::load_cloudflare_deriver_peer_signing_key_bytes_v1(env, runtime_signing_key)?;
+    let key = SigningKey::from_bytes(&signing_key_bytes);
+    let signature = key
+        .sign(unsigned.signed_message_digest().as_bytes())
+        .to_bytes();
+    signing_key_bytes.zeroize();
+    let signature = router_ab_core::Ed25519YaoRoleSignatureV1::new(
+        Ed25519YaoRoleSignatureSchemeV1::Ed25519V1,
+        signature,
+    )?;
+    Ed25519YaoRoleStartAcceptanceV1::new(
+        Ed25519YaoDeriverRoleV1::DeriverB,
+        session,
+        pair_digest_as_public(pair_digest),
+        execution_id,
+        pair_digest_as_public(root_metadata_digest),
+        accepted_at_ms,
+        expires_at_ms,
+        signature,
+    )
+}
+
+pub(crate) fn verify_role_start_acceptance_v1(
+    acceptance: &Ed25519YaoRoleStartAcceptanceV1,
+    verifying_keys: &CloudflareSignerPeerVerifyingKeySetV1,
+) -> RouterAbProtocolResult<()> {
+    if acceptance.role() != Ed25519YaoDeriverRoleV1::DeriverB {
+        return Err(invalid_lifecycle(
+            "start acceptance must be signed by Deriver B",
+        ));
+    }
+    let verifying_key = VerifyingKey::from_bytes(&verifying_keys.deriver_b.verifying_key_bytes)
+        .map_err(|_| invalid_lifecycle("start acceptance verifying key is malformed"))?;
+    let signature = Signature::from_slice(acceptance.signature().bytes())
+        .map_err(|_| invalid_lifecycle("start acceptance signature is malformed"))?;
+    verifying_key
+        .verify(acceptance.signed_message_digest().as_bytes(), &signature)
+        .map_err(|_| invalid_lifecycle("start acceptance signature is invalid"))
+}
+
 #[worker::durable_object(fetch)]
 pub struct RouterAbDeriverAYaoSessionDurableObject {
     state: State,
@@ -1023,6 +1156,9 @@ impl worker::DurableObject for RouterAbDeriverAYaoSessionDurableObject {
             }
             DeriverAYaoSessionCommandV1::ClaimPair { .. } => {
                 return self.handle_claim_pair(command).await;
+            }
+            DeriverAYaoSessionCommandV1::StartPair { .. } => {
+                return self.handle_start_pair(command).await;
             }
             DeriverAYaoSessionCommandV1::CompletePair { .. } => {
                 return self.handle_complete_pair(command).await;
@@ -1121,7 +1257,7 @@ impl worker::DurableObject for RouterAbDeriverAYaoSessionDurableObject {
         };
         let role_started_at_ms = role_span_started_at_ms();
         let execution = match execute_deriver_a_role(
-            &self.env, &runtime, input, trace_id, None, None, None, None,
+            &self.env, &runtime, input, trace_id, None, None, None, None, None, None,
         )
         .await
         {
@@ -1641,6 +1777,7 @@ impl RouterAbDeriverAYaoSessionDurableObject {
         let DeriverAYaoSessionCommandV1::ClaimPair {
             pair_binding,
             peer_receipt,
+            execution_id,
         } = command
         else {
             return Response::error("invalid Deriver A pair command", 400);
@@ -1721,15 +1858,85 @@ impl RouterAbDeriverAYaoSessionDurableObject {
                 409,
             );
         }
-        let started_at_ms = cloudflare_yao_now_unix_ms()?;
-        let execution_id = yao_execution_id()?;
+        Response::from_json(&DeriverAYaoSessionResponseV1::PairClaimed {
+            session: request.pair_binding.session(),
+            pair_digest,
+            execution_id: execution_id.into_bytes(),
+            root_metadata_digest,
+            input,
+            receipt: local_receipt,
+        })
+    }
+
+    async fn handle_start_pair(
+        &self,
+        command: DeriverAYaoSessionCommandV1,
+    ) -> worker::Result<Response> {
+        let DeriverAYaoSessionCommandV1::StartPair {
+            pair_binding,
+            execution_id,
+            acceptance,
+        } = command
+        else {
+            return Response::error("invalid Deriver A pair command", 400);
+        };
+        let request = CloudflareEd25519YaoPairStartRequestV1 {
+            pair_binding,
+            execution_id,
+            acceptance,
+        };
+        request
+            .validate()
+            .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
+        let runtime = CloudflareDeriverAWorkerRuntimeV1::from_worker_env(&self.env)
+            .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
+        request
+            .acceptance
+            .validate_at(cloudflare_yao_now_unix_ms()?)
+            .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
+        verify_role_start_acceptance_v1(&request.acceptance, runtime.peer_verifying_keys())
+            .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
+        let pair_digest = request.pair_binding.pair_digest().bytes;
+        let input_digest = request.pair_binding.deriver_a_input_digest().bytes;
+        let storage = self.state.storage();
+        let Some(PairYaoSessionRecordV1::Prepared {
+            pair_digest: stored_pair,
+            input_digest: stored_input,
+            root_metadata_digest,
+            expires_at_ms,
+            input,
+            ..
+        }) = storage
+            .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
+            .await?
+        else {
+            return Response::error("Deriver A pair is not prepared", 409);
+        };
+        let now_ms = cloudflare_yao_now_unix_ms()?;
+        if stored_pair != pair_digest || stored_input != input_digest {
+            return Response::error("Deriver A pair identity mismatch", 409);
+        }
+        if now_ms >= expires_at_ms {
+            if !expire_prepared_pair_if_current(&storage, pair_digest, input_digest, now_ms).await?
+            {
+                return Response::error("Deriver A pair expiry state changed", 409);
+            }
+            return Response::error("Deriver A pair preparation expired", 409);
+        }
+        if request.acceptance.root_metadata_digest().bytes != root_metadata_digest {
+            return Response::error(
+                "Deriver B start acceptance root does not match prepared state",
+                409,
+            );
+        }
+        let started_at_ms = now_ms;
         let running_record = PairYaoSessionRecordV1::Running {
             pair_digest,
             input_digest,
             root_metadata_digest,
-            execution_id,
+            execution_id: request.execution_id.into_bytes(),
             started_at_ms,
-            input: input.clone(),
+            input,
         };
         storage
             .transaction(move |transaction| async move {
@@ -1763,11 +1970,10 @@ impl RouterAbDeriverAYaoSessionDurableObject {
                 Ok(())
             })
             .await?;
-        let current = storage
-            .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
-            .await?;
         if !matches!(
-            current,
+            storage
+                .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
+                .await?,
             Some(PairYaoSessionRecordV1::Running {
                 pair_digest: stored_pair,
                 input_digest: stored_input,
@@ -1775,17 +1981,14 @@ impl RouterAbDeriverAYaoSessionDurableObject {
                 ..
             }) if stored_pair == pair_digest
                 && stored_input == input_digest
-                && stored_execution_id == execution_id
+                && stored_execution_id == request.execution_id.into_bytes()
         ) {
-            return Response::error("Deriver A pair execution was already claimed", 409);
+            return Response::error("Deriver A pair execution was already started", 409);
         }
-        Response::from_json(&DeriverAYaoSessionResponseV1::PairClaimed {
+        Response::from_json(&DeriverAYaoSessionResponseV1::PairStarted {
             session: request.pair_binding.session(),
             pair_digest,
-            execution_id,
-            root_metadata_digest,
-            input,
-            receipt: local_receipt,
+            execution_id: request.execution_id,
         })
     }
 
@@ -2210,9 +2413,10 @@ impl RouterAbDeriverBYaoSessionDurableObject {
             DeriverBYaoSessionCommandV1::BeginPair {
                 session,
                 pair_digest,
+                execution_id,
                 peer_receipt,
             } => {
-                self.handle_begin_pair(session, pair_digest, *peer_receipt)
+                self.handle_begin_pair(session, pair_digest, execution_id, *peer_receipt)
                     .await
             }
             DeriverBYaoSessionCommandV1::CompletePair {
@@ -2513,6 +2717,7 @@ impl RouterAbDeriverBYaoSessionDurableObject {
         &self,
         session: [u8; 32],
         pair_digest: [u8; 32],
+        execution_id: Ed25519YaoExecutionIdV1,
         peer_receipt: Ed25519YaoRoleReadinessReceiptV1,
     ) -> worker::Result<Response> {
         let runtime = CloudflareDeriverBWorkerRuntimeV1::from_worker_env(&self.env)
@@ -2570,12 +2775,11 @@ impl RouterAbDeriverBYaoSessionDurableObject {
             );
         }
         let started_at_ms = now_unix_ms;
-        let execution_id = yao_execution_id()?;
         let running_record = PairYaoSessionRecordV1::Running {
             pair_digest,
             input_digest,
             root_metadata_digest,
-            execution_id,
+            execution_id: execution_id.into_bytes(),
             started_at_ms,
             input,
         };
@@ -2623,13 +2827,14 @@ impl RouterAbDeriverBYaoSessionDurableObject {
                 ..
             }) if stored_pair == pair_digest
                 && stored_input == input_digest
-                && stored_execution_id == execution_id
+                && stored_execution_id == execution_id.into_bytes()
         ) {
             return Response::error("Deriver B pair was already claimed", 409);
         }
-        Response::from_json(&DeriverBYaoSessionResponseV1::PairRunning {
+        Response::from_json(&DeriverBYaoSessionResponseV1::PairStarted {
             session,
             pair_digest,
+            execution_id,
         })
     }
 
@@ -3044,6 +3249,9 @@ pub async fn handle_cloudflare_ed25519_yao_deriver_a_execute_pair_v1(
         DeriverAYaoSessionResponseV1::PairBurned { .. } => {
             return Err(invalid_lifecycle("Deriver A pair execution was burned"));
         }
+        DeriverAYaoSessionResponseV1::PairStarted { .. } => {
+            return Err(invalid_lifecycle("Deriver A pair was already started"));
+        }
         DeriverAYaoSessionResponseV1::PairClaimed {
             session,
             pair_digest,
@@ -3078,7 +3286,9 @@ pub async fn handle_cloudflare_ed25519_yao_deriver_a_execute_pair_v1(
                 *input,
                 trace_id,
                 Some(root_metadata_digest),
+                Some(pair_binding.clone()),
                 Some(pair_digest),
+                Some(Ed25519YaoExecutionIdV1::new(execution_id)?),
                 Some(&request.peer_receipt),
                 Some(&receipt),
             )
@@ -3167,13 +3377,17 @@ async fn execute_deriver_a_role(
     input: Ed25519YaoEncryptedInputV1,
     trace_id: RoleTraceContextV1,
     expected_root_metadata_digest: Option<[u8; 32]>,
+    pair_binding: Option<Ed25519YaoInputPairBindingV1>,
     pair_digest: Option<[u8; 32]>,
+    execution_id: Option<Ed25519YaoExecutionIdV1>,
     peer_receipt: Option<&Ed25519YaoRoleReadinessReceiptV1>,
     local_receipt: Option<&Ed25519YaoRoleReadinessReceiptV1>,
 ) -> RouterAbProtocolResult<Ed25519YaoRoleExecutionV1> {
-    if pair_digest.is_some() && (peer_receipt.is_none() || local_receipt.is_none()) {
+    if pair_digest.is_some()
+        && (execution_id.is_none() || peer_receipt.is_none() || local_receipt.is_none())
+    {
         return Err(invalid_lifecycle(
-            "pair-bound Deriver A execution requires both readiness receipts",
+            "pair-bound Deriver A execution requires an execution id and both readiness receipts",
         ));
     }
     let now_unix_ms = if pair_digest.is_some() {
@@ -3221,7 +3435,7 @@ async fn execute_deriver_a_role(
         Ed25519YaoInputKindV1::Activation => {
             let role_request =
                 open_ed25519_yao_activation_deriver_a_input_v1(&input, &private_key)?;
-            let (root_with_digest, socket) = if pair_digest.is_some() {
+            let (root_with_digest, socket, acceptance) = if pair_digest.is_some() {
                 load_deriver_a_pair_root_before_connect(
                     env,
                     runtime,
@@ -3230,24 +3444,41 @@ async fn execute_deriver_a_role(
                     websocket_binding,
                     local_receipt,
                     expected_root_metadata_digest,
+                    execution_id,
                 )
                 .await?
             } else {
-                futures::try_join!(
+                let (root_with_digest, (socket, acceptance)) = futures::try_join!(
                     load_deriver_a_yao_root_with_metadata_digest(
                         env,
                         runtime,
                         &role_request.binding.lifecycle,
                         trace_id,
                     ),
-                    connect_deriver_b(env, websocket_binding, trace_id, local_receipt),
-                )?
+                    connect_deriver_b(env, websocket_binding, trace_id, local_receipt, None),
+                )?;
+                (root_with_digest, socket, acceptance)
             };
             let (root, root_metadata_digest) = root_with_digest;
             validate_expected_root_metadata_digest(
                 expected_root_metadata_digest,
                 root_metadata_digest,
             )?;
+            if pair_digest.is_some() {
+                confirm_deriver_a_pair_start(
+                    env,
+                    pair_binding
+                        .clone()
+                        .ok_or_else(|| invalid_lifecycle("pair binding is missing"))?,
+                    execution_id
+                        .ok_or_else(|| invalid_lifecycle("pair execution id is missing"))?,
+                    acceptance.ok_or_else(|| {
+                        invalid_lifecycle("Deriver B start acceptance is missing")
+                    })?,
+                    trace_id,
+                )
+                .await?;
+            }
             let transport = CloudflareEd25519YaoWebSocketTransportV1::deriver_a(&socket, session)
                 .map_err(map_websocket_error)?;
             let recipients = role_request.recipients;
@@ -3278,7 +3509,7 @@ async fn execute_deriver_a_role(
         }
         Ed25519YaoInputKindV1::Export => {
             let role_request = open_ed25519_yao_export_deriver_a_input_v1(&input, &private_key)?;
-            let (root_with_digest, socket) = if pair_digest.is_some() {
+            let (root_with_digest, socket, acceptance) = if pair_digest.is_some() {
                 load_deriver_a_pair_root_before_connect(
                     env,
                     runtime,
@@ -3287,24 +3518,41 @@ async fn execute_deriver_a_role(
                     websocket_binding,
                     local_receipt,
                     expected_root_metadata_digest,
+                    execution_id,
                 )
                 .await?
             } else {
-                futures::try_join!(
+                let (root_with_digest, (socket, acceptance)) = futures::try_join!(
                     load_deriver_a_yao_root_with_metadata_digest(
                         env,
                         runtime,
                         &role_request.binding.lifecycle,
                         trace_id,
                     ),
-                    connect_deriver_b(env, websocket_binding, trace_id, local_receipt),
-                )?
+                    connect_deriver_b(env, websocket_binding, trace_id, local_receipt, None),
+                )?;
+                (root_with_digest, socket, acceptance)
             };
             let (root, root_metadata_digest) = root_with_digest;
             validate_expected_root_metadata_digest(
                 expected_root_metadata_digest,
                 root_metadata_digest,
             )?;
+            if pair_digest.is_some() {
+                confirm_deriver_a_pair_start(
+                    env,
+                    pair_binding
+                        .clone()
+                        .ok_or_else(|| invalid_lifecycle("pair binding is missing"))?,
+                    execution_id
+                        .ok_or_else(|| invalid_lifecycle("pair execution id is missing"))?,
+                    acceptance.ok_or_else(|| {
+                        invalid_lifecycle("Deriver B start acceptance is missing")
+                    })?,
+                    trace_id,
+                )
+                .await?;
+            }
             let transport = CloudflareEd25519YaoWebSocketTransportV1::deriver_a(&socket, session)
                 .map_err(map_websocket_error)?;
             let recipient = role_request.recipients;
@@ -3345,12 +3593,24 @@ async fn load_deriver_a_pair_root_before_connect(
     websocket_binding: CloudflareEd25519YaoWebSocketBindingV1,
     local_receipt: Option<&Ed25519YaoRoleReadinessReceiptV1>,
     expected_root_metadata_digest: Option<[u8; 32]>,
-) -> RouterAbProtocolResult<(([u8; 32], [u8; 32]), worker::WebSocket)> {
+    execution_id: Option<Ed25519YaoExecutionIdV1>,
+) -> RouterAbProtocolResult<(
+    ([u8; 32], [u8; 32]),
+    worker::WebSocket,
+    Option<Ed25519YaoRoleStartAcceptanceV1>,
+)> {
     let root_with_digest =
         load_deriver_a_yao_root_with_metadata_digest(env, runtime, lifecycle, trace_id).await?;
     validate_expected_root_metadata_digest(expected_root_metadata_digest, root_with_digest.1)?;
-    let socket = connect_deriver_b(env, websocket_binding, trace_id, local_receipt).await?;
-    Ok((root_with_digest, socket))
+    let (socket, acceptance) = connect_deriver_b(
+        env,
+        websocket_binding,
+        trace_id,
+        local_receipt,
+        execution_id,
+    )
+    .await?;
+    Ok((root_with_digest, socket, acceptance))
 }
 
 async fn connect_deriver_b(
@@ -3358,16 +3618,33 @@ async fn connect_deriver_b(
     binding: CloudflareEd25519YaoWebSocketBindingV1,
     trace_id: RoleTraceContextV1,
     peer_receipt: Option<&Ed25519YaoRoleReadinessReceiptV1>,
-) -> RouterAbProtocolResult<worker::WebSocket> {
+    execution_id: Option<Ed25519YaoExecutionIdV1>,
+) -> RouterAbProtocolResult<(worker::WebSocket, Option<Ed25519YaoRoleStartAcceptanceV1>)> {
     let started_at_ms = role_span_started_at_ms();
-    let result = crate::connect_cloudflare_ed25519_yao_deriver_b_with_receipt_v1(
-        env,
-        binding,
-        trace_id,
-        peer_receipt,
-    )
-    .await
-    .map_err(map_websocket_error);
+    let result = match execution_id {
+        Some(execution_id) => {
+            crate::connect_cloudflare_ed25519_yao_deriver_b_with_start_acceptance_v1(
+                env,
+                binding,
+                trace_id,
+                peer_receipt
+                    .ok_or_else(|| invalid_lifecycle("pair readiness receipt is missing"))?,
+                execution_id,
+            )
+            .await
+            .map(|connection| (connection.socket, Some(connection.acceptance)))
+            .map_err(map_websocket_error)
+        }
+        None => crate::connect_cloudflare_ed25519_yao_deriver_b_with_receipt_v1(
+            env,
+            binding,
+            trace_id,
+            peer_receipt,
+        )
+        .await
+        .map(|socket| (socket, None))
+        .map_err(map_websocket_error),
+    };
     emit_role_span_v1(
         trace_id,
         "deriver_a.websocket_connect",
@@ -3711,6 +3988,7 @@ pub async fn handle_cloudflare_ed25519_yao_deriver_b_result_v1(
             | DeriverBYaoSessionResponseV1::PairPrepared { .. }
             | DeriverBYaoSessionResponseV1::PairPreparedStatus { .. }
             | DeriverBYaoSessionResponseV1::PairRunning { .. }
+            | DeriverBYaoSessionResponseV1::PairStarted { .. }
             | DeriverBYaoSessionResponseV1::PairCompleted { .. }
             | DeriverBYaoSessionResponseV1::PairPending { .. }
             | DeriverBYaoSessionResponseV1::PairRoleExecution { .. }
@@ -3879,6 +4157,12 @@ async fn handle_pair_bound_deriver_b_websocket(
         &serialized_receipt,
     )
     .map_err(|_| invalid_lifecycle("pair-bound WebSocket readiness receipt is malformed"))?;
+    let serialized_execution_id = request
+        .headers()
+        .get(EXECUTION_ID_HEADER)
+        .map_err(|_| invalid_lifecycle("execution id header could not be read"))?
+        .ok_or_else(|| invalid_lifecycle("pair-bound WebSocket execution id is missing"))?;
+    let execution_id = Ed25519YaoExecutionIdV1::new(decode_hex_32(&serialized_execution_id)?)?;
     let pair_prepared = execute_deriver_b_session_command(
         &env,
         DeriverBYaoSessionCommandV1::ReadPairPrepared {
@@ -3937,33 +4221,49 @@ async fn handle_pair_bound_deriver_b_websocket(
     }
     let pair = WebSocketPair::new()
         .map_err(|_| invalid_lifecycle("Deriver B WebSocket pair could not be created"))?;
-    let headers = worker::Headers::new();
-    headers
-        .set("Sec-WebSocket-Protocol", &protocol)
-        .map_err(|_| invalid_lifecycle("WebSocket response protocol could not be set"))?;
-    let response = Response::from_websocket(pair.client)
-        .map(|response| response.with_headers(headers))
-        .map_err(|_| invalid_lifecycle("WebSocket upgrade response could not be created"))?;
     let running = execute_deriver_b_session_command(
         &env,
         DeriverBYaoSessionCommandV1::BeginPair {
             session: binding.session,
             pair_digest: binding.pair_digest,
+            execution_id,
             peer_receipt: Box::new(peer_receipt),
         },
         trace_id,
     )
     .await?;
-    if running
-        != (DeriverBYaoSessionResponseV1::PairRunning {
-            session: binding.session,
-            pair_digest: binding.pair_digest,
-        })
-    {
+    let DeriverBYaoSessionResponseV1::PairStarted { execution_id, .. } = running else {
         return Err(invalid_lifecycle(
             "Deriver B pair did not enter its running state",
         ));
-    }
+    };
+    let accepted_at_ms =
+        cloudflare_yao_now_unix_ms().map_err(|_| invalid_lifecycle("Yao clock is unavailable"))?;
+    let expires_at_ms = yao_expiry_from_now(accepted_at_ms, YAO_RUNNING_LIFETIME_MS)
+        .map_err(|_| invalid_lifecycle("Yao acceptance expiry is invalid"))?;
+    let acceptance = sign_role_start_acceptance_v1(
+        &env,
+        CloudflareWorkerRoleV1::DeriverB,
+        runtime.peer_signing_key(),
+        binding.session,
+        binding.pair_digest,
+        execution_id,
+        root_metadata_digest,
+        accepted_at_ms,
+        expires_at_ms,
+    )?;
+    let headers = worker::Headers::new();
+    headers
+        .set("Sec-WebSocket-Protocol", &protocol)
+        .map_err(|_| invalid_lifecycle("WebSocket response protocol could not be set"))?;
+    let serialized_acceptance = serde_json::to_string(&acceptance)
+        .map_err(|_| invalid_lifecycle("start acceptance could not be serialized"))?;
+    headers
+        .set(START_ACCEPTANCE_HEADER, &serialized_acceptance)
+        .map_err(|_| invalid_lifecycle("start acceptance header could not be set"))?;
+    let response = Response::from_websocket(pair.client)
+        .map(|response| response.with_headers(headers))
+        .map_err(|_| invalid_lifecycle("WebSocket upgrade response could not be created"))?;
     let server = pair.server;
     let server_for_error = server.clone();
     let session = binding.session;
@@ -4300,9 +4600,13 @@ async fn execute_deriver_a_pair_claim(
     request: CloudflareEd25519YaoPairExecuteRequestV1,
     trace_id: RoleTraceContextV1,
 ) -> RouterAbProtocolResult<DeriverAYaoSessionResponseV1> {
+    let execution_id = Ed25519YaoExecutionIdV1::new(
+        yao_execution_id().map_err(|_| invalid_lifecycle("Yao execution id generation failed"))?,
+    )?;
     let command = DeriverAYaoSessionCommandV1::ClaimPair {
         pair_binding: request.pair_binding,
         peer_receipt: request.peer_receipt,
+        execution_id,
     };
     let mut response = execute_deriver_a_pair_command(env, command, trace_id).await?;
     response
@@ -4340,6 +4644,42 @@ async fn complete_deriver_a_pair(
         DeriverAYaoSessionResponseV1::PairClaimed { .. } => Err(invalid_lifecycle(
             "Deriver A pair completion returned a claim response",
         )),
+        DeriverAYaoSessionResponseV1::PairStarted { .. } => Err(invalid_lifecycle(
+            "Deriver A pair completion returned a start response",
+        )),
+    }
+}
+
+async fn confirm_deriver_a_pair_start(
+    env: &Env,
+    pair_binding: Ed25519YaoInputPairBindingV1,
+    execution_id: Ed25519YaoExecutionIdV1,
+    acceptance: Ed25519YaoRoleStartAcceptanceV1,
+    trace_id: RoleTraceContextV1,
+) -> RouterAbProtocolResult<()> {
+    let mut response = execute_deriver_a_pair_command(
+        env,
+        DeriverAYaoSessionCommandV1::StartPair {
+            pair_binding,
+            execution_id,
+            acceptance,
+        },
+        trace_id,
+    )
+    .await?;
+    match response
+        .json::<DeriverAYaoSessionResponseV1>()
+        .await
+        .map_err(|_| invalid_lifecycle("Deriver A pair start response is malformed"))?
+    {
+        DeriverAYaoSessionResponseV1::PairStarted { .. }
+        | DeriverAYaoSessionResponseV1::PairCompleted { .. } => Ok(()),
+        DeriverAYaoSessionResponseV1::PairClaimed { .. } => Err(invalid_lifecycle(
+            "Deriver A pair start returned a claim response",
+        )),
+        DeriverAYaoSessionResponseV1::PairBurned { .. } => {
+            Err(invalid_lifecycle("Deriver A pair start was burned"))
+        }
     }
 }
 
@@ -4352,7 +4692,8 @@ async fn execute_deriver_a_pair_command(
     let session = match &command {
         DeriverAYaoSessionCommandV1::Execute { input }
         | DeriverAYaoSessionCommandV1::PreparePair { input, .. } => input.session(),
-        DeriverAYaoSessionCommandV1::ClaimPair { pair_binding, .. } => pair_binding.session(),
+        DeriverAYaoSessionCommandV1::ClaimPair { pair_binding, .. }
+        | DeriverAYaoSessionCommandV1::StartPair { pair_binding, .. } => pair_binding.session(),
         DeriverAYaoSessionCommandV1::CompletePair { execution, .. } => execution.session(),
         DeriverAYaoSessionCommandV1::ReadPairStatus { session, .. }
         | DeriverAYaoSessionCommandV1::BurnPair { session, .. } => *session,
@@ -4682,6 +5023,28 @@ fn encode_hex(bytes: [u8; 32]) -> String {
         output.push(char::from(ALPHABET[usize::from(byte & 0x0f)]));
     }
     output
+}
+
+fn decode_hex_32(value: &str) -> RouterAbProtocolResult<[u8; 32]> {
+    if value.len() != 64 {
+        return Err(invalid_lifecycle("execution id header must be 32-byte hex"));
+    }
+    let mut bytes = [0_u8; 32];
+    for (index, chunk) in value.as_bytes().chunks_exact(2).enumerate() {
+        let high = decode_hex_nibble(chunk[0])?;
+        let low = decode_hex_nibble(chunk[1])?;
+        bytes[index] = (high << 4) | low;
+    }
+    Ok(bytes)
+}
+
+fn decode_hex_nibble(byte: u8) -> RouterAbProtocolResult<u8> {
+    match byte {
+        b'0'..=b'9' => Ok(byte - b'0'),
+        b'a'..=b'f' => Ok(byte - b'a' + 10),
+        b'A'..=b'F' => Ok(byte - b'A' + 10),
+        _ => Err(invalid_lifecycle("execution id header must be hex")),
+    }
 }
 
 #[cfg(test)]
