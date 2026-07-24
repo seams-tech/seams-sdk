@@ -1918,6 +1918,13 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
   }
 
   private async handleWarmBootstrap(request: Request, rawBody: unknown): Promise<Response> {
+    const traceContext = resolveTraceContext(request);
+    if (!traceContext.ok) {
+      return json(
+        { ok: false, code: 'invalid_trace_id', message: traceContext.message },
+        { status: 400 },
+      );
+    }
     const parsed = parseRouterAbEd25519YaoWarmRecoveryBootstrapRequestV1(rawBody);
     if (!parsed.ok) {
       return json({ ok: false, code: parsed.code, message: parsed.message }, { status: 400 });
