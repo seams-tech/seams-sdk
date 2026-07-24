@@ -1,7 +1,8 @@
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use router_ab_core::{
     ed25519_yao_encrypted_input_digest_v1, Ed25519YaoDeriverRoleV1, Ed25519YaoEncryptedInputV1,
-    Ed25519YaoInputPairBindingV1, Ed25519YaoRoleReadinessReceiptV1,
+    Ed25519YaoEncryptedPackageV1, Ed25519YaoInputPairBindingV1, Ed25519YaoPackageKindV1,
+    Ed25519YaoRoleReadinessReceiptV1,
     Ed25519YaoRoleSignatureSchemeV1, Ed25519YaoSessionIdV1, PublicDigest32, RouterAbProtocolError,
     RouterAbProtocolErrorCode, RouterAbProtocolResult,
 };
@@ -603,5 +604,92 @@ mod tests {
                 3,
             )
             .expect("role-specific receipts should remain verifiable");
+    }
+
+    #[test]
+    fn pair_lifecycle_redelivers_exact_completed_outputs() {
+        let (pair, input_a, input_b) = pair_fixture();
+        let (signing_keys, deriver_a_verifying_key, deriver_b_verifying_key) = signing_keys();
+        let mut lifecycle = LocalEd25519YaoPairLifecycleV1::default();
+        let receipt_a = lifecycle
+            .prepare_role(
+                Ed25519YaoDeriverRoleV1::DeriverA,
+                &pair,
+                input_a,
+                [0xc1; 32],
+                1,
+                100,
+                signing_keys,
+            )
+            .expect("Deriver A preparation");
+        let receipt_b = lifecycle
+            .prepare_role(
+                Ed25519YaoDeriverRoleV1::DeriverB,
+                &pair,
+                input_b,
+                [0xc2; 32],
+                2,
+                100,
+                signing_keys,
+            )
+            .expect("Deriver B preparation");
+        lifecycle
+            .begin(
+                &pair,
+                &receipt_a,
+                &receipt_b,
+                deriver_a_verifying_key,
+                deriver_b_verifying_key,
+                3,
+            )
+            .expect("both receipts should start the pair");
+
+        let binding = pair.binding().clone();
+        let transcript = [0xd1; 32];
+        let execution_for = |role| {
+            let client_package = Ed25519YaoEncryptedPackageV1::new(
+                Ed25519YaoPackageKindV1::ActivationClient,
+                role,
+                pair.session(),
+                transcript,
+                [0xe1; 32],
+                vec![0xf1; 16],
+            )
+            .expect("client package");
+            let signing_worker_package = Ed25519YaoEncryptedPackageV1::new(
+                Ed25519YaoPackageKindV1::ActivationSigningWorker,
+                role,
+                pair.session(),
+                transcript,
+                [0xe2; 32],
+                vec![0xf2; 16],
+            )
+            .expect("Signing Worker package");
+            Ed25519YaoRoleExecutionV1::Activation(
+                router_ab_ed25519_yao::Ed25519YaoActivationRoleExecutionV1::new(
+                    binding.clone(),
+                    role,
+                    transcript,
+                    [0xa1; 32],
+                    [0xa2; 32],
+                    client_package,
+                    signing_worker_package,
+                )
+                .expect("activation execution"),
+            )
+        };
+        let execution_a = execution_for(Ed25519YaoDeriverRoleV1::DeriverA);
+        let execution_b = execution_for(Ed25519YaoDeriverRoleV1::DeriverB);
+        lifecycle
+            .complete(&pair, execution_a.clone(), execution_b.clone())
+            .expect("running pair should complete");
+        lifecycle
+            .complete(&pair, execution_a.clone(), execution_b.clone())
+            .expect("exact completed retry should be idempotent");
+        let (stored_a, stored_b) = lifecycle
+            .completed(pair.pair_digest().bytes)
+            .expect("completed pair should be readable");
+        assert_eq!(stored_a, &execution_a);
+        assert_eq!(stored_b, &execution_b);
     }
 }
