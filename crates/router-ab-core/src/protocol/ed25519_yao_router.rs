@@ -255,6 +255,16 @@ impl Ed25519YaoInputPairBindingV1 {
         &self.ceremony
     }
 
+    /// Returns the admitted ceremony binding without the protocol wrapper.
+    pub const fn binding(&self) -> &Ed25519YaoCeremonyBindingV1 {
+        self.ceremony.binding()
+    }
+
+    /// Returns the exact transcript session bytes.
+    pub const fn session(&self) -> [u8; 32] {
+        self.ceremony.binding().session_id.into_bytes()
+    }
+
     /// Returns the Deriver A envelope digest.
     pub const fn deriver_a_input_digest(&self) -> PublicDigest32 {
         self.deriver_a_input_digest
@@ -1075,6 +1085,11 @@ impl Ed25519YaoRoleReadinessReceiptV1 {
     /// Returns the session identity.
     pub const fn session(&self) -> Ed25519YaoSessionIdV1 {
         self.session
+    }
+
+    /// Returns the exact transcript session bytes.
+    pub const fn session_bytes(&self) -> [u8; 32] {
+        self.session.into_bytes()
     }
 
     /// Returns the exact pair digest.
