@@ -46,6 +46,7 @@ import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import { redactCredentialExtensionOutputs } from '@/core/signingEngine/webauthnAuth/credentials/credentialExtensions';
 import {
   createRouterAbTraceContextV1,
+  parseRouterAbTraceContextV1,
   ROUTER_AB_TRACE_ID_HEADER_V1,
   type RouterAbTraceContextV1,
 } from '@shared/utils/routerAbTraceContext';
@@ -718,8 +719,20 @@ function parseHttpTransportConfig(
     routerOrigin: origin.origin,
     authorization: config.authorization,
     fetch: config.fetch,
-    traceContext: config.traceContext ?? createRouterAbTraceContextV1(),
+    traceContext: resolveHttpTraceContext(config.traceContext),
   };
+}
+
+function resolveHttpTraceContext(
+  traceContext: RouterAbTraceContextV1 | undefined,
+): RouterAbTraceContextV1 {
+  if (!traceContext) return createRouterAbTraceContextV1();
+  if (traceContext.kind !== 'router_ab_trace_context_v1') {
+    throw new Error('Router trace context kind is invalid');
+  }
+  const parsed = parseRouterAbTraceContextV1(traceContext.value);
+  if (!parsed.ok) throw new Error(parsed.message);
+  return parsed.value;
 }
 
 async function parseHttpResponse(
