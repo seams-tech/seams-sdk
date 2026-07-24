@@ -685,7 +685,7 @@ Router HTTP route; its product test remains an explicit follow-up before Phase
 
 ### Phase 5: Hard Cutover And Deletion
 
-- [ ] Delete the Gateway Stage, Start, Result, and package-delivery
+- [x] Delete the Gateway Stage, Start, Result, and package-delivery
       orchestration.
 - [ ] Delete obsolete Yao direct-origin environment keys where no other
       protocol owns them.
@@ -696,7 +696,13 @@ Router HTTP route; its product test remains an explicit follow-up before Phase
 - [ ] Delete compatibility request parsers after the boundary drain.
 - [ ] Keep role-local Durable Object classes and their current secret
       boundaries.
-- [ ] Verify the repository contains one production Yao orchestration owner.
+- [x] Verify the repository contains one production Yao orchestration owner.
+
+The Gateway backend no longer contains the serial Stage/Start/Result or direct
+Yao package-delivery flow. The remaining Deriver Stage/Result handlers and
+direct-origin bindings are retained until the deployed cutover has survived the
+maximum in-flight ceremony lifetime; they are role-boundary drain targets, not
+second Gateway orchestration owners.
 
 ### Phase 6: Deployment And Production Acceptance
 
