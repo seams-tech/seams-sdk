@@ -221,6 +221,11 @@ impl PairYaoSessionRecordV1 {
     }
 }
 
+enum PairCompletionExpectation {
+    DeriverA { execution_id: [u8; 32] },
+    DeriverB { input_digest: [u8; 32] },
+}
+
 /// Computes the only valid completion transition for a pair-bound role.
 ///
 /// The caller supplies the identity observed before entering the storage
@@ -229,8 +234,7 @@ impl PairYaoSessionRecordV1 {
 fn completed_pair_record_if_running(
     current: &PairYaoSessionRecordV1,
     pair_digest: [u8; 32],
-    expected_input_digest: Option<[u8; 32]>,
-    expected_execution_id: Option<[u8; 32]>,
+    expectation: PairCompletionExpectation,
     execution: &Ed25519YaoRoleExecutionV1,
     now_ms: u64,
 ) -> Option<PairYaoSessionRecordV1> {
@@ -245,11 +249,15 @@ fn completed_pair_record_if_running(
     else {
         return None;
     };
-    if *stored_pair != pair_digest
-        || expected_input_digest.is_some_and(|expected| expected != *input_digest)
-        || expected_execution_id.is_some_and(|expected| expected != *execution_id)
-        || execution.session() != input.session()
-    {
+    let identity_matches = match expectation {
+        PairCompletionExpectation::DeriverA {
+            execution_id: expected,
+        } => expected == *execution_id,
+        PairCompletionExpectation::DeriverB {
+            input_digest: expected,
+        } => expected == *input_digest,
+    };
+    if *stored_pair != pair_digest || !identity_matches || execution.session() != input.session() {
         return None;
     }
     if now_ms.saturating_sub(*started_at_ms) >= YAO_RUNNING_LIFETIME_MS {
@@ -1794,8 +1802,7 @@ impl RouterAbDeriverAYaoSessionDurableObject {
                 if let Some(next) = completed_pair_record_if_running(
                     &current,
                     pair_digest,
-                    None,
-                    Some(execution_id),
+                    PairCompletionExpectation::DeriverA { execution_id },
                     &execution,
                     now_unix_ms,
                 ) {
@@ -2623,8 +2630,7 @@ impl RouterAbDeriverBYaoSessionDurableObject {
                         if let Some(next) = completed_pair_record_if_running(
                             &current,
                             pair_digest,
-                            Some(input_digest),
-                            None,
+                            PairCompletionExpectation::DeriverB { input_digest },
                             &execution,
                             now_unix_ms,
                         ) {
@@ -4801,8 +4807,7 @@ mod tests {
             completed_pair_record_if_running(
                 &running,
                 pair_digest,
-                Some(input_digest),
-                Some(execution_id),
+                PairCompletionExpectation::DeriverA { execution_id },
                 &execution,
                 101,
             ),
@@ -4812,8 +4817,7 @@ mod tests {
             completed_pair_record_if_running(
                 &running,
                 pair_digest,
-                Some(input_digest),
-                Some(execution_id),
+                PairCompletionExpectation::DeriverA { execution_id },
                 &execution,
                 100 + YAO_RUNNING_LIFETIME_MS,
             ),
@@ -4827,8 +4831,7 @@ mod tests {
         assert!(completed_pair_record_if_running(
             &burned,
             pair_digest,
-            Some(input_digest),
-            Some(execution_id),
+            PairCompletionExpectation::DeriverA { execution_id },
             &execution,
             101,
         )
@@ -4836,8 +4839,9 @@ mod tests {
         assert!(completed_pair_record_if_running(
             &running,
             pair_digest,
-            Some(input_digest),
-            Some([16; 32]),
+            PairCompletionExpectation::DeriverA {
+                execution_id: [16; 32],
+            },
             &execution,
             101,
         )
@@ -4845,8 +4849,9 @@ mod tests {
         assert!(completed_pair_record_if_running(
             &running,
             pair_digest,
-            Some([17; 32]),
-            None,
+            PairCompletionExpectation::DeriverB {
+                input_digest: [17; 32],
+            },
             &execution,
             101,
         )
