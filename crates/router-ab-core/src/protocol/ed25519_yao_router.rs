@@ -426,7 +426,7 @@ impl RouterEd25519YaoExecuteRequestV1 {
         deriver_a_input: Ed25519YaoEncryptedInputV1,
         deriver_b_input: Ed25519YaoEncryptedInputV1,
     ) -> RouterAbProtocolResult<Self> {
-        validate_activation_request(
+        validate_execute_pair(
             &binding,
             Ed25519YaoOperationV1::Registration,
             &pair_binding,
@@ -450,7 +450,7 @@ impl RouterEd25519YaoExecuteRequestV1 {
         deriver_a_input: Ed25519YaoEncryptedInputV1,
         deriver_b_input: Ed25519YaoEncryptedInputV1,
     ) -> RouterAbProtocolResult<Self> {
-        validate_activation_request(
+        validate_execute_pair(
             &binding,
             Ed25519YaoOperationV1::Recovery,
             &pair_binding,
@@ -474,7 +474,7 @@ impl RouterEd25519YaoExecuteRequestV1 {
         deriver_a_input: Ed25519YaoEncryptedInputV1,
         deriver_b_input: Ed25519YaoEncryptedInputV1,
     ) -> RouterAbProtocolResult<Self> {
-        validate_activation_request(
+        validate_execute_pair(
             binding.ceremony(),
             Ed25519YaoOperationV1::Export,
             &pair_binding,
@@ -600,7 +600,7 @@ impl<'de> Deserialize<'de> for RouterEd25519YaoExecuteRequestV1 {
     }
 }
 
-fn validate_activation_request(
+fn validate_execute_pair(
     binding: &Ed25519YaoCeremonyBindingV1,
     expected_operation: Ed25519YaoOperationV1,
     pair_binding: &Ed25519YaoInputPairBindingV1,
