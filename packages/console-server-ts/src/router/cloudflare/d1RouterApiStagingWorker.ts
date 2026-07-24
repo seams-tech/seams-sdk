@@ -5,6 +5,8 @@ import {
   resolveSponsoredEvmWorkerExecutionAdapter,
 } from '@seams-internal/console-server/sponsorship/evmWorkerExecutionAdapter';
 import { createCloudflareRouter } from '@seams/sdk-server/internal/router/cloudflare/createCloudflareRouter';
+import { createCloudflareConsoleRouter } from './createCloudflareConsoleRouter';
+import { createAppSessionConsoleAuthAdapter } from '../consoleAppSessionAuth';
 import {
   createCloudflareD1ConsoleServiceBundle,
   createCloudflareD1RouterApiRouteExtensions,
@@ -126,6 +128,7 @@ interface CloudflareD1RouterApiStagingEnv
   readonly EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_MAX?: string;
   readonly EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS?: string;
   readonly SPONSORED_EVM_EXECUTORS_JSON?: string;
+  readonly CONSOLE_PLATFORM_ADMIN_EMAILS?: string;
 }
 
 type RouterApiReadyRow = {
@@ -380,7 +383,7 @@ async function createRouterApiHandler(
     ed25519YaoProductRegistration: ed25519Yao.runtime,
     ecdsaStrictRegistration,
   });
-  return createCloudflareRouter(service, {
+  const routerApiHandler = createCloudflareRouter(service, {
     ...bundle.routerApiRouterOptions,
     routeExtensions: createCloudflareD1RouterApiRouteExtensions(bundle, service),
     healthz: true,
@@ -395,6 +398,44 @@ async function createRouterApiHandler(
     modules: [ed25519Yao.module],
     routerAbEd25519YaoProduct: ed25519Yao.runtime,
   });
+  const consoleAuth = createAppSessionConsoleAuthAdapter({
+    session,
+    authService: service.sessionVersions,
+    defaultOrgId: scope.orgId,
+    defaultProjectId: scope.projectId,
+    defaultEnvironmentId: scope.envId,
+    platformAdminEmails: readEnvString(env, 'CONSOLE_PLATFORM_ADMIN_EMAILS'),
+    provisioning: {
+      bootstrapRoles: ['owner', 'admin'],
+      orgProjectEnv: bundle.orgProjectEnv,
+      teamRbac: bundle.teamRbac,
+      audit: bundle.audit,
+      logger: console,
+    },
+  });
+  const consoleHandler = createCloudflareConsoleRouter({
+    ...bundle.consoleRouterOptions,
+    healthz: true,
+    readyz: true,
+    auth: consoleAuth,
+    readyCheck: createRouterApiReadyCheck(env),
+  });
+  return dispatchHostedGatewayRequest.bind(null, consoleHandler, routerApiHandler);
+}
+
+export async function dispatchHostedGatewayRequest(
+  consoleHandler: FetchHandler,
+  routerApiHandler: FetchHandler,
+  request: Request,
+  env?: object,
+  ctx?: CfExecutionContext,
+): Promise<Response> {
+  const pathname = new URL(request.url).pathname;
+  const handler =
+    pathname === '/console' || pathname.startsWith('/console/')
+      ? consoleHandler
+      : routerApiHandler;
+  return await handler(request, env, ctx);
 }
 
 function requireStagingRouterAbPublicKeyset(
