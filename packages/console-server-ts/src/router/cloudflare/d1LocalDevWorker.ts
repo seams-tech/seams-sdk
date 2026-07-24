@@ -46,6 +46,7 @@ import {
   type CloudflareD1EmailOtpServerSealConfig,
   type CloudflareD1RouterApiAuthServiceOptions,
 } from '@seams/sdk-server/internal/router/cloudflare/d1RouterApiAuthService';
+import { loadCloudflareSignerWasmModule } from './d1SignerWasm';
 import type {
   CloudflareD1OidcExchangeConfig,
   CloudflareD1OidcExchangeIssuerConfig,
@@ -55,6 +56,7 @@ import {
   resolveSponsoredEvmCallConfigFromWorkerEnv,
   resolveSponsoredEvmWorkerExecutionAdapter,
 } from '@seams-internal/console-server/sponsorship/evmWorkerExecutionAdapter';
+import { resolveSponsoredExecutionPricingFromEnv } from '@seams-internal/console-server/sponsorship/pricing';
 import { createStripeBillingProviderAdaptersFromEnv } from '@seams-internal/console-server/billing/stripeProvider';
 import {
   parseRouterAbPublicKeysetV2,
@@ -163,6 +165,8 @@ interface LocalD1DevEnv extends RouterAbServiceBindingEnv {
   readonly SEAMS_LOCAL_SIGNING_ROOT_KEK_ID?: string;
   readonly SEAMS_LOCAL_SIGNING_ROOT_KEK_B64U?: string;
   readonly SPONSORED_EVM_EXECUTORS_JSON?: string;
+  readonly SPONSORED_EXECUTION_REAL_PRICING_JSON?: string;
+  readonly SPONSORED_EXECUTION_STATIC_PRICING_JSON?: string;
   readonly STRIPE_API_SK?: string;
   readonly STRIPE_CHECKOUT_PRICE_ID?: string;
   readonly STRIPE_API_BASE_URL?: string;
@@ -889,6 +893,7 @@ async function createLocalConsoleHandler(env: LocalD1DevEnv): Promise<FetchHandl
     adapters: {
       ensureSchema: false,
       sponsoredEvmCallConfig,
+      sponsorshipPricing: resolveSponsoredExecutionPricingFromEnv(env),
       billingProviders: createStripeBillingProviderAdaptersFromEnv(env),
     },
   });
@@ -927,6 +932,7 @@ async function createLocalRouterApiHandler(env: LocalD1DevEnv): Promise<FetchHan
       ensureSchema: false,
       sponsoredEvmCallConfig,
       resolveSponsoredEvmExecutionAdapter: resolveSponsoredEvmWorkerExecutionAdapter,
+      sponsorshipPricing: resolveSponsoredExecutionPricingFromEnv(env),
       billingProviders: createStripeBillingProviderAdaptersFromEnv(env),
     },
   });
@@ -1135,9 +1141,10 @@ function createLocalD1RouterApiAuthService(
   env: LocalD1DevEnv,
   ed25519Yao: LocalEd25519YaoProductCompositionState = { kind: 'disabled' },
 ) {
-  return createCloudflareD1RouterApiAuthService(
-    localD1RouterApiAuthServiceOptions(env, ed25519Yao),
-  );
+  return createCloudflareD1RouterApiAuthService({
+    ...localD1RouterApiAuthServiceOptions(env, ed25519Yao),
+    signerWasmModuleOrPath: loadCloudflareSignerWasmModule,
+  });
 }
 
 function createLocalD1EmailRecoveryAuthService(env: LocalD1DevEnv) {

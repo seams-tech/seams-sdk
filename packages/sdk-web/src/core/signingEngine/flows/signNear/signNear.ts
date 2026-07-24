@@ -1031,6 +1031,21 @@ function nearEd25519SigningGrantAdmissionQueueKey(args: {
   });
 }
 
+function nearAdHocEd25519SigningGrantAdmissionQueueKey(args: {
+  walletId: WalletId | string;
+  nearAccountId: AccountId | string;
+  prepared: PreparedNearAdHocSigningSession;
+}): ReturnType<typeof buildSigningGrantAdmissionQueueKey> {
+  return buildSigningGrantAdmissionQueueKey({
+    walletId: String(args.walletId),
+    curve: 'ed25519',
+    signingGrantId: String(args.prepared.selectedLane.signingGrantId),
+    projectionVersion: 'projection-unadmitted',
+    authorityKey: signingGrantAdmissionAuthorityKeyFromAuth(args.prepared.selectedLane.auth),
+    targetKey: `near:${String(args.nearAccountId)}`,
+  });
+}
+
 function buildNearPasskeyEd25519Reconnect(args: {
   deps: NearSigningApiDeps;
   commandSubject: NearCommandSubject;
@@ -2023,6 +2038,31 @@ async function executeNearDelegateSigningAttempt(
       }),
     });
   } catch (error: unknown) {
+    const admissionDecision = decideSigningGrantAdmissionError(error);
+    if (args.attempt.kind === 'initial' && admissionDecision) {
+      if (admissionDecision.kind === 'wait_and_retry_admission') {
+        await waitForSigningGrantAdmissionRetry(admissionDecision.retryAfterMs);
+        return await executeNearDelegateSigningAttempt(args);
+      }
+      const queueKey = nearAdHocEd25519SigningGrantAdmissionQueueKey({
+        walletId: args.input.commandSubject.walletSession.walletId,
+        nearAccountId,
+        prepared,
+      });
+      return await args.deps.signingSessionCoordinator.runSigningGrantAdmissionRetry({
+        queueKey,
+        refresh: async () =>
+          await executeNearDelegateSigningAttempt({
+            ...args,
+            attempt: { kind: 'fresh_auth_retry', forceFreshAuth: true },
+          }),
+        retryAfterRefresh: async () =>
+          await executeNearDelegateSigningAttempt({
+            ...args,
+            attempt: { kind: 'initial', forceFreshAuth: false },
+          }),
+      });
+    }
     const failure = walletSessionFailureFromError(error);
     if (
       args.attempt.kind === 'initial' &&

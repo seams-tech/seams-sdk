@@ -73,6 +73,7 @@ ACCOUNT_INITIAL_BALANCE = "30000000000000000000000"
 ENABLE_IMPLICIT_NEAR_ACCOUNT_TEST_FUNDING = "false"
 RELAY_SESSION_ISSUER = "seams-gateway-staging"
 RELAY_SESSION_AUDIENCE = "seams-wallet-session"
+SPONSORED_EXECUTION_REAL_PRICING_JSON = '{"provider":"coingecko","near":{"TESTNET":{"assetId":"near","nativeUnitDecimals":24,"estimateFeeAmountYocto":"1000000000000000000000","pricingVersionPrefix":"coingecko-near-testnet"}}}'
 SIGNING_ROOT_KEK_PROVIDER = "cloudflare_secrets_store"
 SIGNING_ROOT_KEK_ENCODING = "base64url"
 SIGNING_ROOT_KEK_IDS = "signing-root-kek-staging-r1"

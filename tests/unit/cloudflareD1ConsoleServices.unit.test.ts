@@ -28,6 +28,8 @@ import localD1DevWorker, {
 } from '../../packages/console-server-ts/src/router/cloudflare/d1LocalDevWorker';
 import { parseEcdsaDerivationClientBootstrapRequest } from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
 import type { SponsoredEvmCallExecutorConfig } from '../../packages/console-server-ts/src/sponsorship/evmExecutorTypes';
+import { resolveStaticSponsoredExecutionPricingFromEnv } from '../../packages/console-server-ts/src/sponsorship/pricing';
+import { getNearSpendCapChainId } from '../../packages/console-shared-ts/src/gasSponsorshipSpendCapTargets';
 import {
   computeEcdsaDerivationRoleLocalRelayerKeyId,
   computeEcdsaDerivationRoleLocalThresholdKeyId,
@@ -813,6 +815,58 @@ test('D1 Router API storage options attach sponsored EVM route extension with ex
     requiredServices: ['routerApiSponsoredEvmCall'],
   });
   expect(sponsoredEvmCallConfig.executorsByChain.size).toBe(1);
+});
+
+test('D1 Router API routes NEAR pricing around the EVM-only D1 pricing adapter', async () => {
+  const database = new FakeD1Database();
+  const nearPricing = resolveStaticSponsoredExecutionPricingFromEnv({
+    SPONSORED_EXECUTION_STATIC_PRICING_JSON: JSON.stringify({
+      near: {
+        TESTNET: {
+          estimateFeeAmountYocto: '1000',
+          minorPerFeeUnitNumerator: '1',
+          minorPerFeeUnitDenominator: '1000',
+          pricingVersion: 'static-near-testnet-v1',
+        },
+      },
+    }),
+  });
+  expect(nearPricing).not.toBeNull();
+  const bundle = await createCloudflareD1ConsoleServiceBundle({
+    bindings: {
+      consoleDatabase: database,
+      signerMetadataDatabase: database,
+      thresholdStore: new MemoryDurableObjectNamespace(),
+      kekProvider: createKekProvider(),
+    },
+    route: {
+      namespace: 'seams',
+    },
+    adapters: {
+      ensureSchema: false,
+      sponsoredEvmCallConfig: createSponsoredEvmCallExecutorConfig(),
+      sponsorshipPricing: nearPricing,
+    },
+  });
+
+  const quote = await bundle.sponsorshipPricing!.estimateSponsoredExecutionSpend({
+    chainFamily: 'near',
+    intentKind: 'near_delegate',
+    executorKind: 'near_delegate',
+    environmentId: 'env-local',
+    policyId: 'policy-near',
+    accountRef: 'near:sender.testnet',
+    targetRef: 'near:guest-book.testnet',
+    chainId: getNearSpendCapChainId('TESTNET'),
+    requestDetails: {
+      receiverId: 'guest-book.testnet',
+    },
+  });
+
+  expect(quote).toEqual({
+    spendMinor: 1,
+    pricingVersion: 'static-near-testnet-v1',
+  });
 });
 
 test('local D1 Worker ready smoke validates D1 tables and DO admission', async () => {

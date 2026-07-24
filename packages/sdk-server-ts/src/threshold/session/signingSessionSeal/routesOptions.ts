@@ -3,6 +3,12 @@ import {
   parseRouterAbEcdsaDerivationWalletSessionClaims,
   parseRouterAbEd25519WalletSessionClaims,
 } from '../../../core/ThresholdService/validation';
+import {
+  walletSessionFailure,
+  walletSessionFailureStatus,
+  walletSessionParseFailure,
+} from '../../../router/walletSessionFailure';
+import { WALLET_SESSION_FAILURE_CODES } from '@shared/utils/walletSessionFailure';
 import { createSigningSessionSealAuditLogger } from './observability/audit';
 import { composeSigningSessionSealGuards, createSigningSessionSealRateLimitGuard } from './guards';
 import { createSigningSessionSealService } from './service';
@@ -72,9 +78,7 @@ function buildGuard(
     if (input.nowMs) {
       rateLimitOptions.nowMs = input.nowMs;
     }
-    guardList.push(
-      createSigningSessionSealRateLimitGuard(rateLimitOptions),
-    );
+    guardList.push(createSigningSessionSealRateLimitGuard(rateLimitOptions));
   }
 
   const nonNullGuards = guardList.filter(Boolean) as SigningSessionSealGuard[];
@@ -85,22 +89,44 @@ function buildGuard(
 function parseCurveBoundThresholdLookup(args: {
   claims: Record<string, unknown>;
   thresholdSessionId: string;
-}): { curve: 'ecdsa' | 'ed25519'; thresholdSessionId: string } | null {
+}): {
+  curve: 'ecdsa' | 'ed25519';
+  thresholdSessionId: string;
+  thresholdExpiresAtMs: number;
+} | null {
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
   if (!thresholdSessionId) return null;
   const ecdsaClaims = parseRouterAbEcdsaDerivationWalletSessionClaims(args.claims);
   if (ecdsaClaims) {
     return ecdsaClaims.thresholdSessionId === thresholdSessionId
-      ? { curve: 'ecdsa', thresholdSessionId }
+      ? {
+          curve: 'ecdsa',
+          thresholdSessionId,
+          thresholdExpiresAtMs: ecdsaClaims.thresholdExpiresAtMs,
+        }
       : null;
   }
   const ed25519Claims = parseRouterAbEd25519WalletSessionClaims(args.claims);
   if (ed25519Claims) {
     return ed25519Claims.thresholdSessionId === thresholdSessionId
-      ? { curve: 'ed25519', thresholdSessionId }
+      ? {
+          curve: 'ed25519',
+          thresholdSessionId,
+          thresholdExpiresAtMs: ed25519Claims.thresholdExpiresAtMs,
+        }
       : null;
   }
   return null;
+}
+
+function signingSessionSealAuthorizationFailure(
+  code: Parameters<typeof walletSessionFailure>[0],
+): SigningSessionSealAuthorizeResult {
+  const failure = walletSessionFailure(code);
+  return {
+    ...failure,
+    status: walletSessionFailureStatus(code),
+  };
 }
 
 export function createSigningSessionSealRoutesOptions(
@@ -152,11 +178,10 @@ export function createSigningSessionSealRoutesOptions(
       }
       const parsed = await session.parse(headers);
       if (!parsed.ok) {
+        const failure = walletSessionParseFailure(parsed.reason);
         return {
-          ok: false,
-          code: 'unauthorized',
-          message: 'No valid session',
-          status: 401,
+          ...failure,
+          status: walletSessionFailureStatus(failure.code),
         };
       }
       const claims =
@@ -165,41 +190,36 @@ export function createSigningSessionSealRoutesOptions(
           : {};
       const userId = typeof claims.walletId === 'string' ? claims.walletId.trim() : '';
       if (!userId) {
-        return {
-          ok: false,
-          code: 'unauthorized',
-          message: 'Invalid session subject',
-          status: 401,
-        };
+        return signingSessionSealAuthorizationFailure(WALLET_SESSION_FAILURE_CODES.claimsInvalid);
       }
       const thresholdLookup = parseCurveBoundThresholdLookup({
         claims,
         thresholdSessionId: String(thresholdSessionId || '').trim(),
       });
       if (!thresholdLookup) {
-        return {
-          ok: false,
-          code: 'forbidden',
-          message: 'Wallet Session does not match requested thresholdSessionId',
-          status: 403,
-        };
+        return signingSessionSealAuthorizationFailure(WALLET_SESSION_FAILURE_CODES.scopeMismatch);
       }
-      const thresholdSession = await input.sessionPolicy.getThresholdSession(thresholdLookup);
+
+      let thresholdStatuses: Awaited<
+        ReturnType<SigningSessionSealThresholdSessionPolicy['getThresholdSessionStatuses']>
+      >;
+      try {
+        thresholdStatuses = await input.sessionPolicy.getThresholdSessionStatuses(thresholdLookup);
+      } catch {
+        return signingSessionSealAuthorizationFailure(WALLET_SESSION_FAILURE_CODES.unavailable);
+      }
+
+      const thresholdSession = thresholdStatuses[0];
       if (!thresholdSession) {
-        return {
-          ok: false,
-          code: 'unauthorized',
-          message: 'Unknown or expired threshold session',
-          status: 401,
-        };
+        const code =
+          thresholdLookup.thresholdExpiresAtMs <= (input.nowMs || Date.now)()
+            ? WALLET_SESSION_FAILURE_CODES.expired
+            : WALLET_SESSION_FAILURE_CODES.missing;
+        return signingSessionSealAuthorizationFailure(code);
       }
+
       if (thresholdSession.userId !== userId) {
-        return {
-          ok: false,
-          code: 'forbidden',
-          message: 'thresholdSessionId does not belong to authenticated user',
-          status: 403,
-        };
+        return signingSessionSealAuthorizationFailure(WALLET_SESSION_FAILURE_CODES.scopeMismatch);
       }
       return {
         ok: true,

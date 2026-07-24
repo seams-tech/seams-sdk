@@ -1098,6 +1098,7 @@ async function shutdown(exitCode) {
 }
 
 async function stopStartedChildren() {
+  shutdownStarted = true;
   for (const pane of workerPanes) {
     if (isChildRunning(pane.child)) {
       killChild(pane.child, 'SIGTERM', pane.killAsGroup);

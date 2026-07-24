@@ -117,6 +117,7 @@ import type {
   SponsoredEvmExecutionAdapterResolver,
 } from '@seams-internal/console-server/sponsorship/evmExecutorTypes';
 import type { SponsorshipSpendPricingService } from '@seams-internal/console-server/sponsorship/spendCaps';
+import { createChainFamilySponsoredExecutionPricingService } from '@seams-internal/console-server/sponsorship/pricing';
 import {
   createStaticCloudflareTenantStorageRouteResolverFromBindings,
   type CloudflareTenantStorageRoute,
@@ -1208,13 +1209,18 @@ function createCloudflareD1RouterApiStorageOptions(input: {
 async function createCloudflareD1RouterApiSponsorshipPricing(
   options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
 ): Promise<SponsorshipSpendPricingService | null> {
-  if (options.sponsorshipPricing !== undefined) return options.sponsorshipPricing;
-  if (!options.sponsoredEvmCallConfig) return null;
-  return await createD1ConsoleSponsorshipPricingService({
+  if (options.sponsorshipPricing === null) return null;
+  if (!options.sponsoredEvmCallConfig) return options.sponsorshipPricing || null;
+  const evmPricing = await createD1ConsoleSponsorshipPricingService({
     database: options.consoleDatabase,
     namespace: options.namespace,
     ensureSchema: false,
     now: options.now,
+  });
+  if (!options.sponsorshipPricing) return evmPricing;
+  return createChainFamilySponsoredExecutionPricingService({
+    evm: evmPricing,
+    near: options.sponsorshipPricing,
   });
 }
 
