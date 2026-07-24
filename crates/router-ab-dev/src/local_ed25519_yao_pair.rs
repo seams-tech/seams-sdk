@@ -125,19 +125,6 @@ impl LocalEd25519YaoPairLifecycleV1 {
                     .map(|stored| stored.receipt.clone())
                     .ok_or_else(|| pair_lifecycle_error("conflicting pair preparation"));
             }
-            Some(LocalEd25519YaoPairLifecycleStateV1::Completed {
-                pair_digest: stored_pair_digest,
-                ..
-            }) if *stored_pair_digest == pair_digest => {
-                return self
-                    .prepared_receipt_for_role(role)
-                    .filter(|stored| {
-                        stored.input_digest == input_digest
-                            && stored.root_metadata_digest == root_metadata_digest
-                    })
-                    .map(|stored| stored.receipt.clone())
-                    .ok_or_else(|| pair_lifecycle_error("completed pair receipt is unavailable"));
-            }
             Some(_) => return Err(pair_lifecycle_error("pair lifecycle is already committed")),
         }
         if let Some(existing) = self.prepared_receipts[slot].as_ref() {
@@ -195,9 +182,6 @@ impl LocalEd25519YaoPairLifecycleV1 {
     ) -> RouterAbProtocolResult<()> {
         deriver_a.validate_for_pair(pair)?;
         deriver_b.validate_for_pair(pair)?;
-        if deriver_a.root_metadata_digest() != deriver_b.root_metadata_digest() {
-            return Err(pair_lifecycle_error("pair readiness roots do not agree"));
-        }
         deriver_a.validate_at(now_ms)?;
         deriver_b.validate_at(now_ms)?;
         verify_receipt(deriver_a, deriver_a_verifying_key)?;
@@ -504,7 +488,7 @@ mod tests {
                 Ed25519YaoDeriverRoleV1::DeriverB,
                 &pair,
                 input_b,
-                [0xc1; 32],
+                [0xc2; 32],
                 2,
                 100,
                 signing_keys,
@@ -579,7 +563,7 @@ mod tests {
                 100,
                 signing_keys,
             )
-            .expect("role preparation roots must match");
+            .expect("Deriver B preparation should retain its role-local root");
     }
 
     #[test]
@@ -592,7 +576,7 @@ mod tests {
                 Ed25519YaoDeriverRoleV1::DeriverB,
                 &pair,
                 input_b,
-                [0xc1; 32],
+                [0xc2; 32],
                 1,
                 100,
                 signing_keys,
