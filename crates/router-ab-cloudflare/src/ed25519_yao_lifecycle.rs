@@ -622,9 +622,9 @@ fn sign_role_readiness_receipt_v1(
         expires_at_ms,
         placeholder_signature,
     )?;
+    runtime_signing_key.validate_visible_to(worker_role)?;
     let mut signing_key_bytes =
         crate::load_cloudflare_deriver_peer_signing_key_bytes_v1(env, runtime_signing_key)?;
-    runtime_signing_key.validate_visible_to(worker_role)?;
     let key = SigningKey::from_bytes(&signing_key_bytes);
     let signature = key
         .sign(unsigned.signed_message_digest().as_bytes())
