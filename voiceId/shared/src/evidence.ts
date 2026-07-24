@@ -7,6 +7,7 @@ import type {
   VoiceIdVerificationId,
 } from './ids.ts';
 import type {
+  VoiceIdIntentMatchResult,
   VoiceIdPhraseMatchResult,
   VoiceIdSpeakerMatchResult,
 } from './results.ts';
@@ -33,6 +34,7 @@ export type VoiceIdExperimentalCaptureProfile = {
 
 export type VoiceIdObservedChecks = {
   phrase: Extract<VoiceIdPhraseMatchResult, { kind: 'accepted' }>;
+  intent: Extract<VoiceIdIntentMatchResult, { kind: 'accepted' }>;
   speaker: Extract<VoiceIdSpeakerMatchResult, { kind: 'accepted' }>;
   quality: Extract<VoiceIdAudioQualityResult, { kind: 'accepted' }>;
   captureFreshness: VoiceIdExperimentalCaptureFreshness;
@@ -101,6 +103,7 @@ export type VoiceIdAttestedEvidence = {
   enrollmentId: VoiceIdEnrollmentId;
   speaker: Extract<VoiceIdSpeakerMatchResult, { kind: 'accepted' }>;
   phrase: Extract<VoiceIdPhraseMatchResult, { kind: 'accepted' }>;
+  intent: Extract<VoiceIdIntentMatchResult, { kind: 'accepted' }>;
   quality: Extract<VoiceIdAudioQualityResult, { kind: 'accepted' }>;
   captureFreshness: VoiceIdAcceptedCaptureFreshness;
   pad: VoiceIdAcceptedPad;

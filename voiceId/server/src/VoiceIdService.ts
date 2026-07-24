@@ -39,9 +39,9 @@ import type {
   VoiceIdVerificationChecks,
   VoiceIdVerificationResult,
 } from '../../shared/src/results.ts';
+import type { VoiceIdAnalysisProvider } from './analysis/VoiceIdAnalysisProvider.ts';
 import type {
   VoiceIdEnrollmentTemplateBuildResult,
-  VoiceIdSpeakerVerification,
   VoiceIdVerifier,
 } from './verifier/VoiceIdVerifier.ts';
 import type { VoiceIdEnrollmentStore, VoiceIdVerificationStore } from './store/VoiceIdStores.ts';
@@ -128,6 +128,7 @@ export type VoiceIdAuditScoreBands =
   | {
       kind: 'verification';
       phraseConfidence: VoiceIdAuditScoreBand;
+      intentConfidence: VoiceIdAuditScoreBand;
       speakerScore: VoiceIdAuditScoreBand;
       speakerThreshold: VoiceIdAuditScoreBand;
       qualitySignal: VoiceIdAuditScoreBand;
@@ -167,6 +168,7 @@ export type VoiceIdServiceDependencies = {
   verificationStore: VoiceIdVerificationStore;
   verifier: VoiceIdVerifier;
   transcriptProvider: VoiceIdTranscriptProvider;
+  analysisProvider: VoiceIdAnalysisProvider;
   config: VoiceIdServiceConfig;
   now: () => Date;
   createChallengeNonce: () => VoiceIdChallengeNonce;
@@ -472,17 +474,20 @@ export class VoiceIdService {
       return lifecycleConflict('verification challenge was claimed concurrently');
     }
 
-    const [phrase, speakerVerification] = await Promise.all([
-      this.matchPhrase(recording.audio, analysis.expectedPhrase),
-      this.verifySpeaker(recording.audio, enrollment),
-    ]);
+    const verificationAnalysis = await this.analyzeVerification(
+      recording.audio,
+      analysis.expectedPhrase,
+      enrollment,
+    );
     if (this.isExpired(analysis.analysisExpiresAt)) {
       return await this.expireVerificationAnalysis(analysis);
     }
     const checks: VoiceIdVerificationChecks = {
-      phrase,
-      quality: speakerVerification.quality,
-      speaker: speakerVerification.speaker,
+      phrase: verificationAnalysis.phrase,
+      intent: verificationAnalysis.intent,
+      quality: verificationAnalysis.quality,
+      speaker: verificationAnalysis.speaker,
+      pad: verificationAnalysis.pad,
     };
     const completedAt = this.now();
     const result = buildVerificationResult({
@@ -577,24 +582,17 @@ export class VoiceIdService {
     }
   }
 
-  private async verifySpeaker(
+  private async analyzeVerification(
     audio: VoiceIdAudioInput,
+    expectedPhrase: VoiceIdPromptPhrase,
     enrollment: Extract<VoiceIdEnrollmentRecord, { state: 'enrolled' }>,
-  ): Promise<VoiceIdSpeakerVerification> {
-    try {
-      return await this.dependencies.verifier.verifySpeaker({
-        audio,
-        threshold: this.dependencies.config.speakerScoreThreshold,
-        template: {
-          encryptedTemplate: enrollment.encryptedTemplate,
-          templateVersion: enrollment.templateVersion,
-          modelVersion: enrollment.modelVersion,
-          thresholdVersion: enrollment.thresholdVersion,
-        },
-      });
-    } catch {
-      return unavailableSpeakerVerification(audio, this.dependencies.config);
-    }
+  ) {
+    return await this.dependencies.analysisProvider.analyzeVerification({
+      audio,
+      expectedPhrase,
+      enrollment,
+      threshold: this.dependencies.config.speakerScoreThreshold,
+    });
   }
 
   private emitAudit(
@@ -759,27 +757,6 @@ function buildVerificationPrompt(
   return parsePromptPhrase(`${base}. ${randomFragment}`);
 }
 
-function unavailableSpeakerVerification(
-  audio: VoiceIdAudioInput,
-  config: VoiceIdServiceConfig,
-): VoiceIdSpeakerVerification {
-  return {
-    quality: {
-      kind: 'uncertain',
-      reason: 'verifier_unavailable',
-      durationMs: audio.metadata.durationMs,
-    },
-    speaker: {
-      kind: 'uncertain',
-      reason: 'verifier_unavailable',
-      score: 0,
-      threshold: config.speakerScoreThreshold,
-      modelVersion: config.modelVersion,
-      thresholdVersion: config.thresholdVersion,
-    },
-  };
-}
-
 function buildVerificationResult(input: {
   verification: Extract<VoiceIdVerificationRecord, { state: 'analyzing' }>;
   enrollment: Extract<VoiceIdEnrollmentRecord, { state: 'enrolled' }>;
@@ -803,6 +780,9 @@ function buildVerificationResult(input: {
   if (input.checks.phrase.kind === 'rejected') {
     return rejectedVerification(input.verification.verificationId, 'phrase_mismatch', input.checks);
   }
+  if (input.checks.intent.kind === 'rejected') {
+    return rejectedVerification(input.verification.verificationId, 'intent_mismatch', input.checks);
+  }
   if (input.checks.speaker.kind === 'rejected') {
     return rejectedVerification(
       input.verification.verificationId,
@@ -810,7 +790,11 @@ function buildVerificationResult(input: {
       input.checks,
     );
   }
-  if (input.checks.phrase.kind === 'uncertain' || input.checks.speaker.kind === 'uncertain') {
+  if (
+    input.checks.phrase.kind === 'uncertain'
+    || input.checks.intent.kind === 'uncertain'
+    || input.checks.speaker.kind === 'uncertain'
+  ) {
     return uncertainVerification(
       input.verification.verificationId,
       uncertainReasonFromChecks(input.checks),
@@ -826,6 +810,7 @@ function buildVerificationResult(input: {
       enrollmentId: input.enrollment.enrollmentId,
       observedChecks: {
         phrase: input.checks.phrase,
+        intent: input.checks.intent,
         speaker: input.checks.speaker,
         quality: input.checks.quality,
         captureFreshness: {
@@ -834,7 +819,7 @@ function buildVerificationResult(input: {
           captureReceivedAt: input.completedAt,
           serverVerifiedFreshness: false,
         },
-        pad: { kind: 'pad_unavailable', reason: 'ordinary_browser_capture' },
+        pad: input.checks.pad,
         captureProfile: {
           kind: 'ordinary_browser_capture',
           source: 'media_recorder',
@@ -860,6 +845,14 @@ function uncertainReasonFromChecks(
         return 'model_low_confidence';
       default:
         return assertNever(reason);
+    }
+  }
+  if (checks.intent.kind === 'uncertain') {
+    switch (checks.intent.reason) {
+      case 'intent_low_confidence':
+        return 'intent_low_confidence';
+      case 'intent_unavailable':
+        return 'verifier_unavailable';
     }
   }
   if (checks.speaker.kind === 'uncertain') {
@@ -1003,6 +996,7 @@ function verificationAuditScoreBands(checks: VoiceIdVerificationChecks): VoiceId
   return {
     kind: 'verification',
     phraseConfidence: auditScoreBand(checks.phrase.confidence),
+    intentConfidence: auditScoreBand(checks.intent.confidence),
     speakerScore: auditScoreBand(checks.speaker.score),
     speakerThreshold: auditScoreBand(checks.speaker.threshold),
     qualitySignal:

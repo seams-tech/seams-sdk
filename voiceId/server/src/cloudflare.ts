@@ -30,6 +30,7 @@ import {
   type VoiceIdVerificationStore,
 } from './store/VoiceIdStores.ts';
 import { FakeTranscriptProvider } from './transcript/FakeTranscriptProvider.ts';
+import { PythonMoonshineTranscriptProvider } from './transcript/PythonMoonshineTranscriptProvider.ts';
 import {
   CloudflareWorkersAiTranscriptProvider,
   parseCloudflareWorkersAiAsrModel,
@@ -43,6 +44,8 @@ import {
   type PythonHttpVoiceIdVerifierFetch,
 } from './verifier/PythonHttpVoiceIdVerifierTransport.ts';
 import { PythonVoiceIdVerifier } from './verifier/PythonVoiceIdVerifier.ts';
+import { PythonMoonshineAnalysisProvider } from './analysis/PythonMoonshineAnalysisProvider.ts';
+import { SplitVoiceIdAnalysisProvider } from './analysis/VoiceIdAnalysisProvider.ts';
 
 export type VoiceIdCloudflareEnv = {
   readonly AI?: VoiceIdCloudflareWorkersAiBinding;
@@ -52,6 +55,7 @@ export type VoiceIdCloudflareEnv = {
   readonly VOICEID_SPEAKER_SCORE_THRESHOLD?: string;
   readonly VOICEID_TRANSCRIPT_PROVIDER?: string;
   readonly VOICEID_CLOUDFLARE_ASR_MODEL?: string;
+  readonly VOICEID_MOONSHINE_INTENT_NAME?: string;
   readonly VOICEID_STORAGE_KIND?: string;
   readonly VOICEID_D1_DATABASE?: VoiceIdCloudflareD1Database;
   readonly VOICEID_TEMPLATE_KEY_SOURCE?: string;
@@ -90,6 +94,10 @@ export type VoiceIdCloudflareConfig = {
         readonly kind: 'cloudflare_workers_ai';
         readonly aiBindingName: 'AI';
         readonly model: VoiceIdCloudflareWorkersAiAsrModel;
+      }
+    | {
+        readonly kind: 'python_moonshine';
+        readonly intentName: string;
       };
 };
 
@@ -133,15 +141,20 @@ function createVoiceIdCloudflareServiceFromConfig(
     timeoutMs: config.verifier.timeoutMs,
     ...(input.verifierFetch !== undefined ? { fetchJson: input.verifierFetch } : {}),
   };
+  const verifierTransport = new PythonHttpVoiceIdVerifierTransport(transportConfig);
+  const verifier = new PythonVoiceIdVerifier({ transport: verifierTransport });
+  const transcriptProvider =
+    input.transcriptProvider ?? createVoiceIdCloudflareTranscriptProvider(env, config);
 
   return new VoiceIdService({
     enrollmentStore: input.enrollmentStore ?? stores.enrollmentStore,
     verificationStore: input.verificationStore ?? stores.verificationStore,
-    verifier: new PythonVoiceIdVerifier({
-      transport: new PythonHttpVoiceIdVerifierTransport(transportConfig),
-    }),
-    transcriptProvider:
-      input.transcriptProvider ?? createVoiceIdCloudflareTranscriptProvider(env, config),
+    verifier,
+    transcriptProvider,
+    analysisProvider:
+      input.transcriptProvider === undefined && config.transcript.kind === 'python_moonshine'
+        ? new PythonMoonshineAnalysisProvider(verifierTransport, config.transcript.intentName)
+        : new SplitVoiceIdAnalysisProvider(transcriptProvider, verifier),
     config: defaultVoiceIdServiceConfig({
       speakerScoreThreshold: config.speakerScoreThreshold,
     }),
@@ -196,6 +209,14 @@ function createVoiceIdCloudflareTranscriptProvider(
         ai: requireCloudflareWorkersAiBinding(env.AI),
         model: transcript.model,
       });
+    case 'python_moonshine':
+      return new PythonMoonshineTranscriptProvider(
+        new PythonHttpVoiceIdVerifierTransport({
+          baseUrl: config.verifier.baseUrl,
+          timeoutMs: config.verifier.timeoutMs,
+        }),
+        transcript.intentName,
+      );
     default:
       return assertNever(transcript);
   }
@@ -335,10 +356,24 @@ function parseCloudflareTranscriptConfig(
       model: parseCloudflareWorkersAiAsrModel(env.VOICEID_CLOUDFLARE_ASR_MODEL),
     };
   }
+  if (provider === 'python-moonshine') {
+    return {
+      kind: 'python_moonshine',
+      intentName: parseMoonshineIntentName(env.VOICEID_MOONSHINE_INTENT_NAME),
+    };
+  }
 
   throw new Error(
-    "VOICEID_TRANSCRIPT_PROVIDER must explicitly be 'fake' or 'cloudflare-workers-ai'",
+    "VOICEID_TRANSCRIPT_PROVIDER must explicitly be 'fake', 'cloudflare-workers-ai', or 'python-moonshine'",
   );
+}
+
+function parseMoonshineIntentName(value: string | undefined): string {
+  const intentName = value?.trim() ?? 'expected_phrase';
+  if (intentName.length === 0) {
+    throw new Error('VOICEID_MOONSHINE_INTENT_NAME must be a non-empty string');
+  }
+  return intentName;
 }
 
 function requireD1Database(value: unknown): VoiceIdCloudflareD1Database {

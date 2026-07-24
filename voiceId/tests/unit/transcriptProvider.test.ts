@@ -8,6 +8,8 @@ import {
   type VoiceIdCloudflareWorkersAiBinding,
 } from '../../server/src/transcript/CloudflareWorkersAiTranscriptProvider.ts';
 import { FakeTranscriptProvider } from '../../server/src/transcript/FakeTranscriptProvider.ts';
+import { PythonMoonshineTranscriptProvider } from '../../server/src/transcript/PythonMoonshineTranscriptProvider.ts';
+import { PythonHttpVoiceIdVerifierTransport } from '../../server/src/verifier/PythonHttpVoiceIdVerifierTransport.ts';
 import {
   buildAudioInput,
   nowIsoDateTime,
@@ -148,6 +150,57 @@ test('Cloudflare Workers AI REST binding posts binary audio to the model endpoin
       bytes: [1, 2, 3],
     },
   ]);
+});
+
+test('Python Moonshine provider sends one audio boundary and preserves intent separately', async () => {
+  const requestBodies: Array<Record<string, unknown>> = [];
+  const transport = new PythonHttpVoiceIdVerifierTransport({
+    baseUrl: 'http://verifier.test/',
+    fetchJson: (async (_input, init) => {
+      requestBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return Response.json({
+        kind: 'speech_analysis',
+        requestId: 'voice_moonshine_1',
+        transcript: 'Please approve this transfer',
+        phrase: {
+          kind: 'accepted',
+          expectedNormalized: 'approve transfer',
+          spokenNormalized: 'please approve this transfer',
+          confidence: 0.91,
+          reason: null,
+        },
+        intent: {
+          kind: 'accepted',
+          intent: 'approve',
+          canonicalPhrase: 'approve',
+          confidence: 0.91,
+          reason: null,
+        },
+        sampleRateHz: 16000,
+      });
+    }) as typeof fetch,
+  });
+  const provider = new PythonMoonshineTranscriptProvider(transport, 'approve');
+  const result = await provider.analyze({
+    audio: makeTranscriptAudio(0x01),
+    expectedPhrase: parsePromptPhrase('approve transfer'),
+  });
+
+  assert.equal(result.phrase.kind, 'accepted');
+  assert.equal(result.intent.kind, 'accepted');
+  assert.equal(result.intent.intent, 'approve');
+  assert.equal(result.sampleRateHz, 16000);
+  assert.equal(requestBodies.length, 1);
+  const requestAudio = requestBodies[0].audio;
+  assert.ok(requestAudio && typeof requestAudio === 'object' && !Array.isArray(requestAudio));
+  assert.equal((requestAudio as { audioBase64: string }).audioBase64, 'AQID');
+  requestBodies.length = 0;
+  const lifecyclePhrase = await provider.matchPhrase({
+    audio: makeTranscriptAudio(0x01),
+    expectedPhrase: parsePromptPhrase('approve transfer'),
+  });
+  assert.equal(lifecyclePhrase.kind, 'accepted');
+  assert.equal(requestBodies.length, 1);
 });
 
 function makeTranscriptAudio(firstByte: number) {

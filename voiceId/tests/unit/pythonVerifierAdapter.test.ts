@@ -34,6 +34,9 @@ test('PythonVoiceIdVerifier submits one continuous recording for atomic enrollme
       async verifySpeaker() {
         throw new Error('unused');
       },
+      async analyzeVerification() {
+        throw new Error('unused');
+      },
     },
   });
 
@@ -74,6 +77,9 @@ test('PythonVoiceIdVerifier verifies speakers through the current transport', as
       async verifySpeaker(request) {
         capturedRequests.push(request);
         return speakerVerificationResponse(request.requestId, 'accepted');
+      },
+      async analyzeVerification() {
+        throw new Error('unused');
       },
     },
   });

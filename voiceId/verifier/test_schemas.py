@@ -13,10 +13,17 @@ from urllib.request import Request, urlopen
 
 from voiceid_verifier.app import (
     VoiceIdVerifierHttpServer,
+    analyze_verification_from_json,
+    analyze_speech_from_json,
     build_enrollment_template_from_json,
     verify_speaker_from_json,
 )
 from voiceid_verifier.embeddings import ExtractedSpeakerEmbedding
+from voiceid_verifier.moonshine import (
+    MoonshineIntentDecision,
+    MoonshinePhraseDecision,
+    MoonshineSpeechAnalysis,
+)
 from voiceid_verifier.runtime import SpeechBrainEcapaVerifierRuntime
 from voiceid_verifier.schemas import (
     VerifierSchemaError,
@@ -94,6 +101,40 @@ class VerifierSchemaTest(unittest.TestCase):
         self.assertEqual(verification_response["kind"], "speaker_verification")
         self.assertEqual(verification_response["quality"]["kind"], "accepted")
         self.assertEqual(verification_response["speaker"]["kind"], "accepted")
+
+    def test_analyzes_one_canonical_pcm_buffer_and_returns_intent_separately(self) -> None:
+        response = analyze_speech_from_json(
+            speech_analysis_request(audio_bytes=wav_audio_bytes([(240, 1800)])),
+            recognizer=FakeMoonshineRecognizer(),
+        )
+
+        self.assertEqual(response["kind"], "speech_analysis")
+        self.assertEqual(response["sampleRateHz"], 16000)
+        self.assertEqual(response["phrase"]["kind"], "accepted")
+        self.assertEqual(response["intent"]["kind"], "accepted")
+
+    def test_combined_verification_reuses_one_decoded_buffer_and_zeroes_it(self) -> None:
+        template_extractor = InspectingEcapaExtractor()
+        template_runtime = SpeechBrainEcapaVerifierRuntime(extractor=template_extractor)
+        template_response = build_enrollment_template_from_json(
+            enrollment_request(audio_bytes=enrollment_audio_bytes()),
+            runtime=template_runtime,
+        )
+        extractor = InspectingEcapaExtractor()
+        runtime = SpeechBrainEcapaVerifierRuntime(extractor=extractor)
+        response = analyze_verification_from_json(
+            verification_analysis_request(
+                audio_bytes=wav_audio_bytes([(240, 1800)]),
+                template_response=template_response,
+            ),
+            runtime=runtime,
+            recognizer=FakeMoonshineRecognizer(),
+        )
+
+        self.assertEqual(response["kind"], "verification_analysis")
+        self.assertEqual(response["speech"]["intent"]["kind"], "accepted")
+        self.assertEqual(response["speaker"]["kind"], "accepted")
+        self.assertTrue(all(value == 0.0 for value in extractor.sample_references[0]))
 
     def test_canonical_pipeline_is_stable_across_repeated_runs(self) -> None:
         enrollment_payload = enrollment_request(audio_bytes=enrollment_audio_bytes())
@@ -286,6 +327,32 @@ def verification_request(
     }
 
 
+def speech_analysis_request(*, audio_bytes: bytes) -> dict[str, object]:
+    return {
+        "schemaVersion": "voice_id_verifier_v2",
+        "requestId": "speech_request_1",
+        "audio": audio_payload(audio_bytes=audio_bytes, duration_ms=1800),
+        "expectedPhrase": "approve transfer",
+        "intentName": "approve",
+    }
+
+
+def verification_analysis_request(
+    *,
+    audio_bytes: bytes,
+    template_response: dict[str, object],
+) -> dict[str, object]:
+    return {
+        "schemaVersion": "voice_id_verifier_v2",
+        "requestId": "analysis_request_1",
+        "audio": audio_payload(audio_bytes=audio_bytes, duration_ms=1800),
+        "template": template_reference(template_response),
+        "threshold": 0.5,
+        "expectedPhrase": "approve transfer",
+        "intentName": "approve",
+    }
+
+
 def audio_payload(
     *,
     audio_bytes: bytes,
@@ -391,6 +458,34 @@ class AlternatingSpeakerExtractor(InspectingEcapaExtractor):
 class FailingEcapaExtractor(InspectingEcapaExtractor):
     def extract_decoded(self, samples: Sequence[float]) -> ExtractedSpeakerEmbedding:
         raise AssertionError("speaker extraction should not run for low-quality audio")
+
+
+class FakeMoonshineRecognizer:
+    def analyze(
+        self,
+        samples: Sequence[float],
+        *,
+        expected_phrase: str,
+        intent_name: str,
+    ) -> MoonshineSpeechAnalysis:
+        return MoonshineSpeechAnalysis(
+            transcript="approve transfer",
+            phrase=MoonshinePhraseDecision(
+                kind="accepted",
+                expected_normalized="approve transfer",
+                spoken_normalized="approve transfer",
+                confidence=0.95,
+                reason=None,
+            ),
+            intent=MoonshineIntentDecision(
+                kind="accepted",
+                intent="approve",
+                canonical_phrase="approve",
+                confidence=0.95,
+                reason=None,
+            ),
+            sample_rate_hz=16000,
+        )
 
 
 if __name__ == "__main__":

@@ -127,6 +127,12 @@ function apiValueForPath(path: string): Record<string, unknown> {
         reason: 'model_low_confidence',
         checks: {
           phrase: acceptedPhrase(),
+          intent: {
+            kind: 'accepted',
+            expectedIntent: 'expected_phrase',
+            matchedIntent: 'expected_phrase',
+            confidence: 0.99,
+          },
           speaker: {
             kind: 'uncertain',
             reason: 'model_low_confidence',
@@ -136,6 +142,7 @@ function apiValueForPath(path: string): Record<string, unknown> {
             thresholdVersion: 'threshold_1',
           },
           quality: acceptedQuality(),
+          pad: { kind: 'pad_unavailable', reason: 'ordinary_browser_capture' },
         },
       };
     default:

@@ -1,4 +1,6 @@
 import type {
+  PythonAnalyzeSpeechRequest,
+  PythonAnalyzeVerificationRequest,
   PythonBuildEnrollmentTemplateRequest,
   PythonVerifySpeakerRequest,
   PythonVoiceIdVerifierTransport,
@@ -12,6 +14,8 @@ export type PythonHttpVoiceIdVerifierFetch = (
 export type PythonHttpVoiceIdVerifierPaths = {
   readonly buildEnrollmentTemplate: string;
   readonly verifySpeaker: string;
+  readonly analyzeSpeech: string;
+  readonly analyzeVerification: string;
 };
 
 export type PythonHttpVoiceIdVerifierTransportConfig = {
@@ -47,6 +51,14 @@ export class PythonHttpVoiceIdVerifierTransport implements PythonVoiceIdVerifier
 
   verifySpeaker(request: PythonVerifySpeakerRequest): Promise<unknown> {
     return this.postJson(this.paths.verifySpeaker, request);
+  }
+
+  analyzeSpeech(request: PythonAnalyzeSpeechRequest): Promise<unknown> {
+    return this.postJson(this.paths.analyzeSpeech, request);
+  }
+
+  analyzeVerification(request: PythonAnalyzeVerificationRequest): Promise<unknown> {
+    return this.postJson(this.paths.analyzeVerification, request);
   }
 
   private async postJson(path: string, request: unknown): Promise<unknown> {
@@ -95,6 +107,8 @@ export function defaultPythonHttpVoiceIdVerifierPaths(): PythonHttpVoiceIdVerifi
   return {
     buildEnrollmentTemplate: 'build-enrollment-template',
     verifySpeaker: 'verify-speaker',
+    analyzeSpeech: 'analyze-speech',
+    analyzeVerification: 'analyze-verification',
   };
 }
 

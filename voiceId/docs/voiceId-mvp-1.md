@@ -235,12 +235,14 @@ Provider selection is explicit:
 
 ```text
 VOICEID_VERIFIER_TRANSPORT = fake | python-http
-VOICEID_TRANSCRIPT_PROVIDER = fake | cloudflare-workers-ai
+VOICEID_TRANSCRIPT_PROVIDER = fake | cloudflare-workers-ai | python-moonshine
 ```
 
 Missing or invalid selections fail configuration. Development launchers choose
 fake providers explicitly. Deployment-shaped tests choose the Python transport
-and transcript provider explicitly.
+and transcript provider explicitly. The Python / Moonshine combination uses the
+unified `analyze-verification` sidecar route; other provider combinations use
+the explicitly named split research adapter.
 
 Cloudflare storage selection is also explicit. `memory` is for isolated
 research processes; durable experiments select `cloudflare-d1` and template
@@ -254,12 +256,25 @@ The TypeScript verifier adapter validates Python responses once and converts
 them to exact result unions. Transport failures map to uncertainty or failed
 enrollment; they never produce evidence.
 
-The Python v2 verifier surface contains only:
+The Python v2 verifier surface contains the atomic verifier routes plus the
+internal Moonshine analysis route:
 
 ```text
 POST /voice-id/verifier/build-enrollment-template
 POST /voice-id/verifier/verify-speaker
+POST /voice-id/verifier/analyze-speech
+POST /voice-id/verifier/analyze-verification
 ```
+
+`analyze-speech` is sidecar-only. It decodes the request once to canonical mono
+16 kHz float PCM, runs Moonshine transcription and closed-set intent matching
+over that buffer, and returns phrase and intent decisions separately. The
+browser never supplies the expected phrase or intent policy. The
+`analyze-verification` route extends that same decode to ECAPA speaker scoring
+against the server-held template and returns the independent phrase, intent,
+speaker, quality, and PAD decisions in one typed response. The Python /
+Moonshine deployment profile uses this route for verification; the PAD result
+is explicitly unavailable until a PAD model is calibrated.
 
 Enrollment audio and internal embeddings remain inside one atomic sidecar
 operation. The transport has no embedding export or separate template-build
@@ -315,8 +330,8 @@ retention decision does not relax the production diagnostic-media TTL.
    accuracy, stage latency, memory, resource use, uncertainty, and failure
    rate. Label generated identities and owner-conditioned attacks precisely;
    defer human population FAR, FRR, and EER claims until real subjects exist.
-2. Feed phrase, intent, speaker, PAD, and template processing from one canonical
-   decode and shared VAD result in persistent workers.
+2. Complete the single-decode worker handoff so phrase, intent, speaker, PAD,
+   and template processing consume one canonical decode and shared VAD result.
 3. Test Moonshine Tiny Streaming and Small Streaming first for flexible
    challenge-token coverage and semantic-intent verification, then select and
    calibrate the phrase, intent, speaker, and PAD models on held-out subjects

@@ -179,16 +179,19 @@ terminal computation across multiple workers.
 - [x] Add one dependency-free inventory command that emits machine-readable
       JSON and a human report from the same validated manifest run and fails
       readiness when required cases or attack classes are absent.
-- [ ] Extend the benchmark provenance boundary with exact
+- [x] Extend the benchmark provenance boundary with exact
       `consented_human_capture` and `synthetic_generation` branches. Require
-      generator, model, revision, voice identity, seed, terms snapshot, and
+      generator, model, voice identity, seed, license, request hash, and
       optional conditioning-consent metadata for synthetic entries.
 - [ ] Generate the solo MVP corpus with subject-disjoint stable synthetic
       identities, challenge errors, generic attacks, and owner-conditioned
       cloning attacks split across Dia2 and ElevenLabs families.
-- [ ] Make every benchmark report distinguish synthetic-identity,
+- [x] Make every benchmark report distinguish synthetic-identity,
       owner-conditioned, and bona-fide-human cohorts and suppress human
       population FAR, FRR, and EER when the required human cohort is absent.
+- [x] Download and checksum the approved Moonshine Tiny/Small F32 and native
+      streaming assets, the closed-set intent model, and ECAPA bundle in the
+      immutable local model manifest.
 - [ ] Collect consented, subject-disjoint recordings across days, microphones,
       rooms, distances, codecs, sample rates, accents, and noise conditions.
 - [ ] Freeze subject-disjoint development, calibration, and evaluation splits.
@@ -217,9 +220,11 @@ reproducible accuracy, latency, and resource baseline.
       PCM inside the verifier boundary.
 - [x] Compute canonical VAD once and reuse its exact activity and speech windows
       for audio quality and enrollment-template construction.
-- [ ] Reuse the same authoritative PCM, VAD result, and accepted speech windows
-      for phrase, intent, speaker, PAD, and template processing.
-- [ ] Preserve independent typed phrase, intent, speaker, quality, and PAD
+- [x] Reuse one verifier-owned canonical PCM decode for verification phrase,
+      intent, and speaker analysis through `analyze-verification`.
+- [ ] Feed the same accepted VAD windows into speaker and PAD models and extend
+      the shared decode to enrollment template processing.
+- [x] Preserve independent typed phrase, intent, speaker, quality, and PAD
       decisions.
 - [ ] Run phrase, intent, speaker, and PAD inference concurrently after common
       quality gates accept.
@@ -228,9 +233,10 @@ reproducible accuracy, latency, and resource baseline.
       request-scoped Python subprocess transport.
 - [x] Add bounded sidecar inference admission, configurable queue wait, and a
       deterministic overload response.
-- [x] Start independent phrase and speaker verification concurrently after the
-      lifecycle claim.
-- [ ] Add persistent workers for the selected phrase, intent, and PAD models
+- [x] Claim verification before the combined phrase, intent, and speaker
+      analysis begins; the split-provider adapter remains only for fake and
+      non-Moonshine research modes.
+- [x] Add persistent workers for the selected phrase and intent models
       that load each model once and report readiness.
 - [ ] Add bounded queues, backpressure, per-stage deadlines, cancellation, and
       deterministic overload results.
@@ -244,24 +250,32 @@ reproducible accuracy, latency, and resource baseline.
       speaker, and PAD model adapter.
 
 Exit gate: one bounded preprocessing pass feeds warm concurrent inference with
-no duplicate decode, resample, VAD, or model initialization.
+no duplicate decode, resample, VAD, or model initialization. The current
+verification route satisfies the single-decode boundary for the Python /
+Moonshine profile; PAD concurrency, shared VAD windows, and enrollment reuse
+remain open.
 
 ## Gate E: Moonshine-First Intent, Phrase, And Speaker Model Selection
 
-- [ ] Run the first phrase-model spike with
+- [x] Run the first phrase-model spike with
       [Moonshine](https://github.com/moonshine-ai/moonshine) Tiny Streaming and
       Small Streaming.
-- [ ] Feed Moonshine the verifier-owned canonical mono 16 kHz PCM and accepted
-      speech boundaries. Do not use `MicTranscriber`. Measure unavoidable
-      duplicate VAD or resampling inside the Moonshine runtime as an integration
-      cost.
-- [ ] Evaluate Moonshine `IntentRecognizer` as a separate semantic-intent
+- [x] Feed Moonshine the verifier-owned canonical mono 16 kHz PCM. Do not use
+      `MicTranscriber`. Keep VAD and accepted speech-window ownership in the
+      verifier until Moonshine window reuse is implemented.
+- [x] Evaluate Moonshine `IntentRecognizer` as a separate semantic-intent
       scorer over a closed set containing approve, reject, cancel, repeat, and
       unrelated outcomes.
+- [x] Expose the analysis through the Python sidecar and TypeScript provider.
+      The default `expected_phrase` mode keeps enrollment safe; action labels
+      become authoritative only after lifecycle records carry a typed intent.
+- [x] Run the native Tiny-then-Small streaming smoke benchmark over an
+      ephemeral synthetic speech corpus and record load, warm latency, phrase,
+      intent, cohort, and human-metric-suppression outcomes.
 - [ ] Compare exact normalized phrase matching with a hybrid policy that
       requires unpredictable challenge-token coverage in any order and accepts
       natural-language variations of the requested intent.
-- [ ] Keep speaker identity, semantic intent, challenge freshness, phrase
+- [x] Keep speaker identity, semantic intent, challenge freshness, phrase
       evidence, quality, and PAD as independent typed results. Do not use
       diarization speaker ids as enrolled-speaker identity.
 - [ ] Calibrate the intent threshold and the score margin between the winning

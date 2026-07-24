@@ -75,10 +75,14 @@ mismatches.
 ## Reproducible Benchmark Boundary
 
 The browser fixture bundle is an input-collection aid. Gate C experiments use
-the stricter `voice_id_benchmark_manifest_v1` boundary from `benchmark.py`. It
-requires immutable media hashes, consent references, subject and session ids,
+the stricter `voice_id_benchmark_manifest_v2` boundary from `benchmark.py`. It
+requires immutable media hashes, an explicit provenance union for synthetic
+generations or consented human captures, subject and session ids,
 subject-disjoint partitions, case-specific metadata, expected intent,
-challenge tokens, and complete capture profiles.
+challenge tokens, and complete capture profiles. Synthetic cohorts are reported
+as fictional identities or owner-conditioned clones. Human FAR, FRR, and EER
+stay suppressed until the evaluation partition contains a qualifying human
+cohort.
 
 ```sh
 pnpm -C voiceId benchmark:test
@@ -88,6 +92,37 @@ pnpm -C voiceId benchmark:run
 `benchmark:run` writes paired JSON and Markdown inventory reports. It fails
 measurement readiness until development, calibration, and evaluation data cover
 every required case and presentation-attack class.
+
+## Local model baselines
+
+The approved local baseline manifest is
+`voiceId/verifier-spike/model-manifest.json`. It records source revisions,
+licenses, file sizes, per-file SHA-256 digests, and a canonical tree digest for
+the Moonshine Tiny/Small F32 models, the native quantized Moonshine streaming
+models, the closed-set intent model, and SpeechBrain ECAPA. Rebuild or verify
+it against a model root with:
+
+```sh
+python3 voiceId/verifier-spike/model_manifest.py \
+  --root /path/to/voiceid-models \
+  --verify voiceId/verifier-spike/model-manifest.json
+```
+
+The native `moonshine-voice` runtime consumes the downloaded quantized
+streaming directories. The Hugging Face F32 directories remain pinned and
+verified in the manifest for a separate Transformers/ONNX comparison; passing
+an F32 directory to the native runtime is rejected because its file format is
+different.
+
+The Python sidecar can use Moonshine over canonical mono 16 kHz float PCM. Set
+`VOICEID_MOONSHINE_MODEL_PATH`,
+`VOICEID_MOONSHINE_INTENT_MODEL_PATH`, and
+`VOICEID_MOONSHINE_MODEL_ARCH=tiny_streaming` (benchmark Small only after Tiny
+latency is measured). The sidecar route is
+`POST /voice-id/verifier/analyze-speech`; it returns transcript, semantic
+intent, and phrase decisions as separate fields. The production-shaped
+verification path is `POST /voice-id/verifier/analyze-verification`, which
+shares one canonical decode between Moonshine and speaker verification.
 
 ## Model Comparison
 

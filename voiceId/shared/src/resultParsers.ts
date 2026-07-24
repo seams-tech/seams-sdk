@@ -8,8 +8,10 @@ import {
 } from './ids.ts';
 import { assertExactObjectKeys, parseJsonObject } from './parsers.ts';
 import type { VoiceIdEnrollmentRecord } from './records.ts';
+import type { VoiceIdExperimentalPad } from './evidence.ts';
 import type {
   VoiceIdPhraseMatchResult,
+  VoiceIdIntentMatchResult,
   VoiceIdSpeakerMatchResult,
   VoiceIdVerificationChecks,
   VoiceIdVerificationResult,
@@ -51,12 +53,63 @@ export function parseVoiceIdUncertainResult(
 
 export function parseVoiceIdVerificationChecks(value: unknown): VoiceIdVerificationChecks {
   const checks = parseJsonObject(value, 'verification checks');
-  assertExactObjectKeys(checks, ['phrase', 'speaker', 'quality'], 'verification checks');
+  assertExactObjectKeys(checks, ['phrase', 'intent', 'speaker', 'quality', 'pad'], 'verification checks');
   return {
     phrase: parseVoiceIdPhraseMatchResult(checks.phrase),
+    intent: parseVoiceIdIntentMatchResult(checks.intent),
     speaker: parseVoiceIdSpeakerMatchResult(checks.speaker),
     quality: parseVoiceIdAudioQualityResult(checks.quality),
+    pad: parseExperimentalPad(checks.pad),
   };
+}
+
+export function parseVoiceIdIntentMatchResult(value: unknown): VoiceIdIntentMatchResult {
+  const intent = parseJsonObject(value, 'intent result');
+  const expectedIntent = parseString(intent.expectedIntent, 'expectedIntent');
+  const matchedIntent = parseNullableString(intent.matchedIntent, 'matchedIntent');
+  const confidence = parseProbability(intent.confidence, 'intent confidence');
+  switch (intent.kind) {
+    case 'accepted':
+      assertExactObjectKeys(
+        intent,
+        ['kind', 'expectedIntent', 'matchedIntent', 'confidence'],
+        'accepted intent result',
+      );
+      if (matchedIntent === null) throw new Error('accepted intent requires matchedIntent');
+      return { kind: 'accepted', expectedIntent, matchedIntent, confidence };
+    case 'rejected':
+      assertExactObjectKeys(
+        intent,
+        ['kind', 'reason', 'expectedIntent', 'matchedIntent', 'confidence'],
+        'rejected intent result',
+      );
+      return {
+        kind: 'rejected',
+        reason: parseOneOf(intent.reason, ['intent_mismatch', 'intent_out_of_set'], 'intent rejection'),
+        expectedIntent,
+        matchedIntent,
+        confidence,
+      };
+    case 'uncertain':
+      assertExactObjectKeys(
+        intent,
+        ['kind', 'reason', 'expectedIntent', 'matchedIntent', 'confidence'],
+        'uncertain intent result',
+      );
+      return {
+        kind: 'uncertain',
+        reason: parseOneOf(
+          intent.reason,
+          ['intent_low_confidence', 'intent_unavailable'],
+          'intent uncertainty',
+        ),
+        expectedIntent,
+        matchedIntent,
+        confidence,
+      };
+    default:
+      throw new Error('intent result kind is invalid');
+  }
 }
 
 export function parseVoiceIdPhraseMatchResult(value: unknown): VoiceIdPhraseMatchResult {
@@ -263,14 +316,20 @@ function parseEvidenceObservedObject(
   const checks = parseJsonObject(evidence.observedChecks, 'observed checks');
   assertExactObjectKeys(
     checks,
-    ['phrase', 'speaker', 'quality', 'captureFreshness', 'pad', 'captureProfile'],
+    ['phrase', 'intent', 'speaker', 'quality', 'captureFreshness', 'pad', 'captureProfile'],
     'observed checks',
   );
   const phrase = parseVoiceIdPhraseMatchResult(checks.phrase);
+  const intent = parseVoiceIdIntentMatchResult(checks.intent);
   const speaker = parseVoiceIdSpeakerMatchResult(checks.speaker);
   const quality = parseVoiceIdAudioQualityResult(checks.quality);
-  if (phrase.kind !== 'accepted' || speaker.kind !== 'accepted' || quality.kind !== 'accepted') {
-    throw new Error('observed evidence requires accepted phrase, speaker, and quality checks');
+  if (
+    phrase.kind !== 'accepted'
+    || intent.kind !== 'accepted'
+    || speaker.kind !== 'accepted'
+    || quality.kind !== 'accepted'
+  ) {
+    throw new Error('observed evidence requires accepted phrase, intent, speaker, and quality checks');
   }
   const freshness = parseJsonObject(checks.captureFreshness, 'capture freshness');
   assertExactObjectKeys(
@@ -282,10 +341,7 @@ function parseEvidenceObservedObject(
   if (freshness.serverVerifiedFreshness !== false) {
     throw new Error('experimental capture freshness must remain unverified');
   }
-  const pad = parseJsonObject(checks.pad, 'pad result');
-  assertExactObjectKeys(pad, ['kind', 'reason'], 'pad result');
-  assertKind(pad.kind, 'pad_unavailable', 'pad result');
-  assertKind(pad.reason, 'ordinary_browser_capture', 'pad reason');
+  const pad = parseExperimentalPad(checks.pad);
   const captureProfile = parseJsonObject(checks.captureProfile, 'capture profile');
   assertExactObjectKeys(
     captureProfile,
@@ -303,6 +359,7 @@ function parseEvidenceObservedObject(
       enrollmentId: parseEnrollmentId(evidence.enrollmentId),
       observedChecks: {
         phrase,
+        intent,
         speaker,
         quality,
         captureFreshness: {
@@ -311,7 +368,7 @@ function parseEvidenceObservedObject(
           captureReceivedAt: parseIsoDateTime(freshness.captureReceivedAt),
           serverVerifiedFreshness: false,
         },
-        pad: { kind: 'pad_unavailable', reason: 'ordinary_browser_capture' },
+        pad,
         captureProfile: {
           kind: 'ordinary_browser_capture',
           source: 'media_recorder',
@@ -323,6 +380,14 @@ function parseEvidenceObservedObject(
       completedAt: parseIsoDateTime(evidence.completedAt),
     },
   };
+}
+
+function parseExperimentalPad(value: unknown): VoiceIdExperimentalPad {
+  const pad = parseJsonObject(value, 'pad result');
+  assertExactObjectKeys(pad, ['kind', 'reason'], 'pad result');
+  assertKind(pad.kind, 'pad_unavailable', 'pad result');
+  assertKind(pad.reason, 'ordinary_browser_capture', 'pad reason');
+  return { kind: 'pad_unavailable', reason: 'ordinary_browser_capture' };
 }
 
 function parseRejectedObject(
@@ -339,7 +404,7 @@ function parseRejectedObject(
     verificationId: parseVerificationId(result.verificationId),
     reason: parseOneOf(
       result.reason,
-      ['phrase_mismatch', 'speaker_mismatch', 'low_audio_quality'],
+      ['phrase_mismatch', 'intent_mismatch', 'speaker_mismatch', 'low_audio_quality'],
       'rejection reason',
     ),
     checks: parseVoiceIdVerificationChecks(result.checks),
@@ -360,7 +425,13 @@ function parseUncertainObject(
     verificationId: parseVerificationId(result.verificationId),
     reason: parseOneOf(
       result.reason,
-      ['noisy_audio', 'too_short', 'model_low_confidence', 'verifier_unavailable'],
+      [
+        'noisy_audio',
+        'too_short',
+        'model_low_confidence',
+        'intent_low_confidence',
+        'verifier_unavailable',
+      ],
       'uncertain reason',
     ),
     checks: parseVoiceIdVerificationChecks(result.checks),
@@ -393,6 +464,11 @@ function parseString(value: unknown, fieldName: string): string {
 function parseStringAllowEmpty(value: unknown, fieldName: string): string {
   if (typeof value !== 'string') throw new Error(`${fieldName} must be a string`);
   return value;
+}
+
+function parseNullableString(value: unknown, fieldName: string): string | null {
+  if (value === null) return null;
+  return parseString(value, fieldName);
 }
 
 function parsePositiveNumber(value: unknown, fieldName: string): number {
