@@ -53,7 +53,8 @@ type ScriptedFetchState =
 
 type ScriptedExecutionResult =
   | { kind: 'success' }
-  | { kind: 'burned'; reason: 'protocol_failure' };
+  | { kind: 'burned'; reason: 'protocol_failure' }
+  | { kind: 'recoverable'; code: 'ceremony_expired' };
 
 class TestRegistrationBackend implements RouterAbEd25519YaoRegistrationBackend {
   admitCalls = 0;
@@ -177,6 +178,13 @@ class ScriptedLocalYaoFetch {
             status: 'burned',
             execution_id: bytes(18),
             reason: this.executionResult.reason,
+          });
+        }
+        if (this.executionResult.kind === 'recoverable') {
+          return this.json({
+            status: 'recoverable_failure',
+            code: this.executionResult.code,
+            retry_after_ms: 1_000,
           });
         }
         return this.json({
@@ -877,6 +885,36 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     });
     expect(scriptedFetch.calls).toEqual(['POST /router-ab/router/ed25519-yao/execute']);
     expect(scriptedFetch.replayHeaders).toEqual(['']);
+  });
+
+  test('surfaces ceremony expiry as a terminal new-identity failure', async () => {
+    const scriptedFetch = new ScriptedLocalYaoFetch();
+    scriptedFetch.executionResult = { kind: 'recoverable', code: 'ceremony_expired' };
+    const backend = createRouterAbEd25519YaoHttpRegistrationBackendFromEnv({
+      env: localHttpBackendEnv(),
+      fetch: scriptedFetch.fetch.bind(scriptedFetch),
+    });
+
+    const admitted = await backend.admit(parsedAdmissionRequest());
+    if (!admitted.ok) throw new Error(admitted.message);
+    const parsedAdmission = parseRouterAbEd25519YaoRegistrationAdmissionReceiptV1(admitted.body);
+    if (!parsedAdmission.ok) throw new Error(parsedAdmission.message);
+    scriptedFetch.bindActivation(parsedAdmission.value.binding);
+
+    const parsedExecution = parseRouterAbEd25519YaoRegistrationExecuteRequestV1({
+      binding: parsedAdmission.value.binding,
+      deriver_a_input: encryptedInputForBinding(parsedAdmission.value.binding, 'deriver_a'),
+      deriver_b_input: encryptedInputForBinding(parsedAdmission.value.binding, 'deriver_b'),
+    });
+    if (!parsedExecution.ok) throw new Error(parsedExecution.message);
+
+    await expect(backend.execute(parsedExecution.value)).resolves.toEqual({
+      ok: false,
+      status: 409,
+      code: 'ceremony_expired',
+      message: 'Router Yao ceremony expired; allocate a new ceremony identity',
+    });
+    expect(scriptedFetch.calls).toEqual(['POST /router-ab/router/ed25519-yao/execute']);
   });
 
   test('promotes a SigningWorker-owned staged recovery across request-scoped HTTP backends', async () => {
