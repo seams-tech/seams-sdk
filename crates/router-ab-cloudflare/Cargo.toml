@@ -10,6 +10,17 @@ name = "router_ab_cloudflare"
 path = "src/lib.rs"
 crate-type = ["rlib", "cdylib"]
 
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "debuginfo"
+incremental = false
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-O4"]
+
 [features]
 default = []
 strict-worker-router-entrypoint = ["workers-rs"]
