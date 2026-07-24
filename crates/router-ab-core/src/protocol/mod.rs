@@ -6,6 +6,7 @@
 
 mod ecdsa_threshold_prf_request;
 mod ed25519_yao;
+mod ed25519_yao_router;
 mod engine;
 mod envelope;
 mod error;
@@ -42,6 +43,14 @@ pub use self::ed25519_yao::{
     ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
     ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
     ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
+};
+pub use self::ed25519_yao_router::{
+    ed25519_yao_encrypted_input_digest_v1, ed25519_yao_input_pair_digest_v1,
+    Ed25519YaoCeremonyIdentityV1, Ed25519YaoCircuitIdV1, Ed25519YaoExecutionIdV1,
+    Ed25519YaoInputPairBindingV1, Ed25519YaoProtocolIdV1, Ed25519YaoRoleReadinessReceiptV1,
+    Ed25519YaoRoleSignatureSchemeV1, Ed25519YaoRoleSignatureV1,
+    ED25519_YAO_ACTIVATION_CIRCUIT_ID_V1, ED25519_YAO_EXPORT_CIRCUIT_ID_V1,
+    ED25519_YAO_PROTOCOL_ID_V1,
 };
 pub use self::engine::{
     AuditEventV1, AuditSink, Clock, Csprng, DeriverAEngine, DeriverBEngine, PeerTransport,

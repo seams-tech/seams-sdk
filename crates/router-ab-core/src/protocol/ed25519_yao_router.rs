@@ -1,0 +1,854 @@
+use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
+use sha2::{Digest, Sha256};
+
+use crate::derivation::PublicDigest32;
+use crate::protocol::ed25519_yao::{
+    Ed25519YaoCeremonyBindingV1, Ed25519YaoCircuitFamilyV1, Ed25519YaoDeriverRoleV1,
+    Ed25519YaoEncryptedInputV1, Ed25519YaoOperationV1, Ed25519YaoSessionIdV1,
+};
+use crate::protocol::error::{
+    RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult,
+};
+
+/// Stable protocol identity bound into every Refactor 93 ceremony digest.
+pub const ED25519_YAO_PROTOCOL_ID_V1: &str = "router_ab_ed25519_yao_v1";
+/// Activation circuit identity bound into Refactor 93 ceremony digests.
+pub const ED25519_YAO_ACTIVATION_CIRCUIT_ID_V1: &str = "ed25519_yao_activation_v1";
+/// Export circuit identity bound into Refactor 93 ceremony digests.
+pub const ED25519_YAO_EXPORT_CIRCUIT_ID_V1: &str = "ed25519_yao_export_v1";
+
+const INPUT_DIGEST_DOMAIN_V1: &[u8] = b"router-ab-ed25519-yao/input/v1";
+const PAIR_DIGEST_DOMAIN_V1: &[u8] = b"router-ab-ed25519-yao/input-pair/v1";
+const READINESS_DIGEST_DOMAIN_V1: &[u8] = b"router-ab-ed25519-yao/readiness/v1";
+
+/// Protocol artifact identity for one Yao circuit family.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Ed25519YaoCircuitIdV1 {
+    /// Activation circuit used by registration, recovery, and refresh.
+    ActivationV1,
+    /// Exact-seed export circuit.
+    ExportV1,
+}
+
+impl Ed25519YaoCircuitIdV1 {
+    /// Returns the stable wire identity.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ActivationV1 => ED25519_YAO_ACTIVATION_CIRCUIT_ID_V1,
+            Self::ExportV1 => ED25519_YAO_EXPORT_CIRCUIT_ID_V1,
+        }
+    }
+
+    fn from_family(family: Ed25519YaoCircuitFamilyV1) -> Self {
+        match family {
+            Ed25519YaoCircuitFamilyV1::Activation => Self::ActivationV1,
+            Ed25519YaoCircuitFamilyV1::Export => Self::ExportV1,
+        }
+    }
+}
+
+/// Protocol version identity for the Refactor 93 Yao contracts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Ed25519YaoProtocolIdV1 {
+    /// Current protocol contract.
+    V1,
+}
+
+impl Ed25519YaoProtocolIdV1 {
+    /// Returns the stable wire identity.
+    pub const fn as_str(self) -> &'static str {
+        ED25519_YAO_PROTOCOL_ID_V1
+    }
+}
+
+/// Canonical ceremony identity used as the root of the input-pair digest.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Ed25519YaoCeremonyIdentityV1 {
+    binding: Ed25519YaoCeremonyBindingV1,
+    circuit: Ed25519YaoCircuitIdV1,
+    protocol: Ed25519YaoProtocolIdV1,
+}
+
+impl Ed25519YaoCeremonyIdentityV1 {
+    /// Creates an identity whose circuit agrees with the admitted operation.
+    pub fn new(
+        binding: Ed25519YaoCeremonyBindingV1,
+        circuit: Ed25519YaoCircuitIdV1,
+        protocol: Ed25519YaoProtocolIdV1,
+    ) -> RouterAbProtocolResult<Self> {
+        binding.validate()?;
+        if circuit != Ed25519YaoCircuitIdV1::from_family(binding.circuit_family()) {
+            return Err(invalid_router_yao(
+                "Ed25519 Yao ceremony circuit does not match its operation",
+            ));
+        }
+        Ok(Self {
+            binding,
+            circuit,
+            protocol,
+        })
+    }
+
+    /// Creates the current protocol identity from an admitted binding.
+    pub fn from_binding(binding: Ed25519YaoCeremonyBindingV1) -> RouterAbProtocolResult<Self> {
+        let circuit = Ed25519YaoCircuitIdV1::from_family(binding.circuit_family());
+        Self::new(binding, circuit, Ed25519YaoProtocolIdV1::V1)
+    }
+
+    /// Revalidates a value received at a serialization boundary.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.binding.validate()?;
+        if self.circuit != Ed25519YaoCircuitIdV1::from_family(self.binding.circuit_family()) {
+            return Err(invalid_router_yao(
+                "Ed25519 Yao ceremony circuit does not match its operation",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Returns the admitted ceremony binding.
+    pub const fn binding(&self) -> &Ed25519YaoCeremonyBindingV1 {
+        &self.binding
+    }
+
+    /// Returns the circuit identity.
+    pub const fn circuit(&self) -> Ed25519YaoCircuitIdV1 {
+        self.circuit
+    }
+
+    /// Returns the protocol identity.
+    pub const fn protocol(&self) -> Ed25519YaoProtocolIdV1 {
+        self.protocol
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawEd25519YaoCeremonyIdentityV1 {
+    binding: Ed25519YaoCeremonyBindingV1,
+    circuit: Ed25519YaoCircuitIdV1,
+    protocol: Ed25519YaoProtocolIdV1,
+}
+
+impl<'de> Deserialize<'de> for Ed25519YaoCeremonyIdentityV1 {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = RawEd25519YaoCeremonyIdentityV1::deserialize(deserializer)?;
+        Self::new(raw.binding, raw.circuit, raw.protocol).map_err(D::Error::custom)
+    }
+}
+
+/// Canonical A/B ciphertext digest binding for one admitted execution.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Ed25519YaoInputPairBindingV1 {
+    ceremony: Ed25519YaoCeremonyIdentityV1,
+    deriver_a_input_digest: PublicDigest32,
+    deriver_b_input_digest: PublicDigest32,
+    recipient_set_digest: PublicDigest32,
+    authorization_digest: PublicDigest32,
+    pair_digest: PublicDigest32,
+}
+
+impl Ed25519YaoInputPairBindingV1 {
+    /// Creates a pair binding and derives its digest from canonical bytes.
+    pub fn new(
+        ceremony: Ed25519YaoCeremonyIdentityV1,
+        deriver_a_input_digest: PublicDigest32,
+        deriver_b_input_digest: PublicDigest32,
+        recipient_set_digest: PublicDigest32,
+        authorization_digest: PublicDigest32,
+    ) -> RouterAbProtocolResult<Self> {
+        ceremony.validate()?;
+        validate_digest("deriver_a_input_digest", deriver_a_input_digest)?;
+        validate_digest("deriver_b_input_digest", deriver_b_input_digest)?;
+        validate_digest("recipient_set_digest", recipient_set_digest)?;
+        validate_digest("authorization_digest", authorization_digest)?;
+        let pair_digest = derive_input_pair_digest_v1(
+            &ceremony,
+            deriver_a_input_digest,
+            deriver_b_input_digest,
+            recipient_set_digest,
+            authorization_digest,
+        );
+        Ok(Self {
+            ceremony,
+            deriver_a_input_digest,
+            deriver_b_input_digest,
+            recipient_set_digest,
+            authorization_digest,
+            pair_digest,
+        })
+    }
+
+    /// Creates a pair binding by hashing the exact opaque role envelopes.
+    pub fn from_inputs(
+        ceremony: Ed25519YaoCeremonyIdentityV1,
+        deriver_a_input: &Ed25519YaoEncryptedInputV1,
+        deriver_b_input: &Ed25519YaoEncryptedInputV1,
+        recipient_set_digest: PublicDigest32,
+        authorization_digest: PublicDigest32,
+    ) -> RouterAbProtocolResult<Self> {
+        validate_input_for_ceremony(
+            ceremony.binding(),
+            deriver_a_input,
+            Ed25519YaoDeriverRoleV1::DeriverA,
+        )?;
+        validate_input_for_ceremony(
+            ceremony.binding(),
+            deriver_b_input,
+            Ed25519YaoDeriverRoleV1::DeriverB,
+        )?;
+        let deriver_a_input_digest = ed25519_yao_encrypted_input_digest_v1(deriver_a_input)?;
+        let deriver_b_input_digest = ed25519_yao_encrypted_input_digest_v1(deriver_b_input)?;
+        Self::new(
+            ceremony,
+            deriver_a_input_digest,
+            deriver_b_input_digest,
+            recipient_set_digest,
+            authorization_digest,
+        )
+    }
+
+    /// Revalidates the derived digest after deserialization.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.ceremony.validate()?;
+        let expected = derive_input_pair_digest_v1(
+            &self.ceremony,
+            self.deriver_a_input_digest,
+            self.deriver_b_input_digest,
+            self.recipient_set_digest,
+            self.authorization_digest,
+        );
+        if expected != self.pair_digest {
+            return Err(invalid_router_yao(
+                "Ed25519 Yao input-pair digest does not match canonical fields",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Returns the ceremony identity.
+    pub const fn ceremony(&self) -> &Ed25519YaoCeremonyIdentityV1 {
+        &self.ceremony
+    }
+
+    /// Returns the Deriver A envelope digest.
+    pub const fn deriver_a_input_digest(&self) -> PublicDigest32 {
+        self.deriver_a_input_digest
+    }
+
+    /// Returns the Deriver B envelope digest.
+    pub const fn deriver_b_input_digest(&self) -> PublicDigest32 {
+        self.deriver_b_input_digest
+    }
+
+    /// Returns the recipient-set digest.
+    pub const fn recipient_set_digest(&self) -> PublicDigest32 {
+        self.recipient_set_digest
+    }
+
+    /// Returns the admission/authorization digest.
+    pub const fn authorization_digest(&self) -> PublicDigest32 {
+        self.authorization_digest
+    }
+
+    /// Returns the canonical pair digest used by both roles.
+    pub const fn pair_digest(&self) -> PublicDigest32 {
+        self.pair_digest
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawEd25519YaoInputPairBindingV1 {
+    ceremony: Ed25519YaoCeremonyIdentityV1,
+    deriver_a_input_digest: PublicDigest32,
+    deriver_b_input_digest: PublicDigest32,
+    recipient_set_digest: PublicDigest32,
+    authorization_digest: PublicDigest32,
+    pair_digest: PublicDigest32,
+}
+
+impl<'de> Deserialize<'de> for Ed25519YaoInputPairBindingV1 {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = RawEd25519YaoInputPairBindingV1::deserialize(deserializer)?;
+        let binding = Self::new(
+            raw.ceremony,
+            raw.deriver_a_input_digest,
+            raw.deriver_b_input_digest,
+            raw.recipient_set_digest,
+            raw.authorization_digest,
+        )
+        .map_err(D::Error::custom)?;
+        if binding.pair_digest != raw.pair_digest {
+            return Err(D::Error::custom(
+                "Ed25519 Yao input-pair digest does not match canonical fields",
+            ));
+        }
+        Ok(binding)
+    }
+}
+
+/// Execution identity allocated once for a request and never reused after ambiguity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
+pub struct Ed25519YaoExecutionIdV1([u8; 32]);
+
+impl Ed25519YaoExecutionIdV1 {
+    /// Creates a nonzero execution identity.
+    pub fn new(bytes: [u8; 32]) -> RouterAbProtocolResult<Self> {
+        if bytes.iter().all(|byte| *byte == 0) {
+            return Err(invalid_router_yao(
+                "Ed25519 Yao execution id must be nonzero",
+            ));
+        }
+        Ok(Self(bytes))
+    }
+
+    /// Returns the fixed execution bytes.
+    pub const fn into_bytes(self) -> [u8; 32] {
+        self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for Ed25519YaoExecutionIdV1 {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Self::new(<[u8; 32]>::deserialize(deserializer)?).map_err(D::Error::custom)
+    }
+}
+
+/// Signature scheme for role readiness receipts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Ed25519YaoRoleSignatureSchemeV1 {
+    /// Ed25519 signature over the canonical readiness message.
+    Ed25519V1,
+}
+
+/// Role signature carried by a readiness receipt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Ed25519YaoRoleSignatureV1 {
+    /// Signature algorithm.
+    pub scheme: Ed25519YaoRoleSignatureSchemeV1,
+    /// Fixed Ed25519 signature bytes.
+    bytes: Vec<u8>,
+}
+
+impl Ed25519YaoRoleSignatureV1 {
+    /// Creates a nonzero Ed25519 role signature.
+    pub fn new(
+        scheme: Ed25519YaoRoleSignatureSchemeV1,
+        bytes: [u8; 64],
+    ) -> RouterAbProtocolResult<Self> {
+        if bytes.iter().all(|byte| *byte == 0) {
+            return Err(invalid_router_yao(
+                "Ed25519 Yao readiness signature must be nonzero",
+            ));
+        }
+        Ok(Self {
+            scheme,
+            bytes: bytes.to_vec(),
+        })
+    }
+
+    /// Returns the fixed Ed25519 signature bytes.
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawEd25519YaoRoleSignatureV1 {
+    scheme: Ed25519YaoRoleSignatureSchemeV1,
+    bytes: Vec<u8>,
+}
+
+impl<'de> Deserialize<'de> for Ed25519YaoRoleSignatureV1 {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = RawEd25519YaoRoleSignatureV1::deserialize(deserializer)?;
+        if raw.bytes.len() != 64 {
+            return Err(D::Error::custom(
+                "Ed25519 Yao readiness signature must be 64 bytes",
+            ));
+        }
+        let mut signature_bytes = [0_u8; 64];
+        signature_bytes.copy_from_slice(&raw.bytes);
+        Self::new(raw.scheme, signature_bytes).map_err(D::Error::custom)
+    }
+}
+
+/// Signed proof that one role durably persisted exact prepared state.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Ed25519YaoRoleReadinessReceiptV1 {
+    role: Ed25519YaoDeriverRoleV1,
+    session: Ed25519YaoSessionIdV1,
+    pair_digest: PublicDigest32,
+    local_input_digest: PublicDigest32,
+    root_metadata_digest: PublicDigest32,
+    prepared_at_ms: u64,
+    expires_at_ms: u64,
+    signature: Ed25519YaoRoleSignatureV1,
+}
+
+impl Ed25519YaoRoleReadinessReceiptV1 {
+    /// Creates a receipt after the role's prepared record is durable.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        role: Ed25519YaoDeriverRoleV1,
+        session: Ed25519YaoSessionIdV1,
+        pair_digest: PublicDigest32,
+        local_input_digest: PublicDigest32,
+        root_metadata_digest: PublicDigest32,
+        prepared_at_ms: u64,
+        expires_at_ms: u64,
+        signature: Ed25519YaoRoleSignatureV1,
+    ) -> RouterAbProtocolResult<Self> {
+        if prepared_at_ms == 0 || expires_at_ms <= prepared_at_ms {
+            return Err(invalid_router_yao(
+                "Ed25519 Yao readiness receipt lifetime is invalid",
+            ));
+        }
+        validate_digest("pair_digest", pair_digest)?;
+        validate_digest("local_input_digest", local_input_digest)?;
+        validate_digest("root_metadata_digest", root_metadata_digest)?;
+        Ok(Self {
+            role,
+            session,
+            pair_digest,
+            local_input_digest,
+            root_metadata_digest,
+            prepared_at_ms,
+            expires_at_ms,
+            signature,
+        })
+    }
+
+    /// Validates that this receipt belongs to the exact pair and role input.
+    pub fn validate_for_pair(
+        &self,
+        pair: &Ed25519YaoInputPairBindingV1,
+    ) -> RouterAbProtocolResult<()> {
+        self.validate_at(self.prepared_at_ms)?;
+        if self.session != pair.ceremony.binding().session_id
+            || self.pair_digest != pair.pair_digest()
+        {
+            return Err(invalid_router_yao(
+                "Ed25519 Yao readiness receipt does not match the input pair",
+            ));
+        }
+        let expected_local_digest = match self.role {
+            Ed25519YaoDeriverRoleV1::DeriverA => pair.deriver_a_input_digest(),
+            Ed25519YaoDeriverRoleV1::DeriverB => pair.deriver_b_input_digest(),
+        };
+        if self.local_input_digest != expected_local_digest {
+            return Err(invalid_router_yao(
+                "Ed25519 Yao readiness receipt has the wrong role input digest",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Validates the lifetime at a supplied wall-clock time.
+    pub fn validate_at(&self, now_ms: u64) -> RouterAbProtocolResult<()> {
+        if now_ms < self.prepared_at_ms || now_ms >= self.expires_at_ms {
+            return Err(invalid_router_yao(
+                "Ed25519 Yao readiness receipt is expired or issued in the future",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Returns the canonical digest of the unsigned receipt fields.
+    pub fn signed_message_digest(&self) -> PublicDigest32 {
+        derive_readiness_message_digest_v1(
+            self.role,
+            self.session,
+            self.pair_digest,
+            self.local_input_digest,
+            self.root_metadata_digest,
+            self.prepared_at_ms,
+            self.expires_at_ms,
+        )
+    }
+
+    /// Returns the role that prepared the record.
+    pub const fn role(&self) -> Ed25519YaoDeriverRoleV1 {
+        self.role
+    }
+
+    /// Returns the session identity.
+    pub const fn session(&self) -> Ed25519YaoSessionIdV1 {
+        self.session
+    }
+
+    /// Returns the exact pair digest.
+    pub const fn pair_digest(&self) -> PublicDigest32 {
+        self.pair_digest
+    }
+
+    /// Returns the role-local input digest.
+    pub const fn local_input_digest(&self) -> PublicDigest32 {
+        self.local_input_digest
+    }
+
+    /// Returns the role-local root metadata digest.
+    pub const fn root_metadata_digest(&self) -> PublicDigest32 {
+        self.root_metadata_digest
+    }
+
+    /// Returns the preparation timestamp.
+    pub const fn prepared_at_ms(&self) -> u64 {
+        self.prepared_at_ms
+    }
+
+    /// Returns the expiry timestamp.
+    pub const fn expires_at_ms(&self) -> u64 {
+        self.expires_at_ms
+    }
+
+    /// Returns the signed role proof.
+    pub const fn signature(&self) -> &Ed25519YaoRoleSignatureV1 {
+        &self.signature
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawEd25519YaoRoleReadinessReceiptV1 {
+    role: Ed25519YaoDeriverRoleV1,
+    session: Ed25519YaoSessionIdV1,
+    pair_digest: PublicDigest32,
+    local_input_digest: PublicDigest32,
+    root_metadata_digest: PublicDigest32,
+    prepared_at_ms: u64,
+    expires_at_ms: u64,
+    signature: Ed25519YaoRoleSignatureV1,
+}
+
+impl<'de> Deserialize<'de> for Ed25519YaoRoleReadinessReceiptV1 {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = RawEd25519YaoRoleReadinessReceiptV1::deserialize(deserializer)?;
+        Self::new(
+            raw.role,
+            raw.session,
+            raw.pair_digest,
+            raw.local_input_digest,
+            raw.root_metadata_digest,
+            raw.prepared_at_ms,
+            raw.expires_at_ms,
+            raw.signature,
+        )
+        .map_err(D::Error::custom)
+    }
+}
+
+/// Computes the digest of one exact opaque role envelope.
+pub fn ed25519_yao_encrypted_input_digest_v1(
+    input: &Ed25519YaoEncryptedInputV1,
+) -> RouterAbProtocolResult<PublicDigest32> {
+    input.validate()?;
+    let mut bytes =
+        Vec::with_capacity(INPUT_DIGEST_DOMAIN_V1.len() + input.ciphertext().len() + 128);
+    bytes.extend_from_slice(INPUT_DIGEST_DOMAIN_V1);
+    bytes.push(input.kind().wire_tag());
+    bytes.push(input.deriver().wire_tag());
+    bytes.push(operation_tag(input.operation()));
+    bytes.extend_from_slice(&input.session());
+    bytes.extend_from_slice(&input.stable_context_binding());
+    bytes.extend_from_slice(input.encapsulated_key());
+    push_u32(&mut bytes, input.ciphertext().len());
+    bytes.extend_from_slice(input.ciphertext());
+    Ok(digest_bytes(&bytes))
+}
+
+/// Computes the canonical digest from an already validated pair of inputs.
+pub fn ed25519_yao_input_pair_digest_v1(
+    ceremony: &Ed25519YaoCeremonyIdentityV1,
+    deriver_a_input: &Ed25519YaoEncryptedInputV1,
+    deriver_b_input: &Ed25519YaoEncryptedInputV1,
+    recipient_set_digest: PublicDigest32,
+    authorization_digest: PublicDigest32,
+) -> RouterAbProtocolResult<PublicDigest32> {
+    let binding = Ed25519YaoInputPairBindingV1::from_inputs(
+        ceremony.clone(),
+        deriver_a_input,
+        deriver_b_input,
+        recipient_set_digest,
+        authorization_digest,
+    )?;
+    Ok(binding.pair_digest())
+}
+
+fn validate_input_for_ceremony(
+    ceremony: &Ed25519YaoCeremonyBindingV1,
+    input: &Ed25519YaoEncryptedInputV1,
+    expected_role: Ed25519YaoDeriverRoleV1,
+) -> RouterAbProtocolResult<()> {
+    input.validate()?;
+    let expected_kind = match ceremony.circuit_family() {
+        Ed25519YaoCircuitFamilyV1::Activation => {
+            crate::protocol::ed25519_yao::Ed25519YaoInputKindV1::Activation
+        }
+        Ed25519YaoCircuitFamilyV1::Export => {
+            crate::protocol::ed25519_yao::Ed25519YaoInputKindV1::Export
+        }
+    };
+    if input.kind() != expected_kind
+        || input.deriver() != expected_role
+        || input.operation() != ceremony.operation
+        || input.session() != ceremony.session_id.into_bytes()
+        || input.stable_context_binding() != ceremony.stable_key_context_binding.into_bytes()
+    {
+        return Err(invalid_router_yao(
+            "Ed25519 Yao input does not match the ceremony identity",
+        ));
+    }
+    Ok(())
+}
+
+fn derive_input_pair_digest_v1(
+    ceremony: &Ed25519YaoCeremonyIdentityV1,
+    deriver_a_input_digest: PublicDigest32,
+    deriver_b_input_digest: PublicDigest32,
+    recipient_set_digest: PublicDigest32,
+    authorization_digest: PublicDigest32,
+) -> PublicDigest32 {
+    let mut bytes = Vec::with_capacity(512);
+    bytes.extend_from_slice(PAIR_DIGEST_DOMAIN_V1);
+    push_identity(&mut bytes, ceremony);
+    push_digest(&mut bytes, deriver_a_input_digest);
+    push_digest(&mut bytes, deriver_b_input_digest);
+    push_digest(&mut bytes, recipient_set_digest);
+    push_digest(&mut bytes, authorization_digest);
+    digest_bytes(&bytes)
+}
+
+fn derive_readiness_message_digest_v1(
+    role: Ed25519YaoDeriverRoleV1,
+    session: Ed25519YaoSessionIdV1,
+    pair_digest: PublicDigest32,
+    local_input_digest: PublicDigest32,
+    root_metadata_digest: PublicDigest32,
+    prepared_at_ms: u64,
+    expires_at_ms: u64,
+) -> PublicDigest32 {
+    let mut bytes = Vec::with_capacity(256);
+    bytes.extend_from_slice(READINESS_DIGEST_DOMAIN_V1);
+    bytes.push(role.wire_tag());
+    bytes.extend_from_slice(&session.into_bytes());
+    push_digest(&mut bytes, pair_digest);
+    push_digest(&mut bytes, local_input_digest);
+    push_digest(&mut bytes, root_metadata_digest);
+    bytes.extend_from_slice(&prepared_at_ms.to_be_bytes());
+    bytes.extend_from_slice(&expires_at_ms.to_be_bytes());
+    digest_bytes(&bytes)
+}
+
+fn push_identity(bytes: &mut Vec<u8>, identity: &Ed25519YaoCeremonyIdentityV1) {
+    bytes.extend_from_slice(identity.protocol().as_str().as_bytes());
+    bytes.push(0);
+    bytes.extend_from_slice(identity.circuit().as_str().as_bytes());
+    bytes.push(0);
+    let binding = identity.binding();
+    push_string(bytes, &binding.lifecycle.lifecycle_id);
+    push_string(bytes, binding.lifecycle.work_kind.as_str());
+    push_string(bytes, binding.lifecycle.primitive_request_kind.as_str());
+    push_string(bytes, binding.lifecycle.root_share_epoch.as_str());
+    push_string(bytes, &binding.lifecycle.account_id);
+    push_string(bytes, &binding.lifecycle.session_id);
+    push_string(bytes, &binding.lifecycle.signer_set_id);
+    push_string(bytes, &binding.lifecycle.selected_server_id);
+    bytes.push(operation_tag(binding.operation));
+    bytes.extend_from_slice(&binding.session_id.into_bytes());
+    bytes.extend_from_slice(&binding.stable_key_context_binding.into_bytes());
+}
+
+fn operation_tag(operation: Ed25519YaoOperationV1) -> u8 {
+    match operation {
+        Ed25519YaoOperationV1::Registration => 1,
+        Ed25519YaoOperationV1::Recovery => 2,
+        Ed25519YaoOperationV1::Refresh => 3,
+        Ed25519YaoOperationV1::Export => 4,
+    }
+}
+
+fn push_string(bytes: &mut Vec<u8>, value: &str) {
+    push_u32(bytes, value.len());
+    bytes.extend_from_slice(value.as_bytes());
+}
+
+fn push_u32(bytes: &mut Vec<u8>, value: usize) {
+    bytes.extend_from_slice(&(value as u32).to_be_bytes());
+}
+
+fn push_digest(bytes: &mut Vec<u8>, digest: PublicDigest32) {
+    bytes.extend_from_slice(digest.as_bytes());
+}
+
+fn digest_bytes(bytes: &[u8]) -> PublicDigest32 {
+    PublicDigest32::new(Sha256::digest(bytes).into())
+}
+
+fn validate_digest(field: &'static str, digest: PublicDigest32) -> RouterAbProtocolResult<()> {
+    if digest.bytes.iter().all(|byte| *byte == 0) {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("Ed25519 Yao {field} must be nonzero"),
+        ));
+    }
+    Ok(())
+}
+
+fn invalid_router_yao(message: &'static str) -> RouterAbProtocolError {
+    RouterAbProtocolError::new(RouterAbProtocolErrorCode::MalformedWirePayload, message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::derivation::{PublicDigest32, RootShareEpoch};
+    use crate::protocol::gate::ExpensiveWorkKindV1;
+    use crate::protocol::lifecycle::LifecycleScopeV1;
+
+    fn binding() -> Ed25519YaoCeremonyBindingV1 {
+        Ed25519YaoCeremonyBindingV1::new(
+            LifecycleScopeV1::new(
+                "lifecycle-1",
+                ExpensiveWorkKindV1::RegistrationPrepare,
+                RootShareEpoch::new("epoch-1").expect("epoch"),
+                "account-1",
+                "session-1",
+                "signer-set-1",
+                "server-1",
+            )
+            .expect("lifecycle"),
+            Ed25519YaoOperationV1::Registration,
+            Ed25519YaoSessionIdV1::new([1; 32]).expect("session"),
+            crate::protocol::ed25519_yao::Ed25519YaoStableKeyContextBindingV1::new([2; 32]),
+        )
+        .expect("binding")
+    }
+
+    fn input(role: Ed25519YaoDeriverRoleV1, fill: u8) -> Ed25519YaoEncryptedInputV1 {
+        Ed25519YaoEncryptedInputV1::new(
+            crate::protocol::ed25519_yao::Ed25519YaoInputKindV1::Activation,
+            role,
+            Ed25519YaoOperationV1::Registration,
+            [1; 32],
+            [2; 32],
+            [3; 32],
+            vec![fill; 32],
+        )
+        .expect("input")
+    }
+
+    #[test]
+    fn pair_digest_is_canonical_and_changes_with_either_input() {
+        let ceremony = Ed25519YaoCeremonyIdentityV1::from_binding(binding()).expect("identity");
+        let a = input(Ed25519YaoDeriverRoleV1::DeriverA, 4);
+        let b = input(Ed25519YaoDeriverRoleV1::DeriverB, 5);
+        let pair = Ed25519YaoInputPairBindingV1::from_inputs(
+            ceremony.clone(),
+            &a,
+            &b,
+            PublicDigest32::new([6; 32]),
+            PublicDigest32::new([7; 32]),
+        )
+        .expect("pair");
+        assert_eq!(
+            hex::encode(pair.deriver_a_input_digest().bytes),
+            "a109a8e00efbc6858e5096416348ccaae58c036cb475f5d93cb407611d0a62eb"
+        );
+        assert_eq!(
+            hex::encode(pair.deriver_b_input_digest().bytes),
+            "7fba9a0afac0469b5743d70c35f4049f5b1d2723fe3993c686e835f3b7632a4b"
+        );
+        assert!(pair.validate().is_ok());
+        assert_eq!(
+            hex::encode(pair.pair_digest().bytes),
+            "663ad944ce14e451f6d87eb8415ef1aa665d75e18c92913bcc5e4e11c49f2cfc"
+        );
+        let changed = Ed25519YaoInputPairBindingV1::from_inputs(
+            ceremony,
+            &a,
+            &input(Ed25519YaoDeriverRoleV1::DeriverB, 8),
+            PublicDigest32::new([6; 32]),
+            PublicDigest32::new([7; 32]),
+        )
+        .expect("changed pair");
+        assert_ne!(pair.pair_digest(), changed.pair_digest());
+    }
+
+    #[test]
+    fn pair_digest_wire_value_cannot_be_replaced() {
+        let ceremony = Ed25519YaoCeremonyIdentityV1::from_binding(binding()).expect("identity");
+        let pair = Ed25519YaoInputPairBindingV1::new(
+            ceremony,
+            PublicDigest32::new([3; 32]),
+            PublicDigest32::new([4; 32]),
+            PublicDigest32::new([5; 32]),
+            PublicDigest32::new([6; 32]),
+        )
+        .expect("pair");
+        let mut value = serde_json::to_value(&pair).expect("json");
+        value["pair_digest"]["bytes"][0] = serde_json::json!(0);
+        assert!(serde_json::from_value::<Ed25519YaoInputPairBindingV1>(value).is_err());
+    }
+
+    #[test]
+    fn readiness_receipt_binds_role_local_input_and_pair() {
+        let ceremony = Ed25519YaoCeremonyIdentityV1::from_binding(binding()).expect("identity");
+        let a = input(Ed25519YaoDeriverRoleV1::DeriverA, 4);
+        let b = input(Ed25519YaoDeriverRoleV1::DeriverB, 5);
+        let pair = Ed25519YaoInputPairBindingV1::from_inputs(
+            ceremony,
+            &a,
+            &b,
+            PublicDigest32::new([6; 32]),
+            PublicDigest32::new([7; 32]),
+        )
+        .expect("pair");
+        let receipt = Ed25519YaoRoleReadinessReceiptV1::new(
+            Ed25519YaoDeriverRoleV1::DeriverA,
+            pair.ceremony().binding().session_id,
+            pair.pair_digest(),
+            pair.deriver_a_input_digest(),
+            PublicDigest32::new([8; 32]),
+            10,
+            100,
+            Ed25519YaoRoleSignatureV1::new(Ed25519YaoRoleSignatureSchemeV1::Ed25519V1, [9; 64])
+                .expect("signature"),
+        )
+        .expect("receipt");
+        assert!(receipt.validate_for_pair(&pair).is_ok());
+        assert!(receipt.validate_at(100).is_err());
+        let wire = serde_json::to_value(&receipt).expect("receipt JSON");
+        let decoded = serde_json::from_value::<Ed25519YaoRoleReadinessReceiptV1>(wire)
+            .expect("receipt roundtrip");
+        assert_eq!(
+            decoded.signed_message_digest(),
+            receipt.signed_message_digest()
+        );
+    }
+}
