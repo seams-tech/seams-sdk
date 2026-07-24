@@ -598,10 +598,10 @@ digests and therefore requires a new ceremony identity.
 
 ### Phase 1: Canonical Pair And Router Contracts
 
-- [ ] Add the canonical ceremony identity and input-pair binding to
+- [x] Add the canonical ceremony identity and input-pair binding to
       `router-ab-core`.
-- [ ] Add the operation-specific Router execute request and result unions.
-- [ ] Add canonical digest encoding and Rust vectors.
+- [x] Add the operation-specific Router execute request and result unions.
+- [x] Add canonical digest encoding and Rust vectors.
 - [ ] Generate or update TypeScript bindings through the existing generator.
 - [ ] Add type fixtures rejecting missing identities, cross-operation fields,
       optional pair digests, and broad object-spread construction.
