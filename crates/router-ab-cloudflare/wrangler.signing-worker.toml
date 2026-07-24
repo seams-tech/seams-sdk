@@ -51,7 +51,11 @@ SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH = "epoch-1"
 SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY = "x25519:d0a06a6445d78bc87f449dfac2b427ad1857a0b00d91e20f152031ad49c18010"
 
 [observability]
+enabled = true
   [observability.logs]
   enabled = true
   head_sampling_rate = 1
   invocation_logs = true
+  [observability.traces]
+  enabled = true
+  head_sampling_rate = 1

@@ -11,6 +11,7 @@ import {
   parseRouterAbEd25519YaoExportExecuteRequestV1,
   type RouterAbEd25519YaoExportAdmissionRequestV1,
   type RouterAbEd25519YaoExportAuthorizationIdentityV1,
+  type RouterAbEd25519YaoExportFreshAuthorizationIdentityV1,
   type RouterAbEd25519YaoExportAuthorityBindingV1,
   type RouterAbEd25519YaoExportExecuteRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
@@ -516,11 +517,19 @@ function authorizationInput(
       headers: { authorization: 'Bearer export-wallet-session' },
     }),
     body,
+    authorizationIdentity: exportAuthorizationIdentity(),
     authorization: {
       kind: 'passkey',
       webauthnAuthentication: webAuthnCredential(),
     },
     expectedOrigin: ORIGIN,
+  };
+}
+
+function exportAuthorizationIdentity(): RouterAbEd25519YaoExportFreshAuthorizationIdentityV1 {
+  return {
+    thresholdSessionId: WALLET_SESSION_ID,
+    signingGrantId: SIGNING_GRANT_ID,
   };
 }
 
@@ -553,6 +562,7 @@ function jsonAdmissionEnvelopeRequest(
     headers,
     body: JSON.stringify({
       protocol: body,
+      authorizationIdentity: exportAuthorizationIdentity(),
       authorization,
     }),
   });
@@ -647,6 +657,7 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
       kind: 'admit',
       request: input.request,
       body: input.body,
+      authorizationIdentity: input.authorizationIdentity,
       authorization: {
         kind: 'passkey',
         webauthnAuthentication: substitutedWebAuthnCredential(),

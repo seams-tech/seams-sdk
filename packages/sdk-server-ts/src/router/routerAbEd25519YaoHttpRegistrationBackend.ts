@@ -13,6 +13,7 @@ import {
   type RouterAbEd25519YaoExportAdmissionRequestV1,
   type RouterAbEd25519YaoExportExecuteRequestV1,
   type RouterAbEd25519YaoRouterExecuteRequestV1,
+  type RouterAbEd25519YaoOperationV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import type {
   RouterAbEd25519YaoRegistrationBackend,
@@ -338,6 +339,18 @@ function isExportExecuteRequest(
   return 'ceremony' in request.binding;
 }
 
+function isRegistrationExecuteRequest(
+  request: RouterExecuteInput,
+): request is RouterAbEd25519YaoRegistrationExecuteRequestV1 {
+  return !isExportExecuteRequest(request) && request.binding.operation === 'registration';
+}
+
+function isRecoveryExecuteRequest(
+  request: RouterExecuteInput,
+): request is RouterAbEd25519YaoRecoveryExecuteRequestV1 {
+  return !isExportExecuteRequest(request) && request.binding.operation === 'recovery';
+}
+
 function executeOperation(request: RouterExecuteInput): 'registration' | 'recovery' | 'export' {
   return isExportExecuteRequest(request) ? request.binding.ceremony.operation : request.binding.operation;
 }
@@ -440,15 +453,14 @@ async function routerExecuteRequest(
 ): Promise<RouterExecuteBoundary> {
   const operation = executeOperation(request);
   const ceremony = isExportExecuteRequest(request) ? request.binding.ceremony : request.binding;
-  const authorizationDigest =
-    operation === 'export'
-      ? request.binding.authorization_digest
-      : await sha256Bytes(
-          concatBytes([
-            TEXT_ENCODER.encode('router-ab-ed25519-yao/authorization/v1'),
-            TEXT_ENCODER.encode(JSON.stringify(request)),
-          ]),
-        );
+  const authorizationDigest = isExportExecuteRequest(request)
+    ? request.binding.authorization_digest
+    : await sha256Bytes(
+        concatBytes([
+          TEXT_ENCODER.encode('router-ab-ed25519-yao/authorization/v1'),
+          TEXT_ENCODER.encode(JSON.stringify(request)),
+        ]),
+      );
   const recipientSetDigest = await sha256Bytes(
     concatBytes([
       Uint8Array.from(keyset.deriver_a_input_public_key),
@@ -499,26 +511,27 @@ async function routerExecuteRequest(
       deriver_b_input: request.deriver_b_input,
     };
   }
-  switch (request.binding.operation) {
-    case 'registration':
-      return {
-        operation: 'registration',
-        authority,
-        binding: request.binding,
-        pair_binding,
-        deriver_a_input: request.deriver_a_input,
-        deriver_b_input: request.deriver_b_input,
-      };
-    case 'recovery':
-      return {
-        operation: 'recovery',
-        authority,
-        binding: request.binding,
-        pair_binding,
-        deriver_a_input: request.deriver_a_input,
-        deriver_b_input: request.deriver_b_input,
-      };
+  if (isRegistrationExecuteRequest(request)) {
+    return {
+      operation: 'registration',
+      authority,
+      binding: request.binding,
+      pair_binding,
+      deriver_a_input: request.deriver_a_input,
+      deriver_b_input: request.deriver_b_input,
+    };
   }
+  if (isRecoveryExecuteRequest(request)) {
+    return {
+      operation: 'recovery',
+      authority,
+      binding: request.binding,
+      pair_binding,
+      deriver_a_input: request.deriver_a_input,
+      deriver_b_input: request.deriver_b_input,
+    };
+  }
+  throw new Error('Unsupported Router Yao execute operation');
 }
 
 function parseRouterExecuteResult(
