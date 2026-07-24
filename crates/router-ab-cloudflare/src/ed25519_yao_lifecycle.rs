@@ -725,19 +725,18 @@ async fn execute_deriver_a_role(
     let private_key =
         load_deriver_input_private_key(env, &runtime.envelope_decrypt_key().current.binding_name)?;
     let session = input.session();
-    let binding = CloudflareEd25519YaoWebSocketBindingV1::new(circuit, session)
-        .map_err(map_websocket_error)?;
-    let socket = crate::connect_cloudflare_ed25519_yao_deriver_b_v1(env, binding)
-        .await
-        .map_err(map_websocket_error)?;
-    let transport = CloudflareEd25519YaoWebSocketTransportV1::deriver_a(&socket, session)
+    let websocket_binding = CloudflareEd25519YaoWebSocketBindingV1::new(circuit, session)
         .map_err(map_websocket_error)?;
     let execution = match input.kind() {
         Ed25519YaoInputKindV1::Activation => {
             let role_request =
                 open_ed25519_yao_activation_deriver_a_input_v1(&input, &private_key)?;
-            let root =
-                load_deriver_a_yao_root(env, runtime, &role_request.binding.lifecycle).await?;
+            let (root, socket) = futures::try_join!(
+                load_deriver_a_yao_root(env, runtime, &role_request.binding.lifecycle),
+                connect_deriver_b(env, websocket_binding),
+            )?;
+            let transport = CloudflareEd25519YaoWebSocketTransportV1::deriver_a(&socket, session)
+                .map_err(map_websocket_error)?;
             let recipients = role_request.recipients;
             let (binding, role) =
                 build_product_activation_deriver_a_v1(root, role_request).map_err(map_adapter)?;
@@ -752,8 +751,12 @@ async fn execute_deriver_a_role(
         }
         Ed25519YaoInputKindV1::Export => {
             let role_request = open_ed25519_yao_export_deriver_a_input_v1(&input, &private_key)?;
-            let root =
-                load_deriver_a_yao_root(env, runtime, &role_request.binding.lifecycle).await?;
+            let (root, socket) = futures::try_join!(
+                load_deriver_a_yao_root(env, runtime, &role_request.binding.lifecycle),
+                connect_deriver_b(env, websocket_binding),
+            )?;
+            let transport = CloudflareEd25519YaoWebSocketTransportV1::deriver_a(&socket, session)
+                .map_err(map_websocket_error)?;
             let recipient = role_request.recipients;
             let (binding, role) =
                 build_product_export_deriver_a_v1(root, role_request).map_err(map_adapter)?;
@@ -768,6 +771,15 @@ async fn execute_deriver_a_role(
         }
     };
     Ok(execution)
+}
+
+async fn connect_deriver_b(
+    env: &Env,
+    binding: CloudflareEd25519YaoWebSocketBindingV1,
+) -> RouterAbProtocolResult<worker::WebSocket> {
+    crate::connect_cloudflare_ed25519_yao_deriver_b_v1(env, binding)
+        .await
+        .map_err(map_websocket_error)
 }
 
 pub async fn handle_cloudflare_ed25519_yao_deriver_b_stage_v1(
