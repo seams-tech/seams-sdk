@@ -586,7 +586,7 @@ digests and therefore requires a new ceremony identity.
 - [ ] Measure the added A preparation request and cross-request isolate reuse
       rather than assuming a warm execution.
 - [x] Add a trace correlation ID that contains no user identity or secret.
-- [ ] Freeze the current successful registration, recovery, and export
+- [x] Freeze the current successful registration, recovery, and export
       response contracts.
 - [ ] Add intended-behaviour assertions for exact retry and terminal failure.
 - [ ] Review the measured critical path before Phase 1. If the dominant
@@ -607,6 +607,12 @@ the HTTP backend contract test now also asserts that a burned execution is
 surfaced as a terminal failure without retry. The intended-behaviour harness
 still lacks a controlled transport-failure injection point, so its end-to-end
 retry assertion remains open.
+
+The successful response shapes are frozen at the existing strict TypeScript
+parsers and product service boundaries. Registration and recovery are covered
+by `routerAbEd25519YaoContracts.unit.test.ts`; export is covered by
+`routerAbEd25519YaoExport.server.unit.test.ts`. The Router transport changes
+preserve those public operation-specific result bodies.
 
 ### Phase 1: Canonical Pair And Router Contracts
 
