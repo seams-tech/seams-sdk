@@ -12,7 +12,8 @@ import react from '@vitejs/plugin-react';
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
 
-  /* Deploy snapshots have shipped without the gitignored .env, which makes
+  /* Production builds must receive the signing environment from CI; local
+     deploy snapshots can omit the gitignored .env, which makes
      signingSessionPersistenceMode resolve to 'none' and Email OTP registration
      fail deep in the wallet host ("Missing shamir prime for Email OTP
      runtime"). Surface the misconfiguration loudly at server start instead. */
