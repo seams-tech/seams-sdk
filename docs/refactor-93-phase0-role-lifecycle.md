@@ -88,7 +88,7 @@ duration, storage presence, or a warm-looking request.
 
 ## Validation evidence
 
-- `rustfmt --check --edition 2021 src/refactor93_router.rs`
+- `rustfmt --check --edition 2021 src/router_coordinator.rs`
 - `cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --features strict-worker-router-entrypoint`
 - strict Router library tests: 18 passed
 - strict route-boundary and path tests: 7 + 1 passed
