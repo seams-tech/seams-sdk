@@ -362,10 +362,11 @@ pub struct Ed25519YaoInputPairBindingV1 {
 ```
 
 `pair_digest` is derived by the canonical Rust production encoder and is
-recomputed and validated at the Router boundary. The current Gateway adapter
-mirrors that encoding because this repository has no router-ab-core TypeScript
-binding generator; the generator and a cross-language vector remain an open
-Phase 1 gate.
+recomputed and validated at the Router boundary. The Gateway adapter calls a
+single canonical mirror helper, and a Rust-generated pair-digest fixture is
+consumed by its cross-language test. A router-ab-core TypeScript binding
+generator remains an open follow-up; the fixture protects the manual adapter
+mirror until that generator exists.
 
 ### Readiness Receipt
 
@@ -655,7 +656,7 @@ the plan does not claim cryptographic D1 admission attestation.
 - [ ] Generate or update TypeScript bindings through the existing generator.
       No router-ab-core TypeScript generator exists in this repository; the
       shared wire types are aligned manually until one is added.
-- [ ] Add a cross-language pair-digest vector that is generated from the Rust
+- [x] Add a cross-language pair-digest vector that is generated from the Rust
       encoder and consumed by the Gateway adapter.
 - [x] Add type fixtures rejecting missing identities, cross-operation fields,
       optional pair digests, and broad object-spread construction.
@@ -797,9 +798,10 @@ an explicit scope decision:
 - The authority field is channel-authenticated and digest/time bound in v1,
   rather than a signed D1 admission attestation. A signed admission artifact
   remains a future trust-boundary requirement.
-- The Gateway's pair-digest mirror remains a temporary manual alignment because
-  no TypeScript binding generator exists. The Phase 1 generator checkbox stays
-  open until a generator and cross-language vector are available.
+- The Gateway's pair-digest helper remains a temporary manual alignment because
+  no router-ab-core TypeScript binding generator exists. A Rust-generated
+  cross-language vector now guards the helper; the binding-generator checkbox
+  stays open until a generator is available.
 - SigningWorker activation receipts are now checked against the admitted
   operation (`Active` for registration and `Staged` for recovery). The role
   transport still maps several lower-level failures through generic protocol
@@ -819,6 +821,19 @@ Observability scope. The `router-ab-dev` pair lifecycle now has route and
 ownership parity checks, while the Rust-only harness remains a pure helper
 model for the cryptographic ceremony; full local HTTP lifecycle execution
 remains a Phase 2 gate.
+
+The local serving gate is a concrete wiring gap rather than an untested claim.
+`router_ab_local_worker` gives each Deriver its own process and SQLite-backed
+Durable Object stand-in. The pair helper requires one coordinator holding both
+role receipts, the prepared role inputs, and the two completed executions. The
+current local HTTP dispatcher has no access to that coordinator state and its
+legacy control dispatcher only owns Stage/Start/Result commands. Adding the
+pair routes would therefore require a new persisted pair record plus
+inter-worker claim/complete calls; copying the Cloudflare coordinator into the
+local adapter would create a second lifecycle implementation. Until a shared
+local coordinator boundary is chosen, pair paths stay explicitly owned and
+return the existing unsupported response in the Rust-only harness. Strict
+Wrangler local mode continues to execute the production Cloudflare handlers.
 
 ## Test Matrix
 
