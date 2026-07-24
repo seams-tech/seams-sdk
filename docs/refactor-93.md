@@ -585,7 +585,7 @@ digests and therefore requires a new ceremony identity.
 - [ ] Record cold-after-deploy and warm cohorts separately.
 - [ ] Measure the added A preparation request and cross-request isolate reuse
       rather than assuming a warm execution.
-- [ ] Add a trace correlation ID that contains no user identity or secret.
+- [x] Add a trace correlation ID that contains no user identity or secret.
 - [ ] Freeze the current successful registration, recovery, and export
       response contracts.
 - [ ] Add intended-behaviour assertions for exact retry and terminal failure.
