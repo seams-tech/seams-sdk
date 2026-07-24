@@ -2185,7 +2185,7 @@ test('CI does not revive removed Postgres staging smoke jobs', () => {
 test('concrete D1 staging Wrangler configs stay untracked', () => {
     const source = readSource(gitignorePath);
     expect(source).toContain('packages/console-server-ts/wrangler.d1-staging-console.toml');
-    expect(source).toContain('packages/console-server-ts/wrangler.d1-staging-router-api.toml');
+    expect(source).toContain('packages/console-server-ts/wrangler.d1-staging-gateway.toml');
 });
 test('D1 staging README documents missing-KEK signer custody evidence', () => {
     const source = readSource(sdkServerReadmePath);
