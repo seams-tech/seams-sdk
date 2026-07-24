@@ -27,7 +27,7 @@ Worker code.
 
 Related architecture plans:
 
-- [Centaur Secrets Vault Architecture Plan](./centaur-secrets-vault.md)
+- [Satyr Secrets Vault Architecture Plan](./satyr-secrets-vault.md)
 
 ## Key Decisions
 
@@ -372,12 +372,13 @@ rewrites, database leases, and audit records.
 
 Make the first-party vault the primary runtime abstraction. Add 1Password as an
 adapter. The detailed vault object model lives in
-[Centaur Secrets Vault Architecture Plan](./centaur-secrets-vault.md).
+[Satyr Secrets Vault Architecture Plan](./satyr-secrets-vault.md).
 
 ```ts
-type VaultFieldRef = {
-  kind: "vault_field_ref";
+type VaultFieldSelector = {
+  kind: "active_field";
   tenantId: TenantId;
+  vaultId: VaultId;
   itemId: VaultItemId;
   fieldId: VaultFieldId;
 };
@@ -385,7 +386,8 @@ type VaultFieldRef = {
 
 Own vault:
 
-- D1 stores secret metadata, labels, grants, status, and rotation state.
+- D1 stores secret metadata, labels, permissions, grants, status, and rotation
+  state.
 - R2 or D1 stores encrypted payload blobs.
 - Cloudflare Secrets Store or Worker secrets hold platform bootstrap material.
 - Secret Broker decrypts only inside trusted Worker code.

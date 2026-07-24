@@ -595,7 +595,7 @@ Likely files:
 
 - `packages/console-server-ts/src/billing/`
 - `packages/console-server-ts/migrations/d1-console/`
-- `apps/web-server/src/stripeBillingProvider.ts`
+- `packages/console-server-ts/src/billing/stripeProvider.ts`
 - `apps/web-server/src/index.ts`
 - dashboard billing pages
 
