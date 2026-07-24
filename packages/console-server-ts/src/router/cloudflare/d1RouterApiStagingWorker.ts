@@ -154,6 +154,11 @@ type RouterApiRuntimeContext = {
   readonly yaoState: RouterAbEd25519YaoProductRegistrationStateV1;
 };
 
+type RouterApiHandlerFactory = (
+  env: CloudflareD1RouterApiStagingEnv,
+  yaoState: RouterAbEd25519YaoProductRegistrationStateV1,
+) => Promise<FetchHandler>;
+
 const ROUTER_API_YAO_STATE_KEY = 'router-api:ed25519-yao-product-state:v1';
 
 const RELAY_CONSOLE_READY_TABLES = Object.freeze([
@@ -667,39 +672,56 @@ function routerApiRuntimeFailureResponse(error: unknown): Response {
   );
 }
 
+async function handleRouterApiRuntimeRequest(input: {
+  readonly runtime: RouterApiRuntimeContext;
+  readonly request: Request;
+  readonly env: CloudflareD1RouterApiStagingEnv;
+  readonly storage: RouterApiRuntimeDurableObjectStorage;
+}): Promise<Response> {
+  try {
+    return await input.runtime.handler(input.request, input.env);
+  } finally {
+    await input.storage.put(ROUTER_API_YAO_STATE_KEY, input.runtime.yaoState);
+  }
+}
+
 export class RouterApiRuntimeDurableObject {
   private runtime: RouterApiRuntimeContext | null = null;
+  private readonly initialization: Promise<void>;
 
   constructor(
     private readonly state: RouterApiRuntimeDurableObjectState,
     private readonly env: CloudflareD1RouterApiStagingEnv,
-  ) {}
+    private readonly handlerFactory: RouterApiHandlerFactory = createRouterApiHandler,
+  ) {
+    this.initialization = this.state.blockConcurrencyWhile(this.initializeRuntime.bind(this));
+  }
 
   async fetch(request: Request): Promise<Response> {
     try {
-      return await this.state.blockConcurrencyWhile(
-        this.handleSerializedRequest.bind(this, request),
-      );
+      await this.initialization;
+      return await handleRouterApiRuntimeRequest({
+        runtime: this.requireRuntime(),
+        request,
+        env: this.env,
+        storage: this.state.storage,
+      });
     } catch (error: unknown) {
       return routerApiRuntimeFailureResponse(error);
     }
   }
 
-  private async handleSerializedRequest(request: Request): Promise<Response> {
-    const runtime = await this.requireRuntime();
-    try {
-      return await runtime.handler(request, this.env);
-    } finally {
-      await this.state.storage.put(ROUTER_API_YAO_STATE_KEY, runtime.yaoState);
-    }
-  }
-
-  private async requireRuntime(): Promise<RouterApiRuntimeContext> {
-    if (this.runtime) return this.runtime;
+  private async initializeRuntime(): Promise<void> {
     const persisted = await this.state.storage.get(ROUTER_API_YAO_STATE_KEY);
     const yaoState = readRouterApiYaoState(persisted);
-    const handler = await createRouterApiHandler(this.env, yaoState);
+    const handler = await this.handlerFactory(this.env, yaoState);
     this.runtime = { handler, yaoState };
+  }
+
+  private requireRuntime(): RouterApiRuntimeContext {
+    if (!this.runtime) {
+      throw new Error('Gateway runtime initialization did not complete');
+    }
     return this.runtime;
   }
 }
