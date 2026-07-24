@@ -54,7 +54,7 @@ export type RouterAbEd25519YaoHttpRegistrationBackendConfig = {
 
 export type RouterAbEd25519YaoGatewaySpanV1 = {
   readonly event: 'router_ab_yao_gateway_span_v1';
-  readonly span: 'gateway.pre_yao' | 'gateway.yao_execute';
+  readonly span: 'gateway.pre_yao' | 'gateway.yao_execute' | 'gateway.d1_commit';
   readonly operation: 'registration' | 'recovery' | 'export';
   readonly outcome: 'success' | 'failure';
   readonly duration_ms: number;

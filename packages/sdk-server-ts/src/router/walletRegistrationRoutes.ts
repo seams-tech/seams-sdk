@@ -122,6 +122,11 @@ import {
   type RuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
 import { isEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import {
+  parseRouterAbTraceContextV1,
+  ROUTER_AB_TRACE_ID_HEADER_V1,
+} from '@shared/utils/routerAbTraceContext';
+import type { RouterAbEd25519YaoGatewaySpanV1 } from './routerAbEd25519YaoHttpRegistrationBackend';
 
 type RouterApiWalletRegistrationServices = {
   walletRegistration: RouterApiWalletRegistrationRouteService;
@@ -149,6 +154,28 @@ type RouterApiWalletRegistrationInput = {
 };
 
 type ParseResult<T> = { ok: true; value: T } | { ok: false; code: 'invalid_body'; message: string };
+
+function emitGatewayD1CommitSpan(input: {
+  logger: NormalizedRouterLogger;
+  traceId: string | null;
+  startedAt: number;
+  outcome: RouterAbEd25519YaoGatewaySpanV1['outcome'];
+}): void {
+  if (input.traceId === null) return;
+  const span: RouterAbEd25519YaoGatewaySpanV1 = {
+    event: 'router_ab_yao_gateway_span_v1',
+    span: 'gateway.d1_commit',
+    operation: 'registration',
+    outcome: input.outcome,
+    duration_ms: Math.max(0, Math.round(performance.now() - input.startedAt)),
+    trace_id: input.traceId,
+  };
+  try {
+    input.logger.info(JSON.stringify(span));
+  } catch {
+    // Observability must never change the registration response.
+  }
+}
 
 /** User-Agent of the registering request; feeds authenticator device labels. */
 function registrationUserAgentFromHeaders(headers: HeaderRecord): string | undefined {
@@ -2473,13 +2500,27 @@ export async function handleRouterApiWalletRegistrationEcdsaActivation(
 export async function handleRouterApiWalletRegistrationFinalize(
   input: RouterApiWalletRegistrationInput,
 ): Promise<RouteResponse<WalletRegistrationFinalizeRouteResponse | RouteErrorBody>> {
+  const rawTraceId =
+    input.headers[ROUTER_AB_TRACE_ID_HEADER_V1] ?? input.headers['X-Seams-Trace-Id'];
+  const parsedTrace = parseRouterAbTraceContextV1(rawTraceId);
+  if (!parsedTrace.ok && parsedTrace.reason === 'invalid') {
+    return routeError(400, 'invalid_trace_id', parsedTrace.message);
+  }
+  const traceId = parsedTrace.ok ? parsedTrace.value.value : null;
   if (!isPlainObject(input.body)) {
     return routeError(400, 'invalid_body', 'JSON body required');
   }
   const request = parseWalletRegistrationFinalizeRequest(input.body);
   if (!request.ok) return routeError(400, request.code, request.message);
   const finalizeStartedAtMs = Date.now();
+  const finalizeStartedAt = performance.now();
   const result = await input.services.walletRegistration.finalizeWalletRegistration(request.value);
+  emitGatewayD1CommitSpan({
+    logger: input.logger,
+    traceId,
+    startedAt: finalizeStartedAt,
+    outcome: result.ok ? 'success' : 'failure',
+  });
   input.logger.info('[wallet-registration][finalize-route] auth service completed', {
     ok: Boolean(result.ok),
     code: result.ok ? undefined : result.code || 'internal',
