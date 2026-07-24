@@ -7,7 +7,18 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 type DeploymentComponentsModule = {
   readonly COMPONENT_NAMES: readonly string[];
+  readonly BACKEND_COMPONENTS: readonly string[];
+  readonly FRONTEND_COMPONENTS: readonly string[];
   readonly selectComponents: (changedFiles: readonly string[]) => readonly string[];
+  readonly selectComponentsForLane: (
+    changedFiles: readonly string[],
+    lane: 'backend' | 'frontend',
+  ) => readonly string[];
+  readonly selectDeploymentLanes: (changedFiles: readonly string[]) => readonly string[];
+  readonly changesAffectDeploymentLane: (
+    changedFiles: readonly string[],
+    lane: 'backend' | 'frontend',
+  ) => boolean;
 };
 
 const deploymentComponentsModule = loadDeploymentComponentsModule();
@@ -46,10 +57,48 @@ test('deployment component names are stable and sorted for release manifests', a
   ]);
 });
 
+test('deployment lanes have explicit component ownership', async () => {
+  const module = await deploymentComponentsModule;
+
+  expect(module.BACKEND_COMPONENTS).toEqual([
+    'deriver-a',
+    'deriver-b',
+    'gateway',
+    'router',
+    'signing-worker',
+  ]);
+  expect(module.FRONTEND_COMPONENTS).toEqual(['site', 'signer-iframe']);
+  expect(module.selectDeploymentLanes(['apps/seams-site/src/main.ts'])).toEqual(['frontend']);
+  expect(module.selectDeploymentLanes(['packages/console-server-ts/src/index.ts'])).toEqual([
+    'backend',
+  ]);
+});
+
 test('selects the site for an app-only change', async () => {
   const module = await deploymentComponentsModule;
 
   expect(module.selectComponents(['apps/seams-site/src/main.ts'])).toEqual(['site']);
+});
+
+test('frontend source paths select only the frontend lane', async () => {
+  const module = await deploymentComponentsModule;
+
+  expect(module.selectDeploymentLanes(['apps/seams-site/src/main.ts'])).toEqual(['frontend']);
+  expect(
+    module.selectDeploymentLanes(['packages/sdk-web/src/SeamsWeb/operations/sign.ts']),
+  ).toEqual(['frontend']);
+  expect(
+    module.selectComponentsForLane(
+      ['packages/sdk-web/src/SeamsWeb/walletIframe/index.ts'],
+      'frontend',
+    ),
+  ).toEqual(['signer-iframe', 'site']);
+  expect(module.changesAffectDeploymentLane(['apps/seams-site/src/main.ts'], 'backend')).toBe(
+    false,
+  );
+  expect(module.changesAffectDeploymentLane(['apps/seams-site/src/main.ts'], 'frontend')).toBe(
+    true,
+  );
 });
 
 test('selects the coupled Pages artifact for wallet iframe source changes', async () => {
@@ -115,6 +164,18 @@ test('selects all components for shared lockfiles, toolchains, and orchestration
   expect(module.selectComponents(['wasm/near_signer/Cargo.lock'])).toEqual(allComponents);
   expect(module.selectComponents(['scripts/deployment-release.mjs'])).toEqual(allComponents);
   expect(module.selectComponents(['rust-toolchain.toml'])).toEqual(allComponents);
+  expect(module.selectDeploymentLanes(['scripts/deployment-release.mjs'])).toEqual([
+    'backend',
+    'frontend',
+  ]);
+  expect(module.selectDeploymentLanes(['.github/actions/deploy-shared/action.yml'])).toEqual([
+    'backend',
+    'frontend',
+  ]);
+  expect(module.selectDeploymentLanes(['.github/workflows/deploy-staging-frontend.yml'])).toEqual([
+    'backend',
+    'frontend',
+  ]);
 });
 
 test('selects Pages components for generated SDK bindings', async () => {
@@ -188,6 +249,22 @@ test('CLI accepts exact files as repeated arguments and emits JSON or lines', ()
     { encoding: 'utf8' },
   );
   expect(lines).toBe('gateway\nsite\n');
+
+  const frontendLines = execFileSync(
+    process.execPath,
+    [
+      scriptPath,
+      'select',
+      '--lane',
+      'frontend',
+      '--files-json',
+      JSON.stringify(['apps/seams-site/src/main.ts', 'packages/console-server-ts/src/index.ts']),
+      '--format',
+      'lines',
+    ],
+    { encoding: 'utf8' },
+  );
+  expect(frontendLines).toBe('site\n');
 });
 
 test('CLI requires the select subcommand at the process boundary', () => {

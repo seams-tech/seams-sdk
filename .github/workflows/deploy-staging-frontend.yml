@@ -1,0 +1,1002 @@
+name: Deploy / staging / frontend
+run-name: >-
+  deploy / staging / frontend /
+
+  ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }} /
+
+  ${{ github.event_name == 'workflow_run' && 'automatic' || 'manual-promotion' }}
+on:
+  workflow_run:
+    workflows:
+      - Deploy / staging / cloudflare-stack
+    types:
+      - completed
+    branches:
+      - dev
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact accepted staging source SHA
+        required: true
+        type: string
+      artifact_run_id:
+        description: Accepted frontend release artifact workflow run ID
+        required: true
+        type: string
+      release_set_id:
+        description: Content-addressed frontend release-set ID
+        required: true
+        type: string
+      backend_receipt_run_id:
+        description: Accepted backend coordination receipt workflow run ID
+        required: true
+        type: string
+permissions:
+  actions: read
+  contents: read
+env:
+  DEPLOY_TARGET: staging
+  DEPLOY_ENVIRONMENT: staging
+  DEPLOY_SOURCE_BRANCH: dev
+  EVENT_BRANCH: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name }}
+  SOURCE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
+  ARTIFACT_RUN_ID: ${{ github.event_name == 'workflow_run' && github.run_id || inputs.artifact_run_id }}
+  RELEASE_SET_ID: ${{ inputs.release_set_id || '' }}
+  BACKEND_RECEIPT_RUN_ID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.backend_receipt_run_id }}
+  STAGING_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway-staging.n6378056.workers.dev
+  PRODUCTION_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway.n6378056.workers.dev
+  RUST_TOOLCHAIN: 1.96.0
+concurrency:
+  group: deployment-staging-frontend
+  cancel-in-progress: false
+jobs:
+  prepare:
+    name: Select accepted frontend release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      target: ${{ steps.release.outputs.target }}
+      source_sha: ${{ steps.release.outputs.source_sha }}
+      source_branch: ${{ steps.release.outputs.source_branch }}
+      validation_run_id: ${{ steps.release.outputs.validation_run_id }}
+      backend_receipt_run_id: ${{ steps.release.outputs.backend_receipt_run_id }}
+    steps:
+      - name: Checkout release ref
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
+      - name: Download backend coordination receipt
+        uses: actions/download-artifact@v8
+        with:
+          name: backend-coordination-receipt-${{ 'staging' }}
+          path: .active-backend-receipt
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.backend_receipt_run_id }}
+      - name: Resolve frontend release identity
+        id: release
+        env:
+          INPUT_TARGET: ${{ 'staging' }}
+          INPUT_SOURCE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
+          INPUT_VALIDATION_RUN_ID: ${{ '' }}
+          INPUT_BACKEND_RECEIPT_RUN_ID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.backend_receipt_run_id }}
+          EXPECTED_BRANCH: ${{ 'staging' == 'production' && 'main' || 'dev' }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          target="$INPUT_TARGET"
+          source_sha="$INPUT_SOURCE_SHA"
+          source_branch="$EXPECTED_BRANCH"
+          validation_run_id="$INPUT_VALIDATION_RUN_ID"
+          backend_receipt_run_id="$INPUT_BACKEND_RECEIPT_RUN_ID"
+          if [[ -z "$validation_run_id" ]]; then
+            validation_run_id="$(node -e "const value=require('./.active-backend-receipt/manifest.json'); process.stdout.write(value.acceptedValidationRunId)")"
+          fi
+          [[ "$target" == 'staging' || "$target" == 'production' ]] || {
+            echo '::error title=Unsupported frontend release target::Only staging and production are supported'
+            exit 1
+          }
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]] || {
+            echo '::error title=Invalid source SHA::Frontend release source SHA must be a full lowercase Git SHA'
+            exit 1
+          }
+          [[ "$validation_run_id" =~ ^[1-9][0-9]*$ ]] || {
+            echo '::error title=Invalid validation run ID::Validation run ID must be numeric'
+            exit 1
+          }
+          [[ "$backend_receipt_run_id" =~ ^[1-9][0-9]*$ ]] || {
+            echo '::error title=Invalid backend receipt run ID::Backend receipt run ID must be numeric'
+            exit 1
+          }
+          validation_name="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$validation_run_id" --jq '.name')"
+          validation_sha="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$validation_run_id" --jq '.head_sha')"
+          validation_branch="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$validation_run_id" --jq '.head_branch')"
+          validation_conclusion="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$validation_run_id" --jq '.conclusion')"
+          [[ "$validation_name" == 'Validate / repository' ]] || {
+            echo "::error title=Invalid validation workflow::Run $validation_run_id is not a Validate / repository run"
+            exit 1
+          }
+          [[ "$validation_sha" == "$source_sha" ]] || {
+            echo "::error title=Validation SHA mismatch::Run $validation_run_id tested $validation_sha, expected $source_sha"
+            exit 1
+          }
+          [[ "$validation_branch" == "$source_branch" ]] || {
+            echo "::error title=Validation branch mismatch::Run $validation_run_id belongs to $validation_branch, expected $source_branch"
+            exit 1
+          }
+          [[ "$validation_conclusion" == 'success' ]] || {
+            echo "::error title=Validation run did not succeed::Run $validation_run_id concluded $validation_conclusion"
+            exit 1
+          }
+          if [[ "$target" == 'production' && "$EVENT_BRANCH" != 'main' ]]; then
+            echo '::error title=Untrusted production workflow authority::Production frontend releases must be triggered from main'
+            exit 1
+          fi
+          git fetch origin "refs/heads/$source_branch:refs/remotes/origin/$source_branch"
+          branch_ref="refs/remotes/origin/$source_branch"
+          git diff --name-only "$source_sha..$branch_ref" > "$RUNNER_TEMP/intervening-changed-files.txt"
+          intervening_frontend_components="$(node scripts/deployment-components.mjs select --files-file "$RUNNER_TEMP/intervening-changed-files.txt" --lane frontend)"
+          if [[ "$intervening_frontend_components" != '[]' ]]; then
+            echo "::error title=Stale frontend release skipped::A newer accepted change selects frontend components: $intervening_frontend_components"
+            exit 1
+          fi
+          {
+            echo "target=$target"
+            echo "source_sha=$source_sha"
+            echo "source_branch=$source_branch"
+            echo "validation_run_id=$validation_run_id"
+            echo "backend_receipt_run_id=$backend_receipt_run_id"
+          } >> "$GITHUB_OUTPUT"
+    env:
+      DEPLOY_TARGET: staging
+      DEPLOY_ENVIRONMENT: staging
+      DEPLOY_SOURCE_BRANCH: dev
+      DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
+      ARTIFACT_RUN_ID: ${{ github.event_name == 'workflow_run' && github.run_id || inputs.artifact_run_id }}
+      RELEASE_SET_ID:
+        ${{ github.event_name == 'workflow_run' && needs.create_release_set.outputs.release_set_id ||
+        inputs.release_set_id }}
+      BACKEND_RECEIPT_RUN_ID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.backend_receipt_run_id }}
+      ENFORCE_CURRENT_BRANCH: ${{ github.event_name == 'workflow_run' }}
+      STAGING_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway-staging.n6378056.workers.dev
+      PRODUCTION_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway.n6378056.workers.dev
+      RUST_TOOLCHAIN: 1.96.0
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success')
+  select_components:
+    name: Select affected frontend components
+    needs: prepare
+    runs-on: ubuntu-latest
+    outputs:
+      frontend_components: ${{ steps.select.outputs.frontend_components }}
+    steps:
+      - name: Checkout selected revision
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.source_sha }}
+      - name: Download pushed change range
+        uses: actions/download-artifact@v8
+        with:
+          name: release-change-set
+          path: .release-change-set
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.prepare.outputs.validation_run_id }}
+      - name: Select frontend components from accepted change range
+        id: select
+        env:
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          changed_files="$RUNNER_TEMP/changed-files.txt"
+          test -f .release-change-set/changed-files.txt || {
+            echo '::error title=Missing release change set::The accepted validation run did not publish changed-files.txt'
+            exit 1
+          }
+          cp .release-change-set/changed-files.txt "$changed_files"
+          frontend_components="$(node scripts/deployment-components.mjs select --files-file "$changed_files" | node -e "const value=JSON.parse(require('fs').readFileSync(0,'utf8')); process.stdout.write(JSON.stringify(value.filter((component) => component === 'site' || component === 'signer-iframe')))" )"
+          echo "frontend_components=$frontend_components" >> "$GITHUB_OUTPUT"
+          {
+            echo '## Selected frontend components'
+            echo
+            echo "- Source SHA: \`$SOURCE_SHA\`"
+            echo "- Components: \`$frontend_components\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+    env:
+      DEPLOY_TARGET: staging
+      DEPLOY_ENVIRONMENT: staging
+      DEPLOY_SOURCE_BRANCH: dev
+      DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
+      ARTIFACT_RUN_ID: ${{ github.event_name == 'workflow_run' && github.run_id || inputs.artifact_run_id }}
+      RELEASE_SET_ID:
+        ${{ github.event_name == 'workflow_run' && needs.create_release_set.outputs.release_set_id ||
+        inputs.release_set_id }}
+      BACKEND_RECEIPT_RUN_ID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.backend_receipt_run_id }}
+      ENFORCE_CURRENT_BRANCH: ${{ github.event_name == 'workflow_run' }}
+      STAGING_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway-staging.n6378056.workers.dev
+      PRODUCTION_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway.n6378056.workers.dev
+      RUST_TOOLCHAIN: 1.96.0
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
+  build_pages:
+    name: Build / ${{ needs.prepare.outputs.target }} / cloudflare-pages
+    needs:
+      - prepare
+      - select_components
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: ${{ format('{0}-frontend', needs.prepare.outputs.target) }}
+    steps:
+      - name: Checkout selected revision
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - name: Add wasm target
+        run: rustup target add wasm32-unknown-unknown
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Install pinned WASM tooling
+        run: bash packages/sdk-web/scripts/build/install-ci-wasm-tooling.sh
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build production SDK
+        run: pnpm build:sdk-prod
+      - name: Build Pages output
+        env:
+          VITE_RELAYER_URL: ${{ vars.VITE_RELAYER_URL }}
+          VITE_CONSOLE_BASE_URL: ${{ vars.VITE_CONSOLE_BASE_URL }}
+          VITE_RELAYER_ACCOUNT_ID: ${{ vars.VITE_RELAYER_ACCOUNT_ID }}
+          VITE_SEAMS_PROJECT_ENVIRONMENT_ID: ${{ vars.VITE_SEAMS_PROJECT_ENVIRONMENT_ID }}
+          VITE_SEAMS_PUBLISHABLE_KEY: ${{ vars.VITE_SEAMS_PUBLISHABLE_KEY }}
+          VITE_NEAR_NETWORK: ${{ vars.VITE_NEAR_NETWORK }}
+          VITE_NEAR_RPC_URL: ${{ vars.VITE_NEAR_RPC_URL }}
+          VITE_NEAR_EXPLORER: ${{ vars.VITE_NEAR_EXPLORER }}
+          VITE_TEMPO_RPC_URL: ${{ vars.VITE_TEMPO_RPC_URL }}
+          VITE_TEMPO_EXPLORER: ${{ vars.VITE_TEMPO_EXPLORER }}
+          VITE_TEMPO_FEE_TOKEN: ${{ vars.VITE_TEMPO_FEE_TOKEN }}
+          VITE_ARC_RPC_URL: ${{ vars.VITE_ARC_RPC_URL }}
+          VITE_ARC_EXPLORER: ${{ vars.VITE_ARC_EXPLORER }}
+          VITE_WALLET_ORIGIN: ${{ vars.VITE_WALLET_ORIGIN }}
+          VITE_WALLET_SERVICE_PATH: ${{ vars.VITE_WALLET_SERVICE_PATH }}
+          VITE_RP_ID_BASE: ${{ vars.VITE_RP_ID_BASE }}
+          VITE_SDK_BASE_PATH: ${{ vars.VITE_SDK_BASE_PATH }}
+          VITE_DOCS_ORIGIN: ${{ vars.VITE_DOCS_ORIGIN }}
+          VITE_SIGNING_SESSION_PERSISTENCE_MODE: ${{ vars.VITE_SIGNING_SESSION_PERSISTENCE_MODE }}
+          VITE_SIGNING_SESSION_SEAL_KEY_VERSION: ${{ vars.VITE_SIGNING_SESSION_SEAL_KEY_VERSION }}
+          VITE_SIGNING_SESSION_SHAMIR_P_B64U: ${{ vars.VITE_SIGNING_SESSION_SHAMIR_P_B64U }}
+          VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID: ${{ vars.VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID }}
+          VITE_DASHBOARD_WALLETS_ROUTES_ENABLED: ${{ vars.VITE_DASHBOARD_WALLETS_ROUTES_ENABLED }}
+        run: pnpm -C apps/seams-site exec vite build
+      - name: Copy SDK runtime assets into Pages output
+        run: |
+          set -euo pipefail
+          test -d packages/sdk-web/dist/esm/sdk
+          test -f packages/sdk-web/dist/public/wallet-service/index.html
+          mkdir -p apps/seams-site/dist/sdk apps/seams-site/dist/sdk/workers apps/seams-site/dist/wallet-service
+          rsync -a --delete packages/sdk-web/dist/esm/sdk/ apps/seams-site/dist/sdk/
+          if [ -d packages/sdk-web/dist/workers ]; then rsync -a --delete packages/sdk-web/dist/workers/ apps/seams-site/dist/sdk/workers/; fi
+          rsync -a --delete packages/sdk-web/dist/public/wallet-service/ apps/seams-site/dist/wallet-service/
+      - name: Create frontend artifact manifests
+        env:
+          DEPLOY_TARGET: ${{ needs.prepare.outputs.target }}
+          DEPLOY_SHA: ${{ needs.prepare.outputs.source_sha }}
+          GATEWAY_API_CONTRACT_VERSION: ${{ vars.GATEWAY_API_CONTRACT_VERSION }}
+        run: |
+          set -euo pipefail
+          test -n "${GATEWAY_API_CONTRACT_VERSION:-}" || {
+            echo '::error title=Missing frontend contract version::GATEWAY_API_CONTRACT_VERSION is required'
+            exit 1
+          }
+          build_metadata="$(node -e 'process.stdout.write(JSON.stringify({bun:process.argv[1],node:process.argv[2],rustc:process.argv[3],wasmPack:process.argv[4]}))' "$(bun --version)" "$(node --version)" "$(rustc --version)" "$(wasm-pack --version)")"
+          mkdir -p .release-artifacts/pages
+          node scripts/deployment-artifact.mjs create \
+            --kind pages \
+            --target "$DEPLOY_TARGET" \
+            --sha "$DEPLOY_SHA" \
+            --root apps/seams-site/dist \
+            --manifest .release-artifacts/pages/manifest.json \
+            --identity-json '{"pagesBuild":"app-wallet-v1"}' \
+            --metadata-json "$build_metadata"
+          mkdir -p .release-artifacts/signer-iframe
+          node scripts/deployment-artifact.mjs create \
+            --kind signer-iframe \
+            --target "$DEPLOY_TARGET" \
+            --sha "$DEPLOY_SHA" \
+            --root packages/sdk-web/dist/public/wallet-service \
+            --manifest .release-artifacts/signer-iframe/manifest.json \
+            --identity-json '{"pagesBuild":"app-wallet-v1"}' \
+            --metadata-json "$build_metadata"
+      - name: Upload Pages artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ needs.prepare.outputs.target }}-${{ needs.prepare.outputs.source_sha }}-pages
+          path: |
+            apps/seams-site/dist
+            .release-artifacts/pages/manifest.json
+          include-hidden-files: true
+          retention-days: 30
+          compression-level: 0
+      - name: Upload signer iframe artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ needs.prepare.outputs.target }}-${{ needs.prepare.outputs.source_sha }}-signer-iframe
+          path: |
+            packages/sdk-web/dist/public/wallet-service
+            .release-artifacts/signer-iframe/manifest.json
+          include-hidden-files: true
+          retention-days: 30
+          compression-level: 0
+    env:
+      DEPLOY_TARGET: staging
+      DEPLOY_ENVIRONMENT: staging
+      DEPLOY_SOURCE_BRANCH: dev
+      DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
+      ARTIFACT_RUN_ID: ${{ github.event_name == 'workflow_run' && github.run_id || inputs.artifact_run_id }}
+      RELEASE_SET_ID:
+        ${{ github.event_name == 'workflow_run' && needs.create_release_set.outputs.release_set_id ||
+        inputs.release_set_id }}
+      BACKEND_RECEIPT_RUN_ID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.backend_receipt_run_id }}
+      ENFORCE_CURRENT_BRANCH: ${{ github.event_name == 'workflow_run' }}
+      STAGING_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway-staging.n6378056.workers.dev
+      PRODUCTION_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway.n6378056.workers.dev
+      RUST_TOOLCHAIN: 1.96.0
+  create_release_set:
+    name: Create frontend release-set manifest
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
+    needs:
+      - prepare
+      - select_components
+      - build_pages
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment:
+      name: ${{ format('{0}-frontend', needs.prepare.outputs.target) }}
+    outputs:
+      release_set_id: ${{ steps.manifest.outputs.release_set_id }}
+    steps:
+      - name: Checkout selected revision
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Download site artifact
+        if: contains(fromJSON(needs.select_components.outputs.frontend_components), 'site')
+        uses: actions/download-artifact@v8
+        with:
+          name: release-${{ needs.prepare.outputs.target }}-${{ needs.prepare.outputs.source_sha }}-pages
+          path: .release-inputs/site
+      - name: Download signer iframe artifact
+        if: contains(fromJSON(needs.select_components.outputs.frontend_components), 'signer-iframe')
+        uses: actions/download-artifact@v8
+        with:
+          name: release-${{ needs.prepare.outputs.target }}-${{ needs.prepare.outputs.source_sha }}-signer-iframe
+          path: .release-inputs/signer-iframe
+      - name: Assemble frontend release-set inputs
+        env:
+          DEPLOY_TARGET: ${{ needs.prepare.outputs.target }}
+          DEPLOY_SHA: ${{ needs.prepare.outputs.source_sha }}
+          SELECTED_FRONTEND_COMPONENTS: ${{ needs.select_components.outputs.frontend_components }}
+          GATEWAY_API_CONTRACT_VERSION: ${{ vars.GATEWAY_API_CONTRACT_VERSION }}
+        run: |
+          set -euo pipefail
+          test -n "${GATEWAY_API_CONTRACT_VERSION:-}" || {
+            echo '::error title=Missing frontend contract version::GATEWAY_API_CONTRACT_VERSION is required'
+            exit 1
+          }
+          node --input-type=module <<'NODE'
+          import { readFile, writeFile } from 'node:fs/promises';
+          import { join } from 'node:path';
+
+          const target = process.env.DEPLOY_TARGET;
+          const sourceSha = process.env.DEPLOY_SHA;
+          const root = '.release-inputs';
+          const selectedComponents = JSON.parse(process.env.SELECTED_FRONTEND_COMPONENTS);
+          const specs = [
+            ['site', 'pages', 'manifest.json'],
+            ['signer-iframe', 'signer-iframe', 'manifest.json'],
+          ].filter(([name]) => selectedComponents.includes(name));
+          const components = [];
+          for (const [name, kind, manifestName] of specs) {
+            const artifactSuffix = name === 'site' ? 'pages' : 'signer-iframe';
+            const artifactName = `release-${target}-${sourceSha}-${artifactSuffix}`;
+            const manifest = JSON.parse(
+              await readFile(join(root, name, '.release-artifacts', name === 'site' ? 'pages' : 'signer-iframe', manifestName), 'utf8'),
+            );
+            components.push({
+              name,
+              kind,
+              artifactName,
+              contentDigestSha256: manifest.contentDigestSha256,
+              sourceSha,
+              target,
+              releaseId: `artifact-${kind}-${manifest.contentDigestSha256}`,
+            });
+          }
+          await writeFile('.release-artifacts-components.json', `${JSON.stringify(components, null, 2)}\n`);
+          await writeFile('.release-artifacts-migrations.json', '{}\n');
+          await writeFile('.release-build-identity.json', `${JSON.stringify({
+            node: process.version,
+            workflow: 'deploy-cloudflare-frontend',
+            sourceSha,
+            target,
+            selectedComponents,
+            gatewayApiContractVersion: process.env.GATEWAY_API_CONTRACT_VERSION,
+          }, null, 2)}\n`);
+          NODE
+      - name: Create immutable frontend release-set manifest
+        id: manifest
+        env:
+          DEPLOY_TARGET: ${{ needs.prepare.outputs.target }}
+          DEPLOY_SHA: ${{ needs.prepare.outputs.source_sha }}
+          VALIDATION_RUN_ID: ${{ needs.prepare.outputs.validation_run_id }}
+          GATEWAY_API_CONTRACT_VERSION: ${{ vars.GATEWAY_API_CONTRACT_VERSION }}
+        run: |
+          set -euo pipefail
+          mkdir -p .release-artifacts/release-set
+          node scripts/deployment-release.mjs create \
+            --lane frontend \
+            --target "$DEPLOY_TARGET" \
+            --source-sha "$DEPLOY_SHA" \
+            --accepted-validation-run-id "$VALIDATION_RUN_ID" \
+            --artifact-run-id "$GITHUB_RUN_ID" \
+            --gateway-api-contract-version "$GATEWAY_API_CONTRACT_VERSION" \
+            --components-file .release-artifacts-components.json \
+            --migrations-file .release-artifacts-migrations.json \
+            --build-identity-file .release-build-identity.json \
+            --output .release-artifacts/release-set/manifest.json
+          release_set_id="$(node -e "const value=require('./.release-artifacts/release-set/manifest.json'); process.stdout.write(value.releaseSetId)")"
+          echo "release_set_id=$release_set_id" >> "$GITHUB_OUTPUT"
+          {
+            echo '## Accepted frontend release set'
+            echo
+            echo "- Source SHA: \`$DEPLOY_SHA\`"
+            echo "- Target: \`$DEPLOY_TARGET\`"
+            echo "- Validation run: \`$VALIDATION_RUN_ID\`"
+            echo "- Artifact run: \`$GITHUB_RUN_ID\`"
+            echo "- Release set: \`$release_set_id\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload frontend release-set manifest
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-set-${{ steps.manifest.outputs.release_set_id }}
+          path: .release-artifacts/release-set/manifest.json
+          include-hidden-files: true
+          retention-days: 30
+    env:
+      DEPLOY_TARGET: staging
+      DEPLOY_ENVIRONMENT: staging
+      DEPLOY_SOURCE_BRANCH: dev
+      DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
+      ARTIFACT_RUN_ID: ${{ github.event_name == 'workflow_run' && github.run_id || inputs.artifact_run_id }}
+      RELEASE_SET_ID:
+        ${{ github.event_name == 'workflow_run' && needs.create_release_set.outputs.release_set_id ||
+        inputs.release_set_id }}
+      BACKEND_RECEIPT_RUN_ID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.backend_receipt_run_id }}
+      ENFORCE_CURRENT_BRANCH: ${{ github.event_name == 'workflow_run' }}
+      STAGING_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway-staging.n6378056.workers.dev
+      PRODUCTION_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway.n6378056.workers.dev
+      RUST_TOOLCHAIN: 1.96.0
+  preflight_release:
+    name: Verify / ${{ 'staging' }} / frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    outputs:
+      selected_components: ${{ steps.release_identity.outputs.selected_components }}
+      validation_run_id: ${{ steps.release_identity.outputs.validation_run_id }}
+      has_site: ${{ steps.release_identity.outputs.has_site }}
+      has_signer_iframe: ${{ steps.release_identity.outputs.has_signer_iframe }}
+    steps:
+      - name: Checkout selected revision
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ env.DEPLOY_SHA }}
+      - name: Validate source branch and frontend freshness
+        run: |
+          set -euo pipefail
+          expected_branch='dev'
+          if [[ "$DEPLOY_ENVIRONMENT" == 'production' ]]; then expected_branch='main'; fi
+          if [[ "$DEPLOY_ENVIRONMENT" != 'staging' && "$DEPLOY_ENVIRONMENT" != 'production' ]]; then
+            echo '::error title=Unsupported frontend deployment target::Only staging and production are supported'
+            exit 1
+          fi
+          if [[ "$DEPLOY_SOURCE_BRANCH" != "$expected_branch" ]]; then
+            echo "::error title=Invalid frontend release mapping::$DEPLOY_ENVIRONMENT requires $expected_branch"
+            exit 1
+          fi
+          [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo '::error title=Invalid source SHA::Frontend deployment SHA must be a full lowercase Git SHA'
+            exit 1
+          }
+          git fetch origin "refs/heads/$DEPLOY_SOURCE_BRANCH:refs/remotes/origin/$DEPLOY_SOURCE_BRANCH"
+          branch_ref="refs/remotes/origin/$DEPLOY_SOURCE_BRANCH"
+          if ! git merge-base --is-ancestor "$DEPLOY_SHA" "$branch_ref"; then
+            echo "::error title=Frontend release SHA is not on the protected branch::$DEPLOY_SHA is not an ancestor of $DEPLOY_SOURCE_BRANCH"
+            exit 1
+          fi
+          if [[ "$ENFORCE_CURRENT_BRANCH" == 'true' ]]; then
+            git diff --name-only "$DEPLOY_SHA..$branch_ref" > "$RUNNER_TEMP/intervening-changed-files.txt"
+            intervening_frontend_components="$(node scripts/deployment-components.mjs select --files-file "$RUNNER_TEMP/intervening-changed-files.txt" --lane frontend)"
+            if [[ "$intervening_frontend_components" != '[]' ]]; then
+              echo "::error title=Stale frontend release skipped::A newer accepted change selects frontend components: $intervening_frontend_components"
+              exit 1
+            fi
+          fi
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install release tooling
+        run: pnpm install --frozen-lockfile --filter router-ab-cloudflare
+      - name: Download frontend release-set manifest
+        uses: actions/download-artifact@v8
+        with:
+          name: release-set-${{ env.RELEASE_SET_ID }}
+          path: .release-artifacts/release-set
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.ARTIFACT_RUN_ID }}
+      - name: Download backend coordination receipt
+        uses: actions/download-artifact@v8
+        with:
+          name: backend-coordination-receipt-${{ env.DEPLOY_ENVIRONMENT }}
+          path: .release-artifacts/backend-coordination-receipt
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.BACKEND_RECEIPT_RUN_ID }}
+      - name: Verify frontend release-set identity
+        id: release_identity
+        env:
+          GATEWAY_API_CONTRACT_VERSION: ${{ vars.GATEWAY_API_CONTRACT_VERSION }}
+        run: |
+          set -euo pipefail
+          node scripts/deployment-release.mjs verify \
+            --manifest "$RELEASE_MANIFEST" \
+            --lane frontend \
+            --target "$DEPLOY_ENVIRONMENT" \
+            --source-sha "$DEPLOY_SHA" \
+            --artifact-run-id "$ARTIFACT_RUN_ID" \
+            --release-set-id "$RELEASE_SET_ID"
+          identity="$(node -e "const value=require('./$RELEASE_MANIFEST'); const selected=value.buildIdentity?.selectedComponents; if (!Array.isArray(selected) || selected.length === 0 || selected.some((component) => component !== 'site' && component !== 'signer-iframe')) throw new Error('frontend release set contains a backend component or no frontend component'); if (selected.includes('signer-iframe') && !selected.includes('site')) throw new Error('frontend release set requires the site component with signer-iframe'); const version=value.gatewayApiContractVersion; if (typeof version !== 'string' || version.length === 0) throw new Error('frontend release set is missing gatewayApiContractVersion'); process.stdout.write(JSON.stringify({selectedComponents:selected, validationRunId:value.acceptedValidationRunId, gatewayApiContractVersion:version}))")"
+          selected_components="$(node -e "const value=JSON.parse(process.argv[1]); process.stdout.write(JSON.stringify(value.selectedComponents))" "$identity")"
+          validation_run_id="$(node -e "const value=JSON.parse(process.argv[1]); process.stdout.write(value.validationRunId)" "$identity")"
+          gateway_api_contract_version="$(node -e "const value=JSON.parse(process.argv[1]); process.stdout.write(value.gatewayApiContractVersion)" "$identity")"
+          has_site='false'
+          has_signer_iframe='false'
+          if [[ "$selected_components" == *'"site"'* ]]; then has_site='true'; fi
+          if [[ "$selected_components" == *'"signer-iframe"'* ]]; then has_signer_iframe='true'; fi
+          echo "selected_components=$selected_components" >> "$GITHUB_OUTPUT"
+          echo "validation_run_id=$validation_run_id" >> "$GITHUB_OUTPUT"
+          echo "has_site=$has_site" >> "$GITHUB_OUTPUT"
+          echo "has_signer_iframe=$has_signer_iframe" >> "$GITHUB_OUTPUT"
+          echo "VALIDATION_RUN_ID=$validation_run_id" >> "$GITHUB_ENV"
+          echo "GATEWAY_API_CONTRACT_VERSION=$gateway_api_contract_version" >> "$GITHUB_ENV"
+          {
+            echo '## Frontend release preflight'
+            echo
+            echo "- Source SHA: \`$DEPLOY_SHA\`"
+            echo "- Frontend release set: \`$RELEASE_SET_ID\`"
+            echo "- Validation run: \`$validation_run_id\`"
+            echo "- Backend receipt run: \`$BACKEND_RECEIPT_RUN_ID\`"
+            echo "- Components: \`$selected_components\`"
+            echo "- Gateway API contract: \`$gateway_api_contract_version\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Download selected site artifact
+        if: steps.release_identity.outputs.has_site == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: release-${{ env.DEPLOY_ENVIRONMENT }}-${{ env.DEPLOY_SHA }}-pages
+          path: .release-artifacts/components/site
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.ARTIFACT_RUN_ID }}
+      - name: Download selected signer iframe artifact
+        if: steps.release_identity.outputs.has_signer_iframe == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: release-${{ env.DEPLOY_ENVIRONMENT }}-${{ env.DEPLOY_SHA }}-signer-iframe
+          path: .release-artifacts/components/signer-iframe
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.ARTIFACT_RUN_ID }}
+      - name: Verify selected frontend artifacts
+        run: |
+          set -euo pipefail
+          for component in $(node -e "const value=require('./$RELEASE_MANIFEST'); process.stdout.write(value.components.map((component) => component.name).join('\\n'))"); do
+            case "$component" in
+              site)
+                kind='pages'
+                artifact_manifest='.release-artifacts/components/site/.release-artifacts/pages/manifest.json'
+                artifact_root='.release-artifacts/components/site/apps/seams-site/dist'
+                identity="$PAGES_ARTIFACT_IDENTITY"
+                ;;
+              signer-iframe)
+                kind='signer-iframe'
+                artifact_manifest='.release-artifacts/components/signer-iframe/.release-artifacts/signer-iframe/manifest.json'
+                artifact_root='.release-artifacts/components/signer-iframe/packages/sdk-web/dist/public/wallet-service'
+                identity="$SIGNER_IFRAME_ARTIFACT_IDENTITY"
+                ;;
+              *)
+                echo "::error title=Unexpected frontend release component::${component} is not Pages-owned"
+                exit 1
+                ;;
+            esac
+            node scripts/deployment-release.mjs verify-component \
+              --manifest "$RELEASE_MANIFEST" \
+              --component-name "$component" \
+              --artifact-manifest "$artifact_manifest"
+            node scripts/deployment-artifact.mjs verify \
+              --kind "$kind" \
+              --target "$DEPLOY_ENVIRONMENT" \
+              --sha "$DEPLOY_SHA" \
+              --root "$artifact_root" \
+              --manifest "$artifact_manifest" \
+              --identity-json "$identity"
+          done
+      - name: Verify backend coordination receipt
+        run: |
+          set -euo pipefail
+          node scripts/deployment-coordination-receipt.mjs verify \
+            --receipt-file .release-artifacts/backend-coordination-receipt/manifest.json
+          node --input-type=module <<'NODE'
+          import { readFile } from 'node:fs/promises';
+          import { assertFrontendApiCompatible } from './scripts/deployment-api-compatibility.mjs';
+          const receipt = JSON.parse(await readFile('.release-artifacts/backend-coordination-receipt/manifest.json', 'utf8'));
+          const frontend = JSON.parse(await readFile(process.env.RELEASE_MANIFEST, 'utf8'));
+          if (receipt.target !== process.env.DEPLOY_ENVIRONMENT || receipt.receiptRunId !== process.env.BACKEND_RECEIPT_RUN_ID || receipt.acceptedSourceSha !== process.env.DEPLOY_SHA || receipt.acceptedValidationRunId !== process.env.VALIDATION_RUN_ID) throw new Error('backend coordination receipt does not match frontend release identity');
+          assertFrontendApiCompatible({ gatewayApiContractVersion: frontend.gatewayApiContractVersion }, receipt.supportedFrontendApiContractRange);
+          NODE
+    env:
+      DEPLOY_TARGET: staging
+      DEPLOY_ENVIRONMENT: staging
+      DEPLOY_SOURCE_BRANCH: dev
+      DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
+      ARTIFACT_RUN_ID: ${{ github.event_name == 'workflow_run' && github.run_id || inputs.artifact_run_id }}
+      RELEASE_SET_ID:
+        ${{ github.event_name == 'workflow_run' && needs.create_release_set.outputs.release_set_id ||
+        inputs.release_set_id }}
+      BACKEND_RECEIPT_RUN_ID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.backend_receipt_run_id }}
+      ENFORCE_CURRENT_BRANCH: ${{ github.event_name == 'workflow_run' }}
+      STAGING_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway-staging.n6378056.workers.dev
+      PRODUCTION_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway.n6378056.workers.dev
+      RUST_TOOLCHAIN: 1.96.0
+    if:
+      always() && ((github.event_name == 'workflow_dispatch') || (github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' && needs.select_components.result == 'success' &&
+      needs.select_components.outputs.frontend_components != '[]' && needs.create_release_set.result == 'success'))
+    needs:
+      - select_components
+      - create_release_set
+  deploy_app:
+    name: Deploy / ${{ 'staging' }} / cloudflare-pages / app
+    if: |-
+      ${{
+        needs.preflight_release.result == 'success' &&
+        needs.preflight_release.outputs.has_site == 'true'
+      }}
+    needs: preflight_release
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment:
+      name: ${{ format('{0}-frontend', 'staging') }}
+    env:
+      DEPLOY_TARGET: staging
+      DEPLOY_ENVIRONMENT: staging
+      DEPLOY_SOURCE_BRANCH: dev
+      DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
+      ARTIFACT_RUN_ID: ${{ github.event_name == 'workflow_run' && github.run_id || inputs.artifact_run_id }}
+      RELEASE_SET_ID:
+        ${{ github.event_name == 'workflow_run' && needs.create_release_set.outputs.release_set_id ||
+        inputs.release_set_id }}
+      BACKEND_RECEIPT_RUN_ID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.backend_receipt_run_id }}
+      ENFORCE_CURRENT_BRANCH: ${{ github.event_name == 'workflow_run' }}
+      STAGING_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway-staging.n6378056.workers.dev
+      PRODUCTION_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway.n6378056.workers.dev
+      RUST_TOOLCHAIN: 1.96.0
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_PAGES_PROJECT: ${{ secrets.CF_PAGES_PROJECT_VITE }}
+      PAGES_ORIGIN: ${{ vars.VITE_DOCS_ORIGIN }}
+    steps:
+      - name: Checkout selected revision
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            .github
+            crates/router-ab-cloudflare
+            package.json
+            pnpm-lock.yaml
+            pnpm-workspace.yaml
+            scripts
+          ref: ${{ env.DEPLOY_SHA }}
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install deployment dependencies
+        run: pnpm install --frozen-lockfile --filter router-ab-cloudflare
+      - name: Download frontend release-set manifest
+        uses: actions/download-artifact@v8
+        with:
+          name: release-set-${{ env.RELEASE_SET_ID }}
+          path: .release-artifacts/release-set
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.ARTIFACT_RUN_ID }}
+      - name: Download Pages artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: release-${{ env.DEPLOY_ENVIRONMENT }}-${{ env.DEPLOY_SHA }}-pages
+          path: .
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.ARTIFACT_RUN_ID }}
+      - name: Verify app Pages artifact
+        run: |
+          set -euo pipefail
+          node scripts/deployment-release.mjs verify \
+            --manifest "$RELEASE_MANIFEST" \
+            --lane frontend \
+            --target "$DEPLOY_ENVIRONMENT" \
+            --source-sha "$DEPLOY_SHA" \
+            --artifact-run-id "$ARTIFACT_RUN_ID" \
+            --release-set-id "$RELEASE_SET_ID"
+          node scripts/deployment-release.mjs verify-component \
+            --manifest "$RELEASE_MANIFEST" \
+            --component-name site \
+            --artifact-manifest .release-artifacts/pages/manifest.json
+          node scripts/deployment-artifact.mjs verify \
+            --kind pages \
+            --target "$DEPLOY_ENVIRONMENT" \
+            --sha "$DEPLOY_SHA" \
+            --root apps/seams-site/dist \
+            --manifest .release-artifacts/pages/manifest.json \
+            --identity-json "$PAGES_ARTIFACT_IDENTITY"
+      - name: Deploy app Pages
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo 'CLOUDFLARE_API_TOKEN is not set' >&2; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo 'CLOUDFLARE_ACCOUNT_ID is not set' >&2; exit 1; }
+          test -n "${CF_PAGES_PROJECT:-}" || { echo 'CF_PAGES_PROJECT_VITE is not set' >&2; exit 1; }
+          test -n "${PAGES_ORIGIN:-}" || { echo 'VITE_DOCS_ORIGIN is not set' >&2; exit 1; }
+          pnpm -C crates/router-ab-cloudflare exec wrangler pages deploy ../../apps/seams-site/dist \
+            --project-name "$CF_PAGES_PROJECT" \
+            --branch "$PAGES_BRANCH" \
+            --commit-hash "$DEPLOY_SHA" \
+            --commit-dirty=false
+      - name: Verify app readiness
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 5 "$PAGES_ORIGIN/" > /dev/null
+          curl --fail --silent --show-error --max-time 5 "$PAGES_ORIGIN/sdk/workers/near-signer.worker.js" > /dev/null
+      - name: Summarize app deployment
+        run: |
+          manifest_digest="$(node -e "const value=require('./.release-artifacts/pages/manifest.json'); process.stdout.write(value.contentDigestSha256)")"
+          {
+            echo '## App Pages deployment'
+            echo
+            echo "- Source SHA: \`$DEPLOY_SHA\`"
+            echo "- Frontend release set: \`$RELEASE_SET_ID\`"
+            echo "- Frontend artifact run: \`$ARTIFACT_RUN_ID\`"
+            echo "- Backend receipt run: \`$BACKEND_RECEIPT_RUN_ID\`"
+            echo "- Artifact content digest: \`$manifest_digest\`"
+            echo "- URL: $PAGES_ORIGIN"
+            echo '- Readiness: app and SDK worker passed'
+          } >> "$GITHUB_STEP_SUMMARY"
+  deploy_wallet:
+    name: Deploy / ${{ 'staging' }} / cloudflare-pages / wallet
+    if: |-
+      ${{
+        needs.preflight_release.result == 'success' &&
+        needs.preflight_release.outputs.has_site == 'true'
+      }}
+    needs: preflight_release
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment:
+      name: ${{ format('{0}-frontend', 'staging') }}
+    env:
+      DEPLOY_TARGET: staging
+      DEPLOY_ENVIRONMENT: staging
+      DEPLOY_SOURCE_BRANCH: dev
+      DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
+      ARTIFACT_RUN_ID: ${{ github.event_name == 'workflow_run' && github.run_id || inputs.artifact_run_id }}
+      RELEASE_SET_ID:
+        ${{ github.event_name == 'workflow_run' && needs.create_release_set.outputs.release_set_id ||
+        inputs.release_set_id }}
+      BACKEND_RECEIPT_RUN_ID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.backend_receipt_run_id }}
+      ENFORCE_CURRENT_BRANCH: ${{ github.event_name == 'workflow_run' }}
+      STAGING_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway-staging.n6378056.workers.dev
+      PRODUCTION_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway.n6378056.workers.dev
+      RUST_TOOLCHAIN: 1.96.0
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_PAGES_PROJECT: ${{ secrets.CF_PAGES_PROJECT_WALLET }}
+      PAGES_ORIGIN: ${{ vars.VITE_WALLET_ORIGIN }}
+    steps:
+      - name: Checkout selected revision
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            .github
+            crates/router-ab-cloudflare
+            package.json
+            pnpm-lock.yaml
+            pnpm-workspace.yaml
+            scripts
+          ref: ${{ env.DEPLOY_SHA }}
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install deployment dependencies
+        run: pnpm install --frozen-lockfile --filter router-ab-cloudflare
+      - name: Download frontend release-set manifest
+        uses: actions/download-artifact@v8
+        with:
+          name: release-set-${{ env.RELEASE_SET_ID }}
+          path: .release-artifacts/release-set
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.ARTIFACT_RUN_ID }}
+      - name: Download Pages artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: release-${{ env.DEPLOY_ENVIRONMENT }}-${{ env.DEPLOY_SHA }}-pages
+          path: .
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.ARTIFACT_RUN_ID }}
+      - name: Verify wallet Pages artifact
+        run: |
+          set -euo pipefail
+          node scripts/deployment-release.mjs verify \
+            --manifest "$RELEASE_MANIFEST" \
+            --lane frontend \
+            --target "$DEPLOY_ENVIRONMENT" \
+            --source-sha "$DEPLOY_SHA" \
+            --artifact-run-id "$ARTIFACT_RUN_ID" \
+            --release-set-id "$RELEASE_SET_ID"
+          node scripts/deployment-release.mjs verify-component \
+            --manifest "$RELEASE_MANIFEST" \
+            --component-name site \
+            --artifact-manifest .release-artifacts/pages/manifest.json
+          node scripts/deployment-artifact.mjs verify \
+            --kind pages \
+            --target "$DEPLOY_ENVIRONMENT" \
+            --sha "$DEPLOY_SHA" \
+            --root apps/seams-site/dist \
+            --manifest .release-artifacts/pages/manifest.json \
+            --identity-json "$PAGES_ARTIFACT_IDENTITY"
+      - name: Deploy wallet Pages
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo 'CLOUDFLARE_API_TOKEN is not set' >&2; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo 'CLOUDFLARE_ACCOUNT_ID is not set' >&2; exit 1; }
+          test -n "${CF_PAGES_PROJECT:-}" || { echo 'CF_PAGES_PROJECT_WALLET is not set' >&2; exit 1; }
+          test -n "${PAGES_ORIGIN:-}" || { echo 'VITE_WALLET_ORIGIN is not set' >&2; exit 1; }
+          pnpm -C crates/router-ab-cloudflare exec wrangler pages deploy ../../apps/seams-site/dist \
+            --project-name "$CF_PAGES_PROJECT" \
+            --branch "$PAGES_BRANCH" \
+            --commit-hash "$DEPLOY_SHA" \
+            --commit-dirty=false
+      - name: Verify wallet readiness
+        run: |
+          set -euo pipefail
+          for path in \
+            /wallet-service/index.html \
+            /sdk/workers/near-signer.worker.js \
+            /sdk/workers/router_ab_ed25519_yao_client_bg.wasm
+          do
+            curl --fail --silent --show-error --max-time 5 "$PAGES_ORIGIN$path" > /dev/null
+          done
+      - name: Summarize wallet deployment
+        run: |
+          manifest_digest="$(node -e "const value=require('./.release-artifacts/pages/manifest.json'); process.stdout.write(value.contentDigestSha256)")"
+          {
+            echo '## Wallet Pages deployment'
+            echo
+            echo "- Source SHA: \`$DEPLOY_SHA\`"
+            echo "- Frontend release set: \`$RELEASE_SET_ID\`"
+            echo "- Frontend artifact run: \`$ARTIFACT_RUN_ID\`"
+            echo "- Backend receipt run: \`$BACKEND_RECEIPT_RUN_ID\`"
+            echo "- Artifact content digest: \`$manifest_digest\`"
+            echo "- URL: $PAGES_ORIGIN"
+            echo '- Readiness: wallet service, SDK worker, and WASM passed'
+          } >> "$GITHUB_STEP_SUMMARY"
+  frontend_smoke:
+    name: Verify / staging / frontend
+    if: |-
+      ${{
+        always() &&
+        needs.preflight_release.result == 'success' &&
+        needs.preflight_release.outputs.has_site == 'true' &&
+        needs.deploy_app.result == 'success' &&
+        needs.deploy_wallet.result == 'success'
+      }}
+    needs:
+      - preflight_release
+      - deploy_app
+      - deploy_wallet
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout selected revision
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Download frontend release-set manifest
+        uses: actions/download-artifact@v8
+        with:
+          name: release-set-${{ env.RELEASE_SET_ID }}
+          path: .release-artifacts/release-set
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.ARTIFACT_RUN_ID }}
+      - name: Run frontend smoke
+        env:
+          SITE_ORIGIN: ${{ vars.VITE_DOCS_ORIGIN }}
+          WALLET_ORIGIN: ${{ vars.VITE_WALLET_ORIGIN }}
+          SELECTED_COMPONENTS: ${{ needs.preflight_release.outputs.selected_components }}
+        run: |
+          set -euo pipefail
+          node scripts/deployment-final-smoke.mjs \
+            --manifest "$RELEASE_MANIFEST" \
+            --release-set-id "$RELEASE_SET_ID" \
+            --selected-components "$SELECTED_COMPONENTS" \
+            --site-origin "$SITE_ORIGIN" \
+            --wallet-origin "$WALLET_ORIGIN"
+          {
+            echo '## Frontend smoke'
+            echo
+            echo "- Environment: \`$DEPLOY_ENVIRONMENT\`"
+            echo "- Source SHA: \`$DEPLOY_SHA\`"
+            echo "- Frontend release set: \`$RELEASE_SET_ID\`"
+            echo "- Backend receipt run: \`$BACKEND_RECEIPT_RUN_ID\`"
+            echo "- Components: \`$SELECTED_COMPONENTS\`"
+            echo '- App Pages, wallet Pages, SDK runtime assets, and release identity passed.'
+          } >> "$GITHUB_STEP_SUMMARY"
+    env:
+      DEPLOY_TARGET: staging
+      DEPLOY_ENVIRONMENT: staging
+      DEPLOY_SOURCE_BRANCH: dev
+      DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
+      ARTIFACT_RUN_ID: ${{ github.event_name == 'workflow_run' && github.run_id || inputs.artifact_run_id }}
+      RELEASE_SET_ID:
+        ${{ github.event_name == 'workflow_run' && needs.create_release_set.outputs.release_set_id ||
+        inputs.release_set_id }}
+      BACKEND_RECEIPT_RUN_ID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.backend_receipt_run_id }}
+      ENFORCE_CURRENT_BRANCH: ${{ github.event_name == 'workflow_run' }}
+      STAGING_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway-staging.n6378056.workers.dev
+      PRODUCTION_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway.n6378056.workers.dev
+      RUST_TOOLCHAIN: 1.96.0
