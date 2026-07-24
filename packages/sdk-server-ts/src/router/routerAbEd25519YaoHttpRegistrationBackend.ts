@@ -371,9 +371,30 @@ function executeOperation(request: RouterExecuteInput): 'registration' | 'recove
 async function routerExecuteRequest(
   request: RouterExecuteInput,
 ): Promise<RouterExecuteBoundary> {
-  if (isExportExecuteRequest(request)) return { operation: 'export', ...request };
-  if (isRegistrationExecuteRequest(request)) return { operation: 'registration', ...request };
-  if (isRecoveryExecuteRequest(request)) return { operation: 'recovery', ...request };
+  if (isExportExecuteRequest(request)) {
+    return {
+      operation: 'export',
+      binding: request.binding,
+      deriver_a_input: request.deriver_a_input,
+      deriver_b_input: request.deriver_b_input,
+    };
+  }
+  if (isRegistrationExecuteRequest(request)) {
+    return {
+      operation: 'registration',
+      binding: request.binding,
+      deriver_a_input: request.deriver_a_input,
+      deriver_b_input: request.deriver_b_input,
+    };
+  }
+  if (isRecoveryExecuteRequest(request)) {
+    return {
+      operation: 'recovery',
+      binding: request.binding,
+      deriver_a_input: request.deriver_a_input,
+      deriver_b_input: request.deriver_b_input,
+    };
+  }
   throw new Error('Unsupported Router Yao execute operation');
 }
 
