@@ -285,8 +285,19 @@ impl LocalEd25519YaoPairLifecycleV1 {
         }
     }
 
-    pub fn burn(&mut self, pair_digest: [u8; 32]) {
-        self.state = Some(LocalEd25519YaoPairLifecycleStateV1::Burned { pair_digest });
+    pub fn burn(&mut self, pair_digest: [u8; 32]) -> RouterAbProtocolResult<()> {
+        match self.state.as_ref() {
+            Some(LocalEd25519YaoPairLifecycleStateV1::Running {
+                pair_digest: stored_pair,
+            }) if *stored_pair == pair_digest => {
+                self.state = Some(LocalEd25519YaoPairLifecycleStateV1::Burned { pair_digest });
+                Ok(())
+            }
+            Some(LocalEd25519YaoPairLifecycleStateV1::Burned {
+                pair_digest: stored_pair,
+            }) if *stored_pair == pair_digest => Ok(()),
+            _ => Err(pair_lifecycle_error("only a running pair can be burned")),
+        }
     }
 
     pub fn completed(
@@ -513,7 +524,9 @@ mod tests {
             lifecycle.state(),
             Some(LocalEd25519YaoPairLifecycleStateV1::Running { .. })
         ));
-        lifecycle.burn(pair.pair_digest().bytes);
+        lifecycle
+            .burn(pair.pair_digest().bytes)
+            .expect("running pair should burn");
         assert!(lifecycle.completed(pair.pair_digest().bytes).is_err());
     }
 
