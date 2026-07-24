@@ -1,9 +1,10 @@
 //! Cloudflare Worker adapter for the Router-owned Refactor 93 ceremony.
 
 use crate::{
-    cloudflare_now_unix_ms_v1, cloudflare_router_error_status,
-    cloudflare_service_json_request_body_v1, parse_cloudflare_deriver_peer_verifying_key_set_v1,
-    parse_cloudflare_trace_id_from_request_v1, require_cloudflare_internal_service_auth_request_v1,
+    build_cloudflare_router_public_keyset_v2, cloudflare_now_unix_ms_v1,
+    cloudflare_router_error_status, cloudflare_service_json_request_body_v1,
+    parse_cloudflare_deriver_peer_verifying_key_set_v1, parse_cloudflare_trace_id_from_request_v1,
+    require_cloudflare_internal_service_auth_request_v1,
     set_cloudflare_internal_service_auth_header_v1, set_cloudflare_trace_id_header_v1,
     CloudflareEd25519YaoPackagePairDeliveryV1, CloudflareEd25519YaoPairCompletionAcknowledgementV1,
     CloudflareEd25519YaoPairExecuteRequestV1, CloudflareEd25519YaoPairPrepareRequestV1,
@@ -21,11 +22,12 @@ use crate::{
     CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_RECOVERY_PROMOTE_PATH,
 };
 use router_ab_core::{
-    Ed25519YaoDeriverRoleV1, Ed25519YaoInputPairBindingV1, Ed25519YaoOperationV1,
-    Ed25519YaoRoleReadinessReceiptV1, RouterAbEd25519YaoActivationPublicReceiptV1,
-    RouterAbEd25519YaoActivationResultV1, RouterAbEd25519YaoExportResultV1, RouterAbProtocolError,
-    RouterAbProtocolErrorCode, RouterAbProtocolResult, RouterEd25519YaoExecuteRequestV1,
-    RouterEd25519YaoExecuteResultV1, RouterEd25519YaoExecuteSuccessV1,
+    ed25519_yao_recipient_set_digest_v1, Ed25519YaoDeriverRoleV1, Ed25519YaoInputPairBindingV1,
+    Ed25519YaoOperationV1, Ed25519YaoRoleReadinessReceiptV1, PublicDigest32,
+    RouterAbEd25519YaoActivationPublicReceiptV1, RouterAbEd25519YaoActivationResultV1,
+    RouterAbEd25519YaoExportResultV1, RouterAbProtocolError, RouterAbProtocolErrorCode,
+    RouterAbProtocolResult, RouterEd25519YaoExecuteRequestV1, RouterEd25519YaoExecuteResultV1,
+    RouterEd25519YaoExecuteSuccessV1, RouterEd25519YaoGatewayExecuteRequestV1,
 };
 use router_ab_ed25519_yao::{
     Ed25519YaoActivationRoleExecutionV1, Ed25519YaoExportRoleExecutionV1,
@@ -39,6 +41,7 @@ const DERIVER_B_SERVICE_URL: &str = "https://router-ab-deriver-b.internal";
 const SIGNING_WORKER_SERVICE_URL: &str = "https://router-ab-signing-worker.internal";
 const ROUTER_SPAN_EVENT: &str = "router_ab_yao_coordinator_span_v1";
 const ROUTER_REPLAY_HEADER: &str = "x-seams-yao-replay";
+const ROUTER_AUTHORITY_TTL_MS: u64 = 60_000;
 
 #[derive(Serialize)]
 struct CoordinatorSpan<'a> {
@@ -93,7 +96,10 @@ pub async fn handle_cloudflare_router_ed25519_yao_execute_private_fetch_v1(
         Ok(replay) => replay,
         Err(error) => return protocol_error_response(error),
     };
-    let execute_request = match request.json::<RouterEd25519YaoExecuteRequestV1>().await {
+    let gateway_request = match request
+        .json::<RouterEd25519YaoGatewayExecuteRequestV1>()
+        .await
+    {
         Ok(request) => request,
         Err(error) => {
             return protocol_error_response(RouterAbProtocolError::new(
@@ -108,6 +114,18 @@ pub async fn handle_cloudflare_router_ed25519_yao_execute_private_fetch_v1(
     };
     let runtime = match CloudflareRouterWorkerRuntimeV1::from_worker_env(env) {
         Ok(runtime) => runtime,
+        Err(error) => return protocol_error_response(error),
+    };
+    let recipient_set_digest = match router_recipient_set_digest_v1(env) {
+        Ok(digest) => digest,
+        Err(error) => return protocol_error_response(error),
+    };
+    let execute_request = match gateway_request.into_execute_request(
+        recipient_set_digest,
+        now_ms,
+        now_ms.saturating_add(ROUTER_AUTHORITY_TTL_MS),
+    ) {
+        Ok(request) => request,
         Err(error) => return protocol_error_response(error),
     };
     let operation = execute_request.operation();
@@ -132,6 +150,20 @@ pub async fn handle_cloudflare_router_ed25519_yao_execute_private_fetch_v1(
         Ok(result) => Response::from_json(&result),
         Err(error) => protocol_error_response(error),
     }
+}
+
+fn router_recipient_set_digest_v1(env: &Env) -> RouterAbProtocolResult<PublicDigest32> {
+    let keyset = build_cloudflare_router_public_keyset_v2(&CloudflareWorkerEnvReaderV1::new(env))?;
+    let deriver_a = crate::hpke::cloudflare_hpke_x25519_public_key_bytes_v1(
+        &keyset.signer_envelope_hpke.current.deriver_a.public_key,
+    )?;
+    let deriver_b = crate::hpke::cloudflare_hpke_x25519_public_key_bytes_v1(
+        &keyset.signer_envelope_hpke.current.deriver_b.public_key,
+    )?;
+    let signing_worker = crate::hpke::cloudflare_hpke_x25519_public_key_bytes_v1(
+        &keyset.signing_worker_server_output_hpke.public_key,
+    )?;
+    ed25519_yao_recipient_set_digest_v1(deriver_a, deriver_b, signing_worker)
 }
 
 /// Handles explicit recovery promotion without exposing the SigningWorker to the Gateway.

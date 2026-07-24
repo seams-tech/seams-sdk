@@ -803,6 +803,10 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
       'POST /router-ab/router/ed25519-yao/execute',
     ]);
     expect(scriptedFetch.requestBodies[0]).toBe(scriptedFetch.requestBodies[1]);
+    const routerBody = JSON.parse(scriptedFetch.requestBodies[0]) as Record<string, unknown>;
+    expect(routerBody.operation).toBe('registration');
+    expect(routerBody).not.toHaveProperty('authority');
+    expect(routerBody).not.toHaveProperty('pair_binding');
     expect(scriptedFetch.replayHeaders).toEqual(['', '1']);
     expect(scriptedFetch.traceIds).toHaveLength(2);
     expect(scriptedFetch.traceIds[0]).toBe(scriptedFetch.traceIds[1]);

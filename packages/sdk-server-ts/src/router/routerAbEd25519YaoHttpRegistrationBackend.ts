@@ -3,17 +3,12 @@ import {
   parseRouterAbEd25519YaoActivationResultV1,
   parseRouterAbEd25519YaoExportResultV1,
   type RouterAbEd25519YaoActivationExecuteRequestV1,
-  type RouterAbEd25519YaoCeremonyBindingV1,
-  type RouterAbEd25519YaoDeriverRoleV1,
-  type RouterAbEd25519YaoEncryptedInputV1,
   type RouterAbEd25519YaoExportBindingV1,
   type RouterAbEd25519YaoRecoveryActivationRequestV1,
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
   type RouterAbEd25519YaoExportAdmissionRequestV1,
   type RouterAbEd25519YaoExportExecuteRequestV1,
-  type RouterAbEd25519YaoRouterExecuteRequestV1,
-  type RouterAbEd25519YaoOperationV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import type {
   RouterAbEd25519YaoRegistrationBackend,
@@ -326,7 +321,25 @@ function activeReceiptMatchesRecoveryActivation(
   );
 }
 
-type RouterExecuteBoundary = RouterAbEd25519YaoRouterExecuteRequestV1;
+type RouterExecuteBoundary =
+  | {
+      operation: 'registration';
+      binding: RouterAbEd25519YaoRegistrationExecuteRequestV1['binding'];
+      deriver_a_input: RouterAbEd25519YaoRegistrationExecuteRequestV1['deriver_a_input'];
+      deriver_b_input: RouterAbEd25519YaoRegistrationExecuteRequestV1['deriver_b_input'];
+    }
+  | {
+      operation: 'recovery';
+      binding: RouterAbEd25519YaoRecoveryExecuteRequestV1['binding'];
+      deriver_a_input: RouterAbEd25519YaoRecoveryExecuteRequestV1['deriver_a_input'];
+      deriver_b_input: RouterAbEd25519YaoRecoveryExecuteRequestV1['deriver_b_input'];
+    }
+  | {
+      operation: 'export';
+      binding: RouterAbEd25519YaoExportExecuteRequestV1['binding'];
+      deriver_a_input: RouterAbEd25519YaoExportExecuteRequestV1['deriver_a_input'];
+      deriver_b_input: RouterAbEd25519YaoExportExecuteRequestV1['deriver_b_input'];
+    };
 
 type RouterExecuteInput =
   | RouterAbEd25519YaoRegistrationExecuteRequestV1
@@ -355,226 +368,12 @@ function executeOperation(request: RouterExecuteInput): 'registration' | 'recove
   return isExportExecuteRequest(request) ? request.binding.ceremony.operation : request.binding.operation;
 }
 
-const TEXT_ENCODER = new TextEncoder();
-
-async function sha256Bytes(value: Uint8Array): Promise<number[]> {
-  const digest = await globalThis.crypto.subtle.digest('SHA-256', value);
-  return Array.from(new Uint8Array(digest));
-}
-
-function concatBytes(chunks: readonly Uint8Array[]): Uint8Array {
-  const output = new Uint8Array(chunks.reduce((size, chunk) => size + chunk.length, 0));
-  let offset = 0;
-  for (const chunk of chunks) {
-    output.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return output;
-}
-
-function u32(value: number): Uint8Array {
-  const output = new Uint8Array(4);
-  new DataView(output.buffer).setUint32(0, value, false);
-  return output;
-}
-
-function pushString(value: string): Uint8Array {
-  const encoded = TEXT_ENCODER.encode(value);
-  return concatBytes([u32(encoded.length), encoded]);
-}
-
-function requireDigest32(value: unknown, label: string): number[] {
-  if (!Array.isArray(value) || value.length !== 32) {
-    throw new Error(`${label} must contain exactly 32 bytes`);
-  }
-  for (const [index, byte] of value.entries()) {
-    if (!Number.isInteger(byte) || byte < 0 || byte > 255) {
-      throw new Error(`${label}[${index}] must be a byte`);
-    }
-  }
-  if (value.every((byte) => byte === 0)) {
-    throw new Error(`${label} must be nonzero`);
-  }
-  return value;
-}
-
-function operationTag(operation: RouterAbEd25519YaoOperationV1): number {
-  switch (operation) {
-    case 'registration':
-      return 1;
-    case 'recovery':
-      return 2;
-    case 'refresh':
-      return 3;
-    case 'export':
-      return 4;
-  }
-}
-
-export type RouterAbEd25519YaoPairDigestInputV1 = {
-  ceremony: RouterAbEd25519YaoCeremonyBindingV1;
-  deriverAInputDigest: readonly number[];
-  deriverBInputDigest: readonly number[];
-  recipientSetDigest: readonly number[];
-  authorizationDigest: readonly number[];
-};
-
-/** Derives the canonical pair digest shared with router-ab-core. */
-export async function deriveRouterAbEd25519YaoPairDigestV1(
-  input: RouterAbEd25519YaoPairDigestInputV1,
-): Promise<number[]> {
-  const deriverAInputDigest = requireDigest32(input.deriverAInputDigest, 'deriverAInputDigest');
-  const deriverBInputDigest = requireDigest32(input.deriverBInputDigest, 'deriverBInputDigest');
-  const recipientSetDigest = requireDigest32(input.recipientSetDigest, 'recipientSetDigest');
-  const authorizationDigest = requireDigest32(input.authorizationDigest, 'authorizationDigest');
-  const ceremony = input.ceremony;
-  if (!ceremony || typeof ceremony !== 'object') {
-    throw new Error('ceremony is required');
-  }
-  return await sha256Bytes(
-    concatBytes([
-      TEXT_ENCODER.encode('router-ab-ed25519-yao/input-pair/v1'),
-      ceremonyIdentityBytes(ceremony),
-      Uint8Array.from(deriverAInputDigest),
-      Uint8Array.from(deriverBInputDigest),
-      Uint8Array.from(recipientSetDigest),
-      Uint8Array.from(authorizationDigest),
-    ]),
-  );
-}
-
-function inputTag(input: RouterAbEd25519YaoEncryptedInputV1): number {
-  return input.kind === 'activation' ? 1 : 2;
-}
-
-function roleTag(role: RouterAbEd25519YaoDeriverRoleV1): number {
-  return role === 'deriver_a' ? 1 : 2;
-}
-
-async function encryptedInputDigest(
-  input: RouterAbEd25519YaoEncryptedInputV1,
-): Promise<number[]> {
-  const ciphertext = Uint8Array.from(input.ciphertext);
-  return await sha256Bytes(
-    concatBytes([
-      TEXT_ENCODER.encode('router-ab-ed25519-yao/input/v1'),
-      Uint8Array.of(inputTag(input), roleTag(input.deriver), operationTag(input.operation)),
-      Uint8Array.from(input.session),
-      Uint8Array.from(input.stable_context_binding),
-      Uint8Array.from(input.encapsulated_key),
-      u32(ciphertext.length),
-      ciphertext,
-    ]),
-  );
-}
-
-function ceremonyIdentityBytes(binding: RouterAbEd25519YaoCeremonyBindingV1): Uint8Array {
-  const circuit =
-    binding.operation === 'export' ? 'ed25519_yao_export_v1' : 'ed25519_yao_activation_v1';
-  return concatBytes([
-    TEXT_ENCODER.encode('router_ab_ed25519_yao_v1'),
-    Uint8Array.of(0),
-    TEXT_ENCODER.encode(circuit),
-    Uint8Array.of(0),
-    pushString(binding.lifecycle.lifecycle_id),
-    pushString(binding.lifecycle.work_kind),
-    pushString(binding.lifecycle.primitive_request_kind),
-    pushString(binding.lifecycle.root_share_epoch),
-    pushString(binding.lifecycle.account_id),
-    pushString(binding.lifecycle.session_id),
-    pushString(binding.lifecycle.signer_set_id),
-    pushString(binding.lifecycle.selected_server_id),
-    Uint8Array.of(operationTag(binding.operation)),
-    Uint8Array.from(binding.session_id),
-    Uint8Array.from(binding.stable_key_context_binding),
-  ]);
-}
-
 async function routerExecuteRequest(
   request: RouterExecuteInput,
-  keyset: {
-    deriver_a_input_public_key: readonly number[];
-    deriver_b_input_public_key: readonly number[];
-    signing_worker_recipient_public_key: readonly number[];
-  },
 ): Promise<RouterExecuteBoundary> {
-  const operation = executeOperation(request);
-  const ceremony = isExportExecuteRequest(request) ? request.binding.ceremony : request.binding;
-  const authorizationDigest = isExportExecuteRequest(request)
-    ? request.binding.authorization_digest
-    : await sha256Bytes(
-        concatBytes([
-          TEXT_ENCODER.encode('router-ab-ed25519-yao/authorization/v1'),
-          TEXT_ENCODER.encode(JSON.stringify(request)),
-        ]),
-      );
-  const recipientSetDigest = await sha256Bytes(
-    concatBytes([
-      Uint8Array.from(keyset.deriver_a_input_public_key),
-      Uint8Array.from(keyset.deriver_b_input_public_key),
-      Uint8Array.from(keyset.signing_worker_recipient_public_key),
-    ]),
-  );
-  const deriverAInput = request.deriver_a_input;
-  const deriverBInput = request.deriver_b_input;
-  const deriverAInputDigest = await encryptedInputDigest(deriverAInput);
-  const deriverBInputDigest = await encryptedInputDigest(deriverBInput);
-  const pairDigest = await deriveRouterAbEd25519YaoPairDigestV1({
-    ceremony,
-    deriverAInputDigest,
-    deriverBInputDigest,
-    recipientSetDigest,
-    authorizationDigest,
-  });
-  const issuedAt = Date.now();
-  const authorityDigest = authorizationDigest;
-  const pair_binding = {
-    ceremony: {
-      binding: ceremony,
-      circuit: operation === 'export' ? ('export_v1' as const) : ('activation_v1' as const),
-      protocol: 'v1' as const,
-    },
-    deriver_a_input_digest: { bytes: deriverAInputDigest },
-    deriver_b_input_digest: { bytes: deriverBInputDigest },
-    recipient_set_digest: { bytes: recipientSetDigest },
-    authorization_digest: { bytes: authorizationDigest },
-    pair_digest: { bytes: pairDigest },
-  };
-  const authority = {
-    authority_digest: { bytes: authorityDigest },
-    issued_at_ms: issuedAt,
-    expires_at_ms: issuedAt + 60_000,
-  };
-  if (isExportExecuteRequest(request)) {
-    return {
-      operation: 'export',
-      authority,
-      binding: request.binding,
-      pair_binding,
-      deriver_a_input: request.deriver_a_input,
-      deriver_b_input: request.deriver_b_input,
-    };
-  }
-  if (isRegistrationExecuteRequest(request)) {
-    return {
-      operation: 'registration',
-      authority,
-      binding: request.binding,
-      pair_binding,
-      deriver_a_input: request.deriver_a_input,
-      deriver_b_input: request.deriver_b_input,
-    };
-  }
-  if (isRecoveryExecuteRequest(request)) {
-    return {
-      operation: 'recovery',
-      authority,
-      binding: request.binding,
-      pair_binding,
-      deriver_a_input: request.deriver_a_input,
-      deriver_b_input: request.deriver_b_input,
-    };
-  }
+  if (isExportExecuteRequest(request)) return { operation: 'export', ...request };
+  if (isRegistrationExecuteRequest(request)) return { operation: 'registration', ...request };
+  if (isRecoveryExecuteRequest(request)) return { operation: 'recovery', ...request };
   throw new Error('Unsupported Router Yao execute operation');
 }
 
@@ -749,7 +548,7 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
     request: RouterAbEd25519YaoExportExecuteRequestV1,
   ): Promise<RouterAbEd25519YaoRegistrationBackendResult> {
     try {
-      const routerRequest = await routerExecuteRequest(request, this.keyset());
+      const routerRequest = await routerExecuteRequest(request);
       const response = await this.post(
         ROUTER_EXECUTE_PATH,
         routerRequest,
@@ -854,7 +653,7 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
     request: RouterAbEd25519YaoRegistrationExecuteRequestV1 | RouterAbEd25519YaoRecoveryExecuteRequestV1,
   ): Promise<RouterAbEd25519YaoRegistrationBackendResult> {
     try {
-      const routerRequest = await routerExecuteRequest(request, this.keyset());
+      const routerRequest = await routerExecuteRequest(request);
       const response = await this.post(
         ROUTER_EXECUTE_PATH,
         routerRequest,
