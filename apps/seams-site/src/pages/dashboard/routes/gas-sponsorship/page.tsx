@@ -1802,13 +1802,26 @@ export function GasSponsorshipPage(): React.JSX.Element {
               ) : (
                 gasPoliciesPagination.rows.map((policy) => (
                   <DashboardTableRow
-                    className="dashboard-gas-sponsorship-table__row"
+                    className={`dashboard-gas-sponsorship-table__row${
+                      policy.enabled ? '' : ' dashboard-gas-sponsorship-table__row--disabled'
+                    }`}
                     key={policy.id}
                   >
                     <DashboardTableCell title={policy.id}>
-                      <strong className="dashboard-data-table__summary">
-                        {policy.name || policy.id}
-                      </strong>
+                      <span className="dashboard-gas-sponsorship-table__policy-cell">
+                        <strong className="dashboard-data-table__summary">
+                          {policy.name || policy.id}
+                        </strong>
+                        <span
+                          className={`dashboard-data-table__badge ${
+                            policy.enabled
+                              ? 'dashboard-data-table__badge--success'
+                              : 'dashboard-data-table__badge--neutral'
+                          }`}
+                        >
+                          {policy.enabled ? 'Enabled' : 'Disabled'}
+                        </span>
+                      </span>
                     </DashboardTableCell>
                     <DashboardTableCell title={formatRuleSummary(policy)}>
                       {formatRuleSummary(policy)}
@@ -1822,7 +1835,7 @@ export function GasSponsorshipPage(): React.JSX.Element {
                     <DashboardTableCell truncate>
                       {formatTimestamp(policy.updatedAt)}
                     </DashboardTableCell>
-                    <DashboardTableCell>
+                    <DashboardTableCell className="dashboard-gas-sponsorship-table__actions-cell">
                       <DashboardTableActionGroup>
                         <DashboardTableActionButton
                           onClick={() => onViewPolicy(policy)}
