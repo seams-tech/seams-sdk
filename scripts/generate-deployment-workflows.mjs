@@ -241,10 +241,10 @@ function transformStackJobs(template, target, mode) {
   const preflight = jobs[`${prefix}preflight_release`];
   if (automatic) {
     mergeNeeds(preflight, ['auto_create_release_set']);
-    preflight.if = addEventGuard(
+    preflight.if = `always() && ${addEventGuard(
       "needs.auto_create_release_set.result == 'success'",
       "github.event_name == 'workflow_run'",
-    );
+    )}`;
     for (const job of Object.values(jobs)) {
       mergeNeeds(job, ['auto_create_release_set']);
     }
