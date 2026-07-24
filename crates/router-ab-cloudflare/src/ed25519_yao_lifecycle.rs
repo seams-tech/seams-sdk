@@ -178,6 +178,7 @@ enum PairYaoSessionRecordV1 {
         pair_digest: [u8; 32],
         input_digest: [u8; 32],
         root_metadata_digest: [u8; 32],
+        execution_id: [u8; 32],
         started_at_ms: u64,
         input: Box<Ed25519YaoEncryptedInputV1>,
     },
@@ -190,6 +191,7 @@ enum PairYaoSessionRecordV1 {
     Burned {
         pair_digest: [u8; 32],
         input_digest: [u8; 32],
+        execution_id: [u8; 32],
     },
     Expired {
         pair_digest: [u8; 32],
@@ -217,6 +219,72 @@ impl PairYaoSessionRecordV1 {
             | Self::Expired { input_digest, .. } => *input_digest,
         }
     }
+}
+
+fn yao_execution_id() -> worker::Result<[u8; 32]> {
+    let bytes = crate::cloudflare_random_bytes_v1(32)
+        .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
+    let mut execution_id = [0_u8; 32];
+    execution_id.copy_from_slice(&bytes);
+    Ok(execution_id)
+}
+
+async fn expire_prepared_pair_if_current(
+    storage: &worker::Storage,
+    pair_digest: [u8; 32],
+    input_digest: [u8; 32],
+    now_ms: u64,
+) -> worker::Result<bool> {
+    storage
+        .transaction(move |transaction| async move {
+            let current = match transaction
+                .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
+                .await
+            {
+                Ok(record) => record,
+                Err(worker::Error::JsError(message)) if message == "No such value in storage." => {
+                    return Ok(());
+                }
+                Err(error) => return Err(error),
+            };
+            match current {
+                PairYaoSessionRecordV1::Prepared {
+                    pair_digest: stored_pair,
+                    input_digest: stored_input,
+                    expires_at_ms,
+                    ..
+                } if stored_pair == pair_digest
+                    && stored_input == input_digest
+                    && now_ms >= expires_at_ms =>
+                {
+                    transaction
+                        .put(
+                            PAIR_SESSION_RECORD_STORAGE_KEY,
+                            PairYaoSessionRecordV1::Expired {
+                                pair_digest,
+                                input_digest,
+                            },
+                        )
+                        .await?;
+                    Ok(())
+                }
+                PairYaoSessionRecordV1::Expired {
+                    pair_digest: stored_pair,
+                    input_digest: stored_input,
+                } if stored_pair == pair_digest && stored_input == input_digest => Ok(()),
+                _ => Ok(()),
+            }
+        })
+        .await?;
+    Ok(matches!(
+        storage
+            .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
+            .await?,
+        Some(PairYaoSessionRecordV1::Expired {
+            pair_digest: stored_pair,
+            input_digest: stored_input,
+        }) if stored_pair == pair_digest && stored_input == input_digest
+    ))
 }
 
 /// Exact pair and role envelope sent to one private prepare-pair route.
@@ -773,6 +841,16 @@ impl worker::DurableObject for RouterAbDeriverAYaoSessionDurableObject {
             unreachable!("pair commands are handled before the legacy command path")
         };
         let storage = self.state.storage();
+        if storage
+            .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
+            .await?
+            .is_some()
+        {
+            return Response::error(
+                "Deriver A pair lifecycle owns this session; legacy execution is closed",
+                409,
+            );
+        }
         let now_unix_ms = cloudflare_yao_now_unix_ms()?;
         let input_digest = yao_input_digest(&input);
         let existing = storage
@@ -952,16 +1030,14 @@ impl RouterAbDeriverAYaoSessionDurableObject {
                 expires_at_ms,
                 ..
             } if stored_pair == pair_digest && input.session() == session => {
-                if cloudflare_yao_now_unix_ms()? >= expires_at_ms {
-                    storage
-                        .put(
-                            PAIR_SESSION_RECORD_STORAGE_KEY,
-                            PairYaoSessionRecordV1::Expired {
-                                pair_digest,
-                                input_digest: yao_input_digest(&input),
-                            },
-                        )
-                        .await?;
+                let input_digest = yao_input_digest(&input);
+                let now_ms = cloudflare_yao_now_unix_ms()?;
+                if now_ms >= expires_at_ms {
+                    if !expire_prepared_pair_if_current(&storage, pair_digest, input_digest, now_ms)
+                        .await?
+                    {
+                        return Response::error("Deriver A pair expiry state changed", 409);
+                    }
                     CloudflareEd25519YaoPairStatusResponseV1::Expired {
                         session,
                         pair_digest,
@@ -1034,17 +1110,63 @@ impl RouterAbDeriverAYaoSessionDurableObject {
                 ..
             } if stored_pair == pair_digest && input.session() == session => {
                 storage
-                    .put(
-                        PAIR_SESSION_RECORD_STORAGE_KEY,
-                        PairYaoSessionRecordV1::Burned {
-                            pair_digest,
-                            input_digest,
-                        },
-                    )
+                    .transaction(move |transaction| async move {
+                        let current = match transaction
+                            .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
+                            .await
+                        {
+                            Ok(record) => record,
+                            Err(worker::Error::JsError(message))
+                                if message == "No such value in storage." =>
+                            {
+                                return Ok(())
+                            }
+                            Err(error) => return Err(error),
+                        };
+                        if let PairYaoSessionRecordV1::Running {
+                            pair_digest: current_pair,
+                            input: current_input,
+                            execution_id,
+                            ..
+                        } = current
+                        {
+                            if current_pair == pair_digest && current_input.session() == session {
+                                transaction
+                                    .put(
+                                        PAIR_SESSION_RECORD_STORAGE_KEY,
+                                        PairYaoSessionRecordV1::Burned {
+                                            pair_digest,
+                                            input_digest,
+                                            execution_id,
+                                        },
+                                    )
+                                    .await?;
+                            }
+                        }
+                        Ok(())
+                    })
                     .await?;
-                CloudflareEd25519YaoPairStatusResponseV1::Burned {
-                    session,
-                    pair_digest,
+                let current = storage
+                    .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
+                    .await?;
+                match current {
+                    Some(PairYaoSessionRecordV1::Burned {
+                        pair_digest: current_pair,
+                        ..
+                    }) if current_pair == pair_digest => {
+                        CloudflareEd25519YaoPairStatusResponseV1::Burned {
+                            session,
+                            pair_digest,
+                        }
+                    }
+                    Some(PairYaoSessionRecordV1::Completed {
+                        pair_digest: current_pair,
+                        execution,
+                        ..
+                    }) if current_pair == pair_digest && execution.session() == session => {
+                        CloudflareEd25519YaoPairStatusResponseV1::Completed { execution }
+                    }
+                    _ => return Response::error("Deriver A pair burn state changed", 409),
                 }
             }
             PairYaoSessionRecordV1::Completed {
@@ -1133,23 +1255,44 @@ impl RouterAbDeriverAYaoSessionDurableObject {
                 {
                     return Response::error("conflicting Deriver A pair preparation", 409);
                 }
-                PairYaoSessionRecordV1::Prepared { input_digest, .. }
-                | PairYaoSessionRecordV1::Running { input_digest, .. } => {
-                    storage
-                        .put(
-                            PAIR_SESSION_RECORD_STORAGE_KEY,
-                            PairYaoSessionRecordV1::Expired {
-                                pair_digest,
-                                input_digest,
-                            },
-                        )
-                        .await?;
+                PairYaoSessionRecordV1::Prepared {
+                    pair_digest: stored_pair,
+                    input_digest: stored_input,
+                    ..
+                } if stored_pair == pair_digest && stored_input == input_digest => {
+                    let now_ms = cloudflare_yao_now_unix_ms()?;
+                    if !expire_prepared_pair_if_current(&storage, stored_pair, stored_input, now_ms)
+                        .await?
+                    {
+                        return Response::error("Deriver A pair expiry state changed", 409);
+                    }
                     return Response::error("Deriver A pair preparation expired", 409);
+                }
+                PairYaoSessionRecordV1::Running {
+                    pair_digest: stored_pair,
+                    input_digest: stored_input,
+                    ..
+                } if stored_pair == pair_digest && stored_input == input_digest => {
+                    return Response::error("Deriver A pair is already running", 409);
                 }
                 PairYaoSessionRecordV1::Burned { .. } | PairYaoSessionRecordV1::Expired { .. } => {
                     return Response::error("Deriver A pair is terminal", 409);
                 }
+                PairYaoSessionRecordV1::Prepared { .. }
+                | PairYaoSessionRecordV1::Running { .. } => {
+                    return Response::error("conflicting Deriver A pair preparation", 409);
+                }
             }
+        }
+        if storage
+            .get::<YaoSessionRecordV1>(SESSION_RECORD_STORAGE_KEY)
+            .await?
+            .is_some()
+        {
+            return Response::error(
+                "Deriver A legacy lifecycle owns this session; pair preparation is closed",
+                409,
+            );
         }
         let runtime = CloudflareDeriverAWorkerRuntimeV1::from_worker_env(&self.env)
             .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
@@ -1160,7 +1303,34 @@ impl RouterAbDeriverAYaoSessionDurableObject {
         )
         .await
         .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
-        let expires_at_ms = yao_expiry_from_now(now_unix_ms, YAO_STAGED_INPUT_LIFETIME_MS)?;
+        let prepared_at_ms = cloudflare_yao_now_unix_ms()?;
+        if let Some(existing) = storage
+            .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
+            .await?
+        {
+            match existing {
+                PairYaoSessionRecordV1::Prepared {
+                    pair_digest: existing_pair,
+                    input_digest: existing_input,
+                    expires_at_ms,
+                    receipt,
+                    ..
+                } if existing_pair == pair_digest
+                    && existing_input == input_digest
+                    && prepared_at_ms < expires_at_ms =>
+                {
+                    return Response::from_json(&*receipt);
+                }
+                PairYaoSessionRecordV1::Prepared { .. }
+                | PairYaoSessionRecordV1::Running { .. }
+                | PairYaoSessionRecordV1::Completed { .. }
+                | PairYaoSessionRecordV1::Burned { .. }
+                | PairYaoSessionRecordV1::Expired { .. } => {
+                    return Response::error("Deriver A pair changed while preparing", 409);
+                }
+            }
+        }
+        let expires_at_ms = yao_expiry_from_now(prepared_at_ms, YAO_STAGED_INPUT_LIFETIME_MS)?;
         let session = request.pair_binding.session();
         let receipt = sign_role_readiness_receipt_v1(
             &self.env,
@@ -1171,7 +1341,7 @@ impl RouterAbDeriverAYaoSessionDurableObject {
             pair_digest,
             input_digest,
             root_metadata_digest,
-            now_unix_ms,
+            prepared_at_ms,
             expires_at_ms,
         )
         .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
@@ -1243,18 +1413,21 @@ impl RouterAbDeriverAYaoSessionDurableObject {
             } if stored_pair == pair_digest && stored_input == input_digest => {
                 return Response::from_json(&*execution);
             }
-            PairYaoSessionRecordV1::Prepared { input_digest, .. }
-            | PairYaoSessionRecordV1::Running { input_digest, .. } => {
-                storage
-                    .put(
-                        PAIR_SESSION_RECORD_STORAGE_KEY,
-                        PairYaoSessionRecordV1::Expired {
-                            pair_digest,
-                            input_digest,
-                        },
-                    )
-                    .await?;
+            PairYaoSessionRecordV1::Prepared {
+                pair_digest: stored_pair,
+                input_digest: stored_input,
+                ..
+            } if stored_pair == pair_digest && stored_input == input_digest => {
+                let now_ms = cloudflare_yao_now_unix_ms()?;
+                if !expire_prepared_pair_if_current(&storage, stored_pair, stored_input, now_ms)
+                    .await?
+                {
+                    return Response::error("Deriver A pair expiry state changed", 409);
+                }
                 return Response::error("Deriver A pair preparation expired", 409);
+            }
+            PairYaoSessionRecordV1::Prepared { .. } | PairYaoSessionRecordV1::Running { .. } => {
+                return Response::error("Deriver A pair is already active", 409);
             }
             _ => return Response::error("Deriver A pair is not prepared", 409),
         };
@@ -1275,18 +1448,63 @@ impl RouterAbDeriverAYaoSessionDurableObject {
             );
         }
         let started_at_ms = cloudflare_yao_now_unix_ms()?;
+        let execution_id = yao_execution_id()?;
+        let running_record = PairYaoSessionRecordV1::Running {
+            pair_digest,
+            input_digest,
+            root_metadata_digest,
+            execution_id,
+            started_at_ms,
+            input: input.clone(),
+        };
         storage
-            .put(
-                PAIR_SESSION_RECORD_STORAGE_KEY,
-                PairYaoSessionRecordV1::Running {
-                    pair_digest,
-                    input_digest,
-                    root_metadata_digest,
-                    started_at_ms,
-                    input: input.clone(),
-                },
-            )
+            .transaction(move |transaction| async move {
+                let current = match transaction
+                    .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
+                    .await
+                {
+                    Ok(record) => record,
+                    Err(worker::Error::JsError(message))
+                        if message == "No such value in storage." =>
+                    {
+                        return Ok(())
+                    }
+                    Err(error) => return Err(error),
+                };
+                if matches!(
+                    current,
+                    PairYaoSessionRecordV1::Prepared {
+                        pair_digest: stored_pair,
+                        input_digest: stored_input,
+                        expires_at_ms,
+                        ..
+                    } if stored_pair == pair_digest
+                        && stored_input == input_digest
+                        && started_at_ms < expires_at_ms
+                ) {
+                    transaction
+                        .put(PAIR_SESSION_RECORD_STORAGE_KEY, running_record)
+                        .await?;
+                }
+                Ok(())
+            })
             .await?;
+        let current = storage
+            .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
+            .await?;
+        if !matches!(
+            current,
+            Some(PairYaoSessionRecordV1::Running {
+                pair_digest: stored_pair,
+                input_digest: stored_input,
+                execution_id: stored_execution_id,
+                ..
+            }) if stored_pair == pair_digest
+                && stored_input == input_digest
+                && stored_execution_id == execution_id
+        ) {
+            return Response::error("Deriver A pair execution was already claimed", 409);
+        }
         let execution = execute_deriver_a_role(
             &self.env,
             &runtime,
@@ -1302,13 +1520,40 @@ impl RouterAbDeriverAYaoSessionDurableObject {
             Ok(execution) => execution,
             Err(error) => {
                 storage
-                    .put(
-                        PAIR_SESSION_RECORD_STORAGE_KEY,
-                        PairYaoSessionRecordV1::Burned {
-                            pair_digest,
-                            input_digest,
-                        },
-                    )
+                    .transaction(move |transaction| async move {
+                        let current = match transaction
+                            .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
+                            .await
+                        {
+                            Ok(record) => record,
+                            Err(worker::Error::JsError(message))
+                                if message == "No such value in storage." =>
+                            {
+                                return Ok(())
+                            }
+                            Err(error) => return Err(error),
+                        };
+                        if matches!(
+                            current,
+                            PairYaoSessionRecordV1::Running {
+                                pair_digest: stored_pair,
+                                input_digest: stored_input,
+                                ..
+                            } if stored_pair == pair_digest && stored_input == input_digest
+                        ) {
+                            transaction
+                                .put(
+                                    PAIR_SESSION_RECORD_STORAGE_KEY,
+                                    PairYaoSessionRecordV1::Burned {
+                                        pair_digest,
+                                        input_digest,
+                                        execution_id,
+                                    },
+                                )
+                                .await?;
+                        }
+                        Ok(())
+                    })
                     .await?;
                 let _ = execute_deriver_b_session_command(
                     &self.env,
@@ -1322,17 +1567,83 @@ impl RouterAbDeriverAYaoSessionDurableObject {
                 return Response::error(error.message(), 500);
             }
         };
+        let completed_record = PairYaoSessionRecordV1::Completed {
+            pair_digest,
+            input_digest,
+            root_metadata_digest,
+            execution: Box::new(execution.clone()),
+        };
         storage
-            .put(
-                PAIR_SESSION_RECORD_STORAGE_KEY,
-                PairYaoSessionRecordV1::Completed {
-                    pair_digest,
-                    input_digest,
-                    root_metadata_digest,
-                    execution: Box::new(execution.clone()),
-                },
-            )
+            .transaction(move |transaction| async move {
+                let current = match transaction
+                    .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
+                    .await
+                {
+                    Ok(record) => record,
+                    Err(worker::Error::JsError(message))
+                        if message == "No such value in storage." =>
+                    {
+                        return Ok(())
+                    }
+                    Err(error) => return Err(error),
+                };
+                let now_unix_ms = cloudflare_yao_now_unix_ms()?;
+                match current {
+                    PairYaoSessionRecordV1::Running {
+                        pair_digest: stored_pair,
+                        input_digest: stored_input,
+                        started_at_ms,
+                        execution_id,
+                        ..
+                    } if stored_pair == pair_digest && stored_input == input_digest => {
+                        if now_unix_ms.saturating_sub(started_at_ms) >= YAO_RUNNING_LIFETIME_MS {
+                            transaction
+                                .put(
+                                    PAIR_SESSION_RECORD_STORAGE_KEY,
+                                    PairYaoSessionRecordV1::Burned {
+                                        pair_digest,
+                                        input_digest,
+                                        execution_id,
+                                    },
+                                )
+                                .await?;
+                        } else {
+                            transaction
+                                .put(PAIR_SESSION_RECORD_STORAGE_KEY, completed_record)
+                                .await?;
+                        }
+                    }
+                    _ => {}
+                }
+                Ok(())
+            })
             .await?;
+        let current = storage
+            .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
+            .await?;
+        match current {
+            Some(PairYaoSessionRecordV1::Completed {
+                pair_digest: stored_pair,
+                input_digest: stored_input,
+                execution: existing,
+                ..
+            }) if stored_pair == pair_digest && stored_input == input_digest => {
+                if *existing != execution {
+                    return Response::error(
+                        "Deriver A pair completed with a conflicting result",
+                        409,
+                    );
+                }
+            }
+            Some(PairYaoSessionRecordV1::Burned {
+                pair_digest: stored_pair,
+                input_digest: stored_input,
+                ..
+            }) if stored_pair == pair_digest && stored_input == input_digest => {
+                return Response::error("Deriver A pair execution was burned", 409);
+            }
+            _ => return Response::error("Deriver A pair execution state changed", 409),
+        }
         Response::from_json(&execution)
     }
 }
@@ -1370,6 +1681,16 @@ impl worker::DurableObject for RouterAbDeriverBYaoSessionDurableObject {
             return self.handle_pair_command(command).await;
         }
         let storage = self.state.storage();
+        if storage
+            .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
+            .await?
+            .is_some()
+        {
+            return Response::error(
+                "Deriver B pair lifecycle owns this session; legacy execution is closed",
+                409,
+            );
+        }
         let now_unix_ms = cloudflare_yao_now_unix_ms()?;
         let response = match command {
             DeriverBYaoSessionCommandV1::Stage { input } => {
@@ -1776,6 +2097,16 @@ impl RouterAbDeriverBYaoSessionDurableObject {
                 }
             }
         }
+        if storage
+            .get::<YaoSessionRecordV1>(SESSION_RECORD_STORAGE_KEY)
+            .await?
+            .is_some()
+        {
+            return Response::error(
+                "Deriver B legacy lifecycle owns this session; pair preparation is closed",
+                409,
+            );
+        }
         let runtime = CloudflareDeriverBWorkerRuntimeV1::from_worker_env(&self.env)
             .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
         let root_metadata_digest = load_deriver_b_yao_root_metadata_digest(
@@ -1785,7 +2116,41 @@ impl RouterAbDeriverBYaoSessionDurableObject {
         )
         .await
         .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
-        let expires_at_ms = yao_expiry_from_now(now_unix_ms, YAO_STAGED_INPUT_LIFETIME_MS)?;
+        let prepared_at_ms = cloudflare_yao_now_unix_ms()?;
+        if let Some(existing) = storage
+            .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
+            .await?
+        {
+            match existing {
+                PairYaoSessionRecordV1::Prepared {
+                    pair_digest: stored_pair,
+                    input_digest: stored_input,
+                    expires_at_ms,
+                    root_metadata_digest,
+                    input,
+                    receipt,
+                } if stored_pair == pair_digest
+                    && stored_input == input_digest
+                    && prepared_at_ms < expires_at_ms =>
+                {
+                    return Response::from_json(&DeriverBYaoSessionResponseV1::PairPrepared {
+                        session: input.session(),
+                        pair_digest: stored_pair,
+                        root_metadata_digest,
+                        input,
+                        receipt,
+                    });
+                }
+                PairYaoSessionRecordV1::Prepared { .. }
+                | PairYaoSessionRecordV1::Running { .. }
+                | PairYaoSessionRecordV1::Completed { .. }
+                | PairYaoSessionRecordV1::Burned { .. }
+                | PairYaoSessionRecordV1::Expired { .. } => {
+                    return Response::error("Deriver B pair changed while preparing", 409);
+                }
+            }
+        }
+        let expires_at_ms = yao_expiry_from_now(prepared_at_ms, YAO_STAGED_INPUT_LIFETIME_MS)?;
         let receipt = sign_role_readiness_receipt_v1(
             &self.env,
             CloudflareWorkerRoleV1::DeriverB,
@@ -1795,7 +2160,7 @@ impl RouterAbDeriverBYaoSessionDurableObject {
             pair_digest,
             input_digest,
             root_metadata_digest,
-            now_unix_ms,
+            prepared_at_ms,
             expires_at_ms,
         )
         .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
@@ -1924,15 +2289,11 @@ impl RouterAbDeriverBYaoSessionDurableObject {
             return Response::error("Deriver B pair identity mismatch", 409);
         }
         if now_unix_ms >= expires_at_ms {
-            storage
-                .put(
-                    PAIR_SESSION_RECORD_STORAGE_KEY,
-                    PairYaoSessionRecordV1::Expired {
-                        pair_digest,
-                        input_digest,
-                    },
-                )
-                .await?;
+            if !expire_prepared_pair_if_current(&storage, pair_digest, input_digest, now_unix_ms)
+                .await?
+            {
+                return Response::error("Deriver B pair expiry state changed", 409);
+            }
             return Response::error("Deriver B pair preparation expired", 409);
         }
         receipt
@@ -1947,18 +2308,63 @@ impl RouterAbDeriverBYaoSessionDurableObject {
             );
         }
         let started_at_ms = now_unix_ms;
+        let execution_id = yao_execution_id()?;
+        let running_record = PairYaoSessionRecordV1::Running {
+            pair_digest,
+            input_digest,
+            root_metadata_digest,
+            execution_id,
+            started_at_ms,
+            input,
+        };
         storage
-            .put(
-                PAIR_SESSION_RECORD_STORAGE_KEY,
-                PairYaoSessionRecordV1::Running {
-                    pair_digest,
-                    input_digest,
-                    root_metadata_digest,
-                    started_at_ms,
-                    input,
-                },
-            )
+            .transaction(move |transaction| async move {
+                let current = match transaction
+                    .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
+                    .await
+                {
+                    Ok(record) => record,
+                    Err(worker::Error::JsError(message))
+                        if message == "No such value in storage." =>
+                    {
+                        return Ok(())
+                    }
+                    Err(error) => return Err(error),
+                };
+                if matches!(
+                    current,
+                    PairYaoSessionRecordV1::Prepared {
+                        pair_digest: stored_pair,
+                        input_digest: stored_input,
+                        expires_at_ms,
+                        ..
+                    } if stored_pair == pair_digest
+                        && stored_input == input_digest
+                        && started_at_ms < expires_at_ms
+                ) {
+                    transaction
+                        .put(PAIR_SESSION_RECORD_STORAGE_KEY, running_record)
+                        .await?;
+                }
+                Ok(())
+            })
             .await?;
+        let current = storage
+            .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
+            .await?;
+        if !matches!(
+            current,
+            Some(PairYaoSessionRecordV1::Running {
+                pair_digest: stored_pair,
+                input_digest: stored_input,
+                execution_id: stored_execution_id,
+                ..
+            }) if stored_pair == pair_digest
+                && stored_input == input_digest
+                && stored_execution_id == execution_id
+        ) {
+            return Response::error("Deriver B pair was already claimed", 409);
+        }
         Response::from_json(&DeriverBYaoSessionResponseV1::PairRunning {
             session,
             pair_digest,
@@ -1981,37 +2387,97 @@ impl RouterAbDeriverBYaoSessionDurableObject {
                 pair_digest: stored_pair,
                 input_digest,
                 root_metadata_digest,
-                started_at_ms,
+                input,
                 ..
-            } if stored_pair == pair_digest => {
-                let now_unix_ms = cloudflare_yao_now_unix_ms()?;
-                if now_unix_ms.saturating_sub(started_at_ms) >= YAO_RUNNING_LIFETIME_MS {
-                    storage
-                        .put(
-                            PAIR_SESSION_RECORD_STORAGE_KEY,
-                            PairYaoSessionRecordV1::Burned {
-                                pair_digest,
-                                input_digest,
-                            },
-                        )
-                        .await?;
-                    return Response::error("Deriver B pair execution expired", 409);
-                }
-                storage
-                    .put(
-                        PAIR_SESSION_RECORD_STORAGE_KEY,
-                        PairYaoSessionRecordV1::Completed {
-                            pair_digest,
-                            input_digest,
-                            root_metadata_digest,
-                            execution: Box::new(execution),
-                        },
-                    )
-                    .await?;
-                Response::from_json(&DeriverBYaoSessionResponseV1::PairCompleted {
-                    session,
+            } if stored_pair == pair_digest && input.session() == session => {
+                let completed_record = PairYaoSessionRecordV1::Completed {
                     pair_digest,
-                })
+                    input_digest,
+                    root_metadata_digest,
+                    execution: Box::new(execution.clone()),
+                };
+                storage
+                    .transaction(move |transaction| async move {
+                        let current = match transaction
+                            .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
+                            .await
+                        {
+                            Ok(record) => record,
+                            Err(worker::Error::JsError(message))
+                                if message == "No such value in storage." =>
+                            {
+                                return Ok(())
+                            }
+                            Err(error) => return Err(error),
+                        };
+                        let now_unix_ms = cloudflare_yao_now_unix_ms()?;
+                        match current {
+                            PairYaoSessionRecordV1::Running {
+                                pair_digest: stored_pair,
+                                input_digest: stored_input,
+                                started_at_ms,
+                                input: stored_input_record,
+                                execution_id,
+                                ..
+                            } if stored_pair == pair_digest
+                                && stored_input == input_digest
+                                && stored_input_record.session() == session =>
+                            {
+                                if now_unix_ms.saturating_sub(started_at_ms)
+                                    >= YAO_RUNNING_LIFETIME_MS
+                                {
+                                    transaction
+                                        .put(
+                                            PAIR_SESSION_RECORD_STORAGE_KEY,
+                                            PairYaoSessionRecordV1::Burned {
+                                                pair_digest,
+                                                input_digest,
+                                                execution_id,
+                                            },
+                                        )
+                                        .await?;
+                                } else {
+                                    transaction
+                                        .put(PAIR_SESSION_RECORD_STORAGE_KEY, completed_record)
+                                        .await?;
+                                }
+                            }
+                            _ => {}
+                        }
+                        Ok(())
+                    })
+                    .await?;
+                let current = storage
+                    .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
+                    .await?;
+                match current {
+                    Some(PairYaoSessionRecordV1::Completed {
+                        pair_digest: stored_pair,
+                        execution: existing,
+                        ..
+                    }) if stored_pair == pair_digest
+                        && existing.session() == session
+                        && *existing == execution =>
+                    {
+                        Response::from_json(&DeriverBYaoSessionResponseV1::PairCompleted {
+                            session,
+                            pair_digest,
+                        })
+                    }
+                    Some(PairYaoSessionRecordV1::Burned {
+                        pair_digest: stored_pair,
+                        ..
+                    }) if stored_pair == pair_digest => {
+                        Response::from_json(&DeriverBYaoSessionResponseV1::PairBurned {
+                            session,
+                            pair_digest,
+                        })
+                    }
+                    Some(PairYaoSessionRecordV1::Completed { .. }) => {
+                        Response::error("conflicting Deriver B execution", 409)
+                    }
+                    _ => Response::error("Deriver B pair completion is invalid", 409),
+                }
             }
             PairYaoSessionRecordV1::Completed {
                 pair_digest: stored_pair,
@@ -2047,27 +2513,80 @@ impl RouterAbDeriverBYaoSessionDurableObject {
             PairYaoSessionRecordV1::Running {
                 pair_digest: stored_pair,
                 input_digest,
+                input,
                 ..
-            } if stored_pair == pair_digest => {
+            } if stored_pair == pair_digest && input.session() == session => {
                 storage
-                    .put(
-                        PAIR_SESSION_RECORD_STORAGE_KEY,
-                        PairYaoSessionRecordV1::Burned {
-                            pair_digest,
-                            input_digest,
-                        },
-                    )
+                    .transaction(move |transaction| async move {
+                        let current = match transaction
+                            .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
+                            .await
+                        {
+                            Ok(record) => record,
+                            Err(worker::Error::JsError(message))
+                                if message == "No such value in storage." =>
+                            {
+                                return Ok(())
+                            }
+                            Err(error) => return Err(error),
+                        };
+                        if let PairYaoSessionRecordV1::Running {
+                            pair_digest: current_pair,
+                            input: current_input,
+                            execution_id,
+                            ..
+                        } = current
+                        {
+                            if current_pair == pair_digest && current_input.session() == session {
+                                transaction
+                                    .put(
+                                        PAIR_SESSION_RECORD_STORAGE_KEY,
+                                        PairYaoSessionRecordV1::Burned {
+                                            pair_digest,
+                                            input_digest,
+                                            execution_id,
+                                        },
+                                    )
+                                    .await?;
+                            }
+                        }
+                        Ok(())
+                    })
                     .await?;
-                DeriverBYaoSessionResponseV1::PairBurned {
-                    session,
-                    pair_digest,
+                let current = storage
+                    .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
+                    .await?;
+                match current {
+                    Some(PairYaoSessionRecordV1::Burned {
+                        pair_digest: current_pair,
+                        ..
+                    }) if current_pair == pair_digest => DeriverBYaoSessionResponseV1::PairBurned {
+                        session,
+                        pair_digest,
+                    },
+                    Some(PairYaoSessionRecordV1::Completed {
+                        pair_digest: current_pair,
+                        execution,
+                        ..
+                    }) if current_pair == pair_digest && execution.session() == session => {
+                        DeriverBYaoSessionResponseV1::PairCompleted {
+                            session,
+                            pair_digest,
+                        }
+                    }
+                    _ => return Response::error("Deriver B pair failure state changed", 409),
                 }
             }
-            PairYaoSessionRecordV1::Burned { .. } => DeriverBYaoSessionResponseV1::PairBurned {
+            PairYaoSessionRecordV1::Burned {
+                pair_digest: stored_pair,
+                ..
+            } if stored_pair == pair_digest => DeriverBYaoSessionResponseV1::PairBurned {
                 session,
                 pair_digest,
             },
-            PairYaoSessionRecordV1::Completed { .. } => {
+            PairYaoSessionRecordV1::Completed { execution, .. }
+                if execution.session() == session =>
+            {
                 DeriverBYaoSessionResponseV1::PairCompleted {
                     session,
                     pair_digest,
@@ -2150,16 +2669,13 @@ impl RouterAbDeriverBYaoSessionDurableObject {
                 input_digest,
                 ..
             } if stored_pair == pair_digest && input.session() == session => {
-                if cloudflare_yao_now_unix_ms()? >= expires_at_ms {
-                    storage
-                        .put(
-                            PAIR_SESSION_RECORD_STORAGE_KEY,
-                            PairYaoSessionRecordV1::Expired {
-                                pair_digest,
-                                input_digest,
-                            },
-                        )
-                        .await?;
+                let now_ms = cloudflare_yao_now_unix_ms()?;
+                if now_ms >= expires_at_ms {
+                    if !expire_prepared_pair_if_current(&storage, pair_digest, input_digest, now_ms)
+                        .await?
+                    {
+                        return Response::error("Deriver B pair expiry state changed", 409);
+                    }
                     DeriverBYaoSessionResponseV1::PairExpired {
                         session,
                         pair_digest,

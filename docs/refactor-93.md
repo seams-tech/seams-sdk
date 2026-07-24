@@ -36,7 +36,7 @@ The target product latency after the platform passkey prompt completes is
 4. The Router dispatches A and B preparation concurrently, awaits both signed
    readiness receipts, then dispatches execution and owns the connected
    request chain through terminal output.
-5. A and B bind every prepared, running, completed, and failed role state and
+5. A and B bind every prepared, running, completed, and terminal role state and
    peer handshake to the same input-pair digest.
 6. B refuses execution without an exactly matching prepared record. This is a
    fail-closed coordinator-defect guard. It is never a retry path.
@@ -47,7 +47,7 @@ The target product latency after the platform passkey prompt completes is
    ceremony identity.
 9. The Gateway does not call Deriver A, Deriver B, or SigningWorker directly.
 10. The current direct Stage, Start, Result, and SigningWorker orchestration
-    paths are deleted after the request-boundary cutover.
+    paths are retained only for the request-boundary drain, then deleted.
 11. No feature flag, legacy orchestration mode, or compatibility branch
     remains after deployment.
 
@@ -125,9 +125,9 @@ construction.
 If this plan conflicts with a cryptographic or role-isolation invariant in the
 Yao implementation plan, the Yao plan wins and Refactor 93 must be revised.
 
-## Current State And Regression
+## Baseline Before Refactor 93 Cutover
 
-`RouterAbEd25519YaoHttpRegistrationBackend.executeInner()` currently performs
+Before the Router cutover, `RouterAbEd25519YaoHttpRegistrationBackend.executeInner()` performed
 four network operations in series:
 
 1. post the B envelope to the Deriver B Stage route;
@@ -137,11 +137,11 @@ four network operations in series:
 
 The export path has the same Stage, Start, and Result shape.
 
-The production Gateway constructs this backend with direct Deriver A, Deriver
+The pre-cutover production Gateway constructed this backend with direct Deriver A, Deriver
 B, and SigningWorker origins. The Gateway already has an `MPC_ROUTER` Service
 Binding, yet Yao activation bypasses it.
 
-Production tracing during the regression investigation observed approximately:
+Historical production tracing during the regression investigation observed approximately:
 
 | Span | Observed wall time |
 | --- | ---: |
@@ -244,8 +244,10 @@ This refactor does not:
 25. Gateway internal retry reuses the byte-exact admitted request body. HPKE
     reencryption is a new ceremony with a new identity.
 26. Each readiness receipt binds the exact role-local root metadata digest.
-    Execution rejects root epoch, peer-key epoch, or secret-binding drift
-    between preparation and execution.
+    Execution rejects root metadata drift between preparation and execution,
+    and receipt signature verification rejects a configured peer-key identity
+    mismatch. Secret-binding-name rotation is not represented in this digest
+    and remains a deployment-contract gate.
 
 ## Target Architecture
 
@@ -275,7 +277,8 @@ The Gateway continues to own:
 - product authentication;
 - registration intent and tenant policy;
 - D1 wallet and account records;
-- issuance of the admitted Router execution authority;
+- admission and issuance of the channel-authenticated Router execution
+  authority;
 - persistence of the final verified product result.
 
 The Gateway sends one typed request through its existing `MPC_ROUTER` Service
@@ -285,7 +288,8 @@ Binding. It receives one typed result and performs no role scheduling.
 
 The Router owns:
 
-- boundary parsing and execution-authority verification;
+- boundary parsing, internal service authentication, and authority
+  lifetime/digest validation;
 - canonical ceremony and input-pair digest construction;
 - concurrent exact A/B preparation;
 - signed readiness-receipt verification;
@@ -357,8 +361,11 @@ pub struct Ed25519YaoInputPairBindingV1 {
 }
 ```
 
-`pair_digest` is derived by the canonical production encoder. It is never
-assembled independently in TypeScript.
+`pair_digest` is derived by the canonical Rust production encoder and is
+recomputed and validated at the Router boundary. The current Gateway adapter
+mirrors that encoding because this repository has no router-ab-core TypeScript
+binding generator; the generator and a cross-language vector remain an open
+Phase 1 gate.
 
 ### Readiness Receipt
 
@@ -406,10 +413,13 @@ pub enum Ed25519YaoRoleSessionStateV1 {
         execution_id: Ed25519YaoExecutionIdV1,
         execution: Ed25519YaoRoleExecutionV1,
     },
-    Failed {
+    Burned {
         pair_digest: PublicDigest32,
         execution_id: Ed25519YaoExecutionIdV1,
-        reason: Ed25519YaoRoleTerminalFailureV1,
+    },
+    Expired {
+        pair_digest: PublicDigest32,
+        local_input_digest: PublicDigest32,
     },
 }
 ```
@@ -417,7 +427,8 @@ pub enum Ed25519YaoRoleSessionStateV1 {
 `Ed25519YaoRoleExecutionV1` is the operation-discriminated terminal payload.
 Registration, recovery, and export share the lifecycle states. Their terminal
 payload branches preserve activation, staged recovery, and export recipient
-constraints without multiplying lifecycle enums.
+constraints without multiplying lifecycle enums. The Cloudflare adapter maps
+role failures to `Burned` and expiry to `Expired`.
 
 ## Router Request Contract
 
@@ -458,7 +469,10 @@ hands a precise branch to core orchestration.
 
 The response is an operation-specific `Result`-style union. Recoverable
 service failures, terminal burned executions, authorization rejection, and
-successful operation results must remain distinct.
+successful operation results remain distinct at the core contract boundary.
+The current Cloudflare adapter still maps several lower-level role failures to
+HTTP protocol errors; a typed recoverable-failure carrier for those paths is an
+open contract item.
 
 ### Private Role Commands
 
@@ -477,8 +491,8 @@ the role-local Worker and Durable Object boundaries, validates root metadata,
 persists its public metadata digest in `Prepared`, and returns a signed exact
 readiness receipt. A's prepared record stores no role plaintext or root
 material. `execute-pair` reopens A's HPKE envelope, verifies both readiness
-receipts, revalidates the exact root metadata digest, performs the signed
-two-phase start handshake, and runs the existing A/B protocol. After A completes,
+receipts, revalidates the exact root metadata digest, performs the pair-bound
+claim and peer-receipt handshake, and runs the existing A/B protocol. After A completes,
 `read-completed-pair` performs one exact read of B's already-completed
 encrypted result.
 
@@ -494,13 +508,14 @@ Their ownership and semantics are fixed:
 - every command requires the exact pair binding;
 - execution requires both exact signed readiness receipts;
 - the final B read performs no polling and no execution;
-- the old Gateway-addressable Stage, Start, and Result contracts are removed.
+- the old Gateway-addressable Stage, Start, and Result contracts are removed
+  after the request-boundary drain.
 
 The target critical path is:
 
 ```text
 max(A prepare, B prepare)
-  + signed start handshake + Yao
+  + pair-bound receipt handshake + Yao
   + one exact B completed-result read
   + atomic SigningWorker delivery
 ```
@@ -531,9 +546,11 @@ The current critical path adds B Stage, A Start, and B Result sequentially.
 5. The Router dispatches A `execute-pair` with both receipts.
 6. A connects to B exactly once with the exact pair digest.
 7. B refuses a missing or mismatched prepared record.
-8. B atomically transitions its exact record from `Prepared` to `Running`.
-9. A verifies B's signed acceptance and atomically transitions its exact
-   record from `Prepared` to `Running`.
+8. B verifies A's signed readiness receipt and atomically transitions its exact
+   record from `Prepared` to `Running` before returning the WebSocket upgrade.
+9. A claims its exact `Prepared` record before initiating the single peer
+   connection. The peer channel is authenticated and carries the signed A
+   readiness receipt; there is no separate signed acceptance artifact.
 10. Any uncertainty after either transition burns the execution identity.
 11. A and B execute the existing Yao protocol unchanged.
 
@@ -544,7 +561,7 @@ terminal role state fail immediately.
 ### Result And Delivery
 
 1. A and B persist their exact encrypted role outputs before releasing them.
-2. The Router obtains both signed role results.
+2. The Router obtains both validated role results.
 3. The Router validates pair digest, ceremony identity, role, transcript,
    circuit, operation, recipient bindings, and public receipt equality.
 4. Registration and recovery send one atomic package pair to SigningWorker.
@@ -614,6 +631,20 @@ by `routerAbEd25519YaoContracts.unit.test.ts`; export is covered by
 `routerAbEd25519YaoExport.server.unit.test.ts`. The Router transport changes
 preserve those public operation-specific result bodies.
 
+### V1 Admission Authority Semantics
+
+`RouterAdmittedExecutionAuthorityV1` is a short-lived, channel-authenticated
+request field in the current v1 boundary. The Router requires the internal
+service-authentication header, validates the authority time window, and rejects
+an authority digest that does not equal the pair binding's authorization
+digest. The Gateway currently derives that digest from the admitted request.
+
+The v1 field is not a standalone cryptographic signature over the D1 admission
+decision. Extending the route to an independently callable trust boundary
+requires a signed admission artifact, Router key-rotation policy, and a
+cross-language verification contract. That work remains outside this cutover;
+the plan does not claim cryptographic D1 admission attestation.
+
 ### Phase 1: Canonical Pair And Router Contracts
 
 - [x] Add the canonical ceremony identity and input-pair binding to
@@ -623,6 +654,8 @@ preserve those public operation-specific result bodies.
 - [ ] Generate or update TypeScript bindings through the existing generator.
       No router-ab-core TypeScript generator exists in this repository; the
       shared wire types are aligned manually until one is added.
+- [ ] Add a cross-language pair-digest vector that is generated from the Rust
+      encoder and consumed by the Gateway adapter.
 - [x] Add type fixtures rejecting missing identities, cross-operation fields,
       optional pair digests, and broad object-spread construction.
 - [x] Add exhaustive switches for operation-specific request and terminal
@@ -639,14 +672,17 @@ preserve those public operation-specific result bodies.
 - [x] Require both exact readiness receipts before A execution.
 - [x] Bind and revalidate role-local root metadata digests across preparation
       and execution.
-- [x] Transition both role records through the signed two-phase start
-      handshake.
+- [x] Transition both role records through the pair-bound readiness and peer
+      receipt handshake. The v1 boundary has no separate signed acceptance
+      artifact.
 - [x] Burn uncertainty after either role enters `Running`.
 - [x] Preserve exact completed-output redelivery.
 - [x] Update registration, recovery, and export role adapters.
-- [x] Mirror the production lifecycle in `router-ab-dev` with a pair-bound
-      state model, role-specific receipt signing, two-phase start, uncertainty
-      burning, and exact completed-output lookup tests.
+- [ ] Mirror the production lifecycle in `router-ab-dev` through the serving
+      path with a pair-bound state model, role-specific receipt signing,
+      readiness/peer claims, uncertainty burning, and exact completed-output
+      lookup tests. The current branch has pure lifecycle helper coverage;
+      local HTTP wiring remains open.
 
 ### Phase 3: MPC Router Execution Coordinator
 
@@ -657,7 +693,8 @@ preserve those public operation-specific result bodies.
 - [x] Start A and B preparation concurrently.
 - [x] Await and validate both signed readiness receipts.
 - [x] Dispatch A execution exactly once after both receipts.
-- [x] Await and validate both role results.
+- [ ] Await and validate both role results, including an explicit B completion
+      acknowledgment before the Router's single exact completed-result read.
 - [x] Deliver the exact package pair to SigningWorker atomically.
 - [x] Implement exact retry reconciliation without cryptographic
       reevaluation.
@@ -702,6 +739,9 @@ Router HTTP route; its product test remains an explicit follow-up before Phase
 - [ ] Delete lower-authority tests, fixtures, mocks, and source guards that
       encode the serial flow.
 - [ ] Delete compatibility request parsers after the boundary drain.
+- [ ] Split A's claim, network execution, and completion into separate Worker
+      and role-DO commands so no role Durable Object remains active across the
+      Yao WebSocket stream.
 - [x] Keep role-local Durable Object classes and their current secret
       boundaries.
 - [x] Verify the repository contains one production Yao orchestration owner.
@@ -720,10 +760,10 @@ be replayed here. Contract tests and optimized four-Worker dry-runs are green;
 the first external validation must be a coherent staging rollout before any
 route-deletion cleanup.
 
-- [ ] Deploy the new Router private route.
+- [x] Deploy the new Router private route.
 - [ ] Validate it while the Gateway still uses the old request boundary.
-- [ ] Deploy the Gateway cutover without a runtime feature flag.
-- [ ] Wait the maximum old ceremony lifetime.
+- [x] Deploy the Gateway cutover without a runtime feature flag.
+- [x] Wait the maximum old ceremony lifetime.
 - [ ] Deploy the route-deletion cleanup.
 - [ ] Run cold-after-deploy and warm production cohorts.
 - [ ] Compare latency, errors, Durable Object calls, Worker invocations, CPU,
@@ -731,6 +771,51 @@ route-deletion cleanup.
 - [ ] Confirm receipt sequencing improves or preserves p95 after including the
       additional A preparation request.
 - [ ] Record the final evidence in the Yao deployment plan.
+
+## Mid-Implementation Review Dispositions (2026-07-24)
+
+The Fable review identified several claims that needed either implementation or
+an explicit scope decision:
+
+- The Router now samples the clock after concurrent preparation, so receipt
+  validation cannot reject a receipt merely because preparation completed after
+  request parsing.
+- A completion re-reads its role state before writing `Completed`; stale
+  completions, burns, and conflicting executions fail closed. Both role
+  preparation paths re-read after root metadata loading, and normal legacy and
+  pair-bound requests reject the other lifecycle's existing record. The
+  cross-key exclusion remains a drain gate until the final boundary cleanup.
+- The unused contract-only coordinator was removed. `refactor93_router.rs` is
+  the sole production Router orchestration owner.
+- The current v1 handshake is signed readiness plus pair-bound, internally
+  authenticated peer transport. It does not include a separate signed
+  acceptance or signed terminal-result artifact; the plan uses that narrower
+  wording consistently.
+- The authority field is channel-authenticated and digest/time bound in v1,
+  rather than a signed D1 admission attestation. A signed admission artifact
+  remains a future trust-boundary requirement.
+- The Gateway's pair-digest mirror remains a temporary manual alignment because
+  no TypeScript binding generator exists. The Phase 1 generator checkbox stays
+  open until a generator and cross-language vector are available.
+- SigningWorker activation receipts are now checked against the admitted
+  operation (`Active` for registration and `Staged` for recovery). The role
+  transport still maps several lower-level failures through generic protocol
+  errors; a fully typed recoverable-failure carrier remains a contract follow-up.
+- The Router's one-shot B result read still needs an explicit completion
+  acknowledgment from the B protocol path; the Phase 3 checkbox remains open
+  rather than assuming WebSocket scheduling provides that ordering.
+- Caller-disconnect handling follows the forward burn policy when the Router
+  observes an uncertain role result. Cloudflare request cancellation does not
+  guarantee a post-disconnect callback, so proving burn for a dropped caller
+  remains a fault-test and platform-evidence gate.
+
+Two acceptance gates remain intentionally open. The A role Durable Object still
+holds the execute command while the Yao WebSocket protocol runs, and must be
+moved to a claim/execute/complete worker split before the no-active-DO-across-
+stream criterion can close. Production cold/warm traces and the frozen latency
+budget are also unavailable under the current Wrangler Observability scope.
+The `router-ab-dev` pair lifecycle is currently a pure helper model rather than
+an exercised local HTTP serving path, so its parity checkbox remains open.
 
 ## Test Matrix
 
@@ -751,14 +836,15 @@ route-deletion cleanup.
 - B refuses execute-before-prepare fail closed;
 - B prepares before A connects;
 - both exact readiness receipts are required before execution;
-- root epoch, peer-key epoch, and secret-binding drift after preparation is
-  rejected;
+- root epoch and peer-key signature drift after preparation is rejected;
+- secret-binding-name rotation remains a deployment-contract gate until the
+  binding is included in the canonical root metadata digest;
 - the exact pair transitions both roles to `Running`;
 - wrong pair, session, circuit, operation, or peer fails closed;
 - uncertainty after B acceptance burns the execution;
 - duplicate `Running` cannot execute again;
 - completed exact retry returns the same encrypted result;
-- failed and expired records never revive;
+- burned and expired records never revive;
 - registration, recovery, and export preserve their recipient constraints.
 
 ### Router Orchestration Tests
@@ -870,6 +956,12 @@ Each span records:
 No span records request bodies, HPKE ciphertexts, recipient packages, tokens,
 emails, account IDs, credential IDs, root shares, or private outputs.
 
+The Phase 0 implementation currently emits sanitized role and Router events
+with span, role (where applicable), operation, outcome, duration, and the
+validated trace value. Ceremony digests, CPU time, call/invocation counts, and
+cold/warm cohort labels remain deployment-evidence fields; they are acceptance
+requirements rather than claims about the local event payload today.
+
 The Gateway Yao backend creates one fresh 128-bit lowercase-hex trace value at
 each Router execution or recovery-promotion HTTP boundary. The Router forwards
 that validated value to every role and SigningWorker request in the same
@@ -914,8 +1006,9 @@ remaining miss has a named follow-up owner.
 8. Deploy the cleanup to staging, then production.
 9. Capture cold and warm acceptance cohorts.
 
-Compatibility exists only at the request boundary during steps 1–6. Core
-state and execution code have one current path.
+Compatibility exists only at the request boundary during steps 1–6. The
+Gateway has one current Router path; legacy role-boundary handlers remain
+available during the drain window and are removed by the cleanup step.
 
 The cutover uses no backend-selection feature flag. Before hard deletion,
 rollback redeploys the previous Gateway Worker version. Rollback after any

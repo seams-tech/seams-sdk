@@ -34,8 +34,6 @@ pub use ed25519_yao_signing_worker::{
 mod router;
 pub use router::*;
 
-mod refactor93_coordinator;
-pub use refactor93_coordinator::*;
 #[cfg(feature = "workers-rs")]
 mod refactor93_router;
 #[cfg(feature = "workers-rs")]

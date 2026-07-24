@@ -325,7 +325,7 @@ impl<'de> Deserialize<'de> for Ed25519YaoInputPairBindingV1 {
     }
 }
 
-/// Authenticated Router authority for one admitted Yao execution request.
+/// Channel-authenticated authority for one Gateway-admitted Yao execution request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RouterAdmittedExecutionAuthorityV1 {
@@ -405,7 +405,7 @@ impl<'de> Deserialize<'de> for RouterAdmittedExecutionAuthorityV1 {
 pub enum RouterEd25519YaoExecuteRequestV1 {
     /// Initial registration activation.
     Registration {
-        /// Router-issued execution authority.
+        /// Gateway-admitted execution authority.
         authority: RouterAdmittedExecutionAuthorityV1,
         /// Admitted activation ceremony binding.
         binding: Ed25519YaoCeremonyBindingV1,
@@ -418,7 +418,7 @@ pub enum RouterEd25519YaoExecuteRequestV1 {
     },
     /// Recovery activation into staged recipient shares.
     Recovery {
-        /// Router-issued execution authority.
+        /// Gateway-admitted execution authority.
         authority: RouterAdmittedExecutionAuthorityV1,
         /// Admitted activation ceremony binding.
         binding: Ed25519YaoCeremonyBindingV1,
@@ -431,7 +431,7 @@ pub enum RouterEd25519YaoExecuteRequestV1 {
     },
     /// Explicit client-recipient export.
     Export {
-        /// Router-issued execution authority.
+        /// Gateway-admitted execution authority.
         authority: RouterAdmittedExecutionAuthorityV1,
         /// Admitted export identity binding.
         binding: crate::protocol::ed25519_yao::RouterAbEd25519YaoExportBindingV1,
@@ -460,6 +460,7 @@ impl RouterEd25519YaoExecuteRequestV1 {
             &deriver_a_input,
             &deriver_b_input,
         )?;
+        validate_authority_digest(&authority, &pair_binding)?;
         Ok(Self::Registration {
             authority,
             binding,
@@ -484,6 +485,7 @@ impl RouterEd25519YaoExecuteRequestV1 {
             &deriver_a_input,
             &deriver_b_input,
         )?;
+        validate_authority_digest(&authority, &pair_binding)?;
         Ok(Self::Recovery {
             authority,
             binding,
@@ -513,6 +515,7 @@ impl RouterEd25519YaoExecuteRequestV1 {
                 "Ed25519 Yao export pair binding does not match its export binding",
             ));
         }
+        validate_authority_digest(&authority, &pair_binding)?;
         Ok(Self::Export {
             authority,
             binding,
@@ -548,6 +551,18 @@ impl RouterEd25519YaoExecuteRequestV1 {
             | Self::Export { authority, .. } => authority,
         }
     }
+}
+
+fn validate_authority_digest(
+    authority: &RouterAdmittedExecutionAuthorityV1,
+    pair_binding: &Ed25519YaoInputPairBindingV1,
+) -> RouterAbProtocolResult<()> {
+    if authority.authority_digest() != pair_binding.authorization_digest() {
+        return Err(invalid_router_yao(
+            "Ed25519 Yao execution authority does not match authorization binding",
+        ));
+    }
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -1459,8 +1474,19 @@ mod tests {
         )
         .expect("pair");
         let authority =
-            RouterAdmittedExecutionAuthorityV1::new(PublicDigest32::new([8; 32]), 10, 100)
+            RouterAdmittedExecutionAuthorityV1::new(PublicDigest32::new([7; 32]), 10, 100)
                 .expect("authority");
+        let mismatched_authority =
+            RouterAdmittedExecutionAuthorityV1::new(PublicDigest32::new([8; 32]), 10, 100)
+                .expect("mismatched authority");
+        assert!(RouterEd25519YaoExecuteRequestV1::registration(
+            mismatched_authority,
+            binding(),
+            pair.clone(),
+            a.clone(),
+            b.clone(),
+        )
+        .is_err());
         let request =
             RouterEd25519YaoExecuteRequestV1::registration(authority, binding(), pair, a, b)
                 .expect("registration request");

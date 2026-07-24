@@ -255,11 +255,12 @@ async fn execute_router_ceremony_v1(
         prepare_started_at_ms,
         "success",
     );
+    let readiness_now_ms = cloudflare_now_unix_ms_v1()?;
     let readiness_started_at_ms = cloudflare_now_unix_ms_v1()?;
     let readiness_result = validate_readiness(
         &receipt_a,
         &pair_binding,
-        now_ms,
+        readiness_now_ms,
         Ed25519YaoDeriverRoleV1::DeriverA,
         &verifying_keys,
     )
@@ -267,7 +268,7 @@ async fn execute_router_ceremony_v1(
         validate_readiness(
             &receipt_b,
             &pair_binding,
-            now_ms,
+            readiness_now_ms,
             Ed25519YaoDeriverRoleV1::DeriverB,
             &verifying_keys,
         )
@@ -640,7 +641,7 @@ async fn finalize_router_result_v1(
                     return Err(error);
                 }
             };
-            worker_response.validate()?;
+            worker_response.validate_for_operation(operation)?;
             let public_receipt = worker_response.into_public_receipt()?;
             let result = RouterAbEd25519YaoActivationResultV1::new(
                 binding.clone(),
@@ -891,6 +892,26 @@ impl SigningWorkerReceiptV1 {
             ));
         }
         Ok(())
+    }
+
+    fn validate_for_operation(
+        &self,
+        operation: Ed25519YaoOperationV1,
+    ) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        match (operation, self) {
+            (Ed25519YaoOperationV1::Registration, Self::Active { .. })
+            | (Ed25519YaoOperationV1::Recovery, Self::Staged { .. }) => Ok(()),
+            (Ed25519YaoOperationV1::Registration, Self::Staged { .. }) => Err(invalid_coordinator(
+                "registration requires an Active SigningWorker receipt",
+            )),
+            (Ed25519YaoOperationV1::Recovery, Self::Active { .. }) => Err(invalid_coordinator(
+                "recovery requires a Staged SigningWorker receipt",
+            )),
+            (Ed25519YaoOperationV1::Export | Ed25519YaoOperationV1::Refresh, _) => Err(
+                invalid_coordinator("activation delivery cannot produce this operation receipt"),
+            ),
+        }
     }
 
     fn into_public_receipt(

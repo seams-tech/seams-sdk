@@ -71,7 +71,11 @@ DERIVER_B_PEER_VERIFYING_KEY_HEX = "1a369e342f555305e278312f3b704465e11fadbbab09
 DERIVER_B_PEER_BINDING = "DERIVER_B"
 
 [observability]
+enabled = true
   [observability.logs]
   enabled = true
   head_sampling_rate = 1
   invocation_logs = true
+  [observability.traces]
+  enabled = true
+  head_sampling_rate = 1
