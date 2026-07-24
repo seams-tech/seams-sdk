@@ -741,6 +741,141 @@ impl<'de> Deserialize<'de> for RouterEd25519YaoExecuteSuccessV1 {
     }
 }
 
+/// Recoverable or terminal failure class for one Router execution attempt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RouterEd25519YaoExecuteFailureCodeV1 {
+    /// Internal service transport was unavailable before activation.
+    ServiceUnavailable,
+    /// The exact pair is already owned by another live execution.
+    ConflictingPair,
+    /// A prepared record or receipt was missing or mismatched.
+    MissingPreparation,
+    /// The nonterminal ceremony lifetime elapsed.
+    CeremonyExpired,
+    /// SigningWorker delivery remains uncertain and may be retried exactly.
+    SigningWorkerUncertain,
+    /// The role recorded a sanitized terminal failure.
+    TerminalRoleFailure,
+    /// The admitted authority was rejected at the Router boundary.
+    AuthorizationRejected,
+}
+
+/// Reason an activated execution identity is permanently burned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RouterEd25519YaoBurnReasonV1 {
+    /// Caller disconnected after activation began.
+    CallerDisconnected,
+    /// Peer acceptance or transcript state became ambiguous.
+    PeerUncertain,
+    /// Protocol execution failed after one-use activation.
+    ProtocolFailure,
+}
+
+/// Result-style Router execution response with explicit retry semantics.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
+pub enum RouterEd25519YaoExecuteResultV1 {
+    /// Operation-specific successful result.
+    Succeeded {
+        result: RouterEd25519YaoExecuteSuccessV1,
+    },
+    /// Failure safe for an exact request retry.
+    RecoverableFailure {
+        code: RouterEd25519YaoExecuteFailureCodeV1,
+        retry_after_ms: u64,
+    },
+    /// Request rejected before one-use activation.
+    Rejected {
+        code: RouterEd25519YaoExecuteFailureCodeV1,
+    },
+    /// Execution identity burned after activation uncertainty.
+    Burned {
+        execution_id: Ed25519YaoExecutionIdV1,
+        reason: RouterEd25519YaoBurnReasonV1,
+    },
+}
+
+impl RouterEd25519YaoExecuteResultV1 {
+    /// Creates a successful operation-specific result.
+    pub fn succeeded(result: RouterEd25519YaoExecuteSuccessV1) -> Self {
+        Self::Succeeded { result }
+    }
+
+    /// Creates a retryable failure with a positive retry hint.
+    pub fn recoverable(
+        code: RouterEd25519YaoExecuteFailureCodeV1,
+        retry_after_ms: u64,
+    ) -> RouterAbProtocolResult<Self> {
+        if retry_after_ms == 0 {
+            return Err(invalid_router_yao(
+                "Ed25519 Yao recoverable failure retry hint must be positive",
+            ));
+        }
+        Ok(Self::RecoverableFailure {
+            code,
+            retry_after_ms,
+        })
+    }
+
+    /// Creates a pre-activation rejection.
+    pub const fn rejected(code: RouterEd25519YaoExecuteFailureCodeV1) -> Self {
+        Self::Rejected { code }
+    }
+
+    /// Creates an irreversible burned execution result.
+    pub fn burned(
+        execution_id: Ed25519YaoExecutionIdV1,
+        reason: RouterEd25519YaoBurnReasonV1,
+    ) -> Self {
+        Self::Burned {
+            execution_id,
+            reason,
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
+enum RawRouterEd25519YaoExecuteResultV1 {
+    Succeeded {
+        result: RouterEd25519YaoExecuteSuccessV1,
+    },
+    RecoverableFailure {
+        code: RouterEd25519YaoExecuteFailureCodeV1,
+        retry_after_ms: u64,
+    },
+    Rejected {
+        code: RouterEd25519YaoExecuteFailureCodeV1,
+    },
+    Burned {
+        execution_id: Ed25519YaoExecutionIdV1,
+        reason: RouterEd25519YaoBurnReasonV1,
+    },
+}
+
+impl<'de> Deserialize<'de> for RouterEd25519YaoExecuteResultV1 {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = RawRouterEd25519YaoExecuteResultV1::deserialize(deserializer)?;
+        match raw {
+            RawRouterEd25519YaoExecuteResultV1::Succeeded { result } => Ok(Self::succeeded(result)),
+            RawRouterEd25519YaoExecuteResultV1::RecoverableFailure {
+                code,
+                retry_after_ms,
+            } => Self::recoverable(code, retry_after_ms).map_err(D::Error::custom),
+            RawRouterEd25519YaoExecuteResultV1::Rejected { code } => Ok(Self::rejected(code)),
+            RawRouterEd25519YaoExecuteResultV1::Burned {
+                execution_id,
+                reason,
+            } => Ok(Self::burned(execution_id, reason)),
+        }
+    }
+}
+
 /// Execution identity allocated once for a request and never reused after ambiguity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
