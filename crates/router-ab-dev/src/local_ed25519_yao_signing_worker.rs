@@ -52,6 +52,13 @@ pub struct LocalEd25519YaoSigningWorkerPackageDeliveryV1 {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct LocalEd25519YaoSigningWorkerPackagePairDeliveryV1 {
+    pub deriver_a: LocalEd25519YaoSigningWorkerPackageDeliveryV1,
+    pub deriver_b: LocalEd25519YaoSigningWorkerPackageDeliveryV1,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LocalEd25519YaoSigningWorkerRefreshPackageDeliveryV1 {
     pub binding: Ed25519YaoRefreshBindingV1,
     pub client_commitment: [u8; 32],
@@ -62,11 +69,6 @@ pub struct LocalEd25519YaoSigningWorkerRefreshPackageDeliveryV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum LocalEd25519YaoSigningWorkerActivationReceiptV1 {
-    Pending {
-        accepted_deriver: Ed25519YaoDeriverRoleV1,
-        session: [u8; 32],
-        transcript: [u8; 32],
-    },
     Staged {
         promotion: LocalEd25519YaoSigningWorkerRecoveryPromotionRequestV1,
     },
@@ -153,8 +155,6 @@ enum RecoveryPromotionState {
     },
     Promoted {
         promotion: LocalEd25519YaoSigningWorkerRecoveryPromotionRequestV1,
-        deriver_a: PendingDelivery,
-        deriver_b: PendingDelivery,
     },
 }
 
@@ -163,15 +163,6 @@ impl RecoveryPromotionState {
         match self {
             Self::Staged { candidate } => &candidate.promotion,
             Self::Promoted { promotion, .. } => promotion,
-        }
-    }
-
-    fn delivery(&self, deriver: Ed25519YaoDeriverRoleV1) -> &PendingDelivery {
-        match (self, deriver) {
-            (Self::Staged { candidate }, Ed25519YaoDeriverRoleV1::DeriverA) => &candidate.deriver_a,
-            (Self::Staged { candidate }, Ed25519YaoDeriverRoleV1::DeriverB) => &candidate.deriver_b,
-            (Self::Promoted { deriver_a, .. }, Ed25519YaoDeriverRoleV1::DeriverA) => deriver_a,
-            (Self::Promoted { deriver_b, .. }, Ed25519YaoDeriverRoleV1::DeriverB) => deriver_b,
         }
     }
 }
@@ -215,8 +206,6 @@ struct LocalEd25519YaoSigningWorkerDurableActiveStateV1 {
 
 #[derive(Default)]
 struct LocalEd25519YaoSigningIdentityStateV1 {
-    pending_a: Option<PendingDelivery>,
-    pending_b: Option<PendingDelivery>,
     pending_refresh_a: Option<PendingRefreshDelivery>,
     pending_refresh_b: Option<PendingRefreshDelivery>,
     active: Option<ActiveSigningShare>,
@@ -280,24 +269,21 @@ impl LocalEd25519YaoSigningWorkerStateV1 {
         Ok(Self { identities })
     }
 
-    pub fn accept_deriver_a(
+    pub fn accept_package_pair(
         &mut self,
         config: &LocalSigningWorkerConfigV1,
-        request: LocalEd25519YaoSigningWorkerPackageDeliveryV1,
+        request: LocalEd25519YaoSigningWorkerPackagePairDeliveryV1,
     ) -> RouterAbProtocolResult<LocalEd25519YaoSigningWorkerActivationReceiptV1> {
-        let identity = LocalEd25519YaoEffectiveIdentityV1::from_binding(&request.binding);
-        self.activation_identity_state_mut(identity, request.binding.operation)?
-            .accept_deriver_a(config, request)
-    }
-
-    pub fn accept_deriver_b(
-        &mut self,
-        config: &LocalSigningWorkerConfigV1,
-        request: LocalEd25519YaoSigningWorkerPackageDeliveryV1,
-    ) -> RouterAbProtocolResult<LocalEd25519YaoSigningWorkerActivationReceiptV1> {
-        let identity = LocalEd25519YaoEffectiveIdentityV1::from_binding(&request.binding);
-        self.activation_identity_state_mut(identity, request.binding.operation)?
-            .accept_deriver_b(config, request)
+        let deriver_a = validate_delivery(Ed25519YaoDeriverRoleV1::DeriverA, request.deriver_a)?;
+        let deriver_b = validate_delivery(Ed25519YaoDeriverRoleV1::DeriverB, request.deriver_b)?;
+        if deriver_a.binding != deriver_b.binding {
+            return Err(invalid_activation(
+                "SigningWorker activation package pair must share one binding",
+            ));
+        }
+        let identity = LocalEd25519YaoEffectiveIdentityV1::from_binding(&deriver_a.binding);
+        self.activation_identity_state_mut(identity, deriver_a.binding.operation)?
+            .accept_package_pair(config, deriver_a, deriver_b)
     }
 
     pub fn promote_recovery_candidate(
@@ -453,62 +439,16 @@ impl LocalEd25519YaoSigningWorkerStateV1 {
 }
 
 impl LocalEd25519YaoSigningIdentityStateV1 {
-    pub fn accept_deriver_a(
+    fn accept_package_pair(
         &mut self,
         config: &LocalSigningWorkerConfigV1,
-        request: LocalEd25519YaoSigningWorkerPackageDeliveryV1,
+        deriver_a: PendingDelivery,
+        deriver_b: PendingDelivery,
     ) -> RouterAbProtocolResult<LocalEd25519YaoSigningWorkerActivationReceiptV1> {
-        let pending = validate_delivery(Ed25519YaoDeriverRoleV1::DeriverA, request)?;
-        if let Some(receipt) =
-            self.exact_activation_delivery_retry(Ed25519YaoDeriverRoleV1::DeriverA, &pending)?
-        {
-            return Ok(receipt);
-        }
-        self.validate_activation_transition(&pending.binding)?;
-        if self.pending_a.is_some() {
-            return Err(invalid_activation(
-                "Deriver A activation delivery slot is occupied",
-            ));
-        }
-        let receipt = pending_receipt(Ed25519YaoDeriverRoleV1::DeriverA, &pending);
-        if let Some(pending_b) = self.pending_b.as_ref() {
-            let state_epoch = self.activation_state_epoch(&pending.binding)?;
-            let activated = activate(config, pending, pending_b.clone(), state_epoch)?;
-            let receipt = self.commit_activation_candidate(activated)?;
-            self.pending_b = None;
-            return Ok(receipt);
-        }
-        self.pending_a = Some(pending);
-        Ok(receipt)
-    }
-
-    pub fn accept_deriver_b(
-        &mut self,
-        config: &LocalSigningWorkerConfigV1,
-        request: LocalEd25519YaoSigningWorkerPackageDeliveryV1,
-    ) -> RouterAbProtocolResult<LocalEd25519YaoSigningWorkerActivationReceiptV1> {
-        let pending = validate_delivery(Ed25519YaoDeriverRoleV1::DeriverB, request)?;
-        if let Some(receipt) =
-            self.exact_activation_delivery_retry(Ed25519YaoDeriverRoleV1::DeriverB, &pending)?
-        {
-            return Ok(receipt);
-        }
-        self.validate_activation_transition(&pending.binding)?;
-        if self.pending_b.is_some() {
-            return Err(invalid_activation(
-                "Deriver B activation delivery slot is occupied",
-            ));
-        }
-        let receipt = pending_receipt(Ed25519YaoDeriverRoleV1::DeriverB, &pending);
-        if let Some(pending_a) = self.pending_a.as_ref() {
-            let state_epoch = self.activation_state_epoch(&pending.binding)?;
-            let activated = activate(config, pending_a.clone(), pending, state_epoch)?;
-            let receipt = self.commit_activation_candidate(activated)?;
-            self.pending_a = None;
-            return Ok(receipt);
-        }
-        self.pending_b = Some(pending);
-        Ok(receipt)
+        self.validate_activation_transition(&deriver_a.binding)?;
+        let state_epoch = self.activation_state_epoch(&deriver_a.binding)?;
+        let activated = activate(config, deriver_a, deriver_b, state_epoch)?;
+        self.commit_activation_candidate(activated)
     }
 
     pub fn promote_recovery_candidate(
@@ -542,15 +482,10 @@ impl LocalEd25519YaoSigningIdentityStateV1 {
         let ActivationCandidate {
             next_active,
             promotion,
-            deriver_a,
-            deriver_b,
+            ..
         } = candidate;
         self.active = Some(next_active);
-        self.recovery_promotion = Some(RecoveryPromotionState::Promoted {
-            promotion,
-            deriver_a,
-            deriver_b,
-        });
+        self.recovery_promotion = Some(RecoveryPromotionState::Promoted { promotion });
         Ok(active_activation_receipt(&request))
     }
 
@@ -1019,11 +954,6 @@ impl LocalEd25519YaoSigningIdentityStateV1 {
                 "SigningWorker recovery promotion is pending",
             ));
         }
-        if self.pending_a.is_some() || self.pending_b.is_some() {
-            return Err(invalid_activation(
-                "SigningWorker activation package delivery is in progress",
-            ));
-        }
         let active = self
             .active
             .as_ref()
@@ -1083,53 +1013,6 @@ impl LocalEd25519YaoSigningIdentityStateV1 {
             ));
         }
         Ok(())
-    }
-
-    fn exact_activation_delivery_retry(
-        &self,
-        deriver: Ed25519YaoDeriverRoleV1,
-        delivery: &PendingDelivery,
-    ) -> RouterAbProtocolResult<Option<LocalEd25519YaoSigningWorkerActivationReceiptV1>> {
-        let pending = match deriver {
-            Ed25519YaoDeriverRoleV1::DeriverA => self.pending_a.as_ref(),
-            Ed25519YaoDeriverRoleV1::DeriverB => self.pending_b.as_ref(),
-        };
-        if let Some(pending) = pending {
-            if pending == delivery {
-                return Ok(Some(pending_receipt(deriver, delivery)));
-            }
-            let message = match deriver {
-                Ed25519YaoDeriverRoleV1::DeriverA => {
-                    "Deriver A activation delivery slot is occupied"
-                }
-                Ed25519YaoDeriverRoleV1::DeriverB => {
-                    "Deriver B activation delivery slot is occupied"
-                }
-            };
-            return Err(invalid_activation(message));
-        }
-        let Some(promotion_state) = self.recovery_promotion.as_ref() else {
-            return Ok(None);
-        };
-        if promotion_state.delivery(deriver) == delivery {
-            let receipt = match promotion_state {
-                RecoveryPromotionState::Staged { .. } => {
-                    LocalEd25519YaoSigningWorkerActivationReceiptV1::Staged {
-                        promotion: promotion_state.promotion().clone(),
-                    }
-                }
-                RecoveryPromotionState::Promoted { .. } => {
-                    active_activation_receipt(promotion_state.promotion())
-                }
-            };
-            return Ok(Some(receipt));
-        }
-        if matches!(promotion_state, RecoveryPromotionState::Staged { .. }) {
-            return Err(invalid_activation(
-                "activation delivery does not match the staged recovery candidate",
-            ));
-        }
-        Ok(None)
     }
 }
 
@@ -1194,17 +1077,6 @@ fn validate_refresh_delivery(
         signing_worker_commitment: request.signing_worker_commitment,
         package: request.package,
     })
-}
-
-fn pending_receipt(
-    accepted_deriver: Ed25519YaoDeriverRoleV1,
-    pending: &PendingDelivery,
-) -> LocalEd25519YaoSigningWorkerActivationReceiptV1 {
-    LocalEd25519YaoSigningWorkerActivationReceiptV1::Pending {
-        accepted_deriver,
-        session: pending.package.session(),
-        transcript: pending.package.transcript(),
-    }
 }
 
 fn pending_refresh_receipt(
@@ -1520,7 +1392,6 @@ mod tests {
             public_key,
             0x32,
         );
-        let recovery_delivery_a = recovery.deriver_a.clone();
         let staged = state
             .commit_activation_candidate(recovery)
             .expect("stage recovery");
@@ -1546,15 +1417,6 @@ mod tests {
         ));
         assert_eq!(state.active_state_epoch(), Some(epoch(2)));
         assert_eq!(state.active_signing_share(), Some(&[0x22; 32]));
-        assert_eq!(
-            state
-                .exact_activation_delivery_retry(
-                    Ed25519YaoDeriverRoleV1::DeriverA,
-                    &recovery_delivery_a,
-                )
-                .expect("promoted delivery retry"),
-            Some(promoted.clone())
-        );
         assert_eq!(
             state
                 .promote_recovery_candidate(promotion)
@@ -1586,37 +1448,6 @@ mod tests {
 
         let exhausted = active_state(epoch(u64::MAX), [0x51; 32]);
         assert!(exhausted.next_recovery_state_epoch().is_err());
-    }
-
-    #[test]
-    fn staged_recovery_deliveries_allow_only_exact_retries() {
-        let mut state = active_state(epoch(1), [0x61; 32]);
-        let public_key = state.active_public_key().copied().expect("public key");
-        let recovery = activation_candidate(
-            ceremony_binding(Ed25519YaoOperationV1::Recovery, 0x62),
-            epoch(2),
-            [0x62; 32],
-            public_key,
-            0x63,
-        );
-        let exact_a = recovery.deriver_a.clone();
-        let staged = state
-            .commit_activation_candidate(recovery)
-            .expect("stage recovery");
-        assert_eq!(
-            state
-                .exact_activation_delivery_retry(Ed25519YaoDeriverRoleV1::DeriverA, &exact_a)
-                .expect("exact delivery retry"),
-            Some(staged)
-        );
-
-        let mut conflicting_a = exact_a;
-        conflicting_a.client_commitment[0] ^= 1;
-        assert!(state
-            .exact_activation_delivery_retry(Ed25519YaoDeriverRoleV1::DeriverA, &conflicting_a,)
-            .is_err());
-        assert_eq!(state.active_state_epoch(), Some(epoch(1)));
-        assert_eq!(state.active_signing_share(), Some(&[0x61; 32]));
     }
 
     #[test]
@@ -1710,8 +1541,6 @@ mod tests {
         let restored_identity = restored.identities.get(&identity).expect("active identity");
         assert_eq!(restored_identity.active_state_epoch(), Some(epoch(4)));
         assert_eq!(restored_identity.active_signing_share(), Some(&[0x44; 32]));
-        assert!(restored_identity.pending_a.is_none());
-        assert!(restored_identity.pending_b.is_none());
         assert!(restored_identity.pending_normal_signing.is_empty());
     }
 

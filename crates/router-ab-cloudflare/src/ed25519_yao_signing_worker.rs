@@ -18,10 +18,8 @@ use crate::{
     CloudflareSigningWorkerOutputActivationRecordV1, CloudflareSigningWorkerRuntimeV1,
 };
 
-pub const CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_DERIVER_A_PATH: &str =
-    "/router-ab/signing-worker/ed25519-yao/activation/deriver-a";
-pub const CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_DERIVER_B_PATH: &str =
-    "/router-ab/signing-worker/ed25519-yao/activation/deriver-b";
+pub const CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_PACKAGES_PATH: &str =
+    "/router-ab/signing-worker/ed25519-yao/activation/packages";
 pub const CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_RECOVERY_PROMOTE_PATH: &str =
     "/router-ab/signing-worker/ed25519-yao/recovery/promote";
 
@@ -105,13 +103,32 @@ impl CloudflareEd25519YaoRecoveryPromotionRequestV1 {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudflareEd25519YaoPackagePairDeliveryV1 {
+    pub deriver_a: Ed25519YaoSigningWorkerPackageDeliveryV1,
+    pub deriver_b: Ed25519YaoSigningWorkerPackageDeliveryV1,
+}
+
+impl CloudflareEd25519YaoPackagePairDeliveryV1 {
+    fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.deriver_a
+            .validate_for_deriver(Ed25519YaoDeriverRoleV1::DeriverA)?;
+        self.deriver_b
+            .validate_for_deriver(Ed25519YaoDeriverRoleV1::DeriverB)?;
+        if self.deriver_a.binding != self.deriver_b.binding {
+            return Err(invalid_lifecycle(
+                "Signing Worker package pair must share one ceremony binding",
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case", deny_unknown_fields)]
 enum SigningWorkerYaoCommandV1 {
-    DeliverDeriverA {
-        delivery: Ed25519YaoSigningWorkerPackageDeliveryV1,
-    },
-    DeliverDeriverB {
-        delivery: Ed25519YaoSigningWorkerPackageDeliveryV1,
+    DeliverPackages {
+        delivery: CloudflareEd25519YaoPackagePairDeliveryV1,
     },
     PromoteRecovery {
         request: CloudflareEd25519YaoRecoveryPromotionRequestV1,
@@ -121,9 +138,11 @@ enum SigningWorkerYaoCommandV1 {
 impl SigningWorkerYaoCommandV1 {
     fn stable_context_binding(&self) -> [u8; 32] {
         match self {
-            Self::DeliverDeriverA { delivery } | Self::DeliverDeriverB { delivery } => {
-                delivery.binding.stable_key_context_binding.into_bytes()
-            }
+            Self::DeliverPackages { delivery } => delivery
+                .deriver_a
+                .binding
+                .stable_key_context_binding
+                .into_bytes(),
             Self::PromoteRecovery { request } => {
                 request.binding.stable_key_context_binding.into_bytes()
             }
@@ -132,12 +151,7 @@ impl SigningWorkerYaoCommandV1 {
 
     fn validate(&self) -> RouterAbProtocolResult<()> {
         match self {
-            Self::DeliverDeriverA { delivery } => {
-                delivery.validate_for_deriver(Ed25519YaoDeriverRoleV1::DeriverA)
-            }
-            Self::DeliverDeriverB { delivery } => {
-                delivery.validate_for_deriver(Ed25519YaoDeriverRoleV1::DeriverB)
-            }
+            Self::DeliverPackages { delivery } => delivery.validate(),
             Self::PromoteRecovery { request } => request.validate(),
         }
     }
@@ -146,7 +160,8 @@ impl SigningWorkerYaoCommandV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case", deny_unknown_fields)]
 enum SigningWorkerYaoDurableStateV1 {
-    RegistrationPending {
+    #[serde(rename = "registration_pending")]
+    LegacyRegistrationPending {
         deriver_a: Ed25519YaoSigningWorkerPackageDeliveryV1,
     },
     RegistrationStaged {
@@ -161,7 +176,8 @@ enum SigningWorkerYaoDurableStateV1 {
         material: Ed25519YaoActiveSigningMaterialV1,
         receipt: Ed25519YaoSigningWorkerActivationReceiptV1,
     },
-    RecoveryPending {
+    #[serde(rename = "recovery_pending")]
+    LegacyRecoveryPending {
         active_material: Ed25519YaoActiveSigningMaterialV1,
         active_receipt: Ed25519YaoSigningWorkerActivationReceiptV1,
         deriver_a: Ed25519YaoSigningWorkerPackageDeliveryV1,
@@ -179,9 +195,9 @@ enum SigningWorkerYaoDurableStateV1 {
 impl SigningWorkerYaoDurableStateV1 {
     fn stable_context_binding(&self) -> [u8; 32] {
         match self {
-            Self::RegistrationPending { deriver_a }
+            Self::LegacyRegistrationPending { deriver_a }
             | Self::RegistrationStaged { deriver_a, .. }
-            | Self::RecoveryPending { deriver_a, .. }
+            | Self::LegacyRecoveryPending { deriver_a, .. }
             | Self::RecoveryStaged { deriver_a, .. } => {
                 deriver_a.binding.stable_key_context_binding.into_bytes()
             }
@@ -193,7 +209,7 @@ impl SigningWorkerYaoDurableStateV1 {
 
     fn validate(&self) -> RouterAbProtocolResult<()> {
         match self {
-            Self::RegistrationPending { deriver_a } => {
+            Self::LegacyRegistrationPending { deriver_a } => {
                 deriver_a.validate_for_deriver(Ed25519YaoDeriverRoleV1::DeriverA)?;
                 require_operation(&deriver_a.binding, Ed25519YaoOperationV1::Registration)
             }
@@ -221,7 +237,7 @@ impl SigningWorkerYaoDurableStateV1 {
                 receipt,
                 material.binding().operation,
             ),
-            Self::RecoveryPending {
+            Self::LegacyRecoveryPending {
                 active_material,
                 active_receipt,
                 deriver_a,
@@ -256,10 +272,6 @@ impl SigningWorkerYaoDurableStateV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
 enum SigningWorkerYaoCommandResponseV1 {
-    Pending {
-        session: [u8; 32],
-        transcript: [u8; 32],
-    },
     Active {
         receipt: Ed25519YaoSigningWorkerActivationReceiptV1,
     },
@@ -314,11 +326,8 @@ impl RouterAbSigningWorkerEd25519YaoDurableObject {
             }
         }
         match command {
-            SigningWorkerYaoCommandV1::DeliverDeriverA { delivery } => {
-                self.deliver_deriver_a(storage, current, delivery).await
-            }
-            SigningWorkerYaoCommandV1::DeliverDeriverB { delivery } => {
-                self.deliver_deriver_b(storage, current, delivery).await
+            SigningWorkerYaoCommandV1::DeliverPackages { delivery } => {
+                self.deliver_packages(storage, current, delivery).await
             }
             SigningWorkerYaoCommandV1::PromoteRecovery { request } => {
                 self.promote_recovery(storage, current, request).await
@@ -326,136 +335,20 @@ impl RouterAbSigningWorkerEd25519YaoDurableObject {
         }
     }
 
-    async fn deliver_deriver_a(
+    async fn deliver_packages(
         &self,
         storage: worker::Storage,
         current: Option<SigningWorkerYaoDurableStateV1>,
-        delivery: Ed25519YaoSigningWorkerPackageDeliveryV1,
+        delivery: CloudflareEd25519YaoPackagePairDeliveryV1,
     ) -> RouterAbProtocolResult<SigningWorkerYaoCommandResponseV1> {
-        let next = match (delivery.binding.operation, current) {
+        match (delivery.deriver_a.binding.operation, current) {
             (Ed25519YaoOperationV1::Registration, None) => {
-                SigningWorkerYaoDurableStateV1::RegistrationPending {
-                    deriver_a: delivery.clone(),
-                }
-            }
-            (
-                Ed25519YaoOperationV1::Registration,
-                Some(SigningWorkerYaoDurableStateV1::RegistrationPending { deriver_a }),
-            ) if deriver_a == delivery => {
-                SigningWorkerYaoDurableStateV1::RegistrationPending { deriver_a }
-            }
-            (
-                Ed25519YaoOperationV1::Registration,
-                Some(SigningWorkerYaoDurableStateV1::RegistrationStaged {
-                    deriver_a,
-                    deriver_b,
-                    candidate,
-                    receipt,
-                }),
-            ) if deriver_a == delivery => SigningWorkerYaoDurableStateV1::RegistrationStaged {
-                deriver_a,
-                deriver_b,
-                candidate,
-                receipt,
-            },
-            (
-                Ed25519YaoOperationV1::Registration,
-                Some(SigningWorkerYaoDurableStateV1::Active {
-                    deriver_a,
-                    deriver_b,
-                    material,
-                    receipt,
-                }),
-            ) if deriver_a == delivery => SigningWorkerYaoDurableStateV1::Active {
-                deriver_a,
-                deriver_b,
-                material,
-                receipt,
-            },
-            (
-                Ed25519YaoOperationV1::Recovery,
-                Some(SigningWorkerYaoDurableStateV1::Active {
-                    deriver_a,
-                    deriver_b,
-                    material,
-                    receipt,
-                }),
-            ) if deriver_a == delivery => SigningWorkerYaoDurableStateV1::Active {
-                deriver_a,
-                deriver_b,
-                material,
-                receipt,
-            },
-            (
-                Ed25519YaoOperationV1::Recovery,
-                Some(SigningWorkerYaoDurableStateV1::Active {
-                    material, receipt, ..
-                }),
-            ) => SigningWorkerYaoDurableStateV1::RecoveryPending {
-                active_material: material,
-                active_receipt: receipt,
-                deriver_a: delivery.clone(),
-            },
-            (
-                Ed25519YaoOperationV1::Recovery,
-                Some(SigningWorkerYaoDurableStateV1::RecoveryPending {
-                    active_material,
-                    active_receipt,
-                    deriver_a,
-                }),
-            ) if deriver_a == delivery => SigningWorkerYaoDurableStateV1::RecoveryPending {
-                active_material,
-                active_receipt,
-                deriver_a,
-            },
-            (
-                Ed25519YaoOperationV1::Recovery,
-                Some(SigningWorkerYaoDurableStateV1::RecoveryStaged {
-                    active_material,
-                    active_receipt,
-                    deriver_a,
-                    deriver_b,
-                    candidate,
-                    receipt,
-                }),
-            ) if deriver_a == delivery => SigningWorkerYaoDurableStateV1::RecoveryStaged {
-                active_material,
-                active_receipt,
-                deriver_a,
-                deriver_b,
-                candidate,
-                receipt,
-            },
-            _ => {
-                return Err(invalid_lifecycle(
-                    "Deriver A delivery conflicts with Signing Worker Yao state",
-                ));
-            }
-        };
-        next.validate()?;
-        storage
-            .put(SIGNING_WORKER_ED25519_YAO_STATE_KEY, next)
-            .await
-            .map_err(map_worker_storage_error)?;
-        Ok(SigningWorkerYaoCommandResponseV1::Pending {
-            session: delivery.binding.session_id.into_bytes(),
-            transcript: delivery.package.transcript(),
-        })
-    }
-
-    async fn deliver_deriver_b(
-        &self,
-        storage: worker::Storage,
-        current: Option<SigningWorkerYaoDurableStateV1>,
-        delivery: Ed25519YaoSigningWorkerPackageDeliveryV1,
-    ) -> RouterAbProtocolResult<SigningWorkerYaoCommandResponseV1> {
-        match current {
-            Some(SigningWorkerYaoDurableStateV1::RegistrationPending { deriver_a }) => {
-                let candidate = self.combine(deriver_a.clone(), delivery.clone(), None)?;
+                let candidate =
+                    self.combine(delivery.deriver_a.clone(), delivery.deriver_b.clone(), None)?;
                 let (material, receipt) = candidate.into_parts();
                 let staged = SigningWorkerYaoDurableStateV1::RegistrationStaged {
-                    deriver_a,
-                    deriver_b: delivery,
+                    deriver_a: delivery.deriver_a,
+                    deriver_b: delivery.deriver_b,
                     candidate: material,
                     receipt,
                 };
@@ -466,12 +359,35 @@ impl RouterAbSigningWorkerEd25519YaoDurableObject {
                     .map_err(map_worker_storage_error)?;
                 self.activate_registration(storage, staged).await
             }
-            Some(SigningWorkerYaoDurableStateV1::RegistrationStaged {
-                deriver_a,
-                deriver_b,
-                candidate,
-                receipt,
-            }) if deriver_b == delivery => {
+            (
+                Ed25519YaoOperationV1::Registration,
+                Some(SigningWorkerYaoDurableStateV1::LegacyRegistrationPending { deriver_a }),
+            ) if deriver_a == delivery.deriver_a => {
+                let candidate =
+                    self.combine(delivery.deriver_a.clone(), delivery.deriver_b.clone(), None)?;
+                let (material, receipt) = candidate.into_parts();
+                let staged = SigningWorkerYaoDurableStateV1::RegistrationStaged {
+                    deriver_a: delivery.deriver_a,
+                    deriver_b: delivery.deriver_b,
+                    candidate: material,
+                    receipt,
+                };
+                staged.validate()?;
+                storage
+                    .put(SIGNING_WORKER_ED25519_YAO_STATE_KEY, staged.clone())
+                    .await
+                    .map_err(map_worker_storage_error)?;
+                self.activate_registration(storage, staged).await
+            }
+            (
+                Ed25519YaoOperationV1::Registration,
+                Some(SigningWorkerYaoDurableStateV1::RegistrationStaged {
+                    deriver_a,
+                    deriver_b,
+                    candidate,
+                    receipt,
+                }),
+            ) if deriver_a == delivery.deriver_a && deriver_b == delivery.deriver_b => {
                 let staged = SigningWorkerYaoDurableStateV1::RegistrationStaged {
                     deriver_a,
                     deriver_b,
@@ -480,24 +396,54 @@ impl RouterAbSigningWorkerEd25519YaoDurableObject {
                 };
                 self.activate_registration(storage, staged).await
             }
-            Some(SigningWorkerYaoDurableStateV1::Active {
-                deriver_b, receipt, ..
-            }) if deriver_b == delivery => {
+            (
+                Ed25519YaoOperationV1::Registration,
+                Some(SigningWorkerYaoDurableStateV1::Active {
+                    deriver_a,
+                    deriver_b,
+                    receipt,
+                    ..
+                }),
+            ) if deriver_a == delivery.deriver_a && deriver_b == delivery.deriver_b => {
                 Ok(SigningWorkerYaoCommandResponseV1::Active { receipt })
             }
-            Some(SigningWorkerYaoDurableStateV1::RecoveryPending {
-                active_material,
-                active_receipt,
-                deriver_a,
-            }) => {
-                let candidate =
-                    self.combine(deriver_a.clone(), delivery.clone(), Some(&active_material))?;
+            (
+                Ed25519YaoOperationV1::Recovery,
+                Some(SigningWorkerYaoDurableStateV1::Active {
+                    deriver_a,
+                    deriver_b,
+                    material,
+                    receipt,
+                }),
+            ) if material.binding().operation == Ed25519YaoOperationV1::Recovery
+                && deriver_a == delivery.deriver_a
+                && deriver_b == delivery.deriver_b =>
+            {
+                Ok(SigningWorkerYaoCommandResponseV1::Staged { receipt })
+            }
+            (
+                Ed25519YaoOperationV1::Recovery,
+                Some(SigningWorkerYaoDurableStateV1::Active {
+                    material: active_material,
+                    receipt: active_receipt,
+                    ..
+                }),
+            ) => {
+                require_same_stable_identity(
+                    active_material.binding(),
+                    &delivery.deriver_a.binding,
+                )?;
+                let candidate = self.combine(
+                    delivery.deriver_a.clone(),
+                    delivery.deriver_b.clone(),
+                    Some(&active_material),
+                )?;
                 let (material, receipt) = candidate.into_parts();
                 let staged = SigningWorkerYaoDurableStateV1::RecoveryStaged {
                     active_material,
                     active_receipt,
-                    deriver_a,
-                    deriver_b: delivery,
+                    deriver_a: delivery.deriver_a,
+                    deriver_b: delivery.deriver_b,
                     candidate: material,
                     receipt: receipt.clone(),
                 };
@@ -508,13 +454,48 @@ impl RouterAbSigningWorkerEd25519YaoDurableObject {
                     .map_err(map_worker_storage_error)?;
                 Ok(SigningWorkerYaoCommandResponseV1::Staged { receipt })
             }
-            Some(SigningWorkerYaoDurableStateV1::RecoveryStaged {
-                deriver_b, receipt, ..
-            }) if deriver_b == delivery => {
+            (
+                Ed25519YaoOperationV1::Recovery,
+                Some(SigningWorkerYaoDurableStateV1::LegacyRecoveryPending {
+                    active_material,
+                    active_receipt,
+                    deriver_a,
+                }),
+            ) if deriver_a == delivery.deriver_a => {
+                let candidate = self.combine(
+                    delivery.deriver_a.clone(),
+                    delivery.deriver_b.clone(),
+                    Some(&active_material),
+                )?;
+                let (material, receipt) = candidate.into_parts();
+                let staged = SigningWorkerYaoDurableStateV1::RecoveryStaged {
+                    active_material,
+                    active_receipt,
+                    deriver_a: delivery.deriver_a,
+                    deriver_b: delivery.deriver_b,
+                    candidate: material,
+                    receipt: receipt.clone(),
+                };
+                staged.validate()?;
+                storage
+                    .put(SIGNING_WORKER_ED25519_YAO_STATE_KEY, staged)
+                    .await
+                    .map_err(map_worker_storage_error)?;
+                Ok(SigningWorkerYaoCommandResponseV1::Staged { receipt })
+            }
+            (
+                Ed25519YaoOperationV1::Recovery,
+                Some(SigningWorkerYaoDurableStateV1::RecoveryStaged {
+                    deriver_a,
+                    deriver_b,
+                    receipt,
+                    ..
+                }),
+            ) if deriver_a == delivery.deriver_a && deriver_b == delivery.deriver_b => {
                 Ok(SigningWorkerYaoCommandResponseV1::Staged { receipt })
             }
             _ => Err(invalid_lifecycle(
-                "Deriver B delivery requires the exact pending Deriver A package",
+                "Signing Worker package pair conflicts with the Yao lifecycle state",
             )),
         }
     }
@@ -575,6 +556,17 @@ impl RouterAbSigningWorkerEd25519YaoDurableObject {
         current: Option<SigningWorkerYaoDurableStateV1>,
         request: CloudflareEd25519YaoRecoveryPromotionRequestV1,
     ) -> RouterAbProtocolResult<SigningWorkerYaoCommandResponseV1> {
+        if let Some(SigningWorkerYaoDurableStateV1::Active {
+            material, receipt, ..
+        }) = current.as_ref()
+        {
+            if material.binding().operation == Ed25519YaoOperationV1::Recovery {
+                validate_promotion_request(&request, material.binding(), receipt)?;
+                return Ok(SigningWorkerYaoCommandResponseV1::Active {
+                    receipt: receipt.clone(),
+                });
+            }
+        }
         let Some(SigningWorkerYaoDurableStateV1::RecoveryStaged {
             deriver_a,
             deriver_b,
@@ -614,42 +606,15 @@ impl RouterAbSigningWorkerEd25519YaoDurableObject {
     }
 }
 
-pub async fn handle_cloudflare_signing_worker_ed25519_yao_deriver_a_v1(
+pub async fn handle_cloudflare_signing_worker_ed25519_yao_packages_v1(
     mut request: Request,
     env: &Env,
 ) -> RouterAbProtocolResult<Response> {
-    let delivery = parse_request::<Ed25519YaoSigningWorkerPackageDeliveryV1>(&mut request).await?;
-    delivery.validate_for_deriver(Ed25519YaoDeriverRoleV1::DeriverA)?;
+    let delivery = parse_request::<CloudflareEd25519YaoPackagePairDeliveryV1>(&mut request).await?;
+    delivery.validate()?;
     let response = execute_signing_worker_yao_command(
         env,
-        SigningWorkerYaoCommandV1::DeliverDeriverA { delivery },
-    )
-    .await?;
-    let SigningWorkerYaoCommandResponseV1::Pending {
-        session,
-        transcript,
-    } = response
-    else {
-        return Err(invalid_lifecycle(
-            "Deriver A delivery returned the wrong lifecycle response",
-        ));
-    };
-    json_response(&CloudflareEd25519YaoSigningWorkerHttpResponseV1::Pending {
-        accepted_deriver: Ed25519YaoDeriverRoleV1::DeriverA,
-        session,
-        transcript,
-    })
-}
-
-pub async fn handle_cloudflare_signing_worker_ed25519_yao_deriver_b_v1(
-    mut request: Request,
-    env: &Env,
-) -> RouterAbProtocolResult<Response> {
-    let delivery = parse_request::<Ed25519YaoSigningWorkerPackageDeliveryV1>(&mut request).await?;
-    delivery.validate_for_deriver(Ed25519YaoDeriverRoleV1::DeriverB)?;
-    let response = execute_signing_worker_yao_command(
-        env,
-        SigningWorkerYaoCommandV1::DeliverDeriverB { delivery },
+        SigningWorkerYaoCommandV1::DeliverPackages { delivery },
     )
     .await?;
     json_response(&http_response_from_command(response)?)
@@ -673,11 +638,6 @@ pub async fn handle_cloudflare_signing_worker_ed25519_yao_recovery_promote_v1(
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 enum CloudflareEd25519YaoSigningWorkerHttpResponseV1 {
-    Pending {
-        accepted_deriver: Ed25519YaoDeriverRoleV1,
-        session: [u8; 32],
-        transcript: [u8; 32],
-    },
     Active {
         session: [u8; 32],
         transcript: [u8; 32],
@@ -704,9 +664,6 @@ fn http_response_from_command(
     match response {
         SigningWorkerYaoCommandResponseV1::Active { receipt } => Ok(http_active_receipt(receipt)),
         SigningWorkerYaoCommandResponseV1::Staged { receipt } => Ok(http_staged_receipt(receipt)),
-        SigningWorkerYaoCommandResponseV1::Pending { .. } => Err(invalid_lifecycle(
-            "Signing Worker activation returned an unexpected pending response",
-        )),
     }
 }
 
@@ -805,14 +762,24 @@ async fn persist_cloudflare_ed25519_yao_output_activation_v1(
         .await
         .map_err(|_| invalid_lifecycle("Signing Worker Yao output receipt is malformed"))?;
     receipt.validate()?;
-    if receipt.active_signing_worker_state
-        != *activation_request.record.active_signing_worker_state()
-    {
+    if !same_active_signing_worker_state_ignoring_timestamp(
+        &receipt.active_signing_worker_state,
+        activation_request.record.active_signing_worker_state(),
+    ) {
         return Err(invalid_lifecycle(
             "Signing Worker Yao output receipt changed active state",
         ));
     }
     Ok(())
+}
+
+fn same_active_signing_worker_state_ignoring_timestamp(
+    canonical: &ActiveSigningWorkerStateV1,
+    candidate: &ActiveSigningWorkerStateV1,
+) -> bool {
+    let mut canonicalized_candidate = candidate.clone();
+    canonicalized_candidate.activated_at_ms = canonical.activated_at_ms;
+    canonical == &canonicalized_candidate
 }
 
 fn build_output_activation_record(
