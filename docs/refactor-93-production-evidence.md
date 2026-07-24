@@ -73,10 +73,11 @@ method. Only complete production traces contribute to those values.
 Current readiness blockers are:
 
 1. Deploy the Gateway `gateway.pre_yao` and `gateway.yao_execute` span
-   instrumentation together with the Router and role workers, then add the
-   remaining `registration.post_touch_id`, `gateway.d1_commit`, and
-   `frontend.wallet_ready` events on the same canonical
-   `x-seams-trace-id` correlation path.
+   instrumentation together with the Router and role workers, then verify the
+   `registration.post_touch_id`, `gateway.d1_commit`, and
+   `frontend.wallet_ready` events on the same canonical `x-seams-trace-id`
+   correlation path. The frontend and Gateway route emitters are implemented;
+   deployment collection and D1-write attribution remain to be verified.
 2. Emit separate A and B preparation durations beneath
    `router.prepare_pair`.
 3. Record a platform-supported isolate-instantiation or reuse fact. Deployment
