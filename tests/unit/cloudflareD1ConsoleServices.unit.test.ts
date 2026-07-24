@@ -60,7 +60,7 @@ type LocalD1WorkflowEnv = Parameters<typeof localD1DevWorker.fetch>[1];
 type JsonRecord = Record<string, unknown>;
 
 const LOCAL_D1_WORKFLOW_NAMESPACE = 'seams-local-workflow-smoke';
-const LOCAL_D1_WORKFLOW_ORG_ID = 'org-local-workflow';
+const LOCAL_D1_WORKFLOW_ORG_ID = 'org_abcdefgh1234';
 const LOCAL_D1_WORKFLOW_PROJECT_ID = 'project-local-workflow';
 const LOCAL_D1_WORKFLOW_ENV_ID = 'env-local-workflow';
 const LOCAL_D1_WORKFLOW_SIGNING_ROOT_VERSION = 'root-v1';
@@ -324,7 +324,7 @@ function createLocalD1WorkflowEnv(input: {
     THRESHOLD_STORE: new MemoryDurableObjectNamespace(),
     SEAMS_TENANT_STORAGE_NAMESPACE: 'seams-local-workflow-smoke',
     SEAMS_LOCAL_CONSOLE_USER_ID: 'local-workflow-user',
-    SEAMS_LOCAL_CONSOLE_ORG_ID: 'org-local-workflow',
+    SEAMS_LOCAL_CONSOLE_ORG_ID: LOCAL_D1_WORKFLOW_ORG_ID,
     SEAMS_LOCAL_CONSOLE_PROJECT_ID: 'project-local-workflow',
     SEAMS_LOCAL_CONSOLE_ENVIRONMENT_ID: 'env-local-workflow',
     SEAMS_LOCAL_CONSOLE_ROLES:
@@ -1280,7 +1280,7 @@ test('local D1 Worker serves dashboard onboarding state through D1 services', as
     await expect(readJsonRecord(response)).resolves.toMatchObject({
       ok: true,
       state: {
-        orgId: 'org-local-workflow',
+        orgId: LOCAL_D1_WORKFLOW_ORG_ID,
         hasOrganization: false,
         hasProject: false,
         hasEnvironment: false,

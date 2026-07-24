@@ -43,6 +43,7 @@ service = "router-ab-signing-worker"
 
 [vars]
 SEAMS_TENANT_STORAGE_NAMESPACE = "seams-local"
+SEAMS_LOCAL_CONSOLE_ORG_ID = "generated-by-local-runtime-config"
 SEAMS_LOCAL_RELAYER_ACCOUNT = "relay.local"
 SEAMS_LOCAL_RELAYER_PUBLIC_KEY = "ed25519:local-relay-public-key"
 RELAYER_ACCOUNT_ID = "w3a-relayer.testnet"

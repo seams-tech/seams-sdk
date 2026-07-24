@@ -153,7 +153,7 @@ test('coordinator configuration failures are terminal registration failures', as
       publicJwks: emptyJwks,
     },
     tokenScope: {
-      orgId: 'local-smoke-org',
+      orgId: 'org_abcdefgh1234',
       projectId: 'local-smoke-project',
       environment: 'local',
     },

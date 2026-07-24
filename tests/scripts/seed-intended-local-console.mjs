@@ -4,6 +4,10 @@ import { spawnSync } from 'node:child_process';
 import dotenv from 'dotenv';
 
 import {
+  parseLocalConsoleOrganizationId,
+  resolveLocalConsoleOrganizationId,
+} from '../../crates/router-ab-dev/scripts/local-console-identity.mjs';
+import {
   defaultEnvFile,
   firstNonEmptyString,
   readEnvFile,
@@ -96,13 +100,15 @@ function resolveSeedConfig(localEnv) {
       localEnv.SEAMS_TENANT_STORAGE_NAMESPACE,
       'seams-local',
     ]),
-    orgId: firstNonEmptyString([
-      process.env.SEAMS_INTENDED_CONSOLE_ORG_ID,
-      localEnv.SEAMS_INTENDED_CONSOLE_ORG_ID,
-      process.env.SEAMS_LOCAL_CONSOLE_ORG_ID,
-      localEnv.SEAMS_LOCAL_CONSOLE_ORG_ID,
-      'local-smoke-org',
-    ]),
+    orgId: parseLocalConsoleOrganizationId(
+      firstNonEmptyString([
+        process.env.SEAMS_INTENDED_CONSOLE_ORG_ID,
+        localEnv.SEAMS_INTENDED_CONSOLE_ORG_ID,
+        process.env.SEAMS_LOCAL_CONSOLE_ORG_ID,
+        localEnv.SEAMS_LOCAL_CONSOLE_ORG_ID,
+        resolveLocalConsoleOrganizationId({ localEnvRoot: repoRoot }),
+      ]),
+    ),
     projectId: firstNonEmptyString([
       process.env.SEAMS_INTENDED_PROJECT_ID,
       localEnv.SEAMS_INTENDED_PROJECT_ID,

@@ -795,6 +795,7 @@ async function ensureGateway() {
       ...process.env,
       SEAMS_D1_LOCAL_PERSIST_TO: d1LocalPersistPath,
       SEAMS_D1_LOCAL_WRANGLER_CONFIG: d1LocalWranglerConfigPath,
+      SEAMS_LOCAL_CONSOLE_ORG_ID: strictRuntime.localConsoleOrganizationId,
       ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET:
         process.env.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET || 'dev-router-ab-internal-service-auth',
     },

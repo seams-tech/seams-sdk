@@ -123,6 +123,11 @@ test('local Gateway startup projects the generated HPKE keyset into D1 Wrangler'
   expect(config).not.toContain('ROUTER_AB_SIGNING_WORKER_URL =');
   expect(config).not.toContain('GATEWAY_PUBLIC_URL =');
   expect(config).not.toContain('ROUTER_AB_MPC_ROUTER_URL =');
+  const localConsoleOrganizationId = parseTomlStringAssignment(
+    config,
+    'SEAMS_LOCAL_CONSOLE_ORG_ID',
+  );
+  expect(localConsoleOrganizationId).toMatch(/^org_[a-z0-9]{12}$/);
   expect(config).toContain(
     `DERIVER_A_PEER_VERIFYING_KEY_HEX = "${localPeerVerifyingKeyHex(
       `dev-only-generated-a:${DERIVER_A_PEER_KEY_HEX}`,
@@ -146,6 +151,12 @@ test('local Gateway startup projects the generated HPKE keyset into D1 Wrangler'
       'ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK',
     ),
   ).toEqual(ceremonyPrivateJwk);
+  expect(
+    parseTomlStringAssignment(
+      readFileSync(fixture.outputConfigPath, 'utf8'),
+      'SEAMS_LOCAL_CONSOLE_ORG_ID',
+    ),
+  ).toBe(localConsoleOrganizationId);
 
   const topology = parseTomlJsonAssignment(config, 'ROUTER_AB_ECDSA_REGISTRATION_TOPOLOGY_JSON');
   expect(topology).toEqual({
@@ -213,10 +224,12 @@ test('local Gateway startup renders the production-shaped MPC Worker topology', 
   expect(routerConfig).toContain('binding = "DERIVER_A"');
   expect(routerConfig).toContain('service = "router-ab-deriver-a"');
   expect(routerConfig).not.toContain('[build]');
+  const localConsoleOrganizationId = runtime.localConsoleOrganizationId;
+  expect(localConsoleOrganizationId).toMatch(/^org_[a-z0-9]{12}$/);
   expect(
     parseTomlJsonAssignment(routerConfig, 'ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON'),
   ).toMatchObject({
-    org_id: 'local-smoke-org',
+    org_id: localConsoleOrganizationId,
     project_id: 'local-smoke-project',
     environment: 'local',
   });
@@ -243,6 +256,14 @@ function parseTomlJsonAssignment(config: string, key: string): Record<string, un
     if (!line.startsWith(`${key} = `)) continue;
     const tomlString = JSON.parse(line.slice(line.indexOf('=') + 1).trim());
     return JSON.parse(tomlString) as Record<string, unknown>;
+  }
+  throw new Error(`Missing ${key}`);
+}
+
+function parseTomlStringAssignment(config: string, key: string): string {
+  for (const line of config.split(/\r?\n/)) {
+    if (!line.startsWith(`${key} = `)) continue;
+    return JSON.parse(line.slice(line.indexOf('=') + 1).trim()) as string;
   }
   throw new Error(`Missing ${key}`);
 }

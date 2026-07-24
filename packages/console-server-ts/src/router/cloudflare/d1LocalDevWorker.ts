@@ -58,6 +58,7 @@ import {
 } from '@seams-internal/console-server/sponsorship/evmWorkerExecutionAdapter';
 import { resolveSponsoredExecutionPricingFromEnv } from '@seams-internal/console-server/sponsorship/pricing';
 import { createStripeBillingProviderAdaptersFromEnv } from '@seams-internal/console-server/billing/stripeProvider';
+import { CONSOLE_ORGANIZATION_ID_PATTERN } from '@seams-internal/console-shared/organizationIdentity';
 import {
   parseRouterAbPublicKeysetV2,
   ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
@@ -102,7 +103,7 @@ interface LocalD1DevEnv extends RouterAbServiceBindingEnv {
   readonly THRESHOLD_STORE: CloudflareDurableObjectNamespaceLike;
   readonly SEAMS_TENANT_STORAGE_NAMESPACE?: string;
   readonly SEAMS_LOCAL_CONSOLE_USER_ID?: string;
-  readonly SEAMS_LOCAL_CONSOLE_ORG_ID?: string;
+  readonly SEAMS_LOCAL_CONSOLE_ORG_ID: string;
   readonly SEAMS_LOCAL_CONSOLE_PROJECT_ID?: string;
   readonly SEAMS_LOCAL_CONSOLE_ENVIRONMENT_ID?: string;
   readonly SEAMS_LOCAL_CONSOLE_ROLES?: string;
@@ -197,7 +198,6 @@ type AdmissionDoErr = { readonly ok: false; readonly code: string; readonly mess
 type AdmissionDoResp<T> = AdmissionDoOk<T> | AdmissionDoErr;
 
 const DEFAULT_LOCAL_CONSOLE_USER_ID = 'local-console-user';
-const DEFAULT_LOCAL_CONSOLE_ORG_ID = 'local-smoke-org';
 const DEFAULT_LOCAL_CONSOLE_PROJECT_ID = 'local-smoke-project';
 const DEFAULT_LOCAL_CONSOLE_ENVIRONMENT_ID = 'local';
 const DEFAULT_LOCAL_RELAY_SESSION_HMAC_SECRET =
@@ -626,12 +626,14 @@ function localConsoleAuthClaims(env: LocalD1DevEnv, headers: HeaderRecord): Cons
       envValue: env.SEAMS_LOCAL_CONSOLE_USER_ID,
       fallback: DEFAULT_LOCAL_CONSOLE_USER_ID,
     }),
-    orgId: headerOrEnvString({
-      headers,
-      headerName: 'x-console-org-id',
-      envValue: env.SEAMS_LOCAL_CONSOLE_ORG_ID,
-      fallback: DEFAULT_LOCAL_CONSOLE_ORG_ID,
-    }),
+    orgId: parseLocalConsoleOrganizationId(
+      headerOrEnvString({
+        headers,
+        headerName: 'x-console-org-id',
+        envValue: env.SEAMS_LOCAL_CONSOLE_ORG_ID,
+        fallback: env.SEAMS_LOCAL_CONSOLE_ORG_ID,
+      }),
+    ),
     projectId: headerOrEnvString({
       headers,
       headerName: 'x-console-project-id',
@@ -649,7 +651,15 @@ function localConsoleAuthClaims(env: LocalD1DevEnv, headers: HeaderRecord): Cons
 }
 
 function localConsoleOrgId(env: LocalD1DevEnv): string {
-  return normalizeLocalString(env.SEAMS_LOCAL_CONSOLE_ORG_ID) || DEFAULT_LOCAL_CONSOLE_ORG_ID;
+  return parseLocalConsoleOrganizationId(env.SEAMS_LOCAL_CONSOLE_ORG_ID);
+}
+
+function parseLocalConsoleOrganizationId(value: string): string {
+  const organizationId = normalizeLocalString(value);
+  if (!CONSOLE_ORGANIZATION_ID_PATTERN.test(organizationId)) {
+    throw new Error('SEAMS_LOCAL_CONSOLE_ORG_ID must match org_[a-z0-9]{12}');
+  }
+  return organizationId;
 }
 
 function localConsoleProjectId(env: LocalD1DevEnv): string {
@@ -1168,7 +1178,10 @@ function routerApiRequest(request: Request, pathname: string): Request {
   return new Request(url.toString(), request);
 }
 
-function localAdmissionInput(nowMs: number): RouterAbNormalSigningAdmissionInput {
+function localAdmissionInput(
+  env: LocalD1DevEnv,
+  nowMs: number,
+): RouterAbNormalSigningAdmissionInput {
   const rpId = parseWebAuthnRpId('localhost');
   if (!rpId.ok) throw new Error('local D1/DO admission smoke rpId is invalid');
   return {
@@ -1182,7 +1195,7 @@ function localAdmissionInput(nowMs: number): RouterAbNormalSigningAdmissionInput
     expiresAtMs: nowMs + 60_000,
     signingWorkerId: 'local-smoke-signing-worker',
     runtimePolicyScope: {
-      orgId: 'local-smoke-org',
+      orgId: localConsoleOrgId(env),
       projectId: 'local-smoke-project',
       envId: 'local',
       signingRootVersion: 'local-root-v1',
@@ -1192,7 +1205,7 @@ function localAdmissionInput(nowMs: number): RouterAbNormalSigningAdmissionInput
 
 async function runD1DoAdmissionSmoke(env: LocalD1DevEnv): Promise<ReadyAdmissionResult> {
   const nowMs = Date.now();
-  const input = localAdmissionInput(nowMs);
+  const input = localAdmissionInput(env, nowMs);
   const key = [
     'router-ab-normal-signing-admission',
     'namespace',
