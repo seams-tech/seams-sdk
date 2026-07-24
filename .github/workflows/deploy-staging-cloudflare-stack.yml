@@ -537,7 +537,16 @@ jobs:
             ['signer-iframe', 'signer-iframe', 'manifest.json'],
           ].filter(([name]) => selectedComponents.has(name));
           async function findManifest(directory, name) {
+            const directCandidates = specs.length === 1
+              ? [
+                  join(root, name),
+                  join(root, '.release-artifacts', name),
+                  join(root, '.release-artifacts/pages', name),
+                  join(root, '.release-artifacts/signer-iframe', name),
+                ]
+              : [];
             const candidates = [
+              ...directCandidates,
               join(root, directory, name),
               join(root, directory, '.release-artifacts', name),
               join(root, directory, '.release-artifacts/pages', name),
