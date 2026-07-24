@@ -1,0 +1,167 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+
+import {
+  analyzeRefactor93ProductionEvidence,
+  nearestRankPercentile,
+  parseRefactor93SpanJsonl,
+} from '../../crates/router-ab-cloudflare/scripts/refactor93-production-evidence.mjs';
+
+const REQUIRED_SPANS = [
+  'registration.post_touch_id',
+  'gateway.pre_yao',
+  'gateway.yao_execute',
+  'router.parse_and_authorize',
+  'router.role_status_reconciliation',
+  'router.prepare_pair',
+  'router.verify_readiness_receipts',
+  'router.deriver_a_execute',
+  'deriver_a.root_share',
+  'deriver_a.websocket_connect',
+  'deriver_a.yao_protocol',
+  'deriver_b.session_do',
+  'deriver_b.yao_protocol',
+  'router.deriver_b_completed_read',
+  'router.signing_worker_delivery',
+  'gateway.d1_commit',
+  'frontend.wallet_ready',
+  'router.prepare_pair.deriver_a',
+  'router.prepare_pair.deriver_b',
+];
+
+test('production evidence gate accepts 20 complete correlated cold and warm traces', () => {
+  const fixture = buildFixture({ environment: 'production', traceCount: 20 });
+  const report = analyzeRefactor93ProductionEvidence(fixture);
+
+  assert.equal(report.readiness.phase0BaselineReady, true);
+  assert.equal(report.readiness.completeTraceCount, 20);
+  assert.equal(report.readiness.coldAfterDeployTraceCount, 5);
+  assert.equal(report.readiness.warmTraceCount, 15);
+  assert.equal(report.budgets.gatewayYaoExecuteMs.all.p50, 1_009);
+  assert.equal(report.budgets.gatewayYaoExecuteMs.all.p95, 1_018);
+  assert.equal(report.budgets.postTouchIdToWalletReadyMs.all.p95, 2_018);
+});
+
+test('evidence gate rejects synthetic, incomplete, and unknown isolate evidence', () => {
+  const fixture = buildFixture({ environment: 'synthetic_test', traceCount: 2 });
+  fixture.events = fixture.events.filter(notGatewayD1Commit);
+  fixture.manifest.traces[0].isolateReuse.router = 'unknown';
+  const report = analyzeRefactor93ProductionEvidence(fixture);
+
+  assert.equal(report.readiness.phase0BaselineReady, false);
+  assert.ok(report.readiness.blockers.includes('manifest environment must be production'));
+  assert.ok(
+    report.readiness.blockers.includes('at least 20 declared production traces are required'),
+  );
+  assert.ok(report.readiness.blockers.some(hasMissingGatewayD1Commit));
+  assert.ok(report.readiness.blockers.some(hasUnknownRouterReuse));
+  assert.equal(report.budgets.gatewayYaoExecuteMs.all.sampleCount, 0);
+});
+
+test('JSONL parser extracts direct, Wrangler tail, and Workers Logs span messages', () => {
+  const traceId = traceIdFor(1);
+  const event = spanEvent(traceId, 'gateway.yao_execute', 900);
+  const text = [
+    JSON.stringify(event),
+    JSON.stringify({ logs: [{ message: [JSON.stringify(event)] }] }),
+    JSON.stringify({ message: [JSON.stringify(event)] }),
+    'not-json',
+  ].join('\n');
+
+  const parsed = parseRefactor93SpanJsonl(text, 'fixture.jsonl');
+
+  assert.equal(parsed.events.length, 3);
+  assert.equal(parsed.rejectedLines.length, 1);
+  assert.equal(parsed.events[1].source, 'fixture.jsonl');
+  assert.equal(parsed.events[1].line, 2);
+});
+
+test('nearest-rank percentile is deterministic for the 20-trace gate', () => {
+  const values = Array.from({ length: 20 }, buildOneBasedValue);
+  assert.equal(nearestRankPercentile(values, 0.5), 10);
+  assert.equal(nearestRankPercentile(values, 0.95), 19);
+});
+
+function buildFixture(input) {
+  const traces = [];
+  const events = [];
+  for (let index = 0; index < input.traceCount; index += 1) {
+    const traceId = traceIdFor(index + 1);
+    traces.push({
+      traceId,
+      cohort: index < 5 ? 'cold_after_deploy' : 'warm',
+      isolateReuse: {
+        gateway: index < 5 ? 'new' : 'reused',
+        router: index < 5 ? 'new' : 'reused',
+        deriverA: index < 5 ? 'new' : 'reused',
+        deriverB: index < 5 ? 'new' : 'reused',
+        signingWorker: index < 5 ? 'new' : 'reused',
+      },
+    });
+    for (const span of REQUIRED_SPANS) {
+      const base = span === 'registration.post_touch_id' ? 2_000 : 1_000;
+      events.push(spanEvent(traceId, span, base + index));
+    }
+  }
+  const synthetic = input.environment === 'synthetic_test';
+  return {
+    manifest: {
+      schemaVersion: 1,
+      environment: input.environment,
+      capturedAt: '2026-07-24T00:00:00.000Z',
+      captureMethod: synthetic ? 'synthetic_test' : 'wrangler_tail_json',
+      release: {
+        sourceSha: 'a'.repeat(40),
+        gatewayVersionId: 'gateway-v1',
+        routerVersionId: 'router-v1',
+        deriverAVersionId: 'deriver-a-v1',
+        deriverBVersionId: 'deriver-b-v1',
+        signingWorkerVersionId: 'signing-worker-v1',
+      },
+      traces,
+    },
+    events,
+    inputFiles: [
+      {
+        path: '/evidence/worker-tail.jsonl',
+        sha256: 'b'.repeat(64),
+        rejectedJsonLineCount: 0,
+      },
+    ],
+  };
+}
+
+function spanEvent(traceId, span, durationMs) {
+  return {
+    event: span.startsWith('deriver_')
+      ? 'router_ab_yao_role_span_v1'
+      : 'refactor93_gateway_span_v1',
+    span,
+    operation: 'registration',
+    outcome: 'success',
+    duration_ms: durationMs,
+    trace_id: traceId,
+    source: '/evidence/worker-tail.jsonl',
+    line: 1,
+  };
+}
+
+function traceIdFor(value) {
+  return value.toString(16).padStart(32, '0');
+}
+
+function notGatewayD1Commit(event) {
+  return event.span !== 'gateway.d1_commit';
+}
+
+function hasMissingGatewayD1Commit(blocker) {
+  return blocker.includes('missing required spans: gateway.d1_commit');
+}
+
+function hasUnknownRouterReuse(blocker) {
+  return blocker.includes('unknown isolate reuse: router');
+}
+
+function buildOneBasedValue(_value, index) {
+  return index + 1;
+}
