@@ -12,6 +12,22 @@ import {
   updateEnvFile,
 } from './intended-google-oidc-env.mjs';
 
+// Opt-out for a clean, unseeded console (e.g. to exercise the real
+// org/project/environment creation flow from scratch). When set, the seed
+// makes no DB or env-file changes.
+if (
+  ['1', 'true', 'yes'].includes(
+    String(process.env.SEAMS_SKIP_INTENDED_CONSOLE_SEED || '')
+      .trim()
+      .toLowerCase(),
+  )
+) {
+  console.log(
+    '[intended-local-console] SEAMS_SKIP_INTENDED_CONSOLE_SEED set — skipping seed (empty console)',
+  );
+  process.exit(0);
+}
+
 const envFilePath = resolveRepoPath(defaultEnvFile);
 dotenv.config({ path: envFilePath, override: true });
 
