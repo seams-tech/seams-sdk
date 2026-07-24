@@ -864,6 +864,9 @@ local adapter would create a second lifecycle implementation. Until a shared
 local coordinator boundary is chosen, pair paths stay explicitly owned and
 return the existing unsupported response in the Rust-only harness. Strict
 Wrangler local mode continues to execute the production Cloudflare handlers.
+The pure local pair model now marks an expired prepared pair as terminal before
+any role can enter `Running`; it remains a unit model rather than serving-path
+evidence.
 
 ## Test Matrix
 

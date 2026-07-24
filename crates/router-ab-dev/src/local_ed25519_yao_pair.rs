@@ -1,8 +1,7 @@
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use router_ab_core::{
     ed25519_yao_encrypted_input_digest_v1, Ed25519YaoDeriverRoleV1, Ed25519YaoEncryptedInputV1,
-    Ed25519YaoEncryptedPackageV1, Ed25519YaoInputPairBindingV1, Ed25519YaoPackageKindV1,
-    Ed25519YaoRoleReadinessReceiptV1,
+    Ed25519YaoInputPairBindingV1, Ed25519YaoRoleReadinessReceiptV1,
     Ed25519YaoRoleSignatureSchemeV1, Ed25519YaoSessionIdV1, PublicDigest32, RouterAbProtocolError,
     RouterAbProtocolErrorCode, RouterAbProtocolResult,
 };
@@ -20,6 +19,9 @@ pub enum LocalEd25519YaoPairLifecycleStateV1 {
         deriver_b: LocalEd25519YaoRoleReadinessReceiptV1,
     },
     Running {
+        pair_digest: [u8; 32],
+    },
+    Expired {
         pair_digest: [u8; 32],
     },
     Completed {
@@ -122,9 +124,13 @@ impl LocalEd25519YaoPairLifecycleV1 {
                     .filter(|stored| {
                         stored.input_digest == input_digest
                             && stored.root_metadata_digest == root_metadata_digest
+                            && prepared_at_ms < stored.receipt.expires_at_ms()
                     })
                     .map(|stored| stored.receipt.clone())
-                    .ok_or_else(|| pair_lifecycle_error("conflicting pair preparation"));
+                    .ok_or_else(|| pair_lifecycle_error("pair preparation is expired"));
+            }
+            Some(LocalEd25519YaoPairLifecycleStateV1::Expired { .. }) => {
+                return Err(pair_lifecycle_error("pair lifecycle is terminal"));
             }
             Some(_) => return Err(pair_lifecycle_error("pair lifecycle is already committed")),
         }
@@ -183,11 +189,15 @@ impl LocalEd25519YaoPairLifecycleV1 {
     ) -> RouterAbProtocolResult<()> {
         deriver_a.validate_for_pair(pair)?;
         deriver_b.validate_for_pair(pair)?;
+        let pair_digest = pair.pair_digest().bytes;
+        if deriver_a.expires_at_ms() <= now_ms || deriver_b.expires_at_ms() <= now_ms {
+            self.state = Some(LocalEd25519YaoPairLifecycleStateV1::Expired { pair_digest });
+            return Err(pair_lifecycle_error("pair preparation is expired"));
+        }
         deriver_a.validate_at(now_ms)?;
         deriver_b.validate_at(now_ms)?;
         verify_receipt(deriver_a, deriver_a_verifying_key)?;
         verify_receipt(deriver_b, deriver_b_verifying_key)?;
-        let pair_digest = pair.pair_digest().bytes;
         match self.state.as_ref() {
             Some(LocalEd25519YaoPairLifecycleStateV1::Prepared {
                 pair_digest: stored_pair_digest,
@@ -215,6 +225,11 @@ impl LocalEd25519YaoPairLifecycleV1 {
                         "pair receipts do not match preparation",
                     ))
                 }
+            }
+            Some(LocalEd25519YaoPairLifecycleStateV1::Expired {
+                pair_digest: stored_pair_digest,
+            }) if *stored_pair_digest == pair_digest => {
+                Err(pair_lifecycle_error("pair lifecycle is terminal"))
             }
             _ => Err(pair_lifecycle_error(
                 "pair execution requires exact prepared receipts",
@@ -394,9 +409,9 @@ fn pair_lifecycle_error(message: &'static str) -> RouterAbProtocolError {
 mod tests {
     use super::*;
     use router_ab_core::{
-        Ed25519YaoCeremonyBindingV1, Ed25519YaoCeremonyIdentityV1, Ed25519YaoInputKindV1,
-        Ed25519YaoOperationV1, Ed25519YaoStableKeyContextBindingV1, ExpensiveWorkKindV1,
-        LifecycleScopeV1, RootShareEpoch,
+        Ed25519YaoCeremonyBindingV1, Ed25519YaoCeremonyIdentityV1, Ed25519YaoEncryptedPackageV1,
+        Ed25519YaoInputKindV1, Ed25519YaoOperationV1, Ed25519YaoPackageKindV1,
+        Ed25519YaoStableKeyContextBindingV1, ExpensiveWorkKindV1, LifecycleScopeV1, RootShareEpoch,
     };
 
     fn pair_fixture() -> (
@@ -513,6 +528,51 @@ mod tests {
             .burn(pair.pair_digest().bytes)
             .expect("running pair should burn");
         assert!(lifecycle.completed(pair.pair_digest().bytes).is_err());
+    }
+
+    #[test]
+    fn pair_lifecycle_marks_expired_before_running() {
+        let (pair, input_a, input_b) = pair_fixture();
+        let (signing_keys, deriver_a_verifying_key, deriver_b_verifying_key) = signing_keys();
+        let mut lifecycle = LocalEd25519YaoPairLifecycleV1::default();
+        let receipt_a = lifecycle
+            .prepare_role(
+                Ed25519YaoDeriverRoleV1::DeriverA,
+                &pair,
+                input_a,
+                [0xc1; 32],
+                1,
+                10,
+                signing_keys,
+            )
+            .expect("Deriver A preparation");
+        let receipt_b = lifecycle
+            .prepare_role(
+                Ed25519YaoDeriverRoleV1::DeriverB,
+                &pair,
+                input_b,
+                [0xc2; 32],
+                2,
+                10,
+                signing_keys,
+            )
+            .expect("Deriver B preparation");
+
+        assert!(lifecycle
+            .begin(
+                &pair,
+                &receipt_a,
+                &receipt_b,
+                deriver_a_verifying_key,
+                deriver_b_verifying_key,
+                10,
+            )
+            .is_err());
+        assert!(matches!(
+            lifecycle.state(),
+            Some(LocalEd25519YaoPairLifecycleStateV1::Expired { .. })
+        ));
+        assert!(lifecycle.burn(pair.pair_digest().bytes).is_err());
     }
 
     #[test]
