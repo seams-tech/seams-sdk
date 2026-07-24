@@ -215,6 +215,23 @@ impl Ed25519YaoInputPairBindingV1 {
         )
     }
 
+    /// Creates a pair binding directly from an admitted ceremony binding.
+    pub fn from_ceremony_binding(
+        binding: Ed25519YaoCeremonyBindingV1,
+        deriver_a_input: &Ed25519YaoEncryptedInputV1,
+        deriver_b_input: &Ed25519YaoEncryptedInputV1,
+        recipient_set_digest: PublicDigest32,
+        authorization_digest: PublicDigest32,
+    ) -> RouterAbProtocolResult<Self> {
+        Self::from_inputs(
+            Ed25519YaoCeremonyIdentityV1::from_binding(binding)?,
+            deriver_a_input,
+            deriver_b_input,
+            recipient_set_digest,
+            authorization_digest,
+        )
+    }
+
     /// Revalidates the derived digest after deserialization.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         self.ceremony.validate()?;
