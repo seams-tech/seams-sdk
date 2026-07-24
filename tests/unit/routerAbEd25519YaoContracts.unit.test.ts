@@ -51,6 +51,10 @@ type ScriptedFetchState =
   | { kind: 'unbound' }
   | { kind: 'bound'; binding: RouterAbEd25519YaoActivationBindingV1 };
 
+type ScriptedExecutionResult =
+  | { kind: 'success' }
+  | { kind: 'burned'; reason: 'protocol_failure' };
+
 class TestRegistrationBackend implements RouterAbEd25519YaoRegistrationBackend {
   admitCalls = 0;
   executeCalls = 0;
@@ -125,6 +129,7 @@ class ScriptedLocalYaoFetch {
   readonly requestBodies: string[] = [];
   readonly replayHeaders: string[] = [];
   failNextExecute = false;
+  executionResult: ScriptedExecutionResult = { kind: 'success' };
   private state: ScriptedFetchState = { kind: 'unbound' };
 
   bindActivation(binding: RouterAbEd25519YaoActivationBindingV1): void {
@@ -161,6 +166,13 @@ class ScriptedLocalYaoFetch {
     const session = binding.session_id;
     switch (path) {
       case '/router-ab/router/ed25519-yao/execute':
+        if (this.executionResult.kind === 'burned') {
+          return this.json({
+            status: 'burned',
+            execution_id: bytes(18),
+            reason: this.executionResult.reason,
+          });
+        }
         return this.json({
           status: 'succeeded',
           result: {
@@ -789,6 +801,38 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     expect(scriptedFetch.traceIds).toHaveLength(2);
     expect(scriptedFetch.traceIds[0]).toBe(scriptedFetch.traceIds[1]);
     expect(scriptedFetch.traceIds[0]).toMatch(/^[0-9a-f]{32}$/);
+  });
+
+  test('surfaces a burned Router execution without retrying it', async () => {
+    const scriptedFetch = new ScriptedLocalYaoFetch();
+    scriptedFetch.executionResult = { kind: 'burned', reason: 'protocol_failure' };
+    const backend = createRouterAbEd25519YaoHttpRegistrationBackendFromEnv({
+      env: localHttpBackendEnv(),
+      fetch: scriptedFetch.fetch.bind(scriptedFetch),
+    });
+
+    const admitted = await backend.admit(parsedAdmissionRequest());
+    if (!admitted.ok) throw new Error(admitted.message);
+    const parsedAdmission = parseRouterAbEd25519YaoRegistrationAdmissionReceiptV1(admitted.body);
+    if (!parsedAdmission.ok) throw new Error(parsedAdmission.message);
+    scriptedFetch.bindActivation(parsedAdmission.value.binding);
+
+    const parsedExecution = parseRouterAbEd25519YaoRegistrationExecuteRequestV1({
+      binding: parsedAdmission.value.binding,
+      deriver_a_input: encryptedInputForBinding(parsedAdmission.value.binding, 'deriver_a'),
+      deriver_b_input: encryptedInputForBinding(parsedAdmission.value.binding, 'deriver_b'),
+    });
+    if (!parsedExecution.ok) throw new Error(parsedExecution.message);
+
+    const burned = await backend.execute(parsedExecution.value);
+    expect(burned).toEqual({
+      ok: false,
+      status: 502,
+      code: 'router_execution_burned',
+      message: 'Router Yao execution was burned',
+    });
+    expect(scriptedFetch.calls).toEqual(['POST /router-ab/router/ed25519-yao/execute']);
+    expect(scriptedFetch.replayHeaders).toEqual(['']);
   });
 
   test('promotes a SigningWorker-owned staged recovery across request-scoped HTTP backends', async () => {
