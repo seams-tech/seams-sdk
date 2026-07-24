@@ -12,12 +12,22 @@ import {
   updateEnvFile,
 } from './intended-google-oidc-env.mjs';
 
+const envFilePath = resolveRepoPath(defaultEnvFile);
+dotenv.config({ path: envFilePath, override: true });
+
+const envFile = readEnvFile(envFilePath);
+
 // Opt-out for a clean, unseeded console (e.g. to exercise the real
-// org/project/environment creation flow from scratch). When set, the seed
-// makes no DB or env-file changes.
+// org/project/environment creation flow from scratch). Set it in the shell or
+// in .env.intended.local (SEAMS_SKIP_INTENDED_CONSOLE_SEED=1); when set, the
+// seed makes no DB or env-file changes.
 if (
   ['1', 'true', 'yes'].includes(
-    String(process.env.SEAMS_SKIP_INTENDED_CONSOLE_SEED || '')
+    String(
+      process.env.SEAMS_SKIP_INTENDED_CONSOLE_SEED ||
+        envFile.SEAMS_SKIP_INTENDED_CONSOLE_SEED ||
+        '',
+    )
       .trim()
       .toLowerCase(),
   )
@@ -27,11 +37,6 @@ if (
   );
   process.exit(0);
 }
-
-const envFilePath = resolveRepoPath(defaultEnvFile);
-dotenv.config({ path: envFilePath, override: true });
-
-const envFile = readEnvFile(envFilePath);
 const seedConfig = resolveSeedConfig(envFile);
 const d1LocalPersistPath = process.env.SEAMS_D1_LOCAL_PERSIST_TO || '.wrangler/state/seams-d1';
 const d1LocalWranglerConfig =
