@@ -78,6 +78,7 @@ const requiredVarsByProfile = Object.freeze({
     'RELAYER_PUBLIC_KEY',
     'RELAY_SESSION_ISSUER',
     'RELAY_SESSION_AUDIENCE',
+    'SPONSORED_EXECUTION_REAL_PRICING_JSON',
   ]),
 });
 const forbiddenPostgresTokens = Object.freeze([

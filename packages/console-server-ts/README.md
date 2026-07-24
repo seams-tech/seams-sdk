@@ -12,12 +12,30 @@ From this package:
 
 ```sh
 pnpm run d1:local:prepare
+pnpm run d1:local:paths
 pnpm run d1:local:restore:drill
 pnpm run d1:local:dev
 ```
 
-`d1:local:prepare` applies the local console and signer migrations, then checks
-that the expected tables exist. `d1:local:restore:drill` backs up the local
+`d1:local:prepare` applies the local console and signer migrations, creates
+friendly live links at `sqlite/seams_console.sqlite` and
+`sqlite/seams_signer.sqlite`, then checks that the expected tables exist.
+Run `d1:local:paths` independently to refresh those links after changing the
+local Wrangler persistence root. The command honors
+`SEAMS_D1_LOCAL_PERSIST_TO` and `SEAMS_D1_LOCAL_SQLITE_DIR` when custom paths
+are needed.
+To wipe the local console and signer D1 databases plus Durable Object state,
+stop the local Worker and run:
+
+```sh
+pnpm run d1:local:reset -- --yes
+pnpm run d1:local:prepare
+```
+
+The reset removes the entire configured local Wrangler persistence root and
+preserves the friendly SQLite symlinks. Run `d1:local:prepare` afterward to
+repoint them. It does not seed application data.
+`d1:local:restore:drill` backs up the local
 console and signer SQLite databases, restores them into fresh SQLite files,
 checks `PRAGMA integrity_check`, verifies expected table counts, and writes a
 manifest under `.wrangler/d1-local-restore-drills`. `d1:local:dev` starts the
@@ -36,10 +54,12 @@ Durable Object normal-signing admission path:
 curl http://127.0.0.1:9090/readyz
 ```
 
-Open the SQLite files under `.wrangler/state/seams-d1` in TablePlus with the
-SQLite driver when manual inspection is useful. Treat local inspection as
-read-only. Remote D1 inspection should use Wrangler, Cloudflare dashboard tools,
-exports, or a purpose-built admin route.
+Open `sqlite/seams_console.sqlite` or `sqlite/seams_signer.sqlite` in TablePlus
+with the SQLite driver when manual inspection is useful. The files are stable
+symlinks to Wrangler's live hashed D1 files, so the D1 runtime and manual
+inspection use the same database. Treat local inspection as read-only. Remote D1
+inspection should use Wrangler, Cloudflare dashboard tools, exports, or a
+purpose-built admin route.
 
 Local EVM signing is client-funded. Sponsored EVM execution is optional and
 uses Console D1 pricing rows, never request-time backfill or Worker env pricing.
