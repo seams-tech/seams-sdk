@@ -694,7 +694,7 @@ Router HTTP route; its product test remains an explicit follow-up before Phase
 - [ ] Delete lower-authority tests, fixtures, mocks, and source guards that
       encode the serial flow.
 - [ ] Delete compatibility request parsers after the boundary drain.
-- [ ] Keep role-local Durable Object classes and their current secret
+- [x] Keep role-local Durable Object classes and their current secret
       boundaries.
 - [x] Verify the repository contains one production Yao orchestration owner.
 
