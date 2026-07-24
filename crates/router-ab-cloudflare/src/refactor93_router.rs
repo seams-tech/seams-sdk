@@ -5,10 +5,11 @@ use crate::{
     cloudflare_service_json_request_body_v1, parse_cloudflare_deriver_peer_verifying_key_set_v1,
     parse_cloudflare_trace_id_from_request_v1, require_cloudflare_internal_service_auth_request_v1,
     set_cloudflare_internal_service_auth_header_v1, set_cloudflare_trace_id_header_v1,
-    CloudflareEd25519YaoPackagePairDeliveryV1, CloudflareEd25519YaoPairExecuteRequestV1,
-    CloudflareEd25519YaoPairPrepareRequestV1, CloudflareEd25519YaoPairStatusResponseV1,
-    CloudflareEd25519YaoReadCompletedPairRequestV1, CloudflareRouterWorkerRuntimeV1,
-    CloudflareWorkerEnvReaderV1, CLOUDFLARE_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH,
+    CloudflareEd25519YaoPackagePairDeliveryV1, CloudflareEd25519YaoPairCompletionAcknowledgementV1,
+    CloudflareEd25519YaoPairExecuteRequestV1, CloudflareEd25519YaoPairPrepareRequestV1,
+    CloudflareEd25519YaoPairStatusResponseV1, CloudflareEd25519YaoReadCompletedPairRequestV1,
+    CloudflareRouterWorkerRuntimeV1, CloudflareWorkerEnvReaderV1,
+    CLOUDFLARE_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH,
     CLOUDFLARE_DERIVER_A_ED25519_YAO_EXECUTE_PAIR_PATH,
     CLOUDFLARE_DERIVER_A_ED25519_YAO_PREPARE_PAIR_PATH,
     CLOUDFLARE_DERIVER_A_ED25519_YAO_READ_PAIR_STATUS_PATH,
@@ -336,7 +337,7 @@ async fn execute_router_ceremony_v1(
 
     let transcript = execution_transcript(&execution);
     let completed_read_started_at_ms = cloudflare_now_unix_ms_v1()?;
-    let completed_b = post_role_json::<_, Ed25519YaoRoleExecutionV1>(
+    let completed_b = post_role_json::<_, CloudflareEd25519YaoPairCompletionAcknowledgementV1>(
         env,
         runtime.deriver_b_peer().binding_name.as_str(),
         DERIVER_B_SERVICE_URL,
@@ -350,7 +351,7 @@ async fn execute_router_ceremony_v1(
     )
     .await;
     let completed_b = match completed_b {
-        Ok(execution) => {
+        Ok(acknowledgement) => {
             emit_span(
                 trace_id,
                 "router.deriver_b_completed_read",
@@ -358,7 +359,12 @@ async fn execute_router_ceremony_v1(
                 completed_read_started_at_ms,
                 "success",
             );
-            execution
+            acknowledgement.validate_for_request(
+                &CloudflareEd25519YaoReadCompletedPairRequestV1 {
+                    session: pair_binding.session(),
+                    pair_digest: pair_binding.pair_digest().bytes,
+                },
+            )?
         }
         Err(error) => {
             emit_span(
@@ -371,7 +377,6 @@ async fn execute_router_ceremony_v1(
             return Err(error);
         }
     };
-    completed_b.validate()?;
     validate_execution(
         &completed_b,
         Ed25519YaoDeriverRoleV1::DeriverB,

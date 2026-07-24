@@ -681,8 +681,10 @@ the plan does not claim cryptographic D1 admission attestation.
 - [ ] Mirror the production lifecycle in `router-ab-dev` through the serving
       path with a pair-bound state model, role-specific receipt signing,
       readiness/peer claims, uncertainty burning, and exact completed-output
-      lookup tests. The current branch has pure lifecycle helper coverage;
-      local HTTP wiring remains open.
+      lookup tests. The current branch maps all pair-bound paths to their role
+      owners and verifies strict-worker path parity; the Rust-only harness still
+      returns its generic unsupported response for these production-only routes.
+      Full local HTTP lifecycle execution remains open.
 
 ### Phase 3: MPC Router Execution Coordinator
 
@@ -693,8 +695,8 @@ the plan does not claim cryptographic D1 admission attestation.
 - [x] Start A and B preparation concurrently.
 - [x] Await and validate both signed readiness receipts.
 - [x] Dispatch A execution exactly once after both receipts.
-- [ ] Await and validate both role results, including an explicit B completion
-      acknowledgment before the Router's single exact completed-result read.
+- [x] Await and validate both role results, with the Router's single exact
+      completed-result read returning an explicit B completion acknowledgment.
 - [x] Deliver the exact package pair to SigningWorker atomically.
 - [x] Implement exact retry reconciliation without cryptographic
       reevaluation.
@@ -739,7 +741,7 @@ Router HTTP route; its product test remains an explicit follow-up before Phase
 - [ ] Delete lower-authority tests, fixtures, mocks, and source guards that
       encode the serial flow.
 - [ ] Delete compatibility request parsers after the boundary drain.
-- [ ] Split A's claim, network execution, and completion into separate Worker
+- [x] Split A's claim, network execution, and completion into separate Worker
       and role-DO commands so no role Durable Object remains active across the
       Yao WebSocket stream.
 - [x] Keep role-local Durable Object classes and their current secret
@@ -801,21 +803,21 @@ an explicit scope decision:
   operation (`Active` for registration and `Staged` for recovery). The role
   transport still maps several lower-level failures through generic protocol
   errors; a fully typed recoverable-failure carrier remains a contract follow-up.
-- The Router's one-shot B result read still needs an explicit completion
-  acknowledgment from the B protocol path; the Phase 3 checkbox remains open
-  rather than assuming WebSocket scheduling provides that ordering.
+- The Router's one-shot B result read now consumes a typed completion
+  acknowledgment envelope. The envelope revalidates the session, pair digest,
+  role, and execution before transcript validation; a pending B state remains a
+  typed failure rather than a coordination retry loop.
 - Caller-disconnect handling follows the forward burn policy when the Router
   observes an uncertain role result. Cloudflare request cancellation does not
   guarantee a post-disconnect callback, so proving burn for a dropped caller
   remains a fault-test and platform-evidence gate.
 
-Two acceptance gates remain intentionally open. The A role Durable Object still
-holds the execute command while the Yao WebSocket protocol runs, and must be
-moved to a claim/execute/complete worker split before the no-active-DO-across-
-stream criterion can close. Production cold/warm traces and the frozen latency
-budget are also unavailable under the current Wrangler Observability scope.
-The `router-ab-dev` pair lifecycle is currently a pure helper model rather than
-an exercised local HTTP serving path, so its parity checkbox remains open.
+Two acceptance gates remain intentionally open. Production cold/warm traces and
+the frozen latency budget are unavailable under the current Wrangler
+Observability scope. The `router-ab-dev` pair lifecycle now has route and
+ownership parity checks, while the Rust-only harness remains a pure helper
+model for the cryptographic ceremony; full local HTTP lifecycle execution
+remains a Phase 2 gate.
 
 ## Test Matrix
 
