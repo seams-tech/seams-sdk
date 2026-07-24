@@ -29,8 +29,7 @@ const INTERNAL_AUTH_HEADER = 'x-router-ab-internal-service-auth';
 const DERIVER_B_STAGE_PATH = '/router-ab/deriver-b/ed25519-yao/activation/stage';
 const DERIVER_A_START_PATH = '/router-ab/deriver-a/ed25519-yao/activation/start';
 const DERIVER_B_ACTIVATION_RESULT_PATH = '/router-ab/deriver-b/ed25519-yao/activation/result';
-const SIGNING_WORKER_DERIVER_A_PATH = '/router-ab/signing-worker/ed25519-yao/activation/deriver-a';
-const SIGNING_WORKER_DERIVER_B_PATH = '/router-ab/signing-worker/ed25519-yao/activation/deriver-b';
+const SIGNING_WORKER_PACKAGES_PATH = '/router-ab/signing-worker/ed25519-yao/activation/packages';
 const SIGNING_WORKER_RECOVERY_PROMOTE_PATH =
   '/router-ab/signing-worker/ed25519-yao/recovery/promote';
 const DERIVER_B_EXPORT_STAGE_PATH = '/router-ab/deriver-b/ed25519-yao/export/stage';
@@ -448,29 +447,6 @@ function requirePackage(
   return parsed.value;
 }
 
-function parsePendingSigningWorkerReceipt(
-  value: unknown,
-  session: readonly number[],
-  transcript: readonly number[],
-): void {
-  const record = requireRecord(value, 'pending SigningWorker receipt');
-  requireExactKeys(record, 'pending SigningWorker receipt', [
-    'status',
-    'accepted_deriver',
-    'session',
-    'transcript',
-  ]);
-  if (record.status !== 'pending' || record.accepted_deriver !== 'deriver_a') {
-    throw new Error('SigningWorker did not retain the Deriver A package as pending');
-  }
-  if (
-    !equalBytes(requireBytes32(record.session, 'pending receipt session'), session) ||
-    !equalBytes(requireBytes32(record.transcript, 'pending receipt transcript'), transcript)
-  ) {
-    throw new Error('pending SigningWorker receipt does not match the ceremony');
-  }
-}
-
 function parseSigningWorkerReceipt(
   value: unknown,
   session: readonly number[],
@@ -884,34 +860,25 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
   ): Promise<
     { ok: true; body: SigningWorkerDeliveryReceipt } | RouterAbEd25519YaoRegistrationBackendFailure
   > {
-    const deliveredA = await this.post(
+    const delivered = await this.post(
       this.config.signingWorkerUrl,
-      SIGNING_WORKER_DERIVER_A_PATH,
+      SIGNING_WORKER_PACKAGES_PATH,
       {
-        binding: request.binding,
-        client_commitment: executionA.clientCommitment,
-        signing_worker_commitment: executionA.signingWorkerCommitment,
-        package: executionA.signingWorkerPackage,
+        deriver_a: {
+          binding: request.binding,
+          client_commitment: executionA.clientCommitment,
+          signing_worker_commitment: executionA.signingWorkerCommitment,
+          package: executionA.signingWorkerPackage,
+        },
+        deriver_b: {
+          binding: request.binding,
+          client_commitment: executionB.clientCommitment,
+          signing_worker_commitment: executionB.signingWorkerCommitment,
+          package: executionB.signingWorkerPackage,
+        },
       },
     );
-    if (!deliveredA.ok) return deliveredA;
-    parsePendingSigningWorkerReceipt(
-      deliveredA.body,
-      request.binding.session_id,
-      executionA.transcript,
-    );
-
-    const deliveredB = await this.post(
-      this.config.signingWorkerUrl,
-      SIGNING_WORKER_DERIVER_B_PATH,
-      {
-        binding: request.binding,
-        client_commitment: executionB.clientCommitment,
-        signing_worker_commitment: executionB.signingWorkerCommitment,
-        package: executionB.signingWorkerPackage,
-      },
-    );
-    if (!deliveredB.ok) return deliveredB;
+    if (!delivered.ok) return delivered;
     switch (request.binding.operation) {
       case 'registration':
         return {
@@ -919,7 +886,7 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
           body: {
             kind: 'active',
             activeReceipt: parseActiveSigningWorkerReceipt(
-              deliveredB.body,
+              delivered.body,
               request.binding.session_id,
               executionA.transcript,
             ),
@@ -931,7 +898,7 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
           body: {
             kind: 'staged_recovery',
             stagedReceipt: parseStagedSigningWorkerReceipt(
-              deliveredB.body,
+              delivered.body,
               request.binding.session_id,
               executionA.transcript,
             ),
