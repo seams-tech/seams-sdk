@@ -619,7 +619,9 @@ Phase 0 evidence remains open. The available deployment logs do not contain
 not expose the Workers Observability telemetry needed to reconstruct them.
 Cold/warm cohorts, Durable Object instantiation/reuse, and the frozen p50/p95
 budget must be captured after a coherent Router, role-worker, and Gateway
-rollout.
+rollout. The strict capture format, analyzer, and current telemetry blockers
+are documented in
+[`refactor-93-production-evidence.md`](./refactor-93-production-evidence.md).
 The lower-level Router contract tests cover exact replay and terminal failure;
 the HTTP backend contract tests assert that a response lost after Router
 execution is retried with the exact admitted body, trace ID, and replay marker,
