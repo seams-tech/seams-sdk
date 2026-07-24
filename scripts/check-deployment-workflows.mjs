@@ -118,6 +118,15 @@ for (const [filename, environment, branch] of deploymentWorkflows) {
       failures.push(`${filename}:${jobId}: job name must include ${JSON.stringify(nameFragment)}`);
     }
   }
+  const automaticPreflightCondition = String(workflow.jobs?.auto_preflight_release?.if || '');
+  if (
+    !automaticPreflightCondition.includes('always()') ||
+    !automaticPreflightCondition.includes("needs.auto_create_release_set.result == 'success'")
+  ) {
+    failures.push(
+      `${filename}: automatic preflight must run after a successful release set when unrelated component builds are skipped`,
+    );
+  }
 
   const productionGuard = `"$EVENT_BRANCH" != 'main'`;
   if (!workflowSource.includes(productionGuard)) {
