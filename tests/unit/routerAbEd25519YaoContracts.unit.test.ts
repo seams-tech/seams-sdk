@@ -122,6 +122,9 @@ class DeferredRegistrationBackend implements RouterAbEd25519YaoRegistrationBacke
 class ScriptedLocalYaoFetch {
   readonly calls: string[] = [];
   readonly traceIds: string[] = [];
+  readonly requestBodies: string[] = [];
+  readonly replayHeaders: string[] = [];
+  failNextExecute = false;
   private state: ScriptedFetchState = { kind: 'unbound' };
 
   bindActivation(binding: RouterAbEd25519YaoActivationBindingV1): void {
@@ -139,6 +142,12 @@ class ScriptedLocalYaoFetch {
     }
     this.calls.push(`${method} ${url.pathname}`);
     this.traceIds.push(traceId);
+    this.requestBodies.push(typeof init?.body === 'string' ? init.body : '');
+    this.replayHeaders.push(new Headers(init?.headers).get('x-seams-yao-replay') ?? '');
+    if (this.failNextExecute && url.pathname === '/router-ab/router/ed25519-yao/execute') {
+      this.failNextExecute = false;
+      throw new Error('simulated Router transport failure');
+    }
     return this.response(url.pathname, this.state.binding);
   }
 
@@ -767,11 +776,18 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     const parsedExecution = parseRouterAbEd25519YaoRegistrationExecuteRequestV1(rawExecution);
     if (!parsedExecution.ok) throw new Error(parsedExecution.message);
 
+    scriptedFetch.failNextExecute = true;
     const executed = await backend.execute(parsedExecution.value);
     if (!executed.ok) throw new Error(executed.message);
     expect(parseRouterAbEd25519YaoRegistrationResultV1(executed.body).ok).toBe(true);
-    expect(scriptedFetch.calls).toEqual(['POST /router-ab/router/ed25519-yao/execute']);
-    expect(scriptedFetch.traceIds).toHaveLength(1);
+    expect(scriptedFetch.calls).toEqual([
+      'POST /router-ab/router/ed25519-yao/execute',
+      'POST /router-ab/router/ed25519-yao/execute',
+    ]);
+    expect(scriptedFetch.requestBodies[0]).toBe(scriptedFetch.requestBodies[1]);
+    expect(scriptedFetch.replayHeaders).toEqual(['', '1']);
+    expect(scriptedFetch.traceIds).toHaveLength(2);
+    expect(scriptedFetch.traceIds[0]).toBe(scriptedFetch.traceIds[1]);
     expect(scriptedFetch.traceIds[0]).toMatch(/^[0-9a-f]{32}$/);
   });
 

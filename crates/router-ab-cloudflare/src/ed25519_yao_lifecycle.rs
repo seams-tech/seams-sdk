@@ -58,10 +58,18 @@ pub const CLOUDFLARE_DERIVER_A_ED25519_YAO_PREPARE_PAIR_PATH: &str =
     "/router-ab/deriver-a/ed25519-yao/prepare-pair";
 pub const CLOUDFLARE_DERIVER_A_ED25519_YAO_EXECUTE_PAIR_PATH: &str =
     "/router-ab/deriver-a/ed25519-yao/execute-pair";
+pub const CLOUDFLARE_DERIVER_A_ED25519_YAO_READ_PAIR_STATUS_PATH: &str =
+    "/router-ab/deriver-a/ed25519-yao/read-pair-status";
+pub const CLOUDFLARE_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH: &str =
+    "/router-ab/deriver-a/ed25519-yao/burn-pair";
 pub const CLOUDFLARE_DERIVER_B_ED25519_YAO_PREPARE_PAIR_PATH: &str =
     "/router-ab/deriver-b/ed25519-yao/prepare-pair";
 pub const CLOUDFLARE_DERIVER_B_ED25519_YAO_READ_COMPLETED_PAIR_PATH: &str =
     "/router-ab/deriver-b/ed25519-yao/read-completed-pair";
+pub const CLOUDFLARE_DERIVER_B_ED25519_YAO_READ_PAIR_STATUS_PATH: &str =
+    "/router-ab/deriver-b/ed25519-yao/read-pair-status";
+pub const CLOUDFLARE_DERIVER_B_ED25519_YAO_BURN_PAIR_PATH: &str =
+    "/router-ab/deriver-b/ed25519-yao/burn-pair";
 
 const DERIVER_A_YAO_SESSION_DO_BINDING: &str = "DERIVER_A_YAO_SESSION_DO";
 const DERIVER_A_YAO_SESSION_DO_URL: &str = "https://deriver-a-yao-session.internal/execute";
@@ -235,6 +243,35 @@ pub struct CloudflareEd25519YaoReadCompletedPairRequestV1 {
     pub pair_digest: [u8; 32],
 }
 
+/// Sanitized role-local state returned only to the MPC Router for exact replay.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CloudflareEd25519YaoPairStatusResponseV1 {
+    Missing {
+        session: [u8; 32],
+        pair_digest: [u8; 32],
+    },
+    Prepared {
+        session: [u8; 32],
+        pair_digest: [u8; 32],
+    },
+    Running {
+        session: [u8; 32],
+        pair_digest: [u8; 32],
+    },
+    Completed {
+        execution: Box<Ed25519YaoRoleExecutionV1>,
+    },
+    Burned {
+        session: [u8; 32],
+        pair_digest: [u8; 32],
+    },
+    Expired {
+        session: [u8; 32],
+        pair_digest: [u8; 32],
+    },
+}
+
 impl CloudflareEd25519YaoPairPrepareRequestV1 {
     fn validate_for_role(
         &self,
@@ -302,6 +339,14 @@ enum DeriverAYaoSessionCommandV1 {
         pair_binding: Ed25519YaoInputPairBindingV1,
         peer_receipt: Ed25519YaoRoleReadinessReceiptV1,
     },
+    ReadPairStatus {
+        session: [u8; 32],
+        pair_digest: [u8; 32],
+    },
+    BurnPair {
+        session: [u8; 32],
+        pair_digest: [u8; 32],
+    },
 }
 
 impl DeriverAYaoSessionCommandV1 {
@@ -335,6 +380,11 @@ impl DeriverAYaoSessionCommandV1 {
                     peer_receipt: peer_receipt.clone(),
                 }
                 .validate()?;
+            }
+            Self::ReadPairStatus { pair_digest, .. } | Self::BurnPair { pair_digest, .. } => {
+                if pair_digest.iter().all(|byte| *byte == 0) {
+                    return Err(invalid_lifecycle("pair digest must be nonzero"));
+                }
             }
         }
         Ok(())
@@ -419,6 +469,10 @@ enum DeriverBYaoSessionCommandV1 {
         session: [u8; 32],
         pair_digest: [u8; 32],
     },
+    ReadPairStatus {
+        session: [u8; 32],
+        pair_digest: [u8; 32],
+    },
 }
 
 impl DeriverBYaoSessionCommandV1 {
@@ -436,6 +490,7 @@ impl DeriverBYaoSessionCommandV1 {
             Self::CompletePair { .. } => "complete_pair",
             Self::FailPair { .. } => "fail_pair",
             Self::ReadCompletedPair { .. } => "read_completed_pair",
+            Self::ReadPairStatus { .. } => "read_pair_status",
         }
     }
 
@@ -452,6 +507,7 @@ impl DeriverBYaoSessionCommandV1 {
             | Self::BeginPair { session, .. }
             | Self::FailPair { session, .. }
             | Self::ReadCompletedPair { session, .. } => *session,
+            Self::ReadPairStatus { session, .. } => *session,
             Self::CompletePair { execution, .. } => execution.session(),
         }
     }
@@ -506,7 +562,8 @@ impl DeriverBYaoSessionCommandV1 {
             Self::ReadPairPrepared { pair_digest, .. }
             | Self::BeginPair { pair_digest, .. }
             | Self::FailPair { pair_digest, .. }
-            | Self::ReadCompletedPair { pair_digest, .. } => {
+            | Self::ReadCompletedPair { pair_digest, .. }
+            | Self::ReadPairStatus { pair_digest, .. } => {
                 if pair_digest.iter().all(|byte| *byte == 0) {
                     return Err(invalid_lifecycle("pair digest must be nonzero"));
                 }
@@ -554,6 +611,10 @@ enum DeriverBYaoSessionResponseV1 {
         input: Box<Ed25519YaoEncryptedInputV1>,
         receipt: Box<Ed25519YaoRoleReadinessReceiptV1>,
     },
+    PairPreparedStatus {
+        session: [u8; 32],
+        pair_digest: [u8; 32],
+    },
     PairRunning {
         session: [u8; 32],
         pair_digest: [u8; 32],
@@ -563,6 +624,10 @@ enum DeriverBYaoSessionResponseV1 {
         pair_digest: [u8; 32],
     },
     PairPending {
+        session: [u8; 32],
+        pair_digest: [u8; 32],
+    },
+    PairMissing {
         session: [u8; 32],
         pair_digest: [u8; 32],
     },
@@ -689,6 +754,18 @@ impl worker::DurableObject for RouterAbDeriverAYaoSessionDurableObject {
             }
             DeriverAYaoSessionCommandV1::ExecutePair { .. } => {
                 return self.handle_execute_pair(command, trace_id).await;
+            }
+            DeriverAYaoSessionCommandV1::ReadPairStatus {
+                session,
+                pair_digest,
+            } => {
+                return self.handle_read_pair_status(*session, *pair_digest).await;
+            }
+            DeriverAYaoSessionCommandV1::BurnPair {
+                session,
+                pair_digest,
+            } => {
+                return self.handle_burn_pair(*session, *pair_digest).await;
             }
             DeriverAYaoSessionCommandV1::Execute { .. } => {}
         }
@@ -849,6 +926,154 @@ impl worker::DurableObject for RouterAbDeriverAYaoSessionDurableObject {
             )
             .await?;
         Response::from_json(&execution)
+    }
+}
+
+impl RouterAbDeriverAYaoSessionDurableObject {
+    async fn handle_read_pair_status(
+        &self,
+        session: [u8; 32],
+        pair_digest: [u8; 32],
+    ) -> worker::Result<Response> {
+        let storage = self.state.storage();
+        let Some(record) = storage
+            .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
+            .await?
+        else {
+            return Response::from_json(&CloudflareEd25519YaoPairStatusResponseV1::Missing {
+                session,
+                pair_digest,
+            });
+        };
+        let response = match record {
+            PairYaoSessionRecordV1::Prepared {
+                pair_digest: stored_pair,
+                input,
+                expires_at_ms,
+                ..
+            } if stored_pair == pair_digest && input.session() == session => {
+                if cloudflare_yao_now_unix_ms()? >= expires_at_ms {
+                    storage
+                        .put(
+                            PAIR_SESSION_RECORD_STORAGE_KEY,
+                            PairYaoSessionRecordV1::Expired {
+                                pair_digest,
+                                input_digest: yao_input_digest(&input),
+                            },
+                        )
+                        .await?;
+                    CloudflareEd25519YaoPairStatusResponseV1::Expired {
+                        session,
+                        pair_digest,
+                    }
+                } else {
+                    CloudflareEd25519YaoPairStatusResponseV1::Prepared {
+                        session,
+                        pair_digest,
+                    }
+                }
+            }
+            PairYaoSessionRecordV1::Running {
+                pair_digest: stored_pair,
+                input,
+                ..
+            } if stored_pair == pair_digest && input.session() == session => {
+                CloudflareEd25519YaoPairStatusResponseV1::Running {
+                    session,
+                    pair_digest,
+                }
+            }
+            PairYaoSessionRecordV1::Completed {
+                pair_digest: stored_pair,
+                execution,
+                ..
+            } if stored_pair == pair_digest && execution.session() == session => {
+                CloudflareEd25519YaoPairStatusResponseV1::Completed { execution }
+            }
+            PairYaoSessionRecordV1::Burned {
+                pair_digest: stored_pair,
+                ..
+            } if stored_pair == pair_digest => CloudflareEd25519YaoPairStatusResponseV1::Burned {
+                session,
+                pair_digest,
+            },
+            PairYaoSessionRecordV1::Expired {
+                pair_digest: stored_pair,
+                ..
+            } if stored_pair == pair_digest => CloudflareEd25519YaoPairStatusResponseV1::Expired {
+                session,
+                pair_digest,
+            },
+            _ => {
+                return Response::error("Deriver A pair identity mismatch", 409);
+            }
+        };
+        Response::from_json(&response)
+    }
+
+    async fn handle_burn_pair(
+        &self,
+        session: [u8; 32],
+        pair_digest: [u8; 32],
+    ) -> worker::Result<Response> {
+        let storage = self.state.storage();
+        let Some(record) = storage
+            .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
+            .await?
+        else {
+            return Response::from_json(&CloudflareEd25519YaoPairStatusResponseV1::Missing {
+                session,
+                pair_digest,
+            });
+        };
+        let response = match record {
+            PairYaoSessionRecordV1::Running {
+                pair_digest: stored_pair,
+                input_digest,
+                input,
+                ..
+            } if stored_pair == pair_digest && input.session() == session => {
+                storage
+                    .put(
+                        PAIR_SESSION_RECORD_STORAGE_KEY,
+                        PairYaoSessionRecordV1::Burned {
+                            pair_digest,
+                            input_digest,
+                        },
+                    )
+                    .await?;
+                CloudflareEd25519YaoPairStatusResponseV1::Burned {
+                    session,
+                    pair_digest,
+                }
+            }
+            PairYaoSessionRecordV1::Completed {
+                pair_digest: stored_pair,
+                execution,
+                ..
+            } if stored_pair == pair_digest && execution.session() == session => {
+                CloudflareEd25519YaoPairStatusResponseV1::Completed { execution }
+            }
+            PairYaoSessionRecordV1::Burned {
+                pair_digest: stored_pair,
+                ..
+            } if stored_pair == pair_digest => CloudflareEd25519YaoPairStatusResponseV1::Burned {
+                session,
+                pair_digest,
+            },
+            PairYaoSessionRecordV1::Expired {
+                pair_digest: stored_pair,
+                ..
+            } if stored_pair == pair_digest => CloudflareEd25519YaoPairStatusResponseV1::Expired {
+                session,
+                pair_digest,
+            },
+            PairYaoSessionRecordV1::Prepared { .. } => {
+                return Response::error("Deriver A pair cannot be burned before running", 409);
+            }
+            _ => return Response::error("Deriver A pair identity mismatch", 409),
+        };
+        Response::from_json(&response)
     }
 }
 
@@ -1140,6 +1365,7 @@ impl worker::DurableObject for RouterAbDeriverBYaoSessionDurableObject {
                 | DeriverBYaoSessionCommandV1::CompletePair { .. }
                 | DeriverBYaoSessionCommandV1::FailPair { .. }
                 | DeriverBYaoSessionCommandV1::ReadCompletedPair { .. }
+                | DeriverBYaoSessionCommandV1::ReadPairStatus { .. }
         ) {
             return self.handle_pair_command(command).await;
         }
@@ -1425,7 +1651,8 @@ impl worker::DurableObject for RouterAbDeriverBYaoSessionDurableObject {
             | DeriverBYaoSessionCommandV1::BeginPair { .. }
             | DeriverBYaoSessionCommandV1::CompletePair { .. }
             | DeriverBYaoSessionCommandV1::FailPair { .. }
-            | DeriverBYaoSessionCommandV1::ReadCompletedPair { .. } => {
+            | DeriverBYaoSessionCommandV1::ReadCompletedPair { .. }
+            | DeriverBYaoSessionCommandV1::ReadPairStatus { .. } => {
                 unreachable!("pair commands are dispatched before the legacy match")
             }
         };
@@ -1467,6 +1694,10 @@ impl RouterAbDeriverBYaoSessionDurableObject {
                 session,
                 pair_digest,
             } => self.handle_read_completed_pair(session, pair_digest).await,
+            DeriverBYaoSessionCommandV1::ReadPairStatus {
+                session,
+                pair_digest,
+            } => self.handle_read_pair_status(session, pair_digest).await,
             _ => Response::error("invalid Deriver B pair command", 400),
         }
     }
@@ -1669,10 +1900,15 @@ impl RouterAbDeriverBYaoSessionDurableObject {
         }
         let storage = self.state.storage();
         let now_unix_ms = cloudflare_yao_now_unix_ms()?;
-        let record = storage
+        let Some(record) = storage
             .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
             .await?
-            .ok_or_else(|| worker::Error::RustError("Deriver B pair is missing".into()))?;
+        else {
+            return Response::from_json(&DeriverBYaoSessionResponseV1::PairMissing {
+                session,
+                pair_digest,
+            });
+        };
         let PairYaoSessionRecordV1::Prepared {
             pair_digest: stored_pair,
             input_digest,
@@ -1890,6 +2126,86 @@ impl RouterAbDeriverBYaoSessionDurableObject {
         };
         Response::from_json(&response)
     }
+
+    async fn handle_read_pair_status(
+        &self,
+        session: [u8; 32],
+        pair_digest: [u8; 32],
+    ) -> worker::Result<Response> {
+        let storage = self.state.storage();
+        let Some(record) = storage
+            .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
+            .await?
+        else {
+            return Response::from_json(&DeriverBYaoSessionResponseV1::PairMissing {
+                session,
+                pair_digest,
+            });
+        };
+        let response = match record {
+            PairYaoSessionRecordV1::Prepared {
+                pair_digest: stored_pair,
+                input,
+                expires_at_ms,
+                input_digest,
+                ..
+            } if stored_pair == pair_digest && input.session() == session => {
+                if cloudflare_yao_now_unix_ms()? >= expires_at_ms {
+                    storage
+                        .put(
+                            PAIR_SESSION_RECORD_STORAGE_KEY,
+                            PairYaoSessionRecordV1::Expired {
+                                pair_digest,
+                                input_digest,
+                            },
+                        )
+                        .await?;
+                    DeriverBYaoSessionResponseV1::PairExpired {
+                        session,
+                        pair_digest,
+                    }
+                } else {
+                    DeriverBYaoSessionResponseV1::PairPreparedStatus {
+                        session,
+                        pair_digest,
+                    }
+                }
+            }
+            PairYaoSessionRecordV1::Running {
+                pair_digest: stored_pair,
+                input,
+                ..
+            } if stored_pair == pair_digest && input.session() == session => {
+                DeriverBYaoSessionResponseV1::PairRunning {
+                    session,
+                    pair_digest,
+                }
+            }
+            PairYaoSessionRecordV1::Completed {
+                pair_digest: stored_pair,
+                execution,
+                ..
+            } if stored_pair == pair_digest && execution.session() == session => {
+                DeriverBYaoSessionResponseV1::PairRoleExecution { execution }
+            }
+            PairYaoSessionRecordV1::Burned {
+                pair_digest: stored_pair,
+                ..
+            } if stored_pair == pair_digest => DeriverBYaoSessionResponseV1::PairBurned {
+                session,
+                pair_digest,
+            },
+            PairYaoSessionRecordV1::Expired {
+                pair_digest: stored_pair,
+                ..
+            } if stored_pair == pair_digest => DeriverBYaoSessionResponseV1::PairExpired {
+                session,
+                pair_digest,
+            },
+            _ => return Response::error("Deriver B pair identity mismatch", 409),
+        };
+        Response::from_json(&response)
+    }
 }
 
 pub async fn handle_cloudflare_ed25519_yao_deriver_a_start_v1(
@@ -1925,6 +2241,54 @@ pub async fn handle_cloudflare_ed25519_yao_deriver_a_execute_pair_v1(
     request.validate()?;
     let execution = execute_deriver_a_pair_execute(env, request, trace_id).await?;
     json_response(&execution)
+}
+
+pub async fn handle_cloudflare_ed25519_yao_deriver_a_read_pair_status_v1(
+    mut request: Request,
+    env: &Env,
+) -> RouterAbProtocolResult<Response> {
+    let trace_id = parse_cloudflare_trace_id_from_request_v1(&request)?;
+    let request =
+        parse_request::<CloudflareEd25519YaoReadCompletedPairRequestV1>(&mut request).await?;
+    request.validate()?;
+    let mut response = execute_deriver_a_pair_command(
+        env,
+        DeriverAYaoSessionCommandV1::ReadPairStatus {
+            session: request.session,
+            pair_digest: request.pair_digest,
+        },
+        trace_id,
+    )
+    .await?;
+    response
+        .json::<CloudflareEd25519YaoPairStatusResponseV1>()
+        .await
+        .map_err(|_| invalid_lifecycle("Deriver A pair status response is malformed"))
+        .and_then(|status| json_response(&status))
+}
+
+pub async fn handle_cloudflare_ed25519_yao_deriver_a_burn_pair_v1(
+    mut request: Request,
+    env: &Env,
+) -> RouterAbProtocolResult<Response> {
+    let trace_id = parse_cloudflare_trace_id_from_request_v1(&request)?;
+    let request =
+        parse_request::<CloudflareEd25519YaoReadCompletedPairRequestV1>(&mut request).await?;
+    request.validate()?;
+    let mut response = execute_deriver_a_pair_command(
+        env,
+        DeriverAYaoSessionCommandV1::BurnPair {
+            session: request.session,
+            pair_digest: request.pair_digest,
+        },
+        trace_id,
+    )
+    .await?;
+    response
+        .json::<CloudflareEd25519YaoPairStatusResponseV1>()
+        .await
+        .map_err(|_| invalid_lifecycle("Deriver A pair burn response is malformed"))
+        .and_then(|status| json_response(&status))
 }
 
 async fn execute_deriver_a_role(
@@ -2223,6 +2587,155 @@ pub async fn handle_cloudflare_ed25519_yao_deriver_b_read_completed_pair_v1(
     }
 }
 
+pub async fn handle_cloudflare_ed25519_yao_deriver_b_read_pair_status_v1(
+    mut request: Request,
+    env: &Env,
+) -> RouterAbProtocolResult<Response> {
+    let trace_id = parse_cloudflare_trace_id_from_request_v1(&request)?;
+    let request =
+        parse_request::<CloudflareEd25519YaoReadCompletedPairRequestV1>(&mut request).await?;
+    request.validate()?;
+    let response = execute_deriver_b_session_command(
+        env,
+        DeriverBYaoSessionCommandV1::ReadPairStatus {
+            session: request.session,
+            pair_digest: request.pair_digest,
+        },
+        trace_id,
+    )
+    .await?;
+    let status = match response {
+        DeriverBYaoSessionResponseV1::PairPrepared {
+            session,
+            pair_digest,
+            ..
+        }
+        | DeriverBYaoSessionResponseV1::PairPreparedStatus {
+            session,
+            pair_digest,
+        } => CloudflareEd25519YaoPairStatusResponseV1::Prepared {
+            session,
+            pair_digest,
+        },
+        DeriverBYaoSessionResponseV1::PairRunning {
+            session,
+            pair_digest,
+        } => CloudflareEd25519YaoPairStatusResponseV1::Running {
+            session,
+            pair_digest,
+        },
+        DeriverBYaoSessionResponseV1::PairRoleExecution { execution } => {
+            CloudflareEd25519YaoPairStatusResponseV1::Completed { execution }
+        }
+        DeriverBYaoSessionResponseV1::PairBurned {
+            session,
+            pair_digest,
+        } => CloudflareEd25519YaoPairStatusResponseV1::Burned {
+            session,
+            pair_digest,
+        },
+        DeriverBYaoSessionResponseV1::PairExpired {
+            session,
+            pair_digest,
+        } => CloudflareEd25519YaoPairStatusResponseV1::Expired {
+            session,
+            pair_digest,
+        },
+        DeriverBYaoSessionResponseV1::PairMissing {
+            session,
+            pair_digest,
+        } => CloudflareEd25519YaoPairStatusResponseV1::Missing {
+            session,
+            pair_digest,
+        },
+        _ => {
+            return Err(invalid_lifecycle(
+                "Deriver B pair status response is malformed",
+            ))
+        }
+    };
+    json_response(&status)
+}
+
+pub async fn handle_cloudflare_ed25519_yao_deriver_b_burn_pair_v1(
+    mut request: Request,
+    env: &Env,
+) -> RouterAbProtocolResult<Response> {
+    let trace_id = parse_cloudflare_trace_id_from_request_v1(&request)?;
+    let request =
+        parse_request::<CloudflareEd25519YaoReadCompletedPairRequestV1>(&mut request).await?;
+    request.validate()?;
+    let _ = execute_deriver_b_session_command(
+        env,
+        DeriverBYaoSessionCommandV1::FailPair {
+            session: request.session,
+            pair_digest: request.pair_digest,
+        },
+        trace_id,
+    )
+    .await?;
+    let response = execute_deriver_b_session_command(
+        env,
+        DeriverBYaoSessionCommandV1::ReadPairStatus {
+            session: request.session,
+            pair_digest: request.pair_digest,
+        },
+        trace_id,
+    )
+    .await?;
+    let status = match response {
+        DeriverBYaoSessionResponseV1::PairPrepared {
+            session,
+            pair_digest,
+            ..
+        }
+        | DeriverBYaoSessionResponseV1::PairPreparedStatus {
+            session,
+            pair_digest,
+        } => CloudflareEd25519YaoPairStatusResponseV1::Prepared {
+            session,
+            pair_digest,
+        },
+        DeriverBYaoSessionResponseV1::PairRunning {
+            session,
+            pair_digest,
+        } => CloudflareEd25519YaoPairStatusResponseV1::Running {
+            session,
+            pair_digest,
+        },
+        DeriverBYaoSessionResponseV1::PairRoleExecution { execution } => {
+            CloudflareEd25519YaoPairStatusResponseV1::Completed { execution }
+        }
+        DeriverBYaoSessionResponseV1::PairBurned {
+            session,
+            pair_digest,
+        } => CloudflareEd25519YaoPairStatusResponseV1::Burned {
+            session,
+            pair_digest,
+        },
+        DeriverBYaoSessionResponseV1::PairExpired {
+            session,
+            pair_digest,
+        } => CloudflareEd25519YaoPairStatusResponseV1::Expired {
+            session,
+            pair_digest,
+        },
+        DeriverBYaoSessionResponseV1::PairMissing {
+            session,
+            pair_digest,
+        } => CloudflareEd25519YaoPairStatusResponseV1::Missing {
+            session,
+            pair_digest,
+        },
+        _ => {
+            return Err(invalid_lifecycle(
+                "Deriver B pair burn response is malformed",
+            ))
+        }
+    };
+    json_response(&status)
+}
+
 pub async fn handle_cloudflare_ed25519_yao_deriver_b_result_v1(
     mut request: Request,
     env: &Env,
@@ -2318,12 +2831,14 @@ pub async fn handle_cloudflare_ed25519_yao_deriver_b_result_v1(
             | DeriverBYaoSessionResponseV1::Running { .. }
             | DeriverBYaoSessionResponseV1::Completed { .. }
             | DeriverBYaoSessionResponseV1::PairPrepared { .. }
+            | DeriverBYaoSessionResponseV1::PairPreparedStatus { .. }
             | DeriverBYaoSessionResponseV1::PairRunning { .. }
             | DeriverBYaoSessionResponseV1::PairCompleted { .. }
             | DeriverBYaoSessionResponseV1::PairPending { .. }
             | DeriverBYaoSessionResponseV1::PairRoleExecution { .. }
             | DeriverBYaoSessionResponseV1::PairBurned { .. }
-            | DeriverBYaoSessionResponseV1::PairExpired { .. } => {
+            | DeriverBYaoSessionResponseV1::PairExpired { .. }
+            | DeriverBYaoSessionResponseV1::PairMissing { .. } => {
                 emit_role_span_v1(
                     trace_id,
                     "deriver_b.result_wait",
@@ -2930,6 +3445,8 @@ async fn execute_deriver_a_pair_command(
         DeriverAYaoSessionCommandV1::Execute { input }
         | DeriverAYaoSessionCommandV1::PreparePair { input, .. } => input.session(),
         DeriverAYaoSessionCommandV1::ExecutePair { pair_binding, .. } => pair_binding.session(),
+        DeriverAYaoSessionCommandV1::ReadPairStatus { session, .. }
+        | DeriverAYaoSessionCommandV1::BurnPair { session, .. } => *session,
     };
     let namespace = env
         .durable_object(DERIVER_A_YAO_SESSION_DO_BINDING)
