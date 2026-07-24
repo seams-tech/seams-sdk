@@ -364,9 +364,9 @@ pub struct Ed25519YaoInputPairBindingV1 {
 `pair_digest` is derived by the canonical Rust production encoder and is
 recomputed and validated at the Router boundary. The Gateway adapter calls a
 single canonical mirror helper, and a Rust-generated pair-digest fixture is
-consumed by its cross-language test. A router-ab-core TypeScript binding
-generator remains an open follow-up; the fixture protects the manual adapter
-mirror until that generator exists.
+consumed by its cross-language test. The generated TypeScript base contracts
+are emitted by `pnpm generate:router-ab-ed25519-yao-types`; the shared adapter
+retains operation-specific generic narrowing around those generated shapes.
 
 ### Readiness Receipt
 
@@ -655,9 +655,11 @@ the plan does not claim cryptographic D1 admission attestation.
       `router-ab-core`.
 - [x] Add the operation-specific Router execute request and result unions.
 - [x] Add canonical digest encoding and Rust vectors.
-- [ ] Generate or update TypeScript bindings through the existing generator.
-      No router-ab-core TypeScript generator exists in this repository; the
-      shared wire types are aligned manually until one is added.
+- [x] Generate or update TypeScript bindings through the router-ab-core
+      generator (`pnpm generate:router-ab-ed25519-yao-types`). The generated
+      base contracts cover ceremony identity, lifecycle, digest, and pair
+      binding shapes; shared TypeScript keeps operation-specific generic
+      narrowing around those generated declarations.
 - [x] Add a cross-language pair-digest vector that is generated from the Rust
       encoder and consumed by the Gateway adapter.
 - [x] Add type fixtures rejecting missing identities, cross-operation fields,
@@ -803,10 +805,10 @@ an explicit scope decision:
 - The authority field is channel-authenticated and digest/time bound in v1,
   rather than a signed D1 admission attestation. A signed admission artifact
   remains a future trust-boundary requirement.
-- The Gateway's pair-digest helper remains a temporary manual alignment because
-  no router-ab-core TypeScript binding generator exists. A Rust-generated
-  cross-language vector now guards the helper; the binding-generator checkbox
-  stays open until a generator is available.
+- The Gateway's pair-digest helper is checked against both the generated
+  TypeScript base contracts and Rust-generated cross-language vectors. The
+  shared TypeScript layer retains only operation-specific generic narrowing
+  that has no direct Rust type alias.
 - SigningWorker activation receipts are now checked against the admitted
   operation (`Active` for registration and `Staged` for recovery). The role
   transport still maps several lower-level failures through generic protocol

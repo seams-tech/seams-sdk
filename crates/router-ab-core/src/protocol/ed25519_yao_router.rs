@@ -23,7 +23,12 @@ const READINESS_DIGEST_DOMAIN_V1: &[u8] = b"router-ab-ed25519-yao/readiness/v1";
 
 /// Protocol artifact identity for one Yao circuit family.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript-bindings", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(
+    feature = "typescript-bindings",
+    ts(rename = "RouterAbEd25519YaoCircuitIdV1", rename_all = "snake_case")
+)]
 pub enum Ed25519YaoCircuitIdV1 {
     /// Activation circuit used by registration, recovery, and refresh.
     ActivationV1,
@@ -50,7 +55,12 @@ impl Ed25519YaoCircuitIdV1 {
 
 /// Protocol version identity for the Refactor 93 Yao contracts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript-bindings", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(
+    feature = "typescript-bindings",
+    ts(rename = "RouterAbEd25519YaoProtocolIdV1", rename_all = "snake_case")
+)]
 pub enum Ed25519YaoProtocolIdV1 {
     /// Current protocol contract.
     V1,
@@ -65,7 +75,12 @@ impl Ed25519YaoProtocolIdV1 {
 
 /// Canonical ceremony identity used as the root of the input-pair digest.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "typescript-bindings", derive(ts_rs::TS))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(
+    feature = "typescript-bindings",
+    ts(rename = "RouterAbEd25519YaoCeremonyIdentityV1")
+)]
 pub struct Ed25519YaoCeremonyIdentityV1 {
     binding: Ed25519YaoCeremonyBindingV1,
     circuit: Ed25519YaoCircuitIdV1,
@@ -145,7 +160,12 @@ impl<'de> Deserialize<'de> for Ed25519YaoCeremonyIdentityV1 {
 
 /// Canonical A/B ciphertext digest binding for one admitted execution.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "typescript-bindings", derive(ts_rs::TS))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(
+    feature = "typescript-bindings",
+    ts(rename = "RouterAbEd25519YaoInputPairBindingV1")
+)]
 pub struct Ed25519YaoInputPairBindingV1 {
     ceremony: Ed25519YaoCeremonyIdentityV1,
     deriver_a_input_digest: PublicDigest32,

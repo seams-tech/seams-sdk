@@ -1,3 +1,32 @@
+import type {
+  RouterAbEd25519YaoAdmittedLifecycleV1,
+  RouterAbEd25519YaoCeremonyBindingV1,
+  RouterAbEd25519YaoCeremonyIdentityV1,
+  RouterAbEd25519YaoInputPairBindingV1,
+  RouterAbEd25519YaoOperationV1,
+  RouterAbEd25519YaoPrimitiveRequestKindV1,
+  RouterAbEd25519YaoPublicDigestV1,
+  RouterAbEd25519YaoWorkKindV1,
+  RouterAbEd25519YaoBytes32V1,
+} from './generated/routerAbEd25519YaoCore';
+
+export type {
+  RouterAbEd25519YaoAdmittedLifecycleV1,
+  RouterAbEd25519YaoCeremonyBindingV1,
+  RouterAbEd25519YaoCeremonyIdentityV1,
+  RouterAbEd25519YaoCircuitFamilyV1,
+  RouterAbEd25519YaoCircuitIdV1,
+  RouterAbEd25519YaoInputPairBindingV1,
+  RouterAbEd25519YaoOperationV1,
+  RouterAbEd25519YaoPrimitiveRequestKindV1,
+  RouterAbEd25519YaoProtocolIdV1,
+  RouterAbEd25519YaoPublicDigestV1,
+  RouterAbEd25519YaoSessionIdV1,
+  RouterAbEd25519YaoStableKeyContextBindingV1,
+  RouterAbEd25519YaoWorkKindV1,
+  RouterAbEd25519YaoBytes32V1,
+} from './generated/routerAbEd25519YaoCore';
+
 export const ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1 =
   '/router-ab/ed25519/yao/registration/admit' as const;
 export const ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1 =
@@ -18,26 +47,12 @@ export const ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1 =
   '/router-ab/ed25519/yao/export/execute' as const;
 export const ED25519_YAO_CONTROL_CIPHERTEXT_MAX_BYTES_V1 = 64 * 1024;
 
-export type RouterAbEd25519YaoOperationV1 = 'registration' | 'recovery' | 'refresh' | 'export';
 export type RouterAbEd25519YaoDeriverRoleV1 = 'deriver_a' | 'deriver_b';
 export type RouterAbEd25519YaoInputKindV1 = 'activation' | 'export';
 export type RouterAbEd25519YaoPackageKindV1 =
   | 'activation_client'
   | 'activation_signing_worker'
   | 'export_client';
-export type RouterAbEd25519YaoWorkKindV1 =
-  | 'registration_prepare'
-  | 'key_export'
-  | 'recovery'
-  | 'server_share_refresh';
-export type RouterAbEd25519YaoPrimitiveRequestKindV1 =
-  | 'registration'
-  | 'recovery'
-  | 'export'
-  | 'refresh';
-
-export type RouterAbEd25519YaoBytes32V1 = readonly number[];
-
 export type RouterAbEd25519YaoApplicationBindingFactsV1 = {
   wallet_id: string;
   near_ed25519_signing_key_id: string;
@@ -120,24 +135,6 @@ export type RouterAbEd25519YaoExportAuthorityBindingV1 =
       readonly providerSubjectId: string;
       readonly credentialIdB64u?: never;
     };
-
-export type RouterAbEd25519YaoAdmittedLifecycleV1 = {
-  lifecycle_id: string;
-  work_kind: RouterAbEd25519YaoWorkKindV1;
-  primitive_request_kind: RouterAbEd25519YaoPrimitiveRequestKindV1;
-  root_share_epoch: string;
-  account_id: string;
-  session_id: string;
-  signer_set_id: string;
-  selected_server_id: string;
-};
-
-export type RouterAbEd25519YaoCeremonyBindingV1 = {
-  lifecycle: RouterAbEd25519YaoAdmittedLifecycleV1;
-  operation: RouterAbEd25519YaoOperationV1;
-  session_id: RouterAbEd25519YaoBytes32V1;
-  stable_key_context_binding: RouterAbEd25519YaoBytes32V1;
-};
 
 export type RouterAbEd25519YaoRegistrationLifecycleV1 = Omit<
   RouterAbEd25519YaoAdmittedLifecycleV1,
@@ -326,29 +323,10 @@ export type RouterAbEd25519YaoRecoveryActivationReceiptV1 = {
   retired_capability_binding: RouterAbEd25519YaoBytes32V1;
 };
 
-export type RouterAbEd25519YaoPublicDigestV1 = {
-  bytes: RouterAbEd25519YaoBytes32V1;
-};
-
 export type RouterAbEd25519YaoExecutionAuthorityV1 = {
   authority_digest: RouterAbEd25519YaoPublicDigestV1;
   issued_at_ms: number;
   expires_at_ms: number;
-};
-
-export type RouterAbEd25519YaoCeremonyIdentityV1 = {
-  binding: RouterAbEd25519YaoCeremonyBindingV1;
-  circuit: 'activation_v1' | 'export_v1';
-  protocol: 'v1';
-};
-
-export type RouterAbEd25519YaoInputPairBindingV1 = {
-  ceremony: RouterAbEd25519YaoCeremonyIdentityV1;
-  deriver_a_input_digest: RouterAbEd25519YaoPublicDigestV1;
-  deriver_b_input_digest: RouterAbEd25519YaoPublicDigestV1;
-  recipient_set_digest: RouterAbEd25519YaoPublicDigestV1;
-  authorization_digest: RouterAbEd25519YaoPublicDigestV1;
-  pair_digest: RouterAbEd25519YaoPublicDigestV1;
 };
 
 type RouterAbEd25519YaoRouterExecuteCommonV1 = {

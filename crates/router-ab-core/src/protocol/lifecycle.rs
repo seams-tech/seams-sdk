@@ -10,6 +10,11 @@ use crate::protocol::gate::{
 
 /// Public scope shared by Router lifecycle states.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript-bindings", derive(ts_rs::TS))]
+#[cfg_attr(
+    feature = "typescript-bindings",
+    ts(rename = "RouterAbEd25519YaoAdmittedLifecycleV1")
+)]
 pub struct LifecycleScopeV1 {
     /// Router-assigned lifecycle id.
     pub lifecycle_id: String,
