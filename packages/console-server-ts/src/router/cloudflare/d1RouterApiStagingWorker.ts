@@ -25,7 +25,10 @@ import type {
   FetchHandler,
 } from '@seams/sdk-server/internal/router/cloudflare/cloudflare.types';
 import { ThresholdStoreDurableObject } from '@seams/sdk-server/internal/router/cloudflare/durableObjects/thresholdStore';
-import { createRouterAbEd25519YaoHttpRegistrationBackendFromEnv } from '@seams/sdk-server/internal/router/routerAbEd25519YaoHttpRegistrationBackend';
+import {
+  createRouterAbEd25519YaoHttpRegistrationBackendFromEnv,
+  type RouterAbEd25519YaoGatewaySpanV1,
+} from '@seams/sdk-server/internal/router/routerAbEd25519YaoHttpRegistrationBackend';
 import {
   createRouterAbEd25519YaoProductRegistrationStatefulCompositionV1,
   createRouterAbEd25519YaoProductRegistrationStateV1,
@@ -185,14 +188,7 @@ const RELAY_SIGNER_READY_TABLES = Object.freeze([
 
 const ROUTER_AB_CEREMONY_JWKS_PATH = '/.well-known/router-ab-ceremony-jwks.json';
 
-function emitRefactor93GatewaySpan(span: {
-  readonly event: string;
-  readonly span: string;
-  readonly operation: string;
-  readonly outcome: string;
-  readonly duration_ms: number;
-  readonly trace_id: string;
-}): void {
+function emitRefactor93GatewaySpan(span: RouterAbEd25519YaoGatewaySpanV1): void {
   console.log(JSON.stringify(span));
 }
 
