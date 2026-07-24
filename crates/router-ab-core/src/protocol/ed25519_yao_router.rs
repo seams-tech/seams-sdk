@@ -298,6 +298,432 @@ impl<'de> Deserialize<'de> for Ed25519YaoInputPairBindingV1 {
     }
 }
 
+/// Authenticated Router authority for one admitted Yao execution request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RouterAdmittedExecutionAuthorityV1 {
+    authority_digest: PublicDigest32,
+    issued_at_ms: u64,
+    expires_at_ms: u64,
+}
+
+impl RouterAdmittedExecutionAuthorityV1 {
+    /// Creates a short-lived, nonzero execution authority.
+    pub fn new(
+        authority_digest: PublicDigest32,
+        issued_at_ms: u64,
+        expires_at_ms: u64,
+    ) -> RouterAbProtocolResult<Self> {
+        validate_digest("authority_digest", authority_digest)?;
+        if issued_at_ms == 0 || expires_at_ms <= issued_at_ms {
+            return Err(invalid_router_yao(
+                "Ed25519 Yao execution authority lifetime is invalid",
+            ));
+        }
+        Ok(Self {
+            authority_digest,
+            issued_at_ms,
+            expires_at_ms,
+        })
+    }
+
+    /// Revalidates authority expiry against a wall-clock timestamp.
+    pub fn validate_at(&self, now_ms: u64) -> RouterAbProtocolResult<()> {
+        if now_ms < self.issued_at_ms || now_ms >= self.expires_at_ms {
+            return Err(invalid_router_yao(
+                "Ed25519 Yao execution authority is expired or issued in the future",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Returns the admitted authority digest.
+    pub const fn authority_digest(&self) -> PublicDigest32 {
+        self.authority_digest
+    }
+
+    /// Returns the authority issue timestamp.
+    pub const fn issued_at_ms(&self) -> u64 {
+        self.issued_at_ms
+    }
+
+    /// Returns the authority expiry timestamp.
+    pub const fn expires_at_ms(&self) -> u64 {
+        self.expires_at_ms
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawRouterAdmittedExecutionAuthorityV1 {
+    authority_digest: PublicDigest32,
+    issued_at_ms: u64,
+    expires_at_ms: u64,
+}
+
+impl<'de> Deserialize<'de> for RouterAdmittedExecutionAuthorityV1 {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = RawRouterAdmittedExecutionAuthorityV1::deserialize(deserializer)?;
+        Self::new(raw.authority_digest, raw.issued_at_ms, raw.expires_at_ms)
+            .map_err(D::Error::custom)
+    }
+}
+
+/// Operation-specific Router execution request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
+pub enum RouterEd25519YaoExecuteRequestV1 {
+    /// Initial registration activation.
+    Registration {
+        /// Router-issued execution authority.
+        authority: RouterAdmittedExecutionAuthorityV1,
+        /// Admitted activation ceremony binding.
+        binding: Ed25519YaoCeremonyBindingV1,
+        /// Exact A/B ciphertext pair binding.
+        pair_binding: Ed25519YaoInputPairBindingV1,
+        /// Opaque Deriver A envelope.
+        deriver_a_input: Ed25519YaoEncryptedInputV1,
+        /// Opaque Deriver B envelope.
+        deriver_b_input: Ed25519YaoEncryptedInputV1,
+    },
+    /// Recovery activation into staged recipient shares.
+    Recovery {
+        /// Router-issued execution authority.
+        authority: RouterAdmittedExecutionAuthorityV1,
+        /// Admitted activation ceremony binding.
+        binding: Ed25519YaoCeremonyBindingV1,
+        /// Exact A/B ciphertext pair binding.
+        pair_binding: Ed25519YaoInputPairBindingV1,
+        /// Opaque Deriver A envelope.
+        deriver_a_input: Ed25519YaoEncryptedInputV1,
+        /// Opaque Deriver B envelope.
+        deriver_b_input: Ed25519YaoEncryptedInputV1,
+    },
+    /// Explicit client-recipient export.
+    Export {
+        /// Router-issued execution authority.
+        authority: RouterAdmittedExecutionAuthorityV1,
+        /// Admitted export identity binding.
+        binding: crate::protocol::ed25519_yao::RouterAbEd25519YaoExportBindingV1,
+        /// Exact A/B ciphertext pair binding.
+        pair_binding: Ed25519YaoInputPairBindingV1,
+        /// Opaque Deriver A envelope.
+        deriver_a_input: Ed25519YaoEncryptedInputV1,
+        /// Opaque Deriver B envelope.
+        deriver_b_input: Ed25519YaoEncryptedInputV1,
+    },
+}
+
+impl RouterEd25519YaoExecuteRequestV1 {
+    /// Builds a registration request after validating pair and binding identity.
+    pub fn registration(
+        authority: RouterAdmittedExecutionAuthorityV1,
+        binding: Ed25519YaoCeremonyBindingV1,
+        pair_binding: Ed25519YaoInputPairBindingV1,
+        deriver_a_input: Ed25519YaoEncryptedInputV1,
+        deriver_b_input: Ed25519YaoEncryptedInputV1,
+    ) -> RouterAbProtocolResult<Self> {
+        validate_activation_request(
+            &binding,
+            Ed25519YaoOperationV1::Registration,
+            &pair_binding,
+            &deriver_a_input,
+            &deriver_b_input,
+        )?;
+        Ok(Self::Registration {
+            authority,
+            binding,
+            pair_binding,
+            deriver_a_input,
+            deriver_b_input,
+        })
+    }
+
+    /// Builds a recovery request after validating pair and binding identity.
+    pub fn recovery(
+        authority: RouterAdmittedExecutionAuthorityV1,
+        binding: Ed25519YaoCeremonyBindingV1,
+        pair_binding: Ed25519YaoInputPairBindingV1,
+        deriver_a_input: Ed25519YaoEncryptedInputV1,
+        deriver_b_input: Ed25519YaoEncryptedInputV1,
+    ) -> RouterAbProtocolResult<Self> {
+        validate_activation_request(
+            &binding,
+            Ed25519YaoOperationV1::Recovery,
+            &pair_binding,
+            &deriver_a_input,
+            &deriver_b_input,
+        )?;
+        Ok(Self::Recovery {
+            authority,
+            binding,
+            pair_binding,
+            deriver_a_input,
+            deriver_b_input,
+        })
+    }
+
+    /// Builds an export request after validating pair and binding identity.
+    pub fn export(
+        authority: RouterAdmittedExecutionAuthorityV1,
+        binding: crate::protocol::ed25519_yao::RouterAbEd25519YaoExportBindingV1,
+        pair_binding: Ed25519YaoInputPairBindingV1,
+        deriver_a_input: Ed25519YaoEncryptedInputV1,
+        deriver_b_input: Ed25519YaoEncryptedInputV1,
+    ) -> RouterAbProtocolResult<Self> {
+        validate_activation_request(
+            binding.ceremony(),
+            Ed25519YaoOperationV1::Export,
+            &pair_binding,
+            &deriver_a_input,
+            &deriver_b_input,
+        )?;
+        if pair_binding.ceremony().binding() != binding.ceremony() {
+            return Err(invalid_router_yao(
+                "Ed25519 Yao export pair binding does not match its export binding",
+            ));
+        }
+        Ok(Self::Export {
+            authority,
+            binding,
+            pair_binding,
+            deriver_a_input,
+            deriver_b_input,
+        })
+    }
+
+    /// Returns the operation branch.
+    pub const fn operation(&self) -> Ed25519YaoOperationV1 {
+        match self {
+            Self::Registration { .. } => Ed25519YaoOperationV1::Registration,
+            Self::Recovery { .. } => Ed25519YaoOperationV1::Recovery,
+            Self::Export { .. } => Ed25519YaoOperationV1::Export,
+        }
+    }
+
+    /// Returns the exact pair binding carried by the request.
+    pub const fn pair_binding(&self) -> &Ed25519YaoInputPairBindingV1 {
+        match self {
+            Self::Registration { pair_binding, .. }
+            | Self::Recovery { pair_binding, .. }
+            | Self::Export { pair_binding, .. } => pair_binding,
+        }
+    }
+
+    /// Returns the Router authority carried by the request.
+    pub const fn authority(&self) -> &RouterAdmittedExecutionAuthorityV1 {
+        match self {
+            Self::Registration { authority, .. }
+            | Self::Recovery { authority, .. }
+            | Self::Export { authority, .. } => authority,
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
+enum RawRouterEd25519YaoExecuteRequestV1 {
+    Registration {
+        authority: RouterAdmittedExecutionAuthorityV1,
+        binding: Ed25519YaoCeremonyBindingV1,
+        pair_binding: Ed25519YaoInputPairBindingV1,
+        deriver_a_input: Ed25519YaoEncryptedInputV1,
+        deriver_b_input: Ed25519YaoEncryptedInputV1,
+    },
+    Recovery {
+        authority: RouterAdmittedExecutionAuthorityV1,
+        binding: Ed25519YaoCeremonyBindingV1,
+        pair_binding: Ed25519YaoInputPairBindingV1,
+        deriver_a_input: Ed25519YaoEncryptedInputV1,
+        deriver_b_input: Ed25519YaoEncryptedInputV1,
+    },
+    Export {
+        authority: RouterAdmittedExecutionAuthorityV1,
+        binding: crate::protocol::ed25519_yao::RouterAbEd25519YaoExportBindingV1,
+        pair_binding: Ed25519YaoInputPairBindingV1,
+        deriver_a_input: Ed25519YaoEncryptedInputV1,
+        deriver_b_input: Ed25519YaoEncryptedInputV1,
+    },
+}
+
+impl<'de> Deserialize<'de> for RouterEd25519YaoExecuteRequestV1 {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = RawRouterEd25519YaoExecuteRequestV1::deserialize(deserializer)?;
+        match raw {
+            RawRouterEd25519YaoExecuteRequestV1::Registration {
+                authority,
+                binding,
+                pair_binding,
+                deriver_a_input,
+                deriver_b_input,
+            } => Self::registration(
+                authority,
+                binding,
+                pair_binding,
+                deriver_a_input,
+                deriver_b_input,
+            ),
+            RawRouterEd25519YaoExecuteRequestV1::Recovery {
+                authority,
+                binding,
+                pair_binding,
+                deriver_a_input,
+                deriver_b_input,
+            } => Self::recovery(
+                authority,
+                binding,
+                pair_binding,
+                deriver_a_input,
+                deriver_b_input,
+            ),
+            RawRouterEd25519YaoExecuteRequestV1::Export {
+                authority,
+                binding,
+                pair_binding,
+                deriver_a_input,
+                deriver_b_input,
+            } => Self::export(
+                authority,
+                binding,
+                pair_binding,
+                deriver_a_input,
+                deriver_b_input,
+            ),
+        }
+        .map_err(D::Error::custom)
+    }
+}
+
+fn validate_activation_request(
+    binding: &Ed25519YaoCeremonyBindingV1,
+    expected_operation: Ed25519YaoOperationV1,
+    pair_binding: &Ed25519YaoInputPairBindingV1,
+    deriver_a_input: &Ed25519YaoEncryptedInputV1,
+    deriver_b_input: &Ed25519YaoEncryptedInputV1,
+) -> RouterAbProtocolResult<()> {
+    binding.validate()?;
+    if binding.operation != expected_operation || pair_binding.ceremony().binding() != binding {
+        return Err(invalid_router_yao(
+            "Ed25519 Yao execute pair does not match its operation binding",
+        ));
+    }
+    let expected = Ed25519YaoInputPairBindingV1::from_inputs(
+        pair_binding.ceremony().clone(),
+        deriver_a_input,
+        deriver_b_input,
+        pair_binding.recipient_set_digest(),
+        pair_binding.authorization_digest(),
+    )?;
+    if expected.pair_digest() != pair_binding.pair_digest() {
+        return Err(invalid_router_yao(
+            "Ed25519 Yao execute pair digest does not match its envelopes",
+        ));
+    }
+    pair_binding.validate()
+}
+
+/// Operation-specific successful Router result.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
+pub enum RouterEd25519YaoExecuteSuccessV1 {
+    /// Registration activation result.
+    Registration {
+        result: crate::protocol::ed25519_yao::RouterAbEd25519YaoActivationResultV1,
+    },
+    /// Recovery staged activation result.
+    Recovery {
+        result: crate::protocol::ed25519_yao::RouterAbEd25519YaoActivationResultV1,
+    },
+    /// Client-recipient export result.
+    Export {
+        result: crate::protocol::ed25519_yao::RouterAbEd25519YaoExportResultV1,
+    },
+}
+
+impl RouterEd25519YaoExecuteSuccessV1 {
+    /// Wraps a registration result after checking its operation binding.
+    pub fn registration(
+        result: crate::protocol::ed25519_yao::RouterAbEd25519YaoActivationResultV1,
+    ) -> RouterAbProtocolResult<Self> {
+        if result.binding().operation != Ed25519YaoOperationV1::Registration {
+            return Err(invalid_router_yao(
+                "Ed25519 Yao registration result has the wrong operation",
+            ));
+        }
+        Ok(Self::Registration { result })
+    }
+
+    /// Wraps a recovery result after checking its operation binding.
+    pub fn recovery(
+        result: crate::protocol::ed25519_yao::RouterAbEd25519YaoActivationResultV1,
+    ) -> RouterAbProtocolResult<Self> {
+        if result.binding().operation != Ed25519YaoOperationV1::Recovery {
+            return Err(invalid_router_yao(
+                "Ed25519 Yao recovery result has the wrong operation",
+            ));
+        }
+        Ok(Self::Recovery { result })
+    }
+
+    /// Wraps an export result after checking its operation binding.
+    pub fn export(
+        result: crate::protocol::ed25519_yao::RouterAbEd25519YaoExportResultV1,
+    ) -> RouterAbProtocolResult<Self> {
+        if result.binding().ceremony().operation != Ed25519YaoOperationV1::Export {
+            return Err(invalid_router_yao(
+                "Ed25519 Yao export result has the wrong operation",
+            ));
+        }
+        Ok(Self::Export { result })
+    }
+
+    /// Returns the operation branch.
+    pub const fn operation(&self) -> Ed25519YaoOperationV1 {
+        match self {
+            Self::Registration { .. } => Ed25519YaoOperationV1::Registration,
+            Self::Recovery { .. } => Ed25519YaoOperationV1::Recovery,
+            Self::Export { .. } => Ed25519YaoOperationV1::Export,
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
+enum RawRouterEd25519YaoExecuteSuccessV1 {
+    Registration {
+        result: crate::protocol::ed25519_yao::RouterAbEd25519YaoActivationResultV1,
+    },
+    Recovery {
+        result: crate::protocol::ed25519_yao::RouterAbEd25519YaoActivationResultV1,
+    },
+    Export {
+        result: crate::protocol::ed25519_yao::RouterAbEd25519YaoExportResultV1,
+    },
+}
+
+impl<'de> Deserialize<'de> for RouterEd25519YaoExecuteSuccessV1 {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = RawRouterEd25519YaoExecuteSuccessV1::deserialize(deserializer)?;
+        match raw {
+            RawRouterEd25519YaoExecuteSuccessV1::Registration { result } => {
+                Self::registration(result)
+            }
+            RawRouterEd25519YaoExecuteSuccessV1::Recovery { result } => Self::recovery(result),
+            RawRouterEd25519YaoExecuteSuccessV1::Export { result } => Self::export(result),
+        }
+        .map_err(D::Error::custom)
+    }
+}
+
 /// Execution identity allocated once for a request and never reused after ambiguity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
@@ -850,5 +1276,38 @@ mod tests {
             decoded.signed_message_digest(),
             receipt.signed_message_digest()
         );
+    }
+
+    #[test]
+    fn execute_request_union_rejects_cross_operation_fields() {
+        let ceremony = Ed25519YaoCeremonyIdentityV1::from_binding(binding()).expect("identity");
+        let a = input(Ed25519YaoDeriverRoleV1::DeriverA, 4);
+        let b = input(Ed25519YaoDeriverRoleV1::DeriverB, 5);
+        let pair = Ed25519YaoInputPairBindingV1::from_inputs(
+            ceremony,
+            &a,
+            &b,
+            PublicDigest32::new([6; 32]),
+            PublicDigest32::new([7; 32]),
+        )
+        .expect("pair");
+        let authority =
+            RouterAdmittedExecutionAuthorityV1::new(PublicDigest32::new([8; 32]), 10, 100)
+                .expect("authority");
+        let request =
+            RouterEd25519YaoExecuteRequestV1::registration(authority, binding(), pair, a, b)
+                .expect("registration request");
+        let wire = serde_json::to_value(&request).expect("request JSON");
+        let decoded = serde_json::from_value::<RouterEd25519YaoExecuteRequestV1>(wire)
+            .expect("request roundtrip");
+        assert_eq!(decoded.operation(), Ed25519YaoOperationV1::Registration);
+        assert!(RouterEd25519YaoExecuteRequestV1::recovery(
+            authority,
+            binding(),
+            decoded.pair_binding().clone(),
+            input(Ed25519YaoDeriverRoleV1::DeriverA, 4),
+            input(Ed25519YaoDeriverRoleV1::DeriverB, 5),
+        )
+        .is_err());
     }
 }
