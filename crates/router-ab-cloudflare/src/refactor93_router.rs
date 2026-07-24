@@ -222,7 +222,10 @@ pub async fn handle_cloudflare_router_ed25519_yao_recovery_promote_private_fetch
     )
     .await;
     match result {
-        Ok(receipt) => Response::from_json(&receipt),
+        Ok(receipt) => match receipt.validate_for_recovery_promotion() {
+            Ok(()) => Response::from_json(&receipt),
+            Err(error) => protocol_error_response(error),
+        },
         Err(error) => protocol_error_response(error),
     }
 }
@@ -974,6 +977,16 @@ impl SigningWorkerReceiptV1 {
         }
     }
 
+    fn validate_for_recovery_promotion(&self) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        match self {
+            Self::Active { .. } => Ok(()),
+            Self::Staged { .. } => Err(invalid_coordinator(
+                "recovery promotion requires an Active SigningWorker receipt",
+            )),
+        }
+    }
+
     fn into_public_receipt(
         self,
     ) -> RouterAbProtocolResult<RouterAbEd25519YaoActivationPublicReceiptV1> {
@@ -1250,4 +1263,56 @@ fn protocol_error_response(error: RouterAbProtocolError) -> worker::Result<Respo
         format!("{:?}: {}", error.code(), error.message()),
         cloudflare_router_error_status(error.code()),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn receipt(active: bool) -> SigningWorkerReceiptV1 {
+        let epoch = router_ab_core::Ed25519YaoStateEpochV1::new(1).expect("nonzero epoch");
+        if active {
+            SigningWorkerReceiptV1::Active {
+                session: [1; 32],
+                transcript: [2; 32],
+                registered_public_key: [3; 32],
+                joined_client_commitment: [4; 32],
+                joined_signing_worker_commitment: [5; 32],
+                signing_worker_verifying_share: [5; 32],
+                state_epoch: epoch,
+            }
+        } else {
+            SigningWorkerReceiptV1::Staged {
+                session: [1; 32],
+                transcript: [2; 32],
+                registered_public_key: [3; 32],
+                joined_client_commitment: [4; 32],
+                joined_signing_worker_commitment: [5; 32],
+                signing_worker_verifying_share: [5; 32],
+                state_epoch: epoch,
+            }
+        }
+    }
+
+    #[test]
+    fn signing_worker_receipt_status_is_bound_to_activation_operation() {
+        assert!(receipt(true)
+            .validate_for_operation(Ed25519YaoOperationV1::Registration)
+            .is_ok());
+        assert!(receipt(false)
+            .validate_for_operation(Ed25519YaoOperationV1::Registration)
+            .is_err());
+        assert!(receipt(false)
+            .validate_for_operation(Ed25519YaoOperationV1::Recovery)
+            .is_ok());
+        assert!(receipt(true)
+            .validate_for_operation(Ed25519YaoOperationV1::Recovery)
+            .is_err());
+    }
+
+    #[test]
+    fn recovery_promotion_requires_an_active_receipt() {
+        assert!(receipt(true).validate_for_recovery_promotion().is_ok());
+        assert!(receipt(false).validate_for_recovery_promotion().is_err());
+    }
 }
