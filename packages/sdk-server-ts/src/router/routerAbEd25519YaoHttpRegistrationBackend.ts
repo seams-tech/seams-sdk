@@ -28,6 +28,7 @@ type RouterAbEd25519YaoRecoveryExecuteRequestV1 =
 
 const INTERNAL_AUTH_HEADER = 'x-router-ab-internal-service-auth';
 const TRACE_ID_HEADER = 'x-seams-trace-id';
+const ROUTER_REPLAY_HEADER = 'x-seams-yao-replay';
 const ROUTER_EXECUTE_PATH = '/router-ab/router/ed25519-yao/execute';
 const ROUTER_RECOVERY_PROMOTE_PATH = '/router-ab/router/ed25519-yao/recovery/promote';
 
@@ -612,6 +613,12 @@ function parseRouterExecuteResult(
   }
 }
 
+function requestInitWithReplayHeader(init: RequestInit): RequestInit {
+  const headers = new Headers(init.headers);
+  headers.set(ROUTER_REPLAY_HEADER, '1');
+  return { ...init, headers };
+}
+
 export class RouterAbEd25519YaoHttpRegistrationBackend
   implements RouterAbEd25519YaoRegistrationBackend, RouterAbEd25519YaoExportBackend
 {
@@ -686,7 +693,12 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
   ): Promise<RouterAbEd25519YaoRegistrationBackendResult> {
     try {
       const routerRequest = await routerExecuteRequest(request, this.keyset());
-      const response = await this.post(ROUTER_EXECUTE_PATH, routerRequest, randomTraceId());
+      const response = await this.post(
+        ROUTER_EXECUTE_PATH,
+        routerRequest,
+        randomTraceId(),
+        true,
+      );
       return response.ok ? parseRouterExecuteResult(response.body, request) : response;
     } catch (error: unknown) {
       return unavailableFailure(error);
@@ -786,7 +798,12 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
   ): Promise<RouterAbEd25519YaoRegistrationBackendResult> {
     try {
       const routerRequest = await routerExecuteRequest(request, this.keyset());
-      const response = await this.post(ROUTER_EXECUTE_PATH, routerRequest, randomTraceId());
+      const response = await this.post(
+        ROUTER_EXECUTE_PATH,
+        routerRequest,
+        randomTraceId(),
+        true,
+      );
       return response.ok ? parseRouterExecuteResult(response.body, request) : response;
     } catch (error: unknown) {
       return unavailableFailure(error);
@@ -812,12 +829,17 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
     return { ok: true, body: request };
   }
 
-  private async post(path: string, body: unknown, traceId: string): Promise<HttpResult> {
+  private async post(
+    path: string,
+    body: unknown,
+    traceId: string,
+    replayOnTransportFailure = false,
+  ): Promise<HttpResult> {
     return await this.request(this.config.routerUrl, path, {
       method: 'POST',
       headers: this.headers(traceId),
       body: JSON.stringify(body),
-    });
+    }, replayOnTransportFailure);
   }
 
   private headers(traceId: string): Record<string, string> {
@@ -828,8 +850,23 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
     };
   }
 
-  private async request(baseUrl: string, path: string, init: RequestInit): Promise<HttpResult> {
-    const response = await this.config.fetch.call(globalThis, `${baseUrl}${path}`, init);
+  private async request(
+    baseUrl: string,
+    path: string,
+    init: RequestInit,
+    replayOnTransportFailure: boolean,
+  ): Promise<HttpResult> {
+    let response: Response;
+    try {
+      response = await this.config.fetch.call(globalThis, `${baseUrl}${path}`, init);
+    } catch (error: unknown) {
+      if (!replayOnTransportFailure) throw error;
+      response = await this.config.fetch.call(
+        globalThis,
+        `${baseUrl}${path}`,
+        requestInitWithReplayHeader(init),
+      );
+    }
     const text = await response.text();
     if (!response.ok) {
       return internalFailure(

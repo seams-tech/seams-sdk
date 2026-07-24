@@ -641,9 +641,9 @@ digests and therefore requires a new ceremony identity.
 - [x] Dispatch A execution exactly once after both receipts.
 - [x] Await and validate both role results.
 - [x] Deliver the exact package pair to SigningWorker atomically.
-- [ ] Implement exact retry reconciliation without cryptographic
+- [x] Implement exact retry reconciliation without cryptographic
       reevaluation.
-- [ ] Accept byte-exact internal replay and reject conflicting ciphertext
+- [x] Accept byte-exact internal replay and reject conflicting ciphertext
       digests under the same ceremony identity.
 - [x] Add structured span timings for preparation, receipt validation, A
       execution, B completed-result read, SigningWorker delivery, and the
@@ -661,8 +661,10 @@ digests and therefore requires a new ceremony identity.
 - [x] Keep product admission and D1 commit outside the MPC Router.
 - [x] Make direct Yao role and SigningWorker addressing unrepresentable in the
       backend configuration type.
-- [ ] Retain the byte-exact admitted request body for an internal uncertain
-      Router retry.
+- [x] Retain the byte-exact admitted request body for an internal uncertain
+      Router retry. Transport failures retry once with the same serialized
+      body and trace ID plus the Router replay marker; HTTP responses are not
+      retried.
 
 The Cloudflare Gateway cutover is implemented. The existing `router-ab-dev`
 process harness still exposes role workers without a Router coordinator HTTP

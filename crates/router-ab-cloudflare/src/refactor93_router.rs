@@ -6,12 +6,16 @@ use crate::{
     parse_cloudflare_trace_id_from_request_v1, require_cloudflare_internal_service_auth_request_v1,
     set_cloudflare_internal_service_auth_header_v1, set_cloudflare_trace_id_header_v1,
     CloudflareEd25519YaoPackagePairDeliveryV1, CloudflareEd25519YaoPairExecuteRequestV1,
-    CloudflareEd25519YaoPairPrepareRequestV1, CloudflareEd25519YaoReadCompletedPairRequestV1,
-    CloudflareRouterWorkerRuntimeV1, CloudflareWorkerEnvReaderV1,
+    CloudflareEd25519YaoPairPrepareRequestV1, CloudflareEd25519YaoPairStatusResponseV1,
+    CloudflareEd25519YaoReadCompletedPairRequestV1, CloudflareRouterWorkerRuntimeV1,
+    CloudflareWorkerEnvReaderV1, CLOUDFLARE_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH,
     CLOUDFLARE_DERIVER_A_ED25519_YAO_EXECUTE_PAIR_PATH,
     CLOUDFLARE_DERIVER_A_ED25519_YAO_PREPARE_PAIR_PATH,
+    CLOUDFLARE_DERIVER_A_ED25519_YAO_READ_PAIR_STATUS_PATH,
+    CLOUDFLARE_DERIVER_B_ED25519_YAO_BURN_PAIR_PATH,
     CLOUDFLARE_DERIVER_B_ED25519_YAO_PREPARE_PAIR_PATH,
     CLOUDFLARE_DERIVER_B_ED25519_YAO_READ_COMPLETED_PAIR_PATH,
+    CLOUDFLARE_DERIVER_B_ED25519_YAO_READ_PAIR_STATUS_PATH,
     CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_PACKAGES_PATH,
     CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_RECOVERY_PROMOTE_PATH,
 };
@@ -33,6 +37,7 @@ const DERIVER_A_SERVICE_URL: &str = "https://router-ab-deriver-a.internal";
 const DERIVER_B_SERVICE_URL: &str = "https://router-ab-deriver-b.internal";
 const SIGNING_WORKER_SERVICE_URL: &str = "https://router-ab-signing-worker.internal";
 const ROUTER_SPAN_EVENT: &str = "router_ab_yao_coordinator_span_v1";
+const ROUTER_REPLAY_HEADER: &str = "x-seams-yao-replay";
 
 #[derive(Serialize)]
 struct CoordinatorSpan<'a> {
@@ -82,6 +87,10 @@ pub async fn handle_cloudflare_router_ed25519_yao_execute_private_fetch_v1(
         Ok(trace_id) => trace_id,
         Err(error) => return protocol_error_response(error),
     };
+    let replay = match parse_router_replay_header(&request) {
+        Ok(replay) => replay,
+        Err(error) => return protocol_error_response(error),
+    };
     let execute_request = match request.json::<RouterEd25519YaoExecuteRequestV1>().await {
         Ok(request) => request,
         Err(error) => {
@@ -101,7 +110,8 @@ pub async fn handle_cloudflare_router_ed25519_yao_execute_private_fetch_v1(
     };
     let operation = execute_request.operation();
     let started_at_ms = now_ms;
-    let result = execute_router_ceremony_v1(env, &runtime, execute_request, now_ms, trace_id).await;
+    let result =
+        execute_router_ceremony_v1(env, &runtime, execute_request, now_ms, trace_id, replay).await;
     emit_span(
         trace_id,
         "router.yao_execute",
@@ -171,6 +181,7 @@ async fn execute_router_ceremony_v1(
     request: RouterEd25519YaoExecuteRequestV1,
     now_ms: u64,
     trace_id: Option<crate::CloudflareTraceIdV1>,
+    replay: bool,
 ) -> RouterAbProtocolResult<RouterEd25519YaoExecuteResultV1> {
     request.authority().validate_at(now_ms)?;
     request.pair_binding().validate()?;
@@ -179,6 +190,15 @@ async fn execute_router_ceremony_v1(
     let (binding, input_a, input_b) = request_parts(&request);
     let operation = request.operation();
     let pair_binding = request.pair_binding().clone();
+
+    if replay {
+        if let Some(result) =
+            reconcile_router_replay_v1(env, runtime, &request, &binding, &pair_binding, trace_id)
+                .await?
+        {
+            return Ok(result);
+        }
+    }
 
     let prepare_started_at_ms = cloudflare_now_unix_ms_v1()?;
     let prepare_request_a = CloudflareEd25519YaoPairPrepareRequestV1 {
@@ -318,6 +338,227 @@ async fn execute_router_ceremony_v1(
         Some(transcript),
     )?;
 
+    finalize_router_result_v1(
+        env,
+        runtime,
+        &request,
+        &binding,
+        execution,
+        completed_b,
+        trace_id,
+    )
+    .await
+}
+
+async fn reconcile_router_replay_v1(
+    env: &Env,
+    runtime: &CloudflareRouterWorkerRuntimeV1,
+    request: &RouterEd25519YaoExecuteRequestV1,
+    binding: &router_ab_core::Ed25519YaoCeremonyBindingV1,
+    pair_binding: &Ed25519YaoInputPairBindingV1,
+    trace_id: Option<crate::CloudflareTraceIdV1>,
+) -> RouterAbProtocolResult<Option<RouterEd25519YaoExecuteResultV1>> {
+    let reconciliation_started_at_ms = cloudflare_now_unix_ms_v1()?;
+    let statuses = futures::try_join!(
+        read_pair_status_v1(
+            env,
+            runtime.deriver_a_peer().binding_name.as_str(),
+            DERIVER_A_SERVICE_URL,
+            CLOUDFLARE_DERIVER_A_ED25519_YAO_READ_PAIR_STATUS_PATH,
+            "Deriver A pair status",
+            pair_binding,
+            trace_id,
+        ),
+        read_pair_status_v1(
+            env,
+            runtime.deriver_b_peer().binding_name.as_str(),
+            DERIVER_B_SERVICE_URL,
+            CLOUDFLARE_DERIVER_B_ED25519_YAO_READ_PAIR_STATUS_PATH,
+            "Deriver B pair status",
+            pair_binding,
+            trace_id,
+        )
+    );
+    let (status_a, status_b) = match statuses {
+        Ok(statuses) => {
+            emit_span(
+                trace_id,
+                "router.role_status_reconciliation",
+                operation_label(request.operation()),
+                reconciliation_started_at_ms,
+                "success",
+            );
+            statuses
+        }
+        Err(error) => {
+            emit_span(
+                trace_id,
+                "router.role_status_reconciliation",
+                operation_label(request.operation()),
+                reconciliation_started_at_ms,
+                "failure",
+            );
+            return Err(error);
+        }
+    };
+    if pair_status_is_completed(&status_a) && pair_status_is_completed(&status_b) {
+        let execution_a = completed_execution(&status_a)?;
+        let execution_b = completed_execution(&status_b)?;
+        execution_a.validate()?;
+        execution_b.validate()?;
+        validate_execution(
+            &execution_a,
+            Ed25519YaoDeriverRoleV1::DeriverA,
+            binding,
+            None,
+        )?;
+        let transcript = execution_transcript(&execution_a);
+        validate_execution(
+            &execution_b,
+            Ed25519YaoDeriverRoleV1::DeriverB,
+            binding,
+            Some(transcript),
+        )?;
+        return finalize_router_result_v1(
+            env,
+            runtime,
+            request,
+            binding,
+            execution_a,
+            execution_b,
+            trace_id,
+        )
+        .await
+        .map(Some);
+    }
+
+    if pair_status_is_running(&status_a)
+        || pair_status_is_running(&status_b)
+        || pair_status_is_completed(&status_a)
+        || pair_status_is_completed(&status_b)
+    {
+        let _ = burn_pair_v1(
+            env,
+            runtime.deriver_a_peer().binding_name.as_str(),
+            DERIVER_A_SERVICE_URL,
+            CLOUDFLARE_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH,
+            "Deriver A pair burn",
+            pair_binding,
+            trace_id,
+        )
+        .await;
+        let _ = burn_pair_v1(
+            env,
+            runtime.deriver_b_peer().binding_name.as_str(),
+            DERIVER_B_SERVICE_URL,
+            CLOUDFLARE_DERIVER_B_ED25519_YAO_BURN_PAIR_PATH,
+            "Deriver B pair burn",
+            pair_binding,
+            trace_id,
+        )
+        .await;
+        let execution_id = router_execution_id(pair_binding)?;
+        return Ok(Some(RouterEd25519YaoExecuteResultV1::burned(
+            execution_id,
+            router_ab_core::RouterEd25519YaoBurnReasonV1::PeerUncertain,
+        )));
+    }
+
+    if pair_status_is_burned(&status_a) || pair_status_is_burned(&status_b) {
+        let execution_id = router_execution_id(pair_binding)?;
+        return Ok(Some(RouterEd25519YaoExecuteResultV1::burned(
+            execution_id,
+            router_ab_core::RouterEd25519YaoBurnReasonV1::PeerUncertain,
+        )));
+    }
+
+    if pair_status_is_expired(&status_a) || pair_status_is_expired(&status_b) {
+        return Ok(Some(RouterEd25519YaoExecuteResultV1::recoverable(
+            router_ab_core::RouterEd25519YaoExecuteFailureCodeV1::CeremonyExpired,
+            1_000,
+        )?));
+    }
+
+    Ok(None)
+}
+
+fn completed_execution(
+    status: &CloudflareEd25519YaoPairStatusResponseV1,
+) -> RouterAbProtocolResult<Ed25519YaoRoleExecutionV1> {
+    match status {
+        CloudflareEd25519YaoPairStatusResponseV1::Completed { execution } => {
+            Ok((**execution).clone())
+        }
+        _ => Err(invalid_coordinator(
+            "completed pair status is missing execution",
+        )),
+    }
+}
+
+fn router_execution_id(
+    pair_binding: &Ed25519YaoInputPairBindingV1,
+) -> RouterAbProtocolResult<router_ab_core::Ed25519YaoExecutionIdV1> {
+    router_ab_core::Ed25519YaoExecutionIdV1::new(pair_binding.pair_digest().bytes)
+}
+
+async fn read_pair_status_v1(
+    env: &Env,
+    binding_name: &str,
+    service_origin: &str,
+    path: &str,
+    label: &str,
+    pair_binding: &Ed25519YaoInputPairBindingV1,
+    trace_id: Option<crate::CloudflareTraceIdV1>,
+) -> RouterAbProtocolResult<CloudflareEd25519YaoPairStatusResponseV1> {
+    post_role_json::<_, CloudflareEd25519YaoPairStatusResponseV1>(
+        env,
+        binding_name,
+        service_origin,
+        path,
+        label,
+        &CloudflareEd25519YaoReadCompletedPairRequestV1 {
+            session: pair_binding.session(),
+            pair_digest: pair_binding.pair_digest().bytes,
+        },
+        trace_id,
+    )
+    .await
+}
+
+async fn burn_pair_v1(
+    env: &Env,
+    binding_name: &str,
+    service_origin: &str,
+    path: &str,
+    label: &str,
+    pair_binding: &Ed25519YaoInputPairBindingV1,
+    trace_id: Option<crate::CloudflareTraceIdV1>,
+) -> RouterAbProtocolResult<CloudflareEd25519YaoPairStatusResponseV1> {
+    post_role_json::<_, CloudflareEd25519YaoPairStatusResponseV1>(
+        env,
+        binding_name,
+        service_origin,
+        path,
+        label,
+        &CloudflareEd25519YaoReadCompletedPairRequestV1 {
+            session: pair_binding.session(),
+            pair_digest: pair_binding.pair_digest().bytes,
+        },
+        trace_id,
+    )
+    .await
+}
+
+async fn finalize_router_result_v1(
+    env: &Env,
+    runtime: &CloudflareRouterWorkerRuntimeV1,
+    request: &RouterEd25519YaoExecuteRequestV1,
+    binding: &router_ab_core::Ed25519YaoCeremonyBindingV1,
+    execution: Ed25519YaoRoleExecutionV1,
+    completed_b: Ed25519YaoRoleExecutionV1,
+    trace_id: Option<crate::CloudflareTraceIdV1>,
+) -> RouterAbProtocolResult<RouterEd25519YaoExecuteResultV1> {
+    let operation = request.operation();
     let success = match operation {
         Ed25519YaoOperationV1::Registration | Ed25519YaoOperationV1::Recovery => {
             let activation_a = activation_execution(&execution)?;
@@ -380,7 +621,7 @@ async fn execute_router_ceremony_v1(
             }
         }
         Ed25519YaoOperationV1::Export => {
-            let export_binding = match &request {
+            let export_binding = match request {
                 RouterEd25519YaoExecuteRequestV1::Export { binding, .. } => binding.clone(),
                 _ => unreachable!("export operation must carry export binding"),
             };
@@ -388,7 +629,7 @@ async fn execute_router_ceremony_v1(
             let export_b = export_execution(&completed_b)?;
             let result = RouterAbEd25519YaoExportResultV1::new(
                 export_binding,
-                transcript,
+                execution_transcript(&execution),
                 export_a.client_package.clone(),
                 export_b.client_package.clone(),
             )?;
@@ -401,6 +642,34 @@ async fn execute_router_ceremony_v1(
         }
     };
     Ok(RouterEd25519YaoExecuteResultV1::succeeded(success))
+}
+
+fn pair_status_is_completed(status: &CloudflareEd25519YaoPairStatusResponseV1) -> bool {
+    matches!(
+        status,
+        CloudflareEd25519YaoPairStatusResponseV1::Completed { .. }
+    )
+}
+
+fn pair_status_is_running(status: &CloudflareEd25519YaoPairStatusResponseV1) -> bool {
+    matches!(
+        status,
+        CloudflareEd25519YaoPairStatusResponseV1::Running { .. }
+    )
+}
+
+fn pair_status_is_burned(status: &CloudflareEd25519YaoPairStatusResponseV1) -> bool {
+    matches!(
+        status,
+        CloudflareEd25519YaoPairStatusResponseV1::Burned { .. }
+    )
+}
+
+fn pair_status_is_expired(status: &CloudflareEd25519YaoPairStatusResponseV1) -> bool {
+    matches!(
+        status,
+        CloudflareEd25519YaoPairStatusResponseV1::Expired { .. }
+    )
 }
 
 fn request_parts(
@@ -688,6 +957,27 @@ where
 
 fn invalid_coordinator(message: &str) -> RouterAbProtocolError {
     RouterAbProtocolError::new(RouterAbProtocolErrorCode::MalformedWirePayload, message)
+}
+
+fn parse_router_replay_header(request: &Request) -> RouterAbProtocolResult<bool> {
+    let value = request
+        .headers()
+        .get(ROUTER_REPLAY_HEADER)
+        .map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
+                format!("Router replay header read failed: {error}"),
+            )
+        })?;
+    match value.as_deref() {
+        None => Ok(false),
+        Some("1") => Ok(true),
+        Some("0") => Ok(false),
+        Some(_) => Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
+            "Router replay header must be 0 or 1",
+        )),
+    }
 }
 
 fn operation_label(operation: Ed25519YaoOperationV1) -> &'static str {
