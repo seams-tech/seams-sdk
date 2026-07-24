@@ -88,11 +88,14 @@ duration, storage presence, or a warm-looking request.
 
 ## Validation evidence
 
-- `cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --lib`
-- `cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --lib --features strict-worker-deriver-a-entrypoint`
-- `cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --lib --features strict-worker-deriver-b-entrypoint`
-- Focused route/lifecycle tests are recorded in the handoff after the code and
-  formatting checks complete.
+- `rustfmt --check --edition 2021 src/refactor93_router.rs`
+- `cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --features strict-worker-router-entrypoint`
+- strict Router library tests: 18 passed
+- strict route-boundary and path tests: 7 + 1 passed
+- pair/lifecycle boundary tests: 6 passed
+- Cloudflare binding tests: 271 passed
+- local-dev library tests: 13 passed
+- `git diff --check`
 
 The Phase 0 production requirements for 20 successful traces, cold/warm
 cohorts, and the frozen `gateway.yao_execute` p50/p95 budget remain open until
