@@ -4526,6 +4526,11 @@ impl CloudflareDeriverAWorkerRuntimeV1 {
         &self.bindings.peer_signing_key
     }
 
+    /// Returns the trusted role-local peer verifying keys for readiness receipts.
+    pub(crate) fn peer_verifying_keys(&self) -> &CloudflareSignerPeerVerifyingKeySetV1 {
+        &self.bindings.peer_verifying_keys
+    }
+
     /// Returns trusted A/B peer verifying keys bound to a request signer set.
     pub fn peer_verifying_keys_for_signer_set(
         &self,
@@ -4733,6 +4738,11 @@ impl CloudflareDeriverBWorkerRuntimeV1 {
     /// Returns Deriver B's role-local A/B peer signing-key descriptor.
     pub fn peer_signing_key(&self) -> &CloudflareSignerPeerSigningKeyBindingV1 {
         &self.bindings.peer_signing_key
+    }
+
+    /// Returns the trusted role-local peer verifying keys for readiness receipts.
+    pub(crate) fn peer_verifying_keys(&self) -> &CloudflareSignerPeerVerifyingKeySetV1 {
+        &self.bindings.peer_verifying_keys
     }
 
     /// Returns trusted A/B peer verifying keys bound to a request signer set.

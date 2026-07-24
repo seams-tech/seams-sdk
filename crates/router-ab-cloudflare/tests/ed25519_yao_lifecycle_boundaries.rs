@@ -28,6 +28,47 @@ fn yao_session_lifecycle_has_absorbing_failure_and_expiry_states() {
 }
 
 #[test]
+fn pair_lifecycle_is_pair_bound_and_has_signed_readiness_states() {
+    let source = read_src_file("ed25519_yao_lifecycle.rs");
+    for required in [
+        "enum PairYaoSessionRecordV1",
+        "Prepared",
+        "Burned",
+        "pair_digest",
+        "input_digest",
+        "root_metadata_digest",
+        "Ed25519YaoRoleReadinessReceiptV1",
+        "PreparePair",
+        "ExecutePair",
+        "BeginPair",
+        "CompletePair",
+        "ReadCompletedPair",
+    ] {
+        assert!(
+            source.contains(required),
+            "pair-bound lifecycle must include `{required}`"
+        );
+    }
+}
+
+#[test]
+fn pair_websocket_requires_the_exact_pair_digest_and_peer_receipt() {
+    let source = read_src_file("ed25519_yao_lifecycle.rs");
+    let body = extract_function_body(&source, "handle_pair_bound_deriver_b_websocket");
+    for required in [
+        "binding.pair_digest",
+        "x-seams-yao-readiness-receipt",
+        "verify_role_readiness_receipt_v1",
+        "BeginPair",
+    ] {
+        assert!(
+            body.contains(required),
+            "pair-bound WebSocket must enforce `{required}`"
+        );
+    }
+}
+
+#[test]
 fn yao_websocket_prepares_transport_before_consuming_staged_input() {
     let source = read_src_file("ed25519_yao_lifecycle.rs");
     let body = extract_function_body(
@@ -83,7 +124,10 @@ fn deriver_a_overlaps_root_validation_with_staged_websocket_connection() {
         open_input < joined_work,
         "invalid Deriver A ciphertext must fail before the Deriver B connection starts"
     );
-    for required in ["load_deriver_a_yao_root", "connect_deriver_b"] {
+    for required in [
+        "load_deriver_a_yao_root_with_metadata_digest",
+        "connect_deriver_b",
+    ] {
         assert!(
             source.contains(required),
             "parallel staged connection must retain `{required}`"

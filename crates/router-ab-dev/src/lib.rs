@@ -56,6 +56,7 @@ pub use local_ecdsa_root_shares::{
     local_ecdsa_root_share_package_v1, LocalEcdsaRootSharePackageV1,
 };
 mod local_ed25519_yao_input;
+mod local_ed25519_yao_pair;
 mod local_ed25519_yao_profiles;
 mod local_ed25519_yao_refresh;
 mod local_ed25519_yao_router;
@@ -106,6 +107,10 @@ pub use local_ed25519_yao_input::{
     seal_local_ed25519_yao_export_deriver_b_input_v1,
     seal_local_ed25519_yao_refresh_deriver_a_input_v1,
     seal_local_ed25519_yao_refresh_deriver_b_input_v1, LocalEd25519YaoEncryptedRefreshInputV1,
+};
+pub use local_ed25519_yao_pair::{
+    LocalEd25519YaoPairLifecycleStateV1, LocalEd25519YaoPairLifecycleV1,
+    LocalEd25519YaoPairSigningKeysV1, LocalEd25519YaoRoleReadinessReceiptV1,
 };
 pub use local_ed25519_yao_profiles::{
     build_local_ed25519_yao_one_account_plan_v1, build_local_ed25519_yao_two_administrator_plan_v1,
