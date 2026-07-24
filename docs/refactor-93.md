@@ -277,8 +277,7 @@ The Gateway continues to own:
 - product authentication;
 - registration intent and tenant policy;
 - D1 wallet and account records;
-- admission and issuance of the channel-authenticated Router execution
-  authority;
+- product admission facts passed to the channel-authenticated Router request;
 - persistence of the final verified product result.
 
 The Gateway sends one typed request through its existing `MPC_ROUTER` Service
@@ -362,11 +361,14 @@ pub struct Ed25519YaoInputPairBindingV1 {
 ```
 
 `pair_digest` is derived by the canonical Rust production encoder and is
-recomputed and validated at the Router boundary. The Gateway adapter calls a
-single canonical mirror helper, and a Rust-generated pair-digest fixture is
-consumed by its cross-language test. The generated TypeScript base contracts
-are emitted by `pnpm generate:router-ab-ed25519-yao-types`; the shared adapter
-retains operation-specific generic narrowing around those generated shapes.
+recomputed and validated at the Router boundary. The Gateway sends the
+validated ceremony binding and opaque role envelopes without any digest
+preimages or derived pair fields. The Router derives the role-input,
+recipient-set, authorization, and pair digests before constructing its
+internal execute request. Rust-generated pair-digest fixtures remain the
+cross-language wire invariant; Gateway contract tests assert that the raw
+request contains no Router-owned digest fields. The generated TypeScript base
+contracts are emitted by `pnpm generate:router-ab-ed25519-yao-types`.
 
 ### Readiness Receipt
 
@@ -639,9 +641,11 @@ preserve those public operation-specific result bodies.
 
 `RouterAdmittedExecutionAuthorityV1` is a short-lived, channel-authenticated
 request field in the current v1 boundary. The Router requires the internal
-service-authentication header, validates the authority time window, and rejects
-an authority digest that does not equal the pair binding's authorization
-digest. The Gateway currently derives that digest from the admitted request.
+service-authentication header, derives the activation authorization digest from
+the canonical Rust serialization of the raw Gateway request, validates the
+authority time window, and rejects an authority digest that does not equal the
+pair binding's authorization digest. Export continues to carry the
+authorization digest from its explicit client authorization artifact.
 
 The v1 field is not a standalone cryptographic signature over the D1 admission
 decision. Extending the route to an independently callable trust boundary
@@ -661,7 +665,8 @@ the plan does not claim cryptographic D1 admission attestation.
       binding shapes; shared TypeScript keeps operation-specific generic
       narrowing around those generated declarations.
 - [x] Add a cross-language pair-digest vector that is generated from the Rust
-      encoder and consumed by the Gateway adapter.
+      encoder and keep the Gateway adapter on the raw request boundary; its
+      contract test rejects locally derived pair/authority fields.
 - [x] Add type fixtures rejecting missing identities, cross-operation fields,
       optional pair digests, and broad object-spread construction.
 - [x] Add exhaustive switches for operation-specific request and terminal
@@ -815,10 +820,11 @@ an explicit scope decision:
 - The authority field is channel-authenticated and digest/time bound in v1,
   rather than a signed D1 admission attestation. A signed admission artifact
   remains a future trust-boundary requirement.
-- The Gateway's pair-digest helper is checked against both the generated
-  TypeScript base contracts and Rust-generated cross-language vectors. The
-  shared TypeScript layer retains only operation-specific generic narrowing
-  that has no direct Rust type alias.
+- The Gateway forwards only the raw ceremony binding and opaque role envelopes.
+  Rust owns authorization, recipient-set, role-input, and pair digest
+  derivation; cross-language vectors pin the resulting binding, while the
+  Gateway contract test asserts that no digest preimage or derived pair field
+  is constructed locally.
 - SigningWorker activation receipts are now checked against the admitted
   operation (`Active` for registration and `Staged` for recovery). The role
   transport still maps several lower-level failures through generic protocol

@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { expect, test } from '@playwright/test';
-import { deriveRouterAbEd25519YaoPairDigestV1 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoHttpRegistrationBackend';
 import type {
   RouterAbEd25519YaoCeremonyBindingV1,
   RouterAbEd25519YaoCeremonyIdentityV1,
@@ -25,6 +24,12 @@ type PairDigestVectorFixture = {
 const FIXTURE_PATH = fileURLToPath(
   new URL(
     '../../crates/router-ab-core/fixtures/protocol/ed25519-yao/pair-digest-vectors-v1.json',
+    import.meta.url,
+  ),
+);
+const BACKEND_PATH = fileURLToPath(
+  new URL(
+    '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoHttpRegistrationBackend.ts',
     import.meta.url,
   ),
 );
@@ -199,19 +204,22 @@ function hex(value: readonly number[]): string {
   return value.map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-test('Gateway pair-digest adapter consumes Rust-generated vectors', async () => {
+test('Rust-generated pair-digest vectors retain the complete Router binding', async () => {
   const fixture = parseFixture(JSON.parse(readFileSync(FIXTURE_PATH, 'utf8')));
   expect(fixture.cases.map((vector) => vector.caseId)).toEqual(['registration_v1', 'export_v1']);
 
   for (const vector of fixture.cases) {
     const pairBinding = vector.pairBinding;
-    const derived = await deriveRouterAbEd25519YaoPairDigestV1({
-      ceremony: pairBinding.ceremony.binding,
-      deriverAInputDigest: pairBinding.deriver_a_input_digest.bytes,
-      deriverBInputDigest: pairBinding.deriver_b_input_digest.bytes,
-      recipientSetDigest: pairBinding.recipient_set_digest.bytes,
-      authorizationDigest: pairBinding.authorization_digest.bytes,
-    });
-    expect(hex(derived), vector.caseId).toBe(hex(pairBinding.pair_digest.bytes));
+    expect(hex(pairBinding.pair_digest.bytes), vector.caseId).toMatch(/^[0-9a-f]{64}$/);
+    expect(hex(pairBinding.recipient_set_digest.bytes), vector.caseId).toMatch(/^[0-9a-f]{64}$/);
+    expect(hex(pairBinding.authorization_digest.bytes), vector.caseId).toMatch(/^[0-9a-f]{64}$/);
   }
+});
+
+test('Gateway adapter does not reimplement Router-owned digest preimages', () => {
+  const source = readFileSync(BACKEND_PATH, 'utf8');
+  expect(source).not.toContain('router-ab-ed25519-yao/input-pair/v1');
+  expect(source).not.toContain('router-ab-ed25519-yao/authorization/v1');
+  expect(source).not.toContain('recipient_set_digest');
+  expect(source).not.toContain('pair_binding');
 });

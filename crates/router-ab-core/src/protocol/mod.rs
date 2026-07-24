@@ -46,14 +46,15 @@ pub use self::ed25519_yao::{
 };
 pub use self::ed25519_yao_router::{
     ed25519_yao_encrypted_input_digest_v1, ed25519_yao_input_pair_digest_v1,
-    Ed25519YaoCeremonyIdentityV1, Ed25519YaoCircuitIdV1, Ed25519YaoExecutionIdV1,
-    Ed25519YaoInputPairBindingV1, Ed25519YaoProtocolIdV1, Ed25519YaoRoleReadinessReceiptV1,
-    Ed25519YaoRoleSignatureSchemeV1, Ed25519YaoRoleSignatureV1, Ed25519YaoRoleStartAcceptanceV1,
+    ed25519_yao_recipient_set_digest_v1, Ed25519YaoCeremonyIdentityV1, Ed25519YaoCircuitIdV1,
+    Ed25519YaoExecutionIdV1, Ed25519YaoInputPairBindingV1, Ed25519YaoProtocolIdV1,
+    Ed25519YaoRoleReadinessReceiptV1, Ed25519YaoRoleSignatureSchemeV1, Ed25519YaoRoleSignatureV1,
+    Ed25519YaoRoleStartAcceptanceV1,
     RouterAdmittedExecutionAuthorityV1, RouterEd25519YaoBurnReasonV1,
     RouterEd25519YaoExecuteFailureCodeV1, RouterEd25519YaoExecuteRequestV1,
     RouterEd25519YaoExecuteResultV1, RouterEd25519YaoExecuteSuccessV1,
-    ED25519_YAO_ACTIVATION_CIRCUIT_ID_V1, ED25519_YAO_EXPORT_CIRCUIT_ID_V1,
-    ED25519_YAO_PROTOCOL_ID_V1,
+    RouterEd25519YaoGatewayExecuteRequestV1, ED25519_YAO_ACTIVATION_CIRCUIT_ID_V1,
+    ED25519_YAO_EXPORT_CIRCUIT_ID_V1, ED25519_YAO_PROTOCOL_ID_V1,
 };
 pub use self::engine::{
     AuditEventV1, AuditSink, Clock, Csprng, DeriverAEngine, DeriverBEngine, PeerTransport,
