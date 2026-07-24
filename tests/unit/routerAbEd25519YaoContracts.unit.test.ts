@@ -129,6 +129,7 @@ class ScriptedLocalYaoFetch {
   readonly requestBodies: string[] = [];
   readonly replayHeaders: string[] = [];
   failNextExecute = false;
+  dropNextExecuteResponse = false;
   executionResult: ScriptedExecutionResult = { kind: 'success' };
   private state: ScriptedFetchState = { kind: 'unbound' };
 
@@ -153,7 +154,12 @@ class ScriptedLocalYaoFetch {
       this.failNextExecute = false;
       throw new Error('simulated Router transport failure');
     }
-    return this.response(url.pathname, this.state.binding);
+    const response = this.response(url.pathname, this.state.binding);
+    if (this.dropNextExecuteResponse && url.pathname === '/router-ab/router/ed25519-yao/execute') {
+      this.dropNextExecuteResponse = false;
+      throw new Error('simulated Router response loss after execution');
+    }
+    return response;
   }
 
   private url(input: RequestInfo | URL): URL {
@@ -801,6 +807,40 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     expect(scriptedFetch.traceIds).toHaveLength(2);
     expect(scriptedFetch.traceIds[0]).toBe(scriptedFetch.traceIds[1]);
     expect(scriptedFetch.traceIds[0]).toMatch(/^[0-9a-f]{32}$/);
+  });
+
+  test('replays the exact admitted request when the Router response is lost after execution', async () => {
+    const scriptedFetch = new ScriptedLocalYaoFetch();
+    const backend = createRouterAbEd25519YaoHttpRegistrationBackendFromEnv({
+      env: localHttpBackendEnv(),
+      fetch: scriptedFetch.fetch.bind(scriptedFetch),
+    });
+
+    const admitted = await backend.admit(parsedAdmissionRequest());
+    if (!admitted.ok) throw new Error(admitted.message);
+    const parsedAdmission = parseRouterAbEd25519YaoRegistrationAdmissionReceiptV1(admitted.body);
+    if (!parsedAdmission.ok) throw new Error(parsedAdmission.message);
+    scriptedFetch.bindActivation(parsedAdmission.value.binding);
+
+    const parsedExecution = parseRouterAbEd25519YaoRegistrationExecuteRequestV1({
+      binding: parsedAdmission.value.binding,
+      deriver_a_input: encryptedInputForBinding(parsedAdmission.value.binding, 'deriver_a'),
+      deriver_b_input: encryptedInputForBinding(parsedAdmission.value.binding, 'deriver_b'),
+    });
+    if (!parsedExecution.ok) throw new Error(parsedExecution.message);
+
+    scriptedFetch.dropNextExecuteResponse = true;
+    const executed = await backend.execute(parsedExecution.value);
+    if (!executed.ok) throw new Error(executed.message);
+    expect(parseRouterAbEd25519YaoRegistrationResultV1(executed.body).ok).toBe(true);
+    expect(scriptedFetch.calls).toEqual([
+      'POST /router-ab/router/ed25519-yao/execute',
+      'POST /router-ab/router/ed25519-yao/execute',
+    ]);
+    expect(scriptedFetch.requestBodies[0]).toBe(scriptedFetch.requestBodies[1]);
+    expect(scriptedFetch.replayHeaders).toEqual(['', '1']);
+    expect(scriptedFetch.traceIds).toHaveLength(2);
+    expect(scriptedFetch.traceIds[0]).toBe(scriptedFetch.traceIds[1]);
   });
 
   test('surfaces a burned Router execution without retrying it', async () => {
