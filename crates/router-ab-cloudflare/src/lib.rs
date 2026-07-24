@@ -24,12 +24,11 @@ pub use ed25519_yao_lifecycle::*;
 mod ed25519_yao_signing_worker;
 #[cfg(feature = "workers-rs")]
 pub use ed25519_yao_signing_worker::{
-    handle_cloudflare_signing_worker_ed25519_yao_deriver_a_v1,
-    handle_cloudflare_signing_worker_ed25519_yao_deriver_b_v1,
+    handle_cloudflare_signing_worker_ed25519_yao_packages_v1,
     handle_cloudflare_signing_worker_ed25519_yao_recovery_promote_v1,
-    CloudflareEd25519YaoRecoveryPromotionRequestV1, RouterAbSigningWorkerEd25519YaoDurableObject,
-    CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_DERIVER_A_PATH,
-    CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_DERIVER_B_PATH,
+    CloudflareEd25519YaoPackagePairDeliveryV1, CloudflareEd25519YaoRecoveryPromotionRequestV1,
+    RouterAbSigningWorkerEd25519YaoDurableObject,
+    CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_PACKAGES_PATH,
     CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_RECOVERY_PROMOTE_PATH,
 };
 mod router;

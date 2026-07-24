@@ -14,14 +14,8 @@ pub(super) async fn handle_strict_signing_worker_fetch_v1(
     };
     let path = request.path();
     match path.as_str() {
-        CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_DERIVER_A_PATH => {
-            match handle_cloudflare_signing_worker_ed25519_yao_deriver_a_v1(request, &env).await {
-                Ok(response) => Ok(response),
-                Err(err) => cloudflare_protocol_error_response_v1(err),
-            }
-        }
-        CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_DERIVER_B_PATH => {
-            match handle_cloudflare_signing_worker_ed25519_yao_deriver_b_v1(request, &env).await {
+        CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_PACKAGES_PATH => {
+            match handle_cloudflare_signing_worker_ed25519_yao_packages_v1(request, &env).await {
                 Ok(response) => Ok(response),
                 Err(err) => cloudflare_protocol_error_response_v1(err),
             }
@@ -166,9 +160,8 @@ pub(super) async fn handle_strict_signing_worker_fetch_v1(
         }
         _ => Response::error(
             format!(
-                "SigningWorker strict Worker route must be served at {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, or {}",
-                CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_DERIVER_A_PATH,
-                CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_DERIVER_B_PATH,
+                "SigningWorker strict Worker route must be served at {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, or {}",
+                CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_PACKAGES_PATH,
                 CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_RECOVERY_PROMOTE_PATH,
                 CLOUDFLARE_SIGNING_WORKER_PROOF_BUNDLE_ACTIVATION_PATH,
                 CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_PATH,
