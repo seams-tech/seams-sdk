@@ -185,6 +185,17 @@ const RELAY_SIGNER_READY_TABLES = Object.freeze([
 
 const ROUTER_AB_CEREMONY_JWKS_PATH = '/.well-known/router-ab-ceremony-jwks.json';
 
+function emitRefactor93GatewaySpan(span: {
+  readonly event: string;
+  readonly span: string;
+  readonly operation: string;
+  readonly outcome: string;
+  readonly duration_ms: number;
+  readonly trace_id: string;
+}): void {
+  console.log(JSON.stringify(span));
+}
+
 export function createStagingEd25519YaoBackend(env: CloudflareD1RouterApiStagingEnv) {
   return createRouterAbEd25519YaoHttpRegistrationBackendFromEnv({
     env: {
@@ -207,6 +218,7 @@ export function createStagingEd25519YaoBackend(env: CloudflareD1RouterApiStaging
         'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
       ),
     },
+    onSpan: emitRefactor93GatewaySpan,
     fetch: createRouterAbServiceBindingFetch(env),
   });
 }

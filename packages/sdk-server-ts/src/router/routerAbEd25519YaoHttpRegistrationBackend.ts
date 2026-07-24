@@ -45,6 +45,16 @@ export type RouterAbEd25519YaoHttpRegistrationBackendConfig = {
   deriverBInputPublicKey: readonly number[];
   signingWorkerRecipientPublicKey: readonly number[];
   fetch: typeof fetch;
+  onSpan?: (span: RouterAbEd25519YaoGatewaySpanV1) => void;
+};
+
+export type RouterAbEd25519YaoGatewaySpanV1 = {
+  readonly event: 'router_ab_yao_gateway_span_v1';
+  readonly span: 'gateway.pre_yao' | 'gateway.yao_execute';
+  readonly operation: 'registration' | 'recovery' | 'export';
+  readonly outcome: 'success' | 'failure';
+  readonly duration_ms: number;
+  readonly trace_id: string;
 };
 
 export type RouterAbEd25519YaoHttpRegistrationBackendRawEnv = Readonly<Record<string, unknown>>;
@@ -57,6 +67,7 @@ type ValidatedHttpBackendConfig = {
   deriverBInputPublicKey: readonly number[];
   signingWorkerRecipientPublicKey: readonly number[];
   fetch: typeof fetch;
+  onSpan: ((span: RouterAbEd25519YaoGatewaySpanV1) => void) | undefined;
 };
 
 type HttpSuccess = { ok: true; body: unknown };
@@ -222,7 +233,32 @@ function validateConfig(
     deriverBInputPublicKey,
     signingWorkerRecipientPublicKey,
     fetch: input.fetch,
+    onSpan: input.onSpan,
   };
+}
+
+function emitGatewaySpan(
+  callback: ((span: RouterAbEd25519YaoGatewaySpanV1) => void) | undefined,
+  span: RouterAbEd25519YaoGatewaySpanV1['span'],
+  operation: RouterAbEd25519YaoGatewaySpanV1['operation'],
+  traceId: string,
+  startedAt: number,
+  outcome: RouterAbEd25519YaoGatewaySpanV1['outcome'],
+): void {
+  if (!callback) return;
+  const event: RouterAbEd25519YaoGatewaySpanV1 = {
+    event: 'router_ab_yao_gateway_span_v1',
+    span,
+    operation,
+    outcome,
+    duration_ms: Math.max(0, Math.round(performance.now() - startedAt)),
+    trace_id: traceId,
+  };
+  try {
+    callback(event);
+  } catch {
+    // Observability must never change the registration response or retry path.
+  }
 }
 
 function internalFailure(
@@ -579,18 +615,7 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
   async executeExport(
     request: RouterAbEd25519YaoExportExecuteRequestV1,
   ): Promise<RouterAbEd25519YaoRegistrationBackendResult> {
-    try {
-      const routerRequest = await routerExecuteRequest(request);
-      const response = await this.post(
-        ROUTER_EXECUTE_PATH,
-        routerRequest,
-        randomTraceId(),
-        true,
-      );
-      return response.ok ? parseRouterExecuteResult(response.body, request) : response;
-    } catch (error: unknown) {
-      return unavailableFailure(error);
-    }
+    return await this.executeRouterRequest(request, 'export');
   }
 
   private keyset() {
@@ -672,28 +697,66 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
   async execute(
     request: RouterAbEd25519YaoRegistrationExecuteRequestV1,
   ): Promise<RouterAbEd25519YaoRegistrationBackendResult> {
-    return await this.executeActivation(request);
+    return await this.executeRouterRequest(request, 'registration');
   }
 
   async executeRecovery(
     request: RouterAbEd25519YaoRecoveryExecuteRequestV1,
   ): Promise<RouterAbEd25519YaoRegistrationBackendResult> {
-    return await this.executeActivation(request);
+    return await this.executeRouterRequest(request, 'recovery');
   }
 
-  private async executeActivation(
-    request: RouterAbEd25519YaoRegistrationExecuteRequestV1 | RouterAbEd25519YaoRecoveryExecuteRequestV1,
+  private async executeRouterRequest(
+    request: RouterExecuteInput,
+    operation: RouterAbEd25519YaoGatewaySpanV1['operation'],
   ): Promise<RouterAbEd25519YaoRegistrationBackendResult> {
+    const traceId = randomTraceId();
+    const preYaoStartedAt = performance.now();
+    let routerRequest: RouterExecuteBoundary;
     try {
-      const routerRequest = await routerExecuteRequest(request);
-      const response = await this.post(
-        ROUTER_EXECUTE_PATH,
-        routerRequest,
-        randomTraceId(),
-        true,
-      );
-      return response.ok ? parseRouterExecuteResult(response.body, request) : response;
+      routerRequest = await routerExecuteRequest(request);
     } catch (error: unknown) {
+      emitGatewaySpan(
+        this.config.onSpan,
+        'gateway.pre_yao',
+        operation,
+        traceId,
+        preYaoStartedAt,
+        'failure',
+      );
+      return unavailableFailure(error);
+    }
+    emitGatewaySpan(
+      this.config.onSpan,
+      'gateway.pre_yao',
+      operation,
+      traceId,
+      preYaoStartedAt,
+      'success',
+    );
+
+    const executeStartedAt = performance.now();
+    try {
+      const response = await this.post(ROUTER_EXECUTE_PATH, routerRequest, traceId, true);
+      const result = response.ok ? parseRouterExecuteResult(response.body, request) : response;
+      emitGatewaySpan(
+        this.config.onSpan,
+        'gateway.yao_execute',
+        operation,
+        traceId,
+        executeStartedAt,
+        result.ok ? 'success' : 'failure',
+      );
+      return result;
+    } catch (error: unknown) {
+      emitGatewaySpan(
+        this.config.onSpan,
+        'gateway.yao_execute',
+        operation,
+        traceId,
+        executeStartedAt,
+        'failure',
+      );
       return unavailableFailure(error);
     }
   }
@@ -777,6 +840,7 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
 
 export function createRouterAbEd25519YaoHttpRegistrationBackendFromEnv(input: {
   env: RouterAbEd25519YaoHttpRegistrationBackendRawEnv;
+  onSpan?: (span: RouterAbEd25519YaoGatewaySpanV1) => void;
   fetch: typeof fetch;
 }): RouterAbEd25519YaoHttpRegistrationBackend {
   const env = input.env;
@@ -802,6 +866,7 @@ export function createRouterAbEd25519YaoHttpRegistrationBackendFromEnv(input: {
       envValue(env, ROUTER_AB_ENV_KEYS.signingWorkerRecipientPublicKey),
       ROUTER_AB_ENV_KEYS.signingWorkerRecipientPublicKey,
     ),
+    onSpan: input.onSpan,
     fetch: input.fetch,
   });
 }

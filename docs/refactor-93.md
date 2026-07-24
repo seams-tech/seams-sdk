@@ -1020,11 +1020,17 @@ Each span records:
 No span records request bodies, HPKE ciphertexts, recipient packages, tokens,
 emails, account IDs, credential IDs, root shares, or private outputs.
 
-The Phase 0 implementation currently emits sanitized role and Router events
-with span, role (where applicable), operation, outcome, duration, and the
-validated trace value. Ceremony digests, CPU time, call/invocation counts, and
-cold/warm cohort labels remain deployment-evidence fields; they are acceptance
-requirements rather than claims about the local event payload today.
+The Phase 0 implementation currently emits sanitized role, Router, and Gateway
+events with span, role (where applicable), operation, outcome, duration, and the
+validated trace value. The Gateway backend emits `gateway.pre_yao` and
+`gateway.yao_execute` through its deployment-provided span sink; the Cloudflare
+Gateway worker writes that event as a structured JSON log. Ceremony digests,
+CPU time, call/invocation counts, and cold/warm cohort labels remain
+deployment-evidence fields; they are acceptance requirements rather than claims
+about the local event payload today. `registration.post_touch_id`,
+`gateway.d1_commit`, and `frontend.wallet_ready` still require a shared
+frontend-to-Gateway correlation path before the production evidence gate can
+close.
 
 The Gateway Yao backend creates one fresh 128-bit lowercase-hex trace value at
 each Router execution or recovery-promotion HTTP boundary. The Router forwards

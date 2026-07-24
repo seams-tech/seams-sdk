@@ -776,6 +776,13 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
 
   test('drives one local MPC Router request for registration', async () => {
     const scriptedFetch = new ScriptedLocalYaoFetch();
+    const spans: Array<{
+      span: string;
+      operation: string;
+      outcome: string;
+      duration_ms: number;
+      trace_id: string;
+    }> = [];
     const backend = createRouterAbEd25519YaoHttpRegistrationBackendFromEnv({
       env: {
         MPC_ROUTER_URL: 'http://router.local',
@@ -785,6 +792,7 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
         DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY: x25519(2),
         SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: x25519(3),
       },
+      onSpan: (span) => spans.push(span),
       fetch: scriptedFetch.fetch.bind(scriptedFetch),
     });
 
@@ -819,6 +827,17 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     expect(scriptedFetch.traceIds).toHaveLength(2);
     expect(scriptedFetch.traceIds[0]).toBe(scriptedFetch.traceIds[1]);
     expect(scriptedFetch.traceIds[0]).toMatch(/^[0-9a-f]{32}$/);
+    expect(spans.map((span) => span.span)).toEqual([
+      'gateway.pre_yao',
+      'gateway.yao_execute',
+    ]);
+    expect(spans.every((span) => span.operation === 'registration')).toBe(true);
+    expect(spans.every((span) => span.outcome === 'success')).toBe(true);
+    expect(spans.every((span) => span.duration_ms >= 0)).toBe(true);
+    expect(spans.map((span) => span.trace_id)).toEqual([
+      scriptedFetch.traceIds[0],
+      scriptedFetch.traceIds[0],
+    ]);
   });
 
   test('replays the exact admitted request when the Router response is lost after execution', async () => {
