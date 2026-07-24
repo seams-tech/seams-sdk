@@ -62,8 +62,7 @@ import {
 } from '@seams-internal/shared-ts/utils/routerAbPublicKeyset';
 import {
   createRouterAbServiceBindingFetch,
-  ROUTER_AB_DERIVER_A_ORIGIN,
-  ROUTER_AB_DERIVER_B_ORIGIN,
+  ROUTER_AB_MPC_ROUTER_ORIGIN,
   ROUTER_AB_SIGNING_WORKER_ORIGIN,
   type RouterAbServiceBindingEnv,
 } from './routerAbServiceBindings';
@@ -189,9 +188,7 @@ const ROUTER_AB_CEREMONY_JWKS_PATH = '/.well-known/router-ab-ceremony-jwks.json'
 export function createStagingEd25519YaoBackend(env: CloudflareD1RouterApiStagingEnv) {
   return createRouterAbEd25519YaoHttpRegistrationBackendFromEnv({
     env: {
-      DERIVER_A_URL: ROUTER_AB_DERIVER_A_ORIGIN,
-      DERIVER_B_URL: ROUTER_AB_DERIVER_B_ORIGIN,
-      SIGNING_WORKER_URL: ROUTER_AB_SIGNING_WORKER_ORIGIN,
+      MPC_ROUTER_URL: ROUTER_AB_MPC_ROUTER_ORIGIN,
       SIGNING_WORKER_ID: requireEnvString(env, 'SIGNING_WORKER_ID'),
       ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: requireEnvString(
         env,

@@ -85,8 +85,7 @@ import {
 } from '@seams/sdk-server/internal/router/routerAbEcdsaStrictRegistration';
 import {
   createRouterAbServiceBindingFetch,
-  ROUTER_AB_DERIVER_A_ORIGIN,
-  ROUTER_AB_DERIVER_B_ORIGIN,
+  ROUTER_AB_MPC_ROUTER_ORIGIN,
   ROUTER_AB_SIGNING_WORKER_ORIGIN,
   type RouterAbServiceBindingEnv,
 } from './routerAbServiceBindings';
@@ -1067,9 +1066,7 @@ async function createLocalEd25519YaoProductComposition(
     normalizeLocalString(env.ROUTER_AB_NORMAL_SIGNING_WORKER_ID);
   const backend = createRouterAbEd25519YaoHttpRegistrationBackendFromEnv({
     env: {
-      DERIVER_A_URL: ROUTER_AB_DERIVER_A_ORIGIN,
-      DERIVER_B_URL: ROUTER_AB_DERIVER_B_ORIGIN,
-      SIGNING_WORKER_URL: ROUTER_AB_SIGNING_WORKER_ORIGIN,
+      MPC_ROUTER_URL: ROUTER_AB_MPC_ROUTER_ORIGIN,
       SIGNING_WORKER_ID: signingWorkerId,
       ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: normalizeLocalString(
         env.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET,

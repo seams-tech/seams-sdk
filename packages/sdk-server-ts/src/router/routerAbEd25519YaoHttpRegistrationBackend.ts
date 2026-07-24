@@ -1,17 +1,18 @@
 import {
   deriveRouterAbEd25519YaoStableContextBindingV1,
-  parseRouterAbEd25519YaoEncryptedPackageV1,
+  parseRouterAbEd25519YaoActivationResultV1,
+  parseRouterAbEd25519YaoExportResultV1,
   type RouterAbEd25519YaoActivationExecuteRequestV1,
-  type RouterAbEd25519YaoActivationBindingV1,
   type RouterAbEd25519YaoCeremonyBindingV1,
   type RouterAbEd25519YaoDeriverRoleV1,
-  type RouterAbEd25519YaoEncryptedPackageV1,
-  type RouterAbEd25519YaoPackageKindV1,
+  type RouterAbEd25519YaoEncryptedInputV1,
+  type RouterAbEd25519YaoExportBindingV1,
   type RouterAbEd25519YaoRecoveryActivationRequestV1,
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
   type RouterAbEd25519YaoExportAdmissionRequestV1,
   type RouterAbEd25519YaoExportExecuteRequestV1,
+  type RouterAbEd25519YaoRouterExecuteRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import type {
   RouterAbEd25519YaoRegistrationBackend,
@@ -26,20 +27,11 @@ type RouterAbEd25519YaoRecoveryExecuteRequestV1 =
   RouterAbEd25519YaoActivationExecuteRequestV1<'recovery'>;
 
 const INTERNAL_AUTH_HEADER = 'x-router-ab-internal-service-auth';
-const DERIVER_B_STAGE_PATH = '/router-ab/deriver-b/ed25519-yao/activation/stage';
-const DERIVER_A_START_PATH = '/router-ab/deriver-a/ed25519-yao/activation/start';
-const DERIVER_B_ACTIVATION_RESULT_PATH = '/router-ab/deriver-b/ed25519-yao/activation/result';
-const SIGNING_WORKER_PACKAGES_PATH = '/router-ab/signing-worker/ed25519-yao/activation/packages';
-const SIGNING_WORKER_RECOVERY_PROMOTE_PATH =
-  '/router-ab/signing-worker/ed25519-yao/recovery/promote';
-const DERIVER_B_EXPORT_STAGE_PATH = '/router-ab/deriver-b/ed25519-yao/export/stage';
-const DERIVER_A_EXPORT_START_PATH = '/router-ab/deriver-a/ed25519-yao/export/start';
-const DERIVER_B_EXPORT_RESULT_PATH = '/router-ab/deriver-b/ed25519-yao/export/result';
+const ROUTER_EXECUTE_PATH = '/router-ab/router/ed25519-yao/execute';
+const ROUTER_RECOVERY_PROMOTE_PATH = '/router-ab/router/ed25519-yao/recovery/promote';
 
 const ROUTER_AB_ENV_KEYS = {
-  deriverAUrl: 'DERIVER_A_URL',
-  deriverBUrl: 'DERIVER_B_URL',
-  signingWorkerUrl: 'SIGNING_WORKER_URL',
+  routerUrl: 'MPC_ROUTER_URL',
   signingWorkerId: 'SIGNING_WORKER_ID',
   internalServiceAuth: 'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
   deriverAInputPublicKey: 'DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY',
@@ -48,9 +40,7 @@ const ROUTER_AB_ENV_KEYS = {
 } as const;
 
 export type RouterAbEd25519YaoHttpRegistrationBackendConfig = {
-  deriverAUrl: string;
-  deriverBUrl: string;
-  signingWorkerUrl: string;
+  routerUrl: string;
   signingWorkerId: string;
   internalServiceAuth: string;
   deriverAInputPublicKey: readonly number[];
@@ -62,9 +52,7 @@ export type RouterAbEd25519YaoHttpRegistrationBackendConfig = {
 export type RouterAbEd25519YaoHttpRegistrationBackendRawEnv = Readonly<Record<string, unknown>>;
 
 type ValidatedHttpBackendConfig = {
-  deriverAUrl: string;
-  deriverBUrl: string;
-  signingWorkerUrl: string;
+  routerUrl: string;
   signingWorkerId: string;
   internalServiceAuth: string;
   deriverAInputPublicKey: readonly number[];
@@ -76,23 +64,6 @@ type ValidatedHttpBackendConfig = {
 type HttpSuccess = { ok: true; body: unknown };
 type HttpResult = HttpSuccess | RouterAbEd25519YaoRegistrationBackendFailure;
 
-type ActivationRoleExecution = {
-  binding: RouterAbEd25519YaoActivationBindingV1;
-  deriver: RouterAbEd25519YaoDeriverRoleV1;
-  transcript: readonly number[];
-  clientCommitment: readonly number[];
-  signingWorkerCommitment: readonly number[];
-  clientPackage: RouterAbEd25519YaoEncryptedPackageV1;
-  signingWorkerPackage: RouterAbEd25519YaoEncryptedPackageV1;
-};
-
-type ExportRoleExecution = {
-  binding: RouterAbEd25519YaoCeremonyBindingV1;
-  deriver: RouterAbEd25519YaoDeriverRoleV1;
-  transcript: readonly number[];
-  clientPackage: RouterAbEd25519YaoEncryptedPackageV1;
-};
-
 type ActiveSigningWorkerReceipt = {
   session: readonly number[];
   transcript: readonly number[];
@@ -102,10 +73,6 @@ type ActiveSigningWorkerReceipt = {
   signingWorkerVerifyingShare: readonly number[];
   stateEpoch: number;
 };
-
-type SigningWorkerDeliveryReceipt =
-  | { kind: 'active'; activeReceipt: ActiveSigningWorkerReceipt }
-  | { kind: 'staged_recovery'; stagedReceipt: ActiveSigningWorkerReceipt };
 
 function requireRecord(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -242,9 +209,7 @@ function validateConfig(
   }
   if (typeof input.fetch !== 'function') throw new Error('fetch is required');
   return {
-    deriverAUrl: requireHttpOrigin(input.deriverAUrl, 'deriverAUrl'),
-    deriverBUrl: requireHttpOrigin(input.deriverBUrl, 'deriverBUrl'),
-    signingWorkerUrl: requireHttpOrigin(input.signingWorkerUrl, 'signingWorkerUrl'),
+    routerUrl: requireHttpOrigin(input.routerUrl, 'routerUrl'),
     signingWorkerId: requireNonEmpty(input.signingWorkerId, 'signingWorkerId'),
     internalServiceAuth: requireNonEmpty(input.internalServiceAuth, 'internalServiceAuth'),
     deriverAInputPublicKey,
@@ -268,183 +233,6 @@ function unavailableFailure(error: unknown): RouterAbEd25519YaoRegistrationBacke
     code: 'worker_unavailable',
     message: error instanceof Error ? error.message : String(error),
   };
-}
-
-function requireMatchingString(value: unknown, expected: string, label: string): void {
-  if (value !== expected) throw new Error(`${label} does not match the admitted ceremony`);
-}
-
-function requireMatchingBytes32(value: unknown, expected: readonly number[], label: string): void {
-  const parsed = requireBytes32(value, label);
-  if (!equalBytes(parsed, expected)) {
-    throw new Error(`${label} does not match the admitted ceremony`);
-  }
-}
-
-function requireExactCeremonyBinding<Binding extends RouterAbEd25519YaoCeremonyBindingV1>(
-  value: unknown,
-  expected: Binding,
-  label: string,
-): Binding {
-  const binding = requireRecord(value, label);
-  requireExactKeys(binding, label, [
-    'lifecycle',
-    'operation',
-    'session_id',
-    'stable_key_context_binding',
-  ]);
-  const lifecycle = requireRecord(binding.lifecycle, `${label}.lifecycle`);
-  requireExactKeys(lifecycle, `${label}.lifecycle`, [
-    'lifecycle_id',
-    'work_kind',
-    'primitive_request_kind',
-    'root_share_epoch',
-    'account_id',
-    'session_id',
-    'signer_set_id',
-    'selected_server_id',
-  ]);
-  requireMatchingString(
-    lifecycle.lifecycle_id,
-    expected.lifecycle.lifecycle_id,
-    `${label}.lifecycle.lifecycle_id`,
-  );
-  requireMatchingString(
-    lifecycle.work_kind,
-    expected.lifecycle.work_kind,
-    `${label}.lifecycle.work_kind`,
-  );
-  requireMatchingString(
-    lifecycle.primitive_request_kind,
-    expected.lifecycle.primitive_request_kind,
-    `${label}.lifecycle.primitive_request_kind`,
-  );
-  requireMatchingString(
-    lifecycle.root_share_epoch,
-    expected.lifecycle.root_share_epoch,
-    `${label}.lifecycle.root_share_epoch`,
-  );
-  requireMatchingString(
-    lifecycle.account_id,
-    expected.lifecycle.account_id,
-    `${label}.lifecycle.account_id`,
-  );
-  requireMatchingString(
-    lifecycle.session_id,
-    expected.lifecycle.session_id,
-    `${label}.lifecycle.session_id`,
-  );
-  requireMatchingString(
-    lifecycle.signer_set_id,
-    expected.lifecycle.signer_set_id,
-    `${label}.lifecycle.signer_set_id`,
-  );
-  requireMatchingString(
-    lifecycle.selected_server_id,
-    expected.lifecycle.selected_server_id,
-    `${label}.lifecycle.selected_server_id`,
-  );
-  requireMatchingString(binding.operation, expected.operation, `${label}.operation`);
-  requireMatchingBytes32(binding.session_id, expected.session_id, `${label}.session_id`);
-  requireMatchingBytes32(
-    binding.stable_key_context_binding,
-    expected.stable_key_context_binding,
-    `${label}.stable_key_context_binding`,
-  );
-  return expected;
-}
-
-function parseActivationRoleExecution(
-  value: unknown,
-  expectedBinding: RouterAbEd25519YaoActivationBindingV1,
-  expectedDeriver: RouterAbEd25519YaoDeriverRoleV1,
-): ActivationRoleExecution {
-  const label = `${expectedDeriver} activation execution`;
-  const record = requireRecord(value, label);
-  requireExactKeys(record, label, [
-    'family',
-    'binding',
-    'deriver',
-    'transcript',
-    'client_commitment',
-    'signing_worker_commitment',
-    'client_package',
-    'signing_worker_package',
-  ]);
-  if (record.family !== 'activation') throw new Error(`${label} has wrong family`);
-  if (record.deriver !== expectedDeriver) throw new Error(`${label} has wrong Deriver role`);
-  const binding = requireExactCeremonyBinding(record.binding, expectedBinding, `${label}.binding`);
-  const transcript = requireBytes32(record.transcript, `${label}.transcript`);
-  return {
-    binding,
-    deriver: expectedDeriver,
-    transcript,
-    clientCommitment: requireBytes32(record.client_commitment, `${label}.client_commitment`),
-    signingWorkerCommitment: requireBytes32(
-      record.signing_worker_commitment,
-      `${label}.signing_worker_commitment`,
-    ),
-    clientPackage: requirePackage(
-      record.client_package,
-      'activation_client',
-      expectedDeriver,
-      expectedBinding.session_id,
-      transcript,
-    ),
-    signingWorkerPackage: requirePackage(
-      record.signing_worker_package,
-      'activation_signing_worker',
-      expectedDeriver,
-      expectedBinding.session_id,
-      transcript,
-    ),
-  };
-}
-
-function parseExportRoleExecution(
-  value: unknown,
-  expectedBinding: RouterAbEd25519YaoCeremonyBindingV1,
-  expectedDeriver: RouterAbEd25519YaoDeriverRoleV1,
-): ExportRoleExecution {
-  const label = `${expectedDeriver} export execution`;
-  const record = requireRecord(value, label);
-  requireExactKeys(record, label, ['family', 'binding', 'deriver', 'transcript', 'client_package']);
-  if (record.family !== 'export') throw new Error(`${label} has wrong family`);
-  if (record.deriver !== expectedDeriver) throw new Error(`${label} has wrong Deriver role`);
-  const binding = requireExactCeremonyBinding(record.binding, expectedBinding, `${label}.binding`);
-  const transcript = requireBytes32(record.transcript, `${label}.transcript`);
-  return {
-    binding,
-    deriver: expectedDeriver,
-    transcript,
-    clientPackage: requirePackage(
-      record.client_package,
-      'export_client',
-      expectedDeriver,
-      expectedBinding.session_id,
-      transcript,
-    ),
-  };
-}
-
-function requirePackage(
-  value: unknown,
-  kind: RouterAbEd25519YaoPackageKindV1,
-  deriver: RouterAbEd25519YaoDeriverRoleV1,
-  session: readonly number[],
-  transcript: readonly number[],
-): RouterAbEd25519YaoEncryptedPackageV1 {
-  const parsed = parseRouterAbEd25519YaoEncryptedPackageV1(value);
-  if (!parsed.ok) throw new Error(parsed.message);
-  if (
-    parsed.value.kind !== kind ||
-    parsed.value.deriver !== deriver ||
-    !equalBytes(parsed.value.session, session) ||
-    !equalBytes(parsed.value.transcript, transcript)
-  ) {
-    throw new Error(`${deriver} ${kind} package does not match the ceremony`);
-  }
-  return parsed.value;
 }
 
 function parseSigningWorkerReceipt(
@@ -508,14 +296,6 @@ function parseActiveSigningWorkerReceipt(
   return parseSigningWorkerReceipt(value, session, transcript, 'active');
 }
 
-function parseStagedSigningWorkerReceipt(
-  value: unknown,
-  session: readonly number[],
-  transcript: readonly number[],
-): ActiveSigningWorkerReceipt {
-  return parseSigningWorkerReceipt(value, session, transcript, 'staged');
-}
-
 function activeReceiptMatchesRecoveryActivation(
   receipt: ActiveSigningWorkerReceipt,
   activation: RouterAbEd25519YaoRecoveryActivationRequestV1,
@@ -533,6 +313,294 @@ function activeReceiptMatchesRecoveryActivation(
     equalBytes(receipt.signingWorkerVerifyingShare, publicReceipt.signing_worker_verifying_share) &&
     receipt.stateEpoch === publicReceipt.state_epoch
   );
+}
+
+type RouterExecuteBoundary = RouterAbEd25519YaoRouterExecuteRequestV1;
+
+type RouterExecuteInput =
+  | RouterAbEd25519YaoRegistrationExecuteRequestV1
+  | RouterAbEd25519YaoRecoveryExecuteRequestV1
+  | RouterAbEd25519YaoExportExecuteRequestV1;
+
+function isExportExecuteRequest(
+  request: RouterExecuteInput,
+): request is RouterAbEd25519YaoExportExecuteRequestV1 {
+  return 'ceremony' in request.binding;
+}
+
+function executeOperation(request: RouterExecuteInput): 'registration' | 'recovery' | 'export' {
+  return isExportExecuteRequest(request) ? request.binding.ceremony.operation : request.binding.operation;
+}
+
+const TEXT_ENCODER = new TextEncoder();
+
+async function sha256Bytes(value: Uint8Array): Promise<number[]> {
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', value);
+  return Array.from(new Uint8Array(digest));
+}
+
+function concatBytes(chunks: readonly Uint8Array[]): Uint8Array {
+  const output = new Uint8Array(chunks.reduce((size, chunk) => size + chunk.length, 0));
+  let offset = 0;
+  for (const chunk of chunks) {
+    output.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return output;
+}
+
+function u32(value: number): Uint8Array {
+  const output = new Uint8Array(4);
+  new DataView(output.buffer).setUint32(0, value, false);
+  return output;
+}
+
+function pushString(value: string): Uint8Array {
+  const encoded = TEXT_ENCODER.encode(value);
+  return concatBytes([u32(encoded.length), encoded]);
+}
+
+function operationTag(operation: RouterAbEd25519YaoOperationV1): number {
+  switch (operation) {
+    case 'registration':
+      return 1;
+    case 'recovery':
+      return 2;
+    case 'refresh':
+      return 3;
+    case 'export':
+      return 4;
+  }
+}
+
+function inputTag(input: RouterAbEd25519YaoEncryptedInputV1): number {
+  return input.kind === 'activation' ? 1 : 2;
+}
+
+function roleTag(role: RouterAbEd25519YaoDeriverRoleV1): number {
+  return role === 'deriver_a' ? 1 : 2;
+}
+
+async function encryptedInputDigest(
+  input: RouterAbEd25519YaoEncryptedInputV1,
+): Promise<number[]> {
+  const ciphertext = Uint8Array.from(input.ciphertext);
+  return await sha256Bytes(
+    concatBytes([
+      TEXT_ENCODER.encode('router-ab-ed25519-yao/input/v1'),
+      Uint8Array.of(inputTag(input), roleTag(input.deriver), operationTag(input.operation)),
+      Uint8Array.from(input.session),
+      Uint8Array.from(input.stable_context_binding),
+      Uint8Array.from(input.encapsulated_key),
+      u32(ciphertext.length),
+      ciphertext,
+    ]),
+  );
+}
+
+function ceremonyIdentityBytes(binding: RouterAbEd25519YaoCeremonyBindingV1): Uint8Array {
+  const circuit =
+    binding.operation === 'export' ? 'ed25519_yao_export_v1' : 'ed25519_yao_activation_v1';
+  return concatBytes([
+    TEXT_ENCODER.encode('router_ab_ed25519_yao_v1'),
+    Uint8Array.of(0),
+    TEXT_ENCODER.encode(circuit),
+    Uint8Array.of(0),
+    pushString(binding.lifecycle.lifecycle_id),
+    pushString(binding.lifecycle.work_kind),
+    pushString(binding.lifecycle.primitive_request_kind),
+    pushString(binding.lifecycle.root_share_epoch),
+    pushString(binding.lifecycle.account_id),
+    pushString(binding.lifecycle.session_id),
+    pushString(binding.lifecycle.signer_set_id),
+    pushString(binding.lifecycle.selected_server_id),
+    Uint8Array.of(operationTag(binding.operation)),
+    Uint8Array.from(binding.session_id),
+    Uint8Array.from(binding.stable_key_context_binding),
+  ]);
+}
+
+async function routerExecuteRequest(
+  request: RouterExecuteInput,
+  keyset: {
+    deriver_a_input_public_key: readonly number[];
+    deriver_b_input_public_key: readonly number[];
+    signing_worker_recipient_public_key: readonly number[];
+  },
+): Promise<RouterExecuteBoundary> {
+  const operation = executeOperation(request);
+  const ceremony = isExportExecuteRequest(request) ? request.binding.ceremony : request.binding;
+  const authorizationDigest =
+    operation === 'export'
+      ? request.binding.authorization_digest
+      : await sha256Bytes(
+          concatBytes([
+            TEXT_ENCODER.encode('router-ab-ed25519-yao/authorization/v1'),
+            TEXT_ENCODER.encode(JSON.stringify(request)),
+          ]),
+        );
+  const recipientSetDigest = await sha256Bytes(
+    concatBytes([
+      Uint8Array.from(keyset.deriver_a_input_public_key),
+      Uint8Array.from(keyset.deriver_b_input_public_key),
+      Uint8Array.from(keyset.signing_worker_recipient_public_key),
+    ]),
+  );
+  const deriverAInput = request.deriver_a_input;
+  const deriverBInput = request.deriver_b_input;
+  const deriverAInputDigest = await encryptedInputDigest(deriverAInput);
+  const deriverBInputDigest = await encryptedInputDigest(deriverBInput);
+  const pairDigest = await sha256Bytes(
+    concatBytes([
+      TEXT_ENCODER.encode('router-ab-ed25519-yao/input-pair/v1'),
+      ceremonyIdentityBytes(ceremony),
+      Uint8Array.from(deriverAInputDigest),
+      Uint8Array.from(deriverBInputDigest),
+      Uint8Array.from(recipientSetDigest),
+      Uint8Array.from(authorizationDigest),
+    ]),
+  );
+  const issuedAt = Date.now();
+  const authorityDigest = authorizationDigest;
+  const pair_binding = {
+    ceremony: {
+      binding: ceremony,
+      circuit: operation === 'export' ? ('export_v1' as const) : ('activation_v1' as const),
+      protocol: 'v1' as const,
+    },
+    deriver_a_input_digest: { bytes: deriverAInputDigest },
+    deriver_b_input_digest: { bytes: deriverBInputDigest },
+    recipient_set_digest: { bytes: recipientSetDigest },
+    authorization_digest: { bytes: authorizationDigest },
+    pair_digest: { bytes: pairDigest },
+  };
+  const authority = {
+    authority_digest: { bytes: authorityDigest },
+    issued_at_ms: issuedAt,
+    expires_at_ms: issuedAt + 60_000,
+  };
+  if (isExportExecuteRequest(request)) {
+    return {
+      operation: 'export',
+      authority,
+      binding: request.binding,
+      pair_binding,
+      deriver_a_input: request.deriver_a_input,
+      deriver_b_input: request.deriver_b_input,
+    };
+  }
+  switch (request.binding.operation) {
+    case 'registration':
+      return {
+        operation: 'registration',
+        authority,
+        binding: request.binding,
+        pair_binding,
+        deriver_a_input: request.deriver_a_input,
+        deriver_b_input: request.deriver_b_input,
+      };
+    case 'recovery':
+      return {
+        operation: 'recovery',
+        authority,
+        binding: request.binding,
+        pair_binding,
+        deriver_a_input: request.deriver_a_input,
+        deriver_b_input: request.deriver_b_input,
+      };
+  }
+}
+
+function parseRouterExecuteResult(
+  value: unknown,
+  request: RouterExecuteInput,
+): RouterAbEd25519YaoRegistrationBackendResult {
+  try {
+    const envelope = requireRecord(value, 'Router Yao execute result');
+    switch (envelope.status) {
+      case 'recoverable_failure': {
+        requireExactKeys(envelope, 'Router Yao recoverable failure', [
+          'status',
+          'code',
+          'retry_after_ms',
+        ]);
+        if (
+          typeof envelope.code !== 'string' ||
+          ![
+            'service_unavailable',
+            'conflicting_pair',
+            'missing_preparation',
+            'ceremony_expired',
+            'signing_worker_uncertain',
+            'terminal_role_failure',
+            'authorization_rejected',
+          ].includes(envelope.code)
+        ) {
+          throw new Error('Router Yao recoverable failure code is invalid');
+        }
+        requirePositiveSafeInteger(envelope.retry_after_ms, 'Router Yao retry_after_ms');
+        return internalFailure('router_execution_retryable', 'Router Yao execution is retryable');
+      }
+      case 'rejected': {
+        requireExactKeys(envelope, 'Router Yao rejected result', ['status', 'code']);
+        if (typeof envelope.code !== 'string' || envelope.code.length === 0) {
+          throw new Error('Router Yao rejection code is invalid');
+        }
+        return internalFailure('router_execution_rejected', 'Router Yao execution was rejected');
+      }
+      case 'burned': {
+        requireExactKeys(envelope, 'Router Yao burned result', [
+          'status',
+          'execution_id',
+          'reason',
+        ]);
+        requireBytes32(envelope.execution_id, 'Router Yao burned execution_id');
+        if (!['caller_disconnected', 'peer_uncertain', 'protocol_failure'].includes(String(envelope.reason))) {
+          throw new Error('Router Yao burned reason is invalid');
+        }
+        return internalFailure('router_execution_burned', 'Router Yao execution was burned');
+      }
+      case 'succeeded':
+        break;
+      default:
+        throw new Error('Router Yao result status is invalid');
+    }
+    requireExactKeys(envelope, 'Router Yao execute result', ['status', 'result']);
+    const result = requireRecord(envelope.result, 'Router Yao success');
+    requireExactKeys(result, 'Router Yao success', ['operation', 'result']);
+    const operation = executeOperation(request);
+    if (result.operation !== operation) {
+      return internalFailure('operation_mismatch', 'Router Yao result operation differs from request');
+    }
+    switch (operation) {
+      case 'registration': {
+        const parsed = parseRouterAbEd25519YaoActivationResultV1(result.result);
+        if (!parsed.ok || parsed.value.binding.operation !== 'registration') {
+          return internalFailure('invalid_router_result', 'Router registration result is invalid');
+        }
+        return { ok: true, body: parsed.value };
+      }
+      case 'recovery': {
+        const parsed = parseRouterAbEd25519YaoActivationResultV1(result.result);
+        if (!parsed.ok || parsed.value.binding.operation !== 'recovery') {
+          return internalFailure('invalid_router_result', 'Router recovery result is invalid');
+        }
+        return { ok: true, body: parsed.value };
+      }
+      case 'export': {
+        const parsed = parseRouterAbEd25519YaoExportResultV1(result.result);
+        if (!parsed.ok) {
+          return internalFailure('invalid_router_result', 'Router export result is invalid');
+        }
+        return { ok: true, body: parsed.value };
+      }
+    }
+  } catch (error: unknown) {
+    return internalFailure(
+      'invalid_router_result',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 }
 
 export class RouterAbEd25519YaoHttpRegistrationBackend
@@ -608,52 +676,20 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
     request: RouterAbEd25519YaoExportExecuteRequestV1,
   ): Promise<RouterAbEd25519YaoRegistrationBackendResult> {
     try {
-      const staged = await this.post(
-        this.config.deriverBUrl,
-        DERIVER_B_EXPORT_STAGE_PATH,
-        request.deriver_b_input,
-      );
-      if (!staged.ok) return staged;
-      const deriverAResult = await this.post(
-        this.config.deriverAUrl,
-        DERIVER_A_EXPORT_START_PATH,
-        request.deriver_a_input,
-      );
-      if (!deriverAResult.ok) return deriverAResult;
-      const deriverBResult = await this.post(
-        this.config.deriverBUrl,
-        DERIVER_B_EXPORT_RESULT_PATH,
-        {
-          family: 'export',
-          session_id: request.binding.ceremony.session_id,
-        },
-      );
-      if (!deriverBResult.ok) return deriverBResult;
-      const executionA = parseExportRoleExecution(
-        deriverAResult.body,
-        request.binding.ceremony,
-        'deriver_a',
-      );
-      const executionB = parseExportRoleExecution(
-        deriverBResult.body,
-        request.binding.ceremony,
-        'deriver_b',
-      );
-      if (!equalBytes(executionA.transcript, executionB.transcript)) {
-        return internalFailure('transcript_mismatch', 'Deriver export transcripts differ');
-      }
-      return {
-        ok: true,
-        body: {
-          binding: request.binding,
-          transcript: executionA.transcript,
-          deriver_a_client_package: executionA.clientPackage,
-          deriver_b_client_package: executionB.clientPackage,
-        },
-      };
+      const routerRequest = await routerExecuteRequest(request, this.keyset());
+      const response = await this.post(ROUTER_EXECUTE_PATH, routerRequest);
+      return response.ok ? parseRouterExecuteResult(response.body, request) : response;
     } catch (error: unknown) {
       return unavailableFailure(error);
     }
+  }
+
+  private keyset() {
+    return {
+      deriver_a_input_public_key: this.config.deriverAInputPublicKey,
+      deriver_b_input_public_key: this.config.deriverBInputPublicKey,
+      signing_worker_recipient_public_key: this.config.signingWorkerRecipientPublicKey,
+    };
   }
 
   private async admitActivation(
@@ -674,11 +710,7 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
       request.application_binding,
       request.participant_ids,
     );
-    const keyset = {
-      deriver_a_input_public_key: this.config.deriverAInputPublicKey,
-      deriver_b_input_public_key: this.config.deriverBInputPublicKey,
-      signing_worker_recipient_public_key: this.config.signingWorkerRecipientPublicKey,
-    };
+    const keyset = this.keyset();
     const sessionId = randomSession();
     switch (operation) {
       case 'registration':
@@ -731,18 +763,22 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
   async execute(
     request: RouterAbEd25519YaoRegistrationExecuteRequestV1,
   ): Promise<RouterAbEd25519YaoRegistrationBackendResult> {
-    try {
-      return await this.executeInner(request);
-    } catch (error: unknown) {
-      return unavailableFailure(error);
-    }
+    return await this.executeActivation(request);
   }
 
   async executeRecovery(
     request: RouterAbEd25519YaoRecoveryExecuteRequestV1,
   ): Promise<RouterAbEd25519YaoRegistrationBackendResult> {
+    return await this.executeActivation(request);
+  }
+
+  private async executeActivation(
+    request: RouterAbEd25519YaoRegistrationExecuteRequestV1 | RouterAbEd25519YaoRecoveryExecuteRequestV1,
+  ): Promise<RouterAbEd25519YaoRegistrationBackendResult> {
     try {
-      return await this.executeInner(request);
+      const routerRequest = await routerExecuteRequest(request, this.keyset());
+      const response = await this.post(ROUTER_EXECUTE_PATH, routerRequest);
+      return response.ok ? parseRouterExecuteResult(response.body, request) : response;
     } catch (error: unknown) {
       return unavailableFailure(error);
     }
@@ -751,11 +787,7 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
   async activateRecovery(
     request: RouterAbEd25519YaoRecoveryActivationRequestV1,
   ): Promise<RouterAbEd25519YaoRegistrationBackendResult> {
-    const promoted = await this.post(
-      this.config.signingWorkerUrl,
-      SIGNING_WORKER_RECOVERY_PROMOTE_PATH,
-      request,
-    );
+    const promoted = await this.post(ROUTER_RECOVERY_PROMOTE_PATH, request);
     if (!promoted.ok) return promoted;
     const activeReceipt = parseActiveSigningWorkerReceipt(
       promoted.body,
@@ -765,150 +797,14 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
     if (!activeReceiptMatchesRecoveryActivation(activeReceipt, request)) {
       return internalFailure(
         'recovery_promotion_mismatch',
-        'SigningWorker promotion receipt does not match the verified recovery result',
+        'Router promotion receipt does not match the verified recovery result',
       );
     }
     return { ok: true, body: request };
   }
 
-  private async executeInner(
-    request: RouterAbEd25519YaoActivationExecuteRequestV1,
-  ): Promise<RouterAbEd25519YaoRegistrationBackendResult> {
-    const staged = await this.post(
-      this.config.deriverBUrl,
-      DERIVER_B_STAGE_PATH,
-      request.deriver_b_input,
-    );
-    if (!staged.ok) return staged;
-
-    const deriverAResult = await this.post(
-      this.config.deriverAUrl,
-      DERIVER_A_START_PATH,
-      request.deriver_a_input,
-    );
-    if (!deriverAResult.ok) return deriverAResult;
-    const deriverBResult = await this.post(
-      this.config.deriverBUrl,
-      DERIVER_B_ACTIVATION_RESULT_PATH,
-      {
-        family: 'activation',
-        session_id: request.binding.session_id,
-      },
-    );
-    if (!deriverBResult.ok) return deriverBResult;
-
-    const executionA = parseActivationRoleExecution(
-      deriverAResult.body,
-      request.binding,
-      'deriver_a',
-    );
-    const executionB = parseActivationRoleExecution(
-      deriverBResult.body,
-      request.binding,
-      'deriver_b',
-    );
-    if (!equalBytes(executionA.transcript, executionB.transcript)) {
-      return internalFailure('transcript_mismatch', 'Deriver completion transcripts differ');
-    }
-
-    const delivered = await this.deliverSigningWorkerPackages(request, executionA, executionB);
-    if (!delivered.ok) return delivered;
-    let activeReceipt: ActiveSigningWorkerReceipt;
-    switch (delivered.body.kind) {
-      case 'active':
-        if (request.binding.operation !== 'registration') {
-          return internalFailure(
-            'unexpected_active_recovery',
-            'recovery execution activated before Client verification',
-          );
-        }
-        activeReceipt = delivered.body.activeReceipt;
-        break;
-      case 'staged_recovery': {
-        if (request.binding.operation !== 'recovery') {
-          return internalFailure(
-            'unexpected_staged_registration',
-            'registration execution returned a staged recovery candidate',
-          );
-        }
-        activeReceipt = delivered.body.stagedReceipt;
-        break;
-      }
-    }
-    return {
-      ok: true,
-      body: {
-        binding: request.binding,
-        deriver_a_client_package: executionA.clientPackage,
-        deriver_b_client_package: executionB.clientPackage,
-        public_receipt: {
-          transcript: activeReceipt.transcript,
-          registered_public_key: activeReceipt.registeredPublicKey,
-          joined_client_commitment: activeReceipt.joinedClientCommitment,
-          joined_signing_worker_commitment: activeReceipt.joinedSigningWorkerCommitment,
-          signing_worker_verifying_share: activeReceipt.signingWorkerVerifyingShare,
-          state_epoch: activeReceipt.stateEpoch,
-        },
-      },
-    };
-  }
-
-  private async deliverSigningWorkerPackages(
-    request: RouterAbEd25519YaoActivationExecuteRequestV1,
-    executionA: ActivationRoleExecution,
-    executionB: ActivationRoleExecution,
-  ): Promise<
-    { ok: true; body: SigningWorkerDeliveryReceipt } | RouterAbEd25519YaoRegistrationBackendFailure
-  > {
-    const delivered = await this.post(
-      this.config.signingWorkerUrl,
-      SIGNING_WORKER_PACKAGES_PATH,
-      {
-        deriver_a: {
-          binding: request.binding,
-          client_commitment: executionA.clientCommitment,
-          signing_worker_commitment: executionA.signingWorkerCommitment,
-          package: executionA.signingWorkerPackage,
-        },
-        deriver_b: {
-          binding: request.binding,
-          client_commitment: executionB.clientCommitment,
-          signing_worker_commitment: executionB.signingWorkerCommitment,
-          package: executionB.signingWorkerPackage,
-        },
-      },
-    );
-    if (!delivered.ok) return delivered;
-    switch (request.binding.operation) {
-      case 'registration':
-        return {
-          ok: true,
-          body: {
-            kind: 'active',
-            activeReceipt: parseActiveSigningWorkerReceipt(
-              delivered.body,
-              request.binding.session_id,
-              executionA.transcript,
-            ),
-          },
-        };
-      case 'recovery':
-        return {
-          ok: true,
-          body: {
-            kind: 'staged_recovery',
-            stagedReceipt: parseStagedSigningWorkerReceipt(
-              delivered.body,
-              request.binding.session_id,
-              executionA.transcript,
-            ),
-          },
-        };
-    }
-  }
-
-  private async post(baseUrl: string, path: string, body: unknown): Promise<HttpResult> {
-    return await this.request(baseUrl, path, {
+  private async post(path: string, body: unknown): Promise<HttpResult> {
+    return await this.request(this.config.routerUrl, path, {
       method: 'POST',
       headers: this.headers(),
       body: JSON.stringify(body),
@@ -928,7 +824,7 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
     if (!response.ok) {
       return internalFailure(
         'worker_rejected',
-        `worker ${path} returned HTTP ${response.status}: ${text}`,
+        `worker ${path} returned HTTP ${response.status}`,
       );
     }
     let body: unknown;
@@ -950,18 +846,7 @@ export function createRouterAbEd25519YaoHttpRegistrationBackendFromEnv(input: {
 }): RouterAbEd25519YaoHttpRegistrationBackend {
   const env = input.env;
   return new RouterAbEd25519YaoHttpRegistrationBackend({
-    deriverAUrl: requireNonEmpty(
-      envValue(env, ROUTER_AB_ENV_KEYS.deriverAUrl),
-      ROUTER_AB_ENV_KEYS.deriverAUrl,
-    ),
-    deriverBUrl: requireNonEmpty(
-      envValue(env, ROUTER_AB_ENV_KEYS.deriverBUrl),
-      ROUTER_AB_ENV_KEYS.deriverBUrl,
-    ),
-    signingWorkerUrl: requireNonEmpty(
-      envValue(env, ROUTER_AB_ENV_KEYS.signingWorkerUrl),
-      ROUTER_AB_ENV_KEYS.signingWorkerUrl,
-    ),
+    routerUrl: requireNonEmpty(envValue(env, ROUTER_AB_ENV_KEYS.routerUrl), ROUTER_AB_ENV_KEYS.routerUrl),
     signingWorkerId: requireNonEmpty(
       envValue(env, ROUTER_AB_ENV_KEYS.signingWorkerId),
       ROUTER_AB_ENV_KEYS.signingWorkerId,
