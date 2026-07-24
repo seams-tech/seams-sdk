@@ -95,6 +95,7 @@ use encoding::{
 };
 mod paths;
 pub use paths::*;
+mod trace_context;
 #[cfg(feature = "workers-rs")]
 use paths::{
     cloudflare_deriver_peer_service_url,
@@ -109,6 +110,12 @@ use paths::{
     cloudflare_signing_worker_normal_signing_service_url,
     cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_finalize_service_url,
     cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_prepare_service_url,
+};
+pub use trace_context::CloudflareTraceIdV1;
+#[cfg(feature = "workers-rs")]
+pub use trace_context::{
+    parse_cloudflare_trace_id_from_request_v1, set_cloudflare_trace_id_header_v1,
+    CLOUDFLARE_TRACE_ID_HEADER_V1,
 };
 #[cfg(any(
     all(

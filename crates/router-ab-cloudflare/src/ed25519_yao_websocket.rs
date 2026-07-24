@@ -131,6 +131,7 @@ impl YaoTransportCompletion for CloudflareEd25519YaoWebSocketCompletionV1 {}
 pub async fn connect_cloudflare_ed25519_yao_deriver_b_v1(
     env: &Env,
     binding: CloudflareEd25519YaoWebSocketBindingV1,
+    trace_id: Option<crate::CloudflareTraceIdV1>,
 ) -> Result<WebSocket, CloudflareEd25519YaoWebSocketErrorV1> {
     let protocol = binding.protocol();
     let mut request = Request::new(DERIVER_B_WEBSOCKET_URL, Method::Get)
@@ -150,6 +151,10 @@ pub async fn connect_cloudflare_ed25519_yao_deriver_b_v1(
         "Ed25519 Yao Deriver A to B WebSocket",
     )
     .map_err(|_| CloudflareEd25519YaoWebSocketErrorV1::ServiceBinding)?;
+    if let Some(trace_id) = trace_id {
+        crate::set_cloudflare_trace_id_header_v1(headers, trace_id)
+            .map_err(|_| CloudflareEd25519YaoWebSocketErrorV1::ServiceBinding)?;
+    }
     let response = env
         .service(DERIVER_B_BINDING)
         .map_err(|_| CloudflareEd25519YaoWebSocketErrorV1::ServiceBinding)?
