@@ -383,10 +383,8 @@ fn strict_signing_worker_entrypoint_routes_normal_signing() {
     let body = extract_function_body(&strict_worker_rs, "handle_strict_signing_worker_fetch_v1");
 
     for required in [
-        "CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_DERIVER_A_PATH",
-        "handle_cloudflare_signing_worker_ed25519_yao_deriver_a_v1",
-        "CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_DERIVER_B_PATH",
-        "handle_cloudflare_signing_worker_ed25519_yao_deriver_b_v1",
+        "CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_PACKAGES_PATH",
+        "handle_cloudflare_signing_worker_ed25519_yao_packages_v1",
         "CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_RECOVERY_PROMOTE_PATH",
         "handle_cloudflare_signing_worker_ed25519_yao_recovery_promote_v1",
         "CLOUDFLARE_SIGNING_WORKER_PROOF_BUNDLE_ACTIVATION_PATH",
@@ -414,21 +412,14 @@ fn strict_signing_worker_entrypoint_routes_normal_signing() {
 #[test]
 fn signing_worker_yao_lifecycle_is_exact_and_commits_normal_signing_state_atomically() {
     let yao_source = read_src_file("ed25519_yao_signing_worker.rs");
-    for required_state in [
-        "RegistrationPending",
-        "RegistrationStaged",
-        "Active",
-        "RecoveryPending",
-        "RecoveryStaged",
-    ] {
+    for required_state in ["RegistrationStaged", "Active", "RecoveryStaged"] {
         assert!(
             yao_source.contains(required_state),
             "Signing Worker Yao lifecycle must model `{required_state}` explicitly"
         );
     }
     for required_route in [
-        "/router-ab/signing-worker/ed25519-yao/activation/deriver-a",
-        "/router-ab/signing-worker/ed25519-yao/activation/deriver-b",
+        "/router-ab/signing-worker/ed25519-yao/activation/packages",
         "/router-ab/signing-worker/ed25519-yao/recovery/promote",
     ] {
         assert!(
@@ -439,6 +430,21 @@ fn signing_worker_yao_lifecycle_is_exact_and_commits_normal_signing_state_atomic
     assert!(
         !yao_source.contains("/router-ab/signing-worker/ed25519-yao/refresh/"),
         "Signing Worker Yao activation must not retain a compatibility refresh route"
+    );
+    for persistence_boundary in [
+        "#[serde(rename = \"registration_pending\")]",
+        "LegacyRegistrationPending",
+        "#[serde(rename = \"recovery_pending\")]",
+        "LegacyRecoveryPending",
+    ] {
+        assert!(
+            yao_source.contains(persistence_boundary),
+            "Signing Worker Yao deployment must decode in-flight persisted state via `{persistence_boundary}`"
+        );
+    }
+    assert!(
+        yao_source.contains("same_active_signing_worker_state_ignoring_timestamp"),
+        "Signing Worker Yao activation retries must accept the canonical persisted timestamp"
     );
 
     let durable_object_source = read_src_file("durable_object.rs");
