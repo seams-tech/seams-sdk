@@ -741,6 +741,37 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     expect(authorization.inputs[1]?.kind).toBe('execute');
   });
 
+  test('rejects a malformed trace ID at the HTTP boundary before authorization or work', async () => {
+    const backend = new TestRegistrationBackend(registrationAdmissionReceipt(), {
+      kind: 'success',
+      body: registrationResult(),
+    });
+    const service = new InMemoryRouterAbEd25519YaoRegistrationService(backend);
+    const authorization = new TestRegistrationAuthorization({ ok: true });
+    const module = createRouterAbEd25519YaoRegistrationModule({ service, authorization });
+    const extension = module.routeExtensions[0];
+    if (!extension) throw new Error('registration route extension is required');
+    const route = extension.routes[0];
+    if (!route) throw new Error('registration admission route is required');
+    const request = jsonRequest(route.path, registrationAdmissionRequest());
+    request.headers.set('x-seams-trace-id', 'contains-sensitive-data');
+    const response = await extension.handleCloudflareRoute({
+      request,
+      route,
+      pathname: route.path,
+      method: 'POST',
+      logger: coerceRouterLogger(null),
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      ok: false,
+      code: 'invalid_trace_id',
+      message: 'Router trace ID must be 32 lowercase hexadecimal characters',
+    });
+    expect(authorization.inputs).toHaveLength(0);
+    expect(backend.admitCalls).toBe(0);
+  });
+
   test('rejects route authorization before invoking registration work', async () => {
     const backend = new TestRegistrationBackend(registrationAdmissionReceipt(), {
       kind: 'success',
@@ -827,10 +858,7 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     expect(scriptedFetch.traceIds).toHaveLength(2);
     expect(scriptedFetch.traceIds[0]).toBe(scriptedFetch.traceIds[1]);
     expect(scriptedFetch.traceIds[0]).toMatch(/^[0-9a-f]{32}$/);
-    expect(spans.map((span) => span.span)).toEqual([
-      'gateway.pre_yao',
-      'gateway.yao_execute',
-    ]);
+    expect(spans.map((span) => span.span)).toEqual(['gateway.pre_yao', 'gateway.yao_execute']);
     expect(spans.every((span) => span.operation === 'registration')).toBe(true);
     expect(spans.every((span) => span.outcome === 'success')).toBe(true);
     expect(spans.every((span) => span.duration_ms >= 0)).toBe(true);

@@ -25,6 +25,12 @@ import {
   type RouterAbEd25519YaoWarmRecoveryBootstrapRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import {
+  createRouterAbTraceContextV1,
+  parseRouterAbTraceContextV1,
+  ROUTER_AB_TRACE_ID_HEADER_V1,
+  type RouterAbTraceContextV1,
+} from '@shared/utils/routerAbTraceContext';
+import {
   normalizeRuntimePolicyScope,
   signingRootScopeFromRuntimePolicyScope,
   type RuntimePolicyScope,
@@ -89,27 +95,46 @@ export type RouterAbEd25519YaoRecoveryBackendResult =
 export interface RouterAbEd25519YaoRecoveryBackend {
   admitRecovery(
     request: RouterAbEd25519YaoRecoveryAdmissionRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRecoveryBackendResult> | RouterAbEd25519YaoRecoveryBackendResult;
   executeRecovery(
     request: RecoveryExecuteRequest,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRecoveryBackendResult> | RouterAbEd25519YaoRecoveryBackendResult;
   activateRecovery(
     request: RouterAbEd25519YaoRecoveryActivationRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRecoveryBackendResult> | RouterAbEd25519YaoRecoveryBackendResult;
 }
 
 export interface RouterAbEd25519YaoRecoveryService {
   admitRecovery(
     request: RouterAbEd25519YaoRecoveryAdmissionRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRecoveryServiceResult<RecoveryAdmissionReceipt>>;
   executeRecovery(
     request: RecoveryExecuteRequest,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRecoveryServiceResult<RecoveryExecutionResult>>;
   activateRecovery(
     request: RouterAbEd25519YaoRecoveryActivationRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<
     RouterAbEd25519YaoRecoveryServiceResult<RouterAbEd25519YaoRecoveryActivationReceiptV1>
   >;
+}
+
+type RouterAbEd25519YaoTraceContextResolutionV1 =
+  | { readonly ok: true; readonly value: RouterAbTraceContextV1 }
+  | { readonly ok: false; readonly message: string };
+
+function resolveTraceContext(request: Request): RouterAbEd25519YaoTraceContextResolutionV1 {
+  const parsed = parseRouterAbTraceContextV1(request.headers.get(ROUTER_AB_TRACE_ID_HEADER_V1));
+  if (parsed.ok) return parsed;
+  if (parsed.reason === 'missing') {
+    return { ok: true, value: createRouterAbTraceContextV1() };
+  }
+  return { ok: false, message: parsed.message };
 }
 
 export type RouterAbEd25519YaoRecoveryAuthorizationInput =
@@ -206,9 +231,7 @@ export interface RouterAbEd25519YaoCapabilityPersistenceV1 {
     | RouterAbEd25519YaoCapabilityPersistenceResultV1;
 }
 
-class EphemeralRouterAbEd25519YaoCapabilityPersistenceV1
-  implements RouterAbEd25519YaoCapabilityPersistenceV1
-{
+class EphemeralRouterAbEd25519YaoCapabilityPersistenceV1 implements RouterAbEd25519YaoCapabilityPersistenceV1 {
   replaceActiveCapability(): RouterAbEd25519YaoCapabilityPersistenceResultV1 {
     return { ok: true };
   }
@@ -492,10 +515,7 @@ function equalBytes(left: readonly number[], right: readonly number[]): boolean 
   return true;
 }
 
-function exactRuntimePolicyScope(
-  left: RuntimePolicyScope,
-  right: RuntimePolicyScope,
-): boolean {
+function exactRuntimePolicyScope(left: RuntimePolicyScope, right: RuntimePolicyScope): boolean {
   return (
     left.orgId === right.orgId &&
     left.projectId === right.projectId &&
@@ -515,8 +535,7 @@ function warmBootstrapCapabilityMatchesStableIdentity(input: {
   return (
     capability.applicationBinding.wallet_id === request.walletId &&
     capability.nearAccountId === request.nearAccountId &&
-    capability.applicationBinding.near_ed25519_signing_key_id ===
-      request.nearEd25519SigningKeyId &&
+    capability.applicationBinding.near_ed25519_signing_key_id === request.nearEd25519SigningKeyId &&
     capability.applicationBinding.key_creation_signer_slot === request.signerSlot &&
     capability.lifecycle.accountId === request.walletId &&
     capability.lifecycle.signingWorkerId === request.signingWorkerId &&
@@ -793,7 +812,8 @@ function buildPersistedCapabilityIdentity(
       }
       const signingRootScope = signingRootScopeFromRuntimePolicyScope(runtimePolicyScope);
       if (
-        signingRootScope.signingRootId !== parsedRequest.value.application_binding.signing_root_id ||
+        signingRootScope.signingRootId !==
+          parsedRequest.value.application_binding.signing_root_id ||
         signingRootScope.signingRootVersion !== parsedRequest.value.scope.root_share_epoch
       ) {
         return invalidInstallation('persisted recovery signing root does not match its scope');
@@ -1321,6 +1341,7 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
 
   async admitRecovery(
     request: RouterAbEd25519YaoRecoveryAdmissionRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRecoveryServiceResult<RecoveryAdmissionReceipt>> {
     const parsed = parseRouterAbEd25519YaoRecoveryAdmissionRequestV1(request);
     if (!parsed.ok) {
@@ -1362,7 +1383,9 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
       default:
         return assertNever(activeCapability);
     }
-    if (!recoveryRequestMatchesActiveCapabilityIdentity(admittedRequest, activeCapability.identity)) {
+    if (
+      !recoveryRequestMatchesActiveCapabilityIdentity(admittedRequest, activeCapability.identity)
+    ) {
       return recoveryFailure({
         status: 409,
         code: 'continuity_mismatch',
@@ -1394,7 +1417,7 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
 
     let backendResult: RouterAbEd25519YaoRecoveryBackendResult;
     try {
-      backendResult = await this.backend.admitRecovery(admittedRequest);
+      backendResult = await this.backend.admitRecovery(admittedRequest, traceContext);
     } catch (error: unknown) {
       const failure = uncertainFailure(error, 'admission_failed');
       this.storeAdmissionFailure(context, failure);
@@ -1443,6 +1466,7 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
 
   async executeRecovery(
     request: RecoveryExecuteRequest,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRecoveryServiceResult<RecoveryExecutionResult>> {
     const parsed = parseRouterAbEd25519YaoRecoveryActivationExecuteRequestV1(request);
     if (!parsed.ok) {
@@ -1472,7 +1496,12 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
     const executeFingerprint = canonicalFingerprint(executionRequest);
     switch (state.kind) {
       case 'admitted':
-        return await this.executeAdmitted(state, executionRequest, executeFingerprint);
+        return await this.executeAdmitted(
+          state,
+          executionRequest,
+          executeFingerprint,
+          traceContext,
+        );
       case 'executing':
       case 'execution_failed':
       case 'staged':
@@ -1494,6 +1523,7 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
 
   async activateRecovery(
     request: RouterAbEd25519YaoRecoveryActivationRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<
     RouterAbEd25519YaoRecoveryServiceResult<RouterAbEd25519YaoRecoveryActivationReceiptV1>
   > {
@@ -1532,7 +1562,12 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
             message: 'recovery activation does not match the staged candidate',
           });
         }
-        return await this.activateStaged(state, activationRequest, activationFingerprint);
+        return await this.activateStaged(
+          state,
+          activationRequest,
+          activationFingerprint,
+          traceContext,
+        );
       case 'activating':
       case 'activation_failed':
       case 'promoted':
@@ -1561,6 +1596,7 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
     state: RecoveryAdmittedState,
     request: RecoveryExecuteRequest,
     executeFingerprint: string,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRecoveryServiceResult<RecoveryExecutionResult>> {
     const executing: RecoveryExecutingState = {
       kind: 'executing',
@@ -1571,7 +1607,7 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
     this.recoveries.set(state.context.recoveryKey, executing);
     let backendResult: RouterAbEd25519YaoRecoveryBackendResult;
     try {
-      backendResult = await this.backend.executeRecovery(request);
+      backendResult = await this.backend.executeRecovery(request, traceContext);
     } catch (error: unknown) {
       const failure = uncertainFailure(error, 'execution_failed');
       this.storeExecutionFailure(executing, failure);
@@ -1612,6 +1648,7 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
     state: RecoveryStagedState,
     request: RouterAbEd25519YaoRecoveryActivationRequestV1,
     activationFingerprint: string,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<
     RouterAbEd25519YaoRecoveryServiceResult<RouterAbEd25519YaoRecoveryActivationReceiptV1>
   > {
@@ -1626,7 +1663,7 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
     this.recoveries.set(state.context.recoveryKey, activating);
     let backendResult: RouterAbEd25519YaoRecoveryBackendResult;
     try {
-      backendResult = await this.backend.activateRecovery(request);
+      backendResult = await this.backend.activateRecovery(request, traceContext);
     } catch (error: unknown) {
       const failure = uncertainFailure(error, 'activation_failed');
       this.storeActivationFailure(activating, failure);
@@ -1701,9 +1738,7 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
     return { ok: true, status: 200, value: activationReceipt.value };
   }
 
-  private promoteCapability(
-    state: RecoveryActivatingState,
-  ): CapabilityPromotionResult {
+  private promoteCapability(state: RecoveryActivatingState): CapabilityPromotionResult {
     const activeCapabilityKey = bytesToHex(
       state.context.admissionRequest.active_capability_binding,
     );
@@ -1962,6 +1997,13 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
   }
 
   private async handleAdmission(request: Request, rawBody: unknown): Promise<Response> {
+    const traceContext = resolveTraceContext(request);
+    if (!traceContext.ok) {
+      return json(
+        { ok: false, code: 'invalid_trace_id', message: traceContext.message },
+        { status: 400 },
+      );
+    }
     const parsed = parseRouterAbEd25519YaoRecoveryAdmissionRequestV1(rawBody);
     if (!parsed.ok) {
       return json({ ok: false, code: parsed.code, message: parsed.message }, { status: 400 });
@@ -1972,12 +2014,19 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
       body: parsed.value,
     });
     if (!authorization.ok) return routeFailureResponse(authorization);
-    const result = await this.service.admitRecovery(parsed.value);
+    const result = await this.service.admitRecovery(parsed.value, traceContext.value);
     if (!result.ok) return routeFailureResponse(result);
     return json(result.value, { status: result.status });
   }
 
   private async handleExecution(request: Request, rawBody: unknown): Promise<Response> {
+    const traceContext = resolveTraceContext(request);
+    if (!traceContext.ok) {
+      return json(
+        { ok: false, code: 'invalid_trace_id', message: traceContext.message },
+        { status: 400 },
+      );
+    }
     const parsed = parseRouterAbEd25519YaoRecoveryActivationExecuteRequestV1(rawBody);
     if (!parsed.ok) {
       return json({ ok: false, code: parsed.code, message: parsed.message }, { status: 400 });
@@ -1988,12 +2037,19 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
       body: parsed.value,
     });
     if (!authorization.ok) return routeFailureResponse(authorization);
-    const result = await this.service.executeRecovery(parsed.value);
+    const result = await this.service.executeRecovery(parsed.value, traceContext.value);
     if (!result.ok) return routeFailureResponse(result);
     return json(result.value, { status: result.status });
   }
 
   private async handleActivation(request: Request, rawBody: unknown): Promise<Response> {
+    const traceContext = resolveTraceContext(request);
+    if (!traceContext.ok) {
+      return json(
+        { ok: false, code: 'invalid_trace_id', message: traceContext.message },
+        { status: 400 },
+      );
+    }
     const parsed = parseRouterAbEd25519YaoRecoveryActivationRequestV1(rawBody);
     if (!parsed.ok) {
       return json({ ok: false, code: parsed.code, message: parsed.message }, { status: 400 });
@@ -2004,7 +2060,7 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
       body: parsed.value,
     });
     if (!authorization.ok) return routeFailureResponse(authorization);
-    const result = await this.service.activateRecovery(parsed.value);
+    const result = await this.service.activateRecovery(parsed.value, traceContext.value);
     if (!result.ok) return routeFailureResponse(result);
     return json(result.value, { status: result.status });
   }
