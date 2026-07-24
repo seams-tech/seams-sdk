@@ -95,6 +95,7 @@ duration, storage presence, or a warm-looking request.
 - pair/lifecycle boundary tests: 6 passed
 - Cloudflare binding tests: 271 passed
 - local-dev library tests: 13 passed
+- `cargo test --manifest-path crates/router-ab-core/Cargo.toml`: all tests passed
 - `git diff --check`
 
 The Phase 0 production requirements for 20 successful traces, cold/warm
