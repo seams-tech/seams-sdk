@@ -115,7 +115,7 @@ The generator automatically loads
 select a different protected file.
 
 Prepare mode provisions or discovers shared Cloudflare resources and validates
-the complete six-environment topology. Component apply mode:
+the complete seven-environment topology. Component apply mode:
 
 - Creates missing GitHub Environments.
 - Preserves existing environments and their protection rules.
@@ -255,7 +255,7 @@ paired product manifest:
 pnpm deploy:env-rotate -- staging
 ```
 
-The operation writes these non-secret audit variables to all six GitHub
+The operation writes these non-secret audit variables to all seven GitHub
 Environments after every normal variable and secret has uploaded:
 
 - `SEAMS_DEPLOYMENT_GENERATION_ID`
@@ -440,6 +440,6 @@ applied, then intentionally decide whether to complete or rotate the entire
 target identity set.
 
 If release validation reports a missing variable or secret, compare the
-generated manifest with the target's six GitHub Environments. The environment
+generated manifest with the target's seven GitHub Environments. The environment
 generator checks its inventory against the deployment workflows and will fail
 when a workflow reference is missing from the manifest.

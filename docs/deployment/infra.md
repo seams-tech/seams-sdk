@@ -57,7 +57,7 @@ funded-account, OAuth, and tenant values through the protected values file
 documented in [tooling.md](tooling.md#github-environment-bootstrap). The output
 contains private material and must not be committed.
 
-To create all six environments, apply wallet-core and product separately from
+To create all seven environments, apply wallet-core and product separately from
 the paired manifests printed by preparation:
 
 ```bash
