@@ -142,6 +142,9 @@ function formatGoogleSsoEmailOtpError(error: unknown): string {
       'This Google account has stale Email OTP identity state. Clear the local dev registration state before registering again.'
     );
   }
+  if (code === 'google_account_registration_required') {
+    return "Account doesn't exist. Create your account to continue.";
+  }
   if ((code === 'not_found' || status === 404) && /Email OTP enrollment not found/i.test(message)) {
     return 'No Email OTP wallet is enrolled for this Google account yet. Use Sign up with Google SSO first.';
   }
@@ -157,6 +160,10 @@ function formatGoogleSsoEmailOtpError(error: unknown): string {
 function isGoogleAccountRegistrationRequired(error: unknown): boolean {
   if (!error || typeof error !== 'object' || !('code' in error)) return false;
   return (error as { code?: unknown }).code === 'google_account_registration_required';
+}
+
+function existingGoogleOtpAccountResolutionFailedMessage(): string {
+  return "Google SSO couldn't verify the selected Email OTP account. Check that you're using the same Google account and environment, then retry.";
 }
 
 function walletFlowErrorMessage(
@@ -466,6 +473,14 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
       if (!flow.ok) {
         throw flow.error;
       }
+      if (
+        args.mode === AuthMenuMode.Login &&
+        args.walletId &&
+        flow.value.mode === 'register'
+      ) {
+        await flow.value.cancel();
+        throw new Error(existingGoogleOtpAccountResolutionFailedMessage());
+      }
       if (flow.value.mode === 'register') {
         toast.success('Choose a wallet name to finish registration', {
           id: GOOGLE_EMAIL_OTP_TOAST_ID,
@@ -513,6 +528,15 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
         onComplete,
       };
     } catch (error: unknown) {
+      if (
+        args.mode === AuthMenuMode.Login &&
+        args.walletId &&
+        isGoogleAccountRegistrationRequired(error)
+      ) {
+        const message = existingGoogleOtpAccountResolutionFailedMessage();
+        toast.error(message, { id: GOOGLE_EMAIL_OTP_TOAST_ID });
+        throw new Error(message);
+      }
       const message = formatGoogleSsoEmailOtpError(error);
       toast.error(message, { id: GOOGLE_EMAIL_OTP_TOAST_ID });
       if (isGoogleAccountRegistrationRequired(error)) {
