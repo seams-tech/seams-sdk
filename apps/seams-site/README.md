@@ -25,6 +25,13 @@ Open:
 - `https://localhost:9444` – Router API origin
 - `https://docs.localhost` – docs site
 
+## Production deployment
+
+Production app and wallet Pages artifacts are built from the accepted `main`
+revision by the `Deploy / production / cloudflare-stack` workflow. Revisions
+under `apps/seams-site/` select both Pages deployments so their SDK and wallet
+assets stay on the same release.
+
 ## Notes
 
 - The route `/wallet-service` is served by Caddy from `packages/sdk-web/dist/public/wallet-service/index.html` and loads `/sdk/wallet-iframe-host-runtime.js` from the same wallet origin.
