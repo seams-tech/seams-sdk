@@ -49,9 +49,10 @@ pub use self::ed25519_yao_router::{
     Ed25519YaoCeremonyIdentityV1, Ed25519YaoCircuitIdV1, Ed25519YaoExecutionIdV1,
     Ed25519YaoInputPairBindingV1, Ed25519YaoProtocolIdV1, Ed25519YaoRoleReadinessReceiptV1,
     Ed25519YaoRoleSignatureSchemeV1, Ed25519YaoRoleSignatureV1, RouterAdmittedExecutionAuthorityV1,
-    RouterEd25519YaoExecuteRequestV1, RouterEd25519YaoExecuteSuccessV1,
-    ED25519_YAO_ACTIVATION_CIRCUIT_ID_V1, ED25519_YAO_EXPORT_CIRCUIT_ID_V1,
-    ED25519_YAO_PROTOCOL_ID_V1,
+    RouterEd25519YaoBurnReasonV1, RouterEd25519YaoExecuteFailureCodeV1,
+    RouterEd25519YaoExecuteRequestV1, RouterEd25519YaoExecuteResultV1,
+    RouterEd25519YaoExecuteSuccessV1, ED25519_YAO_ACTIVATION_CIRCUIT_ID_V1,
+    ED25519_YAO_EXPORT_CIRCUIT_ID_V1, ED25519_YAO_PROTOCOL_ID_V1,
 };
 pub use self::engine::{
     AuditEventV1, AuditSink, Clock, Csprng, DeriverAEngine, DeriverBEngine, PeerTransport,
