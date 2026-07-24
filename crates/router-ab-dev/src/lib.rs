@@ -135,6 +135,7 @@ pub use local_ed25519_yao_router::{
 };
 pub use local_ed25519_yao_signing_worker::{
     LocalEd25519YaoSigningWorkerActivationReceiptV1, LocalEd25519YaoSigningWorkerPackageDeliveryV1,
+    LocalEd25519YaoSigningWorkerPackagePairDeliveryV1,
     LocalEd25519YaoSigningWorkerRecoveryPromotionRequestV1,
     LocalEd25519YaoSigningWorkerRefreshPackageDeliveryV1,
     LocalEd25519YaoSigningWorkerRefreshReceiptV1, LocalEd25519YaoSigningWorkerStateV1,
@@ -351,12 +352,9 @@ pub const LOCAL_DERIVER_B_PRIVATE_PATH: &str = "/router-ab/deriver-b";
 pub const LOCAL_DERIVER_A_PEER_PATH: &str = "/router-ab/deriver-a/peer";
 /// Deriver B private peer path mirrored from production.
 pub const LOCAL_DERIVER_B_PEER_PATH: &str = "/router-ab/deriver-b/peer";
-/// SigningWorker activation package delivery path owned by Deriver A.
-pub const LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_DERIVER_A_PATH: &str =
-    "/router-ab/signing-worker/ed25519-yao/activation/deriver-a";
-/// SigningWorker activation package delivery path owned by Deriver B.
-pub const LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_DERIVER_B_PATH: &str =
-    "/router-ab/signing-worker/ed25519-yao/activation/deriver-b";
+/// SigningWorker atomic activation package-pair delivery path.
+pub const LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_PACKAGES_PATH: &str =
+    "/router-ab/signing-worker/ed25519-yao/activation/packages";
 /// SigningWorker recovery-candidate promotion path owned by the Router.
 pub const LOCAL_SIGNING_WORKER_ED25519_YAO_RECOVERY_PROMOTE_PATH: &str =
     "/router-ab/signing-worker/ed25519-yao/recovery/promote";

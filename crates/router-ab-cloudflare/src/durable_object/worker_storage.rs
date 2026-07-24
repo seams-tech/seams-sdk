@@ -230,15 +230,16 @@ async fn persist_cloudflare_ed25519_yao_output_activation_v1(
         .map_err(|err| ed25519_yao_output_storage_error("read active state", err))?;
     if let Some(existing_record) = existing_record {
         existing_record.validate()?;
-        if existing_record != request.record
-            || existing_active_state.as_ref() != Some(&active_state)
+        let canonical_active_state = existing_record.active_signing_worker_state().clone();
+        if !same_ed25519_yao_activation_ignoring_timestamp(&existing_record, &request.record)
+            || existing_active_state.as_ref() != Some(&canonical_active_state)
         {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::ReplayedLocalRequest,
                 "Signing Worker Ed25519 Yao activation conflicts with durable state",
             ));
         }
-        return CloudflareEd25519YaoOutputActivationReceiptV1::new(active_state, false);
+        return CloudflareEd25519YaoOutputActivationReceiptV1::new(canonical_active_state, false);
     }
     validate_signing_worker_output_active_state_replacement_v1(
         existing_active_state.as_ref(),
@@ -278,6 +279,38 @@ async fn persist_cloudflare_ed25519_yao_output_activation_v1(
         ));
     }
     CloudflareEd25519YaoOutputActivationReceiptV1::new(active_state, true)
+}
+
+#[cfg(feature = "workers-rs")]
+fn same_ed25519_yao_activation_ignoring_timestamp(
+    existing: &CloudflareSigningWorkerOutputActivationRecordV1,
+    requested: &CloudflareSigningWorkerOutputActivationRecordV1,
+) -> bool {
+    match (existing, requested) {
+        (
+            CloudflareSigningWorkerOutputActivationRecordV1::Ed25519Yao {
+                binding: existing_binding,
+                receipt: existing_receipt,
+                active_signing_worker_state: existing_active_state,
+                material: existing_material,
+            },
+            CloudflareSigningWorkerOutputActivationRecordV1::Ed25519Yao {
+                binding: requested_binding,
+                receipt: requested_receipt,
+                active_signing_worker_state: requested_active_state,
+                material: requested_material,
+            },
+        ) => {
+            let mut canonical_requested_active_state = requested_active_state.clone();
+            canonical_requested_active_state.activated_at_ms =
+                existing_active_state.activated_at_ms;
+            existing_binding == requested_binding
+                && existing_receipt == requested_receipt
+                && existing_active_state == &canonical_requested_active_state
+                && existing_material == requested_material
+        }
+        _ => existing == requested,
+    }
 }
 
 #[cfg(feature = "workers-rs")]
