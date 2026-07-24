@@ -121,6 +121,7 @@ class DeferredRegistrationBackend implements RouterAbEd25519YaoRegistrationBacke
 
 class ScriptedLocalYaoFetch {
   readonly calls: string[] = [];
+  readonly traceIds: string[] = [];
   private state: ScriptedFetchState = { kind: 'unbound' };
 
   bindActivation(binding: RouterAbEd25519YaoActivationBindingV1): void {
@@ -132,7 +133,12 @@ class ScriptedLocalYaoFetch {
     if (this.state.kind !== 'bound') throw new Error('scripted fetch session is not bound');
     const url = this.url(input);
     const method = init?.method || 'GET';
+    const traceId = new Headers(init?.headers).get('x-seams-trace-id');
+    if (!traceId || !/^[0-9a-f]{32}$/.test(traceId)) {
+      throw new Error('Router request must carry a canonical opaque trace ID');
+    }
     this.calls.push(`${method} ${url.pathname}`);
+    this.traceIds.push(traceId);
     return this.response(url.pathname, this.state.binding);
   }
 
@@ -765,6 +771,8 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     if (!executed.ok) throw new Error(executed.message);
     expect(parseRouterAbEd25519YaoRegistrationResultV1(executed.body).ok).toBe(true);
     expect(scriptedFetch.calls).toEqual(['POST /router-ab/router/ed25519-yao/execute']);
+    expect(scriptedFetch.traceIds).toHaveLength(1);
+    expect(scriptedFetch.traceIds[0]).toMatch(/^[0-9a-f]{32}$/);
   });
 
   test('promotes a SigningWorker-owned staged recovery across request-scoped HTTP backends', async () => {

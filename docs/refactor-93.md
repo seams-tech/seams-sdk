@@ -834,6 +834,12 @@ Each span records:
 No span records request bodies, HPKE ciphertexts, recipient packages, tokens,
 emails, account IDs, credential IDs, root shares, or private outputs.
 
+The Gateway Yao backend creates one fresh 128-bit lowercase-hex trace value at
+each Router execution or recovery-promotion HTTP boundary. The Router forwards
+that validated value to every role and SigningWorker request in the same
+operation. It is correlation metadata only and is never derived from product
+identity, session secrets, ciphertext, or recipient output.
+
 ## Latency Budgets And Ownership
 
 Refactor 93 owns the `gateway.yao_execute` span. Phase 0 freezes its p50 and p95
