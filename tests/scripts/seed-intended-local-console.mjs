@@ -353,9 +353,14 @@ function buildTempoSponsorshipRuntimeFields(config) {
   const tempoPolicyId = `policy_intended_local_tempo_${hashStableId(
     `${config.namespace}:${config.orgId}:${config.projectId}:${config.environmentId}`,
   )}`;
-  const runtimeSnapshotVersion = config.nowMs;
+  // Bootstrap snapshot: a fixed low version + stable id so re-running the seed
+  // on every gateway restart is idempotent and NEVER supersedes a runtime
+  // snapshot published from the console (getLatestSnapshot orders by version
+  // DESC). Using config.nowMs here made each restart the newest snapshot,
+  // silently reverting user-published gas-sponsorship policies.
+  const runtimeSnapshotVersion = 1;
   const runtimeSnapshotId = `runtime_snapshot_intended_${hashStableId(
-    `${config.namespace}:${config.orgId}:${config.environmentId}:${config.nowMs}`,
+    `${config.namespace}:${config.orgId}:${config.environmentId}`,
   )}`;
   const runtimeSnapshotOutboxEventId = `runtime_snapshot_event_intended_${hashStableId(
     `${runtimeSnapshotId}:${runtimeSnapshotVersion}`,
