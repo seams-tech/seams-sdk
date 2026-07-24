@@ -32,7 +32,8 @@ export type RouterAbEd25519YaoRegistrationFailureCode =
   | 'unknown_registration'
   | 'binding_mismatch'
   | 'execution_in_progress'
-  | 'execution_failed';
+  | 'execution_failed'
+  | 'ceremony_expired';
 
 export type RouterAbEd25519YaoRegistrationFailure = {
   ok: false;
@@ -238,6 +239,14 @@ function backendFailure(
   result: RouterAbEd25519YaoRegistrationBackendFailure,
   code: 'admission_failed' | 'execution_failed',
 ): RouterAbEd25519YaoRegistrationFailure {
+  if (result.code === 'ceremony_expired') {
+    return {
+      ok: false,
+      status: 409,
+      code: 'ceremony_expired',
+      message: result.message,
+    };
+  }
   return {
     ok: false,
     status: result.status,

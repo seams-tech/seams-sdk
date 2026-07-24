@@ -9,7 +9,7 @@ use router_ab_core::{
     Ed25519YaoInputPairBindingV1, Ed25519YaoOperationV1, Ed25519YaoRoleReadinessReceiptV1,
     Ed25519YaoRoleSignatureSchemeV1, Ed25519YaoRoleStartAcceptanceV1, Ed25519YaoSessionIdV1,
     LifecycleScopeV1, PublicDigest32, RouterAbProtocolError, RouterAbProtocolErrorCode,
-    RouterAbProtocolResult,
+    RouterAbProtocolResult, RouterEd25519YaoBurnReasonV1, RouterEd25519YaoExecuteFailureCodeV1,
 };
 use router_ab_ed25519_yao::{
     build_product_activation_deriver_a_v1, build_product_activation_deriver_b_v1,
@@ -551,6 +551,78 @@ pub enum CloudflareEd25519YaoPairStatusResponseV1 {
         session: [u8; 32],
         pair_digest: [u8; 32],
     },
+}
+
+/// Sanitized role failure returned by a private pair route.
+///
+/// Pair routes intentionally expose only the Router failure class. The
+/// underlying protocol error text stays inside the role worker so account,
+/// envelope, and Durable Object details cannot cross the service boundary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CloudflareEd25519YaoRoleFailureResponseV1 {
+    /// The exact request can be retried before one-use activation.
+    RecoverableFailure {
+        code: RouterEd25519YaoExecuteFailureCodeV1,
+        retry_after_ms: u64,
+    },
+    /// The request is rejected without a retry under the same identity.
+    Rejected {
+        code: RouterEd25519YaoExecuteFailureCodeV1,
+    },
+    /// The role has burned the execution identity after ambiguity.
+    Burned {
+        reason: RouterEd25519YaoBurnReasonV1,
+    },
+}
+
+impl CloudflareEd25519YaoRoleFailureResponseV1 {
+    /// Converts a role-local protocol error into a sanitized result class.
+    #[cfg(any(
+        feature = "strict-worker-deriver-a-entrypoint",
+        feature = "strict-worker-deriver-b-entrypoint"
+    ))]
+    pub(crate) fn from_protocol_error(
+        error: &RouterAbProtocolError,
+    ) -> CloudflareEd25519YaoRoleFailureResponseV1 {
+        let message = error.message().to_ascii_lowercase();
+        if error.code() == RouterAbProtocolErrorCode::ExpiredLocalRequest
+            || message.contains("expired")
+        {
+            return Self::RecoverableFailure {
+                code: RouterEd25519YaoExecuteFailureCodeV1::CeremonyExpired,
+                retry_after_ms: 1_000,
+            };
+        }
+        if message.contains("conflicting")
+            || message.contains("already prepared")
+            || message.contains("already running")
+            || message.contains("already active")
+        {
+            return Self::Rejected {
+                code: RouterEd25519YaoExecuteFailureCodeV1::ConflictingPair,
+            };
+        }
+        if message.contains("missing") || message.contains("not prepared") {
+            return Self::Rejected {
+                code: RouterEd25519YaoExecuteFailureCodeV1::MissingPreparation,
+            };
+        }
+        if matches!(
+            error.code(),
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig
+                | RouterAbProtocolErrorCode::MissingLocalBinding
+                | RouterAbProtocolErrorCode::ForbiddenLocalBinding
+        ) {
+            return Self::RecoverableFailure {
+                code: RouterEd25519YaoExecuteFailureCodeV1::ServiceUnavailable,
+                retry_after_ms: 1_000,
+            };
+        }
+        Self::Rejected {
+            code: RouterEd25519YaoExecuteFailureCodeV1::TerminalRoleFailure,
+        }
+    }
 }
 
 impl CloudflareEd25519YaoPairPrepareRequestV1 {
@@ -1863,6 +1935,10 @@ impl RouterAbDeriverAYaoSessionDurableObject {
             .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
         let runtime = CloudflareDeriverAWorkerRuntimeV1::from_worker_env(&self.env)
             .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
+        request
+            .peer_receipt
+            .validate_at(cloudflare_yao_now_unix_ms()?)
+            .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
         verify_role_readiness_receipt_v1(&request.peer_receipt, runtime.peer_verifying_keys())
             .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
         let pair_digest = request.pair_binding.pair_digest().bytes;
@@ -2823,6 +2899,10 @@ impl RouterAbDeriverBYaoSessionDurableObject {
     ) -> worker::Result<Response> {
         let runtime = CloudflareDeriverBWorkerRuntimeV1::from_worker_env(&self.env)
             .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
+        let now_unix_ms = cloudflare_yao_now_unix_ms()?;
+        peer_receipt
+            .validate_at(now_unix_ms)
+            .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
         verify_role_readiness_receipt_v1(&peer_receipt, runtime.peer_verifying_keys())
             .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
         if peer_receipt.role() != Ed25519YaoDeriverRoleV1::DeriverA
@@ -2832,7 +2912,6 @@ impl RouterAbDeriverBYaoSessionDurableObject {
             return Response::error("Deriver A readiness receipt does not match pair", 409);
         }
         let storage = self.state.storage();
-        let now_unix_ms = cloudflare_yao_now_unix_ms()?;
         let Some(record) = storage
             .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
             .await?
@@ -3127,9 +3206,11 @@ impl RouterAbDeriverBYaoSessionDurableObject {
                 session,
                 pair_digest,
             },
-            PairYaoSessionRecordV1::Completed { execution, .. }
-                if execution.session() == session =>
-            {
+            PairYaoSessionRecordV1::Completed {
+                pair_digest: stored_pair,
+                execution,
+                ..
+            } if stored_pair == pair_digest && execution.session() == session => {
                 DeriverBYaoSessionResponseV1::PairCompleted {
                     session,
                     pair_digest,
@@ -4568,6 +4649,7 @@ async fn execute_deriver_b_session_command(
         }
     };
     if !(200..=299).contains(&response.status_code()) {
+        let status = response.status_code();
         emit_role_span_v1(
             trace_id,
             "deriver_b.session_do",
@@ -4576,9 +4658,13 @@ async fn execute_deriver_b_session_command(
             started_at_ms,
             "failure",
         );
-        return Err(invalid_lifecycle(
-            "Deriver B Yao session Durable Object rejected the command",
-        ));
+        let message = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "response body unavailable".to_owned());
+        return Err(invalid_lifecycle(format!(
+            "Deriver B Yao session Durable Object rejected the command with HTTP {status}: {message}"
+        )));
     }
     let result = response
         .json::<DeriverBYaoSessionResponseV1>()
@@ -5291,6 +5377,36 @@ mod tests {
     fn session_expiry_uses_checked_arithmetic() {
         assert_eq!(yao_expiry_from_now(10, 20).expect("expiry fits"), 30);
         assert!(yao_expiry_from_now(u64::MAX, 1).is_err());
+    }
+
+    #[test]
+    fn role_failure_mapping_preserves_only_sanitized_retry_class() {
+        let expired = CloudflareEd25519YaoRoleFailureResponseV1::from_protocol_error(
+            &RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "Deriver B pair preparation expired",
+            ),
+        );
+        assert_eq!(
+            expired,
+            CloudflareEd25519YaoRoleFailureResponseV1::RecoverableFailure {
+                code: RouterEd25519YaoExecuteFailureCodeV1::CeremonyExpired,
+                retry_after_ms: 1_000,
+            }
+        );
+
+        let missing = CloudflareEd25519YaoRoleFailureResponseV1::from_protocol_error(
+            &RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "Deriver B pair is not prepared",
+            ),
+        );
+        assert_eq!(
+            missing,
+            CloudflareEd25519YaoRoleFailureResponseV1::Rejected {
+                code: RouterEd25519YaoExecuteFailureCodeV1::MissingPreparation,
+            }
+        );
     }
 
     #[test]

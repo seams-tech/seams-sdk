@@ -6,6 +6,11 @@
 ))]
 
 use crate::cloudflare_router_error_status;
+#[cfg(any(
+    feature = "strict-worker-deriver-a-entrypoint",
+    feature = "strict-worker-deriver-b-entrypoint"
+))]
+use crate::CloudflareEd25519YaoRoleFailureResponseV1;
 #[cfg(feature = "strict-worker-router-entrypoint")]
 use crate::{
     build_cloudflare_router_public_keyset_v2, cloudflare_now_unix_ms_v1,
@@ -152,6 +157,11 @@ use crate::{
     CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_REGISTRATION_PRIVATE_REQUEST_PATH,
 };
 use router_ab_core::RouterAbProtocolError;
+#[cfg(any(
+    feature = "strict-worker-deriver-a-entrypoint",
+    feature = "strict-worker-deriver-b-entrypoint"
+))]
+use router_ab_core::RouterEd25519YaoExecuteFailureCodeV1;
 #[cfg(feature = "strict-worker-router-entrypoint")]
 use router_ab_core::{
     parse_router_ab_ecdsa_derivation_activation_refresh_request_v1_json,
@@ -220,4 +230,25 @@ pub(super) fn cloudflare_protocol_error_response_v1(
         format!("{:?}: {}", err.code(), err.message()),
         cloudflare_router_error_status(err.code()),
     )
+}
+
+#[cfg(any(
+    feature = "strict-worker-deriver-a-entrypoint",
+    feature = "strict-worker-deriver-b-entrypoint"
+))]
+pub(super) fn cloudflare_role_failure_response_v1(
+    err: RouterAbProtocolError,
+) -> worker::Result<Response> {
+    let failure = CloudflareEd25519YaoRoleFailureResponseV1::from_protocol_error(&err);
+    let status = match &failure {
+        CloudflareEd25519YaoRoleFailureResponseV1::RecoverableFailure { code, .. }
+            if *code == RouterEd25519YaoExecuteFailureCodeV1::ServiceUnavailable =>
+        {
+            503
+        }
+        CloudflareEd25519YaoRoleFailureResponseV1::RecoverableFailure { .. }
+        | CloudflareEd25519YaoRoleFailureResponseV1::Rejected { .. }
+        | CloudflareEd25519YaoRoleFailureResponseV1::Burned { .. } => 409,
+    };
+    Response::from_json(&failure).map(|response| response.with_status(status))
 }

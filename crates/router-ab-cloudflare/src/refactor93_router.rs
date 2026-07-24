@@ -9,8 +9,8 @@ use crate::{
     CloudflareEd25519YaoPackagePairDeliveryV1, CloudflareEd25519YaoPairCompletionAcknowledgementV1,
     CloudflareEd25519YaoPairExecuteRequestV1, CloudflareEd25519YaoPairPrepareRequestV1,
     CloudflareEd25519YaoPairStatusResponseV1, CloudflareEd25519YaoReadCompletedPairRequestV1,
-    CloudflareRouterWorkerRuntimeV1, CloudflareWorkerEnvReaderV1,
-    CLOUDFLARE_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH,
+    CloudflareEd25519YaoRoleFailureResponseV1, CloudflareRouterWorkerRuntimeV1,
+    CloudflareWorkerEnvReaderV1, CLOUDFLARE_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH,
     CLOUDFLARE_DERIVER_A_ED25519_YAO_EXECUTE_PAIR_PATH,
     CLOUDFLARE_DERIVER_A_ED25519_YAO_PREPARE_PAIR_PATH,
     CLOUDFLARE_DERIVER_A_ED25519_YAO_READ_PAIR_STATUS_PATH,
@@ -42,6 +42,17 @@ const SIGNING_WORKER_SERVICE_URL: &str = "https://router-ab-signing-worker.inter
 const ROUTER_SPAN_EVENT: &str = "router_ab_yao_coordinator_span_v1";
 const ROUTER_REPLAY_HEADER: &str = "x-seams-yao-replay";
 const ROUTER_AUTHORITY_TTL_MS: u64 = 60_000;
+
+enum RouterRoleCallError {
+    Protocol(RouterAbProtocolError),
+    Failure(CloudflareEd25519YaoRoleFailureResponseV1),
+}
+
+impl From<RouterAbProtocolError> for RouterRoleCallError {
+    fn from(error: RouterAbProtocolError) -> Self {
+        Self::Protocol(error)
+    }
+}
 
 #[derive(Serialize)]
 struct CoordinatorSpan<'a> {
@@ -250,7 +261,7 @@ async fn execute_router_ceremony_v1(
         pair_binding: pair_binding.clone(),
         input: input_b,
     };
-    let prepare_a = post_role_json::<_, Ed25519YaoRoleReadinessReceiptV1>(
+    let prepare_a = post_role_json_for_ceremony_with_span::<_, Ed25519YaoRoleReadinessReceiptV1>(
         env,
         runtime.deriver_a_peer().binding_name.as_str(),
         DERIVER_A_SERVICE_URL,
@@ -258,8 +269,10 @@ async fn execute_router_ceremony_v1(
         "Deriver A pair preparation",
         &prepare_request_a,
         trace_id,
+        "router.prepare_pair.deriver_a",
+        operation_label(operation),
     );
-    let prepare_b = post_role_json::<_, Ed25519YaoRoleReadinessReceiptV1>(
+    let prepare_b = post_role_json_for_ceremony_with_span::<_, Ed25519YaoRoleReadinessReceiptV1>(
         env,
         runtime.deriver_b_peer().binding_name.as_str(),
         DERIVER_B_SERVICE_URL,
@@ -267,6 +280,8 @@ async fn execute_router_ceremony_v1(
         "Deriver B pair preparation",
         &prepare_request_b,
         trace_id,
+        "router.prepare_pair.deriver_b",
+        operation_label(operation),
     );
     let (receipt_a, receipt_b) = match futures::try_join!(prepare_a, prepare_b) {
         Ok(receipts) => receipts,
@@ -278,7 +293,7 @@ async fn execute_router_ceremony_v1(
                 prepare_started_at_ms,
                 "failure",
             );
-            return Err(error);
+            return resolve_role_call_error(error, &pair_binding);
         }
     };
     emit_span(
@@ -319,7 +334,7 @@ async fn execute_router_ceremony_v1(
     );
     readiness_result?;
     let execute_started_at_ms = cloudflare_now_unix_ms_v1()?;
-    let execution = match post_role_json::<_, Ed25519YaoRoleExecutionV1>(
+    let execution = match post_role_json_for_ceremony_with_span::<_, Ed25519YaoRoleExecutionV1>(
         env,
         runtime.deriver_a_peer().binding_name.as_str(),
         DERIVER_A_SERVICE_URL,
@@ -330,6 +345,8 @@ async fn execute_router_ceremony_v1(
             peer_receipt: receipt_b,
         },
         trace_id,
+        "router.deriver_a_execute.http",
+        operation_label(operation),
     )
     .await
     {
@@ -342,7 +359,7 @@ async fn execute_router_ceremony_v1(
                 execute_started_at_ms,
                 "failure",
             );
-            return Err(error);
+            return resolve_role_call_error(error, &pair_binding);
         }
     };
     let execution_validation = match execution.validate() {
@@ -369,7 +386,10 @@ async fn execute_router_ceremony_v1(
 
     let transcript = execution_transcript(&execution);
     let completed_read_started_at_ms = cloudflare_now_unix_ms_v1()?;
-    let completed_b = post_role_json::<_, CloudflareEd25519YaoPairCompletionAcknowledgementV1>(
+    let completed_b = post_role_json_for_ceremony_with_span::<
+        _,
+        CloudflareEd25519YaoPairCompletionAcknowledgementV1,
+    >(
         env,
         runtime.deriver_b_peer().binding_name.as_str(),
         DERIVER_B_SERVICE_URL,
@@ -380,23 +400,26 @@ async fn execute_router_ceremony_v1(
             pair_digest: pair_binding.pair_digest().bytes,
         },
         trace_id,
+        "router.deriver_b_completed_read.http",
+        operation_label(operation),
     )
     .await;
     let completed_b = match completed_b {
         Ok(acknowledgement) => {
+            let result = acknowledgement.validate_for_request(
+                &CloudflareEd25519YaoReadCompletedPairRequestV1 {
+                    session: pair_binding.session(),
+                    pair_digest: pair_binding.pair_digest().bytes,
+                },
+            );
             emit_span(
                 trace_id,
                 "router.deriver_b_completed_read",
                 operation_label(operation),
                 completed_read_started_at_ms,
-                "success",
+                if result.is_ok() { "success" } else { "failure" },
             );
-            acknowledgement.validate_for_request(
-                &CloudflareEd25519YaoReadCompletedPairRequestV1 {
-                    session: pair_binding.session(),
-                    pair_digest: pair_binding.pair_digest().bytes,
-                },
-            )?
+            result?
         }
         Err(error) => {
             emit_span(
@@ -406,7 +429,7 @@ async fn execute_router_ceremony_v1(
                 completed_read_started_at_ms,
                 "failure",
             );
-            return Err(error);
+            return resolve_role_call_error(error, &pair_binding);
         }
     };
     validate_execution(
@@ -1000,6 +1023,94 @@ where
     TRequest: Serialize,
     TResponse: DeserializeOwned,
 {
+    let mut response = post_role_request(
+        env,
+        binding_name,
+        service_origin,
+        path,
+        label,
+        body,
+        trace_id,
+    )
+    .await?;
+    if !(200..=299).contains(&response.status_code()) {
+        let status = response.status_code();
+        let _ = response.text().await;
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            format!("{label} service returned HTTP {status}"),
+        ));
+    }
+    response.json::<TResponse>().await.map_err(|error| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("{label} response JSON parse failed: {error}"),
+        )
+    })
+}
+
+async fn post_role_json_for_ceremony<TRequest, TResponse>(
+    env: &Env,
+    binding_name: &str,
+    service_origin: &str,
+    path: &str,
+    label: &str,
+    body: &TRequest,
+    trace_id: Option<crate::CloudflareTraceIdV1>,
+) -> Result<TResponse, RouterRoleCallError>
+where
+    TRequest: Serialize,
+    TResponse: DeserializeOwned,
+{
+    let mut response = post_role_request(
+        env,
+        binding_name,
+        service_origin,
+        path,
+        label,
+        body,
+        trace_id,
+    )
+    .await
+    .map_err(RouterRoleCallError::Protocol)?;
+    if !(200..=299).contains(&response.status_code()) {
+        let status = response.status_code();
+        let response_body = response.text().await.map_err(|error| {
+            RouterRoleCallError::Protocol(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("{label} error response body read failed: {error}"),
+            ))
+        })?;
+        if let Ok(failure) =
+            serde_json::from_str::<CloudflareEd25519YaoRoleFailureResponseV1>(&response_body)
+        {
+            return Err(RouterRoleCallError::Failure(failure));
+        }
+        return Err(RouterRoleCallError::Protocol(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            format!("{label} service returned HTTP {status}"),
+        )));
+    }
+    response.json::<TResponse>().await.map_err(|error| {
+        RouterRoleCallError::Protocol(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("{label} response JSON parse failed: {error}"),
+        ))
+    })
+}
+
+async fn post_role_request<TRequest>(
+    env: &Env,
+    binding_name: &str,
+    service_origin: &str,
+    path: &str,
+    label: &str,
+    body: &TRequest,
+    trace_id: Option<crate::CloudflareTraceIdV1>,
+) -> RouterAbProtocolResult<Response>
+where
+    TRequest: Serialize,
+{
     let fetcher = env.service(binding_name).map_err(|error| {
         RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
@@ -1031,30 +1142,77 @@ where
                 format!("{label} request construction failed: {error}"),
             )
         })?;
-    let mut response = fetcher.fetch_request(request).await.map_err(|error| {
+    let response = fetcher.fetch_request(request).await.map_err(|error| {
         RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
             format!("{label} service request failed: {error}"),
         )
     })?;
-    if !(200..=299).contains(&response.status_code()) {
-        let status = response.status_code();
-        let _ = response.text().await;
-        return Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-            format!("{label} service returned HTTP {status}"),
-        ));
-    }
-    response.json::<TResponse>().await.map_err(|error| {
-        RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::MalformedWirePayload,
-            format!("{label} response JSON parse failed: {error}"),
-        )
-    })
+    Ok(response)
+}
+
+async fn post_role_json_for_ceremony_with_span<TRequest, TResponse>(
+    env: &Env,
+    binding_name: &str,
+    service_origin: &str,
+    path: &str,
+    label: &str,
+    body: &TRequest,
+    trace_id: Option<crate::CloudflareTraceIdV1>,
+    span: &str,
+    operation: &str,
+) -> Result<TResponse, RouterRoleCallError>
+where
+    TRequest: Serialize,
+    TResponse: DeserializeOwned,
+{
+    let started_at_ms = cloudflare_now_unix_ms_v1().unwrap_or_default();
+    let result = post_role_json_for_ceremony(
+        env,
+        binding_name,
+        service_origin,
+        path,
+        label,
+        body,
+        trace_id,
+    )
+    .await;
+    emit_span(
+        trace_id,
+        span,
+        operation,
+        started_at_ms,
+        if result.is_ok() { "success" } else { "failure" },
+    );
+    result
 }
 
 fn invalid_coordinator(message: &str) -> RouterAbProtocolError {
     RouterAbProtocolError::new(RouterAbProtocolErrorCode::MalformedWirePayload, message)
+}
+
+fn resolve_role_call_error(
+    error: RouterRoleCallError,
+    pair_binding: &Ed25519YaoInputPairBindingV1,
+) -> RouterAbProtocolResult<RouterEd25519YaoExecuteResultV1> {
+    match error {
+        RouterRoleCallError::Protocol(error) => Err(error),
+        RouterRoleCallError::Failure(
+            CloudflareEd25519YaoRoleFailureResponseV1::RecoverableFailure {
+                code,
+                retry_after_ms,
+            },
+        ) => RouterEd25519YaoExecuteResultV1::recoverable(code, retry_after_ms),
+        RouterRoleCallError::Failure(CloudflareEd25519YaoRoleFailureResponseV1::Rejected {
+            code,
+        }) => Ok(RouterEd25519YaoExecuteResultV1::rejected(code)),
+        RouterRoleCallError::Failure(CloudflareEd25519YaoRoleFailureResponseV1::Burned {
+            reason,
+        }) => Ok(RouterEd25519YaoExecuteResultV1::burned(
+            router_execution_id(pair_binding)?,
+            reason,
+        )),
+    }
 }
 
 fn parse_router_replay_header(request: &Request) -> RouterAbProtocolResult<bool> {

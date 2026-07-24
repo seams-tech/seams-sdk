@@ -64,6 +64,7 @@ export type RouterAbEd25519YaoExportFailure = {
     | 'binding_mismatch'
     | 'export_consumed'
     | 'execution_failed'
+    | 'ceremony_expired'
     | 'active_identity_mismatch';
   readonly message: string;
 };
@@ -80,6 +81,18 @@ export type RouterAbEd25519YaoExportBackendResult =
       readonly code: string;
       readonly message: string;
     };
+
+function exportBackendFailure(
+  result: Extract<RouterAbEd25519YaoExportBackendResult, { readonly ok: false }>,
+  fallbackCode: 'admission_failed' | 'execution_failed',
+): RouterAbEd25519YaoExportFailure {
+  return {
+    ok: false,
+    status: result.code === 'ceremony_expired' ? 409 : result.status,
+    code: result.code === 'ceremony_expired' ? 'ceremony_expired' : fallbackCode,
+    message: `${result.code}: ${result.message}`,
+  };
+}
 
 export interface RouterAbEd25519YaoExportBackend {
   admitExport(
@@ -320,11 +333,7 @@ export class InMemoryRouterAbEd25519YaoExportService implements RouterAbEd25519Y
       });
     }
     if (!backendResult.ok) {
-      return failure({
-        status: backendResult.status,
-        code: 'admission_failed',
-        message: `${backendResult.code}: ${backendResult.message}`,
-      });
+      return exportBackendFailure(backendResult, 'admission_failed');
     }
     const parsed = parseRouterAbEd25519YaoExportAdmissionReceiptV1(backendResult.body);
     if (!parsed.ok) {
@@ -388,11 +397,7 @@ export class InMemoryRouterAbEd25519YaoExportService implements RouterAbEd25519Y
     }
     if (!backendResult.ok) {
       this.state.exports.set(session, { ...current, kind: 'burned' });
-      return failure({
-        status: backendResult.status,
-        code: 'execution_failed',
-        message: `${backendResult.code}: ${backendResult.message}`,
-      });
+      return exportBackendFailure(backendResult, 'execution_failed');
     }
     const parsed = parseRouterAbEd25519YaoExportResultV1(backendResult.body);
     if (!parsed.ok || JSON.stringify(parsed.value.binding) !== JSON.stringify(request.binding)) {

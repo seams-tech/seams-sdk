@@ -53,6 +53,7 @@ export type RouterAbEd25519YaoRecoveryFailureCode =
   | 'binding_mismatch'
   | 'execution_in_progress'
   | 'execution_failed'
+  | 'ceremony_expired'
   | 'recovery_not_staged'
   | 'activation_in_progress'
   | 'activation_failed'
@@ -579,6 +580,13 @@ function backendFailure(
   result: RouterAbEd25519YaoRecoveryBackendFailure,
   phase: 'admission_failed' | 'execution_failed' | 'activation_failed',
 ): RouterAbEd25519YaoRecoveryFailure {
+  if (result.code === 'ceremony_expired') {
+    return recoveryFailure({
+      status: 409,
+      code: 'ceremony_expired',
+      message: result.message,
+    });
+  }
   return recoveryFailure({
     status: result.status,
     code: phase,

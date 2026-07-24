@@ -241,6 +241,15 @@ function unavailableFailure(error: unknown): RouterAbEd25519YaoRegistrationBacke
   };
 }
 
+function ceremonyExpiredFailure(): RouterAbEd25519YaoRegistrationBackendFailure {
+  return {
+    ok: false,
+    status: 409,
+    code: 'ceremony_expired',
+    message: 'Router Yao ceremony expired; allocate a new ceremony identity',
+  };
+}
+
 function parseSigningWorkerReceipt(
   value: unknown,
   session: readonly number[],
@@ -426,6 +435,7 @@ function parseRouterExecuteResult(
           throw new Error('Router Yao recoverable failure code is invalid');
         }
         requirePositiveSafeInteger(envelope.retry_after_ms, 'Router Yao retry_after_ms');
+        if (envelope.code === 'ceremony_expired') return ceremonyExpiredFailure();
         return internalFailure('router_execution_retryable', 'Router Yao execution is retryable');
       }
       case 'rejected': {
@@ -433,6 +443,7 @@ function parseRouterExecuteResult(
         if (typeof envelope.code !== 'string' || envelope.code.length === 0) {
           throw new Error('Router Yao rejection code is invalid');
         }
+        if (envelope.code === 'ceremony_expired') return ceremonyExpiredFailure();
         return internalFailure('router_execution_rejected', 'Router Yao execution was rejected');
       }
       case 'burned': {

@@ -480,9 +480,8 @@ hands a precise branch to core orchestration.
 The response is an operation-specific `Result`-style union. Recoverable
 service failures, terminal burned executions, authorization rejection, and
 successful operation results remain distinct at the core contract boundary.
-The current Cloudflare adapter still maps several lower-level role failures to
-HTTP protocol errors; a typed recoverable-failure carrier for those paths is an
-open contract item.
+Pair-bound role routes carry sanitized failure classes across the HTTP boundary;
+legacy role routes retain protocol-error responses until the drain cleanup.
 
 ### Private Role Commands
 
@@ -833,13 +832,18 @@ an explicit scope decision:
   Gateway contract test asserts that no digest preimage or derived pair field
   is constructed locally.
 - SigningWorker activation receipts are now checked against the admitted
-  operation (`Active` for registration and `Staged` for recovery). The role
-  transport still maps several lower-level failures through generic protocol
-  errors; a fully typed recoverable-failure carrier remains a contract follow-up.
+  operation (`Active` for registration and `Staged` for recovery). Pair-bound
+  role routes emit a sanitized typed failure envelope, and the Router decodes
+  it into the canonical recoverable, rejected, or burned result union. Legacy
+  role routes and SigningWorker transport retain their existing protocol-error
+  boundary until the drain cleanup.
 - The Router's one-shot B result read now consumes a typed completion
   acknowledgment envelope. The envelope revalidates the session, pair digest,
   role, and execution before transcript validation; a pending B state remains a
   typed failure rather than a coordination retry loop.
+- The Gateway preserves `ceremony_expired` as a terminal 409 failure instead of
+  treating it as an exact retry. Callers must allocate a new ceremony identity
+  after the nonterminal lifetime has elapsed.
 - Caller-disconnect handling follows the forward burn policy when the Router
   observes an uncertain role result. Cloudflare request cancellation does not
   guarantee a post-disconnect callback, so proving burn for a dropped caller
@@ -979,14 +983,18 @@ registration.post_touch_id
     router.parse_and_authorize
     router.role_status_reconciliation
     router.prepare_pair
+      router.prepare_pair.deriver_a
+      router.prepare_pair.deriver_b
     router.verify_readiness_receipts
     router.deriver_a_execute
+      router.deriver_a_execute.http
       deriver_a.root_share
       deriver_a.websocket_connect
       deriver_a.yao_protocol
       deriver_b.session_do
       deriver_b.yao_protocol
     router.deriver_b_completed_read
+      router.deriver_b_completed_read.http
     router.signing_worker_delivery
   gateway.d1_commit
   frontend.wallet_ready
