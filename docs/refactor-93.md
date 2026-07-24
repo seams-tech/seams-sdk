@@ -610,21 +610,23 @@ digests and therefore requires a new ceremony identity.
 
 ### Phase 2: Pair-Bound Role Lifecycle
 
-- [ ] Add `Prepared`, pair digest, and role-local input digest to A and B
+- [x] Add `Prepared`, pair digest, and role-local input digest to A and B
       role-local state.
-- [ ] Add idempotent A and B `prepare-pair` commands and signed readiness
+- [x] Add idempotent A and B `prepare-pair` commands and signed readiness
       receipts.
-- [ ] Bind the pair digest into the peer handshake and WebSocket request.
-- [ ] Make execute-before-prepare a typed fail-closed defect result.
-- [ ] Require both exact readiness receipts before A execution.
-- [ ] Bind and revalidate role-local root metadata digests across preparation
+- [x] Bind the pair digest into the peer handshake and WebSocket request.
+- [x] Make execute-before-prepare a typed fail-closed defect result.
+- [x] Require both exact readiness receipts before A execution.
+- [x] Bind and revalidate role-local root metadata digests across preparation
       and execution.
-- [ ] Transition both role records through the signed two-phase start
+- [x] Transition both role records through the signed two-phase start
       handshake.
-- [ ] Burn uncertainty after either role enters `Running`.
-- [ ] Preserve exact completed-output redelivery.
-- [ ] Update registration, recovery, and export role adapters.
-- [ ] Mirror the production lifecycle in `router-ab-dev`.
+- [x] Burn uncertainty after either role enters `Running`.
+- [x] Preserve exact completed-output redelivery.
+- [x] Update registration, recovery, and export role adapters.
+- [x] Mirror the production lifecycle in `router-ab-dev` with a pair-bound
+      state model, role-specific receipt signing, two-phase start, uncertainty
+      burning, and exact completed-output lookup tests.
 
 ### Phase 3: MPC Router Execution Coordinator
 
