@@ -27,6 +27,7 @@ type RouterAbEd25519YaoRecoveryExecuteRequestV1 =
   RouterAbEd25519YaoActivationExecuteRequestV1<'recovery'>;
 
 const INTERNAL_AUTH_HEADER = 'x-router-ab-internal-service-auth';
+const TRACE_ID_HEADER = 'x-seams-trace-id';
 const ROUTER_EXECUTE_PATH = '/router-ab/router/ed25519-yao/execute';
 const ROUTER_RECOVERY_PROMOTE_PATH = '/router-ab/router/ed25519-yao/recovery/promote';
 
@@ -176,6 +177,14 @@ function randomSession(): number[] {
     globalThis.crypto.getRandomValues(bytes);
   } while (isZero(bytes));
   return Array.from(bytes);
+}
+
+function randomTraceId(): string {
+  const bytes = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(bytes);
+  let traceId = '';
+  for (const byte of bytes) traceId += byte.toString(16).padStart(2, '0');
+  return traceId;
 }
 
 function isZero(bytes: Uint8Array): boolean {
@@ -677,7 +686,7 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
   ): Promise<RouterAbEd25519YaoRegistrationBackendResult> {
     try {
       const routerRequest = await routerExecuteRequest(request, this.keyset());
-      const response = await this.post(ROUTER_EXECUTE_PATH, routerRequest);
+      const response = await this.post(ROUTER_EXECUTE_PATH, routerRequest, randomTraceId());
       return response.ok ? parseRouterExecuteResult(response.body, request) : response;
     } catch (error: unknown) {
       return unavailableFailure(error);
@@ -777,7 +786,7 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
   ): Promise<RouterAbEd25519YaoRegistrationBackendResult> {
     try {
       const routerRequest = await routerExecuteRequest(request, this.keyset());
-      const response = await this.post(ROUTER_EXECUTE_PATH, routerRequest);
+      const response = await this.post(ROUTER_EXECUTE_PATH, routerRequest, randomTraceId());
       return response.ok ? parseRouterExecuteResult(response.body, request) : response;
     } catch (error: unknown) {
       return unavailableFailure(error);
@@ -787,7 +796,7 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
   async activateRecovery(
     request: RouterAbEd25519YaoRecoveryActivationRequestV1,
   ): Promise<RouterAbEd25519YaoRegistrationBackendResult> {
-    const promoted = await this.post(ROUTER_RECOVERY_PROMOTE_PATH, request);
+    const promoted = await this.post(ROUTER_RECOVERY_PROMOTE_PATH, request, randomTraceId());
     if (!promoted.ok) return promoted;
     const activeReceipt = parseActiveSigningWorkerReceipt(
       promoted.body,
@@ -803,18 +812,19 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
     return { ok: true, body: request };
   }
 
-  private async post(path: string, body: unknown): Promise<HttpResult> {
+  private async post(path: string, body: unknown, traceId: string): Promise<HttpResult> {
     return await this.request(this.config.routerUrl, path, {
       method: 'POST',
-      headers: this.headers(),
+      headers: this.headers(traceId),
       body: JSON.stringify(body),
     });
   }
 
-  private headers(): Record<string, string> {
+  private headers(traceId: string): Record<string, string> {
     return {
       'content-type': 'application/json',
       [INTERNAL_AUTH_HEADER]: this.config.internalServiceAuth,
+      [TRACE_ID_HEADER]: traceId,
     };
   }
 
