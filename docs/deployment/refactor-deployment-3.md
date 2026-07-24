@@ -78,8 +78,8 @@ Allowed platform services:
 
 - `repository`
 - `cloudflare-stack`
-- `cloudflare-router-ab`
-- `cloudflare-gateway`
+- `cloudflare-mpc-router-ab`
+- `cloudflare-api-gateway`
 - `cloudflare-pages`
 
 Examples:
@@ -104,7 +104,7 @@ Filenames use lowercase action, environment, platform, and service segments:
 
 ```text
 validate-repository.yml
-validate-cloudflare-router-ab.yml
+validate-cloudflare-mpc-router-ab.yml
 deploy-staging-cloudflare-stack.yml
 deploy-production-cloudflare-stack.yml
 ```
@@ -122,11 +122,11 @@ deploy / production / cloudflare-stack / <source-sha> / manual-promotion
 Service jobs use the same environment and service vocabulary:
 
 ```text
-Build / <environment> / cloudflare-router-ab
-Build / <environment> / cloudflare-gateway
+Build / <environment> / cloudflare-mpc-router-ab
+Build / <environment> / cloudflare-api-gateway
 Build / <environment> / cloudflare-pages
-Deploy / <environment> / cloudflare-router-ab / <role>
-Deploy / <environment> / cloudflare-gateway
+Deploy / <environment> / cloudflare-mpc-router-ab / <role>
+Deploy / <environment> / cloudflare-api-gateway
 Deploy / <environment> / cloudflare-pages / <surface>
 Verify / <environment> / cloudflare-stack
 ```
@@ -143,7 +143,7 @@ job inside one of the two environment-bound stack workflows:
 | File                                     | Actions sidebar name                     | Trigger                                                                  | Mutation authority                                       |
 | ---------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------ | -------------------------------------------------------- |
 | `validate-repository.yml`                | `Validate / repository`                  | Push fast gate; pull request, merge group, or manual full validation     | None                                                     |
-| `validate-cloudflare-router-ab.yml`      | `Validate / cloudflare-router-ab`        | Relevant Router A/B pull requests, or manual dispatch                    | None                                                     |
+| `validate-cloudflare-mpc-router-ab.yml`  | `Validate / cloudflare-mpc-router-ab`    | Relevant MPC Router A/B pull requests, or manual dispatch                | None                                                     |
 | `deploy-staging-cloudflare-stack.yml`    | `Deploy / staging / cloudflare-stack`    | Successful validation of a `dev` push, or manual accepted-release input  | Staging Cloudflare environment only                      |
 | `deploy-production-cloudflare-stack.yml` | `Deploy / production / cloudflare-stack` | Successful validation of a `main` push, or manual accepted-release input | Production Cloudflare environment only                   |
 
@@ -162,10 +162,10 @@ entrypoints.
 | `build-release`                         | Builds accepted artifacts, creates a release set, then deploys      | Build and deploy jobs inside the matching environment stack workflow       |
 | `deploy-staging`                        | Manual accepted-release staging entrypoint                          | `Deploy / staging / cloudflare-stack`                                     |
 | `deploy-production`                     | Manual accepted-release production entrypoint                       | `Deploy / production / cloudflare-stack`                                  |
-| `deploy-router-ab`                      | Whole-stack orchestrator with an additional direct manual trigger   | Router A/B jobs inside the matching environment stack workflow             |
-| `deploy-gateway`                        | Standalone Gateway deployment implementation                        | `Deploy / <environment> / cloudflare-gateway` jobs                         |
+| `deploy-router-ab`                      | Whole-stack orchestrator with an additional direct manual trigger   | MPC Router A/B jobs inside the matching environment stack workflow         |
+| `deploy-gateway`                        | Standalone Gateway deployment implementation                        | `Deploy / <environment> / cloudflare-api-gateway` jobs                     |
 | `deploy-pages`                          | Standalone Pages deployment implementation                          | `Deploy / <environment> / cloudflare-pages` jobs                            |
-| `validate-router-ab`                    | Router A/B pull-request and manual validation                       | `Validate / cloudflare-router-ab`                                          |
+| `validate-router-ab`                    | Router A/B pull-request and manual validation                       | `Validate / cloudflare-mpc-router-ab`                                      |
 | `publish-sdk-r2`                        | Standalone SDK R2 publication                                       | Removed; SDK runtime assets deploy with Pages                             |
 | `router-ab`                             | Historical name for the workflow later renamed `validate-router-ab` | Remove historical Actions runs after evidence retention                   |
 | `Ed25519 Yao Phase 2B evidence staging` | Historical deleted `phase2b-change-control.yml` workflow            | Remove historical Actions runs after evidence retention                   |
@@ -181,11 +181,11 @@ Automatic staging:
 push dev
     -> Validate / repository
     -> Deploy / staging / cloudflare-stack
-       -> Build / staging / cloudflare-router-ab
-       -> Build / staging / cloudflare-gateway
+       -> Build / staging / cloudflare-mpc-router-ab
+       -> Build / staging / cloudflare-api-gateway
        -> Build / staging / cloudflare-pages
-       -> Deploy / staging / cloudflare-router-ab / <role>
-       -> Deploy / staging / cloudflare-gateway
+       -> Deploy / staging / cloudflare-mpc-router-ab / <role>
+       -> Deploy / staging / cloudflare-api-gateway
        -> Deploy / staging / cloudflare-pages / <surface>
        -> Verify / staging / cloudflare-stack
 ```
@@ -196,11 +196,11 @@ Automatic production:
 push main
     -> Validate / repository
     -> Deploy / production / cloudflare-stack
-       -> Build / production / cloudflare-router-ab
-       -> Build / production / cloudflare-gateway
+       -> Build / production / cloudflare-mpc-router-ab
+       -> Build / production / cloudflare-api-gateway
        -> Build / production / cloudflare-pages
-       -> Deploy / production / cloudflare-router-ab / <role>
-       -> Deploy / production / cloudflare-gateway
+       -> Deploy / production / cloudflare-mpc-router-ab / <role>
+       -> Deploy / production / cloudflare-api-gateway
        -> Deploy / production / cloudflare-pages / <surface>
        -> Verify / production / cloudflare-stack
 ```
@@ -281,13 +281,13 @@ only workflows with deployment authority.
 - [x] Rename `ci.yml` to `validate-repository.yml`.
 - [x] Set its display name to `Validate / repository`.
 - [x] Keep the still-valid Router A/B pull-request validation jobs in the
-      explicitly named `Validate / cloudflare-router-ab` workflow.
+      explicitly named `Validate / cloudflare-mpc-router-ab` workflow.
 - [x] Give the Router A/B validation workflow an unambiguous service name.
 - [x] Preserve the push-only release change-set artifact.
 - [x] Preserve the authority distinction between push validation and
       pull-request validation.
 - [x] Delete the old `validate-router-ab.yml`; the replacement is
-      `validate-cloudflare-router-ab.yml`.
+      `validate-cloudflare-mpc-router-ab.yml`.
 - [ ] Update branch protection rules to require the renamed validation jobs.
 - [x] Update every `workflow_run.workflows` reference to the new display name.
 
@@ -389,7 +389,7 @@ retention policy.
       `Deploy / staging / cloudflare-stack`, with the Router A/B, Gateway,
       Pages, and final smoke jobs inside that run.
 - [ ] Verify staging jobs clearly show
-      `cloudflare-router-ab`, `cloudflare-gateway`, and `cloudflare-pages`.
+      `cloudflare-mpc-router-ab`, `cloudflare-api-gateway`, and `cloudflare-pages`.
 - [ ] Verify direct service deployment buttons do not exist.
 - [ ] Verify a pull-request validation run cannot authorize deployment.
 - [ ] Verify a staging run cannot access production environment values.

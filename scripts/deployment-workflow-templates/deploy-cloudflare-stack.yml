@@ -187,7 +187,7 @@ jobs:
           echo "selected_components=$selected_components" >> "$GITHUB_OUTPUT"
 
   deploy_signing_worker:
-    name: Deploy / ${{ inputs.target }} / cloudflare-router-ab / signing-worker
+    name: Deploy / ${{ inputs.target }} / cloudflare-mpc-router-ab / signing-worker
     if: >-
       ${{
         needs.preflight_release.result == 'success' &&
@@ -304,7 +304,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   deploy_deriver_a:
-    name: Deploy / ${{ inputs.target }} / cloudflare-router-ab / deriver-a
+    name: Deploy / ${{ inputs.target }} / cloudflare-mpc-router-ab / deriver-a
     if: >-
       ${{
         needs.preflight_release.result == 'success' &&
@@ -435,7 +435,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   deploy_deriver_b:
-    name: Deploy / ${{ inputs.target }} / cloudflare-router-ab / deriver-b
+    name: Deploy / ${{ inputs.target }} / cloudflare-mpc-router-ab / deriver-b
     if: >-
       ${{
         needs.preflight_release.result == 'success' &&
@@ -566,7 +566,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   deploy_mpc_router:
-    name: Deploy / ${{ inputs.target }} / cloudflare-router-ab / router
+    name: Deploy / ${{ inputs.target }} / cloudflare-mpc-router-ab / router
     if: |
       always() &&
       needs.preflight_release.result == 'success' &&
@@ -714,7 +714,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   deploy_gateway:
-    name: Deploy / ${{ inputs.target }} / cloudflare-gateway
+    name: Deploy / ${{ inputs.target }} / cloudflare-api-gateway
     if: >-
       ${{
         needs.preflight_release.result == 'success' &&

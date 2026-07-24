@@ -22,7 +22,7 @@ const componentInputMap = {
       ],
       prefixes: ['crates/router-ab-cloudflare/src/router/'],
     }),
-    inputRule({ prefixes: ['.github/workflows/validate-cloudflare-router-ab.yml'] }),
+    inputRule({ prefixes: ['.github/workflows/validate-cloudflare-mpc-router-ab.yml'] }),
   ],
   'deriver-a': [
     inputRule({
@@ -194,7 +194,7 @@ const sharedInputRules = [
     prefixes: ['packages/shared-ts/'],
   }),
   sharedInputRule(ROUTER_COMPONENTS, {
-    exact: ['.github/workflows/validate-cloudflare-router-ab.yml'],
+    exact: ['.github/workflows/validate-cloudflare-mpc-router-ab.yml'],
   }),
   sharedInputRule(PAGES_COMPONENTS, {
     exact: [

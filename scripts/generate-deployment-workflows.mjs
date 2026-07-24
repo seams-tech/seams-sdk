@@ -283,7 +283,7 @@ function transformGatewayJobs(template, target, mode) {
     mapValue: (value) => replaceInputs(value, replacements),
   });
   const gateway = jobs[`${prefix}deploy`];
-  gateway.name = `Deploy / ${target.environment} / cloudflare-gateway`;
+  gateway.name = `Deploy / ${target.environment} / cloudflare-api-gateway`;
   mergeNeeds(gateway, [`${prefix}preflight_release`]);
   if (automatic) mergeNeeds(gateway, ['auto_create_release_set']);
   gateway.if = addEventGuard(

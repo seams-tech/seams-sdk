@@ -369,7 +369,7 @@ pnpm router:deploy:upload -- --env staging --role router
 ```
 
 The upload command requires the target Worker variables and Cloudflare
-credentials. The same checks are used by `Validate / cloudflare-router-ab` and
+credentials. The same checks are used by `Validate / cloudflare-mpc-router-ab` and
 the Router A/B jobs in the environment-specific stack workflow.
 This diagnostic upload creates a non-serving Worker version; it is not the
 production deployment or rollback path.

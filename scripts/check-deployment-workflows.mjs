@@ -7,7 +7,7 @@ import { parse as parseYaml } from 'yaml';
 const workflowRoot = '.github/workflows';
 const workflowNames = {
   'validate-repository.yml': 'Validate / repository',
-  'validate-cloudflare-router-ab.yml': 'Validate / cloudflare-router-ab',
+  'validate-cloudflare-mpc-router-ab.yml': 'Validate / cloudflare-mpc-router-ab',
   'deploy-staging-cloudflare-stack.yml': 'Deploy / staging / cloudflare-stack',
   'deploy-production-cloudflare-stack.yml': 'Deploy / production / cloudflare-stack',
 };
@@ -99,13 +99,13 @@ for (const [filename, environment, branch] of deploymentWorkflows) {
     ['auto_create_release_set', 'Create release-set manifest'],
     ['auto_preflight_release', 'Verify /'],
     ['manual_preflight_release', 'Verify /'],
-    ['auto_deploy_mpc_router', 'cloudflare-router-ab'],
-    ['auto_deploy_gateway', 'cloudflare-gateway'],
+    ['auto_deploy_mpc_router', 'cloudflare-mpc-router-ab'],
+    ['auto_deploy_gateway', 'cloudflare-api-gateway'],
     ['auto_deploy_app', 'cloudflare-pages'],
     ['auto_deploy_wallet', 'cloudflare-pages'],
     ['auto_final_smoke', 'Verify /'],
-    ['manual_deploy_mpc_router', 'cloudflare-router-ab'],
-    ['manual_deploy_gateway', 'cloudflare-gateway'],
+    ['manual_deploy_mpc_router', 'cloudflare-mpc-router-ab'],
+    ['manual_deploy_gateway', 'cloudflare-api-gateway'],
     ['manual_deploy_app', 'cloudflare-pages'],
     ['manual_deploy_wallet', 'cloudflare-pages'],
     ['manual_final_smoke', 'Verify /'],

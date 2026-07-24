@@ -126,7 +126,7 @@ jobs:
     if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push'
     env: {}
   auto_build_router:
-    name: Build / ${{ needs.auto_prepare.outputs.target }} / cloudflare-router-ab
+    name: Build / ${{ needs.auto_prepare.outputs.target }} / cloudflare-mpc-router-ab
     needs:
       - auto_prepare
       - auto_select_components
@@ -273,7 +273,7 @@ jobs:
     if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push'
     env: {}
   auto_build_gateway:
-    name: Build / ${{ needs.auto_prepare.outputs.target }} / cloudflare-gateway
+    name: Build / ${{ needs.auto_prepare.outputs.target }} / cloudflare-api-gateway
     needs:
       - auto_prepare
       - auto_select_components
@@ -757,7 +757,7 @@ jobs:
     needs:
       - auto_create_release_set
   auto_deploy_signing_worker:
-    name: Deploy / staging / cloudflare-router-ab / signing-worker
+    name: Deploy / staging / cloudflare-mpc-router-ab / signing-worker
     if: |-
       github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && (needs.auto_preflight_release.result == 'success' &&
         contains(fromJSON(needs.auto_preflight_release.outputs.selected_components), 'signing-worker'))
@@ -871,7 +871,7 @@ jobs:
             echo "- Artifact content digest: \`$manifest_digest\`"
           } >> "$GITHUB_STEP_SUMMARY"
   auto_deploy_deriver_a:
-    name: Deploy / staging / cloudflare-router-ab / deriver-a
+    name: Deploy / staging / cloudflare-mpc-router-ab / deriver-a
     if: |-
       github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && (needs.auto_preflight_release.result == 'success' &&
         contains(fromJSON(needs.auto_preflight_release.outputs.selected_components), 'deriver-a'))
@@ -999,7 +999,7 @@ jobs:
             echo "- Artifact content digest: \`$manifest_digest\`"
           } >> "$GITHUB_STEP_SUMMARY"
   auto_deploy_deriver_b:
-    name: Deploy / staging / cloudflare-router-ab / deriver-b
+    name: Deploy / staging / cloudflare-mpc-router-ab / deriver-b
     if: |-
       github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && (needs.auto_preflight_release.result == 'success' &&
         contains(fromJSON(needs.auto_preflight_release.outputs.selected_components), 'deriver-b'))
@@ -1127,7 +1127,7 @@ jobs:
             echo "- Artifact content digest: \`$manifest_digest\`"
           } >> "$GITHUB_STEP_SUMMARY"
   auto_deploy_mpc_router:
-    name: Deploy / staging / cloudflare-router-ab / router
+    name: Deploy / staging / cloudflare-mpc-router-ab / router
     if: |-
       github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && (always() &&
       needs.auto_preflight_release.result == 'success' &&
@@ -1371,7 +1371,7 @@ jobs:
       PRODUCTION_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway.n6378056.workers.dev
       RUST_TOOLCHAIN: 1.96.0
   auto_deploy_gateway:
-    name: Deploy / staging / cloudflare-gateway
+    name: Deploy / staging / cloudflare-api-gateway
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
@@ -1985,7 +1985,7 @@ jobs:
           echo "selected_components=$selected_components" >> "$GITHUB_OUTPUT"
     if: github.event_name == 'workflow_dispatch'
   manual_deploy_signing_worker:
-    name: Deploy / staging / cloudflare-router-ab / signing-worker
+    name: Deploy / staging / cloudflare-mpc-router-ab / signing-worker
     if: |-
       github.event_name == 'workflow_dispatch' && (needs.manual_preflight_release.result == 'success' &&
         contains(fromJSON(needs.manual_preflight_release.outputs.selected_components), 'signing-worker'))
@@ -2098,7 +2098,7 @@ jobs:
             echo "- Artifact content digest: \`$manifest_digest\`"
           } >> "$GITHUB_STEP_SUMMARY"
   manual_deploy_deriver_a:
-    name: Deploy / staging / cloudflare-router-ab / deriver-a
+    name: Deploy / staging / cloudflare-mpc-router-ab / deriver-a
     if: |-
       github.event_name == 'workflow_dispatch' && (needs.manual_preflight_release.result == 'success' &&
         contains(fromJSON(needs.manual_preflight_release.outputs.selected_components), 'deriver-a'))
@@ -2225,7 +2225,7 @@ jobs:
             echo "- Artifact content digest: \`$manifest_digest\`"
           } >> "$GITHUB_STEP_SUMMARY"
   manual_deploy_deriver_b:
-    name: Deploy / staging / cloudflare-router-ab / deriver-b
+    name: Deploy / staging / cloudflare-mpc-router-ab / deriver-b
     if: |-
       github.event_name == 'workflow_dispatch' && (needs.manual_preflight_release.result == 'success' &&
         contains(fromJSON(needs.manual_preflight_release.outputs.selected_components), 'deriver-b'))
@@ -2352,7 +2352,7 @@ jobs:
             echo "- Artifact content digest: \`$manifest_digest\`"
           } >> "$GITHUB_STEP_SUMMARY"
   manual_deploy_mpc_router:
-    name: Deploy / staging / cloudflare-router-ab / router
+    name: Deploy / staging / cloudflare-mpc-router-ab / router
     if: |-
       github.event_name == 'workflow_dispatch' && (always() &&
       needs.manual_preflight_release.result == 'success' &&
@@ -2594,7 +2594,7 @@ jobs:
       PRODUCTION_GATEWAY_ORIGIN: https://seams-sdk-d1-gateway.n6378056.workers.dev
       RUST_TOOLCHAIN: 1.96.0
   manual_deploy_gateway:
-    name: Deploy / staging / cloudflare-gateway
+    name: Deploy / staging / cloudflare-api-gateway
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:

@@ -23,13 +23,13 @@ variables and checked-in Cloudflare config.
 | Workflow                                                   | Trigger                                                      | Purpose                                                                           |
 | ---------------------------------------------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------- |
 | `.github/workflows/validate-repository.yml`                | Push fast gate; pull request, merge group, or manual full validation | Push policy/change-set recording; full repository validation on review paths. |
-| `.github/workflows/validate-cloudflare-router-ab.yml`      | Relevant Router A/B pull requests, or manual dispatch        | Router A/B core, Cloudflare, strict Worker, and startup validation.               |
+| `.github/workflows/validate-cloudflare-mpc-router-ab.yml`  | Relevant MPC Router A/B pull requests, or manual dispatch    | MPC Router A/B core, Cloudflare, strict Worker, and startup validation.           |
 | `.github/workflows/deploy-staging-cloudflare-stack.yml`    | Successful `dev` validation run, or manual accepted release  | Builds and deploys the selected staging Cloudflare stack.                         |
 | `.github/workflows/deploy-production-cloudflare-stack.yml` | Successful `main` validation run, or manual accepted release | Builds and deploys the selected production Cloudflare stack.                      |
 
 These are the only four repository workflows. The staging and production stack
 workflows contain the service-level build, deploy, migration, activation, Pages,
-and smoke-test jobs for `cloudflare-router-ab`, `cloudflare-gateway`,
+and smoke-test jobs for `cloudflare-mpc-router-ab`, `cloudflare-api-gateway`,
 `cloudflare-pages`, and the overall `cloudflare-stack`. No file under
 `.github/workflows` uses `workflow_call`.
 
@@ -147,7 +147,7 @@ Cloudflare mutation so retries remain short and deterministic.
 - [x] Make Worker and Pages deployment jobs download immutable artifacts and
       perform no Rust, WASM, SDK, or Vite compilation.
 - [x] Keep comprehensive tests in `Validate / repository` and
-      `Validate / cloudflare-router-ab`. Deployment jobs run static manifest
+      `Validate / cloudflare-mpc-router-ab`. Deployment jobs run static manifest
       checks and lightweight readiness checks only.
 - [x] Allow Gateway, each Router A/B role, app Pages, and wallet Pages to be
       retried independently without rebuilding successful artifacts or

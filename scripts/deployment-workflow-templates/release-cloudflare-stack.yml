@@ -109,7 +109,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
   build_router:
-    name: Build / ${{ needs.prepare.outputs.target }} / cloudflare-router-ab
+    name: Build / ${{ needs.prepare.outputs.target }} / cloudflare-mpc-router-ab
     needs:
       - prepare
       - select_components
@@ -273,7 +273,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   build_gateway:
-    name: Build / ${{ needs.prepare.outputs.target }} / cloudflare-gateway
+    name: Build / ${{ needs.prepare.outputs.target }} / cloudflare-api-gateway
     needs:
       - prepare
       - select_components
