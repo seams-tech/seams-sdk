@@ -646,35 +646,6 @@ fn sign_role_readiness_receipt_v1(
     )
 }
 
-fn placeholder_role_readiness_receipt_v1(
-    role: Ed25519YaoDeriverRoleV1,
-    session: [u8; 32],
-    pair_digest: [u8; 32],
-    input_digest: [u8; 32],
-    root_metadata_digest: [u8; 32],
-    prepared_at_ms: u64,
-    expires_at_ms: u64,
-) -> RouterAbProtocolResult<Ed25519YaoRoleReadinessReceiptV1> {
-    let signature = router_ab_core::Ed25519YaoRoleSignatureV1::new(
-        Ed25519YaoRoleSignatureSchemeV1::Ed25519V1,
-        [1_u8; 64],
-    )?;
-    Ed25519YaoRoleReadinessReceiptV1::new(
-        role,
-        Ed25519YaoSessionIdV1::new(session)?,
-        pair_digest_as_public(pair_digest),
-        pair_digest_as_public(input_digest),
-        pair_digest_as_public(root_metadata_digest),
-        prepared_at_ms,
-        expires_at_ms,
-        signature,
-    )
-}
-
-fn is_placeholder_role_readiness_receipt_v1(receipt: &Ed25519YaoRoleReadinessReceiptV1) -> bool {
-    receipt.signature().bytes() == [1_u8; 64]
-}
-
 fn verify_role_readiness_receipt_v1(
     receipt: &Ed25519YaoRoleReadinessReceiptV1,
     verifying_keys: &CloudflareSignerPeerVerifyingKeySetV1,
@@ -918,18 +889,6 @@ impl RouterAbDeriverAYaoSessionDurableObject {
                     && existing_input == input_digest
                     && now_unix_ms < expires_at_ms =>
                 {
-                    if is_placeholder_role_readiness_receipt_v1(&receipt) {
-                        storage
-                            .put(
-                                PAIR_SESSION_RECORD_STORAGE_KEY,
-                                PairYaoSessionRecordV1::Burned {
-                                    pair_digest,
-                                    input_digest,
-                                },
-                            )
-                            .await?;
-                        return Response::error("Deriver A pair readiness is incomplete", 409);
-                    }
                     return Response::from_json(&*receipt);
                 }
                 PairYaoSessionRecordV1::Completed {
@@ -978,7 +937,10 @@ impl RouterAbDeriverAYaoSessionDurableObject {
         .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
         let expires_at_ms = yao_expiry_from_now(now_unix_ms, YAO_STAGED_INPUT_LIFETIME_MS)?;
         let session = request.pair_binding.session();
-        let placeholder_receipt = placeholder_role_readiness_receipt_v1(
+        let receipt = sign_role_readiness_receipt_v1(
+            &self.env,
+            CloudflareWorkerRoleV1::DeriverA,
+            runtime.peer_signing_key(),
             Ed25519YaoDeriverRoleV1::DeriverA,
             session,
             pair_digest,
@@ -997,70 +959,6 @@ impl RouterAbDeriverAYaoSessionDurableObject {
                     root_metadata_digest,
                     expires_at_ms,
                     input: Box::new(request.input),
-                    receipt: Box::new(placeholder_receipt.clone()),
-                },
-            )
-            .await?;
-        let receipt = match sign_role_readiness_receipt_v1(
-            &self.env,
-            CloudflareWorkerRoleV1::DeriverA,
-            runtime.peer_signing_key(),
-            Ed25519YaoDeriverRoleV1::DeriverA,
-            session,
-            pair_digest,
-            input_digest,
-            root_metadata_digest,
-            now_unix_ms,
-            expires_at_ms,
-        ) {
-            Ok(receipt) => receipt,
-            Err(error) => {
-                storage
-                    .put(
-                        PAIR_SESSION_RECORD_STORAGE_KEY,
-                        PairYaoSessionRecordV1::Burned {
-                            pair_digest,
-                            input_digest,
-                        },
-                    )
-                    .await?;
-                return Err(worker::Error::RustError(error.message().to_owned()));
-            }
-        };
-        let Some(PairYaoSessionRecordV1::Prepared {
-            pair_digest: stored_pair,
-            input_digest: stored_input,
-            root_metadata_digest: stored_root,
-            expires_at_ms: stored_expiry,
-            input: stored_input_envelope,
-            receipt: stored_receipt,
-        }) = storage
-            .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
-            .await?
-        else {
-            return Err(worker::Error::RustError(
-                "Deriver A pair preparation disappeared before signing".into(),
-            ));
-        };
-        if stored_pair != pair_digest
-            || stored_input != input_digest
-            || stored_root != root_metadata_digest
-            || stored_expiry != expires_at_ms
-            || *stored_receipt != placeholder_receipt
-        {
-            return Err(worker::Error::RustError(
-                "Deriver A pair preparation changed before signing".into(),
-            ));
-        }
-        storage
-            .put(
-                PAIR_SESSION_RECORD_STORAGE_KEY,
-                PairYaoSessionRecordV1::Prepared {
-                    pair_digest,
-                    input_digest,
-                    root_metadata_digest,
-                    expires_at_ms,
-                    input: stored_input_envelope,
                     receipt: Box::new(receipt.clone()),
                 },
             )
@@ -1594,18 +1492,6 @@ impl RouterAbDeriverBYaoSessionDurableObject {
                     && stored_input == input_digest
                     && now_unix_ms < expires_at_ms =>
                 {
-                    if is_placeholder_role_readiness_receipt_v1(&receipt) {
-                        storage
-                            .put(
-                                PAIR_SESSION_RECORD_STORAGE_KEY,
-                                PairYaoSessionRecordV1::Burned {
-                                    pair_digest,
-                                    input_digest,
-                                },
-                            )
-                            .await?;
-                        return Response::error("Deriver B pair readiness is incomplete", 409);
-                    }
                     return Response::from_json(&DeriverBYaoSessionResponseV1::PairPrepared {
                         session: input.session(),
                         pair_digest: stored_pair,
@@ -1659,30 +1545,7 @@ impl RouterAbDeriverBYaoSessionDurableObject {
         .await
         .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
         let expires_at_ms = yao_expiry_from_now(now_unix_ms, YAO_STAGED_INPUT_LIFETIME_MS)?;
-        let placeholder_receipt = placeholder_role_readiness_receipt_v1(
-            Ed25519YaoDeriverRoleV1::DeriverB,
-            request.pair_binding.session(),
-            pair_digest,
-            input_digest,
-            root_metadata_digest,
-            now_unix_ms,
-            expires_at_ms,
-        )
-        .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
-        storage
-            .put(
-                PAIR_SESSION_RECORD_STORAGE_KEY,
-                PairYaoSessionRecordV1::Prepared {
-                    pair_digest,
-                    input_digest,
-                    root_metadata_digest,
-                    expires_at_ms,
-                    input: Box::new(request.input.clone()),
-                    receipt: Box::new(placeholder_receipt.clone()),
-                },
-            )
-            .await?;
-        let receipt = match sign_role_readiness_receipt_v1(
+        let receipt = sign_role_readiness_receipt_v1(
             &self.env,
             CloudflareWorkerRoleV1::DeriverB,
             runtime.peer_signing_key(),
@@ -1693,46 +1556,9 @@ impl RouterAbDeriverBYaoSessionDurableObject {
             root_metadata_digest,
             now_unix_ms,
             expires_at_ms,
-        ) {
-            Ok(receipt) => receipt,
-            Err(error) => {
-                storage
-                    .put(
-                        PAIR_SESSION_RECORD_STORAGE_KEY,
-                        PairYaoSessionRecordV1::Burned {
-                            pair_digest,
-                            input_digest,
-                        },
-                    )
-                    .await?;
-                return Err(worker::Error::RustError(error.message().to_owned()));
-            }
-        };
-        let Some(PairYaoSessionRecordV1::Prepared {
-            pair_digest: stored_pair,
-            input_digest: stored_input,
-            root_metadata_digest: stored_root,
-            expires_at_ms: stored_expiry,
-            input: stored_input_envelope,
-            receipt: stored_receipt,
-        }) = storage
-            .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
-            .await?
-        else {
-            return Err(worker::Error::RustError(
-                "Deriver B pair preparation disappeared before signing".into(),
-            ));
-        };
-        if stored_pair != pair_digest
-            || stored_input != input_digest
-            || stored_root != root_metadata_digest
-            || stored_expiry != expires_at_ms
-            || *stored_receipt != placeholder_receipt
-        {
-            return Err(worker::Error::RustError(
-                "Deriver B pair preparation changed before signing".into(),
-            ));
-        }
+        )
+        .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
+        let input = request.input;
         storage
             .put(
                 PAIR_SESSION_RECORD_STORAGE_KEY,
@@ -1741,16 +1567,16 @@ impl RouterAbDeriverBYaoSessionDurableObject {
                     input_digest,
                     root_metadata_digest,
                     expires_at_ms,
-                    input: stored_input_envelope.clone(),
+                    input: Box::new(input.clone()),
                     receipt: Box::new(receipt.clone()),
                 },
             )
             .await?;
         Response::from_json(&DeriverBYaoSessionResponseV1::PairPrepared {
-            session: request.input.session(),
+            session: input.session(),
             pair_digest,
             root_metadata_digest,
-            input: stored_input_envelope,
+            input: Box::new(input),
             receipt: Box::new(receipt),
         })
     }
