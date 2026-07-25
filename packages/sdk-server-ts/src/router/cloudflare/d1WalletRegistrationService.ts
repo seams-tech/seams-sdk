@@ -115,7 +115,7 @@ import {
   type D1RegistrationSharedSigningBudget,
 } from './d1RegistrationSharedSigningBudget';
 import { sha256BytesPortable } from './d1RouterApiAuthBoundary';
-import { alphabetizeStringify } from '@shared/utils/digests';
+import { alphabetizeStringify, bytesToUnprefixedHex } from '@shared/utils/digests';
 import { deriveThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
 import {
   type WalletEcdsaPendingSessionActivationRecord,
@@ -232,6 +232,12 @@ type Ed25519YaoProductRegistrationProvider =
 type SponsoredNamedNearAccountCreator = (input: {
   readonly accountId: string;
   readonly publicKey: string;
+  /**
+   * Registration-scoped key. The provisioning boundary persists the signed
+   * transaction under this key before broadcasting, so a retry replays those
+   * exact bytes instead of building a second transaction.
+   */
+  readonly idempotencyKey: string;
 }) => Promise<AccountCreationResult>;
 
 function errorMessage(error: unknown): string {
@@ -2139,6 +2145,12 @@ export class CloudflareD1WalletRegistrationService {
           const created = await this.createSponsoredNamedNearAccount({
             accountId: sponsoredAccountId,
             publicKey,
+            // Scoped to the activation session so a retry of this exact
+            // registration replays its prepared transaction rather than
+            // creating a second sponsored account.
+            idempotencyKey: bytesToUnprefixedHex(
+              Uint8Array.from(consumed.activation.result.binding.session_id),
+            ),
           });
           if (!created.success) {
             return {
@@ -2273,18 +2285,44 @@ export class CloudflareD1WalletRegistrationService {
       if (ed25519SignerRecord) walletSigners.push(ed25519SignerRecord);
       const persistenceTiming = startD1RegistrationRouteTiming('relayPersistenceMs');
       try {
-        if (emailOtpEnrollment.persistence) {
-          const persisted = await this.emailOtpRegistrationEnrollmentFinalizer.persistPrepared(
-            emailOtpEnrollment.persistence,
-          );
-          if (!persisted.ok) return persisted;
+        switch (ceremony.authority.kind) {
+          case 'passkey':
+            if (emailOtpEnrollment.persistence) {
+              return {
+                ok: false,
+                code: 'invalid_state',
+                message: 'Passkey registration cannot persist Email OTP enrollment state',
+              };
+            }
+            await this.walletRegistrationCommitStore.commit({
+              kind: 'passkey_wallet_registration_commit_v1',
+              wallet,
+              walletSigners,
+              authority: ceremony.authority,
+              now,
+            });
+            break;
+          case 'email_otp':
+            if (!emailOtpEnrollment.persistence) {
+              return {
+                ok: false,
+                code: 'invalid_state',
+                message: 'Email OTP registration is missing enrollment persistence state',
+              };
+            }
+            await this.walletRegistrationCommitStore.commit({
+              kind: 'email_otp_wallet_registration_commit_v1',
+              wallet,
+              walletSigners,
+              authority: ceremony.authority,
+              emailOtp:
+                this.emailOtpRegistrationEnrollmentFinalizer.prepareRegistrationCommitPlan(
+                  emailOtpEnrollment.persistence,
+                ),
+              now,
+            });
+            break;
         }
-        await this.walletRegistrationCommitStore.commit({
-          wallet,
-          walletSigners,
-          authority: ceremony.authority,
-          now,
-        });
       } finally {
         finishD1RegistrationRouteTiming(finalizeTiming, persistenceTiming);
       }

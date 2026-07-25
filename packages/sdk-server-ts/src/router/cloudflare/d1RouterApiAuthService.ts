@@ -61,9 +61,18 @@ import { CloudflareD1WalletRegistrationCommitStore } from './d1WalletRegistratio
 import { CloudflareD1WalletAddSignerService } from './d1WalletAddSignerService';
 import { CloudflareD1RegistrationIntentService } from './d1RegistrationIntentService';
 import {
-  createNamedNearAccountWithRelayer,
+  broadcastPreparedSponsoredNearAccountCreation,
   fundImplicitNearAccountWithRelayer,
+  prepareSponsoredNearAccountCreationWithRelayer,
+  type PreparedSponsoredNearAccountCreationV1,
 } from '../../core/nearRelayerAccountProvisioning';
+import {
+  runRouterAbEd25519YaoRegistrationSideEffectV1,
+  type RouterAbEd25519YaoRegistrationSideEffectRecordV1,
+  type RouterAbEd25519YaoRegistrationSideEffectStoreV1,
+} from '../routerAbEd25519YaoRegistrationSideEffectBoundary';
+import { createCloudflareD1VersionedJsonRecordStore } from './d1VersionedJsonRecordStore';
+import type { CloudflareVersionedJsonObject } from './versionedJsonRecordStore';
 import {
   normalizeD1RouterApiAuthOptions,
   type CloudflareD1RouterApiAuthServiceOptions,
@@ -97,6 +106,11 @@ type D1IdentityLinkInput = {
 type SponsoredNamedNearAccountInput = {
   readonly accountId: string;
   readonly publicKey: string;
+  /**
+   * Registration-scoped key for the durable claim. Two attempts at the same
+   * registration share a key so the second replays the first's transaction.
+   */
+  readonly idempotencyKey: string;
 };
 
 type CloudflareD1RouterApiLazyStoreState = {
@@ -412,6 +426,44 @@ async function fundImplicitNearAccountForOptions(
   });
 }
 
+function sponsoredNearAccountSideEffectStore(
+  options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
+): RouterAbEd25519YaoRegistrationSideEffectStoreV1<
+  AccountCreationResult,
+  PreparedSponsoredNearAccountCreationV1
+> {
+  return createCloudflareD1VersionedJsonRecordStore<
+    RouterAbEd25519YaoRegistrationSideEffectRecordV1<
+      AccountCreationResult,
+      PreparedSponsoredNearAccountCreationV1
+    >
+  >({
+    database: options.database,
+    scope: {
+      namespace: options.namespace,
+      orgId: options.orgId,
+      projectId: options.projectId,
+      envId: options.envId,
+    },
+    keyPrefix: 'router-ab-yao-sponsored-account:',
+    encode: (value) => value as unknown as CloudflareVersionedJsonObject,
+    parse: (raw: unknown) =>
+      raw === null || typeof raw !== 'object'
+        ? null
+        : (raw as RouterAbEd25519YaoRegistrationSideEffectRecordV1<
+            AccountCreationResult,
+            PreparedSponsoredNearAccountCreationV1
+          >),
+  });
+}
+
+/**
+ * Creates the sponsored account through a durable claim. The signed transaction
+ * and its hash are persisted before the broadcast, so a lost response replays
+ * those exact bytes instead of building a second transaction under a fresh
+ * nonce. Rebroadcasting an identical signed transaction reuses its hash, so the
+ * network treats the retry as the same transaction.
+ */
 async function createSponsoredNamedNearAccountForOptions(
   options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
   input: SponsoredNamedNearAccountInput,
@@ -427,14 +479,48 @@ async function createSponsoredNamedNearAccountForOptions(
       message: 'Sponsored NEAR account creation is not configured on this server',
     };
   }
-  return await createNamedNearAccountWithRelayer({
-    ...input,
+  const relayerInput = {
+    accountId: input.accountId,
+    publicKey: input.publicKey,
     relayerAccount,
     relayerPrivateKey,
     relayerPublicKey: options.relayerPublicKey,
     nearRpcUrl,
     initialBalanceYocto,
+  };
+  const outcome = await runRouterAbEd25519YaoRegistrationSideEffectV1<
+    AccountCreationResult,
+    PreparedSponsoredNearAccountCreationV1
+  >(sponsoredNearAccountSideEffectStore(options), {
+    operation: 'finalize',
+    key: `sponsored-account:${input.idempotencyKey}`,
+    requestFingerprint: input.idempotencyKey,
+    nowMs: () => Date.now(),
+    resumeWithPrepared: true,
+    prepare: async () => {
+      const prepared = await prepareSponsoredNearAccountCreationWithRelayer(relayerInput);
+      if (!prepared.ok) throw new Error(prepared.message);
+      return prepared.prepared;
+    },
+    execute: async (prepared) => {
+      if (!prepared) throw new Error('Sponsored NEAR account transaction was not prepared');
+      return await broadcastPreparedSponsoredNearAccountCreation({ prepared, nearRpcUrl });
+    },
   });
+  switch (outcome.kind) {
+    case 'executed':
+    case 'exact_replay':
+      return outcome.value;
+    case 'in_progress':
+    case 'request_conflict':
+    case 'uncertain': {
+      const message =
+        outcome.kind === 'uncertain'
+          ? outcome.message
+          : 'Sponsored NEAR account creation is already in progress for this registration';
+      return { success: false, error: message, message };
+    }
+  }
 }
 
 function createCloudflareD1RouterApiAuthAssembly(
