@@ -48,7 +48,7 @@ test('keeps strict ECDSA finalize available through its explicit variant', () =>
   const parsed = parseWalletRegistrationFinalizeRequest({
     registrationCeremonyId: 'registration-ceremony-3',
     kind: 'evm_family_ecdsa',
-    ecdsa: {},
+    ecdsa: { expectedKeyHandles: [' key-handle-3 '] },
   });
 
   expect(parsed).toEqual({
@@ -56,7 +56,7 @@ test('keeps strict ECDSA finalize available through its explicit variant', () =>
     value: {
       registrationCeremonyId: 'registration-ceremony-3',
       kind: 'evm_family_ecdsa',
-      ecdsa: {},
+      ecdsa: { expectedKeyHandles: ['key-handle-3'] },
     },
   });
 });
