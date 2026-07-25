@@ -108,9 +108,9 @@ export type RouterAbEd25519YaoWalletSessionMintInputV1 =
     })
   | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
       readonly kind: 'add_signer_wallet_session_v1';
-      readonly signingGrantId?: never;
-      readonly expiresAtMs?: never;
-      readonly remainingUses?: never;
+      readonly signingGrantId: string;
+      readonly expiresAtMs: number;
+      readonly remainingUses: number;
     })
   | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
       readonly kind: 'shared_email_otp_recovery_wallet_session_v1';
@@ -499,11 +499,12 @@ async function resolveRouterAbEd25519YaoWalletSessionTermsV1(
         remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
       };
     case 'add_signer_wallet_session_v1':
-      return {
-        signingGrantId: `wss_${secureRandomBase64Url(24)}`,
-        expiresAtMs: nowMs + DEFAULT_WALLET_SESSION_TTL_MS,
-        remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
-      };
+      return requireInheritedWalletSessionTerms({
+        signingGrantId: input.signingGrantId,
+        expiresAtMs: input.expiresAtMs,
+        remainingUses: input.remainingUses,
+        nowMs,
+      });
     case 'shared_email_otp_recovery_wallet_session_v1':
       return {
         signingGrantId: `wss_${secureRandomBase64Url(24)}`,

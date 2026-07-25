@@ -15,6 +15,7 @@ import {
 } from '../../packages/shared-ts/src/utils/registrationIntent';
 import type { RouterAbEd25519YaoRegistrationAdmissionRequestV1 } from '../../packages/shared-ts/src/utils/routerAbEd25519Yao';
 import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
+import type { D1DatabaseLike } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import { buildEd25519YaoCapabilityFixture } from '../helpers/ed25519YaoCapabilityFixtures';
 import {
@@ -41,6 +42,46 @@ const TEST_YAO_SESSION_ID = new Array<number>(32).fill(7);
 
 function yaoBytes(seed: number): number[] {
   return new Array<number>(32).fill(seed);
+}
+
+async function reopenAddSignerFinalizeCompletionAsStaleClaim(input: {
+  readonly database: D1DatabaseLike;
+  readonly scope: {
+    readonly namespace: string;
+    readonly orgId: string;
+    readonly projectId: string;
+    readonly envId: string;
+  };
+  readonly addSignerCeremonyId: string;
+}): Promise<void> {
+  await input.database
+    .prepare(
+      `UPDATE router_ab_yao_versioned_json_records
+          SET record_json = json_remove(
+            json_set(
+              record_json,
+              '$.kind',
+              'router_ab_ed25519_yao_registration_side_effect_claim_v1',
+              '$.claimedAtMs',
+              0
+            ),
+            '$.completedAtMs',
+            '$.response'
+          )
+        WHERE namespace = ?1
+          AND org_id = ?2
+          AND project_id = ?3
+          AND env_id = ?4
+          AND record_key = ?5`,
+    )
+    .bind(
+      input.scope.namespace,
+      input.scope.orgId,
+      input.scope.projectId,
+      input.scope.envId,
+      `wallet-add-signer-finalize:add-signer-finalize:${input.addSignerCeremonyId}`,
+    )
+    .run();
 }
 
 function yaoRegistrationBinding(
@@ -99,6 +140,11 @@ type TestEd25519WalletSessionBudget = {
   readonly remainingUses: number;
 };
 
+type TestAddSignerWalletSessionMintInput = Extract<
+  RouterAbEd25519YaoWalletSessionMintInputV1,
+  { readonly kind: 'add_signer_wallet_session_v1' }
+>;
+
 function assertNeverTestWalletSessionMintInput(input: never): never {
   throw new Error(`Unexpected test Wallet Session mint kind: ${String(input)}`);
 }
@@ -108,11 +154,16 @@ function testEd25519WalletSessionBudget(
 ): TestEd25519WalletSessionBudget {
   switch (input.kind) {
     case 'registration_wallet_session_v1':
-    case 'add_signer_wallet_session_v1':
       return {
         signingGrantId: 'test-add-signer-signing-grant',
         expiresAtMs: Date.now() + 60_000,
         remainingUses: 3,
+      };
+    case 'add_signer_wallet_session_v1':
+      return {
+        signingGrantId: input.signingGrantId,
+        expiresAtMs: input.expiresAtMs,
+        remainingUses: input.remainingUses,
       };
     case 'shared_email_otp_recovery_wallet_session_v1':
       return {
@@ -144,6 +195,18 @@ class TestEd25519YaoAddSignerRuntime implements RouterAbEd25519YaoProductRegistr
   freshConsumptions = 0;
   installCalls = 0;
   mintCalls = 0;
+  readonly mintInputs: TestAddSignerWalletSessionMintInput[] = [];
+  private loseCeremonyWriteAfterMint: {
+    readonly stub: { rejectNextSet(key: string): void };
+    readonly key: string;
+  } | null = null;
+
+  armCeremonyWriteResponseLossAfterNextMint(input: {
+    readonly stub: { rejectNextSet(key: string): void };
+    readonly key: string;
+  }): void {
+    this.loseCeremonyWriteAfterMint = input;
+  }
 
   async bindVerifiedIntent(
     input: Parameters<RouterAbEd25519YaoProductRegistrationRuntimeV1['bindVerifiedIntent']>[0],
@@ -254,6 +317,11 @@ class TestEd25519YaoAddSignerRuntime implements RouterAbEd25519YaoProductRegistr
     input: RouterAbEd25519YaoWalletSessionMintInputV1,
   ): ReturnType<RouterAbEd25519YaoProductRegistrationRuntimeV1['mintWalletSession']> {
     this.mintCalls += 1;
+    if (input.kind === 'add_signer_wallet_session_v1') this.mintInputs.push(input);
+    if (this.loseCeremonyWriteAfterMint) {
+      this.loseCeremonyWriteAfterMint.stub.rejectNextSet(this.loseCeremonyWriteAfterMint.key);
+      this.loseCeremonyWriteAfterMint = null;
+    }
     const budget = testEd25519WalletSessionBudget(input);
     return {
       ok: true,
@@ -929,20 +997,28 @@ test('Cloudflare D1 Router API auth service finalizes and replays Ed25519 Yao ad
         },
       },
     };
-    durableObjects.stub.rejectNextSet(ceremonyKey);
+    yaoRuntime.armCeremonyWriteResponseLossAfterNextMint({
+      stub: durableObjects.stub,
+      key: ceremonyKey,
+    });
     await expect(
       service.walletAuthMethods.finalizeWalletAddSigner(exactFinalize),
     ).resolves.toMatchObject({ ok: false, code: 'internal' });
     expect(yaoRuntime.consumeCalls).toBe(1);
     expect(yaoRuntime.freshConsumptions).toBe(1);
-    expect(yaoRuntime.mintCalls).toBe(0);
+    expect(yaoRuntime.mintCalls).toBe(1);
     await expect(
       service.walletAuthMethods.finalizeWalletAddSigner({
         ...exactFinalize,
         idempotencyKey: 'ed25519-yao-add-signer-post-consume-takeover',
       }),
-    ).resolves.toMatchObject({ ok: false, code: 'activation_consumed' });
+    ).resolves.toMatchObject({ ok: false, code: 'idempotency_conflict' });
 
+    await expireD1VersionedJsonClaims({
+      database,
+      ...scope,
+      recordKeyPrefix: 'wallet-add-signer-finalize:',
+    });
     durableObjects.stub.rejectNextGetDel(ceremonyKey);
     const finalized = await service.walletAuthMethods.finalizeWalletAddSigner(exactFinalize);
     if (!finalized.ok) throw new Error(finalized.message);
@@ -961,9 +1037,15 @@ test('Cloudflare D1 Router API auth service finalizes and replays Ed25519 Yao ad
         },
       },
     });
-    expect(yaoRuntime.consumeCalls).toBe(3);
+    expect(yaoRuntime.consumeCalls).toBe(1);
     expect(yaoRuntime.freshConsumptions).toBe(1);
-    expect(yaoRuntime.mintCalls).toBe(1);
+    expect(yaoRuntime.mintCalls).toBe(2);
+    expect(yaoRuntime.mintInputs).toHaveLength(2);
+    expect(yaoRuntime.mintInputs[1]).toMatchObject({
+      signingGrantId: yaoRuntime.mintInputs[0]?.signingGrantId,
+      expiresAtMs: yaoRuntime.mintInputs[0]?.expiresAtMs,
+      remainingUses: yaoRuntime.mintInputs[0]?.remainingUses,
+    });
     expect(yaoRuntime.installCalls).toBe(1);
     expect(durableObjects.stub.values.get(ceremonyKey)).toBeDefined();
 
@@ -984,10 +1066,15 @@ test('Cloudflare D1 Router API auth service finalizes and replays Ed25519 Yao ad
         idempotencyKey: 'ed25519-yao-add-signer-takeover',
       }),
     ).resolves.toMatchObject({ ok: false, code: 'idempotency_conflict' });
+    await reopenAddSignerFinalizeCompletionAsStaleClaim({
+      database,
+      scope,
+      addSignerCeremonyId: started.addSignerCeremonyId,
+    });
     await expect(service.walletAuthMethods.finalizeWalletAddSigner(exactFinalize)).resolves.toEqual(
       finalized,
     );
-    expect(yaoRuntime.consumeCalls).toBe(3);
+    expect(yaoRuntime.consumeCalls).toBe(1);
     expect(yaoRuntime.freshConsumptions).toBe(1);
     expect(durableObjects.stub.values.get(ceremonyKey)).toBeUndefined();
 
