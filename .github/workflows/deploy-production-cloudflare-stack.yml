@@ -589,6 +589,7 @@ jobs:
           set -euo pipefail
           mkdir -p .release-artifacts/release-set
           node scripts/deployment-release.mjs create \
+            --lane backend \
             --target "$DEPLOY_TARGET" \
             --source-sha "$DEPLOY_SHA" \
             --accepted-validation-run-id "$VALIDATION_RUN_ID" \
