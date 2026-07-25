@@ -864,6 +864,9 @@ an explicit scope decision:
   it into the canonical recoverable, rejected, or burned result union. Legacy
   role routes and SigningWorker transport retain their existing protocol-error
   boundary until the drain cleanup.
+- Pair lifecycle failure classification is now protocol-code driven for missing
+      preparation, expired preparation, and pair conflicts. Human-readable error
+      text remains diagnostic and cannot select a retry or rejection branch.
 - The Router's one-shot B result read now consumes a typed completion
   acknowledgment envelope. The envelope revalidates the session, pair digest,
   role, and execution before transcript validation; a pending B state remains a
