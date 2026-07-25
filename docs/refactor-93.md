@@ -1070,6 +1070,12 @@ route-deletion cleanup.
       The authorized staging-only replacement procedure and pre-upload backup
       receipt are recorded in
       [`refactor-93-staging-custody-rotation.md`](./refactor-93-staging-custody-rotation.md).
+      Staging backend run `30174308501` deployed the matched replacement pair
+      and fresh role-local object scopes from frozen `dev` revision
+      `bf3642dc4` on 2026-07-26. All deployment preflights and five Gateway
+      smoke endpoints passed. This item remains open until a fresh dual-branch
+      registration proves both root-share systems accept `epoch-1` through the
+      product data path.
 - [ ] With every family window unset, complete the staging cohort for
       registration, recovery, export, exact replay, conflict, disconnect,
       terminal redelivery, rollback, restart, and concurrency on that frozen
