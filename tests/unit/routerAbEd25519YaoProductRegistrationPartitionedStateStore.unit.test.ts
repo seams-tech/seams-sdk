@@ -8,10 +8,16 @@ import {
   type RouterAbEd25519YaoProductRegistrationPartitionMutationV1,
   type RouterAbEd25519YaoProductRegistrationPartitionRecordStoreV1,
   type RouterAbEd25519YaoProductRegistrationPartitionRecordV1,
+  type RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
 import { createRouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistration';
 import { encodeRouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPersistence';
 import type { CloudflareVersionedJsonRecordReadResult } from '../../packages/sdk-server-ts/src/router/cloudflare/versionedJsonRecordStore';
+import {
+  runRouterAbEd25519YaoProductRegistrationRequestScopedV1,
+  type RouterAbEd25519YaoProductRegistrationRequestScopedExecutionV1,
+} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationRequestScopedRunner';
+import type { RouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistration';
 
 type StoredRecord = {
   readonly value: RouterAbEd25519YaoProductRegistrationPartitionRecordV1;
@@ -21,9 +27,7 @@ type StoredRecord = {
 class MemoryPartitionRecordStore implements RouterAbEd25519YaoProductRegistrationPartitionRecordStoreV1 {
   readonly records = new Map<string, StoredRecord>();
 
-  async readMany(
-    keys: readonly string[],
-  ): Promise<
+  async readMany(keys: readonly string[]): Promise<
     readonly {
       readonly key: string;
       readonly result: CloudflareVersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>;
@@ -72,6 +76,46 @@ class MemoryPartitionRecordStore implements RouterAbEd25519YaoProductRegistratio
       })),
     };
   }
+}
+
+async function executeRequestWithSession(
+  state: RouterAbEd25519YaoProductRegistrationStateV1,
+): Promise<{
+  readonly state: RouterAbEd25519YaoProductRegistrationStateV1;
+  readonly value: string;
+}> {
+  state.registration.lifecycleSessions.set('lifecycle-runner', 'session-runner');
+  return { state, value: 'request-response' };
+}
+
+function createConflictExecutor(
+  store: RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
+): RouterAbEd25519YaoProductRegistrationRequestScopedExecutionV1<string> {
+  return executeStaleRequestAfterWinner.bind(null, store);
+}
+
+async function executeStaleRequestAfterWinner(
+  store: RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
+  state: RouterAbEd25519YaoProductRegistrationStateV1,
+): Promise<{
+  readonly state: RouterAbEd25519YaoProductRegistrationStateV1;
+  readonly value: string;
+}> {
+  state.registration.lifecycleSessions.set('lifecycle-conflict', 'stale-session');
+  state.export.authorizationNonces.add('stale');
+  const winner = await store.load('lifecycle-conflict');
+  winner.state.export.authorizationNonces.add('winner');
+  const committed = await store.commit({
+    lifecycleId: 'lifecycle-conflict',
+    state: winner.state,
+    sharedState: winner.sharedState,
+    sharedVersion: winner.sharedVersion,
+    ceremonyVersion: winner.ceremonyVersion,
+  });
+  if (committed.kind !== 'stored') {
+    throw new Error('Expected the concurrent winner to commit');
+  }
+  return { state, value: 'stale-response' };
 }
 
 test.describe('partitioned Gateway product-state composition', () => {
@@ -233,6 +277,73 @@ test.describe('partitioned Gateway product-state composition', () => {
     await expect(store.load('lifecycle-c')).resolves.toMatchObject({
       state: { registration: { lifecycleSessions: new Map([['lifecycle-c', 'winner']]) } },
       sharedVersion: '1',
+      ceremonyVersion: '2',
+    });
+  });
+
+  test('loads and commits a request-local state snapshot with typed output', async () => {
+    const backend = new MemoryPartitionRecordStore();
+    const store = createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1(backend);
+    const initial = await store.load('lifecycle-runner');
+    initial.state.export.authorizationNonces.add('seed');
+    await store.commit({
+      lifecycleId: 'lifecycle-runner',
+      state: initial.state,
+      sharedState: initial.sharedState,
+      sharedVersion: initial.sharedVersion,
+      ceremonyVersion: initial.ceremonyVersion,
+    });
+
+    await expect(
+      runRouterAbEd25519YaoProductRegistrationRequestScopedV1({
+        lifecycleId: 'lifecycle-runner',
+        store,
+        execute: executeRequestWithSession,
+      }),
+    ).resolves.toEqual({
+      kind: 'committed',
+      value: 'request-response',
+      sharedVersion: '1',
+      ceremonyVersion: '2',
+    });
+    expect(backend.records.get(ROUTER_AB_ED25519_YAO_SHARED_STATE_RECORD_KEY_V1)?.version).toBe(1);
+
+    await expect(store.load('lifecycle-runner')).resolves.toMatchObject({
+      state: {
+        registration: {
+          lifecycleSessions: new Map([['lifecycle-runner', 'session-runner']]),
+        },
+      },
+    });
+  });
+
+  test('returns a typed conflict when a concurrent request wins the shared CAS', async () => {
+    const backend = new MemoryPartitionRecordStore();
+    const store = createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1(backend);
+    const initial = await store.load('lifecycle-conflict');
+    initial.state.export.authorizationNonces.add('initial');
+    await store.commit({
+      lifecycleId: 'lifecycle-conflict',
+      state: initial.state,
+      sharedState: initial.sharedState,
+      sharedVersion: initial.sharedVersion,
+      ceremonyVersion: initial.ceremonyVersion,
+    });
+
+    await expect(
+      runRouterAbEd25519YaoProductRegistrationRequestScopedV1({
+        lifecycleId: 'lifecycle-conflict',
+        store,
+        execute: createConflictExecutor(store),
+      }),
+    ).resolves.toEqual({ kind: 'version_mismatch', key: 'shared' });
+
+    await expect(store.load('lifecycle-conflict')).resolves.toMatchObject({
+      state: {
+        registration: { lifecycleSessions: new Map() },
+        export: { authorizationNonces: new Set(['initial', 'winner']) },
+      },
+      sharedVersion: '2',
       ceremonyVersion: '2',
     });
   });
