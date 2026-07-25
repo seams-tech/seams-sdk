@@ -1,27 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-
-const REQUIRED_SECRET_NAMES = [
-  'RELAY_SESSION_HMAC_SECRET',
-  'ACCOUNT_ID_DERIVATION_SECRET',
-  'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
-  'ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK',
-  'STRIPE_API_SK',
-];
-const OPTIONAL_SECRET_NAMES = ['RELAYER_PRIVATE_KEY', 'SPONSORED_EVM_EXECUTORS_JSON'];
-const SIGNING_SESSION_SECRET_NAMES = [
-  'SIGNING_SESSION_SEAL_KEY_VERSION',
-  'SIGNING_SESSION_SHAMIR_P_B64U',
-  'SIGNING_SESSION_SEAL_E_S_B64U',
-  'SIGNING_SESSION_SEAL_D_S_B64U',
-];
+import { gatewaySecretNames, readDeploymentTarget } from '../../../scripts/deployment-targets.mjs';
 
 function main() {
   const outputPath = readOutputPath(process.argv.slice(2));
-  const secrets = readRequiredSecrets();
-  addOptionalSecrets(secrets);
-  addSigningSessionSecrets(secrets);
+  const targetName = readTargetName();
+  const target = readDeploymentTarget(targetName);
+  const secrets = readRequiredSecrets(gatewaySecretNames(target));
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, `${JSON.stringify(secrets)}\n`, {
     encoding: 'utf8',
@@ -41,32 +27,18 @@ function readOutputPath(args) {
   return path.resolve(process.cwd(), value);
 }
 
-function readRequiredSecrets() {
-  return Object.fromEntries(
-    REQUIRED_SECRET_NAMES.map((name) => [name, requireEnvironmentValue(name)]),
-  );
+function readTargetName() {
+  const target = String(process.env.DEPLOY_TARGET || '').trim();
+  if (!target) throw new Error('DEPLOY_TARGET is required');
+  return target;
 }
 
-function addOptionalSecrets(secrets) {
-  for (const name of OPTIONAL_SECRET_NAMES) {
-    const value = readEnvironmentValue(name);
-    if (value) {
-      secrets[name] = value;
-    }
+function readRequiredSecrets(names) {
+  const secrets = {};
+  for (const name of names) {
+    secrets[name] = requireEnvironmentValue(name);
   }
-}
-
-function addSigningSessionSecrets(secrets) {
-  const values = SIGNING_SESSION_SECRET_NAMES.map((name) => [name, readEnvironmentValue(name)]);
-  const configuredCount = values.filter(([, value]) => Boolean(value)).length;
-  if (configuredCount !== 0 && configuredCount !== values.length) {
-    throw new Error('all signing-session seal secrets must be configured together');
-  }
-  for (const [name, value] of values) {
-    if (value) {
-      secrets[name] = value;
-    }
-  }
+  return secrets;
 }
 
 function requireEnvironmentValue(name) {
