@@ -1027,11 +1027,17 @@ be replayed here. Contract tests and optimized four-Worker dry-runs are green;
 the first external validation must be a coherent staging rollout before any
 route-deletion cleanup.
 
-- [ ] Deploy the new Router private route as part of one coherent staging
-      release. The historical route deployment was overwritten by the
-      2026-07-25 staging stack run, whose selected source did not contain the
-      Refactor 93 coordinator. Dispatch `deploy-staging-backend.yml` from
-      `dev` after this branch lands.
+- [x] Deploy the new Router private route as part of one coherent staging
+      release. Staging backend run `30171501501` deployed `dev` revision
+      `bea123f4559e17101733c24f4f64db94ec3b286e` on 2026-07-25. Cloudflare
+      reported SigningWorker version `81c3fca0-c325-4fee-8bf8-6fe91931f1d1`,
+      Deriver A `667e7f6c-8502-4043-aa60-75b52f02c6d5`, Deriver B
+      `0a72499b-e003-4aee-9858-10781f06a361`, Router
+      `f48ea746-baa3-4a60-9758-8f9b9280aa2c`, and Gateway
+      `e0dd36d0-787b-4e19-beb0-c84b8955cc8b`, each at 100% traffic. The
+      Gateway version annotation records the selected revision. Workflow and
+      independent readiness checks passed, and all six family-window bindings
+      remained empty.
 - [ ] With every family window unset, exercise registration, recovery, export,
       replay, restart, and concurrency on that frozen staging revision. In this
       phase `legacy_runtime` means tenant-runtime lifecycle persistence; the
