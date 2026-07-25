@@ -37,13 +37,13 @@ capability check, not production evidence.
 The active staging versions are not one coherent Refactor 93 deployment. The
 latest active version timestamps are:
 
-| Worker | Version | Created (UTC) |
-| --- | --- | --- |
-| `router-ab-mpc-router-staging` | `c908c692-d254-4ca5-ac98-433d57829913` | `2026-07-25T05:34:46.844011Z` |
-| `router-ab-deriver-a-staging` | `10959b1b-1aae-436f-b01f-32ea89add211` | `2026-07-25T05:31:00.806662Z` |
-| `router-ab-deriver-b-staging` | `2d5f7ab4-b245-4c5f-8b20-174a6d0738ab` | `2026-07-25T05:31:03.068707Z` |
+| Worker                             | Version                                | Created (UTC)                 |
+| ---------------------------------- | -------------------------------------- | ----------------------------- |
+| `router-ab-mpc-router-staging`     | `c908c692-d254-4ca5-ac98-433d57829913` | `2026-07-25T05:34:46.844011Z` |
+| `router-ab-deriver-a-staging`      | `10959b1b-1aae-436f-b01f-32ea89add211` | `2026-07-25T05:31:00.806662Z` |
+| `router-ab-deriver-b-staging`      | `2d5f7ab4-b245-4c5f-8b20-174a6d0738ab` | `2026-07-25T05:31:03.068707Z` |
 | `router-ab-signing-worker-staging` | `49c5d928-48ca-4fd8-8320-f2a202dcf46f` | `2026-07-25T05:31:18.085944Z` |
-| `seams-sdk-d1-gateway-staging` | `3764caf6-d8fb-43c7-a647-a16103368022` | `2026-07-24T12:03:37.161982Z` |
+| `seams-sdk-d1-gateway-staging`     | `3764caf6-d8fb-43c7-a647-a16103368022` | `2026-07-24T12:03:37.161982Z` |
 
 The active Gateway version still exposes `ROUTER_API_RUNTIME` and direct
 `DERIVER_A`, `DERIVER_B`, and `SIGNING_WORKER` bindings. It does not expose
@@ -166,8 +166,8 @@ Current readiness blockers are:
    `frontend.wallet_ready` events on the same canonical `x-seams-trace-id`
    correlation path. The frontend and Gateway route emitters are implemented;
    deployment collection and D1-write attribution remain to be verified.
-2. Emit separate A and B preparation durations beneath
-   `router.prepare_pair`.
+2. Verify deployed collection preserves the existing separate A and B
+   preparation durations beneath `router.prepare_pair`.
 3. Record a platform-supported isolate-instantiation or reuse fact. Deployment
    cohort labels alone do not prove isolate reuse.
 4. Roll out Gateway, Router, Deriver A, Deriver B, and SigningWorker

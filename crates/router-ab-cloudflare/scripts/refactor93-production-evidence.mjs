@@ -25,7 +25,6 @@ const REQUIRED_TRACE_SPANS = [
   'gateway.pre_yao',
   'gateway.yao_execute',
   'router.parse_and_authorize',
-  'router.role_status_reconciliation',
   'router.prepare_pair',
   'router.verify_readiness_receipts',
   'router.deriver_a_execute',
@@ -43,6 +42,7 @@ const REQUIRED_PREPARATION_SPANS = [
   'router.prepare_pair.deriver_a',
   'router.prepare_pair.deriver_b',
 ];
+const REPLAY_RECONCILIATION_SPAN = 'router.role_status_reconciliation';
 const EVENT_SPAN_FAMILIES = {
   seams_registration_timing_span_v1: ['registration.', 'frontend.'],
   router_ab_yao_gateway_span_v1: ['gateway.'],
@@ -364,6 +364,12 @@ function analyzeTrace(trace, events) {
     (field) => executionTelemetry[field.name] === undefined,
   ).map((field) => field.wireName);
   const d1QueriesInExecution = executionTelemetry.d1QueryCount ?? null;
+  const missingReplaySpans =
+    executionTelemetry.exactReplayCount !== undefined && executionTelemetry.exactReplayCount > 0
+      ? successfulSpanMissing(registrationEvents, REPLAY_RECONCILIATION_SPAN)
+        ? [REPLAY_RECONCILIATION_SPAN]
+        : []
+      : [];
   const unknownIsolateReuse = [];
   for (const component of REQUIRED_ISOLATE_REUSE_COMPONENTS) {
     if (trace.isolateReuse[component] === 'unknown') unknownIsolateReuse.push(component);
@@ -388,6 +394,7 @@ function analyzeTrace(trace, events) {
     cohort: trace.cohort,
     complete:
       missingSpans.length === 0 &&
+      missingReplaySpans.length === 0 &&
       missingPreparationSpans.length === 0 &&
       failedSpans.length === 0 &&
       duplicateBudgetSpans.length === 0 &&
@@ -399,6 +406,7 @@ function analyzeTrace(trace, events) {
     isolateReuse: trace.isolateReuse,
     eventCount: registrationEvents.length,
     missingSpans,
+    missingReplaySpans,
     missingPreparationSpans,
     failedSpans,
     duplicateBudgetSpans,
@@ -446,6 +454,11 @@ function addTraceBlockers(blockers, report) {
   if (report.missingPreparationSpans.length > 0) {
     blockers.push(
       `${report.traceId} cannot measure overlapped A/B preparation; missing: ${report.missingPreparationSpans.join(', ')}`,
+    );
+  }
+  if (report.missingReplaySpans.length > 0) {
+    blockers.push(
+      `${report.traceId} recorded an exact replay without reconciliation: ${report.missingReplaySpans.join(', ')}`,
     );
   }
   if (report.failedSpans.length > 0) {
@@ -569,7 +582,11 @@ function isBudgetEligibleTrace(report) {
 }
 
 function isRequiredTraceSpan(span) {
-  return REQUIRED_TRACE_SPANS.includes(span);
+  return REQUIRED_TRACE_SPANS.includes(span) || span === REPLAY_RECONCILIATION_SPAN;
+}
+
+function successfulSpanMissing(events, span) {
+  return !events.some(matchesSuccessfulSpan(span));
 }
 
 function isRegistrationEvidenceEvent(event) {

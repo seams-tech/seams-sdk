@@ -12,7 +12,6 @@ const REQUIRED_SPANS = [
   'gateway.pre_yao',
   'gateway.yao_execute',
   'router.parse_and_authorize',
-  'router.role_status_reconciliation',
   'router.prepare_pair',
   'router.verify_readiness_receipts',
   'router.deriver_a_execute',
@@ -105,6 +104,38 @@ test('evidence gate requires execution telemetry and rejects D1 work inside Yao'
     ),
   );
   assert.equal(report.budgets.gatewayYaoExecuteMs.all.sampleCount, 18);
+});
+
+test('evidence gate requires role reconciliation only when an exact replay occurred', () => {
+  const ordinary = buildFixture({ environment: 'production', traceCount: 20 });
+  const ordinaryReport = analyzeRefactor93ProductionEvidence(ordinary);
+
+  assert.equal(ordinaryReport.readiness.phase0BaselineReady, true);
+  assert.equal(
+    ordinaryReport.traceReports[0].missingReplaySpans.length,
+    0,
+    'zero-replay traces do not cross the reconciliation boundary',
+  );
+
+  const replayed = buildFixture({ environment: 'production', traceCount: 20 });
+  const execution = replayed.events.find((event) => event.span === 'gateway.yao_execute');
+  if (!execution) throw new Error('execution span fixture is required');
+  execution.exact_replay_count = 1;
+  const missingReconciliation = analyzeRefactor93ProductionEvidence(replayed);
+
+  assert.equal(missingReconciliation.readiness.phase0BaselineReady, false);
+  assert.ok(
+    missingReconciliation.readiness.blockers.some((blocker) =>
+      blocker.includes('recorded an exact replay without reconciliation'),
+    ),
+  );
+
+  replayed.events.push(
+    spanEvent(replayed.manifest.traces[0].traceId, 'router.role_status_reconciliation', 25),
+  );
+  const reconciled = analyzeRefactor93ProductionEvidence(replayed);
+
+  assert.equal(reconciled.readiness.phase0BaselineReady, true);
 });
 
 test('JSONL parser extracts direct, Wrangler tail, and Workers Logs span messages', () => {
