@@ -902,6 +902,12 @@ migrated, its binding and migration have not been deleted, and this checkbox
 remains open until composition wrappers load and CAS one ceremony record per
 request.
 
+The request-boundary parser remains intentionally unwired until the composition
+can load and CAS the correct product records. Routing a full four-map snapshot
+to one Durable Object per lifecycle would isolate registrations, capabilities,
+recovery state, and export state from one another. That would be a correctness
+regression, so the tenant runtime binding remains in place during this drain.
+
 The local serving gate is a concrete wiring gap rather than an untested claim.
 `router_ab_local_worker` now gives the Router its own process and five
 SQLite-backed Router persistence boundaries, while each Deriver retains its own
