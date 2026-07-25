@@ -174,3 +174,13 @@ This review therefore records a deliberate zero-deletion result. The next
 safe Phase 5 code changes are gated on native pair serving, a coherent staging
 cutover, and the five-item deletion receipt; deleting bindings, parsers, or
 source guards before those gates would remove rollback and boundary coverage.
+
+The dry-run validator
+`crates/router-ab-cloudflare/scripts/refactor93-deployment-drain.mjs` now
+encodes the five-item receipt as a strict schema. It checks release coherence,
+registration/recovery/export success with exact replay and conflict evidence,
+the observed drain interval against staged/running/transport/rollback budgets,
+rollback rehearsal, and an empty post-drain owner inventory. Its `inventory`
+command reports references to direct-origin and tenant-runtime keys without
+authorizing deletion. It performs no Cloudflare mutation and cannot turn
+partial evidence into a green deployment gate.
