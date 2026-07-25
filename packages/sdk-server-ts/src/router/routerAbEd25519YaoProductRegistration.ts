@@ -215,7 +215,17 @@ const RECOVERY_STATE_KINDS = new Set([
   'activation_failed',
   'promoted',
 ]);
-const EXPORT_STATE_KINDS = new Set(['admitted', 'executing', 'completed', 'burned']);
+const EXPORT_STATE_KINDS = new Set([
+  'authorizing',
+  'authorization_failed',
+  'authorized',
+  'admitting',
+  'admission_failed',
+  'admitted',
+  'executing',
+  'execution_failed',
+  'completed',
+]);
 
 function isStringMapWithStateKinds(input: unknown, kinds: ReadonlySet<string>): boolean {
   if (!(input instanceof Map)) return false;
