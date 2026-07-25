@@ -832,7 +832,8 @@ route-deletion cleanup.
 - [ ] Deploy the new Router private route as part of one coherent staging
       release. The historical route deployment was overwritten by the
       2026-07-25 staging stack run, whose selected source did not contain the
-      Refactor 93 coordinator.
+      Refactor 93 coordinator. Dispatch `deploy-staging-backend.yml` from
+      `dev` after this branch lands.
 - [x] Superseded: validate the Router while the Gateway still uses the old
       request boundary. The branch already contains the Gateway cutover, so this
       ordering cannot be replayed. The coherent staging rollout below replaces
@@ -845,14 +846,16 @@ route-deletion cleanup.
 - [ ] Deploy the route-deletion cleanup.
 - [ ] Run cold-after-deploy and warm production cohorts.
 - [ ] Compare latency, errors, Durable Object calls, Worker invocations, CPU,
-      active duration, exact replay, and conflicts against the historical
+      wall time, exact replay, and conflicts against the historical
       partial observations and the first fully instrumented candidate cohort.
 - [ ] Confirm receipt sequencing improves or preserves p95 after including the
       additional A preparation request.
 - [ ] Record the final evidence in the Yao deployment plan.
-- [x] Correct Gateway workflow secret parity and add regression coverage for
-      the required `STRIPE_API_SK` input. The failed run and correction are
-      recorded in [`refactor-93-production-evidence.md`](./refactor-93-production-evidence.md);
+- [x] Replace the failed stack workflow's hard-coded Gateway secret plumbing
+      with target-capability-derived backend deployment. Staging billing is
+      disabled and excludes `STRIPE_API_SK`; production billing is enabled and
+      requires it. The historical failure and current invariant are recorded
+      in [`refactor-93-production-evidence.md`](./refactor-93-production-evidence.md);
       a new coherent staging run remains open.
 
 ## Mid-Implementation Review Dispositions (2026-07-24)

@@ -17,10 +17,7 @@ type DeploymentTargets = Readonly<Record<'staging' | 'production', DeploymentTar
 
 type DeploymentTargetsModule = {
   readonly parseDeploymentTargets: (value: unknown) => DeploymentTargets;
-  readonly componentSecretNames: (
-    target: DeploymentTarget,
-    component: string,
-  ) => readonly string[];
+  readonly componentSecretNames: (target: DeploymentTarget, component: string) => readonly string[];
 };
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -29,9 +26,10 @@ const deploymentTargetsModule = import(
 ) as Promise<DeploymentTargetsModule>;
 
 function validTargets(): Record<string, unknown> {
-  return JSON.parse(
-    readFileSync(path.join(repoRoot, 'deployment/targets.json'), 'utf8'),
-  ) as Record<string, unknown>;
+  return JSON.parse(readFileSync(path.join(repoRoot, 'deployment/targets.json'), 'utf8')) as Record<
+    string,
+    unknown
+  >;
 }
 
 function malformedTargets(): Record<string, unknown> {
@@ -153,6 +151,7 @@ test('required secrets are derived from enabled capabilities and their owners', 
     'SIGNING_SESSION_SEAL_D_S_B64U',
   ]);
   expect(module.componentSecretNames(targets.staging, 'gateway')).not.toContain('STRIPE_API_SK');
+  expect(module.componentSecretNames(targets.production, 'gateway')).toContain('STRIPE_API_SK');
   expect(module.componentSecretNames(targets.staging, 'deriver-a')).toEqual([
     'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
     'DERIVER_A_ROOT_SHARE_WIRE_SECRET',
