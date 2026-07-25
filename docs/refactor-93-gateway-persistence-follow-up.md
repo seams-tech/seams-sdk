@@ -49,6 +49,13 @@ Those adapters are intentionally not wired to production traffic yet. A
 partial route integration would allow side effects to escape before its CAS
 commit and could lose replay or authorization state.
 
+The request-boundary ceremony-key parser and per-record CAS foundation are
+implemented, but the route is intentionally unwired. The current composition
+loads a four-map product snapshot, so sending each lifecycle to an independent
+object would isolate capabilities and replay state. The tenant runtime remains
+the active boundary until the composition is split into records that preserve
+cross-ceremony invariants.
+
 ## Implementation phases
 
 ### 1. Composition boundary
