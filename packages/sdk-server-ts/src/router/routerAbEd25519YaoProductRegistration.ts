@@ -16,6 +16,7 @@ import type {
   RouterAbEd25519YaoActivationConsumerV1,
   RouterAbEd25519YaoActivationConsumptionRequestV1,
   RouterAbEd25519YaoActivationConsumptionResultV1,
+  RouterAbEd25519YaoRegistrationAdmissionClaimV1,
 } from './routerAbEd25519YaoRegistration';
 import {
   createRouterAbEd25519YaoRegistrationModule,
@@ -198,6 +199,9 @@ export function createRouterAbEd25519YaoProductRegistrationStateV1(): RouterAbEd
 }
 
 const REGISTRATION_STATE_KINDS = new Set(['admitted', 'executing', 'activated', 'failed']);
+const REGISTRATION_ADMISSION_CLAIM_KINDS = new Set([
+  'router_ab_ed25519_yao_registration_admission_claim_v1',
+]);
 const INTENT_AUTHORITY_KINDS = new Set(['available', 'admitted']);
 const CAPABILITY_STATE_KINDS = new Set(['active', 'suspended', 'retired']);
 const RECOVERY_STATE_KINDS = new Set([
@@ -259,6 +263,11 @@ function hasProductStateCollections(
   return (
     isStringMapWithStateKinds(registration.states, REGISTRATION_STATE_KINDS) &&
     isStringMap(registration.lifecycleSessions) &&
+    (registration.admissionClaims === undefined ||
+      isStringMapWithStateKinds(
+        registration.admissionClaims,
+        REGISTRATION_ADMISSION_CLAIM_KINDS,
+      )) &&
     Array.isArray(authorization.authorities) &&
     authorization.authorities.every(
       (authority) => isPlainObject(authority) && INTENT_AUTHORITY_KINDS.has(String(authority.kind)),
@@ -285,7 +294,25 @@ export function parseRouterAbEd25519YaoProductRegistrationStateV1(
       message: 'persisted Ed25519 Yao product state has invalid lifecycle collections',
     };
   }
-  return { ok: true, value: input };
+  const registration = input.registration;
+  const admissionClaims =
+    registration.admissionClaims === undefined
+      ? new Map<string, RouterAbEd25519YaoRegistrationAdmissionClaimV1>()
+      : registration.admissionClaims;
+  return {
+    ok: true,
+    value: {
+      kind: 'router_ab_ed25519_yao_product_registration_state_v1',
+      registration: {
+        states: registration.states,
+        lifecycleSessions: registration.lifecycleSessions,
+        admissionClaims,
+      },
+      authorization: input.authorization,
+      recovery: input.recovery,
+      export: input.export,
+    },
+  };
 }
 
 export function createRouterAbEd25519YaoProductRegistrationStatefulCompositionV1(input: {
