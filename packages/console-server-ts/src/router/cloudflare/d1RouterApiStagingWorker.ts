@@ -184,6 +184,8 @@ const RELAY_SIGNER_READY_TABLES = Object.freeze([
   'email_otp_challenges',
   'email_otp_grants',
   'signing_root_secret_shares',
+  'router_ab_yao_versioned_json_records',
+  'router_ab_yao_versioned_json_cas_guard',
 ]);
 
 const ROUTER_AB_CEREMONY_JWKS_PATH = '/.well-known/router-ab-ceremony-jwks.json';

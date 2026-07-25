@@ -903,13 +903,14 @@ the replacement is tracked in the
 and gates this criterion rather than expanding the Router coordinator scope.
 The shared Cloudflare adapter now provides a per-record Durable Object resolver,
 opaque versioned JSON envelopes, and transaction-backed compare-and-swap writes.
-The Gateway package also now has a request-boundary ceremony-key parser and a
-lossless codec for the registration, authorization, recovery, and export
-Map/Set graphs. These pieces define the persistence boundary and its record
-shape without routing traffic through it yet: the tenant runtime has not been
-migrated, its binding and migration have not been deleted, and this checkbox
-remains open until composition wrappers load and CAS one ceremony record per
-request.
+The Gateway package also has a request-boundary ceremony-key parser, a lossless
+codec for the registration, authorization, recovery, and export Map/Set graphs,
+and a shared-plus-ceremony state store that commits both records with one typed
+D1 CAS batch. These pieces define and test the persistence boundary without
+routing traffic through it yet: the tenant runtime has not been migrated, its
+binding and migration have not been deleted, and this checkbox remains open
+until the Gateway handler loads, runs, and commits through the composition on
+the registration, recovery, export, replay, and authorization paths.
 
 The request-boundary parser remains intentionally unwired until the composition
 can load and CAS the correct product records. Routing a full four-map snapshot
