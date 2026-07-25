@@ -15,7 +15,10 @@ import {
   createCloudflareD1RouterApiRouteExtensions,
 } from './d1ConsoleServices';
 import type { CloudflareD1EmailOtpServerSealConfig } from '@seams/sdk-server/internal/router/cloudflare/d1RouterApiAuthConfig';
-import { createCloudflareD1RouterApiAuthService } from '@seams/sdk-server/internal/router/cloudflare/d1RouterApiAuthService';
+import {
+  createCloudflareD1RouterApiAuthService,
+  createLegacyCloudflareD1RouterApiAuthService,
+} from '@seams/sdk-server/internal/router/cloudflare/d1RouterApiAuthService';
 import { loadCloudflareSignerWasmModule } from './d1SignerWasm';
 import type { ThresholdStoreConfigInput } from '@seams/sdk-server/internal/core/types';
 import { createSigningSessionSealOptions } from '@seams/sdk-server/internal/threshold/session/signingSessionSeal/options';
@@ -238,6 +241,8 @@ const RELAY_SIGNER_READY_TABLES = Object.freeze([
   'router_ab_yao_versioned_json_records',
   'router_ab_yao_versioned_json_cas_guard',
   'router_ab_yao_capability_replacements',
+  'registration_ceremony_records',
+  'registration_ceremony_cas_guard',
 ]);
 
 const ROUTER_AB_CEREMONY_JWKS_PATH = '/.well-known/router-ab-ceremony-jwks.json';
@@ -382,7 +387,11 @@ async function createRouterApiHandler(
     },
     topology: requireStagingEcdsaRegistrationTopology(env),
   });
-  const service = createCloudflareD1RouterApiAuthService({
+  const createAuthService =
+    yaoMode.kind === 'legacy_stateful'
+      ? createLegacyCloudflareD1RouterApiAuthService
+      : createCloudflareD1RouterApiAuthService;
+  const service = createAuthService({
     database: env.SIGNER_DB,
     namespace: scope.namespace,
     orgId: scope.orgId,

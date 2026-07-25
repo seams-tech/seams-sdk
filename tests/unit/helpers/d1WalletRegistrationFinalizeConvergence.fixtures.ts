@@ -85,7 +85,6 @@ const TEST_SCOPE = {
   envId: 'env-finalize',
 } as const;
 const THRESHOLD_PREFIX = 'registration-finalize-convergence';
-const REGISTRATION_STORE_PREFIX = `${THRESHOLD_PREFIX}:wallet-registration:`;
 const SIGNING_WORKER_ID = 'signing-worker-finalize';
 const REGISTRATION_CEREMONY_ID = 'registration-ceremony-finalize-1';
 const IDEMPOTENCY_KEY = 'registration-finalize-convergence-1';
@@ -367,16 +366,6 @@ async function corruptStoredSponsoredPreparedSignature(database: D1DatabaseLike)
 
 class FinalizeCeremonyDurableObjectStub implements CloudflareDurableObjectStubLike {
   readonly values = new Map<string, unknown>();
-  private loseSetResponseForKey: string | null = null;
-  private loseDeleteResponseForKey: string | null = null;
-
-  armSetResponseLoss(key: string): void {
-    this.loseSetResponseForKey = key;
-  }
-
-  armDeleteResponseLoss(key: string): void {
-    this.loseDeleteResponseForKey = key;
-  }
 
   async fetch(_input: RequestInfo, init?: RequestInit): Promise<Response> {
     const request = this.parseRequest(init?.body);
@@ -384,19 +373,11 @@ class FinalizeCeremonyDurableObjectStub implements CloudflareDurableObjectStubLi
     switch (request.op) {
       case 'set':
         this.values.set(key, request.value);
-        if (this.loseSetResponseForKey === key) {
-          this.loseSetResponseForKey = null;
-          throw new Error('simulated finalize replay response loss');
-        }
         return jsonResponse({ ok: true, value: true });
       case 'get':
         return jsonResponse({ ok: true, value: this.values.get(key) ?? null });
       case 'del': {
         const deleted = this.values.delete(key);
-        if (this.loseDeleteResponseForKey === key) {
-          this.loseDeleteResponseForKey = null;
-          throw new Error('simulated ceremony delete response loss');
-        }
         return jsonResponse({ ok: true, value: deleted });
       }
       default:
@@ -431,6 +412,8 @@ class ResponseLossD1Database implements D1DatabaseLike {
   private loseWalletCommitResponse = false;
   private loseFinalizeClaimResponse = false;
   private loseFinalizeCompletionResponse = false;
+  private loseRegistrationReplayResponse = false;
+  private loseCeremonyDeleteResponse = false;
 
   constructor(readonly delegate: D1DatabaseLike) {}
 
@@ -444,6 +427,14 @@ class ResponseLossD1Database implements D1DatabaseLike {
 
   armFinalizeCompletionResponseLoss(): void {
     this.loseFinalizeCompletionResponse = true;
+  }
+
+  armRegistrationReplayResponseLoss(): void {
+    this.loseRegistrationReplayResponse = true;
+  }
+
+  armCeremonyDeleteResponseLoss(): void {
+    this.loseCeremonyDeleteResponse = true;
   }
 
   prepare(query: string): D1PreparedStatementLike {
@@ -468,6 +459,25 @@ class ResponseLossD1Database implements D1DatabaseLike {
   }
 
   loseRunResponse(query: string, values: readonly unknown[]): void {
+    const registrationScope = String(values[4] || '');
+    const registrationRecordId = String(values[5] || '');
+    if (
+      this.loseRegistrationReplayResponse &&
+      registrationScope === 'finalize-replay' &&
+      registrationRecordId.includes(REGISTRATION_CEREMONY_ID)
+    ) {
+      this.loseRegistrationReplayResponse = false;
+      throw new Error('simulated finalize replay response loss');
+    }
+    if (
+      this.loseCeremonyDeleteResponse &&
+      registrationScope === 'ceremony' &&
+      registrationRecordId.endsWith(REGISTRATION_CEREMONY_ID) &&
+      /\bDELETE\s+FROM\s+registration_ceremony_records\b/iu.test(query)
+    ) {
+      this.loseCeremonyDeleteResponse = false;
+      throw new Error('simulated ceremony delete response loss');
+    }
     const recordKey = String(values[4] || '');
     if (!recordKey.startsWith('wallet-registration-finalize:')) return;
     if (
@@ -1001,9 +1011,10 @@ async function createFinalizeConvergenceHarnessForMode(
       : {}),
   });
   const ceremonyStore = new CloudflareD1RegistrationCeremonyIntentStore({
-    namespace: durableObjects,
-    objectName: 'threshold-store',
-    prefix: REGISTRATION_STORE_PREFIX,
+    kind: 'partitioned_d1',
+    database,
+    scope: TEST_SCOPE,
+    keyPrefix: 'gateway-registration:',
   });
   const walletId = walletIdFromString(yao.admissionRequest.application_binding.wallet_id);
   await ceremonyStore.putCeremony(
@@ -1057,14 +1068,10 @@ async function createFinalizeConvergenceHarnessForMode(
           database.armBatchResponseLoss();
           return;
         case 'finalize_replay_response_loss':
-          durableObjects.stub.armSetResponseLoss(
-            `${REGISTRATION_STORE_PREFIX}finalize-replay:${REGISTRATION_CEREMONY_ID}:${IDEMPOTENCY_KEY}`,
-          );
+          database.armRegistrationReplayResponseLoss();
           return;
         case 'ceremony_delete_response_loss':
-          durableObjects.stub.armDeleteResponseLoss(
-            `${REGISTRATION_STORE_PREFIX}ceremony:${REGISTRATION_CEREMONY_ID}`,
-          );
+          database.armCeremonyDeleteResponseLoss();
           return;
         case 'finalize_claim_response_loss':
           database.armFinalizeClaimResponseLoss();
