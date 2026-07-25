@@ -807,7 +807,10 @@ the first external validation must be a coherent staging rollout before any
 route-deletion cleanup.
 
 - [x] Deploy the new Router private route.
-- [ ] Validate it while the Gateway still uses the old request boundary.
+- [x] Superseded: validate the Router while the Gateway still uses the old
+      request boundary. The branch already contains the Gateway cutover, so this
+      ordering cannot be replayed. The coherent staging rollout below replaces
+      it as the first external validation.
 - [ ] Deploy the Gateway cutover with
       `ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS` set at admission quiescence
       and `ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS` set to that cutoff plus the
