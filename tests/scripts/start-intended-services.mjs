@@ -41,6 +41,7 @@ const skipBuild = process.env.SEAMS_INTENDED_SKIP_BUILD === '1';
 const managedChildren = [];
 let shutdownStarted = false;
 let webServerReadyServer;
+let localConsoleOrganizationId = '';
 const transientViteCachePaths = ['apps/seams-site/node_modules/.vite'];
 const requiredSdkDistArtifacts = [
   'packages/sdk-web/dist/esm/advanced.js',
@@ -286,6 +287,7 @@ function seedLocalConsole() {
       ...process.env,
       SEAMS_INTENDED_PROJECT_ENVIRONMENT_ID: projectEnvironmentId,
       SEAMS_INTENDED_PUBLISHABLE_KEY: publishableKey,
+      SEAMS_LOCAL_CONSOLE_ORG_ID: requireLocalConsoleOrganizationId(),
       SEAMS_D1_LOCAL_PERSIST_TO: d1LocalPersistPath,
       SEAMS_D1_LOCAL_WRANGLER_CONFIG: d1LocalWranglerConfigPath,
     },
@@ -323,19 +325,28 @@ function routerEnv() {
     SEAMS_D1_LOCAL_PERSIST_TO: d1LocalPersistPath,
     SEAMS_D1_LOCAL_WRANGLER_CONFIG: d1LocalWranglerConfigPath,
     SEAMS_D1_LOCAL_WASM_AUTO_BUILD: '0',
+    SEAMS_LOCAL_CONSOLE_ORG_ID: requireLocalConsoleOrganizationId(),
   };
 }
 
 function prepareD1LocalWranglerRuntimeConfig() {
-  prepareRouterAbD1LocalRuntimeConfig({
+  const runtime = prepareRouterAbD1LocalRuntimeConfig({
     repoRoot,
     localEnvRoot: routerAbLocalRoot,
     outputConfigPath: d1LocalWranglerConfigPath,
   });
+  localConsoleOrganizationId = runtime.localConsoleOrganizationId;
 
   console.log(
     `[intended-services] prepared D1 local wrangler config at ${path.relative(repoRoot, d1LocalWranglerConfigPath)}`,
   );
+}
+
+function requireLocalConsoleOrganizationId() {
+  if (!localConsoleOrganizationId) {
+    throw new Error('local console organization ID has not been prepared');
+  }
+  return localConsoleOrganizationId;
 }
 
 function spawnManaged(label, args, env) {

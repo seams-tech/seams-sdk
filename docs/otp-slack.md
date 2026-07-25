@@ -6,7 +6,7 @@ Related docs:
 
 - [Email OTP Architecture](./otp/email-otp.md)
 - [Step-Up Adaptor Refactor Plan](./refactor-34b-stepup-adaptor.md)
-- [Centaur Secrets Vault Architecture Plan](./centaur-secrets-vault.md)
+- [Satyr Secrets Vault Architecture Plan](./satyr-secrets-vault.md)
 - [Cloudflare-Native Centaur Fork Plan](./centaur-cloud-fork.md)
 
 ## Objective

@@ -17,6 +17,7 @@ import {
   parseCloudflareWorkersAiAsrModel,
 } from './transcript/CloudflareWorkersAiTranscriptProvider.ts';
 import { FakeTranscriptProvider } from './transcript/FakeTranscriptProvider.ts';
+import { PythonMoonshineTranscriptProvider } from './transcript/PythonMoonshineTranscriptProvider.ts';
 import type { VoiceIdTranscriptProvider } from './transcript/VoiceIdTranscriptProvider.ts';
 import { FakeVoiceIdVerifier } from './verifier/FakeVoiceIdVerifier.ts';
 import {
@@ -31,8 +32,17 @@ import {
   type VoiceIdChallengeNonce,
 } from '../../shared/src/ids.ts';
 import { assertNever } from '../../shared/src/assertNever.ts';
+import {
+  PythonMoonshineAnalysisProvider,
+} from './analysis/PythonMoonshineAnalysisProvider.ts';
+import {
+  SplitVoiceIdAnalysisProvider,
+  type VoiceIdAnalysisProvider,
+} from './analysis/VoiceIdAnalysisProvider.ts';
 
 export * from './VoiceIdService.ts';
+export * from './analysis/VoiceIdAnalysisProvider.ts';
+export * from './analysis/PythonMoonshineAnalysisProvider.ts';
 export * from './capability.ts';
 export * from './routes.ts';
 export * from './store/VoiceIdStores.ts';
@@ -44,6 +54,7 @@ export * from './store/VoiceIdTemplateEncryptionConfig.ts';
 export * from './transcript/FakeTranscriptProvider.ts';
 export * from './transcript/CloudflareWorkersAiTranscriptProvider.ts';
 export * from './transcript/VoiceIdTranscriptProvider.ts';
+export * from './transcript/PythonMoonshineTranscriptProvider.ts';
 export * from './verifier/FakeVoiceIdVerifier.ts';
 export * from './verifier/PythonHttpVoiceIdVerifierTransport.ts';
 export * from './verifier/PythonVoiceIdVerifier.ts';
@@ -55,7 +66,8 @@ export type VoiceIdVerifierTransportMode =
 
 export type VoiceIdTranscriptProviderMode =
   | 'fake'
-  | 'cloudflare-workers-ai';
+  | 'cloudflare-workers-ai'
+  | 'python-moonshine';
 
 export function createDefaultVoiceIdService(input: {
   auditEvents?: VoiceIdAuditEvent[];
@@ -63,11 +75,19 @@ export function createDefaultVoiceIdService(input: {
   transcriptProviderMode: VoiceIdTranscriptProviderMode;
 }): VoiceIdService {
   const auditEvents = input.auditEvents ?? [];
+  const verifier = createVoiceIdVerifierFromEnv(input.verifierMode);
+  const transcriptProvider = createVoiceIdTranscriptProviderFromEnv(input.transcriptProviderMode);
   return new VoiceIdService({
     enrollmentStore: new InMemoryVoiceIdEnrollmentStore(),
     verificationStore: new InMemoryVoiceIdVerificationStore(),
-    verifier: createVoiceIdVerifierFromEnv(input.verifierMode),
-    transcriptProvider: createVoiceIdTranscriptProviderFromEnv(input.transcriptProviderMode),
+    verifier,
+    transcriptProvider,
+    analysisProvider: createVoiceIdAnalysisProviderFromEnv({
+      verifierMode: input.verifierMode,
+      transcriptProviderMode: input.transcriptProviderMode,
+      verifier,
+      transcriptProvider,
+    }),
     config: voiceIdServiceConfigFromEnv({
       env: process.env,
       verifierMode: input.verifierMode,
@@ -76,6 +96,21 @@ export function createDefaultVoiceIdService(input: {
     createChallengeNonce: createDefaultVoiceIdChallengeNonce,
     emitAuditEvent: auditEvents.push.bind(auditEvents),
   });
+}
+
+export function createVoiceIdAnalysisProviderFromEnv(input: {
+  verifierMode: VoiceIdVerifierTransportMode;
+  transcriptProviderMode: VoiceIdTranscriptProviderMode;
+  verifier: VoiceIdVerifier;
+  transcriptProvider: VoiceIdTranscriptProvider;
+}): VoiceIdAnalysisProvider {
+  if (input.verifierMode === 'python-http' && input.transcriptProviderMode === 'python-moonshine') {
+    return new PythonMoonshineAnalysisProvider(
+      new PythonHttpVoiceIdVerifierTransport(pythonHttpConfigFromEnv()),
+      process.env.VOICEID_MOONSHINE_INTENT_NAME ?? 'expected_phrase',
+    );
+  }
+  return new SplitVoiceIdAnalysisProvider(input.transcriptProvider, input.verifier);
 }
 
 export function voiceIdServiceConfigFromEnv(input: {
@@ -140,6 +175,11 @@ export function createVoiceIdTranscriptProviderFromEnv(
         }),
         model: parseCloudflareWorkersAiAsrModel(process.env.VOICEID_CLOUDFLARE_ASR_MODEL),
       });
+    case 'python-moonshine':
+      return new PythonMoonshineTranscriptProvider(
+        new PythonHttpVoiceIdVerifierTransport(pythonHttpConfigFromEnv()),
+        process.env.VOICEID_MOONSHINE_INTENT_NAME ?? 'expected_phrase',
+      );
     default:
       return assertNever(mode);
   }
@@ -147,10 +187,12 @@ export function createVoiceIdTranscriptProviderFromEnv(
 
 export function transcriptProviderModeFromEnv(): VoiceIdTranscriptProviderMode {
   const value = process.env.VOICEID_TRANSCRIPT_PROVIDER;
-  if (value === 'fake' || value === 'cloudflare-workers-ai') {
+  if (value === 'fake' || value === 'cloudflare-workers-ai' || value === 'python-moonshine') {
     return value;
   }
-  throw new Error("VOICEID_TRANSCRIPT_PROVIDER must explicitly be 'fake' or 'cloudflare-workers-ai'");
+  throw new Error(
+    "VOICEID_TRANSCRIPT_PROVIDER must explicitly be 'fake', 'cloudflare-workers-ai', or 'python-moonshine'",
+  );
 }
 
 function createDefaultVoiceIdChallengeNonce(): VoiceIdChallengeNonce {

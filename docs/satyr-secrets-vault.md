@@ -1,14 +1,16 @@
-# Centaur Secrets Vault Architecture Plan
+# Satyr Secrets Vault Architecture Plan
 
 Status: architecture plan
 
 Related plan:
 
 - [Cloudflare-Native Centaur Fork Plan](./centaur-cloud-fork.md)
+- [Refactor 90 Modular Auth And Capability Plan](./refactor-90-modular-auth-capabilities-plan.md)
 
 ## Objective
 
-Design the first-party secrets vault for the Cloudflare-native Centaur fork.
+Design the first-party secrets vault for the Cloudflare-native Satyr platform
+and the adjacent Centaur cloud fork plan.
 The vault should let merchant operators store credentials, delegate controlled
 use to agents, and route privileged calls through trusted Worker-side egress
 handlers without giving agents reusable plaintext secrets by default.
@@ -16,7 +18,32 @@ handlers without giving agents reusable plaintext secrets by default.
 The vault is a runtime control surface, not a general consumer password manager.
 It should support dashboard management, Slack approvals, typed tools, model
 gateway calls, merchant API egress, raw database leases, audit, and optional
-1Password integration.
+commodity vault adapters.
+
+Refactor 90 implements only the minimal authorization proving slice of this
+plan. The full Satyr vault product surface remains follow-on capability-vault
+work after the shared grant model is proven.
+
+## Product Stance
+
+Secret custody is commodity infrastructure. Satyr should build a minimal
+first-party vault to avoid subscription dependence, own tenant policy and audit
+data, and support the agent runtime without relying on a third-party control
+plane.
+
+Satyr should differentiate on controlled credential use:
+
+- agents use references, placeholders, or scoped proxy tokens;
+- real credentials stay behind Secret Broker, Egress Gateway, DB Gateway, Model
+  Gateway, or a future sidecar;
+- every use is bound to a tenant, principal, capability, operation, destination,
+  grant, policy, expiry, and audit record;
+- sensitive actions can require human approval or stronger grant evidence;
+- proxy policy is deterministic and enforced outside the agent environment.
+
+Avoid competing with 1Password, Infisical, OpenBao, Bitwarden, or HashiCorp
+Vault on broad vault UX. Support adapters and import paths where useful. Build
+only the custody surface needed for Satyr's agent-safe runtime.
 
 ## Resolved Design Decisions
 
@@ -30,7 +57,8 @@ These decisions define the first architecture pass:
 4. Do not claim server-blindness for the default cloud-injection path.
 5. Keep server-blind merchant sidecar injection as a future enterprise mode.
 6. Keep own-vault storage as the primary secret backend.
-7. Treat 1Password as an adapter: live Connect reads or sync into own vault.
+7. Treat 1Password, Infisical, OpenBao, Bitwarden, and HashiCorp Vault as
+   adapter or import candidates.
 8. Delegate members receive `VaultFieldSelector` values, placeholder
    credentials, and short-lived use grants.
 9. Delegate members do not receive reusable plaintext secrets.
@@ -100,15 +128,16 @@ Seams cloud is blind to secrets during cloud injection.
 
 In scope:
 
-- Dashboard-managed secret creation, update, rotation, archiving, tagging, and
-  grant management.
+- Minimal dashboard-managed secret creation, update, rotation, archiving,
+  tagging, and grant management needed for Satyr operations.
 - Slack approval flows for sensitive access.
 - Worker-side Secret Broker APIs for typed tools, model gateway calls, egress
   transforms, and raw database leases.
 - Short-lived vault `CapabilityGrant` issuance using Seams sessions, grant
   evidence, policies, and optional MPC signer proof.
 - Own-vault encrypted payload storage.
-- 1Password adapter modes for live reads and sync/import.
+- Adapter/import paths for established vaults, starting with 1Password where it
+  accelerates customer onboarding.
 - Vault-only registration that provisions auth and vault access without
   Ed25519 or ECDSA wallet signer setup.
 - Team-based RBAC for humans, agents, and service principals, with direct and
@@ -124,6 +153,9 @@ Out of scope for the first design:
 - Offline editable vaults.
 - Shared family or personal-password workflows.
 - Broad plaintext export APIs.
+- Rich password-manager UI, browser autofill, mobile clients, sharing
+  ergonomics, and convenience workflows unrelated to Satyr agent execution.
+- Competing as a standalone vault product.
 
 ## Trust Boundaries
 
@@ -136,7 +168,7 @@ Out of scope for the first design:
 | Egress Gateway Worker | Yes, only for approved cloud-injection mode | Request rewrite, upstream call, redacted audit |
 | Merchant sidecar | Yes, only for strict server-blind tenants | Local unwrap and injection |
 | Agent container | No by default | Tool calls with secret references and placeholders |
-| 1Password adapter | Depends on adapter mode | Live fetch or sync source |
+| Commodity vault adapter | Depends on adapter mode | Live fetch, sync, or import from established vaults |
 
 Runtime modes should be explicit. `cloud_worker_injection` is the required
 default. `merchant_sidecar_injection` is an enterprise extension path.
@@ -187,7 +219,7 @@ Component responsibilities:
 | Component | Cloudflare service | Responsibility |
 | --- | --- | --- |
 | Vault API Worker | Workers | Dashboard and internal API routes |
-| Secret Broker | Workers | Grant resolution, policy checks, unwrap orchestration, 1Password adapters |
+| Secret Broker | Workers | Grant resolution, policy checks, unwrap orchestration, commodity vault adapters |
 | Capability Grant DO | Durable Objects | One-time grant state, replay locks, grant counters, per-item and per-field hot locks |
 | Approval Workflow | Workflows | Human approval, expiration, retry, escalation |
 | Async jobs | Queues | Rotation jobs, sync jobs, audit fanout |
@@ -208,7 +240,7 @@ first-party vault responsibilities.
 
 ## Domain Model
 
-Use a 1Password-style item model with typed fields and immutable versions.
+Use a commodity-vault item model with typed fields and immutable versions.
 The user-facing object is a `VaultItem`; the exact authorization target is a
 field inside a specific item version.
 
@@ -639,7 +671,7 @@ the `CapabilityGrant`.
 Shared authorization flow:
 
 ```text
-principal + SeamsSession or service-account evidence
+principal + SeamsSession or follow-on service-account evidence
   -> capability-local lane, intent, and display digests
   -> server-side policy resolution
   -> required grant evidence challenges or approvals
@@ -648,7 +680,10 @@ principal + SeamsSession or service-account evidence
   -> audit and replay lock
 ```
 
-Default vault policy should be usable without MPC:
+Full-product vault policy should be usable without MPC. Refactor 90 Slice A
+uses only the Passkey-backed session/evidence path from this table; service
+accounts, Slack OTP, SSO assurance, approvals, and `mpc_signer_proof` are
+follow-on implementation work.
 
 | Vault operation | Default grant evidence |
 | --- | --- |
@@ -658,6 +693,49 @@ Default vault policy should be usable without MPC:
 | Permission change | `passkey_assertion` and direct admin binding |
 | Break-glass reveal | `approval_decision` plus `passkey_assertion` |
 | High-assurance export or regulated reveal | Tenant policy may require `mpc_signer_proof` |
+
+## Refactor 90 Alignment
+
+Refactor 90 is the current implementation plan for modular auth and
+capabilities. Its vault scope is deliberately narrow: prove the authorization
+architecture with one production-shaped vault operation before migrating live
+MPC signing.
+
+Refactor 90 Slice A includes:
+
+- native session exchange into an opaque, tenant-bound `SeamsSession`;
+- operation-bound Passkey evidence;
+- exact one-use grant issuance, grant claim, and audit linkage;
+- a minimal vault record;
+- one proxy or reveal operation through real persistence and route adapters;
+- a minimal local Worker-compatible broker/gateway adapter for tests.
+
+Refactor 90 Slice A excludes:
+
+- service-account evidence, workload identity, and service-account vault flows;
+- Slack OTP and provider-assurance adapters;
+- Better Auth and IdP/OIDC provider functionality;
+- full vault administration, delegation, rotation, break-glass, export, and
+  broad dashboard UI;
+- production Secret Broker and Egress Gateway Worker split;
+- a general route-plugin registry or tenant-mutated route table;
+- production `mpc_signer_proof` generation.
+
+The full Satyr vault plan keeps those excluded areas as follow-on work. When a
+Refactor 90 policy requires `mpc_signer_proof`, authorization must fail closed
+until the owning MPC capability and proof policy are designed. When an operation
+requires service-account evidence, Slack OTP, Better Auth, IdP, or full vault
+administration, it belongs to a later plan.
+
+Refactor 90 also changes implementation sequencing:
+
+1. Prove the minimal session/evidence/grant/vault/audit vertical first.
+2. Migrate MPC capabilities after the grant path is proven.
+3. Keep route assembly static and explicit.
+4. Add optional vault modules to static assembly only when their real routes and
+   service ports exist.
+5. Defer broad package/WASM splitting until a security boundary or measured
+   bundle result justifies it.
 
 ## Encryption And Key Hierarchy
 
@@ -889,7 +967,11 @@ The gateway must also defend against egress bypass:
 - bind each outbound request to a tenant, evidence set, execution, and
   capability grant ID.
 
-## 1Password Adapter Plan
+## Commodity Vault Adapter Plan
+
+Start with 1Password if customer onboarding needs it. Keep the adapter shape
+generic enough for Infisical, OpenBao, Bitwarden, HashiCorp Vault, and cloud
+secret-manager import paths.
 
 Support two adapter modes:
 
@@ -1283,7 +1365,8 @@ Recommended defaults:
   requires grant evidence and tenant reveal policy. Break-glass requires
   approval evidence, a reason, one-time display, noisy audit, and a rotation
   reminder.
-- Automation: service accounts can request proxy-use and rotation grants through
+- Automation: service accounts are follow-on work after Refactor 90. The target
+  model lets them request proxy-use and rotation grants through
   `service_account_api_key` evidence. Reveal and export stay interactive unless
   a later enterprise policy explicitly enables a stronger workload proof.
 - 1Password: own vault is the runtime source of truth by default. Live Connect
@@ -1299,6 +1382,7 @@ grant machinery as MPC signing.
 
 | Critique | Resolution |
 | --- | --- |
+| Generic team vaults are commodity software with many mature alternatives. | Build the smallest first-party vault needed for Satyr, and treat broad vault UX as adapter/import work rather than differentiation. |
 | A shared auth core that imports vault, NEAR, EVM, or future capability unions will become another monolith. | `seams-authorization` only knows sessions, grant evidence, capability IDs, operation kinds, policies, digests, grants, and audit. Capability modules own rich lane, intent, and display structs. |
 | Principal-owned capabilities are too narrow for shared vaults, project wallets, team resources, and service-owned resources. | Capabilities are resource-scoped through `CapabilityInstance.resourceScope`; principals gain access through `CapabilityBinding`. |
 | “Grant” can mean durable sharing permission or one-time runtime authorization. | Durable sharing uses `VaultPermissionGrant`; runtime authorization uses `CapabilityGrant`. |
@@ -1311,6 +1395,7 @@ grant machinery as MPC signing.
 | 1Password adapter credentials can create a bootstrap cycle. | Store connector credentials as sealed tenant adapter credentials under the own-vault key hierarchy or platform bootstrap path, then expose them only through adapter-specific broker code. |
 | Metadata search leaks sensitive names, usernames, hostnames, or tags. | Classify metadata as `public_display`, `tenant_sensitive_metadata`, or `secret_value`; encrypted metadata search is an enterprise extension. |
 | Break-glass reveal is operationally necessary and risky. | Model it as a distinct operation with approval evidence, passkey or SSO assurance, one-time display, noisy audit, and post-reveal rotation reminder. |
+| Static tokens are useful, but agents increasingly need OAuth and short-lived provider tokens. | Prioritize gateway-owned OAuth exchange, refresh, and token rotation over rich item templates and password-manager convenience features. |
 
 ## Repository Inventory
 
@@ -1320,7 +1405,7 @@ landing as a parallel subsystem.
 | Area | Current inventory | Required refactor |
 | --- | --- | --- |
 | Auth monolith | `packages/sdk-server-ts/src/core/AuthService.ts` mixes wallet registration, WebAuthn, Email OTP, sessions, recovery, threshold signing, stores, and signer WASM. | Extract session/factor provider ports used by Seams authorization; keep MPC runtime behind capability modules. |
-| Route policy | `packages/sdk-server-ts/src/router/routeAuthPolicy.ts` has `console`, `api_credentials`, `user_session`, `threshold_session`, and `public`. | Add management/API/session/capability-grant route planes from refactor-83; runtime vault routes require `capability_grant`. |
+| Route policy | `packages/sdk-server-ts/src/router/routeAuthPolicy.ts` has `console`, `api_credentials`, `user_session`, `threshold_session`, and `public`. | Add management/API/session/capability-grant route planes from Refactor 90; runtime vault routes require `capability_grant`. |
 | Route definitions | `packages/sdk-server-ts/src/router/routeDefinitions.ts` validates API scopes and route auth planes centrally. | Teach definitions about `management_api_key`, `seams_session`, and `capability_grant`; keep unknown capability operations fail-closed. |
 | Cloudflare router | `packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter.ts` eagerly wires wallet, session, threshold, OTP, and seal routes. | Register vault routes through route modules with lazy runtime handler factories; keep vault-only Workers free of MPC imports. |
 | Route modules | `packages/sdk-server-ts/src/router/modules.ts` and `routeExtensions.ts` already support route extensions. | Evolve this into capability route registration; preserve Express parity only where the runtime actually supports the route. |
@@ -1340,7 +1425,7 @@ landing as a parallel subsystem.
 | Lit confirmation UI | `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/*` renders transaction/export confirmations. | Add capability display renderers for vault reveal, proxy use, permission change, and break-glass. |
 | Web worker split | `packages/sdk-web/src/core/walletRuntimePaths/*`, `SeamsWeb/walletIframe/*`, and signing workers currently load wallet/MPC runtime paths. | Add auth-only and vault-only entrypoints; assert that vault-only imports do not pull signer WASM, HSS, or MPC workers. |
 | SeamsWeb public API | `packages/sdk-web/src/SeamsWeb/publicApi/*` and `operations/registration/*` are wallet-registration heavy. | Add capability provisioning APIs and vault grant request helpers; make wallet signers optional capabilities. |
-| Server assembly | `apps/web-server/src/consoleConfig.ts` and server bootstrap seed console data. | Seed vault capability policies, direct/delegate team memberships, service-account grant-request scopes, and fake vault fixtures. |
+| Server assembly | `apps/web-server/src/consoleConfig.ts` and server bootstrap seed console data. | Seed minimal Refactor 90 vault fixtures first; add direct/delegate memberships, service-account grant-request scopes, and full vault policies in follow-on work. |
 | Examples | `examples/self-host-cloudflare-worker` and `examples/relay-cloudflare-worker` are signing/relay focused. | Add a vault-only Cloudflare Worker example with no MPC bundle, plus a full-platform example with optional MPC evidence. |
 | Tests | `tests/relayer/*`, `tests/e2e/dashboard*.test.ts`, and `tests/unit/*guard*.test.ts` cover current console, router, and signing assumptions. | Phase 0 must list obsolete wallet-only expectations, delete redundant fixtures, and add type/runtime tests for vault-only tenants, grant replay, tenant isolation, and no-MPC imports. |
 | Rust Cloudflare router | `crates/router-ab-cloudflare/*` owns existing project-policy and normal-signing Cloudflare concepts. | Inventory only for v1 unless Centaur chooses to reuse Rust router primitives for egress policy or Durable Object evaluation. |
@@ -1369,23 +1454,42 @@ policy. Pure type and parser changes can use unit tests.
 
 ## Implementation Phases
 
+This table is the Satyr vault product sequence. Refactor 90 owns only the
+minimal inventory, vocabulary, SDK/runtime selection, static route assembly,
+schema, session, evidence, grant, claim, vault operation, and audit pieces
+needed for Slice A. The remaining phases are follow-on capability-vault work.
+
+Implementation priority:
+
+1. Prove the grant-gated proxy/reveal path.
+2. Add deterministic egress policy, replay protection, redaction, and audit.
+3. Add gateway-owned OAuth exchange, refresh, and token rotation for providers
+   agents actually use.
+4. Add only the dashboard management surface required to operate those flows.
+5. Add adapters/import for established vaults when customer onboarding needs it.
+6. Defer rich password-manager features.
+
 | Phase | Focus | Deliverable |
 | --- | --- | --- |
 | 0 | Inventory and test triage | List wallet-only assumptions, redundant tests, stale fixtures, route surfaces, dashboard pages, SDK entrypoints, worker imports, migrations, and public exports. Delete tests that only preserve obsolete wallet-first behavior. |
-| 1 | Generic authorization foundation | Land or depend on refactor-83 primitives: `SeamsSession`, `GrantEvidenceRef`, `CapabilityInstance`, `CapabilityBinding`, `CapabilityOperationEnvelope`, `CapabilityGrant`, policy resolution, replay locks, and route planes. |
+| 1 | Refactor 90 authorization foundation | Land or depend on Refactor 90 primitives: `SeamsSession`, operation-bound Passkey evidence, `CapabilityInstance`, `CapabilityBinding`, `CapabilityOperationEnvelope`, `CapabilityGrant`, grant claims, audit linkage, static route assembly, and exact route subjects. |
 | 2 | Vault domain package | Add vault IDs, item/version/field/envelope types, selectors, resolved refs, permission grants, proxy bindings, runtime boundary types, and type fixtures. |
 | 3 | Persistence foundation | Add D1 migrations, D1 repositories, R2 key builders, envelope AAD builders, boundary parsers, cross-tenant denial tests, and seed fixtures. |
 | 4 | Management API and dashboard CRUD | Add vault metadata/value write APIs, dashboard list/detail/create/edit/archive flows, redacted responses, audit records, and no-echo secret write behavior. |
 | 5 | Permissions and policies | Add vault permission grants, member access mode enforcement, capability grant policies, service-account grant-request scopes, approval policy wiring, and dashboard grant UI. |
-| 6 | Proxy use runtime | Implement vault access lanes, egress proxy bindings, grant evidence challenge flow, one-time `CapabilityGrant` issuance, Secret Broker unwrap, and Egress Gateway injection. |
+| 6 | Minimal Refactor 90 vault runtime | Implement one proxy or reveal operation with real persistence, route adapters, Passkey evidence, one-time `CapabilityGrant` issuance, grant claim/use, a minimal local broker/gateway adapter, and audit readback. |
 | 7 | Reveal and break-glass | Implement direct-member reveal, approval evidence, passkey/SSO step-up, optional `mpc_signer_proof`, one-time display, noisy audit, and rotation reminder. |
-| 8 | Rotation and scoped credentials | Implement manual rotation, version activation, retired versions, scoped credential minting, rotation workflows, and service-account rotation grants. |
-| 9 | 1Password adapter | Implement live Connect read, sync/import, adapter credential custody, source fingerprinting, stale sync detection, and adapter audit. |
+| 8 | OAuth, rotation, and scoped credentials | Implement gateway-owned OAuth exchange, refresh, manual rotation, version activation, retired versions, scoped credential minting, rotation workflows, and service-account rotation grants. |
+| 9 | Commodity vault adapters | Implement 1Password first when needed, then Infisical, OpenBao, Bitwarden, or HashiCorp Vault adapters/importers based on customer demand. Include adapter credential custody, source fingerprinting, stale sync detection, and adapter audit. |
 | 10 | Bundle and deployment hardening | Prove vault-only Workers and SDK imports do not load MPC code; decide Express parity; add dedicated-data and dedicated-deployment wiring. |
 | 11 | Security hardening | Add replay, destination mismatch, redirect, redaction, tenant isolation, abuse limit, incident response, disaster recovery, and backup drills. |
 | 12 | Enterprise modes | Add merchant sidecar injection, customer-managed key hooks, opaque metadata tier, and strict server-blind tenant mode. |
 
 ## Validation Plan
+
+These checks cover the full Satyr vault product. Refactor 90 Slice A runs only
+the subset needed for the minimal session/evidence/grant/operation/audit
+vertical, plus import or route guards that protect the current static assembly.
 
 Type-level checks:
 
@@ -1419,7 +1523,8 @@ Unit tests:
 - Access intent digest construction.
 - Capability grant digest construction for signing, export, and vault access.
 - Capability registration plan normalization.
-- Service-account grant evidence normalization.
+- Service-account grant evidence normalization in the follow-on service-account
+  plan.
 - Audit redaction.
 
 Integration tests:
@@ -1436,7 +1541,7 @@ Integration tests:
 - 1Password sync fixture import.
 - Vault-only Worker bundle excludes MPC signer modules.
 - Service-account API key can request proxy-use and rotation grants only when
-  binding and policy allow it.
+  binding and policy allow it in the follow-on service-account plan.
 
 Security tests:
 
@@ -1450,7 +1555,8 @@ Security tests:
 - Secret use after active-version rotation stays bound to the originally
   resolved version.
 - Redirect to an unapproved host fails before secret injection.
-- Service-account grant evidence cannot authorize reveal or export by default.
+- Follow-on service-account grant evidence cannot authorize reveal or export by
+  default.
 - Delegate-member raw readback and reveal requests fail closed.
 - Promoted direct-member agent reveal requires explicit direct membership, grant,
   step-up, and tenant policy.
@@ -1465,7 +1571,12 @@ Security tests:
 - Should `reveal_to_human` require two-person approval for all tenants?
 - Which upstream APIs need first-class token exchange rather than raw secret
   injection?
-- Should 1Password live reads be allowed in the default pooled tier?
+- Which provider OAuth exchanges and refresh flows should be first-class before
+  adapter polish?
+- Which commodity vault adapters are needed first: 1Password, Infisical,
+  OpenBao, Bitwarden, HashiCorp Vault, AWS, GCP, or Azure?
+- Should 1Password live reads be allowed in the default pooled tier when a
+  tenant intentionally keeps 1Password as source of truth?
 - What rotation providers are needed first: OpenAI, Anthropic, Shopify, Stripe,
   GitHub, Slack, Postgres, or custom HTTP?
 - How much secret metadata can remain plaintext for dashboard search?
@@ -1474,6 +1585,7 @@ Security tests:
 ## References
 
 - [Cloudflare-Native Centaur Fork Plan](./centaur-cloud-fork.md)
+- [Refactor 90 Modular Auth And Capability Plan](./refactor-90-modular-auth-capabilities-plan.md)
 - Cloudflare Workers: https://developers.cloudflare.com/workers/
 - Cloudflare Durable Objects: https://developers.cloudflare.com/durable-objects/
 - Cloudflare D1: https://developers.cloudflare.com/d1/

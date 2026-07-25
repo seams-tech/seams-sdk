@@ -28,6 +28,8 @@ import localD1DevWorker, {
 } from '../../packages/console-server-ts/src/router/cloudflare/d1LocalDevWorker';
 import { parseEcdsaDerivationClientBootstrapRequest } from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
 import type { SponsoredEvmCallExecutorConfig } from '../../packages/console-server-ts/src/sponsorship/evmExecutorTypes';
+import { resolveStaticSponsoredExecutionPricingFromEnv } from '../../packages/console-server-ts/src/sponsorship/pricing';
+import { getNearSpendCapChainId } from '../../packages/console-shared-ts/src/gasSponsorshipSpendCapTargets';
 import {
   computeEcdsaDerivationRoleLocalRelayerKeyId,
   computeEcdsaDerivationRoleLocalThresholdKeyId,
@@ -58,7 +60,7 @@ type LocalD1WorkflowEnv = Parameters<typeof localD1DevWorker.fetch>[1];
 type JsonRecord = Record<string, unknown>;
 
 const LOCAL_D1_WORKFLOW_NAMESPACE = 'seams-local-workflow-smoke';
-const LOCAL_D1_WORKFLOW_ORG_ID = 'org-local-workflow';
+const LOCAL_D1_WORKFLOW_ORG_ID = 'org_abcdefgh1234';
 const LOCAL_D1_WORKFLOW_PROJECT_ID = 'project-local-workflow';
 const LOCAL_D1_WORKFLOW_ENV_ID = 'env-local-workflow';
 const LOCAL_D1_WORKFLOW_SIGNING_ROOT_VERSION = 'root-v1';
@@ -322,7 +324,7 @@ function createLocalD1WorkflowEnv(input: {
     THRESHOLD_STORE: new MemoryDurableObjectNamespace(),
     SEAMS_TENANT_STORAGE_NAMESPACE: 'seams-local-workflow-smoke',
     SEAMS_LOCAL_CONSOLE_USER_ID: 'local-workflow-user',
-    SEAMS_LOCAL_CONSOLE_ORG_ID: 'org-local-workflow',
+    SEAMS_LOCAL_CONSOLE_ORG_ID: LOCAL_D1_WORKFLOW_ORG_ID,
     SEAMS_LOCAL_CONSOLE_PROJECT_ID: 'project-local-workflow',
     SEAMS_LOCAL_CONSOLE_ENVIRONMENT_ID: 'env-local-workflow',
     SEAMS_LOCAL_CONSOLE_ROLES:
@@ -815,6 +817,58 @@ test('D1 Router API storage options attach sponsored EVM route extension with ex
   expect(sponsoredEvmCallConfig.executorsByChain.size).toBe(1);
 });
 
+test('D1 Router API routes NEAR pricing around the EVM-only D1 pricing adapter', async () => {
+  const database = new FakeD1Database();
+  const nearPricing = resolveStaticSponsoredExecutionPricingFromEnv({
+    SPONSORED_EXECUTION_STATIC_PRICING_JSON: JSON.stringify({
+      near: {
+        TESTNET: {
+          estimateFeeAmountYocto: '1000',
+          minorPerFeeUnitNumerator: '1',
+          minorPerFeeUnitDenominator: '1000',
+          pricingVersion: 'static-near-testnet-v1',
+        },
+      },
+    }),
+  });
+  expect(nearPricing).not.toBeNull();
+  const bundle = await createCloudflareD1ConsoleServiceBundle({
+    bindings: {
+      consoleDatabase: database,
+      signerMetadataDatabase: database,
+      thresholdStore: new MemoryDurableObjectNamespace(),
+      kekProvider: createKekProvider(),
+    },
+    route: {
+      namespace: 'seams',
+    },
+    adapters: {
+      ensureSchema: false,
+      sponsoredEvmCallConfig: createSponsoredEvmCallExecutorConfig(),
+      sponsorshipPricing: nearPricing,
+    },
+  });
+
+  const quote = await bundle.sponsorshipPricing!.estimateSponsoredExecutionSpend({
+    chainFamily: 'near',
+    intentKind: 'near_delegate',
+    executorKind: 'near_delegate',
+    environmentId: 'env-local',
+    policyId: 'policy-near',
+    accountRef: 'near:sender.testnet',
+    targetRef: 'near:guest-book.testnet',
+    chainId: getNearSpendCapChainId('TESTNET'),
+    requestDetails: {
+      receiverId: 'guest-book.testnet',
+    },
+  });
+
+  expect(quote).toEqual({
+    spendMinor: 1,
+    pricingVersion: 'static-near-testnet-v1',
+  });
+});
+
 test('local D1 Worker ready smoke validates D1 tables and DO admission', async () => {
   const database = new FakeD1Database();
   const response = await localD1DevWorker.fetch(
@@ -1226,7 +1280,7 @@ test('local D1 Worker serves dashboard onboarding state through D1 services', as
     await expect(readJsonRecord(response)).resolves.toMatchObject({
       ok: true,
       state: {
-        orgId: 'org-local-workflow',
+        orgId: LOCAL_D1_WORKFLOW_ORG_ID,
         hasOrganization: false,
         hasProject: false,
         hasEnvironment: false,

@@ -83,10 +83,13 @@ export {
   settleSponsoredPrepaidBalance,
 } from './prepaidBalance';
 export type {
+  ChainFamilySponsoredExecutionPricingConfig,
   StaticSponsoredExecutionPricingConfig,
   CoinGeckoSponsoredExecutionPricingConfig,
+  SponsoredExecutionPricingEnv,
 } from './pricing';
 export {
+  createChainFamilySponsoredExecutionPricingService,
   createCoinGeckoSponsoredExecutionPricingService,
   resolveCoinGeckoSponsoredExecutionPricingFromEnv,
   resolveSponsoredExecutionPricingFromEnv,

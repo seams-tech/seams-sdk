@@ -1,6 +1,7 @@
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
+import { resolveLocalConsoleOrganizationId } from './local-console-identity.mjs';
 import {
   localPeerSigningKeyBase64Url,
   localPeerVerifyingKeyHex,
@@ -25,6 +26,7 @@ export function prepareRouterAbStrictLocalRuntimeConfigs(input) {
   const signingWorkerEnv = readEnvMap(
     path.join(localEnvRoot, '.env.router-ab.signing-worker.local'),
   );
+  const localConsoleOrganizationId = resolveLocalConsoleOrganizationId({ localEnvRoot });
   const sdkRouterUrl = requiredEnv(routerEnv, 'GATEWAY_PUBLIC_URL');
   const mpcRouterUrl = `http://127.0.0.1:${STRICT_WORKER_ROLES[0].port}`;
 
@@ -54,6 +56,7 @@ export function prepareRouterAbStrictLocalRuntimeConfigs(input) {
       deriverAEnv,
       deriverBEnv,
       signingWorkerEnv,
+      localConsoleOrganizationId,
     });
     writeFileSync(outputPath, config);
     const secretPath = path.join(outputRoot, `.dev.vars.${role}`);
@@ -84,6 +87,7 @@ export function prepareRouterAbStrictLocalRuntimeConfigs(input) {
       signingWorker: configs[3].url,
     }),
     configs: Object.freeze(configs),
+    localConsoleOrganizationId,
   });
 }
 
@@ -108,7 +112,7 @@ function applyRoleVars(source, role, env) {
         config,
         'ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON',
         JSON.stringify({
-          org_id: 'local-smoke-org',
+          org_id: env.localConsoleOrganizationId,
           project_id: 'local-smoke-project',
           environment: 'local',
           allowed_work_kinds: [

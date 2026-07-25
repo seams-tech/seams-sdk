@@ -98,6 +98,7 @@ VOICEID_VERIFIER_TRANSPORT=python-http
 
 VOICEID_TRANSCRIPT_PROVIDER=fake
 VOICEID_TRANSCRIPT_PROVIDER=cloudflare-workers-ai
+VOICEID_TRANSCRIPT_PROVIDER=python-moonshine
 ```
 
 Cloudflare also requires an exact comma-separated browser-origin allowlist:
@@ -123,6 +124,12 @@ VOICEID_VERIFIER_QUEUE_WAIT_MS=250
 
 An exhausted queue returns a deterministic `overloaded` response. The SDK HTTP
 deadline remains the outer request deadline.
+
+The `python-http` plus `python-moonshine` profile routes verification through
+`/voice-id/verifier/analyze-verification`. It decodes one canonical mono 16 kHz
+PCM buffer and derives phrase, intent, speaker, and quality decisions from that
+same buffer. PAD remains explicitly unavailable until its model and calibration
+are complete.
 
 The local ECAPA research threshold is `0.6352` under
 `ecapa-local-dev-v1`. It is fixture-derived E0 configuration. Set

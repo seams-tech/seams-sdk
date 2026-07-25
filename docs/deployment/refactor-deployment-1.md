@@ -282,7 +282,7 @@ Performance targets:
 | Workflow             | p90 target |
 | -------------------- | ---------- |
 | Push mode of `Validate / repository` | Under 2m   |
-| `Validate / cloudflare-router-ab`        | Under 8m   |
+| `Validate / cloudflare-mpc-router-ab`    | Under 8m   |
 | Accepted-artifact staging mutation      | Under 10m  |
 | Accepted-artifact production mutation   | Under 10m  |
 

@@ -163,7 +163,25 @@ async function hmacSessionRejectsWrongAudience(): Promise<void> {
     audience: 'other-audience',
   });
   const jwt = await signer.signJwt('wallet-user', { kind: 'app_session_v1' });
-  await expect(verifier.parse(bearerHeaders(jwt))).resolves.toEqual({ ok: false });
+  await expect(verifier.parse(bearerHeaders(jwt))).resolves.toEqual({
+    ok: false,
+    reason: 'signature_invalid',
+  });
+}
+
+function hmacSessionUsesCrossSiteCookiePolicy(): void {
+  const session = createHmacSessionAdapter({
+    secret: SESSION_SECRET,
+    cookieName: 'dashboard-session',
+    ttlSeconds: 3600,
+  });
+
+  expect(session.buildSetCookie('session-token')).toMatch(
+    /^dashboard-session=session-token; Path=\/; HttpOnly; Secure; SameSite=None; Max-Age=3600; Expires=/,
+  );
+  expect(session.buildClearCookie()).toBe(
+    'dashboard-session=; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT',
+  );
 }
 
 async function consoleAuthUsesTeamRbacRoles(): Promise<void> {
@@ -252,6 +270,10 @@ async function readSecretValue(): Promise<string> {
 
 test('HMAC staging session signs and verifies JWT claims', hmacSessionRoundTrip);
 test('HMAC staging session rejects wrong audience', hmacSessionRejectsWrongAudience);
+test(
+  'HMAC staging session cookies support cross-site credentialed requests',
+  hmacSessionUsesCrossSiteCookiePolicy,
+);
 test('console staging auth resolves roles from Team RBAC', consoleAuthUsesTeamRbacRoles);
 test('console staging auth rejects token role escalation', consoleAuthIgnoresTokenRoleEscalation);
 test('Secrets Store KEK provider resolves upper-snake bindings', secretsStoreKekProviderUsesExpectedBindingName);

@@ -4,6 +4,10 @@ import { spawnSync } from 'node:child_process';
 import dotenv from 'dotenv';
 
 import {
+  parseLocalConsoleOrganizationId,
+  resolveLocalConsoleOrganizationId,
+} from '../../crates/router-ab-dev/scripts/local-console-identity.mjs';
+import {
   defaultEnvFile,
   firstNonEmptyString,
   readEnvFile,
@@ -16,6 +20,27 @@ const envFilePath = resolveRepoPath(defaultEnvFile);
 dotenv.config({ path: envFilePath, override: true });
 
 const envFile = readEnvFile(envFilePath);
+
+// Opt-out for a clean, unseeded console (e.g. to exercise the real
+// org/project/environment creation flow from scratch). Set it in the shell or
+// in .env.intended.local (SEAMS_SKIP_INTENDED_CONSOLE_SEED=1); when set, the
+// seed makes no DB or env-file changes.
+if (
+  ['1', 'true', 'yes'].includes(
+    String(
+      process.env.SEAMS_SKIP_INTENDED_CONSOLE_SEED ||
+        envFile.SEAMS_SKIP_INTENDED_CONSOLE_SEED ||
+        '',
+    )
+      .trim()
+      .toLowerCase(),
+  )
+) {
+  console.log(
+    '[intended-local-console] SEAMS_SKIP_INTENDED_CONSOLE_SEED set — skipping seed (empty console)',
+  );
+  process.exit(0);
+}
 const seedConfig = resolveSeedConfig(envFile);
 const d1LocalPersistPath = process.env.SEAMS_D1_LOCAL_PERSIST_TO || '.wrangler/state/seams-d1';
 const d1LocalWranglerConfig =
@@ -75,13 +100,15 @@ function resolveSeedConfig(localEnv) {
       localEnv.SEAMS_TENANT_STORAGE_NAMESPACE,
       'seams-local',
     ]),
-    orgId: firstNonEmptyString([
-      process.env.SEAMS_INTENDED_CONSOLE_ORG_ID,
-      localEnv.SEAMS_INTENDED_CONSOLE_ORG_ID,
-      process.env.SEAMS_LOCAL_CONSOLE_ORG_ID,
-      localEnv.SEAMS_LOCAL_CONSOLE_ORG_ID,
-      'local-smoke-org',
-    ]),
+    orgId: parseLocalConsoleOrganizationId(
+      firstNonEmptyString([
+        process.env.SEAMS_INTENDED_CONSOLE_ORG_ID,
+        localEnv.SEAMS_INTENDED_CONSOLE_ORG_ID,
+        process.env.SEAMS_LOCAL_CONSOLE_ORG_ID,
+        localEnv.SEAMS_LOCAL_CONSOLE_ORG_ID,
+        resolveLocalConsoleOrganizationId({ localEnvRoot: repoRoot }),
+      ]),
+    ),
     projectId: firstNonEmptyString([
       process.env.SEAMS_INTENDED_PROJECT_ID,
       localEnv.SEAMS_INTENDED_PROJECT_ID,
@@ -353,9 +380,14 @@ function buildTempoSponsorshipRuntimeFields(config) {
   const tempoPolicyId = `policy_intended_local_tempo_${hashStableId(
     `${config.namespace}:${config.orgId}:${config.projectId}:${config.environmentId}`,
   )}`;
-  const runtimeSnapshotVersion = config.nowMs;
+  // Bootstrap snapshot: a fixed low version + stable id so re-running the seed
+  // on every gateway restart is idempotent and NEVER supersedes a runtime
+  // snapshot published from the console (getLatestSnapshot orders by version
+  // DESC). Using config.nowMs here made each restart the newest snapshot,
+  // silently reverting user-published gas-sponsorship policies.
+  const runtimeSnapshotVersion = 1;
   const runtimeSnapshotId = `runtime_snapshot_intended_${hashStableId(
-    `${config.namespace}:${config.orgId}:${config.environmentId}:${config.nowMs}`,
+    `${config.namespace}:${config.orgId}:${config.environmentId}`,
   )}`;
   const runtimeSnapshotOutboxEventId = `runtime_snapshot_event_intended_${hashStableId(
     `${runtimeSnapshotId}:${runtimeSnapshotVersion}`,

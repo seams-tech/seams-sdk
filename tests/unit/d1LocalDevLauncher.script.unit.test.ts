@@ -12,6 +12,7 @@ type D1LocalDevLauncherModule = {
   }) => {
     readonly args: readonly string[];
     readonly envFiles: readonly string[];
+    readonly localConsoleOrganizationId: string;
   };
 };
 
@@ -69,6 +70,7 @@ test('D1 local dev launcher omits env-file args when no real secret file exists'
 
   expect(command.envFiles).toEqual([]);
   expect(envFilesFromArgs(command.args)).toEqual([]);
+  expect(command.localConsoleOrganizationId).toMatch(/^org_[a-z0-9]{12}$/);
   expect(command.args).toEqual([
     'dev',
     '--config',
@@ -77,6 +79,8 @@ test('D1 local dev launcher omits env-file args when no real secret file exists'
     '.wrangler/state/seams-d1',
     '--port',
     '9090',
+    '--var',
+    `SEAMS_LOCAL_CONSOLE_ORG_ID:${command.localConsoleOrganizationId}`,
   ]);
 });
 
@@ -98,7 +102,7 @@ test('D1 local dev launcher loads sdk-server-ts and console .dev.vars in overrid
 
   expect(command.envFiles).toEqual([sdkDevVars, consoleDevVars]);
   expect(envFilesFromArgs(command.args)).toEqual([sdkDevVars, consoleDevVars]);
-  expect(command.args.slice(0, 7)).toEqual([
+  expect(command.args.slice(0, 9)).toEqual([
     'dev',
     '--config',
     'custom-wrangler.toml',
@@ -106,5 +110,7 @@ test('D1 local dev launcher loads sdk-server-ts and console .dev.vars in overrid
     '.runtime/d1',
     '--port',
     '9191',
+    '--var',
+    `SEAMS_LOCAL_CONSOLE_ORG_ID:${command.localConsoleOrganizationId}`,
   ]);
 });

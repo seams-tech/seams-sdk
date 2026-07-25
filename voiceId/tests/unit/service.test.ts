@@ -16,6 +16,7 @@ import {
   InMemoryVoiceIdVerificationStore,
   makeDemoAudioInput,
   VoiceIdService,
+  SplitVoiceIdAnalysisProvider,
   type VoiceIdAuditEvent,
   type VoiceIdServiceConfig,
   type VoiceIdSpeakerVerification,
@@ -428,11 +429,14 @@ function createFixture(input: {
   const enrollmentStore = new InMemoryVoiceIdEnrollmentStore();
   const verificationStore = new InMemoryVoiceIdVerificationStore();
   const auditEvents: VoiceIdAuditEvent[] = [];
+  const verifier = input.verifier ?? new FakeVoiceIdVerifier();
+  const transcriptProvider = input.transcriptProvider ?? new FakeTranscriptProvider();
   const service = new VoiceIdService({
     enrollmentStore,
     verificationStore,
-    verifier: input.verifier ?? new FakeVoiceIdVerifier(),
-    transcriptProvider: input.transcriptProvider ?? new FakeTranscriptProvider(),
+    verifier,
+    transcriptProvider,
+    analysisProvider: new SplitVoiceIdAnalysisProvider(transcriptProvider, verifier),
     config: input.config ?? defaultVoiceIdServiceConfig(),
     now: input.now ?? fixedNow,
     createChallengeNonce: fixedChallengeNonce,

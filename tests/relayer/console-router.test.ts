@@ -5475,7 +5475,12 @@ test.describe('console router (express)', () => {
       const checkoutSessionId = String(getPath(created.json, 'checkoutSession', 'id') || '');
       const checkoutSessionUrl = String(getPath(created.json, 'checkoutSession', 'url') || '');
       expect(checkoutSessionId).toBeTruthy();
-      expect(checkoutSessionUrl).toContain('https://checkout.stripe.com/pay/');
+      expect(checkoutSessionUrl).toContain(
+        'https://app.example.com/dashboard/billing?checkout=success',
+      );
+      expect(new URL(checkoutSessionUrl).searchParams.get('checkout_session_id')).toBe(
+        checkoutSessionId,
+      );
       expect(String(getPath(created.json, 'checkoutSession', 'customerRef') || '')).toContain(
         'cus_',
       );
@@ -11578,7 +11583,12 @@ test.describe('console router (cloudflare)', () => {
     const checkoutSessionId = String(getPath(created.json, 'checkoutSession', 'id') || '');
     const checkoutSessionUrl = String(getPath(created.json, 'checkoutSession', 'url') || '');
     expect(checkoutSessionId).toBeTruthy();
-    expect(checkoutSessionUrl).toContain('https://checkout.stripe.com/pay/');
+    expect(checkoutSessionUrl).toContain(
+      'https://app.example.com/dashboard/billing?checkout=success',
+    );
+    expect(new URL(checkoutSessionUrl).searchParams.get('checkout_session_id')).toBe(
+      checkoutSessionId,
+    );
     expect(String(getPath(created.json, 'checkoutSession', 'customerRef') || '')).toContain('cus_');
     expect(getPath(created.json, 'checkoutSession', 'creditPackId')).toBe('usd_25');
     expect(Number(getPath(created.json, 'checkoutSession', 'amountMinor') || 0)).toBe(2500);

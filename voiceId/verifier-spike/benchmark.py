@@ -11,8 +11,8 @@ from pathlib import Path
 from typing import Any, Literal
 
 
-SCHEMA_VERSION = "voice_id_benchmark_manifest_v1"
-REPORT_SCHEMA_VERSION = "voice_id_benchmark_inventory_report_v1"
+SCHEMA_VERSION = "voice_id_benchmark_manifest_v2"
+REPORT_SCHEMA_VERSION = "voice_id_benchmark_inventory_report_v2"
 MINIMUM_AUDIO_BYTE_LENGTH = 1024
 MAXIMUM_AUDIO_BYTE_LENGTH = 32 * 1024 * 1024
 PARTITIONS = frozenset({"development", "calibration", "evaluation"})
@@ -33,6 +33,9 @@ ATTACK_CLASSES = frozenset(
 )
 INTENTS = frozenset({"approve", "reject", "cancel", "repeat", "unrelated"})
 PLATFORMS = frozenset({"server", "browser", "embedded_nvidia", "embedded_cpu", "ios"})
+PROVENANCE_KINDS = frozenset({"synthetic_generation", "consented_human_capture"})
+SYNTHETIC_GENERATORS = frozenset({"dia2", "elevenlabs", "other"})
+MINIMUM_HUMAN_METRIC_SUBJECTS = 2
 
 
 class BenchmarkManifestError(ValueError):
@@ -54,9 +57,32 @@ class CaptureProfile:
 
 
 @dataclass(frozen=True)
-class ResearchConsent:
+class ConsentedHumanCapture:
+    kind: Literal["consented_human_capture"]
     consent_reference: str
     retention_class: str
+
+
+@dataclass(frozen=True)
+class SyntheticConditioning:
+    source_subject_id: str
+    consent_reference: str
+    retention_class: str
+
+
+@dataclass(frozen=True)
+class SyntheticGeneration:
+    kind: Literal["synthetic_generation"]
+    generator: str
+    model: str
+    voice: str
+    seed: int | None
+    license: str
+    request_hash: str
+    conditioning: SyntheticConditioning | None
+
+
+BenchmarkProvenance = ConsentedHumanCapture | SyntheticGeneration
 
 
 @dataclass(frozen=True)
@@ -85,7 +111,7 @@ class BenchmarkEntry:
     duration_ms: int
     byte_length: int
     mime_type: str
-    consent: ResearchConsent
+    provenance: BenchmarkProvenance
 
 
 @dataclass(frozen=True)
@@ -98,7 +124,7 @@ class BenchmarkManifest:
 
 @dataclass(frozen=True)
 class BenchmarkInventoryReport:
-    schema_version: Literal["voice_id_benchmark_inventory_report_v1"]
+    schema_version: Literal["voice_id_benchmark_inventory_report_v2"]
     dataset_version: str
     fixture_count: int
     subject_count: int
@@ -108,6 +134,12 @@ class BenchmarkInventoryReport:
     intent_counts: dict[str, int]
     attack_class_counts: dict[str, int]
     platform_counts: dict[str, int]
+    provenance_kind_counts: dict[str, int]
+    cohort_counts: dict[str, int]
+    synthetic_impostor_count: int
+    synthetic_attack_class_counts: dict[str, int]
+    human_metrics_eligible: bool
+    human_metrics_suppression_reason: str | None
     missing_partitions: tuple[str, ...]
     missing_case_kinds: tuple[str, ...]
     missing_attack_classes: tuple[str, ...]
@@ -148,6 +180,22 @@ def build_inventory_report(manifest: BenchmarkManifest) -> BenchmarkInventoryRep
         entry.case.attack_class for entry in manifest.entries if entry.case.attack_class is not None
     )
     platform_counts = count(entry.capture.platform for entry in manifest.entries)
+    provenance_kind_counts = count(entry.provenance.kind for entry in manifest.entries)
+    cohort_counts = count(entry_cohort(entry) for entry in manifest.entries)
+    synthetic_impostor_count = sum(
+        1
+        for entry in manifest.entries
+        if entry.case.kind == "zero_effort_impostor"
+        and entry.provenance.kind == "synthetic_generation"
+    )
+    synthetic_attack_class_counts = count(
+        entry.case.attack_class
+        for entry in manifest.entries
+        if entry.case.kind == "presentation_attack"
+        and entry.provenance.kind == "synthetic_generation"
+        and entry.case.attack_class is not None
+    )
+    human_metrics_eligible = has_qualifying_human_cohort(manifest.entries)
     missing_partitions = tuple(sorted(PARTITIONS - partition_counts.keys()))
     missing_case_kinds = tuple(sorted(CASE_KINDS - case_counts.keys()))
     missing_attack_classes = tuple(sorted(ATTACK_CLASSES - attack_class_counts.keys()))
@@ -162,6 +210,14 @@ def build_inventory_report(manifest: BenchmarkManifest) -> BenchmarkInventoryRep
         intent_counts=intent_counts,
         attack_class_counts=attack_class_counts,
         platform_counts=platform_counts,
+        provenance_kind_counts=provenance_kind_counts,
+        cohort_counts=cohort_counts,
+        synthetic_impostor_count=synthetic_impostor_count,
+        synthetic_attack_class_counts=synthetic_attack_class_counts,
+        human_metrics_eligible=human_metrics_eligible,
+        human_metrics_suppression_reason=(
+            None if human_metrics_eligible else "no_qualifying_human_cohort"
+        ),
         missing_partitions=missing_partitions,
         missing_case_kinds=missing_case_kinds,
         missing_attack_classes=missing_attack_classes,
@@ -182,7 +238,18 @@ def render_inventory_report(report: BenchmarkInventoryReport) -> str:
             f"- Fixtures: {report.fixture_count}",
             f"- Subjects: {report.subject_count}",
             f"- Sessions: {report.session_count}",
-            f"- Measurement ready: `{str(report.measurement_ready).lower()}`",
+            f"- Inventory complete: `{str(report.measurement_ready).lower()}`",
+            f"- Human FAR/FRR/EER eligible: `{str(report.human_metrics_eligible).lower()}`",
+            (
+                f"- Human FAR/FRR/EER: suppressed (`{report.human_metrics_suppression_reason}`)"
+                if report.human_metrics_suppression_reason is not None
+                else "- Human FAR/FRR/EER: enabled"
+            ),
+            (
+                f"- Human metric suppression: `{report.human_metrics_suppression_reason}`"
+                if report.human_metrics_suppression_reason is not None
+                else "- Human metric suppression: `none`"
+            ),
             "",
             "## Coverage",
             "",
@@ -191,6 +258,10 @@ def render_inventory_report(report: BenchmarkInventoryReport) -> str:
             f"- Intents: {format_counts(report.intent_counts)}",
             f"- Attack classes: {format_counts(report.attack_class_counts)}",
             f"- Platforms: {format_counts(report.platform_counts)}",
+            f"- Provenance: {format_counts(report.provenance_kind_counts)}",
+            f"- Cohorts: {format_counts(report.cohort_counts)}",
+            f"- Synthetic impostors: {report.synthetic_impostor_count}",
+            f"- Synthetic attack classes: {format_counts(report.synthetic_attack_class_counts)}",
             "",
             "## Missing Required Coverage",
             "",
@@ -198,8 +269,9 @@ def render_inventory_report(report: BenchmarkInventoryReport) -> str:
             f"- Cases: {format_missing(report.missing_case_kinds)}",
             f"- Attack classes: {format_missing(report.missing_attack_classes)}",
             "",
-            "This inventory report validates corpus structure and coverage. Accuracy and runtime",
-            "measurements begin only after the consented corpus is complete and frozen.",
+            "This inventory report validates corpus structure and coverage. Synthetic results are",
+            "reported as pipeline and attack evidence. Human FAR, FRR, and EER remain suppressed",
+            "until a qualifying real-human cohort is present in the evaluation partition.",
         ]
     )
 
@@ -244,7 +316,7 @@ def parse_entry(value: object, manifest_dir: Path, index: int) -> BenchmarkEntry
         {
             "fixtureId", "audioFileName", "audioSha256", "subjectId", "sessionId",
             "partition", "case", "expectedIntent", "challengeTokens", "capture",
-            "capturedAt", "durationMs", "byteLength", "mimeType", "consent",
+            "capturedAt", "durationMs", "byteLength", "mimeType", "provenance",
         },
     )
     fixture_id = require_identifier(data, "fixtureId")
@@ -279,7 +351,7 @@ def parse_entry(value: object, manifest_dir: Path, index: int) -> BenchmarkEntry
         duration_ms=require_positive_int(data, "durationMs"),
         byte_length=byte_length,
         mime_type=require_string(data, "mimeType"),
-        consent=parse_consent(data["consent"], index),
+        provenance=parse_provenance(data["provenance"], index),
     )
 
 
@@ -330,12 +402,51 @@ def parse_capture(value: object, index: int) -> CaptureProfile:
     )
 
 
-def parse_consent(value: object, index: int) -> ResearchConsent:
-    data = require_object(value, f"entries[{index}].consent")
-    require_exact_keys(data, f"entries[{index}].consent", {"kind", "consentReference", "retentionClass"})
-    if require_string(data, "kind") != "consented_research_recording":
-        raise BenchmarkManifestError("consent.kind must be consented_research_recording")
-    return ResearchConsent(
+def parse_provenance(value: object, index: int) -> BenchmarkProvenance:
+    data = require_object(value, f"entries[{index}].provenance")
+    kind = require_one_of(data, "kind", PROVENANCE_KINDS)
+    if kind == "consented_human_capture":
+        require_exact_keys(
+            data,
+            f"entries[{index}].provenance",
+            {"kind", "consentReference", "retentionClass"},
+        )
+        return ConsentedHumanCapture(
+            kind="consented_human_capture",
+            consent_reference=require_string(data, "consentReference"),
+            retention_class=require_string(data, "retentionClass"),
+        )
+    require_exact_keys(
+        data,
+        f"entries[{index}].provenance",
+        {"kind", "generator", "model", "voice", "seed", "license", "requestHash", "conditioning"},
+    )
+    seed = data["seed"]
+    if seed is not None and (not isinstance(seed, int) or isinstance(seed, bool) or seed < 0):
+        raise BenchmarkManifestError("synthetic_generation seed must be a non-negative integer or null")
+    return SyntheticGeneration(
+        kind="synthetic_generation",
+        generator=require_one_of(data, "generator", SYNTHETIC_GENERATORS),
+        model=require_string(data, "model"),
+        voice=require_string(data, "voice"),
+        seed=seed,
+        license=require_string(data, "license"),
+        request_hash=require_sha256(data, "requestHash"),
+        conditioning=parse_synthetic_conditioning(data["conditioning"], index),
+    )
+
+
+def parse_synthetic_conditioning(value: object, index: int) -> SyntheticConditioning | None:
+    if value is None:
+        return None
+    data = require_object(value, f"entries[{index}].provenance.conditioning")
+    require_exact_keys(
+        data,
+        f"entries[{index}].provenance.conditioning",
+        {"sourceSubjectId", "consentReference", "retentionClass"},
+    )
+    return SyntheticConditioning(
+        source_subject_id=require_identifier(data, "sourceSubjectId"),
         consent_reference=require_string(data, "consentReference"),
         retention_class=require_string(data, "retentionClass"),
     )
@@ -507,6 +618,39 @@ def benchmark_subject_ids(entries: tuple[BenchmarkEntry, ...]) -> set[str]:
     return subject_ids
 
 
+def entry_cohort(entry: BenchmarkEntry) -> str:
+    if entry.provenance.kind == "consented_human_capture":
+        return "real_human"
+    if entry.provenance.conditioning is not None:
+        return "owner_conditioned_clone"
+    return "fictional_synthetic"
+
+
+def has_qualifying_human_cohort(entries: tuple[BenchmarkEntry, ...]) -> bool:
+    evaluation_human_entries = [
+        entry
+        for entry in entries
+        if entry.partition == "evaluation"
+        and entry.provenance.kind == "consented_human_capture"
+    ]
+    evaluation_subjects = {entry.subject_id for entry in evaluation_human_entries}
+    enrolled_subjects = {
+        entry.subject_id
+        for entry in evaluation_human_entries
+        if entry.case.kind == "enrollment"
+    }
+    evaluated_subjects = {
+        entry.subject_id
+        for entry in evaluation_human_entries
+        if entry.case.kind in {"genuine_verification", "challenge_error"}
+    }
+    return (
+        len(evaluation_subjects) >= MINIMUM_HUMAN_METRIC_SUBJECTS
+        and enrolled_subjects == evaluation_subjects
+        and evaluated_subjects == evaluation_subjects
+    )
+
+
 def count(values: Iterable[str]) -> dict[str, int]:
     return dict(sorted(Counter(values).items()))
 
@@ -535,6 +679,12 @@ def camelize_report(value: dict[str, Any]) -> dict[str, Any]:
         "intentCounts": value["intent_counts"],
         "attackClassCounts": value["attack_class_counts"],
         "platformCounts": value["platform_counts"],
+        "provenanceKindCounts": value["provenance_kind_counts"],
+        "cohortCounts": value["cohort_counts"],
+        "syntheticImpostorCount": value["synthetic_impostor_count"],
+        "syntheticAttackClassCounts": value["synthetic_attack_class_counts"],
+        "humanMetricsEligible": value["human_metrics_eligible"],
+        "humanMetricsSuppressionReason": value["human_metrics_suppression_reason"],
         "missingPartitions": value["missing_partitions"],
         "missingCaseKinds": value["missing_case_kinds"],
         "missingAttackClasses": value["missing_attack_classes"],

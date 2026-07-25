@@ -9,6 +9,7 @@ import {
   requireEnvString,
   type CloudflareD1StagingSessionEnv,
 } from './d1StagingSession';
+import { requireStripeBillingProviderAdaptersFromEnv } from '@seams-internal/console-server/billing/stripeProvider';
 
 interface CloudflareD1ConsoleStagingEnv extends CloudflareD1StagingSessionEnv {
   readonly CONSOLE_DB: D1DatabaseLike;
@@ -21,6 +22,10 @@ interface CloudflareD1ConsoleStagingEnv extends CloudflareD1StagingSessionEnv {
   readonly CONSOLE_DEFAULT_PROJECT_ID?: string;
   readonly CONSOLE_DEFAULT_ENVIRONMENT_ID?: string;
   readonly CONSOLE_PLATFORM_ADMIN_EMAILS?: string;
+  readonly STRIPE_API_SK?: string;
+  readonly STRIPE_CHECKOUT_PRICE_ID?: string;
+  readonly STRIPE_API_BASE_URL?: string;
+  readonly STRIPE_API_TIMEOUT_MS?: string;
 }
 
 type ConsoleReadyRow = {
@@ -50,6 +55,7 @@ async function createConsoleHandler(env: CloudflareD1ConsoleStagingEnv): Promise
     },
     adapters: {
       ensureSchema: false,
+      billingProviders: requireStripeBillingProviderAdaptersFromEnv(env),
     },
   });
   const session = createHmacSessionAdapterFromEnv({
