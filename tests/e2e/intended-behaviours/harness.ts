@@ -23,7 +23,7 @@ import {
   ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
 } from '@shared/utils/routerAbEd25519Yao';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
@@ -104,7 +104,9 @@ const ROUTER_AB_ED25519_YAO_REGISTRATION_PATHS = [
 ] as const;
 
 const LOCAL_INTENDED_YAO_FAULT_HEADER_V1 = 'x-seams-intended-yao-fault-v1';
+const LOCAL_INTENDED_YAO_FAULT_TOKEN_HEADER_V1 = 'x-seams-intended-yao-fault-token-v1';
 const LOCAL_INTENDED_YAO_FAULT_PROOF_HEADER_V1 = 'x-seams-intended-yao-fault-proof-v1';
+const LOCAL_INTENDED_YAO_ROUTER_ORIGIN_V1 = 'https://localhost:9444';
 
 type IntendedYaoFaultModeV1 = 'drop_router_response_once' | 'return_terminal_burned_once';
 
@@ -117,6 +119,7 @@ type IntendedYaoFaultInjectionStateV1 =
   | {
       readonly kind: 'armed';
       readonly mode: IntendedYaoFaultModeV1;
+      readonly token: string;
     };
 
 const ROUTER_AB_ED25519_YAO_RECOVERY_PATHS = [
@@ -817,10 +820,10 @@ export class IntendedBehaviourHarness {
   async registerPasskeyEd25519YaoWalletWithExactTransportRetry(): Promise<void> {
     this.recordStage('register_passkey_ed25519_yao_wallet_with_exact_transport_retry');
     const proofStartIndex = this.intendedYaoFaultProofs.length;
-    this.armIntendedYaoFault('drop_router_response_once');
+    const faultToken = this.armIntendedYaoFault('drop_router_response_once');
     try {
       await this.registerPasskeyEd25519YaoWallet();
-      this.assertIntendedYaoFaultProof(proofStartIndex, 'exact_request_replayed');
+      this.assertIntendedYaoFaultProof(proofStartIndex, faultToken, 'exact_request_replayed');
     } finally {
       this.intendedYaoFaultInjection = { kind: 'idle' };
     }
@@ -829,7 +832,7 @@ export class IntendedBehaviourHarness {
   async assertPasskeyEd25519YaoTerminalFailureWithoutRetry(): Promise<void> {
     this.recordStage('assert_passkey_ed25519_yao_terminal_failure_without_retry');
     const proofStartIndex = this.intendedYaoFaultProofs.length;
-    this.armIntendedYaoFault('return_terminal_burned_once');
+    const faultToken = this.armIntendedYaoFault('return_terminal_burned_once');
     try {
       const snapshot = await this.runIntendedPageAction(
         'registerPasskeyEd25519YaoWallet',
@@ -845,7 +848,7 @@ export class IntendedBehaviourHarness {
         );
       }
       this.passkeyPromptCount += 1;
-      this.assertIntendedYaoFaultProof(proofStartIndex, 'terminal_failure_not_retried');
+      this.assertIntendedYaoFaultProof(proofStartIndex, faultToken, 'terminal_failure_not_retried');
       this.recordService('terminal Ed25519 Yao failure returned without a Router retry');
     } finally {
       this.intendedYaoFaultInjection = { kind: 'idle' };
@@ -1531,6 +1534,7 @@ export class IntendedBehaviourHarness {
       headers: {
         ...route.request().headers(),
         [LOCAL_INTENDED_YAO_FAULT_HEADER_V1]: current.mode,
+        [LOCAL_INTENDED_YAO_FAULT_TOKEN_HEADER_V1]: current.token,
       },
     });
   }
@@ -1725,21 +1729,26 @@ export class IntendedBehaviourHarness {
     this.trace.push({ atMs: Date.now(), kind: 'service', message });
   }
 
-  private armIntendedYaoFault(mode: IntendedYaoFaultModeV1): void {
+  private armIntendedYaoFault(mode: IntendedYaoFaultModeV1): string {
     if (this.intendedYaoFaultInjection.kind !== 'idle') {
       throw new Error('An intended Yao transport fault is already armed');
     }
-    this.intendedYaoFaultInjection = { kind: 'armed', mode };
+    requireLocalIntendedYaoFaultRouterOrigin(this.config.routerUrl);
+    const token = randomUUID();
+    this.intendedYaoFaultInjection = { kind: 'armed', mode, token };
+    return token;
   }
 
   private assertIntendedYaoFaultProof(
     proofStartIndex: number,
+    token: string,
     expected: IntendedYaoFaultProofV1,
   ): void {
     const observed = this.intendedYaoFaultProofs.slice(proofStartIndex);
-    if (observed.length !== 1 || observed[0] !== expected) {
+    const expectedProof = `${token}:${expected}`;
+    if (observed.length !== 1 || observed[0] !== expectedProof) {
       throw new Error(
-        `Expected intended Yao fault proof ${expected}; observed ${observed.join(', ') || '<none>'}`,
+        `Expected intended Yao fault proof ${expectedProof}; observed ${observed.join(', ') || '<none>'}`,
       );
     }
     this.recordService(`intended Yao fault proof: ${expected}`);
@@ -1878,6 +1887,14 @@ function intendedHarnessConfigFromEnv(): IntendedHarnessConfig {
     ),
     signingSessionDebug: process.env.SEAMS_INTENDED_SIGNING_SESSION_DEBUG === '1',
   };
+}
+
+export function requireLocalIntendedYaoFaultRouterOrigin(routerUrl: string): void {
+  const origin = new URL(routerUrl).origin;
+  if (origin === LOCAL_INTENDED_YAO_ROUTER_ORIGIN_V1) return;
+  throw new Error(
+    `Intended Yao fault injection requires ${LOCAL_INTENDED_YAO_ROUTER_ORIGIN_V1}; received ${origin}`,
+  );
 }
 
 function emailOtpEcdsaTargetProfileFromEnv(raw: string | undefined): EcdsaTargetProfileName {
