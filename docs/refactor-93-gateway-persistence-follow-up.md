@@ -52,9 +52,13 @@ commit and could lose replay or authorization state.
 The request-boundary ceremony-key parser and per-record CAS foundation are
 implemented, but the route is intentionally unwired. The current composition
 loads a four-map product snapshot, so sending each lifecycle to an independent
-object would isolate capabilities and replay state. The tenant runtime remains
-the active boundary until the composition is split into records that preserve
-cross-ceremony invariants.
+object would isolate capabilities and replay state. The new partitioning
+boundary projects registration, authorization, recovery, and export lifecycle
+entries separately while retaining recovery capability ownership, stable
+identity indexes, and export authorization nonces in a shared record. Its
+merge operation replaces only one lifecycle and preserves unrelated ceremony
+entries. The tenant runtime remains the active boundary until a transaction-
+capable store can CAS the shared and ceremony records together.
 
 ## Implementation phases
 
@@ -65,6 +69,11 @@ cross-ceremony invariants.
 - Load one ceremony record at the request boundary and normalize it into the
   existing product-state types.
 - Keep raw persistence records and compatibility parsing outside core logic.
+
+Status: the explicit shared/ceremony partition and lossless merge boundary are
+implemented in
+`packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPartitioning.ts`.
+Production request composition remains gated on an atomic multi-record store.
 
 ### 2. Atomic mutation protocol
 

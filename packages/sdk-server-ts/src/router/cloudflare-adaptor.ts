@@ -199,3 +199,12 @@ export type {
   RouterAbEd25519YaoCeremonyKeyResolutionV1,
   RouterAbEd25519YaoCeremonyStateStoreV1,
 } from './routerAbEd25519YaoProductRegistrationPersistence';
+export {
+  mergeRouterAbEd25519YaoProductRegistrationStatePartitionV1,
+  partitionRouterAbEd25519YaoProductRegistrationStateV1,
+} from './routerAbEd25519YaoProductRegistrationPartitioning';
+export type {
+  RouterAbEd25519YaoProductRegistrationCeremonyStateV1,
+  RouterAbEd25519YaoProductRegistrationSharedStateV1,
+  RouterAbEd25519YaoProductRegistrationStatePartitionV1,
+} from './routerAbEd25519YaoProductRegistrationPartitioning';

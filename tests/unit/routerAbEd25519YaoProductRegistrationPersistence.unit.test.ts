@@ -7,6 +7,10 @@ import {
 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPersistence';
 import { createRouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistration';
 import {
+  mergeRouterAbEd25519YaoProductRegistrationStatePartitionV1,
+  partitionRouterAbEd25519YaoProductRegistrationStateV1,
+} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPartitioning';
+import {
   ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
   ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
 } from '../../packages/shared-ts/src/utils/routerAbEd25519Yao';
@@ -125,6 +129,39 @@ test.describe('Ed25519 Yao request-scoped persistence boundary', () => {
       kind: 'invalid',
       message: 'Yao ceremony lifecycle_id is invalid',
     });
+  });
+
+  test('partitions ceremony records without isolating shared replay and capability indexes', () => {
+    const state = createRouterAbEd25519YaoProductRegistrationStateV1();
+    state.registration.lifecycleSessions.set('ceremony-a', 'session-a');
+    state.registration.lifecycleSessions.set('ceremony-b', 'session-b');
+    state.recovery.identityCapabilities.set('identity-a', 'capability-a');
+    state.recovery.identityCapabilities.set('identity-b', 'capability-b');
+    state.export.authorizationNonces.add('nonce-a');
+    state.export.authorizationNonces.add('nonce-b');
+
+    const partition = partitionRouterAbEd25519YaoProductRegistrationStateV1(state, 'ceremony-a');
+    expect(partition.ceremony.registration.lifecycleSessions).toEqual(
+      new Map([['ceremony-a', 'session-a']]),
+    );
+    expect(partition.shared.recoveryIdentityCapabilities).toEqual(
+      new Map([
+        ['identity-a', 'capability-a'],
+        ['identity-b', 'capability-b'],
+      ]),
+    );
+    expect(partition.shared.exportAuthorizationNonces).toEqual(new Set(['nonce-a', 'nonce-b']));
+
+    partition.ceremony.registration.lifecycleSessions.set('ceremony-a', 'session-a-updated');
+    const merged = mergeRouterAbEd25519YaoProductRegistrationStatePartitionV1(state, partition);
+    expect(merged.registration.lifecycleSessions).toEqual(
+      new Map([
+        ['ceremony-a', 'session-a-updated'],
+        ['ceremony-b', 'session-b'],
+      ]),
+    );
+    expect(merged.recovery.identityCapabilities).toEqual(state.recovery.identityCapabilities);
+    expect(merged.export.authorizationNonces).toEqual(state.export.authorizationNonces);
   });
 });
 
