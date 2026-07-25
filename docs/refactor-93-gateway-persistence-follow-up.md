@@ -85,6 +85,27 @@ request side-effect boundary and proves its registration, recovery, export,
 replay, and authorization contracts. `ROUTER_API_RUNTIME` remains in place
 while that handler-integrity work is completed.
 
+### Registration execute two-phase seam
+
+The SDK now exposes a bounded two-phase registration-execute seam in
+`routerAbEd25519YaoRegistrationTwoPhaseRunner.ts`. Its preparation callback
+must write a typed execution claim (the existing registration service uses the
+`executing` lifecycle state), and the runner CASes that state before it calls
+the backend. The backend callback receives the claim only after the preclaim
+is durable. A fresh snapshot is loaded for terminal completion, and the
+terminal state is committed with one CAS. The runner never retries a backend
+call; an uncertain backend response leaves the claim durable for reconciliation,
+and a terminal CAS conflict is returned as `terminal_version_mismatch` with
+the claim attached.
+
+Focused tests prove the ordering, the durable claim on backend uncertainty,
+and the no-retry terminal conflict behavior. This is an adapter contract, not
+production routing: the current Gateway wallet-registration finalize handler
+still combines Yao consumption with sponsored account creation, signing-session
+provisioning, wallet D1 commits, capability installation, replay writes, and
+ceremony deletion. Until those side effects are split behind explicit typed
+hooks, the full handler and `ROUTER_API_RUNTIME` remain unchanged.
+
 ## Implementation phases
 
 ### 1. Composition boundary
