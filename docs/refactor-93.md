@@ -878,6 +878,13 @@ therefore remains an explicit Gateway persistence refactor gate: replace this
 tenant snapshot with per-ceremony durable lifecycle records or an equivalent
 D1/CAS adapter before deleting the binding and its migration. This is separate
 from the role-local Router coordination already implemented here.
+The follow-up review also confirms that the object name is keyed by
+`namespace:org:project:environment`, so all registrations for one tenant
+environment share that instance. That creates a tenant-level throughput ceiling
+and keeps admission/recovery/export persistence on the non-Yao Gateway path.
+The existing Gateway timing spans will size that cost in the Phase 0 cohort;
+the replacement is best tracked as a named Gateway persistence refactor that
+gates this criterion rather than expanding the Router coordinator scope.
 
 The local serving gate is a concrete wiring gap rather than an untested claim.
 `router_ab_local_worker` gives each Deriver its own process and SQLite-backed
