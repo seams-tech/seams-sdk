@@ -2849,24 +2849,6 @@ fn materialize_template_v1(
     root_shares: &LocalEcdsaRootSharePackageV1,
 ) -> RouterAbProtocolResult<String> {
     require_non_empty("local env materialization template", template)?;
-    let replacements = [
-        (
-            "dev-only-deriver-a-peer-signing-key",
-            "deriver-a-peer-signing-key",
-        ),
-        (
-            "dev-only-deriver-b-peer-signing-key",
-            "deriver-b-peer-signing-key",
-        ),
-        (
-            "dev-only-deriver-a-peer-verifying-key",
-            "deriver-a-peer-verifying-key",
-        ),
-        (
-            "dev-only-deriver-b-peer-verifying-key",
-            "deriver-b-peer-verifying-key",
-        ),
-    ];
     let mut contents = template.to_owned();
     contents = contents.replace(
         "dev-only-deriver-a-root-share-wire-secret",
@@ -2876,9 +2858,35 @@ fn materialize_template_v1(
         "dev-only-deriver-b-root-share-wire-secret",
         &root_shares.deriver_b_root_share_wire_secret,
     );
-    for (placeholder, label) in replacements {
-        let material = local_generated_secret_v1(label, seed)?;
+    for (placeholder, label) in [
+        (
+            "dev-only-deriver-a-peer-signing-key",
+            "deriver-a-peer-signing-key",
+        ),
+        (
+            "dev-only-deriver-b-peer-signing-key",
+            "deriver-b-peer-signing-key",
+        ),
+    ] {
+        let seed_bytes = local_generated_secret_bytes_v1(label, seed)?;
+        let material = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(seed_bytes);
         contents = contents.replace(placeholder, &material);
+    }
+    for (placeholder, label) in [
+        (
+            "dev-only-deriver-a-peer-verifying-key",
+            "deriver-a-peer-signing-key",
+        ),
+        (
+            "dev-only-deriver-b-peer-verifying-key",
+            "deriver-b-peer-signing-key",
+        ),
+    ] {
+        let seed_bytes = local_generated_secret_bytes_v1(label, seed)?;
+        let verifying_key = ed25519_dalek::SigningKey::from_bytes(&seed_bytes)
+            .verifying_key()
+            .to_bytes();
+        contents = contents.replace(placeholder, &hex::encode(verifying_key));
     }
     for (placeholder, label) in [
         (
@@ -2944,24 +2952,6 @@ fn local_generated_secret_bytes_v1(label: &str, seed: &[u8]) -> RouterAbProtocol
     push_hash_field_v1(&mut hasher, label.as_bytes());
     push_hash_field_v1(&mut hasher, seed);
     Ok(hasher.finalize().into())
-}
-
-fn local_generated_secret_v1(label: &str, seed: &[u8]) -> RouterAbProtocolResult<String> {
-    require_non_empty("local generated secret label", label)?;
-    if seed.is_empty() {
-        return Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::EmptyField,
-            "local env materialization seed must not be empty",
-        ));
-    }
-    let mut hasher = Sha256::new();
-    push_hash_field_v1(&mut hasher, b"router-ab-dev/local-env-materialization/v1");
-    push_hash_field_v1(&mut hasher, label.as_bytes());
-    push_hash_field_v1(&mut hasher, seed);
-    Ok(format!(
-        "dev-only-generated-{label}-{}",
-        hex::encode(hasher.finalize())
-    ))
 }
 
 fn entries_from_env_map_v1(env: &BTreeMap<String, String>) -> Vec<(String, String)> {
