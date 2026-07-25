@@ -1851,6 +1851,8 @@ Post-baseline current test surface:
 | `tests/unit/d1RouterApiRuntime.concurrency.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
 | `tests/unit/d1RouterApiStagingServiceBindings.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
 | `tests/unit/d1WalletRegistrationCommitStore.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/d1WalletRegistrationFinalizeConvergence.unit.test.ts` | keep | Full-service registration-finalize convergence coverage. It injects response loss after every externally visible finalize step and verifies exact retry, concurrency, and single-row persistence. |
+| `tests/unit/helpers/d1WalletRegistrationFinalizeConvergence.fixtures.ts` | keep | Branch-specific production-builder fixture and response-loss harness for the registration-finalize convergence suite. |
 | `tests/unit/demoNearFundingState.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
 | `tests/unit/deployCommands.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
 | `tests/unit/deploymentApiCompatibility.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |

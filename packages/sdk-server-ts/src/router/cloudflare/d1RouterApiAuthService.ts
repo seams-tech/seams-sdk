@@ -58,7 +58,13 @@ import { CloudflareD1IdentityService } from './d1IdentityService';
 import { CloudflareD1OidcVerificationService } from './d1OidcVerificationService';
 import { CloudflareD1WebAuthnAuthService } from './d1WebAuthnAuthService';
 import { CloudflareD1WalletAuthMethodService } from './d1WalletAuthMethodService';
-import { CloudflareD1WalletRegistrationService } from './d1WalletRegistrationService';
+import {
+  CloudflareD1WalletRegistrationService,
+  type D1WalletRegistrationFinalizePreparedV1,
+  type D1WalletRegistrationFinalizeSideEffectRecord,
+  type D1WalletRegistrationFinalizeSideEffectStore,
+} from './d1WalletRegistrationService';
+import { parseD1WalletRegistrationFinalizeReplayResponse } from './d1RegistrationCeremonyRecords';
 import { CloudflareD1WalletRegistrationCommitStore } from './d1WalletRegistrationCommitStore';
 import { CloudflareD1WalletAddSignerService } from './d1WalletAddSignerService';
 import { CloudflareD1RegistrationIntentService } from './d1RegistrationIntentService';
@@ -476,6 +482,55 @@ function parseSponsoredNearAccountSideEffectRecord(
   return null;
 }
 
+function parseWalletRegistrationFinalizePrepared(
+  raw: unknown,
+): D1WalletRegistrationFinalizePreparedV1 | null {
+  return isRecordValue(raw) && raw.kind === 'd1_wallet_registration_finalize_prepared_v1'
+    ? { kind: 'd1_wallet_registration_finalize_prepared_v1' }
+    : null;
+}
+
+function parseWalletRegistrationFinalizeSideEffectRecord(
+  raw: unknown,
+): D1WalletRegistrationFinalizeSideEffectRecord | null {
+  if (
+    !isRecordValue(raw) ||
+    raw.operation !== 'finalize' ||
+    typeof raw.requestFingerprint !== 'string' ||
+    !raw.requestFingerprint ||
+    !isNonNegativeSafeInteger(raw.claimedAtMs)
+  ) {
+    return null;
+  }
+  if (raw.kind === 'router_ab_ed25519_yao_registration_side_effect_claim_v1') {
+    const prepared = parseWalletRegistrationFinalizePrepared(raw.prepared);
+    if (!prepared) return null;
+    return {
+      kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1',
+      operation: 'finalize',
+      requestFingerprint: raw.requestFingerprint,
+      claimedAtMs: raw.claimedAtMs,
+      prepared,
+    };
+  }
+  if (
+    raw.kind !== 'router_ab_ed25519_yao_registration_side_effect_completion_v1' ||
+    !isNonNegativeSafeInteger(raw.completedAtMs)
+  ) {
+    return null;
+  }
+  const response = parseD1WalletRegistrationFinalizeReplayResponse(raw.response);
+  if (!response) return null;
+  return {
+    kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
+    operation: 'finalize',
+    requestFingerprint: raw.requestFingerprint,
+    claimedAtMs: raw.claimedAtMs,
+    completedAtMs: raw.completedAtMs,
+    response,
+  };
+}
+
 function parsePreparedSponsoredNearAccountCreation(
   value: unknown,
 ): PreparedSponsoredNearAccountCreationV1 | null {
@@ -600,6 +655,23 @@ function sponsoredNearAccountSideEffectStore(
     keyPrefix: 'router-ab-yao-sponsored-account:',
     encode: (value) => value as unknown as CloudflareVersionedJsonObject,
     parse: parseSponsoredNearAccountSideEffectRecord,
+  });
+}
+
+function walletRegistrationFinalizeSideEffectStore(
+  options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
+): D1WalletRegistrationFinalizeSideEffectStore {
+  return createCloudflareD1VersionedJsonRecordStore<D1WalletRegistrationFinalizeSideEffectRecord>({
+    database: options.database,
+    scope: {
+      namespace: options.namespace,
+      orgId: options.orgId,
+      projectId: options.projectId,
+      envId: options.envId,
+    },
+    keyPrefix: 'wallet-registration-finalize:',
+    encode: (value) => value as unknown as CloudflareVersionedJsonObject,
+    parse: parseWalletRegistrationFinalizeSideEffectRecord,
   });
 }
 
@@ -825,6 +897,7 @@ function createCloudflareD1RouterApiAuthAssembly(
       routerAbSigning.getRouterAbNormalSigningRuntime.bind(routerAbSigning),
     ecdsaStrictRegistration: options.ecdsaStrictRegistration,
     getWalletStore,
+    finalizeSideEffects: walletRegistrationFinalizeSideEffectStore(options),
     walletRegistrationCommitStore,
     walletAuthMethods,
   });

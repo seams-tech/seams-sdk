@@ -503,7 +503,7 @@ function parseD1WalletAddSignerFinalizeReplayResponse(
     : { ok: true, kind: 'evm_family_ecdsa', walletId, ecdsa };
 }
 
-function parseD1WalletRegistrationFinalizeReplayResponse(
+export function parseD1WalletRegistrationFinalizeReplayResponse(
   raw: unknown,
 ): D1WalletRegistrationFinalizeSuccess | null {
   const record = toRecordValue(raw);
