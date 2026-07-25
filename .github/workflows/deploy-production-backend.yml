@@ -175,7 +175,7 @@ jobs:
 
   deploy_deriver_a:
     name: Deploy / production / deriver-a
-    needs: deploy_signing_worker
+    needs: migrate
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
@@ -215,7 +215,7 @@ jobs:
 
   deploy_deriver_b:
     name: Deploy / production / deriver-b
-    needs: deploy_deriver_a
+    needs: migrate
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
@@ -255,7 +255,7 @@ jobs:
 
   deploy_router:
     name: Deploy / production / router
-    needs: deploy_deriver_b
+    needs: [deploy_signing_worker, deploy_deriver_a, deploy_deriver_b]
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
