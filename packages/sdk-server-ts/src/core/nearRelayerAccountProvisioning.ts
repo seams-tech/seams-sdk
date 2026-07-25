@@ -556,13 +556,61 @@ export async function prepareSponsoredNearAccountCreationWithRelayer(
  * transaction hash are identical, so the network treats a repeat as the same
  * transaction rather than a second account creation.
  */
+/**
+ * A broadcast either lands, is definitively rejected, or leaves the caller
+ * unable to tell. Collapsing the third case into a rejection would record a
+ * transaction that may already be on chain as a terminal failure, so it stays
+ * distinct and must never be persisted as a completed outcome.
+ */
+export type BroadcastPreparedSponsoredNearAccountResultV1 =
+  | { readonly kind: 'created'; readonly result: AccountCreationResult }
+  | { readonly kind: 'rejected'; readonly result: AccountCreationResult }
+  | { readonly kind: 'uncertain'; readonly message: string };
+
+/**
+ * A submitted transaction whose response was lost is indistinguishable from one
+ * that never arrived, so reconcile against the chain by hash before resubmitting.
+ */
+async function sponsoredNearAccountStatusByHash(input: {
+  readonly prepared: PreparedSponsoredNearAccountCreationV1;
+  readonly nearClient: NearClient;
+  readonly relayerAccountId: string;
+}): Promise<AccountCreationResult | null> {
+  try {
+    const outcome = await input.nearClient.txStatus(
+      input.prepared.transactionHash,
+      input.relayerAccountId,
+    );
+    return {
+      success: true,
+      accountId: input.prepared.accountId,
+      transactionHash: transactionHashFromOutcome(outcome, input.prepared.transactionHash),
+      message: `Account ${input.prepared.accountId} created`,
+    };
+  } catch {
+    // An unknown hash is the expected answer when the transaction never landed.
+    return null;
+  }
+}
+
 export async function broadcastPreparedSponsoredNearAccountCreation(input: {
   readonly prepared: PreparedSponsoredNearAccountCreationV1;
   readonly nearRpcUrl: string;
+  readonly relayerAccountId: string;
   readonly nearClient?: NearClient;
-}): Promise<AccountCreationResult> {
+  /** Set when replaying a persisted transaction whose outcome is unknown. */
+  readonly reconcileFirst?: boolean;
+}): Promise<BroadcastPreparedSponsoredNearAccountResultV1> {
+  const nearClient = input.nearClient || new MinimalNearClient(input.nearRpcUrl);
+  if (input.reconcileFirst) {
+    const settled = await sponsoredNearAccountStatusByHash({
+      prepared: input.prepared,
+      nearClient,
+      relayerAccountId: input.relayerAccountId,
+    });
+    if (settled) return { kind: 'created', result: settled };
+  }
   try {
-    const nearClient = input.nearClient || new MinimalNearClient(input.nearRpcUrl);
     const outcome = await nearClient.sendTransaction(
       SignedTransaction.fromPlain({
         transaction: input.prepared.signedTransaction.transaction,
@@ -572,15 +620,43 @@ export async function broadcastPreparedSponsoredNearAccountCreation(input: {
       NEAR_IMPLICIT_ACCOUNT_FUND_WAIT_UNTIL,
     );
     return {
-      success: true,
-      accountId: input.prepared.accountId,
-      transactionHash: transactionHashFromOutcome(outcome, input.prepared.transactionHash),
-      message: `Account ${input.prepared.accountId} created`,
+      kind: 'created',
+      result: {
+        success: true,
+        accountId: input.prepared.accountId,
+        transactionHash: transactionHashFromOutcome(outcome, input.prepared.transactionHash),
+        message: `Account ${input.prepared.accountId} created`,
+      },
     };
   } catch (error: unknown) {
     const message = errorMessage(error) || 'Failed to create NEAR account';
-    return { success: false, error: message, message };
+    if (!isDefinitiveNearRejection(error)) return { kind: 'uncertain', message };
+    return { kind: 'rejected', result: { success: false, error: message, message } };
   }
+}
+
+/**
+ * Only failures that prove the transaction cannot have taken effect are
+ * definitive. Transport and timeout failures say nothing about whether the
+ * transaction reached the network, so they are treated as uncertain.
+ */
+function isDefinitiveNearRejection(error: unknown): boolean {
+  const message = errorMessage(error).toLowerCase();
+  if (!message) return false;
+  const uncertain = ['timeout', 'timed out', 'network', 'fetch', 'socket', 'aborted', 'econn'];
+  if (uncertain.some((marker) => message.includes(marker))) return false;
+  const definitive = [
+    'invalid transaction',
+    'invalidtxerror',
+    'account already exists',
+    'accountalreadyexists',
+    'notenoughbalance',
+    'not enough balance',
+    'invalidnonce',
+    'invalid nonce',
+    'expired',
+  ];
+  return definitive.some((marker) => message.includes(marker));
 }
 
 export async function createNamedNearAccountWithRelayer(
@@ -592,11 +668,18 @@ export async function createNamedNearAccountWithRelayer(
     if (!prepared.ok) {
       return { success: false, error: prepared.error, message: prepared.message };
     }
-    return await broadcastPreparedSponsoredNearAccountCreation({
+    const broadcast = await broadcastPreparedSponsoredNearAccountCreation({
       prepared: prepared.prepared,
       nearRpcUrl: validated.nearRpcUrl,
+      relayerAccountId: validated.relayerAccount,
       ...(validated.nearClient ? { nearClient: validated.nearClient } : {}),
     });
+    if (broadcast.kind === 'uncertain') {
+      // This entry point has no durable claim to reconcile against, so surface
+      // the ambiguity to its caller rather than reporting a definitive failure.
+      throw new Error(broadcast.message);
+    }
+    return broadcast.result;
   } catch (error: unknown) {
     const message = errorMessage(error) || 'Failed to create NEAR account';
     return {

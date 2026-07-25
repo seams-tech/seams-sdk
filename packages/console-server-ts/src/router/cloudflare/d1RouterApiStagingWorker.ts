@@ -75,7 +75,11 @@ import {
 } from './routerAbServiceBindings';
 import { handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1 } from '@seams/sdk-server/internal/router/routerAbEd25519YaoRegistrationRequestScopedCloudflare';
 import { createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1 } from '@seams/sdk-server/internal/router/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
-import { resolveRouterAbEd25519YaoGatewayRegistrationRouteV1 } from '@seams/sdk-server/internal/router/cloudflare/routerAbEd25519YaoGatewayCutover';
+import {
+  resolveRouterAbEd25519YaoGatewayRegistrationRouteV1,
+  type RouterAbEd25519YaoGatewayCutoverFamilyV1,
+  type RouterAbEd25519YaoGatewayCutoverStateV1,
+} from '@seams/sdk-server/internal/router/cloudflare/routerAbEd25519YaoGatewayCutover';
 import {
   ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
@@ -89,8 +93,12 @@ interface CloudflareD1RouterApiStagingEnv
   readonly SIGNER_DB: D1DatabaseLike;
   readonly THRESHOLD_STORE: CloudflareDurableObjectNamespaceLike;
   readonly ROUTER_API_RUNTIME: CloudflareDurableObjectNamespaceLike;
-  readonly ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS?: string;
-  readonly ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS?: string;
+  readonly ROUTER_AB_YAO_GATEWAY_REGISTRATION_ADMISSION_CUTOFF_MS?: string;
+  readonly ROUTER_AB_YAO_GATEWAY_REGISTRATION_DRAIN_UNTIL_MS?: string;
+  readonly ROUTER_AB_YAO_GATEWAY_RECOVERY_ADMISSION_CUTOFF_MS?: string;
+  readonly ROUTER_AB_YAO_GATEWAY_RECOVERY_DRAIN_UNTIL_MS?: string;
+  readonly ROUTER_AB_YAO_GATEWAY_EXPORT_ADMISSION_CUTOFF_MS?: string;
+  readonly ROUTER_AB_YAO_GATEWAY_EXPORT_DRAIN_UNTIL_MS?: string;
   readonly SEAMS_TENANT_STORAGE_NAMESPACE?: string;
   readonly SEAMS_STAGING_ORG_ID?: string;
   readonly SEAMS_STAGING_PROJECT_ID?: string;
@@ -804,7 +812,7 @@ async function fetch(
     const route = resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({
       operation: registrationOperation,
       nowMs: Date.now(),
-      ...routerAbGatewayDrainWindowMs(env),
+      cutover: routerAbGatewayCutoverState(env),
     });
     if (route.kind === 'admission_blocked') {
       const response = json(
@@ -848,31 +856,40 @@ function registrationOperationForRequest(
   }
 }
 
-function routerAbGatewayDrainWindowMs(env: CloudflareD1RouterApiStagingEnv): {
-  readonly admissionCutoffMs: number;
-  readonly drainUntilMs: number;
-} {
-  const cutoffRaw = readEnvString(env, 'ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS');
-  const drainRaw = readEnvString(env, 'ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS');
-  if (!cutoffRaw && !drainRaw) {
-    return { admissionCutoffMs: Number.MAX_SAFE_INTEGER, drainUntilMs: Number.MAX_SAFE_INTEGER };
-  }
+/**
+ * Reads one cutover window per family. A family with neither variable set has
+ * not begun its cutover and stays on the legacy runtime, so wiring a family
+ * later cannot inherit another family's elapsed window.
+ */
+function routerAbGatewayCutoverState(
+  env: CloudflareD1RouterApiStagingEnv,
+): RouterAbEd25519YaoGatewayCutoverStateV1 {
+  return {
+    ...familyCutoverWindow(env, 'REGISTRATION', 'registration'),
+    ...familyCutoverWindow(env, 'RECOVERY', 'recovery'),
+    ...familyCutoverWindow(env, 'EXPORT', 'export'),
+  };
+}
+
+function familyCutoverWindow(
+  env: CloudflareD1RouterApiStagingEnv,
+  envPrefix: 'REGISTRATION' | 'RECOVERY' | 'EXPORT',
+  family: RouterAbEd25519YaoGatewayCutoverFamilyV1,
+): RouterAbEd25519YaoGatewayCutoverStateV1 {
+  const cutoffName = `ROUTER_AB_YAO_GATEWAY_${envPrefix}_ADMISSION_CUTOFF_MS`;
+  const drainName = `ROUTER_AB_YAO_GATEWAY_${envPrefix}_DRAIN_UNTIL_MS`;
+  const cutoffRaw = readEnvString(env, cutoffName);
+  const drainRaw = readEnvString(env, drainName);
+  if (!cutoffRaw && !drainRaw) return {};
   if (!cutoffRaw || !drainRaw) {
-    throw new Error(
-      'ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS and ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS must be set together',
-    );
+    throw new Error(`${cutoffName} and ${drainName} must be set together`);
   }
-  const admissionCutoffMs = parseGatewayTimestamp(
-    cutoffRaw,
-    'ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS',
-  );
-  const drainUntilMs = parseGatewayTimestamp(drainRaw, 'ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS');
+  const admissionCutoffMs = parseGatewayTimestamp(cutoffRaw, cutoffName);
+  const drainUntilMs = parseGatewayTimestamp(drainRaw, drainName);
   if (admissionCutoffMs > drainUntilMs) {
-    throw new Error(
-      'ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS must not exceed ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS',
-    );
+    throw new Error(`${cutoffName} must not exceed ${drainName}`);
   }
-  return { admissionCutoffMs, drainUntilMs };
+  return { [family]: { admissionCutoffMs, drainUntilMs } };
 }
 
 function parseGatewayTimestamp(raw: string, name: string): number {
