@@ -328,12 +328,47 @@ fn local_workers_accept_direct_deriver_peer_messages_over_http(
 }
 
 #[test]
-fn local_worker_rejects_public_router_role() -> Result<(), Box<dyn std::error::Error>> {
+fn local_router_worker_exposes_health_and_explicitly_rejects_unserved_pair_routes(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let _process_guard = local_worker_process_test_guard();
     let binary = env!("CARGO_BIN_EXE_router_ab_local_worker");
-    let output = Command::new(binary).arg("--role").arg("router").output()?;
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("no longer exposes a public router role"));
+    let temp = temp_dir("router-boundary")?;
+    let router_url = format!("http://127.0.0.1:{}", free_port()?);
+    let deriver_a_url = format!("http://127.0.0.1:{}", free_port()?);
+    let deriver_b_url = format!("http://127.0.0.1:{}", free_port()?);
+    let signing_worker_url = format!("http://127.0.0.1:{}", free_port()?);
+    write_router_env(
+        &temp,
+        &router_url,
+        &deriver_a_url,
+        &deriver_b_url,
+        &signing_worker_url,
+    )?;
+    let mut router = ChildGuard::spawn(
+        binary,
+        "router",
+        temp.join(router_ab_dev::LOCAL_ROUTER_ENV_FILE_V1),
+    )?;
+    wait_for_health(&router_url, router.child_mut())?;
+    assert!(get_health(&router_url).is_ok());
+    for path in [
+        router_ab_dev::LOCAL_ROUTER_ED25519_YAO_EXECUTE_PATH,
+        router_ab_dev::LOCAL_ROUTER_ED25519_YAO_RECOVERY_PROMOTE_PATH,
+    ] {
+        let (status, body) = post_json_to_path_with_headers(
+            &router_url,
+            path,
+            &serde_json::json!({}),
+            &[(
+                router_ab_dev::LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
+                router_ab_dev::LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_DEFAULT_SECRET_V1,
+            )],
+        )?;
+        assert_eq!(status, 501, "{path}: {body}");
+        assert!(body.contains("strict Wrangler local mode"));
+    }
+    drop(router);
+    let _ = fs::remove_dir_all(temp);
     Ok(())
 }
 
@@ -2214,6 +2249,31 @@ fn write_deriver_envs(
     deriver_b_url: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     write_deriver_envs_to_roots(root, root, deriver_a_url, deriver_b_url)
+}
+
+fn write_router_env(
+    root: &Path,
+    router_url: &str,
+    deriver_a_url: &str,
+    deriver_b_url: &str,
+    signing_worker_url: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let seed = fresh_nonzero_bytes_32()?;
+    let plan = local_env_materialization_plan_v1(&seed)?;
+    let file = plan
+        .files
+        .into_iter()
+        .find(|file| file.role == LocalServiceRoleV1::Router)
+        .ok_or("local env plan is missing Router file")?;
+    let contents = file
+        .contents
+        .replace("http://127.0.0.1:9090", router_url)
+        .replace("http://127.0.0.1:9101", deriver_a_url)
+        .replace("http://127.0.0.1:9102", deriver_b_url)
+        .replace("http://127.0.0.1:9103", signing_worker_url);
+    fs::create_dir_all(root)?;
+    fs::write(root.join(file.path), contents)?;
+    Ok(())
 }
 
 fn write_deriver_envs_to_roots(

@@ -359,6 +359,11 @@ pub const LOCAL_DERIVER_B_ED25519_YAO_REFRESH_SIGNING_WORKER_PACKAGE_PATH: &str 
     "/router-ab/deriver-b/ed25519-yao/refresh/signing-worker-package";
 /// Router public normal-signing path mirrored from production.
 pub const LOCAL_ROUTER_NORMAL_SIGNING_PATH: &str = "/router-ab/ed25519/sign";
+/// Private Router endpoint for one admitted Ed25519 Yao execution.
+pub const LOCAL_ROUTER_ED25519_YAO_EXECUTE_PATH: &str = "/router-ab/router/ed25519-yao/execute";
+/// Private Router endpoint for explicit recovery promotion.
+pub const LOCAL_ROUTER_ED25519_YAO_RECOVERY_PROMOTE_PATH: &str =
+    "/router-ab/router/ed25519-yao/recovery/promote";
 /// Router public normal-signing round-1 prepare path mirrored from production.
 pub const LOCAL_ROUTER_NORMAL_SIGNING_PREPARE_PATH: &str = "/router-ab/ed25519/sign/prepare";
 /// Router public Router A/B ECDSA derivation digest-signing prepare path mirrored from production.

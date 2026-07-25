@@ -6,16 +6,19 @@ use router_ab_cloudflare::{
     CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_PATH,
 };
 use router_ab_dev::{
-    local_worker_owned_paths_v1, run_example_local_router_ab_dev_http_ceremony_v1,
-    LOCAL_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH, LOCAL_DERIVER_A_ED25519_YAO_EXECUTE_PAIR_PATH,
-    LOCAL_DERIVER_A_ED25519_YAO_PREPARE_PAIR_PATH,
+    local_dev_http_handle_request_v1, local_env_materialization_plan_v1,
+    local_worker_owned_paths_v1, parse_local_env_file_contents_v1,
+    parse_local_worker_role_config_for_role_v1, run_example_local_router_ab_dev_http_ceremony_v1,
+    LocalDevHttpRequestPartsV1, LocalDevHttpTopologyV1, LOCAL_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH,
+    LOCAL_DERIVER_A_ED25519_YAO_EXECUTE_PAIR_PATH, LOCAL_DERIVER_A_ED25519_YAO_PREPARE_PAIR_PATH,
     LOCAL_DERIVER_A_ED25519_YAO_READ_PAIR_STATUS_PATH, LOCAL_DERIVER_A_PEER_PATH,
     LOCAL_DERIVER_A_PRIVATE_PATH, LOCAL_DERIVER_B_ED25519_YAO_BURN_PAIR_PATH,
     LOCAL_DERIVER_B_ED25519_YAO_PREPARE_PAIR_PATH,
     LOCAL_DERIVER_B_ED25519_YAO_READ_COMPLETED_PAIR_PATH,
     LOCAL_DERIVER_B_ED25519_YAO_READ_PAIR_STATUS_PATH, LOCAL_DERIVER_B_PEER_PATH,
-    LOCAL_DERIVER_B_PRIVATE_PATH, LOCAL_ROUTER_NORMAL_SIGNING_PATH,
-    LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH,
+    LOCAL_DERIVER_B_PRIVATE_PATH, LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_DEFAULT_SECRET_V1,
+    LOCAL_ROUTER_ED25519_YAO_EXECUTE_PATH, LOCAL_ROUTER_ED25519_YAO_RECOVERY_PROMOTE_PATH,
+    LOCAL_ROUTER_NORMAL_SIGNING_PATH, LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH,
 };
 
 #[test]
@@ -97,6 +100,69 @@ fn local_pair_lifecycle_routes_match_strict_worker_paths_and_are_owned_by_role_w
             assert_eq!(local, strict_worker_path);
             assert!(local_worker_owned_paths_v1(role).contains(&local));
         }
+    }
+}
+
+#[test]
+fn local_router_process_owns_boundary_but_rejects_unserved_yao_routes() {
+    let plan = local_env_materialization_plan_v1(&[7_u8; 32]).expect("local env plan");
+    let router_env = plan
+        .files
+        .iter()
+        .find(|file| file.role == router_ab_core::LocalServiceRoleV1::Router)
+        .expect("Router env file");
+    let config = parse_local_worker_role_config_for_role_v1(
+        router_ab_core::LocalServiceRoleV1::Router,
+        parse_local_env_file_contents_v1(&router_env.contents).expect("Router env entries"),
+    )
+    .expect("Router config");
+    let router = match &config {
+        router_ab_dev::LocalWorkerRoleConfigV1::Router(config) => config,
+        _ => panic!("expected Router config"),
+    };
+
+    for path in ["/healthz", "/readyz"] {
+        let health = LocalDevHttpRequestPartsV1 {
+            method: "GET".to_owned(),
+            path: path.to_owned(),
+            authorization: None,
+            internal_service_auth: None,
+            body: Vec::new(),
+        };
+        let (health_status, health_body) =
+            local_dev_http_handle_request_v1(LocalDevHttpTopologyV1::Router(router), &health)
+                .expect("Router health response");
+        assert_eq!(health_status, 200);
+        assert!(health_body.contains("\"role\":\"router\""));
+    }
+
+    for path in [
+        LOCAL_ROUTER_ED25519_YAO_EXECUTE_PATH,
+        LOCAL_ROUTER_ED25519_YAO_RECOVERY_PROMOTE_PATH,
+    ] {
+        let request = LocalDevHttpRequestPartsV1 {
+            method: "POST".to_owned(),
+            path: path.to_owned(),
+            authorization: None,
+            internal_service_auth: Some(
+                LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_DEFAULT_SECRET_V1.to_owned(),
+            ),
+            body: Vec::new(),
+        };
+        let (status, body) =
+            local_dev_http_handle_request_v1(LocalDevHttpTopologyV1::Router(router), &request)
+                .expect("unsupported Router route response");
+        assert_eq!(status, 501);
+        assert!(body.contains("strict Wrangler local mode"));
+
+        let unauthorized = LocalDevHttpRequestPartsV1 {
+            internal_service_auth: Some("wrong".to_owned()),
+            ..request
+        };
+        let (status, _) =
+            local_dev_http_handle_request_v1(LocalDevHttpTopologyV1::Router(router), &unauthorized)
+                .expect("unauthorized Router route response");
+        assert_eq!(status, 401);
     }
 }
 
