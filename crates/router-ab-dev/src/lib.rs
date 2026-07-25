@@ -65,12 +65,14 @@ mod local_ed25519_yao_signing_worker;
 mod local_ed25519_yao_stream;
 mod local_ed25519_yao_worker;
 mod local_router_ab_ecdsa_derivation_pool_store;
+mod local_router_coordinator;
 mod local_router_ed25519_yao_http;
 mod local_service_http;
 mod local_worker_topology;
 
 pub use local_dev_http::{
-    local_dev_http_error_body_v1, local_dev_http_handle_request_v1, local_dev_http_route_error_v1,
+    local_dev_http_error_body_v1, local_dev_http_handle_request_v1,
+    local_dev_http_handle_request_with_dispatcher_v1, local_dev_http_route_error_v1,
     local_dev_router_request_with_dispatcher_v1, read_local_dev_http_request_v1,
     require_local_dev_internal_service_auth_v1, require_local_dev_normal_signing_wallet_session_v2,
     write_local_dev_http_response_v1, LocalDevHttpErrorBodyV1, LocalDevHttpRequestPartsV1,
@@ -165,6 +167,7 @@ pub use local_ed25519_yao_worker::{
     LocalEd25519YaoWorkerStateV1,
 };
 use local_router_ab_ecdsa_derivation_pool_store::local_signing_worker_ecdsa_pool_mutate_v1;
+pub use local_router_coordinator::LocalRouterEd25519YaoCoordinatorV1;
 pub use local_router_ed25519_yao_http::{
     decode_local_router_ed25519_yao_execute_request_v1, LocalRouterEd25519YaoPairDispatchV1,
 };

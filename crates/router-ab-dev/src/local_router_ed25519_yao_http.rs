@@ -1,7 +1,8 @@
 use router_ab_core::{
     Ed25519YaoCeremonyBindingV1, Ed25519YaoEncryptedInputV1, Ed25519YaoInputPairBindingV1,
-    Ed25519YaoOperationV1, RouterAbProtocolError, RouterAbProtocolErrorCode,
-    RouterAbProtocolResult, RouterAdmittedExecutionAuthorityV1, RouterEd25519YaoExecuteRequestV1,
+    Ed25519YaoOperationV1, RouterAbEd25519YaoExportBindingV1, RouterAbProtocolError,
+    RouterAbProtocolErrorCode, RouterAbProtocolResult, RouterAdmittedExecutionAuthorityV1,
+    RouterEd25519YaoExecuteRequestV1,
 };
 
 /// Exact role inputs extracted from one validated Router execution request.
@@ -13,6 +14,7 @@ pub struct LocalRouterEd25519YaoPairDispatchV1 {
     pub authority: RouterAdmittedExecutionAuthorityV1,
     pub operation: Ed25519YaoOperationV1,
     pub binding: Ed25519YaoCeremonyBindingV1,
+    pub export_binding: Option<RouterAbEd25519YaoExportBindingV1>,
     pub pair_binding: Ed25519YaoInputPairBindingV1,
     pub deriver_a_input: Ed25519YaoEncryptedInputV1,
     pub deriver_b_input: Ed25519YaoEncryptedInputV1,
@@ -39,6 +41,7 @@ impl LocalRouterEd25519YaoPairDispatchV1 {
                 authority,
                 operation: binding.operation,
                 binding,
+                export_binding: None,
                 pair_binding,
                 deriver_a_input,
                 deriver_b_input,
@@ -53,6 +56,7 @@ impl LocalRouterEd25519YaoPairDispatchV1 {
                 authority,
                 operation: binding.ceremony().operation,
                 binding: binding.ceremony().clone(),
+                export_binding: Some(binding),
                 pair_binding,
                 deriver_a_input,
                 deriver_b_input,
@@ -63,6 +67,33 @@ impl LocalRouterEd25519YaoPairDispatchV1 {
     /// Revalidates the pair identity before any role-boundary call.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         self.binding.validate()?;
+        match (self.operation, self.export_binding.is_some()) {
+            (Ed25519YaoOperationV1::Export, true)
+            | (Ed25519YaoOperationV1::Registration, false)
+            | (Ed25519YaoOperationV1::Recovery, false) => {}
+            (Ed25519YaoOperationV1::Export, false) => {
+                return Err(pair_http_error(
+                    "Router export dispatch is missing its export binding",
+                ))
+            }
+            (Ed25519YaoOperationV1::Registration | Ed25519YaoOperationV1::Recovery, true) => {
+                return Err(pair_http_error(
+                    "non-export dispatch carries an export binding",
+                ))
+            }
+            (Ed25519YaoOperationV1::Refresh, _) => {
+                return Err(pair_http_error(
+                    "Router refresh is not an admitted Yao operation",
+                ))
+            }
+        }
+        if let Some(export_binding) = &self.export_binding {
+            if export_binding.ceremony() != &self.binding {
+                return Err(pair_http_error(
+                    "Router export binding does not match its ceremony",
+                ));
+            }
+        }
         self.pair_binding.validate()?;
         if self.pair_binding.ceremony().binding() != &self.binding
             || self.pair_binding.ceremony().binding().operation != self.operation

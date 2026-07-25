@@ -1,11 +1,13 @@
 use router_ab_core::LocalServiceRoleV1;
 use router_ab_dev::{
-    dispatch_local_ed25519_yao_connection_with_persistence_v1, local_dev_http_handle_request_v1,
-    local_worker_bind_addr_v1, parse_local_env_file_contents_v1, parse_local_service_role_label_v1,
+    dispatch_local_ed25519_yao_connection_with_persistence_v1,
+    local_dev_http_handle_request_with_dispatcher_v1, local_worker_bind_addr_v1,
+    parse_local_env_file_contents_v1, parse_local_service_role_label_v1,
     parse_local_worker_role_config_for_role_v1, read_local_dev_http_request_v1,
     write_local_dev_http_response_v1, LocalDevHttpTopologyV1, LocalDurableObjectScopeV1,
     LocalDurableObjectSqliteStorageV1, LocalEd25519YaoConnectionDispatchV1,
-    LocalEd25519YaoWorkerStateV1, LocalWorkerRoleConfigV1,
+    LocalEd25519YaoWorkerStateV1, LocalRouterEd25519YaoCoordinatorV1,
+    LocalRouterRequestDispatcherV1, LocalWorkerRoleConfigV1,
 };
 use rusqlite::Connection;
 use serde::Serialize;
@@ -114,6 +116,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         Some(LocalEd25519YaoStateStoreV1::open(&config)?)
     };
+    let router_dispatcher = if config.role() == LocalServiceRoleV1::Router {
+        Some(LocalRouterEd25519YaoCoordinatorV1::default())
+    } else {
+        None
+    };
 
     let summary = WorkerStartupSummary {
         role: config.role(),
@@ -130,7 +137,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                match handle_connection(stream, &config, yao_state.as_mut(), state_store.as_ref()) {
+                match handle_connection(
+                    stream,
+                    &config,
+                    yao_state.as_mut(),
+                    state_store.as_ref(),
+                    router_dispatcher
+                        .as_ref()
+                        .map(|dispatcher| dispatcher as &dyn LocalRouterRequestDispatcherV1),
+                ) {
                     Ok(LocalWorkerConnectionResultV1::YaoHandled) => {
                         if let (Some(store), Some(state)) =
                             (state_store.as_ref(), yao_state.as_ref())
@@ -158,6 +173,7 @@ fn handle_connection(
     config: &LocalWorkerRoleConfigV1,
     yao_state: Option<&mut LocalEd25519YaoWorkerStateV1>,
     state_store: Option<&LocalEd25519YaoStateStoreV1>,
+    router_dispatcher: Option<&dyn LocalRouterRequestDispatcherV1>,
 ) -> Result<LocalWorkerConnectionResultV1, Box<dyn std::error::Error>> {
     let mut stream = if let Some(yao_state) = yao_state {
         let mut persist_before_network = |state: &LocalEd25519YaoWorkerStateV1| {
@@ -181,7 +197,7 @@ fn handle_connection(
         stream
     };
     let request = read_local_dev_http_request_v1(&mut stream)?;
-    let (status, body) = local_dev_http_handle_request_v1(
+    let (status, body) = local_dev_http_handle_request_with_dispatcher_v1(
         if config.role() == LocalServiceRoleV1::Router {
             let LocalWorkerRoleConfigV1::Router(router_config) = config else {
                 unreachable!("Router role config must use Router branch")
@@ -191,6 +207,7 @@ fn handle_connection(
             LocalDevHttpTopologyV1::FourWorker(config)
         },
         &request,
+        router_dispatcher,
     )?;
     write_local_dev_http_response_v1(&mut stream, status, &body)?;
     Ok(LocalWorkerConnectionResultV1::OtherHandled)
