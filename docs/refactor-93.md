@@ -708,8 +708,12 @@ the plan does not claim cryptographic D1 admission attestation.
       ownership separate from Deriver secret state. Its Yao execute and
       recovery-promotion routes return a typed 501 boundary until the shared
       pair lifecycle serving path is implemented; strict Wrangler local mode
-      remains the executable local production path. Full local HTTP lifecycle
-      execution remains open.
+      remains the executable local production path. The Rust HTTP boundary
+      now exposes an authenticated `LocalRouterRequestDispatcherV1` seam so
+      the eventual native coordinator can be installed without changing
+      request parsing or service-auth ordering. No coordinator is installed
+      yet, so the typed 501 fallback remains deliberate. Full local HTTP
+      lifecycle execution remains open.
 
 ### Phase 3: MPC Router Execution Coordinator
 
@@ -960,6 +964,12 @@ Cloudflare lint run reports the existing large-enum-variant warnings and no
 intentional durable boundary guards until the role-route drain and deletion
 phase; deleting them before that drain would remove the only checks for those
 cross-worker ownership invariants.
+
+The Gateway contract suite also pins every registration and exact replay
+request to the configured MPC Router origin. A recovery continuity fixture
+now distinguishes a valid fresh wallet session from invalid account or
+public-key substitutions; promotion idempotency remains a typed exact-retry
+path rather than string-matched control flow.
 
 ## Test Matrix
 
