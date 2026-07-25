@@ -869,7 +869,7 @@ ceremony after the user completes authentication. The safe sequence is:
           wallet, signer, authentication, and Email OTP enrollment records in
           one D1 batch. The commit input is a discriminated union, so a passkey
           registration carrying enrollment state does not compile.
-    - [x] Classify a broadcast as created, rejected, or uncertain, propagate
+    - [ ] Classify a broadcast as created, rejected, or uncertain, propagate
           uncertainty so the claim stays open, and settle the stored hash
           against the chain before a resumed attempt resubmits. Resolved
           failures are rejected, successful outcomes are read back against the
@@ -877,12 +877,12 @@ ceremony after the user completes authentication. The safe sequence is:
           uncertain. The sponsored-account boundary carries `in_progress` and
           uncertain outcomes as typed retryable results so the outer finalize
           claim cannot persist them as terminal account-creation failures.
-    - [x] Parse and validate persisted claims at the D1 boundary so an
+    - [ ] Parse and validate persisted claims at the D1 boundary so an
           unparseable record fails closed into a fresh attempt. The parser
           validates the complete signed effect artifact, including bounded
           Borsh bytes, transaction metadata, and the prepared hash before any
           network effect.
-    - [x] Prove the finalization sequence converges after a crash between its
+    - [ ] Prove the finalization sequence converges after a crash between its
           steps. Each write is individually idempotent — wallet, signer, and
           Email OTP statements are `DO UPDATE` upserts, capability installation
           returns `exact_retry` for a matching origin fingerprint, and ceremony
@@ -908,11 +908,11 @@ ceremony after the user completes authentication. The safe sequence is:
           the effect concurrently. Deterministic failures are terminal exact
           receipts, while internal or retryable failures leave the claim open
           for stale-claim reconciliation.
-    - [x] Drive the convergence check through the finalize entry point rather
+    - [ ] Drive the convergence check through the finalize entry point rather
           than the commit store and side-effect boundary separately. The same
           suite also races two identical finalize requests and verifies an
           exact shared result with one persisted wallet state.
-    - [x] Derive the request fingerprint from the canonical effect identity
+    - [ ] Derive the request fingerprint from the canonical effect identity
           rather than primarily the activation session. Sponsored account
           claims hash the account, public key, relayer, and initial balance;
           the activation-scoped key remains only the durable record key.
@@ -979,7 +979,7 @@ ceremony after the user completes authentication. The safe sequence is:
           migration with
           `deleted_classes = ["RouterApiRuntimeDurableObject"]`. Removing the
           old migration entry does not delete the deployed class namespace.
-  - [x] Give the local dev worker the same request-scoped path. Its Yao
+  - [ ] Give the local dev worker the same request-scoped path. Its Yao
         product runtime and all registration, recovery (including warm
         bootstrap), and export routes use the partitioned D1 store and the
         request-scoped handlers. The local MPC backend keeps the service
