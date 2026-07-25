@@ -29,6 +29,24 @@ pub enum LocalDevHttpTopologyV1<'a> {
     FourWorker(&'a LocalWorkerRoleConfigV1),
 }
 
+/// Native Router request handler seam.
+///
+/// The current Rust process does not install a Yao coordinator, so the
+/// default dispatcher keeps the route explicitly unsupported. A future
+/// coordinator can implement this seam without changing HTTP authentication,
+/// ownership, or role-secret boundaries.
+pub trait LocalRouterRequestDispatcherV1 {
+    /// Handles one authenticated Router-owned request.
+    ///
+    /// Returning `None` preserves the explicit unsupported response for a
+    /// route the installed coordinator does not serve.
+    fn dispatch(
+        &self,
+        config: &LocalRouterWorkerConfigV1,
+        request: &LocalDevHttpRequestPartsV1,
+    ) -> Result<Option<(u16, String)>, Box<dyn std::error::Error>>;
+}
+
 pub fn local_dev_http_handle_request_v1(
     topology: LocalDevHttpTopologyV1<'_>,
     request: &LocalDevHttpRequestPartsV1,
@@ -49,7 +67,7 @@ pub fn local_dev_http_handle_request_v1(
 
     if let LocalDevHttpTopologyV1::Router(config) = topology {
         if local_worker_owns_path_v1(LocalServiceRoleV1::Router, path) {
-            return local_dev_router_unsupported_route_v1(config, request);
+            return local_dev_router_request_v1(config, request, None);
         }
         return local_dev_http_error_body_v1(
             LocalServiceRoleV1::Router,
@@ -135,9 +153,19 @@ impl LocalDevHttpTopologyV1<'_> {
     }
 }
 
-fn local_dev_router_unsupported_route_v1(
+/// Dispatches one Router-owned request through an optional native coordinator.
+pub fn local_dev_router_request_with_dispatcher_v1(
     config: &LocalRouterWorkerConfigV1,
     request: &LocalDevHttpRequestPartsV1,
+    dispatcher: &dyn LocalRouterRequestDispatcherV1,
+) -> Result<(u16, String), Box<dyn std::error::Error>> {
+    local_dev_router_request_v1(config, request, Some(dispatcher))
+}
+
+fn local_dev_router_request_v1(
+    config: &LocalRouterWorkerConfigV1,
+    request: &LocalDevHttpRequestPartsV1,
+    dispatcher: Option<&dyn LocalRouterRequestDispatcherV1>,
 ) -> Result<(u16, String), Box<dyn std::error::Error>> {
     if request.method != "POST" {
         return local_dev_http_error_body_v1(
@@ -154,6 +182,11 @@ fn local_dev_router_unsupported_route_v1(
             401,
             message,
         );
+    }
+    if let Some(dispatcher) = dispatcher {
+        if let Some(response) = dispatcher.dispatch(config, request)? {
+            return Ok(response);
+        }
     }
     let error = match request.path.as_str() {
         LOCAL_ROUTER_ED25519_YAO_EXECUTE_PATH => {
@@ -432,4 +465,100 @@ fn local_dev_http_content_length_v1(headers: &str) -> Result<usize, Box<dyn std:
         }
     }
     Ok(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+
+    struct RecordingDispatcher {
+        calls: Cell<u32>,
+    }
+
+    impl LocalRouterRequestDispatcherV1 for RecordingDispatcher {
+        fn dispatch(
+            &self,
+            _config: &LocalRouterWorkerConfigV1,
+            _request: &LocalDevHttpRequestPartsV1,
+        ) -> Result<Option<(u16, String)>, Box<dyn std::error::Error>> {
+            self.calls.set(self.calls.get() + 1);
+            Ok(Some((200, "{\"status\":\"handled\"}".to_owned())))
+        }
+    }
+
+    struct EmptyDispatcher;
+
+    impl LocalRouterRequestDispatcherV1 for EmptyDispatcher {
+        fn dispatch(
+            &self,
+            _config: &LocalRouterWorkerConfigV1,
+            _request: &LocalDevHttpRequestPartsV1,
+        ) -> Result<Option<(u16, String)>, Box<dyn std::error::Error>> {
+            Ok(None)
+        }
+    }
+
+    fn router_config() -> LocalRouterWorkerConfigV1 {
+        LocalRouterWorkerConfigV1 {
+            public_url: "http://127.0.0.1:9100".to_owned(),
+            deriver_a_url: "http://127.0.0.1:9101".to_owned(),
+            deriver_b_url: "http://127.0.0.1:9102".to_owned(),
+            signing_worker_url: "http://127.0.0.1:9103".to_owned(),
+            deriver_a_ed25519_yao_input_public_key: "x25519:a".to_owned(),
+            deriver_b_ed25519_yao_input_public_key: "x25519:b".to_owned(),
+            signing_worker_ed25519_yao_recipient_public_key: "x25519:c".to_owned(),
+            signing_worker_id: "local-signing-worker".to_owned(),
+            internal_service_auth: "local-test-auth".to_owned(),
+            replay_storage_path: "replay.sqlite".to_owned(),
+            lifecycle_storage_path: "lifecycle.sqlite".to_owned(),
+            project_policy_storage_path: "project-policy.sqlite".to_owned(),
+            quota_storage_path: "quota.sqlite".to_owned(),
+            abuse_storage_path: "abuse.sqlite".to_owned(),
+        }
+    }
+
+    fn router_request(config: &LocalRouterWorkerConfigV1) -> LocalDevHttpRequestPartsV1 {
+        LocalDevHttpRequestPartsV1 {
+            method: "POST".to_owned(),
+            path: LOCAL_ROUTER_ED25519_YAO_EXECUTE_PATH.to_owned(),
+            authorization: None,
+            internal_service_auth: Some(config.internal_service_auth.clone()),
+            body: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn router_dispatcher_runs_only_after_internal_authentication() {
+        let config = router_config();
+        let dispatcher = RecordingDispatcher {
+            calls: Cell::new(0),
+        };
+        let request = router_request(&config);
+        let response = local_dev_router_request_with_dispatcher_v1(&config, &request, &dispatcher)
+            .expect("authenticated request should dispatch");
+        assert_eq!(response, (200, "{\"status\":\"handled\"}".to_owned()));
+        assert_eq!(dispatcher.calls.get(), 1);
+
+        let unauthorized = LocalDevHttpRequestPartsV1 {
+            internal_service_auth: Some("wrong".to_owned()),
+            ..request
+        };
+        let (status, _) =
+            local_dev_router_request_with_dispatcher_v1(&config, &unauthorized, &dispatcher)
+                .expect("unauthorized request should return a typed HTTP error");
+        assert_eq!(status, 401);
+        assert_eq!(dispatcher.calls.get(), 1);
+    }
+
+    #[test]
+    fn dispatcher_can_leave_route_explicitly_unsupported() {
+        let config = router_config();
+        let request = router_request(&config);
+        let fallback =
+            local_dev_router_request_with_dispatcher_v1(&config, &request, &EmptyDispatcher)
+                .expect("empty dispatcher should preserve fallback");
+        assert_eq!(fallback.0, 501);
+        assert!(fallback.1.contains("strict Wrangler local mode"));
+    }
 }
