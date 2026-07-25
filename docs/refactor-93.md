@@ -640,13 +640,17 @@ the HTTP backend contract tests assert that a response lost after Router
 execution is retried with the exact admitted body, trace ID, and replay marker,
 and that a burned execution is surfaced as a terminal failure without retry.
 The strict intended-behaviour suite now covers both product outcomes through a
-request-scoped local-Gateway fault seam. Its uncertain-transport case lets the
+request-scoped local-Gateway fault seam. Each armed request carries a validated
+opaque UUID that correlates its sanitized proof response; its Router fetch
+controller is constructed only for that request, so overlapping registrations
+cannot consume one another's fault state. The uncertain-transport case lets the
 real strict Router complete, drops that first response, and proves that the
 Gateway retry uses the byte-exact body, original trace ID, and replay marker
 before registration completes and signs. Its terminal case returns the typed
 Router burned result at the same service-binding boundary and proves that the
-Gateway performs no second Router dispatch. The local-only control header is
-removed before product routing and is absent from staging and production
+Gateway performs no second Router dispatch. The harness refuses to arm against
+any origin other than the managed local Router. Both local control headers are
+removed before product routing and are absent from staging and production
 Workers.
 
 The successful response shapes are frozen at the existing strict TypeScript

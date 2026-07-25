@@ -220,9 +220,12 @@ const DEFAULT_LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET = 'dev-router-ab-inte
 const DEFAULT_LOCAL_ROUTER_AB_ROUTER_URL = 'http://127.0.0.1:9090';
 const LOCAL_ROUTER_AB_CEREMONY_JWKS_PATH = '/.well-known/router-ab-ceremony-jwks.json';
 const LOCAL_INTENDED_YAO_FAULT_HEADER_V1 = 'x-seams-intended-yao-fault-v1';
+const LOCAL_INTENDED_YAO_FAULT_TOKEN_HEADER_V1 = 'x-seams-intended-yao-fault-token-v1';
 const LOCAL_INTENDED_YAO_FAULT_PROOF_HEADER_V1 = 'x-seams-intended-yao-fault-proof-v1';
 const ROUTER_AB_YAO_REPLAY_HEADER_V1 = 'x-seams-yao-replay';
 const ROUTER_AB_YAO_EXECUTE_PATH_V1 = '/router-ab/router/ed25519-yao/execute';
+const LOCAL_INTENDED_YAO_FAULT_TOKEN_PATTERN_V1 =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 type LocalIntendedYaoFaultModeV1 = 'drop_router_response_once' | 'return_terminal_burned_once';
 
@@ -271,6 +274,19 @@ type LocalIntendedYaoFaultOutcomeV1 =
       readonly violation: LocalIntendedYaoFaultViolationV1;
     };
 
+type LocalIntendedYaoFaultTokenV1 = {
+  readonly value: string;
+};
+
+type LocalEd25519YaoRouterFetchV1 =
+  | {
+      readonly kind: 'direct';
+    }
+  | {
+      readonly kind: 'fault_injected';
+      readonly controller: LocalIntendedYaoFaultControllerV1;
+    };
+
 const LOCAL_INTENDED_BURNED_EXECUTION_ID_V1 = new Array<number>(32).fill(93);
 
 function equalRequestBytes(left: Uint8Array, right: Uint8Array): boolean {
@@ -293,6 +309,17 @@ function parseLocalIntendedYaoFaultModeV1(
   }
 }
 
+function parseLocalIntendedYaoFaultTokenV1(
+  value: string | null,
+): LocalIntendedYaoFaultTokenV1 | null {
+  if (!isLocalIntendedYaoFaultTokenV1(value)) return null;
+  return { value };
+}
+
+export function isLocalIntendedYaoFaultTokenV1(value: string | null): value is string {
+  return !!value && LOCAL_INTENDED_YAO_FAULT_TOKEN_PATTERN_V1.test(value);
+}
+
 function terminalBurnedRouterResponseV1(): Response {
   return new Response(
     JSON.stringify({
@@ -307,7 +334,7 @@ function terminalBurnedRouterResponseV1(): Response {
   );
 }
 
-class LocalIntendedYaoFaultControllerV1 {
+export class LocalIntendedYaoFaultControllerV1 {
   private state: LocalIntendedYaoFaultStateV1 = { kind: 'idle' };
 
   constructor(private readonly baseFetch: typeof globalThis.fetch) {}
@@ -411,36 +438,33 @@ class LocalIntendedYaoFaultControllerV1 {
   }
 }
 
-const localIntendedYaoFaultControllerByEnv = new WeakMap<
-  LocalD1DevEnv,
-  LocalIntendedYaoFaultControllerV1
->();
-
-function localIntendedYaoFaultControllerV1(env: LocalD1DevEnv): LocalIntendedYaoFaultControllerV1 {
-  const existing = localIntendedYaoFaultControllerByEnv.get(env);
-  if (existing) return existing;
-  const controller = new LocalIntendedYaoFaultControllerV1(createRouterAbServiceBindingFetch(env));
-  localIntendedYaoFaultControllerByEnv.set(env, controller);
-  return controller;
+function localEd25519YaoRouterFetchV1(
+  env: LocalD1DevEnv,
+  routerFetch: LocalEd25519YaoRouterFetchV1,
+): typeof globalThis.fetch {
+  switch (routerFetch.kind) {
+    case 'direct':
+      return createRouterAbServiceBindingFetch(env);
+    case 'fault_injected':
+      return routerFetch.controller.fetch.bind(routerFetch.controller);
+  }
 }
 
-function localIntendedYaoFaultFetchV1(env: LocalD1DevEnv): typeof globalThis.fetch {
-  const controller = localIntendedYaoFaultControllerV1(env);
-  return controller.fetch.bind(controller);
-}
-
-function requestWithoutLocalIntendedYaoFaultHeaderV1(request: Request): Request {
+function requestWithoutLocalIntendedYaoFaultHeadersV1(request: Request): Request {
   const headers = new Headers(request.headers);
   headers.delete(LOCAL_INTENDED_YAO_FAULT_HEADER_V1);
+  headers.delete(LOCAL_INTENDED_YAO_FAULT_TOKEN_HEADER_V1);
   return new Request(request, { headers });
 }
 
 function responseWithLocalIntendedYaoFaultOutcomeV1(
   response: Response,
   outcome: LocalIntendedYaoFaultOutcomeV1,
+  token: LocalIntendedYaoFaultTokenV1,
 ): Response {
   const headers = new Headers(response.headers);
-  const value = outcome.kind === 'proved' ? outcome.proof : `violation:${outcome.violation}`;
+  const proof = outcome.kind === 'proved' ? outcome.proof : `violation:${outcome.violation}`;
+  const value = `${token.value}:${proof}`;
   headers.set(LOCAL_INTENDED_YAO_FAULT_PROOF_HEADER_V1, value);
   return new Response(response.body, {
     status: response.status,
@@ -1155,7 +1179,10 @@ function localConsoleHandler(env: LocalD1DevEnv): Promise<FetchHandler> {
   return createLocalConsoleHandler(env);
 }
 
-async function createLocalRouterApiHandler(env: LocalD1DevEnv): Promise<FetchHandler> {
+async function createLocalRouterApiHandler(
+  env: LocalD1DevEnv,
+  routerFetch: LocalEd25519YaoRouterFetchV1,
+): Promise<FetchHandler> {
   const sponsoredEvmCallConfig = await resolveSponsoredEvmCallConfigFromWorkerEnv(env);
   const routerAbPublicKeyset = localRouterAbPublicKeyset(env);
   const bundle = await createCloudflareD1ConsoleServiceBundle({
@@ -1183,7 +1210,7 @@ async function createLocalRouterApiHandler(env: LocalD1DevEnv): Promise<FetchHan
     issuer: localRouterApiSessionIssuer(env),
     audience: localRouterApiSessionAudience(env),
   });
-  const ed25519Yao = await createLocalEd25519YaoProductComposition(env, session);
+  const ed25519Yao = await createLocalEd25519YaoProductComposition(env, session, routerFetch);
   const ecdsaStrictPorts = localEcdsaStrictPorts(env);
   const routerApiService = createLocalD1RouterApiAuthService(env, ed25519Yao);
   const emailRecoveryAuthService = createLocalD1EmailRecoveryAuthService(env);
@@ -1314,6 +1341,7 @@ function localEd25519YaoProductState(
 async function createLocalEd25519YaoProductComposition(
   env: LocalD1DevEnv,
   session: SessionAdapter,
+  routerFetch: LocalEd25519YaoRouterFetchV1,
 ): Promise<LocalEd25519YaoProductCompositionState> {
   const signingWorkerId =
     normalizeLocalString(env.SIGNING_WORKER_ID) ||
@@ -1335,7 +1363,7 @@ async function createLocalEd25519YaoProductComposition(
         env.SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY,
       ),
     },
-    fetch: localIntendedYaoFaultFetchV1(env),
+    fetch: localEd25519YaoRouterFetchV1(env, routerFetch),
   });
   const walletStore = new D1WalletStore({
     database: env.SIGNER_DB,
@@ -1391,8 +1419,11 @@ function createLocalD1EmailRecoveryAuthService(env: LocalD1DevEnv) {
   );
 }
 
-function localRouterApiHandler(env: LocalD1DevEnv): Promise<FetchHandler> {
-  return createLocalRouterApiHandler(env);
+function localRouterApiHandler(
+  env: LocalD1DevEnv,
+  routerFetch: LocalEd25519YaoRouterFetchV1,
+): Promise<FetchHandler> {
+  return createLocalRouterApiHandler(env, routerFetch);
 }
 
 function routerApiRequest(request: Request, pathname: string): Request {
@@ -1903,30 +1934,43 @@ async function handleLocalRouterApiRequestV1(
   pathname: string,
 ): Promise<Response> {
   const rawFaultMode = request.headers.get(LOCAL_INTENDED_YAO_FAULT_HEADER_V1);
-  if (pathname !== ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1 || rawFaultMode === null) {
-    const handler = await localRouterApiHandler(env);
-    return await handler(routerApiRequest(request, pathname), env, ctx);
+  const rawFaultToken = request.headers.get(LOCAL_INTENDED_YAO_FAULT_TOKEN_HEADER_V1);
+  const sanitizedRequest = requestWithoutLocalIntendedYaoFaultHeadersV1(request);
+  if (rawFaultMode === null && rawFaultToken === null) {
+    const handler = await localRouterApiHandler(env, { kind: 'direct' });
+    return await handler(routerApiRequest(sanitizedRequest, pathname), env, ctx);
   }
 
   const faultMode = parseLocalIntendedYaoFaultModeV1(rawFaultMode);
-  if (!faultMode) {
+  const faultToken = parseLocalIntendedYaoFaultTokenV1(rawFaultToken);
+  if (
+    pathname !== ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1 ||
+    !faultMode ||
+    !faultToken
+  ) {
     return jsonResponse(
       {
         ok: false,
         code: 'invalid_intended_yao_fault',
-        message: 'Local intended Yao fault mode is invalid',
+        message: 'Local intended Yao fault control is invalid',
       },
       { status: 400 },
     );
   }
 
-  const controller = localIntendedYaoFaultControllerV1(env);
+  const controller = new LocalIntendedYaoFaultControllerV1(createRouterAbServiceBindingFetch(env));
   controller.arm(faultMode);
   try {
-    const handler = await localRouterApiHandler(env);
-    const sanitizedRequest = requestWithoutLocalIntendedYaoFaultHeaderV1(request);
+    const handler = await localRouterApiHandler(env, {
+      kind: 'fault_injected',
+      controller,
+    });
     const response = await handler(routerApiRequest(sanitizedRequest, pathname), env, ctx);
-    return responseWithLocalIntendedYaoFaultOutcomeV1(response, controller.consumeOutcome());
+    return responseWithLocalIntendedYaoFaultOutcomeV1(
+      response,
+      controller.consumeOutcome(),
+      faultToken,
+    );
   } catch (error) {
     controller.reset();
     throw error;
