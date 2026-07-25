@@ -63,6 +63,28 @@ boundary until request
 composition has been integrated and exercised against the registration,
 recovery, export, replay, and authorization contracts.
 
+## Request-scoped runner boundary
+
+The SDK now exposes
+`runRouterAbEd25519YaoProductRegistrationRequestScopedV1`. It loads one
+ceremony's shared and lifecycle records in one snapshot, passes the composed
+state to a request-local executor, and commits the returned state through one
+typed CAS batch. A stale shared or ceremony version is returned as a typed
+`version_mismatch`; the runner does not retry it. Focused tests cover the
+committed response, elision of an unchanged shared record, and a concurrent
+shared-state conflict.
+
+This runner is a composition seam, not a Gateway route integration. The
+existing `createRouterApiHandler` combines Yao state transitions with D1
+wallet/auth writes, console responses, and other non-Yao side effects. Wrapping
+that handler would leave the CAS commit boundary ambiguous: a response can
+escape after a one-use side effect and before persistence, while a concurrent
+request can observe a shared in-memory handler. The production cutover remains
+blocked until the Gateway supplies a Yao-only route adapter with an explicit
+request side-effect boundary and proves its registration, recovery, export,
+replay, and authorization contracts. `ROUTER_API_RUNTIME` remains in place
+while that handler-integrity work is completed.
+
 ## Implementation phases
 
 ### 1. Composition boundary

@@ -238,3 +238,9 @@ export type {
   RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
   RouterAbEd25519YaoProductRegistrationPartitionedStateV1,
 } from './routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+export { runRouterAbEd25519YaoProductRegistrationRequestScopedV1 } from './routerAbEd25519YaoProductRegistrationRequestScopedRunner';
+export type {
+  RouterAbEd25519YaoProductRegistrationRequestScopedExecutionV1,
+  RouterAbEd25519YaoProductRegistrationRequestScopedRunInputV1,
+  RouterAbEd25519YaoProductRegistrationRequestScopedRunResultV1,
+} from './routerAbEd25519YaoProductRegistrationRequestScopedRunner';
