@@ -7,6 +7,9 @@ import type {
 } from '../../packages/sdk-server-ts/src/core/WalletStore';
 import { CloudflareD1WalletRegistrationCommitStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1WalletRegistrationCommitStore';
 import { CloudflareD1WebAuthnStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1WebAuthnStore';
+import { CloudflareD1EmailOtpEnrollmentStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpEnrollmentStore';
+import type { D1EmailOtpRegistrationCommitPlan } from '../../packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpRegistrationEnrollmentFinalizer';
+import type { EmailOtpWalletEnrollmentRecord } from '../../packages/sdk-server-ts/src/core/EmailOtpStores';
 import type { D1DatabaseLike } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import {
@@ -214,6 +217,151 @@ test('D1 registration commit rolls back every mixed-wallet record when one signe
     await expect(countRows(database, 'wallet_auth_methods')).resolves.toBe(0);
     await expect(countRows(database, 'webauthn_authenticators')).resolves.toBe(0);
     await expect(countRows(database, 'webauthn_credential_bindings')).resolves.toBe(0);
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+function testEmailOtpAuthority(
+  walletId: WalletId,
+): Extract<RegistrationAuthority, { readonly kind: 'email_otp' }> {
+  return {
+    kind: 'email_otp',
+    walletId,
+    emailHashHex: 'a'.repeat(64),
+    registrationAuthorityId: 'registration-authority-a',
+  } as Extract<RegistrationAuthority, { readonly kind: 'email_otp' }>;
+}
+
+function testEnrollmentRecord(walletId: WalletId, now: number): EmailOtpWalletEnrollmentRecord {
+  return {
+    version: 'email_otp_wallet_enrollment_v1',
+    walletId: String(walletId),
+    providerUserId: 'provider-user-a',
+    orgId: TEST_SCOPE.orgId,
+    verifiedEmail: 'registrant@example.com',
+    enrollmentId: 'enrollment-a',
+    enrollmentVersion: 'v1',
+    enrollmentSealKeyVersion: 'seal-v1',
+    signingRootId: 'signing-root-a',
+    signingRootVersion: 'root-v1',
+    recoveryWrappedEnrollmentEscrowCount: 5,
+    clientUnlockPublicKeyB64u: 'client-unlock-public-key-a',
+    unlockKeyVersion: 'unlock-v1',
+    thresholdEcdsaClientVerifyingShareB64u: 'client-verifying-share-a',
+    createdAtMs: now,
+    updatedAtMs: now,
+  };
+}
+
+function scopedPrepare(database: D1DatabaseLike) {
+  return (sql: string, values: readonly unknown[]) =>
+    database
+      .prepare(sql)
+      .bind(TEST_SCOPE.namespace, TEST_SCOPE.orgId, TEST_SCOPE.projectId, TEST_SCOPE.envId, ...values);
+}
+
+function emailOtpCommitPlan(
+  database: D1DatabaseLike,
+  walletId: WalletId,
+  now: number,
+): D1EmailOtpRegistrationCommitPlan {
+  const enrollments = new CloudflareD1EmailOtpEnrollmentStore({ prepare: scopedPrepare(database) });
+  return {
+    kind: 'd1_email_otp_registration_commit_plan_v1',
+    statements: [enrollments.preparePutEnrollmentStatement(testEnrollmentRecord(walletId, now))],
+  };
+}
+
+test('D1 registration commit stores the Email OTP enrollment in the wallet batch', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const walletId = walletIdFromString('amber-atlas-abcdef');
+    const now = 1_900_000_000_000;
+    const store = new CloudflareD1WalletRegistrationCommitStore({ database, ...TEST_SCOPE });
+
+    await store.commit({
+      kind: 'email_otp_wallet_registration_commit_v1',
+      wallet: testWalletRecord(walletId, now),
+      walletSigners: [testEd25519Signer(walletId, now)],
+      authority: testEmailOtpAuthority(walletId),
+      emailOtp: emailOtpCommitPlan(database, walletId, now),
+      now,
+    });
+
+    await expect(countRows(database, 'wallets')).resolves.toBe(1);
+    await expect(countRows(database, 'wallet_signers')).resolves.toBe(1);
+    await expect(countRows(database, 'email_otp_wallet_enrollments')).resolves.toBe(1);
+    const enrollments = new CloudflareD1EmailOtpEnrollmentStore({ prepare: scopedPrepare(database) });
+    await expect(enrollments.readEnrollment(String(walletId))).resolves.toMatchObject({
+      walletId: String(walletId),
+      verifiedEmail: 'registrant@example.com',
+      providerUserId: 'provider-user-a',
+    });
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('D1 registration commit rolls back the wallet when the Email OTP statement fails', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const walletId = walletIdFromString('amber-atlas-abcdef');
+    const now = 1_900_000_000_000;
+    const store = new CloudflareD1WalletRegistrationCommitStore({ database, ...TEST_SCOPE });
+
+    await expect(
+      store.commit({
+        kind: 'email_otp_wallet_registration_commit_v1',
+        wallet: testWalletRecord(walletId, now),
+        walletSigners: [testEd25519Signer(walletId, now)],
+        authority: testEmailOtpAuthority(walletId),
+        emailOtp: {
+          kind: 'd1_email_otp_registration_commit_plan_v1',
+          statements: [database.prepare('INSERT INTO email_otp_wallet_enrollments (namespace) VALUES (?)').bind('only-namespace')],
+        },
+        now,
+      }),
+    ).rejects.toThrow();
+
+    // A visible wallet without its enrollment is the half-applied state the
+    // single batch exists to prevent.
+    await expect(countRows(database, 'wallets')).resolves.toBe(0);
+    await expect(countRows(database, 'wallet_signers')).resolves.toBe(0);
+    await expect(countRows(database, 'email_otp_wallet_enrollments')).resolves.toBe(0);
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('re-running the Email OTP registration commit converges instead of duplicating', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const walletId = walletIdFromString('amber-atlas-abcdef');
+    const now = 1_900_000_000_000;
+    const store = new CloudflareD1WalletRegistrationCommitStore({ database, ...TEST_SCOPE });
+    const commitInput = () =>
+      ({
+        kind: 'email_otp_wallet_registration_commit_v1',
+        wallet: testWalletRecord(walletId, now),
+        walletSigners: [testEd25519Signer(walletId, now)],
+        authority: testEmailOtpAuthority(walletId),
+        emailOtp: emailOtpCommitPlan(database, walletId, now),
+        now,
+      }) as const;
+
+    await store.commit(commitInput());
+    // A finalize interrupted after the batch re-runs it on retry; every
+    // statement is an upsert, so the retry must converge rather than duplicate.
+    await store.commit(commitInput());
+
+    await expect(countRows(database, 'wallets')).resolves.toBe(1);
+    await expect(countRows(database, 'wallet_signers')).resolves.toBe(1);
+    await expect(countRows(database, 'wallet_auth_methods')).resolves.toBe(1);
+    await expect(countRows(database, 'email_otp_wallet_enrollments')).resolves.toBe(1);
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }
