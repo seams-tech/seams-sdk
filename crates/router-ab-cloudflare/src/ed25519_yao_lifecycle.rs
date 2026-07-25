@@ -1,5 +1,5 @@
 use core::{fmt, future::Future};
-use std::time::Duration;
+use std::{cell::Cell, time::Duration};
 
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use futures::future::{select, Either};
@@ -102,6 +102,20 @@ struct RoleSpanEventV1 {
     trace_id: Option<String>,
 }
 
+#[derive(Serialize)]
+struct RoleInstanceSpanEventV1 {
+    event: &'static str,
+    span: &'static str,
+    role: &'static str,
+    operation: &'static str,
+    outcome: &'static str,
+    duration_ms: u64,
+    instance_disposition: &'static str,
+    instance_request_sequence: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    trace_id: Option<String>,
+}
+
 fn emit_role_span_v1(
     trace_id: RoleTraceContextV1,
     span: &'static str,
@@ -127,6 +141,31 @@ fn emit_role_span_v1(
 
 fn role_span_started_at_ms() -> u64 {
     cloudflare_yao_now_unix_ms().unwrap_or_default()
+}
+
+fn emit_role_instance_span_v1(
+    trace_id: RoleTraceContextV1,
+    span: &'static str,
+    role: &'static str,
+    operation: &'static str,
+    request_sequence: &Cell<u64>,
+) {
+    let sequence = request_sequence.get().saturating_add(1);
+    request_sequence.set(sequence);
+    let event = RoleInstanceSpanEventV1 {
+        event: ROLE_SPAN_EVENT_V1,
+        span,
+        role,
+        operation,
+        outcome: "success",
+        duration_ms: 0,
+        instance_disposition: if sequence == 1 { "new" } else { "reused" },
+        instance_request_sequence: sequence,
+        trace_id: trace_id.map(CloudflareTraceIdV1::as_hex),
+    };
+    if let Ok(serialized) = serde_json::to_string(&event) {
+        worker::console_log!("{serialized}");
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -559,6 +598,18 @@ enum DeriverAYaoSessionCommandV1 {
 }
 
 impl DeriverAYaoSessionCommandV1 {
+    fn operation(&self) -> &'static str {
+        match self {
+            Self::Execute { .. } => "execute",
+            Self::PreparePair { .. } => "prepare_pair",
+            Self::ClaimPair { .. } => "claim_pair",
+            Self::StartPair { .. } => "start_pair",
+            Self::CompletePair { .. } => "complete_pair",
+            Self::ReadPairStatus { .. } => "read_pair_status",
+            Self::BurnPair { .. } => "burn_pair",
+        }
+    }
+
     fn validate(&self) -> RouterAbProtocolResult<()> {
         match self {
             Self::Execute { input } => {
@@ -1082,11 +1133,16 @@ pub(crate) fn verify_role_start_acceptance_v1(
 pub struct RouterAbDeriverAYaoSessionDurableObject {
     state: State,
     env: Env,
+    request_sequence: Cell<u64>,
 }
 
 impl worker::DurableObject for RouterAbDeriverAYaoSessionDurableObject {
     fn new(state: State, env: Env) -> Self {
-        Self { state, env }
+        Self {
+            state,
+            env,
+            request_sequence: Cell::new(0),
+        }
     }
 
     async fn fetch(&self, mut request: Request) -> worker::Result<Response> {
@@ -1098,6 +1154,13 @@ impl worker::DurableObject for RouterAbDeriverAYaoSessionDurableObject {
         if let Err(error) = command.validate() {
             return Response::error(error.message(), 400);
         }
+        emit_role_instance_span_v1(
+            trace_id,
+            "deriver_a.session_do.instance",
+            "deriver_a",
+            command.operation(),
+            &self.request_sequence,
+        );
         match &command {
             DeriverAYaoSessionCommandV1::PreparePair { .. } => {
                 return self.handle_prepare_pair(command).await;
@@ -2043,22 +2106,34 @@ impl RouterAbDeriverAYaoSessionDurableObject {
 pub struct RouterAbDeriverBYaoSessionDurableObject {
     state: State,
     env: Env,
+    request_sequence: Cell<u64>,
 }
 
 impl worker::DurableObject for RouterAbDeriverBYaoSessionDurableObject {
     fn new(state: State, env: Env) -> Self {
-        Self { state, env }
+        Self {
+            state,
+            env,
+            request_sequence: Cell::new(0),
+        }
     }
 
     async fn fetch(&self, mut request: Request) -> worker::Result<Response> {
         if request.method() != Method::Post {
             return Response::error("method not allowed", 405);
         }
-        let _trace_id = parse_role_trace_context(&request)?;
+        let trace_id = parse_role_trace_context(&request)?;
         let command = request.json::<DeriverBYaoSessionCommandV1>().await?;
         if let Err(error) = command.validate() {
             return Response::error(error.message(), 400);
         }
+        emit_role_instance_span_v1(
+            trace_id,
+            "deriver_b.session_do.instance",
+            "deriver_b",
+            command.operation(),
+            &self.request_sequence,
+        );
         if matches!(
             &command,
             DeriverBYaoSessionCommandV1::PreparePair { .. }

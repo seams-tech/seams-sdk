@@ -18,8 +18,10 @@ const REQUIRED_SPANS = [
   'deriver_a.root_share',
   'deriver_a.websocket_connect',
   'deriver_a.yao_protocol',
+  'deriver_a.session_do.instance',
   'deriver_b.session_do',
   'deriver_b.yao_protocol',
+  'deriver_b.session_do.instance',
   'router.deriver_b_completed_read',
   'router.signing_worker_delivery',
   'gateway.d1_commit',
@@ -138,6 +140,27 @@ test('evidence gate requires role reconciliation only when an exact replay occur
   assert.equal(reconciled.readiness.phase0BaselineReady, true);
 });
 
+test('evidence gate cross-checks role Durable Object instance reuse', () => {
+  const fixture = buildFixture({ environment: 'production', traceCount: 20 });
+  const roleInstance = fixture.events.find(
+    (event) =>
+      event.trace_id === fixture.manifest.traces[0].traceId &&
+      event.span === 'deriver_a.session_do.instance',
+  );
+  if (!roleInstance) throw new Error('Deriver A instance span fixture is required');
+  roleInstance.instance_disposition = 'reused';
+  roleInstance.instance_request_sequence = 2;
+
+  const report = analyzeRefactor93ProductionEvidence(fixture);
+
+  assert.equal(report.readiness.phase0BaselineReady, false);
+  assert.ok(
+    report.readiness.blockers.some((blocker) =>
+      blocker.includes('deriverA declared new, observed reused'),
+    ),
+  );
+});
+
 test('JSONL parser extracts direct, Wrangler tail, and Workers Logs span messages', () => {
   const traceId = traceIdFor(1);
   const event = spanEvent(traceId, 'gateway.yao_execute', 900);
@@ -213,6 +236,11 @@ function buildFixture(input) {
 
 function spanEvent(traceId, span, durationMs) {
   const event = eventForSpan(span);
+  const instanceDisposition = span.endsWith('.session_do.instance')
+    ? Number.parseInt(traceId.slice(-2), 16) <= 5
+      ? 'new'
+      : 'reused'
+    : undefined;
   return {
     event: event.event,
     span,
@@ -221,6 +249,12 @@ function spanEvent(traceId, span, durationMs) {
     outcome: 'success',
     duration_ms: durationMs,
     trace_id: traceId,
+    ...(instanceDisposition
+      ? {
+          instance_disposition: instanceDisposition,
+          instance_request_sequence: instanceDisposition === 'new' ? 1 : 2,
+        }
+      : {}),
     ...(span === 'gateway.yao_execute'
       ? {
           cpu_ms: 10 + Number.parseInt(traceId.slice(-2), 16),

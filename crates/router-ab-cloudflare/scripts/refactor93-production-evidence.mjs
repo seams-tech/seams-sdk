@@ -31,8 +31,10 @@ const REQUIRED_TRACE_SPANS = [
   'deriver_a.root_share',
   'deriver_a.websocket_connect',
   'deriver_a.yao_protocol',
+  'deriver_a.session_do.instance',
   'deriver_b.session_do',
   'deriver_b.yao_protocol',
+  'deriver_b.session_do.instance',
   'router.deriver_b_completed_read',
   'router.signing_worker_delivery',
   'gateway.d1_commit',
@@ -72,6 +74,7 @@ const CAPTURE_METHODS = new Set([
 ]);
 const COHORTS = new Set(['cold_after_deploy', 'warm']);
 const ISOLATE_REUSE_STATES = new Set(['new', 'reused', 'unknown']);
+const ROLE_INSTANCE_DISPOSITIONS = new Set(['new', 'reused']);
 
 export function parseRefactor93EvidenceManifest(value) {
   const record = requireRecord(value, 'evidence manifest');
@@ -280,10 +283,30 @@ function parseSpanEvent(value, index) {
     durationMs,
     traceId: requireTraceId(record.trace_id, `${label} trace_id`),
     telemetry: parseSpanTelemetry(record, label),
+    roleInstance: parseRoleInstance(record, label),
     role: typeof record.role === 'string' ? record.role : undefined,
     source: requireString(record.source, `${label} source`),
     line: requirePositiveSafeInteger(record.line, `${label} line`),
   };
+}
+
+function parseRoleInstance(record, label) {
+  if (!String(record.span).endsWith('.session_do.instance')) return undefined;
+  const disposition = requireEnum(
+    record.instance_disposition,
+    ROLE_INSTANCE_DISPOSITIONS,
+    `${label} instance_disposition`,
+  );
+  const requestSequence = requirePositiveSafeInteger(
+    record.instance_request_sequence,
+    `${label} instance_request_sequence`,
+  );
+  if ((requestSequence === 1) !== (disposition === 'new')) {
+    throw new Error(
+      `${label} instance_disposition must be new exactly when instance_request_sequence is 1`,
+    );
+  }
+  return { disposition, requestSequence };
 }
 
 function parseSpanTelemetry(record, label) {
@@ -370,6 +393,7 @@ function analyzeTrace(trace, events) {
         ? [REPLAY_RECONCILIATION_SPAN]
         : []
       : [];
+  const roleInstanceMismatches = roleInstanceReuseMismatches(trace, registrationEvents);
   const unknownIsolateReuse = [];
   for (const component of REQUIRED_ISOLATE_REUSE_COMPONENTS) {
     if (trace.isolateReuse[component] === 'unknown') unknownIsolateReuse.push(component);
@@ -395,6 +419,7 @@ function analyzeTrace(trace, events) {
     complete:
       missingSpans.length === 0 &&
       missingReplaySpans.length === 0 &&
+      roleInstanceMismatches.length === 0 &&
       missingPreparationSpans.length === 0 &&
       failedSpans.length === 0 &&
       duplicateBudgetSpans.length === 0 &&
@@ -407,6 +432,7 @@ function analyzeTrace(trace, events) {
     eventCount: registrationEvents.length,
     missingSpans,
     missingReplaySpans,
+    roleInstanceMismatches,
     missingPreparationSpans,
     failedSpans,
     duplicateBudgetSpans,
@@ -459,6 +485,11 @@ function addTraceBlockers(blockers, report) {
   if (report.missingReplaySpans.length > 0) {
     blockers.push(
       `${report.traceId} recorded an exact replay without reconciliation: ${report.missingReplaySpans.join(', ')}`,
+    );
+  }
+  if (report.roleInstanceMismatches.length > 0) {
+    blockers.push(
+      `${report.traceId} role Durable Object instance evidence mismatch: ${report.roleInstanceMismatches.join(', ')}`,
     );
   }
   if (report.failedSpans.length > 0) {
@@ -587,6 +618,28 @@ function isRequiredTraceSpan(span) {
 
 function successfulSpanMissing(events, span) {
   return !events.some(matchesSuccessfulSpan(span));
+}
+
+function roleInstanceReuseMismatches(trace, events) {
+  const mismatches = [];
+  for (const input of [
+    { component: 'deriverA', span: 'deriver_a.session_do.instance' },
+    { component: 'deriverB', span: 'deriver_b.session_do.instance' },
+  ]) {
+    const instanceEvents = eventsForSpan(events, input.span).filter(isSuccessfulEvent);
+    if (instanceEvents.length === 0) continue;
+    const observed = instanceEvents.some(hasNewRoleInstance) ? 'new' : 'reused';
+    if (trace.isolateReuse[input.component] !== observed) {
+      mismatches.push(
+        `${input.component} declared ${trace.isolateReuse[input.component]}, observed ${observed}`,
+      );
+    }
+  }
+  return mismatches;
+}
+
+function hasNewRoleInstance(event) {
+  return event.roleInstance?.disposition === 'new';
 }
 
 function isRegistrationEvidenceEvent(event) {

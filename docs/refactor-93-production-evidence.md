@@ -82,6 +82,13 @@ carry low-level command or protocol labels rather than the Gateway's
 validation. A required span under the wrong event owner blocks the Phase 0
 baseline instead of silently contributing to its latency budget.
 
+Each role-session Durable Object emits a sanitized
+`deriver_a.session_do.instance` or `deriver_b.session_do.instance` span. Its
+in-memory request sequence is `1` for a newly instantiated object and greater
+than `1` for reuse of that same live object. The analyzer cross-checks this
+signal against the declared Deriver cohort instead of inferring reuse from
+request duration. Eviction creates a new object and resets the sequence.
+
 ## Execution telemetry contract
 
 The successful `gateway.yao_execute` event is the authoritative per-trace
