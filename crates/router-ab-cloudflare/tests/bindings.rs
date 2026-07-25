@@ -10124,6 +10124,10 @@ fn durable_object_handler_rejects_stale_root_share_epoch_after_epoch_advance() {
         stale_metadata_err.code(),
         RouterAbProtocolErrorCode::ReplayedLocalRequest
     );
+    assert_eq!(
+        stale_metadata_err.message(),
+        "root-share startup metadata is already initialized with different material; mismatched fields: signer_key_epoch,root_share_epoch,sealed_share_storage_key"
+    );
 
     let loaded_next = handle_cloudflare_durable_object_call_v1(&next_metadata_call, &mut storage)
         .expect("next epoch metadata response");
