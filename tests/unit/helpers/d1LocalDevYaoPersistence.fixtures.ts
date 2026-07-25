@@ -32,41 +32,87 @@ type LocalD1DevWorkerEnv = Parameters<typeof localD1DevWorker.fetch>[1];
 type RegistrationBinding = RouterAbEd25519YaoActivationBindingV1<'registration'>;
 type RegistrationExecuteRequest = RouterAbEd25519YaoActivationExecuteRequestV1<'registration'>;
 
-type DeferredRouterCall = {
-  readonly resolve: (response: Response) => void;
-  readonly response: Response;
-};
-
 class UnsupportedServiceBinding implements CloudflareServiceBindingFetcher {
   async fetch(): Promise<Response> {
     return Response.json({ ok: false, code: 'unexpected_service_binding' }, { status: 500 });
   }
 }
 
+class DeferredValue<T> {
+  readonly promise: Promise<T>;
+  private resolveValue: ((value: T) => void) | null = null;
+
+  constructor() {
+    this.promise = new Promise<T>(this.captureResolver.bind(this));
+  }
+
+  resolve(value: T): void {
+    if (!this.resolveValue) throw new Error('Deferred value is already resolved');
+    const resolve = this.resolveValue;
+    this.resolveValue = null;
+    resolve(value);
+  }
+
+  private captureResolver(resolve: (value: T) => void): void {
+    this.resolveValue = resolve;
+  }
+}
+
+class UnusedDurableObjectStub {
+  async fetch(): Promise<Response> {
+    return Response.json({ ok: false, code: 'unexpected_durable_object_call' }, { status: 500 });
+  }
+}
+
+class UnusedDurableObjectNamespace {
+  idFromName(name: string): string {
+    return name;
+  }
+
+  get(): UnusedDurableObjectStub {
+    return new UnusedDurableObjectStub();
+  }
+}
+
+class LocalYaoExecutionContext implements CfExecutionContext {
+  waitUntil(promise: Promise<unknown>): void {
+    void promise;
+  }
+
+  passThroughOnException(): void {}
+}
+
+type RouterDelayState =
+  | { readonly kind: 'idle' }
+  | { readonly kind: 'armed'; readonly entered: DeferredValue<void> }
+  | {
+      readonly kind: 'entered';
+      readonly entered: DeferredValue<void>;
+      readonly response: DeferredValue<Response>;
+      readonly value: Response;
+    };
+
 export class LocalYaoRouterBindingFixture implements CloudflareServiceBindingFetcher {
   executeCalls = 0;
-  private deferred: DeferredRouterCall | null = null;
-  private enteredResolve: (() => void) | null = null;
-  private enteredPromise: Promise<void> | null = null;
+  private delay: RouterDelayState = { kind: 'idle' };
 
   deferNextExecute(): void {
-    if (this.enteredPromise) throw new Error('Router execute is already deferred');
-    this.enteredPromise = new Promise<void>((resolve) => {
-      this.enteredResolve = resolve;
-    });
+    if (this.delay.kind !== 'idle') throw new Error('Router execute is already deferred');
+    this.delay = { kind: 'armed', entered: new DeferredValue<void>() };
   }
 
   async waitUntilExecuteEntered(): Promise<void> {
-    if (!this.enteredPromise) throw new Error('Router execute was not deferred');
-    await this.enteredPromise;
+    if (this.delay.kind === 'idle') throw new Error('Router execute was not deferred');
+    await this.delay.entered.promise;
   }
 
   releaseDeferredExecute(): void {
-    if (!this.deferred) throw new Error('Deferred Router execute has not entered');
-    const deferred = this.deferred;
-    this.deferred = null;
-    this.enteredPromise = null;
-    deferred.resolve(deferred.response);
+    if (this.delay.kind !== 'entered') {
+      throw new Error('Deferred Router execute has not entered');
+    }
+    const delay = this.delay;
+    this.delay = { kind: 'idle' };
+    delay.response.resolve(delay.value);
   }
 
   async fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -87,13 +133,17 @@ export class LocalYaoRouterBindingFixture implements CloudflareServiceBindingFet
       return Response.json({ ok: false, code: execution.code }, { status: 400 });
     }
     this.executeCalls += 1;
-    if (!this.enteredResolve) return this.successResponse(execution.value.binding);
-    const enteredResolve = this.enteredResolve;
-    this.enteredResolve = null;
-    enteredResolve();
-    return await new Promise<Response>((resolve) => {
-      this.deferred = { resolve, response: this.successResponse(execution.value.binding) };
-    });
+    if (this.delay.kind !== 'armed') return this.successResponse(execution.value.binding);
+    const entered = this.delay.entered;
+    const response = new DeferredValue<Response>();
+    this.delay = {
+      kind: 'entered',
+      entered,
+      response,
+      value: this.successResponse(execution.value.binding),
+    };
+    entered.resolve();
+    return await response.promise;
   }
 
   private successResponse(binding: RegistrationBinding): Response {
@@ -116,7 +166,7 @@ export function createLocalYaoWorkerEnv(input: {
   return {
     CONSOLE_DB: input.consoleDatabase,
     SIGNER_DB: input.signerDatabase,
-    THRESHOLD_STORE: createUnusedDurableObjectNamespace(),
+    THRESHOLD_STORE: new UnusedDurableObjectNamespace(),
     MPC_ROUTER: input.router,
     DERIVER_A: unsupported,
     DERIVER_B: unsupported,
@@ -253,7 +303,7 @@ export async function callLocalYaoWorker(input: {
       body: JSON.stringify(input.body),
     }),
     input.env,
-    executionContext(),
+    new LocalYaoExecutionContext(),
   );
 }
 
@@ -339,31 +389,4 @@ function requireRecord(value: unknown, label: string): Record<string, unknown> {
     throw new Error(`${label} must be an object`);
   }
   return value as Record<string, unknown>;
-}
-
-function executionContext(): CfExecutionContext {
-  return {
-    waitUntil(promise: Promise<unknown>): void {
-      void promise;
-    },
-    passThroughOnException(): void {},
-  };
-}
-
-function createUnusedDurableObjectNamespace() {
-  return {
-    idFromName(name: string): string {
-      return name;
-    },
-    get(): { fetch(): Promise<Response> } {
-      return {
-        async fetch(): Promise<Response> {
-          return Response.json(
-            { ok: false, code: 'unexpected_durable_object_call' },
-            { status: 500 },
-          );
-        },
-      };
-    },
-  };
 }
