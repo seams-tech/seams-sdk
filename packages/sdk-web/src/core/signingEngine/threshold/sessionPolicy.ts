@@ -232,7 +232,7 @@ export const THRESHOLD_SESSION_POLICY_MAX_USES = MAX_WALLET_SESSION_REMAINING_US
 export const DEFAULT_THRESHOLD_SESSION_TTL_MS = DEFAULT_WALLET_SESSION_TTL_MS;
 
 // Default policy used when callers do not specify a policy explicitly.
-// The use budget still limits authority during the longer wallet-unlock window.
+// The use budget still limits authority during the longer wallet-unlock interval.
 export const DEFAULT_THRESHOLD_SESSION_POLICY: Pick<
   Ed25519SessionPolicy,
   'ttlMs' | 'remainingUses'
