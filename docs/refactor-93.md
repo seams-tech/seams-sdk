@@ -1266,6 +1266,10 @@ generated deployment config accepts six explicit per-family values,
 `ROUTER_AB_YAO_GATEWAY_{REGISTRATION,RECOVERY,EXPORT}_DRAIN_UNTIL_MS`; leave a
 family's pair empty during its legacy window, then set its cutoff at quiescence
 and its final boundary after the measured maximum in-flight lifetime. The
+staging and production workflows project those exact values into migration and
+Gateway deployment jobs. Shared preflight and static readiness validation
+reject incomplete, invalid, reversed, or obsolete tenant-wide windows while
+preserving explicit empty pairs before cutover. The
 tenant runtime remains reachable only as the pre-cutover and in-flight drain
 authority. Its binding and historical migration cannot be deleted until the
 coherent staging cutover and maximum-lifetime drain are recorded. The
