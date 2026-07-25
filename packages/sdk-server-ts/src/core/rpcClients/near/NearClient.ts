@@ -527,7 +527,11 @@ export class MinimalNearClient implements NearClient {
 
   private async makeRpcCall<P, T>(method: string, params: P, operationName: string): Promise<T> {
     const requestBody = this.buildRequestBody(method, params);
-    return this.unwrapRpcResult<T>(await this.requestWithFallback(requestBody), operationName);
+    try {
+      return this.unwrapRpcResult<T>(await this.requestWithFallback(requestBody), operationName);
+    } catch (error: unknown) {
+      throw normalizeNearRpcFailure(operationName, error);
+    }
   }
 
   async query<T extends QueryResponseKind>(params: RpcQueryRequest): Promise<T> {
@@ -619,11 +623,8 @@ export class MinimalNearClient implements NearClient {
         return outcome;
       } catch (err: unknown) {
         lastError = err;
-        const msg = errorMessage(err);
         const retryable =
-          /server error|internal|temporar|timeout|too many requests|429|unavailable|bad gateway|gateway timeout/i.test(
-            msg || '',
-          );
+          err instanceof NearRpcError && err.failureKind === 'infrastructure_failure';
         if (!retryable || attempt === maxAttempts) throw err;
         const base = 200 * Math.pow(2, attempt - 1);
         const jitter = Math.floor(Math.random() * 150);
@@ -702,4 +703,17 @@ export class MinimalNearClient implements NearClient {
     }
     return { fullAccessKeys, functionCallAccessKeys };
   }
+}
+
+function normalizeNearRpcFailure(operationName: string, error: unknown): NearRpcError {
+  if (error instanceof NearRpcError) return error;
+  const cause = errorMessage(error) || 'RPC request failed';
+  return new NearRpcError({
+    message: `${operationName} RPC infrastructure failure: ${cause}`,
+    short: 'RPC infrastructure failure',
+    failureKind: 'infrastructure_failure',
+    type: 'RpcError',
+    operation: operationName,
+    details: { cause },
+  });
 }
