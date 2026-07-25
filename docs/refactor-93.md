@@ -702,18 +702,17 @@ the plan does not claim cryptographic D1 admission attestation.
       path with a pair-bound state model, role-specific receipt signing,
       readiness/peer claims, uncertainty burning, and exact completed-output
       lookup tests. The current branch maps all pair-bound paths to their role
-      owners and verifies strict-worker path parity. The Rust local startup now
-      starts an explicit Router process, initializes its five Router-owned
-      SQLite boundaries before the private role workers, and keeps Router
-      ownership separate from Deriver secret state. Its Yao execute and
-      recovery-promotion routes return a typed 501 boundary until the shared
-      pair lifecycle serving path is implemented; strict Wrangler local mode
-      remains the executable local production path. The Rust HTTP boundary
-      now exposes an authenticated `LocalRouterRequestDispatcherV1` seam so
-      the eventual native coordinator can be installed without changing
-      request parsing or service-auth ordering. No coordinator is installed
-      yet, so the typed 501 fallback remains deliberate. Full local HTTP
-      lifecycle execution remains open.
+      owners and verifies strict-worker path parity. Native Rust local workers
+      now serve authenticated, persisted `prepare-pair`, `read-pair-status`,
+      and `burn-pair` role commands with pair/input digest checks and signed
+      readiness receipts. The Rust local startup keeps Router ownership
+      separate from Deriver secret state, and the authenticated
+      `LocalRouterRequestDispatcherV1` seam remains available for the native
+      coordinator. Execute/start-acceptance/completion serving remains open:
+      the local worker loop must durably commit `Running` before a network hop,
+      and Router startup still needs canonical Deriver A/B verifying-key
+      material before it can trust receipts. Strict Wrangler local mode remains
+      the executable local production path.
 
 ### Phase 3: MPC Router Execution Coordinator
 
