@@ -158,9 +158,9 @@ pub use local_ed25519_yao_stream::{
 };
 pub use local_ed25519_yao_worker::{
     dispatch_local_ed25519_yao_connection_v1, LocalEd25519YaoConnectionDispatchV1,
-    LocalEd25519YaoPairRoleRecordV1,
-    LocalEd25519YaoRefreshPromotionReceiptV1, LocalEd25519YaoRefreshPromotionRequestV1,
-    LocalEd25519YaoRoleCompletionV1, LocalEd25519YaoWorkerStateV1,
+    LocalEd25519YaoPairRoleRecordV1, LocalEd25519YaoRefreshPromotionReceiptV1,
+    LocalEd25519YaoRefreshPromotionRequestV1, LocalEd25519YaoRoleCompletionV1,
+    LocalEd25519YaoWorkerStateV1,
 };
 use local_router_ab_ecdsa_derivation_pool_store::local_signing_worker_ecdsa_pool_mutate_v1;
 pub use local_router_ed25519_yao_http::{

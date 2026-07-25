@@ -5071,11 +5071,13 @@ fn decode_hex_nibble(byte: u8) -> RouterAbProtocolResult<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::CloudflareEd25519YaoRoleFailureResponseV1;
     use router_ab_core::{
         Ed25519YaoCeremonyBindingV1, Ed25519YaoEncryptedPackageV1, Ed25519YaoInputPairBindingV1,
         Ed25519YaoPackageKindV1, Ed25519YaoRoleReadinessReceiptV1, Ed25519YaoRoleSignatureSchemeV1,
         Ed25519YaoRoleSignatureV1, Ed25519YaoSessionIdV1, Ed25519YaoStableKeyContextBindingV1,
         ExpensiveWorkKindV1, LifecycleScopeV1, PublicDigest32, RootShareEpoch,
+        RouterEd25519YaoExecuteFailureCodeV1,
     };
     use router_ab_ed25519_yao::Ed25519YaoActivationRoleExecutionV1;
 
