@@ -580,7 +580,8 @@ impl CloudflareEd25519YaoRoleFailureResponseV1 {
     /// Converts a role-local protocol error into a sanitized result class.
     #[cfg(any(
         feature = "strict-worker-deriver-a-entrypoint",
-        feature = "strict-worker-deriver-b-entrypoint"
+        feature = "strict-worker-deriver-b-entrypoint",
+        test
     ))]
     pub(crate) fn from_protocol_error(
         error: &RouterAbProtocolError,
