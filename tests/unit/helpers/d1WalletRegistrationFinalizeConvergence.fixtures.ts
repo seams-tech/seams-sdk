@@ -320,6 +320,51 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function mutateSignedTransactionSignatureByte(value: unknown): string {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error('Sponsored prepared artifact is missing signed transaction bytes');
+  }
+  const signedTransactionBytes = Buffer.from(value, 'base64url');
+  if (signedTransactionBytes.length < 65) {
+    throw new Error('Sponsored prepared artifact is too short to contain an Ed25519 signature');
+  }
+  const signatureByteIndex = signedTransactionBytes.length - 1;
+  const signatureByte = signedTransactionBytes[signatureByteIndex];
+  if (signatureByte === undefined) {
+    throw new Error('Sponsored prepared artifact signature byte is missing');
+  }
+  signedTransactionBytes[signatureByteIndex] = signatureByte ^ 0x01;
+  return signedTransactionBytes.toString('base64url');
+}
+
+async function corruptStoredSponsoredPreparedSignature(database: D1DatabaseLike): Promise<void> {
+  const row = await database
+    .prepare(
+      `SELECT json_extract(
+          record_json,
+          '$.prepared.signedTransactionBorshB64u'
+        ) AS signed_transaction_borsh_b64u
+       FROM router_ab_yao_versioned_json_records
+       WHERE record_key LIKE 'router-ab-yao-sponsored-account:%'`,
+    )
+    .first<{ readonly signed_transaction_borsh_b64u?: unknown }>();
+  const corruptedSignature = mutateSignedTransactionSignatureByte(
+    row?.signed_transaction_borsh_b64u,
+  );
+  await database
+    .prepare(
+      `UPDATE router_ab_yao_versioned_json_records
+          SET record_json = json_set(
+            record_json,
+            '$.prepared.signedTransactionBorshB64u',
+            ?
+          )
+        WHERE record_key LIKE 'router-ab-yao-sponsored-account:%'`,
+    )
+    .bind(corruptedSignature)
+    .run();
+}
+
 class FinalizeCeremonyDurableObjectStub implements CloudflareDurableObjectStubLike {
   readonly values = new Map<string, unknown>();
   private loseSetResponseForKey: string | null = null;
@@ -872,6 +917,7 @@ export type FinalizeConvergenceHarness = {
 
 export type SponsoredFinalizeConvergenceHarness = FinalizeConvergenceHarness & {
   readonly corruptSponsoredPreparedArtifact: () => Promise<void>;
+  readonly corruptSponsoredPreparedSignature: () => Promise<void>;
   readonly sponsoredNearRpcCounts: () => {
     readonly broadcastCount: number;
     readonly txStatusCount: number;
@@ -1065,6 +1111,9 @@ export async function createSponsoredFinalizeConvergenceHarness(): Promise<Spons
               WHERE record_key LIKE 'router-ab-yao-sponsored-account:%'`,
           )
           .run();
+      },
+      corruptSponsoredPreparedSignature: async () => {
+        await corruptStoredSponsoredPreparedSignature(harness.database);
       },
       sponsoredNearRpcCounts: () => ({
         broadcastCount: rpc.broadcastCount,

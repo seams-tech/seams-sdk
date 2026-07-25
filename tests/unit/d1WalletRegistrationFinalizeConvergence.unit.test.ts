@@ -157,3 +157,31 @@ test('sponsored named-account finalize rejects a corrupted D1 prepared artifact 
     await harness.cleanup();
   }
 });
+
+test('sponsored named-account finalize rejects a signature-only D1 artifact mutation before network access', async () => {
+  const harness = await createSponsoredFinalizeConvergenceHarness();
+  try {
+    const first = await harness.service.walletRegistration.finalizeWalletRegistration(
+      harness.request,
+    );
+    expect(first).toMatchObject({ ok: false, code: 'internal' });
+    const networkCallsBeforeCorruption = harness.sponsoredNearRpcCounts();
+    expect(networkCallsBeforeCorruption.broadcastCount).toBeGreaterThan(0);
+    expect(networkCallsBeforeCorruption.txStatusCount).toBe(0);
+
+    await harness.corruptSponsoredPreparedSignature();
+    await harness.expireFinalizeClaim();
+    const retried = await harness.service.walletRegistration.finalizeWalletRegistration(
+      harness.request,
+    );
+
+    expect(retried).toMatchObject({
+      ok: false,
+      code: 'internal',
+      message: 'registration side-effect prepared artifact fingerprint is invalid',
+    });
+    expect(harness.sponsoredNearRpcCounts()).toEqual(networkCallsBeforeCorruption);
+  } finally {
+    await harness.cleanup();
+  }
+});

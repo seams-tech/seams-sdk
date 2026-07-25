@@ -55,6 +55,7 @@ export interface RouterAbEd25519YaoRegistrationSideEffectStoreV1<T, P> {
 export type RouterAbEd25519YaoRegistrationSideEffectAttemptV1 = 'fresh' | 'resumed';
 
 export type RouterAbEd25519YaoRegistrationSideEffectRunInputV1<T, P> = {
+  readonly kind: 'prepared_resumable';
   readonly operation: 'finalize';
   readonly key: string;
   readonly requestFingerprint: string;

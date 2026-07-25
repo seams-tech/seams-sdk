@@ -66,6 +66,7 @@ const uncertainWithValue = {
 void uncertainWithValue;
 
 const preparedInput = {
+  kind: 'prepared_resumable',
   operation: 'finalize',
   key: 'registration-finalize:fixture',
   requestFingerprint: 'fingerprint',
@@ -81,7 +82,25 @@ const preparedInput = {
 
 void preparedInput;
 
+const inputWithoutLifecycleKind = {
+  operation: 'finalize',
+  key: 'registration-finalize:fixture',
+  requestFingerprint: 'fingerprint',
+  resumeAfterMs: 1,
+  nowMs: () => 1,
+  prepare: async (): Promise<Prepared> => ({ token: 'prepared-token' }),
+  derivePreparedArtifactFingerprint: async () => 'artifact-fingerprint',
+  execute: async (prepared: Prepared): Promise<Response> => {
+    void prepared;
+    return { ok: true };
+  },
+  // @ts-expect-error prepared-resumable inputs require an explicit lifecycle kind
+} satisfies RouterAbEd25519YaoRegistrationSideEffectRunInputV1<Response, Prepared>;
+
+void inputWithoutLifecycleKind;
+
 const inputWithoutPreparation = {
+  kind: 'prepared_resumable',
   operation: 'finalize',
   key: 'registration-finalize:fixture',
   requestFingerprint: 'fingerprint',

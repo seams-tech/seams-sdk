@@ -126,15 +126,15 @@ async function assertTerminalStructuredFailureDoesNotRetry(): Promise<void> {
   expect(scenario.calls).toBe(1);
 }
 
-async function assertStructuredInfrastructureFailureRetries(): Promise<void> {
+async function assertStructuredInfrastructureFailureDoesNotRetry(): Promise<void> {
   const scenario = new StructuredSendFetchScenario('infrastructure_then_ok');
   globalThis.fetch = scenario.fetch.bind(scenario);
   const client = new MinimalNearClient('https://rpc.example.test');
 
-  await expect(client.sendTransaction(testSignedTransaction())).resolves.toMatchObject({
-    status: { SuccessValue: '' },
+  await expect(client.sendTransaction(testSignedTransaction())).rejects.toMatchObject({
+    failureKind: 'infrastructure_failure',
   });
-  expect(scenario.calls).toBe(2);
+  expect(scenario.calls).toBe(1);
 }
 
 async function assertRawFailureIsTyped(failure: RawRpcFailure): Promise<void> {
@@ -251,8 +251,8 @@ test.describe('MinimalNearClient typed retry behavior', () => {
     assertTerminalStructuredFailureDoesNotRetry,
   );
   test(
-    'retries a structured infrastructure failure without retry language',
-    assertStructuredInfrastructureFailureRetries,
+    'does not retry a structured infrastructure failure after an ambiguous submission',
+    assertStructuredInfrastructureFailureDoesNotRetry,
   );
   for (const failure of ['transport', 'http', 'parse'] as const) {
     test(

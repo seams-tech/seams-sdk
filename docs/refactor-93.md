@@ -869,26 +869,29 @@ ceremony after the user completes authentication. The safe sequence is:
           wallet, signer, authentication, and Email OTP enrollment records in
           one D1 batch. The commit input is a discriminated union, so a passkey
           registration carrying enrollment state does not compile.
-    - [x] Classify a broadcast as created, rejected, or uncertain, propagate
-          uncertainty so the claim stays open, and settle the stored hash
-          against the chain before a resumed attempt resubmits. Resolved
-          failures are rejected, successful outcomes are read back against the
-          expected account and FullAccess key, and transport ambiguity remains
-          uncertain. The sponsored-account boundary carries `in_progress` and
-          uncertain outcomes as typed retryable results so the outer finalize
-          claim cannot persist them as terminal account-creation failures.
-          Transaction reconciliation now consumes the structured NEAR RPC
-          failure kind. Pending, transport, and not-found outcomes perform an
-          exact account and FullAccess-key readback; only a structured
-          transaction-not-found result plus confirmed account absence permits
-          replay. Invalid nonce and expired transactions remain uncertain after
-          absent readback, while definitive invalid-transaction, action, and
-          execution failures reject.
-    - [x] Parse and validate persisted claims at the D1 boundary so an
-          unparseable record fails closed into a fresh attempt. The parser
-          validates the complete signed effect artifact, including bounded
-          Borsh bytes, transaction metadata, and the prepared hash before any
-          network effect.
+    - [x] Classify the initial broadcast and resumed `txStatus` as created,
+          rejected, or uncertain. Terminal execution success returns created;
+          structured terminal execution failures reject. Pending, not-found,
+          transport, and infrastructure outcomes perform exact account and
+          queried-public-key `FullAccess` readback. Only structured
+          transaction-not-found plus confirmed account absence permits an
+          exact-byte replay on a resumed claim. `InvalidNonce` and `Expired`
+          remain uncertain after absent readback. `send_tx` itself runs once;
+          reconciliation owns every later retry decision. A local HTTP
+          JSON-RPC matrix exercises the production `MinimalNearClient` path for
+          success, execution and status failure, pending readback, outage, and
+          exact replay. The real-D1 finalize suite covers a lost response after
+          the transaction lands without a duplicate broadcast.
+    - [x] Parse the persisted claim envelope at the D1 boundary. Invalid records
+          fail closed as an uncertain claim read and are never reinterpreted as
+          missing or fresh. Before claim resume or terminal replay, decode the
+          bounded signed Borsh bytes; verify sender, signing key, receiver,
+          nonce, block hash, actions, and the NEAR transaction hash against the
+          persisted metadata; recompute the exact signed-byte artifact
+          fingerprint; and compare it with the stored fingerprint. Any failure
+          prevents preparation, `txStatus`, and broadcast. The real-D1 suite
+          mutates only a persisted signature byte while preserving the stored
+          fingerprint and proves that network counts remain unchanged.
     - [x] Prove the finalization sequence converges after a crash between its
           steps. Each write is individually idempotent — wallet, signer, and
           Email OTP statements are `DO UPDATE` upserts, capability installation
@@ -919,19 +922,25 @@ ceremony after the user completes authentication. The safe sequence is:
           than the commit store and side-effect boundary separately. The same
           suite also races two identical finalize requests and verifies an
           exact shared result with one persisted wallet state.
-    - [x] Derive the request fingerprint from the canonical semantic effect
-          identity rather than primarily the activation session. Sponsored
-          account claims hash the account, public key, relayer, and initial
-          balance; the activation-scoped key remains only the durable record
-          key. A separate prepared-artifact fingerprint binds the exact signed
-          transaction and is recomputed before claim resume or terminal replay.
+    - [x] Derive the request fingerprint from the stable semantic
+          account-creation intent: receiver account, target public key, relayer
+          account, and initial balance. Persist the complete prepared effect,
+          including the relayer signing key, nonce, block hash, exact signed
+          Borsh bytes, and NEAR transaction hash. The NEAR transaction hash is
+          the decoded unsigned-transaction hash. Separately compute the
+          prepared-artifact fingerprint as SHA-256 over the exact signed Borsh
+          bytes after semantic validation, and recompute it on every claim or
+          completion read.
     - [x] Resolve the Yao runtime per request so registration finalize reads the
           activation from whichever store its execute step used. A fixed runtime
           would have sent execute to the partitioned store while finalize kept
           reading the legacy one.
-    - [x] Replace the optional prepare field and boolean resume flag with a
-          discriminated non-resumable/prepared-resumable input union, with
-          compile-time fixtures rejecting invalid combinations.
+    - [x] Make resumability explicit with a required
+          `kind: 'prepared_resumable'` lifecycle discriminator and required
+          preparation, artifact-fingerprint derivation, resume interval, and
+          execution members. Compile-time fixtures reject an omitted
+          discriminator, missing prepared-lifecycle members, and the obsolete
+          `non_resumable` kind.
     - [x] Build the full partitioned Gateway handler with the D1 runtime in
           both the service provider and Router options. Registration start uses
           it after the registration drain; every public, session, sync-account,
