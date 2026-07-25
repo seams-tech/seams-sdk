@@ -204,7 +204,7 @@ test('release workflow invokes the selector through its required CLI command', (
   );
 
   expect(workflowSource).toContain(
-    'node scripts/deployment-components.mjs select --files-file "$RUNNER_TEMP/changed-files.txt"',
+    'node scripts/deployment-components.mjs select --files-file "$RUNNER_TEMP/changed-files.txt" --lane backend',
   );
   expect(workflowSource).toContain('name: template / release / cloudflare-stack');
   expect(workflowSource).toContain('name: release-change-set');
