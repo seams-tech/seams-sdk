@@ -518,6 +518,8 @@ jobs:
           DEPLOY_SHA: ${{ needs.auto_prepare.outputs.source_sha }}
           VALIDATION_RUN_ID: ${{ needs.auto_prepare.outputs.validation_run_id }}
           SELECTED_COMPONENTS: ${{ needs.auto_select_components.outputs.components }}
+          GATEWAY_API_CONTRACT_VERSION: ${{ vars.GATEWAY_API_CONTRACT_VERSION }}
+          SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON: ${{ vars.SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON }}
         run: |
           set -euo pipefail
           node --input-type=module <<'NODE'
@@ -576,6 +578,7 @@ jobs:
             sourceSha,
             target,
             selectedComponents: JSON.parse(process.env.SELECTED_COMPONENTS),
+            gatewayApiContractVersion: process.env.GATEWAY_API_CONTRACT_VERSION,
           }, null, 2)}\n`);
           NODE
       - name: Create immutable release-set manifest
@@ -585,8 +588,14 @@ jobs:
           DEPLOY_SHA: ${{ needs.auto_prepare.outputs.source_sha }}
           VALIDATION_RUN_ID: ${{ needs.auto_prepare.outputs.validation_run_id }}
           SELECTED_COMPONENTS: ${{ needs.auto_select_components.outputs.components }}
+          GATEWAY_API_CONTRACT_VERSION: ${{ vars.GATEWAY_API_CONTRACT_VERSION }}
+          SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON: ${{ vars.SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON }}
         run: |
           set -euo pipefail
+          test -n "${GATEWAY_API_CONTRACT_VERSION:-}" || {
+            echo '::error title=Missing backend contract version::GATEWAY_API_CONTRACT_VERSION is required'
+            exit 1
+          }
           mkdir -p .release-artifacts/release-set
           node scripts/deployment-release.mjs create \
             --lane backend \
@@ -594,6 +603,8 @@ jobs:
             --source-sha "$DEPLOY_SHA" \
             --accepted-validation-run-id "$VALIDATION_RUN_ID" \
             --artifact-run-id "$GITHUB_RUN_ID" \
+            --gateway-api-contract-version "$GATEWAY_API_CONTRACT_VERSION" \
+            --supported-frontend-api-contract-range-json "$SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON" \
             --components-file .release-artifacts-components.json \
             --migrations-file .release-artifacts-migrations.json \
             --build-identity-file .release-build-identity.json \
