@@ -225,9 +225,7 @@ function parseCapabilities(value, pathName, requireAllCapabilities = true) {
 }
 
 function parseSecretNames(value, pathName) {
-  if (!Array.isArray(value) || value.length === 0) {
-    throw new Error(`${pathName} must be a non-empty array`);
-  }
+  if (!Array.isArray(value)) throw new Error(`${pathName} must be an array`);
   return Object.freeze(
     unique(
       value.map((item, index) => requireSecretName(item, `${pathName}[${index}]`)),

@@ -172,12 +172,6 @@ identity, session settings, bootstrap metadata, and optional integration
 configuration. The deployment renderer validates this document once and emits
 the individual Worker bindings expected by the runtime.
 
-The frontend and Gateway environments also share the explicit API contract
-variables `GATEWAY_API_CONTRACT_VERSION` and
-`SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON`. Keep their values aligned with
-the expand-contract API rule in [README.md](README.md); they do not identify a
-cross-workflow release.
-
 Gateway cryptographic values and external credentials remain separate GitHub
 secrets. This preserves GitHub secret masking and allows credential rotation
 without rewriting public deployment configuration.
@@ -380,11 +374,12 @@ Latest local dry-run evidence:
 - gzip upload sizes: Router `573.83 KiB`, Deriver A `598.97 KiB`, Deriver B
   `599.92 KiB`, SigningWorker `567.14 KiB`
 
-The backend workflow performs component-scoped preflight, then applies D1
-migrations before the ordered Worker deployments: SigningWorker, Deriver A,
-Deriver B, MPCRouter, and Gateway. The frontend
-workflow builds and deploys its Pages output independently and runs its own
-smoke checks; neither lane waits for a coordination receipt from the other.
+The backend workflow performs a five-environment component preflight from
+`deployment/targets.json`, then applies D1 migrations before the ordered Worker
+deployments: SigningWorker, Deriver A, Deriver B, MPCRouter, and Gateway.
+Backend smoke runs at the end of the Gateway job. The frontend workflow builds,
+deploys, and smokes its Pages output in one independent job; neither lane waits
+for a coordination receipt from the other.
 
 ## Cloudflare Data
 
