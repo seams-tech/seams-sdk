@@ -208,33 +208,29 @@ function buildWorkerVars(deployment) {
 }
 
 function readGatewayDrainWindow() {
-  const cutoffRaw = String(process.env.ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS || '').trim();
-  const drainRaw = String(process.env.ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS || '').trim();
-  if (!cutoffRaw && !drainRaw) {
-    return {
-      ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS: '',
-      ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS: '',
-    };
+  const vars = {};
+  for (const family of ['REGISTRATION', 'RECOVERY', 'EXPORT']) {
+    const cutoffName = `ROUTER_AB_YAO_GATEWAY_${family}_ADMISSION_CUTOFF_MS`;
+    const drainName = `ROUTER_AB_YAO_GATEWAY_${family}_DRAIN_UNTIL_MS`;
+    const cutoffRaw = String(process.env[cutoffName] || '').trim();
+    const drainRaw = String(process.env[drainName] || '').trim();
+    if (!cutoffRaw && !drainRaw) {
+      vars[cutoffName] = '';
+      vars[drainName] = '';
+      continue;
+    }
+    if (!cutoffRaw || !drainRaw) {
+      throw new Error(`${cutoffName} and ${drainName} must be set together`);
+    }
+    const admissionCutoffMs = parseGatewayTimestamp(cutoffRaw, cutoffName);
+    const drainUntilMs = parseGatewayTimestamp(drainRaw, drainName);
+    if (admissionCutoffMs > drainUntilMs) {
+      throw new Error(`${cutoffName} must not exceed ${drainName}`);
+    }
+    vars[cutoffName] = String(admissionCutoffMs);
+    vars[drainName] = String(drainUntilMs);
   }
-  if (!cutoffRaw || !drainRaw) {
-    throw new Error(
-      'ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS and ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS must be set together',
-    );
-  }
-  const admissionCutoffMs = parseGatewayTimestamp(
-    cutoffRaw,
-    'ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS',
-  );
-  const drainUntilMs = parseGatewayTimestamp(drainRaw, 'ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS');
-  if (admissionCutoffMs > drainUntilMs) {
-    throw new Error(
-      'ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS must not exceed ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS',
-    );
-  }
-  return {
-    ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS: String(admissionCutoffMs),
-    ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS: String(drainUntilMs),
-  };
+  return vars;
 }
 
 function parseGatewayTimestamp(raw, name) {

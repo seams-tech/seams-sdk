@@ -1,5 +1,7 @@
 import { ActionType, type ActionArgsWasm, validateActionArgsWasm } from '@shared/near/actions';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
+import { base58Encode } from '@shared/utils/base58';
+import { sha256Bytes } from '@shared/utils/digests';
 import { errorMessage } from '@shared/utils/errors';
 import {
   deriveImplicitNearAccountIdFromEd25519PublicKey,
@@ -15,6 +17,7 @@ import { decodeNearSecretKey, toPublicKeyStringFromSecretKey } from './nearKeys'
 import { ensureNearSignerWasm } from './nearSignerWasmRuntime';
 import {
   MinimalNearClient,
+  NearRpcError,
   SignedTransaction,
   type NearClient,
 } from './rpcClients/near/NearClient';
@@ -149,7 +152,7 @@ async function signEd25519MessageWithNodeCrypto(
       type: 'pkcs8',
     });
     return new Uint8Array(nodeCrypto.sign(null, message, key));
-  } catch {
+  } catch (error: unknown) {
     return null;
   }
 }
@@ -488,6 +491,8 @@ export async function fundImplicitNearAccountWithRelayer(
 export type PreparedSponsoredNearAccountCreationV1 = {
   readonly kind: 'prepared_sponsored_near_account_creation_v1';
   readonly accountId: string;
+  readonly publicKey: string;
+  readonly relayerAccountId: string;
   readonly transactionHash: string;
   readonly nextNonce: string;
   readonly blockHash: string;
@@ -534,6 +539,8 @@ export async function prepareSponsoredNearAccountCreationWithRelayer(
       prepared: {
         kind: 'prepared_sponsored_near_account_creation_v1',
         accountId: validated.accountId,
+        publicKey: validated.publicKey,
+        relayerAccountId: validated.relayerAccount,
         transactionHash: created.transactionHash,
         nextNonce: txContext.nextNonce,
         blockHash: txContext.blockHash,
@@ -551,12 +558,6 @@ export async function prepareSponsoredNearAccountCreationWithRelayer(
 }
 
 /**
- * Broadcasts an already-prepared sponsored account creation. Safe to call more
- * than once for the same prepared transaction: the bytes and therefore the
- * transaction hash are identical, so the network treats a repeat as the same
- * transaction rather than a second account creation.
- */
-/**
  * A broadcast either lands, is definitively rejected, or leaves the caller
  * unable to tell. Collapsing the third case into a rejection would record a
  * transaction that may already be on chain as a terminal failure, so it stays
@@ -567,29 +568,115 @@ export type BroadcastPreparedSponsoredNearAccountResultV1 =
   | { readonly kind: 'rejected'; readonly result: AccountCreationResult }
   | { readonly kind: 'uncertain'; readonly message: string };
 
-/**
- * A submitted transaction whose response was lost is indistinguishable from one
- * that never arrived, so reconcile against the chain by hash before resubmitting.
- */
-async function sponsoredNearAccountStatusByHash(input: {
+type SponsoredNearAccountProbeV1 =
+  | { readonly kind: 'created'; readonly result: AccountCreationResult }
+  | { readonly kind: 'rejected'; readonly message: string }
+  | { readonly kind: 'not_found' }
+  | { readonly kind: 'uncertain'; readonly message: string };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function outcomeStatus(outcome: FinalExecutionOutcome): SponsoredNearAccountProbeV1 {
+  const status = outcome.status;
+  if (status === 'Failure') {
+    return { kind: 'rejected', message: 'NEAR transaction failed' };
+  }
+  if (isRecord(status) && ('SuccessValue' in status || 'SuccessReceiptId' in status)) {
+    return { kind: 'created', result: { success: true, message: 'NEAR transaction completed' } };
+  }
+  if (isRecord(status) && 'Failure' in status) {
+    return {
+      kind: 'rejected',
+      message: `NEAR transaction failed: ${JSON.stringify(status.Failure)}`,
+    };
+  }
+  return { kind: 'uncertain', message: 'NEAR transaction status is not terminal' };
+}
+
+function isTransactionNotFound(error: unknown): boolean {
+  if (!(error instanceof NearRpcError)) return false;
+  const text = `${error.kind || ''} ${error.message}`.toLowerCase();
+  return (
+    error.type === 'RpcError' &&
+    (text.includes('unknown transaction') ||
+      text.includes('transaction_not_found') ||
+      text.includes('does not exist'))
+  );
+}
+
+async function probeSponsoredNearAccountCreation(input: {
   readonly prepared: PreparedSponsoredNearAccountCreationV1;
   readonly nearClient: NearClient;
   readonly relayerAccountId: string;
-}): Promise<AccountCreationResult | null> {
+}): Promise<SponsoredNearAccountProbeV1> {
   try {
     const outcome = await input.nearClient.txStatus(
       input.prepared.transactionHash,
       input.relayerAccountId,
     );
+    const status = outcomeStatus(outcome);
+    if (status.kind === 'created') {
+      return {
+        kind: 'created',
+        result: {
+          success: true,
+          accountId: input.prepared.accountId,
+          transactionHash: transactionHashFromOutcome(outcome, input.prepared.transactionHash),
+          message: `Account ${input.prepared.accountId} created`,
+        },
+      };
+    }
+    return status;
+  } catch (error: unknown) {
+    if (!isTransactionNotFound(error)) {
+      return { kind: 'uncertain', message: 'Unable to query NEAR transaction status' };
+    }
+    return { kind: 'not_found' };
+  }
+}
+
+async function readBackSponsoredNearAccount(input: {
+  readonly prepared: PreparedSponsoredNearAccountCreationV1;
+  readonly nearClient: NearClient;
+}): Promise<SponsoredNearAccountProbeV1> {
+  try {
+    await input.nearClient.viewAccount(input.prepared.accountId);
+    const accessKey = await input.nearClient.viewAccessKey(
+      input.prepared.accountId,
+      input.prepared.publicKey,
+    );
+    if (accessKey.permission !== 'FullAccess') {
+      return {
+        kind: 'rejected',
+        message: 'NEAR account exists without the expected full-access key',
+      };
+    }
     return {
-      success: true,
-      accountId: input.prepared.accountId,
-      transactionHash: transactionHashFromOutcome(outcome, input.prepared.transactionHash),
-      message: `Account ${input.prepared.accountId} created`,
+      kind: 'created',
+      result: {
+        success: true,
+        accountId: input.prepared.accountId,
+        transactionHash: input.prepared.transactionHash,
+        message: `Account ${input.prepared.accountId} created`,
+      },
     };
-  } catch {
-    // An unknown hash is the expected answer when the transaction never landed.
-    return null;
+  } catch (error: unknown) {
+    if (error instanceof NearRpcError && isTransactionNotFound(error)) {
+      return { kind: 'not_found' };
+    }
+    return { kind: 'uncertain', message: errorMessage(error) || 'NEAR account readback failed' };
+  }
+}
+
+async function validatePreparedSponsoredNearAccountCreation(
+  prepared: PreparedSponsoredNearAccountCreationV1,
+): Promise<void> {
+  const bytes = Uint8Array.from(prepared.signedTransaction.borsh_bytes);
+  const expectedHash = base58Encode(await sha256Bytes(bytes));
+  if (expectedHash !== prepared.transactionHash) {
+    throw new Error('Persisted NEAR transaction hash does not match its signed bytes');
   }
 }
 
@@ -602,13 +689,28 @@ export async function broadcastPreparedSponsoredNearAccountCreation(input: {
   readonly reconcileFirst?: boolean;
 }): Promise<BroadcastPreparedSponsoredNearAccountResultV1> {
   const nearClient = input.nearClient || new MinimalNearClient(input.nearRpcUrl);
+  if (input.prepared.relayerAccountId !== input.relayerAccountId) {
+    const message = 'Persisted NEAR transaction relayer does not match the configured relayer';
+    return { kind: 'rejected', result: { success: false, error: message, message } };
+  }
+  try {
+    await validatePreparedSponsoredNearAccountCreation(input.prepared);
+  } catch (error: unknown) {
+    return { kind: 'rejected', result: { success: false, error: errorMessage(error), message: errorMessage(error) } };
+  }
   if (input.reconcileFirst) {
-    const settled = await sponsoredNearAccountStatusByHash({
+    const probe = await probeSponsoredNearAccountCreation({
       prepared: input.prepared,
       nearClient,
       relayerAccountId: input.relayerAccountId,
     });
-    if (settled) return { kind: 'created', result: settled };
+    if (probe.kind === 'created') return probe;
+    if (probe.kind === 'rejected') return { kind: 'rejected', result: { success: false, error: probe.message, message: probe.message } };
+    if (probe.kind === 'uncertain') return { kind: 'uncertain', message: probe.message };
+    const readback = await readBackSponsoredNearAccount({ prepared: input.prepared, nearClient });
+    if (readback.kind === 'created') return readback;
+    if (readback.kind === 'uncertain') return { kind: 'uncertain', message: readback.message };
+    if (readback.kind === 'rejected') return { kind: 'rejected', result: { success: false, error: readback.message, message: readback.message } };
   }
   try {
     const outcome = await nearClient.sendTransaction(
@@ -630,8 +732,13 @@ export async function broadcastPreparedSponsoredNearAccountCreation(input: {
     };
   } catch (error: unknown) {
     const message = errorMessage(error) || 'Failed to create NEAR account';
-    if (!isDefinitiveNearRejection(error)) return { kind: 'uncertain', message };
-    return { kind: 'rejected', result: { success: false, error: message, message } };
+    const readback = await readBackSponsoredNearAccount({ prepared: input.prepared, nearClient });
+    if (readback.kind === 'created') return readback;
+    if (readback.kind === 'uncertain') return { kind: 'uncertain', message: `${message}; ${readback.message}` };
+    if (readback.kind === 'not_found' && isDefinitiveNearRejection(error)) {
+      return { kind: 'rejected', result: { success: false, error: message, message } };
+    }
+    return { kind: 'uncertain', message };
   }
 }
 
@@ -641,22 +748,10 @@ export async function broadcastPreparedSponsoredNearAccountCreation(input: {
  * transaction reached the network, so they are treated as uncertain.
  */
 function isDefinitiveNearRejection(error: unknown): boolean {
-  const message = errorMessage(error).toLowerCase();
-  if (!message) return false;
-  const uncertain = ['timeout', 'timed out', 'network', 'fetch', 'socket', 'aborted', 'econn'];
-  if (uncertain.some((marker) => message.includes(marker))) return false;
-  const definitive = [
-    'invalid transaction',
-    'invalidtxerror',
-    'account already exists',
-    'accountalreadyexists',
-    'notenoughbalance',
-    'not enough balance',
-    'invalidnonce',
-    'invalid nonce',
-    'expired',
-  ];
-  return definitive.some((marker) => message.includes(marker));
+  return (
+    error instanceof NearRpcError &&
+    (error.type === 'InvalidTxError' || error.type === 'ActionError' || error.type === 'Failure')
+  );
 }
 
 export async function createNamedNearAccountWithRelayer(

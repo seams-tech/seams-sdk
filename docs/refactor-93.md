@@ -858,9 +858,15 @@ receipts are recorded.
           registration carrying enrollment state does not compile.
     - [x] Classify a broadcast as created, rejected, or uncertain, propagate
           uncertainty so the claim stays open, and settle the stored hash
-          against the chain before a resumed attempt resubmits.
+          against the chain before a resumed attempt resubmits. Resolved
+          failures are rejected, successful outcomes are read back against the
+          expected account and FullAccess key, and transport ambiguity remains
+          uncertain.
     - [x] Parse and validate persisted claims at the D1 boundary so an
-          unparseable record fails closed into a fresh attempt.
+          unparseable record fails closed into a fresh attempt. The parser
+          validates the complete signed effect artifact, including bounded
+          Borsh bytes, transaction metadata, and the prepared hash before any
+          network effect.
     - [ ] Prove the finalization sequence converges after a crash between its
           steps. Each write is individually idempotent — wallet, signer, and
           Email OTP statements are `DO UPDATE` upserts, capability installation
@@ -881,15 +887,17 @@ receipts are recorded.
     - [ ] Drive the convergence check through the finalize entry point rather
           than the commit store and side-effect boundary separately. Both halves
           are proven in isolation; the end-to-end path is not.
-    - [ ] Derive the request fingerprint from the canonical effect identity
-          rather than primarily the activation session.
+    - [x] Derive the request fingerprint from the canonical effect identity
+          rather than primarily the activation session. Sponsored account
+          claims hash the account, public key, relayer, and initial balance;
+          the activation-scoped key remains only the durable record key.
     - [x] Resolve the Yao runtime per request so registration finalize reads the
           activation from whichever store its execute step used. A fixed runtime
           would have sent execute to the partitioned store while finalize kept
           reading the legacy one.
-    - [ ] Replace the optional prepare field and boolean resume flag with a
-          representation that makes invalid lifecycle combinations
-          unconstructable.
+    - [x] Replace the optional prepare field and boolean resume flag with a
+          discriminated non-resumable/prepared-resumable input union, with
+          compile-time fixtures rejecting invalid combinations.
   - [x] Add typed request-scoped recovery admission and execution
         prepare/claim/commit boundaries with a shared backend-session uniqueness
         index, durable uncertainty, and no backend retry.
@@ -898,14 +906,15 @@ receipts are recorded.
         against the store its admission used. Each family carries its own
         window; a family with no window stays on the legacy runtime, so one
         family cannot inherit another's elapsed drain.
-  - [x] Lift the recovery and export authorization and capability adapters out
+    - [x] Lift the recovery and export authorization and capability adapters out
         of the tenant runtime object so the request-scoped handlers can be
         constructed from the environment. `createStagingRecoveryRequestScopedDependencies`
         and `createStagingExportRequestScopedDependencies` reuse the existing
         wallet-session and WebAuthn adapters and the request-scoped runtime, so
         this is composition wiring rather than a second authorization
-        implementation, and they add no new environment surface. They are not
-        called yet.
+          implementation. Cutover timing is configured separately per family;
+          existing-wallet capability rehydration is supplied by a bounded
+          wallet/slot D1 fallback on a shared-state miss.
   - [x] Wire recovery admission, execution, and activation to the partitioned
         store as one coherent cutover, dispatched through the selector using the
         environment-backed dependencies. Dormant until the recovery window is
@@ -987,10 +996,11 @@ route-deletion cleanup.
       request boundary. The branch already contains the Gateway cutover, so this
       ordering cannot be replayed. The coherent staging rollout below replaces
       it as the first external validation.
-- [ ] Deploy the Gateway cutover with
-      `ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS` set at admission quiescence
-      and `ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS` set to that cutoff plus the
-      measured maximum in-flight lifetime.
+- [ ] Deploy each Gateway family cutover with its corresponding
+      `ROUTER_AB_YAO_GATEWAY_{REGISTRATION,RECOVERY,EXPORT}_ADMISSION_CUTOFF_MS`
+      set at admission quiescence and its corresponding
+      `ROUTER_AB_YAO_GATEWAY_{REGISTRATION,RECOVERY,EXPORT}_DRAIN_UNTIL_MS`
+      set to that cutoff plus the measured maximum in-flight lifetime.
 - [ ] Exercise staging registration, recovery, export, exact replay, conflict,
       disconnect, terminal redelivery, and rollback on the coherent versions.
 - [ ] Deploy the accepted coherent backend to production without deleting

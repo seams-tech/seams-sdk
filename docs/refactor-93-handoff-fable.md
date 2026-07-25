@@ -134,3 +134,22 @@ intended direction of error.
    deployment-shaped.
 8. An independent audit thread may deliver findings against this same branch;
    its findings and this handoff may overlap.
+
+## Takeover verification
+
+The takeover review keeps the branch frozen at `3d4919ad9` until the remaining
+correctness work lands. Two items described above as complete are still open:
+
+- `txStatus` reconciliation treats every resolved status as successful and does
+  not verify the expected account and full-access key. A transport error and an
+  unknown hash are also conflated before rebroadcast.
+- persisted prepared-transaction records are still partially validated and then
+  cast to the domain type; nonce, block hash, signature, transaction structure,
+  and hash-to-bytes consistency are not yet checked.
+
+The per-family selector is implemented, but the deployment renderer and runbook
+still emit the retired global cutoff variables. Existing-wallet capability
+rehydration, public registration-start admission gating, local parity, and
+complete removal of Yao ownership from the tenant runtime remain prerequisites
+to enabling a family window. Typechecks and focused tests are useful evidence;
+they do not cover those worker/deployment and existing-wallet paths.

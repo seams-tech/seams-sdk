@@ -50,6 +50,7 @@ class SideEffectProbe {
 
 function bridgeRunInput(probe: SideEffectProbe) {
   return {
+    kind: 'non_resumable' as const,
     operation: 'finalize' as const,
     key: 'registration-finalize:lifecycle-1',
     requestFingerprint: REQUEST_FINGERPRINT,
@@ -60,6 +61,7 @@ function bridgeRunInput(probe: SideEffectProbe) {
 
 function startBridgeRunInput(probe: SideEffectProbe) {
   return {
+    kind: 'non_resumable' as const,
     operation: 'start' as const,
     key: 'registration-start:intent-grant-digest',
     requestFingerprint: REQUEST_FINGERPRINT,
@@ -347,6 +349,34 @@ test.describe('registration side-effect persistence bridge', () => {
     });
   });
 
+  test('rehydrates one existing-wallet capability from the canonical signer on a shared miss', async () => {
+    const store = createRegistrationBridgePartitionStore();
+    const { walletId, fixture } = registrationCapabilityFixture();
+    let fallbackReads = 0;
+    const runtime = createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1({
+      signingWorkerId: 'signing-worker-bridge',
+      session: new UnusedSessionAdapter(),
+      store,
+      loadPersistedActiveCapability: async () => {
+        fallbackReads += 1;
+        return fixture.capability;
+      },
+    });
+
+    await expect(
+      runtime.resolveActiveCapability({
+        kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
+        walletId,
+        nearAccountId: 'wallet-registration-bridge.testnet',
+        nearEd25519SigningKeyId: 'near-ed25519-registration-bridge',
+        signerSlot: 1,
+        signingWorkerId: 'signing-worker-bridge',
+        participantIds: [1, 2],
+      }),
+    ).resolves.toMatchObject({ ok: true });
+    expect(fallbackReads).toBe(1);
+  });
+
   test('stops after one deterministic reconciliation when contention continues', async () => {
     const delegate = createRegistrationBridgePartitionStore();
     const store = new AlwaysConflictRegistrationBridgePartitionStore(delegate);
@@ -374,14 +404,13 @@ test.describe('registration side-effect prepared artifacts', () => {
     readonly prepareCalls: { count: number };
     readonly broadcasts: PreparedTx[];
     readonly failEffect?: boolean;
-    readonly resume?: boolean;
   }) {
     return {
+      kind: 'prepared_resumable' as const,
       operation: 'finalize' as const,
       key: PREPARED_KEY,
       requestFingerprint: REQUEST_FINGERPRINT,
       nowMs: fixedNow,
-      ...(input.resume ? { resumeWithPrepared: true as const } : {}),
       prepare: async (): Promise<PreparedTx> => {
         input.prepareCalls.count += 1;
         // A rebuild would take a fresh nonce, so vary the hash per call.
@@ -390,13 +419,13 @@ test.describe('registration side-effect prepared artifacts', () => {
           bytes: [1, 2, input.prepareCalls.count],
         };
       },
-      execute: async (prepared: PreparedTx | undefined): Promise<TestResponse> => {
-        if (!prepared) throw new Error('broadcast ran without a prepared transaction');
+      execute: async (prepared: PreparedTx): Promise<TestResponse> => {
         const stored = await input.store.read(PREPARED_KEY);
         if (
           stored.kind !== 'present' ||
           stored.value.kind !== 'router_ab_ed25519_yao_registration_side_effect_claim_v1' ||
-          stored.value.prepared?.transactionHash !== prepared.transactionHash
+          !('prepared' in stored.value) ||
+          stored.value.prepared.transactionHash !== prepared.transactionHash
         ) {
           throw new Error('broadcast ran before its transaction was durable');
         }
@@ -430,42 +459,20 @@ test.describe('registration side-effect prepared artifacts', () => {
 
     const lost = await runRouterAbEd25519YaoRegistrationSideEffectV1<TestResponse, PreparedTx>(
       store,
-      preparedRunInput({ store, prepareCalls, broadcasts, failEffect: true, resume: true }),
+      preparedRunInput({ store, prepareCalls, broadcasts, failEffect: true }),
     );
     expect(lost.kind).toBe('uncertain');
     expect(prepareCalls.count).toBe(1);
 
     const resumed = await runRouterAbEd25519YaoRegistrationSideEffectV1<TestResponse, PreparedTx>(
       store,
-      preparedRunInput({ store, prepareCalls, broadcasts, resume: true }),
+      preparedRunInput({ store, prepareCalls, broadcasts }),
     );
 
     expect(resumed).toEqual({ kind: 'executed', value: { ok: true, receipt: 'tx-hash-1' } });
     // The second attempt must not build a second transaction.
     expect(prepareCalls.count).toBe(1);
     expect(broadcasts.map((entry) => entry.transactionHash)).toEqual(['tx-hash-1', 'tx-hash-1']);
-  });
-
-  test('without opt-in resume an interrupted attempt stalls and returns its artifact', async () => {
-    const store = new RegistrationSideEffectMemoryStore<TestResponse, PreparedTx>();
-    const prepareCalls = { count: 0 };
-    const broadcasts: PreparedTx[] = [];
-
-    await runRouterAbEd25519YaoRegistrationSideEffectV1<TestResponse, PreparedTx>(
-      store,
-      preparedRunInput({ store, prepareCalls, broadcasts, failEffect: true }),
-    );
-    const retried = await runRouterAbEd25519YaoRegistrationSideEffectV1<TestResponse, PreparedTx>(
-      store,
-      preparedRunInput({ store, prepareCalls, broadcasts }),
-    );
-
-    expect(retried).toEqual({
-      kind: 'in_progress',
-      prepared: { transactionHash: 'tx-hash-1', bytes: [1, 2, 1] },
-    });
-    expect(prepareCalls.count).toBe(1);
-    expect(broadcasts).toHaveLength(1);
   });
 
   test('a completed prepared effect replays its exact response without rebroadcasting', async () => {
@@ -475,11 +482,11 @@ test.describe('registration side-effect prepared artifacts', () => {
 
     await runRouterAbEd25519YaoRegistrationSideEffectV1<TestResponse, PreparedTx>(
       store,
-      preparedRunInput({ store, prepareCalls, broadcasts, resume: true }),
+      preparedRunInput({ store, prepareCalls, broadcasts }),
     );
     const replay = await runRouterAbEd25519YaoRegistrationSideEffectV1<TestResponse, PreparedTx>(
       store,
-      preparedRunInput({ store, prepareCalls, broadcasts, resume: true }),
+      preparedRunInput({ store, prepareCalls, broadcasts }),
     );
 
     expect(replay).toEqual({ kind: 'exact_replay', value: { ok: true, receipt: 'tx-hash-1' } });
@@ -500,20 +507,19 @@ test.describe('ambiguous effects are never persisted as terminal', () => {
     readonly settleOnResume: boolean;
   }) {
     return {
+      kind: 'prepared_resumable' as const,
       operation: 'finalize' as const,
       key: KEY,
       requestFingerprint: REQUEST_FINGERPRINT,
       nowMs: fixedNow,
-      resumeWithPrepared: true as const,
       prepare: async (): Promise<PreparedTx> => {
         input.prepareCalls.count += 1;
         return { transactionHash: `tx-${input.prepareCalls.count}` };
       },
       execute: async (
-        prepared: PreparedTx | undefined,
+        prepared: PreparedTx,
         attempt: 'fresh' | 'resumed',
       ): Promise<BroadcastResult> => {
-        if (!prepared) throw new Error('missing prepared transaction');
         input.attempts.push(attempt);
         if (attempt === 'resumed' && input.settleOnResume) return { success: true };
         // Production reports an unobservable outcome by throwing, so the claim
@@ -576,13 +582,13 @@ test.describe('concurrent finalize contention', () => {
     readonly effects: string[];
   }) {
     return {
+      kind: 'prepared_resumable' as const,
       operation: 'finalize' as const,
       key: KEY,
       requestFingerprint: REQUEST_FINGERPRINT,
       nowMs: fixedNow,
       prepare: async (): Promise<Prepared> => ({ hash: 'tx-single' }),
-      execute: async (prepared: Prepared | undefined): Promise<Result> => {
-        if (!prepared) throw new Error('missing prepared transaction');
+      execute: async (prepared: Prepared): Promise<Result> => {
         input.effects.push(prepared.hash);
         return { receipt: prepared.hash };
       },

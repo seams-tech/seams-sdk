@@ -1,5 +1,6 @@
 import type {
   RouterAbEd25519YaoRegistrationSideEffectRecordV1,
+  RouterAbEd25519YaoRegistrationSideEffectRunInputV1,
   RouterAbEd25519YaoRegistrationSideEffectRunResultV1,
 } from './routerAbEd25519YaoRegistrationSideEffectBoundary';
 
@@ -43,3 +44,31 @@ const uncertainWithValue = {
 } satisfies RouterAbEd25519YaoRegistrationSideEffectRunResultV1<{ readonly ok: true }>;
 
 void uncertainWithValue;
+
+const invalidNonResumableInput = {
+  kind: 'non_resumable',
+  operation: 'start',
+  key: 'registration-start:fixture',
+  requestFingerprint: 'fingerprint',
+  nowMs: () => 1,
+  // @ts-expect-error non-resumable effects cannot carry a preparation hook
+  prepare: async () => ({ ok: true }),
+  execute: async () => ({ ok: true }),
+} satisfies RouterAbEd25519YaoRegistrationSideEffectRunInputV1<{ readonly ok: true }>;
+
+void invalidNonResumableInput;
+
+const invalidPreparedInput = {
+  kind: 'prepared_resumable',
+  operation: 'finalize',
+  key: 'registration-finalize:fixture',
+  requestFingerprint: 'fingerprint',
+  nowMs: () => 1,
+  execute: async (prepared: { readonly token: string }) => ({ ok: prepared.token.length > 0 }),
+// @ts-expect-error prepared-resumable effects require a preparation hook
+} satisfies RouterAbEd25519YaoRegistrationSideEffectRunInputV1<
+  { readonly ok: boolean },
+  { readonly token: string }
+>;
+
+void invalidPreparedInput;

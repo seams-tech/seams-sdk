@@ -1,6 +1,7 @@
 export type RouterAbEd25519YaoGatewayCutoverFamilyV1 = 'registration' | 'recovery' | 'export';
 
 export type RouterAbEd25519YaoGatewayRegistrationOperationV1 =
+  | 'registration_start'
   | 'registration_admission'
   | 'registration_execute'
   | 'recovery_admission'
@@ -18,6 +19,7 @@ function isAdmissionOperation(
   operation: RouterAbEd25519YaoGatewayRegistrationOperationV1,
 ): boolean {
   switch (operation) {
+    case 'registration_start':
     case 'registration_admission':
     case 'recovery_admission':
     case 'export_admission':
@@ -34,6 +36,7 @@ function familyOfOperation(
   operation: RouterAbEd25519YaoGatewayRegistrationOperationV1,
 ): RouterAbEd25519YaoGatewayCutoverFamilyV1 {
   switch (operation) {
+    case 'registration_start':
     case 'registration_admission':
     case 'registration_execute':
       return 'registration';
