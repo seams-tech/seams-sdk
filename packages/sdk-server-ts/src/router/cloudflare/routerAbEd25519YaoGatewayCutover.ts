@@ -1,6 +1,32 @@
 export type RouterAbEd25519YaoGatewayRegistrationOperationV1 =
   | 'registration_admission'
-  | 'registration_execute';
+  | 'registration_execute'
+  | 'recovery_admission'
+  | 'recovery_execute'
+  | 'recovery_activate'
+  | 'export_admission'
+  | 'export_execute';
+
+/**
+ * Admission opens a ceremony; every other phase continues one that already
+ * exists. Only admission stops at the cutoff, so a ceremony admitted before the
+ * boundary finishes on the store it started on.
+ */
+function isAdmissionOperation(
+  operation: RouterAbEd25519YaoGatewayRegistrationOperationV1,
+): boolean {
+  switch (operation) {
+    case 'registration_admission':
+    case 'recovery_admission':
+    case 'export_admission':
+      return true;
+    case 'registration_execute':
+    case 'recovery_execute':
+    case 'recovery_activate':
+    case 'export_execute':
+      return false;
+  }
+}
 
 export type RouterAbEd25519YaoGatewayRegistrationRouteV1 =
   | {
@@ -20,12 +46,13 @@ export type RouterAbEd25519YaoGatewayRegistrationRouteV1 =
     };
 
 /**
- * A deployment changes the backing store for both halves of registration at
- * once. New admissions stop at the first boundary, while executes continue on
- * the legacy runtime until every admission made before that boundary expires.
- * This keeps one admission and execute pair on one backing store across a
- * deployment. The operation is accepted to make the admission cutoff explicit
- * at the request boundary.
+ * A deployment changes the backing store for every phase of a ceremony at once.
+ * New admissions stop at the first boundary, while the continuation phases stay
+ * on the legacy runtime until every ceremony admitted before that boundary
+ * expires. This keeps all phases of one ceremony — registration admission and
+ * execute, recovery admission, execute and activate, export admission and
+ * execute — on the store it was admitted against. The operation is accepted to
+ * make the admission cutoff explicit at the request boundary.
  */
 export function resolveRouterAbEd25519YaoGatewayRegistrationRouteV1(input: {
   readonly operation: RouterAbEd25519YaoGatewayRegistrationOperationV1;
@@ -46,7 +73,7 @@ export function resolveRouterAbEd25519YaoGatewayRegistrationRouteV1(input: {
       drainUntilMs: input.drainUntilMs,
     };
   }
-  if (input.nowMs < input.drainUntilMs && input.operation === 'registration_admission') {
+  if (input.nowMs < input.drainUntilMs && isAdmissionOperation(input.operation)) {
     return {
       kind: 'admission_blocked',
       admissionCutoffMs: input.admissionCutoffMs,
