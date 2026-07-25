@@ -219,3 +219,17 @@ export type {
   RouterAbEd25519YaoProductRegistrationSharedStateV1,
   RouterAbEd25519YaoProductRegistrationStatePartitionV1,
 } from './routerAbEd25519YaoProductRegistrationPartitioning';
+export {
+  ROUTER_AB_ED25519_YAO_SHARED_STATE_RECORD_KEY_V1,
+  createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
+} from './routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+export type {
+  RouterAbEd25519YaoProductRegistrationPartitionBatchResultV1,
+  RouterAbEd25519YaoProductRegistrationPartitionMutationV1,
+  RouterAbEd25519YaoProductRegistrationPartitionRecordStoreV1,
+  RouterAbEd25519YaoProductRegistrationPartitionRecordV1,
+  RouterAbEd25519YaoProductRegistrationPartitionedStateCommitInputV1,
+  RouterAbEd25519YaoProductRegistrationPartitionedStateCommitResultV1,
+  RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
+  RouterAbEd25519YaoProductRegistrationPartitionedStateV1,
+} from './routerAbEd25519YaoProductRegistrationPartitionedStateStore';
