@@ -48,6 +48,14 @@ type DoReq =
   | { op: 'del'; key: string }
   | { op: 'readVersioned'; key: string }
   | { op: 'claimVersioned'; key: string; expectedVersion: string }
+  | { op: 'readVersionedJson'; key: string }
+  | {
+      op: 'putVersionedJson';
+      key: string;
+      expectedVersion: string | null;
+      value: unknown;
+      ttlMs?: number;
+    }
   | {
       op: 'getdelIfRelatedMatches';
       key: string;
@@ -271,6 +279,36 @@ function jsonValueContains(actual: unknown, expected: unknown): boolean {
 
 function stableStoreVersion(value: unknown): string {
   return JSON.stringify(value);
+}
+
+type VersionedJsonRecordEnvelope = {
+  readonly kind: 'cloudflare_versioned_json_record_v1';
+  readonly version: string;
+  readonly value: unknown;
+};
+
+function isJsonValue(value: unknown): boolean {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every((entry) => isJsonValue(entry));
+  if (!isPlainObject(value)) return false;
+  return Object.values(value).every((entry) => isJsonValue(entry));
+}
+
+function isVersionedJsonRecordEnvelope(value: unknown): value is VersionedJsonRecordEnvelope {
+  return (
+    isPlainObject(value) &&
+    value.kind === 'cloudflare_versioned_json_record_v1' &&
+    typeof value.version === 'string' &&
+    value.version.length > 0 &&
+    isJsonValue(value.value)
+  );
+}
+
+function newVersionedJsonRecordVersion(): string {
+  const version = crypto.randomUUID();
+  if (!version) throw new Error('Unable to create versioned JSON record version');
+  return version;
 }
 
 function signingRootRecordKey(input: {
@@ -871,6 +909,57 @@ export class ThresholdStoreDurableObject {
       const value = await this.state.storage.get(key);
       if (value === null || value === undefined) return json(ok(null));
       return json(ok({ value, version: stableStoreVersion(value) }));
+    }
+    if (op === 'readVersionedJson') {
+      const key = toKey((req as { key?: unknown }).key);
+      if (!key) return json(err('invalid_body', 'Missing key'));
+      const stored = await this.state.storage.get(key);
+      if (stored === null || stored === undefined) return json(ok({ status: 'missing' }));
+      if (!isVersionedJsonRecordEnvelope(stored)) {
+        return json(ok({ status: 'invalid_record' }));
+      }
+      return json(
+        ok({
+          status: 'present',
+          value: stored.value,
+          version: stored.version,
+        }),
+      );
+    }
+    if (op === 'putVersionedJson') {
+      const key = toKey((req as { key?: unknown }).key);
+      if (!key) return json(err('invalid_body', 'Missing key'));
+      const expectedVersion = (req as { expectedVersion?: unknown }).expectedVersion;
+      if (expectedVersion !== null && typeof expectedVersion !== 'string') {
+        return json(err('invalid_body', 'expectedVersion must be null or a non-empty string'));
+      }
+      if (typeof expectedVersion === 'string' && !toKey(expectedVersion)) {
+        return json(err('invalid_body', 'expectedVersion must be null or a non-empty string'));
+      }
+      const value = (req as { value?: unknown }).value;
+      if (!isJsonValue(value)) return json(err('invalid_body', 'value must be JSON serializable'));
+      const ttl = toTtlSeconds((req as { ttlMs?: unknown }).ttlMs);
+      const result = await withRequiredTxn(this.state, async (store) => {
+        const current = await store.get(key);
+        if (current === null || current === undefined) {
+          if (expectedVersion !== null) return { status: 'version_mismatch' };
+        } else {
+          if (!isVersionedJsonRecordEnvelope(current)) return { status: 'invalid_record' };
+          if (expectedVersion !== current.version) return { status: 'version_mismatch' };
+        }
+        const version = newVersionedJsonRecordVersion();
+        await store.put(
+          key,
+          {
+            kind: 'cloudflare_versioned_json_record_v1',
+            version,
+            value,
+          } satisfies VersionedJsonRecordEnvelope,
+          ttl ? { expirationTtl: ttl } : undefined,
+        );
+        return { status: 'stored', version };
+      });
+      return json(ok(result));
     }
     if (op === 'set') {
       const key = toKey((req as { key?: unknown }).key);
