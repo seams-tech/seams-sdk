@@ -863,6 +863,15 @@ receipts are recorded.
   - [x] Add typed request-scoped recovery admission and execution
         prepare/claim/commit boundaries with a shared backend-session uniqueness
         index, durable uncertainty, and no backend retry.
+  - [x] Classify recovery and export phases in the cutover selector so only
+        admission stops at the cutoff and every later phase of a ceremony runs
+        against the store its admission used.
+  - [ ] Lift the recovery and export authorization and capability adapters out
+        of the tenant runtime object so the request-scoped handlers can be
+        constructed from the environment. The composition currently takes the
+        runtime-held state as an argument, and building a second set of auth
+        adapters beside it would risk divergence, so this is a prerequisite for
+        wiring rather than part of it.
   - [ ] Wire recovery admission, execution, and activation to the partitioned
         store as one coherent cutover after activation has an idempotent
         side-effect boundary.
