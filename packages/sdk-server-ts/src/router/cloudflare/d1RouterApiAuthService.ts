@@ -78,6 +78,7 @@ import {
   type CloudflareD1RouterApiAuthServiceOptions,
   type NormalizedCloudflareD1RouterApiAuthServiceOptions,
 } from './d1RouterApiAuthConfig';
+import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../routerAbEd25519YaoProductRegistration';
 
 export type {
   CloudflareD1EmailOtpDeliveryProvider,
@@ -479,6 +480,18 @@ function isPreparedSponsoredNearAccountCreation(value: unknown): boolean {
   );
 }
 
+/**
+ * Resolves the Yao runtime per request. A resolver lets the caller send
+ * registration finalize to the same store the ceremony's execute step used.
+ */
+function resolveEd25519YaoProductRegistration(
+  options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
+): RouterAbEd25519YaoProductRegistrationRuntimeV1 | null {
+  const configured = options.ed25519YaoProductRegistration;
+  if (typeof configured === 'function') return configured();
+  return configured || null;
+}
+
 function sponsoredNearAccountSideEffectStore(
   options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
 ): RouterAbEd25519YaoRegistrationSideEffectStoreV1<
@@ -710,7 +723,7 @@ function createCloudflareD1RouterApiAuthAssembly(
     createSponsoredNamedNearAccount,
     emailOtpRegistrationEnrollmentFinalizer,
     getRegistrationCeremonyIntentStore,
-    getEd25519YaoProductRegistration: () => options.ed25519YaoProductRegistration || null,
+    getEd25519YaoProductRegistration: () => resolveEd25519YaoProductRegistration(options),
     getRouterAbNormalSigningRuntime:
       routerAbSigning.getRouterAbNormalSigningRuntime.bind(routerAbSigning),
     ecdsaStrictRegistration: options.ecdsaStrictRegistration,
@@ -720,7 +733,7 @@ function createCloudflareD1RouterApiAuthAssembly(
   });
   const walletAddSigners = new CloudflareD1WalletAddSignerService({
     getRegistrationCeremonyIntentStore,
-    getEd25519YaoProductRegistration: () => options.ed25519YaoProductRegistration || null,
+    getEd25519YaoProductRegistration: () => resolveEd25519YaoProductRegistration(options),
     getRouterAbNormalSigningRuntime:
       routerAbSigning.getRouterAbNormalSigningRuntime.bind(routerAbSigning),
     ecdsaStrictRegistration: options.ecdsaStrictRegistration,

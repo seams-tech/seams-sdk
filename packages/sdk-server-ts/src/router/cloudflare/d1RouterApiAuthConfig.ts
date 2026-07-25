@@ -97,7 +97,16 @@ export interface CloudflareD1RouterApiAuthServiceOptions {
   readonly emailOtpGoogleRegistrationAttemptRateLimitWindowMs?: number | string;
   readonly thresholdStore?: ThresholdStoreConfigInput | null;
   readonly routerAbSigningRuntimes?: RouterAbSigningRuntimeBundle | null;
-  readonly ed25519YaoProductRegistration?: RouterAbEd25519YaoProductRegistrationRuntimeV1 | null;
+  /**
+   * Accepts a resolver so the caller can pick the runtime per request. During a
+   * cutover, registration finalize must read the activation from whichever
+   * store the ceremony's execute step wrote to; a fixed runtime would send
+   * finalize to the legacy store while execute used the partitioned one.
+   */
+  readonly ed25519YaoProductRegistration?:
+    | RouterAbEd25519YaoProductRegistrationRuntimeV1
+    | (() => RouterAbEd25519YaoProductRegistrationRuntimeV1 | null)
+    | null;
   readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
 }
 

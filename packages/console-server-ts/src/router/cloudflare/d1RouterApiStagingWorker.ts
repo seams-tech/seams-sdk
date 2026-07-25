@@ -426,7 +426,22 @@ async function createRouterApiHandler(
       'EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS',
     ),
     thresholdStore: thresholdStoreConfig,
-    ed25519YaoProductRegistration: ed25519Yao.runtime,
+    // Registration finalize reads the activation that execute produced, so it
+    // must use whichever store that ceremony's execute step wrote to. Resolving
+    // per call keeps finalize on the legacy runtime until the registration
+    // family has fully drained, then moves it with admission and execute.
+    ed25519YaoProductRegistration: () =>
+      resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({
+        operation: 'registration_execute',
+        nowMs: Date.now(),
+        cutover: routerAbGatewayCutoverState(env),
+      }).kind === 'partitioned_d1'
+        ? createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1({
+            signingWorkerId: requireEnvString(env, 'SIGNING_WORKER_ID'),
+            session,
+            store: createStagingYaoPartitionedStateStore(env),
+          })
+        : ed25519Yao.runtime,
     ecdsaStrictRegistration,
   });
   const routerApiHandler = createCloudflareRouter(service, {

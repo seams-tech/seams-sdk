@@ -163,3 +163,29 @@ test('each family drains on its own schedule', () => {
     }).kind,
   ).toBe('legacy_runtime');
 });
+
+test('the classification finalize resolves with never splits from execute mid-window', () => {
+  // The worker resolves the finalize runtime using the registration_execute
+  // operation, so finalize inherits execute's store for every instant of the
+  // window. Assert execute never reports partitioned before the drain ends,
+  // which is what makes that inheritance safe.
+  const window = { admissionCutoffMs: 1_000, drainUntilMs: 2_000 } as const;
+  const cutover = { registration: window } as const;
+
+  for (const nowMs of [0, 999, 1_000, 1_500, 1_999]) {
+    expect(
+      resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({
+        operation: 'registration_execute',
+        nowMs,
+        cutover,
+      }).kind,
+    ).toBe('legacy_runtime');
+  }
+  expect(
+    resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({
+      operation: 'registration_execute',
+      nowMs: 2_000,
+      cutover,
+    }).kind,
+  ).toBe('partitioned_d1');
+});
