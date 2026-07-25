@@ -71,9 +71,10 @@ mod local_worker_topology;
 
 pub use local_dev_http::{
     local_dev_http_error_body_v1, local_dev_http_handle_request_v1, local_dev_http_route_error_v1,
-    read_local_dev_http_request_v1, require_local_dev_internal_service_auth_v1,
-    require_local_dev_normal_signing_wallet_session_v2, write_local_dev_http_response_v1,
-    LocalDevHttpErrorBodyV1, LocalDevHttpRequestPartsV1, LocalDevHttpTopologyV1,
+    local_dev_router_request_with_dispatcher_v1, read_local_dev_http_request_v1,
+    require_local_dev_internal_service_auth_v1, require_local_dev_normal_signing_wallet_session_v2,
+    write_local_dev_http_response_v1, LocalDevHttpErrorBodyV1, LocalDevHttpRequestPartsV1,
+    LocalDevHttpTopologyV1, LocalRouterRequestDispatcherV1,
 };
 pub use local_ed25519_yao_api::{
     build_local_activation_deriver_a_v1, build_local_activation_deriver_a_with_server_v1,
