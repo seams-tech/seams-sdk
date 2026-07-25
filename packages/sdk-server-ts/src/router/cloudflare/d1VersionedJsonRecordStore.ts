@@ -126,7 +126,15 @@ export class CloudflareD1VersionedJsonRecordStore<T> {
     } catch (error: unknown) {
       throw requestFailure(error);
     }
-    assertBatchSucceeded(results, preparedKeys.length);
+    try {
+      assertBatchSucceeded(results, preparedKeys.length);
+    } catch (error: unknown) {
+      throw error instanceof CloudflareD1VersionedJsonRecordStoreError
+        ? error
+        : invalidResponseFailure(
+            error instanceof Error ? error.message : 'Cloudflare D1 batch response is invalid',
+          );
+    }
     return preparedKeys.map(({ key }, index) => ({
       key,
       result: this.parseReadResult(results[index]),
@@ -451,10 +459,10 @@ function assertBatchSucceeded(
   expectedStatementCount: number,
 ): void {
   if (results.length !== expectedStatementCount) {
-    throw new Error('Cloudflare D1 versioned JSON batch returned incomplete results');
+    throw invalidResponseFailure('Cloudflare D1 versioned JSON batch returned incomplete results');
   }
   for (const result of results) {
-    if (!result.success) throw new Error('Cloudflare D1 versioned JSON batch failed');
+    if (!result.success) throw invalidResponseFailure('Cloudflare D1 versioned JSON batch failed');
   }
 }
 
