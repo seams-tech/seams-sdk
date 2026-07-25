@@ -831,6 +831,20 @@ threshold transport and is not an obsolete Yao direct-origin binding. No
 destructive deletion is authorized until the audit's deployment and drain
 receipts are recorded.
 
+The tenant-runtime cleanup is deliberately ordered after the three family
+drains. An unset window still selects the tenant runtime for product lifecycle
+state, while cryptographic execution already uses the MPC Router. Active
+admission, authorization, recovery, export, and finalization claims exist only
+in that runtime's snapshot; there is no snapshot-to-partitioned-D1 migration
+bridge. Removing or bypassing the snapshot first would strand an in-flight
+ceremony after the user completes authentication. The safe sequence is:
+
+1. deploy and exercise one frozen revision with every family window unset;
+2. quiesce and drain registration, recovery, and export independently;
+3. remove all Yao traffic and state from the tenant runtime;
+4. retain the runtime only for non-Yao routes until its separate follow-up
+   deletion.
+
 - [x] Delete the Gateway Stage, Start, Result, and package-delivery
       orchestration.
 - [ ] Delete obsolete Yao direct-origin environment keys where no other
@@ -1018,6 +1032,11 @@ route-deletion cleanup.
       2026-07-25 staging stack run, whose selected source did not contain the
       Refactor 93 coordinator. Dispatch `deploy-staging-backend.yml` from
       `dev` after this branch lands.
+- [ ] With every family window unset, exercise registration, recovery, export,
+      replay, restart, and concurrency on that frozen staging revision. In this
+      phase `legacy_runtime` means tenant-runtime lifecycle persistence; the
+      cryptographic execution path already submits one command to the MPC
+      Router.
 - [x] Superseded: validate the Router while the Gateway still uses the old
       request boundary. The branch already contains the Gateway cutover, so this
       ordering cannot be replayed. The coherent staging rollout below replaces
@@ -1469,19 +1488,25 @@ remaining miss has a named follow-up owner.
    Router, and Gateway in its fixed dependency order.
 3. Confirm all five active Worker versions came from the same revision.
 4. Exercise registration, recovery, export, exact replay, conflict,
-   disconnect, terminal redelivery, and rollback in staging.
-5. Enable the Gateway persistence cutover only after its state bridges are
-   complete, then observe one full maximum ceremony lifetime.
-6. Deploy the accepted coherent backend to production without deleting legacy
+   disconnect, terminal redelivery, rollback, restart, and concurrency in
+   staging with every family window unset.
+5. Quiesce and drain registration, recovery, and export independently. Existing
+   continuations stay on the tenant snapshot until their family drain expires;
+   new admissions resume against partitioned D1 after that boundary.
+6. Remove Yao snapshot hydration, persistence, serialization, and routing from
+   the tenant runtime after all three drain receipts. Keep the runtime reachable
+   only for non-Yao routes until its separate follow-up deletion.
+7. Deploy the accepted coherent backend to production without deleting legacy
    role routes.
-7. Capture cold and warm production acceptance cohorts and verify the latency,
+8. Capture cold and warm production acceptance cohorts and verify the latency,
    resource, retry, conflict, and D1-exclusion gates.
-8. After the production drain receipt is complete, deploy route cleanup to
+9. After the production drain receipt is complete, deploy route cleanup to
    staging and repeat the lifecycle and rollback checks.
-9. Deploy the same cleanup to production.
+10. Deploy the same cleanup to production.
 
-Compatibility exists only at the request boundary during steps 1–6. The
-Gateway has one current Router path; legacy role-boundary handlers remain
+Compatibility exists at the tenant lifecycle persistence boundary through step
+5 and at the role/request boundary through step 9. The Gateway has one current
+Router cryptographic path throughout; legacy role-boundary handlers remain
 available during the drain window and are removed by the cleanup step.
 
 The cutover uses no backend-selection feature flag. Before hard deletion,
