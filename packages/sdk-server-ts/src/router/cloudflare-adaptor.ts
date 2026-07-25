@@ -187,3 +187,14 @@ export type {
   CloudflareVersionedJsonRecordReadResult,
   CloudflareVersionedJsonValue,
 } from './cloudflare/versionedJsonRecordStore';
+export {
+  encodeRouterAbEd25519YaoProductRegistrationStateV1,
+  parseRouterAbEd25519YaoProductRegistrationStateJsonV1,
+  parseRouterAbEd25519YaoCeremonyKeyV1,
+  resolveRouterAbEd25519YaoCeremonyKeyFromRequestV1,
+} from './routerAbEd25519YaoProductRegistrationPersistence';
+export type {
+  RouterAbEd25519YaoCeremonyKeyV1,
+  RouterAbEd25519YaoCeremonyKeyResolutionV1,
+  RouterAbEd25519YaoCeremonyStateStoreV1,
+} from './routerAbEd25519YaoProductRegistrationPersistence';

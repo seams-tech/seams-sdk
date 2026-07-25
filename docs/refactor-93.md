@@ -889,8 +889,13 @@ the replacement is best tracked as a named Gateway persistence refactor that
 gates this criterion rather than expanding the Router coordinator scope.
 The shared Cloudflare adapter now provides a per-record Durable Object resolver,
 opaque versioned JSON envelopes, and transaction-backed compare-and-swap writes.
-It is a reusable foundation only: the tenant runtime has not been migrated, its
-binding and migration have not been deleted, and this checkbox remains open.
+The Gateway package also now has a request-boundary ceremony-key parser and a
+lossless codec for the registration, authorization, recovery, and export
+Map/Set graphs. These pieces define the persistence boundary and its record
+shape without routing traffic through it yet: the tenant runtime has not been
+migrated, its binding and migration have not been deleted, and this checkbox
+remains open until composition wrappers load and CAS one ceremony record per
+request.
 
 The local serving gate is a concrete wiring gap rather than an untested claim.
 `router_ab_local_worker` gives each Deriver its own process and SQLite-backed
