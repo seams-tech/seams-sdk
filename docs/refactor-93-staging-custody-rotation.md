@@ -65,6 +65,9 @@ secret value.
       update at `2026-07-25T20:47:53Z` and the B update at
       `2026-07-25T20:47:55Z`.
 - [ ] Deploy one frozen revision containing the new staging object scopes.
+      Deployment workflow run
+      [`30174308501`](https://github.com/seams-tech/seams-sdk/actions/runs/30174308501)
+      is building frozen `dev` revision `bf3642dc4`.
 - [ ] Verify Deriver A, Deriver B, Router, SigningWorker, and Gateway readiness.
 - [ ] Run a fresh dual-branch registration under `root_share_epoch=epoch-1`.
 - [ ] Record version IDs, workflow run, trace correlation ID, and result in
