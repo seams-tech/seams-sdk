@@ -303,7 +303,6 @@ const retiredSplitDerivationActiveFiles = [
   ...listSourceFiles('packages/sdk-server-ts/src'),
   ...listSourceFiles('packages/sdk-web/src'),
   ...listSourceFiles('apps/docs/src', /\.(?:ts|tsx|js|mjs|md|mdx)$/),
-  'crates/router-ab-cloudflare/scripts/assert-release-ready.mjs',
   'crates/router-ab-cloudflare/Cargo.toml',
   'crates/router-ab-cloudflare/package.json',
   'crates/router-ab-cloudflare/wrangler.router.toml',
