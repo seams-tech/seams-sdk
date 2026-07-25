@@ -200,6 +200,7 @@ pub enum LocalEd25519YaoPairRoleRecordV1 {
     Completed {
         session: [u8; 32],
         pair_digest: [u8; 32],
+        pair_binding: Box<router_ab_core::Ed25519YaoInputPairBindingV1>,
         execution_id: [u8; 32],
         execution: Box<Ed25519YaoRoleExecutionV1>,
     },
@@ -519,6 +520,7 @@ fn validate_pair_role_record(
         LocalEd25519YaoPairRoleRecordV1::Completed {
             session,
             pair_digest,
+            pair_binding,
             execution_id,
             execution,
         } => {
@@ -531,7 +533,11 @@ fn validate_pair_role_record(
                 ));
             }
             execution.validate()?;
+            pair_binding.validate()?;
             if execution.session() != *session
+                || pair_binding.session() != *session
+                || pair_binding.pair_digest().bytes != *pair_digest
+                || !completed_execution_matches_pair_v1(execution, pair_binding)
                 || execution.deriver()
                     != match role {
                         LocalServiceRoleV1::DeriverA => Ed25519YaoDeriverRoleV1::DeriverA,
@@ -573,6 +579,17 @@ fn pair_role_record_digest(record: &LocalEd25519YaoPairRoleRecordV1) -> [u8; 32]
         | LocalEd25519YaoPairRoleRecordV1::Expired { pair_digest, .. }
         | LocalEd25519YaoPairRoleRecordV1::Burned { pair_digest, .. } => *pair_digest,
     }
+}
+
+fn completed_execution_matches_pair_v1(
+    execution: &Ed25519YaoRoleExecutionV1,
+    pair_binding: &router_ab_core::Ed25519YaoInputPairBindingV1,
+) -> bool {
+    let execution_binding = match execution {
+        Ed25519YaoRoleExecutionV1::Activation(execution) => &execution.binding,
+        Ed25519YaoRoleExecutionV1::Export(execution) => &execution.binding,
+    };
+    execution_binding == pair_binding.binding()
 }
 
 fn build_deriver_a_activation_from_effective_state(
@@ -1469,10 +1486,17 @@ fn execute_local_pair_deriver_a_inner_v1(
     else {
         return match record {
             LocalEd25519YaoPairRoleRecordV1::Completed {
+                pair_binding: stored_pair_binding,
                 execution_id: stored_execution_id,
                 execution,
                 ..
-            } if stored_execution_id == execution_id.into_bytes() => Ok(*execution),
+            } if stored_execution_id == execution_id.into_bytes()
+                && *stored_pair_binding == request.pair_binding
+                && stored_pair_binding.validate().is_ok()
+                && completed_execution_matches_pair_v1(&execution, stored_pair_binding) =>
+            {
+                Ok(*execution)
+            }
             LocalEd25519YaoPairRoleRecordV1::Completed { .. } => Err(invalid_worker_state(
                 "Deriver A pair completion identity mismatch",
             )),
@@ -1633,6 +1657,7 @@ fn execute_local_pair_deriver_a_inner_v1(
         LocalEd25519YaoPairRoleRecordV1::Completed {
             session,
             pair_digest,
+            pair_binding: pair_binding.clone(),
             execution_id: execution_id.into_bytes(),
             execution: Box::new(execution.clone()),
         },
@@ -1821,6 +1846,7 @@ fn read_local_pair_completion_v1(
     let LocalEd25519YaoPairRoleRecordV1::Completed {
         session,
         pair_digest,
+        pair_binding,
         execution,
         ..
     } = record
@@ -1829,7 +1855,13 @@ fn read_local_pair_completion_v1(
             "Deriver B pair execution is not complete",
         ));
     };
-    if *session != lookup.session || *pair_digest != lookup.pair_digest {
+    if *session != lookup.session
+        || *pair_digest != lookup.pair_digest
+        || pair_binding.validate().is_err()
+        || pair_binding.session() != *session
+        || pair_binding.pair_digest().bytes != *pair_digest
+        || !completed_execution_matches_pair_v1(execution, pair_binding)
+    {
         return Err(invalid_worker_state(
             "Deriver B pair completion identity mismatch",
         ));
@@ -2592,6 +2624,7 @@ fn execute_local_pair_deriver_b_inner_v1(
         LocalEd25519YaoPairRoleRecordV1::Completed {
             session,
             pair_digest,
+            pair_binding,
             execution_id: peer.execution_id.into_bytes(),
             execution: Box::new(execution_result),
         },
@@ -2632,6 +2665,7 @@ fn is_yao_control_path(path: &str) -> bool {
         path,
         LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_STAGE_PATH
             | LOCAL_DERIVER_A_ED25519_YAO_PREPARE_PAIR_PATH
+            | LOCAL_DERIVER_A_ED25519_YAO_EXECUTE_PAIR_PATH
             | LOCAL_DERIVER_A_ED25519_YAO_READ_PAIR_STATUS_PATH
             | LOCAL_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH
             | LOCAL_DERIVER_B_ED25519_YAO_PREPARE_PAIR_PATH
@@ -2734,8 +2768,9 @@ mod tests {
     use super::*;
     use curve25519_dalek::scalar::Scalar;
     use router_ab_core::{
-        Ed25519YaoEpochTransitionV1, Ed25519YaoRefreshEpochsV1, Ed25519YaoSessionIdV1,
-        Ed25519YaoStableKeyContextBindingV1, ExpensiveWorkKindV1, LifecycleScopeV1, RootShareEpoch,
+        Ed25519YaoCeremonyIdentityV1, Ed25519YaoEpochTransitionV1, Ed25519YaoInputPairBindingV1,
+        Ed25519YaoRefreshEpochsV1, Ed25519YaoSessionIdV1, Ed25519YaoStableKeyContextBindingV1,
+        ExpensiveWorkKindV1, LifecycleScopeV1, PublicDigest32, RootShareEpoch,
     };
     use signer_core::ed25519_yao_derivation::{
         derive_ed25519_yao_joint_refresh_delta_v1, Ed25519YaoDeriverARefreshDeltaContributionV1,
@@ -2761,6 +2796,13 @@ mod tests {
     }
 
     #[test]
+    fn pair_execute_route_is_classified_as_a_yao_control_request() {
+        assert!(is_yao_control_path(
+            LOCAL_DERIVER_A_ED25519_YAO_EXECUTE_PAIR_PATH
+        ));
+    }
+
+    #[test]
     fn completed_pair_read_returns_exact_role_output_only_for_the_requested_identity() {
         let binding = ceremony(
             9,
@@ -2768,6 +2810,14 @@ mod tests {
             ExpensiveWorkKindV1::RegistrationPrepare,
             10,
         );
+        let pair_binding = Ed25519YaoInputPairBindingV1::new(
+            Ed25519YaoCeremonyIdentityV1::from_binding(binding.clone()).expect("pair identity"),
+            PublicDigest32::new([0xa1; 32]),
+            PublicDigest32::new([0xb1; 32]),
+            PublicDigest32::new([0xc1; 32]),
+            PublicDigest32::new([0xd1; 32]),
+        )
+        .expect("pair binding");
         let session = binding.session_id.into_bytes();
         let transcript = [0x31; 32];
         let client_package = Ed25519YaoEncryptedPackageV1::new(
@@ -2800,13 +2850,14 @@ mod tests {
             )
             .expect("execution"),
         );
-        let pair_digest = [0xa1; 32];
+        let pair_digest = pair_binding.pair_digest().bytes;
         let mut state = LocalEd25519YaoWorkerStateV1::default();
         state.pair_roles.insert(
             pair_digest,
             LocalEd25519YaoPairRoleRecordV1::Completed {
                 session,
                 pair_digest,
+                pair_binding: Box::new(pair_binding),
                 execution_id: [0xb1; 32],
                 execution: Box::new(execution.clone()),
             },
@@ -2826,6 +2877,34 @@ mod tests {
             })
             .expect("acknowledgement");
         assert_eq!(returned, execution);
+        if let Some(LocalEd25519YaoPairRoleRecordV1::Completed { pair_binding, .. }) =
+            state.pair_roles.get_mut(&pair_digest)
+        {
+            *pair_binding = Box::new(
+                Ed25519YaoInputPairBindingV1::new(
+                    Ed25519YaoCeremonyIdentityV1::from_binding(ceremony(
+                        9,
+                        Ed25519YaoOperationV1::Registration,
+                        ExpensiveWorkKindV1::RegistrationPrepare,
+                        10,
+                    ))
+                    .expect("pair identity"),
+                    PublicDigest32::new([0xa2; 32]),
+                    PublicDigest32::new([0xb2; 32]),
+                    PublicDigest32::new([0xc2; 32]),
+                    PublicDigest32::new([0xd2; 32]),
+                )
+                .expect("tampered pair binding"),
+            );
+        }
+        assert!(read_local_pair_completion_v1(
+            &state,
+            CloudflareEd25519YaoReadCompletedPairRequestV1 {
+                session,
+                pair_digest,
+            },
+        )
+        .is_err());
         assert!(read_local_pair_completion_v1(
             &state,
             CloudflareEd25519YaoReadCompletedPairRequestV1 {
