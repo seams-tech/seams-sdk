@@ -121,17 +121,18 @@ The hand-written backend workflow makes this dependency order visible:
    environments.
 3. Apply D1 migrations in order: console first, signer second. Migration
    fingerprints guard the operation.
-4. Validate and deploy SigningWorker.
-5. Validate and deploy Deriver A.
-6. Validate and deploy Deriver B.
-7. Validate and deploy MPC Router.
-8. Validate Gateway configuration, bootstrap the tenant, upsert the
+4. Validate and deploy SigningWorker, Deriver A, and Deriver B concurrently.
+5. Validate and deploy MPC Router after all three workers complete.
+6. Validate Gateway configuration, bootstrap the tenant, upsert the
    signing-root KEK, and deploy Gateway.
-9. Run backend smoke checks as the final Gateway job step.
+7. Run backend smoke checks as the final Gateway job step.
 
-Gateway is last because it depends on the preceding backend services. A failed
-run leaves earlier steps applied; rerunning failed jobs uses the same workflow
-SHA and successful same-run build artifact.
+Gateway is last because it depends on the preceding backend services. Worker
+releases cannot rely on coordinated ordering: each worker may eventually be
+deployed from a separate repository or account. Router waits for all three
+worker deployment jobs before publishing. A failed run leaves successful
+parallel jobs applied; rerunning failed jobs uses the same workflow SHA and
+successful same-run build artifact.
 
 ### Frontend
 
