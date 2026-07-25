@@ -1977,6 +1977,7 @@ export class CloudflareD1WalletRegistrationService {
         );
       }
       const ecdsaPrepared = await buildD1EvmFamilyEcdsaRegistrationPrepare({
+        registrationPurpose: 'wallet_registration',
         registrationCeremonyId: prepared.registrationCeremonyId,
         registrationPreparationId:
           input.request.registrationPreparationId ||

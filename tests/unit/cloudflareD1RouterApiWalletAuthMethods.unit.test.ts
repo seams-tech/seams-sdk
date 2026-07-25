@@ -3,7 +3,15 @@ import {
   D1WalletStore,
   parseWalletEd25519SignerRecord,
 } from '../../packages/sdk-server-ts/src/core/d1WalletStore';
-import { createLegacyCloudflareD1RouterApiAuthService as createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
+import {
+  createCloudflareD1RouterApiAuthService as createPartitionedCloudflareD1RouterApiAuthService,
+  createLegacyCloudflareD1RouterApiAuthService as createCloudflareD1RouterApiAuthService,
+} from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
+import {
+  parseStoredRouterAbEcdsaPendingActivationV1,
+  type RouterAbEcdsaStrictRegistrationPort,
+  type RouterAbEcdsaStrictRegistrationTopology,
+} from '../../packages/sdk-server-ts/src/router/routerAbEcdsaStrictRegistration';
 import type {
   RouterAbEd25519YaoProductRegistrationRuntimeV1,
   RouterAbEd25519YaoWalletSessionMintInputV1,
@@ -14,6 +22,15 @@ import {
   walletIdFromString,
 } from '../../packages/shared-ts/src/utils/registrationIntent';
 import type { RouterAbEd25519YaoRegistrationAdmissionRequestV1 } from '../../packages/shared-ts/src/utils/routerAbEd25519Yao';
+import {
+  parseRouterAbEcdsaRegistrationActivationReceiptV1,
+  parseRouterAbEcdsaRegistrationRequestV1,
+  parseRouterAbEcdsaStrictForwardedRegistrationResponseV1,
+  parseRouterAbEcdsaVerifiedClientActivationFactsV1,
+  type RouterAbEcdsaRegistrationRequestFactsV1,
+  type RouterAbEcdsaRegistrationRequestV1,
+  type RouterAbEcdsaVerifiedClientActivationFactsV1,
+} from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
 import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 import type { D1DatabaseLike } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
@@ -39,6 +56,130 @@ import {
 
 const TEST_YAO_SIGNING_WORKER_ID = 'test-yao-signing-worker';
 const TEST_YAO_SESSION_ID = new Array<number>(32).fill(7);
+const TEST_ECDSA_DIGEST32_B64U = Buffer.alloc(32).toString('base64url');
+const TEST_ECDSA_CLIENT_PUBLIC_KEY33_B64U = Buffer.from([
+  2,
+  ...new Array<number>(32).fill(0),
+]).toString('base64url');
+const TEST_ECDSA_SERVER_PUBLIC_KEY33_B64U = Buffer.from([
+  3,
+  ...new Array<number>(32).fill(0),
+]).toString('base64url');
+const TEST_ECDSA_ADDRESS20_B64U = Buffer.alloc(20, 1).toString('base64url');
+
+const TEST_ECDSA_ACTIVATION_FACTS: RouterAbEcdsaVerifiedClientActivationFactsV1 = {
+  registrationRequestDigestB64u: TEST_ECDSA_DIGEST32_B64U,
+  proofTranscriptDigestB64u: TEST_ECDSA_DIGEST32_B64U,
+  contextBinding32B64u: TEST_ECDSA_DIGEST32_B64U,
+  derivationClientSharePublicKey33B64u: TEST_ECDSA_CLIENT_PUBLIC_KEY33_B64U,
+  clientShareRetryCounter: 0,
+  participantId: 1,
+};
+
+function testStrictEcdsaRegistrationRequest(
+  facts: RouterAbEcdsaRegistrationRequestFactsV1,
+): RouterAbEcdsaRegistrationRequestV1 {
+  const digest = { bytes: new Array<number>(32).fill(0) };
+  return {
+    registration_purpose: facts.registration_purpose,
+    context: facts.context,
+    lifecycle: facts.lifecycle,
+    signer_set: facts.signer_set,
+    router_id: facts.router_id,
+    client_id: facts.client_id,
+    replay_nonce: facts.replay_nonce,
+    expires_at_ms: facts.expires_at_ms,
+    client_ephemeral_public_key:
+      'x25519:4444444444444444444444444444444444444444444444444444444444444444',
+    deriver_a_envelope: {
+      recipient_role: 'signer_a',
+      header_digest: digest,
+      aad_digest: digest,
+      ciphertext: { bytes: [1] },
+    },
+    deriver_b_envelope: {
+      recipient_role: 'signer_b',
+      header_digest: digest,
+      aad_digest: digest,
+      ciphertext: { bytes: [2] },
+    },
+  };
+}
+
+class SuccessfulStrictEcdsaAddSignerPort implements RouterAbEcdsaStrictRegistrationPort {
+  private readonly topologyValue: RouterAbEcdsaStrictRegistrationTopology;
+  registrationRequest: RouterAbEcdsaRegistrationRequestV1 | null = null;
+
+  constructor() {
+    this.topologyValue = new FixtureRouterAbEcdsaStrictRegistrationPort().topology();
+  }
+
+  topology(): RouterAbEcdsaStrictRegistrationTopology {
+    return this.topologyValue;
+  }
+
+  async register(
+    input: Parameters<RouterAbEcdsaStrictRegistrationPort['register']>[0],
+  ): ReturnType<RouterAbEcdsaStrictRegistrationPort['register']> {
+    const request = parseRouterAbEcdsaRegistrationRequestV1(input.request);
+    this.registrationRequest = request;
+    const bundle = {
+      kind: 'recipient_proof_bundle',
+      transcriptDigestB64u: TEST_ECDSA_DIGEST32_B64U,
+      payloadB64u: 'AQ',
+    } as const;
+    return {
+      ok: true,
+      value: {
+        publicResponse: parseRouterAbEcdsaStrictForwardedRegistrationResponseV1({
+          result: 'forwarded',
+          response: {
+            replay: { request_id: request.replay_nonce, reserved: true },
+            lifecycle: { lifecycle_id: request.lifecycle.lifecycle_id, stored: true },
+            bundles: { signerA: bundle, signerB: bundle },
+          },
+        }),
+        pendingActivation: parseStoredRouterAbEcdsaPendingActivationV1({
+          kind: 'router_ab_ecdsa_pending_activation_v1',
+          canonicalPayloadJson: '{"activation":{},"activation_context":{},"registration":{}}',
+        }),
+      },
+    };
+  }
+
+  async activate(
+    input: Parameters<RouterAbEcdsaStrictRegistrationPort['activate']>[0],
+  ): ReturnType<RouterAbEcdsaStrictRegistrationPort['activate']> {
+    const registration = this.registrationRequest;
+    if (!registration) throw new Error('Strict ECDSA activation preceded registration');
+    const publicFacts = parseRouterAbEcdsaVerifiedClientActivationFactsV1(input.clientActivation);
+    return {
+      ok: true,
+      value: parseRouterAbEcdsaRegistrationActivationReceiptV1({
+        ecdsa_activation: {
+          context: registration.context,
+          public_identity: {
+            context_binding_b64u: publicFacts.contextBinding32B64u,
+            derivation_client_share_public_key33_b64u:
+              publicFacts.derivationClientSharePublicKey33B64u,
+            server_public_key33_b64u: TEST_ECDSA_SERVER_PUBLIC_KEY33_B64U,
+            threshold_public_key33_b64u: TEST_ECDSA_CLIENT_PUBLIC_KEY33_B64U,
+            ethereum_address20_b64u: TEST_ECDSA_ADDRESS20_B64U,
+            client_share_retry_counter: publicFacts.clientShareRetryCounter,
+            server_share_retry_counter: 0,
+          },
+          signing_worker: registration.signer_set.selected_server,
+          activation_epoch: registration.lifecycle.root_share_epoch,
+          activation_digest_b64u: TEST_ECDSA_DIGEST32_B64U,
+          activated_at_ms: Date.now(),
+        },
+        lifecycle_id: registration.lifecycle.lifecycle_id,
+        transcript_digest: { bytes: new Array<number>(32).fill(0) },
+        activated: true,
+      }),
+    };
+  }
+}
 
 function yaoBytes(seed: number): number[] {
   return new Array<number>(32).fill(seed);
@@ -874,6 +1015,163 @@ test('Cloudflare D1 Router API auth service starts ECDSA add-signer ceremonies t
         },
       }),
     ).resolves.toEqual(started);
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('partitioned D1 completes and replays the strict ECDSA add-signer lifecycle', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    const walletId = walletIdFromString('strict-add-signer-wallet.testnet');
+    const durableObjects = new RecordingDurableObjectNamespace();
+    const routerAbSigningRuntimes = createRouterAbSigningRuntimesForUnitTests({
+      config: { ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker' },
+    });
+    const strictRegistration = new SuccessfulStrictEcdsaAddSignerPort();
+    await insertSignerWallet({ database, ...scope, walletId });
+    const service = createPartitionedCloudflareD1RouterApiAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      routerAbSigningRuntimes: routerAbSigningRuntimes.runtimes,
+      ecdsaStrictRegistration: strictRegistration,
+      thresholdStore: {
+        kind: 'cloudflare-do',
+        namespace: durableObjects,
+        THRESHOLD_PREFIX: 'strict-add-signer-test',
+        ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker',
+      },
+    });
+    const intent = await service.walletAuthMethods.createAddSignerIntent({
+      orgId: scope.orgId,
+      signingRootId: `${scope.projectId}:${scope.envId}`,
+      signingRootVersion: 'root-v1',
+      expectedOrigin: 'https://app.example',
+      request: {
+        walletId,
+        signerSelection: {
+          mode: 'ecdsa',
+          ecdsa: {
+            participantIds: [1, 2],
+            chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 8453 }],
+          },
+        },
+      },
+    });
+    if (!intent.ok) throw new Error(intent.message);
+    const runtimePolicyScope = normalizeRuntimePolicyScope(intent.intent.runtimePolicyScope);
+    const started = await service.walletAuthMethods.startWalletAddSigner({
+      walletId,
+      addSignerIntentGrant: intent.addSignerIntentGrant,
+      addSignerIntentDigestB64u: intent.addSignerIntentDigestB64u,
+      intent: intent.intent,
+      auth: {
+        kind: 'app_session',
+        policy: {
+          permission: 'wallet_signer_provision',
+          walletId,
+          signerSelection: intent.intent.signerSelection,
+          runtimePolicyScope,
+          expiresAtMs: Date.now() + 60_000,
+        },
+      },
+    });
+    if (!started.ok || !started.ecdsa) throw new Error('Expected ECDSA add-signer start');
+    expect(started.ecdsa.strictRegistration.registration_purpose).toBe('wallet_add_signer');
+
+    const strictRequest = testStrictEcdsaRegistrationRequest(started.ecdsa.strictRegistration);
+    const responded = await service.walletAuthMethods.respondWalletAddSignerEcdsaDerivation({
+      addSignerCeremonyId: started.addSignerCeremonyId,
+      ecdsa: {
+        kind: 'router_ab_ecdsa_registration_v1',
+        strictRegistration: strictRequest,
+      },
+    });
+    if (!responded.ok) throw new Error(responded.message);
+    expect(strictRegistration.registrationRequest).toEqual(strictRequest);
+    await expect(
+      service.walletAuthMethods.respondWalletAddSignerEcdsaDerivation({
+        addSignerCeremonyId: started.addSignerCeremonyId,
+        ecdsa: {
+          kind: 'router_ab_ecdsa_registration_v1',
+          strictRegistration: strictRequest,
+        },
+      }),
+    ).resolves.toEqual(responded);
+
+    const activated = await service.walletAuthMethods.activateWalletAddSignerEcdsa({
+      addSignerCeremonyId: started.addSignerCeremonyId,
+      ecdsa: {
+        kind: 'router_ab_ecdsa_registration_activation_v1',
+        publicFacts: TEST_ECDSA_ACTIVATION_FACTS,
+      },
+    });
+    if (!activated.ok) throw new Error(activated.message);
+    await expect(
+      service.walletAuthMethods.activateWalletAddSignerEcdsa({
+        addSignerCeremonyId: started.addSignerCeremonyId,
+        ecdsa: {
+          kind: 'router_ab_ecdsa_registration_activation_v1',
+          publicFacts: TEST_ECDSA_ACTIVATION_FACTS,
+        },
+      }),
+    ).resolves.toEqual(activated);
+
+    const finalizeRequest = {
+      kind: 'evm_family_ecdsa' as const,
+      addSignerCeremonyId: started.addSignerCeremonyId,
+      idempotencyKey: 'strict-ecdsa-add-signer-finalize',
+      ecdsa: { expectedKeyHandles: [activated.ecdsa.bootstrap.keyHandle] },
+    };
+    const finalized = await service.walletAuthMethods.finalizeWalletAddSigner(finalizeRequest);
+    if (!finalized.ok) throw new Error(finalized.message);
+    expect(finalized).toMatchObject({
+      kind: 'evm_family_ecdsa',
+      walletId,
+      ecdsa: {
+        walletKeys: [
+          {
+            walletId,
+            keyHandle: activated.ecdsa.bootstrap.keyHandle,
+            chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 8453 },
+          },
+        ],
+      },
+    });
+    await expect(
+      service.walletAuthMethods.finalizeWalletAddSigner(finalizeRequest),
+    ).resolves.toEqual(finalized);
+    await expect(
+      service.walletAuthMethods.finalizeWalletAddSigner({
+        kind: 'evm_family_ecdsa',
+        addSignerCeremonyId: finalizeRequest.addSignerCeremonyId,
+        idempotencyKey: 'strict-ecdsa-add-signer-conflict',
+        ecdsa: { expectedKeyHandles: [activated.ecdsa.bootstrap.keyHandle] },
+      }),
+    ).resolves.toMatchObject({ ok: false, code: 'idempotency_conflict' });
+    await expect(
+      readWalletSignerRecord({
+        database,
+        ...scope,
+        walletId,
+        signerFamily: 'ecdsa',
+        signerId: 'ecdsa:evm:eip155:8453',
+      }),
+    ).resolves.toMatchObject({
+      version: 'wallet_signer_ecdsa_v1',
+      walletId,
+      walletKey: { keyHandle: activated.ecdsa.bootstrap.keyHandle },
+    });
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }
