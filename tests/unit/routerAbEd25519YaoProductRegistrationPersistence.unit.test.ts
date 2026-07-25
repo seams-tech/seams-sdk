@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import {
+  createRouterAbEd25519YaoCeremonyStateStoreV1,
   encodeRouterAbEd25519YaoProductRegistrationStateV1,
   parseRouterAbEd25519YaoProductRegistrationStateJsonV1,
   resolveRouterAbEd25519YaoCeremonyKeyFromRequestV1,
@@ -38,6 +39,26 @@ test.describe('Ed25519 Yao request-scoped persistence boundary', () => {
         state: { registration: {} },
       }),
     ).toBeNull();
+  });
+
+  test('binds the CAS adapter to the opaque lifecycle key', async () => {
+    const calls: string[] = [];
+    const state = createRouterAbEd25519YaoProductRegistrationStateV1();
+    const store = createRouterAbEd25519YaoCeremonyStateStoreV1({
+      read: async (key) => {
+        calls.push(`read:${key}`);
+        return { kind: 'missing' };
+      },
+      put: async (key, _value, expectedVersion) => {
+        calls.push(`put:${key}:${expectedVersion ?? 'none'}`);
+        return { kind: 'version_mismatch' };
+      },
+    });
+    const key = { kind: 'router_ab_ed25519_yao_ceremony_key_v1' as const, lifecycleId: 'opaque-1' };
+
+    await store.read(key);
+    await store.put(key, state, null);
+    expect(calls).toEqual(['read:opaque-1', 'put:opaque-1:none']);
   });
 
   test('resolves only the lifecycle field owned by each Yao route', async () => {
