@@ -188,6 +188,7 @@ export type {
   CloudflareVersionedJsonValue,
 } from './cloudflare/versionedJsonRecordStore';
 export {
+  createRouterAbEd25519YaoCeremonyStateStoreV1,
   encodeRouterAbEd25519YaoProductRegistrationStateV1,
   parseRouterAbEd25519YaoProductRegistrationStateJsonV1,
   parseRouterAbEd25519YaoCeremonyKeyV1,

@@ -50,6 +50,26 @@ export interface RouterAbEd25519YaoCeremonyStateStoreV1 {
   ): Promise<CloudflareVersionedJsonRecordPutResult>;
 }
 
+type VersionedJsonStoreLike<T> = {
+  read(key: string): Promise<CloudflareVersionedJsonRecordReadResult<T>>;
+  put(
+    key: string,
+    value: T,
+    expectedVersion: string | null,
+  ): Promise<CloudflareVersionedJsonRecordPutResult>;
+};
+
+/** Bind the generic JSON adapter to the validated opaque ceremony key. */
+export function createRouterAbEd25519YaoCeremonyStateStoreV1(
+  store: VersionedJsonStoreLike<RouterAbEd25519YaoProductRegistrationStateV1>,
+): RouterAbEd25519YaoCeremonyStateStoreV1 {
+  return {
+    read: async (key) => await store.read(key.lifecycleId),
+    put: async (key, value, expectedVersion) =>
+      await store.put(key.lifecycleId, value, expectedVersion),
+  };
+}
+
 type EncodedStateValue = CloudflareVersionedJsonValue;
 
 const CODEC_KIND = 'router_ab_ed25519_yao_product_registration_state_json_v1';
