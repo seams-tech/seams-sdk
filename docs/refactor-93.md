@@ -702,11 +702,14 @@ the plan does not claim cryptographic D1 admission attestation.
       path with a pair-bound state model, role-specific receipt signing,
       readiness/peer claims, uncertainty burning, and exact completed-output
       lookup tests. The current branch maps all pair-bound paths to their role
-      owners and verifies strict-worker path parity. Rust local startup now
-      initializes the five Router-owned SQLite boundaries before private role
-      workers start, while the Rust-only harness still returns its generic
-      unsupported response for these production-only routes. Full local HTTP
-      lifecycle execution remains open.
+      owners and verifies strict-worker path parity. The Rust local startup now
+      starts an explicit Router process, initializes its five Router-owned
+      SQLite boundaries before the private role workers, and keeps Router
+      ownership separate from Deriver secret state. Its Yao execute and
+      recovery-promotion routes return a typed 501 boundary until the shared
+      pair lifecycle serving path is implemented; strict Wrangler local mode
+      remains the executable local production path. Full local HTTP lifecycle
+      execution remains open.
 
 ### Phase 3: MPC Router Execution Coordinator
 
@@ -747,10 +750,10 @@ the plan does not claim cryptographic D1 admission attestation.
 
 The Cloudflare Gateway cutover is implemented. The strict local Wrangler
 runtime (`crates/router-ab-dev/scripts/dev-local-workers.mjs`) includes the
-Router coordinator on port 9100. The older `router_ab_local_up` Rust-only
-process harness still starts only the role workers and cannot exercise the
-Router HTTP route; its product test remains an explicit follow-up before Phase
-6 acceptance. The two harnesses must not be treated as equivalent evidence.
+Router coordinator on port 9100. The `router_ab_local_up` Rust harness now
+starts an explicit Router process with its own persistence scopes, but its Yao
+route boundary is deliberately unsupported until native pair serving lands;
+the two harnesses must not be treated as equivalent evidence.
 
 ### Phase 5: Hard Cutover And Deletion
 
@@ -864,9 +867,10 @@ an explicit scope decision:
 Two acceptance gates remain intentionally open. Production cold/warm traces and
 the frozen latency budget are unavailable under the current Wrangler
 Observability scope. The `router-ab-dev` pair lifecycle now has route and
-ownership parity checks, while the Rust-only harness remains a pure helper
-model for the cryptographic ceremony; full local HTTP lifecycle execution
-remains a Phase 2 gate.
+ownership parity checks, and the Rust harness has an explicit Router process
+boundary with authenticated unsupported responses for its unserved Yao paths.
+It remains a helper model for the cryptographic ceremony; full local HTTP
+lifecycle execution remains a Phase 2 gate.
 
 The current staging Gateway still has one tenant-scoped runtime Durable Object
 (`ROUTER_API_RUNTIME`). It serializes only runtime initialization with
@@ -898,25 +902,29 @@ remains open until composition wrappers load and CAS one ceremony record per
 request.
 
 The local serving gate is a concrete wiring gap rather than an untested claim.
-`router_ab_local_worker` gives each Deriver its own process and SQLite-backed
-Durable Object stand-in. The pair helper requires one coordinator holding both
-role receipts, the prepared role inputs, and the two completed executions. The
-current local HTTP dispatcher has no access to that coordinator state and its
-legacy control dispatcher only owns Stage/Start/Result commands. Adding the
-pair routes would therefore require a new persisted pair record plus
-inter-worker claim/complete calls; copying the Cloudflare coordinator into the
-local adapter would create a second lifecycle implementation. Until a shared
-local coordinator boundary is chosen, pair paths stay explicitly owned and
-return the existing unsupported response in the Rust-only harness. Strict
-Wrangler local mode continues to execute the production Cloudflare handlers.
+`router_ab_local_worker` now gives the Router its own process and five
+SQLite-backed Router persistence boundaries, while each Deriver retains its own
+process and role-local Durable Object stand-in. The Router process exposes
+health/readiness and an authenticated, explicit 501 response for the Yao
+execute and recovery-promotion paths; it never returns a fabricated success and
+it never opens a role secret binding. The pair helper requires one coordinator
+holding both role receipts, the prepared role inputs, and the two completed
+executions. The local HTTP dispatcher still has no role-local pair command
+implementation, and its legacy control dispatcher only owns Stage/Start/Result
+commands. Adding the pair routes would therefore require a new persisted pair
+record plus inter-worker claim/complete calls; copying the Cloudflare
+coordinator into the local adapter would create a second lifecycle
+implementation. Pair paths remain explicitly owned but unsupported in the
+Rust-only harness. Strict Wrangler local mode continues to execute the
+production Cloudflare handlers.
 The pure local pair model now marks an expired prepared pair as terminal before
 any role can enter `Running`; it remains a unit model rather than serving-path
 evidence. Its lifecycle metadata now has a validated snapshot/restore shape and
 the local SQLite adapter has insert-if-absent and byte-exact compare-and-swap
 primitives. Local startup now initializes the five Router-owned SQLite scopes
-before the private role workers start. These are persistence foundations for the
-future Router process; they do not persist encrypted role inputs and do not
-close the serving gate.
+before the private role workers start, and the Router process never opens role
+secret state. These are persistence foundations for native serving; they do not
+persist encrypted role inputs and do not close the serving gate.
 
 ## Test Matrix
 
