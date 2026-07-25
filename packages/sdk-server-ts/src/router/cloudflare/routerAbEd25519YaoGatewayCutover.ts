@@ -5,31 +5,66 @@ export type RouterAbEd25519YaoGatewayRegistrationOperationV1 =
 export type RouterAbEd25519YaoGatewayRegistrationRouteV1 =
   | {
       readonly kind: 'legacy_runtime';
+      readonly admissionCutoffMs: number;
+      readonly drainUntilMs: number;
+    }
+  | {
+      readonly kind: 'admission_blocked';
+      readonly admissionCutoffMs: number;
       readonly drainUntilMs: number;
     }
   | {
       readonly kind: 'partitioned_d1';
+      readonly admissionCutoffMs: number;
       readonly drainUntilMs: number;
     };
 
 /**
  * A deployment changes the backing store for both halves of registration at
- * once. During the drain window both operations stay on the legacy runtime,
- * so an admission issued before a deployment cannot strand its execute call
- * on the new store. The operation is intentionally accepted as an argument to
- * keep the boundary explicit while returning one shared route decision.
+ * once. New admissions stop at the first boundary, while executes continue on
+ * the legacy runtime until every admission made before that boundary expires.
+ * This keeps one admission and execute pair on one backing store across a
+ * deployment. The operation is accepted to make the admission cutoff explicit
+ * at the request boundary.
  */
 export function resolveRouterAbEd25519YaoGatewayRegistrationRouteV1(input: {
   readonly operation: RouterAbEd25519YaoGatewayRegistrationOperationV1;
   readonly nowMs: number;
+  readonly admissionCutoffMs: number;
   readonly drainUntilMs: number;
 }): RouterAbEd25519YaoGatewayRegistrationRouteV1 {
   validateTimestamp(input.nowMs, 'nowMs');
+  validateTimestamp(input.admissionCutoffMs, 'admissionCutoffMs');
   validateTimestamp(input.drainUntilMs, 'drainUntilMs');
-  void input.operation;
-  return input.nowMs < input.drainUntilMs
-    ? { kind: 'legacy_runtime', drainUntilMs: input.drainUntilMs }
-    : { kind: 'partitioned_d1', drainUntilMs: input.drainUntilMs };
+  if (input.admissionCutoffMs > input.drainUntilMs) {
+    throw new Error('Router A/B Gateway admissionCutoffMs must not exceed drainUntilMs');
+  }
+  if (input.nowMs < input.admissionCutoffMs) {
+    return {
+      kind: 'legacy_runtime',
+      admissionCutoffMs: input.admissionCutoffMs,
+      drainUntilMs: input.drainUntilMs,
+    };
+  }
+  if (input.nowMs < input.drainUntilMs && input.operation === 'registration_admission') {
+    return {
+      kind: 'admission_blocked',
+      admissionCutoffMs: input.admissionCutoffMs,
+      drainUntilMs: input.drainUntilMs,
+    };
+  }
+  if (input.nowMs < input.drainUntilMs) {
+    return {
+      kind: 'legacy_runtime',
+      admissionCutoffMs: input.admissionCutoffMs,
+      drainUntilMs: input.drainUntilMs,
+    };
+  }
+  return {
+    kind: 'partitioned_d1',
+    admissionCutoffMs: input.admissionCutoffMs,
+    drainUntilMs: input.drainUntilMs,
+  };
 }
 
 function validateTimestamp(value: number, label: string): void {
