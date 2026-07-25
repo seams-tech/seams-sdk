@@ -32,22 +32,16 @@ import {
 } from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
 import {
   InMemoryRouterAbEd25519YaoRecoveryService,
+  type RouterAbEd25519YaoRecoveryAdmissionCommitInputV1,
   type RouterAbEd25519YaoRecoveryAuthorizationAdapter,
   type RouterAbEd25519YaoRecoveryAuthorizationInput,
   type RouterAbEd25519YaoRecoveryAuthorizationResult,
   type RouterAbEd25519YaoRecoveryBackend,
   type RouterAbEd25519YaoRecoveryBackendResult,
+  type RouterAbEd25519YaoRecoveryExecuteCommitInputV1,
 } from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
 
-const LIFECYCLE_ID = 'recovery-request-scoped-1';
-const WALLET_ID = 'wallet-recovery-1';
-const NEAR_ACCOUNT_ID = 'wallet-recovery-1.testnet';
-const NEAR_SIGNING_KEY_ID = 'ed25519ks_recovery_1';
-const WALLET_SESSION_ID = 'wallet-session-recovery-1';
-const SIGNING_GRANT_ID = 'signing-grant-recovery-1';
-const SIGNING_WORKER_ID = 'signing-worker-recovery-1';
 const ROOT_SHARE_EPOCH = 'root-recovery-v1';
-const SIGNER_SET_ID = 'signer-set-recovery-1';
 const RUNTIME_POLICY_SCOPE = {
   orgId: 'org-recovery',
   projectId: 'project-recovery',
@@ -55,9 +49,70 @@ const RUNTIME_POLICY_SCOPE = {
   signingRootVersion: ROOT_SHARE_EPOCH,
 } as const;
 
+type RecoveryFixtureIdentity = {
+  readonly lifecycleId: string;
+  readonly registrationLifecycleId: string;
+  readonly walletId: string;
+  readonly nearAccountId: string;
+  readonly nearSigningKeyId: string;
+  readonly walletSessionId: string;
+  readonly signingGrantId: string;
+  readonly signingWorkerId: string;
+  readonly signerSetId: string;
+  readonly credentialId: string;
+  readonly activeCapabilitySeed: number;
+  readonly replacementCapabilitySeed: number;
+  readonly registeredPublicKeySeed: number;
+};
+
+const PRIMARY_IDENTITY: RecoveryFixtureIdentity = {
+  lifecycleId: 'recovery-request-scoped-1',
+  registrationLifecycleId: 'registration-recovery-origin-1',
+  walletId: 'wallet-recovery-1',
+  nearAccountId: 'wallet-recovery-1.testnet',
+  nearSigningKeyId: 'ed25519ks_recovery_1',
+  walletSessionId: 'wallet-session-recovery-1',
+  signingGrantId: 'signing-grant-recovery-1',
+  signingWorkerId: 'signing-worker-recovery-1',
+  signerSetId: 'signer-set-recovery-1',
+  credentialId: 'recovery-request-scoped-credential-1',
+  activeCapabilitySeed: 20,
+  replacementCapabilitySeed: 21,
+  registeredPublicKeySeed: 12,
+};
+
+const SECONDARY_IDENTITY: RecoveryFixtureIdentity = {
+  lifecycleId: 'recovery-request-scoped-2',
+  registrationLifecycleId: 'registration-recovery-origin-2',
+  walletId: 'wallet-recovery-2',
+  nearAccountId: 'wallet-recovery-2.testnet',
+  nearSigningKeyId: 'ed25519ks_recovery_2',
+  walletSessionId: 'wallet-session-recovery-2',
+  signingGrantId: 'signing-grant-recovery-2',
+  signingWorkerId: 'signing-worker-recovery-2',
+  signerSetId: 'signer-set-recovery-2',
+  credentialId: 'recovery-request-scoped-credential-2',
+  activeCapabilitySeed: 40,
+  replacementCapabilitySeed: 41,
+  registeredPublicKeySeed: 42,
+};
+
 type RecoveryAdmissionReceipt = RouterAbEd25519YaoActivationAdmissionReceiptV1<'recovery'>;
 type RecoveryExecuteRequest = RouterAbEd25519YaoActivationExecuteRequestV1<'recovery'>;
 type RecoveryExecutionResult = RouterAbEd25519YaoActivationResultV1<'recovery'>;
+type AssertNever<T extends never> = T;
+type RecoveryAdmissionUncertaintyCannotCommit = AssertNever<
+  Extract<
+    RouterAbEd25519YaoRecoveryAdmissionCommitInputV1['outcome'],
+    { readonly kind: 'backend_uncertain' }
+  >
+>;
+type RecoveryExecutionUncertaintyCannotCommit = AssertNever<
+  Extract<
+    RouterAbEd25519YaoRecoveryExecuteCommitInputV1['outcome'],
+    { readonly kind: 'backend_uncertain' }
+  >
+>;
 
 type StoredRecord = {
   readonly value: RouterAbEd25519YaoProductRegistrationPartitionRecordV1;
@@ -147,7 +202,11 @@ class UnavailableRecoveryBackend implements RouterAbEd25519YaoRecoveryBackend {
 }
 
 class AllowRecoveryAuthorization implements RouterAbEd25519YaoRecoveryAuthorizationAdapter {
-  private readonly claims = recoveryClaims();
+  private readonly claims;
+
+  constructor(identity: RecoveryFixtureIdentity) {
+    this.claims = recoveryClaims(identity);
+  }
 
   authorize(
     _input: RouterAbEd25519YaoRecoveryAuthorizationInput,
@@ -158,36 +217,64 @@ class AllowRecoveryAuthorization implements RouterAbEd25519YaoRecoveryAuthorizat
 
 export async function buildRouterAbEd25519YaoRecoveryRequestScopedFixture(): Promise<RouterAbEd25519YaoRecoveryRequestScopedFixture> {
   const state = createRouterAbEd25519YaoProductRegistrationStateV1();
-  installActiveCapability(state);
+  installActiveCapability(state, PRIMARY_IDENTITY);
   const store = createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1(
     new MemoryPartitionRecordStore(),
   );
-  await seedState(store, state);
-  const admission = recoveryAdmission();
+  await seedState(store, state, PRIMARY_IDENTITY.lifecycleId);
+  return recoveryFixture(PRIMARY_IDENTITY, store);
+}
+
+export async function buildSecondRouterAbEd25519YaoRecoveryRequestScopedFixture(
+  store: RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
+): Promise<RouterAbEd25519YaoRecoveryRequestScopedFixture> {
+  const loaded = await store.load(SECONDARY_IDENTITY.lifecycleId);
+  installActiveCapability(loaded.state, SECONDARY_IDENTITY);
+  const committed = await store.commit({
+    lifecycleId: SECONDARY_IDENTITY.lifecycleId,
+    state: loaded.state,
+    sharedState: loaded.sharedState,
+    sharedVersion: loaded.sharedVersion,
+    ceremonyVersion: loaded.ceremonyVersion,
+  });
+  if (committed.kind !== 'stored') {
+    throw new Error('secondary recovery fixture state did not commit');
+  }
+  return recoveryFixture(SECONDARY_IDENTITY, store);
+}
+
+function recoveryFixture(
+  identity: RecoveryFixtureIdentity,
+  store: RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
+): RouterAbEd25519YaoRecoveryRequestScopedFixture {
+  const admission = recoveryAdmission(identity);
   const admissionReceipt = recoveryAdmissionReceipt(admission);
   const execution = recoveryExecution(admissionReceipt);
   return {
-    lifecycleId: LIFECYCLE_ID,
+    lifecycleId: identity.lifecycleId,
     admission,
     admissionReceipt,
     execution,
-    executionResult: recoveryExecutionResult(execution),
+    executionResult: recoveryExecutionResult(execution, identity.registeredPublicKeySeed),
     store,
-    authorization: new AllowRecoveryAuthorization(),
+    authorization: new AllowRecoveryAuthorization(identity),
   };
 }
 
-function installActiveCapability(state: RouterAbEd25519YaoProductRegistrationStateV1): void {
+function installActiveCapability(
+  state: RouterAbEd25519YaoProductRegistrationStateV1,
+  identity: RecoveryFixtureIdentity,
+): void {
   const service = new InMemoryRouterAbEd25519YaoRecoveryService(
     unavailableRecoveryBackend(),
     state.recovery,
   );
   const installed = service.installRegistrationFinalizeCapability({
     kind: 'router_ab_ed25519_yao_registration_finalize_capability_v1',
-    activeCapabilityBinding: bytes(20),
-    nearAccountId: NEAR_ACCOUNT_ID,
-    registrationAdmissionRequest: registrationAdmission(),
-    registrationResult: registrationResult(),
+    activeCapabilityBinding: bytes(identity.activeCapabilitySeed),
+    nearAccountId: identity.nearAccountId,
+    registrationAdmissionRequest: registrationAdmission(identity),
+    registrationResult: registrationResult(identity),
     runtimePolicyScope: RUNTIME_POLICY_SCOPE,
   });
   if (!installed.ok) throw new Error(installed.message);
@@ -196,10 +283,11 @@ function installActiveCapability(state: RouterAbEd25519YaoProductRegistrationSta
 async function seedState(
   store: RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
   state: RouterAbEd25519YaoProductRegistrationStateV1,
+  lifecycleId: string,
 ): Promise<void> {
-  const loaded = await store.load(LIFECYCLE_ID);
+  const loaded = await store.load(lifecycleId);
   const committed = await store.commit({
-    lifecycleId: LIFECYCLE_ID,
+    lifecycleId,
     state,
     sharedState: loaded.sharedState,
     sharedVersion: loaded.sharedVersion,
@@ -208,20 +296,20 @@ async function seedState(
   if (committed.kind !== 'stored') throw new Error('recovery fixture state did not commit');
 }
 
-function registrationAdmission() {
+function registrationAdmission(identity: RecoveryFixtureIdentity) {
   return requireParsed(
     parseRouterAbEd25519YaoRegistrationAdmissionRequestV1({
       scope: {
-        lifecycle_id: 'registration-recovery-origin-1',
+        lifecycle_id: identity.registrationLifecycleId,
         root_share_epoch: ROOT_SHARE_EPOCH,
-        account_id: WALLET_ID,
-        wallet_session_id: WALLET_SESSION_ID,
-        signer_set_id: SIGNER_SET_ID,
-        signing_worker_id: SIGNING_WORKER_ID,
+        account_id: identity.walletId,
+        wallet_session_id: identity.walletSessionId,
+        signer_set_id: identity.signerSetId,
+        signing_worker_id: identity.signingWorkerId,
       },
       application_binding: {
-        wallet_id: WALLET_ID,
-        near_ed25519_signing_key_id: NEAR_SIGNING_KEY_ID,
+        wallet_id: identity.walletId,
+        near_ed25519_signing_key_id: identity.nearSigningKeyId,
         signing_root_id: 'project-recovery:test',
         key_creation_signer_slot: 1,
       },
@@ -230,17 +318,17 @@ function registrationAdmission() {
   );
 }
 
-function registrationBinding() {
+function registrationBinding(identity: RecoveryFixtureIdentity) {
   return {
     lifecycle: {
-      lifecycle_id: 'registration-recovery-origin-1',
+      lifecycle_id: identity.registrationLifecycleId,
       work_kind: 'registration_prepare' as const,
       primitive_request_kind: 'registration' as const,
       root_share_epoch: ROOT_SHARE_EPOCH,
-      account_id: WALLET_ID,
-      session_id: WALLET_SESSION_ID,
-      signer_set_id: SIGNER_SET_ID,
-      selected_server_id: SIGNING_WORKER_ID,
+      account_id: identity.walletId,
+      session_id: identity.walletSessionId,
+      signer_set_id: identity.signerSetId,
+      selected_server_id: identity.signingWorkerId,
     },
     operation: 'registration' as const,
     session_id: bytes(6),
@@ -248,34 +336,36 @@ function registrationBinding() {
   };
 }
 
-function registrationResult() {
-  const binding = registrationBinding();
+function registrationResult(identity: RecoveryFixtureIdentity) {
+  const binding = registrationBinding(identity);
   return requireParsed(
     parseRouterAbEd25519YaoRegistrationActivationResultV1({
       binding,
       deriver_a_client_package: activationClientPackage(binding, 'deriver_a'),
       deriver_b_client_package: activationClientPackage(binding, 'deriver_b'),
-      public_receipt: publicReceipt(1),
+      public_receipt: publicReceipt(1, identity.registeredPublicKeySeed),
     }),
   );
 }
 
-function recoveryAdmission(): RouterAbEd25519YaoRecoveryAdmissionRequestV1 {
+function recoveryAdmission(
+  identity: RecoveryFixtureIdentity,
+): RouterAbEd25519YaoRecoveryAdmissionRequestV1 {
   return requireParsed(
     parseRouterAbEd25519YaoRecoveryAdmissionRequestV1({
       scope: {
-        lifecycle_id: LIFECYCLE_ID,
+        lifecycle_id: identity.lifecycleId,
         root_share_epoch: ROOT_SHARE_EPOCH,
-        account_id: WALLET_ID,
-        wallet_session_id: WALLET_SESSION_ID,
-        signer_set_id: SIGNER_SET_ID,
-        signing_worker_id: SIGNING_WORKER_ID,
+        account_id: identity.walletId,
+        wallet_session_id: identity.walletSessionId,
+        signer_set_id: identity.signerSetId,
+        signing_worker_id: identity.signingWorkerId,
       },
-      application_binding: registrationAdmission().application_binding,
+      application_binding: registrationAdmission(identity).application_binding,
       participant_ids: [1, 2],
-      active_capability_binding: bytes(20),
-      replacement_capability_binding: bytes(21),
-      registered_public_key: bytes(12),
+      active_capability_binding: bytes(identity.activeCapabilitySeed),
+      replacement_capability_binding: bytes(identity.replacementCapabilitySeed),
+      registered_public_key: bytes(identity.registeredPublicKeySeed),
     }),
   );
 }
@@ -305,13 +395,16 @@ function recoveryExecution(receipt: RecoveryAdmissionReceipt): RecoveryExecuteRe
   );
 }
 
-function recoveryExecutionResult(request: RecoveryExecuteRequest): RecoveryExecutionResult {
+function recoveryExecutionResult(
+  request: RecoveryExecuteRequest,
+  registeredPublicKeySeed: number,
+): RecoveryExecutionResult {
   return requireParsed(
     parseRouterAbEd25519YaoRecoveryActivationResultV1({
       binding: request.binding,
       deriver_a_client_package: activationClientPackage(request.binding, 'deriver_a'),
       deriver_b_client_package: activationClientPackage(request.binding, 'deriver_b'),
-      public_receipt: publicReceipt(2),
+      public_receipt: publicReceipt(2, registeredPublicKeySeed),
     }),
   );
 }
@@ -363,10 +456,10 @@ function activationClientPackage(
   };
 }
 
-function publicReceipt(stateEpoch: number) {
+function publicReceipt(stateEpoch: number, registeredPublicKeySeed: number) {
   return {
     transcript: bytes(11),
-    registered_public_key: bytes(12),
+    registered_public_key: bytes(registeredPublicKeySeed),
     joined_client_commitment: bytes(13),
     joined_signing_worker_commitment: bytes(15),
     signing_worker_verifying_share: bytes(15),
@@ -374,21 +467,21 @@ function publicReceipt(stateEpoch: number) {
   };
 }
 
-function recoveryClaims() {
+function recoveryClaims(identity: RecoveryFixtureIdentity) {
   const authority = buildPasskeyWalletAuthAuthority({
-    walletId: WALLET_ID,
+    walletId: identity.walletId,
     rpId: 'router.example.test',
-    credentialIdB64u: 'recovery-request-scoped-credential',
+    credentialIdB64u: identity.credentialId,
   });
   const claims = parseRouterAbEd25519WalletSessionClaims({
     kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-    sub: WALLET_ID,
-    walletId: WALLET_ID,
-    nearAccountId: NEAR_ACCOUNT_ID,
-    nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
-    thresholdSessionId: WALLET_SESSION_ID,
-    signingGrantId: SIGNING_GRANT_ID,
-    relayerKeyId: SIGNING_WORKER_ID,
+    sub: identity.walletId,
+    walletId: identity.walletId,
+    nearAccountId: identity.nearAccountId,
+    nearEd25519SigningKeyId: identity.nearSigningKeyId,
+    thresholdSessionId: identity.walletSessionId,
+    signingGrantId: identity.signingGrantId,
+    relayerKeyId: identity.signingWorkerId,
     authority,
     authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(authority),
     runtimePolicyScope: RUNTIME_POLICY_SCOPE,
@@ -396,7 +489,7 @@ function recoveryClaims() {
     participantIds: [1, 2],
     routerAbNormalSigning: {
       kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
-      signingWorkerId: SIGNING_WORKER_ID,
+      signingWorkerId: identity.signingWorkerId,
     },
   });
   if (!claims) throw new Error('recovery fixture Wallet Session claims are invalid');

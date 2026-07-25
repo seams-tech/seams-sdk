@@ -21,6 +21,7 @@ export type RouterAbEd25519YaoProductRegistrationSharedStateV1 = {
   readonly kind: 'router_ab_ed25519_yao_product_registration_shared_state_v1';
   readonly recoveryCapabilities: Map<string, RecoveryCapabilityState>;
   readonly recoveryIdentityCapabilities: Map<string, string>;
+  readonly recoverySessions: Map<string, string>;
   readonly exportAuthorizationNonces: Set<string>;
 };
 
@@ -37,7 +38,6 @@ export type RouterAbEd25519YaoProductRegistrationCeremonyStateV1 = {
   };
   readonly recovery: {
     readonly recoveries: Map<string, RecoveryLifecycleState>;
-    readonly recoverySessions: Map<string, string>;
   };
   readonly export: {
     readonly exports: Map<string, ExportLifecycleState>;
@@ -84,6 +84,7 @@ export function partitionRouterAbEd25519YaoProductRegistrationStateV1(
       kind: 'router_ab_ed25519_yao_product_registration_shared_state_v1',
       recoveryCapabilities: cloneMapValues(state.recovery.capabilities),
       recoveryIdentityCapabilities: new Map(state.recovery.identityCapabilities),
+      recoverySessions: new Map(state.recovery.recoverySessions),
       exportAuthorizationNonces: new Set(state.export.authorizationNonces),
     },
     ceremony: {
@@ -107,7 +108,6 @@ export function partitionRouterAbEd25519YaoProductRegistrationStateV1(
       },
       recovery: {
         recoveries: recoveryStates,
-        recoverySessions: selectSessionsForStates(state.recovery.recoverySessions, recoveryStates),
       },
       export: { exports: exportStates },
     },
@@ -158,20 +158,6 @@ export function mergeRouterAbEd25519YaoProductRegistrationStatePartitionV1(
     recoveryStateLifecycleId,
     lifecycleId,
   );
-  const replacedRecoveryRecordIds = new Set<string>();
-  for (const [key, value] of base.recovery.recoveries) {
-    if (recoveryStateLifecycleId(value) === lifecycleId) replacedRecoveryRecordIds.add(key);
-  }
-  const recoverySessions = new Map<string, string>();
-  for (const [sessionKey, recoveryKey] of base.recovery.recoverySessions) {
-    if (!replacedRecoveryRecordIds.has(recoveryKey)) {
-      recoverySessions.set(sessionKey, recoveryKey);
-    }
-  }
-  for (const [sessionKey, recoveryKey] of partition.ceremony.recovery.recoverySessions) {
-    recoverySessions.set(sessionKey, recoveryKey);
-  }
-
   const exports = replaceLifecycleEntries(
     base.export.exports,
     partition.ceremony.export.exports,
@@ -191,7 +177,7 @@ export function mergeRouterAbEd25519YaoProductRegistrationStatePartitionV1(
       capabilities: cloneMapValues(partition.shared.recoveryCapabilities),
       identityCapabilities: new Map(partition.shared.recoveryIdentityCapabilities),
       recoveries,
-      recoverySessions,
+      recoverySessions: new Map(partition.shared.recoverySessions),
     },
     export: {
       exports,
@@ -215,18 +201,6 @@ function selectMapEntries<T>(
 function selectMapLifecycleEntry<T>(source: Map<string, T>, lifecycleId: string): Map<string, T> {
   const value = source.get(lifecycleId);
   return value === undefined ? new Map() : new Map([[lifecycleId, structuredClone(value)]]);
-}
-
-function selectSessionsForStates<T>(
-  sessions: Map<string, string>,
-  states: Map<string, T>,
-): Map<string, string> {
-  const keys = new Set(states.keys());
-  const selected = new Map<string, string>();
-  for (const [sessionKey, stateKey] of sessions) {
-    if (keys.has(stateKey)) selected.set(sessionKey, stateKey);
-  }
-  return selected;
 }
 
 function replaceLifecycleEntries<T>(

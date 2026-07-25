@@ -147,12 +147,10 @@ export type RouterAbEd25519YaoRecoveryAdmissionPreparationV1 =
 export type RouterAbEd25519YaoRecoveryAdmissionCommitInputV1 = {
   readonly request: RouterAbEd25519YaoRecoveryAdmissionRequestV1;
   readonly claim: RouterAbEd25519YaoRecoveryAdmissionClaimV1;
-  readonly outcome:
-    | {
-        readonly kind: 'backend_response';
-        readonly result: RouterAbEd25519YaoRecoveryBackendResult;
-      }
-    | { readonly kind: 'backend_uncertain'; readonly message: string };
+  readonly outcome: {
+    readonly kind: 'backend_response';
+    readonly result: RouterAbEd25519YaoRecoveryBackendResult;
+  };
 };
 
 export interface RouterAbEd25519YaoRecoveryAdmissionBoundaryV1 {
@@ -189,12 +187,10 @@ export type RouterAbEd25519YaoRecoveryExecutePreparationV1 =
 export type RouterAbEd25519YaoRecoveryExecuteCommitInputV1 = {
   readonly request: RecoveryExecuteRequest;
   readonly claim: RouterAbEd25519YaoRecoveryExecuteClaimV1;
-  readonly outcome:
-    | {
-        readonly kind: 'backend_response';
-        readonly result: RouterAbEd25519YaoRecoveryBackendResult;
-      }
-    | { readonly kind: 'backend_uncertain'; readonly message: string };
+  readonly outcome: {
+    readonly kind: 'backend_response';
+    readonly result: RouterAbEd25519YaoRecoveryBackendResult;
+  };
 };
 
 export interface RouterAbEd25519YaoRecoveryExecuteBoundaryV1 {
@@ -1441,10 +1437,7 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
             result: await this.backend.admitRecovery(request, traceContext),
           };
         } catch (error: unknown) {
-          outcome = {
-            kind: 'backend_uncertain',
-            message: error instanceof Error ? error.message : String(error),
-          };
+          return this.failUncertainAdmission(preparation.claim, error);
         }
         return this.commitAdmitRecovery({ request, claim: preparation.claim, outcome });
       }
@@ -1576,11 +1569,6 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
         message: 'recovery admission claim is no longer current',
       });
     }
-    if (input.outcome.kind === 'backend_uncertain') {
-      const failure = uncertainFailure(new Error(input.outcome.message), 'admission_failed');
-      this.storeAdmissionFailure(current.context, failure);
-      return failure;
-    }
     const backendResult = input.outcome.result;
     if (!backendResult.ok) {
       const failure = backendFailure(backendResult, 'admission_failed');
@@ -1641,10 +1629,7 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
             result: await this.backend.executeRecovery(request, traceContext),
           };
         } catch (error: unknown) {
-          outcome = {
-            kind: 'backend_uncertain',
-            message: error instanceof Error ? error.message : String(error),
-          };
+          return this.failUncertainExecution(preparation.claim, error);
         }
         return this.commitExecuteRecovery({ request, claim: preparation.claim, outcome });
       }
@@ -1755,11 +1740,6 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
         code: 'execution_in_progress',
         message: 'recovery execution claim is no longer current',
       });
-    }
-    if (input.outcome.kind === 'backend_uncertain') {
-      const failure = uncertainFailure(new Error(input.outcome.message), 'execution_failed');
-      this.storeExecutionFailure(state, failure);
-      return failure;
     }
     const backendResult = input.outcome.result;
     if (!backendResult.ok) {
@@ -2062,6 +2042,40 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
     const recoveryKey = this.recoverySessions.get(bytesToHex(session));
     if (!recoveryKey) return null;
     return this.recoveries.get(recoveryKey) ?? null;
+  }
+
+  private failUncertainAdmission(
+    claim: RouterAbEd25519YaoRecoveryAdmissionClaimV1,
+    error: unknown,
+  ): RouterAbEd25519YaoRecoveryServiceResult<RecoveryAdmissionReceipt> {
+    const current = this.recoveries.get(claim.recoveryKey);
+    if (current?.kind !== 'admitting') {
+      return recoveryFailure({
+        status: 409,
+        code: 'admission_in_progress',
+        message: 'recovery admission claim is no longer current',
+      });
+    }
+    const failure = uncertainFailure(error, 'admission_failed');
+    this.storeAdmissionFailure(current.context, failure);
+    return failure;
+  }
+
+  private failUncertainExecution(
+    claim: RouterAbEd25519YaoRecoveryExecuteClaimV1,
+    error: unknown,
+  ): RouterAbEd25519YaoRecoveryServiceResult<RecoveryExecutionResult> {
+    const current = this.recoveries.get(claim.recoveryKey);
+    if (current?.kind !== 'executing' || current.executeFingerprint !== claim.executeFingerprint) {
+      return recoveryFailure({
+        status: 409,
+        code: 'execution_in_progress',
+        message: 'recovery execution claim is no longer current',
+      });
+    }
+    const failure = uncertainFailure(error, 'execution_failed');
+    this.storeExecutionFailure(current, failure);
+    return failure;
   }
 
   private storeAdmissionFailure(

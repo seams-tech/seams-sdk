@@ -791,8 +791,8 @@ receipts are recorded.
       request-safe per-ceremony persistence/CAS boundary, then remove its
       binding and SQLite migration so no tenant-wide object coordinates Yao.
   - [x] Add typed request-scoped recovery admission and execution
-        prepare/claim/commit boundaries with durable uncertainty and no backend
-        retry.
+        prepare/claim/commit boundaries with a shared backend-session uniqueness
+        index, durable uncertainty, and no backend retry.
   - [ ] Wire recovery admission, execution, and activation to the partitioned
         store as one coherent cutover after activation has an idempotent
         side-effect boundary.
@@ -949,8 +949,10 @@ Wallet registration start/bind/finalize, recovery, export, activation/session
 side effects, and the non-Yao API still use `ROUTER_API_RUNTIME`. Recovery
 admission and execution now expose typed request-scoped preparation and
 completion boundaries that persist `admitting` or `executing` before the
-backend call and preserve those claims on transport uncertainty. This adapter
-is deliberately foundation-only: recovery activation replaces the wallet
+backend call and preserve those claims on transport uncertainty. The recovery
+session index is part of the shared CAS record, so a backend session cannot be
+accepted by two lifecycle partitions. This adapter is deliberately
+foundation-only: recovery activation replaces the wallet
 capability before product-state promotion, so a terminal CAS conflict can occur
 after that one-use side effect. All recovery routes stay on the tenant runtime
 until activation has an idempotent side-effect receipt or equivalent atomic

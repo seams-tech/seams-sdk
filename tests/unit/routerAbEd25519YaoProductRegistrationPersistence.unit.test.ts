@@ -137,6 +137,8 @@ test.describe('Ed25519 Yao request-scoped persistence boundary', () => {
     state.registration.lifecycleSessions.set('ceremony-b', 'session-b');
     state.recovery.identityCapabilities.set('identity-a', 'capability-a');
     state.recovery.identityCapabilities.set('identity-b', 'capability-b');
+    state.recovery.recoverySessions.set('recovery-session-a', 'recovery-a');
+    state.recovery.recoverySessions.set('recovery-session-b', 'recovery-b');
     state.export.authorizationNonces.add('nonce-a');
     state.export.authorizationNonces.add('nonce-b');
 
@@ -150,6 +152,7 @@ test.describe('Ed25519 Yao request-scoped persistence boundary', () => {
         ['identity-b', 'capability-b'],
       ]),
     );
+    expect(partition.shared.recoverySessions).toEqual(state.recovery.recoverySessions);
     expect(partition.shared.exportAuthorizationNonces).toEqual(new Set(['nonce-a', 'nonce-b']));
 
     partition.ceremony.registration.lifecycleSessions.set('ceremony-a', 'session-a-updated');
@@ -161,6 +164,7 @@ test.describe('Ed25519 Yao request-scoped persistence boundary', () => {
       ]),
     );
     expect(merged.recovery.identityCapabilities).toEqual(state.recovery.identityCapabilities);
+    expect(merged.recovery.recoverySessions).toEqual(state.recovery.recoverySessions);
     expect(merged.export.authorizationNonces).toEqual(state.export.authorizationNonces);
   });
 });
