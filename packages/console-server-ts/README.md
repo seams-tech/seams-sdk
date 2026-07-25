@@ -89,7 +89,10 @@ The check is static and credential-free. It rejects local-only Worker config,
 wrong staging entrypoints, Postgres env tokens, placeholder D1 IDs, missing
 profile bindings, signer/DO/KEK bindings on the console Worker, plaintext signer
 KEKs, plaintext session secrets, plaintext sponsored-EVM executor config, and
-missing signer KEK Secrets Store bindings on Gateway.
+missing signer KEK Secrets Store bindings on Gateway. Gateway configuration must
+declare the registration, recovery, and export admission-cutoff/drain pairs;
+each pair may remain empty before cutover, and populated pairs must contain
+ordered non-negative millisecond timestamps.
 
 After the check passes, generate the credential-free staging deployment log:
 
