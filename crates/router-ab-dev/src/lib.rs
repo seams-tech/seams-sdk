@@ -151,13 +151,15 @@ pub use local_ed25519_yao_signing_worker::{
 };
 pub use local_ed25519_yao_stream::{
     authenticate_local_ed25519_yao_deriver_b_peer_http_v1, run_local_activation_deriver_a_http_v1,
+    run_local_activation_deriver_a_pair_http_v1,
     run_local_activation_deriver_b_authenticated_http_v1, run_local_activation_deriver_b_http_v1,
-    run_local_export_deriver_a_http_v1, run_local_export_deriver_b_authenticated_http_v1,
-    run_local_export_deriver_b_http_v1, LocalEd25519YaoAuthenticatedDeriverBPeerV1,
-    LocalEd25519YaoStreamErrorV1,
+    run_local_export_deriver_a_http_v1, run_local_export_deriver_a_pair_http_v1,
+    run_local_export_deriver_b_authenticated_http_v1, run_local_export_deriver_b_http_v1,
+    LocalEd25519YaoAuthenticatedDeriverBPeerV1, LocalEd25519YaoStreamErrorV1,
 };
 pub use local_ed25519_yao_worker::{
-    dispatch_local_ed25519_yao_connection_v1, LocalEd25519YaoConnectionDispatchV1,
+    dispatch_local_ed25519_yao_connection_v1,
+    dispatch_local_ed25519_yao_connection_with_persistence_v1, LocalEd25519YaoConnectionDispatchV1,
     LocalEd25519YaoPairRoleRecordV1, LocalEd25519YaoRefreshPromotionReceiptV1,
     LocalEd25519YaoRefreshPromotionRequestV1, LocalEd25519YaoRoleCompletionV1,
     LocalEd25519YaoWorkerStateV1,
