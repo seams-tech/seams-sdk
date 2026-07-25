@@ -111,11 +111,16 @@ fields.
 
 Custom-log and invocation records are joined by the exact
 `$workers.requestId` and `$workers.scriptName` pair. Optional execution-model
-and Durable Object identifiers must agree when both records provide them. The
-parser also rejects disagreement between `$metadata.requestId` and
-`$workers.requestId`, or between `$metadata.service` and
-`$workers.scriptName`. Ambiguous resource records fail the input instead of
-choosing one.
+Durable Object, trace, span, and script-version identifiers must agree when
+both records provide them. The parser also rejects disagreement between
+`$metadata` and `$workers` request, service, trace, or span identifiers.
+Ambiguous resource records fail the input instead of choosing one.
+
+CPU and wall time are admitted only from the `cloudflare-workers` dataset's
+invocation variant. That record must carry `$metadata.type =
+"cf-worker-event"`, an outcome, and `$workers.scriptVersion.id`. The version
+must equal the cohort manifest's `gatewayVersionId`; a record from another
+Gateway deployment cannot certify the cohort.
 
 The join adds only these platform-proven values:
 
@@ -124,17 +129,18 @@ $workers.cpuTimeMs   -> cpu_ms
 $workers.wallTimeMs  -> wall_time_ms
 ```
 
-It retains request ID, script name, execution model, and Durable Object ID in
-the `workers_resource` attribution object. Those identifiers prove the
-invocation associated with the resource values. They do not prove isolate
-reuse, memory usage, database work, replay behavior, or downstream call
-counts. `wallTimeMs` remains wall time; the parser does not relabel it as
-active duration.
+It retains request ID, script name, script version, trace ID, span ID,
+execution model, and Durable Object ID in the `workers_resource` attribution
+object. Those identifiers prove the invocation associated with the resource
+values. They do not prove isolate reuse, memory usage, database work, replay
+behavior, or downstream call counts. `wallTimeMs` remains wall time; the
+parser does not relabel it as active duration.
 
-The resource record may be the same Workers Logs event as the custom span, or
-a separate invocation event with the same join identity. CPU and wall time on
-an unwrapped custom event, a Wrangler tail event, or an unmatched Workers Logs
-custom record remain untrusted for production readiness.
+An official invocation record may carry the span in the same Workers Logs
+event, or it may be a separate event with the same join identity. CPU and wall
+time on an unwrapped custom event, a Wrangler tail event, a custom-log record,
+or an unmatched Workers Logs record remain untrusted for production
+readiness.
 
 ## Execution telemetry contract
 
@@ -194,7 +200,7 @@ The cohort manifest is a strict declaration of provenance:
   "schemaVersion": 1,
   "environment": "production",
   "capturedAt": "2026-07-24T00:00:00.000Z",
-  "captureMethod": "wrangler_tail_json",
+  "captureMethod": "cloudflare_workers_logs_export",
   "release": {
     "sourceSha": "0000000000000000000000000000000000000000",
     "gatewayVersionId": "cloudflare-version-id",
