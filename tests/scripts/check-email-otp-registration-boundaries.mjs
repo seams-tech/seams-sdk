@@ -167,27 +167,35 @@ function checkGoogleSsoEmailOtpRegistrationActivatesIdentityBeforeWalletVisibili
   const activationIndex = storePath.indexOf(
     'this.emailOtpRegistrationEnrollmentFinalizer.persistPrepared',
   );
-  const persistenceIndex = storePath.indexOf('await walletStore.putSubject(wallet);');
+  const persistenceIndex = storePath.indexOf(
+    'await this.walletRegistrationCommitStore.commit({',
+  );
   assert.ok(preflightIndex > -1, 'registration persistence block must prepare finalize first');
   assert.ok(activationIndex > preflightIndex, 'registration persistence block must persist Email OTP before wallet subject');
-  assert.ok(persistenceIndex > activationIndex, 'registration persistence block must write wallet subject after Email OTP persistence');
+  assert.ok(
+    persistenceIndex > activationIndex,
+    'registration persistence block must commit wallet state after Email OTP persistence',
+  );
   assert.ok(!storePath.includes('getPostgresPool'), 'D1 registration persistence block must not use Postgres');
 }
 
 function checkGenericGoogleSsoEmailOtpRegistrationPersistenceDefersWalletVisibility() {
   const source = readRepoFile('packages/sdk-server-ts/src/router/cloudflare/d1WalletRegistrationService.ts');
   const writers = collectRegistrationPersistenceWriterBlocks(source);
-  assert.ok(writers.length >= 2, 'expected at least two D1 registration persistence writers');
+  assert.ok(writers.length >= 1, 'expected a D1 registration persistence writer');
 
   for (const writer of writers) {
     const emailOtpEnrollmentIndex = writer.indexOf(
       'this.emailOtpRegistrationEnrollmentFinalizer.persistPrepared',
     );
-    const walletSubjectWriteIndex = writer.indexOf('await walletStore.putSubject(wallet);');
-    const walletSignersWriteIndex = writer.indexOf('await walletStore.putSigners(walletSigners);');
+    const walletCommitIndex = writer.indexOf(
+      'await this.walletRegistrationCommitStore.commit({',
+    );
     assert.ok(emailOtpEnrollmentIndex > -1, 'registration writer must persist Email OTP enrollment');
-    assert.ok(walletSubjectWriteIndex > emailOtpEnrollmentIndex, 'wallet subject write must follow Email OTP enrollment');
-    assert.ok(walletSignersWriteIndex > walletSubjectWriteIndex, 'wallet signer write must follow wallet subject write');
+    assert.ok(
+      walletCommitIndex > emailOtpEnrollmentIndex,
+      'wallet commit must follow Email OTP enrollment',
+    );
   }
 }
 
