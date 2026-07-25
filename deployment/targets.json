@@ -1,0 +1,146 @@
+{
+  "staging": {
+    "branch": "dev",
+    "origins": {
+      "gateway": "https://seams-sdk-d1-gateway-staging.n6378056.workers.dev",
+      "site": "https://staging.seams.sh",
+      "wallet": "https://sign.staging.seams.sh"
+    },
+    "resources": {
+      "gateway": {
+        "workerName": "seams-sdk-d1-gateway-staging",
+        "consoleD1Name": "seams-console-staging",
+        "signerD1Name": "seams-signer-staging"
+      },
+      "router": {
+        "workerName": "router-ab-mpc-router-staging",
+        "configPath": "crates/router-ab-cloudflare/wrangler.router.toml",
+        "deploymentEnvironment": {
+          "kind": "named",
+          "name": "staging"
+        }
+      },
+      "deriverA": {
+        "workerName": "router-ab-deriver-a-staging",
+        "configPath": "crates/router-ab-cloudflare/wrangler.deriver-a.toml",
+        "deploymentEnvironment": {
+          "kind": "named",
+          "name": "staging"
+        }
+      },
+      "deriverB": {
+        "workerName": "router-ab-deriver-b-staging",
+        "configPath": "crates/router-ab-cloudflare/wrangler.deriver-b.toml",
+        "deploymentEnvironment": {
+          "kind": "named",
+          "name": "staging"
+        }
+      },
+      "signingWorker": {
+        "workerName": "router-ab-signing-worker-staging",
+        "configPath": "crates/router-ab-cloudflare/wrangler.signing-worker.toml",
+        "deploymentEnvironment": {
+          "kind": "named",
+          "name": "staging"
+        }
+      },
+      "frontend": {
+        "pagesBranch": "dev",
+        "appProjectEnv": "CF_PAGES_PROJECT_VITE",
+        "walletProjectEnv": "CF_PAGES_PROJECT_WALLET"
+      }
+    },
+    "capabilities": {
+      "billing": {
+        "enabled": false,
+        "owner": "gateway",
+        "secrets": ["STRIPE_API_SK"]
+      },
+      "sponsoredExecution": {
+        "enabled": true,
+        "owner": "gateway",
+        "secrets": []
+      },
+      "signingSessionSeal": {
+        "enabled": true,
+        "owner": "gateway",
+        "secrets": [
+          "SIGNING_SESSION_SEAL_KEY_VERSION",
+          "SIGNING_SESSION_SHAMIR_P_B64U",
+          "SIGNING_SESSION_SEAL_E_S_B64U",
+          "SIGNING_SESSION_SEAL_D_S_B64U"
+        ]
+      }
+    }
+  },
+  "production": {
+    "branch": "main",
+    "origins": {
+      "gateway": "https://seams-sdk-d1-gateway.n6378056.workers.dev",
+      "site": "https://seams.sh",
+      "wallet": "https://sign.seams.sh"
+    },
+    "resources": {
+      "gateway": {
+        "workerName": "seams-sdk-d1-gateway",
+        "consoleD1Name": "seams-console",
+        "signerD1Name": "seams-signer"
+      },
+      "router": {
+        "workerName": "router-ab-mpc-router",
+        "configPath": "crates/router-ab-cloudflare/wrangler.router.toml",
+        "deploymentEnvironment": {
+          "kind": "default"
+        }
+      },
+      "deriverA": {
+        "workerName": "router-ab-deriver-a",
+        "configPath": "crates/router-ab-cloudflare/wrangler.deriver-a.toml",
+        "deploymentEnvironment": {
+          "kind": "default"
+        }
+      },
+      "deriverB": {
+        "workerName": "router-ab-deriver-b",
+        "configPath": "crates/router-ab-cloudflare/wrangler.deriver-b.toml",
+        "deploymentEnvironment": {
+          "kind": "default"
+        }
+      },
+      "signingWorker": {
+        "workerName": "router-ab-signing-worker",
+        "configPath": "crates/router-ab-cloudflare/wrangler.signing-worker.toml",
+        "deploymentEnvironment": {
+          "kind": "default"
+        }
+      },
+      "frontend": {
+        "pagesBranch": "main",
+        "appProjectEnv": "CF_PAGES_PROJECT_VITE",
+        "walletProjectEnv": "CF_PAGES_PROJECT_WALLET"
+      }
+    },
+    "capabilities": {
+      "billing": {
+        "enabled": true,
+        "owner": "gateway",
+        "secrets": ["STRIPE_API_SK"]
+      },
+      "sponsoredExecution": {
+        "enabled": true,
+        "owner": "gateway",
+        "secrets": []
+      },
+      "signingSessionSeal": {
+        "enabled": true,
+        "owner": "gateway",
+        "secrets": [
+          "SIGNING_SESSION_SEAL_KEY_VERSION",
+          "SIGNING_SESSION_SHAMIR_P_B64U",
+          "SIGNING_SESSION_SEAL_E_S_B64U",
+          "SIGNING_SESSION_SEAL_D_S_B64U"
+        ]
+      }
+    }
+  }
+}

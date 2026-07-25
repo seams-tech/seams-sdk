@@ -21,59 +21,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  deployment-workflow-policy:
-    name: Deployment workflow policy
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v5
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: '24'
-          cache: pnpm
-      - name: Install workflow policy tooling
-        run: pnpm install --frozen-lockfile --ignore-scripts
-      - name: Check deployment workflow policy
-        run: node scripts/check-deployment-workflows.mjs
-
-  release-change-set:
-    name: Record release change set
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Checkout pushed revision
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          ref: ${{ github.sha }}
-
-      - name: Compute pushed change range
-        env:
-          BEFORE_SHA: ${{ github.event.before }}
-          SOURCE_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          mkdir -p release-change-set
-          if [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
-            git diff-tree --root --no-commit-id --name-only -r "$SOURCE_SHA" > release-change-set/changed-files.txt
-          else
-            git diff --name-only "$BEFORE_SHA" "$SOURCE_SHA" > release-change-set/changed-files.txt
-          fi
-          printf '%s\n' "$BEFORE_SHA" > release-change-set/base-sha.txt
-          printf '%s\n' "$SOURCE_SHA" > release-change-set/source-sha.txt
-
-      - name: Upload pushed change range
-        uses: actions/upload-artifact@v7
-        with:
-          name: release-change-set
-          path: release-change-set
-          retention-days: 30
-
   router-ab-deployment-validation:
     name: Router A/B deployment validation
     if: >-

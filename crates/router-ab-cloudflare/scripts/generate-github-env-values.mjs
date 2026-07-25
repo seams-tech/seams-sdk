@@ -1650,33 +1650,29 @@ function validateOutput(outputDocument) {
 
 function validateWorkflowCoverage(outputDocument) {
   const targetName = outputDocument.target;
-  const routerWorkflow = readWorkflow('deploy-cloudflare-stack.yml');
+  const backendWorkflow = readDeploymentWorkflow(targetName, 'backend');
+  const frontendWorkflow = readDeploymentWorkflow(targetName, 'frontend');
   const requirements = new Map([
-    [
-      targetName,
-      mergeWorkflowRequirements(
-        collectWorkflowRequirements(readWorkflow('deploy-cloudflare-pages.yml')),
-      ),
-    ],
+    [targetName, collectWorkflowRequirements(frontendWorkflow)],
     [
       `${targetName}-gateway`,
-      collectWorkflowRequirements(readWorkflow('deploy-cloudflare-gateway.yml')),
+      collectWorkflowRequirements(extractWorkflowJob(backendWorkflow, 'deploy_gateway')),
     ],
     [
       `${targetName}-mpc-router`,
-      collectWorkflowRequirements(extractWorkflowJob(routerWorkflow, 'deploy_mpc_router')),
+      collectWorkflowRequirements(extractWorkflowJob(backendWorkflow, 'deploy_router')),
     ],
     [
       `${targetName}-deriver-a`,
-      collectWorkflowRequirements(extractWorkflowJob(routerWorkflow, 'deploy_deriver_a')),
+      collectWorkflowRequirements(extractWorkflowJob(backendWorkflow, 'deploy_deriver_a')),
     ],
     [
       `${targetName}-deriver-b`,
-      collectWorkflowRequirements(extractWorkflowJob(routerWorkflow, 'deploy_deriver_b')),
+      collectWorkflowRequirements(extractWorkflowJob(backendWorkflow, 'deploy_deriver_b')),
     ],
     [
       `${targetName}-signing-worker`,
-      collectWorkflowRequirements(extractWorkflowJob(routerWorkflow, 'deploy_signing_worker')),
+      collectWorkflowRequirements(extractWorkflowJob(backendWorkflow, 'deploy_signing_worker')),
     ],
   ]);
 
@@ -1696,8 +1692,11 @@ function validateWorkflowCoverage(outputDocument) {
   }
 }
 
-function readWorkflow(fileName) {
-  return readFileSync(join(repoRoot, 'scripts/deployment-workflow-templates', fileName), 'utf8');
+function readDeploymentWorkflow(targetName, lane) {
+  return readFileSync(
+    join(repoRoot, `.github/workflows/deploy-${targetName}-${lane}.yml`),
+    'utf8',
+  );
 }
 
 function extractWorkflowJob(workflowSource, jobName) {
@@ -1725,13 +1724,6 @@ function collectWorkflowRequirements(workflowSource) {
     (match[1] === 'vars' ? variables : secrets).add(match[2]);
   }
   return { variables, secrets };
-}
-
-function mergeWorkflowRequirements(...requirements) {
-  return {
-    variables: new Set(requirements.flatMap((requirement) => [...requirement.variables])),
-    secrets: new Set(requirements.flatMap((requirement) => [...requirement.secrets])),
-  };
 }
 
 function assertWorkflowNamesCovered(environmentName, kind, required, generated) {
