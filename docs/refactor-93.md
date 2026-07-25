@@ -899,22 +899,23 @@ receipts are recorded.
         this is composition wiring rather than a second authorization
         implementation, and they add no new environment surface. They are not
         called yet.
-  - [ ] Wire recovery admission, execution, and activation to the partitioned
-        store as one coherent cutover after activation has an idempotent
-        side-effect boundary.
+  - [x] Wire recovery admission, execution, and activation to the partitioned
+        store as one coherent cutover, dispatched through the selector using the
+        environment-backed dependencies. Dormant until the recovery window is
+        configured.
     - [x] Persist the activation claim before Router promotion and replace the
           active wallet capability together with an exact operation receipt in
           one D1 transaction. Exact retries reconcile response loss from that
           receipt without repeating the wallet write.
-    - [ ] Compose admission, execution, and activation behind the same drain
-          selector and enable them only after local cutover validation.
+    - [x] Compose admission, execution, and activation behind the drain
+          selector. Enabling still waits on local cutover validation.
   - [ ] Move export admission, execution, redelivery, and authorization state
         to the partitioned store with typed conflict and uncertainty handling.
     - [x] Persist phase-specific authorization, admission, and execution claims
           before their effects; retain uncertain claims without repeating
           WebAuthn verification or Router calls; persist and redeliver the exact
           completed export result after a codec reload.
-    - [ ] Compose both export routes against the partitioned store behind the
+    - [x] Compose both export routes against the partitioned store behind the
           drain selector. A WebAuthn-success/receipt-CAS conflict remains
           fail-closed and requires a fresh export ceremony.
   - [ ] Move remaining replay, authorization, and session state out of the
