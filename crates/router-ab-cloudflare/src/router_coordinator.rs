@@ -1164,6 +1164,7 @@ where
     Ok(response)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn post_role_json_for_ceremony_with_span<TRequest, TResponse>(
     env: &Env,
     binding_name: &str,

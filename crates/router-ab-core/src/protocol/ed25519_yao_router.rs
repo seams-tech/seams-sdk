@@ -1101,7 +1101,7 @@ pub enum RouterEd25519YaoBurnReasonV1 {
 pub enum RouterEd25519YaoExecuteResultV1 {
     /// Operation-specific successful result.
     Succeeded {
-        result: RouterEd25519YaoExecuteSuccessV1,
+        result: Box<RouterEd25519YaoExecuteSuccessV1>,
     },
     /// Failure safe for an exact request retry.
     RecoverableFailure {
@@ -1122,7 +1122,9 @@ pub enum RouterEd25519YaoExecuteResultV1 {
 impl RouterEd25519YaoExecuteResultV1 {
     /// Creates a successful operation-specific result.
     pub fn succeeded(result: RouterEd25519YaoExecuteSuccessV1) -> Self {
-        Self::Succeeded { result }
+        Self::Succeeded {
+            result: Box::new(result),
+        }
     }
 
     /// Creates a retryable failure with a positive retry hint.
@@ -1162,7 +1164,7 @@ impl RouterEd25519YaoExecuteResultV1 {
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
 enum RawRouterEd25519YaoExecuteResultV1 {
     Succeeded {
-        result: RouterEd25519YaoExecuteSuccessV1,
+        result: Box<RouterEd25519YaoExecuteSuccessV1>,
     },
     RecoverableFailure {
         code: RouterEd25519YaoExecuteFailureCodeV1,
@@ -1184,7 +1186,9 @@ impl<'de> Deserialize<'de> for RouterEd25519YaoExecuteResultV1 {
     {
         let raw = RawRouterEd25519YaoExecuteResultV1::deserialize(deserializer)?;
         match raw {
-            RawRouterEd25519YaoExecuteResultV1::Succeeded { result } => Ok(Self::succeeded(result)),
+            RawRouterEd25519YaoExecuteResultV1::Succeeded { result } => {
+                Ok(Self::succeeded(*result))
+            }
             RawRouterEd25519YaoExecuteResultV1::RecoverableFailure {
                 code,
                 retry_after_ms,
