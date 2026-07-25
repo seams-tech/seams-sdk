@@ -64,11 +64,19 @@ secret value.
 - [x] Upload each share to its exact GitHub Environment. GitHub recorded the A
       update at `2026-07-25T20:47:53Z` and the B update at
       `2026-07-25T20:47:55Z`.
-- [ ] Deploy one frozen revision containing the new staging object scopes.
+- [x] Deploy one frozen revision containing the new staging object scopes.
       Deployment workflow run
       [`30174308501`](https://github.com/seams-tech/seams-sdk/actions/runs/30174308501)
-      is building frozen `dev` revision `bf3642dc4`.
-- [ ] Verify Deriver A, Deriver B, Router, SigningWorker, and Gateway readiness.
+      completed successfully from frozen `dev` revision `bf3642dc4`.
+- [x] Verify Deriver A, Deriver B, Router, SigningWorker, and Gateway readiness.
+      The workflow smoke suite and an independent check returned HTTP 200 for
+      `/readyz`, `/healthz`, the ceremony JWKS endpoint, and both Router A/B
+      health endpoints. Cloudflare reported these version IDs:
+  - Deriver A: `ad6aad41-68f9-4d5b-8db8-dd298d2d3375`;
+  - Deriver B: `6b5ece4b-9125-4904-b4ba-82fcda73d9eb`;
+  - SigningWorker: `d3867506-c277-4ab8-9a42-b2ba0bcf472e`;
+  - Router: `bc2b4664-7007-435a-ace8-a2fa4271b596`;
+  - Gateway: `93da5b8f-3714-4746-a092-4ddee0bc4815`.
 - [ ] Run a fresh dual-branch registration under `root_share_epoch=epoch-1`.
 - [ ] Record version IDs, workflow run, trace correlation ID, and result in
       `docs/refactor-93.md` without recording custody material.
