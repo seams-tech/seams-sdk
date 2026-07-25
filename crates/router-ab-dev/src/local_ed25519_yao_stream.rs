@@ -3,6 +3,9 @@ use std::io::{self, BufRead, BufReader, Write};
 use std::net::{Shutdown, TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
+use router_ab_core::{
+    Ed25519YaoExecutionIdV1, Ed25519YaoRoleReadinessReceiptV1, Ed25519YaoRoleStartAcceptanceV1,
+};
 use router_ab_ed25519_yao::relay::{
     ActivationDeriverACompletion, ActivationDeriverBCompletion, DirectionalWireDecoder,
     DirectionalWireEncoder, ExportDeriverACompletion, ExportDeriverBCompletion, RelayEvent,
@@ -21,6 +24,10 @@ const MAXIMUM_HTTP_HEAD_BYTES: usize = 8 * 1024;
 const MAXIMUM_HTTP_CHUNK_BYTES: usize = 300 * 1024;
 const STREAM_CONTENT_TYPE: &str = "application/vnd.seams.ed25519-yao-stream-v1";
 const SESSION_HEADER: &str = "x-seams-ed25519-yao-session";
+const PAIR_DIGEST_HEADER: &str = "x-seams-ed25519-yao-pair-digest";
+const EXECUTION_ID_HEADER: &str = "x-seams-ed25519-yao-execution-id";
+const READINESS_RECEIPT_HEADER: &str = "x-seams-yao-readiness-receipt";
+const START_ACCEPTANCE_HEADER: &str = "x-seams-yao-start-acceptance";
 const IO_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug)]
@@ -61,6 +68,36 @@ pub struct LocalEd25519YaoAuthenticatedDeriverBPeerV1 {
     stream: TcpStream,
     reader: BufReader<TcpStream>,
     session: [u8; 32],
+    pair: Option<LocalEd25519YaoPairPeerContextV1>,
+    start_acceptance: Option<Ed25519YaoRoleStartAcceptanceV1>,
+}
+
+/// Pair identity and the peer's signed readiness proof carried by the
+/// authenticated A→B stream before B enters Running.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalEd25519YaoPairPeerContextV1 {
+    pub pair_digest: [u8; 32],
+    pub execution_id: Ed25519YaoExecutionIdV1,
+    pub peer_receipt: Ed25519YaoRoleReadinessReceiptV1,
+}
+
+impl LocalEd25519YaoAuthenticatedDeriverBPeerV1 {
+    pub(crate) fn pair_context(&self) -> Option<&LocalEd25519YaoPairPeerContextV1> {
+        self.pair.as_ref()
+    }
+
+    pub(crate) fn set_start_acceptance(
+        &mut self,
+        acceptance: Ed25519YaoRoleStartAcceptanceV1,
+    ) -> StreamResult<()> {
+        if self.pair.is_none() {
+            return Err(protocol(
+                "pair start acceptance requires a pair-bound stream",
+            ));
+        }
+        self.start_acceptance = Some(acceptance);
+        Ok(())
+    }
 }
 
 trait LocalStreamingRole: Sized {
@@ -100,6 +137,34 @@ pub fn run_local_activation_deriver_a_http_v1(
     run_local_deriver_a_http_v1(address, session, internal_service_auth, role)
 }
 
+/// Runs one pair-bound activation over the authenticated local stream.
+pub fn run_local_activation_deriver_a_pair_http_v1(
+    address: impl ToSocketAddrs,
+    session: [u8; 32],
+    internal_service_auth: &str,
+    pair_digest: [u8; 32],
+    peer_receipt: Ed25519YaoRoleReadinessReceiptV1,
+    execution_id: Ed25519YaoExecutionIdV1,
+    role: ActivationDeriverA,
+) -> StreamResult<(
+    ActivationDeriverACompletion,
+    Ed25519YaoRoleStartAcceptanceV1,
+)> {
+    let (completion, acceptance) = run_local_deriver_a_http_with_pair_v1(
+        address,
+        session,
+        internal_service_auth,
+        Some(LocalEd25519YaoPairPeerContextV1 {
+            pair_digest,
+            execution_id,
+            peer_receipt,
+        }),
+        role,
+    )?;
+    let acceptance = acceptance.ok_or_else(|| protocol("pair start acceptance is missing"))?;
+    Ok((completion, acceptance))
+}
+
 pub fn run_local_export_deriver_a_http_v1(
     address: impl ToSocketAddrs,
     session: [u8; 32],
@@ -109,12 +174,52 @@ pub fn run_local_export_deriver_a_http_v1(
     run_local_deriver_a_http_v1(address, session, internal_service_auth, role)
 }
 
+/// Runs one pair-bound export over the authenticated local stream.
+pub fn run_local_export_deriver_a_pair_http_v1(
+    address: impl ToSocketAddrs,
+    session: [u8; 32],
+    internal_service_auth: &str,
+    pair_digest: [u8; 32],
+    peer_receipt: Ed25519YaoRoleReadinessReceiptV1,
+    execution_id: Ed25519YaoExecutionIdV1,
+    role: ExportDeriverA,
+) -> StreamResult<(ExportDeriverACompletion, Ed25519YaoRoleStartAcceptanceV1)> {
+    let (completion, acceptance) = run_local_deriver_a_http_with_pair_v1(
+        address,
+        session,
+        internal_service_auth,
+        Some(LocalEd25519YaoPairPeerContextV1 {
+            pair_digest,
+            execution_id,
+            peer_receipt,
+        }),
+        role,
+    )?;
+    let acceptance = acceptance.ok_or_else(|| protocol("pair start acceptance is missing"))?;
+    Ok((completion, acceptance))
+}
+
 fn run_local_deriver_a_http_v1<R>(
     address: impl ToSocketAddrs,
     session: [u8; 32],
     internal_service_auth: &str,
-    mut role: R,
+    role: R,
 ) -> StreamResult<R::Completion>
+where
+    R: LocalStreamingRole,
+{
+    let (completion, _) =
+        run_local_deriver_a_http_with_pair_v1(address, session, internal_service_auth, None, role)?;
+    Ok(completion)
+}
+
+fn run_local_deriver_a_http_with_pair_v1<R>(
+    address: impl ToSocketAddrs,
+    session: [u8; 32],
+    internal_service_auth: &str,
+    pair: Option<LocalEd25519YaoPairPeerContextV1>,
+    mut role: R,
+) -> StreamResult<(R::Completion, Option<Ed25519YaoRoleStartAcceptanceV1>)>
 where
     R: LocalStreamingRole,
 {
@@ -122,8 +227,8 @@ where
     configure_stream(&stream)?;
     let reader_stream = stream.try_clone()?;
     let mut reader = BufReader::new(reader_stream);
-    write_request_head(&mut stream, session, internal_service_auth)?;
-    read_response_head(&mut reader)?;
+    write_request_head_with_pair(&mut stream, session, internal_service_auth, pair.as_ref())?;
+    let acceptance = read_response_head_with_pair(&mut reader)?;
 
     let mut a_to_b_encoder =
         DirectionalWireEncoder::new(WireDirection::DeriverAToDeriverB, session)
@@ -181,7 +286,8 @@ where
     let peer_eof = b_to_a_decoder
         .finish_at_transport_eof()
         .map_err(|_| protocol("A response EOF evidence"))?;
-    expect_complete(role.handle(RelayEvent::InboundDirectionalEof(peer_eof))?)
+    let completion = expect_complete(role.handle(RelayEvent::InboundDirectionalEof(peer_eof))?)?;
+    Ok((completion, acceptance))
 }
 
 pub fn run_local_activation_deriver_b_http_v1(
@@ -217,10 +323,22 @@ pub fn authenticate_local_ed25519_yao_deriver_b_peer_http_v1(
     expected_session: [u8; 32],
     expected_internal_service_auth: &str,
 ) -> StreamResult<LocalEd25519YaoAuthenticatedDeriverBPeerV1> {
+    authenticate_local_ed25519_yao_deriver_b_peer_http_with_pair_v1(
+        stream,
+        expected_session,
+        expected_internal_service_auth,
+    )
+}
+
+pub(crate) fn authenticate_local_ed25519_yao_deriver_b_peer_http_with_pair_v1(
+    stream: TcpStream,
+    expected_session: [u8; 32],
+    expected_internal_service_auth: &str,
+) -> StreamResult<LocalEd25519YaoAuthenticatedDeriverBPeerV1> {
     configure_stream(&stream)?;
     let reader_stream = stream.try_clone()?;
     let mut reader = BufReader::new(reader_stream);
-    read_request_head(
+    let pair = read_request_head_with_pair(
         &mut reader,
         expected_session,
         expected_internal_service_auth,
@@ -229,6 +347,8 @@ pub fn authenticate_local_ed25519_yao_deriver_b_peer_http_v1(
         stream,
         reader,
         session: expected_session,
+        pair,
+        start_acceptance: None,
     })
 }
 
@@ -257,8 +377,10 @@ where
         mut stream,
         mut reader,
         session,
+        start_acceptance,
+        ..
     } = peer;
-    write_response_head(&mut stream)?;
+    write_response_head_with_acceptance(&mut stream, start_acceptance.as_ref())?;
 
     let mut a_to_b_decoder =
         DirectionalWireDecoder::new(WireDirection::DeriverAToDeriverB, session)
@@ -323,24 +445,37 @@ fn configure_stream(stream: &TcpStream) -> io::Result<()> {
     stream.set_write_timeout(Some(IO_TIMEOUT))
 }
 
-fn write_request_head(
+fn write_request_head_with_pair(
     stream: &mut TcpStream,
     session: [u8; 32],
     internal_service_auth: &str,
+    pair: Option<&LocalEd25519YaoPairPeerContextV1>,
 ) -> io::Result<()> {
     write!(
         stream,
-        "POST {LOCAL_DERIVER_B_ED25519_YAO_PEER_PATH} HTTP/1.1\r\nhost: local-deriver-b\r\ncontent-type: {STREAM_CONTENT_TYPE}\r\ntransfer-encoding: chunked\r\n{LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1}: {internal_service_auth}\r\n{SESSION_HEADER}: {}\r\nconnection: close\r\n\r\n",
+        "POST {LOCAL_DERIVER_B_ED25519_YAO_PEER_PATH} HTTP/1.1\r\nhost: local-deriver-b\r\ncontent-type: {STREAM_CONTENT_TYPE}\r\ntransfer-encoding: chunked\r\n{LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1}: {internal_service_auth}\r\n{SESSION_HEADER}: {}\r\n",
         hex::encode(session)
     )?;
+    if let Some(pair) = pair {
+        let serialized_receipt = serde_json::to_string(&pair.peer_receipt)
+            .map_err(|error| io::Error::other(format!("pair receipt encoding failed: {error}")))?;
+        write!(
+            stream,
+            "{PAIR_DIGEST_HEADER}: {}\r\n{EXECUTION_ID_HEADER}: {}\r\n{READINESS_RECEIPT_HEADER}: {}\r\n",
+            hex::encode(pair.pair_digest),
+            hex::encode(pair.execution_id.into_bytes()),
+            serialized_receipt,
+        )?;
+    }
+    write!(stream, "connection: close\r\n\r\n")?;
     stream.flush()
 }
 
-fn read_request_head<R: BufRead>(
+fn read_request_head_with_pair<R: BufRead>(
     reader: &mut R,
     expected_session: [u8; 32],
     expected_internal_service_auth: &str,
-) -> StreamResult<()> {
+) -> StreamResult<Option<LocalEd25519YaoPairPeerContextV1>> {
     let lines = read_http_head(reader)?;
     let expected_request = format!("POST {LOCAL_DERIVER_B_ED25519_YAO_PEER_PATH} HTTP/1.1");
     if lines.first() != Some(&expected_request) {
@@ -354,25 +489,81 @@ fn read_request_head<R: BufRead>(
         LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
         expected_internal_service_auth,
     )?;
-    require_header(&lines, SESSION_HEADER, &hex::encode(expected_session))
+    require_header(&lines, SESSION_HEADER, &hex::encode(expected_session))?;
+    let pair_headers = [
+        header_values(&lines, PAIR_DIGEST_HEADER),
+        header_values(&lines, EXECUTION_ID_HEADER),
+        header_values(&lines, READINESS_RECEIPT_HEADER),
+    ];
+    let has_pair_header = pair_headers.iter().any(|values| !values.is_empty());
+    if !has_pair_header {
+        return Ok(None);
+    }
+    if pair_headers.iter().any(|values| values.len() != 1) {
+        return Err(invalid_http("pair stream headers must be unique"));
+    }
+    let pair_digest = decode_hex_32(single_header(&lines, PAIR_DIGEST_HEADER)?)?;
+    let execution_id =
+        Ed25519YaoExecutionIdV1::new(decode_hex_32(single_header(&lines, EXECUTION_ID_HEADER)?)?)
+            .map_err(|_| invalid_http("pair stream execution id is malformed"))?;
+    let peer_receipt = serde_json::from_str::<Ed25519YaoRoleReadinessReceiptV1>(single_header(
+        &lines,
+        READINESS_RECEIPT_HEADER,
+    )?)
+    .map_err(|_| invalid_http("pair stream readiness receipt is malformed"))?;
+    if peer_receipt.role() != router_ab_core::Ed25519YaoDeriverRoleV1::DeriverA
+        || peer_receipt.session_bytes() != expected_session
+        || peer_receipt.pair_digest().bytes != pair_digest
+    {
+        return Err(invalid_http(
+            "pair stream readiness receipt identity mismatch",
+        ));
+    }
+    Ok(Some(LocalEd25519YaoPairPeerContextV1 {
+        pair_digest,
+        execution_id,
+        peer_receipt,
+    }))
 }
 
-fn write_response_head(stream: &mut TcpStream) -> io::Result<()> {
+fn write_response_head_with_acceptance(
+    stream: &mut TcpStream,
+    acceptance: Option<&Ed25519YaoRoleStartAcceptanceV1>,
+) -> io::Result<()> {
+    let serialized_acceptance = acceptance
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|error| io::Error::other(format!("start acceptance encoding failed: {error}")))?;
     write!(
         stream,
-        "HTTP/1.1 200 OK\r\ncontent-type: {STREAM_CONTENT_TYPE}\r\ntransfer-encoding: chunked\r\nconnection: close\r\n\r\n"
+        "HTTP/1.1 200 OK\r\ncontent-type: {STREAM_CONTENT_TYPE}\r\ntransfer-encoding: chunked\r\n{}connection: close\r\n\r\n",
+        serialized_acceptance
+            .map(|value| format!("{START_ACCEPTANCE_HEADER}: {value}\r\n"))
+            .unwrap_or_default()
     )?;
     stream.flush()
 }
 
-fn read_response_head<R: BufRead>(reader: &mut R) -> StreamResult<()> {
+fn read_response_head_with_pair<R: BufRead>(
+    reader: &mut R,
+) -> StreamResult<Option<Ed25519YaoRoleStartAcceptanceV1>> {
     let lines = read_http_head(reader)?;
     if lines.first().map(String::as_str) != Some("HTTP/1.1 200 OK") {
         return Err(invalid_http("non-success response"));
     }
     require_header(&lines, "content-type", STREAM_CONTENT_TYPE)?;
     require_header(&lines, "transfer-encoding", "chunked")?;
-    forbid_header(&lines, "content-length")
+    forbid_header(&lines, "content-length")?;
+    let values = header_values(&lines, START_ACCEPTANCE_HEADER);
+    if values.is_empty() {
+        return Ok(None);
+    }
+    if values.len() != 1 {
+        return Err(invalid_http("start acceptance header must be unique"));
+    }
+    let acceptance = serde_json::from_str::<Ed25519YaoRoleStartAcceptanceV1>(values[0])
+        .map_err(|_| invalid_http("start acceptance header is malformed"))?;
+    Ok(Some(acceptance))
 }
 
 fn read_http_head<R: BufRead>(reader: &mut R) -> StreamResult<Vec<String>> {
@@ -447,6 +638,13 @@ fn header_values<'a>(lines: &'a [String], name: &str) -> Vec<&'a str> {
             candidate.eq_ignore_ascii_case(name).then(|| value.trim())
         })
         .collect()
+}
+
+fn decode_hex_32(value: &str) -> StreamResult<[u8; 32]> {
+    hex::decode(value)
+        .map_err(|_| invalid_http("hex header is malformed"))?
+        .try_into()
+        .map_err(|_| invalid_http("hex header must contain 32 bytes"))
 }
 
 fn write_wire_message(
@@ -596,9 +794,9 @@ mod tests {
     use std::io::Cursor;
 
     use super::{
-        read_http_chunk, read_request_head, read_response_head, require_http_eof,
-        LOCAL_DERIVER_B_ED25519_YAO_PEER_PATH, LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
-        SESSION_HEADER, STREAM_CONTENT_TYPE,
+        read_http_chunk, read_request_head_with_pair, read_response_head_with_pair,
+        require_http_eof, LOCAL_DERIVER_B_ED25519_YAO_PEER_PATH,
+        LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1, SESSION_HEADER, STREAM_CONTENT_TYPE,
     };
 
     fn request_head(extra_header: &str) -> Vec<u8> {
@@ -638,11 +836,11 @@ mod tests {
         let duplicate_auth =
             format!("{LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1}: secret\r\n");
         let mut duplicate_auth = Cursor::new(request_head(&duplicate_auth));
-        assert!(read_request_head(&mut duplicate_auth, [7_u8; 32], "secret").is_err());
+        assert!(read_request_head_with_pair(&mut duplicate_auth, [7_u8; 32], "secret").is_err());
 
         let mut transfer_encoding_and_content_length =
             Cursor::new(request_head("content-length: 0\r\n"));
-        assert!(read_request_head(
+        assert!(read_request_head_with_pair(
             &mut transfer_encoding_and_content_length,
             [7_u8; 32],
             "secret",
@@ -651,7 +849,7 @@ mod tests {
 
         let duplicate_session = format!("{SESSION_HEADER}: {}\r\n", hex::encode([7_u8; 32]));
         let mut duplicate_session = Cursor::new(request_head(&duplicate_session));
-        assert!(read_request_head(&mut duplicate_session, [7_u8; 32], "secret").is_err());
+        assert!(read_request_head_with_pair(&mut duplicate_session, [7_u8; 32], "secret").is_err());
     }
 
     #[test]
@@ -662,7 +860,7 @@ mod tests {
             )
             .into_bytes(),
         );
-        assert!(read_response_head(&mut duplicate_transfer_encoding).is_err());
+        assert!(read_response_head_with_pair(&mut duplicate_transfer_encoding).is_err());
 
         let mut transfer_encoding_and_content_length = Cursor::new(
             format!(
@@ -670,6 +868,6 @@ mod tests {
             )
             .into_bytes(),
         );
-        assert!(read_response_head(&mut transfer_encoding_and_content_length).is_err());
+        assert!(read_response_head_with_pair(&mut transfer_encoding_and_content_length).is_err());
     }
 }

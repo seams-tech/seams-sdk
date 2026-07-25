@@ -25,10 +25,7 @@ import {
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { parseImplicitNearAccountId, parseNamedNearAccountId } from '@shared/utils/near';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import {
-  AccountCreationResult,
-  type EcdsaDerivationServerBootstrapResponse,
-} from '../../core/types';
+import { type EcdsaDerivationServerBootstrapResponse } from '../../core/types';
 import {
   buildRouterAbEcdsaDerivationPublicCapabilityV1,
   parseRouterAbEcdsaDerivationNormalSigningStateV1,
@@ -115,7 +112,7 @@ import {
   type D1RegistrationSharedSigningBudget,
 } from './d1RegistrationSharedSigningBudget';
 import { sha256BytesPortable } from './d1RouterApiAuthBoundary';
-import { alphabetizeStringify } from '@shared/utils/digests';
+import { alphabetizeStringify, bytesToUnprefixedHex, sha256BytesUtf8 } from '@shared/utils/digests';
 import { deriveThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
 import {
   type WalletEcdsaPendingSessionActivationRecord,
@@ -150,11 +147,44 @@ import {
   ed25519NearPublicKeyFromBytes,
   implicitNearAccountIdFromEd25519PublicKeyBytes,
 } from './d1Ed25519YaoWalletSigner';
+import {
+  runRouterAbEd25519YaoRegistrationSideEffectV1,
+  type RouterAbEd25519YaoRegistrationSideEffectRecordV1,
+  type RouterAbEd25519YaoRegistrationSideEffectStoreV1,
+} from '../routerAbEd25519YaoRegistrationSideEffectBoundary';
 
 type StartWalletRegistrationInput = WalletRegistrationStartRequest;
 type RespondWalletRegistrationDerivationInput = WalletRegistrationEcdsaDerivationRespondRequest;
 type ActivateWalletRegistrationEcdsaInput = WalletRegistrationEcdsaActivationRequest;
 type FinalizeWalletRegistrationInput = WalletRegistrationFinalizeRequest;
+
+async function walletRegistrationFinalizeRequestFingerprint(
+  request: FinalizeWalletRegistrationInput,
+): Promise<string> {
+  return base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(request)));
+}
+
+export type D1WalletRegistrationFinalizePreparedV1 = {
+  readonly kind: 'd1_wallet_registration_finalize_prepared_v1';
+};
+
+export type D1WalletRegistrationFinalizeSideEffectStore =
+  RouterAbEd25519YaoRegistrationSideEffectStoreV1<
+    WalletRegistrationFinalizeResponse,
+    D1WalletRegistrationFinalizePreparedV1
+  >;
+
+export type D1WalletRegistrationFinalizeSideEffectRecord =
+  RouterAbEd25519YaoRegistrationSideEffectRecordV1<
+    WalletRegistrationFinalizeResponse,
+    D1WalletRegistrationFinalizePreparedV1
+  >;
+
+async function prepareD1WalletRegistrationFinalize(): Promise<D1WalletRegistrationFinalizePreparedV1> {
+  return { kind: 'd1_wallet_registration_finalize_prepared_v1' };
+}
+
+const D1_WALLET_REGISTRATION_FINALIZE_RESUME_AFTER_MS = 30_000;
 
 type D1RegistrationEd25519SigningBudgetPlan =
   | { readonly kind: 'generated_registration_signing_budget' }
@@ -229,13 +259,38 @@ type RouterAbNormalSigningRuntimeProvider = () => RouterAbNormalSigningRuntime |
 type WalletStoreProvider = () => D1WalletStore;
 type Ed25519YaoProductRegistrationProvider =
   () => RouterAbEd25519YaoProductRegistrationRuntimeV1 | null;
+export type SponsoredNamedNearAccountCreationResult =
+  | {
+      readonly kind: 'created';
+      readonly accountId: string;
+      readonly transactionHash: string;
+    }
+  | {
+      readonly kind: 'rejected';
+      readonly message: string;
+    }
+  | {
+      readonly kind: 'retryable';
+      readonly message: string;
+      readonly retryAfterMs: number;
+    };
 type SponsoredNamedNearAccountCreator = (input: {
   readonly accountId: string;
   readonly publicKey: string;
-}) => Promise<AccountCreationResult>;
+  /**
+   * Registration-scoped key. The provisioning boundary persists the signed
+   * transaction under this key before broadcasting, so a retry replays those
+   * exact bytes instead of building a second transaction.
+   */
+  readonly idempotencyKey: string;
+}) => Promise<SponsoredNamedNearAccountCreationResult>;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error || '');
+}
+
+function assertNeverSponsoredNamedNearAccountCreationResult(value: never): never {
+  throw new Error(`Unexpected sponsored NEAR account creation result: ${String(value)}`);
 }
 
 async function cleanupFinalizedRegistrationCeremony(input: {
@@ -776,6 +831,7 @@ export class CloudflareD1WalletRegistrationService {
   private readonly getRouterAbNormalSigningRuntime: RouterAbNormalSigningRuntimeProvider;
   private readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
   private readonly getWalletStore: WalletStoreProvider;
+  private readonly finalizeSideEffects: D1WalletRegistrationFinalizeSideEffectStore;
   private readonly walletRegistrationCommitStore: D1WalletRegistrationCommitStore;
   private readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
 
@@ -787,6 +843,7 @@ export class CloudflareD1WalletRegistrationService {
     readonly getRouterAbNormalSigningRuntime: RouterAbNormalSigningRuntimeProvider;
     readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
     readonly getWalletStore: WalletStoreProvider;
+    readonly finalizeSideEffects: D1WalletRegistrationFinalizeSideEffectStore;
     readonly walletRegistrationCommitStore: D1WalletRegistrationCommitStore;
     readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
   }) {
@@ -797,6 +854,7 @@ export class CloudflareD1WalletRegistrationService {
     this.getRouterAbNormalSigningRuntime = input.getRouterAbNormalSigningRuntime;
     this.ecdsaStrictRegistration = input.ecdsaStrictRegistration;
     this.getWalletStore = input.getWalletStore;
+    this.finalizeSideEffects = input.finalizeSideEffects;
     this.walletRegistrationCommitStore = input.walletRegistrationCommitStore;
     this.walletAuthMethods = input.walletAuthMethods;
   }
@@ -1907,12 +1965,92 @@ export class CloudflareD1WalletRegistrationService {
   async finalizeWalletRegistration(
     request: FinalizeWalletRegistrationInput,
   ): Promise<WalletRegistrationFinalizeResponse> {
+    try {
+      const idempotencyKey = toOptionalTrimmedString(request.idempotencyKey);
+      if (!idempotencyKey) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'registration finalize idempotencyKey is required',
+        };
+      }
+
+      const requestFingerprint = await walletRegistrationFinalizeRequestFingerprint(request);
+      const effectKey = base64UrlEncode(
+        await sha256BytesUtf8(
+          `wallet-registration-finalize-v1\0${request.registrationCeremonyId}\0${idempotencyKey}`,
+        ),
+      );
+      const outcome = await runRouterAbEd25519YaoRegistrationSideEffectV1(
+        this.finalizeSideEffects,
+        {
+          kind: 'prepared_resumable',
+          resumeAfterMs: D1_WALLET_REGISTRATION_FINALIZE_RESUME_AFTER_MS,
+          operation: 'finalize',
+          key: effectKey,
+          requestFingerprint,
+          nowMs: Date.now,
+          prepare: prepareD1WalletRegistrationFinalize,
+          execute: this.executeWalletRegistrationFinalizeSideEffect.bind(this, request),
+        },
+      );
+      switch (outcome.kind) {
+        case 'executed':
+        case 'exact_replay':
+          return outcome.value;
+        case 'request_conflict':
+          return {
+            ok: false,
+            code: 'idempotency_conflict',
+            message: 'registration finalize idempotency key was reused for a different request',
+          };
+        case 'in_progress':
+          return {
+            ok: false,
+            code: 'conflict',
+            message: 'registration finalize is already in progress',
+            retryAfterMs: D1_WALLET_REGISTRATION_FINALIZE_RESUME_AFTER_MS,
+          };
+        case 'uncertain':
+          return {
+            ok: false,
+            code: 'internal',
+            message: outcome.message || 'registration finalize outcome is uncertain',
+            retryAfterMs: D1_WALLET_REGISTRATION_FINALIZE_RESUME_AFTER_MS,
+          };
+      }
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'registration finalize boundary failed',
+        retryAfterMs: D1_WALLET_REGISTRATION_FINALIZE_RESUME_AFTER_MS,
+      };
+    }
+  }
+
+  private async executeWalletRegistrationFinalizeSideEffect(
+    request: FinalizeWalletRegistrationInput,
+  ): Promise<WalletRegistrationFinalizeResponse> {
+    const response = await this.executeWalletRegistrationFinalize(request);
+    if (!response.ok && (response.code === 'internal' || response.retryAfterMs !== undefined)) {
+      throw new Error(response.message);
+    }
+    return response;
+  }
+
+  private async executeWalletRegistrationFinalize(
+    request: FinalizeWalletRegistrationInput,
+  ): Promise<WalletRegistrationFinalizeResponse> {
     const finalizeTiming = createD1RegistrationRouteTimingRecorder('wallets_register_finalize');
     const totalTiming = startD1RegistrationRouteTiming('registerFinalizeTotalMs');
     try {
       const store = this.getRegistrationCeremonyIntentStore();
       if (!store) return missingRegistrationCeremonyDoStore();
       const idempotencyKey = toOptionalTrimmedString(request.idempotencyKey);
+      const requestFingerprint = idempotencyKey
+        ? await walletRegistrationFinalizeRequestFingerprint(request)
+        : null;
       if (idempotencyKey) {
         const replayTiming = startD1RegistrationRouteTiming('registrationFinalizeReplayLoadMs');
         let replay: Awaited<ReturnType<typeof store.getFinalizeReplay>>;
@@ -1925,6 +2063,13 @@ export class CloudflareD1WalletRegistrationService {
           finishD1RegistrationRouteTiming(finalizeTiming, replayTiming);
         }
         if (replay) {
+          if (replay.requestFingerprint !== requestFingerprint) {
+            return {
+              ok: false,
+              code: 'idempotency_conflict',
+              message: 'registration finalize idempotency key was reused for a different request',
+            };
+          }
           await cleanupFinalizedRegistrationCeremony({
             store,
             registrationCeremonyId: request.registrationCeremonyId,
@@ -2139,17 +2284,34 @@ export class CloudflareD1WalletRegistrationService {
           const created = await this.createSponsoredNamedNearAccount({
             accountId: sponsoredAccountId,
             publicKey,
+            // Scoped to the activation session so a retry of this exact
+            // registration replays its prepared transaction rather than
+            // creating a second sponsored account.
+            idempotencyKey: bytesToUnprefixedHex(
+              Uint8Array.from(consumed.activation.result.binding.session_id),
+            ),
           });
-          if (!created.success) {
-            return {
-              ok: false,
-              code: 'account_creation_failed',
-              message:
-                created.message || created.error || 'Failed to create sponsored NEAR account',
-            };
+          switch (created.kind) {
+            case 'rejected':
+              return {
+                ok: false,
+                code: 'account_creation_failed',
+                message: created.message,
+              };
+            case 'retryable':
+              return {
+                ok: false,
+                code: 'account_creation_retryable',
+                message: created.message,
+                retryAfterMs: created.retryAfterMs,
+              };
+            case 'created':
+              nearAccountId = created.accountId;
+              sponsoredTransactionHash = created.transactionHash;
+              break;
+            default:
+              return assertNeverSponsoredNamedNearAccountCreationResult(created);
           }
-          nearAccountId = created.accountId || sponsoredAccountId;
-          sponsoredTransactionHash = created.transactionHash;
         }
         const resolved = resolvedRegistrationNearAccount({
           accountProvisioning: requestedNearEd25519.accountProvisioning,
@@ -2273,18 +2435,43 @@ export class CloudflareD1WalletRegistrationService {
       if (ed25519SignerRecord) walletSigners.push(ed25519SignerRecord);
       const persistenceTiming = startD1RegistrationRouteTiming('relayPersistenceMs');
       try {
-        if (emailOtpEnrollment.persistence) {
-          const persisted = await this.emailOtpRegistrationEnrollmentFinalizer.persistPrepared(
-            emailOtpEnrollment.persistence,
-          );
-          if (!persisted.ok) return persisted;
+        switch (ceremony.authority.kind) {
+          case 'passkey':
+            if (emailOtpEnrollment.persistence) {
+              return {
+                ok: false,
+                code: 'invalid_state',
+                message: 'Passkey registration cannot persist Email OTP enrollment state',
+              };
+            }
+            await this.walletRegistrationCommitStore.commit({
+              kind: 'passkey_wallet_registration_commit_v1',
+              wallet,
+              walletSigners,
+              authority: ceremony.authority,
+              now,
+            });
+            break;
+          case 'email_otp':
+            if (!emailOtpEnrollment.persistence) {
+              return {
+                ok: false,
+                code: 'invalid_state',
+                message: 'Email OTP registration is missing enrollment persistence state',
+              };
+            }
+            await this.walletRegistrationCommitStore.commit({
+              kind: 'email_otp_wallet_registration_commit_v1',
+              wallet,
+              walletSigners,
+              authority: ceremony.authority,
+              emailOtp: this.emailOtpRegistrationEnrollmentFinalizer.prepareRegistrationCommitPlan(
+                emailOtpEnrollment.persistence,
+              ),
+              now,
+            });
+            break;
         }
-        await this.walletRegistrationCommitStore.commit({
-          wallet,
-          walletSigners,
-          authority: ceremony.authority,
-          now,
-        });
       } finally {
         finishD1RegistrationRouteTiming(finalizeTiming, persistenceTiming);
       }
@@ -2389,7 +2576,7 @@ export class CloudflareD1WalletRegistrationService {
                 ecdsa: { walletKeys: ecdsaWalletKeys },
               };
       }
-      if (idempotencyKey) {
+      if (idempotencyKey && requestFingerprint) {
         const replayCacheTiming = startD1RegistrationRouteTiming(
           'registrationFinalizeReplayCacheMs',
         );
@@ -2398,6 +2585,7 @@ export class CloudflareD1WalletRegistrationService {
             kind: 'wallet_registration_finalize_replay_v1',
             registrationCeremonyId: ceremony.registrationCeremonyId,
             idempotencyKey,
+            requestFingerprint,
             response,
             createdAtMs: now,
             expiresAtMs: ceremony.expiresAtMs,

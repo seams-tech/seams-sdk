@@ -16,9 +16,12 @@ import {
   type RouterAbEd25519YaoExportResultV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import {
-  parseSigningGrantId,
-  parseThresholdEd25519SessionId,
-} from '@shared/utils/domainIds';
+  createRouterAbTraceContextV1,
+  parseRouterAbTraceContextV1,
+  ROUTER_AB_TRACE_ID_HEADER_V1,
+  type RouterAbTraceContextV1,
+} from '@shared/utils/routerAbTraceContext';
+import { parseSigningGrantId, parseThresholdEd25519SessionId } from '@shared/utils/domainIds';
 import type { AuthFactorIdentity, WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { isPlainObject } from '@shared/utils/validation';
@@ -60,10 +63,13 @@ export type RouterAbEd25519YaoExportFailure = {
   readonly code:
     | 'invalid_backend_response'
     | 'admission_failed'
+    | 'admission_in_progress'
     | 'unknown_export'
     | 'binding_mismatch'
     | 'export_consumed'
+    | 'execution_in_progress'
     | 'execution_failed'
+    | 'ceremony_expired'
     | 'active_identity_mismatch';
   readonly message: string;
 };
@@ -81,22 +87,135 @@ export type RouterAbEd25519YaoExportBackendResult =
       readonly message: string;
     };
 
+function exportBackendFailure(
+  result: Extract<RouterAbEd25519YaoExportBackendResult, { readonly ok: false }>,
+  fallbackCode: 'admission_failed' | 'execution_failed',
+): RouterAbEd25519YaoExportFailure {
+  return {
+    ok: false,
+    status: result.code === 'ceremony_expired' ? 409 : result.status,
+    code: result.code === 'ceremony_expired' ? 'ceremony_expired' : fallbackCode,
+    message: `${result.code}: ${result.message}`,
+  };
+}
+
 export interface RouterAbEd25519YaoExportBackend {
   admitExport(
     request: RouterAbEd25519YaoExportAdmissionRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoExportBackendResult> | RouterAbEd25519YaoExportBackendResult;
   executeExport(
     request: RouterAbEd25519YaoExportExecuteRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoExportBackendResult> | RouterAbEd25519YaoExportBackendResult;
 }
 
 export interface RouterAbEd25519YaoExportService {
   admitExport(
     request: RouterAbEd25519YaoExportAdmissionRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoExportServiceResult<RouterAbEd25519YaoExportAdmissionReceiptV1>>;
   executeExport(
     request: RouterAbEd25519YaoExportExecuteRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoExportServiceResult<RouterAbEd25519YaoExportResultV1>>;
+}
+
+export type RouterAbEd25519YaoExportAuthorizationClaimV1 = {
+  readonly kind: 'router_ab_ed25519_yao_export_authorization_claim_v1';
+  readonly lifecycleId: string;
+  readonly exportKey: string;
+  readonly authorizationFingerprint: string;
+};
+
+export type RouterAbEd25519YaoExportAuthorizationPreparationV1 =
+  | {
+      readonly kind: 'claimed';
+      readonly claim: RouterAbEd25519YaoExportAuthorizationClaimV1;
+    }
+  | {
+      readonly kind: 'completed';
+      readonly value: RouterAbEd25519YaoExportAuthorizationResult;
+    };
+
+export type RouterAbEd25519YaoExportAuthorizationCommitInputV1 = {
+  readonly request: RouterAbEd25519YaoExportAdmissionRequestV1;
+  readonly claim: RouterAbEd25519YaoExportAuthorizationClaimV1;
+  readonly outcome: RouterAbEd25519YaoExportAuthorizationResult;
+};
+
+export type RouterAbEd25519YaoExportAdmissionClaimV1 = {
+  readonly kind: 'router_ab_ed25519_yao_export_admission_claim_v1';
+  readonly lifecycleId: string;
+  readonly exportKey: string;
+  readonly authorizationFingerprint: string;
+};
+
+export type RouterAbEd25519YaoExportAdmissionPreparationV1 =
+  | {
+      readonly kind: 'claimed';
+      readonly claim: RouterAbEd25519YaoExportAdmissionClaimV1;
+    }
+  | {
+      readonly kind: 'completed';
+      readonly value: RouterAbEd25519YaoExportAdmissionReceiptV1;
+    }
+  | {
+      readonly kind: 'failed';
+      readonly failure: RouterAbEd25519YaoExportFailure;
+    };
+
+export type RouterAbEd25519YaoExportAdmissionCommitInputV1 = {
+  readonly request: RouterAbEd25519YaoExportAdmissionRequestV1;
+  readonly claim: RouterAbEd25519YaoExportAdmissionClaimV1;
+  readonly outcome: {
+    readonly kind: 'backend_response';
+    readonly result: RouterAbEd25519YaoExportBackendResult;
+  };
+};
+
+export type RouterAbEd25519YaoExportExecuteClaimV1 = {
+  readonly kind: 'router_ab_ed25519_yao_export_execute_claim_v1';
+  readonly lifecycleId: string;
+  readonly exportKey: string;
+  readonly sessionId: string;
+  readonly executeFingerprint: string;
+};
+
+export type RouterAbEd25519YaoExportExecutePreparationV1 =
+  | {
+      readonly kind: 'claimed';
+      readonly claim: RouterAbEd25519YaoExportExecuteClaimV1;
+    }
+  | {
+      readonly kind: 'completed';
+      readonly value: RouterAbEd25519YaoExportResultV1;
+    }
+  | {
+      readonly kind: 'failed';
+      readonly failure: RouterAbEd25519YaoExportFailure;
+    };
+
+export type RouterAbEd25519YaoExportExecuteCommitInputV1 = {
+  readonly request: RouterAbEd25519YaoExportExecuteRequestV1;
+  readonly claim: RouterAbEd25519YaoExportExecuteClaimV1;
+  readonly outcome: {
+    readonly kind: 'backend_response';
+    readonly result: RouterAbEd25519YaoExportBackendResult;
+  };
+};
+
+type RouterAbEd25519YaoTraceContextResolutionV1 =
+  | { readonly ok: true; readonly value: RouterAbTraceContextV1 }
+  | { readonly ok: false; readonly message: string };
+
+function resolveTraceContext(request: Request): RouterAbEd25519YaoTraceContextResolutionV1 {
+  const parsed = parseRouterAbTraceContextV1(request.headers.get(ROUTER_AB_TRACE_ID_HEADER_V1));
+  if (parsed.ok) return parsed;
+  if (parsed.reason === 'missing') {
+    return { ok: true, value: createRouterAbTraceContextV1() };
+  }
+  return { ok: false, message: parsed.message };
 }
 
 export type RouterAbEd25519YaoExportAdmissionAuthorization =
@@ -144,25 +263,68 @@ export interface RouterAbEd25519YaoExportAuthorizationAdapter {
     | RouterAbEd25519YaoExportAuthorizationResult;
 }
 
-type ExportAdmittedState = {
+type ExportAuthorizationContext = {
+  readonly request: RouterAbEd25519YaoExportAdmissionRequestV1;
+  readonly authorizationFingerprint: string;
+};
+
+type ExportAuthorizingState = ExportAuthorizationContext & {
+  readonly kind: 'authorizing';
+};
+
+type ExportAuthorizationFailedState = ExportAuthorizationContext & {
+  readonly kind: 'authorization_failed';
+  readonly failure: Extract<RouterAbEd25519YaoExportAuthorizationResult, { readonly ok: false }>;
+};
+
+type ExportAuthorizedState = ExportAuthorizationContext & {
+  readonly kind: 'authorized';
+};
+
+type ExportAdmittingState = ExportAuthorizationContext & {
+  readonly kind: 'admitting';
+};
+
+type ExportAdmissionFailedState = ExportAuthorizationContext & {
+  readonly kind: 'admission_failed';
+  readonly failure: RouterAbEd25519YaoExportFailure;
+};
+
+type ExportAdmittedState = ExportAuthorizationContext & {
   readonly kind: 'admitted';
-  readonly request: RouterAbEd25519YaoExportAdmissionRequestV1;
   readonly receipt: RouterAbEd25519YaoExportAdmissionReceiptV1;
 };
 
-type ExportExecutingState = {
+type ExportExecutingState = ExportAuthorizationContext & {
   readonly kind: 'executing';
-  readonly request: RouterAbEd25519YaoExportAdmissionRequestV1;
   readonly receipt: RouterAbEd25519YaoExportAdmissionReceiptV1;
+  readonly executeFingerprint: string;
 };
 
-type ExportTerminalState = {
-  readonly kind: 'completed' | 'burned';
-  readonly request: RouterAbEd25519YaoExportAdmissionRequestV1;
+type ExportExecutionFailedState = ExportAuthorizationContext & {
+  readonly kind: 'execution_failed';
   readonly receipt: RouterAbEd25519YaoExportAdmissionReceiptV1;
+  readonly executeFingerprint: string;
+  readonly failure: RouterAbEd25519YaoExportFailure;
 };
 
-type ExportLifecycleState = ExportAdmittedState | ExportExecutingState | ExportTerminalState;
+type ExportCompletedState = ExportAuthorizationContext & {
+  readonly kind: 'completed';
+  readonly receipt: RouterAbEd25519YaoExportAdmissionReceiptV1;
+  readonly executeFingerprint: string;
+  readonly result: RouterAbEd25519YaoExportResultV1;
+};
+
+type ExportLifecycleState =
+  | ExportAuthorizingState
+  | ExportAuthorizationFailedState
+  | ExportAuthorizedState
+  | ExportAdmittingState
+  | ExportAdmissionFailedState
+  | ExportAdmittedState
+  | ExportExecutingState
+  | ExportExecutionFailedState
+  | ExportCompletedState;
 
 export class InMemoryRouterAbEd25519YaoExportStateV1 {
   readonly exports = new Map<string, ExportLifecycleState>();
@@ -257,6 +419,60 @@ function failure(input: {
   return { ok: false, ...input };
 }
 
+function canonicalFingerprint(value: unknown): string {
+  return JSON.stringify(value);
+}
+
+function equalWire(left: unknown, right: unknown): boolean {
+  return canonicalFingerprint(left) === canonicalFingerprint(right);
+}
+
+function exportKey(request: RouterAbEd25519YaoExportAdmissionRequestV1): string {
+  return bytesToHex(request.authorization.authorization_digest);
+}
+
+function authorizationConflict(
+  code: string,
+  message: string,
+): Extract<RouterAbEd25519YaoExportAuthorizationResult, { readonly ok: false }> {
+  return { ok: false, status: 409, code, message };
+}
+
+function authorizationUnavailable(
+  code: string,
+  message: string,
+): Extract<RouterAbEd25519YaoExportAuthorizationResult, { readonly ok: false }> {
+  return { ok: false, status: 503, code, message };
+}
+
+function assertNeverExportState(value: never): never {
+  throw new Error(`Unhandled Ed25519 Yao export state: ${String(value)}`);
+}
+
+function exportStateHasReceipt(
+  state: ExportLifecycleState,
+): state is
+  | ExportAdmittedState
+  | ExportExecutingState
+  | ExportExecutionFailedState
+  | ExportCompletedState {
+  switch (state.kind) {
+    case 'admitted':
+    case 'executing':
+    case 'execution_failed':
+    case 'completed':
+      return true;
+    case 'authorizing':
+    case 'authorization_failed':
+    case 'authorized':
+    case 'admitting':
+    case 'admission_failed':
+      return false;
+    default:
+      return assertNeverExportState(state);
+  }
+}
+
 export class InMemoryRouterAbEd25519YaoExportService implements RouterAbEd25519YaoExportService {
   constructor(
     private readonly backend: RouterAbEd25519YaoExportBackend,
@@ -266,16 +482,198 @@ export class InMemoryRouterAbEd25519YaoExportService implements RouterAbEd25519Y
 
   async admitExport(
     request: RouterAbEd25519YaoExportAdmissionRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoExportServiceResult<RouterAbEd25519YaoExportAdmissionReceiptV1>> {
-    const nonce = bytesToHex(request.authorization.nonce);
-    if (this.state.authorizationNonces.has(nonce)) {
+    const authorizationFingerprint = exportKey(request);
+    const authorization = this.prepareAuthorizeExport(request, authorizationFingerprint);
+    if (authorization.kind === 'claimed') {
+      const authorized = this.commitAuthorizeExport({
+        request,
+        claim: authorization.claim,
+        outcome: { ok: true },
+      });
+      if (!authorized.ok) {
+        return failure({
+          status: authorized.status === 503 ? 503 : 409,
+          code: 'admission_failed',
+          message: authorized.message,
+        });
+      }
+    } else if (!authorization.value.ok) {
       return failure({
-        status: 409,
+        status: authorization.value.status === 503 ? 503 : 409,
         code: 'admission_failed',
-        message: 'Ed25519 Yao export authorization was already used',
+        message: authorization.value.message,
       });
     }
+    const preparation = await this.prepareAdmitExport(request);
+    switch (preparation.kind) {
+      case 'completed':
+        return { ok: true, status: 200, value: preparation.value };
+      case 'failed':
+        return preparation.failure;
+      case 'claimed':
+        break;
+    }
+    let outcome: RouterAbEd25519YaoExportAdmissionCommitInputV1['outcome'];
+    try {
+      outcome = {
+        kind: 'backend_response',
+        result: await this.backend.admitExport(request, traceContext),
+      };
+    } catch (error: unknown) {
+      return this.failUncertainAdmission(preparation.claim, error);
+    }
+    return this.commitAdmitExport({ request, claim: preparation.claim, outcome });
+  }
+
+  prepareAuthorizeExport(
+    request: RouterAbEd25519YaoExportAdmissionRequestV1,
+    authorizationFingerprint: string,
+  ): RouterAbEd25519YaoExportAuthorizationPreparationV1 {
+    const key = exportKey(request);
+    const existing = this.state.exports.get(key);
+    if (existing) {
+      if (existing.authorizationFingerprint !== authorizationFingerprint) {
+        return {
+          kind: 'completed',
+          value: authorizationConflict(
+            'export_authorization_conflict',
+            'Export authorization changed for an existing request',
+          ),
+        };
+      }
+      switch (existing.kind) {
+        case 'authorizing':
+          return {
+            kind: 'completed',
+            value: authorizationUnavailable(
+              'export_authorization_uncertain',
+              'Export authorization outcome is uncertain and cannot be retried',
+            ),
+          };
+        case 'authorization_failed':
+          return { kind: 'completed', value: existing.failure };
+        case 'authorized':
+        case 'admitting':
+        case 'admission_failed':
+        case 'admitted':
+        case 'executing':
+        case 'execution_failed':
+        case 'completed':
+          return { kind: 'completed', value: { ok: true } };
+        default:
+          return assertNeverExportState(existing);
+      }
+    }
+    const nonce = bytesToHex(request.authorization.nonce);
+    if (this.state.authorizationNonces.has(nonce)) {
+      return {
+        kind: 'completed',
+        value: authorizationConflict(
+          'export_authorization_replayed',
+          'Ed25519 Yao export authorization was already used',
+        ),
+      };
+    }
     this.state.authorizationNonces.add(nonce);
+    this.state.exports.set(key, {
+      kind: 'authorizing',
+      request,
+      authorizationFingerprint,
+    });
+    return {
+      kind: 'claimed',
+      claim: {
+        kind: 'router_ab_ed25519_yao_export_authorization_claim_v1',
+        lifecycleId: request.scope.lifecycle_id,
+        exportKey: key,
+        authorizationFingerprint,
+      },
+    };
+  }
+
+  commitAuthorizeExport(
+    input: RouterAbEd25519YaoExportAuthorizationCommitInputV1,
+  ): RouterAbEd25519YaoExportAuthorizationResult {
+    const key = exportKey(input.request);
+    const current = this.state.exports.get(input.claim.exportKey);
+    if (
+      current?.kind !== 'authorizing' ||
+      input.claim.lifecycleId !== input.request.scope.lifecycle_id ||
+      input.claim.exportKey !== key ||
+      input.claim.authorizationFingerprint !== current.authorizationFingerprint ||
+      !equalWire(current.request, input.request)
+    ) {
+      return authorizationUnavailable(
+        'export_authorization_uncertain',
+        'Export authorization claim is no longer current',
+      );
+    }
+    if (!input.outcome.ok) {
+      this.state.exports.set(key, {
+        kind: 'authorization_failed',
+        request: current.request,
+        authorizationFingerprint: current.authorizationFingerprint,
+        failure: input.outcome,
+      });
+      return input.outcome;
+    }
+    this.state.exports.set(key, {
+      kind: 'authorized',
+      request: current.request,
+      authorizationFingerprint: current.authorizationFingerprint,
+    });
+    return { ok: true };
+  }
+
+  async prepareAdmitExport(
+    request: RouterAbEd25519YaoExportAdmissionRequestV1,
+  ): Promise<RouterAbEd25519YaoExportAdmissionPreparationV1> {
+    const key = exportKey(request);
+    const current = this.state.exports.get(key);
+    if (!current || !equalWire(current.request, request)) {
+      return {
+        kind: 'failed',
+        failure: failure({
+          status: 409,
+          code: 'admission_failed',
+          message: 'Export admission requires a durable successful authorization claim',
+        }),
+      };
+    }
+    switch (current.kind) {
+      case 'admitted':
+      case 'executing':
+      case 'execution_failed':
+      case 'completed':
+        return { kind: 'completed', value: current.receipt };
+      case 'admission_failed':
+        return { kind: 'failed', failure: current.failure };
+      case 'admitting':
+        return {
+          kind: 'failed',
+          failure: failure({
+            status: 409,
+            code: 'admission_in_progress',
+            message: 'Export admission is already in progress',
+          }),
+        };
+      case 'authorizing':
+      case 'authorization_failed':
+        return {
+          kind: 'failed',
+          failure: failure({
+            status: 409,
+            code: 'admission_failed',
+            message: 'Export admission authorization is incomplete',
+          }),
+        };
+      case 'authorized':
+        break;
+      default:
+        return assertNeverExportState(current);
+    }
     const active = await this.capabilities.resolveActiveCapability({
       kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
       walletId: request.application_binding.wallet_id,
@@ -286,11 +684,13 @@ export class InMemoryRouterAbEd25519YaoExportService implements RouterAbEd25519Y
       participantIds: request.participant_ids,
     });
     if (!active.ok) {
-      return failure({
+      const rejected = failure({
         status: 409,
         code: 'active_identity_mismatch',
         message: active.message,
       });
+      this.storeAdmissionFailure(current, rejected);
+      return { kind: 'failed', failure: rejected };
     }
     const runtimePolicyBinding = await deriveRouterAbEd25519YaoRuntimePolicyBindingV1(
       active.capability.runtimePolicyScope,
@@ -303,108 +703,335 @@ export class InMemoryRouterAbEd25519YaoExportService implements RouterAbEd25519Y
       request.state_epoch !== active.capability.stateEpoch ||
       !equalBytes(request.runtime_policy_binding, runtimePolicyBinding)
     ) {
-      return failure({
+      const rejected = failure({
         status: 409,
         code: 'active_identity_mismatch',
         message: 'Ed25519 Yao export does not match the exact active key capability',
       });
+      this.storeAdmissionFailure(current, rejected);
+      return { kind: 'failed', failure: rejected };
     }
-    let backendResult: RouterAbEd25519YaoExportBackendResult;
-    try {
-      backendResult = await this.backend.admitExport(request);
-    } catch (error: unknown) {
+    this.state.exports.set(key, {
+      kind: 'admitting',
+      request: current.request,
+      authorizationFingerprint: current.authorizationFingerprint,
+    });
+    return {
+      kind: 'claimed',
+      claim: {
+        kind: 'router_ab_ed25519_yao_export_admission_claim_v1',
+        lifecycleId: request.scope.lifecycle_id,
+        exportKey: key,
+        authorizationFingerprint: current.authorizationFingerprint,
+      },
+    };
+  }
+
+  commitAdmitExport(
+    input: RouterAbEd25519YaoExportAdmissionCommitInputV1,
+  ): RouterAbEd25519YaoExportServiceResult<RouterAbEd25519YaoExportAdmissionReceiptV1> {
+    const key = exportKey(input.request);
+    const current = this.state.exports.get(input.claim.exportKey);
+    if (
+      current?.kind !== 'admitting' ||
+      input.claim.lifecycleId !== input.request.scope.lifecycle_id ||
+      input.claim.exportKey !== key ||
+      input.claim.authorizationFingerprint !== current.authorizationFingerprint ||
+      !equalWire(current.request, input.request)
+    ) {
       return failure({
-        status: 503,
-        code: 'admission_failed',
-        message: error instanceof Error ? error.message : String(error),
+        status: 409,
+        code: 'admission_in_progress',
+        message: 'Export admission claim is no longer current',
       });
     }
+    const backendResult = input.outcome.result;
     if (!backendResult.ok) {
-      return failure({
-        status: backendResult.status,
-        code: 'admission_failed',
-        message: `${backendResult.code}: ${backendResult.message}`,
-      });
+      const rejected = exportBackendFailure(backendResult, 'admission_failed');
+      this.storeAdmissionFailure(current, rejected);
+      return rejected;
     }
     const parsed = parseRouterAbEd25519YaoExportAdmissionReceiptV1(backendResult.body);
     if (!parsed.ok) {
-      return failure({ status: 502, code: 'invalid_backend_response', message: parsed.message });
+      const rejected = failure({
+        status: 502,
+        code: 'invalid_backend_response',
+        message: parsed.message,
+      });
+      this.storeAdmissionFailure(current, rejected);
+      return rejected;
     }
     if (
-      !receiptMatchesAdmissionScope(request, parsed.value) ||
+      !receiptMatchesAdmissionScope(input.request, parsed.value) ||
       !equalBytes(
         parsed.value.binding.authorization_digest,
-        request.authorization.authorization_digest,
+        input.request.authorization.authorization_digest,
       ) ||
-      !equalBytes(parsed.value.binding.registered_public_key, request.registered_public_key) ||
-      parsed.value.binding.state_epoch !== request.state_epoch ||
-      !equalBytes(parsed.value.binding.runtime_policy_binding, request.runtime_policy_binding)
+      !equalBytes(
+        parsed.value.binding.registered_public_key,
+        input.request.registered_public_key,
+      ) ||
+      parsed.value.binding.state_epoch !== input.request.state_epoch ||
+      !equalBytes(parsed.value.binding.runtime_policy_binding, input.request.runtime_policy_binding)
     ) {
-      return failure({
+      const rejected = failure({
         status: 502,
         code: 'invalid_backend_response',
         message: 'Ed25519 Yao export admission receipt changed an exact binding',
       });
+      this.storeAdmissionFailure(current, rejected);
+      return rejected;
     }
     const session = bytesToHex(parsed.value.binding.ceremony.session_id);
-    this.state.exports.set(session, { kind: 'admitted', request, receipt: parsed.value });
+    const sessionOwner = this.findExportBySession(session);
+    if (sessionOwner && sessionOwner.key !== key) {
+      const rejected = failure({
+        status: 502,
+        code: 'invalid_backend_response',
+        message: 'Ed25519 Yao export backend reused a session identifier',
+      });
+      this.storeAdmissionFailure(current, rejected);
+      return rejected;
+    }
+    this.state.exports.set(key, {
+      kind: 'admitted',
+      request: current.request,
+      authorizationFingerprint: current.authorizationFingerprint,
+      receipt: parsed.value,
+    });
     return { ok: true, status: 200, value: parsed.value };
   }
 
   async executeExport(
     request: RouterAbEd25519YaoExportExecuteRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoExportServiceResult<RouterAbEd25519YaoExportResultV1>> {
+    const preparation = this.prepareExecuteExport(request);
+    switch (preparation.kind) {
+      case 'completed':
+        return { ok: true, status: 200, value: preparation.value };
+      case 'failed':
+        return preparation.failure;
+      case 'claimed':
+        break;
+    }
+    let outcome: RouterAbEd25519YaoExportExecuteCommitInputV1['outcome'];
+    try {
+      outcome = {
+        kind: 'backend_response',
+        result: await this.backend.executeExport(request, traceContext),
+      };
+    } catch (error: unknown) {
+      return this.failUncertainExecution(preparation.claim, error);
+    }
+    return this.commitExecuteExport({ request, claim: preparation.claim, outcome });
+  }
+
+  prepareExecuteExport(
+    request: RouterAbEd25519YaoExportExecuteRequestV1,
+  ): RouterAbEd25519YaoExportExecutePreparationV1 {
     const session = bytesToHex(request.binding.ceremony.session_id);
-    const current = this.state.exports.get(session);
-    if (!current) {
-      return failure({ status: 404, code: 'unknown_export', message: 'Unknown export session' });
+    const found = this.findExportBySession(session);
+    if (!found) {
+      return {
+        kind: 'failed',
+        failure: failure({
+          status: 404,
+          code: 'unknown_export',
+          message: 'Unknown export session',
+        }),
+      };
     }
-    if (current.kind !== 'admitted') {
-      return failure({
-        status: 409,
-        code: 'export_consumed',
-        message: 'Ed25519 Yao export session was already consumed',
-      });
-    }
-    if (JSON.stringify(current.receipt.binding) !== JSON.stringify(request.binding)) {
-      this.state.exports.set(session, { ...current, kind: 'burned' });
-      return failure({
+    const current = found.state;
+    if (!exportStateHasReceipt(current) || !equalWire(current.receipt.binding, request.binding)) {
+      const rejected = failure({
         status: 409,
         code: 'binding_mismatch',
         message: 'Ed25519 Yao export execution changed the admitted binding',
       });
+      if (exportStateHasReceipt(current)) {
+        this.state.exports.set(found.key, {
+          kind: 'execution_failed',
+          request: current.request,
+          authorizationFingerprint: current.authorizationFingerprint,
+          receipt: current.receipt,
+          executeFingerprint: canonicalFingerprint(request),
+          failure: rejected,
+        });
+      }
+      return { kind: 'failed', failure: rejected };
     }
-    this.state.exports.set(session, { ...current, kind: 'executing' });
-    let backendResult: RouterAbEd25519YaoExportBackendResult;
-    try {
-      backendResult = await this.backend.executeExport(request);
-    } catch (error: unknown) {
-      this.state.exports.set(session, { ...current, kind: 'burned' });
+    const executeFingerprint = canonicalFingerprint(request);
+    switch (current.kind) {
+      case 'admitted':
+        this.state.exports.set(found.key, {
+          kind: 'executing',
+          request: current.request,
+          authorizationFingerprint: current.authorizationFingerprint,
+          receipt: current.receipt,
+          executeFingerprint,
+        });
+        return {
+          kind: 'claimed',
+          claim: {
+            kind: 'router_ab_ed25519_yao_export_execute_claim_v1',
+            lifecycleId: request.binding.ceremony.lifecycle.lifecycle_id,
+            exportKey: found.key,
+            sessionId: session,
+            executeFingerprint,
+          },
+        };
+      case 'executing':
+        return {
+          kind: 'failed',
+          failure: failure({
+            status: 409,
+            code: 'execution_in_progress',
+            message: 'Export execution outcome is uncertain and cannot be retried',
+          }),
+        };
+      case 'execution_failed':
+        return {
+          kind: 'failed',
+          failure:
+            current.executeFingerprint === executeFingerprint
+              ? current.failure
+              : failure({
+                  status: 409,
+                  code: 'export_consumed',
+                  message: 'Ed25519 Yao export session was consumed by another execution',
+                }),
+        };
+      case 'completed':
+        return current.executeFingerprint === executeFingerprint
+          ? { kind: 'completed', value: current.result }
+          : {
+              kind: 'failed',
+              failure: failure({
+                status: 409,
+                code: 'export_consumed',
+                message: 'Ed25519 Yao export session was consumed by another execution',
+              }),
+            };
+      default:
+        return assertNeverExportState(current);
+    }
+  }
+
+  commitExecuteExport(
+    input: RouterAbEd25519YaoExportExecuteCommitInputV1,
+  ): RouterAbEd25519YaoExportServiceResult<RouterAbEd25519YaoExportResultV1> {
+    const current = this.state.exports.get(input.claim.exportKey);
+    if (
+      current?.kind !== 'executing' ||
+      input.claim.lifecycleId !== input.request.binding.ceremony.lifecycle.lifecycle_id ||
+      input.claim.sessionId !== bytesToHex(input.request.binding.ceremony.session_id) ||
+      input.claim.executeFingerprint !== canonicalFingerprint(input.request) ||
+      current.executeFingerprint !== input.claim.executeFingerprint ||
+      !equalWire(current.receipt.binding, input.request.binding)
+    ) {
       return failure({
-        status: 503,
-        code: 'execution_failed',
-        message: error instanceof Error ? error.message : String(error),
+        status: 409,
+        code: 'execution_in_progress',
+        message: 'Export execution claim is no longer current',
       });
     }
+    const backendResult = input.outcome.result;
     if (!backendResult.ok) {
-      this.state.exports.set(session, { ...current, kind: 'burned' });
-      return failure({
-        status: backendResult.status,
-        code: 'execution_failed',
-        message: `${backendResult.code}: ${backendResult.message}`,
-      });
+      const rejected = exportBackendFailure(backendResult, 'execution_failed');
+      this.storeExecutionFailure(input.claim.exportKey, current, rejected);
+      return rejected;
     }
     const parsed = parseRouterAbEd25519YaoExportResultV1(backendResult.body);
-    if (!parsed.ok || JSON.stringify(parsed.value.binding) !== JSON.stringify(request.binding)) {
-      this.state.exports.set(session, { ...current, kind: 'burned' });
-      return failure({
+    if (!parsed.ok || !equalWire(parsed.value.binding, input.request.binding)) {
+      const rejected = failure({
         status: 502,
         code: 'invalid_backend_response',
         message: parsed.ok ? 'Export result changed the admitted binding' : parsed.message,
       });
+      this.storeExecutionFailure(input.claim.exportKey, current, rejected);
+      return rejected;
     }
-    this.state.exports.set(session, { ...current, kind: 'completed' });
+    this.state.exports.set(input.claim.exportKey, {
+      kind: 'completed',
+      request: current.request,
+      authorizationFingerprint: current.authorizationFingerprint,
+      receipt: current.receipt,
+      executeFingerprint: current.executeFingerprint,
+      result: parsed.value,
+    });
     return { ok: true, status: 200, value: parsed.value };
+  }
+
+  private failUncertainAdmission(
+    claim: RouterAbEd25519YaoExportAdmissionClaimV1,
+    error: unknown,
+  ): RouterAbEd25519YaoExportFailure {
+    const current = this.state.exports.get(claim.exportKey);
+    const rejected = failure({
+      status: 503,
+      code: 'admission_failed',
+      message: error instanceof Error ? error.message : String(error),
+    });
+    if (current?.kind === 'admitting') this.storeAdmissionFailure(current, rejected);
+    return rejected;
+  }
+
+  private failUncertainExecution(
+    claim: RouterAbEd25519YaoExportExecuteClaimV1,
+    error: unknown,
+  ): RouterAbEd25519YaoExportFailure {
+    const current = this.state.exports.get(claim.exportKey);
+    const rejected = failure({
+      status: 503,
+      code: 'execution_failed',
+      message: error instanceof Error ? error.message : String(error),
+    });
+    if (current?.kind === 'executing') {
+      this.storeExecutionFailure(claim.exportKey, current, rejected);
+    }
+    return rejected;
+  }
+
+  private storeAdmissionFailure(
+    current: ExportAuthorizationContext,
+    rejected: RouterAbEd25519YaoExportFailure,
+  ): void {
+    this.state.exports.set(exportKey(current.request), {
+      kind: 'admission_failed',
+      request: current.request,
+      authorizationFingerprint: current.authorizationFingerprint,
+      failure: rejected,
+    });
+  }
+
+  private storeExecutionFailure(
+    key: string,
+    current: ExportExecutingState,
+    rejected: RouterAbEd25519YaoExportFailure,
+  ): void {
+    this.state.exports.set(key, {
+      kind: 'execution_failed',
+      request: current.request,
+      authorizationFingerprint: current.authorizationFingerprint,
+      receipt: current.receipt,
+      executeFingerprint: current.executeFingerprint,
+      failure: rejected,
+    });
+  }
+
+  private findExportBySession(
+    sessionId: string,
+  ): { readonly key: string; readonly state: ExportLifecycleState } | null {
+    for (const [key, state] of this.state.exports) {
+      if (
+        exportStateHasReceipt(state) &&
+        bytesToHex(state.receipt.binding.ceremony.session_id) === sessionId
+      ) {
+        return { key, state };
+      }
+    }
+    return null;
   }
 }
 
@@ -798,7 +1425,7 @@ type ExportAdmissionAuthorizationParseResult =
     }
   | { readonly ok: false; readonly message: string };
 
-type ExportAdmissionEnvelopeParseResult =
+export type RouterAbEd25519YaoExportAdmissionEnvelopeParseResultV1 =
   | {
       readonly ok: true;
       readonly protocol: RouterAbEd25519YaoExportAdmissionRequestV1;
@@ -807,7 +1434,7 @@ type ExportAdmissionEnvelopeParseResult =
     }
   | { readonly ok: false; readonly message: string };
 
-type ExportExecuteEnvelopeParseResult =
+export type RouterAbEd25519YaoExportExecuteEnvelopeParseResultV1 =
   | {
       readonly ok: true;
       readonly protocol: RouterAbEd25519YaoExportExecuteRequestV1;
@@ -886,7 +1513,9 @@ function parseExportAdmissionAuthorization(
   }
 }
 
-function parseExportAdmissionEnvelope(value: unknown): ExportAdmissionEnvelopeParseResult {
+export function parseRouterAbEd25519YaoExportAdmissionEnvelopeV1(
+  value: unknown,
+): RouterAbEd25519YaoExportAdmissionEnvelopeParseResultV1 {
   if (!isPlainObject(value)) {
     return { ok: false, message: 'export admission envelope must be an object' };
   }
@@ -926,10 +1555,7 @@ function parseExportAuthorizationIdentity(
   if (!isPlainObject(value)) {
     return { ok: false, message: 'authorizationIdentity must be an object' };
   }
-  const unexpectedField = firstUnexpectedField(value, [
-    'thresholdSessionId',
-    'signingGrantId',
-  ]);
+  const unexpectedField = firstUnexpectedField(value, ['thresholdSessionId', 'signingGrantId']);
   if (unexpectedField || Object.keys(value).length !== 2) {
     return { ok: false, message: 'authorizationIdentity fields are invalid' };
   }
@@ -950,7 +1576,9 @@ function parseExportAuthorizationIdentity(
   };
 }
 
-function parseExportExecuteEnvelope(value: unknown): ExportExecuteEnvelopeParseResult {
+export function parseRouterAbEd25519YaoExportExecuteEnvelopeV1(
+  value: unknown,
+): RouterAbEd25519YaoExportExecuteEnvelopeParseResultV1 {
   if (!isPlainObject(value)) {
     return { ok: false, message: 'export execute envelope must be an object' };
   }
@@ -995,7 +1623,13 @@ class RouterAbEd25519YaoExportRouteExtension implements RouterApiRouteExtension 
     }
     const raw = await readJson(input.request);
     if (input.pathname === ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1) {
-      const parsed = parseExportAdmissionEnvelope(raw);
+      const traceContext = resolveTraceContext(input.request);
+      if (!traceContext.ok)
+        return json(
+          { ok: false, code: 'invalid_trace_id', message: traceContext.message },
+          { status: 400 },
+        );
+      const parsed = parseRouterAbEd25519YaoExportAdmissionEnvelopeV1(raw);
       if (!parsed.ok)
         return json({ ok: false, code: 'invalid_body', message: parsed.message }, { status: 400 });
       const expectedOrigin = normalizeCorsOrigin(input.request.headers.get('origin') || undefined);
@@ -1022,7 +1656,7 @@ class RouterAbEd25519YaoExportRouteExtension implements RouterApiRouteExtension 
           { ok: false, code: authorized.code, message: authorized.message },
           { status: authorized.status },
         );
-      const result = await this.service.admitExport(parsed.protocol);
+      const result = await this.service.admitExport(parsed.protocol, traceContext.value);
       return result.ok
         ? json(result.value, { status: result.status })
         : json(
@@ -1031,7 +1665,13 @@ class RouterAbEd25519YaoExportRouteExtension implements RouterApiRouteExtension 
           );
     }
     if (input.pathname === ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1) {
-      const parsed = parseExportExecuteEnvelope(raw);
+      const traceContext = resolveTraceContext(input.request);
+      if (!traceContext.ok)
+        return json(
+          { ok: false, code: 'invalid_trace_id', message: traceContext.message },
+          { status: 400 },
+        );
+      const parsed = parseRouterAbEd25519YaoExportExecuteEnvelopeV1(raw);
       if (!parsed.ok)
         return json({ ok: false, code: 'invalid_body', message: parsed.message }, { status: 400 });
       const authorized = await this.authorization.authorize({
@@ -1045,7 +1685,7 @@ class RouterAbEd25519YaoExportRouteExtension implements RouterApiRouteExtension 
           { ok: false, code: authorized.code, message: authorized.message },
           { status: authorized.status },
         );
-      const result = await this.service.executeExport(parsed.protocol);
+      const result = await this.service.executeExport(parsed.protocol, traceContext.value);
       return result.ok
         ? json(result.value, { status: result.status })
         : json(

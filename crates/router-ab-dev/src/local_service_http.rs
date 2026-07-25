@@ -54,6 +54,7 @@ impl LocalHttpServiceBindingClientV1 {
             &endpoint,
             super::LOCAL_HTTP_CANONICAL_WIRE_CONTENT_TYPE_V1,
             body.as_bytes(),
+            None,
         )?;
         CanonicalWireBytesV1::new(response_body)
     }
@@ -80,6 +81,41 @@ impl LocalHttpServiceBindingClientV1 {
             &endpoint,
             super::LOCAL_HTTP_JSON_CONTENT_TYPE_V1,
             &request_body,
+            None,
+        )?;
+        serde_json::from_slice(&response_body).map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("local HTTP service-binding JSON response parse failed: {error}"),
+            )
+        })
+    }
+
+    /// Posts JSON to a checked private role route with service authentication.
+    pub fn post_json_authenticated_v1<Request, Response>(
+        &self,
+        base_url: &str,
+        owner: LocalServiceRoleV1,
+        path: &str,
+        internal_service_auth: &str,
+        body: &Request,
+    ) -> RouterAbProtocolResult<Response>
+    where
+        Request: Serialize,
+        Response: DeserializeOwned,
+    {
+        let endpoint = local_http_service_binding_endpoint_for_route_v1(base_url, owner, path)?;
+        let request_body = serde_json::to_vec(body).map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("local HTTP service-binding JSON request serialization failed: {error}"),
+            )
+        })?;
+        let response_body = self.post_bytes_to_endpoint_v1(
+            &endpoint,
+            super::LOCAL_HTTP_JSON_CONTENT_TYPE_V1,
+            &request_body,
+            Some(internal_service_auth),
         )?;
         serde_json::from_slice(&response_body).map_err(|error| {
             RouterAbProtocolError::new(
@@ -94,6 +130,7 @@ impl LocalHttpServiceBindingClientV1 {
         endpoint: &LocalHttpServiceBindingEndpointV1,
         content_type: &str,
         body: &[u8],
+        internal_service_auth: Option<&str>,
     ) -> RouterAbProtocolResult<Vec<u8>> {
         let mut stream = TcpStream::connect(&endpoint.bind_addr).map_err(|error| {
             RouterAbProtocolError::new(
@@ -111,12 +148,16 @@ impl LocalHttpServiceBindingClientV1 {
             .set_write_timeout(Some(self.timeout))
             .map_err(super::map_local_http_io_error_v1)?;
 
+        let auth_header = internal_service_auth
+            .map(internal_service_auth_header_v1)
+            .transpose()?;
         write!(
             stream,
-            "POST {} HTTP/1.1\r\nhost: {}\r\ncontent-type: {}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+            "POST {} HTTP/1.1\r\nhost: {}\r\ncontent-type: {}\r\n{}content-length: {}\r\nconnection: close\r\n\r\n",
             endpoint.path,
             endpoint.host_header,
             content_type,
+            auth_header.unwrap_or_default(),
             body.len()
         )
         .map_err(super::map_local_http_io_error_v1)?;
@@ -209,4 +250,56 @@ pub fn local_http_service_binding_endpoint_v1(
         bind_addr: parts.authority,
         path: parts.path,
     })
+}
+
+fn local_http_service_binding_endpoint_for_route_v1(
+    base_url: &str,
+    owner: LocalServiceRoleV1,
+    path: &str,
+) -> RouterAbProtocolResult<LocalHttpServiceBindingEndpointV1> {
+    super::require_non_empty("local HTTP service-binding base URL", base_url)?;
+    super::require_non_empty("local HTTP service-binding route", path)?;
+    if !path.starts_with('/') || path.bytes().any(|byte| byte.is_ascii_whitespace()) {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
+            "local HTTP service-binding route must be an absolute path without whitespace",
+        ));
+    }
+    let url = format!("{}{path}", base_url.trim_end_matches('/'));
+    let parts = super::parse_http_url_parts_v1(&url)?;
+    if !super::local_worker_owns_path_v1(owner, &parts.path) {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
+            format!(
+                "local HTTP service-binding path {} is not owned by {}",
+                parts.path,
+                owner.as_str()
+            ),
+        ));
+    }
+    Ok(LocalHttpServiceBindingEndpointV1 {
+        owner,
+        url,
+        host_header: parts.authority.clone(),
+        bind_addr: parts.authority,
+        path: parts.path,
+    })
+}
+
+fn internal_service_auth_header_v1(auth: &str) -> RouterAbProtocolResult<String> {
+    super::require_non_empty("local HTTP service authentication", auth)?;
+    if auth
+        .bytes()
+        .any(|byte| byte == b'\r' || byte == b'\n' || byte.is_ascii_whitespace())
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
+            "local HTTP service authentication contains invalid whitespace",
+        ));
+    }
+    Ok(format!(
+        "{}: {}\r\n",
+        super::LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
+        auth
+    ))
 }

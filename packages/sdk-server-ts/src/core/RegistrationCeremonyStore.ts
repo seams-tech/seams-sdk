@@ -503,6 +503,7 @@ export type StoredWalletRegistrationFinalizeReplay = {
   kind: 'wallet_registration_finalize_replay_v1';
   registrationCeremonyId: string;
   idempotencyKey: string;
+  requestFingerprint: string;
   response: Extract<WalletRegistrationFinalizeResponse, { ok: true }>;
   createdAtMs: number;
   expiresAtMs: number;
@@ -1136,12 +1137,14 @@ function parseStoredWalletRegistrationFinalizeReplay(
   if (!isRecord(value) || value.kind !== 'wallet_registration_finalize_replay_v1') return null;
   const registrationCeremonyId = trimString(value.registrationCeremonyId);
   const idempotencyKey = trimString(value.idempotencyKey);
+  const requestFingerprint = trimString(value.requestFingerprint);
   const createdAtMs = Number(value.createdAtMs);
   const expiresAtMs = Number(value.expiresAtMs);
   const response = parseFinalizeReplayResponse(value.response);
   if (
     !registrationCeremonyId ||
     !idempotencyKey ||
+    !requestFingerprint ||
     !response ||
     !Number.isSafeInteger(createdAtMs) ||
     createdAtMs <= 0 ||
@@ -1154,6 +1157,7 @@ function parseStoredWalletRegistrationFinalizeReplay(
     kind: 'wallet_registration_finalize_replay_v1',
     registrationCeremonyId,
     idempotencyKey,
+    requestFingerprint,
     response,
     createdAtMs,
     expiresAtMs,

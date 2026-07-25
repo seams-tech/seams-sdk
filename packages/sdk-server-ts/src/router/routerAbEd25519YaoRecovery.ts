@@ -24,6 +24,13 @@ import {
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
   type RouterAbEd25519YaoWarmRecoveryBootstrapRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
+
+import {
+  createRouterAbTraceContextV1,
+  parseRouterAbTraceContextV1,
+  ROUTER_AB_TRACE_ID_HEADER_V1,
+  type RouterAbTraceContextV1,
+} from '@shared/utils/routerAbTraceContext';
 import {
   normalizeRuntimePolicyScope,
   signingRootScopeFromRuntimePolicyScope,
@@ -53,6 +60,7 @@ export type RouterAbEd25519YaoRecoveryFailureCode =
   | 'binding_mismatch'
   | 'execution_in_progress'
   | 'execution_failed'
+  | 'ceremony_expired'
   | 'recovery_not_staged'
   | 'activation_in_progress'
   | 'activation_failed'
@@ -88,27 +96,175 @@ export type RouterAbEd25519YaoRecoveryBackendResult =
 export interface RouterAbEd25519YaoRecoveryBackend {
   admitRecovery(
     request: RouterAbEd25519YaoRecoveryAdmissionRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRecoveryBackendResult> | RouterAbEd25519YaoRecoveryBackendResult;
   executeRecovery(
     request: RecoveryExecuteRequest,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRecoveryBackendResult> | RouterAbEd25519YaoRecoveryBackendResult;
   activateRecovery(
     request: RouterAbEd25519YaoRecoveryActivationRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRecoveryBackendResult> | RouterAbEd25519YaoRecoveryBackendResult;
 }
 
 export interface RouterAbEd25519YaoRecoveryService {
   admitRecovery(
     request: RouterAbEd25519YaoRecoveryAdmissionRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRecoveryServiceResult<RecoveryAdmissionReceipt>>;
   executeRecovery(
     request: RecoveryExecuteRequest,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRecoveryServiceResult<RecoveryExecutionResult>>;
   activateRecovery(
     request: RouterAbEd25519YaoRecoveryActivationRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<
     RouterAbEd25519YaoRecoveryServiceResult<RouterAbEd25519YaoRecoveryActivationReceiptV1>
   >;
+}
+
+export type RouterAbEd25519YaoRecoveryAdmissionClaimV1 = {
+  readonly kind: 'router_ab_ed25519_yao_recovery_admission_claim_v1';
+  readonly lifecycleId: string;
+  readonly recoveryKey: string;
+};
+
+export type RouterAbEd25519YaoRecoveryAdmissionPreparationV1 =
+  | {
+      readonly kind: 'claimed';
+      readonly claim: RouterAbEd25519YaoRecoveryAdmissionClaimV1;
+    }
+  | {
+      readonly kind: 'completed';
+      readonly value: RecoveryAdmissionReceipt;
+    }
+  | {
+      readonly kind: 'failed';
+      readonly failure: RouterAbEd25519YaoRecoveryFailure;
+    };
+
+export type RouterAbEd25519YaoRecoveryAdmissionCommitInputV1 = {
+  readonly request: RouterAbEd25519YaoRecoveryAdmissionRequestV1;
+  readonly claim: RouterAbEd25519YaoRecoveryAdmissionClaimV1;
+  readonly outcome: {
+    readonly kind: 'backend_response';
+    readonly result: RouterAbEd25519YaoRecoveryBackendResult;
+  };
+};
+
+export interface RouterAbEd25519YaoRecoveryAdmissionBoundaryV1 {
+  prepareAdmitRecovery(
+    request: RouterAbEd25519YaoRecoveryAdmissionRequestV1,
+  ): RouterAbEd25519YaoRecoveryAdmissionPreparationV1;
+  commitAdmitRecovery(
+    input: RouterAbEd25519YaoRecoveryAdmissionCommitInputV1,
+  ): RouterAbEd25519YaoRecoveryServiceResult<RecoveryAdmissionReceipt>;
+}
+
+export type RouterAbEd25519YaoRecoveryExecuteClaimV1 = {
+  readonly kind: 'router_ab_ed25519_yao_recovery_execute_claim_v1';
+  readonly lifecycleId: string;
+  readonly recoveryKey: string;
+  readonly sessionId: string;
+  readonly executeFingerprint: string;
+};
+
+export type RouterAbEd25519YaoRecoveryExecutePreparationV1 =
+  | {
+      readonly kind: 'claimed';
+      readonly claim: RouterAbEd25519YaoRecoveryExecuteClaimV1;
+    }
+  | {
+      readonly kind: 'completed';
+      readonly value: RecoveryExecutionResult;
+    }
+  | {
+      readonly kind: 'failed';
+      readonly failure: RouterAbEd25519YaoRecoveryFailure;
+    };
+
+export type RouterAbEd25519YaoRecoveryExecuteCommitInputV1 = {
+  readonly request: RecoveryExecuteRequest;
+  readonly claim: RouterAbEd25519YaoRecoveryExecuteClaimV1;
+  readonly outcome: {
+    readonly kind: 'backend_response';
+    readonly result: RouterAbEd25519YaoRecoveryBackendResult;
+  };
+};
+
+export interface RouterAbEd25519YaoRecoveryExecuteBoundaryV1 {
+  prepareExecuteRecovery(
+    request: RecoveryExecuteRequest,
+  ): RouterAbEd25519YaoRecoveryExecutePreparationV1;
+  commitExecuteRecovery(
+    input: RouterAbEd25519YaoRecoveryExecuteCommitInputV1,
+  ): RouterAbEd25519YaoRecoveryServiceResult<RecoveryExecutionResult>;
+}
+
+export type RouterAbEd25519YaoRecoveryActivationClaimV1 = {
+  readonly kind: 'router_ab_ed25519_yao_recovery_activation_claim_v1';
+  readonly lifecycleId: string;
+  readonly recoveryKey: string;
+  readonly sessionId: string;
+  readonly activationFingerprint: string;
+  readonly disposition: 'initial' | 'reconciliation';
+};
+
+export type RouterAbEd25519YaoRecoveryActivationPreparationV1 =
+  | {
+      readonly kind: 'claimed';
+      readonly claim: RouterAbEd25519YaoRecoveryActivationClaimV1;
+    }
+  | {
+      readonly kind: 'completed';
+      readonly value: RouterAbEd25519YaoRecoveryActivationReceiptV1;
+    }
+  | {
+      readonly kind: 'failed';
+      readonly failure: RouterAbEd25519YaoRecoveryFailure;
+    };
+
+export type RouterAbEd25519YaoRecoveryActivationCommitInputV1 = {
+  readonly request: RouterAbEd25519YaoRecoveryActivationRequestV1;
+  readonly claim: RouterAbEd25519YaoRecoveryActivationClaimV1;
+  readonly outcome: {
+    readonly kind: 'backend_response';
+    readonly result: RouterAbEd25519YaoRecoveryBackendResult;
+  };
+};
+
+export type RouterAbEd25519YaoRecoveryActivationCommitResultV1 =
+  | {
+      readonly kind: 'completed';
+      readonly value: RouterAbEd25519YaoRecoveryServiceResult<RouterAbEd25519YaoRecoveryActivationReceiptV1>;
+    }
+  | {
+      readonly kind: 'uncertain';
+      readonly failure: RouterAbEd25519YaoRecoveryFailure;
+    };
+
+export interface RouterAbEd25519YaoRecoveryActivationBoundaryV1 {
+  prepareActivateRecovery(
+    request: RouterAbEd25519YaoRecoveryActivationRequestV1,
+  ): RouterAbEd25519YaoRecoveryActivationPreparationV1;
+  commitActivateRecovery(
+    input: RouterAbEd25519YaoRecoveryActivationCommitInputV1,
+  ): Promise<RouterAbEd25519YaoRecoveryActivationCommitResultV1>;
+}
+
+type RouterAbEd25519YaoTraceContextResolutionV1 =
+  | { readonly ok: true; readonly value: RouterAbTraceContextV1 }
+  | { readonly ok: false; readonly message: string };
+
+function resolveTraceContext(request: Request): RouterAbEd25519YaoTraceContextResolutionV1 {
+  const parsed = parseRouterAbTraceContextV1(request.headers.get(ROUTER_AB_TRACE_ID_HEADER_V1));
+  if (parsed.ok) return parsed;
+  if (parsed.reason === 'missing') {
+    return { ok: true, value: createRouterAbTraceContextV1() };
+  }
+  return { ok: false, message: parsed.message };
 }
 
 export type RouterAbEd25519YaoRecoveryAuthorizationInput =
@@ -192,12 +348,24 @@ export interface RouterAbEd25519YaoPersistedActiveCapabilityInstallerV1 {
     | RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallResultV1;
 }
 
+export type RouterAbEd25519YaoCapabilityReplacementOperationV1 = {
+  readonly kind: 'router_ab_ed25519_yao_capability_replacement_operation_v1';
+  readonly operationId: string;
+  readonly operationFingerprint: string;
+};
+
 export type RouterAbEd25519YaoCapabilityPersistenceResultV1 =
-  | { readonly ok: true }
-  | { readonly ok: false; readonly code: string; readonly message: string };
+  | { readonly ok: true; readonly disposition: 'applied' | 'exact_retry' }
+  | {
+      readonly ok: false;
+      readonly disposition: 'rejected' | 'uncertain';
+      readonly code: string;
+      readonly message: string;
+    };
 
 export interface RouterAbEd25519YaoCapabilityPersistenceV1 {
   replaceActiveCapability(input: {
+    readonly operation: RouterAbEd25519YaoCapabilityReplacementOperationV1;
     readonly previous: WalletEd25519YaoActiveCapabilityRecord;
     readonly next: WalletEd25519YaoActiveCapabilityRecord;
   }):
@@ -205,11 +373,9 @@ export interface RouterAbEd25519YaoCapabilityPersistenceV1 {
     | RouterAbEd25519YaoCapabilityPersistenceResultV1;
 }
 
-class EphemeralRouterAbEd25519YaoCapabilityPersistenceV1
-  implements RouterAbEd25519YaoCapabilityPersistenceV1
-{
+class EphemeralRouterAbEd25519YaoCapabilityPersistenceV1 implements RouterAbEd25519YaoCapabilityPersistenceV1 {
   replaceActiveCapability(): RouterAbEd25519YaoCapabilityPersistenceResultV1 {
-    return { ok: true };
+    return { ok: true, disposition: 'applied' };
   }
 }
 
@@ -491,10 +657,7 @@ function equalBytes(left: readonly number[], right: readonly number[]): boolean 
   return true;
 }
 
-function exactRuntimePolicyScope(
-  left: RuntimePolicyScope,
-  right: RuntimePolicyScope,
-): boolean {
+function exactRuntimePolicyScope(left: RuntimePolicyScope, right: RuntimePolicyScope): boolean {
   return (
     left.orgId === right.orgId &&
     left.projectId === right.projectId &&
@@ -503,7 +666,7 @@ function exactRuntimePolicyScope(
   );
 }
 
-function warmBootstrapCapabilityMatchesStableIdentity(input: {
+export function warmBootstrapCapabilityMatchesStableIdentity(input: {
   readonly request: RouterAbEd25519YaoWarmRecoveryBootstrapRequestV1;
   readonly claims: RouterAbEd25519WalletSessionClaims;
   readonly capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1;
@@ -514,8 +677,7 @@ function warmBootstrapCapabilityMatchesStableIdentity(input: {
   return (
     capability.applicationBinding.wallet_id === request.walletId &&
     capability.nearAccountId === request.nearAccountId &&
-    capability.applicationBinding.near_ed25519_signing_key_id ===
-      request.nearEd25519SigningKeyId &&
+    capability.applicationBinding.near_ed25519_signing_key_id === request.nearEd25519SigningKeyId &&
     capability.applicationBinding.key_creation_signer_slot === request.signerSlot &&
     capability.lifecycle.accountId === request.walletId &&
     capability.lifecycle.signingWorkerId === request.signingWorkerId &&
@@ -579,6 +741,13 @@ function backendFailure(
   result: RouterAbEd25519YaoRecoveryBackendFailure,
   phase: 'admission_failed' | 'execution_failed' | 'activation_failed',
 ): RouterAbEd25519YaoRecoveryFailure {
+  if (result.code === 'ceremony_expired') {
+    return recoveryFailure({
+      status: 409,
+      code: 'ceremony_expired',
+      message: result.message,
+    });
+  }
   return recoveryFailure({
     status: result.status,
     code: phase,
@@ -785,7 +954,8 @@ function buildPersistedCapabilityIdentity(
       }
       const signingRootScope = signingRootScopeFromRuntimePolicyScope(runtimePolicyScope);
       if (
-        signingRootScope.signingRootId !== parsedRequest.value.application_binding.signing_root_id ||
+        signingRootScope.signingRootId !==
+          parsedRequest.value.application_binding.signing_root_id ||
         signingRootScope.signingRootVersion !== parsedRequest.value.scope.root_share_epoch
       ) {
         return invalidInstallation('persisted recovery signing root does not match its scope');
@@ -1119,6 +1289,9 @@ type CapabilityPromotionResult =
 export class InMemoryRouterAbEd25519YaoRecoveryService
   implements
     RouterAbEd25519YaoRecoveryService,
+    RouterAbEd25519YaoRecoveryAdmissionBoundaryV1,
+    RouterAbEd25519YaoRecoveryExecuteBoundaryV1,
+    RouterAbEd25519YaoRecoveryActivationBoundaryV1,
     RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallerV1,
     RouterAbEd25519YaoPersistedActiveCapabilityInstallerV1,
     RouterAbEd25519YaoActiveCapabilityResolverV1
@@ -1313,64 +1486,114 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
 
   async admitRecovery(
     request: RouterAbEd25519YaoRecoveryAdmissionRequestV1,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRecoveryServiceResult<RecoveryAdmissionReceipt>> {
+    const preparation = this.prepareAdmitRecovery(request);
+    switch (preparation.kind) {
+      case 'completed':
+        return { ok: true, status: 200, value: preparation.value };
+      case 'failed':
+        return preparation.failure;
+      case 'claimed': {
+        let outcome: RouterAbEd25519YaoRecoveryAdmissionCommitInputV1['outcome'];
+        try {
+          outcome = {
+            kind: 'backend_response',
+            result: await this.backend.admitRecovery(request, traceContext),
+          };
+        } catch (error: unknown) {
+          return this.failUncertainAdmission(preparation.claim, error);
+        }
+        return this.commitAdmitRecovery({ request, claim: preparation.claim, outcome });
+      }
+    }
+  }
+
+  prepareAdmitRecovery(
+    request: RouterAbEd25519YaoRecoveryAdmissionRequestV1,
+  ): RouterAbEd25519YaoRecoveryAdmissionPreparationV1 {
     const parsed = parseRouterAbEd25519YaoRecoveryAdmissionRequestV1(request);
     if (!parsed.ok) {
-      return recoveryFailure({
-        status: 400,
-        code: 'invalid_request',
-        message: parsed.message,
-      });
+      return {
+        kind: 'failed',
+        failure: recoveryFailure({
+          status: 400,
+          code: 'invalid_request',
+          message: parsed.message,
+        }),
+      };
     }
     const admittedRequest = parsed.value;
     const recoveryKey = canonicalFingerprint(admittedRequest);
     const existingRecovery = this.recoveries.get(recoveryKey);
-    if (existingRecovery) return admissionReplayResult(existingRecovery);
+    if (existingRecovery) {
+      const replay = admissionReplayResult(existingRecovery);
+      return replay.ok
+        ? { kind: 'completed', value: replay.value }
+        : { kind: 'failed', failure: replay };
+    }
 
     const activeCapabilityKey = bytesToHex(admittedRequest.active_capability_binding);
     const activeCapability = this.capabilities.get(activeCapabilityKey);
     if (!activeCapability) {
-      return recoveryFailure({
-        status: 404,
-        code: 'unknown_capability',
-        message: 'recovery active capability was not found',
-      });
+      return {
+        kind: 'failed',
+        failure: recoveryFailure({
+          status: 404,
+          code: 'unknown_capability',
+          message: 'recovery active capability was not found',
+        }),
+      };
     }
     switch (activeCapability.kind) {
       case 'suspended':
-        return recoveryFailure({
-          status: 409,
-          code: 'capability_suspended',
-          message: 'recovery active capability is already suspended',
-        });
+        return {
+          kind: 'failed',
+          failure: recoveryFailure({
+            status: 409,
+            code: 'capability_suspended',
+            message: 'recovery active capability is already suspended',
+          }),
+        };
       case 'retired':
-        return recoveryFailure({
-          status: 409,
-          code: 'capability_retired',
-          message: 'recovery active capability is retired',
-        });
+        return {
+          kind: 'failed',
+          failure: recoveryFailure({
+            status: 409,
+            code: 'capability_retired',
+            message: 'recovery active capability is retired',
+          }),
+        };
       case 'active':
         break;
       default:
         return assertNever(activeCapability);
     }
-    if (!recoveryRequestMatchesActiveCapabilityIdentity(admittedRequest, activeCapability.identity)) {
-      return recoveryFailure({
-        status: 409,
-        code: 'continuity_mismatch',
-        message: 'recovery request does not match the active capability identity',
-      });
+    if (
+      !recoveryRequestMatchesActiveCapabilityIdentity(admittedRequest, activeCapability.identity)
+    ) {
+      return {
+        kind: 'failed',
+        failure: recoveryFailure({
+          status: 409,
+          code: 'continuity_mismatch',
+          message: 'recovery request does not match the active capability identity',
+        }),
+      };
     }
     const replacementCapabilityKey = bytesToHex(admittedRequest.replacement_capability_binding);
     const replacementCapability = this.capabilities.get(replacementCapabilityKey);
     if (replacementCapability) {
       const code =
         replacementCapability.kind === 'retired' ? 'capability_retired' : 'capability_conflict';
-      return recoveryFailure({
-        status: 409,
-        code,
-        message: 'recovery replacement capability binding has already been used',
-      });
+      return {
+        kind: 'failed',
+        failure: recoveryFailure({
+          status: 409,
+          code,
+          message: 'recovery replacement capability binding has already been used',
+        }),
+      };
     }
     const context: RecoveryContext = {
       recoveryKey,
@@ -1383,18 +1606,38 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
       recoveryKey,
     });
     this.recoveries.set(recoveryKey, { kind: 'admitting', context });
+    return {
+      kind: 'claimed',
+      claim: {
+        kind: 'router_ab_ed25519_yao_recovery_admission_claim_v1',
+        lifecycleId: admittedRequest.scope.lifecycle_id,
+        recoveryKey,
+      },
+    };
+  }
 
-    let backendResult: RouterAbEd25519YaoRecoveryBackendResult;
-    try {
-      backendResult = await this.backend.admitRecovery(admittedRequest);
-    } catch (error: unknown) {
-      const failure = uncertainFailure(error, 'admission_failed');
-      this.storeAdmissionFailure(context, failure);
-      return failure;
+  commitAdmitRecovery(
+    input: RouterAbEd25519YaoRecoveryAdmissionCommitInputV1,
+  ): RouterAbEd25519YaoRecoveryServiceResult<RecoveryAdmissionReceipt> {
+    const recoveryKey = canonicalFingerprint(input.request);
+    const current = this.recoveries.get(input.claim.recoveryKey);
+    if (
+      current?.kind !== 'admitting' ||
+      input.claim.recoveryKey !== recoveryKey ||
+      input.claim.lifecycleId !== input.request.scope.lifecycle_id ||
+      current.context.recoveryKey !== recoveryKey ||
+      !equalWire(current.context.admissionRequest, input.request)
+    ) {
+      return recoveryFailure({
+        status: 409,
+        code: 'admission_in_progress',
+        message: 'recovery admission claim is no longer current',
+      });
     }
+    const backendResult = input.outcome.result;
     if (!backendResult.ok) {
       const failure = backendFailure(backendResult, 'admission_failed');
-      this.storeAdmissionFailure(context, failure);
+      this.storeAdmissionFailure(current.context, failure);
       return failure;
     }
     const parsedReceipt = parseRouterAbEd25519YaoRecoveryActivationAdmissionReceiptV1(
@@ -1402,32 +1645,32 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
     );
     if (!parsedReceipt.ok) {
       const failure = invalidBackendResponse(parsedReceipt.message);
-      this.storeAdmissionFailure(context, failure);
+      this.storeAdmissionFailure(current.context, failure);
       return failure;
     }
     if (
       !recoveryAdmissionReceiptMatches(
-        admittedRequest,
-        activeCapability.identity,
+        input.request,
+        current.context.activeCapability,
         parsedReceipt.value,
       )
     ) {
       const failure = invalidBackendResponse(
         'recovery admission receipt does not preserve the active binding',
       );
-      this.storeAdmissionFailure(context, failure);
+      this.storeAdmissionFailure(current.context, failure);
       return failure;
     }
     const sessionKey = bytesToHex(parsedReceipt.value.binding.session_id);
     if (this.recoverySessions.has(sessionKey)) {
       const failure = invalidBackendResponse('recovery backend reused a session identifier');
-      this.storeAdmissionFailure(context, failure);
+      this.storeAdmissionFailure(current.context, failure);
       return failure;
     }
-    this.recoverySessions.set(sessionKey, recoveryKey);
-    this.recoveries.set(recoveryKey, {
+    this.recoverySessions.set(sessionKey, input.claim.recoveryKey);
+    this.recoveries.set(input.claim.recoveryKey, {
       kind: 'admitted',
-      context,
+      context: current.context,
       admissionReceipt: parsedReceipt.value,
     });
     return { ok: true, status: 200, value: parsedReceipt.value };
@@ -1435,251 +1678,406 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
 
   async executeRecovery(
     request: RecoveryExecuteRequest,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRecoveryServiceResult<RecoveryExecutionResult>> {
+    const preparation = this.prepareExecuteRecovery(request);
+    switch (preparation.kind) {
+      case 'completed':
+        return { ok: true, status: 200, value: preparation.value };
+      case 'failed':
+        return preparation.failure;
+      case 'claimed': {
+        let outcome: RouterAbEd25519YaoRecoveryExecuteCommitInputV1['outcome'];
+        try {
+          outcome = {
+            kind: 'backend_response',
+            result: await this.backend.executeRecovery(request, traceContext),
+          };
+        } catch (error: unknown) {
+          return this.failUncertainExecution(preparation.claim, error);
+        }
+        return this.commitExecuteRecovery({ request, claim: preparation.claim, outcome });
+      }
+    }
+  }
+
+  prepareExecuteRecovery(
+    request: RecoveryExecuteRequest,
+  ): RouterAbEd25519YaoRecoveryExecutePreparationV1 {
     const parsed = parseRouterAbEd25519YaoRecoveryActivationExecuteRequestV1(request);
     if (!parsed.ok) {
-      return recoveryFailure({
-        status: 400,
-        code: 'invalid_request',
-        message: parsed.message,
-      });
+      return {
+        kind: 'failed',
+        failure: recoveryFailure({
+          status: 400,
+          code: 'invalid_request',
+          message: parsed.message,
+        }),
+      };
     }
     const executionRequest = parsed.value;
-    const state = this.stateForSession(executionRequest.binding.session_id);
+    const sessionId = bytesToHex(executionRequest.binding.session_id);
+    const recoveryKey = this.recoverySessions.get(sessionId);
+    const state = recoveryKey ? this.recoveries.get(recoveryKey) : null;
     if (!state) {
-      return recoveryFailure({
-        status: 404,
-        code: 'unknown_recovery',
-        message: 'recovery admission was not found',
-      });
+      return {
+        kind: 'failed',
+        failure: recoveryFailure({
+          status: 404,
+          code: 'unknown_recovery',
+          message: 'recovery admission was not found',
+        }),
+      };
     }
     const admissionReceipt = admittedReceiptForState(state);
     if (!admissionReceipt || !equalWire(executionRequest.binding, admissionReceipt.binding)) {
-      return recoveryFailure({
-        status: 409,
-        code: 'binding_mismatch',
-        message: 'recovery execution does not match the admitted binding',
-      });
+      return {
+        kind: 'failed',
+        failure: recoveryFailure({
+          status: 409,
+          code: 'binding_mismatch',
+          message: 'recovery execution does not match the admitted binding',
+        }),
+      };
     }
     const executeFingerprint = canonicalFingerprint(executionRequest);
     switch (state.kind) {
-      case 'admitted':
-        return await this.executeAdmitted(state, executionRequest, executeFingerprint);
+      case 'admitted': {
+        const executing: RecoveryExecutingState = {
+          kind: 'executing',
+          context: state.context,
+          admissionReceipt: state.admissionReceipt,
+          executeFingerprint,
+        };
+        this.recoveries.set(state.context.recoveryKey, executing);
+        return {
+          kind: 'claimed',
+          claim: {
+            kind: 'router_ab_ed25519_yao_recovery_execute_claim_v1',
+            lifecycleId: executionRequest.binding.lifecycle.lifecycle_id,
+            recoveryKey: state.context.recoveryKey,
+            sessionId,
+            executeFingerprint,
+          },
+        };
+      }
       case 'executing':
       case 'execution_failed':
       case 'staged':
       case 'activating':
       case 'activation_failed':
-      case 'promoted':
-        return executionReplayResult(state, executeFingerprint);
+      case 'promoted': {
+        const replay = executionReplayResult(state, executeFingerprint);
+        return replay.ok
+          ? { kind: 'completed', value: replay.value }
+          : { kind: 'failed', failure: replay };
+      }
       case 'admitting':
       case 'admission_failed':
-        return recoveryFailure({
-          status: 404,
-          code: 'unknown_recovery',
-          message: 'recovery admission has no executable session',
-        });
+        return {
+          kind: 'failed',
+          failure: recoveryFailure({
+            status: 404,
+            code: 'unknown_recovery',
+            message: 'recovery admission has no executable session',
+          }),
+        };
       default:
         return assertNever(state);
     }
   }
 
-  async activateRecovery(
-    request: RouterAbEd25519YaoRecoveryActivationRequestV1,
-  ): Promise<
-    RouterAbEd25519YaoRecoveryServiceResult<RouterAbEd25519YaoRecoveryActivationReceiptV1>
-  > {
-    const parsed = parseRouterAbEd25519YaoRecoveryActivationRequestV1(request);
-    if (!parsed.ok) {
-      return recoveryFailure({
-        status: 400,
-        code: 'invalid_request',
-        message: parsed.message,
-      });
-    }
-    const activationRequest = parsed.value;
-    const state = this.stateForSession(activationRequest.binding.session_id);
-    if (!state) {
-      return recoveryFailure({
-        status: 404,
-        code: 'unknown_recovery',
-        message: 'recovery admission was not found',
-      });
-    }
-    const admissionReceipt = admittedReceiptForState(state);
-    if (!admissionReceipt || !equalWire(activationRequest.binding, admissionReceipt.binding)) {
+  commitExecuteRecovery(
+    input: RouterAbEd25519YaoRecoveryExecuteCommitInputV1,
+  ): RouterAbEd25519YaoRecoveryServiceResult<RecoveryExecutionResult> {
+    const state = this.recoveries.get(input.claim.recoveryKey);
+    if (
+      state?.kind !== 'executing' ||
+      input.claim.lifecycleId !== input.request.binding.lifecycle.lifecycle_id ||
+      input.claim.sessionId !== bytesToHex(input.request.binding.session_id) ||
+      input.claim.executeFingerprint !== canonicalFingerprint(input.request) ||
+      state.executeFingerprint !== input.claim.executeFingerprint ||
+      this.recoverySessions.get(input.claim.sessionId) !== input.claim.recoveryKey ||
+      !equalWire(input.request.binding, state.admissionReceipt.binding)
+    ) {
       return recoveryFailure({
         status: 409,
-        code: 'binding_mismatch',
-        message: 'recovery activation does not match the admitted binding',
+        code: 'execution_in_progress',
+        message: 'recovery execution claim is no longer current',
       });
     }
-    const activationFingerprint = canonicalFingerprint(activationRequest);
-    switch (state.kind) {
-      case 'staged':
-        if (!activationMatchesStagedResult(activationRequest, state.result)) {
-          return recoveryFailure({
-            status: 409,
-            code: 'binding_mismatch',
-            message: 'recovery activation does not match the staged candidate',
-          });
-        }
-        return await this.activateStaged(state, activationRequest, activationFingerprint);
-      case 'activating':
-      case 'activation_failed':
-      case 'promoted':
-        return activationReplayResult(state, activationFingerprint);
-      case 'admitted':
-      case 'executing':
-      case 'execution_failed':
-        return recoveryFailure({
-          status: 409,
-          code: 'recovery_not_staged',
-          message: 'recovery has no verified staged candidate',
-        });
-      case 'admitting':
-      case 'admission_failed':
-        return recoveryFailure({
-          status: 404,
-          code: 'unknown_recovery',
-          message: 'recovery admission has no activation session',
-        });
-      default:
-        return assertNever(state);
-    }
-  }
-
-  private async executeAdmitted(
-    state: RecoveryAdmittedState,
-    request: RecoveryExecuteRequest,
-    executeFingerprint: string,
-  ): Promise<RouterAbEd25519YaoRecoveryServiceResult<RecoveryExecutionResult>> {
-    const executing: RecoveryExecutingState = {
-      kind: 'executing',
-      context: state.context,
-      admissionReceipt: state.admissionReceipt,
-      executeFingerprint,
-    };
-    this.recoveries.set(state.context.recoveryKey, executing);
-    let backendResult: RouterAbEd25519YaoRecoveryBackendResult;
-    try {
-      backendResult = await this.backend.executeRecovery(request);
-    } catch (error: unknown) {
-      const failure = uncertainFailure(error, 'execution_failed');
-      this.storeExecutionFailure(executing, failure);
-      return failure;
-    }
+    const backendResult = input.outcome.result;
     if (!backendResult.ok) {
       const failure = backendFailure(backendResult, 'execution_failed');
-      this.storeExecutionFailure(executing, failure);
+      this.storeExecutionFailure(state, failure);
       return failure;
     }
     const parsedResult = parseRouterAbEd25519YaoRecoveryActivationResultV1(backendResult.body);
     if (!parsedResult.ok) {
       const failure = invalidBackendResponse(parsedResult.message);
-      this.storeExecutionFailure(executing, failure);
+      this.storeExecutionFailure(state, failure);
       return failure;
     }
     const continuity = recoveryResultMatches(
-      request,
+      input.request,
       state.context.activeCapability,
       parsedResult.value,
     );
     if (continuity !== 'match') {
       const failure = executionContinuityFailure(continuity);
-      this.storeExecutionFailure(executing, failure);
+      this.storeExecutionFailure(state, failure);
       return failure;
     }
     this.recoveries.set(state.context.recoveryKey, {
       kind: 'staged',
       context: state.context,
       admissionReceipt: state.admissionReceipt,
-      executeFingerprint,
+      executeFingerprint: input.claim.executeFingerprint,
       result: parsedResult.value,
     });
     return { ok: true, status: 200, value: parsedResult.value };
   }
 
-  private async activateStaged(
-    state: RecoveryStagedState,
+  async activateRecovery(
     request: RouterAbEd25519YaoRecoveryActivationRequestV1,
-    activationFingerprint: string,
+    traceContext?: RouterAbTraceContextV1,
   ): Promise<
     RouterAbEd25519YaoRecoveryServiceResult<RouterAbEd25519YaoRecoveryActivationReceiptV1>
   > {
-    const activating: RecoveryActivatingState = {
-      kind: 'activating',
-      context: state.context,
-      admissionReceipt: state.admissionReceipt,
-      executeFingerprint: state.executeFingerprint,
-      result: state.result,
-      activationFingerprint,
-    };
-    this.recoveries.set(state.context.recoveryKey, activating);
-    let backendResult: RouterAbEd25519YaoRecoveryBackendResult;
-    try {
-      backendResult = await this.backend.activateRecovery(request);
-    } catch (error: unknown) {
-      const failure = uncertainFailure(error, 'activation_failed');
-      this.storeActivationFailure(activating, failure);
-      return failure;
+    const preparation = this.prepareActivateRecovery(request);
+    switch (preparation.kind) {
+      case 'completed':
+        return { ok: true, status: 200, value: preparation.value };
+      case 'failed':
+        return preparation.failure;
+      case 'claimed': {
+        let outcome: RouterAbEd25519YaoRecoveryActivationCommitInputV1['outcome'];
+        try {
+          outcome = {
+            kind: 'backend_response',
+            result: await this.backend.activateRecovery(request, traceContext),
+          };
+        } catch (error: unknown) {
+          return this.activationUncertainFailure(error);
+        }
+        const committed = await this.commitActivateRecovery({
+          request,
+          claim: preparation.claim,
+          outcome,
+        });
+        return committed.kind === 'completed' ? committed.value : committed.failure;
+      }
     }
+  }
+
+  prepareActivateRecovery(
+    request: RouterAbEd25519YaoRecoveryActivationRequestV1,
+  ): RouterAbEd25519YaoRecoveryActivationPreparationV1 {
+    const parsed = parseRouterAbEd25519YaoRecoveryActivationRequestV1(request);
+    if (!parsed.ok) {
+      return {
+        kind: 'failed',
+        failure: recoveryFailure({
+          status: 400,
+          code: 'invalid_request',
+          message: parsed.message,
+        }),
+      };
+    }
+    const activationRequest = parsed.value;
+    const state = this.stateForSession(activationRequest.binding.session_id);
+    if (!state) {
+      return {
+        kind: 'failed',
+        failure: recoveryFailure({
+          status: 404,
+          code: 'unknown_recovery',
+          message: 'recovery admission was not found',
+        }),
+      };
+    }
+    const admissionReceipt = admittedReceiptForState(state);
+    if (!admissionReceipt || !equalWire(activationRequest.binding, admissionReceipt.binding)) {
+      return {
+        kind: 'failed',
+        failure: recoveryFailure({
+          status: 409,
+          code: 'binding_mismatch',
+          message: 'recovery activation does not match the admitted binding',
+        }),
+      };
+    }
+    const activationFingerprint = canonicalFingerprint(activationRequest);
+    switch (state.kind) {
+      case 'staged': {
+        if (!activationMatchesStagedResult(activationRequest, state.result)) {
+          return {
+            kind: 'failed',
+            failure: recoveryFailure({
+              status: 409,
+              code: 'binding_mismatch',
+              message: 'recovery activation does not match the staged candidate',
+            }),
+          };
+        }
+        const activating: RecoveryActivatingState = {
+          kind: 'activating',
+          context: state.context,
+          admissionReceipt: state.admissionReceipt,
+          executeFingerprint: state.executeFingerprint,
+          result: state.result,
+          activationFingerprint,
+        };
+        this.recoveries.set(state.context.recoveryKey, activating);
+        return {
+          kind: 'claimed',
+          claim: this.activationClaim(activating, 'initial'),
+        };
+      }
+      case 'activating': {
+        if (state.activationFingerprint !== activationFingerprint) {
+          return {
+            kind: 'failed',
+            failure: recoveryFailure({
+              status: 409,
+              code: 'binding_mismatch',
+              message: 'recovery activation retry does not match the staged candidate',
+            }),
+          };
+        }
+        return {
+          kind: 'claimed',
+          claim: this.activationClaim(state, 'reconciliation'),
+        };
+      }
+      case 'activation_failed': {
+        const replay = activationReplayResult(state, activationFingerprint);
+        return replay.ok
+          ? { kind: 'completed', value: replay.value }
+          : { kind: 'failed', failure: replay };
+      }
+      case 'promoted': {
+        const replay = activationReplayResult(state, activationFingerprint);
+        return replay.ok
+          ? { kind: 'completed', value: replay.value }
+          : { kind: 'failed', failure: replay };
+      }
+      case 'admitted':
+      case 'executing':
+      case 'execution_failed':
+        return {
+          kind: 'failed',
+          failure: recoveryFailure({
+            status: 409,
+            code: 'recovery_not_staged',
+            message: 'recovery has no verified staged candidate',
+          }),
+        };
+      case 'admitting':
+      case 'admission_failed':
+        return {
+          kind: 'failed',
+          failure: recoveryFailure({
+            status: 404,
+            code: 'unknown_recovery',
+            message: 'recovery admission has no activation session',
+          }),
+        };
+      default:
+        return assertNever(state);
+    }
+  }
+
+  async commitActivateRecovery(
+    input: RouterAbEd25519YaoRecoveryActivationCommitInputV1,
+  ): Promise<RouterAbEd25519YaoRecoveryActivationCommitResultV1> {
+    const state = this.recoveries.get(input.claim.recoveryKey);
+    if (
+      state?.kind !== 'activating' ||
+      input.claim.lifecycleId !== input.request.binding.lifecycle.lifecycle_id ||
+      input.claim.sessionId !== bytesToHex(input.request.binding.session_id) ||
+      input.claim.activationFingerprint !== canonicalFingerprint(input.request) ||
+      state.activationFingerprint !== input.claim.activationFingerprint ||
+      !equalWire(input.request.binding, state.admissionReceipt.binding)
+    ) {
+      return {
+        kind: 'completed',
+        value: recoveryFailure({
+          status: 409,
+          code: 'activation_in_progress',
+          message: 'recovery activation claim is no longer current',
+        }),
+      };
+    }
+    const backendResult = input.outcome.result;
     if (!backendResult.ok) {
       const failure = backendFailure(backendResult, 'activation_failed');
-      this.storeActivationFailure(activating, failure);
-      return failure;
+      this.storeActivationFailure(state, failure);
+      return { kind: 'completed', value: failure };
     }
     const parsedConfirmation = parseRouterAbEd25519YaoRecoveryActivationRequestV1(
       backendResult.body,
     );
     if (!parsedConfirmation.ok) {
       const failure = invalidBackendResponse(parsedConfirmation.message);
-      this.storeActivationFailure(activating, failure);
-      return failure;
+      this.storeActivationFailure(state, failure);
+      return { kind: 'completed', value: failure };
     }
-    if (!equalWire(parsedConfirmation.value, request)) {
+    if (!equalWire(parsedConfirmation.value, input.request)) {
       const failure = invalidBackendResponse(
         'recovery activation confirmation does not match the staged transition',
       );
-      this.storeActivationFailure(activating, failure);
-      return failure;
+      this.storeActivationFailure(state, failure);
+      return { kind: 'completed', value: failure };
     }
     const activationReceipt = parseRouterAbEd25519YaoRecoveryActivationReceiptV1({
-      binding: request.binding,
-      public_receipt: request.public_receipt,
+      binding: input.request.binding,
+      public_receipt: input.request.public_receipt,
       active_capability_binding: state.context.admissionRequest.replacement_capability_binding,
       retired_capability_binding: state.context.admissionRequest.active_capability_binding,
     });
     if (!activationReceipt.ok) {
       const failure = invalidBackendResponse(activationReceipt.message);
-      this.storeActivationFailure(activating, failure);
-      return failure;
+      this.storeActivationFailure(state, failure);
+      return { kind: 'completed', value: failure };
     }
-    if (!activationReceiptMatches(request, state.context, activationReceipt.value)) {
+    if (!activationReceiptMatches(input.request, state.context, activationReceipt.value)) {
       const failure = invalidBackendResponse(
         'recovery activation receipt does not match the staged transition',
       );
-      this.storeActivationFailure(activating, failure);
-      return failure;
+      this.storeActivationFailure(state, failure);
+      return { kind: 'completed', value: failure };
     }
-    const promoted = this.promoteCapability(activating);
+    const promoted = this.promoteCapability(state);
     if (!promoted.ok) {
-      this.storeActivationFailure(activating, promoted.failure);
-      return promoted.failure;
+      this.storeActivationFailure(state, promoted.failure);
+      return { kind: 'completed', value: promoted.failure };
     }
     const persisted = await this.capabilityPersistence.replaceActiveCapability({
+      operation: {
+        kind: 'router_ab_ed25519_yao_capability_replacement_operation_v1',
+        operationId: input.claim.lifecycleId,
+        operationFingerprint: input.claim.activationFingerprint,
+      },
       previous: promoted.previousIdentity.persisted,
       next: promoted.identity.persisted,
     });
     if (!persisted.ok) {
-      this.rollbackCapabilityPromotion(promoted.previousIdentity, promoted.identity);
+      this.rollbackCapabilityPromotion(
+        promoted.previousIdentity,
+        promoted.identity,
+        state.context.recoveryKey,
+      );
       const failure = recoveryFailure({
         status: 503,
         code: 'activation_failed',
         message: `${persisted.code}: ${persisted.message}`,
       });
-      this.storeActivationFailure(activating, failure);
-      return failure;
+      if (persisted.disposition === 'uncertain') {
+        return { kind: 'uncertain', failure };
+      }
+      this.storeActivationFailure(state, failure);
+      return { kind: 'completed', value: failure };
     }
     this.recoveries.set(state.context.recoveryKey, {
       kind: 'promoted',
@@ -1687,15 +2085,34 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
       admissionReceipt: state.admissionReceipt,
       executeFingerprint: state.executeFingerprint,
       result: state.result,
-      activationFingerprint,
+      activationFingerprint: input.claim.activationFingerprint,
       activationReceipt: activationReceipt.value,
     });
-    return { ok: true, status: 200, value: activationReceipt.value };
+    return {
+      kind: 'completed',
+      value: { ok: true, status: 200, value: activationReceipt.value },
+    };
   }
 
-  private promoteCapability(
+  private activationClaim(
     state: RecoveryActivatingState,
-  ): CapabilityPromotionResult {
+    disposition: RouterAbEd25519YaoRecoveryActivationClaimV1['disposition'],
+  ): RouterAbEd25519YaoRecoveryActivationClaimV1 {
+    return {
+      kind: 'router_ab_ed25519_yao_recovery_activation_claim_v1',
+      lifecycleId: state.context.admissionRequest.scope.lifecycle_id,
+      recoveryKey: state.context.recoveryKey,
+      sessionId: bytesToHex(state.admissionReceipt.binding.session_id),
+      activationFingerprint: state.activationFingerprint,
+      disposition,
+    };
+  }
+
+  private activationUncertainFailure(error: unknown): RouterAbEd25519YaoRecoveryFailure {
+    return uncertainFailure(error, 'activation_failed');
+  }
+
+  private promoteCapability(state: RecoveryActivatingState): CapabilityPromotionResult {
     const activeCapabilityKey = bytesToHex(
       state.context.admissionRequest.active_capability_binding,
     );
@@ -1787,11 +2204,16 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
   private rollbackCapabilityPromotion(
     previousIdentity: CapabilityIdentity,
     promotedIdentity: CapabilityIdentity,
+    recoveryKey: string,
   ): void {
     const previousKey = bytesToHex(previousIdentity.capabilityBinding);
     const promotedKey = bytesToHex(promotedIdentity.capabilityBinding);
     this.capabilities.delete(promotedKey);
-    this.capabilities.set(previousKey, { kind: 'active', identity: previousIdentity });
+    this.capabilities.set(previousKey, {
+      kind: 'suspended',
+      identity: previousIdentity,
+      recoveryKey,
+    });
     this.identityCapabilities.set(identityKey(previousIdentity), previousKey);
   }
 
@@ -1799,6 +2221,40 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
     const recoveryKey = this.recoverySessions.get(bytesToHex(session));
     if (!recoveryKey) return null;
     return this.recoveries.get(recoveryKey) ?? null;
+  }
+
+  private failUncertainAdmission(
+    claim: RouterAbEd25519YaoRecoveryAdmissionClaimV1,
+    error: unknown,
+  ): RouterAbEd25519YaoRecoveryServiceResult<RecoveryAdmissionReceipt> {
+    const current = this.recoveries.get(claim.recoveryKey);
+    if (current?.kind !== 'admitting') {
+      return recoveryFailure({
+        status: 409,
+        code: 'admission_in_progress',
+        message: 'recovery admission claim is no longer current',
+      });
+    }
+    const failure = uncertainFailure(error, 'admission_failed');
+    this.storeAdmissionFailure(current.context, failure);
+    return failure;
+  }
+
+  private failUncertainExecution(
+    claim: RouterAbEd25519YaoRecoveryExecuteClaimV1,
+    error: unknown,
+  ): RouterAbEd25519YaoRecoveryServiceResult<RecoveryExecutionResult> {
+    const current = this.recoveries.get(claim.recoveryKey);
+    if (current?.kind !== 'executing' || current.executeFingerprint !== claim.executeFingerprint) {
+      return recoveryFailure({
+        status: 409,
+        code: 'execution_in_progress',
+        message: 'recovery execution claim is no longer current',
+      });
+    }
+    const failure = uncertainFailure(error, 'execution_failed');
+    this.storeExecutionFailure(current, failure);
+    return failure;
   }
 
   private storeAdmissionFailure(
@@ -1875,6 +2331,13 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
   }
 
   private async handleWarmBootstrap(request: Request, rawBody: unknown): Promise<Response> {
+    const traceContext = resolveTraceContext(request);
+    if (!traceContext.ok) {
+      return json(
+        { ok: false, code: 'invalid_trace_id', message: traceContext.message },
+        { status: 400 },
+      );
+    }
     const parsed = parseRouterAbEd25519YaoWarmRecoveryBootstrapRequestV1(rawBody);
     if (!parsed.ok) {
       return json({ ok: false, code: parsed.code, message: parsed.message }, { status: 400 });
@@ -1954,6 +2417,13 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
   }
 
   private async handleAdmission(request: Request, rawBody: unknown): Promise<Response> {
+    const traceContext = resolveTraceContext(request);
+    if (!traceContext.ok) {
+      return json(
+        { ok: false, code: 'invalid_trace_id', message: traceContext.message },
+        { status: 400 },
+      );
+    }
     const parsed = parseRouterAbEd25519YaoRecoveryAdmissionRequestV1(rawBody);
     if (!parsed.ok) {
       return json({ ok: false, code: parsed.code, message: parsed.message }, { status: 400 });
@@ -1964,12 +2434,19 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
       body: parsed.value,
     });
     if (!authorization.ok) return routeFailureResponse(authorization);
-    const result = await this.service.admitRecovery(parsed.value);
+    const result = await this.service.admitRecovery(parsed.value, traceContext.value);
     if (!result.ok) return routeFailureResponse(result);
     return json(result.value, { status: result.status });
   }
 
   private async handleExecution(request: Request, rawBody: unknown): Promise<Response> {
+    const traceContext = resolveTraceContext(request);
+    if (!traceContext.ok) {
+      return json(
+        { ok: false, code: 'invalid_trace_id', message: traceContext.message },
+        { status: 400 },
+      );
+    }
     const parsed = parseRouterAbEd25519YaoRecoveryActivationExecuteRequestV1(rawBody);
     if (!parsed.ok) {
       return json({ ok: false, code: parsed.code, message: parsed.message }, { status: 400 });
@@ -1980,12 +2457,19 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
       body: parsed.value,
     });
     if (!authorization.ok) return routeFailureResponse(authorization);
-    const result = await this.service.executeRecovery(parsed.value);
+    const result = await this.service.executeRecovery(parsed.value, traceContext.value);
     if (!result.ok) return routeFailureResponse(result);
     return json(result.value, { status: result.status });
   }
 
   private async handleActivation(request: Request, rawBody: unknown): Promise<Response> {
+    const traceContext = resolveTraceContext(request);
+    if (!traceContext.ok) {
+      return json(
+        { ok: false, code: 'invalid_trace_id', message: traceContext.message },
+        { status: 400 },
+      );
+    }
     const parsed = parseRouterAbEd25519YaoRecoveryActivationRequestV1(rawBody);
     if (!parsed.ok) {
       return json({ ok: false, code: parsed.code, message: parsed.message }, { status: 400 });
@@ -1996,7 +2480,7 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
       body: parsed.value,
     });
     if (!authorization.ok) return routeFailureResponse(authorization);
-    const result = await this.service.activateRecovery(parsed.value);
+    const result = await this.service.activateRecovery(parsed.value, traceContext.value);
     if (!result.ok) return routeFailureResponse(result);
     return json(result.value, { status: result.status });
   }

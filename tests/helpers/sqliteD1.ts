@@ -25,10 +25,10 @@ export class SqliteCliD1Database implements D1DatabaseLike {
   ): Promise<readonly T[]> {
     const sqlStatements = statements.map(sqlFromD1PreparedStatement);
     const sql = `BEGIN IMMEDIATE; ${sqlStatements
-      .map(sqlStatementWithChangesReadback)
+      .map(sqlStatementWithBatchReadback)
       .join(' ')} COMMIT;`;
     const rows = runSqliteJson(this.databasePath, sql);
-    return rows.map(buildD1BatchResult) as unknown as readonly T[];
+    return buildD1BatchResults(rows, statements.length) as unknown as readonly T[];
   }
 
   async exec(query: string): Promise<unknown> {
@@ -171,21 +171,49 @@ function sqlFromD1PreparedStatement(statement: D1PreparedStatementLike): string 
   return statement.toSql();
 }
 
-function sqlStatementWithChangesReadback(statement: string): string {
-  return `${statement} SELECT changes() AS changes, last_insert_rowid() AS last_row_id;`;
+function sqlStatementWithBatchReadback(statement: string, index: number): string {
+  return `SELECT ${index} AS __d1_batch_begin; ${statement} SELECT ${index} AS __d1_batch_end, changes() AS changes, last_insert_rowid() AS last_row_id;`;
 }
 
-function buildD1BatchResult(row: SqliteJsonRow): D1ResultLike {
-  const changes = toInteger(row.changes);
-  return {
-    success: true,
-    results: [],
-    meta: {
-      changes,
-      last_row_id: toInteger(row.last_row_id),
-      rows_written: changes,
-    },
-  };
+function buildD1BatchResults(
+  rows: readonly SqliteJsonRow[],
+  statementCount: number,
+): readonly D1ResultLike[] {
+  const results: D1ResultLike[] = [];
+  let cursor = 0;
+  for (let index = 0; index < statementCount; index += 1) {
+    const begin = rows[cursor];
+    if (toInteger(begin?.__d1_batch_begin) !== index) {
+      throw new Error(`SQLite D1 batch result ${index} is missing its begin marker`);
+    }
+    cursor += 1;
+    const statementRows: SqliteJsonRow[] = [];
+    while (
+      cursor < rows.length &&
+      !('__d1_batch_end' in (rows[cursor] || {}))
+    ) {
+      const row = rows[cursor];
+      if (row) statementRows.push(row);
+      cursor += 1;
+    }
+    const end = rows[cursor];
+    if (toInteger(end?.__d1_batch_end) !== index) {
+      throw new Error(`SQLite D1 batch result ${index} is missing its end marker`);
+    }
+    cursor += 1;
+    const changes = toInteger(end?.changes);
+    results.push({
+      success: true,
+      results: statementRows,
+      meta: {
+        changes,
+        last_row_id: toInteger(end?.last_row_id),
+        rows_read: statementRows.length,
+        rows_written: changes,
+      },
+    });
+  }
+  return results;
 }
 
 function isD1SqlMigrationFile(fileName: string): boolean {
@@ -251,45 +279,45 @@ function isSqliteJsonRow(input: unknown): input is SqliteJsonRow {
 }
 
 function interpolateSql(query: string, values: readonly unknown[]): string {
-  const segments = splitSqlByPlaceholders(query);
-  if (segments.length - 1 !== values.length) {
-    throw new Error(
-      `SQL placeholder count ${segments.length - 1} did not match bound value count ${values.length}`,
-    );
-  }
-  let sql = segments[0] || '';
-  for (let i = 0; i < values.length; i += 1) {
-    sql += `${sqlLiteral(values[i])}${segments[i + 1] || ''}`;
-  }
-  return ensureSqlStatementTerminator(sql);
-}
-
-function splitSqlByPlaceholders(query: string): readonly string[] {
-  const segments: string[] = [];
-  let current = '';
+  let sql = '';
   let inSingleQuote = false;
-  for (let i = 0; i < query.length; i += 1) {
-    const char = query[i] || '';
-    const next = query[i + 1] || '';
+  let anonymousIndex = 0;
+  const referenced = new Set<number>();
+  for (let index = 0; index < query.length; index += 1) {
+    const char = query[index] || '';
+    const next = query[index + 1] || '';
     if (char === "'" && inSingleQuote && next === "'") {
-      current += "''";
-      i += 1;
+      sql += "''";
+      index += 1;
       continue;
     }
     if (char === "'") {
       inSingleQuote = !inSingleQuote;
-      current += char;
+      sql += char;
       continue;
     }
-    if (char === '?' && !inSingleQuote) {
-      segments.push(current);
-      current = '';
+    if (char !== '?' || inSingleQuote) {
+      sql += char;
       continue;
     }
-    current += char;
+    let digits = '';
+    while (index + 1 < query.length && /[0-9]/u.test(query[index + 1] || '')) {
+      index += 1;
+      digits += query[index];
+    }
+    const valueIndex = digits ? Number(digits) - 1 : anonymousIndex++;
+    if (!Number.isSafeInteger(valueIndex) || valueIndex < 0 || valueIndex >= values.length) {
+      throw new Error(`SQL placeholder ${digits ? `?${digits}` : '?'} has no bound value`);
+    }
+    referenced.add(valueIndex);
+    sql += sqlLiteral(values[valueIndex]);
   }
-  segments.push(current);
-  return segments;
+  if (referenced.size !== values.length) {
+    throw new Error(
+      `SQL placeholder count ${referenced.size} did not match bound value count ${values.length}`,
+    );
+  }
+  return ensureSqlStatementTerminator(sql);
 }
 
 function ensureSqlStatementTerminator(sql: string): string {

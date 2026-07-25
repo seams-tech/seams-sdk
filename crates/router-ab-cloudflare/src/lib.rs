@@ -12,6 +12,8 @@ mod durable_object;
 mod ecdsa_normal_signing_transport;
 mod ecdsa_pool_lifecycle;
 pub use ecdsa_pool_lifecycle::*;
+mod ed25519_yao_pair_protocol;
+pub use ed25519_yao_pair_protocol::*;
 #[cfg(feature = "workers-rs")]
 mod ed25519_yao_websocket;
 #[cfg(feature = "workers-rs")]
@@ -33,6 +35,14 @@ pub use ed25519_yao_signing_worker::{
 };
 mod router;
 pub use router::*;
+
+#[cfg(feature = "workers-rs")]
+mod router_coordinator;
+#[cfg(feature = "workers-rs")]
+pub use router_coordinator::{
+    handle_cloudflare_router_ed25519_yao_execute_private_fetch_v1,
+    handle_cloudflare_router_ed25519_yao_recovery_promote_private_fetch_v1,
+};
 mod signing_worker;
 pub use signing_worker::*;
 mod env;
@@ -95,6 +105,7 @@ use encoding::{
 };
 mod paths;
 pub use paths::*;
+mod trace_context;
 #[cfg(feature = "workers-rs")]
 use paths::{
     cloudflare_deriver_peer_service_url,
@@ -109,6 +120,12 @@ use paths::{
     cloudflare_signing_worker_normal_signing_service_url,
     cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_finalize_service_url,
     cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_prepare_service_url,
+};
+pub use trace_context::CloudflareTraceIdV1;
+#[cfg(feature = "workers-rs")]
+pub use trace_context::{
+    parse_cloudflare_trace_id_from_request_v1, set_cloudflare_trace_id_header_v1,
+    CLOUDFLARE_TRACE_ID_HEADER_V1,
 };
 #[cfg(any(
     all(
@@ -204,18 +221,16 @@ use router_ab_core::{
     CanonicalWireBytesV1, Clock, Csprng, DeriverAEngine, DeriverBEngine,
     EcdsaThresholdPrfProofBatchPayloadV1, EcdsaThresholdPrfRequestV1, EncryptedPayloadV1,
     ExpensiveWorkGateContextV1, ExpensiveWorkGateDecisionV1, ExpensiveWorkKindV1,
-    GateDeferReasonV1, GatePrincipalV1, GateRejectReasonV1, MpcPrfOutputRequestV1,
-    MpcPrfSigningRootShareWireV1, MpcPrfThresholdSignerBatchOutputV1,
-    NormalSigningEd25519TwoPartyFrostCommitmentsV1, NormalSigningResponseV1,
-    NormalSigningRound1PrepareResponseV1, NormalSigningScopeV1, NormalSigningSignatureSchemeV1,
-    OpenedShareKind, PeerTransport, PublicDigest32, RecipientOutputCiphertextV1,
-    RecipientOutputEncryptionAlgorithmV1, RecipientOutputEncryptionRequestV1,
-    RecipientOutputEncryptorV1, RecipientProofBundleCiphertextV1,
-    RecipientProofBundleEncryptionRequestV1, RecipientProofBundleEncryptorV1,
-    RecipientProofBundlePayloadV1, Role, RoleEnvelopeAadV1, RootShareEpoch,
-    RouterAbDerivationError, RouterAbEcdsaDerivationActivationReceiptV1,
+    GateDeferReasonV1, GatePrincipalV1, GateRejectReasonV1, MpcPrfSigningRootShareWireV1,
+    MpcPrfThresholdSignerBatchOutputV1, NormalSigningEd25519TwoPartyFrostCommitmentsV1,
+    NormalSigningResponseV1, NormalSigningRound1PrepareResponseV1, NormalSigningScopeV1,
+    NormalSigningSignatureSchemeV1, OpenedShareKind, PeerTransport, PublicDigest32,
+    RecipientOutputCiphertextV1, RecipientOutputEncryptionAlgorithmV1,
+    RecipientOutputEncryptionRequestV1, RecipientOutputEncryptorV1,
+    RecipientProofBundleCiphertextV1, RecipientProofBundleEncryptionRequestV1,
+    RecipientProofBundleEncryptorV1, RecipientProofBundlePayloadV1, Role, RoleEnvelopeAadV1,
+    RootShareEpoch, RouterAbDerivationError, RouterAbEcdsaDerivationActivationReceiptV1,
     RouterAbEcdsaDerivationActivationRefreshRequestV1,
-    RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1,
     RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
     RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1,
     RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
@@ -227,9 +242,14 @@ use router_ab_core::{
     RouterAbEd25519NormalSigningFinalizeProtocolV2, RouterAbEd25519NormalSigningFinalizeRequestV2,
     RouterAbEd25519NormalSigningPrepareRequestV2, RouterAbLifecycleStateV1,
     RouterToSignerPayloadV1, SecretMaterial32, ServerIdentityV1, SignerEnvelopeHpkePayloadV1,
-    SignerIdentityV1, SignerInputPlaintextV1, SignerInputQuorumPolicyV1, SignerKeyStore,
-    SignerSetV1, SigningRootShareStore, SigningWorkerActivationContextV1, WireMessageKindV1,
-    WireMessageV1, MPC_PRF_SIGNING_ROOT_SHARE_WIRE_V1_LEN,
+    SignerIdentityV1, SignerInputPlaintextV1, SignerKeyStore, SignerSetV1, SigningRootShareStore,
+    SigningWorkerActivationContextV1, WireMessageKindV1, WireMessageV1,
+    MPC_PRF_SIGNING_ROOT_SHARE_WIRE_V1_LEN,
+};
+#[cfg(feature = "workers-rs")]
+use router_ab_core::{
+    MpcPrfOutputRequestV1, RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1,
+    SignerInputQuorumPolicyV1,
 };
 use router_ab_core::{RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult};
 use serde::{Deserialize, Serialize};
@@ -3805,6 +3825,7 @@ impl CloudflareSigningWorkerEcdsaExportShareRequestV1 {
         self.export_authority.validate_for_request(&self.request)
     }
 
+    #[cfg(feature = "workers-rs")]
     fn export_share_binding(
         &self,
     ) -> RouterAbProtocolResult<EcdsaSigningWorkerExportShareBindingV1> {
@@ -4519,6 +4540,12 @@ impl CloudflareDeriverAWorkerRuntimeV1 {
         &self.bindings.peer_signing_key
     }
 
+    /// Returns the trusted role-local peer verifying keys for readiness receipts.
+    #[cfg(feature = "workers-rs")]
+    pub(crate) fn peer_verifying_keys(&self) -> &CloudflareSignerPeerVerifyingKeySetV1 {
+        &self.bindings.peer_verifying_keys
+    }
+
     /// Returns trusted A/B peer verifying keys bound to a request signer set.
     pub fn peer_verifying_keys_for_signer_set(
         &self,
@@ -4726,6 +4753,12 @@ impl CloudflareDeriverBWorkerRuntimeV1 {
     /// Returns Deriver B's role-local A/B peer signing-key descriptor.
     pub fn peer_signing_key(&self) -> &CloudflareSignerPeerSigningKeyBindingV1 {
         &self.bindings.peer_signing_key
+    }
+
+    /// Returns the trusted role-local peer verifying keys for readiness receipts.
+    #[cfg(feature = "workers-rs")]
+    pub(crate) fn peer_verifying_keys(&self) -> &CloudflareSignerPeerVerifyingKeySetV1 {
+        &self.bindings.peer_verifying_keys
     }
 
     /// Returns trusted A/B peer verifying keys bound to a request signer set.
@@ -13013,8 +13046,11 @@ fn cloudflare_router_error_status(code: RouterAbProtocolErrorCode) -> u16 {
         | RouterAbProtocolErrorCode::InvalidLocalRoute
         | RouterAbProtocolErrorCode::MalformedWirePayload
         | RouterAbProtocolErrorCode::UnsupportedVectorVersion => 400,
-        RouterAbProtocolErrorCode::ExpiredLocalRequest => 408,
-        RouterAbProtocolErrorCode::ReplayedLocalRequest => 409,
+        RouterAbProtocolErrorCode::ExpiredLocalRequest
+        | RouterAbProtocolErrorCode::PairPreparationExpired => 408,
+        RouterAbProtocolErrorCode::ReplayedLocalRequest
+        | RouterAbProtocolErrorCode::ConflictingPair
+        | RouterAbProtocolErrorCode::MissingPairPreparation => 409,
         RouterAbProtocolErrorCode::MissingLocalBinding
         | RouterAbProtocolErrorCode::ForbiddenLocalBinding
         | RouterAbProtocolErrorCode::InvalidLocalServiceConfig => 500,

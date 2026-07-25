@@ -91,7 +91,7 @@ pub struct CloudflareEd25519YaoRecoveryPromotionRequestV1 {
 }
 
 impl CloudflareEd25519YaoRecoveryPromotionRequestV1 {
-    fn validate(&self) -> RouterAbProtocolResult<()> {
+    pub(crate) fn validate(&self) -> RouterAbProtocolResult<()> {
         self.binding.validate()?;
         if self.binding.operation != Ed25519YaoOperationV1::Recovery {
             return Err(invalid_lifecycle(

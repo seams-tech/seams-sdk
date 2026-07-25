@@ -11,10 +11,7 @@ import type { D1PreparedStatementLike } from '../../storage/tenantRoute';
 import { normalizeLogger } from '../../core/logger';
 import { toPublicKeyStringFromSecretKey } from '../../core/nearKeys';
 import { signGasRelayerNearTransactionWithDeps } from '../../core/authService/nearTransactions';
-import {
-  ensureSignerWasmRuntime,
-  type SignerWasmRuntimeState,
-} from '../../core/authService/wasm';
+import { ensureSignerWasmRuntime, type SignerWasmRuntimeState } from '../../core/authService/wasm';
 import { MinimalNearClient } from '../../core/rpcClients/near/NearClient';
 import {
   executeSignedDelegateWithRelayer,
@@ -22,6 +19,8 @@ import {
   type ExecuteSignedDelegateResult,
 } from '../../delegateAction';
 import type { ActionArgsWasm } from '@shared/near/actions';
+import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
+import { base64UrlEncode } from '@shared/utils/encoders';
 import type {
   AccountCreationResult,
   FundImplicitNearAccountRequest,
@@ -32,7 +31,7 @@ import type { RouterApiServiceBag } from '../authServicePort';
 import type { RouterApiEmailRecoveryAuthService } from '../routerApi';
 import { resolveRegistrationCeremonyDoConfig } from './d1RegistrationCeremonyDo';
 import { CloudflareD1RegistrationCeremonyIntentStore } from './d1RegistrationCeremonyStore';
-import { sha256BytesPortable } from './d1RouterApiAuthBoundary';
+import { isRecordValue, sha256BytesPortable } from './d1RouterApiAuthBoundary';
 import { CloudflareD1NearPublicKeyStore } from './d1NearPublicKeyStore';
 import { CloudflareD1WebAuthnStore } from './d1WebAuthnStore';
 import { CloudflareD1EmailOtpChallengeStore } from './d1EmailOtpChallengeStore';
@@ -56,19 +55,36 @@ import { CloudflareD1IdentityService } from './d1IdentityService';
 import { CloudflareD1OidcVerificationService } from './d1OidcVerificationService';
 import { CloudflareD1WebAuthnAuthService } from './d1WebAuthnAuthService';
 import { CloudflareD1WalletAuthMethodService } from './d1WalletAuthMethodService';
-import { CloudflareD1WalletRegistrationService } from './d1WalletRegistrationService';
+import {
+  CloudflareD1WalletRegistrationService,
+  type D1WalletRegistrationFinalizePreparedV1,
+  type D1WalletRegistrationFinalizeSideEffectRecord,
+  type D1WalletRegistrationFinalizeSideEffectStore,
+  type SponsoredNamedNearAccountCreationResult,
+} from './d1WalletRegistrationService';
+import { parseD1WalletRegistrationFinalizeTerminalResponse } from './d1RegistrationCeremonyRecords';
 import { CloudflareD1WalletRegistrationCommitStore } from './d1WalletRegistrationCommitStore';
 import { CloudflareD1WalletAddSignerService } from './d1WalletAddSignerService';
 import { CloudflareD1RegistrationIntentService } from './d1RegistrationIntentService';
 import {
-  createNamedNearAccountWithRelayer,
+  broadcastPreparedSponsoredNearAccountCreation,
   fundImplicitNearAccountWithRelayer,
+  prepareSponsoredNearAccountCreationWithRelayer,
+  type PreparedSponsoredNearAccountCreationV1,
 } from '../../core/nearRelayerAccountProvisioning';
+import {
+  runRouterAbEd25519YaoRegistrationSideEffectV1,
+  type RouterAbEd25519YaoRegistrationSideEffectRecordV1,
+  type RouterAbEd25519YaoRegistrationSideEffectStoreV1,
+} from '../routerAbEd25519YaoRegistrationSideEffectBoundary';
+import { createCloudflareD1VersionedJsonRecordStore } from './d1VersionedJsonRecordStore';
+import type { CloudflareVersionedJsonObject } from './versionedJsonRecordStore';
 import {
   normalizeD1RouterApiAuthOptions,
   type CloudflareD1RouterApiAuthServiceOptions,
   type NormalizedCloudflareD1RouterApiAuthServiceOptions,
 } from './d1RouterApiAuthConfig';
+import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../routerAbEd25519YaoProductRegistration';
 
 export type {
   CloudflareD1EmailOtpDeliveryProvider,
@@ -97,6 +113,11 @@ type D1IdentityLinkInput = {
 type SponsoredNamedNearAccountInput = {
   readonly accountId: string;
   readonly publicKey: string;
+  /**
+   * Registration-scoped key for the durable claim. Two attempts at the same
+   * registration share a key so the second replays the first's transaction.
+   */
+  readonly idempotencyKey: string;
 };
 
 type CloudflareD1RouterApiLazyStoreState = {
@@ -176,10 +197,7 @@ type D1NearFundingRouteServiceAssembly = Pick<
 
 type D1RecoveryRouteServiceAssembly = Pick<CloudflareD1RouterApiAuthAssembly, 'sessionService'>;
 
-type D1EmailRecoveryAuthServiceAssembly = Pick<
-  CloudflareD1RouterApiAuthAssembly,
-  'options'
->;
+type D1EmailRecoveryAuthServiceAssembly = Pick<CloudflareD1RouterApiAuthAssembly, 'options'>;
 
 type D1RouterAccountRouteServiceAssembly = Pick<
   CloudflareD1RouterApiAuthAssembly,
@@ -233,14 +251,12 @@ class CloudflareD1SignedDelegateExecutor {
     });
   }
 
-  private async signGasRelayerNearTransaction(
-    input: {
-      readonly receiverId: string;
-      readonly nonce: string;
-      readonly blockHash: string;
-      readonly actions: ActionArgsWasm[];
-    },
-  ): ReturnType<typeof signGasRelayerNearTransactionWithDeps> {
+  private async signGasRelayerNearTransaction(input: {
+    readonly receiverId: string;
+    readonly nonce: string;
+    readonly blockHash: string;
+    readonly actions: ActionArgsWasm[];
+  }): ReturnType<typeof signGasRelayerNearTransactionWithDeps> {
     const relayerAccount = this.options.relayerAccount;
     const relayerPrivateKey = this.options.relayerPrivateKey;
     if (!relayerAccount || !relayerPrivateKey) {
@@ -377,7 +393,6 @@ class CloudflareD1EmailRecoveryAuthService implements RouterApiEmailRecoveryAuth
   ): ReturnType<RouterApiEmailRecoveryAuthService['prepareEmailRecovery']> {
     return await this.operations.prepareEmailRecovery(request);
   }
-
 }
 
 async function fundImplicitNearAccountForOptions(
@@ -412,29 +427,352 @@ async function fundImplicitNearAccountForOptions(
   });
 }
 
+/**
+ * Validates a persisted claim before it is trusted to skip a broadcast or to be
+ * replayed. A record that does not parse is treated as absent, which fails
+ * closed into a fresh claim attempt rather than acting on unvalidated bytes.
+ */
+function parseSponsoredNearAccountSideEffectRecord(
+  raw: unknown,
+): RouterAbEd25519YaoRegistrationSideEffectRecordV1<
+  AccountCreationResult,
+  PreparedSponsoredNearAccountCreationV1
+> | null {
+  if (!isRecordValue(raw)) return null;
+  const record = raw;
+  if (record.operation !== 'finalize') return null;
+  if (typeof record.requestFingerprint !== 'string' || !record.requestFingerprint) return null;
+  if (!isNonNegativeSafeInteger(record.claimedAtMs)) return null;
+  if (record.kind === 'router_ab_ed25519_yao_registration_side_effect_claim_v1') {
+    let prepared: PreparedSponsoredNearAccountCreationV1 | undefined;
+    if (record.prepared !== undefined) {
+      const parsedPrepared = parsePreparedSponsoredNearAccountCreation(record.prepared);
+      if (parsedPrepared === null) return null;
+      prepared = parsedPrepared;
+    }
+    return {
+      kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1',
+      operation: 'finalize',
+      requestFingerprint: record.requestFingerprint,
+      claimedAtMs: record.claimedAtMs,
+      ...(prepared === undefined ? {} : { prepared }),
+    };
+  }
+  if (record.kind === 'router_ab_ed25519_yao_registration_side_effect_completion_v1') {
+    if (!isNonNegativeSafeInteger(record.completedAtMs)) return null;
+    const response = parseAccountCreationResult(record.response);
+    if (response === null) return null;
+    return {
+      kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
+      operation: 'finalize',
+      requestFingerprint: record.requestFingerprint,
+      claimedAtMs: record.claimedAtMs,
+      completedAtMs: record.completedAtMs,
+      response,
+    };
+  }
+  return null;
+}
+
+function parseWalletRegistrationFinalizePrepared(
+  raw: unknown,
+): D1WalletRegistrationFinalizePreparedV1 | null {
+  return isRecordValue(raw) && raw.kind === 'd1_wallet_registration_finalize_prepared_v1'
+    ? { kind: 'd1_wallet_registration_finalize_prepared_v1' }
+    : null;
+}
+
+function parseWalletRegistrationFinalizeSideEffectRecord(
+  raw: unknown,
+): D1WalletRegistrationFinalizeSideEffectRecord | null {
+  if (
+    !isRecordValue(raw) ||
+    raw.operation !== 'finalize' ||
+    typeof raw.requestFingerprint !== 'string' ||
+    !raw.requestFingerprint ||
+    !isNonNegativeSafeInteger(raw.claimedAtMs)
+  ) {
+    return null;
+  }
+  if (raw.kind === 'router_ab_ed25519_yao_registration_side_effect_claim_v1') {
+    const prepared = parseWalletRegistrationFinalizePrepared(raw.prepared);
+    if (!prepared) return null;
+    return {
+      kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1',
+      operation: 'finalize',
+      requestFingerprint: raw.requestFingerprint,
+      claimedAtMs: raw.claimedAtMs,
+      prepared,
+    };
+  }
+  if (
+    raw.kind !== 'router_ab_ed25519_yao_registration_side_effect_completion_v1' ||
+    !isNonNegativeSafeInteger(raw.completedAtMs)
+  ) {
+    return null;
+  }
+  const response = parseD1WalletRegistrationFinalizeTerminalResponse(raw.response);
+  if (!response) return null;
+  return {
+    kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
+    operation: 'finalize',
+    requestFingerprint: raw.requestFingerprint,
+    claimedAtMs: raw.claimedAtMs,
+    completedAtMs: raw.completedAtMs,
+    response,
+  };
+}
+
+function parsePreparedSponsoredNearAccountCreation(
+  value: unknown,
+): PreparedSponsoredNearAccountCreationV1 | null {
+  if (!isRecordValue(value) || value.kind !== 'prepared_sponsored_near_account_creation_v1') {
+    return null;
+  }
+  const accountId = parseNonEmptyString(value.accountId);
+  const publicKey = parseNonEmptyString(value.publicKey);
+  const relayerAccountId = parseNonEmptyString(value.relayerAccountId);
+  const transactionHash = parseNonEmptyString(value.transactionHash);
+  const nextNonce = parseNonEmptyString(value.nextNonce);
+  const blockHash = parseNonEmptyString(value.blockHash);
+  const signed = value.signedTransaction;
+  if (
+    accountId === null ||
+    publicKey === null ||
+    relayerAccountId === null ||
+    transactionHash === null ||
+    nextNonce === null ||
+    blockHash === null ||
+    !isRecordValue(signed) ||
+    !isRecordValue(signed.transaction) ||
+    !isRecordValue(signed.signature) ||
+    !Array.isArray(signed.borsh_bytes) ||
+    signed.borsh_bytes.length === 0 ||
+    signed.borsh_bytes.length > 4096 ||
+    !signed.borsh_bytes.every(
+      (byte) => typeof byte === 'number' && Number.isInteger(byte) && byte >= 0 && byte < 256,
+    )
+  ) {
+    return null;
+  }
+  return {
+    kind: 'prepared_sponsored_near_account_creation_v1',
+    accountId,
+    publicKey,
+    relayerAccountId,
+    transactionHash,
+    nextNonce,
+    blockHash,
+    signedTransaction: {
+      transaction: signed.transaction,
+      signature: signed.signature,
+      borsh_bytes: signed.borsh_bytes,
+    },
+  };
+}
+
+function parseAccountCreationResult(value: unknown): AccountCreationResult | null {
+  if (!isRecordValue(value) || typeof value.success !== 'boolean') return null;
+  const accountId = parseOptionalString(value.accountId);
+  const transactionHash = parseOptionalString(value.transactionHash);
+  const error = parseOptionalString(value.error);
+  const message = parseOptionalString(value.message);
+  if (
+    ('accountId' in value && accountId === null) ||
+    ('transactionHash' in value && transactionHash === null) ||
+    ('error' in value && error === null) ||
+    ('message' in value && message === null)
+  ) {
+    return null;
+  }
+  if (value.success && (accountId === undefined || transactionHash === undefined)) return null;
+  const normalizedAccountId = accountId ?? undefined;
+  const normalizedTransactionHash = transactionHash ?? undefined;
+  const normalizedError = error ?? undefined;
+  const normalizedMessage = message ?? undefined;
+  return {
+    success: value.success,
+    ...(normalizedAccountId === undefined ? {} : { accountId: normalizedAccountId }),
+    ...(normalizedTransactionHash === undefined
+      ? {}
+      : { transactionHash: normalizedTransactionHash }),
+    ...(normalizedError === undefined ? {} : { error: normalizedError }),
+    ...(normalizedMessage === undefined ? {} : { message: normalizedMessage }),
+  };
+}
+
+function parseNonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function parseOptionalString(value: unknown): string | undefined | null {
+  return value === undefined ? undefined : parseNonEmptyString(value);
+}
+
+function isNonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+/**
+ * Resolves the Yao runtime per request. A resolver lets the caller send
+ * registration finalize to the same store the ceremony's execute step used.
+ */
+function resolveEd25519YaoProductRegistration(
+  options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
+): RouterAbEd25519YaoProductRegistrationRuntimeV1 | null {
+  const configured = options.ed25519YaoProductRegistration;
+  if (typeof configured === 'function') return configured();
+  return configured || null;
+}
+
+function sponsoredNearAccountSideEffectStore(
+  options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
+): RouterAbEd25519YaoRegistrationSideEffectStoreV1<
+  AccountCreationResult,
+  PreparedSponsoredNearAccountCreationV1
+> {
+  return createCloudflareD1VersionedJsonRecordStore<
+    RouterAbEd25519YaoRegistrationSideEffectRecordV1<
+      AccountCreationResult,
+      PreparedSponsoredNearAccountCreationV1
+    >
+  >({
+    database: options.database,
+    scope: {
+      namespace: options.namespace,
+      orgId: options.orgId,
+      projectId: options.projectId,
+      envId: options.envId,
+    },
+    keyPrefix: 'router-ab-yao-sponsored-account:',
+    encode: (value) => value as unknown as CloudflareVersionedJsonObject,
+    parse: parseSponsoredNearAccountSideEffectRecord,
+  });
+}
+
+function walletRegistrationFinalizeSideEffectStore(
+  options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
+): D1WalletRegistrationFinalizeSideEffectStore {
+  return createCloudflareD1VersionedJsonRecordStore<D1WalletRegistrationFinalizeSideEffectRecord>({
+    database: options.database,
+    scope: {
+      namespace: options.namespace,
+      orgId: options.orgId,
+      projectId: options.projectId,
+      envId: options.envId,
+    },
+    keyPrefix: 'wallet-registration-finalize:',
+    encode: (value) => value as unknown as CloudflareVersionedJsonObject,
+    parse: parseWalletRegistrationFinalizeSideEffectRecord,
+  });
+}
+
+/**
+ * Creates the sponsored account through a durable claim. The signed transaction
+ * and its hash are persisted before the broadcast, so a lost response replays
+ * those exact bytes instead of building a second transaction under a fresh
+ * nonce. Rebroadcasting an identical signed transaction reuses its hash, so the
+ * network treats the retry as the same transaction.
+ */
 async function createSponsoredNamedNearAccountForOptions(
   options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
   input: SponsoredNamedNearAccountInput,
-): Promise<AccountCreationResult> {
+): Promise<SponsoredNamedNearAccountCreationResult> {
   const relayerAccount = options.relayerAccount;
   const relayerPrivateKey = options.relayerPrivateKey;
   const nearRpcUrl = options.nearRpcUrl;
   const initialBalanceYocto = options.accountInitialBalance;
   if (!relayerAccount || !relayerPrivateKey || !nearRpcUrl || !initialBalanceYocto) {
     return {
-      success: false,
-      error: 'Sponsored NEAR account creation is not configured on this server',
+      kind: 'rejected',
       message: 'Sponsored NEAR account creation is not configured on this server',
     };
   }
-  return await createNamedNearAccountWithRelayer({
-    ...input,
+  const relayerInput = {
+    accountId: input.accountId,
+    publicKey: input.publicKey,
     relayerAccount,
     relayerPrivateKey,
     relayerPublicKey: options.relayerPublicKey,
     nearRpcUrl,
     initialBalanceYocto,
+  };
+  const requestFingerprint = base64UrlEncode(
+    await sha256BytesUtf8(
+      alphabetizeStringify({
+        kind: 'sponsored_near_account_creation_v1',
+        accountId: input.accountId,
+        publicKey: input.publicKey,
+        relayerAccountId: relayerAccount,
+        initialBalanceYocto,
+      }),
+    ),
+  );
+  const outcome = await runRouterAbEd25519YaoRegistrationSideEffectV1<
+    AccountCreationResult,
+    PreparedSponsoredNearAccountCreationV1
+  >(sponsoredNearAccountSideEffectStore(options), {
+    kind: 'prepared_resumable',
+    resumeAfterMs: 30_000,
+    operation: 'finalize',
+    key: `sponsored-account:${input.idempotencyKey}`,
+    requestFingerprint,
+    nowMs: () => Date.now(),
+    prepare: async () => {
+      const prepared = await prepareSponsoredNearAccountCreationWithRelayer(relayerInput);
+      if (!prepared.ok) throw new Error(prepared.message);
+      return prepared.prepared;
+    },
+    execute: async (prepared, attempt) => {
+      if (!prepared) throw new Error('Sponsored NEAR account transaction was not prepared');
+      const broadcast = await broadcastPreparedSponsoredNearAccountCreation({
+        prepared,
+        nearRpcUrl,
+        relayerAccountId: relayerAccount,
+        // A resumed attempt follows a broadcast whose outcome was never
+        // observed, so settle it against the chain before resubmitting.
+        reconcileFirst: attempt === 'resumed',
+      });
+      if (broadcast.kind === 'uncertain') {
+        // Throwing keeps the claim open so a later retry reconciles. Returning
+        // here would persist a possibly-landed transaction as a terminal failure.
+        throw new Error(broadcast.message);
+      }
+      return broadcast.result;
+    },
   });
+  switch (outcome.kind) {
+    case 'executed':
+    case 'exact_replay': {
+      if (outcome.value.success && outcome.value.accountId && outcome.value.transactionHash) {
+        return {
+          kind: 'created',
+          accountId: outcome.value.accountId,
+          transactionHash: outcome.value.transactionHash,
+        };
+      }
+      return {
+        kind: 'rejected',
+        message:
+          outcome.value.message ||
+          outcome.value.error ||
+          'Sponsored NEAR account creation was rejected',
+      };
+    }
+    case 'in_progress':
+    case 'uncertain': {
+      const message =
+        outcome.kind === 'uncertain'
+          ? outcome.message
+          : 'Sponsored NEAR account creation is already in progress for this registration';
+      return { kind: 'retryable', message, retryAfterMs: 30_000 };
+    }
+    case 'request_conflict':
+      return {
+        kind: 'rejected',
+        message: 'Sponsored NEAR account creation idempotency key conflicts with another request',
+      };
+  }
 }
 
 function createCloudflareD1RouterApiAuthAssembly(
@@ -564,17 +902,18 @@ function createCloudflareD1RouterApiAuthAssembly(
     createSponsoredNamedNearAccount,
     emailOtpRegistrationEnrollmentFinalizer,
     getRegistrationCeremonyIntentStore,
-    getEd25519YaoProductRegistration: () => options.ed25519YaoProductRegistration || null,
+    getEd25519YaoProductRegistration: () => resolveEd25519YaoProductRegistration(options),
     getRouterAbNormalSigningRuntime:
       routerAbSigning.getRouterAbNormalSigningRuntime.bind(routerAbSigning),
     ecdsaStrictRegistration: options.ecdsaStrictRegistration,
     getWalletStore,
+    finalizeSideEffects: walletRegistrationFinalizeSideEffectStore(options),
     walletRegistrationCommitStore,
     walletAuthMethods,
   });
   const walletAddSigners = new CloudflareD1WalletAddSignerService({
     getRegistrationCeremonyIntentStore,
-    getEd25519YaoProductRegistration: () => options.ed25519YaoProductRegistration || null,
+    getEd25519YaoProductRegistration: () => resolveEd25519YaoProductRegistration(options),
     getRouterAbNormalSigningRuntime:
       routerAbSigning.getRouterAbNormalSigningRuntime.bind(routerAbSigning),
     ecdsaStrictRegistration: options.ecdsaStrictRegistration,
@@ -655,9 +994,10 @@ function createD1WalletRegistrationRouteService(
     startWalletRegistration: assembly.walletRegistrations.startWalletRegistration.bind(
       assembly.walletRegistrations,
     ),
-    respondWalletRegistrationEcdsaDerivation: assembly.walletRegistrations.respondWalletRegistrationEcdsaDerivation.bind(
-      assembly.walletRegistrations,
-    ),
+    respondWalletRegistrationEcdsaDerivation:
+      assembly.walletRegistrations.respondWalletRegistrationEcdsaDerivation.bind(
+        assembly.walletRegistrations,
+      ),
     activateWalletRegistrationEcdsa:
       assembly.walletRegistrations.activateWalletRegistrationEcdsa.bind(
         assembly.walletRegistrations,
@@ -704,9 +1044,10 @@ function createD1WalletAuthMethodRouteService(
     finalizeWalletAddSigner: assembly.walletAddSigners.finalizeWalletAddSigner.bind(
       assembly.walletAddSigners,
     ),
-    respondWalletAddSignerEcdsaDerivation: assembly.walletAddSigners.respondWalletAddSignerEcdsaDerivation.bind(
-      assembly.walletAddSigners,
-    ),
+    respondWalletAddSignerEcdsaDerivation:
+      assembly.walletAddSigners.respondWalletAddSignerEcdsaDerivation.bind(
+        assembly.walletAddSigners,
+      ),
     activateWalletAddSignerEcdsa: assembly.walletAddSigners.activateWalletAddSignerEcdsa.bind(
       assembly.walletAddSigners,
     ),
@@ -906,8 +1247,9 @@ function createD1ThresholdRuntimeRouteService(
     getRouterAbNormalSigningRuntime: assembly.routerAbSigning.getRouterAbNormalSigningRuntime.bind(
       assembly.routerAbSigning,
     ),
-    getRouterAbEcdsaPresignRuntime:
-      assembly.routerAbSigning.getRouterAbEcdsaPresignRuntime.bind(assembly.routerAbSigning),
+    getRouterAbEcdsaPresignRuntime: assembly.routerAbSigning.getRouterAbEcdsaPresignRuntime.bind(
+      assembly.routerAbSigning,
+    ),
     getRouterAbLocalSigningSeedRuntime:
       assembly.routerAbSigning.getRouterAbLocalSigningSeedRuntime.bind(assembly.routerAbSigning),
   };

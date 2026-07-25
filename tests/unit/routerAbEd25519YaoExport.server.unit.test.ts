@@ -4,6 +4,7 @@ import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signi
 import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import {
   ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1,
+  ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
   deriveRouterAbEd25519YaoExportAuthorizationDigestV1,
   deriveRouterAbEd25519YaoExportConfirmationDigestV1,
   deriveRouterAbEd25519YaoRuntimePolicyBindingV1,
@@ -11,6 +12,7 @@ import {
   parseRouterAbEd25519YaoExportExecuteRequestV1,
   type RouterAbEd25519YaoExportAdmissionRequestV1,
   type RouterAbEd25519YaoExportAuthorizationIdentityV1,
+  type RouterAbEd25519YaoExportFreshAuthorizationIdentityV1,
   type RouterAbEd25519YaoExportAuthorityBindingV1,
   type RouterAbEd25519YaoExportExecuteRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
@@ -37,6 +39,25 @@ import {
   type RouterAbEd25519YaoExportBackend,
   type RouterAbEd25519YaoExportBackendResult,
 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoExport';
+import {
+  handleRouterAbEd25519YaoExportRequestScopedCloudflareV1,
+  type RouterAbEd25519YaoExportRequestScopedCloudflareInputV1,
+} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoExportRequestScopedCloudflare';
+import { createRouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistration';
+import {
+  encodeRouterAbEd25519YaoProductRegistrationStateV1,
+  parseRouterAbEd25519YaoProductRegistrationStateJsonV1,
+} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPersistence';
+import {
+  partitionRouterAbEd25519YaoProductRegistrationStateV1,
+  type RouterAbEd25519YaoProductRegistrationSharedStateV1,
+} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPartitioning';
+import type {
+  RouterAbEd25519YaoProductRegistrationPartitionedStateCommitInputV1,
+  RouterAbEd25519YaoProductRegistrationPartitionedStateCommitResultV1,
+  RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
+  RouterAbEd25519YaoProductRegistrationPartitionedStateV1,
+} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
 import type {
   RouterAbEd25519YaoActiveCapabilityLookupV1,
   RouterAbEd25519YaoActiveCapabilityLookupResultV1,
@@ -197,7 +218,7 @@ function exportBinding(request: RouterAbEd25519YaoExportAdmissionRequestV1) {
         selected_server_id: request.scope.signing_worker_id,
       },
       operation: 'export' as const,
-      session_id: bytes(71),
+      session_id: bytes(request.authorization.nonce[0] ?? 71),
       stable_key_context_binding: bytes(72),
     },
     registered_public_key: request.registered_public_key,
@@ -432,6 +453,107 @@ class AuthorizationFixture implements RouterAbEd25519YaoExportAuthorizationAdapt
   }
 }
 
+class RequestScopedAuthorizationFixture implements RouterAbEd25519YaoExportAuthorizationAdapter {
+  calls = 0;
+
+  constructor(private readonly throwOnAdmission = false) {}
+
+  authorize(
+    input: RouterAbEd25519YaoExportAuthorizationInput,
+  ): RouterAbEd25519YaoExportAuthorizationResult {
+    this.calls += 1;
+    if (this.throwOnAdmission && input.kind === 'admit') {
+      throw new Error('WebAuthn counter update outcome was lost');
+    }
+    return { ok: true };
+  }
+}
+
+class RequestScopedExportBackend extends ExportBackendFixture {
+  constructor(
+    private readonly throwAdmission = false,
+    private readonly throwExecution = false,
+  ) {
+    super();
+  }
+
+  override admitExport(
+    request: RouterAbEd25519YaoExportAdmissionRequestV1,
+  ): RouterAbEd25519YaoExportBackendResult {
+    if (this.throwAdmission) {
+      this.admitCalls += 1;
+      throw new Error('Router admission response was lost');
+    }
+    return super.admitExport(request);
+  }
+
+  override executeExport(
+    request: RouterAbEd25519YaoExportExecuteRequestV1,
+  ): RouterAbEd25519YaoExportBackendResult {
+    if (this.throwExecution) {
+      this.executeCalls += 1;
+      throw new Error('Router execution response was lost');
+    }
+    return super.executeExport(request);
+  }
+}
+
+class RequestScopedStateStore implements RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1 {
+  private state = createRouterAbEd25519YaoProductRegistrationStateV1();
+  private sharedVersion: string | null = null;
+  private ceremonyVersion: string | null = null;
+  private commitSequence = 0;
+
+  constructor(private readonly conflictAtCommit: number | null = null) {}
+
+  async load(
+    lifecycleId: string,
+  ): Promise<RouterAbEd25519YaoProductRegistrationPartitionedStateV1> {
+    const state = structuredClone(this.state);
+    const partition = partitionRouterAbEd25519YaoProductRegistrationStateV1(state, lifecycleId);
+    return {
+      kind: 'router_ab_ed25519_yao_product_registration_partitioned_state_v1',
+      state,
+      sharedState: structuredClone(partition.shared),
+      sharedVersion: this.sharedVersion,
+      ceremonyVersion: this.ceremonyVersion,
+    };
+  }
+
+  async commit(
+    input: RouterAbEd25519YaoProductRegistrationPartitionedStateCommitInputV1,
+  ): Promise<RouterAbEd25519YaoProductRegistrationPartitionedStateCommitResultV1> {
+    this.commitSequence += 1;
+    if (this.conflictAtCommit === this.commitSequence) {
+      return { kind: 'version_mismatch', key: 'ceremony' };
+    }
+    if (
+      input.sharedVersion !== this.sharedVersion ||
+      input.ceremonyVersion !== this.ceremonyVersion
+    ) {
+      return { kind: 'version_mismatch', key: 'ceremony' };
+    }
+    this.state = structuredClone(input.state);
+    this.sharedVersion = nextVersion(this.sharedVersion);
+    this.ceremonyVersion = nextVersion(this.ceremonyVersion);
+    return {
+      kind: 'stored',
+      sharedVersion: this.sharedVersion,
+      ceremonyVersion: this.ceremonyVersion,
+    };
+  }
+
+  async sharedState(
+    lifecycleId: string,
+  ): Promise<RouterAbEd25519YaoProductRegistrationSharedStateV1> {
+    return (await this.load(lifecycleId)).sharedState;
+  }
+}
+
+function nextVersion(current: string | null): string {
+  return String(Number(current ?? '0') + 1);
+}
+
 function claimsForAuthority(authority: WalletAuthAuthority): SessionClaims {
   return {
     kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
@@ -516,11 +638,19 @@ function authorizationInput(
       headers: { authorization: 'Bearer export-wallet-session' },
     }),
     body,
+    authorizationIdentity: exportAuthorizationIdentity(),
     authorization: {
       kind: 'passkey',
       webauthnAuthentication: webAuthnCredential(),
     },
     expectedOrigin: ORIGIN,
+  };
+}
+
+function exportAuthorizationIdentity(): RouterAbEd25519YaoExportFreshAuthorizationIdentityV1 {
+  return {
+    thresholdSessionId: WALLET_SESSION_ID,
+    signingGrantId: SIGNING_GRANT_ID,
   };
 }
 
@@ -553,9 +683,43 @@ function jsonAdmissionEnvelopeRequest(
     headers,
     body: JSON.stringify({
       protocol: body,
+      authorizationIdentity: exportAuthorizationIdentity(),
       authorization,
     }),
   });
+}
+
+function jsonExecutionEnvelopeRequest(body: RouterAbEd25519YaoExportExecuteRequestV1): Request {
+  return new Request(`${ORIGIN}${ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1}`, {
+    method: 'POST',
+    headers: {
+      authorization: 'Bearer export-wallet-session',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      protocol: body,
+      authorizationIdentity: exportAuthorizationIdentity(),
+    }),
+  });
+}
+
+function requestScopedInput(input: {
+  readonly request: Request;
+  readonly store: RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1;
+  readonly backend: RouterAbEd25519YaoExportBackend;
+  readonly authorization: RouterAbEd25519YaoExportAuthorizationAdapter;
+}): RouterAbEd25519YaoExportRequestScopedCloudflareInputV1 {
+  return {
+    request: input.request,
+    store: input.store,
+    backend: input.backend,
+    capabilities: new ActiveCapabilityFixture(),
+    authorization: input.authorization,
+  };
+}
+
+async function responseBody(response: Response): Promise<unknown> {
+  return await response.json();
 }
 
 test.describe('Router A/B Ed25519 Yao export server boundary', () => {
@@ -647,6 +811,7 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
       kind: 'admit',
       request: input.request,
       body: input.body,
+      authorizationIdentity: input.authorizationIdentity,
       authorization: {
         kind: 'passkey',
         webauthnAuthentication: substitutedWebAuthnCredential(),
@@ -767,7 +932,7 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
     }
   });
 
-  test('burns authorization replay, binding substitution, and backend execution failure', async () => {
+  test('redelivers exact admission and retains terminal binding and backend failures', async () => {
     const nowMs = Date.now();
     const request = await admissionFixture(defaultAdmissionFixtureOptions(nowMs));
     const backend = new ExportBackendFixture();
@@ -776,11 +941,7 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
       new ActiveCapabilityFixture(),
     );
     expect((await service.admitExport(request)).ok).toBe(true);
-    expect(await service.admitExport(request)).toMatchObject({
-      ok: false,
-      status: 409,
-      code: 'admission_failed',
-    });
+    expect(await service.admitExport(request)).toEqual(await service.admitExport(request));
     expect(backend.admitCalls).toBe(1);
 
     const substitutedBinding = exportBinding(request);
@@ -824,8 +985,8 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
     });
     expect(await failingService.executeExport(failureExecute)).toMatchObject({
       ok: false,
-      status: 409,
-      code: 'export_consumed',
+      status: 503,
+      code: 'execution_failed',
     });
     expect(failingBackend.executeCalls).toBe(1);
   });
@@ -852,13 +1013,241 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
     expect((await service.executeExport(executeFixture(first))).ok).toBe(true);
     expect((await service.admitExport(second)).ok).toBe(true);
     expect((await service.executeExport(executeFixture(second))).ok).toBe(true);
-    expect(await service.admitExport(second)).toMatchObject({
-      ok: false,
-      status: 409,
-      code: 'admission_failed',
-    });
+    expect((await service.admitExport(second)).ok).toBe(true);
     expect(backend.admitCalls).toBe(2);
     expect(backend.executeCalls).toBe(2);
+  });
+
+  test('persists authorization, backend claims, and exact completed export redelivery', async () => {
+    const request = await admissionFixture(defaultAdmissionFixtureOptions(Date.now()));
+    const execution = executeFixture(request);
+    const store = new RequestScopedStateStore();
+    const backend = new RequestScopedExportBackend();
+    const authorization = new RequestScopedAuthorizationFixture();
+
+    const admissionResponse = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+      requestScopedInput({
+        request: jsonAdmissionRequest(request, ORIGIN),
+        store,
+        backend,
+        authorization,
+      }),
+    );
+    expect(admissionResponse.status).toBe(200);
+
+    const firstExecution = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+      requestScopedInput({
+        request: jsonExecutionEnvelopeRequest(execution),
+        store,
+        backend,
+        authorization,
+      }),
+    );
+    expect(firstExecution.status).toBe(200);
+    const firstBody = await firstExecution.text();
+
+    const replay = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+      requestScopedInput({
+        request: jsonExecutionEnvelopeRequest(execution),
+        store,
+        backend,
+        authorization,
+      }),
+    );
+    expect(replay.status).toBe(200);
+    expect(await replay.text()).toBe(firstBody);
+    expect(backend.admitCalls).toBe(1);
+    expect(backend.executeCalls).toBe(1);
+    expect(authorization.calls).toBe(3);
+    expect((await store.sharedState(request.scope.lifecycle_id)).exportAuthorizationNonces).toEqual(
+      new Set([
+        bytes(41)
+          .map((byte) => byte.toString(16).padStart(2, '0'))
+          .join(''),
+      ]),
+    );
+
+    const persisted = await store.load(request.scope.lifecycle_id);
+    const decoded = parseRouterAbEd25519YaoProductRegistrationStateJsonV1(
+      encodeRouterAbEd25519YaoProductRegistrationStateV1(persisted.state),
+    );
+    expect(decoded).not.toBeNull();
+    if (decoded === null) throw new Error('persisted export state must decode');
+    const reloaded = new InMemoryRouterAbEd25519YaoExportService(
+      backend,
+      new ActiveCapabilityFixture(),
+      decoded.export,
+    );
+    expect(reloaded.prepareExecuteExport(execution)).toEqual({
+      kind: 'completed',
+      value: JSON.parse(firstBody),
+    });
+  });
+
+  test('never repeats WebAuthn authorization after an uncertain side effect', async () => {
+    const request = await admissionFixture(defaultAdmissionFixtureOptions(Date.now()));
+    const store = new RequestScopedStateStore();
+    const backend = new RequestScopedExportBackend();
+    const authorization = new RequestScopedAuthorizationFixture(true);
+
+    const first = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+      requestScopedInput({
+        request: jsonAdmissionRequest(request, ORIGIN),
+        store,
+        backend,
+        authorization,
+      }),
+    );
+    expect(first.status).toBe(503);
+    expect(await responseBody(first)).toMatchObject({
+      code: 'export_authorization_uncertain',
+    });
+
+    const retry = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+      requestScopedInput({
+        request: jsonAdmissionRequest(request, ORIGIN),
+        store,
+        backend,
+        authorization,
+      }),
+    );
+    expect(retry.status).toBe(503);
+    expect(await responseBody(retry)).toMatchObject({
+      code: 'export_authorization_uncertain',
+    });
+    expect(authorization.calls).toBe(1);
+    expect(backend.admitCalls).toBe(0);
+  });
+
+  test('never repeats Router admission or execution after an uncertain response', async () => {
+    const admissionRequest = await admissionFixture(defaultAdmissionFixtureOptions(Date.now()));
+    const admissionStore = new RequestScopedStateStore();
+    const admissionBackend = new RequestScopedExportBackend(true);
+    const admissionAuthorization = new RequestScopedAuthorizationFixture();
+
+    const firstAdmission = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+      requestScopedInput({
+        request: jsonAdmissionRequest(admissionRequest, ORIGIN),
+        store: admissionStore,
+        backend: admissionBackend,
+        authorization: admissionAuthorization,
+      }),
+    );
+    expect(firstAdmission.status).toBe(503);
+    const admissionRetry = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+      requestScopedInput({
+        request: jsonAdmissionRequest(admissionRequest, ORIGIN),
+        store: admissionStore,
+        backend: admissionBackend,
+        authorization: admissionAuthorization,
+      }),
+    );
+    expect(admissionRetry.status).toBe(409);
+    expect(await responseBody(admissionRetry)).toMatchObject({ code: 'admission_in_progress' });
+    expect(admissionAuthorization.calls).toBe(1);
+    expect(admissionBackend.admitCalls).toBe(1);
+
+    const executionRequest = await admissionFixture({
+      ...defaultAdmissionFixtureOptions(Date.now()),
+      lifecycleId: 'export-lifecycle-execution-uncertain',
+      nonce: bytes(46),
+    });
+    const executionStore = new RequestScopedStateStore();
+    const executionBackend = new RequestScopedExportBackend(false, true);
+    const executionAuthorization = new RequestScopedAuthorizationFixture();
+    const admitted = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+      requestScopedInput({
+        request: jsonAdmissionRequest(executionRequest, ORIGIN),
+        store: executionStore,
+        backend: executionBackend,
+        authorization: executionAuthorization,
+      }),
+    );
+    expect(admitted.status).toBe(200);
+    const execution = executeFixture(executionRequest);
+    const firstExecution = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+      requestScopedInput({
+        request: jsonExecutionEnvelopeRequest(execution),
+        store: executionStore,
+        backend: executionBackend,
+        authorization: executionAuthorization,
+      }),
+    );
+    expect(firstExecution.status).toBe(503);
+    const executionRetry = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+      requestScopedInput({
+        request: jsonExecutionEnvelopeRequest(execution),
+        store: executionStore,
+        backend: executionBackend,
+        authorization: executionAuthorization,
+      }),
+    );
+    expect(executionRetry.status).toBe(409);
+    expect(await responseBody(executionRetry)).toMatchObject({ code: 'execution_in_progress' });
+    expect(executionBackend.executeCalls).toBe(1);
+  });
+
+  test('fails closed when WebAuthn succeeds but its authorization receipt CAS conflicts', async () => {
+    const request = await admissionFixture(defaultAdmissionFixtureOptions(Date.now()));
+    const store = new RequestScopedStateStore(2);
+    const backend = new RequestScopedExportBackend();
+    const authorization = new RequestScopedAuthorizationFixture();
+
+    const first = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+      requestScopedInput({
+        request: jsonAdmissionRequest(request, ORIGIN),
+        store,
+        backend,
+        authorization,
+      }),
+    );
+    expect(first.status).toBe(503);
+    expect(await responseBody(first)).toMatchObject({
+      code: 'export_authorization_uncertain',
+    });
+
+    const retry = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+      requestScopedInput({
+        request: jsonAdmissionRequest(request, ORIGIN),
+        store,
+        backend,
+        authorization,
+      }),
+    );
+    expect(retry.status).toBe(503);
+    expect(authorization.calls).toBe(1);
+    expect(backend.admitCalls).toBe(0);
+  });
+
+  test('never repeats Router admission after its terminal CAS conflicts', async () => {
+    const request = await admissionFixture(defaultAdmissionFixtureOptions(Date.now()));
+    const store = new RequestScopedStateStore(4);
+    const backend = new RequestScopedExportBackend();
+    const authorization = new RequestScopedAuthorizationFixture();
+
+    const first = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+      requestScopedInput({
+        request: jsonAdmissionRequest(request, ORIGIN),
+        store,
+        backend,
+        authorization,
+      }),
+    );
+    expect(first.status).toBe(503);
+    expect(await responseBody(first)).toMatchObject({ code: 'admission_failed' });
+
+    const retry = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+      requestScopedInput({
+        request: jsonAdmissionRequest(request, ORIGIN),
+        store,
+        backend,
+        authorization,
+      }),
+    );
+    expect(retry.status).toBe(409);
+    expect(await responseBody(retry)).toMatchObject({ code: 'admission_in_progress' });
+    expect(authorization.calls).toBe(1);
+    expect(backend.admitCalls).toBe(1);
   });
 
   test('derives the verifier Origin only from the actual Origin header', async () => {

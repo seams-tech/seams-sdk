@@ -415,7 +415,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
         username={accountName}
         hideUsername={hideUsername}
         // identity line under "Settings": the wallet id, not the chain account
-        fullAccountId={walletId || nearAccountId || undefined}
+        fullAccountId={walletId || undefined}
         isOpen={isOpen}
         onClick={handleToggle}
         theme={theme}

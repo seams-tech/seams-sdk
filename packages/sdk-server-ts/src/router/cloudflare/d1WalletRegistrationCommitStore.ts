@@ -24,13 +24,25 @@ import {
   prepareD1WebAuthnAuthenticatorPutStatement,
   type D1WebAuthnStoreScope,
 } from './d1WebAuthnStore';
+import type { D1EmailOtpRegistrationCommitPlan } from './d1EmailOtpRegistrationEnrollmentFinalizer';
 
-export type D1WalletRegistrationCommitInput = {
+type D1WalletRegistrationCommitBase = {
   readonly wallet: WalletRecord;
   readonly walletSigners: readonly WalletSignerRecord[];
-  readonly authority: RegistrationAuthority;
   readonly now: number;
 };
+
+export type D1WalletRegistrationCommitInput =
+  | (D1WalletRegistrationCommitBase & {
+      readonly kind: 'passkey_wallet_registration_commit_v1';
+      readonly authority: Extract<RegistrationAuthority, { readonly kind: 'passkey' }>;
+      readonly emailOtp?: never;
+    })
+  | (D1WalletRegistrationCommitBase & {
+      readonly kind: 'email_otp_wallet_registration_commit_v1';
+      readonly authority: Extract<RegistrationAuthority, { readonly kind: 'email_otp' }>;
+      readonly emailOtp: D1EmailOtpRegistrationCommitPlan;
+    });
 
 export interface D1WalletRegistrationCommitStore {
   commit(input: D1WalletRegistrationCommitInput): Promise<void>;
@@ -155,6 +167,17 @@ function assertBatchSucceeded(input: {
   }
 }
 
+function emailOtpCommitStatements(
+  input: D1WalletRegistrationCommitInput,
+): readonly D1PreparedStatementLike[] {
+  switch (input.kind) {
+    case 'passkey_wallet_registration_commit_v1':
+      return [];
+    case 'email_otp_wallet_registration_commit_v1':
+      return input.emailOtp.statements;
+  }
+}
+
 export class CloudflareD1WalletRegistrationCommitStore
   implements D1WalletRegistrationCommitStore
 {
@@ -199,6 +222,7 @@ export class CloudflareD1WalletRegistrationCommitStore
         now: input.now,
       }),
     );
+    statements.push(...emailOtpCommitStatements(input));
     const results = await this.database.batch<D1ResultLike>(statements);
     assertBatchSucceeded({
       expectedStatementCount: statements.length,
