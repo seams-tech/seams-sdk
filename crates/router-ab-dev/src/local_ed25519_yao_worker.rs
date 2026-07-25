@@ -1493,7 +1493,10 @@ fn execute_local_pair_deriver_a_inner_v1(
             } if stored_execution_id == execution_id.into_bytes()
                 && *stored_pair_binding == request.pair_binding
                 && stored_pair_binding.validate().is_ok()
-                && completed_execution_matches_pair_v1(&execution, stored_pair_binding) =>
+                && completed_execution_matches_pair_v1(
+                    &execution,
+                    stored_pair_binding.as_ref(),
+                ) =>
             {
                 Ok(*execution)
             }
