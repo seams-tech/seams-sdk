@@ -5231,8 +5231,8 @@ mod tests {
     fn role_failure_mapping_preserves_only_sanitized_retry_class() {
         let expired = CloudflareEd25519YaoRoleFailureResponseV1::from_protocol_error(
             &RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidLifecycleState,
-                "Deriver B pair preparation expired",
+                RouterAbProtocolErrorCode::PairPreparationExpired,
+                "diagnostic text is not part of the classification contract",
             ),
         );
         assert_eq!(
@@ -5245,8 +5245,8 @@ mod tests {
 
         let missing = CloudflareEd25519YaoRoleFailureResponseV1::from_protocol_error(
             &RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidLifecycleState,
-                "Deriver B pair is not prepared",
+                RouterAbProtocolErrorCode::MissingPairPreparation,
+                "diagnostic text is not part of the classification contract",
             ),
         );
         assert_eq!(

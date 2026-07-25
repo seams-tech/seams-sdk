@@ -13046,9 +13046,11 @@ fn cloudflare_router_error_status(code: RouterAbProtocolErrorCode) -> u16 {
         | RouterAbProtocolErrorCode::InvalidLocalRoute
         | RouterAbProtocolErrorCode::MalformedWirePayload
         | RouterAbProtocolErrorCode::UnsupportedVectorVersion => 400,
-        RouterAbProtocolErrorCode::ExpiredLocalRequest => 408,
+        RouterAbProtocolErrorCode::ExpiredLocalRequest
+        | RouterAbProtocolErrorCode::PairPreparationExpired => 408,
         RouterAbProtocolErrorCode::ReplayedLocalRequest
-        | RouterAbProtocolErrorCode::ConflictingPair => 409,
+        | RouterAbProtocolErrorCode::ConflictingPair
+        | RouterAbProtocolErrorCode::MissingPairPreparation => 409,
         RouterAbProtocolErrorCode::MissingLocalBinding
         | RouterAbProtocolErrorCode::ForbiddenLocalBinding
         | RouterAbProtocolErrorCode::InvalidLocalServiceConfig => 500,

@@ -132,10 +132,11 @@ impl CloudflareEd25519YaoRoleFailureResponseV1 {
     pub fn from_protocol_error(
         error: &RouterAbProtocolError,
     ) -> CloudflareEd25519YaoRoleFailureResponseV1 {
-        let message = error.message().to_ascii_lowercase();
-        if error.code() == RouterAbProtocolErrorCode::ExpiredLocalRequest
-            || message.contains("expired")
-        {
+        if matches!(
+            error.code(),
+            RouterAbProtocolErrorCode::ExpiredLocalRequest
+                | RouterAbProtocolErrorCode::PairPreparationExpired
+        ) {
             return Self::RecoverableFailure {
                 code: RouterEd25519YaoExecuteFailureCodeV1::CeremonyExpired,
                 retry_after_ms: 1_000,
@@ -146,7 +147,7 @@ impl CloudflareEd25519YaoRoleFailureResponseV1 {
                 code: RouterEd25519YaoExecuteFailureCodeV1::ConflictingPair,
             };
         }
-        if message.contains("missing") || message.contains("not prepared") {
+        if error.code() == RouterAbProtocolErrorCode::MissingPairPreparation {
             return Self::Rejected {
                 code: RouterEd25519YaoExecuteFailureCodeV1::MissingPreparation,
             };
