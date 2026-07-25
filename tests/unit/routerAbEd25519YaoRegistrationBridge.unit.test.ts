@@ -564,3 +564,67 @@ test.describe('ambiguous effects are never persisted as terminal', () => {
     expect(prepareCalls.count).toBe(1);
   });
 });
+
+test.describe('concurrent finalize contention', () => {
+  type Prepared = { readonly hash: string };
+  type Result = { readonly receipt: string };
+
+  const KEY = 'registration-finalize:lifecycle-contended';
+
+  function contendedRunInput(input: {
+    readonly store: RegistrationSideEffectMemoryStore<Result, Prepared>;
+    readonly effects: string[];
+  }) {
+    return {
+      operation: 'finalize' as const,
+      key: KEY,
+      requestFingerprint: REQUEST_FINGERPRINT,
+      nowMs: fixedNow,
+      prepare: async (): Promise<Prepared> => ({ hash: 'tx-single' }),
+      execute: async (prepared: Prepared | undefined): Promise<Result> => {
+        if (!prepared) throw new Error('missing prepared transaction');
+        input.effects.push(prepared.hash);
+        return { receipt: prepared.hash };
+      },
+    };
+  }
+
+  test('only one of two concurrent finalizes runs the effect', async () => {
+    const store = new RegistrationSideEffectMemoryStore<Result, Prepared>();
+    const effects: string[] = [];
+
+    const [first, second] = await Promise.all([
+      runRouterAbEd25519YaoRegistrationSideEffectV1<Result, Prepared>(
+        store,
+        contendedRunInput({ store, effects }),
+      ),
+      runRouterAbEd25519YaoRegistrationSideEffectV1<Result, Prepared>(
+        store,
+        contendedRunInput({ store, effects }),
+      ),
+    ]);
+
+    // The claim is a create-if-absent CAS, so exactly one attempt owns the
+    // effect. A second broadcast here would be a duplicate sponsored account.
+    expect(effects).toHaveLength(1);
+    const kinds = [first.kind, second.kind].sort();
+    expect(kinds).toEqual(['executed', 'in_progress']);
+  });
+
+  test('a losing concurrent finalize never reports success it did not perform', async () => {
+    const store = new RegistrationSideEffectMemoryStore<Result, Prepared>();
+    const effects: string[] = [];
+
+    await runRouterAbEd25519YaoRegistrationSideEffectV1<Result, Prepared>(
+      store,
+      contendedRunInput({ store, effects }),
+    );
+    const loser = await runRouterAbEd25519YaoRegistrationSideEffectV1<Result, Prepared>(
+      store,
+      contendedRunInput({ store, effects }),
+    );
+
+    expect(loser).toEqual({ kind: 'exact_replay', value: { receipt: 'tx-single' } });
+    expect(effects).toHaveLength(1);
+  });
+});
