@@ -678,6 +678,8 @@ const SIGNER_READY_TABLES = Object.freeze([
   'router_ab_yao_capability_replacements',
   'router_ab_yao_versioned_json_records',
   'router_ab_yao_versioned_json_cas_guard',
+  'registration_ceremony_records',
+  'registration_ceremony_cas_guard',
 ]);
 
 function jsonResponse(body: Record<string, unknown>, init?: ResponseInit): Response {
