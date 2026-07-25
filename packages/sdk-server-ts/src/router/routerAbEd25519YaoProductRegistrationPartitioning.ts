@@ -82,7 +82,7 @@ export function partitionRouterAbEd25519YaoProductRegistrationStateV1(
     lifecycleId: normalizedLifecycleId,
     shared: {
       kind: 'router_ab_ed25519_yao_product_registration_shared_state_v1',
-      recoveryCapabilities: new Map(state.recovery.capabilities),
+      recoveryCapabilities: cloneMapValues(state.recovery.capabilities),
       recoveryIdentityCapabilities: new Map(state.recovery.identityCapabilities),
       exportAuthorizationNonces: new Set(state.export.authorizationNonces),
     },
@@ -101,9 +101,9 @@ export function partitionRouterAbEd25519YaoProductRegistrationStateV1(
         ),
       },
       authorization: {
-        authorities: state.authorization.authorities.filter(
-          (authority) => authorityLifecycleId(authority) === normalizedLifecycleId,
-        ),
+        authorities: state.authorization.authorities
+          .filter((authority) => authorityLifecycleId(authority) === normalizedLifecycleId)
+          .map((authority) => structuredClone(authority)),
       },
       recovery: {
         recoveries: recoveryStates,
@@ -145,10 +145,12 @@ export function mergeRouterAbEd25519YaoProductRegistrationStatePartitionV1(
     admissionClaims.set(key, value);
   }
 
-  const authorities = base.authorization.authorities.filter(
-    (authority) => authorityLifecycleId(authority) !== lifecycleId,
+  const authorities = base.authorization.authorities
+    .filter((authority) => authorityLifecycleId(authority) !== lifecycleId)
+    .map((authority) => structuredClone(authority));
+  authorities.push(
+    ...partition.ceremony.authorization.authorities.map((authority) => structuredClone(authority)),
   );
-  authorities.push(...partition.ceremony.authorization.authorities);
 
   const recoveries = replaceLifecycleEntries(
     base.recovery.recoveries,
@@ -180,11 +182,11 @@ export function mergeRouterAbEd25519YaoProductRegistrationStatePartitionV1(
     registration: {
       states: registrationStates,
       lifecycleSessions,
-      admissionClaims,
+      admissionClaims: cloneMapValues(admissionClaims),
     },
     authorization: { authorities },
     recovery: {
-      capabilities: new Map(partition.shared.recoveryCapabilities),
+      capabilities: cloneMapValues(partition.shared.recoveryCapabilities),
       identityCapabilities: new Map(partition.shared.recoveryIdentityCapabilities),
       recoveries,
       recoverySessions,
@@ -203,14 +205,14 @@ function selectMapEntries<T>(
 ): Map<string, T> {
   const selected = new Map<string, T>();
   for (const [key, value] of source) {
-    if (lifecycleOf(value) === lifecycleId) selected.set(key, value);
+    if (lifecycleOf(value) === lifecycleId) selected.set(key, structuredClone(value));
   }
   return selected;
 }
 
 function selectMapLifecycleEntry<T>(source: Map<string, T>, lifecycleId: string): Map<string, T> {
   const value = source.get(lifecycleId);
-  return value === undefined ? new Map() : new Map([[lifecycleId, value]]);
+  return value === undefined ? new Map() : new Map([[lifecycleId, structuredClone(value)]]);
 }
 
 function selectSessionsForStates<T>(
@@ -233,10 +235,16 @@ function replaceLifecycleEntries<T>(
 ): Map<string, T> {
   const merged = new Map<string, T>();
   for (const [key, value] of base) {
-    if (lifecycleOf(value) !== lifecycleId) merged.set(key, value);
+    if (lifecycleOf(value) !== lifecycleId) merged.set(key, structuredClone(value));
   }
-  for (const [key, value] of replacement) merged.set(key, value);
+  for (const [key, value] of replacement) merged.set(key, structuredClone(value));
   return merged;
+}
+
+function cloneMapValues<T>(source: Map<string, T>): Map<string, T> {
+  const cloned = new Map<string, T>();
+  for (const [key, value] of source) cloned.set(key, structuredClone(value));
+  return cloned;
 }
 
 function registrationStateLifecycleId(state: RegistrationLifecycleState): string {

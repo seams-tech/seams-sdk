@@ -11,6 +11,7 @@ import {
   type RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
 import { createRouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistration';
+import { InMemoryRouterAbEd25519YaoRecoveryService } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
 import { encodeRouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPersistence';
 import type { CloudflareVersionedJsonRecordReadResult } from '../../packages/sdk-server-ts/src/router/cloudflare/versionedJsonRecordStore';
 import {
@@ -24,6 +25,8 @@ import {
   type RouterAbEd25519YaoRegistrationTwoPhasePrepareResultV1,
 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRegistrationTwoPhaseRunner';
 import type { RouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistration';
+import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
+import { buildEd25519YaoCapabilityFixture } from '../helpers/ed25519YaoCapabilityFixtures';
 
 type StoredRecord = {
   readonly value: RouterAbEd25519YaoProductRegistrationPartitionRecordV1;
@@ -287,6 +290,85 @@ test.describe('partitioned Gateway product-state composition', () => {
     const loaded = await store.load('lifecycle-a');
     expect(loaded.state.registration.lifecycleSessions.get('lifecycle-a')).toBe('session-a');
     expect(backend.records.has(ROUTER_AB_ED25519_YAO_SHARED_STATE_RECORD_KEY_V1)).toBeTruthy();
+  });
+
+  test('persists shared terminal mutations after a fresh load without Map aliasing', async () => {
+    const backend = new MemoryPartitionRecordStore();
+    const store = createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1(backend);
+    const loaded = await store.load('lifecycle-alias');
+    const capabilityFixture = buildEd25519YaoCapabilityFixture({
+      walletId: walletIdFromString('wallet-alias-test'),
+      nearAccountId: 'wallet-alias-test.testnet',
+      nearEd25519SigningKeyId: 'near-ed25519-alias-key',
+      thresholdSessionId: 'threshold-alias-session',
+      signerSlot: 1,
+      signingWorkerId: 'signing-worker-alias',
+      participantIds: [1, 2],
+      runtimePolicyScope: {
+        orgId: 'org-alias',
+        projectId: 'project-alias',
+        envId: 'env-alias',
+        signingRootVersion: 'root-alias-v1',
+      },
+      seed: 91,
+    });
+    const recoveryService = new InMemoryRouterAbEd25519YaoRecoveryService(
+      {
+        admitRecovery: async () => ({
+          ok: false as const,
+          status: 503 as const,
+          code: 'test_unavailable',
+          message: 'test backend unavailable',
+        }),
+        executeRecovery: async () => ({
+          ok: false as const,
+          status: 503 as const,
+          code: 'test_unavailable',
+          message: 'test backend unavailable',
+        }),
+        activateRecovery: async () => ({
+          ok: false as const,
+          status: 503 as const,
+          code: 'test_unavailable',
+          message: 'test backend unavailable',
+        }),
+      },
+      loaded.state.recovery,
+    );
+    const installed = recoveryService.installPersistedActiveCapability(
+      capabilityFixture.capability,
+    );
+    if (!installed.ok) throw new Error(installed.message);
+    await expect(
+      store.commit({
+        lifecycleId: 'lifecycle-alias',
+        state: loaded.state,
+        sharedState: loaded.sharedState,
+        sharedVersion: loaded.sharedVersion,
+        ceremonyVersion: loaded.ceremonyVersion,
+      }),
+    ).resolves.toEqual({ kind: 'stored', sharedVersion: '1', ceremonyVersion: '1' });
+
+    const terminal = await store.load('lifecycle-alias');
+    const active = terminal.state.recovery.capabilities.values().next().value;
+    if (!active || active.kind !== 'active') throw new Error('active capability was not persisted');
+    Object.assign(active.identity, { nearAccountId: 'mutated-after-load.testnet' });
+    await expect(
+      store.commit({
+        lifecycleId: 'lifecycle-alias',
+        state: terminal.state,
+        sharedState: terminal.sharedState,
+        sharedVersion: terminal.sharedVersion,
+        ceremonyVersion: terminal.ceremonyVersion,
+      }),
+    ).resolves.toEqual({ kind: 'stored', sharedVersion: '2', ceremonyVersion: '2' });
+
+    const reread = await store.load('lifecycle-alias');
+    const rereadActive = reread.state.recovery.capabilities.values().next().value;
+    if (!rereadActive || rereadActive.kind !== 'active') {
+      throw new Error('active capability disappeared after terminal commit');
+    }
+    expect(rereadActive.identity.nearAccountId).toBe('mutated-after-load.testnet');
   });
 
   test('preserves another ceremony while committing a separate lifecycle', async () => {
