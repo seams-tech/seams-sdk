@@ -1765,7 +1765,7 @@ Initial audit:
 | `tests/unit/thresholdEcdsa.presignPoolRefill.unit.test.ts` | keep | Threshold ECDSA presign pool refill coverage. It validates refill behavior. |
 | `tests/unit/thresholdEcdsa.publicKeyFieldRegression.unit.test.ts` | keep | Threshold ECDSA public-key field regression coverage. It validates public-key field compatibility and parsing. |
 | `tests/unit/thresholdEcdsa.registrationBootstrapParity.unit.test.ts` | keep | Threshold ECDSA registration/bootstrap parity coverage. It validates parity between registration and bootstrap material. |
-| `tests/unit/thresholdEcdsa.signingRootResolver.script.unit.test.ts` | keep | Threshold ECDSA signing-root resolver script coverage. It validates signing-root resolution tooling. |
+| `tests/unit/thresholdEcdsa.signingRootResolver.script.unit.test.ts` | deleted | Deleted obsolete role-local bootstrap and signing-root verification coverage after the removed bootstrap/export runtime; signing-root resolver behavior remains covered by `tests/unit/signingRootShareResolver.script.unit.test.ts`. |
 | `tests/unit/thresholdEcdsa.walletBudgetRefresh.unit.test.ts` | blocked_on_coverage(90 B3 grant-use migration) | Budget-era threshold ECDSA wallet refresh coverage. Replace with grant-use refresh semantics when 90 B3 lands. |
 | `tests/unit/thresholdEcdsaChainTarget.unit.test.ts` | keep | Threshold ECDSA chain-target coverage. It validates exact chain-target parsing and identity. |
 | `tests/unit/thresholdEcdsaEmailOtpConsumption.unit.test.ts` | keep | Threshold ECDSA Email OTP consumption coverage. It validates Email OTP consumption behavior for ECDSA. |

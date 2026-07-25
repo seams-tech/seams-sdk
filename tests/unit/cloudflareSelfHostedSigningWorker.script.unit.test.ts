@@ -3,7 +3,6 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
-import { deriveEvmFamilySigningKeySlotId } from '../../packages/shared-ts/src/signing-lanes';
 import { ROUTER_AB_ECDSA_DERIVATION_HEALTH_PATH } from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
 import { ROUTER_AB_ED25519_HEALTH_PATH } from '../../packages/shared-ts/src/utils/signingSessionSeal';
 import { SIGNING_ROOT_RECORD_VERSION_V1 } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootRecords';
@@ -15,8 +14,6 @@ import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/
 import { ThresholdStoreDurableObject } from '../../packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore';
 import type { CfExecutionContext } from '../../packages/sdk-server-ts/src/router/cloudflare/cloudflare.types';
 import type { RouterApiServiceBag } from '../../packages/sdk-server-ts/src/router/authServicePort';
-import type { RouterAbEcdsaBootstrapExportPort } from '../../packages/sdk-server-ts/src/core/routerAbSigning/RouterAbEcdsaBootstrapExportRuntime';
-import { createRouterAbSigningRuntimesForUnitTests } from '../helpers/routerAbSigningRuntimeTestUtils';
 
 const fakeCtx = {} as CfExecutionContext;
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -27,11 +24,6 @@ const selfHostedRouterSourcePath = resolve(
 const PROJECT_ID = 'project-alpha';
 const ENV_ID = 'env-alpha';
 const SIGNING_ROOT_ID = `${PROJECT_ID}:${ENV_ID}`;
-const VERIFY_WALLET_SIGNING_KEY_SLOT_ID = deriveEvmFamilySigningKeySlotId({
-  walletId: 'subject-alpha',
-  signingRootId: SIGNING_ROOT_ID,
-  signingRootVersion: 'root-v1',
-});
 
 function fakeRouterApiServiceBag(): RouterApiServiceBag {
   return {
@@ -40,90 +32,21 @@ function fakeRouterApiServiceBag(): RouterApiServiceBag {
     },
     thresholdRuntime: {
       getRouterAbNormalSigningRuntime: () => null,
-      getRouterAbEcdsaBootstrapExportRuntime: () => null,
       getRouterAbEcdsaPresignRuntime: () => null,
     },
   } as unknown as RouterApiServiceBag;
 }
 
-function fakeRouterApiServiceBagWithRouterAbRuntimes(): RouterApiServiceBag {
-  const runtimes = createRouterAbSigningRuntimesForUnitTests({});
+function fakeRouterApiServiceBagForRouterHealth(): RouterApiServiceBag {
   return {
     router: {
       getConfiguredRelayerAccount: () => 'self-host.testnet',
     },
     thresholdRuntime: {
-      getRouterAbNormalSigningRuntime: () => runtimes.normalSigning,
-      getRouterAbEcdsaBootstrapExportRuntime: () => runtimes.ecdsaBootstrapExport,
-      getRouterAbEcdsaPresignRuntime: () => runtimes.ecdsaPresign,
+      getRouterAbNormalSigningRuntime: () => null,
+      getRouterAbEcdsaPresignRuntime: () => null,
     },
   } as unknown as RouterApiServiceBag;
-}
-
-function fakeRouterApiServiceBagWithBootstrapPort(
-  bootstrapPort: RouterAbEcdsaBootstrapExportPort,
-): RouterApiServiceBag {
-  const runtimes = createRouterAbSigningRuntimesForUnitTests({});
-  return {
-    router: { getConfiguredRelayerAccount: () => 'self-host.testnet' },
-    thresholdRuntime: {
-      getRouterAbNormalSigningRuntime: () => runtimes.normalSigning,
-      getRouterAbEcdsaBootstrapExportRuntime: () => bootstrapPort,
-      getRouterAbEcdsaPresignRuntime: () => runtimes.ecdsaPresign,
-    },
-  } as unknown as RouterApiServiceBag;
-}
-
-class RecordingWalletVerificationPort implements RouterAbEcdsaBootstrapExportPort {
-  readonly calls: unknown[] = [];
-
-  constructor(private readonly delegate: RouterAbEcdsaBootstrapExportPort) {}
-
-  async getEcdsaKeyIdentityMetadata(
-    input: Parameters<RouterAbEcdsaBootstrapExportPort['getEcdsaKeyIdentityMetadata']>[0],
-  ): Promise<Awaited<ReturnType<RouterAbEcdsaBootstrapExportPort['getEcdsaKeyIdentityMetadata']>>> {
-    return await this.delegate.getEcdsaKeyIdentityMetadata(input);
-  }
-
-  async verifyEcdsaSigningRootWalletAddress(
-    input: Parameters<RouterAbEcdsaBootstrapExportPort['verifyEcdsaSigningRootWalletAddress']>[0],
-  ): Promise<
-    Awaited<ReturnType<RouterAbEcdsaBootstrapExportPort['verifyEcdsaSigningRootWalletAddress']>>
-  > {
-    this.calls.push(input);
-    return {
-      ok: true,
-      verified: true,
-      canonicalEthereumAddress: `0x${'11'.repeat(20)}`,
-      expectedEthereumAddress: input.expectedEthereumAddress,
-    };
-  }
-
-  async ecdsaDerivationRoleLocalBootstrap(
-    input: Parameters<RouterAbEcdsaBootstrapExportPort['ecdsaDerivationRoleLocalBootstrap']>[0],
-  ): Promise<Awaited<ReturnType<RouterAbEcdsaBootstrapExportPort['ecdsaDerivationRoleLocalBootstrap']>>> {
-    return await this.delegate.ecdsaDerivationRoleLocalBootstrap(input);
-  }
-
-  async verifyEcdsaDerivationRoleLocalClientRootProofForExistingKey(
-    input: Parameters<
-      RouterAbEcdsaBootstrapExportPort['verifyEcdsaDerivationRoleLocalClientRootProofForExistingKey']
-    >[0],
-  ): Promise<
-    Awaited<
-      ReturnType<
-        RouterAbEcdsaBootstrapExportPort['verifyEcdsaDerivationRoleLocalClientRootProofForExistingKey']
-      >
-    >
-  > {
-    return await this.delegate.verifyEcdsaDerivationRoleLocalClientRootProofForExistingKey(input);
-  }
-
-  async ecdsaDerivationRoleLocalExportShare(
-    input: Parameters<RouterAbEcdsaBootstrapExportPort['ecdsaDerivationRoleLocalExportShare']>[0],
-  ): Promise<Awaited<ReturnType<RouterAbEcdsaBootstrapExportPort['ecdsaDerivationRoleLocalExportShare']>>> {
-    return await this.delegate.ecdsaDerivationRoleLocalExportShare(input);
-  }
 }
 
 async function responseSnapshot(response: Response): Promise<{
@@ -247,7 +170,7 @@ test('self-host Cloudflare signing worker creates per-request service and option
 });
 
 test('hosted and self-host Cloudflare routers preserve threshold health route parity', async () => {
-  const service = fakeRouterApiServiceBagWithRouterAbRuntimes();
+  const service = fakeRouterApiServiceBagForRouterHealth();
   const hosted = createCloudflareRouter(service, { logger: console });
   const selfHosted = createSelfHostedCloudflareSigningRouter(service, {
     logger: console,
@@ -352,100 +275,6 @@ test('self-host signing-root admin routes import status and delete through the t
     fakeCtx,
   );
   expect(staleRoute.status).toBe(404);
-});
-
-test('self-host signing-root verify-wallet route delegates to threshold signing-root verifier', async () => {
-  const namespace = createMemoryNamespace();
-  const runtimes = createRouterAbSigningRuntimesForUnitTests({});
-  const bootstrapPort = new RecordingWalletVerificationPort(runtimes.ecdsaBootstrapExport);
-  const router = createSelfHostedCloudflareSigningRouter(
-    fakeRouterApiServiceBagWithBootstrapPort(bootstrapPort),
-    { healthz: true },
-    {
-      signingRootAdmin: {
-        namespace,
-        authenticate: ({ request }) => request.headers.get('authorization') === 'Bearer admin',
-      },
-    },
-  );
-
-  const missingBody = await router(
-    new Request('https://self-host.example.test/self-host/signing-root/verify-wallet', {
-      method: 'POST',
-      headers: { authorization: 'Bearer admin', 'content-type': 'application/json' },
-      body: JSON.stringify({ signingRootId: SIGNING_ROOT_ID }),
-    }),
-    {},
-    fakeCtx,
-  );
-  expect(missingBody.status).toBe(400);
-
-  const invalidWalletId = await router(
-    new Request('https://self-host.example.test/self-host/signing-root/verify-wallet', {
-      method: 'POST',
-      headers: { authorization: 'Bearer admin', 'content-type': 'application/json' },
-      body: JSON.stringify({
-        signingRootId: SIGNING_ROOT_ID,
-        signingRootVersion: 'root-v1',
-        walletSessionUserId: 'wallet-user-alpha',
-        subjectId: 'subject alpha',
-        chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 11155111 },
-        ecdsaThresholdKeyId: 'ecdsa-alpha',
-        evmFamilySigningKeySlotId: VERIFY_WALLET_SIGNING_KEY_SLOT_ID,
-        signingGrantId: 'wallet-signing-alpha',
-        thresholdSessionId: 'threshold-alpha',
-        rpId: 'wallet.example.test',
-        clientPublicKey33B64u: base64UrlEncode(new Uint8Array(33).fill(0x07)),
-      }),
-    }),
-    {},
-    fakeCtx,
-  );
-  expect(invalidWalletId.status).toBe(400);
-  expect(bootstrapPort.calls).toEqual([]);
-
-  const verified = await router(
-    new Request('https://self-host.example.test/self-host/signing-root/verify-wallet', {
-      method: 'POST',
-      headers: { authorization: 'Bearer admin', 'content-type': 'application/json' },
-      body: JSON.stringify({
-        signingRootId: SIGNING_ROOT_ID,
-        signingRootVersion: 'root-v1',
-        walletSessionUserId: 'wallet-user-alpha',
-        subjectId: 'subject-alpha',
-        chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 11155111 },
-        ecdsaThresholdKeyId: 'ecdsa-alpha',
-        evmFamilySigningKeySlotId: VERIFY_WALLET_SIGNING_KEY_SLOT_ID,
-        signingGrantId: 'wallet-signing-alpha',
-        thresholdSessionId: 'threshold-alpha',
-        rpId: 'wallet.example.test',
-        clientPublicKey33B64u: base64UrlEncode(new Uint8Array(33).fill(0x07)),
-        expectedEthereumAddress: `0x${'11'.repeat(20)}`,
-      }),
-    }),
-    {},
-    fakeCtx,
-  );
-
-  const verifiedBody = await verified.json();
-  expect(verified.status, JSON.stringify(verifiedBody)).toBe(200);
-  expect(verifiedBody).toMatchObject({
-    ok: true,
-    verified: true,
-    canonicalEthereumAddress: `0x${'11'.repeat(20)}`,
-  });
-  expect(bootstrapPort.calls).toEqual([
-    {
-      signingRootId: SIGNING_ROOT_ID,
-      signingRootVersion: 'root-v1',
-      walletId: 'subject-alpha',
-      chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 11155111 },
-      ecdsaThresholdKeyId: 'ecdsa-alpha',
-      evmFamilySigningKeySlotId: VERIFY_WALLET_SIGNING_KEY_SLOT_ID,
-      clientPublicKey33B64u: base64UrlEncode(new Uint8Array(33).fill(0x07)),
-      expectedEthereumAddress: `0x${'11'.repeat(20)}`,
-    },
-  ]);
 });
 
 test('self-host Cloudflare signing router keeps hosted SaaS dependencies out of its direct boundary', () => {
