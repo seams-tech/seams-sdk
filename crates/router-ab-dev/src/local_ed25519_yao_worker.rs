@@ -1369,14 +1369,14 @@ fn prepare_local_pair_role_v1(
                     session: request.pair_binding.session(),
                     pair_digest,
                 };
-                Err(invalid_worker_state("pair role preparation expired"))
+                Err(pair_preparation_expired())
             }
             LocalEd25519YaoPairRoleRecordV1::Expired { .. }
             | LocalEd25519YaoPairRoleRecordV1::Burned { .. } => {
                 Err(invalid_worker_state("pair role lifecycle is terminal"))
             }
             LocalEd25519YaoPairRoleRecordV1::Running { .. } => {
-                Err(invalid_worker_state("pair role is already running"))
+                Err(pair_conflict("pair role is already running"))
             }
             LocalEd25519YaoPairRoleRecordV1::Completed { .. } => Err(invalid_worker_state(
                 "pair role lifecycle is already completed",
@@ -1474,7 +1474,7 @@ fn execute_local_pair_deriver_a_inner_v1(
         .pair_roles
         .get(&pair_digest)
         .cloned()
-        .ok_or_else(|| invalid_worker_state("Deriver A pair is not prepared"))?;
+        .ok_or_else(missing_pair_preparation)?;
     let LocalEd25519YaoPairRoleRecordV1::Prepared {
         session,
         pair_digest: stored_pair_digest,
@@ -1506,7 +1506,7 @@ fn execute_local_pair_deriver_a_inner_v1(
                 "Deriver A pair completion identity mismatch",
             )),
             LocalEd25519YaoPairRoleRecordV1::Running { .. } => {
-                Err(invalid_worker_state("Deriver A pair is already running"))
+                Err(pair_conflict("Deriver A pair is already running"))
             }
             LocalEd25519YaoPairRoleRecordV1::Expired { .. }
             | LocalEd25519YaoPairRoleRecordV1::Burned { .. } => {
@@ -1527,7 +1527,7 @@ fn execute_local_pair_deriver_a_inner_v1(
                 pair_digest,
             },
         );
-        return Err(invalid_worker_state("Deriver A pair preparation expired"));
+        return Err(pair_preparation_expired());
     }
     let running = LocalEd25519YaoPairRoleRecordV1::Running {
         session,
@@ -2784,6 +2784,24 @@ fn public_deriver_b_completion(
 
 fn invalid_worker_state(message: &'static str) -> RouterAbProtocolError {
     RouterAbProtocolError::new(RouterAbProtocolErrorCode::InvalidLifecycleState, message)
+}
+
+fn pair_conflict(message: &'static str) -> RouterAbProtocolError {
+    RouterAbProtocolError::new(RouterAbProtocolErrorCode::ConflictingPair, message)
+}
+
+fn missing_pair_preparation() -> RouterAbProtocolError {
+    RouterAbProtocolError::new(
+        RouterAbProtocolErrorCode::MissingPairPreparation,
+        "pair role preparation is missing",
+    )
+}
+
+fn pair_preparation_expired() -> RouterAbProtocolError {
+    RouterAbProtocolError::new(
+        RouterAbProtocolErrorCode::PairPreparationExpired,
+        "pair role preparation expired",
+    )
 }
 
 #[cfg(test)]
