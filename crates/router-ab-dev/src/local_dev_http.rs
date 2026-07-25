@@ -147,7 +147,7 @@ fn local_dev_router_unsupported_route_v1(
             "method not allowed",
         );
     }
-    if let Err(message) = require_local_dev_internal_service_auth_v1(request) {
+    if let Err(message) = require_local_dev_router_internal_service_auth_v1(config, request) {
         return local_dev_http_error_body_v1(
             LocalServiceRoleV1::Router,
             &request.path,
@@ -164,8 +164,25 @@ fn local_dev_router_unsupported_route_v1(
         }
         _ => "Rust local Router route is not served; use strict Wrangler local mode",
     };
-    let _ = config;
     local_dev_http_error_body_v1(LocalServiceRoleV1::Router, &request.path, 501, error)
+}
+
+fn require_local_dev_router_internal_service_auth_v1(
+    config: &LocalRouterWorkerConfigV1,
+    request: &LocalDevHttpRequestPartsV1,
+) -> Result<(), &'static str> {
+    match request.internal_service_auth.as_deref() {
+        Some(actual)
+            if super::local_router_ab_internal_service_auth_matches_v1(
+                actual,
+                &config.internal_service_auth,
+            ) =>
+        {
+            Ok(())
+        }
+        Some(_) => Err("local Router internal service-auth header is invalid"),
+        None => Err("local Router internal service-auth header is missing"),
+    }
 }
 
 fn local_dev_signing_worker_config_v1(
