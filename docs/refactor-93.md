@@ -1037,12 +1037,39 @@ route-deletion cleanup.
       `e0dd36d0-787b-4e19-beb0-c84b8955cc8b`, each at 100% traffic. The
       Gateway version annotation records the selected revision. Workflow and
       independent readiness checks passed, and all six family-window bindings
-      remained empty.
-- [ ] With every family window unset, exercise registration, recovery, export,
-      replay, restart, and concurrency on that frozen staging revision. In this
-      phase `legacy_runtime` means tenant-runtime lifecycle persistence; the
-      cryptographic execution path already submits one command to the MPC
-      Router.
+      remained empty. The first live registration reached the Router but failed
+      before either role entered `Prepared`: Deriver A and Deriver B each
+      rejected the Gateway-requested `root_share_epoch=epoch-1` against their
+      persisted startup metadata. Readiness proved deployment and binding
+      availability; it did not prove that persisted role metadata matched the
+      Gateway-admitted signing-root scope. A reversible staging CAS from
+      `epoch-1` to `default` proved that both Ed25519 roles accept `default` and
+      complete Router execution, while the ECDSA derivation roles reject that
+      same epoch because their persisted metadata is `epoch-1`. The CAS was
+      reverted to `epoch-1`; no role metadata was rewritten. The product flow
+      currently projects one environment `signingRootVersion` onto two
+      independently persisted root-share systems, so staging cannot complete a
+      dual-branch registration with its existing records.
+- [ ] Reconcile the frozen staging revision's admitted signing-root scope with
+      both Ed25519 and ECDSA role-local startup-metadata records. Define the
+      deployment-owned root epoch for each root-share system instead of letting
+      one tenant environment version initialize or relabel role custody state.
+      Correct staging through the supported provisioning or rotation boundary,
+      verify both roles in each system accept the exact configured scope, and
+      add a data-plane preflight that fails before a product ceremony when any
+      required role lacks that scope.
+- [ ] With every family window unset, complete the staging cohort for
+      registration, recovery, export, exact replay, conflict, disconnect,
+      terminal redelivery, rollback, restart, and concurrency on that frozen
+      revision. The first registration attempt failed at both role
+      startup-metadata boundaries because the admitted
+      `root_share_epoch=epoch-1` did not match persisted role metadata; no
+      successful product ceremony has been recorded. A diagnostic registration
+      under `default` completed the Ed25519 Router execute in 4.297 seconds,
+      then failed and canceled at ECDSA derivation because that system requires
+      `epoch-1`. In this phase `legacy_runtime` means tenant-runtime lifecycle
+      persistence; the cryptographic execution path already submits one command
+      to the MPC Router.
 - [x] Superseded: validate the Router while the Gateway still uses the old
       request boundary. The branch already contains the Gateway cutover, so this
       ordering cannot be replayed. The coherent staging rollout below replaces
@@ -1072,7 +1099,8 @@ route-deletion cleanup.
       both hosted environments, and both Gateway jobs require
       `STRIPE_API_SK`. The historical failure and current invariant are recorded
       in [`refactor-93-production-evidence.md`](./refactor-93-production-evidence.md);
-      a new coherent staging run remains open.
+      a coherent staging run completed, while data-plane acceptance remains
+      open on the role startup-metadata mismatch recorded above.
 
 ## Mid-Implementation Review Dispositions (2026-07-24)
 
