@@ -5,10 +5,11 @@ import type {
   D1ResultLike,
 } from '../../storage/tenantRoute';
 import { isD1DatabaseLike } from '../../storage/d1Sql';
-import type {
-  CloudflareVersionedJsonObject,
-  CloudflareVersionedJsonRecordPutResult,
-  CloudflareVersionedJsonRecordReadResult,
+import {
+  containsControlCharacter,
+  type CloudflareVersionedJsonObject,
+  type CloudflareVersionedJsonRecordPutResult,
+  type CloudflareVersionedJsonRecordReadResult,
 } from './versionedJsonRecordStore';
 
 const TABLE_NAME = 'router_ab_yao_versioned_json_records';
@@ -379,7 +380,7 @@ function normalizeScope(
 
 function normalizeScopePart(value: unknown, field: string): string {
   const normalized = toOptionalTrimmedString(value);
-  if (!normalized || normalized.length > 256 || /[\u0000-\u001f\u007f]/u.test(normalized)) {
+  if (!normalized || normalized.length > 256 || containsControlCharacter(normalized)) {
     throw new Error(`Cloudflare D1 versioned JSON ${field} is invalid`);
   }
   return normalized;
@@ -388,7 +389,7 @@ function normalizeScopePart(value: unknown, field: string): string {
 function normalizeKeyPrefix(value: unknown): string {
   const prefix = toOptionalTrimmedString(value);
   if (!prefix) return 'router-ab-yao:';
-  if (prefix.length > 128 || /[\u0000-\u001f\u007f]/u.test(prefix)) {
+  if (prefix.length > 128 || containsControlCharacter(prefix)) {
     throw new Error('Cloudflare D1 versioned JSON keyPrefix is invalid');
   }
   return prefix.endsWith(':') ? prefix : `${prefix}:`;
@@ -397,7 +398,7 @@ function normalizeKeyPrefix(value: unknown): string {
 function normalizeRecordKey(value: unknown): string {
   const key = toOptionalTrimmedString(value);
   if (!key) throw new Error('Cloudflare D1 versioned JSON record key is required');
-  if (key.length > 512 || /[\u0000-\u001f\u007f]/u.test(key)) {
+  if (key.length > 512 || containsControlCharacter(key)) {
     throw new Error('Cloudflare D1 versioned JSON record key is invalid');
   }
   return key;
