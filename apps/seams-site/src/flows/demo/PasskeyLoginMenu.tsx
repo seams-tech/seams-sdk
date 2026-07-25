@@ -496,20 +496,6 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
         mode: 'register' | 'login';
       }) => {
         await refreshLoginState(walletId);
-        /* TEMP-DIAG: splits "host session says logged out" from "react
-           provider state didn't update" for the email-OTP unlock bug */
-        try {
-          const session = await seams.auth.getWalletSession(walletId);
-          console.debug('[demo][email-otp] post-unlock session', {
-            walletId,
-            mode,
-            isLoggedIn: session.login.isLoggedIn,
-            sessionWalletId: session.login.walletId,
-            currentAuthMethod: session.currentAuthMethod?.kind,
-          });
-        } catch (err) {
-          console.debug('[demo][email-otp] post-unlock getWalletSession FAILED', err);
-        }
         toast.success(mode === 'register' ? 'Email OTP wallet ready' : 'Wallet unlocked', {
           id: GOOGLE_EMAIL_OTP_TOAST_ID,
         });
