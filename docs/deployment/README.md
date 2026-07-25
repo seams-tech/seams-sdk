@@ -1,211 +1,204 @@
 # Deployment
 
-This directory is the deployment runbook for the SDK runtime, Cloudflare Pages
-sites, Router A/B Workers, and backing infra.
+This is the operational runbook for the SDK runtime, Cloudflare Pages sites,
+Router A/B Workers, Gateway, and their backing data services. The deployment
+surface has four hand-written workflows and two top-level deployment scripts.
 
-## Deployment Model
+## System and branch rules
 
-GitHub deployments use two isolated environments:
+Each deployment targets one complete lane. Backend and frontend lanes are
+independent and use the currently deployed version of the other lane during
+smoke checks.
 
-- `staging`: automatic from `dev`; manual target for pre-production deploys.
-- `production`: automatic from `main`; manual target for production deploys.
+| Workflow | Manual ref | Automatic trigger | Scope |
+| --- | --- | --- | --- |
+| `.github/workflows/deploy-staging-backend.yml` | `dev` only | Pushes to `dev`, after staging and production proof is complete | Full staging backend lane |
+| `.github/workflows/deploy-production-backend.yml` | `main` only | None | Full production backend lane |
+| `.github/workflows/deploy-staging-frontend.yml` | `dev` only | Pushes to `dev`, after staging and production proof is complete | Staging app and wallet Pages |
+| `.github/workflows/deploy-production-frontend.yml` | `main` only | None | Production app and wallet Pages |
 
-Production has its own Router A/B Workers, Gateway, D1 databases,
-Durable Object namespaces, secrets, and Pages configuration. It does not reuse
-staging persistence or Worker resources.
+The repository validation workflows remain separate. The deployment workflows
+use no `workflow_run` trigger and accept no arbitrary revision input. Every job
+checks out `${{ github.sha }}` from its workflow event. Staging therefore runs
+the `dev` commit that started the run; production runs the `main` commit that
+started the run. Direct pushes to protected `main` remain disabled. Production
+is manual and uses the existing `production` environment, whose branch policy
+and the workflow branch guard both restrict deployments to `main`.
 
-The workflow target is the deployment environment, not the chain. NEAR network,
-RPC URLs, wallet origins, and Pages aliases come from GitHub Environment
-variables and checked-in Cloudflare config.
-
-## Workflows
-
-| Workflow                                                   | Trigger                                                      | Purpose                                                                           |
-| ---------------------------------------------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------- |
-| `.github/workflows/validate-repository.yml`                | Push fast gate; pull request, merge group, or manual full validation | Push policy/change-set recording; full repository validation on review paths. |
-| `.github/workflows/validate-cloudflare-router-ab.yml`      | Relevant Router A/B pull requests, or manual dispatch        | Router A/B core, Cloudflare, strict Worker, and startup validation.               |
-| `.github/workflows/deploy-staging-cloudflare-stack.yml`    | Successful `dev` validation run, or manual accepted release  | Builds and deploys the selected staging Cloudflare stack.                         |
-| `.github/workflows/deploy-production-cloudflare-stack.yml` | Successful `main` validation run, or manual accepted release | Builds and deploys the selected production Cloudflare stack.                      |
-
-These are the only four repository workflows. The staging and production stack
-workflows contain the service-level build, deploy, migration, activation, Pages,
-and smoke-test jobs for `cloudflare-router-ab`, `cloudflare-gateway`,
-`cloudflare-pages`, and the overall `cloudflare-stack`. No file under
-`.github/workflows` uses `workflow_call`.
-
-Removed testnet-only workflows are replaced by the staging target in the
-workflows above. Move any required GitHub Environment secrets and vars from an
-old `testnet` environment into `staging`.
-
-## First Deploy Checklist
-
-1. Create one protected deployment-values file per target from
-   `crates/router-ab-cloudflare/env/deployment-values.example.env`.
-2. Add the scoped Cloudflare API token. Add funded relayer, OAuth, or EVM
-   sponsor credentials only for features that target will use.
-3. Run `pnpm deploy:env-rotate -- staging`, then repeat for `production` with
-   its independent protected values file. The wrapper prepares one generation,
-   stores separate wallet-core and product manifests, and uploads them in that
-   order. See [tooling.md](tooling.md#github-environment-bootstrap).
-4. Use `pnpm wallet-core:deploy:env-update -- --env staging --apply` or
-   `pnpm product:deploy:env-update -- --env staging --apply` for later
-   operator-owned configuration changes. These preserve generated identities
-   and keep ownership boundaries explicit. Add `--variables-only`,
-   `--secrets-only`, or `--only NAME_A,NAME_B` to scope the upload further.
-5. Push `dev` for staging. Merge a pull request into protected `main` for
-   production. The push fast gate starts the matching stack workflow, which
-   creates the immutable release set before running its service-level jobs.
-   Protected `dev` and `main` branches must require the full repository checks
-   before accepting changes.
-6. Verify D1 backups and restore procedures from
-   [infra.md](infra.md#cloudflare-data).
-
-## Normal Promotion
-
-Staging:
+Normal promotion is:
 
 ```bash
+# Staging, when the push trigger is enabled
 git push origin dev
+
+# Production: merge an accepted change into protected main, then dispatch
+gh workflow run deploy-production-backend.yml --ref main
+gh workflow run deploy-production-frontend.yml --ref main
 ```
 
-Production:
-
-Merge the accepted `dev` revision into protected `main` through a pull request.
-Direct pushes to `main` are disabled.
-
-Manual accepted-release promotion:
+Manual staging runs use the matching files with `--ref dev`:
 
 ```bash
-gh workflow run deploy-staging-cloudflare-stack.yml --ref dev \
-  -f source_sha=<40-char-sha> \
-  -f artifact_run_id=<accepted-artifact-run-id> \
-  -f release_set_id=<release-set-id>
+gh workflow run deploy-staging-backend.yml --ref dev
+gh workflow run deploy-staging-frontend.yml --ref dev
 ```
 
-Router A/B role config lives in
+There are no `source_sha`, artifact-run, release-set, or coordination-receipt
+inputs. A deployment always covers the whole lane; changed-file component
+selection is not part of the system.
+
+## Files and commands
+
+The workflow YAML owns branch restrictions, GitHub environment binding, and
+visible job order. The scripts own target parsing and
+component operations:
+
+```text
+scripts/deploy-backend.mjs
+  pnpm deploy:backend <plan|build|preflight|migrate|deploy|smoke> --target <staging|production>
+
+scripts/deploy-frontend.mjs
+  pnpm deploy:frontend <plan|build|deploy|smoke> --target <staging|production>
+
+deployment/targets.json
+  target capabilities, resources, and secret ownership
+```
+
+`plan` is the local review command. It needs no credentials, validates the
+target, and prints the complete ordered mutation sequence without changing a
+remote resource. `build` is also runnable locally and performs no remote
+mutation.
+
+Backend `preflight`, `migrate`, and `deploy` are CI operations. Preflight is
+component-scoped and runs once per custody environment; every leg completes
+before migration or deployment. Migrations and deployment mutate remote
+resources, and secret-bearing operations remain inside their owning GitHub
+environment. Frontend deploy and both lane smoke operations run in CI. No
+local command deploys a whole backend lane, and no process receives both
+Deriver A and Deriver B secrets.
+
+Target capabilities derive the Gateway secret requirement at runtime:
+
+- An enabled capability requires and uploads its declared secrets.
+- A disabled capability ignores those secrets and never uploads them.
+- Required secret names live only in `deployment/targets.json`. Preflight
+  receives the bound environment through `toJSON(secrets)` and checks names
+  without printing values.
+- Optional Gateway secrets are uploaded when configured and are not required
+  by preflight.
+
+This keeps configuration validation ahead of every remote mutation.
+
+## Environments and custody
+
+The backend lane contains five separately bound component environments:
+
+| Environment | Custody |
+| --- | --- |
+| `<target>-signing-worker` | SigningWorker server-output private key |
+| `<target>-deriver-a` | Deriver A root-share, envelope, and peer-signing secrets |
+| `<target>-deriver-b` | Deriver B root-share, envelope, and peer-signing secrets |
+| `<target>-mpc-router` | Router A/B internal service-auth secret |
+| `<target>-gateway` | Gateway secrets, signing-root KEK, and signing-session seal set |
+| `<target>` | Cloudflare Pages credentials and public frontend build configuration |
+
+Deriver A and Deriver B secrets never share a job. The preflight matrix binds
+one custody environment per leg and checks its inventory against
+`deployment/targets.json`. The existing `staging` and `production`
+environments own the frontend build variables and Pages credentials. See
+[infra.md](infra.md) for the complete environment and secret tables.
+
+## Deployment order
+
+### Backend
+
+The hand-written backend workflow makes this dependency order visible:
+
+1. Build all backend components once in a clean workspace. The first build
+   step rejects any branch other than `dev` for staging or `main` for
+   production.
+2. Complete every component-scoped preflight against the five existing custody
+   environments.
+3. Apply D1 migrations in order: console first, signer second. Migration
+   fingerprints guard the operation.
+4. Validate and deploy SigningWorker.
+5. Validate and deploy Deriver A.
+6. Validate and deploy Deriver B.
+7. Validate and deploy MPC Router.
+8. Validate Gateway configuration, bootstrap the tenant, upsert the
+   signing-root KEK, and deploy Gateway.
+9. Run backend smoke checks as the final Gateway job step.
+
+Gateway is last because it depends on the preceding backend services. A failed
+run leaves earlier steps applied; rerunning failed jobs uses the same workflow
+SHA and successful same-run build artifact.
+
+### Frontend
+
+The frontend workflow has one environment-bound job. It validates its target,
+builds the site once, deploys the app and wallet Pages projects from that same
+workspace, and runs HTTP readiness, SDK asset, and compatibility smoke checks.
+It does not wait for the backend workflow, and the backend workflow does not
+wait for it.
+
+## Same-run artifacts
+
+The backend build job produces one fixed-name artifact for the current run.
+The five deploy jobs download it and assert that their expected entry files
+exist before mutation. A failed-job rerun reuses the successful build; a full
+workflow rerun overwrites the fixed name within its own run. Frontend needs no
+artifact transfer because build, both Pages deployments, and smoke execute in
+one job.
+
+Artifacts never move between runs. There is no release manifest, cross-run
+promotion, or custom historical-run selection. The workflow event's commit is
+the source of truth.
+
+## API evolution and migrations
+
+Frontend and backend changes use expand-contract deployment:
+
+1. Deploy backward-compatible backend additions.
+2. Deploy the frontend that uses those additions.
+3. Remove obsolete backend behavior in a later deployment after the old
+   frontend is no longer live.
+
+Every backend deployment must serve the frontend already deployed, and every
+frontend deployment must work with the backend already deployed. Breaking API
+changes are split across deployments; lane coordination receipts are not used.
+
+D1 migrations are forward-only. Reverting a commit does not undo an applied
+schema change. Undoing one requires a new forward migration. Land a
+non-additive schema change in an earlier deployment, then deploy code that
+depends on it.
+
+## Smoke, failure, and rollback
+
+Smoke is the final gate for each lane. Backend checks readiness, deployed
+revision, Gateway bindings, ceremony key availability, and configured Router
+health. Frontend checks both Pages origins, representative SDK runtime assets,
+and compatibility with the currently deployed backend.
+
+For Workers and Pages, revert the bad change or land a corrective commit on the
+target branch, then deploy that new branch tip. Rollback rebuilds the lane from
+the new commit; historical SHA and cross-run artifact inputs are unavailable.
+Secrets, D1 schema, Durable Object state, and other environment state require
+their own recovery procedure.
+
+For an interrupted run, rerun the failed jobs at the same `${{ github.sha }}`.
+Migrations are fingerprint-checked and idempotent, and Worker deployment is
+last-write-wins. Do not treat a code rollback as a database rollback.
+
+## Infrastructure and setup
+
+Before the first run, provision the target-specific GitHub environments and
+Cloudflare resources, populate [infra.md](infra.md), and validate the target
+with the local `plan` command. Keep staging and production D1 databases,
+Durable Object namespaces, Worker resources, Pages projects, and secrets
+separate. The target file is the checked-in source for capabilities, resources,
+and ownership; GitHub job YAML remains the explicit source for secret bindings.
+
+For Router A/B configuration, use
 [router-ab-cloudflare-env.example.yml](router-ab-cloudflare-env.example.yml).
-
-## Deploy Order
-
-The accepted branch release runs in this order:
-
-1. Successful push-mode `Validate / repository` for the current
-   protected-branch tip.
-2. The selector chooses the affected components and only their artifact jobs run.
-3. The release-set manifest and selected artifact digests verify before mutation.
-4. Selected SigningWorker and Deriver jobs run concurrently with Gateway;
-   MPCRouter waits for the Router roles, and Pages waits for Gateway when both
-   are selected.
-5. MPCRouter activates only after a Router topology release has all three role deployments succeed.
-6. One selected-release smoke check completes the deployment.
-
-An older CI run is rejected after a newer commit becomes the branch tip.
-
-## Follow-Up Phase: Build Once, Deploy Many
-
-Status: implemented for Gateway, Router A/B, and Pages. Cross-run release-set
-provenance is now the required deployment path; SDK runtime assets are deployed
-as part of Pages.
-
-Previously, cold deployment runners compiled cryptographic WASM and the complete
-Pages SDK before each upload. A failed upload could repeat an otherwise
-successful build. This phase separates release artifact production from
-Cloudflare mutation so retries remain short and deterministic.
-
-### Artifact production
-
-- [x] Add artifact-production jobs for an exact commit SHA and target.
-- [x] Produce a Gateway artifact containing its prebundled Worker and four
-      required WASM packages. Deployment uploads the bundle without rebuilding.
-- [x] Produce one target-specific Pages artifact containing the production SDK,
-      app output, wallet output, workers, WASM, and static wallet-service
-      assets. The app and wallet deployments must consume the same artifact.
-- [x] Produce the four Router A/B role bundles from the same release build
-      while preserving independent role deployment and approval boundaries.
-- [x] Include source SHA, target, build profile, toolchain versions, artifact
-      digests, public deployment identity, and creation time in an immutable
-      GitHub Actions artifact with a reported Actions digest.
-- [x] Reject deployment when an artifact SHA, target, profile, digest, or
-      public deployment identity differs from the selected release.
-
-### Tooling and cache
-
-- [x] Move the pinned `wasm-pack` and `wasm-bindgen` bootstrap into one
-      repository-owned script or composite action used by Gateway and Pages.
-- [x] Pin downloadable tool versions and verify published checksums before
-      execution.
-- [x] Cache Cargo registries, Git dependencies, compiled targets, wasm-pack
-      state, and generated WASM using keys derived from the Rust toolchain,
-      Cargo lockfiles, build scripts, target, and build profile.
-- [x] Keep Gateway's package selection explicit so it cannot regress to the
-      complete 12-package browser SDK build.
-- [x] Record artifact build durations in the workflow summary.
-- [ ] Add cold and warm duration budgets after two representative staging runs.
-
-### Deployment and retry
-
-- [x] Make Worker and Pages deployment jobs download immutable artifacts and
-      perform no Rust, WASM, SDK, or Vite compilation.
-- [x] Keep comprehensive tests in `Validate / repository` and
-      `Validate / cloudflare-router-ab`. Deployment jobs run static manifest
-      checks and lightweight readiness checks only.
-- [x] Allow Gateway, each Router A/B role, app Pages, and wallet Pages to be
-      retried independently without rebuilding successful artifacts or
-      redeploying successful components.
-- [x] Preserve deployment ordering where a release changes bindings or public
-      identities: SigningWorker and Derivers run with Gateway, MPCRouter waits
-      for Router roles, and Pages waits for Gateway.
-- [x] Keep cross-run rollback artifact-based. An operator selects a previously
-      accepted `source_sha`, `artifact_run_id`, and `release_set_id` rather than
-      rebuilding an old commit. Retained release artifacts are available for 30
-      days.
-- [x] Document that artifact rollback restores code and Pages assets only; it
-      does not revert secrets, D1 migrations, Durable Object state, or other
-      environment state.
-
-### Verification and reporting
-
-- [x] Verify Gateway readiness, ceremony JWKS availability, and required
-      Gateway-to-MPC service bindings after backend deployment.
-- [x] Verify app and wallet HTTP readiness plus representative SDK worker and
-      WASM assets after Pages deployment.
-- [x] Emit GitHub Actions summaries containing the source SHA, target, artifact
-      digests, exact Pages deployment URLs, readiness results, elapsed build
-      time, and retained artifact names.
-- [x] Fail with a component-specific error and retain the accepted artifacts
-      when a Cloudflare upload or readiness probe fails.
-
-### Acceptance criteria
-
-- A failed Cloudflare upload can be retried without invoking Cargo,
-  `wasm-pack`, the SDK build, or Vite.
-- Gateway compilation remains limited to the four server-consumed WASM
-  packages.
-- App and wallet Pages are always deployed from one target-specific artifact
-  and one source SHA.
-- Every deployed component is traceable to a content-addressed manifest.
-- Deployment jobs contain no comprehensive test suites or protocol evidence
-  generation.
-- A role-specific retry cannot access another role's private environment or
-  artifact.
-- The workflow summary is sufficient to identify the deployed release and its
-  retained cross-run artifacts without reading raw job logs.
-
-Use GitHub's **Re-run failed jobs** action after an upload or readiness failure.
-Successful artifact-production jobs are retained, so the retry enters only the
-failed protected deployment job and does not invoke Cargo, `wasm-pack`, the SDK
-build, or Vite. Release artifacts are retained for 30 days. For rollback,
-manually select the previous accepted `source_sha`, `artifact_run_id`, and
-`release_set_id` and redeploy through the environment-specific stack workflow.
-This restores code and assets only; use the documented recovery procedures for
-secrets, migrations, and durable state.
-
-## Follow-On Docs
-
-- [infra.md](infra.md): GitHub Environment values, Cloudflare setup, D1/DO/R2
-  backup services, Worker secrets, and migration commands.
-- [tooling.md](tooling.md): deployment script commands, GitHub Environment
-  bootstrap/apply mode, release validation, and staging operations.
-- [sdk.md](sdk.md): SDK runtime bundle builds, Pages `/sdk` assets, npm release
-  steps, and rollback.
-- [release.md](release.md): versioned release process.
+For D1, R2, Worker, and Pages details, use [infra.md](infra.md). Deployment
+script-specific commands remain in [tooling.md](tooling.md).

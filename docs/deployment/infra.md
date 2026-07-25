@@ -18,19 +18,22 @@ The web server persists state in Cloudflare data services:
 
 ## GitHub Environments
 
-Create these general GitHub Environments:
+Use the existing target GitHub Environments for frontend builds, read-only
+smoke checks, and backend roles:
 
-- `staging`
-- `production`
+- `staging` and the five `staging-*` backend role environments.
+- `production` and the five `production-*` backend role environments.
 
-Use the same variable names in both environments. Values differ per
-environment.
+The frontend environments own Pages credentials, public build variables, and
+the public origins used by the read-only deployment smoke checks. Values differ
+per environment.
 
-Create `staging-gateway` and `production-gateway` for Gateway. Create
+Use `staging-gateway` and `production-gateway` for Gateway. Use
 `staging-mpc-router`, `staging-deriver-a`,
 `staging-deriver-b`, `staging-signing-worker`, plus matching `production-*`
 role environments. Each role environment owns its Cloudflare credentials,
-private material, variables, and protected approver set.
+private material, and variables. Production is manual and restricted to `main`
+by the existing `production` environment branch policy and the workflow guard.
 
 Gateway and the four Router A/B Workers use Cloudflare service bindings and
 must be deployed in the same Cloudflare account. Give each role a scoped deploy
@@ -95,39 +98,35 @@ pnpm product:deploy:env-apply -- \
   --env staging --manifest-file <product-manifest>
 ```
 
-Automatic entrypoints are intentionally separate:
-
-- `.github/workflows/deploy-staging-cloudflare-stack.yml` accepts successful validation of `dev` pushes and accepted-release promotion inputs.
-- `.github/workflows/deploy-production-cloudflare-stack.yml` accepts successful validation of `main` pushes and accepted-release promotion inputs.
-
-These two workflows contain the release-build, artifact-verification, and
-environment-bound service jobs directly. Their jobs cover Router A/B, Gateway,
-Pages, and final stack smoke checks. There are no reusable deployment workflow
-files and no `workflow_call` files under `.github/workflows`. Environment labels
-and branch restrictions remain fixed in the matching entrypoint rather than in
-a caller-selected runtime flag.
+Deployment entrypoints are the four hand-written workflows documented in
+[README.md](README.md): the staging and production backend workflows, plus the
+staging and production frontend workflows. Their branch restrictions and
+GitHub environment bindings are fixed in each entrypoint. They use the
+workflow event's `${{ github.sha }}` and expose no historical-SHA or
+cross-run artifact inputs.
 
 ### Secrets
 
-| Secret                                          | Used by                  | Notes                                                                                        |
-| ----------------------------------------------- | ------------------------ | -------------------------------------------------------------------------------------------- |
-| `CLOUDFLARE_API_TOKEN`                          | Pages, Router A/B deploy | Needs Pages deploy, Worker deploy, and Worker secrets permissions.                           |
-| `CLOUDFLARE_ACCOUNT_ID`                         | Pages, Router A/B deploy | Cloudflare account id.                                                                       |
-| `CF_PAGES_PROJECT_VITE`                         | Pages deploy             | Cloudflare Pages project for the app/site surface.                                           |
-| `CF_PAGES_PROJECT_WALLET`                       | Pages deploy             | Cloudflare Pages project for the wallet origin.                                              |
-| `DERIVER_A_ROOT_SHARE_WIRE_SECRET`              | Router A/B deploy        | Deriver A root-share wire secret. Written to the Deriver A Worker environment.               |
-| `DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY`           | Router A/B deploy        | Deriver A signer-envelope HPKE private key.                                                  |
-| `DERIVER_A_PEER_SIGNING_KEY`                    | Router A/B deploy        | Deriver A private key for A/B peer messages.                                                 |
-| `DERIVER_B_ROOT_SHARE_WIRE_SECRET`              | Router A/B deploy        | Deriver B root-share wire secret. Written to the Deriver B Worker environment.               |
-| `DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY`           | Router A/B deploy        | Deriver B signer-envelope HPKE private key.                                                  |
-| `DERIVER_B_PEER_SIGNING_KEY`                    | Router A/B deploy        | Deriver B private key for A/B peer messages.                                                 |
-| `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY` | Router A/B deploy        | SigningWorker server-output HPKE private key.                                                |
-| `RELAY_SESSION_HMAC_SECRET`                     | Gateway deploy           | Environment-specific browser session signing secret.                                         |
-| `ACCOUNT_ID_DERIVATION_SECRET`                  | Gateway deploy           | Environment-specific account identifier derivation secret.                                   |
-| `ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET`        | Router A/B and Gateway   | Shared only by Workers inside one environment. Never share it across staging and production. |
-| `ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK`            | Gateway deploy           | Private ceremony JWT signing key for this environment.                                       |
-| `RELAYER_PRIVATE_KEY`                           | Gateway deploy           | Optional funded NEAR relayer key; its public key is derived during startup.                  |
-| `SPONSORED_EVM_EXECUTORS_JSON`                  | Gateway deploy           | Optional environment-specific sponsored EVM executor secrets.                                |
+| Secret                                          | Used by                  | Notes                                                                                            |
+| ----------------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------ |
+| `CLOUDFLARE_API_TOKEN`                          | Pages, Router A/B deploy | Frontend environments use Pages-only tokens; backend role environments use Worker-scoped tokens. |
+| `CLOUDFLARE_ACCOUNT_ID`                         | Pages, Router A/B deploy | Cloudflare account id, scoped to the matching authority environment.                             |
+| `CF_PAGES_PROJECT_VITE`                         | Pages deploy             | Cloudflare Pages project for the app/site surface.                                               |
+| `CF_PAGES_PROJECT_WALLET`                       | Pages deploy             | Cloudflare Pages project for the wallet origin.                                                  |
+| `DERIVER_A_ROOT_SHARE_WIRE_SECRET`              | Router A/B deploy        | Deriver A root-share wire secret. Written to the Deriver A Worker environment.                   |
+| `DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY`           | Router A/B deploy        | Deriver A signer-envelope HPKE private key.                                                      |
+| `DERIVER_A_PEER_SIGNING_KEY`                    | Router A/B deploy        | Deriver A private key for A/B peer messages.                                                     |
+| `DERIVER_B_ROOT_SHARE_WIRE_SECRET`              | Router A/B deploy        | Deriver B root-share wire secret. Written to the Deriver B Worker environment.                   |
+| `DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY`           | Router A/B deploy        | Deriver B signer-envelope HPKE private key.                                                      |
+| `DERIVER_B_PEER_SIGNING_KEY`                    | Router A/B deploy        | Deriver B private key for A/B peer messages.                                                     |
+| `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY` | Router A/B deploy        | SigningWorker server-output HPKE private key.                                                    |
+| `RELAY_SESSION_HMAC_SECRET`                     | Gateway deploy           | Environment-specific browser session signing secret.                                             |
+| `ACCOUNT_ID_DERIVATION_SECRET`                  | Gateway deploy           | Environment-specific account identifier derivation secret.                                       |
+| `ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET`        | Router A/B and Gateway   | Shared only by Workers inside one environment. Never share it across staging and production.     |
+| `ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK`            | Gateway deploy           | Private ceremony JWT signing key for this environment.                                           |
+| `RELAYER_PRIVATE_KEY`                           | Gateway deploy           | Optional funded NEAR relayer key; its public key is derived during startup.                      |
+| `SPONSORED_EVM_EXECUTORS_JSON`                  | Gateway deploy           | Optional environment-specific sponsored EVM executor secrets.                                    |
+| `STRIPE_API_SK`                                 | Gateway deploy           | Required Stripe secret or restricted key for hosted Checkout sessions.                           |
 
 ### Variables
 
@@ -136,6 +135,7 @@ a caller-selected runtime flag.
 | `ROUTER_AB_JWT_ISSUER`                                   | Router A/B deploy | JWT issuer accepted by the Router admission boundary.                          |
 | `ROUTER_AB_JWT_AUDIENCE`                                 | Router A/B deploy | JWT audience accepted by the Router; defaults operationally to `router-ab`.    |
 | `ROUTER_AB_JWT_JWKS_URL`                                 | Router A/B deploy | JWKS URL used by Router JWT verification.                                      |
+| `SPONSORED_EXECUTION_REAL_PRICING_JSON`                  | Gateway deploy    | CoinGecko-backed pricing rules for sponsored NEAR execution.                   |
 | `ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY`           | Router A/B deploy | Public key matching `DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY`.                     |
 | `ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY`           | Router A/B deploy | Public key matching `DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY`.                     |
 | `ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY` | Router A/B deploy | Public key matching `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY`.           |
@@ -187,9 +187,9 @@ Apply mode creates two target-scoped Pages projects when they are absent:
 - app/site project: stored in `CF_PAGES_PROJECT_VITE`
 - wallet-origin project: stored in `CF_PAGES_PROJECT_WALLET`
 
-The Pages job inside each environment's stack workflow builds once and can
-deploy app, wallet, or both. It deploys branch alias `dev` for staging and
-`main` for production.
+The matching frontend workflow builds once and can deploy app, wallet, or both.
+It deploys branch alias `dev` for staging and `main` for production. The stack
+workflow has no Pages mutation jobs or Pages credentials.
 
 The workflow copies SDK runtime assets into the Pages output:
 
@@ -229,7 +229,7 @@ Wrangler environments:
 
 The checked-in Wrangler vars contain placeholder public keys so dry-run builds
 work without environment configuration. The environment-specific Router A/B
-jobs inside the matching stack workflow inject the real public keys and
+jobs inside the matching backend workflow inject the real public keys and
 MPCRouter JWT values from GitHub Environment variables during deployment, then
 write the private values to the corresponding Cloudflare Worker secrets before
 uploading or deploying Workers.
@@ -300,11 +300,12 @@ For a suspected role compromise:
    secret-name inventory, then run registration, recovery, export, and
    post-refresh signing before reopening admission.
 
-For a code regression, redeploy the affected role from the last accepted
-release set and verify its binding and readiness. This restores the Worker
-artifact without reverting secrets, D1 migrations, Durable Object state, or
-other environment state. Preserve key epochs and Durable Object state unless
-the incident specifically requires rotation or recovery. Logs and alerts
+For a code regression, revert the bad change or land a corrective commit on the
+target branch, then deploy that branch tip and verify its binding and
+readiness. This restores the Worker code without reverting secrets, D1
+migrations, Durable Object state, or other environment state. Preserve key
+epochs and Durable Object state unless the incident specifically requires
+rotation or recovery. Logs and alerts
 remain role-specific and must contain deployment identities and opaque
 ceremony identifiers without private inputs, labels, shares, ciphertext bodies,
 or secret values.
@@ -344,25 +345,26 @@ Self-hosted Gateway deployments may serve the same public keyset routes when
 prefetches `/router-ab/keyset` during registration precompute whenever
 Router A/B normal signing is enabled.
 
-Manual accepted-release promotion:
+Manual deployment uses the matching workflow file and branch only:
 
 ```bash
-gh workflow run 'Deploy / staging / cloudflare-stack' --ref dev \
-  -f source_sha=<accepted-dev-sha> \
-  -f artifact_run_id=<accepted-artifact-run-id> \
-  -f release_set_id=<accepted-release-set-id>
+gh workflow run deploy-staging-backend.yml --ref dev
+gh workflow run deploy-production-backend.yml --ref main
 ```
 
-Production promotion uses the matching production entrypoint and an accepted
-`main` release set. Automatic releases start after the push-mode
-`Validate / repository` gate succeeds on `main`.
+The frontend workflows use the same branch rules. They accept no source SHA,
+artifact-run, or release-set inputs.
 
-Local Cloudflare-shape checks:
+Local non-serving Router shape checks:
 
 ```bash
 pnpm router:deploy:dry-run
 pnpm router:deploy:upload -- --env staging
 ```
+
+The upload command is a diagnostic Cloudflare versions upload and does not
+serve traffic or deploy a backend lane. The four deployment workflows own
+serving Worker deployment and secret operations.
 
 Latest local dry-run evidence:
 
@@ -372,10 +374,12 @@ Latest local dry-run evidence:
 - gzip upload sizes: Router `573.83 KiB`, Deriver A `598.97 KiB`, Deriver B
   `599.92 KiB`, SigningWorker `567.14 KiB`
 
-The deployment workflow runs `pnpm router:deploy:check` before any Worker
-deployment. SigningWorker, Deriver A, Deriver B, and Gateway deploy jobs run
-concurrently; MPCRouter waits for the Router roles, and Pages waits for Gateway
-when both are selected.
+The backend workflow performs a five-environment component preflight from
+`deployment/targets.json`, then applies D1 migrations before the ordered Worker
+deployments: SigningWorker, Deriver A, Deriver B, MPCRouter, and Gateway.
+Backend smoke runs at the end of the Gateway job. The frontend workflow builds,
+deploys, and smokes its Pages output in one independent job; neither lane waits
+for a coordination receipt from the other.
 
 ## Cloudflare Data
 

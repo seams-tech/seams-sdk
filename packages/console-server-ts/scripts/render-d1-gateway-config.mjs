@@ -12,6 +12,8 @@ import {
   DEFAULT_EMAIL_OTP_VERIFY_RATE_LIMIT_MAX,
   DEFAULT_RELAY_SESSION_AUDIENCE,
   DEFAULT_SESSION_COOKIE_NAME,
+  GATEWAY_WORKER_COMPATIBILITY_DATE,
+  GATEWAY_WORKER_COMPATIBILITY_FLAGS,
   parseGatewayDeploymentConfig,
 } from './gateway-deployment-config.mjs';
 
@@ -81,8 +83,8 @@ function buildConfig(deployment, packageRoot) {
   return {
     name: resources.workerName,
     main: path.join(packageRoot, 'src/router/cloudflare/d1RouterApiWorker.ts'),
-    compatibility_date: '2026-07-18',
-    compatibility_flags: ['nodejs_compat'],
+    compatibility_date: GATEWAY_WORKER_COMPATIBILITY_DATE,
+    compatibility_flags: GATEWAY_WORKER_COMPATIBILITY_FLAGS,
     workers_dev: true,
     d1_databases: [
       {

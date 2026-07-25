@@ -41,8 +41,9 @@ Each invocation validates the complete target and writes two owner-only
 manifests under `~/.seams/backups`:
 
 - `wallet-core`: Gateway, MPCRouter, Deriver A, Deriver B, and SigningWorker.
-- `product`: the base `staging` or `production` environment used by Pages and
-  SDK runtime deployment.
+- `product`: the target's existing `staging` or `production` environment.
+  These environments hold Pages variables, credentials, and public origins for
+  read-only smoke checks.
 
 Both files carry the same generation ID, timestamp, and complete-manifest
 SHA-256. The product manifest contains the public wallet-core handoff values it
@@ -86,6 +87,7 @@ supplies a real email-provider adapter. The repository's deployed Gateway does
 not expose that mode until its provider integration is wired. Use
 `GATEWAY_RUNTIME_PROFILE=mainnet_service` for a future mainnet deployment. That
 profile rejects demo-code delivery and requires `email_provider` delivery.
+
 The generated profile is explicit in `GATEWAY_DEPLOYMENT_CONFIG_JSON`; later
 profile or delivery-mode changes can be uploaded with the update-only command
 without rotating Router A/B identities.
@@ -113,7 +115,7 @@ The generator automatically loads
 select a different protected file.
 
 Prepare mode provisions or discovers shared Cloudflare resources and validates
-the complete six-environment topology. Component apply mode:
+the complete seven-environment topology. Component apply mode:
 
 - Creates missing GitHub Environments.
 - Preserves existing environments and their protection rules.
@@ -227,8 +229,9 @@ material, Gateway signing keys, tenant identifiers, and publishable keys remain
 unchanged. Dry run is the default.
 
 The wallet-core updater can reach only Gateway and MPC service environments.
-The product updater can reach only the base Pages/SDK environment. Run both
-commands when rotating a Cloudflare token shared by both ownership groups.
+The product updater can reach only the target's shared frontend environment.
+Run both component commands when rotating a Cloudflare token shared by both
+ownership groups.
 
 Frontend variable changes take effect on the next Pages deployment. Gateway
 integration changes take effect on the next Gateway deployment.
@@ -340,13 +343,7 @@ applied complete manifest unless you are deliberately rotating the complete
 related identity set. Public and private values, root shares, topology JSON,
 and Gateway configuration must remain matched.
 
-## Release Validation
-
-Run the release blocker check before a deployment:
-
-```bash
-pnpm router:deploy:check
-```
+## Router A/B Build Diagnostics
 
 Validate the four Worker bundles without creating Cloudflare Worker versions:
 
@@ -368,35 +365,36 @@ pnpm router:deploy:upload -- --env staging --role router
 ```
 
 The upload command requires the target Worker variables and Cloudflare
-credentials. The same checks are used by `Validate / cloudflare-router-ab` and
-the Router A/B jobs in the environment-specific stack workflow.
+credentials. The same checks are used by `Validate / cloudflare-mpc-router-ab` and
+the Router A/B jobs in the environment-specific backend workflow.
 This diagnostic upload creates a non-serving Worker version; it is not the
 production deployment or rollback path.
 
 ## Deployment
 
-The normal deployment path is branch-driven:
+The normal deployment path is explicit workflow dispatch:
 
 ```bash
-git push origin dev  # staging
+gh workflow run deploy-staging-backend.yml --ref dev
+gh workflow run deploy-staging-frontend.yml --ref dev
+gh workflow run deploy-production-backend.yml --ref main
+gh workflow run deploy-production-frontend.yml --ref main
 ```
 
-Production starts when an accepted pull request is merged into protected
-`main`. A successful `Validate / repository` run starts
-`Deploy / production / cloudflare-stack`. Staging follows the same path from
-`dev` to `Deploy / staging / cloudflare-stack`. For a manual deployment, use
-the workflow dispatch commands documented in [README.md](README.md#normal-promotion).
+Use the matching branch only. Production workflows are manual and require
+`main`; the existing `production` environment also enforces its branch policy.
+The complete order and rollback procedure are documented in
+[README.md](README.md#system-and-branch-rules).
 
-The deployment order is:
-
-1. The stack workflow validates and uploads or deploys SigningWorker, Deriver A,
-   Deriver B, and MPCRouter in its Router A/B jobs.
-2. Its Gateway job applies D1 migrations and deploys the Gateway Worker.
-3. Its Pages job deploys the app and wallet surfaces.
+The backend workflow builds all components once, validates all five custody
+environments before mutation, applies D1 migrations, then deploys
+SigningWorker, Deriver A, Deriver B, Router, and Gateway. Backend smoke runs at
+the end of the Gateway job. The matching frontend workflow uses one job to
+build, deploy both Pages projects, and run smoke checks.
 
 Do not deploy a Gateway that references a different Router A/B identity set.
 Generate and apply the target manifest before starting the matching environment
-stack workflow.
+backend workflow.
 
 ## D1 and Staging Operations
 
@@ -435,7 +433,7 @@ do not immediately rerun with a new generation: inspect which values were
 applied, then intentionally decide whether to complete or rotate the entire
 target identity set.
 
-If release validation reports a missing variable or secret, compare the
+If environment preparation reports a missing variable or secret, compare the
 generated manifest with the target's six GitHub Environments. The environment
-generator checks its inventory against the deployment workflows and will fail
-when a workflow reference is missing from the manifest.
+generator checks its inventory against the hand-written deployment workflows and
+fails when a workflow reference is missing from the manifest.
