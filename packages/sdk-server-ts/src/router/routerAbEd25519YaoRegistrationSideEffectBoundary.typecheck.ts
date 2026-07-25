@@ -60,12 +60,13 @@ void invalidNonResumableInput;
 
 const invalidPreparedInput = {
   kind: 'prepared_resumable',
+  resumeAfterMs: 1,
   operation: 'finalize',
   key: 'registration-finalize:fixture',
   requestFingerprint: 'fingerprint',
   nowMs: () => 1,
   execute: async (prepared: { readonly token: string }) => ({ ok: prepared.token.length > 0 }),
-// @ts-expect-error prepared-resumable effects require a preparation hook
+  // @ts-expect-error prepared-resumable effects require a preparation hook
 } satisfies RouterAbEd25519YaoRegistrationSideEffectRunInputV1<
   { readonly ok: boolean },
   { readonly token: string }

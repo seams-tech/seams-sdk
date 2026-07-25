@@ -860,7 +860,9 @@ receipts are recorded.
           against the chain before a resumed attempt resubmits. Resolved
           failures are rejected, successful outcomes are read back against the
           expected account and FullAccess key, and transport ambiguity remains
-          uncertain.
+          uncertain. The sponsored-account boundary carries `in_progress` and
+          uncertain outcomes as typed retryable results so the outer finalize
+          claim cannot persist them as terminal account-creation failures.
     - [x] Parse and validate persisted claims at the D1 boundary so an
           unparseable record fails closed into a fresh attempt. The parser
           validates the complete signed effect artifact, including bounded
@@ -887,8 +889,11 @@ receipts are recorded.
           re-running the identical commit converges to one row per table.
     - [x] Cover concurrent finalize contention for one lifecycle: exactly one
           claim and terminal receipt win. A prepared idempotent effect may be
-          resumed by a contender after it observes the claim; both attempts
-          converge on the winning exact receipt, and a later attempt replays it.
+          resumed after its 30-second live-owner window; a contender inside
+          that window receives the matching retry delay instead of executing
+          the effect concurrently. Deterministic failures are terminal exact
+          receipts, while internal or retryable failures leave the claim open
+          for stale-claim reconciliation.
     - [x] Drive the convergence check through the finalize entry point rather
           than the commit store and side-effect boundary separately. The same
           suite also races two identical finalize requests and verifies an
@@ -920,11 +925,11 @@ receipts are recorded.
         window; a family with no window stays on the legacy runtime, so one
         family cannot inherit another's elapsed drain.
     - [x] Lift the recovery and export authorization and capability adapters out
-        of the tenant runtime object so the request-scoped handlers can be
-        constructed from the environment. `createStagingRecoveryRequestScopedDependencies`
-        and `createStagingExportRequestScopedDependencies` reuse the existing
-        wallet-session and WebAuthn adapters and the request-scoped runtime, so
-        this is composition wiring rather than a second authorization
+          of the tenant runtime object so the request-scoped handlers can be
+          constructed from the environment. `createStagingRecoveryRequestScopedDependencies`
+          and `createStagingExportRequestScopedDependencies` reuse the existing
+          wallet-session and WebAuthn adapters and the request-scoped runtime, so
+          this is composition wiring rather than a second authorization
           implementation. Cutover timing is configured separately per family;
           existing-wallet capability rehydration is supplied by a bounded
           wallet/slot D1 fallback on a shared-state miss.
@@ -990,9 +995,10 @@ The Gateway backend no longer contains the serial Stage/Start/Result or direct
 Yao package-delivery flow. The remaining Deriver Stage/Result handlers and
 direct-origin bindings are retained until the deployed cutover has survived the
 maximum in-flight ceremony lifetime; they are role-boundary drain targets, not
-second Gateway orchestration owners. The tenant-scoped `ROUTER_API_RUNTIME`
-state holder is a separate persistence boundary: it must be replaced with
-request-safe lifecycle storage before acceptance criterion 3 can be closed.
+second Gateway orchestration owners. Request-safe lifecycle storage replaces
+the tenant-scoped `ROUTER_API_RUNTIME` after the per-family drains. Its
+pre-cutover fallback, binding, and class remain until the deployed drain receipt
+authorizes deletion.
 
 ### Phase 6: Deployment And Production Acceptance
 
@@ -1111,10 +1117,9 @@ and the frozen latency budget are unavailable under the current Wrangler
 Observability scope. The `router-ab-dev` pair lifecycle has route and ownership
 parity checks, and the Rust harness serves the native Router coordinator through
 authenticated role-worker HTTP boundaries, including recovery promotion.
-Router-side replay/CAS persistence, tenant-runtime removal, coherent route
-composition, drain verification, and staging validation remain open; those
-residuals are recorded below rather than presented as complete production
-acceptance.
+Tenant-runtime binding/class removal, drain verification, staging validation,
+and production evidence remain open; those residuals are recorded below rather
+than presented as complete production acceptance.
 
 The current staging Gateway still has one tenant-scoped runtime Durable Object
 (`ROUTER_API_RUNTIME`). It serializes only runtime initialization with
