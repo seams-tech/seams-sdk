@@ -1,7 +1,6 @@
 /.github/workflows/** @peitalin
 /.github/actions/** @peitalin
-/scripts/deployment-*.mjs @peitalin
-/scripts/check-deployment-workflows.mjs @peitalin
-/scripts/generate-deployment-workflows.mjs @peitalin
-/scripts/deployment-workflow-templates/** @peitalin
+/scripts/deploy-*.mjs @peitalin
+/scripts/deployment-targets.mjs @peitalin
+/deployment/** @peitalin
 /docs/deployment/** @peitalin

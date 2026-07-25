@@ -3,10 +3,35 @@
 Date created: July 23, 2026
 Last updated: July 25, 2026
 
-Status: the consolidated backend and frontend deployment workflows are
-implemented and merged into local `dev`. GitHub environment configuration,
-branch protection, historical Actions cleanup, and staging/production cutover
-remain operational Phase 9 work.
+Status: **superseded by `refactor-deployment-4.md`**. The workflow framework this
+document specifies — generated YAML, release sets, coordination receipts,
+cross-run artifact promotion, and component selection — is being deleted rather
+than completed. Do not start new work from this document.
+
+The open checklist items are triaged in Refactor 4 under "Carried Over From
+Refactor 3". In summary:
+
+- Items asserting receipts, release-set identity, artifact freshness/staleness,
+  component-selection skips, lane chaining, or workflow policy tests are **void**.
+- GitHub account state (environment protections, branch protection, CODEOWNERS,
+  staging/production secret isolation), the merge-freeze cutover technique, and
+  the real smoke hostnames are **carried into Refactor 4** and remain required.
+- **Phase 7 (historical Actions cleanup) remains fully open and is unrelated to
+  the deployment framework.** Its evidence-export-before-deletion obligation
+  survives this supersession and is restated in Refactor 4. Do not close it out
+  as part of retiring this document.
+
+**The Security Invariants section below is the exception to this supersession.**
+Eight of its twenty-six numbered invariants die with the receipt and release-set
+machinery; the rest still bind and are restated in Refactor 4 under Security
+Invariants → Inherited hardening rules. The Naming Contract also still governs,
+including for the two validation workflows, amended only in that the
+`cloudflare-stack` surface becomes `backend`.
+
+This file is retained for the operational history in Phases 1-8 and for the
+constraints it discovered — notably that `workflow_dispatch` and `workflow_run`
+require the workflow file to exist on the default branch, which Refactor 4
+Phase 3 now depends on.
 
 ## Objective
 

@@ -26,7 +26,7 @@ Main outputs:
 
 ## Pages Runtime Assets
 
-The internal Pages deployment workflow consumes the accepted Pages artifact:
+The Pages deployment workflow consumes the current-run Pages artifact:
 
 ```bash
 pnpm build:sdk-prod
@@ -44,19 +44,11 @@ Use `VITE_SDK_BASE_PATH=/sdk` unless you intentionally serve the SDK under a
 different path. The wallet service route and app config must agree with that
 base path.
 
-Pages deploy automatically from the successful backend coordination receipt at
-the end of the branch release chain. Pages deployment is owned by the matching
-environment-bound frontend workflow. The backend stack has no Pages mutation
-job or Pages credentials.
-
-The implemented
-[build-once deployment phase](README.md#follow-up-phase-build-once-deploy-many)
-keeps production SDK and Vite compilation outside the Pages upload jobs. The
-artifact remains target-specific because Vite embeds environment configuration.
-One artifact must contain both app and wallet outputs so the two Pages projects
-cannot drift to different SDK builds. A Pages-only retry downloads that
-artifact, verifies its manifest, and uploads it without invoking Cargo,
-`wasm-pack`, `pnpm build:sdk-prod`, or Vite.
+Pages deployment is owned by the matching environment-bound frontend workflow.
+The backend workflow has no Pages mutation job or Pages credentials. The
+frontend build is target-specific because Vite embeds environment configuration,
+and one current-run artifact contains both app and wallet outputs so the two
+Pages projects cannot drift to different SDK builds.
 
 ## npm Package
 
