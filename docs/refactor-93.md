@@ -861,11 +861,16 @@ receipts are recorded.
           against the chain before a resumed attempt resubmits.
     - [x] Parse and validate persisted claims at the D1 boundary so an
           unparseable record fails closed into a fresh attempt.
-    - [ ] Bring the remaining finalization effects — capability installation,
-          finalize replay state, and ceremony cleanup — into the committed
-          transaction or make them resumable. A crash after the D1 batch can
-          still leave a visible wallet with incomplete finalization state, so
-          this boundary is not yet closed.
+    - [ ] Prove the finalization sequence converges after a crash between its
+          steps. Each write is individually idempotent — wallet, signer, and
+          Email OTP statements are `DO UPDATE` upserts, capability installation
+          returns `exact_retry` for a matching origin fingerprint, and ceremony
+          cleanup is a delete — so a retry that re-runs the sequence should
+          converge. What is unverified is whether the finalize entry point
+          re-runs it rather than short-circuiting, and no test covers the
+          crash-between-steps path. Until that exists, treat a crash after the
+          D1 batch as possibly leaving a visible wallet with incomplete
+          finalization state.
     - [ ] Cover concurrent finalize contention for one lifecycle and D1
           read-back of the committed records before enabling the selector.
     - [ ] Derive the request fingerprint from the canonical effect identity
