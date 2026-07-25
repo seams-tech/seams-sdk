@@ -1058,6 +1058,9 @@ route-deletion cleanup.
       verify both roles in each system accept the exact configured scope, and
       add a data-plane preflight that fails before a product ceremony when any
       required role lacks that scope.
+      The authorized staging-only replacement procedure and pre-upload backup
+      receipt are recorded in
+      [`refactor-93-staging-custody-rotation.md`](./refactor-93-staging-custody-rotation.md).
 - [ ] With every family window unset, complete the staging cohort for
       registration, recovery, export, exact replay, conflict, disconnect,
       terminal redelivery, rollback, restart, and concurrency on that frozen
