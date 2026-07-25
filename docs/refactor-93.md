@@ -604,6 +604,11 @@ digests and therefore requires a new ceremony identity.
 
 ### Phase 0: Freeze Baseline And Contracts
 
+Production evidence is deferred until the implementation and coherent staging
+cutover are complete. The unchecked evidence items in this phase remain
+production-acceptance gates; they do not block the remaining implementation
+phases.
+
 - [ ] Capture at least 20 production registration traces with per-span
       durations for Gateway, Router, B preparation, A preparation, A/B
       protocol, B result, SigningWorker delivery, D1 commit, and frontend
@@ -840,6 +845,11 @@ state holder is a separate persistence boundary: it must be replaced with
 request-safe lifecycle storage before acceptance criterion 3 can be closed.
 
 ### Phase 6: Deployment And Production Acceptance
+
+Cold/warm production evidence and destructive legacy cleanup are deferred until
+the implementation branch is complete and the coherent staging cutover passes.
+These items remain unchecked so implementation completion cannot be mistaken
+for production acceptance.
 
 The code branch already contains the Gateway cutover, so the historical
 "validate Router while Gateway still uses the old request boundary" step cannot
