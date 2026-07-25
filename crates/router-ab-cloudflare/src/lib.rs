@@ -4535,6 +4535,7 @@ impl CloudflareDeriverAWorkerRuntimeV1 {
     }
 
     /// Returns the trusted role-local peer verifying keys for readiness receipts.
+    #[cfg(feature = "workers-rs")]
     pub(crate) fn peer_verifying_keys(&self) -> &CloudflareSignerPeerVerifyingKeySetV1 {
         &self.bindings.peer_verifying_keys
     }
@@ -4749,6 +4750,7 @@ impl CloudflareDeriverBWorkerRuntimeV1 {
     }
 
     /// Returns the trusted role-local peer verifying keys for readiness receipts.
+    #[cfg(feature = "workers-rs")]
     pub(crate) fn peer_verifying_keys(&self) -> &CloudflareSignerPeerVerifyingKeySetV1 {
         &self.bindings.peer_verifying_keys
     }
@@ -13039,7 +13041,8 @@ fn cloudflare_router_error_status(code: RouterAbProtocolErrorCode) -> u16 {
         | RouterAbProtocolErrorCode::MalformedWirePayload
         | RouterAbProtocolErrorCode::UnsupportedVectorVersion => 400,
         RouterAbProtocolErrorCode::ExpiredLocalRequest => 408,
-        RouterAbProtocolErrorCode::ReplayedLocalRequest => 409,
+        RouterAbProtocolErrorCode::ReplayedLocalRequest
+        | RouterAbProtocolErrorCode::ConflictingPair => 409,
         RouterAbProtocolErrorCode::MissingLocalBinding
         | RouterAbProtocolErrorCode::ForbiddenLocalBinding
         | RouterAbProtocolErrorCode::InvalidLocalServiceConfig => 500,

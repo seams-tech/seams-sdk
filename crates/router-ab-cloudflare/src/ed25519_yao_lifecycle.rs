@@ -594,10 +594,10 @@ impl CloudflareEd25519YaoRoleFailureResponseV1 {
                 retry_after_ms: 1_000,
             };
         }
-        if message.contains("conflicting")
+        if error.code() == RouterAbProtocolErrorCode::ConflictingPair
+            || message.contains("conflicting")
             || message.contains("already prepared")
             || message.contains("already running")
-            || message.contains("already active")
         {
             return Self::Rejected {
                 code: RouterEd25519YaoExecuteFailureCodeV1::ConflictingPair,
@@ -3432,7 +3432,7 @@ pub async fn handle_cloudflare_ed25519_yao_deriver_a_execute_pair_v1(
             return Err(invalid_lifecycle("Deriver A pair execution was burned"));
         }
         DeriverAYaoSessionResponseV1::PairStarted { .. } => {
-            return Err(invalid_lifecycle("Deriver A pair was already started"));
+            return Err(conflicting_pair("Deriver A pair was already started"));
         }
         DeriverAYaoSessionResponseV1::PairClaimed {
             session,
@@ -5172,6 +5172,10 @@ fn invalid_lifecycle(message: impl Into<String>) -> RouterAbProtocolError {
     )
 }
 
+fn conflicting_pair(message: impl Into<String>) -> RouterAbProtocolError {
+    RouterAbProtocolError::new(RouterAbProtocolErrorCode::ConflictingPair, message.into())
+}
+
 fn cloudflare_yao_now_unix_ms() -> worker::Result<u64> {
     crate::cloudflare_now_unix_ms_v1()
         .map_err(|error| worker::Error::RustError(error.message().to_owned()))
@@ -5405,6 +5409,19 @@ mod tests {
             missing,
             CloudflareEd25519YaoRoleFailureResponseV1::Rejected {
                 code: RouterEd25519YaoExecuteFailureCodeV1::MissingPreparation,
+            }
+        );
+
+        let conflicting = CloudflareEd25519YaoRoleFailureResponseV1::from_protocol_error(
+            &RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ConflictingPair,
+                "the diagnostic is not part of the classification contract",
+            ),
+        );
+        assert_eq!(
+            conflicting,
+            CloudflareEd25519YaoRoleFailureResponseV1::Rejected {
+                code: RouterEd25519YaoExecuteFailureCodeV1::ConflictingPair,
             }
         );
     }
