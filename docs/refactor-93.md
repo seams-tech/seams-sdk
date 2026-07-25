@@ -964,6 +964,12 @@ backend call; terminal completion loads a fresh snapshot and CASes the
 activated/failed state. Backend uncertainty leaves the claim durable for
 reconciliation, and a terminal CAS conflict is returned with the claim without
 retrying the backend.
+
+Loaded partitioned records are detached from adapter-owned Map, Set, and byte
+arrays before a request can mutate them. Terminal persistence therefore does
+not depend on an adapter returning mutable object aliases; the regression test
+exercises a non-cloning adapter and verifies that request-only mutations never
+change the persisted snapshot.
 Wallet-registration finalize still mixes Yao consumption with account creation,
 signing-session provisioning, wallet D1 commits, capability installation,
 replay persistence, and ceremony deletion. Those effects need their own typed
