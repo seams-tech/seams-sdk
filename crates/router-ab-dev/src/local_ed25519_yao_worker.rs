@@ -2672,6 +2672,7 @@ fn is_yao_control_path(path: &str) -> bool {
             | LOCAL_DERIVER_A_ED25519_YAO_READ_PAIR_STATUS_PATH
             | LOCAL_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH
             | LOCAL_DERIVER_B_ED25519_YAO_PREPARE_PAIR_PATH
+            | LOCAL_DERIVER_B_ED25519_YAO_READ_COMPLETED_PAIR_PATH
             | LOCAL_DERIVER_B_ED25519_YAO_READ_PAIR_STATUS_PATH
             | LOCAL_DERIVER_B_ED25519_YAO_BURN_PAIR_PATH
             | LOCAL_DERIVER_B_ED25519_YAO_EXPORT_STAGE_PATH
@@ -2802,6 +2803,9 @@ mod tests {
     fn pair_execute_route_is_classified_as_a_yao_control_request() {
         assert!(is_yao_control_path(
             LOCAL_DERIVER_A_ED25519_YAO_EXECUTE_PAIR_PATH
+        ));
+        assert!(is_yao_control_path(
+            LOCAL_DERIVER_B_ED25519_YAO_READ_COMPLETED_PAIR_PATH
         ));
     }
 
