@@ -2,15 +2,18 @@ import {
   parseRouterAbEd25519YaoRecoveryActivationExecuteRequestV1,
   parseRouterAbEd25519YaoRecoveryActivationRequestV1,
   parseRouterAbEd25519YaoRecoveryAdmissionRequestV1,
+  parseRouterAbEd25519YaoWarmRecoveryBootstrapRequestV1,
   ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1,
   ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_RECOVERY_EXECUTE_PATH_V1,
+  ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1,
   type RouterAbEd25519YaoActivationAdmissionReceiptV1,
   type RouterAbEd25519YaoActivationExecuteRequestV1,
   type RouterAbEd25519YaoActivationResultV1,
   type RouterAbEd25519YaoRecoveryActivationReceiptV1,
   type RouterAbEd25519YaoRecoveryActivationRequestV1,
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
+  type RouterAbEd25519YaoWarmRecoveryBootstrapRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import {
   createRouterAbTraceContextV1,
@@ -31,7 +34,10 @@ import {
   type RouterAbEd25519YaoRecoveryExecuteClaimV1,
   type RouterAbEd25519YaoRecoveryFailure,
   type RouterAbEd25519YaoRecoveryServiceResult,
+  type RouterAbEd25519YaoActiveCapabilityResolverV1,
+  type RouterAbEd25519YaoWarmRecoveryBootstrapV1,
 } from './routerAbEd25519YaoRecovery';
+import { warmBootstrapCapabilityMatchesStableIdentity } from './routerAbEd25519YaoRecovery';
 import {
   runRouterAbEd25519YaoRegistrationTwoPhaseV1,
   type RouterAbEd25519YaoRegistrationTwoPhaseBackendResultV1,
@@ -55,6 +61,10 @@ type AuthorizationFailure = Extract<
 >;
 
 type RecoveryRequest =
+  | {
+      readonly kind: 'warm_bootstrap';
+      readonly value: RouterAbEd25519YaoWarmRecoveryBootstrapRequestV1;
+    }
   | {
       readonly kind: 'admit';
       readonly value: RouterAbEd25519YaoRecoveryAdmissionRequestV1;
@@ -84,6 +94,7 @@ export type RouterAbEd25519YaoRecoveryRequestScopedCloudflareInputV1 = {
   readonly backend: RouterAbEd25519YaoRecoveryBackend;
   readonly authorization: RouterAbEd25519YaoRecoveryAuthorizationAdapter;
   readonly capabilityPersistence: RouterAbEd25519YaoCapabilityPersistenceV1;
+  readonly capabilities: RouterAbEd25519YaoActiveCapabilityResolverV1;
 };
 
 type RecoveryRequestScopedContext = {
@@ -342,6 +353,9 @@ export async function handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1(
   if ('response' in parsed) return parsed.response;
   const context: RecoveryRequestScopedContext = { input, trace: trace.value };
   try {
+    if (parsed.kind === 'warm_bootstrap') {
+      return await runWarmRecoveryBootstrapRequest(context, parsed.value);
+    }
     const result = await runRecoveryRequest(context, parsed);
     return recoveryResponse(result);
   } catch (error: unknown) {
@@ -356,9 +370,87 @@ export async function handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1(
   }
 }
 
+async function runWarmRecoveryBootstrapRequest(
+  context: RecoveryRequestScopedContext,
+  request: RouterAbEd25519YaoWarmRecoveryBootstrapRequestV1,
+): Promise<Response> {
+  const authorized = await context.input.authorization.authorize({
+    kind: 'bootstrap',
+    request: context.input.request,
+    body: request,
+  });
+  if (!authorized.ok) {
+    return json(
+      { ok: false, code: authorized.code, message: authorized.message },
+      { status: authorized.status },
+    );
+  }
+  const activeCapability = await context.input.capabilities.resolveActiveCapability({
+    kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
+    walletId: request.walletId,
+    nearAccountId: request.nearAccountId,
+    nearEd25519SigningKeyId: request.nearEd25519SigningKeyId,
+    signerSlot: request.signerSlot,
+    signingWorkerId: request.signingWorkerId,
+    participantIds: request.participantIds,
+  });
+  if (!activeCapability.ok) {
+    return json(
+      { ok: false, code: activeCapability.code, message: activeCapability.message },
+      { status: activeCapability.code === 'unknown_capability' ? 404 : 409 },
+    );
+  }
+  if (
+    !warmBootstrapCapabilityMatchesStableIdentity({
+      request,
+      claims: authorized.claims,
+      capability: activeCapability.capability,
+    })
+  ) {
+    return json(
+      {
+        ok: false,
+        code: 'continuity_mismatch',
+        message: 'active Ed25519 Yao capability does not match the Wallet Session lifecycle',
+      },
+      { status: 409 },
+    );
+  }
+  const firstParticipantId = authorized.claims.participantIds[0];
+  const secondParticipantId = authorized.claims.participantIds[1];
+  if (firstParticipantId === undefined || secondParticipantId === undefined) {
+    return json(
+      {
+        ok: false,
+        code: 'wallet_session_claims_invalid',
+        message: 'Ed25519 Yao recovery requires exactly two Wallet Session participants',
+      },
+      { status: 401 },
+    );
+  }
+  const response: RouterAbEd25519YaoWarmRecoveryBootstrapV1 = {
+    kind: 'router_ab_ed25519_yao_warm_recovery_bootstrap_v1',
+    walletId: authorized.claims.walletId,
+    nearAccountId: authorized.claims.nearAccountId,
+    nearEd25519SigningKeyId: authorized.claims.nearEd25519SigningKeyId,
+    signerSlot: request.signerSlot,
+    thresholdSessionId: authorized.claims.thresholdSessionId,
+    signingGrantId: authorized.claims.signingGrantId,
+    signingWorkerId: authorized.claims.routerAbNormalSigning.signingWorkerId,
+    thresholdExpiresAtMs: authorized.claims.thresholdExpiresAtMs,
+    participantIds: [firstParticipantId, secondParticipantId],
+    authority: authorized.claims.authority,
+    authorityScope: authorized.claims.authorityScope,
+    runtimePolicyScope: authorized.claims.runtimePolicyScope,
+    routerAbNormalSigning: authorized.claims.routerAbNormalSigning,
+    capability: activeCapability.capability,
+  };
+  return json(response, { status: 200 });
+}
+
 async function runRecoveryRequest(
   context: RecoveryRequestScopedContext,
-  request: RecoveryRequest,
+  request: Exclude<RecoveryRequest, { readonly kind: 'warm_bootstrap' }>,
 ): Promise<RecoveryResponse> {
   switch (request.kind) {
     case 'admit':
@@ -542,6 +634,17 @@ async function parseRecoveryRequest(
 ): Promise<RecoveryRequest | { readonly response: Response }> {
   const raw = await readJson(request);
   const pathname = new URL(request.url).pathname;
+  if (pathname === ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1) {
+    const parsed = parseRouterAbEd25519YaoWarmRecoveryBootstrapRequestV1(raw);
+    return parsed.ok
+      ? { kind: 'warm_bootstrap', value: parsed.value }
+      : {
+          response: json(
+            { ok: false, code: parsed.code, message: parsed.message },
+            { status: 400 },
+          ),
+        };
+  }
   if (pathname === ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1) {
     const parsed = parseRouterAbEd25519YaoRecoveryAdmissionRequestV1(raw);
     return parsed.ok

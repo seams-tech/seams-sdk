@@ -89,6 +89,7 @@ test('every ceremony phase pairs with the store its admission used', () => {
   const admissions = ['registration_start', 'registration_admission', 'recovery_admission', 'export_admission'] as const;
   const continuations = [
     'registration_execute',
+    'recovery_bootstrap',
     'recovery_execute',
     'recovery_activate',
     'export_execute',
@@ -136,7 +137,12 @@ test('a family with no configured window stays on the legacy runtime', () => {
 
   // Sharing registration's elapsed window would send these straight to D1 with
   // no drain, stranding ceremonies admitted against the legacy runtime.
-  for (const operation of ['recovery_admission', 'recovery_activate', 'export_execute'] as const) {
+  for (const operation of [
+    'recovery_bootstrap',
+    'recovery_admission',
+    'recovery_activate',
+    'export_execute',
+  ] as const) {
     expect(
       resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({ operation, nowMs: 9_000, cutover }).kind,
     ).toBe('legacy_runtime');

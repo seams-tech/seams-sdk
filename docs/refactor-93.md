@@ -877,6 +877,10 @@ receipts are recorded.
           crash-between-steps path. Until that exists, treat a crash after the
           D1 batch as possibly leaving a visible wallet with incomplete
           finalization state.
+    - [x] Bind keyed finalize replay records to a canonical request fingerprint
+          and reject reuse of an idempotency key for a different finalize body.
+          Persisted replay records without a fingerprint fail closed at the D1
+          boundary.
     - [x] Cover Email OTP commit atomicity against a real D1 database: the
           enrollment and wallet land together and read back, a failing
           enrollment statement rolls back the wallet and signer rows, and
@@ -919,13 +923,16 @@ receipts are recorded.
         store as one coherent cutover, dispatched through the selector using the
         environment-backed dependencies. Dormant until the recovery window is
         configured.
+    - [x] Route warm recovery bootstrap through the same request-scoped
+          capability resolver and classify it as a recovery continuation in the
+          per-family selector.
     - [x] Persist the activation claim before Router promotion and replace the
           active wallet capability together with an exact operation receipt in
           one D1 transaction. Exact retries reconcile response loss from that
           receipt without repeating the wallet write.
     - [x] Compose admission, execution, and activation behind the drain
           selector. Enabling still waits on local cutover validation.
-  - [ ] Move export admission, execution, redelivery, and authorization state
+  - [x] Move export admission, execution, redelivery, and authorization state
         to the partitioned store with typed conflict and uncertainty handling.
     - [x] Persist phase-specific authorization, admission, and execution claims
           before their effects; retain uncertain claims without repeating
@@ -937,16 +944,13 @@ receipts are recorded.
   - [ ] Move remaining replay, authorization, and session state out of the
         tenant runtime, then delete its binding, readiness path, serializer, and
         SQLite migration after the drain.
-  - [ ] Give the local dev worker the same request-scoped path. It does not use
-        the tenant runtime at all: Yao product state is an in-process WeakMap
-        keyed by env, with capabilities rehydrated from D1 at composition time,
-        so it persists nothing across a restart and cannot exercise the
-        partitioned store. Its composition supplies both the runtime and the
-        Yao route module, so swapping only the runtime would split ceremony
-        state across two stores — the same defect the per-request resolver
-        fixed for staging. Local parity therefore means routing its Yao
-        operations through the request-scoped handlers, not swapping a
-        dependency.
+  - [x] Give the local dev worker the same request-scoped path. Its Yao
+        product runtime and all registration, recovery (including warm
+        bootstrap), and export routes use the partitioned D1 store and the
+        request-scoped handlers. The local MPC backend keeps the service
+        binding and intended-fault controller, so local retries exercise the
+        same byte-exact transport boundary as staging. Readiness now checks
+        both versioned JSON CAS tables required by that store.
 - [ ] Delete obsolete Deriver Stage and Result route contracts after the
       maximum in-flight ceremony lifetime has elapsed.
 - [ ] Before deleting legacy role routes, complete the cross-key exclusion
@@ -1105,37 +1109,36 @@ after each request. Removing this object or routing Yao requests around it
 without a replacement persistence/CAS boundary would lose replay state and
 allow concurrent snapshots to overwrite one another. The request-scoped D1
 partitioned adapter implements registration admission and execution. The
-staging Worker contains a two-boundary drain selector that keeps both
-operations on `ROUTER_API_RUNTIME` before
-`ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS`, rejects new admissions between
-that cutoff and `ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS`, keeps old executions on
-the tenant runtime during that interval, and switches both operations to D1 at
-the final boundary:
+staging Worker contains independent drain selectors for registration, recovery,
+and export. Each family has its own
+`ROUTER_AB_YAO_GATEWAY_<FAMILY>_ADMISSION_CUTOFF_MS` and
+`ROUTER_AB_YAO_GATEWAY_<FAMILY>_DRAIN_UNTIL_MS` pair. The registration selector
+also gates public `/wallets/register/start`; it keeps the family on
+`ROUTER_API_RUNTIME` before the cutoff, rejects new admissions between the
+cutoff and drain boundary, keeps old continuations on the tenant runtime, and
+switches the family to D1 at the final boundary:
 authorization and a typed admission or execution claim are CASed before the
 MPC Router backend call, terminal state is loaded from a fresh snapshot, and
 uncertainty or CAS conflicts fail closed without retrying the backend. The
-generated deployment config leaves both values empty until the wallet-finalize
-state bridge is ready. Enabling the D1 route before that bridge would create an
-independent state copy that finalization could not observe.
+generated deployment config leaves each pair empty until that family's state
+bridge is ready. Enabling the D1 route before the registration bridge would
+create an independent state copy that finalization could not observe.
 
-Wallet registration start/bind/finalize, recovery route selection, export,
-remaining session side effects, and the non-Yao API still use
-`ROUTER_API_RUNTIME`. Recovery
-admission and execution now expose typed request-scoped preparation and
-completion boundaries that persist `admitting` or `executing` before the
-backend call and preserve those claims on transport uncertainty. The recovery
-session index is part of the shared CAS record, so a backend session cannot be
-accepted by two lifecycle partitions. This adapter is deliberately
-foundation-only at the route-selection boundary. Recovery activation now
-persists `activating` before Router promotion and commits the wallet capability
-replacement with an exact D1 operation receipt. A lost D1 response or terminal
-product-state CAS conflict is reconciled from that receipt without repeating
-the wallet write. All three recovery routes stay on the tenant runtime until
-they are composed behind one drain selector and validated together. Acceptance
-criterion 3 therefore remains an explicit Gateway persistence refactor gate:
-migrate those remaining routes to typed side-effect boundaries, gather drain
-evidence, then delete the binding and its migration. This is separate from the
-role-local Router coordination already implemented here.
+Wallet registration start/bind/finalize, remaining session side effects, and
+the non-Yao API still use `ROUTER_API_RUNTIME`. Recovery and export route
+selection now dispatches admission, execution, activation, warm bootstrap, and
+export requests through request-scoped handlers once their family window is
+configured. Recovery admission and execution persist `admitting` or
+`executing` before the backend call and preserve those claims on transport
+uncertainty. The recovery session index is part of the shared CAS record, so a
+backend session cannot be accepted by two lifecycle partitions. Recovery
+activation commits the wallet capability replacement with an exact D1 operation
+receipt. A lost D1 response or terminal product-state CAS conflict is
+reconciled from that receipt without repeating the wallet write. Acceptance
+criterion 3 remains an explicit Gateway persistence refactor gate for the
+registration start/bind/finalize path, remaining replay/session state, drain
+evidence, and eventual deletion of the binding and migration. This is separate
+from the role-local Router coordination already implemented here.
 The follow-up review also confirms that the object name is keyed by
 `namespace:org:project:environment`, so all registrations for one tenant
 environment share that instance. That creates a tenant-level throughput ceiling
@@ -1151,25 +1154,21 @@ codec for the registration, authorization, recovery, and export Map/Set graphs,
 and a shared-plus-ceremony state store that reads both records from one D1
 batch snapshot and commits them with one typed CAS batch. The registration
 request-scoped adapter, drain selector, and contract tests are complete. The
-generated deployment config accepts explicit
-`ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS` and
-`ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS` values; leave both empty during the
-legacy window, then set the cutoff at quiescence and the final boundary after
-the measured maximum in-flight lifetime before enabling the D1 route. The tenant runtime has not
-been migrated for the remaining routes, its binding and migration have not
-been deleted, and this checkbox remains open until recovery, export, replay,
-authorization, and wallet-finalize paths have equivalent typed boundaries and
-drain evidence.
+generated deployment config accepts six explicit per-family values,
+`ROUTER_AB_YAO_GATEWAY_{REGISTRATION,RECOVERY,EXPORT}_ADMISSION_CUTOFF_MS` and
+`ROUTER_AB_YAO_GATEWAY_{REGISTRATION,RECOVERY,EXPORT}_DRAIN_UNTIL_MS`; leave a
+family's pair empty during its legacy window, then set its cutoff at quiescence
+and its final boundary after the measured maximum in-flight lifetime. The
+tenant runtime has not been removed for registration start/finalize and
+remaining session state, its binding and migration have not been deleted, and
+this checkbox remains open until those paths have equivalent typed boundaries
+and drain evidence.
 The SDK also exposes a request-scoped load/execute/commit runner with typed
-CAS conflicts and no retry loop. It remains the composition seam for routes
-that have not been split. The current Gateway handler combines Yao transitions
-with other D1 and wallet side effects, so a post-side-effect CAS conflict would
-be uncertain. The dedicated request-scoped adapter is wired behind the
-drain-gated staging selector; recovery, export, replay, authorization, and
-wallet-finalize still require explicit side-effect boundaries and a shared-state
-bridge before the selector may be enabled. During the intermediate drain,
-admission returns a typed 503 with `Retry-After`, while execute remains on the
-legacy runtime.
+CAS conflicts and no retry loop. It remains the composition seam for the
+registration start/finalize and remaining session paths. The dedicated
+request-scoped recovery and export adapters are wired behind the drain-gated
+staging selector. During an intermediate family drain, admission returns a
+typed 503 with `Retry-After`, while continuations remain on the legacy runtime.
 
 The first bounded Gateway migration is implemented and tested for registration
 admission and execution, with new admission quiesced first and both operations

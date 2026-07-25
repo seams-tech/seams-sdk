@@ -4,6 +4,7 @@ export type RouterAbEd25519YaoGatewayRegistrationOperationV1 =
   | 'registration_start'
   | 'registration_admission'
   | 'registration_execute'
+  | 'recovery_bootstrap'
   | 'recovery_admission'
   | 'recovery_execute'
   | 'recovery_activate'
@@ -25,6 +26,7 @@ function isAdmissionOperation(
     case 'export_admission':
       return true;
     case 'registration_execute':
+    case 'recovery_bootstrap':
     case 'recovery_execute':
     case 'recovery_activate':
     case 'export_execute':
@@ -40,6 +42,7 @@ function familyOfOperation(
     case 'registration_admission':
     case 'registration_execute':
       return 'registration';
+    case 'recovery_bootstrap':
     case 'recovery_admission':
     case 'recovery_execute':
     case 'recovery_activate':

@@ -115,7 +115,11 @@ import {
   type D1RegistrationSharedSigningBudget,
 } from './d1RegistrationSharedSigningBudget';
 import { sha256BytesPortable } from './d1RouterApiAuthBoundary';
-import { alphabetizeStringify, bytesToUnprefixedHex } from '@shared/utils/digests';
+import {
+  alphabetizeStringify,
+  bytesToUnprefixedHex,
+  sha256BytesUtf8,
+} from '@shared/utils/digests';
 import { deriveThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
 import {
   type WalletEcdsaPendingSessionActivationRecord,
@@ -155,6 +159,12 @@ type StartWalletRegistrationInput = WalletRegistrationStartRequest;
 type RespondWalletRegistrationDerivationInput = WalletRegistrationEcdsaDerivationRespondRequest;
 type ActivateWalletRegistrationEcdsaInput = WalletRegistrationEcdsaActivationRequest;
 type FinalizeWalletRegistrationInput = WalletRegistrationFinalizeRequest;
+
+async function walletRegistrationFinalizeRequestFingerprint(
+  request: FinalizeWalletRegistrationInput,
+): Promise<string> {
+  return base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(request)));
+}
 
 type D1RegistrationEd25519SigningBudgetPlan =
   | { readonly kind: 'generated_registration_signing_budget' }
@@ -1919,6 +1929,9 @@ export class CloudflareD1WalletRegistrationService {
       const store = this.getRegistrationCeremonyIntentStore();
       if (!store) return missingRegistrationCeremonyDoStore();
       const idempotencyKey = toOptionalTrimmedString(request.idempotencyKey);
+      const requestFingerprint = idempotencyKey
+        ? await walletRegistrationFinalizeRequestFingerprint(request)
+        : null;
       if (idempotencyKey) {
         const replayTiming = startD1RegistrationRouteTiming('registrationFinalizeReplayLoadMs');
         let replay: Awaited<ReturnType<typeof store.getFinalizeReplay>>;
@@ -1931,6 +1944,13 @@ export class CloudflareD1WalletRegistrationService {
           finishD1RegistrationRouteTiming(finalizeTiming, replayTiming);
         }
         if (replay) {
+          if (replay.requestFingerprint !== requestFingerprint) {
+            return {
+              ok: false,
+              code: 'idempotency_conflict',
+              message: 'registration finalize idempotency key was reused for a different request',
+            };
+          }
           await cleanupFinalizedRegistrationCeremony({
             store,
             registrationCeremonyId: request.registrationCeremonyId,
@@ -2427,7 +2447,7 @@ export class CloudflareD1WalletRegistrationService {
                 ecdsa: { walletKeys: ecdsaWalletKeys },
               };
       }
-      if (idempotencyKey) {
+      if (idempotencyKey && requestFingerprint) {
         const replayCacheTiming = startD1RegistrationRouteTiming(
           'registrationFinalizeReplayCacheMs',
         );
@@ -2436,6 +2456,7 @@ export class CloudflareD1WalletRegistrationService {
             kind: 'wallet_registration_finalize_replay_v1',
             registrationCeremonyId: ceremony.registrationCeremonyId,
             idempotencyKey,
+            requestFingerprint,
             response,
             createdAtMs: now,
             expiresAtMs: ceremony.expiresAtMs,

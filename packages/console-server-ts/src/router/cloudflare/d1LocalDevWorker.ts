@@ -22,6 +22,7 @@ import type {
 } from '@seams/sdk-server/internal/core/ThresholdService/signingRootShareResolver';
 import { D1SigningRootSecretStore } from '@seams/sdk-server/internal/core/ThresholdService/stores/SigningRootSecretStore.d1';
 import type {
+  CfEnv,
   CfExecutionContext,
   FetchHandler,
 } from '@seams/sdk-server/internal/router/cloudflare/cloudflare.types';
@@ -64,19 +65,14 @@ import {
   ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
   type RouterAbPublicKeysetV2,
 } from '@seams-internal/shared-ts/utils/routerAbPublicKeyset';
-import { parseWebAuthnRpId } from '@seams-internal/shared-ts/utils/domainIds';
+import { parseWalletId, parseWebAuthnRpId } from '@seams-internal/shared-ts/utils/domainIds';
 import {
-  createRouterAbEd25519YaoHttpRegistrationBackendFromEnv,
-  createRouterAbEd25519YaoProductRegistrationStatefulCompositionV1,
-  createRouterAbEd25519YaoProductRegistrationStateV1,
-  CloudflareD1WebAuthnAuthService,
-  CloudflareD1WebAuthnStore,
-  type RouterAbEd25519YaoProductRegistrationCompositionV1,
-  type RouterAbEd25519YaoProductRegistrationStateV1,
+  createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1,
+  createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1,
+  type RouterAbEd25519YaoProductRegistrationRuntimeV1,
 } from '@seams/sdk-server/internal/router/cloudflare-adaptor';
 import type { SessionAdapter } from '@seams/sdk-server/internal/router/routerApi';
 import { D1WalletStore } from '@seams/sdk-server/internal/core/d1WalletStore';
-import { CloudflareD1RouterAbEd25519YaoCapabilityPersistence } from '@seams/sdk-server/internal/router/cloudflare/d1Ed25519YaoCapabilityPersistence';
 import {
   createRouterAbEcdsaEd25519CeremonyTokenIssuer,
   createRouterAbEcdsaStrictPostRegistrationPort,
@@ -93,7 +89,28 @@ import {
   ROUTER_AB_SIGNING_WORKER_ORIGIN,
   type RouterAbServiceBindingEnv,
 } from './routerAbServiceBindings';
-import { ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1 } from '@shared/utils/routerAbEd25519Yao';
+import { withCors } from '@seams/sdk-server/internal/router/cloudflare/http';
+import {
+  createRouterAbEd25519YaoHttpRegistrationBackendFromEnv,
+} from '@seams/sdk-server/internal/router/routerAbEd25519YaoHttpRegistrationBackend';
+import { CloudflareD1RouterAbEd25519YaoCapabilityPersistence } from '@seams/sdk-server/internal/router/cloudflare/d1Ed25519YaoCapabilityPersistence';
+import { CloudflareD1WebAuthnAuthService } from '@seams/sdk-server/internal/router/cloudflare/d1WebAuthnAuthService';
+import { CloudflareD1WebAuthnStore } from '@seams/sdk-server/internal/router/cloudflare/d1WebAuthnStore';
+import { handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1 } from '@seams/sdk-server/internal/router/routerAbEd25519YaoRegistrationRequestScopedCloudflare';
+import { handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1 } from '@seams/sdk-server/internal/router/routerAbEd25519YaoRecoveryRequestScopedCloudflare';
+import { handleRouterAbEd25519YaoExportRequestScopedCloudflareV1 } from '@seams/sdk-server/internal/router/routerAbEd25519YaoExportRequestScopedCloudflare';
+import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from '@seams/sdk-server/internal/router/routerAbEd25519YaoRecoveryWalletSessionAuthorization';
+import { RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter } from '@seams/sdk-server/internal/router/routerAbEd25519YaoExport';
+import {
+  ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1,
+  ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
+  ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1,
+  ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1,
+  ROUTER_AB_ED25519_YAO_RECOVERY_EXECUTE_PATH_V1,
+  ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
+  ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
+  ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1,
+} from '@shared/utils/routerAbEd25519Yao';
 import { ROUTER_AB_TRACE_ID_HEADER_V1 } from '@shared/utils/routerAbTraceContext';
 
 export { ThresholdStoreDurableObject };
@@ -659,6 +676,8 @@ const SIGNER_READY_TABLES = Object.freeze([
   'email_otp_registration_attempts',
   'email_otp_rate_limits',
   'router_ab_yao_capability_replacements',
+  'router_ab_yao_versioned_json_records',
+  'router_ab_yao_versioned_json_cas_guard',
 ]);
 
 function jsonResponse(body: Record<string, unknown>, init?: ResponseInit): Response {
@@ -1215,7 +1234,7 @@ async function createLocalRouterApiHandler(
   const ecdsaStrictPorts = localEcdsaStrictPorts(env);
   const routerApiService = createLocalD1RouterApiAuthService(env, ed25519Yao);
   const emailRecoveryAuthService = createLocalD1EmailRecoveryAuthService(env);
-  return createCloudflareRouter(routerApiService, {
+  const baseHandler = createCloudflareRouter(routerApiService, {
     ...bundle.routerApiRouterOptions,
     routeExtensions: createCloudflareD1RouterApiRouteExtensions(bundle, routerApiService),
     healthz: true,
@@ -1223,9 +1242,8 @@ async function createLocalRouterApiHandler(
     corsOrigins: [...LOCAL_ROUTER_API_CORS_ORIGINS],
     ...(routerAbPublicKeyset ? { routerAbPublicKeyset } : {}),
     session,
-    modules: ed25519Yao.kind === 'enabled' ? [ed25519Yao.composition.module] : [],
     ...(ed25519Yao.kind === 'enabled'
-      ? { routerAbEd25519YaoProduct: ed25519Yao.composition.runtime }
+      ? { routerAbEd25519YaoProduct: ed25519Yao.runtime }
       : {}),
     ...(sessionCookieName ? { sessionCookieName } : {}),
     routerAbEcdsaStrictPostRegistration: ecdsaStrictPorts.postRegistration,
@@ -1235,6 +1253,76 @@ async function createLocalRouterApiHandler(
     },
     signingSessionSeal: localSigningSessionSealOptions(env),
   });
+  if (ed25519Yao.kind !== 'enabled') return baseHandler;
+  return createLocalRouterApiRequestScopedHandler({
+    baseHandler,
+    dependencies: ed25519Yao.requestScoped,
+  });
+}
+
+type LocalRouterApiRequestScopedHandlerInput = {
+  readonly baseHandler: FetchHandler;
+  readonly dependencies: LocalEd25519YaoRequestScopedDependencies;
+};
+
+function createLocalRouterApiRequestScopedHandler(
+  input: LocalRouterApiRequestScopedHandlerInput,
+): FetchHandler {
+  return handleLocalRouterApiRequestScoped.bind(undefined, input);
+}
+
+async function handleLocalRouterApiRequestScoped(
+  input: LocalRouterApiRequestScopedHandlerInput,
+  request: Request,
+  env: CfEnv | undefined,
+  ctx: CfExecutionContext | undefined,
+): Promise<Response> {
+  const response = await handleLocalYaoRequestScoped(input.dependencies, request);
+  if (response) {
+    withCors(response.headers, { corsOrigins: [...LOCAL_ROUTER_API_CORS_ORIGINS] }, request);
+    return response;
+  }
+  return await input.baseHandler(request, env, ctx);
+}
+
+async function handleLocalYaoRequestScoped(
+  dependencies: LocalEd25519YaoRequestScopedDependencies,
+  request: Request,
+): Promise<Response | null> {
+  if (request.method !== 'POST') return null;
+  const pathname = new URL(request.url).pathname;
+  switch (pathname) {
+    case ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1:
+    case ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1:
+      return await handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1({
+        request,
+        store: dependencies.store,
+        backend: dependencies.backend,
+      });
+    case ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1:
+    case ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1:
+    case ROUTER_AB_ED25519_YAO_RECOVERY_EXECUTE_PATH_V1:
+    case ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1:
+      return await handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1({
+        request,
+        store: dependencies.store,
+        backend: dependencies.backend,
+        authorization: dependencies.recoveryAuthorization,
+        capabilityPersistence: dependencies.capabilityPersistence,
+        capabilities: dependencies.capabilities,
+      });
+    case ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1:
+    case ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1:
+      return await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1({
+        request,
+        store: dependencies.store,
+        backend: dependencies.backend,
+        authorization: dependencies.exportAuthorization,
+        capabilities: dependencies.capabilities,
+      });
+    default:
+      return null;
+  }
 }
 
 function localThresholdStoreConfig(env: LocalD1DevEnv): ThresholdStoreConfigInput {
@@ -1312,32 +1400,27 @@ function localD1RouterApiAuthServiceOptions(
     thresholdStore: localThresholdStoreConfig(env),
     ecdsaStrictRegistration: localEcdsaStrictPorts(env).registration,
     ...(ed25519Yao.kind === 'enabled'
-      ? { ed25519YaoProductRegistration: ed25519Yao.composition.runtime }
+      ? { ed25519YaoProductRegistration: ed25519Yao.runtime }
       : {}),
   };
 }
 
 type LocalEd25519YaoProductCompositionState =
-  | { readonly kind: 'disabled'; readonly composition?: never }
+  | { readonly kind: 'disabled'; readonly runtime?: never }
   | {
       readonly kind: 'enabled';
-      readonly composition: RouterAbEd25519YaoProductRegistrationCompositionV1;
+      readonly runtime: RouterAbEd25519YaoProductRegistrationRuntimeV1;
+      readonly requestScoped: LocalEd25519YaoRequestScopedDependencies;
     };
 
-const localEd25519YaoProductStateByEnv = new WeakMap<
-  LocalD1DevEnv,
-  RouterAbEd25519YaoProductRegistrationStateV1
->();
-
-function localEd25519YaoProductState(
-  env: LocalD1DevEnv,
-): RouterAbEd25519YaoProductRegistrationStateV1 {
-  const existing = localEd25519YaoProductStateByEnv.get(env);
-  if (existing) return existing;
-  const state = createRouterAbEd25519YaoProductRegistrationStateV1();
-  localEd25519YaoProductStateByEnv.set(env, state);
-  return state;
-}
+type LocalEd25519YaoRequestScopedDependencies = {
+  readonly store: ReturnType<typeof createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1>;
+  readonly backend: ReturnType<typeof createRouterAbEd25519YaoHttpRegistrationBackendFromEnv>;
+  readonly recoveryAuthorization: RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter;
+  readonly capabilityPersistence: CloudflareD1RouterAbEd25519YaoCapabilityPersistence;
+  readonly capabilities: RouterAbEd25519YaoProductRegistrationRuntimeV1;
+  readonly exportAuthorization: RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter;
+};
 
 async function createLocalEd25519YaoProductComposition(
   env: LocalD1DevEnv,
@@ -1347,13 +1430,26 @@ async function createLocalEd25519YaoProductComposition(
   const signingWorkerId =
     normalizeLocalString(env.SIGNING_WORKER_ID) ||
     normalizeLocalString(env.ROUTER_AB_NORMAL_SIGNING_WORKER_ID);
+  const capabilityScope = {
+    namespace: localTenantStorageNamespace(env),
+    orgId: localConsoleOrgId(env),
+    projectId: localConsoleProjectId(env),
+    envId: localConsoleEnvironmentId(env),
+  };
+  const walletStore = new D1WalletStore({
+    database: env.SIGNER_DB,
+    ...capabilityScope,
+    ensureSchema: false,
+  });
+  const store = createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1({
+    database: env.SIGNER_DB,
+    scope: capabilityScope,
+  });
   const backend = createRouterAbEd25519YaoHttpRegistrationBackendFromEnv({
     env: {
       MPC_ROUTER_URL: ROUTER_AB_MPC_ROUTER_ORIGIN,
       SIGNING_WORKER_ID: signingWorkerId,
-      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: normalizeLocalString(
-        env.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET,
-      ),
+      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: localRouterAbInternalServiceAuthSecret(env),
       DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY: normalizeLocalString(
         env.DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY,
       ),
@@ -1366,50 +1462,48 @@ async function createLocalEd25519YaoProductComposition(
     },
     fetch: localEd25519YaoRouterFetchV1(env, routerFetch),
   });
-  const capabilityScope = {
-    namespace: localTenantStorageNamespace(env),
-    orgId: localConsoleOrgId(env),
-    projectId: localConsoleProjectId(env),
-    envId: localConsoleEnvironmentId(env),
-  };
-  const walletStore = new D1WalletStore({
-    database: env.SIGNER_DB,
-    ...capabilityScope,
-    ensureSchema: false,
-  });
-  const composition = createRouterAbEd25519YaoProductRegistrationStatefulCompositionV1({
+  const runtime = createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1({
     signingWorkerId,
-    backend,
     session,
-    webAuthn: new CloudflareD1WebAuthnAuthService({
-      webAuthnStore: new CloudflareD1WebAuthnStore({
-        database: env.SIGNER_DB,
-        namespace: localTenantStorageNamespace(env),
-        orgId: localConsoleOrgId(env),
-        projectId: localConsoleProjectId(env),
-        envId: localConsoleEnvironmentId(env),
-      }),
-    }),
-    state: localEd25519YaoProductState(env),
-    capabilityPersistence: new CloudflareD1RouterAbEd25519YaoCapabilityPersistence({
+    store,
+    loadPersistedActiveCapability: async (lookup) => {
+      const walletId = parseWalletId(lookup.walletId);
+      if (!walletId.ok) return null;
+      const signer = await walletStore.getEd25519SignerBySlot({
+        walletId: walletId.value,
+        signerSlot: lookup.signerSlot,
+      });
+      return signer?.activeYaoCapability || null;
+    },
+  });
+  const webAuthn = new CloudflareD1WebAuthnAuthService({
+    webAuthnStore: new CloudflareD1WebAuthnStore({
       database: env.SIGNER_DB,
-      scope: capabilityScope,
-      walletStore,
-      ensureSchema: false,
+      ...capabilityScope,
     }),
   });
-  const signers = await walletStore.listEd25519Signers();
-  for (const signer of signers) {
-    const installed = await composition.runtime.installPersistedActiveCapability(
-      signer.activeYaoCapability,
-    );
-    if (!installed.ok) {
-      throw new Error(
-        `local Ed25519 Yao capability hydration failed for ${signer.signerId}: ${installed.message}`,
-      );
-    }
-  }
-  return { kind: 'enabled', composition };
+  return {
+    kind: 'enabled',
+    runtime,
+    requestScoped: {
+      store,
+      backend,
+      recoveryAuthorization: new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
+        session,
+      ),
+      capabilityPersistence: new CloudflareD1RouterAbEd25519YaoCapabilityPersistence({
+        database: env.SIGNER_DB,
+        scope: capabilityScope,
+        walletStore,
+        ensureSchema: false,
+      }),
+      capabilities: runtime,
+      exportAuthorization: new RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter(
+        session,
+        webAuthn,
+      ),
+    },
+  };
 }
 
 function createLocalD1RouterApiAuthService(

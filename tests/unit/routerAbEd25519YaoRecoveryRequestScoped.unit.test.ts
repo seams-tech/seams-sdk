@@ -3,6 +3,7 @@ import {
   ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1,
   ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_RECOVERY_EXECUTE_PATH_V1,
+  ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1,
   type RouterAbEd25519YaoRecoveryActivationRequestV1,
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
@@ -151,6 +152,31 @@ class InspectingRecoveryBackend implements RouterAbEd25519YaoRecoveryBackend {
 }
 
 test.describe('request-scoped recovery persistence', () => {
+  test('routes warm recovery bootstrap through the request-scoped capability resolver', async () => {
+    const fixture = await buildRouterAbEd25519YaoRecoveryRequestScopedFixture();
+    const response = await runRecoveryRequest(
+      fixture,
+      new InspectingRecoveryBackend(fixture, 'success'),
+      ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1,
+      {
+        kind: 'router_ab_ed25519_yao_warm_recovery_bootstrap_request_v1',
+        walletId: 'wallet-recovery-1',
+        nearAccountId: 'wallet-recovery-1.testnet',
+        nearEd25519SigningKeyId: 'ed25519ks_recovery_1',
+        signerSlot: 1,
+        thresholdSessionId: 'wallet-session-recovery-1',
+        signingGrantId: 'signing-grant-recovery-1',
+        signingWorkerId: 'signing-worker-recovery-1',
+        participantIds: [1, 2],
+      },
+    );
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'unknown_capability',
+    });
+  });
+
   test('persists admission and execution claims before backend calls', async () => {
     const fixture = await buildRouterAbEd25519YaoRecoveryRequestScopedFixture();
     const backend = new InspectingRecoveryBackend(fixture, 'success');
@@ -463,6 +489,7 @@ async function runRecoveryRequest(
     backend,
     authorization: fixture.authorization,
     capabilityPersistence,
+    capabilities: fixture.capabilities,
   };
   return await handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1(input);
 }

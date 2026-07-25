@@ -41,8 +41,7 @@ Yao unit tests green. Logs retained under the session scratchpad
 4. **All seven Yao operations composed behind the selector.** Recovery and
    export dispatch through `createStagingRecoveryRequestScopedDependencies` /
    `createStagingExportRequestScopedDependencies` — env-only builders reusing
-   the existing authorization classes; no new env surface; never touch the
-   tenant runtime.
+   the existing authorization classes and never touch the tenant runtime.
 5. **Finalize/execute store split closed.** Finalize reads the activation via
    `consumeActivated` on a runtime that was a fixed tenant-runtime value;
    enabling the registration window would have failed every finalize. The
@@ -60,34 +59,28 @@ Yao unit tests green. Logs retained under the session scratchpad
    their isolation); canonical-digest, signed-handshake, lifecycle-tests are
    stale duplicates safe to prune.
 
-Plan stands at **69 checked / 33 unchecked** — the unchecked count rose twice
+The handoff snapshot stood at **69 checked / 33 unchecked** — the unchecked count rose twice
 when audit findings showed earlier claims were too strong, which is the
 intended direction of error.
 
 ## What's left
 
-1. **Local parity — characterized precisely, deliberately not implemented.**
-   The local dev worker never used the tenant DO: its Yao state is an
-   in-process WeakMap keyed by env (`d1LocalDevWorker.ts:1327–1341`),
-   rehydrated from D1 capabilities at composition (`:1403`). Its composition
-   supplies BOTH `.runtime` (`:1315`) and `.module` (`:1226`), so swapping
-   only the runtime would split ceremony state across two stores — the same
-   defect class as item 5 above. Fix = route local Yao operations through the
-   request-scoped handlers (selector mirroring staging) with local-env
-   builders. Separately: native Rust Router Yao serving still returns typed
-   501 (`crates/router-ab-dev/src/local_dev_http.rs:201–206`).
+1. **Local parity is implemented.** The local worker routes registration,
+   recovery (including warm bootstrap), and export through the request-scoped
+   D1 handlers. Its backend still uses the local service bindings and intended
+   fault controller, and readiness checks the versioned JSON CAS tables.
 2. **Entry-point convergence.** Commit store and side-effect boundary are
    proven in isolation; no test drives the full
    `CloudflareD1WalletRegistrationService` finalize across an interruption.
    Needs the full service constructed against temp D1.
-3. **Capability fallback bridge.** Post-drain, `resolveActiveCapability` on
-   the request-scoped runtime must fall back on a shared-record miss to the
-   D1 wallet signer record (`activeYaoCapability`) and install it via
-   `installPersistedActiveCapability` (idempotent). Lazy one-way rehydration;
-   no bulk migration.
-4. **Fingerprint** from canonical effect identity rather than the activation
-   session; and replace optional-`prepare` + boolean `resumeWithPrepared`
-   with a shape where invalid lifecycle combinations don't construct.
+3. **Capability fallback bridge is implemented.** `resolveActiveCapability`
+   falls back on a shared-record miss to the D1 wallet signer record and
+   installs it through the shared CAS boundary. The lookup is bounded to the
+   requested wallet and signer slot.
+4. **Canonical fingerprint and discriminated side-effect API are implemented.**
+   Finalize replay records bind the idempotency key to the request fingerprint,
+   and prepared/non-resumable effect inputs reject invalid combinations at the
+   type boundary.
 5. **Add-signer review.** `walletAddSigners` shares the runtime resolver I
    changed; only the registration path was reasoned through.
 6. **Tenant runtime removal**, in order: audit its authoritative in-memory
@@ -137,19 +130,19 @@ intended direction of error.
 
 ## Takeover verification
 
-The takeover review keeps the branch frozen at `3d4919ad9` until the remaining
-correctness work lands. Two items described above as complete are still open:
+The takeover correctness findings were addressed on the implementation branch.
+NEAR reconciliation now distinguishes created, rejected, not-found, and
+uncertain outcomes, reads back the expected account and FullAccess key, and
+rebroadcasts only the exact validated transaction bytes. Persisted prepared
+artifacts are parsed structurally and their transaction hash is checked against
+the serialized bytes before any network effect. The deployment renderer emits
+six per-family cutoff/drain variables, and the public registration-start gate,
+existing-wallet capability fallback, and request-scoped local route path are
+wired. Warm recovery bootstrap is also request-scoped and participates in the
+recovery family selector. Focused typechecks and recovery/cutover suites pass.
 
-- `txStatus` reconciliation treats every resolved status as successful and does
-  not verify the expected account and full-access key. A transport error and an
-  unknown hash are also conflated before rebroadcast.
-- persisted prepared-transaction records are still partially validated and then
-  cast to the domain type; nonce, block hash, signature, transaction structure,
-  and hash-to-bytes consistency are not yet checked.
-
-The per-family selector is implemented, but the deployment renderer and runbook
-still emit the retired global cutoff variables. Existing-wallet capability
-rehydration, public registration-start admission gating, local parity, and
-complete removal of Yao ownership from the tenant runtime remain prerequisites
-to enabling a family window. Typechecks and focused tests are useful evidence;
-they do not cover those worker/deployment and existing-wallet paths.
+The remaining gates are intentionally open: end-to-end finalize crash
+convergence through `finalizeWalletRegistration`, staged window enablement and
+drain evidence, deletion of the tenant runtime after non-Yao/session state is
+migrated, and production cold/warm evidence that requires Workers Observability
+access.
