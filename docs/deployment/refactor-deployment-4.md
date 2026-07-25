@@ -598,8 +598,8 @@ Phases 4 and 5:
 
 | Lane | Staging | Production |
 | --- | --- | --- |
-| Frontend app | `staging.seams.sh` | `seams.sh` |
-| Frontend wallet | `sign.staging.seams.sh` | `sign.seams.sh` |
+| Frontend app | `seams-site-staging.pages.dev` | `seams.sh` |
+| Frontend wallet | `seams-wallet-staging.pages.dev` | `sign.seams.sh` |
 | Backend | staging readiness checks | production readiness checks |
 
 **Historical Actions cleanup** — independent of both plans, and the one item
