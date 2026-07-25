@@ -380,9 +380,7 @@ type EncodableSignedTx =
       base64Encode?: () => string;
     };
 
-function toArrayBufferFromUnknownBytes(
-  bytes: unknown,
-): ArrayBuffer | SharedArrayBuffer | null {
+function toArrayBufferFromUnknownBytes(bytes: unknown): ArrayBuffer | SharedArrayBuffer | null {
   if (!bytes) return null;
   if (Array.isArray(bytes)) return new Uint8Array(bytes as number[]).buffer;
   if (ArrayBuffer.isView(bytes)) {
@@ -485,7 +483,8 @@ export class MinimalNearClient implements NearClient {
       headers: { 'Content-Type': 'application/json' },
       body: requestBody,
     });
-    if (!response.ok) throw new Error(`RPC request failed: ${response.status} ${response.statusText}`);
+    if (!response.ok)
+      throw new Error(`RPC request failed: ${response.status} ${response.statusText}`);
     const text = await response.text();
     if (!text?.trim()) throw new Error('Empty response from RPC server');
     return JSON.parse(text) as RpcResponse;
@@ -607,31 +606,16 @@ export class MinimalNearClient implements NearClient {
       signed_tx_base64: encodeSignedTransactionBase64(signedTransaction),
       wait_until: waitUntil,
     };
-    const maxAttempts = 5;
-    let lastError: unknown = null;
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        const outcome = await this.makeRpcCall<typeof params, FinalExecutionOutcome>(
-          RpcCallType.Send,
-          params,
-          'Send Transaction',
-        );
-        const status = (outcome as any)?.status;
-        if (status && typeof status === 'object' && 'Failure' in status) {
-          throw NearRpcError.fromOutcome('Send Transaction', outcome, (status as any).Failure);
-        }
-        return outcome;
-      } catch (err: unknown) {
-        lastError = err;
-        const retryable =
-          err instanceof NearRpcError && err.failureKind === 'infrastructure_failure';
-        if (!retryable || attempt === maxAttempts) throw err;
-        const base = 200 * Math.pow(2, attempt - 1);
-        const jitter = Math.floor(Math.random() * 150);
-        await new Promise((resolve) => setTimeout(resolve, base + jitter));
-      }
+    const outcome = await this.makeRpcCall<typeof params, FinalExecutionOutcome>(
+      RpcCallType.Send,
+      params,
+      'Send Transaction',
+    );
+    const status = (outcome as any)?.status;
+    if (status && typeof status === 'object' && 'Failure' in status) {
+      throw NearRpcError.fromOutcome('Send Transaction', outcome, (status as any).Failure);
     }
-    throw lastError instanceof Error ? lastError : new Error(String(lastError));
+    return outcome;
   }
 
   async txStatus(txHash: string, senderAccountId: string): Promise<FinalExecutionOutcome> {

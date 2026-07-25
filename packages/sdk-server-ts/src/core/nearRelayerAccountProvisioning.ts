@@ -1,6 +1,7 @@
 import { ActionType, type ActionArgsWasm, validateActionArgsWasm } from '@shared/near/actions';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { base58Encode } from '@shared/utils/base58';
+import { sha256Bytes } from '@shared/utils/digests';
 import { errorMessage } from '@shared/utils/errors';
 import {
   deriveImplicitNearAccountIdFromEd25519PublicKey,
@@ -692,7 +693,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function outcomeStatus(outcome: FinalExecutionOutcome): SponsoredNearAccountTransactionProbeV1 {
+function outcomeStatus(
+  outcome: FinalExecutionOutcome,
+): Extract<
+  SponsoredNearAccountTransactionProbeV1,
+  { readonly kind: 'created' | 'rejected' | 'pending' }
+> {
   const status = outcome.status;
   if (status === 'Failure') {
     return { kind: 'rejected', message: 'NEAR transaction failed' };
@@ -733,8 +739,11 @@ async function probeSponsoredNearAccountCreation(input: {
     }
     return status;
   } catch (error: unknown) {
-    if (error instanceof NearRpcError && error.failureKind === 'transaction_not_found') {
-      return { kind: 'not_found' };
+    if (error instanceof NearRpcError) {
+      if (error.failureKind === 'transaction_not_found') return { kind: 'not_found' };
+      if (isDefinitiveNearRejection(error)) {
+        return { kind: 'rejected', message: error.message };
+      }
     }
     return {
       kind: 'infrastructure_failure',
@@ -881,8 +890,9 @@ async function validatePreparedSponsoredNearAccountCreation(
 export async function preparedSponsoredNearAccountCreationArtifactFingerprint(
   prepared: PreparedSponsoredNearAccountCreationV1,
 ): Promise<string> {
-  const decoded = await validatePreparedSponsoredNearAccountCreation(prepared);
-  return `sponsored-near-account-creation-v1:${decoded.transactionHash}`;
+  await validatePreparedSponsoredNearAccountCreation(prepared);
+  const signedBytes = base64UrlDecode(prepared.signedTransactionBorshB64u);
+  return `sponsored-near-account-creation-v1:${base64UrlEncode(await sha256Bytes(signedBytes))}`;
 }
 
 export async function broadcastPreparedSponsoredNearAccountCreation(input: {
@@ -923,15 +933,26 @@ export async function broadcastPreparedSponsoredNearAccountCreation(input: {
       }),
       NEAR_IMPLICIT_ACCOUNT_FUND_WAIT_UNTIL,
     );
-    return {
-      kind: 'created',
-      result: {
-        success: true,
-        accountId: input.prepared.accountId,
-        transactionHash: transactionHashFromOutcome(outcome, input.prepared.transactionHash),
-        message: `Account ${input.prepared.accountId} created`,
-      },
-    };
+    const status = outcomeStatus(outcome);
+    if (status.kind === 'created') {
+      return {
+        kind: 'created',
+        result: {
+          success: true,
+          accountId: input.prepared.accountId,
+          transactionHash: transactionHashFromOutcome(outcome, input.prepared.transactionHash),
+          message: `Account ${input.prepared.accountId} created`,
+        },
+      };
+    }
+    if (status.kind === 'rejected') return rejectedBroadcast(status.message);
+    const readback = await readBackSponsoredNearAccount({ prepared: input.prepared, nearClient });
+    if (readback.kind === 'created') return readback;
+    if (readback.kind === 'infrastructure_failure') {
+      return { kind: 'uncertain', message: `${status.message}; ${readback.message}` };
+    }
+    if (readback.kind === 'rejected') return rejectedBroadcast(readback.message);
+    return { kind: 'uncertain', message: status.message };
   } catch (error: unknown) {
     const message = errorMessage(error) || 'Failed to create NEAR account';
     const readback = await readBackSponsoredNearAccount({ prepared: input.prepared, nearClient });

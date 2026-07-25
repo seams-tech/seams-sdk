@@ -63,6 +63,7 @@ class SideEffectProbe {
 
 function bridgeRunInput(probe: SideEffectProbe) {
   return {
+    kind: 'prepared_resumable' as const,
     operation: 'finalize' as const,
     key: 'registration-finalize:lifecycle-1',
     requestFingerprint: REQUEST_FINGERPRINT,
@@ -408,6 +409,7 @@ test.describe('registration side-effect prepared artifacts', () => {
     readonly nowMs?: () => number;
   }) {
     return {
+      kind: 'prepared_resumable' as const,
       resumeAfterMs: 1,
       operation: 'finalize' as const,
       key: PREPARED_KEY,
@@ -567,6 +569,7 @@ test.describe('ambiguous effects are never persisted as terminal', () => {
     readonly nowMs?: () => number;
   }) {
     return {
+      kind: 'prepared_resumable' as const,
       resumeAfterMs: 1,
       operation: 'finalize' as const,
       key: KEY,
@@ -649,6 +652,7 @@ test.describe('concurrent finalize contention', () => {
     readonly effects: string[];
   }) {
     return {
+      kind: 'prepared_resumable' as const,
       resumeAfterMs: 1,
       operation: 'finalize' as const,
       key: KEY,

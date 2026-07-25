@@ -1990,6 +1990,7 @@ export class CloudflareD1WalletRegistrationService {
       const outcome = await runRouterAbEd25519YaoRegistrationSideEffectV1(
         this.finalizeSideEffects,
         {
+          kind: 'prepared_resumable',
           resumeAfterMs: D1_WALLET_REGISTRATION_FINALIZE_RESUME_AFTER_MS,
           operation: 'finalize',
           key: effectKey,

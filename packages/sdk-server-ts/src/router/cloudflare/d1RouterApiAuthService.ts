@@ -728,6 +728,7 @@ async function createSponsoredNamedNearAccountForOptions(
     AccountCreationResult,
     PreparedSponsoredNearAccountCreationV1
   >(sponsoredNearAccountSideEffectStore(options), {
+    kind: 'prepared_resumable',
     resumeAfterMs: 30_000,
     operation: 'finalize',
     key: `sponsored-account:${input.idempotencyKey}`,
