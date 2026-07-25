@@ -151,14 +151,7 @@ class ScriptedLocalYaoFetch {
         return this.json(activationRoleExecution(binding, 'deriver_a', 21, 23, 31, 33));
       case '/router-ab/deriver-b/ed25519-yao/activation/result':
         return this.json(activationRoleExecution(binding, 'deriver_b', 22, 15, 32, 34));
-      case '/router-ab/signing-worker/ed25519-yao/activation/deriver-a':
-        return this.json({
-          status: 'pending',
-          accepted_deriver: 'deriver_a',
-          session,
-          transcript: bytes(11),
-        });
-      case '/router-ab/signing-worker/ed25519-yao/activation/deriver-b':
+      case '/router-ab/signing-worker/ed25519-yao/activation/packages':
         if (binding.operation === 'recovery') {
           return this.json({
             status: 'staged',
@@ -823,8 +816,7 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
       'POST /router-ab/deriver-b/ed25519-yao/activation/stage',
       'POST /router-ab/deriver-a/ed25519-yao/activation/start',
       'POST /router-ab/deriver-b/ed25519-yao/activation/result',
-      'POST /router-ab/signing-worker/ed25519-yao/activation/deriver-a',
-      'POST /router-ab/signing-worker/ed25519-yao/activation/deriver-b',
+      'POST /router-ab/signing-worker/ed25519-yao/activation/packages',
     ]);
   });
 

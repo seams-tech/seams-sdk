@@ -28,6 +28,7 @@ use router_ab_dev::{
     LocalEd25519YaoRouterRecoveryStateV1, LocalEd25519YaoRouterRefreshAdmissionRequestV1,
     LocalEd25519YaoRouterRefreshStateV1, LocalEd25519YaoSigningWorkerActivationReceiptV1,
     LocalEd25519YaoSigningWorkerPackageDeliveryV1,
+    LocalEd25519YaoSigningWorkerPackagePairDeliveryV1,
     LocalEd25519YaoSigningWorkerRefreshPackageDeliveryV1,
     LocalEd25519YaoSigningWorkerRefreshReceiptV1, LocalHttpServiceBindingClientV1,
     RouterAbEd25519YaoApplicationBindingFactsV1, RouterAbEd25519YaoLifecycleScopeV1,
@@ -49,8 +50,7 @@ use router_ab_dev::{
     LOCAL_DERIVER_B_ED25519_YAO_REFRESH_STAGE_PATH,
     LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_DEFAULT_SECRET_V1,
     LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
-    LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_DERIVER_A_PATH,
-    LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_DERIVER_B_PATH,
+    LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_PACKAGES_PATH,
     LOCAL_SIGNING_WORKER_ED25519_YAO_RECOVERY_PROMOTE_PATH,
     LOCAL_SIGNING_WORKER_ED25519_YAO_REFRESH_DERIVER_A_PATH,
     LOCAL_SIGNING_WORKER_ED25519_YAO_REFRESH_DERIVER_B_PATH,
@@ -736,70 +736,79 @@ fn run_local_activation_process_v1(
         signing_worker_commitment: b_execution.signing_worker_commitment,
         package: b_worker_envelope,
     };
-    let (delivery_status, delivery_body) = post_json_to_path_with_headers(
-        context.signing_worker_url,
-        LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_DERIVER_A_PATH,
-        &a_delivery,
-        &auth_headers,
-    )?;
-    assert_eq!(delivery_status, 200);
-    assert!(matches!(
-        serde_json::from_str::<LocalEd25519YaoSigningWorkerActivationReceiptV1>(&delivery_body)?,
-        LocalEd25519YaoSigningWorkerActivationReceiptV1::Pending { .. }
-    ));
     if context.mode.exercises_faults() {
-        let conflicting_a_delivery = conflicting_activation_delivery(&a_delivery);
-        let (conflicting_a_status, conflicting_a_body) = post_json_to_path_with_headers(
+        let conflicting_a_pair = LocalEd25519YaoSigningWorkerPackagePairDeliveryV1 {
+            deriver_a: conflicting_activation_delivery(&a_delivery),
+            deriver_b: b_delivery.clone(),
+        };
+        let (conflicting_a_status, _) = post_json_to_path_with_headers(
             context.signing_worker_url,
-            LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_DERIVER_A_PATH,
-            &conflicting_a_delivery,
+            LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_PACKAGES_PATH,
+            &conflicting_a_pair,
             &auth_headers,
         )?;
         assert_eq!(conflicting_a_status, 400);
-        assert!(conflicting_a_body.contains("Deriver A activation delivery slot is occupied"));
         let mut wrong_role_delivery = b_delivery.clone();
         wrong_role_delivery.package =
             package_with_deriver(&b_delivery.package, Ed25519YaoDeriverRoleV1::DeriverA);
+        let wrong_role_pair = LocalEd25519YaoSigningWorkerPackagePairDeliveryV1 {
+            deriver_a: a_delivery.clone(),
+            deriver_b: wrong_role_delivery,
+        };
         let (wrong_role_status, _) = post_json_to_path_with_headers(
             context.signing_worker_url,
-            LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_DERIVER_B_PATH,
-            &wrong_role_delivery,
+            LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_PACKAGES_PATH,
+            &wrong_role_pair,
             &auth_headers,
         )?;
         assert_eq!(wrong_role_status, 400);
         let mut wrong_family_delivery = b_delivery.clone();
         wrong_family_delivery.package =
             package_with_kind(&b_delivery.package, Ed25519YaoPackageKindV1::ExportClient);
+        let wrong_family_pair = LocalEd25519YaoSigningWorkerPackagePairDeliveryV1 {
+            deriver_a: a_delivery.clone(),
+            deriver_b: wrong_family_delivery,
+        };
         let (wrong_family_status, _) = post_json_to_path_with_headers(
             context.signing_worker_url,
-            LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_DERIVER_B_PATH,
-            &wrong_family_delivery,
+            LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_PACKAGES_PATH,
+            &wrong_family_pair,
             &auth_headers,
         )?;
         assert_eq!(wrong_family_status, 400);
         let mut malformed_delivery = b_delivery.clone();
         malformed_delivery.package = package_with_tampered_ciphertext(&b_delivery.package);
+        let malformed_pair = LocalEd25519YaoSigningWorkerPackagePairDeliveryV1 {
+            deriver_a: a_delivery.clone(),
+            deriver_b: malformed_delivery,
+        };
         let (malformed_status, _) = post_json_to_path_with_headers(
             context.signing_worker_url,
-            LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_DERIVER_B_PATH,
-            &malformed_delivery,
+            LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_PACKAGES_PATH,
+            &malformed_pair,
             &auth_headers,
         )?;
         assert_eq!(malformed_status, 400);
-        let conflicting_b_delivery = conflicting_activation_delivery(&b_delivery);
-        let (conflicting_b_status, conflicting_b_body) = post_json_to_path_with_headers(
+        let conflicting_b_pair = LocalEd25519YaoSigningWorkerPackagePairDeliveryV1 {
+            deriver_a: a_delivery.clone(),
+            deriver_b: conflicting_activation_delivery(&b_delivery),
+        };
+        let (conflicting_b_status, _) = post_json_to_path_with_headers(
             context.signing_worker_url,
-            LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_DERIVER_B_PATH,
-            &conflicting_b_delivery,
+            LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_PACKAGES_PATH,
+            &conflicting_b_pair,
             &auth_headers,
         )?;
         assert_eq!(conflicting_b_status, 400);
-        assert!(conflicting_b_body.contains("activation package bindings do not match"));
     }
+    let delivery = LocalEd25519YaoSigningWorkerPackagePairDeliveryV1 {
+        deriver_a: a_delivery,
+        deriver_b: b_delivery,
+    };
     let (delivery_status, delivery_body) = post_json_to_path_with_headers(
         context.signing_worker_url,
-        LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_DERIVER_B_PATH,
-        &b_delivery,
+        LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_PACKAGES_PATH,
+        &delivery,
         &auth_headers,
     )?;
     assert_eq!(delivery_status, 200);
@@ -817,9 +826,6 @@ fn run_local_activation_process_v1(
                 promotion.signing_worker_verifying_share,
                 Some(promotion),
             ),
-            LocalEd25519YaoSigningWorkerActivationReceiptV1::Pending { .. } => {
-                return Err("SigningWorker remained pending after both packages".into());
-            }
         };
     let commitments = ActivationPublicCommitments::new(
         a_execution.client_commitment,
@@ -1616,21 +1622,14 @@ fn run_local_ed25519_yao_lifecycle(
         signing_worker_commitment: b_execution.signing_worker_commitment,
         package: b_worker_envelope,
     };
+    let delivery = LocalEd25519YaoSigningWorkerPackagePairDeliveryV1 {
+        deriver_a: a_delivery.clone(),
+        deriver_b: b_delivery,
+    };
     let (delivery_status, delivery_body) = post_json_to_path_with_headers(
         &signing_worker_url,
-        LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_DERIVER_A_PATH,
-        &a_delivery,
-        &auth_headers,
-    )?;
-    assert_eq!(delivery_status, 200);
-    assert!(matches!(
-        serde_json::from_str::<LocalEd25519YaoSigningWorkerActivationReceiptV1>(&delivery_body)?,
-        LocalEd25519YaoSigningWorkerActivationReceiptV1::Pending { .. }
-    ));
-    let (delivery_status, delivery_body) = post_json_to_path_with_headers(
-        &signing_worker_url,
-        LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_DERIVER_B_PATH,
-        &b_delivery,
+        LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_PACKAGES_PATH,
+        &delivery,
         &auth_headers,
     )?;
     assert_eq!(delivery_status, 200);
@@ -1647,8 +1646,8 @@ fn run_local_ed25519_yao_lifecycle(
     if mode.exercises_faults() {
         let (replay_status, replay_body) = post_json_to_path_with_headers(
             &signing_worker_url,
-            LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_DERIVER_A_PATH,
-            &a_delivery,
+            LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_PACKAGES_PATH,
+            &delivery,
             &auth_headers,
         )?;
         assert_eq!(replay_status, 400);

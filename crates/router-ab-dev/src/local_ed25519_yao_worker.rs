@@ -28,7 +28,7 @@ use crate::{
     LocalEd25519YaoDeriverBEffectiveStateV1, LocalEd25519YaoDeriverBPreparedRefreshV1,
     LocalEd25519YaoDeriverBRefreshDeltaWireV1, LocalEd25519YaoEncryptedRefreshInputV1,
     LocalEd25519YaoExportRecipientV1, LocalEd25519YaoRecipientPrivateKeyV1,
-    LocalEd25519YaoRefreshDeriverBRequestV1, LocalEd25519YaoSigningWorkerPackageDeliveryV1,
+    LocalEd25519YaoRefreshDeriverBRequestV1, LocalEd25519YaoSigningWorkerPackagePairDeliveryV1,
     LocalEd25519YaoSigningWorkerRecoveryPromotionRequestV1,
     LocalEd25519YaoSigningWorkerRefreshPackageDeliveryV1, LocalEd25519YaoSigningWorkerStateV1,
     LocalWorkerRoleConfigV1, LOCAL_DERIVER_A_ED25519_YAO_ACTIVATION_START_PATH,
@@ -47,8 +47,7 @@ use crate::{
     LOCAL_DERIVER_B_ED25519_YAO_REFRESH_SIGNING_WORKER_PACKAGE_PATH,
     LOCAL_DERIVER_B_ED25519_YAO_REFRESH_STAGE_PATH, LOCAL_HTTP_SERVICE_BINDING_TIMEOUT_MS_V1,
     LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
-    LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_DERIVER_A_PATH,
-    LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_DERIVER_B_PATH,
+    LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_PACKAGES_PATH,
     LOCAL_SIGNING_WORKER_ED25519_YAO_RECOVERY_PROMOTE_PATH,
     LOCAL_SIGNING_WORKER_ED25519_YAO_REFRESH_DERIVER_A_PATH,
     LOCAL_SIGNING_WORKER_ED25519_YAO_REFRESH_DERIVER_B_PATH,
@@ -896,22 +895,12 @@ fn handle_yao_control_request(
         }
         (
             LocalWorkerRoleConfigV1::SigningWorker(config),
-            LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_DERIVER_A_PATH,
+            LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_PACKAGES_PATH,
         ) => {
-            let delivery = serde_json::from_slice::<LocalEd25519YaoSigningWorkerPackageDeliveryV1>(
-                &request.body,
-            )?;
-            let receipt = state.signing_worker.accept_deriver_a(config, delivery)?;
-            write_local_dev_http_response_v1(stream, 200, &serde_json::to_string(&receipt)?)
-        }
-        (
-            LocalWorkerRoleConfigV1::SigningWorker(config),
-            LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_DERIVER_B_PATH,
-        ) => {
-            let delivery = serde_json::from_slice::<LocalEd25519YaoSigningWorkerPackageDeliveryV1>(
-                &request.body,
-            )?;
-            let receipt = state.signing_worker.accept_deriver_b(config, delivery)?;
+            let delivery = serde_json::from_slice::<
+                LocalEd25519YaoSigningWorkerPackagePairDeliveryV1,
+            >(&request.body)?;
+            let receipt = state.signing_worker.accept_package_pair(config, delivery)?;
             write_local_dev_http_response_v1(stream, 200, &serde_json::to_string(&receipt)?)
         }
         (
@@ -1435,8 +1424,7 @@ fn is_yao_control_path(path: &str) -> bool {
             | LOCAL_DERIVER_A_ED25519_YAO_REFRESH_SIGNING_WORKER_PACKAGE_PATH
             | LOCAL_DERIVER_B_ED25519_YAO_REFRESH_CLIENT_PACKAGE_PATH
             | LOCAL_DERIVER_B_ED25519_YAO_REFRESH_SIGNING_WORKER_PACKAGE_PATH
-            | LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_DERIVER_A_PATH
-            | LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_DERIVER_B_PATH
+            | LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_PACKAGES_PATH
             | LOCAL_SIGNING_WORKER_ED25519_YAO_RECOVERY_PROMOTE_PATH
             | LOCAL_SIGNING_WORKER_ED25519_YAO_REFRESH_DERIVER_A_PATH
             | LOCAL_SIGNING_WORKER_ED25519_YAO_REFRESH_DERIVER_B_PATH
