@@ -70,7 +70,14 @@ export async function runRouterAbEd25519YaoRegistrationSideEffectV1<T>(
 ): Promise<RouterAbEd25519YaoRegistrationSideEffectRunResultV1<T>> {
   const key = requireOpaqueKey(input.key);
   const requestFingerprint = requireRequestFingerprint(input.requestFingerprint);
-  const existing = await store.read(key);
+  let existing: CloudflareVersionedJsonRecordReadResult<
+    RouterAbEd25519YaoRegistrationSideEffectRecordV1<T>
+  >;
+  try {
+    existing = await store.read(key);
+  } catch (error: unknown) {
+    return uncertainResult('claim', error);
+  }
   const disposition = existingDisposition(existing, input.operation, requestFingerprint);
   if (disposition.kind !== 'fresh') return disposition;
 
@@ -81,10 +88,23 @@ export async function runRouterAbEd25519YaoRegistrationSideEffectV1<T>(
     requestFingerprint,
     claimedAtMs,
   };
-  const claimed = await store.put(key, claim, null);
+  let claimed: CloudflareVersionedJsonRecordPutResult;
+  try {
+    claimed = await store.put(key, claim, null);
+  } catch (error: unknown) {
+    return uncertainResult('claim', error);
+  }
   if (claimed.kind === 'version_mismatch') {
+    let reconciledRecord: CloudflareVersionedJsonRecordReadResult<
+      RouterAbEd25519YaoRegistrationSideEffectRecordV1<T>
+    >;
+    try {
+      reconciledRecord = await store.read(key);
+    } catch (error: unknown) {
+      return uncertainResult('claim', error);
+    }
     const reconciledClaim = existingDisposition(
-      await store.read(key),
+      reconciledRecord,
       input.operation,
       requestFingerprint,
     );
@@ -101,11 +121,7 @@ export async function runRouterAbEd25519YaoRegistrationSideEffectV1<T>(
   try {
     response = await input.execute();
   } catch (error: unknown) {
-    return {
-      kind: 'uncertain',
-      phase: 'effect',
-      message: error instanceof Error ? error.message : String(error),
-    };
+    return uncertainResult('effect', error);
   }
 
   const completion: RouterAbEd25519YaoRegistrationSideEffectCompletionV1<T> = {
@@ -116,14 +132,23 @@ export async function runRouterAbEd25519YaoRegistrationSideEffectV1<T>(
     completedAtMs: requireTimestamp(input.nowMs(), 'completedAtMs'),
     response,
   };
-  const committed = await store.put(key, completion, claimed.version);
+  let committed: CloudflareVersionedJsonRecordPutResult;
+  try {
+    committed = await store.put(key, completion, claimed.version);
+  } catch (error: unknown) {
+    return uncertainResult('terminal_commit', error);
+  }
   if (committed.kind === 'stored') return { kind: 'executed', value: response };
 
-  const reconciled = existingDisposition(
-    await store.read(key),
-    input.operation,
-    requestFingerprint,
-  );
+  let terminalRecord: CloudflareVersionedJsonRecordReadResult<
+    RouterAbEd25519YaoRegistrationSideEffectRecordV1<T>
+  >;
+  try {
+    terminalRecord = await store.read(key);
+  } catch (error: unknown) {
+    return uncertainResult('terminal_commit', error);
+  }
+  const reconciled = existingDisposition(terminalRecord, input.operation, requestFingerprint);
   if (reconciled.kind === 'exact_replay') return reconciled;
   return {
     kind: 'uncertain',
@@ -181,6 +206,20 @@ function requireTimestamp(value: number, label: string): number {
     throw new Error(`registration side-effect ${label} is invalid`);
   }
   return value;
+}
+
+function uncertainResult(
+  phase: 'claim' | 'effect' | 'terminal_commit',
+  error: unknown,
+): Extract<
+  RouterAbEd25519YaoRegistrationSideEffectRunResultV1<never>,
+  { readonly kind: 'uncertain' }
+> {
+  return {
+    kind: 'uncertain',
+    phase,
+    message: error instanceof Error ? error.message : String(error),
+  };
 }
 
 function assertNever(value: never): never {

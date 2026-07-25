@@ -42,6 +42,7 @@ type RequestScopedMutationResult<T> =
   | { readonly kind: 'reject'; readonly value: T };
 
 const SHARED_CAPABILITY_READ_LIFECYCLE_ID = 'shared-capability-read';
+const MAX_DETERMINISTIC_COMMIT_ATTEMPTS = 2;
 
 const UNUSED_BACKEND: RouterAbEd25519YaoRegistrationBackend & RouterAbEd25519YaoRecoveryBackend = {
   admit: rejectUnusedBackend,
@@ -133,13 +134,14 @@ class RouterAbEd25519YaoProductRegistrationRequestScopedRuntime implements Route
       state: RouterAbEd25519YaoProductRegistrationStateV1,
     ) => Promise<RequestScopedMutationResult<T>>,
   ): Promise<T> {
-    for (;;) {
+    for (let attempt = 0; attempt < MAX_DETERMINISTIC_COMMIT_ATTEMPTS; attempt += 1) {
       const loaded = await this.input.store.load(lifecycleId);
       const mutation = await mutate(loaded.state);
       if (mutation.kind === 'reject') return mutation.value;
       const committed = await this.input.store.commit(commitInput(lifecycleId, loaded));
       if (committed.kind === 'stored') return mutation.value;
     }
+    throw new Error('Request-scoped product state remained contended after one reconciliation');
   }
 }
 
