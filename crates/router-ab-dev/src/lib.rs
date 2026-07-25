@@ -43,7 +43,8 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
-    fmt,
+    fmt, fs,
+    path::Path,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -695,6 +696,71 @@ pub enum LocalDurableObjectScopeV1 {
     DeriverBRootShare,
     /// SigningWorker activation and active server-output state.
     SigningWorkerServerOutput,
+}
+
+/// Receipt returned when local Router-owned persistence is initialized.
+///
+/// The Rust process harness does not serve Router HTTP routes. This startup
+/// receipt only records that each Router-owned storage boundary has been
+/// opened and its schema initialized before private workers start.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LocalRouterPersistenceStartupReceiptV1 {
+    /// Router-owned scopes initialized by the startup boundary.
+    pub scopes: Vec<LocalDurableObjectScopeV1>,
+}
+
+/// Initializes the five Router-owned SQLite boundaries used by local startup.
+///
+/// Router request serving remains in the SDK/strict Wrangler process. This
+/// helper deliberately performs no protocol execution and does not expose a
+/// second Router implementation.
+pub fn initialize_local_router_persistence_v1(
+    config: &LocalRouterWorkerConfigV1,
+) -> RouterAbProtocolResult<LocalRouterPersistenceStartupReceiptV1> {
+    let boundaries = [
+        (
+            LocalDurableObjectScopeV1::RouterReplay,
+            config.replay_storage_path.as_str(),
+        ),
+        (
+            LocalDurableObjectScopeV1::RouterLifecycle,
+            config.lifecycle_storage_path.as_str(),
+        ),
+        (
+            LocalDurableObjectScopeV1::RouterProjectPolicy,
+            config.project_policy_storage_path.as_str(),
+        ),
+        (
+            LocalDurableObjectScopeV1::RouterQuota,
+            config.quota_storage_path.as_str(),
+        ),
+        (
+            LocalDurableObjectScopeV1::RouterAbuse,
+            config.abuse_storage_path.as_str(),
+        ),
+    ];
+    for &(scope, path) in &boundaries {
+        let path = Path::new(path);
+        if let Some(parent) = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+        {
+            fs::create_dir_all(parent).map_err(|error| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                    format!(
+                        "local Router {} storage directory initialization failed: {error}",
+                        scope.as_str()
+                    ),
+                )
+            })?;
+        }
+        let connection = Connection::open(path).map_err(map_sqlite_error)?;
+        LocalDurableObjectSqliteStorageV1::new(&connection, scope)?;
+    }
+    Ok(LocalRouterPersistenceStartupReceiptV1 {
+        scopes: boundaries.iter().map(|(scope, _)| *scope).collect(),
+    })
 }
 
 impl LocalDurableObjectScopeV1 {

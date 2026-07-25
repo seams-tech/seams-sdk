@@ -702,9 +702,11 @@ the plan does not claim cryptographic D1 admission attestation.
       path with a pair-bound state model, role-specific receipt signing,
       readiness/peer claims, uncertainty burning, and exact completed-output
       lookup tests. The current branch maps all pair-bound paths to their role
-      owners and verifies strict-worker path parity; the Rust-only harness still
-      returns its generic unsupported response for these production-only routes.
-      Full local HTTP lifecycle execution remains open.
+      owners and verifies strict-worker path parity. Rust local startup now
+      initializes the five Router-owned SQLite boundaries before private role
+      workers start, while the Rust-only harness still returns its generic
+      unsupported response for these production-only routes. Full local HTTP
+      lifecycle execution remains open.
 
 ### Phase 3: MPC Router Execution Coordinator
 
