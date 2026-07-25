@@ -97,9 +97,10 @@ export type RouterAbEd25519YaoRegistrationSideEffectRunResultV1<T, P = never> =
     };
 
 /**
- * Claims a start/finalize request before any one-use effect. A claimed request
- * is never executed again. Its exact terminal response is replayed after a
- * successful commit, including when a competing request committed it first.
+ * Claims a start/finalize request before any one-use effect. Prepared effects
+ * may resume from the durable artifact after response loss; their execution
+ * must therefore be idempotent. The first terminal CAS wins, and every
+ * competing request returns that exact committed response.
  */
 export async function runRouterAbEd25519YaoRegistrationSideEffectV1<T, P = never>(
   store: RouterAbEd25519YaoRegistrationSideEffectStoreV1<T, P>,

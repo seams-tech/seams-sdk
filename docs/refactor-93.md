@@ -867,16 +867,17 @@ receipts are recorded.
           validates the complete signed effect artifact, including bounded
           Borsh bytes, transaction metadata, and the prepared hash before any
           network effect.
-    - [ ] Prove the finalization sequence converges after a crash between its
+    - [x] Prove the finalization sequence converges after a crash between its
           steps. Each write is individually idempotent — wallet, signer, and
           Email OTP statements are `DO UPDATE` upserts, capability installation
           returns `exact_retry` for a matching origin fingerprint, and ceremony
-          cleanup is a delete — so a retry that re-runs the sequence should
-          converge. What is unverified is whether the finalize entry point
-          re-runs it rather than short-circuiting, and no test covers the
-          crash-between-steps path. Until that exists, treat a crash after the
-          D1 batch as possibly leaving a visible wallet with incomplete
-          finalization state.
+          cleanup is a delete. The full-service convergence suite injects
+          response loss after the outer finalize claim, activation consumption,
+          session minting, normal signing provisioning, the wallet D1 batch,
+          capability installation, finalize-replay persistence, ceremony
+          deletion, and the outer completion commit. An identical retry reaches
+          the same successful response with one wallet, signer, authentication
+          method, authenticator, and credential binding.
     - [x] Bind keyed finalize replay records to a canonical request fingerprint
           and reject reuse of an idempotency key for a different finalize body.
           Persisted replay records without a fingerprint fail closed at the D1
@@ -886,11 +887,13 @@ receipts are recorded.
           enrollment statement rolls back the wallet and signer rows, and
           re-running the identical commit converges to one row per table.
     - [x] Cover concurrent finalize contention for one lifecycle: exactly one
-          attempt runs the effect, the other observes the claim, and a later
-          attempt replays the exact receipt.
-    - [ ] Drive the convergence check through the finalize entry point rather
-          than the commit store and side-effect boundary separately. Both halves
-          are proven in isolation; the end-to-end path is not.
+          claim and terminal receipt win. A prepared idempotent effect may be
+          resumed by a contender after it observes the claim; both attempts
+          converge on the winning exact receipt, and a later attempt replays it.
+    - [x] Drive the convergence check through the finalize entry point rather
+          than the commit store and side-effect boundary separately. The same
+          suite also races two identical finalize requests and verifies an
+          exact shared result with one persisted wallet state.
     - [x] Derive the request fingerprint from the canonical effect identity
           rather than primarily the activation session. Sponsored account
           claims hash the account, public key, relayer, and initial balance;

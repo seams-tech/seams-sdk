@@ -154,6 +154,11 @@ import {
   ed25519NearPublicKeyFromBytes,
   implicitNearAccountIdFromEd25519PublicKeyBytes,
 } from './d1Ed25519YaoWalletSigner';
+import {
+  runRouterAbEd25519YaoRegistrationSideEffectV1,
+  type RouterAbEd25519YaoRegistrationSideEffectRecordV1,
+  type RouterAbEd25519YaoRegistrationSideEffectStoreV1,
+} from '../routerAbEd25519YaoRegistrationSideEffectBoundary';
 
 type StartWalletRegistrationInput = WalletRegistrationStartRequest;
 type RespondWalletRegistrationDerivationInput = WalletRegistrationEcdsaDerivationRespondRequest;
@@ -164,6 +169,37 @@ async function walletRegistrationFinalizeRequestFingerprint(
   request: FinalizeWalletRegistrationInput,
 ): Promise<string> {
   return base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(request)));
+}
+
+export type D1WalletRegistrationFinalizePreparedV1 = {
+  readonly kind: 'd1_wallet_registration_finalize_prepared_v1';
+};
+
+export type D1WalletRegistrationFinalizeSideEffectStore =
+  RouterAbEd25519YaoRegistrationSideEffectStoreV1<
+    WalletRegistrationFinalizeSuccess,
+    D1WalletRegistrationFinalizePreparedV1
+  >;
+
+export type D1WalletRegistrationFinalizeSideEffectRecord =
+  RouterAbEd25519YaoRegistrationSideEffectRecordV1<
+    WalletRegistrationFinalizeSuccess,
+    D1WalletRegistrationFinalizePreparedV1
+  >;
+
+type D1WalletRegistrationFinalizeFailure = Exclude<
+  WalletRegistrationFinalizeResponse,
+  { readonly ok: true }
+>;
+
+type D1WalletRegistrationFinalizeFailureState = {
+  failure: D1WalletRegistrationFinalizeFailure | null;
+};
+
+async function prepareD1WalletRegistrationFinalize(): Promise<
+  D1WalletRegistrationFinalizePreparedV1
+> {
+  return { kind: 'd1_wallet_registration_finalize_prepared_v1' };
 }
 
 type D1RegistrationEd25519SigningBudgetPlan =
@@ -792,6 +828,7 @@ export class CloudflareD1WalletRegistrationService {
   private readonly getRouterAbNormalSigningRuntime: RouterAbNormalSigningRuntimeProvider;
   private readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
   private readonly getWalletStore: WalletStoreProvider;
+  private readonly finalizeSideEffects: D1WalletRegistrationFinalizeSideEffectStore;
   private readonly walletRegistrationCommitStore: D1WalletRegistrationCommitStore;
   private readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
 
@@ -803,6 +840,7 @@ export class CloudflareD1WalletRegistrationService {
     readonly getRouterAbNormalSigningRuntime: RouterAbNormalSigningRuntimeProvider;
     readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
     readonly getWalletStore: WalletStoreProvider;
+    readonly finalizeSideEffects: D1WalletRegistrationFinalizeSideEffectStore;
     readonly walletRegistrationCommitStore: D1WalletRegistrationCommitStore;
     readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
   }) {
@@ -813,6 +851,7 @@ export class CloudflareD1WalletRegistrationService {
     this.getRouterAbNormalSigningRuntime = input.getRouterAbNormalSigningRuntime;
     this.ecdsaStrictRegistration = input.ecdsaStrictRegistration;
     this.getWalletStore = input.getWalletStore;
+    this.finalizeSideEffects = input.finalizeSideEffects;
     this.walletRegistrationCommitStore = input.walletRegistrationCommitStore;
     this.walletAuthMethods = input.walletAuthMethods;
   }
@@ -1921,6 +1960,80 @@ export class CloudflareD1WalletRegistrationService {
   }
 
   async finalizeWalletRegistration(
+    request: FinalizeWalletRegistrationInput,
+  ): Promise<WalletRegistrationFinalizeResponse> {
+    const idempotencyKey = toOptionalTrimmedString(request.idempotencyKey);
+    if (!idempotencyKey) return await this.executeWalletRegistrationFinalize(request);
+
+    const requestFingerprint = await walletRegistrationFinalizeRequestFingerprint(request);
+    const effectKey = base64UrlEncode(
+      await sha256BytesUtf8(
+        `wallet-registration-finalize-v1\0${request.registrationCeremonyId}\0${idempotencyKey}`,
+      ),
+    );
+    const failureState: D1WalletRegistrationFinalizeFailureState = { failure: null };
+    const sideEffectInput = {
+      kind: 'prepared_resumable' as const,
+      operation: 'finalize' as const,
+      key: effectKey,
+      requestFingerprint,
+      nowMs: Date.now,
+      prepare: prepareD1WalletRegistrationFinalize,
+      execute: this.executeWalletRegistrationFinalizeSideEffect.bind(
+        this,
+        request,
+        failureState,
+      ),
+    };
+    let outcome = await runRouterAbEd25519YaoRegistrationSideEffectV1(
+      this.finalizeSideEffects,
+      sideEffectInput,
+    );
+    if (outcome.kind === 'in_progress') {
+      outcome = await runRouterAbEd25519YaoRegistrationSideEffectV1(
+        this.finalizeSideEffects,
+        sideEffectInput,
+      );
+    }
+    if (failureState.failure) return failureState.failure;
+    switch (outcome.kind) {
+      case 'executed':
+      case 'exact_replay':
+        return outcome.value;
+      case 'request_conflict':
+        return {
+          ok: false,
+          code: 'idempotency_conflict',
+          message: 'registration finalize idempotency key was reused for a different request',
+        };
+      case 'in_progress':
+        return {
+          ok: false,
+          code: 'conflict',
+          message: 'registration finalize is already in progress',
+          retryAfterMs: 50,
+        };
+      case 'uncertain':
+        return {
+          ok: false,
+          code: 'internal',
+          message: outcome.message || 'registration finalize outcome is uncertain',
+          retryAfterMs: 50,
+        };
+    }
+  }
+
+  private async executeWalletRegistrationFinalizeSideEffect(
+    request: FinalizeWalletRegistrationInput,
+    failureState: D1WalletRegistrationFinalizeFailureState,
+  ): Promise<WalletRegistrationFinalizeSuccess> {
+    const response = await this.executeWalletRegistrationFinalize(request);
+    if (response.ok) return response;
+    failureState.failure = response;
+    throw new Error(response.message);
+  }
+
+  private async executeWalletRegistrationFinalize(
     request: FinalizeWalletRegistrationInput,
   ): Promise<WalletRegistrationFinalizeResponse> {
     const finalizeTiming = createD1RegistrationRouteTimingRecorder('wallets_register_finalize');
