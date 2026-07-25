@@ -23,8 +23,8 @@ github_actions:
 github_environments:
   staging:
     vars:
-      VITE_DOCS_ORIGIN: 'https://staging.seams.sh'
-      VITE_WALLET_ORIGIN: 'https://sign.staging.seams.sh'
+      VITE_DOCS_ORIGIN: 'https://seams-site-staging.pages.dev'
+      VITE_WALLET_ORIGIN: 'https://seams-wallet-staging.pages.dev'
     secrets:
       CLOUDFLARE_API_TOKEN: '<pages-only-deploy-token>'
       CLOUDFLARE_ACCOUNT_ID: '<account-id>'
