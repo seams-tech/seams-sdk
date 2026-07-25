@@ -250,14 +250,9 @@ function parsePostDrain(value) {
 }
 
 function countOccurrences(text, needle) {
-  let count = 0;
-  let offset = 0;
-  while (true) {
-    const index = text.indexOf(needle, offset);
-    if (index < 0) return count;
-    count += 1;
-    offset = index + needle.length;
-  }
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+  const matches = text.match(new RegExp(`(^|[^A-Za-z0-9_])${escaped}(?=$|[^A-Za-z0-9_])`, 'gu'));
+  return matches?.length ?? 0;
 }
 
 function requireRecord(value, label) {
