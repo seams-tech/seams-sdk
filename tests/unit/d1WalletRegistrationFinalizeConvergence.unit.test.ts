@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   buildMismatchedFinalizeConvergenceRequest,
   createFinalizeConvergenceHarness,
+  createSponsoredFinalizeConvergenceHarness,
   type FinalizeConvergenceFault,
 } from './helpers/d1WalletRegistrationFinalizeConvergence.fixtures';
 
@@ -50,7 +51,7 @@ for (const fault of RESPONSE_LOSS_FAULTS) {
       await expect(harness.countRows('webauthn_authenticators')).resolves.toBe(1);
       await expect(harness.countRows('webauthn_credential_bindings')).resolves.toBe(1);
     } finally {
-      harness.cleanup();
+      await harness.cleanup();
     }
   });
 }
@@ -80,7 +81,7 @@ test('a live finalize claim prevents concurrent duplicate execution', async () =
     await expect(harness.countRows('wallet_signers')).resolves.toBe(1);
     await expect(harness.countRows('wallet_auth_methods')).resolves.toBe(1);
   } finally {
-    harness.cleanup();
+    await harness.cleanup();
   }
 });
 
@@ -99,6 +100,34 @@ test('deterministic finalize failures are terminal and replay exactly', async ()
     );
     expect(corrected).toMatchObject({ ok: false, code: 'idempotency_conflict' });
   } finally {
-    harness.cleanup();
+    await harness.cleanup();
+  }
+});
+
+test('sponsored named-account finalize reconciles broadcast response loss without a duplicate effect', async () => {
+  const harness = await createSponsoredFinalizeConvergenceHarness();
+  try {
+    const first = await harness.service.walletRegistration.finalizeWalletRegistration(
+      harness.request,
+    );
+    expect(first).toMatchObject({ ok: false, code: 'internal' });
+    expect(harness.sponsoredNearRpcCounts()).toEqual({ broadcastCount: 1, txStatusCount: 0 });
+
+    await harness.expireFinalizeClaim();
+    const retried = await harness.service.walletRegistration.finalizeWalletRegistration(
+      harness.request,
+    );
+    expect(retried.ok, retried.ok ? undefined : retried.message).toBe(true);
+    expect(harness.sponsoredNearRpcCounts()).toEqual({ broadcastCount: 1, txStatusCount: 1 });
+
+    const replayed = await harness.service.walletRegistration.finalizeWalletRegistration(
+      harness.request,
+    );
+    expect(replayed).toEqual(retried);
+    expect(harness.sponsoredNearRpcCounts()).toEqual({ broadcastCount: 1, txStatusCount: 1 });
+    await expect(harness.countRows('wallets')).resolves.toBe(1);
+    await expect(harness.countRows('wallet_signers')).resolves.toBe(1);
+  } finally {
+    await harness.cleanup();
   }
 });
