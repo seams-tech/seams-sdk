@@ -87,6 +87,7 @@ supplies a real email-provider adapter. The repository's deployed Gateway does
 not expose that mode until its provider integration is wired. Use
 `GATEWAY_RUNTIME_PROFILE=mainnet_service` for a future mainnet deployment. That
 profile rejects demo-code delivery and requires `email_provider` delivery.
+
 The generated profile is explicit in `GATEWAY_DEPLOYMENT_CONFIG_JSON`; later
 profile or delivery-mode changes can be uploaded with the update-only command
 without rotating Router A/B identities.

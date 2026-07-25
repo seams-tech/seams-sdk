@@ -113,6 +113,7 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       GATEWAY_DEPLOYMENT_CONFIG_JSON: ${{ vars.GATEWAY_DEPLOYMENT_CONFIG_JSON }}
+      RELAYER_PRIVATE_KEY: ${{ secrets.RELAYER_PRIVATE_KEY }}
     steps:
       - name: Checkout workflow revision
         uses: actions/checkout@v6
