@@ -65,6 +65,7 @@ mod local_ed25519_yao_signing_worker;
 mod local_ed25519_yao_stream;
 mod local_ed25519_yao_worker;
 mod local_router_ab_ecdsa_derivation_pool_store;
+mod local_router_ed25519_yao_http;
 mod local_service_http;
 mod local_worker_topology;
 
@@ -160,6 +161,9 @@ pub use local_ed25519_yao_worker::{
     LocalEd25519YaoRoleCompletionV1, LocalEd25519YaoWorkerStateV1,
 };
 use local_router_ab_ecdsa_derivation_pool_store::local_signing_worker_ecdsa_pool_mutate_v1;
+pub use local_router_ed25519_yao_http::{
+    decode_local_router_ed25519_yao_execute_request_v1, LocalRouterEd25519YaoPairDispatchV1,
+};
 pub use local_service_http::{
     local_http_service_binding_endpoint_v1, local_http_service_binding_owner_v1,
     local_http_service_binding_path_v1, local_http_service_binding_url_v1,
