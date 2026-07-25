@@ -60,7 +60,40 @@ pub struct LocalEd25519YaoPairLifecycleV1 {
     prepared_receipts: [Option<LocalEd25519YaoRoleReadinessReceiptV1>; 2],
 }
 
+/// Durable representation of one local pair lifecycle.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LocalEd25519YaoPairLifecycleSnapshotV1 {
+    /// Current lifecycle state, when both roles have prepared.
+    pub state: Option<LocalEd25519YaoPairLifecycleStateV1>,
+    /// Pair identity recorded by the first role to prepare.
+    pub prepared_pair_digest: Option<[u8; 32]>,
+    /// Role-specific preparation records, indexed A then B.
+    pub prepared_receipts: [Option<LocalEd25519YaoRoleReadinessReceiptV1>; 2],
+}
+
 impl LocalEd25519YaoPairLifecycleV1 {
+    /// Returns a serializable copy of this lifecycle.
+    pub fn snapshot(&self) -> LocalEd25519YaoPairLifecycleSnapshotV1 {
+        LocalEd25519YaoPairLifecycleSnapshotV1 {
+            state: self.state.clone(),
+            prepared_pair_digest: self.prepared_pair_digest,
+            prepared_receipts: self.prepared_receipts.clone(),
+        }
+    }
+
+    /// Restores a lifecycle from a persisted snapshot after checking invariants.
+    pub fn from_snapshot(
+        snapshot: LocalEd25519YaoPairLifecycleSnapshotV1,
+    ) -> RouterAbProtocolResult<Self> {
+        validate_snapshot(&snapshot)?;
+        Ok(Self {
+            state: snapshot.state,
+            prepared_pair_digest: snapshot.prepared_pair_digest,
+            prepared_receipts: snapshot.prepared_receipts,
+        })
+    }
+
     pub fn state(&self) -> Option<&LocalEd25519YaoPairLifecycleStateV1> {
         self.state.as_ref()
     }
@@ -405,6 +438,112 @@ fn pair_lifecycle_error(message: &'static str) -> RouterAbProtocolError {
     RouterAbProtocolError::new(RouterAbProtocolErrorCode::InvalidLifecycleState, message)
 }
 
+fn validate_snapshot(
+    snapshot: &LocalEd25519YaoPairLifecycleSnapshotV1,
+) -> RouterAbProtocolResult<()> {
+    if snapshot.prepared_pair_digest.is_none()
+        && (snapshot.state.is_some() || snapshot.prepared_receipts.iter().any(Option::is_some))
+    {
+        return Err(pair_lifecycle_error(
+            "pair lifecycle snapshot has state without a prepared pair digest",
+        ));
+    }
+    if snapshot.state.is_none()
+        && snapshot.prepared_pair_digest.is_some()
+        && snapshot.prepared_receipts.iter().all(Option::is_none)
+    {
+        return Err(pair_lifecycle_error(
+            "pair lifecycle snapshot has a pair digest without a preparation record",
+        ));
+    }
+    for (slot, prepared) in snapshot.prepared_receipts.iter().enumerate() {
+        let Some(prepared) = prepared else {
+            continue;
+        };
+        let expected_role = if slot == 0 {
+            Ed25519YaoDeriverRoleV1::DeriverA
+        } else {
+            Ed25519YaoDeriverRoleV1::DeriverB
+        };
+        if prepared.receipt.role() != expected_role
+            || prepared.input_digest != prepared.receipt.local_input_digest().bytes
+            || prepared.root_metadata_digest != prepared.receipt.root_metadata_digest().bytes
+        {
+            return Err(pair_lifecycle_error(
+                "pair lifecycle snapshot has an inconsistent preparation record",
+            ));
+        }
+        let Some(pair_digest) = snapshot.prepared_pair_digest else {
+            return Err(pair_lifecycle_error(
+                "pair lifecycle snapshot is missing the prepared pair digest",
+            ));
+        };
+        if prepared.receipt.pair_digest().bytes != pair_digest {
+            return Err(pair_lifecycle_error(
+                "pair lifecycle snapshot receipt has the wrong pair digest",
+            ));
+        }
+    }
+
+    if let Some(state) = snapshot.state.as_ref() {
+        let state_pair_digest = match state {
+            LocalEd25519YaoPairLifecycleStateV1::Prepared { pair_digest, .. }
+            | LocalEd25519YaoPairLifecycleStateV1::Running { pair_digest }
+            | LocalEd25519YaoPairLifecycleStateV1::Expired { pair_digest }
+            | LocalEd25519YaoPairLifecycleStateV1::Burned { pair_digest }
+            | LocalEd25519YaoPairLifecycleStateV1::Completed { pair_digest, .. } => *pair_digest,
+        };
+        if state_pair_digest.iter().all(|byte| *byte == 0)
+            || snapshot.prepared_pair_digest != Some(state_pair_digest)
+        {
+            return Err(pair_lifecycle_error(
+                "pair lifecycle snapshot state has the wrong pair digest",
+            ));
+        }
+        match state {
+            LocalEd25519YaoPairLifecycleStateV1::Prepared {
+                deriver_a,
+                deriver_b,
+                ..
+            } => {
+                if snapshot.prepared_receipts[0].as_ref() != Some(deriver_a)
+                    || snapshot.prepared_receipts[1].as_ref() != Some(deriver_b)
+                {
+                    return Err(pair_lifecycle_error(
+                        "pair lifecycle snapshot is missing a prepared receipt",
+                    ));
+                }
+            }
+            LocalEd25519YaoPairLifecycleStateV1::Completed {
+                deriver_a,
+                deriver_b,
+                ..
+            } => {
+                deriver_a.validate()?;
+                deriver_b.validate()?;
+                if deriver_a.deriver() != Ed25519YaoDeriverRoleV1::DeriverA
+                    || deriver_b.deriver() != Ed25519YaoDeriverRoleV1::DeriverB
+                    || deriver_a.session() != deriver_b.session()
+                {
+                    return Err(pair_lifecycle_error(
+                        "pair lifecycle snapshot has invalid completed role outputs",
+                    ));
+                }
+            }
+            LocalEd25519YaoPairLifecycleStateV1::Running { .. }
+            | LocalEd25519YaoPairLifecycleStateV1::Expired { .. }
+            | LocalEd25519YaoPairLifecycleStateV1::Burned { .. } => {
+                if snapshot.prepared_receipts.iter().any(Option::is_none) {
+                    return Err(pair_lifecycle_error(
+                        "pair lifecycle snapshot is missing a receipt for its committed state",
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -480,6 +619,64 @@ mod tests {
             deriver_a.verifying_key().to_bytes(),
             deriver_b.verifying_key().to_bytes(),
         )
+    }
+
+    #[test]
+    fn pair_lifecycle_snapshot_round_trips_prepared_state() {
+        let (pair, input_a, input_b) = pair_fixture();
+        let (signing_keys, _, _) = signing_keys();
+        let mut lifecycle = LocalEd25519YaoPairLifecycleV1::default();
+        lifecycle
+            .prepare_role(
+                Ed25519YaoDeriverRoleV1::DeriverA,
+                &pair,
+                input_a,
+                [0xc1; 32],
+                1,
+                100,
+                signing_keys,
+            )
+            .expect("Deriver A preparation");
+        lifecycle
+            .prepare_role(
+                Ed25519YaoDeriverRoleV1::DeriverB,
+                &pair,
+                input_b,
+                [0xc2; 32],
+                2,
+                100,
+                signing_keys,
+            )
+            .expect("Deriver B preparation");
+
+        let snapshot = lifecycle.snapshot();
+        let encoded = serde_json::to_vec(&snapshot).expect("snapshot JSON");
+        let decoded: LocalEd25519YaoPairLifecycleSnapshotV1 =
+            serde_json::from_slice(&encoded).expect("snapshot JSON decode");
+        let restored = LocalEd25519YaoPairLifecycleV1::from_snapshot(decoded)
+            .expect("prepared snapshot should restore");
+        assert_eq!(restored.snapshot(), snapshot);
+    }
+
+    #[test]
+    fn pair_lifecycle_snapshot_rejects_inconsistent_state() {
+        let (pair, input_a, _) = pair_fixture();
+        let (signing_keys, _, _) = signing_keys();
+        let mut lifecycle = LocalEd25519YaoPairLifecycleV1::default();
+        lifecycle
+            .prepare_role(
+                Ed25519YaoDeriverRoleV1::DeriverA,
+                &pair,
+                input_a,
+                [0xc1; 32],
+                1,
+                100,
+                signing_keys,
+            )
+            .expect("Deriver A preparation");
+        let mut snapshot = lifecycle.snapshot();
+        snapshot.prepared_pair_digest = None;
+        assert!(LocalEd25519YaoPairLifecycleV1::from_snapshot(snapshot).is_err());
     }
 
     #[test]

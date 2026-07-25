@@ -98,6 +98,23 @@ fn local_durable_sqlite_storage_rejects_empty_keys_and_values(
 }
 
 #[test]
+fn local_durable_sqlite_storage_compare_and_swap_is_atomic(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let connection = Connection::open_in_memory()?;
+    let store = LocalDurableObjectSqliteStorageV1::new(
+        &connection,
+        LocalDurableObjectScopeV1::RouterLifecycle,
+    )?;
+
+    assert!(store.compare_and_swap_bytes("pair/1", None, b"v1")?);
+    assert!(!store.compare_and_swap_bytes("pair/1", None, b"v2")?);
+    assert!(!store.compare_and_swap_bytes("pair/1", Some(b"stale"), b"v2")?);
+    assert!(store.compare_and_swap_bytes("pair/1", Some(b"v1"), b"v2")?);
+    assert_eq!(store.get_bytes("pair/1")?, Some(b"v2".to_vec()));
+    Ok(())
+}
+
+#[test]
 fn local_durable_sqlite_seed_writes_role_owned_smoke_state(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let connection = Connection::open_in_memory()?;
