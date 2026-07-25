@@ -869,7 +869,7 @@ ceremony after the user completes authentication. The safe sequence is:
           wallet, signer, authentication, and Email OTP enrollment records in
           one D1 batch. The commit input is a discriminated union, so a passkey
           registration carrying enrollment state does not compile.
-    - [ ] Classify a broadcast as created, rejected, or uncertain, propagate
+    - [x] Classify a broadcast as created, rejected, or uncertain, propagate
           uncertainty so the claim stays open, and settle the stored hash
           against the chain before a resumed attempt resubmits. Resolved
           failures are rejected, successful outcomes are read back against the
@@ -877,6 +877,13 @@ ceremony after the user completes authentication. The safe sequence is:
           uncertain. The sponsored-account boundary carries `in_progress` and
           uncertain outcomes as typed retryable results so the outer finalize
           claim cannot persist them as terminal account-creation failures.
+          Transaction reconciliation now consumes the structured NEAR RPC
+          failure kind. Pending, transport, and not-found outcomes perform an
+          exact account and FullAccess-key readback; only a structured
+          transaction-not-found result plus confirmed account absence permits
+          replay. Invalid nonce and expired transactions remain uncertain after
+          absent readback, while definitive invalid-transaction, action, and
+          execution failures reject.
     - [x] Parse and validate persisted claims at the D1 boundary so an
           unparseable record fails closed into a fresh attempt. The parser
           validates the complete signed effect artifact, including bounded
