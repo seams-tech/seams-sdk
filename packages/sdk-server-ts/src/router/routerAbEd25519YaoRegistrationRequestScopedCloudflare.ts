@@ -16,16 +16,19 @@ import {
 } from '@shared/utils/routerAbTraceContext';
 import { json, readJson } from './cloudflare/http';
 import type {
+  RouterAbEd25519YaoRegistrationAdmissionClaimV1,
+  RouterAbEd25519YaoRegistrationBackendResult,
+  RouterAbEd25519YaoRegistrationExecuteClaimV1,
   RouterAbEd25519YaoRegistrationBackend,
   RouterAbEd25519YaoRegistrationFailure,
   RouterAbEd25519YaoRegistrationServiceResult,
 } from './routerAbEd25519YaoRegistration';
 import { InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationAdapter } from './routerAbEd25519YaoRegistrationIntentAuthorization';
+import { InMemoryRouterAbEd25519YaoRegistrationService } from './routerAbEd25519YaoRegistration';
 import {
-  InMemoryRouterAbEd25519YaoRegistrationService,
-  type RouterAbEd25519YaoRegistrationAdmissionCommitInputV1,
-  type RouterAbEd25519YaoRegistrationExecuteCommitInputV1,
-} from './routerAbEd25519YaoRegistration';
+  runRouterAbEd25519YaoRegistrationTwoPhaseV1,
+  type RouterAbEd25519YaoRegistrationTwoPhaseRunResultV1,
+} from './routerAbEd25519YaoRegistrationTwoPhaseRunner';
 import type {
   RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
   RouterAbEd25519YaoProductRegistrationPartitionedStateCommitResultV1,
@@ -114,61 +117,68 @@ async function runAdmissionRequest(
   trace: RouterAbTraceContextV1,
 ): Promise<RegistrationServiceResponse> {
   const lifecycleId = request.scope.lifecycle_id;
-  const store = input.store;
-  const loaded = await store.load(lifecycleId);
-  const authorization = new InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationAdapter(
-    loaded.state.authorization,
-  );
-  const authorizationResult = await authorizeRequest(authorization, input.request, {
-    kind: 'admit',
-    value: request,
-  });
-  if (!authorizationResult.ok) return authorizationResult;
-  const service = new InMemoryRouterAbEd25519YaoRegistrationService(
-    input.backend,
-    loaded.state.registration,
-  );
-  const preparation = service.prepareAdmit(request);
-  if (preparation.kind === 'completed') {
-    return { ok: true, status: 200, value: preparation.value };
-  }
-  if (preparation.kind === 'failed') return preparation.failure;
-  const preclaim = await store.commit({
+  const result = await runRouterAbEd25519YaoRegistrationTwoPhaseV1<
+    RouterAbEd25519YaoRegistrationAdmissionClaimV1,
+    RouterAbEd25519YaoRegistrationBackendResult,
+    RegistrationServiceResponse,
+    AuthorizationFailure | RouterAbEd25519YaoRegistrationFailure
+  >({
     lifecycleId,
-    state: loaded.state,
-    sharedState: loaded.sharedState,
-    sharedVersion: loaded.sharedVersion,
-    ceremonyVersion: loaded.ceremonyVersion,
+    store: input.store,
+    prepare: async (state) => {
+      const authorization = new InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationAdapter(
+        state.authorization,
+      );
+      const authorizationResult = await authorizeRequest(authorization, input.request, {
+        kind: 'admit',
+        value: request,
+      });
+      if (!authorizationResult.ok) {
+        return { kind: 'rejected', value: authorizationResult };
+      }
+      const service = new InMemoryRouterAbEd25519YaoRegistrationService(
+        input.backend,
+        state.registration,
+      );
+      const preparation = service.prepareAdmit(request);
+      switch (preparation.kind) {
+        case 'completed':
+          return {
+            kind: 'completed',
+            value: { ok: true, status: 200, value: preparation.value },
+          };
+        case 'failed':
+          return { kind: 'rejected', value: preparation.failure };
+        case 'claimed':
+          return { kind: 'claimed', state, claim: preparation.claim };
+      }
+    },
+    backend: async () => {
+      try {
+        return { kind: 'response', value: await input.backend.admit(request, trace) };
+      } catch (error: unknown) {
+        return {
+          kind: 'uncertain',
+          message: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+    complete: async (state, claim, backend) => {
+      const service = new InMemoryRouterAbEd25519YaoRegistrationService(
+        input.backend,
+        state.registration,
+      );
+      return {
+        state,
+        value: service.commitAdmit({
+          request,
+          claim,
+          outcome: { kind: 'backend_response', result: backend },
+        }),
+      };
+    },
   });
-  if (preclaim.kind === 'version_mismatch') {
-    return stateConflictFailure('admit', 'preclaim', preclaim);
-  }
-  let outcome: RouterAbEd25519YaoRegistrationAdmissionCommitInputV1['outcome'];
-  try {
-    outcome = { kind: 'backend_response', result: await input.backend.admit(request, trace) };
-  } catch (error: unknown) {
-    outcome = {
-      kind: 'backend_uncertain',
-      message: error instanceof Error ? error.message : String(error),
-    };
-  }
-  const terminalLoaded = await store.load(lifecycleId);
-  const terminalService = new InMemoryRouterAbEd25519YaoRegistrationService(
-    input.backend,
-    terminalLoaded.state.registration,
-  );
-  const terminal = terminalService.commitAdmit({ request, claim: preparation.claim, outcome });
-  const terminalCommit = await store.commit({
-    lifecycleId,
-    state: terminalLoaded.state,
-    sharedState: terminalLoaded.sharedState,
-    sharedVersion: terminalLoaded.sharedVersion,
-    ceremonyVersion: terminalLoaded.ceremonyVersion,
-  });
-  if (terminalCommit.kind === 'version_mismatch') {
-    return terminalStateConflictFailure(terminalCommit);
-  }
-  return terminal;
+  return mapAdmissionRunResult(result);
 }
 
 async function runExecutionRequest(
@@ -177,60 +187,68 @@ async function runExecutionRequest(
   trace: RouterAbTraceContextV1,
 ): Promise<RegistrationServiceResponse> {
   const lifecycleId = request.binding.lifecycle.lifecycle_id;
-  const store = input.store;
-  const loaded = await store.load(lifecycleId);
-  const authorization = new InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationAdapter(
-    loaded.state.authorization,
-  );
-  const authorizationResult = await authorizeRequest(authorization, input.request, {
-    kind: 'execute',
-    value: request,
-  });
-  if (!authorizationResult.ok) return authorizationResult;
-  const service = new InMemoryRouterAbEd25519YaoRegistrationService(
-    input.backend,
-    loaded.state.registration,
-  );
-  const preparation = service.prepareExecute(request);
-  if (preparation.kind === 'completed') {
-    return { ok: true, status: 200, value: preparation.value };
-  }
-  if (preparation.kind === 'failed') return preparation.failure;
-  const preclaim = await store.commit({
+  const result = await runRouterAbEd25519YaoRegistrationTwoPhaseV1<
+    RouterAbEd25519YaoRegistrationExecuteClaimV1,
+    RouterAbEd25519YaoRegistrationBackendResult,
+    RegistrationServiceResponse,
+    AuthorizationFailure | RouterAbEd25519YaoRegistrationFailure
+  >({
     lifecycleId,
-    state: loaded.state,
-    sharedState: loaded.sharedState,
-    sharedVersion: loaded.sharedVersion,
-    ceremonyVersion: loaded.ceremonyVersion,
+    store: input.store,
+    prepare: async (state) => {
+      const authorization = new InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationAdapter(
+        state.authorization,
+      );
+      const authorizationResult = await authorizeRequest(authorization, input.request, {
+        kind: 'execute',
+        value: request,
+      });
+      if (!authorizationResult.ok) {
+        return { kind: 'rejected', value: authorizationResult };
+      }
+      const service = new InMemoryRouterAbEd25519YaoRegistrationService(
+        input.backend,
+        state.registration,
+      );
+      const preparation = service.prepareExecute(request);
+      switch (preparation.kind) {
+        case 'completed':
+          return {
+            kind: 'completed',
+            value: { ok: true, status: 200, value: preparation.value },
+          };
+        case 'failed':
+          return { kind: 'rejected', value: preparation.failure };
+        case 'claimed':
+          return { kind: 'claimed', state, claim: preparation.claim };
+      }
+    },
+    backend: async () => {
+      try {
+        return { kind: 'response', value: await input.backend.execute(request, trace) };
+      } catch (error: unknown) {
+        return {
+          kind: 'uncertain',
+          message: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+    complete: async (state, claim, backend) => {
+      const service = new InMemoryRouterAbEd25519YaoRegistrationService(
+        input.backend,
+        state.registration,
+      );
+      return {
+        state,
+        value: service.commitExecute({
+          request,
+          claim,
+          outcome: { kind: 'backend_response', result: backend },
+        }),
+      };
+    },
   });
-  if (preclaim.kind === 'version_mismatch') {
-    return stateConflictFailure('execute', 'preclaim', preclaim);
-  }
-  let outcome: RouterAbEd25519YaoRegistrationExecuteCommitInputV1['outcome'];
-  try {
-    outcome = { kind: 'backend_response', result: await input.backend.execute(request, trace) };
-  } catch (error: unknown) {
-    outcome = {
-      kind: 'backend_uncertain',
-      message: error instanceof Error ? error.message : String(error),
-    };
-  }
-  const terminalLoaded = await store.load(lifecycleId);
-  const terminalService = new InMemoryRouterAbEd25519YaoRegistrationService(
-    input.backend,
-    terminalLoaded.state.registration,
-  );
-  const terminal = terminalService.commitExecute({ request, claim: preparation.claim, outcome });
-  const terminalCommit = await store.commit({
-    lifecycleId,
-    state: terminalLoaded.state,
-    sharedState: terminalLoaded.sharedState,
-    sharedVersion: terminalLoaded.sharedVersion,
-    ceremonyVersion: terminalLoaded.ceremonyVersion,
-  });
-  if (terminalCommit.kind === 'version_mismatch')
-    return terminalStateConflictFailure(terminalCommit);
-  return terminal;
+  return mapExecutionRunResult(result);
 }
 
 async function authorizeRequest(
@@ -305,6 +323,72 @@ function registrationResultResponse(result: RegistrationServiceResponse): Respon
   return result.ok
     ? json(result.value, { status: result.status })
     : registrationFailureResponse(result);
+}
+
+function mapAdmissionRunResult(
+  result: RouterAbEd25519YaoRegistrationTwoPhaseRunResultV1<
+    RouterAbEd25519YaoRegistrationAdmissionClaimV1,
+    RegistrationServiceResponse,
+    AuthorizationFailure | RouterAbEd25519YaoRegistrationFailure
+  >,
+): RegistrationServiceResponse {
+  switch (result.kind) {
+    case 'committed':
+    case 'completed':
+    case 'rejected':
+      return result.value;
+    case 'preclaim_version_mismatch':
+      return stateConflictFailure('admit', 'preclaim', {
+        kind: 'version_mismatch',
+        key: result.key,
+      });
+    case 'backend_uncertain':
+      return {
+        ok: false,
+        status: 503,
+        code: 'admission_uncertain',
+        message: result.message,
+      };
+    case 'terminal_version_mismatch':
+      return terminalStateConflictFailure({ kind: 'version_mismatch', key: result.key });
+    default:
+      return assertNever(result);
+  }
+}
+
+function mapExecutionRunResult(
+  result: RouterAbEd25519YaoRegistrationTwoPhaseRunResultV1<
+    RouterAbEd25519YaoRegistrationExecuteClaimV1,
+    RegistrationServiceResponse,
+    AuthorizationFailure | RouterAbEd25519YaoRegistrationFailure
+  >,
+): RegistrationServiceResponse {
+  switch (result.kind) {
+    case 'committed':
+    case 'completed':
+    case 'rejected':
+      return result.value;
+    case 'preclaim_version_mismatch':
+      return stateConflictFailure('execute', 'preclaim', {
+        kind: 'version_mismatch',
+        key: result.key,
+      });
+    case 'backend_uncertain':
+      return {
+        ok: false,
+        status: 503,
+        code: 'execution_failed',
+        message: result.message,
+      };
+    case 'terminal_version_mismatch':
+      return terminalStateConflictFailure({ kind: 'version_mismatch', key: result.key });
+    default:
+      return assertNever(result);
+  }
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled registration request-scoped result: ${String(value)}`);
 }
 
 function stateConflictFailure(
