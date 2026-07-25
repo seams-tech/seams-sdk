@@ -84,6 +84,7 @@ import type {
   WalletRegistrationEcdsaWalletKey,
   WalletRegistrationFinalizeAuthMethod,
   WalletRegistrationFinalizeResponse,
+  WalletRegistrationRouteDiagnostics,
   WalletRegistrationEd25519YaoPublicResult,
   WalletRegistrationEd25519YaoBootstrapSession,
   WalletAddSignerFinalizeResponse,
@@ -407,12 +408,14 @@ export function parseD1StoredWalletRegistrationFinalizeReplay(
   if (!record || record.kind !== 'wallet_registration_finalize_replay_v1') return null;
   const registrationCeremonyId = toOptionalTrimmedString(record.registrationCeremonyId);
   const idempotencyKey = toOptionalTrimmedString(record.idempotencyKey);
+  const requestFingerprint = toOptionalTrimmedString(record.requestFingerprint);
   const response = parseD1WalletRegistrationFinalizeReplayResponse(record.response);
   const createdAtMs = safeInteger(record.createdAtMs);
   const expiresAtMs = safeInteger(record.expiresAtMs);
   if (
     !registrationCeremonyId ||
     !idempotencyKey ||
+    !requestFingerprint ||
     !response ||
     createdAtMs === null ||
     createdAtMs <= 0 ||
@@ -425,6 +428,7 @@ export function parseD1StoredWalletRegistrationFinalizeReplay(
     kind: 'wallet_registration_finalize_replay_v1',
     registrationCeremonyId,
     idempotencyKey,
+    requestFingerprint,
     response,
     createdAtMs,
     expiresAtMs,
@@ -500,7 +504,7 @@ function parseD1WalletAddSignerFinalizeReplayResponse(
     : { ok: true, kind: 'evm_family_ecdsa', walletId, ecdsa };
 }
 
-function parseD1WalletRegistrationFinalizeReplayResponse(
+export function parseD1WalletRegistrationFinalizeReplayResponse(
   raw: unknown,
 ): D1WalletRegistrationFinalizeSuccess | null {
   const record = toRecordValue(raw);
@@ -622,6 +626,92 @@ function parseD1WalletRegistrationFinalizeReplayResponse(
     resolvedAccount,
     ed25519,
   };
+}
+
+function parseWalletRegistrationRouteTimingName(
+  raw: unknown,
+): WalletRegistrationRouteDiagnostics['entries'][number]['name'] | null {
+  switch (raw) {
+    case 'registrationIntentLoadMs':
+    case 'registrationIntentDigestMs':
+    case 'registrationIntentConsumeMs':
+    case 'registrationAttemptGateMs':
+    case 'registrationPreparationPersistMs':
+    case 'registrationPreparationLoadMs':
+    case 'registrationPreparationConsumeMs':
+    case 'registrationPreparationScopeCheckMs':
+    case 'registrationAuthorityVerifyMs':
+    case 'registrationEcdsaPrepareMs':
+    case 'registrationCeremonyPersistMs':
+    case 'registerPrepareTotalMs':
+    case 'registerStartTotalMs':
+    case 'registrationEcdsaRespondMs':
+    case 'registrationFinalizeReplayLoadMs':
+    case 'registrationCeremonyLoadMs':
+    case 'registrationEcdsaBootstrapVerifyMs':
+    case 'sponsoredNearAccountCreateMs':
+    case 'registrationKeygenMs':
+    case 'registrationEmailOtpEnrollmentPlanMs':
+    case 'relaySessionMintMs':
+    case 'relayGoogleEmailOtpActivationPlanMs':
+    case 'relayPersistenceMs':
+    case 'registrationFinalizeReplayCacheMs':
+    case 'registerFinalizeTotalMs':
+      return raw;
+    default:
+      return null;
+  }
+}
+
+function parseWalletRegistrationRouteDiagnostics(
+  raw: unknown,
+): WalletRegistrationRouteDiagnostics | null {
+  const record = toRecordValue(raw);
+  if (
+    !record ||
+    record.kind !== 'wallet_registration_route_diagnostics_v1' ||
+    record.route !== 'wallets_register_finalize' ||
+    !Array.isArray(record.entries)
+  ) {
+    return null;
+  }
+  const entries: WalletRegistrationRouteDiagnostics['entries'] = [];
+  for (const rawEntry of record.entries) {
+    const entry = toRecordValue(rawEntry);
+    const name = parseWalletRegistrationRouteTimingName(entry?.name);
+    if (!entry || !name || typeof entry.durationMs !== 'number' || entry.durationMs < 0) {
+      return null;
+    }
+    entries.push({ name, durationMs: entry.durationMs });
+  }
+  return {
+    kind: 'wallet_registration_route_diagnostics_v1',
+    route: 'wallets_register_finalize',
+    entries,
+  };
+}
+
+export function parseD1WalletRegistrationFinalizeTerminalResponse(
+  raw: unknown,
+): WalletRegistrationFinalizeResponse | null {
+  const record = toRecordValue(raw);
+  if (!record || typeof record.ok !== 'boolean') return null;
+  if (!record.ok) {
+    const code = toOptionalTrimmedString(record.code);
+    const message = toOptionalTrimmedString(record.message);
+    if (!code || !message) return null;
+    if (record.retryAfterMs === undefined) return { ok: false, code, message };
+    if (!Number.isSafeInteger(record.retryAfterMs) || Number(record.retryAfterMs) < 0) return null;
+    return { ok: false, code, message, retryAfterMs: Number(record.retryAfterMs) };
+  }
+  const success = parseD1WalletRegistrationFinalizeReplayResponse(record);
+  if (!success) return null;
+  if (record.registrationDiagnostics === undefined) return success;
+  const registrationDiagnostics = parseWalletRegistrationRouteDiagnostics(
+    record.registrationDiagnostics,
+  );
+  if (!registrationDiagnostics) return null;
+  return { ...success, registrationDiagnostics };
 }
 
 function registrationNearProvisioningMatchesResolution(

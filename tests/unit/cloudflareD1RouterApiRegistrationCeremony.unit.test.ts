@@ -977,6 +977,7 @@ test('Cloudflare D1 Router API auth service replays finalized ECDSA registration
       service.walletRegistration.finalizeWalletRegistration({
         kind: 'evm_family_ecdsa',
         registrationCeremonyId: started.registrationCeremonyId,
+        idempotencyKey: 'registration-finalize-wrong-key',
         ecdsa: {
           expectedKeyHandles: ['wrong-key-handle'],
         },
@@ -990,6 +991,7 @@ test('Cloudflare D1 Router API auth service replays finalized ECDSA registration
       service.walletRegistration.finalizeWalletRegistration({
         kind: 'evm_family_ecdsa',
         registrationCeremonyId: started.registrationCeremonyId,
+        idempotencyKey: 'registration-finalize-missing-enrollment',
         ecdsa: {
           expectedKeyHandles: ['test-add-signer-ecdsa-key-handle'],
         },
@@ -1177,6 +1179,7 @@ test('Cloudflare D1 Router API auth service replays finalized ECDSA registration
       service.walletRegistration.finalizeWalletRegistration({
         kind: 'evm_family_ecdsa',
         registrationCeremonyId: started.registrationCeremonyId,
+        idempotencyKey: 'registration-finalize-after-cleanup',
         ecdsa: {
           expectedKeyHandles: ['test-add-signer-ecdsa-key-handle'],
         },

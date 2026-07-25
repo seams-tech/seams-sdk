@@ -54,8 +54,10 @@ const allowedEcdsaClientCeremonyWasmExports = new Set([
   'routerabecdsaclientceremonyv1_build_explicit_export_request',
   'routerabecdsaclientceremonyv1_build_registration_request',
   'routerabecdsaclientceremonyv1_close',
+  'routerabecdsaclientceremonyv1_explicit_export_request_digest_b64u',
   'routerabecdsaclientceremonyv1_finalize_encrypted_proof_bundles',
   'routerabecdsaclientceremonyv1_new',
+  'routerabecdsaclientceremonyv1_open_signing_worker_export_share',
   'routerabecdsaclientceremonyv1_public_key',
   'routerabecdsaclientceremonyv1_registration_binding',
 ]);
@@ -67,6 +69,8 @@ const requiredEcdsaClientCeremonyTypeMethods = [
   'registration_binding',
   'build_explicit_export_request',
   'build_activation_refresh_request',
+  'explicit_export_request_digest_b64u',
+  'open_signing_worker_export_share',
   'finalize_encrypted_proof_bundles',
   'close',
 ];

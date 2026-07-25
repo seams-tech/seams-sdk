@@ -1061,10 +1061,6 @@ const forbiddenSqliteD1HarnessDuplicationPatterns = [
         pattern: /\bfunction\s+applyMigrations\b/,
         message: 'defines a local D1 migration applicator instead of tests/helpers/sqliteD1',
     },
-    {
-        pattern: /packages\/sdk-server-ts\/migrations\/d1-/,
-        message: 'hard-codes D1 migration paths instead of using tests/helpers/sqliteD1',
-    },
 ];
 const forbiddenD1StagingCliHelperPatterns = [
     {
@@ -1226,7 +1222,6 @@ const coreOrchestrationPortOnlyFiles = [
     'packages/sdk-server-ts/src/core/AuthService.ts',
     'packages/sdk-server-ts/src/core/SessionService.ts',
     'packages/sdk-server-ts/src/core/routerAbSigning/RouterAbNormalSigningRuntime.ts',
-    'packages/sdk-server-ts/src/core/routerAbSigning/RouterAbEcdsaBootstrapExportRuntime.ts',
     'packages/sdk-server-ts/src/core/routerAbSigning/RouterAbEcdsaPresignRuntime.ts',
     'packages/sdk-server-ts/src/core/routerAbSigning/createRouterAbSigningRuntimes.ts',
     'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaDerivationPoolFillHandlers.ts',

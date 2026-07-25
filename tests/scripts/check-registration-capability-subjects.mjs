@@ -264,7 +264,7 @@ function checkEmailOtpUnlockCurrentSessionsUseCommitCommands() {
   assertContains(ecdsaPublication, 'commitEvmFamilyThresholdEcdsaSessions({', 'ECDSA publication');
   assertContains(
     ecdsaPublication,
-    'persistEmailOtpEcdsaSigningSessionSealForUnlock(',
+    'persistEmailOtpEcdsaSigningSessionForRefresh(',
     'ECDSA publication',
   );
   assertNotContains(ecdsaPublication, 'upsertThresholdEcdsaSessionFact', 'ECDSA publication');

@@ -47,7 +47,7 @@ function firstKey(o: Record<string, unknown> | undefined): string | undefined {
   return keys.length ? keys[0] : undefined;
 }
 
-class NearRpcError extends Error {
+export class NearRpcError extends Error {
   code?: number;
   type: NearRpcErrorType;
   kind?: string;

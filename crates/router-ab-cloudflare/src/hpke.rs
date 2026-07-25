@@ -563,6 +563,21 @@ pub(crate) fn parse_cloudflare_hpke_x25519_public_key_v1(
     Ok(public_key)
 }
 
+#[cfg(feature = "workers-rs")]
+pub(crate) fn cloudflare_hpke_x25519_public_key_bytes_v1(
+    encoded: &str,
+) -> RouterAbProtocolResult<[u8; 32]> {
+    let public_key = parse_cloudflare_hpke_x25519_public_key_v1(encoded)?;
+    CloudflareHpkeKemV1::pk_to_bytes(&public_key)
+        .try_into()
+        .map_err(|_| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "HPKE recipient public key did not decode to 32 bytes",
+            )
+        })
+}
+
 fn decode_cloudflare_hpke_x25519_hex_v1(hex_value: &str) -> RouterAbProtocolResult<[u8; 32]> {
     if hex_value.len() != 64 {
         return Err(RouterAbProtocolError::new(
