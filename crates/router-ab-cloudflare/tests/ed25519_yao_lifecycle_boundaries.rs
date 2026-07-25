@@ -79,7 +79,7 @@ fn deriver_a_claim_does_not_hold_the_durable_object_across_yao_execution() {
     let source = read_src_file("ed25519_yao_lifecycle.rs");
     let body = extract_function_body(&source, "handle_claim_pair");
     assert!(
-        body.contains("PairClaimed"),
+        body.contains("DeriverAYaoSessionResponseV1::Claimed"),
         "Deriver A claim must return the claimed execution envelope"
     );
     assert!(
