@@ -621,6 +621,9 @@ digests and therefore requires a new ceremony identity.
 - [ ] Derive a Router-owned `gateway.yao_execute` p50/p95 budget from the
       baseline. Keep the Touch-ID-to-wallet-ready target as a separate
       product-level budget.
+- [x] Gate the evidence analyzer on platform execution telemetry, including
+      CPU, active duration, memory, Durable Object calls, Worker invocations,
+      D1 exclusion, exact replay, and conflict counts.
 
 Phase 0 evidence remains open. The available deployment logs do not contain
 20 complete correlated production traces, and the current Wrangler access does
@@ -823,6 +826,10 @@ route-deletion cleanup.
 - [ ] Confirm receipt sequencing improves or preserves p95 after including the
       additional A preparation request.
 - [ ] Record the final evidence in the Yao deployment plan.
+- [x] Correct Gateway workflow secret parity and add regression coverage for
+      the required `STRIPE_API_SK` input. The failed run and correction are
+      recorded in [`refactor-93-production-evidence.md`](./refactor-93-production-evidence.md);
+      a new coherent staging run remains open.
 
 ## Mid-Implementation Review Dispositions (2026-07-24)
 
