@@ -199,6 +199,99 @@ function fullAccessKey(): AccessKeyView {
   };
 }
 
+type ReconciliationScenario = {
+  readonly transaction:
+    | { readonly kind: 'pending' }
+    | {
+        readonly kind: 'error';
+        readonly failureKind: NearRpcFailureKind;
+        readonly message: string;
+      };
+  readonly account:
+    | { readonly kind: 'full_access' }
+    | { readonly kind: 'account_not_found' }
+    | { readonly kind: 'access_key_not_found' }
+    | { readonly kind: 'wrong_permission' };
+  readonly send:
+    | { readonly kind: 'success' }
+    | { readonly kind: 'error'; readonly failureKind: NearRpcFailureKind };
+  sends: number;
+  accountReads: number;
+  accessKeyReads: number;
+};
+
+function reconciliationScenario(input: {
+  readonly transaction: ReconciliationScenario['transaction'];
+  readonly account: ReconciliationScenario['account'];
+  readonly send?: ReconciliationScenario['send'];
+}): ReconciliationScenario {
+  return {
+    transaction: input.transaction,
+    account: input.account,
+    send: input.send || { kind: 'success' },
+    sends: 0,
+    accountReads: 0,
+    accessKeyReads: 0,
+  };
+}
+
+async function scenarioTxStatus(scenario: ReconciliationScenario): Promise<FinalExecutionOutcome> {
+  switch (scenario.transaction.kind) {
+    case 'pending':
+      return outcome({});
+    case 'error':
+      throw rpcError(scenario.transaction.failureKind, scenario.transaction.message);
+  }
+}
+
+async function scenarioViewAccount(scenario: ReconciliationScenario): Promise<AccountView> {
+  scenario.accountReads += 1;
+  if (scenario.account.kind === 'account_not_found') {
+    throw rpcError('account_not_found', 'structured account absence');
+  }
+  return accountView();
+}
+
+async function scenarioViewAccessKey(scenario: ReconciliationScenario): Promise<AccessKeyView> {
+  scenario.accessKeyReads += 1;
+  switch (scenario.account.kind) {
+    case 'full_access':
+      return fullAccessKey();
+    case 'access_key_not_found':
+      throw rpcError('access_key_not_found', 'structured access-key absence');
+    case 'wrong_permission':
+      return {
+        ...fullAccessKey(),
+        permission: {
+          FunctionCall: { allowance: '1', receiver_id: 'contract.testnet', method_names: [] },
+        },
+      };
+    case 'account_not_found':
+      throw new Error('access-key read must not follow missing account');
+  }
+}
+
+async function scenarioSendTransaction(
+  scenario: ReconciliationScenario,
+): Promise<FinalExecutionOutcome> {
+  scenario.sends += 1;
+  switch (scenario.send.kind) {
+    case 'success':
+      return outcome({ SuccessValue: '' });
+    case 'error':
+      throw rpcError(scenario.send.failureKind, `structured ${scenario.send.failureKind}`);
+  }
+}
+
+function scenarioNearClient(scenario: ReconciliationScenario): NearClientFixture {
+  return new NearClientFixture({
+    txStatus: scenarioTxStatus.bind(undefined, scenario),
+    viewAccount: scenarioViewAccount.bind(undefined, scenario),
+    viewAccessKey: scenarioViewAccessKey.bind(undefined, scenario),
+    sendTransaction: scenarioSendTransaction.bind(undefined, scenario),
+  });
+}
+
 test('real preparation persists canonical bytes and broadcasts those exact bytes', async () => {
   const prepared = await preparedArtifact();
   let sentBytes: number[] | undefined;
@@ -365,4 +458,177 @@ test('a missing transaction is replayed only after account readback confirms abs
   expect(result.kind).toBe('created');
   expect(sends).toBe(1);
   expect(sentBytes).toEqual(Array.from(base64UrlDecode(prepared.signedTransactionBorshB64u)));
+});
+
+test('a pending transaction resolves from exact account and full-access-key readback', async () => {
+  const prepared = await preparedArtifact();
+  const scenario = reconciliationScenario({
+    transaction: { kind: 'pending' },
+    account: { kind: 'full_access' },
+  });
+
+  const result = await broadcastPreparedSponsoredNearAccountCreation({
+    prepared,
+    nearRpcUrl: 'unused',
+    relayerAccountId: RELAYER_ACCOUNT_ID,
+    reconcileFirst: true,
+    nearClient: scenarioNearClient(scenario),
+  });
+
+  expect(result.kind).toBe('created');
+  expect(scenario).toMatchObject({ sends: 0, accountReads: 1, accessKeyReads: 1 });
+});
+
+test('a pending transaction with absent account remains uncertain without replay', async () => {
+  const prepared = await preparedArtifact();
+  const scenario = reconciliationScenario({
+    transaction: { kind: 'pending' },
+    account: { kind: 'account_not_found' },
+  });
+
+  const result = await broadcastPreparedSponsoredNearAccountCreation({
+    prepared,
+    nearRpcUrl: 'unused',
+    relayerAccountId: RELAYER_ACCOUNT_ID,
+    reconcileFirst: true,
+    nearClient: scenarioNearClient(scenario),
+  });
+
+  expect(result.kind).toBe('uncertain');
+  expect(scenario).toMatchObject({ sends: 0, accountReads: 1, accessKeyReads: 0 });
+});
+
+test('transaction-status infrastructure failure resolves from exact account readback', async () => {
+  const prepared = await preparedArtifact();
+  const scenario = reconciliationScenario({
+    transaction: {
+      kind: 'error',
+      failureKind: 'infrastructure_failure',
+      message: 'RPC unavailable',
+    },
+    account: { kind: 'full_access' },
+  });
+
+  const result = await broadcastPreparedSponsoredNearAccountCreation({
+    prepared,
+    nearRpcUrl: 'unused',
+    relayerAccountId: RELAYER_ACCOUNT_ID,
+    reconcileFirst: true,
+    nearClient: scenarioNearClient(scenario),
+  });
+
+  expect(result.kind).toBe('created');
+  expect(scenario).toMatchObject({ sends: 0, accountReads: 1, accessKeyReads: 1 });
+});
+
+for (const account of [
+  { kind: 'access_key_not_found' as const },
+  { kind: 'wrong_permission' as const },
+]) {
+  test(`an existing account with ${account.kind} is rejected without replay`, async () => {
+    const prepared = await preparedArtifact();
+    const scenario = reconciliationScenario({
+      transaction: { kind: 'pending' },
+      account,
+    });
+
+    const result = await broadcastPreparedSponsoredNearAccountCreation({
+      prepared,
+      nearRpcUrl: 'unused',
+      relayerAccountId: RELAYER_ACCOUNT_ID,
+      reconcileFirst: true,
+      nearClient: scenarioNearClient(scenario),
+    });
+
+    expect(result.kind).toBe('rejected');
+    expect(scenario).toMatchObject({ sends: 0, accountReads: 1, accessKeyReads: 1 });
+  });
+}
+
+for (const failureKind of ['invalid_nonce', 'expired'] as const) {
+  test(`${failureKind} remains uncertain after exact account absence readback`, async () => {
+    const prepared = await preparedArtifact();
+    const scenario = reconciliationScenario({
+      transaction: { kind: 'pending' },
+      account: { kind: 'account_not_found' },
+      send: { kind: 'error', failureKind },
+    });
+
+    const result = await broadcastPreparedSponsoredNearAccountCreation({
+      prepared,
+      nearRpcUrl: 'unused',
+      relayerAccountId: RELAYER_ACCOUNT_ID,
+      nearClient: scenarioNearClient(scenario),
+    });
+
+    expect(result.kind).toBe('uncertain');
+    expect(scenario).toMatchObject({ sends: 1, accountReads: 1, accessKeyReads: 0 });
+  });
+}
+
+for (const failureKind of ['invalid_transaction', 'action_error', 'execution_failure'] as const) {
+  test(`${failureKind} rejects after exact account absence readback`, async () => {
+    const prepared = await preparedArtifact();
+    const scenario = reconciliationScenario({
+      transaction: { kind: 'pending' },
+      account: { kind: 'account_not_found' },
+      send: { kind: 'error', failureKind },
+    });
+
+    const result = await broadcastPreparedSponsoredNearAccountCreation({
+      prepared,
+      nearRpcUrl: 'unused',
+      relayerAccountId: RELAYER_ACCOUNT_ID,
+      nearClient: scenarioNearClient(scenario),
+    });
+
+    expect(result.kind).toBe('rejected');
+    expect(scenario).toMatchObject({ sends: 1, accountReads: 1, accessKeyReads: 0 });
+  });
+}
+
+test('structured transaction absence plus exact account absence permits one exact replay', async () => {
+  const prepared = await preparedArtifact();
+  const scenario = reconciliationScenario({
+    transaction: {
+      kind: 'error',
+      failureKind: 'transaction_not_found',
+      message: 'structured transaction absence',
+    },
+    account: { kind: 'account_not_found' },
+  });
+
+  const result = await broadcastPreparedSponsoredNearAccountCreation({
+    prepared,
+    nearRpcUrl: 'unused',
+    relayerAccountId: RELAYER_ACCOUNT_ID,
+    reconcileFirst: true,
+    nearClient: scenarioNearClient(scenario),
+  });
+
+  expect(result.kind).toBe('created');
+  expect(scenario).toMatchObject({ sends: 1, accountReads: 1, accessKeyReads: 0 });
+});
+
+test('transaction-not-found English text cannot authorize replay without its structured kind', async () => {
+  const prepared = await preparedArtifact();
+  const scenario = reconciliationScenario({
+    transaction: {
+      kind: 'error',
+      failureKind: 'infrastructure_failure',
+      message: 'unknown transaction does not exist',
+    },
+    account: { kind: 'account_not_found' },
+  });
+
+  const result = await broadcastPreparedSponsoredNearAccountCreation({
+    prepared,
+    nearRpcUrl: 'unused',
+    relayerAccountId: RELAYER_ACCOUNT_ID,
+    reconcileFirst: true,
+    nearClient: scenarioNearClient(scenario),
+  });
+
+  expect(result.kind).toBe('uncertain');
+  expect(scenario).toMatchObject({ sends: 0, accountReads: 1, accessKeyReads: 0 });
 });
