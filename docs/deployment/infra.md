@@ -18,21 +18,22 @@ The web server persists state in Cloudflare data services:
 
 ## GitHub Environments
 
-Create target-specific GitHub Environments for frontend builds, read-only
+Use the existing target GitHub Environments for frontend builds, read-only
 smoke checks, and backend roles:
 
-- `staging-frontend` and the five `staging-*` backend role environments.
-- `production-frontend` and the five `production-*` backend role environments.
+- `staging` and the five `staging-*` backend role environments.
+- `production` and the five `production-*` backend role environments.
 
 The frontend environments own Pages credentials, public build variables, and
 the public origins used by the read-only deployment smoke checks. Values differ
 per environment.
 
-Create `staging-gateway` and `production-gateway` for Gateway. Create
+Use `staging-gateway` and `production-gateway` for Gateway. Use
 `staging-mpc-router`, `staging-deriver-a`,
 `staging-deriver-b`, `staging-signing-worker`, plus matching `production-*`
 role environments. Each role environment owns its Cloudflare credentials,
-private material, variables, and protected approver set.
+private material, and variables. Production is manual and restricted to `main`
+by the existing `production` environment branch policy and the workflow guard.
 
 Gateway and the four Router A/B Workers use Cloudflare service bindings and
 must be deployed in the same Cloudflare account. Give each role a scoped deploy
@@ -97,20 +98,12 @@ pnpm product:deploy:env-apply -- \
   --env staging --manifest-file <product-manifest>
 ```
 
-Automatic entrypoints are intentionally separate:
-
-- `.github/workflows/deploy-staging-cloudflare-stack.yml` accepts successful validation of `dev` pushes and accepted-release promotion inputs.
-- `.github/workflows/deploy-production-cloudflare-stack.yml` accepts successful validation of `main` pushes and accepted-release promotion inputs.
-
-The stack workflows contain backend release-build, artifact-verification,
-service jobs, and backend smoke checks directly. The matching frontend
-workflows own Pages artifact creation, Pages mutation, SDK runtime asset
-verification, and frontend smoke checks. There are no reusable deployment
-workflow files and no `workflow_call` files under `.github/workflows`. The
-generator inputs under `scripts/deployment-workflow-templates/` are job
-fragments without triggers or independent deployment authority.
-Environment labels and branch restrictions remain fixed in the matching
-entrypoint rather than in a caller-selected runtime flag.
+Deployment entrypoints are the four hand-written workflows documented in
+[README.md](README.md): the staging and production backend workflows, plus the
+staging and production frontend workflows. Their branch restrictions and
+GitHub environment bindings are fixed in each entrypoint. They use the
+workflow event's `${{ github.sha }}` and expose no historical-SHA or
+cross-run artifact inputs.
 
 ### Secrets
 
@@ -181,9 +174,9 @@ the individual Worker bindings expected by the runtime.
 
 The frontend and Gateway environments also share the explicit API contract
 variables `GATEWAY_API_CONTRACT_VERSION` and
-`SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON`. The environment generator
-requires the values to match so release manifests and runtime compatibility
-checks use the same contract boundary.
+`SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON`. Keep their values aligned with
+the expand-contract API rule in [README.md](README.md); they do not identify a
+cross-workflow release.
 
 Gateway cryptographic values and external credentials remain separate GitHub
 secrets. This preserves GitHub secret masking and allows credential rotation
@@ -242,7 +235,7 @@ Wrangler environments:
 
 The checked-in Wrangler vars contain placeholder public keys so dry-run builds
 work without environment configuration. The environment-specific Router A/B
-jobs inside the matching stack workflow inject the real public keys and
+jobs inside the matching backend workflow inject the real public keys and
 MPCRouter JWT values from GitHub Environment variables during deployment, then
 write the private values to the corresponding Cloudflare Worker secrets before
 uploading or deploying Workers.
@@ -313,11 +306,12 @@ For a suspected role compromise:
    secret-name inventory, then run registration, recovery, export, and
    post-refresh signing before reopening admission.
 
-For a code regression, redeploy the affected role from the last accepted
-release set and verify its binding and readiness. This restores the Worker
-artifact without reverting secrets, D1 migrations, Durable Object state, or
-other environment state. Preserve key epochs and Durable Object state unless
-the incident specifically requires rotation or recovery. Logs and alerts
+For a code regression, revert the bad change or land a corrective commit on the
+target branch, then deploy that branch tip and verify its binding and
+readiness. This restores the Worker code without reverting secrets, D1
+migrations, Durable Object state, or other environment state. Preserve key
+epochs and Durable Object state unless the incident specifically requires
+rotation or recovery. Logs and alerts
 remain role-specific and must contain deployment identities and opaque
 ceremony identifiers without private inputs, labels, shares, ciphertext bodies,
 or secret values.
@@ -357,25 +351,26 @@ Self-hosted Gateway deployments may serve the same public keyset routes when
 prefetches `/router-ab/keyset` during registration precompute whenever
 Router A/B normal signing is enabled.
 
-Manual accepted-release promotion:
+Manual deployment uses the matching workflow file and branch only:
 
 ```bash
-gh workflow run 'Deploy / staging / cloudflare-stack' --ref dev \
-  -f source_sha=<accepted-dev-sha> \
-  -f artifact_run_id=<accepted-artifact-run-id> \
-  -f release_set_id=<accepted-release-set-id>
+gh workflow run deploy-staging-backend.yml --ref dev
+gh workflow run deploy-production-backend.yml --ref main
 ```
 
-Production promotion uses the matching production entrypoint and an accepted
-`main` release set. Automatic releases start after the push-mode
-`Validate / repository` gate succeeds on `main`.
+The frontend workflows use the same branch rules. They accept no source SHA,
+artifact-run, or release-set inputs.
 
-Local Cloudflare-shape checks:
+Local non-serving Router shape checks:
 
 ```bash
 pnpm router:deploy:dry-run
 pnpm router:deploy:upload -- --env staging
 ```
+
+The upload command is a diagnostic Cloudflare versions upload and does not
+serve traffic or deploy a backend lane. The four deployment workflows own
+serving Worker deployment and secret operations.
 
 Latest local dry-run evidence:
 
@@ -385,10 +380,11 @@ Latest local dry-run evidence:
 - gzip upload sizes: Router `573.83 KiB`, Deriver A `598.97 KiB`, Deriver B
   `599.92 KiB`, SigningWorker `567.14 KiB`
 
-The deployment workflow runs `pnpm router:deploy:check` before any Worker
-deployment. SigningWorker, Deriver A, Deriver B, and Gateway deploy jobs run
-concurrently; MPCRouter waits for the Router roles. The frontend workflow waits
-for the backend coordination receipt when both lanes are selected.
+The backend workflow performs component-scoped preflight, then applies D1
+migrations before the ordered Worker deployments: SigningWorker, Deriver A,
+Deriver B, MPCRouter, and Gateway. The frontend
+workflow builds and deploys its Pages output independently and runs its own
+smoke checks; neither lane waits for a coordination receipt from the other.
 
 ## Cloudflare Data
 

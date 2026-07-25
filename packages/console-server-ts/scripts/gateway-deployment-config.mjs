@@ -24,6 +24,8 @@ export const DEFAULT_EMAIL_OTP_RATE_LIMIT_WINDOW_MS = '60000';
 export const DEFAULT_EMAIL_OTP_MAX_ATTEMPTS = '5';
 export const DEFAULT_EMAIL_OTP_LOCKOUT_TTL_MS = '300000';
 export const DEFAULT_EMAIL_OTP_SENSITIVE_ATTEMPT_RATE_LIMIT_MAX = '5';
+export const GATEWAY_WORKER_COMPATIBILITY_DATE = '2026-07-18';
+export const GATEWAY_WORKER_COMPATIBILITY_FLAGS = Object.freeze(['nodejs_compat']);
 export const GATEWAY_RUNTIME_PROFILE_KINDS = {
   testnetLiveDemo: 'testnet_live_demo',
   testnetService: 'testnet_service',

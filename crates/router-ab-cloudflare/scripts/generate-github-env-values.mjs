@@ -673,7 +673,7 @@ function deploymentComponentEnvironmentNames(targetName, component) {
         `${targetName}-signing-worker`,
       ];
     case 'product':
-      return [`${targetName}-frontend`];
+      return [targetName];
     default:
       throw new Error(`unsupported deployment component: ${component}`);
   }
@@ -719,7 +719,7 @@ function computeComponentManifestSha256(manifest) {
 }
 
 function buildFrontendEnvironment(input) {
-  const environmentName = `${input.target}-frontend`;
+  const environmentName = input.target;
   const configuration = input.configuration;
   const signingSession = input.generatedSecrets.signingSession;
   return [
@@ -1654,7 +1654,7 @@ function assertCompleteApplyInput(outputDocument, shouldApply, incompleteAllowed
 
 function validateOutput(outputDocument) {
   const expectedEnvironmentNames = [
-    `${outputDocument.target}-frontend`,
+    outputDocument.target,
     `${outputDocument.target}-gateway`,
     `${outputDocument.target}-mpc-router`,
     `${outputDocument.target}-deriver-a`,
@@ -1678,40 +1678,32 @@ function validateOutput(outputDocument) {
 
 function validateWorkflowCoverage(outputDocument) {
   const targetName = outputDocument.target;
-  const routerWorkflow = readWorkflow('deploy-cloudflare-stack.yml');
-  const releaseWorkflow = readWorkflow('release-cloudflare-stack.yml');
+  const backendWorkflow = readDeploymentWorkflow(targetName, 'backend');
+  const frontendWorkflow = readDeploymentWorkflow(targetName, 'frontend');
   const requirements = new Map([
     [
-      `${targetName}-frontend`,
-      mergeWorkflowRequirements(
-        collectWorkflowRequirements(readWorkflow('release-cloudflare-frontend.yml')),
-        collectWorkflowRequirements(readWorkflow('deploy-cloudflare-frontend.yml')),
-        collectWorkflowRequirements(extractWorkflowJob(routerWorkflow, 'final_smoke')),
-      ),
+      targetName,
+      collectWorkflowRequirements(frontendWorkflow),
     ],
     [
       `${targetName}-gateway`,
-      mergeWorkflowRequirements(
-        collectWorkflowRequirements(extractWorkflowJob(releaseWorkflow, 'build_gateway')),
-        collectWorkflowRequirements(extractWorkflowJob(releaseWorkflow, 'create_release_set')),
-        collectWorkflowRequirements(readWorkflow('deploy-cloudflare-gateway.yml')),
-      ),
+      collectWorkflowRequirements(extractWorkflowJob(backendWorkflow, 'deploy_gateway')),
     ],
     [
       `${targetName}-mpc-router`,
-      collectWorkflowRequirements(extractWorkflowJob(routerWorkflow, 'deploy_mpc_router')),
+      collectWorkflowRequirements(extractWorkflowJob(backendWorkflow, 'deploy_router')),
     ],
     [
       `${targetName}-deriver-a`,
-      collectWorkflowRequirements(extractWorkflowJob(routerWorkflow, 'deploy_deriver_a')),
+      collectWorkflowRequirements(extractWorkflowJob(backendWorkflow, 'deploy_deriver_a')),
     ],
     [
       `${targetName}-deriver-b`,
-      collectWorkflowRequirements(extractWorkflowJob(routerWorkflow, 'deploy_deriver_b')),
+      collectWorkflowRequirements(extractWorkflowJob(backendWorkflow, 'deploy_deriver_b')),
     ],
     [
       `${targetName}-signing-worker`,
-      collectWorkflowRequirements(extractWorkflowJob(routerWorkflow, 'deploy_signing_worker')),
+      collectWorkflowRequirements(extractWorkflowJob(backendWorkflow, 'deploy_signing_worker')),
     ],
   ]);
 
@@ -1731,8 +1723,11 @@ function validateWorkflowCoverage(outputDocument) {
   }
 }
 
-function readWorkflow(fileName) {
-  return readFileSync(join(repoRoot, 'scripts/deployment-workflow-templates', fileName), 'utf8');
+function readDeploymentWorkflow(targetName, lane) {
+  return readFileSync(
+    join(repoRoot, `.github/workflows/deploy-${targetName}-${lane}.yml`),
+    'utf8',
+  );
 }
 
 function extractWorkflowJob(workflowSource, jobName) {
@@ -1761,13 +1756,6 @@ function collectWorkflowRequirements(workflowSource) {
     (match[1] === 'vars' ? variables : secrets).add(match[2]);
   }
   return { variables, secrets };
-}
-
-function mergeWorkflowRequirements(...requirements) {
-  return {
-    variables: new Set(requirements.flatMap((requirement) => [...requirement.variables])),
-    secrets: new Set(requirements.flatMap((requirement) => [...requirement.secrets])),
-  };
 }
 
 function assertWorkflowNamesCovered(environmentName, kind, required, generated) {
@@ -1941,7 +1929,7 @@ function parseGatewayDeploymentConfig(gatewayEnvironment) {
 }
 
 function validateSigningSessionConsistency(outputDocument) {
-  const frontend = outputDocument.environments[`${outputDocument.target}-frontend`];
+  const frontend = outputDocument.environments[outputDocument.target];
   const gateway = outputDocument.environments[`${outputDocument.target}-gateway`];
   assertEqual(
     frontend.variables.VITE_SIGNING_SESSION_SEAL_KEY_VERSION,
@@ -1966,7 +1954,7 @@ function validateSigningSessionConsistency(outputDocument) {
 }
 
 function validateApiContractConfiguration(outputDocument) {
-  const frontend = outputDocument.environments[`${outputDocument.target}-frontend`].variables;
+  const frontend = outputDocument.environments[outputDocument.target].variables;
   const gateway = outputDocument.environments[`${outputDocument.target}-gateway`].variables;
   assertEqual(
     frontend.GATEWAY_API_CONTRACT_VERSION,
@@ -2393,7 +2381,7 @@ function assertWalletCoreGenerationMatches(productManifest, repositoryName) {
 
 function deploymentEnvironmentNames(targetName) {
   return [
-    `${targetName}-frontend`,
+    targetName,
     `${targetName}-gateway`,
     `${targetName}-mpc-router`,
     `${targetName}-deriver-a`,
