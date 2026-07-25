@@ -2881,6 +2881,9 @@ mod tests {
             &signing_key_material,
         )
         .expect("prepared B pair");
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&[0x91; 32]);
+        verify_local_pair_readiness_receipt_v1(&receipt, signing_key.verifying_key().to_bytes())
+            .expect("receipt uses the canonical local peer seed");
         let prepared = state
             .pair_roles
             .remove(&pair_digest)
