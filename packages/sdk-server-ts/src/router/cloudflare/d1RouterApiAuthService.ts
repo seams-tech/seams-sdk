@@ -69,6 +69,7 @@ import { CloudflareD1RegistrationIntentService } from './d1RegistrationIntentSer
 import {
   broadcastPreparedSponsoredNearAccountCreation,
   fundImplicitNearAccountWithRelayer,
+  preparedSponsoredNearAccountCreationArtifactFingerprint,
   prepareSponsoredNearAccountCreationWithRelayer,
   type PreparedSponsoredNearAccountCreationV1,
 } from '../../core/nearRelayerAccountProvisioning';
@@ -429,8 +430,8 @@ async function fundImplicitNearAccountForOptions(
 
 /**
  * Validates a persisted claim before it is trusted to skip a broadcast or to be
- * replayed. A record that does not parse is treated as absent, which fails
- * closed into a fresh claim attempt rather than acting on unvalidated bytes.
+ * replayed. An invalid record makes the D1 read fail, which leaves the effect
+ * uncertain and prevents any network action on unvalidated bytes.
  */
 function parseSponsoredNearAccountSideEffectRecord(
   raw: unknown,
@@ -441,21 +442,22 @@ function parseSponsoredNearAccountSideEffectRecord(
   if (!isRecordValue(raw)) return null;
   const record = raw;
   if (record.operation !== 'finalize') return null;
-  if (typeof record.requestFingerprint !== 'string' || !record.requestFingerprint) return null;
+  const requestFingerprint = parseSideEffectFingerprint(record.requestFingerprint);
+  const preparedArtifactFingerprint = parseSideEffectFingerprint(
+    record.preparedArtifactFingerprint,
+  );
+  if (requestFingerprint === null || preparedArtifactFingerprint === null) return null;
   if (!isNonNegativeSafeInteger(record.claimedAtMs)) return null;
+  const prepared = parsePreparedSponsoredNearAccountCreation(record.prepared);
+  if (prepared === null) return null;
   if (record.kind === 'router_ab_ed25519_yao_registration_side_effect_claim_v1') {
-    let prepared: PreparedSponsoredNearAccountCreationV1 | undefined;
-    if (record.prepared !== undefined) {
-      const parsedPrepared = parsePreparedSponsoredNearAccountCreation(record.prepared);
-      if (parsedPrepared === null) return null;
-      prepared = parsedPrepared;
-    }
     return {
       kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1',
       operation: 'finalize',
-      requestFingerprint: record.requestFingerprint,
+      requestFingerprint,
+      preparedArtifactFingerprint,
       claimedAtMs: record.claimedAtMs,
-      ...(prepared === undefined ? {} : { prepared }),
+      prepared,
     };
   }
   if (record.kind === 'router_ab_ed25519_yao_registration_side_effect_completion_v1') {
@@ -465,9 +467,11 @@ function parseSponsoredNearAccountSideEffectRecord(
     return {
       kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
       operation: 'finalize',
-      requestFingerprint: record.requestFingerprint,
+      requestFingerprint,
+      preparedArtifactFingerprint,
       claimedAtMs: record.claimedAtMs,
       completedAtMs: record.completedAtMs,
+      prepared,
       response,
     };
   }
@@ -488,19 +492,22 @@ function parseWalletRegistrationFinalizeSideEffectRecord(
   if (
     !isRecordValue(raw) ||
     raw.operation !== 'finalize' ||
-    typeof raw.requestFingerprint !== 'string' ||
-    !raw.requestFingerprint ||
     !isNonNegativeSafeInteger(raw.claimedAtMs)
   ) {
     return null;
   }
+  const requestFingerprint = parseSideEffectFingerprint(raw.requestFingerprint);
+  const preparedArtifactFingerprint = parseSideEffectFingerprint(raw.preparedArtifactFingerprint);
+  const prepared = parseWalletRegistrationFinalizePrepared(raw.prepared);
+  if (requestFingerprint === null || preparedArtifactFingerprint === null || prepared === null) {
+    return null;
+  }
   if (raw.kind === 'router_ab_ed25519_yao_registration_side_effect_claim_v1') {
-    const prepared = parseWalletRegistrationFinalizePrepared(raw.prepared);
-    if (!prepared) return null;
     return {
       kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1',
       operation: 'finalize',
-      requestFingerprint: raw.requestFingerprint,
+      requestFingerprint,
+      preparedArtifactFingerprint,
       claimedAtMs: raw.claimedAtMs,
       prepared,
     };
@@ -516,9 +523,11 @@ function parseWalletRegistrationFinalizeSideEffectRecord(
   return {
     kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
     operation: 'finalize',
-    requestFingerprint: raw.requestFingerprint,
+    requestFingerprint,
+    preparedArtifactFingerprint,
     claimedAtMs: raw.claimedAtMs,
     completedAtMs: raw.completedAtMs,
+    prepared,
     response,
   };
 }
@@ -532,26 +541,22 @@ function parsePreparedSponsoredNearAccountCreation(
   const accountId = parseNonEmptyString(value.accountId);
   const publicKey = parseNonEmptyString(value.publicKey);
   const relayerAccountId = parseNonEmptyString(value.relayerAccountId);
+  const relayerPublicKey = parseNonEmptyString(value.relayerPublicKey);
+  const initialBalanceYocto = parseNonEmptyString(value.initialBalanceYocto);
   const transactionHash = parseNonEmptyString(value.transactionHash);
   const nextNonce = parseNonEmptyString(value.nextNonce);
   const blockHash = parseNonEmptyString(value.blockHash);
-  const signed = value.signedTransaction;
+  const signedTransactionBorshB64u = parseBoundedBase64Url(value.signedTransactionBorshB64u);
   if (
     accountId === null ||
     publicKey === null ||
     relayerAccountId === null ||
+    relayerPublicKey === null ||
+    initialBalanceYocto === null ||
     transactionHash === null ||
     nextNonce === null ||
     blockHash === null ||
-    !isRecordValue(signed) ||
-    !isRecordValue(signed.transaction) ||
-    !isRecordValue(signed.signature) ||
-    !Array.isArray(signed.borsh_bytes) ||
-    signed.borsh_bytes.length === 0 ||
-    signed.borsh_bytes.length > 4096 ||
-    !signed.borsh_bytes.every(
-      (byte) => typeof byte === 'number' && Number.isInteger(byte) && byte >= 0 && byte < 256,
-    )
+    signedTransactionBorshB64u === null
   ) {
     return null;
   }
@@ -560,14 +565,12 @@ function parsePreparedSponsoredNearAccountCreation(
     accountId,
     publicKey,
     relayerAccountId,
+    relayerPublicKey,
+    initialBalanceYocto,
     transactionHash,
     nextNonce,
     blockHash,
-    signedTransaction: {
-      transaction: signed.transaction,
-      signature: signed.signature,
-      borsh_bytes: signed.borsh_bytes,
-    },
+    signedTransactionBorshB64u,
   };
 }
 
@@ -603,6 +606,19 @@ function parseAccountCreationResult(value: unknown): AccountCreationResult | nul
 
 function parseNonEmptyString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function parseSideEffectFingerprint(value: unknown): string | null {
+  return typeof value === 'string' && /^[a-zA-Z0-9:_-]{32,192}$/u.test(value) ? value : null;
+}
+
+function parseBoundedBase64Url(value: unknown): string | null {
+  return typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= 8_192 &&
+    /^[\w-]+$/u.test(value)
+    ? value
+    : null;
 }
 
 function parseOptionalString(value: unknown): string | undefined | null {
@@ -712,7 +728,6 @@ async function createSponsoredNamedNearAccountForOptions(
     AccountCreationResult,
     PreparedSponsoredNearAccountCreationV1
   >(sponsoredNearAccountSideEffectStore(options), {
-    kind: 'prepared_resumable',
     resumeAfterMs: 30_000,
     operation: 'finalize',
     key: `sponsored-account:${input.idempotencyKey}`,
@@ -723,6 +738,7 @@ async function createSponsoredNamedNearAccountForOptions(
       if (!prepared.ok) throw new Error(prepared.message);
       return prepared.prepared;
     },
+    derivePreparedArtifactFingerprint: preparedSponsoredNearAccountCreationArtifactFingerprint,
     execute: async (prepared, attempt) => {
       if (!prepared) throw new Error('Sponsored NEAR account transaction was not prepared');
       const broadcast = await broadcastPreparedSponsoredNearAccountCreation({

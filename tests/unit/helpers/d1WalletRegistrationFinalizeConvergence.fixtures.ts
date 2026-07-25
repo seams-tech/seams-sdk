@@ -871,6 +871,7 @@ export type FinalizeConvergenceHarness = {
 };
 
 export type SponsoredFinalizeConvergenceHarness = FinalizeConvergenceHarness & {
+  readonly corruptSponsoredPreparedArtifact: () => Promise<void>;
   readonly sponsoredNearRpcCounts: () => {
     readonly broadcastCount: number;
     readonly txStatusCount: number;
@@ -1052,6 +1053,19 @@ export async function createSponsoredFinalizeConvergenceHarness(): Promise<Spons
     });
     return {
       ...harness,
+      corruptSponsoredPreparedArtifact: async () => {
+        await harness.database
+          .prepare(
+            `UPDATE router_ab_yao_versioned_json_records
+                SET record_json = json_set(
+                  record_json,
+                  '$.prepared.accountId',
+                  'corrupted-sponsored-account.testnet'
+                )
+              WHERE record_key LIKE 'router-ab-yao-sponsored-account:%'`,
+          )
+          .run();
+      },
       sponsoredNearRpcCounts: () => ({
         broadcastCount: rpc.broadcastCount,
         txStatusCount: rpc.txStatusCount,
