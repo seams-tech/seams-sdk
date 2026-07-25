@@ -1360,6 +1360,7 @@ Initial audit:
 | `tests/unit/helpers/emailOtpRecoveryEscrow.fixtures.ts` | keep | Active/consumed/revoked recovery-escrow record builders routed through the production escrow boundary parser; used by the escrow-store suite. |
 | `tests/unit/helpers/routerAbEd25519YaoExportRequestScoped.typecheck.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
 | `tests/unit/helpers/routerAbEd25519YaoRecoveryRequestScoped.fixtures.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/helpers/routerAbEd25519YaoRegistrationBridge.fixtures.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
 | `tests/unit/helpers/sealedSigningSession.fixtures.ts` | keep | Sealed signing-session record, restore-payload, and expired-authorization-state builders via the production seal path; shared by the seal, sealed-store, and refactor-92 idempotency tests. |
 | `tests/unit/helpers/signingRootRecords.fixtures.ts` | keep | Signing-root record and migration-bundle builders via production parse/bundle functions; used by the signing-root script suite. |
 | `tests/unit/helpers/signingSessionActivation.fixtures.ts` | keep | Activation auth/material seeders (passkey and Email-OTP branches) built through production handle/ready-record builders; used by the activation use-case suite. |
@@ -1909,6 +1910,7 @@ Post-baseline current test surface:
 | `tests/unit/routerAbEd25519YaoRecovery.domain.guard.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
 | `tests/unit/routerAbEd25519YaoRecoveryRequestScoped.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
 | `tests/unit/routerAbEd25519YaoRecoveryWalletSessionAuthorization.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEd25519YaoRegistrationBridge.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
 | `tests/unit/routerAbEd25519YaoRegistrationIntentAuthorization.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
 | `tests/unit/routerAbEd25519YaoSessionProvisioning.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
 | `tests/unit/routerAbLocalD1RuntimeConfig.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
