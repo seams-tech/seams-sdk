@@ -614,7 +614,6 @@ const activeRouterApiTextPaths = [
     'apps/web-server/scripts/ensure-bun.mjs',
     'docs/chats/chat-6-voiceId.md',
     'docs/deployment/infra.md',
-    'docs/registrations-top-up.md',
     'docs/refactor-90-modular-auth-capabilities-SPEC.md',
     'docs/auth-provider-integrations/auth0.md',
     'docs/auth-provider-integrations/better-auth.md',
@@ -642,7 +641,7 @@ const activeRouterApiTextPaths = [
     'voiceId/README.md',
     'voiceId/docs/voiceId-mvp-1-tasks.md',
     'packages/console-server-ts/wrangler.d1-staging-console.toml.example',
-    'packages/console-server-ts/wrangler.d1-staging-router-api.toml.example',
+    'packages/console-server-ts/wrangler.d1-staging-gateway.toml.example',
     'wasm/near_signer/src/types/signing.rs',
     apiKeysDocPath,
     'tests/package.json',
@@ -2185,7 +2184,7 @@ test('CI does not revive removed Postgres staging smoke jobs', () => {
 test('concrete D1 staging Wrangler configs stay untracked', () => {
     const source = readSource(gitignorePath);
     expect(source).toContain('packages/console-server-ts/wrangler.d1-staging-console.toml');
-    expect(source).toContain('packages/console-server-ts/wrangler.d1-staging-router-api.toml');
+    expect(source).toContain('packages/console-server-ts/wrangler.d1-staging-gateway.toml');
 });
 test('D1 staging README documents missing-KEK signer custody evidence', () => {
     const source = readSource(sdkServerReadmePath);

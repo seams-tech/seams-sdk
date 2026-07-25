@@ -19,8 +19,9 @@ import {
   sqlString,
   writeJsonManifest,
 } from './d1-staging-config.mjs';
+import { resolveD1LocalPersistRoot } from './d1-local-friendly-paths.mjs';
 
-const persistRoot = path.join(packageRoot, '.wrangler/state/seams-d1');
+const persistRoot = resolveD1LocalPersistRoot();
 const d1ObjectRoot = path.join(persistRoot, 'v3/d1/miniflare-D1DatabaseObject');
 const drillRoot = path.join(packageRoot, '.wrangler/d1-local-restore-drills');
 
@@ -29,13 +30,13 @@ const expectedDatabases = Object.freeze([
     logicalName: 'console',
     d1Name: 'seams-console',
     markerTable: 'organizations',
-    expectedUserTableCount: 40,
+    expectedUserTableCount: 41,
   }),
   Object.freeze({
     logicalName: 'signer',
     d1Name: 'seams-signer',
     markerTable: 'wallets',
-    expectedUserTableCount: 21,
+    expectedUserTableCount: 22,
   }),
 ]);
 

@@ -148,6 +148,41 @@ class HmacSessionJwtAdapter {
   }
 }
 
+class CrossSiteSessionCookieAdapter {
+  private readonly cookieName: string;
+  private readonly ttlSeconds: number;
+
+  constructor(cookieName: string, ttlSeconds: number) {
+    this.cookieName = cookieName;
+    this.ttlSeconds = ttlSeconds;
+  }
+
+  buildSetHeader(token: string): string {
+    const expires = new Date(Date.now() + this.ttlSeconds * 1000).toUTCString();
+    return [
+      `${this.cookieName}=${token}`,
+      'Path=/',
+      'HttpOnly',
+      'Secure',
+      'SameSite=None',
+      `Max-Age=${this.ttlSeconds}`,
+      `Expires=${expires}`,
+    ].join('; ');
+  }
+
+  buildClearHeader(): string {
+    return [
+      `${this.cookieName}=`,
+      'Path=/',
+      'HttpOnly',
+      'Secure',
+      'SameSite=None',
+      'Max-Age=0',
+      'Expires=Thu, 01 Jan 1970 00:00:00 GMT',
+    ].join('; ');
+  }
+}
+
 class ConsoleSessionAuthAdapter implements ConsoleAuthAdapter {
   private readonly session: SessionAdapter;
   private readonly teamRbac: ConsoleTeamRbacService;
@@ -244,13 +279,20 @@ class ConsoleSessionAuthAdapter implements ConsoleAuthAdapter {
 
 export function createHmacSessionAdapter(options: HmacSessionAdapterOptions): SessionAdapter {
   const jwt = new HmacSessionJwtAdapter(options);
+  const cookieName = normalizeString(options.cookieName) || 'seams-jwt';
+  const cookie = new CrossSiteSessionCookieAdapter(
+    cookieName,
+    normalizeTtlSeconds(options.ttlSeconds),
+  );
   return new SessionService({
     jwt: {
       signToken: jwt.signToken.bind(jwt),
       verifyToken: jwt.verifyToken.bind(jwt),
     },
     cookie: {
-      name: normalizeString(options.cookieName) || 'seams-jwt',
+      name: cookieName,
+      buildSetHeader: cookie.buildSetHeader.bind(cookie),
+      buildClearHeader: cookie.buildClearHeader.bind(cookie),
     },
   });
 }

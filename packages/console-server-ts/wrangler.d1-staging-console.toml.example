@@ -17,4 +17,5 @@ CONSOLE_SESSION_AUDIENCE = "seams-console-dashboard"
 [secrets]
 required = [
   "CONSOLE_SESSION_HMAC_SECRET",
+  "STRIPE_API_SK",
 ]

@@ -13,6 +13,7 @@ from voiceid_verifier.audio_decode import zero_float_sequence
 from voiceid_verifier.audio_quality import AudioQuality
 from voiceid_verifier.embeddings import EmbeddingExtractionError
 from voiceid_verifier.enrollment import BuiltEnrollment, build_continuous_enrollment
+from voiceid_verifier.moonshine import MoonshineRecognizer
 from voiceid_verifier.runtime import AudioClaims, VerifierRuntime, create_verifier_runtime_from_env
 from voiceid_verifier.schemas import (
     AudioMetadata,
@@ -31,7 +32,11 @@ from voiceid_verifier.schemas import (
     SpeakerResponse,
     SpeakerUncertain,
     SpeakerVerificationResponse,
+    SpeechAnalysisResponse,
+    VerificationAnalysisResponse,
     VerifierSchemaError,
+    parse_analyze_speech_request,
+    parse_analyze_verification_request,
     parse_build_enrollment_template_request,
     parse_verify_speaker_request,
 )
@@ -40,6 +45,8 @@ from voiceid_verifier.scoring import cosine_score
 
 DEFAULT_RUNTIME: VerifierRuntime | None = None
 DEFAULT_RUNTIME_LOCK = threading.Lock()
+DEFAULT_MOONSHINE: MoonshineRecognizer | None = None
+DEFAULT_MOONSHINE_LOCK = threading.Lock()
 
 JSON_HEADERS = {
     "Content-Type": "application/json",
@@ -144,6 +151,141 @@ def verify_speaker_from_json(
         zero_float_sequence(template_embedding)
 
 
+def analyze_speech_from_json(
+    value: dict[str, Any],
+    *,
+    runtime: VerifierRuntime | None = None,
+    recognizer: MoonshineRecognizer | None = None,
+) -> dict[str, Any]:
+    request = parse_analyze_speech_request(value)
+    active_runtime = runtime or get_default_runtime()
+    active_recognizer = recognizer or get_default_moonshine()
+    evaluated = active_runtime.evaluate_audio(
+        request.audio.audio_bytes,
+        _audio_claims(request.audio.metadata),
+    )
+    try:
+        if evaluated.decoded_audio is None:
+            raise RuntimeError("canonical PCM is unavailable for speech analysis")
+        result = active_recognizer.analyze(
+            evaluated.decoded_audio.samples,
+            expected_phrase=request.expected_phrase,
+            intent_name=request.intent_name,
+        )
+        return SpeechAnalysisResponse(
+            kind="speech_analysis",
+            request_id=request.request_id,
+            transcript=result.transcript,
+            phrase=result.phrase.to_json(),
+            intent=result.intent.to_json(),
+            sample_rate_hz=result.sample_rate_hz,
+        ).to_json()
+    finally:
+        if evaluated.decoded_audio is not None:
+            zero_float_sequence(evaluated.decoded_audio.samples)
+
+
+def analyze_verification_from_json(
+    value: dict[str, Any],
+    *,
+    runtime: VerifierRuntime | None = None,
+    recognizer: MoonshineRecognizer | None = None,
+) -> dict[str, Any]:
+    request = parse_analyze_verification_request(value)
+    active_runtime = runtime or get_default_runtime()
+    active_recognizer = recognizer or get_default_moonshine()
+    evaluated = active_runtime.evaluate_audio(
+        request.audio.audio_bytes,
+        _audio_claims(request.audio.metadata),
+    )
+    runtime_embedding: list[float] = []
+    template_embedding: list[float] = []
+    try:
+        quality = _audio_quality_response(evaluated.quality)
+        if quality.kind != "accepted" or evaluated.decoded_audio is None:
+            speaker: SpeakerResponse = SpeakerUncertain(
+                kind="uncertain",
+                reason="low_audio_quality",
+                score=0.0,
+                threshold=request.threshold,
+                model_version=active_runtime.metadata.model_version,
+                threshold_version=active_runtime.metadata.threshold_version,
+            )
+        else:
+            try:
+                template_embedding = _decode_template_embedding(
+                    encrypted_template=request.template.encrypted_template,
+                    runtime=active_runtime,
+                )
+                runtime_embedding = active_runtime.extract_verification_embedding(
+                    evaluated.decoded_audio
+                ).vector
+                score = cosine_score(template_embedding, runtime_embedding)
+            except (EmbeddingExtractionError, ValueError):
+                speaker = SpeakerUncertain(
+                    kind="uncertain",
+                    reason="verifier_unavailable",
+                    score=0.0,
+                    threshold=request.threshold,
+                    model_version=active_runtime.metadata.model_version,
+                    threshold_version=active_runtime.metadata.threshold_version,
+                )
+            else:
+                speaker = _speaker_result(
+                    score=score,
+                    threshold=request.threshold,
+                    runtime=active_runtime,
+                )
+
+        speech = (
+            active_recognizer.analyze(
+                evaluated.decoded_audio.samples,
+                expected_phrase=request.expected_phrase,
+                intent_name=request.intent_name,
+            ).to_json()
+            if evaluated.decoded_audio is not None
+            else _unavailable_speech_analysis(request.expected_phrase)
+        )
+        return VerificationAnalysisResponse(
+            kind="verification_analysis",
+            request_id=request.request_id,
+            quality=quality.to_json(),
+            speaker=speaker.to_json(),
+            speech=speech,
+            pad={"kind": "pad_unavailable", "reason": "ordinary_browser_capture"},
+        ).to_json()
+    finally:
+        if evaluated.decoded_audio is not None:
+            zero_float_sequence(evaluated.decoded_audio.samples)
+        for window in evaluated.speech_windows:
+            zero_float_sequence(window.samples)
+        zero_float_sequence(runtime_embedding)
+        zero_float_sequence(template_embedding)
+
+
+def _unavailable_speech_analysis(expected_phrase: str) -> dict[str, Any]:
+    normalized = " ".join(expected_phrase.lower().split())
+    return {
+        "kind": "speech_analysis",
+        "requestId": "unavailable",
+        "transcript": "",
+        "phrase": {
+            "kind": "uncertain",
+            "expectedNormalized": normalized,
+            "spokenNormalized": "",
+            "confidence": 0.0,
+        },
+        "intent": {
+            "kind": "uncertain",
+            "intent": None,
+            "canonicalPhrase": None,
+            "confidence": 0.0,
+            "reason": "intent_unavailable",
+        },
+        "sampleRateHz": 16000,
+    }
+
+
 def get_default_runtime() -> VerifierRuntime:
     global DEFAULT_RUNTIME
     if DEFAULT_RUNTIME is not None:
@@ -152,6 +294,27 @@ def get_default_runtime() -> VerifierRuntime:
         if DEFAULT_RUNTIME is None:
             DEFAULT_RUNTIME = create_verifier_runtime_from_env()
     return DEFAULT_RUNTIME
+
+
+def get_default_moonshine() -> MoonshineRecognizer:
+    global DEFAULT_MOONSHINE
+    if DEFAULT_MOONSHINE is not None:
+        return DEFAULT_MOONSHINE
+    with DEFAULT_MOONSHINE_LOCK:
+        if DEFAULT_MOONSHINE is None:
+            model_path = os.environ.get("VOICEID_MOONSHINE_MODEL_PATH", "").strip()
+            intent_model_path = os.environ.get("VOICEID_MOONSHINE_INTENT_MODEL_PATH", "").strip()
+            if model_path == "" or intent_model_path == "":
+                raise RuntimeError(
+                    "VOICEID_MOONSHINE_MODEL_PATH and VOICEID_MOONSHINE_INTENT_MODEL_PATH are required"
+                )
+            DEFAULT_MOONSHINE = MoonshineRecognizer(
+                model_path=model_path,
+                model_arch=os.environ.get("VOICEID_MOONSHINE_MODEL_ARCH", "tiny_streaming"),
+                intent_model_path=intent_model_path,
+                intent_threshold=float(os.environ.get("VOICEID_MOONSHINE_INTENT_THRESHOLD", "0.8")),
+            )
+    return DEFAULT_MOONSHINE
 
 
 def _audio_claims(metadata: AudioMetadata) -> AudioClaims:
@@ -313,12 +476,17 @@ def handle_http_operation(
     request: dict[str, Any],
     *,
     runtime: VerifierRuntime | None = None,
+    recognizer: MoonshineRecognizer | None = None,
 ) -> dict[str, Any]:
     operation = _operation_for_path(path)
     if operation == "build_enrollment_template":
         return build_enrollment_template_from_json(request, runtime=runtime)
     if operation == "verify_speaker":
         return verify_speaker_from_json(request, runtime=runtime)
+    if operation == "analyze_speech":
+        return analyze_speech_from_json(request, runtime=runtime, recognizer=recognizer)
+    if operation == "analyze_verification":
+        return analyze_verification_from_json(request, runtime=runtime, recognizer=recognizer)
     raise ValueError("unknown verifier operation")
 
 
@@ -338,6 +506,7 @@ class VoiceIdVerifierHttpServer(ThreadingHTTPServer):
         self.verifier_runtime = runtime or get_default_runtime()
         self.maximum_concurrent_inferences = maximum_concurrent_inferences
         self.queue_wait_ms = queue_wait_ms
+        self.moonshine_recognizer = configured_moonshine_recognizer()
         self._inference_slots = threading.BoundedSemaphore(maximum_concurrent_inferences)
         super().__init__(server_address, VoiceIdVerifierHttpHandler)
 
@@ -367,7 +536,13 @@ class VoiceIdVerifierHttpServer(ThreadingHTTPServer):
             "routes": [
                 "POST /voice-id/verifier/build-enrollment-template",
                 "POST /voice-id/verifier/verify-speaker",
+                "POST /voice-id/verifier/analyze-speech",
+                "POST /voice-id/verifier/analyze-verification",
             ],
+            "moonshine": {
+                "readiness": "ready" if self.moonshine_recognizer is not None else "disabled",
+                "modelArch": os.environ.get("VOICEID_MOONSHINE_MODEL_ARCH", "tiny_streaming"),
+            },
         }
 
 
@@ -394,6 +569,7 @@ class VoiceIdVerifierHttpHandler(BaseHTTPRequestHandler):
                 self.path,
                 request,
                 runtime=server.verifier_runtime,
+                recognizer=server.moonshine_recognizer,
             )
         except VerifierSchemaError as error:
             self._write_json(400, malformed_request(error))
@@ -449,6 +625,14 @@ def run_http_server_from_env() -> None:
         maximum_concurrent_inferences=maximum_concurrent_inferences,
         queue_wait_ms=queue_wait_ms,
     )
+
+
+def configured_moonshine_recognizer() -> MoonshineRecognizer | None:
+    model_path = os.environ.get("VOICEID_MOONSHINE_MODEL_PATH", "").strip()
+    intent_model_path = os.environ.get("VOICEID_MOONSHINE_INTENT_MODEL_PATH", "").strip()
+    if model_path == "" and intent_model_path == "":
+        return None
+    return get_default_moonshine()
 
 
 def run_http_server(
@@ -511,6 +695,10 @@ def _operation_for_path(path: str) -> str:
         return "build_enrollment_template"
     if normalized_path.endswith("/verify-speaker"):
         return "verify_speaker"
+    if normalized_path.endswith("/analyze-speech"):
+        return "analyze_speech"
+    if normalized_path.endswith("/analyze-verification"):
+        return "analyze_verification"
     raise ValueError("unknown verifier operation")
 
 

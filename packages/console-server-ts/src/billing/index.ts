@@ -56,10 +56,15 @@ export type {
   StripeBillingProviderAdapter,
   BillingProviderAdapters,
 } from './providers';
+export { createDefaultBillingProviderAdapters, resolveBillingProviderAdapters } from './providers';
+export type { StripeBillingProviderEnv, StripeBillingProviderOptions } from './stripeProvider';
 export {
-  createDefaultBillingProviderAdapters,
-  resolveBillingProviderAdapters,
-} from './providers';
+  createStripeBillingProviderAdapter,
+  createStripeBillingProviderAdaptersFromEnv,
+  normalizeOptionalStripePublishableKey,
+  normalizeStripeSecretKey,
+  requireStripeBillingProviderAdaptersFromEnv,
+} from './stripeProvider';
 
 export type {
   ConsoleBillingContext,
@@ -110,7 +115,4 @@ export {
   buildConsoleBillingInvoicePdfFilename,
   CONSOLE_BILLING_INVOICE_PDF_EXPORT_POLICY,
 } from './pdf';
-export {
-  canTransitionPaymentState,
-  listAllowedPaymentTransitions,
-} from './paymentStateMachine';
+export { canTransitionPaymentState, listAllowedPaymentTransitions } from './paymentStateMachine';

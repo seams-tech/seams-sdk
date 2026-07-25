@@ -52,6 +52,12 @@ function makeCustomerRef(orgId: string): string {
   return `cus_${orgId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 12) || 'org'}`;
 }
 
+function buildMockCheckoutSuccessUrl(successUrl: string, checkoutSessionId: string): string {
+  const url = new URL(successUrl);
+  url.searchParams.set('checkout_session_id', checkoutSessionId);
+  return url.toString();
+}
+
 export function createDefaultBillingProviderAdapters(): BillingProviderAdapters {
   const sessions = new Map<string, StripeCheckoutSessionLookupProviderOutput>();
   return {
@@ -68,13 +74,9 @@ export function createDefaultBillingProviderAdapters(): BillingProviderAdapters 
           paymentStatus: 'paid',
           checkoutStatus: 'complete',
         });
-        const encodedSuccess = encodeURIComponent(input.successUrl);
-        const encodedCancel = encodeURIComponent(input.cancelUrl);
-        const encodedPack = encodeURIComponent(String(input.creditPackId || '').trim());
-        const encodedAmount = encodeURIComponent(String(Math.max(0, input.amountMinor || 0)));
         return {
           id,
-          url: `https://checkout.stripe.com/pay/${id}?success_url=${encodedSuccess}&cancel_url=${encodedCancel}&pack=${encodedPack}&amount_minor=${encodedAmount}`,
+          url: buildMockCheckoutSuccessUrl(input.successUrl, id),
           customerRef,
           expiresAt: new Date(input.now.getTime() + 30 * 60 * 1000).toISOString(),
         };

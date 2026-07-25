@@ -1,9 +1,9 @@
-name: Validate / cloudflare-router-ab
+name: Validate / cloudflare-mpc-router-ab
 
 on:
   pull_request:
     paths:
-      - '.github/workflows/validate-cloudflare-router-ab.yml'
+      - '.github/workflows/validate-cloudflare-mpc-router-ab.yml'
       - 'crates/router-ab-core/**'
       - 'crates/router-ab-cloudflare/**'
       - 'crates/router-ab-dev/**'
@@ -17,7 +17,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: validate-cloudflare-router-ab-${{ github.workflow }}-${{ github.ref }}
+  group: validate-cloudflare-mpc-router-ab-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -25,7 +25,7 @@ env:
 
 jobs:
   router_ab_core_tests:
-    name: Router A/B core tests
+    name: MPC Router A/B core tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -46,7 +46,7 @@ jobs:
         run: cargo test --manifest-path crates/router-ab-dev/Cargo.toml
 
   router_ab_cloudflare_tests:
-    name: Router A/B Cloudflare adapter tests
+    name: MPC Router A/B Cloudflare adapter tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -65,7 +65,7 @@ jobs:
         run: cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml
 
   router_ab_entrypoints:
-    name: Router A/B entrypoint checks
+    name: MPC Router A/B entrypoint checks
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -93,7 +93,7 @@ jobs:
           done
 
   router_ab_startup_dry_run:
-    name: Router A/B startup dry-run
+    name: MPC Router A/B startup dry-run
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -124,7 +124,7 @@ jobs:
         run: |
           pnpm router:deploy:dry-run -- \
             --out reports/startup-latencies/router-ab-github-dry-run-${{ github.run_id }}.json
-      - name: Upload Router A/B startup dry-run report
+      - name: Upload MPC Router A/B startup dry-run report
         if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -143,7 +143,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Fail if a Router A/B validation job failed
+      - name: Fail if an MPC Router A/B validation job failed
         env:
           CORE_RESULT: ${{ needs.router_ab_core_tests.result }}
           CLOUDFLARE_RESULT: ${{ needs.router_ab_cloudflare_tests.result }}
@@ -153,8 +153,8 @@ jobs:
           set -euo pipefail
           for result in "$CORE_RESULT" "$CLOUDFLARE_RESULT" "$ENTRYPOINT_RESULT" "$DRY_RUN_RESULT"; do
             if [[ "$result" != success ]]; then
-              echo "::error::Router A/B validation failed with result: $result"
+              echo "::error::MPC Router A/B validation failed with result: $result"
               exit 1
             fi
           done
-          echo "Router A/B validation passed."
+          echo "MPC Router A/B validation passed."
