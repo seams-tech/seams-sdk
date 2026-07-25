@@ -912,6 +912,12 @@ routing traffic through it yet: the tenant runtime has not been migrated, its
 binding and migration have not been deleted, and this checkbox remains open
 until the Gateway handler loads, runs, and commits through the composition on
 the registration, recovery, export, replay, and authorization paths.
+The SDK also exposes a request-scoped load/execute/commit runner with typed
+CAS conflicts and no retry loop. It is a tested composition seam; it remains
+unwired because the current Gateway handler combines Yao transitions with
+other D1 and wallet side effects, so a post-side-effect CAS conflict would be
+uncertain. The production migration requires a Yao-only route adapter with an
+explicit side-effect boundary.
 
 The request-boundary parser remains intentionally unwired until the composition
 can load and CAS the correct product records. Routing a full four-map snapshot
