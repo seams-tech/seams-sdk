@@ -509,8 +509,11 @@ fake environment values and perform no remote mutation.
 Add the two backend workflow files with manual dispatch only. Replace the two
 frontend workflow files in place with their hand-written versions, also manual
 only. Each backend workflow has one branch-guarded build, one compact
-five-environment preflight matrix, one migrate-first Gateway job, and five
-ordered custody deploy jobs; Gateway smoke is the final deployment step. Each
+five-environment preflight matrix, one migrate job that runs before any Worker
+deployment, and five ordered custody deploy jobs — eight in total, as required
+by Acceptance Criterion 12. Migrations are never folded into the Gateway job:
+Gateway deploys last, so that ordering would apply schema changes after four
+Workers were already live. Gateway smoke is the final deployment step. Each
 frontend workflow has one environment-bound build/deploy/smoke job. Remove the
 two old backend stack workflows and their release framework. Both backend
 surfaces use the same concurrency groups, so only one can touch a target at a
@@ -537,10 +540,93 @@ clock per job. Interrupt one staging backend run after at least one worker
 deploys, rerun the failed jobs at the same `${{ github.sha }}`, and verify
 artifact reuse, recovery, and final smoke.
 
+#### Phase 4 Results
+
+Staging backend, run [30151749558][run-a], 33.6 minutes end to end:
+
+| Job | Duration |
+| --- | --- |
+| Build / staging / backend | 10.3m |
+| Preflight × 5 (parallel) | 0.2–0.3m each |
+| Migrate / staging / gateway | 0.7m |
+| Deploy / signing-worker | 5.3m |
+| Deploy / deriver-a | 4.8m |
+| Deploy / deriver-b | 5.5m |
+| Deploy / router | 5.5m |
+| Deploy / gateway (incl. smoke) | 0.7m |
+
+Staging frontend, run [30155898075][run-f]: 4.8 minutes, one job.
+
+**Fail-before-mutate: proven.** All five preflight legs complete before
+`migrate`, visible in the job graph of every run. An earlier run failed with a
+missing staging Stripe binding and mutated nothing.
+
+**Interrupted-run recovery: proven.** A cancelled mid-lane run re-ran at the
+same `${{ github.sha }}` and reused both the completed jobs and the build
+artifact, reaching a green final smoke.
+
+**Smoke raced Cloudflare propagation — found and fixed.** Run [30157416291][run-c]
+deployed every component successfully and then failed at the Gateway smoke step
+with 500s on `/readyz`, `/healthz`, and both Router A/B health paths, while the
+static JWKS path returned 200. No redeploy followed, and the same endpoints
+served 200 shortly afterwards: the deployment was healthy and the check was
+early. Both lanes used a single-shot `fetch` with a 5-second timeout and no
+retry.
+
+This is a false negative that is cheap in staging and expensive in production,
+where the lane has already applied forward-only migrations and deployed every
+component by the time smoke runs, and where the apparent remedy — rollback — is
+a revert commit plus a full rebuild of a healthy deployment.
+`scripts/deployment-smoke.mjs` now owns readiness for both lanes: each check
+retries to a 180-second budget at 5-second intervals and reports its attempt
+count, so a
+slow-but-healthy deployment is distinguishable from a broken one. The previously
+duplicated per-script `runHttpCheck` implementations are gone.
+
+[run-a]: https://github.com/seams-tech/seams-sdk/actions/runs/30151749558
+[run-f]: https://github.com/seams-tech/seams-sdk/actions/runs/30155898075
+[run-c]: https://github.com/seams-tech/seams-sdk/actions/runs/30157416291
+
 ### Phase 5: Prove production
 
 Run both production lanes manually from `main` using the existing production
 environment and its branch policy.
+
+**Blocker: the approval gate currently sits after four production mutations.**
+The only `required_reviewers` rule in the repository is on
+`production-mpc-router`. Mapping the production backend jobs to their bound
+environments and protection rules:
+
+| # | Job | Environment | Protection |
+| --- | --- | --- | --- |
+| 1 | `migrate` | production-gateway | branch_policy |
+| 2 | `deploy_signing_worker` | production-signing-worker | branch_policy |
+| 3 | `deploy_deriver_a` | production-deriver-a | branch_policy |
+| 4 | `deploy_deriver_b` | production-deriver-b | branch_policy |
+| 5 | `deploy_router` | production-mpc-router | **required_reviewers** |
+| 6 | `deploy_gateway` | production-gateway | branch_policy |
+
+A production run therefore applies forward-only D1 migrations and deploys three
+Workers before prompting anyone. Declining at step 5 does not undo any of it.
+Branch policy answers "which ref may deploy," never "did a person agree."
+
+Decision Summary item 9 attributes production control to "the existing
+`production` environment branch policy," but no backend job binds `production` —
+only the two frontend workflows do. The main-only restriction does hold for the
+backend lane, via branch policies on the custody environments themselves.
+
+Resolve before the first production run, by either:
+
+- **(a)** creating a secret-free `production-approval` environment with required
+  reviewers and adding a first job that every other job declares in `needs:` —
+  one prompt, before any mutation; or
+- **(b)** moving `required_reviewers` onto `production-gateway`, which `migrate`
+  binds as the first mutating job — no new environment, but it prompts twice,
+  since `deploy_gateway` binds the same environment.
+
+(a) matches the design intent of one gate before all mutation. Under either
+option, reconsider whether `required_reviewers` should remain on
+`production-mpc-router`, which would otherwise add a second prompt mid-lane.
 
 ### Phase 6: Delete the old framework
 
@@ -671,14 +757,34 @@ before production.
 
 ## Open Questions
 
-**Full-lane cost is unmeasured.** The claim that always deploying the whole lane
-costs "a few extra minutes" is not supported by the current configuration:
-router build is budgeted at 30 minutes, gateway build at 25, and the deploy jobs
-at 35. Actual times may be far below those ceilings, but the decision to remove
-component selection should be priced, not assumed. Phase 4 records real wall
-clock per job. If a full staging lane exceeds roughly 20 minutes, revisit
-whether a gateway-only fast path is warranted — as an explicit second entrypoint
-with its own preflight, never as a conditional inside the main lane.
+**Full-lane cost is now measured, and a gateway-only fast path is the wrong
+lever.** The measurements in Phase 4 Results put a full staging backend lane at
+33.6 minutes, above the 20-minute threshold this question originally set. But
+the breakdown shows where the time actually goes, and it is not the Gateway:
+
+- Build: 10.3 minutes, paid by every lane including any fast path.
+- Four Rust Worker deploys, strictly sequential: 5.3 + 4.8 + 5.5 + 5.5 = 21.1
+  minutes, or 63% of the lane.
+- Gateway deploy: 0.7 minutes.
+- Preflight (five parallel legs) and migrate: under 1 minute combined.
+
+A gateway-only entrypoint would still pay the 10.3-minute build to save a
+0.7-minute deploy, landing near 12 minutes. The larger lever is that
+`signing-worker`, `deriver-a`, and `deriver-b` are chained sequentially by
+`needs:` although they are independent custody domains with no ordering
+requirement between them. Running those three concurrently and keeping `router`
+after them would cut roughly 10 minutes, taking the lane to about 23 minutes
+without adding an entrypoint, a conditional, or a second preflight.
+
+That change is not made here because it needs a protocol answer this document
+cannot supply: deploying Deriver A and Deriver B concurrently changes the shape
+of the A/B version-skew window during a release. Sequential deployment does not
+remove that window — it lengthens it — so concurrency is plausibly the safer
+option, but `docs/refactor-93.md` owns the ceremony's skew tolerance and should
+rule before the `needs:` edges change.
+
+Recommendation: leave the lane sequential for now, and treat A/B/signing-worker
+concurrency as the first optimisation to evaluate, ahead of any fast path.
 
 **Cloudflare resource checks.** Preflight validates target syntax, capability
 requirements, and required secret presence. It does not inventory Cloudflare
