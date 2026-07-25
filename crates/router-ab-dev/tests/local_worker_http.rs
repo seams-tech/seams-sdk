@@ -368,8 +368,8 @@ fn local_router_worker_exposes_health_and_rejects_malformed_pair_routes(
             assert_eq!(status, 400, "{path}: {body}");
             assert!(body.contains("malformed") || body.contains("MalformedWirePayload"));
         } else {
-            assert_eq!(status, 501, "{path}: {body}");
-            assert!(body.contains("strict Wrangler local mode"));
+            assert_eq!(status, 400, "{path}: {body}");
+            assert!(body.contains("malformed") || body.contains("MalformedWirePayload"));
         }
     }
     drop(router);

@@ -11,22 +11,36 @@ use router_ab_core::{
 use router_ab_ed25519_yao::{
     Ed25519YaoActivationRoleExecutionV1, Ed25519YaoExportRoleExecutionV1, Ed25519YaoRoleExecutionV1,
 };
+use serde::{Deserialize, Serialize};
 use std::{
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
 
+/// Local JSON boundary equivalent of the production recovery-promotion body.
+/// The Cloudflare request type is worker-feature gated, so the local harness
+/// keeps this exact wire shape at its own boundary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LocalRouterEd25519YaoRecoveryPromotionRequestV1 {
+    binding: router_ab_core::Ed25519YaoCeremonyBindingV1,
+    public_receipt: RouterAbEd25519YaoActivationPublicReceiptV1,
+}
+
 use super::{
     decode_local_router_ed25519_yao_execute_request_v1, local_dev_http_route_error_v1,
     LocalDevHttpRequestPartsV1, LocalEd25519YaoSigningWorkerActivationReceiptV1,
     LocalEd25519YaoSigningWorkerPackageDeliveryV1,
-    LocalEd25519YaoSigningWorkerPackagePairDeliveryV1, LocalHttpServiceBindingClientV1,
+    LocalEd25519YaoSigningWorkerPackagePairDeliveryV1,
+    LocalEd25519YaoSigningWorkerRecoveryPromotionRequestV1, LocalHttpServiceBindingClientV1,
     LocalRouterRequestDispatcherV1, LocalRouterWorkerConfigV1, LocalServiceRoleV1,
     LOCAL_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH, LOCAL_DERIVER_A_ED25519_YAO_EXECUTE_PAIR_PATH,
     LOCAL_DERIVER_A_ED25519_YAO_PREPARE_PAIR_PATH, LOCAL_DERIVER_B_ED25519_YAO_BURN_PAIR_PATH,
     LOCAL_DERIVER_B_ED25519_YAO_PREPARE_PAIR_PATH,
     LOCAL_DERIVER_B_ED25519_YAO_READ_COMPLETED_PAIR_PATH, LOCAL_ROUTER_ED25519_YAO_EXECUTE_PATH,
+    LOCAL_ROUTER_ED25519_YAO_RECOVERY_PROMOTE_PATH,
     LOCAL_SIGNING_WORKER_ED25519_YAO_ACTIVATION_PACKAGES_PATH,
+    LOCAL_SIGNING_WORKER_ED25519_YAO_RECOVERY_PROMOTE_PATH,
 };
 
 /// Native local equivalent of the private Router coordinator boundary.
@@ -159,6 +173,50 @@ impl LocalRouterEd25519YaoCoordinatorV1 {
                 ))
             }
         }
+    }
+
+    fn promote_recovery(
+        &self,
+        config: &LocalRouterWorkerConfigV1,
+        body: &[u8],
+    ) -> RouterAbProtocolResult<LocalEd25519YaoSigningWorkerActivationReceiptV1> {
+        let request =
+            serde_json::from_slice::<LocalRouterEd25519YaoRecoveryPromotionRequestV1>(body)
+                .map_err(|error| {
+                    RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::MalformedWirePayload,
+                        format!("local Router recovery promotion request is malformed: {error}"),
+                    )
+                })?;
+        request.binding.validate()?;
+        if request.binding.operation != Ed25519YaoOperationV1::Recovery {
+            return Err(coordinator_error(
+                "Router recovery promotion requires a recovery binding",
+            ));
+        }
+        let promotion = LocalEd25519YaoSigningWorkerRecoveryPromotionRequestV1 {
+            binding: request.binding.clone(),
+            session: request.binding.session_id.into_bytes(),
+            transcript: request.public_receipt.transcript(),
+            registered_public_key: request.public_receipt.registered_public_key(),
+            joined_client_commitment: request.public_receipt.joined_client_commitment(),
+            joined_signing_worker_commitment: request
+                .public_receipt
+                .joined_signing_worker_commitment(),
+            signing_worker_verifying_share: request.public_receipt.signing_worker_verifying_share(),
+            state_epoch: request.public_receipt.state_epoch(),
+        };
+        let receipt = self
+            .client
+            .post_json_authenticated_v1::<_, LocalEd25519YaoSigningWorkerActivationReceiptV1>(
+                &config.signing_worker_url,
+                LocalServiceRoleV1::SigningWorker,
+                LOCAL_SIGNING_WORKER_ED25519_YAO_RECOVERY_PROMOTE_PATH,
+                &config.internal_service_auth,
+                &promotion,
+            )?;
+        validate_recovery_promotion_receipt(&request, &receipt)?;
+        Ok(receipt)
     }
 
     fn prepare_pair(
@@ -302,7 +360,17 @@ impl LocalRouterRequestDispatcherV1 for LocalRouterEd25519YaoCoordinatorV1 {
         request: &LocalDevHttpRequestPartsV1,
     ) -> Result<Option<(u16, String)>, Box<dyn std::error::Error>> {
         if request.path != LOCAL_ROUTER_ED25519_YAO_EXECUTE_PATH {
-            return Ok(None);
+            if request.path != LOCAL_ROUTER_ED25519_YAO_RECOVERY_PROMOTE_PATH {
+                return Ok(None);
+            }
+            return match self.promote_recovery(config, &request.body) {
+                Ok(receipt) => Ok(Some((200, serde_json::to_string(&receipt)?))),
+                Err(error) => Ok(Some(local_dev_http_route_error_v1(
+                    LocalServiceRoleV1::Router,
+                    &request.path,
+                    error,
+                )?)),
+            };
         }
         match self.execute(config, &request.body) {
             Ok(result) => Ok(Some((200, serde_json::to_string(&result)?))),
@@ -313,6 +381,41 @@ impl LocalRouterRequestDispatcherV1 for LocalRouterEd25519YaoCoordinatorV1 {
             )?)),
         }
     }
+}
+
+fn validate_recovery_promotion_receipt(
+    request: &LocalRouterEd25519YaoRecoveryPromotionRequestV1,
+    receipt: &LocalEd25519YaoSigningWorkerActivationReceiptV1,
+) -> RouterAbProtocolResult<()> {
+    let LocalEd25519YaoSigningWorkerActivationReceiptV1::Active {
+        session,
+        transcript,
+        registered_public_key,
+        joined_client_commitment,
+        joined_signing_worker_commitment,
+        signing_worker_verifying_share,
+        state_epoch,
+    } = receipt
+    else {
+        return Err(coordinator_error(
+            "recovery promotion requires an Active SigningWorker receipt",
+        ));
+    };
+    let expected_session = request.binding.session_id.into_bytes();
+    let public_receipt = &request.public_receipt;
+    if *session != expected_session
+        || *transcript != public_receipt.transcript()
+        || *registered_public_key != public_receipt.registered_public_key()
+        || *joined_client_commitment != public_receipt.joined_client_commitment()
+        || *joined_signing_worker_commitment != public_receipt.joined_signing_worker_commitment()
+        || *signing_worker_verifying_share != public_receipt.signing_worker_verifying_share()
+        || *state_epoch != public_receipt.state_epoch()
+    {
+        return Err(coordinator_error(
+            "recovery promotion receipt does not match the verified recovery result",
+        ));
+    }
+    Ok(())
 }
 
 fn validate_execution(
@@ -458,6 +561,65 @@ fn coordinator_error(message: &'static str) -> RouterAbProtocolError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::LocalEd25519YaoSigningWorkerRecoveryPromotionRequestV1;
+    use router_ab_core::{
+        Ed25519YaoSessionIdV1, Ed25519YaoStableKeyContextBindingV1, ExpensiveWorkKindV1,
+        LifecycleScopeV1, RootShareEpoch,
+    };
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        thread,
+    };
+
+    fn recovery_promotion_request() -> LocalRouterEd25519YaoRecoveryPromotionRequestV1 {
+        let lifecycle = LifecycleScopeV1::new(
+            "local-coordinator",
+            ExpensiveWorkKindV1::Recovery,
+            RootShareEpoch::new("local-root").expect("root epoch"),
+            "local-account",
+            "local-session",
+            "local-signer-set",
+            "local-worker",
+        )
+        .expect("lifecycle");
+        let binding = router_ab_core::Ed25519YaoCeremonyBindingV1::new(
+            lifecycle,
+            Ed25519YaoOperationV1::Recovery,
+            Ed25519YaoSessionIdV1::new([0x11; 32]).expect("session"),
+            Ed25519YaoStableKeyContextBindingV1::new([0x22; 32]),
+        )
+        .expect("binding");
+        let public_receipt = RouterAbEd25519YaoActivationPublicReceiptV1::new(
+            [0x31; 32],
+            [0x32; 32],
+            [0x33; 32],
+            [0x34; 32],
+            [0x35; 32],
+            router_ab_core::Ed25519YaoStateEpochV1::new(1).expect("state epoch"),
+        )
+        .expect("public receipt");
+        LocalRouterEd25519YaoRecoveryPromotionRequestV1 {
+            binding,
+            public_receipt,
+        }
+    }
+
+    fn active_promotion_receipt(
+        request: &LocalRouterEd25519YaoRecoveryPromotionRequestV1,
+    ) -> LocalEd25519YaoSigningWorkerActivationReceiptV1 {
+        LocalEd25519YaoSigningWorkerActivationReceiptV1::Active {
+            session: request.binding.session_id.into_bytes(),
+            transcript: request.public_receipt.transcript(),
+            registered_public_key: request.public_receipt.registered_public_key(),
+            joined_client_commitment: request.public_receipt.joined_client_commitment(),
+            joined_signing_worker_commitment: request
+                .public_receipt
+                .joined_signing_worker_commitment(),
+            signing_worker_verifying_share: request.public_receipt.signing_worker_verifying_share(),
+            state_epoch: request.public_receipt.state_epoch(),
+        }
+    }
 
     #[test]
     fn malformed_execute_body_is_rejected_before_any_role_call() {
@@ -483,5 +645,94 @@ mod tests {
             state_epoch: router_ab_core::Ed25519YaoStateEpochV1::new(1).expect("epoch"),
         };
         assert!(activation_public_receipt(receipt, Ed25519YaoOperationV1::Recovery).is_err());
+    }
+
+    #[test]
+    fn recovery_promotion_requires_exact_active_signing_worker_receipt() {
+        let request = recovery_promotion_request();
+        let receipt = active_promotion_receipt(&request);
+        validate_recovery_promotion_receipt(&request, &receipt)
+            .expect("matching active receipt should validate");
+
+        let mut mismatched = receipt.clone();
+        let LocalEd25519YaoSigningWorkerActivationReceiptV1::Active { transcript, .. } =
+            &mut mismatched
+        else {
+            unreachable!();
+        };
+        transcript[0] ^= 1;
+        assert!(validate_recovery_promotion_receipt(&request, &mismatched).is_err());
+
+        let staged = LocalEd25519YaoSigningWorkerActivationReceiptV1::Staged {
+            promotion: LocalEd25519YaoSigningWorkerRecoveryPromotionRequestV1 {
+                binding: request.binding.clone(),
+                session: request.binding.session_id.into_bytes(),
+                transcript: request.public_receipt.transcript(),
+                registered_public_key: request.public_receipt.registered_public_key(),
+                joined_client_commitment: request.public_receipt.joined_client_commitment(),
+                joined_signing_worker_commitment: request
+                    .public_receipt
+                    .joined_signing_worker_commitment(),
+                signing_worker_verifying_share: request
+                    .public_receipt
+                    .signing_worker_verifying_share(),
+                state_epoch: request.public_receipt.state_epoch(),
+            },
+        };
+        assert!(validate_recovery_promotion_receipt(&request, &staged).is_err());
+    }
+
+    #[test]
+    fn recovery_promotion_forwards_expanded_local_signing_worker_wire_shape() {
+        let request = recovery_promotion_request();
+        let receipt = active_promotion_receipt(&request);
+        let expected_receipt = receipt.clone();
+        let listener = TcpListener::bind("127.0.0.1:0").expect("fake SigningWorker listener");
+        let signing_worker_url = format!(
+            "http://{}",
+            listener.local_addr().expect("listener address")
+        );
+        let server_receipt = receipt.clone();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("Router request");
+            let mut request_bytes = Vec::new();
+            stream
+                .read_to_end(&mut request_bytes)
+                .expect("read Router request");
+            let request_text = String::from_utf8(request_bytes).expect("request is UTF-8");
+            assert!(request_text.contains("/router-ab/signing-worker/ed25519-yao/recovery/promote"));
+            assert!(request_text.contains("\"session\""));
+            assert!(!request_text.contains("\"public_receipt\""));
+            let body = serde_json::to_string(&server_receipt).expect("receipt JSON");
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .expect("write SigningWorker response");
+        });
+        let config = LocalRouterWorkerConfigV1 {
+            public_url: "http://127.0.0.1:9100".to_owned(),
+            deriver_a_url: "http://127.0.0.1:9101".to_owned(),
+            deriver_b_url: "http://127.0.0.1:9102".to_owned(),
+            signing_worker_url,
+            deriver_a_ed25519_yao_input_public_key: "x25519:a".to_owned(),
+            deriver_b_ed25519_yao_input_public_key: "x25519:b".to_owned(),
+            signing_worker_ed25519_yao_recipient_public_key: "x25519:c".to_owned(),
+            signing_worker_id: "local-signing-worker".to_owned(),
+            internal_service_auth: "local-test-auth".to_owned(),
+            replay_storage_path: "replay.sqlite".to_owned(),
+            lifecycle_storage_path: "lifecycle.sqlite".to_owned(),
+            project_policy_storage_path: "project-policy.sqlite".to_owned(),
+            quota_storage_path: "quota.sqlite".to_owned(),
+            abuse_storage_path: "abuse.sqlite".to_owned(),
+        };
+        let body = serde_json::to_vec(&request).expect("promotion JSON");
+        let promoted = LocalRouterEd25519YaoCoordinatorV1::default()
+            .promote_recovery(&config, &body)
+            .expect("promotion proxy");
+        assert_eq!(promoted, expected_receipt);
+        server.join().expect("fake SigningWorker server");
     }
 }

@@ -31,10 +31,9 @@ pub enum LocalDevHttpTopologyV1<'a> {
 
 /// Native Router request handler seam.
 ///
-/// The current Rust process does not install a Yao coordinator, so the
-/// default dispatcher keeps the route explicitly unsupported. A future
-/// coordinator can implement this seam without changing HTTP authentication,
-/// ownership, or role-secret boundaries.
+/// The optional dispatcher installs Router-owned Yao routes without changing
+/// HTTP authentication, ownership, or role-secret boundaries. Calls for
+/// routes it does not implement retain the explicit unsupported response.
 pub trait LocalRouterRequestDispatcherV1 {
     /// Handles one authenticated Router-owned request.
     ///
