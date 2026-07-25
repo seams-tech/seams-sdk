@@ -263,7 +263,7 @@ jobs:
           test "$(<.release-change-set/source-sha.txt)" = "$SOURCE_SHA"
           test -s .release-change-set/changed-files.txt
           cp .release-change-set/changed-files.txt "$RUNNER_TEMP/changed-files.txt"
-          components="$(node scripts/deployment-components.mjs select --files-file "$RUNNER_TEMP/changed-files.txt")"
+          components="$(node scripts/deployment-components.mjs select --files-file "$RUNNER_TEMP/changed-files.txt" --lane backend)"
           echo "components=$components" >> "$GITHUB_OUTPUT"
           {
             echo '## Selected deployment components'
