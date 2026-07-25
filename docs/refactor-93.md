@@ -851,11 +851,15 @@ receipts are recorded.
           before the claim is persisted, so the signed transaction and its hash
           are durable before the broadcast, and `in_progress` returns that
           artifact so an ambiguous outcome reconciles by replay.
-    - [ ] Wire prepare/broadcast into finalize so the persisted transaction is
-          the only one ever broadcast, and commit the wallet, signer, auth,
-          Email OTP, escrow, and finalization receipt records in one D1 batch.
-    - [ ] Add crash, ambiguous-broadcast, retry, read-back, and concurrent
-          finalize tests before enabling the registration selector.
+    - [x] Wire prepare/broadcast into finalize, keyed by the activation session
+          so two attempts at one registration share a claim, and commit the
+          wallet, signer, authentication, and Email OTP enrollment records in
+          one D1 batch. The commit input is a discriminated union, so a passkey
+          registration carrying enrollment state does not compile.
+    - [x] Cover durability-before-effect, ambiguous-broadcast replay, no-rebuild
+          on resume, and exact completed replay.
+    - [ ] Cover concurrent finalize contention for one lifecycle and D1
+          read-back of the committed records before enabling the selector.
   - [x] Add typed request-scoped recovery admission and execution
         prepare/claim/commit boundaries with a shared backend-session uniqueness
         index, durable uncertainty, and no backend retry.
