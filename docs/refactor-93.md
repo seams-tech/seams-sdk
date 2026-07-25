@@ -602,6 +602,43 @@ digests and therefore requires a new ceremony identity.
 
 ## Implementation Phases
 
+### Implementation Checklist Audit (July 25, 2026)
+
+The checked implementation items below were re-audited against reachable
+production adapters, executable local paths, and focused behavioral tests.
+These checks mean code-complete for the stated item. They do not imply staging
+or production acceptance.
+
+- [x] Review the completed Phase 0 contract and trace-correlation work. The
+      boundary accepts or creates one opaque 128-bit identifier, rejects
+      malformed caller values before work, and propagates the same value
+      through Gateway, Router, and role calls.
+- [x] Review Phases 1–3 against the canonical Rust constructors, generated
+      TypeScript boundary, pair-lifecycle implementation, and production Router
+      coordinator. Pair preparation is concurrent, both signed receipts are
+      required, A execution is single-dispatch, B completion is request-bound,
+      and SigningWorker delivery is operation-typed and idempotent.
+- [x] Review Phase 4 as an orchestration cutover. Registration, recovery, and
+      export use the MPC Router backend and the Gateway backend type has no
+      direct Yao role-route origin. The separate tenant-runtime persistence
+      cutover remains Phase 5 work.
+- [x] Review the checked Phase 5 substeps. Registration admission/execution,
+      recovery claims and activation replacement, export phase claims and exact
+      result redelivery, cross-key role claims, and split role execution all
+      have focused behavioral coverage.
+- [ ] Complete the unchecked Phase 5 composition, tenant-runtime removal,
+      drain, and deletion work.
+- [ ] Complete Phase 0 production evidence and Phase 6 staging/production
+      acceptance.
+
+Audit validation: all `router-ab-core`, `router-ab-cloudflare`, and
+`router-ab-dev` tests pass; 72 focused Gateway contract, persistence, recovery,
+export, trace, and selector tests pass; and the integration checkpoint passes
+`pnpm check`. The native Router executable installs its coordinator and serves
+the authenticated execute and recovery-promotion boundaries. Direct calls to
+the lower-level Router boundary helper without a dispatcher intentionally
+return `501`.
+
 ### Phase 0: Freeze Baseline And Contracts
 
 Production evidence is deferred until the implementation and coherent staging
@@ -968,14 +1005,15 @@ an explicit scope decision:
   guarantee a post-disconnect callback, so proving burn for a dropped caller
   remains a fault-test and platform-evidence gate.
 
-Two acceptance gates remain intentionally open. Production cold/warm traces and
-the frozen latency budget are unavailable under the current Wrangler
+Several acceptance gates remain intentionally open. Production cold/warm traces
+and the frozen latency budget are unavailable under the current Wrangler
 Observability scope. The `router-ab-dev` pair lifecycle has route and ownership
-parity checks, and the Rust harness now serves the native Router coordinator
-through authenticated role-worker HTTP boundaries, including recovery
-promotion. Router-side replay/CAS persistence remains a separate follow-up
-gate; those residuals are recorded below rather than presented as complete
-production acceptance.
+parity checks, and the Rust harness serves the native Router coordinator through
+authenticated role-worker HTTP boundaries, including recovery promotion.
+Router-side replay/CAS persistence, tenant-runtime removal, coherent route
+composition, drain verification, and staging validation remain open; those
+residuals are recorded below rather than presented as complete production
+acceptance.
 
 The current staging Gateway still has one tenant-scoped runtime Durable Object
 (`ROUTER_API_RUNTIME`). It serializes only runtime initialization with

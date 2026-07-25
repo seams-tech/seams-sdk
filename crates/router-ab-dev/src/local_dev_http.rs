@@ -22,8 +22,8 @@ use super::{
 
 #[derive(Debug, Clone, Copy)]
 pub enum LocalDevHttpTopologyV1<'a> {
-    /// Rust local Router process. It owns the public boundary and persistence
-    /// scopes while pair execution remains a strict Wrangler-only path.
+    /// Rust local Router process. The executable installs the native
+    /// coordinator after constructing this authenticated boundary.
     Router(&'a LocalRouterWorkerConfigV1),
     /// Private role worker process.
     FourWorker(&'a LocalWorkerRoleConfigV1),

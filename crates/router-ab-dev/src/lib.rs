@@ -716,9 +716,8 @@ pub enum LocalDurableObjectScopeV1 {
 
 /// Receipt returned when local Router-owned persistence is initialized.
 ///
-/// The Rust process harness does not serve Router HTTP routes. This startup
-/// receipt only records that each Router-owned storage boundary has been
-/// opened and its schema initialized before private workers start.
+/// This startup receipt records that each Router-owned storage boundary has
+/// been opened and its schema initialized before private workers start.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct LocalRouterPersistenceStartupReceiptV1 {
     /// Router-owned scopes initialized by the startup boundary.
@@ -727,9 +726,8 @@ pub struct LocalRouterPersistenceStartupReceiptV1 {
 
 /// Initializes the five Router-owned SQLite boundaries used by local startup.
 ///
-/// Router request serving remains in the SDK/strict Wrangler process. This
-/// helper deliberately performs no protocol execution and does not expose a
-/// second Router implementation.
+/// The native Router executable installs its coordinator separately. This
+/// helper performs no protocol execution.
 pub fn initialize_local_router_persistence_v1(
     config: &LocalRouterWorkerConfigV1,
 ) -> RouterAbProtocolResult<LocalRouterPersistenceStartupReceiptV1> {

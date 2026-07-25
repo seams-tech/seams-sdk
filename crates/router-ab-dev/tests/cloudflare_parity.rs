@@ -104,7 +104,7 @@ fn local_pair_lifecycle_routes_match_strict_worker_paths_and_are_owned_by_role_w
 }
 
 #[test]
-fn local_router_process_owns_boundary_but_rejects_unserved_yao_routes() {
+fn local_router_boundary_requires_an_installed_native_dispatcher() {
     let plan = local_env_materialization_plan_v1(&[7_u8; 32]).expect("local env plan");
     let router_env = plan
         .files
@@ -151,7 +151,7 @@ fn local_router_process_owns_boundary_but_rejects_unserved_yao_routes() {
         };
         let (status, body) =
             local_dev_http_handle_request_v1(LocalDevHttpTopologyV1::Router(router), &request)
-                .expect("unsupported Router route response");
+                .expect("Router route response without dispatcher");
         assert_eq!(status, 501);
         assert!(body.contains("strict Wrangler local mode"));
 
