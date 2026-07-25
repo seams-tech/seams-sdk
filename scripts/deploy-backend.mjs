@@ -227,7 +227,8 @@ function preflightBackend(targetName, target, component, environment = process.e
   }
   if (component === 'gateway') {
     requiredNames.push('SIGNING_ROOT_KEK_VALUE', 'GATEWAY_DEPLOYMENT_CONFIG_JSON');
-    validateGatewayDeploymentConfig(targetName, target, environment);
+    const config = validateGatewayDeploymentConfig(targetName, target, environment);
+    if (config.optional.nearRelayer) requiredNames.push('RELAYER_PRIVATE_KEY');
   }
   requireEnvironmentValues(unique(requiredNames), environment);
   process.stdout.write(`Preflight passed: ${targetName}/${component}\n`);
@@ -535,6 +536,7 @@ function validateGatewayDeploymentConfig(targetName, target, environment = proce
       `GATEWAY_DEPLOYMENT_CONFIG_JSON does not match deployment target ${targetName}`,
     );
   }
+  return config;
 }
 
 function requireEnvironmentValues(names, environment = process.env) {
