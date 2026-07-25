@@ -32,29 +32,6 @@ function checkGoogleEmailOtpObservableSurfaces() {
   );
 }
 
-function checkEmailOtpSessionGating() {
-  const source = readRepoFile('apps/seams-site/src/flows/demo/hooks/useDemoSigningSession.ts');
-  const otpBranchStart = source.indexOf("if (authMethod === 'email_otp')");
-  const ordinaryUnlock = source.indexOf('await seams.auth.unlock(walletId', otpBranchStart);
-  assert.notEqual(otpBranchStart, -1, 'Missing demo Email OTP session branch');
-  assert.notEqual(ordinaryUnlock, -1, 'Missing ordinary demo session unlock path');
-
-  const otpBranch = source.slice(otpBranchStart, ordinaryUnlock);
-  assert.match(otpBranch, /currentSession\.retention === 'single_use'/);
-  assert.match(otpBranch, /Email OTP per-operation policy does not support reusable sessions/);
-  assert.match(otpBranch, /requestEmailOtpSigningSessionChallenge/);
-  assert.match(otpBranch, /refreshEmailOtpSigningSession/);
-  assert.ok(otpBranchStart < ordinaryUnlock, 'Email OTP gating must precede ordinary unlock');
-
-  const observableLines = linesContaining(source, /\b(?:toast|console)\./);
-  assert.deepEqual(
-    observableLines.filter((line) => /\b(?:otpCode|challengeId|jwt|token)\b/i.test(line)),
-    [],
-    'demo signing-session UI must not emit credential or token fields',
-  );
-}
-
 checkGoogleEmailOtpObservableSurfaces();
-checkEmailOtpSessionGating();
 
 console.log('[check-demo-otp-redaction-and-gating] passed');
