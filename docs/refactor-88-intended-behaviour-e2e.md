@@ -1833,6 +1833,104 @@ Initial audit:
 | `tests/unit/webauthnPromptCoordinator.unit.test.ts` | keep | Focused WebAuthn prompt-coordinator state coverage. It verifies reservation ownership, single consumption, expiry, abort, competing-operation exclusion, and failure cleanup through the coordinator's public state machine. |
 | `tests/unit/workerTransport.multichainTimeout.unit.test.ts` | keep | Worker transport multichain timeout coverage. It validates timeout behavior across chain-family worker requests. |
 
+Post-baseline current test surface:
+
+| `tests/e2e/intended-behaviours/passkey.ed25519-yao-local.contract.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/availableSigningLanes.durableEd25519Projection.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/bootstrapGatewayDeployment.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/cloudflareD1VersionedJsonRecordStore.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/cloudflareVersionedJsonRecordStore.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/consoleServer.stripeBillingProvider.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/d1HostedGatewayRouting.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/d1RouterApiRuntime.concurrency.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/d1RouterApiStagingServiceBindings.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/d1WalletRegistrationCommitStore.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/demoNearFundingState.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/deploymentApiCompatibility.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/deploymentComponents.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/deploymentCoordinationReceipt.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/deploymentFinalSmoke.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/deploymentRelease.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/deploymentWorkflow.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/deploymentWorkflowPolicy.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/ecdsaExplicitExportProvisionIsolation.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/ecdsaExportEphemeralIsolation.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/ed25519YaoBudgetRefreshWalletSession.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/ed25519YaoCapabilityLifecycle.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/ed25519YaoExportBoundary.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/ed25519YaoSealedRefreshPersistence.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/ed25519YaoSealedRefreshWiring.guard.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/emailOtpEd25519ExportRegistrationLane.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/emailOtpEd25519YaoBudgetRecovery.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/emailOtpEd25519YaoExportRefresh.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/emailOtpEd25519YaoRootVault.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/emailOtpMixedWalletUnlock.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/emailOtpSecretEscrow.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/emailOtpWalletActivation.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/evmFamilyExecutorThresholdState.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/evmRefreshNonceRecovery.guard.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/loginEcdsaInventoryProfileRepair.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/migrationFingerprint.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/nearImplicitFunding.freshAuth.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/nearRefreshYaoOrdering.guard.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/passkeyEd25519BudgetRefresh.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/passkeyEd25519YaoAddSigner.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/passkeyEd25519YaoExportRefresh.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/passkeyEd25519YaoRecovery.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/passkeyEd25519YaoRegistration.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/passkeyEd25519YaoWarmRecovery.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/postRegistrationSessionActivation.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/readySecp256k1Material.rehydration.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/refactor92.boundaryAndServer.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/refactor92.structuredFailureRetry.audit.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/refactor92.surfacePlanning.audit.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/registrationTerminalCancellation.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/registrationTimingSpans.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEcdsaDerivationBudgetRouteCore.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEcdsaDerivationNormalSigning.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEcdsaDerivationPresignBridge.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEcdsaDerivationRefresh.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEcdsaPoolHitWaterfall.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEcdsaRegistrationWaterfall.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEd25519YaoAddSignerIntentAuthorization.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEd25519YaoContracts.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEd25519YaoExport.server.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEd25519YaoGatewayCutover.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEd25519YaoPairDigestVectors.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEd25519YaoProductRegistrationPartitionedStateStore.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEd25519YaoProductRegistrationPersistence.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEd25519YaoProductState.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEd25519YaoRecovery.domain.guard.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEd25519YaoRecoveryWalletSessionAuthorization.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEd25519YaoRegistrationIntentAuthorization.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbEd25519YaoSessionProvisioning.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbLocalD1RuntimeConfig.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbReleaseWorkflowParsing.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/routerAbTraceContext.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/seamsSite.demoEmailOtpToast.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/seamsSite.walletSessionExpiry.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/signingSessionExpiryPolicy.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/signingSessionSeal.authorization.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/syncAccount.yaoOrchestration.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/syncAccountYaoEnrichment.domain.guard.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/thresholdEcdsa.derivationBootstrapPolicy.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/thresholdEcdsa.derivationErrorCodes.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/thresholdEcdsa.derivationRoleLocalClientParser.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/thresholdEcdsa.derivationRoleLocalExportPolicy.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/thresholdEcdsa.derivationWasmSurface.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/thresholdEcdsa.signingQueue.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/thresholdEd25519.mpcSessionStore.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/userConfirmProgressBridge.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/walletAuthLock.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/walletRegistrationFinalizeBoundary.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/walletRegistrationYaoClientContracts.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/walletRegistrationYaoFinalizeContracts.domain.guard.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/walletSessionNearIdentityProjection.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/walletSigningBudgetRecord.parser.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/walletStoreDurableObjectActivationPair.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/walletStoreSignerIdentity.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/walletUnlockEd25519YaoEmailOtpRecovery.server.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+
 Ledger checkpoint, July 5, 2026:
 
 - [x] `pnpm -C tests run check:refactor88-test-ledger:complete` reports
