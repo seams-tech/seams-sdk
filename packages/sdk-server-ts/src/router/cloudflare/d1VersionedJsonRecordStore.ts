@@ -4,6 +4,7 @@ import type {
   D1PreparedStatementLike,
   D1ResultLike,
 } from '../../storage/tenantRoute';
+import { isD1DatabaseLike } from '../../storage/d1Sql';
 import type {
   CloudflareVersionedJsonObject,
   CloudflareVersionedJsonRecordPutResult,
@@ -480,15 +481,6 @@ type PreparedMutation = {
   readonly recordJson: string;
   readonly expectedVersion: number | null;
 };
-
-function isD1DatabaseLike(value: unknown): value is D1DatabaseLike {
-  return (
-    isPlainObject(value) &&
-    typeof value.prepare === 'function' &&
-    typeof value.batch === 'function' &&
-    typeof value.exec === 'function'
-  );
-}
 
 function isJsonObject(value: unknown): value is CloudflareVersionedJsonObject {
   return isPlainObject(value) && Object.values(value).every(isJsonValue);
