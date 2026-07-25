@@ -629,16 +629,10 @@ function isNonNegativeSafeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
-/**
- * Resolves the Yao runtime per request. A resolver lets the caller send
- * registration finalize to the same store the ceremony's execute step used.
- */
 function resolveEd25519YaoProductRegistration(
   options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
 ): RouterAbEd25519YaoProductRegistrationRuntimeV1 | null {
-  const configured = options.ed25519YaoProductRegistration;
-  if (typeof configured === 'function') return configured();
-  return configured || null;
+  return options.ed25519YaoProductRegistration || null;
 }
 
 function sponsoredNearAccountSideEffectStore(
