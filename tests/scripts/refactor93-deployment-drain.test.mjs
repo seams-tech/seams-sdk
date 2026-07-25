@@ -30,9 +30,11 @@ test('legacy key inventory reports references without authorizing deletion', () 
   ]);
   const deriverA = inventory.find((entry) => entry.key === 'DERIVER_A');
   const signingWorker = inventory.find((entry) => entry.key === 'SIGNING_WORKER');
-  if (!deriverA || !signingWorker) throw new Error('inventory entries are required');
+  const mpcRouter = inventory.find((entry) => entry.key === 'MPC_ROUTER');
+  if (!deriverA || !signingWorker || !mpcRouter) throw new Error('inventory entries are required');
   assert.equal(deriverA.decision, 'drain_or_follow_up');
   assert.equal(signingWorker.decision, 'retain_non_yao_owner');
+  assert.equal(mpcRouter.decision, 'retain_yao_owner');
   assert.equal(deriverA.references[0].count, 1);
   assert.equal(signingWorker.references.length, 2);
 });
