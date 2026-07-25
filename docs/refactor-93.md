@@ -877,12 +877,12 @@ ceremony after the user completes authentication. The safe sequence is:
           uncertain. The sponsored-account boundary carries `in_progress` and
           uncertain outcomes as typed retryable results so the outer finalize
           claim cannot persist them as terminal account-creation failures.
-    - [ ] Parse and validate persisted claims at the D1 boundary so an
+    - [x] Parse and validate persisted claims at the D1 boundary so an
           unparseable record fails closed into a fresh attempt. The parser
           validates the complete signed effect artifact, including bounded
           Borsh bytes, transaction metadata, and the prepared hash before any
           network effect.
-    - [ ] Prove the finalization sequence converges after a crash between its
+    - [x] Prove the finalization sequence converges after a crash between its
           steps. Each write is individually idempotent — wallet, signer, and
           Email OTP statements are `DO UPDATE` upserts, capability installation
           returns `exact_retry` for a matching origin fingerprint, and ceremony
@@ -908,14 +908,16 @@ ceremony after the user completes authentication. The safe sequence is:
           the effect concurrently. Deterministic failures are terminal exact
           receipts, while internal or retryable failures leave the claim open
           for stale-claim reconciliation.
-    - [ ] Drive the convergence check through the finalize entry point rather
+    - [x] Drive the convergence check through the finalize entry point rather
           than the commit store and side-effect boundary separately. The same
           suite also races two identical finalize requests and verifies an
           exact shared result with one persisted wallet state.
-    - [ ] Derive the request fingerprint from the canonical effect identity
-          rather than primarily the activation session. Sponsored account
-          claims hash the account, public key, relayer, and initial balance;
-          the activation-scoped key remains only the durable record key.
+    - [x] Derive the request fingerprint from the canonical semantic effect
+          identity rather than primarily the activation session. Sponsored
+          account claims hash the account, public key, relayer, and initial
+          balance; the activation-scoped key remains only the durable record
+          key. A separate prepared-artifact fingerprint binds the exact signed
+          transaction and is recomputed before claim resume or terminal replay.
     - [x] Resolve the Yao runtime per request so registration finalize reads the
           activation from whichever store its execute step used. A fixed runtime
           would have sent execute to the partitioned store while finalize kept
