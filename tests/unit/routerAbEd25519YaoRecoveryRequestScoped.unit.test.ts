@@ -15,6 +15,7 @@ import type {
 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
 import {
   buildRouterAbEd25519YaoRecoveryRequestScopedFixture,
+  buildSecondRouterAbEd25519YaoRecoveryRequestScopedFixture,
   type RouterAbEd25519YaoRecoveryRequestScopedFixture,
 } from './helpers/routerAbEd25519YaoRecoveryRequestScoped.fixtures';
 
@@ -90,6 +91,35 @@ test.describe('request-scoped recovery persistence', () => {
       admitCalls: 1,
       executeCalls: 1,
     });
+  });
+
+  test('rejects a backend session already claimed by another recovery ceremony', async () => {
+    const first = await buildRouterAbEd25519YaoRecoveryRequestScopedFixture();
+    const firstBackend = new InspectingRecoveryBackend(first, 'success');
+    const firstAdmission = await runRecoveryRequest(
+      first,
+      firstBackend,
+      ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1,
+      first.admission,
+    );
+    expect(firstAdmission.status).toBe(200);
+
+    const second = await buildSecondRouterAbEd25519YaoRecoveryRequestScopedFixture(first.store);
+    const secondBackend = new InspectingRecoveryBackend(second, 'success');
+    const reusedSession = await runRecoveryRequest(
+      second,
+      secondBackend,
+      ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1,
+      second.admission,
+    );
+    expect(reusedSession.status).toBe(502);
+    await expect(reusedSession.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'invalid_backend_response',
+      message: 'recovery backend reused a session identifier',
+    });
+    await expectPersistedRecoveryKind(second, 'admission_failed');
+    expect(secondBackend.admitCalls).toBe(1);
   });
 
   test('leaves an admission claim durable when the backend response is uncertain', async () => {
@@ -195,7 +225,7 @@ async function runRecoveryRequest(
 
 async function expectPersistedRecoveryKind(
   fixture: RouterAbEd25519YaoRecoveryRequestScopedFixture,
-  kind: 'admitting' | 'admitted' | 'executing' | 'staged',
+  kind: 'admitting' | 'admitted' | 'admission_failed' | 'executing' | 'staged',
 ): Promise<void> {
   const snapshot = await fixture.store.load(fixture.lifecycleId);
   const states = [...snapshot.state.recovery.recoveries.values()];
@@ -208,7 +238,14 @@ async function expectPersistedCapabilityKind(
   kind: 'active' | 'suspended',
 ): Promise<void> {
   const snapshot = await fixture.store.load(fixture.lifecycleId);
-  const capabilities = [...snapshot.state.recovery.capabilities.values()];
-  expect(capabilities).toHaveLength(1);
-  expect(capabilities[0]?.kind).toBe(kind);
+  const capability = snapshot.state.recovery.capabilities.get(
+    bytesToHex(fixture.admission.active_capability_binding),
+  );
+  expect(capability?.kind).toBe(kind);
+}
+
+function bytesToHex(value: readonly number[]): string {
+  let result = '';
+  for (const byte of value) result += byte.toString(16).padStart(2, '0');
+  return result;
 }

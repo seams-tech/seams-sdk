@@ -224,6 +224,7 @@ test.describe('partitioned Gateway product-state composition', () => {
         kind: 'router_ab_ed25519_yao_product_registration_shared_state_v1' as const,
         recoveryCapabilities: state.recovery.capabilities,
         recoveryIdentityCapabilities: state.recovery.identityCapabilities,
+        recoverySessions: state.recovery.recoverySessions,
         exportAuthorizationNonces: state.export.authorizationNonces,
       },
     };
@@ -241,7 +242,6 @@ test.describe('partitioned Gateway product-state composition', () => {
         authorization: { authorities: state.authorization.authorities },
         recovery: {
           recoveries: state.recovery.recoveries,
-          recoverySessions: state.recovery.recoverySessions,
         },
         export: { exports: state.export.exports },
       },
