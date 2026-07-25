@@ -140,25 +140,22 @@ test('evidence gate requires role reconciliation only when an exact replay occur
   assert.equal(reconciled.readiness.phase0BaselineReady, true);
 });
 
-test('evidence gate cross-checks role Durable Object instance reuse', () => {
+test('evidence report distinguishes role object reuse from Worker isolate reuse', () => {
   const fixture = buildFixture({ environment: 'production', traceCount: 20 });
-  const roleInstance = fixture.events.find(
-    (event) =>
-      event.trace_id === fixture.manifest.traces[0].traceId &&
-      event.span === 'deriver_a.session_do.instance',
+  fixture.events.push(
+    spanEvent(fixture.manifest.traces[0].traceId, 'deriver_a.session_do.instance', 0, 'reused'),
   );
-  if (!roleInstance) throw new Error('Deriver A instance span fixture is required');
-  roleInstance.instance_disposition = 'reused';
-  roleInstance.instance_request_sequence = 2;
 
   const report = analyzeRefactor93ProductionEvidence(fixture);
 
-  assert.equal(report.readiness.phase0BaselineReady, false);
-  assert.ok(
-    report.readiness.blockers.some((blocker) =>
-      blocker.includes('deriverA declared new, observed reused'),
-    ),
-  );
+  assert.equal(report.readiness.phase0BaselineReady, true);
+  assert.deepEqual(report.traceReports[0].roleObjectReuse.deriverA, {
+    observedRequestCount: 2,
+    instantiatedRequestCount: 1,
+    reusedRequestCount: 1,
+    transitionReusedLiveObject: true,
+  });
+  assert.equal(report.traceReports[0].isolateReuse.deriverA, 'new');
 });
 
 test('JSONL parser extracts direct, Wrangler tail, and Workers Logs span messages', () => {
@@ -234,12 +231,11 @@ function buildFixture(input) {
   };
 }
 
-function spanEvent(traceId, span, durationMs) {
+function spanEvent(traceId, span, durationMs, forcedInstanceDisposition) {
   const event = eventForSpan(span);
   const instanceDisposition = span.endsWith('.session_do.instance')
-    ? Number.parseInt(traceId.slice(-2), 16) <= 5
-      ? 'new'
-      : 'reused'
+    ? (forcedInstanceDisposition ??
+      (Number.parseInt(traceId.slice(-2), 16) <= 5 ? 'new' : 'reused'))
     : undefined;
   return {
     event: event.event,

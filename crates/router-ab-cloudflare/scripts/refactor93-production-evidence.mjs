@@ -393,7 +393,7 @@ function analyzeTrace(trace, events) {
         ? [REPLAY_RECONCILIATION_SPAN]
         : []
       : [];
-  const roleInstanceMismatches = roleInstanceReuseMismatches(trace, registrationEvents);
+  const roleObjectReuse = roleObjectReuseEvidence(registrationEvents);
   const unknownIsolateReuse = [];
   for (const component of REQUIRED_ISOLATE_REUSE_COMPONENTS) {
     if (trace.isolateReuse[component] === 'unknown') unknownIsolateReuse.push(component);
@@ -419,7 +419,6 @@ function analyzeTrace(trace, events) {
     complete:
       missingSpans.length === 0 &&
       missingReplaySpans.length === 0 &&
-      roleInstanceMismatches.length === 0 &&
       missingPreparationSpans.length === 0 &&
       failedSpans.length === 0 &&
       duplicateBudgetSpans.length === 0 &&
@@ -432,7 +431,7 @@ function analyzeTrace(trace, events) {
     eventCount: registrationEvents.length,
     missingSpans,
     missingReplaySpans,
-    roleInstanceMismatches,
+    roleObjectReuse,
     missingPreparationSpans,
     failedSpans,
     duplicateBudgetSpans,
@@ -485,11 +484,6 @@ function addTraceBlockers(blockers, report) {
   if (report.missingReplaySpans.length > 0) {
     blockers.push(
       `${report.traceId} recorded an exact replay without reconciliation: ${report.missingReplaySpans.join(', ')}`,
-    );
-  }
-  if (report.roleInstanceMismatches.length > 0) {
-    blockers.push(
-      `${report.traceId} role Durable Object instance evidence mismatch: ${report.roleInstanceMismatches.join(', ')}`,
     );
   }
   if (report.failedSpans.length > 0) {
@@ -620,22 +614,23 @@ function successfulSpanMissing(events, span) {
   return !events.some(matchesSuccessfulSpan(span));
 }
 
-function roleInstanceReuseMismatches(trace, events) {
-  const mismatches = [];
+function roleObjectReuseEvidence(events) {
+  const evidence = {};
   for (const input of [
     { component: 'deriverA', span: 'deriver_a.session_do.instance' },
     { component: 'deriverB', span: 'deriver_b.session_do.instance' },
   ]) {
     const instanceEvents = eventsForSpan(events, input.span).filter(isSuccessfulEvent);
-    if (instanceEvents.length === 0) continue;
-    const observed = instanceEvents.some(hasNewRoleInstance) ? 'new' : 'reused';
-    if (trace.isolateReuse[input.component] !== observed) {
-      mismatches.push(
-        `${input.component} declared ${trace.isolateReuse[input.component]}, observed ${observed}`,
-      );
-    }
+    const instantiatedRequestCount = instanceEvents.filter(hasNewRoleInstance).length;
+    const reusedRequestCount = instanceEvents.length - instantiatedRequestCount;
+    evidence[input.component] = {
+      observedRequestCount: instanceEvents.length,
+      instantiatedRequestCount,
+      reusedRequestCount,
+      transitionReusedLiveObject: reusedRequestCount > 0,
+    };
   }
-  return mismatches;
+  return evidence;
 }
 
 function hasNewRoleInstance(event) {

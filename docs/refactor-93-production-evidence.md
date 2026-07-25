@@ -91,9 +91,10 @@ baseline instead of silently contributing to its latency budget.
 Each role-session Durable Object emits a sanitized
 `deriver_a.session_do.instance` or `deriver_b.session_do.instance` span. Its
 in-memory request sequence is `1` for a newly instantiated object and greater
-than `1` for reuse of that same live object. The analyzer cross-checks this
-signal against the declared Deriver cohort instead of inferring reuse from
-request duration. Eviction creates a new object and resets the sequence.
+than `1` for reuse of that same live object. The analyzer reports whether later
+ceremony transitions reused the live role object. Eviction creates a new object
+and resets the sequence. This is Durable Object instance evidence; it does not
+prove Worker isolate reuse, which remains a separate platform evidence field.
 
 ## Execution telemetry contract
 
