@@ -51,6 +51,15 @@ pub fn local_dev_http_handle_request_v1(
     topology: LocalDevHttpTopologyV1<'_>,
     request: &LocalDevHttpRequestPartsV1,
 ) -> Result<(u16, String), Box<dyn std::error::Error>> {
+    local_dev_http_handle_request_with_dispatcher_v1(topology, request, None)
+}
+
+/// Handles one local request with an optional native Router coordinator.
+pub fn local_dev_http_handle_request_with_dispatcher_v1(
+    topology: LocalDevHttpTopologyV1<'_>,
+    request: &LocalDevHttpRequestPartsV1,
+    dispatcher: Option<&dyn LocalRouterRequestDispatcherV1>,
+) -> Result<(u16, String), Box<dyn std::error::Error>> {
     let method = request.method.as_str();
     let path = request.path.as_str();
 
@@ -67,7 +76,7 @@ pub fn local_dev_http_handle_request_v1(
 
     if let LocalDevHttpTopologyV1::Router(config) = topology {
         if local_worker_owns_path_v1(LocalServiceRoleV1::Router, path) {
-            return local_dev_router_request_v1(config, request, None);
+            return local_dev_router_request_v1(config, request, dispatcher);
         }
         return local_dev_http_error_body_v1(
             LocalServiceRoleV1::Router,

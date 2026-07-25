@@ -175,7 +175,7 @@ fn local_worker_bins_delegate_to_shared_route_dispatcher() {
     for name in ["router_ab_local_worker.rs"] {
         let source = router_ab_dev_bin_source(name);
         assert!(
-            source.contains("local_dev_http_handle_request_v1"),
+            source.contains("local_dev_http_handle_request_with_dispatcher_v1"),
             "{name} should delegate requests to the shared local dev dispatcher"
         );
         for forbidden in [
@@ -328,7 +328,7 @@ fn local_workers_accept_direct_deriver_peer_messages_over_http(
 }
 
 #[test]
-fn local_router_worker_exposes_health_and_explicitly_rejects_unserved_pair_routes(
+fn local_router_worker_exposes_health_and_rejects_malformed_pair_routes(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let _process_guard = local_worker_process_test_guard();
     let binary = env!("CARGO_BIN_EXE_router_ab_local_worker");
@@ -364,8 +364,13 @@ fn local_router_worker_exposes_health_and_explicitly_rejects_unserved_pair_route
                 router_ab_dev::LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_DEFAULT_SECRET_V1,
             )],
         )?;
-        assert_eq!(status, 501, "{path}: {body}");
-        assert!(body.contains("strict Wrangler local mode"));
+        if path == router_ab_dev::LOCAL_ROUTER_ED25519_YAO_EXECUTE_PATH {
+            assert_eq!(status, 400, "{path}: {body}");
+            assert!(body.contains("malformed") || body.contains("MalformedWirePayload"));
+        } else {
+            assert_eq!(status, 501, "{path}: {body}");
+            assert!(body.contains("strict Wrangler local mode"));
+        }
     }
     drop(router);
     let _ = fs::remove_dir_all(temp);
