@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { createPrivateKey, createPublicKey } from 'node:crypto';
 import type {
   AccessKeyList,
   AccessKeyView,
@@ -10,23 +11,77 @@ import type {
   QueryResponseKind,
   RpcQueryRequest,
 } from '@near-js/types';
-import { base58Encode } from '../../packages/shared-ts/src/utils/base58';
-import { sha256Bytes } from '../../packages/shared-ts/src/utils/digests';
+import { base58Decode, base58Encode } from '../../packages/shared-ts/src/utils/base58';
+import { base64UrlDecode } from '../../packages/shared-ts/src/utils/encoders';
 import {
   broadcastPreparedSponsoredNearAccountCreation,
+  prepareSponsoredNearAccountCreationWithRelayer,
+  preparedSponsoredNearAccountCreationArtifactFingerprint,
   type PreparedSponsoredNearAccountCreationV1,
 } from '../../packages/sdk-server-ts/src/core/nearRelayerAccountProvisioning';
-import { NearRpcError, type NearClient, SignedTransaction } from '../../packages/sdk-server-ts/src/core/rpcClients/near/NearClient';
+import {
+  NearRpcError,
+  type NearClient,
+  type NearRpcFailureKind,
+  SignedTransaction,
+} from '../../packages/sdk-server-ts/src/core/rpcClients/near/NearClient';
 
 const ACCOUNT_ID = 'alice.testnet';
-const PUBLIC_KEY = 'ed25519:expected-public-key';
 const RELAYER_ACCOUNT_ID = 'relayer.testnet';
+
+function deterministicEd25519Key(seedByte: number): {
+  readonly privateKey: string;
+  readonly publicKey: string;
+} {
+  const seed = Uint8Array.from({ length: 32 }, (_, index) => seedByte + index);
+  const prefix = Uint8Array.from([48, 46, 2, 1, 0, 48, 5, 6, 3, 43, 101, 112, 4, 34, 4, 32]);
+  const pkcs8 = new Uint8Array(48);
+  pkcs8.set(prefix);
+  pkcs8.set(seed, 16);
+  const privateKey = createPrivateKey({ key: Buffer.from(pkcs8), format: 'der', type: 'pkcs8' });
+  const spki = createPublicKey(privateKey).export({ format: 'der', type: 'spki' });
+  const publicKeyBytes = new Uint8Array(spki).slice(-32);
+  const secretBytes = new Uint8Array(64);
+  secretBytes.set(seed);
+  secretBytes.set(publicKeyBytes, 32);
+  return {
+    privateKey: `ed25519:${base58Encode(secretBytes)}`,
+    publicKey: `ed25519:${base58Encode(publicKeyBytes)}`,
+  };
+}
+
+const RELAYER_KEY = deterministicEd25519Key(1);
+const ACCOUNT_KEY = deterministicEd25519Key(65);
+const PUBLIC_KEY = ACCOUNT_KEY.publicKey;
+const BLOCK_HASH = '11111111111111111111111111111111';
+
+async function preparedArtifact(): Promise<PreparedSponsoredNearAccountCreationV1> {
+  const prepared = await prepareSponsoredNearAccountCreationWithRelayer({
+    walletId: 'wallet',
+    accountId: ACCOUNT_ID,
+    publicKey: PUBLIC_KEY,
+    relayerAccount: RELAYER_ACCOUNT_ID,
+    relayerPrivateKey: RELAYER_KEY.privateKey,
+    relayerPublicKey: RELAYER_KEY.publicKey,
+    nearRpcUrl: 'unused',
+    initialBalanceYocto: '1000',
+    nearClient: new NearClientFixture({
+      viewAccessKey: async () => ({ ...fullAccessKey(), nonce: 6n }),
+      viewBlock: async () => ({ header: { hash: BLOCK_HASH } }) as BlockResult,
+    }),
+  });
+  if (!prepared.ok) throw new Error(prepared.error);
+  return prepared.prepared;
+}
 
 type NearClientOverrides = Partial<{
   readonly txStatus: () => Promise<FinalExecutionOutcome>;
-  readonly sendTransaction: () => Promise<FinalExecutionOutcome>;
+  readonly sendTransaction: (
+    signedTransaction: SignedTransaction,
+  ) => Promise<FinalExecutionOutcome>;
   readonly viewAccount: () => Promise<AccountView>;
   readonly viewAccessKey: () => Promise<AccessKeyView>;
+  readonly viewBlock: () => Promise<BlockResult>;
 }>;
 
 class NearClientFixture implements NearClient {
@@ -41,7 +96,10 @@ class NearClientFixture implements NearClient {
     throw new Error('viewAccessKey not configured');
   }
 
-  async viewAccessKeyList(_accountId: string, _finalityQuery?: FinalityReference): Promise<AccessKeyList> {
+  async viewAccessKeyList(
+    _accountId: string,
+    _finalityQuery?: FinalityReference,
+  ): Promise<AccessKeyList> {
     throw new Error('viewAccessKeyList not configured');
   }
 
@@ -55,13 +113,13 @@ class NearClientFixture implements NearClient {
   }
 
   async viewBlock(_params: BlockReference): Promise<BlockResult> {
+    if (this.overrides.viewBlock) return await this.overrides.viewBlock();
     throw new Error('viewBlock not configured');
   }
 
-  async sendTransaction(
-    _signedTransaction: SignedTransaction,
-  ): Promise<FinalExecutionOutcome> {
-    if (this.overrides.sendTransaction) return await this.overrides.sendTransaction();
+  async sendTransaction(signedTransaction: SignedTransaction): Promise<FinalExecutionOutcome> {
+    if (this.overrides.sendTransaction)
+      return await this.overrides.sendTransaction(signedTransaction);
     throw new Error('sendTransaction not configured');
   }
 
@@ -90,7 +148,10 @@ class NearClientFixture implements NearClient {
   }
 }
 
-function outcome(status: FinalExecutionOutcome['status'], transactionHash = 'unused'): FinalExecutionOutcome {
+function outcome(
+  status: FinalExecutionOutcome['status'],
+  transactionHash = 'unused',
+): FinalExecutionOutcome {
   const execution = {
     logs: [],
     receipt_ids: [],
@@ -108,28 +169,11 @@ function outcome(status: FinalExecutionOutcome['status'], transactionHash = 'unu
   };
 }
 
-async function preparedArtifact(): Promise<PreparedSponsoredNearAccountCreationV1> {
-  const borshBytes = [1, 2, 3, 4];
-  return {
-    kind: 'prepared_sponsored_near_account_creation_v1',
-    accountId: ACCOUNT_ID,
-    publicKey: PUBLIC_KEY,
-    relayerAccountId: RELAYER_ACCOUNT_ID,
-    transactionHash: base58Encode(await sha256Bytes(Uint8Array.from(borshBytes))),
-    nextNonce: '7',
-    blockHash: 'block-hash',
-    signedTransaction: {
-      transaction: { receiver_id: ACCOUNT_ID },
-      signature: { keyType: 0, data: [0, 1, 2] },
-      borsh_bytes: borshBytes,
-    },
-  };
-}
-
-function rpcError(message: string): NearRpcError {
+function rpcError(failureKind: NearRpcFailureKind, message: string): NearRpcError {
   return new NearRpcError({
     message,
     short: 'RpcError',
+    failureKind,
     type: 'RpcError',
   });
 }
@@ -155,6 +199,75 @@ function fullAccessKey(): AccessKeyView {
   };
 }
 
+test('real preparation persists canonical bytes and broadcasts those exact bytes', async () => {
+  const prepared = await preparedArtifact();
+  let sentBytes: number[] | undefined;
+  const result = await broadcastPreparedSponsoredNearAccountCreation({
+    prepared,
+    nearRpcUrl: 'https://rpc.testnet.near.org',
+    relayerAccountId: RELAYER_ACCOUNT_ID,
+    nearClient: new NearClientFixture({
+      sendTransaction: async (signedTransaction) => {
+        sentBytes = signedTransaction.borsh_bytes;
+        return outcome({ SuccessValue: '' }, prepared.transactionHash);
+      },
+    }),
+  });
+
+  expect(result.kind).toBe('created');
+  expect(sentBytes).toEqual(Array.from(base64UrlDecode(prepared.signedTransactionBorshB64u)));
+  expect(base58Decode(prepared.transactionHash)).toHaveLength(32);
+  expect(await preparedSponsoredNearAccountCreationArtifactFingerprint(prepared)).toBe(
+    `sponsored-near-account-creation-v1:${prepared.transactionHash}`,
+  );
+});
+
+test('semantic metadata tampering rejects the persisted transaction before broadcast', async () => {
+  const prepared = await preparedArtifact();
+  let sends = 0;
+  const result = await broadcastPreparedSponsoredNearAccountCreation({
+    prepared: { ...prepared, accountId: 'mallory.testnet' },
+    nearRpcUrl: 'https://rpc.testnet.near.org',
+    relayerAccountId: RELAYER_ACCOUNT_ID,
+    nearClient: new NearClientFixture({
+      sendTransaction: async () => {
+        sends += 1;
+        return outcome({ SuccessValue: '' });
+      },
+    }),
+  });
+
+  expect(result.kind).toBe('rejected');
+  expect(sends).toBe(0);
+});
+
+test('corrupt signed bytes and mismatched transaction hashes reject before broadcast', async () => {
+  const prepared = await preparedArtifact();
+  const corruptBytes = Uint8Array.from(base64UrlDecode(prepared.signedTransactionBorshB64u));
+  corruptBytes[0] ^= 0xff;
+  const invalidArtifacts = [
+    { ...prepared, signedTransactionBorshB64u: Buffer.from(corruptBytes).toString('base64url') },
+    { ...prepared, transactionHash: base58Encode(Uint8Array.from({ length: 32 }, () => 9)) },
+  ];
+  let sends = 0;
+
+  for (const invalidArtifact of invalidArtifacts) {
+    const result = await broadcastPreparedSponsoredNearAccountCreation({
+      prepared: invalidArtifact,
+      nearRpcUrl: 'https://rpc.testnet.near.org',
+      relayerAccountId: RELAYER_ACCOUNT_ID,
+      nearClient: new NearClientFixture({
+        sendTransaction: async () => {
+          sends += 1;
+          return outcome({ SuccessValue: '' });
+        },
+      }),
+    });
+    expect(result.kind).toBe('rejected');
+  }
+  expect(sends).toBe(0);
+});
+
 test('reconciliation rejects a resolved NEAR failure without rebroadcasting', async () => {
   const prepared = await preparedArtifact();
   let sends = 0;
@@ -164,7 +277,8 @@ test('reconciliation rejects a resolved NEAR failure without rebroadcasting', as
     relayerAccountId: RELAYER_ACCOUNT_ID,
     reconcileFirst: true,
     nearClient: new NearClientFixture({
-      txStatus: async () => outcome({ Failure: { error_message: 'account exists', error_type: 'ActionError' } }),
+      txStatus: async () =>
+        outcome({ Failure: { error_message: 'account exists', error_type: 'ActionError' } }),
       sendTransaction: async () => {
         sends += 1;
         return outcome({ SuccessValue: '' });
@@ -186,7 +300,7 @@ test('reconciliation confirms the expected account and key after a lost transact
     reconcileFirst: true,
     nearClient: new NearClientFixture({
       txStatus: async () => {
-        throw rpcError('unknown transaction');
+        throw rpcError('transaction_not_found', 'unknown transaction');
       },
       viewAccount: async () => accountView(),
       viewAccessKey: async () => fullAccessKey(),
@@ -227,6 +341,7 @@ test('an RPC outage remains uncertain and never rebroadcasts blindly', async () 
 test('a missing transaction is replayed only after account readback confirms absence', async () => {
   const prepared = await preparedArtifact();
   let sends = 0;
+  let sentBytes: number[] | undefined;
   const result = await broadcastPreparedSponsoredNearAccountCreation({
     prepared,
     nearRpcUrl: 'https://rpc.testnet.near.org',
@@ -234,13 +349,14 @@ test('a missing transaction is replayed only after account readback confirms abs
     reconcileFirst: true,
     nearClient: new NearClientFixture({
       txStatus: async () => {
-        throw rpcError('unknown transaction');
+        throw rpcError('transaction_not_found', 'unknown transaction');
       },
       viewAccount: async () => {
-        throw rpcError('account does not exist');
+        throw rpcError('account_not_found', 'account does not exist');
       },
-      sendTransaction: async () => {
+      sendTransaction: async (signedTransaction) => {
         sends += 1;
+        sentBytes = signedTransaction.borsh_bytes;
         return outcome({ SuccessValue: '' }, prepared.transactionHash);
       },
     }),
@@ -248,4 +364,5 @@ test('a missing transaction is replayed only after account readback confirms abs
 
   expect(result.kind).toBe('created');
   expect(sends).toBe(1);
+  expect(sentBytes).toEqual(Array.from(base64UrlDecode(prepared.signedTransactionBorshB64u)));
 });
