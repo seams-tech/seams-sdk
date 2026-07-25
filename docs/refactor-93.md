@@ -840,9 +840,8 @@ receipts are recorded.
       binding and SQLite migration so no tenant-wide object coordinates Yao.
   - [x] Route registration admission and execution through typed request-scoped
         CAS behind the disabled two-boundary drain selector.
-  - [ ] Move registration start, bind, finalize, and shared wallet/session
-        effects behind an idempotent side-effect boundary, then enable the
-        registration selector.
+  - [x] Move registration start, bind, finalize, and shared wallet/session
+        effects behind idempotent request-safe boundaries.
     - [x] Split sponsored NEAR account creation into a prepare step that builds,
           signs, and hashes the transaction without broadcasting and a broadcast
           step that replays those exact bytes. Rebuilding would take a fresh
@@ -905,6 +904,13 @@ receipts are recorded.
     - [x] Replace the optional prepare field and boolean resume flag with a
           discriminated non-resumable/prepared-resumable input union, with
           compile-time fixtures rejecting invalid combinations.
+    - [x] Build the full partitioned Gateway handler with the D1 runtime in
+          both the service provider and Router options. Registration start uses
+          it after the registration drain; every public, session, sync-account,
+          and non-Yao route leaves the tenant runtime after all three family
+          drains.
+    - [ ] Enable the registration selector in staging with a measured cutoff
+          and drain window.
   - [x] Add typed request-scoped recovery admission and execution
         prepare/claim/commit boundaries with a shared backend-session uniqueness
         index, durable uncertainty, and no backend retry.
@@ -944,9 +950,16 @@ receipts are recorded.
     - [x] Compose both export routes against the partitioned store behind the
           drain selector. A WebAuthn-success/receipt-CAS conflict remains
           fail-closed and requires a fresh export ceremony.
-  - [ ] Move remaining replay, authorization, and session state out of the
-        tenant runtime, then delete its binding, readiness path, serializer, and
-        SQLite migration after the drain.
+  - [x] Provide partitioned D1 ownership for remaining replay, authorization,
+        and session state, and route the complete outer Gateway to it after all
+        family drains.
+  - [ ] Delete the tenant runtime binding, readiness path, serializer, and
+        Durable Object class after the drain.
+    - [ ] Preserve the historical `router-api-runtime-sqlite-v1` migration and,
+          only after the drain receipt, add a new unique Cloudflare legacy
+          migration with
+          `deleted_classes = ["RouterApiRuntimeDurableObject"]`. Removing the
+          old migration entry does not delete the deployed class namespace.
   - [x] Give the local dev worker the same request-scoped path. Its Yao
         product runtime and all registration, recovery (including warm
         bootstrap), and export routes use the partitioned D1 store and the
@@ -1111,9 +1124,9 @@ recovery, export, and authorization maps and writes the complete snapshot back
 after each request. Removing this object or routing Yao requests around it
 without a replacement persistence/CAS boundary would lose replay state and
 allow concurrent snapshots to overwrite one another. The request-scoped D1
-partitioned adapter implements registration admission and execution. The
-staging Worker contains independent drain selectors for registration, recovery,
-and export. Each family has its own
+partitioned adapter now implements registration, recovery, export, capability,
+and session state. The staging Worker contains independent drain selectors for
+registration, recovery, and export. Each family has its own
 `ROUTER_AB_YAO_GATEWAY_<FAMILY>_ADMISSION_CUTOFF_MS` and
 `ROUTER_AB_YAO_GATEWAY_<FAMILY>_DRAIN_UNTIL_MS` pair. The registration selector
 also gates public `/wallets/register/start`; it keeps the family on
@@ -1124,24 +1137,30 @@ authorization and a typed admission or execution claim are CASed before the
 MPC Router backend call, terminal state is loaded from a fresh snapshot, and
 uncertainty or CAS conflicts fail closed without retrying the backend. The
 generated deployment config leaves each pair empty until that family's state
-bridge is ready. Enabling the D1 route before the registration bridge would
-create an independent state copy that finalization could not observe.
+bridge is ready.
 
-Wallet registration start/bind/finalize, remaining session side effects, and
-the non-Yao API still use `ROUTER_API_RUNTIME`. Recovery and export route
-selection now dispatches admission, execution, activation, warm bootstrap, and
-export requests through request-scoped handlers once their family window is
-configured. Recovery admission and execution persist `admitting` or
+Registration start and all internal registration operations use the
+partitioned handler after the registration drain. Recovery and export route
+selection dispatches admission, execution, activation, warm bootstrap, and
+export requests through request-scoped handlers after their respective family
+drains. Once all three windows have elapsed, the outer Gateway dispatches every
+remaining public, session, sync-account, console, and non-Yao request through a
+per-request handler whose service provider and Router options both use the
+partitioned D1 runtime. The handler is not cached across Cloudflare requests,
+and mutable lifecycle authority remains in D1. Recovery
+admission and execution persist `admitting` or
 `executing` before the backend call and preserve those claims on transport
 uncertainty. The recovery session index is part of the shared CAS record, so a
 backend session cannot be accepted by two lifecycle partitions. Recovery
 activation commits the wallet capability replacement with an exact D1 operation
 receipt. A lost D1 response or terminal product-state CAS conflict is
-reconciled from that receipt without repeating the wallet write. Acceptance
-criterion 3 remains an explicit Gateway persistence refactor gate for the
-registration start/bind/finalize path, remaining replay/session state, drain
-evidence, and eventual deletion of the binding and migration. This is separate
-from the role-local Router coordination already implemented here.
+reconciled from that receipt without repeating the wallet write. Registration
+finalization has its own D1 claim and terminal CAS around the complete entry
+point, including exact response replay after concurrent execution or response
+loss. Acceptance criterion 3 remains open for the external drain and eventual
+deletion of the binding, class, serializer, readiness probe, and migration.
+This is separate from the role-local Router coordination already implemented
+here.
 The follow-up review also confirms that the object name is keyed by
 `namespace:org:project:environment`, so all registrations for one tenant
 environment share that instance. That creates a tenant-level throughput ceiling
@@ -1162,16 +1181,13 @@ generated deployment config accepts six explicit per-family values,
 `ROUTER_AB_YAO_GATEWAY_{REGISTRATION,RECOVERY,EXPORT}_DRAIN_UNTIL_MS`; leave a
 family's pair empty during its legacy window, then set its cutoff at quiescence
 and its final boundary after the measured maximum in-flight lifetime. The
-tenant runtime has not been removed for registration start/finalize and
-remaining session state, its binding and migration have not been deleted, and
-this checkbox remains open until those paths have equivalent typed boundaries
-and drain evidence.
-The SDK also exposes a request-scoped load/execute/commit runner with typed
-CAS conflicts and no retry loop. It remains the composition seam for the
-registration start/finalize and remaining session paths. The dedicated
-request-scoped recovery and export adapters are wired behind the drain-gated
-staging selector. During an intermediate family drain, admission returns a
-typed 503 with `Retry-After`, while continuations remain on the legacy runtime.
+tenant runtime remains reachable only as the pre-cutover and in-flight drain
+authority. Its binding and historical migration cannot be deleted until the
+coherent staging cutover and maximum-lifetime drain are recorded. The
+dedicated request-scoped registration, recovery, export, and outer Gateway
+handlers are wired behind the drain-gated staging selector. During an
+intermediate family drain, admission returns a typed 503 with `Retry-After`,
+while continuations remain on the legacy runtime.
 
 The first bounded Gateway migration is implemented and tested for registration
 admission and execution, with new admission quiesced first and both operations
@@ -1186,19 +1202,17 @@ Loaded partitioned records are detached from adapter-owned Map, Set, and byte
 arrays before a request can mutate them. Terminal persistence therefore does
 not depend on an adapter returning mutable object aliases; the regression test
 exercises a non-cloning adapter and verifies that request-only mutations never
-change the persisted snapshot.
-Wallet-registration finalize still mixes Yao consumption with account creation,
-signing-session provisioning, wallet D1 commits, capability installation,
-replay persistence, and ceremony deletion. Those effects need their own typed
-hooks before the remaining production routes can leave `ROUTER_API_RUNTIME`.
+change the persisted snapshot. Wallet-registration finalize composes Yao
+consumption, account creation, signing-session provisioning, the wallet D1
+batch, capability installation, replay persistence, and ceremony deletion.
+Each step is idempotent, and the outer D1 claim/terminal receipt makes
+concurrent attempts and response loss converge on one exact response.
 
-The request-boundary parser and partitioned state store are ready for
-registration admission and execution. Routing a full four-map snapshot to one
-Durable Object per lifecycle would isolate registrations, capabilities,
-recovery state, and export state from one another. The staging Worker keeps
-both registration operations on the tenant runtime during the configured drain,
-then switches them together; the remaining routes stay there until each has an
-equivalent typed composition and CAS boundary.
+The request-boundary parser and partitioned state store cover registration,
+capabilities, recovery, and export state. The staging Worker keeps each family
+on the tenant runtime during its configured drain, switches that family
+together at its final boundary, and moves the complete outer Gateway only
+after all three families have drained.
 
 The native serving path is now wired through `router_ab_local_worker`.
 The Router has its own process and five SQLite-backed Router persistence

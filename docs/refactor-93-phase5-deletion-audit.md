@@ -72,15 +72,16 @@ receipt, so the handlers, parsers, and their compatibility tests remain.
 ### Tenant runtime persistence
 
 `ROUTER_API_RUNTIME` and its SQLite migration remain active. The Gateway
-persistence follow-up has the per-ceremony CAS adapters and codec. Registration
-admission and execution are composed through that store behind a two-boundary
-drain selector, but the generated deployment config leaves the selector
-disabled because registration finalize still reads the tenant-runtime copy.
-Recovery admission and execution have request-scoped prepare/claim/commit
-boundaries but are not wired until activation receives an idempotent side-effect
-boundary. Export, replay, authorization, and remaining session state also stay
-on the tenant runtime. Deleting the binding or migration now would remove the
-active product-state authority. This remains a separate Phase 5 gate.
+persistence follow-up now has the per-ceremony CAS adapters, codec, all seven
+internal Yao operation handlers, registration-finalize claim/receipt, and the
+full partitioned Gateway handler. Registration, recovery, and export each have
+an independent two-boundary selector. After all three family drains, public
+session, sync-account, console, and non-Yao routes also leave the tenant object,
+with the D1 runtime supplied to both the service provider and Router options.
+The generated deployment config still leaves every selector disabled. Until a
+coherent staging cutover and maximum-lifetime drain are recorded, the tenant
+object remains the active pre-cutover authority and rollback path. Deleting its
+binding or class now would strand in-flight ceremonies.
 
 ## Deletion receipt required
 
@@ -191,10 +192,10 @@ command reports references to direct-origin and tenant-runtime keys without
 authorizing deletion. It performs no Cloudflare mutation and cannot turn
 partial evidence into a green deployment gate.
 
-The Gateway cutover has a separate two-boundary control. Keep
-`ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS` and
-`ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS` empty while the tenant runtime remains
-authoritative. At quiescence, set the admission cutoff; after the observed
-maximum in-flight lifetime, set the final drain boundary. The Worker rejects
-new admissions during that interval and keeps legacy executions on the tenant
-runtime. Both values must be present together before the D1 route can activate.
+The Gateway cutover has one two-boundary control per family. Keep
+`ROUTER_AB_YAO_GATEWAY_{REGISTRATION,RECOVERY,EXPORT}_ADMISSION_CUTOFF_MS` and
+the corresponding `_DRAIN_UNTIL_MS` values empty while that family remains on
+the tenant runtime. At quiescence, set the admission cutoff and final drain
+boundary as a pair. The Worker rejects new admissions during that interval,
+keeps legacy continuations on the tenant runtime, and switches the complete
+outer Gateway only after all three family drains have elapsed.
