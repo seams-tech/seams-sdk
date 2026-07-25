@@ -1276,7 +1276,9 @@ export function parseD1StoredWalletAddSignerCeremony(
   return ceremony;
 }
 
-function parseD1StoredAddSignerAuth(raw: unknown): StoredWalletAddSignerCeremony['auth'] | null {
+export function parseD1StoredAddSignerAuth(
+  raw: unknown,
+): StoredWalletAddSignerCeremony['auth'] | null {
   const record = toRecordValue(raw);
   const kind = toOptionalTrimmedString(record?.kind);
   if (kind === 'app_session') return { kind: 'app_session' };
@@ -2307,7 +2309,7 @@ function parseD1StoredAddAuthMethodAuth(
   return null;
 }
 
-function parseD1RegistrationAuthority(raw: unknown): RegistrationAuthority | null {
+export function parseD1RegistrationAuthority(raw: unknown): RegistrationAuthority | null {
   const record = toRecordValue(raw);
   if (!record) return null;
   const kind = toOptionalTrimmedString(record?.kind);

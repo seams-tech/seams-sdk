@@ -57,14 +57,22 @@ import { CloudflareD1WebAuthnAuthService } from './d1WebAuthnAuthService';
 import { CloudflareD1WalletAuthMethodService } from './d1WalletAuthMethodService';
 import {
   CloudflareD1WalletRegistrationService,
+  parseD1WalletRegistrationStartSideEffectRecord,
   type D1WalletRegistrationFinalizePreparedV1,
   type D1WalletRegistrationFinalizeSideEffectRecord,
   type D1WalletRegistrationFinalizeSideEffectStore,
+  type D1WalletRegistrationStartSideEffectRecord,
+  type D1WalletRegistrationStartSideEffectStore,
   type SponsoredNamedNearAccountCreationResult,
 } from './d1WalletRegistrationService';
 import { parseD1WalletRegistrationFinalizeTerminalResponse } from './d1RegistrationCeremonyRecords';
 import { CloudflareD1WalletRegistrationCommitStore } from './d1WalletRegistrationCommitStore';
-import { CloudflareD1WalletAddSignerService } from './d1WalletAddSignerService';
+import {
+  CloudflareD1WalletAddSignerService,
+  parseD1WalletAddSignerStartSideEffectRecord,
+  type D1WalletAddSignerStartSideEffectRecord,
+  type D1WalletAddSignerStartSideEffectStore,
+} from './d1WalletAddSignerService';
 import { CloudflareD1RegistrationIntentService } from './d1RegistrationIntentService';
 import {
   broadcastPreparedSponsoredNearAccountCreation,
@@ -677,6 +685,40 @@ function walletRegistrationFinalizeSideEffectStore(
   });
 }
 
+function walletRegistrationStartSideEffectStore(
+  options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
+): D1WalletRegistrationStartSideEffectStore {
+  return createCloudflareD1VersionedJsonRecordStore<D1WalletRegistrationStartSideEffectRecord>({
+    database: options.database,
+    scope: {
+      namespace: options.namespace,
+      orgId: options.orgId,
+      projectId: options.projectId,
+      envId: options.envId,
+    },
+    keyPrefix: 'wallet-registration-start:',
+    encode: (value) => value as unknown as CloudflareVersionedJsonObject,
+    parse: parseD1WalletRegistrationStartSideEffectRecord,
+  });
+}
+
+function walletAddSignerStartSideEffectStore(
+  options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
+): D1WalletAddSignerStartSideEffectStore {
+  return createCloudflareD1VersionedJsonRecordStore<D1WalletAddSignerStartSideEffectRecord>({
+    database: options.database,
+    scope: {
+      namespace: options.namespace,
+      orgId: options.orgId,
+      projectId: options.projectId,
+      envId: options.envId,
+    },
+    keyPrefix: 'wallet-add-signer-start:',
+    encode: (value) => value as unknown as CloudflareVersionedJsonObject,
+    parse: parseD1WalletAddSignerStartSideEffectRecord,
+  });
+}
+
 /**
  * Creates the sponsored account through a durable claim. The signed transaction
  * and its hash are persisted before the broadcast, so a lost response replays
@@ -918,6 +960,7 @@ function createCloudflareD1RouterApiAuthAssembly(
       routerAbSigning.getRouterAbNormalSigningRuntime.bind(routerAbSigning),
     ecdsaStrictRegistration: options.ecdsaStrictRegistration,
     getWalletStore,
+    startSideEffects: walletRegistrationStartSideEffectStore(options),
     finalizeSideEffects: walletRegistrationFinalizeSideEffectStore(options),
     walletRegistrationCommitStore,
     walletAuthMethods,
@@ -930,6 +973,7 @@ function createCloudflareD1RouterApiAuthAssembly(
     ecdsaStrictRegistration: options.ecdsaStrictRegistration,
     getWalletStore,
     walletAuthMethods,
+    startSideEffects: walletAddSignerStartSideEffectStore(options),
   });
   const registrationIntents = new CloudflareD1RegistrationIntentService({
     getRegistrationCeremonyIntentStore,
