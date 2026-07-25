@@ -234,10 +234,18 @@ function normalizeKeyPrefix(value: unknown): string {
 function normalizeRecordKey(value: unknown): string {
   const key = toOptionalTrimmedString(value);
   if (!key) throw new Error('Versioned JSON record key is required');
-  if (key.length > 512 || /[\u0000-\u001f\u007f]/u.test(key)) {
+  if (key.length > 512 || containsControlCharacter(key)) {
     throw new Error('Versioned JSON record key is invalid');
   }
   return key;
+}
+
+export function containsControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x1f || code === 0x7f) return true;
+  }
+  return false;
 }
 
 function isDurableObjectNamespaceLike(
