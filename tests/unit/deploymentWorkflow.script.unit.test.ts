@@ -216,6 +216,21 @@ test('backend release-set creation exports the frontend compatibility range', ()
   }
 });
 
+test('Gateway release builds the SDK server package before Wrangler bundles it', () => {
+  const source = readFileSync(
+    path.join(templateRoot, 'release-cloudflare-stack.yml'),
+    'utf8',
+  );
+  const wasmBuildIndex = source.indexOf('name: Build Gateway WASM dependencies');
+  const sdkServerBuildIndex = source.indexOf('name: Build Gateway SDK server package');
+  const assembleIndex = source.indexOf('name: Assemble Gateway artifact');
+
+  expect(wasmBuildIndex).toBeGreaterThanOrEqual(0);
+  expect(sdkServerBuildIndex).toBeGreaterThan(wasmBuildIndex);
+  expect(assembleIndex).toBeGreaterThan(sdkServerBuildIndex);
+  expect(source).toContain('run: pnpm -C packages/sdk-server-ts build');
+});
+
 test('frontend workflows are terminal workflow_run deployment levels', () => {
   const frontendWorkflowNames = new Set(frontendTargets.map((target) => target.workflowName));
 
