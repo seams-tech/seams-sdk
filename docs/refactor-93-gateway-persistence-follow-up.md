@@ -45,13 +45,19 @@ and `packages/sdk-server-ts/src/router/cloudflare/versionedJsonRecordStore.ts`:
 - versioned per-record storage and compare-and-swap contracts;
 - adapter tests covering key binding and byte-preserving round trips.
 
-The first bounded production route integration is now in place. Registration
-admission and execution use a request-scoped adapter in
-`d1RouterApiStagingWorker`; it loads shared and ceremony records from D1,
-authorizes the request, persists an admission or execution claim before the
-backend call, and commits terminal state from a fresh snapshot. Backend
-uncertainty leaves the claim durable and terminal CAS conflicts fail closed
-without retrying the backend.
+The first bounded request-scoped route adapter is implemented and tested for
+registration admission and execution. It loads shared and ceremony records
+from D1, authorizes the request, persists an admission or execution claim
+before the backend call, and commits terminal state from a fresh snapshot.
+Backend uncertainty leaves the claim durable and terminal CAS conflicts fail
+closed without retrying the backend. The staging Worker selects this adapter
+only after an explicit two-boundary drain; until then both operations remain on
+the tenant runtime. The generated deployment config leaves both timestamps
+empty because wallet-registration finalize still reads the tenant-runtime copy
+of product state, so enabling D1 before the state bridge would split one
+lifecycle across two persistence systems. Between the admission cutoff and the
+final drain boundary, new admissions receive a typed 503 while legacy executes
+continue to drain.
 
 The request-boundary ceremony-key parser, partitioned state composition, and
 transaction-capable D1 CAS primitive are implemented. The current legacy
@@ -62,8 +68,7 @@ export lifecycle entries
 separately while retaining recovery capability ownership, stable identity
 indexes, and export authorization nonces in a shared record. Its load/merge
 store reads the shared and ceremony records in one D1 batch snapshot and
-commits both with one typed CAS batch. Registration admission and execution
-now use this composition. The tenant runtime remains active for wallet
+commits both with one typed CAS batch. The tenant runtime remains active for wallet
 registration start/bind/finalize, recovery, export, activation/session side
 effects, and the non-Yao API until those routes receive equivalent typed
 side-effect boundaries and lifecycle contract coverage.
@@ -87,9 +92,13 @@ escape after a one-use side effect and before persistence, while a concurrent
 request can observe a shared in-memory handler. The production cutover remains
 blocked until the Gateway supplies a Yao-only route adapter with an explicit
 request side-effect boundary and proves their recovery, export, replay, and
-authorization contracts. Registration admission and execution now use the
-dedicated request-scoped adapter; `ROUTER_API_RUNTIME` remains for the other
-routes while that handler-integrity work is completed.
+authorization contracts. The registration admission and execution adapter is
+ready for that cutover, while `ROUTER_API_RUNTIME` remains authoritative until
+the state bridge and finalize side-effect boundary are complete. The cutover
+selector blocks admission at
+`ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS` and switches admission and
+execution together at `ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS`, preventing an
+old admission from executing against the new store.
 
 ### Registration execute two-phase seam
 
@@ -128,9 +137,10 @@ implemented in
 `packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPartitioning.ts`.
 The request-safe load/commit composition is implemented in
 `packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPartitionedStateStore.ts`.
-Registration admission and execution now compose requests through this store.
-Recovery, export, replay, authorization, and wallet-finalize composition
-remains gated on typed side-effect boundaries and lifecycle contract runs.
+Registration admission and execution compose requests through this store in
+focused tests. Recovery, export, replay, authorization, and wallet-finalize
+composition remains gated on typed side-effect boundaries and lifecycle
+contract runs.
 
 ### 2. Atomic mutation protocol
 
@@ -155,6 +165,13 @@ remains gated on typed side-effect boundaries and lifecycle contract runs.
 ### 4. Migration and drain
 
 - Deploy the new record path behind an internal migration boundary.
+- Keep `ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS` and
+  `ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS` empty while the legacy Gateway owns
+  registration admission and execution.
+- After deploying the version that contains the selector, quiesce new
+  admissions and set the cutoff. Set the final drain value to the cutoff plus
+  the measured maximum in-flight lifetime. Admission and execution cross the
+  final boundary together.
 - Dual-read only at the persistence boundary while the maximum in-flight
   ceremony lifetime drains.
 - Compare old and new records without allowing two writers to commit the same

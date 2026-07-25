@@ -698,21 +698,22 @@ the plan does not claim cryptographic D1 admission attestation.
 - [x] Verify strict local Wrangler serving uses the production Router and role
       Worker shims, including all pair-bound role paths. The executable script
       test covers generated shim targets and the strict Deriver dispatch table.
-- [ ] Mirror the production lifecycle in `router-ab-dev` through the serving
+- [x] Mirror the production lifecycle in `router-ab-dev` through the serving
       path with a pair-bound state model, role-specific receipt signing,
       readiness/peer claims, uncertainty burning, and exact completed-output
-      lookup tests. The current branch maps all pair-bound paths to their role
-      owners and verifies strict-worker path parity. Native Rust local workers
-      now serve authenticated, persisted `prepare-pair`, `read-pair-status`,
-      and `burn-pair` role commands with pair/input digest checks and signed
-      readiness receipts. The Rust local startup keeps Router ownership
-      separate from Deriver secret state, and the authenticated
-      `LocalRouterRequestDispatcherV1` seam remains available for the native
-      coordinator. Execute/start-acceptance/completion serving remains open:
-      the local worker loop must durably commit `Running` before a network hop,
-      and Router startup still needs canonical Deriver A/B verifying-key
-      material before it can trust receipts. Strict Wrangler local mode remains
-      the executable local production path.
+      lookup tests. Native Rust workers serve authenticated, persisted
+      `prepare-pair`, `execute-pair`, `read-pair-status`,
+      `read-completed-pair`, and `burn-pair` commands. A and B persist
+      `Running` before the peer network hop, B signs start acceptance, both
+      persist `Completed`, and completed reads validate the canonical pair
+      binding before returning bytes. The native Router coordinator performs
+      concurrent preparation, A execution, B completion acknowledgement, and
+      registration/recovery SigningWorker delivery without opening role
+      secrets. Its recovery-promotion route forwards the expanded local
+      SigningWorker request and validates the returned `Active` receipt;
+      Router-side replay/CAS persistence remains a separate follow-up gate.
+      Strict Wrangler local mode remains the executable Cloudflare
+      production-parity path.
 
 ### Phase 3: MPC Router Execution Coordinator
 
@@ -751,12 +752,13 @@ the plan does not claim cryptographic D1 admission attestation.
       body and trace ID plus the Router replay marker; HTTP responses are not
       retried.
 
-The Cloudflare Gateway cutover is implemented. The strict local Wrangler
-runtime (`crates/router-ab-dev/scripts/dev-local-workers.mjs`) includes the
-Router coordinator on port 9100. The `router_ab_local_up` Rust harness now
-starts an explicit Router process with its own persistence scopes, but its Yao
-route boundary is deliberately unsupported until native pair serving lands;
-the two harnesses must not be treated as equivalent evidence.
+The Cloudflare Gateway cutover code is implemented behind the explicit drain
+selector described below. The strict local Wrangler runtime
+(`crates/router-ab-dev/scripts/dev-local-workers.mjs`) includes the Router
+coordinator on port 9100. The `router_ab_local_up` Rust harness starts an
+explicit Router process with its own persistence scopes and serves the native
+pair and recovery boundaries; the two harnesses still require separate
+cryptographic and deployment evidence.
 
 ### Phase 5: Hard Cutover And Deletion
 
@@ -806,8 +808,11 @@ route-deletion cleanup.
 
 - [x] Deploy the new Router private route.
 - [ ] Validate it while the Gateway still uses the old request boundary.
-- [x] Deploy the Gateway cutover without a runtime feature flag.
-- [x] Wait the maximum old ceremony lifetime.
+- [ ] Deploy the Gateway cutover with
+      `ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS` set at admission quiescence
+      and `ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS` set to that cutoff plus the
+      measured maximum in-flight lifetime.
+- [ ] Observe the full drain interval before enabling route deletion.
 - [ ] Deploy the route-deletion cleanup.
 - [ ] Run cold-after-deploy and warm production cohorts.
 - [ ] Compare latency, errors, Durable Object calls, Worker invocations, CPU,
@@ -878,11 +883,12 @@ an explicit scope decision:
 
 Two acceptance gates remain intentionally open. Production cold/warm traces and
 the frozen latency budget are unavailable under the current Wrangler
-Observability scope. The `router-ab-dev` pair lifecycle now has route and
-ownership parity checks, and the Rust harness has an explicit Router process
-boundary with authenticated unsupported responses for its unserved Yao paths.
-It remains a helper model for the cryptographic ceremony; full local HTTP
-lifecycle execution remains a Phase 2 gate.
+Observability scope. The `router-ab-dev` pair lifecycle has route and ownership
+parity checks, and the Rust harness now serves the native Router coordinator
+through authenticated role-worker HTTP boundaries, including recovery
+promotion. Router-side replay/CAS persistence remains a separate follow-up
+gate; those residuals are recorded below rather than presented as complete
+production acceptance.
 
 The current staging Gateway still has one tenant-scoped runtime Durable Object
 (`ROUTER_API_RUNTIME`). It serializes only runtime initialization with
@@ -891,11 +897,20 @@ Yao network stream. It does, however, hold the mutable product admission,
 recovery, export, and authorization maps and writes the complete snapshot back
 after each request. Removing this object or routing Yao requests around it
 without a replacement persistence/CAS boundary would lose replay state and
-allow concurrent snapshots to overwrite one another. Registration admission
-and execution now route through a request-scoped D1 partitioned adapter:
+allow concurrent snapshots to overwrite one another. The request-scoped D1
+partitioned adapter implements registration admission and execution. The
+staging Worker contains a two-boundary drain selector that keeps both
+operations on `ROUTER_API_RUNTIME` before
+`ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS`, rejects new admissions between
+that cutoff and `ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS`, keeps old executions on
+the tenant runtime during that interval, and switches both operations to D1 at
+the final boundary:
 authorization and a typed admission or execution claim are CASed before the
 MPC Router backend call, terminal state is loaded from a fresh snapshot, and
-uncertainty or CAS conflicts fail closed without retrying the backend.
+uncertainty or CAS conflicts fail closed without retrying the backend. The
+generated deployment config leaves both values empty until the wallet-finalize
+state bridge is ready. Enabling the D1 route before that bridge would create an
+independent state copy that finalization could not observe.
 
 Wallet registration start/bind/finalize, recovery, export, activation/session
 side effects, and the non-Yao API still use `ROUTER_API_RUNTIME`. Acceptance
@@ -916,61 +931,76 @@ opaque versioned JSON envelopes, and transaction-backed compare-and-swap writes.
 The Gateway package also has a request-boundary ceremony-key parser, a lossless
 codec for the registration, authorization, recovery, and export Map/Set graphs,
 and a shared-plus-ceremony state store that reads both records from one D1
-batch snapshot and commits them with one typed CAS batch. Registration
-admission and execution now load, run, and commit through that composition in
-the staging Worker. The tenant runtime has not been migrated for the remaining
-routes, its binding and migration have not been deleted, and this checkbox
-remains open until recovery, export, replay, authorization, and wallet-finalize
-paths have equivalent typed boundaries and drain evidence.
+batch snapshot and commits them with one typed CAS batch. The registration
+request-scoped adapter, drain selector, and contract tests are complete. The
+generated deployment config accepts explicit
+`ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS` and
+`ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS` values; leave both empty during the
+legacy window, then set the cutoff at quiescence and the final boundary after
+the measured maximum in-flight lifetime before enabling the D1 route. The tenant runtime has not
+been migrated for the remaining routes, its binding and migration have not
+been deleted, and this checkbox remains open until recovery, export, replay,
+authorization, and wallet-finalize paths have equivalent typed boundaries and
+drain evidence.
 The SDK also exposes a request-scoped load/execute/commit runner with typed
 CAS conflicts and no retry loop. It remains the composition seam for routes
 that have not been split. The current Gateway handler combines Yao transitions
 with other D1 and wallet side effects, so a post-side-effect CAS conflict would
-be uncertain. Registration admission and execution use the dedicated
-request-scoped adapter; recovery, export, replay, authorization, and
-wallet-finalize still require explicit side-effect boundaries.
+be uncertain. The dedicated request-scoped adapter is wired behind the
+drain-gated staging selector; recovery, export, replay, authorization, and
+wallet-finalize still require explicit side-effect boundaries and a shared-state
+bridge before the selector may be enabled. During the intermediate drain,
+admission returns a typed 503 with `Retry-After`, while execute remains on the
+legacy runtime.
 
-The first bounded Gateway migration is now wired for registration admission and
-execution. A typed admission or `executing` claim is CASed before the backend
-call; terminal completion loads a fresh snapshot and CASes the activated/failed
-state. Backend uncertainty leaves the claim durable for reconciliation, and a
-terminal CAS conflict is returned with the claim without retrying the backend.
+The first bounded Gateway migration is implemented and tested for registration
+admission and execution, with new admission quiesced first and both operations
+switched together only after the configured final drain boundary. A typed
+admission or `executing` claim is CASed before the
+backend call; terminal completion loads a fresh snapshot and CASes the
+activated/failed state. Backend uncertainty leaves the claim durable for
+reconciliation, and a terminal CAS conflict is returned with the claim without
+retrying the backend.
 Wallet-registration finalize still mixes Yao consumption with account creation,
 signing-session provisioning, wallet D1 commits, capability installation,
 replay persistence, and ceremony deletion. Those effects need their own typed
 hooks before the remaining production routes can leave `ROUTER_API_RUNTIME`.
 
-The request-boundary parser and partitioned state store are wired for
+The request-boundary parser and partitioned state store are ready for
 registration admission and execution. Routing a full four-map snapshot to one
 Durable Object per lifecycle would isolate registrations, capabilities,
-recovery state, and export state from one another. The remaining routes stay on
-the tenant runtime during the drain until each has an equivalent typed
-composition and CAS boundary.
+recovery state, and export state from one another. The staging Worker keeps
+both registration operations on the tenant runtime during the configured drain,
+then switches them together; the remaining routes stay there until each has an
+equivalent typed composition and CAS boundary.
 
-The local serving gate is a concrete wiring gap rather than an untested claim.
-`router_ab_local_worker` now gives the Router its own process and five
-SQLite-backed Router persistence boundaries, while each Deriver retains its own
-process and role-local Durable Object stand-in. The Router process exposes
-health/readiness and an authenticated, explicit 501 response for the Yao
-execute and recovery-promotion paths; it never returns a fabricated success and
-it never opens a role secret binding. The pair helper requires one coordinator
-holding both role receipts, the prepared role inputs, and the two completed
-executions. The local HTTP dispatcher still has no role-local pair command
-implementation, and its legacy control dispatcher only owns Stage/Start/Result
-commands. Adding the pair routes would therefore require a new persisted pair
-record plus inter-worker claim/complete calls; copying the Cloudflare
-coordinator into the local adapter would create a second lifecycle
-implementation. Pair paths remain explicitly owned but unsupported in the
-Rust-only harness. Strict Wrangler local mode continues to execute the
-production Cloudflare handlers.
+The native serving path is now wired through `router_ab_local_worker`.
+The Router has its own process and five SQLite-backed Router persistence
+boundaries, while each Deriver retains its own process and role-local Durable
+Object stand-in. The authenticated Router coordinator owns only opaque
+admission metadata; it prepares A and B concurrently, calls A's pair execute
+route, reads B's exact completed acknowledgement, validates role/session/
+transcript identity, burns uncertainty, and delivers activation packages to the
+SigningWorker. A and B persist `Running` before network I/O and persist
+`Completed` before their responses. The native dispatcher also serves recovery
+promotion with the expanded local SigningWorker request shape and validates the
+returned `Active` receipt. Router-side replay/CAS persistence remains a
+separate follow-up; the native coordinator does not claim that gate. Strict
+Wrangler local mode continues to execute the production Cloudflare handlers.
 The pure local pair model now marks an expired prepared pair as terminal before
-any role can enter `Running`; it remains a unit model rather than serving-path
-evidence. Its lifecycle metadata now has a validated snapshot/restore shape and
-the local SQLite adapter has insert-if-absent and byte-exact compare-and-swap
-primitives. Local startup now initializes the five Router-owned SQLite scopes
-before the private role workers start, and the Router process never opens role
-secret state. These are persistence foundations for native serving; they do not
-persist encrypted role inputs and do not close the serving gate.
+any role can enter `Running`; the serving path exercises the same identity
+invariants through the native role workers. Its lifecycle metadata has a
+validated snapshot/restore shape and the local SQLite adapter has
+insert-if-absent and byte-exact compare-and-swap primitives. Local startup
+initializes the five Router-owned SQLite scopes before the private role workers
+start, and the Router process never opens role secret state. Role workers persist
+opaque encrypted inputs and pair lifecycle records in their own SQLite scopes.
+
+Role startup metadata is role-local. A's prepared/root-drift checks bind A's
+metadata, B's signed start acceptance binds B's metadata, and A matches that
+acceptance to B's signed readiness receipt. The Cloudflare and native paths use
+the same rule; treating the two role metadata digests as one shared value would
+reject the configured A/B roots.
 
 The final review pass checked three small cleanup findings. Recovery promotion
 already uses discriminated lifecycle state and typed `capability_conflict`
