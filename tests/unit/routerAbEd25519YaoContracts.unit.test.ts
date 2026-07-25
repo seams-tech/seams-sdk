@@ -657,6 +657,35 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     expect((await firstExecution).ok).toBe(true);
   });
 
+  test('exposes a typed preclaim and terminal commit boundary', async () => {
+    const backend = new TestRegistrationBackend(registrationAdmissionReceipt(), {
+      kind: 'success',
+      body: registrationResult(),
+    });
+    const service = new InMemoryRouterAbEd25519YaoRegistrationService(backend);
+    expect((await service.admit(parsedAdmissionRequest())).ok).toBe(true);
+
+    const request = parsedExecuteRequest();
+    const preparation = service.prepareExecute(request);
+    expect(preparation.kind).toBe('claimed');
+    if (preparation.kind !== 'claimed') throw new Error('execution claim is required');
+    expect(service.prepareExecute(request)).toMatchObject({
+      kind: 'failed',
+      failure: { code: 'execution_in_progress' },
+    });
+    expect(
+      service.commitExecute({
+        request,
+        claim: preparation.claim,
+        outcome: {
+          kind: 'backend_response',
+          result: { ok: true, body: registrationResult() },
+        },
+      }),
+    ).toMatchObject({ ok: true, status: 200 });
+    expect(backend.executeCalls).toBe(0);
+  });
+
   test('burns a failed execution and never invokes the backend twice', async () => {
     const backend = new TestRegistrationBackend(registrationAdmissionReceipt(), {
       kind: 'failure',

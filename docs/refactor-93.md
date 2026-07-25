@@ -923,6 +923,17 @@ other D1 and wallet side effects, so a post-side-effect CAS conflict would be
 uncertain. The production migration requires a Yao-only route adapter with an
 explicit side-effect boundary.
 
+The first bounded Gateway migration seam is now defined for registration
+execution. A typed `executing` claim is CASed before the backend call; terminal
+completion loads a fresh snapshot and CASes the activated/failed state. Backend
+uncertainty leaves the claim durable for reconciliation, and a terminal CAS
+conflict is returned with the claim without retrying the backend. The seam is
+intentionally unwired: wallet-registration finalize still mixes Yao consumption
+with account creation, signing-session provisioning, wallet D1 commits,
+capability installation, replay persistence, and ceremony deletion. Those
+effects need their own typed hooks before the production route can leave
+`ROUTER_API_RUNTIME`.
+
 The request-boundary parser remains intentionally unwired until the composition
 can load and CAS the correct product records. Routing a full four-map snapshot
 to one Durable Object per lifecycle would isolate registrations, capabilities,

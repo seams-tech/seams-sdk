@@ -96,6 +96,10 @@ export type {
   RouterAbEd25519YaoRegistrationBackendFailure,
   RouterAbEd25519YaoRegistrationBackendResult,
   RouterAbEd25519YaoRegistrationFailure,
+  RouterAbEd25519YaoRegistrationExecuteBoundaryV1,
+  RouterAbEd25519YaoRegistrationExecuteClaimV1,
+  RouterAbEd25519YaoRegistrationExecuteCommitInputV1,
+  RouterAbEd25519YaoRegistrationExecutePreparationV1,
   RouterAbEd25519YaoRegistrationService,
   RouterAbEd25519YaoRegistrationServiceResult,
   RouterAbEd25519YaoActivationConsumerV1,
@@ -244,3 +248,11 @@ export type {
   RouterAbEd25519YaoProductRegistrationRequestScopedRunInputV1,
   RouterAbEd25519YaoProductRegistrationRequestScopedRunResultV1,
 } from './routerAbEd25519YaoProductRegistrationRequestScopedRunner';
+export { runRouterAbEd25519YaoRegistrationTwoPhaseV1 } from './routerAbEd25519YaoRegistrationTwoPhaseRunner';
+export type {
+  RouterAbEd25519YaoRegistrationTwoPhaseBackendResultV1,
+  RouterAbEd25519YaoRegistrationTwoPhaseCompletionV1,
+  RouterAbEd25519YaoRegistrationTwoPhasePrepareResultV1,
+  RouterAbEd25519YaoRegistrationTwoPhaseRunInputV1,
+  RouterAbEd25519YaoRegistrationTwoPhaseRunResultV1,
+} from './routerAbEd25519YaoRegistrationTwoPhaseRunner';

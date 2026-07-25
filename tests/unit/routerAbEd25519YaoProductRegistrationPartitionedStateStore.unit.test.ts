@@ -17,12 +17,102 @@ import {
   runRouterAbEd25519YaoProductRegistrationRequestScopedV1,
   type RouterAbEd25519YaoProductRegistrationRequestScopedExecutionV1,
 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationRequestScopedRunner';
+import {
+  runRouterAbEd25519YaoRegistrationTwoPhaseV1,
+  type RouterAbEd25519YaoRegistrationTwoPhaseBackendResultV1,
+  type RouterAbEd25519YaoRegistrationTwoPhaseCompletionV1,
+  type RouterAbEd25519YaoRegistrationTwoPhasePrepareResultV1,
+} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRegistrationTwoPhaseRunner';
 import type { RouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistration';
 
 type StoredRecord = {
   readonly value: RouterAbEd25519YaoProductRegistrationPartitionRecordV1;
   readonly version: number;
 };
+
+type TwoPhaseClaim = {
+  readonly kind: 'test_registration_execute_claim';
+  readonly lifecycleId: string;
+};
+
+type TwoPhaseBackendResponse = { readonly accepted: true };
+
+type TwoPhaseResponse = { readonly status: 'activated' };
+
+type TwoPhaseRejection = { readonly code: 'rejected' };
+
+class TwoPhaseTestHarness {
+  readonly events: string[] = [];
+  readonly store: RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1;
+  readonly causeTerminalConflict: boolean;
+
+  constructor(
+    store: RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
+    causeTerminalConflict = false,
+  ) {
+    this.store = store;
+    this.causeTerminalConflict = causeTerminalConflict;
+  }
+
+  async prepare(
+    state: RouterAbEd25519YaoProductRegistrationStateV1,
+  ): Promise<
+    RouterAbEd25519YaoRegistrationTwoPhasePrepareResultV1<
+      TwoPhaseClaim,
+      TwoPhaseResponse,
+      TwoPhaseRejection
+    >
+  > {
+    this.events.push('prepare');
+    state.registration.lifecycleSessions.set('lifecycle-two-phase', 'executing');
+    return {
+      kind: 'claimed',
+      state,
+      claim: { kind: 'test_registration_execute_claim', lifecycleId: 'lifecycle-two-phase' },
+    };
+  }
+
+  async backend(
+    _claim: TwoPhaseClaim,
+  ): Promise<RouterAbEd25519YaoRegistrationTwoPhaseBackendResultV1<TwoPhaseBackendResponse>> {
+    this.events.push('backend');
+    const snapshot = await this.store.load('lifecycle-two-phase');
+    if (snapshot.state.registration.lifecycleSessions.get('lifecycle-two-phase') !== 'executing') {
+      throw new Error('backend ran before the preclaim was persisted');
+    }
+    return { kind: 'response', value: { accepted: true } };
+  }
+
+  async complete(
+    state: RouterAbEd25519YaoProductRegistrationStateV1,
+    _claim: TwoPhaseClaim,
+    _backend: TwoPhaseBackendResponse,
+  ): Promise<RouterAbEd25519YaoRegistrationTwoPhaseCompletionV1<TwoPhaseResponse>> {
+    this.events.push('complete');
+    if (this.causeTerminalConflict) await this.commitWinner();
+    state.registration.lifecycleSessions.set('lifecycle-two-phase', 'completed');
+    return { state, value: { status: 'activated' } };
+  }
+
+  private async commitWinner(): Promise<void> {
+    const winner = await this.store.load('lifecycle-two-phase');
+    winner.state.registration.lifecycleSessions.set('lifecycle-two-phase', 'winner');
+    const result = await this.store.commit({
+      lifecycleId: 'lifecycle-two-phase',
+      state: winner.state,
+      sharedState: winner.sharedState,
+      sharedVersion: winner.sharedVersion,
+      ceremonyVersion: winner.ceremonyVersion,
+    });
+    if (result.kind !== 'stored') throw new Error('test winner must commit');
+  }
+}
+
+async function uncertainTwoPhaseBackend(
+  _claim: TwoPhaseClaim,
+): Promise<RouterAbEd25519YaoRegistrationTwoPhaseBackendResultV1<TwoPhaseBackendResponse>> {
+  return { kind: 'uncertain', message: 'backend response was lost' };
+}
 
 class MemoryPartitionRecordStore implements RouterAbEd25519YaoProductRegistrationPartitionRecordStoreV1 {
   readonly records = new Map<string, StoredRecord>();
@@ -345,6 +435,87 @@ test.describe('partitioned Gateway product-state composition', () => {
       },
       sharedVersion: '2',
       ceremonyVersion: '2',
+    });
+  });
+
+  test('persists the execution claim before the backend and commits the terminal state', async () => {
+    const backend = new MemoryPartitionRecordStore();
+    const store = createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1(backend);
+    const harness = new TwoPhaseTestHarness(store);
+
+    await expect(
+      runRouterAbEd25519YaoRegistrationTwoPhaseV1({
+        lifecycleId: 'lifecycle-two-phase',
+        store,
+        prepare: harness.prepare.bind(harness),
+        backend: harness.backend.bind(harness),
+        complete: harness.complete.bind(harness),
+      }),
+    ).resolves.toMatchObject({
+      kind: 'committed',
+      value: { status: 'activated' },
+    });
+    expect(harness.events).toEqual(['prepare', 'backend', 'complete']);
+    await expect(store.load('lifecycle-two-phase')).resolves.toMatchObject({
+      state: {
+        registration: {
+          lifecycleSessions: new Map([['lifecycle-two-phase', 'completed']]),
+        },
+      },
+    });
+  });
+
+  test('leaves the durable claim in place when the backend response is uncertain', async () => {
+    const backend = new MemoryPartitionRecordStore();
+    const store = createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1(backend);
+    const harness = new TwoPhaseTestHarness(store);
+
+    await expect(
+      runRouterAbEd25519YaoRegistrationTwoPhaseV1({
+        lifecycleId: 'lifecycle-two-phase',
+        store,
+        prepare: harness.prepare.bind(harness),
+        backend: uncertainTwoPhaseBackend,
+        complete: harness.complete.bind(harness),
+      }),
+    ).resolves.toMatchObject({
+      kind: 'backend_uncertain',
+      claim: { lifecycleId: 'lifecycle-two-phase' },
+    });
+    expect(harness.events).toEqual(['prepare']);
+    await expect(store.load('lifecycle-two-phase')).resolves.toMatchObject({
+      state: {
+        registration: {
+          lifecycleSessions: new Map([['lifecycle-two-phase', 'executing']]),
+        },
+      },
+    });
+  });
+
+  test('reports a terminal CAS conflict without retrying the backend', async () => {
+    const backend = new MemoryPartitionRecordStore();
+    const store = createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1(backend);
+    const harness = new TwoPhaseTestHarness(store, true);
+
+    await expect(
+      runRouterAbEd25519YaoRegistrationTwoPhaseV1({
+        lifecycleId: 'lifecycle-two-phase',
+        store,
+        prepare: harness.prepare.bind(harness),
+        backend: harness.backend.bind(harness),
+        complete: harness.complete.bind(harness),
+      }),
+    ).resolves.toMatchObject({
+      kind: 'terminal_version_mismatch',
+      claim: { lifecycleId: 'lifecycle-two-phase' },
+    });
+    expect(harness.events).toEqual(['prepare', 'backend', 'complete']);
+    await expect(store.load('lifecycle-two-phase')).resolves.toMatchObject({
+      state: {
+        registration: {
+          lifecycleSessions: new Map([['lifecycle-two-phase', 'winner']]),
+        },
+      },
     });
   });
 });
