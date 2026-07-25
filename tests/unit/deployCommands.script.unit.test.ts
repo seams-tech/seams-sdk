@@ -176,7 +176,7 @@ test('frontend commands reject backend-only operations and extra component argum
   expectFailure(runCommand(frontendScript, ['plan', '--target', 'development']), /target/u);
 });
 
-test('backend workflow needs chain matches the backend command plan', () => {
+test('backend workflows deploy independent workers concurrently before router', () => {
   const workflowOrder = [
     'build',
     'preflight',
@@ -223,9 +223,15 @@ test('backend workflow needs chain matches the backend command plan', () => {
     expect(needsOf('build')).toEqual([]);
     expect(needsOf('preflight')).toContain('build');
     expect(needsOf('migrate')).toEqual(expect.arrayContaining(['preflight', 'build']));
-    for (let index = 3; index < workflowOrder.length; index += 1) {
-      expect(needsOf(workflowOrder[index])).toContain(workflowOrder[index - 1]);
-    }
+    expect(needsOf('deploy_signing_worker')).toEqual(['migrate']);
+    expect(needsOf('deploy_deriver_a')).toEqual(['migrate']);
+    expect(needsOf('deploy_deriver_b')).toEqual(['migrate']);
+    expect(needsOf('deploy_router')).toEqual([
+      'deploy_signing_worker',
+      'deploy_deriver_a',
+      'deploy_deriver_b',
+    ]);
+    expect(needsOf('deploy_gateway')).toEqual(['deploy_router']);
   }
 });
 
