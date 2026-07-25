@@ -891,12 +891,14 @@ receipts are recorded.
         against the store its admission used. Each family carries its own
         window; a family with no window stays on the legacy runtime, so one
         family cannot inherit another's elapsed drain.
-  - [ ] Lift the recovery and export authorization and capability adapters out
+  - [x] Lift the recovery and export authorization and capability adapters out
         of the tenant runtime object so the request-scoped handlers can be
-        constructed from the environment. The composition currently takes the
-        runtime-held state as an argument, and building a second set of auth
-        adapters beside it would risk divergence, so this is a prerequisite for
-        wiring rather than part of it.
+        constructed from the environment. `createStagingRecoveryRequestScopedDependencies`
+        and `createStagingExportRequestScopedDependencies` reuse the existing
+        wallet-session and WebAuthn adapters and the request-scoped runtime, so
+        this is composition wiring rather than a second authorization
+        implementation, and they add no new environment surface. They are not
+        called yet.
   - [ ] Wire recovery admission, execution, and activation to the partitioned
         store as one coherent cutover after activation has an idempotent
         side-effect boundary.
