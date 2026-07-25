@@ -12,6 +12,8 @@ mod durable_object;
 mod ecdsa_normal_signing_transport;
 mod ecdsa_pool_lifecycle;
 pub use ecdsa_pool_lifecycle::*;
+mod ed25519_yao_pair_protocol;
+pub use ed25519_yao_pair_protocol::*;
 #[cfg(feature = "workers-rs")]
 mod ed25519_yao_websocket;
 #[cfg(feature = "workers-rs")]
