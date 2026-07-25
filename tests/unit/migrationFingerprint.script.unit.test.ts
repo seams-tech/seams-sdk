@@ -13,7 +13,6 @@ type MigrationSet = {
 
 const repoRoot = path.resolve(import.meta.dirname, '../..');
 const helperPath = path.join(repoRoot, 'scripts/migration-fingerprint.mjs');
-const releasePath = path.join(repoRoot, 'scripts/deployment-release.mjs');
 const applierPath = path.join(
   repoRoot,
   'packages/console-server-ts/scripts/apply-remote-d1-migrations.mjs',
@@ -30,16 +29,6 @@ test('migration fingerprint output is stable per database and uses sorted framed
       '--format',
       'json',
     ]);
-    const releaseOutput = runJsonCommand(releasePath, [
-      'migration-fingerprint',
-      '--database',
-      'console',
-      '--migrations-dir',
-      migrationsDir,
-      '--format',
-      'json',
-    ]);
-
     const expectedHash = createHash('sha256');
     for (const [name, source] of [
       ['0001_first.sql', 'first\n'],
@@ -56,7 +45,6 @@ test('migration fingerprint output is stable per database and uses sorted framed
       fingerprint: expectedHash.digest('hex'),
       migrations: ['0001_first.sql', '0002_second.sql'],
     });
-    expect(releaseOutput).toEqual(helperOutput);
   } finally {
     rmSync(migrationsDir, { recursive: true, force: true });
   }

@@ -62,11 +62,17 @@ npm view @seams/sdk version
 
 ## Deploy Hosted Surfaces
 
-Pushing the release commit to `main` runs the fast push mode of
-`Validate / repository`; successful validation starts
-`Deploy / production / cloudflare-stack`. That workflow
-contains the Router A/B, Gateway, and Pages jobs, so Pages is deployed as part
-of the same environment-bound Cloudflare stack release.
+After the release commit is merged to protected `main`, manually dispatch the
+production backend and frontend workflows from that same `main` revision:
+
+```bash
+gh workflow run deploy-production-backend.yml --ref main
+gh workflow run deploy-production-frontend.yml --ref main
+```
+
+Each workflow builds and deploys its complete lane, then runs its own smoke
+checks. They are independent and use the workflow commit as the source of
+truth.
 
 ## Release Verification
 
@@ -83,9 +89,8 @@ Check:
 
 SDK runtime:
 
-1. Run `Deploy / production / cloudflare-stack` with the previous accepted
-   `source_sha`, `artifact_run_id`, and `release_set_id`.
-2. Keep app and wallet Pages assets on the same known-good release set.
+1. Revert the bad change or land a corrective commit on `main`.
+2. Dispatch both production workflows from that new `main` tip.
 3. Treat secrets, D1 migrations, Durable Object state, and other environment
    state as separate recovery work.
 
@@ -98,10 +103,6 @@ npm deprecate @seams/sdk@X.Y.Z "Use X.Y.Z+1"
 Use `npm unpublish` only inside npm's allowed unpublish window and only when
 deprecation is insufficient.
 
-Relay and Pages:
-
-1. Use the accepted-release stack rollback above as the canonical path.
-2. Use the Cloudflare dashboard only as an emergency provider-specific
-   fallback.
-3. Re-run smoke checks and route forward fixes through `Validate / repository`
-   before redeploying.
+Relay and Pages: use the matching production workflow from the corrective
+`main` commit, then re-run its smoke checks. Use the Cloudflare dashboard only
+as an emergency provider-specific fallback.
