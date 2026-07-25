@@ -1347,6 +1347,7 @@ Initial audit:
 | `tests/unit/helpers/accountAuth.fixtures.ts` | keep | Account-auth fixture helper with one surviving importer. Retain while `tests/unit/accountAuth.fixtures.unit.test.ts` owns the boundary fixture contract; delete if that importer disappears. |
 | `tests/unit/helpers/availableSigningLanes.fixtures.ts` | keep | Available-signing-lane fixture helper used by duplicate-lane unit tests. It supports focused lane inventory coverage rather than a broad mocked lifecycle graph. |
 | `tests/unit/helpers/cloudflareD1RouterApiAuthService.fixtures.ts` | keep | Shared D1 Router API service fixtures split out of the service-factory monolith for route-family tests. The helper has live importers in the retained D1 route-family suites. |
+| `tests/unit/helpers/d1LocalDevYaoPersistence.fixtures.ts` | keep | Focused local-Worker fixture for real-D1 request reconstruction, exact replay, restart, and duplicate-execution contention coverage. |
 | `tests/unit/helpers/d1StagingScriptFixtures.ts` | keep | D1 staging script fixture helper shared by retained staging-script tests. It supports script/runbook coverage outside wallet lifecycle contracts. |
 | `tests/unit/helpers/ecdsaBootstrap.fixtures.ts` | keep | Focused ECDSA bootstrap fixture helper extracted from the deleted warm-session mega-fixture. It is shared by retained ECDSA bootstrap, reconnect, and request-boundary tests. |
 | `tests/unit/helpers/ecdsaChainTarget.fixtures.ts` | keep | Focused ECDSA chain-target helper used by retained ECDSA and warm-session boundary tests. |
@@ -1849,6 +1850,7 @@ Post-baseline current test surface:
 | `tests/unit/cloudflareVersionedJsonRecordStore.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
 | `tests/unit/consoleServer.stripeBillingProvider.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
 | `tests/unit/d1HostedGatewayRouting.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/d1LocalDevYaoPersistenceParity.unit.test.ts` | keep | Real-D1 local Worker behavior coverage for request-scoped registration replay, restart continuity, typed conflict rejection, and one-winner duplicate execution. |
 | `tests/unit/d1RouterApiRuntime.concurrency.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
 | `tests/unit/d1RouterApiStagingServiceBindings.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
 | `tests/unit/d1WalletRegistrationCommitStore.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
