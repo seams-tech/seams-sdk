@@ -105,6 +105,26 @@ export function resolveRouterAbEd25519YaoGatewayRegistrationRouteV1(input: {
   return { kind: 'partitioned_d1', window };
 }
 
+export function routerAbEd25519YaoGatewayUsesPartitionedD1V1(input: {
+  readonly nowMs: number;
+  readonly cutover: RouterAbEd25519YaoGatewayCutoverStateV1;
+}): boolean {
+  const operations: readonly RouterAbEd25519YaoGatewayRegistrationOperationV1[] = [
+    'registration_execute',
+    'recovery_execute',
+    'export_execute',
+  ];
+  for (const operation of operations) {
+    const route = resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({
+      operation,
+      nowMs: input.nowMs,
+      cutover: input.cutover,
+    });
+    if (route.kind !== 'partitioned_d1') return false;
+  }
+  return true;
+}
+
 function validateTimestamp(value: number, label: string): void {
   if (!Number.isSafeInteger(value) || value < 0) {
     throw new Error(`Router A/B Gateway ${label} must be a non-negative safe integer`);

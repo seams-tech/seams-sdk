@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { resolveRouterAbEd25519YaoGatewayRegistrationRouteV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/routerAbEd25519YaoGatewayCutover';
+import {
+  resolveRouterAbEd25519YaoGatewayRegistrationRouteV1,
+  routerAbEd25519YaoGatewayUsesPartitionedD1V1,
+} from '../../packages/sdk-server-ts/src/router/cloudflare/routerAbEd25519YaoGatewayCutover';
 
 test('keeps admission and execute on the legacy runtime throughout the drain window', () => {
   const admissionCutoffMs = 2_000;
@@ -202,4 +205,28 @@ test('the classification finalize resolves with never splits from execute mid-wi
       cutover,
     }).kind,
   ).toBe('partitioned_d1');
+});
+
+test('the outer Gateway leaves the tenant runtime only after every family drains', () => {
+  const elapsed = { admissionCutoffMs: 1_000, drainUntilMs: 2_000 } as const;
+  const pending = { admissionCutoffMs: 8_000, drainUntilMs: 9_000 } as const;
+
+  expect(
+    routerAbEd25519YaoGatewayUsesPartitionedD1V1({
+      nowMs: 5_000,
+      cutover: { registration: elapsed, recovery: elapsed },
+    }),
+  ).toBe(false);
+  expect(
+    routerAbEd25519YaoGatewayUsesPartitionedD1V1({
+      nowMs: 5_000,
+      cutover: { registration: elapsed, recovery: elapsed, export: pending },
+    }),
+  ).toBe(false);
+  expect(
+    routerAbEd25519YaoGatewayUsesPartitionedD1V1({
+      nowMs: 10_000,
+      cutover: { registration: elapsed, recovery: elapsed, export: pending },
+    }),
+  ).toBe(true);
 });
