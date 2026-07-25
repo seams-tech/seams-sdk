@@ -81,3 +81,39 @@ test('rejects invalid deployment timestamps', () => {
     }),
   ).toThrow('admissionCutoffMs');
 });
+
+test('every ceremony phase pairs with the store its admission used', () => {
+  const window = { admissionCutoffMs: 1_000, drainUntilMs: 2_000 } as const;
+  const admissions = ['registration_admission', 'recovery_admission', 'export_admission'] as const;
+  const continuations = [
+    'registration_execute',
+    'recovery_execute',
+    'recovery_activate',
+    'export_execute',
+  ] as const;
+
+  for (const operation of [...admissions, ...continuations]) {
+    expect(
+      resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({ operation, nowMs: 500, ...window }).kind,
+    ).toBe('legacy_runtime');
+    expect(
+      resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({ operation, nowMs: 2_500, ...window })
+        .kind,
+    ).toBe('partitioned_d1');
+  }
+
+  // Inside the drain only admission stops, so a ceremony admitted before the
+  // cutoff finishes every remaining phase on the store it started on.
+  for (const operation of admissions) {
+    expect(
+      resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({ operation, nowMs: 1_500, ...window })
+        .kind,
+    ).toBe('admission_blocked');
+  }
+  for (const operation of continuations) {
+    expect(
+      resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({ operation, nowMs: 1_500, ...window })
+        .kind,
+    ).toBe('legacy_runtime');
+  }
+});
