@@ -45,8 +45,16 @@ export interface RouterAbEd25519YaoRegistrationSideEffectStoreV1<T, P = undefine
   ): Promise<CloudflareVersionedJsonRecordPutResult>;
 }
 
+/**
+ * `attempt` is `resumed` when a prior attempt already persisted this artifact
+ * and broadcast an effect whose outcome was never observed. A replay-safe
+ * effect should reconcile before repeating itself.
+ */
+export type RouterAbEd25519YaoRegistrationSideEffectAttemptV1 = 'fresh' | 'resumed';
+
 export type RouterAbEd25519YaoRegistrationSideEffectExecutionV1<T, P = undefined> = (
   prepared: P | undefined,
+  attempt: RouterAbEd25519YaoRegistrationSideEffectAttemptV1,
 ) => Promise<T>;
 
 export type RouterAbEd25519YaoRegistrationSideEffectRunInputV1<T, P = undefined> = {
@@ -173,7 +181,7 @@ export async function runRouterAbEd25519YaoRegistrationSideEffectV1<T, P = undef
 
   let response: T;
   try {
-    response = await input.execute(prepared);
+    response = await input.execute(prepared, resumable ? 'resumed' : 'fresh');
   } catch (error: unknown) {
     return uncertainResult('effect', error);
   }

@@ -426,6 +426,59 @@ async function fundImplicitNearAccountForOptions(
   });
 }
 
+/**
+ * Validates a persisted claim before it is trusted to skip a broadcast or to be
+ * replayed. A record that does not parse is treated as absent, which fails
+ * closed into a fresh claim attempt rather than acting on unvalidated bytes.
+ */
+function parseSponsoredNearAccountSideEffectRecord(
+  raw: unknown,
+): RouterAbEd25519YaoRegistrationSideEffectRecordV1<
+  AccountCreationResult,
+  PreparedSponsoredNearAccountCreationV1
+> | null {
+  if (raw === null || typeof raw !== 'object') return null;
+  const record = raw as Record<string, unknown>;
+  if (record.operation !== 'finalize') return null;
+  if (typeof record.requestFingerprint !== 'string' || !record.requestFingerprint) return null;
+  if (!Number.isSafeInteger(record.claimedAtMs)) return null;
+  if (record.kind === 'router_ab_ed25519_yao_registration_side_effect_claim_v1') {
+    const prepared = record.prepared;
+    if (prepared !== undefined && !isPreparedSponsoredNearAccountCreation(prepared)) return null;
+    return record as unknown as RouterAbEd25519YaoRegistrationSideEffectRecordV1<
+      AccountCreationResult,
+      PreparedSponsoredNearAccountCreationV1
+    >;
+  }
+  if (record.kind === 'router_ab_ed25519_yao_registration_side_effect_completion_v1') {
+    if (!Number.isSafeInteger(record.completedAtMs)) return null;
+    const response = record.response;
+    if (response === null || typeof response !== 'object') return null;
+    if (typeof (response as Record<string, unknown>).success !== 'boolean') return null;
+    return record as unknown as RouterAbEd25519YaoRegistrationSideEffectRecordV1<
+      AccountCreationResult,
+      PreparedSponsoredNearAccountCreationV1
+    >;
+  }
+  return null;
+}
+
+function isPreparedSponsoredNearAccountCreation(value: unknown): boolean {
+  if (value === null || typeof value !== 'object') return false;
+  const prepared = value as Record<string, unknown>;
+  if (prepared.kind !== 'prepared_sponsored_near_account_creation_v1') return false;
+  if (typeof prepared.accountId !== 'string' || !prepared.accountId) return false;
+  if (typeof prepared.transactionHash !== 'string' || !prepared.transactionHash) return false;
+  const signed = prepared.signedTransaction;
+  if (signed === null || typeof signed !== 'object') return false;
+  const bytes = (signed as Record<string, unknown>).borsh_bytes;
+  return (
+    Array.isArray(bytes) &&
+    bytes.length > 0 &&
+    bytes.every((byte) => Number.isInteger(byte) && (byte as number) >= 0 && (byte as number) < 256)
+  );
+}
+
 function sponsoredNearAccountSideEffectStore(
   options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
 ): RouterAbEd25519YaoRegistrationSideEffectStoreV1<
@@ -447,13 +500,7 @@ function sponsoredNearAccountSideEffectStore(
     },
     keyPrefix: 'router-ab-yao-sponsored-account:',
     encode: (value) => value as unknown as CloudflareVersionedJsonObject,
-    parse: (raw: unknown) =>
-      raw === null || typeof raw !== 'object'
-        ? null
-        : (raw as RouterAbEd25519YaoRegistrationSideEffectRecordV1<
-            AccountCreationResult,
-            PreparedSponsoredNearAccountCreationV1
-          >),
+    parse: parseSponsoredNearAccountSideEffectRecord,
   });
 }
 
@@ -502,9 +549,22 @@ async function createSponsoredNamedNearAccountForOptions(
       if (!prepared.ok) throw new Error(prepared.message);
       return prepared.prepared;
     },
-    execute: async (prepared) => {
+    execute: async (prepared, attempt) => {
       if (!prepared) throw new Error('Sponsored NEAR account transaction was not prepared');
-      return await broadcastPreparedSponsoredNearAccountCreation({ prepared, nearRpcUrl });
+      const broadcast = await broadcastPreparedSponsoredNearAccountCreation({
+        prepared,
+        nearRpcUrl,
+        relayerAccountId: relayerAccount,
+        // A resumed attempt follows a broadcast whose outcome was never
+        // observed, so settle it against the chain before resubmitting.
+        reconcileFirst: attempt === 'resumed',
+      });
+      if (broadcast.kind === 'uncertain') {
+        // Throwing keeps the claim open so a later retry reconciles. Returning
+        // here would persist a possibly-landed transaction as a terminal failure.
+        throw new Error(broadcast.message);
+      }
+      return broadcast.result;
     },
   });
   switch (outcome.kind) {

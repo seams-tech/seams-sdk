@@ -487,3 +487,80 @@ test.describe('registration side-effect prepared artifacts', () => {
     expect(broadcasts).toHaveLength(1);
   });
 });
+
+test.describe('ambiguous effects are never persisted as terminal', () => {
+  type PreparedTx = { readonly transactionHash: string };
+  type BroadcastResult = { readonly success: boolean };
+
+  const KEY = 'registration-finalize:lifecycle-ambiguous';
+
+  function ambiguousRunInput(input: {
+    readonly prepareCalls: { count: number };
+    readonly attempts: string[];
+    readonly settleOnResume: boolean;
+  }) {
+    return {
+      operation: 'finalize' as const,
+      key: KEY,
+      requestFingerprint: REQUEST_FINGERPRINT,
+      nowMs: fixedNow,
+      resumeWithPrepared: true as const,
+      prepare: async (): Promise<PreparedTx> => {
+        input.prepareCalls.count += 1;
+        return { transactionHash: `tx-${input.prepareCalls.count}` };
+      },
+      execute: async (
+        prepared: PreparedTx | undefined,
+        attempt: 'fresh' | 'resumed',
+      ): Promise<BroadcastResult> => {
+        if (!prepared) throw new Error('missing prepared transaction');
+        input.attempts.push(attempt);
+        if (attempt === 'resumed' && input.settleOnResume) return { success: true };
+        // Production reports an unobservable outcome by throwing, so the claim
+        // stays open instead of recording a transaction that may be on chain.
+        throw new Error('RPC timed out after submission');
+      },
+    };
+  }
+
+  test('an unobservable broadcast leaves the claim open rather than recording failure', async () => {
+    const store = new RegistrationSideEffectMemoryStore<BroadcastResult, PreparedTx>();
+    const prepareCalls = { count: 0 };
+    const attempts: string[] = [];
+
+    const first = await runRouterAbEd25519YaoRegistrationSideEffectV1<BroadcastResult, PreparedTx>(
+      store,
+      ambiguousRunInput({ prepareCalls, attempts, settleOnResume: false }),
+    );
+
+    expect(first.kind).toBe('uncertain');
+    const persisted = await store.read(KEY);
+    expect(persisted.kind).toBe('present');
+    if (persisted.kind === 'present') {
+      // A completion here would replay a possibly-successful transaction as a
+      // permanent failure on every later retry.
+      expect(persisted.value.kind).toBe(
+        'router_ab_ed25519_yao_registration_side_effect_claim_v1',
+      );
+    }
+  });
+
+  test('a resumed attempt is told it is resuming so it can reconcile', async () => {
+    const store = new RegistrationSideEffectMemoryStore<BroadcastResult, PreparedTx>();
+    const prepareCalls = { count: 0 };
+    const attempts: string[] = [];
+
+    await runRouterAbEd25519YaoRegistrationSideEffectV1<BroadcastResult, PreparedTx>(
+      store,
+      ambiguousRunInput({ prepareCalls, attempts, settleOnResume: false }),
+    );
+    const resumed = await runRouterAbEd25519YaoRegistrationSideEffectV1<
+      BroadcastResult,
+      PreparedTx
+    >(store, ambiguousRunInput({ prepareCalls, attempts, settleOnResume: true }));
+
+    expect(resumed).toEqual({ kind: 'executed', value: { success: true } });
+    expect(attempts).toEqual(['fresh', 'resumed']);
+    expect(prepareCalls.count).toBe(1);
+  });
+});
