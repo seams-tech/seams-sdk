@@ -769,34 +769,25 @@ before production.
 
 ## Open Questions
 
-**Full-lane cost is now measured, and a gateway-only fast path is the wrong
-lever.** The measurements in Phase 4 Results put a full staging backend lane at
+**Full-lane cost is now measured, and independent workers deploy concurrently.**
+The measurements in Phase 4 Results put the original staging backend lane at
 33.6 minutes, above the 20-minute threshold this question originally set. But
 the breakdown shows where the time actually goes, and it is not the Gateway:
 
 - Build: 10.3 minutes, paid by every lane including any fast path.
-- Four Rust Worker deploys, strictly sequential: 5.3 + 4.8 + 5.5 + 5.5 = 21.1
-  minutes, or 63% of the lane.
+- SigningWorker, Deriver A, and Deriver B originally took 15.6 minutes in a
+  sequential chain.
+- Router took 5.5 minutes.
 - Gateway deploy: 0.7 minutes.
 - Preflight (five parallel legs) and migrate: under 1 minute combined.
 
-A gateway-only entrypoint would still pay the 10.3-minute build to save a
-0.7-minute deploy, landing near 12 minutes. The larger lever is that
-`signing-worker`, `deriver-a`, and `deriver-b` are chained sequentially by
-`needs:` although they are independent custody domains with no ordering
-requirement between them. Running those three concurrently and keeping `router`
-after them would cut roughly 10 minutes, taking the lane to about 23 minutes
-without adding an entrypoint, a conditional, or a second preflight.
-
-That change is not made here because it needs a protocol answer this document
-cannot supply: deploying Deriver A and Deriver B concurrently changes the shape
-of the A/B version-skew window during a release. Sequential deployment does not
-remove that window — it lengthens it — so concurrency is plausibly the safer
-option, but `docs/refactor-93.md` owns the ceremony's skew tolerance and should
-rule before the `needs:` edges change.
-
-Recommendation: leave the lane sequential for now, and treat A/B/signing-worker
-concurrency as the first optimisation to evaluate, ahead of any fast path.
+SigningWorker, Deriver A, and Deriver B now all depend directly on migration and
+deploy concurrently. Router waits for all three; Gateway remains last. This
+removes roughly 10 minutes from the measured lane without adding an entrypoint,
+conditional, or shared custody job. Deployment ordering is not a protocol
+compatibility mechanism because these workers may be released independently
+from separate repositories and Cloudflare accounts. Compatibility belongs at
+their request boundaries.
 
 **Cloudflare resource checks.** Preflight validates target syntax, capability
 requirements, and required secret presence. It does not inventory Cloudflare
