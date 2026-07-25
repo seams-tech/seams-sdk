@@ -1,6 +1,8 @@
 use crate::authenticate_local_ed25519_yao_deriver_b_peer_http_v1;
+use crate::local_ed25519_yao_pair::verify_local_pair_readiness_receipt_v1;
 use crate::local_ed25519_yao_refresh::LocalEd25519YaoEffectiveIdentityV1;
 use crate::local_ed25519_yao_signing_worker::LocalEd25519YaoSigningWorkerDurableStateV1;
+use crate::local_ed25519_yao_stream::authenticate_local_ed25519_yao_deriver_b_peer_http_with_pair_v1;
 use crate::{
     build_local_activation_deriver_a_with_server_v1,
     build_local_activation_deriver_b_with_server_v1, build_local_export_deriver_a_with_server_v1,
@@ -18,10 +20,11 @@ use crate::{
     open_local_ed25519_yao_refresh_deriver_a_input_v1,
     open_local_ed25519_yao_refresh_deriver_b_input_v1, read_local_dev_http_request_v1,
     require_local_dev_internal_service_auth_v1, run_local_activation_deriver_a_http_v1,
+    run_local_activation_deriver_a_pair_http_v1,
     run_local_activation_deriver_b_authenticated_http_v1, run_local_export_deriver_a_http_v1,
-    run_local_export_deriver_b_authenticated_http_v1, seal_local_ed25519_yao_package_v1,
-    write_local_dev_http_response_v1, Ed25519YaoDeriverRoleV1, Ed25519YaoEncryptedInputV1,
-    Ed25519YaoEncryptedPackageV1, Ed25519YaoPackageKindV1,
+    run_local_export_deriver_a_pair_http_v1, run_local_export_deriver_b_authenticated_http_v1,
+    seal_local_ed25519_yao_package_v1, write_local_dev_http_response_v1, Ed25519YaoDeriverRoleV1,
+    Ed25519YaoEncryptedInputV1, Ed25519YaoEncryptedPackageV1, Ed25519YaoPackageKindV1,
     LocalEd25519YaoActivationDeriverARequestV1, LocalEd25519YaoActivationDeriverBRequestV1,
     LocalEd25519YaoActivationRecipientsV1, LocalEd25519YaoDeriverAEffectiveStateV1,
     LocalEd25519YaoDeriverAPreparedRefreshV1, LocalEd25519YaoDeriverARefreshDeltaWireV1,
@@ -32,8 +35,8 @@ use crate::{
     LocalEd25519YaoSigningWorkerRecoveryPromotionRequestV1,
     LocalEd25519YaoSigningWorkerRefreshPackageDeliveryV1, LocalEd25519YaoSigningWorkerStateV1,
     LocalWorkerRoleConfigV1, LOCAL_DERIVER_A_ED25519_YAO_ACTIVATION_START_PATH,
-    LOCAL_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH, LOCAL_DERIVER_A_ED25519_YAO_EXPORT_START_PATH,
-    LOCAL_DERIVER_A_ED25519_YAO_PREPARE_PAIR_PATH,
+    LOCAL_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH, LOCAL_DERIVER_A_ED25519_YAO_EXECUTE_PAIR_PATH,
+    LOCAL_DERIVER_A_ED25519_YAO_EXPORT_START_PATH, LOCAL_DERIVER_A_ED25519_YAO_PREPARE_PAIR_PATH,
     LOCAL_DERIVER_A_ED25519_YAO_READ_PAIR_STATUS_PATH,
     LOCAL_DERIVER_A_ED25519_YAO_REFRESH_CLIENT_PACKAGE_PATH,
     LOCAL_DERIVER_A_ED25519_YAO_REFRESH_PROMOTE_PATH,
@@ -43,6 +46,7 @@ use crate::{
     LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_STAGE_PATH, LOCAL_DERIVER_B_ED25519_YAO_BURN_PAIR_PATH,
     LOCAL_DERIVER_B_ED25519_YAO_EXPORT_RESULT_PATH, LOCAL_DERIVER_B_ED25519_YAO_EXPORT_STAGE_PATH,
     LOCAL_DERIVER_B_ED25519_YAO_PEER_PATH, LOCAL_DERIVER_B_ED25519_YAO_PREPARE_PAIR_PATH,
+    LOCAL_DERIVER_B_ED25519_YAO_READ_COMPLETED_PAIR_PATH,
     LOCAL_DERIVER_B_ED25519_YAO_READ_PAIR_STATUS_PATH,
     LOCAL_DERIVER_B_ED25519_YAO_REFRESH_CLIENT_PACKAGE_PATH,
     LOCAL_DERIVER_B_ED25519_YAO_REFRESH_DELTA_PATH,
@@ -59,9 +63,11 @@ use crate::{
 };
 use crate::{LocalEd25519YaoPairLifecycleV1, LocalEd25519YaoPairSigningKeysV1};
 use router_ab_core::{
-    ed25519_yao_encrypted_input_digest_v1, Ed25519YaoCeremonyBindingV1, Ed25519YaoOperationV1,
-    Ed25519YaoRefreshBindingV1, Ed25519YaoStateEpochV1, LocalServiceRoleV1, RouterAbProtocolError,
-    RouterAbProtocolErrorCode, RouterAbProtocolResult,
+    ed25519_yao_encrypted_input_digest_v1, Ed25519YaoCeremonyBindingV1, Ed25519YaoExecutionIdV1,
+    Ed25519YaoOperationV1, Ed25519YaoRefreshBindingV1, Ed25519YaoRoleSignatureSchemeV1,
+    Ed25519YaoRoleStartAcceptanceV1, Ed25519YaoSessionIdV1, Ed25519YaoStateEpochV1,
+    LocalServiceRoleV1, PublicDigest32, RouterAbProtocolError, RouterAbProtocolErrorCode,
+    RouterAbProtocolResult,
 };
 use router_ab_ed25519_yao::relay::{ActivationDeriverACompletion, ActivationDeriverBCompletion};
 use router_ab_ed25519_yao::{
@@ -80,6 +86,7 @@ use std::{
 use zeroize::{Zeroize, Zeroizing};
 
 use router_ab_cloudflare::{
+    CloudflareEd25519YaoPairCompletionAcknowledgementV1, CloudflareEd25519YaoPairExecuteRequestV1,
     CloudflareEd25519YaoPairPrepareRequestV1, CloudflareEd25519YaoPairStatusResponseV1,
     CloudflareEd25519YaoReadCompletedPairRequestV1,
 };
@@ -172,11 +179,29 @@ pub enum LocalEd25519YaoPairRoleRecordV1 {
     Prepared {
         session: [u8; 32],
         pair_digest: [u8; 32],
+        pair_binding: Box<router_ab_core::Ed25519YaoInputPairBindingV1>,
         input_digest: [u8; 32],
         root_metadata_digest: [u8; 32],
         expires_at_ms: u64,
         input: Box<Ed25519YaoEncryptedInputV1>,
         receipt: Box<router_ab_core::Ed25519YaoRoleReadinessReceiptV1>,
+    },
+    Running {
+        session: [u8; 32],
+        pair_digest: [u8; 32],
+        pair_binding: Box<router_ab_core::Ed25519YaoInputPairBindingV1>,
+        input_digest: [u8; 32],
+        root_metadata_digest: [u8; 32],
+        expires_at_ms: u64,
+        execution_id: [u8; 32],
+        input: Box<Ed25519YaoEncryptedInputV1>,
+        receipt: Box<router_ab_core::Ed25519YaoRoleReadinessReceiptV1>,
+    },
+    Completed {
+        session: [u8; 32],
+        pair_digest: [u8; 32],
+        execution_id: [u8; 32],
+        execution: Box<Ed25519YaoRoleExecutionV1>,
     },
     Expired {
         session: [u8; 32],
@@ -414,6 +439,7 @@ fn validate_pair_role_record(
         LocalEd25519YaoPairRoleRecordV1::Prepared {
             session,
             pair_digest,
+            pair_binding,
             input_digest,
             root_metadata_digest,
             expires_at_ms,
@@ -431,7 +457,10 @@ fn validate_pair_role_record(
                 ));
             }
             input.validate()?;
+            pair_binding.validate()?;
             if input.session() != *session
+                || pair_binding.session() != *session
+                || pair_binding.pair_digest().bytes != *pair_digest
                 || receipt.session().into_bytes() != *session
                 || receipt.pair_digest().bytes != *pair_digest
                 || receipt.local_input_digest().bytes != *input_digest
@@ -443,6 +472,79 @@ fn validate_pair_role_record(
             {
                 return Err(invalid_worker_state(
                     "persisted pair preparation identity does not match its receipt",
+                ));
+            }
+        }
+        LocalEd25519YaoPairRoleRecordV1::Running {
+            session,
+            pair_digest,
+            pair_binding,
+            input_digest,
+            root_metadata_digest,
+            expires_at_ms,
+            execution_id,
+            input,
+            receipt,
+        } => {
+            if session.iter().all(|byte| *byte == 0)
+                || pair_digest.iter().all(|byte| *byte == 0)
+                || input_digest.iter().all(|byte| *byte == 0)
+                || root_metadata_digest.iter().all(|byte| *byte == 0)
+                || expires_at_ms == &0
+                || execution_id.iter().all(|byte| *byte == 0)
+            {
+                return Err(invalid_worker_state(
+                    "persisted running pair has an empty identity or time",
+                ));
+            }
+            input.validate()?;
+            pair_binding.validate()?;
+            if input.session() != *session
+                || pair_binding.session() != *session
+                || pair_binding.pair_digest().bytes != *pair_digest
+                || receipt.session_bytes() != *session
+                || receipt.pair_digest().bytes != *pair_digest
+                || receipt.local_input_digest().bytes != *input_digest
+                || receipt.root_metadata_digest().bytes != *root_metadata_digest
+                || ((role == LocalServiceRoleV1::DeriverA
+                    && receipt.role() != Ed25519YaoDeriverRoleV1::DeriverA)
+                    || (role == LocalServiceRoleV1::DeriverB
+                        && receipt.role() != Ed25519YaoDeriverRoleV1::DeriverB))
+            {
+                return Err(invalid_worker_state(
+                    "persisted running pair identity does not match its receipt",
+                ));
+            }
+        }
+        LocalEd25519YaoPairRoleRecordV1::Completed {
+            session,
+            pair_digest,
+            execution_id,
+            execution,
+        } => {
+            if session.iter().all(|byte| *byte == 0)
+                || pair_digest.iter().all(|byte| *byte == 0)
+                || execution_id.iter().all(|byte| *byte == 0)
+            {
+                return Err(invalid_worker_state(
+                    "persisted completed pair has an empty identity",
+                ));
+            }
+            execution.validate()?;
+            if execution.session() != *session
+                || execution.deriver()
+                    != match role {
+                        LocalServiceRoleV1::DeriverA => Ed25519YaoDeriverRoleV1::DeriverA,
+                        LocalServiceRoleV1::DeriverB => Ed25519YaoDeriverRoleV1::DeriverB,
+                        _ => {
+                            return Err(invalid_worker_state(
+                                "pair completion cannot belong to this worker role",
+                            ))
+                        }
+                    }
+            {
+                return Err(invalid_worker_state(
+                    "persisted completed pair identity does not match its role",
                 ));
             }
         }
@@ -466,6 +568,8 @@ fn validate_pair_role_record(
 fn pair_role_record_digest(record: &LocalEd25519YaoPairRoleRecordV1) -> [u8; 32] {
     match record {
         LocalEd25519YaoPairRoleRecordV1::Prepared { pair_digest, .. }
+        | LocalEd25519YaoPairRoleRecordV1::Running { pair_digest, .. }
+        | LocalEd25519YaoPairRoleRecordV1::Completed { pair_digest, .. }
         | LocalEd25519YaoPairRoleRecordV1::Expired { pair_digest, .. }
         | LocalEd25519YaoPairRoleRecordV1::Burned { pair_digest, .. } => *pair_digest,
     }
@@ -592,6 +696,9 @@ pub enum LocalEd25519YaoConnectionDispatchV1 {
     Unhandled(TcpStream),
 }
 
+pub type LocalEd25519YaoPersistBeforeNetworkV1<'a> =
+    &'a mut dyn FnMut(&LocalEd25519YaoWorkerStateV1) -> Result<(), Box<dyn std::error::Error>>;
+
 enum LocalEd25519YaoRequestClassV1 {
     Peer,
     Control,
@@ -629,13 +736,28 @@ enum LocalEd25519YaoRoleExecutionResultRequestV1 {
 }
 
 pub fn dispatch_local_ed25519_yao_connection_v1(
-    mut stream: TcpStream,
+    stream: TcpStream,
     config: &LocalWorkerRoleConfigV1,
     state: &mut LocalEd25519YaoWorkerStateV1,
 ) -> Result<LocalEd25519YaoConnectionDispatchV1, Box<dyn std::error::Error>> {
+    let mut no_persist = |_state: &LocalEd25519YaoWorkerStateV1| Ok(());
+    dispatch_local_ed25519_yao_connection_with_persistence_v1(
+        stream,
+        config,
+        state,
+        &mut no_persist,
+    )
+}
+
+pub fn dispatch_local_ed25519_yao_connection_with_persistence_v1(
+    mut stream: TcpStream,
+    config: &LocalWorkerRoleConfigV1,
+    state: &mut LocalEd25519YaoWorkerStateV1,
+    persist_before_network: LocalEd25519YaoPersistBeforeNetworkV1<'_>,
+) -> Result<LocalEd25519YaoConnectionDispatchV1, Box<dyn std::error::Error>> {
     match classify_request(&stream)? {
         LocalEd25519YaoRequestClassV1::Peer if config.role() == LocalServiceRoleV1::DeriverB => {
-            handle_deriver_b_peer_stream(stream, state)?;
+            handle_deriver_b_peer_stream(stream, config, state, persist_before_network)?;
             return Ok(LocalEd25519YaoConnectionDispatchV1::Handled);
         }
         LocalEd25519YaoRequestClassV1::Control => {}
@@ -645,7 +767,8 @@ pub fn dispatch_local_ed25519_yao_connection_v1(
     }
 
     let mut request = read_local_dev_http_request_v1(&mut stream)?;
-    let result = handle_yao_control_request(&mut stream, config, state, &request);
+    let result =
+        handle_yao_control_request(&mut stream, config, state, &request, persist_before_network);
     request.body.fill(0);
     if let Err(error) = result {
         let (status, body) =
@@ -660,6 +783,7 @@ fn handle_yao_control_request(
     config: &LocalWorkerRoleConfigV1,
     state: &mut LocalEd25519YaoWorkerStateV1,
     request: &crate::LocalDevHttpRequestPartsV1,
+    persist_before_network: LocalEd25519YaoPersistBeforeNetworkV1<'_>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     require_local_dev_internal_service_auth_v1(request).map_err(io::Error::other)?;
     match (config, request.path.as_str()) {
@@ -694,6 +818,20 @@ fn handle_yao_control_request(
             write_local_dev_http_response_v1(stream, 200, &serde_json::to_string(&receipt)?)
         }
         (
+            LocalWorkerRoleConfigV1::DeriverA(config),
+            LOCAL_DERIVER_A_ED25519_YAO_EXECUTE_PAIR_PATH,
+        ) => {
+            let pair_request =
+                serde_json::from_slice::<CloudflareEd25519YaoPairExecuteRequestV1>(&request.body)?;
+            let execution = execute_local_pair_deriver_a_v1(
+                state,
+                config,
+                pair_request,
+                persist_before_network,
+            )?;
+            write_local_dev_http_response_v1(stream, 200, &serde_json::to_string(&execution)?)
+        }
+        (
             LocalWorkerRoleConfigV1::DeriverA(_),
             LOCAL_DERIVER_A_ED25519_YAO_READ_PAIR_STATUS_PATH,
         )
@@ -706,6 +844,16 @@ fn handle_yao_control_request(
             )?;
             let status = read_local_pair_role_status_v1(state, lookup)?;
             write_local_dev_http_response_v1(stream, 200, &serde_json::to_string(&status)?)
+        }
+        (
+            LocalWorkerRoleConfigV1::DeriverB(_),
+            LOCAL_DERIVER_B_ED25519_YAO_READ_COMPLETED_PAIR_PATH,
+        ) => {
+            let lookup = serde_json::from_slice::<CloudflareEd25519YaoReadCompletedPairRequestV1>(
+                &request.body,
+            )?;
+            let acknowledgement = read_local_pair_completion_v1(state, lookup)?;
+            write_local_dev_http_response_v1(stream, 200, &serde_json::to_string(&acknowledgement)?)
         }
         (LocalWorkerRoleConfigV1::DeriverA(_), LOCAL_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH)
         | (LocalWorkerRoleConfigV1::DeriverB(_), LOCAL_DERIVER_B_ED25519_YAO_BURN_PAIR_PATH) => {
@@ -864,7 +1012,8 @@ fn handle_yao_control_request(
             consume_deriver_a_session(state, session)?;
             state.completed_deriver_a = None;
             let completion = run_local_activation_deriver_a_http_v1(
-                http_authority(&config.deriver_b_url)?,
+                http_authority(&config.deriver_b_url)
+                    .map_err(|_| pair_execution_error("Deriver B URL is malformed"))?,
                 session,
                 &local_router_ab_internal_service_auth_secret_v1(),
                 role,
@@ -928,7 +1077,8 @@ fn handle_yao_control_request(
             consume_deriver_a_session(state, session)?;
             state.completed_deriver_a = None;
             let completion = run_local_export_deriver_a_http_v1(
-                http_authority(&config.deriver_b_url)?,
+                http_authority(&config.deriver_b_url)
+                    .map_err(|_| pair_execution_error("Deriver B URL is malformed"))?,
                 session,
                 &local_router_ab_internal_service_auth_secret_v1(),
                 role,
@@ -1199,6 +1349,12 @@ fn prepare_local_pair_role_v1(
             | LocalEd25519YaoPairRoleRecordV1::Burned { .. } => {
                 Err(invalid_worker_state("pair role lifecycle is terminal"))
             }
+            LocalEd25519YaoPairRoleRecordV1::Running { .. } => {
+                Err(invalid_worker_state("pair role is already running"))
+            }
+            LocalEd25519YaoPairRoleRecordV1::Completed { .. } => Err(invalid_worker_state(
+                "pair role lifecycle is already completed",
+            )),
         };
     }
     let expires_at_ms = now_ms
@@ -1225,6 +1381,7 @@ fn prepare_local_pair_role_v1(
         LocalEd25519YaoPairRoleRecordV1::Prepared {
             session: request.pair_binding.session(),
             pair_digest,
+            pair_binding: Box::new(request.pair_binding.clone()),
             input_digest,
             root_metadata_digest,
             expires_at_ms,
@@ -1233,6 +1390,329 @@ fn prepare_local_pair_role_v1(
         },
     );
     Ok(receipt)
+}
+
+fn execute_local_pair_deriver_a_v1(
+    state: &mut LocalEd25519YaoWorkerStateV1,
+    config: &crate::LocalDeriverAWorkerConfigV1,
+    request: CloudflareEd25519YaoPairExecuteRequestV1,
+    persist_before_network: LocalEd25519YaoPersistBeforeNetworkV1<'_>,
+) -> RouterAbProtocolResult<Ed25519YaoRoleExecutionV1> {
+    let pair_digest = request.pair_binding.pair_digest().bytes;
+    let result =
+        execute_local_pair_deriver_a_inner_v1(state, config, request, persist_before_network);
+    if result.is_err()
+        && matches!(
+            state.pair_roles.get(&pair_digest),
+            Some(LocalEd25519YaoPairRoleRecordV1::Running { .. })
+        )
+    {
+        let session = match state.pair_roles.get(&pair_digest) {
+            Some(LocalEd25519YaoPairRoleRecordV1::Running { session, .. }) => *session,
+            _ => unreachable!("running pair disappeared during failure handling"),
+        };
+        state.pair_roles.insert(
+            pair_digest,
+            LocalEd25519YaoPairRoleRecordV1::Burned {
+                session,
+                pair_digest,
+            },
+        );
+    }
+    result
+}
+
+fn execute_local_pair_deriver_a_inner_v1(
+    state: &mut LocalEd25519YaoWorkerStateV1,
+    config: &crate::LocalDeriverAWorkerConfigV1,
+    request: CloudflareEd25519YaoPairExecuteRequestV1,
+    persist_before_network: LocalEd25519YaoPersistBeforeNetworkV1<'_>,
+) -> RouterAbProtocolResult<Ed25519YaoRoleExecutionV1> {
+    request.pair_binding.validate()?;
+    request
+        .peer_receipt
+        .validate_for_pair(&request.pair_binding)?;
+    if request.peer_receipt.role() != Ed25519YaoDeriverRoleV1::DeriverB {
+        return Err(invalid_worker_state(
+            "Deriver A pair execution requires a Deriver B readiness receipt",
+        ));
+    }
+    verify_local_pair_readiness_receipt_v1(
+        &request.peer_receipt,
+        local_pair_verifying_key_v1(&config.deriver_b_peer_verifying_key)?,
+    )?;
+    let pair_digest = request.pair_binding.pair_digest().bytes;
+    let execution_id = Ed25519YaoExecutionIdV1::new(pair_digest)?;
+    let record = state
+        .pair_roles
+        .get(&pair_digest)
+        .cloned()
+        .ok_or_else(|| invalid_worker_state("Deriver A pair is not prepared"))?;
+    let LocalEd25519YaoPairRoleRecordV1::Prepared {
+        session,
+        pair_digest: stored_pair_digest,
+        pair_binding,
+        input_digest,
+        root_metadata_digest,
+        expires_at_ms,
+        input,
+        receipt,
+    } = record
+    else {
+        return match record {
+            LocalEd25519YaoPairRoleRecordV1::Completed {
+                execution_id: stored_execution_id,
+                execution,
+                ..
+            } if stored_execution_id == execution_id.into_bytes() => Ok(*execution),
+            LocalEd25519YaoPairRoleRecordV1::Completed { .. } => Err(invalid_worker_state(
+                "Deriver A pair completion identity mismatch",
+            )),
+            LocalEd25519YaoPairRoleRecordV1::Running { .. } => {
+                Err(invalid_worker_state("Deriver A pair is already running"))
+            }
+            LocalEd25519YaoPairRoleRecordV1::Expired { .. }
+            | LocalEd25519YaoPairRoleRecordV1::Burned { .. } => {
+                Err(invalid_worker_state("Deriver A pair lifecycle is terminal"))
+            }
+            LocalEd25519YaoPairRoleRecordV1::Prepared { .. } => unreachable!(),
+        };
+    };
+    if stored_pair_digest != pair_digest || *pair_binding != request.pair_binding {
+        return Err(invalid_worker_state("Deriver A pair identity mismatch"));
+    }
+    let now_ms = crate::local_now_unix_ms_v1()?;
+    if now_ms >= expires_at_ms {
+        state.pair_roles.insert(
+            pair_digest,
+            LocalEd25519YaoPairRoleRecordV1::Expired {
+                session,
+                pair_digest,
+            },
+        );
+        return Err(invalid_worker_state("Deriver A pair preparation expired"));
+    }
+    let running = LocalEd25519YaoPairRoleRecordV1::Running {
+        session,
+        pair_digest,
+        pair_binding: pair_binding.clone(),
+        input_digest,
+        root_metadata_digest,
+        expires_at_ms: now_ms
+            .checked_add(60_000)
+            .ok_or_else(|| invalid_worker_state("Deriver A pair running expiry overflow"))?,
+        execution_id: execution_id.into_bytes(),
+        input: input.clone(),
+        receipt: receipt.clone(),
+    };
+    state.pair_roles.insert(pair_digest, running);
+    persist_before_network(state)
+        .map_err(|_| invalid_worker_state("Deriver A running pair persistence failed"))?;
+    let private_key = deriver_input_private_key(&config.envelope_hpke_private_key)
+        .map_err(|_| invalid_worker_state("Deriver A pair input key is malformed"))?;
+    let execution = match input.kind() {
+        router_ab_core::Ed25519YaoInputKindV1::Activation => {
+            let role_request =
+                open_local_ed25519_yao_activation_deriver_a_input_v1(&input, &private_key)?;
+            if role_request.binding != pair_binding.binding().clone() {
+                return Err(pair_execution_error(
+                    "Deriver A pair activation binding mismatch",
+                ));
+            }
+            let recipients = role_request.recipients;
+            let (binding, role, initial_effective) =
+                build_deriver_a_activation_from_effective_state(config, state, role_request)?;
+            let (completion, acceptance) = run_local_activation_deriver_a_pair_http_v1(
+                http_authority(&config.deriver_b_url)
+                    .map_err(|_| pair_execution_error("Deriver B URL is malformed"))?,
+                session,
+                &local_router_ab_internal_service_auth_secret_v1(),
+                pair_digest,
+                (*receipt).clone(),
+                execution_id,
+                role,
+            )
+            .map_err(|_| pair_execution_error("Deriver A pair activation stream failed"))?;
+            validate_local_pair_start_acceptance_v1(
+                &acceptance,
+                &pair_binding,
+                execution_id,
+                root_metadata_digest,
+                &config.deriver_b_peer_verifying_key,
+            )?;
+            let packages = seal_activation_output_v1(
+                Ed25519YaoDeriverRoleV1::DeriverA,
+                session,
+                recipients,
+                completion.final_transcript(),
+                completion.client_package().as_bytes(),
+                completion.signing_worker_package().as_bytes(),
+            )?;
+            if let Some(initial_effective) = initial_effective {
+                let identity = initial_effective.identity().clone();
+                if state
+                    .deriver_a_effective
+                    .insert(identity, initial_effective)
+                    .is_some()
+                {
+                    return Err(invalid_worker_state(
+                        "Deriver A effective identity was concurrently registered",
+                    ));
+                }
+            }
+            Ed25519YaoRoleExecutionV1::Activation(Ed25519YaoActivationRoleExecutionV1::new(
+                binding,
+                Ed25519YaoDeriverRoleV1::DeriverA,
+                completion.final_transcript(),
+                completion.client_commitment(),
+                completion.signing_worker_commitment(),
+                packages.client,
+                packages.signing_worker,
+            )?)
+        }
+        router_ab_core::Ed25519YaoInputKindV1::Export => {
+            let role_request =
+                open_local_ed25519_yao_export_deriver_a_input_v1(&input, &private_key)?;
+            if role_request.binding != pair_binding.binding().clone() {
+                return Err(pair_execution_error(
+                    "Deriver A pair export binding mismatch",
+                ));
+            }
+            let recipient = role_request.recipients;
+            let identity = LocalEd25519YaoEffectiveIdentityV1::from_binding(&role_request.binding);
+            let contribution = state
+                .deriver_a_effective
+                .get(&identity)
+                .ok_or_else(|| invalid_worker_state("Deriver A export requires active Yao state"))?
+                .active_contribution();
+            let (binding, role) =
+                build_local_export_deriver_a_with_server_v1(role_request, contribution)?;
+            let (completion, acceptance) = run_local_export_deriver_a_pair_http_v1(
+                http_authority(&config.deriver_b_url)
+                    .map_err(|_| pair_execution_error("Deriver B URL is malformed"))?,
+                session,
+                &local_router_ab_internal_service_auth_secret_v1(),
+                pair_digest,
+                (*receipt).clone(),
+                execution_id,
+                role,
+            )
+            .map_err(|_| pair_execution_error("Deriver A pair export stream failed"))?;
+            validate_local_pair_start_acceptance_v1(
+                &acceptance,
+                &pair_binding,
+                execution_id,
+                root_metadata_digest,
+                &config.deriver_b_peer_verifying_key,
+            )?;
+            let client_package = seal_export_output_v1(
+                Ed25519YaoDeriverRoleV1::DeriverA,
+                session,
+                recipient,
+                completion.final_transcript(),
+                completion.export_package().as_bytes(),
+            )?;
+            Ed25519YaoRoleExecutionV1::Export(Ed25519YaoExportRoleExecutionV1::new(
+                binding,
+                Ed25519YaoDeriverRoleV1::DeriverA,
+                completion.final_transcript(),
+                client_package,
+            )?)
+        }
+    };
+    state.pair_roles.insert(
+        pair_digest,
+        LocalEd25519YaoPairRoleRecordV1::Completed {
+            session,
+            pair_digest,
+            execution_id: execution_id.into_bytes(),
+            execution: Box::new(execution.clone()),
+        },
+    );
+    Ok(execution)
+}
+
+fn pair_execution_error(message: &'static str) -> RouterAbProtocolError {
+    RouterAbProtocolError::new(RouterAbProtocolErrorCode::InvalidLifecycleState, message)
+}
+
+fn local_pair_verifying_key_v1(material: &str) -> RouterAbProtocolResult<[u8; 32]> {
+    hex::decode(material)
+        .map_err(|_| invalid_worker_state("local pair verifying key is malformed"))?
+        .try_into()
+        .map_err(|_| invalid_worker_state("local pair verifying key must contain 32 bytes"))
+}
+
+fn sign_local_pair_start_acceptance_v1(
+    role: Ed25519YaoDeriverRoleV1,
+    session: [u8; 32],
+    pair_digest: [u8; 32],
+    execution_id: Ed25519YaoExecutionIdV1,
+    root_metadata_digest: [u8; 32],
+    accepted_at_ms: u64,
+    expires_at_ms: u64,
+    signing_key_material: &str,
+) -> RouterAbProtocolResult<Ed25519YaoRoleStartAcceptanceV1> {
+    let session = Ed25519YaoSessionIdV1::new(session)?;
+    let placeholder = router_ab_core::Ed25519YaoRoleSignatureV1::new(
+        Ed25519YaoRoleSignatureSchemeV1::Ed25519V1,
+        [1_u8; 64],
+    )?;
+    let unsigned = Ed25519YaoRoleStartAcceptanceV1::new(
+        role,
+        session,
+        PublicDigest32::new(pair_digest),
+        execution_id,
+        PublicDigest32::new(root_metadata_digest),
+        accepted_at_ms,
+        expires_at_ms,
+        placeholder,
+    )?;
+    let signing_key =
+        ed25519_dalek::SigningKey::from_bytes(&local_pair_signing_key_v1(signing_key_material));
+    let signature =
+        ed25519_dalek::Signer::sign(&signing_key, unsigned.signed_message_digest().as_bytes())
+            .to_bytes();
+    let signature = router_ab_core::Ed25519YaoRoleSignatureV1::new(
+        Ed25519YaoRoleSignatureSchemeV1::Ed25519V1,
+        signature,
+    )?;
+    Ed25519YaoRoleStartAcceptanceV1::new(
+        role,
+        session,
+        PublicDigest32::new(pair_digest),
+        execution_id,
+        PublicDigest32::new(root_metadata_digest),
+        accepted_at_ms,
+        expires_at_ms,
+        signature,
+    )
+}
+
+fn validate_local_pair_start_acceptance_v1(
+    acceptance: &Ed25519YaoRoleStartAcceptanceV1,
+    pair_binding: &router_ab_core::Ed25519YaoInputPairBindingV1,
+    execution_id: Ed25519YaoExecutionIdV1,
+    root_metadata_digest: [u8; 32],
+    verifying_key: &str,
+) -> RouterAbProtocolResult<()> {
+    acceptance.validate_for_pair(pair_binding)?;
+    if acceptance.role() != Ed25519YaoDeriverRoleV1::DeriverB
+        || acceptance.execution_id() != execution_id
+        || acceptance.root_metadata_digest().bytes != root_metadata_digest
+    {
+        return Err(invalid_worker_state(
+            "Deriver B pair start acceptance identity mismatch",
+        ));
+    }
+    acceptance.validate_at(crate::local_now_unix_ms_v1()?)?;
+    let verifying_key = local_pair_verifying_key_v1(verifying_key)?;
+    let key = ed25519_dalek::VerifyingKey::from_bytes(&verifying_key)
+        .map_err(|_| invalid_worker_state("local pair verifying key is malformed"))?;
+    let signature = ed25519_dalek::Signature::from_slice(acceptance.signature().bytes())
+        .map_err(|_| invalid_worker_state("local pair start acceptance signature is malformed"))?;
+    key.verify_strict(acceptance.signed_message_digest().as_bytes(), &signature)
+        .map_err(|_| invalid_worker_state("local pair start acceptance signature is invalid"))
 }
 
 fn read_local_pair_role_status_v1(
@@ -1268,6 +1748,39 @@ fn read_local_pair_role_status_v1(
                 })
             }
         }
+        LocalEd25519YaoPairRoleRecordV1::Running {
+            session,
+            pair_digest,
+            expires_at_ms,
+            execution_id: _,
+            ..
+        } if *session == lookup.session && *pair_digest == lookup.pair_digest => {
+            if crate::local_now_unix_ms_v1()? >= *expires_at_ms {
+                *record = LocalEd25519YaoPairRoleRecordV1::Burned {
+                    session: *session,
+                    pair_digest: *pair_digest,
+                };
+                Ok(CloudflareEd25519YaoPairStatusResponseV1::Burned {
+                    session: lookup.session,
+                    pair_digest: lookup.pair_digest,
+                })
+            } else {
+                Ok(CloudflareEd25519YaoPairStatusResponseV1::Running {
+                    session: lookup.session,
+                    pair_digest: lookup.pair_digest,
+                })
+            }
+        }
+        LocalEd25519YaoPairRoleRecordV1::Completed {
+            session,
+            pair_digest,
+            execution,
+            ..
+        } if *session == lookup.session && *pair_digest == lookup.pair_digest => {
+            Ok(CloudflareEd25519YaoPairStatusResponseV1::Completed {
+                execution: execution.clone(),
+            })
+        }
         LocalEd25519YaoPairRoleRecordV1::Expired {
             session,
             pair_digest,
@@ -1288,6 +1801,39 @@ fn read_local_pair_role_status_v1(
         }
         _ => Err(invalid_worker_state("pair role lookup identity mismatch")),
     }
+}
+
+fn read_local_pair_completion_v1(
+    state: &LocalEd25519YaoWorkerStateV1,
+    lookup: CloudflareEd25519YaoReadCompletedPairRequestV1,
+) -> RouterAbProtocolResult<CloudflareEd25519YaoPairCompletionAcknowledgementV1> {
+    let Some(record) = state.pair_roles.get(&lookup.pair_digest) else {
+        return Err(invalid_worker_state("Deriver B pair completion is missing"));
+    };
+    let LocalEd25519YaoPairRoleRecordV1::Completed {
+        session,
+        pair_digest,
+        execution,
+        ..
+    } = record
+    else {
+        return Err(invalid_worker_state(
+            "Deriver B pair execution is not complete",
+        ));
+    };
+    if *session != lookup.session || *pair_digest != lookup.pair_digest {
+        return Err(invalid_worker_state(
+            "Deriver B pair completion identity mismatch",
+        ));
+    }
+    let acknowledgement = CloudflareEd25519YaoPairCompletionAcknowledgementV1::Completed {
+        session: lookup.session,
+        pair_digest: lookup.pair_digest,
+        execution: execution.clone(),
+    };
+    acknowledgement
+        .validate_for_request(&lookup)
+        .map(|_| acknowledgement)
 }
 
 fn burn_local_pair_role_v1(
@@ -1658,14 +2204,35 @@ fn encrypted_deriver_b_package(
 
 fn handle_deriver_b_peer_stream(
     stream: TcpStream,
+    config: &LocalWorkerRoleConfigV1,
     state: &mut LocalEd25519YaoWorkerStateV1,
+    persist_before_network: LocalEd25519YaoPersistBeforeNetworkV1<'_>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let auth = local_router_ab_internal_service_auth_secret_v1();
+    if state.pending_deriver_b.is_none() {
+        let expected_session = peek_local_peer_session_v1(&stream)?;
+        let authenticated = authenticate_local_ed25519_yao_deriver_b_peer_http_with_pair_v1(
+            stream,
+            expected_session,
+            &auth,
+        )?;
+        let Some(pair) = authenticated.pair_context().cloned() else {
+            return Err(io::Error::other("no staged Deriver B Yao role").into());
+        };
+        execute_local_pair_deriver_b_v1(
+            config,
+            state,
+            authenticated,
+            pair,
+            persist_before_network,
+        )?;
+        return Ok(());
+    }
     let expected_session = state
         .pending_deriver_b
         .as_ref()
         .ok_or_else(|| io::Error::other("no staged Deriver B Yao role"))?
         .session();
-    let auth = local_router_ab_internal_service_auth_secret_v1();
     let authenticated =
         authenticate_local_ed25519_yao_deriver_b_peer_http_v1(stream, expected_session, &auth)?;
     let pending = state
@@ -1764,6 +2331,263 @@ fn handle_deriver_b_peer_stream(
         }
     };
     state.completed_deriver_b = Some(completed);
+    Ok(())
+}
+
+fn peek_local_peer_session_v1(stream: &TcpStream) -> Result<[u8; 32], Box<dyn std::error::Error>> {
+    let mut buffer = [0_u8; 8 * 1024];
+    for _ in 0..250 {
+        let bytes = stream.peek(&mut buffer)?;
+        let head = std::str::from_utf8(&buffer[..bytes])?;
+        if head.contains("\r\n\r\n") {
+            let session_line = head
+                .split("\r\n")
+                .find(|line| {
+                    line.to_ascii_lowercase()
+                        .starts_with("x-seams-ed25519-yao-session:")
+                })
+                .ok_or_else(|| io::Error::other("pair stream session header is missing"))?;
+            let value = session_line
+                .split_once(':')
+                .map(|(_, value)| value.trim())
+                .ok_or_else(|| io::Error::other("pair stream session header is malformed"))?;
+            return hex::decode(value)?.try_into().map_err(|_| {
+                io::Error::other("pair stream session header must contain 32 bytes").into()
+            });
+        }
+        thread::sleep(Duration::from_millis(1));
+    }
+    Err(io::Error::other("pair stream request head timed out").into())
+}
+
+fn execute_local_pair_deriver_b_v1(
+    topology_config: &LocalWorkerRoleConfigV1,
+    state: &mut LocalEd25519YaoWorkerStateV1,
+    authenticated: crate::LocalEd25519YaoAuthenticatedDeriverBPeerV1,
+    peer: crate::local_ed25519_yao_stream::LocalEd25519YaoPairPeerContextV1,
+    persist_before_network: LocalEd25519YaoPersistBeforeNetworkV1<'_>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let pair_digest = peer.pair_digest;
+    let result = execute_local_pair_deriver_b_inner_v1(
+        topology_config,
+        state,
+        authenticated,
+        peer,
+        persist_before_network,
+    );
+    if result.is_err()
+        && matches!(
+            state.pair_roles.get(&pair_digest),
+            Some(LocalEd25519YaoPairRoleRecordV1::Running { .. })
+        )
+    {
+        let session = match state.pair_roles.get(&pair_digest) {
+            Some(LocalEd25519YaoPairRoleRecordV1::Running { session, .. }) => *session,
+            _ => unreachable!("running pair disappeared during failure handling"),
+        };
+        state.pair_roles.insert(
+            pair_digest,
+            LocalEd25519YaoPairRoleRecordV1::Burned {
+                session,
+                pair_digest,
+            },
+        );
+    }
+    result
+}
+
+fn execute_local_pair_deriver_b_inner_v1(
+    topology_config: &LocalWorkerRoleConfigV1,
+    state: &mut LocalEd25519YaoWorkerStateV1,
+    mut authenticated: crate::LocalEd25519YaoAuthenticatedDeriverBPeerV1,
+    peer: crate::local_ed25519_yao_stream::LocalEd25519YaoPairPeerContextV1,
+    persist_before_network: LocalEd25519YaoPersistBeforeNetworkV1<'_>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let LocalWorkerRoleConfigV1::DeriverB(config) = topology_config else {
+        return Err(io::Error::other("pair B execution requires Deriver B config").into());
+    };
+    let pair_digest = peer.pair_digest;
+    let record = state
+        .pair_roles
+        .get(&pair_digest)
+        .cloned()
+        .ok_or_else(|| io::Error::other("Deriver B pair is not prepared"))?;
+    let LocalEd25519YaoPairRoleRecordV1::Prepared {
+        session,
+        pair_digest: stored_pair_digest,
+        pair_binding,
+        input_digest,
+        root_metadata_digest,
+        expires_at_ms,
+        input,
+        receipt,
+    } = record
+    else {
+        return Err(io::Error::other("Deriver B pair is not prepared").into());
+    };
+    if stored_pair_digest != pair_digest || session != peer.peer_receipt.session_bytes() {
+        return Err(io::Error::other("Deriver B pair identity mismatch").into());
+    }
+    pair_binding.validate()?;
+    peer.peer_receipt.validate_for_pair(&pair_binding)?;
+    verify_local_pair_readiness_receipt_v1(
+        &peer.peer_receipt,
+        local_pair_verifying_key_v1(&config.deriver_a_peer_verifying_key)?,
+    )?;
+    receipt.validate_for_pair(&pair_binding)?;
+    receipt.validate_at(crate::local_now_unix_ms_v1()?)?;
+    if peer.execution_id.into_bytes() == [0; 32] {
+        return Err(io::Error::other("Deriver B pair execution id is empty").into());
+    }
+    let now_ms = crate::local_now_unix_ms_v1()?;
+    if now_ms >= expires_at_ms {
+        state.pair_roles.insert(
+            pair_digest,
+            LocalEd25519YaoPairRoleRecordV1::Expired {
+                session,
+                pair_digest,
+            },
+        );
+        return Err(io::Error::other("Deriver B pair preparation expired").into());
+    }
+    let running_expires_at_ms = now_ms
+        .checked_add(60_000)
+        .ok_or_else(|| io::Error::other("Deriver B pair running expiry overflow"))?;
+    state.pair_roles.insert(
+        pair_digest,
+        LocalEd25519YaoPairRoleRecordV1::Running {
+            session,
+            pair_digest,
+            pair_binding: pair_binding.clone(),
+            input_digest,
+            root_metadata_digest,
+            expires_at_ms: running_expires_at_ms,
+            execution_id: peer.execution_id.into_bytes(),
+            input: input.clone(),
+            receipt: receipt.clone(),
+        },
+    );
+    persist_before_network(state)?;
+    let acceptance = sign_local_pair_start_acceptance_v1(
+        Ed25519YaoDeriverRoleV1::DeriverB,
+        session,
+        pair_digest,
+        peer.execution_id,
+        root_metadata_digest,
+        now_ms,
+        running_expires_at_ms,
+        &config.peer_signing_key,
+    )?;
+    authenticated.set_start_acceptance(acceptance)?;
+    let private_key = deriver_input_private_key(&config.envelope_hpke_private_key)?;
+    let execution_result = match input.kind() {
+        router_ab_core::Ed25519YaoInputKindV1::Activation => {
+            let role_request =
+                open_local_ed25519_yao_activation_deriver_b_input_v1(&input, &private_key)?;
+            if role_request.binding != pair_binding.binding().clone() {
+                return Err(io::Error::other("Deriver B pair activation binding mismatch").into());
+            }
+            let recipients = role_request.recipients;
+            let (binding, role, initial_effective) =
+                build_deriver_b_activation_from_effective_state(config, state, role_request)?;
+            let completion =
+                match run_local_activation_deriver_b_authenticated_http_v1(authenticated, role) {
+                    Ok(completion) => completion,
+                    Err(error) => {
+                        state.pair_roles.insert(
+                            pair_digest,
+                            LocalEd25519YaoPairRoleRecordV1::Burned {
+                                session,
+                                pair_digest,
+                            },
+                        );
+                        return Err(Box::new(error));
+                    }
+                };
+            let packages = seal_activation_output_v1(
+                Ed25519YaoDeriverRoleV1::DeriverB,
+                session,
+                recipients,
+                completion.final_transcript(),
+                completion.client_package().as_bytes(),
+                completion.signing_worker_package().as_bytes(),
+            )?;
+            if let Some(initial_effective) = initial_effective {
+                let identity = initial_effective.identity().clone();
+                if state
+                    .deriver_b_effective
+                    .insert(identity, initial_effective)
+                    .is_some()
+                {
+                    return Err(io::Error::other(
+                        "Deriver B effective identity was concurrently registered",
+                    )
+                    .into());
+                }
+            }
+            Ed25519YaoRoleExecutionV1::Activation(Ed25519YaoActivationRoleExecutionV1::new(
+                binding,
+                Ed25519YaoDeriverRoleV1::DeriverB,
+                completion.final_transcript(),
+                completion.client_commitment(),
+                completion.signing_worker_commitment(),
+                packages.client,
+                packages.signing_worker,
+            )?)
+        }
+        router_ab_core::Ed25519YaoInputKindV1::Export => {
+            let role_request =
+                open_local_ed25519_yao_export_deriver_b_input_v1(&input, &private_key)?;
+            if role_request.binding != pair_binding.binding().clone() {
+                return Err(io::Error::other("Deriver B pair export binding mismatch").into());
+            }
+            let recipient = role_request.recipients;
+            let identity = LocalEd25519YaoEffectiveIdentityV1::from_binding(&role_request.binding);
+            let contribution = state
+                .deriver_b_effective
+                .get(&identity)
+                .ok_or_else(|| io::Error::other("Deriver B export requires active Yao state"))?
+                .active_contribution();
+            let (binding, role) =
+                build_local_export_deriver_b_with_server_v1(role_request, contribution)?;
+            let completion =
+                match run_local_export_deriver_b_authenticated_http_v1(authenticated, role) {
+                    Ok(completion) => completion,
+                    Err(error) => {
+                        state.pair_roles.insert(
+                            pair_digest,
+                            LocalEd25519YaoPairRoleRecordV1::Burned {
+                                session,
+                                pair_digest,
+                            },
+                        );
+                        return Err(Box::new(error));
+                    }
+                };
+            let client_package = seal_export_output_v1(
+                Ed25519YaoDeriverRoleV1::DeriverB,
+                session,
+                recipient,
+                completion.final_transcript(),
+                completion.export_package().as_bytes(),
+            )?;
+            Ed25519YaoRoleExecutionV1::Export(Ed25519YaoExportRoleExecutionV1::new(
+                binding,
+                Ed25519YaoDeriverRoleV1::DeriverB,
+                completion.final_transcript(),
+                client_package,
+            )?)
+        }
+    };
+    state.pair_roles.insert(
+        pair_digest,
+        LocalEd25519YaoPairRoleRecordV1::Completed {
+            session,
+            pair_digest,
+            execution_id: peer.execution_id.into_bytes(),
+            execution: Box::new(execution_result),
+        },
+    );
     Ok(())
 }
 
@@ -1926,6 +2750,82 @@ mod tests {
             burn_local_pair_role_v1(&mut worker, lookup).expect("missing burn"),
             CloudflareEd25519YaoPairStatusResponseV1::Missing { .. }
         ));
+    }
+
+    #[test]
+    fn completed_pair_read_returns_exact_role_output_only_for_the_requested_identity() {
+        let binding = ceremony(
+            9,
+            Ed25519YaoOperationV1::Registration,
+            ExpensiveWorkKindV1::RegistrationPrepare,
+            10,
+        );
+        let session = binding.session_id.into_bytes();
+        let transcript = [0x31; 32];
+        let client_package = Ed25519YaoEncryptedPackageV1::new(
+            Ed25519YaoPackageKindV1::ActivationClient,
+            Ed25519YaoDeriverRoleV1::DeriverB,
+            session,
+            transcript,
+            [0x41; 32],
+            vec![0x51; 16],
+        )
+        .expect("client package");
+        let signing_worker_package = Ed25519YaoEncryptedPackageV1::new(
+            Ed25519YaoPackageKindV1::ActivationSigningWorker,
+            Ed25519YaoDeriverRoleV1::DeriverB,
+            session,
+            transcript,
+            [0x61; 32],
+            vec![0x71; 16],
+        )
+        .expect("SigningWorker package");
+        let execution = Ed25519YaoRoleExecutionV1::Activation(
+            Ed25519YaoActivationRoleExecutionV1::new(
+                binding,
+                Ed25519YaoDeriverRoleV1::DeriverB,
+                transcript,
+                [0x81; 32],
+                [0x91; 32],
+                client_package,
+                signing_worker_package,
+            )
+            .expect("execution"),
+        );
+        let pair_digest = [0xa1; 32];
+        let mut state = LocalEd25519YaoWorkerStateV1::default();
+        state.pair_roles.insert(
+            pair_digest,
+            LocalEd25519YaoPairRoleRecordV1::Completed {
+                session,
+                pair_digest,
+                execution_id: [0xb1; 32],
+                execution: Box::new(execution.clone()),
+            },
+        );
+        let acknowledgement = read_local_pair_completion_v1(
+            &state,
+            CloudflareEd25519YaoReadCompletedPairRequestV1 {
+                session,
+                pair_digest,
+            },
+        )
+        .expect("exact completion");
+        let returned = acknowledgement
+            .validate_for_request(&CloudflareEd25519YaoReadCompletedPairRequestV1 {
+                session,
+                pair_digest,
+            })
+            .expect("acknowledgement");
+        assert_eq!(returned, execution);
+        assert!(read_local_pair_completion_v1(
+            &state,
+            CloudflareEd25519YaoReadCompletedPairRequestV1 {
+                session,
+                pair_digest: [0xa2; 32],
+            },
+        )
+        .is_err());
     }
 
     #[test]

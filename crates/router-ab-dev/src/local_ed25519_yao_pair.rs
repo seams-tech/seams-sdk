@@ -405,6 +405,13 @@ fn verify_receipt(
         .map_err(|_| pair_lifecycle_error("readiness signature is invalid"))
 }
 
+pub(crate) fn verify_local_pair_readiness_receipt_v1(
+    receipt: &Ed25519YaoRoleReadinessReceiptV1,
+    verifying_key: [u8; 32],
+) -> RouterAbProtocolResult<()> {
+    verify_receipt(receipt, verifying_key)
+}
+
 fn role_slot(role: Ed25519YaoDeriverRoleV1) -> usize {
     match role {
         Ed25519YaoDeriverRoleV1::DeriverA => 0,

@@ -1,6 +1,6 @@
 use router_ab_core::LocalServiceRoleV1;
 use router_ab_dev::{
-    dispatch_local_ed25519_yao_connection_v1, local_dev_http_handle_request_v1,
+    dispatch_local_ed25519_yao_connection_with_persistence_v1, local_dev_http_handle_request_v1,
     local_worker_bind_addr_v1, parse_local_env_file_contents_v1, parse_local_service_role_label_v1,
     parse_local_worker_role_config_for_role_v1, read_local_dev_http_request_v1,
     write_local_dev_http_response_v1, LocalDevHttpTopologyV1, LocalDurableObjectScopeV1,
@@ -129,15 +129,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .transpose()?;
     for stream in listener.incoming() {
         match stream {
-            Ok(stream) => match handle_connection(stream, &config, yao_state.as_mut()) {
-                Ok(LocalWorkerConnectionResultV1::YaoHandled) => {
-                    if let (Some(store), Some(state)) = (state_store.as_ref(), yao_state.as_ref()) {
-                        store.persist(config.role(), state)?;
+            Ok(stream) => {
+                match handle_connection(stream, &config, yao_state.as_mut(), state_store.as_ref()) {
+                    Ok(LocalWorkerConnectionResultV1::YaoHandled) => {
+                        if let (Some(store), Some(state)) =
+                            (state_store.as_ref(), yao_state.as_ref())
+                        {
+                            store.persist(config.role(), state)?;
+                        }
                     }
+                    Ok(LocalWorkerConnectionResultV1::OtherHandled) => {}
+                    Err(error) => log_worker_request_error(&config, error.as_ref()),
                 }
-                Ok(LocalWorkerConnectionResultV1::OtherHandled) => {}
-                Err(error) => log_worker_request_error(&config, error.as_ref()),
-            },
+            }
             Err(error) => log_worker_request_error(&config, &error),
         }
     }
@@ -153,9 +157,21 @@ fn handle_connection(
     stream: TcpStream,
     config: &LocalWorkerRoleConfigV1,
     yao_state: Option<&mut LocalEd25519YaoWorkerStateV1>,
+    state_store: Option<&LocalEd25519YaoStateStoreV1>,
 ) -> Result<LocalWorkerConnectionResultV1, Box<dyn std::error::Error>> {
     let mut stream = if let Some(yao_state) = yao_state {
-        match dispatch_local_ed25519_yao_connection_v1(stream, config, yao_state)? {
+        let mut persist_before_network = |state: &LocalEd25519YaoWorkerStateV1| {
+            let Some(store) = state_store else {
+                return Ok(());
+            };
+            store.persist(config.role(), state)
+        };
+        match dispatch_local_ed25519_yao_connection_with_persistence_v1(
+            stream,
+            config,
+            yao_state,
+            &mut persist_before_network,
+        )? {
             LocalEd25519YaoConnectionDispatchV1::Handled => {
                 return Ok(LocalWorkerConnectionResultV1::YaoHandled);
             }
