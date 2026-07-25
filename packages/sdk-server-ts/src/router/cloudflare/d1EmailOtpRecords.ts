@@ -133,6 +133,21 @@ export type D1EmailOtpChallengeRow = {
   readonly expires_at_ms?: unknown;
 };
 
+export type EmailOtpRegistrationVerificationReceiptV1 = {
+  readonly version: 'email_otp_registration_verification_receipt_v1';
+  readonly requestFingerprint: string;
+  readonly verified: {
+    readonly challengeId: string;
+    readonly challengeSubjectId: string;
+    readonly walletId: string;
+    readonly orgId: string;
+    readonly email: string;
+    readonly otpChannel: typeof EMAIL_OTP_CHANNEL;
+  };
+  readonly verifiedAtMs: number;
+  readonly expiresAtMs: number;
+};
+
 export type D1EmailOtpRecoveryEscrowRow = {
   readonly record_json?: unknown;
   readonly updated_at_ms?: unknown;
@@ -159,8 +174,7 @@ export function maskEmail(email: string): string {
   if (atIndex <= 0 || atIndex === trimmed.length - 1) return 'hidden';
   const local = trimmed.slice(0, atIndex);
   const domain = trimmed.slice(atIndex + 1);
-  const localMask =
-    local.length <= 2 ? `${local[0] || '*'}*` : `${local[0]}***${local.slice(-1)}`;
+  const localMask = local.length <= 2 ? `${local[0] || '*'}*` : `${local[0]}***${local.slice(-1)}`;
   const domainParts = domain.split('.');
   const domainName = domainParts[0] || '';
   const domainMask =
@@ -337,10 +351,7 @@ export function parseEmailOtpAuthStateRecord(input: unknown): EmailOtpAuthStateR
   const otpFailureCount = optionalNonNegativeSafeIntegerField(record, 'otpFailureCount');
   const lastOtpFailureAtMs = optionalPositiveSafeIntegerField(record, 'lastOtpFailureAtMs');
   const otpLockedUntilMs = optionalPositiveSafeIntegerField(record, 'otpLockedUntilMs');
-  const lastEmailOtpLoginAtMs = optionalPositiveSafeIntegerField(
-    record,
-    'lastEmailOtpLoginAtMs',
-  );
+  const lastEmailOtpLoginAtMs = optionalPositiveSafeIntegerField(record, 'lastEmailOtpLoginAtMs');
   const lastStrongAuthAtMs = optionalPositiveSafeIntegerField(record, 'lastStrongAuthAtMs');
   if (
     version !== 'email_otp_auth_state_v1' ||
@@ -382,9 +393,7 @@ export function parseEmailOtpAuthStateRow(
   return record;
 }
 
-export function parseEmailOtpChallengeOperation(
-  input: unknown,
-): EmailOtpChallengeOperation | null {
+export function parseEmailOtpChallengeOperation(input: unknown): EmailOtpChallengeOperation | null {
   const operation = toOptionalTrimmedString(input);
   if (!operation) return null;
   if (isWalletEmailOtpLoginOperation(operation)) return operation;
@@ -465,6 +474,76 @@ export function parseEmailOtpChallengeRow(
   const expiresAtMs = positiveSafeInteger(row?.expires_at_ms);
   if (!record || !expiresAtMs || record.expiresAtMs !== expiresAtMs) return null;
   return record;
+}
+
+export function parseEmailOtpRegistrationVerificationReceiptV1(
+  input: unknown,
+): EmailOtpRegistrationVerificationReceiptV1 | null {
+  const record = parseJsonObject(input);
+  if (
+    !record ||
+    !hasExactRecordFields(record, [
+      'version',
+      'requestFingerprint',
+      'verified',
+      'verifiedAtMs',
+      'expiresAtMs',
+    ]) ||
+    record.version !== 'email_otp_registration_verification_receipt_v1'
+  ) {
+    return null;
+  }
+  const requestFingerprint = toOptionalTrimmedString(record.requestFingerprint);
+  const verified = parseJsonObject(record.verified);
+  const verifiedAtMs = positiveSafeInteger(record.verifiedAtMs);
+  const expiresAtMs = positiveSafeInteger(record.expiresAtMs);
+  if (
+    !requestFingerprint ||
+    !isB64uString(requestFingerprint) ||
+    !verified ||
+    !hasExactRecordFields(verified, [
+      'challengeId',
+      'challengeSubjectId',
+      'walletId',
+      'orgId',
+      'email',
+      'otpChannel',
+    ]) ||
+    !verifiedAtMs ||
+    !expiresAtMs ||
+    expiresAtMs <= verifiedAtMs
+  ) {
+    return null;
+  }
+  const challengeId = toOptionalTrimmedString(verified.challengeId);
+  const challengeSubjectId = toOptionalTrimmedString(verified.challengeSubjectId);
+  const walletId = toOptionalTrimmedString(verified.walletId);
+  const orgId = toOptionalTrimmedString(verified.orgId);
+  const email = toOptionalTrimmedString(verified.email)?.toLowerCase() || '';
+  if (
+    !challengeId ||
+    !challengeSubjectId ||
+    !walletId ||
+    !orgId ||
+    !email ||
+    verified.otpChannel !== EMAIL_OTP_CHANNEL
+  ) {
+    return null;
+  }
+  return {
+    version: 'email_otp_registration_verification_receipt_v1',
+    requestFingerprint,
+    verified: {
+      challengeId,
+      challengeSubjectId,
+      walletId,
+      orgId,
+      email,
+      otpChannel: EMAIL_OTP_CHANNEL,
+    },
+    verifiedAtMs,
+    expiresAtMs,
+  };
 }
 
 export function parseEmailOtpUnlockChallengeRecord(
@@ -1062,9 +1141,7 @@ export async function activeEmailOtpRecoveryRotationEscrowRecord(input: {
   if (input.recoveryKeyIds.has(recoveryKeyId)) {
     return {
       ok: false,
-      result: invalidRecoveryRotationBody(
-        'Recovery rotation recoveryKeyId values must be unique',
-      ),
+      result: invalidRecoveryRotationBody('Recovery rotation recoveryKeyId values must be unique'),
     };
   }
   if (input.nonceB64us.has(nonceB64u)) {
@@ -1404,6 +1481,18 @@ function hasRecordField(record: Record<string, unknown>, field: string): boolean
   return Object.prototype.hasOwnProperty.call(record, field);
 }
 
+function hasExactRecordFields(
+  record: Record<string, unknown>,
+  expectedFields: readonly string[],
+): boolean {
+  const actualFields = Object.keys(record).sort();
+  const expected = [...expectedFields].sort();
+  return (
+    actualFields.length === expected.length &&
+    actualFields.every((field, index) => field === expected[index])
+  );
+}
+
 function recoveryRotationInputObject(input: unknown): Record<string, unknown> | null {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
   return input as Record<string, unknown>;
@@ -1413,8 +1502,7 @@ async function validateEmailOtpRecoveryWrappedEnrollmentEscrowSet(input: {
   readonly records: readonly EmailOtpRecoveryEnrollmentEscrowBoundary[];
   readonly sha256Bytes: EmailOtpRecoveryRotationHash;
 }): Promise<
-  | { readonly ok: true }
-  | { readonly ok: false; readonly code: string; readonly message: string }
+  { readonly ok: true } | { readonly ok: false; readonly code: string; readonly message: string }
 > {
   const first = input.records[0];
   if (!first) {

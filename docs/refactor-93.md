@@ -856,26 +856,33 @@ ceremony after the user completes authentication. The safe sequence is:
         CAS behind the disabled two-boundary drain selector.
   - [ ] Move registration start, bind, finalize, add-signer, and shared
         wallet/session effects behind idempotent request-safe boundaries.
-    - [ ] Persist a stable registration/add-signer start claim before consuming
+    - [x] Persist a stable registration/add-signer start claim before consuming
           the grant, binding Yao authorization, preparing either signer branch,
           or writing the ceremony. Exact retries must return the same ceremony
           and a conflicting request fingerprint must fail closed.
-      - [ ] Close the remaining registration authority/claim ambiguity. A failed
+      - [x] Close the remaining registration authority/claim ambiguity. A failed
             OTP, WebAuthn, or add-signer authorization attempt creates no start
             claim and leaves the grant available for a corrected retry. A
-            successful Email OTP verification currently consumes its challenge
-            before the D1 start claim is durable, so transport loss between those
-            stores can strand that proof. Make successful authority consumption
-            and the prepared start claim atomic, or add an exact durable
-            verification receipt that the claim can resume.
-    - [ ] Put add-signer finalize behind a durable outer claim and terminal
+            successful Email OTP verification now atomically writes an exact,
+            operation-bound D1 receipt while deleting the challenge. Receipt
+            replay bypasses rate limiting, rejects a changed proof, stores no OTP
+            or raw grant, and resumes start after response loss or a crash before
+            the claim write. The real-D1 test covers wrong-then-correct OTP,
+            receipt-batch response loss, the missing-claim interval, and exact
+            recovery.
+    - [x] Put add-signer finalize behind a durable outer claim and terminal
           receipt so concurrent requests and response loss cannot repeat
           session minting, normal-signing provisioning, signer insertion, or
-          capability installation.
-    - [ ] Move registration/add-signer intent, ceremony, and replay records off
+          capability installation. Ed25519 fault injection covers every
+          lifecycle boundary and stable session terms; the strict ECDSA test
+          covers request purpose, respond, activation, signer persistence, exact
+          replay, and conflicting finalize requests on partitioned D1.
+    - [x] Move registration/add-signer intent, ceremony, and replay records off
           the shared `THRESHOLD_STORE` object to partitioned D1 CAS. The Yao
-          runtime is already request-scoped, but the remaining shared object is
-          still a serialization and latency hop for these lifecycle records.
+          runtime and lifecycle records are request-scoped. Real-SQLite tests
+          cover atomic multi-record writes, one-time take/delete behavior,
+          contention, restart recovery, terminal cancellation, and canonical
+          exact replay; the legacy factory remains only for drain coverage.
     - [x] Split sponsored NEAR account creation into a prepare step that builds,
           signs, and hashes the transaction without broadcasting and a broadcast
           step that replays those exact bytes. Rebuilding would take a fresh

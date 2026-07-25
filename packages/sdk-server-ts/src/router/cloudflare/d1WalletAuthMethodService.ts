@@ -348,6 +348,8 @@ export class CloudflareD1WalletAuthMethodService {
     readonly expectedDigestB64u: string;
     readonly expectedOrigin: string;
     readonly intent: RegistrationIntentV1;
+    readonly verificationOperationId: string;
+    readonly verificationReceiptExpiresAtMs: number;
     readonly userAgent?: string;
   }): Promise<WalletAuthMethodAuthorityResult> {
     const authority = input.authority;
@@ -366,6 +368,8 @@ export class CloudflareD1WalletAuthMethodService {
           authority,
           expectedDigestB64u: input.expectedDigestB64u,
           intent: input.intent,
+          verificationOperationId: input.verificationOperationId,
+          verificationReceiptExpiresAtMs: input.verificationReceiptExpiresAtMs,
         });
     }
     return unreachableRegistrationStartAuthority(authority);
@@ -801,6 +805,8 @@ export class CloudflareD1WalletAuthMethodService {
     readonly authority: EmailOtpWalletRegistrationAuthorityInput;
     readonly expectedDigestB64u: string;
     readonly intent: RegistrationIntentV1;
+    readonly verificationOperationId: string;
+    readonly verificationReceiptExpiresAtMs: number;
   }): Promise<WalletAuthMethodAuthorityResult> {
     const proof = normalizeEmailOtpRegistrationProof(input.authority.emailOtpRegistrationProof);
     if (!proof) {
@@ -1011,7 +1017,7 @@ export class CloudflareD1WalletAuthMethodService {
         message: 'Email OTP registration proof email does not match the intent',
       };
     }
-    const verified = await this.emailOtpChallengeVerifier.verifyRegistration({
+    const verified = await this.emailOtpChallengeVerifier.verifyRegistrationResumable({
       providerSubject: proof.providerSubject,
       proofEmail: proof.email,
       walletId: input.intent.walletId,
@@ -1021,6 +1027,8 @@ export class CloudflareD1WalletAuthMethodService {
       otpChannel: proof.otpChannel,
       sessionHash: input.expectedDigestB64u,
       appSessionVersion: proof.appSessionVersion,
+      operationId: input.verificationOperationId,
+      receiptExpiresAtMs: input.verificationReceiptExpiresAtMs,
     });
     if (!verified.ok) return verified;
     const verifiedEmail = toOptionalTrimmedString(verified.email)?.toLowerCase();
