@@ -478,9 +478,38 @@ export async function fundImplicitNearAccountWithRelayer(
   }
 }
 
-export async function createNamedNearAccountWithRelayer(
+/**
+ * A sponsored account-creation transaction that is fully built, signed, and
+ * hashed but not yet broadcast. It is JSON-serializable so a caller can persist
+ * it before the broadcast and reconcile an ambiguous outcome afterwards by
+ * rebroadcasting these exact bytes. Rebuilding instead of replaying would pick
+ * up a fresh nonce and block hash, producing a second distinct transaction.
+ */
+export type PreparedSponsoredNearAccountCreationV1 = {
+  readonly kind: 'prepared_sponsored_near_account_creation_v1';
+  readonly accountId: string;
+  readonly transactionHash: string;
+  readonly nextNonce: string;
+  readonly blockHash: string;
+  readonly signedTransaction: {
+    readonly transaction: unknown;
+    readonly signature: unknown;
+    readonly borsh_bytes: number[];
+  };
+};
+
+export type PrepareSponsoredNearAccountCreationResultV1 =
+  | { readonly ok: true; readonly prepared: PreparedSponsoredNearAccountCreationV1 }
+  | { readonly ok: false; readonly error: string; readonly message: string };
+
+/**
+ * Builds and signs the sponsored account-creation transaction without
+ * broadcasting it. Persist the result before calling
+ * [`broadcastPreparedSponsoredNearAccountCreation`].
+ */
+export async function prepareSponsoredNearAccountCreationWithRelayer(
   input: NearNamedAccountCreationInput,
-): Promise<AccountCreationResult> {
+): Promise<PrepareSponsoredNearAccountCreationResultV1> {
   try {
     const validated = validateNamedAccountCreationInput(input);
     const nearClient = validated.nearClient || new MinimalNearClient(validated.nearRpcUrl);
@@ -500,16 +529,74 @@ export async function createNamedNearAccountWithRelayer(
       initialBalanceYocto: validated.initialBalanceYocto,
       publicKey: validated.publicKey,
     });
+    return {
+      ok: true,
+      prepared: {
+        kind: 'prepared_sponsored_near_account_creation_v1',
+        accountId: validated.accountId,
+        transactionHash: created.transactionHash,
+        nextNonce: txContext.nextNonce,
+        blockHash: txContext.blockHash,
+        signedTransaction: {
+          transaction: created.signedTransaction.transaction,
+          signature: created.signedTransaction.signature,
+          borsh_bytes: [...created.signedTransaction.borsh_bytes],
+        },
+      },
+    };
+  } catch (error: unknown) {
+    const message = errorMessage(error) || 'Failed to prepare NEAR account creation';
+    return { ok: false, error: message, message };
+  }
+}
+
+/**
+ * Broadcasts an already-prepared sponsored account creation. Safe to call more
+ * than once for the same prepared transaction: the bytes and therefore the
+ * transaction hash are identical, so the network treats a repeat as the same
+ * transaction rather than a second account creation.
+ */
+export async function broadcastPreparedSponsoredNearAccountCreation(input: {
+  readonly prepared: PreparedSponsoredNearAccountCreationV1;
+  readonly nearRpcUrl: string;
+  readonly nearClient?: NearClient;
+}): Promise<AccountCreationResult> {
+  try {
+    const nearClient = input.nearClient || new MinimalNearClient(input.nearRpcUrl);
     const outcome = await nearClient.sendTransaction(
-      created.signedTransaction,
+      SignedTransaction.fromPlain({
+        transaction: input.prepared.signedTransaction.transaction,
+        signature: input.prepared.signedTransaction.signature,
+        borsh_bytes: [...input.prepared.signedTransaction.borsh_bytes],
+      }),
       NEAR_IMPLICIT_ACCOUNT_FUND_WAIT_UNTIL,
     );
     return {
       success: true,
-      accountId: validated.accountId,
-      transactionHash: transactionHashFromOutcome(outcome, created.transactionHash),
-      message: `Account ${validated.accountId} created`,
+      accountId: input.prepared.accountId,
+      transactionHash: transactionHashFromOutcome(outcome, input.prepared.transactionHash),
+      message: `Account ${input.prepared.accountId} created`,
     };
+  } catch (error: unknown) {
+    const message = errorMessage(error) || 'Failed to create NEAR account';
+    return { success: false, error: message, message };
+  }
+}
+
+export async function createNamedNearAccountWithRelayer(
+  input: NearNamedAccountCreationInput,
+): Promise<AccountCreationResult> {
+  try {
+    const validated = validateNamedAccountCreationInput(input);
+    const prepared = await prepareSponsoredNearAccountCreationWithRelayer(input);
+    if (!prepared.ok) {
+      return { success: false, error: prepared.error, message: prepared.message };
+    }
+    return await broadcastPreparedSponsoredNearAccountCreation({
+      prepared: prepared.prepared,
+      nearRpcUrl: validated.nearRpcUrl,
+      ...(validated.nearClient ? { nearClient: validated.nearClient } : {}),
+    });
   } catch (error: unknown) {
     const message = errorMessage(error) || 'Failed to create NEAR account';
     return {

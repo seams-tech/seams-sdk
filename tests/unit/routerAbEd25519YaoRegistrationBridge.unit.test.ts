@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
+import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
+import { mintRouterAbEd25519YaoWalletSessionV1 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistration';
 import {
   runRouterAbEd25519YaoRegistrationSideEffectV1,
   type RouterAbEd25519YaoRegistrationSideEffectClaimV1,
@@ -12,6 +14,7 @@ import {
   createRegistrationBridgePartitionStore,
   OneConflictRegistrationBridgePartitionStore,
   RegistrationSideEffectMemoryStore,
+  StaticWalletSessionAdapter,
   UnusedSessionAdapter,
 } from './helpers/routerAbEd25519YaoRegistrationBridge.fixtures';
 
@@ -93,6 +96,47 @@ function registrationCapabilityFixture() {
 }
 
 test.describe('registration side-effect persistence bridge', () => {
+  test('derives the generated registration signing grant from exact lifecycle identity', async () => {
+    const session = new StaticWalletSessionAdapter();
+    const walletId = walletIdFromString('wallet-registration-bridge');
+    const sessionInput = {
+      kind: 'registration_wallet_session_v1' as const,
+      walletId,
+      nearAccountId: 'wallet-registration-bridge.testnet',
+      nearEd25519SigningKeyId: 'near-ed25519-registration-bridge',
+      authority: buildPasskeyWalletAuthAuthority({
+        walletId,
+        rpId: 'example.test',
+        credentialIdB64u: 'Y3JlZGVudGlhbA',
+      }),
+      thresholdSessionId: 'threshold-registration-bridge',
+      participantIds: [1, 2] as const,
+      runtimePolicyScope: {
+        orgId: 'org-registration-bridge',
+        projectId: 'project-registration-bridge',
+        envId: 'env-registration-bridge',
+        signingRootVersion: 'root-registration-bridge-v1',
+      },
+    };
+
+    const first = await mintRouterAbEd25519YaoWalletSessionV1({
+      session,
+      signingWorkerId: 'signing-worker-bridge',
+      sessionInput,
+    });
+    const retried = await mintRouterAbEd25519YaoWalletSessionV1({
+      session,
+      signingWorkerId: 'signing-worker-bridge',
+      sessionInput,
+    });
+
+    expect(first.ok).toBe(true);
+    expect(retried.ok).toBe(true);
+    if (!first.ok || !retried.ok) return;
+    expect(retried.session.signingGrantId).toBe(first.session.signingGrantId);
+    expect(first.session.signingGrantId).toMatch(/^wss_[A-Za-z0-9_-]{43}$/);
+  });
+
   test('claims before effects and replays the exact terminal response without repeating them', async () => {
     const store = new RegistrationSideEffectMemoryStore<TestResponse>();
     const probe = new SideEffectProbe(store);
@@ -317,5 +361,129 @@ test.describe('registration side-effect persistence bridge', () => {
       'Request-scoped product state remained contended after one reconciliation',
     );
     expect(store.commitAttempts).toBe(2);
+  });
+});
+
+test.describe('registration side-effect prepared artifacts', () => {
+  type PreparedTx = { readonly transactionHash: string; readonly bytes: readonly number[] };
+
+  const PREPARED_KEY = 'registration-finalize:lifecycle-prepared';
+
+  function preparedRunInput(input: {
+    readonly store: RegistrationSideEffectMemoryStore<TestResponse, PreparedTx>;
+    readonly prepareCalls: { count: number };
+    readonly broadcasts: PreparedTx[];
+    readonly failEffect?: boolean;
+    readonly resume?: boolean;
+  }) {
+    return {
+      operation: 'finalize' as const,
+      key: PREPARED_KEY,
+      requestFingerprint: REQUEST_FINGERPRINT,
+      nowMs: fixedNow,
+      ...(input.resume ? { resumeWithPrepared: true as const } : {}),
+      prepare: async (): Promise<PreparedTx> => {
+        input.prepareCalls.count += 1;
+        // A rebuild would take a fresh nonce, so vary the hash per call.
+        return {
+          transactionHash: `tx-hash-${input.prepareCalls.count}`,
+          bytes: [1, 2, input.prepareCalls.count],
+        };
+      },
+      execute: async (prepared: PreparedTx | undefined): Promise<TestResponse> => {
+        if (!prepared) throw new Error('broadcast ran without a prepared transaction');
+        const stored = await input.store.read(PREPARED_KEY);
+        if (
+          stored.kind !== 'present' ||
+          stored.value.kind !== 'router_ab_ed25519_yao_registration_side_effect_claim_v1' ||
+          stored.value.prepared?.transactionHash !== prepared.transactionHash
+        ) {
+          throw new Error('broadcast ran before its transaction was durable');
+        }
+        input.broadcasts.push(prepared);
+        if (input.failEffect) throw new Error('broadcast response lost');
+        return { ok: true, receipt: prepared.transactionHash };
+      },
+    };
+  }
+
+  test('persists the signed transaction before the broadcast runs', async () => {
+    const store = new RegistrationSideEffectMemoryStore<TestResponse, PreparedTx>();
+    const prepareCalls = { count: 0 };
+    const broadcasts: PreparedTx[] = [];
+
+    const result = await runRouterAbEd25519YaoRegistrationSideEffectV1<TestResponse, PreparedTx>(
+      store,
+      preparedRunInput({ store, prepareCalls, broadcasts }),
+    );
+
+    expect(result.kind).toBe('executed');
+    expect(prepareCalls.count).toBe(1);
+    expect(broadcasts).toHaveLength(1);
+    expect(broadcasts[0]?.transactionHash).toBe('tx-hash-1');
+  });
+
+  test('an interrupted broadcast replays the persisted transaction instead of rebuilding it', async () => {
+    const store = new RegistrationSideEffectMemoryStore<TestResponse, PreparedTx>();
+    const prepareCalls = { count: 0 };
+    const broadcasts: PreparedTx[] = [];
+
+    const lost = await runRouterAbEd25519YaoRegistrationSideEffectV1<TestResponse, PreparedTx>(
+      store,
+      preparedRunInput({ store, prepareCalls, broadcasts, failEffect: true, resume: true }),
+    );
+    expect(lost.kind).toBe('uncertain');
+    expect(prepareCalls.count).toBe(1);
+
+    const resumed = await runRouterAbEd25519YaoRegistrationSideEffectV1<TestResponse, PreparedTx>(
+      store,
+      preparedRunInput({ store, prepareCalls, broadcasts, resume: true }),
+    );
+
+    expect(resumed).toEqual({ kind: 'executed', value: { ok: true, receipt: 'tx-hash-1' } });
+    // The second attempt must not build a second transaction.
+    expect(prepareCalls.count).toBe(1);
+    expect(broadcasts.map((entry) => entry.transactionHash)).toEqual(['tx-hash-1', 'tx-hash-1']);
+  });
+
+  test('without opt-in resume an interrupted attempt stalls and returns its artifact', async () => {
+    const store = new RegistrationSideEffectMemoryStore<TestResponse, PreparedTx>();
+    const prepareCalls = { count: 0 };
+    const broadcasts: PreparedTx[] = [];
+
+    await runRouterAbEd25519YaoRegistrationSideEffectV1<TestResponse, PreparedTx>(
+      store,
+      preparedRunInput({ store, prepareCalls, broadcasts, failEffect: true }),
+    );
+    const retried = await runRouterAbEd25519YaoRegistrationSideEffectV1<TestResponse, PreparedTx>(
+      store,
+      preparedRunInput({ store, prepareCalls, broadcasts }),
+    );
+
+    expect(retried).toEqual({
+      kind: 'in_progress',
+      prepared: { transactionHash: 'tx-hash-1', bytes: [1, 2, 1] },
+    });
+    expect(prepareCalls.count).toBe(1);
+    expect(broadcasts).toHaveLength(1);
+  });
+
+  test('a completed prepared effect replays its exact response without rebroadcasting', async () => {
+    const store = new RegistrationSideEffectMemoryStore<TestResponse, PreparedTx>();
+    const prepareCalls = { count: 0 };
+    const broadcasts: PreparedTx[] = [];
+
+    await runRouterAbEd25519YaoRegistrationSideEffectV1<TestResponse, PreparedTx>(
+      store,
+      preparedRunInput({ store, prepareCalls, broadcasts, resume: true }),
+    );
+    const replay = await runRouterAbEd25519YaoRegistrationSideEffectV1<TestResponse, PreparedTx>(
+      store,
+      preparedRunInput({ store, prepareCalls, broadcasts, resume: true }),
+    );
+
+    expect(replay).toEqual({ kind: 'exact_replay', value: { ok: true, receipt: 'tx-hash-1' } });
+    expect(prepareCalls.count).toBe(1);
+    expect(broadcasts).toHaveLength(1);
   });
 });
