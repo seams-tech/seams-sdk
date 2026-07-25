@@ -1860,6 +1860,7 @@ Post-baseline current test surface:
 | `tests/unit/deploymentCoordinationReceipt.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
 | `tests/unit/deploymentFinalSmoke.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
 | `tests/unit/deploymentRelease.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/unit/deploymentSmoke.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage validates deployment smoke retries and readiness classification. |
 | `tests/unit/deploymentTargets.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
 | `tests/unit/deploymentWorkflow.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
 | `tests/unit/deploymentWorkflowPolicy.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
