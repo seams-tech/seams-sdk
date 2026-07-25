@@ -820,6 +820,13 @@ receipts are recorded.
           selector and enable them only after local cutover validation.
   - [ ] Move export admission, execution, redelivery, and authorization state
         to the partitioned store with typed conflict and uncertainty handling.
+    - [x] Persist phase-specific authorization, admission, and execution claims
+          before their effects; retain uncertain claims without repeating
+          WebAuthn verification or Router calls; persist and redeliver the exact
+          completed export result after a codec reload.
+    - [ ] Compose both export routes against the partitioned store behind the
+          drain selector. A WebAuthn-success/receipt-CAS conflict remains
+          fail-closed and requires a fresh export ceremony.
   - [ ] Move remaining replay, authorization, and session state out of the
         tenant runtime, then delete its binding, readiness path, serializer, and
         SQLite migration after the drain.
