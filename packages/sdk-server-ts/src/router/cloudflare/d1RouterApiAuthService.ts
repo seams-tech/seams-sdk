@@ -22,6 +22,8 @@ import {
   type ExecuteSignedDelegateResult,
 } from '../../delegateAction';
 import type { ActionArgsWasm } from '@shared/near/actions';
+import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
+import { base64UrlEncode } from '@shared/utils/encoders';
 import type {
   AccountCreationResult,
   FundImplicitNearAccountRequest,
@@ -32,7 +34,7 @@ import type { RouterApiServiceBag } from '../authServicePort';
 import type { RouterApiEmailRecoveryAuthService } from '../routerApi';
 import { resolveRegistrationCeremonyDoConfig } from './d1RegistrationCeremonyDo';
 import { CloudflareD1RegistrationCeremonyIntentStore } from './d1RegistrationCeremonyStore';
-import { sha256BytesPortable } from './d1RouterApiAuthBoundary';
+import { isRecordValue, sha256BytesPortable } from './d1RouterApiAuthBoundary';
 import { CloudflareD1NearPublicKeyStore } from './d1NearPublicKeyStore';
 import { CloudflareD1WebAuthnStore } from './d1WebAuthnStore';
 import { CloudflareD1EmailOtpChallengeStore } from './d1EmailOtpChallengeStore';
@@ -438,46 +440,130 @@ function parseSponsoredNearAccountSideEffectRecord(
   AccountCreationResult,
   PreparedSponsoredNearAccountCreationV1
 > | null {
-  if (raw === null || typeof raw !== 'object') return null;
-  const record = raw as Record<string, unknown>;
+  if (!isRecordValue(raw)) return null;
+  const record = raw;
   if (record.operation !== 'finalize') return null;
   if (typeof record.requestFingerprint !== 'string' || !record.requestFingerprint) return null;
-  if (!Number.isSafeInteger(record.claimedAtMs)) return null;
+  if (!isNonNegativeSafeInteger(record.claimedAtMs)) return null;
   if (record.kind === 'router_ab_ed25519_yao_registration_side_effect_claim_v1') {
-    const prepared = record.prepared;
-    if (prepared !== undefined && !isPreparedSponsoredNearAccountCreation(prepared)) return null;
-    return record as unknown as RouterAbEd25519YaoRegistrationSideEffectRecordV1<
-      AccountCreationResult,
-      PreparedSponsoredNearAccountCreationV1
-    >;
+    let prepared: PreparedSponsoredNearAccountCreationV1 | undefined;
+    if (record.prepared !== undefined) {
+      const parsedPrepared = parsePreparedSponsoredNearAccountCreation(record.prepared);
+      if (parsedPrepared === null) return null;
+      prepared = parsedPrepared;
+    }
+    return {
+      kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1',
+      operation: 'finalize',
+      requestFingerprint: record.requestFingerprint,
+      claimedAtMs: record.claimedAtMs,
+      ...(prepared === undefined ? {} : { prepared }),
+    };
   }
   if (record.kind === 'router_ab_ed25519_yao_registration_side_effect_completion_v1') {
-    if (!Number.isSafeInteger(record.completedAtMs)) return null;
-    const response = record.response;
-    if (response === null || typeof response !== 'object') return null;
-    if (typeof (response as Record<string, unknown>).success !== 'boolean') return null;
-    return record as unknown as RouterAbEd25519YaoRegistrationSideEffectRecordV1<
-      AccountCreationResult,
-      PreparedSponsoredNearAccountCreationV1
-    >;
+    if (!isNonNegativeSafeInteger(record.completedAtMs)) return null;
+    const response = parseAccountCreationResult(record.response);
+    if (response === null) return null;
+    return {
+      kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
+      operation: 'finalize',
+      requestFingerprint: record.requestFingerprint,
+      claimedAtMs: record.claimedAtMs,
+      completedAtMs: record.completedAtMs,
+      response,
+    };
   }
   return null;
 }
 
-function isPreparedSponsoredNearAccountCreation(value: unknown): boolean {
-  if (value === null || typeof value !== 'object') return false;
-  const prepared = value as Record<string, unknown>;
-  if (prepared.kind !== 'prepared_sponsored_near_account_creation_v1') return false;
-  if (typeof prepared.accountId !== 'string' || !prepared.accountId) return false;
-  if (typeof prepared.transactionHash !== 'string' || !prepared.transactionHash) return false;
-  const signed = prepared.signedTransaction;
-  if (signed === null || typeof signed !== 'object') return false;
-  const bytes = (signed as Record<string, unknown>).borsh_bytes;
-  return (
-    Array.isArray(bytes) &&
-    bytes.length > 0 &&
-    bytes.every((byte) => Number.isInteger(byte) && (byte as number) >= 0 && (byte as number) < 256)
-  );
+function parsePreparedSponsoredNearAccountCreation(
+  value: unknown,
+): PreparedSponsoredNearAccountCreationV1 | null {
+  if (!isRecordValue(value) || value.kind !== 'prepared_sponsored_near_account_creation_v1') {
+    return null;
+  }
+  const accountId = parseNonEmptyString(value.accountId);
+  const publicKey = parseNonEmptyString(value.publicKey);
+  const relayerAccountId = parseNonEmptyString(value.relayerAccountId);
+  const transactionHash = parseNonEmptyString(value.transactionHash);
+  const nextNonce = parseNonEmptyString(value.nextNonce);
+  const blockHash = parseNonEmptyString(value.blockHash);
+  const signed = value.signedTransaction;
+  if (
+    accountId === null ||
+    publicKey === null ||
+    relayerAccountId === null ||
+    transactionHash === null ||
+    nextNonce === null ||
+    blockHash === null ||
+    !isRecordValue(signed) ||
+    !isRecordValue(signed.transaction) ||
+    !isRecordValue(signed.signature) ||
+    !Array.isArray(signed.borsh_bytes) ||
+    signed.borsh_bytes.length === 0 ||
+    signed.borsh_bytes.length > 4096 ||
+    !signed.borsh_bytes.every(
+      (byte) => typeof byte === 'number' && Number.isInteger(byte) && byte >= 0 && byte < 256,
+    )
+  ) {
+    return null;
+  }
+  return {
+    kind: 'prepared_sponsored_near_account_creation_v1',
+    accountId,
+    publicKey,
+    relayerAccountId,
+    transactionHash,
+    nextNonce,
+    blockHash,
+    signedTransaction: {
+      transaction: signed.transaction,
+      signature: signed.signature,
+      borsh_bytes: signed.borsh_bytes,
+    },
+  };
+}
+
+function parseAccountCreationResult(value: unknown): AccountCreationResult | null {
+  if (!isRecordValue(value) || typeof value.success !== 'boolean') return null;
+  const accountId = parseOptionalString(value.accountId);
+  const transactionHash = parseOptionalString(value.transactionHash);
+  const error = parseOptionalString(value.error);
+  const message = parseOptionalString(value.message);
+  if (
+    ('accountId' in value && accountId === null) ||
+    ('transactionHash' in value && transactionHash === null) ||
+    ('error' in value && error === null) ||
+    ('message' in value && message === null)
+  ) {
+    return null;
+  }
+  if (value.success && (accountId === undefined || transactionHash === undefined)) return null;
+  const normalizedAccountId = accountId ?? undefined;
+  const normalizedTransactionHash = transactionHash ?? undefined;
+  const normalizedError = error ?? undefined;
+  const normalizedMessage = message ?? undefined;
+  return {
+    success: value.success,
+    ...(normalizedAccountId === undefined ? {} : { accountId: normalizedAccountId }),
+    ...(normalizedTransactionHash === undefined
+      ? {}
+      : { transactionHash: normalizedTransactionHash }),
+    ...(normalizedError === undefined ? {} : { error: normalizedError }),
+    ...(normalizedMessage === undefined ? {} : { message: normalizedMessage }),
+  };
+}
+
+function parseNonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function parseOptionalString(value: unknown): string | undefined | null {
+  return value === undefined ? undefined : parseNonEmptyString(value);
+}
+
+function isNonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
 /**
@@ -548,15 +634,26 @@ async function createSponsoredNamedNearAccountForOptions(
     nearRpcUrl,
     initialBalanceYocto,
   };
+  const requestFingerprint = base64UrlEncode(
+    await sha256BytesUtf8(
+      alphabetizeStringify({
+        kind: 'sponsored_near_account_creation_v1',
+        accountId: input.accountId,
+        publicKey: input.publicKey,
+        relayerAccountId: relayerAccount,
+        initialBalanceYocto,
+      }),
+    ),
+  );
   const outcome = await runRouterAbEd25519YaoRegistrationSideEffectV1<
     AccountCreationResult,
     PreparedSponsoredNearAccountCreationV1
   >(sponsoredNearAccountSideEffectStore(options), {
+    kind: 'prepared_resumable',
     operation: 'finalize',
     key: `sponsored-account:${input.idempotencyKey}`,
-    requestFingerprint: input.idempotencyKey,
+    requestFingerprint,
     nowMs: () => Date.now(),
-    resumeWithPrepared: true,
     prepare: async () => {
       const prepared = await prepareSponsoredNearAccountCreationWithRelayer(relayerInput);
       if (!prepared.ok) throw new Error(prepared.message);

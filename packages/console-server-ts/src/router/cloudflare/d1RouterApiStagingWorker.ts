@@ -68,6 +68,7 @@ import {
   parseRouterAbPublicKeysetV2,
   type RouterAbPublicKeysetV2,
 } from '@seams-internal/shared-ts/utils/routerAbPublicKeyset';
+import { parseWalletId } from '@seams-internal/shared-ts/utils/domainIds';
 import {
   createRouterAbServiceBindingFetch,
   ROUTER_AB_MPC_ROUTER_ORIGIN,
@@ -440,6 +441,15 @@ async function createRouterApiHandler(
             signingWorkerId: requireEnvString(env, 'SIGNING_WORKER_ID'),
             session,
             store: createStagingYaoPartitionedStateStore(env),
+            loadPersistedActiveCapability: async (lookup) => {
+              const walletId = parseWalletId(lookup.walletId);
+              if (!walletId.ok) return null;
+              const signer = await stagingWalletStore(env).getEd25519SignerBySlot({
+                walletId: walletId.value,
+                signerSlot: lookup.signerSlot,
+              });
+              return signer?.activeYaoCapability || null;
+            },
           })
         : ed25519Yao.runtime,
     ecdsaStrictRegistration,
@@ -855,6 +865,14 @@ async function fetch(
       return response;
     }
     if (route.kind === 'partitioned_d1') {
+      // The public start route is owned by the gateway runtime. It still needs
+      // admission gating here, while its request-scoped runtime resolver picks
+      // the partitioned store after the drain boundary.
+      if (operation === 'registration_start') {
+        return await env.ROUTER_API_RUNTIME.get(
+          env.ROUTER_API_RUNTIME.idFromName(routerApiRuntimeInstanceName(env)),
+        ).fetch(request);
+      }
       const response = await handlePartitionedD1Operation(env, request, operation);
       withCors(response.headers, { corsOrigins: readCsvList(env.RELAY_CORS_ORIGINS) }, request);
       return response;
@@ -870,6 +888,8 @@ function registrationOperationForRequest(
 ): RouterAbEd25519YaoGatewayRegistrationOperationV1 | null {
   if (request.method !== 'POST') return null;
   switch (new URL(request.url).pathname) {
+    case '/wallets/register/start':
+      return 'registration_start';
     case ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1:
       return 'registration_admission';
     case ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1:
@@ -893,6 +913,7 @@ function familyOfGatewayOperation(
   operation: RouterAbEd25519YaoGatewayRegistrationOperationV1,
 ): RouterAbEd25519YaoGatewayCutoverFamilyV1 {
   switch (operation) {
+    case 'registration_start':
     case 'registration_admission':
     case 'registration_execute':
       return 'registration';
@@ -1053,6 +1074,15 @@ export function createStagingExportRequestScopedDependencies(
       signingWorkerId: requireEnvString(env, 'SIGNING_WORKER_ID'),
       session,
       store,
+      loadPersistedActiveCapability: async (lookup) => {
+        const walletId = parseWalletId(lookup.walletId);
+        if (!walletId.ok) return null;
+        const signer = await stagingWalletStore(env).getEd25519SignerBySlot({
+          walletId: walletId.value,
+          signerSlot: lookup.signerSlot,
+        });
+        return signer?.activeYaoCapability || null;
+      },
     }),
   };
 }

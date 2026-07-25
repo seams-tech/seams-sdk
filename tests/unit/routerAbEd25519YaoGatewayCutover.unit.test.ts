@@ -4,7 +4,7 @@ import { resolveRouterAbEd25519YaoGatewayRegistrationRouteV1 } from '../../packa
 test('keeps admission and execute on the legacy runtime throughout the drain window', () => {
   const admissionCutoffMs = 2_000;
   const drainUntilMs = 12_000;
-  const operations = ['registration_admission', 'registration_execute'] as const;
+  const operations = ['registration_start', 'registration_admission', 'registration_execute'] as const;
   for (const operation of operations) {
     expect(
       resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({
@@ -19,6 +19,13 @@ test('keeps admission and execute on the legacy runtime throughout the drain win
 test('blocks new admissions while allowing old executes to drain', () => {
   const admissionCutoffMs = 2_000;
   const drainUntilMs = 12_000;
+  expect(
+    resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({
+      operation: 'registration_start',
+      nowMs: admissionCutoffMs,
+      cutover: { registration: { admissionCutoffMs, drainUntilMs } },
+    }),
+  ).toEqual({ kind: 'admission_blocked', window: { admissionCutoffMs, drainUntilMs } });
   expect(
     resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({
       operation: 'registration_admission',
@@ -38,7 +45,7 @@ test('blocks new admissions while allowing old executes to drain', () => {
 test('enables both registration operations only after the final drain boundary', () => {
   const admissionCutoffMs = 2_000;
   const drainUntilMs = 12_000;
-  const routes = (['registration_admission', 'registration_execute'] as const).map((operation) =>
+  const routes = (['registration_start', 'registration_admission', 'registration_execute'] as const).map((operation) =>
     resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({
       operation,
       nowMs: drainUntilMs,
@@ -46,6 +53,7 @@ test('enables both registration operations only after the final drain boundary',
     }),
   );
   expect(routes).toEqual([
+    { kind: 'partitioned_d1', window: { admissionCutoffMs, drainUntilMs } },
     { kind: 'partitioned_d1', window: { admissionCutoffMs, drainUntilMs } },
     { kind: 'partitioned_d1', window: { admissionCutoffMs, drainUntilMs } },
   ]);
@@ -78,7 +86,7 @@ test('rejects invalid deployment timestamps', () => {
 test('every ceremony phase pairs with the store its admission used', () => {
   const window = { admissionCutoffMs: 1_000, drainUntilMs: 2_000 } as const;
   const all = { registration: window, recovery: window, export: window } as const;
-  const admissions = ['registration_admission', 'recovery_admission', 'export_admission'] as const;
+  const admissions = ['registration_start', 'registration_admission', 'recovery_admission', 'export_admission'] as const;
   const continuations = [
     'registration_execute',
     'recovery_execute',
