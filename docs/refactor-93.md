@@ -757,6 +757,15 @@ the two harnesses must not be treated as equivalent evidence.
 
 ### Phase 5: Hard Cutover And Deletion
 
+The Phase 5 deletion audit is recorded in
+[`refactor-93-phase5-deletion-audit.md`](./refactor-93-phase5-deletion-audit.md).
+It confirms that the Gateway serial Yao owner is deleted, while Deriver A/B
+service bindings, legacy role routes/parsers, and compatibility tests remain
+drain targets. `SIGNING_WORKER` is still owned by the Router A/B ECDSA
+threshold transport and is not an obsolete Yao direct-origin binding. No
+destructive deletion is authorized until the audit's deployment and drain
+receipts are recorded.
+
 - [x] Delete the Gateway Stage, Start, Result, and package-delivery
       orchestration.
 - [ ] Delete obsolete Yao direct-origin environment keys where no other
