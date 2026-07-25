@@ -188,6 +188,17 @@ export type {
   CloudflareVersionedJsonValue,
 } from './cloudflare/versionedJsonRecordStore';
 export {
+  CloudflareD1VersionedJsonRecordStore,
+  CloudflareD1VersionedJsonRecordStoreError,
+  createCloudflareD1VersionedJsonRecordStore,
+} from './cloudflare/d1VersionedJsonRecordStore';
+export type {
+  CloudflareD1VersionedJsonRecordScopeV1,
+  CloudflareD1VersionedJsonRecordBatchPutResultV1,
+  CloudflareD1VersionedJsonRecordMutationV1,
+  CloudflareD1VersionedJsonRecordStoreOptions,
+} from './cloudflare/d1VersionedJsonRecordStore';
+export {
   createRouterAbEd25519YaoCeremonyStateStoreV1,
   encodeRouterAbEd25519YaoProductRegistrationStateV1,
   parseRouterAbEd25519YaoProductRegistrationStateJsonV1,
