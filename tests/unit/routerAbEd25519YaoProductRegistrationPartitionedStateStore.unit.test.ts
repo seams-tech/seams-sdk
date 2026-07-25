@@ -10,6 +10,7 @@ import {
   type RouterAbEd25519YaoProductRegistrationPartitionRecordV1,
 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
 import { createRouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistration';
+import { encodeRouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPersistence';
 import type { CloudflareVersionedJsonRecordReadResult } from '../../packages/sdk-server-ts/src/router/cloudflare/versionedJsonRecordStore';
 
 type StoredRecord = {
@@ -115,6 +116,17 @@ test.describe('partitioned Gateway product-state composition', () => {
         encodeRouterAbEd25519YaoProductRegistrationPartitionRecordV1(ceremony),
       ),
     ).toEqual(ceremony);
+
+    const contaminatedState = createRouterAbEd25519YaoProductRegistrationStateV1();
+    contaminatedState.registration.lifecycleSessions.set('lifecycle-codec', 'session-codec');
+    contaminatedState.registration.lifecycleSessions.set('other-lifecycle', 'other-session');
+    const encodedCeremony = encodeRouterAbEd25519YaoProductRegistrationPartitionRecordV1(ceremony);
+    expect(
+      parseRouterAbEd25519YaoProductRegistrationPartitionRecordV1({
+        ...encodedCeremony,
+        state: encodeRouterAbEd25519YaoProductRegistrationStateV1(contaminatedState),
+      }),
+    ).toBeNull();
   });
 
   test('loads empty records and commits shared plus one ceremony atomically', async () => {
