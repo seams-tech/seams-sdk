@@ -141,11 +141,7 @@ impl CloudflareEd25519YaoRoleFailureResponseV1 {
                 retry_after_ms: 1_000,
             };
         }
-        if error.code() == RouterAbProtocolErrorCode::ConflictingPair
-            || message.contains("conflicting")
-            || message.contains("already prepared")
-            || message.contains("already running")
-        {
+        if error.code() == RouterAbProtocolErrorCode::ConflictingPair {
             return Self::Rejected {
                 code: RouterEd25519YaoExecuteFailureCodeV1::ConflictingPair,
             };
