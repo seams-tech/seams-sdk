@@ -1,12 +1,12 @@
 # Deployment Refactor 3: Unambiguous GitHub Actions
 
 Date created: July 23, 2026
-Last updated: July 24, 2026
+Last updated: July 25, 2026
 
 Status: the consolidated backend and frontend deployment workflows are
-implemented in the repository. GitHub environment configuration, branch
-protection, historical Actions cleanup, and staging/production cutover remain
-operational Phase 9 work.
+implemented and merged into local `dev`. GitHub environment configuration,
+branch protection, historical Actions cleanup, and staging/production cutover
+remain operational Phase 9 work.
 
 ## Objective
 
@@ -613,6 +613,9 @@ retention policy.
       workflows and frontend mutation jobs in backend workflows.
 - [x] Update deployment documentation, operator commands, rollback instructions,
       and release receipt contracts in the same change set.
+- [x] Keep read-only backend smoke checks bound to each target's existing
+      frontend environment; remove the separate `*-observability` environments
+      from workflow generation, manifests, examples, and documentation.
 - [ ] Configure the target GitHub environment variables, protections, and
       approved evidence-store retention for the new frontend lane.
 
