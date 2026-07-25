@@ -7,10 +7,13 @@ import { pathToFileURL } from 'node:url';
 const SCHEMA_VERSION = 1;
 const ENVIRONMENTS = new Set(['staging', 'production']);
 const OPERATIONS = ['registration', 'recovery', 'export'];
-const LEGACY_KEYS = Object.freeze([
+const INVENTORY_KEYS = Object.freeze([
+  'MPC_ROUTER',
+  'MPC_ROUTER_URL',
   'DERIVER_A',
   'DERIVER_B',
   'SIGNING_WORKER',
+  'ROUTER_AB_SIGNING_WORKER_URL',
   'ROUTER_API_RUNTIME',
   'DERIVER_A_URL',
   'DERIVER_B_URL',
@@ -114,13 +117,21 @@ export function inventoryRefactor93LegacyKeys(inputs) {
       text: requireString(record.text, `inventory input[${index}] text`),
     };
   });
-  return LEGACY_KEYS.map((key) => ({
+  return INVENTORY_KEYS.map((key) => ({
     key,
     references: sources
       .map((source) => ({ path: source.path, count: countOccurrences(source.text, key) }))
       .filter((source) => source.count > 0),
-    decision: key === 'SIGNING_WORKER' ? 'retain_non_yao_owner' : 'drain_or_follow_up',
+    decision: inventoryDecision(key),
   }));
+}
+
+function inventoryDecision(key) {
+  if (key === 'MPC_ROUTER' || key === 'MPC_ROUTER_URL') return 'retain_yao_owner';
+  if (key === 'SIGNING_WORKER' || key === 'ROUTER_AB_SIGNING_WORKER_URL') {
+    return 'retain_non_yao_owner';
+  }
+  return 'drain_or_follow_up';
 }
 
 function parseRelease(value) {
