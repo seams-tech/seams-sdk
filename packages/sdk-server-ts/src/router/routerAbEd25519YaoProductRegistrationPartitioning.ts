@@ -158,13 +158,15 @@ export function mergeRouterAbEd25519YaoProductRegistrationStatePartitionV1(
     recoveryStateLifecycleId,
     lifecycleId,
   );
-  const recoveryKeys = new Set<string>();
+  const replacedRecoveryRecordIds = new Set<string>();
   for (const [key, value] of base.recovery.recoveries) {
-    if (recoveryStateLifecycleId(value) === lifecycleId) recoveryKeys.add(key);
+    if (recoveryStateLifecycleId(value) === lifecycleId) replacedRecoveryRecordIds.add(key);
   }
   const recoverySessions = new Map<string, string>();
   for (const [sessionKey, recoveryKey] of base.recovery.recoverySessions) {
-    if (!recoveryKeys.has(recoveryKey)) recoverySessions.set(sessionKey, recoveryKey);
+    if (!replacedRecoveryRecordIds.has(recoveryKey)) {
+      recoverySessions.set(sessionKey, recoveryKey);
+    }
   }
   for (const [sessionKey, recoveryKey] of partition.ceremony.recovery.recoverySessions) {
     recoverySessions.set(sessionKey, recoveryKey);
