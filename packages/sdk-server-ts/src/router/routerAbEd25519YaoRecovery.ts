@@ -2489,6 +2489,7 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
 export function createRouterAbEd25519YaoRecoveryModule(input: {
   readonly service: RouterAbEd25519YaoRecoveryService &
     RouterAbEd25519YaoActiveCapabilityResolverV1;
+  readonly capabilities?: RouterAbEd25519YaoActiveCapabilityResolverV1;
   readonly authorization: RouterAbEd25519YaoRecoveryAuthorizationAdapter;
 }): RouterApiModule {
   return createRouterApiModule({
@@ -2496,7 +2497,7 @@ export function createRouterAbEd25519YaoRecoveryModule(input: {
     routeExtensions: [
       new RouterAbEd25519YaoRecoveryRouteExtension(
         input.service,
-        input.service,
+        input.capabilities ?? input.service,
         input.authorization,
       ),
     ],

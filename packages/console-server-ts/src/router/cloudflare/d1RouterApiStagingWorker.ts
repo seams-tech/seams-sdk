@@ -316,18 +316,8 @@ async function createStagingEd25519YaoComposition(
       walletStore,
       ensureSchema: false,
     }),
+    loadPersistedActiveCapability: loadStagingPersistedActiveCapability.bind(undefined, env),
   });
-  const signers = await walletStore.listEd25519Signers();
-  for (const signer of signers) {
-    const installed = await composition.runtime.installPersistedActiveCapability(
-      signer.activeYaoCapability,
-    );
-    if (!installed.ok) {
-      throw new Error(
-        `staging Ed25519 Yao capability hydration failed for ${signer.signerId}: ${installed.message}`,
-      );
-    }
-  }
   return composition;
 }
 
