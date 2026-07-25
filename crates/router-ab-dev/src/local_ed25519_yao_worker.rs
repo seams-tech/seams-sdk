@@ -339,7 +339,8 @@ impl LocalEd25519YaoWorkerStateV1 {
                         ));
                     }
                 }
-                restored.pair_roles = decode_pair_role_records(pair_roles)?;
+                restored.pair_roles =
+                    decode_pair_role_records(LocalServiceRoleV1::DeriverA, pair_roles)?;
             }
             (
                 LocalServiceRoleV1::DeriverB,
@@ -361,7 +362,8 @@ impl LocalEd25519YaoWorkerStateV1 {
                         ));
                     }
                 }
-                restored.pair_roles = decode_pair_role_records(pair_roles)?;
+                restored.pair_roles =
+                    decode_pair_role_records(LocalServiceRoleV1::DeriverB, pair_roles)?;
             }
             (
                 LocalServiceRoleV1::SigningWorker,
@@ -386,11 +388,12 @@ impl LocalEd25519YaoWorkerStateV1 {
 }
 
 fn decode_pair_role_records(
+    role: LocalServiceRoleV1,
     records: Vec<LocalEd25519YaoPairRoleRecordV1>,
 ) -> RouterAbProtocolResult<BTreeMap<[u8; 32], LocalEd25519YaoPairRoleRecordV1>> {
     let mut decoded = BTreeMap::new();
     for record in records {
-        validate_pair_role_record(&record)?;
+        validate_pair_role_record(role, &record)?;
         let pair_digest = pair_role_record_digest(&record);
         if pair_digest.iter().all(|byte| *byte == 0)
             || decoded.insert(pair_digest, record).is_some()
@@ -404,6 +407,7 @@ fn decode_pair_role_records(
 }
 
 fn validate_pair_role_record(
+    role: LocalServiceRoleV1,
     record: &LocalEd25519YaoPairRoleRecordV1,
 ) -> RouterAbProtocolResult<()> {
     match record {
@@ -432,6 +436,10 @@ fn validate_pair_role_record(
                 || receipt.pair_digest().bytes != *pair_digest
                 || receipt.local_input_digest().bytes != *input_digest
                 || receipt.root_metadata_digest().bytes != *root_metadata_digest
+                || ((role == LocalServiceRoleV1::DeriverA
+                    && receipt.role() != Ed25519YaoDeriverRoleV1::DeriverA)
+                    || (role == LocalServiceRoleV1::DeriverB
+                        && receipt.role() != Ed25519YaoDeriverRoleV1::DeriverB))
             {
                 return Err(invalid_worker_state(
                     "persisted pair preparation identity does not match its receipt",
@@ -1932,7 +1940,7 @@ mod tests {
                 pair_digest: [2; 32],
             },
         ];
-        assert!(decode_pair_role_records(records).is_err());
+        assert!(decode_pair_role_records(LocalServiceRoleV1::DeriverA, records).is_err());
     }
 
     #[test]

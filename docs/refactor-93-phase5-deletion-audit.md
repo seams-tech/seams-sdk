@@ -141,3 +141,36 @@ crate because the strict Worker entrypoint features are mutually exclusive,
 and the lifecycle unit test intentionally calls a role-only helper behind its
 Deriver feature gate. Per-entrypoint library checks are the meaningful warning
 signal until the test harness is split by Worker role.
+
+## Safe-cleanup review (2026-07-25)
+
+The open Phase 5 items were re-audited against the current callers and owners.
+No destructive cleanup is safe before the deployment drain:
+
+- `DERIVER_A` and `DERIVER_B` remain in the generated Gateway service bindings
+  because the old Gateway binary must remain rollbackable until the in-flight
+  lifetime and transport-failure budget have elapsed. The same bindings are
+  still consumed by the local strict-runtime dispatcher. `SIGNING_WORKER` is
+  owned by the Router A/B ECDSA threshold transport, so it is not a Yao-only
+  key. `MPC_ROUTER` is the sole current Yao origin.
+- The production Yao backend configuration already accepts only
+  `MPC_ROUTER_URL`; no Deriver or SigningWorker URL field remains in that
+  configuration type. The Gateway contract test pins normal and exact-replay
+  requests to the Router origin, so there is no additional safe key deletion
+  in the SDK backend.
+- The five lifecycle `source.contains` checks are still the only structural
+  guards for private Worker command/state ownership. They remain valid until
+  native pair serving and legacy route deletion provide route-level coverage.
+- Legacy Stage/Start/Result parsers and their compatibility fixtures still
+  have an explicit request-boundary owner during the drain. Their removal
+  requires the staging receipts listed above, including the observed maximum
+  in-flight lifetime and rollback rehearsal.
+- Promotion and capability installation use typed `disposition` and `code`
+  unions (`exact_retry`, `capability_conflict`, and `capability_retired`). The
+  remaining `already active` phrase is a Deriver-A HTTP diagnostic only; no
+  promotion branch matches an English error message.
+
+This review therefore records a deliberate zero-deletion result. The next
+safe Phase 5 code changes are gated on native pair serving, a coherent staging
+cutover, and the five-item deletion receipt; deleting bindings, parsers, or
+source guards before those gates would remove rollback and boundary coverage.
