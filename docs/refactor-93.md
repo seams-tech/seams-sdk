@@ -893,7 +893,10 @@ return the existing unsupported response in the Rust-only harness. Strict
 Wrangler local mode continues to execute the production Cloudflare handlers.
 The pure local pair model now marks an expired prepared pair as terminal before
 any role can enter `Running`; it remains a unit model rather than serving-path
-evidence.
+evidence. Its lifecycle metadata now has a validated snapshot/restore shape and
+the local SQLite adapter has insert-if-absent and byte-exact compare-and-swap
+primitives. These are persistence foundations for the future Router process;
+they do not persist encrypted role inputs and do not close the serving gate.
 
 ## Test Matrix
 
