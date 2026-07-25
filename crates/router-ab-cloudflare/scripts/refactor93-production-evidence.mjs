@@ -79,6 +79,8 @@ const WORKERS_EXECUTION_MODELS = new Set(['durableObject', 'stateless']);
 const WORKERS_RESOURCE_JOIN_KINDS = new Set(['same_record', 'request_id_join', 'custom_log_only']);
 const WORKERS_LOG_PAYLOAD_FIELDS = ['source', 'message', 'logs', 'Logs'];
 const WORKERS_LOG_CONTAINER_FIELDS = ['result', 'events', 'data'];
+const WORKERS_LOG_DATASET = 'cloudflare-workers';
+const WORKERS_INVOCATION_EVENT_TYPE = 'cf-worker-event';
 
 export function parseRefactor93EvidenceManifest(value) {
   const record = requireRecord(value, 'evidence manifest');
@@ -173,7 +175,13 @@ export function analyzeRefactor93ProductionEvidence(input) {
   const eventsByTrace = groupEventsByTrace(events);
   const traceReports = [];
   for (const trace of manifest.traces) {
-    traceReports.push(analyzeTrace(trace, eventsByTrace.get(trace.traceId) ?? []));
+    traceReports.push(
+      analyzeTrace(
+        trace,
+        eventsByTrace.get(trace.traceId) ?? [],
+        manifest.release.gatewayVersionId,
+      ),
+    );
   }
   const blockers = [];
   addManifestBlockers(blockers, manifest, traceReports, inputFiles);
@@ -291,11 +299,15 @@ function parseWorkersLogRecord(wrapper, source, line) {
   const workers = requireRecord(wrapper.$workers, `${label} $workers`);
   const metadata = requireRecord(wrapper.$metadata, `${label} $metadata`);
   requireString(metadata.id, `${label} $metadata.id`);
-  requireString(wrapper.dataset, `${label} dataset`);
+  const dataset = requireString(wrapper.dataset, `${label} dataset`);
+  if (dataset !== WORKERS_LOG_DATASET) {
+    throw new Error(`${label} dataset must be ${WORKERS_LOG_DATASET}`);
+  }
   requireWorkersLogSource(wrapper.source, `${label} source`);
   requireNonNegativeFiniteNumber(wrapper.timestamp, `${label} timestamp`);
   const requestId = requireString(workers.requestId, `${label} $workers.requestId`);
   const scriptName = requireString(workers.scriptName, `${label} $workers.scriptName`);
+  const metadataType = requireString(metadata.type, `${label} $metadata.type`);
   requireMatchingOptionalString(
     metadata.requestId,
     requestId,
@@ -308,6 +320,21 @@ function parseWorkersLogRecord(wrapper, source, line) {
     `${label} $metadata.service`,
     '$workers.scriptName',
   );
+  requireMatchingOptionalStrings(
+    metadata.traceId,
+    workers.traceId,
+    `${label} $metadata.traceId`,
+    '$workers.traceId',
+  );
+  requireMatchingOptionalStrings(
+    metadata.spanId,
+    workers.spanId,
+    `${label} $metadata.spanId`,
+    '$workers.spanId',
+  );
+  const traceId = optionalString(workers.traceId, `${label} $workers.traceId`);
+  const spanId = optionalString(workers.spanId, `${label} $workers.spanId`);
+  const scriptVersionId = parseOptionalWorkersScriptVersionId(workers.scriptVersion, label);
   const executionModel =
     workers.executionModel === undefined
       ? null
@@ -325,6 +352,17 @@ function parseWorkersLogRecord(wrapper, source, line) {
   if (hasCpuTime !== hasWallTime) {
     throw new Error(`${label} must carry $workers.cpuTimeMs and $workers.wallTimeMs together`);
   }
+  if (hasCpuTime && metadataType !== WORKERS_INVOCATION_EVENT_TYPE) {
+    throw new Error(
+      `${label} resource metrics require $metadata.type ${WORKERS_INVOCATION_EVENT_TYPE}`,
+    );
+  }
+  if (hasCpuTime) {
+    requireString(workers.outcome, `${label} $workers.outcome`);
+    if (scriptVersionId === null) {
+      throw new Error(`${label} resource metrics require $workers.scriptVersion.id`);
+    }
+  }
   const invocationMetrics = hasCpuTime
     ? {
         cpuMs: requireNonNegativeFiniteNumber(workers.cpuTimeMs, `${label} $workers.cpuTimeMs`),
@@ -338,12 +376,25 @@ function parseWorkersLogRecord(wrapper, source, line) {
     wrapper,
     requestId,
     scriptName,
+    scriptVersionId,
+    traceId,
+    spanId,
     executionModel,
     durableObjectId,
     invocationMetrics,
     source,
     line,
   };
+}
+
+function optionalString(value, label) {
+  return value === undefined ? null : requireString(value, label);
+}
+
+function parseOptionalWorkersScriptVersionId(value, label) {
+  if (value === undefined) return null;
+  const scriptVersion = requireRecord(value, `${label} $workers.scriptVersion`);
+  return requireString(scriptVersion.id, `${label} $workers.scriptVersion.id`);
 }
 
 function requireWorkersLogSource(value, label) {
@@ -358,6 +409,11 @@ function requireMatchingOptionalString(value, expected, label, expectedLabel) {
   if (actual !== expected) {
     throw new Error(`${label} must equal ${expectedLabel}`);
   }
+}
+
+function requireMatchingOptionalStrings(value, expected, label, expectedLabel) {
+  if (value === undefined || expected === undefined) return;
+  requireMatchingOptionalString(value, expected, label, expectedLabel);
 }
 
 function indexWorkersInvocationResources(records) {
@@ -515,7 +571,12 @@ function selectJoinedWorkersInvocationResource(logRecord, invocationResources) {
   for (const candidate of candidates) {
     if (workersResourceMetadataMatches(logRecord, candidate)) compatible.push(candidate);
   }
-  if (compatible.length === 0) return null;
+  if (candidates.length === 0) return null;
+  if (compatible.length === 0) {
+    throw new Error(
+      `${logRecord.source}:${logRecord.line} Workers Logs invocation resource metadata does not match its custom log`,
+    );
+  }
   const signatures = new Set(compatible.map(workersResourceSignature));
   if (signatures.size !== 1) {
     throw new Error(
@@ -527,6 +588,9 @@ function selectJoinedWorkersInvocationResource(logRecord, invocationResources) {
 
 function workersResourceMetadataMatches(logRecord, resource) {
   return (
+    optionalWorkersMetadataMatches(logRecord.scriptVersionId, resource.scriptVersionId) &&
+    optionalWorkersMetadataMatches(logRecord.traceId, resource.traceId) &&
+    optionalWorkersMetadataMatches(logRecord.spanId, resource.spanId) &&
     optionalWorkersMetadataMatches(logRecord.executionModel, resource.executionModel) &&
     optionalWorkersMetadataMatches(logRecord.durableObjectId, resource.durableObjectId)
   );
@@ -538,6 +602,9 @@ function optionalWorkersMetadataMatches(left, right) {
 
 function workersResourceSignature(resource) {
   return JSON.stringify({
+    scriptVersionId: resource.scriptVersionId,
+    traceId: resource.traceId,
+    spanId: resource.spanId,
     executionModel: resource.executionModel,
     durableObjectId: resource.durableObjectId,
     cpuMs: resource.invocationMetrics.cpuMs,
@@ -550,6 +617,9 @@ function workersResourceAttribution(logRecord, invocationResource, joinKind) {
     join_kind: joinKind,
     request_id: logRecord.requestId,
     script_name: logRecord.scriptName,
+    script_version_id: invocationResource?.scriptVersionId ?? logRecord.scriptVersionId,
+    trace_id: invocationResource?.traceId ?? logRecord.traceId,
+    span_id: invocationResource?.spanId ?? logRecord.spanId,
     execution_model: invocationResource?.executionModel ?? logRecord.executionModel,
     durable_object_id: invocationResource?.durableObjectId ?? logRecord.durableObjectId,
   };
@@ -638,6 +708,9 @@ function parseWorkersResourceAttribution(record, label) {
     'join_kind',
     'request_id',
     'script_name',
+    'script_version_id',
+    'trace_id',
+    'span_id',
     'execution_model',
     'durable_object_id',
   ]);
@@ -650,6 +723,18 @@ function parseWorkersResourceAttribution(record, label) {
     joinKind,
     requestId: requireString(resource.request_id, `${label} workers_resource request_id`),
     scriptName: requireString(resource.script_name, `${label} workers_resource script_name`),
+    scriptVersionId:
+      resource.script_version_id === null
+        ? null
+        : requireString(resource.script_version_id, `${label} workers_resource script_version_id`),
+    traceId:
+      resource.trace_id === null
+        ? null
+        : requireString(resource.trace_id, `${label} workers_resource trace_id`),
+    spanId:
+      resource.span_id === null
+        ? null
+        : requireString(resource.span_id, `${label} workers_resource span_id`),
     executionModel:
       resource.execution_model === null
         ? null
@@ -725,7 +810,7 @@ function groupEventsByTrace(events) {
   return grouped;
 }
 
-function analyzeTrace(trace, events) {
+function analyzeTrace(trace, events, gatewayVersionId) {
   const registrationEvents = [];
   const wrongOperationEvents = [];
   for (const event of events) {
@@ -761,6 +846,8 @@ function analyzeTrace(trace, events) {
   const workersResource = executionEvent?.workersResource;
   const workersExecutionTelemetryAttributed =
     workersResource !== undefined && workersResource.joinKind !== 'custom_log_only';
+  const workersExecutionVersionMatches =
+    workersExecutionTelemetryAttributed && workersResource.scriptVersionId === gatewayVersionId;
   const missingExecutionTelemetry = REQUIRED_EXECUTION_TELEMETRY_FIELDS.filter(
     (field) => executionTelemetry[field.name] === undefined,
   ).map((field) => field.wireName);
@@ -805,6 +892,7 @@ function analyzeTrace(trace, events) {
       unknownIsolateReuse.length === 0 &&
       missingExecutionTelemetry.length === 0 &&
       workersExecutionTelemetryAttributed &&
+      workersExecutionVersionMatches &&
       d1QueriesInExecution === 0,
     isolateReuse: trace.isolateReuse,
     eventCount: registrationEvents.length,
@@ -819,6 +907,7 @@ function analyzeTrace(trace, events) {
     executionTelemetry,
     workersResource,
     workersExecutionTelemetryAttributed,
+    workersExecutionVersionMatches,
     missingExecutionTelemetry,
     d1QueriesInExecution,
     spanDurationsMs,
@@ -890,6 +979,11 @@ function addTraceBlockers(blockers, report) {
   if (!report.workersExecutionTelemetryAttributed) {
     blockers.push(
       `${report.traceId} gateway.yao_execute CPU and wall time lack a Workers Logs invocation resource join`,
+    );
+  }
+  if (report.workersExecutionTelemetryAttributed && !report.workersExecutionVersionMatches) {
+    blockers.push(
+      `${report.traceId} gateway.yao_execute Workers Logs resource does not match the manifest Gateway version`,
     );
   }
   if (report.d1QueriesInExecution !== null && report.d1QueriesInExecution > 0) {
