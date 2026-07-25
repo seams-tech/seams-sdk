@@ -440,7 +440,7 @@ which component owns them, and what each requires:
 {
   "staging": {
     "capabilities": {
-      "billing":          { "enabled": false, "owner": "gateway", "secrets": ["STRIPE_API_SK"] },
+      "billing":          { "enabled": true,  "owner": "gateway", "secrets": ["STRIPE_API_SK"] },
       "sponsoredExecution": { "enabled": true, "owner": "gateway", "secrets": [] },
       "signingSessionSeal": { "enabled": true, "owner": "gateway", "secrets": ["SIGNING_SESSION_SEAL_KEY_VERSION", "SIGNING_SESSION_SHAMIR_P_B64U", "SIGNING_SESSION_SEAL_E_S_B64U", "SIGNING_SESSION_SEAL_D_S_B64U"] }
     }
@@ -465,9 +465,9 @@ Rules:
 
 `write-gateway-secrets-file.mjs` derives its required set from this target file
 instead of the hard-coded list at lines 5-12. This closes the Stripe class of
-failure at the source: staging with billing disabled will neither require nor
-reference `STRIPE_API_SK`. The same enabled value configures the Gateway's
-runtime capability, so deployment requirements and application behavior cannot
+failure at the source: both hosted environments require and reference
+`STRIPE_API_SK`. The same enabled value configures the Gateway's runtime
+capability, so deployment requirements and application behavior cannot
 disagree.
 
 ## Phases
