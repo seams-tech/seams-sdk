@@ -530,58 +530,71 @@ class RouterAbEd25519YaoProductRegistrationRuntime implements RouterAbEd25519Yao
   async mintWalletSession(
     sessionInput: RouterAbEd25519YaoWalletSessionMintInputV1,
   ): Promise<RouterAbEd25519YaoWalletSessionMintResultV1> {
-    const terms = resolveRouterAbEd25519YaoWalletSessionTermsV1(sessionInput);
-    const signingRootId = deriveSigningRootId(sessionInput.runtimePolicyScope);
-    const signingRootVersion = sessionInput.runtimePolicyScope.signingRootVersion;
-    const routerAbNormalSigning = {
-      kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
-      signingWorkerId: this.signingWorkerId,
-    } as const;
-    const signed = await signRouterAbEd25519WalletSessionJwt({
+    return await mintRouterAbEd25519YaoWalletSessionV1({
       session: this.input.session,
-      userId: sessionInput.walletId,
-      relayerKeyId: this.signingWorkerId,
-      authority: sessionInput.authority,
-      sessionInfo: {
-        sessionKind: 'jwt',
-        walletId: sessionInput.walletId,
-        nearAccountId: sessionInput.nearAccountId,
-        nearEd25519SigningKeyId: sessionInput.nearEd25519SigningKeyId,
-        thresholdSessionId: sessionInput.thresholdSessionId,
-        signingGrantId: terms.signingGrantId,
-        expiresAtMs: terms.expiresAtMs,
-        participantIds: [sessionInput.participantIds[0], sessionInput.participantIds[1]],
-        runtimePolicyScope: sessionInput.runtimePolicyScope,
-        routerAbNormalSigning,
-      },
-      fallbackParticipantIds: [sessionInput.participantIds[0], sessionInput.participantIds[1]],
-      requireJwtErrorMessage: 'Ed25519 Wallet Session must use jwt sessionKind',
-      invalidPayloadErrorMessage: 'invalid Ed25519 Yao Wallet Session payload for jwt signing',
+      signingWorkerId: this.signingWorkerId,
+      sessionInput,
     });
-    if (!signed.ok) return { ok: false, code: signed.code, message: signed.message };
-    return {
-      ok: true,
-      session: {
-        sessionKind: 'jwt',
-        walletSessionJwt: signed.jwt,
-        walletId: sessionInput.walletId,
-        nearAccountId: sessionInput.nearAccountId,
-        nearEd25519SigningKeyId: sessionInput.nearEd25519SigningKeyId,
-        authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(
-          sessionInput.authority,
-        ),
-        thresholdSessionId: signed.thresholdSessionId,
-        signingGrantId: terms.signingGrantId,
-        expiresAtMs: signed.thresholdExpiresAtMs,
-        participantIds: [sessionInput.participantIds[0], sessionInput.participantIds[1]],
-        remainingUses: terms.remainingUses,
-        signingRootId,
-        signingRootVersion,
-        runtimePolicyScope: sessionInput.runtimePolicyScope,
-        routerAbNormalSigning,
-      },
-    };
   }
+}
+
+export async function mintRouterAbEd25519YaoWalletSessionV1(input: {
+  readonly session: SessionAdapter;
+  readonly signingWorkerId: string;
+  readonly sessionInput: RouterAbEd25519YaoWalletSessionMintInputV1;
+}): Promise<RouterAbEd25519YaoWalletSessionMintResultV1> {
+  const signingWorkerId = input.signingWorkerId.trim();
+  if (!signingWorkerId) throw new Error('Ed25519 Yao SigningWorker ID is required');
+  const sessionInput = input.sessionInput;
+  const terms = resolveRouterAbEd25519YaoWalletSessionTermsV1(sessionInput);
+  const signingRootId = deriveSigningRootId(sessionInput.runtimePolicyScope);
+  const signingRootVersion = sessionInput.runtimePolicyScope.signingRootVersion;
+  const routerAbNormalSigning = {
+    kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
+    signingWorkerId,
+  } as const;
+  const signed = await signRouterAbEd25519WalletSessionJwt({
+    session: input.session,
+    userId: sessionInput.walletId,
+    relayerKeyId: signingWorkerId,
+    authority: sessionInput.authority,
+    sessionInfo: {
+      sessionKind: 'jwt',
+      walletId: sessionInput.walletId,
+      nearAccountId: sessionInput.nearAccountId,
+      nearEd25519SigningKeyId: sessionInput.nearEd25519SigningKeyId,
+      thresholdSessionId: sessionInput.thresholdSessionId,
+      signingGrantId: terms.signingGrantId,
+      expiresAtMs: terms.expiresAtMs,
+      participantIds: [sessionInput.participantIds[0], sessionInput.participantIds[1]],
+      runtimePolicyScope: sessionInput.runtimePolicyScope,
+      routerAbNormalSigning,
+    },
+    fallbackParticipantIds: [sessionInput.participantIds[0], sessionInput.participantIds[1]],
+    requireJwtErrorMessage: 'Ed25519 Wallet Session must use jwt sessionKind',
+    invalidPayloadErrorMessage: 'invalid Ed25519 Yao Wallet Session payload for jwt signing',
+  });
+  if (!signed.ok) return { ok: false, code: signed.code, message: signed.message };
+  return {
+    ok: true,
+    session: {
+      sessionKind: 'jwt',
+      walletSessionJwt: signed.jwt,
+      walletId: sessionInput.walletId,
+      nearAccountId: sessionInput.nearAccountId,
+      nearEd25519SigningKeyId: sessionInput.nearEd25519SigningKeyId,
+      authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(sessionInput.authority),
+      thresholdSessionId: signed.thresholdSessionId,
+      signingGrantId: terms.signingGrantId,
+      expiresAtMs: signed.thresholdExpiresAtMs,
+      participantIds: [sessionInput.participantIds[0], sessionInput.participantIds[1]],
+      remainingUses: terms.remainingUses,
+      signingRootId,
+      signingRootVersion,
+      runtimePolicyScope: sessionInput.runtimePolicyScope,
+      routerAbNormalSigning,
+    },
+  };
 }
 
 export function createRouterAbEd25519YaoProductRegistrationRuntimeV1(input: {
