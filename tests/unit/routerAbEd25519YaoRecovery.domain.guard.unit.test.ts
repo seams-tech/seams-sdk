@@ -130,11 +130,16 @@ class RecordingCapabilityPersistence implements RouterAbEd25519YaoCapabilityPers
   }> = [];
 
   replaceActiveCapability(input: {
+    readonly operation: {
+      readonly kind: 'router_ab_ed25519_yao_capability_replacement_operation_v1';
+      readonly operationId: string;
+      readonly operationFingerprint: string;
+    };
     readonly previous: WalletEd25519YaoActiveCapabilityRecord;
     readonly next: WalletEd25519YaoActiveCapabilityRecord;
   }) {
     this.calls.push(input);
-    return { ok: true } as const;
+    return { ok: true, disposition: 'applied' } as const;
   }
 }
 

@@ -1,6 +1,7 @@
 import {
   parseRouterAbEd25519YaoRecoveryActivationAdmissionReceiptV1,
   parseRouterAbEd25519YaoRecoveryActivationExecuteRequestV1,
+  parseRouterAbEd25519YaoRecoveryActivationRequestV1,
   parseRouterAbEd25519YaoRecoveryActivationResultV1,
   parseRouterAbEd25519YaoRecoveryAdmissionRequestV1,
   parseRouterAbEd25519YaoRegistrationActivationResultV1,
@@ -8,6 +9,7 @@ import {
   type RouterAbEd25519YaoActivationAdmissionReceiptV1,
   type RouterAbEd25519YaoActivationExecuteRequestV1,
   type RouterAbEd25519YaoActivationResultV1,
+  type RouterAbEd25519YaoRecoveryActivationRequestV1,
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
@@ -40,6 +42,7 @@ import {
   type RouterAbEd25519YaoRecoveryBackendResult,
   type RouterAbEd25519YaoRecoveryExecuteCommitInputV1,
 } from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
+import type { WalletEd25519YaoActiveCapabilityRecord } from '../../../packages/sdk-server-ts/src/core/WalletStore';
 
 const ROOT_SHARE_EPOCH = 'root-recovery-v1';
 const RUNTIME_POLICY_SCOPE = {
@@ -125,8 +128,18 @@ export type RouterAbEd25519YaoRecoveryRequestScopedFixture = {
   readonly admissionReceipt: RecoveryAdmissionReceipt;
   readonly execution: RecoveryExecuteRequest;
   readonly executionResult: RecoveryExecutionResult;
+  readonly activation: RouterAbEd25519YaoRecoveryActivationRequestV1;
   readonly store: RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1;
   readonly authorization: RouterAbEd25519YaoRecoveryAuthorizationAdapter;
+};
+
+export type RouterAbEd25519YaoCapabilityReplacementFixture = {
+  readonly walletId: string;
+  readonly nearAccountId: string;
+  readonly nearSigningKeyId: string;
+  readonly signingWorkerId: string;
+  readonly previous: WalletEd25519YaoActiveCapabilityRecord;
+  readonly next: WalletEd25519YaoActiveCapabilityRecord;
 };
 
 class MemoryPartitionRecordStore implements RouterAbEd25519YaoProductRegistrationPartitionRecordStoreV1 {
@@ -243,6 +256,45 @@ export async function buildSecondRouterAbEd25519YaoRecoveryRequestScopedFixture(
   return recoveryFixture(SECONDARY_IDENTITY, store);
 }
 
+export function buildRouterAbEd25519YaoCapabilityReplacementFixture(): RouterAbEd25519YaoCapabilityReplacementFixture {
+  const registrationRequest = registrationAdmission(PRIMARY_IDENTITY);
+  const registrationActivation = registrationResult(PRIMARY_IDENTITY);
+  const recoveryRequest = requireParsed(
+    parseRouterAbEd25519YaoRecoveryAdmissionRequestV1({
+      ...recoveryAdmission(PRIMARY_IDENTITY),
+      active_capability_binding: registrationActivation.binding.session_id,
+    }),
+  );
+  const recoveryReceipt = recoveryAdmissionReceipt(recoveryRequest);
+  const recoveryExecutionRequest = recoveryExecution(recoveryReceipt);
+  const recoveryActivation = recoveryExecutionResult(
+    recoveryExecutionRequest,
+    PRIMARY_IDENTITY.registeredPublicKeySeed,
+  );
+  return {
+    walletId: PRIMARY_IDENTITY.walletId,
+    nearAccountId: PRIMARY_IDENTITY.nearAccountId,
+    nearSigningKeyId: PRIMARY_IDENTITY.nearSigningKeyId,
+    signingWorkerId: PRIMARY_IDENTITY.signingWorkerId,
+    previous: {
+      version: 'wallet_ed25519_yao_registration_capability_v1',
+      activeCapabilityBinding: registrationActivation.binding.session_id,
+      nearAccountId: PRIMARY_IDENTITY.nearAccountId,
+      admissionRequest: registrationRequest,
+      activationResult: registrationActivation,
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+    },
+    next: {
+      version: 'wallet_ed25519_yao_recovery_capability_v1',
+      activeCapabilityBinding: bytes(PRIMARY_IDENTITY.replacementCapabilitySeed),
+      nearAccountId: PRIMARY_IDENTITY.nearAccountId,
+      admissionRequest: recoveryRequest,
+      activationResult: recoveryActivation,
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+    },
+  };
+}
+
 function recoveryFixture(
   identity: RecoveryFixtureIdentity,
   store: RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
@@ -250,15 +302,28 @@ function recoveryFixture(
   const admission = recoveryAdmission(identity);
   const admissionReceipt = recoveryAdmissionReceipt(admission);
   const execution = recoveryExecution(admissionReceipt);
+  const executionResult = recoveryExecutionResult(execution, identity.registeredPublicKeySeed);
   return {
     lifecycleId: identity.lifecycleId,
     admission,
     admissionReceipt,
     execution,
-    executionResult: recoveryExecutionResult(execution, identity.registeredPublicKeySeed),
+    executionResult,
+    activation: recoveryActivation(executionResult),
     store,
     authorization: new AllowRecoveryAuthorization(identity),
   };
+}
+
+function recoveryActivation(
+  result: RecoveryExecutionResult,
+): RouterAbEd25519YaoRecoveryActivationRequestV1 {
+  return requireParsed(
+    parseRouterAbEd25519YaoRecoveryActivationRequestV1({
+      binding: result.binding,
+      public_receipt: result.public_receipt,
+    }),
+  );
 }
 
 function installActiveCapability(

@@ -205,6 +205,7 @@ const RELAY_SIGNER_READY_TABLES = Object.freeze([
   'signing_root_secret_shares',
   'router_ab_yao_versioned_json_records',
   'router_ab_yao_versioned_json_cas_guard',
+  'router_ab_yao_capability_replacements',
 ]);
 
 const ROUTER_AB_CEREMONY_JWKS_PATH = '/.well-known/router-ab-ceremony-jwks.json';
@@ -277,7 +278,12 @@ async function createStagingEd25519YaoComposition(
       }),
     }),
     state,
-    capabilityPersistence: new CloudflareD1RouterAbEd25519YaoCapabilityPersistence(walletStore),
+    capabilityPersistence: new CloudflareD1RouterAbEd25519YaoCapabilityPersistence({
+      database: env.SIGNER_DB,
+      scope,
+      walletStore,
+      ensureSchema: false,
+    }),
   });
   const signers = await walletStore.listEd25519Signers();
   for (const signer of signers) {
@@ -452,9 +458,7 @@ export async function dispatchHostedGatewayRequest(
 ): Promise<Response> {
   const pathname = new URL(request.url).pathname;
   const handler =
-    pathname === '/console' || pathname.startsWith('/console/')
-      ? consoleHandler
-      : routerApiHandler;
+    pathname === '/console' || pathname.startsWith('/console/') ? consoleHandler : routerApiHandler;
   return await handler(request, env, ctx);
 }
 
