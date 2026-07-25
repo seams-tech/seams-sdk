@@ -314,6 +314,8 @@ jobs:
         env:
           WASM_SDK_BUILD_TARGET: gateway
         run: pnpm -C packages/console-server-ts run d1:local:ensure-wasm
+      - name: Build Gateway SDK server package
+        run: pnpm -C packages/sdk-server-ts build
       - name: Assemble Gateway artifact
         env:
           DEPLOY_TARGET: ${{ needs.auto_prepare.outputs.target }}
