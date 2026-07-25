@@ -184,6 +184,12 @@ async function prepareD1WalletRegistrationFinalize(): Promise<D1WalletRegistrati
   return { kind: 'd1_wallet_registration_finalize_prepared_v1' };
 }
 
+async function fingerprintD1WalletRegistrationFinalizePrepared(
+  prepared: D1WalletRegistrationFinalizePreparedV1,
+): Promise<string> {
+  return base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(prepared)));
+}
+
 const D1_WALLET_REGISTRATION_FINALIZE_RESUME_AFTER_MS = 30_000;
 
 type D1RegistrationEd25519SigningBudgetPlan =
@@ -1984,13 +1990,13 @@ export class CloudflareD1WalletRegistrationService {
       const outcome = await runRouterAbEd25519YaoRegistrationSideEffectV1(
         this.finalizeSideEffects,
         {
-          kind: 'prepared_resumable',
           resumeAfterMs: D1_WALLET_REGISTRATION_FINALIZE_RESUME_AFTER_MS,
           operation: 'finalize',
           key: effectKey,
           requestFingerprint,
           nowMs: Date.now,
           prepare: prepareD1WalletRegistrationFinalize,
+          derivePreparedArtifactFingerprint: fingerprintD1WalletRegistrationFinalizePrepared,
           execute: this.executeWalletRegistrationFinalizeSideEffect.bind(this, request),
         },
       );
