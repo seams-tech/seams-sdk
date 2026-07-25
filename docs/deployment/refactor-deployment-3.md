@@ -3,8 +3,10 @@
 Date created: July 23, 2026
 Last updated: July 24, 2026
 
-Status: the consolidated stack workflows are implemented. The frontend
-deployment split in Phase 8 is planned and not yet implemented.
+Status: the consolidated backend and frontend deployment workflows are
+implemented in the repository. GitHub environment configuration, branch
+protection, historical Actions cleanup, and staging/production cutover remain
+operational Phase 9 work.
 
 ## Objective
 
@@ -185,13 +187,13 @@ canonical job name and a release-summary explanation.
 The final `.github/workflows` directory contains exactly six workflows. No
 workflow uses `workflow_call`.
 
-| File                                     | Actions sidebar name                     | Trigger                                                                                         | Mutation authority                                  |
-| ---------------------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------------- |
-| `validate-repository.yml`                | `Validate / repository`                  | Push fast gate; pull request, merge group, or manual full validation                            | None                                                |
-| `validate-cloudflare-mpc-router-ab.yml`  | `Validate / cloudflare-mpc-router-ab`    | Relevant MPC Router A/B pull requests, or manual dispatch                                       | None                                                |
-| `deploy-staging-cloudflare-stack.yml`    | `Deploy / staging / cloudflare-stack`    | Successful validation of a `dev` push, or manual accepted backend release                       | Staging Gateway and MPC Router A/B only             |
-| `deploy-production-cloudflare-stack.yml` | `Deploy / production / cloudflare-stack` | Successful validation of a `main` push, or manual accepted backend release                      | Production Gateway and MPC Router A/B only          |
-| `deploy-staging-frontend.yml`            | `Deploy / staging / frontend`            | Successful matching staging stack receipt, or manual accepted frontend release and stack receipt | Staging app Pages, signer Pages, and SDK assets only |
+| File                                     | Actions sidebar name                     | Trigger                                                                                             | Mutation authority                                      |
+| ---------------------------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `validate-repository.yml`                | `Validate / repository`                  | Push fast gate; pull request, merge group, or manual full validation                                | None                                                    |
+| `validate-cloudflare-mpc-router-ab.yml`  | `Validate / cloudflare-mpc-router-ab`    | Relevant MPC Router A/B pull requests, or manual dispatch                                           | None                                                    |
+| `deploy-staging-cloudflare-stack.yml`    | `Deploy / staging / cloudflare-stack`    | Successful validation of a `dev` push, or manual accepted backend release                           | Staging Gateway and MPC Router A/B only                 |
+| `deploy-production-cloudflare-stack.yml` | `Deploy / production / cloudflare-stack` | Successful validation of a `main` push, or manual accepted backend release                          | Production Gateway and MPC Router A/B only              |
+| `deploy-staging-frontend.yml`            | `Deploy / staging / frontend`            | Successful matching staging stack receipt, or manual accepted frontend release and stack receipt    | Staging app Pages, signer Pages, and SDK assets only    |
 | `deploy-production-frontend.yml`         | `Deploy / production / frontend`         | Successful matching production stack receipt, or manual accepted frontend release and stack receipt | Production app Pages, signer Pages, and SDK assets only |
 
 The environment-bound stack workflows own backend artifact creation, Gateway
@@ -211,21 +213,25 @@ Shared command sequences may move into local scripts or composite actions under
 `.github/actions`. Those actions do not create additional workflow files or
 deployment authorities.
 
+The generator inputs under `scripts/deployment-workflow-templates/` are job
+fragments without workflow triggers. They are not reusable workflows and do not
+create additional deployment authorities.
+
 ## Pre-refactor-to-Target Mapping
 
-| Current visible name                    | Current meaning                                                     | Target                                                                    |
-| --------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| `ci`                                    | Repository validation plus release change-set artifact              | `Validate / repository`                                                   |
-| `build-release`                         | Builds accepted artifacts, creates a release set, then deploys      | Build and deploy jobs inside the matching backend or frontend workflow      |
-| `deploy-staging`                        | Manual accepted-release staging entrypoint                          | `Deploy / staging / cloudflare-stack`                                     |
-| `deploy-production`                     | Manual accepted-release production entrypoint                       | `Deploy / production / cloudflare-stack`                                  |
-| `deploy-router-ab`                      | Whole-stack orchestrator with an additional direct manual trigger   | MPC Router A/B jobs inside the matching environment stack workflow         |
-| `deploy-gateway`                        | Standalone Gateway deployment implementation                        | `Deploy / <environment> / cloudflare-api-gateway` jobs                     |
-| `deploy-pages`                          | Standalone Pages deployment implementation                          | `Deploy / <environment> / frontend` with `cloudflare-pages` jobs           |
-| `validate-router-ab`                    | Router A/B pull-request and manual validation                       | `Validate / cloudflare-mpc-router-ab`                                      |
-| `publish-sdk-r2`                        | Standalone SDK R2 publication                                       | Removed; SDK runtime assets deploy with Pages                             |
-| `router-ab`                             | Historical name for the workflow later renamed `validate-router-ab` | Remove historical Actions runs after evidence retention                   |
-| `Ed25519 Yao Phase 2B evidence staging` | Historical deleted `phase2b-change-control.yml` workflow            | Remove historical Actions runs after evidence retention                   |
+| Current visible name                    | Current meaning                                                     | Target                                                                 |
+| --------------------------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `ci`                                    | Repository validation plus release change-set artifact              | `Validate / repository`                                                |
+| `build-release`                         | Builds accepted artifacts, creates a release set, then deploys      | Build and deploy jobs inside the matching backend or frontend workflow |
+| `deploy-staging`                        | Manual accepted-release staging entrypoint                          | `Deploy / staging / cloudflare-stack`                                  |
+| `deploy-production`                     | Manual accepted-release production entrypoint                       | `Deploy / production / cloudflare-stack`                               |
+| `deploy-router-ab`                      | Whole-stack orchestrator with an additional direct manual trigger   | MPC Router A/B jobs inside the matching environment stack workflow     |
+| `deploy-gateway`                        | Standalone Gateway deployment implementation                        | `Deploy / <environment> / cloudflare-api-gateway` jobs                 |
+| `deploy-pages`                          | Standalone Pages deployment implementation                          | `Deploy / <environment> / frontend` with `cloudflare-pages` jobs       |
+| `validate-router-ab`                    | Router A/B pull-request and manual validation                       | `Validate / cloudflare-mpc-router-ab`                                  |
+| `publish-sdk-r2`                        | Standalone SDK R2 publication                                       | Removed; SDK runtime assets deploy with Pages                          |
+| `router-ab`                             | Historical name for the workflow later renamed `validate-router-ab` | Remove historical Actions runs after evidence retention                |
+| `Ed25519 Yao Phase 2B evidence staging` | Historical deleted `phase2b-change-control.yml` workflow            | Remove historical Actions runs after evidence retention                |
 
 No compatibility workflow aliases remain after cutover. Old YAML files are
 deleted in the same change that introduces their replacements.
@@ -446,7 +452,7 @@ frontend workflows while retaining those artifact guarantees.
       independent role environments and approval boundaries.
 - [x] Keep Gateway migration and deployment jobs inside the matching stack
       workflow.
-- [x] Keep Pages build and deployment jobs inside the matching stack workflow.
+- [x] Move Pages build and deployment jobs into the matching frontend workflow.
 - [x] Preserve component selection and conditional job execution.
 - [x] Preserve Gateway-before-Pages ordering when both components are selected.
 - [x] Preserve Router A/B activation ordering and final smoke checks.
@@ -489,9 +495,10 @@ frontend workflows while retaining those artifact guarantees.
 
 - [x] Replace broad inherited secrets with environment-scoped service secret
       declarations.
-- [ ] Confirm the Gateway jobs cannot read Pages-only or Router-only secrets.
-- [ ] Confirm Pages jobs cannot read backend deployment credentials beyond the
-      scoped Cloudflare token they require.
+- [x] Enforce that Gateway jobs cannot read Pages-only or Router-only secrets
+      through the parsed workflow policy.
+- [x] Enforce that Pages jobs cannot read backend deployment credentials beyond
+      the scoped Cloudflare token they require.
 - [ ] Confirm staging jobs cannot read production secrets or variables.
 - [ ] Confirm production jobs cannot read staging secrets or variables.
 - [x] Require one production environment approval before the first mutating
@@ -500,7 +507,7 @@ frontend workflows while retaining those artifact guarantees.
       consolidated stack layout.
 - [x] Add a preflight summary before mutation.
 - [x] Add a final deployment receipt after smoke checks.
-- [ ] Add CODEOWNERS coverage for `.github/workflows/**`,
+- [x] Add CODEOWNERS coverage for `.github/workflows/**`,
       `.github/actions/**`, deployment scripts, and deployment documentation.
 - [x] Add the workflow policy check to repository validation; branch protection
       must require the resulting validation check after merge.
@@ -526,85 +533,88 @@ retention policy.
 
 ## Phase 8: Split Frontend Deployment Authority
 
-- [ ] Add `deploy-staging-frontend.yml` with display name
+- [x] Add `deploy-staging-frontend.yml` with display name
       `Deploy / staging / frontend`.
-- [ ] Add `deploy-production-frontend.yml` with display name
+- [x] Add `deploy-production-frontend.yml` with display name
       `Deploy / production / frontend`.
-- [ ] Move Pages artifact creation, app deployment, signer deployment, SDK
+- [x] Move Pages artifact creation, app deployment, signer deployment, SDK
       runtime asset verification, and frontend smoke checks out of both
       `cloudflare-stack` workflows.
-- [ ] Remove Pages credentials and Pages GitHub environments from every backend
+- [x] Remove Pages credentials and Pages GitHub environments from every backend
       stack job.
-- [ ] Keep app Pages and signer Pages in one target-specific frontend release
+- [x] Keep app Pages and signer Pages in one target-specific frontend release
       set.
-- [ ] Record `gatewayApiContractVersion` in every frontend release manifest.
-- [ ] Make each backend stack workflow emit a coordination receipt containing
+- [x] Record `gatewayApiContractVersion` in every frontend release manifest.
+- [x] Make each backend stack workflow emit a coordination receipt containing
       target, accepted source SHA, validation run ID, selected backend
       components, active backend source SHA, active backend receipt run,
       backend release-set ID, deployed component digests,
       `supportedFrontendApiContractRange`, and smoke result.
-- [ ] Retain immutable backend coordination receipts for 30 days, matching
+- [x] Retain immutable backend coordination receipts for 30 days, matching
       backend and frontend release-set retention. Copy receipts and digests to
       the approved evidence store when GitHub retention is insufficient.
-- [ ] Emit a successful no-op coordination receipt when an accepted release
+- [x] Emit a successful no-op coordination receipt when an accepted release
       contains no Gateway or Router components. Verify and carry forward the
       active backend receipt instead of claiming that backend code deployed at
       the accepted frontend SHA.
-- [ ] Run no-op receipt creation without backend mutation credentials or a
+- [x] Run no-op receipt creation without backend mutation credentials or a
       backend production approval. Frontend-only production releases require
       the frontend approval gate only.
-- [ ] Trigger the automatic frontend workflow from the completed matching
+- [x] Trigger the automatic frontend workflow from the completed matching
       backend stack run.
-- [ ] Reject automatic frontend mutation unless the backend run succeeded and
+- [x] Reject automatic frontend mutation unless the backend run succeeded and
       its coordination receipt matches the frontend target, accepted source
       SHA, and validation run.
-- [ ] Skip the frontend workflow cleanly when the accepted change set contains
+- [x] Skip the frontend workflow cleanly when the accepted change set contains
       neither `site` nor `signer-iframe`.
-- [ ] Give manual frontend promotion four required identifiers:
+- [x] Give manual frontend promotion four required identifiers:
       `source_sha`, `artifact_run_id`, `release_set_id`, and
-      `backend_receipt_run_id`.
-- [ ] Verify manual frontend promotion against the protected branch, original
+      `backend_receipt_run_id`. The validation run is derived from the
+      accepted backend coordination receipt.
+- [x] Verify manual frontend promotion against the protected branch, original
       push validation, immutable frontend artifact, frontend release set, and
       matching backend coordination receipt.
-- [ ] Add component-aware backend freshness. Reject an older backend release
+- [x] Add component-aware backend freshness. Reject an older backend release
       only when a newer accepted change between its SHA and the branch tip
       selects Gateway or Router components.
-- [ ] Add component-aware frontend freshness. Reject an older frontend release
+- [x] Add component-aware frontend freshness. Reject an older frontend release
       only when a newer accepted change between its SHA and the branch tip
       selects `site` or `signer-iframe`.
-- [ ] Use the same boundary parser and component selector for initial selection
+- [x] Use the same boundary parser and component selector for initial selection
       and intervening-change freshness checks.
-- [ ] Enforce the Gateway API compatibility contract during automatic
+- [x] Enforce the Gateway API compatibility contract during automatic
       deployment, manual promotion, and frontend rollback.
-- [ ] Use independent non-canceling concurrency groups for backend and frontend
+- [x] Use independent non-canceling concurrency groups for backend and frontend
       in each environment.
 - [ ] Add a protected `production-frontend` approval gate with Pages-only
       credentials. Keep backend credentials inaccessible.
-- [ ] Preserve Gateway-before-Pages ordering for mixed releases through the
+- [x] Preserve Gateway-before-Pages ordering for mixed releases through the
       required backend coordination receipt.
-- [ ] Update the workflow generator so the staging and production frontend
+- [x] Update the workflow generator so the staging and production frontend
       workflows are generated from the same audited template.
-- [ ] Give each frontend workflow one trigger-agnostic job graph. Normalize
+- [x] Give each frontend workflow one trigger-agnostic job graph. Normalize
       `workflow_run` and `workflow_dispatch` inputs in one preflight job instead
       of duplicating `auto_*` and `manual_*` jobs.
-- [ ] Download and verify only the frontend release set, selected Pages
+- [x] Download and verify only the frontend release set, selected Pages
       artifacts, and required backend coordination receipt. Do not download
       unrelated Router or Gateway artifacts.
-- [ ] Keep the frontend workflow terminal. Reject any deployment or publication
+- [x] Keep the frontend workflow terminal. Reject any deployment or publication
       workflow that listens for its completion.
-- [ ] Make changes to either frontend workflow, the workflow generator, shared
+- [x] Make changes to either frontend workflow, the workflow generator, shared
       deployment actions, or shared release tooling select both deployment
       lanes so the cutover itself exercises the complete staging chain.
 - [ ] Measure frontend-only queue time, no-op receipt execution time, and total
       validation-to-Pages time. The no-op coordination receipt path performs no
       package installation or build and must complete within 60 seconds of
       runner execution at p95 over ten staging runs.
-- [ ] Update the parsed workflow policy to require exactly the six target files
+- [x] Update the parsed workflow policy to require exactly the six target files
       and reject Pages mutation jobs outside the two frontend workflows.
-- [ ] Update source guards to reject backend mutation jobs in frontend
+- [x] Update source guards to reject backend mutation jobs in frontend
       workflows and frontend mutation jobs in backend workflows.
-- [ ] Update deployment documentation, operator commands, environment setup,
-      rollback instructions, and release receipts in the same change set.
+- [x] Update deployment documentation, operator commands, rollback instructions,
+      and release receipt contracts in the same change set.
+- [ ] Configure the target GitHub environment variables, protections, and
+      approved evidence-store retention for the new frontend lane.
 
 ## Phase 9: Cutover and Verification
 

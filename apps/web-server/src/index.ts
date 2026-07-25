@@ -778,8 +778,14 @@ async function main() {
       'Node web-server sponsored EVM execution was removed for Refactor 82. Use the Cloudflare D1/DO Worker for prepaid sponsored gas settlement.',
     );
   }
-  const sponsorshipRealPricing = resolveCoinGeckoSponsoredExecutionPricingFromEnv(env);
-  const sponsorshipStaticPricing = resolveStaticSponsoredExecutionPricingFromEnv(env);
+  const sponsorshipPricingEnv = {
+    SPONSORED_EXECUTION_REAL_PRICING_JSON: env.SPONSORED_EXECUTION_REAL_PRICING_JSON,
+    SPONSORED_EXECUTION_STATIC_PRICING_JSON: env.SPONSORED_EXECUTION_STATIC_PRICING_JSON,
+  };
+  const sponsorshipRealPricing =
+    resolveCoinGeckoSponsoredExecutionPricingFromEnv(sponsorshipPricingEnv);
+  const sponsorshipStaticPricing =
+    resolveStaticSponsoredExecutionPricingFromEnv(sponsorshipPricingEnv);
   const sponsorshipPricing = sponsorshipRealPricing || sponsorshipStaticPricing;
   const hasRealSponsorshipPricingConfig = Boolean(
     String(env.SPONSORED_EXECUTION_REAL_PRICING_JSON || '').trim(),

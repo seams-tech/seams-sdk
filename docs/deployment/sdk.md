@@ -44,9 +44,10 @@ Use `VITE_SDK_BASE_PATH=/sdk` unless you intentionally serve the SDK under a
 different path. The wallet service route and app config must agree with that
 base path.
 
-Pages deploy automatically at the end of the successful branch release chain.
-Pages deployment is selected by the environment-bound Cloudflare stack
-workflow. There is no direct Pages deployment button.
+Pages deploy automatically from the successful backend coordination receipt at
+the end of the branch release chain. Pages deployment is owned by the matching
+environment-bound frontend workflow. The backend stack has no Pages mutation
+job or Pages credentials.
 
 The implemented
 [build-once deployment phase](README.md#follow-up-phase-build-once-deploy-many)
