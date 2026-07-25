@@ -5,15 +5,15 @@ sites, Router A/B Workers, and backing infra.
 
 ## Deployment Model
 
-GitHub deployments use isolated backend, frontend, and observability
-environments for each target:
+GitHub deployments use isolated backend and frontend environments for each
+target:
 
 - `staging-*`: automatic from `dev`; manual target for pre-production deploys.
 - `production-*`: automatic from `main`; manual target for production deploys.
 
-The suffix identifies the authority boundary: `frontend` owns Pages credentials
-and mutation, backend role environments own Worker mutation, and
-`observability` has only public origins for read-only smoke checks.
+The suffix identifies the authority boundary: `frontend` owns Pages credentials,
+frontend mutation, and the public origins used by read-only smoke checks;
+backend role environments own Worker mutation.
 
 Production has its own Router A/B Workers, Gateway, D1 databases,
 Durable Object namespaces, secrets, and Pages configuration. It does not reuse

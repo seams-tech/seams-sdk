@@ -717,7 +717,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment:
-      name: ${{ format('{0}-observability', inputs.target) }}
+      name: ${{ format('{0}-frontend', inputs.target) }}
     steps:
       - name: Checkout selected revision
         uses: actions/checkout@v6

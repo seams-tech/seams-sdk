@@ -41,9 +41,9 @@ Each invocation validates the complete target and writes two owner-only
 manifests under `~/.seams/backups`:
 
 - `wallet-core`: Gateway, MPCRouter, Deriver A, Deriver B, and SigningWorker.
-- `product`: the target's `*-frontend` and `*-observability` environments.
-  Frontend environments hold Pages variables and credentials; observability
-  environments hold public origins for read-only smoke checks.
+- `product`: the target's `*-frontend` environment.
+  Frontend environments hold Pages variables, credentials, and public origins
+  for read-only smoke checks.
 
 Both files carry the same generation ID, timestamp, and complete-manifest
 SHA-256. The product manifest contains the public wallet-core handoff values it
@@ -229,7 +229,7 @@ material, Gateway signing keys, tenant identifiers, and publishable keys remain
 unchanged. Dry run is the default.
 
 The wallet-core updater can reach only Gateway and MPC service environments.
-The product updater can reach only the frontend and observability environments.
+The product updater can reach only the frontend environment.
 Run both component commands when rotating a Cloudflare token shared by both
 ownership groups.
 
@@ -255,7 +255,7 @@ paired product manifest:
 pnpm deploy:env-rotate -- staging
 ```
 
-The operation writes these non-secret audit variables to all seven GitHub
+The operation writes these non-secret audit variables to all six GitHub
 Environments after every normal variable and secret has uploaded:
 
 - `SEAMS_DEPLOYMENT_GENERATION_ID`
@@ -440,6 +440,6 @@ applied, then intentionally decide whether to complete or rotate the entire
 target identity set.
 
 If release validation reports a missing variable or secret, compare the
-generated manifest with the target's seven GitHub Environments. The environment
+generated manifest with the target's six GitHub Environments. The environment
 generator checks its inventory against the deployment workflows and will fail
 when a workflow reference is missing from the manifest.

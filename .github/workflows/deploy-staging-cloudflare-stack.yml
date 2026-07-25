@@ -1209,7 +1209,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment:
-      name: staging-observability
+      name: staging-frontend
     steps:
       - name: Checkout selected revision
         uses: actions/checkout@v6
@@ -2325,7 +2325,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment:
-      name: staging-observability
+      name: staging-frontend
     steps:
       - name: Checkout selected revision
         uses: actions/checkout@v6

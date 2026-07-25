@@ -654,7 +654,6 @@ function buildDeploymentDigestPayload(output) {
 function buildEnvironments(input) {
   return Object.fromEntries([
     buildFrontendEnvironment(input),
-    buildObservabilityEnvironment(input),
     buildGatewayEnvironment(input),
     buildMpcRouterEnvironment(input),
     buildDeriverAEnvironment(input),
@@ -674,7 +673,7 @@ function deploymentComponentEnvironmentNames(targetName, component) {
         `${targetName}-signing-worker`,
       ];
     case 'product':
-      return [`${targetName}-frontend`, `${targetName}-observability`];
+      return [`${targetName}-frontend`];
     default:
       throw new Error(`unsupported deployment component: ${component}`);
   }
@@ -764,23 +763,6 @@ function buildFrontendEnvironment(input) {
         CF_PAGES_PROJECT_VITE: manual(`${environmentName}-cloudflare-pages-app-project`),
         CF_PAGES_PROJECT_WALLET: manual(`${environmentName}-cloudflare-pages-wallet-project`),
       },
-    },
-  ];
-}
-
-function buildObservabilityEnvironment(input) {
-  const environmentName = `${input.target}-observability`;
-  const configuration = input.configuration;
-  return [
-    environmentName,
-    {
-      purpose: 'Read-only deployment smoke checks',
-      variables: {
-        VITE_DOCS_ORIGIN: configuration.appOrigin,
-        VITE_WALLET_ORIGIN: configuration.walletOrigin,
-      },
-      optionalVariables: {},
-      secrets: {},
     },
   ];
 }
@@ -1673,7 +1655,6 @@ function assertCompleteApplyInput(outputDocument, shouldApply, incompleteAllowed
 function validateOutput(outputDocument) {
   const expectedEnvironmentNames = [
     `${outputDocument.target}-frontend`,
-    `${outputDocument.target}-observability`,
     `${outputDocument.target}-gateway`,
     `${outputDocument.target}-mpc-router`,
     `${outputDocument.target}-deriver-a`,
@@ -1705,11 +1686,8 @@ function validateWorkflowCoverage(outputDocument) {
       mergeWorkflowRequirements(
         collectWorkflowRequirements(readWorkflow('release-cloudflare-frontend.yml')),
         collectWorkflowRequirements(readWorkflow('deploy-cloudflare-frontend.yml')),
+        collectWorkflowRequirements(extractWorkflowJob(routerWorkflow, 'final_smoke')),
       ),
-    ],
-    [
-      `${targetName}-observability`,
-      collectWorkflowRequirements(extractWorkflowJob(routerWorkflow, 'final_smoke')),
     ],
     [
       `${targetName}-gateway`,
@@ -2416,7 +2394,6 @@ function assertWalletCoreGenerationMatches(productManifest, repositoryName) {
 function deploymentEnvironmentNames(targetName) {
   return [
     `${targetName}-frontend`,
-    `${targetName}-observability`,
     `${targetName}-gateway`,
     `${targetName}-mpc-router`,
     `${targetName}-deriver-a`,

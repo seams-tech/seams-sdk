@@ -21,14 +21,12 @@ The web server persists state in Cloudflare data services:
 Create target-specific GitHub Environments for frontend builds, read-only
 smoke checks, and backend roles:
 
-- `staging-frontend`, `staging-observability`, and the five `staging-*` backend
-  role environments.
-- `production-frontend`, `production-observability`, and the five
-  `production-*` backend role environments.
+- `staging-frontend` and the five `staging-*` backend role environments.
+- `production-frontend` and the five `production-*` backend role environments.
 
-The frontend environments own Pages credentials and public build variables.
-Observability environments contain public origins only. Values differ per
-environment.
+The frontend environments own Pages credentials, public build variables, and
+the public origins used by the read-only deployment smoke checks. Values differ
+per environment.
 
 Create `staging-gateway` and `production-gateway` for Gateway. Create
 `staging-mpc-router`, `staging-deriver-a`,
@@ -48,7 +46,7 @@ pnpm wallet-core:deploy:env-prepare -- --env staging --repo seams-tech/seams-sdk
 pnpm wallet-core:deploy:env-prepare -- --env production --repo seams-tech/seams-sdk
 ```
 
-The command validates all seven GitHub Environments for the selected target. It
+The command validates all six GitHub Environments for the selected target. It
 generates the Router A/B identities, matched root shares, shared internal
 service credential, Gateway random secrets, ceremony JWT key, and
 signing-session seal values. It writes separate protected `wallet-core` and
@@ -57,7 +55,7 @@ funded-account, OAuth, and tenant values through the protected values file
 documented in [tooling.md](tooling.md#github-environment-bootstrap). The output
 contains private material and must not be committed.
 
-To create all seven environments, apply wallet-core and product separately from
+To create all six environments, apply wallet-core and product separately from
 the paired manifests printed by preparation:
 
 ```bash

@@ -34,11 +34,6 @@ github_environments:
       CF_PAGES_PROJECT_VITE: '<staging-app-pages-project>'
       CF_PAGES_PROJECT_WALLET: '<staging-wallet-pages-project>'
 
-  staging-observability:
-    vars:
-      VITE_DOCS_ORIGIN: 'https://staging.seams.sh'
-      VITE_WALLET_ORIGIN: 'https://sign.staging.seams.sh'
-
   staging-gateway:
     vars:
       GATEWAY_DEPLOYMENT_CONFIG_JSON: '<generated-gateway-deployment-config-json>'
@@ -69,11 +64,6 @@ github_environments:
       CLOUDFLARE_ACCOUNT_ID: '<account-id>'
       CF_PAGES_PROJECT_VITE: '<production-app-pages-project>'
       CF_PAGES_PROJECT_WALLET: '<production-wallet-pages-project>'
-
-  production-observability:
-    vars:
-      VITE_DOCS_ORIGIN: 'https://seams.sh'
-      VITE_WALLET_ORIGIN: 'https://sign.seams.sh'
 
   production-gateway:
     vars:

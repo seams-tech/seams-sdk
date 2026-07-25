@@ -38,7 +38,6 @@ const templateFiles = Object.freeze({
 
 const DEPLOYMENT_ENVIRONMENT_SUFFIXES = Object.freeze([
   'frontend',
-  'observability',
   'gateway',
   'mpc-router',
   'deriver-a',
