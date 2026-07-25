@@ -757,7 +757,15 @@ pub fn dispatch_local_ed25519_yao_connection_with_persistence_v1(
 ) -> Result<LocalEd25519YaoConnectionDispatchV1, Box<dyn std::error::Error>> {
     match classify_request(&stream)? {
         LocalEd25519YaoRequestClassV1::Peer if config.role() == LocalServiceRoleV1::DeriverB => {
-            handle_deriver_b_peer_stream(stream, config, state, persist_before_network)?;
+            let result =
+                handle_deriver_b_peer_stream(stream, config, state, persist_before_network);
+            if result.is_err() {
+                // A pair failure after B claims Running burns the in-memory
+                // record. Persist again before returning the transport error;
+                // the outer worker loop only persists successful dispatches.
+                persist_before_network(state)?;
+            }
+            result?;
             return Ok(LocalEd25519YaoConnectionDispatchV1::Handled);
         }
         LocalEd25519YaoRequestClassV1::Control => {}
