@@ -1908,6 +1908,20 @@ fn burn_local_pair_role_v1(
                 pair_digest: lookup.pair_digest,
             })
         }
+        LocalEd25519YaoPairRoleRecordV1::Running {
+            session,
+            pair_digest,
+            ..
+        } if *session == lookup.session && *pair_digest == lookup.pair_digest => {
+            *record = LocalEd25519YaoPairRoleRecordV1::Burned {
+                session: lookup.session,
+                pair_digest: lookup.pair_digest,
+            };
+            Ok(CloudflareEd25519YaoPairStatusResponseV1::Burned {
+                session: lookup.session,
+                pair_digest: lookup.pair_digest,
+            })
+        }
         LocalEd25519YaoPairRoleRecordV1::Prepared { .. } => Err(invalid_worker_state(
             "prepared pair role cannot be burned before execution",
         )),
@@ -2772,9 +2786,10 @@ mod tests {
     use super::*;
     use curve25519_dalek::scalar::Scalar;
     use router_ab_core::{
-        Ed25519YaoCeremonyIdentityV1, Ed25519YaoEpochTransitionV1, Ed25519YaoInputPairBindingV1,
-        Ed25519YaoRefreshEpochsV1, Ed25519YaoSessionIdV1, Ed25519YaoStableKeyContextBindingV1,
-        ExpensiveWorkKindV1, LifecycleScopeV1, PublicDigest32, RootShareEpoch,
+        Ed25519YaoCeremonyIdentityV1, Ed25519YaoEpochTransitionV1, Ed25519YaoInputKindV1,
+        Ed25519YaoInputPairBindingV1, Ed25519YaoRefreshEpochsV1, Ed25519YaoSessionIdV1,
+        Ed25519YaoStableKeyContextBindingV1, ExpensiveWorkKindV1, LifecycleScopeV1, PublicDigest32,
+        RootShareEpoch,
     };
     use signer_core::ed25519_yao_derivation::{
         derive_ed25519_yao_joint_refresh_delta_v1, Ed25519YaoDeriverARefreshDeltaContributionV1,
@@ -2806,6 +2821,102 @@ mod tests {
         ));
         assert!(is_yao_control_path(
             LOCAL_DERIVER_B_ED25519_YAO_READ_COMPLETED_PAIR_PATH
+        ));
+    }
+
+    #[test]
+    fn running_pair_burn_transitions_to_burned_for_exact_identity() {
+        let binding = ceremony(
+            7,
+            Ed25519YaoOperationV1::Registration,
+            ExpensiveWorkKindV1::RegistrationPrepare,
+            8,
+        );
+        let session = binding.session_id.into_bytes();
+        let input_a = Ed25519YaoEncryptedInputV1::new(
+            Ed25519YaoInputKindV1::Activation,
+            Ed25519YaoDeriverRoleV1::DeriverA,
+            Ed25519YaoOperationV1::Registration,
+            session,
+            [7; 32],
+            [0x51; 32],
+            vec![0x61; 16],
+        )
+        .expect("A input");
+        let input_b = Ed25519YaoEncryptedInputV1::new(
+            Ed25519YaoInputKindV1::Activation,
+            Ed25519YaoDeriverRoleV1::DeriverB,
+            Ed25519YaoOperationV1::Registration,
+            session,
+            [7; 32],
+            [0x52; 32],
+            vec![0x62; 16],
+        )
+        .expect("B input");
+        let pair_binding = Ed25519YaoInputPairBindingV1::from_inputs(
+            Ed25519YaoCeremonyIdentityV1::from_binding(binding).expect("pair identity"),
+            &input_a,
+            &input_b,
+            PublicDigest32::new([0x71; 32]),
+            PublicDigest32::new([0x72; 32]),
+        )
+        .expect("pair binding");
+        let pair_digest = pair_binding.pair_digest().bytes;
+        let request = CloudflareEd25519YaoPairPrepareRequestV1 {
+            pair_binding,
+            input: input_b,
+        };
+        let mut state = LocalEd25519YaoWorkerStateV1::default();
+        let receipt = prepare_local_pair_role_v1(
+            &mut state,
+            Ed25519YaoDeriverRoleV1::DeriverB,
+            &request,
+            &hex::encode([0x81; 32]),
+            "burn-test-signing-key",
+        )
+        .expect("prepared B pair");
+        let prepared = state
+            .pair_roles
+            .remove(&pair_digest)
+            .expect("prepared record");
+        let LocalEd25519YaoPairRoleRecordV1::Prepared {
+            session,
+            pair_digest,
+            pair_binding,
+            input_digest,
+            root_metadata_digest,
+            expires_at_ms,
+            input,
+            receipt: _,
+        } = prepared
+        else {
+            panic!("expected prepared record");
+        };
+        state.pair_roles.insert(
+            pair_digest,
+            LocalEd25519YaoPairRoleRecordV1::Running {
+                session,
+                pair_digest,
+                pair_binding,
+                input_digest,
+                root_metadata_digest,
+                expires_at_ms,
+                execution_id: [0x91; 32],
+                input,
+                receipt: Box::new(receipt),
+            },
+        );
+        let lookup = CloudflareEd25519YaoReadCompletedPairRequestV1 {
+            session,
+            pair_digest,
+        };
+        assert!(matches!(
+            burn_local_pair_role_v1(&mut state, lookup).expect("running burn"),
+            CloudflareEd25519YaoPairStatusResponseV1::Burned { .. }
+        ));
+        assert!(matches!(
+            state.pair_roles.get(&pair_digest),
+            Some(LocalEd25519YaoPairRoleRecordV1::Burned { .. })
         ));
     }
 
