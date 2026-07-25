@@ -2,7 +2,8 @@
 
 Date created: July 25, 2026
 
-Status: implementation complete; staging and production proof pending
+Status: implementation and staging/production proof complete; cutover and
+operations documentation pending
 
 Supersedes: `refactor-deployment-1.md`, `refactor-deployment-2.md`,
 `refactor-deployment-3.md`. Those three refactors are abandoned in place, not
@@ -592,50 +593,61 @@ duplicated per-script `runHttpCheck` implementations are gone.
 Run both production lanes manually from `main` using the existing production
 environment and its branch policy.
 
-**Blocker: the approval gate currently sits after four production mutations.**
-The only `required_reviewers` rule in the repository is on
-`production-mpc-router`. Mapping the production backend jobs to their bound
-environments and protection rules:
+#### Phase 5 Results
 
-| # | Job | Environment | Protection |
-| --- | --- | --- | --- |
-| 1 | `migrate` | production-gateway | branch_policy |
-| 2 | `deploy_signing_worker` | production-signing-worker | branch_policy |
-| 3 | `deploy_deriver_a` | production-deriver-a | branch_policy |
-| 4 | `deploy_deriver_b` | production-deriver-b | branch_policy |
-| 5 | `deploy_router` | production-mpc-router | **required_reviewers** |
-| 6 | `deploy_gateway` | production-gateway | branch_policy |
+The first backend proof, run [30160945288][run-p0] at `6e3dd1eb3`, failed after
+32m06s in `Migrate / production / gateway`. Build and all five preflight legs
+passed, but the migration job did not receive `RELAYER_PRIVATE_KEY` while the
+production Gateway configuration enabled `optional.nearRelayer`. No Worker
+deployment started. PR [#23][pr-23] added that migration binding and made
+Gateway preflight require it whenever the capability is enabled.
 
-A production run therefore applies forward-only D1 migrations and deploys three
-Workers before prompting anyone. Declining at step 5 does not undo any of it.
-Branch policy answers "which ref may deploy," never "did a person agree."
+Production backend, run [30164387899][run-p1], deployed
+`cdff14b5b8c133f1db8b89a318e56c23e52132c2` successfully in 36m00s:
 
-Decision Summary item 9 attributes production control to "the existing
-`production` environment branch policy," but no backend job binds `production` —
-only the two frontend workflows do. The main-only restriction does hold for the
-backend lane, via branch policies on the custody environments themselves.
+| Job | Duration |
+| --- | --- |
+| Build / production / backend | 10m14s |
+| Preflight × 5 (parallel, excluding approval wait) | 11–15s each |
+| Migrate / production / gateway | 39s |
+| Deploy / signing-worker | 5m23s |
+| Deploy / deriver-a | 5m35s |
+| Deploy / deriver-b | 5m26s |
+| Deploy / router | 5m37s |
+| Deploy / gateway (including smoke) | 53s |
 
-Resolve before the first production run, by either:
+The existing `production-mpc-router` required-reviewer rule prompted first on
+the router preflight matrix leg. Since `migrate` needs the complete preflight
+matrix, that approval happened before the first mutation. GitHub prompted again
+when the later router deployment job bound the same protected environment.
+Both prompts were approved for the same pinned SHA. No additional environment
+was created.
 
-- **(a)** creating a secret-free `production-approval` environment with required
-  reviewers and adding a first job that every other job declares in `needs:` —
-  one prompt, before any mutation; or
-- **(b)** moving `required_reviewers` onto `production-gateway`, which `migrate`
-  binds as the first mutating job — no new environment, but it prompts twice,
-  since `deploy_gateway` binds the same environment.
+The backend workflow smoke passed. Independent post-run checks returned HTTP
+200 for `/readyz`, `/healthz`,
+`/.well-known/router-ab-ceremony-jwks.json`,
+`/router-ab/ed25519/healthz`, and
+`/router-ab/ecdsa-derivation/healthz`.
 
-(a) matches the design intent of one gate before all mutation. Under either
-option, reconsider whether `required_reviewers` should remain on
-`production-mpc-router`, which would otherwise add a second prompt mid-lane.
+Production frontend, run [30165634336][run-p2], deployed the same SHA
+successfully in 4m59s. Independent checks returned HTTP 200 for both site roots,
+both `near-signer.worker.js` assets, and the Router A/B Ed25519 WASM asset.
+`https://sign.seams.sh/wallet-service/index.html` returned the expected HTTP
+308 redirect to `/wallet-service/`.
+
+[run-p0]: https://github.com/seams-tech/seams-sdk/actions/runs/30160945288
+[run-p1]: https://github.com/seams-tech/seams-sdk/actions/runs/30164387899
+[run-p2]: https://github.com/seams-tech/seams-sdk/actions/runs/30165634336
+[pr-23]: https://github.com/seams-tech/seams-sdk/pull/23
 
 ### Phase 6: Delete the old framework
 
 The old backend workflows and support tooling listed in What Is Deleted or
 Replaced were deleted during implementation, before remote staging and
 production proof. The frontend contents were replaced in Phase 3. This leaves
-fix-forward as the recovery path until the new lanes are proven; the deleted
-framework remains recoverable from git history. Enable the new staging push
-triggers only after Phases 4 and 5 are green. Production remains manual.
+fix-forward as the recovery path; the deleted framework remains recoverable
+from git history. Phases 4 and 5 are green. Enabling the new staging push
+triggers remains the final cutover step. Production remains manual.
 
 ### Phase 7: One-page documentation
 
@@ -804,5 +816,7 @@ authoritative for public origins, capabilities, and resource names.
 **Production environment protection.** The existing `production` environment
 has a branch-policy rule and the workflow guard independently requires `main`.
 It owns the frontend build configuration and Pages credentials. Component
-custody environments own backend secrets. Phase 0 must continue to verify the
-environment rules before the first new production run.
+custody environments own backend secrets. The production proof confirmed that
+`production-mpc-router` requires review on both its preflight and deploy jobs.
+Branch protection, required validation checks, CODEOWNERS, and cross-target
+environment-isolation verification remain open account-level hardening work.
