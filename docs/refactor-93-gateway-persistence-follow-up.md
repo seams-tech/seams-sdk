@@ -45,23 +45,28 @@ and `packages/sdk-server-ts/src/router/cloudflare/versionedJsonRecordStore.ts`:
 - versioned per-record storage and compare-and-swap contracts;
 - adapter tests covering key binding and byte-preserving round trips.
 
-Those adapters are intentionally not wired to production traffic yet. A
-partial route integration would allow side effects to escape before its CAS
-commit and could lose replay or authorization state.
+The first bounded production route integration is now in place. Registration
+admission and execution use a request-scoped adapter in
+`d1RouterApiStagingWorker`; it loads shared and ceremony records from D1,
+authorizes the request, persists an admission or execution claim before the
+backend call, and commits terminal state from a fresh snapshot. Backend
+uncertainty leaves the claim durable and terminal CAS conflicts fail closed
+without retrying the backend.
 
 The request-boundary ceremony-key parser, partitioned state composition, and
-transaction-capable D1 CAS primitive are implemented, but the production route
-is intentionally unwired. The current handler still materializes a four-map
-product state, so sending each lifecycle to an independent object would
-isolate capabilities and replay state. The partitioning boundary projects
-registration, authorization, recovery, and export lifecycle entries
+transaction-capable D1 CAS primitive are implemented. The current legacy
+handler still materializes a four-map product state, so sending each lifecycle
+to an independent object would isolate capabilities and replay state. The
+partitioning boundary projects registration, authorization, recovery, and
+export lifecycle entries
 separately while retaining recovery capability ownership, stable identity
 indexes, and export authorization nonces in a shared record. Its load/merge
 store reads the shared and ceremony records in one D1 batch snapshot and
-commits both with one typed CAS batch. The tenant runtime remains the active
-boundary until request
-composition has been integrated and exercised against the registration,
-recovery, export, replay, and authorization contracts.
+commits both with one typed CAS batch. Registration admission and execution
+now use this composition. The tenant runtime remains active for wallet
+registration start/bind/finalize, recovery, export, activation/session side
+effects, and the non-Yao API until those routes receive equivalent typed
+side-effect boundaries and lifecycle contract coverage.
 
 ## Request-scoped runner boundary
 
@@ -74,16 +79,17 @@ typed CAS batch. A stale shared or ceremony version is returned as a typed
 committed response, elision of an unchanged shared record, and a concurrent
 shared-state conflict.
 
-This runner is a composition seam, not a Gateway route integration. The
+This runner remains a composition seam for routes that have not been split. The
 existing `createRouterApiHandler` combines Yao state transitions with D1
 wallet/auth writes, console responses, and other non-Yao side effects. Wrapping
 that handler would leave the CAS commit boundary ambiguous: a response can
 escape after a one-use side effect and before persistence, while a concurrent
 request can observe a shared in-memory handler. The production cutover remains
 blocked until the Gateway supplies a Yao-only route adapter with an explicit
-request side-effect boundary and proves its registration, recovery, export,
-replay, and authorization contracts. `ROUTER_API_RUNTIME` remains in place
-while that handler-integrity work is completed.
+request side-effect boundary and proves their recovery, export, replay, and
+authorization contracts. Registration admission and execution now use the
+dedicated request-scoped adapter; `ROUTER_API_RUNTIME` remains for the other
+routes while that handler-integrity work is completed.
 
 ### Registration execute two-phase seam
 
@@ -99,12 +105,13 @@ and a terminal CAS conflict is returned as `terminal_version_mismatch` with
 the claim attached.
 
 Focused tests prove the ordering, the durable claim on backend uncertainty,
-and the no-retry terminal conflict behavior. This is an adapter contract, not
-production routing: the current Gateway wallet-registration finalize handler
-still combines Yao consumption with sponsored account creation, signing-session
-provisioning, wallet D1 commits, capability installation, replay writes, and
-ceremony deletion. Until those side effects are split behind explicit typed
-hooks, the full handler and `ROUTER_API_RUNTIME` remain unchanged.
+and the no-retry terminal conflict behavior. Registration admission and
+execution now use this production boundary. The current Gateway
+wallet-registration finalize handler still combines Yao consumption with
+sponsored account creation, signing-session provisioning, wallet D1 commits,
+capability installation, replay writes, and ceremony deletion. Until those
+side effects are split behind explicit typed hooks, that handler and the
+remaining `ROUTER_API_RUNTIME` routes stay unchanged.
 
 ## Implementation phases
 
@@ -121,8 +128,9 @@ implemented in
 `packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPartitioning.ts`.
 The request-safe load/commit composition is implemented in
 `packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPartitionedStateStore.ts`.
-Production request composition remains gated on integrating this store with
-the Gateway handler and running the full lifecycle contracts.
+Registration admission and execution now compose requests through this store.
+Recovery, export, replay, authorization, and wallet-finalize composition
+remains gated on typed side-effect boundaries and lifecycle contract runs.
 
 ### 2. Atomic mutation protocol
 

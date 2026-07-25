@@ -5,6 +5,7 @@ import {
   resolveSponsoredEvmWorkerExecutionAdapter,
 } from '@seams-internal/console-server/sponsorship/evmWorkerExecutionAdapter';
 import { createCloudflareRouter } from '@seams/sdk-server/internal/router/cloudflare/createCloudflareRouter';
+import { withCors } from '@seams/sdk-server/internal/router/cloudflare/http';
 import { createCloudflareConsoleRouter } from './createCloudflareConsoleRouter';
 import { createAppSessionConsoleAuthAdapter } from '../consoleAppSessionAuth';
 import {
@@ -69,6 +70,12 @@ import {
   ROUTER_AB_SIGNING_WORKER_ORIGIN,
   type RouterAbServiceBindingEnv,
 } from './routerAbServiceBindings';
+import { handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1 } from '@seams/sdk-server/internal/router/routerAbEd25519YaoRegistrationRequestScopedCloudflare';
+import { createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1 } from '@seams/sdk-server/internal/router/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+import {
+  ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
+  ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
+} from '@shared/utils/routerAbEd25519Yao';
 
 export { ThresholdStoreDurableObject };
 
@@ -350,24 +357,15 @@ async function createRouterApiHandler(
     emailOtpDemoAllowedOrigins: readEnvString(env, 'EMAIL_OTP_DEMO_ALLOWED_ORIGINS'),
     emailOtpProduction: readEnvString(env, 'EMAIL_OTP_PRODUCTION'),
     emailOtpDevOutboxEnabled: readEnvString(env, 'EMAIL_OTP_DEV_OUTBOX_ENABLED'),
-    emailOtpChallengeRateLimitMax: readEnvString(
-      env,
-      'EMAIL_OTP_CHALLENGE_RATE_LIMIT_MAX',
-    ),
+    emailOtpChallengeRateLimitMax: readEnvString(env, 'EMAIL_OTP_CHALLENGE_RATE_LIMIT_MAX'),
     emailOtpChallengeRateLimitWindowMs: readEnvString(
       env,
       'EMAIL_OTP_CHALLENGE_RATE_LIMIT_WINDOW_MS',
     ),
     emailOtpVerifyRateLimitMax: readEnvString(env, 'EMAIL_OTP_VERIFY_RATE_LIMIT_MAX'),
-    emailOtpVerifyRateLimitWindowMs: readEnvString(
-      env,
-      'EMAIL_OTP_VERIFY_RATE_LIMIT_WINDOW_MS',
-    ),
+    emailOtpVerifyRateLimitWindowMs: readEnvString(env, 'EMAIL_OTP_VERIFY_RATE_LIMIT_WINDOW_MS'),
     emailOtpGrantRateLimitMax: readEnvString(env, 'EMAIL_OTP_GRANT_RATE_LIMIT_MAX'),
-    emailOtpGrantRateLimitWindowMs: readEnvString(
-      env,
-      'EMAIL_OTP_GRANT_RATE_LIMIT_WINDOW_MS',
-    ),
+    emailOtpGrantRateLimitWindowMs: readEnvString(env, 'EMAIL_OTP_GRANT_RATE_LIMIT_WINDOW_MS'),
     emailOtpMaxAttempts: readEnvString(env, 'EMAIL_OTP_MAX_ATTEMPTS'),
     emailOtpLockoutTtlMs: readEnvString(env, 'EMAIL_OTP_LOCKOUT_TTL_MS'),
     emailOtpRecoveryKeyAttemptRateLimitMax: readEnvString(
@@ -439,9 +437,7 @@ export async function dispatchHostedGatewayRequest(
 ): Promise<Response> {
   const pathname = new URL(request.url).pathname;
   const handler =
-    pathname === '/console' || pathname.startsWith('/console/')
-      ? consoleHandler
-      : routerApiHandler;
+    pathname === '/console' || pathname.startsWith('/console/') ? consoleHandler : routerApiHandler;
   return await handler(request, env, ctx);
 }
 
@@ -782,9 +778,37 @@ async function fetch(
   if (request.method === 'GET' && new URL(request.url).pathname === ROUTER_AB_CEREMONY_JWKS_PATH) {
     return routerAbCeremonyJwksResponse(env);
   }
+  if (isRequestScopedRegistrationPath(request)) {
+    const response = await handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1({
+      request,
+      store: createStagingYaoPartitionedStateStore(env),
+      backend: createStagingEd25519YaoBackend(env),
+    });
+    withCors(response.headers, { corsOrigins: readCsvList(env.RELAY_CORS_ORIGINS) }, request);
+    return response;
+  }
   const id = env.ROUTER_API_RUNTIME.idFromName(routerApiRuntimeInstanceName(env));
   const stub = env.ROUTER_API_RUNTIME.get(id);
   return await stub.fetch(request);
+}
+
+function isRequestScopedRegistrationPath(request: Request): boolean {
+  if (request.method !== 'POST') return false;
+  const pathname = new URL(request.url).pathname;
+  return (
+    pathname === ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1 ||
+    pathname === ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1
+  );
+}
+
+function createStagingYaoPartitionedStateStore(
+  env: CloudflareD1RouterApiStagingEnv,
+): ReturnType<typeof createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1> {
+  const scope = stagingTenantScope(env);
+  return createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1({
+    database: env.SIGNER_DB,
+    scope,
+  });
 }
 
 export default { fetch };

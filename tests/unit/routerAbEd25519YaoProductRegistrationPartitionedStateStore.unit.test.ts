@@ -231,6 +231,7 @@ test.describe('partitioned Gateway product-state composition', () => {
         registration: {
           states: state.registration.states,
           lifecycleSessions: state.registration.lifecycleSessions,
+          admissionClaims: state.registration.admissionClaims,
         },
         authorization: { authorities: state.authorization.authorities },
         recovery: {

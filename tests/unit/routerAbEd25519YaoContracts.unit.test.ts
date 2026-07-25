@@ -19,6 +19,7 @@ import {
 } from '@shared/utils/routerAbEd25519Yao';
 import {
   InMemoryRouterAbEd25519YaoRegistrationService,
+  InMemoryRouterAbEd25519YaoRegistrationStateV1,
   createRouterAbEd25519YaoRegistrationModule,
   type RouterAbEd25519YaoRegistrationAuthorizationAdapter,
   type RouterAbEd25519YaoRegistrationAuthorizationInput,
@@ -684,6 +685,64 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
       }),
     ).toMatchObject({ ok: true, status: 200 });
     expect(backend.executeCalls).toBe(0);
+  });
+
+  test('persists an admission claim boundary before the backend is allowed to run', () => {
+    const backend = new TestRegistrationBackend(registrationAdmissionReceipt(), {
+      kind: 'success',
+      body: registrationResult(),
+    });
+    const state = new InMemoryRouterAbEd25519YaoRegistrationStateV1();
+    const service = new InMemoryRouterAbEd25519YaoRegistrationService(backend, state);
+    const request = parsedAdmissionRequest();
+
+    const preparation = service.prepareAdmit(request);
+    expect(preparation.kind).toBe('claimed');
+    expect(backend.admitCalls).toBe(0);
+    expect(state.admissionClaims.get('registration-1')).toMatchObject({
+      lifecycleId: 'registration-1',
+    });
+    expect(service.prepareAdmit(request)).toMatchObject({
+      kind: 'failed',
+      failure: { code: 'admission_in_progress' },
+    });
+    if (preparation.kind !== 'claimed') throw new Error('admission claim is required');
+    const committed = service.commitAdmit({
+      request,
+      claim: preparation.claim,
+      outcome: {
+        kind: 'backend_response',
+        result: backend.admit(request),
+      },
+    });
+    expect(committed).toMatchObject({ ok: true, status: 200 });
+    expect(state.admissionClaims.size).toBe(0);
+    expect(state.lifecycleSessions.get('registration-1')).toBeTruthy();
+  });
+
+  test('keeps an uncertain admission claim durable and rejects a duplicate backend call', () => {
+    const backend = new TestRegistrationBackend(registrationAdmissionReceipt(), {
+      kind: 'success',
+      body: registrationResult(),
+    });
+    const state = new InMemoryRouterAbEd25519YaoRegistrationStateV1();
+    const service = new InMemoryRouterAbEd25519YaoRegistrationService(backend, state);
+    const request = parsedAdmissionRequest();
+    const preparation = service.prepareAdmit(request);
+    if (preparation.kind !== 'claimed') throw new Error('admission claim is required');
+
+    expect(
+      service.commitAdmit({
+        request,
+        claim: preparation.claim,
+        outcome: { kind: 'backend_uncertain', message: 'Router response was lost' },
+      }),
+    ).toMatchObject({ ok: false, code: 'admission_uncertain', status: 503 });
+    expect(service.prepareAdmit(request)).toMatchObject({
+      kind: 'failed',
+      failure: { code: 'admission_in_progress' },
+    });
+    expect(backend.admitCalls).toBe(0);
   });
 
   test('burns a failed execution and never invokes the backend twice', async () => {

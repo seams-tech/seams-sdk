@@ -1,4 +1,7 @@
-import type { InMemoryRouterAbEd25519YaoRegistrationStateV1 } from './routerAbEd25519YaoRegistration';
+import type {
+  InMemoryRouterAbEd25519YaoRegistrationStateV1,
+  RouterAbEd25519YaoRegistrationAdmissionClaimV1,
+} from './routerAbEd25519YaoRegistration';
 import type { InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationStateV1 } from './routerAbEd25519YaoRegistrationIntentAuthorization';
 import type { InMemoryRouterAbEd25519YaoRecoveryStateV1 } from './routerAbEd25519YaoRecovery';
 import type { InMemoryRouterAbEd25519YaoExportStateV1 } from './routerAbEd25519YaoExport';
@@ -7,6 +10,7 @@ import type { RouterAbEd25519YaoProductRegistrationStateV1 } from './routerAbEd2
 type MapValue<T> = T extends Map<string, infer Value> ? Value : never;
 
 type RegistrationLifecycleState = MapValue<InMemoryRouterAbEd25519YaoRegistrationStateV1['states']>;
+type RegistrationAdmissionClaim = RouterAbEd25519YaoRegistrationAdmissionClaimV1;
 type RegistrationIntentAuthority =
   InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationStateV1['authorities'][number];
 type RecoveryCapabilityState = MapValue<InMemoryRouterAbEd25519YaoRecoveryStateV1['capabilities']>;
@@ -26,6 +30,7 @@ export type RouterAbEd25519YaoProductRegistrationCeremonyStateV1 = {
   readonly registration: {
     readonly states: Map<string, RegistrationLifecycleState>;
     readonly lifecycleSessions: Map<string, string>;
+    readonly admissionClaims: Map<string, RegistrationAdmissionClaim>;
   };
   readonly authorization: {
     readonly authorities: readonly RegistrationIntentAuthority[];
@@ -86,8 +91,12 @@ export function partitionRouterAbEd25519YaoProductRegistrationStateV1(
       lifecycleId: normalizedLifecycleId,
       registration: {
         states: registrationStates,
-        lifecycleSessions: selectLifecycleEntry(
+        lifecycleSessions: selectMapLifecycleEntry(
           state.registration.lifecycleSessions,
+          normalizedLifecycleId,
+        ),
+        admissionClaims: selectMapLifecycleEntry(
+          state.registration.admissionClaims,
           normalizedLifecycleId,
         ),
       },
@@ -130,6 +139,11 @@ export function mergeRouterAbEd25519YaoProductRegistrationStatePartitionV1(
   for (const [key, value] of partition.ceremony.registration.lifecycleSessions) {
     lifecycleSessions.set(key, value);
   }
+  const admissionClaims = new Map(base.registration.admissionClaims);
+  admissionClaims.delete(lifecycleId);
+  for (const [key, value] of partition.ceremony.registration.admissionClaims) {
+    admissionClaims.set(key, value);
+  }
 
   const authorities = base.authorization.authorities.filter(
     (authority) => authorityLifecycleId(authority) !== lifecycleId,
@@ -166,6 +180,7 @@ export function mergeRouterAbEd25519YaoProductRegistrationStatePartitionV1(
     registration: {
       states: registrationStates,
       lifecycleSessions,
+      admissionClaims,
     },
     authorization: { authorities },
     recovery: {
@@ -193,10 +208,7 @@ function selectMapEntries<T>(
   return selected;
 }
 
-function selectLifecycleEntry(
-  source: Map<string, string>,
-  lifecycleId: string,
-): Map<string, string> {
+function selectMapLifecycleEntry<T>(source: Map<string, T>, lifecycleId: string): Map<string, T> {
   const value = source.get(lifecycleId);
   return value === undefined ? new Map() : new Map([[lifecycleId, value]]);
 }

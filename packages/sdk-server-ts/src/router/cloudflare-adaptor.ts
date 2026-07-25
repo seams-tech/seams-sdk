@@ -256,3 +256,11 @@ export type {
   RouterAbEd25519YaoRegistrationTwoPhaseRunInputV1,
   RouterAbEd25519YaoRegistrationTwoPhaseRunResultV1,
 } from './routerAbEd25519YaoRegistrationTwoPhaseRunner';
+export type {
+  RouterAbEd25519YaoRegistrationAdmissionBoundaryV1,
+  RouterAbEd25519YaoRegistrationAdmissionClaimV1,
+  RouterAbEd25519YaoRegistrationAdmissionCommitInputV1,
+  RouterAbEd25519YaoRegistrationAdmissionPreparationV1,
+} from './routerAbEd25519YaoRegistration';
+export { handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1 } from './routerAbEd25519YaoRegistrationRequestScopedCloudflare';
+export type { RouterAbEd25519YaoRegistrationRequestScopedCloudflareInputV1 } from './routerAbEd25519YaoRegistrationRequestScopedCloudflare';

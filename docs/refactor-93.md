@@ -891,11 +891,18 @@ Yao network stream. It does, however, hold the mutable product admission,
 recovery, export, and authorization maps and writes the complete snapshot back
 after each request. Removing this object or routing Yao requests around it
 without a replacement persistence/CAS boundary would lose replay state and
-allow concurrent snapshots to overwrite one another. Acceptance criterion 3
-therefore remains an explicit Gateway persistence refactor gate: replace this
-tenant snapshot with per-ceremony durable lifecycle records or an equivalent
-D1/CAS adapter before deleting the binding and its migration. This is separate
-from the role-local Router coordination already implemented here.
+allow concurrent snapshots to overwrite one another. Registration admission
+and execution now route through a request-scoped D1 partitioned adapter:
+authorization and a typed admission or execution claim are CASed before the
+MPC Router backend call, terminal state is loaded from a fresh snapshot, and
+uncertainty or CAS conflicts fail closed without retrying the backend.
+
+Wallet registration start/bind/finalize, recovery, export, activation/session
+side effects, and the non-Yao API still use `ROUTER_API_RUNTIME`. Acceptance
+criterion 3 therefore remains an explicit Gateway persistence refactor gate:
+migrate those remaining routes to typed side-effect boundaries, gather drain
+evidence, then delete the binding and its migration. This is separate from the
+role-local Router coordination already implemented here.
 The follow-up review also confirms that the object name is keyed by
 `namespace:org:project:environment`, so all registrations for one tenant
 environment share that instance. That creates a tenant-level throughput ceiling
@@ -909,35 +916,36 @@ opaque versioned JSON envelopes, and transaction-backed compare-and-swap writes.
 The Gateway package also has a request-boundary ceremony-key parser, a lossless
 codec for the registration, authorization, recovery, and export Map/Set graphs,
 and a shared-plus-ceremony state store that reads both records from one D1
-batch snapshot and commits them with one typed CAS batch. These pieces define
-and test the persistence boundary without
-routing traffic through it yet: the tenant runtime has not been migrated, its
-binding and migration have not been deleted, and this checkbox remains open
-until the Gateway handler loads, runs, and commits through the composition on
-the registration, recovery, export, replay, and authorization paths.
+batch snapshot and commits them with one typed CAS batch. Registration
+admission and execution now load, run, and commit through that composition in
+the staging Worker. The tenant runtime has not been migrated for the remaining
+routes, its binding and migration have not been deleted, and this checkbox
+remains open until recovery, export, replay, authorization, and wallet-finalize
+paths have equivalent typed boundaries and drain evidence.
 The SDK also exposes a request-scoped load/execute/commit runner with typed
-CAS conflicts and no retry loop. It is a tested composition seam; it remains
-unwired because the current Gateway handler combines Yao transitions with
-other D1 and wallet side effects, so a post-side-effect CAS conflict would be
-uncertain. The production migration requires a Yao-only route adapter with an
-explicit side-effect boundary.
+CAS conflicts and no retry loop. It remains the composition seam for routes
+that have not been split. The current Gateway handler combines Yao transitions
+with other D1 and wallet side effects, so a post-side-effect CAS conflict would
+be uncertain. Registration admission and execution use the dedicated
+request-scoped adapter; recovery, export, replay, authorization, and
+wallet-finalize still require explicit side-effect boundaries.
 
-The first bounded Gateway migration seam is now defined for registration
-execution. A typed `executing` claim is CASed before the backend call; terminal
-completion loads a fresh snapshot and CASes the activated/failed state. Backend
-uncertainty leaves the claim durable for reconciliation, and a terminal CAS
-conflict is returned with the claim without retrying the backend. The seam is
-intentionally unwired: wallet-registration finalize still mixes Yao consumption
-with account creation, signing-session provisioning, wallet D1 commits,
-capability installation, replay persistence, and ceremony deletion. Those
-effects need their own typed hooks before the production route can leave
-`ROUTER_API_RUNTIME`.
+The first bounded Gateway migration is now wired for registration admission and
+execution. A typed admission or `executing` claim is CASed before the backend
+call; terminal completion loads a fresh snapshot and CASes the activated/failed
+state. Backend uncertainty leaves the claim durable for reconciliation, and a
+terminal CAS conflict is returned with the claim without retrying the backend.
+Wallet-registration finalize still mixes Yao consumption with account creation,
+signing-session provisioning, wallet D1 commits, capability installation,
+replay persistence, and ceremony deletion. Those effects need their own typed
+hooks before the remaining production routes can leave `ROUTER_API_RUNTIME`.
 
-The request-boundary parser remains intentionally unwired until the composition
-can load and CAS the correct product records. Routing a full four-map snapshot
-to one Durable Object per lifecycle would isolate registrations, capabilities,
-recovery state, and export state from one another. That would be a correctness
-regression, so the tenant runtime binding remains in place during this drain.
+The request-boundary parser and partitioned state store are wired for
+registration admission and execution. Routing a full four-map snapshot to one
+Durable Object per lifecycle would isolate registrations, capabilities,
+recovery state, and export state from one another. The remaining routes stay on
+the tenant runtime during the drain until each has an equivalent typed
+composition and CAS boundary.
 
 The local serving gate is a concrete wiring gap rather than an untested claim.
 `router_ab_local_worker` now gives the Router its own process and five
