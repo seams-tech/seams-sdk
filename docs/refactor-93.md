@@ -814,9 +814,12 @@ receipts are recorded.
         SQLite migration after the drain.
 - [ ] Delete obsolete Deriver Stage and Result route contracts after the
       maximum in-flight ceremony lifetime has elapsed.
-- [ ] Before deleting legacy role routes, deploy transactional cross-key
-      exclusion for legacy and pair records, then observe the maximum in-flight
-      lifetime with no object containing both records.
+- [ ] Before deleting legacy role routes, complete the cross-key exclusion
+      drain:
+  - [x] Make legacy admission and pair preparation claim both role-record keys
+        through the same Durable Object storage transaction.
+  - [ ] Deploy that version, then observe the maximum in-flight lifetime with
+        no object containing both records.
 - [ ] Delete lower-authority tests, fixtures, mocks, and source guards that
       encode the serial flow.
 - [ ] Delete compatibility request parsers after the boundary drain.
