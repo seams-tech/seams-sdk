@@ -396,13 +396,12 @@ function registrationCapabilityRecord(): WalletEd25519YaoActiveCapabilityRecord 
 
 function resolveWalletCapability(
   service: InMemoryRouterAbEd25519YaoRecoveryService,
-  nearAccountId = 'wallet-1.testnet',
+  nearEd25519SigningKeyId = 'ed25519ks_1',
 ) {
   return service.resolveActiveCapability({
     kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
     walletId: 'wallet-1',
-    nearAccountId,
-    nearEd25519SigningKeyId: 'ed25519ks_1',
+    nearEd25519SigningKeyId,
     signerSlot: 1,
     signingWorkerId: 'signing-worker-1',
     participantIds: [1, 2],
@@ -451,7 +450,7 @@ async function recoveryPromotesOnlyAfterExactActivation(): Promise<void> {
       stateEpoch: 1,
     },
   });
-  expect(resolveWalletCapability(service, 'substituted.testnet')).toMatchObject({
+  expect(resolveWalletCapability(service, 'substituted-ed25519-key')).toMatchObject({
     ok: false,
     code: 'unknown_capability',
   });
@@ -459,7 +458,6 @@ async function recoveryPromotesOnlyAfterExactActivation(): Promise<void> {
     service.resolveActiveCapability({
       kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
       walletId: 'wallet-1',
-      nearAccountId: 'wallet-1.testnet',
       nearEd25519SigningKeyId: 'ed25519ks_1',
       signerSlot: 1,
       signingWorkerId: 'signing-worker-1',

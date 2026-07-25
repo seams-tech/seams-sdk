@@ -81,7 +81,6 @@ function capabilityLookup(capability: WalletEd25519YaoActiveCapabilityRecord) {
   return {
     kind: 'router_ab_ed25519_yao_active_capability_lookup_v1' as const,
     walletId: capability.admissionRequest.application_binding.wallet_id,
-    nearAccountId: capability.nearAccountId,
     nearEd25519SigningKeyId:
       capability.admissionRequest.application_binding.near_ed25519_signing_key_id,
     signerSlot: capability.admissionRequest.application_binding.key_creation_signer_slot,

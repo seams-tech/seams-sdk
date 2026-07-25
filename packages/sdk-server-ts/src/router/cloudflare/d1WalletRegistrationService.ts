@@ -1363,7 +1363,6 @@ export class CloudflareD1WalletRegistrationService {
       const capability = await yaoRuntime.resolveActiveCapability({
         kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
         walletId,
-        nearAccountId: signer.nearAccountId,
         nearEd25519SigningKeyId: signer.nearEd25519SigningKeyId,
         signerSlot,
         signingWorkerId: signer.signingWorkerId,

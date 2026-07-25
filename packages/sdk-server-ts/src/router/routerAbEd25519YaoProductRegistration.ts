@@ -667,7 +667,6 @@ export function routerAbEd25519YaoPersistedCapabilityMatchesLookupV1(
   const participants = capability.admissionRequest.participant_ids;
   return (
     application.wallet_id === lookup.walletId &&
-    capability.nearAccountId === lookup.nearAccountId &&
     application.near_ed25519_signing_key_id === lookup.nearEd25519SigningKeyId &&
     application.key_creation_signer_slot === lookup.signerSlot &&
     capability.admissionRequest.scope.signing_worker_id === lookup.signingWorkerId &&

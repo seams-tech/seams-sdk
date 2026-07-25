@@ -599,7 +599,6 @@ test('D1 recovery issues the authoritative mixed-wallet signing grant', async ()
       {
         kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
         walletId: WALLET_ID,
-        nearAccountId: NEAR_ACCOUNT_ID,
         nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
         signerSlot: SIGNER_SLOT,
         signingWorkerId: SIGNING_WORKER_ID,
