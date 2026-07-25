@@ -126,6 +126,7 @@ class DeferredRegistrationBackend implements RouterAbEd25519YaoRegistrationBacke
 
 class ScriptedLocalYaoFetch {
   readonly calls: string[] = [];
+  readonly requestUrls: string[] = [];
   readonly traceIds: string[] = [];
   readonly requestBodies: string[] = [];
   readonly replayHeaders: string[] = [];
@@ -148,6 +149,7 @@ class ScriptedLocalYaoFetch {
       throw new Error('Router request must carry a canonical opaque trace ID');
     }
     this.calls.push(`${method} ${url.pathname}`);
+    this.requestUrls.push(url.toString());
     this.traceIds.push(traceId);
     this.requestBodies.push(typeof init?.body === 'string' ? init.body : '');
     this.replayHeaders.push(new Headers(init?.headers).get('x-seams-yao-replay') ?? '');
@@ -848,6 +850,10 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     expect(scriptedFetch.calls).toEqual([
       'POST /router-ab/router/ed25519-yao/execute',
       'POST /router-ab/router/ed25519-yao/execute',
+    ]);
+    expect(scriptedFetch.requestUrls.map((url) => new URL(url).origin)).toEqual([
+      'http://router.local',
+      'http://router.local',
     ]);
     expect(scriptedFetch.requestBodies[0]).toBe(scriptedFetch.requestBodies[1]);
     const routerBody = JSON.parse(scriptedFetch.requestBodies[0]) as Record<string, unknown>;
