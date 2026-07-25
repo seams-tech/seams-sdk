@@ -120,6 +120,8 @@ async function uncertainTwoPhaseBackend(
 class MemoryPartitionRecordStore implements RouterAbEd25519YaoProductRegistrationPartitionRecordStoreV1 {
   readonly records = new Map<string, StoredRecord>();
 
+  constructor(private readonly cloneReads = true) {}
+
   async readMany(keys: readonly string[]): Promise<
     readonly {
       readonly key: string;
@@ -133,7 +135,7 @@ class MemoryPartitionRecordStore implements RouterAbEd25519YaoProductRegistratio
         result: record
           ? {
               kind: 'present' as const,
-              value: structuredClone(record.value),
+              value: this.cloneReads ? structuredClone(record.value) : record.value,
               version: String(record.version),
             }
           : { kind: 'missing' as const },
@@ -486,6 +488,38 @@ test.describe('partitioned Gateway product-state composition', () => {
         registration: {
           lifecycleSessions: new Map([['lifecycle-runner', 'session-runner']]),
         },
+      },
+    });
+  });
+
+  test('detaches loaded shared state from an adapter-owned record snapshot', async () => {
+    const backend = new MemoryPartitionRecordStore(false);
+    const store = createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1(backend);
+    const initial = await store.load('lifecycle-detached');
+    initial.state.export.authorizationNonces.add('persisted');
+    await store.commit({
+      lifecycleId: 'lifecycle-detached',
+      state: initial.state,
+      sharedState: initial.sharedState,
+      sharedVersion: initial.sharedVersion,
+      ceremonyVersion: initial.ceremonyVersion,
+    });
+
+    const loaded = await store.load('lifecycle-detached');
+    loaded.sharedState.exportAuthorizationNonces.add('request-only');
+    loaded.state.registration.lifecycleSessions.set('lifecycle-detached', 'request-session');
+
+    const persisted = backend.records.get(ROUTER_AB_ED25519_YAO_SHARED_STATE_RECORD_KEY_V1);
+    expect(persisted?.value.kind).toBe(
+      'router_ab_ed25519_yao_product_registration_shared_record_v1',
+    );
+    if (persisted?.value.kind !== 'router_ab_ed25519_yao_product_registration_shared_record_v1') {
+      throw new Error('shared state record was not persisted');
+    }
+    expect(persisted.value.value.exportAuthorizationNonces).toEqual(new Set(['persisted']));
+    await expect(store.load('lifecycle-detached')).resolves.toMatchObject({
+      state: {
+        registration: { lifecycleSessions: new Map() },
       },
     });
   });

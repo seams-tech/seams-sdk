@@ -281,7 +281,7 @@ function readSharedRecord(
   if (result.value.kind !== 'router_ab_ed25519_yao_product_registration_shared_record_v1') {
     throw new Error('Router A/B shared state record has an invalid kind');
   }
-  return { value: result.value.value, version: result.version };
+  return { value: structuredClone(result.value.value), version: result.version };
 }
 
 function readCeremonyRecord(
@@ -302,7 +302,7 @@ function readCeremonyRecord(
   ) {
     throw new Error('Router A/B ceremony state record does not match its lifecycle key');
   }
-  return { value: result.value.value, version: result.version };
+  return { value: structuredClone(result.value.value), version: result.version };
 }
 
 function materializeState(
