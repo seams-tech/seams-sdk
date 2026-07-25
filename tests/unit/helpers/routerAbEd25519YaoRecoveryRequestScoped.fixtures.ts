@@ -131,6 +131,13 @@ export type RouterAbEd25519YaoRecoveryRequestScopedFixture = {
   readonly activation: RouterAbEd25519YaoRecoveryActivationRequestV1;
   readonly store: RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1;
   readonly authorization: RouterAbEd25519YaoRecoveryAuthorizationAdapter;
+  readonly capabilities: {
+    resolveActiveCapability(): Promise<{
+      readonly ok: false;
+      readonly code: 'unknown_capability';
+      readonly message: string;
+    }>;
+  };
 };
 
 export type RouterAbEd25519YaoCapabilityReplacementFixture = {
@@ -312,6 +319,15 @@ function recoveryFixture(
     activation: recoveryActivation(executionResult),
     store,
     authorization: new AllowRecoveryAuthorization(identity),
+    capabilities: {
+      async resolveActiveCapability() {
+        return {
+          ok: false,
+          code: 'unknown_capability' as const,
+          message: 'warm bootstrap is not used by this fixture',
+        };
+      },
+    },
   };
 }
 

@@ -24,6 +24,7 @@ import {
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
   type RouterAbEd25519YaoWarmRecoveryBootstrapRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
+
 import {
   createRouterAbTraceContextV1,
   parseRouterAbTraceContextV1,
@@ -665,7 +666,7 @@ function exactRuntimePolicyScope(left: RuntimePolicyScope, right: RuntimePolicyS
   );
 }
 
-function warmBootstrapCapabilityMatchesStableIdentity(input: {
+export function warmBootstrapCapabilityMatchesStableIdentity(input: {
   readonly request: RouterAbEd25519YaoWarmRecoveryBootstrapRequestV1;
   readonly claims: RouterAbEd25519WalletSessionClaims;
   readonly capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1;

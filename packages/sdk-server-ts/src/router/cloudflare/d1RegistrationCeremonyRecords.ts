@@ -407,12 +407,14 @@ export function parseD1StoredWalletRegistrationFinalizeReplay(
   if (!record || record.kind !== 'wallet_registration_finalize_replay_v1') return null;
   const registrationCeremonyId = toOptionalTrimmedString(record.registrationCeremonyId);
   const idempotencyKey = toOptionalTrimmedString(record.idempotencyKey);
+  const requestFingerprint = toOptionalTrimmedString(record.requestFingerprint);
   const response = parseD1WalletRegistrationFinalizeReplayResponse(record.response);
   const createdAtMs = safeInteger(record.createdAtMs);
   const expiresAtMs = safeInteger(record.expiresAtMs);
   if (
     !registrationCeremonyId ||
     !idempotencyKey ||
+    !requestFingerprint ||
     !response ||
     createdAtMs === null ||
     createdAtMs <= 0 ||
@@ -425,6 +427,7 @@ export function parseD1StoredWalletRegistrationFinalizeReplay(
     kind: 'wallet_registration_finalize_replay_v1',
     registrationCeremonyId,
     idempotencyKey,
+    requestFingerprint,
     response,
     createdAtMs,
     expiresAtMs,

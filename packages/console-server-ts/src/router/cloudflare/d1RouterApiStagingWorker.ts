@@ -96,6 +96,7 @@ import {
   ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1,
   ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
+  ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1,
 } from '@shared/utils/routerAbEd25519Yao';
 
 export { ThresholdStoreDurableObject };
@@ -894,6 +895,8 @@ function registrationOperationForRequest(
       return 'registration_admission';
     case ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1:
       return 'registration_execute';
+    case ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1:
+      return 'recovery_bootstrap';
     case ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1:
       return 'recovery_admission';
     case ROUTER_AB_ED25519_YAO_RECOVERY_EXECUTE_PATH_V1:
@@ -918,6 +921,7 @@ function familyOfGatewayOperation(
     case 'registration_execute':
       return 'registration';
     case 'recovery_admission':
+    case 'recovery_bootstrap':
     case 'recovery_execute':
     case 'recovery_activate':
       return 'recovery';
@@ -1022,19 +1026,36 @@ export function createStagingRecoveryRequestScopedDependencies(
   readonly backend: ReturnType<typeof createStagingEd25519YaoBackend>;
   readonly authorization: RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter;
   readonly capabilityPersistence: CloudflareD1RouterAbEd25519YaoCapabilityPersistence;
+  readonly capabilities: RouterAbEd25519YaoProductRegistrationRuntimeV1;
 } {
   const scope = stagingTenantScope(env);
+  const store = createStagingYaoPartitionedStateStore(env);
+  const session = stagingSessionAdapter(env);
   return {
-    store: createStagingYaoPartitionedStateStore(env),
+    store,
     backend: createStagingEd25519YaoBackend(env),
     authorization: new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
-      stagingSessionAdapter(env),
+      session,
     ),
     capabilityPersistence: new CloudflareD1RouterAbEd25519YaoCapabilityPersistence({
       database: env.SIGNER_DB,
       scope,
       walletStore: stagingWalletStore(env),
       ensureSchema: false,
+    }),
+    capabilities: createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1({
+      signingWorkerId: requireEnvString(env, 'SIGNING_WORKER_ID'),
+      session,
+      store,
+      loadPersistedActiveCapability: async (lookup) => {
+        const walletId = parseWalletId(lookup.walletId);
+        if (!walletId.ok) return null;
+        const signer = await stagingWalletStore(env).getEd25519SignerBySlot({
+          walletId: walletId.value,
+          signerSlot: lookup.signerSlot,
+        });
+        return signer?.activeYaoCapability || null;
+      },
     }),
   };
 }

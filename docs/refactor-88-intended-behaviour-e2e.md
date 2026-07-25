@@ -1669,6 +1669,7 @@ Initial audit:
 | `tests/unit/multichain.tempoTxHash.unit.test.ts` | keep | Tempo transaction-hash coverage. It validates multichain helper behavior. |
 | `tests/unit/multichain.webauthnP256Engine.unit.test.ts` | keep | WebAuthn P-256 engine coverage. It validates multichain crypto engine behavior directly. |
 | `tests/unit/nearClient.test.ts` | keep | NEAR client helper coverage. It validates RPC helper behavior outside wallet lifecycle contracts. |
+| `tests/unit/nearRelayerAccountProvisioning.unit.test.ts` | keep | NEAR sponsored-account reconciliation coverage. It verifies resolved failures, response-loss readback, uncertain transport, and exact prepared-transaction rebroadcast behavior. |
 | `tests/unit/nearEd25519ExportFlow.unit.test.ts` | keep | NEAR Ed25519 export-flow coverage. It validates export-flow domain behavior directly. |
 | `tests/unit/nearSigning.sessionSelection.unit.test.ts` | keep | NEAR signing session-selection coverage. It validates session selection for NEAR signing. |
 | `tests/unit/nearSigningFlow.singleTransaction.unit.test.ts` | keep | NEAR single-transaction signing-flow coverage. It validates focused signing-flow behavior; intended specs own browser lifecycle success. |
