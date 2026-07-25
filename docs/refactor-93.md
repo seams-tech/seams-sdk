@@ -875,11 +875,18 @@ receipts are recorded.
           enrollment and wallet land together and read back, a failing
           enrollment statement rolls back the wallet and signer rows, and
           re-running the identical commit converges to one row per table.
-    - [ ] Cover concurrent finalize contention for one lifecycle, and drive the
-          convergence check through the finalize entry point rather than the
-          commit store alone.
+    - [x] Cover concurrent finalize contention for one lifecycle: exactly one
+          attempt runs the effect, the other observes the claim, and a later
+          attempt replays the exact receipt.
+    - [ ] Drive the convergence check through the finalize entry point rather
+          than the commit store and side-effect boundary separately. Both halves
+          are proven in isolation; the end-to-end path is not.
     - [ ] Derive the request fingerprint from the canonical effect identity
           rather than primarily the activation session.
+    - [x] Resolve the Yao runtime per request so registration finalize reads the
+          activation from whichever store its execute step used. A fixed runtime
+          would have sent execute to the partitioned store while finalize kept
+          reading the legacy one.
     - [ ] Replace the optional prepare field and boolean resume flag with a
           representation that makes invalid lifecycle combinations
           unconstructable.
