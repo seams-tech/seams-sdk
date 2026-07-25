@@ -1769,6 +1769,8 @@ export class CloudflareD1WalletRegistrationService {
             expectedDigestB64u: preview.digestB64u,
             expectedOrigin: expectedOrigin || '',
             intent: preview.intent,
+            verificationOperationId: startKey,
+            verificationReceiptExpiresAtMs: preview.expiresAtMs,
             userAgent: context?.userAgent,
           },
         );
