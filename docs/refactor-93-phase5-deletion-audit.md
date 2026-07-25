@@ -32,12 +32,12 @@ The generated Gateway Wrangler config still declares `DERIVER_A`, `DERIVER_B`,
 
 The bindings have different owners:
 
-| Binding | Current owner | Decision |
-| --- | --- | --- |
-| `MPC_ROUTER` | Yao coordinator and Router A/B ECDSA ports | Retain. |
-| `SIGNING_WORKER` | Router A/B ECDSA threshold-store transport (`ROUTER_AB_SIGNING_WORKER_URL`) | Retain. This is not an obsolete Yao-only binding. |
-| `DERIVER_A` | `RouterAbServiceBindingEnv` dispatcher and the old Gateway binary's direct role route | Drain target. No current Gateway source caller addresses it, but the binding remains required for rollback until the old binary and request lifetime have drained. |
-| `DERIVER_B` | `RouterAbServiceBindingEnv` dispatcher and the old Gateway binary's direct role route | Drain target. No current Gateway source caller addresses it, but the binding remains required for rollback until the old binary and request lifetime have drained. |
+| Binding          | Current owner                                                                         | Decision                                                                                                                                                           |
+| ---------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `MPC_ROUTER`     | Yao coordinator and Router A/B ECDSA ports                                            | Retain.                                                                                                                                                            |
+| `SIGNING_WORKER` | Router A/B ECDSA threshold-store transport (`ROUTER_AB_SIGNING_WORKER_URL`)           | Retain. This is not an obsolete Yao-only binding.                                                                                                                  |
+| `DERIVER_A`      | `RouterAbServiceBindingEnv` dispatcher and the old Gateway binary's direct role route | Drain target. No current Gateway source caller addresses it, but the binding remains required for rollback until the old binary and request lifetime have drained. |
+| `DERIVER_B`      | `RouterAbServiceBindingEnv` dispatcher and the old Gateway binary's direct role route | Drain target. No current Gateway source caller addresses it, but the binding remains required for rollback until the old binary and request lifetime have drained. |
 
 The role-worker bindings are therefore deletion candidates, not safe deletion
 targets today. Removing them from the generated config before the rollback
@@ -105,13 +105,13 @@ The five remaining `source.contains` checks in
 reviewed against the current Rust unit tests and route handlers. They remain
 intentional boundary guards:
 
-| Guard | Invariant protected | Why a structural/type test is insufficient today |
-| --- | --- | --- |
+| Guard                                                               | Invariant protected                                                                                                       | Why a structural/type test is insufficient today                                                                                                                                                                |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Legacy record enum, terminal variants, lifetimes, and expiry helper | The legacy request boundary retains one discriminated record with absorbing `Failed`/`Expired` states and bounded leases. | The record is private to the Worker module; existing unit tests cover serialization and checked expiry, while this guard also detects accidental removal of a state or lease constant from the deployed source. |
-| Absence of `STAGED_INPUT_STORAGE_KEY` | Legacy staged ciphertext is not split into a second storage key. | A behavior test cannot prove that a future code path has not reintroduced a second durable key when the current path happens not to exercise it. |
-| Pair record fields and command variants | Pair binding, readiness, two-phase start, completion, and exact completed reads remain present at the role boundary. | The command/state types are private and route dispatch is Worker-specific; the existing unit tests cover transitions, not the complete boundary command surface. |
-| Named completion-acknowledgement envelope and request validation | B completed reads cross the Worker boundary through a typed acknowledgement that is validated before transcript use. | Coordinator tests validate decoding, but do not prove that the B route still emits and validates the named envelope. |
-| Root metadata loader plus staged WebSocket connector | Root metadata validation remains ordered before external peer connection. | No local runtime test provides a real Cloudflare WebSocket and root-share binding; the source guard retains the ordering requirement until deployed evidence exists. |
+| Absence of `STAGED_INPUT_STORAGE_KEY`                               | Legacy staged ciphertext is not split into a second storage key.                                                          | A behavior test cannot prove that a future code path has not reintroduced a second durable key when the current path happens not to exercise it.                                                                |
+| Pair record fields and command variants                             | Pair binding, readiness, two-phase start, completion, and exact completed reads remain present at the role boundary.      | The command/state types are private and route dispatch is Worker-specific; the existing unit tests cover transitions, not the complete boundary command surface.                                                |
+| Named completion-acknowledgement envelope and request validation    | B completed reads cross the Worker boundary through a typed acknowledgement that is validated before transcript use.      | Coordinator tests validate decoding, but do not prove that the B route still emits and validates the named envelope.                                                                                            |
+| Root metadata loader plus staged WebSocket connector                | Root metadata validation remains ordered before external peer connection.                                                 | No local runtime test provides a real Cloudflare WebSocket and root-share binding; the source guard retains the ordering requirement until deployed evidence exists.                                            |
 
 Removing any of these guards before native pair serving and the legacy route
 drain would reduce coverage of the only tests that inspect those cross-worker
@@ -184,3 +184,11 @@ rollback rehearsal, and an empty post-drain owner inventory. Its `inventory`
 command reports references to direct-origin and tenant-runtime keys without
 authorizing deletion. It performs no Cloudflare mutation and cannot turn
 partial evidence into a green deployment gate.
+
+The Gateway cutover has a separate two-boundary control. Keep
+`ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS` and
+`ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS` empty while the tenant runtime remains
+authoritative. At quiescence, set the admission cutoff; after the observed
+maximum in-flight lifetime, set the final drain boundary. The Worker rejects
+new admissions during that interval and keeps legacy executions on the tenant
+runtime. Both values must be present together before the D1 route can activate.

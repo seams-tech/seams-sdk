@@ -149,6 +149,7 @@ function buildWorkerVars(deployment) {
     deployment.runtimeProfile.nearFunding.kind === 'implicit_account_relayer';
   const demoEmailOtpDelivery =
     deployment.runtimeProfile.emailOtpDelivery.kind === 'demo_code_response';
+  const gatewayDrainWindow = readGatewayDrainWindow();
   const vars = {
     SEAMS_TENANT_STORAGE_NAMESPACE: deployment.tenant.namespace,
     SEAMS_STAGING_ORG_ID: deployment.tenant.orgId,
@@ -159,6 +160,7 @@ function buildWorkerVars(deployment) {
     ROUTER_AB_CEREMONY_JWT_ISSUER: deployment.origins.gateway,
     ROUTER_AB_CEREMONY_JWT_AUDIENCE: deployment.routerAb.ceremonyJwtAudience,
     ROUTER_AB_CEREMONY_JWT_KEY_ID: deployment.routerAb.ceremonyJwtKeyId,
+    ...gatewayDrainWindow,
     ROUTER_AB_PUBLIC_KEYSET_JSON: JSON.stringify(deployment.routerAb.publicKeyset),
     ROUTER_AB_ECDSA_REGISTRATION_TOPOLOGY_JSON: JSON.stringify(
       deployment.routerAb.registrationTopology,
@@ -172,8 +174,7 @@ function buildWorkerVars(deployment) {
     RELAY_CORS_ORIGINS: deployment.origins.allowedCors.join(','),
     SESSION_COOKIE_NAME: DEFAULT_SESSION_COOKIE_NAME,
     EMAIL_OTP_RUNTIME_PROFILE: deployment.runtimeProfile.kind,
-    EMAIL_OTP_DELIVERY_MODE:
-      deployment.runtimeProfile.emailOtpDelivery.kind,
+    EMAIL_OTP_DELIVERY_MODE: deployment.runtimeProfile.emailOtpDelivery.kind,
     EMAIL_OTP_PRODUCTION: String(production),
     EMAIL_OTP_DEV_OUTBOX_ENABLED: 'false',
     EMAIL_OTP_CHALLENGE_RATE_LIMIT_MAX: DEFAULT_EMAIL_OTP_CHALLENGE_RATE_LIMIT_MAX,
@@ -202,6 +203,44 @@ function buildWorkerVars(deployment) {
   addOptionalStringVar(vars, 'GOOGLE_OIDC_CLIENT_ID', deployment.optional.googleOidcClientId);
   addOptionalObjectVar(vars, 'SEAMS_OIDC_EXCHANGE_JSON', deployment.optional.oidcExchange);
   return vars;
+}
+
+function readGatewayDrainWindow() {
+  const cutoffRaw = String(process.env.ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS || '').trim();
+  const drainRaw = String(process.env.ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS || '').trim();
+  if (!cutoffRaw && !drainRaw) {
+    return {
+      ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS: '',
+      ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS: '',
+    };
+  }
+  if (!cutoffRaw || !drainRaw) {
+    throw new Error(
+      'ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS and ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS must be set together',
+    );
+  }
+  const admissionCutoffMs = parseGatewayTimestamp(
+    cutoffRaw,
+    'ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS',
+  );
+  const drainUntilMs = parseGatewayTimestamp(drainRaw, 'ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS');
+  if (admissionCutoffMs > drainUntilMs) {
+    throw new Error(
+      'ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS must not exceed ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS',
+    );
+  }
+  return {
+    ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS: String(admissionCutoffMs),
+    ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS: String(drainUntilMs),
+  };
+}
+
+function parseGatewayTimestamp(raw, name) {
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`${name} must be a non-negative safe integer when set`);
+  }
+  return value;
 }
 
 function addNearRelayerVars(vars, nearRelayer) {

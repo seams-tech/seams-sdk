@@ -5,7 +5,7 @@ import {
   resolveSponsoredEvmWorkerExecutionAdapter,
 } from '@seams-internal/console-server/sponsorship/evmWorkerExecutionAdapter';
 import { createCloudflareRouter } from '@seams/sdk-server/internal/router/cloudflare/createCloudflareRouter';
-import { withCors } from '@seams/sdk-server/internal/router/cloudflare/http';
+import { json, withCors } from '@seams/sdk-server/internal/router/cloudflare/http';
 import { createCloudflareConsoleRouter } from './createCloudflareConsoleRouter';
 import { createAppSessionConsoleAuthAdapter } from '../consoleAppSessionAuth';
 import {
@@ -72,6 +72,7 @@ import {
 } from './routerAbServiceBindings';
 import { handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1 } from '@seams/sdk-server/internal/router/routerAbEd25519YaoRegistrationRequestScopedCloudflare';
 import { createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1 } from '@seams/sdk-server/internal/router/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+import { resolveRouterAbEd25519YaoGatewayRegistrationRouteV1 } from '@seams/sdk-server/internal/router/cloudflare/routerAbEd25519YaoGatewayCutover';
 import {
   ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
@@ -85,6 +86,8 @@ interface CloudflareD1RouterApiStagingEnv
   readonly SIGNER_DB: D1DatabaseLike;
   readonly THRESHOLD_STORE: CloudflareDurableObjectNamespaceLike;
   readonly ROUTER_API_RUNTIME: CloudflareDurableObjectNamespaceLike;
+  readonly ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS?: string;
+  readonly ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS?: string;
   readonly SEAMS_TENANT_STORAGE_NAMESPACE?: string;
   readonly SEAMS_STAGING_ORG_ID?: string;
   readonly SEAMS_STAGING_PROJECT_ID?: string;
@@ -778,27 +781,88 @@ async function fetch(
   if (request.method === 'GET' && new URL(request.url).pathname === ROUTER_AB_CEREMONY_JWKS_PATH) {
     return routerAbCeremonyJwksResponse(env);
   }
-  if (isRequestScopedRegistrationPath(request)) {
-    const response = await handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1({
-      request,
-      store: createStagingYaoPartitionedStateStore(env),
-      backend: createStagingEd25519YaoBackend(env),
+  const registrationOperation = registrationOperationForRequest(request);
+  if (registrationOperation !== null) {
+    const route = resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({
+      operation: registrationOperation,
+      nowMs: Date.now(),
+      ...routerAbGatewayDrainWindowMs(env),
     });
-    withCors(response.headers, { corsOrigins: readCsvList(env.RELAY_CORS_ORIGINS) }, request);
-    return response;
+    if (route.kind === 'admission_blocked') {
+      const response = json(
+        {
+          ok: false,
+          code: 'registration_admission_draining',
+          message: 'Registration admission is temporarily paused during deployment drain',
+        },
+        { status: 503 },
+        { 'Retry-After': '1' },
+      );
+      withCors(response.headers, { corsOrigins: readCsvList(env.RELAY_CORS_ORIGINS) }, request);
+      return response;
+    }
+    if (route.kind === 'partitioned_d1') {
+      const response = await handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1({
+        request,
+        store: createStagingYaoPartitionedStateStore(env),
+        backend: createStagingEd25519YaoBackend(env),
+      });
+      withCors(response.headers, { corsOrigins: readCsvList(env.RELAY_CORS_ORIGINS) }, request);
+      return response;
+    }
   }
   const id = env.ROUTER_API_RUNTIME.idFromName(routerApiRuntimeInstanceName(env));
   const stub = env.ROUTER_API_RUNTIME.get(id);
   return await stub.fetch(request);
 }
 
-function isRequestScopedRegistrationPath(request: Request): boolean {
-  if (request.method !== 'POST') return false;
-  const pathname = new URL(request.url).pathname;
-  return (
-    pathname === ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1 ||
-    pathname === ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1
+function registrationOperationForRequest(
+  request: Request,
+): 'registration_admission' | 'registration_execute' | null {
+  if (request.method !== 'POST') return null;
+  switch (new URL(request.url).pathname) {
+    case ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1:
+      return 'registration_admission';
+    case ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1:
+      return 'registration_execute';
+    default:
+      return null;
+  }
+}
+
+function routerAbGatewayDrainWindowMs(env: CloudflareD1RouterApiStagingEnv): {
+  readonly admissionCutoffMs: number;
+  readonly drainUntilMs: number;
+} {
+  const cutoffRaw = readEnvString(env, 'ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS');
+  const drainRaw = readEnvString(env, 'ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS');
+  if (!cutoffRaw && !drainRaw) {
+    return { admissionCutoffMs: Number.MAX_SAFE_INTEGER, drainUntilMs: Number.MAX_SAFE_INTEGER };
+  }
+  if (!cutoffRaw || !drainRaw) {
+    throw new Error(
+      'ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS and ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS must be set together',
+    );
+  }
+  const admissionCutoffMs = parseGatewayTimestamp(
+    cutoffRaw,
+    'ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS',
   );
+  const drainUntilMs = parseGatewayTimestamp(drainRaw, 'ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS');
+  if (admissionCutoffMs > drainUntilMs) {
+    throw new Error(
+      'ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS must not exceed ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS',
+    );
+  }
+  return { admissionCutoffMs, drainUntilMs };
+}
+
+function parseGatewayTimestamp(raw: string, name: string): number {
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`${name} must be a non-negative safe integer`);
+  }
+  return value;
 }
 
 function createStagingYaoPartitionedStateStore(
