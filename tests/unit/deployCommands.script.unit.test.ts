@@ -75,8 +75,8 @@ test('backend plan runs without deployment secrets and prints the complete lane 
   expect(result.status).toBe(0);
   expect(result.stdout).not.toContain('plan-secret-value');
   expectOrdered(result.stdout, [
-    'preflight',
     'build',
+    'preflight',
     'migrate',
     'signing-worker',
     'deriver-a',
@@ -120,6 +120,52 @@ test('backend commands reject missing, unknown, and misplaced arguments', () => 
   );
 });
 
+test('backend preflight validates one custody environment from JSON inventories', () => {
+  const secretValue = 'inventory-secret-value';
+  const result = runCommand(
+    backendScript,
+    ['preflight', '--target', 'staging', '--component', 'signing-worker'],
+    {
+      ...environmentWithoutDeploymentSecrets(),
+      DEPLOYMENT_SECRETS_JSON: JSON.stringify({
+        CLOUDFLARE_API_TOKEN: secretValue,
+        CLOUDFLARE_ACCOUNT_ID: secretValue,
+        ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: secretValue,
+        SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY: secretValue,
+      }),
+      DEPLOYMENT_VARS_JSON: JSON.stringify({
+        ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: 'inventory-public-value',
+      }),
+    },
+  );
+
+  expect(result.status).toBe(0);
+  expect(result.stdout).toContain('Preflight passed: staging/signing-worker');
+  expect(`${result.stdout}${result.stderr}`).not.toContain(secretValue);
+});
+
+test('backend preflight rejects a missing required secret without printing values', () => {
+  const secretValue = 'inventory-secret-value';
+  const result = runCommand(
+    backendScript,
+    ['preflight', '--target', 'staging', '--component', 'signing-worker'],
+    {
+      ...environmentWithoutDeploymentSecrets(),
+      DEPLOYMENT_SECRETS_JSON: JSON.stringify({
+        CLOUDFLARE_API_TOKEN: secretValue,
+        CLOUDFLARE_ACCOUNT_ID: secretValue,
+        ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: secretValue,
+      }),
+      DEPLOYMENT_VARS_JSON: JSON.stringify({
+        ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: 'inventory-public-value',
+      }),
+    },
+  );
+
+  expectFailure(result, /SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY is required/u);
+  expect(`${result.stdout}${result.stderr}`).not.toContain(secretValue);
+});
+
 test('frontend commands reject backend-only operations and extra component arguments', () => {
   expectFailure(runCommand(frontendScript, ['migrate', '--target', 'staging']), /usage:/u);
   expectFailure(runCommand(frontendScript, ['plan']), /--target.*required/u);
@@ -132,19 +178,18 @@ test('frontend commands reject backend-only operations and extra component argum
 
 test('backend workflow needs chain matches the backend command plan', () => {
   const workflowOrder = [
-    'preflight',
     'build',
+    'preflight',
     'migrate',
     'deploy_signing_worker',
     'deploy_deriver_a',
     'deploy_deriver_b',
     'deploy_router',
     'deploy_gateway',
-    'smoke',
   ];
   const planLabels = [
-    'preflight',
     'build',
+    'preflight',
     'migrate',
     'signing-worker',
     'deriver-a',
@@ -174,11 +219,25 @@ test('backend workflow needs chain matches the backend command plan', () => {
       return Array.isArray(job.needs) ? job.needs : job.needs ? [job.needs] : [];
     };
 
-    expect(needsOf('preflight')).toContain('branch_guard');
-    expect(needsOf('build')).toContain('branch_guard');
+    expect(Object.keys(workflow.jobs)).toEqual(workflowOrder);
+    expect(needsOf('build')).toEqual([]);
+    expect(needsOf('preflight')).toContain('build');
     expect(needsOf('migrate')).toEqual(expect.arrayContaining(['preflight', 'build']));
     for (let index = 3; index < workflowOrder.length; index += 1) {
       expect(needsOf(workflowOrder[index])).toContain(workflowOrder[index - 1]);
     }
+  }
+});
+
+test('frontend workflows contain one environment-bound deployment job', () => {
+  for (const target of ['staging', 'production']) {
+    const workflow = parseYaml(
+      readFileSync(path.join(repoRoot, `.github/workflows/deploy-${target}-frontend.yml`), 'utf8'),
+    ) as {
+      jobs: Record<string, { environment?: string }>;
+    };
+
+    expect(Object.keys(workflow.jobs)).toEqual(['deploy']);
+    expect(workflow.jobs.deploy.environment).toBe(target);
   }
 });

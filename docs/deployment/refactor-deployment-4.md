@@ -111,8 +111,9 @@ the target.
    the same jobs, differing only in trigger.
 5. All configuration validation completes before the first remote mutation.
 6. Secret requirements and upload sets are derived at runtime from the target's
-   enabled capabilities, declared in one checked-in target file. GitHub secret
-   bindings remain explicit in each owning component job.
+   enabled capabilities, declared in one checked-in target file. Each preflight
+   leg receives only its bound environment's secret inventory through
+   `${{ toJSON(secrets) }}` and checks required names without printing values.
 7. Per-component GitHub environments are retained. They are a custody boundary,
    not organizational overhead. See Security Invariants.
 8. Artifacts pass between jobs within a single run only. Cross-run artifact
@@ -186,22 +187,21 @@ custody separation, and custody wins. `environment:` is a job-level YAML
 construct â€” a Node script cannot bind a GitHub environment from the inside. Each
 component that owns distinct secrets requires its own job.
 
-The honest target is 150-220 lines per backend workflow with a strictly uniform
-shape:
+The honest target is approximately 300-360 lines per backend workflow with a
+strictly uniform shape:
 
-- one branch-guarded, manually dispatched production lane;
-- one preflight job, matrixed over the custody environments the run will touch;
-- one build job;
+- one build job whose first step enforces the target branch;
+- one compact preflight job, matrixed over the five custody environments;
 - one migration job bound to the Gateway environment;
-- five deploy jobs, each ~15 lines: checkout, setup, one script invocation;
-- one smoke job.
+- five deploy jobs with the same checkout, setup, artifact download, validation,
+  and deployment lifecycle;
+- backend smoke runs as the final step of the Gateway deploy job.
 
-Every component deploy job body is the same three steps with a different
-`--component` value. The migration job is the only distinct mutation job. The
-comprehension criterion survives because there is one script to read and the
-YAML is a visible dependency graph and dispatch table. A reviewer can diff any
-two component deploy jobs and see only the component name and environment
-change.
+Each deploy job exposes its role-specific environment bindings and invokes the
+same component-scoped deployment command. The migration job is the only
+distinct mutation job. The comprehension criterion survives because there is
+one script to read and the YAML is a visible dependency graph and dispatch
+table.
 
 ## What Is Deleted or Replaced
 
@@ -230,7 +230,7 @@ Delete the old framework and replace the generated frontend workflow contents:
 The repository validation workflows remain:
 
 - `.github/workflows/validate-repository.yml`
-- `.github/workflows/validate-cloudflare-mpc-router-ab.yml`
+- `.github/workflows/validate-cloudflare-router-ab.yml`
 
 Retained and called directly by the new scripts:
 
@@ -270,7 +270,7 @@ environments exist for this reason and must survive:
 | `<target>-deriver-b` | `DERIVER_B_ROOT_SHARE_WIRE_SECRET`, `DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY`, `DERIVER_B_PEER_SIGNING_KEY` |
 | `<target>-mpc-router` | `ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET` |
 | `<target>-gateway` | Gateway secrets, `SIGNING_ROOT_KEK_VALUE`, signing-session seal set |
-| `<target>-frontend` | Cloudflare Pages credentials |
+| `<target>` | Cloudflare Pages credentials and build variables |
 
 The existing `production` environment is restricted to `main` by its branch
 policy and is used by the production frontend lane. The production workflows
@@ -284,12 +284,13 @@ reconstruct both halves of the ceremony input. That is simpler and less secure â
 the precise failure mode this refactor exists to eliminate, pointed the wrong
 way.
 
-The preflight therefore fans out as a matrix, one leg per custody environment,
-each leg asserting only the names owned by that environment. Presence checks
-never print values. GitHub Actions requires candidate secrets to be mapped
-explicitly in job YAML; it does not expose an environment's complete secret set
-to the script. Each preflight and deploy leg binds one component environment
-and maps only that component's candidate secrets.
+The preflight therefore fans out as a five-row matrix, one leg per custody
+environment. Each leg binds one existing component environment and passes
+`${{ toJSON(secrets) }}` plus `${{ toJSON(vars) }}` to the preflight command.
+The command derives required names from `deployment/targets.json`, inspects
+secret keys without printing secret values, and validates required variables.
+No secret name is enumerated in workflow YAML. Deploy jobs still bind only
+their component environment.
 
 Also retained:
 
@@ -376,22 +377,21 @@ secrets.
 
 The workflow expresses one fixed order:
 
-1. Approve production, when applicable.
-2. Validate the target. Every job checks out `${{ github.sha }}`. See Pinning.
-3. Parse `deployment/targets.json`; resolve enabled capabilities.
-4. Complete every component-scoped preflight.
-5. Build all backend components once in a clean workspace.
-6. Apply D1 migrations (console, then signer), fingerprint-checked.
-7. Deploy signing worker.
-8. Deploy Deriver A.
-9. Deploy Deriver B.
-10. Deploy MPC Router.
-11. Bootstrap gateway tenant, upsert signing-root KEK, deploy Gateway.
-12. Run live smoke tests.
+1. Build all backend components once in a clean workspace; the first step
+   rejects any branch other than the target branch.
+2. Parse `deployment/targets.json` and complete every component-scoped
+   preflight.
+3. Apply D1 migrations (console, then signer), fingerprint-checked.
+4. Validate and deploy Signing Worker.
+5. Validate and deploy Deriver A.
+6. Validate and deploy Deriver B.
+7. Validate and deploy MPC Router.
+8. Validate Gateway configuration, bootstrap the tenant, upsert the
+   signing-root KEK, deploy Gateway, and run live backend smoke tests.
 
 Every preflight leg completes before the migration/deployment chain begins.
-The build may run alongside preflight because it performs no remote mutation.
-This ordering is explicit in the hand-written workflow dependency graph.
+The build precedes preflight because it owns the branch guard. This ordering is
+explicit in the hand-written workflow dependency graph.
 
 Because the script has no whole-lane verb, this order appears in the workflow's
 `needs:` chain and in the output of `plan`. Keep both short and review the order
@@ -408,9 +408,11 @@ scripts/deploy-frontend.mjs deploy --target <t>
 scripts/deploy-frontend.mjs smoke  --target <t>
 ```
 
-The workflow validates the target and branch, asserts the frontend environment,
-builds the site once, deploys the app and wallet Pages projects from the same
-output, and runs frontend smoke tests.
+Each target has one frontend job bound to the existing `staging` or
+`production` environment. The job validates the branch, builds the site,
+deploys the app and wallet Pages projects from the same output, and runs
+frontend smoke tests. No frontend artifact upload/download is needed because
+all four operations run in that one custody domain.
 
 The lanes are independent. Neither waits on the other, and there are no
 coordination receipts between them.
@@ -439,7 +441,7 @@ which component owns them, and what each requires:
   "staging": {
     "capabilities": {
       "billing":          { "enabled": false, "owner": "gateway", "secrets": ["STRIPE_API_SK"] },
-      "sponsoredExecution": { "enabled": true, "owner": "gateway", "secrets": ["RELAYER_PRIVATE_KEY", "SPONSORED_EVM_EXECUTORS_JSON"] },
+      "sponsoredExecution": { "enabled": true, "owner": "gateway", "secrets": [] },
       "signingSessionSeal": { "enabled": true, "owner": "gateway", "secrets": ["SIGNING_SESSION_SEAL_KEY_VERSION", "SIGNING_SESSION_SHAMIR_P_B64U", "SIGNING_SESSION_SEAL_E_S_B64U", "SIGNING_SESSION_SEAL_D_S_B64U"] }
     }
   }
@@ -448,14 +450,16 @@ which component owns them, and what each requires:
 
 Rules:
 
-- Capability enabled: its secrets are required by preflight and uploaded.
+- Capability enabled: its required secret list is enforced by preflight and
+  uploaded.
 - Capability disabled: its secrets are ignored and never uploaded.
+- `RELAYER_PRIVATE_KEY` and `SPONSORED_EVM_EXECUTORS_JSON` remain independent
+  optional Gateway secrets. They are uploaded when configured and are absent
+  from required-secret preflight.
 - Every secret has one component owner, and only that component's environment
   may test or consume it.
-- Every candidate secret is mapped explicitly in the owning component's job.
-  Adding a secret requires one target-file entry and one owning-job environment
-  mapping. This small duplication follows GitHub's secret model and stays
-  visible in review.
+- Required secret names exist only in the target file. Preflight receives the
+  bound environment inventory and does not duplicate those names in YAML.
 - Partial capability sets are a preflight failure, replacing the ad-hoc
   four-secret seal check currently inlined in the YAML.
 
@@ -504,9 +508,13 @@ fake environment values and perform no remote mutation.
 
 Add the two backend workflow files with manual dispatch only. Replace the two
 frontend workflow files in place with their hand-written versions, also manual
-only. Remove the two old backend stack workflows and their release framework.
-Both backend surfaces use the same concurrency groups, so only one can touch a
-target at a time.
+only. Each backend workflow has one branch-guarded build, one compact
+five-environment preflight matrix, one migrate-first Gateway job, and five
+ordered custody deploy jobs; Gateway smoke is the final deployment step. Each
+frontend workflow has one environment-bound build/deploy/smoke job. Remove the
+two old backend stack workflows and their release framework. Both backend
+surfaces use the same concurrency groups, so only one can touch a target at a
+time.
 
 **The new workflow files must land on `main` before Phase 4 can run.** GitHub
 exposes `workflow_dispatch` only for workflows that exist on the default branch;
@@ -632,16 +640,16 @@ before production.
 
 ## Acceptance Criteria
 
-1. The four explicit deployment workflow files total under 1,500 lines (1,366
-   at implementation), down from 7,472 across four generated files. Repository
+1. The four explicit deployment workflow files total under 1,000 lines (850 at
+   implementation), down from 7,472 across four generated files. Repository
    validation workflows are outside this count and remain.
 2. No workflow YAML is generated. No script exists whose purpose is to inspect
    or validate workflow source text.
 3. `pnpm deploy:backend plan --target staging` runs locally without secrets,
    parses the complete target, and prints every ordered mutation.
 4. Preflight failure for a missing secret occurs before any migration, tenant
-   bootstrap, KEK upsert, or worker deploy, proven by a component-scoped
-   preflight test and one staging workflow run.
+   bootstrap, KEK upsert, or worker deploy. A component-scoped test proves the
+   JSON inventory path, and one staging workflow run proves fail-before-mutate.
 5. Deriver A and Deriver B secrets are never bound to the same job.
 6. Workflows accept no arbitrary source SHA. Every job checks out the immutable
    `${{ github.sha }}` supplied by the workflow event; no `actions/checkout`
@@ -657,6 +665,9 @@ before production.
 11. A deliberately interrupted staging deployment can be rerun at the same
     `${{ github.sha }}` without an artifact collision and reaches a green final
     smoke.
+12. Each backend workflow contains exactly eight top-level jobs: build,
+    preflight, migrate, and five custody deploy jobs. Each frontend workflow
+    contains exactly one job.
 
 ## Open Questions
 

@@ -385,10 +385,11 @@ Use the matching branch only. Production workflows are manual and require
 The complete order and rollback procedure are documented in
 [README.md](README.md#system-and-branch-rules).
 
-The backend workflow validates and builds all components once, applies D1
-migrations, then deploys SigningWorker, Deriver A, Deriver B, Router, and
-Gateway. The matching frontend workflow builds once, deploys both Pages
-projects from that output, and runs its own smoke checks.
+The backend workflow builds all components once, validates all five custody
+environments before mutation, applies D1 migrations, then deploys
+SigningWorker, Deriver A, Deriver B, Router, and Gateway. Backend smoke runs at
+the end of the Gateway job. The matching frontend workflow uses one job to
+build, deploy both Pages projects, and run smoke checks.
 
 Do not deploy a Gateway that references a different Router A/B identity set.
 Generate and apply the target manifest before starting the matching environment

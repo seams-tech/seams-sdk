@@ -7,154 +7,76 @@ on:
 permissions:
   contents: read
 
-env:
-  DEPLOY_TARGET: production
-  RUST_TOOLCHAIN: 1.96.0
-
 concurrency:
   group: deployment-production-frontend
   cancel-in-progress: false
 
+env:
+  DEPLOY_TARGET: production
+  DEPLOY_SHA: ${{ github.sha }}
+  RUST_TOOLCHAIN: 1.96.0
+
 jobs:
-  branch_guard:
-    name: Guard / production / frontend
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Confirm production branch
-        run: echo "Deploying $GITHUB_SHA from $GITHUB_REF"
-
-  build:
-    name: Build / production / frontend
-    needs: branch_guard
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    environment: production
-    steps:
-      - name: Checkout deployment revision
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ github.sha }}
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v5
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: '24'
-          cache: pnpm
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_TOOLCHAIN }}
-
-      - name: Add wasm target
-        run: rustup target add wasm32-unknown-unknown
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Install pinned WASM tooling
-        run: bash packages/sdk-web/scripts/build/install-ci-wasm-tooling.sh
-
-      - name: Build frontend output
-        env:
-          VITE_RELAYER_URL: ${{ vars.VITE_RELAYER_URL }}
-          VITE_CONSOLE_BASE_URL: ${{ vars.VITE_CONSOLE_BASE_URL }}
-          VITE_RELAYER_ACCOUNT_ID: ${{ vars.VITE_RELAYER_ACCOUNT_ID }}
-          VITE_SEAMS_PROJECT_ENVIRONMENT_ID: ${{ vars.VITE_SEAMS_PROJECT_ENVIRONMENT_ID }}
-          VITE_SEAMS_PUBLISHABLE_KEY: ${{ vars.VITE_SEAMS_PUBLISHABLE_KEY }}
-          VITE_NEAR_NETWORK: ${{ vars.VITE_NEAR_NETWORK }}
-          VITE_NEAR_RPC_URL: ${{ vars.VITE_NEAR_RPC_URL }}
-          VITE_NEAR_EXPLORER: ${{ vars.VITE_NEAR_EXPLORER }}
-          VITE_TEMPO_RPC_URL: ${{ vars.VITE_TEMPO_RPC_URL }}
-          VITE_TEMPO_EXPLORER: ${{ vars.VITE_TEMPO_EXPLORER }}
-          VITE_TEMPO_FEE_TOKEN: ${{ vars.VITE_TEMPO_FEE_TOKEN }}
-          VITE_ARC_RPC_URL: ${{ vars.VITE_ARC_RPC_URL }}
-          VITE_ARC_EXPLORER: ${{ vars.VITE_ARC_EXPLORER }}
-          VITE_WALLET_ORIGIN: ${{ vars.VITE_WALLET_ORIGIN }}
-          VITE_WALLET_SERVICE_PATH: ${{ vars.VITE_WALLET_SERVICE_PATH }}
-          VITE_RP_ID_BASE: ${{ vars.VITE_RP_ID_BASE }}
-          VITE_SDK_BASE_PATH: ${{ vars.VITE_SDK_BASE_PATH }}
-          VITE_DOCS_ORIGIN: ${{ vars.VITE_DOCS_ORIGIN }}
-          VITE_SIGNING_SESSION_PERSISTENCE_MODE: ${{ vars.VITE_SIGNING_SESSION_PERSISTENCE_MODE }}
-          VITE_SIGNING_SESSION_SEAL_KEY_VERSION: ${{ vars.VITE_SIGNING_SESSION_SEAL_KEY_VERSION }}
-          VITE_SIGNING_SESSION_SHAMIR_P_B64U: ${{ vars.VITE_SIGNING_SESSION_SHAMIR_P_B64U }}
-          VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID: ${{ vars.VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID }}
-          VITE_DASHBOARD_WALLETS_ROUTES_ENABLED: ${{ vars.VITE_DASHBOARD_WALLETS_ROUTES_ENABLED }}
-        run: pnpm deploy:frontend build --target "$DEPLOY_TARGET"
-
-      - name: Upload frontend build
-        uses: actions/upload-artifact@v7
-        with:
-          name: frontend-build
-          path: apps/seams-site/dist
-          if-no-files-found: error
-          include-hidden-files: true
-          overwrite: true
-          retention-days: 30
-          compression-level: 0
-
   deploy:
     name: Deploy / production / frontend
-    needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 40
     environment: production
     env:
-      DEPLOY_SHA: ${{ github.sha }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CF_PAGES_PROJECT_VITE: ${{ secrets.CF_PAGES_PROJECT_VITE }}
       CF_PAGES_PROJECT_WALLET: ${{ secrets.CF_PAGES_PROJECT_WALLET }}
+      VITE_RELAYER_URL: ${{ vars.VITE_RELAYER_URL }}
+      VITE_CONSOLE_BASE_URL: ${{ vars.VITE_CONSOLE_BASE_URL }}
+      VITE_RELAYER_ACCOUNT_ID: ${{ vars.VITE_RELAYER_ACCOUNT_ID }}
+      VITE_SEAMS_PROJECT_ENVIRONMENT_ID: ${{ vars.VITE_SEAMS_PROJECT_ENVIRONMENT_ID }}
+      VITE_SEAMS_PUBLISHABLE_KEY: ${{ vars.VITE_SEAMS_PUBLISHABLE_KEY }}
+      VITE_NEAR_NETWORK: ${{ vars.VITE_NEAR_NETWORK }}
+      VITE_NEAR_RPC_URL: ${{ vars.VITE_NEAR_RPC_URL }}
+      VITE_NEAR_EXPLORER: ${{ vars.VITE_NEAR_EXPLORER }}
+      VITE_TEMPO_RPC_URL: ${{ vars.VITE_TEMPO_RPC_URL }}
+      VITE_TEMPO_EXPLORER: ${{ vars.VITE_TEMPO_EXPLORER }}
+      VITE_TEMPO_FEE_TOKEN: ${{ vars.VITE_TEMPO_FEE_TOKEN }}
+      VITE_ARC_RPC_URL: ${{ vars.VITE_ARC_RPC_URL }}
+      VITE_ARC_EXPLORER: ${{ vars.VITE_ARC_EXPLORER }}
+      VITE_WALLET_ORIGIN: ${{ vars.VITE_WALLET_ORIGIN }}
+      VITE_WALLET_SERVICE_PATH: ${{ vars.VITE_WALLET_SERVICE_PATH }}
+      VITE_RP_ID_BASE: ${{ vars.VITE_RP_ID_BASE }}
+      VITE_SDK_BASE_PATH: ${{ vars.VITE_SDK_BASE_PATH }}
+      VITE_DOCS_ORIGIN: ${{ vars.VITE_DOCS_ORIGIN }}
+      VITE_SIGNING_SESSION_PERSISTENCE_MODE: ${{ vars.VITE_SIGNING_SESSION_PERSISTENCE_MODE }}
+      VITE_SIGNING_SESSION_SEAL_KEY_VERSION: ${{ vars.VITE_SIGNING_SESSION_SEAL_KEY_VERSION }}
+      VITE_SIGNING_SESSION_SHAMIR_P_B64U: ${{ vars.VITE_SIGNING_SESSION_SHAMIR_P_B64U }}
+      VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID: ${{ vars.VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID }}
+      VITE_DASHBOARD_WALLETS_ROUTES_ENABLED: ${{ vars.VITE_DASHBOARD_WALLETS_ROUTES_ENABLED }}
     steps:
       - name: Checkout deployment revision
         uses: actions/checkout@v6
         with:
-          sparse-checkout: |
-            crates/router-ab-cloudflare
-            deployment
-            package.json
-            pnpm-lock.yaml
-            pnpm-workspace.yaml
-            scripts/deploy-frontend.mjs
-            scripts/deployment-targets.mjs
           ref: ${{ github.sha }}
-
+      - name: Require main branch
+        run: test "$GITHUB_REF" = refs/heads/main
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
-
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
           node-version: '24'
           cache: pnpm
-
-      - name: Install deployment dependencies
-        run: pnpm install --frozen-lockfile --filter router-ab-cloudflare
-
-      - name: Download frontend build
-        uses: actions/download-artifact@v8
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
         with:
-          name: frontend-build
-          path: apps/seams-site/dist
-
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - name: Add wasm target
+        run: rustup target add wasm32-unknown-unknown
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Install pinned WASM tooling
+        run: bash packages/sdk-web/scripts/build/install-ci-wasm-tooling.sh
+      - name: Build frontend
+        run: pnpm deploy:frontend build --target "$DEPLOY_TARGET"
       - name: Deploy Pages
         run: pnpm deploy:frontend deploy --target "$DEPLOY_TARGET"
-
-  frontend_smoke:
-    name: Smoke / production / frontend
-    needs:
-      - deploy
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Checkout deployment revision
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ github.sha }}
-
-      - name: Run frontend smoke
-        run: node scripts/deploy-frontend.mjs smoke --target "$DEPLOY_TARGET"
+      - name: Smoke frontend
+        run: pnpm deploy:frontend smoke --target "$DEPLOY_TARGET"

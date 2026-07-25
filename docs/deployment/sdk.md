@@ -26,7 +26,8 @@ Main outputs:
 
 ## Pages Runtime Assets
 
-The Pages deployment workflow consumes the current-run Pages artifact:
+The Pages deployment workflow builds its output in the same job that deploys
+it:
 
 ```bash
 pnpm build:sdk-prod
@@ -46,9 +47,9 @@ base path.
 
 Pages deployment is owned by the matching environment-bound frontend workflow.
 The backend workflow has no Pages mutation job or Pages credentials. The
-frontend build is target-specific because Vite embeds environment configuration,
-and one current-run artifact contains both app and wallet outputs so the two
-Pages projects cannot drift to different SDK builds.
+frontend build is target-specific because Vite embeds environment
+configuration. Both Pages projects deploy from the same job workspace so they
+cannot drift to different SDK builds.
 
 ## npm Package
 
