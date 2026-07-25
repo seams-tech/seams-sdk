@@ -69,26 +69,25 @@ function collectRollbackStateViolations() {
   const registrationSource = readRepoSource(registrationPath);
   const rollbackBlock = sourceBlock(
     registrationSource,
-    'async function performRegistrationRollback',
-    '',
+    'async function addPasskeyEd25519YaoWalletSigner',
+    'async function addPasskeyEcdsaWalletSigner',
     registrationPath,
     violations,
   );
 
-  requireContains(rollbackBlock, 'registrationState.databaseStored', registrationPath, violations);
+  requireContains(rollbackBlock, 'pending?.dispose()', registrationPath, violations);
+  requireContains(rollbackBlock, 'persistedSession', registrationPath, violations);
+  requireContains(rollbackBlock, 'persistedSignerRollbackReceipt', registrationPath, violations);
   requireContains(
     rollbackBlock,
-    'registrationState.accountCreated || registrationState.contractRegistered',
+    'await input.context.signingEngine.rollbackWalletEd25519SignerRegistration(',
     registrationPath,
     violations,
   );
-  requireContains(rollbackBlock, 'databaseRollbackSkippedReason', registrationPath, violations);
-  requireContains(rollbackBlock, 'on_chain_account_created', registrationPath, violations);
-  requireContains(rollbackBlock, 'rollbackUserRegistration', registrationPath, violations);
   requireOrdered(
     rollbackBlock,
-    'on_chain_account_created',
-    'await registrationAccounts.rollbackUserRegistration',
+    'persistedSignerRollbackReceipt',
+    'await input.context.signingEngine.rollbackWalletEd25519SignerRegistration(',
     registrationPath,
     violations,
   );
