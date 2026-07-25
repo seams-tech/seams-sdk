@@ -248,6 +248,19 @@ export type {
   RouterAbEd25519YaoProductRegistrationRequestScopedRunInputV1,
   RouterAbEd25519YaoProductRegistrationRequestScopedRunResultV1,
 } from './routerAbEd25519YaoProductRegistrationRequestScopedRunner';
+export { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } from './routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
+export type { RouterAbEd25519YaoProductRegistrationRequestScopedRuntimeInputV1 } from './routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
+export { runRouterAbEd25519YaoRegistrationSideEffectV1 } from './routerAbEd25519YaoRegistrationSideEffectBoundary';
+export type {
+  RouterAbEd25519YaoRegistrationSideEffectClaimV1,
+  RouterAbEd25519YaoRegistrationSideEffectCompletionV1,
+  RouterAbEd25519YaoRegistrationSideEffectExecutionV1,
+  RouterAbEd25519YaoRegistrationSideEffectOperationV1,
+  RouterAbEd25519YaoRegistrationSideEffectRecordV1,
+  RouterAbEd25519YaoRegistrationSideEffectRunInputV1,
+  RouterAbEd25519YaoRegistrationSideEffectRunResultV1,
+  RouterAbEd25519YaoRegistrationSideEffectStoreV1,
+} from './routerAbEd25519YaoRegistrationSideEffectBoundary';
 export { runRouterAbEd25519YaoRegistrationTwoPhaseV1 } from './routerAbEd25519YaoRegistrationTwoPhaseRunner';
 export type {
   RouterAbEd25519YaoRegistrationTwoPhaseBackendResultV1,
