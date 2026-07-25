@@ -854,8 +854,28 @@ ceremony after the user completes authentication. The safe sequence is:
       binding and SQLite migration so no tenant-wide object coordinates Yao.
   - [x] Route registration admission and execution through typed request-scoped
         CAS behind the disabled two-boundary drain selector.
-  - [x] Move registration start, bind, finalize, and shared wallet/session
-        effects behind idempotent request-safe boundaries.
+  - [ ] Move registration start, bind, finalize, add-signer, and shared
+        wallet/session effects behind idempotent request-safe boundaries.
+    - [ ] Persist a stable registration/add-signer start claim before consuming
+          the grant, binding Yao authorization, preparing either signer branch,
+          or writing the ceremony. Exact retries must return the same ceremony
+          and a conflicting request fingerprint must fail closed.
+      - [ ] Close the remaining registration authority/claim ambiguity. A failed
+            OTP, WebAuthn, or add-signer authorization attempt creates no start
+            claim and leaves the grant available for a corrected retry. A
+            successful Email OTP verification currently consumes its challenge
+            before the D1 start claim is durable, so transport loss between those
+            stores can strand that proof. Make successful authority consumption
+            and the prepared start claim atomic, or add an exact durable
+            verification receipt that the claim can resume.
+    - [ ] Put add-signer finalize behind a durable outer claim and terminal
+          receipt so concurrent requests and response loss cannot repeat
+          session minting, normal-signing provisioning, signer insertion, or
+          capability installation.
+    - [ ] Move registration/add-signer intent, ceremony, and replay records off
+          the shared `THRESHOLD_STORE` object to partitioned D1 CAS. The Yao
+          runtime is already request-scoped, but the remaining shared object is
+          still a serialization and latency hop for these lifecycle records.
     - [x] Split sponsored NEAR account creation into a prepare step that builds,
           signs, and hashes the transaction without broadcasting and a broadcast
           step that replays those exact bytes. Rebuilding would take a fresh

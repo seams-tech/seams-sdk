@@ -3,7 +3,10 @@ import type {
   CloudflareVersionedJsonRecordReadResult,
 } from './cloudflare/versionedJsonRecordStore';
 
-export type RouterAbEd25519YaoRegistrationSideEffectOperationV1 = 'finalize';
+export type RouterAbEd25519YaoRegistrationSideEffectOperationV1 =
+  | 'finalize'
+  | 'registration_start'
+  | 'add_signer_start';
 
 /**
  * The semantic request fingerprint detects idempotency conflicts before
@@ -12,7 +15,7 @@ export type RouterAbEd25519YaoRegistrationSideEffectOperationV1 = 'finalize';
  */
 export type RouterAbEd25519YaoRegistrationSideEffectClaimV1<P> = {
   readonly kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1';
-  readonly operation: 'finalize';
+  readonly operation: RouterAbEd25519YaoRegistrationSideEffectOperationV1;
   readonly requestFingerprint: string;
   readonly preparedArtifactFingerprint: string;
   readonly claimedAtMs: number;
@@ -21,7 +24,7 @@ export type RouterAbEd25519YaoRegistrationSideEffectClaimV1<P> = {
 
 export type RouterAbEd25519YaoRegistrationSideEffectCompletionV1<T, P> = {
   readonly kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1';
-  readonly operation: 'finalize';
+  readonly operation: RouterAbEd25519YaoRegistrationSideEffectOperationV1;
   readonly requestFingerprint: string;
   readonly preparedArtifactFingerprint: string;
   readonly claimedAtMs: number;
@@ -47,6 +50,53 @@ export interface RouterAbEd25519YaoRegistrationSideEffectStoreV1<T, P> {
   ): Promise<CloudflareVersionedJsonRecordPutResult>;
 }
 
+export function parseRouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>(
+  raw: unknown,
+  input: {
+    readonly operation: RouterAbEd25519YaoRegistrationSideEffectOperationV1;
+    readonly parsePrepared: (value: unknown) => P | null;
+    readonly parseResponse: (value: unknown) => T | null;
+  },
+): RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P> | null {
+  if (!isRecord(raw) || raw.operation !== input.operation) return null;
+  const requestFingerprint = parseFingerprint(raw.requestFingerprint);
+  const preparedArtifactFingerprint = parsePreparedFingerprint(raw.preparedArtifactFingerprint);
+  const claimedAtMs = parseTimestamp(raw.claimedAtMs);
+  const prepared = input.parsePrepared(raw.prepared);
+  if (
+    requestFingerprint === null ||
+    preparedArtifactFingerprint === null ||
+    claimedAtMs === null ||
+    prepared === null
+  ) {
+    return null;
+  }
+  if (raw.kind === 'router_ab_ed25519_yao_registration_side_effect_claim_v1') {
+    return {
+      kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1',
+      operation: input.operation,
+      requestFingerprint,
+      preparedArtifactFingerprint,
+      claimedAtMs,
+      prepared,
+    };
+  }
+  if (raw.kind !== 'router_ab_ed25519_yao_registration_side_effect_completion_v1') return null;
+  const completedAtMs = parseTimestamp(raw.completedAtMs);
+  const response = input.parseResponse(raw.response);
+  if (completedAtMs === null || response === null) return null;
+  return {
+    kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
+    operation: input.operation,
+    requestFingerprint,
+    preparedArtifactFingerprint,
+    claimedAtMs,
+    completedAtMs,
+    prepared,
+    response,
+  };
+}
+
 /**
  * `resumed` means a prior attempt persisted this exact artifact and may have
  * broadcast it without observing the outcome. Execution must reconcile before
@@ -56,7 +106,7 @@ export type RouterAbEd25519YaoRegistrationSideEffectAttemptV1 = 'fresh' | 'resum
 
 export type RouterAbEd25519YaoRegistrationSideEffectRunInputV1<T, P> = {
   readonly kind: 'prepared_resumable';
-  readonly operation: 'finalize';
+  readonly operation: RouterAbEd25519YaoRegistrationSideEffectOperationV1;
   readonly key: string;
   readonly requestFingerprint: string;
   readonly resumeAfterMs: number;
@@ -322,6 +372,22 @@ function requirePositiveDuration(value: number, label: string): number {
     throw new Error(`registration side-effect ${label} is invalid`);
   }
   return value;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parseFingerprint(value: unknown): string | null {
+  return typeof value === 'string' && /^[a-zA-Z0-9_-]{32,128}$/u.test(value) ? value : null;
+}
+
+function parsePreparedFingerprint(value: unknown): string | null {
+  return typeof value === 'string' && /^[a-zA-Z0-9:_-]{32,192}$/u.test(value) ? value : null;
+}
+
+function parseTimestamp(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
 function uncertainResult(

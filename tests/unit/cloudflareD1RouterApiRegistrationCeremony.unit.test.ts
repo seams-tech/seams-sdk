@@ -38,6 +38,8 @@ import {
   hexBytes,
   fakeWebAuthnRegistrationCredential,
   applySignerMigrations,
+  expireD1VersionedJsonClaims,
+  countD1VersionedJsonRecords,
   readWalletAuthMethodRecord,
   readSignerWalletRecord,
   readWalletSignerRecord,
@@ -392,7 +394,7 @@ test('Cloudflare D1 Router API auth service rejects passkey registration challen
     });
     const bootstrapPort = new FixtureRouterAbEcdsaBootstrapExportPort(
       runtimes.ecdsaBootstrapExport,
-      rejectUnexpectedEcdsaBootstrap,
+      successfulFixtureEcdsaBootstrap,
     );
     const service = createCloudflareD1RouterApiAuthService({
       database,
@@ -441,6 +443,18 @@ test('Cloudflare D1 Router API auth service rejects passkey registration challen
       code: 'challenge_mismatch',
       message: 'Registration challenge mismatch',
     });
+    await expect(
+      countD1VersionedJsonRecords({
+        database,
+        ...scope,
+        recordKeyPrefix: 'wallet-registration-start:',
+      }),
+    ).resolves.toBe(0);
+    expect(
+      durableObjects.stub.values.get(
+        `intent-test:wallet-registration:intent:${registration.registrationIntentGrant}`,
+      ),
+    ).toBeDefined();
 
     await expect(
       service.walletRegistration.startWalletRegistration({
@@ -460,6 +474,21 @@ test('Cloudflare D1 Router API auth service rejects passkey registration challen
       code: 'invalid_origin',
       message: 'WebAuthn origin is not within rpId',
     });
+
+    await expect(
+      service.walletRegistration.startWalletRegistration({
+        registrationIntentGrant: registration.registrationIntentGrant,
+        registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+        intent: registration.intent,
+        authority: {
+          kind: 'passkey',
+          webauthnRegistration: fakeWebAuthnRegistrationCredential({
+            challengeB64u: registration.registrationIntentDigestB64u,
+            origin: 'https://app.example.com',
+          }),
+        },
+      }),
+    ).resolves.toMatchObject({ ok: true, intent: registration.intent });
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }
@@ -535,6 +564,33 @@ test('Cloudflare D1 Router API auth service starts ECDSA wallet registration cer
     expect(outbox.ok).toBe(true);
     if (!outbox.ok) throw new Error(outbox.message);
 
+    const prefix = 'intent-test:wallet-registration:';
+    durableObjects.stub.loseNextSetResponseForPrefix(`${prefix}ceremony:`);
+    const lostStartResponse = await service.walletRegistration.startWalletRegistration({
+      registrationIntentGrant: registration.registrationIntentGrant,
+      registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+      intent: registration.intent,
+      authority: {
+        kind: 'email_otp',
+        emailOtpRegistrationProof: {
+          version: 'email_otp_registration_proof_v1',
+          proofKind: 'otp_challenge',
+          providerSubject,
+          email,
+          challengeId: challenge.challenge.challengeId,
+          otpCode: outbox.otpCode,
+          otpChannel: 'email_otp',
+          registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
+          appSessionVersion,
+        },
+      },
+    });
+    expect(lostStartResponse).toMatchObject({ ok: false, code: 'internal' });
+    await expireD1VersionedJsonClaims({
+      database,
+      ...scope,
+      recordKeyPrefix: 'wallet-registration-start:',
+    });
     const started = await service.walletRegistration.startWalletRegistration({
       registrationIntentGrant: registration.registrationIntentGrant,
       registrationIntentDigestB64u: registration.registrationIntentDigestB64u,
@@ -588,7 +644,6 @@ test('Cloudflare D1 Router API auth service starts ECDSA wallet registration cer
     expect(ecdsaPrepare.ecdsaThresholdKeyId).toMatch(/^ederivation-/);
     expect(ecdsaPrepare.relayerKeyId).toMatch(/^ederivation-relayer-/);
 
-    const prefix = 'intent-test:wallet-registration:';
     expect(
       durableObjects.stub.values.get(`${prefix}intent:${registration.registrationIntentGrant}`),
     ).toBeUndefined();
@@ -684,10 +739,7 @@ test('Cloudflare D1 Router API auth service starts ECDSA wallet registration cer
           },
         },
       }),
-    ).resolves.toMatchObject({
-      ok: false,
-      code: 'invalid_grant',
-    });
+    ).resolves.toEqual(started);
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }
