@@ -1,11 +1,15 @@
 import {
   parseRouterAbEd25519YaoRecoveryActivationExecuteRequestV1,
+  parseRouterAbEd25519YaoRecoveryActivationRequestV1,
   parseRouterAbEd25519YaoRecoveryAdmissionRequestV1,
+  ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1,
   ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_RECOVERY_EXECUTE_PATH_V1,
   type RouterAbEd25519YaoActivationAdmissionReceiptV1,
   type RouterAbEd25519YaoActivationExecuteRequestV1,
   type RouterAbEd25519YaoActivationResultV1,
+  type RouterAbEd25519YaoRecoveryActivationReceiptV1,
+  type RouterAbEd25519YaoRecoveryActivationRequestV1,
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import {
@@ -17,6 +21,8 @@ import {
 import { json, readJson } from './cloudflare/http';
 import {
   InMemoryRouterAbEd25519YaoRecoveryService,
+  type RouterAbEd25519YaoCapabilityPersistenceV1,
+  type RouterAbEd25519YaoRecoveryActivationClaimV1,
   type RouterAbEd25519YaoRecoveryAdmissionClaimV1,
   type RouterAbEd25519YaoRecoveryAuthorizationAdapter,
   type RouterAbEd25519YaoRecoveryAuthorizationResult,
@@ -56,11 +62,16 @@ type RecoveryRequest =
   | {
       readonly kind: 'execute';
       readonly value: RecoveryExecuteRequest;
+    }
+  | {
+      readonly kind: 'activate';
+      readonly value: RouterAbEd25519YaoRecoveryActivationRequestV1;
     };
 
 type RecoveryResponse =
   | RouterAbEd25519YaoRecoveryServiceResult<RecoveryAdmissionReceipt>
   | RouterAbEd25519YaoRecoveryServiceResult<RecoveryExecutionResult>
+  | RouterAbEd25519YaoRecoveryServiceResult<RouterAbEd25519YaoRecoveryActivationReceiptV1>
   | AuthorizationFailure;
 
 type TraceResolution =
@@ -72,6 +83,7 @@ export type RouterAbEd25519YaoRecoveryRequestScopedCloudflareInputV1 = {
   readonly store: RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1;
   readonly backend: RouterAbEd25519YaoRecoveryBackend;
   readonly authorization: RouterAbEd25519YaoRecoveryAuthorizationAdapter;
+  readonly capabilityPersistence: RouterAbEd25519YaoCapabilityPersistenceV1;
 };
 
 type RecoveryRequestScopedContext = {
@@ -233,6 +245,86 @@ class RecoveryExecutionRequestRun {
   }
 }
 
+class RecoveryActivationRequestRun {
+  constructor(
+    private readonly context: RecoveryRequestScopedContext,
+    private readonly request: RouterAbEd25519YaoRecoveryActivationRequestV1,
+  ) {}
+
+  async prepare(
+    state: RouterAbEd25519YaoProductRegistrationStateV1,
+  ): Promise<
+    RouterAbEd25519YaoRegistrationTwoPhasePrepareResultV1<
+      RouterAbEd25519YaoRecoveryActivationClaimV1,
+      RecoveryResponse,
+      AuthorizationFailure | RouterAbEd25519YaoRecoveryFailure
+    >
+  > {
+    const authorized = await this.context.input.authorization.authorize({
+      kind: 'activate',
+      request: this.context.input.request,
+      body: this.request,
+    });
+    if (!authorized.ok) return { kind: 'rejected', value: authorized };
+    const prepared = this.service(state).prepareActivateRecovery(this.request);
+    switch (prepared.kind) {
+      case 'claimed':
+        return { kind: 'claimed', state, claim: prepared.claim };
+      case 'completed':
+        return {
+          kind: 'completed',
+          value: { ok: true, status: 200, value: prepared.value },
+        };
+      case 'failed':
+        return { kind: 'rejected', value: prepared.failure };
+    }
+  }
+
+  async backend(
+    _claim: RouterAbEd25519YaoRecoveryActivationClaimV1,
+  ): Promise<
+    RouterAbEd25519YaoRegistrationTwoPhaseBackendResultV1<RouterAbEd25519YaoRecoveryBackendResult>
+  > {
+    try {
+      return {
+        kind: 'response',
+        value: await this.context.input.backend.activateRecovery(this.request, this.context.trace),
+      };
+    } catch (error: unknown) {
+      return {
+        kind: 'uncertain',
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  async complete(
+    state: RouterAbEd25519YaoProductRegistrationStateV1,
+    claim: RouterAbEd25519YaoRecoveryActivationClaimV1,
+    backend: RouterAbEd25519YaoRecoveryBackendResult,
+  ): Promise<RouterAbEd25519YaoRegistrationTwoPhaseCompletionV1<RecoveryResponse>> {
+    const committed = await this.service(state).commitActivateRecovery({
+      request: this.request,
+      claim,
+      outcome: { kind: 'backend_response', result: backend },
+    });
+    return {
+      state,
+      value: committed.kind === 'completed' ? committed.value : committed.failure,
+    };
+  }
+
+  private service(
+    state: RouterAbEd25519YaoProductRegistrationStateV1,
+  ): InMemoryRouterAbEd25519YaoRecoveryService {
+    return new InMemoryRouterAbEd25519YaoRecoveryService(
+      this.context.input.backend,
+      state.recovery,
+      this.context.input.capabilityPersistence,
+    );
+  }
+}
+
 export async function handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1(
   input: RouterAbEd25519YaoRecoveryRequestScopedCloudflareInputV1,
 ): Promise<Response> {
@@ -250,10 +342,7 @@ export async function handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1(
   if ('response' in parsed) return parsed.response;
   const context: RecoveryRequestScopedContext = { input, trace: trace.value };
   try {
-    const result =
-      parsed.kind === 'admit'
-        ? await runAdmissionRequest(context, parsed.value)
-        : await runExecutionRequest(context, parsed.value);
+    const result = await runRecoveryRequest(context, parsed);
     return recoveryResponse(result);
   } catch (error: unknown) {
     return json(
@@ -264,6 +353,20 @@ export async function handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1(
       },
       { status: 503 },
     );
+  }
+}
+
+async function runRecoveryRequest(
+  context: RecoveryRequestScopedContext,
+  request: RecoveryRequest,
+): Promise<RecoveryResponse> {
+  switch (request.kind) {
+    case 'admit':
+      return await runAdmissionRequest(context, request.value);
+    case 'execute':
+      return await runExecutionRequest(context, request.value);
+    case 'activate':
+      return await runActivationRequest(context, request.value);
   }
 }
 
@@ -305,6 +408,26 @@ async function runExecutionRequest(
     complete: run.complete.bind(run),
   });
   return mapExecutionResult(result);
+}
+
+async function runActivationRequest(
+  context: RecoveryRequestScopedContext,
+  request: RouterAbEd25519YaoRecoveryActivationRequestV1,
+): Promise<RecoveryResponse> {
+  const run = new RecoveryActivationRequestRun(context, request);
+  const result = await runRouterAbEd25519YaoRegistrationTwoPhaseV1<
+    RouterAbEd25519YaoRecoveryActivationClaimV1,
+    RouterAbEd25519YaoRecoveryBackendResult,
+    RecoveryResponse,
+    AuthorizationFailure | RouterAbEd25519YaoRecoveryFailure
+  >({
+    lifecycleId: request.binding.lifecycle.lifecycle_id,
+    store: context.input.store,
+    prepare: run.prepare.bind(run),
+    backend: run.backend.bind(run),
+    complete: run.complete.bind(run),
+  });
+  return mapActivationResult(result);
 }
 
 function mapAdmissionResult(
@@ -349,6 +472,27 @@ function mapExecutionResult(
   }
 }
 
+function mapActivationResult(
+  result: RouterAbEd25519YaoRegistrationTwoPhaseRunResultV1<
+    RouterAbEd25519YaoRecoveryActivationClaimV1,
+    RecoveryResponse,
+    AuthorizationFailure | RouterAbEd25519YaoRecoveryFailure
+  >,
+): RecoveryResponse {
+  switch (result.kind) {
+    case 'committed':
+    case 'completed':
+    case 'rejected':
+      return result.value;
+    case 'preclaim_version_mismatch':
+      return activationStateConflictFailure('preclaim', result.key);
+    case 'backend_uncertain':
+      return backendUncertainFailure('activation_failed', result.message);
+    case 'terminal_version_mismatch':
+      return activationStateConflictFailure('terminal', result.key);
+  }
+}
+
 function stateConflictFailure(
   code: 'admission_failed' | 'execution_failed',
   phase: 'preclaim' | 'terminal',
@@ -368,8 +512,26 @@ function stateConflictFailure(
   };
 }
 
+function activationStateConflictFailure(
+  phase: 'preclaim' | 'terminal',
+  key: Extract<
+    RouterAbEd25519YaoProductRegistrationPartitionedStateCommitResultV1,
+    { readonly kind: 'version_mismatch' }
+  >['key'],
+): RouterAbEd25519YaoRecoveryFailure {
+  return {
+    ok: false,
+    status: phase === 'preclaim' ? 409 : 503,
+    code: 'activation_failed',
+    message:
+      phase === 'preclaim'
+        ? `Yao recovery activation claim conflicted on ${key}`
+        : `Yao recovery activation terminal state is uncertain after a ${key} conflict`,
+  };
+}
+
 function backendUncertainFailure(
-  code: 'admission_failed' | 'execution_failed',
+  code: 'admission_failed' | 'execution_failed' | 'activation_failed',
   message: string,
 ): RouterAbEd25519YaoRecoveryFailure {
   return { ok: false, status: 503, code, message };
@@ -395,6 +557,17 @@ async function parseRecoveryRequest(
     const parsed = parseRouterAbEd25519YaoRecoveryActivationExecuteRequestV1(raw);
     return parsed.ok
       ? { kind: 'execute', value: parsed.value }
+      : {
+          response: json(
+            { ok: false, code: parsed.code, message: parsed.message },
+            { status: 400 },
+          ),
+        };
+  }
+  if (pathname === ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1) {
+    const parsed = parseRouterAbEd25519YaoRecoveryActivationRequestV1(raw);
+    return parsed.ok
+      ? { kind: 'activate', value: parsed.value }
       : {
           response: json(
             { ok: false, code: parsed.code, message: parsed.message },

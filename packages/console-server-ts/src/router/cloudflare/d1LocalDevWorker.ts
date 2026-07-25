@@ -535,8 +535,7 @@ function localEcdsaCeremonyTokenIssuer(
 ) {
   return createRouterAbEcdsaEd25519CeremonyTokenIssuer({
     issuer:
-      normalizeLocalString(env.ROUTER_AB_CEREMONY_JWT_ISSUER) ||
-      DEFAULT_LOCAL_ROUTER_AB_ROUTER_URL,
+      normalizeLocalString(env.ROUTER_AB_CEREMONY_JWT_ISSUER) || DEFAULT_LOCAL_ROUTER_AB_ROUTER_URL,
     audience: normalizeLocalString(env.ROUTER_AB_CEREMONY_JWT_AUDIENCE) || 'router-ab',
     keyId: normalizeLocalString(env.ROUTER_AB_CEREMONY_JWT_KEY_ID) || 'local-router-ab-r1',
     privateJwk,
@@ -561,7 +560,8 @@ function localRouterAbCeremonyJwksResponse(env: LocalD1DevEnv): Response {
   });
 }
 const LOCAL_ROUTER_AB_ED25519_SEED_PATH = '/router-ab/dev/ed25519/normal-signing/seed';
-const LOCAL_ROUTER_AB_ECDSA_DERIVATION_SEED_PATH = '/router-ab/dev/ecdsa-derivation/normal-signing/seed';
+const LOCAL_ROUTER_AB_ECDSA_DERIVATION_SEED_PATH =
+  '/router-ab/dev/ecdsa-derivation/normal-signing/seed';
 const LOCAL_SIGNING_ROOT_SECRET_SHARE_ENVELOPE_VERSION = 'local-d1-signing-root-share-v1';
 const LOCAL_SIGNING_ROOT_SECRET_SHARE_AUDIT_EVENT_ID = 'local-dev-signing-root-share-seed';
 const LOCAL_SIGNING_ROOT_SHARE_POLICY: ThresholdPrfPolicy = Object.freeze({
@@ -658,6 +658,7 @@ const SIGNER_READY_TABLES = Object.freeze([
   'email_otp_unlock_challenges',
   'email_otp_registration_attempts',
   'email_otp_rate_limits',
+  'router_ab_yao_capability_replacements',
 ]);
 
 function jsonResponse(body: Record<string, unknown>, init?: ResponseInit): Response {
@@ -1365,12 +1366,15 @@ async function createLocalEd25519YaoProductComposition(
     },
     fetch: localEd25519YaoRouterFetchV1(env, routerFetch),
   });
-  const walletStore = new D1WalletStore({
-    database: env.SIGNER_DB,
+  const capabilityScope = {
     namespace: localTenantStorageNamespace(env),
     orgId: localConsoleOrgId(env),
     projectId: localConsoleProjectId(env),
     envId: localConsoleEnvironmentId(env),
+  };
+  const walletStore = new D1WalletStore({
+    database: env.SIGNER_DB,
+    ...capabilityScope,
     ensureSchema: false,
   });
   const composition = createRouterAbEd25519YaoProductRegistrationStatefulCompositionV1({
@@ -1387,7 +1391,12 @@ async function createLocalEd25519YaoProductComposition(
       }),
     }),
     state: localEd25519YaoProductState(env),
-    capabilityPersistence: new CloudflareD1RouterAbEd25519YaoCapabilityPersistence(walletStore),
+    capabilityPersistence: new CloudflareD1RouterAbEd25519YaoCapabilityPersistence({
+      database: env.SIGNER_DB,
+      scope: capabilityScope,
+      walletStore,
+      ensureSchema: false,
+    }),
   });
   const signers = await walletStore.listEd25519Signers();
   for (const signer of signers) {
