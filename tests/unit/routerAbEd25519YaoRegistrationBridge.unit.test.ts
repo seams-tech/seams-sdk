@@ -706,4 +706,37 @@ test.describe('concurrent finalize contention', () => {
     expect(loser).toEqual({ kind: 'exact_replay', value: { receipt: 'tx-single' } });
     expect(effects).toHaveLength(1);
   });
+
+  test('only one stale-claim contender acquires the resume lease', async () => {
+    const store = new RegistrationSideEffectMemoryStore<Result, Prepared>();
+    const effects: string[] = [];
+    const prepared = { hash: 'tx-single' };
+    await store.put(
+      KEY,
+      {
+        kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1',
+        operation: 'finalize',
+        requestFingerprint: REQUEST_FINGERPRINT,
+        preparedArtifactFingerprint: await deriveTestPreparedArtifactFingerprint(prepared),
+        claimedAtMs: fixedNow(),
+        prepared,
+      },
+      null,
+    );
+    const resumedInput = {
+      ...contendedRunInput({ store, effects }),
+      nowMs: fixedNowAfterResumeDelay,
+    };
+
+    const [first, second] = await Promise.all([
+      runRouterAbEd25519YaoRegistrationSideEffectV1<Result, Prepared>(store, resumedInput),
+      runRouterAbEd25519YaoRegistrationSideEffectV1<Result, Prepared>(store, resumedInput),
+    ]);
+
+    expect(effects).toHaveLength(1);
+    expect([first.kind, second.kind]).toContain('executed');
+    expect(
+      [first.kind, second.kind].filter((kind) => kind === 'in_progress' || kind === 'exact_replay'),
+    ).toHaveLength(1);
+  });
 });

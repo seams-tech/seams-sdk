@@ -6,7 +6,8 @@ import type {
 export type RouterAbEd25519YaoRegistrationSideEffectOperationV1 =
   | 'finalize'
   | 'registration_start'
-  | 'add_signer_start';
+  | 'add_signer_start'
+  | 'add_signer_finalize';
 
 /**
  * The semantic request fingerprint detects idempotency conflicts before
@@ -184,8 +185,41 @@ export async function runRouterAbEd25519YaoRegistrationSideEffectV1<T, P>(
   ) {
     preparedForExecution = existing.value.prepared;
     preparedArtifactFingerprint = existing.value.preparedArtifactFingerprint;
-    claimedAtMs = existing.value.claimedAtMs;
-    claimVersion = existing.version;
+    const takeoverClaim: RouterAbEd25519YaoRegistrationSideEffectClaimV1<P> = {
+      kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1',
+      operation: input.operation,
+      requestFingerprint,
+      preparedArtifactFingerprint,
+      claimedAtMs: requireTimestamp(input.nowMs(), 'claimedAtMs'),
+      prepared: preparedForExecution,
+    };
+    let takeover: CloudflareVersionedJsonRecordPutResult;
+    try {
+      takeover = await store.put(key, takeoverClaim, existing.version);
+    } catch (error: unknown) {
+      return uncertainResult('claim', error);
+    }
+    if (takeover.kind === 'version_mismatch') {
+      try {
+        const reconciled = await readDisposition(
+          store,
+          key,
+          requestFingerprint,
+          input.derivePreparedArtifactFingerprint,
+        );
+        return reconciled.kind === 'fresh'
+          ? {
+              kind: 'uncertain',
+              phase: 'claim',
+              message: 'registration side-effect takeover could not be reconciled',
+            }
+          : reconciled;
+      } catch (error: unknown) {
+        return uncertainResult('claim', error);
+      }
+    }
+    claimedAtMs = takeoverClaim.claimedAtMs;
+    claimVersion = takeover.version;
   } else {
     try {
       preparedForExecution = requirePrepared(await input.prepare());

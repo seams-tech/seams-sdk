@@ -69,7 +69,10 @@ import { parseD1WalletRegistrationFinalizeTerminalResponse } from './d1Registrat
 import { CloudflareD1WalletRegistrationCommitStore } from './d1WalletRegistrationCommitStore';
 import {
   CloudflareD1WalletAddSignerService,
+  parseD1WalletAddSignerFinalizeSideEffectRecord,
   parseD1WalletAddSignerStartSideEffectRecord,
+  type D1WalletAddSignerFinalizeSideEffectRecord,
+  type D1WalletAddSignerFinalizeSideEffectStore,
   type D1WalletAddSignerStartSideEffectRecord,
   type D1WalletAddSignerStartSideEffectStore,
 } from './d1WalletAddSignerService';
@@ -753,6 +756,23 @@ function walletAddSignerStartSideEffectStore(
   });
 }
 
+function walletAddSignerFinalizeSideEffectStore(
+  options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
+): D1WalletAddSignerFinalizeSideEffectStore {
+  return createCloudflareD1VersionedJsonRecordStore<D1WalletAddSignerFinalizeSideEffectRecord>({
+    database: options.database,
+    scope: {
+      namespace: options.namespace,
+      orgId: options.orgId,
+      projectId: options.projectId,
+      envId: options.envId,
+    },
+    keyPrefix: 'wallet-add-signer-finalize:',
+    encode: (value) => value as unknown as CloudflareVersionedJsonObject,
+    parse: parseD1WalletAddSignerFinalizeSideEffectRecord,
+  });
+}
+
 /**
  * Creates the sponsored account through a durable claim. The signed transaction
  * and its hash are persisted before the broadcast, so a lost response replays
@@ -1009,6 +1029,7 @@ function createCloudflareD1RouterApiAuthAssembly(
     getWalletStore,
     walletAuthMethods,
     startSideEffects: walletAddSignerStartSideEffectStore(options),
+    finalizeSideEffects: walletAddSignerFinalizeSideEffectStore(options),
   });
   const registrationIntents = new CloudflareD1RegistrationIntentService({
     getRegistrationCeremonyIntentStore,

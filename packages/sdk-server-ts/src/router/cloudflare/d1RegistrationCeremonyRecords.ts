@@ -442,7 +442,7 @@ export function parseD1StoredWalletAddSignerFinalizeReplay(
   if (!record || record.kind !== 'wallet_add_signer_finalize_replay_v1') return null;
   const addSignerCeremonyId = toOptionalTrimmedString(record.addSignerCeremonyId);
   const idempotencyKey = toOptionalTrimmedString(record.idempotencyKey);
-  const response = parseD1WalletAddSignerFinalizeReplayResponse(record.response);
+  const response = parseD1WalletAddSignerFinalizeSuccessResponse(record.response);
   const request = parseD1WalletAddSignerFinalizeRequest(record.request);
   const createdAtMs = safeInteger(record.createdAtMs);
   const expiresAtMs = safeInteger(record.expiresAtMs);
@@ -472,7 +472,7 @@ export function parseD1StoredWalletAddSignerFinalizeReplay(
   };
 }
 
-function parseD1WalletAddSignerFinalizeReplayResponse(
+function parseD1WalletAddSignerFinalizeSuccessResponse(
   raw: unknown,
 ): Extract<WalletAddSignerFinalizeResponse, { ok: true }> | null {
   const record = toRecordValue(raw);
@@ -502,6 +502,17 @@ function parseD1WalletAddSignerFinalizeReplayResponse(
   return rpId
     ? { ok: true, kind: 'evm_family_ecdsa', walletId, rpId, ecdsa }
     : { ok: true, kind: 'evm_family_ecdsa', walletId, ecdsa };
+}
+
+export function parseD1WalletAddSignerFinalizeTerminalResponse(
+  raw: unknown,
+): WalletAddSignerFinalizeResponse | null {
+  const record = toRecordValue(raw);
+  if (!record) return null;
+  if (record.ok === true) return parseD1WalletAddSignerFinalizeSuccessResponse(record);
+  const code = toOptionalTrimmedString(record.code);
+  const message = toOptionalTrimmedString(record.message);
+  return record.ok === false && code && message ? { ok: false, code, message } : null;
 }
 
 export function parseD1WalletRegistrationFinalizeReplayResponse(
@@ -1319,7 +1330,7 @@ function parseD1StoredWalletAddSignerSignerState(
         ...activation,
       };
     }
-    const response = parseD1WalletAddSignerFinalizeReplayResponse(record.response);
+    const response = parseD1WalletAddSignerFinalizeSuccessResponse(record.response);
     const signer = parseWalletEd25519SignerRecord(record.signer);
     const finalizingAtMs = safeInteger(record.finalizingAtMs);
     if (
@@ -1398,7 +1409,7 @@ function parseD1StoredEd25519YaoAddSignerActivation(
   };
 }
 
-function parseD1WalletAddSignerFinalizeRequest(
+export function parseD1WalletAddSignerFinalizeRequest(
   raw: unknown,
 ): StoredWalletAddSignerFinalizeRequest | null {
   const record = toRecordValue(raw);
