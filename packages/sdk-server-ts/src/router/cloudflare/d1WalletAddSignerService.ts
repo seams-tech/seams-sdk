@@ -892,6 +892,7 @@ export class CloudflareD1WalletAddSignerService {
         );
       }
       const ecdsaPrepared = await buildD1EvmFamilyEcdsaRegistrationPrepare({
+        registrationPurpose: 'wallet_add_signer',
         registrationCeremonyId: prepared.addSignerCeremonyId,
         registrationPreparationId: registrationPreparationIdFromString(
           prepared.registrationPreparationId,
