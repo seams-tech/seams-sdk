@@ -1,8 +1,10 @@
 use router_ab_core::{LocalServiceRoleV1, RouterAbProtocolErrorCode};
 use router_ab_dev::{
-    example_local_durable_object_seed_plan_v1, read_local_sqlite_seed_summary_v1,
-    seed_example_local_durable_object_sqlite_v1, seed_example_local_storage_parity_v1,
-    LocalDurableObjectScopeV1, LocalDurableObjectSqliteStorageV1,
+    example_local_durable_object_seed_plan_v1, initialize_local_router_persistence_v1,
+    parse_local_env_file_contents_v1, parse_local_worker_role_config_for_role_v1,
+    read_local_sqlite_seed_summary_v1, seed_example_local_durable_object_sqlite_v1,
+    seed_example_local_storage_parity_v1, LocalDurableObjectScopeV1,
+    LocalDurableObjectSqliteStorageV1,
 };
 use rusqlite::Connection;
 use std::{
@@ -42,6 +44,65 @@ fn local_durable_sqlite_storage_persists_across_reopened_connections(
         assert_eq!(store.get_bytes("request/id/1")?, None);
     }
     let _ = fs::remove_file(path);
+    Ok(())
+}
+
+#[test]
+fn local_router_startup_initializes_all_owned_storage_scopes(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let labels = ["replay", "lifecycle", "project-policy", "quota", "abuse"];
+    let paths = labels.map(|label| temp_sqlite_path(&format!("router-startup-{label}")));
+    let mut entries =
+        parse_local_env_file_contents_v1(include_str!("../env/router.local.example"))?;
+    let storage_keys = [
+        "ROUTER_REPLAY_STORAGE_PATH",
+        "ROUTER_LIFECYCLE_STORAGE_PATH",
+        "ROUTER_PROJECT_POLICY_STORAGE_PATH",
+        "ROUTER_QUOTA_STORAGE_PATH",
+        "ROUTER_ABUSE_STORAGE_PATH",
+    ];
+    for (key, path) in storage_keys.into_iter().zip(&paths) {
+        let (_, value) = entries
+            .iter_mut()
+            .find(|(entry_key, _)| entry_key == key)
+            .expect("Router template includes every storage key");
+        *value = path.display().to_string();
+    }
+    let config = parse_local_worker_role_config_for_role_v1(
+        router_ab_core::LocalServiceRoleV1::Router,
+        entries,
+    )?;
+    let router = match config {
+        router_ab_dev::LocalWorkerRoleConfigV1::Router(router) => router,
+        _ => return Err("Router template parsed into a non-Router branch".into()),
+    };
+
+    let receipt = initialize_local_router_persistence_v1(&router)?;
+    assert_eq!(
+        receipt.scopes,
+        vec![
+            LocalDurableObjectScopeV1::RouterReplay,
+            LocalDurableObjectScopeV1::RouterLifecycle,
+            LocalDurableObjectScopeV1::RouterProjectPolicy,
+            LocalDurableObjectScopeV1::RouterQuota,
+            LocalDurableObjectScopeV1::RouterAbuse,
+        ]
+    );
+    for path in &paths {
+        assert!(
+            path.exists(),
+            "Router startup should create {}",
+            path.display()
+        );
+        let connection = Connection::open(path)?;
+        let table_count: u32 = connection.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'local_durable_object_kv'",
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(table_count, 1, "{} has local DO schema", path.display());
+        let _ = fs::remove_file(path);
+    }
     Ok(())
 }
 
