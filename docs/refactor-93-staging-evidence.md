@@ -54,7 +54,11 @@ The historical old-boundary validation cannot be replayed because this branch
 already contains the Gateway cutover. The old role Stage/Result routes remain
 deployed for the request-boundary drain. Route deletion is gated on a complete
 staging registration/recovery/export run and the maximum in-flight ceremony
-lifetime.
+lifetime. The Phase 5 binding and route audit is recorded in
+[`refactor-93-phase5-deletion-audit.md`](./refactor-93-phase5-deletion-audit.md);
+it also records why `DERIVER_A` and `DERIVER_B` service bindings remain until
+rollback and old-request lifetime evidence is complete, while `SIGNING_WORKER`
+remains active for Router A/B ECDSA transport.
 
 Production acceptance remains open: the current Wrangler OAuth token does not
 include Workers Observability access, so no claim is made for 20 correlated
