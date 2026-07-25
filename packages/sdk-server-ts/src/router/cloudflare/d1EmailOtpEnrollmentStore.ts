@@ -83,7 +83,11 @@ export class CloudflareD1EmailOtpEnrollmentStore {
   }
 
   async deleteEnrollment(walletId: string): Promise<void> {
-    await this.prepare(
+    await this.prepareDeleteEnrollmentStatement(walletId).run();
+  }
+
+  prepareDeleteEnrollmentStatement(walletId: string): D1PreparedStatementLike {
+    return this.prepare(
       `DELETE FROM email_otp_wallet_enrollments
         WHERE namespace = ?
           AND org_id = ?
@@ -91,11 +95,17 @@ export class CloudflareD1EmailOtpEnrollmentStore {
           AND env_id = ?
           AND wallet_id = ?`,
       [walletId],
-    ).run();
+    );
   }
 
   async putEnrollment(record: EmailOtpWalletEnrollmentRecord): Promise<void> {
-    await this.prepare(
+    await this.preparePutEnrollmentStatement(record).run();
+  }
+
+  preparePutEnrollmentStatement(
+    record: EmailOtpWalletEnrollmentRecord,
+  ): D1PreparedStatementLike {
+    return this.prepare(
       `INSERT INTO email_otp_wallet_enrollments (
         namespace,
         org_id,
@@ -127,7 +137,7 @@ export class CloudflareD1EmailOtpEnrollmentStore {
         record.createdAtMs,
         record.updatedAtMs,
       ],
-    ).run();
+    );
   }
 
   async readAuthState(walletId: string): Promise<EmailOtpAuthStateRecord | null> {
@@ -187,6 +197,19 @@ export class CloudflareD1EmailOtpEnrollmentStore {
     readonly existingState: EmailOtpAuthStateRecord | null;
     readonly updatedAtMs: number;
   }): Promise<EmailOtpAuthStateRecord> {
+    const prepared = this.prepareResetAuthStateForEnrollment(input);
+    await prepared.statement.run();
+    return prepared.record;
+  }
+
+  prepareResetAuthStateForEnrollment(input: {
+    readonly enrollment: EmailOtpWalletEnrollmentRecord;
+    readonly existingState: EmailOtpAuthStateRecord | null;
+    readonly updatedAtMs: number;
+  }): {
+    readonly record: EmailOtpAuthStateRecord;
+    readonly statement: D1PreparedStatementLike;
+  } {
     const reusableExisting =
       input.existingState &&
       input.existingState.providerUserId === input.enrollment.providerUserId &&
@@ -203,8 +226,10 @@ export class CloudflareD1EmailOtpEnrollmentStore {
         otpLockedUntilMs: null,
       },
     });
-    await this.putAuthState(next);
-    return next;
+    return {
+      record: next,
+      statement: this.preparePutAuthStateStatement(next),
+    };
   }
 
   async resetFailureState(input: {
@@ -224,7 +249,11 @@ export class CloudflareD1EmailOtpEnrollmentStore {
   }
 
   private async putAuthState(record: EmailOtpAuthStateRecord): Promise<void> {
-    await this.prepare(
+    await this.preparePutAuthStateStatement(record).run();
+  }
+
+  private preparePutAuthStateStatement(record: EmailOtpAuthStateRecord): D1PreparedStatementLike {
+    return this.prepare(
       `INSERT INTO email_otp_auth_states (
         namespace,
         org_id,
@@ -253,6 +282,6 @@ export class CloudflareD1EmailOtpEnrollmentStore {
         record.createdAtMs,
         record.updatedAtMs,
       ],
-    ).run();
+    );
   }
 }

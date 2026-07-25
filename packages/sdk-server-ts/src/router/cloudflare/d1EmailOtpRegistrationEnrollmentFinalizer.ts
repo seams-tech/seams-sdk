@@ -10,6 +10,7 @@ import type {
 import type {
   WalletRegistrationFinalizeRequest
 } from '../../core/registrationContracts';
+import type { D1PreparedStatementLike } from '../../storage/tenantRoute';
 import { validateSecp256k1PublicKey33 } from '../../core/ThresholdService/evmCryptoWasm';
 import type { CloudflareD1EmailOtpEnrollmentStore } from './d1EmailOtpEnrollmentStore';
 import type { CloudflareD1EmailOtpRecoveryEscrowStore } from './d1EmailOtpRecoveryEscrowStore';
@@ -23,7 +24,7 @@ import {
 
 type FinalizeWalletRegistrationInput = WalletRegistrationFinalizeRequest;
 
-type D1EmailOtpRegistrationEnrollmentPersistence =
+export type D1EmailOtpRegistrationEnrollmentPersistence =
   | {
       readonly providerEnrollmentMove: 'none';
       readonly previousProviderWalletId?: never;
@@ -38,6 +39,11 @@ type D1EmailOtpRegistrationEnrollmentPersistence =
       readonly recoveryWrappedEnrollmentEscrows: readonly EmailOtpRecoveryWrappedEnrollmentEscrowRecord[];
       readonly existingAuthState: EmailOtpAuthStateRecord | null;
     };
+
+export type D1EmailOtpRegistrationCommitPlan = {
+  readonly kind: 'd1_email_otp_registration_commit_plan_v1';
+  readonly statements: readonly D1PreparedStatementLike[];
+};
 
 type D1EmailOtpRegistrationFinalizeEnrollmentResult =
   | {
@@ -251,6 +257,48 @@ export class CloudflareD1EmailOtpRegistrationEnrollmentFinalizer {
       updatedAtMs: persistence.enrollment.updatedAtMs,
     });
     return { ok: true };
+  }
+
+  prepareRegistrationCommitPlan(
+    persistence: D1EmailOtpRegistrationEnrollmentPersistence,
+  ): D1EmailOtpRegistrationCommitPlan {
+    const activeRecoveryWrappedEnrollmentEscrowCount = countActiveRecoveryEscrows(
+      persistence.recoveryWrappedEnrollmentEscrows,
+    );
+    if (
+      persistence.recoveryWrappedEnrollmentEscrows.length !== EMAIL_OTP_RECOVERY_KEY_COUNT ||
+      activeRecoveryWrappedEnrollmentEscrowCount !== EMAIL_OTP_RECOVERY_KEY_COUNT
+    ) {
+      throw new Error(
+        `Email OTP registration commit requires exactly ${EMAIL_OTP_RECOVERY_KEY_COUNT} active recovery-wrapped escrows`,
+      );
+    }
+    const statements: D1PreparedStatementLike[] = [];
+    if (persistence.providerEnrollmentMove === 'delete_previous') {
+      statements.push(
+        this.emailOtpEnrollments.prepareDeleteEnrollmentStatement(
+          persistence.previousProviderWalletId,
+        ),
+      );
+    }
+    statements.push(
+      this.emailOtpEnrollments.preparePutEnrollmentStatement(persistence.enrollment),
+      this.emailOtpRecoveryEscrows.prepareDeleteForWalletStatement(
+        persistence.enrollment.walletId,
+      ),
+      ...this.emailOtpRecoveryEscrows.preparePutManyStatements(
+        persistence.recoveryWrappedEnrollmentEscrows,
+      ),
+      this.emailOtpEnrollments.prepareResetAuthStateForEnrollment({
+        enrollment: persistence.enrollment,
+        existingState: persistence.existingAuthState,
+        updatedAtMs: persistence.enrollment.updatedAtMs,
+      }).statement,
+    );
+    return {
+      kind: 'd1_email_otp_registration_commit_plan_v1',
+      statements,
+    };
   }
 
   async persistVerifiedEnrollment(input: {
