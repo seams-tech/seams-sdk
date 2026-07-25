@@ -1,5 +1,6 @@
 use router_ab_core::{RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult};
 
+#[cfg(feature = "workers-rs")]
 pub const CLOUDFLARE_TRACE_ID_HEADER_V1: &str = "x-seams-trace-id";
 const CLOUDFLARE_TRACE_ID_HEX_LENGTH: usize = 32;
 
