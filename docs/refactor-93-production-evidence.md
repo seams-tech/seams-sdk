@@ -66,6 +66,38 @@ carry low-level command or protocol labels rather than the Gateway's
 validation. A required span under the wrong event owner blocks the Phase 0
 baseline instead of silently contributing to its latency budget.
 
+## Execution telemetry contract
+
+The successful `gateway.yao_execute` event is the authoritative per-trace
+resource record. A production trace is ineligible for the Phase 0 baseline
+until that event carries all of these non-negative fields:
+
+```text
+cpu_ms                       number
+active_duration_ms           number
+memory_mb                    number
+durable_object_call_count    integer
+worker_invocation_count      integer
+d1_query_count               integer
+exact_replay_count           integer
+conflict_count               integer
+```
+
+The analyzer reports nearest-rank p50/p95/min/max values for each field by
+cold and warm cohort. Missing values remain explicit blockers; the analyzer
+never treats an omitted platform metric as zero. `d1_query_count` is the
+platform-attributed count for the connected Router execution. A value greater
+than zero blocks the trace, which prevents a successful Phase 0 report from
+claiming that product D1 work stayed outside the MPC execution span. D1 work
+belongs on the separate `gateway.d1_commit` event.
+
+Replay and conflict counts are retained as observed per-execution counts.
+They are not inferred from HTTP status, error text, or duplicate log lines.
+The custom event fields are optional at the parser boundary so local and
+historical logs remain readable; production readiness requires all fields on
+the execution event. No ciphertext, identity, token, or package data is
+accepted as telemetry.
+
 The cohort manifest is a strict declaration of provenance:
 
 ```json

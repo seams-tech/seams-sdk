@@ -40,6 +40,12 @@ test('production evidence gate accepts 20 complete correlated cold and warm trac
   assert.equal(report.budgets.gatewayYaoExecuteMs.all.p50, 1_009);
   assert.equal(report.budgets.gatewayYaoExecuteMs.all.p95, 1_018);
   assert.equal(report.budgets.postTouchIdToWalletReadyMs.all.p95, 2_018);
+  assert.equal(report.telemetry.gatewayYaoExecute.cpuMs.all.p50, 20);
+  assert.equal(report.telemetry.gatewayYaoExecute.durableObjectCallCount.all.p95, 39);
+  assert.equal(report.telemetry.gatewayYaoExecute.workerInvocationCount.all.p95, 49);
+  assert.equal(report.telemetry.gatewayYaoExecute.d1QueryCount.all.max, 0);
+  assert.equal(report.telemetry.gatewayYaoExecute.exactReplayCount.all.max, 0);
+  assert.equal(report.telemetry.gatewayYaoExecute.conflictCount.all.max, 0);
 });
 
 test('evidence gate rejects synthetic, incomplete, and unknown isolate evidence', () => {
@@ -73,6 +79,32 @@ test('evidence gate rejects a required span emitted by the wrong worker event', 
       blocker.includes('gateway.yao_execute (router_ab_yao_role_span_v1)'),
     ),
   );
+});
+
+test('evidence gate requires execution telemetry and rejects D1 work inside Yao', () => {
+  const fixture = buildFixture({ environment: 'production', traceCount: 20 });
+  const firstExecution = fixture.events.find((event) => event.span === 'gateway.yao_execute');
+  const secondExecution = fixture.events.find(
+    (event) => event.span === 'gateway.yao_execute' && event !== firstExecution,
+  );
+  if (!firstExecution || !secondExecution) throw new Error('execution span fixtures are required');
+  firstExecution.d1_query_count = 1;
+  delete secondExecution.cpu_ms;
+
+  const report = analyzeRefactor93ProductionEvidence(fixture);
+
+  assert.equal(report.readiness.phase0BaselineReady, false);
+  assert.ok(
+    report.readiness.blockers.some((blocker) =>
+      blocker.includes('gateway.yao_execute contains 1 D1 queries'),
+    ),
+  );
+  assert.ok(
+    report.readiness.blockers.some((blocker) =>
+      blocker.includes('missing gateway.yao_execute telemetry: cpu_ms'),
+    ),
+  );
+  assert.equal(report.budgets.gatewayYaoExecuteMs.all.sampleCount, 18);
 });
 
 test('JSONL parser extracts direct, Wrangler tail, and Workers Logs span messages', () => {
@@ -158,6 +190,18 @@ function spanEvent(traceId, span, durationMs) {
     outcome: 'success',
     duration_ms: durationMs,
     trace_id: traceId,
+    ...(span === 'gateway.yao_execute'
+      ? {
+          cpu_ms: 10 + Number.parseInt(traceId.slice(-2), 16),
+          active_duration_ms: 20 + Number.parseInt(traceId.slice(-2), 16),
+          memory_mb: 30 + Number.parseInt(traceId.slice(-2), 16),
+          durable_object_call_count: 20 + Number.parseInt(traceId.slice(-2), 16),
+          worker_invocation_count: 30 + Number.parseInt(traceId.slice(-2), 16),
+          d1_query_count: 0,
+          exact_replay_count: 0,
+          conflict_count: 0,
+        }
+      : {}),
     source: '/evidence/worker-tail.jsonl',
     line: 1,
   };

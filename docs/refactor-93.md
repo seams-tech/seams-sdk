@@ -1181,10 +1181,15 @@ and the validated trace value. The SDK emits `registration.post_touch_id` and
 the span name, outcome, duration, and opaque trace value. The Gateway backend
 emits `gateway.pre_yao` and `gateway.yao_execute` through its deployment-provided
 span sink; the Cloudflare Gateway worker writes that event as a structured JSON
-log. Ceremony digests,
-CPU time, call/invocation counts, and cold/warm cohort labels remain
-deployment-evidence fields; they are acceptance requirements rather than claims
-about the local event payload today. The Gateway registration-finalize route now
+log. The production evidence analyzer accepts platform-attributed CPU,
+active-duration, memory, Durable Object call, Worker invocation, D1-query,
+exact-replay, and conflict fields on the `gateway.yao_execute` event and keeps
+missing values as readiness blockers. Current application emitters still emit
+the sanitized span fields above; deployment collection must join those events
+with the platform resource record before Phase 0 can claim those metrics.
+Ceremony digests and cold/warm cohort labels remain deployment-evidence fields;
+they are acceptance requirements rather than claims about the local event
+payload today. The Gateway registration-finalize route now
 emits a sanitized `gateway.d1_commit` event when a validated trace header is
 present; deployment evidence still has to confirm that the event covers the
 intended D1 write and is collected with the rest of the span tree.
