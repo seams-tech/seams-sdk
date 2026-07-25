@@ -113,10 +113,10 @@ intentional boundary guards:
 | Named completion-acknowledgement envelope and request validation    | B completed reads cross the Worker boundary through a typed acknowledgement that is validated before transcript use.      | Coordinator tests validate decoding, but do not prove that the B route still emits and validates the named envelope.                                                                                            |
 | Root metadata loader plus staged WebSocket connector                | Root metadata validation remains ordered before external peer connection.                                                 | No local runtime test provides a real Cloudflare WebSocket and root-share binding; the source guard retains the ordering requirement until deployed evidence exists.                                            |
 
-Removing any of these guards before native pair serving and the legacy route
-drain would reduce coverage of the only tests that inspect those cross-worker
-ownership boundaries. They should be replaced with route-level tests once the
-old handlers are deleted, not deleted speculatively.
+Removing any of these guards before the legacy route drain would reduce
+coverage of the only tests that inspect those cross-worker ownership
+boundaries. Native pair serving is implemented; the guards should be replaced
+with route-level tests once the old handlers are deleted.
 
 ## Clippy review
 
@@ -159,8 +159,9 @@ No destructive cleanup is safe before the deployment drain:
   requests to the Router origin, so there is no additional safe key deletion
   in the SDK backend.
 - The five lifecycle `source.contains` checks are still the only structural
-  guards for private Worker command/state ownership. They remain valid until
-  native pair serving and legacy route deletion provide route-level coverage.
+  guards for private Worker command/state ownership. Native pair serving is
+  implemented; the guards remain valid until legacy route deletion provides
+  replacement route-level coverage.
 - Legacy Stage/Start/Result parsers and their compatibility fixtures still
   have an explicit request-boundary owner during the drain. Their removal
   requires the staging receipts listed above, including the observed maximum
@@ -170,10 +171,10 @@ No destructive cleanup is safe before the deployment drain:
   remaining `already active` phrase is a Deriver-A HTTP diagnostic only; no
   promotion branch matches an English error message.
 
-This review therefore records a deliberate zero-deletion result. The next
-safe Phase 5 code changes are gated on native pair serving, a coherent staging
-cutover, and the five-item deletion receipt; deleting bindings, parsers, or
-source guards before those gates would remove rollback and boundary coverage.
+This review therefore records a deliberate zero-deletion result. The next safe
+Phase 5 deletion changes are gated on a coherent staging cutover and the
+five-item deletion receipt; deleting bindings, parsers, or source guards before
+those gates would remove rollback and boundary coverage.
 
 The dry-run validator
 `crates/router-ab-cloudflare/scripts/refactor93-deployment-drain.mjs` now

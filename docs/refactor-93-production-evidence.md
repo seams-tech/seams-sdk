@@ -45,6 +45,12 @@ latest active version timestamps are:
 | `router-ab-signing-worker-staging` | `49c5d928-48ca-4fd8-8320-f2a202dcf46f` | `2026-07-25T05:31:18.085944Z` |
 | `seams-sdk-d1-gateway-staging`     | `3764caf6-d8fb-43c7-a647-a16103368022` | `2026-07-24T12:03:37.161982Z` |
 
+The 2026-07-25 stack run selected source `a13f8e56526e15fd4ad8bbfdd14225a89f24328f`.
+That revision does not contain `router_coordinator.rs` or the private Refactor
+93 execute route, so it overwrote the earlier historical route deployment.
+Generic method/authentication responses cannot prove that the currently active
+Router dispatches the new route.
+
 The active Gateway version still exposes `ROUTER_API_RUNTIME` and direct
 `DERIVER_A`, `DERIVER_B`, and `SIGNING_WORKER` bindings. It does not expose
 `ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS` or

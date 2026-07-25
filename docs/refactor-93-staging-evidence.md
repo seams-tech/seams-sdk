@@ -2,6 +2,12 @@
 
 Recorded 2026-07-24 in the `codex/refactor-93-role-lifecycle` worktree.
 
+Status: historical and superseded. A later staging stack run on 2026-07-25
+overwrote these Worker versions with an incoherent release whose selected
+Router source did not contain the Refactor 93 coordinator. The current
+deployment state is recorded in
+[`refactor-93-production-evidence.md`](./refactor-93-production-evidence.md).
+
 ## Coherent deployment
 
 The role workers, private MPC Router route, and Gateway were deployed against
