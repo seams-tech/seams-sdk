@@ -38,6 +38,7 @@ import {
   createRouterAbEd25519YaoProductRegistrationStateV1,
   parseRouterAbEd25519YaoProductRegistrationStateV1,
   type RouterAbEd25519YaoProductRegistrationCompositionV1,
+  type RouterAbEd25519YaoProductRegistrationRuntimeV1,
   type RouterAbEd25519YaoProductRegistrationStateV1,
 } from '@seams/sdk-server/internal/router/routerAbEd25519YaoProductRegistration';
 import type { SessionAdapter } from '@seams/sdk-server/internal/router/routerApi';
@@ -75,6 +76,9 @@ import {
 } from './routerAbServiceBindings';
 import { handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1 } from '@seams/sdk-server/internal/router/routerAbEd25519YaoRegistrationRequestScopedCloudflare';
 import { createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1 } from '@seams/sdk-server/internal/router/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from '@seams/sdk-server/internal/router/routerAbEd25519YaoRecoveryWalletSessionAuthorization';
+import { RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter } from '@seams/sdk-server/internal/router/routerAbEd25519YaoExport';
+import { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } from '@seams/sdk-server/internal/router/routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
 import {
   resolveRouterAbEd25519YaoGatewayRegistrationRouteV1,
   type RouterAbEd25519YaoGatewayCutoverFamilyV1,
@@ -911,3 +915,95 @@ function createStagingYaoPartitionedStateStore(
 }
 
 export default { fetch };
+
+/**
+ * Builds the recovery request-scoped dependencies from the environment alone.
+ * This is new composition wiring over the existing authorization classes, not a
+ * second authorization implementation: the same adapter the tenant runtime uses
+ * is constructed here against request-scoped state instead of runtime-held
+ * state, which is the dependency Refactor 93 exists to remove.
+ */
+export function createStagingRecoveryRequestScopedDependencies(
+  env: CloudflareD1RouterApiStagingEnv,
+): {
+  readonly store: ReturnType<typeof createStagingYaoPartitionedStateStore>;
+  readonly backend: ReturnType<typeof createStagingEd25519YaoBackend>;
+  readonly authorization: RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter;
+  readonly capabilityPersistence: CloudflareD1RouterAbEd25519YaoCapabilityPersistence;
+} {
+  const scope = stagingTenantScope(env);
+  return {
+    store: createStagingYaoPartitionedStateStore(env),
+    backend: createStagingEd25519YaoBackend(env),
+    authorization: new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
+      stagingSessionAdapter(env),
+    ),
+    capabilityPersistence: new CloudflareD1RouterAbEd25519YaoCapabilityPersistence({
+      database: env.SIGNER_DB,
+      scope,
+      walletStore: stagingWalletStore(env),
+      ensureSchema: false,
+    }),
+  };
+}
+
+/**
+ * Builds the export request-scoped dependencies from the environment alone. The
+ * capability resolver comes from the request-scoped runtime, so export reads the
+ * same partitioned state it will eventually be cut over to.
+ */
+export function createStagingExportRequestScopedDependencies(
+  env: CloudflareD1RouterApiStagingEnv,
+): {
+  readonly store: ReturnType<typeof createStagingYaoPartitionedStateStore>;
+  readonly backend: ReturnType<typeof createStagingEd25519YaoBackend>;
+  readonly authorization: RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter;
+  readonly capabilities: RouterAbEd25519YaoProductRegistrationRuntimeV1;
+} {
+  const scope = stagingTenantScope(env);
+  const session = stagingSessionAdapter(env);
+  const store = createStagingYaoPartitionedStateStore(env);
+  return {
+    store,
+    backend: createStagingEd25519YaoBackend(env),
+    authorization: new RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter(
+      session,
+      new CloudflareD1WebAuthnAuthService({
+        webAuthnStore: new CloudflareD1WebAuthnStore({
+          database: env.SIGNER_DB,
+          namespace: scope.namespace,
+          orgId: scope.orgId,
+          projectId: scope.projectId,
+          envId: scope.envId,
+        }),
+      }),
+    ),
+    capabilities: createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1({
+      signingWorkerId: requireEnvString(env, 'SIGNING_WORKER_ID'),
+      session,
+      store,
+    }),
+  };
+}
+
+function stagingSessionAdapter(env: CloudflareD1RouterApiStagingEnv) {
+  return createHmacSessionAdapterFromEnv({
+    env,
+    secretName: 'RELAY_SESSION_HMAC_SECRET',
+    cookieName: readEnvString(env, 'SESSION_COOKIE_NAME'),
+    issuer: readEnvString(env, 'RELAY_SESSION_ISSUER'),
+    audience: readEnvString(env, 'RELAY_SESSION_AUDIENCE'),
+  });
+}
+
+function stagingWalletStore(env: CloudflareD1RouterApiStagingEnv): D1WalletStore {
+  const scope = stagingTenantScope(env);
+  return new D1WalletStore({
+    database: env.SIGNER_DB,
+    namespace: scope.namespace,
+    orgId: scope.orgId,
+    projectId: scope.projectId,
+    envId: scope.envId,
+    ensureSchema: false,
+  });
+}
