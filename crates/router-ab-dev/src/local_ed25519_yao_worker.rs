@@ -62,6 +62,7 @@ use crate::{
     LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH, LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH,
 };
 use crate::{LocalEd25519YaoPairLifecycleV1, LocalEd25519YaoPairSigningKeysV1};
+use base64::Engine as _;
 use router_ab_core::{
     ed25519_yao_encrypted_input_digest_v1, Ed25519YaoCeremonyBindingV1, Ed25519YaoExecutionIdV1,
     Ed25519YaoOperationV1, Ed25519YaoRefreshBindingV1, Ed25519YaoRoleSignatureSchemeV1,
@@ -1386,7 +1387,7 @@ fn prepare_local_pair_role_v1(
         .checked_add(60_000)
         .ok_or_else(|| invalid_worker_state("pair role preparation expiry overflow"))?;
     let root_metadata_digest = local_pair_root_metadata_digest_v1(derivation_root_hex)?;
-    let signing_key = local_pair_signing_key_v1(signing_key_material);
+    let signing_key = local_pair_signing_key_v1(signing_key_material)?;
     let signing_keys = LocalEd25519YaoPairSigningKeysV1 {
         deriver_a: signing_key,
         deriver_b: signing_key,
@@ -1705,7 +1706,7 @@ fn sign_local_pair_start_acceptance_v1(
         placeholder,
     )?;
     let signing_key =
-        ed25519_dalek::SigningKey::from_bytes(&local_pair_signing_key_v1(signing_key_material));
+        ed25519_dalek::SigningKey::from_bytes(&local_pair_signing_key_v1(signing_key_material)?);
     let signature =
         ed25519_dalek::Signer::sign(&signing_key, unsigned.signed_message_digest().as_bytes())
             .to_bytes();
@@ -1947,9 +1948,12 @@ fn local_pair_root_metadata_digest_v1(root_hex: &str) -> RouterAbProtocolResult<
     Ok(digest.into())
 }
 
-fn local_pair_signing_key_v1(material: &str) -> [u8; 32] {
-    let digest = sha2::Sha256::digest(material.as_bytes());
-    digest.into()
+fn local_pair_signing_key_v1(material: &str) -> RouterAbProtocolResult<[u8; 32]> {
+    base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(material)
+        .map_err(|_| invalid_worker_state("local peer signing key is malformed"))?
+        .try_into()
+        .map_err(|_| invalid_worker_state("local peer signing key must contain 32 bytes"))
 }
 
 fn require_empty_pending_b(
@@ -2867,12 +2871,14 @@ mod tests {
             input: input_b,
         };
         let mut state = LocalEd25519YaoWorkerStateV1::default();
+        let signing_key_material =
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([0x91; 32]);
         let receipt = prepare_local_pair_role_v1(
             &mut state,
             Ed25519YaoDeriverRoleV1::DeriverB,
             &request,
             &hex::encode([0x81; 32]),
-            "burn-test-signing-key",
+            &signing_key_material,
         )
         .expect("prepared B pair");
         let prepared = state
@@ -2998,22 +3004,20 @@ mod tests {
         if let Some(LocalEd25519YaoPairRoleRecordV1::Completed { pair_binding, .. }) =
             state.pair_roles.get_mut(&pair_digest)
         {
-            *pair_binding = Box::new(
-                Ed25519YaoInputPairBindingV1::new(
-                    Ed25519YaoCeremonyIdentityV1::from_binding(ceremony(
-                        9,
-                        Ed25519YaoOperationV1::Registration,
-                        ExpensiveWorkKindV1::RegistrationPrepare,
-                        10,
-                    ))
-                    .expect("pair identity"),
-                    PublicDigest32::new([0xa2; 32]),
-                    PublicDigest32::new([0xb2; 32]),
-                    PublicDigest32::new([0xc2; 32]),
-                    PublicDigest32::new([0xd2; 32]),
-                )
-                .expect("tampered pair binding"),
-            );
+            **pair_binding = Ed25519YaoInputPairBindingV1::new(
+                Ed25519YaoCeremonyIdentityV1::from_binding(ceremony(
+                    9,
+                    Ed25519YaoOperationV1::Registration,
+                    ExpensiveWorkKindV1::RegistrationPrepare,
+                    10,
+                ))
+                .expect("pair identity"),
+                PublicDigest32::new([0xa2; 32]),
+                PublicDigest32::new([0xb2; 32]),
+                PublicDigest32::new([0xc2; 32]),
+                PublicDigest32::new([0xd2; 32]),
+            )
+            .expect("tampered pair binding");
         }
         assert!(read_local_pair_completion_v1(
             &state,
