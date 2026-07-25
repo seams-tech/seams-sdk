@@ -172,7 +172,7 @@ Filenames use lowercase action, environment, platform, and service segments:
 
 ```text
 validate-repository.yml
-validate-cloudflare-mpc-router-ab.yml
+validate-cloudflare-router-ab.yml
 deploy-staging-cloudflare-stack.yml
 deploy-production-cloudflare-stack.yml
 deploy-staging-frontend.yml
@@ -215,7 +215,7 @@ workflow uses `workflow_call`.
 | File                                     | Actions sidebar name                     | Trigger                                                                                             | Mutation authority                                      |
 | ---------------------------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
 | `validate-repository.yml`                | `Validate / repository`                  | Push fast gate; pull request, merge group, or manual full validation                                | None                                                    |
-| `validate-cloudflare-mpc-router-ab.yml`  | `Validate / cloudflare-mpc-router-ab`    | Relevant MPC Router A/B pull requests, or manual dispatch                                           | None                                                    |
+| `validate-cloudflare-router-ab.yml`      | `Validate / cloudflare-router-ab`        | Relevant Router A/B pull requests, or manual dispatch                                               | None                                                    |
 | `deploy-staging-cloudflare-stack.yml`    | `Deploy / staging / cloudflare-stack`    | Successful validation of a `dev` push, or manual accepted backend release                           | Staging Gateway and MPC Router A/B only                 |
 | `deploy-production-cloudflare-stack.yml` | `Deploy / production / cloudflare-stack` | Successful validation of a `main` push, or manual accepted backend release                          | Production Gateway and MPC Router A/B only              |
 | `deploy-staging-frontend.yml`            | `Deploy / staging / frontend`            | Successful matching staging stack receipt, or manual accepted frontend release and stack receipt    | Staging app Pages, signer Pages, and SDK assets only    |
@@ -461,7 +461,7 @@ approved deployment evidence store before the originating run expires.
 - [x] Preserve the authority distinction between push validation and
       pull-request validation.
 - [x] Delete the old `validate-router-ab.yml`; the replacement is
-      `validate-cloudflare-mpc-router-ab.yml`.
+      `validate-cloudflare-router-ab.yml`.
 - [ ] Update branch protection rules to require the renamed validation jobs.
 - [x] Update every `workflow_run.workflows` reference to the new display name.
 
@@ -611,8 +611,9 @@ retention policy.
       deployment, manual promotion, and frontend rollback.
 - [x] Use independent non-canceling concurrency groups for backend and frontend
       in each environment.
-- [ ] Add a protected `production-frontend` approval gate with Pages-only
-      credentials. Keep backend credentials inaccessible.
+- [x] Bind frontend deployment to the existing protected `production`
+      environment with Pages-only credentials. Keep backend credentials
+      inaccessible.
 - [x] Preserve Gateway-before-Pages ordering for mixed releases through the
       required backend coordination receipt.
 - [x] Update the workflow generator so the staging and production frontend

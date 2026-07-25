@@ -81,7 +81,11 @@ Target capabilities derive the Gateway secret requirement at runtime:
 
 - An enabled capability requires and uploads its declared secrets.
 - A disabled capability ignores those secrets and never uploads them.
-- Each secret has one component owner and is mapped explicitly in that job.
+- Required secret names live only in `deployment/targets.json`. Preflight
+  receives the bound environment through `toJSON(secrets)` and checks names
+  without printing values.
+- Optional Gateway secrets are uploaded when configured and are not required
+  by preflight.
 
 This keeps configuration validation ahead of every remote mutation.
 
@@ -99,10 +103,10 @@ The backend lane contains five separately bound component environments:
 | `<target>` | Cloudflare Pages credentials and public frontend build configuration |
 
 Deriver A and Deriver B secrets never share a job. The preflight matrix binds
-one custody environment per leg and checks only that environment's candidate
-secrets. The existing `staging` and `production` environments own the frontend
-build variables and Pages credentials. See [infra.md](infra.md) for the
-complete environment and secret tables.
+one custody environment per leg and checks its inventory against
+`deployment/targets.json`. The existing `staging` and `production`
+environments own the frontend build variables and Pages credentials. See
+[infra.md](infra.md) for the complete environment and secret tables.
 
 ## Deployment order
 
@@ -110,22 +114,20 @@ complete environment and secret tables.
 
 The hand-written backend workflow makes this dependency order visible:
 
-1. Dispatch the production workflow manually from `main` when the target is
-   `production`.
-2. Validate the branch, check out `${{ github.sha }}`, parse
-   `deployment/targets.json`, and resolve enabled capabilities.
-3. Complete every component-scoped preflight. The build may run alongside this
-   read-only work because it has no remote side effects.
-4. Build all backend components once in a clean workspace.
-5. Apply D1 migrations in order: console first, signer second. Migration
+1. Build all backend components once in a clean workspace. The first build
+   step rejects any branch other than `dev` for staging or `main` for
+   production.
+2. Complete every component-scoped preflight against the five existing custody
+   environments.
+3. Apply D1 migrations in order: console first, signer second. Migration
    fingerprints guard the operation.
-6. Deploy SigningWorker.
-7. Deploy Deriver A.
-8. Deploy Deriver B.
-9. Deploy MPC Router.
-10. Bootstrap the Gateway tenant, upsert the signing-root KEK, and deploy
-    Gateway.
-11. Run backend smoke checks for readiness, deployed SHA, and live bindings.
+4. Validate and deploy SigningWorker.
+5. Validate and deploy Deriver A.
+6. Validate and deploy Deriver B.
+7. Validate and deploy MPC Router.
+8. Validate Gateway configuration, bootstrap the tenant, upsert the
+   signing-root KEK, and deploy Gateway.
+9. Run backend smoke checks as the final Gateway job step.
 
 Gateway is last because it depends on the preceding backend services. A failed
 run leaves earlier steps applied; rerunning failed jobs uses the same workflow
@@ -133,18 +135,20 @@ SHA and successful same-run build artifact.
 
 ### Frontend
 
-The frontend workflow validates its target, builds the site once, deploys the
-app and wallet Pages projects from that same output, and runs HTTP readiness,
-SDK asset, and compatibility smoke checks. It does not wait for the backend
-workflow, and the backend workflow does not wait for it.
+The frontend workflow has one environment-bound job. It validates its target,
+builds the site once, deploys the app and wallet Pages projects from that same
+workspace, and runs HTTP readiness, SDK asset, and compatibility smoke checks.
+It does not wait for the backend workflow, and the backend workflow does not
+wait for it.
 
 ## Same-run artifacts
 
-The backend and frontend build jobs each produce one fixed-name artifact for
-the current run. Deploy jobs download that artifact from the same run and
-assert that the expected entry file exists before mutation. A failed-job rerun
-reuses the successful build; a full workflow rerun overwrites the fixed name
-within its own run.
+The backend build job produces one fixed-name artifact for the current run.
+The five deploy jobs download it and assert that their expected entry files
+exist before mutation. A failed-job rerun reuses the successful build; a full
+workflow rerun overwrites the fixed name within its own run. Frontend needs no
+artifact transfer because build, both Pages deployments, and smoke execute in
+one job.
 
 Artifacts never move between runs. There is no release manifest, cross-run
 promotion, or custom historical-run selection. The workflow event's commit is
