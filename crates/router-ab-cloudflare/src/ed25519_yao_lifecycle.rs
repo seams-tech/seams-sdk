@@ -1901,12 +1901,10 @@ impl RouterAbDeriverAYaoSessionDurableObject {
             }
             return Response::error("Deriver A pair preparation expired", 409);
         }
-        if request.acceptance.root_metadata_digest().bytes != root_metadata_digest {
-            return Response::error(
-                "Deriver B start acceptance root does not match prepared state",
-                409,
-            );
-        }
+        // The prepared record carries Deriver A's root metadata. The signed
+        // acceptance carries Deriver B's role-local metadata, which is
+        // validated by B before it emits the acceptance. A validates its own
+        // metadata again before opening the stream above.
         let started_at_ms = now_ms;
         let running_record = PairYaoSessionRecordV1::Running {
             pair_digest,
@@ -3487,6 +3485,10 @@ async fn execute_deriver_a_role(
                     acceptance.ok_or_else(|| {
                         invalid_lifecycle("Deriver B start acceptance is missing")
                     })?,
+                    peer_receipt
+                        .ok_or_else(|| invalid_lifecycle("Deriver B readiness receipt is missing"))?
+                        .root_metadata_digest()
+                        .bytes,
                     trace_id,
                 )
                 .await?;
@@ -3561,6 +3563,10 @@ async fn execute_deriver_a_role(
                     acceptance.ok_or_else(|| {
                         invalid_lifecycle("Deriver B start acceptance is missing")
                     })?,
+                    peer_receipt
+                        .ok_or_else(|| invalid_lifecycle("Deriver B readiness receipt is missing"))?
+                        .root_metadata_digest()
+                        .bytes,
                     trace_id,
                 )
                 .await?;
@@ -4672,8 +4678,14 @@ async fn confirm_deriver_a_pair_start(
     pair_binding: Ed25519YaoInputPairBindingV1,
     execution_id: Ed25519YaoExecutionIdV1,
     acceptance: Ed25519YaoRoleStartAcceptanceV1,
+    expected_peer_root_metadata_digest: [u8; 32],
     trace_id: RoleTraceContextV1,
 ) -> RouterAbProtocolResult<()> {
+    if acceptance.root_metadata_digest().bytes != expected_peer_root_metadata_digest {
+        return Err(invalid_lifecycle(
+            "Deriver B start acceptance root does not match its readiness receipt",
+        ));
+    }
     let mut response = execute_deriver_a_pair_command(
         env,
         DeriverAYaoSessionCommandV1::StartPair {
@@ -5254,6 +5266,19 @@ mod tests {
             conflicting,
             CloudflareEd25519YaoRoleFailureResponseV1::Rejected {
                 code: RouterEd25519YaoExecuteFailureCodeV1::ConflictingPair,
+            }
+        );
+
+        let untyped_conflict = CloudflareEd25519YaoRoleFailureResponseV1::from_protocol_error(
+            &RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "Deriver B pair is already running",
+            ),
+        );
+        assert_eq!(
+            untyped_conflict,
+            CloudflareEd25519YaoRoleFailureResponseV1::Rejected {
+                code: RouterEd25519YaoExecuteFailureCodeV1::TerminalRoleFailure,
             }
         );
     }
