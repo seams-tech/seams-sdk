@@ -87,7 +87,9 @@ function testEcdsaSigner(walletId: WalletId, now: number): WalletEcdsaSignerReco
   return createWalletEcdsaSignerRecord({ walletId, now });
 }
 
-function testPasskeyAuthority(walletId: WalletId): RegistrationAuthority {
+function testPasskeyAuthority(
+  walletId: WalletId,
+): Extract<RegistrationAuthority, { readonly kind: 'passkey' }> {
   return {
     kind: 'passkey',
     walletId,
@@ -119,6 +121,7 @@ test('D1 registration commit stores a mixed Ed25519 and ECDSA wallet atomically'
     });
 
     await store.commit({
+      kind: 'passkey_wallet_registration_commit_v1',
       wallet: testWalletRecord(walletId, now),
       walletSigners: [testEd25519Signer(walletId, now), testEcdsaSigner(walletId, now)],
       authority: testPasskeyAuthority(walletId),
@@ -198,6 +201,7 @@ test('D1 registration commit rolls back every mixed-wallet record when one signe
 
     await expect(
       store.commit({
+        kind: 'passkey_wallet_registration_commit_v1',
         wallet: testWalletRecord(walletId, now),
         walletSigners: [testEd25519Signer(walletId, now), invalidEcdsaSigner],
         authority: testPasskeyAuthority(walletId),

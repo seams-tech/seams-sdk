@@ -36,6 +36,8 @@ import type { SessionAdapter } from './routerApi';
 import { createRouterApiModule, type RouterApiModule } from './modules';
 import { signRouterAbEd25519WalletSessionJwt } from './commonRouterUtils';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
+import { sha256BytesUtf8 } from '@shared/utils/digests';
+import { base64UrlEncode } from '@shared/utils/encoders';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { deriveSigningRootId, type RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
@@ -442,12 +444,35 @@ function requireInheritedWalletSessionTerms(args: {
   };
 }
 
-function resolveRouterAbEd25519YaoWalletSessionTermsV1(
+async function deriveRegistrationSigningGrantId(input: {
+  readonly thresholdSessionId: string;
+  readonly signingWorkerId: string;
+}): Promise<string> {
+  const thresholdSessionId = input.thresholdSessionId.trim();
+  const signingWorkerId = input.signingWorkerId.trim();
+  if (!thresholdSessionId) throw new Error('Registration thresholdSessionId is required');
+  if (!signingWorkerId) throw new Error('Registration SigningWorker ID is required');
+  const digest = await sha256BytesUtf8(
+    `seams.router-ab.ed25519-yao.registration-signing-grant.v1\0${signingWorkerId}\0${thresholdSessionId}`,
+  );
+  return `wss_${base64UrlEncode(digest)}`;
+}
+
+async function resolveRouterAbEd25519YaoWalletSessionTermsV1(
   input: RouterAbEd25519YaoWalletSessionMintInputV1,
-): RouterAbEd25519YaoWalletSessionTermsV1 {
+  signingWorkerId: string,
+): Promise<RouterAbEd25519YaoWalletSessionTermsV1> {
   const nowMs = Date.now();
   switch (input.kind) {
     case 'registration_wallet_session_v1':
+      return {
+        signingGrantId: await deriveRegistrationSigningGrantId({
+          thresholdSessionId: input.thresholdSessionId,
+          signingWorkerId,
+        }),
+        expiresAtMs: nowMs + DEFAULT_WALLET_SESSION_TTL_MS,
+        remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
+      };
     case 'add_signer_wallet_session_v1':
       return {
         signingGrantId: `wss_${secureRandomBase64Url(24)}`,
@@ -546,7 +571,10 @@ export async function mintRouterAbEd25519YaoWalletSessionV1(input: {
   const signingWorkerId = input.signingWorkerId.trim();
   if (!signingWorkerId) throw new Error('Ed25519 Yao SigningWorker ID is required');
   const sessionInput = input.sessionInput;
-  const terms = resolveRouterAbEd25519YaoWalletSessionTermsV1(sessionInput);
+  const terms = await resolveRouterAbEd25519YaoWalletSessionTermsV1(
+    sessionInput,
+    signingWorkerId,
+  );
   const signingRootId = deriveSigningRootId(sessionInput.runtimePolicyScope);
   const signingRootVersion = sessionInput.runtimePolicyScope.signingRootVersion;
   const routerAbNormalSigning = {
