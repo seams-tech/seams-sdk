@@ -266,6 +266,39 @@ test('backend and frontend deployment workflows have independent non-canceling c
   }
 });
 
+test('Gateway deployment jobs pass every required secret to the secrets-file builder', () => {
+  const requiredSecretNames = [
+    'RELAY_SESSION_HMAC_SECRET',
+    'ACCOUNT_ID_DERIVATION_SECRET',
+    'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
+    'ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK',
+    'STRIPE_API_SK',
+  ] as const;
+
+  for (const filename of [
+    'deploy-staging-cloudflare-stack.yml',
+    'deploy-production-cloudflare-stack.yml',
+  ]) {
+    const jobs = readWorkflowJobs(readWorkflow(filename));
+    for (const jobId of ['auto_deploy_gateway', 'manual_deploy_gateway']) {
+      const job = requireRecord(jobs[jobId], `${filename} ${jobId}`);
+      const env = requireRecord(job.env, `${filename} ${jobId} env`);
+      for (const name of requiredSecretNames) {
+        expect(env[name]).toBe(`\${{ secrets.${name} }}`);
+      }
+
+      const validationStep = readJobSteps(job).find(
+        (step) => step.name === 'Validate deployment credentials and secrets',
+      );
+      expect(validationStep).toBeTruthy();
+      const validationText = JSON.stringify(validationStep);
+      for (const name of requiredSecretNames) {
+        expect(validationText).toContain(name);
+      }
+    }
+  }
+});
+
 test('no-op backend receipt creation is bounded and has no mutation or build path', () => {
   for (const target of frontendTargets) {
     const backendFilename = target.backendWorkflowName.includes('staging')
