@@ -812,6 +812,12 @@ receipts are recorded.
   - [ ] Wire recovery admission, execution, and activation to the partitioned
         store as one coherent cutover after activation has an idempotent
         side-effect boundary.
+    - [x] Persist the activation claim before Router promotion and replace the
+          active wallet capability together with an exact operation receipt in
+          one D1 transaction. Exact retries reconcile response loss from that
+          receipt without repeating the wallet write.
+    - [ ] Compose admission, execution, and activation behind the same drain
+          selector and enable them only after local cutover validation.
   - [ ] Move export admission, execution, redelivery, and authorization state
         to the partitioned store with typed conflict and uncertainty handling.
   - [ ] Move remaining replay, authorization, and session state out of the
@@ -986,18 +992,20 @@ generated deployment config leaves both values empty until the wallet-finalize
 state bridge is ready. Enabling the D1 route before that bridge would create an
 independent state copy that finalization could not observe.
 
-Wallet registration start/bind/finalize, recovery, export, activation/session
-side effects, and the non-Yao API still use `ROUTER_API_RUNTIME`. Recovery
+Wallet registration start/bind/finalize, recovery route selection, export,
+remaining session side effects, and the non-Yao API still use
+`ROUTER_API_RUNTIME`. Recovery
 admission and execution now expose typed request-scoped preparation and
 completion boundaries that persist `admitting` or `executing` before the
 backend call and preserve those claims on transport uncertainty. The recovery
 session index is part of the shared CAS record, so a backend session cannot be
 accepted by two lifecycle partitions. This adapter is deliberately
-foundation-only: recovery activation replaces the wallet
-capability before product-state promotion, so a terminal CAS conflict can occur
-after that one-use side effect. All recovery routes stay on the tenant runtime
-until activation has an idempotent side-effect receipt or equivalent atomic
-bridge and the three routes can cut over together. Acceptance
+foundation-only at the route-selection boundary. Recovery activation now
+persists `activating` before Router promotion and commits the wallet capability
+replacement with an exact D1 operation receipt. A lost D1 response or terminal
+product-state CAS conflict is reconciled from that receipt without repeating
+the wallet write. All three recovery routes stay on the tenant runtime until
+they are composed behind one drain selector and validated together. Acceptance
 criterion 3 therefore remains an explicit Gateway persistence refactor gate:
 migrate those remaining routes to typed side-effect boundaries, gather drain
 evidence, then delete the binding and its migration. This is separate from the
