@@ -143,13 +143,13 @@ Binding, yet Yao activation bypasses it.
 
 Historical production tracing during the regression investigation observed approximately:
 
-| Span | Observed wall time |
-| --- | ---: |
-| Deriver B Stage | 884 ms |
-| Deriver A Start, including the A/B ceremony | 1.8 s |
-| Deriver B Result | 65 ms |
-| Successful post-Touch-ID product flow before the first fixes | 10–12 s |
-| Successful post-Touch-ID product flow after the first fixes | about 6 s |
+| Span                                                         | Observed wall time |
+| ------------------------------------------------------------ | -----------------: |
+| Deriver B Stage                                              |             884 ms |
+| Deriver A Start, including the A/B ceremony                  |              1.8 s |
+| Deriver B Result                                             |              65 ms |
+| Successful post-Touch-ID product flow before the first fixes |            10–12 s |
+| Successful post-Touch-ID product flow after the first fixes  |          about 6 s |
 
 The underlying storage writes were generally tens of milliseconds or less.
 Serial Worker, Durable Object, and peer-boundary wakeups multiplied the
@@ -217,7 +217,7 @@ This refactor does not:
 9. A missing or mismatched B preparation fails closed and identifies a Router
    coordinator defect. The execution path contains no coordination retry loop.
 10. A and B independently enforce one-use execution in their own Durable
-   Object namespaces.
+    Object namespaces.
 11. `Running` never returns to `Prepared`.
 12. Ambiguity after either role enters `Running` burns that execution identity.
 13. `Completed` permits exact encrypted-result redelivery only.
@@ -583,17 +583,17 @@ terminal role state fail immediately.
 
 Retry behavior is forward-only:
 
-| Observed state | Exact retry behavior |
-| --- | --- |
-| Neither role prepared | Prepare both roles and execute |
-| One or both roles `Prepared`, neither `Running` | Reissue exact preparation, verify both receipts, then execute |
-| Any role `Running` after caller uncertainty | Reconcile; burn on unresolved ambiguity |
-| Both roles `Completed` with the exact pair | Redeliver exact encrypted outputs |
-| SigningWorker delivery uncertain | Retry the exact atomic package-pair command |
-| SigningWorker has the exact terminal receipt | Return the canonical terminal receipt |
-| Conflicting pair digest | Reject |
-| Terminal role failure | Return the canonical sanitized failure |
-| Expired nonterminal state | Return typed `ceremony_expired`; Gateway/client allocates a new ceremony identity |
+| Observed state                                  | Exact retry behavior                                                              |
+| ----------------------------------------------- | --------------------------------------------------------------------------------- |
+| Neither role prepared                           | Prepare both roles and execute                                                    |
+| One or both roles `Prepared`, neither `Running` | Reissue exact preparation, verify both receipts, then execute                     |
+| Any role `Running` after caller uncertainty     | Reconcile; burn on unresolved ambiguity                                           |
+| Both roles `Completed` with the exact pair      | Redeliver exact encrypted outputs                                                 |
+| SigningWorker delivery uncertain                | Retry the exact atomic package-pair command                                       |
+| SigningWorker has the exact terminal receipt    | Return the canonical terminal receipt                                             |
+| Conflicting pair digest                         | Reject                                                                            |
+| Terminal role failure                           | Return the canonical sanitized failure                                            |
+| Expired nonterminal state                       | Return typed `ceremony_expired`; Gateway/client allocates a new ceremony identity |
 
 A generic network retry cannot allocate a new transcript under the same
 execution identity. The Gateway retains and replays the byte-exact admitted
@@ -615,9 +615,11 @@ digests and therefore requires a new ceremony identity.
 - [x] Freeze the current successful registration, recovery, and export
       response contracts.
 - [ ] Add intended-behaviour assertions for exact retry and terminal failure.
-- [ ] Review the measured critical path before Phase 1. If the dominant
-      remaining latency lies outside Yao orchestration, pause later phases and
-      rescope the work around the measured owner.
+- [x] Superseded: review the measured critical path before Phase 1. Phases 1–4
+      landed before a complete production baseline could be captured.
+- [ ] Review the measured critical path before production acceptance. If the
+      dominant remaining latency lies outside Yao orchestration, rescope the
+      remaining work around the measured owner.
 - [ ] Derive a Router-owned `gateway.yao_execute` p50/p95 budget from the
       baseline. Keep the Touch-ID-to-wallet-ready target as a separate
       product-level budget.
@@ -791,7 +793,8 @@ receipts are recorded.
       Yao WebSocket stream.
 - [x] Keep role-local Durable Object classes and their current secret
       boundaries.
-- [x] Verify the repository contains one production Yao orchestration owner.
+- [ ] After the boundary drain, verify the repository and deployment contain
+      one reachable production Yao orchestration owner.
 
 The Gateway backend no longer contains the serial Stage/Start/Result or direct
 Yao package-delivery flow. The remaining Deriver Stage/Result handlers and
@@ -809,7 +812,10 @@ be replayed here. Contract tests and optimized four-Worker dry-runs are green;
 the first external validation must be a coherent staging rollout before any
 route-deletion cleanup.
 
-- [x] Deploy the new Router private route.
+- [ ] Deploy the new Router private route as part of one coherent staging
+      release. The historical route deployment was overwritten by the
+      2026-07-25 staging stack run, whose selected source did not contain the
+      Refactor 93 coordinator.
 - [x] Superseded: validate the Router while the Gateway still uses the old
       request boundary. The branch already contains the Gateway cutover, so this
       ordering cannot be replayed. The coherent staging rollout below replaces
@@ -822,7 +828,8 @@ route-deletion cleanup.
 - [ ] Deploy the route-deletion cleanup.
 - [ ] Run cold-after-deploy and warm production cohorts.
 - [ ] Compare latency, errors, Durable Object calls, Worker invocations, CPU,
-      active duration, exact replay, and conflicts against Phase 0.
+      active duration, exact replay, and conflicts against the historical
+      partial observations and the first fully instrumented candidate cohort.
 - [ ] Confirm receipt sequencing improves or preserves p95 after including the
       additional A preparation request.
 - [ ] Record the final evidence in the Yao deployment plan.
@@ -875,8 +882,8 @@ an explicit scope decision:
   role routes and SigningWorker transport retain their existing protocol-error
   boundary until the drain cleanup.
 - Pair lifecycle failure classification is now protocol-code driven for missing
-      preparation, expired preparation, and pair conflicts. Human-readable error
-      text remains diagnostic and cannot select a retry or rejection branch.
+  preparation, expired preparation, and pair conflicts. Human-readable error
+  text remains diagnostic and cannot select a retry or rejection branch.
 - The Router's one-shot B result read now consumes a typed completion
   acknowledgment envelope. The envelope revalidates the session, pair digest,
   role, and execution before transcript validation; a pending B state remains a
