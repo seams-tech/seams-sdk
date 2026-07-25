@@ -54,7 +54,7 @@ const EVENT_SPAN_FAMILIES = {
 const UNIQUE_BUDGET_SPANS = ['registration.post_touch_id', 'gateway.yao_execute'];
 const REQUIRED_EXECUTION_TELEMETRY_FIELDS = [
   { wireName: 'cpu_ms', name: 'cpuMs', kind: 'number' },
-  { wireName: 'active_duration_ms', name: 'activeDurationMs', kind: 'number' },
+  { wireName: 'wall_time_ms', name: 'wallTimeMs', kind: 'number' },
   { wireName: 'memory_mb', name: 'memoryMb', kind: 'number' },
   {
     wireName: 'durable_object_call_count',
@@ -75,6 +75,10 @@ const CAPTURE_METHODS = new Set([
 const COHORTS = new Set(['cold_after_deploy', 'warm']);
 const ISOLATE_REUSE_STATES = new Set(['new', 'reused', 'unknown']);
 const ROLE_INSTANCE_DISPOSITIONS = new Set(['new', 'reused']);
+const WORKERS_EXECUTION_MODELS = new Set(['durableObject', 'stateless']);
+const WORKERS_RESOURCE_JOIN_KINDS = new Set(['same_record', 'request_id_join', 'custom_log_only']);
+const WORKERS_LOG_PAYLOAD_FIELDS = ['source', 'message', 'logs', 'Logs'];
+const WORKERS_LOG_CONTAINER_FIELDS = ['result', 'events', 'data'];
 
 export function parseRefactor93EvidenceManifest(value) {
   const record = requireRecord(value, 'evidence manifest');
@@ -115,6 +119,7 @@ export function parseRefactor93EvidenceManifest(value) {
 export function parseRefactor93SpanJsonl(text, sourceLabel = '<input>') {
   const events = [];
   const rejectedLines = [];
+  const parsedLines = [];
   const lines = text.split(/\r?\n/u);
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index].trim();
@@ -130,7 +135,33 @@ export function parseRefactor93SpanJsonl(text, sourceLabel = '<input>') {
       });
       continue;
     }
-    collectSpanCandidates(value, events, sourceLabel, index + 1);
+    parsedLines.push({ value, line: index + 1 });
+  }
+  const workersLogRecords = [];
+  for (const parsedLine of parsedLines) {
+    collectWorkersLogRecords(
+      parsedLine.value,
+      workersLogRecords,
+      rejectedLines,
+      sourceLabel,
+      parsedLine.line,
+    );
+  }
+  const workersLogRecordsByWrapper = new Map();
+  for (const record of workersLogRecords) {
+    workersLogRecordsByWrapper.set(record.wrapper, record);
+  }
+  const workersInvocationResources = indexWorkersInvocationResources(workersLogRecords);
+  for (const parsedLine of parsedLines) {
+    collectSpanCandidates(
+      parsedLine.value,
+      events,
+      rejectedLines,
+      sourceLabel,
+      parsedLine.line,
+      workersLogRecordsByWrapper,
+      workersInvocationResources,
+    );
   }
   return { events, rejectedLines };
 }
@@ -226,15 +257,312 @@ function parseTraceManifestEntry(value, index) {
   return { traceId, cohort, isolateReuse };
 }
 
-function collectSpanCandidates(value, events, source, line) {
-  if (isRecord(value) && looksLikeSpanEvent(value)) {
-    events.push({ ...value, source, line });
+function collectWorkersLogRecords(value, records, rejectedLines, source, line) {
+  if (Array.isArray(value)) {
+    for (const child of value) {
+      collectWorkersLogRecords(child, records, rejectedLines, source, line);
+    }
     return;
   }
   if (!isRecord(value)) return;
-  collectMessageCandidates(value.message, events, source, line);
-  collectMessageCandidates(value.logs, events, source, line);
-  collectMessageCandidates(value.Logs, events, source, line);
+  if (Object.hasOwn(value, '$workers')) {
+    try {
+      records.push(parseWorkersLogRecord(value, source, line));
+    } catch (error) {
+      addRejectedLine(rejectedLines, source, line, error);
+    }
+    return;
+  }
+  for (const field of WORKERS_LOG_CONTAINER_FIELDS) {
+    collectWorkersLogRecords(value[field], records, rejectedLines, source, line);
+  }
+  collectWorkersInvocationGroups(value.invocations, records, rejectedLines, source, line);
+}
+
+function collectWorkersInvocationGroups(value, records, rejectedLines, source, line) {
+  if (!isRecord(value)) return;
+  for (const group of Object.values(value)) {
+    collectWorkersLogRecords(group, records, rejectedLines, source, line);
+  }
+}
+
+function parseWorkersLogRecord(wrapper, source, line) {
+  const label = `${source}:${line} Workers Logs record`;
+  const workers = requireRecord(wrapper.$workers, `${label} $workers`);
+  const metadata = requireRecord(wrapper.$metadata, `${label} $metadata`);
+  requireString(metadata.id, `${label} $metadata.id`);
+  requireString(wrapper.dataset, `${label} dataset`);
+  requireWorkersLogSource(wrapper.source, `${label} source`);
+  requireNonNegativeFiniteNumber(wrapper.timestamp, `${label} timestamp`);
+  const requestId = requireString(workers.requestId, `${label} $workers.requestId`);
+  const scriptName = requireString(workers.scriptName, `${label} $workers.scriptName`);
+  requireMatchingOptionalString(
+    metadata.requestId,
+    requestId,
+    `${label} $metadata.requestId`,
+    '$workers.requestId',
+  );
+  requireMatchingOptionalString(
+    metadata.service,
+    scriptName,
+    `${label} $metadata.service`,
+    '$workers.scriptName',
+  );
+  const executionModel =
+    workers.executionModel === undefined
+      ? null
+      : requireEnum(
+          workers.executionModel,
+          WORKERS_EXECUTION_MODELS,
+          `${label} $workers.executionModel`,
+        );
+  const durableObjectId =
+    workers.durableObjectId === undefined
+      ? null
+      : requireString(workers.durableObjectId, `${label} $workers.durableObjectId`);
+  const hasCpuTime = Object.hasOwn(workers, 'cpuTimeMs');
+  const hasWallTime = Object.hasOwn(workers, 'wallTimeMs');
+  if (hasCpuTime !== hasWallTime) {
+    throw new Error(`${label} must carry $workers.cpuTimeMs and $workers.wallTimeMs together`);
+  }
+  const invocationMetrics = hasCpuTime
+    ? {
+        cpuMs: requireNonNegativeFiniteNumber(workers.cpuTimeMs, `${label} $workers.cpuTimeMs`),
+        wallTimeMs: requireNonNegativeFiniteNumber(
+          workers.wallTimeMs,
+          `${label} $workers.wallTimeMs`,
+        ),
+      }
+    : null;
+  return {
+    wrapper,
+    requestId,
+    scriptName,
+    executionModel,
+    durableObjectId,
+    invocationMetrics,
+    source,
+    line,
+  };
+}
+
+function requireWorkersLogSource(value, label) {
+  if (typeof value !== 'string' && !isRecord(value)) {
+    throw new Error(`${label} must be a string or object`);
+  }
+}
+
+function requireMatchingOptionalString(value, expected, label, expectedLabel) {
+  if (value === undefined) return;
+  const actual = requireString(value, label);
+  if (actual !== expected) {
+    throw new Error(`${label} must equal ${expectedLabel}`);
+  }
+}
+
+function indexWorkersInvocationResources(records) {
+  const resources = new Map();
+  for (const record of records) {
+    if (record.invocationMetrics === null) continue;
+    const key = workersResourceKey(record);
+    const current = resources.get(key);
+    if (current) current.push(record);
+    else resources.set(key, [record]);
+  }
+  return resources;
+}
+
+function workersResourceKey(record) {
+  return `${record.requestId}\u0000${record.scriptName}`;
+}
+
+function collectSpanCandidates(
+  value,
+  events,
+  rejectedLines,
+  source,
+  line,
+  workersLogRecordsByWrapper,
+  workersInvocationResources,
+) {
+  if (Array.isArray(value)) {
+    for (const child of value) {
+      collectSpanCandidates(
+        child,
+        events,
+        rejectedLines,
+        source,
+        line,
+        workersLogRecordsByWrapper,
+        workersInvocationResources,
+      );
+    }
+    return;
+  }
+  if (isRecord(value) && looksLikeSpanEvent(value)) {
+    events.push(unwrappedSpanCandidate(value, source, line));
+    return;
+  }
+  if (!isRecord(value)) return;
+  if (Object.hasOwn(value, '$workers')) {
+    const workersLogRecord = workersLogRecordsByWrapper.get(value);
+    if (!workersLogRecord) return;
+    for (const field of WORKERS_LOG_PAYLOAD_FIELDS) {
+      collectWorkersLogPayload(
+        value[field],
+        workersLogRecord,
+        events,
+        rejectedLines,
+        source,
+        line,
+        workersInvocationResources,
+      );
+    }
+    return;
+  }
+  for (const field of WORKERS_LOG_PAYLOAD_FIELDS) {
+    collectMessageCandidates(value[field], events, source, line);
+  }
+  for (const field of WORKERS_LOG_CONTAINER_FIELDS) {
+    collectSpanCandidates(
+      value[field],
+      events,
+      rejectedLines,
+      source,
+      line,
+      workersLogRecordsByWrapper,
+      workersInvocationResources,
+    );
+  }
+  collectWorkersInvocationSpanGroups(
+    value.invocations,
+    events,
+    rejectedLines,
+    source,
+    line,
+    workersLogRecordsByWrapper,
+    workersInvocationResources,
+  );
+}
+
+function collectWorkersInvocationSpanGroups(
+  value,
+  events,
+  rejectedLines,
+  source,
+  line,
+  workersLogRecordsByWrapper,
+  workersInvocationResources,
+) {
+  if (!isRecord(value)) return;
+  for (const group of Object.values(value)) {
+    collectSpanCandidates(
+      group,
+      events,
+      rejectedLines,
+      source,
+      line,
+      workersLogRecordsByWrapper,
+      workersInvocationResources,
+    );
+  }
+}
+
+function collectWorkersLogPayload(
+  value,
+  workersLogRecord,
+  events,
+  rejectedLines,
+  source,
+  line,
+  workersInvocationResources,
+) {
+  const candidates = [];
+  collectMessageCandidates(value, candidates, source, line);
+  for (const candidate of candidates) {
+    try {
+      events.push(
+        enrichSpanWithWorkersResource(candidate, workersLogRecord, workersInvocationResources),
+      );
+    } catch (error) {
+      addRejectedLine(rejectedLines, source, line, error);
+    }
+  }
+}
+
+function enrichSpanWithWorkersResource(candidate, logRecord, invocationResources) {
+  const sameRecordResource = logRecord.invocationMetrics === null ? null : logRecord;
+  const joinedResource =
+    sameRecordResource ?? selectJoinedWorkersInvocationResource(logRecord, invocationResources);
+  if (joinedResource === null) {
+    return {
+      ...candidate,
+      workers_resource: workersResourceAttribution(logRecord, null, 'custom_log_only'),
+    };
+  }
+  const joinKind = sameRecordResource === null ? 'request_id_join' : 'same_record';
+  return {
+    ...candidate,
+    cpu_ms: joinedResource.invocationMetrics.cpuMs,
+    wall_time_ms: joinedResource.invocationMetrics.wallTimeMs,
+    workers_resource: workersResourceAttribution(logRecord, joinedResource, joinKind),
+  };
+}
+
+function selectJoinedWorkersInvocationResource(logRecord, invocationResources) {
+  const candidates = invocationResources.get(workersResourceKey(logRecord)) ?? [];
+  const compatible = [];
+  for (const candidate of candidates) {
+    if (workersResourceMetadataMatches(logRecord, candidate)) compatible.push(candidate);
+  }
+  if (compatible.length === 0) return null;
+  const signatures = new Set(compatible.map(workersResourceSignature));
+  if (signatures.size !== 1) {
+    throw new Error(
+      `${logRecord.source}:${logRecord.line} has ambiguous Workers Logs invocation resources for requestId and scriptName`,
+    );
+  }
+  return compatible[0];
+}
+
+function workersResourceMetadataMatches(logRecord, resource) {
+  return (
+    optionalWorkersMetadataMatches(logRecord.executionModel, resource.executionModel) &&
+    optionalWorkersMetadataMatches(logRecord.durableObjectId, resource.durableObjectId)
+  );
+}
+
+function optionalWorkersMetadataMatches(left, right) {
+  return left === null || right === null || left === right;
+}
+
+function workersResourceSignature(resource) {
+  return JSON.stringify({
+    executionModel: resource.executionModel,
+    durableObjectId: resource.durableObjectId,
+    cpuMs: resource.invocationMetrics.cpuMs,
+    wallTimeMs: resource.invocationMetrics.wallTimeMs,
+  });
+}
+
+function workersResourceAttribution(logRecord, invocationResource, joinKind) {
+  return {
+    join_kind: joinKind,
+    request_id: logRecord.requestId,
+    script_name: logRecord.scriptName,
+    execution_model: invocationResource?.executionModel ?? logRecord.executionModel,
+    durable_object_id: invocationResource?.durableObjectId ?? logRecord.durableObjectId,
+  };
+}
+
+function addRejectedLine(rejectedLines, source, line, error) {
+  const reason = error instanceof Error ? error.message : String(error);
+  for (const rejected of rejectedLines) {
+    if (rejected.source === source && rejected.line === line && rejected.reason === reason) {
+      return;
+    }
+  }
+  rejectedLines.push({ source, line, reason });
 }
 
 function collectMessageCandidates(value, events, source, line) {
@@ -243,7 +571,13 @@ function collectMessageCandidates(value, events, source, line) {
     return;
   }
   if (isRecord(value)) {
-    collectSpanCandidates(value, events, source, line);
+    if (looksLikeSpanEvent(value)) {
+      events.push(unwrappedSpanCandidate(value, source, line));
+      return;
+    }
+    for (const field of WORKERS_LOG_PAYLOAD_FIELDS) {
+      collectMessageCandidates(value[field], events, source, line);
+    }
     return;
   }
   if (typeof value !== 'string') return;
@@ -253,7 +587,13 @@ function collectMessageCandidates(value, events, source, line) {
   } catch {
     return;
   }
-  collectSpanCandidates(decoded, events, source, line);
+  collectMessageCandidates(decoded, events, source, line);
+}
+
+function unwrappedSpanCandidate(value, source, line) {
+  const candidate = { ...value, source, line };
+  delete candidate.workers_resource;
+  return candidate;
 }
 
 function looksLikeSpanEvent(value) {
@@ -283,10 +623,45 @@ function parseSpanEvent(value, index) {
     durationMs,
     traceId: requireTraceId(record.trace_id, `${label} trace_id`),
     telemetry: parseSpanTelemetry(record, label),
+    workersResource: parseWorkersResourceAttribution(record, label),
     roleInstance: parseRoleInstance(record, label),
     role: typeof record.role === 'string' ? record.role : undefined,
     source: requireString(record.source, `${label} source`),
     line: requirePositiveSafeInteger(record.line, `${label} line`),
+  };
+}
+
+function parseWorkersResourceAttribution(record, label) {
+  if (!Object.hasOwn(record, 'workers_resource')) return undefined;
+  const resource = requireRecord(record.workers_resource, `${label} workers_resource`);
+  requireExactKeys(resource, `${label} workers_resource`, [
+    'join_kind',
+    'request_id',
+    'script_name',
+    'execution_model',
+    'durable_object_id',
+  ]);
+  const joinKind = requireEnum(
+    resource.join_kind,
+    WORKERS_RESOURCE_JOIN_KINDS,
+    `${label} workers_resource join_kind`,
+  );
+  return {
+    joinKind,
+    requestId: requireString(resource.request_id, `${label} workers_resource request_id`),
+    scriptName: requireString(resource.script_name, `${label} workers_resource script_name`),
+    executionModel:
+      resource.execution_model === null
+        ? null
+        : requireEnum(
+            resource.execution_model,
+            WORKERS_EXECUTION_MODELS,
+            `${label} workers_resource execution_model`,
+          ),
+    durableObjectId:
+      resource.durable_object_id === null
+        ? null
+        : requireString(resource.durable_object_id, `${label} workers_resource durable_object_id`),
   };
 }
 
@@ -383,6 +758,9 @@ function analyzeTrace(trace, events) {
   const executionEvent =
     successfulExecutionEvents.length === 1 ? successfulExecutionEvents[0] : undefined;
   const executionTelemetry = executionEvent?.telemetry ?? {};
+  const workersResource = executionEvent?.workersResource;
+  const workersExecutionTelemetryAttributed =
+    workersResource !== undefined && workersResource.joinKind !== 'custom_log_only';
   const missingExecutionTelemetry = REQUIRED_EXECUTION_TELEMETRY_FIELDS.filter(
     (field) => executionTelemetry[field.name] === undefined,
   ).map((field) => field.wireName);
@@ -426,6 +804,7 @@ function analyzeTrace(trace, events) {
       misownedSpans.length === 0 &&
       unknownIsolateReuse.length === 0 &&
       missingExecutionTelemetry.length === 0 &&
+      workersExecutionTelemetryAttributed &&
       d1QueriesInExecution === 0,
     isolateReuse: trace.isolateReuse,
     eventCount: registrationEvents.length,
@@ -438,6 +817,8 @@ function analyzeTrace(trace, events) {
     misownedSpans,
     unexpectedOperationCount: wrongOperationEvents.length,
     executionTelemetry,
+    workersResource,
+    workersExecutionTelemetryAttributed,
     missingExecutionTelemetry,
     d1QueriesInExecution,
     spanDurationsMs,
@@ -504,6 +885,11 @@ function addTraceBlockers(blockers, report) {
   if (report.missingExecutionTelemetry.length > 0) {
     blockers.push(
       `${report.traceId} missing gateway.yao_execute telemetry: ${report.missingExecutionTelemetry.join(', ')}`,
+    );
+  }
+  if (!report.workersExecutionTelemetryAttributed) {
+    blockers.push(
+      `${report.traceId} gateway.yao_execute CPU and wall time lack a Workers Logs invocation resource join`,
     );
   }
   if (report.d1QueriesInExecution !== null && report.d1QueriesInExecution > 0) {

@@ -42,6 +42,7 @@ test('production evidence gate accepts 20 complete correlated cold and warm trac
   assert.equal(report.budgets.gatewayYaoExecuteMs.all.p95, 1_018);
   assert.equal(report.budgets.postTouchIdToWalletReadyMs.all.p95, 2_018);
   assert.equal(report.telemetry.gatewayYaoExecute.cpuMs.all.p50, 20);
+  assert.equal(report.telemetry.gatewayYaoExecute.wallTimeMs.all.p50, 30);
   assert.equal(report.telemetry.gatewayYaoExecute.durableObjectCallCount.all.p95, 39);
   assert.equal(report.telemetry.gatewayYaoExecute.workerInvocationCount.all.p95, 49);
   assert.equal(report.telemetry.gatewayYaoExecute.d1QueryCount.all.max, 0);
@@ -108,6 +109,23 @@ test('evidence gate requires execution telemetry and rejects D1 work inside Yao'
   assert.equal(report.budgets.gatewayYaoExecuteMs.all.sampleCount, 18);
 });
 
+test('evidence gate requires Workers Logs attribution for CPU and wall time', () => {
+  const fixture = buildFixture({ environment: 'production', traceCount: 20 });
+  const execution = fixture.events.find((event) => event.span === 'gateway.yao_execute');
+  if (!execution) throw new Error('execution span fixture is required');
+  delete execution.workers_resource;
+
+  const report = analyzeRefactor93ProductionEvidence(fixture);
+
+  assert.equal(report.readiness.phase0BaselineReady, false);
+  assert.equal(report.traceReports[0].workersExecutionTelemetryAttributed, false);
+  assert.ok(
+    report.readiness.blockers.some((blocker) =>
+      blocker.includes('CPU and wall time lack a Workers Logs invocation resource join'),
+    ),
+  );
+});
+
 test('evidence gate requires role reconciliation only when an exact replay occurred', () => {
   const ordinary = buildFixture({ environment: 'production', traceCount: 20 });
   const ordinaryReport = analyzeRefactor93ProductionEvidence(ordinary);
@@ -158,22 +176,184 @@ test('evidence report distinguishes role object reuse from Worker isolate reuse'
   assert.equal(report.traceReports[0].isolateReuse.deriverA, 'new');
 });
 
-test('JSONL parser extracts direct, Wrangler tail, and Workers Logs span messages', () => {
+test('JSONL parser extracts direct and Wrangler tail span messages without inventing resources', () => {
   const traceId = traceIdFor(1);
-  const event = spanEvent(traceId, 'gateway.yao_execute', 900);
+  const event = spanWithoutExecutionTelemetry(spanEvent(traceId, 'gateway.yao_execute', 900));
+  event.workers_resource = {
+    join_kind: 'same_record',
+    request_id: 'forged-request',
+    script_name: 'forged-script',
+    execution_model: 'stateless',
+    durable_object_id: null,
+  };
   const text = [
     JSON.stringify(event),
     JSON.stringify({ logs: [{ message: [JSON.stringify(event)] }] }),
-    JSON.stringify({ message: [JSON.stringify(event)] }),
     'not-json',
   ].join('\n');
 
   const parsed = parseRefactor93SpanJsonl(text, 'fixture.jsonl');
 
-  assert.equal(parsed.events.length, 3);
+  assert.equal(parsed.events.length, 2);
   assert.equal(parsed.rejectedLines.length, 1);
   assert.equal(parsed.events[1].source, 'fixture.jsonl');
   assert.equal(parsed.events[1].line, 2);
+  assert.equal(parsed.events[0].workers_resource, undefined);
+  assert.equal(parsed.events[1].workers_resource, undefined);
+});
+
+test('Workers Logs record enriches only resource facts proven on the same record', () => {
+  const traceId = traceIdFor(1);
+  const event = spanWithoutExecutionTelemetry(spanEvent(traceId, 'gateway.yao_execute', 900));
+  const record = workersLogsRecord({
+    requestId: 'request-same-record',
+    scriptName: 'seams-sdk-d1-gateway-production',
+    source: { message: JSON.stringify(event) },
+    cpuTimeMs: 12.5,
+    wallTimeMs: 905,
+    executionModel: 'stateless',
+  });
+
+  const parsed = parseRefactor93SpanJsonl(JSON.stringify(record), 'workers-logs.jsonl');
+
+  assert.equal(parsed.rejectedLines.length, 0);
+  assert.equal(parsed.events.length, 1);
+  assert.equal(parsed.events[0].cpu_ms, 12.5);
+  assert.equal(parsed.events[0].wall_time_ms, 905);
+  assert.deepEqual(parsed.events[0].workers_resource, {
+    join_kind: 'same_record',
+    request_id: 'request-same-record',
+    script_name: 'seams-sdk-d1-gateway-production',
+    execution_model: 'stateless',
+    durable_object_id: null,
+  });
+  for (const unavailableField of [
+    'memory_mb',
+    'durable_object_call_count',
+    'worker_invocation_count',
+    'd1_query_count',
+    'exact_replay_count',
+    'conflict_count',
+  ]) {
+    assert.equal(Object.hasOwn(parsed.events[0], unavailableField), false);
+  }
+});
+
+test('Workers Logs query response joins a custom span to its invocation resource', () => {
+  const traceId = traceIdFor(1);
+  const event = spanWithoutExecutionTelemetry(spanEvent(traceId, 'gateway.yao_execute', 900));
+  const requestId = 'request-resource-join';
+  const scriptName = 'seams-sdk-d1-gateway-production';
+  const customLog = workersLogsRecord({
+    requestId,
+    scriptName,
+    source: { logs: [{ message: [JSON.stringify(event)] }] },
+  });
+  const invocation = workersLogsRecord({
+    requestId,
+    scriptName,
+    source: 'POST https://gateway.example/v1/wallets',
+    cpuTimeMs: 8,
+    wallTimeMs: 910,
+    executionModel: 'stateless',
+  });
+  const response = {
+    result: {
+      events: {
+        count: 2,
+        events: [customLog, invocation],
+      },
+    },
+  };
+
+  const parsed = parseRefactor93SpanJsonl(JSON.stringify(response), 'workers-query.jsonl');
+
+  assert.equal(parsed.rejectedLines.length, 0);
+  assert.equal(parsed.events.length, 1);
+  assert.equal(parsed.events[0].cpu_ms, 8);
+  assert.equal(parsed.events[0].wall_time_ms, 910);
+  assert.equal(parsed.events[0].workers_resource.join_kind, 'request_id_join');
+  assert.equal(parsed.events[0].workers_resource.request_id, requestId);
+  assert.equal(parsed.events[0].workers_resource.script_name, scriptName);
+});
+
+test('Workers Logs resource join rejects ambiguity and does not cross script metadata', () => {
+  const traceId = traceIdFor(1);
+  const event = spanWithoutExecutionTelemetry(spanEvent(traceId, 'gateway.yao_execute', 900));
+  const customLog = workersLogsRecord({
+    requestId: 'request-metadata-mismatch',
+    scriptName: 'seams-sdk-d1-gateway-production',
+    source: event,
+  });
+  const otherScriptInvocation = workersLogsRecord({
+    requestId: 'request-metadata-mismatch',
+    scriptName: 'router-ab-mpc-router-production',
+    source: 'POST https://router.internal',
+    cpuTimeMs: 6,
+    wallTimeMs: 800,
+    executionModel: 'stateless',
+  });
+
+  const mismatched = parseRefactor93SpanJsonl(
+    [customLog, otherScriptInvocation].map(JSON.stringify).join('\n'),
+    'mismatched.jsonl',
+  );
+
+  assert.equal(mismatched.rejectedLines.length, 0);
+  assert.equal(mismatched.events.length, 1);
+  assert.equal(mismatched.events[0].cpu_ms, undefined);
+  assert.equal(mismatched.events[0].wall_time_ms, undefined);
+  assert.equal(mismatched.events[0].workers_resource.join_kind, 'custom_log_only');
+
+  const firstInvocation = workersLogsRecord({
+    requestId: 'request-ambiguous',
+    scriptName: 'seams-sdk-d1-gateway-production',
+    source: 'POST https://gateway.example',
+    cpuTimeMs: 5,
+    wallTimeMs: 700,
+  });
+  const secondInvocation = structuredClone(firstInvocation);
+  secondInvocation.$workers.cpuTimeMs = 7;
+  const ambiguousCustomLog = workersLogsRecord({
+    requestId: 'request-ambiguous',
+    scriptName: 'seams-sdk-d1-gateway-production',
+    source: event,
+  });
+  const ambiguous = parseRefactor93SpanJsonl(
+    JSON.stringify({ events: [ambiguousCustomLog, firstInvocation, secondInvocation] }),
+    'ambiguous.jsonl',
+  );
+
+  assert.equal(ambiguous.events.length, 0);
+  assert.equal(ambiguous.rejectedLines.length, 1);
+  assert.match(ambiguous.rejectedLines[0].reason, /ambiguous Workers Logs invocation resources/u);
+});
+
+test('Workers Logs parser rejects malformed and internally mismatched metadata', () => {
+  const traceId = traceIdFor(1);
+  const event = spanWithoutExecutionTelemetry(spanEvent(traceId, 'gateway.yao_execute', 900));
+  const mismatchedMetadata = workersLogsRecord({
+    requestId: 'request-workers',
+    scriptName: 'seams-sdk-d1-gateway-production',
+    source: event,
+  });
+  mismatchedMetadata.$metadata.requestId = 'different-request';
+  const malformedMetrics = workersLogsRecord({
+    requestId: 'request-malformed',
+    scriptName: 'seams-sdk-d1-gateway-production',
+    source: event,
+    cpuTimeMs: 4,
+  });
+
+  const parsed = parseRefactor93SpanJsonl(
+    [mismatchedMetadata, malformedMetrics].map(JSON.stringify).join('\n'),
+    'malformed.jsonl',
+  );
+
+  assert.equal(parsed.events.length, 0);
+  assert.equal(parsed.rejectedLines.length, 2);
+  assert.match(parsed.rejectedLines[0].reason, /must equal \$workers\.requestId/u);
+  assert.match(parsed.rejectedLines[1].reason, /cpuTimeMs and \$workers\.wallTimeMs together/u);
 });
 
 test('nearest-rank percentile is deterministic for the 20-trace gate', () => {
@@ -209,7 +389,7 @@ function buildFixture(input) {
       schemaVersion: 1,
       environment: input.environment,
       capturedAt: '2026-07-24T00:00:00.000Z',
-      captureMethod: synthetic ? 'synthetic_test' : 'wrangler_tail_json',
+      captureMethod: synthetic ? 'synthetic_test' : 'cloudflare_workers_logs_export',
       release: {
         sourceSha: 'a'.repeat(40),
         gatewayVersionId: 'gateway-v1',
@@ -223,7 +403,7 @@ function buildFixture(input) {
     events,
     inputFiles: [
       {
-        path: '/evidence/worker-tail.jsonl',
+        path: '/evidence/workers-logs.jsonl',
         sha256: 'b'.repeat(64),
         rejectedJsonLineCount: 0,
       },
@@ -254,17 +434,64 @@ function spanEvent(traceId, span, durationMs, forcedInstanceDisposition) {
     ...(span === 'gateway.yao_execute'
       ? {
           cpu_ms: 10 + Number.parseInt(traceId.slice(-2), 16),
-          active_duration_ms: 20 + Number.parseInt(traceId.slice(-2), 16),
+          wall_time_ms: 20 + Number.parseInt(traceId.slice(-2), 16),
           memory_mb: 30 + Number.parseInt(traceId.slice(-2), 16),
           durable_object_call_count: 20 + Number.parseInt(traceId.slice(-2), 16),
           worker_invocation_count: 30 + Number.parseInt(traceId.slice(-2), 16),
           d1_query_count: 0,
           exact_replay_count: 0,
           conflict_count: 0,
+          workers_resource: {
+            join_kind: 'same_record',
+            request_id: `workers-request-${traceId}`,
+            script_name: 'seams-sdk-d1-gateway-production',
+            execution_model: 'stateless',
+            durable_object_id: null,
+          },
         }
       : {}),
-    source: '/evidence/worker-tail.jsonl',
+    source: '/evidence/workers-logs.jsonl',
     line: 1,
+  };
+}
+
+function spanWithoutExecutionTelemetry(event) {
+  const copy = { ...event };
+  for (const field of [
+    'cpu_ms',
+    'wall_time_ms',
+    'memory_mb',
+    'durable_object_call_count',
+    'worker_invocation_count',
+    'd1_query_count',
+    'exact_replay_count',
+    'conflict_count',
+    'workers_resource',
+  ]) {
+    delete copy[field];
+  }
+  return copy;
+}
+
+function workersLogsRecord(input) {
+  const workers = {
+    eventType: 'fetch',
+    requestId: input.requestId,
+    scriptName: input.scriptName,
+    ...(input.cpuTimeMs === undefined ? {} : { cpuTimeMs: input.cpuTimeMs }),
+    ...(input.wallTimeMs === undefined ? {} : { wallTimeMs: input.wallTimeMs }),
+    ...(input.executionModel === undefined ? {} : { executionModel: input.executionModel }),
+  };
+  return {
+    $metadata: {
+      id: `event-${input.requestId}`,
+      requestId: input.requestId,
+      service: input.scriptName,
+    },
+    $workers: workers,
+    dataset: 'cloudflare-workers',
+    source: input.source,
+    timestamp: 1_753_440_000_000,
   };
 }
 
