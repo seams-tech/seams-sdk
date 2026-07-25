@@ -1,9 +1,34 @@
 import { expect, test } from '@playwright/test';
 import { getNearSpendCapChainId } from '@seams-internal/console-shared/gasSponsorshipSpendCapTargets';
 import {
+  createChainFamilySponsoredExecutionPricingService,
   isSponsorshipSpendCapEnforcementError,
   resolveStaticSponsoredExecutionPricingFromEnv,
+  type SponsorshipSpendPricingEstimateInput,
+  type SponsorshipSpendPricingFinalizeInput,
+  type SponsorshipSpendPricingQuote,
+  type SponsorshipSpendPricingService,
 } from '../../packages/console-server-ts/src/sponsorship';
+
+class TaggedPricingService implements SponsorshipSpendPricingService {
+  readonly operations: string[] = [];
+
+  constructor(private readonly tag: string) {}
+
+  async estimateSponsoredExecutionSpend(
+    input: SponsorshipSpendPricingEstimateInput,
+  ): Promise<SponsorshipSpendPricingQuote> {
+    this.operations.push(`estimate:${input.chainFamily}`);
+    return { spendMinor: 1, pricingVersion: `${this.tag}:estimate` };
+  }
+
+  async finalizeSponsoredExecutionSpend(
+    input: SponsorshipSpendPricingFinalizeInput,
+  ): Promise<SponsorshipSpendPricingQuote> {
+    this.operations.push(`finalize:${input.chainFamily}`);
+    return { spendMinor: 2, pricingVersion: `${this.tag}:finalize` };
+  }
+}
 
 function makeStaticPricingEnv(): NodeJS.ProcessEnv {
   return {
@@ -29,6 +54,41 @@ function makeStaticPricingEnv(): NodeJS.ProcessEnv {
 }
 
 test.describe('static sponsored execution pricing', () => {
+  test('routes EVM and NEAR pricing to their chain-family adapters', async () => {
+    const evm = new TaggedPricingService('d1-evm');
+    const near = new TaggedPricingService('near-market');
+    const pricing = createChainFamilySponsoredExecutionPricingService({ evm, near });
+    const nearChainId = getNearSpendCapChainId('TESTNET');
+
+    const nearEstimate = await pricing.estimateSponsoredExecutionSpend({
+      chainFamily: 'near',
+      intentKind: 'near_delegate',
+      executorKind: 'near_delegate',
+      environmentId: 'proj_env:dev',
+      policyId: 'policy_gs_near',
+      accountRef: 'near:alice.testnet',
+      targetRef: 'near:guest-book.testnet',
+      chainId: nearChainId,
+      requestDetails: { receiverId: 'guest-book.testnet' },
+    });
+    const evmEstimate = await pricing.estimateSponsoredExecutionSpend({
+      chainFamily: 'evm',
+      intentKind: 'evm_call',
+      executorKind: 'evm_eoa',
+      environmentId: 'proj_env:dev',
+      policyId: 'policy_gs_evm',
+      accountRef: 'near:alice.testnet',
+      targetRef: 'evm:42431:0xbb442b54c85efba2d7b81ea52990ad638cdba483',
+      chainId: 42_431,
+      requestDetails: { call: { gasLimit: '1000000' } },
+    });
+
+    expect(nearEstimate.pricingVersion).toBe('near-market:estimate');
+    expect(evmEstimate.pricingVersion).toBe('d1-evm:estimate');
+    expect(near.operations).toEqual(['estimate:near']);
+    expect(evm.operations).toEqual(['estimate:evm']);
+  });
+
   test('estimates and finalizes EVM spend from explicit chain pricing config', async () => {
     const pricing = resolveStaticSponsoredExecutionPricingFromEnv(makeStaticPricingEnv());
     expect(pricing).not.toBeNull();

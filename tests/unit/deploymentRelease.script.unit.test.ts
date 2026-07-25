@@ -17,6 +17,8 @@ type ComponentDto = {
 
 type FixtureOptions = {
   readonly components?: readonly unknown[];
+  readonly lane?: 'backend' | 'frontend';
+  readonly gatewayApiContractVersion?: string;
   readonly target?: string;
   readonly sourceSha?: string;
   readonly acceptedValidationRunId?: string;
@@ -56,24 +58,30 @@ function createComponent(
   };
 }
 
-function validComponents(): ComponentDto[] {
-  return [
-    createComponent('mpc-router', 'router', 1),
+function validComponents(lane: 'backend' | 'frontend' = 'backend'): ComponentDto[] {
+  const backendComponents = [
+    createComponent('router', 'router', 1),
     createComponent('deriver-a', 'deriver-a', 2),
     createComponent('deriver-b', 'deriver-b', 3),
     createComponent('signing-worker', 'signing-worker', 4),
     createComponent('gateway', 'gateway-wasm', 5),
+  ];
+  const frontendComponents = [
     createComponent('site', 'pages', 6),
     createComponent('signer-iframe', 'signer-iframe', 7),
   ];
+  return lane === 'backend' ? backendComponents : frontendComponents;
 }
 
 function createFixture(options: FixtureOptions = {}) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'seams-deployment-release-'));
+  const lane = options.lane ?? 'backend';
   tempRoots.add(root);
   const fixture = {
     root,
-    components: options.components ?? validComponents(),
+    components: options.components ?? validComponents(lane),
+    lane,
+    gatewayApiContractVersion: options.gatewayApiContractVersion ?? '1.0.0',
     target: options.target ?? 'staging',
     sourceSha: options.sourceSha ?? sourceSha,
     acceptedValidationRunId: options.acceptedValidationRunId ?? '1001',
@@ -131,6 +139,8 @@ function createArgs(
 ): string[] {
   return [
     'create',
+    '--lane',
+    fixture.lane,
     '--components-file',
     fixture.componentsFile,
     '--target',
@@ -143,6 +153,10 @@ function createArgs(
     overrides.artifactRunId ?? fixture.artifactRunId,
     '--created-at',
     fixture.createdAt,
+    '--gateway-api-contract-version',
+    fixture.gatewayApiContractVersion,
+    '--supported-frontend-api-contract-range-json',
+    JSON.stringify({ minInclusive: '1.0.0', maxInclusive: '2.0.0' }),
     '--build-identity-file',
     fixture.buildIdentityFile,
     '--migrations-file',
@@ -165,6 +179,8 @@ function verifyArgs(
     'verify',
     '--manifest',
     fixture.output,
+    '--lane',
+    fixture.lane,
     '--target',
     overrides.target ?? fixture.target,
     '--source-sha',
@@ -173,6 +189,8 @@ function verifyArgs(
     overrides.acceptedValidationRunId ?? fixture.acceptedValidationRunId,
     '--artifact-run-id',
     overrides.artifactRunId ?? fixture.artifactRunId,
+    '--gateway-api-contract-version',
+    fixture.gatewayApiContractVersion,
   ];
 }
 
@@ -213,7 +231,8 @@ test('release-set create and verify cover the full immutable manifest contract',
   expect(created.status).toBe(0);
   const manifest = readJson(fixture.output);
   expect(manifest).toMatchObject({
-    schemaVersion: 1,
+    schemaVersion: 2,
+    lane: 'backend',
     target: 'staging',
     sourceSha,
     acceptedValidationRunId: '1001',
@@ -228,8 +247,6 @@ test('release-set create and verify cover the full immutable manifest contract',
     'deriver-b',
     'signing-worker',
     'gateway-wasm',
-    'pages',
-    'signer-iframe',
   ]);
 
   const verified = runRelease(verifyArgs(fixture));
@@ -250,6 +267,23 @@ test('release-set create canonicalizes component order and produces a full-diges
   expect(reversedManifest.manifestDigestSha256).toBe(canonicalManifest.manifestDigestSha256);
   expect(reversedManifest.releaseSetId).toBe(`rs_${reversedManifest.manifestDigestSha256}`);
   expect(reversedManifest.releaseSetId).toHaveLength(67);
+});
+
+test('release-set preserves a frontend-only component scope', () => {
+  const fixture = createFixture({
+    lane: 'frontend',
+    components: [
+      createComponent('site', 'pages', 1),
+      createComponent('signer-iframe', 'signer-iframe', 2),
+    ],
+  });
+
+  expect(runRelease(createArgs(fixture)).status).toBe(0);
+
+  const manifest = readJson(fixture.output);
+  expect(manifest.components.map(componentKind)).toEqual(['pages', 'signer-iframe']);
+  expect(manifest.buildIdentity.selectedComponents).toEqual(['signer-iframe', 'site']);
+  expect(runRelease(verifyArgs(fixture)).status).toBe(0);
 });
 
 test('release-set verify rejects tampered immutable fields', () => {
@@ -347,11 +381,7 @@ test('release-set boundaries reject unsupported targets and component kinds', ()
 });
 
 test('release-set boundaries reject missing fields, mapping drift, and duplicate components', () => {
-  const missingFieldComponent: Record<string, unknown> = createComponent(
-    'mpc-router',
-    'router',
-    1,
-  );
+  const missingFieldComponent: Record<string, unknown> = createComponent('router', 'router', 1);
   delete missingFieldComponent.releaseId;
   const missingFieldFixture = createFixture({ components: [missingFieldComponent] });
   expectFailure(
@@ -360,21 +390,21 @@ test('release-set boundaries reject missing fields, mapping drift, and duplicate
   );
 
   const mappingDriftComponents = validComponents();
-  mappingDriftComponents[0] = createComponent('mpc-router', 'router', 1, {
+  mappingDriftComponents[0] = createComponent('router', 'router', 1, {
     sourceSha: 'f'.repeat(40),
   });
   const mappingDriftFixture = createFixture({ components: mappingDriftComponents });
   expectFailure(
     runRelease(createArgs(mappingDriftFixture)),
-    /component mapping is invalid: mpc-router/u,
+    /component mapping is invalid: router/u,
   );
 
   const duplicateComponents = validComponents();
-  duplicateComponents[1] = { ...duplicateComponents[1], name: duplicateComponents[0].name };
+  duplicateComponents[1] = { ...duplicateComponents[0] };
   const duplicateFixture = createFixture({ components: duplicateComponents });
   expectFailure(
     runRelease(createArgs(duplicateFixture)),
-    /duplicate release-set component name: mpc-router/u,
+    /duplicate release-set component name: router/u,
   );
 });
 

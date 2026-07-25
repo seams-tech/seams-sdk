@@ -21,6 +21,7 @@ export const PYTHON_VOICE_ID_VERIFIER_SCHEMA_VERSION = 'voice_id_verifier_v2';
 export type PythonVoiceIdVerifierTransport = {
   buildEnrollmentTemplate(request: PythonBuildEnrollmentTemplateRequest): Promise<unknown>;
   verifySpeaker(request: PythonVerifySpeakerRequest): Promise<unknown>;
+  analyzeVerification(request: PythonAnalyzeVerificationRequest): Promise<unknown>;
 };
 
 export type PythonVoiceIdVerifierConfig = {
@@ -41,6 +42,35 @@ export type PythonVerifySpeakerRequest = {
   readonly audio: PythonAudioRequest;
   readonly template: PythonTemplateReferenceRequest;
   readonly threshold: number;
+};
+
+export type PythonAnalyzeSpeechRequest = {
+  schemaVersion: 'voice_id_verifier_v2';
+  requestId: string;
+  audio: {
+    audioBase64: string;
+    metadata: {
+      mimeType: string;
+      durationMs: number;
+      sampleRate: { kind: 'known'; hertz: number } | { kind: 'unknown' };
+      channelCount: { kind: 'known'; count: number } | { kind: 'unknown' };
+      byteLength: number;
+      capturedAt: string;
+      recorder: string;
+    };
+  };
+  expectedPhrase: string;
+  intentName: string;
+};
+
+export type PythonAnalyzeVerificationRequest = {
+  schemaVersion: typeof PYTHON_VOICE_ID_VERIFIER_SCHEMA_VERSION;
+  requestId: string;
+  audio: PythonAudioRequest;
+  template: PythonTemplateReferenceRequest;
+  threshold: number;
+  expectedPhrase: string;
+  intentName: string;
 };
 
 export type PythonAudioRequest = {

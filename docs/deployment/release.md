@@ -64,9 +64,9 @@ npm view @seams/sdk version
 
 Pushing the release commit to `main` runs the fast push mode of
 `Validate / repository`; successful validation starts
-`Deploy / production / cloudflare-stack`. That workflow
-contains the Router A/B, Gateway, and Pages jobs, so Pages is deployed as part
-of the same environment-bound Cloudflare stack release.
+`Deploy / production / cloudflare-stack`. A successful backend coordination
+receipt then starts `Deploy / production / frontend`, which owns Pages and SDK
+runtime asset mutation.
 
 ## Release Verification
 
@@ -85,8 +85,11 @@ SDK runtime:
 
 1. Run `Deploy / production / cloudflare-stack` with the previous accepted
    `source_sha`, `artifact_run_id`, and `release_set_id`.
-2. Keep app and wallet Pages assets on the same known-good release set.
-3. Treat secrets, D1 migrations, Durable Object state, and other environment
+2. Run `Deploy / production / frontend` with the previous frontend
+   `source_sha`, frontend `artifact_run_id`, frontend `release_set_id`, and
+   matching `backend_receipt_run_id`.
+3. Keep app and wallet Pages assets on the same known-good frontend release set.
+4. Treat secrets, D1 migrations, Durable Object state, and other environment
    state as separate recovery work.
 
 npm:

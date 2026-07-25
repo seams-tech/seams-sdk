@@ -4,7 +4,10 @@ import type {
   EmailOtpChallengeAction,
   EmailOtpChallengeOperation,
 } from '../../core/EmailOtpStores';
-import type { ThresholdStoreConfigInput } from '../../core/types';
+import type {
+  SignerWasmModuleSupplier,
+  ThresholdStoreConfigInput,
+} from '../../core/types';
 import { EMAIL_OTP_CODE_LENGTH } from '../../core/authService/emailOtpConfig';
 import type { RouterAbSigningRuntimeBundle } from '../../core/routerAbSigning/createRouterAbSigningRuntimes';
 import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../routerAbEd25519YaoProductRegistration';
@@ -63,6 +66,7 @@ export interface CloudflareD1RouterApiAuthServiceOptions {
   readonly relayerPublicKey?: string;
   readonly relayerPrivateKey?: string;
   readonly nearRpcUrl?: string;
+  readonly signerWasmModuleOrPath?: SignerWasmModuleSupplier;
   readonly accountInitialBalance?: string;
   readonly implicitNearAccountTestFundingEnabled?: boolean | string;
   readonly googleOidcClientId?: string;
@@ -241,6 +245,10 @@ export function normalizeD1RouterApiAuthOptions(
     relayerPublicKey: toOptionalTrimmedString(input.relayerPublicKey),
     relayerPrivateKey: toOptionalTrimmedString(input.relayerPrivateKey),
     nearRpcUrl: toOptionalTrimmedString(input.nearRpcUrl),
+    signerWasmModuleOrPath:
+      typeof input.signerWasmModuleOrPath === 'string'
+        ? toOptionalTrimmedString(input.signerWasmModuleOrPath)
+        : input.signerWasmModuleOrPath,
     accountInitialBalance: toOptionalTrimmedString(input.accountInitialBalance),
     implicitNearAccountTestFundingEnabled: parseBooleanFlag(
       input.implicitNearAccountTestFundingEnabled,

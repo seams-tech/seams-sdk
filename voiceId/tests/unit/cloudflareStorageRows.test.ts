@@ -106,6 +106,12 @@ function observedVerification(): VoiceIdVerificationRecord {
         enrollmentId,
         observedChecks: {
           phrase,
+          intent: {
+            kind: 'accepted',
+            expectedIntent: 'expected_phrase',
+            matchedIntent: 'expected_phrase',
+            confidence: 0.94,
+          },
           speaker,
           quality,
           captureFreshness: {

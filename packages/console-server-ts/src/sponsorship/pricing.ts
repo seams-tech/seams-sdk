@@ -7,6 +7,7 @@ import type {
   SponsorshipSpendPricingService,
 } from './spendCaps';
 import { SponsorshipSpendCapEnforcementError } from './spendCaps';
+import type { ConsoleSponsoredCallChainFamily } from '../sponsoredCalls/types';
 
 type StaticSponsoredEvmSpendPricingRule = {
   chainId: number;
@@ -70,6 +71,53 @@ export interface CoinGeckoSponsoredExecutionPricingConfig {
   cacheTtlMs: number;
   evmByChain: ReadonlyMap<number, CoinGeckoSponsoredEvmSpendPricingRule>;
   nearByChain: ReadonlyMap<number, CoinGeckoSponsoredNearSpendPricingRule>;
+}
+
+export interface ChainFamilySponsoredExecutionPricingConfig {
+  readonly evm: SponsorshipSpendPricingService;
+  readonly near: SponsorshipSpendPricingService;
+}
+
+export interface SponsoredExecutionPricingEnv {
+  readonly SPONSORED_EXECUTION_REAL_PRICING_JSON?: string;
+  readonly SPONSORED_EXECUTION_STATIC_PRICING_JSON?: string;
+}
+
+function assertNeverChainFamily(chainFamily: never): never {
+  throw new Error(`Unsupported sponsored call chain family: ${String(chainFamily)}`);
+}
+
+class ChainFamilySponsoredExecutionPricingService implements SponsorshipSpendPricingService {
+  constructor(private readonly config: ChainFamilySponsoredExecutionPricingConfig) {}
+
+  async estimateSponsoredExecutionSpend(
+    input: SponsorshipSpendPricingEstimateInput,
+  ): Promise<SponsorshipSpendPricingQuote> {
+    return await this.resolve(input.chainFamily).estimateSponsoredExecutionSpend(input);
+  }
+
+  async finalizeSponsoredExecutionSpend(
+    input: SponsorshipSpendPricingFinalizeInput,
+  ): Promise<SponsorshipSpendPricingQuote> {
+    return await this.resolve(input.chainFamily).finalizeSponsoredExecutionSpend(input);
+  }
+
+  private resolve(chainFamily: ConsoleSponsoredCallChainFamily): SponsorshipSpendPricingService {
+    switch (chainFamily) {
+      case 'evm':
+        return this.config.evm;
+      case 'near':
+        return this.config.near;
+      default:
+        return assertNeverChainFamily(chainFamily);
+    }
+  }
+}
+
+export function createChainFamilySponsoredExecutionPricingService(
+  config: ChainFamilySponsoredExecutionPricingConfig,
+): SponsorshipSpendPricingService {
+  return new ChainFamilySponsoredExecutionPricingService(config);
 }
 
 function parseOptionalBigIntLiteral(
@@ -599,7 +647,7 @@ export function createCoinGeckoSponsoredExecutionPricingService(
 }
 
 export function resolveStaticSponsoredExecutionPricingFromEnv(
-  env: NodeJS.ProcessEnv,
+  env: SponsoredExecutionPricingEnv,
 ): SponsorshipSpendPricingService | null {
   const raw = String(env.SPONSORED_EXECUTION_STATIC_PRICING_JSON || '').trim();
   if (!raw) return null;
@@ -691,7 +739,7 @@ export function resolveStaticSponsoredExecutionPricingFromEnv(
 }
 
 export function resolveCoinGeckoSponsoredExecutionPricingFromEnv(
-  env: NodeJS.ProcessEnv,
+  env: SponsoredExecutionPricingEnv,
 ): SponsorshipSpendPricingService | null {
   const raw = String(env.SPONSORED_EXECUTION_REAL_PRICING_JSON || '').trim();
   if (!raw) return null;
@@ -771,7 +819,7 @@ export function resolveCoinGeckoSponsoredExecutionPricingFromEnv(
 }
 
 export function resolveSponsoredExecutionPricingFromEnv(
-  env: NodeJS.ProcessEnv,
+  env: SponsoredExecutionPricingEnv,
 ): SponsorshipSpendPricingService | null {
   return (
     resolveCoinGeckoSponsoredExecutionPricingFromEnv(env) ||

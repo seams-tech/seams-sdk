@@ -3586,7 +3586,7 @@ Uses `seams-authorization` for:
 Slice A requires `vault.proxy_use` to execute against the minimal local
 broker/gateway adapter. Production Secret Broker and Egress Gateway Workers,
 including the separate service-bound deployment split from
-[centaur-secrets-vault.md](./centaur-secrets-vault.md), remain capability-vault
+[satyr-secrets-vault.md](./satyr-secrets-vault.md), remain capability-vault
 work after the grant model is proven.
 
 ### `capability-mpc-wallet-authority`

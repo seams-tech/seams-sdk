@@ -15,6 +15,9 @@ ecapa = [
   "torch==2.6.*",
   "torchaudio==2.6.*",
 ]
+moonshine = [
+  "moonshine-voice==0.0.71",
+]
 
 [tool.setuptools.packages.find]
 include = ["voiceid_verifier*"]

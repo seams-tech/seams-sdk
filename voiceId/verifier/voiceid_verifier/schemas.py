@@ -109,6 +109,26 @@ class VerifySpeakerRequest:
 
 
 @dataclass(frozen=True)
+class AnalyzeSpeechRequest:
+    schema_version: Literal["voice_id_verifier_v2"]
+    request_id: str
+    audio: AudioInput
+    expected_phrase: str
+    intent_name: str
+
+
+@dataclass(frozen=True)
+class AnalyzeVerificationRequest:
+    schema_version: Literal["voice_id_verifier_v2"]
+    request_id: str
+    audio: AudioInput
+    template: TemplateReference
+    threshold: float
+    expected_phrase: str
+    intent_name: str
+
+
+@dataclass(frozen=True)
 class AudioQualityAccepted:
     kind: Literal["accepted"]
     duration_ms: int
@@ -322,6 +342,46 @@ class SpeakerVerificationResponse:
         }
 
 
+@dataclass(frozen=True)
+class SpeechAnalysisResponse:
+    kind: Literal["speech_analysis"]
+    request_id: str
+    transcript: str
+    phrase: dict[str, Any]
+    intent: dict[str, Any]
+    sample_rate_hz: int
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "requestId": self.request_id,
+            "transcript": self.transcript,
+            "phrase": self.phrase,
+            "intent": self.intent,
+            "sampleRateHz": self.sample_rate_hz,
+        }
+
+
+@dataclass(frozen=True)
+class VerificationAnalysisResponse:
+    kind: Literal["verification_analysis"]
+    request_id: str
+    quality: dict[str, Any]
+    speaker: dict[str, Any]
+    speech: dict[str, Any]
+    pad: dict[str, Any]
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "requestId": self.request_id,
+            "quality": self.quality,
+            "speaker": self.speaker,
+            "speech": self.speech,
+            "pad": self.pad,
+        }
+
+
 def parse_build_enrollment_template_request(
     value: dict[str, Any],
 ) -> BuildEnrollmentTemplateRequest:
@@ -353,6 +413,36 @@ def parse_verify_speaker_request(value: dict[str, Any]) -> VerifySpeakerRequest:
     )
 
 
+def parse_analyze_speech_request(value: dict[str, Any]) -> AnalyzeSpeechRequest:
+    data = _require_exact_object(
+        value,
+        "analyze speech request",
+        {"schemaVersion", "requestId", "audio", "expectedPhrase", "intentName"},
+    )
+    return AnalyzeSpeechRequest(
+        schema_version=_require_schema_version(data),
+        request_id=_require_string(data, "requestId"),
+        audio=_parse_audio_input(data.get("audio")),
+        expected_phrase=_require_string(data, "expectedPhrase"),
+        intent_name=_require_string(data, "intentName"),
+    )
+
+
+def parse_analyze_verification_request(value: dict[str, Any]) -> AnalyzeVerificationRequest:
+    data = _require_exact_object(
+        value,
+        "analyze verification request",
+        {"schemaVersion", "requestId", "audio", "template", "threshold", "expectedPhrase", "intentName"},
+    )
+    return AnalyzeVerificationRequest(
+        schema_version=_require_schema_version(data),
+        request_id=_require_string(data, "requestId"),
+        audio=_parse_audio_input(data.get("audio")),
+        template=_parse_template_reference(data.get("template")),
+        threshold=_require_probability(data, "threshold"),
+        expected_phrase=_require_string(data, "expectedPhrase"),
+        intent_name=_require_string(data, "intentName"),
+    )
 def encode_audio_bytes(audio_bytes: bytes) -> str:
     return base64.b64encode(audio_bytes).decode("ascii")
 

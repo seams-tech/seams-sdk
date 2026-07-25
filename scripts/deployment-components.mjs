@@ -6,6 +6,15 @@ import { resolve } from 'node:path';
 
 const ROUTER_COMPONENTS = Object.freeze(['router', 'deriver-a', 'deriver-b', 'signing-worker']);
 const PAGES_COMPONENTS = Object.freeze(['site', 'signer-iframe']);
+export const BACKEND_COMPONENTS = Object.freeze(
+  ['gateway', ...ROUTER_COMPONENTS].sort(compareStrings),
+);
+export const FRONTEND_COMPONENTS = PAGES_COMPONENTS;
+export const DEPLOYMENT_LANES = Object.freeze(['backend', 'frontend']);
+export const LANE_COMPONENTS = Object.freeze({
+  backend: BACKEND_COMPONENTS,
+  frontend: FRONTEND_COMPONENTS,
+});
 
 export const COMPONENT_NAMES = Object.freeze(
   [...ROUTER_COMPONENTS, 'gateway', ...PAGES_COMPONENTS].sort(compareStrings),
@@ -22,7 +31,7 @@ const componentInputMap = {
       ],
       prefixes: ['crates/router-ab-cloudflare/src/router/'],
     }),
-    inputRule({ prefixes: ['.github/workflows/validate-cloudflare-router-ab.yml'] }),
+    inputRule({ prefixes: ['.github/workflows/validate-cloudflare-mpc-router-ab.yml'] }),
   ],
   'deriver-a': [
     inputRule({
@@ -73,6 +82,8 @@ const componentInputMap = {
       exact: [
         '.github/workflows/deploy-staging-cloudflare-stack.yml',
         '.github/workflows/deploy-production-cloudflare-stack.yml',
+        '.github/workflows/deploy-staging-frontend.yml',
+        '.github/workflows/deploy-production-frontend.yml',
       ],
       prefixes: [
         'packages/sdk-web/src/SeamsWeb/operations/',
@@ -112,6 +123,8 @@ const sharedInputRules = [
       '.github/workflows/validate-repository.yml',
       '.github/workflows/deploy-production-cloudflare-stack.yml',
       '.github/workflows/deploy-staging-cloudflare-stack.yml',
+      '.github/workflows/deploy-production-frontend.yml',
+      '.github/workflows/deploy-staging-frontend.yml',
       '.github/dependabot.yml',
       '.npmrc',
       'package.json',
@@ -194,7 +207,7 @@ const sharedInputRules = [
     prefixes: ['packages/shared-ts/'],
   }),
   sharedInputRule(ROUTER_COMPONENTS, {
-    exact: ['.github/workflows/validate-cloudflare-router-ab.yml'],
+    exact: ['.github/workflows/validate-cloudflare-mpc-router-ab.yml'],
   }),
   sharedInputRule(PAGES_COMPONENTS, {
     exact: [
@@ -237,6 +250,22 @@ export function selectComponents(changedFiles) {
   return [...selected].sort(compareStrings);
 }
 
+export function selectComponentsForLane(changedFiles, lane) {
+  const laneComponents = componentsForLane(lane);
+  return selectComponents(changedFiles).filter((component) => laneComponents.includes(component));
+}
+
+export function selectDeploymentLanes(changedFiles) {
+  const selectedComponents = selectComponents(changedFiles);
+  return DEPLOYMENT_LANES.filter((lane) =>
+    LANE_COMPONENTS[lane].some((component) => selectedComponents.includes(component)),
+  );
+}
+
+export function changesAffectDeploymentLane(changedFiles, lane) {
+  return selectComponentsForLane(changedFiles, lane).length > 0;
+}
+
 export async function readChangedFilesFromFile(filePath) {
   const value = await readFile(filePath, 'utf8');
   return value
@@ -256,7 +285,10 @@ export async function runCli(args) {
     changedFiles.push(...(await readChangedFilesFromFile(options.filesFile)));
   }
 
-  const components = selectComponents(changedFiles);
+  const components =
+    options.lane === undefined
+      ? selectComponents(changedFiles)
+      : selectComponentsForLane(changedFiles, options.lane);
   if (options.format === 'lines') {
     process.stdout.write(components.length === 0 ? '' : `${components.join('\n')}\n`);
     return components;
@@ -293,7 +325,13 @@ function normalizeChangedFile(value) {
 }
 
 function parseCliOptions(args) {
-  const options = { files: [], filesFile: undefined, filesJson: undefined, format: 'json' };
+  const options = {
+    files: [],
+    filesFile: undefined,
+    filesJson: undefined,
+    format: 'json',
+    lane: undefined,
+  };
 
   for (let index = 0; index < args.length; index += 1) {
     const token = args[index];
@@ -314,6 +352,11 @@ function parseCliOptions(args) {
       if (options.format !== 'json' && options.format !== 'lines') {
         throw new Error('--format must be json or lines');
       }
+      continue;
+    }
+    if (token === '--lane') {
+      options.lane = requireCliValue(args, ++index, '--lane');
+      componentsForLane(options.lane);
       continue;
     }
     if (token.startsWith('--')) throw new Error(`unknown option: ${token}`);
@@ -348,6 +391,13 @@ function inputRule({ exact = [], prefixes = [], suffixes = [] } = {}) {
     prefixes: Object.freeze([...prefixes]),
     suffixes: Object.freeze([...suffixes]),
   };
+}
+
+function componentsForLane(lane) {
+  if (!DEPLOYMENT_LANES.includes(lane)) {
+    throw new Error(`lane must be one of: ${DEPLOYMENT_LANES.join(', ')}`);
+  }
+  return LANE_COMPONENTS[lane];
 }
 
 function sharedInputRule(components, rule) {
@@ -402,7 +452,7 @@ if (isMainModule()) {
   const [command, ...args] = process.argv.slice(2);
   if (command !== 'select') {
     throw new Error(
-      'usage: deployment-components.mjs select [--file <path> ...] [--files-file <file>] [--files-json <json>] [--format json|lines]',
+      'usage: deployment-components.mjs select [--file <path> ...] [--files-file <file>] [--files-json <json>] [--lane backend|frontend] [--format json|lines]',
     );
   }
   await runCli(args);

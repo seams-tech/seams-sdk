@@ -228,6 +228,7 @@ class CloudflareD1SignedDelegateExecutor {
   private async ensureSignerWasm(): Promise<void> {
     this.signerWasmState = await ensureSignerWasmRuntime({
       state: this.signerWasmState,
+      override: this.options.signerWasmModuleOrPath,
       logger: this.logger,
     });
   }
