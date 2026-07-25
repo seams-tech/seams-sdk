@@ -928,6 +928,16 @@ receipts are recorded.
   - [ ] Move remaining replay, authorization, and session state out of the
         tenant runtime, then delete its binding, readiness path, serializer, and
         SQLite migration after the drain.
+  - [ ] Give the local dev worker the same request-scoped path. It does not use
+        the tenant runtime at all: Yao product state is an in-process WeakMap
+        keyed by env, with capabilities rehydrated from D1 at composition time,
+        so it persists nothing across a restart and cannot exercise the
+        partitioned store. Its composition supplies both the runtime and the
+        Yao route module, so swapping only the runtime would split ceremony
+        state across two stores — the same defect the per-request resolver
+        fixed for staging. Local parity therefore means routing its Yao
+        operations through the request-scoped handlers, not swapping a
+        dependency.
 - [ ] Delete obsolete Deriver Stage and Result route contracts after the
       maximum in-flight ceremony lifetime has elapsed.
 - [ ] Before deleting legacy role routes, complete the cross-key exclusion
