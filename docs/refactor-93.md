@@ -783,6 +783,12 @@ receipts are recorded.
 - [ ] Replace the tenant-scoped Gateway runtime Durable Object with a
       request-safe per-ceremony persistence/CAS boundary, then remove its
       binding and SQLite migration so no tenant-wide object coordinates Yao.
+  - [x] Add typed request-scoped recovery admission and execution
+        prepare/claim/commit boundaries with durable uncertainty and no backend
+        retry.
+  - [ ] Wire recovery admission, execution, and activation to the partitioned
+        store as one coherent cutover after activation has an idempotent
+        side-effect boundary.
 - [ ] Delete obsolete Deriver Stage and Result route contracts after the
       maximum in-flight ceremony lifetime has elapsed.
 - [ ] Delete lower-authority tests, fixtures, mocks, and source guards that
@@ -933,7 +939,15 @@ state bridge is ready. Enabling the D1 route before that bridge would create an
 independent state copy that finalization could not observe.
 
 Wallet registration start/bind/finalize, recovery, export, activation/session
-side effects, and the non-Yao API still use `ROUTER_API_RUNTIME`. Acceptance
+side effects, and the non-Yao API still use `ROUTER_API_RUNTIME`. Recovery
+admission and execution now expose typed request-scoped preparation and
+completion boundaries that persist `admitting` or `executing` before the
+backend call and preserve those claims on transport uncertainty. This adapter
+is deliberately foundation-only: recovery activation replaces the wallet
+capability before product-state promotion, so a terminal CAS conflict can occur
+after that one-use side effect. All recovery routes stay on the tenant runtime
+until activation has an idempotent side-effect receipt or equivalent atomic
+bridge and the three routes can cut over together. Acceptance
 criterion 3 therefore remains an explicit Gateway persistence refactor gate:
 migrate those remaining routes to typed side-effect boundaries, gather drain
 evidence, then delete the binding and its migration. This is separate from the
