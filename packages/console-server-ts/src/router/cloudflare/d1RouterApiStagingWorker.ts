@@ -79,14 +79,22 @@ import { createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V
 import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from '@seams/sdk-server/internal/router/routerAbEd25519YaoRecoveryWalletSessionAuthorization';
 import { RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter } from '@seams/sdk-server/internal/router/routerAbEd25519YaoExport';
 import { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } from '@seams/sdk-server/internal/router/routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
+import { handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1 } from '@seams/sdk-server/internal/router/routerAbEd25519YaoRecoveryRequestScopedCloudflare';
+import { handleRouterAbEd25519YaoExportRequestScopedCloudflareV1 } from '@seams/sdk-server/internal/router/routerAbEd25519YaoExportRequestScopedCloudflare';
 import {
   resolveRouterAbEd25519YaoGatewayRegistrationRouteV1,
   type RouterAbEd25519YaoGatewayCutoverFamilyV1,
+  type RouterAbEd25519YaoGatewayRegistrationOperationV1,
   type RouterAbEd25519YaoGatewayCutoverStateV1,
 } from '@seams/sdk-server/internal/router/cloudflare/routerAbEd25519YaoGatewayCutover';
 import {
   ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
+  ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1,
+  ROUTER_AB_ED25519_YAO_RECOVERY_EXECUTE_PATH_V1,
+  ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1,
+  ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1,
+  ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
 } from '@shared/utils/routerAbEd25519Yao';
 
 export { ThresholdStoreDurableObject };
@@ -811,10 +819,10 @@ async function fetch(
   if (request.method === 'GET' && new URL(request.url).pathname === ROUTER_AB_CEREMONY_JWKS_PATH) {
     return routerAbCeremonyJwksResponse(env);
   }
-  const registrationOperation = registrationOperationForRequest(request);
-  if (registrationOperation !== null) {
+  const operation = registrationOperationForRequest(request);
+  if (operation !== null) {
     const route = resolveRouterAbEd25519YaoGatewayRegistrationRouteV1({
-      operation: registrationOperation,
+      operation,
       nowMs: Date.now(),
       cutover: routerAbGatewayCutoverState(env),
     });
@@ -822,8 +830,8 @@ async function fetch(
       const response = json(
         {
           ok: false,
-          code: 'registration_admission_draining',
-          message: 'Registration admission is temporarily paused during deployment drain',
+          code: `${familyOfGatewayOperation(operation)}_admission_draining`,
+          message: 'Admission is temporarily paused during deployment drain',
         },
         { status: 503 },
         { 'Retry-After': '1' },
@@ -832,11 +840,7 @@ async function fetch(
       return response;
     }
     if (route.kind === 'partitioned_d1') {
-      const response = await handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1({
-        request,
-        store: createStagingYaoPartitionedStateStore(env),
-        backend: createStagingEd25519YaoBackend(env),
-      });
+      const response = await handlePartitionedD1Operation(env, request, operation);
       withCors(response.headers, { corsOrigins: readCsvList(env.RELAY_CORS_ORIGINS) }, request);
       return response;
     }
@@ -848,15 +852,67 @@ async function fetch(
 
 function registrationOperationForRequest(
   request: Request,
-): 'registration_admission' | 'registration_execute' | null {
+): RouterAbEd25519YaoGatewayRegistrationOperationV1 | null {
   if (request.method !== 'POST') return null;
   switch (new URL(request.url).pathname) {
     case ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1:
       return 'registration_admission';
     case ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1:
       return 'registration_execute';
+    case ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1:
+      return 'recovery_admission';
+    case ROUTER_AB_ED25519_YAO_RECOVERY_EXECUTE_PATH_V1:
+      return 'recovery_execute';
+    case ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1:
+      return 'recovery_activate';
+    case ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1:
+      return 'export_admission';
+    case ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1:
+      return 'export_execute';
     default:
       return null;
+  }
+}
+
+function familyOfGatewayOperation(
+  operation: RouterAbEd25519YaoGatewayRegistrationOperationV1,
+): RouterAbEd25519YaoGatewayCutoverFamilyV1 {
+  switch (operation) {
+    case 'registration_admission':
+    case 'registration_execute':
+      return 'registration';
+    case 'recovery_admission':
+    case 'recovery_execute':
+    case 'recovery_activate':
+      return 'recovery';
+    case 'export_admission':
+    case 'export_execute':
+      return 'export';
+  }
+}
+
+async function handlePartitionedD1Operation(
+  env: CloudflareD1RouterApiStagingEnv,
+  request: Request,
+  operation: RouterAbEd25519YaoGatewayRegistrationOperationV1,
+): Promise<Response> {
+  switch (familyOfGatewayOperation(operation)) {
+    case 'registration':
+      return await handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1({
+        request,
+        store: createStagingYaoPartitionedStateStore(env),
+        backend: createStagingEd25519YaoBackend(env),
+      });
+    case 'recovery':
+      return await handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1({
+        request,
+        ...createStagingRecoveryRequestScopedDependencies(env),
+      });
+    case 'export':
+      return await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1({
+        request,
+        ...createStagingExportRequestScopedDependencies(env),
+      });
   }
 }
 
