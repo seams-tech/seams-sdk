@@ -59,9 +59,11 @@ secret value.
 
 - [x] Generate a matched pair and write the protected local backup.
 - [x] Commit fresh staging-only Durable Object scopes.
-- [ ] Operator confirms the protected backup has been copied to durable secret
-      storage.
-- [ ] Upload each share to its exact GitHub Environment.
+- [x] Verify the protected backup under `~/.seams/backups` before any remote
+      secret write.
+- [x] Upload each share to its exact GitHub Environment. GitHub recorded the A
+      update at `2026-07-25T20:47:53Z` and the B update at
+      `2026-07-25T20:47:55Z`.
 - [ ] Deploy one frozen revision containing the new staging object scopes.
 - [ ] Verify Deriver A, Deriver B, Router, SigningWorker, and Gateway readiness.
 - [ ] Run a fresh dual-branch registration under `root_share_epoch=epoch-1`.
