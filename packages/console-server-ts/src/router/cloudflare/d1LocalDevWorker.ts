@@ -93,6 +93,8 @@ import {
   ROUTER_AB_SIGNING_WORKER_ORIGIN,
   type RouterAbServiceBindingEnv,
 } from './routerAbServiceBindings';
+import { ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1 } from '@shared/utils/routerAbEd25519Yao';
+import { ROUTER_AB_TRACE_ID_HEADER_V1 } from '@shared/utils/routerAbTraceContext';
 
 export { ThresholdStoreDurableObject };
 
@@ -217,6 +219,235 @@ const DEFAULT_LOCAL_SIGNING_ROOT_KEK_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 const DEFAULT_LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET = 'dev-router-ab-internal-service-auth';
 const DEFAULT_LOCAL_ROUTER_AB_ROUTER_URL = 'http://127.0.0.1:9090';
 const LOCAL_ROUTER_AB_CEREMONY_JWKS_PATH = '/.well-known/router-ab-ceremony-jwks.json';
+const LOCAL_INTENDED_YAO_FAULT_HEADER_V1 = 'x-seams-intended-yao-fault-v1';
+const LOCAL_INTENDED_YAO_FAULT_PROOF_HEADER_V1 = 'x-seams-intended-yao-fault-proof-v1';
+const ROUTER_AB_YAO_REPLAY_HEADER_V1 = 'x-seams-yao-replay';
+const ROUTER_AB_YAO_EXECUTE_PATH_V1 = '/router-ab/router/ed25519-yao/execute';
+
+type LocalIntendedYaoFaultModeV1 = 'drop_router_response_once' | 'return_terminal_burned_once';
+
+type LocalIntendedYaoFaultProofV1 = 'exact_request_replayed' | 'terminal_failure_not_retried';
+
+type LocalIntendedYaoFaultViolationV1 =
+  | 'fault_already_armed'
+  | 'router_execute_not_observed'
+  | 'router_first_response_failed'
+  | 'router_retry_not_observed'
+  | 'router_retry_body_changed'
+  | 'router_retry_trace_changed'
+  | 'router_retry_marker_missing'
+  | 'router_retry_response_failed'
+  | 'unexpected_additional_execute';
+
+type LocalIntendedYaoFaultStateV1 =
+  | {
+      readonly kind: 'idle';
+    }
+  | {
+      readonly kind: 'armed';
+      readonly mode: LocalIntendedYaoFaultModeV1;
+    }
+  | {
+      readonly kind: 'awaiting_exact_replay';
+      readonly body: Uint8Array;
+      readonly traceId: string;
+    }
+  | {
+      readonly kind: 'proved';
+      readonly proof: LocalIntendedYaoFaultProofV1;
+    }
+  | {
+      readonly kind: 'violated';
+      readonly violation: LocalIntendedYaoFaultViolationV1;
+    };
+
+type LocalIntendedYaoFaultOutcomeV1 =
+  | {
+      readonly kind: 'proved';
+      readonly proof: LocalIntendedYaoFaultProofV1;
+    }
+  | {
+      readonly kind: 'violated';
+      readonly violation: LocalIntendedYaoFaultViolationV1;
+    };
+
+const LOCAL_INTENDED_BURNED_EXECUTION_ID_V1 = new Array<number>(32).fill(93);
+
+function equalRequestBytes(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) return false;
+  }
+  return true;
+}
+
+function parseLocalIntendedYaoFaultModeV1(
+  value: string | null,
+): LocalIntendedYaoFaultModeV1 | null {
+  switch (value) {
+    case 'drop_router_response_once':
+    case 'return_terminal_burned_once':
+      return value;
+    default:
+      return null;
+  }
+}
+
+function terminalBurnedRouterResponseV1(): Response {
+  return new Response(
+    JSON.stringify({
+      status: 'burned',
+      execution_id: LOCAL_INTENDED_BURNED_EXECUTION_ID_V1,
+      reason: 'protocol_failure',
+    }),
+    {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    },
+  );
+}
+
+class LocalIntendedYaoFaultControllerV1 {
+  private state: LocalIntendedYaoFaultStateV1 = { kind: 'idle' };
+
+  constructor(private readonly baseFetch: typeof globalThis.fetch) {}
+
+  arm(mode: LocalIntendedYaoFaultModeV1): void {
+    if (this.state.kind !== 'idle') {
+      this.state = { kind: 'violated', violation: 'fault_already_armed' };
+      return;
+    }
+    this.state = { kind: 'armed', mode };
+  }
+
+  async fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    const request = new Request(input, init);
+    const url = new URL(request.url);
+    if (request.method !== 'POST' || url.pathname !== ROUTER_AB_YAO_EXECUTE_PATH_V1) {
+      return await this.baseFetch.call(globalThis, request);
+    }
+
+    switch (this.state.kind) {
+      case 'idle':
+        return await this.baseFetch.call(globalThis, request);
+      case 'armed':
+        return await this.handleArmedExecute(request, this.state.mode);
+      case 'awaiting_exact_replay':
+        return await this.handleExactReplay(request, this.state);
+      case 'proved':
+      case 'violated':
+        this.state = { kind: 'violated', violation: 'unexpected_additional_execute' };
+        throw new Error('Local intended Yao fault observed an additional Router execute');
+    }
+  }
+
+  consumeOutcome(): LocalIntendedYaoFaultOutcomeV1 {
+    const current = this.state;
+    this.state = { kind: 'idle' };
+    switch (current.kind) {
+      case 'proved':
+        return current;
+      case 'violated':
+        return current;
+      case 'armed':
+        return { kind: 'violated', violation: 'router_execute_not_observed' };
+      case 'awaiting_exact_replay':
+        return { kind: 'violated', violation: 'router_retry_not_observed' };
+      case 'idle':
+        return { kind: 'violated', violation: 'router_execute_not_observed' };
+    }
+  }
+
+  reset(): void {
+    this.state = { kind: 'idle' };
+  }
+
+  private async handleArmedExecute(
+    request: Request,
+    mode: LocalIntendedYaoFaultModeV1,
+  ): Promise<Response> {
+    if (mode === 'return_terminal_burned_once') {
+      this.state = { kind: 'proved', proof: 'terminal_failure_not_retried' };
+      return terminalBurnedRouterResponseV1();
+    }
+
+    const body = new Uint8Array(await request.clone().arrayBuffer());
+    const traceId = request.headers.get(ROUTER_AB_TRACE_ID_HEADER_V1) ?? '';
+    const response = await this.baseFetch.call(globalThis, request);
+    await response.clone().arrayBuffer();
+    if (!response.ok) {
+      this.state = { kind: 'violated', violation: 'router_first_response_failed' };
+      return response;
+    }
+    this.state = { kind: 'awaiting_exact_replay', body, traceId };
+    throw new Error('Local intended Yao fault dropped the completed Router response');
+  }
+
+  private async handleExactReplay(
+    request: Request,
+    expected: Extract<LocalIntendedYaoFaultStateV1, { kind: 'awaiting_exact_replay' }>,
+  ): Promise<Response> {
+    const replayBody = new Uint8Array(await request.clone().arrayBuffer());
+    if (!equalRequestBytes(expected.body, replayBody)) {
+      this.state = { kind: 'violated', violation: 'router_retry_body_changed' };
+      throw new Error('Local intended Yao retry changed the Router request body');
+    }
+    if (request.headers.get(ROUTER_AB_TRACE_ID_HEADER_V1) !== expected.traceId) {
+      this.state = { kind: 'violated', violation: 'router_retry_trace_changed' };
+      throw new Error('Local intended Yao retry changed the Router trace ID');
+    }
+    if (request.headers.get(ROUTER_AB_YAO_REPLAY_HEADER_V1) !== '1') {
+      this.state = { kind: 'violated', violation: 'router_retry_marker_missing' };
+      throw new Error('Local intended Yao retry omitted the replay marker');
+    }
+    const response = await this.baseFetch.call(globalThis, request);
+    await response.clone().arrayBuffer();
+    if (!response.ok) {
+      this.state = { kind: 'violated', violation: 'router_retry_response_failed' };
+      return response;
+    }
+    this.state = { kind: 'proved', proof: 'exact_request_replayed' };
+    return response;
+  }
+}
+
+const localIntendedYaoFaultControllerByEnv = new WeakMap<
+  LocalD1DevEnv,
+  LocalIntendedYaoFaultControllerV1
+>();
+
+function localIntendedYaoFaultControllerV1(env: LocalD1DevEnv): LocalIntendedYaoFaultControllerV1 {
+  const existing = localIntendedYaoFaultControllerByEnv.get(env);
+  if (existing) return existing;
+  const controller = new LocalIntendedYaoFaultControllerV1(createRouterAbServiceBindingFetch(env));
+  localIntendedYaoFaultControllerByEnv.set(env, controller);
+  return controller;
+}
+
+function localIntendedYaoFaultFetchV1(env: LocalD1DevEnv): typeof globalThis.fetch {
+  const controller = localIntendedYaoFaultControllerV1(env);
+  return controller.fetch.bind(controller);
+}
+
+function requestWithoutLocalIntendedYaoFaultHeaderV1(request: Request): Request {
+  const headers = new Headers(request.headers);
+  headers.delete(LOCAL_INTENDED_YAO_FAULT_HEADER_V1);
+  return new Request(request, { headers });
+}
+
+function responseWithLocalIntendedYaoFaultOutcomeV1(
+  response: Response,
+  outcome: LocalIntendedYaoFaultOutcomeV1,
+): Response {
+  const headers = new Headers(response.headers);
+  const value = outcome.kind === 'proved' ? outcome.proof : `violation:${outcome.violation}`;
+  headers.set(LOCAL_INTENDED_YAO_FAULT_PROOF_HEADER_V1, value);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
 
 export function buildLocalRouterRequest(
   routerUrl: string,
@@ -1104,7 +1335,7 @@ async function createLocalEd25519YaoProductComposition(
         env.SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY,
       ),
     },
-    fetch: createRouterAbServiceBindingFetch(env),
+    fetch: localIntendedYaoFaultFetchV1(env),
   });
   const walletStore = new D1WalletStore({
     database: env.SIGNER_DB,
@@ -1638,8 +1869,7 @@ async function fetch(
     return await handler(request, env, ctx);
   }
   if (isRouterApiPath(url.pathname)) {
-    const handler = await localRouterApiHandler(env);
-    return await handler(routerApiRequest(request, url.pathname), env, ctx);
+    return await handleLocalRouterApiRequestV1(request, env, ctx, url.pathname);
   }
   return jsonResponse(
     {
@@ -1664,6 +1894,43 @@ async function fetch(
     },
     { status: 200 },
   );
+}
+
+async function handleLocalRouterApiRequestV1(
+  request: Request,
+  env: LocalD1DevEnv,
+  ctx: CfExecutionContext,
+  pathname: string,
+): Promise<Response> {
+  const rawFaultMode = request.headers.get(LOCAL_INTENDED_YAO_FAULT_HEADER_V1);
+  if (pathname !== ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1 || rawFaultMode === null) {
+    const handler = await localRouterApiHandler(env);
+    return await handler(routerApiRequest(request, pathname), env, ctx);
+  }
+
+  const faultMode = parseLocalIntendedYaoFaultModeV1(rawFaultMode);
+  if (!faultMode) {
+    return jsonResponse(
+      {
+        ok: false,
+        code: 'invalid_intended_yao_fault',
+        message: 'Local intended Yao fault mode is invalid',
+      },
+      { status: 400 },
+    );
+  }
+
+  const controller = localIntendedYaoFaultControllerV1(env);
+  controller.arm(faultMode);
+  try {
+    const handler = await localRouterApiHandler(env);
+    const sanitizedRequest = requestWithoutLocalIntendedYaoFaultHeaderV1(request);
+    const response = await handler(routerApiRequest(sanitizedRequest, pathname), env, ctx);
+    return responseWithLocalIntendedYaoFaultOutcomeV1(response, controller.consumeOutcome());
+  } catch (error) {
+    controller.reset();
+    throw error;
+  }
 }
 
 export default { fetch };
