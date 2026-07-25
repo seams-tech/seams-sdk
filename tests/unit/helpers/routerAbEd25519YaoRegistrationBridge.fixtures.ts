@@ -19,17 +19,17 @@ import {
   type RouterAbEd25519YaoProductRegistrationPartitionedStateV1,
 } from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
 
-type StoredSideEffect<T> = {
+type StoredSideEffect<T, P = undefined> = {
   readonly version: number;
-  readonly value: RouterAbEd25519YaoRegistrationSideEffectRecordV1<T>;
+  readonly value: RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>;
 };
 
-export class RegistrationSideEffectMemoryStore<
-  T,
-> implements RouterAbEd25519YaoRegistrationSideEffectStoreV1<T> {
-  readonly records = new Map<string, StoredSideEffect<T>>();
-  claimWinner: RouterAbEd25519YaoRegistrationSideEffectRecordV1<T> | null = null;
-  terminalWinner: RouterAbEd25519YaoRegistrationSideEffectRecordV1<T> | null = null;
+export class RegistrationSideEffectMemoryStore<T, P = undefined>
+  implements RouterAbEd25519YaoRegistrationSideEffectStoreV1<T, P>
+{
+  readonly records = new Map<string, StoredSideEffect<T, P>>();
+  claimWinner: RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P> | null = null;
+  terminalWinner: RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P> | null = null;
   readonly throwReadCalls = new Set<number>();
   throwReads = 0;
   throwClaimPuts = 0;
@@ -39,7 +39,7 @@ export class RegistrationSideEffectMemoryStore<
   async read(
     key: string,
   ): Promise<
-    CloudflareVersionedJsonRecordReadResult<RouterAbEd25519YaoRegistrationSideEffectRecordV1<T>>
+    CloudflareVersionedJsonRecordReadResult<RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>>
   > {
     this.readCalls += 1;
     if (this.throwReadCalls.delete(this.readCalls)) {
@@ -61,7 +61,7 @@ export class RegistrationSideEffectMemoryStore<
 
   async put(
     key: string,
-    value: RouterAbEd25519YaoRegistrationSideEffectRecordV1<T>,
+    value: RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>,
     expectedVersion: string | null,
   ): Promise<CloudflareVersionedJsonRecordPutResult> {
     if (
@@ -133,6 +133,28 @@ export class UnusedSessionAdapter implements SessionAdapter {
 
   async refresh(): Promise<never> {
     throw new Error('Session refresh is outside this fixture');
+  }
+}
+
+export class StaticWalletSessionAdapter implements SessionAdapter {
+  async signJwt(): Promise<string> {
+    return 'registration.wallet.session';
+  }
+
+  async parse(): Promise<never> {
+    throw new Error('Session parsing is outside this fixture');
+  }
+
+  buildSetCookie(): string {
+    return '';
+  }
+
+  buildClearCookie(): string {
+    return '';
+  }
+
+  async refresh(): Promise<{ ok: false }> {
+    return { ok: false };
   }
 }
 

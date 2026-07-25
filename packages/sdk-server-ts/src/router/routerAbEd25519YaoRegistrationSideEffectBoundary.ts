@@ -5,11 +5,18 @@ import type {
 
 export type RouterAbEd25519YaoRegistrationSideEffectOperationV1 = 'start' | 'finalize';
 
-export type RouterAbEd25519YaoRegistrationSideEffectClaimV1 = {
+/**
+ * `prepared` carries the exact artifact the effect will act on — for
+ * finalization, the signed sponsored transaction and its hash. It is persisted
+ * with the claim, before the effect runs, so an ambiguous outcome can be
+ * reconciled by replaying that exact artifact instead of building a new one.
+ */
+export type RouterAbEd25519YaoRegistrationSideEffectClaimV1<P = undefined> = {
   readonly kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1';
   readonly operation: RouterAbEd25519YaoRegistrationSideEffectOperationV1;
   readonly requestFingerprint: string;
   readonly claimedAtMs: number;
+  readonly prepared?: P;
 };
 
 export type RouterAbEd25519YaoRegistrationSideEffectCompletionV1<T> = {
@@ -21,37 +28,57 @@ export type RouterAbEd25519YaoRegistrationSideEffectCompletionV1<T> = {
   readonly response: T;
 };
 
-export type RouterAbEd25519YaoRegistrationSideEffectRecordV1<T> =
-  | RouterAbEd25519YaoRegistrationSideEffectClaimV1
+export type RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P = undefined> =
+  | RouterAbEd25519YaoRegistrationSideEffectClaimV1<P>
   | RouterAbEd25519YaoRegistrationSideEffectCompletionV1<T>;
 
-export interface RouterAbEd25519YaoRegistrationSideEffectStoreV1<T> {
+export interface RouterAbEd25519YaoRegistrationSideEffectStoreV1<T, P = undefined> {
   read(
     key: string,
   ): Promise<
-    CloudflareVersionedJsonRecordReadResult<RouterAbEd25519YaoRegistrationSideEffectRecordV1<T>>
+    CloudflareVersionedJsonRecordReadResult<RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>>
   >;
   put(
     key: string,
-    value: RouterAbEd25519YaoRegistrationSideEffectRecordV1<T>,
+    value: RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>,
     expectedVersion: string | null,
   ): Promise<CloudflareVersionedJsonRecordPutResult>;
 }
 
-export type RouterAbEd25519YaoRegistrationSideEffectExecutionV1<T> = () => Promise<T>;
+export type RouterAbEd25519YaoRegistrationSideEffectExecutionV1<T, P = undefined> = (
+  prepared: P | undefined,
+) => Promise<T>;
 
-export type RouterAbEd25519YaoRegistrationSideEffectRunInputV1<T> = {
+export type RouterAbEd25519YaoRegistrationSideEffectRunInputV1<T, P = undefined> = {
   readonly operation: RouterAbEd25519YaoRegistrationSideEffectOperationV1;
   readonly key: string;
   readonly requestFingerprint: string;
   readonly nowMs: () => number;
-  readonly execute: RouterAbEd25519YaoRegistrationSideEffectExecutionV1<T>;
+  /**
+   * Builds the exact artifact the effect will act on. Runs before the claim is
+   * persisted, so its output is durable before any one-use effect happens.
+   */
+  readonly prepare?: () => Promise<P>;
+  /**
+   * Opt in when `execute` is replay-safe for an identical prepared artifact —
+   * for example rebroadcasting an already-signed transaction, where the bytes
+   * and therefore the transaction hash are unchanged. An interrupted attempt
+   * then resumes from its persisted artifact instead of stalling on the claim.
+   * Leave unset for effects that are not safe to repeat.
+   */
+  readonly resumeWithPrepared?: boolean;
+  readonly execute: RouterAbEd25519YaoRegistrationSideEffectExecutionV1<T, P>;
 };
 
-export type RouterAbEd25519YaoRegistrationSideEffectRunResultV1<T> =
+export type RouterAbEd25519YaoRegistrationSideEffectRunResultV1<T, P = undefined> =
   | { readonly kind: 'executed'; readonly value: T }
   | { readonly kind: 'exact_replay'; readonly value: T }
-  | { readonly kind: 'in_progress' }
+  /**
+   * A claim exists for this exact request but no completion. `prepared` is the
+   * durable artifact from the original attempt; a caller that can replay it
+   * safely should do so rather than constructing a new one.
+   */
+  | { readonly kind: 'in_progress'; readonly prepared?: P }
   | { readonly kind: 'request_conflict' }
   | {
       readonly kind: 'uncertain';
@@ -64,14 +91,14 @@ export type RouterAbEd25519YaoRegistrationSideEffectRunResultV1<T> =
  * is never executed again. Its exact terminal response is replayed after a
  * successful commit, including when a competing request committed it first.
  */
-export async function runRouterAbEd25519YaoRegistrationSideEffectV1<T>(
-  store: RouterAbEd25519YaoRegistrationSideEffectStoreV1<T>,
-  input: RouterAbEd25519YaoRegistrationSideEffectRunInputV1<T>,
-): Promise<RouterAbEd25519YaoRegistrationSideEffectRunResultV1<T>> {
+export async function runRouterAbEd25519YaoRegistrationSideEffectV1<T, P = undefined>(
+  store: RouterAbEd25519YaoRegistrationSideEffectStoreV1<T, P>,
+  input: RouterAbEd25519YaoRegistrationSideEffectRunInputV1<T, P>,
+): Promise<RouterAbEd25519YaoRegistrationSideEffectRunResultV1<T, P>> {
   const key = requireOpaqueKey(input.key);
   const requestFingerprint = requireRequestFingerprint(input.requestFingerprint);
   let existing: CloudflareVersionedJsonRecordReadResult<
-    RouterAbEd25519YaoRegistrationSideEffectRecordV1<T>
+    RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>
   >;
   try {
     existing = await store.read(key);
@@ -79,47 +106,74 @@ export async function runRouterAbEd25519YaoRegistrationSideEffectV1<T>(
     return uncertainResult('claim', error);
   }
   const disposition = existingDisposition(existing, input.operation, requestFingerprint);
-  if (disposition.kind !== 'fresh') return disposition;
+  const resumable =
+    disposition.kind === 'in_progress' &&
+    input.resumeWithPrepared === true &&
+    disposition.prepared !== undefined &&
+    existing.kind === 'present';
+  if (disposition.kind !== 'fresh' && !resumable) return disposition;
 
-  const claimedAtMs = requireTimestamp(input.nowMs(), 'claimedAtMs');
-  const claim: RouterAbEd25519YaoRegistrationSideEffectClaimV1 = {
-    kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1',
-    operation: input.operation,
-    requestFingerprint,
-    claimedAtMs,
-  };
-  let claimed: CloudflareVersionedJsonRecordPutResult;
-  try {
-    claimed = await store.put(key, claim, null);
-  } catch (error: unknown) {
-    return uncertainResult('claim', error);
-  }
-  if (claimed.kind === 'version_mismatch') {
-    let reconciledRecord: CloudflareVersionedJsonRecordReadResult<
-      RouterAbEd25519YaoRegistrationSideEffectRecordV1<T>
-    >;
+  let prepared: P | undefined;
+  let claimedAtMs: number;
+  let claimVersion: string;
+  if (resumable && existing.kind === 'present') {
+    // Resume the interrupted attempt: replay its persisted artifact under the
+    // original claim rather than building a second one.
+    const claimRecord = existing.value as RouterAbEd25519YaoRegistrationSideEffectClaimV1<P>;
+    prepared = claimRecord.prepared;
+    claimedAtMs = claimRecord.claimedAtMs;
+    claimVersion = existing.version;
+  } else {
+    if (input.prepare) {
+      try {
+        prepared = await input.prepare();
+      } catch (error: unknown) {
+        return uncertainResult('claim', error);
+      }
+    }
+
+    claimedAtMs = requireTimestamp(input.nowMs(), 'claimedAtMs');
+    const claim: RouterAbEd25519YaoRegistrationSideEffectClaimV1<P> = {
+      kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1',
+      operation: input.operation,
+      requestFingerprint,
+      claimedAtMs,
+      ...(prepared === undefined ? {} : { prepared }),
+    };
+    let claimed: CloudflareVersionedJsonRecordPutResult;
     try {
-      reconciledRecord = await store.read(key);
+      claimed = await store.put(key, claim, null);
     } catch (error: unknown) {
       return uncertainResult('claim', error);
     }
-    const reconciledClaim = existingDisposition(
-      reconciledRecord,
-      input.operation,
-      requestFingerprint,
-    );
-    return reconciledClaim.kind === 'fresh'
-      ? {
-          kind: 'uncertain',
-          phase: 'claim',
-          message: 'registration side-effect claim could not be reconciled',
-        }
-      : reconciledClaim;
+    if (claimed.kind === 'version_mismatch') {
+      let reconciledRecord: CloudflareVersionedJsonRecordReadResult<
+        RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>
+      >;
+      try {
+        reconciledRecord = await store.read(key);
+      } catch (error: unknown) {
+        return uncertainResult('claim', error);
+      }
+      const reconciledClaim = existingDisposition(
+        reconciledRecord,
+        input.operation,
+        requestFingerprint,
+      );
+      return reconciledClaim.kind === 'fresh'
+        ? {
+            kind: 'uncertain',
+            phase: 'claim',
+            message: 'registration side-effect claim could not be reconciled',
+          }
+        : reconciledClaim;
+    }
+    claimVersion = claimed.version;
   }
 
   let response: T;
   try {
-    response = await input.execute();
+    response = await input.execute(prepared);
   } catch (error: unknown) {
     return uncertainResult('effect', error);
   }
@@ -134,14 +188,14 @@ export async function runRouterAbEd25519YaoRegistrationSideEffectV1<T>(
   };
   let committed: CloudflareVersionedJsonRecordPutResult;
   try {
-    committed = await store.put(key, completion, claimed.version);
+    committed = await store.put(key, completion, claimVersion);
   } catch (error: unknown) {
     return uncertainResult('terminal_commit', error);
   }
   if (committed.kind === 'stored') return { kind: 'executed', value: response };
 
   let terminalRecord: CloudflareVersionedJsonRecordReadResult<
-    RouterAbEd25519YaoRegistrationSideEffectRecordV1<T>
+    RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>
   >;
   try {
     terminalRecord = await store.read(key);
@@ -157,17 +211,20 @@ export async function runRouterAbEd25519YaoRegistrationSideEffectV1<T>(
   };
 }
 
-type ExistingDisposition<T> =
+type ExistingDisposition<T, P> =
   | { readonly kind: 'fresh' }
-  | Exclude<RouterAbEd25519YaoRegistrationSideEffectRunResultV1<T>, { readonly kind: 'executed' }>;
+  | Exclude<
+      RouterAbEd25519YaoRegistrationSideEffectRunResultV1<T, P>,
+      { readonly kind: 'executed' }
+    >;
 
-function existingDisposition<T>(
+function existingDisposition<T, P>(
   record: CloudflareVersionedJsonRecordReadResult<
-    RouterAbEd25519YaoRegistrationSideEffectRecordV1<T>
+    RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>
   >,
   operation: RouterAbEd25519YaoRegistrationSideEffectOperationV1,
   requestFingerprint: string,
-): ExistingDisposition<T> {
+): ExistingDisposition<T, P> {
   if (record.kind === 'missing') return { kind: 'fresh' };
   if (
     record.value.operation !== operation ||
@@ -177,7 +234,9 @@ function existingDisposition<T>(
   }
   switch (record.value.kind) {
     case 'router_ab_ed25519_yao_registration_side_effect_claim_v1':
-      return { kind: 'in_progress' };
+      return record.value.prepared === undefined
+        ? { kind: 'in_progress' }
+        : { kind: 'in_progress', prepared: record.value.prepared };
     case 'router_ab_ed25519_yao_registration_side_effect_completion_v1':
       return { kind: 'exact_replay', value: record.value.response };
     default:
