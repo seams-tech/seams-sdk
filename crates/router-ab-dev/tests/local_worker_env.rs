@@ -1,3 +1,5 @@
+use base64::Engine as _;
+use ed25519_dalek::SigningKey;
 use router_ab_core::{
     CanonicalWireBytesV1, Ed25519YaoDeriverRoleV1, Ed25519YaoPackageKindV1, LocalHttpPathV1,
     LocalServiceRoleV1, RouterAbProtocolErrorCode,
@@ -403,7 +405,19 @@ fn local_env_materialization_plan_generates_parseable_role_env_files() {
         assert!(!file.contents.contains("dev-only-signing-worker"));
         match file.role {
             LocalServiceRoleV1::DeriverA | LocalServiceRoleV1::DeriverB => {
-                assert!(file.contents.contains("dev-only-generated-"));
+                assert!(!file.contents.contains("dev-only-generated-"));
+                assert!(!file
+                    .contents
+                    .contains("dev-only-generated-deriver-a-peer-signing-key"));
+                assert!(!file
+                    .contents
+                    .contains("dev-only-generated-deriver-b-peer-signing-key"));
+                assert!(!file
+                    .contents
+                    .contains("dev-only-deriver-a-peer-verifying-key"));
+                assert!(!file
+                    .contents
+                    .contains("dev-only-deriver-b-peer-verifying-key"));
             }
             LocalServiceRoleV1::SigningWorker => {
                 assert!(!file
@@ -496,6 +510,27 @@ fn local_env_materialization_exposes_only_public_keys_matching_role_private_keys
         &signing_worker.server_output_hpke_private_key,
         Ed25519YaoDeriverRoleV1::DeriverA,
     );
+
+    let deriver_a_seed = decode_peer_seed(&deriver_a.peer_signing_key);
+    let deriver_b_seed = decode_peer_seed(&deriver_b.peer_signing_key);
+    let deriver_a_public = deriver_a_seed.verifying_key().to_bytes();
+    let deriver_b_public = deriver_b_seed.verifying_key().to_bytes();
+    assert_eq!(
+        hex::decode(&deriver_a.deriver_a_peer_verifying_key).expect("A public key"),
+        deriver_a_public,
+    );
+    assert_eq!(
+        hex::decode(&deriver_a.deriver_b_peer_verifying_key).expect("B public key"),
+        deriver_b_public,
+    );
+    assert_eq!(
+        hex::decode(&deriver_b.deriver_a_peer_verifying_key).expect("A public key"),
+        deriver_a_public,
+    );
+    assert_eq!(
+        hex::decode(&deriver_b.deriver_b_peer_verifying_key).expect("B public key"),
+        deriver_b_public,
+    );
 }
 
 #[test]
@@ -515,6 +550,15 @@ fn parse_template(contents: &str) -> Vec<(String, String)> {
             (key.to_owned(), value.to_owned())
         })
         .collect()
+}
+
+fn decode_peer_seed(value: &str) -> SigningKey {
+    let seed: [u8; 32] = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(value)
+        .expect("peer signing key base64url")
+        .try_into()
+        .expect("peer signing key seed length");
+    SigningKey::from_bytes(&seed)
 }
 
 fn assert_hpke_key_pair(public_key: &str, private_key: &str, deriver: Ed25519YaoDeriverRoleV1) {

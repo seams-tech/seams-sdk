@@ -1467,6 +1467,7 @@ fn execute_local_pair_deriver_a_inner_v1(
         &request.peer_receipt,
         local_pair_verifying_key_v1(&config.deriver_b_peer_verifying_key)?,
     )?;
+    let peer_root_metadata_digest = request.peer_receipt.root_metadata_digest().bytes;
     let pair_digest = request.pair_binding.pair_digest().bytes;
     let execution_id = Ed25519YaoExecutionIdV1::new(pair_digest)?;
     let record = state
@@ -1573,7 +1574,7 @@ fn execute_local_pair_deriver_a_inner_v1(
                 &acceptance,
                 &pair_binding,
                 execution_id,
-                root_metadata_digest,
+                peer_root_metadata_digest,
                 &config.deriver_b_peer_verifying_key,
             )?;
             let packages = seal_activation_output_v1(
@@ -1638,7 +1639,7 @@ fn execute_local_pair_deriver_a_inner_v1(
                 &acceptance,
                 &pair_binding,
                 execution_id,
-                root_metadata_digest,
+                peer_root_metadata_digest,
                 &config.deriver_b_peer_verifying_key,
             )?;
             let client_package = seal_export_output_v1(
@@ -2927,6 +2928,64 @@ mod tests {
             state.pair_roles.get(&pair_digest),
             Some(LocalEd25519YaoPairRoleRecordV1::Burned { .. })
         ));
+    }
+
+    #[test]
+    fn pair_start_acceptance_accepts_the_peer_root_when_role_roots_differ() {
+        let binding = ceremony(
+            11,
+            Ed25519YaoOperationV1::Registration,
+            ExpensiveWorkKindV1::RegistrationPrepare,
+            12,
+        );
+        let pair_binding = Ed25519YaoInputPairBindingV1::new(
+            Ed25519YaoCeremonyIdentityV1::from_binding(binding.clone()).expect("pair identity"),
+            PublicDigest32::new([0xa1; 32]),
+            PublicDigest32::new([0xb1; 32]),
+            PublicDigest32::new([0xc1; 32]),
+            PublicDigest32::new([0xd1; 32]),
+        )
+        .expect("pair binding");
+        let execution_id =
+            Ed25519YaoExecutionIdV1::new(pair_binding.pair_digest().bytes).expect("execution id");
+        let a_root =
+            local_pair_root_metadata_digest_v1(&hex::encode([0x81; 32])).expect("A root digest");
+        let b_root =
+            local_pair_root_metadata_digest_v1(&hex::encode([0x82; 32])).expect("B root digest");
+        assert_ne!(a_root, b_root);
+        let signing_key_material =
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([0x91; 32]);
+        let now_ms = crate::local_now_unix_ms_v1().expect("clock");
+        let acceptance = sign_local_pair_start_acceptance_v1(
+            Ed25519YaoDeriverRoleV1::DeriverB,
+            binding.session_id.into_bytes(),
+            pair_binding.pair_digest().bytes,
+            execution_id,
+            b_root,
+            now_ms,
+            now_ms.checked_add(60_000).expect("expiry"),
+            &signing_key_material,
+        )
+        .expect("signed B acceptance");
+        let verifying_key = ed25519_dalek::SigningKey::from_bytes(&[0x91; 32])
+            .verifying_key()
+            .to_bytes();
+        validate_local_pair_start_acceptance_v1(
+            &acceptance,
+            &pair_binding,
+            execution_id,
+            b_root,
+            &hex::encode(verifying_key),
+        )
+        .expect("peer-root acceptance validates");
+        assert!(validate_local_pair_start_acceptance_v1(
+            &acceptance,
+            &pair_binding,
+            execution_id,
+            a_root,
+            &hex::encode(verifying_key),
+        )
+        .is_err());
     }
 
     #[test]

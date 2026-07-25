@@ -11,6 +11,12 @@ import { prepareRouterAbStrictLocalRuntimeConfigs } from '../../crates/router-ab
 
 const DERIVER_A_PEER_KEY_HEX = '11'.repeat(32);
 const DERIVER_B_PEER_KEY_HEX = '22'.repeat(32);
+const DERIVER_A_PEER_SIGNING_KEY = Buffer.from(DERIVER_A_PEER_KEY_HEX, 'hex').toString(
+  'base64url',
+);
+const DERIVER_B_PEER_SIGNING_KEY = Buffer.from(DERIVER_B_PEER_KEY_HEX, 'hex').toString(
+  'base64url',
+);
 type X25519Fixture = {
   readonly publicKey: string;
   readonly privateKeyHex: string;
@@ -66,17 +72,17 @@ function createRuntimeFixture(): RuntimeFixture {
     DERIVER_A_URL: router.DERIVER_A_URL,
     DERIVER_A_ROOT_SHARE_WIRE_SECRET: `mpc-prf-root-share-wire-v1:${'33'.repeat(32)}`,
     DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY: deriverA.privateKeyHex,
-    DERIVER_A_PEER_SIGNING_KEY: `dev-only-generated-a:${DERIVER_A_PEER_KEY_HEX}`,
-    DERIVER_A_PEER_VERIFYING_KEY: `dev-only-generated-a:${DERIVER_A_PEER_KEY_HEX}`,
-    DERIVER_B_PEER_VERIFYING_KEY: `dev-only-generated-b:${DERIVER_B_PEER_KEY_HEX}`,
+    DERIVER_A_PEER_SIGNING_KEY: DERIVER_A_PEER_SIGNING_KEY,
+    DERIVER_A_PEER_VERIFYING_KEY: localPeerVerifyingKeyHex(DERIVER_A_PEER_SIGNING_KEY),
+    DERIVER_B_PEER_VERIFYING_KEY: localPeerVerifyingKeyHex(DERIVER_B_PEER_SIGNING_KEY),
   });
   writeEnv(root, '.env.router-ab.deriver-b.local', {
     DERIVER_B_URL: router.DERIVER_B_URL,
     DERIVER_B_ROOT_SHARE_WIRE_SECRET: `mpc-prf-root-share-wire-v1:${'44'.repeat(32)}`,
     DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY: deriverB.privateKeyHex,
-    DERIVER_B_PEER_SIGNING_KEY: `dev-only-generated-b:${DERIVER_B_PEER_KEY_HEX}`,
-    DERIVER_A_PEER_VERIFYING_KEY: `dev-only-generated-a:${DERIVER_A_PEER_KEY_HEX}`,
-    DERIVER_B_PEER_VERIFYING_KEY: `dev-only-generated-b:${DERIVER_B_PEER_KEY_HEX}`,
+    DERIVER_B_PEER_SIGNING_KEY: DERIVER_B_PEER_SIGNING_KEY,
+    DERIVER_A_PEER_VERIFYING_KEY: localPeerVerifyingKeyHex(DERIVER_A_PEER_SIGNING_KEY),
+    DERIVER_B_PEER_VERIFYING_KEY: localPeerVerifyingKeyHex(DERIVER_B_PEER_SIGNING_KEY),
   });
   writeEnv(root, '.env.router-ab.signing-worker.local', {
     SIGNING_WORKER_URL: router.SIGNING_WORKER_URL,
@@ -125,7 +131,7 @@ test('local Gateway startup projects the generated HPKE keyset into D1 Wrangler'
   expect(config).not.toContain('ROUTER_AB_MPC_ROUTER_URL =');
   expect(config).toContain(
     `DERIVER_A_PEER_VERIFYING_KEY_HEX = "${localPeerVerifyingKeyHex(
-      `dev-only-generated-a:${DERIVER_A_PEER_KEY_HEX}`,
+      DERIVER_A_PEER_SIGNING_KEY,
     )}"`,
   );
 
