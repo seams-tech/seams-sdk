@@ -320,11 +320,29 @@ function validateOptionalIntegrationInputs(targetName, suppliedValues) {
   if (sponsoredEvmExecutors) {
     parseSuppliedJsonObject('SPONSORED_EVM_EXECUTORS_JSON', sponsoredEvmExecutors);
   }
+  const stripeSecretKey = readSuppliedValue(
+    suppliedValues,
+    targetName,
+    gatewayEnvironment,
+    'STRIPE_API_SK',
+  );
+  if (stripeSecretKey) {
+    requireStripeSecretKey(stripeSecretKey);
+  }
 }
 
 function requirePositiveUnsignedInteger(value, name) {
   if (!/^[1-9][0-9]*$/.test(value)) {
     throw new Error(`${name} must be a positive unsigned integer`);
+  }
+  return value;
+}
+
+function requireStripeSecretKey(value) {
+  if (!/^(?:sk|rk)_/.test(value)) {
+    throw new Error(
+      'STRIPE_API_SK must be a Stripe secret key (sk_...) or restricted key (rk_...)',
+    );
   }
   return value;
 }
@@ -635,7 +653,7 @@ function buildDeploymentDigestPayload(output) {
 
 function buildEnvironments(input) {
   return Object.fromEntries([
-    buildGeneralEnvironment(input),
+    buildFrontendEnvironment(input),
     buildGatewayEnvironment(input),
     buildMpcRouterEnvironment(input),
     buildDeriverAEnvironment(input),
@@ -655,7 +673,7 @@ function deploymentComponentEnvironmentNames(targetName, component) {
         `${targetName}-signing-worker`,
       ];
     case 'product':
-      return [targetName];
+      return [`${targetName}-frontend`];
     default:
       throw new Error(`unsupported deployment component: ${component}`);
   }
@@ -700,14 +718,14 @@ function computeComponentManifestSha256(manifest) {
     .digest('hex');
 }
 
-function buildGeneralEnvironment(input) {
-  const environmentName = input.target;
+function buildFrontendEnvironment(input) {
+  const environmentName = `${input.target}-frontend`;
   const configuration = input.configuration;
   const signingSession = input.generatedSecrets.signingSession;
   return [
     environmentName,
     {
-      purpose: 'Pages builds',
+      purpose: 'Pages builds and deployments',
       variables: {
         VITE_RELAYER_URL: configuration.gatewayOrigin,
         VITE_SEAMS_PROJECT_ENVIRONMENT_ID: configuration.projectEnvironmentId,
@@ -721,6 +739,10 @@ function buildGeneralEnvironment(input) {
         VITE_SIGNING_SESSION_SEAL_KEY_VERSION: signingSession.keyVersion,
         VITE_SIGNING_SESSION_SHAMIR_P_B64U: signingSession.shamirPrimeB64u,
         VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID: configuration.signingWorkerName,
+        GATEWAY_API_CONTRACT_VERSION: manual(`${input.target}-gateway-api-contract-version`),
+        SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON: manual(
+          `${input.target}-supported-frontend-api-contract-range-json`,
+        ),
       },
       optionalVariables: {
         VITE_CONSOLE_BASE_URL: configuration.gatewayOrigin,
@@ -755,6 +777,10 @@ function buildGatewayEnvironment(input) {
       purpose: 'Gateway Worker, D1, tenant state, and public ceremony JWT issuer',
       variables: {
         GATEWAY_DEPLOYMENT_CONFIG_JSON: JSON.stringify(deploymentConfig),
+        GATEWAY_API_CONTRACT_VERSION: manual(`${input.target}-gateway-api-contract-version`),
+        SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON: manual(
+          `${input.target}-supported-frontend-api-contract-range-json`,
+        ),
       },
       optionalVariables: {},
       secrets: {
@@ -766,6 +792,7 @@ function buildGatewayEnvironment(input) {
         ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK: input.generatedSecrets.ceremonyPrivateJwk,
         RELAYER_PRIVATE_KEY: manual(`${input.target}-near-relayer-private-key`),
         SPONSORED_EVM_EXECUTORS_JSON: manual(`${input.target}-sponsored-evm-executors-json`),
+        STRIPE_API_SK: manual(`${input.target}-stripe-api-secret-key`),
         SIGNING_ROOT_KEK_VALUE: input.generatedSecrets.signingRootKek,
         SIGNING_SESSION_SEAL_KEY_VERSION: signingSession.keyVersion,
         SIGNING_SESSION_SHAMIR_P_B64U: signingSession.shamirPrimeB64u,
@@ -1627,7 +1654,7 @@ function assertCompleteApplyInput(outputDocument, shouldApply, incompleteAllowed
 
 function validateOutput(outputDocument) {
   const expectedEnvironmentNames = [
-    outputDocument.target,
+    `${outputDocument.target}-frontend`,
     `${outputDocument.target}-gateway`,
     `${outputDocument.target}-mpc-router`,
     `${outputDocument.target}-deriver-a`,
@@ -1646,21 +1673,29 @@ function validateOutput(outputDocument) {
   validateRouterPublicIdentityConsistency(outputDocument);
   validateGatewayRegistrationDocuments(outputDocument);
   validateSigningSessionConsistency(outputDocument);
+  validateApiContractConfiguration(outputDocument);
 }
 
 function validateWorkflowCoverage(outputDocument) {
   const targetName = outputDocument.target;
   const routerWorkflow = readWorkflow('deploy-cloudflare-stack.yml');
+  const releaseWorkflow = readWorkflow('release-cloudflare-stack.yml');
   const requirements = new Map([
     [
-      targetName,
+      `${targetName}-frontend`,
       mergeWorkflowRequirements(
-        collectWorkflowRequirements(readWorkflow('deploy-cloudflare-pages.yml')),
+        collectWorkflowRequirements(readWorkflow('release-cloudflare-frontend.yml')),
+        collectWorkflowRequirements(readWorkflow('deploy-cloudflare-frontend.yml')),
+        collectWorkflowRequirements(extractWorkflowJob(routerWorkflow, 'final_smoke')),
       ),
     ],
     [
       `${targetName}-gateway`,
-      collectWorkflowRequirements(readWorkflow('deploy-cloudflare-gateway.yml')),
+      mergeWorkflowRequirements(
+        collectWorkflowRequirements(extractWorkflowJob(releaseWorkflow, 'build_gateway')),
+        collectWorkflowRequirements(extractWorkflowJob(releaseWorkflow, 'create_release_set')),
+        collectWorkflowRequirements(readWorkflow('deploy-cloudflare-gateway.yml')),
+      ),
     ],
     [
       `${targetName}-mpc-router`,
@@ -1722,6 +1757,7 @@ function collectWorkflowRequirements(workflowSource) {
   const secrets = new Set();
   const referencePattern = /\b(vars|secrets)\.([A-Z][A-Z0-9_]*)/g;
   for (const match of workflowSource.matchAll(referencePattern)) {
+    if (match[1] === 'secrets' && match[2] === 'GITHUB_TOKEN') continue;
     (match[1] === 'vars' ? variables : secrets).add(match[2]);
   }
   return { variables, secrets };
@@ -1905,15 +1941,15 @@ function parseGatewayDeploymentConfig(gatewayEnvironment) {
 }
 
 function validateSigningSessionConsistency(outputDocument) {
-  const general = outputDocument.environments[outputDocument.target];
+  const frontend = outputDocument.environments[`${outputDocument.target}-frontend`];
   const gateway = outputDocument.environments[`${outputDocument.target}-gateway`];
   assertEqual(
-    general.variables.VITE_SIGNING_SESSION_SEAL_KEY_VERSION,
+    frontend.variables.VITE_SIGNING_SESSION_SEAL_KEY_VERSION,
     gateway.secrets.SIGNING_SESSION_SEAL_KEY_VERSION,
     'signing-session seal key version',
   );
   assertEqual(
-    general.variables.VITE_SIGNING_SESSION_SHAMIR_P_B64U,
+    frontend.variables.VITE_SIGNING_SESSION_SHAMIR_P_B64U,
     gateway.secrets.SIGNING_SESSION_SHAMIR_P_B64U,
     'signing-session Shamir prime',
   );
@@ -1927,6 +1963,21 @@ function validateSigningSessionConsistency(outputDocument) {
       throw new Error(`Gateway signing-session seal secret ${name} is missing`);
     }
   }
+}
+
+function validateApiContractConfiguration(outputDocument) {
+  const frontend = outputDocument.environments[`${outputDocument.target}-frontend`].variables;
+  const gateway = outputDocument.environments[`${outputDocument.target}-gateway`].variables;
+  assertEqual(
+    frontend.GATEWAY_API_CONTRACT_VERSION,
+    gateway.GATEWAY_API_CONTRACT_VERSION,
+    'Gateway API contract version',
+  );
+  assertEqual(
+    frontend.SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON,
+    gateway.SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON,
+    'supported frontend API contract range',
+  );
 }
 
 function assertAbsent(values, names) {
@@ -2242,13 +2293,17 @@ function removeObsoleteGatewayVariables(environmentName, repositoryName) {
 function migrateExistingGatewayVariables(targetName, repositoryName) {
   const gatewayEnvironmentName = `${targetName}-gateway`;
   const gatewayVariables = readGitHubEnvironmentVariables(gatewayEnvironmentName, repositoryName);
-  const generalVariables = readGitHubEnvironmentVariables(targetName, repositoryName);
+  const legacyFrontendVariables = readGitHubEnvironmentVariables(targetName, repositoryName);
   const existingConfig = gatewayVariables.get('GATEWAY_DEPLOYMENT_CONFIG_JSON');
   const config = existingConfig
     ? parseStrictGatewayDeploymentConfig(existingConfig, targetName)
     : parseStrictGatewayDeploymentConfig(
         JSON.stringify(
-          buildGatewayConfigFromScalarVariables(targetName, gatewayVariables, generalVariables),
+          buildGatewayConfigFromScalarVariables(
+            targetName,
+            gatewayVariables,
+            legacyFrontendVariables,
+          ),
         ),
         targetName,
       );
@@ -2338,7 +2393,7 @@ function assertWalletCoreGenerationMatches(productManifest, repositoryName) {
 
 function deploymentEnvironmentNames(targetName) {
   return [
-    targetName,
+    `${targetName}-frontend`,
     `${targetName}-gateway`,
     `${targetName}-mpc-router`,
     `${targetName}-deriver-a`,

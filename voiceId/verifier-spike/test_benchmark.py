@@ -39,9 +39,17 @@ class BenchmarkManifestTest(unittest.TestCase):
             self.assertEqual(report.fixture_count, 7)
             self.assertEqual(report.partition_counts["evaluation"], 4)
             self.assertFalse(report.measurement_ready)
+            self.assertFalse(report.human_metrics_eligible)
+            self.assertEqual(report.human_metrics_suppression_reason, "no_qualifying_human_cohort")
+            self.assertEqual(report.synthetic_impostor_count, 1)
+            self.assertEqual(report.synthetic_attack_class_counts, {"synthesis": 1})
+            self.assertEqual(report.cohort_counts["fictional_synthetic"], 7)
             self.assertIn("replay", report.missing_attack_classes)
-            self.assertEqual(report_to_json(report)["schemaVersion"], "voice_id_benchmark_inventory_report_v1")
-            self.assertIn("# VoiceID Reproducible Benchmark Inventory", render_inventory_report(report))
+            self.assertEqual(report_to_json(report)["schemaVersion"], "voice_id_benchmark_inventory_report_v2")
+            rendered = render_inventory_report(report)
+            self.assertIn("# VoiceID Reproducible Benchmark Inventory", rendered)
+            self.assertIn("Synthetic attack classes", rendered)
+            self.assertIn("Human FAR/FRR/EER: suppressed", rendered)
             self.assertTrue(json_path.is_file())
             self.assertTrue(markdown_path.is_file())
 
@@ -94,6 +102,57 @@ class BenchmarkManifestTest(unittest.TestCase):
             with self.assertRaisesRegex(BenchmarkManifestError, "requires an enrollment"):
                 load_benchmark_manifest(manifest_path)
 
+    def test_accepts_conditioned_synthetic_provenance_and_rejects_unknown_kind(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            entry = fixture_entry(root, "conditioned", "synthetic_owner_clone", "development", {"kind": "enrollment"})
+            entry["provenance"] = synthetic_provenance(conditioned=True)
+            manifest_path = write_manifest(root, [entry])
+
+            manifest = load_benchmark_manifest(manifest_path)
+            provenance = manifest.entries[0].provenance
+            self.assertEqual(provenance.kind, "synthetic_generation")
+            self.assertIsNotNone(provenance.conditioning)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            entry = fixture_entry(root, "unknown_kind", "subject", "development", {"kind": "enrollment"})
+            entry["provenance"] = {
+                "kind": "unknown_provenance",
+                "consentReference": "invalid",
+                "retentionClass": "invalid",
+            }
+            manifest_path = write_manifest(root, [entry])
+            with self.assertRaisesRegex(BenchmarkManifestError, "kind is invalid"):
+                load_benchmark_manifest(manifest_path)
+
+    def test_enables_human_metrics_only_for_two_complete_evaluation_subjects(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            entries = []
+            for subject_id in ("human_a", "human_b"):
+                enrollment = fixture_entry(
+                    root,
+                    f"{subject_id}_enroll",
+                    subject_id,
+                    "evaluation",
+                    {"kind": "enrollment"},
+                )
+                verification = fixture_entry(
+                    root,
+                    f"{subject_id}_verify",
+                    subject_id,
+                    "evaluation",
+                    {"kind": "genuine_verification"},
+                )
+                enrollment["provenance"] = human_provenance(subject_id)
+                verification["provenance"] = human_provenance(subject_id)
+                entries.extend((enrollment, verification))
+            report = build_inventory_report(load_benchmark_manifest(write_manifest(root, entries)))
+
+            self.assertTrue(report.human_metrics_eligible)
+            self.assertIsNone(report.human_metrics_suppression_reason)
+
 
 def fixture_entry(
     root: Path,
@@ -132,11 +191,36 @@ def fixture_entry(
         "durationMs": 4000,
         "byteLength": len(audio),
         "mimeType": "audio/wav",
-        "consent": {
-            "kind": "consented_research_recording",
-            "consentReference": f"consent_{subject_id}",
-            "retentionClass": "voiceid-research-short",
-        },
+        "provenance": synthetic_provenance(),
+    }
+
+
+def synthetic_provenance(*, conditioned: bool = False) -> dict[str, object]:
+    return {
+        "kind": "synthetic_generation",
+        "generator": "dia2",
+        "model": "dia2-1b",
+        "voice": "voice-test-01",
+        "seed": 7,
+        "license": "research-only",
+        "requestHash": "a" * 64,
+        "conditioning": (
+            {
+                "sourceSubjectId": "consented_owner",
+                "consentReference": "consent_owner",
+                "retentionClass": "voiceid-research-indefinite",
+            }
+            if conditioned
+            else None
+        ),
+    }
+
+
+def human_provenance(subject_id: str) -> dict[str, object]:
+    return {
+        "kind": "consented_human_capture",
+        "consentReference": f"consent_{subject_id}",
+        "retentionClass": "voiceid-research-indefinite",
     }
 
 
@@ -145,7 +229,7 @@ def write_manifest(root: Path, entries: list[dict[str, object]]) -> Path:
     path.write_text(
         json.dumps(
             {
-                "schemaVersion": "voice_id_benchmark_manifest_v1",
+                "schemaVersion": "voice_id_benchmark_manifest_v2",
                 "datasetVersion": "voiceid-benchmark-test-v1",
                 "createdAt": "2026-07-22T00:01:00.000Z",
                 "entries": entries,

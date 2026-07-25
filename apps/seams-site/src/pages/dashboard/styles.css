@@ -1740,6 +1740,23 @@
   color: var(--dashboard-ink);
 }
 
+/* Policy name + enabled/disabled status badge share the first cell. */
+.dashboard-gas-sponsorship-table__policy-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* A disabled policy is inert (not sponsoring gas), so the whole row reads
+   muted — dimmed content but still legible. The actions cell is excluded so
+   its buttons stay clearly interactive (opacity on a parent can't be undone
+   by a child, so we never dim that cell in the first place). */
+.dashboard-gas-sponsorship-table__row--disabled
+  .dashboard-data-table__cell:not(.dashboard-gas-sponsorship-table__actions-cell) {
+  opacity: 0.55;
+}
+
 .dashboard-policy-table__policy {
   display: grid;
   align-content: start;

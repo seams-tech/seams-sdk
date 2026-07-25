@@ -162,7 +162,7 @@ CONSOLE_SESSION_ISSUER = "seams-console-staging"
 CONSOLE_SESSION_AUDIENCE = "seams-console-dashboard"
 
 [secrets]
-required = ["CONSOLE_SESSION_HMAC_SECRET"]
+required = ["CONSOLE_SESSION_HMAC_SECRET", "STRIPE_API_SK"]
 `;
 }
 
@@ -232,11 +232,12 @@ RELAYER_ACCOUNT_ID = "seams-relayer-staging.testnet"
 RELAYER_PUBLIC_KEY = "ed25519:11111111111111111111111111111111"
 RELAY_SESSION_ISSUER = "seams-gateway-staging"
 RELAY_SESSION_AUDIENCE = "seams-wallet-session"
+SPONSORED_EXECUTION_REAL_PRICING_JSON = '{"provider":"coingecko","near":{"TESTNET":{"assetId":"near","nativeUnitDecimals":24,"estimateFeeAmountYocto":"1000000000000000000000","pricingVersionPrefix":"coingecko-near-testnet"}}}'
 SIGNING_ROOT_KEK_PROVIDER = "cloudflare_secrets_store"
 SIGNING_ROOT_KEK_ENCODING = "base64url"
 SIGNING_ROOT_KEK_IDS = "signing-root-kek-staging-r1"
 
 [secrets]
-required = ["RELAY_SESSION_HMAC_SECRET", "ACCOUNT_ID_DERIVATION_SECRET", "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET", "SPONSORED_EVM_EXECUTORS_JSON"]
+required = ["RELAY_SESSION_HMAC_SECRET", "ACCOUNT_ID_DERIVATION_SECRET", "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET", "SPONSORED_EVM_EXECUTORS_JSON", "STRIPE_API_SK"]
 `;
 }

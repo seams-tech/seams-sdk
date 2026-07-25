@@ -4,6 +4,8 @@ import {
   resolveSponsoredEvmCallConfigFromWorkerEnv,
   resolveSponsoredEvmWorkerExecutionAdapter,
 } from '@seams-internal/console-server/sponsorship/evmWorkerExecutionAdapter';
+import { resolveSponsoredExecutionPricingFromEnv } from '@seams-internal/console-server/sponsorship/pricing';
+import { requireStripeBillingProviderAdaptersFromEnv } from '@seams-internal/console-server/billing/stripeProvider';
 import { createCloudflareRouter } from '@seams/sdk-server/internal/router/cloudflare/createCloudflareRouter';
 import { json, withCors } from '@seams/sdk-server/internal/router/cloudflare/http';
 import { createCloudflareConsoleRouter } from './createCloudflareConsoleRouter';
@@ -14,6 +16,7 @@ import {
 } from './d1ConsoleServices';
 import type { CloudflareD1EmailOtpServerSealConfig } from '@seams/sdk-server/internal/router/cloudflare/d1RouterApiAuthConfig';
 import { createCloudflareD1RouterApiAuthService } from '@seams/sdk-server/internal/router/cloudflare/d1RouterApiAuthService';
+import { loadCloudflareSignerWasmModule } from './d1SignerWasm';
 import type { ThresholdStoreConfigInput } from '@seams/sdk-server/internal/core/types';
 import { createSigningSessionSealOptions } from '@seams/sdk-server/internal/threshold/session/signingSessionSeal/options';
 import type { SigningSessionSealRoutesOptions } from '@seams/sdk-server/internal/threshold/session/signingSessionSeal/signingSessionSeal.types';
@@ -140,6 +143,12 @@ interface CloudflareD1RouterApiStagingEnv
   readonly EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_MAX?: string;
   readonly EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS?: string;
   readonly SPONSORED_EVM_EXECUTORS_JSON?: string;
+  readonly SPONSORED_EXECUTION_REAL_PRICING_JSON?: string;
+  readonly SPONSORED_EXECUTION_STATIC_PRICING_JSON?: string;
+  readonly STRIPE_API_SK?: string;
+  readonly STRIPE_CHECKOUT_PRICE_ID?: string;
+  readonly STRIPE_API_BASE_URL?: string;
+  readonly STRIPE_API_TIMEOUT_MS?: string;
   readonly CONSOLE_PLATFORM_ADMIN_EMAILS?: string;
 }
 
@@ -302,8 +311,10 @@ async function createRouterApiHandler(
     },
     adapters: {
       ensureSchema: false,
+      billingProviders: requireStripeBillingProviderAdaptersFromEnv(env),
       sponsoredEvmCallConfig,
       resolveSponsoredEvmExecutionAdapter: resolveSponsoredEvmWorkerExecutionAdapter,
+      sponsorshipPricing: resolveSponsoredExecutionPricingFromEnv(env),
     },
   });
   const thresholdStoreConfig = stagingThresholdStoreConfig(env, scope.namespace);
@@ -346,6 +357,7 @@ async function createRouterApiHandler(
     relayerPublicKey: readEnvString(env, 'RELAYER_PUBLIC_KEY'),
     relayerPrivateKey: readEnvString(env, 'RELAYER_PRIVATE_KEY'),
     nearRpcUrl: readEnvString(env, 'NEAR_RPC_URL'),
+    signerWasmModuleOrPath: loadCloudflareSignerWasmModule,
     accountInitialBalance: readEnvString(env, 'ACCOUNT_INITIAL_BALANCE'),
     implicitNearAccountTestFundingEnabled: readEnvString(
       env,
@@ -440,7 +452,9 @@ export async function dispatchHostedGatewayRequest(
 ): Promise<Response> {
   const pathname = new URL(request.url).pathname;
   const handler =
-    pathname === '/console' || pathname.startsWith('/console/') ? consoleHandler : routerApiHandler;
+    pathname === '/console' || pathname.startsWith('/console/')
+      ? consoleHandler
+      : routerApiHandler;
   return await handler(request, env, ctx);
 }
 

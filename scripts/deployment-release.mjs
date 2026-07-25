@@ -2,12 +2,15 @@
 
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { readMigrationSet } from './migration-fingerprint.mjs';
+import { parseSupportedFrontendApiContractRange } from './deployment-api-compatibility.mjs';
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const TARGETS = new Set(['staging', 'production']);
+const LANES = new Set(['backend', 'frontend']);
 const COMPONENT_KINDS = new Set([
   'router',
   'deriver-a',
@@ -35,6 +38,14 @@ const COMPONENT_NAME_BY_KIND = new Map([
   ['pages', 'site'],
   ['signer-iframe', 'signer-iframe'],
 ]);
+const BACKEND_COMPONENT_NAMES = new Set([
+  'router',
+  'deriver-a',
+  'deriver-b',
+  'signing-worker',
+  'gateway',
+]);
+const FRONTEND_COMPONENT_NAMES = new Set(['site', 'signer-iframe']);
 const COMPONENT_KIND_ORDER = Object.freeze([
   'router',
   'deriver-a',
@@ -56,11 +67,14 @@ const COMPONENT_FIELDS = Object.freeze([
 ]);
 const IMMUTABLE_RELEASE_SET_FIELDS = Object.freeze([
   'schemaVersion',
+  'lane',
   'target',
   'sourceSha',
   'acceptedValidationRunId',
   'artifactRunId',
   'createdAt',
+  'gatewayApiContractVersion',
+  'supportedFrontendApiContractRange',
   'buildIdentity',
   'migrationSets',
   'components',
@@ -74,11 +88,15 @@ const COMPONENT_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const ARTIFACT_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/u;
 const RELEASE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u;
 const CREATED_AT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
+const GATEWAY_API_CONTRACT_VERSION_PATTERN =
+  /^(?:0|[1-9][0-9]{0,8})\.(?:0|[1-9][0-9]{0,8})\.(?:0|[1-9][0-9]{0,8})$/u;
 
-await main(process.argv.slice(2)).catch((error) => {
-  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-  process.exitCode = 1;
-});
+if (isMainModule()) {
+  await main(process.argv.slice(2)).catch((error) => {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  });
+}
 
 async function main(args) {
   const [commandName, ...rawArgs] = args;
@@ -104,7 +122,7 @@ async function main(args) {
 }
 
 async function verifyComponent(options) {
-  const manifest = parseManifest(
+  const manifest = parseAndVerifyReleaseSetManifest(
     await readJsonFile(requireOption(options, 'manifest'), 'release-set manifest'),
   );
   const componentName = requireOption(options, 'component-name');
@@ -128,6 +146,7 @@ async function verifyComponent(options) {
 }
 
 async function createReleaseSet(options) {
+  const lane = parseLane(requireOption(options, 'lane'));
   const target = parseTarget(requireOption(options, 'target'));
   const sourceSha = parseSourceSha(requireOption(options, 'source-sha'));
   const acceptedValidationRunId = parseRunId(
@@ -143,13 +162,25 @@ async function createReleaseSet(options) {
     await readJsonFile(requireOption(options, 'build-identity-file'), 'build identity'),
     'build identity',
   );
-  assertSelectedComponentTopology(buildIdentity, components);
+  const gatewayApiContractVersion = parseGatewayApiContractVersion(
+    requireOption(options, 'gateway-api-contract-version'),
+  );
+  const supportedFrontendApiContractRange = parseSupportedFrontendApiContractRange(
+    parseJsonObjectOption(
+      requireOption(options, 'supported-frontend-api-contract-range-json'),
+      'supported frontend API contract range',
+    ),
+  );
+  assertSelectedComponentTopology(buildIdentity, components, lane);
   const base = buildManifestBase({
+    lane,
     target,
     sourceSha,
     acceptedValidationRunId,
     artifactRunId,
     createdAt,
+    gatewayApiContractVersion,
+    supportedFrontendApiContractRange,
     buildIdentity,
     migrationSets,
     components,
@@ -157,11 +188,14 @@ async function createReleaseSet(options) {
   const manifestDigestSha256 = sha256(stableJson(base));
   const manifest = {
     schemaVersion: base.schemaVersion,
+    lane: base.lane,
     target: base.target,
     sourceSha: base.sourceSha,
     acceptedValidationRunId: base.acceptedValidationRunId,
     artifactRunId: base.artifactRunId,
     createdAt: base.createdAt,
+    gatewayApiContractVersion: base.gatewayApiContractVersion,
+    supportedFrontendApiContractRange: base.supportedFrontendApiContractRange,
     buildIdentity: base.buildIdentity,
     migrationSets: base.migrationSets,
     components: base.components,
@@ -175,19 +209,24 @@ async function createReleaseSet(options) {
 }
 
 async function verifyReleaseSet(options) {
-  const manifest = parseManifest(
+  const manifest = parseAndVerifyReleaseSetManifest(
     await readJsonFile(requireOption(options, 'manifest'), 'release-set manifest'),
   );
-  const expectedDigest = sha256(stableJson(manifestBase(manifest)));
-  if (manifest.manifestDigestSha256 !== expectedDigest) {
-    throw new Error('release-set manifest digest mismatch');
-  }
   const expectedTargetOption = options.get('target');
   if (expectedTargetOption !== undefined) {
     const expectedTarget = parseTarget(expectedTargetOption);
     if (manifest.target !== expectedTarget) {
       throw new Error(
         `release-set target mismatch: expected ${expectedTarget}, received ${manifest.target}`,
+      );
+    }
+  }
+  const expectedLaneOption = options.get('lane');
+  if (expectedLaneOption !== undefined) {
+    const expectedLane = parseLane(expectedLaneOption);
+    if (manifest.lane !== expectedLane) {
+      throw new Error(
+        `release-set lane mismatch: expected ${expectedLane}, received ${manifest.lane}`,
       );
     }
   }
@@ -230,10 +269,26 @@ async function verifyReleaseSet(options) {
       );
     }
   }
-  if (manifest.releaseSetId !== releaseSetIdForDigest(expectedDigest)) {
-    throw new Error('release-set ID does not match manifest digest');
+  const expectedContractVersionOption = options.get('gateway-api-contract-version');
+  if (expectedContractVersionOption !== undefined) {
+    const expectedContractVersion = parseGatewayApiContractVersion(expectedContractVersionOption);
+    if (manifest.gatewayApiContractVersion !== expectedContractVersion) {
+      throw new Error(
+        `release-set Gateway API contract mismatch: expected ${expectedContractVersion}, received ${manifest.gatewayApiContractVersion}`,
+      );
+    }
+  }
+  const expectedRangeOption = options.get('supported-frontend-api-contract-range-json');
+  if (expectedRangeOption !== undefined) {
+    const expectedRange = parseSupportedFrontendApiContractRange(
+      parseJsonObjectOption(expectedRangeOption, 'supported frontend API contract range'),
+    );
+    if (stableJson(manifest.supportedFrontendApiContractRange) !== stableJson(expectedRange)) {
+      throw new Error('release-set supported frontend API contract range mismatch');
+    }
   }
   assertComponentMappings(manifest.components, manifest.target, manifest.sourceSha);
+  assertSelectedComponentTopology(manifest.buildIdentity, manifest.components, manifest.lane);
   printSummary('verified', manifest);
 }
 
@@ -258,6 +313,18 @@ async function readComponents(path) {
     throw new Error('release-set components must be a non-empty array');
   }
   return canonicalizeComponents(value.map(parseComponent));
+}
+
+export function parseAndVerifyReleaseSetManifest(value) {
+  const manifest = parseManifest(value);
+  const expectedDigest = sha256(stableJson(manifestBase(manifest)));
+  if (manifest.manifestDigestSha256 !== expectedDigest) {
+    throw new Error('release-set manifest digest mismatch');
+  }
+  if (manifest.releaseSetId !== releaseSetIdForDigest(expectedDigest)) {
+    throw new Error('release-set ID does not match manifest digest');
+  }
+  return manifest;
 }
 
 async function readMigrationSets(path) {
@@ -299,6 +366,9 @@ function parseComponent(value) {
   ) {
     throw new Error('release-set component record is invalid');
   }
+  if (COMPONENT_NAME_BY_KIND.get(value.kind) !== value.name) {
+    throw new Error(`release-set component name and kind do not match: ${value.name}`);
+  }
   return {
     name: value.name,
     kind: value.kind,
@@ -316,6 +386,8 @@ function parseManifest(value) {
   if (
     !isRecord(value) ||
     value.schemaVersion !== SCHEMA_VERSION ||
+    typeof value.lane !== 'string' ||
+    !LANES.has(value.lane) ||
     typeof value.target !== 'string' ||
     !TARGETS.has(value.target) ||
     typeof value.sourceSha !== 'string' ||
@@ -326,6 +398,9 @@ function parseManifest(value) {
     !RUN_ID_PATTERN.test(value.artifactRunId) ||
     typeof value.createdAt !== 'string' ||
     !isCanonicalCreatedAt(value.createdAt) ||
+    typeof value.gatewayApiContractVersion !== 'string' ||
+    !GATEWAY_API_CONTRACT_VERSION_PATTERN.test(value.gatewayApiContractVersion) ||
+    !isRecord(value.supportedFrontendApiContractRange) ||
     !isRecord(value.buildIdentity) ||
     !isRecord(value.migrationSets) ||
     !Array.isArray(value.components) ||
@@ -345,14 +420,20 @@ function parseManifest(value) {
   assertUniqueComponents(components);
   const buildIdentity = parseJsonObject(value.buildIdentity, 'build identity');
   const migrationSets = parseJsonObject(value.migrationSets, 'release-set migration sets');
-  assertSelectedComponentTopology(buildIdentity, components);
+  const supportedFrontendApiContractRange = parseSupportedFrontendApiContractRange(
+    value.supportedFrontendApiContractRange,
+  );
+  assertSelectedComponentTopology(buildIdentity, components, value.lane);
   return {
     schemaVersion: SCHEMA_VERSION,
+    lane: value.lane,
     target: value.target,
     sourceSha: value.sourceSha,
     acceptedValidationRunId: value.acceptedValidationRunId,
     artifactRunId: value.artifactRunId,
     createdAt: value.createdAt,
+    gatewayApiContractVersion: value.gatewayApiContractVersion,
+    supportedFrontendApiContractRange,
     buildIdentity: sortValue(buildIdentity),
     migrationSets: sortValue(migrationSets),
     components,
@@ -361,7 +442,7 @@ function parseManifest(value) {
   };
 }
 
-function assertSelectedComponentTopology(buildIdentity, components) {
+function assertSelectedComponentTopology(buildIdentity, components, lane) {
   const selectedComponents = buildIdentity.selectedComponents;
   if (
     !Array.isArray(selectedComponents) ||
@@ -395,16 +476,23 @@ function assertSelectedComponentTopology(buildIdentity, components) {
   if (stableJson(componentNames) !== stableJson(selectedComponents)) {
     throw new Error('build identity selectedComponents do not match release-set components');
   }
+  const allowedComponents = lane === 'backend' ? BACKEND_COMPONENT_NAMES : FRONTEND_COMPONENT_NAMES;
+  if (selectedComponents.some((component) => !allowedComponents.has(component))) {
+    throw new Error(`release-set ${lane} lane contains a component owned by another lane`);
+  }
 }
 
 function buildManifestBase(input) {
   return {
     schemaVersion: SCHEMA_VERSION,
+    lane: input.lane,
     target: input.target,
     sourceSha: input.sourceSha,
     acceptedValidationRunId: input.acceptedValidationRunId,
     artifactRunId: input.artifactRunId,
     createdAt: input.createdAt,
+    gatewayApiContractVersion: input.gatewayApiContractVersion,
+    supportedFrontendApiContractRange: input.supportedFrontendApiContractRange,
     buildIdentity: sortValue(input.buildIdentity),
     migrationSets: sortValue(input.migrationSets),
     components: canonicalizeComponents(input.components),
@@ -414,11 +502,14 @@ function buildManifestBase(input) {
 function manifestBase(manifest) {
   return {
     schemaVersion: manifest.schemaVersion,
+    lane: manifest.lane,
     target: manifest.target,
     sourceSha: manifest.sourceSha,
     acceptedValidationRunId: manifest.acceptedValidationRunId,
     artifactRunId: manifest.artifactRunId,
     createdAt: manifest.createdAt,
+    gatewayApiContractVersion: manifest.gatewayApiContractVersion,
+    supportedFrontendApiContractRange: manifest.supportedFrontendApiContractRange,
     buildIdentity: manifest.buildIdentity,
     migrationSets: manifest.migrationSets,
     components: manifest.components,
@@ -470,6 +561,20 @@ function parseTarget(value) {
   return value;
 }
 
+function parseLane(value) {
+  if (typeof value !== 'string' || !LANES.has(value)) {
+    throw new Error('release-set lane must be backend or frontend');
+  }
+  return value;
+}
+
+function parseGatewayApiContractVersion(value) {
+  if (typeof value !== 'string' || !GATEWAY_API_CONTRACT_VERSION_PATTERN.test(value)) {
+    throw new Error('Gateway API contract version must use MAJOR.MINOR.PATCH');
+  }
+  return value;
+}
+
 function parseSourceSha(value) {
   if (!SOURCE_SHA_PATTERN.test(value)) {
     throw new Error('release-set source SHA must be exactly 40 lowercase hexadecimal characters');
@@ -511,6 +616,18 @@ function parseJsonObject(value, label) {
   if (!isRecord(value)) throw new Error(`${label} must be a JSON object`);
   assertJsonValue(value, label);
   return value;
+}
+
+function parseJsonObjectOption(value, label) {
+  let parsed;
+  try {
+    parsed = JSON.parse(value);
+  } catch (error) {
+    throw new Error(
+      `${label} must be valid JSON: ${error instanceof Error ? error.message : error}`,
+    );
+  }
+  return parseJsonObject(parsed, label);
 }
 
 function assertJsonValue(value, label) {
@@ -568,9 +685,12 @@ function allowedOptions(commandName) {
   switch (commandName) {
     case 'create':
       return new Set([
+        'lane',
         'components-file',
         'migrations-file',
         'created-at',
+        'gateway-api-contract-version',
+        'supported-frontend-api-contract-range-json',
         'target',
         'source-sha',
         'accepted-validation-run-id',
@@ -581,11 +701,14 @@ function allowedOptions(commandName) {
     case 'verify':
       return new Set([
         'manifest',
+        'lane',
         'target',
         'source-sha',
         'accepted-validation-run-id',
         'artifact-run-id',
         'release-set-id',
+        'gateway-api-contract-version',
+        'supported-frontend-api-contract-range-json',
       ]);
     case 'verify-component':
       return new Set(['manifest', 'component-name', 'artifact-manifest']);
@@ -646,6 +769,12 @@ function compareStrings(left, right) {
   if (left < right) return -1;
   if (left > right) return 1;
   return 0;
+}
+
+function isMainModule() {
+  return (
+    process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(process.argv[1])
+  );
 }
 
 function isRecord(value) {

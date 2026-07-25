@@ -37,6 +37,7 @@ import {
   isSessionJwtUnexpired,
   isWalletSessionJwt,
 } from '@shared/utils/sessionTokens';
+import { walletSessionFailureErrorFromPayload } from '../lifecycle/walletSessionFailure';
 
 type PasskeyEd25519WarmRecoveryPorts = Pick<
   DurableSealedSessionPort & VolatileWarmMaterialPort,
@@ -269,6 +270,11 @@ async function restoreAndClaimWarmRecoveryPrf(args: {
     },
   });
   if (!rehydrated.ok) {
+    const walletSessionFailure = walletSessionFailureErrorFromPayload({
+      code: rehydrated.code,
+      message: rehydrated.message,
+    });
+    if (walletSessionFailure) throw walletSessionFailure;
     const unavailable = unavailableReasonForWarmMaterialCode(rehydrated.code);
     if (unavailable) return { kind: 'unavailable', reason: unavailable };
     throw new Error(

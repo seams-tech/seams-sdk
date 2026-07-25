@@ -7,6 +7,7 @@ import {
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
+import { resolveLocalConsoleOrganizationId } from './local-console-identity.mjs';
 import { localPeerVerifyingKeyHex } from './router-ab-local-key-material.mjs';
 
 const X25519_PKCS8_PREFIX = Buffer.from('302e020100300506032b656e04220420', 'hex');
@@ -42,6 +43,7 @@ export function prepareRouterAbD1LocalRuntimeConfig(input) {
   const signingWorkerEnv = readEnvMap(
     path.join(localEnvRoot, '.env.router-ab.signing-worker.local'),
   );
+  const localConsoleOrganizationId = resolveLocalConsoleOrganizationId({ localEnvRoot });
 
   assertEqualEnv(routerEnv, 'SIGNING_WORKER_ID', signingWorkerEnv, 'SIGNING_WORKER_ID');
   assertRuntimeHpkeKeysAgree(routerEnv, deriverAEnv, deriverBEnv, signingWorkerEnv);
@@ -102,11 +104,16 @@ export function prepareRouterAbD1LocalRuntimeConfig(input) {
       signingWorkerEnv,
     }),
   );
+  runtimeConfig = replaceTomlAssignment(
+    runtimeConfig,
+    'SEAMS_LOCAL_CONSOLE_ORG_ID',
+    localConsoleOrganizationId,
+  );
 
   mkdirSync(path.dirname(outputConfigPath), { recursive: true });
   writeFileSync(outputConfigPath, runtimeConfig, { mode: 0o600 });
   chmodSync(outputConfigPath, 0o600);
-  return Object.freeze({ outputConfigPath });
+  return Object.freeze({ outputConfigPath, localConsoleOrganizationId });
 }
 
 function createLocalCeremonyPrivateJwkJson() {

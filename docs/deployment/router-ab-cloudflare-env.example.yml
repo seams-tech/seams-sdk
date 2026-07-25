@@ -8,9 +8,11 @@ version: 1
 
 github_actions:
   repository_validation_workflow: .github/workflows/validate-repository.yml
-  router_validation_workflow: .github/workflows/validate-cloudflare-router-ab.yml
+  router_validation_workflow: .github/workflows/validate-cloudflare-mpc-router-ab.yml
   staging_workflow: .github/workflows/deploy-staging-cloudflare-stack.yml
   production_workflow: .github/workflows/deploy-production-cloudflare-stack.yml
+  staging_frontend_workflow: .github/workflows/deploy-staging-frontend.yml
+  production_frontend_workflow: .github/workflows/deploy-production-frontend.yml
   # Service build and deployment jobs live in the two stack workflows above.
   # No workflow_call files remain under .github/workflows.
   deploy_order:
@@ -20,6 +22,68 @@ github_actions:
     - router
 
 github_environments:
+  staging-frontend:
+    vars:
+      VITE_DOCS_ORIGIN: 'https://staging.seams.sh'
+      VITE_WALLET_ORIGIN: 'https://sign.staging.seams.sh'
+      GATEWAY_API_CONTRACT_VERSION: '1.0.0'
+      SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON: '{"minInclusive":"1.0.0","maxInclusive":"1.0.0"}'
+    secrets:
+      CLOUDFLARE_API_TOKEN: '<pages-only-deploy-token>'
+      CLOUDFLARE_ACCOUNT_ID: '<account-id>'
+      CF_PAGES_PROJECT_VITE: '<staging-app-pages-project>'
+      CF_PAGES_PROJECT_WALLET: '<staging-wallet-pages-project>'
+
+  staging-gateway:
+    vars:
+      GATEWAY_DEPLOYMENT_CONFIG_JSON: '<generated-gateway-deployment-config-json>'
+      GATEWAY_API_CONTRACT_VERSION: '1.0.0'
+      SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON: '{"minInclusive":"1.0.0","maxInclusive":"1.0.0"}'
+    secrets:
+      CLOUDFLARE_API_TOKEN: '<gateway-worker-deploy-token>'
+      CLOUDFLARE_ACCOUNT_ID: '<account-id>'
+      RELAY_SESSION_HMAC_SECRET: '<relay-session-hmac-secret>'
+      ACCOUNT_ID_DERIVATION_SECRET: '<account-id-derivation-secret>'
+      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: '<shared-internal-service-auth-secret>'
+      ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK: '<ceremony-jwt-private-jwk>'
+      RELAYER_PRIVATE_KEY: '<near-relayer-private-key>'
+      SIGNING_ROOT_KEK_VALUE: '<signing-root-kek-value>'
+      SIGNING_SESSION_SEAL_KEY_VERSION: '<signing-session-seal-key-version>'
+      SIGNING_SESSION_SHAMIR_P_B64U: '<signing-session-shamir-prime-b64u>'
+      SIGNING_SESSION_SEAL_E_S_B64U: '<signing-session-server-encrypt-exponent-b64u>'
+      SIGNING_SESSION_SEAL_D_S_B64U: '<signing-session-server-decrypt-exponent-b64u>'
+
+  production-frontend:
+    vars:
+      VITE_DOCS_ORIGIN: 'https://seams.sh'
+      VITE_WALLET_ORIGIN: 'https://sign.seams.sh'
+      GATEWAY_API_CONTRACT_VERSION: '1.0.0'
+      SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON: '{"minInclusive":"1.0.0","maxInclusive":"1.0.0"}'
+    secrets:
+      CLOUDFLARE_API_TOKEN: '<pages-only-deploy-token>'
+      CLOUDFLARE_ACCOUNT_ID: '<account-id>'
+      CF_PAGES_PROJECT_VITE: '<production-app-pages-project>'
+      CF_PAGES_PROJECT_WALLET: '<production-wallet-pages-project>'
+
+  production-gateway:
+    vars:
+      GATEWAY_DEPLOYMENT_CONFIG_JSON: '<generated-gateway-deployment-config-json>'
+      GATEWAY_API_CONTRACT_VERSION: '1.0.0'
+      SUPPORTED_FRONTEND_API_CONTRACT_RANGE_JSON: '{"minInclusive":"1.0.0","maxInclusive":"1.0.0"}'
+    secrets:
+      CLOUDFLARE_API_TOKEN: '<gateway-worker-deploy-token>'
+      CLOUDFLARE_ACCOUNT_ID: '<account-id>'
+      RELAY_SESSION_HMAC_SECRET: '<relay-session-hmac-secret>'
+      ACCOUNT_ID_DERIVATION_SECRET: '<account-id-derivation-secret>'
+      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: '<shared-internal-service-auth-secret>'
+      ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK: '<ceremony-jwt-private-jwk>'
+      RELAYER_PRIVATE_KEY: '<near-relayer-private-key>'
+      SIGNING_ROOT_KEK_VALUE: '<signing-root-kek-value>'
+      SIGNING_SESSION_SEAL_KEY_VERSION: '<signing-session-seal-key-version>'
+      SIGNING_SESSION_SHAMIR_P_B64U: '<signing-session-shamir-prime-b64u>'
+      SIGNING_SESSION_SEAL_E_S_B64U: '<signing-session-server-encrypt-exponent-b64u>'
+      SIGNING_SESSION_SEAL_D_S_B64U: '<signing-session-server-decrypt-exponent-b64u>'
+
   staging-mpc-router:
     vars:
       ROUTER_AB_JWT_ISSUER: 'https://issuer-staging.example'
