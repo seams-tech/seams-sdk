@@ -871,8 +871,13 @@ receipts are recorded.
           crash-between-steps path. Until that exists, treat a crash after the
           D1 batch as possibly leaving a visible wallet with incomplete
           finalization state.
-    - [ ] Cover concurrent finalize contention for one lifecycle and D1
-          read-back of the committed records before enabling the selector.
+    - [x] Cover Email OTP commit atomicity against a real D1 database: the
+          enrollment and wallet land together and read back, a failing
+          enrollment statement rolls back the wallet and signer rows, and
+          re-running the identical commit converges to one row per table.
+    - [ ] Cover concurrent finalize contention for one lifecycle, and drive the
+          convergence check through the finalize entry point rather than the
+          commit store alone.
     - [ ] Derive the request fingerprint from the canonical effect identity
           rather than primarily the activation session.
     - [ ] Replace the optional prepare field and boolean resume flag with a
