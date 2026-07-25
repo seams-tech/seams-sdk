@@ -97,3 +97,47 @@ staging evidence and deployment plan:
 
 No current repository or staging artifact satisfies all five conditions. The
 Phase 5 route, binding, parser, and compatibility-test checkboxes remain open.
+
+## Lifecycle source-guard review
+
+The five remaining `source.contains` checks in
+`crates/router-ab-cloudflare/tests/ed25519_yao_lifecycle_boundaries.rs` were
+reviewed against the current Rust unit tests and route handlers. They remain
+intentional boundary guards:
+
+| Guard | Invariant protected | Why a structural/type test is insufficient today |
+| --- | --- | --- |
+| Legacy record enum, terminal variants, lifetimes, and expiry helper | The legacy request boundary retains one discriminated record with absorbing `Failed`/`Expired` states and bounded leases. | The record is private to the Worker module; existing unit tests cover serialization and checked expiry, while this guard also detects accidental removal of a state or lease constant from the deployed source. |
+| Absence of `STAGED_INPUT_STORAGE_KEY` | Legacy staged ciphertext is not split into a second storage key. | A behavior test cannot prove that a future code path has not reintroduced a second durable key when the current path happens not to exercise it. |
+| Pair record fields and command variants | Pair binding, readiness, two-phase start, completion, and exact completed reads remain present at the role boundary. | The command/state types are private and route dispatch is Worker-specific; the existing unit tests cover transitions, not the complete boundary command surface. |
+| Named completion-acknowledgement envelope and request validation | B completed reads cross the Worker boundary through a typed acknowledgement that is validated before transcript use. | Coordinator tests validate decoding, but do not prove that the B route still emits and validates the named envelope. |
+| Root metadata loader plus staged WebSocket connector | Root metadata validation remains ordered before external peer connection. | No local runtime test provides a real Cloudflare WebSocket and root-share binding; the source guard retains the ordering requirement until deployed evidence exists. |
+
+Removing any of these guards before native pair serving and the legacy route
+drain would reduce coverage of the only tests that inspect those cross-worker
+ownership boundaries. They should be replaced with route-level tests once the
+old handlers are deleted, not deleted speculatively.
+
+## Clippy review
+
+Focused library clippy was run for each role entrypoint:
+
+```text
+cargo clippy -p router-ab-cloudflare --lib \
+  --features strict-worker-router-entrypoint -- -W dead_code -W unused_imports
+cargo clippy -p router-ab-cloudflare --lib \
+  --features strict-worker-deriver-a-entrypoint -- -W dead_code -W unused_imports
+cargo clippy -p router-ab-cloudflare --lib \
+  --features strict-worker-deriver-b-entrypoint -- -W dead_code -W unused_imports
+```
+
+All three commands succeeded. None reported `peer_verifying_keys`, dead-code,
+or unused-import warnings. Each role emits the existing broad clippy warnings
+(large enum variants, argument count, and similar style lints); those warnings
+are unrelated to the reported symbol and are not changed in this cleanup.
+
+Running `--all-targets --all-features` is not a valid aggregate check for this
+crate because the strict Worker entrypoint features are mutually exclusive,
+and the lifecycle unit test intentionally calls a role-only helper behind its
+Deriver feature gate. Per-entrypoint library checks are the meaningful warning
+signal until the test harness is split by Worker role.
