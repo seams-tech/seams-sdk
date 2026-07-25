@@ -109,8 +109,9 @@ pub use local_ed25519_yao_input::{
     seal_local_ed25519_yao_refresh_deriver_b_input_v1, LocalEd25519YaoEncryptedRefreshInputV1,
 };
 pub use local_ed25519_yao_pair::{
-    LocalEd25519YaoPairLifecycleStateV1, LocalEd25519YaoPairLifecycleV1,
-    LocalEd25519YaoPairSigningKeysV1, LocalEd25519YaoRoleReadinessReceiptV1,
+    LocalEd25519YaoPairLifecycleSnapshotV1, LocalEd25519YaoPairLifecycleStateV1,
+    LocalEd25519YaoPairLifecycleV1, LocalEd25519YaoPairSigningKeysV1,
+    LocalEd25519YaoRoleReadinessReceiptV1,
 };
 pub use local_ed25519_yao_profiles::{
     build_local_ed25519_yao_one_account_plan_v1, build_local_ed25519_yao_two_administrator_plan_v1,
@@ -773,6 +774,47 @@ impl<'connection> LocalDurableObjectSqliteStorageV1<'connection> {
             )
             .map_err(map_sqlite_error)?;
         Ok(())
+    }
+
+    /// Atomically replaces a role-local value when it still equals `expected`.
+    /// Passing `None` performs an insert-if-absent.
+    pub fn compare_and_swap_bytes(
+        &self,
+        key: &str,
+        expected: Option<&[u8]>,
+        value: &[u8],
+    ) -> RouterAbProtocolResult<bool> {
+        require_non_empty("local durable object key", key)?;
+        if value.is_empty() {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::EmptyField,
+                "local durable object value must not be empty",
+            ));
+        }
+        let rows = match expected {
+            Some(expected) => self
+                .connection
+                .execute(
+                    "UPDATE local_durable_object_kv
+                        SET value = ?3
+                      WHERE scope = ?1 AND key = ?2 AND value = ?4",
+                    params![self.scope.as_str(), key, value, expected],
+                )
+                .map_err(map_sqlite_error)?,
+            None => self
+                .connection
+                .execute(
+                    "INSERT INTO local_durable_object_kv (scope, key, value)
+                     SELECT ?1, ?2, ?3
+                      WHERE NOT EXISTS (
+                        SELECT 1 FROM local_durable_object_kv
+                         WHERE scope = ?1 AND key = ?2
+                      )",
+                    params![self.scope.as_str(), key, value],
+                )
+                .map_err(map_sqlite_error)?,
+        };
+        Ok(rows == 1)
     }
 
     /// Reads bytes from a role-local key.
