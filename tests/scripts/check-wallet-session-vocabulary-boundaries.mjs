@@ -68,6 +68,8 @@ const classifiedSessionIdPublicSurfaceFiles = {
     'keep_app_device_or_recovery_session',
   'packages/sdk-server-ts/src/router/routerAbEd25519YaoRegistration.ts':
     'keep_ed25519_yao_protocol_session',
+  'packages/sdk-server-ts/src/router/routerAbEcdsaStrictRegistration.ts':
+    'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-web/src/SeamsWeb/signingSurface/ports.ts':
     'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts':
@@ -77,6 +79,10 @@ const classifiedSessionIdPublicSurfaceFiles = {
   'packages/sdk-web/src/core/platform/ports.ts': 'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-web/src/core/platform/secretSources.ts': 'keep_email_otp_worker_session',
   'packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa.ts':
+    'rename_later_agent_b_signing_or_wasm',
+  'packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519YaoCapabilityResolution.ts':
+    'rename_later_agent_b_signing_or_wasm',
+  'packages/sdk-web/src/core/signingEngine/workerManager/ecdsaClientWorkerChannels.ts':
     'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-web/src/core/rpcClients/relayer/walletRegistration.ts':
     'rename_later_agent_b_signing_or_wasm',
