@@ -52,7 +52,7 @@
     },
     "capabilities": {
       "billing": {
-        "enabled": false,
+        "enabled": true,
         "owner": "gateway",
         "secrets": ["STRIPE_API_SK"]
       },
