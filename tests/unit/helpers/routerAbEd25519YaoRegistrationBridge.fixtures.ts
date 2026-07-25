@@ -28,13 +28,27 @@ export class RegistrationSideEffectMemoryStore<
   T,
 > implements RouterAbEd25519YaoRegistrationSideEffectStoreV1<T> {
   readonly records = new Map<string, StoredSideEffect<T>>();
+  claimWinner: RouterAbEd25519YaoRegistrationSideEffectRecordV1<T> | null = null;
   terminalWinner: RouterAbEd25519YaoRegistrationSideEffectRecordV1<T> | null = null;
+  readonly throwReadCalls = new Set<number>();
+  throwReads = 0;
+  throwClaimPuts = 0;
+  throwTerminalPuts = 0;
+  private readCalls = 0;
 
   async read(
     key: string,
   ): Promise<
     CloudflareVersionedJsonRecordReadResult<RouterAbEd25519YaoRegistrationSideEffectRecordV1<T>>
   > {
+    this.readCalls += 1;
+    if (this.throwReadCalls.delete(this.readCalls)) {
+      throw new Error('side-effect read unavailable');
+    }
+    if (this.throwReads > 0) {
+      this.throwReads -= 1;
+      throw new Error('side-effect read unavailable');
+    }
     const record = this.records.get(key);
     return record
       ? {
@@ -50,12 +64,37 @@ export class RegistrationSideEffectMemoryStore<
     value: RouterAbEd25519YaoRegistrationSideEffectRecordV1<T>,
     expectedVersion: string | null,
   ): Promise<CloudflareVersionedJsonRecordPutResult> {
+    if (
+      value.kind === 'router_ab_ed25519_yao_registration_side_effect_claim_v1' &&
+      this.throwClaimPuts > 0
+    ) {
+      this.throwClaimPuts -= 1;
+      throw new Error('side-effect claim write unavailable');
+    }
+    if (
+      value.kind === 'router_ab_ed25519_yao_registration_side_effect_completion_v1' &&
+      this.throwTerminalPuts > 0
+    ) {
+      this.throwTerminalPuts -= 1;
+      throw new Error('side-effect terminal write unavailable');
+    }
     const current = this.records.get(key);
     if (
       expectedVersion === null
         ? current !== undefined
         : String(current?.version) !== expectedVersion
     ) {
+      return { kind: 'version_mismatch' };
+    }
+    if (
+      this.claimWinner &&
+      value.kind === 'router_ab_ed25519_yao_registration_side_effect_claim_v1'
+    ) {
+      this.records.set(key, {
+        version: (current?.version ?? 0) + 1,
+        value: structuredClone(this.claimWinner),
+      });
+      this.claimWinner = null;
       return { kind: 'version_mismatch' };
     }
     if (
@@ -191,6 +230,37 @@ export class OneConflictRegistrationBridgePartitionStore implements RouterAbEd25
       });
       if (committed.kind !== 'stored') throw new Error('fixture winner failed to commit');
     }
+    return await this.delegate.commit(input);
+  }
+}
+
+export class AlwaysConflictRegistrationBridgePartitionStore implements RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1 {
+  commitAttempts = 0;
+
+  constructor(
+    private readonly delegate: RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
+  ) {}
+
+  async load(
+    lifecycleId: string,
+  ): Promise<RouterAbEd25519YaoProductRegistrationPartitionedStateV1> {
+    return await this.delegate.load(lifecycleId);
+  }
+
+  async commit(
+    input: RouterAbEd25519YaoProductRegistrationPartitionedStateCommitInputV1,
+  ): Promise<RouterAbEd25519YaoProductRegistrationPartitionedStateCommitResultV1> {
+    this.commitAttempts += 1;
+    const winner = await this.delegate.load(input.lifecycleId);
+    winner.state.export.authorizationNonces.add(`concurrent-winner-${this.commitAttempts}`);
+    const committed = await this.delegate.commit({
+      lifecycleId: input.lifecycleId,
+      state: winner.state,
+      sharedState: winner.sharedState,
+      sharedVersion: winner.sharedVersion,
+      ceremonyVersion: winner.ceremonyVersion,
+    });
+    if (committed.kind !== 'stored') throw new Error('fixture winner failed to commit');
     return await this.delegate.commit(input);
   }
 }
