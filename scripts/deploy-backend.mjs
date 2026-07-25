@@ -12,6 +12,11 @@ import {
 } from './deployment-targets.mjs';
 import { readMigrationSet } from './migration-fingerprint.mjs';
 import {
+  formatFailedCheck,
+  isFailedCheck,
+  runReadinessChecks,
+} from './deployment-smoke.mjs';
+import {
   GATEWAY_WORKER_COMPATIBILITY_DATE,
   GATEWAY_WORKER_COMPATIBILITY_FLAGS,
   parseGatewayDeploymentConfig,
@@ -483,34 +488,15 @@ async function smokeBackend(target) {
       url: new URL(requestPath, target.origins.gateway).toString(),
     });
   }
-  const results = await Promise.all(checks.map(runHttpCheck));
-  const failed = results.filter(isFailedHttpCheck);
+  const results = await runReadinessChecks(checks);
+  const failed = results.filter(isFailedCheck);
   process.stdout.write(`${JSON.stringify({ results })}\n`);
   if (failed.length > 0) {
-    throw new Error(`backend smoke failed: ${failed.map(formatFailedHttpCheck).join(', ')}`);
+    throw new Error(`backend smoke failed: ${failed.map(formatFailedCheck).join(', ')}`);
   }
 }
 
-async function runHttpCheck(check) {
-  try {
-    const response = await fetch(check.url, { signal: AbortSignal.timeout(5000) });
-    return {
-      name: check.name,
-      ok: response.status >= 200 && response.status < 400,
-      status: response.status,
-    };
-  } catch (error) {
-    return { name: check.name, ok: false, error: formatError(error) };
-  }
-}
 
-function isFailedHttpCheck(result) {
-  return !result.ok;
-}
-
-function formatFailedHttpCheck(result) {
-  return result.name;
-}
 
 function renderGatewayConfig(targetName, target) {
   validateGatewayDeploymentConfig(targetName, target);

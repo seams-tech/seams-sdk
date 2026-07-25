@@ -1043,9 +1043,9 @@ route-deletion cleanup.
 - [ ] Deploy and validate route-deletion cleanup in staging, then deploy the
       same cleanup to production.
 - [x] Replace the failed stack workflow's hard-coded Gateway secret plumbing
-      with target-capability-derived backend deployment. Staging billing is
-      disabled and excludes `STRIPE_API_SK`; production billing is enabled and
-      requires it. The historical failure and current invariant are recorded
+      with target-capability-derived backend deployment. Billing is enabled in
+      both hosted environments, and both Gateway jobs require
+      `STRIPE_API_SK`. The historical failure and current invariant are recorded
       in [`refactor-93-production-evidence.md`](./refactor-93-production-evidence.md);
       a new coherent staging run remains open.
 

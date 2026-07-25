@@ -76,11 +76,12 @@ schema mismatch rather than evidence of an absent runtime secret.
 
 The current deployment model replaces that stack workflow with
 `deploy-staging-backend.yml` and derives Gateway secret requirements from
-`deployment/targets.json`. Staging billing is disabled, so its Gateway secret
-set deliberately excludes `STRIPE_API_SK`; production billing is enabled and
-its Gateway job requires the secret. The deployment-target unit test owns that
-capability-to-secret invariant. A coherent staging run of the current backend
-workflow is still required before the Refactor 93 deployment can be claimed.
+`deployment/targets.json`. Billing is enabled in both hosted environments, so
+both Gateway jobs require `STRIPE_API_SK`; the staging workflow now projects
+the configured secret into the same capability-derived preflight and deploy
+path. The deployment-target unit test owns that capability-to-secret invariant.
+A coherent staging run of the current backend workflow is still required before
+the Refactor 93 deployment can be claimed.
 
 The analyzer also validates event ownership for every required span. Gateway
 spans must arrive as `router_ab_yao_gateway_span_v1`, Router spans as

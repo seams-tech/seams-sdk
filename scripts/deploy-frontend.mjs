@@ -6,6 +6,11 @@ import process from 'node:process';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { readDeploymentTarget } from './deployment-targets.mjs';
+import {
+  formatFailedCheck,
+  isFailedCheck,
+  runReadinessChecks,
+} from './deployment-smoke.mjs';
 
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = path.resolve(SCRIPT_DIRECTORY, '..');
@@ -177,11 +182,11 @@ function deployPagesProject(commonArguments, projectName) {
 
 async function smokeFrontend(target) {
   const checks = buildSmokeChecks(target);
-  const results = await Promise.all(checks.map(runHttpCheck));
-  const failed = results.filter(isFailedHttpCheck);
+  const results = await runReadinessChecks(checks);
+  const failed = results.filter(isFailedCheck);
   process.stdout.write(`${JSON.stringify({ results })}\n`);
   if (failed.length > 0) {
-    throw new Error(`frontend smoke failed: ${failed.map(formatFailedHttpCheck).join(', ')}`);
+    throw new Error(`frontend smoke failed: ${failed.map(formatFailedCheck).join(', ')}`);
   }
 }
 
@@ -201,26 +206,6 @@ function addSmokeChecks(checks, surface, origin, requestPaths) {
   }
 }
 
-async function runHttpCheck(check) {
-  try {
-    const response = await fetch(check.url, { signal: AbortSignal.timeout(5000) });
-    return {
-      name: check.name,
-      ok: response.status >= 200 && response.status < 400,
-      status: response.status,
-    };
-  } catch (error) {
-    return { name: check.name, ok: false, error: formatError(error) };
-  }
-}
-
-function isFailedHttpCheck(result) {
-  return !result.ok;
-}
-
-function formatFailedHttpCheck(result) {
-  return result.name;
-}
 
 function requireEnvironmentValues(names, environment) {
   for (const name of names) {
