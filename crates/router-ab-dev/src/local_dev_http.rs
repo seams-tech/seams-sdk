@@ -10,8 +10,10 @@ use super::{
     handle_local_signing_worker_router_ab_ecdsa_derivation_finalize_json_v1,
     handle_local_signing_worker_router_ab_ecdsa_derivation_prepare_json_v1,
     handle_local_signing_worker_router_ab_ecdsa_derivation_presignature_pool_put_json_v1,
-    local_worker_health_response_json_v1, local_worker_owns_path_v1, LocalSigningWorkerConfigV1,
-    LocalWorkerRoleConfigV1, LOCAL_DERIVER_A_PEER_PATH, LOCAL_DERIVER_B_PEER_PATH,
+    local_worker_health_response_json_v1, local_worker_owns_path_v1, LocalRouterWorkerConfigV1,
+    LocalSigningWorkerConfigV1, LocalWorkerRoleConfigV1, LOCAL_DERIVER_A_PEER_PATH,
+    LOCAL_DERIVER_B_PEER_PATH, LOCAL_ROUTER_ED25519_YAO_EXECUTE_PATH,
+    LOCAL_ROUTER_ED25519_YAO_RECOVERY_PROMOTE_PATH,
     LOCAL_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_PUT_PATH,
     LOCAL_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PATH,
     LOCAL_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PREPARE_PATH, LOCAL_WORKER_HEALTH_PATH,
@@ -20,6 +22,10 @@ use super::{
 
 #[derive(Debug, Clone, Copy)]
 pub enum LocalDevHttpTopologyV1<'a> {
+    /// Rust local Router process. It owns the public boundary and persistence
+    /// scopes while pair execution remains a strict Wrangler-only path.
+    Router(&'a LocalRouterWorkerConfigV1),
+    /// Private role worker process.
     FourWorker(&'a LocalWorkerRoleConfigV1),
 }
 
@@ -33,10 +39,24 @@ pub fn local_dev_http_handle_request_v1(
     if path == LOCAL_WORKER_HEALTH_PATH || path == LOCAL_WORKER_READY_PATH {
         let role = topology.local_http_error_role();
         if method == "GET" {
-            let LocalDevHttpTopologyV1::FourWorker(config) = topology;
-            return Ok((200, local_worker_health_response_json_v1(config)?));
+            return Ok((
+                200,
+                local_worker_health_response_json_v1(&topology.as_role_config())?,
+            ));
         }
         return local_dev_http_error_body_v1(role, path, 405, "method not allowed");
+    }
+
+    if let LocalDevHttpTopologyV1::Router(config) = topology {
+        if local_worker_owns_path_v1(LocalServiceRoleV1::Router, path) {
+            return local_dev_router_unsupported_route_v1(config, request);
+        }
+        return local_dev_http_error_body_v1(
+            LocalServiceRoleV1::Router,
+            path,
+            404,
+            "path is not owned by the local Router",
+        );
     }
 
     if path == LOCAL_DERIVER_A_PEER_PATH {
@@ -80,7 +100,9 @@ pub fn local_dev_http_handle_request_v1(
         });
     }
 
-    let LocalDevHttpTopologyV1::FourWorker(config) = topology;
+    let LocalDevHttpTopologyV1::FourWorker(config) = topology else {
+        unreachable!("Router topology is handled before role dispatch")
+    };
     if local_worker_owns_path_v1(config.role(), path) {
         if method == "POST" {
             local_dev_http_error_body_v1(
@@ -99,15 +121,59 @@ pub fn local_dev_http_handle_request_v1(
 
 impl LocalDevHttpTopologyV1<'_> {
     fn local_http_error_role(self) -> LocalServiceRoleV1 {
-        let LocalDevHttpTopologyV1::FourWorker(config) = self;
-        config.role()
+        match self {
+            Self::Router(_) => LocalServiceRoleV1::Router,
+            Self::FourWorker(config) => config.role(),
+        }
     }
+
+    fn as_role_config(&self) -> LocalWorkerRoleConfigV1 {
+        match self {
+            Self::Router(config) => LocalWorkerRoleConfigV1::Router((*config).clone()),
+            Self::FourWorker(config) => (*config).clone(),
+        }
+    }
+}
+
+fn local_dev_router_unsupported_route_v1(
+    config: &LocalRouterWorkerConfigV1,
+    request: &LocalDevHttpRequestPartsV1,
+) -> Result<(u16, String), Box<dyn std::error::Error>> {
+    if request.method != "POST" {
+        return local_dev_http_error_body_v1(
+            LocalServiceRoleV1::Router,
+            &request.path,
+            405,
+            "method not allowed",
+        );
+    }
+    if let Err(message) = require_local_dev_internal_service_auth_v1(request) {
+        return local_dev_http_error_body_v1(
+            LocalServiceRoleV1::Router,
+            &request.path,
+            401,
+            message,
+        );
+    }
+    let error = match request.path.as_str() {
+        LOCAL_ROUTER_ED25519_YAO_EXECUTE_PATH => {
+            "Rust local Router Yao execution is not served; use strict Wrangler local mode"
+        }
+        LOCAL_ROUTER_ED25519_YAO_RECOVERY_PROMOTE_PATH => {
+            "Rust local Router recovery promotion is not served; use strict Wrangler local mode"
+        }
+        _ => "Rust local Router route is not served; use strict Wrangler local mode",
+    };
+    let _ = config;
+    local_dev_http_error_body_v1(LocalServiceRoleV1::Router, &request.path, 501, error)
 }
 
 fn local_dev_signing_worker_config_v1(
     topology: LocalDevHttpTopologyV1<'_>,
 ) -> Option<&LocalSigningWorkerConfigV1> {
-    let LocalDevHttpTopologyV1::FourWorker(config) = topology;
+    let LocalDevHttpTopologyV1::FourWorker(config) = topology else {
+        return None;
+    };
     match config {
         LocalWorkerRoleConfigV1::SigningWorker(config) => Some(config),
         _ => None,
@@ -123,7 +189,9 @@ fn local_dev_deriver_peer_route_v1(
     if request.method != "POST" {
         return local_dev_http_error_body_v1(route_role, path, 405, "method not allowed");
     }
-    let LocalDevHttpTopologyV1::FourWorker(config) = topology;
+    let LocalDevHttpTopologyV1::FourWorker(config) = topology else {
+        unreachable!("Router topology is handled before role dispatch")
+    };
     let owned = config.role() == route_role;
     if !owned {
         return local_dev_http_error_body_v1(

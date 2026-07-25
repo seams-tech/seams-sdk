@@ -36,6 +36,14 @@ pub struct LocalWorkerProcessSpec {
 
 pub const LOCAL_WORKER_PROCESS_SPECS: &[LocalWorkerProcessSpec] = &[
     LocalWorkerProcessSpec {
+        role: LocalServiceRoleV1::Router,
+        role_label: "router",
+        env_file: LOCAL_ROUTER_ENV_FILE_V1,
+        pid_file: "router.pid",
+        stdout_file: "router.stdout.log",
+        stderr_file: "router.stderr.log",
+    },
+    LocalWorkerProcessSpec {
         role: LocalServiceRoleV1::DeriverA,
         role_label: "deriver-a",
         env_file: LOCAL_DERIVER_A_ENV_FILE_V1,
@@ -60,6 +68,16 @@ pub const LOCAL_WORKER_PROCESS_SPECS: &[LocalWorkerProcessSpec] = &[
         stderr_file: "signing-worker.stderr.log",
     },
 ];
+
+pub fn worker_process_spec_for_role_v1(
+    role: LocalServiceRoleV1,
+) -> Result<LocalWorkerProcessSpec, Box<dyn std::error::Error>> {
+    LOCAL_WORKER_PROCESS_SPECS
+        .iter()
+        .copied()
+        .find(|spec| spec.role == role)
+        .ok_or_else(|| format!("local worker process spec missing for {}", role.as_str()).into())
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct LocalWorkerSpawnReceipt {
@@ -331,9 +349,18 @@ pub struct LocalWorkerUrls {
 impl LocalWorkerUrls {
     pub fn from_env(root: &Path) -> Result<Self, Box<dyn std::error::Error>> {
         let router = read_router_public_url(root)?;
-        let deriver_a = worker_bind_url(root, LOCAL_WORKER_PROCESS_SPECS[0])?;
-        let deriver_b = worker_bind_url(root, LOCAL_WORKER_PROCESS_SPECS[1])?;
-        let signing_worker = worker_bind_url(root, LOCAL_WORKER_PROCESS_SPECS[2])?;
+        let deriver_a = worker_bind_url(
+            root,
+            worker_process_spec_for_role_v1(LocalServiceRoleV1::DeriverA)?,
+        )?;
+        let deriver_b = worker_bind_url(
+            root,
+            worker_process_spec_for_role_v1(LocalServiceRoleV1::DeriverB)?,
+        )?;
+        let signing_worker = worker_bind_url(
+            root,
+            worker_process_spec_for_role_v1(LocalServiceRoleV1::SigningWorker)?,
+        )?;
         Ok(Self {
             router,
             deriver_a,

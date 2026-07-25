@@ -105,8 +105,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         parse_local_env_file_contents_v1(&env_contents)?,
     )?);
     let bind_addr = local_worker_bind_addr_v1(&config)?;
+    if let LocalWorkerRoleConfigV1::Router(router_config) = config.as_ref() {
+        router_ab_dev::initialize_local_router_persistence_v1(router_config)?;
+    }
     let listener = TcpListener::bind(&bind_addr)?;
-    let state_store = LocalEd25519YaoStateStoreV1::open(&config)?;
+    let state_store = if config.role() == LocalServiceRoleV1::Router {
+        None
+    } else {
+        Some(LocalEd25519YaoStateStoreV1::open(&config)?)
+    };
 
     let summary = WorkerStartupSummary {
         role: config.role(),
@@ -116,12 +123,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     eprintln!("{}", serde_json::to_string(&summary)?);
 
-    let mut yao_state = state_store.load(config.role())?;
+    let mut yao_state = state_store
+        .as_ref()
+        .map(|store| store.load(config.role()))
+        .transpose()?;
     for stream in listener.incoming() {
         match stream {
-            Ok(stream) => match handle_connection(stream, &config, &mut yao_state) {
+            Ok(stream) => match handle_connection(stream, &config, yao_state.as_mut()) {
                 Ok(LocalWorkerConnectionResultV1::YaoHandled) => {
-                    state_store.persist(config.role(), &yao_state)?;
+                    if let (Some(store), Some(state)) = (state_store.as_ref(), yao_state.as_ref()) {
+                        store.persist(config.role(), state)?;
+                    }
                 }
                 Ok(LocalWorkerConnectionResultV1::OtherHandled) => {}
                 Err(error) => log_worker_request_error(&config, error.as_ref()),
@@ -140,17 +152,30 @@ enum LocalWorkerConnectionResultV1 {
 fn handle_connection(
     stream: TcpStream,
     config: &LocalWorkerRoleConfigV1,
-    yao_state: &mut LocalEd25519YaoWorkerStateV1,
+    yao_state: Option<&mut LocalEd25519YaoWorkerStateV1>,
 ) -> Result<LocalWorkerConnectionResultV1, Box<dyn std::error::Error>> {
-    let mut stream = match dispatch_local_ed25519_yao_connection_v1(stream, config, yao_state)? {
-        LocalEd25519YaoConnectionDispatchV1::Handled => {
-            return Ok(LocalWorkerConnectionResultV1::YaoHandled);
+    let mut stream = if let Some(yao_state) = yao_state {
+        match dispatch_local_ed25519_yao_connection_v1(stream, config, yao_state)? {
+            LocalEd25519YaoConnectionDispatchV1::Handled => {
+                return Ok(LocalWorkerConnectionResultV1::YaoHandled);
+            }
+            LocalEd25519YaoConnectionDispatchV1::Unhandled(stream) => stream,
         }
-        LocalEd25519YaoConnectionDispatchV1::Unhandled(stream) => stream,
+    } else {
+        stream
     };
     let request = read_local_dev_http_request_v1(&mut stream)?;
-    let (status, body) =
-        local_dev_http_handle_request_v1(LocalDevHttpTopologyV1::FourWorker(config), &request)?;
+    let (status, body) = local_dev_http_handle_request_v1(
+        if config.role() == LocalServiceRoleV1::Router {
+            let LocalWorkerRoleConfigV1::Router(router_config) = config else {
+                unreachable!("Router role config must use Router branch")
+            };
+            LocalDevHttpTopologyV1::Router(router_config)
+        } else {
+            LocalDevHttpTopologyV1::FourWorker(config)
+        },
+        &request,
+    )?;
     write_local_dev_http_response_v1(&mut stream, status, &body)?;
     Ok(LocalWorkerConnectionResultV1::OtherHandled)
 }
@@ -180,9 +205,6 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<WorkerOptions, S
                 };
                 let parsed =
                     parse_local_service_role_label_v1(&value).map_err(|e| e.to_string())?;
-                if parsed == LocalServiceRoleV1::Router {
-                    return Err("router_ab_local_worker no longer exposes a public router role; use the SDK Router server".to_owned());
-                }
                 role = Some(parsed);
             }
             "--env" => {
@@ -205,6 +227,6 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<WorkerOptions, S
 }
 
 fn usage() -> String {
-    "usage: router_ab_local_worker --role <deriver-a|deriver-b|signing-worker> --env <path>"
+    "usage: router_ab_local_worker --role <router|deriver-a|deriver-b|signing-worker> --env <path>"
         .to_owned()
 }
