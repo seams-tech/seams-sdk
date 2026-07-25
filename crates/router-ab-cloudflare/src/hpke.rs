@@ -563,6 +563,7 @@ pub(crate) fn parse_cloudflare_hpke_x25519_public_key_v1(
     Ok(public_key)
 }
 
+#[cfg(feature = "workers-rs")]
 pub(crate) fn cloudflare_hpke_x25519_public_key_bytes_v1(
     encoded: &str,
 ) -> RouterAbProtocolResult<[u8; 32]> {
