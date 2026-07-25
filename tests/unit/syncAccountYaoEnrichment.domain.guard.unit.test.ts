@@ -57,12 +57,14 @@ function bytes32(seed: number): readonly number[] {
   return Object.freeze(new Array<number>(32).fill(seed));
 }
 
-function activeCapabilityFixture(): RouterAbEd25519YaoActiveCapabilityDescriptorV1 {
+function activeCapabilityFixture(
+  nearAccountId = NEAR_ACCOUNT_ID,
+): RouterAbEd25519YaoActiveCapabilityDescriptorV1 {
   return {
     kind: 'router_ab_ed25519_yao_active_capability_v1',
     activeCapabilityBinding: bytes32(41),
     registeredPublicKey: bytes32(42),
-    nearAccountId: NEAR_ACCOUNT_ID,
+    nearAccountId,
     applicationBinding: {
       wallet_id: WALLET_ID,
       near_ed25519_signing_key_id: NEAR_SIGNING_KEY_ID,
@@ -403,7 +405,6 @@ async function syncAccountEnrichesFromActiveYaoCapability(): Promise<void> {
       {
         kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
         walletId: WALLET_ID,
-        nearAccountId: NEAR_ACCOUNT_ID,
         nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
         signerSlot: 3,
         signingWorkerId: SIGNING_WORKER_ID,
@@ -485,6 +486,39 @@ async function syncAccountFailsClosedWithoutYaoRuntime(): Promise<void> {
   }
 }
 
+async function syncAccountRejectsCapabilityForAnotherNearAccount(): Promise<void> {
+  const temporary = createTemporaryD1Database();
+  try {
+    const baseService = createBaseService(temporary.database);
+    const webAuthn = new RecordingSyncAccountWebAuthnService(
+      baseService.webAuthn,
+      verifiedEd25519WalletFixture(),
+    );
+    const runtime = new RecordingYaoProductRuntime(
+      activeCapabilityFixture('another-wallet.testnet'),
+      walletSessionFixture(),
+    );
+    const unexpectedSession = new ThrowingUnexpectedSessionAdapter();
+    const router = createCloudflareRouter(replaceWebAuthnService(baseService, webAuthn), {
+      session: unexpectedSession,
+      routerAbEd25519YaoProduct: runtime,
+    });
+
+    const response = await router(syncAccountVerifyRequest());
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      ok: false,
+      code: 'capability_conflict',
+      message: 'Active Ed25519 Yao capability does not match the verified NEAR account',
+    });
+    expect(runtime.mintCalls).toEqual([]);
+    expect(unexpectedSession.signJwtCalls).toBe(0);
+  } finally {
+    cleanupTemporaryD1Database(temporary.tempDir);
+  }
+}
+
 async function syncAccountRejectsObsoleteSessionPolicy(): Promise<void> {
   const temporary = createTemporaryD1Database();
   try {
@@ -516,6 +550,10 @@ test(
 test(
   'sync-account fails closed when an Ed25519 wallet has no Yao runtime',
   syncAccountFailsClosedWithoutYaoRuntime,
+);
+test(
+  'sync-account rejects an active capability projected to another NEAR account',
+  syncAccountRejectsCapabilityForAnotherNearAccount,
 );
 test(
   'sync-account rejects the obsolete threshold session-policy input at the route boundary',

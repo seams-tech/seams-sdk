@@ -370,7 +370,6 @@ function activeCapabilityIdentityMatchesExportScope(
   const lifecycle = capability.lifecycle;
   return (
     scope.account_id === request.application_binding.wallet_id &&
-    capability.nearAccountId === bytesToHex(request.registered_public_key) &&
     lifecycle.rootShareEpoch === scope.root_share_epoch &&
     lifecycle.accountId === scope.account_id &&
     lifecycle.walletSessionId === scope.wallet_session_id &&
@@ -677,7 +676,6 @@ export class InMemoryRouterAbEd25519YaoExportService implements RouterAbEd25519Y
     const active = await this.capabilities.resolveActiveCapability({
       kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
       walletId: request.application_binding.wallet_id,
-      nearAccountId: bytesToHex(request.registered_public_key),
       nearEd25519SigningKeyId: request.application_binding.near_ed25519_signing_key_id,
       signerSlot: request.application_binding.key_creation_signer_slot,
       signingWorkerId: request.scope.signing_worker_id,
@@ -1054,7 +1052,6 @@ function claimsMatchExportAdmission(
   return (
     claims.walletId === request.application_binding.wallet_id &&
     claims.walletId === request.scope.account_id &&
-    claims.nearAccountId === bytesToHex(request.registered_public_key) &&
     claims.nearEd25519SigningKeyId === request.application_binding.near_ed25519_signing_key_id &&
     claims.thresholdSessionId === input.authorizationIdentity.thresholdSessionId &&
     claims.signingGrantId === input.authorizationIdentity.signingGrantId &&

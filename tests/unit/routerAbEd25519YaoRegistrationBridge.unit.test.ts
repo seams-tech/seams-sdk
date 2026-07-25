@@ -337,7 +337,6 @@ test.describe('registration side-effect persistence bridge', () => {
       runtime.resolveActiveCapability({
         kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
         walletId,
-        nearAccountId: 'wallet-registration-bridge.testnet',
         nearEd25519SigningKeyId: 'near-ed25519-registration-bridge',
         signerSlot: 1,
         signingWorkerId: 'signing-worker-bridge',
@@ -369,7 +368,6 @@ test.describe('registration side-effect persistence bridge', () => {
       runtime.resolveActiveCapability({
         kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
         walletId,
-        nearAccountId: 'wallet-registration-bridge.testnet',
         nearEd25519SigningKeyId: 'near-ed25519-registration-bridge',
         signerSlot: 1,
         signingWorkerId: 'signing-worker-bridge',

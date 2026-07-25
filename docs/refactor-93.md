@@ -965,6 +965,24 @@ ceremony after the user completes authentication. The safe sequence is:
           implementation. Cutover timing is configured separately per family;
           existing-wallet capability rehydration is supplied by a bounded
           wallet/slot D1 fallback on a shared-state miss.
+      - [x] Load exactly one canonical signer record on a shared-state miss,
+            validate its persisted capability through the production parser,
+            and install it through the partitioned shared-state CAS. Exact
+            retries reuse the installed record; conflicting state fails closed.
+      - [x] Keep the NEAR account ID as a validated chain projection instead of
+            a capability-selector or wire-identity field. Warm recovery,
+            Email OTP unlock, and sync-account compare the resolved descriptor
+            with their verified account identity. Export remains bound by the
+            signed wallet/key/session/grant/worker/root/participant identity and
+            the exact capability public key, epoch, application binding, and
+            runtime policy. D1 signer parsing independently requires the stored
+            capability account to match the signer account.
+      - [x] Exercise registration-era recovery and recovered-capability export
+            against real D1 from an initially empty partitioned shared record.
+            The export cohort uses a named NEAR account whose value differs
+            from the registered public-key bytes and the production Wallet
+            Session authorization adapter. Exact admission, activation, and
+            completed-result retries do not repeat backend work.
   - [x] Wire recovery admission, execution, and activation to the partitioned
         store as one coherent cutover, dispatched through the selector using the
         environment-backed dependencies. Dormant until the recovery window is

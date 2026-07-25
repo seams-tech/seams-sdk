@@ -79,7 +79,6 @@ export async function handleSyncAccount(ctx: CloudflareRouterApiContext): Promis
       const capability = await yaoRuntime.resolveActiveCapability({
         kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
         walletId,
-        nearAccountId,
         nearEd25519SigningKeyId,
         signerSlot,
         signingWorkerId,
@@ -89,6 +88,16 @@ export async function handleSyncAccount(ctx: CloudflareRouterApiContext): Promis
         return json(
           { ok: false, code: capability.code, message: capability.message },
           { status: capability.code === 'unknown_capability' ? 404 : 409 },
+        );
+      }
+      if (capability.capability.nearAccountId !== nearAccountId) {
+        return json(
+          {
+            ok: false,
+            code: 'capability_conflict',
+            message: 'Active Ed25519 Yao capability does not match the verified NEAR account',
+          },
+          { status: 409 },
         );
       }
       const walletSession = await yaoRuntime.mintWalletSession({
