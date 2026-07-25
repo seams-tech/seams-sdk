@@ -72,10 +72,15 @@ receipt, so the handlers, parsers, and their compatibility tests remain.
 ### Tenant runtime persistence
 
 `ROUTER_API_RUNTIME` and its SQLite migration remain active. The Gateway
-persistence follow-up has the per-ceremony CAS adapters and codec, but no route
-composition has migrated to them. Deleting the binding or migration now would
-remove the active replay and authorization snapshot boundary. This remains a
-separate follow-up gate for Phase 5.
+persistence follow-up has the per-ceremony CAS adapters and codec. Registration
+admission and execution are composed through that store behind a two-boundary
+drain selector, but the generated deployment config leaves the selector
+disabled because registration finalize still reads the tenant-runtime copy.
+Recovery admission and execution have request-scoped prepare/claim/commit
+boundaries but are not wired until activation receives an idempotent side-effect
+boundary. Export, replay, authorization, and remaining session state also stay
+on the tenant runtime. Deleting the binding or migration now would remove the
+active product-state authority. This remains a separate Phase 5 gate.
 
 ## Deletion receipt required
 
