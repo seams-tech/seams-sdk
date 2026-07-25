@@ -887,6 +887,10 @@ and keeps admission/recovery/export persistence on the non-Yao Gateway path.
 The existing Gateway timing spans will size that cost in the Phase 0 cohort;
 the replacement is best tracked as a named Gateway persistence refactor that
 gates this criterion rather than expanding the Router coordinator scope.
+The shared Cloudflare adapter now provides a per-record Durable Object resolver,
+opaque versioned JSON envelopes, and transaction-backed compare-and-swap writes.
+It is a reusable foundation only: the tenant runtime has not been migrated, its
+binding and migration have not been deleted, and this checkbox remains open.
 
 The local serving gate is a concrete wiring gap rather than an untested claim.
 `router_ab_local_worker` gives each Deriver its own process and SQLite-backed
@@ -904,8 +908,10 @@ The pure local pair model now marks an expired prepared pair as terminal before
 any role can enter `Running`; it remains a unit model rather than serving-path
 evidence. Its lifecycle metadata now has a validated snapshot/restore shape and
 the local SQLite adapter has insert-if-absent and byte-exact compare-and-swap
-primitives. These are persistence foundations for the future Router process;
-they do not persist encrypted role inputs and do not close the serving gate.
+primitives. Local startup now initializes the five Router-owned SQLite scopes
+before the private role workers start. These are persistence foundations for the
+future Router process; they do not persist encrypted role inputs and do not
+close the serving gate.
 
 ## Test Matrix
 
