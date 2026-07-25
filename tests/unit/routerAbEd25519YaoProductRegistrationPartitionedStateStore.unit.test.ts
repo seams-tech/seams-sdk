@@ -2,6 +2,8 @@ import { expect, test } from '@playwright/test';
 import {
   ROUTER_AB_ED25519_YAO_SHARED_STATE_RECORD_KEY_V1,
   createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
+  encodeRouterAbEd25519YaoProductRegistrationPartitionRecordV1,
+  parseRouterAbEd25519YaoProductRegistrationPartitionRecordV1,
   type RouterAbEd25519YaoProductRegistrationPartitionBatchResultV1,
   type RouterAbEd25519YaoProductRegistrationPartitionMutationV1,
   type RouterAbEd25519YaoProductRegistrationPartitionRecordStoreV1,
@@ -72,6 +74,49 @@ class MemoryPartitionRecordStore implements RouterAbEd25519YaoProductRegistratio
 }
 
 test.describe('partitioned Gateway product-state composition', () => {
+  test('round-trips shared and ceremony records through the versioned JSON codec', async () => {
+    const state = createRouterAbEd25519YaoProductRegistrationStateV1();
+    state.export.authorizationNonces.add('nonce-a');
+    state.registration.lifecycleSessions.set('lifecycle-codec', 'session-codec');
+    const shared = {
+      kind: 'router_ab_ed25519_yao_product_registration_shared_record_v1' as const,
+      value: {
+        kind: 'router_ab_ed25519_yao_product_registration_shared_state_v1' as const,
+        recoveryCapabilities: state.recovery.capabilities,
+        recoveryIdentityCapabilities: state.recovery.identityCapabilities,
+        exportAuthorizationNonces: state.export.authorizationNonces,
+      },
+    };
+    const ceremony = {
+      kind: 'router_ab_ed25519_yao_product_registration_ceremony_record_v1' as const,
+      lifecycleId: 'lifecycle-codec',
+      value: {
+        kind: 'router_ab_ed25519_yao_product_registration_ceremony_state_v1' as const,
+        lifecycleId: 'lifecycle-codec',
+        registration: {
+          states: state.registration.states,
+          lifecycleSessions: state.registration.lifecycleSessions,
+        },
+        authorization: { authorities: state.authorization.authorities },
+        recovery: {
+          recoveries: state.recovery.recoveries,
+          recoverySessions: state.recovery.recoverySessions,
+        },
+        export: { exports: state.export.exports },
+      },
+    };
+    expect(
+      parseRouterAbEd25519YaoProductRegistrationPartitionRecordV1(
+        encodeRouterAbEd25519YaoProductRegistrationPartitionRecordV1(shared),
+      ),
+    ).toEqual(shared);
+    expect(
+      parseRouterAbEd25519YaoProductRegistrationPartitionRecordV1(
+        encodeRouterAbEd25519YaoProductRegistrationPartitionRecordV1(ceremony),
+      ),
+    ).toEqual(ceremony);
+  });
+
   test('loads empty records and commits shared plus one ceremony atomically', async () => {
     const backend = new MemoryPartitionRecordStore();
     const store = createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1(backend);

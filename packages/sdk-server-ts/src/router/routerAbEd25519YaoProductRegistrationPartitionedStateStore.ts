@@ -1,6 +1,17 @@
-import type { CloudflareVersionedJsonRecordReadResult } from './cloudflare/versionedJsonRecordStore';
+import type {
+  CloudflareVersionedJsonObject,
+  CloudflareVersionedJsonRecordReadResult,
+} from './cloudflare/versionedJsonRecordStore';
+import {
+  createCloudflareD1VersionedJsonRecordStore,
+  type CloudflareD1VersionedJsonRecordStoreOptions,
+} from './cloudflare/d1VersionedJsonRecordStore';
 import { createRouterAbEd25519YaoProductRegistrationStateV1 } from './routerAbEd25519YaoProductRegistration';
 import type { RouterAbEd25519YaoProductRegistrationStateV1 } from './routerAbEd25519YaoProductRegistration';
+import {
+  encodeRouterAbEd25519YaoProductRegistrationStateV1,
+  parseRouterAbEd25519YaoProductRegistrationStateJsonV1,
+} from './routerAbEd25519YaoProductRegistrationPersistence';
 import {
   mergeRouterAbEd25519YaoProductRegistrationStatePartitionV1,
   partitionRouterAbEd25519YaoProductRegistrationStateV1,
@@ -9,14 +20,25 @@ import {
 } from './routerAbEd25519YaoProductRegistrationPartitioning';
 
 export const ROUTER_AB_ED25519_YAO_SHARED_STATE_RECORD_KEY_V1 = 'router-ab-ed25519-yao:shared';
+const PARTITION_RECORD_CODEC_KIND =
+  'router_ab_ed25519_yao_product_registration_partition_record_json_v1';
+const SHARED_RECORD_KIND = 'router_ab_ed25519_yao_product_registration_shared_record_v1';
+const CEREMONY_RECORD_KIND = 'router_ab_ed25519_yao_product_registration_ceremony_record_v1';
+
+type EncodedPartitionRecord = {
+  readonly kind: typeof PARTITION_RECORD_CODEC_KIND;
+  readonly recordKind: typeof SHARED_RECORD_KIND | typeof CEREMONY_RECORD_KIND;
+  readonly lifecycleId: string;
+  readonly state: CloudflareVersionedJsonObject;
+};
 
 export type RouterAbEd25519YaoProductRegistrationPartitionRecordV1 =
   | {
-      readonly kind: 'router_ab_ed25519_yao_product_registration_shared_record_v1';
+      readonly kind: typeof SHARED_RECORD_KIND;
       readonly value: RouterAbEd25519YaoProductRegistrationSharedStateV1;
     }
   | {
-      readonly kind: 'router_ab_ed25519_yao_product_registration_ceremony_record_v1';
+      readonly kind: typeof CEREMONY_RECORD_KIND;
       readonly lifecycleId: string;
       readonly value: RouterAbEd25519YaoProductRegistrationCeremonyStateV1;
     };
@@ -86,6 +108,71 @@ export function createRouterAbEd25519YaoProductRegistrationPartitionedStateStore
   store: RouterAbEd25519YaoProductRegistrationPartitionRecordStoreV1,
 ): RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1 {
   return new RouterAbEd25519YaoProductRegistrationPartitionedStateStore(store);
+}
+
+export type RouterAbEd25519YaoProductRegistrationPartitionedStateD1OptionsV1 = Omit<
+  CloudflareD1VersionedJsonRecordStoreOptions<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>,
+  'encode' | 'parse'
+>;
+
+export function createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1(
+  options: RouterAbEd25519YaoProductRegistrationPartitionedStateD1OptionsV1,
+): RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1 {
+  const records = createCloudflareD1VersionedJsonRecordStore({
+    ...options,
+    encode: encodeRouterAbEd25519YaoProductRegistrationPartitionRecordV1,
+    parse: parseRouterAbEd25519YaoProductRegistrationPartitionRecordV1,
+  });
+  return createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1({
+    readMany: records.readMany.bind(records),
+    putMany: records.putMany.bind(records),
+  });
+}
+
+export function encodeRouterAbEd25519YaoProductRegistrationPartitionRecordV1(
+  record: RouterAbEd25519YaoProductRegistrationPartitionRecordV1,
+): CloudflareVersionedJsonObject {
+  const lifecycleId = record.kind === SHARED_RECORD_KIND ? 'shared' : record.lifecycleId;
+  const state = createRouterAbEd25519YaoProductRegistrationStateV1();
+  const empty = partitionRouterAbEd25519YaoProductRegistrationStateV1(state, lifecycleId);
+  const materialized = mergeRouterAbEd25519YaoProductRegistrationStatePartitionV1(state, {
+    kind: 'router_ab_ed25519_yao_product_registration_state_partition_v1',
+    lifecycleId,
+    shared: record.kind === SHARED_RECORD_KIND ? record.value : empty.shared,
+    ceremony: record.kind === CEREMONY_RECORD_KIND ? record.value : empty.ceremony,
+  });
+  return {
+    kind: PARTITION_RECORD_CODEC_KIND,
+    recordKind: record.kind,
+    lifecycleId,
+    state: encodeRouterAbEd25519YaoProductRegistrationStateV1(materialized),
+  } satisfies EncodedPartitionRecord;
+}
+
+export function parseRouterAbEd25519YaoProductRegistrationPartitionRecordV1(
+  input: unknown,
+): RouterAbEd25519YaoProductRegistrationPartitionRecordV1 | null {
+  if (!isRecord(input) || input.kind !== PARTITION_RECORD_CODEC_KIND) return null;
+  if (input.recordKind !== SHARED_RECORD_KIND && input.recordKind !== CEREMONY_RECORD_KIND) {
+    return null;
+  }
+  const lifecycleId = readLifecycleId(input.lifecycleId);
+  if (lifecycleId === null) return null;
+  const state = parseRouterAbEd25519YaoProductRegistrationStateJsonV1(input.state);
+  if (state === null) return null;
+  const partition = partitionRouterAbEd25519YaoProductRegistrationStateV1(state, lifecycleId);
+  if (
+    stateFingerprint(state) !==
+    stateFingerprint(materializeState(partition.shared, partition.ceremony))
+  ) {
+    return null;
+  }
+  if (input.recordKind === SHARED_RECORD_KIND) {
+    if (lifecycleId !== 'shared') return null;
+    return { kind: SHARED_RECORD_KIND, value: partition.shared };
+  }
+  if (partition.ceremony.lifecycleId !== lifecycleId) return null;
+  return { kind: CEREMONY_RECORD_KIND, lifecycleId, value: partition.ceremony };
 }
 
 class RouterAbEd25519YaoProductRegistrationPartitionedStateStore implements RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1 {
@@ -252,6 +339,14 @@ function isVisibleLifecycleId(value: unknown): value is string {
     value.length <= 256 &&
     /^[\x21-\x7e]+$/u.test(value)
   );
+}
+
+function readLifecycleId(value: unknown): string | null {
+  return isVisibleLifecycleId(value) ? value : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function stateFingerprint(value: unknown): string {
