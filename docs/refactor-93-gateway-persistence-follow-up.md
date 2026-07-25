@@ -49,16 +49,18 @@ Those adapters are intentionally not wired to production traffic yet. A
 partial route integration would allow side effects to escape before its CAS
 commit and could lose replay or authorization state.
 
-The request-boundary ceremony-key parser and per-record CAS foundation are
-implemented, but the route is intentionally unwired. The current composition
-loads a four-map product snapshot, so sending each lifecycle to an independent
-object would isolate capabilities and replay state. The new partitioning
-boundary projects registration, authorization, recovery, and export lifecycle
-entries separately while retaining recovery capability ownership, stable
-identity indexes, and export authorization nonces in a shared record. Its
-merge operation replaces only one lifecycle and preserves unrelated ceremony
-entries. The tenant runtime remains the active boundary until a transaction-
-capable store can CAS the shared and ceremony records together.
+The request-boundary ceremony-key parser, partitioned state composition, and
+transaction-capable D1 CAS primitive are implemented, but the production route
+is intentionally unwired. The current handler still materializes a four-map
+product state, so sending each lifecycle to an independent object would
+isolate capabilities and replay state. The partitioning boundary projects
+registration, authorization, recovery, and export lifecycle entries
+separately while retaining recovery capability ownership, stable identity
+indexes, and export authorization nonces in a shared record. Its load/merge
+store reads the shared and ceremony records together and commits both with one
+typed CAS batch. The tenant runtime remains the active boundary until request
+composition has been integrated and exercised against the registration,
+recovery, export, replay, and authorization contracts.
 
 ## Implementation phases
 
@@ -73,13 +75,20 @@ capable store can CAS the shared and ceremony records together.
 Status: the explicit shared/ceremony partition and lossless merge boundary are
 implemented in
 `packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPartitioning.ts`.
-Production request composition remains gated on an atomic multi-record store.
+The request-safe load/commit composition is implemented in
+`packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPartitionedStateStore.ts`.
+Production request composition remains gated on integrating this store with
+the Gateway handler and running the full lifecycle contracts.
 
 ### 2. Atomic mutation protocol
 
-- Stage all state changes in memory.
-- Commit the complete ceremony record with one expected-version CAS.
-- Return a typed conflict when another request wins the version.
+- Stage all state changes in memory. **Implemented** by the partitioned state
+  store.
+- Commit the shared and complete ceremony records with one expected-version
+  CAS batch. **Implemented** by the D1 versioned JSON store and its seeded
+  constraint guard.
+- Return a typed conflict when another request wins either version.
+  **Implemented** without applying either record.
 - Never retry a failed CAS after a one-use side effect; callers must reconcile
   from the terminal record or allocate a new ceremony identity.
 
