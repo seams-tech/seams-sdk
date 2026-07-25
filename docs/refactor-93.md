@@ -856,16 +856,31 @@ receipts are recorded.
           wallet, signer, authentication, and Email OTP enrollment records in
           one D1 batch. The commit input is a discriminated union, so a passkey
           registration carrying enrollment state does not compile.
-    - [x] Cover durability-before-effect, ambiguous-broadcast replay, no-rebuild
-          on resume, and exact completed replay.
+    - [x] Classify a broadcast as created, rejected, or uncertain, propagate
+          uncertainty so the claim stays open, and settle the stored hash
+          against the chain before a resumed attempt resubmits.
+    - [x] Parse and validate persisted claims at the D1 boundary so an
+          unparseable record fails closed into a fresh attempt.
+    - [ ] Bring the remaining finalization effects — capability installation,
+          finalize replay state, and ceremony cleanup — into the committed
+          transaction or make them resumable. A crash after the D1 batch can
+          still leave a visible wallet with incomplete finalization state, so
+          this boundary is not yet closed.
     - [ ] Cover concurrent finalize contention for one lifecycle and D1
           read-back of the committed records before enabling the selector.
+    - [ ] Derive the request fingerprint from the canonical effect identity
+          rather than primarily the activation session.
+    - [ ] Replace the optional prepare field and boolean resume flag with a
+          representation that makes invalid lifecycle combinations
+          unconstructable.
   - [x] Add typed request-scoped recovery admission and execution
         prepare/claim/commit boundaries with a shared backend-session uniqueness
         index, durable uncertainty, and no backend retry.
   - [x] Classify recovery and export phases in the cutover selector so only
         admission stops at the cutoff and every later phase of a ceremony runs
-        against the store its admission used.
+        against the store its admission used. Each family carries its own
+        window; a family with no window stays on the legacy runtime, so one
+        family cannot inherit another's elapsed drain.
   - [ ] Lift the recovery and export authorization and capability adapters out
         of the tenant runtime object so the request-scoped handlers can be
         constructed from the environment. The composition currently takes the
