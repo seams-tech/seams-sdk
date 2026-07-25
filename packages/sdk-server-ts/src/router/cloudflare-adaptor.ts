@@ -175,3 +175,15 @@ export {
   createSelfHostedCloudflareSigningWorker,
 } from './cloudflare/createSelfHostedCloudflareSigningWorker';
 export { ThresholdStoreDurableObject } from './cloudflare/durableObjects/thresholdStore';
+export {
+  CloudflareDurableObjectVersionedJsonRecordStore,
+  CloudflareVersionedJsonRecordStoreError,
+  createCloudflareDurableObjectVersionedJsonRecordStore,
+} from './cloudflare/versionedJsonRecordStore';
+export type {
+  CloudflareVersionedJsonRecordStoreOptions,
+  CloudflareVersionedJsonObject,
+  CloudflareVersionedJsonRecordPutResult,
+  CloudflareVersionedJsonRecordReadResult,
+  CloudflareVersionedJsonValue,
+} from './cloudflare/versionedJsonRecordStore';
