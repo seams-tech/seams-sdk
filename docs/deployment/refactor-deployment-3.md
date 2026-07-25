@@ -689,8 +689,8 @@ retention policy.
       publication workflow.
 - [ ] Record queue time, no-op receipt execution time, and total
       validation-to-Pages time for ten frontend-only staging releases.
-- [ ] Run staging frontend smoke against `staging.seams.sh` and
-      `sign.staging.seams.sh`.
+- [ ] Run staging frontend smoke against `seams-site-staging.pages.dev` and
+      `seams-wallet-staging.pages.dev`.
 - [ ] Run staging backend readiness checks.
 - [ ] After staging succeeds, approve the pending production backend run and
       verify its matching coordination receipt and active backend identity.
