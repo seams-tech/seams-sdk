@@ -889,8 +889,9 @@ The follow-up review also confirms that the object name is keyed by
 environment share that instance. That creates a tenant-level throughput ceiling
 and keeps admission/recovery/export persistence on the non-Yao Gateway path.
 The existing Gateway timing spans will size that cost in the Phase 0 cohort;
-the replacement is best tracked as a named Gateway persistence refactor that
-gates this criterion rather than expanding the Router coordinator scope.
+the replacement is tracked in the
+[Gateway Ceremony Persistence follow-up](./refactor-93-gateway-persistence-follow-up.md)
+and gates this criterion rather than expanding the Router coordinator scope.
 The shared Cloudflare adapter now provides a per-record Durable Object resolver,
 opaque versioned JSON envelopes, and transaction-backed compare-and-swap writes.
 The Gateway package also now has a request-boundary ceremony-key parser and a
@@ -925,6 +926,17 @@ primitives. Local startup now initializes the five Router-owned SQLite scopes
 before the private role workers start, and the Router process never opens role
 secret state. These are persistence foundations for native serving; they do not
 persist encrypted role inputs and do not close the serving gate.
+
+The final review pass checked three small cleanup findings. Recovery promotion
+already uses discriminated lifecycle state and typed `capability_conflict`
+results; the only `already active` text in the current branch is a Deriver-A
+HTTP 409 diagnostic and is not a promotion control-flow predicate. The
+Cloudflare lint run reports the existing large-enum-variant warnings and no
+`peer_verifying_keys` dead-code or unused-import batch. The five remaining
+`source.contains` checks in `ed25519_yao_lifecycle_boundaries.rs` remain
+intentional durable boundary guards until the role-route drain and deletion
+phase; deleting them before that drain would remove the only checks for those
+cross-worker ownership invariants.
 
 ## Test Matrix
 
