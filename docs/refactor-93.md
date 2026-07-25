@@ -614,7 +614,7 @@ digests and therefore requires a new ceremony identity.
 - [x] Add a trace correlation ID that contains no user identity or secret.
 - [x] Freeze the current successful registration, recovery, and export
       response contracts.
-- [ ] Add intended-behaviour assertions for exact retry and terminal failure.
+- [x] Add intended-behaviour assertions for exact retry and terminal failure.
 - [x] Superseded: review the measured critical path before Phase 1. Phases 1–4
       landed before a complete production baseline could be captured.
 - [ ] Review the measured critical path before production acceptance. If the
@@ -639,8 +639,15 @@ The lower-level Router contract tests cover exact replay and terminal failure;
 the HTTP backend contract tests assert that a response lost after Router
 execution is retried with the exact admitted body, trace ID, and replay marker,
 and that a burned execution is surfaced as a terminal failure without retry.
-The intended-behaviour harness still lacks a controlled transport-failure
-injection point, so its end-to-end retry assertion remains open.
+The strict intended-behaviour suite now covers both product outcomes through a
+request-scoped local-Gateway fault seam. Its uncertain-transport case lets the
+real strict Router complete, drops that first response, and proves that the
+Gateway retry uses the byte-exact body, original trace ID, and replay marker
+before registration completes and signs. Its terminal case returns the typed
+Router burned result at the same service-binding boundary and proves that the
+Gateway performs no second Router dispatch. The local-only control header is
+removed before product routing and is absent from staging and production
+Workers.
 
 The successful response shapes are frozen at the existing strict TypeScript
 parsers and product service boundaries. Registration and recovery are covered
