@@ -50,6 +50,20 @@ const EVENT_SPAN_FAMILIES = {
   router_ab_yao_role_span_v1: ['deriver_a.', 'deriver_b.'],
 };
 const UNIQUE_BUDGET_SPANS = ['registration.post_touch_id', 'gateway.yao_execute'];
+const REQUIRED_EXECUTION_TELEMETRY_FIELDS = [
+  { wireName: 'cpu_ms', name: 'cpuMs', kind: 'number' },
+  { wireName: 'active_duration_ms', name: 'activeDurationMs', kind: 'number' },
+  { wireName: 'memory_mb', name: 'memoryMb', kind: 'number' },
+  {
+    wireName: 'durable_object_call_count',
+    name: 'durableObjectCallCount',
+    kind: 'integer',
+  },
+  { wireName: 'worker_invocation_count', name: 'workerInvocationCount', kind: 'integer' },
+  { wireName: 'd1_query_count', name: 'd1QueryCount', kind: 'integer' },
+  { wireName: 'exact_replay_count', name: 'exactReplayCount', kind: 'integer' },
+  { wireName: 'conflict_count', name: 'conflictCount', kind: 'integer' },
+];
 const ENVIRONMENTS = new Set(['production', 'staging', 'local', 'synthetic_test']);
 const CAPTURE_METHODS = new Set([
   'wrangler_tail_json',
@@ -157,6 +171,9 @@ export function analyzeRefactor93ProductionEvidence(input) {
         p95Ms: 4_000,
       },
     },
+    telemetry: {
+      gatewayYaoExecute: telemetryCohortMetrics(eligibleTraceReports),
+    },
     traceReports,
     ignoredEventCount: countIgnoredEvents(eventsByTrace, manifest.traces),
   };
@@ -262,10 +279,23 @@ function parseSpanEvent(value, index) {
     outcome,
     durationMs,
     traceId: requireTraceId(record.trace_id, `${label} trace_id`),
+    telemetry: parseSpanTelemetry(record, label),
     role: typeof record.role === 'string' ? record.role : undefined,
     source: requireString(record.source, `${label} source`),
     line: requirePositiveSafeInteger(record.line, `${label} line`),
   };
+}
+
+function parseSpanTelemetry(record, label) {
+  const telemetry = {};
+  for (const field of REQUIRED_EXECUTION_TELEMETRY_FIELDS) {
+    if (!Object.hasOwn(record, field.wireName)) continue;
+    telemetry[field.name] =
+      field.kind === 'integer'
+        ? requireNonNegativeSafeInteger(record[field.wireName], `${label} ${field.wireName}`)
+        : requireNonNegativeFiniteNumber(record[field.wireName], `${label} ${field.wireName}`);
+  }
+  return telemetry;
 }
 
 function parseInputFiles(value) {
@@ -324,6 +354,16 @@ function analyzeTrace(trace, events) {
   for (const span of UNIQUE_BUDGET_SPANS) {
     if (spanDurationsMs[span].length !== 1) duplicateBudgetSpans.push(span);
   }
+  const successfulExecutionEvents = eventsForSpan(registrationEvents, 'gateway.yao_execute').filter(
+    isSuccessfulEvent,
+  );
+  const executionEvent =
+    successfulExecutionEvents.length === 1 ? successfulExecutionEvents[0] : undefined;
+  const executionTelemetry = executionEvent?.telemetry ?? {};
+  const missingExecutionTelemetry = REQUIRED_EXECUTION_TELEMETRY_FIELDS.filter(
+    (field) => executionTelemetry[field.name] === undefined,
+  ).map((field) => field.wireName);
+  const d1QueriesInExecution = executionTelemetry.d1QueryCount ?? null;
   const unknownIsolateReuse = [];
   for (const component of REQUIRED_ISOLATE_REUSE_COMPONENTS) {
     if (trace.isolateReuse[component] === 'unknown') unknownIsolateReuse.push(component);
@@ -353,7 +393,9 @@ function analyzeTrace(trace, events) {
       duplicateBudgetSpans.length === 0 &&
       wrongOperationEvents.length === 0 &&
       misownedSpans.length === 0 &&
-      unknownIsolateReuse.length === 0,
+      unknownIsolateReuse.length === 0 &&
+      missingExecutionTelemetry.length === 0 &&
+      d1QueriesInExecution === 0,
     isolateReuse: trace.isolateReuse,
     eventCount: registrationEvents.length,
     missingSpans,
@@ -362,6 +404,9 @@ function analyzeTrace(trace, events) {
     duplicateBudgetSpans,
     misownedSpans,
     unexpectedOperationCount: wrongOperationEvents.length,
+    executionTelemetry,
+    missingExecutionTelemetry,
+    d1QueriesInExecution,
     spanDurationsMs,
   };
 }
@@ -418,6 +463,16 @@ function addTraceBlockers(blockers, report) {
       `${report.traceId} required spans were emitted by the wrong event owner: ${report.misownedSpans.join(', ')}`,
     );
   }
+  if (report.missingExecutionTelemetry.length > 0) {
+    blockers.push(
+      `${report.traceId} missing gateway.yao_execute telemetry: ${report.missingExecutionTelemetry.join(', ')}`,
+    );
+  }
+  if (report.d1QueriesInExecution !== null && report.d1QueriesInExecution > 0) {
+    blockers.push(
+      `${report.traceId} gateway.yao_execute contains ${report.d1QueriesInExecution} D1 queries`,
+    );
+  }
   if (report.unexpectedOperationCount > 0) {
     blockers.push(`${report.traceId} contains non-registration span events`);
   }
@@ -446,6 +501,36 @@ function metricsForReports(traceReports, span) {
   for (const report of traceReports) {
     const duration = report.spanDurationsMs[span];
     if (duration.length === 1) values.push(duration[0]);
+  }
+  return {
+    sampleCount: values.length,
+    p50: nearestRankPercentile(values, 0.5),
+    p95: nearestRankPercentile(values, 0.95),
+    min: values.length === 0 ? null : Math.min(...values),
+    max: values.length === 0 ? null : Math.max(...values),
+  };
+}
+
+function telemetryCohortMetrics(traceReports) {
+  const metrics = {};
+  for (const field of REQUIRED_EXECUTION_TELEMETRY_FIELDS) {
+    metrics[field.name] = {
+      all: telemetryMetricForReports(traceReports, field.name),
+      coldAfterDeploy: telemetryMetricForReports(
+        traceReports.filter(matchesCohort('cold_after_deploy')),
+        field.name,
+      ),
+      warm: telemetryMetricForReports(traceReports.filter(matchesCohort('warm')), field.name),
+    };
+  }
+  return metrics;
+}
+
+function telemetryMetricForReports(traceReports, fieldName) {
+  const values = [];
+  for (const report of traceReports) {
+    const value = report.executionTelemetry[fieldName];
+    if (value !== undefined) values.push(value);
   }
   return {
     sampleCount: values.length,
@@ -601,6 +686,13 @@ function requireArray(value, label) {
 function requireNonNegativeSafeInteger(value, label) {
   if (!Number.isSafeInteger(value) || value < 0) {
     throw new Error(`${label} must be a non-negative safe integer`);
+  }
+  return value;
+}
+
+function requireNonNegativeFiniteNumber(value, label) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new Error(`${label} must be a non-negative finite number`);
   }
   return value;
 }
