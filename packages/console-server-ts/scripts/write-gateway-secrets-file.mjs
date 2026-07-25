@@ -3,11 +3,14 @@ import path from 'node:path';
 import process from 'node:process';
 import { gatewaySecretNames, readDeploymentTarget } from '../../../scripts/deployment-targets.mjs';
 
+const OPTIONAL_SECRET_NAMES = ['RELAYER_PRIVATE_KEY', 'SPONSORED_EVM_EXECUTORS_JSON'];
+
 function main() {
   const outputPath = readOutputPath(process.argv.slice(2));
   const targetName = readTargetName();
   const target = readDeploymentTarget(targetName);
   const secrets = readRequiredSecrets(gatewaySecretNames(target));
+  addOptionalSecrets(secrets);
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, `${JSON.stringify(secrets)}\n`, {
     encoding: 'utf8',
@@ -31,6 +34,13 @@ function readTargetName() {
   const target = String(process.env.DEPLOY_TARGET || '').trim();
   if (!target) throw new Error('DEPLOY_TARGET is required');
   return target;
+}
+
+function addOptionalSecrets(secrets) {
+  for (const name of OPTIONAL_SECRET_NAMES) {
+    const value = readEnvironmentValue(name);
+    if (value) secrets[name] = value;
+  }
 }
 
 function readRequiredSecrets(names) {

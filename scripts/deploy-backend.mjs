@@ -49,6 +49,14 @@ const BACKEND_SMOKE_PATHS = Object.freeze([
   '/router-ab/ed25519/healthz',
   '/router-ab/ecdsa-derivation/healthz',
 ]);
+const PREFLIGHT_VARIABLE_ALIASES = Object.freeze({
+  ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY: 'DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY',
+  ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX: 'DERIVER_A_PEER_VERIFYING_KEY_HEX',
+  ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY: 'DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY',
+  ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX: 'DERIVER_B_PEER_VERIFYING_KEY_HEX',
+  ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY:
+    'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
+});
 
 main(process.argv.slice(2)).catch(handleFailure);
 
@@ -63,7 +71,7 @@ async function main(args) {
       buildBackend();
       return;
     case 'preflight':
-      preflightBackend(options.target, target, options.component);
+      preflightBackend(options.target, target, options.component, readPreflightEnvironment());
       return;
     case 'migrate':
       migrateBackend(options.target, target);
@@ -133,8 +141,8 @@ function printPlan(targetName, target) {
     `Capabilities: ${formatCapabilities(target)}`,
     '',
     'Order:',
-    '  1. preflight all five backend custody components',
-    '  2. build all backend components once',
+    '  1. build all backend components once and require the target branch',
+    '  2. preflight all five backend custody components',
     `  3. migrate ${target.resources.gateway.consoleD1Name} (console D1)`,
     `  4. migrate ${target.resources.gateway.signerD1Name} (signer D1)`,
     '  5. deploy signing-worker',
@@ -206,7 +214,7 @@ function writeGatewayBuildConfig() {
   });
 }
 
-function preflightBackend(targetName, target, component) {
+function preflightBackend(targetName, target, component, environment = process.env) {
   const requiredNames = ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID'];
   requiredNames.push(...componentSecretNames(target, component));
   for (const name of componentRuntimeRequirements(targetName, target, component)) {
@@ -214,10 +222,43 @@ function preflightBackend(targetName, target, component) {
   }
   if (component === 'gateway') {
     requiredNames.push('SIGNING_ROOT_KEK_VALUE', 'GATEWAY_DEPLOYMENT_CONFIG_JSON');
-    validateGatewayDeploymentConfig(targetName, target);
+    validateGatewayDeploymentConfig(targetName, target, environment);
   }
-  requireEnvironmentValues(unique(requiredNames));
+  requireEnvironmentValues(unique(requiredNames), environment);
   process.stdout.write(`Preflight passed: ${targetName}/${component}\n`);
+}
+
+function readPreflightEnvironment() {
+  return {
+    ...normalizePreflightVariables(parseEnvironmentInventory('DEPLOYMENT_VARS_JSON')),
+    ...readSecretNameInventory(),
+  };
+}
+
+function normalizePreflightVariables(variables) {
+  const normalized = { ...variables };
+  for (const [source, destination] of Object.entries(PREFLIGHT_VARIABLE_ALIASES)) {
+    if (Object.hasOwn(variables, source)) normalized[destination] = variables[source];
+  }
+  return normalized;
+}
+
+function readSecretNameInventory() {
+  const secrets = parseEnvironmentInventory('DEPLOYMENT_SECRETS_JSON');
+  return Object.fromEntries(Object.keys(secrets).map((name) => [name, 'configured']));
+}
+
+function parseEnvironmentInventory(name) {
+  let value;
+  try {
+    value = JSON.parse(requireEnvironmentValue(name));
+  } catch (error) {
+    throw new Error(`${name} must be a JSON object: ${formatError(error)}`);
+  }
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${name} must be a JSON object`);
+  }
+  return value;
 }
 
 function componentRuntimeRequirements(targetName, target, component) {
@@ -488,9 +529,9 @@ function renderGatewayConfig(targetName, target) {
   );
 }
 
-function validateGatewayDeploymentConfig(targetName, target) {
+function validateGatewayDeploymentConfig(targetName, target, environment = process.env) {
   const config = parseGatewayDeploymentConfig(
-    requireEnvironmentValue('GATEWAY_DEPLOYMENT_CONFIG_JSON'),
+    requireEnvironmentValue('GATEWAY_DEPLOYMENT_CONFIG_JSON', environment),
     targetName,
   );
   const expectedResources = target.resources;
@@ -510,12 +551,12 @@ function validateGatewayDeploymentConfig(targetName, target) {
   }
 }
 
-function requireEnvironmentValues(names) {
-  for (const name of names) requireEnvironmentValue(name);
+function requireEnvironmentValues(names, environment = process.env) {
+  for (const name of names) requireEnvironmentValue(name, environment);
 }
 
-function requireEnvironmentValue(name) {
-  const value = String(process.env[name] || '').trim();
+function requireEnvironmentValue(name, environment = process.env) {
+  const value = String(environment[name] || '').trim();
   if (!value) throw new Error(`${name} is required`);
   return value;
 }

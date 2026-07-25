@@ -14,12 +14,10 @@ import {
   DEFAULT_SESSION_COOKIE_NAME,
   GATEWAY_WORKER_COMPATIBILITY_DATE,
   GATEWAY_WORKER_COMPATIBILITY_FLAGS,
-  gatewayRuntimeProfileNearNetwork,
   parseGatewayDeploymentConfig,
 } from './gateway-deployment-config.mjs';
 
 const VALID_TARGETS = new Set(['staging', 'production']);
-const DEFAULT_NEAR_SPONSORSHIP_ESTIMATE_YOCTO = '1000000000000000000000';
 
 function main() {
   const options = parseArguments(process.argv.slice(2));
@@ -177,9 +175,6 @@ function buildWorkerVars(deployment) {
     RELAY_SESSION_AUDIENCE: DEFAULT_RELAY_SESSION_AUDIENCE,
     RELAY_CORS_ORIGINS: deployment.origins.allowedCors.join(','),
     SESSION_COOKIE_NAME: DEFAULT_SESSION_COOKIE_NAME,
-    SPONSORED_EXECUTION_REAL_PRICING_JSON: JSON.stringify(
-      buildHostedNearSponsorshipPricingConfig(deployment.runtimeProfile),
-    ),
     EMAIL_OTP_RUNTIME_PROFILE: deployment.runtimeProfile.kind,
     EMAIL_OTP_DELIVERY_MODE: deployment.runtimeProfile.emailOtpDelivery.kind,
     EMAIL_OTP_PRODUCTION: String(production),
@@ -249,23 +244,6 @@ function parseGatewayTimestamp(raw, name) {
   }
   return value;
 }
-
-function buildHostedNearSponsorshipPricingConfig(runtimeProfile) {
-  const network = gatewayRuntimeProfileNearNetwork(runtimeProfile);
-  const networkClass = network === 'mainnet' ? 'MAINNET' : 'TESTNET';
-  return {
-    provider: 'coingecko',
-    near: {
-      [networkClass]: {
-        assetId: 'near',
-        nativeUnitDecimals: 24,
-        estimateFeeAmountYocto: DEFAULT_NEAR_SPONSORSHIP_ESTIMATE_YOCTO,
-        pricingVersionPrefix: `coingecko-near-${network}`,
-      },
-    },
-  };
-}
-
 function addNearRelayerVars(vars, nearRelayer) {
   if (!nearRelayer) return;
   vars.RELAYER_ACCOUNT_ID = nearRelayer.accountId;
