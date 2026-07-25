@@ -58,6 +58,23 @@ test('evidence gate rejects synthetic, incomplete, and unknown isolate evidence'
   assert.equal(report.budgets.gatewayYaoExecuteMs.all.sampleCount, 0);
 });
 
+test('evidence gate rejects a required span emitted by the wrong worker event', () => {
+  const fixture = buildFixture({ environment: 'production', traceCount: 20 });
+  const gatewaySpan = fixture.events.find((event) => event.span === 'gateway.yao_execute');
+  if (!gatewaySpan) throw new Error('gateway span fixture is required');
+  gatewaySpan.event = 'router_ab_yao_role_span_v1';
+  gatewaySpan.role = 'deriver_a';
+
+  const report = analyzeRefactor93ProductionEvidence(fixture);
+
+  assert.equal(report.readiness.phase0BaselineReady, false);
+  assert.ok(
+    report.readiness.blockers.some((blocker) =>
+      blocker.includes('gateway.yao_execute (router_ab_yao_role_span_v1)'),
+    ),
+  );
+});
+
 test('JSONL parser extracts direct, Wrangler tail, and Workers Logs span messages', () => {
   const traceId = traceIdFor(1);
   const event = spanEvent(traceId, 'gateway.yao_execute', 900);
@@ -132,18 +149,34 @@ function buildFixture(input) {
 }
 
 function spanEvent(traceId, span, durationMs) {
+  const event = eventForSpan(span);
   return {
-    event: span.startsWith('deriver_')
-      ? 'router_ab_yao_role_span_v1'
-      : 'refactor93_gateway_span_v1',
+    event: event.event,
     span,
-    operation: 'registration',
+    operation: event.operation,
+    ...(event.role ? { role: event.role } : {}),
     outcome: 'success',
     duration_ms: durationMs,
     trace_id: traceId,
     source: '/evidence/worker-tail.jsonl',
     line: 1,
   };
+}
+
+function eventForSpan(span) {
+  if (span.startsWith('deriver_a.')) {
+    return { event: 'router_ab_yao_role_span_v1', operation: 'activation', role: 'deriver_a' };
+  }
+  if (span.startsWith('deriver_b.')) {
+    return { event: 'router_ab_yao_role_span_v1', operation: 'begin_pair', role: 'deriver_b' };
+  }
+  if (span.startsWith('router.')) {
+    return { event: 'router_ab_yao_coordinator_span_v1', operation: 'registration' };
+  }
+  if (span.startsWith('gateway.')) {
+    return { event: 'router_ab_yao_gateway_span_v1', operation: 'registration' };
+  }
+  return { event: 'seams_registration_timing_span_v1', operation: 'registration' };
 }
 
 function traceIdFor(value) {

@@ -26,6 +26,16 @@ JSON from Workers Logs when access is available. Preserve each raw file. The
 report records its SHA-256 digest and rejects incomplete evidence with a
 non-zero exit status.
 
+The analyzer also validates event ownership for every required span. Gateway
+spans must arrive as `router_ab_yao_gateway_span_v1`, Router spans as
+`router_ab_yao_coordinator_span_v1`, role spans as
+`router_ab_yao_role_span_v1` with the matching `deriver_a` or `deriver_b`
+role, and frontend spans as `seams_registration_timing_span_v1`. Role events
+carry low-level command or protocol labels rather than the Gateway's
+`registration` operation label, so those labels are accepted after ownership
+validation. A required span under the wrong event owner blocks the Phase 0
+baseline instead of silently contributing to its latency budget.
+
 The cohort manifest is a strict declaration of provenance:
 
 ```json

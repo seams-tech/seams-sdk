@@ -43,6 +43,12 @@ const REQUIRED_PREPARATION_SPANS = [
   'router.prepare_pair.deriver_a',
   'router.prepare_pair.deriver_b',
 ];
+const EVENT_SPAN_FAMILIES = {
+  seams_registration_timing_span_v1: ['registration.', 'frontend.'],
+  router_ab_yao_gateway_span_v1: ['gateway.'],
+  router_ab_yao_coordinator_span_v1: ['router.'],
+  router_ab_yao_role_span_v1: ['deriver_a.', 'deriver_b.'],
+};
 const UNIQUE_BUDGET_SPANS = ['registration.post_touch_id', 'gateway.yao_execute'];
 const ENVIRONMENTS = new Set(['production', 'staging', 'local', 'synthetic_test']);
 const CAPTURE_METHODS = new Set([
@@ -256,6 +262,7 @@ function parseSpanEvent(value, index) {
     outcome,
     durationMs,
     traceId: requireTraceId(record.trace_id, `${label} trace_id`),
+    role: typeof record.role === 'string' ? record.role : undefined,
     source: requireString(record.source, `${label} source`),
     line: requirePositiveSafeInteger(record.line, `${label} line`),
   };
@@ -294,7 +301,7 @@ function analyzeTrace(trace, events) {
   const registrationEvents = [];
   const wrongOperationEvents = [];
   for (const event of events) {
-    if (event.operation === 'registration') registrationEvents.push(event);
+    if (isRegistrationEvidenceEvent(event)) registrationEvents.push(event);
     else wrongOperationEvents.push(event);
   }
   const missingSpans = [];
@@ -321,6 +328,21 @@ function analyzeTrace(trace, events) {
   for (const component of REQUIRED_ISOLATE_REUSE_COMPONENTS) {
     if (trace.isolateReuse[component] === 'unknown') unknownIsolateReuse.push(component);
   }
+  const misownedSpans = [];
+  for (const event of registrationEvents) {
+    if (!isRequiredTraceSpan(event.span)) continue;
+    const families = EVENT_SPAN_FAMILIES[event.event];
+    if (!families || !families.some((prefix) => event.span.startsWith(prefix))) {
+      misownedSpans.push(`${event.span} (${event.event})`);
+      continue;
+    }
+    if (event.event === 'router_ab_yao_role_span_v1') {
+      const expectedRole = event.span.startsWith('deriver_a.') ? 'deriver_a' : 'deriver_b';
+      if (event.role !== expectedRole) {
+        misownedSpans.push(`${event.span} (role ${event.role ?? 'missing'})`);
+      }
+    }
+  }
   return {
     traceId: trace.traceId,
     cohort: trace.cohort,
@@ -330,6 +352,7 @@ function analyzeTrace(trace, events) {
       failedSpans.length === 0 &&
       duplicateBudgetSpans.length === 0 &&
       wrongOperationEvents.length === 0 &&
+      misownedSpans.length === 0 &&
       unknownIsolateReuse.length === 0,
     isolateReuse: trace.isolateReuse,
     eventCount: registrationEvents.length,
@@ -337,6 +360,7 @@ function analyzeTrace(trace, events) {
     missingPreparationSpans,
     failedSpans,
     duplicateBudgetSpans,
+    misownedSpans,
     unexpectedOperationCount: wrongOperationEvents.length,
     spanDurationsMs,
   };
@@ -387,6 +411,11 @@ function addTraceBlockers(blockers, report) {
   if (report.duplicateBudgetSpans.length > 0) {
     blockers.push(
       `${report.traceId} must contain exactly one successful budget span: ${report.duplicateBudgetSpans.join(', ')}`,
+    );
+  }
+  if (report.misownedSpans.length > 0) {
+    blockers.push(
+      `${report.traceId} required spans were emitted by the wrong event owner: ${report.misownedSpans.join(', ')}`,
     );
   }
   if (report.unexpectedOperationCount > 0) {
@@ -452,6 +481,14 @@ function hasDuplicateTraceIds(traces) {
 
 function isBudgetEligibleTrace(report) {
   return report.complete;
+}
+
+function isRequiredTraceSpan(span) {
+  return REQUIRED_TRACE_SPANS.includes(span);
+}
+
+function isRegistrationEvidenceEvent(event) {
+  return event.event === 'router_ab_yao_role_span_v1' || event.operation === 'registration';
 }
 
 function matchesCohort(cohort) {
