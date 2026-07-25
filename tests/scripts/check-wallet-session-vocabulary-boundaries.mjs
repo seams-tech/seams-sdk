@@ -66,6 +66,10 @@ const classifiedSessionIdPublicSurfaceFiles = {
   'packages/sdk-server-ts/src/router/authServicePort.ts': 'keep_app_device_or_recovery_session',
   'packages/sdk-server-ts/src/router/recoveryExecutionTracking.ts':
     'keep_app_device_or_recovery_session',
+  'packages/sdk-server-ts/src/router/routerAbEd25519YaoExport.ts':
+    'keep_ed25519_yao_protocol_session',
+  'packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery.ts':
+    'keep_ed25519_yao_protocol_session',
   'packages/sdk-server-ts/src/router/routerAbEd25519YaoRegistration.ts':
     'keep_ed25519_yao_protocol_session',
   'packages/sdk-server-ts/src/router/routerAbEcdsaStrictRegistration.ts':

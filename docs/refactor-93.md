@@ -843,6 +843,19 @@ receipts are recorded.
   - [ ] Move registration start, bind, finalize, and shared wallet/session
         effects behind an idempotent side-effect boundary, then enable the
         registration selector.
+    - [x] Split sponsored NEAR account creation into a prepare step that builds,
+          signs, and hashes the transaction without broadcasting and a broadcast
+          step that replays those exact bytes. Rebuilding would take a fresh
+          nonce and block hash and produce a second distinct transaction.
+    - [x] Let the side-effect claim carry the prepared artifact. `prepare` runs
+          before the claim is persisted, so the signed transaction and its hash
+          are durable before the broadcast, and `in_progress` returns that
+          artifact so an ambiguous outcome reconciles by replay.
+    - [ ] Wire prepare/broadcast into finalize so the persisted transaction is
+          the only one ever broadcast, and commit the wallet, signer, auth,
+          Email OTP, escrow, and finalization receipt records in one D1 batch.
+    - [ ] Add crash, ambiguous-broadcast, retry, read-back, and concurrent
+          finalize tests before enabling the registration selector.
   - [x] Add typed request-scoped recovery admission and execution
         prepare/claim/commit boundaries with a shared backend-session uniqueness
         index, durable uncertainty, and no backend retry.
