@@ -68,3 +68,25 @@ fn yao_result_reads_surface_terminal_states_without_polling() {
         );
     }
 }
+
+#[test]
+fn deriver_a_overlaps_root_validation_with_staged_websocket_connection() {
+    let source = read_src_file("ed25519_yao_lifecycle.rs");
+    let body = extract_function_body(&source, "execute_deriver_a_role");
+    let open_input = body
+        .find("open_ed25519_yao_activation_deriver_a_input_v1")
+        .expect("Deriver A input must be opened before external coordination");
+    let joined_work = body
+        .find("futures::try_join!")
+        .expect("root validation and staged WebSocket connection must overlap");
+    assert!(
+        open_input < joined_work,
+        "invalid Deriver A ciphertext must fail before the Deriver B connection starts"
+    );
+    for required in ["load_deriver_a_yao_root", "connect_deriver_b"] {
+        assert!(
+            source.contains(required),
+            "parallel staged connection must retain `{required}`"
+        );
+    }
+}
