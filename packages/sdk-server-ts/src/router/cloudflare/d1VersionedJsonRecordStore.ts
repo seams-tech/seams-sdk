@@ -37,6 +37,11 @@ export type CloudflareD1VersionedJsonRecordMutationV1<T> = {
   readonly expectedVersion: string | null;
 };
 
+export type CloudflareD1VersionedJsonRecordReadManyEntryV1<T> = {
+  readonly key: string;
+  readonly result: CloudflareVersionedJsonRecordReadResult<T>;
+};
+
 export type CloudflareD1VersionedJsonRecordBatchPutResultV1 =
   | {
       readonly kind: 'stored';
@@ -84,30 +89,53 @@ export class CloudflareD1VersionedJsonRecordStore<T> {
   }
 
   async read(key: string): Promise<CloudflareVersionedJsonRecordReadResult<T>> {
-    const storageKey = this.storageKey(key);
-    let result: D1ResultLike<StoredRecord>;
+    const [entry] = await this.readMany([key]);
+    if (!entry) throw new Error('Cloudflare D1 versioned JSON read returned no entry');
+    return entry.result;
+  }
+
+  /**
+   * Reads a set of records from one D1 batch snapshot. Callers that compose
+   * shared and ceremony state must use this method so they never merge rows
+   * from different database versions.
+   */
+  async readMany(
+    keys: readonly string[],
+  ): Promise<readonly CloudflareD1VersionedJsonRecordReadManyEntryV1<T>[]> {
+    const preparedKeys = prepareReadKeys(keys, this.keyPrefix);
+    const statements = preparedKeys.map(({ storageKey }) =>
+      this.database.prepare(
+        `SELECT version, record_json
+           FROM ${TABLE_NAME}
+          WHERE namespace = ?1
+            AND org_id = ?2
+            AND project_id = ?3
+            AND env_id = ?4
+            AND record_key = ?5`,
+      ).bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        storageKey,
+      ),
+    );
+    let results: readonly D1ResultLike<StoredRecord>[];
     try {
-      result = await this.database
-        .prepare(
-          `SELECT version, record_json
-             FROM ${TABLE_NAME}
-            WHERE namespace = ?1
-              AND org_id = ?2
-              AND project_id = ?3
-              AND env_id = ?4
-              AND record_key = ?5`,
-        )
-        .bind(
-          this.scope.namespace,
-          this.scope.orgId,
-          this.scope.projectId,
-          this.scope.envId,
-          storageKey,
-        )
-        .all<StoredRecord>();
+      results = await this.database.batch<D1ResultLike<StoredRecord>>(statements);
     } catch (error: unknown) {
       throw requestFailure(error);
     }
+    assertBatchSucceeded(results, preparedKeys.length);
+    return preparedKeys.map(({ key }, index) => ({
+      key,
+      result: this.parseReadResult(results[index]),
+    }));
+  }
+
+  private parseReadResult(
+    result: D1ResultLike<StoredRecord> | undefined,
+  ): CloudflareVersionedJsonRecordReadResult<T> {
     const row = firstResult(result);
     if (row === null) return { kind: 'missing' };
     const version = parseVersion(row.version);
@@ -116,9 +144,7 @@ export class CloudflareD1VersionedJsonRecordStore<T> {
     }
     const value = parseJson(row.record_json);
     const parsed = value === null ? null : this.parse(value);
-    if (parsed === null) {
-      throw invalidRecordFailure('Stored D1 versioned JSON record is invalid');
-    }
+    if (parsed === null) throw invalidRecordFailure('Stored D1 versioned JSON record is invalid');
     return { kind: 'present', value: parsed, version: String(version) };
   }
 
@@ -383,7 +409,31 @@ function parseJson(value: string): unknown | null {
   }
 }
 
-function firstResult<T>(result: D1ResultLike<T>): T | null {
+type PreparedReadKey = {
+  readonly key: string;
+  readonly storageKey: string;
+};
+
+function prepareReadKeys(keys: readonly string[], keyPrefix: string): readonly PreparedReadKey[] {
+  if (keys.length === 0) {
+    throw new Error('Cloudflare D1 versioned JSON read batch requires at least one key');
+  }
+  const seen = new Set<string>();
+  return keys.map((rawKey) => {
+    const key = normalizeRecordKey(rawKey);
+    const storageKey = `${keyPrefix}${key}`;
+    if (seen.has(storageKey)) {
+      throw new Error('Cloudflare D1 versioned JSON read batch contains duplicate keys');
+    }
+    seen.add(storageKey);
+    return { key, storageKey };
+  });
+}
+
+function firstResult<T>(result: D1ResultLike<T> | undefined): T | null {
+  if (!result) {
+    throw invalidResponseFailure('Cloudflare D1 versioned JSON batch response is invalid');
+  }
   if (!result.success || !Array.isArray(result.results)) {
     throw invalidResponseFailure('Cloudflare D1 versioned JSON read response is invalid');
   }

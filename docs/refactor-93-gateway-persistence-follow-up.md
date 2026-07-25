@@ -57,8 +57,9 @@ isolate capabilities and replay state. The partitioning boundary projects
 registration, authorization, recovery, and export lifecycle entries
 separately while retaining recovery capability ownership, stable identity
 indexes, and export authorization nonces in a shared record. Its load/merge
-store reads the shared and ceremony records together and commits both with one
-typed CAS batch. The tenant runtime remains the active boundary until request
+store reads the shared and ceremony records in one D1 batch snapshot and
+commits both with one typed CAS batch. The tenant runtime remains the active
+boundary until request
 composition has been integrated and exercised against the registration,
 recovery, export, replay, and authorization contracts.
 

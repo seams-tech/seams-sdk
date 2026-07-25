@@ -196,6 +196,7 @@ export type {
   CloudflareD1VersionedJsonRecordScopeV1,
   CloudflareD1VersionedJsonRecordBatchPutResultV1,
   CloudflareD1VersionedJsonRecordMutationV1,
+  CloudflareD1VersionedJsonRecordReadManyEntryV1,
   CloudflareD1VersionedJsonRecordStoreOptions,
 } from './cloudflare/d1VersionedJsonRecordStore';
 export {

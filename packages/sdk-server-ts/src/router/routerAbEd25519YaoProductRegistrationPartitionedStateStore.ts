@@ -38,10 +38,13 @@ export type RouterAbEd25519YaoProductRegistrationPartitionBatchResultV1 =
   | { readonly kind: 'version_mismatch'; readonly key: string };
 
 export type RouterAbEd25519YaoProductRegistrationPartitionRecordStoreV1 = {
-  readonly read: (
-    key: string,
+  readonly readMany: (
+    keys: readonly string[],
   ) => Promise<
-    CloudflareVersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>
+    readonly {
+      readonly key: string;
+      readonly result: CloudflareVersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>;
+    }[]
   >;
   readonly putMany: (
     mutations: readonly RouterAbEd25519YaoProductRegistrationPartitionMutationV1[],
@@ -94,10 +97,15 @@ class RouterAbEd25519YaoProductRegistrationPartitionedStateStore implements Rout
     lifecycleId: string,
   ): Promise<RouterAbEd25519YaoProductRegistrationPartitionedStateV1> {
     const normalizedLifecycleId = requireLifecycleId(lifecycleId);
-    const [sharedResult, ceremonyResult] = await Promise.all([
-      this.store.read(ROUTER_AB_ED25519_YAO_SHARED_STATE_RECORD_KEY_V1),
-      this.store.read(normalizedLifecycleId),
+    const entries = await this.store.readMany([
+      ROUTER_AB_ED25519_YAO_SHARED_STATE_RECORD_KEY_V1,
+      normalizedLifecycleId,
     ]);
+    const sharedResult = readManyEntry(
+      entries,
+      ROUTER_AB_ED25519_YAO_SHARED_STATE_RECORD_KEY_V1,
+    );
+    const ceremonyResult = readManyEntry(entries, normalizedLifecycleId);
     const shared = readSharedRecord(sharedResult);
     const ceremony = readCeremonyRecord(ceremonyResult, normalizedLifecycleId);
     return {
@@ -158,6 +166,15 @@ type ReadPartitionRecordResult = {
   readonly value: RouterAbEd25519YaoProductRegistrationSharedStateV1;
   readonly version: string | null;
 };
+
+function readManyEntry<T>(
+  entries: readonly { readonly key: string; readonly result: T }[],
+  key: string,
+): T {
+  const entry = entries.find((candidate) => candidate.key === key);
+  if (!entry) throw new Error(`Router A/B batch read omitted ${key}`);
+  return entry.result;
+}
 
 type ReadCeremonyRecordResult = {
   readonly value: RouterAbEd25519YaoProductRegistrationCeremonyStateV1;

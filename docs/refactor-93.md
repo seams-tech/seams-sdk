@@ -905,8 +905,9 @@ The shared Cloudflare adapter now provides a per-record Durable Object resolver,
 opaque versioned JSON envelopes, and transaction-backed compare-and-swap writes.
 The Gateway package also has a request-boundary ceremony-key parser, a lossless
 codec for the registration, authorization, recovery, and export Map/Set graphs,
-and a shared-plus-ceremony state store that commits both records with one typed
-D1 CAS batch. These pieces define and test the persistence boundary without
+and a shared-plus-ceremony state store that reads both records from one D1
+batch snapshot and commits them with one typed CAS batch. These pieces define
+and test the persistence boundary without
 routing traffic through it yet: the tenant runtime has not been migrated, its
 binding and migration have not been deleted, and this checkbox remains open
 until the Gateway handler loads, runs, and commits through the composition on

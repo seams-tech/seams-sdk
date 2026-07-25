@@ -86,6 +86,7 @@ class MemoryStatement implements D1PreparedStatementLike {
   }
 
   async run<T = unknown>(): Promise<D1ResultLike<T>> {
+    if (this.query.startsWith('SELECT')) return (await this.all<T>()) as D1ResultLike<T>;
     if (this.query.startsWith('INSERT OR IGNORE')) return this.insert<T>();
     if (this.query.startsWith('UPDATE')) return this.update<T>();
     if (this.query.startsWith('INSERT INTO router_ab_yao_versioned_json_cas_guard')) {
@@ -213,6 +214,20 @@ test.describe('Cloudflare D1 versioned JSON record store', () => {
       value: expect.objectContaining({ id: 'pair-b', count: expect.any(Number) }),
       version: '2',
     });
+  });
+
+  test('reads shared and ceremony records from one batch snapshot', async () => {
+    const store = createStore(new MemoryD1());
+    await store.put('shared', record('shared', 1), null);
+    const entries = await store.readMany(['shared', 'ceremony-a']);
+    expect(entries).toEqual([
+      {
+        key: 'shared',
+        result: { kind: 'present', value: record('shared', 1), version: '1' },
+      },
+      { key: 'ceremony-a', result: { kind: 'missing' } },
+    ]);
+    await expect(store.readMany(['shared', 'shared'])).rejects.toThrow('duplicate keys');
   });
 
   test('commits shared and ceremony records in one batch', async () => {

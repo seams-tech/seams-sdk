@@ -18,18 +18,27 @@ type StoredRecord = {
 class MemoryPartitionRecordStore implements RouterAbEd25519YaoProductRegistrationPartitionRecordStoreV1 {
   readonly records = new Map<string, StoredRecord>();
 
-  async read(
-    key: string,
+  async readMany(
+    keys: readonly string[],
   ): Promise<
-    CloudflareVersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>
+    readonly {
+      readonly key: string;
+      readonly result: CloudflareVersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>;
+    }[]
   > {
-    const record = this.records.get(key);
-    if (!record) return { kind: 'missing' };
-    return {
-      kind: 'present',
-      value: structuredClone(record.value),
-      version: String(record.version),
-    };
+    return keys.map((key) => {
+      const record = this.records.get(key);
+      return {
+        key,
+        result: record
+          ? {
+              kind: 'present' as const,
+              value: structuredClone(record.value),
+              version: String(record.version),
+            }
+          : { kind: 'missing' as const },
+      };
+    });
   }
 
   async putMany(
