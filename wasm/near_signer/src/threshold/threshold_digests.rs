@@ -329,11 +329,12 @@ pub fn threshold_ed25519_finalize_near_tx_from_signature(
     }
     let mut signature64 = [0u8; 64];
     signature64.copy_from_slice(signature_bytes.as_slice());
+    let transaction_hash = calculate_transaction_hash(&transaction);
     let signed_bytes = sign_transaction(transaction, &signature64)
         .map_err(|e| JsValue::from_str(&format!("Failed to build signed transaction: {e}")))?;
     let output = FinalizeNearTransactionFromSignatureOutput {
         signed_transaction_borsh_b64u: base64_url_encode(signed_bytes.as_slice()),
-        transaction_hash: calculate_transaction_hash(signed_bytes.as_slice()),
+        transaction_hash,
     };
     serde_wasm_bindgen::to_value(&output).map_err(|e| {
         JsValue::from_str(&format!(
@@ -357,7 +358,7 @@ pub fn threshold_ed25519_decode_signed_near_tx_borsh(args: JsValue) -> Result<Js
         .map_err(|e| JsValue::from_str(&format!("Invalid signed NEAR transaction borsh: {e}")))?;
     let output = DecodeSignedNearTransactionBorshOutput {
         signed_transaction: WasmSignedTransaction::from(&signed_tx),
-        transaction_hash: calculate_transaction_hash(signed_bytes.as_slice()),
+        transaction_hash: calculate_transaction_hash(&signed_tx.transaction),
     };
     serde_wasm_bindgen::to_value(&output).map_err(|e| {
         JsValue::from_str(&format!(
