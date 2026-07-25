@@ -11,10 +11,7 @@ import type { D1PreparedStatementLike } from '../../storage/tenantRoute';
 import { normalizeLogger } from '../../core/logger';
 import { toPublicKeyStringFromSecretKey } from '../../core/nearKeys';
 import { signGasRelayerNearTransactionWithDeps } from '../../core/authService/nearTransactions';
-import {
-  ensureSignerWasmRuntime,
-  type SignerWasmRuntimeState,
-} from '../../core/authService/wasm';
+import { ensureSignerWasmRuntime, type SignerWasmRuntimeState } from '../../core/authService/wasm';
 import { MinimalNearClient } from '../../core/rpcClients/near/NearClient';
 import {
   executeSignedDelegateWithRelayer,
@@ -63,8 +60,9 @@ import {
   type D1WalletRegistrationFinalizePreparedV1,
   type D1WalletRegistrationFinalizeSideEffectRecord,
   type D1WalletRegistrationFinalizeSideEffectStore,
+  type SponsoredNamedNearAccountCreationResult,
 } from './d1WalletRegistrationService';
-import { parseD1WalletRegistrationFinalizeReplayResponse } from './d1RegistrationCeremonyRecords';
+import { parseD1WalletRegistrationFinalizeTerminalResponse } from './d1RegistrationCeremonyRecords';
 import { CloudflareD1WalletRegistrationCommitStore } from './d1WalletRegistrationCommitStore';
 import { CloudflareD1WalletAddSignerService } from './d1WalletAddSignerService';
 import { CloudflareD1RegistrationIntentService } from './d1RegistrationIntentService';
@@ -199,10 +197,7 @@ type D1NearFundingRouteServiceAssembly = Pick<
 
 type D1RecoveryRouteServiceAssembly = Pick<CloudflareD1RouterApiAuthAssembly, 'sessionService'>;
 
-type D1EmailRecoveryAuthServiceAssembly = Pick<
-  CloudflareD1RouterApiAuthAssembly,
-  'options'
->;
+type D1EmailRecoveryAuthServiceAssembly = Pick<CloudflareD1RouterApiAuthAssembly, 'options'>;
 
 type D1RouterAccountRouteServiceAssembly = Pick<
   CloudflareD1RouterApiAuthAssembly,
@@ -256,14 +251,12 @@ class CloudflareD1SignedDelegateExecutor {
     });
   }
 
-  private async signGasRelayerNearTransaction(
-    input: {
-      readonly receiverId: string;
-      readonly nonce: string;
-      readonly blockHash: string;
-      readonly actions: ActionArgsWasm[];
-    },
-  ): ReturnType<typeof signGasRelayerNearTransactionWithDeps> {
+  private async signGasRelayerNearTransaction(input: {
+    readonly receiverId: string;
+    readonly nonce: string;
+    readonly blockHash: string;
+    readonly actions: ActionArgsWasm[];
+  }): ReturnType<typeof signGasRelayerNearTransactionWithDeps> {
     const relayerAccount = this.options.relayerAccount;
     const relayerPrivateKey = this.options.relayerPrivateKey;
     if (!relayerAccount || !relayerPrivateKey) {
@@ -400,7 +393,6 @@ class CloudflareD1EmailRecoveryAuthService implements RouterApiEmailRecoveryAuth
   ): ReturnType<RouterApiEmailRecoveryAuthService['prepareEmailRecovery']> {
     return await this.operations.prepareEmailRecovery(request);
   }
-
 }
 
 async function fundImplicitNearAccountForOptions(
@@ -519,7 +511,7 @@ function parseWalletRegistrationFinalizeSideEffectRecord(
   ) {
     return null;
   }
-  const response = parseD1WalletRegistrationFinalizeReplayResponse(raw.response);
+  const response = parseD1WalletRegistrationFinalizeTerminalResponse(raw.response);
   if (!response) return null;
   return {
     kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
@@ -685,15 +677,14 @@ function walletRegistrationFinalizeSideEffectStore(
 async function createSponsoredNamedNearAccountForOptions(
   options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
   input: SponsoredNamedNearAccountInput,
-): Promise<AccountCreationResult> {
+): Promise<SponsoredNamedNearAccountCreationResult> {
   const relayerAccount = options.relayerAccount;
   const relayerPrivateKey = options.relayerPrivateKey;
   const nearRpcUrl = options.nearRpcUrl;
   const initialBalanceYocto = options.accountInitialBalance;
   if (!relayerAccount || !relayerPrivateKey || !nearRpcUrl || !initialBalanceYocto) {
     return {
-      success: false,
-      error: 'Sponsored NEAR account creation is not configured on this server',
+      kind: 'rejected',
       message: 'Sponsored NEAR account creation is not configured on this server',
     };
   }
@@ -722,6 +713,7 @@ async function createSponsoredNamedNearAccountForOptions(
     PreparedSponsoredNearAccountCreationV1
   >(sponsoredNearAccountSideEffectStore(options), {
     kind: 'prepared_resumable',
+    resumeAfterMs: 30_000,
     operation: 'finalize',
     key: `sponsored-account:${input.idempotencyKey}`,
     requestFingerprint,
@@ -751,17 +743,35 @@ async function createSponsoredNamedNearAccountForOptions(
   });
   switch (outcome.kind) {
     case 'executed':
-    case 'exact_replay':
-      return outcome.value;
+    case 'exact_replay': {
+      if (outcome.value.success && outcome.value.accountId && outcome.value.transactionHash) {
+        return {
+          kind: 'created',
+          accountId: outcome.value.accountId,
+          transactionHash: outcome.value.transactionHash,
+        };
+      }
+      return {
+        kind: 'rejected',
+        message:
+          outcome.value.message ||
+          outcome.value.error ||
+          'Sponsored NEAR account creation was rejected',
+      };
+    }
     case 'in_progress':
-    case 'request_conflict':
     case 'uncertain': {
       const message =
         outcome.kind === 'uncertain'
           ? outcome.message
           : 'Sponsored NEAR account creation is already in progress for this registration';
-      return { success: false, error: message, message };
+      return { kind: 'retryable', message, retryAfterMs: 30_000 };
     }
+    case 'request_conflict':
+      return {
+        kind: 'rejected',
+        message: 'Sponsored NEAR account creation idempotency key conflicts with another request',
+      };
   }
 }
 
@@ -984,9 +994,10 @@ function createD1WalletRegistrationRouteService(
     startWalletRegistration: assembly.walletRegistrations.startWalletRegistration.bind(
       assembly.walletRegistrations,
     ),
-    respondWalletRegistrationEcdsaDerivation: assembly.walletRegistrations.respondWalletRegistrationEcdsaDerivation.bind(
-      assembly.walletRegistrations,
-    ),
+    respondWalletRegistrationEcdsaDerivation:
+      assembly.walletRegistrations.respondWalletRegistrationEcdsaDerivation.bind(
+        assembly.walletRegistrations,
+      ),
     activateWalletRegistrationEcdsa:
       assembly.walletRegistrations.activateWalletRegistrationEcdsa.bind(
         assembly.walletRegistrations,
@@ -1033,9 +1044,10 @@ function createD1WalletAuthMethodRouteService(
     finalizeWalletAddSigner: assembly.walletAddSigners.finalizeWalletAddSigner.bind(
       assembly.walletAddSigners,
     ),
-    respondWalletAddSignerEcdsaDerivation: assembly.walletAddSigners.respondWalletAddSignerEcdsaDerivation.bind(
-      assembly.walletAddSigners,
-    ),
+    respondWalletAddSignerEcdsaDerivation:
+      assembly.walletAddSigners.respondWalletAddSignerEcdsaDerivation.bind(
+        assembly.walletAddSigners,
+      ),
     activateWalletAddSignerEcdsa: assembly.walletAddSigners.activateWalletAddSignerEcdsa.bind(
       assembly.walletAddSigners,
     ),
@@ -1235,8 +1247,9 @@ function createD1ThresholdRuntimeRouteService(
     getRouterAbNormalSigningRuntime: assembly.routerAbSigning.getRouterAbNormalSigningRuntime.bind(
       assembly.routerAbSigning,
     ),
-    getRouterAbEcdsaPresignRuntime:
-      assembly.routerAbSigning.getRouterAbEcdsaPresignRuntime.bind(assembly.routerAbSigning),
+    getRouterAbEcdsaPresignRuntime: assembly.routerAbSigning.getRouterAbEcdsaPresignRuntime.bind(
+      assembly.routerAbSigning,
+    ),
     getRouterAbLocalSigningSeedRuntime:
       assembly.routerAbSigning.getRouterAbLocalSigningSeedRuntime.bind(assembly.routerAbSigning),
   };

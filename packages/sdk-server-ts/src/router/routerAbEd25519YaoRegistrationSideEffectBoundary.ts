@@ -70,6 +70,7 @@ export type RouterAbEd25519YaoRegistrationSideEffectRunInputV1<T, P = never> =
     })
   | (RouterAbEd25519YaoRegistrationSideEffectRunInputBaseV1 & {
       readonly kind: 'prepared_resumable';
+      readonly resumeAfterMs: number;
       readonly prepare: () => Promise<P>;
       readonly execute: (
         prepared: P,
@@ -77,8 +78,10 @@ export type RouterAbEd25519YaoRegistrationSideEffectRunInputV1<T, P = never> =
       ) => Promise<T>;
     });
 
-export type RouterAbEd25519YaoRegistrationSideEffectExecutionV1<T, P = never> =
-  RouterAbEd25519YaoRegistrationSideEffectRunInputV1<T, P>['execute'];
+export type RouterAbEd25519YaoRegistrationSideEffectExecutionV1<
+  T,
+  P = never,
+> = RouterAbEd25519YaoRegistrationSideEffectRunInputV1<T, P>['execute'];
 
 export type RouterAbEd25519YaoRegistrationSideEffectRunResultV1<T, P = never> =
   | { readonly kind: 'executed'; readonly value: T }
@@ -117,11 +120,17 @@ export async function runRouterAbEd25519YaoRegistrationSideEffectV1<T, P = never
     return uncertainResult('claim', error);
   }
   const disposition = existingDisposition(existing, input.operation, requestFingerprint);
+  const resumeAfterMs =
+    input.kind === 'prepared_resumable'
+      ? requirePositiveDuration(input.resumeAfterMs, 'resumeAfterMs')
+      : 0;
   const resumable =
     input.kind === 'prepared_resumable' &&
     disposition.kind === 'in_progress' &&
     disposition.prepared !== undefined &&
-    existing.kind === 'present';
+    existing.kind === 'present' &&
+    existing.value.kind === 'router_ab_ed25519_yao_registration_side_effect_claim_v1' &&
+    input.nowMs() - existing.value.claimedAtMs >= resumeAfterMs;
   if (disposition.kind !== 'fresh' && !resumable) return disposition;
 
   let preparedForExecution: P | undefined;
@@ -297,6 +306,13 @@ function requireRequestFingerprint(value: string): string {
 
 function requireTimestamp(value: number, label: string): number {
   if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`registration side-effect ${label} is invalid`);
+  }
+  return value;
+}
+
+function requirePositiveDuration(value: number, label: string): number {
+  if (!Number.isSafeInteger(value) || value <= 0) {
     throw new Error(`registration side-effect ${label} is invalid`);
   }
   return value;

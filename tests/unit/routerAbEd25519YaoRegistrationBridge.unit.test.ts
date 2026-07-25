@@ -74,6 +74,10 @@ function fixedNow(): number {
   return 1_725_000_000_000;
 }
 
+function fixedNowAfterResumeDelay(): number {
+  return fixedNow() + 1;
+}
+
 function registrationCapabilityFixture() {
   const walletId = walletIdFromString('wallet-registration-bridge');
   return {
@@ -404,13 +408,15 @@ test.describe('registration side-effect prepared artifacts', () => {
     readonly prepareCalls: { count: number };
     readonly broadcasts: PreparedTx[];
     readonly failEffect?: boolean;
+    readonly nowMs?: () => number;
   }) {
     return {
       kind: 'prepared_resumable' as const,
+      resumeAfterMs: 1,
       operation: 'finalize' as const,
       key: PREPARED_KEY,
       requestFingerprint: REQUEST_FINGERPRINT,
-      nowMs: fixedNow,
+      nowMs: input.nowMs ?? fixedNow,
       prepare: async (): Promise<PreparedTx> => {
         input.prepareCalls.count += 1;
         // A rebuild would take a fresh nonce, so vary the hash per call.
@@ -466,7 +472,12 @@ test.describe('registration side-effect prepared artifacts', () => {
 
     const resumed = await runRouterAbEd25519YaoRegistrationSideEffectV1<TestResponse, PreparedTx>(
       store,
-      preparedRunInput({ store, prepareCalls, broadcasts }),
+      preparedRunInput({
+        store,
+        prepareCalls,
+        broadcasts,
+        nowMs: fixedNowAfterResumeDelay,
+      }),
     );
 
     expect(resumed).toEqual({ kind: 'executed', value: { ok: true, receipt: 'tx-hash-1' } });
@@ -505,13 +516,15 @@ test.describe('ambiguous effects are never persisted as terminal', () => {
     readonly prepareCalls: { count: number };
     readonly attempts: string[];
     readonly settleOnResume: boolean;
+    readonly nowMs?: () => number;
   }) {
     return {
       kind: 'prepared_resumable' as const,
+      resumeAfterMs: 1,
       operation: 'finalize' as const,
       key: KEY,
       requestFingerprint: REQUEST_FINGERPRINT,
-      nowMs: fixedNow,
+      nowMs: input.nowMs ?? fixedNow,
       prepare: async (): Promise<PreparedTx> => {
         input.prepareCalls.count += 1;
         return { transactionHash: `tx-${input.prepareCalls.count}` };
@@ -545,9 +558,7 @@ test.describe('ambiguous effects are never persisted as terminal', () => {
     if (persisted.kind === 'present') {
       // A completion here would replay a possibly-successful transaction as a
       // permanent failure on every later retry.
-      expect(persisted.value.kind).toBe(
-        'router_ab_ed25519_yao_registration_side_effect_claim_v1',
-      );
+      expect(persisted.value.kind).toBe('router_ab_ed25519_yao_registration_side_effect_claim_v1');
     }
   });
 
@@ -563,7 +574,15 @@ test.describe('ambiguous effects are never persisted as terminal', () => {
     const resumed = await runRouterAbEd25519YaoRegistrationSideEffectV1<
       BroadcastResult,
       PreparedTx
-    >(store, ambiguousRunInput({ prepareCalls, attempts, settleOnResume: true }));
+    >(
+      store,
+      ambiguousRunInput({
+        prepareCalls,
+        attempts,
+        settleOnResume: true,
+        nowMs: fixedNowAfterResumeDelay,
+      }),
+    );
 
     expect(resumed).toEqual({ kind: 'executed', value: { success: true } });
     expect(attempts).toEqual(['fresh', 'resumed']);
@@ -583,6 +602,7 @@ test.describe('concurrent finalize contention', () => {
   }) {
     return {
       kind: 'prepared_resumable' as const,
+      resumeAfterMs: 1,
       operation: 'finalize' as const,
       key: KEY,
       requestFingerprint: REQUEST_FINGERPRINT,

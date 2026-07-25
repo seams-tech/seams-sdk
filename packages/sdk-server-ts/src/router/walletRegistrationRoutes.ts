@@ -1870,6 +1870,8 @@ export function parseWalletRegistrationFinalizeRequest(
     'registrationCeremonyId is required',
   );
   if (!registrationCeremonyId.ok) return registrationCeremonyId;
+  const idempotencyKey = trimRequiredString(body, 'idempotencyKey', 'idempotencyKey is required');
+  if (!idempotencyKey.ok) return idempotencyKey;
   const forbiddenTopLevelField = findOwnField(body, WALLET_REGISTRATION_FINALIZE_FORBIDDEN_FIELDS);
   if (forbiddenTopLevelField) {
     return {
@@ -1901,20 +1903,9 @@ export function parseWalletRegistrationFinalizeRequest(
   if (!signerWork.ok) return signerWork;
   const value: WalletRegistrationFinalizeRequest = {
     registrationCeremonyId: registrationCeremonyId.value,
+    idempotencyKey: idempotencyKey.value,
     ...signerWork.value,
   };
-  if (Object.prototype.hasOwnProperty.call(body, 'idempotencyKey')) {
-    const idempotencyKey =
-      typeof body.idempotencyKey === 'string' ? body.idempotencyKey.trim() : '';
-    if (!idempotencyKey) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'idempotencyKey must be a non-empty string',
-      };
-    }
-    value.idempotencyKey = idempotencyKey;
-  }
   if (hasBranch(body, 'emailOtpEnrollment')) {
     const enrollment = isPlainObject(body.emailOtpEnrollment) ? body.emailOtpEnrollment : null;
     if (!enrollment) {

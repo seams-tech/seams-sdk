@@ -66,10 +66,7 @@ import {
 import { parseWebAuthnRpId } from '../../../packages/shared-ts/src/utils/domainIds';
 import { unknownWebAuthnAuthenticatorDeviceInfo } from '../../../packages/shared-ts/src/utils/webauthnDeviceInfo';
 import { buildEd25519YaoCapabilityFixture } from '../../helpers/ed25519YaoCapabilityFixtures';
-import {
-  cleanupTemporaryD1Database,
-  createTemporaryD1Database,
-} from '../../helpers/sqliteD1';
+import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../../helpers/sqliteD1';
 import { applySignerMigrations } from './cloudflareD1RouterApiAuthService.fixtures';
 import { StaticWalletSessionAdapter } from './routerAbEd25519YaoRegistrationBridge.fixtures';
 
@@ -105,7 +102,11 @@ function bytes(seed: number, length = 32): number[] {
   return new Array<number>(length).fill(seed);
 }
 
-function parsedValue<T>(result: { readonly ok: true; readonly value: T } | { readonly ok: false; readonly message: string }): T {
+function parsedValue<T>(
+  result:
+    | { readonly ok: true; readonly value: T }
+    | { readonly ok: false; readonly message: string },
+): T {
   if (!result.ok) throw new Error(result.message);
   return result.value;
 }
@@ -171,9 +172,7 @@ class FinalizeCeremonyDurableObjectStub implements CloudflareDurableObjectStubLi
   }
 }
 
-class FinalizeCeremonyDurableObjectNamespace
-  implements CloudflareDurableObjectNamespaceLike
-{
+class FinalizeCeremonyDurableObjectNamespace implements CloudflareDurableObjectNamespaceLike {
   readonly stub = new FinalizeCeremonyDurableObjectStub();
 
   idFromName(name: string): string {
@@ -208,9 +207,7 @@ class ResponseLossD1Database implements D1DatabaseLike {
     return new InspectableD1PreparedStatement(this, query, [], this.delegate.prepare(query));
   }
 
-  async batch<T = unknown>(
-    statements: readonly D1PreparedStatementLike[],
-  ): Promise<readonly T[]> {
+  async batch<T = unknown>(statements: readonly D1PreparedStatementLike[]): Promise<readonly T[]> {
     const inspected = statements.map(requireInspectableD1PreparedStatement);
     const result = await this.delegate.batch<T>(inspected.map((statement) => statement.delegate));
     if (
@@ -363,13 +360,17 @@ class FailureInjectingYaoRuntime implements RouterAbEd25519YaoProductRegistratio
 
   async bindVerifiedIntent(
     input: Parameters<RouterAbEd25519YaoProductRegistrationRuntimeV1['bindVerifiedIntent']>[0],
-  ): Promise<Awaited<ReturnType<RouterAbEd25519YaoProductRegistrationRuntimeV1['bindVerifiedIntent']>>> {
+  ): Promise<
+    Awaited<ReturnType<RouterAbEd25519YaoProductRegistrationRuntimeV1['bindVerifiedIntent']>>
+  > {
     return await this.delegate.bindVerifiedIntent(input);
   }
 
   async consumeActivated(
     input: Parameters<RouterAbEd25519YaoProductRegistrationRuntimeV1['consumeActivated']>[0],
-  ): Promise<Awaited<ReturnType<RouterAbEd25519YaoProductRegistrationRuntimeV1['consumeActivated']>>> {
+  ): Promise<
+    Awaited<ReturnType<RouterAbEd25519YaoProductRegistrationRuntimeV1['consumeActivated']>>
+  > {
     const result = await this.delegate.consumeActivated(input);
     this.throwAfter('activation_consume_response_loss');
     return result;
@@ -397,9 +398,7 @@ class FailureInjectingYaoRuntime implements RouterAbEd25519YaoProductRegistratio
     >[0],
   ): Promise<
     Awaited<
-      ReturnType<
-        RouterAbEd25519YaoProductRegistrationRuntimeV1['installPersistedActiveCapability']
-      >
+      ReturnType<RouterAbEd25519YaoProductRegistrationRuntimeV1['installPersistedActiveCapability']>
     >
   > {
     return await this.delegate.installPersistedActiveCapability(input);
@@ -408,9 +407,7 @@ class FailureInjectingYaoRuntime implements RouterAbEd25519YaoProductRegistratio
   async resolveActiveCapability(
     input: Parameters<RouterAbEd25519YaoProductRegistrationRuntimeV1['resolveActiveCapability']>[0],
   ): Promise<
-    Awaited<
-      ReturnType<RouterAbEd25519YaoProductRegistrationRuntimeV1['resolveActiveCapability']>
-    >
+    Awaited<ReturnType<RouterAbEd25519YaoProductRegistrationRuntimeV1['resolveActiveCapability']>>
   > {
     return await this.delegate.resolveActiveCapability(input);
   }
@@ -459,9 +456,7 @@ class FailureInjectingNormalSigningRuntime extends RouterAbNormalSigningRuntime 
     >[0],
   ): Promise<
     Awaited<
-      ReturnType<
-        RouterAbNormalSigningRuntime['provisionRouterAbEd25519YaoNormalSigningSession']
-      >
+      ReturnType<RouterAbNormalSigningRuntime['provisionRouterAbEd25519YaoNormalSigningSession']>
     >
   > {
     const result = await super.provisionRouterAbEd25519YaoNormalSigningSession(input);
@@ -672,8 +667,28 @@ export type FinalizeConvergenceHarness = {
   readonly database: D1DatabaseLike;
   readonly cleanup: () => void;
   readonly arm: (fault: FinalizeConvergenceFault) => void;
+  readonly expireFinalizeClaim: () => Promise<void>;
   readonly countRows: (table: string) => Promise<number>;
 };
+
+export function buildMismatchedFinalizeConvergenceRequest(
+  request: WalletRegistrationFinalizeRequest,
+): WalletRegistrationFinalizeRequest {
+  if (request.kind !== 'near_ed25519') {
+    throw new Error('Finalize convergence fixture requires the near_ed25519 branch');
+  }
+  return {
+    registrationCeremonyId: request.registrationCeremonyId,
+    idempotencyKey: request.idempotencyKey,
+    kind: 'near_ed25519',
+    ed25519: {
+      activationReference: {
+        ...request.ed25519.activationReference,
+        lifecycle_id: 'registration-lifecycle-mismatch',
+      },
+    },
+  };
+}
 
 export async function createFinalizeConvergenceHarness(): Promise<FinalizeConvergenceHarness> {
   const temporary = createTemporaryD1Database();
@@ -724,6 +739,17 @@ export async function createFinalizeConvergenceHarness(): Promise<FinalizeConver
     request,
     database,
     cleanup: () => cleanupTemporaryD1Database(temporary.tempDir),
+    expireFinalizeClaim: async () => {
+      await database
+        .prepare(
+          `UPDATE router_ab_yao_versioned_json_records
+             SET record_json = json_set(record_json, '$.claimedAtMs', 0)
+           WHERE record_key LIKE '%wallet-registration-finalize:%'
+             AND json_extract(record_json, '$.kind') =
+               'router_ab_ed25519_yao_registration_side_effect_claim_v1'`,
+        )
+        .run();
+    },
     arm: (fault) => {
       switch (fault) {
         case 'activation_consume_response_loss':

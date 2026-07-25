@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import {
+  buildMismatchedFinalizeConvergenceRequest,
   createFinalizeConvergenceHarness,
   type FinalizeConvergenceFault,
 } from './helpers/d1WalletRegistrationFinalizeConvergence.fixtures';
@@ -16,13 +17,6 @@ const RESPONSE_LOSS_FAULTS: readonly FinalizeConvergenceFault[] = [
   'finalize_completion_response_loss',
 ];
 
-function withoutDiagnostics<T extends { readonly registrationDiagnostics?: unknown }>(
-  response: T,
-): Omit<T, 'registrationDiagnostics'> {
-  const { registrationDiagnostics: _diagnostics, ...stable } = response;
-  return stable;
-}
-
 for (const fault of RESPONSE_LOSS_FAULTS) {
   test(`wallet registration finalize converges after ${fault}`, async () => {
     const harness = await createFinalizeConvergenceHarness();
@@ -31,6 +25,7 @@ for (const fault of RESPONSE_LOSS_FAULTS) {
       const first = await harness.service.walletRegistration.finalizeWalletRegistration(
         harness.request,
       );
+      if (!first.ok) await harness.expireFinalizeClaim();
       const retried = await harness.service.walletRegistration.finalizeWalletRegistration(
         harness.request,
       );
@@ -38,7 +33,7 @@ for (const fault of RESPONSE_LOSS_FAULTS) {
       expect(retried.ok, retried.ok ? undefined : retried.message).toBe(true);
       if (!retried.ok) throw new Error(retried.message);
       if (first.ok) {
-        expect(withoutDiagnostics(first)).toEqual(withoutDiagnostics(retried));
+        expect(first).toEqual(retried);
       } else {
         expect(first.code).toBe('internal');
       }
@@ -48,7 +43,7 @@ for (const fault of RESPONSE_LOSS_FAULTS) {
       );
       expect(replayed.ok).toBe(true);
       if (!replayed.ok) throw new Error(replayed.message);
-      expect(withoutDiagnostics(replayed)).toEqual(withoutDiagnostics(retried));
+      expect(replayed).toEqual(retried);
       await expect(harness.countRows('wallets')).resolves.toBe(1);
       await expect(harness.countRows('wallet_signers')).resolves.toBe(1);
       await expect(harness.countRows('wallet_auth_methods')).resolves.toBe(1);
@@ -60,7 +55,7 @@ for (const fault of RESPONSE_LOSS_FAULTS) {
   });
 }
 
-test('concurrent wallet registration finalize attempts converge to one exact response', async () => {
+test('a live finalize claim prevents concurrent duplicate execution', async () => {
   const harness = await createFinalizeConvergenceHarness();
   try {
     const [first, second] = await Promise.all([
@@ -68,13 +63,41 @@ test('concurrent wallet registration finalize attempts converge to one exact res
       harness.service.walletRegistration.finalizeWalletRegistration(harness.request),
     ]);
 
-    expect(first.ok, first.ok ? undefined : first.message).toBe(true);
-    expect(second.ok, second.ok ? undefined : second.message).toBe(true);
-    if (!first.ok || !second.ok) return;
-    expect(withoutDiagnostics(second)).toEqual(withoutDiagnostics(first));
+    const successful = [first, second].filter((response) => response.ok);
+    const contended = [first, second].filter((response) => !response.ok);
+    expect(successful).toHaveLength(1);
+    expect(contended).toHaveLength(1);
+    expect(contended[0]).toMatchObject({
+      ok: false,
+      code: 'conflict',
+      retryAfterMs: 30_000,
+    });
+    const replayed = await harness.service.walletRegistration.finalizeWalletRegistration(
+      harness.request,
+    );
+    expect(replayed).toEqual(successful[0]);
     await expect(harness.countRows('wallets')).resolves.toBe(1);
     await expect(harness.countRows('wallet_signers')).resolves.toBe(1);
     await expect(harness.countRows('wallet_auth_methods')).resolves.toBe(1);
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test('deterministic finalize failures are terminal and replay exactly', async () => {
+  const harness = await createFinalizeConvergenceHarness();
+  try {
+    const mismatched = buildMismatchedFinalizeConvergenceRequest(harness.request);
+    const first = await harness.service.walletRegistration.finalizeWalletRegistration(mismatched);
+    const replayed =
+      await harness.service.walletRegistration.finalizeWalletRegistration(mismatched);
+
+    expect(first.ok).toBe(false);
+    expect(replayed).toEqual(first);
+    const corrected = await harness.service.walletRegistration.finalizeWalletRegistration(
+      harness.request,
+    );
+    expect(corrected).toMatchObject({ ok: false, code: 'idempotency_conflict' });
   } finally {
     harness.cleanup();
   }
