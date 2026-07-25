@@ -624,7 +624,7 @@ digests and therefore requires a new ceremony identity.
       baseline. Keep the Touch-ID-to-wallet-ready target as a separate
       product-level budget.
 - [x] Gate the evidence analyzer on platform execution telemetry, including
-      CPU, active duration, memory, Durable Object calls, Worker invocations,
+      CPU, wall time, memory, Durable Object calls, Worker invocations,
       D1 exclusion, exact replay, and conflict counts.
 
 Phase 0 evidence remains open. The available deployment logs do not contain
@@ -759,7 +759,9 @@ the plan does not claim cryptographic D1 admission attestation.
       internal Router origin.
 - [x] Remove Deriver A, Deriver B, and SigningWorker URLs from the Yao backend
       configuration.
-- [x] Make registration, recovery, and export each perform one Router fetch.
+- [x] Make registration, recovery, and export each submit one logical admitted
+      Router command. The normal path performs one fetch; an uncertain
+      transport may perform one byte-exact replay of that command.
 - [x] Keep product admission and D1 commit outside the MPC Router.
 - [x] Make direct Yao role and SigningWorker addressing unrepresentable in the
       backend configuration type.
@@ -794,14 +796,27 @@ receipts are recorded.
 - [ ] Replace the tenant-scoped Gateway runtime Durable Object with a
       request-safe per-ceremony persistence/CAS boundary, then remove its
       binding and SQLite migration so no tenant-wide object coordinates Yao.
+  - [x] Route registration admission and execution through typed request-scoped
+        CAS behind the disabled two-boundary drain selector.
+  - [ ] Move registration start, bind, finalize, and shared wallet/session
+        effects behind an idempotent side-effect boundary, then enable the
+        registration selector.
   - [x] Add typed request-scoped recovery admission and execution
         prepare/claim/commit boundaries with a shared backend-session uniqueness
         index, durable uncertainty, and no backend retry.
   - [ ] Wire recovery admission, execution, and activation to the partitioned
         store as one coherent cutover after activation has an idempotent
         side-effect boundary.
+  - [ ] Move export admission, execution, redelivery, and authorization state
+        to the partitioned store with typed conflict and uncertainty handling.
+  - [ ] Move remaining replay, authorization, and session state out of the
+        tenant runtime, then delete its binding, readiness path, serializer, and
+        SQLite migration after the drain.
 - [ ] Delete obsolete Deriver Stage and Result route contracts after the
       maximum in-flight ceremony lifetime has elapsed.
+- [ ] Before deleting legacy role routes, deploy transactional cross-key
+      exclusion for legacy and pair records, then observe the maximum in-flight
+      lifetime with no object containing both records.
 - [ ] Delete lower-authority tests, fixtures, mocks, and source guards that
       encode the serial flow.
 - [ ] Delete compatibility request parsers after the boundary drain.
@@ -842,8 +857,10 @@ route-deletion cleanup.
       `ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS` set at admission quiescence
       and `ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS` set to that cutoff plus the
       measured maximum in-flight lifetime.
-- [ ] Observe the full drain interval before enabling route deletion.
-- [ ] Deploy the route-deletion cleanup.
+- [ ] Exercise staging registration, recovery, export, exact replay, conflict,
+      disconnect, terminal redelivery, and rollback on the coherent versions.
+- [ ] Deploy the accepted coherent backend to production without deleting
+      legacy role routes.
 - [ ] Run cold-after-deploy and warm production cohorts.
 - [ ] Compare latency, errors, Durable Object calls, Worker invocations, CPU,
       wall time, exact replay, and conflicts against the historical
@@ -851,6 +868,10 @@ route-deletion cleanup.
 - [ ] Confirm receipt sequencing improves or preserves p95 after including the
       additional A preparation request.
 - [ ] Record the final evidence in the Yao deployment plan.
+- [ ] Observe the full production drain interval after the last legacy
+      admission before enabling route deletion.
+- [ ] Deploy and validate route-deletion cleanup in staging, then deploy the
+      same cleanup to production.
 - [x] Replace the failed stack workflow's hard-coded Gateway secret plumbing
       with target-capability-derived backend deployment. Staging billing is
       disabled and excludes `STRIPE_API_SK`; production billing is enabled and
@@ -1184,7 +1205,7 @@ registration.post_touch_id
   gateway.pre_yao
   gateway.yao_execute
     router.parse_and_authorize
-    router.role_status_reconciliation
+    router.role_status_reconciliation  [exact replay only]
     router.prepare_pair
       router.prepare_pair.deriver_a
       router.prepare_pair.deriver_b
@@ -1225,8 +1246,8 @@ and the validated trace value. The SDK emits `registration.post_touch_id` and
 the span name, outcome, duration, and opaque trace value. The Gateway backend
 emits `gateway.pre_yao` and `gateway.yao_execute` through its deployment-provided
 span sink; the Cloudflare Gateway worker writes that event as a structured JSON
-log. The production evidence analyzer accepts platform-attributed CPU,
-active-duration, memory, Durable Object call, Worker invocation, D1-query,
+log. The production evidence analyzer accepts platform-attributed CPU, wall
+time, memory, Durable Object call, Worker invocation, D1-query,
 exact-replay, and conflict fields on the `gateway.yao_execute` event and keeps
 missing values as readiness blockers. Current application emitters still emit
 the sanitized span fields above; deployment collection must join those events
@@ -1248,10 +1269,10 @@ product identity, session secrets, ciphertext, or recipient output.
 
 ## Latency Budgets And Ownership
 
-Refactor 93 owns the `gateway.yao_execute` span. Phase 0 freezes its p50 and p95
-budget from measured subspans before implementation continues. The budget must
-show that A/B preparation overlaps and that no Stage/Start/Result wakeup stack
-remains on the critical path.
+Refactor 93 owns the `gateway.yao_execute` span. Before production acceptance,
+the measured cohort freezes its p50 and p95 budget from the recorded subspans.
+The budget must show that A/B preparation overlaps and that no
+Stage/Start/Result wakeup stack remains on the critical path.
 
 The Touch-ID-to-wallet-ready target remains:
 
@@ -1274,15 +1295,22 @@ remaining miss has a named follow-up owner.
 
 ## Deployment Sequence
 
-1. Deploy the pair-bound A/B preparation and execution handlers.
-2. Deploy the MPC Router execute route.
-3. Exercise the new private route in staging with production-shaped inputs.
-4. Verify exact replay, conflict, disconnect, and terminal-redelivery behavior.
-5. Deploy the Gateway cutover to its existing `MPC_ROUTER` binding.
-6. Observe one full maximum ceremony lifetime.
-7. Delete the old Gateway orchestration and old request routes.
-8. Deploy the cleanup to staging, then production.
-9. Capture cold and warm acceptance cohorts.
+1. Land one reviewed revision on `dev` and dispatch
+   `deploy-staging-backend.yml`.
+2. Let that workflow migrate D1 and deploy SigningWorker, Deriver A, Deriver B,
+   Router, and Gateway in its fixed dependency order.
+3. Confirm all five active Worker versions came from the same revision.
+4. Exercise registration, recovery, export, exact replay, conflict,
+   disconnect, terminal redelivery, and rollback in staging.
+5. Enable the Gateway persistence cutover only after its state bridges are
+   complete, then observe one full maximum ceremony lifetime.
+6. Deploy the accepted coherent backend to production without deleting legacy
+   role routes.
+7. Capture cold and warm production acceptance cohorts and verify the latency,
+   resource, retry, conflict, and D1-exclusion gates.
+8. After the production drain receipt is complete, deploy route cleanup to
+   staging and repeat the lifecycle and rollback checks.
+9. Deploy the same cleanup to production.
 
 Compatibility exists only at the request boundary during steps 1–6. The
 Gateway has one current Router path; legacy role-boundary handlers remain
@@ -1297,7 +1325,8 @@ code rollback cannot revive an old execution identity or pair digest.
 
 Refactor 93 is complete when:
 
-1. the Gateway makes exactly one MPC Router request for each Yao execution;
+1. the Gateway submits exactly one logical admitted MPC Router command for each
+   Yao execution; an uncertain transport may replay that same command once;
 2. no production Gateway code calls A, B, or SigningWorker Yao routes directly;
 3. no ceremony-wide or tenant-wide Router Durable Object coordinates Yao;
 4. A and B role-local Durable Objects are the sole one-use coordination
