@@ -63,9 +63,9 @@ exercise registration, recovery, export, replay, or conflict behavior.
 This audit records no Phase 0 or Phase 6 completion. No deployment, cutover,
 route deletion, or production trace claim is authorized by these observations.
 
-## Staging workflow failure audit (2026-07-25)
+## Historical staging workflow failure audit (2026-07-25)
 
-The latest manual staging stack run (`30145784893`, Gateway job
+The last run of the retired staging stack workflow (`30145784893`, Gateway job
 `89647436415`) deployed Router, Deriver A, Deriver B, and SigningWorker, then
 failed before the Gateway Worker upload. The Gateway secrets-file builder
 reported `STRIPE_API_SK is required`. The selected source revision required
@@ -74,10 +74,13 @@ the Gateway job environment or its preflight validation loop. The
 `staging-gateway` environment has the secret configured; this was a workflow
 schema mismatch rather than evidence of an absent runtime secret.
 
-Commit `0b2efa396` adds the missing environment/validation parity assertion to
-the staging and production Gateway workflow tests. A subsequent staging run
-on a revision containing that workflow fix is still required before the
-coherent Refactor 93 deployment can be claimed.
+The current deployment model replaces that stack workflow with
+`deploy-staging-backend.yml` and derives Gateway secret requirements from
+`deployment/targets.json`. Staging billing is disabled, so its Gateway secret
+set deliberately excludes `STRIPE_API_SK`; production billing is enabled and
+its Gateway job requires the secret. The deployment-target unit test owns that
+capability-to-secret invariant. A coherent staging run of the current backend
+workflow is still required before the Refactor 93 deployment can be claimed.
 
 The analyzer also validates event ownership for every required span. Gateway
 spans must arrive as `router_ab_yao_gateway_span_v1`, Router spans as
