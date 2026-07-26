@@ -75,6 +75,7 @@ import {
 import {
   parseRouterAbEd25519YaoRegistrationSideEffectRecordV1,
   runRouterAbEd25519YaoRegistrationSideEffectV1,
+  throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1,
   type RouterAbEd25519YaoRegistrationSideEffectRecordV1,
   type RouterAbEd25519YaoRegistrationSideEffectStoreV1,
 } from '../routerAbEd25519YaoRegistrationSideEffectBoundary';
@@ -444,21 +445,6 @@ function assertNeverWalletAddSignerFinalizeRun(value: never): never {
   throw new Error(`Unhandled wallet add-signer finalize result: ${String(value)}`);
 }
 
-function terminalOrRetryableAddSignerFinalizeFailure<
-  T extends { readonly ok: false; readonly code: string; readonly message: string },
->(failure: T): T {
-  switch (failure.code) {
-    case 'internal':
-    case 'execution_in_progress':
-    case 'temporarily_unavailable':
-    case 'timeout':
-    case 'uncertain':
-      throw new Error(failure.message);
-    default:
-      return failure;
-  }
-}
-
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error || '');
 }
@@ -701,7 +687,11 @@ export class CloudflareD1WalletAddSignerService {
           ? returnD1WalletAddSignerStartPrepared.bind(null, prepared)
           : rejectUnexpectedWalletAddSignerStartPreparation,
         derivePreparedArtifactFingerprint: fingerprintD1WalletAddSignerStartPrepared,
-        execute: this.executeWalletAddSignerStart.bind(this, { request, store, walletId }),
+        execute: this.executeWalletAddSignerStartSideEffect.bind(this, {
+          request,
+          store,
+          walletId,
+        }),
       });
       switch (run.kind) {
         case 'executed':
@@ -735,6 +725,22 @@ export class CloudflareD1WalletAddSignerService {
         message: errorMessage(error) || 'Failed to start wallet add-signer ceremony',
       };
     }
+  }
+
+  private async executeWalletAddSignerStartSideEffect(
+    input: {
+      readonly request: StartWalletAddSignerInput;
+      readonly store: CloudflareD1RegistrationCeremonyIntentStore;
+      readonly walletId: WalletId;
+    },
+    prepared: D1WalletAddSignerStartPreparedV1,
+    attempt: 'fresh' | 'resumed',
+  ): Promise<D1WalletAddSignerStartTerminalV1> {
+    const terminal = await this.executeWalletAddSignerStart(input, prepared, attempt);
+    if (terminal.kind === 'd1_wallet_add_signer_start_rejected_v1') {
+      throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(terminal.response);
+    }
+    return terminal;
   }
 
   private async executeWalletAddSignerStart(
@@ -1213,7 +1219,7 @@ export class CloudflareD1WalletAddSignerService {
           ? returnD1WalletAddSignerFinalizePrepared.bind(null, prepared)
           : rejectUnexpectedWalletAddSignerFinalizePreparation,
         derivePreparedArtifactFingerprint: fingerprintD1WalletAddSignerFinalizePrepared,
-        execute: this.executeWalletAddSignerFinalize.bind(this, {
+        execute: this.executeWalletAddSignerFinalizeSideEffect.bind(this, {
           finalizeRequest,
           store,
         }),
@@ -1256,6 +1262,17 @@ export class CloudflareD1WalletAddSignerService {
         message: errorMessage(error) || 'Failed to finalize wallet add-signer ceremony',
       };
     }
+  }
+
+  private async executeWalletAddSignerFinalizeSideEffect(
+    input: {
+      readonly finalizeRequest: StoredWalletAddSignerFinalizeRequest;
+      readonly store: CloudflareD1RegistrationCeremonyIntentStore;
+    },
+    prepared: D1WalletAddSignerFinalizePreparedV1,
+  ): Promise<WalletAddSignerFinalizeResponse> {
+    const response = await this.executeWalletAddSignerFinalize(input, prepared);
+    return response.ok ? response : throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(response);
   }
 
   private async executeWalletAddSignerFinalize(
@@ -1358,7 +1375,7 @@ export class CloudflareD1WalletAddSignerService {
           reference: requestedActivationReference,
           consumerBinding: alphabetizeStringify(finalizeRequest),
         });
-        if (!consumed.ok) return terminalOrRetryableAddSignerFinalizeFailure(consumed);
+        if (!consumed.ok) return consumed;
         if (
           alphabetizeStringify(consumed.activation.admissionRequest) !==
           alphabetizeStringify(currentState.admissionRequest)
@@ -1433,7 +1450,7 @@ export class CloudflareD1WalletAddSignerService {
         const activeYaoCapability =
           buildRouterAbEd25519YaoRegistrationCapabilityRecordV1(capabilityInstallation);
         if (!activeYaoCapability.ok) {
-          return terminalOrRetryableAddSignerFinalizeFailure(activeYaoCapability);
+          return throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(activeYaoCapability);
         }
         const authority = buildPasskeyWalletAuthAuthority({
           walletId: ceremony.intent.walletId,
@@ -1453,7 +1470,9 @@ export class CloudflareD1WalletAddSignerService {
           expiresAtMs: prepared.expiresAtMs,
           remainingUses: prepared.remainingUses,
         });
-        if (!session.ok) return terminalOrRetryableAddSignerFinalizeFailure(session);
+        if (!session.ok) {
+          return throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(session);
+        }
         finalizingAtMs = prepared.finalizingAtMs;
         const ed25519 = {
           signerSlot: selection.signerSlot,
@@ -1549,7 +1568,9 @@ export class CloudflareD1WalletAddSignerService {
           participantIds,
           remainingUses: response.ed25519.session.remainingUses,
         });
-      if (!provisioned.ok) return terminalOrRetryableAddSignerFinalizeFailure(provisioned);
+      if (!provisioned.ok) {
+        return throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(provisioned);
+      }
       const inserted = await walletStore.putEd25519SignerIfSlotAvailable(signer);
       if (!inserted) {
         const existing = await walletStore.getEd25519SignerBySlot({
@@ -1567,7 +1588,9 @@ export class CloudflareD1WalletAddSignerService {
       const installed = await yaoRuntime.installPersistedActiveCapability(
         signer.activeYaoCapability,
       );
-      if (!installed.ok) return terminalOrRetryableAddSignerFinalizeFailure(installed);
+      if (!installed.ok) {
+        return throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(installed);
+      }
       await store.putAddSignerFinalizeReplay({
         kind: 'wallet_add_signer_finalize_replay_v1',
         addSignerCeremonyId: ceremony.addSignerCeremonyId,

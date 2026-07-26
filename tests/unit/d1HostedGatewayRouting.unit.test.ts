@@ -64,10 +64,20 @@ const ALL_FAMILIES_WINDOW = {
 } as const;
 
 const FULL_GATEWAY_REGISTRATION_PATHS = [
+  '/wallets/register/intent',
+  '/wallets/register/intent/cancel',
   '/wallets/register/start',
+  '/wallets/register/derivation/respond',
+  '/wallets/register/derivation/activate',
   '/wallets/register/finalize',
+  '/wallets/wallet-1/signers/intent',
   '/wallets/wallet-1/signers/start',
+  '/wallets/wallet-1/signers/derivation/respond',
+  '/wallets/wallet-1/signers/derivation/activate',
   '/wallets/wallet-1/signers/finalize',
+  '/wallets/wallet-1/auth-methods/intent',
+  '/wallets/wallet-1/auth-methods/start',
+  '/wallets/wallet-1/auth-methods/finalize',
 ] as const;
 
 const FULL_GATEWAY_RECOVERY_PATHS = [
@@ -263,11 +273,11 @@ test('the Worker fetch boundary reaches ROUTER_API_RUNTIME for every pre-cutoff 
 
 test('the drain blocks public and internal admissions', () => {
   const expected = [
-    ['/wallets/register/start', 'registration_start', 'registration'],
-    ['/wallets/wallet-1/signers/start', 'registration_add_signer_start', 'registration'],
+    ['/wallets/register/intent', 'registration_intent', 'registration'],
+    ['/wallets/wallet-1/signers/intent', 'registration_add_signer_intent', 'registration'],
     [
-      ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
-      'registration_admission',
+      '/wallets/wallet-1/auth-methods/intent',
+      'registration_add_auth_method_intent',
       'registration',
     ],
     [ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1, 'recovery_admission', 'recovery'],
@@ -284,8 +294,18 @@ test('the drain blocks public and internal admissions', () => {
 
 test('the drain keeps every continuation on the tenant runtime', () => {
   const paths = [
+    '/wallets/register/intent/cancel',
+    '/wallets/register/start',
+    '/wallets/register/derivation/respond',
+    '/wallets/register/derivation/activate',
     '/wallets/register/finalize',
+    '/wallets/wallet-1/signers/start',
+    '/wallets/wallet-1/signers/derivation/respond',
+    '/wallets/wallet-1/signers/derivation/activate',
     '/wallets/wallet-1/signers/finalize',
+    '/wallets/wallet-1/auth-methods/start',
+    '/wallets/wallet-1/auth-methods/finalize',
+    ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
     ...FULL_GATEWAY_RECOVERY_PATHS,
     ...DIRECT_CONTINUATION_PATHS,
   ];
@@ -326,7 +346,7 @@ test('registration, recovery, and export follow independent schedules', () => {
     resolveYaoRoute(ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1, 4_500, cutover).kind,
   ).toBe('admission_blocked');
   for (const pathname of FULL_GATEWAY_RECOVERY_PATHS) {
-    expect(resolveYaoRoute(pathname, 4_500, cutover).kind).toBe('partitioned_gateway');
+    expect(resolveYaoRoute(pathname, 4_500, cutover).kind).toBe('legacy_runtime');
     expect(resolveYaoRoute(pathname, 5_000, cutover).kind).toBe('partitioned_gateway');
   }
   expect(resolveYaoRoute(ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1, 6_000, cutover).kind).toBe(
@@ -335,14 +355,14 @@ test('registration, recovery, and export follow independent schedules', () => {
   expect(resolveYaoRoute('/session/exchange', 6_000, cutover).kind).toBe('legacy_runtime');
 });
 
-test('capability consumers follow registration into D1 while recovery remains unset', () => {
+test('capability consumers stay with the recovery family while its window remains unset', () => {
   const cutover = {
     registration: { admissionCutoffMs: 1_000, drainUntilMs: 2_000 },
   } as const;
 
   for (const pathname of FULL_GATEWAY_RECOVERY_PATHS) {
     expect(resolveYaoRoute(pathname, 2_000, cutover)).toEqual({
-      kind: 'partitioned_gateway',
+      kind: 'legacy_runtime',
       operation:
         pathname === ROUTER_AB_ED25519_WALLET_SESSION_PATH
           ? 'recovery_wallet_session'
@@ -351,4 +371,7 @@ test('capability consumers follow registration into D1 while recovery remains un
             : 'recovery_sync_account',
     });
   }
+  expect(
+    resolveYaoRoute(ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1, 2_000, cutover),
+  ).toEqual({ kind: 'legacy_runtime', operation: 'recovery_bootstrap' });
 });

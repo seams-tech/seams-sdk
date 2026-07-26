@@ -155,6 +155,7 @@ import {
 import {
   runRouterAbEd25519YaoRegistrationSideEffectV1,
   parseRouterAbEd25519YaoRegistrationSideEffectRecordV1,
+  throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1,
   type RouterAbEd25519YaoRegistrationSideEffectRecordV1,
   type RouterAbEd25519YaoRegistrationSideEffectStoreV1,
 } from '../routerAbEd25519YaoRegistrationSideEffectBoundary';
@@ -1791,7 +1792,7 @@ export class CloudflareD1WalletRegistrationService {
           ? returnD1WalletRegistrationStartPrepared.bind(null, prepared)
           : rejectUnexpectedWalletRegistrationStartPreparation,
         derivePreparedArtifactFingerprint: fingerprintD1WalletRegistrationStartPrepared,
-        execute: this.executeWalletRegistrationStart.bind(this, {
+        execute: this.executeWalletRegistrationStartSideEffect.bind(this, {
           request,
           store,
           timing,
@@ -1830,6 +1831,23 @@ export class CloudflareD1WalletRegistrationService {
         message: errorMessage(error) || 'Failed to start wallet registration ceremony',
       };
     }
+  }
+
+  private async executeWalletRegistrationStartSideEffect(
+    input: {
+      readonly request: StartWalletRegistrationInput;
+      readonly store: CloudflareD1RegistrationCeremonyIntentStore;
+      readonly timing: D1RegistrationRouteTimingRecorder;
+      readonly total: D1RegistrationRouteTimingMark;
+    },
+    prepared: D1WalletRegistrationStartPreparedV1,
+    attempt: 'fresh' | 'resumed',
+  ): Promise<D1WalletRegistrationStartTerminalV1> {
+    const terminal = await this.executeWalletRegistrationStart(input, prepared, attempt);
+    if (terminal.kind === 'd1_wallet_registration_start_rejected_v1') {
+      throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(terminal.response);
+    }
+    return terminal;
   }
 
   private async executeWalletRegistrationStart(
@@ -2423,10 +2441,7 @@ export class CloudflareD1WalletRegistrationService {
     request: FinalizeWalletRegistrationInput,
   ): Promise<WalletRegistrationFinalizeResponse> {
     const response = await this.executeWalletRegistrationFinalize(request);
-    if (!response.ok && (response.code === 'internal' || response.retryAfterMs !== undefined)) {
-      throw new Error(response.message);
-    }
-    return response;
+    return response.ok ? response : throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(response);
   }
 
   private async executeWalletRegistrationFinalize(

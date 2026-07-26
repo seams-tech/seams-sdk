@@ -86,9 +86,10 @@ import { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } fro
 import { handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1 } from '@seams/sdk-server/internal/router/routerAbEd25519YaoRecoveryRequestScopedCloudflare';
 import { handleRouterAbEd25519YaoExportRequestScopedCloudflareV1 } from '@seams/sdk-server/internal/router/routerAbEd25519YaoExportRequestScopedCloudflare';
 import {
+  familyOfRouterAbEd25519YaoGatewayOperationV1,
   resolveRouterAbEd25519YaoGatewayRouteV1,
-  routerAbEd25519YaoCapabilityConsumersUsePartitionedD1V1,
   routerAbEd25519YaoGatewayUsesPartitionedD1V1,
+  validateRouterAbEd25519YaoGatewayCutoverStateV1,
   type RouterAbEd25519YaoGatewayCutoverFamilyV1,
   type RouterAbEd25519YaoGatewayOperationV1,
   type RouterAbEd25519YaoGatewayCutoverStateV1,
@@ -321,7 +322,6 @@ async function createStagingEd25519YaoComposition(
       walletStore,
       ensureSchema: false,
     }),
-    loadPersistedActiveCapability: loadStagingPersistedActiveCapability.bind(undefined, env),
   });
   return composition;
 }
@@ -950,14 +950,6 @@ export function resolveRouterApiYaoGatewayRequestRouteV1(input: {
 }): RouterApiYaoGatewayRequestRouteV1 {
   const classified = yaoOperationForRequest(input.request);
   if (classified !== null) {
-    if (classified.kind === 'full_gateway' && isCapabilityConsumerOperation(classified.operation)) {
-      return routerAbEd25519YaoCapabilityConsumersUsePartitionedD1V1({
-        nowMs: input.nowMs,
-        cutover: input.cutover,
-      })
-        ? { kind: 'partitioned_gateway', operation: classified.operation }
-        : { kind: 'legacy_runtime', operation: classified.operation };
-    }
     const route = resolveRouterAbEd25519YaoGatewayRouteV1({
       operation: classified.operation,
       nowMs: input.nowMs,
@@ -970,7 +962,7 @@ export function resolveRouterApiYaoGatewayRequestRouteV1(input: {
         return {
           kind: 'admission_blocked',
           operation: classified.operation,
-          family: familyOfGatewayOperation(classified.operation),
+          family: familyOfRouterAbEd25519YaoGatewayOperationV1(classified.operation),
         };
       case 'partitioned_d1':
         return classified.kind === 'family_handler'
@@ -986,28 +978,20 @@ export function resolveRouterApiYaoGatewayRequestRouteV1(input: {
     : { kind: 'legacy_runtime', operation: null };
 }
 
-function isCapabilityConsumerOperation(
-  operation: RouterApiYaoFullGatewayOperationV1,
-): operation is 'recovery_wallet_session' | 'recovery_unlock' | 'recovery_sync_account' {
-  switch (operation) {
-    case 'recovery_wallet_session':
-    case 'recovery_unlock':
-    case 'recovery_sync_account':
-      return true;
-    case 'registration_start':
-    case 'registration_finalize':
-    case 'registration_add_signer_start':
-    case 'registration_add_signer_finalize':
-      return false;
-  }
-}
-
 function yaoOperationForRequest(request: Request): RouterApiYaoRequestOperationV1 | null {
   if (request.method !== 'POST') return null;
   const pathname = new URL(request.url).pathname;
   switch (pathname) {
+    case '/wallets/register/intent':
+      return { kind: 'full_gateway', operation: 'registration_intent' };
+    case '/wallets/register/intent/cancel':
+      return { kind: 'full_gateway', operation: 'registration_intent_cancel' };
     case '/wallets/register/start':
       return { kind: 'full_gateway', operation: 'registration_start' };
+    case '/wallets/register/derivation/respond':
+      return { kind: 'full_gateway', operation: 'registration_derivation_respond' };
+    case '/wallets/register/derivation/activate':
+      return { kind: 'full_gateway', operation: 'registration_derivation_activate' };
     case '/wallets/register/finalize':
       return { kind: 'full_gateway', operation: 'registration_finalize' };
     case ROUTER_AB_ED25519_WALLET_SESSION_PATH:
@@ -1033,53 +1017,61 @@ function yaoOperationForRequest(request: Request): RouterApiYaoRequestOperationV
     case ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1:
       return { kind: 'family_handler', operation: 'export_execute' };
     default:
-      return walletAddSignerOperationForPath(pathname);
+      return walletRegistrationOperationForPath(pathname);
   }
 }
 
-function walletAddSignerOperationForPath(pathname: string): RouterApiYaoRequestOperationV1 | null {
+function walletRegistrationOperationForPath(
+  pathname: string,
+): RouterApiYaoRequestOperationV1 | null {
   const segments = pathname.split('/');
   if (
-    segments.length !== 5 ||
+    (segments.length !== 5 && segments.length !== 6) ||
     segments[0] !== '' ||
     segments[1] !== 'wallets' ||
     !segments[2] ||
-    segments[3] !== 'signers'
+    (segments[3] !== 'signers' && segments[3] !== 'auth-methods')
   ) {
     return null;
   }
+  if (segments[3] === 'auth-methods') {
+    if (segments.length !== 5) return null;
+    switch (segments[4]) {
+      case 'intent':
+        return { kind: 'full_gateway', operation: 'registration_add_auth_method_intent' };
+      case 'start':
+        return { kind: 'full_gateway', operation: 'registration_add_auth_method_start' };
+      case 'finalize':
+        return { kind: 'full_gateway', operation: 'registration_add_auth_method_finalize' };
+      default:
+        return null;
+    }
+  }
   switch (segments[4]) {
+    case 'intent':
+      return { kind: 'full_gateway', operation: 'registration_add_signer_intent' };
     case 'start':
       return { kind: 'full_gateway', operation: 'registration_add_signer_start' };
     case 'finalize':
       return { kind: 'full_gateway', operation: 'registration_add_signer_finalize' };
+    case 'derivation':
+      if (segments.length !== 6) return null;
+      switch (segments[5]) {
+        case 'respond':
+          return {
+            kind: 'full_gateway',
+            operation: 'registration_add_signer_derivation_respond',
+          };
+        case 'activate':
+          return {
+            kind: 'full_gateway',
+            operation: 'registration_add_signer_derivation_activate',
+          };
+        default:
+          return null;
+      }
     default:
       return null;
-  }
-}
-
-function familyOfGatewayOperation(
-  operation: RouterAbEd25519YaoGatewayOperationV1,
-): RouterAbEd25519YaoGatewayCutoverFamilyV1 {
-  switch (operation) {
-    case 'registration_start':
-    case 'registration_finalize':
-    case 'registration_add_signer_start':
-    case 'registration_add_signer_finalize':
-    case 'registration_admission':
-    case 'registration_execute':
-      return 'registration';
-    case 'recovery_admission':
-    case 'recovery_bootstrap':
-    case 'recovery_wallet_session':
-    case 'recovery_unlock':
-    case 'recovery_sync_account':
-    case 'recovery_execute':
-    case 'recovery_activate':
-      return 'recovery';
-    case 'export_admission':
-    case 'export_execute':
-      return 'export';
   }
 }
 
@@ -1088,7 +1080,7 @@ async function handlePartitionedD1Operation(
   request: Request,
   operation: RouterApiYaoDirectOperationV1,
 ): Promise<Response> {
-  switch (familyOfGatewayOperation(operation)) {
+  switch (familyOfRouterAbEd25519YaoGatewayOperationV1(operation)) {
     case 'registration':
       return await handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1({
         request,
@@ -1116,11 +1108,13 @@ async function handlePartitionedD1Operation(
 function routerAbGatewayCutoverState(
   env: CloudflareD1RouterApiStagingEnv,
 ): RouterAbEd25519YaoGatewayCutoverStateV1 {
-  return {
+  const cutover = {
     ...familyCutoverWindow(env, 'REGISTRATION', 'registration'),
     ...familyCutoverWindow(env, 'RECOVERY', 'recovery'),
     ...familyCutoverWindow(env, 'EXPORT', 'export'),
   };
+  validateRouterAbEd25519YaoGatewayCutoverStateV1(cutover);
+  return cutover;
 }
 
 function familyCutoverWindow(
