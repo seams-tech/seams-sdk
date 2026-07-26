@@ -296,9 +296,6 @@ pub const LOCAL_WORKER_HEALTH_PATH: &str = "/healthz";
 pub const LOCAL_WORKER_READY_PATH: &str = "/readyz";
 /// Deriver B full-duplex Ed25519 Yao peer-stream path.
 pub const LOCAL_DERIVER_B_ED25519_YAO_PEER_PATH: &str = "/router-ab/deriver-b/ed25519-yao/peer";
-/// Deriver A local Ed25519 Yao activation start path.
-pub const LOCAL_DERIVER_A_ED25519_YAO_ACTIVATION_START_PATH: &str =
-    "/router-ab/deriver-a/ed25519-yao/activation/start";
 /// Deriver A pair-bound preparation path mirrored from the strict Cloudflare worker.
 pub const LOCAL_DERIVER_A_ED25519_YAO_PREPARE_PAIR_PATH: &str =
     "/router-ab/deriver-a/ed25519-yao/prepare-pair";
@@ -311,9 +308,6 @@ pub const LOCAL_DERIVER_A_ED25519_YAO_READ_PAIR_STATUS_PATH: &str =
 /// Deriver A pair-bound burn path mirrored from the strict Cloudflare worker.
 pub const LOCAL_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH: &str =
     "/router-ab/deriver-a/ed25519-yao/burn-pair";
-/// Deriver B local Ed25519 Yao activation staging path.
-pub const LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_STAGE_PATH: &str =
-    "/router-ab/deriver-b/ed25519-yao/activation/stage";
 /// Deriver B pair-bound preparation path mirrored from the strict Cloudflare worker.
 pub const LOCAL_DERIVER_B_ED25519_YAO_PREPARE_PAIR_PATH: &str =
     "/router-ab/deriver-b/ed25519-yao/prepare-pair";
@@ -341,24 +335,12 @@ pub const LOCAL_DERIVER_A_ED25519_YAO_REFRESH_PROMOTE_PATH: &str =
 /// Deriver B prepared refresh promotion path.
 pub const LOCAL_DERIVER_B_ED25519_YAO_REFRESH_PROMOTE_PATH: &str =
     "/router-ab/deriver-b/ed25519-yao/refresh/promote";
-/// Deriver A local Ed25519 Yao export start path.
-pub const LOCAL_DERIVER_A_ED25519_YAO_EXPORT_START_PATH: &str =
-    "/router-ab/deriver-a/ed25519-yao/export/start";
 /// Deriver A encrypted refresh package for the Client.
 pub const LOCAL_DERIVER_A_ED25519_YAO_REFRESH_CLIENT_PACKAGE_PATH: &str =
     "/router-ab/deriver-a/ed25519-yao/refresh/client-package";
 /// Deriver A encrypted refresh package for the SigningWorker.
 pub const LOCAL_DERIVER_A_ED25519_YAO_REFRESH_SIGNING_WORKER_PACKAGE_PATH: &str =
     "/router-ab/deriver-a/ed25519-yao/refresh/signing-worker-package";
-/// Deriver B local Ed25519 Yao export staging path.
-pub const LOCAL_DERIVER_B_ED25519_YAO_EXPORT_STAGE_PATH: &str =
-    "/router-ab/deriver-b/ed25519-yao/export/stage";
-/// Deriver B completed activation execution path.
-pub const LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_RESULT_PATH: &str =
-    "/router-ab/deriver-b/ed25519-yao/activation/result";
-/// Deriver B completed export execution path.
-pub const LOCAL_DERIVER_B_ED25519_YAO_EXPORT_RESULT_PATH: &str =
-    "/router-ab/deriver-b/ed25519-yao/export/result";
 /// Deriver B completed refresh result path.
 pub const LOCAL_DERIVER_B_ED25519_YAO_REFRESH_RESULT_PATH: &str =
     "/router-ab/deriver-b/ed25519-yao/refresh/result";

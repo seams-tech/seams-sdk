@@ -20,14 +20,12 @@ import type {
 } from './routerAbEd25519YaoRegistration';
 import {
   createRouterAbEd25519YaoRegistrationModule,
-  InMemoryRouterAbEd25519YaoRegistrationService,
   InMemoryRouterAbEd25519YaoRegistrationStateV1,
   type RouterAbEd25519YaoRegistrationBackend,
   type RouterAbEd25519YaoRegistrationAuthorizationAdapter,
   type RouterAbEd25519YaoRegistrationService,
 } from './routerAbEd25519YaoRegistration';
 import {
-  InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationAdapter,
   InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationStateV1,
   type RouterAbEd25519YaoVerifiedActivationIntentV1,
   type RouterAbEd25519YaoRegistrationIntentBindingResult,
@@ -45,13 +43,11 @@ import type { WalletRegistrationEd25519YaoBootstrapSession } from '../core/regis
 import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../core/ThresholdService/validation';
 import {
   createRouterAbEd25519YaoRecoveryModule,
-  InMemoryRouterAbEd25519YaoRecoveryService,
   InMemoryRouterAbEd25519YaoRecoveryStateV1,
   type RouterAbEd25519YaoActiveCapabilityLookupResultV1,
   type RouterAbEd25519YaoActiveCapabilityLookupV1,
   type RouterAbEd25519YaoActiveCapabilityResolverV1,
   type RouterAbEd25519YaoPersistedActiveCapabilityInstallerV1,
-  type RouterAbEd25519YaoCapabilityPersistenceV1,
   type RouterAbEd25519YaoRecoveryBackend,
   type RouterAbEd25519YaoRecoveryAuthorizationAdapter,
   type RouterAbEd25519YaoRecoveryService,
@@ -60,17 +56,13 @@ import {
   type RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallerV1,
 } from './routerAbEd25519YaoRecovery';
 import type { WalletEd25519YaoActiveCapabilityRecord } from '../core/WalletStore';
-import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from './routerAbEd25519YaoRecoveryWalletSessionAuthorization';
 import {
   createRouterAbEd25519YaoExportModule,
-  InMemoryRouterAbEd25519YaoExportService,
   InMemoryRouterAbEd25519YaoExportStateV1,
-  RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter,
   type RouterAbEd25519YaoExportBackend,
   type RouterAbEd25519YaoExportAuthorizationAdapter,
   type RouterAbEd25519YaoExportService,
 } from './routerAbEd25519YaoExport';
-import type { RouterApiWebAuthnService } from './authServicePort';
 import { isPlainObject } from '@shared/utils/validation';
 import {
   DEFAULT_WALLET_SESSION_REMAINING_USES,
@@ -330,54 +322,6 @@ export function parseRouterAbEd25519YaoProductRegistrationStateV1(
       export: input.export,
     },
   };
-}
-
-export function createRouterAbEd25519YaoProductRegistrationStatefulCompositionV1(input: {
-  readonly signingWorkerId: string;
-  readonly backend: RouterAbEd25519YaoRegistrationBackend &
-    RouterAbEd25519YaoRecoveryBackend &
-    RouterAbEd25519YaoExportBackend;
-  readonly session: SessionAdapter;
-  readonly webAuthn: Pick<RouterApiWebAuthnService, 'verifyWebAuthnAuthenticationLite'>;
-  readonly state: RouterAbEd25519YaoProductRegistrationStateV1;
-  readonly capabilityPersistence: RouterAbEd25519YaoCapabilityPersistenceV1;
-}): RouterAbEd25519YaoProductRegistrationCompositionV1 {
-  const registrationService = new InMemoryRouterAbEd25519YaoRegistrationService(
-    input.backend,
-    input.state.registration,
-  );
-  const authorization = new InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationAdapter(
-    input.state.authorization,
-  );
-  const recoveryService = new InMemoryRouterAbEd25519YaoRecoveryService(
-    input.backend,
-    input.state.recovery,
-    input.capabilityPersistence,
-  );
-  const recoveryAuthorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
-    input.session,
-  );
-  const capabilities = recoveryService;
-  const exportService = new InMemoryRouterAbEd25519YaoExportService(
-    input.backend,
-    capabilities,
-    input.state.export,
-  );
-  const exportAuthorization = new RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter(
-    input.session,
-    input.webAuthn,
-  );
-  return createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV1({
-    signingWorkerId: input.signingWorkerId,
-    registrationService,
-    authorization,
-    recoveryService,
-    capabilities,
-    recoveryAuthorization,
-    exportService,
-    exportAuthorization,
-    session: input.session,
-  });
 }
 
 export function createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV1(

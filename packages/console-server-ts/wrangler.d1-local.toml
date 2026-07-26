@@ -30,14 +30,6 @@ binding = "MPC_ROUTER"
 service = "router-ab-mpc-router"
 
 [[services]]
-binding = "DERIVER_A"
-service = "router-ab-deriver-a"
-
-[[services]]
-binding = "DERIVER_B"
-service = "router-ab-deriver-b"
-
-[[services]]
 binding = "SIGNING_WORKER"
 service = "router-ab-signing-worker"
 

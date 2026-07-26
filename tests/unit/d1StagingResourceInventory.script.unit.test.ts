@@ -23,6 +23,7 @@ type ResourceInventoryPlan = {
       readonly name: string;
       readonly d1Databases: readonly unknown[];
       readonly durableObjects: readonly unknown[];
+      readonly durableObjectMigrations: readonly unknown[];
       readonly secretsStoreSecrets: readonly unknown[];
     };
   };
@@ -107,9 +108,22 @@ test('D1 staging resource inventory records config-derived resource IDs', async 
       name: 'THRESHOLD_STORE',
       className: 'ThresholdStoreDurableObject',
     },
+  ]);
+  expect(plan.resources.gatewayWorker.durableObjectMigrations).toEqual([
     {
-      name: 'ROUTER_API_RUNTIME',
-      className: 'RouterApiRuntimeDurableObject',
+      tag: 'threshold-store-sqlite-v1',
+      newSqliteClasses: ['ThresholdStoreDurableObject'],
+      deletedClasses: [],
+    },
+    {
+      tag: 'router-api-runtime-sqlite-v1',
+      newSqliteClasses: ['RouterApiRuntimeDurableObject'],
+      deletedClasses: [],
+    },
+    {
+      tag: 'router-api-runtime-delete-v1',
+      newSqliteClasses: [],
+      deletedClasses: ['RouterApiRuntimeDurableObject'],
     },
   ]);
   expect(plan.resources.gatewayWorker.secretsStoreSecrets).toEqual([
