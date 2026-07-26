@@ -9,6 +9,7 @@ import {
   ecdsaCapabilityGenerationMismatchReplacementFixture,
   ecdsaCapabilityLookupOutcomeFixture,
   ecdsaCapabilityReplacementFixture,
+  type EcdsaCapabilityActivationFixture,
   type EcdsaCapabilityLookupOutcomeFixture,
   type EcdsaCapabilityReplacementFixture,
 } from './helpers/ecdsaCapabilityManifest.fixtures';
@@ -334,6 +335,222 @@ async function exerciseLookupOutcomeMatrix(input: {
   };
 }
 
+async function exercisePreparedActivationCancellation(input: {
+  readonly storeModule: string;
+  readonly fixture: EcdsaCapabilityActivationFixture;
+}) {
+  await new Promise<void>((resolve) => {
+    const request = indexedDB.deleteDatabase('seams_wallet');
+    request.onsuccess = () => resolve();
+    request.onerror = () => resolve();
+    request.onblocked = () => resolve();
+  });
+  const module = await import(input.storeModule);
+  const store = new module.IndexedDbEcdsaCapabilityManifestStore();
+  const preparation = await store.prepareActivation(input.fixture.prepareInput);
+  if (preparation.kind !== 'stored' || preparation.journal.kind !== 'activation_prepared') {
+    throw new Error(`preparation failed: ${preparation.kind}`);
+  }
+  const sealingKeyId = preparation.journal.candidate.encryptedPending.sealingKeyId;
+  const conflictingJournal = structuredClone(preparation.journal);
+  conflictingJournal.createdAt = '2025-01-02T00:00:00.000Z';
+  const conflict = await store.cancelPreparedActivation(conflictingJournal);
+  const afterConflict = await store.readActivationJournal(preparation.journal.journalId);
+  const cancelled = await store.cancelPreparedActivation(preparation.journal);
+  const afterCancellation = await store.readActivationJournal(preparation.journal.journalId);
+  const repeated = await store.cancelPreparedActivation(preparation.journal);
+
+  const secondPreparation = await store.prepareActivation(input.fixture.prepareInput);
+  if (
+    secondPreparation.kind !== 'stored' ||
+    secondPreparation.journal.kind !== 'activation_prepared'
+  ) {
+    throw new Error(`second preparation failed: ${secondPreparation.kind}`);
+  }
+  const corruptSealingKeyId = secondPreparation.journal.candidate.encryptedPending.sealingKeyId;
+  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open('seams_wallet');
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction('ecdsa_activation_commit_journals', 'readwrite');
+    const journalStore = transaction.objectStore('ecdsa_activation_commit_journals');
+    const get = journalStore.get(secondPreparation.journal.journalId);
+    get.onsuccess = () => {
+      journalStore.put({
+        ...get.result,
+        record_version: 'corrupt-activation-journal-version',
+      });
+    };
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+  const corrupt = await store.cancelPreparedActivation(secondPreparation.journal);
+
+  const state = await new Promise<{
+    cancelledKeyPresent: boolean;
+    corruptKeyPresent: boolean;
+  }>((resolve, reject) => {
+    const transaction = db.transaction('ecdsa_material_sealing_keys', 'readonly');
+    const keyStore = transaction.objectStore('ecdsa_material_sealing_keys');
+    const cancelledKey = keyStore.get(sealingKeyId);
+    const corruptKey = keyStore.get(corruptSealingKeyId);
+    transaction.oncomplete = () => {
+      resolve({
+        cancelledKeyPresent: cancelledKey.result !== undefined,
+        corruptKeyPresent: corruptKey.result !== undefined,
+      });
+    };
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+  db.close();
+
+  const unavailableStore = new module.IndexedDbEcdsaCapabilityManifestStore({
+    runTransaction() {
+      throw new Error('injected persistence failure');
+    },
+  });
+  const persistenceUnavailable = await unavailableStore.cancelPreparedActivation(
+    secondPreparation.journal,
+  );
+
+  return {
+    conflict: conflict.kind,
+    afterConflict: afterConflict.kind === 'found' ? afterConflict.journal.kind : afterConflict.kind,
+    cancelled: cancelled.kind,
+    afterCancellation: afterCancellation.kind,
+    repeated: repeated.kind,
+    corrupt: corrupt.kind,
+    persistenceUnavailable: persistenceUnavailable.kind,
+    ...state,
+  };
+}
+
+async function exerciseReplacementActivationCancellation(input: {
+  readonly storeModule: string;
+  readonly fixture: EcdsaCapabilityReplacementFixture;
+}) {
+  await new Promise<void>((resolve) => {
+    const request = indexedDB.deleteDatabase('seams_wallet');
+    request.onsuccess = () => resolve();
+    request.onerror = () => resolve();
+    request.onblocked = () => resolve();
+  });
+  const module = await import(input.storeModule);
+  const store = new module.IndexedDbEcdsaCapabilityManifestStore();
+  const priorPreparation = await store.prepareActivation(input.fixture.prior.prepareInput);
+  if (
+    priorPreparation.kind !== 'stored' ||
+    priorPreparation.journal.kind !== 'activation_prepared'
+  ) {
+    throw new Error(`prior preparation failed: ${priorPreparation.kind}`);
+  }
+  const priorCommit = await store.recordServerActivation({
+    preparedJournal: priorPreparation.journal,
+    serverCommit: input.fixture.prior.serverCommit,
+  });
+  if (priorCommit.kind !== 'stored' || priorCommit.journal.kind !== 'server_activation_committed') {
+    throw new Error(`prior commit failed: ${priorCommit.kind}`);
+  }
+  const priorFinalization = await store.sealAndFinalizeActivation({
+    committedJournal: priorCommit.journal,
+    ...input.fixture.prior.sealInput,
+  });
+  if (priorFinalization.kind !== 'committed') {
+    throw new Error(`prior finalization failed: ${priorFinalization.kind}`);
+  }
+  const priorSealingKeyId = priorFinalization.material.sealingKeyId;
+
+  const replacementPreparation = await store.prepareActivation(
+    input.fixture.replacement.prepareInput,
+  );
+  if (
+    replacementPreparation.kind !== 'stored' ||
+    replacementPreparation.journal.kind !== 'activation_prepared'
+  ) {
+    throw new Error(`replacement preparation failed: ${replacementPreparation.kind}`);
+  }
+  const cancelledReplacementSealingKeyId =
+    replacementPreparation.journal.candidate.encryptedPending.sealingKeyId;
+  const cancelled = await store.cancelPreparedActivation(replacementPreparation.journal);
+  const afterPreparedCancellation = await store.lookup({
+    capability: input.fixture.prior.prepareInput.activationBinding.signer.capability,
+    authority: input.fixture.prior.prepareInput.activationBinding.signer.authority,
+  });
+
+  const committedPreparation = await store.prepareActivation(
+    input.fixture.replacement.prepareInput,
+  );
+  if (
+    committedPreparation.kind !== 'stored' ||
+    committedPreparation.journal.kind !== 'activation_prepared'
+  ) {
+    throw new Error(`committed preparation failed: ${committedPreparation.kind}`);
+  }
+  const committedSealingKeyId =
+    committedPreparation.journal.candidate.encryptedPending.sealingKeyId;
+  const committedWrite = await store.recordServerActivation({
+    preparedJournal: committedPreparation.journal,
+    serverCommit: input.fixture.replacement.serverCommit,
+  });
+  if (
+    committedWrite.kind !== 'stored' ||
+    committedWrite.journal.kind !== 'server_activation_committed'
+  ) {
+    throw new Error(`replacement commit failed: ${committedWrite.kind}`);
+  }
+  const refused = await store.cancelPreparedActivation(committedPreparation.journal);
+  const afterRefusal = await store.readActivationJournal(committedPreparation.journal.journalId);
+  const finalization = await store.sealAndFinalizeActivation({
+    committedJournal: committedWrite.journal,
+    ...input.fixture.replacement.sealInput,
+  });
+  const afterFinalization = await store.lookup({
+    capability: input.fixture.replacement.prepareInput.activationBinding.signer.capability,
+    authority: input.fixture.replacement.prepareInput.activationBinding.signer.authority,
+  });
+
+  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open('seams_wallet');
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  const keyState = await new Promise<{
+    priorKeyPresent: boolean;
+    cancelledReplacementKeyPresent: boolean;
+    committedKeyPresent: boolean;
+  }>((resolve, reject) => {
+    const transaction = db.transaction('ecdsa_material_sealing_keys', 'readonly');
+    const keyStore = transaction.objectStore('ecdsa_material_sealing_keys');
+    const priorKey = keyStore.get(priorSealingKeyId);
+    const cancelledReplacementKey = keyStore.get(cancelledReplacementSealingKeyId);
+    const committedKey = keyStore.get(committedSealingKeyId);
+    transaction.oncomplete = () => {
+      resolve({
+        priorKeyPresent: priorKey.result !== undefined,
+        cancelledReplacementKeyPresent: cancelledReplacementKey.result !== undefined,
+        committedKeyPresent: committedKey.result !== undefined,
+      });
+    };
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+  db.close();
+
+  return {
+    cancelled: cancelled.kind,
+    afterPreparedCancellation: afterPreparedCancellation.kind,
+    refused: refused.kind,
+    afterRefusal: afterRefusal.kind === 'found' ? afterRefusal.journal.kind : afterRefusal.kind,
+    finalization: finalization.kind,
+    afterFinalization: afterFinalization.kind,
+    ...keyState,
+  };
+}
+
 test.describe('canonical ECDSA capability manifest store', () => {
   test.beforeAll(() => {
     execFileSync(
@@ -548,6 +765,52 @@ test.describe('canonical ECDSA capability manifest store', () => {
       exactRecordConflict: 'exact_record_conflict',
       corrupt: 'corrupt',
       persistenceUnavailable: 'persistence_unavailable',
+    });
+  });
+
+  test('atomically removes only the exact prepared journal and its sealing key', async ({
+    page,
+  }) => {
+    const fixture = ecdsaCapabilityActivationFixture();
+    await prepareStoreModulePage(page);
+    const result = await page.evaluate(exercisePreparedActivationCancellation, {
+      storeModule: STORE_MODULE,
+      fixture,
+    });
+
+    expect(result).toEqual({
+      conflict: 'exact_record_conflict',
+      afterConflict: 'activation_prepared',
+      cancelled: 'cancelled',
+      afterCancellation: 'missing',
+      repeated: 'missing',
+      corrupt: 'corrupt',
+      persistenceUnavailable: 'persistence_unavailable',
+      cancelledKeyPresent: false,
+      corruptKeyPresent: true,
+    });
+  });
+
+  test('preserves active state and refuses cancellation after the server commit', async ({
+    page,
+  }) => {
+    const fixture = ecdsaCapabilityReplacementFixture();
+    await prepareStoreModulePage(page);
+    const result = await page.evaluate(exerciseReplacementActivationCancellation, {
+      storeModule: STORE_MODULE,
+      fixture,
+    });
+
+    expect(result).toEqual({
+      cancelled: 'cancelled',
+      afterPreparedCancellation: 'active',
+      refused: 'server_activation_committed',
+      afterRefusal: 'server_activation_committed',
+      finalization: 'committed',
+      afterFinalization: 'active',
+      priorKeyPresent: false,
+      cancelledReplacementKeyPresent: false,
+      committedKeyPresent: true,
     });
   });
 
