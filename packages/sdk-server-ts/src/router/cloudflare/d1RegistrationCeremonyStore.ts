@@ -34,6 +34,7 @@ import {
   parseD1StoredWalletRegistrationFinalizeReplay,
 } from './d1RegistrationCeremonyRecords';
 import {
+  D1RegistrationCeremonyRecordConflictError,
   D1RegistrationCeremonyRecordStore,
   type D1RegistrationCeremonyRecordScope,
 } from './d1RegistrationCeremonyRecordStore';
@@ -202,10 +203,11 @@ export class CloudflareD1RegistrationCeremonyIntentStore {
       });
       return;
     }
-    await this.put({
+    await this.updateExpected({
       scope: 'ceremony',
       id: input.next.registrationCeremonyId,
-      record: input.next,
+      expected: input.expected,
+      next: input.next,
       expiresAtMs: input.next.expiresAtMs,
     });
   }
@@ -458,10 +460,11 @@ export class CloudflareD1RegistrationCeremonyIntentStore {
       });
       return;
     }
-    await this.put({
+    await this.updateExpected({
       scope: 'add-signer',
       id: input.next.addSignerCeremonyId,
-      record: input.next,
+      expected: input.expected,
+      next: input.next,
       expiresAtMs: input.next.expiresAtMs,
     });
   }
@@ -560,6 +563,33 @@ export class CloudflareD1RegistrationCeremonyIntentStore {
       ttlMs,
     });
     if (!response.ok) throw new Error(response.message || 'Registration ceremony DO write failed');
+  }
+
+  private async updateExpected(input: {
+    readonly scope: 'ceremony' | 'add-signer';
+    readonly id: string;
+    readonly expected: StoredWalletRegistrationCeremony | StoredWalletAddSignerCeremony;
+    readonly next: StoredWalletRegistrationCeremony | StoredWalletAddSignerCeremony;
+    readonly expiresAtMs: number;
+  }): Promise<void> {
+    if (this.storage.kind !== 'legacy_threshold_do') {
+      throw new Error('Registration ceremony Durable Object update requires legacy storage');
+    }
+    const ttlMs = Math.max(1, input.expiresAtMs - Date.now());
+    const response = await callRegistrationCeremonyDo<boolean>(this.storage.stub, {
+      op: 'registrationUpdateExpected',
+      key: this.key(input.scope, input.id),
+      expected: input.expected,
+      next: input.next,
+      ttlMs,
+    });
+    if (response.ok) return;
+    if (response.code === 'registration_ceremony_conflict') {
+      throw new D1RegistrationCeremonyRecordConflictError(
+        response.message || 'Registration ceremony record changed before update',
+      );
+    }
+    throw new Error(response.message || 'Registration ceremony DO update failed');
   }
 
   private async get(scope: RegistrationCeremonyIntentScope, id: string): Promise<unknown | null> {

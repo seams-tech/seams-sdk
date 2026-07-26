@@ -824,7 +824,7 @@ fn validate_readiness(
         return Err(invalid_coordinator("readiness receipt role mismatch"));
     }
     receipt.validate_for_pair(pair_binding)?;
-    receipt.validate_at(now_ms)?;
+    crate::ed25519_yao_lifecycle::validate_cloudflare_role_readiness_receipt_v1(receipt, now_ms)?;
     crate::verify_role_readiness_receipt_v1(receipt, verifying_keys)
 }
 

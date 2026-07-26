@@ -1372,7 +1372,18 @@ impl Ed25519YaoRoleReadinessReceiptV1 {
 
     /// Validates the lifetime at a supplied wall-clock time.
     pub fn validate_at(&self, now_ms: u64) -> RouterAbProtocolResult<()> {
-        if now_ms < self.prepared_at_ms || now_ms >= self.expires_at_ms {
+        self.validate_at_with_max_future_skew(now_ms, 0)
+    }
+
+    /// Validates the lifetime while allowing bounded verifier clock skew.
+    pub fn validate_at_with_max_future_skew(
+        &self,
+        now_ms: u64,
+        max_future_skew_ms: u64,
+    ) -> RouterAbProtocolResult<()> {
+        if self.prepared_at_ms > now_ms.saturating_add(max_future_skew_ms)
+            || now_ms >= self.expires_at_ms
+        {
             return Err(invalid_router_yao(
                 "Ed25519 Yao readiness receipt is expired or issued in the future",
             ));
@@ -2024,7 +2035,11 @@ mod tests {
         )
         .expect("receipt");
         assert!(receipt.validate_for_pair(&pair).is_ok());
+        assert!(receipt.validate_at(9).is_err());
+        assert!(receipt.validate_at_with_max_future_skew(9, 1).is_ok());
+        assert!(receipt.validate_at_with_max_future_skew(8, 1).is_err());
         assert!(receipt.validate_at(100).is_err());
+        assert!(receipt.validate_at_with_max_future_skew(100, 1).is_err());
         let wire = serde_json::to_value(&receipt).expect("receipt JSON");
         let decoded = serde_json::from_value::<Ed25519YaoRoleReadinessReceiptV1>(wire)
             .expect("receipt roundtrip");
