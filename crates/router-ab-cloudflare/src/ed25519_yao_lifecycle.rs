@@ -85,6 +85,7 @@ const YAO_CEREMONY_TIMEOUT: Duration = Duration::from_secs(15);
 const YAO_STAGED_INPUT_LIFETIME_MS: u64 = 60_000;
 const YAO_RUNNING_LIFETIME_MS: u64 = 20_000;
 // Worker clocks expose the last I/O time, so a nested peer handoff can arrive slightly "future".
+const YAO_READINESS_RECEIPT_MAX_FUTURE_SKEW_MS: u64 = 1_000;
 const YAO_START_ACCEPTANCE_MAX_FUTURE_SKEW_MS: u64 = 1_000;
 const YAO_RESULT_WAIT_INTERVAL: Duration = Duration::from_millis(5);
 const YAO_RESULT_WAIT_ATTEMPTS: usize = 100;
@@ -1833,10 +1834,11 @@ impl RouterAbDeriverAYaoSessionDurableObject {
             .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
         let runtime = CloudflareDeriverAWorkerRuntimeV1::from_worker_env(&self.env)
             .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
-        request
-            .peer_receipt
-            .validate_at(cloudflare_yao_now_unix_ms()?)
-            .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
+        validate_cloudflare_role_readiness_receipt_v1(
+            &request.peer_receipt,
+            cloudflare_yao_now_unix_ms()?,
+        )
+        .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
         verify_role_readiness_receipt_v1(&request.peer_receipt, runtime.peer_verifying_keys())
             .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
         let pair_digest = request.pair_binding.pair_digest().bytes;
@@ -1889,9 +1891,11 @@ impl RouterAbDeriverAYaoSessionDurableObject {
         local_receipt
             .validate_for_pair(&request.pair_binding)
             .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
-        local_receipt
-            .validate_at(cloudflare_yao_now_unix_ms()?)
-            .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
+        validate_cloudflare_role_readiness_receipt_v1(
+            &local_receipt,
+            cloudflare_yao_now_unix_ms()?,
+        )
+        .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
         verify_role_readiness_receipt_v1(&local_receipt, runtime.peer_verifying_keys())
             .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
         if local_receipt.role() != Ed25519YaoDeriverRoleV1::DeriverA
@@ -2804,8 +2808,7 @@ impl RouterAbDeriverBYaoSessionDurableObject {
         let runtime = CloudflareDeriverBWorkerRuntimeV1::from_worker_env(&self.env)
             .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
         let now_unix_ms = cloudflare_yao_now_unix_ms()?;
-        peer_receipt
-            .validate_at(now_unix_ms)
+        validate_cloudflare_role_readiness_receipt_v1(&peer_receipt, now_unix_ms)
             .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
         verify_role_readiness_receipt_v1(&peer_receipt, runtime.peer_verifying_keys())
             .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
@@ -2847,8 +2850,7 @@ impl RouterAbDeriverBYaoSessionDurableObject {
             }
             return Response::error("Deriver B pair preparation expired", 409);
         }
-        receipt
-            .validate_at(now_unix_ms)
+        validate_cloudflare_role_readiness_receipt_v1(&receipt, now_unix_ms)
             .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
         verify_role_readiness_receipt_v1(&receipt, runtime.peer_verifying_keys())
             .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
@@ -3353,7 +3355,8 @@ pub async fn handle_cloudflare_ed25519_yao_deriver_a_execute_pair_v1(
                 ));
             }
             receipt.validate_for_pair(&pair_binding)?;
-            receipt.validate_at(
+            validate_cloudflare_role_readiness_receipt_v1(
+                &receipt,
                 cloudflare_yao_now_unix_ms()
                     .map_err(|_| invalid_lifecycle("Yao clock is unavailable"))?,
             )?;
@@ -3486,7 +3489,10 @@ async fn execute_deriver_a_role(
             ));
         }
         if let Some(now_unix_ms) = now_unix_ms {
-            pair_execution.peer_receipt.validate_at(now_unix_ms)?;
+            validate_cloudflare_role_readiness_receipt_v1(
+                pair_execution.peer_receipt,
+                now_unix_ms,
+            )?;
         }
         verify_role_readiness_receipt_v1(
             pair_execution.peer_receipt,
@@ -3498,7 +3504,10 @@ async fn execute_deriver_a_role(
             ));
         }
         if let Some(now_unix_ms) = now_unix_ms {
-            pair_execution.local_receipt.validate_at(now_unix_ms)?;
+            validate_cloudflare_role_readiness_receipt_v1(
+                pair_execution.local_receipt,
+                now_unix_ms,
+            )?;
         }
         verify_role_readiness_receipt_v1(
             pair_execution.local_receipt,
@@ -4265,12 +4274,11 @@ async fn handle_pair_bound_deriver_b_websocket(
             "Deriver B pair preparation is missing or terminal",
         ));
     };
-    peer_receipt
-        .validate_at(
-            cloudflare_yao_now_unix_ms()
-                .map_err(|_| invalid_lifecycle("Yao clock is unavailable"))?,
-        )
-        .map_err(|error| invalid_lifecycle(error.message()))?;
+    validate_cloudflare_role_readiness_receipt_v1(
+        &peer_receipt,
+        cloudflare_yao_now_unix_ms().map_err(|_| invalid_lifecycle("Yao clock is unavailable"))?,
+    )
+    .map_err(|error| invalid_lifecycle(error.message()))?;
     if peer_receipt.role() != Ed25519YaoDeriverRoleV1::DeriverA
         || peer_receipt.session_bytes() != binding.session
         || peer_receipt.pair_digest().bytes != binding.pair_digest
@@ -4288,12 +4296,11 @@ async fn handle_pair_bound_deriver_b_websocket(
             "Deriver B readiness root does not match prepared state",
         ));
     }
-    receipt
-        .validate_at(
-            cloudflare_yao_now_unix_ms()
-                .map_err(|_| invalid_lifecycle("Yao clock is unavailable"))?,
-        )
-        .map_err(|error| invalid_lifecycle(error.message()))?;
+    validate_cloudflare_role_readiness_receipt_v1(
+        &receipt,
+        cloudflare_yao_now_unix_ms().map_err(|_| invalid_lifecycle("Yao clock is unavailable"))?,
+    )
+    .map_err(|error| invalid_lifecycle(error.message()))?;
     verify_role_readiness_receipt_v1(&peer_receipt, runtime.peer_verifying_keys())?;
     verify_role_readiness_receipt_v1(&receipt, runtime.peer_verifying_keys())?;
     if circuit_for_input(&input) != binding.circuit {
@@ -5101,6 +5108,13 @@ fn validate_cloudflare_start_acceptance_v1(
         .validate_at_with_max_future_skew(now_unix_ms, YAO_START_ACCEPTANCE_MAX_FUTURE_SKEW_MS)
 }
 
+pub(crate) fn validate_cloudflare_role_readiness_receipt_v1(
+    receipt: &Ed25519YaoRoleReadinessReceiptV1,
+    now_unix_ms: u64,
+) -> RouterAbProtocolResult<()> {
+    receipt.validate_at_with_max_future_skew(now_unix_ms, YAO_READINESS_RECEIPT_MAX_FUTURE_SKEW_MS)
+}
+
 fn yao_input_digest(input: &Ed25519YaoEncryptedInputV1) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(b"seams/router-ab/ed25519-yao/session-input/v1");
@@ -5297,6 +5311,28 @@ mod tests {
     fn session_expiry_uses_checked_arithmetic() {
         assert_eq!(yao_expiry_from_now(10, 20).expect("expiry fits"), 30);
         assert!(yao_expiry_from_now(u64::MAX, 1).is_err());
+    }
+
+    #[test]
+    fn cloudflare_readiness_receipt_allows_only_bounded_future_skew() {
+        let receipt = Ed25519YaoRoleReadinessReceiptV1::new(
+            Ed25519YaoDeriverRoleV1::DeriverB,
+            Ed25519YaoSessionIdV1::new([1; 32]).expect("session"),
+            PublicDigest32::new([2; 32]),
+            PublicDigest32::new([3; 32]),
+            PublicDigest32::new([4; 32]),
+            10_000,
+            30_000,
+            Ed25519YaoRoleSignatureV1::new(Ed25519YaoRoleSignatureSchemeV1::Ed25519V1, [5; 64])
+                .expect("signature"),
+        )
+        .expect("receipt");
+
+        assert!(receipt.validate_at(9_999).is_err());
+        validate_cloudflare_role_readiness_receipt_v1(&receipt, 9_000)
+            .expect("maximum future skew is accepted");
+        assert!(validate_cloudflare_role_readiness_receipt_v1(&receipt, 8_999).is_err());
+        assert!(validate_cloudflare_role_readiness_receipt_v1(&receipt, 30_000).is_err());
     }
 
     #[test]
