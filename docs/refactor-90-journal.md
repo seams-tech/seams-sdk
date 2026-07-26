@@ -6,6 +6,36 @@ This file holds dated progress entries so the plan stays a readable checklist.
 The plan records only a one-line status per phase; the narrative history lives
 here.
 
+## July 27, 2026: Exact Session Projection And Activation CAS Checkpoint
+
+- Landed the canonical ECDSA manifest/history/current-pointer store and
+  two-state activation journal as `6decfb79d`. The IndexedDB v10 migration is
+  additive; tactical v9 stores remain until the live writer and every hydration
+  consumer move in one cut.
+- Bound server activation receipts to the exact activation correlation, request
+  digest, server generation, protocol lifecycle, and activation digest before
+  they can become a committed journal entry.
+- Added replacement CAS coverage as `a4ba253bd`. A successful replacement
+  retires the prior manifest, deletes prior material, advances the exact current
+  pointer, and deletes the journal atomically. A generation mismatch preserves
+  the prior state and committed journal for reconciliation.
+- Separated app identity, reusable Wallet Session lifecycle, and per-capability
+  readiness through the secure-origin session boundary as `f164b36ac`. ECDSA
+  material can remain restorable while reusable authorization is missing,
+  expired, or exhausted.
+- Confirmed that direct ECDSA-only unlock consumes the exact ECDSA subject with
+  zero NEAR reads or activation, registered NEAR identity survives absent
+  authorization/material readiness, and refresh resolves ECDSA-only identity
+  without fabricating NEAR state.
+- Validation: the focused subject/session suites pass 14 of 14 tests; the
+  canonical-store replacement suite passes 3 of 3 tests; SDK and unit type
+  checks and `git diff --check` passed at their owning checkpoints.
+- The consumer-cut audit found one load-bearing gap: the worker currently keeps
+  pending signer state only in memory until after the consuming server
+  activation. The next cut must durably encrypt `activation_prepared` before
+  that server effect and requires a replayable/queryable server activation
+  contract. A direct store-class substitution would retain the crash window.
+
 ## July 26, 2026: Foundation B Durable Model Corrected
 
 - Reconciled the canonical ECDSA model with the implemented material lifecycle:
