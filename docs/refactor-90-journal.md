@@ -19,6 +19,10 @@ here.
   add-signer lifecycle tests pass 8 of 8; Prettier and `git diff --check` pass.
 - The public browser route and worker-owned prepared-journal cut remain open.
   The internal server bridge alone does not close the pre-effect crash window.
+- Added fixture-backed coverage for every canonical ECDSA lookup result as
+  `bf08f7512`: active, retired, missing, exact binding mismatch, exact record
+  conflict, corrupt, and persistence unavailable. The focused store suite
+  passes 7 of 7 tests.
 - Moved canonical ECDSA persistence behind high-level prepare, record-commit,
   seal/finalize, and open operations as `c5e3f3efc`. Callers no longer supply
   sealing keys, ciphertext, ciphertext digests, or ready manifests.

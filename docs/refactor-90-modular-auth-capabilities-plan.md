@@ -675,7 +675,7 @@ Open items:
 - [ ] manifest history keyed by manifest ID plus an exact
       capability/authority current pointer; activation planning creates fresh
       manifest, activation, and durable-material identities;
-- [ ] exact persistence parser returning validated encrypted material for
+- [x] exact persistence parser returning validated encrypted material for
       `active` and distinguishing missing, mismatch, conflict, corrupt, and
       unavailable, with exhaustive switches and no timestamp/source-priority
       fallback;
