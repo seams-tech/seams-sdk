@@ -14,6 +14,7 @@ import {
   type ThresholdEcdsaChainTarget,
   walletSessionRefFromSession,
 } from '@seams/sdk/advanced';
+import { FRONTEND_CONFIG } from '@/config';
 
 type IntendedActionName =
   | 'registerPasskeyWallet'
@@ -339,7 +340,7 @@ const INTENDED_MAX_FEE_PER_GAS = 1n;
 const INTENDED_EVM_GAS_LIMIT = 21_000n;
 
 function intendedRegistrationRpId() {
-  const parsed = parseWebAuthnRpId(window.location.hostname);
+  const parsed = parseWebAuthnRpId(FRONTEND_CONFIG.rpIdBase);
   if (!parsed.ok) {
     throw new Error(parsed.error.message);
   }
