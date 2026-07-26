@@ -8,7 +8,9 @@ import {
   storeWalletEd25519RegistrationData,
   storeWalletEmailOtpMixedRegistrationData,
   storeWalletMixedRegistrationData,
+  type StoreWalletEcdsaWalletKey,
 } from '../../packages/sdk-web/src/core/signingEngine/flows/registration/accountLifecycle';
+import { parseEcdsaRoleLocalDurableMaterialRef } from '../../packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands';
 import type {
   AccountRef,
   AccountSignerRecord,
@@ -24,6 +26,53 @@ import {
   nearEd25519SigningKeyIdFromString,
   walletIdFromString,
 } from '../../packages/shared-ts/src/utils/registrationIntent';
+import { makeEcdsaRoleLocalReadyRecordFixture } from './helpers/ecdsaSessionRecordVariants.fixtures';
+import { deriveEvmFamilySigningKeySlotId } from '../../packages/shared-ts/src/signing-lanes';
+
+type StoreWalletEcdsaWalletKeyFixtureInput = Omit<
+  StoreWalletEcdsaWalletKey,
+  | 'participantIds'
+  | 'publicCapability'
+  | 'roleLocalDurableMaterialRef'
+  | 'ecdsaRoleLocalPublicFacts'
+> & {
+  participantIds: readonly number[];
+  walletKeyId?: string;
+};
+
+function storeWalletEcdsaWalletKeyFixture(
+  input: StoreWalletEcdsaWalletKeyFixtureInput,
+): StoreWalletEcdsaWalletKey {
+  if (input.participantIds.length !== 2) {
+    throw new Error('ECDSA wallet-key fixture requires exactly two participants');
+  }
+  const { participantIds, walletKeyId: _walletKeyId, ...key } = input;
+  const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
+    walletId: input.walletId,
+    signingRootId: input.signingRootId,
+    signingRootVersion: input.signingRootVersion,
+  });
+  const roleLocal = makeEcdsaRoleLocalReadyRecordFixture({
+    walletId: walletIdFromString(input.walletId),
+    walletKeyId: evmFamilySigningKeySlotId,
+    keyHandle: input.keyHandle,
+    chainTarget: input.chainTarget,
+    ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
+    signingRootId: input.signingRootId,
+    signingRootVersion: input.signingRootVersion,
+    ethereumAddress: input.thresholdOwnerAddress,
+  });
+  return {
+    ...key,
+    evmFamilySigningKeySlotId,
+    participantIds: [participantIds[0], participantIds[1]],
+    publicCapability: roleLocal.publicFacts.publicCapability,
+    roleLocalDurableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef(
+      `router-ab-ecdsa-role-local:${input.keyHandle}`,
+    ),
+    ecdsaRoleLocalPublicFacts: roleLocal.publicFacts,
+  };
+}
 
 const credential = {
   id: 'credential-id',
@@ -424,7 +473,7 @@ test('mixed wallet registration atomically persists Ed25519 and every ECDSA targ
       relayerVerifyingShareB64u: 'relayer-share-tempo',
       participantIds: [1, 2],
     },
-  ];
+  ].map(storeWalletEcdsaWalletKeyFixture);
 
   const result = await storeWalletMixedRegistrationData(deps as any, {
     walletId,
@@ -621,7 +670,7 @@ test('Email OTP mixed registration atomically persists Ed25519 and every ECDSA t
       relayerVerifyingShareB64u: 'relayer-share-email-tempo',
       participantIds: [1, 2],
     },
-  ];
+  ].map(storeWalletEcdsaWalletKeyFixture);
 
   const result = await storeWalletEmailOtpMixedRegistrationData(deps as any, {
     walletId,
@@ -904,7 +953,7 @@ test('wallet add-signer persists ECDSA signer records without re-registering aut
       relayerVerifyingShareB64u: 'relayer-share',
       participantIds: [1, 2],
     },
-  ];
+  ].map(storeWalletEcdsaWalletKeyFixture);
 
   const result = await storeWalletEcdsaSignerRecords(deps as any, {
     walletId,
@@ -935,7 +984,7 @@ test('wallet add-signer persists ECDSA signer records without re-registering aut
       metadata: {
         keyHandle: 'ederivation-key-alice',
         walletId: 'wallet_alice',
-        evmFamilySigningKeySlotId: 'evm-family-slot-alice',
+        evmFamilySigningKeySlotId: walletKeys[0].evmFamilySigningKeySlotId,
         ecdsaThresholdKeyId: 'ederivation-key-id-alice',
         signingRootId: 'project_registration:dev',
         signingRootVersion: 'root_v1',
@@ -968,7 +1017,7 @@ test('wallet ECDSA signer validation fails before finalize batch side effects', 
     storeWalletEcdsaSignerRecords(deps as any, {
       walletId: walletIdFromString('wallet_alice'),
       walletKeys: [
-        {
+        storeWalletEcdsaWalletKeyFixture({
           keyScope: 'evm-family' as const,
           chainTarget: {
             kind: 'evm' as const,
@@ -987,7 +1036,7 @@ test('wallet ECDSA signer validation fails before finalize batch side effects', 
           relayerKeyId: 'relayer-key-ecdsa',
           relayerVerifyingShareB64u: 'relayer-share',
           participantIds: [1, 2],
-        },
+        }),
       ],
     }),
   ).rejects.toThrow('wallet key walletId mismatch');
@@ -1109,7 +1158,7 @@ test('wallet add-signer persistence supports both later signer-family orders', a
       relayerVerifyingShareB64u: 'relayer-share',
       participantIds: [1, 2],
     },
-  ];
+  ].map(storeWalletEcdsaWalletKeyFixture);
 
   const ed25519ThenEcdsa = makeDeps();
   (ed25519ThenEcdsa.deps as any).accountStore = ed25519ThenEcdsa.deps.indexedDB;

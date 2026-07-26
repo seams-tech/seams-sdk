@@ -719,6 +719,8 @@ export class IntendedBehaviourHarness {
 
   private readonly request: APIRequestContext;
 
+  private readonly networkMode: 'managed_local' | 'external_staging';
+
   private readonly config: IntendedHarnessConfig;
 
   private readonly violations: string[] = [];
@@ -753,11 +755,13 @@ export class IntendedBehaviourHarness {
   constructor(args: {
     context: BrowserContext;
     flow: IntendedLifecycleFlow;
+    networkMode: 'managed_local' | 'external_staging';
     page: Page;
     request: APIRequestContext;
   }) {
     this.context = args.context;
     this.flow = args.flow;
+    this.networkMode = args.networkMode;
     this.page = args.page;
     this.request = args.request;
     this.config = intendedHarnessConfigFromEnv();
@@ -769,8 +773,10 @@ export class IntendedBehaviourHarness {
     await this.installRegistrationBenchmarkDiagnosticsFlag();
     await this.installSigningSessionDebugFlag();
     await this.installFailureCollectors();
-    await this.installExternalNetworkStubs();
-    await this.installIntendedYaoFaultInjection();
+    if (this.networkMode === 'managed_local') {
+      await this.installExternalNetworkStubs();
+      await this.installIntendedYaoFaultInjection();
+    }
     await this.installWebAuthnVirtualAuthenticator();
     await this.resetBrowserStorage();
     await this.assertServicesReady();
@@ -1858,7 +1864,13 @@ export const intendedTest = base.extend<{
 }>({
   harness: async ({ context, page, request }, use, testInfo) => {
     const flow = lifecycleFlowFromTestFile(testInfo.file);
-    const harness = new IntendedBehaviourHarness({ context, flow, page, request });
+    const harness = new IntendedBehaviourHarness({
+      context,
+      flow,
+      networkMode: 'managed_local',
+      page,
+      request,
+    });
     await harness.initialize();
     await use(harness);
     await harness.attachTrace(testInfo);

@@ -1,6 +1,6 @@
 use super::handlers::{
     require_existing_record_v1, validate_idempotent_put_record_v1,
-    validate_router_replay_reservation_v1,
+    validate_root_share_startup_metadata_put_v1, validate_router_replay_reservation_v1,
     validate_signing_worker_output_active_state_replacement_v1,
 };
 use super::*;
@@ -530,7 +530,7 @@ async fn handle_cloudflare_durable_object_worker_request_with_project_policy_v1(
             CloudflareDurableObjectResponseV1::root_share_has(present)
         }
         CloudflareDurableObjectRequestV1::RootShareStartupMetadata { metadata } => {
-            let stored = validate_idempotent_put_record_v1(
+            let stored = validate_root_share_startup_metadata_put_v1(
                 worker_storage_get::<CloudflareRootShareStartupMetadataV1>(
                     storage,
                     &storage_key,
@@ -538,8 +538,6 @@ async fn handle_cloudflare_durable_object_worker_request_with_project_policy_v1(
                 )
                 .await?,
                 metadata,
-                CloudflareRootShareStartupMetadataV1::validate,
-                "root-share startup metadata is already initialized with different material",
             )?;
             if stored {
                 worker_storage_put(

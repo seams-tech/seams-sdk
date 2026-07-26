@@ -126,6 +126,7 @@ function routerAbScope(requestId: string): Record<string, unknown> {
     request_id: requestId,
     account_id: walletId,
     session_id: thresholdSessionId,
+    active_state_session_id: thresholdSessionId,
     signing_worker_id: signingWorkerId,
   };
 }

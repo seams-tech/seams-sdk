@@ -7,11 +7,13 @@ import {
   type RouterAbEd25519YaoRecoveryActivationRequestV1,
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
+import { CloudflareD1RouterAbEd25519YaoCapabilityPersistence } from '../../packages/sdk-server-ts/src/router/cloudflare/d1Ed25519YaoCapabilityPersistence';
 import {
   handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1,
   type RouterAbEd25519YaoRecoveryRequestScopedCloudflareInputV1,
 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecoveryRequestScopedCloudflare';
 import type {
+  RouterAbEd25519YaoActiveCapabilityResolverV1,
   RouterAbEd25519YaoCapabilityPersistenceV1,
   RouterAbEd25519YaoCapabilityPersistenceResultV1,
   RouterAbEd25519YaoCapabilityReplacementOperationV1,
@@ -26,9 +28,16 @@ import type {
 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
 import {
   buildRouterAbEd25519YaoRecoveryRequestScopedFixture,
+  buildRouterAbEd25519YaoCapabilityReplacementFixture,
   buildSecondRouterAbEd25519YaoRecoveryRequestScopedFixture,
   type RouterAbEd25519YaoRecoveryRequestScopedFixture,
 } from './helpers/routerAbEd25519YaoRecoveryRequestScoped.fixtures';
+import {
+  createRouterAbEd25519YaoExistingWalletD1Fixture,
+  routerAbEd25519YaoCapabilityLookupFixture,
+} from './helpers/routerAbEd25519YaoExistingWalletD1.fixtures';
+
+const EXISTING_WALLET_NAMESPACE = 'yao-existing-wallet-recovery-test';
 
 type BackendMode =
   | 'success'
@@ -151,7 +160,153 @@ class InspectingRecoveryBackend implements RouterAbEd25519YaoRecoveryBackend {
   }
 }
 
+class SuccessfulRecoveryBackend implements RouterAbEd25519YaoRecoveryBackend {
+  admitCalls = 0;
+  executeCalls = 0;
+  activateCalls = 0;
+
+  constructor(private readonly fixture: RouterAbEd25519YaoRecoveryRequestScopedFixture) {}
+
+  admitRecovery(): RouterAbEd25519YaoRecoveryBackendResult {
+    this.admitCalls += 1;
+    return { ok: true, body: this.fixture.admissionReceipt };
+  }
+
+  executeRecovery(): RouterAbEd25519YaoRecoveryBackendResult {
+    this.executeCalls += 1;
+    return { ok: true, body: this.fixture.executionResult };
+  }
+
+  activateRecovery(
+    request: RouterAbEd25519YaoRecoveryActivationRequestV1,
+  ): RouterAbEd25519YaoRecoveryBackendResult {
+    this.activateCalls += 1;
+    return { ok: true, body: request };
+  }
+}
+
 test.describe('request-scoped recovery persistence', () => {
+  test('rehydrates a registration-era D1 capability and completes recovery from empty partitioned state', async () => {
+    const capability = buildRouterAbEd25519YaoCapabilityReplacementFixture();
+    const fixture = await buildRouterAbEd25519YaoRecoveryRequestScopedFixture();
+    const d1 = await createRouterAbEd25519YaoExistingWalletD1Fixture({
+      namespace: EXISTING_WALLET_NAMESPACE,
+      capability: capability.previous,
+    });
+    try {
+      const initial = await d1.store.load(fixture.lifecycleId);
+      expect(initial.state.recovery.capabilities.size).toBe(0);
+
+      const backend = new SuccessfulRecoveryBackend(fixture);
+      const warmBootstrap = await runRecoveryRequest(
+        fixture,
+        backend,
+        ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1,
+        {
+          kind: 'router_ab_ed25519_yao_warm_recovery_bootstrap_request_v1',
+          walletId: capability.walletId,
+          nearAccountId: capability.nearAccountId,
+          nearEd25519SigningKeyId: capability.nearSigningKeyId,
+          signerSlot:
+            capability.previous.admissionRequest.application_binding.key_creation_signer_slot,
+          thresholdSessionId: capability.previous.admissionRequest.scope.wallet_session_id,
+          signingGrantId: 'signing-grant-recovery-1',
+          signingWorkerId: capability.signingWorkerId,
+          participantIds: capability.previous.admissionRequest.participant_ids,
+        },
+        new AppliedCapabilityPersistence(),
+        d1.store,
+        d1.runtime,
+      );
+      const warmBootstrapBody = await warmBootstrap.clone().json();
+      expect(warmBootstrap.status, JSON.stringify(warmBootstrapBody)).toBe(200);
+      expect(d1.persistedCapabilityLoadCount()).toBe(1);
+      const hydrated = await d1.store.load(fixture.lifecycleId);
+      expect(hydrated.state.recovery.capabilities.size).toBe(1);
+      expect(fixture.admission.active_capability_binding).toEqual(
+        capability.previous.activeCapabilityBinding,
+      );
+
+      const persistence = new CloudflareD1RouterAbEd25519YaoCapabilityPersistence({
+        database: d1.database,
+        scope: {
+          namespace: EXISTING_WALLET_NAMESPACE,
+          orgId: capability.previous.runtimePolicyScope.orgId,
+          projectId: capability.previous.runtimePolicyScope.projectId,
+          envId: capability.previous.runtimePolicyScope.envId,
+        },
+        walletStore: d1.walletStore,
+        ensureSchema: false,
+        now: fixedCapabilityPersistenceNow,
+      });
+      const admission = await runRecoveryRequest(
+        fixture,
+        backend,
+        ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1,
+        fixture.admission,
+        persistence,
+        d1.store,
+        d1.runtime,
+      );
+      const admissionBody = await admission.clone().json();
+      expect(admission.status, JSON.stringify(admissionBody)).toBe(200);
+      const execution = await runRecoveryRequest(
+        fixture,
+        backend,
+        ROUTER_AB_ED25519_YAO_RECOVERY_EXECUTE_PATH_V1,
+        fixture.execution,
+        persistence,
+        d1.store,
+        d1.runtime,
+      );
+      expect(execution.status).toBe(200);
+      const activation = await runRecoveryRequest(
+        fixture,
+        backend,
+        ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1,
+        fixture.activation,
+        persistence,
+        d1.store,
+        d1.runtime,
+      );
+      expect(activation.status).toBe(200);
+      const activationBody = await activation.clone().text();
+      const activationReplay = await runRecoveryRequest(
+        fixture,
+        backend,
+        ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1,
+        fixture.activation,
+        persistence,
+        d1.store,
+        d1.runtime,
+      );
+      expect(activationReplay.status).toBe(200);
+      expect(await activationReplay.text()).toBe(activationBody);
+
+      const signer = await d1.walletStore.getEd25519SignerBySlot({
+        walletId: capability.next.admissionRequest.application_binding.wallet_id,
+        signerSlot: capability.next.admissionRequest.application_binding.key_creation_signer_slot,
+      });
+      expect(signer?.activeYaoCapability).toEqual(capability.next);
+      await expect(
+        d1.runtime.resolveActiveCapability(
+          routerAbEd25519YaoCapabilityLookupFixture(capability.next),
+        ),
+      ).resolves.toMatchObject({
+        ok: true,
+        capability: { stateEpoch: capability.next.activationResult.public_receipt.state_epoch },
+      });
+      expect(d1.persistedCapabilityLoadCount()).toBe(1);
+      expect({
+        admissionCalls: backend.admitCalls,
+        executionCalls: backend.executeCalls,
+        activationCalls: backend.activateCalls,
+      }).toEqual({ admissionCalls: 1, executionCalls: 1, activationCalls: 1 });
+    } finally {
+      d1.cleanup();
+    }
+  });
+
   test('routes warm recovery bootstrap through the request-scoped capability resolver', async () => {
     const fixture = await buildRouterAbEd25519YaoRecoveryRequestScopedFixture();
     const response = await runRecoveryRequest(
@@ -478,6 +633,7 @@ async function runRecoveryRequest(
   body: unknown,
   capabilityPersistence: RouterAbEd25519YaoCapabilityPersistenceV1 = new AppliedCapabilityPersistence(),
   store: RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1 = fixture.store,
+  capabilities: RouterAbEd25519YaoActiveCapabilityResolverV1 = fixture.capabilities,
 ): Promise<Response> {
   const input: RouterAbEd25519YaoRecoveryRequestScopedCloudflareInputV1 = {
     request: new Request(`https://router.example.test${path}`, {
@@ -489,7 +645,7 @@ async function runRecoveryRequest(
     backend,
     authorization: fixture.authorization,
     capabilityPersistence,
-    capabilities: fixture.capabilities,
+    capabilities,
   };
   return await handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1(input);
 }
@@ -526,4 +682,8 @@ function bytesToHex(value: readonly number[]): string {
   let result = '';
   for (const byte of value) result += byte.toString(16).padStart(2, '0');
   return result;
+}
+
+function fixedCapabilityPersistenceNow(): number {
+  return 1_900_000_001_000;
 }

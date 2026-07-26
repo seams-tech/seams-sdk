@@ -165,12 +165,28 @@ cross-run artifact inputs.
 | `VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID`                | Pages build       | Exact SigningWorker id bound into Router A/B warm signing sessions.            |
 | `VITE_DASHBOARD_WALLETS_ROUTES_ENABLED`                  | Pages build       | Optional dashboard route gate.                                                 |
 
-The Gateway GitHub Environment has one non-secret deployment variable:
+The Gateway GitHub Environment has one required non-secret deployment variable:
 `GATEWAY_DEPLOYMENT_CONFIG_JSON`. Its versioned document contains D1 and
 Secrets Store resource IDs, tenant identity, origins, Router A/B public
 identity, session settings, bootstrap metadata, and optional integration
 configuration. The deployment renderer validates this document once and emits
 the individual Worker bindings expected by the runtime.
+
+Refactor 93 adds six optional non-secret cutover variables:
+
+- `ROUTER_AB_YAO_GATEWAY_REGISTRATION_ADMISSION_CUTOFF_MS`
+- `ROUTER_AB_YAO_GATEWAY_REGISTRATION_DRAIN_UNTIL_MS`
+- `ROUTER_AB_YAO_GATEWAY_RECOVERY_ADMISSION_CUTOFF_MS`
+- `ROUTER_AB_YAO_GATEWAY_RECOVERY_DRAIN_UNTIL_MS`
+- `ROUTER_AB_YAO_GATEWAY_EXPORT_ADMISSION_CUTOFF_MS`
+- `ROUTER_AB_YAO_GATEWAY_EXPORT_DRAIN_UNTIL_MS`
+
+Keep every pair empty before its family begins cutover. Configure both values
+for one family in the same deployment: the cutoff stops new admission, and the
+drain boundary follows the measured maximum in-flight lifetime. Registration,
+recovery, and export use independent schedules. The deployment preflight and
+renderer reject incomplete, reversed, invalid, and obsolete tenant-wide window
+configuration.
 
 Gateway cryptographic values and external credentials remain separate GitHub
 secrets. This preserves GitHub secret masking and allows credential rotation
@@ -428,10 +444,12 @@ with remote D1 database IDs, Cloudflare Secrets Store ID, relayer public key, an
 the required Wrangler secret declarations before running the preflight. The
 console Worker config binds only `CONSOLE_DB`. The Gateway config binds
 `CONSOLE_DB`, `SIGNER_DB`, `THRESHOLD_STORE`, hosted signer KEKs, Gateway
-session env secrets, and relayer secrets. The check fails if either config points at the wrong staging Worker,
+session env secrets, relayer secrets, and six empty family cutover variable
+slots. The check fails if either config points at the wrong staging Worker,
 contains Postgres env tokens, stores signer KEKs, session secrets, or
 sponsored-EVM executor config in plaintext vars, omits required profile
-bindings, or leaves D1/Secrets Store placeholders in place.
+bindings, contains an invalid family window, references an obsolete tenant-wide
+window, or leaves D1/Secrets Store placeholders in place.
 
 Production uses separate database names and IDs from staging. Apply D1
 migrations before deploying Workers that depend on new columns or tables.

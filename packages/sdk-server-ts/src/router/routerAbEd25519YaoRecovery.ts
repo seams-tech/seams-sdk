@@ -382,7 +382,6 @@ class EphemeralRouterAbEd25519YaoCapabilityPersistenceV1 implements RouterAbEd25
 export type RouterAbEd25519YaoActiveCapabilityLookupV1 = {
   readonly kind: 'router_ab_ed25519_yao_active_capability_lookup_v1';
   readonly walletId: string;
-  readonly nearAccountId: string;
   readonly nearEd25519SigningKeyId: string;
   readonly signerSlot: number;
   readonly signingWorkerId: string;
@@ -1392,7 +1391,6 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
     input: RouterAbEd25519YaoActiveCapabilityLookupV1,
   ): RouterAbEd25519YaoActiveCapabilityLookupResultV1 {
     const walletId = String(input.walletId || '').trim();
-    const nearAccountId = String(input.nearAccountId || '').trim();
     const nearEd25519SigningKeyId = String(input.nearEd25519SigningKeyId || '').trim();
     const signingWorkerId = String(input.signingWorkerId || '').trim();
     const firstParticipantId = input.participantIds?.[0];
@@ -1400,7 +1398,6 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
     if (
       input.kind !== 'router_ab_ed25519_yao_active_capability_lookup_v1' ||
       !walletId ||
-      !nearAccountId ||
       !nearEd25519SigningKeyId ||
       !signingWorkerId ||
       !Number.isSafeInteger(input.signerSlot) ||
@@ -1425,7 +1422,6 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
       const identity = state.identity;
       if (
         identity.applicationBinding.wallet_id !== walletId ||
-        identity.nearAccountId !== nearAccountId ||
         identity.applicationBinding.near_ed25519_signing_key_id !== nearEd25519SigningKeyId ||
         identity.applicationBinding.key_creation_signer_slot !== input.signerSlot ||
         identity.activationBinding.lifecycle.selected_server_id !== signingWorkerId ||
@@ -2351,7 +2347,6 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
     const activeCapability = await this.capabilities.resolveActiveCapability({
       kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
       walletId: parsed.value.walletId,
-      nearAccountId: parsed.value.nearAccountId,
       nearEd25519SigningKeyId: parsed.value.nearEd25519SigningKeyId,
       signerSlot: parsed.value.signerSlot,
       signingWorkerId: parsed.value.signingWorkerId,
@@ -2489,6 +2484,7 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
 export function createRouterAbEd25519YaoRecoveryModule(input: {
   readonly service: RouterAbEd25519YaoRecoveryService &
     RouterAbEd25519YaoActiveCapabilityResolverV1;
+  readonly capabilities?: RouterAbEd25519YaoActiveCapabilityResolverV1;
   readonly authorization: RouterAbEd25519YaoRecoveryAuthorizationAdapter;
 }): RouterApiModule {
   return createRouterApiModule({
@@ -2496,7 +2492,7 @@ export function createRouterAbEd25519YaoRecoveryModule(input: {
     routeExtensions: [
       new RouterAbEd25519YaoRecoveryRouteExtension(
         input.service,
-        input.service,
+        input.capabilities ?? input.service,
         input.authorization,
       ),
     ],

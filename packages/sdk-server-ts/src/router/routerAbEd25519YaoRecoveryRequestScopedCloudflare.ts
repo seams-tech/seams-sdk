@@ -388,7 +388,6 @@ async function runWarmRecoveryBootstrapRequest(
   const activeCapability = await context.input.capabilities.resolveActiveCapability({
     kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
     walletId: request.walletId,
-    nearAccountId: request.nearAccountId,
     nearEd25519SigningKeyId: request.nearEd25519SigningKeyId,
     signerSlot: request.signerSlot,
     signingWorkerId: request.signingWorkerId,

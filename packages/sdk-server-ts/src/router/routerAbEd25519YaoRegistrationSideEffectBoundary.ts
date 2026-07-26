@@ -3,39 +3,42 @@ import type {
   CloudflareVersionedJsonRecordReadResult,
 } from './cloudflare/versionedJsonRecordStore';
 
-export type RouterAbEd25519YaoRegistrationSideEffectOperationV1 = 'start' | 'finalize';
+export type RouterAbEd25519YaoRegistrationSideEffectOperationV1 =
+  | 'finalize'
+  | 'registration_start'
+  | 'add_signer_start'
+  | 'add_signer_finalize';
 
 /**
- * `prepared` carries the exact artifact the effect will act on — for
- * finalization, the signed sponsored transaction and its hash. It is persisted
- * with the claim, before the effect runs, so an ambiguous outcome can be
- * reconciled by replaying that exact artifact instead of building a new one.
+ * The semantic request fingerprint detects idempotency conflicts before
+ * preparation. The prepared artifact fingerprint binds the exact durable
+ * bytes that execution may replay after an ambiguous outcome.
  */
-type RouterAbEd25519YaoRegistrationSideEffectClaimBaseV1 = {
+export type RouterAbEd25519YaoRegistrationSideEffectClaimV1<P> = {
   readonly kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1';
   readonly operation: RouterAbEd25519YaoRegistrationSideEffectOperationV1;
   readonly requestFingerprint: string;
+  readonly preparedArtifactFingerprint: string;
   readonly claimedAtMs: number;
+  readonly prepared: P;
 };
 
-export type RouterAbEd25519YaoRegistrationSideEffectClaimV1<P = never> =
-  | RouterAbEd25519YaoRegistrationSideEffectClaimBaseV1
-  | (RouterAbEd25519YaoRegistrationSideEffectClaimBaseV1 & { readonly prepared: P });
-
-export type RouterAbEd25519YaoRegistrationSideEffectCompletionV1<T> = {
+export type RouterAbEd25519YaoRegistrationSideEffectCompletionV1<T, P> = {
   readonly kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1';
   readonly operation: RouterAbEd25519YaoRegistrationSideEffectOperationV1;
   readonly requestFingerprint: string;
+  readonly preparedArtifactFingerprint: string;
   readonly claimedAtMs: number;
   readonly completedAtMs: number;
+  readonly prepared: P;
   readonly response: T;
 };
 
-export type RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P = never> =
+export type RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P> =
   | RouterAbEd25519YaoRegistrationSideEffectClaimV1<P>
-  | RouterAbEd25519YaoRegistrationSideEffectCompletionV1<T>;
+  | RouterAbEd25519YaoRegistrationSideEffectCompletionV1<T, P>;
 
-export interface RouterAbEd25519YaoRegistrationSideEffectStoreV1<T, P = never> {
+export interface RouterAbEd25519YaoRegistrationSideEffectStoreV1<T, P> {
   read(
     key: string,
   ): Promise<
@@ -48,50 +51,86 @@ export interface RouterAbEd25519YaoRegistrationSideEffectStoreV1<T, P = never> {
   ): Promise<CloudflareVersionedJsonRecordPutResult>;
 }
 
+export function parseRouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>(
+  raw: unknown,
+  input: {
+    readonly operation: RouterAbEd25519YaoRegistrationSideEffectOperationV1;
+    readonly parsePrepared: (value: unknown) => P | null;
+    readonly parseResponse: (value: unknown) => T | null;
+  },
+): RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P> | null {
+  if (!isRecord(raw) || raw.operation !== input.operation) return null;
+  const requestFingerprint = parseFingerprint(raw.requestFingerprint);
+  const preparedArtifactFingerprint = parsePreparedFingerprint(raw.preparedArtifactFingerprint);
+  const claimedAtMs = parseTimestamp(raw.claimedAtMs);
+  const prepared = input.parsePrepared(raw.prepared);
+  if (
+    requestFingerprint === null ||
+    preparedArtifactFingerprint === null ||
+    claimedAtMs === null ||
+    prepared === null
+  ) {
+    return null;
+  }
+  if (raw.kind === 'router_ab_ed25519_yao_registration_side_effect_claim_v1') {
+    return {
+      kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1',
+      operation: input.operation,
+      requestFingerprint,
+      preparedArtifactFingerprint,
+      claimedAtMs,
+      prepared,
+    };
+  }
+  if (raw.kind !== 'router_ab_ed25519_yao_registration_side_effect_completion_v1') return null;
+  const completedAtMs = parseTimestamp(raw.completedAtMs);
+  const response = input.parseResponse(raw.response);
+  if (completedAtMs === null || response === null) return null;
+  return {
+    kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
+    operation: input.operation,
+    requestFingerprint,
+    preparedArtifactFingerprint,
+    claimedAtMs,
+    completedAtMs,
+    prepared,
+    response,
+  };
+}
+
 /**
- * `attempt` is `resumed` when a prior attempt already persisted this artifact
- * and broadcast an effect whose outcome was never observed. A replay-safe
- * effect should reconcile before repeating itself.
+ * `resumed` means a prior attempt persisted this exact artifact and may have
+ * broadcast it without observing the outcome. Execution must reconcile before
+ * it repeats any network effect.
  */
 export type RouterAbEd25519YaoRegistrationSideEffectAttemptV1 = 'fresh' | 'resumed';
 
-type RouterAbEd25519YaoRegistrationSideEffectRunInputBaseV1 = {
+export type RouterAbEd25519YaoRegistrationSideEffectRunInputV1<T, P> = {
+  readonly kind: 'prepared_resumable';
   readonly operation: RouterAbEd25519YaoRegistrationSideEffectOperationV1;
   readonly key: string;
   readonly requestFingerprint: string;
+  readonly resumeAfterMs: number;
   readonly nowMs: () => number;
+  readonly prepare: () => Promise<P>;
+  readonly derivePreparedArtifactFingerprint: (prepared: P) => Promise<string>;
+  readonly execute: (
+    prepared: P,
+    attempt: RouterAbEd25519YaoRegistrationSideEffectAttemptV1,
+  ) => Promise<T>;
 };
 
-export type RouterAbEd25519YaoRegistrationSideEffectRunInputV1<T, P = never> =
-  | (RouterAbEd25519YaoRegistrationSideEffectRunInputBaseV1 & {
-      readonly kind: 'non_resumable';
-      readonly prepare?: never;
-      readonly execute: (attempt: 'fresh') => Promise<T>;
-    })
-  | (RouterAbEd25519YaoRegistrationSideEffectRunInputBaseV1 & {
-      readonly kind: 'prepared_resumable';
-      readonly resumeAfterMs: number;
-      readonly prepare: () => Promise<P>;
-      readonly execute: (
-        prepared: P,
-        attempt: RouterAbEd25519YaoRegistrationSideEffectAttemptV1,
-      ) => Promise<T>;
-    });
+export type RouterAbEd25519YaoRegistrationSideEffectExecutionV1<T, P> =
+  RouterAbEd25519YaoRegistrationSideEffectRunInputV1<T, P>['execute'];
 
-export type RouterAbEd25519YaoRegistrationSideEffectExecutionV1<
-  T,
-  P = never,
-> = RouterAbEd25519YaoRegistrationSideEffectRunInputV1<T, P>['execute'];
-
-export type RouterAbEd25519YaoRegistrationSideEffectRunResultV1<T, P = never> =
+export type RouterAbEd25519YaoRegistrationSideEffectRunResultV1<T, P> =
   | { readonly kind: 'executed'; readonly value: T }
   | { readonly kind: 'exact_replay'; readonly value: T }
-  /**
-   * A claim exists for this exact request but no completion. `prepared` is the
-   * durable artifact from the original attempt; a caller that can replay it
-   * safely should do so rather than constructing a new one.
-   */
-  | { readonly kind: 'in_progress'; readonly prepared?: P }
+  | {
+      readonly kind: 'in_progress';
+      readonly prepared: P;
+      readonly preparedArtifactFingerprint: string;
+    }
   | { readonly kind: 'request_conflict' }
   | {
       readonly kind: 'uncertain';
@@ -100,83 +139,106 @@ export type RouterAbEd25519YaoRegistrationSideEffectRunResultV1<T, P = never> =
     };
 
 /**
- * Claims a start/finalize request before any one-use effect. Prepared effects
- * may resume from the durable artifact after response loss; their execution
- * must therefore be idempotent. The first terminal CAS wins, and every
- * competing request returns that exact committed response.
+ * Persists an exact prepared artifact before its one-use effect. A stale claim
+ * resumes from that artifact without running preparation again. Claim and
+ * completion reads verify the artifact fingerprint before returning a result
+ * or allowing a network effect.
  */
-export async function runRouterAbEd25519YaoRegistrationSideEffectV1<T, P = never>(
+export async function runRouterAbEd25519YaoRegistrationSideEffectV1<T, P>(
   store: RouterAbEd25519YaoRegistrationSideEffectStoreV1<T, P>,
   input: RouterAbEd25519YaoRegistrationSideEffectRunInputV1<T, P>,
 ): Promise<RouterAbEd25519YaoRegistrationSideEffectRunResultV1<T, P>> {
   const key = requireOpaqueKey(input.key);
   const requestFingerprint = requireRequestFingerprint(input.requestFingerprint);
+  const resumeAfterMs = requirePositiveDuration(input.resumeAfterMs, 'resumeAfterMs');
+
   let existing: CloudflareVersionedJsonRecordReadResult<
     RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>
   >;
+  let disposition: ExistingDisposition<T, P>;
   try {
     existing = await store.read(key);
+    disposition = await existingDisposition(
+      existing,
+      requestFingerprint,
+      input.derivePreparedArtifactFingerprint,
+    );
   } catch (error: unknown) {
     return uncertainResult('claim', error);
   }
-  const disposition = existingDisposition(existing, input.operation, requestFingerprint);
-  const resumeAfterMs =
-    input.kind === 'prepared_resumable'
-      ? requirePositiveDuration(input.resumeAfterMs, 'resumeAfterMs')
-      : 0;
+
   const resumable =
-    input.kind === 'prepared_resumable' &&
     disposition.kind === 'in_progress' &&
-    disposition.prepared !== undefined &&
     existing.kind === 'present' &&
     existing.value.kind === 'router_ab_ed25519_yao_registration_side_effect_claim_v1' &&
     input.nowMs() - existing.value.claimedAtMs >= resumeAfterMs;
   if (disposition.kind !== 'fresh' && !resumable) return disposition;
 
-  let preparedForExecution: P | undefined;
+  let preparedForExecution: P;
+  let preparedArtifactFingerprint: string;
   let claimedAtMs: number;
   let claimVersion: string;
-  if (resumable && existing.kind === 'present') {
-    // Resume the interrupted attempt: replay its persisted artifact under the
-    // original claim rather than building a second one.
-    if (
-      existing.value.kind !== 'router_ab_ed25519_yao_registration_side_effect_claim_v1' ||
-      !('prepared' in existing.value)
-    ) {
-      return {
-        kind: 'uncertain',
-        phase: 'claim',
-        message: 'prepared side-effect claim could not be reconciled',
-      };
-    }
+  if (
+    resumable &&
+    existing.kind === 'present' &&
+    existing.value.kind === 'router_ab_ed25519_yao_registration_side_effect_claim_v1'
+  ) {
     preparedForExecution = existing.value.prepared;
-    claimedAtMs = existing.value.claimedAtMs;
-    claimVersion = existing.version;
-  } else {
-    let claim: RouterAbEd25519YaoRegistrationSideEffectClaimV1<P>;
-    if (input.kind === 'prepared_resumable') {
+    preparedArtifactFingerprint = existing.value.preparedArtifactFingerprint;
+    const takeoverClaim: RouterAbEd25519YaoRegistrationSideEffectClaimV1<P> = {
+      kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1',
+      operation: input.operation,
+      requestFingerprint,
+      preparedArtifactFingerprint,
+      claimedAtMs: requireTimestamp(input.nowMs(), 'claimedAtMs'),
+      prepared: preparedForExecution,
+    };
+    let takeover: CloudflareVersionedJsonRecordPutResult;
+    try {
+      takeover = await store.put(key, takeoverClaim, existing.version);
+    } catch (error: unknown) {
+      return uncertainResult('claim', error);
+    }
+    if (takeover.kind === 'version_mismatch') {
       try {
-        preparedForExecution = await input.prepare();
+        const reconciled = await readDisposition(
+          store,
+          key,
+          requestFingerprint,
+          input.derivePreparedArtifactFingerprint,
+        );
+        return reconciled.kind === 'fresh'
+          ? {
+              kind: 'uncertain',
+              phase: 'claim',
+              message: 'registration side-effect takeover could not be reconciled',
+            }
+          : reconciled;
       } catch (error: unknown) {
         return uncertainResult('claim', error);
       }
-      claim = {
-        kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1',
-        operation: input.operation,
-        requestFingerprint,
-        claimedAtMs: requireTimestamp(input.nowMs(), 'claimedAtMs'),
-        prepared: preparedForExecution,
-      };
-    } else {
-      claim = {
-        kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1',
-        operation: input.operation,
-        requestFingerprint,
-        claimedAtMs: requireTimestamp(input.nowMs(), 'claimedAtMs'),
-      };
     }
-
+    claimedAtMs = takeoverClaim.claimedAtMs;
+    claimVersion = takeover.version;
+  } else {
+    try {
+      preparedForExecution = requirePrepared(await input.prepare());
+      preparedArtifactFingerprint = requirePreparedArtifactFingerprint(
+        await input.derivePreparedArtifactFingerprint(preparedForExecution),
+      );
+    } catch (error: unknown) {
+      return uncertainResult('claim', error);
+    }
+    const claim: RouterAbEd25519YaoRegistrationSideEffectClaimV1<P> = {
+      kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1',
+      operation: input.operation,
+      requestFingerprint,
+      preparedArtifactFingerprint,
+      claimedAtMs: requireTimestamp(input.nowMs(), 'claimedAtMs'),
+      prepared: preparedForExecution,
+    };
     claimedAtMs = claim.claimedAtMs;
+
     let claimed: CloudflareVersionedJsonRecordPutResult;
     try {
       claimed = await store.put(key, claim, null);
@@ -184,19 +246,17 @@ export async function runRouterAbEd25519YaoRegistrationSideEffectV1<T, P = never
       return uncertainResult('claim', error);
     }
     if (claimed.kind === 'version_mismatch') {
-      let reconciledRecord: CloudflareVersionedJsonRecordReadResult<
-        RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>
-      >;
+      let reconciledClaim: ExistingDisposition<T, P>;
       try {
-        reconciledRecord = await store.read(key);
+        reconciledClaim = await readDisposition(
+          store,
+          key,
+          requestFingerprint,
+          input.derivePreparedArtifactFingerprint,
+        );
       } catch (error: unknown) {
         return uncertainResult('claim', error);
       }
-      const reconciledClaim = existingDisposition(
-        reconciledRecord,
-        input.operation,
-        requestFingerprint,
-      );
       return reconciledClaim.kind === 'fresh'
         ? {
             kind: 'uncertain',
@@ -210,24 +270,19 @@ export async function runRouterAbEd25519YaoRegistrationSideEffectV1<T, P = never
 
   let response: T;
   try {
-    if (input.kind === 'prepared_resumable') {
-      if (preparedForExecution === undefined) {
-        throw new Error('prepared side-effect execution artifact is missing');
-      }
-      response = await input.execute(preparedForExecution, resumable ? 'resumed' : 'fresh');
-    } else {
-      response = await input.execute('fresh');
-    }
+    response = await input.execute(preparedForExecution, resumable ? 'resumed' : 'fresh');
   } catch (error: unknown) {
     return uncertainResult('effect', error);
   }
 
-  const completion: RouterAbEd25519YaoRegistrationSideEffectCompletionV1<T> = {
+  const completion: RouterAbEd25519YaoRegistrationSideEffectCompletionV1<T, P> = {
     kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
     operation: input.operation,
     requestFingerprint,
+    preparedArtifactFingerprint,
     claimedAtMs,
     completedAtMs: requireTimestamp(input.nowMs(), 'completedAtMs'),
+    prepared: preparedForExecution,
     response,
   };
   let committed: CloudflareVersionedJsonRecordPutResult;
@@ -238,15 +293,17 @@ export async function runRouterAbEd25519YaoRegistrationSideEffectV1<T, P = never
   }
   if (committed.kind === 'stored') return { kind: 'executed', value: response };
 
-  let terminalRecord: CloudflareVersionedJsonRecordReadResult<
-    RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>
-  >;
+  let reconciled: ExistingDisposition<T, P>;
   try {
-    terminalRecord = await store.read(key);
+    reconciled = await readDisposition(
+      store,
+      key,
+      requestFingerprint,
+      input.derivePreparedArtifactFingerprint,
+    );
   } catch (error: unknown) {
     return uncertainResult('terminal_commit', error);
   }
-  const reconciled = existingDisposition(terminalRecord, input.operation, requestFingerprint);
   if (reconciled.kind === 'exact_replay') return reconciled;
   return {
     kind: 'uncertain',
@@ -262,25 +319,43 @@ type ExistingDisposition<T, P> =
       { readonly kind: 'executed' }
     >;
 
-function existingDisposition<T, P>(
+async function readDisposition<T, P>(
+  store: RouterAbEd25519YaoRegistrationSideEffectStoreV1<T, P>,
+  key: string,
+  requestFingerprint: string,
+  derivePreparedArtifactFingerprint: (prepared: P) => Promise<string>,
+): Promise<ExistingDisposition<T, P>> {
+  return await existingDisposition(
+    await store.read(key),
+    requestFingerprint,
+    derivePreparedArtifactFingerprint,
+  );
+}
+
+async function existingDisposition<T, P>(
   record: CloudflareVersionedJsonRecordReadResult<
     RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>
   >,
-  operation: RouterAbEd25519YaoRegistrationSideEffectOperationV1,
   requestFingerprint: string,
-): ExistingDisposition<T, P> {
+  derivePreparedArtifactFingerprint: (prepared: P) => Promise<string>,
+): Promise<ExistingDisposition<T, P>> {
   if (record.kind === 'missing') return { kind: 'fresh' };
-  if (
-    record.value.operation !== operation ||
-    record.value.requestFingerprint !== requestFingerprint
-  ) {
+  if (record.value.requestFingerprint !== requestFingerprint) {
     return { kind: 'request_conflict' };
+  }
+  const derivedFingerprint = requirePreparedArtifactFingerprint(
+    await derivePreparedArtifactFingerprint(record.value.prepared),
+  );
+  if (derivedFingerprint !== record.value.preparedArtifactFingerprint) {
+    throw new Error('registration side-effect prepared artifact fingerprint is invalid');
   }
   switch (record.value.kind) {
     case 'router_ab_ed25519_yao_registration_side_effect_claim_v1':
-      return 'prepared' in record.value
-        ? { kind: 'in_progress', prepared: record.value.prepared }
-        : { kind: 'in_progress' };
+      return {
+        kind: 'in_progress',
+        prepared: record.value.prepared,
+        preparedArtifactFingerprint: record.value.preparedArtifactFingerprint,
+      };
     case 'router_ab_ed25519_yao_registration_side_effect_completion_v1':
       return { kind: 'exact_replay', value: record.value.response };
     default:
@@ -304,6 +379,21 @@ function requireRequestFingerprint(value: string): string {
   return fingerprint;
 }
 
+function requirePreparedArtifactFingerprint(value: string): string {
+  const fingerprint = value.trim();
+  if (!/^[a-zA-Z0-9:_-]{32,192}$/u.test(fingerprint)) {
+    throw new Error('registration side-effect prepared artifact fingerprint is invalid');
+  }
+  return fingerprint;
+}
+
+function requirePrepared<P>(value: P): P {
+  if (value === undefined || value === null) {
+    throw new Error('registration side-effect prepared artifact is missing');
+  }
+  return value;
+}
+
 function requireTimestamp(value: number, label: string): number {
   if (!Number.isSafeInteger(value) || value < 0) {
     throw new Error(`registration side-effect ${label} is invalid`);
@@ -318,11 +408,27 @@ function requirePositiveDuration(value: number, label: string): number {
   return value;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parseFingerprint(value: unknown): string | null {
+  return typeof value === 'string' && /^[a-zA-Z0-9_-]{32,128}$/u.test(value) ? value : null;
+}
+
+function parsePreparedFingerprint(value: unknown): string | null {
+  return typeof value === 'string' && /^[a-zA-Z0-9:_-]{32,192}$/u.test(value) ? value : null;
+}
+
+function parseTimestamp(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
 function uncertainResult(
   phase: 'claim' | 'effect' | 'terminal_commit',
   error: unknown,
 ): Extract<
-  RouterAbEd25519YaoRegistrationSideEffectRunResultV1<never>,
+  RouterAbEd25519YaoRegistrationSideEffectRunResultV1<never, never>,
   { readonly kind: 'uncertain' }
 > {
   return {

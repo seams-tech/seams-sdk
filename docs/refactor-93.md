@@ -854,8 +854,35 @@ ceremony after the user completes authentication. The safe sequence is:
       binding and SQLite migration so no tenant-wide object coordinates Yao.
   - [x] Route registration admission and execution through typed request-scoped
         CAS behind the disabled two-boundary drain selector.
-  - [x] Move registration start, bind, finalize, and shared wallet/session
-        effects behind idempotent request-safe boundaries.
+  - [x] Move registration start, bind, finalize, add-signer, and shared
+        wallet/session effects behind idempotent request-safe boundaries.
+    - [x] Persist a stable registration/add-signer start claim before consuming
+          the grant, binding Yao authorization, preparing either signer branch,
+          or writing the ceremony. Exact retries must return the same ceremony
+          and a conflicting request fingerprint must fail closed.
+      - [x] Close the remaining registration authority/claim ambiguity. A failed
+            OTP, WebAuthn, or add-signer authorization attempt creates no start
+            claim and leaves the grant available for a corrected retry. A
+            successful Email OTP verification now atomically writes an exact,
+            operation-bound D1 receipt while deleting the challenge. Receipt
+            replay bypasses rate limiting, rejects a changed proof, stores no OTP
+            or raw grant, and resumes start after response loss or a crash before
+            the claim write. The real-D1 test covers wrong-then-correct OTP,
+            receipt-batch response loss, the missing-claim interval, and exact
+            recovery.
+    - [x] Put add-signer finalize behind a durable outer claim and terminal
+          receipt so concurrent requests and response loss cannot repeat
+          session minting, normal-signing provisioning, signer insertion, or
+          capability installation. Ed25519 fault injection covers every
+          lifecycle boundary and stable session terms; the strict ECDSA test
+          covers request purpose, respond, activation, signer persistence, exact
+          replay, and conflicting finalize requests on partitioned D1.
+    - [x] Move registration/add-signer intent, ceremony, and replay records off
+          the shared `THRESHOLD_STORE` object to partitioned D1 CAS. The Yao
+          runtime and lifecycle records are request-scoped. Real-SQLite tests
+          cover atomic multi-record writes, one-time take/delete behavior,
+          contention, restart recovery, terminal cancellation, and canonical
+          exact replay; the legacy factory remains only for drain coverage.
     - [x] Split sponsored NEAR account creation into a prepare step that builds,
           signs, and hashes the transaction without broadcasting and a broadcast
           step that replays those exact bytes. Rebuilding would take a fresh
@@ -869,19 +896,29 @@ ceremony after the user completes authentication. The safe sequence is:
           wallet, signer, authentication, and Email OTP enrollment records in
           one D1 batch. The commit input is a discriminated union, so a passkey
           registration carrying enrollment state does not compile.
-    - [x] Classify a broadcast as created, rejected, or uncertain, propagate
-          uncertainty so the claim stays open, and settle the stored hash
-          against the chain before a resumed attempt resubmits. Resolved
-          failures are rejected, successful outcomes are read back against the
-          expected account and FullAccess key, and transport ambiguity remains
-          uncertain. The sponsored-account boundary carries `in_progress` and
-          uncertain outcomes as typed retryable results so the outer finalize
-          claim cannot persist them as terminal account-creation failures.
-    - [x] Parse and validate persisted claims at the D1 boundary so an
-          unparseable record fails closed into a fresh attempt. The parser
-          validates the complete signed effect artifact, including bounded
-          Borsh bytes, transaction metadata, and the prepared hash before any
-          network effect.
+    - [x] Classify the initial broadcast and resumed `txStatus` as created,
+          rejected, or uncertain. Terminal execution success returns created;
+          structured terminal execution failures reject. Pending, not-found,
+          transport, and infrastructure outcomes perform exact account and
+          queried-public-key `FullAccess` readback. Only structured
+          transaction-not-found plus confirmed account absence permits an
+          exact-byte replay on a resumed claim. `InvalidNonce` and `Expired`
+          remain uncertain after absent readback. `send_tx` itself runs once;
+          reconciliation owns every later retry decision. A local HTTP
+          JSON-RPC matrix exercises the production `MinimalNearClient` path for
+          success, execution and status failure, pending readback, outage, and
+          exact replay. The real-D1 finalize suite covers a lost response after
+          the transaction lands without a duplicate broadcast.
+    - [x] Parse the persisted claim envelope at the D1 boundary. Invalid records
+          fail closed as an uncertain claim read and are never reinterpreted as
+          missing or fresh. Before claim resume or terminal replay, decode the
+          bounded signed Borsh bytes; verify sender, signing key, receiver,
+          nonce, block hash, actions, and the NEAR transaction hash against the
+          persisted metadata; recompute the exact signed-byte artifact
+          fingerprint; and compare it with the stored fingerprint. Any failure
+          prevents preparation, `txStatus`, and broadcast. The real-D1 suite
+          mutates only a persisted signature byte while preserving the stored
+          fingerprint and proves that network counts remain unchanged.
     - [x] Prove the finalization sequence converges after a crash between its
           steps. Each write is individually idempotent — wallet, signer, and
           Email OTP statements are `DO UPDATE` upserts, capability installation
@@ -912,17 +949,25 @@ ceremony after the user completes authentication. The safe sequence is:
           than the commit store and side-effect boundary separately. The same
           suite also races two identical finalize requests and verifies an
           exact shared result with one persisted wallet state.
-    - [x] Derive the request fingerprint from the canonical effect identity
-          rather than primarily the activation session. Sponsored account
-          claims hash the account, public key, relayer, and initial balance;
-          the activation-scoped key remains only the durable record key.
+    - [x] Derive the request fingerprint from the stable semantic
+          account-creation intent: receiver account, target public key, relayer
+          account, and initial balance. Persist the complete prepared effect,
+          including the relayer signing key, nonce, block hash, exact signed
+          Borsh bytes, and NEAR transaction hash. The NEAR transaction hash is
+          the decoded unsigned-transaction hash. Separately compute the
+          prepared-artifact fingerprint as SHA-256 over the exact signed Borsh
+          bytes after semantic validation, and recompute it on every claim or
+          completion read.
     - [x] Resolve the Yao runtime per request so registration finalize reads the
           activation from whichever store its execute step used. A fixed runtime
           would have sent execute to the partitioned store while finalize kept
           reading the legacy one.
-    - [x] Replace the optional prepare field and boolean resume flag with a
-          discriminated non-resumable/prepared-resumable input union, with
-          compile-time fixtures rejecting invalid combinations.
+    - [x] Make resumability explicit with a required
+          `kind: 'prepared_resumable'` lifecycle discriminator and required
+          preparation, artifact-fingerprint derivation, resume interval, and
+          execution members. Compile-time fixtures reject an omitted
+          discriminator, missing prepared-lifecycle members, and the obsolete
+          `non_resumable` kind.
     - [x] Build the full partitioned Gateway handler with the D1 runtime in
           both the service provider and Router options. Registration start uses
           it after the registration drain; every public, session, sync-account,
@@ -947,6 +992,24 @@ ceremony after the user completes authentication. The safe sequence is:
           implementation. Cutover timing is configured separately per family;
           existing-wallet capability rehydration is supplied by a bounded
           wallet/slot D1 fallback on a shared-state miss.
+      - [x] Load exactly one canonical signer record on a shared-state miss,
+            validate its persisted capability through the production parser,
+            and install it through the partitioned shared-state CAS. Exact
+            retries reuse the installed record; conflicting state fails closed.
+      - [x] Keep the NEAR account ID as a validated chain projection instead of
+            a capability-selector or wire-identity field. Warm recovery,
+            Email OTP unlock, and sync-account compare the resolved descriptor
+            with their verified account identity. Export remains bound by the
+            signed wallet/key/session/grant/worker/root/participant identity and
+            the exact capability public key, epoch, application binding, and
+            runtime policy. D1 signer parsing independently requires the stored
+            capability account to match the signer account.
+      - [x] Exercise registration-era recovery and recovered-capability export
+            against real D1 from an initially empty partitioned shared record.
+            The export cohort uses a named NEAR account whose value differs
+            from the registered public-key bytes and the production Wallet
+            Session authorization adapter. Exact admission, activation, and
+            completed-result retries do not repeat backend work.
   - [x] Wire recovery admission, execution, and activation to the partitioned
         store as one coherent cutover, dispatched through the selector using the
         environment-backed dependencies. Dormant until the recovery window is
@@ -985,7 +1048,13 @@ ceremony after the user completes authentication. The safe sequence is:
         request-scoped handlers. The local MPC backend keeps the service
         binding and intended-fault controller, so local retries exercise the
         same byte-exact transport boundary as staging. Readiness now checks
-        both versioned JSON CAS tables required by that store.
+        both versioned JSON CAS tables required by that store. The real local
+        Worker and SQLite D1 suite covers registration contention, recovery
+        bootstrap/admission/execution/activation, Email OTP-authorized export,
+        exact replay after Worker reconstruction, typed conflicts, and one
+        Router effect. The native Router executable installs its coordinator
+        dispatcher for execute and recovery-promotion; only the deliberately
+        dispatcher-free lower helper retains the explicit 501 response.
 - [ ] Delete obsolete Deriver Stage and Result route contracts after the
       maximum in-flight ceremony lifetime has elapsed.
 - [ ] Before deleting legacy role routes, complete the cross-key exclusion
@@ -1016,6 +1085,36 @@ authorizes deletion.
 
 ### Phase 6: Deployment And Production Acceptance
 
+The staging product cohort uses a local-only Playwright runner rather than a
+deployed test surface. `pnpm -C tests test:refactor93:staging:check` validates
+the exact staging-origin allowlist and proves that private Router service-auth
+material is rejected without contacting staging. A live run uses
+`pnpm -C tests test:refactor93:staging` with the frozen full commit SHA and the
+public staging frontend configuration in the environment. Playwright serves an
+instrumented frontend locally while fulfilling the exact staging site origin,
+so Gateway CORS and wallet RP-ID policy see the real approved origin. The
+deployed Pages build never receives `VITE_ENABLE_INTENDED_E2E`, and the runner
+adds no Gateway route, privileged adapter, D1 seed, or service-auth path.
+
+The automated live slice covers virtual-passkey registration, client-observed
+response loss, exact retry, concurrent terminal redelivery, and Ed25519 export
+through the real staging Gateway, Router, and role workers. It emits only route
+counts, the frozen SHA, and SHA-256 digests of the in-memory request and terminal
+response. Authorization headers, request bodies, credentials, and wallet state
+are never serialized; Playwright tracing, screenshots, and video are disabled.
+Browser contexts own and discard virtual credentials, and runner output lives
+under the operating-system temporary directory.
+
+Phase 6 evidence composes that external transport slice with the focused
+request-scoped and role-lifecycle suites from the same frozen SHA. Those suites
+remain the authority for deterministic conflicting cryptographic requests,
+terminal burning, process restart, and rollback state transitions that cannot
+be safely injected into a hosted product without a test backdoor. A real
+Touch ID acceptance run, Email OTP recovery from a fresh device, and deployment
+rollback/forward restoration remain explicit human or operator checks. This
+composition does not close any staging checkbox until the live slice and those
+external checks are recorded for one coherent deployment.
+
 Cold/warm production evidence and destructive legacy cleanup are deferred until
 the implementation branch is complete and the coherent staging cutover passes.
 These items remain unchecked so implementation completion cannot be mistaken
@@ -1027,16 +1126,58 @@ be replayed here. Contract tests and optimized four-Worker dry-runs are green;
 the first external validation must be a coherent staging rollout before any
 route-deletion cleanup.
 
-- [ ] Deploy the new Router private route as part of one coherent staging
-      release. The historical route deployment was overwritten by the
-      2026-07-25 staging stack run, whose selected source did not contain the
-      Refactor 93 coordinator. Dispatch `deploy-staging-backend.yml` from
-      `dev` after this branch lands.
-- [ ] With every family window unset, exercise registration, recovery, export,
-      replay, restart, and concurrency on that frozen staging revision. In this
-      phase `legacy_runtime` means tenant-runtime lifecycle persistence; the
-      cryptographic execution path already submits one command to the MPC
-      Router.
+- [x] Deploy the new Router private route as part of one coherent staging
+      release. Staging backend run `30171501501` deployed `dev` revision
+      `bea123f4559e17101733c24f4f64db94ec3b286e` on 2026-07-25. Cloudflare
+      reported SigningWorker version `81c3fca0-c325-4fee-8bf8-6fe91931f1d1`,
+      Deriver A `667e7f6c-8502-4043-aa60-75b52f02c6d5`, Deriver B
+      `0a72499b-e003-4aee-9858-10781f06a361`, Router
+      `f48ea746-baa3-4a60-9758-8f9b9280aa2c`, and Gateway
+      `e0dd36d0-787b-4e19-beb0-c84b8955cc8b`, each at 100% traffic. The
+      Gateway version annotation records the selected revision. Workflow and
+      independent readiness checks passed, and all six family-window bindings
+      remained empty. The first live registration reached the Router but failed
+      before either role entered `Prepared`: Deriver A and Deriver B each
+      rejected the Gateway-requested `root_share_epoch=epoch-1` against their
+      persisted startup metadata. Readiness proved deployment and binding
+      availability; it did not prove that persisted role metadata matched the
+      Gateway-admitted signing-root scope. A reversible staging CAS from
+      `epoch-1` to `default` proved that both Ed25519 roles accept `default` and
+      complete Router execution, while the ECDSA derivation roles reject that
+      same epoch because their persisted metadata is `epoch-1`. The CAS was
+      reverted to `epoch-1`; no role metadata was rewritten. The product flow
+      currently projects one environment `signingRootVersion` onto two
+      independently persisted root-share systems, so staging cannot complete a
+      dual-branch registration with its existing records.
+- [ ] Reconcile the frozen staging revision's admitted signing-root scope with
+      both Ed25519 and ECDSA role-local startup-metadata records. Define the
+      deployment-owned root epoch for each root-share system instead of letting
+      one tenant environment version initialize or relabel role custody state.
+      Correct staging through the supported provisioning or rotation boundary,
+      verify both roles in each system accept the exact configured scope, and
+      add a data-plane preflight that fails before a product ceremony when any
+      required role lacks that scope.
+      The authorized staging-only replacement procedure and pre-upload backup
+      receipt are recorded in
+      [`refactor-93-staging-custody-rotation.md`](./refactor-93-staging-custody-rotation.md).
+      Staging backend run `30174308501` deployed the matched replacement pair
+      and fresh role-local object scopes from frozen `dev` revision
+      `bf3642dc4` on 2026-07-26. All deployment preflights and five Gateway
+      smoke endpoints passed. This item remains open until a fresh dual-branch
+      registration proves both root-share systems accept `epoch-1` through the
+      product data path.
+- [ ] With every family window unset, complete the staging cohort for
+      registration, recovery, export, exact replay, conflict, disconnect,
+      terminal redelivery, rollback, restart, and concurrency on that frozen
+      revision. The first registration attempt failed at both role
+      startup-metadata boundaries because the admitted
+      `root_share_epoch=epoch-1` did not match persisted role metadata; no
+      successful product ceremony has been recorded. A diagnostic registration
+      under `default` completed the Ed25519 Router execute in 4.297 seconds,
+      then failed and canceled at ECDSA derivation because that system requires
+      `epoch-1`. In this phase `legacy_runtime` means tenant-runtime lifecycle
+      persistence; the cryptographic execution path already submits one command
+      to the MPC Router.
 - [x] Superseded: validate the Router while the Gateway still uses the old
       request boundary. The branch already contains the Gateway cutover, so this
       ordering cannot be replayed. The coherent staging rollout below replaces
@@ -1066,7 +1207,8 @@ route-deletion cleanup.
       both hosted environments, and both Gateway jobs require
       `STRIPE_API_SK`. The historical failure and current invariant are recorded
       in [`refactor-93-production-evidence.md`](./refactor-93-production-evidence.md);
-      a new coherent staging run remains open.
+      a coherent staging run completed, while data-plane acceptance remains
+      open on the role startup-metadata mismatch recorded above.
 
 ## Mid-Implementation Review Dispositions (2026-07-24)
 
@@ -1205,6 +1347,10 @@ generated deployment config accepts six explicit per-family values,
 `ROUTER_AB_YAO_GATEWAY_{REGISTRATION,RECOVERY,EXPORT}_DRAIN_UNTIL_MS`; leave a
 family's pair empty during its legacy window, then set its cutoff at quiescence
 and its final boundary after the measured maximum in-flight lifetime. The
+staging and production workflows project those exact values into migration and
+Gateway deployment jobs. Shared preflight and static readiness validation
+reject incomplete, invalid, reversed, or obsolete tenant-wide windows while
+preserving explicit empty pairs before cutover. The
 tenant runtime remains reachable only as the pre-cutover and in-flight drain
 authority. Its binding and historical migration cannot be deleted until the
 coherent staging cutover and maximum-lifetime drain are recorded. The

@@ -14,6 +14,7 @@ import {
   DEFAULT_SESSION_COOKIE_NAME,
   GATEWAY_WORKER_COMPATIBILITY_DATE,
   GATEWAY_WORKER_COMPATIBILITY_FLAGS,
+  parseGatewayCutoverWorkerVars,
   parseGatewayDeploymentConfig,
 } from './gateway-deployment-config.mjs';
 
@@ -151,7 +152,7 @@ function buildWorkerVars(deployment) {
     deployment.runtimeProfile.nearFunding.kind === 'implicit_account_relayer';
   const demoEmailOtpDelivery =
     deployment.runtimeProfile.emailOtpDelivery.kind === 'demo_code_response';
-  const gatewayDrainWindow = readGatewayDrainWindow();
+  const gatewayDrainWindow = parseGatewayCutoverWorkerVars(process.env);
   const vars = {
     SEAMS_TENANT_STORAGE_NAMESPACE: deployment.tenant.namespace,
     SEAMS_STAGING_ORG_ID: deployment.tenant.orgId,
@@ -207,39 +208,6 @@ function buildWorkerVars(deployment) {
   return vars;
 }
 
-function readGatewayDrainWindow() {
-  const vars = {};
-  for (const family of ['REGISTRATION', 'RECOVERY', 'EXPORT']) {
-    const cutoffName = `ROUTER_AB_YAO_GATEWAY_${family}_ADMISSION_CUTOFF_MS`;
-    const drainName = `ROUTER_AB_YAO_GATEWAY_${family}_DRAIN_UNTIL_MS`;
-    const cutoffRaw = String(process.env[cutoffName] || '').trim();
-    const drainRaw = String(process.env[drainName] || '').trim();
-    if (!cutoffRaw && !drainRaw) {
-      vars[cutoffName] = '';
-      vars[drainName] = '';
-      continue;
-    }
-    if (!cutoffRaw || !drainRaw) {
-      throw new Error(`${cutoffName} and ${drainName} must be set together`);
-    }
-    const admissionCutoffMs = parseGatewayTimestamp(cutoffRaw, cutoffName);
-    const drainUntilMs = parseGatewayTimestamp(drainRaw, drainName);
-    if (admissionCutoffMs > drainUntilMs) {
-      throw new Error(`${cutoffName} must not exceed ${drainName}`);
-    }
-    vars[cutoffName] = String(admissionCutoffMs);
-    vars[drainName] = String(drainUntilMs);
-  }
-  return vars;
-}
-
-function parseGatewayTimestamp(raw, name) {
-  const value = Number(raw);
-  if (!Number.isSafeInteger(value) || value < 0) {
-    throw new Error(`${name} must be a non-negative safe integer when set`);
-  }
-  return value;
-}
 function addNearRelayerVars(vars, nearRelayer) {
   if (!nearRelayer) return;
   vars.RELAYER_ACCOUNT_ID = nearRelayer.accountId;

@@ -326,6 +326,7 @@ pub fn write_materialized_envs_with_urls(
         let contents = file
             .contents
             .replace("http://127.0.0.1:9090", &urls.router)
+            .replace("http://127.0.0.1:9100", &urls.router)
             .replace("http://127.0.0.1:9101", &urls.deriver_a)
             .replace("http://127.0.0.1:9102", &urls.deriver_b)
             .replace("http://127.0.0.1:9103", &urls.signing_worker);

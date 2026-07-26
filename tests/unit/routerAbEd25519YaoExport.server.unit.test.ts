@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/encoders';
+import { parseSigningGrantId, parseThresholdEd25519SessionId } from '@shared/utils/domainIds';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import {
@@ -62,7 +63,19 @@ import type {
   RouterAbEd25519YaoActiveCapabilityLookupV1,
   RouterAbEd25519YaoActiveCapabilityLookupResultV1,
   RouterAbEd25519YaoActiveCapabilityResolverV1,
+  RouterAbEd25519YaoActiveCapabilityDescriptorV1,
 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
+import {
+  InMemoryRouterAbEd25519YaoRecoveryService,
+  type RouterAbEd25519YaoRecoveryBackend,
+  type RouterAbEd25519YaoRecoveryBackendResult,
+} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
+import type { WalletEd25519YaoActiveCapabilityRecord } from '../../packages/sdk-server-ts/src/core/WalletStore';
+import { buildRouterAbEd25519YaoCapabilityReplacementFixture } from './helpers/routerAbEd25519YaoRecoveryRequestScoped.fixtures';
+import {
+  createRouterAbEd25519YaoExistingWalletD1Fixture,
+  routerAbEd25519YaoCapabilityLookupFixture,
+} from './helpers/routerAbEd25519YaoExistingWalletD1.fixtures';
 
 const WALLET_ID = 'wallet-export-1';
 const NEAR_ACCOUNT_ID = '0c'.repeat(32);
@@ -101,7 +114,7 @@ type BackendExecution =
   | { readonly kind: 'success' }
   | { readonly kind: 'failure'; readonly message: string };
 
-type ActiveCapabilitySubstitution = 'none' | 'subject' | 'key' | 'slot' | 'epoch' | 'scope';
+type ActiveCapabilitySubstitution = 'none' | 'key' | 'slot' | 'epoch' | 'scope';
 
 type ReceiptScopeSubstitution =
   | 'none'
@@ -360,7 +373,7 @@ class ActiveCapabilityFixture implements RouterAbEd25519YaoActiveCapabilityResol
   constructor(private readonly substitution: ActiveCapabilitySubstitution = 'none') {}
 
   resolveActiveCapability(
-    input: RouterAbEd25519YaoActiveCapabilityLookupV1,
+    _input: RouterAbEd25519YaoActiveCapabilityLookupV1,
   ): RouterAbEd25519YaoActiveCapabilityLookupResultV1 {
     return {
       ok: true,
@@ -368,8 +381,7 @@ class ActiveCapabilityFixture implements RouterAbEd25519YaoActiveCapabilityResol
         kind: 'router_ab_ed25519_yao_active_capability_v1',
         activeCapabilityBinding: bytes(110),
         registeredPublicKey: bytes(12),
-        nearAccountId:
-          this.substitution === 'subject' ? 'substituted-subject.testnet' : input.nearAccountId,
+        nearAccountId: NEAR_ACCOUNT_ID,
         applicationBinding: {
           wallet_id: WALLET_ID,
           near_ed25519_signing_key_id:
@@ -398,7 +410,7 @@ class SessionFixture implements SessionAdapter {
   constructor(
     private readonly result:
       | { readonly ok: true; readonly claims: SessionClaims }
-      | { readonly ok: false },
+      | { readonly ok: false; readonly reason: 'missing' },
   ) {}
 
   async signJwt(): Promise<string> {
@@ -406,7 +418,8 @@ class SessionFixture implements SessionAdapter {
   }
 
   async parse(): Promise<
-    { readonly ok: true; readonly claims: SessionClaims } | { readonly ok: false }
+    | { readonly ok: true; readonly claims: SessionClaims }
+    | { readonly ok: false; readonly reason: 'missing' }
   > {
     return this.result;
   }
@@ -495,6 +508,20 @@ class RequestScopedExportBackend extends ExportBackendFixture {
       throw new Error('Router execution response was lost');
     }
     return super.executeExport(request);
+  }
+}
+
+class UnavailableRecoveryBackendForCapabilityFixture implements RouterAbEd25519YaoRecoveryBackend {
+  admitRecovery(): RouterAbEd25519YaoRecoveryBackendResult {
+    return unavailableRecoveryBackendResult();
+  }
+
+  executeRecovery(): RouterAbEd25519YaoRecoveryBackendResult {
+    return unavailableRecoveryBackendResult();
+  }
+
+  activateRecovery(): RouterAbEd25519YaoRecoveryBackendResult {
+    return unavailableRecoveryBackendResult();
   }
 }
 
@@ -596,6 +623,36 @@ function validEmailOtpClaims(): SessionClaims {
   return claimsForAuthority(authority);
 }
 
+function namedAccountClaimsForCapability(
+  capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1,
+): SessionClaims {
+  const walletId = capability.applicationBinding.wallet_id;
+  const authority = buildPasskeyWalletAuthAuthority({
+    walletId,
+    rpId: RP_ID,
+    credentialIdB64u: CREDENTIAL_ID,
+  });
+  return {
+    kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+    sub: walletId,
+    walletId,
+    nearAccountId: capability.nearAccountId,
+    nearEd25519SigningKeyId: capability.applicationBinding.near_ed25519_signing_key_id,
+    thresholdSessionId: capability.lifecycle.walletSessionId,
+    signingGrantId: SIGNING_GRANT_ID,
+    relayerKeyId: capability.lifecycle.signingWorkerId,
+    authority,
+    authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(authority),
+    runtimePolicyScope: capability.runtimePolicyScope,
+    thresholdExpiresAtMs: Date.now() + 60_000,
+    participantIds: [...capability.participantIds],
+    routerAbNormalSigning: {
+      kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
+      signingWorkerId: capability.lifecycle.signingWorkerId,
+    },
+  };
+}
+
 function webAuthnCredential(): WebAuthnAuthenticationCredential {
   return {
     id: CREDENTIAL_ID,
@@ -648,15 +705,35 @@ function authorizationInput(
 }
 
 function exportAuthorizationIdentity(): RouterAbEd25519YaoExportFreshAuthorizationIdentityV1 {
+  const thresholdSessionId = parseThresholdEd25519SessionId(WALLET_SESSION_ID);
+  const signingGrantId = parseSigningGrantId(SIGNING_GRANT_ID);
+  if (!thresholdSessionId.ok || !signingGrantId.ok) {
+    throw new Error('invalid export authorization fixture identity');
+  }
   return {
-    thresholdSessionId: WALLET_SESSION_ID,
-    signingGrantId: SIGNING_GRANT_ID,
+    thresholdSessionId: thresholdSessionId.value,
+    signingGrantId: signingGrantId.value,
+  };
+}
+
+function exportAuthorizationIdentityForCapability(
+  capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1,
+): RouterAbEd25519YaoExportFreshAuthorizationIdentityV1 {
+  const thresholdSessionId = parseThresholdEd25519SessionId(capability.lifecycle.walletSessionId);
+  const signingGrantId = parseSigningGrantId(SIGNING_GRANT_ID);
+  if (!thresholdSessionId.ok || !signingGrantId.ok) {
+    throw new Error('invalid export authorization fixture identity');
+  }
+  return {
+    thresholdSessionId: thresholdSessionId.value,
+    signingGrantId: signingGrantId.value,
   };
 }
 
 function jsonAdmissionRequest(
   body: RouterAbEd25519YaoExportAdmissionRequestV1,
   origin: string | null,
+  authorizationIdentity = exportAuthorizationIdentity(),
 ): Request {
   return jsonAdmissionEnvelopeRequest(
     body,
@@ -665,6 +742,7 @@ function jsonAdmissionRequest(
       webauthnAuthentication: webAuthnCredential(),
     },
     origin,
+    authorizationIdentity,
   );
 }
 
@@ -672,6 +750,7 @@ function jsonAdmissionEnvelopeRequest(
   body: RouterAbEd25519YaoExportAdmissionRequestV1,
   authorization: unknown,
   origin: string | null,
+  authorizationIdentity = exportAuthorizationIdentity(),
 ): Request {
   const headers = new Headers({
     authorization: 'Bearer export-wallet-session',
@@ -683,13 +762,16 @@ function jsonAdmissionEnvelopeRequest(
     headers,
     body: JSON.stringify({
       protocol: body,
-      authorizationIdentity: exportAuthorizationIdentity(),
+      authorizationIdentity,
       authorization,
     }),
   });
 }
 
-function jsonExecutionEnvelopeRequest(body: RouterAbEd25519YaoExportExecuteRequestV1): Request {
+function jsonExecutionEnvelopeRequest(
+  body: RouterAbEd25519YaoExportExecuteRequestV1,
+  authorizationIdentity = exportAuthorizationIdentity(),
+): Request {
   return new Request(`${ORIGIN}${ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1}`, {
     method: 'POST',
     headers: {
@@ -698,7 +780,7 @@ function jsonExecutionEnvelopeRequest(body: RouterAbEd25519YaoExportExecuteReque
     },
     body: JSON.stringify({
       protocol: body,
-      authorizationIdentity: exportAuthorizationIdentity(),
+      authorizationIdentity,
     }),
   });
 }
@@ -708,13 +790,97 @@ function requestScopedInput(input: {
   readonly store: RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1;
   readonly backend: RouterAbEd25519YaoExportBackend;
   readonly authorization: RouterAbEd25519YaoExportAuthorizationAdapter;
+  readonly capabilities?: RouterAbEd25519YaoActiveCapabilityResolverV1;
 }): RouterAbEd25519YaoExportRequestScopedCloudflareInputV1 {
   return {
     request: input.request,
     store: input.store,
     backend: input.backend,
-    capabilities: new ActiveCapabilityFixture(),
+    capabilities: input.capabilities ?? new ActiveCapabilityFixture(),
     authorization: input.authorization,
+  };
+}
+
+function resolvePersistedCapabilityDescriptor(
+  capability: WalletEd25519YaoActiveCapabilityRecord,
+): RouterAbEd25519YaoActiveCapabilityDescriptorV1 {
+  const service = new InMemoryRouterAbEd25519YaoRecoveryService(
+    new UnavailableRecoveryBackendForCapabilityFixture(),
+  );
+  const installed = service.installPersistedActiveCapability(capability);
+  if (!installed.ok) throw new Error(installed.message);
+  const resolved = service.resolveActiveCapability(
+    routerAbEd25519YaoCapabilityLookupFixture(capability),
+  );
+  if (!resolved.ok) throw new Error(resolved.message);
+  return resolved.capability;
+}
+
+async function admissionFixtureForActiveCapability(
+  capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1,
+  nowMs: number,
+): Promise<RouterAbEd25519YaoExportAdmissionRequestV1> {
+  const identity: RouterAbEd25519YaoExportAuthorizationIdentityV1 = {
+    scope: {
+      lifecycle_id: 'export-existing-recovered-1',
+      root_share_epoch: capability.lifecycle.rootShareEpoch,
+      account_id: capability.lifecycle.accountId,
+      wallet_session_id: capability.lifecycle.walletSessionId,
+      signer_set_id: capability.lifecycle.signerSetId,
+      signing_worker_id: capability.lifecycle.signingWorkerId,
+    },
+    application_binding: capability.applicationBinding,
+    participant_ids: capability.participantIds,
+    registered_public_key: capability.registeredPublicKey,
+    state_epoch: capability.stateEpoch,
+    runtime_policy_binding: await deriveRouterAbEd25519YaoRuntimePolicyBindingV1(
+      capability.runtimePolicyScope,
+    ),
+  };
+  const nonce = bytes(141);
+  const issuedAtMs = nowMs - 1_000;
+  const expiresAtMs = nowMs + 30_000;
+  const confirmationDigest = await deriveRouterAbEd25519YaoExportConfirmationDigestV1({
+    identity,
+    nonce,
+    issuedAtMs,
+    expiresAtMs,
+  });
+  const authorizationDigest = await deriveRouterAbEd25519YaoExportAuthorizationDigestV1({
+    identity,
+    confirmationDigest,
+    nonce,
+    issuedAtMs,
+    expiresAtMs,
+    thresholdSessionId: capability.lifecycle.walletSessionId,
+    signingGrantId: SIGNING_GRANT_ID,
+    authority: { kind: 'passkey', credentialIdB64u: CREDENTIAL_ID },
+  });
+  return requireParsed(
+    parseRouterAbEd25519YaoExportAdmissionRequestV1({
+      scope: identity.scope,
+      application_binding: identity.application_binding,
+      participant_ids: identity.participant_ids,
+      registered_public_key: identity.registered_public_key,
+      state_epoch: identity.state_epoch,
+      runtime_policy_binding: identity.runtime_policy_binding,
+      authorization: {
+        confirmation_digest: confirmationDigest,
+        authorization_digest: authorizationDigest,
+        nonce,
+        issued_at_ms: issuedAtMs,
+        expires_at_ms: expiresAtMs,
+      },
+    }),
+  );
+}
+
+function unavailableRecoveryBackendResult(): RouterAbEd25519YaoRecoveryBackendResult {
+  return {
+    ok: false,
+    status: 503,
+    code: 'fixture_backend_unavailable',
+    message: 'fixture backend unavailable',
   };
 }
 
@@ -723,6 +889,82 @@ async function responseBody(response: Response): Promise<unknown> {
 }
 
 test.describe('Router A/B Ed25519 Yao export server boundary', () => {
+  test('rehydrates a recovered D1 capability and redelivers export from empty partitioned state', async () => {
+    const replacement = buildRouterAbEd25519YaoCapabilityReplacementFixture();
+    const capability = resolvePersistedCapabilityDescriptor(replacement.next);
+    const d1 = await createRouterAbEd25519YaoExistingWalletD1Fixture({
+      namespace: 'yao-existing-wallet-export-test',
+      capability: replacement.next,
+    });
+    try {
+      const request = await admissionFixtureForActiveCapability(capability, Date.now());
+      const execution = executeFixture(request);
+      const authorizationIdentity = exportAuthorizationIdentityForCapability(capability);
+      const initial = await d1.store.load(request.scope.lifecycle_id);
+      expect(initial.state.recovery.capabilities.size).toBe(0);
+      const backend = new RequestScopedExportBackend();
+      expect(capability.nearAccountId).toBe('wallet-recovery-1.testnet');
+      expect(capability.nearAccountId).not.toMatch(/^[0-9a-f]{64}$/);
+      const authorization = new RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter(
+        new SessionFixture({ ok: true, claims: namedAccountClaimsForCapability(capability) }),
+        new WebAuthnFixture(true),
+      );
+
+      const admitted = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+        requestScopedInput({
+          request: jsonAdmissionRequest(request, ORIGIN, authorizationIdentity),
+          store: d1.store,
+          backend,
+          authorization,
+          capabilities: d1.runtime,
+        }),
+      );
+      expect(admitted.status, JSON.stringify(await admitted.clone().json())).toBe(200);
+      const admissionBody = await admitted.text();
+      const admissionReplay = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+        requestScopedInput({
+          request: jsonAdmissionRequest(request, ORIGIN, authorizationIdentity),
+          store: d1.store,
+          backend,
+          authorization,
+          capabilities: d1.runtime,
+        }),
+      );
+      expect(admissionReplay.status).toBe(200);
+      expect(await admissionReplay.text()).toBe(admissionBody);
+
+      const executed = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+        requestScopedInput({
+          request: jsonExecutionEnvelopeRequest(execution, authorizationIdentity),
+          store: d1.store,
+          backend,
+          authorization,
+          capabilities: d1.runtime,
+        }),
+      );
+      expect(executed.status).toBe(200);
+      const executionBody = await executed.text();
+      const executionReplay = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
+        requestScopedInput({
+          request: jsonExecutionEnvelopeRequest(execution, authorizationIdentity),
+          store: d1.store,
+          backend,
+          authorization,
+          capabilities: d1.runtime,
+        }),
+      );
+      expect(executionReplay.status).toBe(200);
+      expect(await executionReplay.text()).toBe(executionBody);
+      expect({
+        persistedCapabilityLoads: d1.persistedCapabilityLoadCount(),
+        admissionCalls: backend.admitCalls,
+        executionCalls: backend.executeCalls,
+      }).toEqual({ persistedCapabilityLoads: 1, admissionCalls: 1, executionCalls: 1 });
+    } finally {
+      d1.cleanup();
+    }
+  });
+
   test('verifies a fresh WebAuthn assertion against the exact digest, wallet, RP, and Origin', async () => {
     const nowMs = Date.now();
     const body = await admissionFixture(defaultAdmissionFixtureOptions(nowMs));
@@ -861,9 +1103,8 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
     ).resolves.toMatchObject({ ok: false, code: 'export_authorization_method_mismatch' });
   });
 
-  test('rejects active subject, key, slot, epoch, and lifecycle-scope substitutions', async () => {
+  test('rejects active key, slot, epoch, and lifecycle-scope substitutions', async () => {
     const substitutions: readonly ActiveCapabilitySubstitution[] = [
-      'subject',
       'key',
       'slot',
       'epoch',

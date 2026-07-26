@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test';
+import { alphabetizeStringify, sha256BytesUtf8 } from '../../packages/shared-ts/src/utils/digests';
+import { base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 import { mintRouterAbEd25519YaoWalletSessionV1 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistration';
@@ -25,11 +27,21 @@ type TestResponse = {
   readonly receipt: string;
 };
 
+type PreparedMarker = { readonly kind: 'prepared_test_effect' };
+
+async function deriveTestPreparedArtifactFingerprint(prepared: unknown): Promise<string> {
+  return base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(prepared)));
+}
+
+async function prepareTestEffect(): Promise<PreparedMarker> {
+  return { kind: 'prepared_test_effect' };
+}
+
 class SideEffectProbe {
   calls = 0;
 
   constructor(
-    private readonly store: RegistrationSideEffectMemoryStore<TestResponse>,
+    private readonly store: RegistrationSideEffectMemoryStore<TestResponse, PreparedMarker>,
     private readonly fail = false,
     private readonly key = 'registration-finalize:lifecycle-1',
   ) {}
@@ -39,7 +51,8 @@ class SideEffectProbe {
     const claimed = await this.store.read(this.key);
     if (
       claimed.kind !== 'present' ||
-      claimed.value.kind !== 'router_ab_ed25519_yao_registration_side_effect_claim_v1'
+      claimed.value.kind !== 'router_ab_ed25519_yao_registration_side_effect_claim_v1' ||
+      claimed.value.prepared.kind !== 'prepared_test_effect'
     ) {
       throw new Error('side effect ran before its durable claim');
     }
@@ -50,22 +63,14 @@ class SideEffectProbe {
 
 function bridgeRunInput(probe: SideEffectProbe) {
   return {
-    kind: 'non_resumable' as const,
+    kind: 'prepared_resumable' as const,
     operation: 'finalize' as const,
     key: 'registration-finalize:lifecycle-1',
     requestFingerprint: REQUEST_FINGERPRINT,
+    resumeAfterMs: 1,
     nowMs: fixedNow,
-    execute: probe.execute.bind(probe),
-  };
-}
-
-function startBridgeRunInput(probe: SideEffectProbe) {
-  return {
-    kind: 'non_resumable' as const,
-    operation: 'start' as const,
-    key: 'registration-start:intent-grant-digest',
-    requestFingerprint: REQUEST_FINGERPRINT,
-    nowMs: fixedNow,
+    prepare: prepareTestEffect,
+    derivePreparedArtifactFingerprint: deriveTestPreparedArtifactFingerprint,
     execute: probe.execute.bind(probe),
   };
 }
@@ -144,7 +149,7 @@ test.describe('registration side-effect persistence bridge', () => {
   });
 
   test('claims before effects and replays the exact terminal response without repeating them', async () => {
-    const store = new RegistrationSideEffectMemoryStore<TestResponse>();
+    const store = new RegistrationSideEffectMemoryStore<TestResponse, PreparedMarker>();
     const probe = new SideEffectProbe(store);
 
     await expect(
@@ -162,27 +167,8 @@ test.describe('registration side-effect persistence bridge', () => {
     expect(probe.calls).toBe(1);
   });
 
-  test('protects registration-intent consumption with the same durable start claim', async () => {
-    const store = new RegistrationSideEffectMemoryStore<TestResponse>();
-    const probe = new SideEffectProbe(store, false, 'registration-start:intent-grant-digest');
-
-    await expect(
-      runRouterAbEd25519YaoRegistrationSideEffectV1(store, startBridgeRunInput(probe)),
-    ).resolves.toEqual({
-      kind: 'executed',
-      value: { ok: true, receipt: 'wallet-session-receipt' },
-    });
-    await expect(
-      runRouterAbEd25519YaoRegistrationSideEffectV1(store, startBridgeRunInput(probe)),
-    ).resolves.toEqual({
-      kind: 'exact_replay',
-      value: { ok: true, receipt: 'wallet-session-receipt' },
-    });
-    expect(probe.calls).toBe(1);
-  });
-
   test('leaves an uncertain claim durable and never retries an unknown effect', async () => {
-    const store = new RegistrationSideEffectMemoryStore<TestResponse>();
+    const store = new RegistrationSideEffectMemoryStore<TestResponse, PreparedMarker>();
     const probe = new SideEffectProbe(store, true);
 
     await expect(
@@ -194,12 +180,12 @@ test.describe('registration side-effect persistence bridge', () => {
     });
     await expect(
       runRouterAbEd25519YaoRegistrationSideEffectV1(store, bridgeRunInput(probe)),
-    ).resolves.toEqual({ kind: 'in_progress' });
+    ).resolves.toMatchObject({ kind: 'in_progress', prepared: { kind: 'prepared_test_effect' } });
     expect(probe.calls).toBe(1);
   });
 
   test('does not invoke an effect when the durable claim write throws', async () => {
-    const store = new RegistrationSideEffectMemoryStore<TestResponse>();
+    const store = new RegistrationSideEffectMemoryStore<TestResponse, PreparedMarker>();
     store.throwClaimPuts = 1;
     const probe = new SideEffectProbe(store);
 
@@ -214,7 +200,7 @@ test.describe('registration side-effect persistence bridge', () => {
   });
 
   test('does not invoke an effect when the initial claim read throws', async () => {
-    const store = new RegistrationSideEffectMemoryStore<TestResponse>();
+    const store = new RegistrationSideEffectMemoryStore<TestResponse, PreparedMarker>();
     store.throwReads = 1;
     const probe = new SideEffectProbe(store);
 
@@ -229,12 +215,15 @@ test.describe('registration side-effect persistence bridge', () => {
   });
 
   test('does not invoke an effect when a competing claim cannot be read back', async () => {
-    const store = new RegistrationSideEffectMemoryStore<TestResponse>();
-    const claimWinner: RouterAbEd25519YaoRegistrationSideEffectClaimV1 = {
+    const store = new RegistrationSideEffectMemoryStore<TestResponse, PreparedMarker>();
+    const prepared = await prepareTestEffect();
+    const claimWinner: RouterAbEd25519YaoRegistrationSideEffectClaimV1<PreparedMarker> = {
       kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1',
       operation: 'finalize',
       requestFingerprint: REQUEST_FINGERPRINT,
+      preparedArtifactFingerprint: await deriveTestPreparedArtifactFingerprint(prepared),
       claimedAtMs: fixedNow(),
+      prepared,
     };
     store.claimWinner = claimWinner;
     store.throwReadCalls.add(2);
@@ -251,7 +240,7 @@ test.describe('registration side-effect persistence bridge', () => {
   });
 
   test('does not repeat an effect after its terminal write throws', async () => {
-    const store = new RegistrationSideEffectMemoryStore<TestResponse>();
+    const store = new RegistrationSideEffectMemoryStore<TestResponse, PreparedMarker>();
     store.throwTerminalPuts = 1;
     const probe = new SideEffectProbe(store);
 
@@ -264,18 +253,21 @@ test.describe('registration side-effect persistence bridge', () => {
     });
     await expect(
       runRouterAbEd25519YaoRegistrationSideEffectV1(store, bridgeRunInput(probe)),
-    ).resolves.toEqual({ kind: 'in_progress' });
+    ).resolves.toMatchObject({ kind: 'in_progress', prepared: { kind: 'prepared_test_effect' } });
     expect(probe.calls).toBe(1);
   });
 
   test('replays a committed terminal winner after its first reconciliation read throws', async () => {
-    const store = new RegistrationSideEffectMemoryStore<TestResponse>();
+    const store = new RegistrationSideEffectMemoryStore<TestResponse, PreparedMarker>();
+    const prepared = await prepareTestEffect();
     store.terminalWinner = {
       kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
       operation: 'finalize',
       requestFingerprint: REQUEST_FINGERPRINT,
+      preparedArtifactFingerprint: await deriveTestPreparedArtifactFingerprint(prepared),
       claimedAtMs: fixedNow(),
       completedAtMs: fixedNow(),
+      prepared,
       response: { ok: true, receipt: 'wallet-session-receipt' },
     };
     store.throwReadCalls.add(3);
@@ -298,14 +290,20 @@ test.describe('registration side-effect persistence bridge', () => {
   });
 
   test('reconciles an exact terminal winner after the effect response', async () => {
-    const store = new RegistrationSideEffectMemoryStore<TestResponse>();
+    const store = new RegistrationSideEffectMemoryStore<TestResponse, PreparedMarker>();
     const probe = new SideEffectProbe(store);
-    const terminalWinner: RouterAbEd25519YaoRegistrationSideEffectCompletionV1<TestResponse> = {
+    const prepared = await prepareTestEffect();
+    const terminalWinner: RouterAbEd25519YaoRegistrationSideEffectCompletionV1<
+      TestResponse,
+      PreparedMarker
+    > = {
       kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
       operation: 'finalize',
       requestFingerprint: REQUEST_FINGERPRINT,
+      preparedArtifactFingerprint: await deriveTestPreparedArtifactFingerprint(prepared),
       claimedAtMs: fixedNow(),
       completedAtMs: fixedNow(),
+      prepared,
       response: { ok: true, receipt: 'wallet-session-receipt' },
     };
     store.terminalWinner = terminalWinner;
@@ -339,7 +337,6 @@ test.describe('registration side-effect persistence bridge', () => {
       runtime.resolveActiveCapability({
         kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
         walletId,
-        nearAccountId: 'wallet-registration-bridge.testnet',
         nearEd25519SigningKeyId: 'near-ed25519-registration-bridge',
         signerSlot: 1,
         signingWorkerId: 'signing-worker-bridge',
@@ -371,7 +368,6 @@ test.describe('registration side-effect persistence bridge', () => {
       runtime.resolveActiveCapability({
         kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
         walletId,
-        nearAccountId: 'wallet-registration-bridge.testnet',
         nearEd25519SigningKeyId: 'near-ed25519-registration-bridge',
         signerSlot: 1,
         signingWorkerId: 'signing-worker-bridge',
@@ -425,6 +421,7 @@ test.describe('registration side-effect prepared artifacts', () => {
           bytes: [1, 2, input.prepareCalls.count],
         };
       },
+      derivePreparedArtifactFingerprint: deriveTestPreparedArtifactFingerprint,
       execute: async (prepared: PreparedTx): Promise<TestResponse> => {
         const stored = await input.store.read(PREPARED_KEY);
         if (
@@ -503,6 +500,57 @@ test.describe('registration side-effect prepared artifacts', () => {
     expect(replay).toEqual({ kind: 'exact_replay', value: { ok: true, receipt: 'tx-hash-1' } });
     expect(prepareCalls.count).toBe(1);
     expect(broadcasts).toHaveLength(1);
+    const persisted = await store.read(PREPARED_KEY);
+    expect(persisted).toMatchObject({
+      kind: 'present',
+      value: {
+        kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
+        prepared: { transactionHash: 'tx-hash-1', bytes: [1, 2, 1] },
+      },
+    });
+  });
+
+  test('refuses a persisted artifact whose content no longer matches its fingerprint', async () => {
+    const store = new RegistrationSideEffectMemoryStore<TestResponse, PreparedTx>();
+    const prepareCalls = { count: 0 };
+    const broadcasts: PreparedTx[] = [];
+
+    await runRouterAbEd25519YaoRegistrationSideEffectV1<TestResponse, PreparedTx>(
+      store,
+      preparedRunInput({ store, prepareCalls, broadcasts, failEffect: true }),
+    );
+    const stored = store.records.get(PREPARED_KEY);
+    if (
+      !stored ||
+      stored.value.kind !== 'router_ab_ed25519_yao_registration_side_effect_claim_v1'
+    ) {
+      throw new Error('expected a durable prepared claim');
+    }
+    store.records.set(PREPARED_KEY, {
+      version: stored.version,
+      value: {
+        ...stored.value,
+        prepared: { ...stored.value.prepared, bytes: [9, 9, 9] },
+      },
+    });
+
+    await expect(
+      runRouterAbEd25519YaoRegistrationSideEffectV1<TestResponse, PreparedTx>(
+        store,
+        preparedRunInput({
+          store,
+          prepareCalls,
+          broadcasts,
+          nowMs: fixedNowAfterResumeDelay,
+        }),
+      ),
+    ).resolves.toEqual({
+      kind: 'uncertain',
+      phase: 'claim',
+      message: 'registration side-effect prepared artifact fingerprint is invalid',
+    });
+    expect(prepareCalls.count).toBe(1);
+    expect(broadcasts).toHaveLength(1);
   });
 });
 
@@ -529,6 +577,7 @@ test.describe('ambiguous effects are never persisted as terminal', () => {
         input.prepareCalls.count += 1;
         return { transactionHash: `tx-${input.prepareCalls.count}` };
       },
+      derivePreparedArtifactFingerprint: deriveTestPreparedArtifactFingerprint,
       execute: async (
         prepared: PreparedTx,
         attempt: 'fresh' | 'resumed',
@@ -608,6 +657,7 @@ test.describe('concurrent finalize contention', () => {
       requestFingerprint: REQUEST_FINGERPRINT,
       nowMs: fixedNow,
       prepare: async (): Promise<Prepared> => ({ hash: 'tx-single' }),
+      derivePreparedArtifactFingerprint: deriveTestPreparedArtifactFingerprint,
       execute: async (prepared: Prepared): Promise<Result> => {
         input.effects.push(prepared.hash);
         return { receipt: prepared.hash };
@@ -634,7 +684,10 @@ test.describe('concurrent finalize contention', () => {
     // effect. A second broadcast here would be a duplicate sponsored account.
     expect(effects).toHaveLength(1);
     const kinds = [first.kind, second.kind].sort();
-    expect(kinds).toEqual(['executed', 'in_progress']);
+    expect(kinds).toContain('executed');
+    expect(kinds.filter((kind) => kind === 'in_progress' || kind === 'exact_replay')).toHaveLength(
+      1,
+    );
   });
 
   test('a losing concurrent finalize never reports success it did not perform', async () => {
@@ -652,5 +705,38 @@ test.describe('concurrent finalize contention', () => {
 
     expect(loser).toEqual({ kind: 'exact_replay', value: { receipt: 'tx-single' } });
     expect(effects).toHaveLength(1);
+  });
+
+  test('only one stale-claim contender acquires the resume lease', async () => {
+    const store = new RegistrationSideEffectMemoryStore<Result, Prepared>();
+    const effects: string[] = [];
+    const prepared = { hash: 'tx-single' };
+    await store.put(
+      KEY,
+      {
+        kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1',
+        operation: 'finalize',
+        requestFingerprint: REQUEST_FINGERPRINT,
+        preparedArtifactFingerprint: await deriveTestPreparedArtifactFingerprint(prepared),
+        claimedAtMs: fixedNow(),
+        prepared,
+      },
+      null,
+    );
+    const resumedInput = {
+      ...contendedRunInput({ store, effects }),
+      nowMs: fixedNowAfterResumeDelay,
+    };
+
+    const [first, second] = await Promise.all([
+      runRouterAbEd25519YaoRegistrationSideEffectV1<Result, Prepared>(store, resumedInput),
+      runRouterAbEd25519YaoRegistrationSideEffectV1<Result, Prepared>(store, resumedInput),
+    ]);
+
+    expect(effects).toHaveLength(1);
+    expect([first.kind, second.kind]).toContain('executed');
+    expect(
+      [first.kind, second.kind].filter((kind) => kind === 'in_progress' || kind === 'exact_replay'),
+    ).toHaveLength(1);
   });
 });
