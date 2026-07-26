@@ -52,10 +52,13 @@ async function runReadinessCheck(check, budgetMs, intervalMs) {
 
 async function runHttpCheck(check) {
   try {
-    const response = await fetch(check.url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+    const response = await fetch(check.url, {
+      ...check.request,
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
     return {
       name: check.name,
-      ok: response.status >= 200 && response.status < 400,
+      ok: check.isReady ? check.isReady(response) : response.status >= 200 && response.status < 400,
       status: response.status,
     };
   } catch (error) {

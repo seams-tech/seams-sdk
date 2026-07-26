@@ -35,6 +35,38 @@ async function startFlakyServer(failures: number): Promise<{
   };
 }
 
+async function startCorsServer(): Promise<{
+  readonly origin: string;
+  readonly close: () => Promise<void>;
+}> {
+  const server: Server = createServer((request, response) => {
+    const origin = String(request.headers.origin || '');
+    response.writeHead(204, {
+      'Access-Control-Allow-Origin': origin,
+      'Access-Control-Allow-Credentials': 'true',
+    });
+    response.end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (address === null || typeof address === 'string') throw new Error('no server address');
+  return {
+    origin: `http://127.0.0.1:${address.port}`,
+    close: () =>
+      new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      ),
+  };
+}
+
+function isConsoleCorsReady(response: Response): boolean {
+  return (
+    response.status === 204 &&
+    response.headers.get('Access-Control-Allow-Origin') === 'https://dashboard.example.test' &&
+    response.headers.get('Access-Control-Allow-Credentials') === 'true'
+  );
+}
+
 test('readiness check retries through a post-deploy propagation window', async () => {
   const server = await startFlakyServer(2);
   try {
@@ -78,6 +110,36 @@ test('readiness check reports a first-attempt pass without retrying', async () =
     expect(results[0]?.ok).toBe(true);
     expect(results[0]?.attempts).toBe(1);
     expect(server.requestCount()).toBe(1);
+  } finally {
+    await server.close();
+  }
+});
+
+test('readiness check supports request-specific CORS assertions', async () => {
+  const server = await startCorsServer();
+  try {
+    const results = await runReadinessChecks(
+      [
+        {
+          name: '/console/session CORS preflight',
+          url: `${server.origin}/console/session`,
+          request: {
+            method: 'OPTIONS',
+            headers: {
+              Origin: 'https://dashboard.example.test',
+              'Access-Control-Request-Method': 'GET',
+            },
+          },
+          isReady: isConsoleCorsReady,
+        },
+      ],
+      {
+        budgetMs: 10_000,
+        intervalMs: 10,
+      },
+    );
+    expect(results[0]?.ok).toBe(true);
+    expect(results[0]?.status).toBe(204);
   } finally {
     await server.close();
   }

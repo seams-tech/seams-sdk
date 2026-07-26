@@ -374,6 +374,7 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     ...bundle.consoleRouterOptions,
     healthz: true,
     readyz: true,
+    corsOrigins: readCsvList(env.RELAY_CORS_ORIGINS),
     auth: consoleAuth,
     readyCheck: createRouterApiReadyCheck(env),
   });
