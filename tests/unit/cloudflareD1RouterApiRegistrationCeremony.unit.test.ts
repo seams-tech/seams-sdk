@@ -21,8 +21,16 @@ import {
   walletIdFromString,
 } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
-import { FixtureRouterAbEcdsaStrictRegistrationPort } from '../helpers/routerAbSigningRuntimeTestUtils';
 import {
+  buildFixtureRouterAbEcdsaStrictRegistrationRequest,
+  createRouterAbSigningRuntimesForUnitTests,
+  fixtureRouterAbEcdsaActivationFacts,
+  FixtureRouterAbEcdsaStrictRegistrationPort,
+  SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort,
+} from '../helpers/routerAbSigningRuntimeTestUtils';
+import {
+  createWebAuthnRegistrationCredential,
+  fakeWebAuthnRegistrationCredential,
   requireParsedDomainId,
   RecordingDurableObjectNamespace,
   isRecordingDurableObjectReplayReservationRequest,
@@ -31,6 +39,9 @@ import {
   countD1VersionedJsonRecords,
   recordingDurableObjectRequestsIncludeKey,
   applySignerMigrations,
+  readSignerWalletRecord,
+  readWalletAuthMethodRecord,
+  readWalletSignerRecord,
 } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
 
 class StartClaimFaultD1PreparedStatement implements D1PreparedStatementLike {
@@ -154,6 +165,52 @@ function emailOtpRegistrationStartRequest(input: {
       },
     },
   };
+}
+
+function passkeyRegistrationStartRequest(input: {
+  readonly registration: Extract<CreateRegistrationIntentResponse, { readonly ok: true }>;
+  readonly webauthnRegistration: unknown;
+}): WalletRegistrationStartRequest {
+  return {
+    registrationIntentGrant: input.registration.registrationIntentGrant,
+    registrationIntentDigestB64u: input.registration.registrationIntentDigestB64u,
+    intent: input.registration.intent,
+    authority: {
+      kind: 'passkey',
+      webauthnRegistration: input.webauthnRegistration,
+    },
+  };
+}
+
+async function countPartitionedRegistrationRecords(input: {
+  readonly database: D1DatabaseLike;
+  readonly scope: {
+    readonly namespace: string;
+    readonly orgId: string;
+    readonly projectId: string;
+    readonly envId: string;
+  };
+  readonly recordScope: string;
+}): Promise<number> {
+  const row = await input.database
+    .prepare(
+      `SELECT COUNT(*) AS count
+         FROM registration_ceremony_records
+        WHERE namespace = ?1
+          AND org_id = ?2
+          AND project_id = ?3
+          AND env_id = ?4
+          AND record_scope = ?5`,
+    )
+    .bind(
+      input.scope.namespace,
+      input.scope.orgId,
+      input.scope.projectId,
+      input.scope.envId,
+      input.recordScope,
+    )
+    .first<{ readonly count?: unknown }>();
+  return Number(row?.count || 0);
 }
 
 test('Cloudflare D1 Router API auth service stores wallet registration intents in Durable Objects', async () => {
@@ -363,6 +420,301 @@ test('Cloudflare D1 Router API auth service stores wallet registration intents i
       orgId: scope.orgId,
       intent: addAuthMethod.intent,
     });
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('partitioned D1 rejects invalid passkey registration authority before claiming the grant', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-passkey-authority-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    const walletId = walletIdFromString('passkey-authority-wallet.testnet');
+    const rpId = requireParsedDomainId(parseWebAuthnRpId('example.com'));
+    const service = createPartitionedCloudflareD1RouterApiAuthService({
+      database,
+      ...scope,
+      ecdsaStrictRegistration: new FixtureRouterAbEcdsaStrictRegistrationPort(),
+      thresholdStore: {
+        kind: 'cloudflare-do',
+        namespace: new RecordingDurableObjectNamespace(),
+        THRESHOLD_PREFIX: 'passkey-authority-test',
+        ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker',
+      },
+    });
+    const registration = await service.walletRegistration.createRegistrationIntent({
+      orgId: scope.orgId,
+      signingRootId: `${scope.projectId}:${scope.envId}`,
+      signingRootVersion: 'root-v1',
+      expectedOrigin: 'https://app.example.com',
+      request: {
+        wallet: { kind: 'provided', walletId },
+        authMethod: { kind: 'passkey', rpId },
+        signerSelection: {
+          kind: 'signer_set',
+          signers: [
+            {
+              kind: 'evm_family_ecdsa',
+              participantIds: [1, 2],
+              chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 8453 }],
+            },
+          ],
+        },
+      },
+    });
+    if (!registration.ok) throw new Error(registration.message);
+    await expect(
+      service.walletRegistration.startWalletRegistration(
+        passkeyRegistrationStartRequest({
+          registration,
+          webauthnRegistration: fakeWebAuthnRegistrationCredential({
+            challengeB64u: 'wrong-registration-challenge',
+            origin: 'https://app.example.com',
+          }),
+        }),
+      ),
+    ).resolves.toMatchObject({ ok: false, code: 'challenge_mismatch' });
+    await expect(
+      countD1VersionedJsonRecords({
+        database,
+        ...scope,
+        recordKeyPrefix: 'wallet-registration-start:',
+      }),
+    ).resolves.toBe(0);
+    await expect(
+      countPartitionedRegistrationRecords({ database, scope, recordScope: 'intent' }),
+    ).resolves.toBe(1);
+
+    await expect(
+      service.walletRegistration.startWalletRegistration(
+        passkeyRegistrationStartRequest({
+          registration,
+          webauthnRegistration: fakeWebAuthnRegistrationCredential({
+            challengeB64u: registration.registrationIntentDigestB64u,
+            origin: 'https://attacker.example.net',
+          }),
+        }),
+      ),
+    ).resolves.toMatchObject({ ok: false, code: 'invalid_origin' });
+    await expect(
+      countD1VersionedJsonRecords({
+        database,
+        ...scope,
+        recordKeyPrefix: 'wallet-registration-start:',
+      }),
+    ).resolves.toBe(0);
+    await expect(
+      countPartitionedRegistrationRecords({ database, scope, recordScope: 'intent' }),
+    ).resolves.toBe(1);
+
+    const started = await service.walletRegistration.startWalletRegistration(
+      passkeyRegistrationStartRequest({
+        registration,
+        webauthnRegistration: await createWebAuthnRegistrationCredential({
+          rpId,
+          challengeB64u: registration.registrationIntentDigestB64u,
+          origin: 'https://app.example.com',
+        }),
+      }),
+    );
+    if (!started.ok) throw new Error(JSON.stringify(started));
+    expect(started.intent).toEqual(registration.intent);
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('partitioned D1 completes and replays strict ECDSA wallet registration', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-strict-registration-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    const walletId = walletIdFromString('strict-registration-wallet.testnet');
+    const rpId = requireParsedDomainId(parseWebAuthnRpId('example.com'));
+    const strictRegistration = new SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort();
+    const routerAbSigningRuntimes = createRouterAbSigningRuntimesForUnitTests({
+      config: { ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker' },
+    });
+    const service = createPartitionedCloudflareD1RouterApiAuthService({
+      database,
+      ...scope,
+      routerAbSigningRuntimes: routerAbSigningRuntimes.runtimes,
+      ecdsaStrictRegistration: strictRegistration,
+      thresholdStore: {
+        kind: 'cloudflare-do',
+        namespace: new RecordingDurableObjectNamespace(),
+        THRESHOLD_PREFIX: 'strict-registration-test',
+        ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker',
+      },
+    });
+    const registration = await service.walletRegistration.createRegistrationIntent({
+      orgId: scope.orgId,
+      signingRootId: `${scope.projectId}:${scope.envId}`,
+      signingRootVersion: 'root-v1',
+      expectedOrigin: 'https://app.example.com',
+      request: {
+        wallet: { kind: 'provided', walletId },
+        authMethod: { kind: 'passkey', rpId },
+        signerSelection: {
+          kind: 'signer_set',
+          signers: [
+            {
+              kind: 'evm_family_ecdsa',
+              participantIds: [1, 2],
+              chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 8453 }],
+            },
+          ],
+        },
+      },
+    });
+    if (!registration.ok) throw new Error(registration.message);
+    const startRequest = passkeyRegistrationStartRequest({
+      registration,
+      webauthnRegistration: await createWebAuthnRegistrationCredential({
+        rpId,
+        challengeB64u: registration.registrationIntentDigestB64u,
+        origin: 'https://app.example.com',
+      }),
+    });
+    const started = await service.walletRegistration.startWalletRegistration(startRequest);
+    if (!started.ok) throw new Error(JSON.stringify(started));
+    if (!started.ecdsa) throw new Error('Expected ECDSA registration start');
+    expect(started.ecdsa.strictRegistration.registration_purpose).toBe('wallet_registration');
+    await expect(service.walletRegistration.startWalletRegistration(startRequest)).resolves.toEqual(
+      started,
+    );
+
+    const strictRequest = buildFixtureRouterAbEcdsaStrictRegistrationRequest(
+      started.ecdsa.strictRegistration,
+    );
+    const responded = await service.walletRegistration.respondWalletRegistrationEcdsaDerivation({
+      registrationCeremonyId: started.registrationCeremonyId,
+      ecdsa: {
+        kind: 'router_ab_ecdsa_registration_v1',
+        strictRegistration: strictRequest,
+      },
+    });
+    if (!responded.ok) throw new Error(responded.message);
+    expect(strictRegistration.registrationRequest).toEqual(strictRequest);
+    await expect(
+      service.walletRegistration.respondWalletRegistrationEcdsaDerivation({
+        registrationCeremonyId: started.registrationCeremonyId,
+        ecdsa: {
+          kind: 'router_ab_ecdsa_registration_v1',
+          strictRegistration: strictRequest,
+        },
+      }),
+    ).resolves.toEqual(responded);
+
+    const activationFacts = fixtureRouterAbEcdsaActivationFacts();
+    const activated = await service.walletRegistration.activateWalletRegistrationEcdsa({
+      registrationCeremonyId: started.registrationCeremonyId,
+      ecdsa: {
+        kind: 'router_ab_ecdsa_registration_activation_v1',
+        publicFacts: activationFacts,
+      },
+    });
+    if (!activated.ok) throw new Error(activated.message);
+    await expect(
+      service.walletRegistration.activateWalletRegistrationEcdsa({
+        registrationCeremonyId: started.registrationCeremonyId,
+        ecdsa: {
+          kind: 'router_ab_ecdsa_registration_activation_v1',
+          publicFacts: activationFacts,
+        },
+      }),
+    ).resolves.toEqual(activated);
+
+    await expect(
+      service.walletRegistration.finalizeWalletRegistration({
+        kind: 'evm_family_ecdsa',
+        registrationCeremonyId: started.registrationCeremonyId,
+        idempotencyKey: 'strict-registration-wrong-key',
+        ecdsa: { expectedKeyHandles: ['wrong-key-handle'] },
+      }),
+    ).resolves.toMatchObject({ ok: false, code: 'key_handle_mismatch' });
+
+    const finalizeRequest = {
+      kind: 'evm_family_ecdsa' as const,
+      registrationCeremonyId: started.registrationCeremonyId,
+      idempotencyKey: 'strict-registration-finalize',
+      ecdsa: { expectedKeyHandles: [activated.ecdsa.bootstrap.keyHandle] },
+    };
+    const finalized = await service.walletRegistration.finalizeWalletRegistration(finalizeRequest);
+    if (!finalized.ok || finalized.authMethod.kind !== 'passkey') {
+      throw new Error('Expected passkey ECDSA registration result');
+    }
+    expect(finalized).toMatchObject({
+      kind: 'evm_family_ecdsa',
+      walletId,
+      rpId,
+      ecdsa: {
+        walletKeys: [
+          {
+            walletId,
+            keyHandle: activated.ecdsa.bootstrap.keyHandle,
+            chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 8453 },
+          },
+        ],
+      },
+    });
+    await expect(
+      service.walletRegistration.finalizeWalletRegistration(finalizeRequest),
+    ).resolves.toEqual(finalized);
+    await expect(
+      countPartitionedRegistrationRecords({ database, scope, recordScope: 'ceremony' }),
+    ).resolves.toBe(0);
+    await expect(
+      countPartitionedRegistrationRecords({ database, scope, recordScope: 'finalize-replay' }),
+    ).resolves.toBe(1);
+    await expect(readSignerWalletRecord({ database, ...scope, walletId })).resolves.toMatchObject({
+      version: 'wallet_v1',
+      walletId,
+    });
+    await expect(
+      readWalletAuthMethodRecord({
+        database,
+        ...scope,
+        walletAuthMethodId: `passkey:${rpId}:${finalized.authMethod.credentialIdB64u}`,
+      }),
+    ).resolves.toMatchObject({
+      version: 'wallet_auth_method_v1',
+      kind: 'passkey',
+      status: 'active',
+      walletId,
+      rpId,
+      credentialIdB64u: finalized.authMethod.credentialIdB64u,
+    });
+    await expect(
+      readWalletSignerRecord({
+        database,
+        ...scope,
+        walletId,
+        signerFamily: 'ecdsa',
+        signerId: 'ecdsa:evm:eip155:8453',
+      }),
+    ).resolves.toMatchObject({
+      version: 'wallet_signer_ecdsa_v1',
+      walletId,
+      walletKey: { keyHandle: activated.ecdsa.bootstrap.keyHandle },
+    });
+    await expect(
+      service.walletRegistration.finalizeWalletRegistration({
+        ...finalizeRequest,
+        idempotencyKey: 'strict-registration-after-cleanup',
+      }),
+    ).resolves.toMatchObject({ ok: false, code: 'not_found' });
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }
