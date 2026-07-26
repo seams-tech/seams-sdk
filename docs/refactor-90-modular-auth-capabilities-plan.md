@@ -683,7 +683,7 @@ Open items:
       and the exact replayable server command, with atomic
       ready-material/manifest/retirement/current-pointer/journal-delete
       finalization;
-- [ ] server generation CAS plus idempotent activation commit/query by journal
+- [x] server generation CAS plus idempotent activation commit/query by journal
       correlation; query returns the exact request digest, generation, and
       structured protocol receipt;
 - [ ] one activation commit port shared by registration, explicit reactivation,
