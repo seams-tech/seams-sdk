@@ -205,6 +205,7 @@ import type { LoginUnlockRequest } from '@/core/types/login.types';
 import { buildPMUnlockPayload } from '../shared/unlockOptions';
 import type { WalletId } from '@shared/utils/domainIds';
 import {
+  exactSessionStateFromWalletSession,
   parseWalletIframeExactSessionLockResult,
   parseWalletIframeExactSessionState,
   parseWalletIframeMissingSessionLockResult,
@@ -1110,13 +1111,18 @@ export class WalletIframeRouter {
     }
   }
 
-  private async refreshExactSessionAndEmitLoginStatus(): Promise<WalletIframeExactSessionState> {
-    const state = await this.refreshExactSessionState();
+  private mirrorExactSessionAndEmitLoginStatus(state: WalletIframeExactSessionState): void {
+    this.exactSessionState = state;
     this.emitLoginStatusChanged(
       state.kind === 'wallet_locked'
         ? { isLoggedIn: false, walletId: null }
         : { isLoggedIn: true, walletId: state.walletId },
     );
+  }
+
+  private async refreshExactSessionAndEmitLoginStatus(): Promise<WalletIframeExactSessionState> {
+    const state = await this.refreshExactSessionState();
+    this.mirrorExactSessionAndEmitLoginStatus(state);
     return state;
   }
 
@@ -1485,7 +1491,9 @@ export class WalletIframeRouter {
             },
           );
           if (res.result.ok) {
-            await this.refreshExactSessionAndEmitLoginStatus();
+            this.mirrorExactSessionAndEmitLoginStatus(
+              exactSessionStateFromWalletSession(res.result.value.session),
+            );
           }
           return res.result;
         },
