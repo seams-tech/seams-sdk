@@ -2928,8 +2928,10 @@ Missing, mismatch, conflict, corruption, and unavailable storage remain distinct
 terminal parser results until an explicit recovery or maintenance action handles
 them.
 
-Registration, unlock, and reauthorization publish active manifests through one
-activation journal:
+Registration, explicit material reactivation, and recovery publish active
+manifests through one activation journal. Routine unlock and page refresh parse
+the existing manifest and may republish volatile runtime state; they do not
+rewrite durable activation state:
 
 ```ts
 type EcdsaManifestRevisionExpectation =
