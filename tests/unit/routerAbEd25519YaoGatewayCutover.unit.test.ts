@@ -230,11 +230,31 @@ test('recovery must drain before registration can enter partitioned D1', () => {
       registration: { admissionCutoffMs: 1_000, drainUntilMs: 2_000 },
       recovery: { admissionCutoffMs: 2_000, drainUntilMs: 3_000 },
     }),
-  ).toThrow('recovery must drain before registration');
+  ).toThrow('recovery must finish draining no later than registration');
   expect(() =>
     validateRouterAbEd25519YaoGatewayCutoverStateV1({
       registration: { admissionCutoffMs: 2_000, drainUntilMs: 4_000 },
       recovery: { admissionCutoffMs: 1_000, drainUntilMs: 3_000 },
+    }),
+  ).not.toThrow();
+});
+
+test('recovery must drain before export can enter partitioned D1', () => {
+  expect(() =>
+    validateRouterAbEd25519YaoGatewayCutoverStateV1({
+      export: { admissionCutoffMs: 1_000, drainUntilMs: 2_000 },
+    }),
+  ).toThrow('recovery cutover must be configured before export');
+  expect(() =>
+    validateRouterAbEd25519YaoGatewayCutoverStateV1({
+      recovery: { admissionCutoffMs: 2_000, drainUntilMs: 3_000 },
+      export: { admissionCutoffMs: 1_000, drainUntilMs: 2_000 },
+    }),
+  ).toThrow('recovery must finish draining no later than export');
+  expect(() =>
+    validateRouterAbEd25519YaoGatewayCutoverStateV1({
+      recovery: { admissionCutoffMs: 1_000, drainUntilMs: 2_000 },
+      export: { admissionCutoffMs: 2_000, drainUntilMs: 3_000 },
     }),
   ).not.toThrow();
 });

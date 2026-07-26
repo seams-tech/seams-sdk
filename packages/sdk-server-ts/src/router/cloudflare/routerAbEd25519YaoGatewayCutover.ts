@@ -131,14 +131,27 @@ export type RouterAbEd25519YaoGatewayRouteV1 =
 export function validateRouterAbEd25519YaoGatewayCutoverStateV1(
   cutover: RouterAbEd25519YaoGatewayCutoverStateV1,
 ): void {
-  const registration = cutover.registration;
-  if (!registration) return;
   const recovery = cutover.recovery;
-  if (!recovery) {
-    throw new Error('Router A/B Gateway recovery cutover must be configured before registration');
+  const registration = cutover.registration;
+  if (registration) {
+    requireRecoveryCutoverBeforeConsumerFamily(recovery, registration, 'registration');
   }
-  if (recovery.drainUntilMs > registration.drainUntilMs) {
-    throw new Error('Router A/B Gateway recovery must drain before registration');
+  const exportWindow = cutover.export;
+  if (exportWindow) {
+    requireRecoveryCutoverBeforeConsumerFamily(recovery, exportWindow, 'export');
+  }
+}
+
+function requireRecoveryCutoverBeforeConsumerFamily(
+  recovery: RouterAbEd25519YaoGatewayCutoverWindowV1 | undefined,
+  consumer: RouterAbEd25519YaoGatewayCutoverWindowV1,
+  family: 'registration' | 'export',
+): void {
+  if (!recovery) {
+    throw new Error(`Router A/B Gateway recovery cutover must be configured before ${family}`);
+  }
+  if (recovery.drainUntilMs > consumer.drainUntilMs) {
+    throw new Error(`Router A/B Gateway recovery must finish draining no later than ${family}`);
   }
 }
 

@@ -813,8 +813,11 @@ No deployment or cutover window change is part of these corrections.
       follow the recovery family window. A registration cutover can no longer
       move those consumers to partitioned D1 while recovery still writes the
       legacy snapshot. Configuration rejects registration unless recovery is
-      configured to finish draining first, so removing the legacy fallback
-      cannot make newly partitioned registrations unreadable during rollout.
+      configured to finish draining first. Export has the same constraint
+      because it authorizes against the active capability. The deployment
+      preflight and Worker boundary enforce both rules, so removing the legacy
+      fallback cannot make newly partitioned operations read stale capability
+      state during rollout.
 - [x] **H2 — prevent legacy capability-state resurrection.** The stateful
       tenant-runtime composition no longer accepts or invokes the canonical D1
       capability fallback. Existing-wallet rehydration remains exclusively in
@@ -842,9 +845,14 @@ No deployment or cutover window change is part of these corrections.
       deterministic domain rejections remain terminal.
 
 Validation for this correction set: `pnpm build:sdk-full`, `pnpm check`, the SDK
-server build, unit typecheck, 49 focused cutover/state/CAS/side-effect tests, 10
-registration and wallet-auth-method lifecycle tests, and the Rust core and
-Cloudflare bounded-skew tests all pass.
+server build, the focused cutover/state/CAS/side-effect suites, 27 deployment
+and cutover-order tests, 10 registration and wallet-auth-method lifecycle
+tests, and the Rust core and Cloudflare bounded-skew tests all pass.
+
+The July 26 live-variable audit found no active family window: repository and
+`production-gateway` cutover variables are absent, while all six
+`staging-gateway` cutover variables are empty. This audit changed no GitHub or
+Cloudflare configuration.
 
 The Phase 5 deletion audit is recorded in
 [`refactor-93-phase5-deletion-audit.md`](./refactor-93-phase5-deletion-audit.md).

@@ -56,6 +56,7 @@ export function parseGatewayCutoverWorkerVars(environment) {
   }
 
   const vars = {};
+  const windows = {};
   for (const family of GATEWAY_CUTOVER_FAMILIES) {
     const cutoffName = `ROUTER_AB_YAO_GATEWAY_${family}_ADMISSION_CUTOFF_MS`;
     const drainName = `ROUTER_AB_YAO_GATEWAY_${family}_DRAIN_UNTIL_MS`;
@@ -76,8 +77,26 @@ export function parseGatewayCutoverWorkerVars(environment) {
     }
     vars[cutoffName] = String(admissionCutoffMs);
     vars[drainName] = String(drainUntilMs);
+    windows[family] = { admissionCutoffMs, drainUntilMs };
   }
+  validateGatewayCutoverOrdering(windows);
   return vars;
+}
+
+function validateGatewayCutoverOrdering(windows) {
+  const recovery = windows.RECOVERY;
+  for (const family of ['REGISTRATION', 'EXPORT']) {
+    const consumer = windows[family];
+    if (!consumer) continue;
+    if (!recovery) {
+      throw new Error(`ROUTER_AB_YAO_GATEWAY_RECOVERY cutover must be configured before ${family}`);
+    }
+    if (recovery.drainUntilMs > consumer.drainUntilMs) {
+      throw new Error(
+        `ROUTER_AB_YAO_GATEWAY_RECOVERY must finish draining no later than ${family}`,
+      );
+    }
+  }
 }
 
 function parseGatewayCutoverTimestamp(raw, name) {
