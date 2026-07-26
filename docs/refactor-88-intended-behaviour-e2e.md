@@ -1844,6 +1844,7 @@ Initial audit:
 Post-baseline current test surface:
 
 | `tests/e2e/intended-behaviours/passkey.ed25519-yao-local.contract.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
+| `tests/e2e/intended-behaviours/refactor93-staging-cohort.staging.test.ts` | keep | Refactor 93 staging-only cohort coverage. It exercises the public registration, exact-replay, conflict, and export paths without introducing a test-only production route. |
 | `tests/unit/availableSigningLanes.durableEd25519Projection.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
 | `tests/unit/bootstrapGatewayDeployment.script.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
 | `tests/unit/cloudflareD1VersionedJsonRecordStore.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
