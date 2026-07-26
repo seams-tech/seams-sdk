@@ -27,6 +27,17 @@ here.
   registration and orchestration tests pass 17 of 17. The worker still needs to
   persist encrypted pending state between prepare and commit, so this boundary
   does not yet satisfy the journal-first invariant by itself.
+- Added public add-signer prepare/query and exact digest-bound commit parity as
+  `ed8dc45fd`. A committed Router effect no longer destroys the pending
+  add-signer ceremony when downstream provisioning fails; query and retry
+  converge on the stored receipt.
+- Added the factor-neutral initial activation planner as `c12636a6b`. It owns
+  fresh independent capability, signer, material-owner, manifest, activation,
+  and durable-material identities and rejects authorization/session/worker
+  handles as substitutes.
+- Added exact prepared-journal cancellation as `c66a1125b`. One IndexedDB
+  transaction deletes only the matching prepared journal and its sealing key;
+  committed activation is preserved for reconciliation and finalization.
 - Added fixture-backed coverage for every canonical ECDSA lookup result as
   `bf08f7512`: active, retired, missing, exact binding mismatch, exact record
   conflict, corrupt, and persistence unavailable. The focused store suite

@@ -672,7 +672,7 @@ Open items:
 - [x] required-field `active | retired` record with fixtures rejecting an active
       manifest missing authority, server generation, durable material ref,
       binding digest, or revision;
-- [ ] manifest history keyed by manifest ID plus an exact
+- [x] manifest history keyed by manifest ID plus an exact
       capability/authority current pointer; activation planning creates fresh
       manifest, activation, and durable-material identities;
 - [x] exact persistence parser returning validated encrypted material for
