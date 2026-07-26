@@ -626,8 +626,13 @@ or production acceptance.
       recovery claims and activation replacement, export phase claims and exact
       result redelivery, cross-key role claims, and split role execution all
       have focused behavioral coverage.
-- [ ] Complete the unchecked Phase 5 composition, tenant-runtime removal,
-      drain, and deletion work.
+- [x] Complete the remaining Phase 5 request-scoped composition and cutover
+      plumbing. Registration, recovery, export, finalize, replay, capability,
+      session, and local-dev paths all have partitioned implementations behind
+      the independent family selectors.
+- [ ] Complete the staged family cutovers and drains, then remove the
+      tenant-runtime binding and remaining legacy routes, serializers,
+      fixtures, and compatibility boundaries.
 - [ ] Complete Phase 0 production evidence and Phase 6 staging/production
       acceptance.
 
@@ -1166,6 +1171,24 @@ route-deletion cleanup.
       smoke endpoints passed. This item remains open until a fresh dual-branch
       registration proves both root-share systems accept `epoch-1` through the
       product data path.
+- [x] Deploy one frozen staging baseline with every family window unset.
+      Backend run `30183541977` and frontend run `30184290832` deployed
+      revision `4585f4223a72844bae0ed569601bb34b09804c93` on 2026-07-26.
+      Backend build, migration, five deployment preflights, all five Worker
+      deployments, readiness smoke, frontend build, Pages deployment, and
+      frontend smoke passed. GitHub Environment variables use whitespace-only
+      sentinels because GitHub rejects empty variable values; the deployment
+      parser trims those sentinels to the required unset state.
+      A live registration correlated by opaque trace
+      `7253e42b854c6b47113a5ff33c9db53a` proved both rotated Ed25519 roles can
+      load `epoch-1`, prepare the exact pair, and sign readiness receipts. It
+      then exposed a Cloudflare clock-boundary defect: Deriver A observed
+      Deriver B's freshly signed start acceptance as slightly future because
+      Workers clocks report the time of the last I/O. The candidate fix keeps
+      strict validation as the default and permits at most 1,000 ms future
+      skew only at this Cloudflare peer handoff; focused core and
+      feature-enabled Cloudflare tests pass. The fix still requires a frozen
+      staging redeploy and product-path validation.
 - [ ] With every family window unset, complete the staging cohort for
       registration, recovery, export, exact replay, conflict, disconnect,
       terminal redelivery, rollback, restart, and concurrency on that frozen
