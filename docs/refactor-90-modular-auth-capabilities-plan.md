@@ -409,10 +409,10 @@ commit and merge boundaries without creating another phase taxonomy.
 | Wave | Stable scope | Deliverable | Gate |
 | --- | --- | --- | --- |
 | 0 — stable base | Patch 2, Refactors 91-93, Phases 1-3 | frozen behavior and Router-owned Near baseline | current `dev` merged, plan checkpoint committed, baseline checks green |
-| 1 — hydration foundation | Phase 7 leaf identities required by Foundation A, Foundation A, Phases 4-5 | shared four-outcome hydration contract, protocol observations, exact subjects, role-local boundary cleanup | SDK/type-fixture checks and registration/unlock/refresh equivalence tests |
-| 2 — canonical ECDSA state | Foundation B | required-field `active | retired` record, strict parser, two-state activation journal, atomic finalization, broad-record deletion | adapter round trips, fault injection, runtime-destruction rehydration, focused signing tests |
+| 1 — hydration foundation | Phase 7 leaf identities required by Foundation A, Foundation A leaf contract, Phases 4-5 | shared four-outcome hydration contract, exact subjects, role-local boundary cleanup | SDK/type-fixture checks and focused subject/material tests |
+| 2 — canonical material state and hydration closure | Foundation B, remaining Foundation A, minimum Phase 18 Near activation identity | required-field ECDSA `active \| retired` record, strict parser, two-state activation journal, and canonical ECDSA/Near observations and adapters | adapter round trips, fault injection, runtime-destruction rehydration, and registration/unlock/refresh equivalence tests |
 | 3 — authorization proving slice | Phase 6, remaining Phase 7, Phases 8-14 and 16 | one real session → evidence → grant → vault operation → audit path | minimal vault E2E passes before live MPC migration |
-| 4 — exact MPC authority and persistence | Phases 17-18 | exact authority, independent activation/session/grant/quota identities, canonical Near/ECDSA owners | strict boundary tests and no compatibility aliases in core code |
+| 4 — exact MPC authority and persistence | Phase 17 and remaining Phase 18 | exact authority, independent activation/session/grant/quota identities, canonical Near/ECDSA owners | strict boundary tests and no compatibility aliases in core code |
 | 5 — MPC no-release cutover | Phases 19-20 | capability modules, minimal recovery journals, operation claims, grant/quota admission | both phases complete before any supported release |
 | 6 — surfaces and hosts | Phases 21-24 | worker, UI, provisioning, and static host assembly migration | focused worker/UI tests and intended lifecycle contracts |
 | 7 — deletion and hardening | Phase 27 | obsolete records, paths, fixtures, guards, and exports removed | deletion ledger closed and final focused validation green |
@@ -421,6 +421,13 @@ Foundation A starts by landing only the Phase 7 leaf identities that its public
 contract consumes. The remainder of Phase 7 stays in Wave 3. This ordering avoids
 temporary duplicate identity types and does not make all of Slice A a prerequisite
 for hydration work.
+
+The shared Foundation A contract lands in Wave 1. Its protocol observation
+adapters close in Wave 2 because current ECDSA records cannot represent the
+required capability, owner, authority, activation, or retired-anchor facts, and
+current Near records still use session-shaped activation identity. Wrapping the
+tactical resolvers would hide the pre-effect hydration decision, so Wave 2 lands
+the minimum canonical persistence prerequisites first.
 
 Patch 2 and Refactors 91-93 retain their external acceptance owners. Their open
 hosted checks do not block Waves 1-3. Refactor 92 behavior remains frozen, and
@@ -606,10 +613,10 @@ Open items (nothing from this list is landed at the July 20 checkpoint; the
 tactical ECDSA resolver and Ed25519 local rehydration provide protocol evidence
 only):
 
-- [ ] leaf hydration module with the four-outcome union and narrow proof
+- [x] leaf hydration module with the four-outcome union and narrow proof
       constructors that reject direct literals, broad spreads, and mixed
       live/sealed/anchor fields;
-- [ ] type fixtures rejecting cross-branch combinations (reauthorizable retired
+- [x] type fixtures rejecting cross-branch combinations (reauthorizable retired
       state without a public anchor, sealed branch without a material
       activation, live branch without runtime proof);
 - [ ] Near and ECDSA observation unions parsed from canonical persistence, never

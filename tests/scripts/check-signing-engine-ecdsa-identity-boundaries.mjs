@@ -815,6 +815,23 @@ function checkStrictActivationSessionStateAvoidsCastEscapes() {
   assertNoOffenders(offenders, 'strict activation/session cast escapes');
 }
 
+function checkMpcHydrationProofsAvoidCastEscapes() {
+  const offenders = [];
+  const pattern =
+    /\bas (?:MpcMaterialActivationRef|RestorableMpcMaterialRef|MpcCapabilityPublicReauthAnchor|MpcCapabilityHydrationPlan|MpcUseLiveRuntimeHydrationPlan|MpcRehydrateMaterialActivationHydrationPlan|MpcReauthorizePublicAnchorHydrationPlan|MpcBlockedCapabilityHydrationPlan)\b/;
+  const files = [
+    'packages/shared-ts/src/utils/domainIds.ts',
+    ...listTsFiles('packages/sdk-web/src/core/signingEngine'),
+  ];
+  for (const relativePath of files) {
+    if (pattern.test(readRepoFile(relativePath))) {
+      offenders.push(relativePath);
+    }
+  }
+
+  assertNoOffenders(offenders, 'MPC hydration proof cast escapes');
+}
+
 function checkStrictActivationSessionBuildersAvoidBroadSpreadShortcuts() {
   const offenders = [];
   const pattern = /\.\.\.(?:baseArgs|args\.signingAuthPlan|activation|effectivePlan)\b/;
@@ -1300,6 +1317,7 @@ function runChecks() {
   checkThresholdServerLogsDoNotEmitRawSecretMaterial();
   checkStrictEcdsaActivationBranchesOnlyComeFromBuilders();
   checkStrictActivationSessionStateAvoidsCastEscapes();
+  checkMpcHydrationProofsAvoidCastEscapes();
   checkStrictActivationSessionBuildersAvoidBroadSpreadShortcuts();
   checkPublicSdkEcdsaInputsStayWalletSessionShaped();
   checkEcdsaIframePayloadsStayWalletSessionShaped();

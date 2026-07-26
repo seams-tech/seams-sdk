@@ -1986,9 +1986,8 @@ type WalletAuthAuthorityRecord = {
 };
 
 type WalletAuthAuthorityRef = {
+  kind: "wallet_auth_authority_ref";
   walletId: WalletId;
-  bindingId: WalletAuthMethodId;
-  factorId: AuthFactorId;
   authorityDigest: WalletAuthorityBindingDigest;
 };
 
@@ -2505,9 +2504,20 @@ type MpcCapabilityHydrationPlan =
     }
   | {
       kind: "blocked";
-      capability: CapabilityInstanceRef | null;
+      capability: null;
+      reason: "missing_capability";
+      materialOwner?: never;
+      authority?: never;
+      runtime?: never;
+      materialActivation?: never;
+      sealedMaterial?: never;
+      retirement?: never;
+      publicReauthAnchor?: never;
+    }
+  | {
+      kind: "blocked";
+      capability: CapabilityInstanceRef;
       reason:
-        | "missing_capability"
         | "missing_material"
         | "revoked"
         | "replaced"
@@ -2533,6 +2543,14 @@ type MpcCapabilityHydrationResolution = {
 };
 ```
 
+The concrete activation, public-anchor, and hydration-plan types carry private
+proof brands. Only their boundary parser or branch-specific builder can create
+them; the structural forms above describe their public fields.
+Live and sealed-plan builders derive `capability` and `materialOwner` from the
+exact activation proof. The retired-plan builder derives those fields and
+`authority` from the public anchor. Boundary mismatches select
+`blocked.binding_mismatch` before a branch builder runs.
+
 The `reauthorize_public_anchor.retirement` discriminant describes a retired
 capability/material lifecycle. It never represents reusable Wallet Session
 expiry or warm-allowance exhaustion. Those Refactor 92 states compose with an
@@ -2548,6 +2566,10 @@ adapter derives it from an authenticated
 `NearEd25519YaoSealedActiveClientRef`; the rehydration effect imports that
 activated Client locally and makes zero Deriver A/B calls. The ECDSA adapter
 derives it from an exact encrypted `EcdsaRoleLocalDurableMaterialRef`.
+There is no generic string parser or public unchecked constructor for
+`RestorableMpcMaterialRef`. Each Wave 2 protocol-adapter proof builder will own
+its construction after validating the exact activation binding and unlock
+source.
 `NearEd25519YaoSealedRootRecoveryRef` is a separate recovery input used for
 device linking and explicit same-root recovery. Export uses its separately
 authorized one-use material-acquisition lifecycle. The root-recovery ref cannot
