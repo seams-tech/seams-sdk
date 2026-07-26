@@ -36,6 +36,11 @@ import {
   toEmailOtpAuthSubjectId,
 } from '@/core/signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
 import type { EcdsaRoleLocalAuthMethod, LoadEcdsaRoleLocalReadyRecordInput } from '@/core/platform';
+import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
+import {
+  buildEmailOtpEcdsaSessionRecordFixture,
+  buildPasskeyEcdsaSessionRecordFixture,
+} from './helpers/signingSessionRecord.fixtures';
 
 function bytesB64u(length: number, fill: number): string {
   return base64UrlEncode(new Uint8Array(length).fill(fill));
@@ -75,7 +80,6 @@ const derivationClientSharePublicKey33B64u = compressedPublicKeyB64u(2, 11);
 const relayerPublicKey33B64u = compressedPublicKeyB64u(3, 12);
 const groupPublicKey33B64u = compressedPublicKeyB64u(2, 13);
 const share32B64u = bytesB64u(32, 5);
-const applicationBindingDigestB64u = bytesB64u(32, 8);
 const ownerAddress = '0x0000000000000000000000000000000000000001';
 const emailOtpAuthSubjectId = toEmailOtpAuthSubjectId('google:wallet.testnet');
 const passkeyAuthMethod = buildEcdsaRoleLocalPasskeyAuthMethod({
@@ -85,10 +89,13 @@ const passkeyAuthMethod = buildEcdsaRoleLocalPasskeyAuthMethod({
 const emailOtpAuthMethod = buildEcdsaRoleLocalEmailOtpAuthMethod({
   authSubjectId: emailOtpAuthSubjectId,
 });
+const roleLocalDurableMaterialRef = 'role-local-durable-tederivation-session';
 
-function emailOtpSessionAuthContext(): Record<string, unknown> {
+function emailOtpSessionAuthContext() {
   return buildEmailOtpAuthContextForWalletAuthMethod({
     policy: 'session',
+    walletId,
+    emailHashHex: '11'.repeat(32),
     reason: 'login',
     retention: 'session',
     provider: 'google',
@@ -134,77 +141,95 @@ function legacyRoleLocalState(): Record<string, unknown> {
 }
 
 function publicFacts() {
-  return buildEcdsaRoleLocalPublicFacts({
-    walletId,
-    evmFamilySigningKeySlotId,
-    chainTarget,
-    keyHandle,
-    ecdsaThresholdKeyId,
-    signingRootId,
-    signingRootVersion,
-    clientParticipantId: 1,
-    relayerParticipantId: 2,
-    participantIds: [1, 2],
-    applicationBindingDigestB64u,
-    contextBinding32B64u: share32B64u,
-    derivationClientSharePublicKey33B64u,
-    relayerPublicKey33B64u,
-    groupPublicKey33B64u,
-    ethereumAddress: ownerAddress,
-  });
+  return readyRecord().publicFacts;
 }
 
 function readyRecord(authMethod: EcdsaRoleLocalAuthMethod = passkeyAuthMethod) {
-  return buildEcdsaRoleLocalReadyRecord({
-    stateBlob: {
-      kind: 'ecdsa_role_local_state_blob_v1',
-      curve: 'secp256k1',
-      encoding: 'base64url',
-      producer: 'signer_core',
-      stateBlobB64u: bytesB64u(48, 9),
-    },
-    publicFacts: publicFacts(),
-    authMethod,
+  const bootstrap = createThresholdEcdsaBootstrapFixture({
+    nearAccountId: walletId,
+    chain: 'tempo',
+    rpId,
+    keyHandle,
+    ecdsaThresholdKeyId,
+    sessionId: 'tederivation-session',
+    signingGrantId: 'wss-session',
+    relayerUrl: 'https://relayer.example',
+    relayerKeyId: 'relayer-key',
+    passkeyCredentialIdB64u,
+    signingRootId,
+    signingRootVersion,
+    ethereumAddress: ownerAddress,
+    expiresAtMs: Date.now() + 60_000,
+    remainingUses: 3,
+    roleLocalAuthMethod: authMethod.kind,
+    ...(authMethod.kind === 'email_otp'
+      ? { emailOtpAuthSubjectId: authMethod.authSubjectId }
+      : {}),
   });
+  const binding = bootstrap.thresholdEcdsaKeyRef.backendBinding;
+  if (binding?.materialKind !== 'role_local_ready_state_blob') {
+    throw new Error('expected role-local ready-record fixture');
+  }
+  return binding.ecdsaRoleLocalReadyRecord;
 }
 
 function rawSessionRecord(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  const source = String(overrides.source || 'registration');
-  return {
+  const sourceRaw = String(overrides.source || 'registration');
+  const thresholdSessionId = String(overrides.thresholdSessionId || 'tederivation-session');
+  const signingGrantId = String(overrides.signingGrantId || 'wss-session');
+  const expiresAtMs = Number(overrides.expiresAtMs ?? Date.now() + 60_000);
+  const remainingUses = Number(overrides.remainingUses ?? 3);
+  const common = {
     walletId,
-    evmFamilySigningKeySlotId,
+    chain: 'tempo' as const,
     chainTarget,
-    relayerUrl: 'https://relayer.example',
     keyHandle,
     ecdsaThresholdKeyId,
+    thresholdSessionId,
+    signingGrantId,
+    relayerUrl: 'https://relayer.example',
+    relayerKeyId: 'relayer-key',
     signingRootId,
     signingRootVersion,
-    relayerKeyId: 'relayer-key',
-    clientVerifyingShareB64u: derivationClientSharePublicKey33B64u,
-    ecdsaRoleLocalReadyRecord: readyRecord(
-      source === 'email_otp' ? emailOtpAuthMethod : passkeyAuthMethod,
-    ),
-    participantIds: [1, 2],
-    thresholdSessionKind: 'jwt',
-    thresholdSessionId: 'tederivation-session',
-    signingGrantId: 'wss-session',
-    walletSessionJwt: 'jwt',
-    expiresAtMs: Date.now() + 60_000,
-    remainingUses: 3,
-    thresholdEcdsaPublicKeyB64u: groupPublicKey33B64u,
-    verifiedPublicFacts: {
-      kind: 'verified_ecdsa_public_facts',
-      keyHandle,
-      publicKeyB64u: groupPublicKey33B64u,
-      participantIds: [1, 2],
-      thresholdOwnerAddress: ownerAddress,
-    },
     ethereumAddress: ownerAddress,
-    relayerVerifyingShareB64u: relayerPublicKey33B64u,
+    expiresAtMs,
+    remainingUses,
     updatedAtMs: 1,
+  };
+  if (sourceRaw === 'email_otp') {
+    const record = buildEmailOtpEcdsaSessionRecordFixture({
+      ...common,
+      emailOtpAuthContext: emailOtpSessionAuthContext(),
+    });
+    return {
+      ...record,
+      clientAdditiveShareHandle: undefined,
+      ...overrides,
+    };
+  }
+  const source =
+    sourceRaw === 'login' || sourceRaw === 'manual-bootstrap' ? sourceRaw : 'registration';
+  const record = buildPasskeyEcdsaSessionRecordFixture({
+    ...common,
+    rpId,
+    passkeyCredentialIdB64u,
     source,
+    roleLocalDurableMaterialRef,
+  });
+  return {
+    ...record,
     ...overrides,
   };
+}
+
+function emailOtpRawSessionRecord(
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return rawSessionRecord({
+    source: 'email_otp',
+    emailOtpAuthContext: emailOtpSessionAuthContext(),
+    ...overrides,
+  });
 }
 
 test.describe('ECDSA role-local record boundary parser', () => {
@@ -216,18 +241,18 @@ test.describe('ECDSA role-local record boundary parser', () => {
     clearAllThresholdEcdsaSessionRecords({ recordsByLane: new Map() });
   });
 
-  test('parses canonical threshold ECDSA session records into normalized ready records', () => {
-    const ready = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(rawSessionRecord());
-    expect(ready.kind).toBe('ecdsa_role_local_ready_passkey_v1');
-    expect(ready.authMethod).toEqual({
-      kind: 'passkey',
-      credentialIdB64u: passkeyCredentialIdB64u,
-      rpId,
-    });
+  test('parses canonical inline Email OTP sessions into normalized ready records', () => {
+    const ready = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(
+      emailOtpRawSessionRecord(),
+    );
+    expect(ready.kind).toBe('ecdsa_role_local_ready_email_otp_v1');
+    expect(ready.authMethod).toEqual(emailOtpAuthMethod);
     expect(ready.publicFacts.walletId).toBe(walletId);
     expect(ready.publicFacts.evmFamilySigningKeySlotId).toBe(evmFamilySigningKeySlotId);
     expect(ready.publicFacts.keyHandle).toBe(keyHandle);
-    expect(ready.publicFacts.derivationClientSharePublicKey33B64u).toBe(derivationClientSharePublicKey33B64u);
+    expect(ready.publicFacts.derivationClientSharePublicKey33B64u).toBe(
+      publicFacts().derivationClientSharePublicKey33B64u,
+    );
     expect(ready.stateBlob.kind).toBe('ecdsa_role_local_state_blob_v1');
   });
 
@@ -251,17 +276,20 @@ test.describe('ECDSA role-local record boundary parser', () => {
   });
 
   test('rejects ECDSA session records whose role-local wallet key disagrees', () => {
+    const emailOtpReadyRecord = readyRecord(emailOtpAuthMethod);
+    const mismatchedPublicFacts = buildEcdsaRoleLocalPublicFacts({
+      ...emailOtpReadyRecord.publicFacts,
+      evmFamilySigningKeySlotId: otherEvmFamilySigningKeySlotId,
+    });
     const mismatchedReadyRecord = buildEcdsaRoleLocalReadyRecord({
-      ...readyRecord(),
-      publicFacts: buildEcdsaRoleLocalPublicFacts({
-        ...publicFacts(),
-        evmFamilySigningKeySlotId: otherEvmFamilySigningKeySlotId,
-      }),
+      ...emailOtpReadyRecord,
+      publicFacts: mismatchedPublicFacts,
     });
 
     expect(() =>
       parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(
-        rawSessionRecord({
+        emailOtpRawSessionRecord({
+          ecdsaRoleLocalPublicFacts: mismatchedPublicFacts,
           ecdsaRoleLocalReadyRecord: mismatchedReadyRecord,
         }),
       ),
@@ -327,23 +355,24 @@ test.describe('ECDSA role-local record boundary parser', () => {
   });
 
   test('reads persisted ready records without legacy role-local raw state', () => {
-    const ready = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(rawSessionRecord());
-    const record = rawSessionRecord({
+    const ready = readyRecord(emailOtpAuthMethod);
+    const record = emailOtpRawSessionRecord({
       ecdsaRoleLocalReadyRecord: ready,
       ecdsaDerivationRoleLocalClientState: undefined,
-      clientAdditiveShare32B64u: share32B64u,
     });
 
     const parsed = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record);
-    expect(parsed.publicFacts.derivationClientSharePublicKey33B64u).toBe(derivationClientSharePublicKey33B64u);
+    expect(parsed.publicFacts.derivationClientSharePublicKey33B64u).toBe(
+      ready.publicFacts.derivationClientSharePublicKey33B64u,
+    );
 
     const state = classifyThresholdEcdsaSessionRecordRoleLocalState({
       record,
       nowMs: 1,
     });
-    expect(state.kind).toBe('ready_passkey_role_local_material_v1');
-    if (state.kind !== 'ready_passkey_role_local_material_v1') {
-      throw new Error('expected ready passkey material');
+    expect(state.kind).toBe('ready_email_otp_role_local_material_v1');
+    if (state.kind !== 'ready_email_otp_role_local_material_v1') {
+      throw new Error('expected ready Email OTP material');
     }
     expect(state.readyRecord.publicFacts.keyHandle).toBe(keyHandle);
     expect(state.inlineSigningMaterial).toEqual({
@@ -364,8 +393,7 @@ test.describe('ECDSA role-local record boundary parser', () => {
   });
 
   test('returns parse results for branch-specific ready records', () => {
-    const parsedReadyRecord =
-      parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(rawSessionRecord());
+    const parsedReadyRecord = readyRecord();
     const readyRecordWire = serializeEcdsaRoleLocalReadyRecord(parsedReadyRecord);
     const ready = parseRawEcdsaRoleLocalRecord({
       raw: readyRecordWire,
@@ -391,7 +419,7 @@ test.describe('ECDSA role-local record boundary parser', () => {
       code: 'malformed_record',
     });
 
-    const ready = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(rawSessionRecord());
+    const ready = readyRecord();
     const { authMethod: _authMethod, ...wire } = serializeEcdsaRoleLocalReadyRecord(ready);
     const currentUnbranched = parseRawEcdsaRoleLocalRecord({
       raw: {
@@ -426,19 +454,23 @@ test.describe('ECDSA role-local record boundary parser', () => {
   });
 
   test('parses export material without exposing raw role-local state to export consumers', () => {
-    const material = parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial(rawSessionRecord());
-    expect(material.readyRecord.publicFacts.groupPublicKey33B64u).toBe(groupPublicKey33B64u);
-    expect(material.contextBinding32B64u).toBe(share32B64u);
+    const material = parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial(
+      emailOtpRawSessionRecord(),
+    );
+    expect(material.readyRecord.publicFacts.groupPublicKey33B64u).toBe(
+      publicFacts().groupPublicKey33B64u,
+    );
+    expect(material.contextBinding32B64u).toBe(publicFacts().contextBinding32B64u);
   });
 
   test('rejects export material when required public identity is missing', () => {
     expect(() =>
       parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial(
-        rawSessionRecord({
+        emailOtpRawSessionRecord({
           ecdsaRoleLocalReadyRecord: {
-            ...readyRecord(),
+            ...readyRecord(emailOtpAuthMethod),
             publicFacts: {
-              ...publicFacts(),
+              ...readyRecord(emailOtpAuthMethod).publicFacts,
               relayerPublicKey33B64u: '',
             },
           },
@@ -447,7 +479,7 @@ test.describe('ECDSA role-local record boundary parser', () => {
     ).toThrow(/role-local|public/i);
   });
 
-  test('classifies passkey ready-state blob material without inline share fields', () => {
+  test('classifies passkey durable material without inline share fields', () => {
     const state = classifyThresholdEcdsaSessionRecordRoleLocalState({
       record: rawSessionRecord(),
       nowMs: 1,
@@ -456,10 +488,8 @@ test.describe('ECDSA role-local record boundary parser', () => {
     if (state.kind !== 'ready_passkey_role_local_material_v1') {
       throw new Error('expected ready passkey material');
     }
-    expect(state.inlineSigningMaterial).toEqual({
-      kind: 'role_local_ready_state_blob',
-      stateBlob: state.readyRecord.stateBlob,
-    });
+    expect(state.durableMaterialRef).toBe(roleLocalDurableMaterialRef);
+    expect('inlineSigningMaterial' in state).toBe(false);
   });
 
   test('classifies Email OTP worker-owned material without exposing inline share fields', () => {
@@ -507,7 +537,6 @@ test.describe('ECDSA role-local record boundary parser', () => {
   test('classifies expired and malformed records without raw-shape leakage', () => {
     const expired = classifyThresholdEcdsaSessionRecordRoleLocalState({
       record: rawSessionRecord({
-        clientAdditiveShare32B64u: share32B64u,
         expiresAtMs: 10,
       }),
       nowMs: 11,
@@ -540,7 +569,7 @@ test.describe('ECDSA role-local record boundary parser', () => {
     const runtime = createBrowserPlatformRuntime({
       indexedDB: indexedDB as unknown as import('@/core/indexedDB').UnifiedIndexedDBManager,
     });
-    const ready = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(rawSessionRecord());
+    const ready = readyRecord();
     const storageKeyFacts = loadInput(
       buildEcdsaRoleLocalPasskeyAuthMethod({ credentialIdB64u: passkeyCredentialIdB64u, rpId }),
     );
@@ -575,7 +604,8 @@ test.describe('ECDSA role-local record boundary parser', () => {
   });
 
   test('serializes the exact branch-specific ready-record wire shape without raw share fields', () => {
-    const ready = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(rawSessionRecord());
+    const ready = readyRecord();
+    const facts = ready.publicFacts;
     const wire = serializeEcdsaRoleLocalReadyRecord(ready);
 
     expect(wire).toEqual({
@@ -590,7 +620,7 @@ test.describe('ECDSA role-local record boundary parser', () => {
       publicFacts: {
         walletId,
         evmFamilySigningKeySlotId,
-        chainTarget,
+        chainTarget: facts.chainTarget,
         keyHandle,
         ecdsaThresholdKeyId,
         signingRootId,
@@ -598,12 +628,13 @@ test.describe('ECDSA role-local record boundary parser', () => {
         clientParticipantId: 1,
         relayerParticipantId: 2,
         participantIds: [1, 2],
-        derivationClientSharePublicKey33B64u,
-        relayerPublicKey33B64u,
-        groupPublicKey33B64u,
+        derivationClientSharePublicKey33B64u: facts.derivationClientSharePublicKey33B64u,
+        relayerPublicKey33B64u: facts.relayerPublicKey33B64u,
+        groupPublicKey33B64u: facts.groupPublicKey33B64u,
         ethereumAddress: ownerAddress,
-        applicationBindingDigestB64u,
-        contextBinding32B64u: share32B64u,
+        applicationBindingDigestB64u: facts.applicationBindingDigestB64u,
+        contextBinding32B64u: facts.contextBinding32B64u,
+        publicCapability: facts.publicCapability,
       },
       authMethod: {
         kind: 'passkey',
@@ -657,7 +688,7 @@ test.describe('ECDSA role-local record boundary parser', () => {
   });
 
   test('rejects persisted ready records whose state blob is malformed', () => {
-    const ready = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(rawSessionRecord());
+    const ready = readyRecord();
     expect(() =>
       parseEcdsaRoleLocalReadyRecord({
         kind: ready.kind,
