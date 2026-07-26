@@ -105,7 +105,10 @@ function makeStore(entries: {
       return sessions[id]?.record || null;
     },
     async getSessionStatus(id: string) {
-      return sessions[id] || null;
+      const status = sessions[id];
+      return status
+        ? { ok: true as const, status }
+        : { ok: false as const, code: 'wallet_session_missing' as const };
     },
     async consumeUseCount(id: string) {
       return consume[id] || { ok: false, code: 'not_found', message: 'missing' };
@@ -159,7 +162,10 @@ function makeEcdsaStore(entries: {
       return sessions[id]?.record || null;
     },
     async getSessionStatus(id: string) {
-      return sessions[id] || null;
+      const status = sessions[id];
+      return status
+        ? { ok: true as const, status }
+        : { ok: false as const, code: 'wallet_session_missing' as const };
     },
     async consumeUseCount(id: string) {
       return consume[id] || { ok: false, code: 'not_found', message: 'missing' };
@@ -213,7 +219,10 @@ function makeBudgetStore(entries: {
       return sessions[id]?.record || null;
     },
     async getSessionStatus(id: string) {
-      return sessions[id] || null;
+      const status = sessions[id];
+      return status
+        ? { ok: true as const, status }
+        : { ok: false as const, code: 'wallet_session_missing' as const };
     },
     async consumeUseCount(id: string) {
       return consume[id] || { ok: false, code: 'not_found', message: 'missing' };

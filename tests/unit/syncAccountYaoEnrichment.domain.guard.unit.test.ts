@@ -32,6 +32,7 @@ import {
   RouterAbNormalSigningRuntime,
 } from '../../packages/sdk-server-ts/src/core/routerAbSigning/RouterAbNormalSigningRuntime';
 import { normalizeLogger } from '../../packages/sdk-server-ts/src/core/logger';
+import { FixtureRouterAbEcdsaStrictRegistrationPort } from '../helpers/routerAbSigningRuntimeTestUtils';
 
 const WALLET_ID = 'wallet-sync-1';
 const NEAR_ACCOUNT_ID = 'wallet-sync-1.testnet';
@@ -207,7 +208,7 @@ class ThrowingUnexpectedSessionAdapter implements SessionAdapter {
     throw new Error('sync-account Yao enrichment must use the product runtime session');
   }
 
-  async parse(): Promise<{ ok: false }> {
+  async parse(): Promise<{ ok: false; reason: 'missing' }> {
     throw new Error('session parsing is outside sync-account Yao enrichment');
   }
 
@@ -350,6 +351,7 @@ function createBaseService(
     relayerAccount: 'relay.testnet',
     relayerPublicKey: 'ed25519:relay-public-key',
     accountIdDerivationSecret: 'sync-account-test-derivation-secret',
+    ecdsaStrictRegistration: new FixtureRouterAbEcdsaStrictRegistrationPort(),
   });
 }
 

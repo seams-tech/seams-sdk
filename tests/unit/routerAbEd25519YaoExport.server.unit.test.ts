@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/encoders';
+import { parseSigningGrantId, parseThresholdEd25519SessionId } from '@shared/utils/domainIds';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import {
@@ -409,7 +410,7 @@ class SessionFixture implements SessionAdapter {
   constructor(
     private readonly result:
       | { readonly ok: true; readonly claims: SessionClaims }
-      | { readonly ok: false },
+      | { readonly ok: false; readonly reason: 'missing' },
   ) {}
 
   async signJwt(): Promise<string> {
@@ -417,7 +418,8 @@ class SessionFixture implements SessionAdapter {
   }
 
   async parse(): Promise<
-    { readonly ok: true; readonly claims: SessionClaims } | { readonly ok: false }
+    | { readonly ok: true; readonly claims: SessionClaims }
+    | { readonly ok: false; readonly reason: 'missing' }
   > {
     return this.result;
   }
@@ -703,18 +705,28 @@ function authorizationInput(
 }
 
 function exportAuthorizationIdentity(): RouterAbEd25519YaoExportFreshAuthorizationIdentityV1 {
+  const thresholdSessionId = parseThresholdEd25519SessionId(WALLET_SESSION_ID);
+  const signingGrantId = parseSigningGrantId(SIGNING_GRANT_ID);
+  if (!thresholdSessionId.ok || !signingGrantId.ok) {
+    throw new Error('invalid export authorization fixture identity');
+  }
   return {
-    thresholdSessionId: WALLET_SESSION_ID,
-    signingGrantId: SIGNING_GRANT_ID,
+    thresholdSessionId: thresholdSessionId.value,
+    signingGrantId: signingGrantId.value,
   };
 }
 
 function exportAuthorizationIdentityForCapability(
   capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1,
 ): RouterAbEd25519YaoExportFreshAuthorizationIdentityV1 {
+  const thresholdSessionId = parseThresholdEd25519SessionId(capability.lifecycle.walletSessionId);
+  const signingGrantId = parseSigningGrantId(SIGNING_GRANT_ID);
+  if (!thresholdSessionId.ok || !signingGrantId.ok) {
+    throw new Error('invalid export authorization fixture identity');
+  }
   return {
-    thresholdSessionId: capability.lifecycle.walletSessionId,
-    signingGrantId: SIGNING_GRANT_ID,
+    thresholdSessionId: thresholdSessionId.value,
+    signingGrantId: signingGrantId.value,
   };
 }
 
