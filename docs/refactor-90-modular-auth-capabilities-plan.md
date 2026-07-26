@@ -693,12 +693,20 @@ management schemas.
 Done so far: NEAR Ed25519 unlock requires the exact
 `nearAccountId`/`nearEd25519SigningKeyId`/`signerSlot` subject, and page-reload
 unlock resolves from durable wallet signer records when runtime session records
-are empty.
+are empty. Wave 1 Phase 4A adds an ECDSA-only subject resolver with no NEAR
+imports or reads, exact `ecdsaThresholdKeyId` identity, and typed fail-closed
+results for unavailable or invalid capability records.
 
-Open items:
+Checklist:
 
-- [ ] ECDSA-only wallet unlock reads no NEAR account identity (`toAccountId`,
-      NEAR projections, operational keys);
+- [x] ECDSA-only capability-subject resolution reads no NEAR account identity
+      (`toAccountId`, NEAR projections, operational keys) and lives in a
+      dependency-isolated module;
+- [x] mixed NEAR/ECDSA subject objects are rejected by the type system, and
+      `all_registered_mpc` returns typed lookup/validation failures instead of
+      silently publishing a partial subject set;
+- [ ] the actual ECDSA-only unlock flow consumes the exact ECDSA subject
+      end-to-end without requiring a NEAR wallet binding or warm-up;
 - [ ] combined NEAR+ECDSA unlock warms branches from a typed
       `WalletUnlockSubjectSet`; no flattened wallet/NEAR/ECDSA identity object;
 - [ ] page-refresh session restoration resolves subjects through the same
@@ -725,25 +733,36 @@ session state from role-local material. Preserve worker-only plaintext ownership
 opaque handles, TTL cleanup, validation, zeroization, and `finally` disposal.
 
 Done so far: `evmFamilySigningKeySlotId` is removed from the role-local
-identity/handle builders and their call sites, with a focused regression test.
+identity/handle builders and their call sites. Wave 1 completes the exact
+material-handle boundary: the handle is derived only from material facts,
+forbidden lane/session/grant/quota fields are rejected through `never`, and the
+client-verifying public key has a strict compressed-33-byte brand and parser.
 
-Open items:
+Checklist:
 
-- [ ] `buildEcdsaRoleLocalMaterialIdentity()` and its handle/digest builders
-      accept no `chainTarget`, `walletId`, `thresholdSessionId`,
+- [x] `buildEcdsaRoleLocalSigningMaterialHandle()` and its binding/digest
+      builder accept no `chainTarget`, `walletId`, `thresholdSessionId`,
       `activeStateId`, grant, quota, remaining-use, or expiry input;
 - [ ] `evmFamilySigningKeySlotId` is deleted from runtime paths or renamed to a
       provisioning reservation confined to registration/bootstrap (audit first;
       see the [deletion ledger](./refactor-90-deletion-ledger.md));
-- [ ] `clientVerifyingShareB64u` renamed to `clientVerifyingPublicKey33B64u` on
-      ECDSA role-local surfaces (Ed25519 naming is out of scope);
-- [ ] role-local material handles are stable across Tempo/ARC for the same
-      material; cross-chain signing fails closed through lane/session
-      validation before worker material opens;
+- [x] the canonical role-local material binding and handle use
+      `clientVerifyingPublicKey33B64u` with an exact
+      `EcdsaClientVerifyingPublicKey33B64u` boundary parser;
+- [ ] remaining raw `clientVerifyingShareB64u` occurrences are confined to
+      protocol-owned wire, worker, or persistence boundaries and renamed where
+      they still represent the role-local public-key fact;
+- [x] role-local material handles are stable across Tempo/ARC for the same
+      exact material facts;
+- [ ] cross-chain signing fails closed through lane/session validation before
+      worker material opens;
 - [ ] `activeStateId` appears only in Router A/B state/admission helpers and
       request builders;
-- [ ] focused tests: same-material cross-chain reuse, cross-chain mismatch
-      rejection, reload-restored material, registration-created material.
+- [x] type fixtures reject broad mixed inputs and the legacy verifying-share
+      brand, while focused unit tests cover stable handle derivation and strict
+      compressed-public-key parsing;
+- [ ] focused integration tests cover cross-chain mismatch rejection,
+      reload-restored material, and registration-created material.
 
 ## Slice A: Prove The Shared Authorization Path
 
