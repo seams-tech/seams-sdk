@@ -399,25 +399,45 @@ test('partitioned D1 completes and replays strict ECDSA wallet registration', as
     ).resolves.toEqual(responded);
 
     const activationFacts = fixtureRouterAbEcdsaActivationFacts();
-    const activated = await service.walletRegistration.activateWalletRegistrationEcdsa({
+    const unconfiguredSigningService = createCloudflareD1RouterApiAuthService({
+      database,
+      ...scope,
+      routerAbSigningRuntimes: null,
+      ecdsaStrictRegistration: strictRegistration,
+      thresholdStore: {
+        kind: 'cloudflare-do',
+        namespace: new RecordingDurableObjectNamespace(),
+        THRESHOLD_PREFIX: 'strict-registration-test',
+        ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker',
+      },
+    });
+    const activationRequest = {
       registrationCeremonyId: started.registrationCeremonyId,
       ecdsa: {
-        kind: 'router_ab_ecdsa_registration_activation_v1',
+        kind: 'router_ab_ecdsa_registration_activation_v1' as const,
         activationCorrelationId: parseCorrelationId('activation-correlation-registration'),
         publicFacts: activationFacts,
       },
+    };
+    await expect(
+      unconfiguredSigningService.walletRegistration.activateWalletRegistrationEcdsa(
+        activationRequest,
+      ),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'ecdsa_activation_terminal_failure',
+    });
+    const activated = await service.walletRegistration.activateWalletRegistrationEcdsa({
+      ...activationRequest,
     });
     if (!activated.ok) throw new Error(activated.message);
+    expect(strictRegistration.activationPrepareCalls).toBe(2);
     await expect(
       service.walletRegistration.activateWalletRegistrationEcdsa({
-        registrationCeremonyId: started.registrationCeremonyId,
-        ecdsa: {
-          kind: 'router_ab_ecdsa_registration_activation_v1',
-          activationCorrelationId: parseCorrelationId('activation-correlation-registration'),
-          publicFacts: activationFacts,
-        },
+        ...activationRequest,
       }),
     ).resolves.toEqual(activated);
+    expect(strictRegistration.activationPrepareCalls).toBe(2);
 
     await expect(
       service.walletRegistration.finalizeWalletRegistration({

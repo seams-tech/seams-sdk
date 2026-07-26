@@ -2215,29 +2215,26 @@ export class CloudflareD1WalletRegistrationService {
           message: 'one pending ECDSA family activation is required',
         };
       }
-      const activated = await this.ecdsaStrictRegistration.activate({
+      const activationInput = {
         activationCorrelationId: request.ecdsa.activationCorrelationId,
         pendingActivation: ecdsaBranch.pendingActivation,
         clientActivation: request.ecdsa.publicFacts,
         authority: ecdsaStrictRegistrationAuthority(ecdsaBranch.strictRegistration),
+      };
+      const preparedActivation =
+        await this.ecdsaStrictRegistration.prepareActivation(activationInput);
+      if (!preparedActivation.ok) {
+        return {
+          ok: false,
+          code: preparedActivation.code,
+          message: preparedActivation.message,
+        };
+      }
+      const activated = await this.ecdsaStrictRegistration.activate({
+        ...activationInput,
+        expectedActivationRequestDigest: preparedActivation.value.activation_request_digest,
       });
       if (!activated.ok) {
-        if (!activated.retryable) {
-          await store.updateCeremony({
-            expected: ceremony,
-            next: {
-              ...ceremony,
-              signerState: {
-                kind: 'registration_failed',
-                failedAtMs: Date.now(),
-                failure: {
-                  code: activated.code,
-                  message: activated.message,
-                },
-              },
-            },
-          });
-        }
         return {
           ok: false,
           code: activated.code,
@@ -2335,20 +2332,6 @@ export class CloudflareD1WalletRegistrationService {
       } catch (error: unknown) {
         const message =
           errorMessage(error) || 'ECDSA activation could not establish normal signing';
-        await store.updateCeremony({
-          expected: ceremony,
-          next: {
-            ...ceremony,
-            signerState: {
-              kind: 'registration_failed',
-              failedAtMs: Date.now(),
-              failure: {
-                code: 'ecdsa_activation_terminal_failure',
-                message,
-              },
-            },
-          },
-        });
         return {
           ok: false,
           code: 'ecdsa_activation_terminal_failure',
