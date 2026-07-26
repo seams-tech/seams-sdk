@@ -180,7 +180,10 @@ function buildBackend() {
   }
   runCommand('bash', ['packages/sdk-web/scripts/build/install-ci-wasm-tooling.sh']);
   runCommand('pnpm', ['-C', 'packages/console-server-ts', 'run', 'd1:local:ensure-wasm'], {
-    env: buildEnvironment({ WASM_SDK_BUILD_TARGET: 'gateway' }),
+    env: buildEnvironment({
+      WASM_SDK_BUILD_MODE: 'prod',
+      WASM_SDK_BUILD_TARGET: 'gateway',
+    }),
   });
   runCommand('pnpm', ['-C', 'packages/sdk-server-ts', 'build']);
   writeGatewayBuildConfig();
