@@ -120,11 +120,9 @@ use crate::{
     handle_cloudflare_ed25519_yao_deriver_a_execute_pair_v1,
     handle_cloudflare_ed25519_yao_deriver_a_prepare_pair_v1,
     handle_cloudflare_ed25519_yao_deriver_a_read_pair_status_v1,
-    handle_cloudflare_ed25519_yao_deriver_a_start_v1, preload_cloudflare_deriver_a_host_v1,
-    CloudflareDeriverAWorkerRuntimeV1, CLOUDFLARE_DERIVER_A_ED25519_YAO_ACTIVATION_START_PATH,
+    preload_cloudflare_deriver_a_host_v1, CloudflareDeriverAWorkerRuntimeV1,
     CLOUDFLARE_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH,
     CLOUDFLARE_DERIVER_A_ED25519_YAO_EXECUTE_PAIR_PATH,
-    CLOUDFLARE_DERIVER_A_ED25519_YAO_EXPORT_START_PATH,
     CLOUDFLARE_DERIVER_A_ED25519_YAO_PREPARE_PAIR_PATH,
     CLOUDFLARE_DERIVER_A_ED25519_YAO_READ_PAIR_STATUS_PATH,
     CLOUDFLARE_DERIVER_A_PRIVATE_REQUEST_PATH,
@@ -139,14 +137,9 @@ use crate::{
     handle_cloudflare_ed25519_yao_deriver_b_prepare_pair_v1,
     handle_cloudflare_ed25519_yao_deriver_b_read_completed_pair_v1,
     handle_cloudflare_ed25519_yao_deriver_b_read_pair_status_v1,
-    handle_cloudflare_ed25519_yao_deriver_b_result_v1,
-    handle_cloudflare_ed25519_yao_deriver_b_stage_v1,
     handle_cloudflare_ed25519_yao_deriver_b_websocket_v1, preload_cloudflare_deriver_b_host_v1,
-    CloudflareDeriverBWorkerRuntimeV1, CLOUDFLARE_DERIVER_B_ED25519_YAO_ACTIVATION_RESULT_PATH,
-    CLOUDFLARE_DERIVER_B_ED25519_YAO_ACTIVATION_STAGE_PATH,
-    CLOUDFLARE_DERIVER_B_ED25519_YAO_BURN_PAIR_PATH, CLOUDFLARE_DERIVER_B_ED25519_YAO_DUPLEX_PATH,
-    CLOUDFLARE_DERIVER_B_ED25519_YAO_EXPORT_RESULT_PATH,
-    CLOUDFLARE_DERIVER_B_ED25519_YAO_EXPORT_STAGE_PATH,
+    CloudflareDeriverBWorkerRuntimeV1, CLOUDFLARE_DERIVER_B_ED25519_YAO_BURN_PAIR_PATH,
+    CLOUDFLARE_DERIVER_B_ED25519_YAO_DUPLEX_PATH,
     CLOUDFLARE_DERIVER_B_ED25519_YAO_PREPARE_PAIR_PATH,
     CLOUDFLARE_DERIVER_B_ED25519_YAO_READ_COMPLETED_PAIR_PATH,
     CLOUDFLARE_DERIVER_B_ED25519_YAO_READ_PAIR_STATUS_PATH,
@@ -175,9 +168,7 @@ use router_ab_core::{
     feature = "strict-worker-deriver-a-entrypoint",
     feature = "strict-worker-deriver-b-entrypoint"
 ))]
-use router_ab_core::{
-    AbPeerMessageVerifyingKeyV1, Ed25519YaoInputKindV1, Role, RouterAbProtocolResult, SignerSetV1,
-};
+use router_ab_core::{AbPeerMessageVerifyingKeyV1, Role, RouterAbProtocolResult, SignerSetV1};
 #[cfg(feature = "strict-worker-router-entrypoint")]
 use worker::Method;
 use worker::{Context, Env, Request, Response};

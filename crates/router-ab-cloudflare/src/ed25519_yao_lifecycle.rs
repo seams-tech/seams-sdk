@@ -25,7 +25,7 @@ use router_ab_ed25519_yao::{
     seal_ed25519_yao_export_deriver_a_execution_v1, seal_ed25519_yao_export_deriver_b_execution_v1,
     Ed25519YaoRecipientPrivateKeyV1, Ed25519YaoRoleExecutionV1,
 };
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use worker::{Context, Delay, Env, Method, Request, Response, State, WebSocketPair};
 use zeroize::Zeroize;
@@ -44,18 +44,6 @@ use crate::{
     CloudflareWorkerRoleV1, EXECUTION_ID_HEADER, START_ACCEPTANCE_HEADER,
 };
 
-pub const CLOUDFLARE_DERIVER_A_ED25519_YAO_ACTIVATION_START_PATH: &str =
-    "/router-ab/deriver-a/ed25519-yao/activation/start";
-pub const CLOUDFLARE_DERIVER_A_ED25519_YAO_EXPORT_START_PATH: &str =
-    "/router-ab/deriver-a/ed25519-yao/export/start";
-pub const CLOUDFLARE_DERIVER_B_ED25519_YAO_ACTIVATION_STAGE_PATH: &str =
-    "/router-ab/deriver-b/ed25519-yao/activation/stage";
-pub const CLOUDFLARE_DERIVER_B_ED25519_YAO_ACTIVATION_RESULT_PATH: &str =
-    "/router-ab/deriver-b/ed25519-yao/activation/result";
-pub const CLOUDFLARE_DERIVER_B_ED25519_YAO_EXPORT_STAGE_PATH: &str =
-    "/router-ab/deriver-b/ed25519-yao/export/stage";
-pub const CLOUDFLARE_DERIVER_B_ED25519_YAO_EXPORT_RESULT_PATH: &str =
-    "/router-ab/deriver-b/ed25519-yao/export/result";
 pub const CLOUDFLARE_DERIVER_B_ED25519_YAO_DUPLEX_PATH: &str =
     "/router-ab/deriver-b/ed25519-yao/duplex";
 pub const CLOUDFLARE_DERIVER_A_ED25519_YAO_PREPARE_PAIR_PATH: &str =
@@ -79,16 +67,13 @@ const DERIVER_A_YAO_SESSION_DO_BINDING: &str = "DERIVER_A_YAO_SESSION_DO";
 const DERIVER_A_YAO_SESSION_DO_URL: &str = "https://deriver-a-yao-session.internal/execute";
 const DERIVER_B_YAO_SESSION_DO_BINDING: &str = "DERIVER_B_YAO_SESSION_DO";
 const DERIVER_B_YAO_SESSION_DO_URL: &str = "https://deriver-b-yao-session.internal/command";
-const SESSION_RECORD_STORAGE_KEY: &str = "session-record-v1";
 const PAIR_SESSION_RECORD_STORAGE_KEY: &str = "pair-session-record-v1";
 const YAO_CEREMONY_TIMEOUT: Duration = Duration::from_secs(15);
-const YAO_STAGED_INPUT_LIFETIME_MS: u64 = 60_000;
+const YAO_PREPARED_INPUT_LIFETIME_MS: u64 = 60_000;
 const YAO_RUNNING_LIFETIME_MS: u64 = 20_000;
 // Worker clocks expose the last I/O time, so a nested peer handoff can arrive slightly "future".
 const YAO_READINESS_RECEIPT_MAX_FUTURE_SKEW_MS: u64 = 1_000;
 const YAO_START_ACCEPTANCE_MAX_FUTURE_SKEW_MS: u64 = 1_000;
-const YAO_RESULT_WAIT_INTERVAL: Duration = Duration::from_millis(5);
-const YAO_RESULT_WAIT_ATTEMPTS: usize = 100;
 const ROLE_SPAN_EVENT_V1: &str = "router_ab_yao_role_span_v1";
 
 type RoleTraceContextV1 = Option<CloudflareTraceIdV1>;
@@ -171,90 +156,7 @@ fn emit_role_instance_span_v1(
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "status", rename_all = "snake_case")]
-enum YaoSessionRecordV1 {
-    Staged {
-        input_digest: [u8; 32],
-        expires_at_ms: u64,
-        input: Box<Ed25519YaoEncryptedInputV1>,
-    },
-    Running {
-        input_digest: [u8; 32],
-        expires_at_ms: u64,
-    },
-    Completed {
-        input_digest: [u8; 32],
-        execution: Box<Ed25519YaoRoleExecutionV1>,
-    },
-    Failed {
-        input_digest: [u8; 32],
-    },
-    Expired {
-        input_digest: [u8; 32],
-    },
-}
-
-impl YaoSessionRecordV1 {
-    fn input_digest(&self) -> [u8; 32] {
-        match self {
-            Self::Staged { input_digest, .. }
-            | Self::Running { input_digest, .. }
-            | Self::Completed { input_digest, .. }
-            | Self::Failed { input_digest }
-            | Self::Expired { input_digest } => *input_digest,
-        }
-    }
-}
-
-async fn transaction_get_optional_v1<T>(
-    transaction: &worker::durable::Transaction,
-    key: &str,
-) -> worker::Result<Option<T>>
-where
-    T: DeserializeOwned,
-{
-    match transaction.get::<T>(key).await {
-        Ok(record) => Ok(Some(record)),
-        Err(worker::Error::JsError(message)) if message == "No such value in storage." => Ok(None),
-        Err(error) => Err(error),
-    }
-}
-
-/// Claims the legacy lifecycle only when both lifecycle records are absent.
-/// Pair preparation uses the same dual-key transaction, so requests served by
-/// this version cannot admit both flows during an await gap.
-async fn claim_legacy_session_record_v1(
-    storage: &worker::Storage,
-    record: YaoSessionRecordV1,
-) -> worker::Result<()> {
-    storage
-        .transaction(move |transaction| async move {
-            if transaction_get_optional_v1::<PairYaoSessionRecordV1>(
-                &transaction,
-                PAIR_SESSION_RECORD_STORAGE_KEY,
-            )
-            .await?
-            .is_some()
-            {
-                return Ok(());
-            }
-            if transaction_get_optional_v1::<YaoSessionRecordV1>(
-                &transaction,
-                SESSION_RECORD_STORAGE_KEY,
-            )
-            .await?
-            .is_some()
-            {
-                return Ok(());
-            }
-            transaction.put(SESSION_RECORD_STORAGE_KEY, record).await
-        })
-        .await
-}
-
-/// Pair-bound role state used by the Router-owned lifecycle. Existing request
-/// records remain separate during the boundary migration.
+/// Pair-bound role state used by the Router-owned lifecycle.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 enum PairYaoSessionRecordV1 {
@@ -568,9 +470,6 @@ impl CloudflareEd25519YaoReadCompletedPairRequestV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case")]
 enum DeriverAYaoSessionCommandV1 {
-    Execute {
-        input: Ed25519YaoEncryptedInputV1,
-    },
     PreparePair {
         pair_binding: Ed25519YaoInputPairBindingV1,
         input: Ed25519YaoEncryptedInputV1,
@@ -603,7 +502,6 @@ enum DeriverAYaoSessionCommandV1 {
 impl DeriverAYaoSessionCommandV1 {
     fn operation(&self) -> &'static str {
         match self {
-            Self::Execute { .. } => "execute",
             Self::PreparePair { .. } => "prepare_pair",
             Self::ClaimPair { .. } => "claim_pair",
             Self::StartPair { .. } => "start_pair",
@@ -615,14 +513,6 @@ impl DeriverAYaoSessionCommandV1 {
 
     fn validate(&self) -> RouterAbProtocolResult<()> {
         match self {
-            Self::Execute { input } => {
-                input.validate()?;
-                if input.deriver() != Ed25519YaoDeriverRoleV1::DeriverA {
-                    return Err(invalid_lifecycle(
-                        "Deriver A session storage accepts only Deriver A input",
-                    ));
-                }
-            }
             Self::PreparePair {
                 pair_binding,
                 input,
@@ -720,59 +610,9 @@ enum DeriverAYaoSessionResponseV1 {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "family", rename_all = "snake_case", deny_unknown_fields)]
-pub enum CloudflareEd25519YaoResultRequestV1 {
-    Activation { session_id: [u8; 32] },
-    Export { session_id: [u8; 32] },
-}
-
-impl CloudflareEd25519YaoResultRequestV1 {
-    fn session_id(self) -> [u8; 32] {
-        match self {
-            Self::Activation { session_id } | Self::Export { session_id } => session_id,
-        }
-    }
-
-    fn input_kind(&self) -> Ed25519YaoInputKindV1 {
-        match self {
-            Self::Activation { .. } => Ed25519YaoInputKindV1::Activation,
-            Self::Export { .. } => Ed25519YaoInputKindV1::Export,
-        }
-    }
-
-    fn validate(&self) -> RouterAbProtocolResult<()> {
-        let session_id = match self {
-            Self::Activation { session_id } | Self::Export { session_id } => session_id,
-        };
-        if session_id.iter().all(|byte| *byte == 0) {
-            return Err(invalid_lifecycle("Ed25519 Yao session must be nonzero"));
-        }
-        Ok(())
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case")]
 enum DeriverBYaoSessionCommandV1 {
-    Stage {
-        input: Box<Ed25519YaoEncryptedInputV1>,
-    },
-    ReadStaged {
-        session: [u8; 32],
-    },
-    Begin {
-        session: [u8; 32],
-    },
-    Complete {
-        execution: Box<Ed25519YaoRoleExecutionV1>,
-    },
-    Fail {
-        session: [u8; 32],
-    },
-    ReadResult {
-        session: [u8; 32],
-    },
     PreparePair {
         pair_binding: Box<Ed25519YaoInputPairBindingV1>,
         input: Box<Ed25519YaoEncryptedInputV1>,
@@ -808,12 +648,6 @@ enum DeriverBYaoSessionCommandV1 {
 impl DeriverBYaoSessionCommandV1 {
     fn operation(&self) -> &'static str {
         match self {
-            Self::Stage { .. } => "stage",
-            Self::ReadStaged { .. } => "read_staged",
-            Self::Begin { .. } => "begin",
-            Self::Complete { .. } => "complete",
-            Self::Fail { .. } => "fail",
-            Self::ReadResult { .. } => "read_result",
             Self::PreparePair { .. } => "prepare_pair",
             Self::ReadPairPrepared { .. } => "read_pair_prepared",
             Self::BeginPair { .. } => "begin_pair",
@@ -826,12 +660,6 @@ impl DeriverBYaoSessionCommandV1 {
 
     fn session(&self) -> [u8; 32] {
         match self {
-            Self::Stage { input } => input.session(),
-            Self::ReadStaged { session }
-            | Self::Begin { session }
-            | Self::Fail { session }
-            | Self::ReadResult { session } => *session,
-            Self::Complete { execution } => execution.session(),
             Self::PreparePair { input, .. } => input.session(),
             Self::ReadPairPrepared { session, .. }
             | Self::BeginPair { session, .. }
@@ -848,22 +676,6 @@ impl DeriverBYaoSessionCommandV1 {
             return Err(invalid_lifecycle("Ed25519 Yao session must be nonzero"));
         }
         match self {
-            Self::Stage { input } => {
-                input.validate()?;
-                if input.deriver() != Ed25519YaoDeriverRoleV1::DeriverB {
-                    return Err(invalid_lifecycle(
-                        "Deriver B session storage accepts only Deriver B input",
-                    ));
-                }
-            }
-            Self::Complete { execution } => {
-                execution.validate()?;
-                if execution.deriver() != Ed25519YaoDeriverRoleV1::DeriverB {
-                    return Err(invalid_lifecycle(
-                        "Deriver B session storage accepts only Deriver B execution",
-                    ));
-                }
-            }
             Self::PreparePair {
                 pair_binding,
                 input,
@@ -903,10 +715,6 @@ impl DeriverBYaoSessionCommandV1 {
                     }
                 }
             }
-            Self::ReadStaged { .. }
-            | Self::Begin { .. }
-            | Self::Fail { .. }
-            | Self::ReadResult { .. } => {}
         }
         Ok(())
     }
@@ -915,30 +723,6 @@ impl DeriverBYaoSessionCommandV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "result", rename_all = "snake_case")]
 enum DeriverBYaoSessionResponseV1 {
-    Staged {
-        session: [u8; 32],
-    },
-    StagedInput {
-        input: Box<Ed25519YaoEncryptedInputV1>,
-    },
-    Running {
-        session: [u8; 32],
-    },
-    Completed {
-        session: [u8; 32],
-    },
-    Pending {
-        session: [u8; 32],
-    },
-    Failed {
-        session: [u8; 32],
-    },
-    Expired {
-        session: [u8; 32],
-    },
-    RoleExecution {
-        execution: Box<Ed25519YaoRoleExecutionV1>,
-    },
     PairPrepared {
         session: [u8; 32],
         pair_digest: [u8; 32],
@@ -1170,223 +954,24 @@ impl worker::DurableObject for RouterAbDeriverAYaoSessionDurableObject {
             command.operation(),
             &self.request_sequence,
         );
-        match &command {
+        match command {
             DeriverAYaoSessionCommandV1::PreparePair { .. } => {
-                return self.handle_prepare_pair(command).await;
+                self.handle_prepare_pair(command).await
             }
-            DeriverAYaoSessionCommandV1::ClaimPair { .. } => {
-                return self.handle_claim_pair(command).await;
-            }
-            DeriverAYaoSessionCommandV1::StartPair { .. } => {
-                return self.handle_start_pair(command).await;
-            }
+            DeriverAYaoSessionCommandV1::ClaimPair { .. } => self.handle_claim_pair(command).await,
+            DeriverAYaoSessionCommandV1::StartPair { .. } => self.handle_start_pair(command).await,
             DeriverAYaoSessionCommandV1::CompletePair { .. } => {
-                return self.handle_complete_pair(command).await;
+                self.handle_complete_pair(command).await
             }
             DeriverAYaoSessionCommandV1::ReadPairStatus {
                 session,
                 pair_digest,
-            } => {
-                return self.handle_read_pair_status(*session, *pair_digest).await;
-            }
+            } => self.handle_read_pair_status(session, pair_digest).await,
             DeriverAYaoSessionCommandV1::BurnPair {
                 session,
                 pair_digest,
-            } => {
-                return self.handle_burn_pair(*session, *pair_digest).await;
-            }
-            DeriverAYaoSessionCommandV1::Execute { .. } => {}
+            } => self.handle_burn_pair(session, pair_digest).await,
         }
-        let DeriverAYaoSessionCommandV1::Execute { input } = command else {
-            unreachable!("pair commands are handled before the legacy command path")
-        };
-        let storage = self.state.storage();
-        if storage
-            .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
-            .await?
-            .is_some()
-        {
-            return Response::error(
-                "Deriver A pair lifecycle owns this session; legacy execution is closed",
-                409,
-            );
-        }
-        let now_unix_ms = cloudflare_yao_now_unix_ms()?;
-        let input_digest = yao_input_digest(&input);
-        let mut existing = storage
-            .get::<YaoSessionRecordV1>(SESSION_RECORD_STORAGE_KEY)
-            .await?;
-        let mut legacy_admitted = false;
-        if existing.is_none() {
-            let expires_at_ms = yao_expiry_from_now(now_unix_ms, YAO_RUNNING_LIFETIME_MS)?;
-            claim_legacy_session_record_v1(
-                &storage,
-                YaoSessionRecordV1::Running {
-                    input_digest,
-                    expires_at_ms,
-                },
-            )
-            .await?;
-            if storage
-                .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
-                .await?
-                .is_some()
-            {
-                return Response::error(
-                    "Deriver A pair lifecycle owns this session; legacy execution is closed",
-                    409,
-                );
-            }
-            existing = storage
-                .get::<YaoSessionRecordV1>(SESSION_RECORD_STORAGE_KEY)
-                .await?;
-            legacy_admitted = matches!(
-                existing,
-                Some(YaoSessionRecordV1::Running {
-                    input_digest: stored_input,
-                    expires_at_ms: stored_expiry,
-                }) if stored_input == input_digest && stored_expiry == expires_at_ms
-            );
-        }
-        if !legacy_admitted {
-            match existing {
-                Some(YaoSessionRecordV1::Completed {
-                    input_digest: existing_digest,
-                    execution,
-                }) if existing_digest == input_digest => return Response::from_json(&execution),
-                Some(record) if record.input_digest() != input_digest => {
-                    return Response::error("conflicting Deriver A session input", 409);
-                }
-                Some(YaoSessionRecordV1::Running { expires_at_ms, .. })
-                    if now_unix_ms >= expires_at_ms =>
-                {
-                    storage
-                        .put(
-                            SESSION_RECORD_STORAGE_KEY,
-                            YaoSessionRecordV1::Expired { input_digest },
-                        )
-                        .await?;
-                    return Response::error("Deriver A session expired", 409);
-                }
-                Some(YaoSessionRecordV1::Running { .. }) => {
-                    return Response::error(
-                        "Deriver A session is already running and cannot be re-evaluated",
-                        409,
-                    );
-                }
-                Some(YaoSessionRecordV1::Failed { .. }) => {
-                    return Response::error("Deriver A session failed", 409);
-                }
-                Some(YaoSessionRecordV1::Expired { .. }) => {
-                    return Response::error("Deriver A session expired", 409);
-                }
-                Some(YaoSessionRecordV1::Staged { .. })
-                | Some(YaoSessionRecordV1::Completed { .. }) => {
-                    return Response::error("Deriver A session state is invalid", 409);
-                }
-                None => {
-                    return Response::error("Deriver A legacy admission state is missing", 409);
-                }
-            }
-        }
-        let runtime = match CloudflareDeriverAWorkerRuntimeV1::from_worker_env(&self.env) {
-            Ok(runtime) => runtime,
-            Err(error) => {
-                storage
-                    .put(
-                        SESSION_RECORD_STORAGE_KEY,
-                        YaoSessionRecordV1::Failed { input_digest },
-                    )
-                    .await?;
-                return Response::error(error.message(), 500);
-            }
-        };
-        let role_started_at_ms = role_span_started_at_ms();
-        let execution =
-            match execute_deriver_a_role(&self.env, &runtime, input, trace_id, None).await {
-                Ok(execution) => execution,
-                Err(error) => {
-                    emit_role_span_v1(
-                        trace_id,
-                        "deriver_a.role_execution",
-                        "deriver_a",
-                        "yao",
-                        role_started_at_ms,
-                        "failure",
-                    );
-                    let current = storage
-                        .get::<YaoSessionRecordV1>(SESSION_RECORD_STORAGE_KEY)
-                        .await?;
-                    if matches!(
-                        current,
-                        Some(YaoSessionRecordV1::Running {
-                            input_digest: current_digest,
-                            ..
-                        }) if current_digest == input_digest
-                    ) {
-                        storage
-                            .put(
-                                SESSION_RECORD_STORAGE_KEY,
-                                YaoSessionRecordV1::Failed { input_digest },
-                            )
-                            .await?;
-                    }
-                    return Response::error(error.message(), 500);
-                }
-            };
-        emit_role_span_v1(
-            trace_id,
-            "deriver_a.role_execution",
-            "deriver_a",
-            "yao",
-            role_started_at_ms,
-            "success",
-        );
-        let now_unix_ms = cloudflare_yao_now_unix_ms()?;
-        let current = storage
-            .get::<YaoSessionRecordV1>(SESSION_RECORD_STORAGE_KEY)
-            .await?;
-        match current {
-            Some(YaoSessionRecordV1::Running {
-                input_digest: current_digest,
-                expires_at_ms,
-            }) if current_digest == input_digest && now_unix_ms < expires_at_ms => {}
-            Some(YaoSessionRecordV1::Running {
-                input_digest: current_digest,
-                ..
-            }) if current_digest == input_digest => {
-                storage
-                    .put(
-                        SESSION_RECORD_STORAGE_KEY,
-                        YaoSessionRecordV1::Expired { input_digest },
-                    )
-                    .await?;
-                return Response::error("Deriver A session expired", 409);
-            }
-            Some(YaoSessionRecordV1::Running { .. }) | Some(YaoSessionRecordV1::Failed { .. }) => {
-                return Response::error("Deriver A session failed", 409);
-            }
-            Some(YaoSessionRecordV1::Expired { .. }) => {
-                return Response::error("Deriver A session expired", 409);
-            }
-            Some(YaoSessionRecordV1::Completed {
-                input_digest: current_digest,
-                execution,
-            }) if current_digest == input_digest => return Response::from_json(&execution),
-            Some(YaoSessionRecordV1::Staged { .. })
-            | Some(YaoSessionRecordV1::Completed { .. })
-            | None => return Response::error("Deriver A session state is invalid", 409),
-        }
-        storage
-            .put(
-                SESSION_RECORD_STORAGE_KEY,
-                YaoSessionRecordV1::Completed {
-                    input_digest,
-                    execution: Box::new(execution.clone()),
-                },
-            )
-            .await?;
-        Response::from_json(&execution)
     }
 }
 
@@ -1686,16 +1271,6 @@ impl RouterAbDeriverAYaoSessionDurableObject {
                 }
             }
         }
-        if storage
-            .get::<YaoSessionRecordV1>(SESSION_RECORD_STORAGE_KEY)
-            .await?
-            .is_some()
-        {
-            return Response::error(
-                "Deriver A legacy lifecycle owns this session; pair preparation is closed",
-                409,
-            );
-        }
         let runtime = CloudflareDeriverAWorkerRuntimeV1::from_worker_env(&self.env)
             .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
         let root_metadata_digest = load_deriver_a_yao_root_metadata_digest(
@@ -1732,7 +1307,7 @@ impl RouterAbDeriverAYaoSessionDurableObject {
                 }
             }
         }
-        let expires_at_ms = yao_expiry_from_now(prepared_at_ms, YAO_STAGED_INPUT_LIFETIME_MS)?;
+        let expires_at_ms = yao_expiry_from_now(prepared_at_ms, YAO_PREPARED_INPUT_LIFETIME_MS)?;
         let session = request.pair_binding.session();
         let receipt = sign_role_readiness_receipt_v1(
             &self.env,
@@ -1770,19 +1345,7 @@ impl RouterAbDeriverAYaoSessionDurableObject {
                     }
                     Err(error) => return Err(error),
                 };
-                let legacy = match transaction
-                    .get::<YaoSessionRecordV1>(SESSION_RECORD_STORAGE_KEY)
-                    .await
-                {
-                    Ok(record) => Some(record),
-                    Err(worker::Error::JsError(message))
-                        if message == "No such value in storage." =>
-                    {
-                        None
-                    }
-                    Err(error) => return Err(error),
-                };
-                if current.is_some() || legacy.is_some() {
+                if current.is_some() {
                     return Ok(());
                 }
                 transaction
@@ -1791,13 +1354,6 @@ impl RouterAbDeriverAYaoSessionDurableObject {
                 Ok(())
             })
             .await?;
-        if storage
-            .get::<YaoSessionRecordV1>(SESSION_RECORD_STORAGE_KEY)
-            .await?
-            .is_some()
-        {
-            return Response::error("Deriver A pair changed while preparing", 409);
-        }
         if !matches!(
             storage
                 .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
@@ -2139,345 +1695,7 @@ impl worker::DurableObject for RouterAbDeriverBYaoSessionDurableObject {
             command.operation(),
             &self.request_sequence,
         );
-        if matches!(
-            &command,
-            DeriverBYaoSessionCommandV1::PreparePair { .. }
-                | DeriverBYaoSessionCommandV1::ReadPairPrepared { .. }
-                | DeriverBYaoSessionCommandV1::BeginPair { .. }
-                | DeriverBYaoSessionCommandV1::CompletePair { .. }
-                | DeriverBYaoSessionCommandV1::FailPair { .. }
-                | DeriverBYaoSessionCommandV1::ReadCompletedPair { .. }
-                | DeriverBYaoSessionCommandV1::ReadPairStatus { .. }
-        ) {
-            return self.handle_pair_command(command).await;
-        }
-        let storage = self.state.storage();
-        if storage
-            .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
-            .await?
-            .is_some()
-        {
-            return Response::error(
-                "Deriver B pair lifecycle owns this session; legacy execution is closed",
-                409,
-            );
-        }
-        let now_unix_ms = cloudflare_yao_now_unix_ms()?;
-        let response = match command {
-            DeriverBYaoSessionCommandV1::Stage { input } => {
-                let input_digest = yao_input_digest(&input);
-                let mut existing = storage
-                    .get::<YaoSessionRecordV1>(SESSION_RECORD_STORAGE_KEY)
-                    .await?;
-                let mut legacy_admitted = false;
-                if existing.is_none() {
-                    let expires_at_ms =
-                        yao_expiry_from_now(now_unix_ms, YAO_STAGED_INPUT_LIFETIME_MS)?;
-                    claim_legacy_session_record_v1(
-                        &storage,
-                        YaoSessionRecordV1::Staged {
-                            input_digest,
-                            expires_at_ms,
-                            input: input.clone(),
-                        },
-                    )
-                    .await?;
-                    if storage
-                        .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
-                        .await?
-                        .is_some()
-                    {
-                        return Response::error(
-                            "Deriver B pair lifecycle owns this session; legacy execution is closed",
-                            409,
-                        );
-                    }
-                    existing = storage
-                        .get::<YaoSessionRecordV1>(SESSION_RECORD_STORAGE_KEY)
-                        .await?;
-                    legacy_admitted = matches!(
-                        existing,
-                        Some(YaoSessionRecordV1::Staged {
-                            input_digest: stored_input,
-                            expires_at_ms: stored_expiry,
-                            ..
-                        }) if stored_input == input_digest && stored_expiry == expires_at_ms
-                    );
-                }
-                if !legacy_admitted {
-                    match existing {
-                        Some(YaoSessionRecordV1::Staged {
-                            input_digest: existing_digest,
-                            expires_at_ms,
-                            ..
-                        }) if now_unix_ms >= expires_at_ms => {
-                            storage
-                                .put(
-                                    SESSION_RECORD_STORAGE_KEY,
-                                    YaoSessionRecordV1::Expired {
-                                        input_digest: existing_digest,
-                                    },
-                                )
-                                .await?;
-                            return Response::error("Deriver B staged session expired", 409);
-                        }
-                        Some(YaoSessionRecordV1::Staged {
-                            input_digest: existing_digest,
-                            ..
-                        }) if existing_digest == input_digest => {}
-                        Some(record) if record.input_digest() != input_digest => {
-                            return Response::error("conflicting staged Deriver B input", 409);
-                        }
-                        Some(YaoSessionRecordV1::Running { .. })
-                        | Some(YaoSessionRecordV1::Completed { .. })
-                        | Some(YaoSessionRecordV1::Failed { .. })
-                        | Some(YaoSessionRecordV1::Expired { .. }) => {
-                            return Response::error(
-                                "Deriver B session is terminal or already running",
-                                409,
-                            );
-                        }
-                        Some(YaoSessionRecordV1::Staged { .. }) => {
-                            return Response::error("conflicting staged Deriver B input", 409);
-                        }
-                        None => {
-                            return Response::error(
-                                "Deriver B legacy admission state is missing",
-                                409,
-                            );
-                        }
-                    }
-                }
-                DeriverBYaoSessionResponseV1::Staged {
-                    session: input.session(),
-                }
-            }
-            DeriverBYaoSessionCommandV1::ReadStaged { session } => {
-                let record = storage
-                    .get::<YaoSessionRecordV1>(SESSION_RECORD_STORAGE_KEY)
-                    .await?
-                    .ok_or_else(|| worker::Error::RustError("Yao session is missing".into()))?;
-                match record {
-                    YaoSessionRecordV1::Staged {
-                        input_digest,
-                        expires_at_ms,
-                        input: _,
-                    } if now_unix_ms >= expires_at_ms => {
-                        storage
-                            .put(
-                                SESSION_RECORD_STORAGE_KEY,
-                                YaoSessionRecordV1::Expired { input_digest },
-                            )
-                            .await?;
-                        DeriverBYaoSessionResponseV1::Expired { session }
-                    }
-                    YaoSessionRecordV1::Staged { input, .. } => {
-                        if input.session() != session {
-                            return Response::error("staged input session mismatch", 409);
-                        }
-                        DeriverBYaoSessionResponseV1::StagedInput { input }
-                    }
-                    YaoSessionRecordV1::Running { .. } => {
-                        DeriverBYaoSessionResponseV1::Running { session }
-                    }
-                    YaoSessionRecordV1::Completed { .. } => {
-                        DeriverBYaoSessionResponseV1::Completed { session }
-                    }
-                    YaoSessionRecordV1::Failed { .. } => {
-                        DeriverBYaoSessionResponseV1::Failed { session }
-                    }
-                    YaoSessionRecordV1::Expired { .. } => {
-                        DeriverBYaoSessionResponseV1::Expired { session }
-                    }
-                }
-            }
-            DeriverBYaoSessionCommandV1::Begin { session } => {
-                let record = storage
-                    .get::<YaoSessionRecordV1>(SESSION_RECORD_STORAGE_KEY)
-                    .await?
-                    .ok_or_else(|| worker::Error::RustError("Yao session is missing".into()))?;
-                match record {
-                    YaoSessionRecordV1::Staged {
-                        input_digest,
-                        expires_at_ms,
-                        input,
-                    } if now_unix_ms < expires_at_ms && input.session() == session => {
-                        let expires_at_ms =
-                            yao_expiry_from_now(now_unix_ms, YAO_RUNNING_LIFETIME_MS)?;
-                        storage
-                            .put(
-                                SESSION_RECORD_STORAGE_KEY,
-                                YaoSessionRecordV1::Running {
-                                    input_digest,
-                                    expires_at_ms,
-                                },
-                            )
-                            .await?;
-                        DeriverBYaoSessionResponseV1::Running { session }
-                    }
-                    YaoSessionRecordV1::Staged { input, .. } if input.session() != session => {
-                        return Response::error("staged input session mismatch", 409);
-                    }
-                    YaoSessionRecordV1::Staged { input_digest, .. } => {
-                        storage
-                            .put(
-                                SESSION_RECORD_STORAGE_KEY,
-                                YaoSessionRecordV1::Expired { input_digest },
-                            )
-                            .await?;
-                        DeriverBYaoSessionResponseV1::Expired { session }
-                    }
-                    YaoSessionRecordV1::Running { .. } | YaoSessionRecordV1::Completed { .. } => {
-                        return Response::error(
-                            "Deriver B session cannot be evaluated more than once",
-                            409,
-                        );
-                    }
-                    YaoSessionRecordV1::Failed { .. } => {
-                        DeriverBYaoSessionResponseV1::Failed { session }
-                    }
-                    YaoSessionRecordV1::Expired { .. } => {
-                        DeriverBYaoSessionResponseV1::Expired { session }
-                    }
-                }
-            }
-            DeriverBYaoSessionCommandV1::Complete { execution } => {
-                let session = execution.session();
-                let record = storage
-                    .get::<YaoSessionRecordV1>(SESSION_RECORD_STORAGE_KEY)
-                    .await?
-                    .ok_or_else(|| worker::Error::RustError("Yao session is missing".into()))?;
-                match record {
-                    YaoSessionRecordV1::Running {
-                        input_digest,
-                        expires_at_ms,
-                    } if now_unix_ms < expires_at_ms => {
-                        storage
-                            .put(
-                                SESSION_RECORD_STORAGE_KEY,
-                                YaoSessionRecordV1::Completed {
-                                    input_digest,
-                                    execution,
-                                },
-                            )
-                            .await?;
-                        DeriverBYaoSessionResponseV1::Completed { session }
-                    }
-                    YaoSessionRecordV1::Running { input_digest, .. } => {
-                        storage
-                            .put(
-                                SESSION_RECORD_STORAGE_KEY,
-                                YaoSessionRecordV1::Expired { input_digest },
-                            )
-                            .await?;
-                        DeriverBYaoSessionResponseV1::Expired { session }
-                    }
-                    YaoSessionRecordV1::Completed {
-                        execution: existing,
-                        ..
-                    } if existing == execution => {
-                        DeriverBYaoSessionResponseV1::Completed { session }
-                    }
-                    YaoSessionRecordV1::Completed { .. } => {
-                        return Response::error("conflicting Deriver B execution", 409);
-                    }
-                    YaoSessionRecordV1::Failed { .. } => {
-                        DeriverBYaoSessionResponseV1::Failed { session }
-                    }
-                    YaoSessionRecordV1::Expired { .. } => {
-                        DeriverBYaoSessionResponseV1::Expired { session }
-                    }
-                    YaoSessionRecordV1::Staged { .. } => {
-                        return Response::error(
-                            "Deriver B execution completed outside its running session",
-                            409,
-                        );
-                    }
-                }
-            }
-            DeriverBYaoSessionCommandV1::Fail { session } => {
-                let record = storage
-                    .get::<YaoSessionRecordV1>(SESSION_RECORD_STORAGE_KEY)
-                    .await?
-                    .ok_or_else(|| worker::Error::RustError("Yao session is missing".into()))?;
-                match record {
-                    YaoSessionRecordV1::Running { input_digest, .. } => {
-                        storage
-                            .put(
-                                SESSION_RECORD_STORAGE_KEY,
-                                YaoSessionRecordV1::Failed { input_digest },
-                            )
-                            .await?;
-                        DeriverBYaoSessionResponseV1::Failed { session }
-                    }
-                    YaoSessionRecordV1::Failed { .. } => {
-                        DeriverBYaoSessionResponseV1::Failed { session }
-                    }
-                    YaoSessionRecordV1::Expired { .. } => {
-                        DeriverBYaoSessionResponseV1::Expired { session }
-                    }
-                    YaoSessionRecordV1::Completed { .. } => {
-                        DeriverBYaoSessionResponseV1::Completed { session }
-                    }
-                    YaoSessionRecordV1::Staged { .. } => {
-                        return Response::error(
-                            "Deriver B session failed outside its running state",
-                            409,
-                        );
-                    }
-                }
-            }
-            DeriverBYaoSessionCommandV1::ReadResult { session } => {
-                let record = storage
-                    .get::<YaoSessionRecordV1>(SESSION_RECORD_STORAGE_KEY)
-                    .await?
-                    .ok_or_else(|| worker::Error::RustError("Yao session is missing".into()))?;
-                match record {
-                    YaoSessionRecordV1::Staged {
-                        input_digest,
-                        expires_at_ms,
-                        ..
-                    }
-                    | YaoSessionRecordV1::Running {
-                        input_digest,
-                        expires_at_ms,
-                    } if now_unix_ms >= expires_at_ms => {
-                        storage
-                            .put(
-                                SESSION_RECORD_STORAGE_KEY,
-                                YaoSessionRecordV1::Expired { input_digest },
-                            )
-                            .await?;
-                        DeriverBYaoSessionResponseV1::Expired { session }
-                    }
-                    YaoSessionRecordV1::Staged { .. } | YaoSessionRecordV1::Running { .. } => {
-                        DeriverBYaoSessionResponseV1::Pending { session }
-                    }
-                    YaoSessionRecordV1::Completed { execution, .. } => {
-                        if execution.session() != session {
-                            return Response::error("role execution session mismatch", 409);
-                        }
-                        DeriverBYaoSessionResponseV1::RoleExecution { execution }
-                    }
-                    YaoSessionRecordV1::Failed { .. } => {
-                        DeriverBYaoSessionResponseV1::Failed { session }
-                    }
-                    YaoSessionRecordV1::Expired { .. } => {
-                        DeriverBYaoSessionResponseV1::Expired { session }
-                    }
-                }
-            }
-            DeriverBYaoSessionCommandV1::PreparePair { .. }
-            | DeriverBYaoSessionCommandV1::ReadPairPrepared { .. }
-            | DeriverBYaoSessionCommandV1::BeginPair { .. }
-            | DeriverBYaoSessionCommandV1::CompletePair { .. }
-            | DeriverBYaoSessionCommandV1::FailPair { .. }
-            | DeriverBYaoSessionCommandV1::ReadCompletedPair { .. }
-            | DeriverBYaoSessionCommandV1::ReadPairStatus { .. } => {
-                unreachable!("pair commands are dispatched before the legacy match")
-            }
-        };
-        Response::from_json(&response)
+        self.handle_pair_command(command).await
     }
 }
 
@@ -2520,7 +1738,6 @@ impl RouterAbDeriverBYaoSessionDurableObject {
                 session,
                 pair_digest,
             } => self.handle_read_pair_status(session, pair_digest).await,
-            _ => Response::error("invalid Deriver B pair command", 400),
         }
     }
 
@@ -2598,16 +1815,6 @@ impl RouterAbDeriverBYaoSessionDurableObject {
                 }
             }
         }
-        if storage
-            .get::<YaoSessionRecordV1>(SESSION_RECORD_STORAGE_KEY)
-            .await?
-            .is_some()
-        {
-            return Response::error(
-                "Deriver B legacy lifecycle owns this session; pair preparation is closed",
-                409,
-            );
-        }
         let runtime = CloudflareDeriverBWorkerRuntimeV1::from_worker_env(&self.env)
             .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
         let root_metadata_digest = load_deriver_b_yao_root_metadata_digest(
@@ -2651,7 +1858,7 @@ impl RouterAbDeriverBYaoSessionDurableObject {
                 }
             }
         }
-        let expires_at_ms = yao_expiry_from_now(prepared_at_ms, YAO_STAGED_INPUT_LIFETIME_MS)?;
+        let expires_at_ms = yao_expiry_from_now(prepared_at_ms, YAO_PREPARED_INPUT_LIFETIME_MS)?;
         let receipt = sign_role_readiness_receipt_v1(
             &self.env,
             CloudflareWorkerRoleV1::DeriverB,
@@ -2689,19 +1896,7 @@ impl RouterAbDeriverBYaoSessionDurableObject {
                     }
                     Err(error) => return Err(error),
                 };
-                let legacy = match transaction
-                    .get::<YaoSessionRecordV1>(SESSION_RECORD_STORAGE_KEY)
-                    .await
-                {
-                    Ok(record) => Some(record),
-                    Err(worker::Error::JsError(message))
-                        if message == "No such value in storage." =>
-                    {
-                        None
-                    }
-                    Err(error) => return Err(error),
-                };
-                if current.is_some() || legacy.is_some() {
+                if current.is_some() {
                     return Ok(());
                 }
                 transaction
@@ -2710,13 +1905,6 @@ impl RouterAbDeriverBYaoSessionDurableObject {
                 Ok(())
             })
             .await?;
-        if storage
-            .get::<YaoSessionRecordV1>(SESSION_RECORD_STORAGE_KEY)
-            .await?
-            .is_some()
-        {
-            return Response::error("Deriver B pair changed while preparing", 409);
-        }
         if !matches!(
             storage
                 .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
@@ -3299,18 +2487,6 @@ impl RouterAbDeriverBYaoSessionDurableObject {
     }
 }
 
-pub async fn handle_cloudflare_ed25519_yao_deriver_a_start_v1(
-    mut request: Request,
-    env: &Env,
-    expected_kind: Ed25519YaoInputKindV1,
-) -> RouterAbProtocolResult<Response> {
-    let trace_id = parse_cloudflare_trace_id_from_request_v1(&request)?;
-    let input = parse_request::<Ed25519YaoEncryptedInputV1>(&mut request).await?;
-    validate_deriver_input(&input, Ed25519YaoDeriverRoleV1::DeriverA, expected_kind)?;
-    let execution = execute_deriver_a_session(env, input, trace_id).await?;
-    json_response(&execution)
-}
-
 pub async fn handle_cloudflare_ed25519_yao_deriver_a_prepare_pair_v1(
     mut request: Request,
     env: &Env,
@@ -3378,7 +2554,7 @@ pub async fn handle_cloudflare_ed25519_yao_deriver_a_execute_pair_v1(
                 local_receipt: &receipt,
             };
             let execution =
-                execute_deriver_a_role(env, &runtime, *input, trace_id, Some(pair_execution)).await;
+                execute_deriver_a_role(env, &runtime, *input, trace_id, pair_execution).await;
             let execution = match execution {
                 Ok(execution) => execution,
                 Err(error) => {
@@ -3471,107 +2647,61 @@ async fn execute_deriver_a_role(
     runtime: &CloudflareDeriverAWorkerRuntimeV1,
     input: Ed25519YaoEncryptedInputV1,
     trace_id: RoleTraceContextV1,
-    pair_execution: Option<DeriverAPairExecutionContextV1<'_>>,
+    pair_execution: DeriverAPairExecutionContextV1<'_>,
 ) -> RouterAbProtocolResult<Ed25519YaoRoleExecutionV1> {
-    let pair_execution = pair_execution.as_ref();
-    let now_unix_ms = if pair_execution.is_some() {
-        Some(
-            cloudflare_yao_now_unix_ms()
-                .map_err(|_| invalid_lifecycle("Yao clock is unavailable"))?,
-        )
-    } else {
-        None
-    };
-    if let Some(pair_execution) = pair_execution {
-        if pair_execution.peer_receipt.role() != Ed25519YaoDeriverRoleV1::DeriverB {
-            return Err(invalid_lifecycle(
-                "Deriver A execution requires a Deriver B readiness receipt",
-            ));
-        }
-        if let Some(now_unix_ms) = now_unix_ms {
-            validate_cloudflare_role_readiness_receipt_v1(
-                pair_execution.peer_receipt,
-                now_unix_ms,
-            )?;
-        }
-        verify_role_readiness_receipt_v1(
-            pair_execution.peer_receipt,
-            runtime.peer_verifying_keys(),
-        )?;
-        if pair_execution.local_receipt.role() != Ed25519YaoDeriverRoleV1::DeriverA {
-            return Err(invalid_lifecycle(
-                "Deriver A execution requires a Deriver A readiness receipt",
-            ));
-        }
-        if let Some(now_unix_ms) = now_unix_ms {
-            validate_cloudflare_role_readiness_receipt_v1(
-                pair_execution.local_receipt,
-                now_unix_ms,
-            )?;
-        }
-        verify_role_readiness_receipt_v1(
-            pair_execution.local_receipt,
-            runtime.peer_verifying_keys(),
-        )?;
+    let now_unix_ms =
+        cloudflare_yao_now_unix_ms().map_err(|_| invalid_lifecycle("Yao clock is unavailable"))?;
+    if pair_execution.peer_receipt.role() != Ed25519YaoDeriverRoleV1::DeriverB {
+        return Err(invalid_lifecycle(
+            "Deriver A execution requires a Deriver B readiness receipt",
+        ));
     }
+    validate_cloudflare_role_readiness_receipt_v1(pair_execution.peer_receipt, now_unix_ms)?;
+    verify_role_readiness_receipt_v1(pair_execution.peer_receipt, runtime.peer_verifying_keys())?;
+    if pair_execution.local_receipt.role() != Ed25519YaoDeriverRoleV1::DeriverA {
+        return Err(invalid_lifecycle(
+            "Deriver A execution requires a Deriver A readiness receipt",
+        ));
+    }
+    validate_cloudflare_role_readiness_receipt_v1(pair_execution.local_receipt, now_unix_ms)?;
+    verify_role_readiness_receipt_v1(pair_execution.local_receipt, runtime.peer_verifying_keys())?;
     let circuit = circuit_for_input(&input);
     let private_key =
         load_deriver_input_private_key(env, &runtime.envelope_decrypt_key().current.binding_name)?;
     let session = input.session();
-    let websocket_binding = match pair_execution {
-        Some(pair_execution) => CloudflareEd25519YaoWebSocketBindingV1::with_pair_digest(
-            circuit,
-            session,
-            pair_execution.pair_digest,
-        ),
-        None => CloudflareEd25519YaoWebSocketBindingV1::new(circuit, session),
-    }
+    let websocket_binding = CloudflareEd25519YaoWebSocketBindingV1::with_pair_digest(
+        circuit,
+        session,
+        pair_execution.pair_digest,
+    )
     .map_err(map_websocket_error)?;
     let execution = match input.kind() {
         Ed25519YaoInputKindV1::Activation => {
             let role_request =
                 open_ed25519_yao_activation_deriver_a_input_v1(&input, &private_key)?;
-            let (root_with_digest, socket, acceptance) =
-                if let Some(pair_execution) = pair_execution {
-                    load_deriver_a_pair_root_before_connect(
-                        env,
-                        runtime,
-                        &role_request.binding.lifecycle,
-                        trace_id,
-                        websocket_binding,
-                        pair_execution,
-                    )
-                    .await?
-                } else {
-                    let (root_with_digest, (socket, acceptance)) = futures::try_join!(
-                        load_deriver_a_yao_root_with_metadata_digest(
-                            env,
-                            runtime,
-                            &role_request.binding.lifecycle,
-                            trace_id,
-                        ),
-                        connect_deriver_b(env, websocket_binding, trace_id, None, None),
-                    )?;
-                    (root_with_digest, socket, acceptance)
-                };
+            let (root_with_digest, socket, acceptance) = load_deriver_a_pair_root_before_connect(
+                env,
+                runtime,
+                &role_request.binding.lifecycle,
+                trace_id,
+                websocket_binding,
+                &pair_execution,
+            )
+            .await?;
             let (root, root_metadata_digest) = root_with_digest;
             validate_expected_root_metadata_digest(
-                pair_execution.map(|pair_execution| pair_execution.expected_root_metadata_digest),
+                pair_execution.expected_root_metadata_digest,
                 root_metadata_digest,
             )?;
-            if let Some(pair_execution) = pair_execution {
-                confirm_deriver_a_pair_start(
-                    env,
-                    pair_execution.pair_binding.clone(),
-                    pair_execution.execution_id,
-                    acceptance.ok_or_else(|| {
-                        invalid_lifecycle("Deriver B start acceptance is missing")
-                    })?,
-                    pair_execution.peer_receipt.root_metadata_digest().bytes,
-                    trace_id,
-                )
-                .await?;
-            }
+            confirm_deriver_a_pair_start(
+                env,
+                pair_execution.pair_binding.clone(),
+                pair_execution.execution_id,
+                acceptance,
+                pair_execution.peer_receipt.root_metadata_digest().bytes,
+                trace_id,
+            )
+            .await?;
             let transport = CloudflareEd25519YaoWebSocketTransportV1::deriver_a(&socket, session)
                 .map_err(map_websocket_error)?;
             let recipients = role_request.recipients;
@@ -3602,47 +2732,29 @@ async fn execute_deriver_a_role(
         }
         Ed25519YaoInputKindV1::Export => {
             let role_request = open_ed25519_yao_export_deriver_a_input_v1(&input, &private_key)?;
-            let (root_with_digest, socket, acceptance) =
-                if let Some(pair_execution) = pair_execution {
-                    load_deriver_a_pair_root_before_connect(
-                        env,
-                        runtime,
-                        &role_request.binding.lifecycle,
-                        trace_id,
-                        websocket_binding,
-                        pair_execution,
-                    )
-                    .await?
-                } else {
-                    let (root_with_digest, (socket, acceptance)) = futures::try_join!(
-                        load_deriver_a_yao_root_with_metadata_digest(
-                            env,
-                            runtime,
-                            &role_request.binding.lifecycle,
-                            trace_id,
-                        ),
-                        connect_deriver_b(env, websocket_binding, trace_id, None, None),
-                    )?;
-                    (root_with_digest, socket, acceptance)
-                };
+            let (root_with_digest, socket, acceptance) = load_deriver_a_pair_root_before_connect(
+                env,
+                runtime,
+                &role_request.binding.lifecycle,
+                trace_id,
+                websocket_binding,
+                &pair_execution,
+            )
+            .await?;
             let (root, root_metadata_digest) = root_with_digest;
             validate_expected_root_metadata_digest(
-                pair_execution.map(|pair_execution| pair_execution.expected_root_metadata_digest),
+                pair_execution.expected_root_metadata_digest,
                 root_metadata_digest,
             )?;
-            if let Some(pair_execution) = pair_execution {
-                confirm_deriver_a_pair_start(
-                    env,
-                    pair_execution.pair_binding.clone(),
-                    pair_execution.execution_id,
-                    acceptance.ok_or_else(|| {
-                        invalid_lifecycle("Deriver B start acceptance is missing")
-                    })?,
-                    pair_execution.peer_receipt.root_metadata_digest().bytes,
-                    trace_id,
-                )
-                .await?;
-            }
+            confirm_deriver_a_pair_start(
+                env,
+                pair_execution.pair_binding.clone(),
+                pair_execution.execution_id,
+                acceptance,
+                pair_execution.peer_receipt.root_metadata_digest().bytes,
+                trace_id,
+            )
+            .await?;
             let transport = CloudflareEd25519YaoWebSocketTransportV1::deriver_a(&socket, session)
                 .map_err(map_websocket_error)?;
             let recipient = role_request.recipients;
@@ -3685,20 +2797,20 @@ async fn load_deriver_a_pair_root_before_connect(
 ) -> RouterAbProtocolResult<(
     ([u8; 32], [u8; 32]),
     worker::WebSocket,
-    Option<Ed25519YaoRoleStartAcceptanceV1>,
+    Ed25519YaoRoleStartAcceptanceV1,
 )> {
     let root_with_digest =
         load_deriver_a_yao_root_with_metadata_digest(env, runtime, lifecycle, trace_id).await?;
     validate_expected_root_metadata_digest(
-        Some(pair_execution.expected_root_metadata_digest),
+        pair_execution.expected_root_metadata_digest,
         root_with_digest.1,
     )?;
     let (socket, acceptance) = connect_deriver_b(
         env,
         websocket_binding,
         trace_id,
-        Some(pair_execution.local_receipt),
-        Some(pair_execution.execution_id),
+        pair_execution.local_receipt,
+        pair_execution.execution_id,
     )
     .await?;
     Ok((root_with_digest, socket, acceptance))
@@ -3708,34 +2820,20 @@ async fn connect_deriver_b(
     env: &Env,
     binding: CloudflareEd25519YaoWebSocketBindingV1,
     trace_id: RoleTraceContextV1,
-    peer_receipt: Option<&Ed25519YaoRoleReadinessReceiptV1>,
-    execution_id: Option<Ed25519YaoExecutionIdV1>,
-) -> RouterAbProtocolResult<(worker::WebSocket, Option<Ed25519YaoRoleStartAcceptanceV1>)> {
+    peer_receipt: &Ed25519YaoRoleReadinessReceiptV1,
+    execution_id: Ed25519YaoExecutionIdV1,
+) -> RouterAbProtocolResult<(worker::WebSocket, Ed25519YaoRoleStartAcceptanceV1)> {
     let started_at_ms = role_span_started_at_ms();
-    let result = match execution_id {
-        Some(execution_id) => {
-            crate::connect_cloudflare_ed25519_yao_deriver_b_with_start_acceptance_v1(
-                env,
-                binding,
-                trace_id,
-                peer_receipt
-                    .ok_or_else(|| invalid_lifecycle("pair readiness receipt is missing"))?,
-                execution_id,
-            )
-            .await
-            .map(|connection| (connection.socket, Some(connection.acceptance)))
-            .map_err(map_websocket_error)
-        }
-        None => crate::connect_cloudflare_ed25519_yao_deriver_b_with_receipt_v1(
-            env,
-            binding,
-            trace_id,
-            peer_receipt,
-        )
-        .await
-        .map(|socket| (socket, None))
-        .map_err(map_websocket_error),
-    };
+    let result = crate::connect_cloudflare_ed25519_yao_deriver_b_with_start_acceptance_v1(
+        env,
+        binding,
+        trace_id,
+        peer_receipt,
+        execution_id,
+    )
+    .await
+    .map(|connection| (connection.socket, connection.acceptance))
+    .map_err(map_websocket_error);
     emit_role_span_v1(
         trace_id,
         "deriver_a.websocket_connect",
@@ -3745,25 +2843,6 @@ async fn connect_deriver_b(
         if result.is_ok() { "success" } else { "failure" },
     );
     result
-}
-
-pub async fn handle_cloudflare_ed25519_yao_deriver_b_stage_v1(
-    mut request: Request,
-    env: &Env,
-    expected_kind: Ed25519YaoInputKindV1,
-) -> RouterAbProtocolResult<Response> {
-    let trace_id = parse_cloudflare_trace_id_from_request_v1(&request)?;
-    let input = parse_request::<Ed25519YaoEncryptedInputV1>(&mut request).await?;
-    validate_deriver_input(&input, Ed25519YaoDeriverRoleV1::DeriverB, expected_kind)?;
-    let response = execute_deriver_b_session_command(
-        env,
-        DeriverBYaoSessionCommandV1::Stage {
-            input: Box::new(input),
-        },
-        trace_id,
-    )
-    .await?;
-    json_response(&response)
 }
 
 pub async fn handle_cloudflare_ed25519_yao_deriver_b_prepare_pair_v1(
@@ -3982,137 +3061,6 @@ pub async fn handle_cloudflare_ed25519_yao_deriver_b_burn_pair_v1(
     json_response(&status)
 }
 
-pub async fn handle_cloudflare_ed25519_yao_deriver_b_result_v1(
-    mut request: Request,
-    env: &Env,
-    expected_kind: Ed25519YaoInputKindV1,
-) -> RouterAbProtocolResult<Response> {
-    let trace_id = parse_cloudflare_trace_id_from_request_v1(&request)?;
-    let request = parse_request::<CloudflareEd25519YaoResultRequestV1>(&mut request).await?;
-    request.validate()?;
-    if request.input_kind() != expected_kind {
-        return Err(invalid_lifecycle(
-            "Ed25519 Yao result family does not match the route",
-        ));
-    }
-    let session_id = request.session_id();
-    let wait_started_at_ms = role_span_started_at_ms();
-    for attempt in 0..YAO_RESULT_WAIT_ATTEMPTS {
-        let response = match execute_deriver_b_session_command(
-            env,
-            DeriverBYaoSessionCommandV1::ReadResult {
-                session: session_id,
-            },
-            trace_id,
-        )
-        .await
-        {
-            Ok(response) => response,
-            Err(error) => {
-                emit_role_span_v1(
-                    trace_id,
-                    "deriver_b.result_wait",
-                    "deriver_b",
-                    "result",
-                    wait_started_at_ms,
-                    "failure",
-                );
-                return Err(error);
-            }
-        };
-        match response {
-            DeriverBYaoSessionResponseV1::RoleExecution { execution } => {
-                emit_role_span_v1(
-                    trace_id,
-                    "deriver_b.result_wait",
-                    "deriver_b",
-                    "result",
-                    wait_started_at_ms,
-                    "success",
-                );
-                return json_response(&execution);
-            }
-            DeriverBYaoSessionResponseV1::Pending { .. }
-                if attempt + 1 < YAO_RESULT_WAIT_ATTEMPTS =>
-            {
-                Delay::from(YAO_RESULT_WAIT_INTERVAL).await;
-            }
-            DeriverBYaoSessionResponseV1::Pending { .. } => {
-                emit_role_span_v1(
-                    trace_id,
-                    "deriver_b.result_wait",
-                    "deriver_b",
-                    "result",
-                    wait_started_at_ms,
-                    "failure",
-                );
-                return Err(invalid_lifecycle(
-                    "Deriver B role execution did not complete before result timeout",
-                ));
-            }
-            DeriverBYaoSessionResponseV1::Failed { .. } => {
-                emit_role_span_v1(
-                    trace_id,
-                    "deriver_b.result_wait",
-                    "deriver_b",
-                    "result",
-                    wait_started_at_ms,
-                    "failure",
-                );
-                return Err(invalid_lifecycle("Deriver B role execution failed"));
-            }
-            DeriverBYaoSessionResponseV1::Expired { .. } => {
-                emit_role_span_v1(
-                    trace_id,
-                    "deriver_b.result_wait",
-                    "deriver_b",
-                    "result",
-                    wait_started_at_ms,
-                    "failure",
-                );
-                return Err(invalid_lifecycle("Deriver B role execution expired"));
-            }
-            DeriverBYaoSessionResponseV1::Staged { .. }
-            | DeriverBYaoSessionResponseV1::StagedInput { .. }
-            | DeriverBYaoSessionResponseV1::Running { .. }
-            | DeriverBYaoSessionResponseV1::Completed { .. }
-            | DeriverBYaoSessionResponseV1::PairPrepared { .. }
-            | DeriverBYaoSessionResponseV1::PairPreparedStatus { .. }
-            | DeriverBYaoSessionResponseV1::PairRunning { .. }
-            | DeriverBYaoSessionResponseV1::PairStarted { .. }
-            | DeriverBYaoSessionResponseV1::PairCompleted { .. }
-            | DeriverBYaoSessionResponseV1::PairPending { .. }
-            | DeriverBYaoSessionResponseV1::PairRoleExecution { .. }
-            | DeriverBYaoSessionResponseV1::PairBurned { .. }
-            | DeriverBYaoSessionResponseV1::PairExpired { .. }
-            | DeriverBYaoSessionResponseV1::PairMissing { .. } => {
-                emit_role_span_v1(
-                    trace_id,
-                    "deriver_b.result_wait",
-                    "deriver_b",
-                    "result",
-                    wait_started_at_ms,
-                    "failure",
-                );
-                return Err(invalid_lifecycle(
-                    "Deriver B result lookup returned the wrong response",
-                ));
-            }
-        }
-    }
-    emit_role_span_v1(
-        trace_id,
-        "deriver_b.result_wait",
-        "deriver_b",
-        "result",
-        wait_started_at_ms,
-        "failure",
-    );
-    Err(invalid_lifecycle(
-        "Deriver B role execution did not complete before result timeout",
-    ))
-}
-
 fn validate_deriver_input(
     input: &Ed25519YaoEncryptedInputV1,
     expected_deriver: Ed25519YaoDeriverRoleV1,
@@ -4146,88 +3094,15 @@ pub async fn handle_cloudflare_ed25519_yao_deriver_b_websocket_v1(
         .ok_or_else(|| invalid_lifecycle("WebSocket protocol header is missing"))?;
     let binding = CloudflareEd25519YaoWebSocketBindingV1::parse_protocol(&protocol)
         .map_err(map_websocket_error)?;
-    if binding.pair_digest.iter().any(|byte| *byte != 0) {
-        return handle_pair_bound_deriver_b_websocket(
-            request, env, runtime, context, trace_id, protocol, binding,
-        )
-        .await;
+    if binding.pair_digest.iter().all(|byte| *byte == 0) {
+        return Err(invalid_lifecycle(
+            "Deriver B WebSocket requires a pair-bound protocol",
+        ));
     }
-    let staged = execute_deriver_b_session_command(
-        &env,
-        DeriverBYaoSessionCommandV1::ReadStaged {
-            session: binding.session,
-        },
-        trace_id,
+    handle_pair_bound_deriver_b_websocket(
+        request, env, runtime, context, trace_id, protocol, binding,
     )
-    .await?;
-    let DeriverBYaoSessionResponseV1::StagedInput { input } = staged else {
-        return Err(invalid_lifecycle(
-            "Deriver B staged lookup returned the wrong response",
-        ));
-    };
-    if circuit_for_input(&input) != binding.circuit {
-        return Err(invalid_lifecycle(
-            "Deriver B staged circuit does not match WebSocket binding",
-        ));
-    }
-    let pair = WebSocketPair::new()
-        .map_err(|_| invalid_lifecycle("Deriver B WebSocket pair could not be created"))?;
-    let headers = worker::Headers::new();
-    headers
-        .set("Sec-WebSocket-Protocol", &protocol)
-        .map_err(|_| invalid_lifecycle("WebSocket response protocol could not be set"))?;
-    let response = Response::from_websocket(pair.client)
-        .map(|response| response.with_headers(headers))
-        .map_err(|_| invalid_lifecycle("WebSocket upgrade response could not be created"))?;
-    let running = execute_deriver_b_session_command(
-        &env,
-        DeriverBYaoSessionCommandV1::Begin {
-            session: binding.session,
-        },
-        trace_id,
-    )
-    .await?;
-    if running
-        != (DeriverBYaoSessionResponseV1::Running {
-            session: binding.session,
-        })
-    {
-        return Err(invalid_lifecycle(
-            "Deriver B session did not enter its one-use running state",
-        ));
-    }
-    let server = pair.server;
-    let server_for_error = server.clone();
-    let session = binding.session;
-    context.wait_until(async move {
-        let role_started_at_ms = role_span_started_at_ms();
-        let result =
-            execute_deriver_b_role(&env, &runtime, *input, server, trace_id, None, None).await;
-        emit_role_span_v1(
-            trace_id,
-            "deriver_b.role_execution",
-            "deriver_b",
-            "yao",
-            role_started_at_ms,
-            if result.is_ok() { "success" } else { "failure" },
-        );
-        if result.is_err() {
-            worker::console_error!(
-                "Deriver B Ed25519 Yao role execution failed for trace {}",
-                trace_id
-                    .map(CloudflareTraceIdV1::as_hex)
-                    .unwrap_or_else(|| "unavailable".to_owned())
-            );
-            let _ignored = execute_deriver_b_session_command(
-                &env,
-                DeriverBYaoSessionCommandV1::Fail { session },
-                trace_id,
-            )
-            .await;
-            let _ignored = server_for_error.close(Some(1011), Some("yao-lifecycle-failed"));
-        }
-    });
-    Ok(response)
+    .await
 }
 
 async fn handle_pair_bound_deriver_b_websocket(
@@ -4365,8 +3240,8 @@ async fn handle_pair_bound_deriver_b_websocket(
             *input,
             server,
             trace_id,
-            Some(root_metadata_digest),
-            Some(pair_digest),
+            root_metadata_digest,
+            pair_digest,
         )
         .await;
         emit_role_span_v1(
@@ -4399,8 +3274,8 @@ async fn execute_deriver_b_role(
     input: Ed25519YaoEncryptedInputV1,
     socket: worker::WebSocket,
     trace_id: RoleTraceContextV1,
-    expected_root_metadata_digest: Option<[u8; 32]>,
-    pair_digest: Option<[u8; 32]>,
+    expected_root_metadata_digest: [u8; 32],
+    pair_digest: [u8; 32],
 ) -> RouterAbProtocolResult<()> {
     let private_key =
         load_deriver_input_private_key(env, &runtime.envelope_decrypt_key().current.binding_name)?;
@@ -4488,26 +3363,15 @@ async fn execute_deriver_b_role(
             )?
         }
     };
-    if let Some(pair_digest) = pair_digest {
-        execute_deriver_b_session_command(
-            env,
-            DeriverBYaoSessionCommandV1::CompletePair {
-                pair_digest,
-                execution: Box::new(execution),
-            },
-            trace_id,
-        )
-        .await?;
-    } else {
-        execute_deriver_b_session_command(
-            env,
-            DeriverBYaoSessionCommandV1::Complete {
-                execution: Box::new(execution),
-            },
-            trace_id,
-        )
-        .await?;
-    }
+    execute_deriver_b_session_command(
+        env,
+        DeriverBYaoSessionCommandV1::CompletePair {
+            pair_digest,
+            execution: Box::new(execution),
+        },
+        trace_id,
+    )
+    .await?;
     Ok(())
 }
 
@@ -4586,91 +3450,6 @@ async fn execute_deriver_b_session_command(
         if result.is_ok() { "success" } else { "failure" },
     );
     result
-}
-
-async fn execute_deriver_a_session(
-    env: &Env,
-    input: Ed25519YaoEncryptedInputV1,
-    trace_id: RoleTraceContextV1,
-) -> RouterAbProtocolResult<Ed25519YaoRoleExecutionV1> {
-    let session = input.session();
-    let command = DeriverAYaoSessionCommandV1::Execute { input };
-    command.validate()?;
-    let namespace = env
-        .durable_object(DERIVER_A_YAO_SESSION_DO_BINDING)
-        .map_err(|_| {
-            invalid_lifecycle("Deriver A Yao session Durable Object binding is missing")
-        })?;
-    let stub = namespace
-        .get_by_name(&encode_hex(session))
-        .map_err(|_| invalid_lifecycle("Deriver A Yao session Durable Object lookup failed"))?;
-    let body = serde_json::to_string(&command)
-        .map_err(|_| invalid_lifecycle("Deriver A Yao session command encoding failed"))?;
-    let mut init = worker::RequestInit::new();
-    init.with_method(Method::Post)
-        .with_body(Some(worker::wasm_bindgen::JsValue::from_str(&body)));
-    let request = Request::new_with_init(DERIVER_A_YAO_SESSION_DO_URL, &init)
-        .map_err(|_| invalid_lifecycle("Deriver A Yao session request construction failed"))?;
-    if let Some(trace_id) = trace_id {
-        set_cloudflare_trace_id_header_v1(request.headers(), trace_id)?;
-    }
-    let started_at_ms = role_span_started_at_ms();
-    let response_result = stub
-        .fetch_with_request(request)
-        .await
-        .map_err(|_| invalid_lifecycle("Deriver A Yao session Durable Object request failed"));
-    let mut response = match response_result {
-        Ok(response) => response,
-        Err(error) => {
-            emit_role_span_v1(
-                trace_id,
-                "deriver_a.session_do",
-                "deriver_a",
-                "durable_object",
-                started_at_ms,
-                "failure",
-            );
-            return Err(error);
-        }
-    };
-    let status = response.status_code();
-    if !(200..=299).contains(&status) {
-        emit_role_span_v1(
-            trace_id,
-            "deriver_a.session_do",
-            "deriver_a",
-            "durable_object",
-            started_at_ms,
-            "failure",
-        );
-        let message = response
-            .text()
-            .await
-            .unwrap_or_else(|_| "response body unavailable".to_owned());
-        return Err(invalid_lifecycle(format!(
-            "Deriver A Yao session Durable Object rejected the command with HTTP {status}: {message}"
-        )));
-    }
-    let result = response
-        .json::<Ed25519YaoRoleExecutionV1>()
-        .await
-        .map_err(|_| invalid_lifecycle("Deriver A Yao session response is malformed"));
-    emit_role_span_v1(
-        trace_id,
-        "deriver_a.session_do",
-        "deriver_a",
-        "durable_object",
-        started_at_ms,
-        if result.is_ok() { "success" } else { "failure" },
-    );
-    let execution = result?;
-    execution.validate()?;
-    if execution.deriver() != Ed25519YaoDeriverRoleV1::DeriverA || execution.session() != session {
-        return Err(invalid_lifecycle(
-            "Deriver A Yao session response identity is invalid",
-        ));
-    }
-    Ok(execution)
 }
 
 async fn execute_deriver_a_pair_prepare(
@@ -4790,8 +3569,7 @@ async fn execute_deriver_a_pair_command(
 ) -> RouterAbProtocolResult<Response> {
     command.validate()?;
     let session = match &command {
-        DeriverAYaoSessionCommandV1::Execute { input }
-        | DeriverAYaoSessionCommandV1::PreparePair { input, .. } => input.session(),
+        DeriverAYaoSessionCommandV1::PreparePair { input, .. } => input.session(),
         DeriverAYaoSessionCommandV1::ClaimPair { pair_binding, .. }
         | DeriverAYaoSessionCommandV1::StartPair { pair_binding, .. } => pair_binding.session(),
         DeriverAYaoSessionCommandV1::CompletePair { execution, .. } => execution.session(),
@@ -4991,15 +3769,13 @@ async fn load_yao_root_with_metadata_digest(
 }
 
 fn validate_expected_root_metadata_digest(
-    expected: Option<[u8; 32]>,
+    expected: [u8; 32],
     actual: [u8; 32],
 ) -> RouterAbProtocolResult<()> {
-    if let Some(expected) = expected {
-        if expected != actual {
-            return Err(invalid_lifecycle(
-                "root-share metadata changed after pair preparation",
-            ));
-        }
+    if expected != actual {
+        return Err(invalid_lifecycle(
+            "root-share metadata changed after pair preparation",
+        ));
     }
     Ok(())
 }
@@ -5271,40 +4047,6 @@ mod tests {
 
         assert_eq!(yao_input_digest(&first), yao_input_digest(&same));
         assert_ne!(yao_input_digest(&first), yao_input_digest(&different));
-    }
-
-    #[test]
-    fn running_and_terminal_records_retain_no_staged_ciphertext() {
-        let input = encrypted_input(4);
-        let input_digest = yao_input_digest(&input);
-        let staged = serde_json::to_value(YaoSessionRecordV1::Staged {
-            input_digest,
-            expires_at_ms: 70_000,
-            input: Box::new(input),
-        })
-        .expect("staged record serializes");
-        let running = serde_json::to_value(YaoSessionRecordV1::Running {
-            input_digest,
-            expires_at_ms: 30_000,
-        })
-        .expect("running record serializes");
-        let failed = serde_json::to_value(YaoSessionRecordV1::Failed { input_digest })
-            .expect("failed record serializes");
-        let expired = serde_json::to_value(YaoSessionRecordV1::Expired { input_digest })
-            .expect("expired record serializes");
-
-        assert!(staged.get("input").is_some());
-        assert!(running.get("input").is_none());
-        assert!(failed.get("input").is_none());
-        assert!(expired.get("input").is_none());
-        assert_eq!(
-            failed.get("status").and_then(|value| value.as_str()),
-            Some("failed")
-        );
-        assert_eq!(
-            expired.get("status").and_then(|value| value.as_str()),
-            Some("expired")
-        );
     }
 
     #[test]
