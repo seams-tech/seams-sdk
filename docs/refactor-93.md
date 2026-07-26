@@ -704,7 +704,9 @@ the plan does not claim cryptographic D1 admission attestation.
 - [x] Add `Prepared`, pair digest, and role-local input digest to A and B
       role-local state.
 - [x] Add idempotent A and B `prepare-pair` commands and signed readiness
-      receipts.
+      receipts. Core lifetime validation remains strict; Cloudflare role and
+      coordinator boundaries allow at most 1,000 ms of future-only skew from
+      the platform's I/O-refreshed clock.
 - [x] Bind the pair digest into the peer handshake and WebSocket request.
 - [x] Make execute-before-prepare a typed fail-closed defect result.
 - [x] Require both exact readiness receipts before A execution.
@@ -785,6 +787,63 @@ cryptographic and deployment evidence.
 
 ### Phase 5: Hard Cutover And Deletion
 
+#### Cutover Reliability Corrections (July 26, 2026)
+
+The cutover review findings C1, C2, and H2–H6 were rechecked against the
+production Worker composition and fixed before any family window was enabled.
+No deployment or cutover window change is part of these corrections.
+
+- [x] **Email OTP failure cleanup — preserve the actionable failure and release
+      the registration intent.** Disposal treats an already-absent one-use
+      factor as an idempotent success. Yao factor disposal and registration
+      intent cancellation run independently, so a disposal failure cannot skip
+      cancellation and leave `walletId` reserved. The original registration
+      failure remains visible when cleanup succeeds or finds the factor already
+      absent.
+- [x] **C1 / H1 — classify every ceremony-store route.** Registration intent,
+      cancellation, start, derivation response/activation, finalize,
+      add-signer intent/start/derivation/finalize, and add-auth-method
+      intent/start/finalize now follow the registration family window. The
+      intent routes are the admission boundaries; later phases remain on the
+      legacy store during the drain. The remaining catch-all routes do not read
+      or write registration ceremony intent state. Worker-boundary tests cover
+      every classified route before cutoff, during drain, and after drain.
+- [x] **C2 / H6 — route capability consumers by recovery ownership.** Warm
+      recovery bootstrap, wallet-session minting, unlock, and sync-account all
+      follow the recovery family window. A registration cutover can no longer
+      move those consumers to partitioned D1 while recovery still writes the
+      legacy snapshot.
+- [x] **H2 — prevent legacy capability-state resurrection.** The stateful
+      tenant-runtime composition no longer accepts or invokes the canonical D1
+      capability fallback. Existing-wallet rehydration remains exclusively in
+      the request-scoped partitioned runtime, where installation uses shared
+      CAS. An empty legacy snapshot now stays empty on a capability miss.
+- [x] **H3 — tolerate only bounded Cloudflare clock skew.** Core readiness
+      validation remains strict. Cloudflare readiness checks share one
+      future-only 1,000 ms allowance for the platform's I/O-refreshed clock;
+      receipt expiry, pair/root binding, and strict signature verification are
+      unchanged. Boundary tests accept +1,000 ms, reject +1,001 ms, reject
+      expiry, and prove the default validator still rejects any future issue
+      time.
+- [x] **H4 — enforce legacy ceremony CAS.** Registration and add-signer legacy
+      updates use one transactional Durable Object compare-and-swap operation
+      over canonical JSON. Missing or stale expected records return the same
+      typed conflict used by partitioned D1, and the winning record is left
+      unchanged. The actual Durable Object test proves the transaction and
+      stale-writer behavior.
+- [x] **H5 — keep transient start/finalize failures resumable.** Registration
+      and add-signer start/finalize callbacks share one typed retryable-failure
+      classifier. `not_configured`, internal/in-progress/uncertain/timeout and
+      temporarily unavailable results, plus responses carrying `retryAfterMs`,
+      throw before terminal persistence. The durable prepared claim remains
+      available for exact stale-claim reconciliation after service recovery;
+      deterministic domain rejections remain terminal.
+
+Validation for this correction set: `pnpm build:sdk-full`, the SDK server
+build, unit typecheck, 48 focused cutover/state/CAS/side-effect tests, 10
+registration and wallet-auth-method lifecycle tests, and the Rust core and
+Cloudflare bounded-skew tests all pass.
+
 The Phase 5 deletion audit is recorded in
 [`refactor-93-phase5-deletion-audit.md`](./refactor-93-phase5-deletion-audit.md).
 It confirms that the Gateway serial Yao owner is deleted, while Deriver A/B
@@ -845,7 +904,9 @@ ceremony after the user completes authentication. The safe sequence is:
           runtime and lifecycle records are request-scoped. Real-SQLite tests
           cover atomic multi-record writes, one-time take/delete behavior,
           contention, restart recovery, terminal cancellation, and canonical
-          exact replay; the legacy factory remains only for drain coverage.
+          exact replay. The legacy factory remains only for drain coverage and
+          now enforces the same expected-record CAS contract for ceremony
+          updates.
     - [x] Split sponsored NEAR account creation into a prepare step that builds,
           signs, and hashes the transaction without broadcasting and a broadcast
           step that replays those exact bytes. Rebuilding would take a fresh
@@ -906,8 +967,9 @@ ceremony after the user completes authentication. The safe sequence is:
           resumed after its 30-second live-owner window; a contender inside
           that window receives the matching retry delay instead of executing
           the effect concurrently. Deterministic failures are terminal exact
-          receipts, while internal or retryable failures leave the claim open
-          for stale-claim reconciliation.
+          receipts. Internal, unavailable, unconfigured, in-progress,
+          uncertain, timeout, and retry-after failures leave start and finalize
+          claims open for stale-claim reconciliation.
     - [x] Drive the convergence check through the finalize entry point rather
           than the commit store and side-effect boundary separately. The same
           suite also races two identical finalize requests and verifies an
