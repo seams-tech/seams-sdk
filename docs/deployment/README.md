@@ -134,6 +134,11 @@ worker deployment jobs before publishing. A failed run leaves successful
 parallel jobs applied; rerunning failed jobs uses the same workflow SHA and
 successful same-run build artifact.
 
+The Gateway uses partitioned D1 and the MPC Router for Ed25519 Yao immediately.
+Deployments have no tenant-runtime fallback, family selector, or admission-drain
+window. Remove retired `ROUTER_AB_YAO_GATEWAY_*` cutoff/drain values from GitHub
+Environments instead of carrying them into a release.
+
 ### Frontend
 
 The frontend workflow has one environment-bound job. It validates its target,
