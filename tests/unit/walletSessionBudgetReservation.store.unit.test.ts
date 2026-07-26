@@ -348,10 +348,13 @@ test.describe('Wallet Session budget reservations', () => {
 
     const statusWhileReserved = await store.getSessionStatus('wallet-session-1');
     expect(statusWhileReserved).toMatchObject({
-      committedRemainingUses: 1,
-      reservedUses: 1,
-      availableUses: 0,
-      remainingUses: 0,
+      ok: true,
+      status: {
+        committedRemainingUses: 1,
+        reservedUses: 1,
+        availableUses: 0,
+        remainingUses: 0,
+      },
     });
 
     const committed = await store.commitReservedUseCountOnce({
@@ -402,8 +405,11 @@ test.describe('Wallet Session budget reservations', () => {
       availableUses: 1,
     });
     expect(await store.getSessionStatus('wallet-session-1')).toMatchObject({
-      remainingUses: 1,
-      availableUses: 1,
+      ok: true,
+      status: {
+        remainingUses: 1,
+        availableUses: 1,
+      },
     });
   });
 
@@ -519,10 +525,13 @@ test.describe('Wallet Session budget reservations', () => {
       code: 'wallet_budget_exhausted',
     });
     await expect(store.getSessionStatus('wallet-session-1')).resolves.toMatchObject({
-      committedRemainingUses: 0,
-      reservedUses: 0,
-      availableUses: 0,
-      remainingUses: 0,
+      ok: true,
+      status: {
+        committedRemainingUses: 0,
+        reservedUses: 0,
+        availableUses: 0,
+        remainingUses: 0,
+      },
     });
   });
 
@@ -557,10 +566,13 @@ test.describe('Wallet Session budget reservations', () => {
       code: 'wallet_budget_reservation_expired',
     });
     expect(await store.getSessionStatus('wallet-session-1')).toMatchObject({
-      committedRemainingUses: 1,
-      reservedUses: 0,
-      availableUses: 1,
-      remainingUses: 1,
+      ok: true,
+      status: {
+        committedRemainingUses: 1,
+        reservedUses: 0,
+        availableUses: 1,
+        remainingUses: 1,
+      },
     });
   });
 
@@ -593,10 +605,13 @@ test.describe('Wallet Session budget reservations', () => {
       code: 'wallet_budget_reservation_mismatch',
     });
     expect(await store.getSessionStatus('wallet-session-1')).toMatchObject({
-      committedRemainingUses: 1,
-      reservedUses: 1,
-      availableUses: 0,
-      remainingUses: 0,
+      ok: true,
+      status: {
+        committedRemainingUses: 1,
+        reservedUses: 1,
+        availableUses: 0,
+        remainingUses: 0,
+      },
     });
   });
 
@@ -714,13 +729,16 @@ test.describe('Wallet Session budget reservation backend contracts', () => {
     );
 
     await expect(store.getSessionStatus(sessionId)).resolves.toMatchObject({
-      record: {
-        kind: 'wallet_signing_budget_session',
-        walletId: 'wallet-budget-do-user',
+      ok: true,
+      status: {
+        record: {
+          kind: 'wallet_signing_budget_session',
+          walletId: 'wallet-budget-do-user',
+        },
+        committedRemainingUses: 3,
+        reservedUses: 0,
+        availableUses: 3,
       },
-      committedRemainingUses: 3,
-      reservedUses: 0,
-      availableUses: 3,
     });
   });
 
