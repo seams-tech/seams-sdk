@@ -89,6 +89,7 @@ import {
   familyOfRouterAbEd25519YaoGatewayOperationV1,
   resolveRouterAbEd25519YaoGatewayRouteV1,
   routerAbEd25519YaoGatewayUsesPartitionedD1V1,
+  validateRouterAbEd25519YaoGatewayCutoverStateV1,
   type RouterAbEd25519YaoGatewayCutoverFamilyV1,
   type RouterAbEd25519YaoGatewayOperationV1,
   type RouterAbEd25519YaoGatewayCutoverStateV1,
@@ -1107,11 +1108,13 @@ async function handlePartitionedD1Operation(
 function routerAbGatewayCutoverState(
   env: CloudflareD1RouterApiStagingEnv,
 ): RouterAbEd25519YaoGatewayCutoverStateV1 {
-  return {
+  const cutover = {
     ...familyCutoverWindow(env, 'REGISTRATION', 'registration'),
     ...familyCutoverWindow(env, 'RECOVERY', 'recovery'),
     ...familyCutoverWindow(env, 'EXPORT', 'export'),
   };
+  validateRouterAbEd25519YaoGatewayCutoverStateV1(cutover);
+  return cutover;
 }
 
 function familyCutoverWindow(

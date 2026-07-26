@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   resolveRouterAbEd25519YaoGatewayRouteV1,
   routerAbEd25519YaoGatewayUsesPartitionedD1V1,
+  validateRouterAbEd25519YaoGatewayCutoverStateV1,
 } from '../../packages/sdk-server-ts/src/router/cloudflare/routerAbEd25519YaoGatewayCutover';
 
 test('keeps admission and execute on the legacy runtime throughout the drain window', () => {
@@ -216,6 +217,26 @@ test('each family drains on its own schedule', () => {
       cutover,
     }).kind,
   ).toBe('legacy_runtime');
+});
+
+test('recovery must drain before registration can enter partitioned D1', () => {
+  expect(() =>
+    validateRouterAbEd25519YaoGatewayCutoverStateV1({
+      registration: { admissionCutoffMs: 1_000, drainUntilMs: 2_000 },
+    }),
+  ).toThrow('recovery cutover must be configured before registration');
+  expect(() =>
+    validateRouterAbEd25519YaoGatewayCutoverStateV1({
+      registration: { admissionCutoffMs: 1_000, drainUntilMs: 2_000 },
+      recovery: { admissionCutoffMs: 2_000, drainUntilMs: 3_000 },
+    }),
+  ).toThrow('recovery must drain before registration');
+  expect(() =>
+    validateRouterAbEd25519YaoGatewayCutoverStateV1({
+      registration: { admissionCutoffMs: 2_000, drainUntilMs: 4_000 },
+      recovery: { admissionCutoffMs: 1_000, drainUntilMs: 3_000 },
+    }),
+  ).not.toThrow();
 });
 
 test('the classification finalize resolves with never splits from execute mid-window', () => {
