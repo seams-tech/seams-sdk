@@ -6,6 +6,8 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./authorization": "./src/authorization/index.ts",
+    "./authorization/*": "./src/authorization/*.ts",
     "./near": "./src/near/index.ts",
     "./near/*": "./src/near/*.ts",
     "./signing-lanes": "./src/signing-lanes/index.ts",
