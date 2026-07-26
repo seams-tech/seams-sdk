@@ -21,8 +21,7 @@ use router_ab_core::{
     recipient_proof_bundle_ciphertext_aad_digest_v1, recipient_proof_bundle_payload_digest_v1,
     recipient_proof_bundle_payload_from_ab_proof_batch_v1,
     recipient_proof_bundle_wire_message_from_ab_proof_batch_v1, role_encrypted_envelope_digest_v1,
-    router_transcript_binding_v1, router_transcript_digest_v1,
-    sign_ab_peer_message_ed25519_authentication_v1,
+    router_transcript_digest_v1, sign_ab_peer_message_ed25519_authentication_v1,
     sign_ecdsa_threshold_prf_proof_batch_peer_payload_v1,
     validate_signer_input_plaintext_binding_v1, verify_ab_peer_message_ed25519_signature_v1,
     verify_recipient_proof_bundle_ciphertext_payload_v1, wire_message_digest_v1,
@@ -572,14 +571,9 @@ fn gate_defer_reason_maps_to_authority_verified_fallback_reason() {
 
 #[test]
 fn normal_signing_scope_stays_outside_derivation_lifecycle() {
-    let scope = NormalSigningScopeV1::new(
-        "sign-1",
-        "wallet-1",
-        "session-1",
-        "session-1",
-        "server-a",
-    )
-    .expect("scope");
+    let scope =
+        NormalSigningScopeV1::new("sign-1", "wallet-1", "session-1", "session-1", "server-a")
+            .expect("scope");
 
     assert_eq!(scope.request_id, "sign-1");
     assert_eq!(scope.signing_worker_id, "server-a");

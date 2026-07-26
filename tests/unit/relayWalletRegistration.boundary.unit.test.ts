@@ -92,16 +92,22 @@ function inputFor(
   body: unknown,
   authService: Record<string, unknown>,
   session?: Record<string, unknown>,
+  overrides?: {
+    headers?: Record<string, string>;
+    logger?: { info?: (...args: unknown[]) => void };
+  },
 ) {
+  const logger = {
+    debug: () => {},
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    ...(overrides?.logger || {}),
+  };
   return {
     body,
-    headers: {},
-    logger: {
-      debug: () => {},
-      info: () => {},
-      warn: () => {},
-      error: () => {},
-    },
+    headers: overrides?.headers || {},
+    logger,
     route: route(routeId),
     services: {
       walletRegistration: authService,
@@ -650,6 +656,58 @@ test.describe('wallet registration route boundaries', () => {
         },
       },
     });
+  });
+
+  test('finalize emits a sanitized Gateway D1 commit span for the supplied trace', async () => {
+    const logs: unknown[] = [];
+    const response = await handleRouterApiWalletRegistrationFinalize(
+      inputFor(
+        'wallet_registration_finalize',
+        {
+          registrationCeremonyId: 'wrc_123',
+          kind: 'evm_family_ecdsa',
+          ecdsa: { expectedKeyHandles: ['ederivation-key-alice'] },
+        },
+        {
+          finalizeWalletRegistration: async () => ({
+            ok: true,
+            walletId: 'wallet_alice',
+            authority: {
+              kind: 'passkey',
+              walletId: 'wallet_alice',
+            },
+            authMethod: { kind: 'passkey', rpId: 'wallet.example.test' },
+            kind: 'evm_family_ecdsa',
+            ecdsa: { walletKeys: [] },
+          }),
+        },
+        undefined,
+        {
+          headers: { 'x-seams-trace-id': '0123456789abcdef0123456789abcdef' },
+          logger: { info: (...args: unknown[]) => logs.push(...args) },
+        },
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    const span = logs
+      .map((entry) => {
+        if (typeof entry !== 'string') return null;
+        try {
+          return JSON.parse(entry) as Record<string, unknown>;
+        } catch {
+          return null;
+        }
+      })
+      .find((entry) => entry?.span === 'gateway.d1_commit');
+    expect(span).toMatchObject({
+      event: 'router_ab_yao_gateway_span_v1',
+      span: 'gateway.d1_commit',
+      operation: 'registration',
+      outcome: 'success',
+      trace_id: '0123456789abcdef0123456789abcdef',
+    });
+    expect(JSON.stringify(span)).not.toContain('wallet_alice');
   });
 
   test('finalize forwards normalized Email OTP backup acknowledgement metadata', async () => {

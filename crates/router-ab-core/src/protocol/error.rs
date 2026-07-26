@@ -20,6 +20,12 @@ pub enum RouterAbProtocolErrorCode {
     InvalidSignerIdentity,
     /// A lifecycle scope or transition was invalid.
     InvalidLifecycleState,
+    /// A pair-bound execution conflicts with an already-owned identity.
+    ConflictingPair,
+    /// A pair role was requested before its exact preparation was committed.
+    MissingPairPreparation,
+    /// A pair role preparation expired before it could be consumed.
+    PairPreparationExpired,
     /// A required local-service binding was missing.
     MissingLocalBinding,
     /// A local-service binding would violate role separation.

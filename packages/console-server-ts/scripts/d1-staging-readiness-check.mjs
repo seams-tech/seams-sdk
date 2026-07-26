@@ -21,6 +21,10 @@ import {
   tableBody,
   valueLooksPlaceholder,
 } from './d1-staging-config.mjs';
+import {
+  GATEWAY_CUTOVER_WORKER_VAR_NAMES,
+  parseGatewayCutoverWorkerVars,
+} from './gateway-deployment-config.mjs';
 
 const defaultConfigByProfile = Object.freeze({
   console: 'wrangler.d1-staging-console.toml',
@@ -133,6 +137,7 @@ export function checkD1StagingReadiness(input = {}) {
     checkDurableObject(source, errors);
     checkRouterAbServiceBindings(source, errors);
     checkSigningRootKekProvider(source, errors);
+    checkGatewayCutoverWorkerVars(source, errors);
   }
 
   return {
@@ -479,6 +484,29 @@ function checkSigningRootKekProvider(source, errors) {
     if (!hasSecretStoreSecret(source, kekId)) {
       errors.push(`missing Cloudflare Secrets Store binding for signer KEK ${kekId}`);
     }
+  }
+}
+
+function checkGatewayCutoverWorkerVars(source, errors) {
+  const vars = tableBody(source, 'vars');
+  const environment = {};
+  for (const name of GATEWAY_CUTOVER_WORKER_VAR_NAMES) {
+    if (!hasAssignment(vars, name)) {
+      errors.push(`${name} must be declared under [vars]`);
+      continue;
+    }
+    environment[name] = readString(vars, name);
+  }
+  for (const name of [
+    'ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS',
+    'ROUTER_AB_YAO_GATEWAY_DRAIN_UNTIL_MS',
+  ]) {
+    if (hasAssignment(vars, name)) environment[name] = readString(vars, name);
+  }
+  try {
+    parseGatewayCutoverWorkerVars(environment);
+  } catch (error) {
+    errors.push(error instanceof Error ? error.message : String(error));
   }
 }
 

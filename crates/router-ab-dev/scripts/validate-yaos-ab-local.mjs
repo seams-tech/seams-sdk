@@ -78,12 +78,12 @@ try {
   runCheck('SDK Yao local TypeScript gate', 'node', ['tests/scripts/check-yaos-local-types.mjs']);
   runCheck(
     'SDK Router, WASM Client, wallet lifecycle, and process gates',
-    './tests/node_modules/.bin/playwright',
+    './node_modules/.bin/playwright',
     ['test', '-c', 'tests/playwright.yaos-local.config.ts', '--reporter=dot'],
   );
   runCheck(
     'public local-product registration, NEAR readiness, signing, and export gates',
-    './tests/node_modules/.bin/playwright',
+    './node_modules/.bin/playwright',
     ['test', '-c', 'tests/playwright.yaos-local-product.config.ts', '--reporter=dot'],
   );
   runCheck(

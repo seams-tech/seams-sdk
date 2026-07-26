@@ -1040,7 +1040,6 @@ function createContext(captures: Record<string, unknown>): any {
   const finalizeWalletRegistrationEcdsaSessionsForTest = async (input: Record<string, unknown>) => {
     await finalizeWalletRegistrationEcdsaSessionsOperation(
       {
-        registrationBootstrap: ecdsaRegistrationBootstrap,
         bootstrapStore: {
           upsertProfile: async () => undefined,
           activateAccountSigner: async (activationInput: any) => ({
@@ -1049,22 +1048,11 @@ function createContext(captures: Record<string, unknown>): any {
           }),
         },
         sessionStore: thresholdEcdsaSessionStore,
-        persistEcdsaRoleLocalReadyRecord: async (input: Record<string, unknown>) => {
-          captures.persistedEcdsaRoleLocalReadyRecord = input;
-          return { ok: true, value: { kind: 'persisted' as const } };
-        },
         warmSessions: { hydrateSigningSession },
-        commitEmailOtpEcdsaSession: async (input: Record<string, unknown>) => {
-          captures.committedEmailOtpEcdsaSession = input;
-          return undefined;
-        },
-        commitEmailOtpEcdsaRegistrationWarmMaterial: async (input) => {
-          captures.committedEmailOtpEcdsaRegistrationWarmMaterial = input;
-        },
         persistActivePasskeyEcdsaReauthAnchor: async (input: unknown) => {
           captures.persistedActivePasskeyEcdsaReauthAnchor = input;
         },
-      persistEmailOtpEcdsaRegistrationReauthAnchor: async (input: unknown) => {
+        persistEmailOtpEcdsaRegistrationReauthAnchor: async (input: unknown) => {
           captures.persistedEmailOtpEcdsaRegistrationReauthAnchor = input;
         },
         signingSessionSeal: {},

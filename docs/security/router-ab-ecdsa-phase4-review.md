@@ -46,13 +46,13 @@ matched exactly.
 | `crates/router-ab-ecdsa-presign/specs/fixed-mta-v1.md` | `81d866ef2bdf05b14b1861deb79e821b64f3830f0a86a1225239e99782bea74c` | Fixed MTA equations, role schedule, and malicious-behavior boundary |
 | `crates/router-ab-ecdsa-presign/specs/committed-triple-finalization-v1.md` | `45defbe4eab65a61cecb6981aa9640a9accb35ced836bc74e45ce0907dab30a6` | Product/share proof composition and terminal triple checks |
 | `crates/router-ab-ecdsa-presign/specs/prototype-security.md` | `6f08665b1bac22e3f5f0c50c1d3c4dec6ea1f1bbdd2b038393d22fbfa4159ca2` | Incremental construction record and bounded claim history |
-| `crates/router-ab-ecdsa-online/specs/online-lifecycle-v1.md` | `7de84596087ffd4b69c4f140d9a856f5dde72091441d0c064362d846467aa7e0` | Online equations, public coin, low-s/recovery, one-use composition, and adapter boundary |
-| `crates/router-ab-ecdsa-pool/specs/persistent-pool-lifecycle-v1.md` | `1fa79931d6bbd056384b75f62abf4397485af471c42921d346efc8c968e83f93` | Persistent lifecycle, CAS, burn, recovery, and output-release invariants |
+| `crates/router-ab-ecdsa-online/specs/online-lifecycle-v1.md` | `9d67a83207ccd4648c77e3c8041b539248ae27df0aca06964030fa77be710a8a` | Online equations, public coin, low-s/recovery, one-use composition, and adapter boundary |
+| `crates/router-ab-ecdsa-pool/specs/persistent-pool-lifecycle-v1.md` | `adbedbc72a6d987ce3bf47fa5ba935eb4a72c69fdf1eab7998991043e14ea15c` | Persistent lifecycle, CAS, burn, recovery, and output-release invariants |
 | `crates/router-ab-ecdsa-presign/specs/upstream-check-inventory.md` | `99b5bf4b967be2ea5bebfed4aaa9ac7b09f962b7ca3016337136b46e0c31a5f2` | Forty-seven upstream checks and dispositions |
 | `crates/router-ab-ecdsa-presign/specs/abort-corpus-v1.md` | `8c18537bb548740cc667039bce5f315b755b9a68634ba9760f98c17fc974d87f` | Critical malformed, replay, binding, proof, OT/MTA, online, and one-use failures |
 | `crates/router-ab-ecdsa-near-oracle-tests/fixtures/v1/manifest.json` | `0e38983aebc110b4f0407a6b2d0349b3e398b373e0639472e1510e47113fc577` | Pinned NEAR source, oracle corpus, semantic replay, and provenance |
 | `docs/evidence/refactor-89/phase-d-bounded-assurance-v1.json` | `5b86075079103e05b6a79e60469b732f2f0080e5995426e0e02d8f91bcd500fb` | Machine-readable bounded assurance evidence |
-| `docs/evidence/refactor-89/phase-e-local-artifacts-v1.json` | `cc639cbcdf0703dd2bffda44ea771fef70ec8d0feccf15a82d9b8784887ee79e` | Final local artifacts, deletion audit, builds, and lifecycle checks |
+| `docs/evidence/refactor-89/phase-e-local-artifacts-v1.json` | `63de5877589fa4b94b9caae8945cd366cde2d1dc00efddad732230ad883467ec` | Final local artifacts, deletion audit, builds, and lifecycle checks |
 
 Any change to a corpus artifact or reviewed-manifest file invalidates this
 decision receipt and requires a new independent review.

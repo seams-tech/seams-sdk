@@ -220,6 +220,7 @@ void invalidStartResponseWithoutSignerWork;
 
 const validEd25519FinalizeRequest = {
   registrationCeremonyId: 'registration-ceremony-1',
+  idempotencyKey: 'registration-finalize-1',
   kind: 'near_ed25519',
   ed25519: {
     activationReference: {
@@ -231,8 +232,17 @@ const validEd25519FinalizeRequest = {
 } satisfies WalletRegistrationFinalizeRequest;
 void validEd25519FinalizeRequest;
 
+const invalidFinalizeWithoutIdempotency = {
+  registrationCeremonyId: 'registration-ceremony-1',
+  kind: 'near_ed25519',
+  ed25519: validEd25519FinalizeRequest.ed25519,
+  // @ts-expect-error wallet registration finalize requires a durable idempotency key.
+} satisfies WalletRegistrationFinalizeRequest;
+void invalidFinalizeWithoutIdempotency;
+
 const invalidEd25519FinalizeWithEcdsa: WalletRegistrationFinalizeRequest = {
   registrationCeremonyId: 'registration-ceremony-1',
+  idempotencyKey: 'registration-finalize-1',
   kind: 'near_ed25519' as const,
   ed25519: validEd25519FinalizeRequest.ed25519,
   // @ts-expect-error near_ed25519 finalize must not carry ECDSA work.
@@ -242,6 +252,7 @@ void invalidEd25519FinalizeWithEcdsa;
 
 const invalidEd25519FinalizeWithoutActivation = {
   registrationCeremonyId: 'registration-ceremony-1',
+  idempotencyKey: 'registration-finalize-1',
   kind: 'near_ed25519' as const,
   // @ts-expect-error Ed25519 finalize requires an opaque activation reference.
   ed25519: {},

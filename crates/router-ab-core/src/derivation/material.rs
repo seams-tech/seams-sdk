@@ -5,7 +5,9 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// Runtime role in the Router/A/B architecture.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript-bindings", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "typescript-bindings", ts(rename_all = "snake_case"))]
 pub enum Role {
     /// Gateway role that handles auth, rate limits, and routing.
     Router,
@@ -34,7 +36,9 @@ impl Role {
 
 /// Kind of opened share material allowed by the target invariant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript-bindings", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "typescript-bindings", ts(rename_all = "snake_case"))]
 pub enum OpenedShareKind {
     /// Client-side base output opened to the client.
     XClientBase,
@@ -80,6 +84,7 @@ impl fmt::Debug for SecretMaterial32 {
 
 /// Public 32-byte material.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript-bindings", derive(ts_rs::TS))]
 pub struct PublicMaterial32 {
     /// Public bytes.
     pub bytes: [u8; 32],
@@ -94,8 +99,17 @@ impl PublicMaterial32 {
 
 /// Public 32-byte digest.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript-bindings", derive(ts_rs::TS))]
+#[cfg_attr(
+    feature = "typescript-bindings",
+    ts(rename = "RouterAbEd25519YaoPublicDigestV1")
+)]
 pub struct PublicDigest32 {
     /// Digest bytes.
+    #[cfg_attr(
+        feature = "typescript-bindings",
+        ts(type = "RouterAbEd25519YaoBytes32V1")
+    )]
     pub bytes: [u8; 32],
 }
 

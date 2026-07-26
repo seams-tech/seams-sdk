@@ -17,6 +17,7 @@ import {
   RouterAbEd25519YaoHttpActivationTransportV1,
   type RouterAbEd25519YaoHttpTransportConfigV1,
 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
+import type { RouterAbTraceContextV1 } from '@shared/utils/routerAbTraceContext';
 
 export type PasskeyRegistrationIntentV1 = Omit<RegistrationIntentV1, 'authMethod'> & {
   authMethod: PasskeyRegistrationAuthMethodInput;
@@ -42,6 +43,7 @@ export type PasskeyEd25519YaoHttpTransportV1 = {
   kind: 'passkey_ed25519_yao_http_transport_v1';
   routerOrigin: string;
   fetch: typeof fetch;
+  traceContext?: RouterAbTraceContextV1;
 };
 
 export type VerifiedPasskeyEd25519YaoRegistrationInputV1 = {
@@ -106,6 +108,7 @@ function transportConfig(
     routerOrigin: requireNonEmptyString(input.httpTransport.routerOrigin, 'Yao Router origin'),
     authorization: `Bearer ${bearerToken}`,
     fetch: input.httpTransport.fetch,
+    traceContext: input.httpTransport.traceContext,
   };
 }
 

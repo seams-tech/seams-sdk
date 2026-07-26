@@ -136,7 +136,7 @@ test.describe('WalletIframeRouter signing-session expiry lifecycle', () => {
     expect(result.requestResult).toEqual({
       kind: 'rejected',
       name: 'WalletIframeSessionExpiredRequestError',
-      message: 'Wallet signing session expired',
+      message: 'Wallet session expired',
       code: 'wallet_session_expired',
       walletId: WALLET_ID,
       walletSessionId: ACTIVE_SESSION_ID,

@@ -24,7 +24,15 @@ pub const ED25519_YAO_CONTROL_CIPHERTEXT_MAX_BYTES_V1: usize = 64 * 1024;
 
 /// Fixed Ed25519 Yao circuit family selected by a lifecycle operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript-bindings", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(
+    feature = "typescript-bindings",
+    ts(
+        rename = "RouterAbEd25519YaoCircuitFamilyV1",
+        rename_all = "snake_case"
+    )
+)]
 pub enum Ed25519YaoCircuitFamilyV1 {
     /// Produces disjoint Client and SigningWorker scalar shares.
     Activation,
@@ -34,7 +42,12 @@ pub enum Ed25519YaoCircuitFamilyV1 {
 
 /// Product lifecycle operation admitted to the fixed Yao circuit families.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript-bindings", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(
+    feature = "typescript-bindings",
+    ts(rename = "RouterAbEd25519YaoOperationV1", rename_all = "snake_case")
+)]
 pub enum Ed25519YaoOperationV1 {
     /// Initial registration and activation.
     Registration,
@@ -288,15 +301,28 @@ impl Ed25519YaoRefreshBindingV1 {
 
 /// Public Router-admitted binding shared by both Derivers for one ceremony.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript-bindings", derive(ts_rs::TS))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(
+    feature = "typescript-bindings",
+    ts(rename = "RouterAbEd25519YaoCeremonyBindingV1")
+)]
 pub struct Ed25519YaoCeremonyBindingV1 {
     /// Product lifecycle and authenticated application scope.
     pub lifecycle: LifecycleScopeV1,
     /// Lifecycle operation selecting one fixed circuit family.
     pub operation: Ed25519YaoOperationV1,
     /// Transcript session id derived from the admitted request.
+    #[cfg_attr(
+        feature = "typescript-bindings",
+        ts(type = "RouterAbEd25519YaoSessionIdV1")
+    )]
     pub session_id: Ed25519YaoSessionIdV1,
     /// Canonical stable KDF-context binding admitted by the Router.
+    #[cfg_attr(
+        feature = "typescript-bindings",
+        ts(type = "RouterAbEd25519YaoStableKeyContextBindingV1")
+    )]
     pub stable_key_context_binding: Ed25519YaoStableKeyContextBindingV1,
 }
 

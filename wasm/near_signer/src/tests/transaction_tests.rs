@@ -39,15 +39,19 @@ fn build_and_sign_transaction_round_trip() {
     use ed25519_dalek::Signer;
     let (tx_hash_to_sign, _size) = tx.get_hash_and_size();
     let signature_bytes = signing_key.sign(&tx_hash_to_sign.0).to_bytes();
+    let expected_hash = bs58::encode(tx_hash_to_sign.0).into_string();
+    let transaction_hash = calculate_transaction_hash(&tx);
     let signed_bytes = sign_transaction(tx, &signature_bytes).expect("signing should succeed");
     assert!(!signed_bytes.is_empty());
-
-    let hash_hex = calculate_transaction_hash(&signed_bytes);
-    assert_eq!(hash_hex.len(), 64, "SHA256 hex hash should be 64 chars");
+    assert_eq!(transaction_hash, expected_hash);
 
     // SignedTransaction should be decodable from the produced bytes.
-    let _signed: crate::types::SignedTransaction =
+    let signed: crate::types::SignedTransaction =
         borsh::from_slice(&signed_bytes).expect("signed tx should be valid Borsh");
+    assert_eq!(
+        calculate_transaction_hash(&signed.transaction),
+        expected_hash
+    );
 }
 
 /// Ensure build_transaction_with_actions rejects invalid block hash sizes.

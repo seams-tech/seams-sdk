@@ -29,12 +29,19 @@ test.describe('page-refresh EVM-family nonce recovery guard', () => {
   test('awaits wallet-scoped durable recovery before transaction signing can reserve a nonce', () => {
     const source = readConfiguredTransactionExecutor();
     const recoveryIndex = source.indexOf(
-      'await args.deps.nonceCoordinator.recoverDurableLeases({ walletId: args.walletId });',
+      'const recoverDurableLeasesTask = args.deps.nonceCoordinator.recoverDurableLeases({',
     );
     const signingIndex = source.indexOf('const result = await signWithUiConfirm({');
+    const recoveryAwaitIndex = source.indexOf('await recoverDurableLeasesTask;');
+    const reservationIndex = source.indexOf(
+      'return await config.prepareRequestWithManagedNonce({',
+      recoveryAwaitIndex,
+    );
 
     expect(recoveryIndex).toBeGreaterThanOrEqual(0);
     expect(signingIndex).toBeGreaterThan(recoveryIndex);
+    expect(recoveryAwaitIndex).toBeGreaterThan(signingIndex);
+    expect(reservationIndex).toBeGreaterThan(recoveryAwaitIndex);
   });
 
   test('keeps the fire-and-forget startup path deleted', () => {

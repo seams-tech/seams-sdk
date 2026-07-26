@@ -21,9 +21,12 @@ export function localPeerVerifyingKeyHex(value) {
 }
 
 function localPeerSigningSeedHex(value) {
-  const match = value.match(/([0-9a-fA-F]{64})$/);
-  if (!match) {
-    throw new Error('Router A/B local peer signing key must end in 32 hexadecimal bytes');
+  if (!/^[A-Za-z0-9_-]{43}$/.test(value)) {
+    throw new Error('Router A/B local peer signing key must be 32-byte base64url');
   }
-  return match[1].toLowerCase();
+  const seed = Buffer.from(value, 'base64url');
+  if (seed.length !== 32) {
+    throw new Error('Router A/B local peer signing key must decode to 32 bytes');
+  }
+  return seed.toString('hex');
 }

@@ -70,7 +70,6 @@ const retainedBoundaryAuditRows = [
     'tests/unit/signerMutationSagas.pendingBehavior.unit.test.ts',
     'tests/unit/tempo.feeTokenHelper.unit.test.ts',
     'tests/unit/thresholdEcdsaSessionAuthMaterial.unit.test.ts',
-    'tests/unit/thresholdEd25519.registrationWarmSession.unit.test.ts',
     'tests/unit/thresholdEd25519WalletSession.rehydrate.unit.test.ts',
     'tests/unit/touchConfirm.workerRouter.integration.test.ts',
     'tests/unit/useAccountInput.clearPrefill.unit.test.ts',
@@ -85,6 +84,7 @@ const retainedBoundaryAuditRows = [
     'tests/wallet-iframe/preferences.sync.test.ts',
     'tests/wallet-iframe/router.behavior.test.ts',
     'tests/wallet-iframe/router.cancellationProgress.test.ts',
+    'tests/wallet-iframe/router.sessionExpiryLifecycle.test.ts',
     'tests/wallet-iframe/router.signingProgressForwarding.test.ts',
     'tests/wallet-iframe/static-wallet-assets.browser.test.ts',
 ];
@@ -148,7 +148,7 @@ const retainedBoundaryAuditEvidenceTokens = {
         'touchConfirm near adapter',
         'fetchNearContext returns an isolated transactionContext per call',
         'createConfirmTxFlowAdapters',
-        'reserveNonces: true',
+        'signatureUses: 1',
     ],
     'tests/unit/confirmTxFlow.successPaths.test.ts': [
         'confirmTxFlow',
@@ -221,7 +221,7 @@ const retainedBoundaryAuditEvidenceTokens = {
     'tests/unit/indexedDBConsolidation.unit.test.ts': [
         'IndexedDB consolidation',
         'schema manifest defines every canonical store exactly once',
-        'wallet signer rows mirror branch identity fields and ECDSA signers do not create NEAR projections',
+        'wallet signer rows mirror branch identity fields and replace duplicate ECDSA key identities',
         'wallet auth-method rows allow shared Email OTP identifiers and reject passkey duplicates plus scalar drift',
     ],
     'tests/unit/localSignerReconciliation.unit.test.ts': [
@@ -266,8 +266,8 @@ const retainedBoundaryAuditEvidenceTokens = {
     ],
     'tests/unit/passkeyConfirm.exportFlow.unit.test.ts': [
         'passkey-confirm export flow worker',
-        'returns cancelled when user cancels at first confirmation step',
-        'fails closed when seed does not match expected public key',
+        'returns cancelled when user cancels at final export display step',
+        'treats abort-like final-step error as cancelled',
         'rejects retired ecdsa-derivation secp256k1 key artifact kind without prompting',
     ],
     'tests/unit/profileAccountProjection.generic.unit.test.ts': [
@@ -297,7 +297,8 @@ const retainedBoundaryAuditEvidenceTokens = {
         'signing session sealed store',
         'writes shamir3pass records to IndexedDB without persisting plaintext secret or JWT auth',
         'drops chain-only ECDSA sealed records instead of inferring a concrete target',
-        'rejects passkey Ed25519 signing-session seals without worker-material metadata',
+        'keeps passkey Ed25519 signing-session seals with canonical public metadata',
+        'rejects passkey Ed25519 signing-session seals with legacy subject identity',
     ],
     'tests/unit/seamsWeb.chainSigners.integration.test.ts': [
         'SeamsWeb chain signer modules',
@@ -367,12 +368,6 @@ const retainedBoundaryAuditEvidenceTokens = {
     'tests/unit/thresholdEcdsaSessionAuthMaterial.unit.test.ts': [
         'threshold ECDSA warm-session auth material',
         'resolves JWT only from explicit canonical ECDSA ownership',
-    ],
-    'tests/unit/thresholdEd25519.registrationWarmSession.unit.test.ts': [
-        'threshold Ed25519 registration warm-session',
-        'rejects returned warm-session identity that differs from expected registration binding',
-        'awaits warm-session hydrate before registration persistence returns',
-        'Email OTP registration persists sealed Ed25519 worker material before hydrate',
     ],
     'tests/unit/thresholdEd25519WalletSession.rehydrate.unit.test.ts': [
         'threshold Ed25519 Wallet Session rehydrate',
@@ -448,6 +443,11 @@ const retainedBoundaryAuditEvidenceTokens = {
         'registration.cancelled',
         'unlock.cancelled',
         'signing.cancelled',
+    ],
+    'tests/wallet-iframe/router.sessionExpiryLifecycle.test.ts': [
+        'WalletIframeRouter signing-session expiry lifecycle',
+        'forwards each exact event once and cancels only exact-session requests',
+        'rejects queued exact requests while admitting requests started after expiry',
     ],
     'tests/wallet-iframe/router.signingProgressForwarding.test.ts': [
         'WalletIframeRouter signing progress forwarding',
