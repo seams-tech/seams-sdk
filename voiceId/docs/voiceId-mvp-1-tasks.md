@@ -183,6 +183,12 @@ terminal computation across multiple workers.
       `consented_human_capture` and `synthetic_generation` branches. Require
       generator, model, voice identity, seed, license, request hash, and
       optional conditioning-consent metadata for synthetic entries.
+- [x] Add a plan-bound, crash-safe ElevenLabs runner with atomic checkpointing,
+      verified resume, pending-WAV recovery, and fail-closed manual
+      reconciliation for ambiguous remote outcomes.
+- [x] Add an immutable consented-capture importer that validates canonical WAV
+      media and emits a benchmark-manifest fragment without overwriting an
+      existing audio or manifest artifact.
 - [ ] Generate the solo MVP corpus with subject-disjoint stable synthetic
       identities, challenge errors, generic attacks, and owner-conditioned
       cloning attacks split across Dia2 and ElevenLabs families.
@@ -195,12 +201,13 @@ terminal computation across multiple workers.
 - [ ] Collect consented, subject-disjoint recordings across days, microphones,
       rooms, distances, codecs, sample rates, accents, and noise conditions.
 - [ ] Freeze subject-disjoint development, calibration, and evaluation splits.
-- [x] Extend the inventory command to run the selected model adapters and emit
+- [x] Extend the inventory command to run the pinned candidate adapters and emit
       machine-readable measurement results and a human report from the same
       run. The suite binds both corpus and model manifests by SHA-256 and runs
       Moonshine, ECAPA, and AASIST from the validated corpus.
 - [ ] Measure speaker FAR, FRR, EER, uncertainty, and retry rate with confidence
-      intervals.
+      intervals on a qualifying human population. Keep synthetic-impostor and
+      owner-conditioned results in separately labeled non-human cohorts.
 - [ ] Measure phrase substitution, omission, insertion, reordering, and
       ambiguity outcomes.
 - [ ] Measure semantic approve, reject, cancel, repeat, and unrelated-intent
@@ -212,11 +219,11 @@ terminal computation across multiple workers.
 - [ ] Freeze explicit latency and resource budgets for server GPU, embedded
       NVIDIA, embedded CPU, and iOS research profiles.
 
-Current external execution blockers (2026-07-26): the configured ElevenLabs
-credential returns HTTP 401, and the billed Google Cloud project has a global
-GPU quota of zero. The rejected Spot VM was deleted before GPU allocation.
-Corpus plans, generators, hash-preserving freeze tooling, and model runners are
-ready; the audio generation and held-out measurements remain incomplete.
+Current external execution blockers (2026-07-27): the synthetic-generation
+plans, resumable ElevenLabs runner, Dia2 runner, consented-capture importer,
+freeze tooling, and model adapters exist. No corpus is frozen. ElevenLabs still
+returns HTTP 401, Google GPU quota remains zero, and replay, voice-conversion,
+splice, relay, and digital-injection fixture pipelines remain incomplete.
 
 Exit gate: every optimization and model change can be compared against one
 reproducible accuracy, latency, and resource baseline.
@@ -235,32 +242,44 @@ reproducible accuracy, latency, and resource baseline.
       decisions.
 - [x] Run phrase, intent, speaker, and PAD inference concurrently after common
       quality gates accept.
-- [x] Replace request-scoped model startup with a persistent HTTP sidecar that
-      loads each model once and reports exact runtime readiness. Delete the
-      request-scoped Python subprocess transport.
+- [x] Replace request-scoped Python process startup with a persistent HTTP
+      sidecar that reports exact runtime readiness. ECAPA, AASIST, and the
+      closed intent runtime remain warm. Moonshine 0.0.71 uses a fresh
+      request-owned native `Transcriber` handle because reused handles failed
+      A-B-A isolation.
 - [x] Add bounded sidecar inference admission, configurable queue wait, and a
       deterministic overload response.
+- [x] Cap the current request-owned Moonshine profile at one admitted
+      verification. Require a measured recognizer or process pool before
+      raising this limit.
 - [x] Claim verification before the combined phrase, intent, and speaker
       analysis begins; the split-provider adapter remains only for fake and
       non-Moonshine research modes.
-- [x] Add persistent workers for the selected phrase and intent models
-      that load each model once and report readiness.
+- [x] Cache the closed Moonshine intent vocabulary once and isolate each
+      transcription behind a closed request-owned native handle.
 - [x] Add bounded queues, backpressure, per-stage deadlines, cancellation, and
       deterministic overload results.
 - [x] Zero current sidecar PCM, speech-window, template, and speaker-embedding
       buffers after the terminal decision.
-- [ ] Extend terminal buffer zeroing to the selected phrase, intent, and PAD
-      feature buffers.
+- [x] Zero exposed request-owned Moonshine PCM, ECAPA waveform and embedding
+      tensors, and AASIST PCM, feature, logits, probability, and input tensors.
+- [ ] Prove or enforce erasure of opaque buffers owned by native Moonshine,
+      ONNX, and PyTorch allocators. Use stronger process isolation where strict
+      erasure is required.
 - [x] Prove the canonical baseline pipeline produces stable templates, quality
       evidence, and speaker scores across repeated runs.
-- [ ] Extend the repeated-run regression to each selected phrase, intent,
-      speaker, and PAD model adapter.
+- [x] Extend the repeated-run regression to the pinned candidate phrase,
+      intent, speaker, and PAD adapters. Moonshine, ECAPA, and AASIST passed
+      A-A-A, A-B-A, and A-FAIL-A in
+      [the 2026-07-27 stability check](../verifier-spike/reports/candidate-adapter-stability-2026-07-27.md).
 
 Exit gate: one bounded preprocessing pass feeds warm concurrent inference with
-no duplicate decode, resample, VAD, or model initialization. The Python profile
-now runs Moonshine, ECAPA, and AASIST concurrently from one decode/VAD pass.
-Timed-out queued stages are cancelled; running native calls finish on bounded
-workers and zero private input buffers before their slots are reused.
+no duplicate decode, resample, or VAD. The Python profile runs Moonshine,
+ECAPA, and AASIST concurrently from one decode/VAD pass. ECAPA, AASIST, and
+closed-set intent state stay warm; Moonshine transcription has a deliberate
+request-owned handle boundary. Timed-out queued stages are cancelled. Running
+native calls finish on bounded workers and zero exposed private buffers before
+their slots are reused.
 
 ## Gate E: Moonshine-First Intent, Phrase, And Speaker Model Selection
 
@@ -304,6 +323,10 @@ workers and zero private input buffers before their slots are reused.
 - [x] Pin the Moonshine release, model hashes, architecture, quantization, ONNX
       Runtime providers, preprocessing, and transcript normalization in the
       experiment manifest.
+- [x] Cache closed-set intent embeddings and use request-isolated Moonshine
+      transcription. The 1,042 ms Apple Silicon smoke sample measured
+      254.085 ms p50, 264.268 ms p95, and 268.937 ms p99 in
+      [the 2026-07-27 check](../verifier-spike/reports/moonshine-intent-cache-2026-07-27.md).
 - [ ] Restrict the first product-shaped spike to MIT-licensed English models.
       Keep non-English models in research until their commercial license is
       approved.
@@ -387,8 +410,8 @@ held-out attack set and fails closed outside measured profiles.
       uploads.
 - [ ] Evaluate quarantined high-confidence template adaptation for drift and
       poisoning resistance; keep automatic adaptation disabled until it passes.
-- [x] Version the aggregation rule and template format with the selected speaker
-      model manifest.
+- [x] Version the aggregation rule and template format with the pinned candidate
+      speaker-model manifest.
 
 Exit gate: one continuous enrollment produces a compact template that meets
 cross-session stability and impostor-separation budgets.
@@ -407,6 +430,10 @@ cross-session stability and impostor-separation budgets.
       campaign at seed `20260726` produced zero unexpected failures with
       103.726 ms p99 decoder latency.
 - [x] Exercise decoder duration and timeout failure boundaries.
+- [x] Align each server's stage capacity with HTTP admission, preserve slots
+      for timed-out native calls until completion, return an exact HTTP 503
+      overload response, recover capacity, and shut down the server-owned
+      executor.
 - [ ] Run decoder duration and timeout campaigns under sustained load.
 - [ ] Load test bounded concurrency, queue saturation, cancellation, and retry
       behavior.

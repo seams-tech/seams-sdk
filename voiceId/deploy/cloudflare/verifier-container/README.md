@@ -123,17 +123,19 @@ transient and is deleted after the operation. Worker, proxy, container, and
 crash logs exclude audio, embeddings, templates, full transcripts, and raw model
 responses.
 
-The verifier exposes one atomic enrollment operation and one verification
-operation:
+The verifier exposes the atomic enrollment and component routes plus the
+combined verification analysis:
 
 - `POST /voice-id/verifier/build-enrollment-template`
 - `POST /voice-id/verifier/verify-speaker`
+- `POST /voice-id/verifier/analyze-speech`
+- `POST /voice-id/verifier/analyze-verification`
 - `GET /health`
 
-`/health` proves process availability only. Add a readiness response before an
-approved deployment that reports immutable image, model-weight, preprocessing,
-adapter, threshold, and calibration identifiers without exposing secrets. The
-deployment pins the image and model artifacts by digest/checksum.
+`/health` reports warm runtime readiness and immutable model, adapter,
+threshold, and template identifiers without exposing secrets. An approved
+deployment must additionally bind the exact image digest and calibration
+record. The deployment pins image and model artifacts by digest/checksum.
 
 Keep raw fixture audio out of the build context. The root `.dockerignore`
 excludes `fixtures`, `research`, `verifier-spike`, and local model caches.
