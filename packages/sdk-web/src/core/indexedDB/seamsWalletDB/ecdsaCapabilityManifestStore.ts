@@ -1,0 +1,1748 @@
+import { base64UrlEncode } from '@shared/utils/base64';
+import {
+  parseCorrelationId,
+  parseDigestB64u,
+  parseIsoTimestamp,
+  type CorrelationId,
+  type DigestB64u,
+  type IsoTimestamp,
+} from '@shared/utils/canonicalPrimitives';
+import {
+  parseCapabilityInstanceRef,
+  parseMpcMaterialActivationId,
+  parseMpcMaterialActivationRef,
+  parseMpcMaterialOwnerRef,
+  type CapabilityInstanceRef,
+  type DomainIdParseResult,
+} from '@shared/utils/domainIds';
+import {
+  parseCanonicalEcdsaServerActivationRequest,
+  parseEcdsaActivationDigest,
+  parseEcdsaCapabilityManifestId,
+  parseEcdsaCapabilityManifestRevision,
+  parseEcdsaCiphertextB64u,
+  parseEcdsaCiphertextDigest,
+  parseEcdsaIv12B64u,
+  parseEcdsaLifecycleId,
+  parseEcdsaMaterialSealingKeyId,
+  parseEcdsaPendingCiphertextDigest,
+  parseEcdsaServerGeneration,
+  parseEvmFamilyEcdsaSignerId,
+  type EcdsaCapabilityManifestId,
+  type EcdsaCapabilityManifestRevision,
+  type EcdsaMaterialSealingKeyId,
+} from '@shared/utils/ecdsaCapabilityActivation';
+import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
+import { secureRandomId } from '@shared/utils/secureRandomId';
+import {
+  parseSdkEcdsaDerivationSigningRootId,
+  parseSdkEcdsaDerivationSigningRootVersion,
+} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
+import {
+  parseWalletAuthAuthorityRef,
+  type WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
+import { thresholdEcdsaChainTargetFromRequest } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  buildVerifiedEcdsaPublicFacts,
+  toEvmFamilyEcdsaKeyHandle,
+  toParticipantId,
+} from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import {
+  parseEcdsaClientVerifyingPublicKey33B64u,
+  parseEcdsaKeyHandle,
+  parseEcdsaRelayerKeyId,
+  parseEcdsaRoleLocalBindingDigest,
+  parseEcdsaRoleLocalDurableMaterialRef,
+  parseEcdsaThresholdKeyId,
+} from '@/core/signingEngine/session/keyMaterialBrands';
+import {
+  buildActiveEcdsaCapabilityManifest,
+  buildDurableEcdsaMaterialBinding,
+  buildEcdsaActivationBinding,
+  buildEcdsaCapabilityScope,
+  buildEcdsaManifestIdentity,
+  buildEcdsaRoleLocalMaterialBinding,
+  buildEcdsaServerActivationCommit,
+  buildEncryptedEcdsaPendingCandidate,
+  buildExactEcdsaManifestExpectation,
+  buildExactEcdsaServerGenerationExpectation,
+  buildNoCurrentEcdsaManifestExpectation,
+  buildNoCurrentEcdsaServerGenerationExpectation,
+  buildPreparedEcdsaActivationCandidate,
+  buildPreparedEcdsaActivationJournal,
+  buildPreparedEvmFamilySigner,
+  buildReplacedEcdsaCapabilityManifest,
+  buildServerCommittedEcdsaActivationJournal,
+  buildValidatedEncryptedEcdsaReadyMaterial,
+  type ActiveEcdsaCapabilityManifest,
+  type DurableEcdsaMaterialBinding,
+  type EcdsaActivationBinding,
+  type EcdsaCapabilityActivationCommitJournal,
+  type EcdsaServerActivationCommit,
+  type EcdsaManifestRevisionExpectation,
+  type PreparedEcdsaActivationJournal,
+  type ReplacedEcdsaCapabilityManifest,
+  type ServerCommittedEcdsaActivationJournal,
+  type ValidatedEncryptedEcdsaReadyMaterial,
+} from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
+import { SEAMS_WALLET_INDEXES, SEAMS_WALLET_STORES } from '../schemaNames';
+import { seamsWalletDB } from '../singletons';
+import type { SeamsWalletDBManager, SeamsWalletTransactionContext } from './manager';
+
+const MANIFEST_RECORD_VERSION = 'ecdsa_capability_manifest_v1' as const;
+const POINTER_RECORD_VERSION = 'ecdsa_current_capability_manifest_v1' as const;
+const MATERIAL_RECORD_VERSION = 'ecdsa_role_local_material_v1' as const;
+const JOURNAL_RECORD_VERSION = 'ecdsa_activation_commit_journal_v1' as const;
+const SEALING_KEY_RECORD_VERSION = 'ecdsa_material_sealing_key_v1' as const;
+
+const MANIFEST_STORE = SEAMS_WALLET_STORES.ecdsaCapabilityManifests;
+const POINTER_STORE = SEAMS_WALLET_STORES.ecdsaCurrentCapabilityManifests;
+const MATERIAL_STORE = SEAMS_WALLET_STORES.ecdsaRoleLocalMaterial;
+const JOURNAL_STORE = SEAMS_WALLET_STORES.ecdsaActivationCommitJournals;
+const SEALING_KEY_STORE = SEAMS_WALLET_STORES.ecdsaMaterialSealingKeys;
+
+export type EcdsaCapabilitySelector = {
+  readonly capability: CapabilityInstanceRef;
+  readonly authority: WalletAuthAuthorityRef;
+};
+
+type LookupFailureExclusions = {
+  readonly manifest?: never;
+  readonly material?: never;
+};
+
+export type EcdsaCapabilityManifestLookup =
+  | {
+      readonly kind: 'active';
+      readonly manifest: ActiveEcdsaCapabilityManifest;
+      readonly material: ValidatedEncryptedEcdsaReadyMaterial;
+    }
+  | {
+      readonly kind: 'retired';
+      readonly manifest: ReplacedEcdsaCapabilityManifest;
+      readonly material?: never;
+    }
+  | ({
+      readonly kind: 'missing';
+      readonly selector: EcdsaCapabilitySelector;
+    } & LookupFailureExclusions)
+  | ({
+      readonly kind: 'exact_binding_mismatch';
+      readonly selector: EcdsaCapabilitySelector;
+      readonly failureDigest: DigestB64u;
+    } & LookupFailureExclusions)
+  | ({
+      readonly kind: 'exact_record_conflict';
+      readonly selector: EcdsaCapabilitySelector;
+      readonly conflictDigest: DigestB64u;
+    } & LookupFailureExclusions)
+  | ({
+      readonly kind: 'corrupt';
+      readonly selector: EcdsaCapabilitySelector;
+      readonly corruptionDigest: DigestB64u;
+    } & LookupFailureExclusions)
+  | ({
+      readonly kind: 'persistence_unavailable';
+      readonly selector: EcdsaCapabilitySelector;
+      readonly retryCorrelation: CorrelationId;
+    } & LookupFailureExclusions);
+
+export type EcdsaActivationJournalWriteResult =
+  | {
+      readonly kind: 'stored';
+      readonly journal: EcdsaCapabilityActivationCommitJournal;
+    }
+  | {
+      readonly kind: 'exact_record_conflict';
+      readonly conflictDigest: DigestB64u;
+      readonly journal?: never;
+    }
+  | {
+      readonly kind: 'corrupt';
+      readonly corruptionDigest: DigestB64u;
+      readonly journal?: never;
+    }
+  | {
+      readonly kind: 'persistence_unavailable';
+      readonly retryCorrelation: CorrelationId;
+      readonly journal?: never;
+    };
+
+export type EcdsaActivationJournalReadResult =
+  | {
+      readonly kind: 'found';
+      readonly journal: EcdsaCapabilityActivationCommitJournal;
+    }
+  | {
+      readonly kind: 'missing' | 'corrupt' | 'persistence_unavailable';
+      readonly journal?: never;
+    };
+
+export type FinalizeEcdsaCapabilityActivationInput = {
+  readonly committedJournal: ServerCommittedEcdsaActivationJournal;
+  readonly readyMaterial: ValidatedEncryptedEcdsaReadyMaterial;
+  readonly activeManifest: ActiveEcdsaCapabilityManifest;
+};
+
+export type EcdsaCapabilityActivationFinalizationResult =
+  | {
+      readonly kind: 'committed';
+      readonly manifest: ActiveEcdsaCapabilityManifest;
+      readonly material: ValidatedEncryptedEcdsaReadyMaterial;
+    }
+  | ({
+      readonly kind: 'exact_record_conflict';
+      readonly selector: EcdsaCapabilitySelector;
+      readonly conflictDigest: DigestB64u;
+    } & LookupFailureExclusions)
+  | ({
+      readonly kind: 'corrupt';
+      readonly selector: EcdsaCapabilitySelector;
+      readonly corruptionDigest: DigestB64u;
+    } & LookupFailureExclusions)
+  | ({
+      readonly kind: 'persistence_unavailable';
+      readonly selector: EcdsaCapabilitySelector;
+      readonly retryCorrelation: CorrelationId;
+    } & LookupFailureExclusions);
+
+type ParsedActiveManifestProof = {
+  readonly activationBinding: EcdsaActivationBinding;
+  readonly serverActivation: EcdsaServerActivationCommit;
+  readonly durableMaterial: DurableEcdsaMaterialBinding;
+  readonly activeManifest: ActiveEcdsaCapabilityManifest;
+  readonly committedAt: IsoTimestamp;
+};
+
+type ParsedManifestRow =
+  | {
+      readonly state: 'active';
+      readonly selector: EcdsaCapabilitySelector;
+      readonly manifest: ActiveEcdsaCapabilityManifest;
+      readonly activeProof: ParsedActiveManifestProof;
+    }
+  | {
+      readonly state: 'replaced';
+      readonly selector: EcdsaCapabilitySelector;
+      readonly manifest: ReplacedEcdsaCapabilityManifest;
+      readonly activeProof: ParsedActiveManifestProof;
+      readonly replacementProof: ParsedActiveManifestProof;
+    };
+
+type ParsedPointerRow = {
+  readonly selector: EcdsaCapabilitySelector;
+  readonly manifestId: EcdsaCapabilityManifestId;
+  readonly manifestRevision: EcdsaCapabilityManifestRevision;
+};
+
+type ParsedSealingKeyRow = {
+  readonly keyId: EcdsaMaterialSealingKeyId;
+  readonly key: CryptoKey;
+};
+
+type LookupTransactionObservation =
+  | {
+      readonly kind: 'active';
+      readonly manifest: ActiveEcdsaCapabilityManifest;
+      readonly material: ValidatedEncryptedEcdsaReadyMaterial;
+    }
+  | {
+      readonly kind: 'retired';
+      readonly manifest: ReplacedEcdsaCapabilityManifest;
+    }
+  | {
+      readonly kind: 'missing' | 'exact_binding_mismatch' | 'exact_record_conflict' | 'corrupt';
+      readonly detail: string;
+    };
+
+type FinalizationControlKind = 'exact_record_conflict' | 'corrupt';
+
+class FinalizationControlError extends Error {
+  readonly kind: FinalizationControlKind;
+
+  constructor(kind: FinalizationControlKind, message: string) {
+    super(message);
+    this.name = 'FinalizationControlError';
+    this.kind = kind;
+  }
+}
+
+function requireRecord(value: unknown, label: string): Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${label} must be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function requireExactKeys(
+  record: Record<string, unknown>,
+  label: string,
+  expectedKeys: readonly string[],
+): void {
+  const actual = Object.keys(record).sort();
+  const expected = [...expectedKeys].sort();
+  if (
+    actual.length !== expected.length ||
+    actual.some((field, index) => field !== expected[index])
+  ) {
+    throw new Error(`${label} has unexpected fields`);
+  }
+}
+
+function requireArray(value: unknown, label: string): readonly unknown[] {
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array`);
+  return value;
+}
+
+function unwrapDomainId<T>(result: DomainIdParseResult<T>): T {
+  if (!result.ok) throw new Error(result.error.message);
+  return result.value;
+}
+
+function normalizeSelector(selector: EcdsaCapabilitySelector): EcdsaCapabilitySelector {
+  const authority = parseWalletAuthAuthorityRef(selector.authority);
+  if (!authority) throw new Error('ECDSA capability selector authority is invalid');
+  return {
+    capability: unwrapDomainId(parseCapabilityInstanceRef(selector.capability)),
+    authority,
+  };
+}
+
+function selectorFromJournal(
+  journal: EcdsaCapabilityActivationCommitJournal,
+): EcdsaCapabilitySelector {
+  return {
+    capability: journal.candidate.activationBinding.signer.capability,
+    authority: journal.candidate.activationBinding.signer.authority,
+  };
+}
+
+function selectorFromManifest(manifest: ActiveEcdsaCapabilityManifest): EcdsaCapabilitySelector {
+  return {
+    capability: manifest.signer.capability,
+    authority: manifest.signer.authority,
+  };
+}
+
+function selectorKey(selector: EcdsaCapabilitySelector): readonly [string, string, string] {
+  return [
+    String(selector.capability),
+    String(selector.authority.walletId),
+    String(selector.authority.authorityDigest),
+  ];
+}
+
+function selectorsMatch(left: EcdsaCapabilitySelector, right: EcdsaCapabilitySelector): boolean {
+  const leftKey = selectorKey(left);
+  const rightKey = selectorKey(right);
+  return leftKey[0] === rightKey[0] && leftKey[1] === rightKey[1] && leftKey[2] === rightKey[2];
+}
+
+function canonicalValuesMatch(left: unknown, right: unknown): boolean {
+  return alphabetizeStringify(left) === alphabetizeStringify(right);
+}
+
+async function persistenceDigest(
+  category: string,
+  selector: EcdsaCapabilitySelector,
+  detail: string,
+): Promise<DigestB64u> {
+  const canonical = alphabetizeStringify({
+    category,
+    capability_ref: selector.capability,
+    wallet_id: selector.authority.walletId,
+    authority_digest: selector.authority.authorityDigest,
+    detail,
+  });
+  return parseDigestB64u(base64UrlEncode(await sha256BytesUtf8(canonical)));
+}
+
+function retryCorrelation(): CorrelationId {
+  return parseCorrelationId(
+    secureRandomId('ecdsa-persistence-retry', 16, 'ECDSA persistence retry correlations'),
+  );
+}
+
+function parseManifestIdentity(value: unknown) {
+  const record = requireRecord(value, 'ECDSA manifest identity');
+  requireExactKeys(record, 'ECDSA manifest identity', ['manifestId', 'manifestRevision']);
+  return buildEcdsaManifestIdentity({
+    manifestId: parseEcdsaCapabilityManifestId(record.manifestId),
+    manifestRevision: parseEcdsaCapabilityManifestRevision(record.manifestRevision),
+  });
+}
+
+function parseManifestExpectation(value: unknown): EcdsaManifestRevisionExpectation {
+  const record = requireRecord(value, 'ECDSA manifest expectation');
+  switch (record.kind) {
+    case 'no_current_manifest':
+      requireExactKeys(record, 'ECDSA no-current manifest expectation', ['kind']);
+      return buildNoCurrentEcdsaManifestExpectation();
+    case 'exact_manifest':
+      requireExactKeys(record, 'ECDSA exact manifest expectation', [
+        'kind',
+        'manifestId',
+        'manifestRevision',
+      ]);
+      return buildExactEcdsaManifestExpectation(
+        buildEcdsaManifestIdentity({
+          manifestId: parseEcdsaCapabilityManifestId(record.manifestId),
+          manifestRevision: parseEcdsaCapabilityManifestRevision(record.manifestRevision),
+        }),
+      );
+    default:
+      throw new Error('ECDSA manifest expectation kind is invalid');
+  }
+}
+
+function parseChainTarget(value: unknown) {
+  const record = requireRecord(value, 'ECDSA capability target');
+  switch (record.kind) {
+    case 'evm':
+      requireExactKeys(record, 'ECDSA EVM capability target', [
+        'kind',
+        'namespace',
+        'chainId',
+        'networkSlug',
+      ]);
+      return thresholdEcdsaChainTargetFromRequest({
+        kind: record.kind,
+        namespace: record.namespace,
+        chainId: record.chainId,
+        networkSlug: record.networkSlug,
+      });
+    case 'tempo':
+      requireExactKeys(record, 'ECDSA Tempo capability target', ['kind', 'chainId', 'networkSlug']);
+      return thresholdEcdsaChainTargetFromRequest({
+        kind: record.kind,
+        chainId: record.chainId,
+        networkSlug: record.networkSlug,
+      });
+    default:
+      throw new Error('ECDSA capability target kind is invalid');
+  }
+}
+
+function parseCapabilityScope(value: unknown) {
+  const record = requireRecord(value, 'ECDSA capability scope');
+  requireExactKeys(record, 'ECDSA capability scope', ['kind', 'targetMemberships']);
+  if (record.kind !== 'evm_family') throw new Error('ECDSA capability scope kind is invalid');
+  const targetValues = requireArray(
+    record.targetMemberships,
+    'ECDSA capability target memberships',
+  );
+  const targets = [];
+  for (const targetValue of targetValues) targets.push(parseChainTarget(targetValue));
+  const [first, ...rest] = targets;
+  if (!first) throw new Error('ECDSA capability scope requires at least one target');
+  return buildEcdsaCapabilityScope({
+    targetMemberships: [first, ...rest],
+  });
+}
+
+function parseRoleLocalBinding(value: unknown) {
+  const record = requireRecord(value, 'ECDSA role-local material binding');
+  requireExactKeys(record, 'ECDSA role-local material binding', [
+    'kind',
+    'keyHandle',
+    'ecdsaThresholdKeyId',
+    'clientVerifyingPublicKey33B64u',
+    'participantIds',
+    'relayerKeyId',
+  ]);
+  if (record.kind !== 'ecdsa_role_local_material_binding') {
+    throw new Error('ECDSA role-local material binding kind is invalid');
+  }
+  const participantValues = requireArray(record.participantIds, 'ECDSA role-local participant ids');
+  const participantIds = [];
+  for (const participantValue of participantValues) {
+    participantIds.push(toParticipantId(participantValue));
+  }
+  const [firstParticipantId, ...remainingParticipantIds] = participantIds;
+  if (!firstParticipantId) {
+    throw new Error('ECDSA role-local material requires at least one participant');
+  }
+  return buildEcdsaRoleLocalMaterialBinding({
+    keyHandle: parseEcdsaKeyHandle(record.keyHandle),
+    ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(record.ecdsaThresholdKeyId),
+    clientVerifyingPublicKey33B64u: parseEcdsaClientVerifyingPublicKey33B64u(
+      record.clientVerifyingPublicKey33B64u,
+    ),
+    participantIds: [firstParticipantId, ...remainingParticipantIds],
+    relayerKeyId: parseEcdsaRelayerKeyId(record.relayerKeyId),
+  });
+}
+
+function parsePreparedSigner(value: unknown) {
+  const record = requireRecord(value, 'prepared ECDSA signer');
+  requireExactKeys(record, 'prepared ECDSA signer', [
+    'kind',
+    'capability',
+    'signerId',
+    'walletId',
+    'authority',
+    'scope',
+    'materialOwner',
+    'signingRootId',
+    'signingRootVersion',
+  ]);
+  if (record.kind !== 'prepared_evm_family_signer') {
+    throw new Error('prepared ECDSA signer kind is invalid');
+  }
+  const authority = parseWalletAuthAuthorityRef(record.authority);
+  if (!authority) throw new Error('prepared ECDSA signer authority is invalid');
+  if (String(record.walletId) !== String(authority.walletId)) {
+    throw new Error('prepared ECDSA signer wallet does not match its authority');
+  }
+  return buildPreparedEvmFamilySigner({
+    capability: unwrapDomainId(parseCapabilityInstanceRef(record.capability)),
+    signerId: parseEvmFamilyEcdsaSignerId(record.signerId),
+    authority,
+    scope: parseCapabilityScope(record.scope),
+    materialOwner: unwrapDomainId(parseMpcMaterialOwnerRef(record.materialOwner)),
+    signingRootId: parseSdkEcdsaDerivationSigningRootId(record.signingRootId),
+    signingRootVersion: parseSdkEcdsaDerivationSigningRootVersion(record.signingRootVersion),
+  });
+}
+
+function parseEncryptedPendingCandidate(value: unknown) {
+  const record = requireRecord(value, 'encrypted ECDSA pending candidate');
+  requireExactKeys(record, 'encrypted ECDSA pending candidate', [
+    'kind',
+    'sealingKeyId',
+    'iv12B64u',
+    'ciphertextB64u',
+    'ciphertextDigest',
+  ]);
+  if (record.kind !== 'encrypted_ecdsa_pending_candidate') {
+    throw new Error('encrypted ECDSA pending candidate kind is invalid');
+  }
+  return buildEncryptedEcdsaPendingCandidate({
+    sealingKeyId: parseEcdsaMaterialSealingKeyId(record.sealingKeyId),
+    iv12B64u: parseEcdsaIv12B64u(record.iv12B64u),
+    ciphertextB64u: parseEcdsaCiphertextB64u(record.ciphertextB64u),
+    ciphertextDigest: parseEcdsaPendingCiphertextDigest(record.ciphertextDigest),
+  });
+}
+
+function parseActivationBinding(value: unknown): EcdsaActivationBinding {
+  const record = requireRecord(value, 'ECDSA activation binding');
+  requireExactKeys(record, 'ECDSA activation binding', [
+    'kind',
+    'targetManifest',
+    'signer',
+    'activationId',
+    'roleLocalBinding',
+    'bindingDigest',
+    'durableMaterialRef',
+  ]);
+  if (record.kind !== 'ecdsa_activation_binding') {
+    throw new Error('ECDSA activation binding kind is invalid');
+  }
+  return buildEcdsaActivationBinding({
+    targetManifest: parseManifestIdentity(record.targetManifest),
+    signer: parsePreparedSigner(record.signer),
+    activationId: unwrapDomainId(parseMpcMaterialActivationId(record.activationId)),
+    roleLocalBinding: parseRoleLocalBinding(record.roleLocalBinding),
+    bindingDigest: parseEcdsaRoleLocalBindingDigest(record.bindingDigest),
+    durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef(record.durableMaterialRef),
+  });
+}
+
+function parsePreparedCandidate(value: unknown) {
+  const record = requireRecord(value, 'prepared ECDSA activation candidate');
+  requireExactKeys(record, 'prepared ECDSA activation candidate', [
+    'kind',
+    'activationBinding',
+    'encryptedPending',
+  ]);
+  if (record.kind !== 'prepared_ecdsa_activation_candidate') {
+    throw new Error('prepared ECDSA activation candidate kind is invalid');
+  }
+  return buildPreparedEcdsaActivationCandidate({
+    activationBinding: parseActivationBinding(record.activationBinding),
+    encryptedPending: parseEncryptedPendingCandidate(record.encryptedPending),
+  });
+}
+
+function parseExpectedServerGeneration(value: unknown) {
+  const record = requireRecord(value, 'ECDSA server generation expectation');
+  switch (record.kind) {
+    case 'no_current_generation':
+      requireExactKeys(record, 'ECDSA no-current server generation expectation', ['kind']);
+      return buildNoCurrentEcdsaServerGenerationExpectation();
+    case 'exact_generation':
+      requireExactKeys(record, 'ECDSA exact server generation expectation', [
+        'kind',
+        'serverGeneration',
+      ]);
+      return buildExactEcdsaServerGenerationExpectation(
+        parseEcdsaServerGeneration(record.serverGeneration),
+      );
+    default:
+      throw new Error('ECDSA server generation expectation kind is invalid');
+  }
+}
+
+function parsePreparedJournal(value: unknown): PreparedEcdsaActivationJournal {
+  const record = requireRecord(value, 'prepared ECDSA activation journal');
+  requireExactKeys(record, 'prepared ECDSA activation journal', [
+    'kind',
+    'journalId',
+    'expectedManifest',
+    'activationCommand',
+    'candidate',
+    'createdAt',
+  ]);
+  if (record.kind !== 'activation_prepared') {
+    throw new Error('prepared ECDSA activation journal kind is invalid');
+  }
+  const command = requireRecord(record.activationCommand, 'ECDSA activation command');
+  requireExactKeys(command, 'ECDSA activation command', [
+    'kind',
+    'correlationId',
+    'expectedGeneration',
+    'requestDigest',
+    'canonicalRequest',
+  ]);
+  if (command.kind !== 'ecdsa_server_activation_command') {
+    throw new Error('ECDSA activation command kind is invalid');
+  }
+  const journalId = parseCorrelationId(record.journalId);
+  if (parseCorrelationId(command.correlationId) !== journalId) {
+    throw new Error('ECDSA activation command correlation does not match its journal');
+  }
+  const expectedManifest = parseManifestExpectation(record.expectedManifest);
+  const expectedGeneration = parseExpectedServerGeneration(command.expectedGeneration);
+  const common = {
+    journalId,
+    candidate: parsePreparedCandidate(record.candidate),
+    requestDigest: parseDigestB64u(command.requestDigest),
+    canonicalRequest: parseCanonicalEcdsaServerActivationRequest(command.canonicalRequest),
+    createdAt: parseIsoTimestamp(record.createdAt),
+  };
+  switch (expectedManifest.kind) {
+    case 'no_current_manifest':
+      if (expectedGeneration.kind !== 'no_current_generation') {
+        throw new Error('initial ECDSA journal has an exact server generation');
+      }
+      return buildPreparedEcdsaActivationJournal({
+        ...common,
+        expectedManifest,
+        expectedGeneration,
+      });
+    case 'exact_manifest':
+      if (expectedGeneration.kind !== 'exact_generation') {
+        throw new Error('replacement ECDSA journal is missing its exact server generation');
+      }
+      return buildPreparedEcdsaActivationJournal({
+        ...common,
+        expectedManifest,
+        expectedGeneration,
+      });
+  }
+  return assertNever(expectedManifest);
+}
+
+function preparedJournalValueFromCommitted(
+  record: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    kind: 'activation_prepared',
+    journalId: record.journalId,
+    expectedManifest: record.expectedManifest,
+    activationCommand: record.activationCommand,
+    candidate: record.candidate,
+    createdAt: record.createdAt,
+  };
+}
+
+function preparedJournalProjection(
+  journal: EcdsaCapabilityActivationCommitJournal,
+): PreparedEcdsaActivationJournal | Record<string, unknown> {
+  if (journal.kind === 'activation_prepared') return journal;
+  return {
+    kind: 'activation_prepared',
+    journalId: journal.journalId,
+    expectedManifest: journal.expectedManifest,
+    activationCommand: journal.activationCommand,
+    candidate: journal.candidate,
+    createdAt: journal.createdAt,
+  };
+}
+
+function parseCommittedJournal(value: unknown): ServerCommittedEcdsaActivationJournal {
+  const record = requireRecord(value, 'server-committed ECDSA activation journal');
+  requireExactKeys(record, 'server-committed ECDSA activation journal', [
+    'kind',
+    'journalId',
+    'expectedManifest',
+    'activationCommand',
+    'candidate',
+    'createdAt',
+    'serverActivation',
+  ]);
+  if (record.kind !== 'server_activation_committed') {
+    throw new Error('server-committed ECDSA activation journal kind is invalid');
+  }
+  const preparedJournal = parsePreparedJournal(preparedJournalValueFromCommitted(record));
+  const serverActivation = requireRecord(record.serverActivation, 'ECDSA server activation commit');
+  requireExactKeys(serverActivation, 'ECDSA server activation commit', [
+    'kind',
+    'correlationId',
+    'activationRequestDigest',
+    'serverGeneration',
+    'serverActivationReceipt',
+  ]);
+  if (serverActivation.kind !== 'ecdsa_server_activation_commit') {
+    throw new Error('ECDSA server activation commit kind is invalid');
+  }
+  const receipt = requireRecord(
+    serverActivation.serverActivationReceipt,
+    'ECDSA server activation receipt',
+  );
+  requireExactKeys(receipt, 'ECDSA server activation receipt', [
+    'kind',
+    'lifecycleId',
+    'activationDigest',
+    'activatedAt',
+    'protocolReceipt',
+  ]);
+  if (receipt.kind !== 'ecdsa_server_activation_receipt') {
+    throw new Error('ECDSA server activation receipt kind is invalid');
+  }
+  const committed = buildServerCommittedEcdsaActivationJournal({
+    preparedJournal,
+    serverCommit: {
+      correlationId: parseCorrelationId(serverActivation.correlationId),
+      activationRequestDigest: parseDigestB64u(serverActivation.activationRequestDigest),
+      serverGeneration: parseEcdsaServerGeneration(serverActivation.serverGeneration),
+      protocolReceipt: receipt.protocolReceipt,
+    },
+  });
+  if (!canonicalValuesMatch(committed.serverActivation, serverActivation)) {
+    throw new Error('ECDSA server activation commit fields are inconsistent');
+  }
+  return committed;
+}
+
+function parseJournal(value: unknown): EcdsaCapabilityActivationCommitJournal {
+  const record = requireRecord(value, 'ECDSA activation journal');
+  switch (record.kind) {
+    case 'activation_prepared':
+      return parsePreparedJournal(record);
+    case 'server_activation_committed':
+      return parseCommittedJournal(record);
+    default:
+      throw new Error('ECDSA activation journal kind is invalid');
+  }
+}
+
+function parseRegisteredPublicFacts(value: unknown) {
+  const record = requireRecord(value, 'registered ECDSA public facts');
+  requireExactKeys(record, 'registered ECDSA public facts', [
+    'kind',
+    'keyHandle',
+    'publicKeyB64u',
+    'participantIds',
+    'thresholdOwnerAddress',
+  ]);
+  if (record.kind !== 'verified_ecdsa_public_facts') {
+    throw new Error('registered ECDSA public facts kind is invalid');
+  }
+  return buildVerifiedEcdsaPublicFacts({
+    keyHandle: toEvmFamilyEcdsaKeyHandle(record.keyHandle),
+    publicKeyB64u: record.publicKeyB64u,
+    participantIds: requireArray(record.participantIds, 'registered ECDSA participant ids'),
+    thresholdOwnerAddress: record.thresholdOwnerAddress,
+  });
+}
+
+function storedActiveProof(input: ParsedActiveManifestProof) {
+  return {
+    activation_binding: input.activationBinding,
+    server_activation: input.serverActivation,
+    registered_public_facts: input.activeManifest.signer.registeredPublicFacts,
+    ciphertext_digest: input.durableMaterial.ciphertextDigest,
+    committed_at: input.activeManifest.committedAt,
+  };
+}
+
+function parseActiveProof(value: unknown): ParsedActiveManifestProof {
+  const record = requireRecord(value, 'active ECDSA manifest proof');
+  requireExactKeys(record, 'active ECDSA manifest proof', [
+    'activation_binding',
+    'server_activation',
+    'registered_public_facts',
+    'ciphertext_digest',
+    'committed_at',
+  ]);
+  const activationBinding = parseActivationBinding(record.activation_binding);
+  const serverActivationRecord = requireRecord(
+    record.server_activation,
+    'ECDSA server activation commit',
+  );
+  requireExactKeys(serverActivationRecord, 'ECDSA server activation commit', [
+    'kind',
+    'correlationId',
+    'activationRequestDigest',
+    'serverGeneration',
+    'serverActivationReceipt',
+  ]);
+  if (serverActivationRecord.kind !== 'ecdsa_server_activation_commit') {
+    throw new Error('ECDSA server activation commit kind is invalid');
+  }
+  const receipt = requireRecord(
+    serverActivationRecord.serverActivationReceipt,
+    'ECDSA server activation receipt',
+  );
+  requireExactKeys(receipt, 'ECDSA server activation receipt', [
+    'kind',
+    'lifecycleId',
+    'activationDigest',
+    'activatedAt',
+    'protocolReceipt',
+  ]);
+  if (receipt.kind !== 'ecdsa_server_activation_receipt') {
+    throw new Error('ECDSA server activation receipt kind is invalid');
+  }
+  const serverActivation = buildEcdsaServerActivationCommit({
+    activationBinding,
+    serverCommit: {
+      correlationId: parseCorrelationId(serverActivationRecord.correlationId),
+      activationRequestDigest: parseDigestB64u(serverActivationRecord.activationRequestDigest),
+      serverGeneration: parseEcdsaServerGeneration(serverActivationRecord.serverGeneration),
+      protocolReceipt: receipt.protocolReceipt,
+    },
+  });
+  if (!canonicalValuesMatch(serverActivation, serverActivationRecord)) {
+    throw new Error('ECDSA server activation commit fields are inconsistent');
+  }
+  const durableMaterial = buildDurableEcdsaMaterialBinding({
+    activationBinding,
+    serverActivation,
+    ciphertextDigest: parseEcdsaCiphertextDigest(record.ciphertext_digest),
+  });
+  const committedAt = parseIsoTimestamp(record.committed_at);
+  const activeManifest = buildActiveEcdsaCapabilityManifest({
+    activationBinding,
+    serverActivation,
+    registeredPublicFacts: parseRegisteredPublicFacts(record.registered_public_facts),
+    durableMaterial,
+    committedAt,
+  });
+  return {
+    activationBinding,
+    serverActivation,
+    durableMaterial,
+    activeManifest,
+    committedAt,
+  };
+}
+
+function manifestRowCommon(proof: ParsedActiveManifestProof, manifestState: 'active' | 'replaced') {
+  const selector = selectorFromManifest(proof.activeManifest);
+  return {
+    record_version: MANIFEST_RECORD_VERSION,
+    manifest_id: proof.activeManifest.identity.manifestId,
+    manifest_revision: proof.activeManifest.identity.manifestRevision,
+    capability_ref: selector.capability,
+    wallet_id: selector.authority.walletId,
+    authority_digest: selector.authority.authorityDigest,
+    manifest_state: manifestState,
+  };
+}
+
+function storedActiveManifestRow(proof: ParsedActiveManifestProof) {
+  return {
+    ...manifestRowCommon(proof, 'active'),
+    active_proof: storedActiveProof(proof),
+  };
+}
+
+function storedReplacedManifestRow(
+  previous: ParsedActiveManifestProof,
+  replacement: ParsedActiveManifestProof,
+) {
+  return {
+    ...manifestRowCommon(previous, 'replaced'),
+    active_proof: storedActiveProof(previous),
+    replacement_proof: storedActiveProof(replacement),
+  };
+}
+
+function parseManifestRow(value: unknown): ParsedManifestRow {
+  const record = requireRecord(value, 'ECDSA capability manifest row');
+  const commonKeys = [
+    'record_version',
+    'manifest_id',
+    'manifest_revision',
+    'capability_ref',
+    'wallet_id',
+    'authority_digest',
+    'manifest_state',
+    'active_proof',
+  ];
+  switch (record.manifest_state) {
+    case 'active': {
+      requireExactKeys(record, 'active ECDSA capability manifest row', commonKeys);
+      const activeProof = parseActiveProof(record.active_proof);
+      const selector = selectorFromManifest(activeProof.activeManifest);
+      assertManifestRowCommon(record, activeProof.activeManifest, selector);
+      return {
+        state: 'active',
+        selector,
+        manifest: activeProof.activeManifest,
+        activeProof,
+      };
+    }
+    case 'replaced': {
+      requireExactKeys(record, 'replaced ECDSA capability manifest row', [
+        ...commonKeys,
+        'replacement_proof',
+      ]);
+      const activeProof = parseActiveProof(record.active_proof);
+      const replacementProof = parseActiveProof(record.replacement_proof);
+      const manifest = buildReplacedEcdsaCapabilityManifest({
+        activeManifest: activeProof.activeManifest,
+        replacementManifest: replacementProof.activeManifest,
+      });
+      const selector = selectorFromManifest(activeProof.activeManifest);
+      assertManifestRowCommon(record, activeProof.activeManifest, selector);
+      return {
+        state: 'replaced',
+        selector,
+        manifest,
+        activeProof,
+        replacementProof,
+      };
+    }
+    default:
+      throw new Error('ECDSA capability manifest row state is invalid');
+  }
+}
+
+function assertManifestRowCommon(
+  record: Record<string, unknown>,
+  manifest: ActiveEcdsaCapabilityManifest,
+  selector: EcdsaCapabilitySelector,
+): void {
+  if (
+    record.record_version !== MANIFEST_RECORD_VERSION ||
+    parseEcdsaCapabilityManifestId(record.manifest_id) !== manifest.identity.manifestId ||
+    parseEcdsaCapabilityManifestRevision(record.manifest_revision) !==
+      manifest.identity.manifestRevision ||
+    String(record.capability_ref) !== String(selector.capability) ||
+    String(record.wallet_id) !== String(selector.authority.walletId) ||
+    String(record.authority_digest) !== String(selector.authority.authorityDigest)
+  ) {
+    throw new Error('ECDSA capability manifest row identity is inconsistent');
+  }
+}
+
+function storedPointerRow(manifest: ActiveEcdsaCapabilityManifest) {
+  const selector = selectorFromManifest(manifest);
+  return {
+    record_version: POINTER_RECORD_VERSION,
+    capability_ref: selector.capability,
+    wallet_id: selector.authority.walletId,
+    authority_digest: selector.authority.authorityDigest,
+    manifest_id: manifest.identity.manifestId,
+    manifest_revision: manifest.identity.manifestRevision,
+  };
+}
+
+function parsePointerRow(value: unknown): ParsedPointerRow {
+  const record = requireRecord(value, 'current ECDSA capability pointer');
+  requireExactKeys(record, 'current ECDSA capability pointer', [
+    'record_version',
+    'capability_ref',
+    'wallet_id',
+    'authority_digest',
+    'manifest_id',
+    'manifest_revision',
+  ]);
+  if (record.record_version !== POINTER_RECORD_VERSION) {
+    throw new Error('current ECDSA capability pointer version is invalid');
+  }
+  const authority = parseWalletAuthAuthorityRef({
+    kind: 'wallet_auth_authority_ref',
+    walletId: record.wallet_id,
+    authorityDigest: record.authority_digest,
+  });
+  if (!authority) throw new Error('current ECDSA capability pointer authority is invalid');
+  return {
+    selector: {
+      capability: unwrapDomainId(parseCapabilityInstanceRef(record.capability_ref)),
+      authority,
+    },
+    manifestId: parseEcdsaCapabilityManifestId(record.manifest_id),
+    manifestRevision: parseEcdsaCapabilityManifestRevision(record.manifest_revision),
+  };
+}
+
+function storedMaterialRow(material: ValidatedEncryptedEcdsaReadyMaterial) {
+  return {
+    record_version: MATERIAL_RECORD_VERSION,
+    durable_material_ref: material.binding.durableMaterialRef,
+    sealing_key_id: material.sealingKeyId,
+    iv: material.iv12B64u,
+    ciphertext: material.ciphertextB64u,
+  };
+}
+
+function parseMaterialRow(
+  value: unknown,
+  activeProof: ParsedActiveManifestProof,
+): ValidatedEncryptedEcdsaReadyMaterial {
+  const record = requireRecord(value, 'ECDSA role-local material row');
+  requireExactKeys(record, 'ECDSA role-local material row', [
+    'record_version',
+    'durable_material_ref',
+    'sealing_key_id',
+    'iv',
+    'ciphertext',
+  ]);
+  if (record.record_version !== MATERIAL_RECORD_VERSION) {
+    throw new Error('ECDSA role-local material row version is invalid');
+  }
+  const material = buildValidatedEncryptedEcdsaReadyMaterial({
+    binding: activeProof.durableMaterial,
+    sealingKeyId: parseEcdsaMaterialSealingKeyId(record.sealing_key_id),
+    iv12B64u: parseEcdsaIv12B64u(record.iv),
+    ciphertextB64u: parseEcdsaCiphertextB64u(record.ciphertext),
+  });
+  if (
+    parseEcdsaRoleLocalDurableMaterialRef(record.durable_material_ref) !==
+    material.binding.durableMaterialRef
+  ) {
+    throw new Error('ECDSA role-local material row binding is inconsistent');
+  }
+  return material;
+}
+
+function materialMatchesManifest(
+  material: ValidatedEncryptedEcdsaReadyMaterial,
+  manifest: ActiveEcdsaCapabilityManifest,
+): boolean {
+  return (
+    material.binding.durableMaterialRef === manifest.durableMaterial.durableMaterialRef &&
+    material.binding.bindingDigest === manifest.durableMaterial.bindingDigest &&
+    material.binding.lifecycleId === manifest.durableMaterial.lifecycleId &&
+    material.binding.ciphertextDigest === manifest.durableMaterial.ciphertextDigest &&
+    material.binding.activationDigest === manifest.durableMaterial.activationDigest &&
+    material.binding.activatedAt === manifest.durableMaterial.activatedAt &&
+    canonicalValuesMatch(
+      material.binding.materialActivation,
+      manifest.durableMaterial.materialActivation,
+    ) &&
+    canonicalValuesMatch(
+      material.binding.roleLocalBinding,
+      manifest.durableMaterial.roleLocalBinding,
+    )
+  );
+}
+
+function storedJournalRow(journal: EcdsaCapabilityActivationCommitJournal) {
+  const selector = selectorFromJournal(journal);
+  return {
+    record_version: JOURNAL_RECORD_VERSION,
+    journal_id: journal.journalId,
+    capability_ref: selector.capability,
+    wallet_id: selector.authority.walletId,
+    authority_digest: selector.authority.authorityDigest,
+    journal,
+  };
+}
+
+function parseJournalRow(value: unknown) {
+  const record = requireRecord(value, 'ECDSA activation commit journal row');
+  requireExactKeys(record, 'ECDSA activation commit journal row', [
+    'record_version',
+    'journal_id',
+    'capability_ref',
+    'wallet_id',
+    'authority_digest',
+    'journal',
+  ]);
+  if (record.record_version !== JOURNAL_RECORD_VERSION) {
+    throw new Error('ECDSA activation commit journal row version is invalid');
+  }
+  const journal = parseJournal(record.journal);
+  const selector = selectorFromJournal(journal);
+  if (
+    parseCorrelationId(record.journal_id) !== journal.journalId ||
+    String(record.capability_ref) !== String(selector.capability) ||
+    String(record.wallet_id) !== String(selector.authority.walletId) ||
+    String(record.authority_digest) !== String(selector.authority.authorityDigest)
+  ) {
+    throw new Error('ECDSA activation commit journal row identity is inconsistent');
+  }
+  return { journal, selector };
+}
+
+function isNonExtractableAesGcmKey(value: unknown): value is CryptoKey {
+  if (typeof CryptoKey === 'undefined' || !(value instanceof CryptoKey)) return false;
+  if (value.type !== 'secret' || value.extractable || value.algorithm.name !== 'AES-GCM') {
+    return false;
+  }
+  return value.usages.includes('encrypt') && value.usages.includes('decrypt');
+}
+
+function storedSealingKeyRow(keyId: EcdsaMaterialSealingKeyId, key: CryptoKey) {
+  return {
+    record_version: SEALING_KEY_RECORD_VERSION,
+    key_id: keyId,
+    key,
+  };
+}
+
+function parseSealingKeyRow(value: unknown): ParsedSealingKeyRow {
+  const record = requireRecord(value, 'ECDSA material sealing key row');
+  requireExactKeys(record, 'ECDSA material sealing key row', ['record_version', 'key_id', 'key']);
+  if (record.record_version !== SEALING_KEY_RECORD_VERSION) {
+    throw new Error('ECDSA material sealing key row version is invalid');
+  }
+  if (!isNonExtractableAesGcmKey(record.key)) {
+    throw new Error('ECDSA material sealing key must be a non-extractable AES-GCM key');
+  }
+  return {
+    keyId: parseEcdsaMaterialSealingKeyId(record.key_id),
+    key: record.key,
+  };
+}
+
+function assertActiveProofInput(
+  input: FinalizeEcdsaCapabilityActivationInput,
+): ParsedActiveManifestProof {
+  const proof: ParsedActiveManifestProof = {
+    activationBinding: input.committedJournal.candidate.activationBinding,
+    serverActivation: input.committedJournal.serverActivation,
+    durableMaterial: input.readyMaterial.binding,
+    activeManifest: input.activeManifest,
+    committedAt: input.activeManifest.committedAt,
+  };
+  const parsed = parseActiveProof(storedActiveProof(proof));
+  if (
+    !canonicalValuesMatch(parsed.activeManifest, input.activeManifest) ||
+    !canonicalValuesMatch(parsed.durableMaterial, input.readyMaterial.binding)
+  ) {
+    throw new Error('ECDSA finalization input does not describe one exact active manifest');
+  }
+  return parsed;
+}
+
+function assertExpectedPointer(
+  expected: EcdsaManifestRevisionExpectation,
+  pointerRaw: unknown,
+  selector: EcdsaCapabilitySelector,
+): ParsedPointerRow | null {
+  switch (expected.kind) {
+    case 'no_current_manifest':
+      if (pointerRaw !== undefined) {
+        throw new FinalizationControlError(
+          'exact_record_conflict',
+          'initial ECDSA activation found an existing current pointer',
+        );
+      }
+      return null;
+    case 'exact_manifest': {
+      if (pointerRaw === undefined) {
+        throw new FinalizationControlError(
+          'exact_record_conflict',
+          'replacement ECDSA activation is missing its expected current pointer',
+        );
+      }
+      let pointer: ParsedPointerRow;
+      try {
+        pointer = parsePointerRow(pointerRaw);
+      } catch (error: unknown) {
+        throw new FinalizationControlError('corrupt', errorMessage(error));
+      }
+      if (
+        !selectorsMatch(pointer.selector, selector) ||
+        pointer.manifestId !== expected.manifestId ||
+        pointer.manifestRevision !== expected.manifestRevision
+      ) {
+        throw new FinalizationControlError(
+          'exact_record_conflict',
+          'replacement ECDSA activation pointer CAS did not match',
+        );
+      }
+      return pointer;
+    }
+  }
+  return assertNever(expected);
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isConstraintError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'ConstraintError';
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unexpected ECDSA persistence branch: ${String(value)}`);
+}
+
+export class IndexedDbEcdsaCapabilityManifestStore {
+  private readonly manager: SeamsWalletDBManager;
+
+  constructor(manager: SeamsWalletDBManager = seamsWalletDB) {
+    this.manager = manager;
+  }
+
+  async storeMaterialSealingKey(input: {
+    keyId: EcdsaMaterialSealingKeyId;
+    key: CryptoKey;
+  }): Promise<void> {
+    const keyId = parseEcdsaMaterialSealingKeyId(input.keyId);
+    if (!isNonExtractableAesGcmKey(input.key)) {
+      throw new Error('ECDSA material sealing key must be a non-extractable AES-GCM key');
+    }
+    await this.manager.runTransaction([SEALING_KEY_STORE], 'readwrite', async (context) => {
+      await context.store(SEALING_KEY_STORE).add(storedSealingKeyRow(keyId, input.key));
+    });
+  }
+
+  async putActivationJournal(
+    journalInput: EcdsaCapabilityActivationCommitJournal,
+  ): Promise<EcdsaActivationJournalWriteResult> {
+    let journal: EcdsaCapabilityActivationCommitJournal;
+    try {
+      journal = parseJournal(journalInput);
+    } catch (error: unknown) {
+      return {
+        kind: 'corrupt',
+        corruptionDigest: await persistenceDigest(
+          'journal_input_corrupt',
+          selectorFromJournal(journalInput),
+          errorMessage(error),
+        ),
+      };
+    }
+    const selector = selectorFromJournal(journal);
+    try {
+      await this.manager.runTransaction(
+        [SEALING_KEY_STORE, JOURNAL_STORE],
+        'readwrite',
+        async (context) => {
+          const sealingKeyRaw = await context
+            .store(SEALING_KEY_STORE)
+            .get(journal.candidate.encryptedPending.sealingKeyId);
+          if (sealingKeyRaw === undefined) {
+            throw new FinalizationControlError(
+              'corrupt',
+              'ECDSA activation journal references a missing sealing key',
+            );
+          }
+          try {
+            parseSealingKeyRow(sealingKeyRaw);
+          } catch (error: unknown) {
+            throw new FinalizationControlError('corrupt', errorMessage(error));
+          }
+          const journalStore = context.store(JOURNAL_STORE);
+          const existingRaw = await journalStore.get(journal.journalId);
+          if (existingRaw === undefined) {
+            await journalStore.add(storedJournalRow(journal));
+            return;
+          }
+          let existing: ReturnType<typeof parseJournalRow>;
+          try {
+            existing = parseJournalRow(existingRaw);
+          } catch (error: unknown) {
+            throw new FinalizationControlError('corrupt', errorMessage(error));
+          }
+          if (
+            !selectorsMatch(existing.selector, selector) ||
+            (existing.journal.kind === 'server_activation_committed' &&
+              journal.kind === 'activation_prepared') ||
+            (existing.journal.kind === 'activation_prepared' &&
+              journal.kind === 'server_activation_committed' &&
+              !canonicalValuesMatch(existing.journal, preparedJournalProjection(journal))) ||
+            (existing.journal.kind === journal.kind &&
+              !canonicalValuesMatch(existing.journal, journal))
+          ) {
+            throw new FinalizationControlError(
+              'exact_record_conflict',
+              'ECDSA activation journal conflicts with its existing correlation',
+            );
+          }
+          await journalStore.put(storedJournalRow(journal));
+        },
+      );
+      return {
+        kind: 'stored',
+        journal,
+      };
+    } catch (error: unknown) {
+      if (error instanceof FinalizationControlError) {
+        const digest = await persistenceDigest(
+          error.kind === 'corrupt' ? 'journal_corrupt' : 'journal_conflict',
+          selector,
+          error.message,
+        );
+        return error.kind === 'corrupt'
+          ? { kind: 'corrupt', corruptionDigest: digest }
+          : { kind: 'exact_record_conflict', conflictDigest: digest };
+      }
+      if (isConstraintError(error)) {
+        return {
+          kind: 'exact_record_conflict',
+          conflictDigest: await persistenceDigest(
+            'journal_constraint_conflict',
+            selector,
+            errorMessage(error),
+          ),
+        };
+      }
+      return {
+        kind: 'persistence_unavailable',
+        retryCorrelation: retryCorrelation(),
+      };
+    }
+  }
+
+  async readActivationJournal(
+    journalIdInput: CorrelationId,
+  ): Promise<EcdsaActivationJournalReadResult> {
+    const journalId = parseCorrelationId(journalIdInput);
+    try {
+      const raw = await this.manager.runTransaction(
+        [JOURNAL_STORE],
+        'readonly',
+        async (context) => await context.store(JOURNAL_STORE).get(journalId),
+      );
+      if (raw === undefined) return { kind: 'missing' };
+      try {
+        const parsed = parseJournalRow(raw);
+        return parsed.journal.journalId === journalId
+          ? { kind: 'found', journal: parsed.journal }
+          : { kind: 'corrupt' };
+      } catch {
+        return { kind: 'corrupt' };
+      }
+    } catch {
+      return { kind: 'persistence_unavailable' };
+    }
+  }
+
+  async lookup(selectorInput: EcdsaCapabilitySelector): Promise<EcdsaCapabilityManifestLookup> {
+    const selector = normalizeSelector(selectorInput);
+    let observation: LookupTransactionObservation;
+    try {
+      observation = await this.manager.runTransaction(
+        [MANIFEST_STORE, POINTER_STORE, MATERIAL_STORE, SEALING_KEY_STORE],
+        'readonly',
+        async (context) => await lookupInTransaction(context, selector),
+      );
+    } catch {
+      return {
+        kind: 'persistence_unavailable',
+        selector,
+        retryCorrelation: retryCorrelation(),
+      };
+    }
+    switch (observation.kind) {
+      case 'active':
+        return observation;
+      case 'retired':
+        return observation;
+      case 'missing':
+        return {
+          kind: 'missing',
+          selector,
+        };
+      case 'exact_binding_mismatch':
+        return {
+          kind: 'exact_binding_mismatch',
+          selector,
+          failureDigest: await persistenceDigest(observation.kind, selector, observation.detail),
+        };
+      case 'exact_record_conflict':
+        return {
+          kind: 'exact_record_conflict',
+          selector,
+          conflictDigest: await persistenceDigest(observation.kind, selector, observation.detail),
+        };
+      case 'corrupt':
+        return {
+          kind: 'corrupt',
+          selector,
+          corruptionDigest: await persistenceDigest(observation.kind, selector, observation.detail),
+        };
+    }
+    return assertNever(observation);
+  }
+
+  async finalizeActivation(
+    input: FinalizeEcdsaCapabilityActivationInput,
+  ): Promise<EcdsaCapabilityActivationFinalizationResult> {
+    let activeProof: ParsedActiveManifestProof;
+    try {
+      activeProof = assertActiveProofInput(input);
+    } catch (error: unknown) {
+      const selector = selectorFromJournal(input.committedJournal);
+      return {
+        kind: 'corrupt',
+        selector,
+        corruptionDigest: await persistenceDigest(
+          'finalization_input_corrupt',
+          selector,
+          errorMessage(error),
+        ),
+      };
+    }
+    const selector = selectorFromManifest(activeProof.activeManifest);
+    try {
+      await this.manager.runTransaction(
+        [MANIFEST_STORE, POINTER_STORE, MATERIAL_STORE, JOURNAL_STORE, SEALING_KEY_STORE],
+        'readwrite',
+        async (context) => {
+          await finalizeInTransaction(context, input, activeProof, selector);
+        },
+      );
+      return {
+        kind: 'committed',
+        manifest: activeProof.activeManifest,
+        material: input.readyMaterial,
+      };
+    } catch (error: unknown) {
+      if (error instanceof FinalizationControlError) {
+        const digest = await persistenceDigest(
+          error.kind === 'corrupt' ? 'finalization_corrupt' : 'finalization_conflict',
+          selector,
+          error.message,
+        );
+        return error.kind === 'corrupt'
+          ? {
+              kind: 'corrupt',
+              selector,
+              corruptionDigest: digest,
+            }
+          : {
+              kind: 'exact_record_conflict',
+              selector,
+              conflictDigest: digest,
+            };
+      }
+      if (isConstraintError(error)) {
+        return {
+          kind: 'exact_record_conflict',
+          selector,
+          conflictDigest: await persistenceDigest(
+            'finalization_constraint_conflict',
+            selector,
+            errorMessage(error),
+          ),
+        };
+      }
+      return {
+        kind: 'persistence_unavailable',
+        selector,
+        retryCorrelation: retryCorrelation(),
+      };
+    }
+  }
+}
+
+async function lookupInTransaction(
+  context: SeamsWalletTransactionContext,
+  selector: EcdsaCapabilitySelector,
+): Promise<LookupTransactionObservation> {
+  const pointerRaw = await context.store(POINTER_STORE).get(selectorKey(selector));
+  if (pointerRaw === undefined) {
+    return await lookupWithoutPointer(context, selector);
+  }
+  let pointer: ParsedPointerRow;
+  try {
+    pointer = parsePointerRow(pointerRaw);
+  } catch (error: unknown) {
+    return { kind: 'corrupt', detail: errorMessage(error) };
+  }
+  if (!selectorsMatch(pointer.selector, selector)) {
+    return {
+      kind: 'exact_binding_mismatch',
+      detail: 'current ECDSA pointer belongs to a different exact authority',
+    };
+  }
+  const manifestRaw = await context.store(MANIFEST_STORE).get(pointer.manifestId);
+  if (manifestRaw === undefined) {
+    return {
+      kind: 'exact_record_conflict',
+      detail: 'current ECDSA pointer references a missing manifest',
+    };
+  }
+  let parsedManifest: ParsedManifestRow;
+  try {
+    parsedManifest = parseManifestRow(manifestRaw);
+  } catch (error: unknown) {
+    return { kind: 'corrupt', detail: errorMessage(error) };
+  }
+  if (!selectorsMatch(parsedManifest.selector, selector)) {
+    return {
+      kind: 'exact_binding_mismatch',
+      detail: 'current ECDSA manifest belongs to a different exact authority',
+    };
+  }
+  if (
+    parsedManifest.manifest.identity.manifestId !== pointer.manifestId ||
+    parsedManifest.manifest.identity.manifestRevision !== pointer.manifestRevision
+  ) {
+    return {
+      kind: 'exact_record_conflict',
+      detail: 'current ECDSA pointer does not match its manifest identity',
+    };
+  }
+  if (parsedManifest.state === 'replaced') {
+    return {
+      kind: 'retired',
+      manifest: parsedManifest.manifest,
+    };
+  }
+  const activeRows = await context
+    .store(MANIFEST_STORE)
+    .index(SEAMS_WALLET_INDEXES.capabilityWalletAuthorityState)
+    .getAll([...selectorKey(selector), 'active']);
+  if (activeRows.length !== 1) {
+    return {
+      kind: 'exact_record_conflict',
+      detail: 'exact ECDSA authority has multiple current manifests',
+    };
+  }
+  let indexedActive: ParsedManifestRow;
+  try {
+    indexedActive = parseManifestRow(activeRows[0]);
+  } catch (error: unknown) {
+    return { kind: 'corrupt', detail: errorMessage(error) };
+  }
+  if (
+    indexedActive.state !== 'active' ||
+    indexedActive.manifest.identity.manifestId !== pointer.manifestId
+  ) {
+    return {
+      kind: 'exact_record_conflict',
+      detail: 'exact ECDSA current index disagrees with its pointer',
+    };
+  }
+  const materialRaw = await context
+    .store(MATERIAL_STORE)
+    .get(parsedManifest.manifest.durableMaterial.durableMaterialRef);
+  if (materialRaw === undefined) {
+    return {
+      kind: 'missing',
+      detail: 'active ECDSA manifest is missing its ready material',
+    };
+  }
+  let material: ValidatedEncryptedEcdsaReadyMaterial;
+  try {
+    material = parseMaterialRow(materialRaw, parsedManifest.activeProof);
+  } catch (error: unknown) {
+    return { kind: 'corrupt', detail: errorMessage(error) };
+  }
+  if (!materialMatchesManifest(material, parsedManifest.manifest)) {
+    return {
+      kind: 'exact_binding_mismatch',
+      detail: 'active ECDSA material does not match its manifest',
+    };
+  }
+  const sealingKeyRaw = await context.store(SEALING_KEY_STORE).get(material.sealingKeyId);
+  if (sealingKeyRaw === undefined) {
+    return {
+      kind: 'missing',
+      detail: 'active ECDSA material is missing its sealing key',
+    };
+  }
+  try {
+    const sealingKey = parseSealingKeyRow(sealingKeyRaw);
+    if (sealingKey.keyId !== material.sealingKeyId) {
+      return {
+        kind: 'exact_binding_mismatch',
+        detail: 'active ECDSA material sealing key id does not match',
+      };
+    }
+  } catch (error: unknown) {
+    return { kind: 'corrupt', detail: errorMessage(error) };
+  }
+  return {
+    kind: 'active',
+    manifest: parsedManifest.manifest,
+    material,
+  };
+}
+
+async function lookupWithoutPointer(
+  context: SeamsWalletTransactionContext,
+  selector: EcdsaCapabilitySelector,
+): Promise<LookupTransactionObservation> {
+  const rows = await context
+    .store(MANIFEST_STORE)
+    .index(SEAMS_WALLET_INDEXES.capabilityWallet)
+    .getAll([String(selector.capability), String(selector.authority.walletId)]);
+  if (rows.length === 0) {
+    return {
+      kind: 'missing',
+      detail: 'no ECDSA capability manifest exists',
+    };
+  }
+  let hasDifferentAuthority = false;
+  let hasExactAuthority = false;
+  for (const raw of rows) {
+    let parsed: ParsedManifestRow;
+    try {
+      parsed = parseManifestRow(raw);
+    } catch (error: unknown) {
+      return { kind: 'corrupt', detail: errorMessage(error) };
+    }
+    if (selectorsMatch(parsed.selector, selector)) {
+      hasExactAuthority = true;
+    } else {
+      hasDifferentAuthority = true;
+    }
+  }
+  if (hasExactAuthority) {
+    return {
+      kind: 'exact_record_conflict',
+      detail: 'exact ECDSA authority has manifest history without a current pointer',
+    };
+  }
+  if (hasDifferentAuthority) {
+    return {
+      kind: 'exact_binding_mismatch',
+      detail: 'ECDSA capability exists under a different exact authority',
+    };
+  }
+  return {
+    kind: 'missing',
+    detail: 'no exact ECDSA capability manifest exists',
+  };
+}
+
+async function finalizeInTransaction(
+  context: SeamsWalletTransactionContext,
+  input: FinalizeEcdsaCapabilityActivationInput,
+  activeProof: ParsedActiveManifestProof,
+  selector: EcdsaCapabilitySelector,
+): Promise<void> {
+  const journalStore = context.store(JOURNAL_STORE);
+  const journalRaw = await journalStore.get(input.committedJournal.journalId);
+  if (journalRaw === undefined) {
+    throw new FinalizationControlError(
+      'exact_record_conflict',
+      'ECDSA finalization is missing its durable activation journal',
+    );
+  }
+  let persistedJournal: ReturnType<typeof parseJournalRow>;
+  try {
+    persistedJournal = parseJournalRow(journalRaw);
+  } catch (error: unknown) {
+    throw new FinalizationControlError('corrupt', errorMessage(error));
+  }
+  if (
+    persistedJournal.journal.kind !== 'server_activation_committed' ||
+    !selectorsMatch(persistedJournal.selector, selector) ||
+    !canonicalValuesMatch(persistedJournal.journal, input.committedJournal)
+  ) {
+    throw new FinalizationControlError(
+      'exact_record_conflict',
+      'ECDSA finalization journal does not match its committed activation',
+    );
+  }
+  const sealingKeyRaw = await context
+    .store(SEALING_KEY_STORE)
+    .get(input.readyMaterial.sealingKeyId);
+  if (sealingKeyRaw === undefined) {
+    throw new FinalizationControlError(
+      'corrupt',
+      'ECDSA finalization is missing its material sealing key',
+    );
+  }
+  try {
+    parseSealingKeyRow(sealingKeyRaw);
+  } catch (error: unknown) {
+    throw new FinalizationControlError('corrupt', errorMessage(error));
+  }
+
+  const pointerStore = context.store(POINTER_STORE);
+  const pointerRaw = await pointerStore.get(selectorKey(selector));
+  const expected = input.committedJournal.expectedManifest;
+  const currentPointer = assertExpectedPointer(expected, pointerRaw, selector);
+  const activeRows = await context
+    .store(MANIFEST_STORE)
+    .index(SEAMS_WALLET_INDEXES.capabilityWalletAuthorityState)
+    .getAll([...selectorKey(selector), 'active']);
+
+  let previousProof: ParsedActiveManifestProof | null = null;
+  if (currentPointer === null) {
+    if (activeRows.length !== 0) {
+      throw new FinalizationControlError(
+        'exact_record_conflict',
+        'initial ECDSA activation found an unpointed active manifest',
+      );
+    }
+  } else {
+    if (activeRows.length !== 1) {
+      throw new FinalizationControlError(
+        'exact_record_conflict',
+        'replacement ECDSA activation found conflicting current manifests',
+      );
+    }
+    let previousManifest: ParsedManifestRow;
+    try {
+      previousManifest = parseManifestRow(activeRows[0]);
+    } catch (error: unknown) {
+      throw new FinalizationControlError('corrupt', errorMessage(error));
+    }
+    if (
+      previousManifest.state !== 'active' ||
+      previousManifest.manifest.identity.manifestId !== currentPointer.manifestId
+    ) {
+      throw new FinalizationControlError(
+        'exact_record_conflict',
+        'replacement ECDSA activation current manifest does not match its pointer',
+      );
+    }
+    if (
+      input.committedJournal.activationCommand.expectedGeneration.kind !== 'exact_generation' ||
+      previousManifest.activeProof.serverActivation.serverGeneration !==
+        input.committedJournal.activationCommand.expectedGeneration.serverGeneration
+    ) {
+      throw new FinalizationControlError(
+        'exact_record_conflict',
+        'replacement ECDSA activation server generation CAS did not match',
+      );
+    }
+    const previousMaterialRaw = await context
+      .store(MATERIAL_STORE)
+      .get(previousManifest.manifest.durableMaterial.durableMaterialRef);
+    if (previousMaterialRaw === undefined) {
+      throw new FinalizationControlError(
+        'corrupt',
+        'replacement ECDSA activation is missing prior material',
+      );
+    }
+    try {
+      const previousMaterial = parseMaterialRow(previousMaterialRaw, previousManifest.activeProof);
+      if (!materialMatchesManifest(previousMaterial, previousManifest.manifest)) {
+        throw new Error('prior ECDSA material does not match its active manifest');
+      }
+    } catch (error: unknown) {
+      throw new FinalizationControlError('corrupt', errorMessage(error));
+    }
+    previousProof = previousManifest.activeProof;
+  }
+
+  const manifestStore = context.store(MANIFEST_STORE);
+  const materialStore = context.store(MATERIAL_STORE);
+  if (previousProof) {
+    await manifestStore.put(storedReplacedManifestRow(previousProof, activeProof));
+    await materialStore.delete(previousProof.durableMaterial.durableMaterialRef);
+  }
+  await materialStore.add(storedMaterialRow(input.readyMaterial));
+  await manifestStore.add(storedActiveManifestRow(activeProof));
+  await pointerStore.put(storedPointerRow(activeProof.activeManifest));
+  await journalStore.delete(input.committedJournal.journalId);
+}
