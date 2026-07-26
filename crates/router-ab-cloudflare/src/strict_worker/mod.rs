@@ -13,8 +13,9 @@ use crate::cloudflare_router_error_status;
 use crate::CloudflareEd25519YaoRoleFailureResponseV1;
 #[cfg(feature = "strict-worker-router-entrypoint")]
 use crate::{
-    build_cloudflare_router_public_keyset_v2, cloudflare_now_unix_ms_v1,
-    cloudflare_router_normal_signing_cors_allowed_origin_v1, cloudflare_trusted_source_digest_v1,
+    build_cloudflare_router_ed25519_jwks_jwt_verifier_v1, build_cloudflare_router_public_keyset_v2,
+    cloudflare_now_unix_ms_v1, cloudflare_router_normal_signing_cors_allowed_origin_v1,
+    cloudflare_trusted_source_digest_v1,
     handle_cloudflare_router_ab_ecdsa_derivation_activation_authenticated_public_request_v1,
     handle_cloudflare_router_ab_ecdsa_derivation_activation_refresh_authenticated_public_request_v1,
     handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_finalize_authenticated_public_request_v1,
@@ -28,7 +29,6 @@ use crate::{
     handle_cloudflare_router_normal_signing_prepare_authenticated_public_request_v2,
     handle_cloudflare_router_wallet_budget_put_grant_private_fetch_v1,
     handle_cloudflare_router_wallet_budget_status_authenticated_public_request_v1,
-    load_cloudflare_router_ed25519_jwks_jwt_verifier_v1,
     parse_cloudflare_router_ab_ecdsa_derivation_activation_request_v1_json,
     parse_cloudflare_router_ab_ecdsa_derivation_export_command_v1_json,
     parse_cloudflare_router_bearer_authorization_from_request_v1,

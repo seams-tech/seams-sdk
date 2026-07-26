@@ -166,7 +166,7 @@ use router_ab_cloudflare::{
     DERIVER_B_ROOT_SHARE_WIRE_SECRET_BINDING_ENV, ROUTER_ABUSE_DO_BINDING_ENV,
     ROUTER_ABUSE_DO_KEY_PREFIX_ENV, ROUTER_ABUSE_DO_OBJECT_ENV,
     ROUTER_AB_PREVIOUS_ENVELOPE_HPKE_RETIRE_AT_MS_ENV, ROUTER_JWT_AUDIENCE_ENV,
-    ROUTER_JWT_ISSUER_ENV, ROUTER_JWT_JWKS_URL_ENV, ROUTER_LIFECYCLE_DO_BINDING_ENV,
+    ROUTER_JWT_ISSUER_ENV, ROUTER_JWT_JWKS_JSON_ENV, ROUTER_LIFECYCLE_DO_BINDING_ENV,
     ROUTER_LIFECYCLE_DO_KEY_PREFIX_ENV, ROUTER_LIFECYCLE_DO_OBJECT_ENV,
     ROUTER_PROJECT_POLICY_DO_BINDING_ENV, ROUTER_PROJECT_POLICY_DO_KEY_PREFIX_ENV,
     ROUTER_PROJECT_POLICY_DO_OBJECT_ENV, ROUTER_QUOTA_DO_BINDING_ENV,
@@ -2656,6 +2656,10 @@ fn client_proof_bundle_wire(
     .expect("client recipient proof-bundle wire")
 }
 
+fn test_router_jwks_json() -> &'static str {
+    r#"{"keys":[{"alg":"EdDSA","crv":"Ed25519","kid":"test-router-key","kty":"OKP","use":"sig","x":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}]}"#
+}
+
 fn router_env() -> CloudflareEnvMapV1 {
     CloudflareEnvMapV1::new(vec![
         (ROUTER_REPLAY_DO_BINDING_ENV, " ROUTER_REPLAY_DO "),
@@ -2666,10 +2670,7 @@ fn router_env() -> CloudflareEnvMapV1 {
         (ROUTER_LIFECYCLE_DO_KEY_PREFIX_ENV, "router-lifecycle:"),
         (ROUTER_JWT_ISSUER_ENV, "https://issuer.example"),
         (ROUTER_JWT_AUDIENCE_ENV, "router-ab"),
-        (
-            ROUTER_JWT_JWKS_URL_ENV,
-            "https://issuer.example/.well-known/jwks.json",
-        ),
+        (ROUTER_JWT_JWKS_JSON_ENV, test_router_jwks_json()),
         (
             ROUTER_PROJECT_POLICY_DO_BINDING_ENV,
             "ROUTER_PROJECT_POLICY_DO",
@@ -2710,10 +2711,7 @@ fn router_env_with_public_keyset() -> CloudflareEnvMapV1 {
         (ROUTER_LIFECYCLE_DO_KEY_PREFIX_ENV, "router-lifecycle:"),
         (ROUTER_JWT_ISSUER_ENV, "https://issuer.example"),
         (ROUTER_JWT_AUDIENCE_ENV, "router-ab"),
-        (
-            ROUTER_JWT_JWKS_URL_ENV,
-            "https://issuer.example/.well-known/jwks.json",
-        ),
+        (ROUTER_JWT_JWKS_JSON_ENV, test_router_jwks_json()),
         (
             ROUTER_PROJECT_POLICY_DO_BINDING_ENV,
             "ROUTER_PROJECT_POLICY_DO",
@@ -2783,10 +2781,7 @@ fn router_admission_env() -> CloudflareEnvMapV1 {
     CloudflareEnvMapV1::new(vec![
         (ROUTER_JWT_ISSUER_ENV, "https://issuer.example"),
         (ROUTER_JWT_AUDIENCE_ENV, "router-ab"),
-        (
-            ROUTER_JWT_JWKS_URL_ENV,
-            "https://issuer.example/.well-known/jwks.json",
-        ),
+        (ROUTER_JWT_JWKS_JSON_ENV, test_router_jwks_json()),
         (
             ROUTER_PROJECT_POLICY_DO_BINDING_ENV,
             "ROUTER_PROJECT_POLICY_DO",
@@ -3029,7 +3024,7 @@ fn router_admission_bindings_parse_router_only_provider_config() {
 }
 
 #[test]
-fn router_admission_bindings_reject_missing_jwks_url() {
+fn router_admission_bindings_reject_missing_jwks_json() {
     let env = CloudflareEnvMapV1::new(vec![
         (ROUTER_JWT_ISSUER_ENV, "https://issuer.example"),
         (ROUTER_JWT_AUDIENCE_ENV, "router-ab"),
@@ -3051,9 +3046,24 @@ fn router_admission_bindings_reject_missing_jwks_url() {
     ]);
 
     let err = parse_cloudflare_router_admission_bindings_v1(&env)
-        .expect_err("missing JWKS URL must fail");
+        .expect_err("missing JWKS JSON must fail");
 
     assert_eq!(err.code(), RouterAbProtocolErrorCode::MissingLocalBinding);
+}
+
+#[test]
+fn router_jwt_binding_rejects_invalid_deployment_jwks() {
+    let err = CloudflareRouterJwtVerifierBindingV1::new(
+        "https://issuer.example",
+        "router-ab",
+        r#"{"keys":[]}"#,
+    )
+    .expect_err("empty deployment JWKS must fail");
+
+    assert_eq!(
+        err.code(),
+        RouterAbProtocolErrorCode::InvalidLocalServiceConfig
+    );
 }
 
 #[test]
