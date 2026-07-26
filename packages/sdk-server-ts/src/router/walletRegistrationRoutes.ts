@@ -32,6 +32,10 @@ import type {
   WalletAddAuthMethodStartRequest,
   WalletAddAuthMethodStartResponse,
   WalletRegistrationFinalizeRequest,
+  WalletRegistrationEcdsaActivationPrepareRequest,
+  WalletRegistrationEcdsaActivationPrepareResponse,
+  WalletRegistrationEcdsaActivationQueryRequest,
+  WalletRegistrationEcdsaActivationQueryResponse,
   WalletRegistrationEcdsaActivationRequest,
   WalletRegistrationEcdsaActivationResponse,
   WalletRegistrationEcdsaFinalize,
@@ -80,6 +84,7 @@ import type { RouteErrorBody } from './routeResponses';
 import { routeError, routeJson } from './routeResponses';
 import { isPlainObject } from '@shared/utils/validation';
 import {
+  parseRouterAbEcdsaDerivationActivationPrepareResultV1,
   parseRouterAbEcdsaRegistrationActivationRequestV1,
   parseRouterAbEcdsaRegistrationRequestV1,
   parseRouterAbEcdsaVerifiedClientActivationFactsV1,
@@ -1539,9 +1544,9 @@ function parseWalletRegistrationEcdsaDerivationRespondRequest(
   };
 }
 
-function parseWalletRegistrationEcdsaActivationRequest(
+function parseWalletRegistrationEcdsaActivationPrepareRequest(
   body: Record<string, unknown>,
-): ParseResult<WalletRegistrationEcdsaActivationRequest> {
+): ParseResult<WalletRegistrationEcdsaActivationPrepareRequest> {
   try {
     return {
       ok: true,
@@ -1554,6 +1559,64 @@ function parseWalletRegistrationEcdsaActivationRequest(
       message: 'strict Router A/B ECDSA activation request is invalid',
     };
   }
+}
+
+function parseWalletRegistrationEcdsaActivationRequest(
+  body: Record<string, unknown>,
+): ParseResult<WalletRegistrationEcdsaActivationRequest> {
+  try {
+    const unknownBodyField = findUnknownField(body, ['registrationCeremonyId', 'ecdsa']);
+    if (unknownBodyField) {
+      throw new Error(`ECDSA activation field ${unknownBodyField} is unsupported`);
+    }
+    const ecdsa = isPlainObject(body.ecdsa) ? body.ecdsa : null;
+    if (!ecdsa) throw new Error('ECDSA activation body is required');
+    const unknownEcdsaField = findUnknownField(ecdsa, [
+      'kind',
+      'activationCorrelationId',
+      'publicFacts',
+      'expectedActivationRequestDigest',
+    ]);
+    if (unknownEcdsaField) {
+      throw new Error(`ECDSA activation field ${unknownEcdsaField} is unsupported`);
+    }
+    const parsed = parseRouterAbEcdsaRegistrationActivationRequestV1({
+      registrationCeremonyId: body.registrationCeremonyId,
+      ecdsa: {
+        kind: ecdsa.kind,
+        activationCorrelationId: ecdsa.activationCorrelationId,
+        publicFacts: ecdsa.publicFacts,
+      },
+    });
+    const preparation = parseRouterAbEcdsaDerivationActivationPrepareResultV1({
+      activation_correlation_id: parsed.ecdsa.activationCorrelationId,
+      activation_request_digest: ecdsa.expectedActivationRequestDigest,
+    });
+    return {
+      ok: true,
+      value: {
+        registrationCeremonyId: parsed.registrationCeremonyId,
+        ecdsa: {
+          kind: parsed.ecdsa.kind,
+          activationCorrelationId: parsed.ecdsa.activationCorrelationId,
+          publicFacts: parsed.ecdsa.publicFacts,
+          expectedActivationRequestDigest: preparation.activation_request_digest,
+        },
+      },
+    };
+  } catch {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'strict Router A/B ECDSA activation request is invalid',
+    };
+  }
+}
+
+function parseWalletRegistrationEcdsaActivationQueryRequest(
+  body: Record<string, unknown>,
+): ParseResult<WalletRegistrationEcdsaActivationQueryRequest> {
+  return parseWalletRegistrationEcdsaActivationRequest(body);
 }
 
 function parseEmailOtpBackupAck(
@@ -2492,6 +2555,34 @@ export async function handleRouterApiWalletRegistrationEcdsaActivation(
   );
   if (signingError) return signingError;
   return routeJson(200, result);
+}
+
+export async function handleRouterApiWalletRegistrationEcdsaActivationPrepare(
+  input: RouterApiWalletRegistrationInput,
+): Promise<RouteResponse<WalletRegistrationEcdsaActivationPrepareResponse | RouteErrorBody>> {
+  if (!isPlainObject(input.body)) {
+    return routeError(400, 'invalid_body', 'JSON body required');
+  }
+  const request = parseWalletRegistrationEcdsaActivationPrepareRequest(input.body);
+  if (!request.ok) return routeError(400, request.code, request.message);
+  const result = await input.services.walletRegistration.prepareWalletRegistrationEcdsaActivation(
+    request.value,
+  );
+  return routeJson(result.ok ? 200 : 400, result);
+}
+
+export async function handleRouterApiWalletRegistrationEcdsaActivationQuery(
+  input: RouterApiWalletRegistrationInput,
+): Promise<RouteResponse<WalletRegistrationEcdsaActivationQueryResponse | RouteErrorBody>> {
+  if (!isPlainObject(input.body)) {
+    return routeError(400, 'invalid_body', 'JSON body required');
+  }
+  const request = parseWalletRegistrationEcdsaActivationQueryRequest(input.body);
+  if (!request.ok) return routeError(400, request.code, request.message);
+  const result = await input.services.walletRegistration.queryWalletRegistrationEcdsaActivation(
+    request.value,
+  );
+  return routeJson(result.ok ? 200 : 400, result);
 }
 
 export async function handleRouterApiWalletRegistrationFinalize(

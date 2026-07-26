@@ -419,25 +419,66 @@ test('partitioned D1 completes and replays strict ECDSA wallet registration', as
         publicFacts: activationFacts,
       },
     };
+    const preparedActivation =
+      await service.walletRegistration.prepareWalletRegistrationEcdsaActivation(activationRequest);
+    if (!preparedActivation.ok) throw new Error(preparedActivation.message);
+    const expectedActivationRequestDigest =
+      preparedActivation.ecdsa.preparation.activation_request_digest;
+    const activationCommitRequest = {
+      registrationCeremonyId: activationRequest.registrationCeremonyId,
+      ecdsa: {
+        kind: activationRequest.ecdsa.kind,
+        activationCorrelationId: activationRequest.ecdsa.activationCorrelationId,
+        publicFacts: activationRequest.ecdsa.publicFacts,
+        expectedActivationRequestDigest,
+      },
+    };
+    await expect(
+      service.walletRegistration.queryWalletRegistrationEcdsaActivation(activationCommitRequest),
+    ).resolves.toMatchObject({
+      ok: true,
+      ecdsa: {
+        kind: 'router_ab_ecdsa_registration_activation_queried_v1',
+        result: { kind: 'not_committed' },
+      },
+    });
+    await expect(
+      service.walletRegistration.activateWalletRegistrationEcdsa({
+        registrationCeremonyId: activationCommitRequest.registrationCeremonyId,
+        ecdsa: {
+          ...activationCommitRequest.ecdsa,
+          expectedActivationRequestDigest: { bytes: new Array<number>(32).fill(13) },
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'activation_digest_mismatch',
+    });
     await expect(
       unconfiguredSigningService.walletRegistration.activateWalletRegistrationEcdsa(
-        activationRequest,
+        activationCommitRequest,
       ),
     ).resolves.toMatchObject({
       ok: false,
       code: 'ecdsa_activation_terminal_failure',
     });
-    const activated = await service.walletRegistration.activateWalletRegistrationEcdsa({
-      ...activationRequest,
-    });
-    if (!activated.ok) throw new Error(activated.message);
-    expect(strictRegistration.activationPrepareCalls).toBe(2);
     await expect(
-      service.walletRegistration.activateWalletRegistrationEcdsa({
-        ...activationRequest,
-      }),
+      service.walletRegistration.queryWalletRegistrationEcdsaActivation(activationCommitRequest),
+    ).resolves.toMatchObject({
+      ok: true,
+      ecdsa: {
+        kind: 'router_ab_ecdsa_registration_activation_queried_v1',
+        result: { kind: 'committed' },
+      },
+    });
+    const activated =
+      await service.walletRegistration.activateWalletRegistrationEcdsa(activationCommitRequest);
+    if (!activated.ok) throw new Error(activated.message);
+    expect(strictRegistration.activationPrepareCalls).toBe(4);
+    await expect(
+      service.walletRegistration.activateWalletRegistrationEcdsa(activationCommitRequest),
     ).resolves.toEqual(activated);
-    expect(strictRegistration.activationPrepareCalls).toBe(2);
+    expect(strictRegistration.activationPrepareCalls).toBe(4);
 
     await expect(
       service.walletRegistration.finalizeWalletRegistration({

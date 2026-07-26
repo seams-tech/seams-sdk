@@ -82,6 +82,7 @@ import {
   finalizeWalletRegistration,
   isEmailOtpWalletRegistrationFinalizeResponse,
   parseWalletRegistrationEcdsaDerivationRespond,
+  prepareWalletRegistrationEcdsaActivation,
   respondWalletAddSignerEcdsa,
   respondWalletRegistrationEcdsa,
   startWalletAddSigner,
@@ -2539,14 +2540,23 @@ async function activateStrictEcdsaFamilyRegistration(args: {
   publicFacts: Parameters<typeof activateWalletRegistrationEcdsa>[0]['publicFacts'];
 }) {
   switch (args.route.kind) {
-    case 'registration':
-      return await activateWalletRegistrationEcdsa({
+    case 'registration': {
+      const prepared = await prepareWalletRegistrationEcdsaActivation({
         relayerUrl: args.relayerUrl,
         headers: registrationRouteHeaders(),
         registrationCeremonyId: args.route.registrationCeremonyId,
         activationCorrelationId: args.activationCorrelationId,
         publicFacts: args.publicFacts,
       });
+      return await activateWalletRegistrationEcdsa({
+        relayerUrl: args.relayerUrl,
+        headers: registrationRouteHeaders(),
+        registrationCeremonyId: args.route.registrationCeremonyId,
+        activationCorrelationId: args.activationCorrelationId,
+        publicFacts: args.publicFacts,
+        expectedActivationRequestDigest: prepared.ecdsa.preparation.activation_request_digest,
+      });
+    }
     case 'add_signer':
       return await activateWalletAddSignerEcdsa({
         relayerUrl: args.relayerUrl,
