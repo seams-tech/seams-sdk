@@ -9,6 +9,7 @@ from typing import Any, Literal
 SCHEMA_VERSION = "voice_id_verifier_v2"
 MAXIMUM_AUDIO_BYTE_LENGTH = 32 * 1024 * 1024
 MAXIMUM_AUDIO_BASE64_LENGTH = ((MAXIMUM_AUDIO_BYTE_LENGTH + 2) // 3) * 4
+MAXIMUM_JSON_REQUEST_BYTES = MAXIMUM_AUDIO_BASE64_LENGTH + 64 * 1024
 
 
 class VerifierSchemaError(ValueError):

@@ -33,6 +33,7 @@ from voiceid_verifier.schemas import (
     EnrollmentSpeechWindowResponse,
     KnownChannelCount,
     KnownSampleRate,
+    MAXIMUM_JSON_REQUEST_BYTES,
     RejectedEnrollmentTemplateResponse,
     SpeakerAccepted,
     SpeakerRejected,
@@ -935,8 +936,10 @@ class VoiceIdVerifierHttpHandler(BaseHTTPRequestHandler):
         return self.server
 
     def _read_json_request(self) -> dict[str, Any]:
-        content_length = int(self.headers.get("Content-Length", "0"))
+        content_length = parse_content_length(self.headers.get("Content-Length"))
         body = self.rfile.read(content_length)
+        if len(body) != content_length:
+            raise ValueError("request body ended before Content-Length bytes were received")
         value = json.loads(body.decode("utf-8"))
         if not isinstance(value, dict):
             raise ValueError("request body must be a JSON object")
@@ -1062,6 +1065,18 @@ def probability_from_env(name: str, default: float) -> float:
     if value < 0 or value > 1:
         raise ValueError(f"{name} must be a probability")
     return value
+
+
+def parse_content_length(value: str | None) -> int:
+    try:
+        content_length = int(value or "0")
+    except ValueError as error:
+        raise ValueError("Content-Length must be an integer") from error
+    if content_length <= 0:
+        raise ValueError("Content-Length must be positive")
+    if content_length > MAXIMUM_JSON_REQUEST_BYTES:
+        raise ValueError("request body exceeds the maximum JSON byte length")
+    return content_length
 
 
 def required_path_from_env(name: str) -> Path:

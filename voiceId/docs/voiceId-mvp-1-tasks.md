@@ -381,13 +381,13 @@ held-out attack set and fails closed outside measured profiles.
       aggregation.
 - [ ] Measure same-speaker template stability across days, microphones, rooms,
       and vocal variation.
-- [ ] Reject enrollment when internal windows lack sufficient diversity or
+- [x] Reject enrollment when internal windows lack sufficient diversity or
       produce unstable leave-one-window-out scores.
 - [ ] Tune one quality-only retry without reintroducing repeated enrollment
       uploads.
 - [ ] Evaluate quarantined high-confidence template adaptation for drift and
       poisoning resistance; keep automatic adaptation disabled until it passes.
-- [ ] Version the aggregation rule and template format with the selected speaker
+- [x] Version the aggregation rule and template format with the selected speaker
       model manifest.
 
 Exit gate: one continuous enrollment produces a compact template that meets
@@ -401,8 +401,10 @@ cross-session stability and impostor-separation budgets.
       decision regression suite.
 - [ ] Add timeout, forced-worker-crash, response-loss, model-load-failure, and
       automatic-worker-replacement tests.
-- [ ] Fuzz malformed media and exercise decoder limits, truncated input,
-      unsupported codecs, and oversized captures.
+- [x] Add deterministic malformed-media boundary tests for truncated containers,
+      invalid payloads, mismatched codecs, and oversized sidecar requests.
+- [ ] Run a generative malformed-media fuzz campaign and exercise decoder
+      duration and timeout limits under sustained load.
 - [ ] Load test bounded concurrency, queue saturation, cancellation, and retry
       behavior.
 - [ ] Run long soak tests that detect memory, file-descriptor, process, and GPU

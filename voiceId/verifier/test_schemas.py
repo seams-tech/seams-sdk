@@ -9,6 +9,7 @@ import time
 import unittest
 import wave
 from collections.abc import Sequence
+from http.client import HTTPConnection
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -31,6 +32,7 @@ from voiceid_verifier.moonshine import (
 from voiceid_verifier.pad import PadDecision
 from voiceid_verifier.runtime import SpeechBrainEcapaVerifierRuntime
 from voiceid_verifier.schemas import (
+    MAXIMUM_JSON_REQUEST_BYTES,
     VerifierSchemaError,
     encode_audio_bytes,
     parse_build_enrollment_template_request,
@@ -244,6 +246,20 @@ class VerifierSchemaTest(unittest.TestCase):
         if first is not None:
             self.assertEqual(first.result(timeout=1).value, "complete")
 
+    def test_stage_executor_releases_slot_after_failed_model_task(self) -> None:
+        executor = BoundedStageExecutor(maximum_active_stages=1)
+        failed = executor.submit(failing_timed_stage)
+        self.assertIsNotNone(failed)
+        if failed is not None:
+            with self.assertRaisesRegex(RuntimeError, "model task failed"):
+                failed.result(timeout=1)
+
+        replacement = executor.submit(successful_timed_stage)
+
+        self.assertIsNotNone(replacement)
+        if replacement is not None:
+            self.assertEqual(replacement.result(timeout=1).value, "replacement")
+
     def test_canonical_pipeline_is_stable_across_repeated_runs(self) -> None:
         enrollment_payload = enrollment_request(audio_bytes=enrollment_audio_bytes())
         first_template = build_enrollment_template_from_json(enrollment_payload)
@@ -270,6 +286,21 @@ class VerifierSchemaTest(unittest.TestCase):
             "requestId": "enrollment_request_1",
             "reason": "decoder_failure",
         })
+
+    def test_malformed_and_truncated_media_fail_closed(self) -> None:
+        malformed_captures = (
+            b"\x00" * 128,
+            b"RIFF\x10\x00\x00\x00WAVEfmt ",
+            b"OggS\x00\x02",
+            b'{"audio":"not media"}',
+        )
+        for audio_bytes in malformed_captures:
+            with self.subTest(prefix=audio_bytes[:8]):
+                response = build_enrollment_template_from_json(
+                    enrollment_request(audio_bytes=audio_bytes, duration_ms=12000)
+                )
+                self.assertEqual(response["kind"], "rejected")
+                self.assertEqual(response["reason"], "decoder_failure")
 
     def test_returns_metadata_mismatch_for_false_capture_claims(self) -> None:
         response = build_enrollment_template_from_json(
@@ -312,6 +343,17 @@ class VerifierSchemaTest(unittest.TestCase):
 
         self.assertEqual(response["kind"], "rejected")
         self.assertEqual(response["reason"], "multi_speaker")
+
+    def test_rejects_leave_one_out_template_instability(self) -> None:
+        runtime = SpeechBrainEcapaVerifierRuntime(extractor=UnstableEcapaExtractor())
+
+        response = build_enrollment_template_from_json(
+            enrollment_request(audio_bytes=enrollment_audio_bytes()),
+            runtime=runtime,
+        )
+
+        self.assertEqual(response["kind"], "rejected")
+        self.assertEqual(response["reason"], "incoherent_windows")
 
     def test_skips_speaker_scoring_for_low_quality_audio(self) -> None:
         runtime = SpeechBrainEcapaVerifierRuntime(extractor=InspectingEcapaExtractor())
@@ -371,6 +413,29 @@ class VerifierSchemaTest(unittest.TestCase):
             caught.exception.close()
             self.assertEqual(body["error"]["kind"], "malformed_request")
         finally:
+            stop_http_server(server, thread)
+
+    def test_http_sidecar_rejects_oversized_body_before_reading_it(self) -> None:
+        server, thread = start_http_server()
+        connection = HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+        try:
+            connection.request(
+                "POST",
+                "/voice-id/verifier/build-enrollment-template",
+                body=b"{}",
+                headers={
+                    "Content-Type": "application/json",
+                    "Content-Length": str(MAXIMUM_JSON_REQUEST_BYTES + 1),
+                },
+            )
+            response = connection.getresponse()
+            body = json.loads(response.read().decode("utf-8"))
+
+            self.assertEqual(response.status, 400)
+            self.assertEqual(body["error"]["kind"], "malformed_request")
+            self.assertIn("maximum JSON byte length", body["error"]["message"])
+        finally:
+            connection.close()
             stop_http_server(server, thread)
 
     def test_http_sidecar_does_not_expose_browser_cors(self) -> None:
@@ -564,6 +629,24 @@ class AlternatingSpeakerExtractor(InspectingEcapaExtractor):
         return ExtractedSpeakerEmbedding(vector=embedding.vector, speaker_label=label)
 
 
+class UnstableEcapaExtractor(InspectingEcapaExtractor):
+    vectors = (
+        (1.0, 0.0),
+        (0.866, 0.5),
+        (0.5, 0.866),
+        (0.5, 0.866),
+    )
+
+    def extract_decoded(self, samples: Sequence[float]) -> ExtractedSpeakerEmbedding:
+        vector = [0.0] * self.embedding_dimensions
+        first, second = self.vectors[len(self.sample_references)]
+        vector[0] = first
+        vector[1] = second
+        self.sample_references.append(samples)
+        self.vector_references.append(vector)
+        return ExtractedSpeakerEmbedding(vector=vector, speaker_label="unknown_speaker")
+
+
 class FailingEcapaExtractor(InspectingEcapaExtractor):
     def extract_decoded(self, samples: Sequence[float]) -> ExtractedSpeakerEmbedding:
         raise AssertionError("speaker extraction should not run for low-quality audio")
@@ -703,6 +786,14 @@ def blocking_timed_stage(
     if not release.wait(timeout=1):
         raise TimeoutError("test stage was not released")
     return TimedStageResult(completed_at=time.monotonic(), value="complete")
+
+
+def failing_timed_stage() -> TimedStageResult:
+    raise RuntimeError("model task failed")
+
+
+def successful_timed_stage() -> TimedStageResult:
+    return TimedStageResult(completed_at=time.monotonic(), value="replacement")
 
 
 if __name__ == "__main__":
