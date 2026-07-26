@@ -1835,7 +1835,7 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
       .toEqual([]);
   });
 
-  test('Google SSO headless login can transition to registration with reroll', async ({
+  test('Google SSO headless login can transition to registration without duplicate refresh', async ({
     page,
   }) => {
     await page.evaluate(
@@ -1853,6 +1853,8 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
         const useSeamsAuthMenuController =
           controllerMod.useSeamsAuthMenuController || controllerMod.default;
         const { AuthMenuMode } = typesMod;
+        (window as any).__headlessRegistrationRefreshCalls = [];
+        (window as any).__headlessRegistrationCompletions = [];
 
         function registrationFlow(walletId: string) {
           return {
@@ -1895,7 +1897,9 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
               inputUsername,
               targetAccountId: inputUsername,
               setInputUsername,
-              refreshLoginState: async () => undefined,
+              refreshLoginState: async (walletId?: string) => {
+                (window as any).__headlessRegistrationRefreshCalls.push(String(walletId || ''));
+              },
               sdkFlow: {
                 eventsText: '',
                 seq: 0,
@@ -1913,6 +1917,12 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
                 google: async () => ({
                   kind: 'registration_flow',
                   flow: registrationFlow('frost-beacon.testnet'),
+                  onComplete: async (result: { walletId: string; mode: string }) => {
+                    (window as any).__headlessRegistrationCompletions.push({
+                      walletId: result.walletId,
+                      mode: result.mode,
+                    });
+                  },
                 }),
               },
             },
@@ -1950,7 +1960,10 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
                   ),
                   React.createElement(
                     'button',
-                    { type: 'button' },
+                    {
+                      type: 'button',
+                      onClick: controller.registrationPrompt.onSubmit,
+                    },
                     controller.registrationPrompt.submitLabel,
                   ),
                   React.createElement(
@@ -1983,6 +1996,17 @@ test.describe('SeamsAuthMenu styles bootstrap', () => {
     await expect(mount.getByText('Check your email to unlock your wallet')).toHaveCount(0);
     await mount.getByRole('button', { name: 'Generate another name' }).click();
     await expect(mount.locator('#registration-account')).toHaveText('ember-river.testnet');
+    await mount.getByRole('button', { name: 'Create wallet' }).click();
+    await expect
+      .poll(
+        async () => await page.evaluate(() => (window as any).__headlessRegistrationCompletions),
+      )
+      .toEqual([{ walletId: 'ember-river.testnet', mode: 'register' }]);
+    await expect
+      .poll(
+        async () => await page.evaluate(() => (window as any).__headlessRegistrationRefreshCalls),
+      )
+      .toEqual([]);
   });
 
   test('Google SSO missing account transitions to the registration menu with explicit copy', async ({
