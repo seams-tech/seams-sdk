@@ -54,6 +54,53 @@ export type WalletAuthMethodId = DomainId<'WalletAuthMethodId'>;
 export type WalletAuthorityBindingDigest = DomainId<'WalletAuthorityBindingDigest'>;
 export type AppSessionJwt = DomainId<'AppSessionJwt'>;
 
+// Opaque identities that keep MPC capability, material, runtime, and lifecycle
+// bindings independent from authorization and wallet-session identities.
+export type CapabilityInstanceRef = DomainId<'CapabilityInstanceRef'>;
+export type MpcMaterialOwnerRef = DomainId<'MpcMaterialOwnerRef'>;
+export type MpcCapabilityRuntimeRef = DomainId<'MpcCapabilityRuntimeRef'>;
+export type MpcMaterialActivationId = DomainId<'MpcMaterialActivationId'>;
+export type MpcSigningWorkerRef = DomainId<'MpcSigningWorkerRef'>;
+export type MpcKeyBindingRef = DomainId<'MpcKeyBindingRef'>;
+export type MpcLifecycleBindingRef = DomainId<'MpcLifecycleBindingRef'>;
+export type MpcReauthorizationPolicyRef = DomainId<'MpcReauthorizationPolicyRef'>;
+export type MpcRegisteredPublicKeyBindingRef = DomainId<'MpcRegisteredPublicKeyBindingRef'>;
+
+type MpcMaterialActivationRefFields = {
+  readonly activationId: MpcMaterialActivationId;
+  readonly capability: CapabilityInstanceRef;
+  readonly materialOwner: MpcMaterialOwnerRef;
+  readonly keyBinding: MpcKeyBindingRef;
+  readonly lifecycleBinding: MpcLifecycleBindingRef;
+  readonly signingWorker: MpcSigningWorkerRef;
+};
+
+class MpcMaterialActivationReference {
+  private retainProof(): true {
+    return true;
+  }
+  readonly kind: 'mpc_material_activation_ref';
+  readonly activationId: MpcMaterialActivationId;
+  readonly capability: CapabilityInstanceRef;
+  readonly materialOwner: MpcMaterialOwnerRef;
+  readonly keyBinding: MpcKeyBindingRef;
+  readonly lifecycleBinding: MpcLifecycleBindingRef;
+  readonly signingWorker: MpcSigningWorkerRef;
+
+  constructor(fields: MpcMaterialActivationRefFields) {
+    void this.retainProof();
+    this.kind = 'mpc_material_activation_ref';
+    this.activationId = fields.activationId;
+    this.capability = fields.capability;
+    this.materialOwner = fields.materialOwner;
+    this.keyBinding = fields.keyBinding;
+    this.lifecycleBinding = fields.lifecycleBinding;
+    this.signingWorker = fields.signingWorker;
+  }
+}
+
+export type MpcMaterialActivationRef = MpcMaterialActivationReference;
+
 // Client signing grant id. This groups one local approval/session
 // budget and can cover multiple threshold-session ids.
 export type SigningGrantId = DomainId<'SigningGrantId'>;
@@ -278,6 +325,155 @@ export function parseWalletAuthorityBindingDigest(
 
 export function parseAppSessionJwt(raw: unknown): DomainIdParseResult<AppSessionJwt> {
   return parseDomainId(raw, 'appSessionJwt');
+}
+
+export function parseCapabilityInstanceRef(
+  raw: unknown,
+): DomainIdParseResult<CapabilityInstanceRef> {
+  return parseDomainId(raw, 'capabilityInstanceRef');
+}
+
+export function parseMpcMaterialOwnerRef(raw: unknown): DomainIdParseResult<MpcMaterialOwnerRef> {
+  return parseDomainId(raw, 'mpcMaterialOwnerRef');
+}
+
+export function parseMpcCapabilityRuntimeRef(
+  raw: unknown,
+): DomainIdParseResult<MpcCapabilityRuntimeRef> {
+  return parseDomainId(raw, 'mpcCapabilityRuntimeRef');
+}
+
+export function parseMpcMaterialActivationId(
+  raw: unknown,
+): DomainIdParseResult<MpcMaterialActivationId> {
+  return parseDomainId(raw, 'mpcMaterialActivationId');
+}
+
+export function parseMpcSigningWorkerRef(raw: unknown): DomainIdParseResult<MpcSigningWorkerRef> {
+  return parseDomainId(raw, 'mpcSigningWorkerRef');
+}
+
+export function parseMpcKeyBindingRef(raw: unknown): DomainIdParseResult<MpcKeyBindingRef> {
+  return parseDomainId(raw, 'mpcKeyBindingRef');
+}
+
+export function parseMpcLifecycleBindingRef(
+  raw: unknown,
+): DomainIdParseResult<MpcLifecycleBindingRef> {
+  return parseDomainId(raw, 'mpcLifecycleBindingRef');
+}
+
+export function parseMpcReauthorizationPolicyRef(
+  raw: unknown,
+): DomainIdParseResult<MpcReauthorizationPolicyRef> {
+  return parseDomainId(raw, 'mpcReauthorizationPolicyRef');
+}
+
+export function parseMpcRegisteredPublicKeyBindingRef(
+  raw: unknown,
+): DomainIdParseResult<MpcRegisteredPublicKeyBindingRef> {
+  return parseDomainId(raw, 'mpcRegisteredPublicKeyBindingRef');
+}
+
+export function buildMpcMaterialActivationRef(
+  fields: MpcMaterialActivationRefFields,
+): MpcMaterialActivationRef {
+  return new MpcMaterialActivationReference(fields);
+}
+
+function isMpcMaterialActivationRefField(field: string): boolean {
+  switch (field) {
+    case 'kind':
+    case 'activationId':
+    case 'capability':
+    case 'materialOwner':
+    case 'keyBinding':
+    case 'lifecycleBinding':
+    case 'signingWorker':
+      return true;
+    default:
+      return false;
+  }
+}
+
+export function parseMpcMaterialActivationRef(
+  raw: unknown,
+): DomainIdParseResult<MpcMaterialActivationRef> {
+  if (raw == null) {
+    return {
+      ok: false,
+      error: {
+        code: 'missing',
+        message: 'mpcMaterialActivationRef is required',
+      },
+    };
+  }
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    return {
+      ok: false,
+      error: {
+        code: 'invalid',
+        message: 'mpcMaterialActivationRef must be an object',
+      },
+    };
+  }
+
+  const record = raw as Record<string, unknown>;
+  const fields = Object.keys(record);
+  if (fields.length !== 7) {
+    return {
+      ok: false,
+      error: {
+        code: 'invalid',
+        message: 'mpcMaterialActivationRef has invalid fields',
+      },
+    };
+  }
+  for (const field of fields) {
+    if (!isMpcMaterialActivationRefField(field)) {
+      return {
+        ok: false,
+        error: {
+          code: 'invalid',
+          message: 'mpcMaterialActivationRef has invalid fields',
+        },
+      };
+    }
+  }
+  if (record.kind !== 'mpc_material_activation_ref') {
+    return {
+      ok: false,
+      error: {
+        code: 'invalid',
+        message: 'mpcMaterialActivationRef.kind is invalid',
+      },
+    };
+  }
+
+  const activationId = parseMpcMaterialActivationId(record.activationId);
+  if (!activationId.ok) return activationId;
+  const capability = parseCapabilityInstanceRef(record.capability);
+  if (!capability.ok) return capability;
+  const materialOwner = parseMpcMaterialOwnerRef(record.materialOwner);
+  if (!materialOwner.ok) return materialOwner;
+  const keyBinding = parseMpcKeyBindingRef(record.keyBinding);
+  if (!keyBinding.ok) return keyBinding;
+  const lifecycleBinding = parseMpcLifecycleBindingRef(record.lifecycleBinding);
+  if (!lifecycleBinding.ok) return lifecycleBinding;
+  const signingWorker = parseMpcSigningWorkerRef(record.signingWorker);
+  if (!signingWorker.ok) return signingWorker;
+
+  return {
+    ok: true,
+    value: buildMpcMaterialActivationRef({
+      activationId: activationId.value,
+      capability: capability.value,
+      materialOwner: materialOwner.value,
+      keyBinding: keyBinding.value,
+      lifecycleBinding: lifecycleBinding.value,
+      signingWorker: signingWorker.value,
+    }),
+  };
 }
 
 export function formatWebAuthnRpIdForWire(value: WebAuthnRpId): string {

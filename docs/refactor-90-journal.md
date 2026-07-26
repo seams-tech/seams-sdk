@@ -6,6 +6,41 @@ This file holds dated progress entries so the plan stays a readable checklist.
 The plan records only a one-line status per phase; the narrative history lives
 here.
 
+## July 26, 2026: Wave 1 Leaf Hydration Contract Implemented
+
+- Reclassified the focused ECDSA failures as `obsolete_test_or_fixture` under
+  `tests/AGENTS.md`: the tests encoded retired public-facts and worker-response
+  shapes. Commit `f41b29676` moved them to the shared current-domain factories;
+  the focused files now pass 26 of 26 tests without production compatibility
+  paths.
+- Added nine distinct capability, material-owner, runtime, activation, worker,
+  key, lifecycle, reauthorization-policy, and registered-key identities with
+  boundary parsers. `RestorableMpcMaterialRef` remains an opaque proof with no
+  generic parser or construction point until Wave 2 protocol adapters can prove
+  both exact activation binding and an available unlock source.
+- Added one proof-branded `MpcMaterialActivationRef` with a strict exact-field
+  parser and canonical builder. Authorization, Wallet Session, grant, quota,
+  and activation IDs remain independent.
+- Added the four proof-branded hydration outcomes and branch-specific builders.
+  Builders derive correlated capability/owner fields from the activation proof
+  and retired capability/owner/authority fields from the public anchor, so
+  mismatched duplicate inputs cannot be supplied.
+- Split `blocked` into a null `missing_capability` branch and exact-capability
+  branches for every other failure, making the reason/reference correlation
+  unrepresentable when invalid.
+- Added type fixtures rejecting raw identity substitution, direct proof
+  literals, alternate-branded broad spreads, missing branch requirements, and
+  mixed live, restorable, and public-anchor fields. The signing-engine identity
+  guard rejects direct casts to proof types.
+- Reconciled the SPEC with the implemented Refactor 82B compact
+  `WalletAuthAuthorityRef` and the correlated blocked branches. Protocol-local
+  observation adapters depend on canonical ECDSA and Near activation
+  persistence, so they close with Wave 2 rather than wrapping the effectful
+  tactical resolvers.
+- Validation: shared and SDK type checks pass, unit type checking passes,
+  `git diff --check` passes, the hydration boundary suite passes 45 of 45 tests,
+  and the focused ECDSA fixture suite passes 26 of 26 tests.
+
 ## July 26, 2026: Implementation Kickoff Prepared
 
 - Created the clean `codex/refactor-90-implementation` worktree from current
@@ -18,13 +53,9 @@ here.
   `environment_or_infrastructure_failure`: the new worktree initially lacked
   ignored WASM `pkg/` artifacts. After linking them, `pnpm -s type-check:sdk`
   and `pnpm -C tests type-check:unit` passed.
-- Classified the focused ECDSA unit baseline as `valid_test_needs_update`: 4 of
-  26 tests pass, while the failing role-local record tests use a local public-
-  facts fixture that no longer satisfies the canonical parser, and the focused
-  rehydration mock returns the retired `roleLocalMaterial` response field
-  instead of `{ ok: true, liveHandle }`. Production already emits the current
-  response. Migrate these fixtures through the shared factories before using
-  the files as Wave 1 gates; do not change runtime behavior to preserve them.
+- The initial focused ECDSA run passed 4 of 26 tests. The later fixture-authority
+  audit reclassified the remaining failures as `obsolete_test_or_fixture`; the
+  Wave 1 entry above records their isolated repair and passing gate.
 - Mapped implementation into Waves 0-7 while preserving all stable phase
   numbers and release gates.
 - Identified the first dependency: Foundation A consumes a small subset of the
