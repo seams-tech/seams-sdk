@@ -1,4 +1,5 @@
 import type {
+  EcdsaCapabilitySelector,
   PrepareEcdsaCapabilityActivationInput,
   SealEcdsaCapabilityActivationInput,
 } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
@@ -87,6 +88,15 @@ export type EcdsaCapabilityActivationFixture = {
 export type EcdsaCapabilityReplacementFixture = {
   readonly prior: EcdsaCapabilityActivationFixture;
   readonly replacement: EcdsaCapabilityActivationFixture;
+};
+
+export type EcdsaCapabilityLookupOutcomeFixture = {
+  readonly replacement: EcdsaCapabilityReplacementFixture;
+  readonly selectors: {
+    readonly active: EcdsaCapabilitySelector;
+    readonly missing: EcdsaCapabilitySelector;
+    readonly exactBindingMismatch: EcdsaCapabilitySelector;
+  };
 };
 
 function fixtureStateBlob(label: string): string {
@@ -205,6 +215,32 @@ export function ecdsaCapabilityReplacementFixture(): EcdsaCapabilityReplacementF
 
 export function ecdsaCapabilityGenerationMismatchReplacementFixture(): EcdsaCapabilityReplacementFixture {
   return buildEcdsaCapabilityReplacementFixture('mismatched_generation');
+}
+
+export function ecdsaCapabilityLookupOutcomeFixture(): EcdsaCapabilityLookupOutcomeFixture {
+  const replacement = ecdsaCapabilityReplacementFixture();
+  const signer = replacement.prior.prepareInput.activationBinding.signer;
+  return {
+    replacement,
+    selectors: {
+      active: {
+        capability: signer.capability,
+        authority: signer.authority,
+      },
+      missing: {
+        capability: unwrap(parseCapabilityInstanceRef('ecdsa-capability-missing-fixture')),
+        authority: signer.authority,
+      },
+      exactBindingMismatch: {
+        capability: signer.capability,
+        authority: {
+          kind: 'wallet_auth_authority_ref',
+          walletId: signer.authority.walletId,
+          authorityDigest: unwrap(parseWalletAuthorityBindingDigest('authority-mismatch-fixture')),
+        },
+      },
+    },
+  };
 }
 
 function buildEcdsaCapabilityReplacementFixture(
