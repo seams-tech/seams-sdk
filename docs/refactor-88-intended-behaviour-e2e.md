@@ -1851,6 +1851,7 @@ Post-baseline current test surface:
 | `tests/unit/consoleServer.stripeBillingProvider.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
 | `tests/unit/d1HostedGatewayRouting.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
 | `tests/unit/d1LocalDevYaoPersistenceParity.unit.test.ts` | keep | Real-D1 local Worker behavior coverage for request-scoped registration replay, restart continuity, typed conflict rejection, and one-winner duplicate execution. |
+| `tests/unit/d1RegistrationCeremonyRecordStore.unit.test.ts` | keep | Real-D1 behavioral coverage for partitioned ceremony CAS, atomic multi-record writes, one-time take/delete semantics, restart continuity, contention, and corrupt-record fail-closed handling. |
 | `tests/unit/d1RouterApiRuntime.concurrency.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
 | `tests/unit/d1RouterApiStagingServiceBindings.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
 | `tests/unit/d1WalletRegistrationCommitStore.unit.test.ts` | keep | Added after the original Refactor 88 ledger baseline; focused coverage remains part of the current test surface. |
