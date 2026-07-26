@@ -716,7 +716,10 @@ Done so far: NEAR Ed25519 unlock requires the exact
 unlock resolves from durable wallet signer records when runtime session records
 are empty. Wave 1 Phase 4A adds an ECDSA-only subject resolver with no NEAR
 imports or reads, exact `ecdsaThresholdKeyId` identity, and typed fail-closed
-results for unavailable or invalid capability records.
+results for unavailable or invalid capability records. The direct ECDSA-only
+unlock consumes that subject without reading or activating NEAR state. Session
+reads now keep app identity, reusable Wallet Session lifecycle, and
+per-capability readiness separate through the secure-origin boundary.
 
 Checklist:
 
@@ -726,19 +729,19 @@ Checklist:
 - [x] mixed NEAR/ECDSA subject objects are rejected by the type system, and
       `all_registered_mpc` returns typed lookup/validation failures instead of
       silently publishing a partial subject set;
-- [ ] the actual ECDSA-only unlock flow consumes the exact ECDSA subject
+- [x] the actual ECDSA-only unlock flow consumes the exact ECDSA subject
       end-to-end without requiring a NEAR wallet binding or warm-up;
 - [ ] combined NEAR+ECDSA unlock warms branches from a typed
       `WalletUnlockSubjectSet`; no flattened wallet/NEAR/ECDSA identity object;
 - [ ] page-refresh session restoration resolves subjects through the same
       resolver for NEAR-only, ECDSA-only, and combined wallets;
-- [ ] the session-read result keeps app identity, reusable Wallet Session
+- [x] the session-read result keeps app identity, reusable Wallet Session
       lifecycle, and per-capability readiness as separate typed inputs without
       inferring one from another;
-- [ ] the secure-origin session-read boundary returns the exact Wallet Session
+- [x] the secure-origin session-read boundary returns the exact Wallet Session
       projection alongside capability subjects; Phase 22 owns initialization
       sequencing and display behavior;
-- [ ] registered NEAR identity survives absent lane, grant, quota, and live
+- [x] registered NEAR identity survives absent lane, grant, quota, and live
       Client state;
 - [ ] delete `nearAccountId`-inference fallbacks, the
       `login.publicKey ? 'passkey' : null` auth-method inference, and silent
